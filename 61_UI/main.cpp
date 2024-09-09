@@ -548,7 +548,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				const IGPUCommandBuffer::SRenderpassBeginInfo info = 
 				{
 					.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
-					.colorClearValues = &clear.color,
+					.colorClearValues = &clearColor,
 					.depthStencilClearValues = nullptr,
 					.renderArea = currentRenderArea
 				};
@@ -750,6 +750,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		float camXAngle = 32.f / 180.f * 3.14159f;
 
 		bool firstFrame = true;
+		IGPUCommandBuffer::SClearColorValue clearColor = { .float32 = {0.f,0.f,0.f,1.f} };
 };
 
 NBL_MAIN_FUNC(UISampleApp)

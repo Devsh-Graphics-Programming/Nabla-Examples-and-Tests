@@ -4,21 +4,16 @@ if(NOT RES)
 endif()
 
 if(NBL_BUILD_IMGUI)
-	set(NBL_EXTRA_SOURCES
-		"${CMAKE_CURRENT_SOURCE_DIR}/src/transform.cpp"
-	)
-
 	set(NBL_INCLUDE_SERACH_DIRECTORIES
 		"${CMAKE_CURRENT_SOURCE_DIR}/include"
 	)
 
 	list(APPEND NBL_LIBRARIES 
 		imtestengine
-		imguizmo
 		"${NBL_EXT_IMGUI_UI_LIB}"
 	)
 
-	nbl_create_executable_project("${NBL_EXTRA_SOURCES}" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
+	nbl_create_executable_project("" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
 
 	if(NBL_EMBED_BUILTIN_RESOURCES)
 		set(_BR_TARGET_ ${EXECUTABLE_NAME}_builtinResourceData)

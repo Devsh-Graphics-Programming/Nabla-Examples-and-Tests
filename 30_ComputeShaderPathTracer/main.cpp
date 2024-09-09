@@ -60,8 +60,10 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 	_NBL_STATIC_INLINE_CONSTEXPR uint32_t MaxSamplesLog2 = 10u; // 18
 	_NBL_STATIC_INLINE_CONSTEXPR uint32_t MaxBufferDimensions = 3u << MaxDepthLog2;
 	_NBL_STATIC_INLINE_CONSTEXPR uint32_t MaxBufferSamples = 1u << MaxSamplesLog2;
+	_NBL_STATIC_INLINE_CONSTEXPR uint8_t MaxUITextureCount = 2u;
+	_NBL_STATIC_INLINE_CONSTEXPR uint8_t SceneTextureIndeex = 1u;
 	_NBL_STATIC_INLINE std::string DefaultImagePathsFile = "../../media/envmap/envmap_0.exr";
-	_NBL_STATIC_INLINE std::array<std::string, 3> ShaderPaths = { "../litBySphere.comp", "../litByTriangle.comp", "../litByRectangle.comp" };
+	_NBL_STATIC_INLINE std::array<std::string, 3> ShaderPaths = { "litBySphere.comp", "litByTriangle.comp", "litByRectangle.comp" };
 
 	public:
 		inline ComputeShaderPathtracer(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
@@ -118,8 +120,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				auto* geometry = m_assetManager->getGeometryCreator();
 
 				m_uiSemaphore = m_device->createSemaphore(m_realFrameIx);
-				if (!m_uiSemaphore)
-					return logFail("Failed to Create a Semaphore!");
+				m_renderSemaphore = m_device->createSemaphore(m_realFrameIx);
+				if (!m_uiSemaphore || !m_renderSemaphore)
+					return logFail("Failed to Create semaphores!");
 			}
 
 			// Create renderpass and init surface
@@ -336,35 +339,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				};
 
 				cpuImgView = ICPUImageView::create(std::move(viewParams));
-				/*IGPUDescriptorSet::SDescriptorInfo infos[3];
-				infos[0].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				infos[0].desc = m_gpuImgView;
-
-				IGPUDescriptorSet::SWriteDescriptorSet writeDescriptors[] = {
-					{
-						.dstSet = m_ds[0].get(),
-						.binding = 0,
-						.arrayElement = 0,
-						.count = 1,
-						.info = infos
-					},
-					{
-						.dstSet = m_ds[1].get(),
-						.binding = 0,
-						.arrayElement = 0,
-						.count = 1,
-						.info = infos
-					},
-					{
-						.dstSet = m_ds[2].get(),
-						.binding = 0,
-						.arrayElement = 0,
-						.count = 1,
-						.info = infos
-					}
-				};
-
-				m_device->updateDescriptorSets(3, writeDescriptors, 0, nullptr);*/
 			}
 
 			// create views for textures
@@ -411,14 +385,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				auto extent = params.image->getCreationParameters().extent;
 				m_envMapView = createHDRIImageView(params.format, extent.width, extent.height);
 				m_scrambleView = createHDRIImageView(asset::E_FORMAT::EF_R32G32_UINT, extent.width, extent.height);
-
-
-
-				const auto swapchainImageCount = m_surface->getSwapchainResources()->getSwapchain()->getImageCount();
-				for (uint32_t index = 0; index < swapchainImageCount; index++)
-				{
-					m_outImgViews[index] = createHDRIImageView(asset::E_FORMAT::EF_R16G16B16A16_SFLOAT, WindowDimensions.x, WindowDimensions.y);
-				}
+				m_outImgView = createHDRIImageView(asset::E_FORMAT::EF_R16G16B16A16_SFLOAT, WindowDimensions.x, WindowDimensions.y);
 			}
 
 			// create ubo and sequence buffer view
@@ -569,27 +536,20 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 				auto descriptorPool = m_device->createDescriptorPool(std::move(createInfo));
 
-				std::array<smart_refctd_ptr<IGPUDescriptorSet>, ISwapchain::MaxImages> m_descriptorSets0 = {};
-				std::array<IGPUDescriptorSet::SWriteDescriptorSet, ISwapchain::MaxImages> writeDescriptorSets;
-				const auto swapchainImageCount = m_surface->getSwapchainResources()->getSwapchain()->getImageCount();
-
-				for (uint32_t i = 0; i < swapchainImageCount; ++i)
+				smart_refctd_ptr<IGPUDescriptorSet> m_descriptorSet0 = descriptorPool->createDescriptorSet(gpuDescriptorSetLayout0);
+				IGPUDescriptorSet::SWriteDescriptorSet writeDescriptorSet = {};
+				writeDescriptorSet.dstSet = m_descriptorSet0.get();
+				writeDescriptorSet.binding = 0;
+				writeDescriptorSet.count = 1u;
+				writeDescriptorSet.arrayElement = 0u;
+				video::IGPUDescriptorSet::SDescriptorInfo info;
 				{
-					auto& descSet = m_descriptorSets0[i];
-					descSet = descriptorPool->createDescriptorSet(gpuDescriptorSetLayout0);
-					writeDescriptorSets[i].dstSet = descSet.get();
-					writeDescriptorSets[i].binding = 0;
-					writeDescriptorSets[i].count = 1u;
-					writeDescriptorSets[i].arrayElement = 0u;
-					video::IGPUDescriptorSet::SDescriptorInfo info;
-					{
-						info.desc = m_outImgViews[i];
-						info.info.image.imageLayout = asset::IImage::LAYOUT::GENERAL;
-					}
-					writeDescriptorSets[i].info = &info;
+					info.desc = m_outImgView;
+					info.info.image.imageLayout = asset::IImage::LAYOUT::GENERAL;
 				}
+				writeDescriptorSet.info = &info;
 
-				m_device->updateDescriptorSets(swapchainImageCount, writeDescriptorSets.data(), 0u, nullptr);
+				m_device->updateDescriptorSets(1, &writeDescriptorSet, 0u, nullptr);
 
 				m_uboDescriptorSet1 = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(gpuDescriptorSetLayout1));
 				{
@@ -665,13 +625,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				}
 			}
 
-			// create sync
-			{
-				for (auto i = 0u; i < m_maxFramesInFlight; i++)
-					m_renderFinished[i] = m_device->createSemaphore(0);
-			}
-
-			/*
 			// Create ui descriptors
 			{
 				using binding_flags_t = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS;
@@ -682,8 +635,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					params.TextureWrapV = ISampler::ETC_REPEAT;
 					params.TextureWrapW = ISampler::ETC_REPEAT;
 
-					ui.samplers.gui = m_device->createSampler(params);
-					ui.samplers.gui->setObjectDebugName("Nabla IMGUI UI Sampler");
+					m_ui.samplers.gui = m_device->createSampler(params);
+					m_ui.samplers.gui->setObjectDebugName("Nabla IMGUI UI Sampler");
 				}
 
 				{
@@ -694,15 +647,15 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					params.TextureWrapV = ISampler::ETC_CLAMP_TO_EDGE;
 					params.TextureWrapW = ISampler::ETC_CLAMP_TO_EDGE;
 
-					ui.samplers.scene = m_device->createSampler(params);
-					ui.samplers.scene->setObjectDebugName("Nabla IMGUI Scene Sampler");
+					m_ui.samplers.scene = m_device->createSampler(params);
+					m_ui.samplers.scene->setObjectDebugName("Nabla IMGUI Scene Sampler");
 				}
 
 				std::array<core::smart_refctd_ptr<IGPUSampler>, 69u> immutableSamplers;
 				for (auto& it : immutableSamplers)
-					it = smart_refctd_ptr(ui.samplers.scene);
+					it = smart_refctd_ptr(m_ui.samplers.scene);
 
-				immutableSamplers[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID] = smart_refctd_ptr(ui.samplers.gui);
+				immutableSamplers[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID] = smart_refctd_ptr(m_ui.samplers.gui);
 
 				const IGPUDescriptorSetLayout::SBinding bindings[] =
 				{
@@ -725,7 +678,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 				auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
 
-				ui.manager = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(smart_refctd_ptr(m_device), smart_refctd_ptr(descriptorSetLayout), (int)m_maxFramesInFlight, renderpass, nullptr, smart_refctd_ptr(m_window));
+				m_ui.manager = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(smart_refctd_ptr(m_device), smart_refctd_ptr(descriptorSetLayout), (int)m_maxFramesInFlight, renderpass, nullptr, smart_refctd_ptr(m_window));
 
 				IDescriptorPool::SCreateInfo descriptorPoolInfo = {};
 				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLER)] = 69u;
@@ -733,41 +686,25 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				descriptorPoolInfo.maxSets = 1u;
 				descriptorPoolInfo.flags = IDescriptorPool::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT;
 
-				m_descriptorSetPool = m_device->createDescriptorPool(std::move(descriptorPoolInfo));
-				assert(m_descriptorSetPool);
+				m_guiDescriptorSetPool = m_device->createDescriptorPool(std::move(descriptorPoolInfo));
+				assert(m_guiDescriptorSetPool);
 
-				ui.descriptorSet = m_descriptorSetPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout));
-				assert(ui.descriptorSet);
+				m_ui.descriptorSet = m_guiDescriptorSetPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout));
+				assert(m_ui.descriptorSet);
 
 			}
-			ui.manager->registerListener(
+			m_ui.manager->registerListener(
 				[this]() -> void {
 					ImGuiIO& io = ImGui::GetIO();
 
-					camera.setProjectionMatrix([&]()
-						{
-							static matrix4SIMD projection;
+					m_camera.setProjectionMatrix([&]()
+					{
+						static matrix4SIMD projection;
 
-							if (isPerspective)
-								if (isLH)
-									projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
-								else
-									projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
-							else
-							{
-								float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
+						projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
 
-								if (isLH)
-									projection = matrix4SIMD::buildProjectionMatrixOrthoLH(viewWidth, viewHeight, zNear, zFar);
-								else
-									projection = matrix4SIMD::buildProjectionMatrixOrthoRH(viewWidth, viewHeight, zNear, zFar);
-							}
-
-							return projection;
-						}());
-
-					ImGuizmo::SetOrthographic(false);
-					ImGuizmo::BeginFrame();
+						return projection;
+					}());
 
 					ImGui::SetNextWindowPos(ImVec2(1024, 100), ImGuiCond_Appearing);
 					ImGui::SetNextWindowSize(ImVec2(256, 256), ImGuiCond_Appearing);
@@ -777,219 +714,25 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					ImGui::SetNextWindowSize(ImVec2(320, 340), ImGuiCond_Appearing);
 					ImGui::Begin("Editor");
 
-					if (ImGui::RadioButton("Full view", !transformParams.useWindow))
-						transformParams.useWindow = false;
-
 					ImGui::SameLine();
-
-					if (ImGui::RadioButton("Window", transformParams.useWindow))
-						transformParams.useWindow = true;
 
 					ImGui::Text("Camera");
-					bool viewDirty = false;
 
-					if (ImGui::RadioButton("LH", isLH))
-						isLH = true;
-
-					ImGui::SameLine();
-
-					if (ImGui::RadioButton("RH", !isLH))
-						isLH = false;
-
-					if (ImGui::RadioButton("Perspective", isPerspective))
-						isPerspective = true;
-
-					ImGui::SameLine();
-
-					if (ImGui::RadioButton("Orthographic", !isPerspective))
-						isPerspective = false;
-
-					ImGui::Checkbox("Enable \"view manipulate\"", &transformParams.enableViewManipulate);
 					ImGui::Checkbox("Enable camera movement", &move);
 					ImGui::SliderFloat("Move speed", &moveSpeed, 0.1f, 10.f);
-					ImGui::SliderFloat("Rotate speed", &rotateSpeed, 0.1f, 10.f);
 
-					// ImGui::Checkbox("Flip Gizmo's Y axis", &flipGizmoY); // let's not expose it to be changed in UI but keep the logic in case
-
-					if (isPerspective)
-						ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
-					else
-						ImGui::SliderFloat("Ortho width", &viewWidth, 1, 20);
+					ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
 
 					ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
 					ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
 
-					viewDirty |= ImGui::SliderFloat("Distance", &transformParams.camDistance, 1.f, 69.f);
-
-					if (viewDirty || firstFrame)
-					{
-						core::vectorSIMDf cameraPosition(cosf(camYAngle) * cosf(camXAngle) * transformParams.camDistance, sinf(camXAngle) * transformParams.camDistance, sinf(camYAngle) * cosf(camXAngle) * transformParams.camDistance);
-						core::vectorSIMDf cameraTarget(0.f, 0.f, 0.f);
-						const static core::vectorSIMDf up(0.f, 1.f, 0.f);
-
-						camera.setPosition(cameraPosition);
-						camera.setTarget(cameraTarget);
-						camera.setBackupUpVector(up);
-
-						camera.recomputeViewMatrix();
-
-						firstFrame = false;
-					}
-
 					ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
-					if (ImGuizmo::IsUsing())
-					{
-						ImGui::Text("Using gizmo");
-					} else
-					{
-						ImGui::Text(ImGuizmo::IsOver() ? "Over gizmo" : "");
-						ImGui::SameLine();
-						ImGui::Text(ImGuizmo::IsOver(ImGuizmo::TRANSLATE) ? "Over translate gizmo" : "");
-						ImGui::SameLine();
-						ImGui::Text(ImGuizmo::IsOver(ImGuizmo::ROTATE) ? "Over rotate gizmo" : "");
-						ImGui::SameLine();
-						ImGui::Text(ImGuizmo::IsOver(ImGuizmo::SCALE) ? "Over scale gizmo" : "");
-					}
-					ImGui::Separator();
 
-					/*
-					* ImGuizmo expects view & perspective matrix to be column major both with 4x4 layout
-					* and Nabla uses row major matricies - 3x4 matrix for view & 4x4 for projection
-
-					- VIEW:
-
-						ImGuizmo
-
-						|     X[0]          Y[0]          Z[0]         0.0f |
-						|     X[1]          Y[1]          Z[1]         0.0f |
-						|     X[2]          Y[2]          Z[2]         0.0f |
-						| -Dot(X, eye)  -Dot(Y, eye)  -Dot(Z, eye)     1.0f |
-
-						Nabla
-
-						|     X[0]         X[1]           X[2]     -Dot(X, eye)  |
-						|     Y[0]         Y[1]           Y[2]     -Dot(Y, eye)  |
-						|     Z[0]         Z[1]           Z[2]     -Dot(Z, eye)  |
-
-						<ImGuizmo View Matrix> = transpose(nbl::core::matrix4SIMD(<Nabla View Matrix>))
-
-					- PERSPECTIVE [PROJECTION CASE]:
-
-						ImGuizmo
-
-						|      (temp / temp2)                 (0.0)                       (0.0)                   (0.0)  |
-						|          (0.0)                  (temp / temp3)                  (0.0)                   (0.0)  |
-						| ((right + left) / temp2)   ((top + bottom) / temp3)    ((-zfar - znear) / temp4)       (-1.0f) |
-						|          (0.0)                      (0.0)               ((-temp * zfar) / temp4)        (0.0)  |
-
-						Nabla
-
-						|            w                        (0.0)                       (0.0)                   (0.0)               |
-						|          (0.0)                       -h                         (0.0)                   (0.0)               |
-						|          (0.0)                      (0.0)               (-zFar/(zFar-zNear))     (-zNear*zFar/(zFar-zNear)) |
-						|          (0.0)                      (0.0)                      (-1.0)                   (0.0)               |
-
-						<ImGuizmo Projection Matrix> = transpose(<Nabla Projection Matrix>)
-
-					*
-					* the ViewManipulate final call (inside EditTransform) returns world space column major matrix for an object,
-					* note it also modifies input view matrix but projection matrix is immutable
-					*/
-
-					/*
-					static struct
-					{
-						core::matrix4SIMD view, projection, model;
-					} imguizmoM16InOut;
-
-					ImGuizmo::SetID(0u);
-
-					imguizmoM16InOut.view = core::transpose(matrix4SIMD(camera.getViewMatrix()));
-					imguizmoM16InOut.projection = core::transpose(camera.getProjectionMatrix());
-					imguizmoM16InOut.model = core::transpose(core::matrix4SIMD(pass.scene->object.model));
-					{
-						if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
-							imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
-
-						transformParams.editTransformDecomposition = true;
-						EditTransform(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.model.pointer(), transformParams);
-					}
-
-					// to Nabla + update camera & model matrices
-					const auto& view = camera.getViewMatrix();
-					const auto& projection = camera.getProjectionMatrix();
-
-					// TODO: make it more nicely
-					const_cast<core::matrix3x4SIMD&>(view) = core::transpose(imguizmoM16InOut.view).extractSub3x4(); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
-					camera.setProjectionMatrix(projection); // update concatanated matrix
-					{
-						static nbl::core::matrix3x4SIMD modelView, normal;
-						static nbl::core::matrix4SIMD modelViewProjection;
-
-						auto& hook = pass.scene->object;
-						hook.model = core::transpose(imguizmoM16InOut.model).extractSub3x4();
-						{
-							const auto& references = pass.scene->getResources().objects;
-							const auto type = static_cast<E_OBJECT_TYPE>(gcIndex);
-
-							const auto& [gpu, meta] = references[type];
-							hook.meta.type = type;
-							hook.meta.name = meta.name;
-						}
-
-						auto& ubo = hook.viewParameters;
-
-						modelView = nbl::core::concatenateBFollowedByA(view, hook.model);
-						modelView.getSub3x3InverseTranspose(normal);
-						modelViewProjection = nbl::core::concatenateBFollowedByA(camera.getConcatenatedMatrix(), hook.model);
-
-						memcpy(ubo.MVP, modelViewProjection.pointer(), sizeof(ubo.MVP));
-						memcpy(ubo.MV, modelView.pointer(), sizeof(ubo.MV));
-						memcpy(ubo.NormalMat, normal.pointer(), sizeof(ubo.NormalMat));
-
-						// object meta display
-						{
-							ImGui::Begin("Object");
-							ImGui::Text("type: \"%s\"", hook.meta.name.data());
-							ImGui::End();
-						}
-					}
-
-					// view matrices editor
-					{
-						ImGui::Begin("Matrices");
-
-						auto addMatrixTable = [&](const char* topText, const char* tableName, const int rows, const int columns, const float* pointer, const bool withSeparator = true)
-							{
-								ImGui::Text(topText);
-								if (ImGui::BeginTable(tableName, columns))
-								{
-									for (int y = 0; y < rows; ++y)
-									{
-										ImGui::TableNextRow();
-										for (int x = 0; x < columns; ++x)
-										{
-											ImGui::TableSetColumnIndex(x);
-											ImGui::Text("%.3f", *(pointer + (y * columns) + x));
-										}
-									}
-									ImGui::EndTable();
-								}
-
-								if (withSeparator)
-									ImGui::Separator();
-							};
-
-						addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, pass.scene->object.model.pointer());
-						addMatrixTable("Camera View Matrix", "ViewMatrixTable", 3, 4, view.pointer());
-						addMatrixTable("Camera View Projection Matrix", "ViewProjectionMatrixTable", 4, 4, projection.pointer(), false);
-
-						ImGui::End();
-					}
+					ImGui::Image(SceneTextureIndeex, ImGui::GetContentRegionAvail());
 
 					ImGui::End();
 				}
-			);*/
+			);
 
 			{
 				IQueryPool::SCreationParams params = {};
@@ -1009,29 +752,28 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 		bool updateGUIDescriptorSet()
 		{
-			/*
 			// texture atlas + our scene texture, note we don't create info & write pair for the font sampler because UI extension's is immutable and baked into DS layout
-			static std::array<IGPUDescriptorSet::SDescriptorInfo, TEXTURES_AMOUNT> descriptorInfo;
-			static IGPUDescriptorSet::SWriteDescriptorSet writes[TEXTURES_AMOUNT];
+			static std::array<IGPUDescriptorSet::SDescriptorInfo, MaxUITextureCount> descriptorInfo;
+			static IGPUDescriptorSet::SWriteDescriptorSet writes[MaxUITextureCount];
 
 			descriptorInfo[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			descriptorInfo[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].desc = ui.manager->getFontAtlasView();
+			descriptorInfo[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].desc = m_ui.manager->getFontAtlasView();
 
-			descriptorInfo[CScene::NBL_OFFLINE_SCENE_TEX_ID].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			descriptorInfo[SceneTextureIndeex].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 
-			descriptorInfo[CScene::NBL_OFFLINE_SCENE_TEX_ID].desc = pass.scene->getResources().attachments.color;
+			descriptorInfo[SceneTextureIndeex].desc = m_outImgView;
 
 			for (uint32_t i = 0; i < descriptorInfo.size(); ++i)
 			{
-				writes[i].dstSet = pass.ui.descriptorSet.get();
+				writes[i].dstSet = m_ui.descriptorSet.get();
 				writes[i].binding = 0u;
 				writes[i].arrayElement = i;
 				writes[i].count = 1u;
 			}
 			writes[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].info = descriptorInfo.data() + nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID;
-			writes[CScene::NBL_OFFLINE_SCENE_TEX_ID].info = descriptorInfo.data() + CScene::NBL_OFFLINE_SCENE_TEX_ID;
+			writes[SceneTextureIndeex].info = descriptorInfo.data() + SceneTextureIndeex;
 
-			return m_device->updateDescriptorSets(writes, {});*/
+			return m_device->updateDescriptorSets(writes, {});
 		}
 
 		inline void workLoopBody() override
@@ -1059,10 +801,14 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				auto queue = getGraphicsQueue();
 				auto& cmdbuf = m_cmdBufs[resourceIx];
 				const auto viewMatrix = m_camera.getViewMatrix();
-				const auto viewProjectionMatrix = matrix4SIMD::concatenateBFollowedByAPrecisely(
-					video::ISurface::getSurfaceTransformationMatrix(swapchain->getPreTransform()),
-					m_camera.getConcatenatedMatrix()
-				);
+				const auto viewProjectionMatrix = matrix4SIMD();
+				/*
+				* Temporarily use identity matrix (Desktop only)
+					matrix4SIMD::concatenateBFollowedByAPrecisely(
+						video::ISurface::getSurfaceTransformationMatrix(swapchain->getPreTransform()),
+						m_camera.getConcatenatedMatrix()
+					);
+				*/
 
 				queue->startCapture();
 
@@ -1085,10 +831,10 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					range.buffer = m_ubo;
 					range.offset = 0ull;
 					range.size = sizeof(viewParams);
-					m_utils->updateBufferRangeViaStagingBufferAutoSubmit(range, &viewParams, graphicsQueue);
+					m_utils->updateBufferRangeViaStagingBufferAutoSubmit(m_intendedSubmit, range, &viewParams);
 				}
 
-				// TRANSITION m_outImgViews[imgnum] to GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
+				// TRANSITION m_outImgView to GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
 				{
 					constexpr SMemoryBarrier barriers[] = {
 						{
@@ -1116,7 +862,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 							.barrier = {
 								.dep = barriers[0]
 							},
-							.image = m_outImgViews[m_currentImageAcquire.imageIndex]->getCreationParameters().image.get(),
+							.image = m_outImgView->getCreationParameters().image.get(),
 							.subresourceRange = {
 								.aspectMask = IImage::EAF_COLOR_BIT,
 								.baseMipLevel = 0u,
@@ -1175,8 +921,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 				// submit
 				const IQueue::SSubmitInfo::SSemaphoreInfo rendered[1] = { {
-					.semaphore = m_uiSemaphore.get(),
-					.value = m_realFrameIx + 2 - m_maxFramesInFlight,
+					.semaphore = m_renderSemaphore.get(),
+					.value = ++m_realFrameIx,
 					// just as we've outputted all pixels, signal
 					.stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
 				} };
@@ -1188,9 +934,12 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					.commandBuffers =  commandBuffers,
 					.signalSemaphores = rendered
 				}};
+
+				queue->submit({ infos, 1 });
+
+				queue->endCapture();
 			}
 
-			/*
 			auto* const cb = m_cmdBufs.data()[resourceIx].get();
 			cb->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
 			cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
@@ -1221,12 +970,12 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				const IGPUCommandBuffer::SRenderpassBeginInfo info = 
 				{
 					.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
-					.colorClearValues = &clear.color,
+					.colorClearValues = &clearColor,
 					.depthStencilClearValues = nullptr,
 					.renderArea = currentRenderArea
 				};
 				cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-				pass.ui.manager->render(cb, pass.ui.descriptorSet.get(), resourceIx);
+				m_ui.manager->render(cb, m_ui.descriptorSet.get(), resourceIx);
 				cb->endRenderPass();
 			}
 			cb->end();
@@ -1235,7 +984,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				{ 
 					{
 						.semaphore = m_uiSemaphore.get(),
-						.value = ++m_realFrameIx,
+						.value = m_realFrameIx,
 						.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
 					} 
 				};
@@ -1265,8 +1014,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 						const nbl::video::ISemaphore::SWaitInfo waitInfos[] = 
 						{ {
-							.semaphore = pass.scene->semaphore.progress.get(),
-							.value = pass.scene->semaphore.finishedValue
+							.semaphore = m_renderSemaphore.get(),
+							.value = m_realFrameIx
 						} };
 						
 						m_device->blockForSemaphores(waitInfos);
@@ -1281,7 +1030,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				m_window->setCaption("[Nabla Engine] UI App Test Demo");
 				m_surface->present(m_currentImageAcquire.imageIndex, rendered);
 			}
-			*/
 		}
 
 		inline bool keepRunning() override
@@ -1388,9 +1136,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 		std::array<smart_refctd_ptr<IGPUDescriptorSet>, ISwapchain::MaxImages> m_descriptorSets0;
 		smart_refctd_ptr<IGPUDescriptorSet> m_uboDescriptorSet1, m_descriptorSet2;
-		NBL_CONSTEXPR_STATIC_INLINE auto TEXTURES_AMOUNT = 2u;
 
-		core::smart_refctd_ptr<IDescriptorPool> m_descriptorSetPool;
+		core::smart_refctd_ptr<IDescriptorPool> m_guiDescriptorSetPool;
 
 		// system resources
 		smart_refctd_ptr<nbl::asset::IAssetManager> m_assetManager;
@@ -1402,11 +1149,10 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		smart_refctd_ptr<IGPUImageView> m_envMapView, m_scrambleView;
 		smart_refctd_ptr<IGPUBufferView> m_sequenceBufferView;
 		smart_refctd_ptr<IGPUBuffer> m_ubo;
-		std::array<smart_refctd_ptr<IGPUImageView>, ISwapchain::MaxImages> m_outImgViews;
+		smart_refctd_ptr<IGPUImageView> m_outImgView;
 
 		// sync
-		smart_refctd_ptr<ISemaphore> m_uiSemaphore;
-		std::array<smart_refctd_ptr<ISemaphore>, FramesInFlight> m_renderFinished;
+		smart_refctd_ptr<ISemaphore> m_uiSemaphore, m_renderSemaphore;
 
 		// image upload resources
 		smart_refctd_ptr<ISemaphore> m_scratchSemaphore;
@@ -1429,14 +1175,14 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 		uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
 
-		TransformRequestParams transformParams;
-		bool isPerspective = true, isLH = true, flipGizmoY = true, move = false;
+		bool move = false;
 		float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
 		float viewWidth = 10.f;
 		float camYAngle = 165.f / 180.f * 3.14159f;
 		float camXAngle = 32.f / 180.f * 3.14159f;
 
 		bool m_firstFrame = true;
+		IGPUCommandBuffer::SClearColorValue clearColor = { .float32 = {0.f,0.f,0.f,1.f} };
 };
 
 NBL_MAIN_FUNC(ComputeShaderPathtracer)

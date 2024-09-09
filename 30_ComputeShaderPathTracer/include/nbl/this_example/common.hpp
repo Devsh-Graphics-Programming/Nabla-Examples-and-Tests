@@ -9,6 +9,8 @@
 #include "CEventCallback.hpp"
 
 // example's own headers
-#include "nbl/this_example/transform.hpp"
+#include "nbl/ui/ICursorControl.h"
+#include "nbl/ext/ImGui/ImGui.h"
+#include "imgui/imgui_internal.h"
 
 #endif // __NBL_THIS_EXAMPLE_COMMON_H_INCLUDED__
