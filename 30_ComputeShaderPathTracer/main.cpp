@@ -21,7 +21,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 	{
 		ELG_SPHERE,
 		ELG_TRIANGLE,
-		ELG_RECTANGLE
+		ELG_RECTANGLE,
+		ELG_COUNT
 	};
 
 	struct SBasicViewParametersAligned
@@ -73,7 +74,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				zFar
 			);
 
-			camera = Camera(cameraPos, core::vectorSIMDf(0, 0, 0), proj);
+			m_camera = Camera(cameraPos, core::vectorSIMDf(0, 0, 0), proj);
 		}
 
 		inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
@@ -568,13 +569,13 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 				auto descriptorPool = m_device->createDescriptorPool(std::move(createInfo));
 
-				std::array<smart_refctd_ptr<IGPUDescriptorSet>, ISwapchain::MaxImages> descriptorSets0 = {};
+				std::array<smart_refctd_ptr<IGPUDescriptorSet>, ISwapchain::MaxImages> m_descriptorSets0 = {};
 				std::array<IGPUDescriptorSet::SWriteDescriptorSet, ISwapchain::MaxImages> writeDescriptorSets;
 				const auto swapchainImageCount = m_surface->getSwapchainResources()->getSwapchain()->getImageCount();
 
 				for (uint32_t i = 0; i < swapchainImageCount; ++i)
 				{
-					auto& descSet = descriptorSets0[i];
+					auto& descSet = m_descriptorSets0[i];
 					descSet = descriptorPool->createDescriptorSet(gpuDescriptorSetLayout0);
 					writeDescriptorSets[i].dstSet = descSet.get();
 					writeDescriptorSets[i].binding = 0;
@@ -590,10 +591,10 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 				m_device->updateDescriptorSets(swapchainImageCount, writeDescriptorSets.data(), 0u, nullptr);
 
-				auto uboDescriptorSet1 = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(gpuDescriptorSetLayout1));
+				m_uboDescriptorSet1 = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(gpuDescriptorSetLayout1));
 				{
 					video::IGPUDescriptorSet::SWriteDescriptorSet uboWriteDescriptorSet;
-					uboWriteDescriptorSet.dstSet = uboDescriptorSet1.get();
+					uboWriteDescriptorSet.dstSet = m_uboDescriptorSet1.get();
 					uboWriteDescriptorSet.binding = 0;
 					uboWriteDescriptorSet.count = 1u;
 					uboWriteDescriptorSet.arrayElement = 0u;
@@ -634,14 +635,14 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				};
 				auto sampler1 = m_device->createSampler(samplerParams1);
 
-				auto descriptorSet2 = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(gpuDescriptorSetLayout2));
+				m_descriptorSet2 = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(gpuDescriptorSetLayout2));
 				{
 					constexpr auto kDescriptorCount = 3;
 					std::array<IGPUDescriptorSet::SWriteDescriptorSet, kDescriptorCount> samplerWriteDescriptorSet;
 					std::array<IGPUDescriptorSet::SDescriptorInfo, kDescriptorCount> samplerDescriptorInfo;
 					for (auto i = 0; i < kDescriptorCount; i++)
 					{
-						samplerWriteDescriptorSet[i].dstSet = descriptorSet2.get();
+						samplerWriteDescriptorSet[i].dstSet = m_descriptorSet2.get();
 						samplerWriteDescriptorSet[i].binding = i;
 						samplerWriteDescriptorSet[i].arrayElement = 0u;
 						samplerWriteDescriptorSet[i].count = 1u;
@@ -990,11 +991,18 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				}
 			);*/
 
+			{
+				IQueryPool::SCreationParams params = {};
+				params.queryType = IQueryPool::TYPE::TIMESTAMP;
+				params.queryCount = 2u;
+				m_timestampQueryPool = m_device->createQueryPool(std::move(params));
+			}
+
 			m_winMgr->setWindowSize(m_window.get(), WindowDimensions.x, WindowDimensions.y);
 			m_surface->recreateSwapchain();
 			m_winMgr->show(m_window.get());
-			oracle.reportBeginFrameRecord();
-			camera.mapKeysToArrows();
+			m_oracle.reportBeginFrameRecord();
+			m_camera.mapKeysToArrows();
 
 			return true;
 		}
@@ -1048,7 +1056,138 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 			// render whole scene to offline frame buffer & submit
 			{
+				auto queue = getGraphicsQueue();
+				auto& cmdbuf = m_cmdBufs[resourceIx];
+				const auto viewMatrix = m_camera.getViewMatrix();
+				const auto viewProjectionMatrix = matrix4SIMD::concatenateBFollowedByAPrecisely(
+					video::ISurface::getSurfaceTransformationMatrix(swapchain->getPreTransform()),
+					m_camera.getConcatenatedMatrix()
+				);
 
+				queue->startCapture();
+
+				// safe to proceed
+				cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
+				cmdbuf->resetQueryPool(m_timestampQueryPool.get(), 0u, 3u);
+
+				{
+					auto mv = viewMatrix;
+					auto mvp = viewProjectionMatrix;
+					core::matrix3x4SIMD normalMat;
+					mv.getSub3x3InverseTranspose(normalMat);
+
+					SBasicViewParametersAligned viewParams;
+					memcpy(viewParams.uboData.MV, mv.pointer(), sizeof(mv));
+					memcpy(viewParams.uboData.MVP, mvp.pointer(), sizeof(mvp));
+					memcpy(viewParams.uboData.NormalMat, normalMat.pointer(), sizeof(normalMat));
+
+					asset::SBufferRange<video::IGPUBuffer> range;
+					range.buffer = m_ubo;
+					range.offset = 0ull;
+					range.size = sizeof(viewParams);
+					m_utils->updateBufferRangeViaStagingBufferAutoSubmit(range, &viewParams, graphicsQueue);
+				}
+
+				// TRANSITION m_outImgViews[imgnum] to GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
+				{
+					constexpr SMemoryBarrier barriers[] = {
+						{
+							.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+							.srcAccessMask = ACCESS_FLAGS::NONE,
+							.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+							.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+						},
+						{
+							.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+							.srcAccessMask = ACCESS_FLAGS::NONE,
+							.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+							.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
+						},
+						{
+							.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+							.srcAccessMask = ACCESS_FLAGS::NONE,
+							.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+							.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
+						}
+					};
+
+					const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = {
+						{
+							.barrier = {
+								.dep = barriers[0]
+							},
+							.image = m_outImgViews[m_currentImageAcquire.imageIndex]->getCreationParameters().image.get(),
+							.subresourceRange = {
+								.aspectMask = IImage::EAF_COLOR_BIT,
+								.baseMipLevel = 0u,
+								.levelCount = 1u,
+								.baseArrayLayer = 0u,
+								.layerCount = 1u
+							},
+							.oldLayout = IImage::LAYOUT::UNDEFINED,
+							.newLayout = IImage::LAYOUT::GENERAL
+						},
+						{
+							.barrier = {
+								.dep = barriers[1]
+							},
+							.image = m_scrambleView->getCreationParameters().image.get(),
+							.subresourceRange = {
+								.aspectMask = IImage::EAF_COLOR_BIT,
+								.baseMipLevel = 0u,
+								.levelCount = 1u,
+								.baseArrayLayer = 0u,
+								.layerCount = 1u
+							},
+							.oldLayout = IImage::LAYOUT::UNDEFINED,
+							.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL
+						},
+						{
+							.barrier = {
+								.dep = barriers[2]
+							},
+							.image = m_envMapView->getCreationParameters().image.get(),
+							.subresourceRange = {
+								.aspectMask = IImage::EAF_COLOR_BIT,
+								.baseMipLevel = 0u,
+								.levelCount = m_envMapView->getCreationParameters().subresourceRange.levelCount,
+								.baseArrayLayer = 0u,
+								.layerCount = m_envMapView->getCreationParameters().subresourceRange.layerCount
+							},
+							.oldLayout = IImage::LAYOUT::UNDEFINED,
+							.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL
+						}
+					};
+					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
+				}
+
+				// cube envmap handle
+				{
+					cmdbuf->writeTimestamp(PIPELINE_STAGE_FLAGS::NONE, m_timestampQueryPool.get(), 0u);
+					cmdbuf->bindComputePipeline(m_pipeline.get());
+					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_pipeline->getLayout(), 0u, 1u, &m_descriptorSets0[m_currentImageAcquire.imageIndex].get());
+					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_pipeline->getLayout(), 1u, 1u, &m_uboDescriptorSet1.get());
+					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
+					cmdbuf->dispatch(1 + (WindowDimensions.x - 1) / DefaultWorkGroupSize, 1 + (WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u);
+					cmdbuf->writeTimestamp(PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS, m_timestampQueryPool.get(), 1u);
+				}
+				// TODO: tone mapping and stuff
+
+				// submit
+				const IQueue::SSubmitInfo::SSemaphoreInfo rendered[1] = { {
+					.semaphore = m_uiSemaphore.get(),
+					.value = m_realFrameIx + 2 - m_maxFramesInFlight,
+					// just as we've outputted all pixels, signal
+					.stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
+				} };
+				const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[1] = { {
+					.cmdbuf = cmdbuf.get()
+				} };
+				const IQueue::SSubmitInfo infos[1] = { {
+					.waitSemaphores = {},
+					.commandBuffers =  commandBuffers,
+					.signalSemaphores = rendered
+				}};
 			}
 
 			/*
@@ -1160,9 +1299,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 		inline void update()
 		{
-			/*
-			camera.setMoveSpeed(moveSpeed);
-			camera.setRotateSpeed(rotateSpeed);
+			m_camera.setMoveSpeed(moveSpeed);
+			m_camera.setRotateSpeed(rotateSpeed);
 
 			static std::chrono::microseconds previousEventTimestamp{};
 
@@ -1176,9 +1314,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			{
 				m_currentImageAcquire = m_surface->acquireNextImage();
 
-				oracle.reportEndFrameRecord();
-				const auto timestamp = oracle.getNextPresentationTimeStamp();
-				oracle.reportBeginFrameRecord();
+				m_oracle.reportEndFrameRecord();
+				const auto timestamp = m_oracle.getNextPresentationTimeStamp();
+				m_oracle.reportBeginFrameRecord();
 
 				return timestamp;
 			};
@@ -1191,12 +1329,12 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				std::vector<SKeyboardEvent> keyboard{};
 			} capturedEvents;
 
-			if (move) camera.beginInputProcessing(nextPresentationTimestamp);
+			if (move) m_camera.beginInputProcessing(nextPresentationTimestamp);
 			{
 				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 				{
 					if (move)
-						camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
+						m_camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
 
 					for (const auto& e : events) // here capture
 					{
@@ -1207,14 +1345,14 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						capturedEvents.mouse.emplace_back(e);
 
 						if (e.type == nbl::ui::SMouseEvent::EET_SCROLL)
-							gcIndex = std::clamp<uint16_t>(int16_t(gcIndex) + int16_t(core::sign(e.scrollEvent.verticalScroll)), int64_t(0), int64_t(EOT_COUNT - (uint8_t)1u));
+							gcIndex = std::clamp<uint16_t>(int16_t(gcIndex) + int16_t(core::sign(e.scrollEvent.verticalScroll)), int64_t(0), int64_t(ELG_COUNT - (uint8_t)1u));
 					}
 				}, m_logger.get());
 
 			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 				{
 					if (move)
-						camera.keyboardProcess(events); // don't capture the events, only let camera handle them with its impl
+						m_camera.keyboardProcess(events); // don't capture the events, only let camera handle them with its impl
 
 					for (const auto& e : events) // here capture
 					{
@@ -1226,28 +1364,30 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					}
 				}, m_logger.get());
 			}
-			if (move) camera.endInputProcessing(nextPresentationTimestamp);
+			if (move) m_camera.endInputProcessing(nextPresentationTimestamp);
 
 			const auto mousePosition = m_window->getCursorControl()->getPosition();
 			core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
 			core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
 
-			ui.manager->update(deltaTimeInSec, { mousePosition.x , mousePosition.y }, mouseEvents, keyboardEvents);
-			*/
+			m_ui.manager->update(deltaTimeInSec, { mousePosition.x , mousePosition.y }, mouseEvents, keyboardEvents);
 		}
 
 	private:
 		smart_refctd_ptr<IWindow> m_window;
 		smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
 
+		smart_refctd_ptr<IQueryPool> m_timestampQueryPool;
+
 		// gpu resources
-		smart_refctd_ptr<ISemaphore> m_uiSemaphore;
 		smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
 		smart_refctd_ptr<IGPUComputePipeline> m_pipeline;
 		uint64_t m_realFrameIx : 59 = 0;
 		uint64_t m_maxFramesInFlight : 5;
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>, ISwapchain::MaxImages> m_cmdBufs;
 		ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
+		std::array<smart_refctd_ptr<IGPUDescriptorSet>, ISwapchain::MaxImages> m_descriptorSets0;
+		smart_refctd_ptr<IGPUDescriptorSet> m_uboDescriptorSet1, m_descriptorSet2;
 		NBL_CONSTEXPR_STATIC_INLINE auto TEXTURES_AMOUNT = 2u;
 
 		core::smart_refctd_ptr<IDescriptorPool> m_descriptorSetPool;
@@ -1265,6 +1405,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		std::array<smart_refctd_ptr<IGPUImageView>, ISwapchain::MaxImages> m_outImgViews;
 
 		// sync
+		smart_refctd_ptr<ISemaphore> m_uiSemaphore;
 		std::array<smart_refctd_ptr<ISemaphore>, FramesInFlight> m_renderFinished;
 
 		// image upload resources
@@ -1281,10 +1422,10 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			} samplers;
 
 			core::smart_refctd_ptr<IGPUDescriptorSet> descriptorSet;
-		} ui;
+		} m_ui;
 
-		Camera camera;
-		video::CDumbPresentationOracle oracle;
+		Camera m_camera;
+		video::CDumbPresentationOracle m_oracle;
 
 		uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
 
@@ -1295,7 +1436,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		float camYAngle = 165.f / 180.f * 3.14159f;
 		float camXAngle = 32.f / 180.f * 3.14159f;
 
-		bool firstFrame = true;
+		bool m_firstFrame = true;
 };
 
 NBL_MAIN_FUNC(ComputeShaderPathtracer)
@@ -1306,25 +1447,6 @@ int main()
 	uint32_t resourceIx = 0;
 	while (windowCb->isWindowOpen())
 	{
-		resourceIx++;
-		if (resourceIx >= FRAMES_IN_FLIGHT) {
-			resourceIx = 0;
-		}
-
-		oracle.reportEndFrameRecord();
-		double dt = oracle.getDeltaTimeInMicroSeconds() / 1000.0;
-		auto nextPresentationTimeStamp = oracle.getNextPresentationTimeStamp();
-		oracle.reportBeginFrameRecord();
-
-		// Input 
-		inputSystem->getDefaultMouse(&mouse);
-		inputSystem->getDefaultKeyboard(&keyboard);
-
-		cam.beginInputProcessing(nextPresentationTimeStamp);
-		mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { cam.mouseProcess(events); }, logger.get());
-		keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { cam.keyboardProcess(events); }, logger.get());
-		cam.endInputProcessing(nextPresentationTimeStamp);
-
 		auto& cb = cmdbuf[resourceIx];
 		auto& fence = frameComplete[resourceIx];
 		if (fence)
@@ -1332,94 +1454,6 @@ int main()
 			{
 			} else
 				fence = device->createFence(static_cast<video::IGPUFence::E_CREATE_FLAGS>(0));
-
-			const auto viewMatrix = cam.getViewMatrix();
-			const auto viewProjectionMatrix = matrix4SIMD::concatenateBFollowedByAPrecisely(
-				video::ISurface::getSurfaceTransformationMatrix(swapchain->getPreTransform()),
-				cam.getConcatenatedMatrix()
-			);
-
-			// safe to proceed
-			cb->begin(IGPUCommandBuffer::EU_NONE);
-			cb->resetQueryPool(timestampQueryPool.get(), 0u, 2u);
-
-			// renderpass 
-			uint32_t imgnum = 0u;
-			swapchain->acquireNextImage(MAX_TIMEOUT, imageAcquire[resourceIx].get(), nullptr, &imgnum);
-			{
-				auto mv = viewMatrix;
-				auto mvp = viewProjectionMatrix;
-				core::matrix3x4SIMD normalMat;
-				mv.getSub3x3InverseTranspose(normalMat);
-
-				SBasicViewParametersAligned viewParams;
-				memcpy(viewParams.uboData.MV, mv.pointer(), sizeof(mv));
-				memcpy(viewParams.uboData.MVP, mvp.pointer(), sizeof(mvp));
-				memcpy(viewParams.uboData.NormalMat, normalMat.pointer(), sizeof(normalMat));
-
-				asset::SBufferRange<video::IGPUBuffer> range;
-				range.buffer = gpuubo;
-				range.offset = 0ull;
-				range.size = sizeof(viewParams);
-				utilities->updateBufferRangeViaStagingBufferAutoSubmit(range, &viewParams, graphicsQueue);
-			}
-
-			// TRANSITION outHDRImageViews[imgnum] to EIL_GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
-			{
-				IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[3u] = {};
-				imageBarriers[0].barrier.srcAccessMask = asset::EAF_NONE;
-				imageBarriers[0].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(asset::EAF_SHADER_WRITE_BIT);
-				imageBarriers[0].oldLayout = asset::IImage::EL_UNDEFINED;
-				imageBarriers[0].newLayout = asset::IImage::EL_GENERAL;
-				imageBarriers[0].srcQueueFamilyIndex = graphicsCmdPoolQueueFamIdx;
-				imageBarriers[0].dstQueueFamilyIndex = graphicsCmdPoolQueueFamIdx;
-				imageBarriers[0].image = outHDRImageViews[imgnum]->getCreationParameters().image;
-				imageBarriers[0].subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
-				imageBarriers[0].subresourceRange.baseMipLevel = 0u;
-				imageBarriers[0].subresourceRange.levelCount = 1;
-				imageBarriers[0].subresourceRange.baseArrayLayer = 0u;
-				imageBarriers[0].subresourceRange.layerCount = 1;
-
-				imageBarriers[1].barrier.srcAccessMask = asset::EAF_NONE;
-				imageBarriers[1].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(asset::EAF_SHADER_READ_BIT);
-				imageBarriers[1].oldLayout = asset::IImage::EL_UNDEFINED;
-				imageBarriers[1].newLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
-				imageBarriers[1].srcQueueFamilyIndex = graphicsCmdPoolQueueFamIdx;
-				imageBarriers[1].dstQueueFamilyIndex = graphicsCmdPoolQueueFamIdx;
-				imageBarriers[1].image = gpuScrambleImageView->getCreationParameters().image;
-				imageBarriers[1].subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
-				imageBarriers[1].subresourceRange.baseMipLevel = 0u;
-				imageBarriers[1].subresourceRange.levelCount = 1;
-				imageBarriers[1].subresourceRange.baseArrayLayer = 0u;
-				imageBarriers[1].subresourceRange.layerCount = 1;
-
-				imageBarriers[2].barrier.srcAccessMask = asset::EAF_NONE;
-				imageBarriers[2].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(asset::EAF_SHADER_READ_BIT);
-				imageBarriers[2].oldLayout = asset::IImage::EL_UNDEFINED;
-				imageBarriers[2].newLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
-				imageBarriers[2].srcQueueFamilyIndex = graphicsCmdPoolQueueFamIdx;
-				imageBarriers[2].dstQueueFamilyIndex = graphicsCmdPoolQueueFamIdx;
-				imageBarriers[2].image = gpuEnvmapImageView->getCreationParameters().image;
-				imageBarriers[2].subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
-				imageBarriers[2].subresourceRange.baseMipLevel = 0u;
-				imageBarriers[2].subresourceRange.levelCount = gpuEnvmapImageView->getCreationParameters().subresourceRange.levelCount;
-				imageBarriers[2].subresourceRange.baseArrayLayer = 0u;
-				imageBarriers[2].subresourceRange.layerCount = gpuEnvmapImageView->getCreationParameters().subresourceRange.layerCount;
-
-				cb->pipelineBarrier(asset::EPSF_TOP_OF_PIPE_BIT, asset::EPSF_COMPUTE_SHADER_BIT, asset::EDF_NONE, 0u, nullptr, 0u, nullptr, 3u, imageBarriers);
-			}
-
-			// cube envmap handle
-			{
-				cb->writeTimestamp(asset::E_PIPELINE_STAGE_FLAGS::EPSF_TOP_OF_PIPE_BIT, timestampQueryPool.get(), 0u);
-				cb->bindComputePipeline(gpuComputePipeline.get());
-				cb->bindDescriptorSets(EPBP_COMPUTE, gpuComputePipeline->getLayout(), 0u, 1u, &descriptorSets0[imgnum].get());
-				cb->bindDescriptorSets(EPBP_COMPUTE, gpuComputePipeline->getLayout(), 1u, 1u, &uboDescriptorSet1.get());
-				cb->bindDescriptorSets(EPBP_COMPUTE, gpuComputePipeline->getLayout(), 2u, 1u, &descriptorSet2.get());
-				cb->dispatch(dispatchInfo.workGroupCount[0], dispatchInfo.workGroupCount[1], dispatchInfo.workGroupCount[2]);
-				cb->writeTimestamp(asset::E_PIPELINE_STAGE_FLAGS::EPSF_BOTTOM_OF_PIPE_BIT, timestampQueryPool.get(), 1u);
-			}
-			// TODO: tone mapping and stuff
 
 			// Copy HDR Image to SwapChain
 			auto srcImgViewCreationParams = outHDRImageViews[imgnum]->getCreationParameters();
