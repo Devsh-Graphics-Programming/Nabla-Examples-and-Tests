@@ -64,9 +64,9 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     float scaledRadius = dist * radius / sqrt(dist * dist - radius * radius);
 
     const float4 color1 = float4(0, 0.35, 0.75, 1);
-    const float4 color2 = float4(0.6, 0.75, 0.92, 1);
+    const float4 color2 = float4(0.85, 0.2, 0, 1);
     float speed = length(p.velocity.xyz);
-    float factor = saturate((speed - 2.0) / 8.0);
+    float factor = saturate((speed - 0.5) / 10.0);
     float4 color = lerp(color1, color2, factor);
 
     float4x4 mat = 0;

@@ -23,7 +23,13 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
-// structs defined in shader???
+
+enum SimPresets
+{
+	CENTER_FALL,
+	LONG_BOX
+};
+
 struct Particle
 {
 	float32_t4 position;
@@ -265,18 +271,20 @@ public:
 			return false;
 
 		// init grid params
-		m_gridData.gridCellSize = 0.25f;
-		m_gridData.gridInvCellSize = 1.f / m_gridData.gridCellSize;
-		m_gridData.gridSize = int32_t4{32, 32, 32, 0};
-		m_gridData.particleInitMin = int32_t4{4, 12, 4, 0};
-		m_gridData.particleInitMax = int32_t4{28, 28, 28, 0};
-		m_gridData.particleInitSize = m_gridData.particleInitMax - m_gridData.particleInitMin;
-		float32_t4 simAreaSize = m_gridData.gridSize;
-		simAreaSize *= m_gridData.gridCellSize;
-		m_gridData.worldMin = float32_t4(0.f);
-		m_gridData.worldMax = simAreaSize;
-		numGridCells = m_gridData.gridSize.x * m_gridData.gridSize.y * m_gridData.gridSize.z;
-		numParticles = m_gridData.particleInitSize.x * m_gridData.particleInitSize.y * m_gridData.particleInitSize.z * particlesPerCell;
+		//m_gridData.gridCellSize = 0.25f;
+		//m_gridData.gridInvCellSize = 1.f / m_gridData.gridCellSize;
+		//m_gridData.gridSize = int32_t4{32, 32, 32, 0};
+		//m_gridData.particleInitMin = int32_t4{4, 12, 4, 0};
+		//m_gridData.particleInitMax = int32_t4{28, 28, 28, 0};
+		//m_gridData.particleInitSize = m_gridData.particleInitMax - m_gridData.particleInitMin;
+		//float32_t4 simAreaSize = m_gridData.gridSize;
+		//simAreaSize *= m_gridData.gridCellSize;
+		//m_gridData.worldMin = float32_t4(0.f);
+		//m_gridData.worldMax = simAreaSize;
+		//numGridCells = m_gridData.gridSize.x * m_gridData.gridSize.y * m_gridData.gridSize.z;
+		//numParticles = m_gridData.particleInitSize.x * m_gridData.particleInitSize.y * m_gridData.particleInitSize.z * particlesPerCell;
+
+		usePreset(LONG_BOX);
 		
 		WorkgroupCount = (numParticles + WorkgroupSize - 1) / WorkgroupSize;
 
@@ -1401,6 +1409,40 @@ public:
 	}
 
 private:
+	void usePreset(SimPresets preset)
+	{
+		m_gridData.gridCellSize = 0.25f;
+		m_gridData.gridInvCellSize = 1.f / m_gridData.gridCellSize;
+
+		switch (preset)
+		{
+		case LONG_BOX:
+			m_gridData.gridSize = int32_t4{48, 24, 24, 0};
+			m_gridData.particleInitMin = int32_t4{4, 4, 4, 0};
+			m_gridData.particleInitMax = int32_t4{20, 20, 20, 0};
+			break;
+		case CENTER_FALL:
+		default:
+			m_gridData.gridSize = int32_t4{32, 32, 32, 0};
+			m_gridData.particleInitMin = int32_t4{4, 12, 4, 0};
+			m_gridData.particleInitMax = int32_t4{28, 28, 28, 0};
+			break;
+		}
+		
+		fillGridData();
+	}
+
+	void fillGridData()
+	{
+		m_gridData.particleInitSize = m_gridData.particleInitMax - m_gridData.particleInitMin;
+		float32_t4 simAreaSize = m_gridData.gridSize;
+		simAreaSize *= m_gridData.gridCellSize;
+		m_gridData.worldMin = float32_t4(0.f);
+		m_gridData.worldMax = simAreaSize;
+		numGridCells = m_gridData.gridSize.x * m_gridData.gridSize.y * m_gridData.gridSize.z;
+		numParticles = m_gridData.particleInitSize.x * m_gridData.particleInitSize.y * m_gridData.particleInitSize.z * particlesPerCell;
+	}
+
 	smart_refctd_ptr<IGPUShader> compileShader(const std::string& filePath, const std::string& entryPoint = "main")
 	{
 		IAssetLoader::SAssetLoadParams lparams = {};
