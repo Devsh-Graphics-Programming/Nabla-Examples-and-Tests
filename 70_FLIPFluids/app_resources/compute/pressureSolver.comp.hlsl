@@ -65,7 +65,7 @@ void solvePressureSystem(uint32_t3 ID : SV_DispatchThreadID)
 
     uint cellMaterial = cellMaterialBuffer[cid];
 
-    if (isFluidCell(cellMaterial))
+    if (isFluidCell(getCellMaterial(cellMaterial)))
     {
         uint cid_xp = cellIdxToFlatIdx(cellIdx + int3(-1, 0, 0), gridData.gridSize);
         cid_xp = isSolidCell(getXPrevMaterial(cellMaterial)) ? cid : cid_xp;

@@ -267,9 +267,9 @@ public:
 		// init grid params
 		m_gridData.gridCellSize = 0.25f;
 		m_gridData.gridInvCellSize = 1.f / m_gridData.gridCellSize;
-		m_gridData.gridSize = int32_t4{128, 128, 128, 0};
-		m_gridData.particleInitMin = int32_t4{6, 6, 6, 0};
-		m_gridData.particleInitMax = int32_t4{22, 14, 14, 0};
+		m_gridData.gridSize = int32_t4{32, 32, 32, 0};
+		m_gridData.particleInitMin = int32_t4{4, 12, 4, 0};
+		m_gridData.particleInitMax = int32_t4{28, 28, 28, 0};
 		m_gridData.particleInitSize = m_gridData.particleInitMax - m_gridData.particleInitMin;
 		float32_t4 simAreaSize = m_gridData.gridSize;
 		simAreaSize *= m_gridData.gridCellSize;
@@ -282,7 +282,7 @@ public:
 
 		{
 			float zNear = 0.1f, zFar = 10000.f;
-			core::vectorSIMDf cameraPosition(10, 5, 8);
+			core::vectorSIMDf cameraPosition(14, 8, 12);
 			core::vectorSIMDf cameraTarget(0, 0, 0);
 			matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_WIDTH) / WIN_HEIGHT, zNear, zFar);
 			camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
@@ -1006,7 +1006,7 @@ public:
 
 			float a = m_gridData.gridInvCellSize * m_gridData.gridInvCellSize;
 			float b = 1.f / (2.f * (a * 3));
-			pressureSolverParams[0] = float32_t4(b * a, b * a, b * a, b);
+			pressureSolverParams[0] = float32_t4(b * a, b * a, b * a, -b);
 			pressureSolverParams[1] = float32_t4(m_gridData.gridInvCellSize);
 
 			{
@@ -1237,6 +1237,9 @@ public:
 	
 	void dispatchApplyDiffusion(IGPUCommandBuffer* cmdbuf)
 	{
+		if (viscosity <= 0.f)
+			return;
+
 		{
 			SMemoryBarrier memBarrier;
 			memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
