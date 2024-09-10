@@ -12,9 +12,10 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
-class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
+class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 	using device_base_t = examples::SimpleWindowedApplication;
+	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 	using clock_t = std::chrono::steady_clock;
 
 	enum E_LIGHT_GEOMETRY : uint8_t
@@ -113,11 +114,11 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			{
 				m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
+				// Remember to call the base class initialization!
 				if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 					return false;
-
-				m_assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
-				auto* geometry = m_assetManager->getGeometryCreator();
+				if (!asset_base_t::onAppInitialized(std::move(system)))
+					return false;
 
 				m_uiSemaphore = m_device->createSemaphore(m_realFrameIx);
 				m_renderSemaphore = m_device->createSemaphore(m_realFrameIx);
@@ -275,7 +276,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					IAssetLoader::SAssetLoadParams lp = {};
 					lp.logger = m_logger.get();
 					lp.workingDirectory = ""; // virtual root
-					auto assetBundle = m_assetManager->getAsset(pathToShader, lp);
+					auto assetBundle = m_assetMgr->getAsset(pathToShader, lp);
 					const auto assets = assetBundle.getContents();
 					if (assets.empty())
 					{
@@ -321,7 +322,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			smart_refctd_ptr<ICPUImageView> cpuImgView;
 			{
 				IAssetLoader::SAssetLoadParams params;
-				auto imageBundle = m_assetManager->getAsset(DefaultImagePathsFile.data(), params);
+				auto imageBundle = m_assetMgr->getAsset(DefaultImagePathsFile.data(), params);
 				auto cpuImg = IAsset::castDown<ICPUImage>(imageBundle.getContents().begin()[0]);
 
 				ICPUImageView::SCreationParams viewParams = {
@@ -1204,7 +1205,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		core::smart_refctd_ptr<IDescriptorPool> m_guiDescriptorSetPool;
 
 		// system resources
-		smart_refctd_ptr<nbl::asset::IAssetManager> m_assetManager;
 		core::smart_refctd_ptr<InputSystem> m_inputSystem;
 		InputSystem::ChannelReader<IMouseEventChannel> mouse;
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
