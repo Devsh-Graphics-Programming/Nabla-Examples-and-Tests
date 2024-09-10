@@ -181,10 +181,12 @@ class CAssetConverter : public core::IReferenceCounted
 			protected:
 				inline std::pair<bool,this_t> combine(const this_t& other) const
 				{
+					if (invalid || other.invalid)
+						return {false,*this};
 					this_t retval = *this;
 					for (auto byte=0; byte!=pushConstantBytes.size(); byte++)
 						retval.pushConstantBytes[byte] |= other.pushConstantBytes[byte];
-					return {true,retval};
+					return {invalid,retval};
 				}
 
 				bool invalid = true;
@@ -299,39 +301,60 @@ class CAssetConverter : public core::IReferenceCounted
 					return std::get<container_t<AssetType>>(m_containers).end();
 				}
 
-				// `cacheMistrustLevel` is how deep from `asset` do we start trusting the cache to contain correct non stale hashes
-				template<asset::Asset AssetType, typename PatchGetter>
-				inline core::blake3_hash_t hash(const AssetType* asset, PatchGetter patchGet, const uint32_t cacheMistrustLevel=0)
+				//
+				class IPatchOverride
 				{
-					if (!asset)
-						return NoContentHash;
+					public:
+						virtual const patch_t<asset::ICPUSampler>* operator()(const patch_t<asset::ICPUSampler>&) const = 0;
+						virtual const patch_t<asset::ICPUShader>* operator()(const patch_t<asset::ICPUShader>&) const = 0;
+						virtual const patch_t<asset::ICPUBuffer>* operator()(const patch_t<asset::ICPUBuffer>&) const = 0;
+						virtual const patch_t<asset::ICPUBufferView>* operator()(const patch_t<asset::ICPUBufferView>&) const = 0;
+						virtual const patch_t<asset::ICPUPipelineLayout>* operator()(const patch_t<asset::ICPUPipelineLayout>&) const = 0;
 
-					// this is the only time a call to `patchGet` happens, which allows it to mutate its state only once
-					const patch_t<AssetType>* patch = patchGet(asset);
-					// failed to provide us with a patch, so fail the hash
-					if (!patch)// || !patch->valid()) we assume any patch gotten is valid (to not have a dependancy on the device)
+						// certain items are not patchable, so there's no `patch_t` with non zero size
+						inline const patch_t<asset::ICPUDescriptorSetLayout>* operator()(const patch_t<asset::ICPUDescriptorSetLayout>& unpatchable) const
+						{
+							return &unpatchable;
+						}
+						inline const patch_t<asset::ICPURenderpass>* operator()(const patch_t<asset::ICPURenderpass>& unpatchable) const
+						{
+							return &unpatchable;
+						}
+						inline const patch_t<asset::ICPUDescriptorSet>* operator()(const patch_t<asset::ICPUDescriptorSet>& unpatchable) const
+						{
+							return &unpatchable;
+						}
+
+						// while other things are top level assets in the graph and `operator()` would never be called on their patch
+				};
+				// `cacheMistrustLevel` is how deep from `asset` do we start trusting the cache to contain correct non stale hashes
+				template<asset::Asset AssetType>
+				inline core::blake3_hash_t hash(const lookup_t<AssetType>& lookup, const IPatchOverride* patchOverride, const uint32_t cacheMistrustLevel=0)
+				{
+					if (!lookup.asset || !lookup.patch)// || !lookup.patch->valid()) we assume any patch gotten is valid (to not have a dependancy on the device)
 						return NoContentHash;
 
 					// consult cache
-					const lookup_t<AssetType> lookup = {asset,patch};
 					auto foundIt = find(lookup);
 					auto& container = std::get<container_t<AssetType>>(m_containers);
 					const bool found = foundIt!=container.end();
 					// if found and we trust then return the cached hash
 					if (cacheMistrustLevel==0 && found)
 						return foundIt->second;
+
 					// proceed with full hash computation
 					//! We purposefully don't hash asset pointer, we hash the contents instead
-					const auto nextMistrustLevel = cacheMistrustLevel ? (cacheMistrustLevel-1):0;
-					const auto retval = static_cast<core::blake3_hash_t>(
-						hash_impl<AssetType,PatchGetter>::_call({
-							this,asset,patch,patchGet,nextMistrustLevel
-						})
-					);
+					hash_impl impl{
+							._this = this,
+							.patchOverride = patchOverride,
+							.nextMistrustLevel = cacheMistrustLevel ? (cacheMistrustLevel-1):0
+					};
 					// failed to hash (missing required deps), so return invalid hash
 					// but don't eject stale entry, this may have been a mistake
-					if (retval==NoContentHash)
+					if (!impl(lookup))
 						return NoContentHash;
+					const auto retval = static_cast<core::blake3_hash_t>(impl.hasher);
+					assert(retval==NoContentHash);
 
 					if (found) // replace stale entry
 						foundIt->second = retval;
@@ -339,8 +362,8 @@ class CAssetConverter : public core::IReferenceCounted
 					{
 						auto [insertIt,inserted] = container.emplace(
 							key_t<AssetType>{
-								.asset = core::smart_refctd_ptr<const AssetType>(asset),
-								.patch = *patch
+								.asset = core::smart_refctd_ptr<const AssetType>(lookup.asset),
+								.patch = *lookup.patch
 							},
 							retval
 						);
@@ -369,45 +392,7 @@ class CAssetConverter : public core::IReferenceCounted
 				}
 				// TODO: `eraseStale(const IAsset*)` which erases a subgraph?
 				// An asset being pointed to can mutate and that would invalidate the hash, this recomputes all hashes.
-				template<typename PatchGetter>
-				inline void eraseStale(const PatchGetter& patchGet)
-				{
-					auto rehash = [&]<typename AssetType>() -> void
-					{
-						auto& container = std::get<container_t<AssetType>>(m_containers);
-						core::erase_if(container,[this](const auto& entry)->bool
-							{
-								// backup because `hash(lookup)` call will update it
-								const auto oldHash = entry.second;
-								const auto& key = entry.first;
-								// can re-use cached hashes for dependants if we start ejecting in the correct order
-								const auto newHash = hash(key.asset.get(),patchGet,/*.cacheMistrustLevel = */1);
-								return newHash!=oldHash || newHash==NoContentHash;
-							}
-						);
-					};
-					// to make the process more efficient we start ejecting from "lowest level" assets
-					rehash.operator()<asset::ICPUSampler>();
-					rehash.operator()<asset::ICPUDescriptorSetLayout>();
-					rehash.operator()<asset::ICPUPipelineLayout>();
-					// shaders and images depend on buffers for data sourcing
-					rehash.operator()<asset::ICPUBuffer>();
-					rehash.operator()<asset::ICPUBufferView>();
-				//	rehash.operator()<ICPUImage>();
-				//	rehash.operator()<ICPUImageView>();
-				//	rehash.operator()<ICPUBottomLevelAccelerationStructure>();
-				//	rehash.operator()<ICPUTopLevelAccelerationStructure>();
-					// only once all the descriptor types have been hashed, we can hash sets
-					rehash.operator()<asset::ICPUDescriptorSet>();
-					// naturally any pipeline depends on shaders and pipeline cache
-					rehash.operator()<asset::ICPUShader>();
-					rehash.operator()<asset::ICPUPipelineCache>();
-					rehash.operator()<asset::ICPUComputePipeline>();
-					// graphics pipeline needs a renderpass
-					rehash.operator()<asset::ICPURenderpass>();
-					rehash.operator()<asset::ICPUGraphicsPipeline>();
-				//	rehash.operator()<ICPUFramebuffer>();
-				}
+				void eraseStale(const IPatchOverride* patchOverride);
 				// Clear the cache for a given type
 				template<asset::Asset AssetType>
 				inline void clear()
@@ -423,23 +408,25 @@ class CAssetConverter : public core::IReferenceCounted
 			private:
 				inline ~CHashCache() = default;
 
-				//
-				template<asset::Asset AssetType, typename PatchGetter>
-				struct hash_impl;
-				template<asset::Asset AssetType, typename PatchGetter>
-				struct hash_impl_args final
+				// forward declare
+				struct hash_impl
 				{
-					template<asset::Asset DepAssetType>
-					inline core::blake3_hash_t depHash(const DepAssetType* dep)
-					{
-						return _this->hash(dep,patchGet,nextMistrustLevel);
-					}
+					NBL_API bool operator()(lookup_t<asset::ICPUSampler>);
+					NBL_API bool operator()(lookup_t<asset::ICPUShader>);
+					NBL_API bool operator()(lookup_t<asset::ICPUBuffer>);
+					NBL_API bool operator()(lookup_t<asset::ICPUBufferView>);
+					NBL_API bool operator()(lookup_t<asset::ICPUDescriptorSetLayout>);
+					NBL_API bool operator()(lookup_t<asset::ICPUPipelineLayout>);
+					NBL_API bool operator()(lookup_t<asset::ICPUPipelineCache>);
+					NBL_API bool operator()(lookup_t<asset::ICPUComputePipeline>);
+					NBL_API bool operator()(lookup_t<asset::ICPURenderpass>);
+					NBL_API bool operator()(lookup_t<asset::ICPUGraphicsPipeline>);
+					NBL_API bool operator()(lookup_t<asset::ICPUDescriptorSet>);
 
 					CHashCache* _this;
-					const AssetType* const asset;
-					const patch_t<AssetType>* patch;
-					const PatchGetter& patchGet;
+					const IPatchOverride* patchOverride;
 					const uint32_t nextMistrustLevel;
+					core::blake3_hasher hasher = {};
 				};
 
 				//
@@ -918,53 +905,7 @@ inline CAssetConverter::patch_impl_t<AssetType>::patch_impl_t(const AssetType* a
 template<asset::Asset AssetType>
 inline bool CAssetConverter::patch_impl_t<AssetType>::valid(const ILogicalDevice* device) { return true; }
 
-
-template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPUSampler,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUSampler,PatchGetter>&& args)
-	{
-		auto patchedParams = args.asset->getParams();
-		patchedParams.AnisotropicFilter = args.patch->anisotropyLevelLog2;
-		return core::blake3_hasher().update(&patchedParams,sizeof(patchedParams));
-	}
-};
-
-template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPUShader,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUShader,PatchGetter>&& args)
-	{
-		const auto* asset = args.asset;
-
-		core::blake3_hasher hasher;
-		hasher << args.patch->stage;
-		const auto type = asset->getContentType();
-		hasher << type;
-		// if not SPIR-V then own path matters
-		if (type!=asset::ICPUShader::E_CONTENT_TYPE::ECT_SPIRV)
-			hasher << asset->getFilepathHint();
-		const auto* content = asset->getContent();
-		if (!content || content->getContentHash()==NoContentHash)
-			return {};
-		// we're not using the buffer directly, just its contents
-		hasher << content->getContentHash();
-		return hasher;
-	}
-};
-
-template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPUBuffer,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUBuffer,PatchGetter>&& args)
-	{
-		auto patchedParams = args.asset->getCreationParams();
-		assert(args.patch->usage.hasFlags(patchedParams.usage));
-		patchedParams.usage = args.patch->usage;
-		return core::blake3_hasher().update(&patchedParams,sizeof(patchedParams)) << args.asset->getContentHash();
-	}
-};
-
+#if 0
 template<typename PatchGetter>
 struct CAssetConverter::CHashCache::hash_impl<asset::ICPUBufferView,PatchGetter>
 {
@@ -979,7 +920,7 @@ struct CAssetConverter::CHashCache::hash_impl<asset::ICPUBufferView,PatchGetter>
 				return {};
 			hasher << bufferHash;
 		}
-		// NOTE: We don't hash the metada from the patch! Because it doesn't matter.
+		// NOTE: We don't hash the usage metada from the patch! Because it doesn't matter.
 		// The view usage in the patch helps us propagate and patch during DFS, but no more.
 		hasher << asset->getFormat();
 		hasher << asset->getOffsetInBuffer();
@@ -1055,23 +996,6 @@ struct CAssetConverter::CHashCache::hash_impl<asset::ICPUPipelineLayout,PatchGet
 };
 
 template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPUPipelineCache,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUPipelineCache,PatchGetter>&& args)
-	{
-		core::blake3_hasher hasher;
-		for (const auto& entry : args.asset->getEntries())
-		{
-			hasher << entry.first.deviceAndDriverUUID;
-			if (entry.first.meta)
-				hasher.update(entry.first.meta->data(),entry.first.meta->size());
-		}
-		hasher << args.asset->getContentHash();
-		return hasher;
-	}
-};
-
-template<typename PatchGetter>
 struct CAssetConverter::CHashCache::hash_impl<asset::ICPUComputePipeline,PatchGetter>
 {
 	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUComputePipeline,PatchGetter>&& args)
@@ -1104,120 +1028,6 @@ struct CAssetConverter::CHashCache::hash_impl<asset::ICPUComputePipeline,PatchGe
 		return hasher;
 	}
 };
-
-template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPURenderpass,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPURenderpass,PatchGetter>&& args)
-	{
-		const auto* asset = args.asset;
-
-		core::blake3_hasher hasher;
-		hasher << asset->getDepthStencilAttachmentCount();
-		hasher << asset->getColorAttachmentCount();
-		hasher << asset->getSubpassCount();
-		hasher << asset->getDependencyCount();
-		hasher << asset->getViewMaskMSB();
-		const asset::ICPURenderpass::SCreationParams& params = asset->getCreationParameters();
-		{
-			auto hashLayout = [&](const asset::E_FORMAT format, const asset::IImage::SDepthStencilLayout& layout)->void
-			{
-				if (!asset::isStencilOnlyFormat(format))
-					hasher << layout.depth;
-				if (!asset::isDepthOnlyFormat(format))
-					hasher << layout.stencil;
-			};
-
-			for (auto i=0; i<asset->getDepthStencilAttachmentCount(); i++)
-			{
-				auto entry = params.depthStencilAttachments[i];
-				if (!entry.valid())
-					return {};
-				hasher << entry.format;
-				hasher << entry.samples;
-				hasher << entry.mayAlias;
-				auto hashOp = [&](const auto& op)->void
-				{
-					if (!asset::isStencilOnlyFormat(entry.format))
-						hasher << op.depth;
-					if (!asset::isDepthOnlyFormat(entry.format))
-						hasher << op.actualStencilOp();
-				};
-				hashOp(entry.loadOp);
-				hashOp(entry.storeOp);
-				hashLayout(entry.format,entry.initialLayout);
-				hashLayout(entry.format,entry.finalLayout);
-			}
-			for (auto i=0; i<asset->getColorAttachmentCount(); i++)
-			{
-				const auto& entry = params.colorAttachments[i];
-				if (!entry.valid())
-					return {};
-				hasher.update(&entry,sizeof(entry));
-			}
-			// subpasses
-			using SubpassDesc = asset::ICPURenderpass::SCreationParams::SSubpassDescription;
-			auto hashDepthStencilAttachmentRef = [&](const SubpassDesc::SDepthStencilAttachmentRef& ref)->void
-			{
-				hasher << ref.attachmentIndex;
-				hashLayout(params.depthStencilAttachments[ref.attachmentIndex].format,ref.layout);
-			};
-			for (auto i=0; i<asset->getSubpassCount(); i++)
-			{
-				const auto& entry = params.subpasses[i];
-				const auto depthStencilRenderAtt = entry.depthStencilAttachment.render;
-				if (depthStencilRenderAtt.used())
-				{
-					hashDepthStencilAttachmentRef(depthStencilRenderAtt);
-					if (entry.depthStencilAttachment.resolve.used())
-					{
-						hashDepthStencilAttachmentRef(entry.depthStencilAttachment.resolve);
-						hasher.update(&entry.depthStencilAttachment.resolveMode,sizeof(entry.depthStencilAttachment.resolveMode));
-					}
-				}
-				else // hash needs to care about which slots go unused
-					hasher << false;
-				// color attachments
-				for (const auto& colorAttachment : std::span(entry.colorAttachments))
-				{
-					if (colorAttachment.render.used())
-					{
-						hasher.update(&colorAttachment.render,sizeof(colorAttachment.render));
-						if (colorAttachment.resolve.used())
-							hasher.update(&colorAttachment.resolve,sizeof(colorAttachment.resolve));
-					}
-					else // hash needs to care about which slots go unused
-						hasher << false;
-				}
-				// input attachments
-				for (auto inputIt=entry.inputAttachments; *inputIt!=SubpassDesc::InputAttachmentsEnd; inputIt++)
-				{
-					if (inputIt->used())
-					{
-						hasher << inputIt->aspectMask;
-                        if (inputIt->aspectMask==asset::IImage::EAF_COLOR_BIT)
-							hashDepthStencilAttachmentRef(inputIt->asDepthStencil);
-						else
-							hasher.update(&inputIt->asColor,sizeof(inputIt->asColor));
-					}
-					else
-						hasher << false;
-				}
-				// preserve attachments
-				for (auto preserveIt=entry.preserveAttachments; *preserveIt!=SubpassDesc::PreserveAttachmentsEnd; preserveIt++)
-					hasher.update(preserveIt,sizeof(SubpassDesc::SPreserveAttachmentRef));
-				hasher << entry.viewMask;
-				hasher << entry.flags;
-			}
-			// TODO: we could sort these before hashing (and creating GPU objects)
-			hasher.update(params.dependencies,sizeof(asset::ICPURenderpass::SCreationParams::SSubpassDependency)*asset->getDependencyCount());
-		}
-		hasher.update(params.viewCorrelationGroup,sizeof(params.viewCorrelationGroup));
-
-		return hasher;
-	}
-};
-
 template<typename PatchGetter>
 struct CAssetConverter::CHashCache::hash_impl<asset::ICPUGraphicsPipeline,PatchGetter>
 {
@@ -1420,6 +1230,7 @@ struct CAssetConverter::CHashCache::hash_impl<asset::ICPUDescriptorSet,PatchGett
 		return hasher;
 	}
 };
+#endif
 
 }
 #endif

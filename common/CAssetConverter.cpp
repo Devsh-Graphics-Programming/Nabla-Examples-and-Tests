@@ -131,14 +131,6 @@ bool CAssetConverter::patch_impl_t<ICPUPipelineLayout>::valid(const ILogicalDevi
 
 
 
-// question of propagating changes, image view and buffer view
-// if image view used as STORAGE, or SAMPLED have to change subUsage
-// then need to propagate change of subUsage to usage
-// therefore image is now changed
-// have to pass the patch around
-
-
-
 // not sure if useful enough to move to core utils
 template<typename T, typename TypeList>
 struct index_of;
@@ -277,121 +269,624 @@ struct dfs_cache
 	core::vector<created_t> nodes;
 };
 
+template<Asset AssetType>
+struct patched_instance_t
+{
+	instance_t<AssetType> instance;
+	patch_index_t patchIx;
+};
+
+//
+template<typename CRTP>
+class AssetVisitor : public CRTP
+{
+	public:
+		const CAssetConverter::SInputs& inputs;
+
+		bool operator()(const patched_instance_t<asset::ICPUSampler>& asset)
+		{
+			return enter(asset) && CRTP::quit(asset);
+		}
+		bool operator()(const patched_instance_t<asset::ICPUShader>& asset)
+		{
+			return enter(asset) && CRTP::quit(asset);
+		}
+		bool operator()(const patched_instance_t<asset::ICPUBuffer>& asset)
+		{
+			return enter(asset) && CRTP::quit(asset);
+		}
+		bool operator()(const patched_instance_t<asset::ICPUBufferView>& asset)
+		{
+			if (!enter(asset))
+				return false;
+			const auto& userPatch = CRTP::template getPatch<asset::ICPUBufferView>(asset.patchIx);
+			const auto* dep = asset.instance.asset->getUnderlyingBuffer();
+			if (!dep)
+				return false;
+			CAssetConverter::patch_t<asset::ICPUBuffer> patch = {dep};
+			if (userPatch.utbo)
+				patch.usage |= IGPUBuffer::E_USAGE_FLAGS::EUF_UNIFORM_TEXEL_BUFFER_BIT;
+			if (userPatch.stbo)
+				patch.usage |= IGPUBuffer::E_USAGE_FLAGS::EUF_STORAGE_TEXEL_BUFFER_BIT;
+			return descend(asset,dep,std::move(patch)) && CRTP::quit(asset);
+		}
+		bool operator()(const patched_instance_t<asset::ICPUDescriptorSetLayout>& asset)
+		{
+			if (!enter(asset))
+				return false;
+			for (const auto& sampler : asset.instance.asset->getImmutableSamplers())
+			if (!sampler || !descend(asset,sampler.get(),{sampler.get()}))
+				return false;
+			return CRTP::quit(asset);
+		}
+		bool operator()(const patched_instance_t<asset::ICPUPipelineLayout>& asset)
+		{
+			if (!enter(asset))
+				return false;
+			// individual DS layouts are optional
+			for (auto i=0; i<asset::ICPUPipelineLayout::DESCRIPTOR_SET_COUNT; i++)
+			if (auto layout=asset.instance.asset->getDescriptorSetLayout(i); layout && !descend(asset,layout,{layout}))
+				return false;
+			return CRTP::quit(asset);
+		}
+		bool operator()(const patched_instance_t<asset::ICPUPipelineCache>& asset)
+		{
+			return enter(asset) && CRTP::quit(asset);
+		}
+		bool operator()(const patched_instance_t<asset::ICPUComputePipeline>& asset)
+		{
+			if (!enter(asset))
+				return false;
+			const auto* layout = asset.instance.asset->getLayout();
+			if (!layout || !descend(asset,layout,{layout}))
+				return false;
+			const auto* shader = asset.instance.asset->getSpecInfo().shader;
+			if (!shader)
+				return false;
+			CAssetConverter::patch_t<asset::ICPUShader> patch = {shader};
+			patch.stage = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE;
+			if (!descend(asset,shader,std::move(patch)))
+				return false;
+			return CRTP::quit(asset);
+		}
+		bool operator()(const patched_instance_t<asset::ICPURenderpass>& asset)
+		{
+			return enter(asset) && CRTP::quit(asset);
+		}
+		bool operator()(const patched_instance_t<asset::ICPUGraphicsPipeline>& asset)
+		{
+			if (!enter(asset))
+				return false;
+			const auto* layout = asset.instance.asset->getLayout();
+			if (!layout || !descend(asset,layout,{layout}))
+				return false;
+			const auto* rpass = asset.instance.asset->getRenderpass();
+			if (!rpass || !descend(asset,rpass,{rpass}))
+				return false;
+			using stage_t = asset::ICPUShader::E_SHADER_STAGE;
+			for (stage_t stage : {stage_t::ESS_VERTEX,stage_t::ESS_TESSELLATION_CONTROL,stage_t::ESS_TESSELLATION_EVALUATION,stage_t::ESS_GEOMETRY,stage_t::ESS_FRAGMENT})
+			{
+				const auto* shader = asset.instance.asset->getSpecInfo(stage).shader;
+				if (!shader)
+				{
+					if (stage==stage_t::ESS_VERTEX) // required
+						return false;
+					continue;
+				}
+				CAssetConverter::patch_t<asset::ICPUShader> patch = {shader};
+				patch.stage = stage;
+				if (!descend(asset,shader,std::move(patch)))
+					return false;
+			}
+			return CRTP::quit(asset);
+		}
+		bool operator()(const patched_instance_t<asset::ICPUDescriptorSet>& asset)
+		{
+			if (!enter(asset))
+				return false;
+			const auto* layout = asset.instance.asset->getLayout();
+			if (!layout || !descend(asset,layout,{layout}))
+				return false;
+			for (auto i=0u; i<static_cast<uint32_t>(IDescriptor::E_TYPE::ET_COUNT); i++)
+			{
+				const auto type = static_cast<IDescriptor::E_TYPE>(i);
+				const auto infos = asset.instance.asset->getDescriptorInfoStorage(type);
+				if (infos.empty())
+					continue;
+				for (const auto& info : infos)
+				if (auto untypedDesc=info.desc.get(); untypedDesc) // written descriptors are optional
+				switch (IDescriptor::GetTypeCategory(type))
+				{
+					case IDescriptor::EC_BUFFER:
+					{
+						auto buffer = static_cast<const ICPUBuffer*>(untypedDesc);
+						CAssetConverter::patch_t<asset::ICPUBuffer> patch = {buffer};
+						switch(type)
+						{
+							case IDescriptor::E_TYPE::ET_UNIFORM_BUFFER:
+							case IDescriptor::E_TYPE::ET_UNIFORM_BUFFER_DYNAMIC:
+								patch.usage |= IGPUBuffer::E_USAGE_FLAGS::EUF_UNIFORM_BUFFER_BIT;
+								break;
+							case IDescriptor::E_TYPE::ET_STORAGE_BUFFER:
+							case IDescriptor::E_TYPE::ET_STORAGE_BUFFER_DYNAMIC:
+								patch.usage |= IGPUBuffer::E_USAGE_FLAGS::EUF_STORAGE_BUFFER_BIT;
+								break;
+							default:
+								assert(false);
+								return false;
+						}
+						if (!descend(asset,buffer,std::move(patch)))
+							return false;
+						break;
+					}
+					case IDescriptor::EC_SAMPLER:
+					{
+						auto sampler = static_cast<const ICPUSampler*>(untypedDesc);
+						if (!descend(asset,sampler,{sampler}))
+							return false;
+						break;
+					}
+					case IDescriptor::EC_IMAGE:
+					{
+						auto imageView = static_cast<const ICPUImageView*>(untypedDesc);
+#if 0
+						patch_t<ICPUImageView> patch = {imageView};
+						switch(type)
+						{
+							case IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER:
+								{
+									const auto* sampler = info.info.combinedImageSampler.sampler.get();
+									if (sampler)
+										cache.operator()<ICPUSampler>(userInstance,sampler,{sampler});
+								}
+								[[fallthrough]];
+							case IDescriptor::E_TYPE::ET_SAMPLED_IMAGE:
+							case IDescriptor::E_TYPE::ET_UNIFORM_BUFFER_DYNAMIC:
+								patch.usage |= IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT;
+								break;
+							case IDescriptor::E_TYPE::ET_STORAGE_IMAGE:
+								patch.usage |= IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT;
+								break;
+							case IDescriptor::E_TYPE::ET_INPUT_ATTACHMENT:
+								patch.usage |= IGPUImage::E_USAGE_FLAGS::EUF_INPUT_ATTACHMENT_BIT;
+								break;
+							default:
+								assert(false);
+								break;
+						}
+						cache.operator()<ICPUImageView>(userInstance,imageView,{imageView});
+#else
+						_NBL_TODO();
+#endif
+						break;
+					}
+					case IDescriptor::EC_BUFFER_VIEW:
+					{
+						auto bufferView = static_cast<const ICPUBufferView*>(untypedDesc);
+						CAssetConverter::patch_t<ICPUBufferView> patch = {bufferView};
+						switch (type)
+						{
+							case IDescriptor::E_TYPE::ET_UNIFORM_TEXEL_BUFFER:
+								patch.utbo = true;
+								break;
+							case IDescriptor::E_TYPE::ET_STORAGE_TEXEL_BUFFER:
+								patch.stbo = true;
+								break;
+							default:
+								assert(false);
+								return false;
+						}
+						if (!descend(asset,bufferView,std::move(patch)))
+							return false;
+						break;
+					}
+					case IDescriptor::EC_ACCELERATION_STRUCTURE:
+					{
+						_NBL_TODO();
+						[[fallthrough]];
+					}
+					default:
+						assert(false);
+						return false;
+				}
+			}
+			return CRTP::quit(asset);
+		}
+
+	protected:
+		template<asset::Asset AssetType>
+		bool enter(const patched_instance_t<AssetType>& asset)
+		{
+			if (!asset.instance.asset)
+				return false;
+			return CRTP::enter_impl(asset);
+		}
+
+		template<Asset UserType, Asset AssetType>
+		bool descend(const patched_instance_t<UserType>& user, const AssetType* dep, CAssetConverter::patch_t<AssetType>&& patch)
+		{
+			assert(dep);
+			return bool(CRTP::descend_impl(user,{dep,inputs.getDependantUniqueCopyGroupID(user.instance.uniqueCopyGroupID,user.instance.asset,dep)},std::move(patch)));
+		}
+};
+
+//
+class DFSVisitor
+{
+	public:
+		// returns `input_metadata_t` which you can `bool(input_metadata_t)` to find out if patch was valid and merge was successful
+		template<Asset UserType, Asset AssetType>
+		input_metadata_t descend_impl(const patched_instance_t<UserType>& user, const instance_t<AssetType>&& dep, CAssetConverter::patch_t<AssetType>&& patch)
+		{
+			// skip invalid inputs silently
+			if (!patch.valid(device))
+			{
+				logger.log(
+					"Asset %p used by %p in group %d has an invalid initial patch and won't be converted!",
+					system::ILogger::ELL_ERROR,dep.asset,user.instance.asset,user.instance.uniqueCopyGroupID
+				);
+				return {};
+			}
+			// special checks (normally the GPU object creation will fail, but these are common pitfall paths, so issue errors earlier for select problems)
+			if constexpr (std::is_same_v<AssetType,ICPUShader>)
+			if (dep.asset->getContentType()==ICPUShader::E_CONTENT_TYPE::ECT_GLSL)
+			{
+				logger.log("Asset Converter doesn't support converting GLSL shaders! Asset %p won't be converted (GLSL is deprecated in Nabla)",system::ILogger::ELL_ERROR,dep.asset);
+				return {};
+			}
+			if constexpr (std::is_same_v<AssetType,ICPUBuffer>)
+			if (dep.asset->getSize()>device->getPhysicalDevice()->getLimits().maxBufferSize)
+			{
+				logger.log(
+					"Requested buffer size %zu is larger than the Physical Device's maxBufferSize Limit! Asset %p won't be converted",
+					system::ILogger::ELL_ERROR,dep.asset->getSize(),dep.asset
+				);
+				return {};
+			}
+			// debug print
+			logger.log("Asset (%p,%d) is used by (%p,%d)",system::ILogger::ELL_DEBUG,dep.asset,dep.uniqueCopyGroupID,user.instance.asset,user.instance.uniqueCopyGroupID);
+
+			// now see if we visited already
+			auto& dfsCache = std::get<dfs_cache<AssetType>>(dfsCaches);
+			//
+			const patch_index_t newPatchIndex = {dfsCache.nodes.size()};
+			// get all the existing patches for the same (AssetType*,UniqueCopyGroupID)
+			auto found = dfsCache.instances.find(dep);
+			if (found!=dfsCache.instances.end())
+			{
+				// iterate over linked list
+				patch_index_t* pIndex = &found->second;
+				while (*pIndex)
+				{
+					// get our candidate
+					auto& candidate = dfsCache.nodes[pIndex->value];
+					// found a thing, try-combine the patches
+					auto [success,combined] = candidate.patch.combine(patch);
+					// check whether the item is creatable after patching
+					if (success)
+					{
+						// change the patch to a combined version
+						candidate.patch = std::move(combined);
+						return {.uniqueCopyGroupID=dep.uniqueCopyGroupID,.patchIndex=*pIndex};
+					}
+					// else try the next one
+					pIndex = &candidate.next;
+				}
+				// nothing mergable found, make old TAIL point to new node about to be inserted
+				*pIndex = newPatchIndex;
+			}
+			else
+			{
+				// there isn't even a linked list head for this entry
+				dfsCache.instances.emplace_hint(found,dep,newPatchIndex);
+			}
+			// Haven't managed to combine with anything, so push a new patch
+			dfsCache.nodes.emplace_back(std::move(patch),CAssetConverter::CHashCache::NoContentHash);
+			// Only when we don't find a compatible patch entry do we carry on with the DFS
+			if (asset_traits<AssetType>::HasChildren)
+				stack.emplace(instance_t<IAsset>{dep.asset,dep.uniqueCopyGroupID},newPatchIndex);
+			return {.uniqueCopyGroupID=dep.uniqueCopyGroupID,.patchIndex=newPatchIndex};
+		}
+
+		system::logger_opt_ptr logger;
+		ILogicalDevice* device;
+		core::tuple_transform_t<dfs_cache,CAssetConverter::supported_asset_types>& dfsCaches;
+		// stack is nice and polymorphic
+		core::stack<patched_instance_t<IAsset>> stack = {};
+
+	protected:
+		template<Asset AssetType>
+		const CAssetConverter::patch_t<AssetType>& getPatch(const patch_index_t index) const
+		{
+			auto& cacheNodes = std::get<dfs_cache<AssetType>>(dfsCaches).nodes;
+			assert(index.value<cacheNodes.size());
+			return cacheNodes[index.value].patch;
+		}
+
+		template<Asset AssetType>
+		bool enter_impl(const patched_instance_t<AssetType>& asset)
+		{
+			return true;
+		}
+
+		template<Asset AssetType>
+		bool quit(const patched_instance_t<AssetType>& asset)
+		{
+			// theoretically we could back up the state of the dfsCache and confirm the adds here, for now its too much hassle
+			return true;
+		}
+};
+
+
+//
+class HashVisitor // hmmm inherit from hash_impl?
+{
+	public:
+		CAssetConverter::CHashCache* const hashCache;
+		const CAssetConverter::CHashCache::IPatchOverride* const patchOverride;
+		const uint32_t nextMistrustLevel;
+		core::blake3_hasher& hasher;
+
+	protected:
+		template<Asset AssetType>
+		const CAssetConverter::patch_t<AssetType>& getPatch(const patch_index_t index) const
+		{
+			assert(false); // TODO
+			return *nullptr;// userPatch;
+		}
+
+		template<Asset AssetType>
+		bool enter_impl(const patched_instance_t<AssetType>& asset)
+		{
+			return true;
+		}
+
+		template<Asset UserType, Asset AssetType>
+		bool descend_impl(const patched_instance_t<UserType>& user, const instance_t<AssetType>&& dep, CAssetConverter::patch_t<AssetType>&& patch)
+		{
+			assert(hashCache && patchOverride);
+			// find dependency compatible patch
+			const CAssetConverter::patch_t<AssetType>* found = patchOverride->operator()(patch);
+			if (!found)
+				return false;
+			// hash dep
+			const auto depHash = hashCache->hash<AssetType>({dep.asset,found},patchOverride,nextMistrustLevel);
+			// check if hash failed
+			if (depHash==CAssetConverter::CHashCache::NoContentHash)
+				return false;
+			// add dep hash to own
+			hasher << depHash;
+			return true;
+		}
+
+		template<Asset AssetType>
+		bool quit(const patched_instance_t<AssetType>& asset)
+		{
+			return true;
+		}
+};
+bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUSampler> lookup)
+{
+	auto patchedParams = lookup.asset->getParams();
+	patchedParams.AnisotropicFilter = lookup.patch->anisotropyLevelLog2;
+	hasher.update(&patchedParams,sizeof(patchedParams));
+	return true;
+}
+bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUShader> lookup)
+{
+	const auto* asset = lookup.asset;
+
+	hasher << lookup.patch->stage;
+	const auto type = asset->getContentType();
+	hasher << type;
+	// if not SPIR-V then own path matters
+	if (type!=asset::ICPUShader::E_CONTENT_TYPE::ECT_SPIRV)
+		hasher << asset->getFilepathHint();
+	const auto* content = asset->getContent();
+	if (!content || content->getContentHash()==NoContentHash)
+		return false;
+	// we're not using the buffer directly, just its contents
+	hasher << content->getContentHash();
+	return true;
+}
+bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUBuffer> lookup)
+{
+	auto patchedParams = lookup.asset->getCreationParams();
+	assert(lookup.patch->usage.hasFlags(patchedParams.usage));
+	patchedParams.usage = lookup.patch->usage;
+	hasher.update(&patchedParams,sizeof(patchedParams)) << lookup.asset->getContentHash();
+	return true;
+}
+bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUBufferView> lookup)
+{
+	return {};
+}
+bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUDescriptorSetLayout> lookup)
+{
+	return {};
+}
+bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUPipelineLayout> lookup)
+{
+	return {};
+}
+bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUPipelineCache> lookup)
+{
+	for (const auto& entry : lookup.asset->getEntries())
+	{
+		hasher << entry.first.deviceAndDriverUUID;
+		if (entry.first.meta)
+			hasher.update(entry.first.meta->data(),entry.first.meta->size());
+	}
+	hasher << lookup.asset->getContentHash();
+	return true;
+}
+bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUComputePipeline> lookup)
+{
+	return {};
+}
+bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPURenderpass> lookup)
+{
+	const auto* asset = lookup.asset;
+
+	hasher << asset->getDepthStencilAttachmentCount();
+	hasher << asset->getColorAttachmentCount();
+	hasher << asset->getSubpassCount();
+	hasher << asset->getDependencyCount();
+	hasher << asset->getViewMaskMSB();
+	const asset::ICPURenderpass::SCreationParams& params = asset->getCreationParameters();
+	{
+		auto hashLayout = [&](const asset::E_FORMAT format, const asset::IImage::SDepthStencilLayout& layout)->void
+		{
+			if (!asset::isStencilOnlyFormat(format))
+				hasher << layout.depth;
+			if (!asset::isDepthOnlyFormat(format))
+				hasher << layout.stencil;
+		};
+
+		for (auto i=0; i<asset->getDepthStencilAttachmentCount(); i++)
+		{
+			auto entry = params.depthStencilAttachments[i];
+			if (!entry.valid())
+				return false;
+			hasher << entry.format;
+			hasher << entry.samples;
+			hasher << entry.mayAlias;
+			auto hashOp = [&](const auto& op)->void
+			{
+				if (!asset::isStencilOnlyFormat(entry.format))
+					hasher << op.depth;
+				if (!asset::isDepthOnlyFormat(entry.format))
+					hasher << op.actualStencilOp();
+			};
+			hashOp(entry.loadOp);
+			hashOp(entry.storeOp);
+			hashLayout(entry.format,entry.initialLayout);
+			hashLayout(entry.format,entry.finalLayout);
+		}
+		for (auto i=0; i<asset->getColorAttachmentCount(); i++)
+		{
+			const auto& entry = params.colorAttachments[i];
+			if (!entry.valid())
+				return false;
+			hasher.update(&entry,sizeof(entry));
+		}
+		// subpasses
+		using SubpassDesc = asset::ICPURenderpass::SCreationParams::SSubpassDescription;
+		auto hashDepthStencilAttachmentRef = [&](const SubpassDesc::SDepthStencilAttachmentRef& ref)->void
+		{
+			hasher << ref.attachmentIndex;
+			hashLayout(params.depthStencilAttachments[ref.attachmentIndex].format,ref.layout);
+		};
+		for (auto i=0; i<asset->getSubpassCount(); i++)
+		{
+			const auto& entry = params.subpasses[i];
+			const auto depthStencilRenderAtt = entry.depthStencilAttachment.render;
+			if (depthStencilRenderAtt.used())
+			{
+				hashDepthStencilAttachmentRef(depthStencilRenderAtt);
+				if (entry.depthStencilAttachment.resolve.used())
+				{
+					hashDepthStencilAttachmentRef(entry.depthStencilAttachment.resolve);
+					hasher.update(&entry.depthStencilAttachment.resolveMode,sizeof(entry.depthStencilAttachment.resolveMode));
+				}
+			}
+			else // hash needs to care about which slots go unused
+				hasher << false;
+			// color attachments
+			for (const auto& colorAttachment : std::span(entry.colorAttachments))
+			{
+				if (colorAttachment.render.used())
+				{
+					hasher.update(&colorAttachment.render,sizeof(colorAttachment.render));
+					if (colorAttachment.resolve.used())
+						hasher.update(&colorAttachment.resolve,sizeof(colorAttachment.resolve));
+				}
+				else // hash needs to care about which slots go unused
+					hasher << false;
+			}
+			// input attachments
+			for (auto inputIt=entry.inputAttachments; *inputIt!=SubpassDesc::InputAttachmentsEnd; inputIt++)
+			{
+				if (inputIt->used())
+				{
+					hasher << inputIt->aspectMask;
+                    if (inputIt->aspectMask==asset::IImage::EAF_COLOR_BIT)
+						hashDepthStencilAttachmentRef(inputIt->asDepthStencil);
+					else
+						hasher.update(&inputIt->asColor,sizeof(inputIt->asColor));
+				}
+				else
+					hasher << false;
+			}
+			// preserve attachments
+			for (auto preserveIt=entry.preserveAttachments; *preserveIt!=SubpassDesc::PreserveAttachmentsEnd; preserveIt++)
+				hasher.update(preserveIt,sizeof(SubpassDesc::SPreserveAttachmentRef));
+			hasher << entry.viewMask;
+			hasher << entry.flags;
+		}
+		// TODO: we could sort these before hashing (and creating GPU objects)
+		hasher.update(params.dependencies,sizeof(asset::ICPURenderpass::SCreationParams::SSubpassDependency)*asset->getDependencyCount());
+	}
+	hasher.update(params.viewCorrelationGroup,sizeof(params.viewCorrelationGroup));
+
+	return true;
+}
+bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUGraphicsPipeline> lookup)
+{
+	return {};
+}
+bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUDescriptorSet> lookup)
+{
+	return {};
+}
+
+void CAssetConverter::CHashCache::eraseStale(const IPatchOverride* patchOverride)
+{
+	auto rehash = [&]<typename AssetType>() -> void
+	{
+		auto& container = std::get<container_t<AssetType>>(m_containers);
+		core::erase_if(container,[&](const auto& entry)->bool
+			{
+				// backup because `hash(lookup)` call will update it
+				const auto oldHash = entry.second;
+				const auto& key = entry.first;
+				// can re-use cached hashes for dependants if we start ejecting in the correct order
+				const auto newHash = hash({key.asset.get(),&key.patch},patchOverride,/*.cacheMistrustLevel = */1);
+				return newHash!=oldHash || newHash==NoContentHash;
+			}
+		);
+	};
+	// to make the process more efficient we start ejecting from "lowest level" assets
+	rehash.operator()<asset::ICPUSampler>();
+	rehash.operator()<asset::ICPUDescriptorSetLayout>();
+	rehash.operator()<asset::ICPUPipelineLayout>();
+	// shaders and images depend on buffers for data sourcing
+	rehash.operator()<asset::ICPUBuffer>();
+	rehash.operator()<asset::ICPUBufferView>();
+//	rehash.operator()<ICPUImage>();
+//	rehash.operator()<ICPUImageView>();
+//	rehash.operator()<ICPUBottomLevelAccelerationStructure>();
+//	rehash.operator()<ICPUTopLevelAccelerationStructure>();
+	// only once all the descriptor types have been hashed, we can hash sets
+	rehash.operator()<asset::ICPUDescriptorSet>();
+	// naturally any pipeline depends on shaders and pipeline cache
+	rehash.operator()<asset::ICPUShader>();
+	rehash.operator()<asset::ICPUPipelineCache>();
+	rehash.operator()<asset::ICPUComputePipeline>();
+	// graphics pipeline needs a renderpass
+	rehash.operator()<asset::ICPURenderpass>();
+	rehash.operator()<asset::ICPUGraphicsPipeline>();
+//	rehash.operator()<ICPUFramebuffer>();
+}
+
+
 //
 struct PatchGetter
 {
 	template<asset::Asset AssetType>
-	static inline CAssetConverter::patch_t<AssetType> ConstructPatch(const IAsset* user, const AssetType* asset)
-	{
-		CAssetConverter::patch_t<AssetType> patch(asset);
-		if (user) // only patch if there's a user
-		switch (user->getAssetType())
-		{
-			case ICPUDescriptorSetLayout::AssetType:
-			{
-				const auto* typedUser = static_cast<const ICPUDescriptorSetLayout*>(user);
-				if constexpr(std::is_same_v<AssetType,ICPUSampler>)
-				{
-					// nothing special to do
-					return patch;
-				}
-				break;
-			}
-			case ICPUPipelineLayout::AssetType:
-			{
-				const auto* typedUser = static_cast<const ICPUPipelineLayout*>(user);
-				if constexpr(std::is_same_v<AssetType,ICPUDescriptorSetLayout>)
-				{
-					// nothing special to do either
-					return patch;
-				}
-				break;
-			}
-			case ICPUComputePipeline::AssetType:
-			{
-				const auto* typedUser = static_cast<const ICPUComputePipeline*>(user);
-				if constexpr(std::is_same_v<AssetType,ICPUPipelineLayout>)
-				{
-					// nothing special to do
-					return patch;
-				}
-				if constexpr(std::is_same_v<AssetType,ICPUShader>)
-				{
-					patch.stage = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE;
-					return patch;
-				}
-				break;
-			}
-			case ICPUGraphicsPipeline::AssetType:
-			{
-				const auto* typedUser = static_cast<const ICPUGraphicsPipeline*>(user);
-				if constexpr (std::is_same_v<AssetType,ICPUPipelineLayout>)
-				{
-					// nothing special to do
-					return patch;
-				}
-				if constexpr (std::is_same_v<AssetType,ICPUShader>)
-				{
-					using stage_t = ICPUShader::E_SHADER_STAGE;
-					for (stage_t stage : {stage_t::ESS_VERTEX,stage_t::ESS_TESSELLATION_CONTROL,stage_t::ESS_TESSELLATION_EVALUATION,stage_t::ESS_GEOMETRY,stage_t::ESS_FRAGMENT})
-					if (typedUser->getSpecInfo(stage).shader==asset)
-					{
-						patch.stage = stage;
-						break;
-					}
-					return patch;
-				}
-				break;
-			}
-			case ICPUBufferView::AssetType:
-			{
-				const auto* typedUser = static_cast<const ICPUBufferView*>(user);
-				if constexpr(std::is_same_v<AssetType,ICPUBuffer>)
-				{
-					// we have no clue how this will be used, so we mark both usages
-					patch.usage |= IGPUBuffer::EUF_STORAGE_TEXEL_BUFFER_BIT|IGPUBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT;
-					return patch;
-				}
-				break;
-			}
-			case ICPUDescriptorSet::AssetType:
-			{
-				const auto* typedUser = static_cast<const ICPUDescriptorSet*>(user);
-				if constexpr(std::is_same_v<AssetType,ICPUBuffer>)
-				{
-// TODO: find the exact category of how the buffer is being used
-					// we have no clue how this will be used, so we mark both usages
-					patch.usage |= IGPUBuffer::EUF_STORAGE_TEXEL_BUFFER_BIT|IGPUBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT;
-					return patch;
-				}
-				if constexpr(std::is_same_v<AssetType,ICPUSampler>)
-					return patch;
-#if 0
-				if constexpr(std::is_same_v<AssetType,ICPUImageView>)
-				{
-					// we have no clue how this will be used, so we mark both usages
-					patch.usage |= IGPUImage::EUF_SAMPLED_BIT|IGPUImage::EUF_STORAGE_BIT;
-					return patch;
-				}
-				if constexpr(std::is_same_v<AssetType,ICPUBufferView>)
-				{
-					patch.usage |= IGPUBuffer::EUF_STORAGE_TEXEL_BUFFER_BIT|IGPUBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT;
-					return patch;
-				}
-				if constexpr(std::is_same_v<AssetType,ICPUTopLevelAccelerationStructure>)
-					return patch;
-#endif
-				break;
-			}
-			default:
-				return {};
-		}
-		return patch;
-	}
-
-	template<asset::Asset AssetType>
 	inline patch_index_t impl(const AssetType* asset)
 	{
+#if 0
 		// don't advance `uniqueCopyGroupID` or `user` on purpose
 		if (!asset)
 			return {};
@@ -407,23 +902,9 @@ struct PatchGetter
 		if (const auto foundIx=std::get<patch_index_t>(found); foundIx)
 			return foundIx;
 		// some dependency is not in DFS cache - wasn't explored, probably because it was unpatchable/uncreatable
+#endif
 		return {};
 	}
-	
-	template<asset::Asset AssetType>
-	inline const CAssetConverter::patch_t<AssetType>* operator()(const AssetType* asset)
-	{
-		const patch_index_t foundIx = impl<AssetType>(asset);
-		return foundIx ? &(std::get<dfs_cache<AssetType>>(*p_dfsCaches).nodes[foundIx.value].patch) : nullptr;
-	}
-
-	const ILogicalDevice* device;
-	const CAssetConverter::SInputs* const p_inputs;
-	const core::tuple_transform_t<dfs_cache,CAssetConverter::supported_asset_types>* const p_dfsCaches;
-	// progressive state
-	size_t uniqueCopyGroupID = 0xdeadbeefBADC0FFEull;
-	const IAsset* user = nullptr;
-// TODO: need user's patch
 };
 
 //
@@ -468,86 +949,19 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 	core::tuple_transform_t<dfs_cache,supported_asset_types> dfsCaches = {};
 
 	{
-		// Need to look at ENABLED features and not Physical Device's AVAILABLE features.
-		const auto& limits = device->getPhysicalDevice()->getLimits();
-
 		// gather all dependencies (DFS graph search) and patch, this happens top-down
 		// do not deduplicate/merge assets at this stage, only patch GPU creation parameters
 		{
-			// stack is nice and polymorphic
-			core::stack<std::pair<instance_t<IAsset>,patch_index_t>> dfsStack;
-			// returns `input_metadata_t` which you can `bool(input_metadata_t)` to find out if a new element was inserted
-			auto cache = [&]<Asset AssetType>(const instance_t<IAsset>& user, const AssetType* asset, patch_t<AssetType>&& patch) -> input_metadata_t
-			{
-				assert(asset);
-				// skip invalid inputs silently
-				if (!patch.valid(device))
+			//
+			AssetVisitor<DFSVisitor> dfsVisitor = {
 				{
-					inputs.logger.log("Asset %p used by %p in group %d has an invalid initial patch and won't be converted!",system::ILogger::ELL_ERROR,asset,user.asset,user.uniqueCopyGroupID);
-					return {};
-				}
-				// special checks (normally the GPU object creation will fail, but these are common pitfall paths, so issue errors earlier for select problems)
-				if constexpr (std::is_same_v<AssetType,ICPUShader>)
-				if (asset->getContentType()==ICPUShader::E_CONTENT_TYPE::ECT_GLSL)
-				{
-					inputs.logger.log("Asset Converter doesn't support converting GLSL shaders! Asset %p won't be converted (GLSL is deprecated in Nabla)",system::ILogger::ELL_ERROR,asset);
-					return {};
-				}
-				if constexpr (std::is_same_v<AssetType,ICPUBuffer>)
-				if (asset->getSize()>limits.maxBufferSize)
-				{
-					inputs.logger.log("Requested buffer size %zu is larger than the Physical Device's maxBufferSize Limit! Asset %p won't be converted",system::ILogger::ELL_ERROR,asset->getSize(),asset);
-					return {};
-				}
-
-				// get unique group
-				instance_t<AssetType> record = {
-					.asset = asset,
-					.uniqueCopyGroupID = inputs.getDependantUniqueCopyGroupID(user.uniqueCopyGroupID,user.asset,asset)
-				};
-				inputs.logger.log("Asset (%p,%d) is used by (%p,%d)",system::ILogger::ELL_DEBUG,record.asset,record.uniqueCopyGroupID,user.asset,user.uniqueCopyGroupID);
-
-				// now see if we visited already
-				auto& dfsCache = std::get<dfs_cache<AssetType>>(dfsCaches);
-				//
-				const patch_index_t newPatchIndex = {dfsCache.nodes.size()};
-				// get all the existing patches for the same (AssetType*,UniqueCopyGroupID)
-				auto found = dfsCache.instances.find(record);
-				if (found!=dfsCache.instances.end())
-				{
-					// iterate over linked list
-					patch_index_t* pIndex = &found->second;
-					while (*pIndex)
-					{
-						// get our candidate
-						auto& candidate = dfsCache.nodes[pIndex->value];
-						// found a thing, try-combine the patches
-						auto [success, combined] = candidate.patch.combine(patch);
-						// check whether the item is creatable after patching
-						if (success)
-						{
-							// change the patch to a combined version
-							candidate.patch = std::move(combined);
-							return { .uniqueCopyGroupID = record.uniqueCopyGroupID,.patchIndex=*pIndex};
-						}
-						// else try the next one
-						pIndex = &candidate.next;
-					}
-					// nothing mergable found, make old TAIL point to new node about to be inserted
-					*pIndex = newPatchIndex;
-				}
-				else
-				{
-					// there isn't even a linked list head for this entry
-					dfsCache.instances.emplace_hint(found,record,newPatchIndex);
-				}
-				// Haven't managed to combine with anything, so push a new patch
-				dfsCache.nodes.emplace_back(std::move(patch),CHashCache::NoContentHash);
-				// Only when we don't find a compatible patch entry do we carry on with the DFS
-				if (asset_traits<AssetType>::HasChildren)
-					dfsStack.emplace(record,newPatchIndex);
-				return {.uniqueCopyGroupID=record.uniqueCopyGroupID,.patchIndex=newPatchIndex};
+					.logger = inputs.logger,
+					.device = device,
+					.dfsCaches = dfsCaches
+				},
+				inputs
 			};
+
 			// initialize stacks
 			auto initialize = [&]<typename AssetType>(const std::span<const AssetType* const> assets)->void
 			{
@@ -577,193 +991,44 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 						if (!combineSuccess)
 							continue;
 					}
-					metadata[i] = cache({},asset,std::move(patch));
+					const size_t uniqueGroupID = inputs.getDependantUniqueCopyGroupID(0xdeadbeefBADC0FFEull,nullptr,asset);
+					metadata[i] = dfsVisitor.descend_impl<IAsset,AssetType>({},{asset,uniqueGroupID},std::move(patch));
 				}
 			};
 			core::for_each_in_tuple(inputs.assets,initialize);
 
 			// Perform Depth First Search of the Asset Graph
-			while (!dfsStack.empty())
+			while (!dfsVisitor.stack.empty())
 			{
-				const auto& entry = dfsStack.top();
-				const auto userInstance = std::get<instance_t<IAsset>>(entry);
-				const auto userPatchIx = std::get<patch_index_t>(entry);
-				dfsStack.pop();
+				auto entry = dfsVisitor.stack.top();
+				dfsVisitor.stack.pop();
 				// everything we popped has already been cached in dfsCache, now time to go over dependents
-				const auto* user = userInstance.asset;
+				const auto* user = entry.instance.asset;
 				switch (user->getAssetType())
 				{
 					case ICPUDescriptorSetLayout::AssetType:
-					{
-						auto layout = static_cast<const ICPUDescriptorSetLayout*>(user);
-						for (const auto& sampler : layout->getImmutableSamplers())
-						if (sampler)
-							cache.operator()<ICPUSampler>(userInstance,sampler.get(),{sampler.get()});
+						dfsVisitor({static_cast<const ICPUDescriptorSetLayout*>(user),entry.instance.uniqueCopyGroupID,entry.patchIx});
 						break;
-					}
 					case ICPUPipelineLayout::AssetType:
-					{
-						auto pplnLayout = static_cast<const ICPUPipelineLayout*>(user);
-						for (auto i=0; i<ICPUPipelineLayout::DESCRIPTOR_SET_COUNT; i++)
-						if (auto layout=pplnLayout->getDescriptorSetLayout(i); layout)
-							cache.operator()<ICPUDescriptorSetLayout>(userInstance,layout,{layout});
+						dfsVisitor({static_cast<const ICPUPipelineLayout*>(user),entry.instance.uniqueCopyGroupID,entry.patchIx});
 						break;
-					}
 					case ICPUComputePipeline::AssetType:
-					{
-						auto compPpln = static_cast<const ICPUComputePipeline*>(user);
-						const auto* layout = compPpln->getLayout();
-						cache.operator()<ICPUPipelineLayout>(userInstance,layout,{layout});
-						const auto* shader = compPpln->getSpecInfo().shader;
-						patch_t<ICPUShader> patch = {shader};
-						patch.stage = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE;
-						cache.operator()<ICPUShader>(userInstance,shader,std::move(patch));
+						dfsVisitor({static_cast<const ICPUComputePipeline*>(user),entry.instance.uniqueCopyGroupID,entry.patchIx});
 						break;
-					}
 					case ICPUGraphicsPipeline::AssetType:
-					{
-						auto gfxPpln = static_cast<const ICPUGraphicsPipeline*>(user);
-						const auto* layout = gfxPpln->getLayout();
-						cache.operator()<ICPUPipelineLayout>(userInstance,layout,{layout});
-						const auto* rpass = gfxPpln->getRenderpass();
-						cache.operator()<ICPURenderpass>(userInstance,rpass,{rpass});
-						using stage_t = ICPUShader::E_SHADER_STAGE;
-						for (stage_t stage : {stage_t::ESS_VERTEX,stage_t::ESS_TESSELLATION_CONTROL,stage_t::ESS_TESSELLATION_EVALUATION,stage_t::ESS_GEOMETRY,stage_t::ESS_FRAGMENT})
-						{
-							const auto* shader = gfxPpln->getSpecInfo(stage).shader;
-							if (!shader)
-								continue;
-							patch_t<ICPUShader> patch = {shader};
-							patch.stage = stage;
-							cache.operator()<ICPUShader>(userInstance,shader,std::move(patch));
-						}
+						dfsVisitor({static_cast<const ICPUGraphicsPipeline*>(user),entry.instance.uniqueCopyGroupID,entry.patchIx});
 						break;
-					}
 					case ICPUDescriptorSet::AssetType:
-					{
-						auto set = static_cast<const ICPUDescriptorSet*>(user);
-						const auto* layout = set->getLayout();
-						cache.operator()<ICPUDescriptorSetLayout>(userInstance,layout,{layout});
-						for (auto i=0u; i<static_cast<uint32_t>(IDescriptor::E_TYPE::ET_COUNT); i++)
-						{
-							const auto type = static_cast<IDescriptor::E_TYPE>(i);
-							const auto infos = set->getDescriptorInfoStorage(type);
-							if (infos.empty())
-								continue;
-							for (const auto& info : infos)
-							if (auto untypedDesc=info.desc.get(); untypedDesc)
-							switch (IDescriptor::GetTypeCategory(type))
-							{
-								case IDescriptor::EC_BUFFER:
-								{
-									auto buffer = static_cast<const ICPUBuffer*>(untypedDesc);
-									patch_t<ICPUBuffer> patch = {buffer};
-									switch(type)
-									{
-										case IDescriptor::E_TYPE::ET_UNIFORM_BUFFER:
-										case IDescriptor::E_TYPE::ET_UNIFORM_BUFFER_DYNAMIC:
-											patch.usage |= IGPUBuffer::E_USAGE_FLAGS::EUF_UNIFORM_BUFFER_BIT;
-											break;
-										case IDescriptor::E_TYPE::ET_STORAGE_BUFFER:
-										case IDescriptor::E_TYPE::ET_STORAGE_BUFFER_DYNAMIC:
-											patch.usage |= IGPUBuffer::E_USAGE_FLAGS::EUF_STORAGE_BUFFER_BIT;
-											break;
-										default:
-											assert(false);
-											break;
-									}
-									cache.operator()<ICPUBuffer>(userInstance,buffer,std::move(patch));
-									break;
-								}
-								case IDescriptor::EC_SAMPLER:
-								{
-									auto sampler = static_cast<const ICPUSampler*>(untypedDesc);
-									cache.operator()<ICPUSampler>(userInstance,sampler,{sampler});
-									break;
-								}
-								case IDescriptor::EC_IMAGE:
-								{
-									auto imageView = static_cast<const ICPUImageView*>(untypedDesc);
-#if 0
-									patch_t<ICPUImageView> patch = {imageView};
-									switch(type)
-									{
-										case IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER:
-											{
-												const auto* sampler = info.info.combinedImageSampler.sampler.get();
-												if (sampler)
-													cache.operator()<ICPUSampler>(userInstance,sampler,{sampler});
-											}
-											[[fallthrough]];
-										case IDescriptor::E_TYPE::ET_SAMPLED_IMAGE:
-										case IDescriptor::E_TYPE::ET_UNIFORM_BUFFER_DYNAMIC:
-											patch.usage |= IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT;
-											break;
-										case IDescriptor::E_TYPE::ET_STORAGE_IMAGE:
-											patch.usage |= IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT;
-											break;
-										case IDescriptor::E_TYPE::ET_INPUT_ATTACHMENT:
-											patch.usage |= IGPUImage::E_USAGE_FLAGS::EUF_INPUT_ATTACHMENT_BIT;
-											break;
-										default:
-											assert(false);
-											break;
-									}
-									cache.operator()<ICPUImageView>(userInstance,imageView,{imageView});
-#else
-									_NBL_TODO();
-#endif
-									break;
-								}
-								case IDescriptor::EC_BUFFER_VIEW:
-								{
-									auto bufferView = static_cast<const ICPUBufferView*>(untypedDesc);
-									patch_t<ICPUBufferView> patch = {bufferView};
-									switch (type)
-									{
-										case IDescriptor::E_TYPE::ET_UNIFORM_TEXEL_BUFFER:
-											patch.utbo = true;
-											break;
-										case IDescriptor::E_TYPE::ET_STORAGE_TEXEL_BUFFER:
-											patch.stbo = true;
-											break;
-									}
-									cache.operator()<ICPUBufferView>(userInstance,bufferView,std::move(patch));
-									break;
-								}
-								case IDescriptor::EC_ACCELERATION_STRUCTURE:
-								{
-									_NBL_TODO();
-									break;
-								}
-								default:
-									assert(false);
-									break;
-							}
-						}
+						dfsVisitor({static_cast<const ICPUDescriptorSet*>(user),entry.instance.uniqueCopyGroupID,entry.patchIx});
 						break;
-					}
 					case ICPUImageView::AssetType:
 					{
 						_NBL_TODO();
 						break;
 					}
 					case ICPUBufferView::AssetType:
-					{
-						auto view = static_cast<const ICPUBufferView*>(user);
-						const auto buffer = view->getUnderlyingBuffer();
-						if (buffer)
-						{
-							patch_t<ICPUBuffer> patch = {buffer};
-							const auto& userPatch = std::get<dfs_cache<ICPUBufferView>>(dfsCaches).nodes[userPatchIx.value].patch;
-							if (userPatch.utbo)
-								patch.usage |= IGPUBuffer::E_USAGE_FLAGS::EUF_UNIFORM_TEXEL_BUFFER_BIT;
-							if (userPatch.stbo)
-								patch.usage |= IGPUBuffer::E_USAGE_FLAGS::EUF_STORAGE_TEXEL_BUFFER_BIT;
-							cache.operator()<ICPUBuffer>(userInstance,buffer,std::move(patch));
-						}
+						dfsVisitor({static_cast<const ICPUBufferView*>(user),entry.instance.uniqueCopyGroupID,entry.patchIx});
 						break;
-					}
 					// these assets have no dependants, should have never been pushed on the stack
 					default:
 						assert(false);
