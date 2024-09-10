@@ -344,11 +344,11 @@ class CAssetConverter : public core::IReferenceCounted
 
 					// proceed with full hash computation
 					//! We purposefully don't hash asset pointer, we hash the contents instead
-					hash_impl impl{
-							._this = this,
+					hash_impl impl = {{
+							.hashCache = this,
 							.patchOverride = patchOverride,
 							.nextMistrustLevel = cacheMistrustLevel ? (cacheMistrustLevel-1):0
-					};
+					}};
 					// failed to hash (missing required deps), so return invalid hash
 					// but don't eject stale entry, this may have been a mistake
 					if (!impl(lookup))
@@ -405,11 +405,20 @@ class CAssetConverter : public core::IReferenceCounted
 					core::for_each_in_tuple(m_containers,[](auto& container)->void{container.clear();});
 				}
 
+				// only public to allow inheritance later in the cpp file
+				struct hash_impl_base
+				{
+					CHashCache* hashCache;
+					const IPatchOverride* patchOverride;
+					const uint32_t nextMistrustLevel;
+					core::blake3_hasher hasher = {};
+				};
+
 			private:
 				inline ~CHashCache() = default;
 
-				// forward declare
-				struct hash_impl
+				// only public to allow inheritance later in the cpp file
+				struct hash_impl : hash_impl_base
 				{
 					NBL_API bool operator()(lookup_t<asset::ICPUSampler>);
 					NBL_API bool operator()(lookup_t<asset::ICPUShader>);
@@ -422,11 +431,6 @@ class CAssetConverter : public core::IReferenceCounted
 					NBL_API bool operator()(lookup_t<asset::ICPURenderpass>);
 					NBL_API bool operator()(lookup_t<asset::ICPUGraphicsPipeline>);
 					NBL_API bool operator()(lookup_t<asset::ICPUDescriptorSet>);
-
-					CHashCache* _this;
-					const IPatchOverride* patchOverride;
-					const uint32_t nextMistrustLevel;
-					core::blake3_hasher hasher = {};
 				};
 
 				//
@@ -904,333 +908,6 @@ inline CAssetConverter::patch_impl_t<AssetType>::patch_impl_t(const AssetType* a
 // always valid
 template<asset::Asset AssetType>
 inline bool CAssetConverter::patch_impl_t<AssetType>::valid(const ILogicalDevice* device) { return true; }
-
-#if 0
-template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPUBufferView,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUBufferView,PatchGetter>&& args)
-	{
-		const auto* asset = args.asset;
-
-		core::blake3_hasher hasher;
-		{
-			const auto bufferHash = args.depHash(asset->getUnderlyingBuffer());
-			if (bufferHash==NoContentHash)
-				return {};
-			hasher << bufferHash;
-		}
-		// NOTE: We don't hash the usage metada from the patch! Because it doesn't matter.
-		// The view usage in the patch helps us propagate and patch during DFS, but no more.
-		hasher << asset->getFormat();
-		hasher << asset->getOffsetInBuffer();
-		hasher << asset->getByteSize();
-		return hasher;
-	}
-};
-
-template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPUDescriptorSetLayout,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUDescriptorSetLayout,PatchGetter>&& args)
-	{
-		const auto* asset = args.asset;
-
-		core::blake3_hasher hasher;
-		using storage_range_index_t = asset::ICPUDescriptorSetLayout::CBindingRedirect::storage_range_index_t;
-		for (uint32_t t=0u; t<static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_COUNT); t++)
-		{
-			const auto type = static_cast<asset::IDescriptor::E_TYPE>(t);
-			hasher << type;
-			const auto& redirect = asset->getDescriptorRedirect(type);
-			const auto count = redirect.getBindingCount();
-			for (auto i=0u; i<count; i++)
-			{
-				const storage_range_index_t storageRangeIx(i);
-				hasher << redirect.getBinding(storageRangeIx).data;
-				hasher << redirect.getCreateFlags(storageRangeIx);
-				hasher << redirect.getStageFlags(storageRangeIx);
-				hasher << redirect.getCount(storageRangeIx);
-			}
-		}
-		const auto& immutableSamplerRedirects = asset->getImmutableSamplerRedirect();
-		const auto count = immutableSamplerRedirects.getBindingCount();
-		for (auto i=0u; i<count; i++)
-		{
-			const storage_range_index_t storageRangeIx(i);
-			hasher << immutableSamplerRedirects.getBinding(storageRangeIx).data;
-		}
-		for (const auto& immutableSampler : asset->getImmutableSamplers())
-		{
-			const auto samplerHash = args.depHash(immutableSampler.get());
-			if (samplerHash==NoContentHash)
-				return {};
-			hasher << samplerHash;
-		}
-		return hasher;
-	}
-};
-
-template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPUPipelineLayout,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUPipelineLayout,PatchGetter>&& args)
-	{
-		core::blake3_hasher hasher;
-		hasher << std::span(args.patch->pushConstantBytes);
-		for (auto i = 0; i < asset::ICPUPipelineLayout::DESCRIPTOR_SET_COUNT; i++)
-		{
-			auto dep = args.asset->getDescriptorSetLayout(i);
-			if (dep) // remember each layout is optional
-			{
-				const auto dsLayoutHash = args.depHash(dep);
-				if (dsLayoutHash==NoContentHash)
-					return {};
-				hasher << dsLayoutHash;
-			}
-			else
-				hasher << NoContentHash;
-		}
-		return hasher;
-	}
-};
-
-template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPUComputePipeline,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUComputePipeline,PatchGetter>&& args)
-	{
-		const auto* asset = args.asset;
-
-		core::blake3_hasher hasher;
-		{
-			const auto layoutHash = args.depHash(asset->getLayout());
-			if (layoutHash==NoContentHash)
-				return {};
-			hasher << layoutHash;
-		}
-		const auto& specInfo = asset->getSpecInfo();
-		hasher << specInfo.entryPoint;
-		{
-			const auto shaderHash = args.depHash(specInfo.shader);
-			if (shaderHash==NoContentHash)
-				return {};
-			hasher << shaderHash;
-		}
-		if (specInfo.entries)
-		for (const auto& specConstant : *specInfo.entries)
-		{
-			hasher << specConstant.first;
-			hasher.update(specConstant.second.data,specConstant.second.size);
-		}
-		hasher << specInfo.requiredSubgroupSize;
-		hasher << specInfo.requireFullSubgroups;
-		return hasher;
-	}
-};
-template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPUGraphicsPipeline,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUGraphicsPipeline,PatchGetter>&& args)
-	{
-		const auto* asset = args.asset;
-
-		core::blake3_hasher hasher;
-		{
-			const auto layoutHash = args.depHash(asset->getLayout());
-			if (layoutHash==NoContentHash)
-				return {};
-			hasher << layoutHash;
-		}
-
-		{
-			const auto renderpassHash = args.depHash(asset->getRenderpass());
-			if (renderpassHash==NoContentHash)
-				return {};
-			hasher << renderpassHash;
-		}
-
-		using shader_stage_t = asset::ICPUShader::E_SHADER_STAGE;
-		auto hashStage = [&](const shader_stage_t stage, const bool required=false)->bool
-		{
-			const auto& specInfo = asset->getSpecInfo(stage);
-			if (!specInfo.shader) // fail only if required
-				return required;
-
-			hasher << specInfo.entryPoint;
-			{
-				const auto shaderHash = args.depHash(specInfo.shader);
-				// having a non-required shader at a stage but that shader failing hash, fails us
-				if (shaderHash==NoContentHash)
-					return true;
-				hasher << shaderHash;
-			}
-			if (specInfo.entries)
-			for (const auto& specConstant : *specInfo.entries)
-			{
-				hasher << specConstant.first;
-				hasher.update(specConstant.second.data,specConstant.second.size);
-			}
-			hasher << specInfo.requiredSubgroupSize;
-			return false;
-		};
-		if (hashStage(shader_stage_t::ESS_VERTEX,true) ||
-			hashStage(shader_stage_t::ESS_TESSELLATION_CONTROL) ||
-			hashStage(shader_stage_t::ESS_TESSELLATION_EVALUATION) ||
-			hashStage(shader_stage_t::ESS_GEOMETRY) ||
-			hashStage(shader_stage_t::ESS_FRAGMENT))
-			return {};
-
-		const auto& params = asset->getCachedCreationParams();
-		{
-			for (auto i=0; i<asset::SVertexInputParams::MAX_VERTEX_ATTRIB_COUNT; i++)
-			if (params.vertexInput.enabledAttribFlags&(0x1u<<i))
-			{
-				const auto& attribute = params.vertexInput.attributes[i];
-				hasher.update(&attribute,sizeof(asset::SVertexInputAttribParams));
-				hasher.update(&params.vertexInput.bindings+attribute.binding,sizeof(asset::SVertexInputBindingParams));
-			}
-			const auto& ass = params.primitiveAssembly;
-			hasher << ass.primitiveType;
-			hasher << ass.primitiveRestartEnable;
-			if (ass.primitiveType==asset::E_PRIMITIVE_TOPOLOGY::EPT_PATCH_LIST)
-				hasher << ass.tessPatchVertCount;
-			const auto& raster = params.rasterization;
-			if (!raster.rasterizerDiscard)
-			{
-				hasher << raster.viewportCount;
-				hasher << raster.samplesLog2;
-				hasher << raster.polygonMode;
-				//if (raster.polygonMode==asset::E_POLYGON_MODE::EPM_FILL) // do wireframes and point draw with face culling?
-				{
-					hasher << raster.faceCullingMode;
-					hasher << raster.frontFaceIsCCW;
-				}
-				const auto& rpassParam = asset->getRenderpass()->getCreationParameters();
-				const auto& depthStencilRef = rpassParam.subpasses[params.subpassIx].depthStencilAttachment.render;
-				if (depthStencilRef.used())
-				{
-					const auto attFormat = rpassParam.depthStencilAttachments[depthStencilRef.attachmentIndex].format;
-					if (!asset::isStencilOnlyFormat(attFormat))
-					{
-						hasher << raster.depthCompareOp;
-						hasher << raster.depthWriteEnable;
-						if (raster.depthTestEnable())
-						{
-							hasher << raster.depthClampEnable;
-							hasher << raster.depthBiasEnable;
-							hasher << raster.depthBoundsTestEnable;
-						}
-					}
-					if (raster.stencilTestEnable() && !asset::isDepthOnlyFormat(attFormat))
-					{
-						if ((raster.faceCullingMode&asset::E_FACE_CULL_MODE::EFCM_FRONT_BIT)==0)
-							hasher << raster.frontStencilOps;
-						if ((raster.faceCullingMode&asset::E_FACE_CULL_MODE::EFCM_BACK_BIT)==0)
-							hasher << raster.backStencilOps;
-					}
-				}
-				hasher << raster.alphaToCoverageEnable;
-				hasher << raster.alphaToOneEnable;
-				if (raster.samplesLog2)
-				{
-					hasher << raster.minSampleShadingUnorm;
-					hasher << (reinterpret_cast<const uint64_t&>(raster.sampleMask)&((0x1ull<<raster.samplesLog2)-1));
-				}
-			}
-			for (const auto& blend : std::span(params.blend.blendParams))
-			{
-				if (blend.blendEnabled())
-					hasher.update(&blend,sizeof(blend));
-				else
-					hasher << blend.colorWriteMask;
-			}
-			hasher << params.blend.logicOp;
-		}
-		hasher << params.subpassIx;
-
-		return hasher;
-	}
-};
-
-template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPUDescriptorSet,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUDescriptorSet,PatchGetter>&& args)
-	{
-		const auto* asset = args.asset;
-
-		core::blake3_hasher hasher;
-		{
-			const auto layoutHash = args.depHash(asset->getLayout());
-			if (layoutHash==NoContentHash)
-				return {};
-			hasher << layoutHash;
-		}
-		
-		for (auto i=0u; i<static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_COUNT); i++)
-		{
-			const auto type = static_cast<asset::IDescriptor::E_TYPE>(i);
-			const auto infos = asset->getDescriptorInfoStorage(type);
-			if (infos.empty())
-				continue;
-			for (const auto& info : infos)
-			{
-				const auto* untypedDesc = info.desc.get();
-				if (untypedDesc)
-				{
-					core::blake3_hash_t descHash = NoContentHash;
-					switch (asset::IDescriptor::GetTypeCategory(type))
-					{
-						case asset::IDescriptor::EC_BUFFER:
-							descHash = args.depHash(static_cast<const asset::ICPUBuffer*>(untypedDesc));
-							hasher.update(&info.info.buffer,sizeof(info.info.buffer));
-							break;
-						case asset::IDescriptor::EC_SAMPLER:
-							descHash = args.depHash(static_cast<const asset::ICPUSampler*>(untypedDesc));
-							break;
-						case asset::IDescriptor::EC_IMAGE:
-							_NBL_TODO();
-//							descHash = args.depHash(static_cast<const asset::ICPUImageView*>(untypedDesc));
-							hasher.update(&info.info.image,sizeof(info.info.image));
-							if (type==asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER)
-							{
-								const auto* sampler = info.info.combinedImageSampler.sampler.get();
-								if (sampler)
-								{
-									const auto samplerHash = args.depHash(sampler);
-									if (samplerHash==NoContentHash)
-										return {};
-									hasher << samplerHash;
-								}
-								else
-									return {}; // we must have both
-							}
-							break;
-						case asset::IDescriptor::EC_BUFFER_VIEW:
-							descHash = args.depHash(static_cast<const asset::ICPUBufferView*>(untypedDesc));
-							break;
-						case asset::IDescriptor::EC_ACCELERATION_STRUCTURE:
-							_NBL_TODO();
-//							descHash = args.depHash(static_cast<const asset::ICPUTopLevelAccelerationStructure*>(untypedDesc));
-							break;
-						default:
-							assert(false);
-							break;
-					}
-					if (descHash==NoContentHash)
-						return {};
-					hasher << descHash;
-				}
-				else // null descriptor
-					hasher << 0x0ull;
-			}
-		}
-
-		return hasher;
-	}
-};
-#endif
 
 }
 #endif
