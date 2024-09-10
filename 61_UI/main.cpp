@@ -188,7 +188,17 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 				auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
 
-				pass.ui.manager = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(smart_refctd_ptr(m_device), smart_refctd_ptr(descriptorSetLayout), renderpass, 0u);
+				pass.ui.manager = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>
+				(
+					nbl::ext::imgui::UI::S_CREATION_PARAMETERS
+					{
+						.utilities = m_utils.get(),
+						.transfer = getTransferUpQueue(),
+						.renderpass = renderpass,
+						.subpassIx = 0u,
+						.descriptorSetLayout = descriptorSetLayout.get()
+					}
+				);
 
 				IDescriptorPool::SCreateInfo descriptorPoolInfo = {};
 				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLER)] = 69u;
