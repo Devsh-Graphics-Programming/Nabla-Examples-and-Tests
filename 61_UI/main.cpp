@@ -768,10 +768,20 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			}
 			if (move) camera.endInputProcessing(nextPresentationTimestamp);
 
-			core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
-			core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
+			const auto cursorPosition = m_window->getCursorControl()->getPosition();
 
-			pass.ui.manager->update(m_window.get(), deltaTimeInSec, mouseEvents, keyboardEvents);
+			nbl::ext::imgui::UI::S_UPDATE_PARAMETERS params = 
+			{
+				.mousePosition = nbl::hlsl::float32_t2(cursorPosition.x, cursorPosition.y) - nbl::hlsl::float32_t2(m_window->getX(), m_window->getY()),
+				.displaySize = { m_window->getWidth(), m_window->getHeight() },
+				.events = 
+				{
+					.mouse = core::SRange<const nbl::ui::SMouseEvent>(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size()),
+					.keyboard = core::SRange<const nbl::ui::SKeyboardEvent>(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size())
+				}
+			};
+
+			pass.ui.manager->update(params);
 		}
 
 	private:
