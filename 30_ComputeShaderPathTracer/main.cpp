@@ -54,7 +54,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 	_NBL_STATIC_INLINE_CONSTEXPR uint32_t2 WindowDimensions = { 1280, 720 };
 	_NBL_STATIC_INLINE_CONSTEXPR uint32_t FramesInFlight = 5;
 	_NBL_STATIC_INLINE_CONSTEXPR clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
-	_NBL_STATIC_INLINE_CONSTEXPR E_LIGHT_GEOMETRY LightGeom = E_LIGHT_GEOMETRY::ELG_TRIANGLE;
+	_NBL_STATIC_INLINE_CONSTEXPR E_LIGHT_GEOMETRY LightGeom = E_LIGHT_GEOMETRY::ELG_SPHERE;
 	_NBL_STATIC_INLINE_CONSTEXPR uint32_t DefaultWorkGroupSize = 16u;
 	_NBL_STATIC_INLINE_CONSTEXPR uint32_t MaxDescriptorCount = 256u;
 	_NBL_STATIC_INLINE_CONSTEXPR uint32_t MaxDepthLog2 = 4u; // 5
@@ -324,12 +324,13 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				IAssetLoader::SAssetLoadParams params;
 				auto imageBundle = m_assetMgr->getAsset(DefaultImagePathsFile.data(), params);
 				auto cpuImg = IAsset::castDown<ICPUImage>(imageBundle.getContents().begin()[0]);
+				auto format = cpuImg->getCreationParameters().format;
 
 				ICPUImageView::SCreationParams viewParams = {
 					.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
 					.image = std::move(cpuImg),
 					.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
-					.format = cpuImg->getCreationParameters().format,
+					.format = format,
 					.subresourceRange = {
 						.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
 						.baseMipLevel = 0u,
@@ -537,7 +538,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 				auto descriptorPool = m_device->createDescriptorPool(std::move(createInfo));
 
-				smart_refctd_ptr<IGPUDescriptorSet> m_descriptorSet0 = descriptorPool->createDescriptorSet(gpuDescriptorSetLayout0);
+				m_descriptorSet0 = descriptorPool->createDescriptorSet(gpuDescriptorSetLayout0);
 				IGPUDescriptorSet::SWriteDescriptorSet writeDescriptorSet = {};
 				writeDescriptorSet.dstSet = m_descriptorSet0.get();
 				writeDescriptorSet.binding = 0;
@@ -977,7 +978,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				{
 					cmdbuf->writeTimestamp(PIPELINE_STAGE_FLAGS::NONE, m_timestampQueryPool.get(), 0u);
 					cmdbuf->bindComputePipeline(m_pipeline.get());
-					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_pipeline->getLayout(), 0u, 1u, &m_descriptorSets0[m_currentImageAcquire.imageIndex].get());
+					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_pipeline->getLayout(), 1u, 1u, &m_uboDescriptorSet1.get());
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
 					cmdbuf->dispatch(1 + (WindowDimensions.x - 1) / DefaultWorkGroupSize, 1 + (WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u);
@@ -1199,8 +1200,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		uint64_t m_maxFramesInFlight : 5;
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>, ISwapchain::MaxImages> m_cmdBufs;
 		ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
-		std::array<smart_refctd_ptr<IGPUDescriptorSet>, ISwapchain::MaxImages> m_descriptorSets0;
-		smart_refctd_ptr<IGPUDescriptorSet> m_uboDescriptorSet1, m_descriptorSet2;
+		smart_refctd_ptr<IGPUDescriptorSet> m_descriptorSet0, m_uboDescriptorSet1, m_descriptorSet2;
 
 		core::smart_refctd_ptr<IDescriptorPool> m_guiDescriptorSetPool;
 
