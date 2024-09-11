@@ -305,24 +305,24 @@ class CAssetConverter : public core::IReferenceCounted
 				class IPatchOverride
 				{
 					public:
-						virtual const patch_t<asset::ICPUSampler>* operator()(const patch_t<asset::ICPUSampler>&) const = 0;
-						virtual const patch_t<asset::ICPUShader>* operator()(const patch_t<asset::ICPUShader>&) const = 0;
-						virtual const patch_t<asset::ICPUBuffer>* operator()(const patch_t<asset::ICPUBuffer>&) const = 0;
-						virtual const patch_t<asset::ICPUBufferView>* operator()(const patch_t<asset::ICPUBufferView>&) const = 0;
-						virtual const patch_t<asset::ICPUPipelineLayout>* operator()(const patch_t<asset::ICPUPipelineLayout>&) const = 0;
+						virtual const patch_t<asset::ICPUSampler>* operator()(const lookup_t<asset::ICPUSampler>&) const = 0;
+						virtual const patch_t<asset::ICPUShader>* operator()(const lookup_t<asset::ICPUShader>&) const = 0;
+						virtual const patch_t<asset::ICPUBuffer>* operator()(const lookup_t<asset::ICPUBuffer>&) const = 0;
+						virtual const patch_t<asset::ICPUBufferView>* operator()(const lookup_t<asset::ICPUBufferView>&) const = 0;
+						virtual const patch_t<asset::ICPUPipelineLayout>* operator()(const lookup_t<asset::ICPUPipelineLayout>&) const = 0;
 
 						// certain items are not patchable, so there's no `patch_t` with non zero size
-						inline const patch_t<asset::ICPUDescriptorSetLayout>* operator()(const patch_t<asset::ICPUDescriptorSetLayout>& unpatchable) const
+						inline const patch_t<asset::ICPUDescriptorSetLayout>* operator()(const lookup_t<asset::ICPUDescriptorSetLayout>& unpatchable) const
 						{
-							return &unpatchable;
+							return unpatchable.patch;
 						}
-						inline const patch_t<asset::ICPURenderpass>* operator()(const patch_t<asset::ICPURenderpass>& unpatchable) const
+						inline const patch_t<asset::ICPURenderpass>* operator()(const lookup_t<asset::ICPURenderpass>& unpatchable) const
 						{
-							return &unpatchable;
+							return unpatchable.patch;
 						}
-						inline const patch_t<asset::ICPUDescriptorSet>* operator()(const patch_t<asset::ICPUDescriptorSet>& unpatchable) const
+						inline const patch_t<asset::ICPUDescriptorSet>* operator()(const lookup_t<asset::ICPUDescriptorSet>& unpatchable) const
 						{
-							return &unpatchable;
+							return unpatchable.patch;
 						}
 
 						// while other things are top level assets in the graph and `operator()` would never be called on their patch
@@ -331,7 +331,7 @@ class CAssetConverter : public core::IReferenceCounted
 				template<asset::Asset AssetType>
 				inline core::blake3_hash_t hash(const lookup_t<AssetType>& lookup, const IPatchOverride* patchOverride, const uint32_t cacheMistrustLevel=0)
 				{
-					if (!lookup.asset || !lookup.patch)// || !lookup.patch->valid()) we assume any patch gotten is valid (to not have a dependancy on the device)
+					if (!patchOverride || !lookup.asset || !lookup.patch)// || !lookup.patch->valid()) we assume any patch gotten is valid (to not have a dependancy on the device)
 						return NoContentHash;
 
 					// consult cache
@@ -343,18 +343,20 @@ class CAssetConverter : public core::IReferenceCounted
 						return foundIt->second;
 
 					// proceed with full hash computation
-					//! We purposefully don't hash asset pointer, we hash the contents instead
+					core::blake3_hasher hasher = {};
+					// We purposefully don't hash asset pointer, we hash the contents instead
 					hash_impl impl = {{
 							.hashCache = this,
 							.patchOverride = patchOverride,
-							.nextMistrustLevel = cacheMistrustLevel ? (cacheMistrustLevel-1):0
+							.nextMistrustLevel = cacheMistrustLevel ? (cacheMistrustLevel-1):0,
+							.hasher  = hasher
 					}};
 					// failed to hash (missing required deps), so return invalid hash
 					// but don't eject stale entry, this may have been a mistake
 					if (!impl(lookup))
 						return NoContentHash;
-					const auto retval = static_cast<core::blake3_hash_t>(impl.hasher);
-					assert(retval==NoContentHash);
+					const auto retval = static_cast<core::blake3_hash_t>(hasher);
+					assert(retval!=NoContentHash);
 
 					if (found) // replace stale entry
 						foundIt->second = retval;
@@ -411,7 +413,7 @@ class CAssetConverter : public core::IReferenceCounted
 					CHashCache* hashCache;
 					const IPatchOverride* patchOverride;
 					const uint32_t nextMistrustLevel;
-					core::blake3_hasher hasher = {};
+					core::blake3_hasher& hasher;
 				};
 
 			private:
