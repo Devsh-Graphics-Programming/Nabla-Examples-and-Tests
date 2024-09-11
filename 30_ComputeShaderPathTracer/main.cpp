@@ -64,7 +64,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 	_NBL_STATIC_INLINE_CONSTEXPR uint8_t MaxUITextureCount = 2u;
 	_NBL_STATIC_INLINE_CONSTEXPR uint8_t SceneTextureIndeex = 1u;
 	_NBL_STATIC_INLINE std::string DefaultImagePathsFile = "../../media/envmap/envmap_0.exr";
-	_NBL_STATIC_INLINE std::array<std::string, 3> ShaderPaths = { "litBySphere.comp", "litByTriangle.comp", "litByRectangle.comp" };
+	_NBL_STATIC_INLINE std::array<std::string, 3> ShaderPaths = { "app_resources/litBySphere.comp", "app_resources/litByTriangle.comp", "app_resources/litByRectangle.comp" };
 
 	public:
 		inline ComputeShaderPathtracer(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
