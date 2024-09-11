@@ -37,18 +37,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		const void* data
 	)
 	{
-		IGPUBuffer::SCreationParams params = {};
-		params.usage = usage;
-		params.size = size;
-
-		auto bufferFuture = m_utils->createFilledDeviceLocalBufferOnDedMem(
-			std::move(m_intendedSubmit),
-			std::move(params),
-			data
-		);
-		bufferFuture.wait();
-		auto buffer = bufferFuture.get();
-		return {0u, buffer->get()->getSize(), *buffer};
+		
 	}
 
 	_NBL_STATIC_INLINE_CONSTEXPR uint32_t2 WindowDimensions = { 1280, 720 };
@@ -392,30 +381,52 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 			// create ubo and sequence buffer view
 			{
-				m_ubo = createBuffer(
-					sizeof(SBasicViewParametersAligned),
-					IGPUBuffer::EUF_UNIFORM_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT,
-					nullptr
-				).buffer;
+				{
+					IGPUBuffer::SCreationParams params = {};
+					params.usage = IGPUBuffer::EUF_UNIFORM_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
+					params.size = sizeof(SBasicViewParametersAligned);
 
-				auto sampleSequence = core::make_smart_refctd_ptr<asset::ICPUBuffer>(sizeof(uint32_t) * MaxBufferDimensions * MaxBufferDimensions);
+					m_ubo = m_device->createBuffer(std::move(params));
+				}
 
-				core::OwenSampler sampler(MaxBufferDimensions, 0xdeadbeefu);
-				//core::SobolSampler sampler(MaxBufferDimensions);
+				{
+					auto sampleSequence = core::make_smart_refctd_ptr<asset::ICPUBuffer>(sizeof(uint32_t) * MaxBufferDimensions * MaxBufferSamples);
 
-				auto out = reinterpret_cast<uint32_t*>(sampleSequence->getPointer());
-				for (auto dim = 0u; dim < MaxBufferDimensions; dim++)
-					for (uint32_t i = 0; i < MaxBufferSamples; i++)
-					{
-						out[i * MaxBufferDimensions + dim] = sampler.sample(dim, i);
-					}
+					core::OwenSampler sampler(MaxBufferDimensions, 0xdeadbeefu);
+					//core::SobolSampler sampler(MaxBufferDimensions);
 
-				auto bufferRange = createBuffer(
-					sampleSequence->getSize(),
-					asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT,
-					sampleSequence->getPointer()
-				);
-				m_sequenceBufferView = m_device->createBufferView(bufferRange, asset::E_FORMAT::EF_R32G32B32_UINT);
+					auto out = reinterpret_cast<uint32_t*>(sampleSequence->getPointer());
+					for (auto dim = 0u; dim < MaxBufferDimensions; dim++)
+						for (uint32_t i = 0; i < MaxBufferSamples; i++)
+						{
+							out[i * MaxBufferDimensions + dim] = sampler.sample(dim, i);
+						}
+
+					IGPUBuffer::SCreationParams params = {};
+					params.usage = asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT;
+					params.size = sampleSequence->getSize();
+
+					// we don't want to overcomplicate the example with multi-queue
+					auto queue = getGraphicsQueue();
+					auto cmdbuf = m_cmdBufs[0].get();
+					cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
+					IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf };
+					m_intendedSubmit.commandBuffers = { &cmdbufInfo, 1 };
+
+					queue->startCapture();
+
+					auto bufferFuture = m_utils->createFilledDeviceLocalBufferOnDedMem(
+						m_intendedSubmit,
+						std::move(params),
+						sampleSequence->getPointer()
+					);
+					bufferFuture.wait();
+					auto buffer = bufferFuture.get();
+
+					queue->endCapture();
+
+					m_sequenceBufferView = m_device->createBufferView({ 0u, buffer->get()->getSize(), *buffer }, asset::E_FORMAT::EF_R32G32B32_UINT);
+				}
 			}
 
 			// upload data
@@ -428,6 +439,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					// we don't want to overcomplicate the example with multi-queue
 					auto queue = getGraphicsQueue();
 					auto cmdbuf = m_cmdBufs[0].get();
+					cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
 					IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf };
 					m_intendedSubmit.commandBuffers = { &cmdbufInfo, 1 };
 
@@ -515,6 +527,15 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 					const std::span<const asset::IImage::SBufferCopy> regions = { &region, 1 };
 
+					// we don't want to overcomplicate the example with multi-queue
+					auto queue = getGraphicsQueue();
+					auto cmdbuf = m_cmdBufs[0].get();
+					cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
+					IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf };
+					m_intendedSubmit.commandBuffers = { &cmdbufInfo, 1 };
+
+					queue->startCapture();
+
 					m_utils->updateImageViaStagingBufferAutoSubmit(
 						m_intendedSubmit,
 						random.data(),
@@ -523,6 +544,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						IGPUImage::LAYOUT::UNDEFINED,
 						regions
 					);
+
+					queue->endCapture();
 				}
 			}
 
@@ -867,6 +890,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			{
 				auto queue = getGraphicsQueue();
 				auto& cmdbuf = m_cmdBufs[resourceIx];
+				cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
 				const auto viewMatrix = m_camera.getViewMatrix();
 				const auto viewProjectionMatrix = matrix4SIMD();
 				/*
@@ -898,6 +922,10 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					range.buffer = m_ubo;
 					range.offset = 0ull;
 					range.size = sizeof(viewParams);
+					
+					IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf.get() };
+					m_intendedSubmit.commandBuffers = { &cmdbufInfo, 1 };
+					
 					m_utils->updateBufferRangeViaStagingBufferAutoSubmit(m_intendedSubmit, range, &viewParams);
 				}
 
@@ -1042,6 +1070,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					.renderArea = currentRenderArea
 				};
 				cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+				IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cb };
+				m_intendedSubmit.commandBuffers = { &cmdbufInfo, 1 };
 				m_ui.manager->render(m_intendedSubmit, m_ui.descriptorSet.get());
 				cb->endRenderPass();
 			}
