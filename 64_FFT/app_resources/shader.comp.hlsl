@@ -7,7 +7,7 @@
 using namespace nbl::hlsl;
 
 // careful: change size according to Scalar type
-groupshared uint32_t sharedmem[ workgroup::fft::sharedMemSize<scalar_t, WorkgroupSize> ];
+groupshared uint32_t sharedmem[ workgroup::fft::SharedMemoryDWORDs<scalar_t, WorkgroupSize> ];
 
 // Users MUST define this method for FFT to work
 uint32_t3 glsl::gl_WorkGroupSize() { return uint32_t3(WorkgroupSize, 1, 1); }
