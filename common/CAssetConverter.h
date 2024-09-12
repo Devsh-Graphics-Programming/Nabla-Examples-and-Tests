@@ -186,7 +186,7 @@ class CAssetConverter : public core::IReferenceCounted
 					this_t retval = *this;
 					for (auto byte=0; byte!=pushConstantBytes.size(); byte++)
 						retval.pushConstantBytes[byte] |= other.pushConstantBytes[byte];
-					return {!invalid,retval};
+					return {true,retval};
 				}
 
 				bool invalid = true;

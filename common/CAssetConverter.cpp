@@ -178,15 +178,16 @@ class AssetVisitor : public CRTP
 		const CAssetConverter::patch_t<AssetType>& patch;
 
 	protected:
-		template<Asset DepType>
-		bool descend(const DepType* dep, CAssetConverter::patch_t<DepType>&& candidatePatch)
+		template<Asset DepType, typename... ExtraArgs>
+		bool descend(const DepType* dep, CAssetConverter::patch_t<DepType>&& candidatePatch, ExtraArgs&&... extraArgs)
 		{
 			assert(dep);
 			return bool(
 				CRTP::descend_impl(
 					instance,patch,
 					{dep,CRTP::getDependantUniqueCopyGroupID(instance.uniqueCopyGroupID,instance.asset,dep)},
-					std::move(candidatePatch)
+					std::move(candidatePatch),
+					std::forward<ExtraArgs>(extraArgs)...
 				)
 			);
 		}
@@ -206,9 +207,13 @@ class AssetVisitor : public CRTP
 		}
 		inline bool impl(const instance_t<ICPUDescriptorSetLayout>& instance, const CAssetConverter::patch_t<ICPUDescriptorSetLayout>& userPatch)
 		{
-			for (const auto& sampler : instance.asset->getImmutableSamplers())
-			if (!sampler || !descend(sampler.get(),{sampler.get()})) // shall we pass the binding number too?
-				return false;
+			const auto samplers = instance.asset->getImmutableSamplers();
+			for (size_t i=0; i<samplers.size(); i++)
+			{
+				const auto sampler = samplers[i].get();
+				if (!sampler || !descend(sampler,{sampler},i))
+					return false;
+			}
 			return true;
 		}
 		inline bool impl(const instance_t<ICPUPipelineLayout>& instance, const CAssetConverter::patch_t<ICPUPipelineLayout>& userPatch)
@@ -218,7 +223,7 @@ class AssetVisitor : public CRTP
 			{
 				if (auto layout=instance.asset->getDescriptorSetLayout(i); layout)
 				{
-					if (!descend(layout,{layout}))
+					if (!descend(layout,{layout},i))
 						return false;
 				}
 				else
@@ -232,12 +237,13 @@ class AssetVisitor : public CRTP
 			const auto* layout = asset->getLayout();
 			if (!layout || !descend(layout,{layout}))
 				return false;
-			const auto* shader = asset->getSpecInfo().shader;
+			const auto& specInfo = asset->getSpecInfo();
+			const auto* shader = specInfo.shader;
 			if (!shader)
 				return false;
 			CAssetConverter::patch_t<ICPUShader> patch = {shader};
 			patch.stage = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE;
-			if (!descend(shader,std::move(patch))) // pass spec info?
+			if (!descend(shader,std::move(patch),specInfo))
 				return false;
 			return true;
 		}
@@ -253,7 +259,8 @@ class AssetVisitor : public CRTP
 			using stage_t = ICPUShader::E_SHADER_STAGE;
 			for (stage_t stage : {stage_t::ESS_VERTEX,stage_t::ESS_TESSELLATION_CONTROL,stage_t::ESS_TESSELLATION_EVALUATION,stage_t::ESS_GEOMETRY,stage_t::ESS_FRAGMENT})
 			{
-				const auto* shader = asset->getSpecInfo(stage).shader;
+				const auto& specInfo = asset->getSpecInfo(stage);
+				const auto* shader = specInfo.shader;
 				if (!shader)
 				{
 					if (stage==stage_t::ESS_VERTEX) // required
@@ -263,7 +270,7 @@ class AssetVisitor : public CRTP
 				}
 				CAssetConverter::patch_t<ICPUShader> patch = {shader};
 				patch.stage = stage;
-				if (!descend(shader,std::move(patch))) // pass spec info?
+				if (!descend(shader,std::move(patch),specInfo))
 					return false;
 			}
 			return true;
@@ -511,10 +518,11 @@ class DFSVisitor
 		}
 		
 		// impl
-		template<Asset DepType>
+		template<Asset DepType, typename... IgnoredArgs>
 		bool descend_impl(
 			const instance_t<AssetType>& user, const CAssetConverter::patch_t<AssetType>& userPatch,
-			const instance_t<DepType>& dep, CAssetConverter::patch_t<DepType>&& soloPatch
+			const instance_t<DepType>& dep, CAssetConverter::patch_t<DepType>&& soloPatch,
+			IgnoredArgs&&... ignoredArgs // DFS doesn't need to know
 		)
 		{
 			return bool(descend_impl_impl<DepType>({user.asset,user.uniqueCopyGroupID},dep,std::move(soloPatch)));
@@ -654,10 +662,11 @@ class HashVisit : public CAssetConverter::CHashCache::hash_impl_base
 			return static_cast<const PatchOverride*>(patchOverride)->inputs.getDependantUniqueCopyGroupID(usersGroupCopyID,user,dep);
 		}
 
-		template<Asset DepType>
+		template<Asset DepType, typename... ExtraArgs>
 		inline bool descend_impl(
 			const instance_t<AssetType>& user, const CAssetConverter::patch_t<AssetType>& userPatch, // unused for this visit type
-			const instance_t<DepType>& dep, const CAssetConverter::patch_t<DepType>& soloPatch
+			const instance_t<DepType>& dep, const CAssetConverter::patch_t<DepType>& soloPatch,
+			ExtraArgs&&... extraArgs // its just easier to hash most of those in `hash_impl::operator()`
 		)
 		{
 			assert(hashCache && patchOverride);
@@ -673,6 +682,22 @@ class HashVisit : public CAssetConverter::CHashCache::hash_impl_base
 				return false;
 			// add dep hash to own
 			hasher << depHash;
+			// handle the few things we want to handle here
+			if constexpr (sizeof...(extraArgs)==1)
+			{
+				const auto& firstArg = std::get<0>(std::tuple<const ExtraArgs&...>(extraArgs...));
+				// hash the spec info
+				if constexpr (std::is_same_v<decltype(firstArg),const ICPUShader::SSpecInfo&>)
+				{
+					hasher << firstArg.entryPoint;
+					for (const auto& specConstant : *firstArg.entries)
+					{
+						hasher << specConstant.first;
+						hasher.update(specConstant.second.data,specConstant.second.size);
+					}
+					hasher << firstArg.requiredSubgroupSize;
+				}
+			}
 			return true;
 		}
 
@@ -808,16 +833,8 @@ bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUComputePipe
 	};
 	if (!visitor())
 		return false;
-	//
-	const auto& specInfo = asset->getSpecInfo();
-	hasher << specInfo.entryPoint;
-	for (const auto& specConstant : *specInfo.entries)
-	{
-		hasher << specConstant.first;
-		hasher.update(specConstant.second.data,specConstant.second.size);
-	}
-	hasher << specInfo.requiredSubgroupSize;
-	hasher << specInfo.requireFullSubgroups;
+	// we need to know that the stage is compute to hash this!
+	hasher << asset->getSpecInfo().requireFullSubgroups;
 	return true;
 }
 bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPURenderpass> lookup)
@@ -938,23 +955,6 @@ bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUGraphicsPip
 	};
 	if (!visitor())
 		return false;
-	//
-	using stage_t = ICPUShader::E_SHADER_STAGE;
-	for (stage_t stage : {stage_t::ESS_VERTEX,stage_t::ESS_TESSELLATION_CONTROL,stage_t::ESS_TESSELLATION_EVALUATION,stage_t::ESS_GEOMETRY,stage_t::ESS_FRAGMENT})
-	{
-		const auto& specInfo = asset->getSpecInfo(stage);
-		if (!specInfo.shader)
-			continue;
-
-		hasher << specInfo.entryPoint;
-		if (specInfo.entries)
-		for (const auto& specConstant : *specInfo.entries)
-		{
-			hasher << specConstant.first;
-			hasher.update(specConstant.second.data,specConstant.second.size);
-		}
-		hasher << specInfo.requiredSubgroupSize;
-	}
 
 	const auto& params = asset->getCachedCreationParams();
 	{
@@ -1175,14 +1175,36 @@ class GetDependantVisit<ICPUDescriptorSetLayout> : public GetDependantVisitBase<
 		template<Asset DepType> requires std::is_same_v<DepType,ICPUSampler>
 		bool descend_impl(
 			const instance_t<AssetType>& user, const CAssetConverter::patch_t<AssetType>& userPatch,
-			const instance_t<DepType>& dep, const CAssetConverter::patch_t<DepType>& soloPatch/*,
-			binding number, resource number? or storage_index?*/
+			const instance_t<DepType>& dep, const CAssetConverter::patch_t<DepType>& soloPatch,
+			const uint32_t immutableSamplerStorageOffset
 		)
 		{
 			auto depObj = getDependant<DepType>(dep,soloPatch);
 			if (!depObj)
 				return false;
-			outImmutableSamplers[0x45] = std::move(depObj);
+			outImmutableSamplers[immutableSamplerStorageOffset] = std::move(depObj);
+			return true;
+		}
+};
+template<>
+class GetDependantVisit<ICPUPipelineLayout> : public GetDependantVisitBase<ICPUPipelineLayout>
+{
+	public:
+		core::smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayouts[4] = {};
+
+	protected:
+		// impl
+		template<Asset DepType> requires std::is_same_v<DepType,ICPUDescriptorSetLayout>
+		bool descend_impl(
+			const instance_t<AssetType>& user, const CAssetConverter::patch_t<AssetType>& userPatch,
+			const instance_t<DepType>& dep, const CAssetConverter::patch_t<DepType>& soloPatch,
+			const uint32_t setIndex
+		)
+		{
+			auto depObj = getDependant<DepType>(dep,soloPatch);
+			if (!depObj)
+				return false;
+			dsLayouts[setIndex] = std::move(depObj);
 			return true;
 		}
 };
@@ -1670,10 +1692,9 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 				{
 					const ICPUPipelineLayout* asset = entry.second.canonicalAsset;
 					const auto& patch = dfsCache.nodes[entry.second.patchIndex.value].patch;
-#if 0
 					// time for some RLE
 					{
-						pcRanges.resize(0);
+						pcRanges.clear();
 						asset::SPushConstantRange prev = {
 							.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_UNKNOWN,
 							.offset = 0,
@@ -1703,18 +1724,16 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 					{
 						const auto outIx = i+entry.second.firstCopyIx;
 						const auto uniqueCopyGroupID = gpuObjUniqueCopyGroupIDs[outIx];
-						asset_cached_t<ICPUDescriptorSetLayout>::type dsLayouts[4];
-						{
-							bool notAllDepsFound = false;
-							for (auto j=0u; j<4; j++)
-							if (auto dsLayout=asset->getDescriptorSetLayout(j); dsLayout) // remember layouts are optional
-								dsLayouts[j] = getDependant(uniqueCopyGroupID,asset,dsLayout,firstPatchMatch,notAllDepsFound);
-							if (notAllDepsFound)
-								continue;
-						}
-						assign(entry.first,entry.second.firstCopyIx,i,device->createPipelineLayout(pcRanges,std::move(dsLayouts[0]),std::move(dsLayouts[1]),std::move(dsLayouts[2]),std::move(dsLayouts[3])));
+						AssetVisitor<GetDependantVisit<ICPUPipelineLayout>> visitor = {
+							{visitBase},
+							{asset,uniqueCopyGroupID},
+							patch
+						};
+						if (!visitor())
+							continue;
+						auto layout = device->createPipelineLayout(pcRanges,std::move(visitor.dsLayouts[0]),std::move(visitor.dsLayouts[1]),std::move(visitor.dsLayouts[2]),std::move(visitor.dsLayouts[3]));
+						assign(entry.first,entry.second.firstCopyIx,i,std::move(layout));
 					}
-#endif
 				}
 			}
 			if constexpr (std::is_same_v<AssetType,ICPUPipelineCache>)
