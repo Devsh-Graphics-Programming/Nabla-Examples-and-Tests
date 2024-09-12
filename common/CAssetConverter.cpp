@@ -143,28 +143,6 @@ struct index_of<T,core::type_list<U,Us...>> : std::integral_constant<size_t,1+in
 template<typename T, typename TypeList>
 inline constexpr size_t index_of_v = index_of<T,TypeList>::value;
 
-//
-struct patch_index_t
-{
-	inline bool operator==(const patch_index_t&) const = default;
-	inline bool operator!=(const patch_index_t&) const = default;
-
-	explicit inline operator bool() const {return operator!=({});}
-
-	uint64_t value = 0xdeadbeefBADC0FFEull;
-};
-
-//
-struct input_metadata_t
-{
-	inline bool operator==(const input_metadata_t&) const = default;
-	inline bool operator!=(const input_metadata_t&) const = default;
-
-	explicit inline operator bool() const {return operator!=({});}
-
-	size_t uniqueCopyGroupID = 0xdeadbeefBADC0FFEull;
-	patch_index_t patchIndex = {};
-};
 
 //
 template<Asset AssetType>
@@ -181,91 +159,6 @@ struct instance_t
 	const AssetType* asset = nullptr;
 	size_t uniqueCopyGroupID = 0xdeadbeefBADC0FFEull;
 };
-
-// This cache stops us traversing an asset with the same user group and patch more than once.
-template<asset::Asset AssetType>
-struct dfs_cache
-{
-	// Maps `instance_t` to `patchIndex`, makes sure the find can handle polymorphism of assets
-	struct HashEquals
-	{
-		using is_transparent = void;
-
-		inline size_t operator()(const instance_t<IAsset>& entry) const
-		{
-			return ptrdiff_t(entry.asset)^entry.uniqueCopyGroupID;
-		}
-
-		inline size_t operator()(const instance_t<AssetType>& entry) const
-		{
-			// its very important to cast the derived AssetType to IAsset because otherwise pointers won't match
-			return operator()(instance_t<IAsset>(entry));
-		}
-	
-		inline bool operator()(const instance_t<IAsset>& lhs, const instance_t<AssetType>& rhs) const
-		{
-			return lhs==instance_t<IAsset>(rhs);
-		}
-		inline bool operator()(const instance_t<AssetType>& lhs, const instance_t<IAsset>& rhs) const
-		{
-			return instance_t<IAsset>(lhs)==rhs;
-		}
-		inline bool operator()(const instance_t<AssetType>& lhs, const instance_t<AssetType>& rhs) const
-		{
-			return instance_t<IAsset>(lhs)==instance_t<IAsset>(rhs);
-		}
-	};
-	using key_map_t = core::unordered_map<instance_t<AssetType>,patch_index_t,HashEquals,HashEquals>;
-
-	// Find the first node for an instance with a compatible patch
-	inline std::pair<typename key_map_t::const_iterator,patch_index_t> find(const instance_t<AssetType>& instance, const CAssetConverter::patch_t<AssetType>& soloPatch) const
-	{
-		// get all the existing patches for the same (AssetType*,UniqueCopyGroupID)
-		auto found = instances.find(instance);
-		if (found!=instances.end())
-		{
-			// we don't want to pass the device to this function, it just assumes the patch will be valid without touch-ups
-			//assert(soloPatch.valid(device));
-			auto createdIndex = found->second;
-			while (createdIndex)
-			{
-				const auto& candidate = nodes[createdIndex.value];
-				if (std::get<bool>(candidate.patch.combine(soloPatch)))
-					break;
-				createdIndex = candidate.next;
-			}
-			return {found,createdIndex};
-		}
-		return {found,{}};
-	}
-
-	template<typename What>
-	inline void for_each(What what)
-	{
-		for (auto& entry : instances)
-		{
-			const auto& instance = entry.first;
-			auto patchIx = entry.second;
-			assert(instance.asset || !patchIx);
-			for (; patchIx; patchIx=nodes[patchIx.value].next)
-				what(instance,nodes[patchIx.value]);
-		}
-	}
-
-	// not a multi-map anymore because order of insertion into an equal range needs to be stable, so I just make it a linked list explicitly
-	key_map_t instances;
-	// node struct
-	struct created_t
-	{
-		CAssetConverter::patch_t<AssetType> patch = {};
-		core::blake3_hash_t contentHash = {};
-		asset_cached_t<AssetType> gpuObj = {};
-		patch_index_t next = {};
-	};
-	// all entries refer to patch by index, so its stable against vector growth
-	core::vector<created_t> nodes;
-};
-
 
 //
 template<typename CRTP>
@@ -493,6 +386,111 @@ class AssetVisitor : public CRTP
 };
 
 
+//
+struct patch_index_t
+{
+	inline bool operator==(const patch_index_t&) const = default;
+	inline bool operator!=(const patch_index_t&) const = default;
+
+	explicit inline operator bool() const {return operator!=({});}
+
+	uint64_t value = 0xdeadbeefBADC0FFEull;
+};
+// This cache stops us traversing an asset with the same user group and patch more than once.
+template<asset::Asset AssetType>
+struct dfs_cache
+{
+	// Maps `instance_t` to `patchIndex`, makes sure the find can handle polymorphism of assets
+	struct HashEquals
+	{
+		using is_transparent = void;
+
+		inline size_t operator()(const instance_t<IAsset>& entry) const
+		{
+			return ptrdiff_t(entry.asset)^entry.uniqueCopyGroupID;
+		}
+
+		inline size_t operator()(const instance_t<AssetType>& entry) const
+		{
+			// its very important to cast the derived AssetType to IAsset because otherwise pointers won't match
+			return operator()(instance_t<IAsset>(entry));
+		}
+	
+		inline bool operator()(const instance_t<IAsset>& lhs, const instance_t<AssetType>& rhs) const
+		{
+			return lhs==instance_t<IAsset>(rhs);
+		}
+		inline bool operator()(const instance_t<AssetType>& lhs, const instance_t<IAsset>& rhs) const
+		{
+			return instance_t<IAsset>(lhs)==rhs;
+		}
+		inline bool operator()(const instance_t<AssetType>& lhs, const instance_t<AssetType>& rhs) const
+		{
+			return instance_t<IAsset>(lhs)==instance_t<IAsset>(rhs);
+		}
+	};
+	using key_map_t = core::unordered_map<instance_t<AssetType>,patch_index_t,HashEquals,HashEquals>;
+
+	// Find the first node for an instance with a compatible patch
+	inline std::pair<typename key_map_t::const_iterator,patch_index_t> find(const instance_t<AssetType>& instance, const CAssetConverter::patch_t<AssetType>& soloPatch) const
+	{
+		// get all the existing patches for the same (AssetType*,UniqueCopyGroupID)
+		auto found = instances.find(instance);
+		if (found!=instances.end())
+		{
+			// we don't want to pass the device to this function, it just assumes the patch will be valid without touch-ups
+			//assert(soloPatch.valid(device));
+			auto createdIndex = found->second;
+			while (createdIndex)
+			{
+				const auto& candidate = nodes[createdIndex.value];
+				if (std::get<bool>(candidate.patch.combine(soloPatch)))
+					break;
+				createdIndex = candidate.next;
+			}
+			return {found,createdIndex};
+		}
+		return {found,{}};
+	}
+
+	template<typename What>
+	inline void for_each(What what)
+	{
+		for (auto& entry : instances)
+		{
+			const auto& instance = entry.first;
+			auto patchIx = entry.second;
+			assert(instance.asset || !patchIx);
+			for (; patchIx; patchIx=nodes[patchIx.value].next)
+				what(instance,nodes[patchIx.value]);
+		}
+	}
+
+	// not a multi-map anymore because order of insertion into an equal range needs to be stable, so I just make it a linked list explicitly
+	key_map_t instances;
+	// node struct
+	struct created_t
+	{
+		CAssetConverter::patch_t<AssetType> patch = {};
+		core::blake3_hash_t contentHash = {};
+		asset_cached_t<AssetType> gpuObj = {};
+		patch_index_t next = {};
+	};
+	// all entries refer to patch by index, so its stable against vector growth
+	core::vector<created_t> nodes;
+};
+
+//
+struct input_metadata_t
+{
+	inline bool operator==(const input_metadata_t&) const = default;
+	inline bool operator!=(const input_metadata_t&) const = default;
+
+	explicit inline operator bool() const {return operator!=({});}
+
+	size_t uniqueCopyGroupID = 0xdeadbeefBADC0FFEull;
+	patch_index_t patchIndex = {};
+};
 // polymorphic
 struct patched_instance_t
 {
@@ -622,6 +620,7 @@ class PatchOverride final : public CAssetConverter::CHashCache::IPatchOverride
 			auto [foundIt,patchIx] = dfsCache.find({lookup.asset,uniqueCopyGroupID},*lookup.patch);
 			if (patchIx)
 				return &dfsCache.nodes[patchIx.value].patch;
+			assert(false); // really shouldn't happen because DFS descent should have explored ALL!
 			return lookup.patch;
 		}
 
@@ -658,7 +657,7 @@ class HashVisit : public CAssetConverter::CHashCache::hash_impl_base
 		template<Asset DepType>
 		inline bool descend_impl(
 			const instance_t<AssetType>& user, const CAssetConverter::patch_t<AssetType>& userPatch, // unused for this visit type
-			const instance_t<DepType>& dep, CAssetConverter::patch_t<DepType>&& soloPatch
+			const instance_t<DepType>& dep, const CAssetConverter::patch_t<DepType>& soloPatch
 		)
 		{
 			assert(hashCache && patchOverride);
@@ -1105,6 +1104,91 @@ void CAssetConverter::CHashCache::eraseStale(const IPatchOverride* patchOverride
 
 
 //
+template<Asset AssetT>
+class GetDependantVisitBase
+{
+	public:
+		using AssetType = AssetT;
+
+		const CAssetConverter::SInputs& inputs;
+		core::tuple_transform_t<dfs_cache,CAssetConverter::supported_asset_types>& dfsCaches;
+
+	protected:
+		template<Asset DepType>
+		inline size_t getDependantUniqueCopyGroupID(const size_t usersGroupCopyID, const AssetType* user, const DepType* dep) const
+		{
+			return inputs.getDependantUniqueCopyGroupID(usersGroupCopyID,user,dep);
+		}
+
+		template<Asset DepType>
+		asset_cached_t<DepType>::type getDependant(const instance_t<DepType>& dep, const CAssetConverter::patch_t<DepType>& soloPatch) const
+		{
+			const auto& dfsCache = std::get<dfs_cache<DepType>>(dfsCaches);
+			// find matching patch in dfsCache
+			auto [foundIt,patchIx] = dfsCache.find(dep,soloPatch);
+			// if not found
+			if (!patchIx)
+				return {}; // nullptr basically
+			// grab gpu object from the node of patch index
+			return dfsCache.nodes[patchIx.value].gpuObj.value;
+		}
+
+		template<Asset DepType>
+		void nullOptional() const {}
+};
+template<Asset AssetType>
+class GetDependantVisit;
+
+template<>
+class GetDependantVisit<ICPUBufferView> : public GetDependantVisitBase<ICPUBufferView>
+{
+	public:
+		SBufferRange<IGPUBuffer> underlying = {};
+
+	protected:
+		// impl
+		template<Asset DepType> requires std::is_same_v<DepType,ICPUBuffer>
+		bool descend_impl(
+			const instance_t<AssetType>& user, const CAssetConverter::patch_t<AssetType>& userPatch,
+			const instance_t<DepType>& dep, const CAssetConverter::patch_t<DepType>& soloPatch
+		)
+		{
+			auto depObj = getDependant<DepType>(dep,soloPatch);
+			if (!depObj)
+				return false;
+			underlying = {
+				.offset = user.asset->getOffsetInBuffer(),
+				.size = user.asset->getByteSize(),
+				.buffer = std::move(depObj)
+			};
+			return underlying.isValid();
+		}
+};
+template<>
+class GetDependantVisit<ICPUDescriptorSetLayout> : public GetDependantVisitBase<ICPUDescriptorSetLayout>
+{
+	public:
+		core::smart_refctd_ptr<IGPUSampler>* const outImmutableSamplers;
+
+	protected:
+		// impl
+		template<Asset DepType> requires std::is_same_v<DepType,ICPUSampler>
+		bool descend_impl(
+			const instance_t<AssetType>& user, const CAssetConverter::patch_t<AssetType>& userPatch,
+			const instance_t<DepType>& dep, const CAssetConverter::patch_t<DepType>& soloPatch/*,
+			binding number, resource number? or storage_index?*/
+		)
+		{
+			auto depObj = getDependant<DepType>(dep,soloPatch);
+			if (!depObj)
+				return false;
+			outImmutableSamplers[0x45] = std::move(depObj);
+			return true;
+		}
+};
+
+
+//
 template<asset::Asset AssetType>
 struct unique_conversion_t
 {
@@ -1419,21 +1503,6 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 				return retval;
 			}();
 			core::vector<asset_cached_t<AssetType>> gpuObjects(gpuObjUniqueCopyGroupIDs.size());
-#if 0
-			// small utility
-			auto getDependant = [&]<Asset DepAssetType, typename Pred>(const size_t usersCopyGroupID, const AssetType* user, const DepAssetType* depAsset, bool& failed)->asset_cached_t<DepAssetType>::type
-			{
-				const patch_index_t found = PatchGetter{device,&inputs,&dfsCaches,usersCopyGroupID,user}.impl<DepAssetType>(depAsset);
-				if (found)
-				{
-					const auto& gpuObj = std::get<dfs_cache<DepAssetType>>(dfsCaches).nodes[found.value].gpuObj;
-					if (gpuObj.value)
-						return gpuObj.value;
-				}
-				failed = true;
-				return {};
-			};
-#endif
 
 			// Only warn once to reduce log spam
 			auto assign = [&]<bool GPUObjectWhollyImmutable=false>(const core::blake3_hash_t& contentHash, const size_t baseIx, const size_t copyIx, asset_cached_t<AssetType>::type&& gpuObj)->bool
@@ -1457,7 +1526,11 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 				gpuObjects[copyIx+baseIx].value = std::move(gpuObj);
 				return true;
 			};
-			
+
+			GetDependantVisitBase<AssetType> visitBase = {
+				.inputs = inputs,
+				.dfsCaches = dfsCaches
+			};
 			// Dispatch to correct creation of GPU objects
 			if constexpr (std::is_same_v<AssetType,ICPUSampler>)
 			{
@@ -1491,25 +1564,20 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 				for (auto& entry : conversionRequests)
 				{
 					const ICPUBufferView* asset = entry.second.canonicalAsset;
+					const auto& patch = dfsCache.nodes[entry.second.patchIndex.value].patch;
 					for (auto i=0ull; i<entry.second.copyCount; i++)
 					{
 						const auto outIx = i+entry.second.firstCopyIx;
 						const auto uniqueCopyGroupID = gpuObjUniqueCopyGroupIDs[outIx];
-#if 0
-						// visitor({{asset,uniqueCopyGroupID},patch});
-						// during visit grab buffer
-
-						bool depNotFound = false;
-						const SBufferRange<IGPUBuffer> underlying = {
-							.offset = asset->getOffsetInBuffer(),
-							.size = asset->getByteSize(),
-							.buffer = getDependant(uniqueCopyGroupID,asset,asset->getUnderlyingBuffer(),firstPatchMatch,depNotFound) // TODO: match our derived patch!
+						AssetVisitor<GetDependantVisit<ICPUBufferView>> visitor = {
+							{visitBase},
+							{asset,uniqueCopyGroupID},
+							patch
 						};
-						if (!underlying.isValid())
+						if (!visitor())
 							continue;
 						// no format promotion for buffer views
-						assign(entry.first,entry.second.firstCopyIx,i,device->createBufferView(underlying,asset->getFormat()));
-#endif
+						assign(entry.first,entry.second.firstCopyIx,i,device->createBufferView(visitor.underlying,asset->getFormat()));
 					}
 				}
 			}
@@ -1532,7 +1600,6 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 				for (auto& entry : conversionRequests)
 				{
 					const ICPUDescriptorSetLayout* asset = entry.second.canonicalAsset;
-#if 0
 					// there is no patching possible for this asset
 					using storage_range_index_t = ICPUDescriptorSetLayout::CBindingRedirect::storage_range_index_t;
 					// rebuild bindings from CPU info
@@ -1557,52 +1624,42 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 							});
 						}
 					}
-					// get the immutable sampler info
-					const auto samplerAssets = asset->getImmutableSamplers();
-					core::vector<core::smart_refctd_ptr<IGPUSampler>> immutableSamplers(samplerAssets.size());
-					// to let us know what binding has immutables
-					const auto& immutableSamplerRedirects = asset->getImmutableSamplerRedirect();
+					// to let us know what binding has immutables, and set up a mapping
+					core::vector<core::smart_refctd_ptr<IGPUSampler>> immutableSamplers(asset->getImmutableSamplers().size());
+					{
+						const auto& immutableSamplerRedirects = asset->getImmutableSamplerRedirect();
+						auto outImmutableSamplers = immutableSamplers.data();
+						for (auto j=0u; j<immutableSamplerRedirects.getBindingCount(); j++)
+						{
+							const storage_range_index_t storageRangeIx(j);
+							// assuming the asset was validly created, the binding must exist
+							const auto binding = immutableSamplerRedirects.getBinding(storageRangeIx);
+							// TODO: optimize this, the `bindings` are sorted within a given type (can do binary search in SAMPLER and COMBINED)
+							auto outBinding = std::find_if(bindings.begin(),bindings.end(),[=](const IGPUDescriptorSetLayout::SBinding& item)->bool{return item.binding==binding.data;});
+							// the binding must be findable, otherwise above code logic is wrong
+							assert(outBinding!=bindings.end());
+							// set up the mapping
+							outBinding->immutableSamplers = immutableSamplers.data()+immutableSamplerRedirects.getStorageOffset(storageRangeIx).data;
+						}
+					}
+					//
 					for (auto i=0ull; i<entry.second.copyCount; i++)
 					{
 						const auto outIx = i+entry.second.firstCopyIx;
 						const auto uniqueCopyGroupID = gpuObjUniqueCopyGroupIDs[outIx];
-						// go over the immutables, can't be factored out because depending on groupID the dependant might change
-						bool notAllDepsFound = false;
-						{
-							const auto count = immutableSamplerRedirects.getBindingCount();
-							auto outImmutableSamplers = immutableSamplers.data();
-							for (auto j=0u; j<count; j++)
+						// visit the immutables, can't be factored out because depending on groupID the dependant might change
+						AssetVisitor<GetDependantVisit<ICPUDescriptorSetLayout>> visitor = {
 							{
-								const storage_range_index_t storageRangeIx(j);
-								// assuming the asset was validly created, the binding must exist
-								const auto binding = immutableSamplerRedirects.getBinding(storageRangeIx);
-								auto inSamplerAsset = samplerAssets.data()+immutableSamplerRedirects.getStorageOffset(storageRangeIx).data;
-								// TODO: optimize this, the `bindings` are sorted within a given type
-								auto outBinding = std::find_if(bindings.begin(),bindings.end(),[=](const IGPUDescriptorSetLayout::SBinding& item)->bool{return item.binding==binding.data;});
-								// the binding must be findable, otherwise above code logic is wrong
-								assert(outBinding!=bindings.end());
-								outBinding->immutableSamplers = outImmutableSamplers;
-								//
-								const auto end = outImmutableSamplers+outBinding->count;
-								while (outImmutableSamplers!=end)
-								{
-									// make the first sampler found match, there shouldn't be multiple copies anyway (warning will be logged)
-									auto found = getDependant(uniqueCopyGroupID,asset,(inSamplerAsset++)->get(),firstPatchMatch,notAllDepsFound);
-									// if we cannot find a dep, we fail whole gpu object creation
-									if (notAllDepsFound)
-										break;
-									*(outImmutableSamplers++) = std::move(found);
-								}
-								// early out
-								if (notAllDepsFound)
-									break;
-							}
-							if (notAllDepsFound)
-								continue;
-						}
+								visitBase,
+								immutableSamplers.data()
+							},
+							{asset,uniqueCopyGroupID},
+							{} // no patch
+						};
+						if (!visitor())
+							continue;
 						assign(entry.first,entry.second.firstCopyIx,i,device->createDescriptorSetLayout(bindings));
 					}
-#endif
 				}
 			}
 			if constexpr (std::is_same_v<AssetType,ICPUPipelineLayout>)
