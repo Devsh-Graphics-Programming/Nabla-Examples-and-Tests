@@ -1,8 +1,9 @@
 #ifndef _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 #define _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 
-#include <nbl/builtin/hlsl/portable_float64_t.hlsl>
-#include <nbl/builtin/hlsl/portable_float64_t_math.hlsl>
+#include <nbl/builtin/hlsl/portable/float64_t.hlsl>
+#include <nbl/builtin/hlsl/portable/vector_t.hlsl>
+#include <nbl/builtin/hlsl/portable/matrix_t.hlsl>
 #include <nbl/builtin/hlsl/limits.hlsl>
 #include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>

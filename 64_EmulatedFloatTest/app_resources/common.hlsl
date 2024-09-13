@@ -3,8 +3,10 @@
 //// For conditions of distribution and use, see copyright notice in nabla.h
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
-#include <nbl/builtin/hlsl/emulated/emulated_float64_t.hlsl>
-#include <nbl/builtin/hlsl/portable_float64_t_math.hlsl>
+#include <nbl/builtin/hlsl/emulated/float64_t.hlsl>
+#include <nbl/builtin/hlsl/portable/float64_t.hlsl>
+#include <nbl/builtin/hlsl/portable/vector_t.hlsl>
+#include <nbl/builtin/hlsl/portable/matrix_t.hlsl>
 
 NBL_CONSTEXPR uint32_t WORKGROUP_SIZE = 1;
 

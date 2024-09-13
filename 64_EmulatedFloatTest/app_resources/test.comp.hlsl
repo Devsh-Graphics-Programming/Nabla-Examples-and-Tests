@@ -6,7 +6,7 @@
 #include "app_resources/common.hlsl"
 #include <nbl/builtin/hlsl/bit.hlsl>
 
-[[vk::binding(0, 0)]] RWStructuredBuffer<TestValues<false, true> > testValuesOutput;
+[[vk::binding(0, 0)]] RWStructuredBuffer<TestValues<true, true> > testValuesOutput;
 
 [[vk::push_constant]]
 PushConstants pc;
@@ -14,16 +14,16 @@ PushConstants pc;
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
-    const nbl::hlsl::emulated_float64_t<false, true> a = nbl::hlsl::bit_cast<emulated_float64_t<false, true> >(pc.a);
-    const nbl::hlsl::emulated_float64_t<false, true> b = nbl::hlsl::bit_cast<emulated_float64_t<false, true> >(pc.b);
+    const nbl::hlsl::emulated_float64_t<true, true> a = nbl::hlsl::bit_cast<emulated_float64_t<true, true> >(pc.a);
+    const nbl::hlsl::emulated_float64_t<true, true> b = nbl::hlsl::bit_cast<emulated_float64_t<true, true> >(pc.b);
 
     // "constructors"
-    testValuesOutput[0].int32CreateVal = nbl::hlsl::emulated_float64_t<false, true>::create(pc.constrTestVals.int32).data;
-    testValuesOutput[0].int64CreateVal = nbl::hlsl::emulated_float64_t<false, true>::create(pc.constrTestVals.int64).data;
-    testValuesOutput[0].uint32CreateVal = nbl::hlsl::emulated_float64_t<false, true>::create(pc.constrTestVals.uint32).data;
-    testValuesOutput[0].uint64CreateVal = nbl::hlsl::emulated_float64_t<false, true>::create(pc.constrTestVals.uint64).data;
-    testValuesOutput[0].float32CreateVal = nbl::hlsl::emulated_float64_t<false, true>::create(pc.constrTestVals.float32).data;
-    //testValuesOutput[0].float64CreateVal = nbl::hlsl::emulated_float64_t<false, true>::create(pc.constrTestVals.float64).data;
+    testValuesOutput[0].int32CreateVal = nbl::hlsl::emulated_float64_t<true, true>::create(pc.constrTestVals.int32).data;
+    testValuesOutput[0].int64CreateVal = nbl::hlsl::emulated_float64_t<true, true>::create(pc.constrTestVals.int64).data;
+    testValuesOutput[0].uint32CreateVal = nbl::hlsl::emulated_float64_t<true, true>::create(pc.constrTestVals.uint32).data;
+    testValuesOutput[0].uint64CreateVal = nbl::hlsl::emulated_float64_t<true, true>::create(pc.constrTestVals.uint64).data;
+    testValuesOutput[0].float32CreateVal = nbl::hlsl::emulated_float64_t<true, true>::create(pc.constrTestVals.float32).data;
+    //testValuesOutput[0].float64CreateVal = nbl::hlsl::emulated_float64_t<true, true>::create(pc.constrTestVals.float64).data;
     //nbl::hlsl::emulated_float64_t::create(min16int(2));
     // 
     // arithmetic operators
