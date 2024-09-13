@@ -22,3 +22,9 @@ if(NBL_EMBED_BUILTIN_RESOURCES)
 
 	LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} ${_BR_TARGET_})
 endif()
+
+if(MSVC)
+  target_compile_options("${EXECUTABLE_NAME}" PUBLIC "/fp:strict")
+else()
+  target_compile_options("${EXECUTABLE_NAME}" PUBLIC -ffloat-store -frounding-math -fsignaling-nans -ftrapping-math)
+endif()

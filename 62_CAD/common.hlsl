@@ -1,12 +1,27 @@
 #ifndef _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 #define _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 
-#include <nbl/builtin/hlsl/emulated/emulated_float64_t_utils.hlsl>
+#include <nbl/builtin/hlsl/portable_float64_t.hlsl>
+#include <nbl/builtin/hlsl/portable_float64_t_math.hlsl>
 #include <nbl/builtin/hlsl/limits.hlsl>
 #include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #ifdef __HLSL_VERSION
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
+#include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
+#endif
+
+// because we can't use jit/device_capabilities.hlsl in c++ code
+#ifdef __HLSL_VERSION
+using cpp_hlsl_portable_float64_t = nbl::hlsl::portable_float64_t<nbl::hlsl::jit::device_capabilities>;
+using cpp_hlsl_portable_float64_t2 = nbl::hlsl::portable_vector64_t2<nbl::hlsl::jit::device_capabilities>;
+using cpp_hlsl_portable_float64_t3 = nbl::hlsl::portable_vector64_t3<nbl::hlsl::jit::device_capabilities>;
+using cpp_hlsl_portable_float64_t3x3 = nbl::hlsl::portable_matrix64_t3x3<nbl::hlsl::jit::device_capabilities>;
+#else
+using cpp_hlsl_portable_float64_t = float64_t;
+using cpp_hlsl_portable_float64_t2 = nbl::hlsl::vector<float64_t, 2>;
+using cpp_hlsl_portable_float64_t3 = nbl::hlsl::vector<float64_t, 3>;
+using cpp_hlsl_portable_float64_t3x3 = nbl::hlsl::portable_matrix_t3x3<float64_t>;
 #endif
 
 enum class ObjectType : uint32_t
@@ -42,14 +57,14 @@ struct DrawObject
 
 struct LinePointInfo
 {
-    nbl::hlsl::portable_vector64_t2 p;
+    cpp_hlsl_portable_float64_t2 p;
     float32_t phaseShift;
     float32_t stretchValue;
 };
 
 struct QuadraticBezierInfo
 {
-    nbl::hlsl::shapes::QuadraticBezier<nbl::hlsl::portable_float64_t<> > shape; // 48bytes = 3 (control points) x 16 (emulated_float64_t)
+    nbl::hlsl::shapes::QuadraticBezier<cpp_hlsl_portable_float64_t> shape; // 48bytes = 3 (control points) x 16 (emulated_float64_t)
     float32_t phaseShift;
     float32_t stretchValue;
 };
@@ -59,7 +74,7 @@ static_assert(offsetof(QuadraticBezierInfo, phaseShift) == 48u);
 
 struct GlyphInfo
 {
-    nbl::hlsl::portable_vector64_t2 topLeft; // 2 * 8 = 16 bytes
+    cpp_hlsl_portable_float64_t2 topLeft; // 2 * 8 = 16 bytes
     float32_t2 dirU; // 2 * 4 = 8 bytes (24)
     float32_t aspectRatio; // 4 bytes (32)
     // unorm8 minU;
@@ -68,7 +83,7 @@ struct GlyphInfo
     uint32_t minUV_textureID_packed; // 4 bytes (36)
     
 #ifndef __HLSL_VERSION
-    GlyphInfo(nbl::hlsl::portable_vector64_t2 topLeft, float32_t2 dirU, float32_t aspectRatio, uint16_t textureId, float32_t2 minUV) :
+    GlyphInfo(cpp_hlsl_portable_float64_t2 topLeft, float32_t2 dirU, float32_t aspectRatio, uint16_t textureId, float32_t2 minUV) :
         topLeft(topLeft),
         dirU(dirU),
         aspectRatio(aspectRatio)
@@ -101,7 +116,7 @@ struct GlyphInfo
 
 struct ImageObjectInfo
 {
-    nbl::hlsl::portable_vector64_t2 topLeft; // 2 * 8 = 16 bytes (16)
+    cpp_hlsl_portable_float64_t2 topLeft; // 2 * 8 = 16 bytes (16)
     float32_t2 dirU; // 2 * 4 = 8 bytes (24)
     float32_t aspectRatio; // 4 bytes (28)
     uint32_t textureID; // 4 bytes (32)
@@ -109,7 +124,7 @@ struct ImageObjectInfo
 
 struct PolylineConnector
 {
-    nbl::hlsl::portable_vector64_t2 circleCenter;
+    cpp_hlsl_portable_float64_t2 circleCenter;
     float32_t2 v;
     float32_t cosAngleDifferenceHalf;
     float32_t _reserved_pad;
@@ -119,8 +134,8 @@ struct PolylineConnector
 struct CurveBox
 {
     // will get transformed in the vertex shader, and will be calculated on the cpu when generating these boxes
-    nbl::hlsl::portable_vector64_t2 aabbMin; // 16
-    nbl::hlsl::portable_vector64_t2 aabbMax; // 32 , TODO: we know it's a square/box -> we save 8 bytes if we needed to store extra data
+    cpp_hlsl_portable_float64_t2 aabbMin; // 16
+    cpp_hlsl_portable_float64_t2 aabbMax; // 32 , TODO: we know it's a square/box -> we save 8 bytes if we needed to store extra data
     float32_t2 curveMin[3]; // 56
     float32_t2 curveMax[3]; // 80
 };
@@ -137,7 +152,7 @@ static_assert(sizeof(CurveBox) == 80u);
 //      of course we could have the clip values to be in world units and also the matrix to transform to world instead of ndc but that requires extra computations(matrix multiplications) per vertex
 struct ClipProjectionData
 {
-    nbl::hlsl::portable_matrix64_t3x3 projectionToNDC; // 72 -> because we use scalar_layout
+    cpp_hlsl_portable_float64_t3x3 projectionToNDC; // 72 -> because we use scalar_layout
     float32_t2 minClipNDC; // 80
     float32_t2 maxClipNDC; // 88
 };
@@ -151,8 +166,8 @@ static_assert(offsetof(ClipProjectionData, maxClipNDC) == 80u);
 struct Globals
 {
     ClipProjectionData defaultClipProjection; // 88
-    nbl::hlsl::portable_float64_t<> screenToWorldRatio; // 96
-    nbl::hlsl::portable_float64_t<> worldToScreenRatio; // 100
+    cpp_hlsl_portable_float64_t screenToWorldRatio; // 96
+    cpp_hlsl_portable_float64_t worldToScreenRatio; // 100
     uint32_t2 resolution; // 108
     float antiAliasingFactor; // 112
     float miterLimit; // 116

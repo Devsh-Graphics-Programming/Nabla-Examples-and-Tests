@@ -2,34 +2,63 @@
 //// This file is part of the "Nabla Engine".
 //// For conditions of distribution and use, see copyright notice in nabla.h
 
-// because DXC doesn't properly support `_Static_assert`
-#define STATIC_ASSERT(...) { nbl::hlsl::conditional<__VA_ARGS__, int, void>::type a = 0; }
-
-#include <boost/preprocessor.hpp>
-
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
-#include <nbl/builtin/hlsl/type_traits.hlsl>
+#include <nbl/builtin/hlsl/emulated/emulated_float64_t.hlsl>
+#include <nbl/builtin/hlsl/portable_float64_t_math.hlsl>
 
-#include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
-#include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
+NBL_CONSTEXPR uint32_t WORKGROUP_SIZE = 1;
 
-#include <nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl>
-#include <nbl/builtin/hlsl/colorspace/decodeCIEXYZ.hlsl>
-#include <nbl/builtin/hlsl/colorspace/EOTF.hlsl>
-#include <nbl/builtin/hlsl/colorspace/OETF.hlsl>
+using namespace nbl;
+using namespace hlsl;
 
-#include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
+struct ConstructorTestValues
+{
+    int32_t int32;
+    int64_t int64;
+    uint32_t uint32;
+    uint64_t uint64;
+    float32_t float32;
+    //float64_t float64;
+};
 
-#include <nbl/builtin/hlsl/mpl.hlsl>
-#include <nbl/builtin/hlsl/bit.hlsl>
+struct PushConstants
+{
+    uint64_t a;
+    uint64_t b;
+    ConstructorTestValues constrTestVals;
+};
 
-#include <nbl/builtin/hlsl/limits.hlsl>
+template<bool FastMath, bool FlushDenormToZero>
+struct TestValues
+{
+    uint64_t a;
+    uint64_t b;
+    // constructors
+    
+    //nbl::hlsl::emulated_float64_t::storage_t int16CreateVal;
+    typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t int32CreateVal;
+    typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t int64CreateVal;
+    
+    // TODO:
+    //nbl::hlsl::emulated_float64_t::storage_t uint16CreateVal;
+    typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t uint32CreateVal;
+    typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t uint64CreateVal;
+    // TODO:
+    //nbl::hlsl::emulated_float64_t::storage_t float16CreateVal;
+    typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t float32CreateVal;
+    //typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t float64CreateVal;
 
-#define DISABLE_TGMATH_TESTS
-#ifndef DISABLE_TGMATH_TESTS 
-#include <nbl/builtin/hlsl/cmath.hlsl>
-#endif
+    // arithmetic
+    typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t additionVal;
+    typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t substractionVal;
+    typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t multiplicationVal;
+    typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t divisionVal;
 
-#include <nbl/builtin/hlsl/barycentric/utils.hlsl>
-#include <nbl/builtin/hlsl/member_test_macros.hlsl>
-#include <nbl/builtin/hlsl/device_capabilities_traits.hlsl>
+    // relational
+    int lessOrEqualVal;
+    int greaterOrEqualVal;
+    int equalVal;
+    int notEqualVal;
+    int lessVal;
+    int greaterVal;
+};

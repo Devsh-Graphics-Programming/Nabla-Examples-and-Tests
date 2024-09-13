@@ -11,7 +11,6 @@
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 #include "app_resources/common.hlsl"
-#include "app_resources/emulated_float64_t_test/common.hlsl"
 #include "nbl/builtin/hlsl/ieee754/ieee754.hlsl"
 
 using namespace nbl::core;
@@ -31,8 +30,8 @@ public:
 
     bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
     {
-        nbl::hlsl::emulated_float64_t<false, true> a = nbl::hlsl::emulated_float64_t < false, true>::create(76432.9);
-        nbl::hlsl::emulated_float64_t<false, true> b = nbl::hlsl::emulated_float64_t < false, true>::create(95719.3);
+        nbl::hlsl::emulated_float64_t<false, true> a = nbl::hlsl::emulated_float64_t<false, true>::create(76432.9);
+        nbl::hlsl::emulated_float64_t<false, true> b = nbl::hlsl::emulated_float64_t<false, true>::create(95719.3);
         
         auto output = a - b;
         std::cout << reinterpret_cast<double&>(output);
@@ -264,7 +263,7 @@ private:
                     lp.logger = base.m_logger.get();
                     lp.workingDirectory = ""; // virtual root
                     // this time we load a shader directly from a file
-                    auto assetBundle = base.m_assetMgr->getAsset("app_resources/emulated_float64_t_test/test.comp.hlsl", lp);
+                    auto assetBundle = base.m_assetMgr->getAsset("app_resources/test.comp.hlsl", lp);
                     const auto assets = assetBundle.getContents();
                     if (assets.empty())
                     {
@@ -332,7 +331,7 @@ private:
 
                 // Allocate the memory
                 {
-                    constexpr size_t BufferSize = sizeof(TestValues<true, true>);
+                    constexpr size_t BufferSize = sizeof(TestValues<false, true>);
 
                     nbl::video::IGPUBuffer::SCreationParams params = {};
                     params.size = BufferSize;
@@ -374,7 +373,7 @@ private:
             if (!m_allocation.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
                 base.m_device->invalidateMappedMemoryRanges(1, &memoryRange);
 
-            assert(memoryRange.valid() && memoryRange.length >= sizeof(TestValues<true, true>));
+            assert(memoryRange.valid() && memoryRange.length >= sizeof(TestValues<false, true>));
 
             m_queue = m_base.m_device->getQueue(m_queueFamily, 0);
         }
