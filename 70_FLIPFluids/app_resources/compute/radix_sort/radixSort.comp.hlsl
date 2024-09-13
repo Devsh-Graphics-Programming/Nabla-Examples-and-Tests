@@ -1,9 +1,5 @@
 #include "sort_common.hlsl"
 
-using namespace nbl::hlsl;
-
-#define GET_KEY(s) s.x
-
 [[vk::binding(0, 1)]]
 cbuffer SortParams
 {
@@ -13,16 +9,11 @@ cbuffer SortParams
 [[vk::binding(1, 1)]] RWStructuredBuffer<DATA_TYPE> inputBuffer;
 [[vk::binding(2, 1)]] RWStructuredBuffer<DATA_TYPE> outputBuffer;
 
-[[vk::binding(3, 1)]] RWStructuredBuffer<uint> histograms;
+[[vk::binding(3, 1)]] RWStructuredBuffer<uint> globalHistograms;
+[[vk::binding(4, 1)]] RWStructuredBuffer<uint> partitionHistogram;
 
-groupshared uint sums[NumSortBins / SubgroupSize];
-groupshared uint globalOffsets[NumSortBins];
-
-struct BinFlags
-{
-    uint flags[WorkgroupSize / 32];
-};
-groupshared BinFlags binFlags[NumSortBins];
+groupshared uint localHistogram[PartitionSize];
+groupshared uint histogramSums[NumSortBins];
 
 [numthreads(WorkgroupSize, 1, 1)]
 void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
@@ -32,80 +23,176 @@ void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
     uint s_id = glsl::gl_SubgroupID();
     uint ls_id = glsl::gl_SubgroupInvocationID();
 
-    uint localHistogram = 0;
-    uint prefixSum = 0;
-    uint histogramCount = 0;
+    uint numSubgroups = glsl::gl_NumSubgroups();
+    uint subgroupSize = glsl::gl_SubgroupSize();
+    
+    uint idx = s_id * subgroupSize + ls_id;
+    uint partitionIdx = g_id;
+    uint partitionStart = partitionIdx * PartitionSize;
 
-    if (l_id < NumSortBins)
+    uint4 subgroupMask = uint4(
+        (1 << ls_id) - 1,
+        (1 << (ls_id - 32)) - 1,
+        (1 << (ls_id - 64)) - 1,
+        (1 << (ls_id - 96)) - 1
+    );
+
+    if (partitionStart >= params.numElements)
+        return;
+
+    if (idx < NumSortBins)
     {
-        uint count = 0;
-        for (uint i = 0; i < params.numWorkgroups; i++)
+        for (uint i = 0; i < numSubgroups; i++)
         {
-            const uint t = histograms[NumSortBins * i + l_id];
-            localHistogram = (i == g_id) ? count : localHistogram;
-            count += t;
+            localHistogram[numSubgroups * idx + i] = 0;
         }
-
-        histogramCount = count;
-        const uint sum = glsl::subgroupAdd(histogramCount);
-        prefixSum = glsl::subgroupExclusiveAdd(histogramCount);
-        if (glsl::subgroupElect())
-            sums[s_id] = sum;
     }
-    glsl::barrier();
+    GroupMemoryBarrierWithGroupSync();
 
-    if (l_id < NumSortBins)
+    // load local values
+    uint keys[NumPartitions];
+    uint bins[NumPartitions];
+    uint offsets[NumPartitions];
+    uint subgroupHist[NumPartitions];
+
+#ifdef USE_KV_PAIRS
+    uint values[NumPartitions];
+#endif
+
+    for (uint i = 0; i < NumPartitions; i++)
     {
-        const uint totalPrefixSums = glsl::subgroupBroadcast(glsl::subgroupExclusiveAdd(sums[ls_id]), s_id);
-        const uint globalHistogram = totalPrefixSums + prefixSum;
-        globalOffsets[l_id] = globalHistogram + localHistogram;
+        uint keyIdx = partitionStart + NumPartitions * subgroupSize * s_id + i * subgroupSize + ls_id;
+        uint key = keyIdx < params.numElements ? getKey(inputBuffer[keyIdx]) : 0xffffffff;
+        keys[i] = key;
+
+#ifdef USE_KV_PAIRS
+        values[i] = keyIdx < params.numElements ? inputBuffer[keyIdx].y : 0;
+#endif
+
+        uint bin = bitFieldExtract(key, params.bitShift, 8);
+        bins[i] = bin;
+
+        uint4 mask = WaveActiveBallot(true);
+        [unroll]
+        for (uint j = 0; j < 8; j++)
+        {
+            uint digit = (bin >> j) & 1;
+            uint4 ballot = WaveActiveBallot(digit == 1);
+            mask &= uint4(digit - 1) ^ ballot;
+        }
+
+        uint4 mergedMask = subgroupMask & mask;
+        uint subgroupOffset = countbits(mergedMask.x) + countbits(mergedMask.y) + countbits(mergedMask.z) + countbits(mergedMask.w);
+        uint radixCount = countbits(mask.x) + countbits(mask.y) + countbits(mask.z) + countbits(mask.w);
+
+        if (subgroupOffset == 0)
+        {
+            InterlockedAdd(localHistogram[numSubgroups * bin + s_id], radixCount);
+            subgroupHist[i] = radixCount;
+        }
+        else
+        {
+            subgroupHist[i] = 0;
+        }
+
+        offsets[i] = subgroupOffset;
     }
+    GroupMemoryBarrierWithGroupSync();
 
-    const uint flagsBin = l_id / 32;
-    const uint flagsBit = 1 << (l_id % 32);
-
-    for (uint i = 0; i < params.numThreadsPerGroup; i++)
+    // reduce, downsweep step
+    for (uint i = idx; i < NumSortBins * numSubgroups; i += WorkgroupSize)
     {
-        uint elementID = g_id * params.numThreadsPerGroup * WorkgroupSize + i * WorkgroupSize + l_id;
-
-        if (l_id < NumSortBins)
-        {
-            for (int j = 0; j < WorkgroupSize / 32; j++)
-            {
-                binFlags[l_id].flags[j] = 0u;
-            }
-        }
-        glsl::barrier();
-
-        DATA_TYPE e = 0;
-        uint binID = 0;
-        uint binOffset = 0;
-        if (elementID < params.numElements)
-        {
-            e = inputBuffer[elementID];
-            binID = uint(GET_KEY(e) >> params.bitShift) & uint(NumSortBins - 1);
-            binOffset = globalOffsets[binID];
-            glsl::atomicAdd(binFlags[binID].flags[flagsBin], flagsBit);
-        }
-        glsl::barrier();
-
-        if (elementID < params.numElements)
-        {
-            uint prefix = 0;
-            uint count = 0;
-            for (uint j = 0; j < WorkgroupSize / 32; j++)
-            {
-                const uint bits = binFlags[binID].flags[j];
-                const uint fullCount = countbits(bits);
-                const uint partialCount = countbits(bits & (flagsBit - 1));
-                prefix += (j < flagsBin) ? fullCount : 0u;
-                prefix += (j == flagsBin) ? partialCount : 0u;
-                count += fullCount;
-            }
-            outputBuffer[binOffset + prefix] = e;
-            if (prefix == count - 1)
-                glsl::atomicAdd(globalOffsets[binID], count);
-        }
-        glsl::barrier();
+        uint v = localHistogram[i];
+        uint sum = WaveActiveSum(v);
+        uint prefixSum = WavePrefixSum(v);
+        localHistogram[i] = prefixSum;
+        if (WaveIsFirstLane())
+            histogramSums[i / subgroupSize] = sum;
     }
+    GroupMemoryBarrierWithGroupSync();
+
+    uint reduceOffset = NumSortBins * numSubgroups / subgroupSize;
+    if (idx < reduceOffset)
+    {
+        uint v = histogramSums[idx];
+        uint sum = WaveActiveSum(v);
+        uint prefixSum = WavePrefixSum(v);
+        histogramSums[idx] = prefixSum;
+        if (WaveIsFirstLane())
+            histogramSums[reduceOffset + idx / subgroupSize] = sum;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    uint reduceSize = NumSortBins * numSubgroups / subgroupSize / subgroupSize;
+    if (idx < reduceSize)
+    {
+        uint v = histogramSums[reduceOffset + idx];
+        uint prefixSum = WavePrefixSum(v);
+        histogramSums[reduceOffset + idx] = prefixSum;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    if (idx < reduceOffset)
+        histogramSums[idx] += histogramSums[reduceOffset + idx / subgroupSize];
+    GroupMemoryBarrierWithGroupSync();
+
+    for (uint i = idx; i < NumSortBins * numSubgroups; i += WorkgroupSize)
+        localHistogram[i] += histogramSums[i / subgroupSize];
+    GroupMemoryBarrierWithGroupSync();
+
+    // scatter step
+    for (uint i = 0; i < NumPartitions; i++)
+    {
+        uint bin = bins[i];
+        offsets[i] += localHistogram[numSubgroups * bin + s_id];
+        GroupMemoryBarrierWithGroupSync();
+
+        if (subgroupHist[i] > 0)
+            InterlockedAdd(localHistogram[numSubgroups * bin + s_id], subgroupHist[i]);
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    if (idx < NumSortBins)
+    {
+        uint v = idx == 0 ? 0 : localHistogram[numSubgroups * idx - 1];
+        uint passIdx = params.bitShift / 8;
+        histogramSums[idx] = globalHistograms[NumSortBins * passIdx + idx] + partitionHistogram[NumSortBins * partitionIdx + idx] - v;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    for (uint i = 0; i < NumPartitions; i++)
+    {
+        localHistogram[offsets[i]] = keys[i];
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // binning
+    for (uint i = idx; i < PartitionSize; i += WorkgroupSize)
+    {
+        uint key = localHistogram[i];
+        uint bin = bitFieldExtract(key, params.bitShift, 8);
+        uint dstOffset = histogramSums[bin] + i;
+        if (dstOffset < params.numElements)
+            outputBuffer[dstOffset].x = key;
+
+#ifdef USE_KV_PAIRS
+        keys[i / WorkgroupSize] = dstOffset;
+#endif
+    }
+
+#ifdef USE_KV_PAIRS
+    GroupMemoryBarrierWithGroupSync();
+
+    for (uint i = 0; i < NumPartitions; i++)
+    {
+        localHistogram[offsets[i]] = values[i];
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    for (uint i = idx; i < PartitionSize; i += WorkgroupSize)
+    {
+        uint value = localHistogram[i];
+        outputBuffer[keys[i / WorkgroupSize]].y = value;
+    }
+#endif
 }

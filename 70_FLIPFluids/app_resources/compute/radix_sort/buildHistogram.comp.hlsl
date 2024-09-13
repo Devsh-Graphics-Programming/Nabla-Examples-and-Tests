@@ -9,31 +9,45 @@ cbuffer SortParams
 };
 
 [[vk::binding(1, 1)]] RWStructuredBuffer<DATA_TYPE> inputBuffer;
-[[vk::binding(2, 1)]] RWStructuredBuffer<uint> histograms;
+[[vk::binding(2, 1)]] RWStructuredBuffer<uint> globalHistograms;
+[[vk::binding(3, 1)]] RWStructuredBuffer<uint> partitionHistogram;
 
-groupshared uint histogram[NumSortBins];
+groupshared uint localHistogram[NumSortBins];
 
 [numthreads(WorkgroupSize, 1, 1)]
 void main(uint32_t3 threadID : SV_GroupThreadID, uint32_t3 groupID : SV_GroupID)
 {
     uint g_id = groupID.x;
     uint l_id = threadID.x;
+    uint s_id = glsl::gl_SubgroupID();
+    uint ls_id = glsl::gl_SubgroupInvocationID();
+    
+    uint idx = s_id * glsl::gl_SubgroupSize() + ls_id;
+    uint partitionIdx = g_id;
+    uint partitionStart = partitionIndex * PartitionSize;
 
-    if (l_id < NumSortBins)
-        histogram[l_id] = 0u;
-    glsl::barrier();
+    if (partitionStart >= params.numElements)
+        return;
 
-    for (uint i = 0; i < params.numThreadsPerGroup; i++)
+    // clear shared histogram data
+    if (idx < NumSortBins)
+        localHistogram[idx] = 0;
+    GroupMemoryBarrierWithGroupSync();
+
+    for (uint i = 0; i < NumPartitions; i++)
     {
-        uint elementID = g_id * params.numThreadsPerGroup * WorkgroupSize + i * WorkgroupSize + l_id;
-        if (elementID < params.numElements)
-        {
-            uint bin = uint(GET_KEY(inputBuffer[elementID]) >> params.bitShift) & uint(NumSortBins - 1);
-            glsl::atomicAdd(histogram[bin], 1u);
-        }
+        uint keyIdx = partitionStart + WorkgroupSize * i + idx;
+        uint key = keyIdx < params.numElements ? getKey(inputBuffer[keyIdx]) : 0xffffffff;
+        uint radix = bitFieldExtract(key, params.bitShift, 8);
+        InterlockedAdd(localHistogram[radix], 1);
     }
-    glsl::barrier();
+    GroupMemoryBarrierWithGroupSync();
 
-    if (l_id < NumSortBins)
-        histograms[NumSortBins * g_id + l_id] = histogram[l_id];
+    if (idx < NumSortBins)
+    {
+        partitionHistogram[NumSortBins * partitionIdx + idx] = localHistogram[idx];
+
+        uint passIdx = params.bitShift / 8;
+        InterlockedAdd(globalHistograms[NumSortBins * passIdx + idx], localHistogram[idx]);
+    }
 }
