@@ -7,10 +7,10 @@
 #include <nbl/builtin/hlsl/algorithm.hlsl>
 #include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
 
-using ActualFloat64 = nbl::hlsl::portable_float64_t<nbl::hlsl::jit::device_capabilities>;
-using ActualFloat64Matrix3x3 = nbl::hlsl::portable_matrix64_t3x3<nbl::hlsl::jit::device_capabilities>;
-using ActualFloat64Vector2 = nbl::hlsl::portable_vector64_t2<nbl::hlsl::jit::device_capabilities>;
-using ActualFloat64Vector3 = nbl::hlsl::portable_vector64_t3<nbl::hlsl::jit::device_capabilities>;
+using ActualFloat64 = portable_float64_t<jit::device_capabilities>;
+using ActualFloat64Matrix3x3 = portable_matrix64_t3x3<jit::device_capabilities>;
+using ActualFloat64Vector2 = portable_vector64_t2<jit::device_capabilities>;
+using ActualFloat64Vector3 = portable_vector64_t3<jit::device_capabilities>;
 
 // TODO[Lucas]: Move these functions to builtin hlsl functions (Even the shadertoy obb and aabb ones)
 float cross2D(float2 a, float2 b)
@@ -25,7 +25,7 @@ float2 BezierTangent(float2 p0, float2 p1, float2 p2, float t)
 
 float2 QuadraticBezier(float2 p0, float2 p1, float2 p2, float t)
 {
-    return nbl::hlsl::shapes::QuadraticBezier<float>::construct(p0, p1, p2).evaluate(t);
+    return shapes::QuadraticBezier<float>::construct(p0, p1, p2).evaluate(t);
 }
 
 ClipProjectionData getClipProjectionData(in MainObject mainObj)
@@ -49,9 +49,9 @@ ActualFloat64Vector2 transformPointNdc(ActualFloat64Matrix3x3 transformation, Ac
     ActualFloat64Vector3 point3d;
     point3d.x = point2d.x;
     point3d.y = point2d.y;
-    point3d.z = nbl::hlsl::_static_cast<ActualFloat64>(1.0f);
+    point3d.z = _static_cast<ActualFloat64>(1.0f);
 
-    ActualFloat64Vector3 transformationResult = nbl::hlsl::portableMul64<ActualFloat64Matrix3x3, ActualFloat64Vector3, nbl::hlsl::jit::device_capabilities>(transformation, point3d);
+    ActualFloat64Vector3 transformationResult = portableMul64<ActualFloat64Matrix3x3, ActualFloat64Vector3, jit::device_capabilities>(transformation, point3d);
     ActualFloat64Vector2 output;
     output.x = transformationResult.x;
     output.y = transformationResult.y;
@@ -63,9 +63,9 @@ ActualFloat64Vector2 transformVectorNdc(ActualFloat64Matrix3x3 transformation, A
     ActualFloat64Vector3 vector3d;
     vector3d.x = vector2d.x;
     vector3d.y = vector2d.y;
-    vector3d.z = nbl::hlsl::_static_cast<ActualFloat64>(0.0f);
+    vector3d.z = _static_cast<ActualFloat64>(0.0f);
 
-    ActualFloat64Vector3 transformationResult = nbl::hlsl::portableMul64<ActualFloat64Matrix3x3, ActualFloat64Vector3, nbl::hlsl::jit::device_capabilities>(transformation, vector3d);
+    ActualFloat64Vector3 transformationResult = portableMul64<ActualFloat64Matrix3x3, ActualFloat64Vector3, jit::device_capabilities>(transformation, vector3d);
     ActualFloat64Vector2 output;
     output.x = transformationResult.x;
     output.y = transformationResult.y;
@@ -75,9 +75,9 @@ ActualFloat64Vector2 transformVectorNdc(ActualFloat64Matrix3x3 transformation, A
 float2 transformPointScreenSpace(ActualFloat64Matrix3x3 transformation, ActualFloat64Vector2 point2d)
 {
     ActualFloat64Vector2 ndc = transformPointNdc(transformation, point2d);
-    ActualFloat64Vector2 result = (ndc + 1.0f) * 0.5f * nbl::hlsl::_static_cast<ActualFloat64Vector2>(globals.resolution);
+    ActualFloat64Vector2 result = (ndc + 1.0f) * 0.5f * _static_cast<ActualFloat64Vector2>(globals.resolution);
 
-    return nbl::hlsl::_static_cast<float2>(result);
+    return _static_cast<float2>(result);
 }
 float4 transformFromSreenSpaceToNdc(float2 pos)
 {
@@ -147,14 +147,14 @@ PSInput main(uint vertexID : SV_VertexID)
         LineStyle lineStyle = lineStyles[mainObj.styleIdx];
 
         // Width is on both sides, thickness is one one side of the curve (div by 2.0f)
-        const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + nbl::hlsl::_static_cast<float>(
-            nbl::hlsl::_static_cast<nbl::hlsl::portable_float64_t<nbl::hlsl::jit::device_capabilities> >(lineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
+        const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + _static_cast<float>(
+            _static_cast<portable_float64_t<jit::device_capabilities> >(lineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
         const float antiAliasedLineThickness = screenSpaceLineWidth * 0.5f + globals.antiAliasingFactor;
         const float sdfLineThickness = screenSpaceLineWidth / 2.0f;
         outV.setLineThickness(sdfLineThickness);
         outV.setCurrentWorldToScreenRatio(
-            nbl::hlsl::_static_cast<float>((nbl::hlsl::_static_cast<nbl::hlsl::portable_float64_t<nbl::hlsl::jit::device_capabilities> >(2.0) /
-            (clipProjectionData.projectionToNDC[0].x * nbl::hlsl::_static_cast<nbl::hlsl::portable_float64_t<nbl::hlsl::jit::device_capabilities> >(globals.resolution.x))))
+            _static_cast<float>((_static_cast<portable_float64_t<jit::device_capabilities> >(2.0) /
+            (clipProjectionData.projectionToNDC[0].x * _static_cast<portable_float64_t<jit::device_capabilities> >(globals.resolution.x))))
         );
 
         if (objType == ObjectType::LINE)
@@ -212,9 +212,9 @@ PSInput main(uint vertexID : SV_VertexID)
             for (uint i = 0u; i < 3u; ++i)
                 transformedPoints[i] = transformPointScreenSpace(clipProjectionData.projectionToNDC, points[i]);
 
-            nbl::hlsl::shapes::QuadraticBezier<float> quadraticBezier = nbl::hlsl::shapes::QuadraticBezier<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
-            nbl::hlsl::shapes::Quadratic<float> quadratic = nbl::hlsl::shapes::Quadratic<float>::constructFromBezier(quadraticBezier);
-            nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator preCompData = nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator::construct(quadratic);
+            shapes::QuadraticBezier<float> quadraticBezier = shapes::QuadraticBezier<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
+            shapes::Quadratic<float> quadratic = shapes::Quadratic<float>::constructFromBezier(quadraticBezier);
+            shapes::Quadratic<float>::ArcLengthCalculator preCompData = shapes::Quadratic<float>::ArcLengthCalculator::construct(quadratic);
 
             outV.setQuadratic(quadratic);
             outV.setQuadraticPrecomputedArcLenData(preCompData);
@@ -299,12 +299,12 @@ PSInput main(uint vertexID : SV_VertexID)
                 float2 leftTangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], optimalT));
                 float2 leftNormal = normalize(float2(-leftTangent.y, leftTangent.x)) * flip;
                 float2 leftExteriorPoint = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], optimalT) - leftNormal * antiAliasedLineThickness;
-                float2 exterior0 = nbl::hlsl::shapes::util::LineLineIntersection<float>(middleExteriorPoint, midTangent, leftExteriorPoint, leftTangent);
+                float2 exterior0 = shapes::util::LineLineIntersection<float>(middleExteriorPoint, midTangent, leftExteriorPoint, leftTangent);
 
                 float2 rightTangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f - optimalT));
                 float2 rightNormal = normalize(float2(-rightTangent.y, rightTangent.x)) * flip;
                 float2 rightExteriorPoint = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f - optimalT) - rightNormal * antiAliasedLineThickness;
-                float2 exterior1 = nbl::hlsl::shapes::util::LineLineIntersection<float>(middleExteriorPoint, midTangent, rightExteriorPoint, rightTangent);
+                float2 exterior1 = shapes::util::LineLineIntersection<float>(middleExteriorPoint, midTangent, rightExteriorPoint, rightTangent);
 
                 // Interiors
                 {
@@ -325,7 +325,7 @@ PSInput main(uint vertexID : SV_VertexID)
                     float2 endPointExterior = transformedPoints[0u] - endPointTangent * antiAliasedLineThickness;
 
                     if (vertexIdx == 0u)
-                        outV.position = float4(nbl::hlsl::shapes::util::LineLineIntersection<float>(leftExteriorPoint, leftTangent, endPointExterior, endPointNormal), 0.0, 1.0f);
+                        outV.position = float4(shapes::util::LineLineIntersection<float>(leftExteriorPoint, leftTangent, endPointExterior, endPointNormal), 0.0, 1.0f);
                     else if (vertexIdx == 1u)
                         outV.position = float4(transformedPoints[0u] + endPointNormal * antiAliasedLineThickness - endPointTangent * antiAliasedLineThickness, 0.0, 1.0f);
                     else if (vertexIdx == 2u)
@@ -351,7 +351,7 @@ PSInput main(uint vertexID : SV_VertexID)
                     float2 endPointExterior = transformedPoints[2u] + endPointTangent * antiAliasedLineThickness;
 
                     if (vertexIdx == 0u)
-                        outV.position = float4(nbl::hlsl::shapes::util::LineLineIntersection<float>(rightExteriorPoint, rightTangent, endPointExterior, endPointNormal), 0.0, 1.0f);
+                        outV.position = float4(shapes::util::LineLineIntersection<float>(rightExteriorPoint, rightTangent, endPointExterior, endPointNormal), 0.0, 1.0f);
                     else if (vertexIdx == 1u)
                         outV.position = float4(transformedPoints[2u] + endPointNormal * antiAliasedLineThickness + endPointTangent * antiAliasedLineThickness, 0.0, 1.0f);
                     else if (vertexIdx == 2u)
@@ -365,7 +365,7 @@ PSInput main(uint vertexID : SV_VertexID)
         }
         else if (objType == ObjectType::POLYLINE_CONNECTOR)
         {
-            const float FLOAT_INF = nbl::hlsl::numeric_limits<float>::infinity;
+            const float FLOAT_INF = numeric_limits<float>::infinity;
             const float4 INVALID_VERTEX = float4(FLOAT_INF, FLOAT_INF, FLOAT_INF, FLOAT_INF);
 
             if (lineStyle.isRoadStyleFlag)
@@ -449,8 +449,8 @@ PSInput main(uint vertexID : SV_VertexID)
         aabbMinXMaxY.x = curveBox.aabbMin.x;
         aabbMinXMaxY.y = curveBox.aabbMax.y;
 
-        const float2 ndcAxisU = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, aabbMaxXMinY - curveBox.aabbMin));
-        const float2 ndcAxisV = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, aabbMinXMaxY - curveBox.aabbMin));
+        const float2 ndcAxisU = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, aabbMaxXMinY - curveBox.aabbMin));
+        const float2 ndcAxisV = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, aabbMinXMaxY - curveBox.aabbMin));
 
         const float2 screenSpaceAabbExtents = float2(length(ndcAxisU * float2(globals.resolution)) / 2.0, length(ndcAxisV * float2(globals.resolution)) / 2.0);
 
@@ -458,20 +458,20 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setCurveBoxScreenSpaceSize(float2(screenSpaceAabbExtents));
         
         const float2 undilatedCorner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
-        const ActualFloat64Vector2 undilatedCornerF64 = nbl::hlsl::_static_cast<ActualFloat64Vector2>(undilatedCorner);
+        const ActualFloat64Vector2 undilatedCornerF64 = _static_cast<ActualFloat64Vector2>(undilatedCorner);
 
         // We don't dilate on AMD (= no fragShaderInterlock)
         const float pixelsToIncreaseOnEachSide = globals.antiAliasingFactor + 1.0;
         const float2 dilateRate = pixelsToIncreaseOnEachSide / screenSpaceAabbExtents; // float sufficient to hold the dilate rect? 
         float2 dilateVec;
         float2 dilatedUV;
-        dilateHatch<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(dilateVec, dilatedUV, undilatedCorner, dilateRate, ndcAxisU, ndcAxisV);
+        dilateHatch<jit::device_capabilities::fragmentShaderPixelInterlock>(dilateVec, dilatedUV, undilatedCorner, dilateRate, ndcAxisU, ndcAxisV);
 
         // doing interpolation this way to ensure correct endpoints and 0 and 1, we can alternatively use branches to set current corner based on vertexIdx
-        const ActualFloat64Vector2 currentCorner = curveBox.aabbMin * (nbl::hlsl::_static_cast<ActualFloat64Vector2>(float2(1.0f, 1.0f)) - undilatedCornerF64) +
+        const ActualFloat64Vector2 currentCorner = curveBox.aabbMin * (_static_cast<ActualFloat64Vector2>(float2(1.0f, 1.0f)) - undilatedCornerF64) +
             curveBox.aabbMax * undilatedCornerF64;
 
-        const float2 coord = nbl::hlsl::_static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, currentCorner) + nbl::hlsl::_static_cast<ActualFloat64Vector2>(dilateVec));
+        const float2 coord = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, currentCorner) + _static_cast<ActualFloat64Vector2>(dilateVec));
 
         outV.position = float4(coord, 0.f, 1.f);
  
@@ -480,37 +480,37 @@ PSInput main(uint vertexID : SV_VertexID)
 
         // A, B & C get converted from unorm to [0, 1]
         // A & B get converted from [0,1] to [-2, 2]
-        nbl::hlsl::shapes::Quadratic<float> curveMin = nbl::hlsl::shapes::Quadratic<float>::construct(
+        shapes::Quadratic<float> curveMin = shapes::Quadratic<float>::construct(
             curveBox.curveMin[0], curveBox.curveMin[1], curveBox.curveMin[2]);
-        nbl::hlsl::shapes::Quadratic<float> curveMax = nbl::hlsl::shapes::Quadratic<float>::construct(
+        shapes::Quadratic<float> curveMax = shapes::Quadratic<float>::construct(
             curveBox.curveMax[0], curveBox.curveMax[1], curveBox.curveMax[2]);
 
         outV.setMinorBBoxUV(dilatedUV[minor]);
         outV.setMajorBBoxUV(dilatedUV[major]);
 
-        outV.setCurveMinMinor(nbl::hlsl::math::equations::Quadratic<float>::construct(
+        outV.setCurveMinMinor(math::equations::Quadratic<float>::construct(
             curveMin.A[minor], 
             curveMin.B[minor], 
             curveMin.C[minor]));
-        outV.setCurveMinMajor(nbl::hlsl::math::equations::Quadratic<float>::construct(
+        outV.setCurveMinMajor(math::equations::Quadratic<float>::construct(
             curveMin.A[major], 
             curveMin.B[major], 
             curveMin.C[major]));
 
-        outV.setCurveMaxMinor(nbl::hlsl::math::equations::Quadratic<float>::construct(
+        outV.setCurveMaxMinor(math::equations::Quadratic<float>::construct(
             curveMax.A[minor], 
             curveMax.B[minor], 
             curveMax.C[minor]));
-        outV.setCurveMaxMajor(nbl::hlsl::math::equations::Quadratic<float>::construct(
+        outV.setCurveMaxMajor(math::equations::Quadratic<float>::construct(
             curveMax.A[major], 
             curveMax.B[major], 
             curveMax.C[major]));
 
-        //nbl::hlsl::math::equations::Quadratic<float> curveMinRootFinding = nbl::hlsl::math::equations::Quadratic<float>::construct(
+        //math::equations::Quadratic<float> curveMinRootFinding = math::equations::Quadratic<float>::construct(
         //    curveMin.A[major], 
         //    curveMin.B[major], 
         //    curveMin.C[major] - maxCorner[major]);
-        //nbl::hlsl::math::equations::Quadratic<float> curveMaxRootFinding = nbl::hlsl::math::equations::Quadratic<float>::construct(
+        //math::equations::Quadratic<float> curveMaxRootFinding = math::equations::Quadratic<float>::construct(
         //    curveMax.A[major], 
         //    curveMax.B[major], 
         //    curveMax.C[major] - maxCorner[major]);
@@ -536,9 +536,9 @@ PSInput main(uint vertexID : SV_VertexID)
             printf("dirU: %f, %f \n", glyphInfo.dirU.x, glyphInfo.dirU.y);
             printf("dirV: %f, %f \n\n", dirV.x, dirV.y);
         }
-        const float2 screenTopLeft = nbl::hlsl::_static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, glyphInfo.topLeft));
-        const float2 screenDirU = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::_static_cast<ActualFloat64Vector2>(glyphInfo.dirU)));
-        const float2 screenDirV = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::_static_cast<ActualFloat64Vector2>(dirV)));
+        const float2 screenTopLeft = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, glyphInfo.topLeft));
+        const float2 screenDirU = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<ActualFloat64Vector2>(glyphInfo.dirU)));
+        const float2 screenDirV = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<ActualFloat64Vector2>(dirV)));
 
         const float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1)); // corners of square from (0, 0) to (1, 1)
         const float2 undilatedCornerNDC = corner * 2.0 - 1.0; // corners of square from (-1, -1) to (1, 1)
@@ -582,9 +582,9 @@ PSInput main(uint vertexID : SV_VertexID)
         uint32_t textureID = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) + sizeof(float2) + sizeof(float), 4u);
 
         const float32_t2 dirV = float32_t2(dirU.y, -dirU.x) * aspectRatio;
-        const float2 ndcTopLeft = nbl::hlsl::_static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, topLeft));
-        const float2 ndcDirU = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::_static_cast<ActualFloat64Vector2>(dirU)));
-        const float2 ndcDirV = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::_static_cast<ActualFloat64Vector2>(dirV)));
+        const float2 ndcTopLeft = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, topLeft));
+        const float2 ndcDirU = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<ActualFloat64Vector2>(dirU)));
+        const float2 ndcDirV = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<ActualFloat64Vector2>(dirV)));
 
         float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
         float2 uv = corner; // non-dilated

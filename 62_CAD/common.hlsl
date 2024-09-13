@@ -12,17 +12,19 @@
 #include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
 #endif
 
+using namespace nbl::hlsl;
+
 // because we can't use jit/device_capabilities.hlsl in c++ code
 #ifdef __HLSL_VERSION
-using cpp_hlsl_portable_float64_t = nbl::hlsl::portable_float64_t<nbl::hlsl::jit::device_capabilities>;
-using cpp_hlsl_portable_float64_t2 = nbl::hlsl::portable_vector64_t2<nbl::hlsl::jit::device_capabilities>;
-using cpp_hlsl_portable_float64_t3 = nbl::hlsl::portable_vector64_t3<nbl::hlsl::jit::device_capabilities>;
-using cpp_hlsl_portable_float64_t3x3 = nbl::hlsl::portable_matrix64_t3x3<nbl::hlsl::jit::device_capabilities>;
+using cpp_hlsl_portable_float64_t = portable_float64_t<jit::device_capabilities>;
+using cpp_hlsl_portable_float64_t2 = portable_vector64_t2<jit::device_capabilities>;
+using cpp_hlsl_portable_float64_t3 = portable_vector64_t3<jit::device_capabilities>;
+using cpp_hlsl_portable_float64_t3x3 = portable_matrix64_t3x3<jit::device_capabilities>;
 #else
 using cpp_hlsl_portable_float64_t = float64_t;
 using cpp_hlsl_portable_float64_t2 = nbl::hlsl::vector<float64_t, 2>;
 using cpp_hlsl_portable_float64_t3 = nbl::hlsl::vector<float64_t, 3>;
-using cpp_hlsl_portable_float64_t3x3 = nbl::hlsl::portable_matrix_t3x3<float64_t>;
+using cpp_hlsl_portable_float64_t3x3 = portable_matrix_t3x3<float64_t>;
 #endif
 
 enum class ObjectType : uint32_t
@@ -65,7 +67,7 @@ struct LinePointInfo
 
 struct QuadraticBezierInfo
 {
-    nbl::hlsl::shapes::QuadraticBezier<cpp_hlsl_portable_float64_t> shape; // 48bytes = 3 (control points) x 16 (emulated_float64_t)
+    shapes::QuadraticBezier<cpp_hlsl_portable_float64_t> shape; // 48bytes = 3 (control points) x 16 (emulated_float64_t)
     float32_t phaseShift;
     float32_t stretchValue;
 };
@@ -89,7 +91,7 @@ struct GlyphInfo
         dirU(dirU),
         aspectRatio(aspectRatio)
     {
-        assert(textureId < nbl::hlsl::numeric_limits<uint16_t>::max);
+        assert(textureId < numeric_limits<uint16_t>::max);
         packMinUV_TextureID(minUV, textureId);
     }
 #endif
@@ -97,21 +99,21 @@ struct GlyphInfo
     void packMinUV_TextureID(float32_t2 minUV, uint16_t textureId)
     {
         minUV_textureID_packed = textureId;
-        minUV_textureID_packed = nbl::hlsl::glsl::bitfieldInsert<uint32_t>(minUV_textureID_packed, (uint32_t)(minUV.x * 255.0f), 16, 8);
-        minUV_textureID_packed = nbl::hlsl::glsl::bitfieldInsert<uint32_t>(minUV_textureID_packed, (uint32_t)(minUV.y * 255.0f), 24, 8);
+        minUV_textureID_packed = glsl::bitfieldInsert<uint32_t>(minUV_textureID_packed, (uint32_t)(minUV.x * 255.0f), 16, 8);
+        minUV_textureID_packed = glsl::bitfieldInsert<uint32_t>(minUV_textureID_packed, (uint32_t)(minUV.y * 255.0f), 24, 8);
     }
 
     float32_t2 getMinUV()
     {
         return float32_t2(
-            float32_t(nbl::hlsl::glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 16, 8)) / 255.0,
-            float32_t(nbl::hlsl::glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 24, 8)) / 255.0
+            float32_t(glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 16, 8)) / 255.0,
+            float32_t(glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 24, 8)) / 255.0
         );
     }
 
     uint16_t getTextureID()
     {
-        return uint16_t(nbl::hlsl::glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 0, 16));
+        return uint16_t(glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 0, 16));
     }
 };
 
@@ -185,7 +187,7 @@ static_assert(offsetof(Globals, miterLimit) == 116u);
 #endif
 
 NBL_CONSTEXPR uint32_t InvalidRigidSegmentIndex = 0xffffffff;
-NBL_CONSTEXPR float InvalidStyleStretchValue = nbl::hlsl::numeric_limits<float>::infinity;
+NBL_CONSTEXPR float InvalidStyleStretchValue = numeric_limits<float>::infinity;
 
 struct LineStyle
 {
@@ -265,8 +267,8 @@ NBL_CONSTEXPR uint32_t MainObjectIdxBits = 24u; // It will be packed next to alp
 NBL_CONSTEXPR uint32_t AlphaBits = 32u - MainObjectIdxBits;
 NBL_CONSTEXPR uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
 NBL_CONSTEXPR uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
-NBL_CONSTEXPR uint64_t InvalidClipProjectionAddress = nbl::hlsl::numeric_limits<uint64_t>::max;
-NBL_CONSTEXPR uint32_t InvalidTextureIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
+NBL_CONSTEXPR uint64_t InvalidClipProjectionAddress = numeric_limits<uint64_t>::max;
+NBL_CONSTEXPR uint32_t InvalidTextureIdx = numeric_limits<uint32_t>::max;
 NBL_CONSTEXPR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
 // TODO: get automatic version working on HLSL
 NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1 - (uint32_t) SelectedMajorAxis);
@@ -276,26 +278,26 @@ NBL_CONSTEXPR float HatchFillMSDFSceenSpaceSize = 8.0;
 
 #ifdef __HLSL_VERSION
 
-// TODO: Use these in C++ as well once nbl::hlsl::numeric_limits<uint32_t> compiles on C++
+// TODO: Use these in C++ as well once numeric_limits<uint32_t> compiles on C++
 float32_t2 unpackCurveBoxUnorm(uint32_t2 value)
 {
-    return float32_t2(value) / float32_t(nbl::hlsl::numeric_limits<uint32_t>::max);
+    return float32_t2(value) / float32_t(numeric_limits<uint32_t>::max);
 }
 
 float32_t2 unpackCurveBoxSnorm(int32_t2 value)
 {
-    return float32_t2(value) / float32_t(nbl::hlsl::numeric_limits<int32_t>::max);
+    return float32_t2(value) / float32_t(numeric_limits<int32_t>::max);
 }
 
 
 uint32_t2 packCurveBoxUnorm(float32_t2 value)
 {
-    return value * float32_t(nbl::hlsl::numeric_limits<uint32_t>::max);
+    return value * float32_t(numeric_limits<uint32_t>::max);
 }
 
 int32_t2 packCurveBoxSnorm(float32_t2 value)
 {
-    return value * float32_t(nbl::hlsl::numeric_limits<int32_t>::max);
+    return value * float32_t(numeric_limits<int32_t>::max);
 }
 
 uint bitfieldInsert(uint base, uint insert, int offset, int bits)
@@ -349,7 +351,7 @@ struct PrecomputedRootFinder
         return result;
     }
 
-    static PrecomputedRootFinder construct(nbl::hlsl::math::equations::Quadratic<float_t> quadratic)
+    static PrecomputedRootFinder construct(math::equations::Quadratic<float_t> quadratic)
     {
         PrecomputedRootFinder result;
         result.C2 = quadratic.c * 2.0;
@@ -401,25 +403,25 @@ struct PSInput
     void setLineEnd(float2 lineEnd) { data2.zw = lineEnd; }
     
     /* QUAD_BEZIER */
-    nbl::hlsl::shapes::Quadratic<float> getQuadratic()
+    shapes::Quadratic<float> getQuadratic()
     {
-        return nbl::hlsl::shapes::Quadratic<float>::construct(data2.xy, data2.zw, data3.xy);
+        return shapes::Quadratic<float>::construct(data2.xy, data2.zw, data3.xy);
     }
-    void setQuadratic(nbl::hlsl::shapes::Quadratic<float> quadratic)
+    void setQuadratic(shapes::Quadratic<float> quadratic)
     {
         data2.xy = quadratic.A;
         data2.zw = quadratic.B;
         data3.xy = quadratic.C;
     }
     
-    void setQuadraticPrecomputedArcLenData(nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator preCompData) 
+    void setQuadraticPrecomputedArcLenData(shapes::Quadratic<float>::ArcLengthCalculator preCompData) 
     {
         data3.zw = float2(preCompData.lenA2, preCompData.AdotB);
         data4 = float4(preCompData.a, preCompData.b, preCompData.c, preCompData.b_over_4a);
     }
-    nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator getQuadraticArcLengthCalculator()
+    shapes::Quadratic<float>::ArcLengthCalculator getQuadraticArcLengthCalculator()
     {
-        return nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
+        return shapes::Quadratic<float>::ArcLengthCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
     }
     
     /* CURVE_BOX */
@@ -429,38 +431,38 @@ struct PSInput
     // TODO: possible optimization: passing precomputed values for solving the quadratic equation instead
 
     // data2, data3, data4
-    nbl::hlsl::math::equations::Quadratic<float> getCurveMinMinor() {
-        return nbl::hlsl::math::equations::Quadratic<float>::construct(data2.x, data2.y, data2.z);
+    math::equations::Quadratic<float> getCurveMinMinor() {
+        return math::equations::Quadratic<float>::construct(data2.x, data2.y, data2.z);
     }
-    nbl::hlsl::math::equations::Quadratic<float> getCurveMaxMinor() {
-        return nbl::hlsl::math::equations::Quadratic<float>::construct(data2.w, data3.x, data3.y);
+    math::equations::Quadratic<float> getCurveMaxMinor() {
+        return math::equations::Quadratic<float>::construct(data2.w, data3.x, data3.y);
     }
 
-    void setCurveMinMinor(nbl::hlsl::math::equations::Quadratic<float> bezier) {
+    void setCurveMinMinor(math::equations::Quadratic<float> bezier) {
         data2.x = bezier.a;
         data2.y = bezier.b;
         data2.z = bezier.c;
     }
-    void setCurveMaxMinor(nbl::hlsl::math::equations::Quadratic<float> bezier) {
+    void setCurveMaxMinor(math::equations::Quadratic<float> bezier) {
         data2.w = bezier.a;
         data3.x = bezier.b;
         data3.y = bezier.c;
     }
 
     // data4
-    nbl::hlsl::math::equations::Quadratic<float> getCurveMinMajor() {
-        return nbl::hlsl::math::equations::Quadratic<float>::construct(data4.x, data4.y, data3.z);
+    math::equations::Quadratic<float> getCurveMinMajor() {
+        return math::equations::Quadratic<float>::construct(data4.x, data4.y, data3.z);
     }
-    nbl::hlsl::math::equations::Quadratic<float> getCurveMaxMajor() {
-        return nbl::hlsl::math::equations::Quadratic<float>::construct(data4.z, data4.w, data3.w);
+    math::equations::Quadratic<float> getCurveMaxMajor() {
+        return math::equations::Quadratic<float>::construct(data4.z, data4.w, data3.w);
     }
 
-    void setCurveMinMajor(nbl::hlsl::math::equations::Quadratic<float> bezier) {
+    void setCurveMinMajor(math::equations::Quadratic<float> bezier) {
         data4.x = bezier.a;
         data4.y = bezier.b;
         data3.z = bezier.c;
     }
-    void setCurveMaxMajor(nbl::hlsl::math::equations::Quadratic<float> bezier) {
+    void setCurveMaxMajor(math::equations::Quadratic<float> bezier) {
         data4.z = bezier.a;
         data4.w = bezier.b;
         data3.w = bezier.c;
