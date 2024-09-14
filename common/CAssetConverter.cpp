@@ -242,8 +242,9 @@ class AssetVisitor : public CRTP
 			if (!shader)
 				return false;
 			CAssetConverter::patch_t<ICPUShader> patch = {shader};
-			patch.stage = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE;
-			if (!descend(shader,std::move(patch),specInfo))
+			constexpr auto stage = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE;
+			patch.stage = stage;
+			if (!descend(shader,std::move(patch),stage,specInfo))
 				return false;
 			return true;
 		}
@@ -270,7 +271,7 @@ class AssetVisitor : public CRTP
 				}
 				CAssetConverter::patch_t<ICPUShader> patch = {shader};
 				patch.stage = stage;
-				if (!descend(shader,std::move(patch),specInfo))
+				if (!descend(shader,std::move(patch),stage,specInfo))
 					return false;
 			}
 			return true;
@@ -683,19 +684,31 @@ class HashVisit : public CAssetConverter::CHashCache::hash_impl_base
 			// add dep hash to own
 			hasher << depHash;
 			// handle the few things we want to handle here
-			if constexpr (sizeof...(extraArgs)==1)
+			if constexpr (sizeof...(extraArgs)>0)
 			{
-				const auto& firstArg = std::get<0>(std::tuple<const ExtraArgs&...>(extraArgs...));
-				// hash the spec info
-				if constexpr (std::is_same_v<decltype(firstArg),const ICPUShader::SSpecInfo&>)
+				const auto& arg0 = std::get<0>(std::tuple<const ExtraArgs&...>(extraArgs...));
+				if constexpr (sizeof...(extraArgs)>1)
 				{
-					hasher << firstArg.entryPoint;
-					for (const auto& specConstant : *firstArg.entries)
+					const auto& arg1 = std::get<1>(std::tuple<const ExtraArgs&...>(extraArgs...));
+					// hash the spec info
+					if constexpr (std::is_same_v<decltype(arg1),const ICPUShader::SSpecInfo&>)
 					{
-						hasher << specConstant.first;
-						hasher.update(specConstant.second.data,specConstant.second.size);
+						hasher << arg1.entryPoint;
+						for (const auto& specConstant : *arg1.entries)
+						{
+							hasher << specConstant.first;
+							hasher.update(specConstant.second.data,specConstant.second.size);
+						}
+						hasher << arg1.requiredSubgroupSize;
+						switch (arg0)
+						{
+							case IShader::E_SHADER_STAGE::ESS_COMPUTE:
+								hasher << arg1.requireFullSubgroups;
+								break;
+							default:
+								break;
+						}
 					}
-					hasher << firstArg.requiredSubgroupSize;
 				}
 			}
 			return true;
@@ -833,8 +846,6 @@ bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUComputePipe
 	};
 	if (!visitor())
 		return false;
-	// we need to know that the stage is compute to hash this!
-	hasher << asset->getSpecInfo().requireFullSubgroups;
 	return true;
 }
 bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPURenderpass> lookup)
@@ -1205,6 +1216,70 @@ class GetDependantVisit<ICPUPipelineLayout> : public GetDependantVisitBase<ICPUP
 			if (!depObj)
 				return false;
 			dsLayouts[setIndex] = std::move(depObj);
+			return true;
+		}
+};
+template<Asset AssetT> requires nbl::is_any_of_v<AssetT,ICPUComputePipeline,ICPUGraphicsPipeline>
+class GetDependantVisit<AssetT> : public GetDependantVisitBase<AssetT>
+{
+		using base_t = GetDependantVisitBase<AssetT>;
+
+	public:
+		using AssetType = AssetT;
+
+		inline auto& getSpecInfo(const IShader::E_SHADER_STAGE stage)
+		{
+			assert(hlsl::bitCount(stage)==1);
+			return specInfo[hlsl::findLSB(stage)];
+		}
+
+		// ok to do non owning since some cache owns anyway
+		IGPUPipelineLayout* layout = nullptr;
+		// has to be public to allow for initializer list constructor
+		std::array<IGPUShader::SSpecInfo,/*hlsl::mpl::findMSB<ESS_COUNT>::value*/sizeof(IShader::E_SHADER_STAGE)*8> specInfo = {};
+		// optionals (done this way because inheritance chain with templated class hides protected methods)
+		IGPURenderpass* renderpass = nullptr;
+
+	protected:
+		bool descend_impl(
+			const instance_t<AssetType>& user, const CAssetConverter::patch_t<AssetType>& userPatch,
+			const instance_t<ICPUPipelineLayout>& dep, const CAssetConverter::patch_t<ICPUPipelineLayout>& soloPatch
+		)
+		{
+			auto depObj = base_t::getDependant<ICPUPipelineLayout>(dep,soloPatch);
+			if (!depObj)
+				return false;
+			layout = depObj.get();
+			return true;
+		}
+		bool descend_impl(
+			const instance_t<AssetType>& user, const CAssetConverter::patch_t<AssetType>& userPatch,
+			const instance_t<ICPUShader>& dep, const CAssetConverter::patch_t<ICPUShader>& soloPatch,
+			const IShader::E_SHADER_STAGE stage, const IShader::SSpecInfo<const ICPUShader>& inSpecInfo
+		)
+		{
+			auto depObj = base_t::getDependant<ICPUShader>(dep,soloPatch);
+			if (!depObj)
+				return false;
+			getSpecInfo(stage) = {
+				.entryPoint = inSpecInfo.entryPoint,
+				.shader = depObj.get(),
+				.entries = inSpecInfo.entries,
+				.requiredSubgroupSize = inSpecInfo.requiredSubgroupSize,
+				.requireFullSubgroups = stage==IShader::E_SHADER_STAGE::ESS_COMPUTE ? inSpecInfo.requireFullSubgroups:uint8_t(0)
+			};
+			return true;
+		}
+		template<Asset T=AssetType> requires (std::is_same_v<T,AssetType>&& std::is_same_v<T,ICPUGraphicsPipeline>)
+		bool descend_impl(
+			const instance_t<T>& user, const CAssetConverter::patch_t<T>& userPatch,
+			const instance_t<ICPURenderpass>& dep, const CAssetConverter::patch_t<ICPURenderpass>& soloPatch
+		)
+		{
+			auto depObj = base_t::getDependant<ICPURenderpass>(dep,soloPatch);
+			if (!depObj)
+				return false;
+			renderpass = depObj.get();
 			return true;
 		}
 };
@@ -1755,40 +1830,30 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 				for (auto& entry : conversionRequests)
 				{
 					const ICPUComputePipeline* asset = entry.second.canonicalAsset;
-#if 0
-					const auto& assetSpecShader = asset->getSpecInfo();
-					const IGPUShader::SSpecInfo specShaderWithoutDep = {
-						.entryPoint = assetSpecShader.entryPoint,
-						.shader = nullptr, // to get later in the loop
-						.entries = assetSpecShader.entries,
-						.requiredSubgroupSize = assetSpecShader.requiredSubgroupSize,
-						.requireFullSubgroups = assetSpecShader.requireFullSubgroups
-					};
 					// there is no patching possible for this asset
 					for (auto i=0ull; i<entry.second.copyCount; i++)
 					{
 						const auto outIx = i+entry.second.firstCopyIx;
 						const auto uniqueCopyGroupID = gpuObjUniqueCopyGroupIDs[outIx];
+						AssetVisitor<GetDependantVisit<ICPUComputePipeline>> visitor = {
+							{visitBase},
+							{asset,uniqueCopyGroupID},
+							{}
+						};
+						if (!visitor())
+							continue;
 						// ILogicalDevice::createComputePipelines is rather aggressive on the spec constant validation, so we create one pipeline at a time
+						core::smart_refctd_ptr<IGPUComputePipeline> ppln;
 						{
 							// no derivatives, special flags, etc.
 							IGPUComputePipeline::SCreationParams params = {};
-							params.shader = specShaderWithoutDep;
-							bool depNotFound = false;
-							{
-								// we choose whatever patch, because there should really only ever be one (all pipeline layouts merge their PC ranges seamlessly)
-								params.layout = getDependant(uniqueCopyGroupID,asset,asset->getLayout(),firstPatchMatch,depNotFound).get();
-								// while there are patches possible for shaders, the only patch which can happen here is changing a stage from UNKNOWN to COMPUTE
-								params.shader.shader = getDependant(uniqueCopyGroupID,asset,assetSpecShader.shader,firstPatchMatch,depNotFound).get();
-							}
-							if (depNotFound)
-								continue;
-							core::smart_refctd_ptr<IGPUComputePipeline> ppln;
+							params.layout = visitor.layout;
+							// while there are patches possible for shaders, the only patch which can happen here is changing a stage from UNKNOWN to COMPUTE
+							params.shader = visitor.getSpecInfo(IShader::E_SHADER_STAGE::ESS_COMPUTE);
 							device->createComputePipelines(inputs.pipelineCache,{&params,1},&ppln);
-							assign(entry.first,entry.second.firstCopyIx,i,std::move(ppln));
 						}
+						assign(entry.first,entry.second.firstCopyIx,i,std::move(ppln));
 					}
-#endif
 				}
 			}
 			if constexpr (std::is_same_v<AssetType,ICPURenderpass>)
@@ -1817,41 +1882,35 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 					{
 						const auto outIx = i+entry.second.firstCopyIx;
 						const auto uniqueCopyGroupID = gpuObjUniqueCopyGroupIDs[outIx];
-#if 0
+						AssetVisitor<GetDependantVisit<ICPUGraphicsPipeline>> visitor = {
+							{visitBase},
+							{asset,uniqueCopyGroupID},
+							{}
+						};
 						// ILogicalDevice::createComputePipelines is rather aggressive on the spec constant validation, so we create one pipeline at a time
+						core::smart_refctd_ptr<IGPUGraphicsPipeline> ppln;
 						{
 							// no derivatives, special flags, etc.
 							IGPUGraphicsPipeline::SCreationParams params = {};
 							bool depNotFound = false;
 							{
-								// we choose whatever patch, because there should really only ever be one (all pipeline layouts merge their PC ranges seamlessly)
-								params.layout = getDependant(uniqueCopyGroupID,asset,asset->getLayout(),firstPatchMatch,depNotFound).get();
-								// we choose whatever patch, because there should only ever be one (users don't influence patching)
-								params.renderpass = getDependant(uniqueCopyGroupID,asset,asset->getRenderpass(),firstPatchMatch,depNotFound).get();
+								params.layout = visitor.layout;
+								params.renderpass = visitor.renderpass;
 								// while there are patches possible for shaders, the only patch which can happen here is changing a stage from UNKNOWN to match the slot here
 								tmpSpecInfo.clear();
 								using stage_t = ICPUShader::E_SHADER_STAGE;
 								for (stage_t stage : {stage_t::ESS_VERTEX,stage_t::ESS_TESSELLATION_CONTROL,stage_t::ESS_TESSELLATION_EVALUATION,stage_t::ESS_GEOMETRY,stage_t::ESS_FRAGMENT})
 								{
-									const auto& info = asset->getSpecInfo(stage);
+									auto& info = visitor.getSpecInfo(stage);
 									if (info.shader)
-										tmpSpecInfo.push_back({
-											.entryPoint = info.entryPoint,
-											.shader = getDependant(uniqueCopyGroupID,asset,info.shader,firstPatchMatch,depNotFound).get(),
-											.entries = info.entries,
-											.requiredSubgroupSize = info.requiredSubgroupSize
-										});
+										tmpSpecInfo.push_back(std::move(info));
 								}
 								params.shaders = tmpSpecInfo;
 							}
-							if (depNotFound)
-								continue;
 							params.cached = asset->getCachedCreationParams();
-							core::smart_refctd_ptr<IGPUGraphicsPipeline> ppln;
 							device->createGraphicsPipelines(inputs.pipelineCache,{&params,1},&ppln);
 							assign(entry.first,entry.second.firstCopyIx,i,std::move(ppln));
 						}
-#endif
 					}
 				}
 			}
