@@ -71,7 +71,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 
-			m_assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
+			m_assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(m_system));
 			auto* geometry = m_assetManager->getGeometryCreator();
 
 			m_semaphore = m_device->createSemaphore(m_realFrameIx);
@@ -192,6 +192,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				(
 					nbl::ext::imgui::UI::S_CREATION_PARAMETERS
 					{
+						.assetManager = m_assetManager.get(),
 						.utilities = m_utils.get(),
 						.transfer = getTransferUpQueue(),
 						.renderpass = renderpass,
