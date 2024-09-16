@@ -12,7 +12,7 @@ cbuffer SortParams
 [[vk::binding(2, 1)]] RWStructuredBuffer<uint> partitionHistogram;
 
 groupshared uint reduction;
-groupshared uint sScan[SORT_WORKGROUP_SIZE];
+groupshared uint sScan[SUBGROUP_SIZE];
 
 [numthreads(WorkgroupSize, 1, 1)]
 void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
@@ -35,22 +35,29 @@ void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
         uint value = partitionIdx < partitionCount ? partitionHistogram[partitionIdx * NumSortBins + g_id] : 0;
         uint prefixSum = WavePrefixSum(value) + reduction;
         uint sum = WaveActiveSum(value);
+
+        if (WaveIsFirstLane())
+            sScan[s_id] = sum;
+        GroupMemoryBarrierWithGroupSync();
+
+        if (idx < glsl::gl_NumSubgroups())
+        {
+            uint prefixSum = WavePrefixSum(sScan[idx]);
+            uint sum = WaveActiveSum(sScan[idx]);
+            sScan[idx] = prefixSum;
+
+            if (idx == 0)
+                reduction += sum;
+        }
+        GroupMemoryBarrierWithGroupSync();
+
+        if (partitionIdx < partitionCount)
+        {
+            prefixSum += sScan[s_id];
+            partitionHistogram[partitionIdx * NumSortBins + g_id] = prefixSum;
+        }
+        GroupMemoryBarrierWithGroupSync();
     }
-
-    if (WaveIsFirstLane())
-        sScan[s_id] = sum;
-    GroupMemoryBarrierWithGroupSync();
-
-    if (idx < glsl::gl_NumSubgroups())
-    {
-        uint prefixSum = WavePrefixSum(sScan[idx]);
-        uint sum = WaveActiveSum(sScan[idx]);
-        sScan[idx] = prefixSum;
-
-        if (idx == 0)
-            reduction += sum;
-    }
-    GroupMemoryBarrierWithGroupSync();
 
     if (g_id == 0)
     {

@@ -2,6 +2,7 @@
 #define _FLIP_EXAMPLE_SORT_COMMON_HLSL
 
 #define SORT_WORKGROUP_SIZE 512   // sort step
+#define SUBGROUP_SIZE 32    // want it to be 32 even on amd (rdna)
 #define NUM_SORT_BINS 256
 #define NUM_PARTITIONS 8
 
@@ -33,6 +34,7 @@
 #endif
 
 static const uint WorkgroupSize = SORT_WORKGROUP_SIZE;
+static const uint SubgroupSize = SUBGROUP_SIZE;
 static const uint NumSortBins = NUM_SORT_BINS;
 
 static const uint NumPartitions = NUM_PARTITIONS;
@@ -58,6 +60,8 @@ inline uint getKey(DATA_TYPE data)
 #elif defined(DATA_TYPE_FLOAT)
     // TODO: convert float to uint
 #endif
+
+    return key;
 }
 
 inline uint bitFieldExtract(uint data, uint offset, uint numBits)

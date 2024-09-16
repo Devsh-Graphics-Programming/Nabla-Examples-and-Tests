@@ -24,7 +24,7 @@ void main(uint32_t3 threadID : SV_GroupThreadID, uint32_t3 groupID : SV_GroupID)
     
     uint idx = s_id * glsl::gl_SubgroupSize() + ls_id;
     uint partitionIdx = g_id;
-    uint partitionStart = partitionIndex * PartitionSize;
+    uint partitionStart = partitionIdx * PartitionSize;
 
     if (partitionStart >= params.numElements)
         return;
@@ -38,7 +38,7 @@ void main(uint32_t3 threadID : SV_GroupThreadID, uint32_t3 groupID : SV_GroupID)
     {
         uint keyIdx = partitionStart + WorkgroupSize * i + idx;
         uint key = keyIdx < params.numElements ? getKey(inputBuffer[keyIdx]) : 0xffffffff;
-        uint radix = bitFieldExtract(key, params.bitShift, 8);
+        uint radix = glsl::bitfieldExtract(key, params.bitShift, 8);
         InterlockedAdd(localHistogram[radix], 1);
     }
     GroupMemoryBarrierWithGroupSync();

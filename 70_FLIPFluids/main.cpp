@@ -894,7 +894,7 @@ public:
 
 		radixSort.initialize(m_device, m_system, m_assetMgr, m_logger);
 
-		// testSort();
+		testSort();
 
 		m_winMgr->show(m_window.get());
 

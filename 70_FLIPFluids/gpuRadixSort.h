@@ -290,6 +290,21 @@ public:
 				};
 				m_device->updateDescriptorSets(std::span(writes, 4), {});
 			}
+			{
+				IGPUDescriptorSet::SDescriptorInfo infos[3];
+				infos[0].desc = smart_refctd_ptr(paramsBuffer);
+				infos[0].info.buffer = {.offset = 0, .size = paramsBuffer->getSize()};
+				infos[1].desc = smart_refctd_ptr(globalHistogramsBuffer);
+				infos[1].info.buffer = {.offset = 0, .size = globalHistogramsBuffer->getSize()};
+				infos[2].desc = smart_refctd_ptr(partitionHistogramBuffer);
+				infos[2].info.buffer = {.offset = 0, .size = partitionHistogramBuffer->getSize()};
+				IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
+					{.dstSet = m_scanSpineDs.get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
+					{.dstSet = m_scanSpineDs.get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
+					{.dstSet = m_scanSpineDs.get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
+				};
+				m_device->updateDescriptorSets(std::span(writes, 3), {});
+			}
 		}
 
 		SBufferRange<IGPUBuffer> range;

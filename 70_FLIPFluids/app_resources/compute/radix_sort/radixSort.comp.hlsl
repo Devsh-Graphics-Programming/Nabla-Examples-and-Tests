@@ -1,5 +1,7 @@
 #include "sort_common.hlsl"
 
+using namespace nbl::hlsl;
+
 [[vk::binding(0, 1)]]
 cbuffer SortParams
 {
@@ -69,7 +71,7 @@ void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
         values[i] = keyIdx < params.numElements ? inputBuffer[keyIdx].y : 0;
 #endif
 
-        uint bin = bitFieldExtract(key, params.bitShift, 8);
+        uint bin = glsl::bitfieldExtract(key, params.bitShift, 8);
         bins[i] = bin;
 
         uint4 mask = WaveActiveBallot(true);
@@ -78,7 +80,7 @@ void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
         {
             uint digit = (bin >> j) & 1;
             uint4 ballot = WaveActiveBallot(digit == 1);
-            mask &= uint4(digit - 1) ^ ballot;
+            mask &= (uint4)(digit - 1) ^ ballot;
         }
 
         uint4 mergedMask = subgroupMask & mask;
@@ -106,7 +108,7 @@ void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
         uint sum = WaveActiveSum(v);
         uint prefixSum = WavePrefixSum(v);
         localHistogram[i] = prefixSum;
-        if (WaveIsFirstLane())
+        if (ls_id == 0)
             histogramSums[i / subgroupSize] = sum;
     }
     GroupMemoryBarrierWithGroupSync();
@@ -118,7 +120,7 @@ void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
         uint sum = WaveActiveSum(v);
         uint prefixSum = WavePrefixSum(v);
         histogramSums[idx] = prefixSum;
-        if (WaveIsFirstLane())
+        if (ls_id == 0)
             histogramSums[reduceOffset + idx / subgroupSize] = sum;
     }
     GroupMemoryBarrierWithGroupSync();
@@ -170,7 +172,7 @@ void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
     for (uint i = idx; i < PartitionSize; i += WorkgroupSize)
     {
         uint key = localHistogram[i];
-        uint bin = bitFieldExtract(key, params.bitShift, 8);
+        uint bin = glsl::bitfieldExtract(key, params.bitShift, 8);
         uint dstOffset = histogramSums[bin] + i;
         if (dstOffset < params.numElements)
             outputBuffer[dstOffset].x = key;
