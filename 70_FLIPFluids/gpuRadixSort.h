@@ -250,7 +250,7 @@ public:
 					{.dstSet = m_radixSortDs[1].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
 					{.dstSet = m_radixSortDs[1].get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
 					{.dstSet = m_radixSortDs[1].get(), .binding = 3, .arrayElement = 0, .count = 1, .info = &infos[3]},
-					{.dstSet = m_radixSortDs[1].get(), .binding = 4, .arrayElement = 0, .count = 1, .info = &infos[3]}
+					{.dstSet = m_radixSortDs[1].get(), .binding = 4, .arrayElement = 0, .count = 1, .info = &infos[4]}
 				};
 				m_device->updateDescriptorSets(std::span(writes, 5), {});
 			}
@@ -323,8 +323,6 @@ public:
         params.numElements = numElements;
         params.numWorkgroups = numWorkgroups;
         params.numThreadsPerGroup = numThreadsPerGroup;
-
-		const uint32_t numIterations = 4;
 
         for (uint32_t i = 0; i < numIterations; i++)
         {
@@ -445,6 +443,7 @@ private:
     };
 
 	const uint32_t numThreadsPerGroup = 32;		// subgroup size
+	const uint32_t numIterations = 4;
 
     smart_refctd_ptr<ILogicalDevice> m_device;
 

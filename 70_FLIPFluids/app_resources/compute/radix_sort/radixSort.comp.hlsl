@@ -17,6 +17,12 @@ cbuffer SortParams
 groupshared uint localHistogram[PartitionSize];
 groupshared uint histogramSums[NumSortBins];
 
+uint bitCount(uint4 v)
+{
+    uint4 res = count_bits(v);
+    return res[0] + res[1] + res[2] + res[3];
+}
+
 [numthreads(WorkgroupSize, 1, 1)]
 void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
 {
@@ -32,7 +38,7 @@ void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
     uint partitionIdx = g_id;
     uint partitionStart = partitionIdx * PartitionSize;
 
-    uint4 subgroupMask = uint4(
+    const uint4 subgroupMask = uint4(
         (1 << ls_id) - 1,
         (1 << (ls_id - 32)) - 1,
         (1 << (ls_id - 64)) - 1,
@@ -84,8 +90,8 @@ void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
         }
 
         uint4 mergedMask = subgroupMask & mask;
-        uint subgroupOffset = countbits(mergedMask.x) + countbits(mergedMask.y) + countbits(mergedMask.z) + countbits(mergedMask.w);
-        uint radixCount = countbits(mask.x) + countbits(mask.y) + countbits(mask.z) + countbits(mask.w);
+        uint subgroupOffset = bitCount(subgroupMask & mask);
+        uint radixCount = bitCount(mask);
 
         if (subgroupOffset == 0)
         {
