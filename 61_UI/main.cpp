@@ -137,57 +137,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			//pass.scene = CScene::create<CScene::CREATE_RESOURCES_DIRECTLY_WITH_DEVICE>(smart_refctd_ptr(m_utils), smart_refctd_ptr(m_logger), gQueue, geometry);
 			pass.scene = CScene::create<CScene::CREATE_RESOURCES_WITH_ASSET_CONVERTER>(smart_refctd_ptr(m_utils), smart_refctd_ptr(m_logger), gQueue, geometry);
 			{
-				using binding_flags_t = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS;
-				{
-					IGPUSampler::SParams params;
-					params.AnisotropicFilter = 1u;
-					params.TextureWrapU = ISampler::ETC_REPEAT;
-					params.TextureWrapV = ISampler::ETC_REPEAT;
-					params.TextureWrapW = ISampler::ETC_REPEAT;
-
-					pass.ui.samplers.gui = m_device->createSampler(params);
-					pass.ui.samplers.gui->setObjectDebugName("Nabla IMGUI UI Sampler");
-				}
-
-				{
-					IGPUSampler::SParams params;
-					params.MinLod = 0.f;
-					params.MaxLod = 0.f;
-					params.TextureWrapU = ISampler::ETC_CLAMP_TO_EDGE;
-					params.TextureWrapV = ISampler::ETC_CLAMP_TO_EDGE;
-					params.TextureWrapW = ISampler::ETC_CLAMP_TO_EDGE;
-
-					pass.ui.samplers.scene = m_device->createSampler(params);
-					pass.ui.samplers.scene->setObjectDebugName("Nabla IMGUI Scene Sampler");
-				}
-
-				std::array<core::smart_refctd_ptr<IGPUSampler>, 69u> immutableSamplers;
-				for (auto& it : immutableSamplers)
-					it = smart_refctd_ptr(pass.ui.samplers.scene);
-
-				immutableSamplers[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID] = smart_refctd_ptr(pass.ui.samplers.gui);
-
-				const IGPUDescriptorSetLayout::SBinding bindings[] =
-				{
-					{
-						.binding = 0u,
-						.type = IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
-						.createFlags = core::bitflag(binding_flags_t::ECF_UPDATE_AFTER_BIND_BIT) | binding_flags_t::ECF_PARTIALLY_BOUND_BIT | binding_flags_t::ECF_UPDATE_UNUSED_WHILE_PENDING_BIT,
-						.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-						.count = 69u
-					},
-					{
-						.binding = 1u,
-						.type = IDescriptor::E_TYPE::ET_SAMPLER,
-						.createFlags = binding_flags_t::ECF_NONE,
-						.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-						.count = 69u,
-						.immutableSamplers = immutableSamplers.data()
-					}
-				};
-
-				auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
-
 				pass.ui.manager = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>
 				(
 					nbl::ext::imgui::UI::S_CREATION_PARAMETERS
@@ -197,9 +146,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						.transfer = getTransferUpQueue(),
 						.renderpass = renderpass,
 						.subpassIx = 0u,
-						.descriptorSetLayout = descriptorSetLayout.get()
+						//.resources = { .descriptorSetLayout = descriptorSetLayout.get() }
 					}
 				);
+
+				// note that we use default layout provided by our extension, but you are free to create your own by filling nbl::ext::imgui::UI::S_CREATION_PARAMETERS::resources
+				const auto* descriptorSetLayout = pass.ui.manager->getPipeline()->getLayout()->getDescriptorSetLayout(0u);
 
 				IDescriptorPool::SCreateInfo descriptorPoolInfo = {};
 				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLER)] = 69u;
@@ -210,7 +162,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				m_descriptorSetPool = m_device->createDescriptorPool(std::move(descriptorPoolInfo));
 				assert(m_descriptorSetPool);
 
-				pass.ui.descriptorSet = m_descriptorSetPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout));
+				m_descriptorSetPool->createDescriptorSets(1u, &descriptorSetLayout, &pass.ui.descriptorSet);
 				assert(pass.ui.descriptorSet);
 
 			}
