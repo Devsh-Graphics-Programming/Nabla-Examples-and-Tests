@@ -572,30 +572,20 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			IQueue::SSubmitInfo::SCommandBufferInfo commandBuffersInfo[] = {{.cmdbuf = cb }};
 
-			SIntendedSubmitInfo intendedSubmitInfo = 
-			{
-				.queue = queue,
-				.waitSemaphores = {},
-				.commandBuffers = { commandBuffersInfo,1 },
-				.scratchSemaphore = {
-					.semaphore = m_semaphore.get(),
-					.value = m_realFrameIx,
-					.stageMask = PIPELINE_STAGE_FLAGS::ALL_GRAPHICS_BITS 
-				}
-			};
-
 			// UI render pass
 			{
 				auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-				const IGPUCommandBuffer::SRenderpassBeginInfo info = 
+				const IGPUCommandBuffer::SRenderpassBeginInfo renderpassInfo = 
 				{
 					.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
 					.colorClearValues = &clear.color,
 					.depthStencilClearValues = nullptr,
 					.renderArea = currentRenderArea
 				};
-				cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-				pass.ui.manager->render(intendedSubmitInfo, pass.ui.descriptorSet.get());
+				nbl::video::ISemaphore::SWaitInfo waitInfo = { .semaphore = m_semaphore.get(), .value = m_realFrameIx + 1u };
+
+				cb->beginRenderPass(renderpassInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+				pass.ui.manager->render(cb, waitInfo, pass.ui.descriptorSet.get());
 				cb->endRenderPass();
 			}
 			cb->end();
