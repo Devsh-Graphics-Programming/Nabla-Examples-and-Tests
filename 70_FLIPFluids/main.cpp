@@ -1704,16 +1704,16 @@ private:
         }
 
 		// dispatch sort pairs
-		radixSort.sort(cmdbuf, particleCellPairBuffer, numParticles);
-				
-		{
-			SMemoryBarrier memBarrier;
-			memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-			memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
-			memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-			memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
-			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
-        }
+		//radixSort.sort(cmdbuf, particleCellPairBuffer, numParticles);
+		//		
+		//{
+		//	SMemoryBarrier memBarrier;
+		//	memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+		//	memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
+		//	memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+		//	memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+		//	cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
+  //      }
 
 		// clear vel field
 		SBufferRange<IGPUBuffer> range;
@@ -1792,10 +1792,11 @@ private:
 		uint32_t bufferData[2 * numTestElements];
 		unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
 		std::mt19937 g(seed);
+		std::uniform_int_distribution<uint32_t> dist;
 
 		for (int i = 0; i < 2 * numTestElements; i++)
 		{
-			bufferData[i] = g() % 128;
+			bufferData[i] = dist(g);
 		}
 		memcpy(testbufMem, bufferData, 2 * numTestElements * sizeof(uint32_t));
 

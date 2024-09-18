@@ -402,7 +402,7 @@ private:
 		    auto bufMem = m_device->allocate(reqs, tempDataBuffer.get());
 			updated = true;
         }
-		uint32_t bufSize = sizeof(uint32_t) * 4 * NUM_SORT_BINS;
+		uint32_t bufSize = sizeof(uint32_t) * numIterations * NUM_SORT_BINS;
 		if (!globalHistogramsBuffer || globalHistogramsBuffer->getSize() != bufSize)
 		{
 			video::IGPUBuffer::SCreationParams params = {};

@@ -19,7 +19,7 @@ groupshared uint histogramSums[NumSortBins];
 
 uint bitCount(uint4 v)
 {
-    uint4 res = count_bits(v);
+    uint4 res = countbits(v);
     return res[0] + res[1] + res[2] + res[3];
 }
 
@@ -89,7 +89,6 @@ void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
             mask &= (uint4)(digit - 1) ^ ballot;
         }
 
-        uint4 mergedMask = subgroupMask & mask;
         uint subgroupOffset = bitCount(subgroupMask & mask);
         uint radixCount = bitCount(mask);
 

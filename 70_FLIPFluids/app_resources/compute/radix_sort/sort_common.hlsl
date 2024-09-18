@@ -64,11 +64,5 @@ inline uint getKey(DATA_TYPE data)
     return key;
 }
 
-inline uint bitFieldExtract(uint data, uint offset, uint numBits)
-{
-    uint mask = (1u << numBits) - 1u;
-    return (data >> offset) & mask;
-}
-
 #endif
 #endif
