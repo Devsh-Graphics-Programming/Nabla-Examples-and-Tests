@@ -585,7 +585,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				nbl::video::ISemaphore::SWaitInfo waitInfo = { .semaphore = m_semaphore.get(), .value = m_realFrameIx + 1u };
 
 				cb->beginRenderPass(renderpassInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-				pass.ui.manager->render(cb, waitInfo, pass.ui.descriptorSet.get());
+				const auto uiParams = pass.ui.manager->getCreationParameters();
+				auto* pipeline = pass.ui.manager->getPipeline();
+				cb->bindGraphicsPipeline(pipeline);
+				cb->bindDescriptorSets(EPBP_GRAPHICS, pipeline->getLayout(), uiParams.resources.textures.setIx, 1u, &pass.ui.descriptorSet.get()); // note that we use default UI pipeline layout where uiParams.resources.textures.setIx == uiParams.resources.samplers.setIx
+				pass.ui.manager->render(cb, waitInfo);
 				cb->endRenderPass();
 			}
 			cb->end();
