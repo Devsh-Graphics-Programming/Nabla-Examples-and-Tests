@@ -421,86 +421,129 @@ struct patch_index_t
 };
 // This cache stops us traversing an asset with the same user group and patch more than once.
 template<asset::Asset AssetType>
-struct dfs_cache
+class dfs_cache
 {
-	// Maps `instance_t` to `patchIndex`, makes sure the find can handle polymorphism of assets
-	struct HashEquals
-	{
-		using is_transparent = void;
-
-		inline size_t operator()(const instance_t<IAsset>& entry) const
+	public:
+		// Maps `instance_t` to `patchIndex`, makes sure the find can handle polymorphism of assets
+		struct HashEquals
 		{
-			return ptrdiff_t(entry.asset)^entry.uniqueCopyGroupID;
-		}
+			using is_transparent = void;
 
-		inline size_t operator()(const instance_t<AssetType>& entry) const
-		{
-			// its very important to cast the derived AssetType to IAsset because otherwise pointers won't match
-			return operator()(instance_t<IAsset>(entry));
-		}
+			inline size_t operator()(const instance_t<IAsset>& entry) const
+			{
+				return ptrdiff_t(entry.asset)^entry.uniqueCopyGroupID;
+			}
+
+			inline size_t operator()(const instance_t<AssetType>& entry) const
+			{
+				// its very important to cast the derived AssetType to IAsset because otherwise pointers won't match
+				return operator()(instance_t<IAsset>(entry));
+			}
 	
-		inline bool operator()(const instance_t<IAsset>& lhs, const instance_t<AssetType>& rhs) const
-		{
-			return lhs==instance_t<IAsset>(rhs);
-		}
-		inline bool operator()(const instance_t<AssetType>& lhs, const instance_t<IAsset>& rhs) const
-		{
-			return instance_t<IAsset>(lhs)==rhs;
-		}
-		inline bool operator()(const instance_t<AssetType>& lhs, const instance_t<AssetType>& rhs) const
-		{
-			return instance_t<IAsset>(lhs)==instance_t<IAsset>(rhs);
-		}
-	};
-	using key_map_t = core::unordered_map<instance_t<AssetType>,patch_index_t,HashEquals,HashEquals>;
+			inline bool operator()(const instance_t<IAsset>& lhs, const instance_t<AssetType>& rhs) const
+			{
+				return lhs==instance_t<IAsset>(rhs);
+			}
+			inline bool operator()(const instance_t<AssetType>& lhs, const instance_t<IAsset>& rhs) const
+			{
+				return instance_t<IAsset>(lhs)==rhs;
+			}
+			inline bool operator()(const instance_t<AssetType>& lhs, const instance_t<AssetType>& rhs) const
+			{
+				return instance_t<IAsset>(lhs)==instance_t<IAsset>(rhs);
+			}
+		};
+		using key_map_t = core::unordered_map<instance_t<AssetType>,patch_index_t,HashEquals,HashEquals>;
 
-	// Find the first node for an instance with a compatible patch
-	inline std::pair<typename key_map_t::const_iterator,patch_index_t> find(const instance_t<AssetType>& instance, const CAssetConverter::patch_t<AssetType>& soloPatch) const
-	{
-		// get all the existing patches for the same (AssetType*,UniqueCopyGroupID)
-		auto found = instances.find(instance);
-		if (found!=instances.end())
+	private:
+		// Implement both finding the first node for an instance with a compatible patch, and merging patches plus inserting new nodes if nothing can be merged
+		template<bool ReplaceWithCombined>
+		inline patch_index_t* impl(const instance_t<AssetType>& instance, const CAssetConverter::patch_t<AssetType>& soloPatch)
 		{
+			// get all the existing patches for the same (AssetType*,UniqueCopyGroupID)
+			auto found = instances.find(instance);
+			if (found==instances.end())
+				return nullptr;
 			// we don't want to pass the device to this function, it just assumes the patch will be valid without touch-ups
 			//assert(soloPatch.valid(device));
-			auto createdIndex = found->second;
-			while (createdIndex)
+			patch_index_t* pIndex = &found->second;
+			// iterate over linked list
+			while (*pIndex)
 			{
-				const auto& candidate = nodes[createdIndex.value];
-				if (std::get<bool>(candidate.patch.combine(soloPatch)))
+				// get our candidate
+				auto& candidate = nodes[pIndex->value];
+				// found a thing, try-combine the patches
+				auto [success,combined] = candidate.patch.combine(soloPatch);
+				if (success)
+				{
+					// change the patch to a combined version
+					if constexpr (ReplaceWithCombined)
+						candidate.patch = std::move(combined);
 					break;
-				createdIndex = candidate.next;
+				}
+				// else try the next one
+				pIndex = &candidate.next;
 			}
-			return {found,createdIndex};
+			return pIndex;
 		}
-		return {found,{}};
-	}
 
-	template<typename What>
-	inline void for_each(What what)
-	{
-		for (auto& entry : instances)
+	public:
+		// Find the first node for an instance with a compatible patch and return its index
+		inline std::pair<patch_index_t,bool> insert(const instance_t<AssetType>& instance, CAssetConverter::patch_t<AssetType>&& soloPatch)
 		{
-			const auto& instance = entry.first;
-			auto patchIx = entry.second;
-			assert(instance.asset || !patchIx);
-			for (; patchIx; patchIx=nodes[patchIx.value].next)
-				what(instance,nodes[patchIx.value]);
+			const patch_index_t newPatchIndex = {nodes.size()};
+			auto pIndex = impl<true>(instance,soloPatch);
+			// found a linked list for this entry
+			if (pIndex)
+			{
+				// found a patch and merged it
+				if (*pIndex)
+					return {*pIndex,false};
+				// nothing mergable found, make old TAIL point to new node about to be inserted
+				*pIndex = newPatchIndex;
+			}
+			else // there isn't even a linked list head for this entry
+			{
+				// phmap's unordered map doesn't even care about the found hint
+				instances.emplace(instance,newPatchIndex);
+			}
+			// both non-mergable and completely not found cases fall through here
+			nodes.emplace_back(std::move(soloPatch),CAssetConverter::CHashCache::NoContentHash);
+			return {newPatchIndex,true};
 		}
-	}
+		// Find the first node for an instance with a compatible patch and return its index
+		inline patch_index_t find(const instance_t<AssetType>& instance, const CAssetConverter::patch_t<AssetType>& soloPatch) const
+		{
+			if (const patch_index_t* pIndex=const_cast<dfs_cache<AssetType>*>(this)->impl<false>(instance,soloPatch); pIndex)
+				return *pIndex;
+			return {};
+		}
 
-	// not a multi-map anymore because order of insertion into an equal range needs to be stable, so I just make it a linked list explicitly
-	key_map_t instances;
-	// node struct
-	struct created_t
-	{
-		CAssetConverter::patch_t<AssetType> patch = {};
-		core::blake3_hash_t contentHash = {};
-		asset_cached_t<AssetType> gpuObj = {};
-		patch_index_t next = {};
-	};
-	// all entries refer to patch by index, so its stable against vector growth
-	core::vector<created_t> nodes;
+		template<typename What>
+		inline void for_each(What what)
+		{
+			for (auto& entry : instances)
+			{
+				const auto& instance = entry.first;
+				auto patchIx = entry.second;
+				assert(instance.asset || !patchIx);
+				for (; patchIx; patchIx=nodes[patchIx.value].next)
+					what(instance,nodes[patchIx.value]);
+			}
+		}
+
+		// not a multi-map anymore because order of insertion into an equal range needs to be stable, so I just make it a linked list explicitly
+		key_map_t instances;
+		// node struct
+		struct created_t
+		{
+			CAssetConverter::patch_t<AssetType> patch = {};
+			core::blake3_hash_t contentHash = {};
+			asset_cached_t<AssetType> gpuObj = {};
+			patch_index_t next = {};
+		};
+		// all entries refer to patch by index, so its stable against vector growth
+		core::vector<created_t> nodes;
 };
 
 //
@@ -583,44 +626,14 @@ class DFSVisitor
 
 			// now see if we visited already
 			auto& dfsCache = std::get<dfs_cache<DepType>>(dfsCaches);
-			//
-			const patch_index_t newPatchIndex = {dfsCache.nodes.size()};
-			// get all the existing patches for the same (AssetType*,UniqueCopyGroupID)
-			auto found = dfsCache.instances.find(dep);
-			if (found!=dfsCache.instances.end())
-			{
-				// iterate over linked list
-				patch_index_t* pIndex = &found->second;
-				while (*pIndex)
-				{
-					// get our candidate
-					auto& candidate = dfsCache.nodes[pIndex->value];
-					// found a thing, try-combine the patches
-					auto [success,combined] = candidate.patch.combine(soloPatch);
-					// check whether the item is creatable after patching
-					if (success)
-					{
-						// change the patch to a combined version
-						candidate.patch = std::move(combined);
-						return {.uniqueCopyGroupID=dep.uniqueCopyGroupID,.patchIndex=*pIndex};
-					}
-					// else try the next one
-					pIndex = &candidate.next;
-				}
-				// nothing mergable found, make old TAIL point to new node about to be inserted
-				*pIndex = newPatchIndex;
-			}
-			else
-			{
-				// there isn't even a linked list head for this entry
-				dfsCache.instances.emplace_hint(found,dep,newPatchIndex);
-			}
-			// Haven't managed to combine with anything, so push a new patch
-			dfsCache.nodes.emplace_back(std::move(soloPatch),CAssetConverter::CHashCache::NoContentHash);
+			// try to insert a new instance with a new patch, we'll be told if something mergable already existed
+			auto [patchIndex,inserted] = dfsCache.insert(dep,std::move(soloPatch));
 			// Only when we don't find a compatible patch entry do we carry on with the DFS
-			if (asset_traits<DepType>::HasChildren)
-				stack.emplace(instance_t<IAsset>{dep.asset,dep.uniqueCopyGroupID},newPatchIndex);
-			return {.uniqueCopyGroupID=dep.uniqueCopyGroupID,.patchIndex=newPatchIndex};
+			if constexpr (asset_traits<DepType>::HasChildren)
+			if (inserted)
+				stack.emplace(instance_t<IAsset>{dep.asset,dep.uniqueCopyGroupID},patchIndex);
+			// return the metadata
+			return {.uniqueCopyGroupID=dep.uniqueCopyGroupID,.patchIndex=patchIndex};
 		}
 
 		const CAssetConverter::SInputs& inputs;
@@ -641,7 +654,7 @@ class PatchOverride final : public CAssetConverter::CHashCache::IPatchOverride
 		inline const patch_t<AssetType>* impl(const lookup_t<AssetType>& lookup) const
 		{
 			const auto& dfsCache = std::get<dfs_cache<AssetType>>(dfsCaches);
-			auto [foundIt,patchIx] = dfsCache.find({lookup.asset,uniqueCopyGroupID},*lookup.patch);
+			const auto patchIx = dfsCache.find({lookup.asset,uniqueCopyGroupID},*lookup.patch);
 			if (patchIx)
 				return &dfsCache.nodes[patchIx.value].patch;
 			assert(false); // really shouldn't happen because DFS descent should have explored ALL!
@@ -1152,7 +1165,7 @@ class GetDependantVisitBase
 		{
 			const auto& dfsCache = std::get<dfs_cache<DepType>>(dfsCaches);
 			// find matching patch in dfsCache
-			auto [foundIt,patchIx] = dfsCache.find(dep,soloPatch);
+			const auto patchIx = dfsCache.find(dep,soloPatch);
 			// if not found
 			if (!patchIx)
 				return {}; // nullptr basically
