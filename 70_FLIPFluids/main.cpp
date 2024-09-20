@@ -894,7 +894,7 @@ public:
 
 		radixSort.initialize(m_device, m_system, m_assetMgr, m_logger);
 
-		testSort();
+		// testSort();
 
 		m_winMgr->show(m_window.get());
 
@@ -1704,16 +1704,16 @@ private:
         }
 
 		// dispatch sort pairs
-		//radixSort.sort(cmdbuf, particleCellPairBuffer, numParticles);
-		//		
-		//{
-		//	SMemoryBarrier memBarrier;
-		//	memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-		//	memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
-		//	memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-		//	memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
-		//	cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
-  //      }
+		radixSort.sort(cmdbuf, particleCellPairBuffer, numParticles);
+				
+		{
+			SMemoryBarrier memBarrier;
+			memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+			memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
+			memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+			memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
+        }
 
 		// clear vel field
 		SBufferRange<IGPUBuffer> range;
@@ -1776,7 +1776,7 @@ private:
 
 		IGPUBuffer::SCreationParams params;
 		params.size = 2 * numTestElements * sizeof(uint32_t);
-		params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+		params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
 		{
 			testbuf = m_device->createBuffer(std::move(params));
 

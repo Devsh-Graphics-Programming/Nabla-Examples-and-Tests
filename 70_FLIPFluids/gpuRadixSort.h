@@ -65,6 +65,33 @@ public:
 
 		smart_refctd_ptr<nbl::video::IGPUPipelineLayout> histogramPplnLayout = device->createPipelineLayout({}, nullptr, smart_refctd_ptr(histDsLayout), nullptr, nullptr);
 
+		nbl::video::IGPUDescriptorSetLayout::SBinding spineBindingsSet[] = {
+			{
+				.binding=0,
+				.type=nbl::asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
+				.createFlags=IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+				.stageFlags=IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+				.count=1u,
+			},
+			{
+				.binding=1,
+				.type=nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+				.createFlags=IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+				.stageFlags=IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+				.count=1u,
+			},
+            {
+				.binding=2,
+				.type=nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+				.createFlags=IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+				.stageFlags=IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+				.count=1u,
+			}
+		};
+		smart_refctd_ptr<IGPUDescriptorSetLayout> spineDsLayout = device->createDescriptorSetLayout(spineBindingsSet);
+
+		smart_refctd_ptr<nbl::video::IGPUPipelineLayout> spinePplnLayout = device->createPipelineLayout({}, nullptr, smart_refctd_ptr(spineDsLayout), nullptr, nullptr);
+
 		nbl::video::IGPUDescriptorSetLayout::SBinding sortBindingsSet[] = {
 			{
 				.binding=0,
@@ -106,33 +133,6 @@ public:
 
 		smart_refctd_ptr<nbl::video::IGPUPipelineLayout> sortPplnLayout = device->createPipelineLayout({}, nullptr, smart_refctd_ptr(sortDsLayout), nullptr, nullptr);
 
-		nbl::video::IGPUDescriptorSetLayout::SBinding spineBindingsSet[] = {
-			{
-				.binding=0,
-				.type=nbl::asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-				.createFlags=IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags=IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
-				.count=1u,
-			},
-			{
-				.binding=1,
-				.type=nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-				.createFlags=IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags=IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
-				.count=1u,
-			},
-            {
-				.binding=2,
-				.type=nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-				.createFlags=IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags=IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
-				.count=1u,
-			}
-		};
-		smart_refctd_ptr<IGPUDescriptorSetLayout> spineDsLayout = device->createDescriptorSetLayout(spineBindingsSet);
-
-		smart_refctd_ptr<nbl::video::IGPUPipelineLayout> spinePplnLayout = device->createPipelineLayout({}, nullptr, smart_refctd_ptr(spineDsLayout), nullptr, nullptr);
-
 		// create pipelines
 		auto compileShader = [&](const std::string& path) -> smart_refctd_ptr<IGPUShader>
 			{
@@ -150,16 +150,7 @@ public:
 				return m_device->createShader(shaderSrc.get());
 			};
 
-        {
-            smart_refctd_ptr<video::IGPUShader> shader = compileShader("app_resources/compute/radix_sort/radixSort.comp.hlsl");
-
-            IGPUComputePipeline::SCreationParams params = {};
-			params.layout = sortPplnLayout.get();
-            params.shader.shader = shader.get();
-
-            m_device->createComputePipelines(nullptr, {&params, 1}, &m_radixSortPipeline);
-        }
-        {
+		{
             smart_refctd_ptr<video::IGPUShader> shader = compileShader("app_resources/compute/radix_sort/buildHistogram.comp.hlsl");
 
             IGPUComputePipeline::SCreationParams params = {};
@@ -176,6 +167,15 @@ public:
             params.shader.shader = shader.get();
 
             m_device->createComputePipelines(nullptr, {&params, 1}, &m_scanSpinePipeline);
+        }
+        {
+            smart_refctd_ptr<video::IGPUShader> shader = compileShader("app_resources/compute/radix_sort/radixSort.comp.hlsl");
+
+            IGPUComputePipeline::SCreationParams params = {};
+			params.layout = sortPplnLayout.get();
+            params.shader.shader = shader.get();
+
+            m_device->createComputePipelines(nullptr, {&params, 1}, &m_radixSortPipeline);
         }
 
         std::array<IGPUDescriptorSetLayout*, 2> dscLayoutPtrs = {
@@ -212,7 +212,58 @@ public:
 
 		if (shouldWriteDs)
 		{
-			{	// iteration 0 and 2
+			{	// histogram: iteration 0 and 2
+				IGPUDescriptorSet::SDescriptorInfo infos[4];
+				infos[0].desc = smart_refctd_ptr(paramsBuffer);
+				infos[0].info.buffer = {.offset = 0, .size = paramsBuffer->getSize()};
+				infos[1].desc = smart_refctd_ptr(dataBuffer);
+				infos[1].info.buffer = {.offset = 0, .size = dataBuffer->getSize()};
+				infos[2].desc = smart_refctd_ptr(globalHistogramsBuffer);
+				infos[2].info.buffer = {.offset = 0, .size = globalHistogramsBuffer->getSize()};
+				infos[3].desc = smart_refctd_ptr(partitionHistogramBuffer);
+				infos[3].info.buffer = {.offset = 0, .size = partitionHistogramBuffer->getSize()};
+				IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
+					{.dstSet = m_histogramDs[0].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
+					{.dstSet = m_histogramDs[0].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
+					{.dstSet = m_histogramDs[0].get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
+					{.dstSet = m_histogramDs[0].get(), .binding = 3, .arrayElement = 0, .count = 1, .info = &infos[3]}
+				};
+				m_device->updateDescriptorSets(std::span(writes, 4), {});
+			}
+			{	// histogram: iteration 1 and 3
+				IGPUDescriptorSet::SDescriptorInfo infos[4];
+				infos[0].desc = smart_refctd_ptr(paramsBuffer);
+				infos[0].info.buffer = {.offset = 0, .size = paramsBuffer->getSize()};
+				infos[1].desc = smart_refctd_ptr(tempDataBuffer);
+				infos[1].info.buffer = {.offset = 0, .size = tempDataBuffer->getSize()};
+				infos[2].desc = smart_refctd_ptr(globalHistogramsBuffer);
+				infos[2].info.buffer = {.offset = 0, .size = globalHistogramsBuffer->getSize()};
+				infos[3].desc = smart_refctd_ptr(partitionHistogramBuffer);
+				infos[3].info.buffer = {.offset = 0, .size = partitionHistogramBuffer->getSize()};
+				IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
+					{.dstSet = m_histogramDs[1].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
+					{.dstSet = m_histogramDs[1].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
+					{.dstSet = m_histogramDs[1].get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
+					{.dstSet = m_histogramDs[1].get(), .binding = 3, .arrayElement = 0, .count = 1, .info = &infos[3]},
+				};
+				m_device->updateDescriptorSets(std::span(writes, 4), {});
+			}
+			{	// spine
+				IGPUDescriptorSet::SDescriptorInfo infos[3];
+				infos[0].desc = smart_refctd_ptr(paramsBuffer);
+				infos[0].info.buffer = {.offset = 0, .size = paramsBuffer->getSize()};
+				infos[1].desc = smart_refctd_ptr(globalHistogramsBuffer);
+				infos[1].info.buffer = {.offset = 0, .size = globalHistogramsBuffer->getSize()};
+				infos[2].desc = smart_refctd_ptr(partitionHistogramBuffer);
+				infos[2].info.buffer = {.offset = 0, .size = partitionHistogramBuffer->getSize()};
+				IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
+					{.dstSet = m_scanSpineDs.get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
+					{.dstSet = m_scanSpineDs.get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
+					{.dstSet = m_scanSpineDs.get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
+				};
+				m_device->updateDescriptorSets(std::span(writes, 3), {});
+			}
+			{	// sort: iteration 0 and 2
 				IGPUDescriptorSet::SDescriptorInfo infos[5];
 				infos[0].desc = smart_refctd_ptr(paramsBuffer);
 				infos[0].info.buffer = {.offset = 0, .size = paramsBuffer->getSize()};
@@ -233,7 +284,7 @@ public:
 				};
 				m_device->updateDescriptorSets(std::span(writes, 5), {});
 			}
-			{	// iteration 1 and 3
+			{	// sort: iteration 1 and 3
 				IGPUDescriptorSet::SDescriptorInfo infos[5];
 				infos[0].desc = smart_refctd_ptr(paramsBuffer);
 				infos[0].info.buffer = {.offset = 0, .size = paramsBuffer->getSize()};
@@ -254,57 +305,6 @@ public:
 				};
 				m_device->updateDescriptorSets(std::span(writes, 5), {});
 			}
-			{	// iteration 0 and 2
-				IGPUDescriptorSet::SDescriptorInfo infos[4];
-				infos[0].desc = smart_refctd_ptr(paramsBuffer);
-				infos[0].info.buffer = {.offset = 0, .size = paramsBuffer->getSize()};
-				infos[1].desc = smart_refctd_ptr(dataBuffer);
-				infos[1].info.buffer = {.offset = 0, .size = dataBuffer->getSize()};
-				infos[2].desc = smart_refctd_ptr(globalHistogramsBuffer);
-				infos[2].info.buffer = {.offset = 0, .size = globalHistogramsBuffer->getSize()};
-				infos[3].desc = smart_refctd_ptr(partitionHistogramBuffer);
-				infos[3].info.buffer = {.offset = 0, .size = partitionHistogramBuffer->getSize()};
-				IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
-					{.dstSet = m_histogramDs[0].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
-					{.dstSet = m_histogramDs[0].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
-					{.dstSet = m_histogramDs[0].get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
-					{.dstSet = m_histogramDs[0].get(), .binding = 3, .arrayElement = 0, .count = 1, .info = &infos[3]}
-				};
-				m_device->updateDescriptorSets(std::span(writes, 4), {});
-			}
-			{	// iteration 1 and 3
-				IGPUDescriptorSet::SDescriptorInfo infos[4];
-				infos[0].desc = smart_refctd_ptr(paramsBuffer);
-				infos[0].info.buffer = {.offset = 0, .size = paramsBuffer->getSize()};
-				infos[1].desc = smart_refctd_ptr(tempDataBuffer);
-				infos[1].info.buffer = {.offset = 0, .size = tempDataBuffer->getSize()};
-				infos[2].desc = smart_refctd_ptr(globalHistogramsBuffer);
-				infos[2].info.buffer = {.offset = 0, .size = globalHistogramsBuffer->getSize()};
-				infos[3].desc = smart_refctd_ptr(partitionHistogramBuffer);
-				infos[3].info.buffer = {.offset = 0, .size = partitionHistogramBuffer->getSize()};
-				IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
-					{.dstSet = m_histogramDs[1].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
-					{.dstSet = m_histogramDs[1].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
-					{.dstSet = m_histogramDs[1].get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
-					{.dstSet = m_histogramDs[1].get(), .binding = 3, .arrayElement = 0, .count = 1, .info = &infos[3]},
-				};
-				m_device->updateDescriptorSets(std::span(writes, 4), {});
-			}
-			{
-				IGPUDescriptorSet::SDescriptorInfo infos[3];
-				infos[0].desc = smart_refctd_ptr(paramsBuffer);
-				infos[0].info.buffer = {.offset = 0, .size = paramsBuffer->getSize()};
-				infos[1].desc = smart_refctd_ptr(globalHistogramsBuffer);
-				infos[1].info.buffer = {.offset = 0, .size = globalHistogramsBuffer->getSize()};
-				infos[2].desc = smart_refctd_ptr(partitionHistogramBuffer);
-				infos[2].info.buffer = {.offset = 0, .size = partitionHistogramBuffer->getSize()};
-				IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
-					{.dstSet = m_scanSpineDs.get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
-					{.dstSet = m_scanSpineDs.get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
-					{.dstSet = m_scanSpineDs.get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
-				};
-				m_device->updateDescriptorSets(std::span(writes, 3), {});
-			}
 		}
 
 		SBufferRange<IGPUBuffer> range;
@@ -314,9 +314,9 @@ public:
 
 		SMemoryBarrier memBarrier;
 		memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-		memBarrier.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-		memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-		memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+		memBarrier.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+		memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+		memBarrier.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
 		cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
 
         SSortParams params;
@@ -335,10 +335,10 @@ public:
 
             {
 				SMemoryBarrier memBarrier;
-				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
-				memBarrier.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-				memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				memBarrier.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				memBarrier.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
 				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
             }
 
@@ -349,10 +349,10 @@ public:
 
             {
 				SMemoryBarrier memBarrier;
-				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-				memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
-				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-				memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
+				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				memBarrier.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				memBarrier.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
 				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
             }
 
@@ -362,10 +362,10 @@ public:
 
             {
 				SMemoryBarrier memBarrier;
-				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-				memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
-				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-				memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
+				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				memBarrier.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				memBarrier.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
 				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
             }
 
@@ -376,10 +376,10 @@ public:
 
 			if (i < numIterations - 1) {
 				SMemoryBarrier memBarrier;
-				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-				memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
+				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				memBarrier.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
 				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				memBarrier.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
 				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
             }
         }
@@ -393,7 +393,7 @@ private:
         {
             video::IGPUBuffer::SCreationParams params = {};
 		    params.size = numElements * dataTypeSize;
-		    params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
+		    params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
             tempDataBuffer = m_device->createBuffer(std::move(params));
 
 		    video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = tempDataBuffer->getMemoryReqs();
@@ -416,7 +416,7 @@ private:
 		    auto bufMem = m_device->allocate(reqs, globalHistogramsBuffer.get());
 			updated = true;
 		}
-		bufSize = sizeof(uint32_t) * numWorkgroups * NUM_SORT_BINS;
+		bufSize = sizeof(uint32_t) * (numWorkgroups * NUM_SORT_BINS + 1);
 		if (!partitionHistogramBuffer || partitionHistogramBuffer->getSize() != bufSize)
 		{
 			video::IGPUBuffer::SCreationParams params = {};
