@@ -17,6 +17,9 @@ struct core::blake3_hasher::update_impl<video::CAssetConverter::patch_t<AssetTyp
 {
 	static inline void __call(blake3_hasher& hasher, const video::CAssetConverter::patch_t<AssetType>& input)
 	{
+		// empty classes are still sizeof==1
+		if (std::is_empty_v<video::CAssetConverter::patch_impl_t<AssetType>>)
+			return;
 		hasher.update(&input,sizeof(input));
 	}
 };

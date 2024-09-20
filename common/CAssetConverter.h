@@ -159,6 +159,7 @@ class CAssetConverter : public core::IReferenceCounted
 
 				uint8_t stbo : 1 = false;
 				uint8_t utbo : 1 = false;
+				uint8_t mustBeZero : 6 = 0;
 
 			protected:
 				inline std::pair<bool,this_t> combine(const this_t& other) const
