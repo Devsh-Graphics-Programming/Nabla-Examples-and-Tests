@@ -221,6 +221,8 @@ class CAssetConverter : public core::IReferenceCounted
 			// actual new methods
 			inline bool operator==(const patch_t<AssetType>& other) const
 			{
+				if (std::is_empty_v<base_t>)
+					return true; 
 				return memcmp(this,&other,sizeof(base_t))==0;
 			}
 		};
