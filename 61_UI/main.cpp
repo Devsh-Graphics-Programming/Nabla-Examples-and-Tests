@@ -415,9 +415,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					// Nabla Imgui backend MDI buffer info
 					{
-						auto* streamingBuffer = pass.ui.manager->getStreamingBuffer();
-						const size_t totalAllocatedSize = streamingBuffer->get_total_size();
-						const size_t isUse = streamingBuffer->max_size();
+						auto* streamingAllocator = pass.ui.manager->getStreamingAllocator();
+
+						const size_t totalAllocatedSize = streamingAllocator->get_total_size();
+						const size_t isUse = streamingAllocator->max_size();
 
 						float freePercentage = 100.0f * (float)(totalAllocatedSize - isUse) / (float)totalAllocatedSize;
 						float allocatedPercentage = 1.0f - (float)(totalAllocatedSize - isUse) / (float)totalAllocatedSize;
