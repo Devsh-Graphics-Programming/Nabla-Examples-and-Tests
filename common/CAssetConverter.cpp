@@ -99,12 +99,101 @@ bool CAssetConverter::patch_impl_t<ICPUBuffer>::valid(const ILogicalDevice* devi
 	return true;
 }
 
-CAssetConverter::patch_impl_t<ICPUBufferView>::patch_impl_t(const ICPUBufferView* buffer) {}
+CAssetConverter::patch_impl_t<ICPUImage>::patch_impl_t(const ICPUImage* image)
+{
+	const auto& params = image->getCreationParameters();
+	viewFormats.set(params.format);
+	usage = params.usage;
+	stencilUsage = params.actualStencilUsage();
+// TODO
+	createFlags = params.flags;
+	mipLevels = params.mipLevels;
+	// handle missing usages
+	if (!image->getRegions().empty())
+		usage |= usage_flags_t::EUF_TRANSFER_DST_BIT;
+}
+bool CAssetConverter::patch_impl_t<ICPUImage>::valid(const ILogicalDevice* device)
+{
+	const auto& features = device->getEnabledFeatures();
+	// usages we don't have features for
+	if (usage.hasFlags(usage_flags_t::EUF_SHADING_RATE_ATTACHMENT_BIT))// && !features.shadingRate)
+		return false;
+	if (usage.hasFlags(usage_flags_t::EUF_FRAGMENT_DENSITY_MAP_BIT) && !features.fragmentDensityMap)
+		return false;
+	// create flags
+// mutableFormat
+// cube compatible
+// 2d array comp
+// block texel view compat (compressed as uncompressed)
+// extended usage
+	return true;
+}
+
+CAssetConverter::patch_impl_t<ICPUBufferView>::patch_impl_t(const ICPUBufferView* view) {}
 bool CAssetConverter::patch_impl_t<ICPUBufferView>::valid(const ILogicalDevice* device)
 {
 	// note that we don't check the validity of things we don't patch, so offset alignment, size and format
 	// we could check if the format and usage make sense, but it will be checked by the driver anyway
 	return true;
+}
+
+CAssetConverter::patch_impl_t<ICPUImageView>::patch_impl_t(const ICPUImageView* view) :
+	format(view->getCreationParameters().format),
+	subUsages(view->getCreationParameters().actualUsages())
+{
+	// Impossible to deduce this without knowing all the sampler & view combos that will be used,
+	// because under descriptor indexing we can use any sampler with any view in SPIR-V.
+	// Also because we don't know what Descriptor Sets will be used with what Pipelines!
+	if (subUsages.hasFlags(usage_flags_t::EUF_SAMPLED_BIT))
+	{
+		if (isDepthOrStencilFormat(format))
+		{
+			if (view->getCreationParameters().subresourceRange.aspectMask.hasFlags(IGPUImage::E_ASPECT_FLAGS::EAF_DEPTH_BIT))
+				depthCompareSampledImage = true;
+		}
+		// Also have no info about any blit cmd that could use this view's image as source
+		else if (!asset::isIntegerFormat(format))
+			linearlySampled = true;
+	}
+	// same stuff for storage images
+	if (subUsages.hasFlags(usage_flags_t::EUF_STORAGE_BIT))
+	{
+		// Deducing this in another way would seriously hinder our ability to do format promotions.
+		// To ensure the view doesn't get promoted away from device-feature dependant atomic storage capable formats, use explicit patches upon input! 
+		storageAtomic = format==EF_R32_UINT;
+	}
+	//if (subUsages.hasFlags(usage_flags_t::EUF_RENDER_ATTACHMENT_BIT))
+	//{
+		// The only way you'd be able to deduce this is by watching for any graphics pipeline with a blend state being created
+		// for a subpass in renderpass thats also referenced by a framebuffer that uses this image view. However there are also
+		// subpass compatibility rules which could allow someone to use a compatible subpass graphics pipeline.
+		// And finally dynamic rendering has render infos, so all connection between pipelinesm, images and renderpasses is lost.
+		//if (!isIntegerFormat(format) && !isDepthOrStencilFormat(format))
+			//attachmentBlend = true;
+		// actually this deduction would promote RGB9E5 to RGBA16F even if RGB9E5 supported by the device
+	//}
+}
+IPhysicalDevice::SFormatImageUsages::SUsage CAssetConverter::patch_impl_t<ICPUImageView>::getFormatUsage(const ILogicalDevice* device) const
+{
+	IPhysicalDevice::SFormatImageUsages::SUsage retval(subUsages);
+	retval.linearlySampledImage = linearlySampled;
+	if (retval.storageImage) // we require this anyway
+		retval.storageImageStoreWithoutFormat = true;
+	retval.storageImageAtomic = storageAtomic;
+	retval.attachmentBlend = attachmentBlend;
+	retval.storageImageLoadWithoutFormat = storageImageLoadWithoutFormat;
+	retval.depthCompareSampledImage = depthCompareSampledImage;
+	return retval;
+}
+bool CAssetConverter::patch_impl_t<ICPUImageView>::valid(const ILogicalDevice* device)
+{
+	// we don't check subUsages against device features here because thats only checking if a view can't be made, and the image itself will check that anyway
+	const IPhysicalDevice::SImageFormatPromotionRequest req = {
+		.originalFormat = format,
+		.usages = getFormatUsage(device)
+	};
+	format = device->getPhysicalDevice()->promoteImageFormat(req,static_cast<IGPUImage::TILING>(linearTiling));
+	return format!=EF_UNKNOWN;
 }
 
 CAssetConverter::patch_impl_t<ICPUPipelineLayout>::patch_impl_t(const ICPUPipelineLayout* pplnLayout) : patch_impl_t()
@@ -207,6 +296,20 @@ class AssetVisitor : public CRTP
 			if (userPatch.stbo)
 				patch.usage |= IGPUBuffer::E_USAGE_FLAGS::EUF_STORAGE_TEXEL_BUFFER_BIT;
 			return descend<ICPUBuffer>(dep,std::move(patch));
+		}
+		inline bool impl(const instance_t<ICPUImageView>& instance, const CAssetConverter::patch_t<ICPUImageView>& userPatch)
+		{
+			const auto& params = instance.asset->getCreationParameters();
+			const auto* dep = params.image;
+			if (!dep)
+				return false;
+			CAssetConverter::patch_t<ICPUImage> patch = {dep};
+			patch.usage |= userPatch.subUsages;
+			// figure out create flags
+			// mipLevels
+			// recomputeMips
+			// format
+			return descend<ICPUImage>(dep,std::move(patch));
 		}
 		inline bool impl(const instance_t<ICPUDescriptorSetLayout>& instance, const CAssetConverter::patch_t<ICPUDescriptorSetLayout>& userPatch)
 		{
@@ -339,9 +442,8 @@ class AssetVisitor : public CRTP
 							case IDescriptor::EC_IMAGE:
 							{
 								auto imageView = static_cast<const ICPUImageView*>(untypedDesc);
-		#if 0
 								patch_t<ICPUImageView> patch = {imageView};
-								switch(type)
+								switch (type)
 								{
 									case IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER:
 										{
@@ -351,14 +453,13 @@ class AssetVisitor : public CRTP
 										}
 										[[fallthrough]];
 									case IDescriptor::E_TYPE::ET_SAMPLED_IMAGE:
-									case IDescriptor::E_TYPE::ET_UNIFORM_BUFFER_DYNAMIC:
-										patch.usage |= IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT;
+										patch.subUsages |= IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT;
 										break;
 									case IDescriptor::E_TYPE::ET_STORAGE_IMAGE:
-										patch.usage |= IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT;
+										patch.subUsages |= IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT;
 										break;
 									case IDescriptor::E_TYPE::ET_INPUT_ATTACHMENT:
-										patch.usage |= IGPUImage::E_USAGE_FLAGS::EUF_INPUT_ATTACHMENT_BIT;
+										patch.subUsages |= IGPUImage::E_USAGE_FLAGS::EUF_INPUT_ATTACHMENT_BIT;
 										break;
 									default:
 										assert(false);
@@ -366,9 +467,6 @@ class AssetVisitor : public CRTP
 								}
 								if (!descend(imageView,std::move(patch),type,binding,el,info.info.image.imageLayout))
 									return false;
-		#else
-								_NBL_TODO();
-		#endif
 								break;
 							}
 							case IDescriptor::EC_BUFFER_VIEW:
@@ -1126,8 +1224,8 @@ void CAssetConverter::CHashCache::eraseStale(const IPatchOverride* patchOverride
 	// shaders and images depend on buffers for data sourcing
 	rehash.operator()<ICPUBuffer>();
 	rehash.operator()<ICPUBufferView>();
-//	rehash.operator()<ICPUImage>();
-//	rehash.operator()<ICPUImageView>();
+	rehash.operator()<ICPUImage>();
+	rehash.operator()<ICPUImageView>();
 //	rehash.operator()<ICPUBottomLevelAccelerationStructure>();
 //	rehash.operator()<ICPUTopLevelAccelerationStructure>();
 	// only once all the descriptor types have been hashed, we can hash sets
@@ -1200,6 +1298,22 @@ class GetDependantVisit<ICPUBufferView> : public GetDependantVisitBase<ICPUBuffe
 				.buffer = std::move(depObj)
 			};
 			return underlying.isValid();
+		}
+};
+template<>
+class GetDependantVisit<ICPUImageView> : public GetDependantVisitBase<ICPUImageView>
+{
+	public:
+		core::smart_refctd_ptr<IGPUImage> image = {};
+
+	protected:
+		bool descend_impl(
+			const instance_t<AssetType>& user, const CAssetConverter::patch_t<AssetType>& userPatch,
+			const instance_t<ICPUImage>& dep, const CAssetConverter::patch_t<ICPUImage>& soloPatch
+		)
+		{
+			image = getDependant<ICPUImage>(dep,soloPatch);
+			return !!image;
 		}
 };
 template<>
@@ -1543,13 +1657,11 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 					case ICPUDescriptorSet::AssetType:
 						visit.operator()<ICPUDescriptorSet>(entry);
 						break;
-					case ICPUImageView::AssetType:
-					{
-						_NBL_TODO();
-						break;
-					}
 					case ICPUBufferView::AssetType:
 						visit.operator()<ICPUBufferView>(entry);
+						break;
+					case ICPUImageView::AssetType:
+						visit.operator()<ICPUImageView>(entry);
 						break;
 					// these assets have no dependants, should have never been pushed on the stack
 					default:
@@ -1804,6 +1916,43 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 							continue;
 						// no format promotion for buffer views
 						assign(entry.first,entry.second.firstCopyIx,i,device->createBufferView(visitor.underlying,asset->getFormat()));
+					}
+				}
+			}
+			if constexpr (std::is_same_v<AssetType,ICPUImageView>)
+			{
+				for (auto& entry : conversionRequests)
+				{
+					const ICPUImageView* asset = entry.second.canonicalAsset;
+					const auto& cpuParams = asset->getCreationParameters();
+					const auto& patch = dfsCache.nodes[entry.second.patchIndex.value].patch;
+					for (auto i=0ull; i<entry.second.copyCount; i++)
+					{
+						const auto outIx = i+entry.second.firstCopyIx;
+						const auto uniqueCopyGroupID = gpuObjUniqueCopyGroupIDs[outIx];
+						AssetVisitor<GetDependantVisit<ICPUImageView>> visitor = {
+							{visitBase},
+							{asset,uniqueCopyGroupID},
+							patch
+						};
+						if (!visitor())
+							continue;
+						IGPUImageView::SCreationParams params = {};
+						params.flags = cpuParams.flags;
+						// Only restrict ourselves to an explicit usage list if our view's format prevents all parent image's usages!
+						{
+							const auto& validUsages = device->getPhysicalDevice()->getImageFormatUsages(visitor.image->getTiling());
+							if (!patch.getFormatUsage().isSubsetOf(validUsages[patch.format]))
+								params.subUsages = patch.subUsages;
+						}
+						params.image = std::move(visitor.image);
+						params.viewType = cpuParams.viewType;
+						params.format = patch.format;
+						memcpy(&params.components,&cpuParams.components,sizeof(params.components));
+						params.subresourceRange = cpuParams.subresourceRange;
+						if (params.subresourceRange.levelCount!=IGPUImageView::remaining_mip_levels)
+							inputs.logger.log("Asset %p getting created with EXPLICIT mip level count %d, are you sure?",system::ILogger::ELL_WARNING,asset,params.subresourceRange.levelCount);
+						assign(entry.first,entry.second.firstCopyIx,i,device->createImageView(std::move(params)));
 					}
 				}
 			}
@@ -2661,8 +2810,8 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 			// only go over types we could actually break via missing upload/build (i.e. pipelines are unbreakable)
 			if constexpr (std::is_same_v<AssetType,ICPUBufferView>)
 				depsMissing = missingDependent.operator()<ICPUBuffer>(item.first->getUnderlyingBuffer());
-//			if constexpr (std::is_same_v<AssetType,ICPUImageView>)
-//				depsMissing = missingDependent.operator()<ICPUImage>(item.first->getCreationParams().image);
+			if constexpr (std::is_same_v<AssetType,ICPUImageView>)
+				depsMissing = missingDependent.operator()<ICPUImage>(item.first->getCreationParams().image);
 			if constexpr (std::is_same_v<AssetType,ICPUDescriptorSet>)
 			{
 				const IGPUDescriptorSetLayout* layout = item.first->getLayout();

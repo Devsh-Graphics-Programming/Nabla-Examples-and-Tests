@@ -38,10 +38,10 @@ class CAssetConverter : public core::IReferenceCounted
 			asset::ICPUSampler,
 			asset::ICPUShader,
 			asset::ICPUBuffer,
-			// acceleration structures
-			// image,
+			// acceleration structures,
+			asset::ICPUImage,
 			asset::ICPUBufferView,
-			// image view
+			asset::ICPUImageView,
 			asset::ICPUDescriptorSetLayout,
 			asset::ICPUPipelineLayout,
 			asset::ICPUPipelineCache,
@@ -49,8 +49,7 @@ class CAssetConverter : public core::IReferenceCounted
 			asset::ICPURenderpass,
 			asset::ICPUGraphicsPipeline,
 			asset::ICPUDescriptorSet
-			// descriptor sets
-			// framebuffer
+			//asset::ICPUFramebuffer doesn't exist yet XD
 		>;
 
 		struct SCreationParams
@@ -76,7 +75,7 @@ class CAssetConverter : public core::IReferenceCounted
 		}
 
 		// When getting dependents, the creation parameters of GPU objects will be produced and patched appropriately.
-		// `patch_t` uses CRPT to inherit from `patch_impl_t` to provide default `operator==` and `update_hash()` definition.
+		// `patch_t` uses CRTP to inherit from `patch_impl_t` to provide default `operator==` and `update_hash()` definition.
 		// The default specialization kicks in for any `AssetType` that has nothing possible to patch (e.g. Descriptor Set Layout).
 		template<asset::Asset AssetType>
 		struct patch_impl_t
@@ -152,6 +151,43 @@ class CAssetConverter : public core::IReferenceCounted
 				}
 		};
 		template<>
+		struct patch_impl_t<asset::ICPUImage>
+		{
+			public:
+				PATCH_IMPL_BOILERPLATE(asset::ICPUImage);
+
+				// List of all formats of the views we know about, we won't set it though as not to impede creating views later
+				std::bitset<asset::E_FORMAT::EF_COUNT> viewFormats = {};
+				// but we also track separate dpeth and stencil usage flags
+				using usage_flags_t = IGPUImage::E_USAGE_FLAGS;
+				core::bitflag<usage_flags_t> usageFlags = usage_flags_t::EUF_NONE;
+				core::bitflag<usage_flags_t> stencilUsage = usage_flags_t::EUF_NONE;
+				// stuff
+				uint16_t linearTiling : 1 = false;
+				// moar stuff
+				uint16_t mutableFormat : 1 = false;
+				uint16_t cubeCompatible : 1 = false;
+				uint16_t _3Dbut2DArrayCompatible : 1 = false;
+				uint16_t uncompressedViewOfCompressed : 1 = false;
+				uint16_t extendedUsage : 1 = false;
+				// aside from format promotion, we can also promote images to have a fuller mip chain and recompute it
+				uint16_t mipLevels : 9 = 0;
+				uint16_t recomputeMips : 1 = false;
+
+			protected:
+				inline std::pair<bool,this_t> combine(const this_t& other) const
+				{
+					// TODO: find first view format, and its bytesize
+					if (not mutableFormat)
+					{
+						// check all other.viewFormats for being in the same format class
+					}
+					this_t retval = *this;
+					// TODO: when combining uages, we need to see if usage is not compatible with format, and add the extended usage flag
+					return {true,retval};
+				}
+		};
+		template<>
 		struct patch_impl_t<asset::ICPUBufferView>
 		{
 			public:
@@ -167,6 +203,53 @@ class CAssetConverter : public core::IReferenceCounted
 					this_t retval = *this;
 					retval.stbo |= other.stbo;
 					retval.utbo |= other.utbo;
+					return {true,retval};
+				}
+		};
+		template<>
+		struct patch_impl_t<asset::ICPUImageView>
+		{
+			public:
+				PATCH_IMPL_BOILERPLATE(asset::ICPUImageView);
+
+				IPhysicalDevice::SFormatImageUsages::SUsage getFormatUsage(const ILogicalDevice* device) const;
+
+				// the most important thing about a view
+				asset::E_FORMAT format = asset::EF_UNKNOWN;
+				// Extra metadata needed for format promotion, if you want any of them (except for `linearlySampled` and `depthCompareSampledImage`)
+				// as anything other than the default values, use explicit input roots with patches. Otherwise if `format` is not supported by device
+				// the view can get promoted to a format that doesn't have these usage capabilities.
+				uint8_t linearTiling : 1 = false;
+				uint8_t linearlySampled : 1 = false;
+				uint8_t storageAtomic : 1 = false;
+				uint8_t attachmentBlend : 1 = false;
+				uint8_t storageImageLoadWithoutFormat : 1 = false;
+				uint8_t depthCompareSampledImage : 1 = false;
+				// to not interfere with hashing
+				uint8_t padding : 2 = false;
+				// just because we record all subusages we can find, doesn't mean we will set them on the created image
+				using usage_flags_t = IGPUImage::E_USAGE_FLAGS;
+				core::bitflag<usage_flags_t> subUsages = usage_flags_t::EUF_NONE;
+
+
+			protected:
+				inline std::pair<bool,this_t> combine(const this_t& other) const
+				{
+					// format and tiling needs to stay fixed
+					if (format!=other.format || linearTiling!=other.linearTiling)
+						return {false,{}};
+					this_t retval = *this;
+					retval.linearlySampled |= other.linearlySampled;
+					retval.storageAtomic |= other.storageAtomic;
+					retval.attachmentBlend |= other.attachmentBlend;
+					retval.storageImageLoadWithoutFormat |= other.storageImageLoadWithoutFormat;
+					retval.depthCompareSampledImage |= other.depthCompareSampledImage;
+					retval.linearTiling |= other.linearTiling;
+					// When combining usages, we already:
+					// - require that two patches' formats were identical
+					// - require that each patch be valid in on its own
+					// therefore both patches' usages are valid for the format at the time of combining
+					retval.subUsages |= other.subUsages;
 					return {true,retval};
 				}
 		};
@@ -311,7 +394,9 @@ class CAssetConverter : public core::IReferenceCounted
 						virtual const patch_t<asset::ICPUSampler>* operator()(const lookup_t<asset::ICPUSampler>&) const = 0;
 						virtual const patch_t<asset::ICPUShader>* operator()(const lookup_t<asset::ICPUShader>&) const = 0;
 						virtual const patch_t<asset::ICPUBuffer>* operator()(const lookup_t<asset::ICPUBuffer>&) const = 0;
+						virtual const patch_t<asset::ICPUImage>* operator()(const lookup_t<asset::ICPUImage>&) const = 0;
 						virtual const patch_t<asset::ICPUBufferView>* operator()(const lookup_t<asset::ICPUBufferView>&) const = 0;
+						virtual const patch_t<asset::ICPUImageView>* operator()(const lookup_t<asset::ICPUImageView>&) const = 0;
 						virtual const patch_t<asset::ICPUPipelineLayout>* operator()(const lookup_t<asset::ICPUPipelineLayout>&) const = 0;
 
 						// certain items are not patchable, so there's no `patch_t` with non zero size
@@ -428,7 +513,9 @@ class CAssetConverter : public core::IReferenceCounted
 					NBL_API bool operator()(lookup_t<asset::ICPUSampler>);
 					NBL_API bool operator()(lookup_t<asset::ICPUShader>);
 					NBL_API bool operator()(lookup_t<asset::ICPUBuffer>);
+					NBL_API bool operator()(lookup_t<asset::ICPUImage>);
 					NBL_API bool operator()(lookup_t<asset::ICPUBufferView>);
+					NBL_API bool operator()(lookup_t<asset::ICPUImageView>);
 					NBL_API bool operator()(lookup_t<asset::ICPUDescriptorSetLayout>);
 					NBL_API bool operator()(lookup_t<asset::ICPUPipelineLayout>);
 					NBL_API bool operator()(lookup_t<asset::ICPUPipelineCache>);
@@ -565,14 +652,14 @@ class CAssetConverter : public core::IReferenceCounted
 			{
 				return {};
 			}
-#if 0
+
 			virtual inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t groupCopyID, const asset::ICPUImage* buffer, const patch_t<asset::ICPUImage>& patch) const
 			{
 				return {};
 			}
-
+#if 0
 			// most plain PNG, JPG, etc. loaders don't produce images with mipmaps
-			virtual inline uint16_t getMipLevelCount(const size_t groupCopyID, const asset::ICPUImage* image, const patch_t<asset::ICPUImage>& patch) const
+			virtual inline uint16_t getMipLevelCount(const size_t groupCopyID, const asset::ICPUImageView* view, const patch_t<asset::ICPUImageView>& patch) const
 			{
 				const auto origCount = image->getCreationParameters().mipLevels;
 				assert(img);
@@ -859,8 +946,8 @@ class CAssetConverter : public core::IReferenceCounted
 				template<asset::Asset AssetType>
 				using conversion_requests_t = core::vector<ConversionRequest<AssetType>>;
 				using convertible_asset_types = core::type_list<
-					asset::ICPUBuffer/*,
-					asset::ICPUImage,
+					asset::ICPUBuffer,
+					asset::ICPUImage/*,
 					asset::ICPUBottomLevelAccelerationStructure,
 					asset::ICPUTopLevelAccelerationStructure*/
 				>;
