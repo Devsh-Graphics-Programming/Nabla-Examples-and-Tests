@@ -895,10 +895,21 @@ bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUBuffer> loo
 	hasher.update(&patchedParams,sizeof(patchedParams)) << lookup.asset->getContentHash();
 	return true;
 }
-bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUBufferView> lookup)
+bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUImage> lookup)
+{
+	auto patchedParams = lookup.asset->getCreationParameters();
+	assert(lookup.patch->usageFlags.hasFlags(patchedParams.depthUsage));
+	assert(lookup.patch->stencilUsage.hasFlags(patchedParams.actualStencilUsage()));
+	patchedParams.usage = lookup.patch->usageFlags;
+	static_assert(false,"Need to decide how to promote formats first!");
+	patchedParams.usage = lookup.patch->usageFlags;
+	hasher.update(&patchedParams,sizeof(patchedParams)) << lookup.asset->getContentHash();
+	return true;
+}
+bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUImageView> lookup)
 {
 	const auto* asset = lookup.asset;
-	AssetVisitor<HashVisit<ICPUBufferView>> visitor = {
+	AssetVisitor<HashVisit<ICPUImageView>> visitor = {
 		*this,
 		{asset,static_cast<const PatchOverride*>(patchOverride)->uniqueCopyGroupID},
 		*lookup.patch
@@ -907,9 +918,16 @@ bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUBufferView>
 		return false;
 	// NOTE: We don't hash the usage metada from the patch! Because it doesn't matter.
 	// The view usage in the patch helps us propagate and patch during DFS, but no more.
-	hasher << asset->getFormat();
-	hasher << asset->getOffsetInBuffer();
-	hasher << asset->getByteSize();
+	hasher << lookup.patch->subUsages;
+	auto params = asset->getCreationParameters();
+	hasher << params.viewType;
+	if (!lookup.patch->mutatesImageFormat())
+		params.format = EF_UNKNOWN;
+	hasher << params.format;
+	hasher.update(&params.components,sizeof(params.components));
+	if (lookup.patch->fullMipChain)
+		params.subresourceRange.levelCount = IGPUImageView::remaining_mip_levels;
+	hasher.update(&params.subresourceRange,sizeof(params.subresourceRange));
 	return true;
 }
 bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUDescriptorSetLayout> lookup)

@@ -225,6 +225,11 @@ class CAssetConverter : public core::IReferenceCounted
 
 				NBL_API bool valid(const ILogicalDevice* device);
 
+				inline bool mutatesImageFormat() const
+				{
+					return originalFormat!=EF_UNKNOWN;
+				}
+
 				// just because we record all subusages we can find, doesn't mean we will set them on the created image
 				core::bitflag<usage_flags_t> subUsages = usage_flags_t::EUF_NONE;
 				// Extra metadata needed for format promotion, if you want any of them (except for `linearlySampled` and `depthCompareSampledImage`)
