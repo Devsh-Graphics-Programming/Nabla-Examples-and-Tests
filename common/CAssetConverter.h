@@ -221,7 +221,7 @@ class CAssetConverter : public core::IReferenceCounted
 
 				using usage_flags_t = IGPUImage::E_USAGE_FLAGS;
 				// slightly weird constructor because it deduces the metadata from subusages, so need the subusages right away, not patched later
-				NBL_API patch_impl_t(const asset::ICPUImageView* asset, const core::bitflag<usage_flags_t> extraSubUsages);
+				NBL_API patch_impl_t(const asset::ICPUImageView* asset, const core::bitflag<usage_flags_t> extraSubUsages=usage_flags_t::EUF_NONE);
 
 				NBL_API bool valid(const ILogicalDevice* device);
 
