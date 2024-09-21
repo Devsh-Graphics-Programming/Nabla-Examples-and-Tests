@@ -587,10 +587,18 @@ class dfs_cache
 				auto [success,combined] = candidate.patch.combine(soloPatch);
 				if (success)
 				{
-					// change the patch to a combined version
 					if constexpr (ReplaceWithCombined)
+					{
+						// change the patch to a combined version
 						candidate.patch = std::move(combined);
-					break;
+						break;
+					}
+					else
+					{
+						// to truly "find" a patched entry, the candidate needs to equal combined
+						if (candidate.patch==combined)
+							break;
+					}
 				}
 				// else try the next one
 				pIndex = &candidate.next;
