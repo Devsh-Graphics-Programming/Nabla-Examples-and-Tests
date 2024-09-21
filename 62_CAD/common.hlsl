@@ -17,14 +17,14 @@ using namespace nbl::hlsl;
 // because we can't use jit/device_capabilities.hlsl in c++ code
 #ifdef __HLSL_VERSION
 using cpp_hlsl_portable_float64_t = portable_float64_t<jit::device_capabilities>;
-using cpp_hlsl_portable_float64_t2 = portable_vector64_t2<jit::device_capabilities>;
-using cpp_hlsl_portable_float64_t3 = portable_vector64_t3<jit::device_capabilities>;
-using cpp_hlsl_portable_float64_t3x3 = portable_matrix64_t3x3<jit::device_capabilities>;
+using cpp_hlsl_portable_float64_t2 = portable_float64_t2<jit::device_capabilities>;
+using cpp_hlsl_portable_float64_t3 = portable_float64_t3<jit::device_capabilities>;
+using cpp_hlsl_portable_float64_t3x3 = portable_float64_t3x3<jit::device_capabilities>;
 #else
 using cpp_hlsl_portable_float64_t = float64_t;
 using cpp_hlsl_portable_float64_t2 = nbl::hlsl::vector<float64_t, 2>;
 using cpp_hlsl_portable_float64_t3 = nbl::hlsl::vector<float64_t, 3>;
-using cpp_hlsl_portable_float64_t3x3 = portable_matrix_t3x3<float64_t>;
+using cpp_hlsl_portable_float64_t3x3 = portable_float64_t3x3<>;
 #endif
 
 enum class ObjectType : uint32_t

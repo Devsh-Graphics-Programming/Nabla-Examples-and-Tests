@@ -8,9 +8,9 @@
 #include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
 
 using ActualFloat64 = portable_float64_t<jit::device_capabilities>;
-using ActualFloat64Matrix3x3 = portable_matrix64_t3x3<jit::device_capabilities>;
-using ActualFloat64Vector2 = portable_vector64_t2<jit::device_capabilities>;
-using ActualFloat64Vector3 = portable_vector64_t3<jit::device_capabilities>;
+using ActualFloat64Matrix3x3 = portable_float64_t3x3<jit::device_capabilities>;
+using ActualFloat64Vector2 = portable_float64_t2<jit::device_capabilities>;
+using ActualFloat64Vector3 = portable_float64_t3<jit::device_capabilities>;
 
 // TODO[Lucas]: Move these functions to builtin hlsl functions (Even the shadertoy obb and aabb ones)
 float cross2D(float2 a, float2 b)
