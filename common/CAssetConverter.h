@@ -73,7 +73,7 @@ class CAssetConverter : public core::IReferenceCounted
 				return nullptr;
 			return core::smart_refctd_ptr<CAssetConverter>(new CAssetConverter(std::move(params)),core::dont_grab);
 		}
-
+#define NBL_API
 		// When getting dependents, the creation parameters of GPU objects will be produced and patched appropriately.
 		// `patch_t` uses CRTP to inherit from `patch_impl_t` to provide default `operator==` and `update_hash()` definition.
 		// The default specialization kicks in for any `AssetType` that has nothing possible to patch (e.g. Descriptor Set Layout).
@@ -156,8 +156,8 @@ class CAssetConverter : public core::IReferenceCounted
 			public:
 				PATCH_IMPL_BOILERPLATE(asset::ICPUImage);
 
-				// List of all formats of the views we know about, we won't set it though as not to impede creating views later
-				std::bitset<asset::E_FORMAT::EF_COUNT> viewFormats = {};
+				// the most important thing about an image
+				asset::E_FORMAT format = asset::EF_UNKNOWN;
 				// but we also track separate dpeth and stencil usage flags
 				using usage_flags_t = IGPUImage::E_USAGE_FLAGS;
 				core::bitflag<usage_flags_t> usageFlags = usage_flags_t::EUF_NONE;
@@ -209,47 +209,62 @@ class CAssetConverter : public core::IReferenceCounted
 		template<>
 		struct patch_impl_t<asset::ICPUImageView>
 		{
+			private:
+				using this_t = patch_impl_t<asset::ICPUImageView>;
+
 			public:
-				PATCH_IMPL_BOILERPLATE(asset::ICPUImageView);
+				inline patch_impl_t() = default;
+				inline patch_impl_t(const this_t& other) = default;
+				inline patch_impl_t(this_t&& other) = default;
+				inline this_t& operator=(const this_t& other) = default;
+				inline this_t& operator=(this_t&& other) = default;
 
-				IPhysicalDevice::SFormatImageUsages::SUsage getFormatUsage(const ILogicalDevice* device) const;
+				using usage_flags_t = IGPUImage::E_USAGE_FLAGS;
+				// slightly weird constructor because it deduces the metadata from subusages, so need the subusages right away, not patched later
+				NBL_API patch_impl_t(const asset::ICPUImageView* asset, const core::bitflag<usage_flags_t> extraSubUsages);
 
-				// the most important thing about a view
-				asset::E_FORMAT format = asset::EF_UNKNOWN;
+				NBL_API bool valid(const ILogicalDevice* device);
+
+				// just because we record all subusages we can find, doesn't mean we will set them on the created image
+				core::bitflag<usage_flags_t> subUsages = usage_flags_t::EUF_NONE;
 				// Extra metadata needed for format promotion, if you want any of them (except for `linearlySampled` and `depthCompareSampledImage`)
 				// as anything other than the default values, use explicit input roots with patches. Otherwise if `format` is not supported by device
 				// the view can get promoted to a format that doesn't have these usage capabilities.
-				uint8_t linearTiling : 1 = false;
 				uint8_t linearlySampled : 1 = false;
 				uint8_t storageAtomic : 1 = false;
 				uint8_t attachmentBlend : 1 = false;
 				uint8_t storageImageLoadWithoutFormat : 1 = false;
 				uint8_t depthCompareSampledImage : 1 = false;
-				// to not interfere with hashing
-				uint8_t padding : 2 = false;
-				// just because we record all subusages we can find, doesn't mean we will set them on the created image
-				using usage_flags_t = IGPUImage::E_USAGE_FLAGS;
-				core::bitflag<usage_flags_t> subUsages = usage_flags_t::EUF_NONE;
-
+				// whether to override and extend the mip-chain fully
+				uint8_t fullMipChain : 1 = false;
 
 			protected:
+				uint8_t invalid : 1 = false;
+				// to not mess with hashing and comparison
+				uint8_t padding : 1 = 0;
+				// normally wouldn't store that but we don't provide a ref/pointer to the asset when combining or checking validity, treat member as impl detail
+				asset::E_FORMAT originalFormat = asset::EF_UNKNOWN;
+
 				inline std::pair<bool,this_t> combine(const this_t& other) const
 				{
-					// format and tiling needs to stay fixed
-					if (format!=other.format || linearTiling!=other.linearTiling)
-						return {false,{}};
+					assert(padding==0);
+					if (invalid || other.invalid)
+						return {false,*this};
+					// they were made from the same ICPUImageView, otherwise this makes no sense
+					assert(originalFormat==other.originalFormat);
+
 					this_t retval = *this;
-					retval.linearlySampled |= other.linearlySampled;
-					retval.storageAtomic |= other.storageAtomic;
-					retval.attachmentBlend |= other.attachmentBlend;
-					retval.storageImageLoadWithoutFormat |= other.storageImageLoadWithoutFormat;
-					retval.depthCompareSampledImage |= other.depthCompareSampledImage;
-					retval.linearTiling |= other.linearTiling;
 					// When combining usages, we already:
 					// - require that two patches' formats were identical
 					// - require that each patch be valid in on its own
 					// therefore both patches' usages are valid for the format at the time of combining
 					retval.subUsages |= other.subUsages;
+					retval.linearlySampled |= other.linearlySampled;
+					retval.storageAtomic |= other.storageAtomic;
+					retval.attachmentBlend |= other.attachmentBlend;
+					retval.storageImageLoadWithoutFormat |= other.storageImageLoadWithoutFormat;
+					retval.depthCompareSampledImage |= other.depthCompareSampledImage;
+					retval.fullMipChain |= other.fullMipChain;
 					return {true,retval};
 				}
 		};
@@ -310,7 +325,6 @@ class CAssetConverter : public core::IReferenceCounted
 				return memcmp(this,&other,sizeof(base_t))==0;
 			}
 		};
-#define NBL_API
 		// A class to accelerate our hash computations
 		class CHashCache final : public core::IReferenceCounted
 		{

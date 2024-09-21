@@ -137,33 +137,36 @@ bool CAssetConverter::patch_impl_t<ICPUBufferView>::valid(const ILogicalDevice* 
 	return true;
 }
 
-CAssetConverter::patch_impl_t<ICPUImageView>::patch_impl_t(const ICPUImageView* view) :
-	format(view->getCreationParameters().format),
-	subUsages(view->getCreationParameters().actualUsages())
+CAssetConverter::patch_impl_t<ICPUImageView>::patch_impl_t(const ICPUImageView* view, const core::bitflag<usage_flags_t> extraSubUsages) :
+	subUsages(view->getCreationParameters().actualUsages()|extraSubUsages)
 {
+	const auto& params = view->getCreationParameters();
+	originalFormat = params.format;
 	// Impossible to deduce this without knowing all the sampler & view combos that will be used,
 	// because under descriptor indexing we can use any sampler with any view in SPIR-V.
 	// Also because we don't know what Descriptor Sets will be used with what Pipelines!
 	if (subUsages.hasFlags(usage_flags_t::EUF_SAMPLED_BIT))
 	{
-		if (isDepthOrStencilFormat(format))
+		if (isDepthOrStencilFormat(originalFormat))
 		{
-			if (view->getCreationParameters().subresourceRange.aspectMask.hasFlags(IGPUImage::E_ASPECT_FLAGS::EAF_DEPTH_BIT))
+			if (params.subresourceRange.aspectMask.hasFlags(IGPUImage::E_ASPECT_FLAGS::EAF_DEPTH_BIT))
 				depthCompareSampledImage = true;
 		}
 		// Also have no info about any blit cmd that could use this view's image as source
-		else if (!asset::isIntegerFormat(format))
+		else if (!asset::isIntegerFormat(originalFormat))
 			linearlySampled = true;
+// TODO: full mip chain?
 	}
 	// same stuff for storage images
 	if (subUsages.hasFlags(usage_flags_t::EUF_STORAGE_BIT))
 	{
 		// Deducing this in another way would seriously hinder our ability to do format promotions.
 		// To ensure the view doesn't get promoted away from device-feature dependant atomic storage capable formats, use explicit patches upon input! 
-		storageAtomic = format==EF_R32_UINT;
+		storageAtomic = originalFormat ==EF_R32_UINT;
 	}
-	//if (subUsages.hasFlags(usage_flags_t::EUF_RENDER_ATTACHMENT_BIT))
-	//{
+	//
+	if (subUsages.hasFlags(usage_flags_t::EUF_RENDER_ATTACHMENT_BIT))
+	{
 		// The only way you'd be able to deduce this is by watching for any graphics pipeline with a blend state being created
 		// for a subpass in renderpass thats also referenced by a framebuffer that uses this image view. However there are also
 		// subpass compatibility rules which could allow someone to use a compatible subpass graphics pipeline.
@@ -171,29 +174,39 @@ CAssetConverter::patch_impl_t<ICPUImageView>::patch_impl_t(const ICPUImageView* 
 		//if (!isIntegerFormat(format) && !isDepthOrStencilFormat(format))
 			//attachmentBlend = true;
 		// actually this deduction would promote RGB9E5 to RGBA16F even if RGB9E5 supported by the device
-	//}
-}
-IPhysicalDevice::SFormatImageUsages::SUsage CAssetConverter::patch_impl_t<ICPUImageView>::getFormatUsage(const ILogicalDevice* device) const
-{
-	IPhysicalDevice::SFormatImageUsages::SUsage retval(subUsages);
-	retval.linearlySampledImage = linearlySampled;
-	if (retval.storageImage) // we require this anyway
-		retval.storageImageStoreWithoutFormat = true;
-	retval.storageImageAtomic = storageAtomic;
-	retval.attachmentBlend = attachmentBlend;
-	retval.storageImageLoadWithoutFormat = storageImageLoadWithoutFormat;
-	retval.depthCompareSampledImage = depthCompareSampledImage;
-	return retval;
+	}
+	else if (originalFormat==params.image->getCreationParameters().format)
+		originalFormat = EF_UNKNOWN; // format is the same as the base image and we are are not using it for renderpass attachments, allow to mutate with base image's
 }
 bool CAssetConverter::patch_impl_t<ICPUImageView>::valid(const ILogicalDevice* device)
 {
-	// we don't check subUsages against device features here because thats only checking if a view can't be made, and the image itself will check that anyway
-	const IPhysicalDevice::SImageFormatPromotionRequest req = {
-		.originalFormat = format,
-		.usages = getFormatUsage(device)
-	};
-	format = device->getPhysicalDevice()->promoteImageFormat(req,static_cast<IGPUImage::TILING>(linearTiling));
-	return format!=EF_UNKNOWN;
+	invalid = true;
+	// check exotic usages against device caps
+	const auto& features = device->getEnabledFeatures();
+	if (subUsages.hasFlags(usage_flags_t::EUF_SHADING_RATE_ATTACHMENT_BIT))// && !features.fragmentDensityMap)
+		return false;
+	if (subUsages.hasFlags(usage_flags_t::EUF_FRAGMENT_DENSITY_MAP_BIT) && !features.fragmentDensityMap)
+		return false;
+	const auto* physDev = device->getPhysicalDevice();
+	if (storageImageLoadWithoutFormat && !physDev->getLimits().shaderStorageImageReadWithoutFormat)
+		return false;
+	// now check for the format (if the format is immutable)
+	if (originalFormat!=EF_UNKNOWN)
+	{
+		// normally we wouldn't check for usages being valid, but combine needs to know about validity before combining
+		IPhysicalDevice::SFormatImageUsages::SUsage usages = {subUsages};
+		usages.linearlySampledImage = linearlySampled;
+		if (usages.storageImage) // we require this anyway
+			usages.storageImageStoreWithoutFormat = true;
+		usages.storageImageAtomic = storageAtomic;
+		usages.attachmentBlend = attachmentBlend;
+		usages.storageImageLoadWithoutFormat = storageImageLoadWithoutFormat;
+		usages.depthCompareSampledImage = depthCompareSampledImage;
+		invalid = (physDev->getImageFormatUsagesOptimalTiling()[originalFormat]&usages)!=usages || (physDev->getImageFormatUsagesLinearTiling()[originalFormat]&usages)!=usages;
+	}
+	else
+		invalid = false;
+	return !invalid;
 }
 
 CAssetConverter::patch_impl_t<ICPUPipelineLayout>::patch_impl_t(const ICPUPipelineLayout* pplnLayout) : patch_impl_t()
@@ -442,7 +455,7 @@ class AssetVisitor : public CRTP
 							case IDescriptor::EC_IMAGE:
 							{
 								auto imageView = static_cast<const ICPUImageView*>(untypedDesc);
-								patch_t<ICPUImageView> patch = {imageView};
+								IGPUImage::E_USAGE_FLAGS usage;
 								switch (type)
 								{
 									case IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER:
@@ -453,19 +466,19 @@ class AssetVisitor : public CRTP
 										}
 										[[fallthrough]];
 									case IDescriptor::E_TYPE::ET_SAMPLED_IMAGE:
-										patch.subUsages |= IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT;
+										usage = IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT;
 										break;
 									case IDescriptor::E_TYPE::ET_STORAGE_IMAGE:
-										patch.subUsages |= IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT;
+										usage = IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT;
 										break;
 									case IDescriptor::E_TYPE::ET_INPUT_ATTACHMENT:
-										patch.subUsages |= IGPUImage::E_USAGE_FLAGS::EUF_INPUT_ATTACHMENT_BIT;
+										usage = IGPUImage::E_USAGE_FLAGS::EUF_INPUT_ATTACHMENT_BIT;
 										break;
 									default:
 										assert(false);
 										break;
 								}
-								if (!descend(imageView,std::move(patch),type,binding,el,info.info.image.imageLayout))
+								if (!descend(imageView,{imageView,usage},type,binding,el,info.info.image.imageLayout))
 									return false;
 								break;
 							}
@@ -772,7 +785,9 @@ class PatchOverride final : public CAssetConverter::CHashCache::IPatchOverride
 		inline const patch_t<ICPUSampler>* operator()(const lookup_t<ICPUSampler>& lookup) const override {return impl(lookup);}
 		inline const patch_t<ICPUShader>* operator()(const lookup_t<ICPUShader>& lookup) const override {return impl(lookup);}
 		inline const patch_t<ICPUBuffer>* operator()(const lookup_t<ICPUBuffer>& lookup) const override {return impl(lookup);}
+		inline const patch_t<ICPUImage>* operator()(const lookup_t<ICPUImage>& lookup) const override {return impl(lookup);}
 		inline const patch_t<ICPUBufferView>* operator()(const lookup_t<ICPUBufferView>& lookup) const override {return impl(lookup);}
+		inline const patch_t<ICPUImageView>* operator()(const lookup_t<ICPUImageView>& lookup) const override {return impl(lookup);}
 		inline const patch_t<ICPUPipelineLayout>* operator()(const lookup_t<ICPUPipelineLayout>& lookup) const override {return impl(lookup);}
 };
 
