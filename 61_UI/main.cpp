@@ -415,10 +415,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					// Nabla Imgui backend MDI buffer info
 					{
-						auto* streamingAllocator = pass.ui.manager->getStreamingAllocator();
+						auto* streaminingBuffer = pass.ui.manager->getStreamingBuffer();
 
-						const size_t total = streamingAllocator->get_total_size();			// total memory range size for which allocation can be requested
-						const size_t maxSizeToAllocate = streamingAllocator->max_size();	// max total free bloock memory size we can still allocate from total memory available
+						const size_t total = streaminingBuffer->get_total_size();			// total memory range size for which allocation can be requested
+						const size_t maxSizeToAllocate = streaminingBuffer->max_size();	// max total free bloock memory size we can still allocate from total memory available
 						const size_t consumedMemory = total - maxSizeToAllocate;			// memory currently consumed by streaming buffer
 
 						float freePercentage = 100.0f * (float)(maxSizeToAllocate) / (float)total;
@@ -584,13 +584,14 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					.depthStencilClearValues = nullptr,
 					.renderArea = currentRenderArea
 				};
+				nbl::video::ISemaphore::SWaitInfo waitInfo = { .semaphore = m_semaphore.get(), .value = m_realFrameIx + 1u };
 
 				cb->beginRenderPass(renderpassInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 				const auto uiParams = pass.ui.manager->getCreationParameters();
 				auto* pipeline = pass.ui.manager->getPipeline();
 				cb->bindGraphicsPipeline(pipeline);
 				cb->bindDescriptorSets(EPBP_GRAPHICS, pipeline->getLayout(), uiParams.resources.textures.setIx, 1u, &pass.ui.descriptorSet.get()); // note that we use default UI pipeline layout where uiParams.resources.textures.setIx == uiParams.resources.samplers.setIx
-				pass.ui.manager->render(cb);
+				pass.ui.manager->render(cb, waitInfo);
 				cb->endRenderPass();
 			}
 			cb->end();
