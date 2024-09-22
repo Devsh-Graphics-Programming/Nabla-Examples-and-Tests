@@ -417,11 +417,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					{
 						auto* streamingAllocator = pass.ui.manager->getStreamingAllocator();
 
-						const size_t totalAllocatedSize = streamingAllocator->get_total_size();
-						const size_t isUse = streamingAllocator->max_size();
+						const size_t total = streamingAllocator->get_total_size();			// total memory range size for which allocation can be requested
+						const size_t maxSizeToAllocate = streamingAllocator->max_size();	// max total free bloock memory size we can still allocate from total memory available
+						const size_t consumedMemory = total - maxSizeToAllocate;			// memory currently consumed by streaming buffer
 
-						float freePercentage = 100.0f * (float)(totalAllocatedSize - isUse) / (float)totalAllocatedSize;
-						float allocatedPercentage = 1.0f - (float)(totalAllocatedSize - isUse) / (float)totalAllocatedSize;
+						float freePercentage = 100.0f * (float)(maxSizeToAllocate) / (float)total;
+						float allocatedPercentage = (float)(consumedMemory) / (float)total;
 
 						ImVec2 barSize = ImVec2(400, 30);
 						float windowPadding = 10.0f;
@@ -430,18 +431,18 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						ImGui::SetNextWindowSize(ImVec2(barSize.x + 2 * windowPadding, 110 + verticalPadding), ImGuiCond_Always);
 						ImGui::Begin("Nabla Imgui MDI Buffer Info", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar);
 
-						ImGui::Text("Total Allocated Size: %zu bytes", totalAllocatedSize);
-						ImGui::Text("In use: %zu bytes", isUse);
+						ImGui::Text("Total Allocated Size: %zu bytes", total);
+						ImGui::Text("In use: %zu bytes", consumedMemory);
 						ImGui::Text("Buffer Usage:");
 
 						ImGui::SetCursorPosX(windowPadding);
 
 						if (freePercentage > 70.0f)
-							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.0f, 1.0f, 0.0f, 0.4f));
+							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.0f, 1.0f, 0.0f, 0.4f));  // Green
 						else if (freePercentage > 30.0f)
-							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 1.0f, 0.0f, 0.4f));
+							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 1.0f, 0.0f, 0.4f));  // Yellow
 						else
-							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 0.0f, 0.0f, 0.4f));
+							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 0.0f, 0.0f, 0.4f));  // Red
 
 						ImGui::ProgressBar(allocatedPercentage, barSize, "");
 
@@ -583,14 +584,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					.depthStencilClearValues = nullptr,
 					.renderArea = currentRenderArea
 				};
-				nbl::video::ISemaphore::SWaitInfo waitInfo = { .semaphore = m_semaphore.get(), .value = m_realFrameIx + 1u };
 
 				cb->beginRenderPass(renderpassInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 				const auto uiParams = pass.ui.manager->getCreationParameters();
 				auto* pipeline = pass.ui.manager->getPipeline();
 				cb->bindGraphicsPipeline(pipeline);
 				cb->bindDescriptorSets(EPBP_GRAPHICS, pipeline->getLayout(), uiParams.resources.textures.setIx, 1u, &pass.ui.descriptorSet.get()); // note that we use default UI pipeline layout where uiParams.resources.textures.setIx == uiParams.resources.samplers.setIx
-				pass.ui.manager->render(cb, waitInfo);
+				pass.ui.manager->render(cb);
 				cb->endRenderPass();
 			}
 			cb->end();
