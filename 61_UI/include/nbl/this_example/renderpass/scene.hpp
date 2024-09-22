@@ -829,13 +829,13 @@ private:
 				params.blend.logicOp = ELO_NO_OP;
 
 				auto& b = params.blend.blendParams[0];
-				b.srcColorFactor = EBF_SRC_ALPHA;//VK_BLEND_FACTOR_SRC_ALPHA;
-				b.dstColorFactor = EBF_ONE_MINUS_SRC_ALPHA;//VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-				b.colorBlendOp = EBO_ADD;//VK_BLEND_OP_ADD;
-				b.srcAlphaFactor = EBF_ONE_MINUS_SRC_ALPHA;//VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-				b.dstAlphaFactor = EBF_ZERO;//VK_BLEND_FACTOR_ZERO;
-				b.alphaBlendOp = EBO_ADD;//VK_BLEND_OP_ADD;
-				b.colorWriteMask = (1u << 0u) | (1u << 1u) | (1u << 2u) | (1u << 3u);//VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+				b.srcColorFactor = EBF_SRC_ALPHA;
+				b.dstColorFactor = EBF_ONE_MINUS_SRC_ALPHA;
+				b.colorBlendOp = EBO_ADD;
+				b.srcAlphaFactor = EBF_SRC_ALPHA;
+				b.dstAlphaFactor = EBF_SRC_ALPHA;
+				b.alphaBlendOp = EBO_ADD;
+				b.colorWriteMask = (1u << 0u) | (1u << 1u) | (1u << 2u) | (1u << 3u);
 			}
 
 			params.rasterization.faceCullingMode = EFCM_NONE;
