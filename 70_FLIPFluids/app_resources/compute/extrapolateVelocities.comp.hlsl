@@ -9,8 +9,9 @@ cbuffer GridData
 };
 
 [[vk::binding(b_evPBuffer, s_ev)]] RWStructuredBuffer<Particle> particleBuffer;
-[[vk::binding(b_evVelFieldBuffer, s_ev)]] RWStructuredBuffer<float4> velocityFieldBuffer;
-[[vk::binding(b_evPrevVelFieldBuffer, s_ev)]] RWStructuredBuffer<float4> prevVelocityFieldBuffer;
+[[vk::binding(b_evVelFieldBuffer, s_ev)]] Texture3D<float4> velocityFieldBuffer;
+[[vk::binding(b_evPrevVelFieldBuffer, s_ev)]] Texture3D<float4> prevVelocityFieldBuffer;
+[[vk::binding(b_evVelSampler, s_ev)]] SamplerState velocityFieldSampler;
 
 [numthreads(WorkgroupSize, 1, 1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)
@@ -19,8 +20,8 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
     Particle p = particleBuffer[pid];
 
-    float3 gridPrevVel = sampleVelocityAt(p.position.xyz, prevVelocityFieldBuffer, gridData);
-    float3 gridVel = sampleVelocityAt(p.position.xyz, velocityFieldBuffer, gridData);
+    float3 gridPrevVel = sampleVelocityAt(p.position.xyz, prevVelocityFieldBuffer, velocityFieldSampler, gridData);
+    float3 gridVel = sampleVelocityAt(p.position.xyz, velocityFieldBuffer, velocityFieldSampler, gridData);
 
     float3 picVel = gridVel;
     float3 flipVel = p.velocity.xyz + gridVel - gridPrevVel;

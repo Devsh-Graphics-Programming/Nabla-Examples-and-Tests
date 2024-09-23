@@ -327,10 +327,6 @@ public:
 		createBuffer(gridCellMaterialBuffer, params);
 		createBuffer(tempCellMaterialBuffer, params);
 
-		params.size = numGridCells * sizeof(float32_t4);
-		createBuffer(velocityFieldBuffer, params);
-		createBuffer(prevVelocityFieldBuffer, params);
-
 		params.size = numGridCells * sizeof(uint32_t4);
 		createBuffer(gridAxisCellMaterialBuffer, params);
 		createBuffer(tempAxisCellMaterialBuffer, params);
@@ -344,6 +340,88 @@ public:
 
 		params.size = numParticles * sizeof(uint32_t2);
 		createBuffer(particleCellPairBuffer, params);
+
+		// velocity field stuffs
+		{
+			IGPUImage::SCreationParams imgInfo;
+			imgInfo.format = asset::EF_R32G32B32A32_SFLOAT;
+			imgInfo.type = IGPUImage::ET_3D;
+			imgInfo.extent.width = m_gridData.gridSize.x;
+			imgInfo.extent.height = m_gridData.gridSize.y;
+			imgInfo.extent.depth = m_gridData.gridSize.z;
+			imgInfo.mipLevels = 1u;
+			imgInfo.arrayLayers = 1u;
+			imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
+			imgInfo.flags = asset::IImage::E_CREATE_FLAGS::ECF_NONE;
+			imgInfo.usage = asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_SAMPLED_BIT;
+			imgInfo.tiling = IGPUImage::TILING::OPTIMAL;
+
+			auto image = m_device->createImage(std::move(imgInfo));
+			auto imageMemReqs = image->getMemoryReqs();
+			imageMemReqs.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
+			m_device->allocate(imageMemReqs, image.get());
+
+			image->setObjectDebugName("velocity field");
+
+			IGPUImageView::SCreationParams imgViewInfo;
+			imgViewInfo.image = std::move(image);
+			imgViewInfo.format = asset::EF_R32G32B32A32_SFLOAT;
+			imgViewInfo.viewType = IGPUImageView::ET_3D;
+			imgViewInfo.flags = IGPUImageView::E_CREATE_FLAGS::ECF_NONE;
+			imgViewInfo.subresourceRange.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+			imgViewInfo.subresourceRange.baseArrayLayer = 0u;
+			imgViewInfo.subresourceRange.baseMipLevel = 0u;
+			imgViewInfo.subresourceRange.layerCount = 1u;
+			imgViewInfo.subresourceRange.levelCount = 1u;
+
+			velocityFieldImageView = m_device->createImageView(std::move(imgViewInfo));
+		}
+		{
+			IGPUImage::SCreationParams imgInfo;
+			imgInfo.format = asset::EF_R32G32B32A32_SFLOAT;
+			imgInfo.type = IGPUImage::ET_3D;
+			imgInfo.extent.width = m_gridData.gridSize.x;
+			imgInfo.extent.height = m_gridData.gridSize.y;
+			imgInfo.extent.depth = m_gridData.gridSize.z;
+			imgInfo.mipLevels = 1u;
+			imgInfo.arrayLayers = 1u;
+			imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
+			imgInfo.flags = asset::IImage::E_CREATE_FLAGS::ECF_NONE;
+			imgInfo.usage = asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_SAMPLED_BIT;
+			imgInfo.tiling = IGPUImage::TILING::OPTIMAL;
+
+			auto image = m_device->createImage(std::move(imgInfo));
+			auto imageMemReqs = image->getMemoryReqs();
+			imageMemReqs.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
+			m_device->allocate(imageMemReqs, image.get());
+
+			image->setObjectDebugName("prev velocity field");
+
+			IGPUImageView::SCreationParams imgViewInfo;
+			imgViewInfo.image = std::move(image);
+			imgViewInfo.format = asset::EF_R32G32B32A32_SFLOAT;
+			imgViewInfo.viewType = IGPUImageView::ET_3D;
+			imgViewInfo.flags = IGPUImageView::E_CREATE_FLAGS::ECF_NONE;
+			imgViewInfo.subresourceRange.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+			imgViewInfo.subresourceRange.baseArrayLayer = 0u;
+			imgViewInfo.subresourceRange.baseMipLevel = 0u;
+			imgViewInfo.subresourceRange.layerCount = 1u;
+			imgViewInfo.subresourceRange.levelCount = 1u;
+
+			prevVelocityFieldImageView = m_device->createImageView(std::move(imgViewInfo));
+		}
+
+		IGPUSampler::SParams samplerParams = {};
+		samplerParams.TextureWrapU = IGPUSampler::ETC_CLAMP_TO_BORDER;
+		samplerParams.TextureWrapV = IGPUSampler::ETC_CLAMP_TO_BORDER;
+		samplerParams.TextureWrapW = IGPUSampler::ETC_CLAMP_TO_BORDER;
+		samplerParams.BorderColor  = IGPUSampler::ETBC_FLOAT_OPAQUE_BLACK;
+		samplerParams.MinFilter		= IGPUSampler::ETF_LINEAR;
+		samplerParams.MaxFilter		= IGPUSampler::ETF_LINEAR;
+		samplerParams.MipmapMode	= IGPUSampler::ESMM_LINEAR;
+		samplerParams.AnisotropicFilter = 3;
+		samplerParams.CompareEnable = false;
+		velocityFieldSampler = m_device->createSampler(samplerParams);
 
 		// init render pipeline
 		if (!initGraphicsPipeline())
@@ -470,10 +548,12 @@ public:
 				infos[2].info.buffer = {.offset = 0, .size = gridParticleIDBuffer->getSize()};
 				infos[3].desc = smart_refctd_ptr(gridCellMaterialBuffer);
 				infos[3].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
-				infos[4].desc = smart_refctd_ptr(velocityFieldBuffer);
-				infos[4].info.buffer = {.offset = 0, .size = velocityFieldBuffer->getSize()};
-				infos[5].desc = smart_refctd_ptr(prevVelocityFieldBuffer);
-				infos[5].info.buffer = {.offset = 0, .size = prevVelocityFieldBuffer->getSize()};
+				infos[4].desc = velocityFieldImageView;
+				infos[4].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				infos[4].info.combinedImageSampler.sampler = nullptr;
+				infos[5].desc = prevVelocityFieldImageView;
+				infos[5].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				infos[5].info.combinedImageSampler.sampler = nullptr;
 				IGPUDescriptorSet::SWriteDescriptorSet writes[6] = {
 					{.dstSet = m_particleToCellDs.get(), .binding = b_ufcGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
 					{.dstSet = m_particleToCellDs.get(), .binding = b_ufcPBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
@@ -491,16 +571,20 @@ public:
 				"app_resources/compute/applyBodyForces.comp.hlsl", "main", abfApplyForces_bs1);
 
 			{
-				IGPUDescriptorSet::SDescriptorInfo infos[2];
-				infos[0].desc = smart_refctd_ptr(velocityFieldBuffer);
-				infos[0].info.buffer = {.offset = 0, .size = velocityFieldBuffer->getSize()};
-				infos[1].desc = smart_refctd_ptr(gridCellMaterialBuffer);
-				infos[1].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
-				IGPUDescriptorSet::SWriteDescriptorSet writes[2] = {
-					{.dstSet = m_applyForcesDs.get(), .binding = b_abfVelFieldBuffer, .arrayElement = 0, .count = 1, .info = &infos[0]},
-					{.dstSet = m_applyForcesDs.get(), .binding = b_abfCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
+				IGPUDescriptorSet::SDescriptorInfo infos[3];
+				infos[0].desc = smart_refctd_ptr(gridDataBuffer);
+				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
+				infos[1].desc = velocityFieldImageView;
+				infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				infos[1].info.combinedImageSampler.sampler = nullptr;
+				infos[2].desc = smart_refctd_ptr(gridCellMaterialBuffer);
+				infos[2].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
+				IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
+					{.dstSet = m_applyForcesDs.get(), .binding = b_abfGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
+					{.dstSet = m_applyForcesDs.get(), .binding = b_abfVelFieldBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
+					{.dstSet = m_applyForcesDs.get(), .binding = b_abfCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
 				};
-				m_device->updateDescriptorSets(std::span(writes, 2), {});
+				m_device->updateDescriptorSets(std::span(writes, 3), {});
 			}
 		}
 		// apply diffusion pipelines
@@ -576,8 +660,9 @@ public:
 				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};				
 				infos[1].desc = smart_refctd_ptr(gridCellMaterialBuffer);
 				infos[1].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
-				infos[2].desc = smart_refctd_ptr(velocityFieldBuffer);
-				infos[2].info.buffer = {.offset = 0, .size = velocityFieldBuffer->getSize()};
+				infos[2].desc = velocityFieldImageView;
+				infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				infos[2].info.combinedImageSampler.sampler = nullptr;
 				infos[3].desc = smart_refctd_ptr(gridAxisCellMaterialBuffer);
 				infos[3].info.buffer = {.offset = 0, .size = gridAxisCellMaterialBuffer->getSize()};
 				infos[4].desc = smart_refctd_ptr(tempDiffusionBuffer);
@@ -600,8 +685,9 @@ public:
 				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};				
 				infos[1].desc = smart_refctd_ptr(gridCellMaterialBuffer);
 				infos[1].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
-				infos[2].desc = smart_refctd_ptr(velocityFieldBuffer);
-				infos[2].info.buffer = {.offset = 0, .size = velocityFieldBuffer->getSize()};
+				infos[2].desc = velocityFieldImageView;
+				infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				infos[2].info.combinedImageSampler.sampler = nullptr;
 				infos[3].desc = smart_refctd_ptr(gridAxisCellMaterialBuffer);
 				infos[3].info.buffer = {.offset = 0, .size = gridAxisCellMaterialBuffer->getSize()};
 				infos[4].desc = smart_refctd_ptr(gridDiffusionBuffer);
@@ -629,8 +715,9 @@ public:
 				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};				
 				infos[1].desc = smart_refctd_ptr(gridCellMaterialBuffer);
 				infos[1].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
-				infos[2].desc = smart_refctd_ptr(velocityFieldBuffer);
-				infos[2].info.buffer = {.offset = 0, .size = velocityFieldBuffer->getSize()};
+				infos[2].desc = velocityFieldImageView;
+				infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				infos[2].info.combinedImageSampler.sampler = nullptr;
 				infos[3].desc = smart_refctd_ptr(gridDiffusionBuffer);
 				infos[3].info.buffer = {.offset = 0, .size = gridDiffusionBuffer->getSize()};
 				IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
@@ -653,8 +740,9 @@ public:
 				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
 				infos[1].desc = smart_refctd_ptr(gridCellMaterialBuffer);
 				infos[1].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
-				infos[2].desc = smart_refctd_ptr(velocityFieldBuffer);
-				infos[2].info.buffer = {.offset = 0, .size = velocityFieldBuffer->getSize()};
+				infos[2].desc = velocityFieldImageView;
+				infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				infos[2].info.combinedImageSampler.sampler = nullptr;
 				infos[3].desc = smart_refctd_ptr(divergenceBuffer);
 				infos[3].info.buffer = {.offset = 0, .size = divergenceBuffer->getSize()};
 				IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
@@ -751,8 +839,9 @@ public:
 				infos[1].info.buffer = {.offset = 0, .size = pressureParamsBuffer->getSize()};
 				infos[2].desc = smart_refctd_ptr(gridCellMaterialBuffer);
 				infos[2].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
-				infos[3].desc = smart_refctd_ptr(velocityFieldBuffer);
-				infos[3].info.buffer = {.offset = 0, .size = velocityFieldBuffer->getSize()};
+				infos[3].desc = velocityFieldImageView;
+				infos[3].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				infos[3].info.combinedImageSampler.sampler = nullptr;
 				infos[4].desc = smart_refctd_ptr(pressureBuffer);
 				infos[4].info.buffer = {.offset = 0, .size = pressureBuffer->getSize()};
 				IGPUDescriptorSet::SWriteDescriptorSet writes[5] = {
@@ -771,23 +860,24 @@ public:
 				"app_resources/compute/extrapolateVelocities.comp.hlsl", "main", evExtrapolateVel_bs1);
 
 			{
-				IGPUDescriptorSet::SDescriptorInfo inputInfos[2];
-				inputInfos[0].desc = smart_refctd_ptr(gridDataBuffer);
-				inputInfos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
-				inputInfos[1].desc = smart_refctd_ptr(particleBuffer);
-				inputInfos[1].info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
-				IGPUDescriptorSet::SDescriptorInfo outputInfos[2];
-				outputInfos[0].desc = smart_refctd_ptr(velocityFieldBuffer);
-				outputInfos[0].info.buffer = {.offset = 0, .size = velocityFieldBuffer->getSize()};
-				outputInfos[1].desc = smart_refctd_ptr(prevVelocityFieldBuffer);
-				outputInfos[1].info.buffer = {.offset = 0, .size = prevVelocityFieldBuffer->getSize()};
-				IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
-					{.dstSet = m_extrapolateVelDs.get(), .binding = b_evGridData, .arrayElement = 0, .count = 1, .info = &inputInfos[0]},
-					{.dstSet = m_extrapolateVelDs.get(), .binding = b_evPBuffer, .arrayElement = 0, .count = 1, .info = &inputInfos[1]},
-					{.dstSet = m_extrapolateVelDs.get(), .binding = b_evVelFieldBuffer, .arrayElement = 0, .count = 1, .info = &outputInfos[0]},
-					{.dstSet = m_extrapolateVelDs.get(), .binding = b_evPrevVelFieldBuffer, .arrayElement = 0, .count = 1, .info = &outputInfos[1]},
+				IGPUDescriptorSet::SDescriptorInfo infos[5];
+				infos[0].desc = smart_refctd_ptr(gridDataBuffer);
+				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
+				infos[1].desc = smart_refctd_ptr(particleBuffer);
+				infos[1].info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
+				infos[2].desc = velocityFieldImageView;
+				infos[2].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				infos[3].desc = prevVelocityFieldImageView;
+				infos[3].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				infos[4].desc = velocityFieldSampler;
+				IGPUDescriptorSet::SWriteDescriptorSet writes[5] = {
+					{.dstSet = m_extrapolateVelDs.get(), .binding = b_evGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
+					{.dstSet = m_extrapolateVelDs.get(), .binding = b_evPBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
+					{.dstSet = m_extrapolateVelDs.get(), .binding = b_evVelFieldBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
+					{.dstSet = m_extrapolateVelDs.get(), .binding = b_evPrevVelFieldBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
+					{.dstSet = m_extrapolateVelDs.get(), .binding = b_evVelSampler, .arrayElement = 0, .count = 1, .info = &infos[4]}
 				};
-				m_device->updateDescriptorSets(std::span(writes, 4), {});
+				m_device->updateDescriptorSets(std::span(writes, 5), {});
 			}
 		}
 		{
@@ -795,19 +885,21 @@ public:
 			createComputePipeline(m_advectParticlesPipeline, m_advectParticlesPool, m_advectParticlesDs, "app_resources/compute/advectParticles.comp.hlsl", "main", apAdvectParticles_bs1);
 
 			{
-				IGPUDescriptorSet::SDescriptorInfo infos[3];
+				IGPUDescriptorSet::SDescriptorInfo infos[4];
 				infos[0].desc = smart_refctd_ptr(gridDataBuffer);
 				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
 				infos[1].desc = smart_refctd_ptr(particleBuffer);
 				infos[1].info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
-				infos[2].desc = smart_refctd_ptr(velocityFieldBuffer);
-				infos[2].info.buffer = {.offset = 0, .size = velocityFieldBuffer->getSize()};
-				IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
+				infos[2].desc = velocityFieldImageView;
+				infos[2].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				infos[3].desc = velocityFieldSampler;
+				IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
 					{.dstSet = m_advectParticlesDs.get(), .binding = b_apGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
 					{.dstSet = m_advectParticlesDs.get(), .binding = b_apPBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
 					{.dstSet = m_advectParticlesDs.get(), .binding = b_apVelFieldBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
+					{.dstSet = m_advectParticlesDs.get(), .binding = b_apVelSampler, .arrayElement = 0, .count = 1, .info = &infos[3]}
 				};
-				m_device->updateDescriptorSets(std::span(writes, 3), {});
+				m_device->updateDescriptorSets(std::span(writes, 4), {});
 			}
 		}
 
@@ -1012,6 +1104,89 @@ public:
 			cmdbuf->updateBuffer(pressureParamsRange, &pressureSolverParams);
 
 			initializeParticles(cmdbuf);
+
+			// transition layouts
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[2];
+			imageBarriers[0].barrier = {
+				.dep = {
+					.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+					.srcAccessMask = ACCESS_FLAGS::NONE,
+					.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+					.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+			}
+			};
+			imageBarriers[0].image = velocityFieldImageView->getCreationParameters().image.get();
+			imageBarriers[0].subresourceRange = {
+				.aspectMask = IImage::EAF_COLOR_BIT,
+				.baseMipLevel = 0u,
+				.levelCount = 1u,
+				.baseArrayLayer = 0u,
+				.layerCount = 1u
+			};
+			imageBarriers[0].oldLayout = IImage::LAYOUT::UNDEFINED;
+			imageBarriers[0].newLayout = IImage::LAYOUT::GENERAL;
+			imageBarriers[1].barrier = {
+				.dep = {
+					.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+					.srcAccessMask = ACCESS_FLAGS::NONE,
+					.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+					.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+			}
+			};
+			imageBarriers[1].image = prevVelocityFieldImageView->getCreationParameters().image.get();
+			imageBarriers[1].subresourceRange = {
+				.aspectMask = IImage::EAF_COLOR_BIT,
+				.baseMipLevel = 0u,
+				.levelCount = 1u,
+				.baseArrayLayer = 0u,
+				.layerCount = 1u
+			};
+			imageBarriers[1].oldLayout = IImage::LAYOUT::UNDEFINED;
+			imageBarriers[1].newLayout = IImage::LAYOUT::GENERAL;
+
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.imgBarriers = imageBarriers});
+		}
+		else
+		{
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[2];
+			imageBarriers[0].barrier = {
+				.dep = {
+					.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+					.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS | ACCESS_FLAGS::SHADER_READ_BITS,
+					.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+					.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+			}
+			};
+			imageBarriers[0].image = velocityFieldImageView->getCreationParameters().image.get();
+			imageBarriers[0].subresourceRange = {
+				.aspectMask = IImage::EAF_COLOR_BIT,
+				.baseMipLevel = 0u,
+				.levelCount = 1u,
+				.baseArrayLayer = 0u,
+				.layerCount = 1u
+			};
+			imageBarriers[0].oldLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			imageBarriers[0].newLayout = IImage::LAYOUT::GENERAL;
+			imageBarriers[1].barrier = {
+				.dep = {
+					.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+					.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS | ACCESS_FLAGS::SHADER_READ_BITS,
+					.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+					.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+			}
+			};
+			imageBarriers[1].image = prevVelocityFieldImageView->getCreationParameters().image.get();
+			imageBarriers[1].subresourceRange = {
+				.aspectMask = IImage::EAF_COLOR_BIT,
+				.baseMipLevel = 0u,
+				.levelCount = 1u,
+				.baseArrayLayer = 0u,
+				.layerCount = 1u
+			};
+			imageBarriers[1].oldLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			imageBarriers[1].newLayout = IImage::LAYOUT::GENERAL;
+
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.imgBarriers = imageBarriers});
 		}
 
 		{
@@ -1343,12 +1518,50 @@ public:
 	void dispatchExtrapolateVelocities(IGPUCommandBuffer* cmdbuf)
 	{
 		{
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[2];
+			imageBarriers[0].barrier = {
+				.dep = {
+					.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+					.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS | ACCESS_FLAGS::SHADER_READ_BITS,
+					.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+					.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
+			}
+			};
+			imageBarriers[0].image = velocityFieldImageView->getCreationParameters().image.get();
+			imageBarriers[0].subresourceRange = {
+				.aspectMask = IImage::EAF_COLOR_BIT,
+				.baseMipLevel = 0u,
+				.levelCount = 1u,
+				.baseArrayLayer = 0u,
+				.layerCount = 1u
+			};
+			imageBarriers[0].oldLayout = IImage::LAYOUT::GENERAL;
+			imageBarriers[0].newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			imageBarriers[1].barrier = {
+				.dep = {
+					.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+					.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS | ACCESS_FLAGS::SHADER_READ_BITS,
+					.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+					.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
+			}
+			};
+			imageBarriers[1].image = prevVelocityFieldImageView->getCreationParameters().image.get();
+			imageBarriers[1].subresourceRange = {
+				.aspectMask = IImage::EAF_COLOR_BIT,
+				.baseMipLevel = 0u,
+				.levelCount = 1u,
+				.baseArrayLayer = 0u,
+				.layerCount = 1u
+			};
+			imageBarriers[1].oldLayout = IImage::LAYOUT::GENERAL;
+			imageBarriers[1].newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+
 			SMemoryBarrier memBarrier;
 			memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
 			memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
 			memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
 			memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
-			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}, .imgBarriers = imageBarriers});
         }
 
 		cmdbuf->bindComputePipeline(m_extrapolateVelPipeline.get());
@@ -1925,7 +2138,6 @@ private:
 
 	smart_refctd_ptr<IGPUComputePipeline> m_extrapolateVelPipeline;
 	smart_refctd_ptr<IGPUComputePipeline> m_advectParticlesPipeline;
-	//smart_refctd_ptr<IGPUComputePipeline> m_densityProjectPipeline;
 	smart_refctd_ptr<IGPUComputePipeline> m_genParticleVerticesPipeline;
 
 	// -- some more helper compute shaders
@@ -2016,17 +2228,15 @@ private:
 	smart_refctd_ptr<IGPUBuffer> pressureParamsBuffer;	// SPressureSolverParams
 	smart_refctd_ptr<IGPUBuffer> gridParticleIDBuffer;	// uint2
 	smart_refctd_ptr<IGPUBuffer> gridCellMaterialBuffer;	// uint, fluid or solid
-	smart_refctd_ptr<IGPUBuffer> velocityFieldBuffer;	// float4
-	smart_refctd_ptr<IGPUBuffer> prevVelocityFieldBuffer;// float4
+
+	smart_refctd_ptr<IGPUImageView> velocityFieldImageView;		// float4
+	smart_refctd_ptr<IGPUImageView> prevVelocityFieldImageView;	// float4
+	smart_refctd_ptr<IGPUSampler> velocityFieldSampler;
+
 	smart_refctd_ptr<IGPUBuffer> gridDiffusionBuffer;	// float4
 	smart_refctd_ptr<IGPUBuffer> gridAxisCellMaterialBuffer;	// uint3
 	smart_refctd_ptr<IGPUBuffer> divergenceBuffer;		// float
 	smart_refctd_ptr<IGPUBuffer> pressureBuffer;		// float
-	//smart_refctd_ptr<IGPUBuffer> gridWeightBuffer;		// float
-	//smart_refctd_ptr<IGPUBuffer> gridUintWeightBuffer;	// uint
-	//smart_refctd_ptr<IGPUBuffer> gridDensityPressureBuffer;// float
-	//smart_refctd_ptr<IGPUBuffer> positionModifyBuffer;	// float3
-	//smart_refctd_ptr<IGPUBuffer> zeroBuffer;			// float
 
 	smart_refctd_ptr<IGPUBuffer> tempCellMaterialBuffer;	// uint, fluid or solid
 	smart_refctd_ptr<IGPUBuffer> tempDiffusionBuffer;	// float4

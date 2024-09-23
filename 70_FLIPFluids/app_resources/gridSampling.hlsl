@@ -40,37 +40,41 @@ inline float interpolate(int3 cellIdx, float3 S, RWStructuredBuffer<float4> grid
     return _interpolateZ(cellIdx, S, gridBuffer, gridData, axis);
 }
 
-inline float _sampleVelocity(float3 pos, RWStructuredBuffer<float4> gridBuffer, SGridData gridData, uint axis)
+inline float _sampleVelocity(float3 pos, Texture3D<float4> gridBuffer, SamplerState _sampler, SGridData gridData, uint axis)
 {
-    int3 cellIdx = floor(pos - 0.5f);
-    float3 s = frac(pos - 0.5f);
-    return interpolate(cellIdx, s, gridBuffer, gridData, axis);
+    // int3 cellIdx = floor(pos - 0.5f);
+    // float3 s = frac(pos - 0.5f);
+    // return interpolate(cellIdx, s, gridBuffer, gridData, axis);
+
+    float3 coord = pos / gridData.gridSize.xyz;
+    float4 s = gridBuffer.SampleLevel(_sampler, coord, 0);
+    return s[axis];
 }
 
-inline float _sampleVelX(float3 pos, RWStructuredBuffer<float4> gridBuffer, SGridData gridData)
+inline float _sampleVelX(float3 pos, Texture3D<float4> gridBuffer, SamplerState _sampler, SGridData gridData)
 {
     float3 gridPos = worldPosToGridPos(pos, gridData) + float3(0.5f, 0.0f, 0.0f);
-    return _sampleVelocity(gridPos, gridBuffer, gridData, 0);
+    return _sampleVelocity(gridPos, gridBuffer, _sampler, gridData, 0);
 }
 
-inline float _sampleVelY(float3 pos, RWStructuredBuffer<float4> gridBuffer, SGridData gridData)
+inline float _sampleVelY(float3 pos, Texture3D<float4> gridBuffer, SamplerState _sampler, SGridData gridData)
 {
     float3 gridPos = worldPosToGridPos(pos, gridData) + float3(0.0f, 0.5f, 0.0f);
-    return _sampleVelocity(gridPos, gridBuffer, gridData, 1);
+    return _sampleVelocity(gridPos, gridBuffer, _sampler, gridData, 1);
 }
 
-inline float _sampleVelZ(float3 pos, RWStructuredBuffer<float4> gridBuffer, SGridData gridData)
+inline float _sampleVelZ(float3 pos, Texture3D<float4> gridBuffer, SamplerState _sampler, SGridData gridData)
 {
     float3 gridPos = worldPosToGridPos(pos, gridData) + float3(0.0f, 0.0f, 0.5f);
-    return _sampleVelocity(gridPos, gridBuffer, gridData, 2);
+    return _sampleVelocity(gridPos, gridBuffer, _sampler, gridData, 2);
 }
 
-inline float3 sampleVelocityAt(float3 pos, RWStructuredBuffer<float4> gridBuffer, SGridData gridData)
+inline float3 sampleVelocityAt(float3 pos, Texture3D<float4> gridBuffer, SamplerState _sampler, SGridData gridData)
 {
     float3 val;
-    val.x = _sampleVelX(pos, gridBuffer, gridData);
-    val.y = _sampleVelY(pos, gridBuffer, gridData);
-    val.z = _sampleVelZ(pos, gridBuffer, gridData);
+    val.x = _sampleVelX(pos, gridBuffer, _sampler, gridData);
+    val.y = _sampleVelY(pos, gridBuffer, _sampler, gridData);
+    val.z = _sampleVelZ(pos, gridBuffer, _sampler, gridData);
     return val;
 }
 

@@ -20,8 +20,8 @@ cbuffer GridData
 [[vk::binding(b_ufcCMInBuffer, s_ufc)]]     RWStructuredBuffer<uint> cellMaterialInBuffer;
 [[vk::binding(b_ufcCMOutBuffer, s_ufc)]]    RWStructuredBuffer<uint> cellMaterialOutBuffer;
 
-[[vk::binding(b_ufcVelBuffer, s_ufc)]]      RWStructuredBuffer<float4> velocityFieldBuffer;
-[[vk::binding(b_ufcPrevVelBuffer, s_ufc)]]  RWStructuredBuffer<float4> prevVelocityFieldBuffer;
+[[vk::binding(b_ufcVelBuffer, s_ufc)]]      RWTexture3D<float4> velocityFieldBuffer;
+[[vk::binding(b_ufcPrevVelBuffer, s_ufc)]]  RWTexture3D<float4> prevVelocityFieldBuffer;
 
 static const int kernel[6] = { -1, 1, -1, 1, -1, 1 };
 
@@ -111,14 +111,10 @@ void addParticlesToCells(uint32_t3 ID : SV_DispatchThreadID)
         }
     }
 
-    // uint2 idx = gridParticleIDBuffer[cellIdxToFlatIdx(cIdx, gridData.gridSize)];
-    // totalWeight = 1;
-    // totalVel = particleBuffer[idx.x].velocity.xyz;
-
     float3 velocity = select(totalWeight > 0, totalVel / max(totalWeight, FLT_MIN), 0.0f);
 
     enforceBoundaryCondition(velocity, cellMaterialInBuffer[tid]);
 
-    velocityFieldBuffer[tid].xyz = velocity;
-    prevVelocityFieldBuffer[tid].xyz = velocity;
+    velocityFieldBuffer[cIdx].xyz = velocity;
+    prevVelocityFieldBuffer[cIdx].xyz = velocity;
 }
