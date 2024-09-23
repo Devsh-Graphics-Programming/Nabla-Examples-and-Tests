@@ -36,6 +36,7 @@ ClipProjectionData getClipProjectionData(in MainObject mainObj)
         ret.projectionToNDC = vk::RawBufferLoad<ActualFloat64Matrix3x3>(mainObj.clipProjectionAddress, 8u);
         ret.minClipNDC      = vk::RawBufferLoad<float32_t2>(mainObj.clipProjectionAddress + sizeof(ActualFloat64Matrix3x3), 8u);
         ret.maxClipNDC      = vk::RawBufferLoad<float32_t2>(mainObj.clipProjectionAddress + sizeof(ActualFloat64Matrix3x3) + sizeof(float32_t2), 8u);
+
         return ret;
     }
     else
@@ -147,15 +148,26 @@ PSInput main(uint vertexID : SV_VertexID)
         LineStyle lineStyle = lineStyles[mainObj.styleIdx];
 
         // Width is on both sides, thickness is one one side of the curve (div by 2.0f)
-        const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + _static_cast<float>(
-            _static_cast<portable_float64_t<jit::device_capabilities> >(lineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
+        const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<ActualFloat64>(lineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
         const float antiAliasedLineThickness = screenSpaceLineWidth * 0.5f + globals.antiAliasingFactor;
         const float sdfLineThickness = screenSpaceLineWidth / 2.0f;
         outV.setLineThickness(sdfLineThickness);
         outV.setCurrentWorldToScreenRatio(
-            _static_cast<float>((_static_cast<portable_float64_t<jit::device_capabilities> >(2.0) /
-            (clipProjectionData.projectionToNDC[0].x * _static_cast<portable_float64_t<jit::device_capabilities> >(globals.resolution.x))))
+            _static_cast<float>((_static_cast<ActualFloat64>(2.0f) /
+            (clipProjectionData.projectionToNDC[0].x * _static_cast<ActualFloat64>(globals.resolution.x))))
         );
+
+        if(vertexID == 0)
+            printf("line width = %f", lineStyle.worldSpaceLineWidth);
+
+        if (vertexID == 0)
+        {
+            /*ActualFloat64 a = ActualFloat64::create(1);
+            float b = _static_cast<float>(a);
+            ActualFloat64 c = _static_cast<ActualFloat64>(b);
+
+            printf("static casted = %llu", c.data);*/
+        }
 
         if (objType == ObjectType::LINE)
         {
@@ -211,6 +223,73 @@ PSInput main(uint vertexID : SV_VertexID)
             float2 transformedPoints[3u];
             for (uint i = 0u; i < 3u; ++i)
                 transformedPoints[i] = transformPointScreenSpace(clipProjectionData.projectionToNDC, points[i]);
+
+            if (vertexID == 0)
+            {
+                //printf("emulated vec operators:");
+                //ActualFloat64Vector3 a;
+                //a.x = ActualFloat64::create(1.0f);
+                //a.y = ActualFloat64::create(2.0f);
+                //a.z = ActualFloat64::create(3.0f);
+                ////printf("a.x = %llu, a.y = %llu, a.z = %llu", a.x.data, a.y.data, a.z.data);
+
+                //float b = 2.0f;
+                ////printf("b.x = %llu, b.y = %llu, b.z = %llu", b.x.data, b.y.data, b.z.data);
+
+                //ActualFloat64Vector3 c;
+                //c = a + b;
+                //printf("c.x = %llu, c.y = %llu, c.z = %llu", c.x.data, c.y.data, c.z.data);
+
+                //ActualFloat64Vector3 d;
+                //d = a * b;
+                //printf("d.x = %llu, d.y = %llu, d.z = %llu", d.x.data, d.y.data, d.z.data);
+
+                // TODO: move to the emulated float test example
+
+                //printf("PROJ NDC MATRIX:");
+                //printf("row[0].x = %llu, row[0].y = %llu, row[0].z = %llu", clipProjectionData.projectionToNDC[0].x.data, clipProjectionData.projectionToNDC[0].y.data, clipProjectionData.projectionToNDC[0].z.data);
+                //printf("row[1].x = %llu, row[1].y = %llu, row[1].z = %llu", clipProjectionData.projectionToNDC.rows[1].x.data, clipProjectionData.projectionToNDC.rows[1].y.data, clipProjectionData.projectionToNDC.rows[1].z.data);
+                //printf("row[2].x = %llu, row[2].y = %llu, row[2].z = %llu", clipProjectionData.projectionToNDC.rows[2].x.data, clipProjectionData.projectionToNDC.rows[2].y.data, clipProjectionData.projectionToNDC.rows[2].z.data);
+
+                //printf("POINT TRANSFORMATION TO NDC:");
+                //ActualFloat64Vector2 point2d = points[0];
+                //printf("point2d.x = %llu, point2d.y = %llu", point2d.x.data, point2d.y.data);
+
+                //ActualFloat64Vector3 point3d;
+                //point3d.x = point2d.x;
+                //point3d.y = point2d.y;
+                //point3d.z = _static_cast<ActualFloat64>(1.0f);
+                //printf("point3d.x = %llu, point3d.y = %llu, point3d.z = %llu", point3d.x.data, point3d.y.data, point3d.z.data);
+                //ActualFloat64Vector3 transformationResult = portableMul64<ActualFloat64Matrix3x3, ActualFloat64Vector3, jit::device_capabilities>(clipProjectionData.projectionToNDC, point3d);
+                //printf("transformationResult.x = %llu, transformationResult.y = %llu, transformationResult.z = %llu", transformationResult.x.data, transformationResult.y.data, transformationResult.z.data);
+                //ActualFloat64Vector2 ndc;
+                //ndc.x = transformationResult.x;
+                //ndc.y = transformationResult.y;
+                //printf("ndc.x = %llu, ndc.y = %llu", ndc.x.data, ndc.y.data);
+
+                //ActualFloat64Vector2 result = (ndc + 1.0f) * 0.5f * _static_cast<ActualFloat64Vector2>(globals.resolution);
+                //printf("result.x = %llu, result.y = %llu", result.x.data, result.y.data);
+
+                ////_static_cast<float2>(result);
+
+                //ActualFloat64 sum = ActualFloat64::create(0);
+                //printf("comp sum: %llu", sum.data);
+                //sum = sum + point3d.x;
+                //printf("comp sum: %llu", sum.data);
+                //sum = sum + point3d.y;
+                //printf("comp sum: %llu", sum.data);
+                //sum = sum + point3d.z;
+                //printf("comp sum: %llu", sum.data);
+
+                //printf("comp sum: %llu", point3d.calcComponentSum().data);
+
+                //ActualFloat64Vector3 transformationResult = portableMul64<ActualFloat64Matrix3x3, ActualFloat64Vector3, jit::device_capabilities>(clipProjectionData.projectionToNDC, point3d);
+                //printf("transformationResult.x = %llu, transformationResult.y = %llu, transformationResult.z = %llu", transformationResult.x, transformationResult.y, transformationResult.z);
+
+                //printf("transformedPoints[0].x = %f, transformedPoints[0].y = %f", transformedPoints[0].x, transformedPoints[0].y);
+                //printf("transformedPoints[1].x = %f, transformedPoints[1].y = %f", transformedPoints[1].x, transformedPoints[1].y);
+                //printf("transformedPoints[2].x = %f, transformedPoints[2].y = %f", transformedPoints[2].x, transformedPoints[2].y);
+            }
 
             shapes::QuadraticBezier<float> quadraticBezier = shapes::QuadraticBezier<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
             shapes::Quadratic<float> quadratic = shapes::Quadratic<float>::constructFromBezier(quadraticBezier);
@@ -529,13 +608,6 @@ PSInput main(uint vertexID : SV_VertexID)
         uint16_t textureID = glyphInfo.getTextureID();
 
         const float32_t2 dirV = float32_t2(glyphInfo.dirU.y, -glyphInfo.dirU.x) * glyphInfo.aspectRatio;
-        //if (vertexID == 0)
-        {
-            printf("aspectRatio: %f, %f \n", glyphInfo.aspectRatio);
-            printf("topLeft: %f, %f \n", glyphInfo.topLeft.x, glyphInfo.topLeft.y);
-            printf("dirU: %f, %f \n", glyphInfo.dirU.x, glyphInfo.dirU.y);
-            printf("dirV: %f, %f \n\n", dirV.x, dirV.y);
-        }
         const float2 screenTopLeft = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, glyphInfo.topLeft));
         const float2 screenDirU = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<ActualFloat64Vector2>(glyphInfo.dirU)));
         const float2 screenDirV = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<ActualFloat64Vector2>(dirV)));

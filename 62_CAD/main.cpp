@@ -468,13 +468,6 @@ public:
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
-		using shit = emulated_vector_t2<emulated_float64_t<true, true>>;
-
-		//shit a = { emulated_float64_t<true, true>::create(1), emulated_float64_t<true, true>::create(2) };
-		//shit b = { emulated_float64_t<true, true>::create(3), emulated_float64_t<true, true>::create(4) };
-
-		//a + b;
-
 		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
 		// Remember to call the base class initialization!
