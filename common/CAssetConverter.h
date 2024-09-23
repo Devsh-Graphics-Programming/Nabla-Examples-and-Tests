@@ -250,9 +250,10 @@ class CAssetConverter : public core::IReferenceCounted
 
 				NBL_API bool valid(const ILogicalDevice* device);
 
-				inline bool mutatesImageFormat() const
+				//
+				inline bool formatFollowsImage() const
 				{
-					return originalFormat!=EF_UNKNOWN;
+					return originalFormat==asset::EF_UNKNOWN;
 				}
 
 				// just because we record all subusages we can find, doesn't mean we will set them on the created image
@@ -277,16 +278,14 @@ class CAssetConverter : public core::IReferenceCounted
 				inline std::pair<bool,this_t> combine(const this_t& other) const
 				{
 					assert(padding==0);
-					// they were made from the same ICPUImageView, otherwise this makes no sense
-					if (invalid || other.invalid || originalFormat!=other.originalFormat)
-						return {false,*this};
-
-					// if format already tagged as mutable, we can't add 
-// BIG bug!
-					if (originalFormat==asset::EF_UNKNOWN)
+					if (invalid || other.invalid)
 						return {false,*this};
 
 					this_t retval = *this;
+					// So we have two patches of the same image view, ergo they were the same format.
+					// If one mutates and other doesn't its because of added usages that preclude, so make us immutable again.
+					if (formatFollowsImage() && !other.formatFollowsImage())
+						retval.originalFormat = other.originalFormat;
 					// When combining usages, we already:
 					// - require that two patches' formats were identical
 					// - require that each patch be valid in on its own

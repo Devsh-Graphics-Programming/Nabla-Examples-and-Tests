@@ -216,14 +216,17 @@ CAssetConverter::patch_impl_t<ICPUImageView>::patch_impl_t(const ICPUImageView* 
 {
 	const auto& params = view->getCreationParameters();
 	originalFormat = params.format;
-	// meta usages only matter for promotion (because only non-mutable format/non-aliased views can be promoted)
-	// we only promote if format is the same as the base image and we are are not using it for renderpass attachments
-	if (!subUsages.hasFlags(usage_flags_t::EUF_RENDER_ATTACHMENT_BIT) && originalFormat==params.image->getCreationParameters().format)
+	if (originalFormat==params.image->getCreationParameters().format)
 	{
-		deduceMetaUsages(*this,subUsages,originalFormat,params.subresourceRange.aspectMask.hasFlags(IGPUImage::E_ASPECT_FLAGS::EAF_DEPTH_BIT));
+		// meta usages only matter for promotion (because only non-mutable format/non-aliased views can be promoted)
+		// we only promote if format is the same as the base image and we are are not using it for renderpass attachments
+		if (!subUsages.hasFlags(usage_flags_t::EUF_RENDER_ATTACHMENT_BIT))
+		{
+			deduceMetaUsages(*this,subUsages,originalFormat,params.subresourceRange.aspectMask.hasFlags(IGPUImage::E_ASPECT_FLAGS::EAF_DEPTH_BIT));
+			// allow to format to mutate with base image's
+			originalFormat = EF_UNKNOWN;
+		}
 // TODO: force full mip chain?
-		// allow to format to mutate with base image's
-		originalFormat = EF_UNKNOWN;
 	}
 }
 bool CAssetConverter::patch_impl_t<ICPUImageView>::valid(const ILogicalDevice* device)
@@ -241,7 +244,8 @@ bool CAssetConverter::patch_impl_t<ICPUImageView>::valid(const ILogicalDevice* d
 	// now check for the format (if the format is immutable)
 	if (originalFormat!=EF_UNKNOWN)
 	{
-		// normally we wouldn't check for usages being valid, but combine needs to know about validity before combining and giving us a wider set
+		// normally we wouldn't check for usages being valid, but combine needs to know about validity before combining and producing a wider set of usages
+		// we cull bad instances instead (uses of the view), it wont catch 100% of cases though!
 		IPhysicalDevice::SFormatImageUsages::SUsage usages = {subUsages};
 		usages.linearlySampledImage = linearlySampled;
 		if (usages.storageImage) // we require this anyway
@@ -280,8 +284,6 @@ bool CAssetConverter::patch_impl_t<ICPUPipelineLayout>::valid(const ILogicalDevi
 		return false;
 	return !invalid;
 }
-
-
 
 // not sure if useful enough to move to core utils
 template<typename T, typename TypeList>
@@ -364,11 +366,44 @@ class AssetVisitor : public CRTP
 			if (!dep)
 				return false;
 			CAssetConverter::patch_t<ICPUImage> patch = {dep};
-			patch.usage |= userPatch.subUsages;
-			// figure out create flags
-			// mipLevels
-			// recomputeMips
-			// format
+			// any other aspects than stencil?
+			if (params.subresourceRange.aspectMask.value&(~IGPUImage::E_ASPECT_FLAGS::EAF_STENCIL_BIT))
+				patch.usageFlags |= subUsages;
+			// stencil aspect?
+			if (params.subresourceRange.aspectMask.hasFlags(IGPUImage::E_ASPECT_FLAGS::EAF_STENCIL_BIT))
+				patch.stencilUsage |= subUsages;
+			// view format doesn't mutate with image and format was actually different than base image
+			// NOTE: `valid()` hasn't been called on `patch` yet, so format not promoted yet!
+			if (!formatFollowsImage() && originalFormat!=patch.format)
+			{
+				patch.mutableFormat = true;
+				if (isBlockCompressionFormat(patch.format) && getFormatClass(originalFormat)!=getFormatClass(patch.format))
+					patch.uncompressedViewOfCompressed = true;
+			}
+			// rest of create flags
+			switch (params.viewType)
+			{
+				case IGPUImageView::E_TYPE::ET_CUBE_MAP:
+					[[fallthrough]];
+				case IGPUImageView::E_TYPE::ET_CUBE_MAP_ARRAY:
+					patch.cubeCompatible = true;
+					break;
+				case IGPUImageView::E_TYPE::ET_2D:
+					[[fallthrough]];
+				case IGPUImageView::E_TYPE::ET_2D_ARRAY:
+					if (dep->getCreationParameters().type==ICPUImage::E_TYPE::ET_3D)
+						patch._3Dbut2DArrayCompatible = true;
+					break;
+				default:
+					break;
+			}
+			//
+			patch.linearlySampled |= linearlySampled;
+			patch.storageAtomic |= storageAtomic;
+			patch.storageImageLoadWithoutFormat |= storageImageLoadWithoutFormat;
+			patch.depthCompareSampledImage |= depthCompareSampledImage;
+// TODO: mipLevels
+// TODO: recomputeMips
 			return descend<ICPUImage>(dep,std::move(patch));
 		}
 		inline bool impl(const instance_t<ICPUDescriptorSetLayout>& instance, const CAssetConverter::patch_t<ICPUDescriptorSetLayout>& userPatch)
@@ -976,11 +1011,11 @@ bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUImageView> 
 	hasher << lookup.patch->subUsages;
 	auto params = asset->getCreationParameters();
 	hasher << params.viewType;
-	if (!lookup.patch->mutatesImageFormat())
+	if (lookup.patch->formatFollowsImage())
 		params.format = EF_UNKNOWN;
 	hasher << params.format;
 	hasher.update(&params.components,sizeof(params.components));
-	if (lookup.patch->fullMipChain)
+	if (lookup.patch->forceFullMipChain)
 		params.subresourceRange.levelCount = IGPUImageView::remaining_mip_levels;
 	hasher.update(&params.subresourceRange,sizeof(params.subresourceRange));
 	return true;
