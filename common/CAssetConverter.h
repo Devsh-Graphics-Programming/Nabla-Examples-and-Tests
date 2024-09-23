@@ -162,7 +162,7 @@ class CAssetConverter : public core::IReferenceCounted
 				using usage_flags_t = IGPUImage::E_USAGE_FLAGS;
 				core::bitflag<usage_flags_t> usageFlags = usage_flags_t::EUF_NONE;
 				core::bitflag<usage_flags_t> stencilUsage = usage_flags_t::EUF_NONE;
-				// stuff
+				// all converted images default to optimal!
 				uint16_t linearTiling : 1 = false;
 				// moar stuff
 				uint16_t mutableFormat : 1 = false;
@@ -253,10 +253,9 @@ class CAssetConverter : public core::IReferenceCounted
 				inline std::pair<bool,this_t> combine(const this_t& other) const
 				{
 					assert(padding==0);
-					if (invalid || other.invalid)
-						return {false,*this};
 					// they were made from the same ICPUImageView, otherwise this makes no sense
-					assert(originalFormat==other.originalFormat);
+					if (invalid || other.invalid || originalFormat!=other.originalFormat)
+						return {false,*this};
 
 					this_t retval = *this;
 					// When combining usages, we already:

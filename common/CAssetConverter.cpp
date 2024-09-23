@@ -102,23 +102,41 @@ bool CAssetConverter::patch_impl_t<ICPUBuffer>::valid(const ILogicalDevice* devi
 CAssetConverter::patch_impl_t<ICPUImage>::patch_impl_t(const ICPUImage* image)
 {
 	const auto& params = image->getCreationParameters();
-	viewFormats.set(params.format);
-	usage = params.usage;
-	stencilUsage = params.actualStencilUsage();
-// TODO
-	createFlags = params.flags;
+	format = params.format;
+	usageFlags = params.usage;
+	if (isDepthOrStencilFormat(format))
+	{
+		const bool hasStencil = !isDepthOnlyFormat(format);
+		if (hasStencil)
+			stencilUsage = params.actualStencilUsage();
+		const bool hasDepth = !isStencilOnlyFormat(format);
+		bool foundDepthReg = !hasDepth;
+		bool foundStencilReg = !hasStencil;
+		for (const auto& region : image->getRegions())
+		{
+			foundDepthReg = foundDepthReg || region.imageSubresource.aspectMask.hasFlags(IGPUImage::EAF_DEPTH_BIT);
+			foundStencilReg = foundStencilReg || region.imageSubresource.aspectMask.hasFlags(IGPUImage::EAF_STENCIL_BIT);
+			if (foundDepthReg && foundStencilReg)
+				break;
+		}
+	}
+	else if(!image->getRegions().empty())
+		usageFlags |= usage_flags_t::EUF_TRANSFER_DST_BIT;
+
+	using create_flags_t = IGPUImage::E_CREATE_FLAGS;
+	mutableFormat = params.flags.hasFlags(create_flags_t::ECF_MUTABLE_FORMAT_BIT);
+	cubeCompatible = params.flags.hasFlags(create_flags_t::ECF_CUBE_COMPATIBLE_BIT);
+	mutableFormat = params.flags.hasFlags(create_flags_t::ECF_2D_ARRAY_COMPATIBLE_BIT);
+	mutableFormat = params.flags.hasFlags(create_flags_t::ECF_BLOCK_TEXEL_VIEW_COMPATIBLE_BIT);
 	mipLevels = params.mipLevels;
-	// handle missing usages
-	if (!image->getRegions().empty())
-		usage |= usage_flags_t::EUF_TRANSFER_DST_BIT;
 }
 bool CAssetConverter::patch_impl_t<ICPUImage>::valid(const ILogicalDevice* device)
 {
 	const auto& features = device->getEnabledFeatures();
 	// usages we don't have features for
-	if (usage.hasFlags(usage_flags_t::EUF_SHADING_RATE_ATTACHMENT_BIT))// && !features.shadingRate)
+	if (usageFlags.hasFlags(usage_flags_t::EUF_SHADING_RATE_ATTACHMENT_BIT))// && !features.shadingRate)
 		return false;
-	if (usage.hasFlags(usage_flags_t::EUF_FRAGMENT_DENSITY_MAP_BIT) && !features.fragmentDensityMap)
+	if (usageFlags.hasFlags(usage_flags_t::EUF_FRAGMENT_DENSITY_MAP_BIT) && !features.fragmentDensityMap)
 		return false;
 	// create flags
 // mutableFormat
