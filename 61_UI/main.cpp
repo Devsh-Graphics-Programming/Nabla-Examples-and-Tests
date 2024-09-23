@@ -152,10 +152,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 				// note that we use default layout provided by our extension, but you are free to create your own by filling nbl::ext::imgui::UI::S_CREATION_PARAMETERS::resources
 				const auto* descriptorSetLayout = pass.ui.manager->getPipeline()->getLayout()->getDescriptorSetLayout(0u);
+				const auto& params = pass.ui.manager->getCreationParameters();
 
 				IDescriptorPool::SCreateInfo descriptorPoolInfo = {};
-				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLER)] = 69u;
-				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE)] = 69u;
+				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLER)] = params.resources.count;
+				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE)] = params.resources.count;
 				descriptorPoolInfo.maxSets = 1u;
 				descriptorPoolInfo.flags = IDescriptorPool::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT;
 
@@ -664,9 +665,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			camera.setRotateSpeed(rotateSpeed);
 
 			static std::chrono::microseconds previousEventTimestamp{};
-
-			// TODO: Use real deltaTime instead
-			static float deltaTimeInSec = 0.1f;
 
 			m_inputSystem->getDefaultMouse(&mouse);
 			m_inputSystem->getDefaultKeyboard(&keyboard);
