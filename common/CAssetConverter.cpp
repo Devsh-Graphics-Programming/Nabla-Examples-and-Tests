@@ -155,13 +155,14 @@ bool CAssetConverter::patch_impl_t<ICPUImage>::valid(const ILogicalDevice* devic
 		req.usages.storageImageAtomic = storageAtomic;
 		req.usages.storageImageLoadWithoutFormat = storageImageLoadWithoutFormat;
 		req.usages.depthCompareSampledImage = depthCompareSampledImage;
+		format = device->getPhysicalDevice()->promoteImageFormat(req,static_cast<IGPUImage::TILING>(linearTiling));
+        return format!=EF_UNKNOWN;
 	}
-	return true;
+	else // TODO: shouldn't we check if format is creatable?
+		return true;
 }
 
-CAssetConverter::patch_impl_t<ICPUBufferView>::patch_impl_t(const ICPUBufferView* view)
-{
-}
+CAssetConverter::patch_impl_t<ICPUBufferView>::patch_impl_t(const ICPUBufferView* view) {}
 bool CAssetConverter::patch_impl_t<ICPUBufferView>::valid(const ILogicalDevice* device)
 {
 	// note that we don't check the validity of things we don't patch, so offset alignment, size and format
@@ -194,21 +195,11 @@ CAssetConverter::patch_impl_t<ICPUImageView>::patch_impl_t(const ICPUImageView* 
 	{
 		// Deducing this in another way would seriously hinder our ability to do format promotions.
 		// To ensure the view doesn't get promoted away from device-feature dependant atomic storage capable formats, use explicit patches upon input! 
-		storageAtomic = originalFormat ==EF_R32_UINT;
+		storageAtomic = originalFormat==EF_R32_UINT;
 	}
-	//
-	if (subUsages.hasFlags(usage_flags_t::EUF_RENDER_ATTACHMENT_BIT))
-	{
-		// The only way you'd be able to deduce this is by watching for any graphics pipeline with a blend state being created
-		// for a subpass in renderpass thats also referenced by a framebuffer that uses this image view. However there are also
-		// subpass compatibility rules which could allow someone to use a compatible subpass graphics pipeline.
-		// And finally dynamic rendering has render infos, so all connection between pipelinesm, images and renderpasses is lost.
-		//if (!isIntegerFormat(format) && !isDepthOrStencilFormat(format))
-			//attachmentBlend = true;
-		// actually this deduction would promote RGB9E5 to RGBA16F even if RGB9E5 supported by the device
-	}
-	else if (originalFormat==params.image->getCreationParameters().format)
-		originalFormat = EF_UNKNOWN; // format is the same as the base image and we are are not using it for renderpass attachments, allow to mutate with base image's
+	// format is the same as the base image and we are are not using it for renderpass attachments, allow to mutate with base image's
+	if (!subUsages.hasFlags(usage_flags_t::EUF_RENDER_ATTACHMENT_BIT) && originalFormat==params.image->getCreationParameters().format)
+		originalFormat = EF_UNKNOWN;
 }
 bool CAssetConverter::patch_impl_t<ICPUImageView>::valid(const ILogicalDevice* device)
 {
@@ -231,7 +222,6 @@ bool CAssetConverter::patch_impl_t<ICPUImageView>::valid(const ILogicalDevice* d
 		if (usages.storageImage) // we require this anyway
 			usages.storageImageStoreWithoutFormat = true;
 		usages.storageImageAtomic = storageAtomic;
-		usages.attachmentBlend = attachmentBlend;
 		usages.storageImageLoadWithoutFormat = storageImageLoadWithoutFormat;
 		usages.depthCompareSampledImage = depthCompareSampledImage;
 		invalid = (physDev->getImageFormatUsagesOptimalTiling()[originalFormat]&usages)!=usages || (physDev->getImageFormatUsagesLinearTiling()[originalFormat]&usages)!=usages;

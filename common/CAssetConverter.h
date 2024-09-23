@@ -198,13 +198,17 @@ class CAssetConverter : public core::IReferenceCounted
 			protected:
 				inline std::pair<bool,this_t> combine(const this_t& other) const
 				{
-					// TODO: find first view format, and its bytesize
-					if (not mutableFormat)
-					{
-						// check all other.viewFormats for being in the same format class
-					}
 					this_t retval = *this;
-					// TODO: when combining uages, we need to see if usage is not compatible with format, and add the extended usage flag
+					if (canAttemptFormatPromotion())
+					{
+						// promoted format patch (this) needs to merge successfully with unpromoted (other)
+						retval.format = format;
+// TODO: HUGE PROBLEM! 
+					}
+					else if (format!=format)
+						return {false,retval};
+					//
+					usageFlags |= other.usageFlags;
 					return {true,retval};
 				}
 		};
@@ -266,7 +270,7 @@ class CAssetConverter : public core::IReferenceCounted
 			protected:
 				uint8_t invalid : 1 = false;
 				// to not mess with hashing and comparison
-				uint8_t padding : 1 = 0;
+				uint8_t padding : 2 = 0;
 				// normally wouldn't store that but we don't provide a ref/pointer to the asset when combining or checking validity, treat member as impl detail
 				asset::E_FORMAT originalFormat = asset::EF_UNKNOWN;
 
@@ -285,7 +289,6 @@ class CAssetConverter : public core::IReferenceCounted
 					retval.subUsages |= other.subUsages;
 					retval.linearlySampled |= other.linearlySampled;
 					retval.storageAtomic |= other.storageAtomic;
-					retval.attachmentBlend |= other.attachmentBlend;
 					retval.storageImageLoadWithoutFormat |= other.storageImageLoadWithoutFormat;
 					retval.depthCompareSampledImage |= other.depthCompareSampledImage;
 					retval.fullMipChain |= other.fullMipChain;
