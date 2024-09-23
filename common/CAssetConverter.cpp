@@ -126,8 +126,8 @@ CAssetConverter::patch_impl_t<ICPUImage>::patch_impl_t(const ICPUImage* image)
 	using create_flags_t = IGPUImage::E_CREATE_FLAGS;
 	mutableFormat = params.flags.hasFlags(create_flags_t::ECF_MUTABLE_FORMAT_BIT);
 	cubeCompatible = params.flags.hasFlags(create_flags_t::ECF_CUBE_COMPATIBLE_BIT);
-	mutableFormat = params.flags.hasFlags(create_flags_t::ECF_2D_ARRAY_COMPATIBLE_BIT);
-	mutableFormat = params.flags.hasFlags(create_flags_t::ECF_BLOCK_TEXEL_VIEW_COMPATIBLE_BIT);
+	_3Dbut2DArrayCompatible = params.flags.hasFlags(create_flags_t::ECF_2D_ARRAY_COMPATIBLE_BIT);
+	uncompressedViewOfCompressed = params.flags.hasFlags(create_flags_t::ECF_BLOCK_TEXEL_VIEW_COMPATIBLE_BIT);
 	mipLevels = params.mipLevels;
 }
 bool CAssetConverter::patch_impl_t<ICPUImage>::valid(const ILogicalDevice* device)
@@ -138,16 +138,30 @@ bool CAssetConverter::patch_impl_t<ICPUImage>::valid(const ILogicalDevice* devic
 		return false;
 	if (usageFlags.hasFlags(usage_flags_t::EUF_FRAGMENT_DENSITY_MAP_BIT) && !features.fragmentDensityMap)
 		return false;
-	// create flags
-// mutableFormat
-// cube compatible
-// 2d array comp
-// block texel view compat (compressed as uncompressed)
-// extended usage
+	// for now we try to promote format right away, but if there are problems in the future (i.e. with too many split instances due to combine/merge fail),
+	// add a special pass after DFS to do format promotion once all usages are known.
+	if (canAttemptFormatPromotion())
+	{
+		// why we don't care about superflous usage flags and the extended usage flag?
+		// Because extended usage flag is only needed if we intend to make views with other formats than the base image, which requires mutable format creation flag.
+		// And mutable format creation flag will always preclude ANY format promotion, therefore all usages come from the principal view as its the only one!
+		IPhysicalDevice::SImageFormatPromotionRequest req = {
+			.originalFormat = format,
+			.usages = {usageFlags|stencilUsage}
+		};
+		req.usages.linearlySampledImage = linearlySampled;
+		if (req.usages.storageImage) // we require this anyway
+			req.usages.storageImageStoreWithoutFormat = true;
+		req.usages.storageImageAtomic = storageAtomic;
+		req.usages.storageImageLoadWithoutFormat = storageImageLoadWithoutFormat;
+		req.usages.depthCompareSampledImage = depthCompareSampledImage;
+	}
 	return true;
 }
 
-CAssetConverter::patch_impl_t<ICPUBufferView>::patch_impl_t(const ICPUBufferView* view) {}
+CAssetConverter::patch_impl_t<ICPUBufferView>::patch_impl_t(const ICPUBufferView* view)
+{
+}
 bool CAssetConverter::patch_impl_t<ICPUBufferView>::valid(const ILogicalDevice* device)
 {
 	// note that we don't check the validity of things we don't patch, so offset alignment, size and format

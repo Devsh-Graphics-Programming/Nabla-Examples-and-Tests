@@ -156,6 +156,20 @@ class CAssetConverter : public core::IReferenceCounted
 			public:
 				PATCH_IMPL_BOILERPLATE(asset::ICPUImage);
 
+				// make our promotion policy explicit
+				inline bool canAttemptFormatPromotion() const
+				{
+					// if there exist views of the image that reinterpret cast its texel blocks, stop promotion, aliasing can't work with promotion!
+					if (mutableFormat)
+						return false;
+					// we don't support promoting formats in renderpasses' attachment descriptions, so stop it here too
+					if (!usageFlags.hasFlags(IGPUImage::E_USAGE_FLAGS::EUF_RENDER_ATTACHMENT_BIT))
+						return false;
+					if (!stencilUsage.hasFlags(IGPUImage::E_USAGE_FLAGS::EUF_RENDER_ATTACHMENT_BIT))
+						return false;
+					return true;
+				}
+
 				// the most important thing about an image
 				asset::E_FORMAT format = asset::EF_UNKNOWN;
 				// but we also track separate dpeth and stencil usage flags
@@ -168,10 +182,17 @@ class CAssetConverter : public core::IReferenceCounted
 				uint16_t mutableFormat : 1 = false;
 				uint16_t cubeCompatible : 1 = false;
 				uint16_t _3Dbut2DArrayCompatible : 1 = false;
+				// we sort of ignore that at the end if the format doesn't stay block compressed
 				uint16_t uncompressedViewOfCompressed : 1 = false;
-				uint16_t extendedUsage : 1 = false;
+				// Extra metadata needed for format promotion, if you want any of them (except for `linearlySampled` and `depthCompareSampledImage`)
+				// as anything other than the default values, use explicit input roots with patches. Otherwise if `format` is not supported by device
+				// the view can get promoted to a format that doesn't have these usage capabilities.
+				uint16_t linearlySampled : 1 = false;
+				uint16_t storageAtomic : 1 = false;
+				uint16_t storageImageLoadWithoutFormat : 1 = false;
+				uint16_t depthCompareSampledImage : 1 = false;
 				// aside from format promotion, we can also promote images to have a fuller mip chain and recompute it
-				uint16_t mipLevels : 9 = 0;
+				uint16_t mipLevels : 6 = 0;
 				uint16_t recomputeMips : 1 = false;
 
 			protected:
@@ -237,7 +258,6 @@ class CAssetConverter : public core::IReferenceCounted
 				// the view can get promoted to a format that doesn't have these usage capabilities.
 				uint8_t linearlySampled : 1 = false;
 				uint8_t storageAtomic : 1 = false;
-				uint8_t attachmentBlend : 1 = false;
 				uint8_t storageImageLoadWithoutFormat : 1 = false;
 				uint8_t depthCompareSampledImage : 1 = false;
 				// whether to override and extend the mip-chain fully
