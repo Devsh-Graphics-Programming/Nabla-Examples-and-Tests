@@ -99,6 +99,34 @@ bool CAssetConverter::patch_impl_t<ICPUBuffer>::valid(const ILogicalDevice* devi
 	return true;
 }
 
+// smol utility function
+template<typename Patch>
+void deduceMetaUsages(Patch& patch, const core::bitflag<IGPUImage::E_USAGE_FLAGS> usages, const E_FORMAT originalFormat, const bool hasDepthAspect=true)
+{
+	// Impossible to deduce this without knowing all the sampler & view combos that will be used,
+	// because under descriptor indexing we can use any sampler with any view in SPIR-V.
+	// Also because we don't know what Descriptor Sets will be used with what Pipelines!
+	if (usages.hasFlags(IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT))
+	{
+		if (isDepthOrStencilFormat(originalFormat))
+		{
+			if (hasDepthAspect)
+				patch.depthCompareSampledImage = true;
+		}
+		// Also have no info about any blit cmd that could use this view's image as source
+		else if (!asset::isIntegerFormat(originalFormat))
+			patch.linearlySampled = true;
+		// TODO: full mip chain?
+	}
+	// same stuff for storage images
+	if (usages.hasFlags(IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT))
+	{
+		// Deducing this in another way would seriously hinder our ability to do format promotions.
+		// To ensure the view doesn't get promoted away from device-feature dependant atomic storage capable formats, use explicit patches upon input! 
+		patch.storageAtomic = originalFormat==EF_R32_UINT;
+	}
+}
+
 CAssetConverter::patch_impl_t<ICPUImage>::patch_impl_t(const ICPUImage* image)
 {
 	const auto& params = image->getCreationParameters();
@@ -128,6 +156,11 @@ CAssetConverter::patch_impl_t<ICPUImage>::patch_impl_t(const ICPUImage* image)
 	cubeCompatible = params.flags.hasFlags(create_flags_t::ECF_CUBE_COMPATIBLE_BIT);
 	_3Dbut2DArrayCompatible = params.flags.hasFlags(create_flags_t::ECF_2D_ARRAY_COMPATIBLE_BIT);
 	uncompressedViewOfCompressed = params.flags.hasFlags(create_flags_t::ECF_BLOCK_TEXEL_VIEW_COMPATIBLE_BIT);
+
+	// meta usages only matter for promotion
+	if (canAttemptFormatPromotion())
+		deduceMetaUsages(*this,usageFlags|stencilUsage,format);
+
 	mipLevels = params.mipLevels;
 }
 bool CAssetConverter::patch_impl_t<ICPUImage>::valid(const ILogicalDevice* device)
@@ -137,6 +170,9 @@ bool CAssetConverter::patch_impl_t<ICPUImage>::valid(const ILogicalDevice* devic
 	if (usageFlags.hasFlags(usage_flags_t::EUF_SHADING_RATE_ATTACHMENT_BIT))// && !features.shadingRate)
 		return false;
 	if (usageFlags.hasFlags(usage_flags_t::EUF_FRAGMENT_DENSITY_MAP_BIT) && !features.fragmentDensityMap)
+		return false;
+	const auto* physDev = device->getPhysicalDevice();
+	if (storageImageLoadWithoutFormat && !physDev->getLimits().shaderStorageImageReadWithoutFormat)
 		return false;
 	// for now we try to promote format right away, but if there are problems in the future (i.e. with too many split instances due to combine/merge fail),
 	// add a special pass after DFS to do format promotion once all usages are known.
@@ -155,11 +191,16 @@ bool CAssetConverter::patch_impl_t<ICPUImage>::valid(const ILogicalDevice* devic
 		req.usages.storageImageAtomic = storageAtomic;
 		req.usages.storageImageLoadWithoutFormat = storageImageLoadWithoutFormat;
 		req.usages.depthCompareSampledImage = depthCompareSampledImage;
-		format = device->getPhysicalDevice()->promoteImageFormat(req,static_cast<IGPUImage::TILING>(linearTiling));
+		format = physDev->promoteImageFormat(req,static_cast<IGPUImage::TILING>(linearTiling));
         return format!=EF_UNKNOWN;
 	}
-	else // TODO: shouldn't we check if format is creatable?
+	else
+	{
+		// We're not even going to check if the format is creatable for a given usage, because `ILogicalDevice::createImage` will do that for us later.
+		// Also that would require we track "actual usages" (via views with same base format) vs "extended usages", plus all the metadata which would be insanity.
+		// Instead rely on aliased views (whose formats don't mutate) checking for themselves
 		return true;
+	}
 }
 
 CAssetConverter::patch_impl_t<ICPUBufferView>::patch_impl_t(const ICPUBufferView* view) {}
@@ -175,31 +216,15 @@ CAssetConverter::patch_impl_t<ICPUImageView>::patch_impl_t(const ICPUImageView* 
 {
 	const auto& params = view->getCreationParameters();
 	originalFormat = params.format;
-	// Impossible to deduce this without knowing all the sampler & view combos that will be used,
-	// because under descriptor indexing we can use any sampler with any view in SPIR-V.
-	// Also because we don't know what Descriptor Sets will be used with what Pipelines!
-	if (subUsages.hasFlags(usage_flags_t::EUF_SAMPLED_BIT))
-	{
-		if (isDepthOrStencilFormat(originalFormat))
-		{
-			if (params.subresourceRange.aspectMask.hasFlags(IGPUImage::E_ASPECT_FLAGS::EAF_DEPTH_BIT))
-				depthCompareSampledImage = true;
-		}
-		// Also have no info about any blit cmd that could use this view's image as source
-		else if (!asset::isIntegerFormat(originalFormat))
-			linearlySampled = true;
-// TODO: full mip chain?
-	}
-	// same stuff for storage images
-	if (subUsages.hasFlags(usage_flags_t::EUF_STORAGE_BIT))
-	{
-		// Deducing this in another way would seriously hinder our ability to do format promotions.
-		// To ensure the view doesn't get promoted away from device-feature dependant atomic storage capable formats, use explicit patches upon input! 
-		storageAtomic = originalFormat==EF_R32_UINT;
-	}
-	// format is the same as the base image and we are are not using it for renderpass attachments, allow to mutate with base image's
+	// meta usages only matter for promotion (because only non-mutable format/non-aliased views can be promoted)
+	// we only promote if format is the same as the base image and we are are not using it for renderpass attachments
 	if (!subUsages.hasFlags(usage_flags_t::EUF_RENDER_ATTACHMENT_BIT) && originalFormat==params.image->getCreationParameters().format)
+	{
+		deduceMetaUsages(*this,subUsages,originalFormat,params.subresourceRange.aspectMask.hasFlags(IGPUImage::E_ASPECT_FLAGS::EAF_DEPTH_BIT));
+// TODO: force full mip chain?
+		// allow to format to mutate with base image's
 		originalFormat = EF_UNKNOWN;
+	}
 }
 bool CAssetConverter::patch_impl_t<ICPUImageView>::valid(const ILogicalDevice* device)
 {
@@ -216,7 +241,7 @@ bool CAssetConverter::patch_impl_t<ICPUImageView>::valid(const ILogicalDevice* d
 	// now check for the format (if the format is immutable)
 	if (originalFormat!=EF_UNKNOWN)
 	{
-		// normally we wouldn't check for usages being valid, but combine needs to know about validity before combining
+		// normally we wouldn't check for usages being valid, but combine needs to know about validity before combining and giving us a wider set
 		IPhysicalDevice::SFormatImageUsages::SUsage usages = {subUsages};
 		usages.linearlySampledImage = linearlySampled;
 		if (usages.storageImage) // we require this anyway

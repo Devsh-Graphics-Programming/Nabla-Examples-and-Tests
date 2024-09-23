@@ -201,9 +201,9 @@ class CAssetConverter : public core::IReferenceCounted
 					this_t retval = *this;
 					if (canAttemptFormatPromotion())
 					{
-						// promoted format patch (this) needs to merge successfully with unpromoted (other)
+						// promoted format patch `this` needs to merge successfully with unpromoted `other`
 						retval.format = format;
-// TODO: HUGE PROBLEM! 
+// TODO: HUGE PROBLEM! What if due to different usages `this` and `other` get promoted to different formats during merge? (they've both had `valid()` called on them!)
 					}
 					else if (format!=format)
 						return {false,retval};
@@ -265,7 +265,7 @@ class CAssetConverter : public core::IReferenceCounted
 				uint8_t storageImageLoadWithoutFormat : 1 = false;
 				uint8_t depthCompareSampledImage : 1 = false;
 				// whether to override and extend the mip-chain fully
-				uint8_t fullMipChain : 1 = false;
+				uint8_t forceFullMipChain : 1 = false;
 
 			protected:
 				uint8_t invalid : 1 = false;
@@ -281,6 +281,11 @@ class CAssetConverter : public core::IReferenceCounted
 					if (invalid || other.invalid || originalFormat!=other.originalFormat)
 						return {false,*this};
 
+					// if format already tagged as mutable, we can't add 
+// BIG bug!
+					if (originalFormat==asset::EF_UNKNOWN)
+						return {false,*this};
+
 					this_t retval = *this;
 					// When combining usages, we already:
 					// - require that two patches' formats were identical
@@ -291,7 +296,7 @@ class CAssetConverter : public core::IReferenceCounted
 					retval.storageAtomic |= other.storageAtomic;
 					retval.storageImageLoadWithoutFormat |= other.storageImageLoadWithoutFormat;
 					retval.depthCompareSampledImage |= other.depthCompareSampledImage;
-					retval.fullMipChain |= other.fullMipChain;
+					retval.forceFullMipChain |= other.forceFullMipChain;
 					return {true,retval};
 				}
 		};
