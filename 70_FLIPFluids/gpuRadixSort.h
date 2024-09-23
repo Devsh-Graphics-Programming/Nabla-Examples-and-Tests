@@ -313,10 +313,10 @@ public:
 		cmdbuf->fillBuffer(range, 0ull);
 
 		SMemoryBarrier memBarrier;
-		memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-		memBarrier.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-		memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-		memBarrier.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+		memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
+		memBarrier.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+		memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+		memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
 		cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
 
         SSortParams params;
@@ -335,10 +335,10 @@ public:
 
             {
 				SMemoryBarrier memBarrier;
-				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				memBarrier.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				memBarrier.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
+				memBarrier.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+				memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
 				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
             }
 
@@ -349,10 +349,10 @@ public:
 
             {
 				SMemoryBarrier memBarrier;
-				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				memBarrier.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				memBarrier.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+				memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
+				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+				memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
 				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
             }
 
@@ -362,10 +362,10 @@ public:
 
             {
 				SMemoryBarrier memBarrier;
-				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				memBarrier.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				memBarrier.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+				memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
+				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+				memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
 				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
             }
 
@@ -376,10 +376,10 @@ public:
 
 			if (i < numIterations - 1) {
 				SMemoryBarrier memBarrier;
-				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				memBarrier.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				memBarrier.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+				memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
+				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+				memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
 				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
             }
         }
