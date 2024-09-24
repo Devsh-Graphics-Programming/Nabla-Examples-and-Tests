@@ -116,7 +116,6 @@ void deduceMetaUsages(Patch& patch, const core::bitflag<IGPUImage::E_USAGE_FLAGS
 		// Also have no info about any blit cmd that could use this view's image as source
 		else if (!asset::isIntegerFormat(originalFormat))
 			patch.linearlySampled = true;
-		// TODO: full mip chain?
 	}
 	// same stuff for storage images
 	if (usages.hasFlags(IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT))
@@ -161,7 +160,9 @@ CAssetConverter::patch_impl_t<ICPUImage>::patch_impl_t(const ICPUImage* image)
 	if (canAttemptFormatPromotion())
 		deduceMetaUsages(*this,usageFlags|stencilUsage,format);
 
+// TODO: full mip chain?
 	mipLevels = params.mipLevels;
+// TODO: recompute mip chain
 }
 bool CAssetConverter::patch_impl_t<ICPUImage>::valid(const ILogicalDevice* device)
 {
@@ -2015,9 +2016,60 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 					const auto queueFamilies =  inputs.getSharedOwnershipQueueFamilies(uniqueCopyGroupID,entry.second.canonicalAsset,patch);
 					params.queueFamilyIndexCount = queueFamilies.size();
 					params.queueFamilyIndices = queueFamilies.data();
-					// if creation successful, we 
+					// if creation successful, we will upload
 					if (assign(entry.first,entry.second.firstCopyIx,i,device->createBuffer(std::move(params))))
 						retval.m_queueFlags |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
+				}
+			}
+			if constexpr (std::is_same_v<AssetType,ICPUImage>)
+			{
+				for (auto& entry : conversionRequests)
+				for (auto i=0ull; i<entry.second.copyCount; i++)
+				{
+					const ICPUImage* asset = entry.second.canonicalAsset;
+					const auto& cpuParams = asset->getCreationParameters();
+					const auto& patch = dfsCache.nodes[entry.second.patchIndex.value].patch;
+					//
+					IGPUImage::SCreationParams params = {};
+					params.type = cpuParams.type;
+					params.samples = cpuParams.samples;
+					params.format = patch.format;
+					params.extent = cpuParams.extent;
+					params.mipLevels = patch.mipLevels;
+					params.arrayLayers = cpuParams.arrayLayers;
+					// patch creation params
+					using create_flags_t = IGPUImage::E_CREATE_FLAGS;
+					params.flags = cpuParams.flags;
+					if (patch.mutableFormat)
+						params.flags = create_flags_t::ECF_MUTABLE_FORMAT_BIT;
+					if (patch.cubeCompatible)
+						params.flags = create_flags_t::ECF_CUBE_COMPATIBLE_BIT;
+					if (patch._3Dbut2DArrayCompatible)
+						params.flags = create_flags_t::ECF_2D_ARRAY_COMPATIBLE_BIT;
+					if (patch.uncompressedViewOfCompressed)
+						params.flags = create_flags_t::ECF_BLOCK_TEXEL_VIEW_COMPATIBLE_BIT;
+					params.usage = patch.usageFlags;
+					params.stencilUsage = patch.stencilUsage;
+					// concurrent ownership if any
+					const auto outIx = i+entry.second.firstCopyIx;
+					const auto uniqueCopyGroupID = gpuObjUniqueCopyGroupIDs[outIx];
+					const auto queueFamilies =  inputs.getSharedOwnershipQueueFamilies(uniqueCopyGroupID,asset,patch);
+					params.queueFamilyIndexCount = queueFamilies.size();
+					params.queueFamilyIndices = queueFamilies.data();
+					// gpu image specifics
+					params.tiling = static_cast<IGPUImage::TILING>(patch.linearTiling);
+					params.preinitialized = false;
+					// if creation successful, we check what queues we need if uploading
+					if (assign(entry.first,entry.second.firstCopyIx,i,device->createImage(std::move(params))) && !asset->getRegions().empty())
+					{
+						retval.m_queueFlags |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
+						// https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/vkCmdCopyBufferToImage.html#VUID-vkCmdCopyBufferToImage-commandBuffer-07739
+						if (isDepthOrStencilFormat(patch.format) && (patch.usageFlags|patch.stencilUsage).hasFlags(IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT))
+							retval.m_queueFlags |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
+						// only if we upload some data can we recompute the mips
+						if (patch.recomputeMips)
+							retval.m_queueFlags |= IQueue::FAMILY_FLAGS::COMPUTE_BIT;
+					}
 				}
 			}
 			if constexpr (std::is_same_v<AssetType,ICPUBufferView>)
@@ -2060,20 +2112,27 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 						};
 						if (!visitor())
 							continue;
+						// format of the underlying image
+						const auto& imageParams = visitor.image->getCreationParameters();
+						const auto baseFormat = imageParams.format;
+						//
 						IGPUImageView::SCreationParams params = {};
 						params.flags = cpuParams.flags;
-						// Only restrict ourselves to an explicit usage list if our view's format prevents all parent image's usages!
-						{
-							const auto& validUsages = device->getPhysicalDevice()->getImageFormatUsages(visitor.image->getTiling());
-							if (!patch.getFormatUsage().isSubsetOf(validUsages[patch.format]))
-								params.subUsages = patch.subUsages;
-						}
+						// EXPERIMENTAL: Only restrict ourselves to an explicit usage list if our view's format prevents all parent image's usages!
+						//const auto& validUsages = device->getPhysicalDevice()->getImageFormatUsages(visitor.image->getTiling());
+						//const auto& allowedForViewsFormat = validUsages[cpuParams.format];
+						//const IPhysicalDevice::SFormatImageUsages::SUsage allImageUsages(imageParams.usage|imageParams.stencilUsage);
+						//if (!allImageUsages.isSubsetOf(allowedForViewsFormat))
+							params.subUsages = patch.subUsages;
 						params.image = std::move(visitor.image);
 						params.viewType = cpuParams.viewType;
-						params.format = patch.format;
+						// does the format get promoted
+						params.format = patch.formatFollowsImage() ? baseFormat:cpuParams.format;
 						memcpy(&params.components,&cpuParams.components,sizeof(params.components));
 						params.subresourceRange = cpuParams.subresourceRange;
-						if (params.subresourceRange.levelCount!=IGPUImageView::remaining_mip_levels)
+						if (patch.forceFullMipChain)
+							params.subresourceRange.levelCount = IGPUImageView::remaining_mip_levels;
+						else if (params.subresourceRange.levelCount!=IGPUImageView::remaining_mip_levels)
 							inputs.logger.log("Asset %p getting created with EXPLICIT mip level count %d, are you sure?",system::ILogger::ELL_WARNING,asset,params.subresourceRange.levelCount);
 						assign(entry.first,entry.second.firstCopyIx,i,device->createImageView(std::move(params)));
 					}
@@ -2934,7 +2993,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 			if constexpr (std::is_same_v<AssetType,ICPUBufferView>)
 				depsMissing = missingDependent.operator()<ICPUBuffer>(item.first->getUnderlyingBuffer());
 			if constexpr (std::is_same_v<AssetType,ICPUImageView>)
-				depsMissing = missingDependent.operator()<ICPUImage>(item.first->getCreationParams().image);
+				depsMissing = missingDependent.operator()<ICPUImage>(item.first->getCreationParameters().image.get());
 			if constexpr (std::is_same_v<AssetType,ICPUDescriptorSet>)
 			{
 				const IGPUDescriptorSetLayout* layout = item.first->getLayout();
@@ -2966,7 +3025,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 								depsMissing = missingDependent.operator()<ICPUSampler>(static_cast<const IGPUSampler*>(untypedDesc));
 								break;
 							case asset::IDescriptor::EC_IMAGE:
-//								depsMissing = missingDependent.operator()<ICPUImage>(static_cast<const IGPUImageView*>(untypedDesc));
+								depsMissing = missingDependent.operator()<ICPUImageView>(static_cast<const IGPUImageView*>(untypedDesc));
 								break;
 							case asset::IDescriptor::EC_BUFFER_VIEW:
 								depsMissing = missingDependent.operator()<ICPUBufferView>(static_cast<const IGPUBufferView*>(untypedDesc));
@@ -3000,10 +3059,11 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 	};
 	// again, need to go bottom up so we can check dependencies being successes
 	mergeCache.operator()<ICPUBuffer>();
-//	mergeCache.operator()<ICPUImage>();
+	mergeCache.operator()<ICPUImage>();
 //	mergeCache.operator()<ICPUBottomLevelAccelerationStructure>();
 //	mergeCache.operator()<ICPUTopLevelAccelerationStructure>();
 	mergeCache.operator()<ICPUBufferView>();
+	mergeCache.operator()<ICPUImageView>();
 	mergeCache.operator()<ICPUShader>();
 	mergeCache.operator()<ICPUSampler>();
 	mergeCache.operator()<ICPUDescriptorSetLayout>();

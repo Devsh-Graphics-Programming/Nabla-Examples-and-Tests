@@ -799,6 +799,8 @@ class CAssetConverter : public core::IReferenceCounted
 				inline SReserveResult& operator=(SReserveResult&&) = default;
 
 				// What queues you'll need to run the submit
+				// WARNING: Uploading image region data for depth or stencil formats requires that the transfer queue has GRAPHICS capability!
+				// https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/vkCmdCopyBufferToImage.html#VUID-vkCmdCopyBufferToImage-commandBuffer-07739
 				inline core::bitflag<IQueue::FAMILY_FLAGS> getRequiredQueueFlags() const {return m_queueFlags;}
 
 				//
