@@ -221,7 +221,7 @@ CAssetConverter::patch_impl_t<ICPUImageView>::patch_impl_t(const ICPUImageView* 
 	{
 		// meta usages only matter for promotion (because only non-mutable format/non-aliased views can be promoted)
 		// we only promote if format is the same as the base image and we are are not using it for renderpass attachments
-		if (!subUsages.hasFlags(usage_flags_t::EUF_RENDER_ATTACHMENT_BIT))
+		if (!subUsages.hasAnyFlag(patch_impl_t<ICPUImage>::UsagesThatPreventFormatPromotion))
 		{
 			deduceMetaUsages(*this,subUsages,originalFormat,params.subresourceRange.aspectMask.hasFlags(IGPUImage::E_ASPECT_FLAGS::EAF_DEPTH_BIT));
 			// allow to format to mutate with base image's
@@ -363,22 +363,22 @@ class AssetVisitor : public CRTP
 		inline bool impl(const instance_t<ICPUImageView>& instance, const CAssetConverter::patch_t<ICPUImageView>& userPatch)
 		{
 			const auto& params = instance.asset->getCreationParameters();
-			const auto* dep = params.image;
+			const auto* dep = params.image.get();
 			if (!dep)
 				return false;
 			CAssetConverter::patch_t<ICPUImage> patch = {dep};
 			// any other aspects than stencil?
 			if (params.subresourceRange.aspectMask.value&(~IGPUImage::E_ASPECT_FLAGS::EAF_STENCIL_BIT))
-				patch.usageFlags |= params.subUsages;
+				patch.usageFlags |= userPatch.subUsages;
 			// stencil aspect?
 			if (params.subresourceRange.aspectMask.hasFlags(IGPUImage::E_ASPECT_FLAGS::EAF_STENCIL_BIT))
-				patch.stencilUsage |= params.subUsages;
+				patch.stencilUsage |= userPatch.subUsages;
 			// view format doesn't mutate with image and format was actually different than base image
 			// NOTE: `valid()` hasn't been called on `patch` yet, so format not promoted yet!
-			if (!patch.formatFollowsImage() && originalFormat!=patch.format)
+			if (!userPatch.formatFollowsImage() && params.format!=patch.format)
 			{
 				patch.mutableFormat = true;
-				if (isBlockCompressionFormat(patch.format) && getFormatClass(originalFormat)!=getFormatClass(patch.format))
+				if (isBlockCompressionFormat(patch.format) && getFormatClass(params.format)!=getFormatClass(patch.format))
 					patch.uncompressedViewOfCompressed = true;
 			}
 			// rest of create flags
@@ -399,10 +399,10 @@ class AssetVisitor : public CRTP
 					break;
 			}
 			//
-			patch.linearlySampled |= linearlySampled;
-			patch.storageAtomic |= storageAtomic;
-			patch.storageImageLoadWithoutFormat |= storageImageLoadWithoutFormat;
-			patch.depthCompareSampledImage |= depthCompareSampledImage;
+			patch.linearlySampled |= userPatch.linearlySampled;
+			patch.storageAtomic |= userPatch.storageAtomic;
+			patch.storageImageLoadWithoutFormat |= userPatch.storageImageLoadWithoutFormat;
+			patch.depthCompareSampledImage |= userPatch.depthCompareSampledImage;
 // TODO: mipLevels
 // TODO: recomputeMips
 			return descend<ICPUImage>(dep,std::move(patch));

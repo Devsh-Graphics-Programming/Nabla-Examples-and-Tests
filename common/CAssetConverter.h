@@ -156,6 +156,8 @@ class CAssetConverter : public core::IReferenceCounted
 			public:
 				PATCH_IMPL_BOILERPLATE(asset::ICPUImage);
 
+				using usage_flags_t = IGPUImage::E_USAGE_FLAGS;
+				constexpr static inline usage_flags_t UsagesThatPreventFormatPromotion = usage_flags_t::EUF_RENDER_ATTACHMENT_BIT|usage_flags_t::EUF_INPUT_ATTACHMENT_BIT;
 				// make our promotion policy explicit
 				inline bool canAttemptFormatPromotion() const
 				{
@@ -163,9 +165,9 @@ class CAssetConverter : public core::IReferenceCounted
 					if (mutableFormat)
 						return false;
 					// we don't support promoting formats in renderpasses' attachment descriptions, so stop it here too
-					if (!usageFlags.hasFlags(IGPUImage::E_USAGE_FLAGS::EUF_RENDER_ATTACHMENT_BIT))
+					if (!usageFlags.hasAnyFlag(UsagesThatPreventFormatPromotion))
 						return false;
-					if (!stencilUsage.hasFlags(IGPUImage::E_USAGE_FLAGS::EUF_RENDER_ATTACHMENT_BIT))
+					if (!stencilUsage.hasAnyFlag(UsagesThatPreventFormatPromotion))
 						return false;
 					return true;
 				}
@@ -173,7 +175,6 @@ class CAssetConverter : public core::IReferenceCounted
 				// the most important thing about an image
 				asset::E_FORMAT format = asset::EF_UNKNOWN;
 				// but we also track separate dpeth and stencil usage flags
-				using usage_flags_t = IGPUImage::E_USAGE_FLAGS;
 				core::bitflag<usage_flags_t> usageFlags = usage_flags_t::EUF_NONE;
 				core::bitflag<usage_flags_t> stencilUsage = usage_flags_t::EUF_NONE;
 				// all converted images default to optimal!
