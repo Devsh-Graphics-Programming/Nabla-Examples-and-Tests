@@ -997,6 +997,23 @@ bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUImage> look
 	hasher.update(&patchedParams,sizeof(patchedParams)) << lookup.asset->getContentHash();
 	return true;
 }
+bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUBufferView> lookup)
+{
+	const auto* asset = lookup.asset;
+	AssetVisitor<HashVisit<ICPUBufferView>> visitor = {
+		*this,
+		{asset,static_cast<const PatchOverride*>(patchOverride)->uniqueCopyGroupID},
+		*lookup.patch
+	};
+	if (!visitor())
+		return false;
+	// NOTE: We don't hash the usage metada from the patch! Because it doesn't matter.
+	// The view usage in the patch helps us propagate and patch during DFS, but no more.
+	hasher << asset->getFormat();
+	hasher << asset->getOffsetInBuffer();
+	hasher << asset->getByteSize();
+	return true;
+}
 bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUImageView> lookup)
 {
 	const auto* asset = lookup.asset;
@@ -2488,7 +2505,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 					//
 					if constexpr (has_type<AssetType>(SReserveResult::convertible_asset_types{}))
 					{
-						auto& requests = std::get<SReserveResult::conversion_requests_t<ICPUBuffer>>(retval.m_conversionRequests);
+						auto& requests = std::get<SReserveResult::conversion_requests_t<AssetType>>(retval.m_conversionRequests);
 						requests.emplace_back(core::smart_refctd_ptr<const AssetType>(instance.asset),created.gpuObj.get());
 					}
 				}
@@ -2498,7 +2515,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 		// Both so we can hash in O(Depth) and not O(Depth^2) but also so we have all the possible dependants ready.
 		// If two Asset chains are independent then we order them from most catastrophic failure to least.
 		dedupCreateProp.operator()<ICPUBuffer>();
-//		dedupCreateProp.operator()<ICPUImage>();
+		dedupCreateProp.operator()<ICPUImage>();
 // TODO: add backing buffers (not assets) for BLAS and TLAS builds
 		// Allocate Memory
 		{
@@ -2715,6 +2732,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 //		dedupCreateProp.operator()<ICPUBottomLevelAccelerationStructure>();
 //		dedupCreateProp.operator()<ICPUTopLevelAccelerationStructure>();
 		dedupCreateProp.operator()<ICPUBufferView>();
+		dedupCreateProp.operator()<ICPUImageView>();
 		dedupCreateProp.operator()<ICPUShader>();
 		dedupCreateProp.operator()<ICPUSampler>();
 		dedupCreateProp.operator()<ICPUDescriptorSetLayout>();
@@ -2809,7 +2827,10 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 			return false;
 		};
 		// If the transfer queue will be used, the transfer Intended Submit Info must be valid and utilities must be provided
-		if (invalidQueue(IQueue::FAMILY_FLAGS::TRANSFER_BIT,params.transfer.queue))
+		auto reqTransferQueueCaps = IQueue::FAMILY_FLAGS::TRANSFER_BIT;
+		if (reservations.m_queueFlags.hasFlags(IQueue::FAMILY_FLAGS::GRAPHICS_BIT))
+			reqTransferQueueCaps |= IQueue::FAMILY_FLAGS::GRAPHICS_BIT;
+		if (invalidQueue(reqTransferQueueCaps,params.transfer.queue))
 			return {};
 		// If the compute queue will be used, the compute Intended Submit Info must be valid and utilities must be provided
 		if (invalidQueue(IQueue::FAMILY_FLAGS::COMPUTE_BIT,params.transfer.queue))
@@ -2903,9 +2924,9 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 				reservations.m_logger.log("Ownership Releases of Buffers Failed",system::ILogger::ELL_ERROR);
 		}
 
-#if 0
 		auto& imagesToUpload = std::get<SReserveResult::conversion_requests_t<ICPUImage>>(reservations.m_conversionRequests);
 		{
+#if 0
 			core::vector<IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> layoutTransitions;
 			layoutTransitions.reserve(imagesToUpload.size());
 			// first transition all images to dst-optimal layout
@@ -2961,8 +2982,8 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 				}
 				// TODO: layout transitions etc.
 			}
-		}
 #endif
+		}
 
 		// TODO: build BLASes and TLASes
 	}
