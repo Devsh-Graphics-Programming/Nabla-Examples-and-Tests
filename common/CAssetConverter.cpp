@@ -369,13 +369,13 @@ class AssetVisitor : public CRTP
 			CAssetConverter::patch_t<ICPUImage> patch = {dep};
 			// any other aspects than stencil?
 			if (params.subresourceRange.aspectMask.value&(~IGPUImage::E_ASPECT_FLAGS::EAF_STENCIL_BIT))
-				patch.usageFlags |= subUsages;
+				patch.usageFlags |= params.subUsages;
 			// stencil aspect?
 			if (params.subresourceRange.aspectMask.hasFlags(IGPUImage::E_ASPECT_FLAGS::EAF_STENCIL_BIT))
-				patch.stencilUsage |= subUsages;
+				patch.stencilUsage |= params.subUsages;
 			// view format doesn't mutate with image and format was actually different than base image
 			// NOTE: `valid()` hasn't been called on `patch` yet, so format not promoted yet!
-			if (!formatFollowsImage() && originalFormat!=patch.format)
+			if (!patch.formatFollowsImage() && originalFormat!=patch.format)
 			{
 				patch.mutableFormat = true;
 				if (isBlockCompressionFormat(patch.format) && getFormatClass(originalFormat)!=getFormatClass(patch.format))
@@ -392,7 +392,7 @@ class AssetVisitor : public CRTP
 				case IGPUImageView::E_TYPE::ET_2D:
 					[[fallthrough]];
 				case IGPUImageView::E_TYPE::ET_2D_ARRAY:
-					if (dep->getCreationParameters().type==ICPUImage::E_TYPE::ET_3D)
+					if (dep->getCreationParameters().type==IImage::E_TYPE::ET_3D)
 						patch._3Dbut2DArrayCompatible = true;
 					break;
 				default:
@@ -988,12 +988,28 @@ bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUBuffer> loo
 }
 bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUImage> lookup)
 {
+	// extras from the patch
+	hasher << lookup.patch->linearTiling;
+	hasher << lookup.patch->recomputeMips;
+	// NOTE: We don't hash the usage metada from the patch! Because it doesn't matter.
+	// The meta usages help us not merge incompatible patches together and not mis-promote a format
 	auto patchedParams = lookup.asset->getCreationParameters();
 	assert(lookup.patch->usageFlags.hasFlags(patchedParams.depthUsage));
 	assert(lookup.patch->stencilUsage.hasFlags(patchedParams.actualStencilUsage()));
+	// now proceed to patch
+	patchedParams.format = lookup.patch->format;
+	patchedParams.mipLevels = lookup.patch->mipLevels;
+	using create_flags_t = IGPUImage::E_CREATE_FLAGS;
+	if (lookup.patch->mutableFormat)
+		patchedParams.flags = create_flags_t::ECF_MUTABLE_FORMAT_BIT;
+	if (lookup.patch->cubeCompatible)
+		patchedParams.flags = create_flags_t::ECF_CUBE_COMPATIBLE_BIT;
+	if (lookup.patch->_3Dbut2DArrayCompatible)
+		patchedParams.flags = create_flags_t::ECF_2D_ARRAY_COMPATIBLE_BIT;
+	if (lookup.patch->uncompressedViewOfCompressed)
+		patchedParams.flags = create_flags_t::ECF_BLOCK_TEXEL_VIEW_COMPATIBLE_BIT;
 	patchedParams.usage = lookup.patch->usageFlags;
-	static_assert(false,"Need to decide how to promote formats first!");
-	patchedParams.usage = lookup.patch->usageFlags;
+	patchedParams.stencilUsage = lookup.patch->stencilUsage;
 	hasher.update(&patchedParams,sizeof(patchedParams)) << lookup.asset->getContentHash();
 	return true;
 }
@@ -1024,18 +1040,15 @@ bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUImageView> 
 	};
 	if (!visitor())
 		return false;
+	auto patchedParams = asset->getCreationParameters();
 	// NOTE: We don't hash the usage metada from the patch! Because it doesn't matter.
 	// The view usage in the patch helps us propagate and patch during DFS, but no more.
-	hasher << lookup.patch->subUsages;
-	auto params = asset->getCreationParameters();
-	hasher << params.viewType;
+	patchedParams.subUsages = lookup.patch->subUsages;
 	if (lookup.patch->formatFollowsImage())
-		params.format = EF_UNKNOWN;
-	hasher << params.format;
-	hasher.update(&params.components,sizeof(params.components));
+		patchedParams.format = patchedParams.image->getCreationParameters().format;
 	if (lookup.patch->forceFullMipChain)
-		params.subresourceRange.levelCount = IGPUImageView::remaining_mip_levels;
-	hasher.update(&params.subresourceRange,sizeof(params.subresourceRange));
+		patchedParams.subresourceRange.levelCount = ICPUImageView::remaining_mip_levels;
+	hasher.update(&patchedParams,sizeof(patchedParams));
 	return true;
 }
 bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUDescriptorSetLayout> lookup)

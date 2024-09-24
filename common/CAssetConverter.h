@@ -208,7 +208,7 @@ class CAssetConverter : public core::IReferenceCounted
 					else if (format!=format)
 						return {false,retval};
 					//
-					usageFlags |= other.usageFlags;
+					retval.usageFlags |= other.usageFlags;
 					return {true,retval};
 				}
 		};
