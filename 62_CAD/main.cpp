@@ -29,6 +29,7 @@ using namespace video;
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
 #include "HatchGlyphBuilder.h"
+#include "GeoTexture.h"
 
 #include <chrono>
 #define BENCHMARK_TILL_FIRST_FRAME
@@ -40,6 +41,7 @@ using namespace video;
 static constexpr bool DebugModeWireframe = false;
 static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
+static constexpr bool LargeBackgroundTextureStreaming = true;
 
 enum class ExampleMode
 {
@@ -68,7 +70,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0,	// CASE_8
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_7;
+constexpr ExampleMode mode = ExampleMode::CASE_4;
 
 class Camera2D
 {
@@ -875,10 +877,10 @@ public:
 		// Shaders
 		std::array<smart_refctd_ptr<IGPUShader>, 4u> shaders = {};
 		{
-			constexpr auto vertexShaderPath = "../vertex_shader.hlsl";
-			constexpr auto fragmentShaderPath = "../fragment_shader.hlsl";
-			constexpr auto debugfragmentShaderPath = "../fragment_shader_debug.hlsl";
-			constexpr auto resolveAlphasShaderPath = "../resolve_alphas.hlsl";
+			constexpr auto vertexShaderPath = "../shaders/main_pipeline/vertex_shader.hlsl";
+			constexpr auto fragmentShaderPath = "../shaders/main_pipeline/fragment_shader.hlsl";
+			constexpr auto debugfragmentShaderPath = "../shaders/main_pipeline/fragment_shader_debug.hlsl";
+			constexpr auto resolveAlphasShaderPath = "../shaders/main_pipeline/resolve_alphas.hlsl";
 #if defined(SHADER_CACHE_TEST_COMPILATION_CACHE_STORE)
 			auto cache = core::make_smart_refctd_ptr<IShaderCompiler::CCache>();
 
@@ -1100,6 +1102,7 @@ public:
 				return Hatch::generateHatchFillPatternMSDF(m_textRenderer.get(), pattern, drawResourcesFiller.getMSDFResolution());
 			}
 		);
+
 		return true;
 	}
 
@@ -2841,7 +2844,6 @@ protected:
 						break;
 					default:
 						m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type, skipping!",ILogger::ELL_ERROR);
-						return;
 				}
 			
 
@@ -2862,7 +2864,7 @@ protected:
 				}
 				gpuImg = m_device->createImage(std::move(imageParams));
 				if (!gpuImg || !m_device->allocate(gpuImg->getMemoryReqs(),gpuImg.get()).isValid())
-					return;
+					m_logger->log("Failed to create or allocate gpu image!",ILogger::ELL_ERROR);
 				gpuImg->setObjectDebugName(imagePath.c_str());
 				
 				IGPUImageView::SCreationParams viewParams = {
@@ -3235,6 +3237,7 @@ protected:
 	const std::chrono::steady_clock::time_point startBenchmark = std::chrono::high_resolution_clock::now();
 	bool stopBenchamrkFlag = false;
 	#endif
+
 };
 
 NBL_MAIN_FUNC(ComputerAidedDesign)
