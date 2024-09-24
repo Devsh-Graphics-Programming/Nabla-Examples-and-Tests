@@ -50,7 +50,7 @@ struct SharedMemoryAccessor
 
 };
 
-// ---------------------- Utils -----------------------
+// ---------------------------------------------------- Utils ---------------------------------------------------------
 uint32_t colMajorOffset(uint32_t x, uint32_t y)
 {
 	return x * IMAGE_SIDE_LENGTH + y;
