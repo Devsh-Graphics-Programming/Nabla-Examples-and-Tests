@@ -1697,10 +1697,6 @@ template<asset::Asset AssetType>
 using conversions_t = core::unordered_map<core::blake3_hash_t,unique_conversion_t<AssetType>>;
 
 //
-template<typename T, typename... U>
-constexpr bool has_type(core::type_list<U...>) {return (std::is_same_v<T,U> || ...);}
-
-//
 auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 {
 	auto* const device = m_params.device;
@@ -2515,12 +2511,13 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 							return;
 						}
 					}
-					//
-					if constexpr (has_type<AssetType>(SReserveResult::convertible_asset_types{}))
-					{
-						auto& requests = std::get<SReserveResult::conversion_requests_t<AssetType>>(retval.m_conversionRequests);
-						requests.emplace_back(core::smart_refctd_ptr<const AssetType>(instance.asset),created.gpuObj.get());
-					}
+					// this is super annoying, was hoping metaprogramming with `has_type` would actually work
+					auto getConversionRequests = [&]<typename AssetU>()->auto&{return std::get<SReserveResult::conversion_requests_t<AssetU>>(retval.m_conversionRequests);};
+					if constexpr (std::is_same_v<AssetType,ICPUBuffer>)
+						getConversionRequests.operator()<ICPUBuffer>().emplace_back(core::smart_refctd_ptr<const AssetType>(instance.asset),created.gpuObj.get());;
+					if constexpr (std::is_same_v<AssetType,ICPUImage>)
+						getConversionRequests.operator()<ICPUImage>().emplace_back(core::smart_refctd_ptr<const AssetType>(instance.asset),created.gpuObj.get());
+					// TODO: BLAS and TLAS requests
 				}
 			);
 		};
