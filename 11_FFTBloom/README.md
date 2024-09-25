@@ -1,5 +1,5 @@
 # Bit ordering of the Nabla FFT
-As you might know, the Cooley-Tukey FFT outputs the elements of a DFT in bit-reversed order. Our implementation uses the Cooley-Tukey algorithm, but the way threads swap their elements around before performing each butterfly of the FFT makes the order end up slightly different. To perform an FFT on a $2^n$-sized array, we launch `WorkgroupSize` many threads (in a single workgroup), each in charge of computing `ElementsPerInvocation` positions of the FFT, where both are powers of two that add to $2^n$.
+As you might know, the Cooley-Tukey FFT outputs the elements of a DFT in bit-reversed order. Our implementation uses the Cooley-Tukey algorithm, but the way threads swap their elements around before performing each butterfly of the FFT makes the order end up slightly different. To perform an FFT on a $2^n$-sized array, we launch `WorkgroupSize` many threads (in a single workgroup), each in charge of computing `ElementsPerInvocation` positions of the FFT, where both are powers of two that multiply to $2^n$.
 
 Here's what happens for the FFT of a 16-element array using `ElementsPerInvocation = 2`, `WorkgroupSize = 8`. Please note below I use "invocation" and "thread" interchangeably.
 
