@@ -35,6 +35,26 @@ So now let's compute `e`! I will assert without proof that `e(n)` can be compute
 
 We have then worked out 
 
-$F_{\log_2{\text{ElementsPerThread}}}(n) = \text{bitreverse}(e^{-1}_{\log_2{\text{ElementsPerThread}}}(n))$. 
+$F(n) = \text{bitreverse}(e^{-1}(n))$. 
+
+Where the subindex for the log of `ElementsPerThread` is implicit for readability. We're done! We now have that `output[outputIdx] = DFT[F(outputIdx)]` and similarly `DFT[freqIdx] = output[F^{-1}(freqIdx)]` 
 
 In code this is computed slightly differently, notice that we can define the map `g` by making `g` do a circular bit shift left by one position of the higher `N - E + 1` bits of `n`. This induces the relationships $\text{bitreverse} \circ e^{-1} = g^{-1} \circ \text{bitreverse}$ and $e \circ \text{bitreverse} = \text{bitreverse} \circ g$ which are what's used in code to compute this (for no particular reason, they were expressions we had deduced before we had a proof for the mapping). In the math lingo this means `e` and `g` are conjugate via `bitreverse`.
+
+
+
+# Unpacking Rule for packed real FFTs
+
+Following https://kovleventer.com/blog/fft_real/, we get the following equations:
+
+$\text{DFT}_x[T] = \frac 1 2 \left(\text{DFT}[T] + \text{DFT}[-T]^\* \right) = \frac 1 2 \left(\text{output}[F^{-1}(T)] + \text{output}[F^{-1}(-T)]^\*\right)$
+
+(with the equation for `DFT_y[T]` being similar). Which then lets us work out
+
+$\text{output}_x[T] = \text{DFT}_x[F(T)] = \frac 1 2 \left(\text{output}[T] + \text{output}[-T]^\*\right)$
+
+and again a similar expression for `output_y[T]`
+
+# Nyquist location
+
+Thread 0 always holds the Nyquist frequency as its second element. In fact, from the rule we had deduced earlier, line 1 will read `e(1) holds bitreverse(1)`. `bitreverse(1)` is a 1 in the MSB followed by all 0s, which is exactly the Nyquist position ($2^{N-1}$) while `e(1)` works out to be `1|0` which means it's the second (index 1) element of thread 0
