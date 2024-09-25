@@ -30,6 +30,8 @@ public:
 
     bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
     {
+        nbl::hlsl::emulated_float64_t<true, true> c = nbl::hlsl::emulated_float64_t<true, true>::create(1.0f);
+
         nbl::hlsl::emulated_float64_t<true, true> a = nbl::hlsl::emulated_float64_t<true, true>::create(76432.9);
         nbl::hlsl::emulated_float64_t<true, true> b = nbl::hlsl::emulated_float64_t<true, true>::create(95719.3);
         

@@ -76,6 +76,7 @@ ActualFloat64Vector2 transformVectorNdc(ActualFloat64Matrix3x3 transformation, A
 float2 transformPointScreenSpace(ActualFloat64Matrix3x3 transformation, ActualFloat64Vector2 point2d)
 {
     ActualFloat64Vector2 ndc = transformPointNdc(transformation, point2d);
+    // TODO: "ndc + 1" doesn't work, probably because of `emulated_float64_t::create(float val)`
     ActualFloat64Vector2 result = (ndc + 1.0f) * 0.5f * _static_cast<ActualFloat64Vector2>(globals.resolution);
 
     return _static_cast<float2>(result);
@@ -157,18 +158,6 @@ PSInput main(uint vertexID : SV_VertexID)
             (clipProjectionData.projectionToNDC[0].x * _static_cast<ActualFloat64>(globals.resolution.x))))
         );
 
-        if(vertexID == 0)
-            printf("line width = %f", lineStyle.worldSpaceLineWidth);
-
-        if (vertexID == 0)
-        {
-            /*ActualFloat64 a = ActualFloat64::create(1);
-            float b = _static_cast<float>(a);
-            ActualFloat64 c = _static_cast<ActualFloat64>(b);
-
-            printf("static casted = %llu", c.data);*/
-        }
-
         if (objType == ObjectType::LINE)
         {
             ActualFloat64Vector2 points[2u];
@@ -224,32 +213,64 @@ PSInput main(uint vertexID : SV_VertexID)
             for (uint i = 0u; i < 3u; ++i)
                 transformedPoints[i] = transformPointScreenSpace(clipProjectionData.projectionToNDC, points[i]);
 
+#if 1
             if (vertexID == 0)
             {
-                //printf("emulated vec operators:");
-                //ActualFloat64Vector3 a;
-                //a.x = ActualFloat64::create(1.0f);
-                //a.y = ActualFloat64::create(2.0f);
-                //a.z = ActualFloat64::create(3.0f);
-                ////printf("a.x = %llu, a.y = %llu, a.z = %llu", a.x.data, a.y.data, a.z.data);
+                printf("lineStyle.screenSpaceLineWidth = %f", lineStyle.screenSpaceLineWidth);
 
-                //float b = 2.0f;
-                ////printf("b.x = %llu, b.y = %llu, b.z = %llu", b.x.data, b.y.data, b.z.data);
-
-                //ActualFloat64Vector3 c;
-                //c = a + b;
-                //printf("c.x = %llu, c.y = %llu, c.z = %llu", c.x.data, c.y.data, c.z.data);
-
-                //ActualFloat64Vector3 d;
-                //d = a * b;
-                //printf("d.x = %llu, d.y = %llu, d.z = %llu", d.x.data, d.y.data, d.z.data);
+                printf("POINT TRANSFORMATION:");
+                ActualFloat64Vector3 a;
+                a.x = points[0].x;
+                a.y = points[0].y;
+                a.z = _static_cast<ActualFloat64>(1);
+                printf("points[0].x = %llu, points[0].y = %llu, points[0].z = %llu", bit_cast<uint64_t>(points[0].x), bit_cast<uint64_t>(points[0].y), 1ull);
+                printf("a.x = %llu, a.y = %llu, a.z = %llu", bit_cast<uint64_t>(a.x), bit_cast<uint64_t>(a.y), bit_cast<uint64_t>(a.z));
 
                 // TODO: move to the emulated float test example
 
-                //printf("PROJ NDC MATRIX:");
-                //printf("row[0].x = %llu, row[0].y = %llu, row[0].z = %llu", clipProjectionData.projectionToNDC[0].x.data, clipProjectionData.projectionToNDC[0].y.data, clipProjectionData.projectionToNDC[0].z.data);
-                //printf("row[1].x = %llu, row[1].y = %llu, row[1].z = %llu", clipProjectionData.projectionToNDC.rows[1].x.data, clipProjectionData.projectionToNDC.rows[1].y.data, clipProjectionData.projectionToNDC.rows[1].z.data);
-                //printf("row[2].x = %llu, row[2].y = %llu, row[2].z = %llu", clipProjectionData.projectionToNDC.rows[2].x.data, clipProjectionData.projectionToNDC.rows[2].y.data, clipProjectionData.projectionToNDC.rows[2].z.data);
+                //array_get<ActualFloat64Vector3, ActualFloat64> getter;
+
+                //printf("ARRAY_GET TEST");
+                //ActualFloat64 b = getter(a, 0);
+
+                //printf("array_get = %ull", b.data);
+
+                printf("PROJ NDC MATRIX:");
+
+#if 1
+                printf("row[0].x = %llu, row[0].y = %llu, row[0].z = %llu", bit_cast<uint64_t>(clipProjectionData.projectionToNDC[0].x), bit_cast<uint64_t>(clipProjectionData.projectionToNDC[0].y), bit_cast<uint64_t>(clipProjectionData.projectionToNDC[0].z));
+                printf("row[1].x = %llu, row[1].y = %llu, row[1].z = %llu", bit_cast<uint64_t>(clipProjectionData.projectionToNDC[1].x), bit_cast<uint64_t>(clipProjectionData.projectionToNDC[1].y), bit_cast<uint64_t>(clipProjectionData.projectionToNDC[1].z));
+                printf("row[2].x = %llu, row[2].y = %llu, row[2].z = %llu", bit_cast<uint64_t>(clipProjectionData.projectionToNDC[2].x), bit_cast<uint64_t>(clipProjectionData.projectionToNDC[2].y), bit_cast<uint64_t>(clipProjectionData.projectionToNDC[2].z));
+#else
+#endif
+                ActualFloat64Vector3 transformationResult = portableMul64<ActualFloat64Matrix3x3, ActualFloat64Vector3, jit::device_capabilities>(clipProjectionData.projectionToNDC, a);
+                printf("transformationResult.x = %llu, transformationResult.y = %llu, transformationResult.z = %llu", bit_cast<uint64_t>(transformationResult.x), bit_cast<uint64_t>(transformationResult.y), bit_cast<uint64_t>(transformationResult.z));
+
+                ActualFloat64Vector2 ndc;
+                ndc.x = transformationResult.x;
+                ndc.y = transformationResult.y;
+
+                printf("ndc.x = %llu, ndc.y = %llu", bit_cast<uint64_t>(ndc.x), bit_cast<uint64_t>(ndc.y));
+                
+                ActualFloat64Vector2 result = ndc;
+
+                result = result + 1;
+                printf("AFTER ADDITION: ");
+                printf("result.x = %llu, result.y = %llu", bit_cast<uint64_t>(result.x), bit_cast<uint64_t>(result.y));
+
+                result = result * 0.5f;
+                printf("AFTER mul: ");
+                printf("result.x = %llu, result.y = %llu", bit_cast<uint64_t>(result.x), bit_cast<uint64_t>(result.y));
+
+                result = result * _static_cast<ActualFloat64Vector2>(globals.resolution);
+                printf("AFTER SECOND ADDITION: ");
+                printf("result.x = %llu, result.y = %llu", bit_cast<uint64_t>(result.x), bit_cast<uint64_t>(result.y));
+
+                printf("STATIC CAST FROM UVEC2 TO DOUBLEVEC2 TEST");
+                _static_cast<ActualFloat64Vector2>(globals.resolution);
+
+
+                // -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
                 //printf("POINT TRANSFORMATION TO NDC:");
                 //ActualFloat64Vector2 point2d = points[0];
@@ -290,7 +311,7 @@ PSInput main(uint vertexID : SV_VertexID)
                 //printf("transformedPoints[1].x = %f, transformedPoints[1].y = %f", transformedPoints[1].x, transformedPoints[1].y);
                 //printf("transformedPoints[2].x = %f, transformedPoints[2].y = %f", transformedPoints[2].x, transformedPoints[2].y);
             }
-
+#endif
             shapes::QuadraticBezier<float> quadraticBezier = shapes::QuadraticBezier<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
             shapes::Quadratic<float> quadratic = shapes::Quadratic<float>::constructFromBezier(quadraticBezier);
             shapes::Quadratic<float>::ArcLengthCalculator preCompData = shapes::Quadratic<float>::ArcLengthCalculator::construct(quadratic);
