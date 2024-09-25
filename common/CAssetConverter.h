@@ -200,16 +200,37 @@ class CAssetConverter : public core::IReferenceCounted
 				inline std::pair<bool,this_t> combine(const this_t& other) const
 				{
 					this_t retval = *this;
-					if (canAttemptFormatPromotion())
-					{
-						// promoted format patch `this` needs to merge successfully with unpromoted `other`
-						retval.format = format;
-// TODO: HUGE PROBLEM! What if due to different usages `this` and `other` get promoted to different formats during merge? (they've both had `valid()` called on them!)
-					}
-					else if (format!=format)
+					// changing tiling would mess up everything to do with format validation
+					if (linearTiling!=other.linearTiling)
 						return {false,retval};
-					//
+
+					// combine usage flags
 					retval.usageFlags |= other.usageFlags;
+					retval.stencilUsage |= other.stencilUsage;
+					// creation flag relevant for format promotion
+					retval.mutableFormat |= other.mutableFormat;
+					// and meta-usages
+					retval.linearlySampled |= other.linearlySampled;
+					retval.storageAtomic |= other.storageAtomic;
+					retval.storageImageLoadWithoutFormat |= other.storageImageLoadWithoutFormat;
+					retval.depthCompareSampledImage |= other.depthCompareSampledImage;
+					// Patches only differ by format if it was promoted, and you might ask yourself:
+					// "What if due to different usages `this` and `other` get promoted to different formats?"
+					// `valid` does not promote the format, format gets promoted AFTER the whole DFS pass
+					if (format!=other.format) // during the DFS phase formats will match, if we're here, we're in a subsequent phase
+					{
+						// During non-DFS phase, `other` is always an immediate temporary patch, without promoted format
+						// and a matching `this` must always be a superset of `other` for format promotion to remain valid!
+						if (memcmp(this,&retval,sizeof(retval))!=0) // no usages were added
+							return {false,retval};
+					}
+					// rest of creation flags
+					retval.cubeCompatible |= other.cubeCompatible;
+					retval._3Dbut2DArrayCompatible |= other._3Dbut2DArrayCompatible;
+					retval.uncompressedViewOfCompressed |= other.uncompressedViewOfCompressed;
+					// just take max
+					retval.mipLevels = std::max(mipLevels,other.mipLevels);
+					retval.recomputeMips |= other.recomputeMips;
 					return {true,retval};
 				}
 		};

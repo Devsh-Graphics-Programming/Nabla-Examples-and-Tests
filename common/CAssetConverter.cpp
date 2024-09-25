@@ -175,33 +175,9 @@ bool CAssetConverter::patch_impl_t<ICPUImage>::valid(const ILogicalDevice* devic
 	const auto* physDev = device->getPhysicalDevice();
 	if (storageImageLoadWithoutFormat && !physDev->getLimits().shaderStorageImageReadWithoutFormat)
 		return false;
-	// for now we try to promote format right away, but if there are problems in the future (i.e. with too many split instances due to combine/merge fail),
-	// add a special pass after DFS to do format promotion once all usages are known.
-	if (canAttemptFormatPromotion())
-	{
-		// why we don't care about superflous usage flags and the extended usage flag?
-		// Because extended usage flag is only needed if we intend to make views with other formats than the base image, which requires mutable format creation flag.
-		// And mutable format creation flag will always preclude ANY format promotion, therefore all usages come from the principal view as its the only one!
-		IPhysicalDevice::SImageFormatPromotionRequest req = {
-			.originalFormat = format,
-			.usages = {usageFlags|stencilUsage}
-		};
-		req.usages.linearlySampledImage = linearlySampled;
-		if (req.usages.storageImage) // we require this anyway
-			req.usages.storageImageStoreWithoutFormat = true;
-		req.usages.storageImageAtomic = storageAtomic;
-		req.usages.storageImageLoadWithoutFormat = storageImageLoadWithoutFormat;
-		req.usages.depthCompareSampledImage = depthCompareSampledImage;
-		format = physDev->promoteImageFormat(req,static_cast<IGPUImage::TILING>(linearTiling));
-        return format!=EF_UNKNOWN;
-	}
-	else
-	{
-		// We're not even going to check if the format is creatable for a given usage, because `ILogicalDevice::createImage` will do that for us later.
-		// Also that would require we track "actual usages" (via views with same base format) vs "extended usages", plus all the metadata which would be insanity.
-		// Instead rely on aliased views (whose formats don't mutate) checking for themselves
-		return true;
-	}
+	// We're not going to check if the format is creatable for a given usage nad metausages, because we possibly haven't collected all the usages yet.
+	// So the Image format promotion happens in another pass, just after the DFS descent.
+	return true;
 }
 
 CAssetConverter::patch_impl_t<ICPUBufferView>::patch_impl_t(const ICPUBufferView* view) {}
@@ -988,6 +964,9 @@ bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUBuffer> loo
 }
 bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUImage> lookup)
 {
+	// failed promotion
+	if (lookup.patch->format)
+		return false;
 	// extras from the patch
 	hasher << lookup.patch->linearTiling;
 	hasher << lookup.patch->recomputeMips;
@@ -1819,6 +1798,34 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 						break;
 				}
 			}
+			// special pass to promote image formats
+			std::get<dfs_cache<ICPUImage>>(dfsCaches).for_each([device,&inputs](const instance_t<ICPUImage>& instance, dfs_cache<ICPUImage>::created_t& created)->void
+				{
+					auto& patch = created.patch;
+					// Why don't we check format creation possibility for non-promotable images?
+					// We'd have to track (extended) usages from views with mutated formats separately from usages from views of the same format.
+					// And mutable format creation flag will always preclude ANY format promotion, therefore all usages come from views that have the same initial format!
+					if (patch.canAttemptFormatPromotion())
+					{
+						IPhysicalDevice::SImageFormatPromotionRequest req = {
+							.originalFormat = created.patch.format,
+							.usages = {patch.usageFlags|patch.stencilUsage}
+						};
+						req.usages.linearlySampledImage = patch.linearlySampled;
+						if (req.usages.storageImage) // we require this anyway
+							req.usages.storageImageStoreWithoutFormat = true;
+						req.usages.storageImageAtomic = patch.storageAtomic;
+						req.usages.storageImageLoadWithoutFormat = patch.storageImageLoadWithoutFormat;
+						req.usages.depthCompareSampledImage = patch.depthCompareSampledImage;
+						patch.format = device->getPhysicalDevice()->promoteImageFormat(req,static_cast<IGPUImage::TILING>(patch.linearTiling));
+						if (patch.format==EF_UNKNOWN)
+							inputs.logger.log(
+								"ICPUImage %p in group %d with NEXT patch index %d cannot be created with its original format due to its usages and failed to promote to a different format!",
+								system::ILogger::ELL_ERROR,instance.asset,instance.uniqueCopyGroupID,created.next
+							);
+					}
+				}
+			);
 		}
 		//! `inputsMetadata` is now constant!
 		//! `dfsCache` keys are now constant!
