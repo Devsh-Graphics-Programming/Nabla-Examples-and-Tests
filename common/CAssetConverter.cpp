@@ -203,7 +203,6 @@ CAssetConverter::patch_impl_t<ICPUImageView>::patch_impl_t(const ICPUImageView* 
 			// allow to format to mutate with base image's
 			originalFormat = EF_UNKNOWN;
 		}
-// TODO: force full mip chain?
 	}
 }
 bool CAssetConverter::patch_impl_t<ICPUImageView>::valid(const ILogicalDevice* device)
@@ -1023,10 +1022,10 @@ bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUImageView> 
 	// NOTE: We don't hash the usage metada from the patch! Because it doesn't matter.
 	// The view usage in the patch helps us propagate and patch during DFS, but no more.
 	patchedParams.subUsages = lookup.patch->subUsages;
+	const auto& imageParams = patchedParams.image->getCreationParameters();
+	// kinda restore the format, but we don't set to new "promoted" format because we hash INPUTS not OUTPUTS
 	if (lookup.patch->formatFollowsImage())
-		patchedParams.format = patchedParams.image->getCreationParameters().format;
-	if (lookup.patch->forceFullMipChain)
-		patchedParams.subresourceRange.levelCount = ICPUImageView::remaining_mip_levels;
+		patchedParams.format = imageParams.format;
 	hasher.update(&patchedParams,sizeof(patchedParams));
 	return true;
 }
@@ -1438,6 +1437,7 @@ class GetDependantVisit<ICPUImageView> : public GetDependantVisitBase<ICPUImageV
 {
 	public:
 		core::smart_refctd_ptr<IGPUImage> image = {};
+		uint8_t oldMipCount = 0;
 
 	protected:
 		bool descend_impl(
@@ -1446,7 +1446,10 @@ class GetDependantVisit<ICPUImageView> : public GetDependantVisitBase<ICPUImageV
 		)
 		{
 			image = getDependant<ICPUImage>(dep,soloPatch);
-			return !!image;
+			if (!image)
+				return false;
+			oldMipCount = dep.asset->getCreationParameters().mipLevels;
+			return true;
 		}
 };
 template<>
@@ -2163,10 +2166,9 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 						params.format = patch.formatFollowsImage() ? baseFormat:cpuParams.format;
 						memcpy(&params.components,&cpuParams.components,sizeof(params.components));
 						params.subresourceRange = cpuParams.subresourceRange;
-						if (patch.forceFullMipChain)
-							params.subresourceRange.levelCount = IGPUImageView::remaining_mip_levels;
-						else if (params.subresourceRange.levelCount!=IGPUImageView::remaining_mip_levels)
-							inputs.logger.log("Asset %p getting created with EXPLICIT mip level count %d, are you sure?",system::ILogger::ELL_WARNING,asset,params.subresourceRange.levelCount);
+						// if underlying image had mip-chain extended then we extend our own
+						if (imageParams.mipLevels!=visitor.oldMipCount)
+							params.subresourceRange.levelCount = imageParams.mipLevels-params.subresourceRange.baseMipLevel;
 						assign(entry.first,entry.second.firstCopyIx,i,device->createImageView(std::move(params)));
 					}
 				}

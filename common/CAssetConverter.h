@@ -287,13 +287,11 @@ class CAssetConverter : public core::IReferenceCounted
 				uint8_t storageAtomic : 1 = false;
 				uint8_t storageImageLoadWithoutFormat : 1 = false;
 				uint8_t depthCompareSampledImage : 1 = false;
-				// whether to override and extend the mip-chain fully
-				uint8_t forceFullMipChain : 1 = false;
 
 			protected:
 				uint8_t invalid : 1 = false;
 				// to not mess with hashing and comparison
-				uint8_t padding : 2 = 0;
+				uint8_t padding : 3 = 0;
 				// normally wouldn't store that but we don't provide a ref/pointer to the asset when combining or checking validity, treat member as impl detail
 				asset::E_FORMAT originalFormat = asset::EF_UNKNOWN;
 
@@ -317,7 +315,6 @@ class CAssetConverter : public core::IReferenceCounted
 					retval.storageAtomic |= other.storageAtomic;
 					retval.storageImageLoadWithoutFormat |= other.storageImageLoadWithoutFormat;
 					retval.depthCompareSampledImage |= other.depthCompareSampledImage;
-					retval.forceFullMipChain |= other.forceFullMipChain;
 					return {true,retval};
 				}
 		};
