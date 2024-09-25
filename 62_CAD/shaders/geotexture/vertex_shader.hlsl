@@ -1,4 +1,5 @@
 #pragma shader_stage(vertex)
+#include "common.hlsl"
 
 float2 main()
 {

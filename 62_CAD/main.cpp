@@ -874,15 +874,43 @@ public:
 			pipelineLayout = m_device->createPipelineLayout({}, core::smart_refctd_ptr(descriptorSetLayout0), core::smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
 		}
 		
-		// Shaders
+		// Main Pipeline Shaders
 		std::array<smart_refctd_ptr<IGPUShader>, 4u> shaders = {};
+		constexpr auto vertexShaderPath = "../shaders/main_pipeline/vertex_shader.hlsl";
+		constexpr auto fragmentShaderPath = "../shaders/main_pipeline/fragment_shader.hlsl";
+		constexpr auto debugfragmentShaderPath = "../shaders/main_pipeline/fragment_shader_debug.hlsl";
+		constexpr auto resolveAlphasShaderPath = "../shaders/main_pipeline/resolve_alphas.hlsl";
 		{
-			constexpr auto vertexShaderPath = "../shaders/main_pipeline/vertex_shader.hlsl";
-			constexpr auto fragmentShaderPath = "../shaders/main_pipeline/fragment_shader.hlsl";
-			constexpr auto debugfragmentShaderPath = "../shaders/main_pipeline/fragment_shader_debug.hlsl";
-			constexpr auto resolveAlphasShaderPath = "../shaders/main_pipeline/resolve_alphas.hlsl";
-#if defined(SHADER_CACHE_TEST_COMPILATION_CACHE_STORE)
-			auto cache = core::make_smart_refctd_ptr<IShaderCompiler::CCache>();
+			smart_refctd_ptr<IShaderCompiler::CCache> shaderReadCache = nullptr;
+			smart_refctd_ptr<IShaderCompiler::CCache> shaderWriteCache = core::make_smart_refctd_ptr<IShaderCompiler::CCache>();
+			auto shaderCachePath = localOutputCWD / "main_pipeline_shader_cache.bin";
+
+			{
+				core::smart_refctd_ptr<system::IFile> shaderReadCacheFile;
+				{
+					system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
+					m_system->createFile(future, shaderCachePath.c_str(), system::IFile::ECF_READ);
+					if (future.wait())
+					{
+						future.acquire().move_into(shaderReadCacheFile);
+						if (shaderReadCacheFile)
+						{
+							const size_t size = shaderReadCacheFile->getSize();
+							if (size > 0ull)
+							{
+								std::vector<uint8_t> contents(size);
+								system::IFile::success_t succ;
+								shaderReadCacheFile->read(succ, contents.data(), 0, size);
+								if (succ)
+									shaderReadCache = IShaderCompiler::CCache::deserialize(contents);
+							}
+						}
+					}
+					else
+						m_logger->log("Failed Openning Shader Cache File.", ILogger::ELL_ERROR);
+				}
+
+			}
 
 			// Load Custom Shader
 			auto loadCompileAndCreateShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<IGPUShader>
@@ -901,101 +929,38 @@ public:
 					if (!cpuShader)
 						return nullptr;
 
-					return m_device->createShader({ cpuShader.get(), nullptr, nullptr, cache.get() });
+					return m_device->createShader({ cpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get()});
 				};
 			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::E_SHADER_STAGE::ESS_VERTEX);
 			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-
-			auto serializedCache = cache->serialize();
-			auto savePath = localOutputCWD / "cache.bin";
-			core::smart_refctd_ptr<system::IFile> f;
+			
+			core::smart_refctd_ptr<system::IFile> shaderWriteCacheFile;
 			{
 				system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
-				m_system->createFile(future, savePath.c_str(), system::IFile::ECF_WRITE);
-				if (!future.wait())
-					return {};
-				future.acquire().move_into(f);
-			}
-			if (!f)
-			return {};
-			system::IFile::success_t succ;
-			f->write(succ, serializedCache->getPointer(), 0, serializedCache->getSize());
-			const bool success = bool(succ);
-			assert(success);
-#elif defined(SHADER_CACHE_TEST_CACHE_RETRIEVE)
-			auto savePath = localOutputCWD / "cache.bin";
-
-			core::smart_refctd_ptr<system::IFile> f;
-			{
-				system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
-				m_system->createFile(future, savePath.c_str(), system::IFile::ECF_READ);
-				if (!future.wait())
-					return {};
-				future.acquire().move_into(f);
-			}
-			if (!f)
-				return {};
-			const size_t size = f->getSize();
-
-			std::vector<uint8_t> contents(size);
-			system::IFile::success_t succ;
-			f->read(succ, contents.data(), 0, size);
-			const bool success = bool(succ);
-			assert(success);
-
-			auto cache = IShaderCompiler::CCache::deserialize(contents);
-
-			// Load Custom Shader
-			auto loadCompileAndCreateShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<IGPUShader>
+				m_system->deleteFile(shaderCachePath); // temp solution instead of trimming, to make sure we won't have corrupted json
+				m_system->createFile(future, shaderCachePath.c_str(), system::IFile::ECF_WRITE);
+				if (future.wait())
 				{
-					IAssetLoader::SAssetLoadParams lp = {};
-					lp.logger = m_logger.get();
-					lp.workingDirectory = ""; // virtual root
-					auto assetBundle = m_assetMgr->getAsset(relPath, lp);
-					const auto assets = assetBundle.getContents();
-					if (assets.empty())
-						return nullptr;
-
-					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-					auto cpuShader = IAsset::castDown<ICPUShader>(assets[0]);
-					cpuShader->setShaderStage(stage);
-					if (!cpuShader)
-						return nullptr;
-
-					return m_device->createShader({ cpuShader.get(), nullptr, cache.get(), nullptr });
-				};
-			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::E_SHADER_STAGE::ESS_VERTEX);
-			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-#else
-
-			// Load Custom Shader
-			auto loadCompileAndCreateShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<IGPUShader>
-				{
-					IAssetLoader::SAssetLoadParams lp = {};
-					lp.logger = m_logger.get();
-					lp.workingDirectory = ""; // virtual root
-					auto assetBundle = m_assetMgr->getAsset(relPath, lp);
-					const auto assets = assetBundle.getContents();
-					if (assets.empty())
-						return nullptr;
-
-					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-					auto cpuShader = IAsset::castDown<ICPUShader>(assets[0]);
-					cpuShader->setShaderStage(stage);
-					if (!cpuShader)
-						return nullptr;
-
-					return m_device->createShader(cpuShader.get());
-				};
-			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::E_SHADER_STAGE::ESS_VERTEX);
-			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-#endif
+					future.acquire().move_into(shaderWriteCacheFile);
+					if (shaderWriteCacheFile)
+					{
+						auto serializedCache = shaderWriteCache->serialize();
+						if (shaderWriteCacheFile)
+						{
+							system::IFile::success_t succ;
+							shaderWriteCacheFile->write(succ, serializedCache->getPointer(), 0, serializedCache->getSize());
+							if (!succ)
+								m_logger->log("Failed Writing To Shader Cache File.", ILogger::ELL_ERROR);
+						}
+					}
+					else
+						m_logger->log("Failed Creating Shader Cache File.", ILogger::ELL_ERROR);
+				}
+				else
+					m_logger->log("Failed Creating Shader Cache File.", ILogger::ELL_ERROR);
+			}
 		}
 
 		// Shared Blend Params between pipelines
