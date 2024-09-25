@@ -136,28 +136,21 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			
 			//pass.scene = CScene::create<CScene::CREATE_RESOURCES_DIRECTLY_WITH_DEVICE>(smart_refctd_ptr(m_utils), smart_refctd_ptr(m_logger), gQueue, geometry);
 			pass.scene = CScene::create<CScene::CREATE_RESOURCES_WITH_ASSET_CONVERTER>(smart_refctd_ptr(m_utils), smart_refctd_ptr(m_logger), gQueue, geometry);
+
+			nbl::ext::imgui::UI::SCreationParameters params;
+
+			params.resources.texturesInfo = { .setIx = 0u, .bindingIx = 0u };
+			params.resources.samplersInfo = { .setIx = 0u, .bindingIx = 1u };
+			params.assetManager = m_assetManager;
+			params.pipelineCache = nullptr;
+			params.pipelineLayout = nbl::ext::imgui::UI::createDefaultPipelineLayout(m_utils.get(), params.resources.texturesInfo, params.resources.samplersInfo, TexturesAmount);
+			params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
+			params.streamingBuffer = nullptr;
+			params.subpassIx = 0u;
+			params.transfer = getTransferUpQueue();
+			params.utilities = m_utils;
 			{
-				pass.ui.manager = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>
-				(
-					[&]()
-					{
-						nbl::ext::imgui::UI::SCreationParameters params;
-
-						params.resources.texturesInfo = { .setIx = 0u, .bindingIx = 0u };
-						params.resources.samplersInfo = { .setIx = 0u, .bindingIx = 1u };
-
-						params.assetManager = m_assetManager;
-						params.pipelineCache = nullptr;
-						params.pipelineLayout = nbl::ext::imgui::UI::createDefaultPipelineLayout(m_utils.get(), params.resources.texturesInfo, params.resources.samplersInfo, TexturesAmount);
-						params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
-						params.streamingBuffer = nullptr;
-						params.subpassIx = 0u;
-						params.transfer = getTransferUpQueue();
-						params.utilities = m_utils;
-
-						return std::move(params);
-					}()
-				);
+				pass.ui.manager = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(std::move(params));
 
 				// note that we use default layout provided by our extension, but you are free to create your own by filling nbl::ext::imgui::UI::S_CREATION_PARAMETERS::resources
 				const auto* descriptorSetLayout = pass.ui.manager->getPipeline()->getLayout()->getDescriptorSetLayout(0u);
