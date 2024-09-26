@@ -963,29 +963,40 @@ bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUImage> look
 	// extras from the patch
 	hasher << lookup.patch->linearTiling;
 	hasher << lookup.patch->recomputeMips;
+	// overriden creation params
+	const auto format = lookup.patch->format;
+	hasher << format;
+	hasher << lookup.patch->mipLevels;
+	hasher << lookup.patch->usageFlags;
+	hasher << lookup.patch->stencilUsage;
 	// NOTE: We don't hash the usage metada from the patch! Because it doesn't matter.
 	// The meta usages help us not merge incompatible patches together and not mis-promote a format
-	auto patchedParams = lookup.asset->getCreationParameters();
-	assert(lookup.patch->usageFlags.hasFlags(patchedParams.depthUsage));
-	// now proceed to patch
-	patchedParams.format = lookup.patch->format;
-	if (isDepthOrStencilFormat(patchedParams.format) && !isDepthOnlyFormat(patchedParams.format))
+	const auto& origParams = lookup.asset->getCreationParameters();
+	// sanity checks
+	assert(lookup.patch->usageFlags.hasFlags(origParams.depthUsage));
+	if (isDepthOrStencilFormat(format) && !isDepthOnlyFormat(format))
 	{
-		assert(lookup.patch->stencilUsage.hasFlags(patchedParams.actualStencilUsage()));
+		assert(lookup.patch->stencilUsage.hasFlags(origParams.actualStencilUsage()));
 	}
-	patchedParams.mipLevels = lookup.patch->mipLevels;
+	// non patchable params
+	hasher << origParams.type;
+	hasher << origParams.samples;
+	hasher.update(&origParams.extent,sizeof(origParams.extent));
+	hasher << origParams.arrayLayers;
+	// now proceed to patch
 	using create_flags_t = IGPUImage::E_CREATE_FLAGS;
+	auto creationFlags = origParams.flags;
 	if (lookup.patch->mutableFormat)
-		patchedParams.flags = create_flags_t::ECF_MUTABLE_FORMAT_BIT;
+		creationFlags |= create_flags_t::ECF_MUTABLE_FORMAT_BIT;
 	if (lookup.patch->cubeCompatible)
-		patchedParams.flags = create_flags_t::ECF_CUBE_COMPATIBLE_BIT;
+		creationFlags |= create_flags_t::ECF_CUBE_COMPATIBLE_BIT;
 	if (lookup.patch->_3Dbut2DArrayCompatible)
-		patchedParams.flags = create_flags_t::ECF_2D_ARRAY_COMPATIBLE_BIT;
+		creationFlags |= create_flags_t::ECF_2D_ARRAY_COMPATIBLE_BIT;
 	if (lookup.patch->uncompressedViewOfCompressed)
-		patchedParams.flags = create_flags_t::ECF_BLOCK_TEXEL_VIEW_COMPATIBLE_BIT;
-	patchedParams.usage = lookup.patch->usageFlags;
-	patchedParams.stencilUsage = lookup.patch->stencilUsage;
-	hasher.update(&patchedParams,sizeof(patchedParams)) << lookup.asset->getContentHash();
+		creationFlags |= create_flags_t::ECF_BLOCK_TEXEL_VIEW_COMPATIBLE_BIT;
+	hasher << creationFlags;
+	// finally the contents
+	hasher << lookup.asset->getContentHash();
 	return true;
 }
 bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUBufferView> lookup)
