@@ -2930,7 +2930,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 		if (invalidQueue(reqTransferQueueCaps,params.transfer.queue))
 			return {};
 		// If the compute queue will be used, the compute Intended Submit Info must be valid and utilities must be provided
-		if (invalidQueue(IQueue::FAMILY_FLAGS::COMPUTE_BIT,params.transfer.queue))
+		if (invalidQueue(IQueue::FAMILY_FLAGS::COMPUTE_BIT,params.compute.queue))
 			return {};
 
 		// weak patch
@@ -3028,7 +3028,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 
 		auto& imagesToUpload = std::get<SReserveResult::conversion_requests_t<ICPUImage>>(reservations.m_conversionRequests);
 		{
-			const bool uniQueue = params.transfer.queue->getNativeHandle()==params.compute.queue->getNativeHandle();
+			const bool uniQueue = !reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT) || params.transfer.queue->getNativeHandle() == params.compute.queue->getNativeHandle();
 			// because of the layout transitions
 			params.transfer.scratchSemaphore.stageMask |= PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
 			//
@@ -3197,7 +3197,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 				if (*pFoundHash==CHashCache::NoContentHash)
 					continue;
 				// do all post-transfer barriers for the image
-				if (!xferCmdBuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers=barriers}))
+				if (!barriers.empty() && !xferCmdBuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers=barriers}))
 				{
 					reservations.m_logger.log("Pipeline Barrier recording failed for \"%s\"",system::ILogger::ELL_ERROR,item.gpuObj->getObjectDebugName());
 					markFailureInStaging(pFoundHash);

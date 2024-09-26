@@ -172,6 +172,7 @@ private:
 				.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 			}
 		};
+		params.utilities = m_utils.get();
 
 		for (uint32_t imageIdx = 0; imageIdx < IMAGE_CNT; ++imageIdx)
 		{
