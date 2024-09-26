@@ -958,7 +958,7 @@ bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUBuffer> loo
 bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUImage> lookup)
 {
 	// failed promotion
-	if (lookup.patch->format)
+	if (lookup.patch->format==EF_UNKNOWN)
 		return false;
 	// extras from the patch
 	hasher << lookup.patch->linearTiling;
@@ -967,9 +967,12 @@ bool CAssetConverter::CHashCache::hash_impl::operator()(lookup_t<ICPUImage> look
 	// The meta usages help us not merge incompatible patches together and not mis-promote a format
 	auto patchedParams = lookup.asset->getCreationParameters();
 	assert(lookup.patch->usageFlags.hasFlags(patchedParams.depthUsage));
-	assert(lookup.patch->stencilUsage.hasFlags(patchedParams.actualStencilUsage()));
 	// now proceed to patch
 	patchedParams.format = lookup.patch->format;
+	if (isDepthOrStencilFormat(patchedParams.format) && !isDepthOnlyFormat(patchedParams.format))
+	{
+		assert(lookup.patch->stencilUsage.hasFlags(patchedParams.actualStencilUsage()));
+	}
 	patchedParams.mipLevels = lookup.patch->mipLevels;
 	using create_flags_t = IGPUImage::E_CREATE_FLAGS;
 	if (lookup.patch->mutableFormat)
