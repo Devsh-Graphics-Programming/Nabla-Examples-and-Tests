@@ -803,15 +803,15 @@ class CAssetConverter : public core::IReferenceCounted
 			}
 			// You can choose what layout the images get transitioned to at the end of an upload
 			// (the images that don't get uploaded to can be transitioned from UNDEFINED without needing any work here)
-			virtual inline IGPUImage::LAYOUT getFinalLayout(const IGPUImage* image, const core::blake3_hash_t& createdFrom)
+			virtual inline IGPUImage::LAYOUT getFinalLayout(const IGPUImage* image, const core::blake3_hash_t& createdFrom, const uint8_t mipLevel)
 			{
 				using layout_t = IGPUImage::LAYOUT;
 				using flags_t = IGPUImage::E_USAGE_FLAGS;
 				const auto usages = image->getCreationParameters().usage;
-				if (usages.hasFlags(flags_t::EUF_SAMPLED_BIT) || usages.hasFlags(flags_t::EUF_INPUT_ATTACHMENT_BIT))
-					return layout_t::READ_ONLY_OPTIMAL;
 				if (usages.hasFlags(flags_t::EUF_RENDER_ATTACHMENT_BIT) || usages.hasFlags(flags_t::EUF_TRANSIENT_ATTACHMENT_BIT))
 					return layout_t::ATTACHMENT_OPTIMAL;
+				if (usages.hasFlags(flags_t::EUF_SAMPLED_BIT) || usages.hasFlags(flags_t::EUF_INPUT_ATTACHMENT_BIT))
+					return layout_t::READ_ONLY_OPTIMAL;
 				// best guess
 				return layout_t::GENERAL;
 			}
