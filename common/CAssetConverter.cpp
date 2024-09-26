@@ -2954,13 +2954,18 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 			condBeginCmdBuf(params.compute.getScratchCommandBuffer());
 
 		// wipe gpu item in staging cache (this may drop it as well if it was made for only a root asset == no users)
-		auto makFailureInStaging = [&]<Asset AssetType>(asset_traits<AssetType>::video_t* gpuObj)->void
+		auto findInStaging = [&]<Asset AssetType>(asset_traits<AssetType>::video_t* gpuObj)->core::blake3_hash_t*
 		{
 			auto& stagingCache = std::get<SReserveResult::staging_cache_t<AssetType>>(reservations.m_stagingCaches);
 			const auto found = stagingCache.find(gpuObj);
 			assert(found!=stagingCache.end());
+			return const_cast<core::blake3_hash_t*>(&found->second.value);
+		};
+		// wipe gpu item in staging cache (this may drop it as well if it was made for only a root asset == no users)
+		auto markFailureInStaging = [](core::blake3_hash_t* hash)->void
+		{
 			// change the content hash on the reverse map to a NoContentHash
-			const_cast<core::blake3_hash_t&>(found->second.value) = {};
+			*hash = CHashCache::NoContentHash;
 		};
 
 		// upload Buffers
@@ -2971,7 +2976,6 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 			// do the uploads
 			for (auto& item : buffersToUpload)
 			{
-				auto found = std::get<SReserveResult::staging_cache_t<ICPUBuffer>>(reservations.m_stagingCaches).find(item.gpuObj);
 				const SBufferRange<IGPUBuffer> range = {
 					.offset = 0,
 					.size = item.gpuObj->getCreationParams().size,
@@ -2980,15 +2984,16 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 				const bool success = params.utilities->updateBufferRangeViaStagingBuffer(params.transfer,range,item.canonical->getPointer());
 				// let go of canonical asset (may free RAM)
 				item.canonical = nullptr;
+				auto pFoundHash = findInStaging.operator()<ICPUBuffer>(item.gpuObj);
 				if (!success)
 				{
 					reservations.m_logger.log("Data upload failed for \"%s\"",system::ILogger::ELL_ERROR,item.gpuObj->getObjectDebugName());
-					makFailureInStaging.operator()<ICPUBuffer>(item.gpuObj);
+					markFailureInStaging(pFoundHash);
 					continue;
 				}
 				retval.submitsNeeded |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
 				// enqueue ownership release if necessary
-				if (const auto ownerQueueFamily=params.getFinalOwnerQueueFamily(item.gpuObj,{}); ownerQueueFamily!=IQueue::FamilyIgnored)
+				if (const auto ownerQueueFamily=params.getFinalOwnerQueueFamily(item.gpuObj,*pFoundHash); ownerQueueFamily!=IQueue::FamilyIgnored)
 				{
 					// silently skip ownership transfer
 					if (item.gpuObj->getCachedCreationParams().isConcurrentSharing())
@@ -3023,63 +3028,195 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 
 		auto& imagesToUpload = std::get<SReserveResult::conversion_requests_t<ICPUImage>>(reservations.m_conversionRequests);
 		{
-#if 0
-			core::vector<IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> layoutTransitions;
-			layoutTransitions.reserve(imagesToUpload.size());
-			// first transition all images to dst-optimal layout
-			for (const auto& item : imagesToUpload)
+			const bool uniQueue = params.transfer.queue->getNativeHandle()==params.compute.queue->getNativeHandle();
+			// because of the layout transitions
+			params.transfer.scratchSemaphore.stageMask |= PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+			//
+			core::vector<IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> barriers;
+			barriers.reserve(17); // max mips in a single image
+			// do the uploads
+			auto xferCmdBuf = params.transfer.getScratchCommandBuffer();
+			for (auto& item : imagesToUpload)
 			{
+				const auto* cpuImg = item.canonical.get();
+				auto pFoundHash = findInStaging.operator()<ICPUImage>(item.gpuObj);
+				//
+				const bool recomputeMips = false;
+
 				const auto& creationParams = item.gpuObj->getCreationParameters();
-				layoutTransitions.push_back({
-						.barrier = {
-							.dep = {
-								// first usage doesn't need to sync against anything, so leave src default
-								.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
-								.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
-							}
-							// plain usage just acquires ownership (without content preservation though
-						},
-						.image = item.gpuObj,
-						.subresourceRange = {
-							.aspectMask = core::bitflag(IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT),
-							.baseMipLevel = 0u,
-							.levelCount = creationParams.mipLevels,
-							.baseArrayLayer = 0u,
-							.layerCount = creationParams.arrayLayers
-						},
-						.oldLayout = IGPUImage::LAYOUT::UNDEFINED,
-						.newLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL
-				});
-			}
-			if (!params.transfer.getScratchCommandBuffer()->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers=layoutTransitions}))
-			{
-				reservations.m_logger.log("Layout Transition to TRANSFER_DST_OPTIMAL failed for all images",system::ILogger::ELL_ERROR);
-				for (const auto& item : imagesToUpload) // wipe everything
-					makFailureInStaging.operator()<ICPUImage>(item.gpuObj);
-			}
-			else // upload Images
-			{
-				for (const auto& item : imagesToUpload)
+				const auto format = creationParams.format;
+				using aspect_flags_t = IGPUImage::E_ASPECT_FLAGS;
+				const core::bitflag<aspect_flags_t> aspects = isDepthOrStencilFormat(format) ? static_cast<aspect_flags_t>(
+						(isDepthOnlyFormat(format) ? aspect_flags_t::EAF_NONE:aspect_flags_t::EAF_STENCIL_BIT)|(isStencilOnlyFormat(format) ? aspect_flags_t::EAF_NONE:aspect_flags_t::EAF_DEPTH_BIT)
+					):aspect_flags_t::EAF_COLOR_BIT;
+				//
+				using layout_t = IGPUImage::LAYOUT;
+				IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> tmp = {
+					.barrier = {}, // fill later
+					.image = item.gpuObj,
+					.subresourceRange = {
+						.aspectMask = aspects,
+						// will fill later
+						.baseMipLevel = 0,
+						// we'll always do one level at a time
+						.levelCount = 1,
+						// all the layers
+						.baseArrayLayer = 0,
+						.layerCount = creationParams.arrayLayers
+					},
+					// first use, can transition away from undefined straight into what we want
+					.oldLayout = layout_t::UNDEFINED
+				};
+				auto& barrier = tmp.barrier;
+				// record transitions to desired layout after transfer
 				{
-					const bool success = params.utilities->updateImageViaStagingBuffer(
-						params.transfer,
-						item.canonical->getBuffer()->getPointer(),
-						item.canonical->getCreationParameters().format,
-						item.gpuObj,
-						IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-						item.canonical->getRegions()
-					);
-					if (!success)
+					barriers.clear();
+					auto regions = cpuImg->getRegions(0);
+					for (uint8_t lvl=0; lvl<creationParams.mipLevels;)
 					{
-						reservations.m_logger.log("Data upload failed for \"%s\"",system::ILogger::ELL_ERROR,item.gpuObj->getObjectDebugName());
-						makFailureInStaging.operator()<ICPUImage>(item.gpuObj);
-						continue;
-					}
-					// TODO: enqueue ownership release or layout transition if necessary
-				}
-				// TODO: layout transitions etc.
-			}
+						barrier.dep = {
+							// first usage doesn't need to sync against anything, so leave src default
+							.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+							.srcAccessMask = ACCESS_FLAGS::NONE
+						};
+						//
+						tmp.subresourceRange.baseMipLevel = lvl;
+						//
+						const auto finalLayout = params.getFinalLayout(item.gpuObj,*pFoundHash,lvl);
+						// get next regions
+						auto nextRegions = cpuImg->getRegions(++lvl);
+#if 0
+						// current level empty
+						if (regions.empty())
+						{
+							if (recomputeMips)
+							{
+								// always use general so we don't need to transition between readonly and general
+								tmp.newLayout = layout_t::GENERAL;
+								if (uniQueue)
+								{
+									barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+									barrier.dep.dstAccessMask = ACCESS_FLAGS::STORAGE_WRITE_BIT;
+								}
+								else
+								{
+									// ownership release needs to happen before semaphore signal
+									barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::NONE;
+									barrier.dep.dstAccessMask = ACCESS_FLAGS::NONE;
+									if (computeNeedsOwnershipAcquire)
+									{
+										static_assert(false,"record ownership op");
+									}
+								}
+							}
+							else
+							{
+								// go straight to final layout 
+								tmp.newLayout = finalLayout;
+								if (needToReleaseOwnership)
+								{
+									// ownership release needs to happen before semaphore signal
+									barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::NONE;
+									barrier.dep.dstAccessMask = ACCESS_FLAGS::NONE;
+									static_assert(false,"record ownership op");
+								}
+								else
+								{
+									// protect against anything that may overlap our layout transition end
+									barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+									barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS|ACCESS_FLAGS::MEMORY_WRITE_BITS;
+								}
+							}
+							//
+							barriers.push_back(tmp);
+						}
+						else
+						{
+							barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+							barrier.dep.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+							//
+							const bool isSource = recomputeMips&&nextRegions.empty();
+							tmp.newLayout = isSource ? layout_t::GENERAL:layout_t::TRANSFER_DST_OPTIMAL;
+							// fire off the pipeline barrier so we can start uploading right away
+							if (!xferCmdBuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers={&tmp,1}}))
+							{
+								reservations.m_logger.log("Initial Layout Transition failed for \"%s\"",system::ILogger::ELL_ERROR,item.gpuObj->getObjectDebugName());
+								markFailureInStaging(pFoundHash);
+								break;
+							}
+							//
+							if (!params.utilities->updateImageViaStagingBuffer(params.transfer, cpuImg->getBuffer()->getPointer(), cpuImg->getCreationParameters().format, item.gpuObj, tmp.newLayout, regions))
+							{
+								reservations.m_logger.log("Data upload failed for \"%s\"",system::ILogger::ELL_ERROR,item.gpuObj->getObjectDebugName());
+								markFailureInStaging(pFoundHash);
+								break;
+							}
+							//
+							if (isSource)
+							{
+								// no layout transition this time
+								tmp.newLayout = layout_t::UNDEFINED;
+								if (uniQueue)
+								{
+									barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,ACCESS_FLAGS::SAMPLED_READ_BIT);
+									barriers.push_back(tmp);
+								}
+								else if (computeNeedsOwnershipAcquire)
+								{
+									// ownership release needs to happen before semaphore signal
+									barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::NONE,ACCESS_FLAGS::NONE);
+									static_assert(false,"record ownership op");
+									barriers.push_back(tmp);
+								}
+							}
+							else
+							{
+								tmp.oldLayout = tmp.newLayout;
+								tmp.newLayout = finalLayout;
+								if (needToReleaseOwnership)
+								{
+									// ownership release and layout transition needs to happen between xfer and semaphore signal
+									barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::NONE,ACCESS_FLAGS::NONE);
+									static_assert(false,"record ownership op");
+									barriers.push_back(tmp);
+								}
+								else if (tmp.newLayout!=tmp.oldLayout)
+								{
+									// protect against anything that may overlap our layout transition end
+									barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,ACCESS_FLAGS::MEMORY_READ_BITS|ACCESS_FLAGS::MEMORY_WRITE_BITS);
+									barriers.push_back(tmp);
+								}
+							}
+						}
 #endif
+						// go forth
+						regions = nextRegions;
+					}
+				}
+				// failed in the for-loop
+				if (*pFoundHash==CHashCache::NoContentHash)
+					continue;
+				// do all post-transfer barriers for the image
+				if (!xferCmdBuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers=barriers}))
+				{
+					reservations.m_logger.log("Pipeline Barrier recording failed for \"%s\"",system::ILogger::ELL_ERROR,item.gpuObj->getObjectDebugName());
+					markFailureInStaging(pFoundHash);
+					continue;
+				}
+				// too many calls to `updateImageViaStagingBuffer` trigger overflow and a stall
+				// too few calls serialize compute against transfer
+				// golden middle is upload all image data for a single data, then recompute mips
+				// we can also explore pipelining multiple images but this needs a callback for extra work in `updateImageViaStagingBuffer` between overflow submit and semaphore wait
+
+
+				// TODO: compute
+					// if transfer different queue family!
+						// acquire from trasnfer BEFORE COMPUTE stage
+					// recompute
+					// transition to FINAL
+					// if owner different than transfer
+						// release to owner
+			}
 		}
 
 		// TODO: build BLASes and TLASes
@@ -3090,7 +3227,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 	{
 		auto& stagingCache = std::get<SReserveResult::staging_cache_t<AssetType>>(reservations.m_stagingCaches);
 		auto found = stagingCache.find(const_cast<asset_traits<AssetType>::video_t*>(dep));
-		if (found!=stagingCache.end() && found->second.value==core::blake3_hash_t{})
+		if (found!=stagingCache.end() && found->second.value==CHashCache::NoContentHash)
 			return true;
 		// dependent might be in readCache of one or more converters, so if in doubt assume its okay
 		return false;
@@ -3103,7 +3240,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 		cache.m_forwardMap.reserve(cache.m_forwardMap.size()+stagingCache.size());
 		cache.m_reverseMap.reserve(cache.m_reverseMap.size()+stagingCache.size());
 		for (auto& item : stagingCache)
-		if (item.second.value!=core::blake3_hash_t{}) // didn't get wiped
+		if (item.second.value!=CHashCache::NoContentHash) // didn't get wiped
 		{
 			// rescan all the GPU objects and find out if they depend on anything that failed, if so add to failure set
 			bool depsMissing = false;

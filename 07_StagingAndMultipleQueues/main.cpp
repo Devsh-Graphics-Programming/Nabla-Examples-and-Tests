@@ -168,130 +168,63 @@ private:
 			.scratchSemaphore = {
 				.semaphore = imgFillSemaphore.get(),
 				.value = 0,
-				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+				// because of layout transitions
+				.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 			}
 		};
-// Tmp stuff
-core::smart_refctd_ptr<ICPUImage> cpuImages[IMAGE_CNT];
-SIntendedSubmitInfo intendedSubmit = {
-	.queue = transferUpQueue,
-	.waitSemaphores = {},
-	.commandBuffers = {}, // fill later
-	.scratchSemaphore = {
-		.semaphore = imgFillSemaphore.get(),
-		.value = 0,
-		.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
-	}
-};
 
 		for (uint32_t imageIdx = 0; imageIdx < IMAGE_CNT; ++imageIdx)
 		{
 			const auto imagePathToLoad = imagesToLoad[imageIdx];
 			const size_t resourceIdx = imageIdx%SUBMITS_IN_FLIGHT;
-			{
-				auto cpuImage = loadFistAssetInBundle<ICPUImage>(imagePathToLoad);
-				if (!cpuImage)
-					logFailAndTerminate("Failed to load image from path %s",ILogger::ELL_ERROR,imagePathToLoad);
-
-// tmp stuff
-cpuImages[imageIdx] = cpuImage;
-
-				std::get<CAssetConverter::SInputs::asset_span_t<ICPUImage>>(inputs.assets) = {&cpuImage.get(),1};
-				auto reservation = converter->reserve(inputs);
-				// the `.value` is just a funny way to make the `smart_refctd_ptr` copyable
-				images[imageIdx] = reservation.getGPUObjects<ICPUImage>().front().value;
-				if (!images[imageIdx])
-					logFailAndTerminate("Failed to convert %s into an IGPUImage handle",ILogger::ELL_ERROR,imagePathToLoad);
-				// notify
-				imageHandlesCreated++;
-				imageHandlesCreated.notify_one();
-
-				// pick scratch commandbuffer
-				auto& cmdBuff = commandBuffers[resourceIdx];
-				// handle not resetting a pending cmdbuf
-				waitForResourceAvailability(m_imagesLoadedSemaphore.get(),imageIdx);
-				// finish filling the intended submit
-				// and launch the conversions
-				// we want our converter's submit to signal a semaphore that image contents are ready
-				// notify
-			}
-
-// UPLOAD
-auto& cmdBuff = commandBuffers[resourceIdx];
-			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imageLayoutTransitionBarrier0;
-			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imageLayoutTransitionBarrier1;
-			{
-				IImage::SSubresourceRange imgSubresourceRange{};
-				imgSubresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-				imgSubresourceRange.baseMipLevel = 0u;
-				imgSubresourceRange.baseArrayLayer = 0u;
-				imgSubresourceRange.levelCount = 1;
-				imgSubresourceRange.layerCount = 1u;
-
-				imageLayoutTransitionBarrier0.barrier.dep.srcAccessMask = ACCESS_FLAGS::NONE;
-				imageLayoutTransitionBarrier0.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				imageLayoutTransitionBarrier0.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::NONE;
-				imageLayoutTransitionBarrier0.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-				imageLayoutTransitionBarrier0.oldLayout = asset::IImage::LAYOUT::UNDEFINED;
-				imageLayoutTransitionBarrier0.newLayout = asset::IImage::LAYOUT::TRANSFER_DST_OPTIMAL;
-				imageLayoutTransitionBarrier0.image = images[imageIdx].get();
-				imageLayoutTransitionBarrier0.subresourceRange = imgSubresourceRange;
-
-				imageLayoutTransitionBarrier1.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS; 
-				imageLayoutTransitionBarrier1.barrier.dep.dstAccessMask = ACCESS_FLAGS::NONE;
-				imageLayoutTransitionBarrier1.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-				imageLayoutTransitionBarrier1.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::NONE; // NONE because the semaphore singnal comes right after
-				imageLayoutTransitionBarrier1.oldLayout = asset::IImage::LAYOUT::TRANSFER_DST_OPTIMAL;
-				imageLayoutTransitionBarrier1.newLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				imageLayoutTransitionBarrier1.image = images[imageIdx].get();
-				imageLayoutTransitionBarrier1.subresourceRange = imgSubresourceRange;
-			}
 			
-			IQueue::SSubmitInfo::SCommandBufferInfo imgFillCmdBuffInfo = { cmdBuff.get() };
-			intendedSubmit.commandBuffers = {&imgFillCmdBuffInfo,1};
-			
+			auto cpuImage = loadFistAssetInBundle<ICPUImage>(imagePathToLoad);
+			if (!cpuImage)
+				logFailAndTerminate("Failed to load image from path %s",ILogger::ELL_ERROR,imagePathToLoad);
+
+			std::get<CAssetConverter::SInputs::asset_span_t<ICPUImage>>(inputs.assets) = {&cpuImage.get(),1};
+			auto reservation = converter->reserve(inputs);
+			// the `.value` is just a funny way to make the `smart_refctd_ptr` copyable
+			images[imageIdx] = reservation.getGPUObjects<ICPUImage>().front().value;
+			if (!images[imageIdx])
+				logFailAndTerminate("Failed to convert %s into an IGPUImage handle",ILogger::ELL_ERROR,imagePathToLoad);
+			// notify
+			imageHandlesCreated++;
+			imageHandlesCreated.notify_one();
+
+			// pick scratch commandbuffer
+			auto& cmdBuff = commandBuffers[resourceIdx];
+			// handle not resetting a pending cmdbuf
+			waitForResourceAvailability(m_imagesLoadedSemaphore.get(),imageIdx);
+			// this automatically resets if commandbuffer is resettable
 			cmdBuff->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-
-			IGPUCommandBuffer::SPipelineBarrierDependencyInfo pplnBarrierDepInfo0;
-			pplnBarrierDepInfo0.imgBarriers = { &imageLayoutTransitionBarrier0, 1 };
-			if (!cmdBuff->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, pplnBarrierDepInfo0))
-				logFailAndTerminate("Failed to issue barrier!\n");
-
-			const uint64_t oldCntr = intendedSubmit.scratchSemaphore.value;
-			const bool uploadCommendRecorded = m_utils->updateImageViaStagingBuffer(
-				intendedSubmit, cpuImages[imageIdx]->getBuffer(), cpuImages[imageIdx]->getCreationParameters().format,
-				images[imageIdx].get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, cpuImages[imageIdx]->getRegions()
-			);
-			if (!uploadCommendRecorded)
-				logFailAndTerminate("Couldn't update image data.\n");
-
-			const auto newCntr = intendedSubmit.scratchSemaphore.value;
-			if (newCntr!=oldCntr)
-				m_logger->log("%d overflows when uploading image %d!\n", ILogger::ELL_PERFORMANCE, newCntr-oldCntr, imageIdx);
-
-			IGPUCommandBuffer::SPipelineBarrierDependencyInfo pplnBarrierDepInfo1;
-			pplnBarrierDepInfo1.imgBarriers = { &imageLayoutTransitionBarrier1, 1 };
-
-			if(!cmdBuff->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, pplnBarrierDepInfo1))
-				logFailAndTerminate("Failed to issue barrier!\n");
-
-			cmdBuff->end();
-
+			// finish filling the intended submit
+			IQueue::SSubmitInfo::SCommandBufferInfo imgFillCmdBuffInfo = {cmdBuff.get()};
+			params.transfer.commandBuffers = {&imgFillCmdBuffInfo,1};
+			// and launch the conversions
+			auto result = reservation.convert(params);
+			if (!result)
+				logFailAndTerminate("Failed to record conversions");
+			// debug log about overflows
+			const auto oldScratchVal = params.transfer.scratchSemaphore.value;
+			if (const auto diff=params.transfer.scratchSemaphore.value-oldScratchVal; diff>0)
+				m_logger->log("%d overflows when uploading image %d!\n",ILogger::ELL_PERFORMANCE,diff,imageIdx);
+			// we want our converter's submit to signal a semaphore that image contents are ready
 			const IQueue::SSubmitInfo::SSemaphoreInfo signalSemaphore = {
-				.semaphore=m_imagesLoadedSemaphore.get(),
-				.value=imageIdx+1u,
-				// cannot signal from COPY stage because there's a layout transition we need to wait for right after and it doesn't have an explicit stage
-				.stageMask=PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
-			};
-			getTransferUpQueue()->submit(intendedSubmit.popSubmit({&signalSemaphore,1}));
+                    .semaphore = m_imagesLoadedSemaphore.get(),
+                    .value = imageIdx+1u,
+                    // cannot signal from COPY stage because there's a layout transition and a possible ownership transfer
+					// and we need to wait for right after and they don't have an explicit stage
+                    .stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+            };
+            if (!result.submit({&signalSemaphore,1}))
+                    logFailAndTerminate("Failed to submit and await conversions");
+			// notify
 			transfersSubmitted++;
 			transfersSubmitted.notify_one();
 
-
 			// TODO: this is for basic testing purposes, will be deleted ofc
-			std::string msg = std::string("Image nr ") + std::to_string(imageIdx) + " loaded. Resource idx: " + std::to_string(resourceIdx);
 			//std::this_thread::sleep_for(std::chrono::milliseconds(6969));
-			m_logger->log(msg);
 		}
 	}
 
@@ -428,14 +361,6 @@ auto& cmdBuff = commandBuffers[resourceIdx];
 		// PROCESS IMAGES
 		for (uint32_t imageToProcessId = 0; imageToProcessId < IMAGE_CNT; imageToProcessId++)
 		{
-			const auto resourceIdx = imageToProcessId % SUBMITS_IN_FLIGHT;
-			auto& cmdBuff = commandBuffers[resourceIdx];
-			auto& commandPool = commandPools[resourceIdx];
-			
-			auto isResourceReused = waitForResourceAvailability(m_imagesProcessedSemaphore.get(), imageToProcessId);
-			if (isResourceReused)
-				commandPool->reset();
-
 			// UPDATE DESCRIPTOR SET WRITES
 			IGPUDescriptorSet::SDescriptorInfo imgInfo;
 			IGPUImageView::SCreationParams params{};
@@ -455,6 +380,15 @@ auto& cmdBuff = commandBuffers[resourceIdx];
 			view->setObjectDebugName(("Image View #"+std::to_string(imageToProcessId)).c_str());
 			imgInfo.desc = std::move(view);
 			imgInfo.info.image = { .imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL };
+
+			//
+			const auto resourceIdx = imageToProcessId % SUBMITS_IN_FLIGHT;
+			auto& cmdBuff = commandBuffers[resourceIdx];
+			auto& commandPool = commandPools[resourceIdx];
+
+			auto isResourceReused = waitForResourceAvailability(m_imagesProcessedSemaphore.get(), imageToProcessId);
+			if (isResourceReused)
+				commandPool->reset();
 
 			IGPUDescriptorSet::SWriteDescriptorSet write[1] = {
 				{.dstSet = descSets[resourceIdx].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &imgInfo }
