@@ -177,8 +177,6 @@ class CAssetConverter : public core::IReferenceCounted
 				// but we also track separate dpeth and stencil usage flags
 				core::bitflag<usage_flags_t> usageFlags = usage_flags_t::EUF_NONE;
 				core::bitflag<usage_flags_t> stencilUsage = usage_flags_t::EUF_NONE;
-				// all converted images default to optimal!
-				uint16_t linearTiling : 1 = false;
 				// moar stuff
 				uint16_t mutableFormat : 1 = false;
 				uint16_t cubeCompatible : 1 = false;
@@ -192,6 +190,8 @@ class CAssetConverter : public core::IReferenceCounted
 				uint16_t storageAtomic : 1 = false;
 				uint16_t storageImageLoadWithoutFormat : 1 = false;
 				uint16_t depthCompareSampledImage : 1 = false;
+				// all converted images default to optimal!
+				uint16_t linearTiling : 1 = false;
 				// aside from format promotion, we can also promote images to have a fuller mip chain and recompute it
 				uint16_t mipLevels : 6 = 0;
 				uint16_t recomputeMips : 1 = false;
@@ -202,6 +202,9 @@ class CAssetConverter : public core::IReferenceCounted
 					this_t retval = *this;
 					// changing tiling would mess up everything to do with format validation
 					if (linearTiling!=other.linearTiling)
+						return {false,retval};
+					// and these produce different image texel contents
+					if (mipLevels!=other.mipLevels || recomputeMips!=other.recomputeMips)
 						return {false,retval};
 
 					// combine usage flags
@@ -228,9 +231,6 @@ class CAssetConverter : public core::IReferenceCounted
 					retval.cubeCompatible |= other.cubeCompatible;
 					retval._3Dbut2DArrayCompatible |= other._3Dbut2DArrayCompatible;
 					retval.uncompressedViewOfCompressed |= other.uncompressedViewOfCompressed;
-					// just take max
-					retval.mipLevels = std::max(mipLevels,other.mipLevels);
-					retval.recomputeMips |= other.recomputeMips;
 					return {true,retval};
 				}
 		};
@@ -721,29 +721,53 @@ class CAssetConverter : public core::IReferenceCounted
 			{
 				return {};
 			}
-#if 0
-			// most plain PNG, JPG, etc. loaders don't produce images with mipmaps
-			virtual inline uint16_t getMipLevelCount(const size_t groupCopyID, const asset::ICPUImageView* view, const patch_t<asset::ICPUImageView>& patch) const
+
+			// most plain PNG, JPG, etc. loaders don't produce images with mip chains/tails
+			virtual inline uint8_t getMipLevelCount(const size_t groupCopyID, const asset::ICPUImage* image, const patch_t<asset::ICPUImage>& patch) const
 			{
-				const auto origCount = image->getCreationParameters().mipLevels;
-				assert(img);
-				if (img->getRegions().empty())
-					return origCount;
-				// makes no sense to mip-map integer values, and we can't encode into BC formats
-				auto format = img->getCreationParameters().format;
+				assert(image);
+				const auto& params = image->getCreationParameters();
+				// failure/no-change balue
+				const auto origCount = params.mipLevels;
+				const auto format = patch.format;
+				// makes no sense to have a mip-map of integer values, and we can't encode into BC formats (yet)
 				if (asset::isIntegerFormat(format) || asset::isBlockCompressionFormat(format))
 					return origCount;
-				// its enough to define a single mipmap region above the base level to prevent automatic computation
-				for (auto& region : img->getRegions())
-				if (region.imageSubresource.mipLevel)
-					return false;
-
-				// override the mip-count if its not an integer format and there was no mip-pyramid specified 
-				if (params.mipLevels == 1u && !asset::isIntegerFormat(params.format))
-					params.mipLevels = 1u + static_cast<uint32_t>(std::log2(static_cast<float>(core::max<uint32_t>(core::max<uint32_t>(params.extent.width, params.extent.height), params.extent.depth))));
-				return true;
+				// original image did not have a mip-tail of any size, and we have some image data
+				if (origCount==1 && image->getRegions().empty())
+					return origCount;
+				// ok lets do a full one then
+				const auto maxExtent = std::max<uint32_t>(std::max<uint32_t>(params.extent.width,params.extent.height),params.extent.depth);
+				assert(maxExtent>0);
+				return hlsl::findMSB(maxExtent)+1;
 			}
-#endif
+
+			// whether any mipmap needs to be recomputed, gets called AFTER `getMipLevelCount` on the same image asset instance
+			virtual inline bool needToRecomputeMips(const size_t groupCopyID, const asset::ICPUImage* image, const patch_t<asset::ICPUImage>& patch) const
+			{
+				assert(image);
+				const auto format = patch.format;
+				// makes no sense to have a mip-map of integer values, and we can't encode into BC formats (yet)
+				if (asset::isIntegerFormat(format) || asset::isBlockCompressionFormat(format))
+					return false;
+				// base mip level has data to use as source
+				if (image->getRegions(0).empty())
+					return false;
+				// any mip level is completely empty (mip levels with any data will NOT be recomputed) and has a mip level with data preceeding it
+				const auto mipCount = patch.mipLevels;
+				bool previousLevelHasData = true;
+				for (uint8_t l=1; l<mipCount; l++)
+				{
+					if (image->getRegions(l).empty())
+					{
+						if (previousLevelHasData)
+							return true;
+					}
+					else
+						previousLevelHasData = true;
+				}
+				return false;
+			}
 
 			// Typed Range of Inputs of the same type
             template<asset::Asset AssetType>

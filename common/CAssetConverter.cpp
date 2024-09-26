@@ -149,20 +149,20 @@ CAssetConverter::patch_impl_t<ICPUImage>::patch_impl_t(const ICPUImage* image)
 	}
 	else if(!image->getRegions().empty())
 		usageFlags |= usage_flags_t::EUF_TRANSFER_DST_BIT;
-
+// If any mip level will be recomputed we need to sample from others. Stencil can't be written to with a storage image, so only add to regular usage.
+//if (_recomputeMips)
+//	usageFlags |= IGPUImage::EUF_SAMPLED_BIT;
+	//
 	using create_flags_t = IGPUImage::E_CREATE_FLAGS;
 	mutableFormat = params.flags.hasFlags(create_flags_t::ECF_MUTABLE_FORMAT_BIT);
 	cubeCompatible = params.flags.hasFlags(create_flags_t::ECF_CUBE_COMPATIBLE_BIT);
 	_3Dbut2DArrayCompatible = params.flags.hasFlags(create_flags_t::ECF_2D_ARRAY_COMPATIBLE_BIT);
 	uncompressedViewOfCompressed = params.flags.hasFlags(create_flags_t::ECF_BLOCK_TEXEL_VIEW_COMPATIBLE_BIT);
-
 	// meta usages only matter for promotion
 	if (canAttemptFormatPromotion())
 		deduceMetaUsages(*this,usageFlags|stencilUsage,format);
-
-// TODO: full mip chain?
-	mipLevels = params.mipLevels;
-// TODO: recompute mip chain
+//mipLevels = mipLevelOverride ? mipLevelOverride:params.mipLevels;
+//recomputeMips = _recomputeMips;
 }
 bool CAssetConverter::patch_impl_t<ICPUImage>::valid(const ILogicalDevice* device)
 {
@@ -341,7 +341,7 @@ class AssetVisitor : public CRTP
 			const auto* dep = params.image.get();
 			if (!dep)
 				return false;
-			CAssetConverter::patch_t<ICPUImage> patch = {dep};
+			CAssetConverter::patch_t<ICPUImage> patch = { dep };
 			// any other aspects than stencil?
 			if (params.subresourceRange.aspectMask.value&(~IGPUImage::E_ASPECT_FLAGS::EAF_STENCIL_BIT))
 				patch.usageFlags |= userPatch.subUsages;
@@ -378,8 +378,7 @@ class AssetVisitor : public CRTP
 			patch.storageAtomic |= userPatch.storageAtomic;
 			patch.storageImageLoadWithoutFormat |= userPatch.storageImageLoadWithoutFormat;
 			patch.depthCompareSampledImage |= userPatch.depthCompareSampledImage;
-// TODO: mipLevels
-// TODO: recomputeMips
+			// decision about whether to extend mipchain depends on format promotion (away from Block Compressed) so done in separate pass after DFS
 			return descend<ICPUImage>(dep,std::move(patch));
 		}
 		inline bool impl(const instance_t<ICPUDescriptorSetLayout>& instance, const CAssetConverter::patch_t<ICPUDescriptorSetLayout>& userPatch)
@@ -1721,7 +1720,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 				for (size_t i=0; i<count; i++)
 				if (auto asset=assets[i]; asset) // skip invalid inputs silently
 				{
-					patch_t<AssetType> patch(asset);
+					patch_t<AssetType> patch = {asset};
 					if (i<patches.size())
 					{
 						// derived patch has to be valid
@@ -1805,6 +1804,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 			std::get<dfs_cache<ICPUImage>>(dfsCaches).for_each([device,&inputs](const instance_t<ICPUImage>& instance, dfs_cache<ICPUImage>::created_t& created)->void
 				{
 					auto& patch = created.patch;
+					const auto* physDev = device->getPhysicalDevice();
 					// Why don't we check format creation possibility for non-promotable images?
 					// We'd have to track (extended) usages from views with mutated formats separately from usages from views of the same format.
 					// And mutable format creation flag will always preclude ANY format promotion, therefore all usages come from views that have the same initial format!
@@ -1820,12 +1820,14 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 						req.usages.storageImageAtomic = patch.storageAtomic;
 						req.usages.storageImageLoadWithoutFormat = patch.storageImageLoadWithoutFormat;
 						req.usages.depthCompareSampledImage = patch.depthCompareSampledImage;
-						patch.format = device->getPhysicalDevice()->promoteImageFormat(req,static_cast<IGPUImage::TILING>(patch.linearTiling));
+						patch.format = physDev->promoteImageFormat(req,static_cast<IGPUImage::TILING>(patch.linearTiling));
 						if (patch.format==EF_UNKNOWN)
+						{
 							inputs.logger.log(
 								"ICPUImage %p in group %d with NEXT patch index %d cannot be created with its original format due to its usages and failed to promote to a different format!",
 								system::ILogger::ELL_ERROR,instance.asset,instance.uniqueCopyGroupID,created.next
 							);
+						}
 					}
 				}
 			);
@@ -2063,29 +2065,66 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 				for (auto i=0ull; i<entry.second.copyCount; i++)
 				{
 					const ICPUImage* asset = entry.second.canonicalAsset;
-					const auto& cpuParams = asset->getCreationParameters();
-					const auto& patch = dfsCache.nodes[entry.second.patchIndex.value].patch;
+					const auto& node = dfsCache.nodes[entry.second.patchIndex.value];
+					const auto& patch = node.patch;
 					//
 					IGPUImage::SCreationParams params = {};
-					params.type = cpuParams.type;
-					params.samples = cpuParams.samples;
+					params = asset->getCreationParameters();
+					// deal with format
 					params.format = patch.format;
-					params.extent = cpuParams.extent;
+					const auto& allowedBaseFormatUsages = device->getPhysicalDevice()->getImageFormatUsagesOptimalTiling()[params.format];
+					if (allowedBaseFormatUsages==IPhysicalDevice::SFormatImageUsages::SUsage{})
+					{
+						const auto hashAsU64 = reinterpret_cast<const uint64_t*>(node.contentHash.data);
+						inputs.logger.log(
+							"Image Format %d is wholly unsupported by the device, cannot create Image with asset hash %8llx%8llx%8llx%8llx",
+							system::ILogger::ELL_ERROR,params.format,hashAsU64[0],hashAsU64[1],hashAsU64[2],hashAsU64[3]
+						);
+						continue;
+					}
+					//
 					params.mipLevels = patch.mipLevels;
-					params.arrayLayers = cpuParams.arrayLayers;
 					// patch creation params
 					using create_flags_t = IGPUImage::E_CREATE_FLAGS;
-					params.flags = cpuParams.flags;
 					if (patch.mutableFormat)
-						params.flags = create_flags_t::ECF_MUTABLE_FORMAT_BIT;
+						params.flags |= create_flags_t::ECF_MUTABLE_FORMAT_BIT;
 					if (patch.cubeCompatible)
-						params.flags = create_flags_t::ECF_CUBE_COMPATIBLE_BIT;
+						params.flags |= create_flags_t::ECF_CUBE_COMPATIBLE_BIT;
 					if (patch._3Dbut2DArrayCompatible)
-						params.flags = create_flags_t::ECF_2D_ARRAY_COMPATIBLE_BIT;
+						params.flags |= create_flags_t::ECF_2D_ARRAY_COMPATIBLE_BIT;
 					if (patch.uncompressedViewOfCompressed)
-						params.flags = create_flags_t::ECF_BLOCK_TEXEL_VIEW_COMPATIBLE_BIT;
+						params.flags |= create_flags_t::ECF_BLOCK_TEXEL_VIEW_COMPATIBLE_BIT;
 					params.usage = patch.usageFlags;
+					// Now add STORAGE USAGE to creation parameters if mip-maps need to be recomputed
+					if (patch.recomputeMips)
+					{
+						params.usage |= IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT;
+						// formats like SRGB etc. can't be stored to
+						if (!allowedBaseFormatUsages.storageImage)
+						{
+							// but image views with type-punned formats that are store-able can be created
+							params.flags |= create_flags_t::ECF_MUTABLE_FORMAT_BIT;
+							// making UINT views of whole block compressed textures requires some special care (even though we can't encode yet)
+							if (isBlockCompressionFormat(patch.format))
+								params.flags |= create_flags_t::ECF_2D_ARRAY_COMPATIBLE_BIT;
+						}
+					}
 					params.stencilUsage = patch.stencilUsage;
+					// time to check if the format supports all the usages or not
+					{
+						IPhysicalDevice::SFormatImageUsages::SUsage finalUsages(params.usage|params.stencilUsage);
+						finalUsages.linearlySampledImage = patch.linearlySampled;
+						finalUsages.storageImageAtomic = patch.storageAtomic;
+						finalUsages.storageImageLoadWithoutFormat = patch.storageImageLoadWithoutFormat;
+						finalUsages.depthCompareSampledImage = patch.depthCompareSampledImage;
+						// we have some usages not allowed on this base format, so they must have been added for views with different formats
+						if ((finalUsages&allowedBaseFormatUsages)!=finalUsages)
+						{
+							// but for this a mutable format and extended usage creation flag is needed!
+							params.flags |= create_flags_t::ECF_EXTENDED_USAGE_BIT;
+							params.flags |= create_flags_t::ECF_MUTABLE_FORMAT_BIT; // Question: do we always add it, or require it be present?
+						}
+					}
 					// concurrent ownership if any
 					const auto outIx = i+entry.second.firstCopyIx;
 					const auto uniqueCopyGroupID = gpuObjUniqueCopyGroupIDs[outIx];
