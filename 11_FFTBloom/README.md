@@ -58,3 +58,11 @@ and again a similar expression for `output_y[T]`
 # Nyquist location
 
 Thread 0 always holds the Nyquist frequency as its second element. In fact, from the rule we had deduced earlier, line 1 will read `e(1) holds bitreverse(1)`. `bitreverse(1)` is a 1 in the MSB followed by all 0s, which is exactly the Nyquist position ($2^{N-1}$) while `e(1)` works out to be `1|0` which means it's the second (index 1) element of thread 0
+
+# Experimental assertions with no proof
+
+## Finding out which elements to keep when doing a real-only FFT
+
+When doing DFT on a real array, its result is known to be "symmetric conjugate" in a sense. That is, $DFT[T] = DFT[-T]^*$ (again, see https://kovleventer.com/blog/fft_real/ if you don't get the notation). If we had an ordered DFT, we could just keep elements $0$ through Nyquist (remember Nyquist is element indexed $\frac N 2$, for $N$ the length of the array) since all other elements are just the conjugate of one of these. So after doing our FFT, we need to figure out how to get these first elements. 
+
+Here's an observation: except for Nyquist, which was thread `0`s second element after the FFT like discussed earlier, all of these elements are stored as the even elements of each thread. By "even" here we mean the following: ##TODO 
