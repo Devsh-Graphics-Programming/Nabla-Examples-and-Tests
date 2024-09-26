@@ -71,7 +71,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 
-			m_assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
+			m_assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(m_system));
 			auto* geometry = m_assetManager->getGeometryCreator();
 
 			m_semaphore = m_device->createSemaphore(m_realFrameIx);
@@ -137,69 +137,33 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			//pass.scene = CScene::create<CScene::CREATE_RESOURCES_DIRECTLY_WITH_DEVICE>(smart_refctd_ptr(m_utils), smart_refctd_ptr(m_logger), gQueue, geometry);
 			pass.scene = CScene::create<CScene::CREATE_RESOURCES_WITH_ASSET_CONVERTER>(smart_refctd_ptr(m_utils), smart_refctd_ptr(m_logger), gQueue, geometry);
 			{
-				using binding_flags_t = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS;
-				{
-					IGPUSampler::SParams params;
-					params.AnisotropicFilter = 1u;
-					params.TextureWrapU = ISampler::ETC_REPEAT;
-					params.TextureWrapV = ISampler::ETC_REPEAT;
-					params.TextureWrapW = ISampler::ETC_REPEAT;
-
-					pass.ui.samplers.gui = m_device->createSampler(params);
-					pass.ui.samplers.gui->setObjectDebugName("Nabla IMGUI UI Sampler");
-				}
-
-				{
-					IGPUSampler::SParams params;
-					params.MinLod = 0.f;
-					params.MaxLod = 0.f;
-					params.TextureWrapU = ISampler::ETC_CLAMP_TO_EDGE;
-					params.TextureWrapV = ISampler::ETC_CLAMP_TO_EDGE;
-					params.TextureWrapW = ISampler::ETC_CLAMP_TO_EDGE;
-
-					pass.ui.samplers.scene = m_device->createSampler(params);
-					pass.ui.samplers.scene->setObjectDebugName("Nabla IMGUI Scene Sampler");
-				}
-
-				std::array<core::smart_refctd_ptr<IGPUSampler>, 69u> immutableSamplers;
-				for (auto& it : immutableSamplers)
-					it = smart_refctd_ptr(pass.ui.samplers.scene);
-
-				immutableSamplers[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID] = smart_refctd_ptr(pass.ui.samplers.gui);
-
-				const IGPUDescriptorSetLayout::SBinding bindings[] =
-				{
+				pass.ui.manager = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>
+				(
+					nbl::ext::imgui::UI::S_CREATION_PARAMETERS
 					{
-						.binding = 0u,
-						.type = IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
-						.createFlags = core::bitflag(binding_flags_t::ECF_UPDATE_AFTER_BIND_BIT) | binding_flags_t::ECF_PARTIALLY_BOUND_BIT | binding_flags_t::ECF_UPDATE_UNUSED_WHILE_PENDING_BIT,
-						.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-						.count = 69u
-					},
-					{
-						.binding = 1u,
-						.type = IDescriptor::E_TYPE::ET_SAMPLER,
-						.createFlags = binding_flags_t::ECF_NONE,
-						.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-						.count = 69u,
-						.immutableSamplers = immutableSamplers.data()
+						.assetManager = m_assetManager.get(),
+						.utilities = m_utils.get(),
+						.transfer = getTransferUpQueue(),
+						.renderpass = renderpass,
+						.subpassIx = 0u,
+						//.resources = { .descriptorSetLayout = descriptorSetLayout.get() }
 					}
-				};
+				);
 
-				auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
-
-				pass.ui.manager = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(smart_refctd_ptr(m_device), smart_refctd_ptr(descriptorSetLayout), renderpass, 0u);
+				// note that we use default layout provided by our extension, but you are free to create your own by filling nbl::ext::imgui::UI::S_CREATION_PARAMETERS::resources
+				const auto* descriptorSetLayout = pass.ui.manager->getPipeline()->getLayout()->getDescriptorSetLayout(0u);
+				const auto& params = pass.ui.manager->getCreationParameters();
 
 				IDescriptorPool::SCreateInfo descriptorPoolInfo = {};
-				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLER)] = 69u;
-				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE)] = 69u;
+				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLER)] = params.resources.count;
+				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE)] = params.resources.count;
 				descriptorPoolInfo.maxSets = 1u;
 				descriptorPoolInfo.flags = IDescriptorPool::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT;
 
 				m_descriptorSetPool = m_device->createDescriptorPool(std::move(descriptorPoolInfo));
 				assert(m_descriptorSetPool);
 
-				pass.ui.descriptorSet = m_descriptorSetPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout));
+				m_descriptorSetPool->createDescriptorSets(1u, &descriptorSetLayout, &pass.ui.descriptorSet);
 				assert(pass.ui.descriptorSet);
 
 			}
@@ -452,12 +416,14 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					// Nabla Imgui backend MDI buffer info
 					{
-						auto* streamingBuffer = pass.ui.manager->getStreamingBuffer();
-						const size_t totalAllocatedSize = streamingBuffer->get_total_size();
-						const size_t isUse = streamingBuffer->max_size();
+						auto* streaminingBuffer = pass.ui.manager->getStreamingBuffer();
 
-						float freePercentage = 100.0f * (float)(totalAllocatedSize - isUse) / (float)totalAllocatedSize;
-						float allocatedPercentage = 1.0f - (float)(totalAllocatedSize - isUse) / (float)totalAllocatedSize;
+						const size_t total = streaminingBuffer->get_total_size();			// total memory range size for which allocation can be requested
+						const size_t maxSizeToAllocate = streaminingBuffer->max_size();	// max total free bloock memory size we can still allocate from total memory available
+						const size_t consumedMemory = total - maxSizeToAllocate;			// memory currently consumed by streaming buffer
+
+						float freePercentage = 100.0f * (float)(maxSizeToAllocate) / (float)total;
+						float allocatedPercentage = (float)(consumedMemory) / (float)total;
 
 						ImVec2 barSize = ImVec2(400, 30);
 						float windowPadding = 10.0f;
@@ -466,18 +432,18 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						ImGui::SetNextWindowSize(ImVec2(barSize.x + 2 * windowPadding, 110 + verticalPadding), ImGuiCond_Always);
 						ImGui::Begin("Nabla Imgui MDI Buffer Info", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar);
 
-						ImGui::Text("Total Allocated Size: %zu bytes", totalAllocatedSize);
-						ImGui::Text("In use: %zu bytes", isUse);
+						ImGui::Text("Total Allocated Size: %zu bytes", total);
+						ImGui::Text("In use: %zu bytes", consumedMemory);
 						ImGui::Text("Buffer Usage:");
 
 						ImGui::SetCursorPosX(windowPadding);
 
 						if (freePercentage > 70.0f)
-							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.0f, 1.0f, 0.0f, 0.4f));
+							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.0f, 1.0f, 0.0f, 0.4f));  // Green
 						else if (freePercentage > 30.0f)
-							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 1.0f, 0.0f, 0.4f));
+							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 1.0f, 0.0f, 0.4f));  // Yellow
 						else
-							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 0.0f, 0.0f, 0.4f));
+							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 0.0f, 0.0f, 0.4f));  // Red
 
 						ImGui::ProgressBar(allocatedPercentage, barSize, "");
 
@@ -609,30 +575,24 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			IQueue::SSubmitInfo::SCommandBufferInfo commandBuffersInfo[] = {{.cmdbuf = cb }};
 
-			SIntendedSubmitInfo intendedSubmitInfo = 
-			{
-				.queue = queue,
-				.waitSemaphores = {},
-				.commandBuffers = { commandBuffersInfo,1 },
-				.scratchSemaphore = {
-					.semaphore = m_semaphore.get(),
-					.value = m_realFrameIx,
-					.stageMask = PIPELINE_STAGE_FLAGS::ALL_GRAPHICS_BITS 
-				}
-			};
-
 			// UI render pass
 			{
 				auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-				const IGPUCommandBuffer::SRenderpassBeginInfo info = 
+				const IGPUCommandBuffer::SRenderpassBeginInfo renderpassInfo = 
 				{
 					.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
 					.colorClearValues = &clear.color,
 					.depthStencilClearValues = nullptr,
 					.renderArea = currentRenderArea
 				};
-				cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-				pass.ui.manager->render(intendedSubmitInfo, pass.ui.descriptorSet.get());
+				nbl::video::ISemaphore::SWaitInfo waitInfo = { .semaphore = m_semaphore.get(), .value = m_realFrameIx + 1u };
+
+				cb->beginRenderPass(renderpassInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+				const auto uiParams = pass.ui.manager->getCreationParameters();
+				auto* pipeline = pass.ui.manager->getPipeline();
+				cb->bindGraphicsPipeline(pipeline);
+				cb->bindDescriptorSets(EPBP_GRAPHICS, pipeline->getLayout(), uiParams.resources.textures.setIx, 1u, &pass.ui.descriptorSet.get()); // note that we use default UI pipeline layout where uiParams.resources.textures.setIx == uiParams.resources.samplers.setIx
+				pass.ui.manager->render(cb, waitInfo);
 				cb->endRenderPass();
 			}
 			cb->end();
@@ -706,9 +666,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			static std::chrono::microseconds previousEventTimestamp{};
 
-			// TODO: Use real deltaTime instead
-			static float deltaTimeInSec = 0.1f;
-
 			m_inputSystem->getDefaultMouse(&mouse);
 			m_inputSystem->getDefaultKeyboard(&keyboard);
 
@@ -768,10 +725,20 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			}
 			if (move) camera.endInputProcessing(nextPresentationTimestamp);
 
-			core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
-			core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
+			const auto cursorPosition = m_window->getCursorControl()->getPosition();
 
-			pass.ui.manager->update(m_window.get(), deltaTimeInSec, mouseEvents, keyboardEvents);
+			nbl::ext::imgui::UI::S_UPDATE_PARAMETERS params = 
+			{
+				.mousePosition = nbl::hlsl::float32_t2(cursorPosition.x, cursorPosition.y) - nbl::hlsl::float32_t2(m_window->getX(), m_window->getY()),
+				.displaySize = { m_window->getWidth(), m_window->getHeight() },
+				.events = 
+				{
+					.mouse = core::SRange<const nbl::ui::SMouseEvent>(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size()),
+					.keyboard = core::SRange<const nbl::ui::SKeyboardEvent>(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size())
+				}
+			};
+
+			pass.ui.manager->update(params);
 		}
 
 	private:
