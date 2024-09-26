@@ -149,9 +149,6 @@ CAssetConverter::patch_impl_t<ICPUImage>::patch_impl_t(const ICPUImage* image)
 	}
 	else if(!image->getRegions().empty())
 		usageFlags |= usage_flags_t::EUF_TRANSFER_DST_BIT;
-// If any mip level will be recomputed we need to sample from others. Stencil can't be written to with a storage image, so only add to regular usage.
-//if (_recomputeMips)
-//	usageFlags |= IGPUImage::EUF_SAMPLED_BIT;
 	//
 	using create_flags_t = IGPUImage::E_CREATE_FLAGS;
 	mutableFormat = params.flags.hasFlags(create_flags_t::ECF_MUTABLE_FORMAT_BIT);
@@ -161,8 +158,6 @@ CAssetConverter::patch_impl_t<ICPUImage>::patch_impl_t(const ICPUImage* image)
 	// meta usages only matter for promotion
 	if (canAttemptFormatPromotion())
 		deduceMetaUsages(*this,usageFlags|stencilUsage,format);
-//mipLevels = mipLevelOverride ? mipLevelOverride:params.mipLevels;
-//recomputeMips = _recomputeMips;
 }
 bool CAssetConverter::patch_impl_t<ICPUImage>::valid(const ILogicalDevice* device)
 {
@@ -1805,13 +1800,18 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 				{
 					auto& patch = created.patch;
 					const auto* physDev = device->getPhysicalDevice();
-					// Why don't we check format creation possibility for non-promotable images?
-					// We'd have to track (extended) usages from views with mutated formats separately from usages from views of the same format.
-					// And mutable format creation flag will always preclude ANY format promotion, therefore all usages come from views that have the same initial format!
-					if (patch.canAttemptFormatPromotion())
+					const bool canPromoteFormat = patch.canAttemptFormatPromotion();
+					// return true is success
+					auto promoteFormat = [=]()->E_FORMAT
 					{
+						const auto origFormat = instance.asset->getCreationParameters().format;
+						// Why don't we check format creation possibility for non-promotable images?
+						if (canPromoteFormat)
+							return origFormat;
+						// We'd have to track (extended) usages from views with mutated formats separately from usages from views of the same format.
+						// And mutable format creation flag will always preclude ANY format promotion, therefore all usages come from views that have the same initial format!
 						IPhysicalDevice::SImageFormatPromotionRequest req = {
-							.originalFormat = created.patch.format,
+							.originalFormat = origFormat,
 							.usages = {patch.usageFlags|patch.stencilUsage}
 						};
 						req.usages.linearlySampledImage = patch.linearlySampled;
@@ -1820,13 +1820,38 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 						req.usages.storageImageAtomic = patch.storageAtomic;
 						req.usages.storageImageLoadWithoutFormat = patch.storageImageLoadWithoutFormat;
 						req.usages.depthCompareSampledImage = patch.depthCompareSampledImage;
-						patch.format = physDev->promoteImageFormat(req,static_cast<IGPUImage::TILING>(patch.linearTiling));
-						if (patch.format==EF_UNKNOWN)
+						const auto format = physDev->promoteImageFormat(req,static_cast<IGPUImage::TILING>(patch.linearTiling));
+						if (format==EF_UNKNOWN)
 						{
 							inputs.logger.log(
 								"ICPUImage %p in group %d with NEXT patch index %d cannot be created with its original format due to its usages and failed to promote to a different format!",
 								system::ILogger::ELL_ERROR,instance.asset,instance.uniqueCopyGroupID,created.next
 							);
+						}
+						return format;
+					};
+					// first promote try
+					patch.format = promoteFormat();
+					if (patch.format==EF_UNKNOWN)
+						return;
+					// after promoted format is known we can proceed with mip tail extenion and tagging if mipmaps get recomputed
+					patch.mipLevels = inputs.getMipLevelCount(instance.uniqueCopyGroupID,instance.asset,patch);
+					// important to call AFTER the mipchain length is known
+					patch.recomputeMips = inputs.needToRecomputeMips(instance.uniqueCopyGroupID,instance.asset,patch);
+					// If any mip level will be recomputed we need to sample from others. Stencil can't be written to with a storage image, so only add to regular usage.
+					if (patch.recomputeMips)
+					{
+						patch.usageFlags |= IGPUImage::EUF_SAMPLED_BIT;
+						// usage changed
+						const auto firstFormat = patch.format;
+						patch.format = promoteFormat();
+						// if failed then
+						if (patch.format==EF_UNKNOWN)
+						{
+							// undo our offending change
+							patch.recomputeMips;
+							// and restore the original promotion
+							patch.format = firstFormat;
 						}
 					}
 				}

@@ -203,9 +203,6 @@ class CAssetConverter : public core::IReferenceCounted
 					// changing tiling would mess up everything to do with format validation
 					if (linearTiling!=other.linearTiling)
 						return {false,retval};
-					// and these produce different image texel contents
-					if (mipLevels!=other.mipLevels || recomputeMips!=other.recomputeMips)
-						return {false,retval};
 
 					// combine usage flags
 					retval.usageFlags |= other.usageFlags;
@@ -231,6 +228,10 @@ class CAssetConverter : public core::IReferenceCounted
 					retval.cubeCompatible |= other.cubeCompatible;
 					retval._3Dbut2DArrayCompatible |= other._3Dbut2DArrayCompatible;
 					retval.uncompressedViewOfCompressed |= other.uncompressedViewOfCompressed;
+					// We don't touch `mipLevels` or `recomputeMips` because during DFS they're uninitialized
+					// and during post-DFS phase, `this` is the already patched entry we're merging to, so always takes precedence
+					// Because merge is only called on identical asset and groupID handles, SInputs callback is called with same parameters always
+					// therefore we don't need to think about how patches with different `mipLevels` or `recomputeMips` values would merge.
 					return {true,retval};
 				}
 		};
