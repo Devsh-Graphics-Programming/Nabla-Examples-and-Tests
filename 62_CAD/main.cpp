@@ -300,11 +300,11 @@ public:
 			IGPUBuffer::SCreationParams globalsCreationParams = {};
 			globalsCreationParams.size = sizeof(Globals);
 			globalsCreationParams.usage = IGPUBuffer::EUF_UNIFORM_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
-			globalsBuffer = m_device->createBuffer(std::move(globalsCreationParams));
+			m_globalsBuffer = m_device->createBuffer(std::move(globalsCreationParams));
 
-			IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = globalsBuffer->getMemoryReqs();
+			IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = m_globalsBuffer->getMemoryReqs();
 			memReq.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			auto globalsBufferMem = m_device->allocate(memReq, globalsBuffer.get());
+			auto globalsBufferMem = m_device->allocate(memReq, m_globalsBuffer.get());
 		}
 		
 
@@ -778,8 +778,8 @@ public:
 
 				// Descriptors For Set 0:
 				descriptorInfosSet0[0u].info.buffer.offset = 0u;
-				descriptorInfosSet0[0u].info.buffer.size = globalsBuffer->getCreationParams().size;
-				descriptorInfosSet0[0u].desc = globalsBuffer;
+				descriptorInfosSet0[0u].info.buffer.size = m_globalsBuffer->getCreationParams().size;
+				descriptorInfosSet0[0u].desc = m_globalsBuffer;
 
 				descriptorInfosSet0[1u].info.buffer.offset = 0u;
 				descriptorInfosSet0[1u].info.buffer.size = drawResourcesFiller.gpuDrawBuffers.drawObjectsBuffer->getCreationParams().size;
@@ -875,11 +875,13 @@ public:
 		}
 		
 		// Main Pipeline Shaders
-		std::array<smart_refctd_ptr<IGPUShader>, 4u> shaders = {};
+		std::array<smart_refctd_ptr<IGPUShader>, 4u> mainPipelineShaders = {};
 		constexpr auto vertexShaderPath = "../shaders/main_pipeline/vertex_shader.hlsl";
 		constexpr auto fragmentShaderPath = "../shaders/main_pipeline/fragment_shader.hlsl";
 		constexpr auto debugfragmentShaderPath = "../shaders/main_pipeline/fragment_shader_debug.hlsl";
 		constexpr auto resolveAlphasShaderPath = "../shaders/main_pipeline/resolve_alphas.hlsl";
+		// GeoTexture Pipeline Shaders
+		std::array<smart_refctd_ptr<IGPUShader>, 2u> geoTexturePipelineShaders = {};
 		{
 			smart_refctd_ptr<IShaderCompiler::CCache> shaderReadCache = nullptr;
 			smart_refctd_ptr<IShaderCompiler::CCache> shaderWriteCache = core::make_smart_refctd_ptr<IShaderCompiler::CCache>();
@@ -931,10 +933,13 @@ public:
 
 					return m_device->createShader({ cpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get()});
 				};
-			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::E_SHADER_STAGE::ESS_VERTEX);
-			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			mainPipelineShaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::E_SHADER_STAGE::ESS_VERTEX);
+			mainPipelineShaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			mainPipelineShaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			mainPipelineShaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			
+			geoTexturePipelineShaders[0] = loadCompileAndCreateShader(GeoTextureRenderer::VertexShaderRelativePath, IShader::E_SHADER_STAGE::ESS_VERTEX);
+			geoTexturePipelineShaders[1] = loadCompileAndCreateShader(GeoTextureRenderer::FragmentShaderRelativePath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 			
 			core::smart_refctd_ptr<system::IFile> shaderWriteCacheFile;
 			{
@@ -980,7 +985,7 @@ public:
 			
 			const IGPUShader::SSpecInfo fragSpec = {
 				.entryPoint = "main",
-				.shader = shaders[3u].get()
+				.shader = mainPipelineShaders[3u].get()
 			};
 
 			resolveAlphaGraphicsPipeline = fsTriangleProtoPipe.createPipeline(fragSpec, pipelineLayout.get(), compatibleRenderPass.get(), 0u, blendParams);
@@ -993,8 +998,8 @@ public:
 		{
 			
 			IGPUShader::SSpecInfo specInfo[2] = {
-				{.shader=shaders[0u].get() },
-				{.shader=shaders[1u].get() },
+				{.shader=mainPipelineShaders[0u].get() },
+				{.shader=mainPipelineShaders[1u].get() },
 			};
 
 			IGPUGraphicsPipeline::SCreationParams params[1] = {};
@@ -1019,7 +1024,7 @@ public:
 
 			if constexpr (DebugModeWireframe)
 			{
-				specInfo[1u].shader = shaders[2u].get(); // change only fragment shader to fragment_shader_debug.hlsl
+				specInfo[1u].shader = mainPipelineShaders[2u].get(); // change only fragment shader to fragment_shader_debug.hlsl
 				params[0].cached.rasterization.polygonMode = asset::EPM_LINE;
 				
 				if (!m_device->createGraphicsPipelines(nullptr,params,&debugGraphicsPipeline))
@@ -1067,7 +1072,10 @@ public:
 				return Hatch::generateHatchFillPatternMSDF(m_textRenderer.get(), pattern, drawResourcesFiller.getMSDFResolution());
 			}
 		);
-
+		
+		m_geoTextureRenderer = std::unique_ptr<GeoTextureRenderer>(new GeoTextureRenderer(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger)));
+		m_geoTextureRenderer->initialize(geoTexturePipelineShaders[0].get(), geoTexturePipelineShaders[1].get(), compatibleRenderPass.get(), m_globalsBuffer);
+		
 		return true;
 	}
 
@@ -1193,7 +1201,7 @@ public:
 		globalData.screenToWorldRatio = screenToWorld;
 		globalData.worldToScreenRatio = (1.0/screenToWorld);
 		globalData.miterLimit = 10.0f;
-		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = globalsBuffer.get() };
+		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = m_globalsBuffer.get() };
 		bool updateSuccess = cb->updateBuffer(globalBufferUpdateRange, &globalData);
 		assert(updateSuccess);
 		
@@ -1269,7 +1277,7 @@ public:
 					.buffer = drawResourcesFiller.gpuDrawBuffers.indexBuffer,
 				};
 			}
-			if (globalsBuffer->getSize() > 0u)
+			if (m_globalsBuffer->getSize() > 0u)
 			{
 				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
 				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
@@ -1279,8 +1287,8 @@ public:
 				bufferBarrier.range =
 				{
 					.offset = 0u,
-					.size = globalsBuffer->getSize(),
-					.buffer = globalsBuffer,
+					.size = m_globalsBuffer->getSize(),
+					.buffer = m_globalsBuffer,
 				};
 			}
 			if (drawResourcesFiller.getCurrentDrawObjectsBufferSize() > 0u)
@@ -3155,7 +3163,7 @@ protected:
 	
 	smart_refctd_ptr<IGPUSampler>		msdfTextureSampler;
 
-	smart_refctd_ptr<IGPUBuffer>		globalsBuffer;
+	smart_refctd_ptr<IGPUBuffer>		m_globalsBuffer;
 	smart_refctd_ptr<IGPUDescriptorSet>	descriptorSet0;
 	smart_refctd_ptr<IGPUDescriptorSet>	descriptorSet1;
 	DrawResourcesFiller drawResourcesFiller; // you can think of this as the scene data needed to draw everything, we only have one instance so let's use a timeline semaphore to sync all renders
@@ -3202,7 +3210,8 @@ protected:
 	const std::chrono::steady_clock::time_point startBenchmark = std::chrono::high_resolution_clock::now();
 	bool stopBenchamrkFlag = false;
 	#endif
-
+	
+	std::unique_ptr<GeoTextureRenderer> m_geoTextureRenderer;
 };
 
 NBL_MAIN_FUNC(ComputerAidedDesign)

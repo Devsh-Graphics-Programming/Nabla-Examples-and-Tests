@@ -1,6 +1,7 @@
-#ifndef _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
-#define _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
+#ifndef _CAD_EXAMPLE_MAIN_PIPELINE_COMMON_HLSL_INCLUDED_
+#define _CAD_EXAMPLE_MAIN_PIPELINE_COMMON_HLSL_INCLUDED_
 
+#include "../globals.hlsl"
 #include <nbl/builtin/hlsl/limits.hlsl>
 #include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
@@ -164,41 +165,6 @@ static_assert(offsetof(CurveBox, aabbMax) == 16u);
 static_assert(offsetof(CurveBox, curveMin[0]) == 32u);
 static_assert(offsetof(CurveBox, curveMax[0]) == 56u);
 static_assert(sizeof(CurveBox) == 80u);
-#endif
-// TODO: Compute this in a compute shader from the world counterparts
-//      because this struct includes NDC coordinates, the values will change based camera zoom and move
-//      of course we could have the clip values to be in world units and also the matrix to transform to world instead of ndc but that requires extra computations(matrix multiplications) per vertex
-struct ClipProjectionData
-{
-    float64_t3x3 projectionToNDC; // 72 -> because we use scalar_layout
-    float32_t2 minClipNDC; // 80
-    float32_t2 maxClipNDC; // 88
-};
-
-#ifndef __HLSL_VERSION
-static_assert(offsetof(ClipProjectionData, projectionToNDC) == 0u);
-static_assert(offsetof(ClipProjectionData, minClipNDC) == 72u);
-static_assert(offsetof(ClipProjectionData, maxClipNDC) == 80u);
-#endif
-
-struct Globals
-{
-    ClipProjectionData defaultClipProjection; // 88
-    double screenToWorldRatio; // 96
-    double worldToScreenRatio; // 100
-    uint32_t2 resolution; // 108
-    float antiAliasingFactor; // 112
-    float miterLimit; // 116
-    float32_t2 _padding; // 128
-};
-
-#ifndef __HLSL_VERSION
-static_assert(offsetof(Globals, defaultClipProjection) == 0u);
-static_assert(offsetof(Globals, screenToWorldRatio) == 88u);
-static_assert(offsetof(Globals, worldToScreenRatio) == 96u);
-static_assert(offsetof(Globals, resolution) == 104u);
-static_assert(offsetof(Globals, antiAliasingFactor) == 112u);
-static_assert(offsetof(Globals, miterLimit) == 116u);
 #endif
 
 NBL_CONSTEXPR uint32_t InvalidRigidSegmentIndex = 0xffffffff;

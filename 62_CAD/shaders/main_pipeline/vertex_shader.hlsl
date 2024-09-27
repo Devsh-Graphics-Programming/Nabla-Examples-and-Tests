@@ -39,22 +39,14 @@ ClipProjectionData getClipProjectionData(in MainObject mainObj)
     }
 }
 
-double2 transformPointNdc(float64_t3x3 transformation, double2 point2d)
+float32_t2 transformPointScreenSpace(float64_t3x3 transformation, uint32_t2 resolution, float64_t2 point2d) 
 {
-    return mul(transformation, float64_t3(point2d, 1)).xy;
+    float64_t2 ndc = transformPointNdc(transformation, point2d);
+    return (float32_t2)((ndc + 1.0) * 0.5 * resolution);
 }
-double2 transformVectorNdc(float64_t3x3 transformation, double2 vector2d)
+float32_t2 transformFromSreenSpaceToNdc(float32_t2 pos, uint32_t2 resolution)
 {
-    return mul(transformation, float64_t3(vector2d, 0)).xy;
-}
-float2 transformPointScreenSpace(float64_t3x3 transformation, double2 point2d) 
-{
-    double2 ndc = transformPointNdc(transformation, point2d);
-    return (float2)((ndc + 1.0) * 0.5 * globals.resolution);
-}
-float4 transformFromSreenSpaceToNdc(float2 pos)
-{
-    return float4((pos.xy / globals.resolution) * 2.0 - 1.0, 0.0f, 1.0f);
+    return float32_t2((pos / (float32_t2)resolution) * 2.0f - 1.0f);
 }
 
 template<bool FragmentShaderPixelInterlock>
@@ -102,7 +94,7 @@ PSInput main(uint vertexID : SV_VertexID)
     PSInput outV;
 
     // Default Initialize PS Input
-    outV.position.z = 0.0;
+    outV.position.zw = float2(0.0, 1.0);
     outV.data1 = uint4(0, 0, 0, 0);
     outV.data2 = float4(0, 0, 0, 0);
     outV.data3 = float4(0, 0, 0, 0);
@@ -140,7 +132,7 @@ PSInput main(uint vertexID : SV_VertexID)
             float2 transformedPoints[2u];
             for (uint i = 0u; i < 2u; ++i)
             {
-                transformedPoints[i] = transformPointScreenSpace(clipProjectionData.projectionToNDC, points[i]);
+                transformedPoints[i] = transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, points[i]);
             }
 
             const float2 lineVector = normalize(transformedPoints[1u] - transformedPoints[0u]);
@@ -164,7 +156,7 @@ PSInput main(uint vertexID : SV_VertexID)
             outV.setLineStart(transformedPoints[0u]);
             outV.setLineEnd(transformedPoints[1u]);
 
-            outV.position = transformFromSreenSpaceToNdc(outV.position.xy);
+            outV.position.xy = transformFromSreenSpaceToNdc(outV.position.xy, globals.resolution);
         }
         else if (objType == ObjectType::QUAD_BEZIER)
         {
@@ -182,7 +174,7 @@ PSInput main(uint vertexID : SV_VertexID)
             float2 transformedPoints[3u];
             for (uint i = 0u; i < 3u; ++i)
             {
-                transformedPoints[i] = transformPointScreenSpace(clipProjectionData.projectionToNDC, points[i]);
+                transformedPoints[i] = transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, points[i]);
             }
 
             nbl::hlsl::shapes::QuadraticBezier<float> quadraticBezier = nbl::hlsl::shapes::QuadraticBezier<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
@@ -347,7 +339,7 @@ PSInput main(uint vertexID : SV_VertexID)
                 const float2 v = vk::RawBufferLoad<float2>(drawObj.geometryAddress + sizeof(double2), 8u);
                 const float cosHalfAngleBetweenNormals = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 8u);
 
-                const float2 circleCenterScreenSpace = transformPointScreenSpace(clipProjectionData.projectionToNDC, circleCenter);
+                const float2 circleCenterScreenSpace = transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, circleCenter);
                 outV.setPolylineConnectorCircleCenter(circleCenterScreenSpace);
 
                 // Find other miter vertices
@@ -394,7 +386,7 @@ PSInput main(uint vertexID : SV_VertexID)
                     outV.position = float4(screenSpaceV2, 0.0f, 1.0f);
                 }
 
-                outV.position = transformFromSreenSpaceToNdc(outV.position.xy);
+                outV.position.xy = transformFromSreenSpaceToNdc(outV.position.xy, globals.resolution);
             }
             else
             {

@@ -1,6 +1,9 @@
 #pragma shader_stage(fragment)
+
 #include "common.hlsl"
 
-float4 main(float2 input) : SV_TARGET
+float4 main(PSInput input) : SV_TARGET
 {
+    const float2 uv = input.uv;
+    return geoTexture.Sample(geoTextureSampler, uv);
 }
