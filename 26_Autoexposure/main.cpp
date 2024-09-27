@@ -821,7 +821,7 @@ public:
 				const ISemaphore::SWaitInfo cmdbufDonePending[] = {
 					{
 						.semaphore = m_presentSemaphore.get(),
-						.value = m_submitIx
+						.value = m_submitIx + 1
 					}
 				};
 				if (m_device->blockForSemaphores(cmdbufDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
