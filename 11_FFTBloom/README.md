@@ -51,7 +51,7 @@ $\text{DFT}_x[T] = \frac 1 2 \left(\text{DFT}[T] + \text{DFT}[-T]^\* \right) = \
 
 (with the equation for `DFT_y[T]` being similar). Which then lets us work out
 
-$\text{output}_x[T] = \text{DFT}_x[F(T)] = \frac 1 2 \left(\text{output}[T] + \text{output}[-T]^\*\right)$
+$\text{output}_x[T] = \text{DFT}_x[F(T)] = \frac 1 2 \left(\text{output}[T] + \text{output}[F^{-1}(-F(T))]^\*\right)$
 
 and again a similar expression for `output_y[T]`
 
