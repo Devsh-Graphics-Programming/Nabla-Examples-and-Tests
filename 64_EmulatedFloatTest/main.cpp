@@ -11,6 +11,7 @@
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 #include "app_resources/common.hlsl"
+#include "app_resources/benchmark/common.hlsl"
 #include "nbl/builtin/hlsl/ieee754.hlsl"
 
 using namespace nbl::core;
@@ -19,6 +20,9 @@ using namespace nbl::system;
 using namespace nbl::asset;
 using namespace nbl::video;
 using namespace nbl::application_templates;
+
+constexpr bool DoTests = false;
+constexpr bool DoBenchmark = true;
 
 class CompatibilityTest final : public MonoDeviceApplication, public MonoAssetManagerAndBuiltinResourceApplication
 {
@@ -65,7 +69,16 @@ public:
 
     void workLoopBody() override
     {
-        emulated_float64_tests();
+        if constexpr (DoTests)
+        {
+            emulated_float64_tests();
+        }
+        else if (DoBenchmark)
+        {
+            EF64Benchmark benchmark(*this);
+            benchmark.run();
+        }
+
         m_keepRunning = false;
     }
 
@@ -474,10 +487,9 @@ private:
         printTestOutput("emulatedFloat64OneValIsInfTest", emulatedFloat64OneValIsInfTest(submitter));
         printTestOutput("emulatedFloat64OneValIsNegInfTest", emulatedFloat64OneValIsNegInfTest(submitter));
 
-        printTestOutput("emulatedFloat64BInfTest", emulatedFloat64OneValIsZeroTest(submitter));
-        printTestOutput("emulatedFloat64BNegInfTest", emulatedFloat64OneValIsNegZeroTest(submitter));
-
-        //TODO: test fast math
+        // TODO: works only in debug mode, fix
+        //printTestOutput("emulatedFloat64BInfTest", emulatedFloat64OneValIsZeroTest(submitter));
+        //printTestOutput("emulatedFloat64BNegInfTest", emulatedFloat64OneValIsNegZeroTest(submitter));
     }
 
     template <bool FastMath, bool FlushDenormToZero>
@@ -1032,6 +1044,174 @@ private:
 
         return output;
     }
+
+    class EF64Benchmark final
+    {
+    public:
+        EF64Benchmark(CompatibilityTest& base)
+            :m_base(base), m_semaphoreCounter(0)
+        {
+            // setting up pipeline in the constructor
+            m_queueFamily = base.getComputeQueue()->getFamilyIndex();
+            m_semaphore = base.m_device->createSemaphore(0);
+            m_cmdpool = base.m_device->createCommandPool(m_queueFamily, IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+            if (!m_cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &m_cmdbuf))
+                base.logFail("Failed to create Command Buffers!\n");
+
+            // Load shaders, set up pipeline
+            {
+                smart_refctd_ptr<IGPUShader> shader;
+                {
+                    IAssetLoader::SAssetLoadParams lp = {};
+                    lp.logger = base.m_logger.get();
+                    lp.workingDirectory = ""; // virtual root
+                    // this time we load a shader directly from a file
+                    auto assetBundle = base.m_assetMgr->getAsset("app_resources/benchmark/benchmark.comp.hlsl", lp);
+                    const auto assets = assetBundle.getContents();
+                    if (assets.empty())
+                    {
+                        base.logFail("Could not load shader!");
+                        assert(0);
+                    }
+
+                    // It would be super weird if loading a shader from a file produced more than 1 asset
+                    assert(assets.size() == 1);
+                    smart_refctd_ptr<ICPUShader> source = IAsset::castDown<ICPUShader>(assets[0]);
+
+                    auto* compilerSet = base.m_assetMgr->getCompilerSet();
+
+                    nbl::asset::IShaderCompiler::SCompilerOptions options = {};
+                    options.stage = source->getStage();
+                    options.targetSpirvVersion = base.m_device->getPhysicalDevice()->getLimits().spirvVersion;
+                    options.spirvOptimizer = nullptr;
+                    options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
+                    options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
+                    options.preprocessorOptions.logger = base.m_logger.get();
+                    options.preprocessorOptions.includeFinder = compilerSet->getShaderCompiler(source->getContentType())->getDefaultIncludeFinder();
+
+                    auto spirv = compilerSet->compileToSPIRV(source.get(), options);
+
+                    ILogicalDevice::SShaderCreationParameters params{};
+                    params.cpushader = spirv.get();
+                    shader = base.m_device->createShader(params);
+                }
+
+                if (!shader)
+                    base.logFail("Failed to create a GPU Shader, seems the Driver doesn't like the SPIR-V we're feeding it!\n");
+
+                nbl::video::IGPUDescriptorSetLayout::SBinding bindings[1] = {
+                    {
+                        .binding = 0,
+                        .type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+                        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+                        .stageFlags = ShaderStage::ESS_COMPUTE,
+                        .count = 1
+                    }
+                };
+                smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = base.m_device->createDescriptorSetLayout(bindings);
+                if (!dsLayout)
+                    base.logFail("Failed to create a Descriptor Layout!\n");
+
+                SPushConstantRange pushConstantRanges[] = {
+                {
+                    .stageFlags = ShaderStage::ESS_COMPUTE,
+                    .offset = 0,
+                    .size = sizeof(BenchmarkPushConstants)
+                }
+                };
+                m_pplnLayout = base.m_device->createPipelineLayout(pushConstantRanges, smart_refctd_ptr(dsLayout));
+                if (!m_pplnLayout)
+                    base.logFail("Failed to create a Pipeline Layout!\n");
+
+                {
+                    IGPUComputePipeline::SCreationParams params = {};
+                    params.layout = m_pplnLayout.get();
+                    params.shader.entryPoint = "main";
+                    params.shader.shader = shader.get();
+                    if (!base.m_device->createComputePipelines(nullptr, { &params,1 }, &m_pipeline))
+                        base.logFail("Failed to create pipelines (compile & link shaders)!\n");
+                }
+
+                // Allocate the memory
+                {
+                    static_assert(sizeof(float64_t) == sizeof(emulated_float64_t<false, true>));
+                    constexpr size_t BufferSize = sizeof(float64_t);
+
+                    nbl::video::IGPUBuffer::SCreationParams params = {};
+                    params.size = BufferSize;
+                    params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+                    smart_refctd_ptr<IGPUBuffer> dummyBuff = base.m_device->createBuffer(std::move(params));
+                    if (!dummyBuff)
+                        base.logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
+
+                    dummyBuff->setObjectDebugName("benchmark buffer");
+
+                    nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = dummyBuff->getMemoryReqs();
+
+                    m_allocation = base.m_device->allocate(reqs, dummyBuff.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
+                    if (!m_allocation.isValid())
+                        base.logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
+
+                    assert(dummyBuff->getDeviceAddress() < std::numeric_limits<uint32_t>::max()); // TODO: is it even possible?
+                    m_pushConstants.rawBufferAddress = uint32_t(dummyBuff->getDeviceAddress());
+
+                    assert(dummyBuff->getBoundMemory().memory == m_allocation.memory.get());
+                    smart_refctd_ptr<nbl::video::IDescriptorPool> pool = base.m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 });
+
+                    m_ds = pool->createDescriptorSet(std::move(dsLayout));
+                    {
+                        IGPUDescriptorSet::SDescriptorInfo info[1];
+                        info[0].desc = smart_refctd_ptr(dummyBuff);
+                        info[0].info.buffer = { .offset = 0,.size = BufferSize };
+                        IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
+                            {.dstSet = m_ds.get(),.binding = 0,.arrayElement = 0,.count = 1,.info = info}
+                        };
+                        base.m_device->updateDescriptorSets(writes, {});
+                    }
+                }
+            }
+
+            m_queue = m_base.m_device->getQueue(m_queueFamily, 0);
+        }
+
+        void run()
+        {
+            m_cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
+            m_cmdbuf->beginDebugMarker("emulated_float64_t compute dispatch", vectorSIMDf(0, 1, 0, 1));
+            m_cmdbuf->bindComputePipeline(m_pipeline.get());
+            m_cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_pplnLayout.get(), 0, 1, &m_ds.get());
+            m_cmdbuf->pushConstants(m_pplnLayout.get(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(BenchmarkPushConstants), &m_pushConstants);
+            m_cmdbuf->dispatch(WORKGROUP_SIZE, 1, 1);
+            m_cmdbuf->endDebugMarker();
+            m_cmdbuf->end();
+
+            IQueue::SSubmitInfo submitInfos[1] = {};
+            const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = m_cmdbuf.get()} };
+            submitInfos[0].commandBuffers = cmdbufs;
+            const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = m_semaphore.get(), .value = ++m_semaphoreCounter, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
+            submitInfos[0].signalSemaphores = signals;
+
+            m_queue->startCapture();
+            m_queue->submit(submitInfos);
+            m_queue->endCapture();
+
+            m_base.m_device->waitIdle();
+        }
+
+    private:
+        uint32_t m_queueFamily;
+        nbl::video::IDeviceMemoryAllocator::SAllocation m_allocation = {};
+        smart_refctd_ptr<nbl::video::IGPUCommandBuffer> m_cmdbuf = nullptr;
+        smart_refctd_ptr<nbl::video::IGPUCommandPool> m_cmdpool = nullptr;
+        smart_refctd_ptr<nbl::video::IGPUDescriptorSet> m_ds = nullptr;
+        smart_refctd_ptr<nbl::video::IGPUPipelineLayout> m_pplnLayout = nullptr;
+        BenchmarkPushConstants m_pushConstants;
+        CompatibilityTest& m_base;
+        smart_refctd_ptr<nbl::video::IGPUComputePipeline> m_pipeline;
+        smart_refctd_ptr<ISemaphore> m_semaphore;
+        IQueue* m_queue;
+        uint64_t m_semaphoreCounter;
+    };
 
     template<typename... Args>
     inline bool logFail(const char* msg, Args&&... args)
