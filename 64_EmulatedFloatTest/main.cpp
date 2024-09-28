@@ -30,16 +30,23 @@ public:
 
     bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
     {
+        // since emulated_float64_t rounds to zero
+        std::fesetround(FE_TOWARDZERO);
+
         nbl::hlsl::emulated_float64_t<true, true> c = nbl::hlsl::emulated_float64_t<true, true>::create(1.0f);
 
         nbl::hlsl::emulated_float64_t<true, true> a = nbl::hlsl::emulated_float64_t<true, true>::create(76432.9);
-        nbl::hlsl::emulated_float64_t<true, true> b = nbl::hlsl::emulated_float64_t<true, true>::create(95719.3);
+        nbl::hlsl::emulated_float64_t<true, true> b = nbl::hlsl::emulated_float64_t<true, true>::create(0.03);
         
+        double correctOutput = 76432.9 - 0.03;
         auto output = a - b;
-        std::cout << reinterpret_cast<double&>(output);
 
-        // since emulated_float64_t rounds to zero
-        std::fesetround(FE_TOWARDZERO);
+        std::cout << "correct: " << reinterpret_cast<double&>(correctOutput) << std::endl;
+        std::cout << "my:      " << reinterpret_cast<double&>(output) << std::endl;
+
+        std::cout << "seeeeeeeeeeemmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm\n";
+        std::cout << std::bitset<64>(reinterpret_cast<uint64_t&>(correctOutput)) << " - correct" << std::endl;
+        std::cout << std::bitset<64>(output.data) << std::endl;
 
         // Remember to call the base class initialization!
         if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
@@ -180,13 +187,13 @@ private:
             printOnFailure("int32CreateVal", expectedValues.int32CreateVal, testValues.int32CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }*/
-        if (calcULPError(expectedValues.additionVal, testValues.additionVal) > 8u) // TODO: look at operator+ and figure out why ULP error is > 1 when signs differ (when mantissas need to be substracted)
+        if (calcULPError(expectedValues.additionVal, testValues.additionVal) > 1u) // TODO: look at operator+ and figure out why ULP error is > 1 when signs differ (when mantissas need to be substracted)
         {
             printOnFailure(Device);
             printOnArithmeticFailure("additionVal", expectedValues.additionVal, testValues.additionVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (calcULPError(expectedValues.substractionVal, testValues.substractionVal) > 8u)
+        if (calcULPError(expectedValues.substractionVal, testValues.substractionVal) > 1u)
         {
             printOnFailure(Device);
             printOnArithmeticFailure("substractionVal", expectedValues.substractionVal, testValues.substractionVal, expectedValues.a, expectedValues.b);
@@ -464,8 +471,11 @@ private:
         printTestOutput("emulatedFloat64BothValuesNegInfTest", emulatedFloat64OneValIsInfOtherIsNegInfTest(submitter));
         if(false) // doesn't work for some reason + fast math is enabled by default
             printTestOutput("emulatedFloat64BNaNTest", emulatedFloat64BNaNTest(submitter));
-        printTestOutput("emulatedFloat64BInfTest", emulatedFloat64OneValIsInfTest(submitter));
-        printTestOutput("emulatedFloat64BNegInfTest", emulatedFloat64OneValIsInfTest(submitter));
+        printTestOutput("emulatedFloat64OneValIsInfTest", emulatedFloat64OneValIsInfTest(submitter));
+        printTestOutput("emulatedFloat64OneValIsNegInfTest", emulatedFloat64OneValIsNegInfTest(submitter));
+
+        printTestOutput("emulatedFloat64BInfTest", emulatedFloat64OneValIsZeroTest(submitter));
+        printTestOutput("emulatedFloat64BNegInfTest", emulatedFloat64OneValIsNegZeroTest(submitter));
 
         //TODO: test fast math
     }
@@ -824,6 +834,7 @@ private:
         return output;
     }
 
+    // TODO: reduce code duplication in these 4 functions below 
     EmulatedFloat64TestOutput emulatedFloat64OneValIsNegInfTest(EF64Submitter& submitter)
     {
         EmulatedFloat64TestOutput output = { true, true };
@@ -844,6 +855,106 @@ private:
             EmulatedFloat64TestValuesInfo<true, true> testValInfo;
             double aTmp = f64Distribution(mt);
             double bTmp = -std::numeric_limits<float64_t>::infinity();
+            testValInfo.a.data = reinterpret_cast<emulated_float64_t<true, true>::storage_t&>(aTmp);
+            testValInfo.b.data = reinterpret_cast<emulated_float64_t<true, true>::storage_t&>(bTmp);
+            testValInfo.constrTestValues.int32 = i32Distribution(mt);
+            testValInfo.constrTestValues.int64 = i64Distribution(mt);
+            testValInfo.constrTestValues.uint32 = u32Distribution(mt);
+            testValInfo.constrTestValues.uint64 = u64Distribution(mt);
+            testValInfo.constrTestValues.float32 = f32Distribution(mt);
+            //testValInfo.constrTestValues.float64 = f64Distribution(mt);
+
+            testValInfo.fillExpectedTestValues();
+            auto singleTestOutput = performEmulatedFloat64Tests(testValInfo, submitter);
+
+            if (!singleTestOutput.cpuTestsSucceed)
+                output.cpuTestsSucceed = false;
+            if (!singleTestOutput.gpuTestsSucceed)
+                output.gpuTestsSucceed = false;
+
+            std::swap(testValInfo.a, testValInfo.b);
+            testValInfo.fillExpectedTestValues();
+            singleTestOutput = performEmulatedFloat64Tests(testValInfo, submitter);
+
+            if (!singleTestOutput.cpuTestsSucceed)
+                output.cpuTestsSucceed = false;
+            if (!singleTestOutput.gpuTestsSucceed)
+                output.gpuTestsSucceed = false;
+        }
+
+        return output;
+    }
+
+    EmulatedFloat64TestOutput emulatedFloat64OneValIsZeroTest(EF64Submitter& submitter)
+    {
+        EmulatedFloat64TestOutput output = { true, true };
+        smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
+
+        for (uint32_t i = 0u; i < EmulatedFloat64TestIterations / 2; ++i)
+        {
+            std::random_device rd;
+            std::mt19937 mt(rd());
+
+            std::uniform_int_distribution i32Distribution(-std::numeric_limits<int>::max(), std::numeric_limits<int>::max());
+            std::uniform_int_distribution i64Distribution(-std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max());
+            std::uniform_int_distribution u32Distribution(-std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max());
+            std::uniform_int_distribution u64Distribution(-std::numeric_limits<uint64_t>::max(), std::numeric_limits<uint64_t>::max());
+            std::uniform_real_distribution f32Distribution(-100000.0, 100000.0);
+            std::uniform_real_distribution f64Distribution(-100000.0, 100000.0);
+
+            EmulatedFloat64TestValuesInfo<true, true> testValInfo;
+            double aTmp = f64Distribution(mt);
+            double bTmp = 0.0;
+            testValInfo.a.data = reinterpret_cast<emulated_float64_t<true, true>::storage_t&>(aTmp);
+            testValInfo.b.data = reinterpret_cast<emulated_float64_t<true, true>::storage_t&>(bTmp);
+            testValInfo.constrTestValues.int32 = i32Distribution(mt);
+            testValInfo.constrTestValues.int64 = i64Distribution(mt);
+            testValInfo.constrTestValues.uint32 = u32Distribution(mt);
+            testValInfo.constrTestValues.uint64 = u64Distribution(mt);
+            testValInfo.constrTestValues.float32 = f32Distribution(mt);
+            //testValInfo.constrTestValues.float64 = f64Distribution(mt);
+
+            testValInfo.fillExpectedTestValues();
+            auto singleTestOutput = performEmulatedFloat64Tests(testValInfo, submitter);
+
+            if (!singleTestOutput.cpuTestsSucceed)
+                output.cpuTestsSucceed = false;
+            if (!singleTestOutput.gpuTestsSucceed)
+                output.gpuTestsSucceed = false;
+
+            std::swap(testValInfo.a, testValInfo.b);
+            testValInfo.fillExpectedTestValues();
+            singleTestOutput = performEmulatedFloat64Tests(testValInfo, submitter);
+
+            if (!singleTestOutput.cpuTestsSucceed)
+                output.cpuTestsSucceed = false;
+            if (!singleTestOutput.gpuTestsSucceed)
+                output.gpuTestsSucceed = false;
+        }
+
+        return output;
+    }
+
+    EmulatedFloat64TestOutput emulatedFloat64OneValIsNegZeroTest(EF64Submitter& submitter)
+    {
+        EmulatedFloat64TestOutput output = { true, true };
+        smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
+
+        for (uint32_t i = 0u; i < EmulatedFloat64TestIterations / 2; ++i)
+        {
+            std::random_device rd;
+            std::mt19937 mt(rd());
+
+            std::uniform_int_distribution i32Distribution(-std::numeric_limits<int>::max(), std::numeric_limits<int>::max());
+            std::uniform_int_distribution i64Distribution(-std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max());
+            std::uniform_int_distribution u32Distribution(-std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max());
+            std::uniform_int_distribution u64Distribution(-std::numeric_limits<uint64_t>::max(), std::numeric_limits<uint64_t>::max());
+            std::uniform_real_distribution f32Distribution(-100000.0, 100000.0);
+            std::uniform_real_distribution f64Distribution(-100000.0, 100000.0);
+
+            EmulatedFloat64TestValuesInfo<true, true> testValInfo;
+            double aTmp = f64Distribution(mt);
+            double bTmp = -0.0;
             testValInfo.a.data = reinterpret_cast<emulated_float64_t<true, true>::storage_t&>(aTmp);
             testValInfo.b.data = reinterpret_cast<emulated_float64_t<true, true>::storage_t&>(bTmp);
             testValInfo.constrTestValues.int32 = i32Distribution(mt);
