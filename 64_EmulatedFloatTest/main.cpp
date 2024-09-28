@@ -114,8 +114,8 @@ private:
             ss << "\nerror = " << error << '\n';
             ss << "bit representations: \n";
             ss << "seeeeeeeeeeemmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm\n";
-            ss << std::bitset<64>(expectedValue) << '\n';
-            ss << std::bitset<64>(testValue) << '\n';
+            ss << std::bitset<64>(expectedValue) << " - expectedValue bit pattern\n";
+            ss << std::bitset<64>(testValue) << " - testValue bit pattern \n";
 
             m_logger->log(ss.str().c_str(), ILogger::ELL_ERROR);
 
