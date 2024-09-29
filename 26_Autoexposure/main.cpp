@@ -455,17 +455,17 @@ public:
 			}
 			if (imageParams.type == IGPUImage::ET_3D)
 				imageParams.flags |= IGPUImage::ECF_2D_ARRAY_COMPATIBLE_BIT;
-			m_gpuImg = m_device->createImage(std::move(imageParams));
-			if (!m_gpuImg || !m_device->allocate(m_gpuImg->getMemoryReqs(), m_gpuImg.get()).isValid())
+			auto gpuImg = m_device->createImage(std::move(imageParams));
+			if (!gpuImg || !m_device->allocate(gpuImg->getMemoryReqs(), gpuImg.get()).isValid())
 				return false;
-			m_gpuImg->setObjectDebugName("Autoexposure Image");
+			gpuImg->setObjectDebugName("Autoexposure Image");
 
-			imageParams = m_gpuImg->getCreationParameters();
+			imageParams = gpuImg->getCreationParameters();
 			imageParams.usage = IGPUImage::EUF_SAMPLED_BIT | IGPUImage::EUF_STORAGE_BIT;
-			m_tonemappedImg = m_device->createImage(std::move(imageParams));
-			if (!m_tonemappedImg || !m_device->allocate(m_tonemappedImg->getMemoryReqs(), m_tonemappedImg.get()).isValid())
+			auto tonemappedImg = m_device->createImage(std::move(imageParams));
+			if (!tonemappedImg || !m_device->allocate(tonemappedImg->getMemoryReqs(), tonemappedImg.get()).isValid())
 				return false;
-			m_tonemappedImg->setObjectDebugName("Tonemapped Image");
+			tonemappedImg->setObjectDebugName("Tonemapped Image");
 
 			// Now show the window
 			m_winMgr->show(m_window.get());
@@ -499,14 +499,14 @@ public:
 						.dep = transferBarriers[0]
 						// no ownership transfers
 					},
-					.image = m_gpuImg.get(),
+					.image = gpuImg.get(),
 					// transition the whole view
 					.subresourceRange = cpuImgParams.subresourceRange,
 					// a wiping transition
 					.newLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL
 				},
 				{
-					.image = m_tonemappedImg.get(),
+					.image = tonemappedImg.get(),
 					.subresourceRange = cpuImgParams.subresourceRange,
 					.newLayout = IGPUImage::LAYOUT::GENERAL
 				}
@@ -517,7 +517,7 @@ public:
 						.dep = transferBarriers[1]
 						// no ownership transfers
 					},
-					.image = m_gpuImg.get(),
+					.image = gpuImg.get(),
 					// transition the whole view
 					.subresourceRange = cpuImgParams.subresourceRange,
 					// a wiping transition
@@ -531,7 +531,7 @@ public:
 				m_intendedSubmit,
 				cpuImgParams.image->getBuffer(),
 				cpuImgParams.image->getCreationParameters().format,
-				m_gpuImg.get(),
+				gpuImg.get(),
 				IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
 				cpuImgParams.image->getRegions()
 			);
@@ -539,14 +539,14 @@ public:
 			m_utils->autoSubmit(m_intendedSubmit, [&](SIntendedSubmitInfo& nextSubmit) -> bool { return true; });
 
 			IGPUImageView::SCreationParams gpuImgViewParams = {
-				.image = m_gpuImg,
+				.image = gpuImg,
 				.viewType = IGPUImageView::ET_2D,
-				.format = m_gpuImg->getCreationParameters().format,
+				.format = gpuImg->getCreationParameters().format,
 			};
 			IGPUImageView::SCreationParams tonemappedImgViewParams = {
-				.image = m_tonemappedImg,
+				.image = tonemappedImg,
 				.viewType = IGPUImageView::ET_2D,
-				.format = m_tonemappedImg->getCreationParameters().format
+				.format = tonemappedImg->getCreationParameters().format
 			};
 
 			m_gpuImgView = m_device->createImageView(std::move(gpuImgViewParams));
@@ -598,7 +598,8 @@ public:
 	{
 		const uint32_t SubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
 
-		uint32_t2 viewportSize = { m_gpuImg->getCreationParameters().extent.width, m_gpuImg->getCreationParameters().extent.height };
+		auto gpuImgExtent = m_gpuImgView->getCreationParameters().image->getCreationParameters().extent;
+		uint32_t2 viewportSize = { gpuImgExtent.width, gpuImgExtent.height };
 		float32_t sampleCount = (viewportSize.x * viewportSize.y) / 4;
 		uint32_t workgroupSize = SubgroupSize * SubgroupSize;
 		sampleCount = workgroupSize * (1 + (sampleCount - 1) / workgroupSize);
@@ -849,7 +850,6 @@ public:
 protected:
 	nbl::video::IDeviceMemoryAllocator::SAllocation m_gatherAllocation;
 	uint64_t m_gatherBDA;
-	smart_refctd_ptr<IGPUImage> m_gpuImg, m_tonemappedImg;
 	smart_refctd_ptr<IGPUImageView> m_gpuImgView, m_tonemappedImgView;
 
 	// for image uploads
