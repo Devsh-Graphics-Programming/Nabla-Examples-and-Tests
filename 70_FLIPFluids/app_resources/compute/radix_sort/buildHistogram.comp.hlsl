@@ -37,7 +37,7 @@ void main(uint32_t3 threadID : SV_GroupThreadID, uint32_t3 groupID : SV_GroupID)
     for (uint i = 0; i < NumPartitions; i++)
     {
         uint keyIdx = partitionStart + WorkgroupSize * i + idx;
-        uint key = keyIdx < params.numElements ? getKey(inputBuffer[keyIdx]) : 0xffffffff;
+        uint key = keyIdx < params.numElements ? getKey(inputBuffer, keyIdx) : 0xffffffff;
         uint radix = glsl::bitfieldExtract(key, params.bitShift, 8);
         InterlockedAdd(localHistogram[radix], 1);
     }

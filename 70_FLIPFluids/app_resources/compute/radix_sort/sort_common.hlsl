@@ -48,21 +48,68 @@ struct SSortParams
     uint numThreadsPerGroup;
 };
 
-inline uint getKey(DATA_TYPE data)
+inline uint floatToUint(float f)
+{
+    uint mask = -((int) (asuint(f) >> 31)) | 0x80000000;
+    return asuint(f) ^ mask;
+}
+
+inline float uintToFloat(uint u)
+{
+    uint mask = ((u >> 31) - 1) | 0x80000000;
+    return asfloat(u ^ mask);
+}
+
+inline uint intToUint(int i)
+{
+    return asuint(i ^ 0x80000000);
+}
+
+inline int uintToInt(uint u)
+{
+    return asint(u ^ 0x80000000);
+}
+
+inline uint getKey(RWStructuredBuffer<DATA_TYPE> buffer, uint idx)
 {
     uint key;
 #if defined(DATA_TYPE_UINT)
-    key = data;
+    key = buffer[idx];
 #elif defined(DATA_TYPE_UINT2)
-    key = data.x;
+    key = buffer[idx].x;
 #elif defined(DATA_TYPE_INT)
-    // TODO: convert int to uint
+    key = intToUint(buffer[idx]);
 #elif defined(DATA_TYPE_FLOAT)
-    // TODO: convert float to uint
+    key = floatToUint(buffer[idx]);
 #endif
 
     return key;
 }
+
+inline void setKey(RWStructuredBuffer<DATA_TYPE> buffer, uint idx, uint key)
+{
+#if defined(DATA_TYPE_UINT)
+    buffer[idx] = key;
+#elif defined(DATA_TYPE_UINT2)
+    buffer[idx].x = key;
+#elif defined(DATA_TYPE_INT)
+    buffer[idx] = uintToInt(key);
+#elif defined(DATA_TYPE_FLOAT)
+    buffer[idx] = uintToFloat(key);
+#endif
+}
+
+#ifdef USE_KV_PAIRS
+inline uint getValue(RWStructuredBuffer<DATA_TYPE> buffer, uint idx)
+{
+    return buffer[idx].y;
+}
+
+inline void setValue(RWStructuredBuffer<DATA_TYPE> buffer, uint idx, uint value)
+{
+    buffer[idx].y = value;
+}
+#endif
 
 #endif
 #endif

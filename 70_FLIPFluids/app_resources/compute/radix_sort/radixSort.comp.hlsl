@@ -70,11 +70,11 @@ void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
     for (uint i = 0; i < NumPartitions; i++)
     {
         uint keyIdx = partitionStart + NumPartitions * subgroupSize * s_id + i * subgroupSize + ls_id;
-        uint key = keyIdx < params.numElements ? getKey(inputBuffer[keyIdx]) : 0xffffffff;
+        uint key = keyIdx < params.numElements ? getKey(inputBuffer, keyIdx) : 0xffffffff;
         keys[i] = key;
 
 #ifdef USE_KV_PAIRS
-        values[i] = keyIdx < params.numElements ? inputBuffer[keyIdx].y : 0;
+        values[i] = keyIdx < params.numElements ? getValue(inputBuffer, keyIdx) : 0;
 #endif
 
         uint bin = glsl::bitfieldExtract(key, params.bitShift, 8);
@@ -180,7 +180,7 @@ void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
         uint bin = glsl::bitfieldExtract(key, params.bitShift, 8);
         uint dstOffset = histogramSums[bin] + i;
         if (dstOffset < params.numElements)
-            outputBuffer[dstOffset].x = key;
+            setKey(outputBuffer, dstOffset, key);
 
 #ifdef USE_KV_PAIRS
         keys[i / WorkgroupSize] = dstOffset;
@@ -199,7 +199,7 @@ void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
     for (uint i = idx; i < PartitionSize; i += WorkgroupSize)
     {
         uint value = localHistogram[i];
-        outputBuffer[keys[i / WorkgroupSize]].y = value;
+        setValue(outputBuffer, keys[i / WorkgroupSize], value);
     }
 #endif
 }
