@@ -9,6 +9,10 @@ using namespace nbl::video;
 using namespace nbl::core;
 using namespace nbl::asset;
 
+/*
+* Referenced from Nvidia CUB, BSD license
+* https://github.com/NVIDIA/cub/blob/main/cub/device/device_radix_sort.cuh
+*/
 class GPURadixSort
 {
 public:

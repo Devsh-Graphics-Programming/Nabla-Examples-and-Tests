@@ -48,6 +48,8 @@ struct SSortParams
     uint numThreadsPerGroup;
 };
 
+// adapted from Radix Tricks by Michael Herf
+// http://stereopsis.com/radix.html
 inline uint floatToUint(float f)
 {
     uint mask = -((int) (asuint(f) >> 31)) | 0x80000000;
@@ -69,6 +71,7 @@ inline int uintToInt(uint u)
 {
     return asint(u ^ 0x80000000);
 }
+
 
 inline uint getKey(RWStructuredBuffer<DATA_TYPE> buffer, uint idx)
 {

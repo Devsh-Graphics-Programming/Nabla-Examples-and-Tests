@@ -5,6 +5,8 @@
 
 #ifdef __HLSL_VERSION
 
+// adapted from CUDA Cubic B-Spline Interpolation by Danny Ruitjers
+// https://www.dannyruijters.nl/cubicinterpolation/
 inline float4 cubic(float v)
 {
     float4 n = float4(1.0f, 2.0f, 3.0f, 4.0f) - v;

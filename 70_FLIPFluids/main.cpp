@@ -225,13 +225,6 @@ public:
 	inline FLIPFluidsApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
 		: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
-	inline virtual video::IAPIConnection::SFeatures getAPIFeaturesToEnable()
-	{
-		auto retval = device_base_t::getAPIFeaturesToEnable();
-		//retval.synchronizationValidation = true;
-		return retval;
-	}
-
 	inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 	{
 		if (!m_surface)
@@ -271,7 +264,7 @@ public:
 			return false;
 
 		// init grid params
-		usePreset(CENTER_DROP);
+		usePreset(LONG_BOX);
 		
 		WorkgroupCountParticles = (numParticles + WorkgroupSize - 1) / WorkgroupSize;
 		WorkgroupCountGrid = (numGridCells + WorkgroupSize - 1) / WorkgroupSize;
@@ -1835,7 +1828,7 @@ private:
 
 			SRasterizationParams rasterizationParams{};
 			rasterizationParams.faceCullingMode = EFCM_NONE;
-			rasterizationParams.depthWriteEnable = false;
+			rasterizationParams.depthWriteEnable = true;
 
 			IGPUGraphicsPipeline::SCreationParams params[1] = {};
 			params[0].layout = pipelineLayout.get();
