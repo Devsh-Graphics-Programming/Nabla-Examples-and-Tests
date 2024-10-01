@@ -264,7 +264,7 @@ public:
 			return false;
 
 		// init grid params
-		usePreset(LONG_BOX);
+		usePreset(CENTER_DROP);
 		
 		WorkgroupCountParticles = (numParticles + WorkgroupSize - 1) / WorkgroupSize;
 		WorkgroupCountGrid = (numGridCells + WorkgroupSize - 1) / WorkgroupSize;
