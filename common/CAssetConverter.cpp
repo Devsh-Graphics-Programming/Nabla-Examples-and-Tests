@@ -1852,6 +1852,25 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 					patch.mipLevels = inputs.getMipLevelCount(instance.uniqueCopyGroupID,instance.asset,patch);
 					// important to call AFTER the mipchain length is known
 					patch.recomputeMips = inputs.needToRecomputeMips(instance.uniqueCopyGroupID,instance.asset,patch);
+					// zero out invalid return values
+					for (uint16_t l=1; l<patch.mipLevels; l++)
+					{
+						const auto levelMask = 0x1<<(l-1);
+						const auto prevLevel = l-1;
+						const auto prevLevelMask = 0x1<<(prevLevel-1);
+						// marked as recompute but has no source data on previous level
+						const bool noPrevRecompute = prevLevel==0 || (patch.recomputeMips&prevLevelMask)==0;
+						if (noPrevRecompute && !instance.asset->getRegions(l).empty())
+						{
+							inputs.logger.log(
+								"`SInputs::needToRecomputeMips` callback erroneously marked mip level %d of ICPUImage %p in group %d with NEXT patch index %d for recomputation, no source data available! Unmarking.",
+								system::ILogger::ELL_ERROR,l,instance.asset,instance.uniqueCopyGroupID,created.next
+							);
+							patch.recomputeMips ^= levelMask;
+						}
+					}
+					// also trim anything above
+					patch.recomputeMips &= (0x1u<<(patch.mipLevels-1))-1;
 					// If any mip level will be recomputed we need to sample from others. Stencil can't be written to with a storage image, so only add to regular usage.
 					if (patch.recomputeMips)
 					{
@@ -1863,7 +1882,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 						if (patch.format==EF_UNKNOWN)
 						{
 							// undo our offending change
-							patch.recomputeMips;
+							patch.recomputeMips = 0;
 							// and restore the original promotion
 							patch.format = firstFormat;
 						}
@@ -2603,7 +2622,10 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 					if constexpr (std::is_same_v<AssetType,ICPUBuffer>)
 						getConversionRequests.operator()<ICPUBuffer>().emplace_back(core::smart_refctd_ptr<const AssetType>(instance.asset),created.gpuObj.get());;
 					if constexpr (std::is_same_v<AssetType,ICPUImage>)
-						getConversionRequests.operator()<ICPUImage>().emplace_back(core::smart_refctd_ptr<const AssetType>(instance.asset),created.gpuObj.get());
+					{
+						const uint16_t recomputeMips = created.patch.recomputeMips;
+						getConversionRequests.operator()<ICPUImage>().emplace_back(core::smart_refctd_ptr<const AssetType>(instance.asset),created.gpuObj.get(),recomputeMips);
+					}
 					// TODO: BLAS and TLAS requests
 				}
 			);
@@ -2954,19 +2976,46 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 			condBeginCmdBuf(params.compute.getScratchCommandBuffer());
 
 		// wipe gpu item in staging cache (this may drop it as well if it was made for only a root asset == no users)
-		auto findInStaging = [&]<Asset AssetType>(asset_traits<AssetType>::video_t* gpuObj)->core::blake3_hash_t*
+		auto findInStaging = [&reservations]<Asset AssetType>(const asset_traits<AssetType>::video_t* gpuObj)->core::blake3_hash_t*
 		{
 			auto& stagingCache = std::get<SReserveResult::staging_cache_t<AssetType>>(reservations.m_stagingCaches);
-			const auto found = stagingCache.find(gpuObj);
+			const auto found = stagingCache.find(const_cast<asset_traits<AssetType>::video_t*>(gpuObj));
 			assert(found!=stagingCache.end());
 			return const_cast<core::blake3_hash_t*>(&found->second.value);
 		};
 		// wipe gpu item in staging cache (this may drop it as well if it was made for only a root asset == no users)
-		auto markFailureInStaging = [](core::blake3_hash_t* hash)->void
+		auto markFailureInStaging = [&reservations](auto* gpuObj, core::blake3_hash_t* hash)->void
 		{
+			reservations.m_logger.log("Data upload failed for \"%s\"",system::ILogger::ELL_ERROR,gpuObj->getObjectDebugName());
 			// change the content hash on the reverse map to a NoContentHash
 			*hash = CHashCache::NoContentHash;
 		};
+
+		//
+		constexpr uint32_t QueueFamilyInvalid = 0xffffffffu;
+		auto checkOwnership = [&]<bool FamilyFromCallback=false>(auto* gpuObj, const uint32_t ownerQueueFamily)->auto
+		{
+			if (ownerQueueFamily==IQueue::FamilyIgnored)
+				return IQueue::FamilyIgnored;
+			// silently skip ownership transfer
+			if (gpuObj->getCachedCreationParams().isConcurrentSharing())
+			{
+				if constexpr (FamilyFromCallback)
+					reservations.m_logger.log("IDeviceMemoryBacked %s created with concurrent sharing, you cannot perform an ownership transfer on it!",system::ILogger::ELL_ERROR,gpuObj->getObjectDebugName());
+				// TODO: check whether `ownerQueueFamily` is in the concurrent sharing set
+				// if (!std::find(gpuObj->getConcurrentSharingQueueFamilies(),ownerQueueFamily))
+				// {
+				//	reservations.m_logger.log("Queue Family %d not in the concurrent sharing set of IDeviceMemoryBacked %s, marking as failure",system::ILogger::ELL_ERROR,gpuObj->getObjectDebugName());
+				//	return QueueFamilyInvalid;
+				// }
+				return IQueue::FamilyIgnored;
+			}
+			// we already own
+			if (params.transfer.queue->getFamilyIndex()==ownerQueueFamily)
+				return IQueue::FamilyIgnored;
+			return ownerQueueFamily;
+		};
+		using ownership_op_t = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP;
 
 		// upload Buffers
 		auto& buffersToUpload = std::get<SReserveResult::conversion_requests_t<ICPUBuffer>>(reservations.m_conversionRequests);
@@ -2976,35 +3025,28 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 			// do the uploads
 			for (auto& item : buffersToUpload)
 			{
+				auto* buffer = item.gpuObj;
 				const SBufferRange<IGPUBuffer> range = {
 					.offset = 0,
 					.size = item.gpuObj->getCreationParams().size,
-					.buffer = core::smart_refctd_ptr<IGPUBuffer>(item.gpuObj)
+					.buffer = core::smart_refctd_ptr<IGPUBuffer>(buffer)
 				};
-				const bool success = params.utilities->updateBufferRangeViaStagingBuffer(params.transfer,range,item.canonical->getPointer());
+				auto pFoundHash = findInStaging.operator()<ICPUBuffer>(buffer);
+				//
+				const auto ownerQueueFamily = checkOwnership.operator()<true>(buffer,params.getFinalOwnerQueueFamily(buffer,*pFoundHash));
+				bool success = ownerQueueFamily!=QueueFamilyInvalid;
+				// do the upload
+				success = success && params.utilities->updateBufferRangeViaStagingBuffer(params.transfer,range,item.canonical->getPointer());
 				// let go of canonical asset (may free RAM)
 				item.canonical = nullptr;
-				auto pFoundHash = findInStaging.operator()<ICPUBuffer>(item.gpuObj);
 				if (!success)
 				{
-					reservations.m_logger.log("Data upload failed for \"%s\"",system::ILogger::ELL_ERROR,item.gpuObj->getObjectDebugName());
-					markFailureInStaging(pFoundHash);
+					markFailureInStaging(buffer,pFoundHash);
 					continue;
 				}
 				retval.submitsNeeded |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
 				// enqueue ownership release if necessary
-				if (const auto ownerQueueFamily=params.getFinalOwnerQueueFamily(item.gpuObj,*pFoundHash); ownerQueueFamily!=IQueue::FamilyIgnored)
-				{
-					// silently skip ownership transfer
-					if (item.gpuObj->getCachedCreationParams().isConcurrentSharing())
-					{
-						reservations.m_logger.log("Buffer %s created with concurrent sharing, you cannot perform an ownership transfer on it!",system::ILogger::ELL_ERROR,item.gpuObj->getObjectDebugName());
-						continue;
-					}
-					// we already own
-					if (params.transfer.queue->getFamilyIndex()==ownerQueueFamily)
-						continue;
-					// else record our half of the ownership transfer 
+				if (ownerQueueFamily!=IQueue::FamilyIgnored)
 					ownershipTransfers.push_back({
 						.barrier = {
 							.dep = {
@@ -3012,12 +3054,11 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 								.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
 								// leave rest empty, we can release whenever after the copies and before the semaphore signal
 							},
-							.ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::RELEASE,
+							.ownershipOp = ownership_op_t::RELEASE,
 							.otherQueueFamilyIndex = ownerQueueFamily
 						},
 						.range = range
 					});
-				}
 			}
 			buffersToUpload.clear();
 			// release ownership
@@ -3028,7 +3069,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 
 		auto& imagesToUpload = std::get<SReserveResult::conversion_requests_t<ICPUImage>>(reservations.m_conversionRequests);
 		{
-			const bool uniQueue = !reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT) || params.transfer.queue->getNativeHandle() == params.compute.queue->getNativeHandle();
+			const bool uniQueue = !reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT) || params.transfer.queue->getNativeHandle()==params.compute.queue->getNativeHandle();
 			// because of the layout transitions
 			params.transfer.scratchSemaphore.stageMask |= PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
 			//
@@ -3039,11 +3080,10 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 			for (auto& item : imagesToUpload)
 			{
 				const auto* cpuImg = item.canonical.get();
-				auto pFoundHash = findInStaging.operator()<ICPUImage>(item.gpuObj);
-				//
-				const bool recomputeMips = false;
+				auto* image = item.gpuObj;
+				auto pFoundHash = findInStaging.operator()<ICPUImage>(image);
 
-				const auto& creationParams = item.gpuObj->getCreationParameters();
+				const auto& creationParams = image->getCreationParameters();
 				const auto format = creationParams.format;
 				using aspect_flags_t = IGPUImage::E_ASPECT_FLAGS;
 				const core::bitflag<aspect_flags_t> aspects = isDepthOrStencilFormat(format) ? static_cast<aspect_flags_t>(
@@ -3051,74 +3091,94 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 					):aspect_flags_t::EAF_COLOR_BIT;
 				//
 				using layout_t = IGPUImage::LAYOUT;
-				IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> tmp = {
-					.barrier = {}, // fill later
-					.image = item.gpuObj,
-					.subresourceRange = {
-						.aspectMask = aspects,
-						// will fill later
-						.baseMipLevel = 0,
-						// we'll always do one level at a time
-						.levelCount = 1,
-						// all the layers
-						.baseArrayLayer = 0,
-						.layerCount = creationParams.arrayLayers
-					},
-					// first use, can transition away from undefined straight into what we want
-					.oldLayout = layout_t::UNDEFINED
-				};
-				auto& barrier = tmp.barrier;
 				// record transitions to desired layout after transfer
 				{
 					barriers.clear();
+					uint8_t lvl = 0;
 					auto regions = cpuImg->getRegions(0);
-					for (uint8_t lvl=0; lvl<creationParams.mipLevels;)
+					while (lvl<creationParams.mipLevels)
 					{
-						barrier.dep = {
-							// first usage doesn't need to sync against anything, so leave src default
-							.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
-							.srcAccessMask = ACCESS_FLAGS::NONE
+						// always start with a new one to not get stale/old value bugs
+						IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> tmp =
+						{
+							.barrier = {
+								.dep = {
+									// first usage doesn't need to sync against anything, so leave src default
+									.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+									.srcAccessMask = ACCESS_FLAGS::NONE
+								} // fill the rest later
+							},
+							.image = image,
+							.subresourceRange = {
+								.aspectMask = aspects,
+								.baseMipLevel = lvl,
+								// we'll always do one level at a time
+								.levelCount = 1,
+								// all the layers
+								.baseArrayLayer = 0,
+								.layerCount = creationParams.arrayLayers
+							},
+							// first use, can transition away from undefined straight into what we want
+							.oldLayout = layout_t::UNDEFINED
 						};
-						//
-						tmp.subresourceRange.baseMipLevel = lvl;
-						//
-						const auto finalLayout = params.getFinalLayout(item.gpuObj,*pFoundHash,lvl);
+						auto& barrier = tmp.barrier;
+						// if we're recomputing this mip level 
+						const bool recomputeMip = lvl && (item.recomputeMips&(0x1u<<(lvl-1)));
+						// query final layout from callback
+						const auto finalLayout = params.getFinalLayout(image,*pFoundHash,lvl);
+						if (finalLayout==layout_t::UNDEFINED && !regions.empty() && !recomputeMip)
+						{
+							reservations.m_logger.log("What are you doing requesting layout UNDEFINED for mip level % of image %s after Upload or Mip Recomputation!?",system::ILogger::ELL_ERROR,lvl,image->getObjectDebugName());
+							break;
+						}
+						// query final owner from callback
+						const auto finalOwnerQueueFamily = checkOwnership.operator()<true>(image,params.getFinalOwnerQueueFamily(image,*pFoundHash,lvl));
+						if (finalOwnerQueueFamily==QueueFamilyInvalid)
+							break;
 						// get next regions
 						auto nextRegions = cpuImg->getRegions(++lvl);
-#if 0
-						// current level empty
-						if (regions.empty())
+						if (recomputeMip)
 						{
-							if (recomputeMips)
+							// for shader image storage
+							tmp.newLayout = layout_t::GENERAL;
+							if (uniQueue)
 							{
-								// always use general so we don't need to transition between readonly and general
-								tmp.newLayout = layout_t::GENERAL;
-								if (uniQueue)
-								{
-									barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-									barrier.dep.dstAccessMask = ACCESS_FLAGS::STORAGE_WRITE_BIT;
-								}
-								else
-								{
-									// ownership release needs to happen before semaphore signal
-									barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::NONE;
-									barrier.dep.dstAccessMask = ACCESS_FLAGS::NONE;
-									if (computeNeedsOwnershipAcquire)
-									{
-										static_assert(false,"record ownership op");
-									}
-								}
+								barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+								barrier.dep.dstAccessMask = ACCESS_FLAGS::STORAGE_WRITE_BIT;
 							}
 							else
 							{
-								// go straight to final layout 
-								tmp.newLayout = finalLayout;
-								if (needToReleaseOwnership)
+								// ownership release needs to happen before semaphore signal
+								barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::NONE;
+								barrier.dep.dstAccessMask = ACCESS_FLAGS::NONE;
+								if (auto computeQueueFamily=checkOwnership(image,params.compute.queue->getFamilyIndex()); computeQueueFamily!=QueueFamilyInvalid)
 								{
-									// ownership release needs to happen before semaphore signal
+									// if the queue is ignored, nothing will happen
+									barrier.otherQueueFamilyIndex = computeQueueFamily;
+									barrier.ownershipOp = ownership_op_t::RELEASE;
+								}
+								else
+									break;
+							}
+						}
+						else
+						{
+							// a non-recomputed mip level can either be empty or have content
+							if (regions.empty())
+							{
+								// nothing needs to be done
+								if (finalLayout!=layout_t::UNDEFINED)
+									continue;
+								if (finalOwnerQueueFamily!=IQueue::FamilyIgnored)
+								{
+									// issue a warning, because your application code will just be more verbose (you still have to place an almost identical barrier on a queue in the acquiring family)
+									reservations.m_logger.log(
+										"It makes no sense to split-transition mip-level %d of image %s to layout %d with a QFOT to %d as no queue owns it yet! Just keep it in UNDEFINED and do the transition on the final owning queue without acquire.",
+										system::ILogger::ELL_PERFORMANCE,lvl,image->getObjectDebugName(),finalLayout,finalOwnerQueueFamily
+									);
+									// ownership release just needs to happen before semaphore signal
 									barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::NONE;
 									barrier.dep.dstAccessMask = ACCESS_FLAGS::NONE;
-									static_assert(false,"record ownership op");
 								}
 								else
 								{
@@ -3126,81 +3186,97 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 									barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
 									barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS|ACCESS_FLAGS::MEMORY_WRITE_BITS;
 								}
-							}
-							//
-							barriers.push_back(tmp);
-						}
-						else
-						{
-							barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-							barrier.dep.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-							//
-							const bool isSource = recomputeMips&&nextRegions.empty();
-							tmp.newLayout = isSource ? layout_t::GENERAL:layout_t::TRANSFER_DST_OPTIMAL;
-							// fire off the pipeline barrier so we can start uploading right away
-							if (!xferCmdBuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers={&tmp,1}}))
-							{
-								reservations.m_logger.log("Initial Layout Transition failed for \"%s\"",system::ILogger::ELL_ERROR,item.gpuObj->getObjectDebugName());
-								markFailureInStaging(pFoundHash);
-								break;
-							}
-							//
-							if (!params.utilities->updateImageViaStagingBuffer(params.transfer, cpuImg->getBuffer()->getPointer(), cpuImg->getCreationParameters().format, item.gpuObj, tmp.newLayout, regions))
-							{
-								reservations.m_logger.log("Data upload failed for \"%s\"",system::ILogger::ELL_ERROR,item.gpuObj->getObjectDebugName());
-								markFailureInStaging(pFoundHash);
-								break;
-							}
-							//
-							if (isSource)
-							{
-								// no layout transition this time
-								tmp.newLayout = layout_t::UNDEFINED;
-								if (uniQueue)
-								{
-									barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,ACCESS_FLAGS::SAMPLED_READ_BIT);
-									barriers.push_back(tmp);
-								}
-								else if (computeNeedsOwnershipAcquire)
-								{
-									// ownership release needs to happen before semaphore signal
-									barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::NONE,ACCESS_FLAGS::NONE);
-									static_assert(false,"record ownership op");
-									barriers.push_back(tmp);
-								}
+								// go straight to final layout
+								tmp.newLayout = finalLayout;
+								// if the queue is ignored, nothing will happen
+								barrier.otherQueueFamilyIndex = finalOwnerQueueFamily;
+								barrier.ownershipOp = ownership_op_t::RELEASE;
 							}
 							else
 							{
+								// need to transition layouts before data upload
+								barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+								barrier.dep.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+								// 
+								const bool sourceForNextMipCompute = item.recomputeMips&(0x1u<<lvl);
+								// keep in general layout to avoid a transfer->general transition
+								tmp.newLayout = sourceForNextMipCompute ? layout_t::GENERAL:layout_t::TRANSFER_DST_OPTIMAL;
+								// fire off the pipeline barrier so we can start uploading right away
+								if (!xferCmdBuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers={&tmp,1}}))
+								{
+									reservations.m_logger.log("Initial Pre-Image-Region-Upload Layout Transition failed!",system::ILogger::ELL_ERROR);
+									break;
+								}
+								// start recording uploads
+								if (!params.utilities->updateImageViaStagingBuffer(params.transfer,cpuImg->getBuffer()->getPointer(),cpuImg->getCreationParameters().format,image,tmp.newLayout,regions))
+								{
+									reservations.m_logger.log("Image Redion Upload failed!",system::ILogger::ELL_ERROR);
+									break;
+								}
+								retval.submitsNeeded |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
+								// new layout becomes old
 								tmp.oldLayout = tmp.newLayout;
-								tmp.newLayout = finalLayout;
-								if (needToReleaseOwnership)
+								// good initial value
+								assert(barrier.otherQueueFamilyIndex==IQueue::FamilyIgnored);
+								// slightly different post-barriers are needed post-upload
+#if 0 // reorder this crap
+								if (sourceForNextMipCompute)
 								{
-									// ownership release and layout transition needs to happen between xfer and semaphore signal
-									barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::NONE,ACCESS_FLAGS::NONE);
-									static_assert(false,"record ownership op");
-									barriers.push_back(tmp);
+									// stay in the same layout, no transition (both match)
+									tmp.newLayout = layout_t::GENERAL;
+									if (uniQueue)
+										barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,ACCESS_FLAGS::SAMPLED_READ_BIT);
+									else
+									{
+										// ownership release needs to happen before semaphore signal
+										barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::NONE,ACCESS_FLAGS::NONE);
+										if (auto computeQueueFamily=checkOwnership(image,params.compute.queue->getFamilyIndex()); computeQueueFamily!=QueueFamilyInvalid)
+										{
+											// if the queue is ignored, nothing will happen
+											barrier.otherQueueFamilyIndex = computeQueueFamily;
+											barrier.ownershipOp = ownership_op_t::RELEASE;
+										}
+										else
+											break;
+									}
 								}
-								else if (tmp.newLayout!=tmp.oldLayout)
+								else
 								{
-									// protect against anything that may overlap our layout transition end
-									barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,ACCESS_FLAGS::MEMORY_READ_BITS|ACCESS_FLAGS::MEMORY_WRITE_BITS);
-									barriers.push_back(tmp);
+									tmp.newLayout = finalLayout;
+									if (finalOwnerQueueFamily!=IQueue::FamilyIgnored)
+									{
+										// ownership release and layout transition needs to happen between xfer and semaphore signal
+										barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::NONE,ACCESS_FLAGS::NONE);
+										barrier.otherQueueFamilyIndex = finalOwnerQueueFamily;
+										barrier.ownershipOp = ownership_op_t::RELEASE;
+									}
+									else
+									{
+										// protect against anything that may overlap our layout transition end
+										barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,ACCESS_FLAGS::MEMORY_READ_BITS|ACCESS_FLAGS::MEMORY_WRITE_BITS);
+									}
 								}
+								// there is no layout transition to perform, and no release, all memory and execution dependency will be done via semaphore wait-signal
+								if (tmp.newLayout==tmp.oldLayout && barrier.otherQueueFamilyIndex!=IQueue::FamilyIgnored)
+									continue;
+#endif
 							}
 						}
-#endif
-						// go forth
-						regions = nextRegions;
+						// we need a layout transition anyway
+						barriers.push_back(tmp);
+					}
+					// failed in the for-loop
+					if (lvl!=creationParams.mipLevels)
+					{
+						markFailureInStaging(image,pFoundHash);
+						continue;
 					}
 				}
-				// failed in the for-loop
-				if (*pFoundHash==CHashCache::NoContentHash)
-					continue;
 				// do all post-transfer barriers for the image
 				if (!barriers.empty() && !xferCmdBuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers=barriers}))
 				{
-					reservations.m_logger.log("Pipeline Barrier recording failed for \"%s\"",system::ILogger::ELL_ERROR,item.gpuObj->getObjectDebugName());
-					markFailureInStaging(pFoundHash);
+					reservations.m_logger.log("Pipeline Barrier recording failed",system::ILogger::ELL_ERROR);
+					markFailureInStaging(image,pFoundHash);
 					continue;
 				}
 				// too many calls to `updateImageViaStagingBuffer` trigger overflow and a stall

@@ -178,23 +178,23 @@ class CAssetConverter : public core::IReferenceCounted
 				core::bitflag<usage_flags_t> usageFlags = usage_flags_t::EUF_NONE;
 				core::bitflag<usage_flags_t> stencilUsage = usage_flags_t::EUF_NONE;
 				// moar stuff
-				uint16_t mutableFormat : 1 = false;
-				uint16_t cubeCompatible : 1 = false;
-				uint16_t _3Dbut2DArrayCompatible : 1 = false;
+				uint32_t mutableFormat : 1 = false;
+				uint32_t cubeCompatible : 1 = false;
+				uint32_t _3Dbut2DArrayCompatible : 1 = false;
 				// we sort of ignore that at the end if the format doesn't stay block compressed
-				uint16_t uncompressedViewOfCompressed : 1 = false;
+				uint32_t uncompressedViewOfCompressed : 1 = false;
 				// Extra metadata needed for format promotion, if you want any of them (except for `linearlySampled` and `depthCompareSampledImage`)
 				// as anything other than the default values, use explicit input roots with patches. Otherwise if `format` is not supported by device
 				// the view can get promoted to a format that doesn't have these usage capabilities.
-				uint16_t linearlySampled : 1 = false;
-				uint16_t storageAtomic : 1 = false;
-				uint16_t storageImageLoadWithoutFormat : 1 = false;
-				uint16_t depthCompareSampledImage : 1 = false;
+				uint32_t linearlySampled : 1 = false;
+				uint32_t storageAtomic : 1 = false;
+				uint32_t storageImageLoadWithoutFormat : 1 = false;
+				uint32_t depthCompareSampledImage : 1 = false;
 				// all converted images default to optimal!
-				uint16_t linearTiling : 1 = false;
+				uint32_t linearTiling : 1 = false;
 				// aside from format promotion, we can also promote images to have a fuller mip chain and recompute it
-				uint16_t mipLevels : 6 = 0;
-				uint16_t recomputeMips : 1 = false;
+				uint32_t mipLevels : 7 = 0;
+				uint32_t recomputeMips : 16 = false;
 
 			protected:
 				inline std::pair<bool,this_t> combine(const this_t& other) const
@@ -712,7 +712,7 @@ class CAssetConverter : public core::IReferenceCounted
 				return 0;
 			}
 
-			// if you want concurrent sharing return a list here
+			// if you want concurrent sharing return a list here, REMEMBER THAT IF YOU DON'T INCLUDE THE LATER QUEUE FAMILIES USED in `SConvertParams` you'll fail!
 			virtual inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t groupCopyID, const asset::ICPUBuffer* buffer, const patch_t<asset::ICPUBuffer>& patch) const
 			{
 				return {};
@@ -743,31 +743,25 @@ class CAssetConverter : public core::IReferenceCounted
 				return hlsl::findMSB(maxExtent)+1;
 			}
 
-			// whether any mipmap needs to be recomputed, gets called AFTER `getMipLevelCount` on the same image asset instance
-			virtual inline bool needToRecomputeMips(const size_t groupCopyID, const asset::ICPUImage* image, const patch_t<asset::ICPUImage>& patch) const
+			// Bitfield of which mip levels will get recomputed, gets called AFTER `getMipLevelCount` on the same image asset instance
+			// Bit 0 is mip level 1, Bit N is mip level N+1, as the base cannot be recomputed
+			virtual inline uint16_t needToRecomputeMips(const size_t groupCopyID, const asset::ICPUImage* image, const patch_t<asset::ICPUImage>& patch) const
 			{
 				assert(image);
 				const auto format = patch.format;
 				// makes no sense to have a mip-map of integer values, and we can't encode into BC formats (yet)
 				if (asset::isIntegerFormat(format) || asset::isBlockCompressionFormat(format))
-					return false;
+					return 0;
 				// base mip level has data to use as source
 				if (image->getRegions(0).empty())
-					return false;
+					return 0;
 				// any mip level is completely empty (mip levels with any data will NOT be recomputed) and has a mip level with data preceeding it
-				const auto mipCount = patch.mipLevels;
-				bool previousLevelHasData = true;
-				for (uint8_t l=1; l<mipCount; l++)
-				{
-					if (image->getRegions(l).empty())
-					{
-						if (previousLevelHasData)
-							return true;
-					}
-					else
-						previousLevelHasData = true;
-				}
-				return false;
+				uint16_t retval = 0;
+				const uint16_t mipCount = patch.mipLevels;
+				for (uint16_t l=1; l<mipCount; l++)
+				if (image->getRegions(l).empty())
+					retval |= 0x1u<<(l-1);
+				return retval;
 			}
 
 			// Typed Range of Inputs of the same type
@@ -797,7 +791,11 @@ class CAssetConverter : public core::IReferenceCounted
 		{
 			// By default the last to queue to touch a GPU object will own it after any transfer or compute operations are complete.
 			// If you want to record a pipeline barrier that will release ownership to another family, override this
-			virtual inline uint32_t getFinalOwnerQueueFamily(const IDeviceMemoryBacked* imageOrBuffer, const core::blake3_hash_t& createdFrom)
+			virtual inline uint32_t getFinalOwnerQueueFamily(const IGPUBuffer* buffer, const core::blake3_hash_t& createdFrom)
+			{
+				return IQueue::FamilyIgnored;
+			}
+			virtual inline uint32_t getFinalOwnerQueueFamily(const IGPUImage* image, const core::blake3_hash_t& createdFrom, const uint8_t mipLevel)
 			{
 				return IQueue::FamilyIgnored;
 			}
@@ -1033,6 +1031,8 @@ class CAssetConverter : public core::IReferenceCounted
 					core::smart_refctd_ptr<const AssetType> canonical;
 					// gpu object to transfer canonical's data to or build it from
 					asset_traits<AssetType>::video_t* gpuObj;
+					// only relevant for images
+					uint16_t recomputeMips = 0;
 				};
 				template<asset::Asset AssetType>
 				using conversion_requests_t = core::vector<ConversionRequest<AssetType>>;
