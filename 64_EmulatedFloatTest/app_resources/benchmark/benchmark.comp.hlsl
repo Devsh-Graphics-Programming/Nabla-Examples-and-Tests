@@ -9,35 +9,18 @@
 #include <nbl/builtin/hlsl/math/quadrature/gauss_legendre/gauss_legendre.hlsl>
 #include <nbl/builtin/hlsl/ieee754.hlsl>
 
+using namespace nbl::hlsl;
+
 RWByteAddressBuffer outputBuffer;
 [[vk::push_constant]] BenchmarkPushConstants pc;
-
-#define TEST_EMULATED_FLOAT64
-
-using namespace nbl::hlsl;
-#ifdef TEST_EMULATED_FLOAT64
-using F64 = emulated_float64_t<false, true>;
-#else
-using F64 = float64_t;
-#endif
-
-F64 createF64(float64_t value)
-{
-#ifdef TEST_EMULATED_FLOAT64
-	F64 output;
-	output.data = 0;
-	return output;
-#else
-	return 0.0;
-#endif
-}
 
 // for initial seed of 69, the polynomial is:
 //	f(x) = x^15 * 187.804 + x^14 * 11.6964 + x^13 * 2450.9 + x^12 * 88.6756 + x^11 * 3.62408 + x^10 * 11.4605 + x^9 * 53276.3 + x^8 * 16045.4 + x^7 * 2260.61 + x^6 * 8162.57 
 // + x^5 * 20.674 + x^4 * 13918.6 + x^3 * 2.36093 + x^2 * 8.72536 + x^1 * 2335.63 + 176.719
 // f(1) = 98961.74987
-// int from 0 to 69 = 3.11133×10^30 ?
+// int from 0 to 69 = 3.11133×10^30
 
+template<typename F64>
 struct Random16thPolynomial
 {
 	void randomizeCoefficients()
@@ -99,16 +82,27 @@ struct Random16thPolynomial
 	F64 coefficients[CoefficientNumber];
 };
 
+template<typename F64>
+uint64_t test()
+{
+	Random16thPolynomial<F64> polynomial;
+	polynomial.randomizeCoefficients();
+
+	using Integrator = math::quadrature::GaussLegendreIntegration<15, F64, Random16thPolynomial<F64> >;
+	F64 integral = Integrator::calculateIntegral(polynomial, _static_cast<F64>(0.0f), _static_cast<F64>(69.0f));
+
+	return bit_cast<uint64_t>(integral);
+}
+
 [numthreads(BENCHMARK_WORKGROUP_SIZE, 1, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
-	Random16thPolynomial polynomial;
-	polynomial.randomizeCoefficients();
-	
-	using Integrator = math::quadrature::GaussLegendreIntegration<15, F64, Random16thPolynomial>;
-	F64 integral = Integrator::calculateIntegral(polynomial, createF64(0.0f), createF64(69.0f));
+	uint64_t output; // it is uint64_t only because it is not possible to print a 64 bit float
+	if (pc.testEmulatedFloat64)
+		output = test<emulated_float64_t<true, true> >();
+	else
+		output = test<float64_t>();
 
-	uint64_t output = bit_cast<uint64_t>(integral);
 	printf("result = %llu", output);
 	outputBuffer.Store<uint64_t>(pc.rawBufferAddress, output);
 }

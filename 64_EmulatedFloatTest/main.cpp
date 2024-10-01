@@ -14,6 +14,8 @@
 #include "app_resources/benchmark/common.hlsl"
 #include "nbl/builtin/hlsl/ieee754.hlsl"
 
+#include <nbl\builtin\hlsl\math\quadrature\gauss_legendre\gauss_legendre.hlsl>
+
 using namespace nbl::core;
 using namespace nbl::hlsl;
 using namespace nbl::system;
@@ -1176,6 +1178,8 @@ private:
 
         void run()
         {
+            m_pushConstants.testEmulatedFloat64 = false;
+            m_cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
             m_cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
             m_cmdbuf->beginDebugMarker("emulated_float64_t compute dispatch", vectorSIMDf(0, 1, 0, 1));
             m_cmdbuf->bindComputePipeline(m_pipeline.get());
@@ -1188,7 +1192,7 @@ private:
             IQueue::SSubmitInfo submitInfos[1] = {};
             const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = m_cmdbuf.get()} };
             submitInfos[0].commandBuffers = cmdbufs;
-            const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = m_semaphore.get(), .value = ++m_semaphoreCounter, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
+            IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = m_semaphore.get(), .value = ++m_semaphoreCounter, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
             submitInfos[0].signalSemaphores = signals;
 
             m_queue->startCapture();
@@ -1196,6 +1200,13 @@ private:
             m_queue->endCapture();
 
             m_base.m_device->waitIdle();
+
+            m_pushConstants.testEmulatedFloat64 = true;
+            signals[0].value = ++m_semaphoreCounter;
+
+            m_queue->startCapture();
+            m_queue->submit(submitInfos);
+            m_queue->endCapture();
         }
 
     private:

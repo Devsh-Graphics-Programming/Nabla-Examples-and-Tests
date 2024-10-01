@@ -9,4 +9,5 @@ NBL_CONSTEXPR uint32_t BENCHMARK_WORKGROUP_SIZE = 1;
 struct BenchmarkPushConstants
 {
     uint32_t rawBufferAddress;
+    int testEmulatedFloat64;
 };
