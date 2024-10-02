@@ -1178,9 +1178,8 @@ private:
 
         void run()
         {
-            m_pushConstants.testEmulatedFloat64 = false;
-            m_cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
-            m_cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
+            m_pushConstants.testEmulatedFloat64 = 0;
+            m_cmdbuf->begin(IGPUCommandBuffer::USAGE::SIMULTANEOUS_USE_BIT);
             m_cmdbuf->beginDebugMarker("emulated_float64_t compute dispatch", vectorSIMDf(0, 1, 0, 1));
             m_cmdbuf->bindComputePipeline(m_pipeline.get());
             m_cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_pplnLayout.get(), 0, 1, &m_ds.get());
@@ -1195,18 +1194,41 @@ private:
             IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = m_semaphore.get(), .value = ++m_semaphoreCounter, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
             submitInfos[0].signalSemaphores = signals;
 
-            m_queue->startCapture();
-            m_queue->submit(submitInfos);
-            m_queue->endCapture();
+
+
+            for (int i = 0; i < Iterations; ++i)
+            {
+                if(i == 30)
+                    m_queue->startCapture();
+                m_queue->submit(submitInfos);
+                if (i == 30)
+                    m_queue->endCapture();
+
+                signals[0].value = ++m_semaphoreCounter;
+            }
 
             m_base.m_device->waitIdle();
 
-            m_pushConstants.testEmulatedFloat64 = true;
-            signals[0].value = ++m_semaphoreCounter;
+            m_pushConstants.testEmulatedFloat64 = 1;
+            m_cmdbuf->begin(IGPUCommandBuffer::USAGE::SIMULTANEOUS_USE_BIT);
+            m_cmdbuf->beginDebugMarker("emulated_float64_t compute dispatch", vectorSIMDf(0, 1, 0, 1));
+            m_cmdbuf->bindComputePipeline(m_pipeline.get());
+            m_cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_pplnLayout.get(), 0, 1, &m_ds.get());
+            m_cmdbuf->pushConstants(m_pplnLayout.get(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(BenchmarkPushConstants), &m_pushConstants);
+            m_cmdbuf->dispatch(WORKGROUP_SIZE, 1, 1);
+            m_cmdbuf->endDebugMarker();
+            m_cmdbuf->end();
 
-            m_queue->startCapture();
-            m_queue->submit(submitInfos);
-            m_queue->endCapture();
+            for (int i = 0; i < Iterations; ++i)
+            {
+                if (i == 30)
+                    m_queue->startCapture();
+                m_queue->submit(submitInfos);
+                if (i == 30)
+                    m_queue->endCapture();
+
+                signals[0].value = ++m_semaphoreCounter;
+            }
         }
 
     private:
@@ -1222,6 +1244,8 @@ private:
         smart_refctd_ptr<ISemaphore> m_semaphore;
         IQueue* m_queue;
         uint64_t m_semaphoreCounter;
+
+        static constexpr int Iterations = 100;
     };
 
     template<typename... Args>

@@ -97,6 +97,11 @@ uint64_t test()
 [numthreads(BENCHMARK_WORKGROUP_SIZE, 1, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
+	if (pc.testEmulatedFloat64 == 1)
+		printf("testing emulated");
+	else
+		printf("testing native");
+
 	uint64_t output; // it is uint64_t only because it is not possible to print a 64 bit float
 	if (pc.testEmulatedFloat64)
 		output = test<emulated_float64_t<true, true> >();
