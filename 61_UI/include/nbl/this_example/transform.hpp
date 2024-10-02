@@ -99,6 +99,10 @@ void EditTransform(float* cameraView, const float* cameraProjection, float* matr
         imgui  "cursor" screen positions
 	*/
 
+	SImResourceInfo info;
+	info.textureID = CScene::NBL_OFFLINE_SCENE_TEX_ID;
+	info.samplerIx = (uint16_t)nbl::ext::imgui::UI::DefaultSamplerIx::USER;
+
 	if (params.useWindow)
 	{
 		ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Appearing);
@@ -111,7 +115,7 @@ void EditTransform(float* cameraView, const float* cameraProjection, float* matr
 		ImVec2 windowPos = ImGui::GetWindowPos();
 		ImVec2 cursorPos = ImGui::GetCursorScreenPos();
 
-		ImGui::Image(CScene::NBL_OFFLINE_SCENE_TEX_ID, contentRegionSize);
+		ImGui::Image(info, contentRegionSize);
 		ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
 
 		viewManipulateRight = cursorPos.x + contentRegionSize.x;
@@ -130,7 +134,7 @@ void EditTransform(float* cameraView, const float* cameraProjection, float* matr
 		ImVec2 contentRegionSize = ImGui::GetContentRegionAvail();
 		ImVec2 cursorPos = ImGui::GetCursorScreenPos();
 
-		ImGui::Image(CScene::NBL_OFFLINE_SCENE_TEX_ID, contentRegionSize);
+		ImGui::Image(info, contentRegionSize);
 		ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
 
 		viewManipulateRight = cursorPos.x + contentRegionSize.x;

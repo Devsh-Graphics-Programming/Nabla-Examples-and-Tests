@@ -136,27 +136,29 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			
 			//pass.scene = CScene::create<CScene::CREATE_RESOURCES_DIRECTLY_WITH_DEVICE>(smart_refctd_ptr(m_utils), smart_refctd_ptr(m_logger), gQueue, geometry);
 			pass.scene = CScene::create<CScene::CREATE_RESOURCES_WITH_ASSET_CONVERTER>(smart_refctd_ptr(m_utils), smart_refctd_ptr(m_logger), gQueue, geometry);
+
+			nbl::ext::imgui::UI::SCreationParameters params;
+
+			params.resources.texturesInfo = { .setIx = 0u, .bindingIx = 0u };
+			params.resources.samplersInfo = { .setIx = 0u, .bindingIx = 1u };
+			params.assetManager = m_assetManager;
+			params.pipelineCache = nullptr;
+			params.pipelineLayout = nbl::ext::imgui::UI::createDefaultPipelineLayout(m_utils.get(), params.resources.texturesInfo, params.resources.samplersInfo, TexturesAmount);
+			params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
+			params.streamingBuffer = nullptr;
+			params.subpassIx = 0u;
+			params.transfer = getTransferUpQueue();
+			params.utilities = m_utils;
 			{
-				pass.ui.manager = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>
-				(
-					nbl::ext::imgui::UI::S_CREATION_PARAMETERS
-					{
-						.assetManager = m_assetManager.get(),
-						.utilities = m_utils.get(),
-						.transfer = getTransferUpQueue(),
-						.renderpass = renderpass,
-						.subpassIx = 0u,
-						//.resources = { .descriptorSetLayout = descriptorSetLayout.get() }
-					}
-				);
+				pass.ui.manager = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(std::move(params));
 
 				// note that we use default layout provided by our extension, but you are free to create your own by filling nbl::ext::imgui::UI::S_CREATION_PARAMETERS::resources
 				const auto* descriptorSetLayout = pass.ui.manager->getPipeline()->getLayout()->getDescriptorSetLayout(0u);
 				const auto& params = pass.ui.manager->getCreationParameters();
 
 				IDescriptorPool::SCreateInfo descriptorPoolInfo = {};
-				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLER)] = params.resources.count;
-				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE)] = params.resources.count;
+				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLER)] = (uint32_t)nbl::ext::imgui::UI::DefaultSamplerIx::COUNT;
+				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE)] = TexturesAmount;
 				descriptorPoolInfo.maxSets = 1u;
 				descriptorPoolInfo.flags = IDescriptorPool::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT;
 
@@ -419,7 +421,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						auto* streaminingBuffer = pass.ui.manager->getStreamingBuffer();
 
 						const size_t total = streaminingBuffer->get_total_size();			// total memory range size for which allocation can be requested
-						const size_t maxSizeToAllocate = streaminingBuffer->max_size();	// max total free bloock memory size we can still allocate from total memory available
+						const size_t maxSizeToAllocate = ((nbl::ext::imgui::UI::SMdiBuffer::compose_t*)streaminingBuffer)->max_size();		// max total free bloock memory size we can still allocate from total memory available
 						const size_t consumedMemory = total - maxSizeToAllocate;			// memory currently consumed by streaming buffer
 
 						float freePercentage = 100.0f * (float)(maxSizeToAllocate) / (float)total;
@@ -497,11 +499,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		bool updateGUIDescriptorSet()
 		{
 			// texture atlas + our scene texture, note we don't create info & write pair for the font sampler because UI extension's is immutable and baked into DS layout
-			static std::array<IGPUDescriptorSet::SDescriptorInfo, TEXTURES_AMOUNT> descriptorInfo;
-			static IGPUDescriptorSet::SWriteDescriptorSet writes[TEXTURES_AMOUNT];
+			static std::array<IGPUDescriptorSet::SDescriptorInfo, TexturesAmount> descriptorInfo;
+			static IGPUDescriptorSet::SWriteDescriptorSet writes[TexturesAmount];
 
-			descriptorInfo[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			descriptorInfo[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].desc = core::smart_refctd_ptr<nbl::video::IGPUImageView>(pass.ui.manager->getFontAtlasView());
+			descriptorInfo[nbl::ext::imgui::UI::FontAtlasTexId].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			descriptorInfo[nbl::ext::imgui::UI::FontAtlasTexId].desc = core::smart_refctd_ptr<nbl::video::IGPUImageView>(pass.ui.manager->getFontAtlasView());
 
 			descriptorInfo[CScene::NBL_OFFLINE_SCENE_TEX_ID].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 
@@ -514,7 +516,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				writes[i].arrayElement = i;
 				writes[i].count = 1u;
 			}
-			writes[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].info = descriptorInfo.data() + nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID;
+			writes[nbl::ext::imgui::UI::FontAtlasTexId].info = descriptorInfo.data() + nbl::ext::imgui::UI::FontAtlasTexId;
 			writes[CScene::NBL_OFFLINE_SCENE_TEX_ID].info = descriptorInfo.data() + CScene::NBL_OFFLINE_SCENE_TEX_ID;
 
 			return m_device->updateDescriptorSets(writes, {});
@@ -591,7 +593,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				const auto uiParams = pass.ui.manager->getCreationParameters();
 				auto* pipeline = pass.ui.manager->getPipeline();
 				cb->bindGraphicsPipeline(pipeline);
-				cb->bindDescriptorSets(EPBP_GRAPHICS, pipeline->getLayout(), uiParams.resources.textures.setIx, 1u, &pass.ui.descriptorSet.get()); // note that we use default UI pipeline layout where uiParams.resources.textures.setIx == uiParams.resources.samplers.setIx
+				cb->bindDescriptorSets(EPBP_GRAPHICS, pipeline->getLayout(), uiParams.resources.texturesInfo.setIx, 1u, &pass.ui.descriptorSet.get()); // note that we use default UI pipeline layout where uiParams.resources.textures.setIx == uiParams.resources.samplers.setIx
 				pass.ui.manager->render(cb, waitInfo);
 				cb->endRenderPass();
 			}
@@ -727,15 +729,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			const auto cursorPosition = m_window->getCursorControl()->getPosition();
 
-			nbl::ext::imgui::UI::S_UPDATE_PARAMETERS params = 
+			nbl::ext::imgui::UI::SUpdateParameters params = 
 			{
 				.mousePosition = nbl::hlsl::float32_t2(cursorPosition.x, cursorPosition.y) - nbl::hlsl::float32_t2(m_window->getX(), m_window->getY()),
 				.displaySize = { m_window->getWidth(), m_window->getHeight() },
-				.events = 
-				{
-					.mouse = core::SRange<const nbl::ui::SMouseEvent>(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size()),
-					.keyboard = core::SRange<const nbl::ui::SKeyboardEvent>(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size())
-				}
+				.mouseEvents = { capturedEvents.mouse.data(), capturedEvents.mouse.size() },
+				.keyboardEvents = { capturedEvents.keyboard.data(), capturedEvents.keyboard.size() }
 			};
 
 			pass.ui.manager->update(params);
@@ -757,7 +756,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		InputSystem::ChannelReader<IMouseEventChannel> mouse;
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
-		NBL_CONSTEXPR_STATIC_INLINE auto TEXTURES_AMOUNT = 2u;
+		constexpr static inline auto TexturesAmount = 2u;
 
 		core::smart_refctd_ptr<IDescriptorPool> m_descriptorSetPool;
 
