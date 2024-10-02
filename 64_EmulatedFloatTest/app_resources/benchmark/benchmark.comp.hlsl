@@ -97,7 +97,7 @@ uint64_t test()
 [numthreads(BENCHMARK_WORKGROUP_SIZE, 1, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
-	if (pc.testEmulatedFloat64 == 1)
+	if (pc.testEmulatedFloat64)
 		printf("testing emulated");
 	else
 		printf("testing native");

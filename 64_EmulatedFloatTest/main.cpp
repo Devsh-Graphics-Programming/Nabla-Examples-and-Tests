@@ -1179,14 +1179,7 @@ private:
         void run()
         {
             m_pushConstants.testEmulatedFloat64 = 0;
-            m_cmdbuf->begin(IGPUCommandBuffer::USAGE::SIMULTANEOUS_USE_BIT);
-            m_cmdbuf->beginDebugMarker("emulated_float64_t compute dispatch", vectorSIMDf(0, 1, 0, 1));
-            m_cmdbuf->bindComputePipeline(m_pipeline.get());
-            m_cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_pplnLayout.get(), 0, 1, &m_ds.get());
-            m_cmdbuf->pushConstants(m_pplnLayout.get(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(BenchmarkPushConstants), &m_pushConstants);
-            m_cmdbuf->dispatch(WORKGROUP_SIZE, 1, 1);
-            m_cmdbuf->endDebugMarker();
-            m_cmdbuf->end();
+            recordCmdBuff();
 
             IQueue::SSubmitInfo submitInfos[1] = {};
             const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = m_cmdbuf.get()} };
@@ -1194,14 +1187,13 @@ private:
             IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = m_semaphore.get(), .value = ++m_semaphoreCounter, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
             submitInfos[0].signalSemaphores = signals;
 
-
-
             for (int i = 0; i < Iterations; ++i)
             {
-                if(i == 30)
+                // need captures for now
+                if(i == 0)
                     m_queue->startCapture();
                 m_queue->submit(submitInfos);
-                if (i == 30)
+                if (i == 0)
                     m_queue->endCapture();
 
                 signals[0].value = ++m_semaphoreCounter;
@@ -1210,6 +1202,23 @@ private:
             m_base.m_device->waitIdle();
 
             m_pushConstants.testEmulatedFloat64 = 1;
+            recordCmdBuff();
+
+            for (int i = 0; i < Iterations; ++i)
+            {
+                if (i == 0)
+                    m_queue->startCapture();
+                m_queue->submit(submitInfos);
+                if (i == 0)
+                    m_queue->endCapture();
+
+                signals[0].value = ++m_semaphoreCounter;
+            }
+        }
+
+    private:
+        void recordCmdBuff()
+        {
             m_cmdbuf->begin(IGPUCommandBuffer::USAGE::SIMULTANEOUS_USE_BIT);
             m_cmdbuf->beginDebugMarker("emulated_float64_t compute dispatch", vectorSIMDf(0, 1, 0, 1));
             m_cmdbuf->bindComputePipeline(m_pipeline.get());
@@ -1218,33 +1227,43 @@ private:
             m_cmdbuf->dispatch(WORKGROUP_SIZE, 1, 1);
             m_cmdbuf->endDebugMarker();
             m_cmdbuf->end();
+        }
 
-            for (int i = 0; i < Iterations; ++i)
-            {
-                if (i == 30)
-                    m_queue->startCapture();
-                m_queue->submit(submitInfos);
-                if (i == 30)
-                    m_queue->endCapture();
+        void setupTimestampQuery()
+        {
+            IQueryPool::SCreationParams queryPoolCreationParams{};
+            queryPoolCreationParams.queryType = IQueryPool::TYPE::TIMESTAMP;
+            queryPoolCreationParams.queryCount = 1;
 
-                signals[0].value = ++m_semaphoreCounter;
-            }
+            m_base.m_device->createQueryPool(queryPoolCreationParams);
+
+            m_timestampBeginCmdBuff->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+            m_timestampBeginCmdBuff->resetQueryPool();
+            m_timestampBeginCmdBuff->writeTimestamp(PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS);
+            m_timestampBeginCmdBuff->end();
+
+            m_timestampBeginCmdBuff->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+            m_timestampBeginCmdBuff->writeTimestamp(PIPELINE_STAGE_FLAGS::HOST_BIT);
+            m_timestampBeginCmdBuff->end();
         }
 
     private:
-        uint32_t m_queueFamily;
         nbl::video::IDeviceMemoryAllocator::SAllocation m_allocation = {};
         smart_refctd_ptr<nbl::video::IGPUCommandBuffer> m_cmdbuf = nullptr;
-        smart_refctd_ptr<nbl::video::IGPUCommandPool> m_cmdpool = nullptr;
         smart_refctd_ptr<nbl::video::IGPUDescriptorSet> m_ds = nullptr;
         smart_refctd_ptr<nbl::video::IGPUPipelineLayout> m_pplnLayout = nullptr;
         BenchmarkPushConstants m_pushConstants;
         CompatibilityTest& m_base;
         smart_refctd_ptr<nbl::video::IGPUComputePipeline> m_pipeline;
         smart_refctd_ptr<ISemaphore> m_semaphore;
-        IQueue* m_queue;
         uint64_t m_semaphoreCounter;
 
+        smart_refctd_ptr<nbl::video::IGPUCommandBuffer> m_timestampBeginCmdBuff = nullptr;
+        smart_refctd_ptr<nbl::video::IGPUCommandBuffer> m_timestampEndCmdBuff = nullptr;
+        smart_refctd_ptr<nbl::video::IQueryPool> m_queryPool = nullptr;
+
+        uint32_t m_queueFamily;
+        IQueue* m_computeQueue;
         static constexpr int Iterations = 100;
     };
 
