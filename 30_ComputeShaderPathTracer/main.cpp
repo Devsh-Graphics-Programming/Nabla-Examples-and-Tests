@@ -926,7 +926,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf.get() };
 					m_intendedSubmit.commandBuffers = { &cmdbufInfo, 1 };
 					
-					m_utils->updateBufferRangeViaStagingBufferAutoSubmit(m_intendedSubmit, range, &viewParams);
+					m_utils->updateBufferRangeViaStagingBuffer(m_intendedSubmit, range, &viewParams);
+					m_utils->autoSubmit(m_intendedSubmit, [&](SIntendedSubmitInfo& nextSubmit) -> bool { return true; });
 				}
 
 				// TRANSITION m_outImgView to GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
@@ -1017,7 +1018,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				// submit
 				const IQueue::SSubmitInfo::SSemaphoreInfo rendered[1] = { {
 					.semaphore = m_renderSemaphore.get(),
-					.value = ++m_realFrameIx,
+					.value = m_realFrameIx + 1u,
 					// just as we've outputted all pixels, signal
 					.stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
 				} };
@@ -1069,10 +1070,10 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					.depthStencilClearValues = nullptr,
 					.renderArea = currentRenderArea
 				};
+				ISemaphore::SWaitInfo waitInfo = { .semaphore = m_uiSemaphore.get(), .value = m_realFrameIx + 1u };
+
 				cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-				IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cb };
-				m_intendedSubmit.commandBuffers = { &cmdbufInfo, 1 };
-				m_ui.manager->render(m_intendedSubmit, m_ui.descriptorSet.get());
+				m_ui.manager->render(cb, waitInfo);
 				cb->endRenderPass();
 			}
 			cb->end();
@@ -1081,7 +1082,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				{ 
 					{
 						.semaphore = m_uiSemaphore.get(),
-						.value = m_realFrameIx,
+						.value = ++m_realFrameIx,
 						.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
 					} 
 				};
@@ -1211,10 +1212,22 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			}
 			if (move) m_camera.endInputProcessing(nextPresentationTimestamp);
 
-			core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
-			core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
+			const core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
+			const core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
+			const auto cursorPosition = m_window->getCursorControl()->getPosition();
 
-			m_ui.manager->update(m_window.get(), deltaTimeInSec, mouseEvents, keyboardEvents);
+			const ext::imgui::UI::S_UPDATE_PARAMETERS params =
+			{
+				.mousePosition = float32_t2(cursorPosition.x, cursorPosition.y) - float32_t2(m_window->getX(), m_window->getY()),
+				.displaySize = { m_window->getWidth(), m_window->getHeight() },
+				.events =
+				{
+					.mouse = mouseEvents,
+					.keyboard = keyboardEvents
+				}
+			};
+
+			m_ui.manager->update(params);
 		}
 
 	private:
