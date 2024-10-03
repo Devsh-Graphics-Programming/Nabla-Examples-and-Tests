@@ -712,7 +712,7 @@ class CAssetConverter : public core::IReferenceCounted
 				return 0;
 			}
 
-			// if you want concurrent sharing return a list here, REMEMBER THAT IF YOU DON'T INCLUDE THE LATER QUEUE FAMILIES USED in `SConvertParams` you'll fail!
+			// If you want concurrent sharing return a list here, REMEMBER THAT IF YOU DON'T INCLUDE THE LATER QUEUE FAMILIES USED in `SConvertParams` you'll fail!
 			virtual inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t groupCopyID, const asset::ICPUBuffer* buffer, const patch_t<asset::ICPUBuffer>& patch) const
 			{
 				return {};
@@ -731,11 +731,14 @@ class CAssetConverter : public core::IReferenceCounted
 				// failure/no-change balue
 				const auto origCount = params.mipLevels;
 				const auto format = patch.format;
+				// unlikely anyone needs mipmaps without this usage
+				if (!patch.usageFlags.hasFlags(IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT))
+					return 0;
 				// makes no sense to have a mip-map of integer values, and we can't encode into BC formats (yet)
 				if (asset::isIntegerFormat(format) || asset::isBlockCompressionFormat(format))
 					return origCount;
-				// original image did not have a mip-tail of any size, and we have some image data
-				if (origCount==1 && image->getRegions().empty())
+				// original image did already have a mip tail, or we don't have any base level data
+				if (origCount!=1 || image->getRegions(0).empty())
 					return origCount;
 				// ok lets do a full one then
 				const auto maxExtent = std::max<uint32_t>(std::max<uint32_t>(params.extent.width,params.extent.height),params.extent.depth);
@@ -790,7 +793,7 @@ class CAssetConverter : public core::IReferenceCounted
 		struct SConvertParams
 		{
 			// By default the last to queue to touch a GPU object will own it after any transfer or compute operations are complete.
-			// If you want to record a pipeline barrier that will release ownership to another family, override this
+			// If you want to record a pipeline barrier that will release ownership to another family, override this.
 			virtual inline uint32_t getFinalOwnerQueueFamily(const IGPUBuffer* buffer, const core::blake3_hash_t& createdFrom)
 			{
 				return IQueue::FamilyIgnored;
@@ -993,6 +996,13 @@ class CAssetConverter : public core::IReferenceCounted
 						ILogicalDevice* device = nullptr;
 						core::bitflag<IQueue::FAMILY_FLAGS> submitsNeeded = IQueue::FAMILY_FLAGS::NONE;
 				};
+				// IMPORTANT: Barriers are NOT automatically issued AFTER the last command to touch a converted resource unless Queue Family Ownership needs to be released!
+				// Therefore, unless you end and Submit the SIntendedSubmit command buffers of `params` and synchronise those submission semaphore signal with a wait on the next
+				// submission to use the resources on the same queue, YOU NEED TO RECORD THE PIPELINE BARRIERS YOURSELF!
+				// **If there were QFOT Releases done, you need to record pipeline barriers with QFOT acquire yourself anyway!**
+				// We only record pipeline barriers AFTER the last command if the image layout was meant to change.
+				// TL;DR if appending more commands that use the converted resources to `params`'s SIntendedSubmit scratch command buffers or submitting other command buffers to
+				// the same queues without a semaphore-signal wait, just issue global all-memory mega-barriers with TRANSFER or COMPUTE source stages and MEOMRY_WRITE access masks.
 				inline SConvertResult convert(SConvertParams& params)
 				{
 					SConvertResult enqueueSuccess = m_converter->convert_impl(std::move(*this),params);
