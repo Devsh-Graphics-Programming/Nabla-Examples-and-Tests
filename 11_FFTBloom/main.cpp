@@ -17,10 +17,6 @@ using namespace video;
 #include "nbl/builtin/hlsl/bit.hlsl"
 #include "utils.h"
 
-// Constants
-const unsigned int channelCountOverride = 3;
-const unsigned int WorkgroupSize = 64;
-
 // In this application we'll cover buffer streaming, Buffer Device Address (BDA) and push constants 
 class FFTBloomApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
@@ -47,7 +43,7 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 	smart_refctd_ptr<IGPUImageView> kerImageView;
 	smart_refctd_ptr<IGPUImage> outImg;
 	smart_refctd_ptr<IGPUImageView> outImgView;
-	smart_refctd_ptr<IGPUImageView> kernelNormalizedSpectrums[channelCountOverride];
+	smart_refctd_ptr<IGPUImageView> kernelNormalizedSpectrums[CHANNELS];
 
 	// Used to store intermediate results
 	smart_refctd_ptr<nbl::video::IGPUBuffer> m_rowMajorBuffer;
@@ -60,7 +56,6 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 	// Some parameters
 	float bloomScale = 1.f;
 	float useHalfFloats = false;
-	unsigned int elementsPerThread = 2; // MUST be power of two!!!
 	
 	// Other parameter-dependent variables
 	asset::VkExtent3D marginSrcDim;
@@ -112,16 +107,16 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 
 	inline void updateDescriptorSetConvolution(IGPUDescriptorSet* set, const smart_refctd_ptr<IGPUImageView>* kernelNormalizedSpectrumImageDescriptors)
 	{
-		IGPUDescriptorSet::SDescriptorInfo pInfos[channelCountOverride];
+		IGPUDescriptorSet::SDescriptorInfo pInfos[CHANNELS];
 		IGPUDescriptorSet::SWriteDescriptorSet write;
 
 		write.dstSet = set;
 		write.binding = 0;
 		write.arrayElement = 0u;
-		write.count = channelCountOverride;
+		write.count = CHANNELS;
 		write.info = pInfos;
 
-		for (uint32_t i = 0u; i < channelCountOverride; i++)
+		for (uint32_t i = 0u; i < CHANNELS; i++)
 		{
 			auto& info = pInfos[i];
 			info.desc = kernelNormalizedSpectrumImageDescriptors[i];
@@ -140,7 +135,7 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 		write.dstSet = set;
 		write.binding = 0;
 		write.arrayElement = 0u;
-		write.count = channelCountOverride;
+		write.count = CHANNELS;
 		write.info = &info;
 
 		info.desc = outputImageDescriptor;
@@ -152,6 +147,8 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 
 	inline core::smart_refctd_ptr<video::IGPUShader> createShader(
 		const char* includeMainName,
+		uint32_t workgroupSize,
+		uint32_t elementsPerThread,
 		float kernelScale = 1.f)
 	{
 
@@ -167,14 +164,14 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 
 		)===";
 
-		const size_t extraSize = 4u + 4u + 18u + 128u;
+		const size_t extraSize = 4u + 4u + 26u + 128u;
 
 		auto shader = core::make_smart_refctd_ptr<ICPUBuffer>(strlen(sourceFmt) + extraSize + 1u);
 		snprintf(
 			reinterpret_cast<char*>(shader->getPointer()), shader->getSize(), sourceFmt,
-			WorkgroupSize,
+			workgroupSize,
 			elementsPerThread,
-			useHalfFloats ? "USE_HALF_PRECISION" : "",
+			useHalfFloats ? "#define USE_HALF_PRECISION" : "",
 			kernelScale,
 			includeMainName
 		);
@@ -266,11 +263,13 @@ public:
 		uint32_t srcNumChannels = getFormatChannelCount(srcFormat);
 		uint32_t kerNumChannels = getFormatChannelCount(kerImageView->getCreationParameters().format);
 		//! OVERRIDE (we dont need alpha)
-		srcNumChannels = channelCountOverride;
-		kerNumChannels = channelCountOverride;
+		srcNumChannels = CHANNELS;
+		kerNumChannels = CHANNELS;
 		assert(srcNumChannels == kerNumChannels); // Just to make sure, because the other case is not handled in this example
 
 		// Compute (kernel) padding size
+
+		// Kernel pixel to image pixel conversion ratio
 		const float bloomRelativeScale = 0.25f;
 		const auto kerDim = kerImageView->getCreationParameters().image->getCreationParameters().extent;
 		const auto srcDim = srcImageView->getCreationParameters().image->getCreationParameters().extent;
@@ -338,8 +337,8 @@ public:
 			params.CompareEnable = false;
 			params.CompareFunc = ISampler::ECO_ALWAYS;
 			auto sampler = m_device->createSampler(std::move(params));
-			smart_refctd_ptr<IGPUSampler> samplers[channelCountOverride];
-			std::fill_n(samplers, channelCountOverride, sampler);
+			smart_refctd_ptr<IGPUSampler> samplers[CHANNELS];
+			std::fill_n(samplers, CHANNELS, sampler);
 
 			IGPUDescriptorSetLayout::SBinding bnd[] =
 			{
@@ -348,7 +347,7 @@ public:
 					IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 					IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					IShader::E_SHADER_STAGE::ESS_COMPUTE,
-					channelCountOverride,
+					CHANNELS,
 					samplers
 				}
 			};
@@ -406,7 +405,7 @@ public:
 					viewParams.subresourceRange.layerCount = 1u;
 					return m_device->createImageView(std::move(viewParams));
 				};
-			for (uint32_t i = 0u; i < channelCountOverride; i++)
+			for (uint32_t i = 0u; i < CHANNELS; i++)
 				kernelNormalizedSpectrums[i] = createKernelSpectrum();
 
 			// Invoke a workgroup per scanline
@@ -447,7 +446,7 @@ public:
 						{
 							1u,
 							EDT_STORAGE_IMAGE,
-							channelCountOverride,
+							CHANNELS,
 							ISpecializedShader::ESS_COMPUTE,
 							nullptr
 						},
@@ -465,7 +464,7 @@ public:
 					{
 						auto dset = driver->createDescriptorSet(core::smart_refctd_ptr<const IGPUDescriptorSetLayout>(fftPipelineLayout_KernelNormalization->getDescriptorSetLayout(0u)));
 
-						video::IGPUDescriptorSet::SDescriptorInfo pInfos[1 + channelCountOverride];
+						video::IGPUDescriptorSet::SDescriptorInfo pInfos[1 + CHANNELS];
 						video::IGPUDescriptorSet::SWriteDescriptorSet pWrites[2];
 
 						for (auto i = 0; i < 2; i++)
@@ -487,8 +486,8 @@ public:
 						// Out Buffer 
 						pWrites[1].binding = 1;
 						pWrites[1].descriptorType = asset::EDT_STORAGE_IMAGE;
-						pWrites[1].count = channelCountOverride;
-						for (uint32_t i = 0u; i < channelCountOverride; i++)
+						pWrites[1].count = CHANNELS;
+						for (uint32_t i = 0u; i < CHANNELS; i++)
 						{
 							auto& info = pInfos[1u + i];
 							info.desc = kernelNormalizedSpectrums[i];
