@@ -51,7 +51,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 	_NBL_STATIC_INLINE_CONSTEXPR uint32_t MaxBufferDimensions = 3u << MaxDepthLog2;
 	_NBL_STATIC_INLINE_CONSTEXPR uint32_t MaxBufferSamples = 1u << MaxSamplesLog2;
 	_NBL_STATIC_INLINE_CONSTEXPR uint8_t MaxUITextureCount = 2u;
-	_NBL_STATIC_INLINE_CONSTEXPR uint8_t SceneTextureIndeex = 1u;
+	_NBL_STATIC_INLINE_CONSTEXPR uint8_t SceneTextureIndex = 1u;
 	_NBL_STATIC_INLINE std::string DefaultImagePathsFile = "../../media/envmap/envmap_0.exr";
 	_NBL_STATIC_INLINE std::array<std::string, 3> ShaderPaths = { "app_resources/litBySphere.comp", "app_resources/litByTriangle.comp", "app_resources/litByRectangle.comp" };
 
@@ -680,43 +680,39 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				for (auto& it : immutableSamplers)
 					it = smart_refctd_ptr(m_ui.samplers.scene);
 
-				immutableSamplers[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID] = smart_refctd_ptr(m_ui.samplers.gui);
+				immutableSamplers[nbl::ext::imgui::UI::FontAtlasTexId] = smart_refctd_ptr(m_ui.samplers.gui);
 
-				const IGPUDescriptorSetLayout::SBinding bindings[] =
+				nbl::ext::imgui::UI::SCreationParameters params;
+
+				params.resources.texturesInfo = { .setIx = 0u, .bindingIx = 0u };
+				params.resources.samplersInfo = { .setIx = 0u, .bindingIx = 1u };
+				params.assetManager = m_assetMgr;
+				params.pipelineCache = nullptr;
+				params.pipelineLayout = nbl::ext::imgui::UI::createDefaultPipelineLayout(m_utils.get(), params.resources.texturesInfo, params.resources.samplersInfo, MaxUITextureCount);
+				params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
+				params.streamingBuffer = nullptr;
+				params.subpassIx = 0u;
+				params.transfer = getTransferUpQueue();
+				params.utilities = m_utils;
 				{
-					{
-						.binding = 0u,
-						.type = IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
-						.createFlags = core::bitflag(binding_flags_t::ECF_UPDATE_AFTER_BIND_BIT) | binding_flags_t::ECF_PARTIALLY_BOUND_BIT | binding_flags_t::ECF_UPDATE_UNUSED_WHILE_PENDING_BIT,
-						.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-						.count = 69u
-					},
-					{
-						.binding = 1u,
-						.type = IDescriptor::E_TYPE::ET_SAMPLER,
-						.createFlags = binding_flags_t::ECF_NONE,
-						.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-						.count = 69u,
-						.immutableSamplers = immutableSamplers.data()
-					}
-				};
+					m_ui.manager = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(std::move(params));
 
-				auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
+					// note that we use default layout provided by our extension, but you are free to create your own by filling nbl::ext::imgui::UI::S_CREATION_PARAMETERS::resources
+					const auto* descriptorSetLayout = m_ui.manager->getPipeline()->getLayout()->getDescriptorSetLayout(0u);
+					const auto& params = m_ui.manager->getCreationParameters();
 
-				m_ui.manager = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(smart_refctd_ptr(m_device), smart_refctd_ptr(descriptorSetLayout), renderpass, 0u);
+					IDescriptorPool::SCreateInfo descriptorPoolInfo = {};
+					descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLER)] = (uint32_t)nbl::ext::imgui::UI::DefaultSamplerIx::COUNT;
+					descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE)] = 1;
+					descriptorPoolInfo.maxSets = 1u;
+					descriptorPoolInfo.flags = IDescriptorPool::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT;
 
-				IDescriptorPool::SCreateInfo descriptorPoolInfo = {};
-				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLER)] = 69u;
-				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE)] = 69u;
-				descriptorPoolInfo.maxSets = 1u;
-				descriptorPoolInfo.flags = IDescriptorPool::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT;
+					m_guiDescriptorSetPool = m_device->createDescriptorPool(std::move(descriptorPoolInfo));
+					assert(m_guiDescriptorSetPool);
 
-				m_guiDescriptorSetPool = m_device->createDescriptorPool(std::move(descriptorPoolInfo));
-				assert(m_guiDescriptorSetPool);
-
-				m_ui.descriptorSet = m_guiDescriptorSetPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout));
-				assert(m_ui.descriptorSet);
-
+					m_guiDescriptorSetPool->createDescriptorSets(1u, &descriptorSetLayout, &m_ui.descriptorSet);
+					assert(m_ui.descriptorSet);
+				}
 			}
 			m_ui.manager->registerListener(
 				[this]() -> void {
@@ -753,13 +749,13 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 					ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
 
-					ImGui::Image(SceneTextureIndeex, ImGui::GetContentRegionAvail());
+					ImGui::Image(SceneTextureIndex, ImGui::GetContentRegionAvail());
 
 					// Nabla Imgui backend MDI buffer info
 					{
 						auto* streamingBuffer = m_ui.manager->getStreamingBuffer();
 						const size_t totalAllocatedSize = streamingBuffer->get_total_size();
-						const size_t isUse = streamingBuffer->max_size();
+						const size_t isUse = ((nbl::ext::imgui::UI::SMdiBuffer::compose_t*)streamingBuffer)->max_size();
 
 						float freePercentage = 100.0f * (float)(totalAllocatedSize - isUse) / (float)totalAllocatedSize;
 						float allocatedPercentage = 1.0f - (float)(totalAllocatedSize - isUse) / (float)totalAllocatedSize;
@@ -846,12 +842,12 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			static std::array<IGPUDescriptorSet::SDescriptorInfo, MaxUITextureCount> descriptorInfo;
 			static IGPUDescriptorSet::SWriteDescriptorSet writes[MaxUITextureCount];
 
-			descriptorInfo[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			descriptorInfo[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].desc = smart_refctd_ptr<IGPUImageView>(m_ui.manager->getFontAtlasView());
+			descriptorInfo[nbl::ext::imgui::UI::FontAtlasTexId].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			descriptorInfo[nbl::ext::imgui::UI::FontAtlasTexId].desc = smart_refctd_ptr<IGPUImageView>(m_ui.manager->getFontAtlasView());
 
-			descriptorInfo[SceneTextureIndeex].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			descriptorInfo[SceneTextureIndex].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 
-			descriptorInfo[SceneTextureIndeex].desc = m_outImgView;
+			descriptorInfo[SceneTextureIndex].desc = m_outImgView;
 
 			for (uint32_t i = 0; i < descriptorInfo.size(); ++i)
 			{
@@ -860,8 +856,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				writes[i].arrayElement = i;
 				writes[i].count = 1u;
 			}
-			writes[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].info = descriptorInfo.data() + nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID;
-			writes[SceneTextureIndeex].info = descriptorInfo.data() + SceneTextureIndeex;
+			writes[nbl::ext::imgui::UI::FontAtlasTexId].info = descriptorInfo.data() + nbl::ext::imgui::UI::FontAtlasTexId;
+			writes[SceneTextureIndex].info = descriptorInfo.data() + SceneTextureIndex;
 
 			return m_device->updateDescriptorSets(writes, {});
 		}
@@ -1150,9 +1146,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 			static std::chrono::microseconds previousEventTimestamp{};
 
-			// TODO: Use real deltaTime instead
-			static float deltaTimeInSec = 0.1f;
-
 			m_inputSystem->getDefaultMouse(&mouse);
 			m_inputSystem->getDefaultKeyboard(&keyboard);
 
@@ -1216,15 +1209,12 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			const core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
 			const auto cursorPosition = m_window->getCursorControl()->getPosition();
 
-			const ext::imgui::UI::S_UPDATE_PARAMETERS params =
+			const ext::imgui::UI::SUpdateParameters params =
 			{
 				.mousePosition = float32_t2(cursorPosition.x, cursorPosition.y) - float32_t2(m_window->getX(), m_window->getY()),
 				.displaySize = { m_window->getWidth(), m_window->getHeight() },
-				.events =
-				{
-					.mouse = mouseEvents,
-					.keyboard = keyboardEvents
-				}
+				.mouseEvents = mouseEvents,
+				.keyboardEvents = keyboardEvents
 			};
 
 			m_ui.manager->update(params);
