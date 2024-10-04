@@ -2970,10 +2970,17 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 					break;
 			}
 		};
+		if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT))
+		{
+			if (params.compute.getScratchCommandBuffer() == params.transfer.getScratchCommandBuffer())
+			{
+				reservations.m_logger.log("The Compute `SIntendedSubmit` Scratch Command Buffer cannot be idential to Transfer's!",system::ILogger::ELL_ERROR);
+				return {};
+			}
+			condBeginCmdBuf(params.compute.getScratchCommandBuffer());
+		}
 		if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT))
 			condBeginCmdBuf(params.transfer.getScratchCommandBuffer());
-		if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT))
-			condBeginCmdBuf(params.compute.getScratchCommandBuffer());
 
 		// wipe gpu item in staging cache (this may drop it as well if it was made for only a root asset == no users)
 		auto findInStaging = [&reservations]<Asset AssetType>(const asset_traits<AssetType>::video_t* gpuObj)->core::blake3_hash_t*
@@ -3073,6 +3080,9 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 			const bool uniQueue = !reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT) || params.transfer.queue->getNativeHandle()==params.compute.queue->getNativeHandle();
 			// because of the layout transitions
 			params.transfer.scratchSemaphore.stageMask |= PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+// TODO: stuff this in the retval
+			// we do one less than current value to signify that we don't need to wait
+			uint64_t mipUploadSubmitComplete = params.transfer.scratchSemaphore.value-1;
 			//
 			core::vector<IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> barriers;
 			barriers.reserve(17); // max mips in a single image
@@ -3081,10 +3091,11 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 			auto computeCmdBuf = params.compute.getScratchCommandBuffer();
 			for (auto& item : imagesToUpload)
 			{
+				// basiscs
 				const auto* cpuImg = item.canonical.get();
 				auto* image = item.gpuObj;
 				auto pFoundHash = findInStaging.operator()<ICPUImage>(image);
-
+				// get params
 				const auto& creationParams = image->getCreationParameters();
 				const auto format = creationParams.format;
 				using aspect_flags_t = IGPUImage::E_ASPECT_FLAGS;
@@ -3093,7 +3104,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 					):aspect_flags_t::EAF_COLOR_BIT;
 				//
 				using layout_t = IGPUImage::LAYOUT;
-				// record transitions to desired layout after transfer
+				// record optional transitions to transfer/mip recompute layout and optional transfers, then transitions to desired layout after transfer
 				{
 					barriers.clear();
 					uint8_t lvl = 0;
@@ -3123,7 +3134,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 							.oldLayout = layout_t::UNDEFINED
 						};
 						auto& barrier = tmp.barrier;
-						// if any op, its always release
+						// if any op, it will always be a release
 						barrier.ownershipOp = ownership_op_t::RELEASE;
 						// if we're recomputing this mip level 
 						const bool recomputeMip = lvl && (item.recomputeMips&(0x1u<<(lvl-1)));
@@ -3131,6 +3142,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 						const auto finalLayout = params.getFinalLayout(image,*pFoundHash,lvl);
 						// get region data for upload
 						auto regions = cpuImg->getRegions(lvl);
+						// basic error checks
 						if (finalLayout==layout_t::UNDEFINED && !regions.empty() && !recomputeMip)
 						{
 							reservations.m_logger.log("What are you doing requesting layout UNDEFINED for mip level % of image %s after Upload or Mip Recomputation!?",system::ILogger::ELL_ERROR,lvl,image->getObjectDebugName());
@@ -3146,7 +3158,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 							// a non-recomputed mip level can either be empty or have content
 							if (regions.empty())
 							{
-								// nothing needs to be done
+								// nothing needs to be done, evidently user wants to transition this mip level themselves
 								if (finalLayout!=layout_t::UNDEFINED)
 									continue;
 								if (finalOwnerQueueFamily!=IQueue::FamilyIgnored)
@@ -3276,7 +3288,6 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 						markFailureInStaging(image,pFoundHash);
 						continue;
 					}
-					retval.submitsNeeded |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
 				}
 				// too many calls to `updateImageViaStagingBuffer` trigger overflow and a stall (better use more than one commandbuffer for xfer and compute!)
 				// too few calls serialize compute against transfer

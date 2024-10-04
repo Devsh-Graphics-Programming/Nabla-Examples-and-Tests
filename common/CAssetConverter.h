@@ -823,6 +823,7 @@ class CAssetConverter : public core::IReferenceCounted
 			}
 
 			// One queue is for copies, another is for mip map generation and Acceleration Structure building
+			// SCRATCH COMMAND BUFFERS MUST BE DIFFERENT (for submission/non-idling efficiency)
 			SIntendedSubmitInfo transfer = {};
 			SIntendedSubmitInfo compute = {};
 			// required for Buffer or Image upload operations
@@ -852,6 +853,7 @@ class CAssetConverter : public core::IReferenceCounted
 				inline operator bool() const {return bool(m_converter);}
 
 				// until `convert` is called, this will only contain valid entries for items already found in `SInput::readCache`
+				// TODO: we could also return per-object semaphore values when object is ready for use (would have to propagate two semaphores up through dependants)
 				template<asset::Asset AssetType>
 				std::span<const asset_cached_t<AssetType>> getGPUObjects() const {return std::get<vector_t<AssetType>>(m_gpuObjects);}
 
@@ -957,6 +959,8 @@ class CAssetConverter : public core::IReferenceCounted
 							if (submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT) && compute->getScratchCommandBuffer()->getState()==IGPUCommandBuffer::STATE::RECORDING)
 							{
 								assert(compute);
+								// the code NEEDS this to stay efficient and simple, should have already beeen checked during `convert_impl`
+								assert(compute->getScratchCommandBuffer()!=transfer->getScratchCommandBuffer());
 								compute->getScratchCommandBuffer()->end();
 								// patch if needed
 								if (extraComputeSignalSemaphores.empty())
@@ -996,6 +1000,7 @@ class CAssetConverter : public core::IReferenceCounted
 						ILogicalDevice* device = nullptr;
 						core::bitflag<IQueue::FAMILY_FLAGS> submitsNeeded = IQueue::FAMILY_FLAGS::NONE;
 				};
+				// IMPORTANT: The returned `SConvertResult` holds a pointer to members of `params`, do not make `params` leave the scope!
 				// IMPORTANT: Barriers are NOT automatically issued AFTER the last command to touch a converted resource unless Queue Family Ownership needs to be released!
 				// Therefore, unless you end and Submit the SIntendedSubmit command buffers of `params` and synchronise those submission semaphore signal with a wait on the next
 				// submission to use the resources on the same queue, YOU NEED TO RECORD THE PIPELINE BARRIERS YOURSELF!
