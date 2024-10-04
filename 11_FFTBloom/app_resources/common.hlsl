@@ -31,7 +31,7 @@ void unpack(NBL_CONST_REF_ARG(complex_t<Scalar>) lo, NBL_CONST_REF_ARG(complex_t
 template<typename Scalar, typename SharedmemAdaptor>
 complex_t<Scalar> trade(uint32_t localElementIdx, SharedmemAdaptor sharedmemAdaptor)
 {
-	uint32_t globalElementIdx = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIdx + workgroup::SubgroupContiguousIndex();
+	uint32_t globalElementIdx = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIdx | workgroup::SubgroupContiguousIndex();
 	uint32_t otherElementIdx = workgroup::fft::getOutputIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(-workgroup::fft::getFrequencyIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(globalElementIdx));
 	uint32_t otherThreadID = otherElementIdx & (_NBL_HLSL_WORKGROUP_SIZE_ - 1);
 	uint32_t elementToTradeGlobalIdx = workgroup::fft::getOutputIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(-workgroup::fft::getFrequencyIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(otherElementIdx));
