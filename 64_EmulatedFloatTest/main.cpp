@@ -1145,7 +1145,7 @@ private:
 
                 // Allocate the memory
                 {
-                    static_assert(sizeof(float64_t) == sizeof(emulated_float64_t<false, true>));
+                    static_assert(sizeof(float64_t) == sizeof(benchmark_emulated_float64_t));
                     constexpr size_t BufferSize = sizeof(float64_t);
 
                     nbl::video::IGPUBuffer::SCreationParams params = {};
@@ -1278,12 +1278,10 @@ private:
         void recordCmdBuff()
         {
             m_cmdbuf->begin(IGPUCommandBuffer::USAGE::SIMULTANEOUS_USE_BIT);
-            m_cmdbuf->beginDebugMarker("emulated_float64_t compute dispatch", vectorSIMDf(0, 1, 0, 1));
             m_cmdbuf->bindComputePipeline(m_pipeline.get());
             m_cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_pplnLayout.get(), 0, 1, &m_ds.get());
             m_cmdbuf->pushConstants(m_pplnLayout.get(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(BenchmarkPushConstants), &m_pushConstants);
             m_cmdbuf->dispatch(WORKGROUP_SIZE, 1, 1);
-            m_cmdbuf->endDebugMarker();
             m_cmdbuf->end();
         }
 
@@ -1334,6 +1332,7 @@ private:
         uint32_t m_queueFamily;
         IQueue* m_computeQueue;
         static constexpr int Iterations = 1000;
+        using benchmark_emulated_float64_t = emulated_float64_t<false, true>;
     };
 
     template<typename... Args>

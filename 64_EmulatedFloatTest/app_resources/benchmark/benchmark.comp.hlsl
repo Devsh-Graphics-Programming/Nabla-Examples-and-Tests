@@ -38,7 +38,7 @@ struct Random16thPolynomial
 			coefficients[i] = bit_cast<F64>(exp | mantissa);
 		}
 
-		debugPrintCoefficients();
+		//debugPrintCoefficients();
 	}
 
 	F64 operator()(F64 x)
@@ -97,17 +97,17 @@ uint64_t calcIntegral()
 [numthreads(BENCHMARK_WORKGROUP_SIZE, 1, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
-	if (pc.testEmulatedFloat64)
+	/*if (pc.testEmulatedFloat64)
 		printf("testing emulated");
 	else
-		printf("testing native");
+		printf("testing native");*/
 
 	uint64_t output; // it is uint64_t only because it is not possible to print a 64 bit float
 	if (pc.testEmulatedFloat64)
-		output = calcIntegral<emulated_float64_t<true, true> >();
+		output = calcIntegral<emulated_float64_t<false, true> >();
 	else
 		output = calcIntegral<float64_t>();
 
-	printf("result = %llu", output);
+	//printf("result = %llu", output);
 	outputBuffer.Store<uint64_t>(pc.rawBufferAddress, output);
 }
