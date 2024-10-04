@@ -931,11 +931,10 @@ class CAssetConverter : public core::IReferenceCounted
 							core::smart_refctd_ptr<ISemaphore> patchSema;
 							IQueue::SSubmitInfo::SSemaphoreInfo patch;
 							// first submit transfer
-							if (submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT) && transfer->getScratchCommandBuffer()->getState()==IGPUCommandBuffer::STATE::RECORDING)
+							if (const IQueue::SSubmitInfo::SCommandBufferInfo* scratch=transfer ? transfer->valid():nullptr; submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT) && scratch) // TODO: a check for any commands recorded?
 							{
-								assert(transfer);
-								transfer->getScratchCommandBuffer()->end();
-								// patch if needed
+								scratch->cmdbuf->end();
+								// patch if needed (todo: use the scratch signal instead?)
 								if (extraTransferSignalSemaphores.empty())
 								{
 									patchSema = device->createSemaphore(0);
@@ -956,13 +955,11 @@ class CAssetConverter : public core::IReferenceCounted
 							retval.transfer.set(IQueue::RESULT::SUCCESS);
 
 							// then submit compute
-							if (submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT) && compute->getScratchCommandBuffer()->getState()==IGPUCommandBuffer::STATE::RECORDING)
+							if (const IQueue::SSubmitInfo::SCommandBufferInfo* scratch=compute ? compute->valid():nullptr; submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT) && scratch) // TODO: a check for any commands recorded?
 							{
-								assert(compute);
-								// the code NEEDS this to stay efficient and simple, should have already beeen checked during `convert_impl`
-								assert(compute->getScratchCommandBuffer()!=transfer->getScratchCommandBuffer());
-								compute->getScratchCommandBuffer()->end();
-								// patch if needed
+								scratch->cmdbuf->end();
+								// TODO: make the compute wait on transfer submit!
+								// patch if needed (todo: use the scratch signal instead?)
 								if (extraComputeSignalSemaphores.empty())
 								{
 									patchSema = device->createSemaphore(0);

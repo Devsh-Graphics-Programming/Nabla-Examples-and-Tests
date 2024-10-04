@@ -2928,13 +2928,19 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 			return {};
 		}
 
-		auto invalidQueue = [reqQueueFlags,device,&reservations](const IQueue::FAMILY_FLAGS flag, IQueue* queue)->bool
+		auto invalidIntended = [reqQueueFlags,device,&reservations](const IQueue::FAMILY_FLAGS flag, const SIntendedSubmitInfo& intended)->bool
 		{
 			if (!reqQueueFlags.hasFlags(flag))
 				return false;
-			if (!queue || queue->getOriginDevice()!=device)
+			if (!intended.valid())
 			{
-				reservations.m_logger.log("Provided Queue;s device %p doesn't match CAssetConverter's device %p!",system::ILogger::ELL_ERROR,queue->getOriginDevice(),device);
+				reservations.m_logger.log("Invalid `SIntendedSubmitInfo` for queue capability %d!",system::ILogger::ELL_ERROR,flag);
+				return true;
+			}
+			const auto* queue = intended.queue;
+			if (queue->getOriginDevice()!=device)
+			{
+				reservations.m_logger.log("Provided Queue's device %p doesn't match CAssetConverter's device %p!",system::ILogger::ELL_ERROR,queue->getOriginDevice(),device);
 				return true;
 			}
 			const auto& qFamProps = device->getPhysicalDevice()->getQueueFamilyProperties();
@@ -2949,38 +2955,25 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 		auto reqTransferQueueCaps = IQueue::FAMILY_FLAGS::TRANSFER_BIT;
 		if (reservations.m_queueFlags.hasFlags(IQueue::FAMILY_FLAGS::GRAPHICS_BIT))
 			reqTransferQueueCaps |= IQueue::FAMILY_FLAGS::GRAPHICS_BIT;
-		if (invalidQueue(reqTransferQueueCaps,params.transfer.queue))
+		if (invalidIntended(reqTransferQueueCaps,params.transfer))
 			return {};
 		// If the compute queue will be used, the compute Intended Submit Info must be valid and utilities must be provided
-		if (invalidQueue(IQueue::FAMILY_FLAGS::COMPUTE_BIT,params.compute.queue))
+		if (invalidIntended(IQueue::FAMILY_FLAGS::COMPUTE_BIT,params.compute))
 			return {};
 
-		// weak patch
-		auto condBeginCmdBuf = [](IGPUCommandBuffer* cmdbuf)->void
+		if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT|IQueue::FAMILY_FLAGS::TRANSFER_BIT))
 		{
-			if (cmdbuf)
-			switch (cmdbuf->getState())
+			core::unordered_set<const IGPUCommandBuffer*> uniqueCmdBufs;
+			for (const auto& scratch : params.transfer.scratchCommandBuffers)
+				uniqueCmdBufs.insert(scratch.cmdbuf);
+			for (const auto& scratch : params.compute.scratchCommandBuffers)
+				uniqueCmdBufs.insert(scratch.cmdbuf);
+			if (uniqueCmdBufs.size()!=params.compute.scratchCommandBuffers.size()+params.transfer.scratchCommandBuffers.size())
 			{
-				case IGPUCommandBuffer::STATE::INITIAL:
-				case IGPUCommandBuffer::STATE::INVALID:
-					if (cmdbuf->isResettable() && cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT))
-						break;
-					break;
-				default:
-					break;
-			}
-		};
-		if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT))
-		{
-			if (params.compute.getScratchCommandBuffer() == params.transfer.getScratchCommandBuffer())
-			{
-				reservations.m_logger.log("The Compute `SIntendedSubmit` Scratch Command Buffer cannot be idential to Transfer's!",system::ILogger::ELL_ERROR);
+				reservations.m_logger.log("The Compute `SIntendedSubmit` Scratch Command Buffers cannot be idential to Transfer's!",system::ILogger::ELL_ERROR);
 				return {};
 			}
-			condBeginCmdBuf(params.compute.getScratchCommandBuffer());
 		}
-		if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT))
-			condBeginCmdBuf(params.transfer.getScratchCommandBuffer());
 
 		// wipe gpu item in staging cache (this may drop it as well if it was made for only a root asset == no users)
 		auto findInStaging = [&reservations]<Asset AssetType>(const asset_traits<AssetType>::video_t* gpuObj)->core::blake3_hash_t*
@@ -3070,11 +3063,12 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 			buffersToUpload.clear();
 			// release ownership
 			if (!ownershipTransfers.empty())
-			if (!params.transfer.getScratchCommandBuffer()->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers=ownershipTransfers}))
+			if (!params.transfer.valid()->cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers=ownershipTransfers}))
 				reservations.m_logger.log("Ownership Releases of Buffers Failed",system::ILogger::ELL_ERROR);
 		}
 
 		auto& imagesToUpload = std::get<SReserveResult::conversion_requests_t<ICPUImage>>(reservations.m_conversionRequests);
+		if (!imagesToUpload.empty())
 		{
 			// the flag check stops us derefercing an invalid pointer
 			const bool uniQueue = !reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT) || params.transfer.queue->getNativeHandle()==params.compute.queue->getNativeHandle();
@@ -3084,6 +3078,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 			core::vector<IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> barriers;
 			barriers.reserve(17); // max mips in a single image
 			// do the uploads and mipmapping if necessary
+#if 0
 			auto xferCmdBuf = params.transfer.getScratchCommandBuffer();
 			auto computeCmdBuf = params.compute.getScratchCommandBuffer();
 			for (auto& item : imagesToUpload)
@@ -3298,6 +3293,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 
 // TODO: If compute submit is needed, then record the transfer scratch semaphore value it needs to wait for.
 			// Don't just rely on querying it during the `submit` because someone else may use it with a utility and overflow
+#endif
 		}
 
 		// TODO: build BLASes and TLASes
