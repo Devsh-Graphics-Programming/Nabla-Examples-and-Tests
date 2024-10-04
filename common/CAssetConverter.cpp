@@ -3080,9 +3080,6 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 			const bool uniQueue = !reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT) || params.transfer.queue->getNativeHandle()==params.compute.queue->getNativeHandle();
 			// because of the layout transitions
 			params.transfer.scratchSemaphore.stageMask |= PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-// TODO: stuff this in the retval
-			// we do one less than current value to signify that we don't need to wait
-			uint64_t mipUploadSubmitComplete = params.transfer.scratchSemaphore.value-1;
 			//
 			core::vector<IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> barriers;
 			barriers.reserve(17); // max mips in a single image
@@ -3284,7 +3281,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 					}
 					retval.submitsNeeded |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
 				}
-				// too many calls to `updateImageViaStagingBuffer` trigger overflow and a stall (better use more than one commandbuffer for xfer and compute!)
+				// too many calls to `updateImageViaStagingBuffer` trigger overflow and a stall
 				// too few calls serialize compute against transfer
 				// golden middle is upload all image data for a single data, then recompute mips
 				// we can also explore pipelining multiple images but this needs a callback for extra work in `updateImageViaStagingBuffer` between overflow submit and semaphore wait
@@ -3298,6 +3295,9 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 					// if owner different than transfer
 						// release to owner
 			}
+
+// TODO: If compute submit is needed, then record the transfer scratch semaphore value it needs to wait for.
+			// Don't just rely on querying it during the `submit` because someone else may use it with a utility and overflow
 		}
 
 		// TODO: build BLASes and TLASes
