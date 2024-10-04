@@ -145,9 +145,9 @@ private:
 			{
 				return image->getCreationParameters().mipLevels;
 			}
-			inline bool needToRecomputeMips(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+			inline uint16_t needToRecomputeMips(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
 			{
-				return false;
+				return 0b0u;
 			}
 
 			std::vector<uint32_t> familyIndices;
