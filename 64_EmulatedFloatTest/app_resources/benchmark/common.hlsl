@@ -4,7 +4,7 @@
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 
-NBL_CONSTEXPR uint32_t BENCHMARK_WORKGROUP_SIZE = 1;
+NBL_CONSTEXPR uint32_t BENCHMARK_WORKGROUP_SIZE = 1024;
 
 struct BenchmarkPushConstants
 {

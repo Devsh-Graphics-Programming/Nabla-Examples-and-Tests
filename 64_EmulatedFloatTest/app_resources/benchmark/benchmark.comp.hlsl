@@ -83,7 +83,7 @@ struct Random16thPolynomial
 };
 
 template<typename F64>
-uint64_t test()
+uint64_t calcIntegral()
 {
 	Random16thPolynomial<F64> polynomial;
 	polynomial.randomizeCoefficients();
@@ -104,9 +104,9 @@ void main(uint3 invocationID : SV_DispatchThreadID)
 
 	uint64_t output; // it is uint64_t only because it is not possible to print a 64 bit float
 	if (pc.testEmulatedFloat64)
-		output = test<emulated_float64_t<true, true> >();
+		output = calcIntegral<emulated_float64_t<true, true> >();
 	else
-		output = test<float64_t>();
+		output = calcIntegral<float64_t>();
 
 	printf("result = %llu", output);
 	outputBuffer.Store<uint64_t>(pc.rawBufferAddress, output);
