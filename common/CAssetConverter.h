@@ -944,7 +944,7 @@ class CAssetConverter : public core::IReferenceCounted
 									extraTransferSignalSemaphores = {&patch,1};
 								}
 								// submit
-								auto submit = transfer->popSubmit(extraTransferSignalSemaphores);
+								auto submit = transfer->popSubmit(scratch->cmdbuf,extraTransferSignalSemaphores);
 								if (const auto error=transfer->queue->submit(submit); error!=IQueue::RESULT::SUCCESS)
 									return {error};
 								retval.transfer.set({extraTransferSignalSemaphores.back().semaphore,extraTransferSignalSemaphores.back().value});
@@ -969,7 +969,7 @@ class CAssetConverter : public core::IReferenceCounted
 									extraComputeSignalSemaphores = {&patch,1};
 								}
 								// submit
-								auto submit = compute->popSubmit(extraComputeSignalSemaphores);
+								auto submit = compute->popSubmit(scratch->cmdbuf,extraComputeSignalSemaphores);
 								if (const auto error=compute->queue->submit(submit); error!=IQueue::RESULT::SUCCESS)
 									return {std::move(retval.transfer),error};
 								retval.compute.set({extraComputeSignalSemaphores.back().semaphore,extraComputeSignalSemaphores.back().value});
