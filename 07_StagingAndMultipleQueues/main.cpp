@@ -164,7 +164,8 @@ private:
 		params.transfer = {
 			.queue = transferUpQueue,
 			.waitSemaphores = {},
-			.commandBuffers = {}, // fill later
+			.prevCommandBuffers = {},
+			.scratchCommandBuffers = {}, // fill later
 			.scratchSemaphore = {
 				.semaphore = imgFillSemaphore.get(),
 				.value = 0,
@@ -201,7 +202,7 @@ private:
 			cmdBuff->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			// finish filling the intended submit
 			IQueue::SSubmitInfo::SCommandBufferInfo imgFillCmdBuffInfo = {cmdBuff.get()};
-			params.transfer.commandBuffers = {&imgFillCmdBuffInfo,1};
+			params.transfer.scratchCommandBuffers = {&imgFillCmdBuffInfo,1};
 			// and launch the conversions
 			auto result = reservation.convert(params);
 			if (!result)
