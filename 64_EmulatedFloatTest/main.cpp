@@ -1091,7 +1091,31 @@ private:
 
                     auto* compilerSet = base.m_assetMgr->getCompilerSet();
 
-                    nbl::asset::IShaderCompiler::SCompilerOptions options = {};
+                    // TODO: fix
+                    /*CHLSLCompiler::SOptions options = {};
+                    options.stage = source->getStage();
+                    options.targetSpirvVersion = base.m_device->getPhysicalDevice()->getLimits().spirvVersion;
+                    options.spirvOptimizer = nullptr;
+                    options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
+                    options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
+                    options.preprocessorOptions.logger = base.m_logger.get();
+                    options.preprocessorOptions.includeFinder = compilerSet->getShaderCompiler(source->getContentType())->getDefaultIncludeFinder();
+
+                    std::vector<std::string> arguments = {};
+                    for (size_t i = 0; i < CHLSLCompiler::RequiredArgumentCount; i++)\
+                    {
+                        std::wstring wstrArg = CHLSLCompiler::RequiredArguments[i];
+                        std::string arg(wstrArg.begin(), wstrArg.end());
+                        arguments.push_back(arg);
+                    }
+                    arguments.push_back("-ffinite-math-only");
+                    arguments.push_back("-O3");
+
+                    options.dxcOptions = std::span<std::string>(arguments);
+
+                    auto spirv = compilerSet->compileToSPIRV(source.get(), options);*/
+
+                    IShaderCompiler::SCompilerOptions options = {};
                     options.stage = source->getStage();
                     options.targetSpirvVersion = base.m_device->getPhysicalDevice()->getLimits().spirvVersion;
                     options.spirvOptimizer = nullptr;
@@ -1220,18 +1244,22 @@ private:
 
             m_pushConstants.testEmulatedFloat64 = 0;
             recordCmdBuff();
+
+            // warmup runs
+            for (int i = 0; i < WarmupIterations; ++i)
+            {
+                m_computeQueue->submit(benchmarkSubmitInfos);
+                signals[0].value = ++m_semaphoreCounter;
+            }
+
+            m_device->waitIdle();
             m_computeQueue->submit(beforeTimestapSubmitInfo);
             m_device->waitIdle();
 
+            // native benchmark
             for (int i = 0; i < Iterations; ++i)
             {
-                // need captures for now
-                if(i == 0)
-                    m_computeQueue->startCapture();
                 m_computeQueue->submit(benchmarkSubmitInfos);
-                if (i == 0)
-                    m_computeQueue->endCapture();
-
                 signals[0].value = ++m_semaphoreCounter;
             }
 
@@ -1250,9 +1278,19 @@ private:
             m_pushConstants.testEmulatedFloat64 = 1;
             recordTimestampQueryCmdBuffers(true);
             recordCmdBuff();
+
+            // warmup runs
+            for (int i = 0; i < WarmupIterations; ++i)
+            {
+                m_computeQueue->submit(benchmarkSubmitInfos);
+                signals[0].value = ++m_semaphoreCounter;
+            }
+            m_device->waitIdle();
+
             m_computeQueue->submit(beforeTimestapSubmitInfo);
             m_device->waitIdle();
 
+            // emulated benchmark
             for (int i = 0; i < Iterations; ++i)
             {
                 if (i == 0)
@@ -1331,7 +1369,8 @@ private:
 
         uint32_t m_queueFamily;
         IQueue* m_computeQueue;
-        static constexpr int Iterations = 1000;
+        static constexpr int WarmupIterations = 1000;
+        static constexpr int Iterations = 10000;
         using benchmark_emulated_float64_t = emulated_float64_t<false, true>;
     };
 
