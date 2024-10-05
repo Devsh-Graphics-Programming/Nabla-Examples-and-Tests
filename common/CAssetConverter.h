@@ -38,10 +38,10 @@ class CAssetConverter : public core::IReferenceCounted
 			asset::ICPUSampler,
 			asset::ICPUShader,
 			asset::ICPUBuffer,
-			// acceleration structures
-			// image,
+			// acceleration structures,
+			asset::ICPUImage,
 			asset::ICPUBufferView,
-			// image view
+			asset::ICPUImageView,
 			asset::ICPUDescriptorSetLayout,
 			asset::ICPUPipelineLayout,
 			asset::ICPUPipelineCache,
@@ -49,8 +49,7 @@ class CAssetConverter : public core::IReferenceCounted
 			asset::ICPURenderpass,
 			asset::ICPUGraphicsPipeline,
 			asset::ICPUDescriptorSet
-			// descriptor sets
-			// framebuffer
+			//asset::ICPUFramebuffer doesn't exist yet XD
 		>;
 
 		struct SCreationParams
@@ -74,9 +73,9 @@ class CAssetConverter : public core::IReferenceCounted
 				return nullptr;
 			return core::smart_refctd_ptr<CAssetConverter>(new CAssetConverter(std::move(params)),core::dont_grab);
 		}
-
+#define NBL_API
 		// When getting dependents, the creation parameters of GPU objects will be produced and patched appropriately.
-		// `patch_t` uses CRPT to inherit from `patch_impl_t` to provide default `operator==` and `update_hash()` definition.
+		// `patch_t` uses CRTP to inherit from `patch_impl_t` to provide default `operator==` and `update_hash()` definition.
 		// The default specialization kicks in for any `AssetType` that has nothing possible to patch (e.g. Descriptor Set Layout).
 		template<asset::Asset AssetType>
 		struct patch_impl_t
@@ -152,6 +151,91 @@ class CAssetConverter : public core::IReferenceCounted
 				}
 		};
 		template<>
+		struct patch_impl_t<asset::ICPUImage>
+		{
+			public:
+				PATCH_IMPL_BOILERPLATE(asset::ICPUImage);
+
+				using usage_flags_t = IGPUImage::E_USAGE_FLAGS;
+				constexpr static inline usage_flags_t UsagesThatPreventFormatPromotion = usage_flags_t::EUF_RENDER_ATTACHMENT_BIT|usage_flags_t::EUF_INPUT_ATTACHMENT_BIT;
+				// make our promotion policy explicit
+				inline bool canAttemptFormatPromotion() const
+				{
+					// if there exist views of the image that reinterpret cast its texel blocks, stop promotion, aliasing can't work with promotion!
+					if (mutableFormat)
+						return false;
+					// we don't support promoting formats in renderpasses' attachment descriptions, so stop it here too
+					if (!usageFlags.hasAnyFlag(UsagesThatPreventFormatPromotion))
+						return false;
+					if (!stencilUsage.hasAnyFlag(UsagesThatPreventFormatPromotion))
+						return false;
+					return true;
+				}
+
+				// the most important thing about an image
+				asset::E_FORMAT format = asset::EF_UNKNOWN;
+				// but we also track separate dpeth and stencil usage flags
+				core::bitflag<usage_flags_t> usageFlags = usage_flags_t::EUF_NONE;
+				core::bitflag<usage_flags_t> stencilUsage = usage_flags_t::EUF_NONE;
+				// moar stuff
+				uint32_t mutableFormat : 1 = false;
+				uint32_t cubeCompatible : 1 = false;
+				uint32_t _3Dbut2DArrayCompatible : 1 = false;
+				// we sort of ignore that at the end if the format doesn't stay block compressed
+				uint32_t uncompressedViewOfCompressed : 1 = false;
+				// Extra metadata needed for format promotion, if you want any of them (except for `linearlySampled` and `depthCompareSampledImage`)
+				// as anything other than the default values, use explicit input roots with patches. Otherwise if `format` is not supported by device
+				// the view can get promoted to a format that doesn't have these usage capabilities.
+				uint32_t linearlySampled : 1 = false;
+				uint32_t storageAtomic : 1 = false;
+				uint32_t storageImageLoadWithoutFormat : 1 = false;
+				uint32_t depthCompareSampledImage : 1 = false;
+				// all converted images default to optimal!
+				uint32_t linearTiling : 1 = false;
+				// aside from format promotion, we can also promote images to have a fuller mip chain and recompute it
+				uint32_t mipLevels : 7 = 0;
+				uint32_t recomputeMips : 16 = false;
+
+			protected:
+				inline std::pair<bool,this_t> combine(const this_t& other) const
+				{
+					this_t retval = *this;
+					// changing tiling would mess up everything to do with format validation
+					if (linearTiling!=other.linearTiling)
+						return {false,retval};
+
+					// combine usage flags
+					retval.usageFlags |= other.usageFlags;
+					retval.stencilUsage |= other.stencilUsage;
+					// creation flag relevant for format promotion
+					retval.mutableFormat |= other.mutableFormat;
+					// and meta-usages
+					retval.linearlySampled |= other.linearlySampled;
+					retval.storageAtomic |= other.storageAtomic;
+					retval.storageImageLoadWithoutFormat |= other.storageImageLoadWithoutFormat;
+					retval.depthCompareSampledImage |= other.depthCompareSampledImage;
+					// Patches only differ by format if it was promoted, and you might ask yourself:
+					// "What if due to different usages `this` and `other` get promoted to different formats?"
+					// `valid` does not promote the format, format gets promoted AFTER the whole DFS pass
+					if (format!=other.format) // during the DFS phase formats will match, if we're here, we're in a subsequent phase
+					{
+						// During non-DFS phase, `other` is always an immediate temporary patch, without promoted format
+						// and a matching `this` must always be a superset of `other` for format promotion to remain valid!
+						if (memcmp(this,&retval,sizeof(retval))!=0) // no usages were added
+							return {false,retval};
+					}
+					// rest of creation flags
+					retval.cubeCompatible |= other.cubeCompatible;
+					retval._3Dbut2DArrayCompatible |= other._3Dbut2DArrayCompatible;
+					retval.uncompressedViewOfCompressed |= other.uncompressedViewOfCompressed;
+					// We don't touch `mipLevels` or `recomputeMips` because during DFS they're uninitialized
+					// and during post-DFS phase, `this` is the already patched entry we're merging to, so always takes precedence
+					// Because merge is only called on identical asset and groupID handles, SInputs callback is called with same parameters always
+					// therefore we don't need to think about how patches with different `mipLevels` or `recomputeMips` values would merge.
+					return {true,retval};
+				}
+		};
+		template<>
 		struct patch_impl_t<asset::ICPUBufferView>
 		{
 			public:
@@ -159,6 +243,7 @@ class CAssetConverter : public core::IReferenceCounted
 
 				uint8_t stbo : 1 = false;
 				uint8_t utbo : 1 = false;
+				uint8_t mustBeZero : 6 = 0;
 
 			protected:
 				inline std::pair<bool,this_t> combine(const this_t& other) const
@@ -166,6 +251,71 @@ class CAssetConverter : public core::IReferenceCounted
 					this_t retval = *this;
 					retval.stbo |= other.stbo;
 					retval.utbo |= other.utbo;
+					return {true,retval};
+				}
+		};
+		template<>
+		struct patch_impl_t<asset::ICPUImageView>
+		{
+			private:
+				using this_t = patch_impl_t<asset::ICPUImageView>;
+
+			public:
+				inline patch_impl_t() = default;
+				inline patch_impl_t(const this_t& other) = default;
+				inline patch_impl_t(this_t&& other) = default;
+				inline this_t& operator=(const this_t& other) = default;
+				inline this_t& operator=(this_t&& other) = default;
+
+				using usage_flags_t = IGPUImage::E_USAGE_FLAGS;
+				// slightly weird constructor because it deduces the metadata from subusages, so need the subusages right away, not patched later
+				NBL_API patch_impl_t(const asset::ICPUImageView* asset, const core::bitflag<usage_flags_t> extraSubUsages=usage_flags_t::EUF_NONE);
+
+				NBL_API bool valid(const ILogicalDevice* device);
+
+				//
+				inline bool formatFollowsImage() const
+				{
+					return originalFormat==asset::EF_UNKNOWN;
+				}
+
+				// just because we record all subusages we can find, doesn't mean we will set them on the created image
+				core::bitflag<usage_flags_t> subUsages = usage_flags_t::EUF_NONE;
+				// Extra metadata needed for format promotion, if you want any of them (except for `linearlySampled` and `depthCompareSampledImage`)
+				// as anything other than the default values, use explicit input roots with patches. Otherwise if `format` is not supported by device
+				// the view can get promoted to a format that doesn't have these usage capabilities.
+				uint8_t linearlySampled : 1 = false;
+				uint8_t storageAtomic : 1 = false;
+				uint8_t storageImageLoadWithoutFormat : 1 = false;
+				uint8_t depthCompareSampledImage : 1 = false;
+
+			protected:
+				uint8_t invalid : 1 = false;
+				// to not mess with hashing and comparison
+				uint8_t padding : 3 = 0;
+				// normally wouldn't store that but we don't provide a ref/pointer to the asset when combining or checking validity, treat member as impl detail
+				asset::E_FORMAT originalFormat = asset::EF_UNKNOWN;
+
+				inline std::pair<bool,this_t> combine(const this_t& other) const
+				{
+					assert(padding==0);
+					if (invalid || other.invalid)
+						return {false,*this};
+
+					this_t retval = *this;
+					// So we have two patches of the same image view, ergo they were the same format.
+					// If one mutates and other doesn't its because of added usages that preclude, so make us immutable again.
+					if (formatFollowsImage() && !other.formatFollowsImage())
+						retval.originalFormat = other.originalFormat;
+					// When combining usages, we already:
+					// - require that two patches' formats were identical
+					// - require that each patch be valid in on its own
+					// therefore both patches' usages are valid for the format at the time of combining
+					retval.subUsages |= other.subUsages;
+					retval.linearlySampled |= other.linearlySampled;
+					retval.storageAtomic |= other.storageAtomic;
+					retval.storageImageLoadWithoutFormat |= other.storageImageLoadWithoutFormat;
+					retval.depthCompareSampledImage |= other.depthCompareSampledImage;
 					return {true,retval};
 				}
 		};
@@ -181,6 +331,8 @@ class CAssetConverter : public core::IReferenceCounted
 			protected:
 				inline std::pair<bool,this_t> combine(const this_t& other) const
 				{
+					if (invalid || other.invalid)
+						return {false,*this};
 					this_t retval = *this;
 					for (auto byte=0; byte!=pushConstantBytes.size(); byte++)
 						retval.pushConstantBytes[byte] |= other.pushConstantBytes[byte];
@@ -219,10 +371,11 @@ class CAssetConverter : public core::IReferenceCounted
 			// actual new methods
 			inline bool operator==(const patch_t<AssetType>& other) const
 			{
+				if (std::is_empty_v<base_t>)
+					return true; 
 				return memcmp(this,&other,sizeof(base_t))==0;
 			}
 		};
-#define NBL_API
 		// A class to accelerate our hash computations
 		class CHashCache final : public core::IReferenceCounted
 		{
@@ -299,39 +452,64 @@ class CAssetConverter : public core::IReferenceCounted
 					return std::get<container_t<AssetType>>(m_containers).end();
 				}
 
-				// `cacheMistrustLevel` is how deep from `asset` do we start trusting the cache to contain correct non stale hashes
-				template<asset::Asset AssetType, typename PatchGetter>
-				inline core::blake3_hash_t hash(const AssetType* asset, PatchGetter patchGet, const uint32_t cacheMistrustLevel=0)
+				//
+				class IPatchOverride
 				{
-					if (!asset)
-						return NoContentHash;
+					public:
+						virtual const patch_t<asset::ICPUSampler>* operator()(const lookup_t<asset::ICPUSampler>&) const = 0;
+						virtual const patch_t<asset::ICPUShader>* operator()(const lookup_t<asset::ICPUShader>&) const = 0;
+						virtual const patch_t<asset::ICPUBuffer>* operator()(const lookup_t<asset::ICPUBuffer>&) const = 0;
+						virtual const patch_t<asset::ICPUImage>* operator()(const lookup_t<asset::ICPUImage>&) const = 0;
+						virtual const patch_t<asset::ICPUBufferView>* operator()(const lookup_t<asset::ICPUBufferView>&) const = 0;
+						virtual const patch_t<asset::ICPUImageView>* operator()(const lookup_t<asset::ICPUImageView>&) const = 0;
+						virtual const patch_t<asset::ICPUPipelineLayout>* operator()(const lookup_t<asset::ICPUPipelineLayout>&) const = 0;
 
-					// this is the only time a call to `patchGet` happens, which allows it to mutate its state only once
-					const patch_t<AssetType>* patch = patchGet(asset);
-					// failed to provide us with a patch, so fail the hash
-					if (!patch)// || !patch->valid()) we assume any patch gotten is valid (to not have a dependancy on the device)
+						// certain items are not patchable, so there's no `patch_t` with non zero size
+						inline const patch_t<asset::ICPUDescriptorSetLayout>* operator()(const lookup_t<asset::ICPUDescriptorSetLayout>& unpatchable) const
+						{
+							return unpatchable.patch;
+						}
+						inline const patch_t<asset::ICPURenderpass>* operator()(const lookup_t<asset::ICPURenderpass>& unpatchable) const
+						{
+							return unpatchable.patch;
+						}
+						inline const patch_t<asset::ICPUDescriptorSet>* operator()(const lookup_t<asset::ICPUDescriptorSet>& unpatchable) const
+						{
+							return unpatchable.patch;
+						}
+
+						// while other things are top level assets in the graph and `operator()` would never be called on their patch
+				};
+				// `cacheMistrustLevel` is how deep from `asset` do we start trusting the cache to contain correct non stale hashes
+				template<asset::Asset AssetType>
+				inline core::blake3_hash_t hash(const lookup_t<AssetType>& lookup, const IPatchOverride* patchOverride, const uint32_t cacheMistrustLevel=0)
+				{
+					if (!patchOverride || !lookup.asset || !lookup.patch)// || !lookup.patch->valid()) we assume any patch gotten is valid (to not have a dependancy on the device)
 						return NoContentHash;
 
 					// consult cache
-					const lookup_t<AssetType> lookup = {asset,patch};
 					auto foundIt = find(lookup);
 					auto& container = std::get<container_t<AssetType>>(m_containers);
 					const bool found = foundIt!=container.end();
 					// if found and we trust then return the cached hash
 					if (cacheMistrustLevel==0 && found)
 						return foundIt->second;
+
 					// proceed with full hash computation
-					//! We purposefully don't hash asset pointer, we hash the contents instead
-					const auto nextMistrustLevel = cacheMistrustLevel ? (cacheMistrustLevel-1):0;
-					const auto retval = static_cast<core::blake3_hash_t>(
-						hash_impl<AssetType,PatchGetter>::_call({
-							this,asset,patch,patchGet,nextMistrustLevel
-						})
-					);
+					core::blake3_hasher hasher = {};
+					// We purposefully don't hash asset pointer, we hash the contents instead
+					hash_impl impl = {{
+							.hashCache = this,
+							.patchOverride = patchOverride,
+							.nextMistrustLevel = cacheMistrustLevel ? (cacheMistrustLevel-1):0,
+							.hasher  = hasher
+					}};
 					// failed to hash (missing required deps), so return invalid hash
 					// but don't eject stale entry, this may have been a mistake
-					if (retval==NoContentHash)
+					if (!impl(lookup))
 						return NoContentHash;
+					const auto retval = static_cast<core::blake3_hash_t>(hasher);
+					assert(retval!=NoContentHash);
 
 					if (found) // replace stale entry
 						foundIt->second = retval;
@@ -339,8 +517,8 @@ class CAssetConverter : public core::IReferenceCounted
 					{
 						auto [insertIt,inserted] = container.emplace(
 							key_t<AssetType>{
-								.asset = core::smart_refctd_ptr<const AssetType>(asset),
-								.patch = *patch
+								.asset = core::smart_refctd_ptr<const AssetType>(lookup.asset),
+								.patch = *lookup.patch
 							},
 							retval
 						);
@@ -369,45 +547,7 @@ class CAssetConverter : public core::IReferenceCounted
 				}
 				// TODO: `eraseStale(const IAsset*)` which erases a subgraph?
 				// An asset being pointed to can mutate and that would invalidate the hash, this recomputes all hashes.
-				template<typename PatchGetter>
-				inline void eraseStale(const PatchGetter& patchGet)
-				{
-					auto rehash = [&]<typename AssetType>() -> void
-					{
-						auto& container = std::get<container_t<AssetType>>(m_containers);
-						core::erase_if(container,[this](const auto& entry)->bool
-							{
-								// backup because `hash(lookup)` call will update it
-								const auto oldHash = entry.second;
-								const auto& key = entry.first;
-								// can re-use cached hashes for dependants if we start ejecting in the correct order
-								const auto newHash = hash(key.asset.get(),patchGet,/*.cacheMistrustLevel = */1);
-								return newHash!=oldHash || newHash==NoContentHash;
-							}
-						);
-					};
-					// to make the process more efficient we start ejecting from "lowest level" assets
-					rehash.operator()<asset::ICPUSampler>();
-					rehash.operator()<asset::ICPUDescriptorSetLayout>();
-					rehash.operator()<asset::ICPUPipelineLayout>();
-					// shaders and images depend on buffers for data sourcing
-					rehash.operator()<asset::ICPUBuffer>();
-					rehash.operator()<asset::ICPUBufferView>();
-				//	rehash.operator()<ICPUImage>();
-				//	rehash.operator()<ICPUImageView>();
-				//	rehash.operator()<ICPUBottomLevelAccelerationStructure>();
-				//	rehash.operator()<ICPUTopLevelAccelerationStructure>();
-					// only once all the descriptor types have been hashed, we can hash sets
-					rehash.operator()<asset::ICPUDescriptorSet>();
-					// naturally any pipeline depends on shaders and pipeline cache
-					rehash.operator()<asset::ICPUShader>();
-					rehash.operator()<asset::ICPUPipelineCache>();
-					rehash.operator()<asset::ICPUComputePipeline>();
-					// graphics pipeline needs a renderpass
-					rehash.operator()<asset::ICPURenderpass>();
-					rehash.operator()<asset::ICPUGraphicsPipeline>();
-				//	rehash.operator()<ICPUFramebuffer>();
-				}
+				void eraseStale(const IPatchOverride* patchOverride);
 				// Clear the cache for a given type
 				template<asset::Asset AssetType>
 				inline void clear()
@@ -420,26 +560,34 @@ class CAssetConverter : public core::IReferenceCounted
 					core::for_each_in_tuple(m_containers,[](auto& container)->void{container.clear();});
 				}
 
+				// only public to allow inheritance later in the cpp file
+				struct hash_impl_base
+				{
+					CHashCache* hashCache;
+					const IPatchOverride* patchOverride;
+					const uint32_t nextMistrustLevel;
+					core::blake3_hasher& hasher;
+				};
+
 			private:
 				inline ~CHashCache() = default;
 
-				//
-				template<asset::Asset AssetType, typename PatchGetter>
-				struct hash_impl;
-				template<asset::Asset AssetType, typename PatchGetter>
-				struct hash_impl_args final
+				// only public to allow inheritance later in the cpp file
+				struct hash_impl : hash_impl_base
 				{
-					template<asset::Asset DepAssetType>
-					inline core::blake3_hash_t depHash(const DepAssetType* dep)
-					{
-						return _this->hash(dep,patchGet,nextMistrustLevel);
-					}
-
-					CHashCache* _this;
-					const AssetType* const asset;
-					const patch_t<AssetType>* patch;
-					const PatchGetter& patchGet;
-					const uint32_t nextMistrustLevel;
+					NBL_API bool operator()(lookup_t<asset::ICPUSampler>);
+					NBL_API bool operator()(lookup_t<asset::ICPUShader>);
+					NBL_API bool operator()(lookup_t<asset::ICPUBuffer>);
+					NBL_API bool operator()(lookup_t<asset::ICPUImage>);
+					NBL_API bool operator()(lookup_t<asset::ICPUBufferView>);
+					NBL_API bool operator()(lookup_t<asset::ICPUImageView>);
+					NBL_API bool operator()(lookup_t<asset::ICPUDescriptorSetLayout>);
+					NBL_API bool operator()(lookup_t<asset::ICPUPipelineLayout>);
+					NBL_API bool operator()(lookup_t<asset::ICPUPipelineCache>);
+					NBL_API bool operator()(lookup_t<asset::ICPUComputePipeline>);
+					NBL_API bool operator()(lookup_t<asset::ICPURenderpass>);
+					NBL_API bool operator()(lookup_t<asset::ICPUGraphicsPipeline>);
+					NBL_API bool operator()(lookup_t<asset::ICPUDescriptorSet>);
 				};
 
 				//
@@ -564,39 +712,60 @@ class CAssetConverter : public core::IReferenceCounted
 				return 0;
 			}
 
-			// if you want concurrent sharing return a list here
+			// If you want concurrent sharing return a list here, REMEMBER THAT IF YOU DON'T INCLUDE THE LATER QUEUE FAMILIES USED in `SConvertParams` you'll fail!
 			virtual inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t groupCopyID, const asset::ICPUBuffer* buffer, const patch_t<asset::ICPUBuffer>& patch) const
 			{
 				return {};
 			}
-#if 0
+
 			virtual inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t groupCopyID, const asset::ICPUImage* buffer, const patch_t<asset::ICPUImage>& patch) const
 			{
 				return {};
 			}
 
-			// most plain PNG, JPG, etc. loaders don't produce images with mipmaps
-			virtual inline uint16_t getMipLevelCount(const size_t groupCopyID, const asset::ICPUImage* image, const patch_t<asset::ICPUImage>& patch) const
+			// most plain PNG, JPG, etc. loaders don't produce images with mip chains/tails
+			virtual inline uint8_t getMipLevelCount(const size_t groupCopyID, const asset::ICPUImage* image, const patch_t<asset::ICPUImage>& patch) const
 			{
-				const auto origCount = image->getCreationParameters().mipLevels;
-				assert(img);
-				if (img->getRegions().empty())
-					return origCount;
-				// makes no sense to mip-map integer values, and we can't encode into BC formats
-				auto format = img->getCreationParameters().format;
+				assert(image);
+				const auto& params = image->getCreationParameters();
+				// failure/no-change balue
+				const auto origCount = params.mipLevels;
+				const auto format = patch.format;
+				// unlikely anyone needs mipmaps without this usage
+				if (!patch.usageFlags.hasFlags(IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT))
+					return 0;
+				// makes no sense to have a mip-map of integer values, and we can't encode into BC formats (yet)
 				if (asset::isIntegerFormat(format) || asset::isBlockCompressionFormat(format))
 					return origCount;
-				// its enough to define a single mipmap region above the base level to prevent automatic computation
-				for (auto& region : img->getRegions())
-				if (region.imageSubresource.mipLevel)
-					return false;
-
-				// override the mip-count if its not an integer format and there was no mip-pyramid specified 
-				if (params.mipLevels == 1u && !asset::isIntegerFormat(params.format))
-					params.mipLevels = 1u + static_cast<uint32_t>(std::log2(static_cast<float>(core::max<uint32_t>(core::max<uint32_t>(params.extent.width, params.extent.height), params.extent.depth))));
-				return true;
+				// original image did already have a mip tail, or we don't have any base level data
+				if (origCount!=1 || image->getRegions(0).empty())
+					return origCount;
+				// ok lets do a full one then
+				const auto maxExtent = std::max<uint32_t>(std::max<uint32_t>(params.extent.width,params.extent.height),params.extent.depth);
+				assert(maxExtent>0);
+				return hlsl::findMSB(maxExtent)+1;
 			}
-#endif
+
+			// Bitfield of which mip levels will get recomputed, gets called AFTER `getMipLevelCount` on the same image asset instance
+			// Bit 0 is mip level 1, Bit N is mip level N+1, as the base cannot be recomputed
+			virtual inline uint16_t needToRecomputeMips(const size_t groupCopyID, const asset::ICPUImage* image, const patch_t<asset::ICPUImage>& patch) const
+			{
+				assert(image);
+				const auto format = patch.format;
+				// makes no sense to have a mip-map of integer values, and we can't encode into BC formats (yet)
+				if (asset::isIntegerFormat(format) || asset::isBlockCompressionFormat(format))
+					return 0;
+				// base mip level has data to use as source
+				if (image->getRegions(0).empty())
+					return 0;
+				// any mip level is completely empty (mip levels with any data will NOT be recomputed) and has a mip level with data preceeding it
+				uint16_t retval = 0;
+				const uint16_t mipCount = patch.mipLevels;
+				for (uint16_t l=1; l<mipCount; l++)
+				if (image->getRegions(l).empty())
+					retval |= 0x1u<<(l-1);
+				return retval;
+			}
 
 			// Typed Range of Inputs of the same type
             template<asset::Asset AssetType>
@@ -624,22 +793,26 @@ class CAssetConverter : public core::IReferenceCounted
 		struct SConvertParams
 		{
 			// By default the last to queue to touch a GPU object will own it after any transfer or compute operations are complete.
-			// If you want to record a pipeline barrier that will release ownership to another family, override this
-			virtual inline uint32_t getFinalOwnerQueueFamily(const IDeviceMemoryBacked* imageOrBuffer, const core::blake3_hash_t& createdFrom)
+			// If you want to record a pipeline barrier that will release ownership to another family, override this.
+			virtual inline uint32_t getFinalOwnerQueueFamily(const IGPUBuffer* buffer, const core::blake3_hash_t& createdFrom)
+			{
+				return IQueue::FamilyIgnored;
+			}
+			virtual inline uint32_t getFinalOwnerQueueFamily(const IGPUImage* image, const core::blake3_hash_t& createdFrom, const uint8_t mipLevel)
 			{
 				return IQueue::FamilyIgnored;
 			}
 			// You can choose what layout the images get transitioned to at the end of an upload
 			// (the images that don't get uploaded to can be transitioned from UNDEFINED without needing any work here)
-			virtual inline IGPUImage::LAYOUT getFinalLayout(const IGPUImage* image, const core::blake3_hash_t& createdFrom)
+			virtual inline IGPUImage::LAYOUT getFinalLayout(const IGPUImage* image, const core::blake3_hash_t& createdFrom, const uint8_t mipLevel)
 			{
 				using layout_t = IGPUImage::LAYOUT;
 				using flags_t = IGPUImage::E_USAGE_FLAGS;
 				const auto usages = image->getCreationParameters().usage;
-				if (usages.hasFlags(flags_t::EUF_SAMPLED_BIT) || usages.hasFlags(flags_t::EUF_INPUT_ATTACHMENT_BIT))
-					return layout_t::READ_ONLY_OPTIMAL;
 				if (usages.hasFlags(flags_t::EUF_RENDER_ATTACHMENT_BIT) || usages.hasFlags(flags_t::EUF_TRANSIENT_ATTACHMENT_BIT))
 					return layout_t::ATTACHMENT_OPTIMAL;
+				if (usages.hasFlags(flags_t::EUF_SAMPLED_BIT) || usages.hasFlags(flags_t::EUF_INPUT_ATTACHMENT_BIT))
+					return layout_t::READ_ONLY_OPTIMAL;
 				// best guess
 				return layout_t::GENERAL;
 			}
@@ -650,6 +823,7 @@ class CAssetConverter : public core::IReferenceCounted
 			}
 
 			// One queue is for copies, another is for mip map generation and Acceleration Structure building
+			// SCRATCH COMMAND BUFFERS MUST BE DIFFERENT (for submission/non-idling efficiency)
 			SIntendedSubmitInfo transfer = {};
 			SIntendedSubmitInfo compute = {};
 			// required for Buffer or Image upload operations
@@ -671,12 +845,15 @@ class CAssetConverter : public core::IReferenceCounted
 				inline SReserveResult& operator=(SReserveResult&&) = default;
 
 				// What queues you'll need to run the submit
+				// WARNING: Uploading image region data for depth or stencil formats requires that the transfer queue has GRAPHICS capability!
+				// https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/vkCmdCopyBufferToImage.html#VUID-vkCmdCopyBufferToImage-commandBuffer-07739
 				inline core::bitflag<IQueue::FAMILY_FLAGS> getRequiredQueueFlags() const {return m_queueFlags;}
 
 				//
 				inline operator bool() const {return bool(m_converter);}
 
 				// until `convert` is called, this will only contain valid entries for items already found in `SInput::readCache`
+				// TODO: we could also return per-object semaphore values when object is ready for use (would have to propagate two semaphores up through dependants)
 				template<asset::Asset AssetType>
 				std::span<const asset_cached_t<AssetType>> getGPUObjects() const {return std::get<vector_t<AssetType>>(m_gpuObjects);}
 
@@ -754,11 +931,10 @@ class CAssetConverter : public core::IReferenceCounted
 							core::smart_refctd_ptr<ISemaphore> patchSema;
 							IQueue::SSubmitInfo::SSemaphoreInfo patch;
 							// first submit transfer
-							if (submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT) && transfer->getScratchCommandBuffer()->getState()==IGPUCommandBuffer::STATE::RECORDING)
+							if (const IQueue::SSubmitInfo::SCommandBufferInfo* scratch=transfer ? transfer->valid():nullptr; submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT) && scratch) // TODO: a check for any commands recorded?
 							{
-								assert(transfer);
-								transfer->getScratchCommandBuffer()->end();
-								// patch if needed
+								scratch->cmdbuf->end();
+								// patch if needed (todo: use the scratch signal instead?)
 								if (extraTransferSignalSemaphores.empty())
 								{
 									patchSema = device->createSemaphore(0);
@@ -768,7 +944,7 @@ class CAssetConverter : public core::IReferenceCounted
 									extraTransferSignalSemaphores = {&patch,1};
 								}
 								// submit
-								auto submit = transfer->popSubmit(extraTransferSignalSemaphores);
+								auto submit = transfer->popSubmit(scratch->cmdbuf,extraTransferSignalSemaphores);
 								if (const auto error=transfer->queue->submit(submit); error!=IQueue::RESULT::SUCCESS)
 									return {error};
 								retval.transfer.set({extraTransferSignalSemaphores.back().semaphore,extraTransferSignalSemaphores.back().value});
@@ -779,11 +955,11 @@ class CAssetConverter : public core::IReferenceCounted
 							retval.transfer.set(IQueue::RESULT::SUCCESS);
 
 							// then submit compute
-							if (submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT) && compute->getScratchCommandBuffer()->getState()==IGPUCommandBuffer::STATE::RECORDING)
+							if (const IQueue::SSubmitInfo::SCommandBufferInfo* scratch=compute ? compute->valid():nullptr; submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT) && scratch) // TODO: a check for any commands recorded?
 							{
-								assert(compute);
-								compute->getScratchCommandBuffer()->end();
-								// patch if needed
+								scratch->cmdbuf->end();
+								// TODO: make the compute wait on transfer submit!
+								// patch if needed (todo: use the scratch signal instead?)
 								if (extraComputeSignalSemaphores.empty())
 								{
 									patchSema = device->createSemaphore(0);
@@ -793,7 +969,7 @@ class CAssetConverter : public core::IReferenceCounted
 									extraComputeSignalSemaphores = {&patch,1};
 								}
 								// submit
-								auto submit = compute->popSubmit(extraComputeSignalSemaphores);
+								auto submit = compute->popSubmit(scratch->cmdbuf,extraComputeSignalSemaphores);
 								if (const auto error=compute->queue->submit(submit); error!=IQueue::RESULT::SUCCESS)
 									return {std::move(retval.transfer),error};
 								retval.compute.set({extraComputeSignalSemaphores.back().semaphore,extraComputeSignalSemaphores.back().value});
@@ -821,6 +997,14 @@ class CAssetConverter : public core::IReferenceCounted
 						ILogicalDevice* device = nullptr;
 						core::bitflag<IQueue::FAMILY_FLAGS> submitsNeeded = IQueue::FAMILY_FLAGS::NONE;
 				};
+				// IMPORTANT: The returned `SConvertResult` holds a pointer to members of `params`, do not make `params` leave the scope!
+				// IMPORTANT: Barriers are NOT automatically issued AFTER the last command to touch a converted resource unless Queue Family Ownership needs to be released!
+				// Therefore, unless you end and Submit the SIntendedSubmit command buffers of `params` and synchronise those submission semaphore signal with a wait on the next
+				// submission to use the resources on the same queue, YOU NEED TO RECORD THE PIPELINE BARRIERS YOURSELF!
+				// **If there were QFOT Releases done, you need to record pipeline barriers with QFOT acquire yourself anyway!**
+				// We only record pipeline barriers AFTER the last command if the image layout was meant to change.
+				// TL;DR if appending more commands that use the converted resources to `params`'s SIntendedSubmit scratch command buffers or submitting other command buffers to
+				// the same queues without a semaphore-signal wait, just issue global all-memory mega-barriers with TRANSFER or COMPUTE source stages and MEOMRY_WRITE access masks.
 				inline SConvertResult convert(SConvertParams& params)
 				{
 					SConvertResult enqueueSuccess = m_converter->convert_impl(std::move(*this),params);
@@ -859,12 +1043,14 @@ class CAssetConverter : public core::IReferenceCounted
 					core::smart_refctd_ptr<const AssetType> canonical;
 					// gpu object to transfer canonical's data to or build it from
 					asset_traits<AssetType>::video_t* gpuObj;
+					// only relevant for images
+					uint16_t recomputeMips = 0;
 				};
 				template<asset::Asset AssetType>
 				using conversion_requests_t = core::vector<ConversionRequest<AssetType>>;
 				using convertible_asset_types = core::type_list<
-					asset::ICPUBuffer/*,
-					asset::ICPUImage,
+					asset::ICPUBuffer,
+					asset::ICPUImage/*,
 					asset::ICPUBottomLevelAccelerationStructure,
 					asset::ICPUTopLevelAccelerationStructure*/
 				>;
@@ -917,509 +1103,6 @@ inline CAssetConverter::patch_impl_t<AssetType>::patch_impl_t(const AssetType* a
 // always valid
 template<asset::Asset AssetType>
 inline bool CAssetConverter::patch_impl_t<AssetType>::valid(const ILogicalDevice* device) { return true; }
-
-
-template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPUSampler,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUSampler,PatchGetter>&& args)
-	{
-		auto patchedParams = args.asset->getParams();
-		patchedParams.AnisotropicFilter = args.patch->anisotropyLevelLog2;
-		return core::blake3_hasher().update(&patchedParams,sizeof(patchedParams));
-	}
-};
-
-template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPUShader,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUShader,PatchGetter>&& args)
-	{
-		const auto* asset = args.asset;
-
-		core::blake3_hasher hasher;
-		hasher << args.patch->stage;
-		const auto type = asset->getContentType();
-		hasher << type;
-		// if not SPIR-V then own path matters
-		if (type!=asset::ICPUShader::E_CONTENT_TYPE::ECT_SPIRV)
-			hasher << asset->getFilepathHint();
-		const auto* content = asset->getContent();
-		if (!content || content->getContentHash()==NoContentHash)
-			return {};
-		// we're not using the buffer directly, just its contents
-		hasher << content->getContentHash();
-		return hasher;
-	}
-};
-
-template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPUBuffer,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUBuffer,PatchGetter>&& args)
-	{
-		auto patchedParams = args.asset->getCreationParams();
-		assert(args.patch->usage.hasFlags(patchedParams.usage));
-		patchedParams.usage = args.patch->usage;
-		return core::blake3_hasher().update(&patchedParams,sizeof(patchedParams)) << args.asset->getContentHash();
-	}
-};
-
-template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPUBufferView,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUBufferView,PatchGetter>&& args)
-	{
-		const auto* asset = args.asset;
-
-		core::blake3_hasher hasher;
-		{
-			const auto bufferHash = args.depHash(asset->getUnderlyingBuffer());
-			if (bufferHash==NoContentHash)
-				return {};
-			hasher << bufferHash;
-		}
-		// NOTE: We don't hash the metada from the patch! Because it doesn't matter.
-		// The view usage in the patch helps us propagate and patch during DFS, but no more.
-		hasher << asset->getFormat();
-		hasher << asset->getOffsetInBuffer();
-		hasher << asset->getByteSize();
-		return hasher;
-	}
-};
-
-template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPUDescriptorSetLayout,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUDescriptorSetLayout,PatchGetter>&& args)
-	{
-		const auto* asset = args.asset;
-
-		core::blake3_hasher hasher;
-		using storage_range_index_t = asset::ICPUDescriptorSetLayout::CBindingRedirect::storage_range_index_t;
-		for (uint32_t t=0u; t<static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_COUNT); t++)
-		{
-			const auto type = static_cast<asset::IDescriptor::E_TYPE>(t);
-			hasher << type;
-			const auto& redirect = asset->getDescriptorRedirect(type);
-			const auto count = redirect.getBindingCount();
-			for (auto i=0u; i<count; i++)
-			{
-				const storage_range_index_t storageRangeIx(i);
-				hasher << redirect.getBinding(storageRangeIx).data;
-				hasher << redirect.getCreateFlags(storageRangeIx);
-				hasher << redirect.getStageFlags(storageRangeIx);
-				hasher << redirect.getCount(storageRangeIx);
-			}
-		}
-		const auto& immutableSamplerRedirects = asset->getImmutableSamplerRedirect();
-		const auto count = immutableSamplerRedirects.getBindingCount();
-		for (auto i=0u; i<count; i++)
-		{
-			const storage_range_index_t storageRangeIx(i);
-			hasher << immutableSamplerRedirects.getBinding(storageRangeIx).data;
-		}
-		for (const auto& immutableSampler : asset->getImmutableSamplers())
-		{
-			const auto samplerHash = args.depHash(immutableSampler.get());
-			if (samplerHash==NoContentHash)
-				return {};
-			hasher << samplerHash;
-		}
-		return hasher;
-	}
-};
-
-template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPUPipelineLayout,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUPipelineLayout,PatchGetter>&& args)
-	{
-		core::blake3_hasher hasher;
-		hasher << std::span(args.patch->pushConstantBytes);
-		for (auto i = 0; i < asset::ICPUPipelineLayout::DESCRIPTOR_SET_COUNT; i++)
-		{
-			auto dep = args.asset->getDescriptorSetLayout(i);
-			if (dep) // remember each layout is optional
-			{
-				const auto dsLayoutHash = args.depHash(dep);
-				if (dsLayoutHash==NoContentHash)
-					return {};
-				hasher << dsLayoutHash;
-			}
-			else
-				hasher << NoContentHash;
-		}
-		return hasher;
-	}
-};
-
-template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPUPipelineCache,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUPipelineCache,PatchGetter>&& args)
-	{
-		core::blake3_hasher hasher;
-		for (const auto& entry : args.asset->getEntries())
-		{
-			hasher << entry.first.deviceAndDriverUUID;
-			if (entry.first.meta)
-				hasher.update(entry.first.meta->data(),entry.first.meta->size());
-		}
-		hasher << args.asset->getContentHash();
-		return hasher;
-	}
-};
-
-template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPUComputePipeline,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUComputePipeline,PatchGetter>&& args)
-	{
-		const auto* asset = args.asset;
-
-		core::blake3_hasher hasher;
-		{
-			const auto layoutHash = args.depHash(asset->getLayout());
-			if (layoutHash==NoContentHash)
-				return {};
-			hasher << layoutHash;
-		}
-		const auto& specInfo = asset->getSpecInfo();
-		hasher << specInfo.entryPoint;
-		{
-			const auto shaderHash = args.depHash(specInfo.shader);
-			if (shaderHash==NoContentHash)
-				return {};
-			hasher << shaderHash;
-		}
-		if (specInfo.entries)
-		for (const auto& specConstant : *specInfo.entries)
-		{
-			hasher << specConstant.first;
-			hasher.update(specConstant.second.data,specConstant.second.size);
-		}
-		hasher << specInfo.requiredSubgroupSize;
-		hasher << specInfo.requireFullSubgroups;
-		return hasher;
-	}
-};
-
-template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPURenderpass,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPURenderpass,PatchGetter>&& args)
-	{
-		const auto* asset = args.asset;
-
-		core::blake3_hasher hasher;
-		hasher << asset->getDepthStencilAttachmentCount();
-		hasher << asset->getColorAttachmentCount();
-		hasher << asset->getSubpassCount();
-		hasher << asset->getDependencyCount();
-		hasher << asset->getViewMaskMSB();
-		const asset::ICPURenderpass::SCreationParams& params = asset->getCreationParameters();
-		{
-			auto hashLayout = [&](const asset::E_FORMAT format, const asset::IImage::SDepthStencilLayout& layout)->void
-			{
-				if (!asset::isStencilOnlyFormat(format))
-					hasher << layout.depth;
-				if (!asset::isDepthOnlyFormat(format))
-					hasher << layout.stencil;
-			};
-
-			for (auto i=0; i<asset->getDepthStencilAttachmentCount(); i++)
-			{
-				auto entry = params.depthStencilAttachments[i];
-				if (!entry.valid())
-					return {};
-				hasher << entry.format;
-				hasher << entry.samples;
-				hasher << entry.mayAlias;
-				auto hashOp = [&](const auto& op)->void
-				{
-					if (!asset::isStencilOnlyFormat(entry.format))
-						hasher << op.depth;
-					if (!asset::isDepthOnlyFormat(entry.format))
-						hasher << op.actualStencilOp();
-				};
-				hashOp(entry.loadOp);
-				hashOp(entry.storeOp);
-				hashLayout(entry.format,entry.initialLayout);
-				hashLayout(entry.format,entry.finalLayout);
-			}
-			for (auto i=0; i<asset->getColorAttachmentCount(); i++)
-			{
-				const auto& entry = params.colorAttachments[i];
-				if (!entry.valid())
-					return {};
-				hasher.update(&entry,sizeof(entry));
-			}
-			// subpasses
-			using SubpassDesc = asset::ICPURenderpass::SCreationParams::SSubpassDescription;
-			auto hashDepthStencilAttachmentRef = [&](const SubpassDesc::SDepthStencilAttachmentRef& ref)->void
-			{
-				hasher << ref.attachmentIndex;
-				hashLayout(params.depthStencilAttachments[ref.attachmentIndex].format,ref.layout);
-			};
-			for (auto i=0; i<asset->getSubpassCount(); i++)
-			{
-				const auto& entry = params.subpasses[i];
-				const auto depthStencilRenderAtt = entry.depthStencilAttachment.render;
-				if (depthStencilRenderAtt.used())
-				{
-					hashDepthStencilAttachmentRef(depthStencilRenderAtt);
-					if (entry.depthStencilAttachment.resolve.used())
-					{
-						hashDepthStencilAttachmentRef(entry.depthStencilAttachment.resolve);
-						hasher.update(&entry.depthStencilAttachment.resolveMode,sizeof(entry.depthStencilAttachment.resolveMode));
-					}
-				}
-				else // hash needs to care about which slots go unused
-					hasher << false;
-				// color attachments
-				for (const auto& colorAttachment : std::span(entry.colorAttachments))
-				{
-					if (colorAttachment.render.used())
-					{
-						hasher.update(&colorAttachment.render,sizeof(colorAttachment.render));
-						if (colorAttachment.resolve.used())
-							hasher.update(&colorAttachment.resolve,sizeof(colorAttachment.resolve));
-					}
-					else // hash needs to care about which slots go unused
-						hasher << false;
-				}
-				// input attachments
-				for (auto inputIt=entry.inputAttachments; *inputIt!=SubpassDesc::InputAttachmentsEnd; inputIt++)
-				{
-					if (inputIt->used())
-					{
-						hasher << inputIt->aspectMask;
-                        if (inputIt->aspectMask==asset::IImage::EAF_COLOR_BIT)
-							hashDepthStencilAttachmentRef(inputIt->asDepthStencil);
-						else
-							hasher.update(&inputIt->asColor,sizeof(inputIt->asColor));
-					}
-					else
-						hasher << false;
-				}
-				// preserve attachments
-				for (auto preserveIt=entry.preserveAttachments; *preserveIt!=SubpassDesc::PreserveAttachmentsEnd; preserveIt++)
-					hasher.update(preserveIt,sizeof(SubpassDesc::SPreserveAttachmentRef));
-				hasher << entry.viewMask;
-				hasher << entry.flags;
-			}
-			// TODO: we could sort these before hashing (and creating GPU objects)
-			hasher.update(params.dependencies,sizeof(asset::ICPURenderpass::SCreationParams::SSubpassDependency)*asset->getDependencyCount());
-		}
-		hasher.update(params.viewCorrelationGroup,sizeof(params.viewCorrelationGroup));
-
-		return hasher;
-	}
-};
-
-template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPUGraphicsPipeline,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUGraphicsPipeline,PatchGetter>&& args)
-	{
-		const auto* asset = args.asset;
-
-		core::blake3_hasher hasher;
-		{
-			const auto layoutHash = args.depHash(asset->getLayout());
-			if (layoutHash==NoContentHash)
-				return {};
-			hasher << layoutHash;
-		}
-
-		{
-			const auto renderpassHash = args.depHash(asset->getRenderpass());
-			if (renderpassHash==NoContentHash)
-				return {};
-			hasher << renderpassHash;
-		}
-
-		using shader_stage_t = asset::ICPUShader::E_SHADER_STAGE;
-		auto hashStage = [&](const shader_stage_t stage, const bool required=false)->bool
-		{
-			const auto& specInfo = asset->getSpecInfo(stage);
-			if (!specInfo.shader) // fail only if required
-				return required;
-
-			hasher << specInfo.entryPoint;
-			{
-				const auto shaderHash = args.depHash(specInfo.shader);
-				// having a non-required shader at a stage but that shader failing hash, fails us
-				if (shaderHash==NoContentHash)
-					return true;
-				hasher << shaderHash;
-			}
-			if (specInfo.entries)
-			for (const auto& specConstant : *specInfo.entries)
-			{
-				hasher << specConstant.first;
-				hasher.update(specConstant.second.data,specConstant.second.size);
-			}
-			hasher << specInfo.requiredSubgroupSize;
-			return false;
-		};
-		if (hashStage(shader_stage_t::ESS_VERTEX,true) ||
-			hashStage(shader_stage_t::ESS_TESSELLATION_CONTROL) ||
-			hashStage(shader_stage_t::ESS_TESSELLATION_EVALUATION) ||
-			hashStage(shader_stage_t::ESS_GEOMETRY) ||
-			hashStage(shader_stage_t::ESS_FRAGMENT))
-			return {};
-
-		const auto& params = asset->getCachedCreationParams();
-		{
-			for (auto i=0; i<asset::SVertexInputParams::MAX_VERTEX_ATTRIB_COUNT; i++)
-			if (params.vertexInput.enabledAttribFlags&(0x1u<<i))
-			{
-				const auto& attribute = params.vertexInput.attributes[i];
-				hasher.update(&attribute,sizeof(asset::SVertexInputAttribParams));
-				hasher.update(&params.vertexInput.bindings+attribute.binding,sizeof(asset::SVertexInputBindingParams));
-			}
-			const auto& ass = params.primitiveAssembly;
-			hasher << ass.primitiveType;
-			hasher << ass.primitiveRestartEnable;
-			if (ass.primitiveType==asset::E_PRIMITIVE_TOPOLOGY::EPT_PATCH_LIST)
-				hasher << ass.tessPatchVertCount;
-			const auto& raster = params.rasterization;
-			if (!raster.rasterizerDiscard)
-			{
-				hasher << raster.viewportCount;
-				hasher << raster.samplesLog2;
-				hasher << raster.polygonMode;
-				//if (raster.polygonMode==asset::E_POLYGON_MODE::EPM_FILL) // do wireframes and point draw with face culling?
-				{
-					hasher << raster.faceCullingMode;
-					hasher << raster.frontFaceIsCCW;
-				}
-				const auto& rpassParam = asset->getRenderpass()->getCreationParameters();
-				const auto& depthStencilRef = rpassParam.subpasses[params.subpassIx].depthStencilAttachment.render;
-				if (depthStencilRef.used())
-				{
-					const auto attFormat = rpassParam.depthStencilAttachments[depthStencilRef.attachmentIndex].format;
-					if (!asset::isStencilOnlyFormat(attFormat))
-					{
-						hasher << raster.depthCompareOp;
-						hasher << raster.depthWriteEnable;
-						if (raster.depthTestEnable())
-						{
-							hasher << raster.depthClampEnable;
-							hasher << raster.depthBiasEnable;
-							hasher << raster.depthBoundsTestEnable;
-						}
-					}
-					if (raster.stencilTestEnable() && !asset::isDepthOnlyFormat(attFormat))
-					{
-						if ((raster.faceCullingMode&asset::E_FACE_CULL_MODE::EFCM_FRONT_BIT)==0)
-							hasher << raster.frontStencilOps;
-						if ((raster.faceCullingMode&asset::E_FACE_CULL_MODE::EFCM_BACK_BIT)==0)
-							hasher << raster.backStencilOps;
-					}
-				}
-				hasher << raster.alphaToCoverageEnable;
-				hasher << raster.alphaToOneEnable;
-				if (raster.samplesLog2)
-				{
-					hasher << raster.minSampleShadingUnorm;
-					hasher << (reinterpret_cast<const uint64_t&>(raster.sampleMask)&((0x1ull<<raster.samplesLog2)-1));
-				}
-			}
-			for (const auto& blend : std::span(params.blend.blendParams))
-			{
-				if (blend.blendEnabled())
-					hasher.update(&blend,sizeof(blend));
-				else
-					hasher << blend.colorWriteMask;
-			}
-			hasher << params.blend.logicOp;
-		}
-		hasher << params.subpassIx;
-
-		return hasher;
-	}
-};
-
-template<typename PatchGetter>
-struct CAssetConverter::CHashCache::hash_impl<asset::ICPUDescriptorSet,PatchGetter>
-{
-	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUDescriptorSet,PatchGetter>&& args)
-	{
-		const auto* asset = args.asset;
-
-		core::blake3_hasher hasher;
-		{
-			const auto layoutHash = args.depHash(asset->getLayout());
-			if (layoutHash==NoContentHash)
-				return {};
-			hasher << layoutHash;
-		}
-		
-		for (auto i=0u; i<static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_COUNT); i++)
-		{
-			const auto type = static_cast<asset::IDescriptor::E_TYPE>(i);
-			const auto infos = asset->getDescriptorInfoStorage(type);
-			if (infos.empty())
-				continue;
-			for (const auto& info : infos)
-			{
-				const auto* untypedDesc = info.desc.get();
-				if (untypedDesc)
-				{
-					core::blake3_hash_t descHash = NoContentHash;
-					switch (asset::IDescriptor::GetTypeCategory(type))
-					{
-						case asset::IDescriptor::EC_BUFFER:
-							descHash = args.depHash(static_cast<const asset::ICPUBuffer*>(untypedDesc));
-							hasher.update(&info.info.buffer,sizeof(info.info.buffer));
-							break;
-						case asset::IDescriptor::EC_SAMPLER:
-							descHash = args.depHash(static_cast<const asset::ICPUSampler*>(untypedDesc));
-							break;
-						case asset::IDescriptor::EC_IMAGE:
-							_NBL_TODO();
-//							descHash = args.depHash(static_cast<const asset::ICPUImageView*>(untypedDesc));
-							hasher.update(&info.info.image,sizeof(info.info.image));
-							if (type==asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER)
-							{
-								const auto* sampler = info.info.combinedImageSampler.sampler.get();
-								if (sampler)
-								{
-									const auto samplerHash = args.depHash(sampler);
-									if (samplerHash==NoContentHash)
-										return {};
-									hasher << samplerHash;
-								}
-								else
-									return {}; // we must have both
-							}
-							break;
-						case asset::IDescriptor::EC_BUFFER_VIEW:
-							descHash = args.depHash(static_cast<const asset::ICPUBufferView*>(untypedDesc));
-							break;
-						case asset::IDescriptor::EC_ACCELERATION_STRUCTURE:
-							_NBL_TODO();
-//							descHash = args.depHash(static_cast<const asset::ICPUTopLevelAccelerationStructure*>(untypedDesc));
-							break;
-						default:
-							assert(false);
-							break;
-					}
-					if (descHash==NoContentHash)
-						return {};
-					hasher << descHash;
-				}
-				else // null descriptor
-					hasher << 0x0ull;
-			}
-		}
-
-		return hasher;
-	}
-};
 
 }
 #endif
