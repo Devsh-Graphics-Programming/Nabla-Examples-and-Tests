@@ -34,14 +34,10 @@ using namespace video;
 #include <chrono>
 #define BENCHMARK_TILL_FIRST_FRAME
 
-// Shader cache tests. Only define one of these, or none for no use of the Cache
-//#define SHADER_CACHE_TEST_COMPILATION_CACHE_STORE
-//#define SHADER_CACHE_TEST_CACHE_RETRIEVE
-
 static constexpr bool DebugModeWireframe = false;
 static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
-static constexpr bool LargeBackgroundTextureStreaming = true;
+static constexpr bool LargeGeoTextureStreaming = true;
 
 enum class ExampleMode
 {
@@ -70,7 +66,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0,	// CASE_8
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_4;
+constexpr ExampleMode mode = ExampleMode::CASE_2;
 
 class Camera2D
 {
@@ -307,6 +303,13 @@ public:
 			auto globalsBufferMem = m_device->allocate(memReq, m_globalsBuffer.get());
 		}
 		
+		size_t sumBufferSizes =
+			drawResourcesFiller.gpuDrawBuffers.drawObjectsBuffer->getSize() +
+			drawResourcesFiller.gpuDrawBuffers.geometryBuffer->getSize() +
+			drawResourcesFiller.gpuDrawBuffers.indexBuffer->getSize() +
+			drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer->getSize() +
+			drawResourcesFiller.gpuDrawBuffers.mainObjectsBuffer->getSize();
+		m_logger->log("Buffers Size = %.2fKB", ILogger::E_LOG_LEVEL::ELL_INFO, sumBufferSizes / 1024.0f);
 
 		// pseudoStencil
 		{
@@ -1376,7 +1379,6 @@ public:
 		cb->bindIndexBuffer({ .offset = 0u, .buffer = drawResourcesFiller.gpuDrawBuffers.indexBuffer.get() }, asset::EIT_32BIT);
 		cb->bindGraphicsPipeline(graphicsPipeline.get());
 		cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
-
 		if (fragmentShaderInterlockEnabled)
 		{
 			cb->bindGraphicsPipeline(resolveAlphaGraphicsPipeline.get());
@@ -1514,18 +1516,7 @@ protected:
 		}
 		else if (mode == ExampleMode::CASE_1)
 		{
-			LineStyleInfo style = {};
-			style.screenSpaceLineWidth = 0.0f;
-			style.worldSpaceLineWidth = 0.8f;
-			style.color = float32_t4(0.619f, 0.325f, 0.709f, 0.2f);
-
-			LineStyleInfo style2 = {};
-			style2.screenSpaceLineWidth = 0.0f;
-			style2.worldSpaceLineWidth = 0.8f;
-			style2.color = float32_t4(0.119f, 0.825f, 0.709f, 0.5f);
-
-			// drawResourcesFiller.drawPolyline(bigPolyline, style, intendedNextSubmit);
-			// drawResourcesFiller.drawPolyline(bigPolyline2, style2, intendedNextSubmit);
+			// For Taking
 		}
 		else if (mode == ExampleMode::CASE_2)
 		{

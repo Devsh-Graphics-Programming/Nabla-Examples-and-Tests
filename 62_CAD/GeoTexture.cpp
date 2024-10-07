@@ -75,6 +75,7 @@ bool GeoTextureRenderer::initialize(
 	m_device->updateDescriptorSets(DescriptorUpdatesCount, descriptorUpdates, 0u, nullptr);
 
 	// Shared Blend Params between pipelines
+	//TODO: Where does GeoTexture rendering fit into pipelines, separate renderpass? separate submit? under blending? over blending?
 	SBlendParams blendParams = {};
 	blendParams.blendParams[0u].srcColorFactor = asset::EBF_SRC_ALPHA;
 	blendParams.blendParams[0u].dstColorFactor = asset::EBF_ONE_MINUS_SRC_ALPHA;
