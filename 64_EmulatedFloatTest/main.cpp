@@ -35,10 +35,10 @@ public:
 
         nbl::hlsl::emulated_float64_t<true, true> c = nbl::hlsl::emulated_float64_t<true, true>::create(1.0f);
 
-        nbl::hlsl::emulated_float64_t<true, true> a = nbl::hlsl::emulated_float64_t<true, true>::create(76432.9);
-        nbl::hlsl::emulated_float64_t<true, true> b = nbl::hlsl::emulated_float64_t<true, true>::create(0.03);
+        nbl::hlsl::emulated_float64_t<true, true> a = nbl::hlsl::emulated_float64_t<true, true>::create(-59981.1);
+        nbl::hlsl::emulated_float64_t<true, true> b = nbl::hlsl::emulated_float64_t<true, true>::create(-78853.9);
         
-        double correctOutput = 76432.9 - 0.03;
+        double correctOutput = -59981.1 - (-78853.9);
         auto output = a - b;
 
         std::cout << "correct: " << reinterpret_cast<double&>(correctOutput) << std::endl;
