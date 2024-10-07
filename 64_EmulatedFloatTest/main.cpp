@@ -1051,7 +1051,7 @@ private:
     {
     public:
         EF64Benchmark(CompatibilityTest& base)
-            : m_semaphoreCounter(0)
+            : m_semaphoreCounter(0), m_beforeTimestampSemaphoreCounter(0), m_afterTimestampSemaphoreCounter(0)
         {
             m_device = base.m_device;
             m_logger = base.m_logger;
@@ -1063,7 +1063,6 @@ private:
             //core::smart_refctd_ptr<IGPUCommandBuffer>* cmdBuffs[] = { &m_cmdbuf, &m_timestampBeforeCmdBuff, &m_timestampAfterCmdBuff };
             if (!m_cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &m_cmdbuf))
                 base.logFail("Failed to create Command Buffers!\n");
-
             if (!m_cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &m_timestampBeforeCmdBuff))
                 base.logFail("Failed to create Command Buffers!\n");
             if (!m_cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &m_timestampAfterCmdBuff))
@@ -1090,30 +1089,6 @@ private:
                     smart_refctd_ptr<ICPUShader> source = IAsset::castDown<ICPUShader>(assets[0]);
 
                     auto* compilerSet = base.m_assetMgr->getCompilerSet();
-
-                    // TODO: fix
-                    /*CHLSLCompiler::SOptions options = {};
-                    options.stage = source->getStage();
-                    options.targetSpirvVersion = base.m_device->getPhysicalDevice()->getLimits().spirvVersion;
-                    options.spirvOptimizer = nullptr;
-                    options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
-                    options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
-                    options.preprocessorOptions.logger = base.m_logger.get();
-                    options.preprocessorOptions.includeFinder = compilerSet->getShaderCompiler(source->getContentType())->getDefaultIncludeFinder();
-
-                    std::vector<std::string> arguments = {};
-                    for (size_t i = 0; i < CHLSLCompiler::RequiredArgumentCount; i++)\
-                    {
-                        std::wstring wstrArg = CHLSLCompiler::RequiredArguments[i];
-                        std::string arg(wstrArg.begin(), wstrArg.end());
-                        arguments.push_back(arg);
-                    }
-                    arguments.push_back("-ffinite-math-only");
-                    arguments.push_back("-O3");
-
-                    options.dxcOptions = std::span<std::string>(arguments);
-
-                    auto spirv = compilerSet->compileToSPIRV(source.get(), options);*/
 
                     IShaderCompiler::SCompilerOptions options = {};
                     options.stage = source->getStage();
@@ -1217,23 +1192,38 @@ private:
 
         void run()
         {
+            m_logger->log("float64_t benchmark result:", ILogger::ELL_PERFORMANCE);
+            performBenchmark(EF64_BENCHMARK_MODE::NATIVE);
+            m_logger->log("emulated_float64_t benchmark, fast math enabled result:", ILogger::ELL_PERFORMANCE);
+            performBenchmark(EF64_BENCHMARK_MODE::EF64_FAST_MATH_ENABLED);
+            m_logger->log("emulated_float64_t benchmark, fast math disabled result:", ILogger::ELL_PERFORMANCE);
+            performBenchmark(EF64_BENCHMARK_MODE::EF64_FAST_MATH_DISABLED);
+            // every subgroup with even ID do calculations with the `emulated_float64_t<false, true>` type, other subgroups do calculations with float64_t
+            m_logger->log("emulated_float64_t benchmark, subgroup divided work result:", ILogger::ELL_PERFORMANCE);
+            performBenchmark(EF64_BENCHMARK_MODE::SUBGROUP_DIVIDED_WORK);
+            // every item does calculations with both emulated and native types
+            m_logger->log("emulated_float64_t benchmark, interleaved result:", ILogger::ELL_PERFORMANCE);
+            performBenchmark(EF64_BENCHMARK_MODE::INTERLEAVED);
+        }
+
+    private:
+        void performBenchmark(EF64_BENCHMARK_MODE mode)
+        {
             recordTimestampQueryCmdBuffers();
 
             smart_refctd_ptr<ISemaphore> m_beforeTimestampSemaphore = m_device->createSemaphore(0);
             smart_refctd_ptr<ISemaphore> m_afterTimestampSemaphore = m_device->createSemaphore(0);
-            uint64_t beforeTimestampSemaphoreCounter = 0;
-            uint64_t afterTimestampSemaphoreCounter = 0;
 
             IQueue::SSubmitInfo beforeTimestapSubmitInfo[1] = {};
             const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufsBegin[] = { {.cmdbuf = m_timestampBeforeCmdBuff.get()} };
             beforeTimestapSubmitInfo[0].commandBuffers = cmdbufsBegin;
-            IQueue::SSubmitInfo::SSemaphoreInfo beforeTimestampSignals[] = { {.semaphore = m_beforeTimestampSemaphore.get(), .value = ++beforeTimestampSemaphoreCounter, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
+            IQueue::SSubmitInfo::SSemaphoreInfo beforeTimestampSignals[] = { {.semaphore = m_beforeTimestampSemaphore.get(), .value = ++m_beforeTimestampSemaphoreCounter, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
             beforeTimestapSubmitInfo[0].signalSemaphores = beforeTimestampSignals;
 
             IQueue::SSubmitInfo afterTimestapSubmitInfo[1] = {};
             const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufsEnd[] = { {.cmdbuf = m_timestampAfterCmdBuff.get()} };
             afterTimestapSubmitInfo[0].commandBuffers = cmdbufsEnd;
-            IQueue::SSubmitInfo::SSemaphoreInfo afterTimestapSignals[] = { {.semaphore = m_afterTimestampSemaphore.get(), .value = ++afterTimestampSemaphoreCounter, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
+            IQueue::SSubmitInfo::SSemaphoreInfo afterTimestapSignals[] = { {.semaphore = m_afterTimestampSemaphore.get(), .value = ++m_afterTimestampSemaphoreCounter, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
             afterTimestapSubmitInfo[0].signalSemaphores = afterTimestapSignals;
 
             IQueue::SSubmitInfo benchmarkSubmitInfos[1] = {};
@@ -1242,7 +1232,7 @@ private:
             IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = m_semaphore.get(), .value = ++m_semaphoreCounter, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
             benchmarkSubmitInfos[0].signalSemaphores = signals;
 
-            m_pushConstants.testEmulatedFloat64 = 0;
+            m_pushConstants.benchmarkMode = mode;
             recordCmdBuff();
 
             // warmup runs
@@ -1256,7 +1246,7 @@ private:
             m_computeQueue->submit(beforeTimestapSubmitInfo);
             m_device->waitIdle();
 
-            // native benchmark
+            // actual benchmark runs
             for (int i = 0; i < Iterations; ++i)
             {
                 m_computeQueue->submit(benchmarkSubmitInfos);
@@ -1264,55 +1254,18 @@ private:
             }
 
             m_device->waitIdle();
-            if (m_computeQueue->submit(afterTimestapSubmitInfo) != IQueue::RESULT::SUCCESS)
-                _NBL_DEBUG_BREAK_IF(true);
+            m_computeQueue->submit(afterTimestapSubmitInfo);
             m_device->waitIdle();
 
-            beforeTimestampSignals[0].value = ++beforeTimestampSemaphoreCounter;
-            afterTimestapSignals[0].value = ++afterTimestampSemaphoreCounter;
+            beforeTimestampSignals[0].value = ++m_beforeTimestampSemaphoreCounter;
+            afterTimestapSignals[0].value = ++m_afterTimestampSemaphoreCounter;
 
             const uint64_t nativeBenchmarkTimeElapsedNanoseconds = calcTimeElapsed();
             const float nativeBenchmarkTimeElapsedSeconds = double(nativeBenchmarkTimeElapsedNanoseconds) / 1000000000.0;
-            m_logger->log("NATIVE   benchmark result: %llu nanoseconds, which is %f seconds", ILogger::ELL_PERFORMANCE, nativeBenchmarkTimeElapsedNanoseconds, nativeBenchmarkTimeElapsedSeconds);
 
-            m_pushConstants.testEmulatedFloat64 = 1;
-            recordTimestampQueryCmdBuffers(true);
-            recordCmdBuff();
-
-            // warmup runs
-            for (int i = 0; i < WarmupIterations; ++i)
-            {
-                m_computeQueue->submit(benchmarkSubmitInfos);
-                signals[0].value = ++m_semaphoreCounter;
-            }
-            m_device->waitIdle();
-
-            m_computeQueue->submit(beforeTimestapSubmitInfo);
-            m_device->waitIdle();
-
-            // emulated benchmark
-            for (int i = 0; i < Iterations; ++i)
-            {
-                if (i == 0)
-                    m_computeQueue->startCapture();
-                m_computeQueue->submit(benchmarkSubmitInfos);
-                if (i == 0)
-                    m_computeQueue->endCapture();
-
-                signals[0].value = ++m_semaphoreCounter;
-            }
-
-            m_device->waitIdle();
-            if (m_computeQueue->submit(afterTimestapSubmitInfo) != IQueue::RESULT::SUCCESS)
-                _NBL_DEBUG_BREAK_IF(true);
-            m_device->waitIdle();
-
-            const uint64_t emulatedBenchmarkTimeElapsedNanoseconds = calcTimeElapsed();
-            const float emulatedBenchmarkTimeElapsedSeconds = double(emulatedBenchmarkTimeElapsedNanoseconds) / 1000000000.0;
-            m_logger->log("EMULATED benchmark result: %llu nanoseconds, which is %f seconds", ILogger::ELL_PERFORMANCE, emulatedBenchmarkTimeElapsedNanoseconds, emulatedBenchmarkTimeElapsedSeconds);
+            m_logger->log("%llu ns, %f s", ILogger::ELL_PERFORMANCE, nativeBenchmarkTimeElapsedNanoseconds, nativeBenchmarkTimeElapsedSeconds);
         }
 
-    private:
         void recordCmdBuff()
         {
             m_cmdbuf->begin(IGPUCommandBuffer::USAGE::SIMULTANEOUS_USE_BIT);
@@ -1323,9 +1276,11 @@ private:
             m_cmdbuf->end();
         }
 
-        void recordTimestampQueryCmdBuffers(bool resetBuffers = false)
+        void recordTimestampQueryCmdBuffers()
         {
-            if (resetBuffers)
+            static bool firstInvocation = true;
+
+            if (!firstInvocation)
             {
                 m_timestampBeforeCmdBuff->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
                 m_timestampBeforeCmdBuff->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
@@ -1339,6 +1294,8 @@ private:
             m_timestampAfterCmdBuff->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
             m_timestampAfterCmdBuff->writeTimestamp(PIPELINE_STAGE_FLAGS::NONE, m_queryPool.get(), 1);
             m_timestampAfterCmdBuff->end();
+
+            firstInvocation = false;
         }
 
         uint64_t calcTimeElapsed()
@@ -1366,6 +1323,8 @@ private:
         smart_refctd_ptr<nbl::video::IGPUCommandBuffer> m_timestampBeforeCmdBuff = nullptr;
         smart_refctd_ptr<nbl::video::IGPUCommandBuffer> m_timestampAfterCmdBuff = nullptr;
         smart_refctd_ptr<nbl::video::IQueryPool> m_queryPool = nullptr;
+        uint64_t m_beforeTimestampSemaphoreCounter;
+        uint64_t m_afterTimestampSemaphoreCounter;
 
         uint32_t m_queueFamily;
         IQueue* m_computeQueue;

@@ -6,8 +6,17 @@
 
 NBL_CONSTEXPR uint32_t BENCHMARK_WORKGROUP_SIZE = 1024;
 
+enum EF64_BENCHMARK_MODE
+{
+    NATIVE,
+    EF64_FAST_MATH_ENABLED,
+    EF64_FAST_MATH_DISABLED,
+    SUBGROUP_DIVIDED_WORK,
+    INTERLEAVED
+};
+
 struct BenchmarkPushConstants
 {
     uint32_t rawBufferAddress;
-    int testEmulatedFloat64;
+    EF64_BENCHMARK_MODE benchmarkMode;
 };

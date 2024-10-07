@@ -102,12 +102,43 @@ void main(uint3 invocationID : SV_DispatchThreadID)
 	else
 		printf("testing native");*/
 
-	uint64_t output; // it is uint64_t only because it is not possible to print a 64 bit float
-	if (pc.testEmulatedFloat64)
-		output = calcIntegral<emulated_float64_t<false, true> >();
-	else
+	uint64_t output;
+	switch (pc.benchmarkMode)
+	{
+	case NATIVE:
+	{
 		output = calcIntegral<float64_t>();
+		break;
+	}
+	case EF64_FAST_MATH_ENABLED:
+	{
+		output = calcIntegral<emulated_float64_t<true, true> >();
+		break;
+	}
+	case EF64_FAST_MATH_DISABLED:
+	{
+		output = calcIntegral<emulated_float64_t<false, true> >();
+		break;
+	}
+	case SUBGROUP_DIVIDED_WORK:
+	{
+		const bool emulated = (WaveGetLaneIndex() & 0x1) != 0;
+		if (emulated)
+			output = calcIntegral<emulated_float64_t<false, true> >();
+		else
+			output = calcIntegral<float64_t>();
 
+		break;
+	}
+	case INTERLEAVED:
+	{
+		uint64_t a = calcIntegral<float64_t>();
+		uint64_t b = calcIntegral<emulated_float64_t<false, true> >();
+		output = a + b; // addional add operation, don't know any better way to avoid dead code optimization
+
+		break;
+	}
+	}
 	//printf("result = %llu", output);
 	outputBuffer.Store<uint64_t>(pc.rawBufferAddress, output);
 }
