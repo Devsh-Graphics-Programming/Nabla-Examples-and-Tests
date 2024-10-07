@@ -7,6 +7,9 @@
 #include "nbl/application_templates/BasicMultiQueueApplication.hpp"
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
+// get asset converter
+#include "CommonPCH/PCH.hpp"
+
 using namespace nbl;
 using namespace core;
 using namespace system;
@@ -107,11 +110,6 @@ private:
 
 	void loadImages()
 	{
-		// check if compute and transfer are in separate families
-		const core::set<uint32_t> uniqueFamilyIndices = { getTransferUpQueue()->getFamilyIndex(), getComputeQueue()->getFamilyIndex() };
-		const std::vector<uint32_t> familyIndices(uniqueFamilyIndices.begin(),uniqueFamilyIndices.end());
-		const bool multipleQueueFamilies = familyIndices.size()>1;
-
 		IAssetLoader::SAssetLoadParams lp;
 		lp.logger = m_logger.get();
 
@@ -119,145 +117,116 @@ private:
 		std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, SUBMITS_IN_FLIGHT> commandPools = {};
 		std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer>, SUBMITS_IN_FLIGHT> commandBuffers;
 
-		core::smart_refctd_ptr<ICPUImage> cpuImages[IMAGE_CNT];
-		for (uint32_t i = 0u; i < SUBMITS_IN_FLIGHT; ++i)
+		for (uint32_t i=0u; i<SUBMITS_IN_FLIGHT; ++i)
 		{
 			const core::bitflag<IGPUCommandPool::CREATE_FLAGS> commandPoolFlags = IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT;
 			commandPools[i] = m_device->createCommandPool(transferUpQueue->getFamilyIndex(), commandPoolFlags);
-			commandPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, {commandBuffers.data() + i, 1}, core::smart_refctd_ptr(m_logger));
+			commandPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{commandBuffers.data()+i,1},core::smart_refctd_ptr(m_logger));
 			commandBuffers[i]->setObjectDebugName(("Upload Command Buffer #"+std::to_string(i)).c_str());
 		}
 
 		core::smart_refctd_ptr<ISemaphore> imgFillSemaphore = m_device->createSemaphore(0);
 		imgFillSemaphore->setObjectDebugName("Image Fill Semaphore");
-		SIntendedSubmitInfo intendedSubmit = {
+
+		//
+		auto converter = CAssetConverter::create({.device=m_device.get()});
+		// We don't want to generate mip-maps for these images, to ensure that we must override the default callbacks.
+		struct SInputs final : CAssetConverter::SInputs
+		{
+			// we also need to override this to have concurrent sharing
+			inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t groupCopyID, const asset::ICPUImage* buffer, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+			{
+				if (familyIndices.size()>1)
+					return familyIndices;
+				return {};
+			}
+
+			inline uint8_t getMipLevelCount(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+			{
+				return image->getCreationParameters().mipLevels;
+			}
+			inline uint16_t needToRecomputeMips(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+			{
+				return 0b0u;
+			}
+
+			std::vector<uint32_t> familyIndices;
+		} inputs = {};
+		inputs.readCache = converter.get();
+		inputs.logger = m_logger.get();
+		{
+			const core::set<uint32_t> uniqueFamilyIndices = { getTransferUpQueue()->getFamilyIndex(), getComputeQueue()->getFamilyIndex() };
+			inputs.familyIndices = {uniqueFamilyIndices.begin(),uniqueFamilyIndices.end()};
+		}
+		// Normally we'd have to inherit and override the `getFinalOwnerQueueFamily` callback to ensure that the
+		// compute queue becomes the owner of the buffers and images post-transfer, but in this example we use concurrent sharing
+		CAssetConverter::SConvertParams params = {};
+		params.transfer = {
 			.queue = transferUpQueue,
 			.waitSemaphores = {},
-			.commandBuffers = {}, // fill later
+			.prevCommandBuffers = {},
+			.scratchCommandBuffers = {}, // fill later
 			.scratchSemaphore = {
 				.semaphore = imgFillSemaphore.get(),
 				.value = 0,
-				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+				// because of layout transitions
+				.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 			}
 		};
+		params.utilities = m_utils.get();
 
 		for (uint32_t imageIdx = 0; imageIdx < IMAGE_CNT; ++imageIdx)
 		{
-			cpuImages[imageIdx] = loadFistAssetInBundle<ICPUImage>(imagesToLoad[imageIdx]);
+			const auto imagePathToLoad = imagesToLoad[imageIdx];
+			const size_t resourceIdx = imageIdx%SUBMITS_IN_FLIGHT;
+			
+			auto cpuImage = loadFistAssetInBundle<ICPUImage>(imagePathToLoad);
+			if (!cpuImage)
+				logFailAndTerminate("Failed to load image from path %s",ILogger::ELL_ERROR,imagePathToLoad);
 
-			const size_t resourceIdx = imageIdx % SUBMITS_IN_FLIGHT;
-			const auto& imageToLoad = imagesToLoad[imageIdx];
-			auto& cmdBuff = commandBuffers[resourceIdx];
-
-			auto isResourceReused = waitForResourceAvailability(m_imagesLoadedSemaphore.get(), imageIdx);
-			if(isResourceReused)
-				cmdBuff->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
-
-			IGPUImage::SCreationParams imgParams;
-			imgParams.type = IImage::E_TYPE::ET_2D;
-			imgParams.extent = cpuImages[imageIdx]->getCreationParameters().extent;
-			IPhysicalDevice::SImageFormatPromotionRequest formatPromotionRequest;
-			IPhysicalDevice::SFormatImageUsages::SUsage usage;
-			usage.sampledImage = 1;
-			usage.transferDst = 1;
-			formatPromotionRequest.usages = usage;
-			formatPromotionRequest.originalFormat = cpuImages[imageIdx]->getCreationParameters().format;
-			imgParams.format = m_physicalDevice->promoteImageFormat(formatPromotionRequest, IGPUImage::TILING::OPTIMAL);
-			imgParams.mipLevels = 1u;
-			imgParams.flags = IImage::ECF_NONE;
-			imgParams.arrayLayers = 1u;
-			imgParams.samples = IImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT;
-			imgParams.usage = asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_SAMPLED_BIT; 
-			if (multipleQueueFamilies)
-			{
-				imgParams.queueFamilyIndexCount = familyIndices.size();
-				imgParams.queueFamilyIndices = familyIndices.data();
-			}
-			imgParams.preinitialized = false;
-
-			images[imageIdx] = m_device->createImage(std::move(imgParams));
-			images[imageIdx]->setObjectDebugName(("Image #"+std::to_string(imageIdx)).c_str());
-			auto imageAllocation = m_device->allocate(images[imageIdx]->getMemoryReqs(), images[imageIdx].get(), IDeviceMemoryAllocation::EMAF_NONE);
+			std::get<CAssetConverter::SInputs::asset_span_t<ICPUImage>>(inputs.assets) = {&cpuImage.get(),1};
+			auto reservation = converter->reserve(inputs);
+			// the `.value` is just a funny way to make the `smart_refctd_ptr` copyable
+			images[imageIdx] = reservation.getGPUObjects<ICPUImage>().front().value;
+			if (!images[imageIdx])
+				logFailAndTerminate("Failed to convert %s into an IGPUImage handle",ILogger::ELL_ERROR,imagePathToLoad);
+			// notify
 			imageHandlesCreated++;
 			imageHandlesCreated.notify_one();
 
-			if (!imageAllocation.isValid())
-				logFailAndTerminate("Failed to allocate Device Memory compatible with our image!\n");
-
-			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imageLayoutTransitionBarrier0;
-			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imageLayoutTransitionBarrier1;
-			{
-				IImage::SSubresourceRange imgSubresourceRange{};
-				imgSubresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-				imgSubresourceRange.baseMipLevel = 0u;
-				imgSubresourceRange.baseArrayLayer = 0u;
-				imgSubresourceRange.levelCount = 1;
-				imgSubresourceRange.layerCount = 1u;
-
-				imageLayoutTransitionBarrier0.barrier.dep.srcAccessMask = ACCESS_FLAGS::NONE;
-				imageLayoutTransitionBarrier0.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				imageLayoutTransitionBarrier0.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::NONE;
-				imageLayoutTransitionBarrier0.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-				imageLayoutTransitionBarrier0.oldLayout = asset::IImage::LAYOUT::UNDEFINED;
-				imageLayoutTransitionBarrier0.newLayout = asset::IImage::LAYOUT::TRANSFER_DST_OPTIMAL;
-				imageLayoutTransitionBarrier0.image = images[imageIdx].get();
-				imageLayoutTransitionBarrier0.subresourceRange = imgSubresourceRange;
-
-				imageLayoutTransitionBarrier1.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS; 
-				imageLayoutTransitionBarrier1.barrier.dep.dstAccessMask = ACCESS_FLAGS::NONE;
-				imageLayoutTransitionBarrier1.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-				imageLayoutTransitionBarrier1.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::NONE; // NONE because the semaphore singnal comes right after
-				imageLayoutTransitionBarrier1.oldLayout = asset::IImage::LAYOUT::TRANSFER_DST_OPTIMAL;
-				imageLayoutTransitionBarrier1.newLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				imageLayoutTransitionBarrier1.image = images[imageIdx].get();
-				imageLayoutTransitionBarrier1.subresourceRange = imgSubresourceRange;
-			}
-			
-			IQueue::SSubmitInfo::SCommandBufferInfo imgFillCmdBuffInfo = { cmdBuff.get() };
-			intendedSubmit.commandBuffers = {&imgFillCmdBuffInfo,1};
-			
+			// pick scratch commandbuffer
+			auto& cmdBuff = commandBuffers[resourceIdx];
+			// handle not resetting a pending cmdbuf
+			waitForResourceAvailability(m_imagesLoadedSemaphore.get(),imageIdx);
+			// this automatically resets if commandbuffer is resettable
 			cmdBuff->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-
-			IGPUCommandBuffer::SPipelineBarrierDependencyInfo pplnBarrierDepInfo0;
-			pplnBarrierDepInfo0.imgBarriers = { &imageLayoutTransitionBarrier0, 1 };
-			if (!cmdBuff->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, pplnBarrierDepInfo0))
-				logFailAndTerminate("Failed to issue barrier!\n");
-
-			const uint64_t oldCntr = intendedSubmit.scratchSemaphore.value;
-			const bool uploadCommendRecorded = m_utils->updateImageViaStagingBuffer(
-				intendedSubmit, cpuImages[imageIdx]->getBuffer(), cpuImages[imageIdx]->getCreationParameters().format,
-				images[imageIdx].get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, cpuImages[imageIdx]->getRegions()
-			);
-			if (!uploadCommendRecorded)
-				logFailAndTerminate("Couldn't update image data.\n");
-
-			const auto newCntr = intendedSubmit.scratchSemaphore.value;
-			if (newCntr!=oldCntr)
-				m_logger->log("%d overflows when uploading image %d!\n", ILogger::ELL_PERFORMANCE, newCntr-oldCntr, imageIdx);
-
-			IGPUCommandBuffer::SPipelineBarrierDependencyInfo pplnBarrierDepInfo1;
-			pplnBarrierDepInfo1.imgBarriers = { &imageLayoutTransitionBarrier1, 1 };
-
-			if(!cmdBuff->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, pplnBarrierDepInfo1))
-				logFailAndTerminate("Failed to issue barrier!\n");
-
-			cmdBuff->end();
-
+			// finish filling the intended submit
+			IQueue::SSubmitInfo::SCommandBufferInfo imgFillCmdBuffInfo = {cmdBuff.get()};
+			params.transfer.scratchCommandBuffers = {&imgFillCmdBuffInfo,1};
+			// and launch the conversions
+			auto result = reservation.convert(params);
+			if (!result)
+				logFailAndTerminate("Failed to record conversions");
+			// debug log about overflows
+			const auto oldScratchVal = params.transfer.scratchSemaphore.value;
+			if (const auto diff=params.transfer.scratchSemaphore.value-oldScratchVal; diff>0)
+				m_logger->log("%d overflows when uploading image %d!\n",ILogger::ELL_PERFORMANCE,diff,imageIdx);
+			// we want our converter's submit to signal a semaphore that image contents are ready
 			const IQueue::SSubmitInfo::SSemaphoreInfo signalSemaphore = {
-				.semaphore=m_imagesLoadedSemaphore.get(),
-				.value=imageIdx+1u,
-				// cannot signal from COPY stage because there's a layout transition we need to wait for right after and it doesn't have an explicit stage
-				.stageMask=PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
-			};
-			getTransferUpQueue()->submit(intendedSubmit.popSubmit({&signalSemaphore,1}));
+                    .semaphore = m_imagesLoadedSemaphore.get(),
+                    .value = imageIdx+1u,
+                    // cannot signal from COPY stage because there's a layout transition and a possible ownership transfer
+					// and we need to wait for right after and they don't have an explicit stage
+                    .stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+            };
+            if (!result.submit({&signalSemaphore,1}))
+                    logFailAndTerminate("Failed to submit and await conversions");
+			// notify
 			transfersSubmitted++;
 			transfersSubmitted.notify_one();
 
-
 			// TODO: this is for basic testing purposes, will be deleted ofc
-			std::string msg = std::string("Image nr ") + std::to_string(imageIdx) + " loaded. Resource idx: " + std::to_string(resourceIdx);
 			//std::this_thread::sleep_for(std::chrono::milliseconds(6969));
-			m_logger->log(msg);
 		}
 	}
 
@@ -394,14 +363,6 @@ private:
 		// PROCESS IMAGES
 		for (uint32_t imageToProcessId = 0; imageToProcessId < IMAGE_CNT; imageToProcessId++)
 		{
-			const auto resourceIdx = imageToProcessId % SUBMITS_IN_FLIGHT;
-			auto& cmdBuff = commandBuffers[resourceIdx];
-			auto& commandPool = commandPools[resourceIdx];
-			
-			auto isResourceReused = waitForResourceAvailability(m_imagesProcessedSemaphore.get(), imageToProcessId);
-			if (isResourceReused)
-				commandPool->reset();
-
 			// UPDATE DESCRIPTOR SET WRITES
 			IGPUDescriptorSet::SDescriptorInfo imgInfo;
 			IGPUImageView::SCreationParams params{};
@@ -421,6 +382,15 @@ private:
 			view->setObjectDebugName(("Image View #"+std::to_string(imageToProcessId)).c_str());
 			imgInfo.desc = std::move(view);
 			imgInfo.info.image = { .imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL };
+
+			//
+			const auto resourceIdx = imageToProcessId % SUBMITS_IN_FLIGHT;
+			auto& cmdBuff = commandBuffers[resourceIdx];
+			auto& commandPool = commandPools[resourceIdx];
+
+			auto isResourceReused = waitForResourceAvailability(m_imagesProcessedSemaphore.get(), imageToProcessId);
+			if (isResourceReused)
+				commandPool->reset();
 
 			IGPUDescriptorSet::SWriteDescriptorSet write[1] = {
 				{.dstSet = descSets[resourceIdx].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &imgInfo }
