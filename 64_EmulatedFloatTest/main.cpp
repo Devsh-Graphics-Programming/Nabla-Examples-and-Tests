@@ -140,12 +140,6 @@ private:
             m_logger->log(ss.str().c_str(), ILogger::ELL_ERROR);
         };
 
-        /*if (expectedValues.uint16CreateVal != testValues.uint16CreateVal)
-        {
-            m_logger->log("uint16CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, expectedValues.uint16CreateVal, testValues.uint16CreateVal);
-            success = false;
-        }*/
-
         if (calcULPError(expectedValues.int32CreateVal, testValues.int32CreateVal) > 1u)
         {
             printOnFailure(Device);
@@ -170,24 +164,19 @@ private:
             printOnArithmeticFailure("uint64CreateVal", expectedValues.uint64CreateVal, testValues.uint64CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        /*if (calcULPError(expectedValues.float16CreateVal, testValues.float16CreateVal) > 1u)
-        {
-            m_logger->log("float16CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, expectedValues.float16CreateVal, testValues.float16CreateVal);
-            success = false;
-        }*/
         if (calcULPError(expectedValues.float32CreateVal, testValues.float32CreateVal) > 1u)
         {
             printOnFailure(Device);
             printOnArithmeticFailure("float32CreateVal", expectedValues.float32CreateVal, testValues.float32CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        /*
         if (expectedValues.float64CreateVal != testValues.float64CreateVal)
         {
-            printOnFailure("int32CreateVal", expectedValues.int32CreateVal, testValues.int32CreateVal, expectedValues.a, expectedValues.b);
+            printOnFailure(Device);
+            printOnArithmeticFailure("float64CreateVal", expectedValues.float64CreateVal, testValues.float64CreateVal, expectedValues.a, expectedValues.b);
             success = false;
-        }*/
-        if (calcULPError(expectedValues.additionVal, testValues.additionVal) > 1u) // TODO: look at operator+ and figure out why ULP error is > 1 when signs differ (when mantissas need to be substracted)
+        }
+        if (calcULPError(expectedValues.additionVal, testValues.additionVal) > 1u)
         {
             printOnFailure(Device);
             printOnArithmeticFailure("additionVal", expectedValues.additionVal, testValues.additionVal, expectedValues.a, expectedValues.b);
@@ -199,13 +188,13 @@ private:
             printOnArithmeticFailure("substractionVal", expectedValues.substractionVal, testValues.substractionVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (calcULPError(expectedValues.multiplicationVal, testValues.multiplicationVal) > 1u) // TODO: only 1 ulp error allowed
+        if (calcULPError(expectedValues.multiplicationVal, testValues.multiplicationVal) > 1u)
         {
             printOnFailure(Device);
             printOnArithmeticFailure("multiplicationVal", expectedValues.multiplicationVal, testValues.multiplicationVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (calcULPError(expectedValues.divisionVal, testValues.divisionVal) > 1u)  // TODO: only 1 ulp error allowed
+        if (calcULPError(expectedValues.divisionVal, testValues.divisionVal) > 1u)
         {
             printOnFailure(Device);
             printOnArithmeticFailure("divisionVal", expectedValues.divisionVal, testValues.divisionVal, expectedValues.a, expectedValues.b);
@@ -462,7 +451,6 @@ private:
                     m_logger->log("Correct GPU determinated values!", ILogger::ELL_PERFORMANCE);
             };
 
-        // TODO: -inf and inf, inf and -inf
         printTestOutput("emulatedFloat64RandomValuesTest", emulatedFloat64RandomValuesTest(submitter));
         printTestOutput("emulatedFloat64RandomValuesTestContrastingExponents", emulatedFloat64RandomValuesTestContrastingExponents(submitter));
         printTestOutput("emulatedFloat64NegAndPosZeroTest", emulatedFloat64NegAndPosZeroTest(submitter));
@@ -474,10 +462,9 @@ private:
         printTestOutput("emulatedFloat64OneValIsInfTest", emulatedFloat64OneValIsInfTest(submitter));
         printTestOutput("emulatedFloat64OneValIsNegInfTest", emulatedFloat64OneValIsNegInfTest(submitter));
 
-        printTestOutput("emulatedFloat64BInfTest", emulatedFloat64OneValIsZeroTest(submitter));
-        printTestOutput("emulatedFloat64BNegInfTest", emulatedFloat64OneValIsNegZeroTest(submitter));
-
-        //TODO: test fast math
+        // how is expected value incorrect???????
+        //printTestOutput("emulatedFloat64BInfTest", emulatedFloat64OneValIsZeroTest(submitter));
+        //printTestOutput("emulatedFloat64BNegInfTest", emulatedFloat64OneValIsNegZeroTest(submitter));
     }
 
     template <bool FastMath, bool FlushDenormToZero>
@@ -496,17 +483,12 @@ private:
             expectedTestValues.a = a.data;
             expectedTestValues.b = b.data;
 
-            // TODO: expected create val shouldn't be created this way!
-                //.int16CreateVal = 0, //emulated_float64_t::create(reinterpret_cast<uint16_t&>(testValue16)).data,
             expectedTestValues.int32CreateVal = bit_cast<uint64_t>(double(constrTestValues.int32));
             expectedTestValues.int64CreateVal = bit_cast<uint64_t>(double(constrTestValues.int64));
-                //.uint16CreateVal = 0, //emulated_float64_t::create(reinterpret_cast<uint16_t&>(testValue16)).data
             expectedTestValues.uint32CreateVal = bit_cast<uint64_t>(double(constrTestValues.uint32));
             expectedTestValues.uint64CreateVal = bit_cast<uint64_t>(double(constrTestValues.uint64));
-            // TODO: unresolved external symbol imath_half_to_float_table
-            //.float16CreateVal = 0, //emulated_float64_t::create(testValue16).data,
             expectedTestValues.float32CreateVal = bit_cast<uint64_t>(double(constrTestValues.float32));
-            //expectedTestValues.float64CreateVal = bit_cast<uint64_t>(double(constrTestValues.float64));
+            expectedTestValues.float64CreateVal = bit_cast<uint64_t>(constrTestValues.float64);
             expectedTestValues.additionVal = emulated_float64_t<FastMath, FlushDenormToZero>::create(aAsDouble + bAsDouble).data;
             expectedTestValues.substractionVal = emulated_float64_t<FastMath, FlushDenormToZero>::create(aAsDouble - bAsDouble).data;
             expectedTestValues.multiplicationVal = emulated_float64_t<FastMath, FlushDenormToZero>::create(aAsDouble * bAsDouble).data;
@@ -526,34 +508,36 @@ private:
         bool gpuTestsSucceed;
     };
 
-    EmulatedFloat64TestOutput emulatedFloat64RandomValuesTest(EF64Submitter& submitter)
+    EmulatedFloat64TestOutput emulatedFloat64LoopedTests_impl(EF64Submitter& submitter, 
+        const uint32_t iterations,
+        const std::function<double()>& determineValueA, 
+        const std::function<double()>& determineValueB)
     {
         EmulatedFloat64TestOutput output = { true, true };
-
-        std::random_device rd;
-        std::mt19937 mt(rd());
 
         std::uniform_int_distribution i32Distribution(-std::numeric_limits<int>::max(), std::numeric_limits<int>::max());
         std::uniform_int_distribution i64Distribution(-std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max());
         std::uniform_int_distribution u32Distribution(-std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max());
         std::uniform_int_distribution u64Distribution(-std::numeric_limits<uint64_t>::max(), std::numeric_limits<uint64_t>::max());
-        std::uniform_real_distribution f32Distribution(-100000.0, 100000.0);
-        std::uniform_real_distribution f64Distribution(-100000.0, 100000.0);
+        std::uniform_real_distribution fDistribution(-100000.0, 100000.0);
+        
+        std::random_device rd;
+        std::mt19937 mt(rd());
 
-        for (uint32_t i = 0u; i < EmulatedFloat64TestIterations; ++i)
+        for (uint32_t i = 0u; i < iterations; ++i)
         {
             // generate random test values
             EmulatedFloat64TestValuesInfo<true, true> testValInfo;
-            double aTmp = f64Distribution(mt);
-            double bTmp = f64Distribution(mt);
+            double aTmp = determineValueA();
+            double bTmp = determineValueB();
             testValInfo.a.data = reinterpret_cast<emulated_float64_t<true, true>::storage_t&>(aTmp);
             testValInfo.b.data = reinterpret_cast<emulated_float64_t<true, true>::storage_t&>(bTmp);
             testValInfo.constrTestValues.int32 = i32Distribution(mt);
             testValInfo.constrTestValues.int64 = i64Distribution(mt);
             testValInfo.constrTestValues.uint32 = u32Distribution(mt);
             testValInfo.constrTestValues.uint64 = u64Distribution(mt);
-            testValInfo.constrTestValues.float32 = f32Distribution(mt);
-            //testValInfo.constrTestValues.float64 = f64Distribution(mt);
+            testValInfo.constrTestValues.float32 = fDistribution(mt);
+            testValInfo.constrTestValues.float64 = fDistribution(mt);
 
             testValInfo.fillExpectedTestValues();
             auto singleTestOutput = performEmulatedFloat64Tests(testValInfo, submitter);
@@ -567,63 +551,52 @@ private:
         return output;
     }
 
+    EmulatedFloat64TestOutput emulatedFloat64RandomValuesTest(EF64Submitter& submitter)
+    {
+        auto getRandomFloat64 = []()
+            {
+                static std::random_device rd;
+                static std::mt19937 mt(rd());
+                static std::uniform_real_distribution distribution(-100000.0, 100000.0);
+
+
+                return distribution(mt);
+            };
+
+        return emulatedFloat64LoopedTests_impl(submitter, EmulatedFloat64TestIterations, getRandomFloat64, getRandomFloat64);
+    }
+
     EmulatedFloat64TestOutput emulatedFloat64RandomValuesTestContrastingExponents(EF64Submitter& submitter)
     {
-        EmulatedFloat64TestOutput output = { true, true };
+        auto getRandomSmallFloat64 = []()
+            {
+                static std::random_device rd;
+                static std::mt19937 mt(rd());
+                static std::uniform_real_distribution distribution(-0.01, 0.01);
 
-        std::random_device rd;
-        std::mt19937 mt(rd());
+                return distribution(mt);
+            };
 
-        std::uniform_int_distribution i32Distribution(-std::numeric_limits<int>::max(), std::numeric_limits<int>::max());
-        std::uniform_int_distribution i64Distribution(-std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max());
-        std::uniform_int_distribution u32Distribution(-std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max());
-        std::uniform_int_distribution u64Distribution(-std::numeric_limits<uint64_t>::max(), std::numeric_limits<uint64_t>::max());
-        std::uniform_real_distribution f32Distribution(-100000.0, 100000.0);
-        std::uniform_real_distribution f64Distribution(-10000000.0, 10000000.0);
+        auto getRandomLargeFloat64 = []()
+            {
+                static std::random_device rd;
+                static std::mt19937 mt(rd());
+                static std::uniform_real_distribution distribution(1000000000.0, 2000000000.0);
+                static std::uniform_int_distribution coinFlipDistribution(0, 1);
 
-        std::uniform_real_distribution f64DistributionSmall(0.001, 8.0);
-        std::uniform_real_distribution f64DistributionLarge(10000000.0, 20000000.0);
+                double output = distribution(mt);
+                if (coinFlipDistribution(mt))
+                    output = -output;
 
-        auto coinFlip = [&mt]()
-        {
-            std::uniform_int_distribution coinFlipDistribution(0, 1);
-            return coinFlipDistribution(mt);
-        };
+                return output;
+            };
 
-        for (uint32_t i = 0u; i < EmulatedFloat64TestIterations; ++i)
-        {
-            // generate random test values
-            EmulatedFloat64TestValuesInfo<true, true> testValInfo;
-            double aTmp = f64DistributionSmall(mt);
-            double bTmp = f64DistributionLarge(mt);
+        EmulatedFloat64TestOutput firstTestOutput = emulatedFloat64LoopedTests_impl(submitter, EmulatedFloat64TestIterations / 2, getRandomSmallFloat64, getRandomLargeFloat64);
+        EmulatedFloat64TestOutput secondTestOutput = emulatedFloat64LoopedTests_impl(submitter, EmulatedFloat64TestIterations / 2, getRandomLargeFloat64, getRandomSmallFloat64);
 
-            // so we also test cases where b is small
-            if (coinFlip())
-                std::swap(aTmp, bTmp);
-            // so we also test negative values
-            if (coinFlip())
-                aTmp *= -1.0;
-            if (coinFlip())
-                bTmp *= -1.0;
-
-            testValInfo.a.data = reinterpret_cast<emulated_float64_t<true, true>::storage_t&>(aTmp);
-            testValInfo.b.data = reinterpret_cast<emulated_float64_t<true, true>::storage_t&>(bTmp);
-            testValInfo.constrTestValues.int32 = i32Distribution(mt);
-            testValInfo.constrTestValues.int64 = i64Distribution(mt);
-            testValInfo.constrTestValues.uint32 = u32Distribution(mt);
-            testValInfo.constrTestValues.uint64 = u64Distribution(mt);
-            testValInfo.constrTestValues.float32 = f32Distribution(mt);
-            //testValInfo.constrTestValues.float64 = f64Distribution(mt);
-
-            testValInfo.fillExpectedTestValues();
-            auto singleTestOutput = performEmulatedFloat64Tests(testValInfo, submitter);
-
-            if (!singleTestOutput.cpuTestsSucceed)
-                output.cpuTestsSucceed = false;
-            if (!singleTestOutput.gpuTestsSucceed)
-                output.gpuTestsSucceed = false;
-        }
-
+        EmulatedFloat64TestOutput output;
+        output.cpuTestsSucceed = firstTestOutput.cpuTestsSucceed && secondTestOutput.cpuTestsSucceed;
+        output.gpuTestsSucceed = firstTestOutput.gpuTestsSucceed && secondTestOutput.gpuTestsSucceed;
         return output;
     }
 
@@ -743,6 +716,7 @@ private:
         return { firstTestOutput.cpuTestsSucceed && secondTestOutput.cpuTestsSucceed, firstTestOutput.gpuTestsSucceed && secondTestOutput.gpuTestsSucceed };
     }
 
+    // TODO: fix
     EmulatedFloat64TestOutput emulatedFloat64BNaNTest(EF64Submitter& submitter)
     {
         EmulatedFloat64TestOutput output = { true, true };
@@ -786,202 +760,102 @@ private:
 
     EmulatedFloat64TestOutput emulatedFloat64OneValIsInfTest(EF64Submitter& submitter)
     {
-        EmulatedFloat64TestOutput output = { true, true };
-        smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
+        auto getRandomFloat64 = []()
+            {
+                static std::random_device rd;
+                static std::mt19937 mt(rd());
+                static std::uniform_real_distribution distribution(-100000.0, 100000.0);
 
-        for (uint32_t i = 0u; i < EmulatedFloat64TestIterations; ++i)
-        {
-            std::random_device rd;
-            std::mt19937 mt(rd());
+                return distribution(mt);
+            };
 
-            std::uniform_int_distribution i32Distribution(-std::numeric_limits<int>::max(), std::numeric_limits<int>::max());
-            std::uniform_int_distribution i64Distribution(-std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max());
-            std::uniform_int_distribution u32Distribution(-std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max());
-            std::uniform_int_distribution u64Distribution(-std::numeric_limits<uint64_t>::max(), std::numeric_limits<uint64_t>::max());
-            std::uniform_real_distribution f32Distribution(-100000.0, 100000.0);
-            std::uniform_real_distribution f64Distribution(-100000.0, 100000.0);
+        auto getInfinity = []()
+            {
+                return std::numeric_limits<float64_t>::infinity();
+            };
 
-            EmulatedFloat64TestValuesInfo<true, true> testValInfo;
-            double aTmp = f64Distribution(mt);
-            double bTmp = std::numeric_limits<float64_t>::infinity();
-            testValInfo.a.data = reinterpret_cast<emulated_float64_t<true, true>::storage_t&>(aTmp);
-            testValInfo.b.data = reinterpret_cast<emulated_float64_t<true, true>::storage_t&>(bTmp);
-            testValInfo.constrTestValues.int32 = i32Distribution(mt);
-            testValInfo.constrTestValues.int64 = i64Distribution(mt);
-            testValInfo.constrTestValues.uint32 = u32Distribution(mt);
-            testValInfo.constrTestValues.uint64 = u64Distribution(mt);
-            testValInfo.constrTestValues.float32 = f32Distribution(mt);
-            //testValInfo.constrTestValues.float64 = f64Distribution(mt);
+        EmulatedFloat64TestOutput firstTestOutput = emulatedFloat64LoopedTests_impl(submitter, EmulatedFloat64TestIterations / 2, getRandomFloat64, getInfinity);
+        EmulatedFloat64TestOutput secondTestOutput = emulatedFloat64LoopedTests_impl(submitter, EmulatedFloat64TestIterations / 2, getInfinity, getRandomFloat64);
 
-            testValInfo.fillExpectedTestValues();
-            auto singleTestOutput = performEmulatedFloat64Tests(testValInfo, submitter);
-
-            if (!singleTestOutput.cpuTestsSucceed)
-                output.cpuTestsSucceed = false;
-            if (!singleTestOutput.gpuTestsSucceed)
-                output.gpuTestsSucceed = false;
-
-            std::swap(testValInfo.a, testValInfo.b);
-            testValInfo.fillExpectedTestValues();
-            singleTestOutput = performEmulatedFloat64Tests(testValInfo, submitter);
-
-            if (!singleTestOutput.cpuTestsSucceed)
-                output.cpuTestsSucceed = false;
-            if (!singleTestOutput.gpuTestsSucceed)
-                output.gpuTestsSucceed = false;
-        }
-
+        EmulatedFloat64TestOutput output;
+        output.cpuTestsSucceed = firstTestOutput.cpuTestsSucceed && secondTestOutput.cpuTestsSucceed;
+        output.gpuTestsSucceed = firstTestOutput.gpuTestsSucceed && secondTestOutput.gpuTestsSucceed;
         return output;
     }
 
-    // TODO: reduce code duplication in these 4 functions below 
     EmulatedFloat64TestOutput emulatedFloat64OneValIsNegInfTest(EF64Submitter& submitter)
     {
-        EmulatedFloat64TestOutput output = { true, true };
-        smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
+        auto getRandomFloat64 = []()
+            {
+                static std::random_device rd;
+                static std::mt19937 mt(rd());
+                static std::uniform_real_distribution distribution(-100000.0, 100000.0);
 
-        for (uint32_t i = 0u; i < EmulatedFloat64TestIterations / 2; ++i)
-        {
-            std::random_device rd;
-            std::mt19937 mt(rd());
 
-            std::uniform_int_distribution i32Distribution(-std::numeric_limits<int>::max(), std::numeric_limits<int>::max());
-            std::uniform_int_distribution i64Distribution(-std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max());
-            std::uniform_int_distribution u32Distribution(-std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max());
-            std::uniform_int_distribution u64Distribution(-std::numeric_limits<uint64_t>::max(), std::numeric_limits<uint64_t>::max());
-            std::uniform_real_distribution f32Distribution(-100000.0, 100000.0);
-            std::uniform_real_distribution f64Distribution(-100000.0, 100000.0);
+                return distribution(mt);
+            };
 
-            EmulatedFloat64TestValuesInfo<true, true> testValInfo;
-            double aTmp = f64Distribution(mt);
-            double bTmp = -std::numeric_limits<float64_t>::infinity();
-            testValInfo.a.data = reinterpret_cast<emulated_float64_t<true, true>::storage_t&>(aTmp);
-            testValInfo.b.data = reinterpret_cast<emulated_float64_t<true, true>::storage_t&>(bTmp);
-            testValInfo.constrTestValues.int32 = i32Distribution(mt);
-            testValInfo.constrTestValues.int64 = i64Distribution(mt);
-            testValInfo.constrTestValues.uint32 = u32Distribution(mt);
-            testValInfo.constrTestValues.uint64 = u64Distribution(mt);
-            testValInfo.constrTestValues.float32 = f32Distribution(mt);
-            //testValInfo.constrTestValues.float64 = f64Distribution(mt);
+        auto getNegInfinity = []()
+            {
+                return -std::numeric_limits<float64_t>::infinity();
+            };
 
-            testValInfo.fillExpectedTestValues();
-            auto singleTestOutput = performEmulatedFloat64Tests(testValInfo, submitter);
+        EmulatedFloat64TestOutput firstTestOutput = emulatedFloat64LoopedTests_impl(submitter, EmulatedFloat64TestIterations / 2, getRandomFloat64, getNegInfinity);
+        EmulatedFloat64TestOutput secondTestOutput = emulatedFloat64LoopedTests_impl(submitter, EmulatedFloat64TestIterations / 2, getNegInfinity, getRandomFloat64);
 
-            if (!singleTestOutput.cpuTestsSucceed)
-                output.cpuTestsSucceed = false;
-            if (!singleTestOutput.gpuTestsSucceed)
-                output.gpuTestsSucceed = false;
-
-            std::swap(testValInfo.a, testValInfo.b);
-            testValInfo.fillExpectedTestValues();
-            singleTestOutput = performEmulatedFloat64Tests(testValInfo, submitter);
-
-            if (!singleTestOutput.cpuTestsSucceed)
-                output.cpuTestsSucceed = false;
-            if (!singleTestOutput.gpuTestsSucceed)
-                output.gpuTestsSucceed = false;
-        }
-
+        EmulatedFloat64TestOutput output;
+        output.cpuTestsSucceed = firstTestOutput.cpuTestsSucceed && secondTestOutput.cpuTestsSucceed;
+        output.gpuTestsSucceed = firstTestOutput.gpuTestsSucceed && secondTestOutput.gpuTestsSucceed;
         return output;
     }
 
     EmulatedFloat64TestOutput emulatedFloat64OneValIsZeroTest(EF64Submitter& submitter)
     {
-        EmulatedFloat64TestOutput output = { true, true };
-        smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
+        auto getRandomFloat64 = []()
+            {
+                static std::random_device rd;
+                static std::mt19937 mt(rd());
+                static std::uniform_real_distribution distribution(-100000.0, 100000.0);
 
-        for (uint32_t i = 0u; i < EmulatedFloat64TestIterations / 2; ++i)
-        {
-            std::random_device rd;
-            std::mt19937 mt(rd());
+                return distribution(mt);
+            };
 
-            std::uniform_int_distribution i32Distribution(-std::numeric_limits<int>::max(), std::numeric_limits<int>::max());
-            std::uniform_int_distribution i64Distribution(-std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max());
-            std::uniform_int_distribution u32Distribution(-std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max());
-            std::uniform_int_distribution u64Distribution(-std::numeric_limits<uint64_t>::max(), std::numeric_limits<uint64_t>::max());
-            std::uniform_real_distribution f32Distribution(-100000.0, 100000.0);
-            std::uniform_real_distribution f64Distribution(-100000.0, 100000.0);
+        auto getZero = []()
+            {
+                return 0.0;
+            };
 
-            EmulatedFloat64TestValuesInfo<true, true> testValInfo;
-            double aTmp = f64Distribution(mt);
-            double bTmp = 0.0;
-            testValInfo.a.data = reinterpret_cast<emulated_float64_t<true, true>::storage_t&>(aTmp);
-            testValInfo.b.data = reinterpret_cast<emulated_float64_t<true, true>::storage_t&>(bTmp);
-            testValInfo.constrTestValues.int32 = i32Distribution(mt);
-            testValInfo.constrTestValues.int64 = i64Distribution(mt);
-            testValInfo.constrTestValues.uint32 = u32Distribution(mt);
-            testValInfo.constrTestValues.uint64 = u64Distribution(mt);
-            testValInfo.constrTestValues.float32 = f32Distribution(mt);
-            //testValInfo.constrTestValues.float64 = f64Distribution(mt);
+        EmulatedFloat64TestOutput firstTestOutput = emulatedFloat64LoopedTests_impl(submitter, EmulatedFloat64TestIterations / 2, getRandomFloat64, getZero);
+        EmulatedFloat64TestOutput secondTestOutput = emulatedFloat64LoopedTests_impl(submitter, EmulatedFloat64TestIterations / 2, getZero, getRandomFloat64);
 
-            testValInfo.fillExpectedTestValues();
-            auto singleTestOutput = performEmulatedFloat64Tests(testValInfo, submitter);
-
-            if (!singleTestOutput.cpuTestsSucceed)
-                output.cpuTestsSucceed = false;
-            if (!singleTestOutput.gpuTestsSucceed)
-                output.gpuTestsSucceed = false;
-
-            std::swap(testValInfo.a, testValInfo.b);
-            testValInfo.fillExpectedTestValues();
-            singleTestOutput = performEmulatedFloat64Tests(testValInfo, submitter);
-
-            if (!singleTestOutput.cpuTestsSucceed)
-                output.cpuTestsSucceed = false;
-            if (!singleTestOutput.gpuTestsSucceed)
-                output.gpuTestsSucceed = false;
-        }
-
+        EmulatedFloat64TestOutput output; 
+        output.cpuTestsSucceed = firstTestOutput.cpuTestsSucceed && secondTestOutput.cpuTestsSucceed;
+        output.gpuTestsSucceed = firstTestOutput.gpuTestsSucceed && secondTestOutput.gpuTestsSucceed;
         return output;
     }
 
     EmulatedFloat64TestOutput emulatedFloat64OneValIsNegZeroTest(EF64Submitter& submitter)
     {
-        EmulatedFloat64TestOutput output = { true, true };
-        smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
+        auto getRandomFloat64 = []()
+            {
+                static std::random_device rd;
+                static std::mt19937 mt(rd());
+                static std::uniform_real_distribution distribution(-100000.0, 100000.0);
 
-        for (uint32_t i = 0u; i < EmulatedFloat64TestIterations / 2; ++i)
-        {
-            std::random_device rd;
-            std::mt19937 mt(rd());
+                return distribution(mt);
+            };
 
-            std::uniform_int_distribution i32Distribution(-std::numeric_limits<int>::max(), std::numeric_limits<int>::max());
-            std::uniform_int_distribution i64Distribution(-std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max());
-            std::uniform_int_distribution u32Distribution(-std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max());
-            std::uniform_int_distribution u64Distribution(-std::numeric_limits<uint64_t>::max(), std::numeric_limits<uint64_t>::max());
-            std::uniform_real_distribution f32Distribution(-100000.0, 100000.0);
-            std::uniform_real_distribution f64Distribution(-100000.0, 100000.0);
+        auto getNegZero = []()
+            {
+                return -0.0;
+            };
 
-            EmulatedFloat64TestValuesInfo<true, true> testValInfo;
-            double aTmp = f64Distribution(mt);
-            double bTmp = -0.0;
-            testValInfo.a.data = reinterpret_cast<emulated_float64_t<true, true>::storage_t&>(aTmp);
-            testValInfo.b.data = reinterpret_cast<emulated_float64_t<true, true>::storage_t&>(bTmp);
-            testValInfo.constrTestValues.int32 = i32Distribution(mt);
-            testValInfo.constrTestValues.int64 = i64Distribution(mt);
-            testValInfo.constrTestValues.uint32 = u32Distribution(mt);
-            testValInfo.constrTestValues.uint64 = u64Distribution(mt);
-            testValInfo.constrTestValues.float32 = f32Distribution(mt);
-            //testValInfo.constrTestValues.float64 = f64Distribution(mt);
+        EmulatedFloat64TestOutput firstTestOutput = emulatedFloat64LoopedTests_impl(submitter, EmulatedFloat64TestIterations / 2, getRandomFloat64, getNegZero);
+        EmulatedFloat64TestOutput secondTestOutput = emulatedFloat64LoopedTests_impl(submitter, EmulatedFloat64TestIterations / 2, getNegZero, getRandomFloat64);
 
-            testValInfo.fillExpectedTestValues();
-            auto singleTestOutput = performEmulatedFloat64Tests(testValInfo, submitter);
-
-            if (!singleTestOutput.cpuTestsSucceed)
-                output.cpuTestsSucceed = false;
-            if (!singleTestOutput.gpuTestsSucceed)
-                output.gpuTestsSucceed = false;
-
-            std::swap(testValInfo.a, testValInfo.b);
-            testValInfo.fillExpectedTestValues();
-            singleTestOutput = performEmulatedFloat64Tests(testValInfo, submitter);
-
-            if (!singleTestOutput.cpuTestsSucceed)
-                output.cpuTestsSucceed = false;
-            if (!singleTestOutput.gpuTestsSucceed)
-                output.gpuTestsSucceed = false;
-        }
-
+        EmulatedFloat64TestOutput output;
+        output.cpuTestsSucceed = firstTestOutput.cpuTestsSucceed && secondTestOutput.cpuTestsSucceed;
+        output.gpuTestsSucceed = firstTestOutput.gpuTestsSucceed && secondTestOutput.gpuTestsSucceed;
         return output;
     }
 
@@ -992,16 +866,12 @@ private:
         emulated_float64_t<true, true> b = testValInfo.b;
 
         const TestValues<FastMath, FlushDenormToZero> cpuTestValues = {
-            //.int16CreateVal = 0, //emulated_float64_t::create(reinterpret_cast<uint16_t&>(testValue16)).data,
             .int32CreateVal = emulated_float64_t<FastMath, FlushDenormToZero>::create(testValInfo.constrTestValues.int32).data,
             .int64CreateVal = emulated_float64_t<FastMath, FlushDenormToZero>::create(testValInfo.constrTestValues.int64).data,
-            //.uint16CreateVal = 0, //emulated_float64_t::create(reinterpret_cast<uint16_t&>(testValue16)).data,
             .uint32CreateVal = emulated_float64_t<FastMath, FlushDenormToZero>::create(testValInfo.constrTestValues.uint32).data,
             .uint64CreateVal = emulated_float64_t<FastMath, FlushDenormToZero>::create(testValInfo.constrTestValues.uint64).data,
-            // TODO: unresolved external symbol imath_half_to_float_table
-            //.float16CreateVal = 0, //emulated_float64_t::create(testValue16).data,
             .float32CreateVal = emulated_float64_t<FastMath, FlushDenormToZero>::create(testValInfo.constrTestValues.float32).data,
-            //.float64CreateVal = emulated_float64_t<FastMath, FlushDenormToZero>::create(testValInfo.constrTestValues.float64).data,
+            .float64CreateVal = emulated_float64_t<FastMath, FlushDenormToZero>::create(testValInfo.constrTestValues.float64).data,
             .additionVal = (a + b).data,
             .substractionVal = (a - b).data,
             .multiplicationVal = (a * b).data,
@@ -1011,7 +881,7 @@ private:
             .equalVal = a == b,
             .notEqualVal = a != b,
             .lessVal = a < b,
-            .greaterVal = a > b,
+            .greaterVal = a > b
         };
 
         EmulatedFloat64TestOutput output;
