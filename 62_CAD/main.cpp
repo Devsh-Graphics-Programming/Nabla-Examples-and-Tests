@@ -271,7 +271,8 @@ class ComputerAidedDesign final : public examples::SimpleWindowedApplication, pu
 	
 	constexpr static uint32_t WindowWidthRequest = 1600u;
 	constexpr static uint32_t WindowHeightRequest = 900u;
-	constexpr static uint32_t MaxFramesInFlight = 8u;
+	constexpr static uint32_t MaxFramesInFlight = 3u;
+	constexpr static uint32_t MaxSubmitsInFlight = 16u;
 public:
 
 	void allocateResources(uint32_t maxObjects)
@@ -646,21 +647,6 @@ public:
 		
 		fragmentShaderInterlockEnabled = m_device->getEnabledFeatures().fragmentShaderPixelInterlock;
 		
-		// Create the Semaphores
-		m_renderSemaphore = m_device->createSemaphore(0ull);
-		m_renderSemaphore->setObjectDebugName("m_renderSemaphore");
-		m_overflowSubmitScratchSemaphore = m_device->createSemaphore(0ull);
-		m_overflowSubmitScratchSemaphore->setObjectDebugName("m_overflowSubmitScratchSemaphore");
-		if (!m_renderSemaphore || !m_overflowSubmitScratchSemaphore)
-			return logFail("Failed to Create Semaphores!");
-		
-		// Set Queue and ScratchSemaInfo -> wait semaphores and command buffers will be modified by workLoop each frame
-		m_intendedNextSubmit.queue = getGraphicsQueue();
-		m_intendedNextSubmit.scratchSemaphore = {
-				.semaphore = m_overflowSubmitScratchSemaphore.get(),
-				.value = 0ull,
-		};
-
 		// Let's just use the same queue since there's no need for async present
 		if (!m_surface)
 			return logFail("Could not create Window & Surface!");
@@ -1036,16 +1022,11 @@ public:
 		}
 
 		// Create the commandbuffers and pools, this time properly 1 pool per FIF
-		for (auto i=0u; i<m_framesInFlight; i++)
-		{
-			// non-individually-resettable commandbuffers have an advantage over invidually-resettable
-			// mainly that the pool can use a "cheaper", faster allocator internally
-			m_graphicsCommandPools[i] = m_device->createCommandPool(getGraphicsQueue()->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-			if (!m_graphicsCommandPools[i])
-				return logFail("Couldn't create Command Pool!");
-			if (!m_graphicsCommandPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{m_commandBuffers.data()+i,1}))
-				return logFail("Couldn't create Command Buffer!");
-		}
+		m_graphicsCommandPool = m_device->createCommandPool(getGraphicsQueue()->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+		if (!m_graphicsCommandPool)
+			return logFail("Couldn't create Command Pool!");
+		if (!m_graphicsCommandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{m_commandBuffersInFlight.data(),MaxSubmitsInFlight}))
+			return logFail("Couldn't create Command Buffers!");
 		
 		m_Camera.setOrigin({ 0.0, 0.0 });
 		m_Camera.setAspectRatio((double)m_window->getWidth() / m_window->getHeight());
@@ -1079,14 +1060,34 @@ public:
 		m_geoTextureRenderer = std::unique_ptr<GeoTextureRenderer>(new GeoTextureRenderer(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger)));
 		m_geoTextureRenderer->initialize(geoTexturePipelineShaders[0].get(), geoTexturePipelineShaders[1].get(), compatibleRenderPass.get(), m_globalsBuffer);
 		
+		// Create the Semaphores
+		m_renderSemaphore = m_device->createSemaphore(0ull);
+		m_renderSemaphore->setObjectDebugName("m_renderSemaphore");
+		m_overflowSubmitScratchSemaphore = m_device->createSemaphore(0ull);
+		m_overflowSubmitScratchSemaphore->setObjectDebugName("m_overflowSubmitScratchSemaphore");
+		if (!m_renderSemaphore || !m_overflowSubmitScratchSemaphore)
+			return logFail("Failed to Create Semaphores!");
+
+		// Set Queue and ScratchSemaInfo -> wait semaphores and command buffers will be modified by workLoop each frame
+		m_intendedNextSubmit.queue = getGraphicsQueue();
+		m_intendedNextSubmit.scratchSemaphore = {
+				.semaphore = m_overflowSubmitScratchSemaphore.get(),
+				.value = 0ull,
+		};
+		for (uint32_t i = 0; i < MaxSubmitsInFlight; ++i)
+			m_commandBufferInfos[i] = { .cmdbuf = m_commandBuffersInFlight[i].get() };
+		m_intendedNextSubmit.scratchCommandBuffers = m_commandBufferInfos;
+
+		m_currentRecordingCommandBufferInfo = &m_commandBufferInfos[0];
+		m_currentRecordingCommandBufferInfo->cmdbuf->reset(video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+		m_currentRecordingCommandBufferInfo->cmdbuf->begin(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+
 		return true;
 	}
 
 	// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
 	inline void workLoopBody() override
 	{
-		const auto resourceIx = m_realFrameIx%m_framesInFlight;
-
 		auto now = std::chrono::high_resolution_clock::now();
 		dt = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime).count();
 		lastTime = now;
@@ -1141,11 +1142,8 @@ public:
 			.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 		};
 
-		IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1u] = { {.cmdbuf = m_commandBuffers[resourceIx].get() } };
 		IQueue::SSubmitInfo::SSemaphoreInfo waitSems[2u] = { acquired, prevFrameRendered };
-
 		m_intendedNextSubmit.waitSemaphores = waitSems;
-		m_intendedNextSubmit.commandBuffers = cmdbufs;
 		
 		addObjects(m_intendedNextSubmit);
 		
@@ -1176,19 +1174,20 @@ public:
 			if (m_device->blockForSemaphores(cmdbufDonePending)!=ISemaphore::WAIT_RESULT::SUCCESS)
 				return false;
 		}
-		
+
 		// Acquire
 		m_currentImageAcquire = m_surface->acquireNextImage();
 		if (!m_currentImageAcquire)
 			return false;
-
-		const auto resourceIx = m_realFrameIx%m_framesInFlight;
-		auto& cb = m_commandBuffers[resourceIx];
-		auto& commandPool = m_graphicsCommandPools[resourceIx];
+		
+		const bool beganSuccess = m_intendedNextSubmit.beginNextCommandBuffer(m_currentRecordingCommandBufferInfo);
+		assert(beganSuccess);
+		auto* cb = m_currentRecordingCommandBufferInfo->cmdbuf;
 
 		// safe to proceed
-		cb->reset(video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
-		cb->begin(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+		// no need to reset and begin new command buffers as SIntendedSubmitInfo already handled that.
+		// cb->reset(video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+		// cb->begin(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		cb->beginDebugMarker("Frame");
 
 		float64_t3x3 projectionToNDC;
@@ -1237,8 +1236,8 @@ public:
 	
 	void submitDraws(SIntendedSubmitInfo& intendedSubmitInfo, bool inBetweenSubmit)
 	{
-		const auto resourceIx = m_realFrameIx%m_framesInFlight;
-		auto* cb = intendedSubmitInfo.getScratchCommandBuffer();
+		// Use the current recording command buffer of the intendedSubmitInfos scratchCommandBuffers, it should be in recording state
+		auto* cb = m_currentRecordingCommandBufferInfo->cmdbuf;
 		auto&r = drawResourcesFiller;
 		
 		asset::SViewport vp =
@@ -1398,14 +1397,14 @@ public:
 
 		if (inBetweenSubmit)
 		{
-			if (intendedSubmitInfo.overflowSubmit() != IQueue::RESULT::SUCCESS)
+			if (intendedSubmitInfo.overflowSubmit(m_currentRecordingCommandBufferInfo) != IQueue::RESULT::SUCCESS)
 			{
 				m_logger->log("overflow submit failed.", ILogger::ELL_ERROR);
 			}
 		}
 		else
 		{
-			cb->end();
+			// cb->end();
 			
 			const auto nextFrameIx = m_realFrameIx+1u;
 			const IQueue::SSubmitInfo::SSemaphoreInfo thisFrameRendered = {
@@ -1413,7 +1412,7 @@ public:
 				.value = nextFrameIx,
 				.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 			};
-			if (getGraphicsQueue()->submit(intendedSubmitInfo.popSubmit({&thisFrameRendered,1})) == IQueue::RESULT::SUCCESS)
+			if (intendedSubmitInfo.submit(m_currentRecordingCommandBufferInfo, { &thisFrameRendered,1 }) == IQueue::RESULT::SUCCESS)
 			{
 				m_realFrameIx = nextFrameIx;
 				
@@ -1444,6 +1443,8 @@ public:
 
 	virtual bool onAppTerminated() override
 	{
+		m_currentRecordingCommandBufferInfo->cmdbuf->end();
+
 		// We actually want to wait for all the frames to finish rendering, otherwise our destructors will run out of order late
 		m_device->waitIdle();
 
@@ -1481,8 +1482,8 @@ protected:
 			return;
 		}
 
-		// Use the last command buffer in intendedNextSubmit, it should be in recording state
-		auto* cmdbuf = intendedNextSubmit.getScratchCommandBuffer();
+		// Use the current recording command buffer of the intendedSubmitInfos scratchCommandBuffers, it should be in recording state
+		auto* cmdbuf = m_currentRecordingCommandBufferInfo->cmdbuf;
 
 		assert(cmdbuf->getState() == video::IGPUCommandBuffer::STATE::RECORDING && cmdbuf->isResettable());
 		assert(cmdbuf->getRecordingFlags().hasFlags(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT));
@@ -3149,9 +3150,13 @@ protected:
 	smart_refctd_ptr<IGPURenderpass> renderpassInBetween; // this renderpass will load the attachment and transition it to COLOR_ATTACHMENT_OPTIMAL
 	smart_refctd_ptr<IGPURenderpass> renderpassFinal; // this renderpass will load the attachment and transition it to PRESENT
 	
-	std::array<smart_refctd_ptr<IGPUCommandPool>,	MaxFramesInFlight>	m_graphicsCommandPools;
-	std::array<smart_refctd_ptr<IGPUCommandBuffer>,	MaxFramesInFlight>	m_commandBuffers;
-	
+	smart_refctd_ptr<IGPUCommandPool> m_graphicsCommandPool;
+	std::array<smart_refctd_ptr<IGPUCommandBuffer>,	MaxSubmitsInFlight>	m_commandBuffersInFlight; 
+	// ref to above cmd buffers, these go into SIntendedSubmitInfo as command buffers available for recording.
+	std::array<IQueue::SSubmitInfo::SCommandBufferInfo,	MaxSubmitsInFlight>	m_commandBufferInfos;
+	// pointer to one of the command buffer infos from above, this is the only command buffer used to record current submit in current frame, it will be updated by SIntendedSubmitInfo
+	IQueue::SSubmitInfo::SCommandBufferInfo const * m_currentRecordingCommandBufferInfo; // pointer can change, value cannot
+
 	smart_refctd_ptr<IGPUSampler>		msdfTextureSampler;
 
 	smart_refctd_ptr<IGPUBuffer>		m_globalsBuffer;

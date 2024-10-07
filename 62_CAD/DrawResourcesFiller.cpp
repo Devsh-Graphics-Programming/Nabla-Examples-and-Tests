@@ -408,7 +408,7 @@ void DrawResourcesFiller::finalizeLineStyleCopiesToGPU(SIntendedSubmitInfo& inte
 
 void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNextSubmit)
 {
-	auto cmdBuff = intendedNextSubmit.getScratchCommandBuffer();
+	auto cmdBuff = intendedNextSubmit.getCurrentRecordingCommandBufferInfo()->cmdbuf;
 
 	auto msdfImage = msdfTextureArray->getCreationParameters().image;
 
