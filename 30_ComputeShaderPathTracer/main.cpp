@@ -31,15 +31,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		SBasicViewParameters uboData;
 	};
 
-	SBufferRange<IGPUBuffer> createBuffer(
-		const size_t size,
-		const core::bitflag<asset::IBuffer::E_USAGE_FLAGS> usage,
-		const void* data
-	)
-	{
-		
-	}
-
 	_NBL_STATIC_INLINE_CONSTEXPR uint32_t2 WindowDimensions = { 1280, 720 };
 	_NBL_STATIC_INLINE_CONSTEXPR uint32_t FramesInFlight = 5;
 	_NBL_STATIC_INLINE_CONSTEXPR clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
