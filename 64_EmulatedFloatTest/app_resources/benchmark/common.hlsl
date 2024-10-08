@@ -17,6 +17,5 @@ enum EF64_BENCHMARK_MODE
 
 struct BenchmarkPushConstants
 {
-    uint32_t rawBufferAddress;
     EF64_BENCHMARK_MODE benchmarkMode;
 };

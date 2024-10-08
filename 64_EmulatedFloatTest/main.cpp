@@ -1162,9 +1162,6 @@ private:
                     if (!m_allocation.isValid())
                         base.logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 
-                    assert(dummyBuff->getDeviceAddress() < std::numeric_limits<uint32_t>::max()); // TODO: is it even possible?
-                    m_pushConstants.rawBufferAddress = uint32_t(dummyBuff->getDeviceAddress());
-
                     assert(dummyBuff->getBoundMemory().memory == m_allocation.memory.get());
                     smart_refctd_ptr<nbl::video::IDescriptorPool> pool = base.m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 });
 

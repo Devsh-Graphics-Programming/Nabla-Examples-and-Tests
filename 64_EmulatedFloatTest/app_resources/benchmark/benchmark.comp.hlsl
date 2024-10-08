@@ -11,7 +11,7 @@
 
 using namespace nbl::hlsl;
 
-RWByteAddressBuffer outputBuffer;
+[[vk::binding(0, 0)]] RWByteAddressBuffer outputBuffer;
 [[vk::push_constant]] BenchmarkPushConstants pc;
 
 // for initial seed of 69, the polynomial is:
@@ -140,5 +140,5 @@ void main(uint3 invocationID : SV_DispatchThreadID)
 	}
 	}
 	//printf("result = %llu", output);
-	outputBuffer.Store<uint64_t>(pc.rawBufferAddress, output);
+	outputBuffer.Store<uint64_t>(0, output);
 }
