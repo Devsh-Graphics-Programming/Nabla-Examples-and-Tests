@@ -7,6 +7,11 @@
 #include <nbl/builtin/hlsl/algorithm.hlsl>
 #include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
 
+using ActualFloat64 = portable_float64_t<jit::device_capabilities>;
+using ActualFloat64Matrix3x3 = portable_float64_t3x3<jit::device_capabilities>;
+using ActualFloat64Vector2 = portable_float64_t2<jit::device_capabilities>;
+using ActualFloat64Vector3 = portable_float64_t3<jit::device_capabilities>;
+
 // TODO[Lucas]: Move these functions to builtin hlsl functions (Even the shadertoy obb and aabb ones)
 float cross2D(float2 a, float2 b)
 {
@@ -20,7 +25,7 @@ float2 BezierTangent(float2 p0, float2 p1, float2 p2, float t)
 
 float2 QuadraticBezier(float2 p0, float2 p1, float2 p2, float t)
 {
-    return nbl::hlsl::shapes::QuadraticBezier<float>::construct(p0, p1, p2).evaluate(t);
+    return shapes::QuadraticBezier<float>::construct(p0, p1, p2).evaluate(t);
 }
 
 ClipProjectionData getClipProjectionData(in MainObject mainObj)
@@ -28,9 +33,10 @@ ClipProjectionData getClipProjectionData(in MainObject mainObj)
     if (mainObj.clipProjectionAddress != InvalidClipProjectionAddress)
     {
         ClipProjectionData ret;
-        ret.projectionToNDC = vk::RawBufferLoad<float64_t3x3>(mainObj.clipProjectionAddress, 8u);
-        ret.minClipNDC      = vk::RawBufferLoad<float32_t2>(mainObj.clipProjectionAddress + sizeof(float64_t3x3), 8u);
-        ret.maxClipNDC      = vk::RawBufferLoad<float32_t2>(mainObj.clipProjectionAddress + sizeof(float64_t3x3) + sizeof(float32_t2), 8u);
+        ret.projectionToNDC = vk::RawBufferLoad<ActualFloat64Matrix3x3>(mainObj.clipProjectionAddress, 8u);
+        ret.minClipNDC      = vk::RawBufferLoad<float32_t2>(mainObj.clipProjectionAddress + sizeof(ActualFloat64Matrix3x3), 8u);
+        ret.maxClipNDC      = vk::RawBufferLoad<float32_t2>(mainObj.clipProjectionAddress + sizeof(ActualFloat64Matrix3x3) + sizeof(float32_t2), 8u);
+
         return ret;
     }
     else
@@ -39,22 +45,45 @@ ClipProjectionData getClipProjectionData(in MainObject mainObj)
     }
 }
 
-double2 transformPointNdc(float64_t3x3 transformation, double2 point2d)
+ActualFloat64Vector2 transformPointNdc(ActualFloat64Matrix3x3 transformation, ActualFloat64Vector2 point2d)
 {
-    return mul(transformation, float64_t3(point2d, 1)).xy;
+    ActualFloat64Vector3 point3d;
+    point3d.x = point2d.x;
+    point3d.y = point2d.y;
+    point3d.z = _static_cast<ActualFloat64>(1.0f);
+
+    ActualFloat64Vector3 transformationResult = portableMul64<ActualFloat64Matrix3x3, ActualFloat64Vector3, jit::device_capabilities>(transformation, point3d);
+    ActualFloat64Vector2 output;
+    output.x = transformationResult.x;
+    output.y = transformationResult.y;
+
+    return output;
 }
-double2 transformVectorNdc(float64_t3x3 transformation, double2 vector2d)
+ActualFloat64Vector2 transformVectorNdc(ActualFloat64Matrix3x3 transformation, ActualFloat64Vector2 vector2d)
 {
-    return mul(transformation, float64_t3(vector2d, 0)).xy;
+    ActualFloat64Vector3 vector3d;
+    vector3d.x = vector2d.x;
+    vector3d.y = vector2d.y;
+    vector3d.z = _static_cast<ActualFloat64>(0.0f);
+
+    ActualFloat64Vector3 transformationResult = portableMul64<ActualFloat64Matrix3x3, ActualFloat64Vector3, jit::device_capabilities>(transformation, vector3d);
+    ActualFloat64Vector2 output;
+    output.x = transformationResult.x;
+    output.y = transformationResult.y;
+
+    return output;
 }
-float2 transformPointScreenSpace(float64_t3x3 transformation, double2 point2d) 
+float2 transformPointScreenSpace(ActualFloat64Matrix3x3 transformation, ActualFloat64Vector2 point2d)
 {
-    double2 ndc = transformPointNdc(transformation, point2d);
-    return (float2)((ndc + 1.0) * 0.5 * globals.resolution);
+    ActualFloat64Vector2 ndc = transformPointNdc(transformation, point2d);
+    // TODO: "ndc + 1" doesn't work, probably because of `emulated_float64_t::create(float val)`
+    ActualFloat64Vector2 result = (ndc + 1.0f) * 0.5f * _static_cast<ActualFloat64Vector2>(globals.resolution);
+
+    return _static_cast<float2>(result);
 }
 float4 transformFromSreenSpaceToNdc(float2 pos)
 {
-    return float4((pos.xy / globals.resolution) * 2.0 - 1.0, 0.0f, 1.0f);
+    return float4((pos.xy / globals.resolution) * 2.0f - 1.0f, 0.0f, 1.0f);
 }
 
 template<bool FragmentShaderPixelInterlock>
@@ -120,28 +149,29 @@ PSInput main(uint vertexID : SV_VertexID)
         LineStyle lineStyle = lineStyles[mainObj.styleIdx];
 
         // Width is on both sides, thickness is one one side of the curve (div by 2.0f)
-        const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + float(lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio);
+        const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<ActualFloat64>(lineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
         const float antiAliasedLineThickness = screenSpaceLineWidth * 0.5f + globals.antiAliasingFactor;
         const float sdfLineThickness = screenSpaceLineWidth / 2.0f;
         outV.setLineThickness(sdfLineThickness);
-        outV.setCurrentWorldToScreenRatio((float)(2.0 / (clipProjectionData.projectionToNDC[0][0] * globals.resolution.x)));
+        outV.setCurrentWorldToScreenRatio(
+            _static_cast<float>((_static_cast<ActualFloat64>(2.0f) /
+            (clipProjectionData.projectionToNDC[0].x * _static_cast<ActualFloat64>(globals.resolution.x))))
+        );
 
         if (objType == ObjectType::LINE)
         {
-            double2 points[2u];
-            points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
-            points[1u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(LinePointInfo), 8u);
+            ActualFloat64Vector2 points[2u];
+            points[0u] = vk::RawBufferLoad<ActualFloat64Vector2>(drawObj.geometryAddress, 8u);
+            points[1u] = vk::RawBufferLoad<ActualFloat64Vector2>(drawObj.geometryAddress + sizeof(LinePointInfo), 8u);
 
-            const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2), 8u);
-            const float patternStretch = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) + sizeof(float), 8u);
+            const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2), 8u);
+            const float patternStretch = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) + sizeof(float), 8u);
             outV.setCurrentPhaseShift(phaseShift);
             outV.setPatternStretch(patternStretch);
 
             float2 transformedPoints[2u];
             for (uint i = 0u; i < 2u; ++i)
-            {
                 transformedPoints[i] = transformPointScreenSpace(clipProjectionData.projectionToNDC, points[i]);
-            }
 
             const float2 lineVector = normalize(transformedPoints[1u] - transformedPoints[0u]);
             const float2 normalToLine = float2(-lineVector.y, lineVector.x);
@@ -168,26 +198,123 @@ PSInput main(uint vertexID : SV_VertexID)
         }
         else if (objType == ObjectType::QUAD_BEZIER)
         {
-            double2 points[3u];
-            points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
-            points[1u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);
-            points[2u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 2u, 8u);
+            ActualFloat64Vector2 points[3u];
+            points[0u] = vk::RawBufferLoad<ActualFloat64Vector2>(drawObj.geometryAddress, 8u);
+            points[1u] = vk::RawBufferLoad<ActualFloat64Vector2>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2), 8u);
+            points[2u] = vk::RawBufferLoad<ActualFloat64Vector2>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) * 2u, 8u);
 
-            const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) * 3u, 8u);
-            const float patternStretch = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) * 3u + sizeof(float), 8u);
+            const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) * 3u, 8u);
+            const float patternStretch = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) * 3u + sizeof(float), 8u);
             outV.setCurrentPhaseShift(phaseShift);
             outV.setPatternStretch(patternStretch);
 
             // transform these points into screen space and pass to fragment
             float2 transformedPoints[3u];
             for (uint i = 0u; i < 3u; ++i)
-            {
                 transformedPoints[i] = transformPointScreenSpace(clipProjectionData.projectionToNDC, points[i]);
-            }
 
-            nbl::hlsl::shapes::QuadraticBezier<float> quadraticBezier = nbl::hlsl::shapes::QuadraticBezier<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
-            nbl::hlsl::shapes::Quadratic<float> quadratic = nbl::hlsl::shapes::Quadratic<float>::constructFromBezier(quadraticBezier);
-            nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator preCompData = nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator::construct(quadratic);
+#if 1
+            if (vertexID == 0)
+            {
+                printf("lineStyle.screenSpaceLineWidth = %f", lineStyle.screenSpaceLineWidth);
+
+                printf("POINT TRANSFORMATION:");
+                ActualFloat64Vector3 a;
+                a.x = points[0].x;
+                a.y = points[0].y;
+                a.z = _static_cast<ActualFloat64>(1);
+                printf("points[0].x = %llu, points[0].y = %llu, points[0].z = %llu", bit_cast<uint64_t>(points[0].x), bit_cast<uint64_t>(points[0].y), 1ull);
+                printf("a.x = %llu, a.y = %llu, a.z = %llu", bit_cast<uint64_t>(a.x), bit_cast<uint64_t>(a.y), bit_cast<uint64_t>(a.z));
+
+                // TODO: move to the emulated float test example
+
+                //array_get<ActualFloat64Vector3, ActualFloat64> getter;
+
+                //printf("ARRAY_GET TEST");
+                //ActualFloat64 b = getter(a, 0);
+
+                //printf("array_get = %ull", b.data);
+
+                printf("PROJ NDC MATRIX:");
+
+#if 1
+                printf("row[0].x = %llu, row[0].y = %llu, row[0].z = %llu", bit_cast<uint64_t>(clipProjectionData.projectionToNDC[0].x), bit_cast<uint64_t>(clipProjectionData.projectionToNDC[0].y), bit_cast<uint64_t>(clipProjectionData.projectionToNDC[0].z));
+                printf("row[1].x = %llu, row[1].y = %llu, row[1].z = %llu", bit_cast<uint64_t>(clipProjectionData.projectionToNDC[1].x), bit_cast<uint64_t>(clipProjectionData.projectionToNDC[1].y), bit_cast<uint64_t>(clipProjectionData.projectionToNDC[1].z));
+                printf("row[2].x = %llu, row[2].y = %llu, row[2].z = %llu", bit_cast<uint64_t>(clipProjectionData.projectionToNDC[2].x), bit_cast<uint64_t>(clipProjectionData.projectionToNDC[2].y), bit_cast<uint64_t>(clipProjectionData.projectionToNDC[2].z));
+#else
+#endif
+                ActualFloat64Vector3 transformationResult = portableMul64<ActualFloat64Matrix3x3, ActualFloat64Vector3, jit::device_capabilities>(clipProjectionData.projectionToNDC, a);
+                printf("transformationResult.x = %llu, transformationResult.y = %llu, transformationResult.z = %llu", bit_cast<uint64_t>(transformationResult.x), bit_cast<uint64_t>(transformationResult.y), bit_cast<uint64_t>(transformationResult.z));
+
+                ActualFloat64Vector2 ndc;
+                ndc.x = transformationResult.x;
+                ndc.y = transformationResult.y;
+
+                printf("ndc.x = %llu, ndc.y = %llu", bit_cast<uint64_t>(ndc.x), bit_cast<uint64_t>(ndc.y));
+                
+                ActualFloat64Vector2 result = ndc;
+
+                result = result + 1;
+                printf("AFTER ADDITION: ");
+                printf("result.x = %llu, result.y = %llu", bit_cast<uint64_t>(result.x), bit_cast<uint64_t>(result.y));
+
+                result = result * 0.5f;
+                printf("AFTER mul: ");
+                printf("result.x = %llu, result.y = %llu", bit_cast<uint64_t>(result.x), bit_cast<uint64_t>(result.y));
+
+                result = result * _static_cast<ActualFloat64Vector2>(globals.resolution);
+                printf("AFTER SECOND ADDITION: ");
+                printf("result.x = %llu, result.y = %llu", bit_cast<uint64_t>(result.x), bit_cast<uint64_t>(result.y));
+
+                printf("STATIC CAST FROM UVEC2 TO DOUBLEVEC2 TEST");
+                _static_cast<ActualFloat64Vector2>(globals.resolution);
+
+
+                // -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+                //printf("POINT TRANSFORMATION TO NDC:");
+                //ActualFloat64Vector2 point2d = points[0];
+                //printf("point2d.x = %llu, point2d.y = %llu", point2d.x.data, point2d.y.data);
+
+                //ActualFloat64Vector3 point3d;
+                //point3d.x = point2d.x;
+                //point3d.y = point2d.y;
+                //point3d.z = _static_cast<ActualFloat64>(1.0f);
+                //printf("point3d.x = %llu, point3d.y = %llu, point3d.z = %llu", point3d.x.data, point3d.y.data, point3d.z.data);
+                //ActualFloat64Vector3 transformationResult = portableMul64<ActualFloat64Matrix3x3, ActualFloat64Vector3, jit::device_capabilities>(clipProjectionData.projectionToNDC, point3d);
+                //printf("transformationResult.x = %llu, transformationResult.y = %llu, transformationResult.z = %llu", transformationResult.x.data, transformationResult.y.data, transformationResult.z.data);
+                //ActualFloat64Vector2 ndc;
+                //ndc.x = transformationResult.x;
+                //ndc.y = transformationResult.y;
+                //printf("ndc.x = %llu, ndc.y = %llu", ndc.x.data, ndc.y.data);
+
+                //ActualFloat64Vector2 result = (ndc + 1.0f) * 0.5f * _static_cast<ActualFloat64Vector2>(globals.resolution);
+                //printf("result.x = %llu, result.y = %llu", result.x.data, result.y.data);
+
+                ////_static_cast<float2>(result);
+
+                //ActualFloat64 sum = ActualFloat64::create(0);
+                //printf("comp sum: %llu", sum.data);
+                //sum = sum + point3d.x;
+                //printf("comp sum: %llu", sum.data);
+                //sum = sum + point3d.y;
+                //printf("comp sum: %llu", sum.data);
+                //sum = sum + point3d.z;
+                //printf("comp sum: %llu", sum.data);
+
+                //printf("comp sum: %llu", point3d.calcComponentSum().data);
+
+                //ActualFloat64Vector3 transformationResult = portableMul64<ActualFloat64Matrix3x3, ActualFloat64Vector3, jit::device_capabilities>(clipProjectionData.projectionToNDC, point3d);
+                //printf("transformationResult.x = %llu, transformationResult.y = %llu, transformationResult.z = %llu", transformationResult.x, transformationResult.y, transformationResult.z);
+
+                //printf("transformedPoints[0].x = %f, transformedPoints[0].y = %f", transformedPoints[0].x, transformedPoints[0].y);
+                //printf("transformedPoints[1].x = %f, transformedPoints[1].y = %f", transformedPoints[1].x, transformedPoints[1].y);
+                //printf("transformedPoints[2].x = %f, transformedPoints[2].y = %f", transformedPoints[2].x, transformedPoints[2].y);
+            }
+#endif
+            shapes::QuadraticBezier<float> quadraticBezier = shapes::QuadraticBezier<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
+            shapes::Quadratic<float> quadratic = shapes::Quadratic<float>::constructFromBezier(quadraticBezier);
+            shapes::Quadratic<float>::ArcLengthCalculator preCompData = shapes::Quadratic<float>::ArcLengthCalculator::construct(quadratic);
 
             outV.setQuadratic(quadratic);
             outV.setQuadraticPrecomputedArcLenData(preCompData);
@@ -237,7 +364,7 @@ PSInput main(uint vertexID : SV_VertexID)
                 // this is the place where we use it's tangent in the bezier to form sides the cages
                 const float optimalT = 0.145f;
 
-                //Whether or not to flip the the interior cage nodes
+                // Whether or not to flip the the interior cage nodes
                 int flip = cross2D(transformedPoints[0u] - transformedPoints[1u], transformedPoints[2u] - transformedPoints[1u]) > 0.0f ? -1 : 1;
 
                 const float middleT = 0.5f;
@@ -262,7 +389,7 @@ PSInput main(uint vertexID : SV_VertexID)
      P0 +                                    \    + P2
                 */
 
-                //Internal cage points
+                // Internal cage points
                 float2 interior0;
                 float2 interior1;
 
@@ -272,12 +399,12 @@ PSInput main(uint vertexID : SV_VertexID)
                 float2 leftTangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], optimalT));
                 float2 leftNormal = normalize(float2(-leftTangent.y, leftTangent.x)) * flip;
                 float2 leftExteriorPoint = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], optimalT) - leftNormal * antiAliasedLineThickness;
-                float2 exterior0 = nbl::hlsl::shapes::util::LineLineIntersection<float>(middleExteriorPoint, midTangent, leftExteriorPoint, leftTangent);
+                float2 exterior0 = shapes::util::LineLineIntersection<float>(middleExteriorPoint, midTangent, leftExteriorPoint, leftTangent);
 
                 float2 rightTangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f - optimalT));
                 float2 rightNormal = normalize(float2(-rightTangent.y, rightTangent.x)) * flip;
                 float2 rightExteriorPoint = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f - optimalT) - rightNormal * antiAliasedLineThickness;
-                float2 exterior1 = nbl::hlsl::shapes::util::LineLineIntersection<float>(middleExteriorPoint, midTangent, rightExteriorPoint, rightTangent);
+                float2 exterior1 = shapes::util::LineLineIntersection<float>(middleExteriorPoint, midTangent, rightExteriorPoint, rightTangent);
 
                 // Interiors
                 {
@@ -298,7 +425,7 @@ PSInput main(uint vertexID : SV_VertexID)
                     float2 endPointExterior = transformedPoints[0u] - endPointTangent * antiAliasedLineThickness;
 
                     if (vertexIdx == 0u)
-                        outV.position = float4(nbl::hlsl::shapes::util::LineLineIntersection<float>(leftExteriorPoint, leftTangent, endPointExterior, endPointNormal), 0.0, 1.0f);
+                        outV.position = float4(shapes::util::LineLineIntersection<float>(leftExteriorPoint, leftTangent, endPointExterior, endPointNormal), 0.0, 1.0f);
                     else if (vertexIdx == 1u)
                         outV.position = float4(transformedPoints[0u] + endPointNormal * antiAliasedLineThickness - endPointTangent * antiAliasedLineThickness, 0.0, 1.0f);
                     else if (vertexIdx == 2u)
@@ -324,7 +451,7 @@ PSInput main(uint vertexID : SV_VertexID)
                     float2 endPointExterior = transformedPoints[2u] + endPointTangent * antiAliasedLineThickness;
 
                     if (vertexIdx == 0u)
-                        outV.position = float4(nbl::hlsl::shapes::util::LineLineIntersection<float>(rightExteriorPoint, rightTangent, endPointExterior, endPointNormal), 0.0, 1.0f);
+                        outV.position = float4(shapes::util::LineLineIntersection<float>(rightExteriorPoint, rightTangent, endPointExterior, endPointNormal), 0.0, 1.0f);
                     else if (vertexIdx == 1u)
                         outV.position = float4(transformedPoints[2u] + endPointNormal * antiAliasedLineThickness + endPointTangent * antiAliasedLineThickness, 0.0, 1.0f);
                     else if (vertexIdx == 2u)
@@ -334,18 +461,18 @@ PSInput main(uint vertexID : SV_VertexID)
                 }
             }
 
-            outV.position.xy = (outV.position.xy / globals.resolution) * 2.0 - 1.0;
+            outV.position.xy = (outV.position.xy / globals.resolution) * 2.0f - 1.0f;
         }
         else if (objType == ObjectType::POLYLINE_CONNECTOR)
         {
-            const float FLOAT_INF = nbl::hlsl::numeric_limits<float>::infinity;
+            const float FLOAT_INF = numeric_limits<float>::infinity;
             const float4 INVALID_VERTEX = float4(FLOAT_INF, FLOAT_INF, FLOAT_INF, FLOAT_INF);
 
             if (lineStyle.isRoadStyleFlag)
             {
-                const double2 circleCenter = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
-                const float2 v = vk::RawBufferLoad<float2>(drawObj.geometryAddress + sizeof(double2), 8u);
-                const float cosHalfAngleBetweenNormals = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 8u);
+                const ActualFloat64Vector2 circleCenter = vk::RawBufferLoad<ActualFloat64Vector2>(drawObj.geometryAddress, 8u);
+                const float2 v = vk::RawBufferLoad<float2>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2), 8u);
+                const float cosHalfAngleBetweenNormals = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) + sizeof(float2), 8u);
 
                 const float2 circleCenterScreenSpace = transformPointScreenSpace(clipProjectionData.projectionToNDC, circleCenter);
                 outV.setPolylineConnectorCircleCenter(circleCenterScreenSpace);
@@ -405,16 +532,25 @@ PSInput main(uint vertexID : SV_VertexID)
     else if (objType == ObjectType::CURVE_BOX)
     {
         CurveBox curveBox;
-        curveBox.aabbMin = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
-        curveBox.aabbMax = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);
+        curveBox.aabbMin = vk::RawBufferLoad<ActualFloat64Vector2>(drawObj.geometryAddress, 8u);
+        curveBox.aabbMax = vk::RawBufferLoad<ActualFloat64Vector2>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2), 8u);
+
         for (uint32_t i = 0; i < 3; i ++)
         {
-            curveBox.curveMin[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(double2) * 2 + sizeof(float32_t2) * i, 4u);
-            curveBox.curveMax[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(double2) * 2 + sizeof(float32_t2) * (3 + i), 4u);
+            curveBox.curveMin[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) * 2 + sizeof(float32_t2) * i, 4u);
+            curveBox.curveMax[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) * 2 + sizeof(float32_t2) * (3 + i), 4u);
         }
 
-        const float2 ndcAxisU = (float2)transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin);
-        const float2 ndcAxisV = (float2)transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin);
+        ActualFloat64Vector2 aabbMaxXMinY;
+        aabbMaxXMinY.x = curveBox.aabbMax.x;
+        aabbMaxXMinY.y = curveBox.aabbMin.y;
+
+        ActualFloat64Vector2 aabbMinXMaxY;
+        aabbMinXMaxY.x = curveBox.aabbMin.x;
+        aabbMinXMaxY.y = curveBox.aabbMax.y;
+
+        const float2 ndcAxisU = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, aabbMaxXMinY - curveBox.aabbMin));
+        const float2 ndcAxisV = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, aabbMinXMaxY - curveBox.aabbMin));
 
         const float2 screenSpaceAabbExtents = float2(length(ndcAxisU * float2(globals.resolution)) / 2.0, length(ndcAxisV * float2(globals.resolution)) / 2.0);
 
@@ -422,17 +558,20 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setCurveBoxScreenSpaceSize(float2(screenSpaceAabbExtents));
         
         const float2 undilatedCorner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
-        
+        const ActualFloat64Vector2 undilatedCornerF64 = _static_cast<ActualFloat64Vector2>(undilatedCorner);
+
         // We don't dilate on AMD (= no fragShaderInterlock)
         const float pixelsToIncreaseOnEachSide = globals.antiAliasingFactor + 1.0;
         const float2 dilateRate = pixelsToIncreaseOnEachSide / screenSpaceAabbExtents; // float sufficient to hold the dilate rect? 
         float2 dilateVec;
         float2 dilatedUV;
-        dilateHatch<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(dilateVec, dilatedUV, undilatedCorner, dilateRate, ndcAxisU, ndcAxisV);
+        dilateHatch<jit::device_capabilities::fragmentShaderPixelInterlock>(dilateVec, dilatedUV, undilatedCorner, dilateRate, ndcAxisU, ndcAxisV);
 
         // doing interpolation this way to ensure correct endpoints and 0 and 1, we can alternatively use branches to set current corner based on vertexIdx
-        const double2 currentCorner = curveBox.aabbMin * (1.0 - undilatedCorner) + curveBox.aabbMax * undilatedCorner;
-        const float2 coord = (float2) (transformPointNdc(clipProjectionData.projectionToNDC, currentCorner) + dilateVec);
+        const ActualFloat64Vector2 currentCorner = curveBox.aabbMin * (_static_cast<ActualFloat64Vector2>(float2(1.0f, 1.0f)) - undilatedCornerF64) +
+            curveBox.aabbMax * undilatedCornerF64;
+
+        const float2 coord = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, currentCorner) + _static_cast<ActualFloat64Vector2>(dilateVec));
 
         outV.position = float4(coord, 0.f, 1.f);
  
@@ -441,37 +580,37 @@ PSInput main(uint vertexID : SV_VertexID)
 
         // A, B & C get converted from unorm to [0, 1]
         // A & B get converted from [0,1] to [-2, 2]
-        nbl::hlsl::shapes::Quadratic<float> curveMin = nbl::hlsl::shapes::Quadratic<float>::construct(
+        shapes::Quadratic<float> curveMin = shapes::Quadratic<float>::construct(
             curveBox.curveMin[0], curveBox.curveMin[1], curveBox.curveMin[2]);
-        nbl::hlsl::shapes::Quadratic<float> curveMax = nbl::hlsl::shapes::Quadratic<float>::construct(
+        shapes::Quadratic<float> curveMax = shapes::Quadratic<float>::construct(
             curveBox.curveMax[0], curveBox.curveMax[1], curveBox.curveMax[2]);
 
         outV.setMinorBBoxUV(dilatedUV[minor]);
         outV.setMajorBBoxUV(dilatedUV[major]);
 
-        outV.setCurveMinMinor(nbl::hlsl::math::equations::Quadratic<float>::construct(
+        outV.setCurveMinMinor(math::equations::Quadratic<float>::construct(
             curveMin.A[minor], 
             curveMin.B[minor], 
             curveMin.C[minor]));
-        outV.setCurveMinMajor(nbl::hlsl::math::equations::Quadratic<float>::construct(
+        outV.setCurveMinMajor(math::equations::Quadratic<float>::construct(
             curveMin.A[major], 
             curveMin.B[major], 
             curveMin.C[major]));
 
-        outV.setCurveMaxMinor(nbl::hlsl::math::equations::Quadratic<float>::construct(
+        outV.setCurveMaxMinor(math::equations::Quadratic<float>::construct(
             curveMax.A[minor], 
             curveMax.B[minor], 
             curveMax.C[minor]));
-        outV.setCurveMaxMajor(nbl::hlsl::math::equations::Quadratic<float>::construct(
+        outV.setCurveMaxMajor(math::equations::Quadratic<float>::construct(
             curveMax.A[major], 
             curveMax.B[major], 
             curveMax.C[major]));
 
-        //nbl::hlsl::math::equations::Quadratic<float> curveMinRootFinding = nbl::hlsl::math::equations::Quadratic<float>::construct(
+        //math::equations::Quadratic<float> curveMinRootFinding = math::equations::Quadratic<float>::construct(
         //    curveMin.A[major], 
         //    curveMin.B[major], 
         //    curveMin.C[major] - maxCorner[major]);
-        //nbl::hlsl::math::equations::Quadratic<float> curveMaxRootFinding = nbl::hlsl::math::equations::Quadratic<float>::construct(
+        //math::equations::Quadratic<float> curveMaxRootFinding = math::equations::Quadratic<float>::construct(
         //    curveMax.A[major], 
         //    curveMax.B[major], 
         //    curveMax.C[major] - maxCorner[major]);
@@ -481,25 +620,25 @@ PSInput main(uint vertexID : SV_VertexID)
     else if (objType == ObjectType::FONT_GLYPH)
     {
         GlyphInfo glyphInfo;
-        glyphInfo.topLeft = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
-        glyphInfo.dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(double2), 4u);
-        glyphInfo.aspectRatio = vk::RawBufferLoad<float32_t>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 4u);
-        glyphInfo.minUV_textureID_packed = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2) + sizeof(float), 4u);
+        glyphInfo.topLeft = vk::RawBufferLoad<ActualFloat64Vector2>(drawObj.geometryAddress, 8u);
+        glyphInfo.dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2), 4u);
+        glyphInfo.aspectRatio = vk::RawBufferLoad<float32_t>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) + sizeof(float2), 4u);
+        glyphInfo.minUV_textureID_packed = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) + sizeof(float2) + sizeof(float), 4u);
 
         float32_t2 minUV = glyphInfo.getMinUV();
         uint16_t textureID = glyphInfo.getTextureID();
 
         const float32_t2 dirV = float32_t2(glyphInfo.dirU.y, -glyphInfo.dirU.x) * glyphInfo.aspectRatio;
-        const float2 screenTopLeft = (float2) transformPointNdc(clipProjectionData.projectionToNDC, glyphInfo.topLeft);
-        const float2 screenDirU = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, glyphInfo.dirU);
-        const float2 screenDirV = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, dirV);
+        const float2 screenTopLeft = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, glyphInfo.topLeft));
+        const float2 screenDirU = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<ActualFloat64Vector2>(glyphInfo.dirU)));
+        const float2 screenDirV = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<ActualFloat64Vector2>(dirV)));
 
         const float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1)); // corners of square from (0, 0) to (1, 1)
         const float2 undilatedCornerNDC = corner * 2.0 - 1.0; // corners of square from (-1, -1) to (1, 1)
         
         const float2 screenSpaceAabbExtents = float2(length(screenDirU * float2(globals.resolution)) / 2.0, length(screenDirV * float2(globals.resolution)) / 2.0);
         const float pixelsToIncreaseOnEachSide = globals.antiAliasingFactor + 1.0;
-        const float2 dilateRate = (float2)(pixelsToIncreaseOnEachSide / screenSpaceAabbExtents);
+        const float2 dilateRate = (pixelsToIncreaseOnEachSide / screenSpaceAabbExtents);
 
         const float2 vx = screenDirU * dilateRate.x;
         const float2 vy = screenDirV * dilateRate.y;
@@ -530,15 +669,15 @@ PSInput main(uint vertexID : SV_VertexID)
     }
     else if (objType == ObjectType::IMAGE)
     {
-        float64_t2 topLeft = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
-        float32_t2 dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(double2), 4u);
-        float32_t aspectRatio = vk::RawBufferLoad<float32_t>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 4u);
-        uint32_t textureID = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2) + sizeof(float), 4u);
+        ActualFloat64Vector2 topLeft = vk::RawBufferLoad<ActualFloat64Vector2>(drawObj.geometryAddress, 8u);
+        float32_t2 dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2), 4u);
+        float32_t aspectRatio = vk::RawBufferLoad<float32_t>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) + sizeof(float2), 4u);
+        uint32_t textureID = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) + sizeof(float2) + sizeof(float), 4u);
 
         const float32_t2 dirV = float32_t2(dirU.y, -dirU.x) * aspectRatio;
-        const float2 ndcTopLeft = (float2) transformPointNdc(clipProjectionData.projectionToNDC, topLeft);
-        const float2 ndcDirU = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, dirU);
-        const float2 ndcDirV = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, dirV);
+        const float2 ndcTopLeft = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, topLeft));
+        const float2 ndcDirU = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<ActualFloat64Vector2>(dirU)));
+        const float2 ndcDirV = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<ActualFloat64Vector2>(dirV)));
 
         float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
         float2 uv = corner; // non-dilated
