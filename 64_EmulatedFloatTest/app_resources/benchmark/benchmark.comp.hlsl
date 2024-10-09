@@ -94,7 +94,7 @@ uint64_t calcIntegral()
 	return bit_cast<uint64_t>(integral);
 }
 
-[numthreads(BENCHMARK_WORKGROUP_SIZE, 1, 1)]
+[numthreads(BENCHMARK_WORKGROUP_DIMENSION_SIZE_X, BENCHMARK_WORKGROUP_DIMENSION_SIZE_Y, BENCHMARK_WORKGROUP_DIMENSION_SIZE_Z)]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
 	/*if (pc.testEmulatedFloat64)
@@ -139,6 +139,7 @@ void main(uint3 invocationID : SV_DispatchThreadID)
 		break;
 	}
 	}
-	//printf("result = %llu", output);
-	outputBuffer.Store<uint64_t>(0, output);
+
+	const uint32_t offset = sizeof(uint64_t) * (invocationID.x + BENCHMARK_WORKGROUP_DIMENSION_SIZE_X * invocationID.y);
+	outputBuffer.Store<uint64_t>(offset, output);
 }

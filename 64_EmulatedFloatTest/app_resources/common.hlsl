@@ -20,7 +20,7 @@ struct ConstructorTestValues
     uint32_t uint32;
     uint64_t uint64;
     float32_t float32;
-    //float64_t float64;
+    float64_t float64;
 };
 
 struct PushConstants
@@ -35,20 +35,14 @@ struct TestValues
 {
     uint64_t a;
     uint64_t b;
+   
     // constructors
-    
-    //nbl::hlsl::emulated_float64_t::storage_t int16CreateVal;
     typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t int32CreateVal;
     typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t int64CreateVal;
-    
-    // TODO:
-    //nbl::hlsl::emulated_float64_t::storage_t uint16CreateVal;
     typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t uint32CreateVal;
     typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t uint64CreateVal;
-    // TODO:
-    //nbl::hlsl::emulated_float64_t::storage_t float16CreateVal;
     typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t float32CreateVal;
-    //typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t float64CreateVal;
+    typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t float64CreateVal;
 
     // arithmetic
     typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t additionVal;
