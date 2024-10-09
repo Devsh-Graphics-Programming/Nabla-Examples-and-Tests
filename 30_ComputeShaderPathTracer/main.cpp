@@ -378,6 +378,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					params.size = sizeof(SBasicViewParametersAligned);
 
 					m_ubo = m_device->createBuffer(std::move(params));
+					auto memReqs = m_ubo->getMemoryReqs();
+					memReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+					m_device->allocate(memReqs, m_ubo.get());
 				}
 
 				{
