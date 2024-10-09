@@ -37,8 +37,6 @@ struct Random16thPolynomial
 
 			coefficients[i] = bit_cast<F64>(exp | mantissa);
 		}
-
-		//debugPrintCoefficients();
 	}
 
 	F64 operator()(F64 x)
@@ -53,27 +51,6 @@ struct Random16thPolynomial
 		}
 
 		return result;
-	}
-
-	void debugPrintCoefficients()
-	{
-		printf("x^15 = %llu, x^14 = %llu, x^13 = %llu, x^12 = %llu, x^11 = %llu, x^10 = %llu, x^9 = %llu, x^8 = %llu, x^7 = %llu, x^6 = %llu, x^5 = %llu, x^4 = %llu, x^3 = %llu, x^2 = %llu, x^1 = %llu, x^0 = %llu",
-			bit_cast<uint64_t>(coefficients[0]),
-			bit_cast<uint64_t>(coefficients[1]),
-			bit_cast<uint64_t>(coefficients[2]),
-			bit_cast<uint64_t>(coefficients[3]),
-			bit_cast<uint64_t>(coefficients[4]),
-			bit_cast<uint64_t>(coefficients[5]),
-			bit_cast<uint64_t>(coefficients[6]),
-			bit_cast<uint64_t>(coefficients[7]),
-			bit_cast<uint64_t>(coefficients[8]),
-			bit_cast<uint64_t>(coefficients[9]),
-			bit_cast<uint64_t>(coefficients[10]),
-			bit_cast<uint64_t>(coefficients[11]),
-			bit_cast<uint64_t>(coefficients[12]),
-			bit_cast<uint64_t>(coefficients[13]),
-			bit_cast<uint64_t>(coefficients[14]),
-			bit_cast<uint64_t>(coefficients[15]));
 	}
 
 	static const int CoefficientNumber = 16;
@@ -97,11 +74,6 @@ uint64_t calcIntegral()
 [numthreads(BENCHMARK_WORKGROUP_DIMENSION_SIZE_X, 1, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
-	/*if (pc.testEmulatedFloat64)
-		printf("testing emulated");
-	else
-		printf("testing native");*/
-
 	uint64_t output;
 	switch (pc.benchmarkMode)
 	{

@@ -1082,12 +1082,10 @@ private:
             recordTimestampQueryCmdBuffers();
 
             uint64_t semaphoreCounter = 0;
-            smart_refctd_ptr<ISemaphore> m_semaphore = m_device->createSemaphore(semaphoreCounter);
+            smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(semaphoreCounter);
 
-            constexpr uint64_t WarmupRunsDoneTimelineValue = WarmupIterations;
-
-            IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = m_semaphore.get(), .value = 0u, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
-            IQueue::SSubmitInfo::SSemaphoreInfo waits[] = { {.semaphore = m_semaphore.get(), .value = 0u, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT } };
+            IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = semaphore.get(), .value = 0u, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
+            IQueue::SSubmitInfo::SSemaphoreInfo waits[] = { {.semaphore = semaphore.get(), .value = 0u, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT } };
 
             IQueue::SSubmitInfo beforeTimestapSubmitInfo[1] = {};
             const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufsBegin[] = { {.cmdbuf = m_timestampBeforeCmdBuff.get()} };
