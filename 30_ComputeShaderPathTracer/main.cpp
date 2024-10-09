@@ -482,7 +482,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					// upload contents
 					m_utils->updateImageViaStagingBuffer(
 						m_intendedSubmit,
-						cpuImg->getBuffer(),
+						cpuImg->getBuffer()->getPointer(),
 						cpuImg->getCreationParameters().format,
 						gpuImg.get(),
 						IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
