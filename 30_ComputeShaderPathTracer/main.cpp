@@ -12,6 +12,7 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
+// TODO: Add a QueryPool for timestamping once its ready
 class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 	using device_base_t = examples::SimpleWindowedApplication;
@@ -816,13 +817,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				}
 			);
 
-			{
-				IQueryPool::SCreationParams params = {};
-				params.queryType = IQueryPool::TYPE::TIMESTAMP;
-				params.queryCount = 2u;
-				m_timestampQueryPool = m_device->createQueryPool(std::move(params));
-			}
-
 			m_winMgr->setWindowSize(m_window.get(), WindowDimensions.x, WindowDimensions.y);
 			m_surface->recreateSwapchain();
 			m_winMgr->show(m_window.get());
@@ -896,9 +890,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				queue->startCapture();
 
 				// safe to proceed
-				cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
-				cmdbuf->resetQueryPool(m_timestampQueryPool.get(), 0u, 3u);
-
+				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 				{
 					auto mv = viewMatrix;
 					auto mvp = viewProjectionMatrix;
@@ -997,13 +989,11 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 				// cube envmap handle
 				{
-					cmdbuf->writeTimestamp(PIPELINE_STAGE_FLAGS::NONE, m_timestampQueryPool.get(), 0u);
 					cmdbuf->bindComputePipeline(m_pipeline.get());
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_pipeline->getLayout(), 1u, 1u, &m_uboDescriptorSet1.get());
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
 					cmdbuf->dispatch(1 + (WindowDimensions.x - 1) / DefaultWorkGroupSize, 1 + (WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u);
-					cmdbuf->writeTimestamp(PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS, m_timestampQueryPool.get(), 1u);
 				}
 				// TODO: tone mapping and stuff
 
@@ -1219,8 +1209,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 	private:
 		smart_refctd_ptr<IWindow> m_window;
 		smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
-
-		smart_refctd_ptr<IQueryPool> m_timestampQueryPool;
 
 		// gpu resources
 		smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
