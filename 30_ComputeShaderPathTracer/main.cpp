@@ -187,11 +187,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				if (!m_cmdPool)
 					return logFail("Couldn't create Command Pool!");
 
-				for (auto i = 0u; i < m_maxFramesInFlight; i++)
-				{
-					if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data() + i, 1 }))
-						return logFail("Couldn't create Command Buffer!");
-				}
+				if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data(), 2 * m_maxFramesInFlight }))
+					return logFail("Couldn't create Command Buffer!");
 			}
 
 			// Create descriptor layouts and pipeline for the pathtracer
@@ -252,7 +249,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					return logFail("Failed to create descriptor set layouts!\n");
 				}
 
-				auto createGpuResources = [&](std::string pathToShader, smart_refctd_ptr<IGPUComputePipeline> pipeline) -> bool
+				auto createGpuResources = [&](std::string pathToShader, smart_refctd_ptr<IGPUComputePipeline>&& pipeline) -> bool
 				{
 					IAssetLoader::SAssetLoadParams lp = {};
 					lp.logger = m_logger.get();
@@ -294,7 +291,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					return true;
 				};
 
-				if (!createGpuResources(ShaderPaths[LightGeom], m_pipeline)) {
+				if (!createGpuResources(ShaderPaths[LightGeom], std::move(m_pipeline))) {
 					return logFail("Pipeline creation failed!");
 				}
 			}
@@ -984,6 +981,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 							.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL
 						}
 					};
+					cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
 				}
 
@@ -995,6 +993,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
 					cmdbuf->dispatch(1 + (WindowDimensions.x - 1) / DefaultWorkGroupSize, 1 + (WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u);
 				}
+				cmdbuf->end();
 				// TODO: tone mapping and stuff
 
 				// submit
