@@ -614,30 +614,32 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				m_descriptorSet2 = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(gpuDescriptorSetLayout2));
 				{
 					constexpr auto kDescriptorCount = 3;
-					std::array<IGPUDescriptorSet::SWriteDescriptorSet, kDescriptorCount> samplerWriteDescriptorSet;
-					std::array<IGPUDescriptorSet::SDescriptorInfo, kDescriptorCount> samplerDescriptorInfo;
+					IGPUDescriptorSet::SWriteDescriptorSet samplerWriteDescriptorSet[kDescriptorCount];
+					IGPUDescriptorSet::SDescriptorInfo samplerDescriptorInfo[kDescriptorCount];
 					for (auto i = 0; i < kDescriptorCount; i++)
 					{
 						samplerWriteDescriptorSet[i].dstSet = m_descriptorSet2.get();
 						samplerWriteDescriptorSet[i].binding = i;
 						samplerWriteDescriptorSet[i].arrayElement = 0u;
 						samplerWriteDescriptorSet[i].count = 1u;
-						samplerWriteDescriptorSet[i].info = samplerDescriptorInfo.data() + i;
+						samplerWriteDescriptorSet[i].info = samplerDescriptorInfo + i;
 					}
 
 					samplerDescriptorInfo[0].desc = m_envMapView;
 					{
 						// ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_FLOAT_OPAQUE_BLACK, ISampler::ETF_LINEAR, ISampler::ETF_LINEAR, ISampler::ESMM_LINEAR, 0u, false, ECO_ALWAYS };
-						samplerDescriptorInfo[0].info.image.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
+						samplerDescriptorInfo[0].info.combinedImageSampler.sampler = sampler0;
+						samplerDescriptorInfo[0].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
 					}
 					samplerDescriptorInfo[1].desc = m_sequenceBufferView;
 					samplerDescriptorInfo[2].desc = m_scrambleView;
 					{
 						// ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_INT_OPAQUE_BLACK, ISampler::ETF_NEAREST, ISampler::ETF_NEAREST, ISampler::ESMM_NEAREST, 0u, false, ECO_ALWAYS };
-						samplerDescriptorInfo[2].info.image.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
+						samplerDescriptorInfo[2].info.combinedImageSampler.sampler = sampler1;
+						samplerDescriptorInfo[2].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
 					}
 
-					m_device->updateDescriptorSets(kDescriptorCount, samplerWriteDescriptorSet.data(), 0u, nullptr);
+					m_device->updateDescriptorSets(kDescriptorCount, samplerWriteDescriptorSet, 0u, nullptr);
 				}
 			}
 
