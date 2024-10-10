@@ -15,7 +15,7 @@ using namespace nbl::hlsl;
 [[vk::push_constant]] BenchmarkPushConstants pc;
 
 // for initial seed of 69, the polynomial is:
-//	f(x) = x^15 * 187.804 + x^14 * 11.6964 + x^13 * 2450.9 + x^12 * 88.6756 + x^11 * 3.62408 + x^10 * 11.4605 + x^9 * 53276.3 + x^8 * 16045.4 + x^7 * 2260.61 + x^6 * 8162.57 
+//	f(x) = x^15 * 187.804 + x^14 * 11.6964 + x^13 * 2450.9 + x^12 * 88.6756 + x^11 * 3.62408 + x^10 * 11.4605 + x^9 * 53276.3 + x^8 * 16045.4 + x^7 * 2260.61 + x^6 * 8162.57
 // + x^5 * 20.674 + x^4 * 13918.6 + x^3 * 2.36093 + x^2 * 8.72536 + x^1 * 2335.63 + 176.719
 // f(1) = 98961.74987
 // int from 0 to 69 = 3.11133×10^30
@@ -80,16 +80,22 @@ void main(uint3 invocationID : SV_DispatchThreadID)
 	case NATIVE:
 	{
 		output = calcIntegral<float64_t>();
+		if(invocationID.x == 0)
+			printf("native: %llu", output);
 		break;
 	}
 	case EF64_FAST_MATH_ENABLED:
 	{
 		output = calcIntegral<emulated_float64_t<true, true> >();
+		if (invocationID.x == 0)
+			printf("fm:     %llu", output);
 		break;
 	}
 	case EF64_FAST_MATH_DISABLED:
 	{
 		output = calcIntegral<emulated_float64_t<false, true> >();
+		if (invocationID.x == 0)
+			printf("sm:     %llu", output);
 		break;
 	}
 	case SUBGROUP_DIVIDED_WORK:
@@ -99,7 +105,6 @@ void main(uint3 invocationID : SV_DispatchThreadID)
 			output = calcIntegral<emulated_float64_t<false, true> >();
 		else
 			output = calcIntegral<float64_t>();
-
 		break;
 	}
 	case INTERLEAVED:

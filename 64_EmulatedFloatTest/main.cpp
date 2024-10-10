@@ -1015,7 +1015,7 @@ private:
                 // Allocate the memory
                 {
                     static_assert(sizeof(float64_t) == sizeof(benchmark_emulated_float64_t));
-                    constexpr size_t BufferSize = BENCHMARK_WORKGROUP_SIZE * BENCHMARK_WORKGROUP_DIMENSION_SIZE_X * 
+                    constexpr size_t BufferSize = BENCHMARK_WORKGROUP_COUNT * BENCHMARK_WORKGROUP_DIMENSION_SIZE_X *
                         BENCHMARK_WORKGROUP_DIMENSION_SIZE_Y * BENCHMARK_WORKGROUP_DIMENSION_SIZE_Z * sizeof(float64_t);
 
                     nbl::video::IGPUBuffer::SCreationParams params = {};
@@ -1068,10 +1068,10 @@ private:
             performBenchmark(EF64_BENCHMARK_MODE::EF64_FAST_MATH_DISABLED);
             // every subgroup with even ID do calculations with the `emulated_float64_t<false, true>` type, other subgroups do calculations with float64_t
             m_logger->log("emulated_float64_t benchmark, subgroup divided work result:", ILogger::ELL_PERFORMANCE);
-            performBenchmark(EF64_BENCHMARK_MODE::SUBGROUP_DIVIDED_WORK);
+            //performBenchmark(EF64_BENCHMARK_MODE::SUBGROUP_DIVIDED_WORK);
             // every item does calculations with both emulated and native types
             m_logger->log("emulated_float64_t benchmark, interleaved result:", ILogger::ELL_PERFORMANCE);
-            performBenchmark(EF64_BENCHMARK_MODE::INTERLEAVED);
+            //performBenchmark(EF64_BENCHMARK_MODE::INTERLEAVED);
         }
 
     private:
@@ -1112,9 +1112,13 @@ private:
             // warmup runs
             for (int i = 0; i < WarmupIterations; ++i)
             {
+                if(i == 0)
+                m_computeQueue->startCapture();
                 waits[0].value = semaphoreCounter;
                 signals[0].value = ++semaphoreCounter;
                 m_computeQueue->submit(benchmarkSubmitInfos);
+                if (i == 0)
+                m_computeQueue->endCapture();
             }
 
             waits[0].value = semaphoreCounter;
@@ -1128,7 +1132,7 @@ private:
                 signals[0].value = ++semaphoreCounter;
                 m_computeQueue->submit(benchmarkSubmitInfos);
             }
-
+            
             waits[0].value = semaphoreCounter;
             signals[0].value = ++semaphoreCounter;
             m_computeQueue->submit(afterTimestapSubmitInfo);
@@ -1144,10 +1148,12 @@ private:
         void recordCmdBuff()
         {
             m_cmdbuf->begin(IGPUCommandBuffer::USAGE::SIMULTANEOUS_USE_BIT);
+            m_cmdbuf->beginDebugMarker("emulated_float64_t compute dispatch", vectorSIMDf(0, 1, 0, 1));
             m_cmdbuf->bindComputePipeline(m_pipeline.get());
             m_cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_pplnLayout.get(), 0, 1, &m_ds.get());
             m_cmdbuf->pushConstants(m_pplnLayout.get(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(BenchmarkPushConstants), &m_pushConstants);
-            m_cmdbuf->dispatch(BENCHMARK_WORKGROUP_SIZE, 1, 1);
+            m_cmdbuf->dispatch(BENCHMARK_WORKGROUP_COUNT, 1, 1);
+            m_cmdbuf->endDebugMarker();
             m_cmdbuf->end();
         }
 
