@@ -417,14 +417,16 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					}
 
 					// Nabla Imgui backend MDI buffer info
+					// To be 100% accurate and not overly conservative we'd have to explicitly `cull_frees` and defragment each time,
+					// so unless you do that, don't use this basic info to optimize the size of your IMGUI buffer.
 					{
 						auto* streaminingBuffer = pass.ui.manager->getStreamingBuffer();
 
 						const size_t total = streaminingBuffer->get_total_size();			// total memory range size for which allocation can be requested
-						const size_t maxSizeToAllocate = ((nbl::ext::imgui::UI::SMdiBuffer::compose_t*)streaminingBuffer)->max_size();		// max total free bloock memory size we can still allocate from total memory available
-						const size_t consumedMemory = total - maxSizeToAllocate;			// memory currently consumed by streaming buffer
+						const size_t freeSize = streaminingBuffer->getAddressAllocator().get_free_size();		// max total free bloock memory size we can still allocate from total memory available
+						const size_t consumedMemory = total - freeSize;			// memory currently consumed by streaming buffer
 
-						float freePercentage = 100.0f * (float)(maxSizeToAllocate) / (float)total;
+						float freePercentage = 100.0f * (float)(freeSize) / (float)total;
 						float allocatedPercentage = (float)(consumedMemory) / (float)total;
 
 						ImVec2 barSize = ImVec2(400, 30);
