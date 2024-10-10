@@ -6,7 +6,7 @@
 #include <nabla.h>
 
 //! I advise to check out this file, its a basic input handler
-#include "../common/Camera.hpp"
+#include "CCamera.hpp"
 #include "../common/CommonAPI.h"
 
 #include "nbl/asset/utils/CCPUMeshPackerV1.h"

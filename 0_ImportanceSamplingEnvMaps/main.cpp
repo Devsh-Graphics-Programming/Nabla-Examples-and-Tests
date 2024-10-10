@@ -6,7 +6,7 @@
 #include <nabla.h>
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
-#include "../common/Camera.hpp"
+#include "CCamera.hpp"
 #include "../common/CommonAPI.h"
 
 using namespace nbl;

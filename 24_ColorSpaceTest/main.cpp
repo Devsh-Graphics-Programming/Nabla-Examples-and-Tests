@@ -2,7 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-#include "../common/SimpleWindowedApplication.hpp"
+#include "SimpleWindowedApplication.hpp"
 
 #include "nbl/video/surface/CSurfaceVulkan.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"

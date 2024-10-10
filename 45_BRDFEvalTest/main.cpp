@@ -7,7 +7,7 @@
 #include <iostream>
 #include <nabla.h>
 
-#include "../common/Camera.hpp"
+#include "CCamera.hpp"
 #include "../common/CommonAPI.h"
 #ifdef NBL_EMBED_BUILTIN_RESOURCES
 #include "example_data/builtin/CArchive.h"

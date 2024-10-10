@@ -8,7 +8,7 @@
 #include <CAssetConverter.h>
 
 #include <InputSystem.hpp>
-#include <Camera.hpp>
+#include <CCamera.hpp>
 #include <SimpleWindowedApplication.hpp>
 
 #endif // _EXAMPLES_COMMON_PCH_HPP_

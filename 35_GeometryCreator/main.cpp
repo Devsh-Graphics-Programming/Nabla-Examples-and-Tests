@@ -6,14 +6,14 @@
 #include "nbl/asset/utils/CGeometryCreator.h"
 #include "nbl/video/utilities/CSimpleResizeSurface.h"
 
-#include "../common/SimpleWindowedApplication.hpp"
-#include "../common/InputSystem.hpp"
-#include "../common/Camera.hpp"
+#include "SimpleWindowedApplication.hpp"
+#include "InputSystem.hpp"
 
-#include "this_example/spirv/builtin/CArchive.h"
-#include "this_example/spirv/builtin/builtinResources.h"
+#include "CCamera.hpp"
+#include "SBasicViewParameters.hlsl"
 
-#include "shaders/template/common.hlsl"
+#include "geometry/creator/spirv/builtin/CArchive.h"
+#include "geometry/creator/spirv/builtin/builtinResources.h"
 
 using namespace nbl;
 using namespace core;
@@ -246,6 +246,7 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 			};
 
 			auto scResources = std::make_unique<CSwapchainFramebuffersAndDepth>(m_device.get(), EF_D16_UNORM, swapchainParams.surfaceFormat.format, dependencies);
+
 			auto* renderpass = scResources->getRenderpass();
 
 			if (!renderpass)
@@ -278,14 +279,6 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 			auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
 			auto* geometry = assetManager->getGeometryCreator();
 
-			SPushConstantRange pushConstantRanges[] = {
-				{
-					.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX,
-					.offset = 0,
-					.size = sizeof(PushConstants)
-				}
-			};
-
 			nbl::video::IGPUDescriptorSetLayout::SBinding bindings[] = {
 				{
 					.binding = 0u,
@@ -310,7 +303,7 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 			if (!m_gpuDescriptorSet)
 				return logFail("Could not create Descriptor Set!");
 
-			auto pipelineLayout = m_device->createPipelineLayout(pushConstantRanges, nullptr, std::move(descriptorSetLayout));
+			auto pipelineLayout = m_device->createPipelineLayout({}, nullptr, std::move(descriptorSetLayout));
 
 			if (!pipelineLayout)
 				return logFail("Could not create Pipeline Layout!");
@@ -531,7 +524,6 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 				auto* rawPipeline = hook.pipeline.get();
 				cb->bindGraphicsPipeline(rawPipeline);
 				cb->bindDescriptorSets(EPBP_GRAPHICS, rawPipeline->getLayout(), 1, 1, &m_gpuDescriptorSet.get());
-				cb->pushConstants(rawPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX, 0, sizeof(PushConstants), &m_pc);
 
 				const asset::SBufferBinding<const IGPUBuffer> bVertices[] = { {.offset = 0, .buffer = hook.m_vertexBuffer} };
 				const asset::SBufferBinding<const IGPUBuffer> bIndices = { .offset = 0, .buffer = hook.m_indexBuffer };
@@ -660,7 +652,6 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 
 		uint16_t gcIndex = {};
 		core::smart_refctd_ptr<video::IGPUBuffer> m_ubo;
-		PushConstants m_pc = {.withGizmo = true};
 
 		template<nbl::core::StringLiteral vPath, nbl::core::StringLiteral fPath>
 		bool createPassData(E_PASS_TYPE ept, const O_DATA& oData, const video::IGPUPipelineLayout* pl, const video::IGPURenderpass* rp)
@@ -675,8 +666,8 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 			{
 				struct
 				{
-					const system::SBuiltinFile vertex = ::this_example::spirv::builtin::get_resource<vPath>();
-					const system::SBuiltinFile fragment = ::this_example::spirv::builtin::get_resource<fPath>();
+					const system::SBuiltinFile vertex = ::geometry::creator::spirv::builtin::get_resource<vPath>();
+					const system::SBuiltinFile fragment = ::geometry::creator::spirv::builtin::get_resource<fPath>();
 				} spirv;
 
 				auto createShader = [&](const system::SBuiltinFile& in, asset::IShader::E_SHADER_STAGE stage) -> core::smart_refctd_ptr<video::IGPUShader>

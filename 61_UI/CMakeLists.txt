@@ -1,9 +1,18 @@
 if(NBL_BUILD_IMGUI)
+	set(NBL_EXTRA_SOURCES
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/transform.cpp"
+	)
+
+	set(NBL_INCLUDE_SERACH_DIRECTORIES
+		"${CMAKE_CURRENT_SOURCE_DIR}/include"
+	)
+
 	list(APPEND NBL_LIBRARIES 
-		imgui
+		imtestengine
 		imguizmo
 		"${NBL_EXT_IMGUI_UI_LIB}"
 	)
 
-	nbl_create_executable_project("" "" "" "${NBL_LIBRARIES}" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
+	nbl_create_executable_project("${NBL_EXTRA_SOURCES}" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
+	LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} geometryCreatorSpirvBRD)
 endif()
