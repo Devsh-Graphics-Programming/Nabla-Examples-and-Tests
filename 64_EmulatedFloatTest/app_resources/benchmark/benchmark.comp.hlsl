@@ -80,22 +80,16 @@ void main(uint3 invocationID : SV_DispatchThreadID)
 	case NATIVE:
 	{
 		output = calcIntegral<float64_t>();
-		if(invocationID.x == 0)
-			printf("native: %llu", output);
 		break;
 	}
 	case EF64_FAST_MATH_ENABLED:
 	{
 		output = calcIntegral<emulated_float64_t<true, true> >();
-		if (invocationID.x == 0)
-			printf("fm:     %llu", output);
 		break;
 	}
 	case EF64_FAST_MATH_DISABLED:
 	{
 		output = calcIntegral<emulated_float64_t<false, true> >();
-		if (invocationID.x == 0)
-			printf("sm:     %llu", output);
 		break;
 	}
 	case SUBGROUP_DIVIDED_WORK:
