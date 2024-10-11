@@ -8,6 +8,7 @@
 #include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
 #include <nbl/builtin/hlsl/math/quadrature/gauss_legendre/gauss_legendre.hlsl>
 #include <nbl/builtin/hlsl/ieee754.hlsl>
+#include <nbl/builtin/hlsl/glsl_compat/subgroup_basic.hlsl>
 
 using namespace nbl::hlsl;
 
@@ -74,41 +75,55 @@ uint64_t calcIntegral()
 [numthreads(BENCHMARK_WORKGROUP_DIMENSION_SIZE_X, 1, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
-	uint64_t output;
+	static const uint32_t NativeToEmulatedRatio = 6;
+	// slightly more invocations will go to native so `NativeToEmulatedRatio-1 < real ratio <= NativeToEmulatedRatio`
+	const bool nativeSubgroup = bool(glsl::gl_SubgroupID() % NativeToEmulatedRatio);
+
+	uint64_t output = 0ull;
+
 	switch (pc.benchmarkMode)
 	{
 	case NATIVE:
-	{
 		output = calcIntegral<float64_t>();
 		break;
-	}
 	case EF64_FAST_MATH_ENABLED:
-	{
+		output = calcIntegral<emulated_float64_t<true, true> >();
+		break;
+	case EF64_FAST_MATH_DISABLED:
+		output = calcIntegral<emulated_float64_t<false, true> >();
+		break;
+	case SUBGROUP_DIVIDED_WORK:
+		if (nativeSubgroup)
+			output = calcIntegral<float64_t>();
+		else
+			output = calcIntegral<emulated_float64_t<true, true> >();
+		break;
+	case INTERLEAVED:
 		output = calcIntegral<emulated_float64_t<true, true> >();
 		break;
 	}
-	case EF64_FAST_MATH_DISABLED:
-	{
-		output = calcIntegral<emulated_float64_t<false, true> >();
-		break;
-	}
-	case SUBGROUP_DIVIDED_WORK:
-	{
-		const bool emulated = (WaveGetLaneIndex() & 0x1) != 0;
-		if (emulated)
-			output = calcIntegral<emulated_float64_t<false, true> >();
-		else
-			output = calcIntegral<float64_t>();
-		break;
-	}
-	case INTERLEAVED:
-	{
-		uint64_t a = calcIntegral<float64_t>();
-		uint64_t b = calcIntegral<emulated_float64_t<false, true> >();
-		output = a + b; // addional add operation, don't know any better way to avoid dead code optimization
 
-		break;
-	}
+	for (uint32_t i = 0; i < NativeToEmulatedRatio; ++i)
+	{
+		switch (pc.benchmarkMode)
+		{
+		case NATIVE:
+		case INTERLEAVED:
+			output ^= calcIntegral<float64_t>();
+			break;
+		case EF64_FAST_MATH_ENABLED:
+			output ^= calcIntegral<emulated_float64_t<true, true> >();
+			break;
+		case EF64_FAST_MATH_DISABLED:
+			output ^= calcIntegral<emulated_float64_t<false, true> >();
+			break;
+		case SUBGROUP_DIVIDED_WORK:
+			if (nativeSubgroup)
+				output ^= calcIntegral<float64_t>();
+			else
+				output ^= calcIntegral<emulated_float64_t<true, true> >();
+			break;
+		}
 	}
 
 	const uint32_t offset = sizeof(uint64_t) * invocationID.x;
