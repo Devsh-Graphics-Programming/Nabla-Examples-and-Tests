@@ -282,6 +282,7 @@ public:
 		{
 			const auto coord = (&kerDim.width)[i];
 			if (coord > 1u)
+				// TODO: Maybe round up, though 1 pixel who cares
 				(&marginSrcDim.width)[i] += core::max(coord * bloomScale, 1u) - 1u;
 		}
 		

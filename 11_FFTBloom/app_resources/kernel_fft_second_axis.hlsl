@@ -48,14 +48,22 @@ struct SharedMemoryAccessor
 // ---------------------------------------------------- Utils ---------------------------------------------------------
 uint32_t colMajorOffset(uint32_t x, uint32_t y)
 {
-	return x * IMAGE_SIDE_LENGTH | y;
+	return x * (IMAGE_SIDE_LENGTH / 2) | y;
 }
 
-// Each channel after first FFT will be stored as half the image (cut along the x axis) in col-major order, and the whole size of the image is N^2, 
-// for N = _NBL_HLSL_WORKGROUP_SIZE_ * ELEMENTS_PER_THREAD
-uint32_t getChannelStartAddress(uint32_t channel)
+uint32_t rowMajorOffset(uint32_t x, uint32_t y)
 {
-	return pushConstants.outputAddress + channel * IMAGE_SIDE_LENGTH * IMAGE_SIDE_LENGTH / 2 * sizeof(complex_t<scalar_t>);
+	return y * IMAGE_SIDE_LENGTH | x;
+}
+
+uint32_t getColMajorChannelStartAddress(uint32_t channel)
+{
+	return pushConstants.colMajorBufferAddress + channel * IMAGE_SIDE_LENGTH * IMAGE_SIDE_LENGTH / 2 * sizeof(complex_t<scalar_t>);
+}
+
+uint32_t getRowMajorChannelStartAddress(uint32_t channel)
+{
+	return pushConstants.rowMajorBufferAddress + channel * IMAGE_SIDE_LENGTH * IMAGE_SIDE_LENGTH / 2 * sizeof(complex_t<scalar_t>);
 }
 
 struct PreloadedAccessorBase {
@@ -82,41 +90,40 @@ struct PreloadedAccessorBase {
 
 // ------------------------------------------ SECOND AXIS FFT -------------------------------------------------------------
 
-// This time each Workgroup will compute the FFT along a vertical line (fixed x for the whole Workgroup). We get the x coordinate for the
-// column a workgroup is working on via `gl_WorkGroupID().x`.We have launched IMAGE_SIDE_LENGTH / 2 workgroups, and there are exactly 
-// that amount of columns in the buffer. We have to keep this in mind: What's stored as the first column is actually `Z + iN`, 
-// where `Z` is the actual 0th column and `N` is the Nyquist column (the one with index IMAGE_SIDE_LENGTH / 2). Those are packed together
+// This time each Workgroup will compute the FFT along a horizontal line (fixed y for the whole Workgroup). We get the y coordinate for the
+// row a workgroup is working on via `gl_WorkGroupID().x`. We have launched IMAGE_SIDE_LENGTH / 2 workgroups, as there are exactly 
+// that amount of rows in the buffer. We have to keep this in mind: What's stored as the first row is actually `Z + iN`, 
+// where `Z` is the actual 0th row and `N` is the Nyquist row (the one with index IMAGE_SIDE_LENGTH / 2). Those are packed together
 // so they need to be unpacked properly after FFT like we did earlier.
 
 struct PreloadedSecondAxisAccessor : PreloadedAccessorBase
 {
 	void preload(uint32_t channel)
 	{
-		const uint32_t startAddress = getChannelStartAddress(channel);
+		const uint32_t startAddress = getColMajorChannelStartAddress(channel);
 
 		for (uint32_t elementIndex = 0; elementIndex < ELEMENTS_PER_THREAD; elementIndex++)
 		{
 			const uint32_t index = _NBL_HLSL_WORKGROUP_SIZE_ * elementIndex | workgroup::SubgroupContiguousIndex();
-			preloaded[elementIndex] = vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + colMajorOffset(gl_WorkGroupID().x, index) * sizeof(complex_t<scalar_t>));
+			preloaded[elementIndex] = vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + colMajorOffset(index, gl_WorkGroupID().x) * sizeof(complex_t<scalar_t>));
 		}
 	}
 
-	// Util to write values to output buffer in column major order
-	void storeColMajor(uint32_t startAddress, uint32_t index, NBL_CONST_REF_ARG(complex_t<scalar_t>) value)
+	// Util to write values to output buffer in row major order
+	void storeRowMajor(uint32_t startAddress, uint32_t index, NBL_CONST_REF_ARG(complex_t<scalar_t>) value)
 	{
-		vk::RawBufferStore<complex_t<scalar_t> >(startAddress + colMajorOffset(gl_WorkGroupID().x, index) * sizeof(complex_t<scalar_t>), value);
+		vk::RawBufferStore<complex_t<scalar_t> >(startAddress + rowMajorOffset(index, gl_WorkGroupID().x) * sizeof(complex_t<scalar_t>), value);
 	}
 
-	// Save a column back in col-major order. Can write to same buffer after FFT. Will only save half the image again, and only get whole image when writing to
-	// output images. Remember that the first column (one with `gl_WorkGroupID().x == 0`) will actually hold the FFT of Zero and Nyquist columns.
+	// Save a column back in row major order. Remember that the first row (one with `gl_WorkGroupID().x == 0`) will actually hold the packed FFT of Zero and Nyquist rows.
 	void unload(uint32_t channel)
 	{
-		const uint32_t startAddress = getChannelStartAddress(channel);
+		const uint32_t startAddress = getRowMajorChannelStartAddress(channel);
 
 		for (uint32_t elementIndex = 0; elementIndex < ELEMENTS_PER_THREAD; elementIndex++)
 		{
 			const uint32_t index = _NBL_HLSL_WORKGROUP_SIZE_ * elementIndex | workgroup::SubgroupContiguousIndex();
-			storeColMajor(startAddress, index, preloaded[elementIndex]);
+			storeRowMajor(startAddress, index, preloaded[elementIndex]);
 		}
 	}
 };
@@ -134,7 +141,7 @@ void secondAxisFFT()
 	}
 }
 
-[numthreads(WorkgroupSize, 1, 1)]
+[numthreads(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
 	secondAxisFFT();
