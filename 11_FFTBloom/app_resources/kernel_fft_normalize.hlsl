@@ -70,7 +70,7 @@ void normalize(uint32_t channel)
 			complex_t<scalar_t> zero = vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + rowMajorOffset(index, 0) * sizeof(complex_t<scalar_t>));
 			complex_t<scalar_t> nyquist = vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + rowMajorOffset(otherIndex, 0) * sizeof(complex_t<scalar_t>));
 
-			unpack<scalar_t>(zero, nyquist);
+			workgroup::fft::unpack<scalar_t>(zero, nyquist);
 			// We now have zero and Nyquist frequencies at NFFT[index], so we must use `getFrequencyIndex(index)` to get the actual index into the DFT
 			const uint32_t indexDFT = workgroup::fft::getFrequencyIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(index);
 

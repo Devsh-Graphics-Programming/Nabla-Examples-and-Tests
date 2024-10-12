@@ -168,7 +168,7 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorBase {
 			{
 				complex_t<scalar_t> lo = preloaded[localElementIndex];
 				complex_t<scalar_t> hi = trade<scalar_t, SharedmemAdaptor>(localElementIndex, sharedmemAdaptor);
-				unpack<scalar_t>(lo, hi);
+				workgroup::fft::unpack<scalar_t>(lo, hi);
 				// Divide localElementIdx by 2 to keep even elements packed together when writing
 				storeColMajor(startAddress, _NBL_HLSL_WORKGROUP_SIZE_ * (localElementIdx >> 1) | workgroup::SubgroupContiguousIndex(), lo, hi);
 			}

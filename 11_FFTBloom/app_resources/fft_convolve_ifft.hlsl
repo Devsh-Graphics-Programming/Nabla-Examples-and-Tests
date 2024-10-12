@@ -153,7 +153,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase
 				complex_t<scalar_t> zero = preloaded[localElementIndex];
 				complex_t<scalar_t> nyquist = trade<scalar_t, SharedmemAdaptor>(localElementIndex, sharedmemAdaptor);
 
-				unpack<scalar_t>(zero, nyquist);
+				workgroup::fft::unpack<scalar_t>(zero, nyquist);
 				// We now have zero and Nyquist frequencies at NFFT[index], so we must use `getFrequencyIndex(index)` to get the actual index into the DFT
 				const uint32_t indexDFT = workgroup::fft::getFrequencyIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(globalElementIndex);
 
