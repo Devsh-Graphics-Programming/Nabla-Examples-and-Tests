@@ -87,10 +87,10 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorBase {
 	complex_t<Scalar> trade(uint32_t localElementIdx, SharedmemAdaptor sharedmemAdaptor)
 	{
 		uint32_t globalElementIdx = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIdx | workgroup::SubgroupContiguousIndex();
-		uint32_t otherElementIdx = workgroup::fft::getOutputIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(-workgroup::fft::getFrequencyIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(globalElementIdx));
+		uint32_t otherElementIdx = workgroup::fft::getNegativeIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(globalElementIdx);
 		uint32_t otherThreadID = otherElementIdx & (_NBL_HLSL_WORKGROUP_SIZE_ - 1);
 		uint32_t otherThreadGlobalElementIdx = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIdx | otherThreadID;
-		uint32_t elementToTradeGlobalIdx = workgroup::fft::getOutputIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(-workgroup::fft::getFrequencyIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(otherThreadGlobalElementIdx));
+		uint32_t elementToTradeGlobalIdx = workgroup::fft::getNegativeIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(otherThreadGlobalElementIdx);
 		uint32_t elementToTradeLocalIdx = elementToTradeGlobalIdx / _NBL_HLSL_WORKGROUP_SIZE_;
 		complex_t<Scalar> toTrade = preloaded[elementToTradeLocalIdx];
 		workgroup::Shuffle<SharedmemAdaptor, complex_t<Scalar> >::__call(toTrade, otherThreadID, sharedmemAdaptor);
@@ -126,15 +126,30 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorBase {
 			const uint32_t index = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | workgroup::SubgroupContiguousIndex();
 			preloaded[localElementIndex << 1] = preloaded[localElementIndex << 1] + rotateLeft<scalar_t>(vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + rowMajorOffset(2 * gl_WorkGroupID().x + 1, index) * sizeof(complex_t<scalar_t>)));
 		}
-		// Finally, trade to get odd elements of second column. Note that by trading we receive an element of the form C1 + iC2 for an even position, and the current odd position holds conj(C1) and we
+		// Finally, trade to get odd elements of second column. Note that by trading we receive an element of the form C1 + iC2 for an even position. The current odd position holds conj(C1) and we
 		// want it to hold conj(C1) + i*conj(C2). So we first do conj(C1 + iC2) to yield conj(C1) - i*conj(C2). Then we subtract conj(C1) to get -i*conj(C2), negate that to get i * conj(C2), and finally
 		// add conj(C1) back to have conj(C1) + i * conj(C2).
 		for (uint32_t localElementIndex = 1; localElementIndex < ELEMENTS_PER_THREAD; localElementIndex += 2)
 		{
-			complex_t<scalar_t> otherThreadEven = conj(trade<scalar_t, SharedmemAdaptor>(localElementIndex, sharedmemAdaptor));
-			otherThreadEven = otherThreadEven - preloaded[localElementIndex];
-			otherThreadEven = otherThreadEven * scalar_t(-1);
-			preloaded[localElementIndex] = preloaded[localElementIndex] + otherThreadEven;
+			// Thread 0's first odd element is Nyquist, which was packed alongside Zero - this means that what was said above breaks in this particular case and needs special treatment
+			if (!workgroup::SubgroupContiguousIndex() && 1 == localElementIndex)
+			{
+				// preloaded[1] currently holds trash - this is because 0 and Nyquist are the only fixed points of T -> -T. 
+				// preloaded[0] currently holds (C1(Z) - C2(N)) + i * (C1(N) + C2(Z)). This is because of how we loaded the even elements of both columns.
+				// We want preloaded[0] to hold C1(Z) + i * C2(Z) and preloaded[1] to hold C1(N) + i * C2(N).
+				// We can re-load C2(Z) + i * C2(N) and use it to unpack the values
+				complex_t<scalar_t> c2 = vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + rowMajorOffset(2 * gl_WorkGroupID().x + 1, 0) * sizeof(complex_t<scalar_t>));
+				complex_t<scalar_t> p1 = { preloaded[0].imag() - c2.real(), c2.imag() };
+				preloaded[1] = p1;
+				complex_t<scalar_t> p0 = { preloaded[0].real() + c2.imag() , c2.real()};
+			}
+			else 
+			{
+				complex_t<scalar_t> otherThreadEven = conj(trade<scalar_t, SharedmemAdaptor>(localElementIndex, sharedmemAdaptor));
+				otherThreadEven = otherThreadEven - preloaded[localElementIndex];
+				otherThreadEven = otherThreadEven * scalar_t(-1);
+				preloaded[localElementIndex] = preloaded[localElementIndex] + otherThreadEven;
+			}
 		}
 	}
 
