@@ -2993,6 +2993,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 
 		//
 		constexpr uint32_t QueueFamilyInvalid = 0xffffffffu;
+		const auto transferFamily = params.transfer.queue->getFamilyIndex();
 		auto checkOwnership = [&]<bool FamilyFromCallback=false>(auto* gpuObj, const uint32_t ownerQueueFamily)->auto
 		{
 			if (ownerQueueFamily==IQueue::FamilyIgnored)
@@ -3011,7 +3012,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 				return IQueue::FamilyIgnored;
 			}
 			// we already own
-			if (params.transfer.queue->getFamilyIndex()==ownerQueueFamily)
+			if (transferFamily==ownerQueueFamily)
 				return IQueue::FamilyIgnored;
 			return ownerQueueFamily;
 		};
@@ -3063,24 +3064,60 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 			buffersToUpload.clear();
 			// release ownership
 			if (!ownershipTransfers.empty())
-			if (!params.transfer.valid()->cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers=ownershipTransfers}))
+			if (!params.transfer.getCommandBufferForRecording()->cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers=ownershipTransfers}))
 				reservations.m_logger.log("Ownership Releases of Buffers Failed",system::ILogger::ELL_ERROR);
 		}
 
 		auto& imagesToUpload = std::get<SReserveResult::conversion_requests_t<ICPUImage>>(reservations.m_conversionRequests);
 		if (!imagesToUpload.empty())
 		{
+			// whether we actually get around to doing that depends on validity and success of transfers
+			const bool shouldComputeSomeMipMaps = reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT);
 			// the flag check stops us derefercing an invalid pointer
-			const bool uniQueue = !reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT) || params.transfer.queue->getNativeHandle()==params.compute.queue->getNativeHandle();
+			const bool uniQueue = !shouldComputeSomeMipMaps || params.transfer.queue->getNativeHandle()==params.compute.queue->getNativeHandle();
+			const auto computeFamily = shouldComputeSomeMipMaps ? params.compute.queue->getFamilyIndex();
 			// because of the layout transitions
 			params.transfer.scratchSemaphore.stageMask |= PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
 			//
-			core::vector<IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> barriers;
-			barriers.reserve(17); // max mips in a single image
+			core::vector<IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> transferBarriers;
+			core::vector<IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> computeBarriers;
+			// max mips in a single image minus 1
+			transferBarriers.reserve(16);
+			computeBarriers.reserve(16);
 			// do the uploads and mipmapping if necessary
-#if 0
-			auto xferCmdBuf = params.transfer.getScratchCommandBuffer();
-			auto computeCmdBuf = params.compute.getScratchCommandBuffer();
+			auto xferCmdBuf = params.transfer.getCommandBufferForRecording();
+			auto computeCmdBuf = shouldComputeSomeMipMaps ? params.compute.getCommandBufferForRecording():nullptr;
+			// whenever transfer needs to do a submit overflow because it ran out of memory for streaming an image, we can already submit the recorded mip-map compute shader dispatches
+			auto drainCompute = [&params,&computeCmdBuf]()->auto
+			{
+				if (!computeCmdBuf || !computeCmdBuf->cmdbuf)// || computeCmdBuf->cmdbuf->empty())
+					return IQueue::RESULT::SUCCESS;
+				// before we overflow submit we need to inject extra wait semaphores
+				auto& waitSemaphoreSpan = params.compute.waitSemaphores;
+				std::unique_ptr<IQueue::SSubmitInfo::SSemaphoreInfo[]> patchedWaits;
+				if (waitSemaphoreSpan.empty())
+					waitSemaphoreSpan = {&params.transfer.scratchSemaphore,1};
+				else
+				{
+					const auto origCount = waitSemaphoreSpan.size();
+					patchedWaits.reset(new IQueue::SSubmitInfo::SSemaphoreInfo[origCount+1]);
+					std::copy(waitSemaphoreSpan.begin(),waitSemaphoreSpan.end(),patchedWaits.get());
+					patchedWaits[origCount] = params.transfer.scratchSemaphore;
+					waitSemaphoreSpan = {patchedWaits.get(),origCount+1};
+				}
+				// don't worry about resetting old `waitSemaphores` because they get cleared to an empty span after overflow submit
+				return params.compute.overflowSubmit(computeCmdBuf);
+			};
+			// compose our overflow callback on top of what's already there, only if we need to ofc 
+			auto origXferStallCallback = params.transfer.overflowCallback;
+			if (shouldComputeSomeMipMaps)
+				params.transfer.overflowCallback = [&origXferStallCallback,&drainCompute](const ISemaphore::SWaitInfo& tillScratchResettable)->void
+				{
+					drainCompute();
+					if (origXferStallCallback)
+						origXferStallCallback(tillScratchResettable);
+				};
+			// finally go over the images
 			for (auto& item : imagesToUpload)
 			{
 				// basiscs
@@ -3098,11 +3135,13 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 				using layout_t = IGPUImage::LAYOUT;
 				// record optional transitions to transfer/mip recompute layout and optional transfers, then transitions to desired layout after transfer
 				{
-					barriers.clear();
+					transferBarriers.clear();
+					computeBarriers.clear();
 					uint8_t lvl = 0;
+					bool _prevRecompute = false;
 					while (lvl<creationParams.mipLevels)
 					{
-						// always start with a new one to not get stale/old value bugs
+						// always start with a new struct to not get stale/old value bugs
 						IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> tmp =
 						{
 							.barrier = {
@@ -3126,7 +3165,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 							.oldLayout = layout_t::UNDEFINED
 						};
 						auto& barrier = tmp.barrier;
-						// if any op, it will always be a release
+						// if any op, it will always be a release (Except acquisition of first source mip in compute)
 						barrier.ownershipOp = ownership_op_t::RELEASE;
 						// if we're recomputing this mip level 
 						const bool recomputeMip = lvl && (item.recomputeMips&(0x1u<<(lvl-1)));
@@ -3135,25 +3174,96 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 						// get region data for upload
 						auto regions = cpuImg->getRegions(lvl);
 						// basic error checks
+						const bool prevRecomputed = _prevRecompute;
+						_prevRecompute = false;
 						if (finalLayout==layout_t::UNDEFINED && !regions.empty() && !recomputeMip)
 						{
 							reservations.m_logger.log("What are you doing requesting layout UNDEFINED for mip level % of image %s after Upload or Mip Recomputation!?",system::ILogger::ELL_ERROR,lvl,image->getObjectDebugName());
 							break;
 						}
-						// query final owner from callback
-						const auto finalOwnerQueueFamily = checkOwnership.operator()<true>(image,params.getFinalOwnerQueueFamily(image,*pFoundHash,lvl));
-						if (finalOwnerQueueFamily==QueueFamilyInvalid)
-							break;
+						const auto suggestedFinalOwner = params.getFinalOwnerQueueFamily(image,*pFoundHash,lvl);
 						// if we'll recompute the mipmap, then do the layout transition on the compute queue (there's one less potential QFOT)
-						if (!recomputeMip)
+						if (recomputeMip)
 						{
+							// query final owner from callback
+							const auto finalOwnerQueueFamily = checkOwnership.operator()<true>(image,suggestedFinalOwner);
+							if (finalOwnerQueueFamily==QueueFamilyInvalid)
+								break;
+							// layout transition from UNDEFINED to GENERAL
+							{
+								// both src and dst will be used and have layout general in the dispatch to come
+								barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+								tmp.newLayout = layout_t::GENERAL;
+								// destination level
+								{
+									// empty mips are written by the compute shader in the first dispatch
+									barrier.dep.dstAccessMask = ACCESS_FLAGS::STORAGE_WRITE_BIT;
+									// first usage acquires ownership so we're good
+								}
+								// source and destination level barrier
+								decltype(tmp) preComputeBarriers[2] = { tmp,tmp };
+								{
+									auto& source = preComputeBarriers[1];
+									if (prevRecomputed)
+									{
+										// compute wrote into this image level we will use as source
+										source.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+										source.barrier.dep.srcAccessMask = ACCESS_FLAGS::STORAGE_WRITE_BIT;
+										// no ownership acquire, we already had it
+									}
+									else 
+									{
+										// transfer filled this image level
+										if (uniQueue)
+										{
+											source.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+											source.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+										}
+										else
+										{
+											// no source masks because semaphore wait is right behind us
+											source.barrier.otherQueueFamilyIndex = transferFamily;
+											// exemption to the rule, this time we acquire if necessary
+											source.barrier.ownershipOp = ownership_op_t::ACQUIRE;
+										}
+										// Theoretically we could exclude this subresource from the barrier if there's no QFOT and transfer and compute are different queues
+										// but we have another subresource with subset stage flags in the barrier anyway, and no QFOT happens if otherQueueFamilyIndex is same as commandbuffer pool's.
+									}
+									// and we will read from this level
+									source.barrier.dep.dstAccessMask = ACCESS_FLAGS::STORAGE_READ_BIT|ACCESS_FLAGS::SAMPLED_READ_BIT;
+									// should have already been in GENERAL by now
+									source.oldLayout = layout_t::GENERAL;
+								}
+								computeCmdBuf->cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers=preComputeBarriers});
+								retval.submitsNeeded |= IQueue::FAMILY_FLAGS::COMPUTE_BIT;
+							}
+// TODO: update descriptor set pool + overflow submit if we cannot allocate a spot
+// TODO: put source and destination image indices in push constants, then dispatch compute shader
+							_prevRecompute = true;
+							// record deferred layout transitions and QFOTs
+							{
+								// protect against anything that may overlap our layout transition end
+								barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,ACCESS_FLAGS::MEMORY_READ_BITS|ACCESS_FLAGS::MEMORY_WRITE_BITS);
+								tmp.oldLayout = tmp.newLayout;
+								tmp.newLayout = finalLayout;
+								// if the queue is ignored, nothing will happen
+								barrier.otherQueueFamilyIndex = finalOwnerQueueFamily;
+								computeBarriers.push_back(tmp);
+							}
+						}
+						else
+						{
+							// query final owner from callback
+							const auto finalOwnerQueueFamily = checkOwnership.operator()<true>(image,suggestedFinalOwner);
+							if (finalOwnerQueueFamily==QueueFamilyInvalid)
+								break;
 							// a non-recomputed mip level can either be empty or have content
 							if (regions.empty())
 							{
 								// nothing needs to be done, evidently user wants to transition this mip level themselves
 								if (finalLayout!=layout_t::UNDEFINED)
 									continue;
-								// 
+								//
 								if (finalOwnerQueueFamily!=IQueue::FamilyIgnored)
 								{
 									// issue a warning, because your application code will just be more verbose (you still have to place an almost identical barrier on a queue in the acquiring family)
@@ -3186,7 +3296,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 								// keep in general layout to avoid a transfer->general transition
 								tmp.newLayout = sourceForNextMipCompute ? layout_t::GENERAL:layout_t::TRANSFER_DST_OPTIMAL;
 								// fire off the pipeline barrier so we can start uploading right away
-								if (!xferCmdBuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers={&tmp,1}}))
+								if (!xferCmdBuf->cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers={&tmp,1}}))
 								{
 									reservations.m_logger.log("Initial Pre-Image-Region-Upload Layout Transition failed!",system::ILogger::ELL_ERROR);
 									break;
@@ -3194,69 +3304,61 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 								// first use owns
 								retval.submitsNeeded |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
 								// start recording uploads
-#if 0 // TODO: these functions need overflow callbacks so we can also overflow submit the compute intended submit before we stall the CPU for transfer
-								auto overflowCallback = [&](const IQueue::SSubmitInfo::SSemaphoreInfo& overflowSubmitComplete) -> void
 								{
-									// if transfer overflown, we can submit compute as well to recuce latency
-									if (xferCmdBuf->anyCommandRecorded())
+									const auto oldImmediateSubmitSignalValue = params.transfer.scratchSemaphore.value;
+									if (!params.utilities->updateImageViaStagingBuffer(params.transfer,cpuImg->getBuffer()->getPointer(),cpuImg->getCreationParameters().format,image,tmp.newLayout,regions))
 									{
-										// TODO: this stalls CPU until GPU, bad idea, would also need multiple-buffering of scratch commandbuffers (seaparate scratch span in SIntendedSubmit) to achieve overlap
-										// with sufficient multiple buffering we could actually overflow every mip upload and submit the miplevel recomputes right away (overflow galore)
-										params.compute.overflowSubmit();
+										reservations.m_logger.log("Image Redion Upload failed!",system::ILogger::ELL_ERROR);
+										break;
 									}
-								};
-#endif
-								if (!params.utilities->updateImageViaStagingBuffer(params.transfer,cpuImg->getBuffer()->getPointer(),cpuImg->getCreationParameters().format,image,tmp.newLayout,regions))
-								{
-									reservations.m_logger.log("Image Redion Upload failed!",system::ILogger::ELL_ERROR);
-									break;
+									// stall callback is only called if multiple buffering of scratch commandbuffers fails, we also want to submit compute if transfer was submitted
+									if (oldImmediateSubmitSignalValue!=params.transfer.scratchSemaphore.value)
+									{
+										drainCompute();
+										// and our recording scratch commandbuffer most likely changed
+										xferCmdBuf = params.transfer.getCommandBufferForRecording();
+									}
 								}
 								// new layout becomes old
 								tmp.oldLayout = tmp.newLayout;
-								// if compute follows on same queue without a semaphore dependency
-								bool needExecutionBarrier = false;
-								// good initialized variable
+								// good initial variable value from initialization
 								assert(barrier.otherQueueFamilyIndex==IQueue::FamilyIgnored);
 								// slightly different post-barriers are needed post-upload
 								if (sourceForNextMipCompute)
 								{
+									// oif submitting to same queue, then we use compute commandbuffer to perform the barrier between Xfer and compute
+									// if no QFOT, no barrier needed at all because layout stays unchanged
+									if (uniQueue || computeFamily==transferFamily || image->getCachedCreationParams().isConcurrentSharing())
+										continue;
 									// stay in the same layout, no transition (both match)
 									tmp.newLayout = layout_t::GENERAL;
-									// only if submitting to same queue, do we barrier against compute
-									if (uniQueue)
-									{
-										barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,ACCESS_FLAGS::SAMPLED_READ_BIT);
-										needExecutionBarrier = true;
-									}
-									// dont worrry we check the index for not performing a QFOT at all later
-									else if (auto computeQueueFamily=checkOwnership(image,params.compute.queue->getFamilyIndex()); computeQueueFamily!=QueueFamilyInvalid)
-										barrier.otherQueueFamilyIndex = computeQueueFamily;
-									// QFOT is invalid
-									else
-										break;
+									barrier.otherQueueFamilyIndex = computeFamily;
+									// we only sync with semaphore signal
+									barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::NONE,ACCESS_FLAGS::NONE);
 								}
 								else // no usage from compute command buffer
 								{
 									tmp.newLayout = finalLayout;
-									// Protect against anything that may overlap our layout transition end if no QFOT. Will be overwritten if there's a QFOT
-									barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,ACCESS_FLAGS::MEMORY_READ_BITS|ACCESS_FLAGS::MEMORY_WRITE_BITS);
-									// we check and patch the queue later
+									// there shouldn't actually be a QFOT because its the same family or concurrent sharing
+									if (finalOwnerQueueFamily!=IQueue::FamilyIgnored)
+									{
+										// QFOT release must only sync against semaphore signal
+										barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::NONE,ACCESS_FLAGS::NONE);
+									}
+									else
+									{
+										// There is no layout transition to perform, and no QFOT release, all memory and execution dependency will be done externally
+										if (tmp.newLayout==tmp.oldLayout)
+											continue;
+										// Otherwise protect against anything that may overlap our layout transition end if no QFOT
+										barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,ACCESS_FLAGS::MEMORY_READ_BITS|ACCESS_FLAGS::MEMORY_WRITE_BITS);
+									}
 									barrier.otherQueueFamilyIndex = finalOwnerQueueFamily;
 								}
-								// there shouldn't actually be a QFOT because its the same family or concurrent sharing
-								if (barrier.otherQueueFamilyIndex!=IQueue::FamilyIgnored)
-								{
-									// QFOT release must only sync against semaphore signal
-									barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::NONE;
-									barrier.dep.dstAccessMask = ACCESS_FLAGS::NONE;
-								}
-								// there is no layout transition to perform, and no QFOT release, all memory and execution dependency will be done via semaphore wait-signal
-								if (!needExecutionBarrier && tmp.newLayout==tmp.oldLayout && barrier.otherQueueFamilyIndex==IQueue::FamilyIgnored)
-									continue;
 							}
+							// we need a layout transition anyway
+							transferBarriers.push_back(tmp);
 						}
-						// we need a layout transition anyway
-						barriers.push_back(tmp);
 					}
 					// failed in the for-loop
 					if (lvl!=creationParams.mipLevels)
@@ -3265,35 +3367,32 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 						continue;
 					}
 				}
-				// do all post-transfer barriers for the image
-				if (!barriers.empty())
+				// here we only record barriers that do final layout transitions and release ownership to final queue family
+				if (!transferBarriers.empty())
 				{
-					if (!xferCmdBuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers=barriers}))
+					if (!xferCmdBuf->cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers=transferBarriers}))
 					{
-						reservations.m_logger.log("Pipeline Barrier recording failed",system::ILogger::ELL_ERROR);
+						reservations.m_logger.log("Final Pipeline Barrier recording to Transfer Command Buffer failed",system::ILogger::ELL_ERROR);
 						markFailureInStaging(image,pFoundHash);
 						continue;
 					}
 					retval.submitsNeeded |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
 				}
-				// too many calls to `updateImageViaStagingBuffer` trigger overflow and a stall
-				// too few calls serialize compute against transfer
-				// golden middle is upload all image data for a single data, then recompute mips
-				// we can also explore pipelining multiple images but this needs a callback for extra work in `updateImageViaStagingBuffer` between overflow submit and semaphore wait
-
-
-				// TODO: compute
-					// if transfer different queue family!
-						// acquire from trasnfer BEFORE COMPUTE stage
-					// recompute
-					// transition to FINAL
-					// if owner different than transfer
-						// release to owner
+				if (!computeBarriers.empty())
+				{
+					if (!computeCmdBuf->cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers=computeBarriers}))
+					{
+						reservations.m_logger.log("Final Pipeline Barrier recording to Compute Command Buffer failed",system::ILogger::ELL_ERROR);
+						markFailureInStaging(image,pFoundHash);
+						continue;
+					}
+				}
 			}
+			// reset original callback
+			params.transfer.overflowCallback = origXferStallCallback;
 
 // TODO: If compute submit is needed, then record the transfer scratch semaphore value it needs to wait for.
 			// Don't just rely on querying it during the `submit` because someone else may use it with a utility and overflow
-#endif
 		}
 
 		// TODO: build BLASes and TLASes
