@@ -7,6 +7,8 @@
 #include "imguizmo/ImGuizmo.h"
 #include "scene.hpp"
 
+static constexpr inline auto OfflineSceneTextureIx = 1u;
+
 struct TransformRequestParams
 {
 	bool useWindow = true, editTransformDecomposition = false, enableViewManipulate = false;
@@ -100,7 +102,7 @@ void EditTransform(float* cameraView, const float* cameraProjection, float* matr
 	*/
 
 	SImResourceInfo info;
-	info.textureID = CScene::NBL_OFFLINE_SCENE_TEX_ID;
+	info.textureID = OfflineSceneTextureIx;
 	info.samplerIx = (uint16_t)nbl::ext::imgui::UI::DefaultSamplerIx::USER;
 
 	if (params.useWindow)

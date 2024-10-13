@@ -1,5 +1,5 @@
-#ifndef __NBL_THIS_EXAMPLE_SCENE_H_INCLUDED__
-#define __NBL_THIS_EXAMPLE_SCENE_H_INCLUDED__
+#ifndef _NBL_GEOMETRY_CREATOR_SCENE_H_INCLUDED_
+#define _NBL_GEOMETRY_CREATOR_SCENE_H_INCLUDED_
 
 #include <nabla.h>
 
@@ -9,28 +9,31 @@
 #include "geometry/creator/spirv/builtin/CArchive.h"
 #include "geometry/creator/spirv/builtin/builtinResources.h"
 
-enum E_OBJECT_TYPE : uint8_t
+namespace nbl::scene::geometrycreator
 {
-	EOT_CUBE,
-	EOT_SPHERE,
-	EOT_CYLINDER,
-	EOT_RECTANGLE,
-	EOT_DISK,
-	EOT_ARROW,
-	EOT_CONE,
-	EOT_ICOSPHERE,
 
-	EOT_COUNT,
-	EOT_UNKNOWN = std::numeric_limits<uint8_t>::max()
+enum ObjectType : uint8_t
+{
+	OT_CUBE,
+	OT_SPHERE,
+	OT_CYLINDER,
+	OT_RECTANGLE,
+	OT_DISK,
+	OT_ARROW,
+	OT_CONE,
+	OT_ICOSPHERE,
+
+	OT_COUNT,
+	OT_UNKNOWN = std::numeric_limits<uint8_t>::max()
 };
 
-struct OBJECT_META
+struct ObjectMeta
 {
-	E_OBJECT_TYPE type = EOT_UNKNOWN;
+	ObjectType type = OT_UNKNOWN;
 	std::string_view name = "Unknown";
 };
 
-NBL_CONSTEXPR_STATIC_INLINE struct CLEAR_VALUES
+constexpr static inline struct ClearValues
 {
 	nbl::video::IGPUCommandBuffer::SClearColorValue color = { .float32 = {0.f,0.f,0.f,1.f} };
 	nbl::video::IGPUCommandBuffer::SClearDepthStencilValue depth = { .depth = 0.f };
@@ -40,57 +43,57 @@ template<typename T, typename... Types>
 concept _implIsResourceTypeC = (std::same_as<T, Types> || ...);
 
 template<typename T, typename Types>
-concept RESOURCE_TYPE_CONCEPT = _implIsResourceTypeC<T, typename Types::DESCRIPTOR_SET_LAYOUT, typename Types::PIPELINE_LAYOUT, typename Types::RENDERPASS, typename Types::IMAGE_VIEW, typename Types::IMAGE, typename Types::BUFFER, typename Types::SHADER, typename Types::GRAPHICS_PIPELINE, typename Types::DESCRIPTOR_SET>;
+concept ResourceTypeConcept = _implIsResourceTypeC<T, typename Types::descriptor_set_layout_t, typename Types::pipeline_layout_t, typename Types::renderpass_t, typename Types::image_view_t, typename Types::image_t, typename Types::buffer_t, typename Types::shader_t, typename Types::graphics_pipeline_t, typename Types::descriptor_set>;
 
-#define TYPES_IMPL_BOILERPLATE(WITH_CONVERTER) struct TYPES \
+#define TYPES_IMPL_BOILERPLATE(WithConverter) struct Types \
 { \
-	using DESCRIPTOR_SET_LAYOUT = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUDescriptorSetLayout, nbl::video::IGPUDescriptorSetLayout>; \
-	using PIPELINE_LAYOUT = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUPipelineLayout, nbl::video::IGPUPipelineLayout>; \
-	using RENDERPASS = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPURenderpass, nbl::video::IGPURenderpass>; \
-	using IMAGE_VIEW = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUImageView, nbl::video::IGPUImageView>; \
-	using IMAGE = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUImage, nbl::video::IGPUImage>; \
-	using BUFFER = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUBuffer, nbl::video::IGPUBuffer>; \
-	using SHADER = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUShader, nbl::video::IGPUShader>; \
-	using GRAPHICS_PIPELINE = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUGraphicsPipeline, nbl::video::IGPUGraphicsPipeline>; \
-	using DESCRIPTOR_SET = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUDescriptorSet, nbl::video::IGPUDescriptorSet>; \
+	using descriptor_set_layout_t = std::conditional_t<WithConverter, nbl::asset::ICPUDescriptorSetLayout, nbl::video::IGPUDescriptorSetLayout>; \
+	using pipeline_layout_t = std::conditional_t<WithConverter, nbl::asset::ICPUPipelineLayout, nbl::video::IGPUPipelineLayout>; \
+	using renderpass_t = std::conditional_t<WithConverter, nbl::asset::ICPURenderpass, nbl::video::IGPURenderpass>; \
+	using image_view_t = std::conditional_t<WithConverter, nbl::asset::ICPUImageView, nbl::video::IGPUImageView>; \
+	using image_t = std::conditional_t<WithConverter, nbl::asset::ICPUImage, nbl::video::IGPUImage>; \
+	using buffer_t = std::conditional_t<WithConverter, nbl::asset::ICPUBuffer, nbl::video::IGPUBuffer>; \
+	using shader_t = std::conditional_t<WithConverter, nbl::asset::ICPUShader, nbl::video::IGPUShader>; \
+	using graphics_pipeline_t = std::conditional_t<WithConverter, nbl::asset::ICPUGraphicsPipeline, nbl::video::IGPUGraphicsPipeline>; \
+	using descriptor_set = std::conditional_t<WithConverter, nbl::asset::ICPUDescriptorSet, nbl::video::IGPUDescriptorSet>; \
 }
 
 template<bool withAssetConverter>
-struct RESOURCES_BUNDLE_BASE
+struct ResourcesBundleBase
 {
 	TYPES_IMPL_BOILERPLATE(withAssetConverter);
 
-	struct REFERENCE_OBJECT
+	struct ReferenceObject
 	{
-		struct BINDINGS
+		struct Bindings
 		{
-			nbl::asset::SBufferBinding<typename TYPES::BUFFER> vertex, index;
+			nbl::asset::SBufferBinding<typename Types::buffer_t> vertex, index;
 		};
 
-		nbl::core::smart_refctd_ptr<typename TYPES::GRAPHICS_PIPELINE> pipeline = nullptr;
+		nbl::core::smart_refctd_ptr<typename Types::graphics_pipeline_t> pipeline = nullptr;
 
-		BINDINGS bindings;
+		Bindings bindings;
 		nbl::asset::E_INDEX_TYPE indexType = nbl::asset::E_INDEX_TYPE::EIT_UNKNOWN;
 		uint32_t indexCount = {};
 	};
 
-	using REFERENCE_DRAW_HOOK = std::pair<REFERENCE_OBJECT, OBJECT_META>;
+	using ReferenceDrawHook = std::pair<ReferenceObject, ObjectMeta>;
 
-	nbl::core::smart_refctd_ptr<typename TYPES::RENDERPASS> renderpass;
-	std::array<REFERENCE_DRAW_HOOK, EOT_COUNT> objects;
-	nbl::asset::SBufferBinding<typename TYPES::BUFFER> ubo;
+	nbl::core::smart_refctd_ptr<typename Types::renderpass_t> renderpass;
+	std::array<ReferenceDrawHook, OT_COUNT> objects;
+	nbl::asset::SBufferBinding<typename Types::buffer_t> ubo;
 
 	struct
 	{
-		nbl::core::smart_refctd_ptr<typename TYPES::IMAGE_VIEW> color, depth;
+		nbl::core::smart_refctd_ptr<typename Types::image_view_t> color, depth;
 	} attachments;
 
-	nbl::core::smart_refctd_ptr<typename TYPES::DESCRIPTOR_SET> descriptorSet;
+	nbl::core::smart_refctd_ptr<typename Types::descriptor_set> descriptorSet;
 };
 
-struct RESOURCES_BUNDLE : public RESOURCES_BUNDLE_BASE<false>
+struct ResourcesBundle : public ResourcesBundleBase<false>
 {
-	using BASE_T = RESOURCES_BUNDLE_BASE<false>;
+	using base_t = ResourcesBundleBase<false>;
 };
 
 #define EXPOSE_NABLA_NAMESPACES() using namespace nbl; \
@@ -101,14 +104,14 @@ using namespace scene; \
 using namespace system
 
 template<bool withAssetConverter>
-class RESOURCES_BUILDER
+class ResourceBuilder
 {
 public:
 	TYPES_IMPL_BOILERPLATE(withAssetConverter);
 
-	using THIS_T = RESOURCES_BUILDER<withAssetConverter>;
+	using this_t = ResourceBuilder<withAssetConverter>;
 
-	RESOURCES_BUILDER(nbl::video::IUtilities* const _utilities, nbl::video::IGPUCommandBuffer* const _commandBuffer, nbl::system::ILogger* const _logger, const nbl::asset::IGeometryCreator* const _geometryCreator)
+	ResourceBuilder(nbl::video::IUtilities* const _utilities, nbl::video::IGPUCommandBuffer* const _commandBuffer, nbl::system::ILogger* const _logger, const nbl::asset::IGeometryCreator* const _geometryCreator)
 		: utilities(_utilities), commandBuffer(_commandBuffer), logger(_logger), geometries(_geometryCreator)
 	{
 		assert(utilities);
@@ -128,23 +131,23 @@ public:
 
 		if constexpr (!withAssetConverter)
 		{
-			commandBuffer->reset(nbl::video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
-			commandBuffer->begin(nbl::video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			commandBuffer->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+			commandBuffer->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			commandBuffer->beginDebugMarker("Resources builder's buffers upload [manual]");
 		}
 
-		using FUNCTOR_T = std::function<bool(void)>;
+		using functor_t = std::function<bool(void)>;
 
 		auto work = std::to_array
 		({
-			FUNCTOR_T(std::bind(&THIS_T::createDescriptorSetLayout, this)),
-			FUNCTOR_T(std::bind(&THIS_T::createPipelineLayout, this)),
-			FUNCTOR_T(std::bind(&THIS_T::createRenderpass, this)),
-			FUNCTOR_T(std::bind(&THIS_T::createFramebufferAttachments, this)),
-			FUNCTOR_T(std::bind(&THIS_T::createShaders, this)),
-			FUNCTOR_T(std::bind(&THIS_T::createGeometries, this)),
-			FUNCTOR_T(std::bind(&THIS_T::createViewParametersUboBuffer, this)),
-			FUNCTOR_T(std::bind(&THIS_T::createDescriptorSet, this))
+			functor_t(std::bind(&this_t::createDescriptorSetLayout, this)),
+			functor_t(std::bind(&this_t::createPipelineLayout, this)),
+			functor_t(std::bind(&this_t::createRenderpass, this)),
+			functor_t(std::bind(&this_t::createFramebufferAttachments, this)),
+			functor_t(std::bind(&this_t::createShaders, this)),
+			functor_t(std::bind(&this_t::createGeometries, this)),
+			functor_t(std::bind(&this_t::createViewParametersUboBuffer, this)),
+			functor_t(std::bind(&this_t::createDescriptorSet, this))
 		});
 
 		for (auto& task : work)
@@ -164,7 +167,7 @@ public:
 			-> update gpu buffers
 	*/
 
-	inline bool finalize(RESOURCES_BUNDLE& output, nbl::video::CThreadSafeQueueAdapter* transferCapableQueue)
+	inline bool finalize(ResourcesBundle& output, nbl::video::CThreadSafeQueueAdapter* transferCapableQueue)
 	{
 		EXPOSE_NABLA_NAMESPACES();
 
@@ -186,8 +189,8 @@ public:
 		if constexpr (withAssetConverter)
 		{
 			// note that asset converter records basic transfer uploads itself, we only begin the recording with ONE_TIME_SUBMIT_BIT
-			commandBuffer->reset(nbl::video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
-			commandBuffer->begin(nbl::video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			commandBuffer->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+			commandBuffer->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			commandBuffer->beginDebugMarker("Resources builder's buffers upload [asset converter]");
 
 			// asset converter - scratch at this point has ready to convert cpu resources
@@ -195,23 +198,23 @@ public:
 			CAssetConverter::SInputs inputs = {};
 			inputs.logger = logger;
 
-			struct PROXY_CPU_HOOKS
+			struct ProxyCpuHooks
 			{
-				using OBJECTS_SIZE = std::tuple_size<decltype(scratch.objects)>;
+				using object_size_t = std::tuple_size<decltype(scratch.objects)>;
 
 				std::array<ICPURenderpass*, 1u> renderpass;
-				std::array<ICPUGraphicsPipeline*, OBJECTS_SIZE::value> pipelines;
-				std::array<ICPUBuffer*, OBJECTS_SIZE::value * 2u + 1u > buffers;
+				std::array<ICPUGraphicsPipeline*, object_size_t::value> pipelines;
+				std::array<ICPUBuffer*, object_size_t::value * 2u + 1u > buffers;
 				std::array<ICPUImageView*, 2u> attachments;
 				std::array<ICPUDescriptorSet*, 1u> descriptorSet;
 			} hooks;
 
-			enum E_ATTACHMENT_ID
+			enum AttachmentIx
 			{
-				EAI_COLOR = 0u,
-				EAI_DEPTH = 1u,
+				AI_COLOR = 0u,
+				AI_DEPTH = 1u,
 
-				EAI_COUNT
+				AI_COUNT
 			};
 			
 			// gather CPU assets into span memory views
@@ -219,7 +222,7 @@ public:
 				hooks.renderpass.front() = scratch.renderpass.get();
 				for (uint32_t i = 0u; i < hooks.pipelines.size(); ++i)
 				{
-					auto& [reference, meta] = scratch.objects[static_cast<E_OBJECT_TYPE>(i)];
+					auto& [reference, meta] = scratch.objects[static_cast<ObjectType>(i)];
 					hooks.pipelines[i] = reference.pipeline.get();
 
 					// [[ [vertex, index] [vertex, index] [vertex, index] ... [ubo] ]]
@@ -227,8 +230,8 @@ public:
 					hooks.buffers[2u * i + 1u] = reference.bindings.index.buffer.get();
 				}
 				hooks.buffers.back() = scratch.ubo.buffer.get();
-				hooks.attachments[EAI_COLOR] = scratch.attachments.color.get();
-				hooks.attachments[EAI_DEPTH] = scratch.attachments.depth.get();
+				hooks.attachments[AI_COLOR] = scratch.attachments.color.get();
+				hooks.attachments[AI_DEPTH] = scratch.attachments.depth.get();
 				hooks.descriptorSet.front() = scratch.descriptorSet.get();
 			}
 
@@ -244,10 +247,10 @@ public:
 			// reserve and create the GPU object handles
 			auto reservation = converter->reserve(inputs);
 			{
-				auto prepass = [&]<typename ASSET_TYPE>(const auto& references) -> bool
+				auto prepass = [&]<typename asset_type_t>(const auto& references) -> bool
 				{
 					// retrieve the reserved handles
-					auto objects = reservation.getGPUObjects<ASSET_TYPE>();
+					auto objects = reservation.getGPUObjects<asset_type_t>();
 
 					uint32_t counter = {};
 					for (auto& object : objects)
@@ -261,7 +264,7 @@ public:
 							// validate
 							if (!gpu) // throw errors only if corresponding cpu hook was VALID (eg. we may have nullptr for some index buffers in the span for converter but it's OK, I'm too lazy to filter them before passing to the converter inputs and don't want to deal with dynamic alloc)
 							{
-								logger->log("Failed to convert a CPU object to GPU!", nbl::system::ILogger::ELL_ERROR);
+								logger->log("Failed to convert a CPU object to GPU!", ILogger::ELL_ERROR);
 								return false;
 							}
 						}
@@ -294,7 +297,7 @@ public:
 
 			if (!result)
 			{
-				logger->log("Failed to record assets conversion!", nbl::system::ILogger::ELL_ERROR);
+				logger->log("Failed to record assets conversion!", ILogger::ELL_ERROR);
 				return false;
 			}
 
@@ -304,19 +307,19 @@ public:
 			// and note that this operator actually blocks for semaphores!
 			if (!future)
 			{
-				logger->log("Failed to await submission feature!", nbl::system::ILogger::ELL_ERROR);
+				logger->log("Failed to await submission feature!", ILogger::ELL_ERROR);
 				return false;
 			}
 
 			// assign gpu objects to output
-			auto& base = static_cast<RESOURCES_BUNDLE::BASE_T&>(output);
+			auto& base = static_cast<ResourcesBundle::base_t&>(output);
 			{
 				auto&& [renderpass, pipelines, buffers, descriptorSet] = std::make_tuple(reservation.getGPUObjects<ICPURenderpass>().front().value, reservation.getGPUObjects<ICPUGraphicsPipeline>(), reservation.getGPUObjects<ICPUBuffer>(), reservation.getGPUObjects<ICPUDescriptorSet>().front().value);
 				{
 					base.renderpass = renderpass;
 					for (uint32_t i = 0u; i < pipelines.size(); ++i)
 					{
-						const auto type = static_cast<E_OBJECT_TYPE>(i);
+						const auto type = static_cast<ObjectType>(i);
 						const auto& [rcpu, rmeta] = scratch.objects[type];
 						auto& [gpu, meta] = base.objects[type];
 
@@ -334,8 +337,8 @@ public:
 					base.descriptorSet = descriptorSet;
 					
 					/*
-						// base.attachments.color = attachments[EAI_COLOR].value;
-						// base.attachments.depth = attachments[EAI_DEPTH].value;
+						// base.attachments.color = attachments[AI_COLOR].value;
+						// base.attachments.depth = attachments[AI_DEPTH].value;
 
 						note conversion of image views is not yet supported by the asset converter 
 						- it's complicated, we have to kinda temporary ignore DRY a bit here to not break the design which is correct
@@ -344,10 +347,10 @@ public:
 						TODO: remove following code once asset converter works with image views & update stuff
 					*/
 
-					for (uint32_t i = 0u; i < EAI_COUNT; ++i)
+					for (uint32_t i = 0u; i < AI_COUNT; ++i)
 					{
 						const auto* reference = hooks.attachments[i];
-						auto& out = (i == EAI_COLOR ? base.attachments.color : base.attachments.depth);
+						auto& out = (i == AI_COLOR ? base.attachments.color : base.attachments.depth);
 
 						const auto& viewParams = reference->getCreationParameters();
 						const auto& imageParams = viewParams.image->getCreationParameters();
@@ -408,7 +411,7 @@ public:
 		}
 		else
 		{
-			const nbl::video::IQueue::SSubmitInfo infos [] =
+			const IQueue::SSubmitInfo infos [] =
 			{
 				{
 					.waitSemaphores = {},
@@ -417,13 +420,13 @@ public:
 				}
 			};
 
-			if (transferCapableQueue->submit(infos) != nbl::video::IQueue::RESULT::SUCCESS)
+			if (transferCapableQueue->submit(infos) != IQueue::RESULT::SUCCESS)
 			{
-				logger->log("Failed to submit transfer upload operations!", nbl::system::ILogger::ELL_ERROR);
+				logger->log("Failed to submit transfer upload operations!", ILogger::ELL_ERROR);
 				return false;
 			}
 
-			const nbl::video::ISemaphore::SWaitInfo info [] =
+			const ISemaphore::SWaitInfo info [] =
 			{ {
 				.semaphore = completed.get(),
 				.value = 0x45
@@ -431,21 +434,21 @@ public:
 
 			utilities->getLogicalDevice()->blockForSemaphores(info);
 
-			static_cast<RESOURCES_BUNDLE::BASE_T&>(output) = static_cast<RESOURCES_BUNDLE::BASE_T&>(scratch); // scratch has all ready to use allocated gpu resources with uploaded memory so now just assign resources to base output
+			static_cast<ResourcesBundle::base_t&>(output) = static_cast<ResourcesBundle::base_t&>(scratch); // scratch has all ready to use allocated gpu resources with uploaded memory so now just assign resources to base output
 		}
 
 		// write the descriptor set
 		{
 			// descriptor write ubo
-			nbl::video::IGPUDescriptorSet::SWriteDescriptorSet write;
+			IGPUDescriptorSet::SWriteDescriptorSet write;
 			write.dstSet = output.descriptorSet.get();
 			write.binding = 0;
 			write.arrayElement = 0u;
 			write.count = 1u;
 
-			nbl::video::IGPUDescriptorSet::SDescriptorInfo info;
+			IGPUDescriptorSet::SDescriptorInfo info;
 			{
-				info.desc = nbl::core::smart_refctd_ptr(output.ubo.buffer);
+				info.desc = smart_refctd_ptr(output.ubo.buffer);
 				info.info.buffer.offset = output.ubo.offset;
 				info.info.buffer.size = output.ubo.buffer->getSize();
 			}
@@ -454,7 +457,7 @@ public:
 
 			if(!utilities->getLogicalDevice()->updateDescriptorSets(1u, &write, 0u, nullptr))
 			{
-				logger->log("Could not write descriptor set!", nbl::system::ILogger::ELL_ERROR);
+				logger->log("Could not write descriptor set!", ILogger::ELL_ERROR);
 				return false;
 			}
 		}
@@ -467,12 +470,12 @@ private:
 	{
 		EXPOSE_NABLA_NAMESPACES();
 
-		typename TYPES::DESCRIPTOR_SET_LAYOUT::SBinding bindings[] =
+		typename Types::descriptor_set_layout_t::SBinding bindings[] =
 		{
 			{
 				.binding = 0u,
 				.type = IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-				.createFlags = TYPES::DESCRIPTOR_SET_LAYOUT::SBinding::E_CREATE_FLAGS::ECF_NONE,
+				.createFlags = Types::descriptor_set_layout_t::SBinding::E_CREATE_FLAGS::ECF_NONE,
 				.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 				.count = 1u,
 			}
@@ -500,15 +503,15 @@ private:
 			scratch.descriptorSet = make_smart_refctd_ptr<ICPUDescriptorSet>(smart_refctd_ptr(scratch.descriptorSetLayout));
 		else
 		{
-			const nbl::video::IGPUDescriptorSetLayout* const layouts[] = { scratch.descriptorSetLayout.get()};
+			const IGPUDescriptorSetLayout* const layouts[] = { scratch.descriptorSetLayout.get()};
 			const uint32_t setCounts[] = { 1u };
 
 			// note descriptor set has back smart pointer to its pool, so we dont need to keep it explicitly
-			auto pool = utilities->getLogicalDevice()->createDescriptorPoolForDSLayouts(nbl::video::IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
+			auto pool = utilities->getLogicalDevice()->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
 
 			if (!pool)
 			{
-				logger->log("Could not create Descriptor Pool!", nbl::system::ILogger::ELL_ERROR);
+				logger->log("Could not create Descriptor Pool!", ILogger::ELL_ERROR);
 				return false;
 			}
 
@@ -517,7 +520,7 @@ private:
 
 		if (!scratch.descriptorSet)
 		{
-			logger->log("Could not create Descriptor Set!", nbl::system::ILogger::ELL_ERROR);
+			logger->log("Could not create Descriptor Set!", ILogger::ELL_ERROR);
 			return false;
 		}
 
@@ -548,56 +551,56 @@ private:
 	{
 		EXPOSE_NABLA_NAMESPACES();
 
-		_NBL_STATIC_INLINE_CONSTEXPR TYPES::RENDERPASS::SCreationParams::SColorAttachmentDescription colorAttachments[] =
+		static constexpr Types::renderpass_t::SCreationParams::SColorAttachmentDescription colorAttachments[] =
 		{
 			{
 				{
 					{
-						.format = COLOR_FBO_ATTACHMENT_FORMAT,
-						.samples = SAMPLES,
+						.format = ColorFboAttachmentFormat,
+						.samples = Samples,
 						.mayAlias = false
 					},
-					/* .loadOp = */ TYPES::RENDERPASS::LOAD_OP::CLEAR,
-					/* .storeOp = */ TYPES::RENDERPASS::STORE_OP::STORE,
-					/* .initialLayout = */ TYPES::IMAGE::LAYOUT::UNDEFINED,
-					/* .finalLayout = */ TYPES::IMAGE::LAYOUT::READ_ONLY_OPTIMAL
+					/* .loadOp = */ Types::renderpass_t::LOAD_OP::CLEAR,
+					/* .storeOp = */ Types::renderpass_t::STORE_OP::STORE,
+					/* .initialLayout = */ Types::image_t::LAYOUT::UNDEFINED,
+					/* .finalLayout = */ Types::image_t::LAYOUT::READ_ONLY_OPTIMAL
 				}
 			},
-			TYPES::RENDERPASS::SCreationParams::ColorAttachmentsEnd
+			Types::renderpass_t::SCreationParams::ColorAttachmentsEnd
 		};
 
-		_NBL_STATIC_INLINE_CONSTEXPR TYPES::RENDERPASS::SCreationParams::SDepthStencilAttachmentDescription depthAttachments[] =
+		static constexpr Types::renderpass_t::SCreationParams::SDepthStencilAttachmentDescription depthAttachments[] =
 		{
 			{
 				{
 					{
-						.format = DEPTH_FBO_ATTACHMENT_FORMAT,
-						.samples = SAMPLES,
+						.format = DepthFboAttachmentFormat,
+						.samples = Samples,
 						.mayAlias = false
 					},
-					/* .loadOp = */ {TYPES::RENDERPASS::LOAD_OP::CLEAR},
-					/* .storeOp = */ {TYPES::RENDERPASS::STORE_OP::STORE},
-					/* .initialLayout = */ {TYPES::IMAGE::LAYOUT::UNDEFINED},
-					/* .finalLayout = */ {TYPES::IMAGE::LAYOUT::ATTACHMENT_OPTIMAL}
+					/* .loadOp = */ {Types::renderpass_t::LOAD_OP::CLEAR},
+					/* .storeOp = */ {Types::renderpass_t::STORE_OP::STORE},
+					/* .initialLayout = */ {Types::image_t::LAYOUT::UNDEFINED},
+					/* .finalLayout = */ {Types::image_t::LAYOUT::ATTACHMENT_OPTIMAL}
 				}
 			},
-			TYPES::RENDERPASS::SCreationParams::DepthStencilAttachmentsEnd
+			Types::renderpass_t::SCreationParams::DepthStencilAttachmentsEnd
 		};
 
-		typename TYPES::RENDERPASS::SCreationParams::SSubpassDescription subpasses[] =
+		typename Types::renderpass_t::SCreationParams::SSubpassDescription subpasses[] =
 		{
 			{},
-			TYPES::RENDERPASS::SCreationParams::SubpassesEnd
+			Types::renderpass_t::SCreationParams::SubpassesEnd
 		};
 
-		subpasses[0].depthStencilAttachment.render = { .attachmentIndex = 0u,.layout = TYPES::IMAGE::LAYOUT::ATTACHMENT_OPTIMAL };
-		subpasses[0].colorAttachments[0] = { .render = {.attachmentIndex = 0u, .layout = TYPES::IMAGE::LAYOUT::ATTACHMENT_OPTIMAL } };
+		subpasses[0].depthStencilAttachment.render = { .attachmentIndex = 0u,.layout = Types::image_t::LAYOUT::ATTACHMENT_OPTIMAL };
+		subpasses[0].colorAttachments[0] = { .render = {.attachmentIndex = 0u, .layout = Types::image_t::LAYOUT::ATTACHMENT_OPTIMAL } };
 
-		_NBL_STATIC_INLINE_CONSTEXPR TYPES::RENDERPASS::SCreationParams::SSubpassDependency dependencies[] =
+		static constexpr Types::renderpass_t::SCreationParams::SSubpassDependency dependencies[] =
 		{
 			// wipe-transition of Color to ATTACHMENT_OPTIMAL
 			{
-				.srcSubpass = TYPES::RENDERPASS::SCreationParams::SSubpassDependency::External,
+				.srcSubpass = Types::renderpass_t::SCreationParams::SSubpassDependency::External,
 				.dstSubpass = 0,
 				.memoryBarrier =
 				{
@@ -615,7 +618,7 @@ private:
 			// color from ATTACHMENT_OPTIMAL to PRESENT_SRC
 			{
 				.srcSubpass = 0,
-				.dstSubpass = TYPES::RENDERPASS::SCreationParams::SSubpassDependency::External,
+				.dstSubpass = Types::renderpass_t::SCreationParams::SSubpassDependency::External,
 				.memoryBarrier =
 				{
 				// last place where the depth can get modified
@@ -630,10 +633,10 @@ private:
 				}
 			// leave view offsets and flags default
 			},
-			TYPES::RENDERPASS::SCreationParams::DependenciesEnd
+			Types::renderpass_t::SCreationParams::DependenciesEnd
 		};
 
-		typename TYPES::RENDERPASS::SCreationParams params = {};
+		typename Types::renderpass_t::SCreationParams params = {};
 		params.colorAttachments = colorAttachments;
 		params.depthStencilAttachments = depthAttachments;
 		params.subpasses = subpasses;
@@ -657,29 +660,29 @@ private:
 	{
 		EXPOSE_NABLA_NAMESPACES();
 
-		auto createImageView = [&]<E_FORMAT format>(smart_refctd_ptr<typename TYPES::IMAGE_VIEW>& outView) -> smart_refctd_ptr<typename TYPES::IMAGE_VIEW>
+		auto createImageView = [&]<E_FORMAT format>(smart_refctd_ptr<typename Types::image_view_t>& outView) -> smart_refctd_ptr<typename Types::image_view_t>
 		{
 			constexpr bool IS_DEPTH = isDepthOrStencilFormat<format>();
 			constexpr auto USAGE = [](const bool isDepth)
 			{
-				bitflag<TYPES::IMAGE::E_USAGE_FLAGS> usage = TYPES::IMAGE::EUF_RENDER_ATTACHMENT_BIT;
+				bitflag<Types::image_t::E_USAGE_FLAGS> usage = Types::image_t::EUF_RENDER_ATTACHMENT_BIT;
 
 				if (!isDepth)
-					usage |= TYPES::IMAGE::EUF_SAMPLED_BIT;
+					usage |= Types::image_t::EUF_SAMPLED_BIT;
 
 				return usage;
 			}(IS_DEPTH);
 			constexpr auto ASPECT = IS_DEPTH ? IImage::E_ASPECT_FLAGS::EAF_DEPTH_BIT : IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
 			constexpr std::string_view DEBUG_NAME = IS_DEPTH ? "UI Scene Depth Attachment Image" : "UI Scene Color Attachment Image";
 			{
-				smart_refctd_ptr<typename TYPES::IMAGE> image;
+				smart_refctd_ptr<typename Types::image_t> image;
 				{
-					auto params = typename TYPES::IMAGE::SCreationParams(
+					auto params = typename Types::image_t::SCreationParams(
 					{
-						.type = TYPES::IMAGE::ET_2D,
-						.samples = SAMPLES,
+						.type = Types::image_t::ET_2D,
+						.samples = Samples,
 						.format = format,
-						.extent = { FRAMEBUFFER_W, FRAMEBUFFER_H, 1u },
+						.extent = { FramebufferW, FramebufferH, 1u },
 						.mipLevels = 1u,
 						.arrayLayers = 1u,
 						.usage = USAGE
@@ -699,7 +702,7 @@ private:
 
 				if constexpr (withAssetConverter)
 				{
-					auto dummyBuffer = make_smart_refctd_ptr<ICPUBuffer>(FRAMEBUFFER_W * FRAMEBUFFER_H * getTexelOrBlockBytesize<format>());
+					auto dummyBuffer = make_smart_refctd_ptr<ICPUBuffer>(FramebufferW * FramebufferH * getTexelOrBlockBytesize<format>());
 					dummyBuffer->setContentHash(dummyBuffer->computeContentHash());
 
 					auto regions = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1u);
@@ -707,10 +710,10 @@ private:
 
 					region.imageSubresource = { .aspectMask = ASPECT, .mipLevel = 0u, .baseArrayLayer = 0u, .layerCount = 0u };
 					region.bufferOffset = 0u;
-					region.bufferRowLength = IImageAssetHandlerBase::calcPitchInBlocks(FRAMEBUFFER_W, getTexelOrBlockBytesize<format>());
+					region.bufferRowLength = IImageAssetHandlerBase::calcPitchInBlocks(FramebufferW, getTexelOrBlockBytesize<format>());
 					region.bufferImageHeight = 0u;
 					region.imageOffset = { 0u, 0u, 0u };
-					region.imageExtent = { FRAMEBUFFER_W, FRAMEBUFFER_H, 1u };
+					region.imageExtent = { FramebufferW, FramebufferH, 1u };
 
 					if (!image->setBufferAndRegions(std::move(dummyBuffer), regions))
 					{
@@ -730,12 +733,12 @@ private:
 					}
 				}
 
-				auto params = typename TYPES::IMAGE_VIEW::SCreationParams(
-				{
-					.flags = TYPES::IMAGE_VIEW::ECF_NONE,
+				auto params = typename Types::image_view_t::SCreationParams
+				({
+					.flags = Types::image_view_t::ECF_NONE,
 					.subUsages = USAGE,
 					.image = std::move(image),
-					.viewType = TYPES::IMAGE_VIEW::ET_2D,
+					.viewType = Types::image_view_t::ET_2D,
 					.format = format,
 					.subresourceRange = { .aspectMask = ASPECT, .baseMipLevel = 0u, .levelCount = 1u, .baseArrayLayer = 0u, .layerCount = 1u }
 				});
@@ -755,7 +758,7 @@ private:
 			}
 		};
 
-		const bool allocated = createImageView.template operator() < COLOR_FBO_ATTACHMENT_FORMAT > (scratch.attachments.color) && createImageView.template operator() < DEPTH_FBO_ATTACHMENT_FORMAT > (scratch.attachments.depth);
+		const bool allocated = createImageView.template operator() < ColorFboAttachmentFormat > (scratch.attachments.color) && createImageView.template operator() < DepthFboAttachmentFormat > (scratch.attachments.depth);
 
 		if (!allocated)
 		{
@@ -770,13 +773,13 @@ private:
 	{
 		EXPOSE_NABLA_NAMESPACES();
 
-		auto createShader = [&]<nbl::core::StringLiteral virtualPath>(IShader::E_SHADER_STAGE stage, smart_refctd_ptr<typename TYPES::SHADER>& outShader) -> smart_refctd_ptr<typename TYPES::SHADER>
+		auto createShader = [&]<StringLiteral virtualPath>(IShader::E_SHADER_STAGE stage, smart_refctd_ptr<typename Types::shader_t>& outShader) -> smart_refctd_ptr<typename Types::shader_t>
 		{
 			// TODO: use SPIRV loader & our ::system ns to get those cpu shaders, do not create myself (shit I forgot it exists)
 
-			const nbl::system::SBuiltinFile& in = ::geometry::creator::spirv::builtin::get_resource<virtualPath>();
+			const SBuiltinFile& in = ::geometry::creator::spirv::builtin::get_resource<virtualPath>();
 			const auto buffer = make_smart_refctd_ptr<CCustomAllocatorCPUBuffer<null_allocator<uint8_t>, true> >(in.size, (void*)in.contents, adopt_memory);
-			auto shader = nbl::core::make_smart_refctd_ptr<ICPUShader>(smart_refctd_ptr(buffer), stage, IShader::E_CONTENT_TYPE::ECT_SPIRV, ""); // must create cpu instance regardless underlying type
+			auto shader = make_smart_refctd_ptr<ICPUShader>(smart_refctd_ptr(buffer), stage, IShader::E_CONTENT_TYPE::ECT_SPIRV, ""); // must create cpu instance regardless underlying type
 
 			if constexpr (withAssetConverter)
 			{
@@ -789,15 +792,15 @@ private:
 			return outShader;
 		};
 
-		typename RESOURCES_BUNDLE_SCRATCH::SHADERS& basic = scratch.shaders[GEOMETRIES_CPU::EGP_BASIC];
+		typename ResourcesBundleScratch::Shaders& basic = scratch.shaders[GeometriesCpu::GP_BASIC];
 		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, basic.vertex);
 		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, basic.fragment);
 
-		typename RESOURCES_BUNDLE_SCRATCH::SHADERS& cone = scratch.shaders[GEOMETRIES_CPU::EGP_CONE];
+		typename ResourcesBundleScratch::Shaders& cone = scratch.shaders[GeometriesCpu::GP_CONE];
 		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.cone.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, cone.vertex);
 		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, cone.fragment); // note we reuse fragment from basic!
 
-		typename RESOURCES_BUNDLE_SCRATCH::SHADERS& ico = scratch.shaders[GEOMETRIES_CPU::EGP_ICO];
+		typename ResourcesBundleScratch::Shaders& ico = scratch.shaders[GeometriesCpu::GP_ICO];
 		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.ico.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, ico.vertex);
 		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, ico.fragment); // note we reuse fragment from basic!
 			
@@ -831,7 +834,7 @@ private:
 			{
 				SBlendParams blend;
 				SRasterizationParams rasterization;
-				typename TYPES::GRAPHICS_PIPELINE::SCreationParams pipeline;
+				typename Types::graphics_pipeline_t::SCreationParams pipeline;
 			} params;
 				
 			{
@@ -849,7 +852,7 @@ private:
 
 			params.rasterization.faceCullingMode = EFCM_NONE;
 			{
-				const typename TYPES::SHADER::SSpecInfo info [] =
+				const typename Types::shader_t::SSpecInfo info [] =
 				{
 					{.entryPoint = "VSMain", .shader = scratch.shaders[inGeometry.shadersType].vertex.get() },
 					{.entryPoint = "PSMain", .shader = scratch.shaders[inGeometry.shadersType].fragment.get() }
@@ -883,15 +886,15 @@ private:
 				// object buffers
 				auto createVIBuffers = [&]() -> bool
 				{
-					using IBUFFER = nbl::asset::IBuffer; // seems to be ambigous, both asset & core namespaces has IBuffer
+					using ibuffer_t = ::nbl::asset::IBuffer; // seems to be ambigous, both asset & core namespaces has IBuffer
 
 					// note: similar issue like with shaders, this time with cpu-gpu constructors differing in arguments
 					auto vBuffer = smart_refctd_ptr(inGeometry.data.bindings[0].buffer); // no offset
-					constexpr static auto VERTEX_USAGE = bitflag(IBUFFER::EUF_VERTEX_BUFFER_BIT) | IBUFFER::EUF_TRANSFER_DST_BIT | IBUFFER::EUF_INLINE_UPDATE_VIA_CMDBUF;
+					constexpr static auto VERTEX_USAGE = bitflag(ibuffer_t::EUF_VERTEX_BUFFER_BIT) | ibuffer_t::EUF_TRANSFER_DST_BIT | ibuffer_t::EUF_INLINE_UPDATE_VIA_CMDBUF;
 					obj.bindings.vertex.offset = 0u;
 						
 					auto iBuffer = smart_refctd_ptr(inGeometry.data.indexBuffer.buffer); // no offset
-					constexpr static auto INDEX_USAGE = bitflag(IBUFFER::EUF_INDEX_BUFFER_BIT) | IBUFFER::EUF_VERTEX_BUFFER_BIT | IBUFFER::EUF_TRANSFER_DST_BIT | IBUFFER::EUF_INLINE_UPDATE_VIA_CMDBUF;
+					constexpr static auto INDEX_USAGE = bitflag(ibuffer_t::EUF_INDEX_BUFFER_BIT) | ibuffer_t::EUF_VERTEX_BUFFER_BIT | ibuffer_t::EUF_TRANSFER_DST_BIT | ibuffer_t::EUF_INLINE_UPDATE_VIA_CMDBUF;
 					obj.bindings.index.offset = 0u;
 
 					if constexpr (withAssetConverter)
@@ -994,28 +997,27 @@ private:
 	{
 		EXPOSE_NABLA_NAMESPACES();
 
-		// note: similar issue like with shaders, this time with cpu-gpu constructors differing in arguments
-		using IBUFFER = nbl::asset::IBuffer; // seems to be ambigous, both asset & core namespaces has IBuffer
-		constexpr static auto UBO_USAGE = bitflag(IBUFFER::EUF_UNIFORM_BUFFER_BIT) | IBUFFER::EUF_TRANSFER_DST_BIT | IBUFFER::EUF_INLINE_UPDATE_VIA_CMDBUF;
+		using ibuffer_t = ::nbl::asset::IBuffer; // seems to be ambigous, both asset & core namespaces has IBuffer
+		constexpr static auto UboUsage = bitflag(ibuffer_t::EUF_UNIFORM_BUFFER_BIT) | ibuffer_t::EUF_TRANSFER_DST_BIT | ibuffer_t::EUF_INLINE_UPDATE_VIA_CMDBUF;
 
 		if constexpr (withAssetConverter)
 		{
 			auto uboBuffer = make_smart_refctd_ptr<ICPUBuffer>(sizeof(SBasicViewParameters));
-			uboBuffer->addUsageFlags(UBO_USAGE);
+			uboBuffer->addUsageFlags(UboUsage);
 			uboBuffer->setContentHash(uboBuffer->computeContentHash());
 			scratch.ubo = { .offset = 0u, .buffer = std::move(uboBuffer) };
 		}
 		else
 		{
 			const auto mask = utilities->getLogicalDevice()->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
-			auto uboBuffer = utilities->getLogicalDevice()->createBuffer(IGPUBuffer::SCreationParams({ .size = sizeof(SBasicViewParameters), .usage = UBO_USAGE }));
+			auto uboBuffer = utilities->getLogicalDevice()->createBuffer(IGPUBuffer::SCreationParams({ .size = sizeof(SBasicViewParameters), .usage = UboUsage }));
 
 			if (!uboBuffer)
 				return false;
 
 			for (auto it : { uboBuffer })
 			{
-				video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = it->getMemoryReqs();
+				IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = it->getMemoryReqs();
 				reqs.memoryTypeBits &= mask;
 
 				utilities->getLogicalDevice()->allocate(reqs, it.get());
@@ -1027,36 +1029,36 @@ private:
 		return true;
 	}
 
-	struct GEOMETRIES_CPU
+	struct GeometriesCpu
 	{
-		enum E_GEOMETRY_SHADER
+		enum GeometryShader
 		{
-			EGP_BASIC = 0,
-			EGP_CONE,
-			EGP_ICO,
+			GP_BASIC = 0,
+			GP_CONE,
+			GP_ICO,
 
-			EGP_COUNT
+			GP_COUNT
 		};
 
-		struct REFERENCE_OBJECT_CPU
+		struct ReferenceObjectCpu
 		{
-			OBJECT_META meta;
-			E_GEOMETRY_SHADER shadersType;
+			ObjectMeta meta;
+			GeometryShader shadersType;
 			nbl::asset::CGeometryCreator::return_type data;
 		};
 
-		GEOMETRIES_CPU(const nbl::asset::IGeometryCreator* _gc)
+		GeometriesCpu(const nbl::asset::IGeometryCreator* _gc)
 			: gc(_gc),
 			objects
 			({
-				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_CUBE, .name = "Cube Mesh" }, .shadersType = EGP_BASIC, .data = gc->createCubeMesh(nbl::core::vector3df(1.f, 1.f, 1.f)) },
-				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_SPHERE, .name = "Sphere Mesh" }, .shadersType = EGP_BASIC, .data = gc->createSphereMesh(2, 16, 16) },
-				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_CYLINDER, .name = "Cylinder Mesh" }, .shadersType = EGP_BASIC, .data = gc->createCylinderMesh(2, 2, 20) },
-				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_RECTANGLE, .name = "Rectangle Mesh" }, .shadersType = EGP_BASIC, .data = gc->createRectangleMesh(nbl::core::vector2df_SIMD(1.5, 3)) },
-				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_DISK, .name = "Disk Mesh" }, .shadersType = EGP_BASIC, .data = gc->createDiskMesh(2, 30) },
-				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_ARROW, .name = "Arrow Mesh" }, .shadersType = EGP_BASIC, .data = gc->createArrowMesh() },
-				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_CONE, .name = "Cone Mesh" }, .shadersType = EGP_CONE, .data = gc->createConeMesh(2, 3, 10) },
-				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_ICOSPHERE, .name = "Icoshpere Mesh" }, .shadersType = EGP_ICO, .data = gc->createIcoSphere(1, 3, true) }
+				ReferenceObjectCpu {.meta = {.type = OT_CUBE, .name = "Cube Mesh" }, .shadersType = GP_BASIC, .data = gc->createCubeMesh(nbl::core::vector3df(1.f, 1.f, 1.f)) },
+				ReferenceObjectCpu {.meta = {.type = OT_SPHERE, .name = "Sphere Mesh" }, .shadersType = GP_BASIC, .data = gc->createSphereMesh(2, 16, 16) },
+				ReferenceObjectCpu {.meta = {.type = OT_CYLINDER, .name = "Cylinder Mesh" }, .shadersType = GP_BASIC, .data = gc->createCylinderMesh(2, 2, 20) },
+				ReferenceObjectCpu {.meta = {.type = OT_RECTANGLE, .name = "Rectangle Mesh" }, .shadersType = GP_BASIC, .data = gc->createRectangleMesh(nbl::core::vector2df_SIMD(1.5, 3)) },
+				ReferenceObjectCpu {.meta = {.type = OT_DISK, .name = "Disk Mesh" }, .shadersType = GP_BASIC, .data = gc->createDiskMesh(2, 30) },
+				ReferenceObjectCpu {.meta = {.type = OT_ARROW, .name = "Arrow Mesh" }, .shadersType = GP_BASIC, .data = gc->createArrowMesh() },
+				ReferenceObjectCpu {.meta = {.type = OT_CONE, .name = "Cone Mesh" }, .shadersType = GP_CONE, .data = gc->createConeMesh(2, 3, 10) },
+				ReferenceObjectCpu {.meta = {.type = OT_ICOSPHERE, .name = "Icoshpere Mesh" }, .shadersType = GP_ICO, .data = gc->createIcoSphere(1, 3, true) }
 			})
 		{
 			gc = nullptr; // one shot
@@ -1066,39 +1068,39 @@ private:
 		const nbl::asset::IGeometryCreator* gc;
 
 	public:
-		const std::array<REFERENCE_OBJECT_CPU, EOT_COUNT> objects;
+		const std::array<ReferenceObjectCpu, OT_COUNT> objects;
 	};
 
-	using RESOURCES_BUNDLE_BASE_T = RESOURCES_BUNDLE_BASE<withAssetConverter>;
+	using resources_bundle_base_t = ResourcesBundleBase<withAssetConverter>;
 
-	struct RESOURCES_BUNDLE_SCRATCH : public RESOURCES_BUNDLE_BASE_T
+	struct ResourcesBundleScratch : public resources_bundle_base_t
 	{
-		using TYPES = RESOURCES_BUNDLE_BASE_T::TYPES;
+		using Types = resources_bundle_base_t::Types;
 
-		RESOURCES_BUNDLE_SCRATCH()
-			: RESOURCES_BUNDLE_BASE_T() {}
+		ResourcesBundleScratch()
+			: resources_bundle_base_t() {}
 
-		struct SHADERS
+		struct Shaders
 		{
-			nbl::core::smart_refctd_ptr<typename TYPES::SHADER> vertex = nullptr, fragment = nullptr;
+			nbl::core::smart_refctd_ptr<typename Types::shader_t> vertex = nullptr, fragment = nullptr;
 		};
 
-		nbl::core::smart_refctd_ptr<typename TYPES::DESCRIPTOR_SET_LAYOUT> descriptorSetLayout;
-		nbl::core::smart_refctd_ptr<typename TYPES::PIPELINE_LAYOUT> pipelineLayout;
-		std::array<SHADERS, GEOMETRIES_CPU::EGP_COUNT> shaders; //! note, shaders differ from common interface creation rules and cpu-gpu constructors are different, gpu requires cpu shader to be constructed first anyway (so no interface shadered params!) 
+		nbl::core::smart_refctd_ptr<typename Types::descriptor_set_layout_t> descriptorSetLayout;
+		nbl::core::smart_refctd_ptr<typename Types::pipeline_layout_t> pipelineLayout;
+		std::array<Shaders, GeometriesCpu::GP_COUNT> shaders;
 	};
 
 	// TODO: we could make those params templated with default values like below
-	_NBL_STATIC_INLINE_CONSTEXPR auto FRAMEBUFFER_W = 1280u, FRAMEBUFFER_H = 720u;
-	_NBL_STATIC_INLINE_CONSTEXPR auto COLOR_FBO_ATTACHMENT_FORMAT = nbl::asset::EF_R8G8B8A8_SRGB, DEPTH_FBO_ATTACHMENT_FORMAT = nbl::asset::EF_D16_UNORM;
-	_NBL_STATIC_INLINE_CONSTEXPR auto SAMPLES = nbl::video::IGPUImage::ESCF_1_BIT;
+	static constexpr auto FramebufferW = 1280u, FramebufferH = 720u;
+	static constexpr auto ColorFboAttachmentFormat = nbl::asset::EF_R8G8B8A8_SRGB, DepthFboAttachmentFormat = nbl::asset::EF_D16_UNORM;
+	static constexpr auto Samples = nbl::video::IGPUImage::ESCF_1_BIT;
 
-	RESOURCES_BUNDLE_SCRATCH scratch;
+	ResourcesBundleScratch scratch;
 
 	nbl::video::IUtilities* const utilities;
 	nbl::video::IGPUCommandBuffer* const commandBuffer;
 	nbl::system::ILogger* const logger;
-	GEOMETRIES_CPU geometries;
+	GeometriesCpu geometries;
 };
 
 #undef TYPES_IMPL_BOILERPLATE
@@ -1115,17 +1117,14 @@ private:
 class CScene final : public nbl::core::IReferenceCounted
 {
 public:
-
-	_NBL_STATIC_INLINE_CONSTEXPR auto NBL_OFFLINE_SCENE_TEX_ID = 1u;
-
-	struct OBJECT_DRAW_HOOK_CPU
+	struct ObjectDrawHookCpu
 	{
 		nbl::core::matrix3x4SIMD model;
 		nbl::asset::SBasicViewParameters viewParameters;
-		OBJECT_META meta;
+		ObjectMeta meta;
 	};
 
-	OBJECT_DRAW_HOOK_CPU object; // TODO: this could be a vector (to not complicate the example I leave it single object), we would need a better system for drawing then to make only 1 max 2 indirect draw calls (indexed and not indexed objects)
+	ObjectDrawHookCpu object; // TODO: this could be a vector (to not complicate the example I leave it single object), we would need a better system for drawing then to make only 1 max 2 indirect draw calls (indexed and not indexed objects)
 
 	struct
 	{
@@ -1133,29 +1132,33 @@ public:
 		nbl::core::smart_refctd_ptr<nbl::video::ISemaphore> progress;
 	} semaphore;
 
-	struct CREATE_RESOURCES_DIRECTLY_WITH_DEVICE { using BUILDER = ::RESOURCES_BUILDER<false>; };
-	struct CREATE_RESOURCES_WITH_ASSET_CONVERTER { using BUILDER = ::RESOURCES_BUILDER<true>; };
+	struct CreateResourcesDirectlyWithDevice { using Builder = ResourceBuilder<false>; };
+	struct CreateResourcesWithAssetConverter { using Builder = ResourceBuilder<true>; };
 
 	~CScene() {}
 
-	template<typename CREATE_WITH, typename... Args>
+	template<typename CreateWith, typename... Args>
 	static auto create(Args&&... args) -> decltype(auto)
 	{
+		EXPOSE_NABLA_NAMESPACES();
+
 		/*
 			user should call the constructor's args without last argument explicitly, this is a trick to make constructor templated, 
 			eg.create(smart_refctd_ptr(device), smart_refctd_ptr(logger), queuePointer, geometryPointer)
 		*/
 
-		auto* scene = new CScene(std::forward<Args>(args)..., CREATE_WITH {});
-		nbl::core::smart_refctd_ptr<CScene> smart(scene, nbl::core::dont_grab);
+		auto* scene = new CScene(std::forward<Args>(args)..., CreateWith {});
+		smart_refctd_ptr<CScene> smart(scene, dont_grab);
 
 		return smart;
 	}
 
 	inline void begin()
 	{
-		m_commandBuffer->reset(nbl::video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
-		m_commandBuffer->begin(nbl::video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+		EXPOSE_NABLA_NAMESPACES();
+
+		m_commandBuffer->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+		m_commandBuffer->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		m_commandBuffer->beginDebugMarker("UISampleApp Offline Scene Frame");
 
 		semaphore.progress = m_utilities->getLogicalDevice()->createSemaphore(semaphore.startedValue);
@@ -1163,12 +1166,14 @@ public:
 
 	inline void record()
 	{
+		EXPOSE_NABLA_NAMESPACES();
+
 		const struct 
 		{
 			const uint32_t width, height;
 		} fbo = { .width = m_frameBuffer->getCreationParameters().width, .height = m_frameBuffer->getCreationParameters().height };
 
-		nbl::asset::SViewport viewport;
+		SViewport viewport;
 		{
 			viewport.minDepth = 1.f;
 			viewport.maxDepth = 0.f;
@@ -1191,7 +1196,7 @@ public:
 			.extent = { fbo.width, fbo.height }
 		};
 
-		const nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo info =
+		const IGPUCommandBuffer::SRenderpassBeginInfo info =
 		{
 			.framebuffer = m_frameBuffer.get(),
 			.colorClearValues = &clear.color,
@@ -1199,18 +1204,18 @@ public:
 			.renderArea = renderArea
 		};
 
-		m_commandBuffer->beginRenderPass(info, nbl::video::IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+		m_commandBuffer->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 
 		const auto& [hook, meta] = resources.objects[object.meta.type];
 		auto* rawPipeline = hook.pipeline.get();
 
-		nbl::asset::SBufferBinding<const nbl::video::IGPUBuffer> vertex = hook.bindings.vertex, index = hook.bindings.index;
+		SBufferBinding<const IGPUBuffer> vertex = hook.bindings.vertex, index = hook.bindings.index;
 
 		m_commandBuffer->bindGraphicsPipeline(rawPipeline);
-		m_commandBuffer->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, rawPipeline->getLayout(), 1, 1, &resources.descriptorSet.get());
+		m_commandBuffer->bindDescriptorSets(EPBP_GRAPHICS, rawPipeline->getLayout(), 1, 1, &resources.descriptorSet.get());
 		m_commandBuffer->bindVertexBuffers(0, 1, &vertex);
 
-		if (index.buffer && hook.indexType != nbl::asset::EIT_UNKNOWN)
+		if (index.buffer && hook.indexType != EIT_UNKNOWN)
 		{
 			m_commandBuffer->bindIndexBuffer(index, hook.indexType);
 			m_commandBuffer->drawIndexed(hook.indexCount, 1, 0, 0, 0);
@@ -1228,14 +1233,16 @@ public:
 
 	inline bool submit()
 	{
-		const nbl::video::IQueue::SSubmitInfo::SCommandBufferInfo buffers[] =
+		EXPOSE_NABLA_NAMESPACES();
+
+		const IQueue::SSubmitInfo::SCommandBufferInfo buffers[] =
 		{
 			{ .cmdbuf = m_commandBuffer.get() }
 		};
 
-		const nbl::video::IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = semaphore.progress.get(),.value = semaphore.finishedValue,.stageMask = nbl::asset::PIPELINE_STAGE_FLAGS::FRAMEBUFFER_SPACE_BITS} };
+		const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = semaphore.progress.get(),.value = semaphore.finishedValue,.stageMask = PIPELINE_STAGE_FLAGS::FRAMEBUFFER_SPACE_BITS} };
 
-		const nbl::video::IQueue::SSubmitInfo infos[] =
+		const IQueue::SSubmitInfo infos[] =
 		{
 			{
 				.waitSemaphores = {},
@@ -1244,14 +1251,16 @@ public:
 			}
 		};
 
-		return queue->submit(infos) == nbl::video::IQueue::RESULT::SUCCESS;
+		return queue->submit(infos) == IQueue::RESULT::SUCCESS;
 	}
 
 	// note: must be updated outside render pass
 	inline void update()
 	{
-		nbl::asset::SBufferRange<nbl::video::IGPUBuffer> range;
-		range.buffer = nbl::core::smart_refctd_ptr(resources.ubo.buffer);
+		EXPOSE_NABLA_NAMESPACES();
+
+		SBufferRange<IGPUBuffer> range;
+		range.buffer = smart_refctd_ptr(resources.ubo.buffer);
 		range.size = resources.ubo.buffer->getSize();
 
 		m_commandBuffer->updateBuffer(range, &object.viewParameters);
@@ -1263,32 +1272,33 @@ public:
 	}
 
 private:
-	template<typename CREATE_WITH = CREATE_RESOURCES_DIRECTLY_WITH_DEVICE> // TODO: enforce constraints, only those 2 above are valid
-	CScene(nbl::core::smart_refctd_ptr<nbl::video::IUtilities> _utilities, nbl::core::smart_refctd_ptr<nbl::system::ILogger> _logger, nbl::video::CThreadSafeQueueAdapter* _graphicsQueue, const nbl::asset::IGeometryCreator* _geometryCreator, CREATE_WITH createWith = {})
+	template<typename CreateWith = CreateResourcesDirectlyWithDevice> // TODO: enforce constraints, only those 2 above are valid
+	CScene(nbl::core::smart_refctd_ptr<nbl::video::IUtilities> _utilities, nbl::core::smart_refctd_ptr<nbl::system::ILogger> _logger, nbl::video::CThreadSafeQueueAdapter* _graphicsQueue, const nbl::asset::IGeometryCreator* _geometryCreator, CreateWith createWith = {})
 		: m_utilities(nbl::core::smart_refctd_ptr(_utilities)), m_logger(nbl::core::smart_refctd_ptr(_logger)), queue(_graphicsQueue)
 	{
-		using BUILDER = typename CREATE_WITH::BUILDER;
+		EXPOSE_NABLA_NAMESPACES();
+		using Builder = typename CreateWith::Builder;
 
 		bool status = createCommandBuffer();
-		BUILDER builder(m_utilities.get(), m_commandBuffer.get(), m_logger.get(), _geometryCreator);
+		Builder builder(m_utilities.get(), m_commandBuffer.get(), m_logger.get(), _geometryCreator);
 
 		// gpu resources
 		if (builder.build())
 		{
 			if (!builder.finalize(resources, queue))
-				m_logger->log("Could not finalize resource objects to gpu objects!", nbl::system::ILogger::ELL_ERROR);
+				m_logger->log("Could not finalize resource objects to gpu objects!", ILogger::ELL_ERROR);
 		}
 		else
-			m_logger->log("Could not build resource objects!", nbl::system::ILogger::ELL_ERROR);
+			m_logger->log("Could not build resource objects!", ILogger::ELL_ERROR);
 
 		// frame buffer
 		{
 			const auto extent = resources.attachments.color->getCreationParameters().image->getCreationParameters().extent;
 
-			nbl::video::IGPUFramebuffer::SCreationParams params =
+			IGPUFramebuffer::SCreationParams params =
 			{
 				{
-					.renderpass = nbl::core::smart_refctd_ptr(resources.renderpass),
+					.renderpass = smart_refctd_ptr(resources.renderpass),
 					.depthStencilAttachments = &resources.attachments.depth.get(),
 					.colorAttachments = &resources.attachments.color.get(),
 					.width = extent.width,
@@ -1301,7 +1311,7 @@ private:
 
 			if (!m_frameBuffer)
 			{
-				m_logger->log("Could not create frame buffer!", nbl::system::ILogger::ELL_ERROR);
+				m_logger->log("Could not create frame buffer!", ILogger::ELL_ERROR);
 				return;
 			}
 		}
@@ -1309,17 +1319,18 @@ private:
 
 	bool createCommandBuffer()
 	{
-		m_commandPool = m_utilities->getLogicalDevice()->createCommandPool(queue->getFamilyIndex(), nbl::video::IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+		EXPOSE_NABLA_NAMESPACES();
+		m_commandPool = m_utilities->getLogicalDevice()->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 
 		if (!m_commandPool)
 		{
-			m_logger->log("Couldn't create Command Pool!", nbl::system::ILogger::ELL_ERROR);
+			m_logger->log("Couldn't create Command Pool!", ILogger::ELL_ERROR);
 			return false;
 		}
 
-		if (!m_commandPool->createCommandBuffers(nbl::video::IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &m_commandBuffer , 1 }))
+		if (!m_commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &m_commandBuffer , 1 }))
 		{
-			m_logger->log("Couldn't create Command Buffer!", nbl::system::ILogger::ELL_ERROR);
+			m_logger->log("Couldn't create Command Buffer!", ILogger::ELL_ERROR);
 			return false;
 		}
 
@@ -1335,7 +1346,9 @@ private:
 
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer> m_frameBuffer;
 
-	RESOURCES_BUNDLE resources;
+	ResourcesBundle resources;
 };
 
-#endif // __NBL_THIS_EXAMPLE_SCENE_H_INCLUDED__
+} // nbl::scene::geometrycreator
+
+#endif // _NBL_GEOMETRY_CREATOR_SCENE_H_INCLUDED_

@@ -11,6 +11,8 @@ using namespace system;
 using namespace asset;
 using namespace ui;
 using namespace video;
+using namespace scene;
+using namespace geometrycreator;
 
 /*
 	Renders scene texture to an offline
@@ -134,8 +136,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					return logFail("Couldn't create Command Buffer!");
 			}
 			
-			//pass.scene = CScene::create<CScene::CREATE_RESOURCES_DIRECTLY_WITH_DEVICE>(smart_refctd_ptr(m_utils), smart_refctd_ptr(m_logger), gQueue, geometry);
-			pass.scene = CScene::create<CScene::CREATE_RESOURCES_WITH_ASSET_CONVERTER>(smart_refctd_ptr(m_utils), smart_refctd_ptr(m_logger), gQueue, geometry);
+			//pass.scene = CScene::create<CScene::CreateResourcesDirectlyWithDevice>(smart_refctd_ptr(m_utils), smart_refctd_ptr(m_logger), gQueue, geometry);
+			pass.scene = CScene::create<CScene::CreateResourcesWithAssetConverter>(smart_refctd_ptr(m_utils), smart_refctd_ptr(m_logger), gQueue, geometry);
 
 			nbl::ext::imgui::UI::SCreationParameters params;
 
@@ -362,7 +364,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						hook.model = core::transpose(imguizmoM16InOut.model).extractSub3x4();
 						{
 							const auto& references = pass.scene->getResources().objects;
-							const auto type = static_cast<E_OBJECT_TYPE>(gcIndex);
+							const auto type = static_cast<ObjectType>(gcIndex);
 
 							const auto& [gpu, meta] = references[type];
 							hook.meta.type = type;
@@ -510,9 +512,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			descriptorInfo[nbl::ext::imgui::UI::FontAtlasTexId].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 			descriptorInfo[nbl::ext::imgui::UI::FontAtlasTexId].desc = core::smart_refctd_ptr<nbl::video::IGPUImageView>(pass.ui.manager->getFontAtlasView());
 
-			descriptorInfo[CScene::NBL_OFFLINE_SCENE_TEX_ID].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-
-			descriptorInfo[CScene::NBL_OFFLINE_SCENE_TEX_ID].desc = pass.scene->getResources().attachments.color;
+			descriptorInfo[OfflineSceneTextureIx].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			descriptorInfo[OfflineSceneTextureIx].desc = pass.scene->getResources().attachments.color;
 
 			for (uint32_t i = 0; i < descriptorInfo.size(); ++i)
 			{
@@ -522,7 +523,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				writes[i].count = 1u;
 			}
 			writes[nbl::ext::imgui::UI::FontAtlasTexId].info = descriptorInfo.data() + nbl::ext::imgui::UI::FontAtlasTexId;
-			writes[CScene::NBL_OFFLINE_SCENE_TEX_ID].info = descriptorInfo.data() + CScene::NBL_OFFLINE_SCENE_TEX_ID;
+			writes[OfflineSceneTextureIx].info = descriptorInfo.data() + OfflineSceneTextureIx;
 
 			return m_device->updateDescriptorSets(writes, {});
 		}
@@ -715,7 +716,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						capturedEvents.mouse.emplace_back(e);
 
 						if (e.type == nbl::ui::SMouseEvent::EET_SCROLL)
-							gcIndex = std::clamp<uint16_t>(int16_t(gcIndex) + int16_t(core::sign(e.scrollEvent.verticalScroll)), int64_t(0), int64_t(EOT_COUNT - (uint8_t)1u));
+							gcIndex = std::clamp<uint16_t>(int16_t(gcIndex) + int16_t(core::sign(e.scrollEvent.verticalScroll)), int64_t(0), int64_t(OT_COUNT - (uint8_t)1u));
 					}
 				}, m_logger.get());
 
