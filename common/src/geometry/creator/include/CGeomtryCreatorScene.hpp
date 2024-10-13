@@ -1105,6 +1105,13 @@ private:
 
 #undef TYPES_IMPL_BOILERPLATE
 
+struct ObjectDrawHookCpu
+{
+	nbl::core::matrix3x4SIMD model;
+	nbl::asset::SBasicViewParameters viewParameters;
+	ObjectMeta meta;
+};
+
 /*
 	Rendering to offline framebuffer which we don't present, color 
 	scene attachment texture we use for second UI renderpass 
@@ -1117,13 +1124,6 @@ private:
 class CScene final : public nbl::core::IReferenceCounted
 {
 public:
-	struct ObjectDrawHookCpu
-	{
-		nbl::core::matrix3x4SIMD model;
-		nbl::asset::SBasicViewParameters viewParameters;
-		ObjectMeta meta;
-	};
-
 	ObjectDrawHookCpu object; // TODO: this could be a vector (to not complicate the example I leave it single object), we would need a better system for drawing then to make only 1 max 2 indirect draw calls (indexed and not indexed objects)
 
 	struct
@@ -1136,6 +1136,28 @@ public:
 	struct CreateResourcesWithAssetConverter { using Builder = ResourceBuilder<true>; };
 
 	~CScene() {}
+
+	static inline nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> createCommandBuffer(nbl::video::ILogicalDevice* const device, nbl::system::ILogger* const logger, const uint32_t familyIx)
+	{
+		EXPOSE_NABLA_NAMESPACES();
+		auto pool = device->createCommandPool(familyIx, IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+
+		if (!pool)
+		{
+			logger->log("Couldn't create Command Pool!", ILogger::ELL_ERROR);
+			return nullptr;
+		}
+
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmd;
+
+		if (!pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &cmd , 1 }))
+		{
+			logger->log("Couldn't create Command Buffer!", ILogger::ELL_ERROR);
+			return nullptr;
+		}
+
+		return cmd;
+	}
 
 	template<typename CreateWith, typename... Args>
 	static auto create(Args&&... args) -> decltype(auto)
@@ -1279,7 +1301,7 @@ private:
 		EXPOSE_NABLA_NAMESPACES();
 		using Builder = typename CreateWith::Builder;
 
-		bool status = createCommandBuffer();
+		m_commandBuffer = createCommandBuffer(m_utilities->getLogicalDevice(), m_utilities->getLogger(), queue->getFamilyIndex());
 		Builder builder(m_utilities.get(), m_commandBuffer.get(), m_logger.get(), _geometryCreator);
 
 		// gpu resources
@@ -1317,31 +1339,10 @@ private:
 		}
 	}
 
-	bool createCommandBuffer()
-	{
-		EXPOSE_NABLA_NAMESPACES();
-		m_commandPool = m_utilities->getLogicalDevice()->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-
-		if (!m_commandPool)
-		{
-			m_logger->log("Couldn't create Command Pool!", ILogger::ELL_ERROR);
-			return false;
-		}
-
-		if (!m_commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &m_commandBuffer , 1 }))
-		{
-			m_logger->log("Couldn't create Command Buffer!", ILogger::ELL_ERROR);
-			return false;
-		}
-
-		return true;
-	}
-
 	nbl::core::smart_refctd_ptr<nbl::video::IUtilities> m_utilities;
 	nbl::core::smart_refctd_ptr<nbl::system::ILogger> m_logger;
 
 	nbl::video::CThreadSafeQueueAdapter* queue;
-	nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool> m_commandPool; // TODO: decide if we should reuse main app's pool to allocate the cmd
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> m_commandBuffer;
 
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer> m_frameBuffer;

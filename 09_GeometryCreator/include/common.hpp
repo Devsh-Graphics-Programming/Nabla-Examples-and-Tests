@@ -2,14 +2,18 @@
 #define __NBL_THIS_EXAMPLE_COMMON_H_INCLUDED__
 
 #include <nabla.h>
+#include "nbl/asset/utils/CGeometryCreator.h"
 
-// common api
-#include "CCamera.hpp"
 #include "SimpleWindowedApplication.hpp"
+#include "InputSystem.hpp"
 #include "CEventCallback.hpp"
 
-// the example's headers
-#include "transform.hpp"
+#include "CCamera.hpp"
+#include "SBasicViewParameters.hlsl"
+
+#include "geometry/creator/spirv/builtin/CArchive.h"
+#include "geometry/creator/spirv/builtin/builtinResources.h"
+
 #include "CGeomtryCreatorScene.hpp"
 
 using namespace nbl;

@@ -4,16 +4,6 @@
 
 #include "common.hpp"
 
-using namespace nbl;
-using namespace core;
-using namespace hlsl;
-using namespace system;
-using namespace asset;
-using namespace ui;
-using namespace video;
-using namespace scene;
-using namespace geometrycreator;
-
 /*
 	Renders scene texture to an offline
 	framebuffer which color attachment
@@ -172,7 +162,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 				m_descriptorSetPool->createDescriptorSets(1u, &descriptorSetLayout, &pass.ui.descriptorSet);
 				assert(pass.ui.descriptorSet);
-
 			}
 			pass.ui.manager->registerListener([this]() -> void
 				{

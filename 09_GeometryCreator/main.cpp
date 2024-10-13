@@ -2,27 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#include <nabla.h>
-#include "nbl/asset/utils/CGeometryCreator.h"
-#include "nbl/video/utilities/CSimpleResizeSurface.h"
-
-#include "SimpleWindowedApplication.hpp"
-#include "InputSystem.hpp"
-#include "CEventCallback.hpp"
-
-#include "CCamera.hpp"
-#include "SBasicViewParameters.hlsl"
-
-#include "geometry/creator/spirv/builtin/CArchive.h"
-#include "geometry/creator/spirv/builtin/builtinResources.h"
-
-using namespace nbl;
-using namespace core;
-using namespace hlsl;
-using namespace system;
-using namespace asset;
-using namespace ui;
-using namespace video;
+#include "common.hpp"
 
 class CSwapchainFramebuffersAndDepth final : public nbl::video::CDefaultSwapchainFramebuffers
 {
@@ -162,7 +142,7 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 
-			m_semaphore = m_device->createSemaphore(m_submitIx);
+			m_semaphore = m_device->createSemaphore(m_realFrameIx);
 			if (!m_semaphore)
 				return logFail("Failed to Create a Semaphore!");
 
@@ -222,13 +202,13 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 				m_maxFramesInFlight = FRAMES_IN_FLIGHT;
 			}
 
-			m_cmdPool = m_device->createCommandPool(gQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+			auto pool = m_device->createCommandPool(gQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 
 			for (auto i = 0u; i < m_maxFramesInFlight; i++)
 			{
-				if (!m_cmdPool)
+				if (!pool)
 					return logFail("Couldn't create Command Pool!");
-				if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data() + i, 1 }))
+				if (!pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data() + i, 1 }))
 					return logFail("Couldn't create Command Buffer!");
 			}
 
@@ -238,115 +218,19 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 			auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
 			auto* geometry = assetManager->getGeometryCreator();
 
-			nbl::video::IGPUDescriptorSetLayout::SBinding bindings[] = {
-				{
-					.binding = 0u,
-					.type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_VERTEX | asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-					.count = 1u,
-				}
-			};
-
-			auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
-			{
-				const video::IGPUDescriptorSetLayout* const layouts[] = { nullptr, descriptorSetLayout.get() };
-				const uint32_t setCounts[] = { 0u, 1u };
-				m_descriptorPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
-				if (!m_descriptorPool)
-					return logFail("Failed to Create Descriptor Pool");
-			}
-
-			m_gpuDescriptorSet = m_descriptorPool->createDescriptorSet(descriptorSetLayout);
-
-			if (!m_gpuDescriptorSet)
-				return logFail("Could not create Descriptor Set!");
-
-			auto pipelineLayout = m_device->createPipelineLayout({}, nullptr, std::move(descriptorSetLayout));
-
-			if (!pipelineLayout)
-				return logFail("Could not create Pipeline Layout!");
-
-			struct
-			{
-				const IGeometryCreator* gc;
-
-				const std::vector<O_DATA>
-				basic = 
-				{ 
-					std::make_pair(gc->createCubeMesh(vector3df(1.f, 1.f, 1.f)), "Cube Mesh"),
-
-					std::make_pair(gc->createSphereMesh(2, 16, 16), "Sphere Mesh"),
-					std::make_pair(gc->createCylinderMesh(2, 2, 20), "Cylinder Mesh"),
-					std::make_pair(gc->createRectangleMesh(nbl::core::vector2df_SIMD(1.5, 3)), "Rectangle Mesh"),
-					std::make_pair(gc->createDiskMesh(2, 30), "Disk Mesh"),
-					std::make_pair(gc->createArrowMesh(), "Arrow Mesh")
-				},
-				cone =
-				{
-					std::make_pair(gc->createConeMesh(2, 3, 10), "Cone Mesh")
-				}, 
-				ico =
-				{
-					std::make_pair(gc->createIcoSphere(1, 3, true), "Icoshpere Mesh")
-				}, 
-				grid =
-				{
-					std::make_pair(gc->createRectangleMesh(vector2df_SIMD(999.f, 999.f)), "Grid on Scene")
-				};
-			} geometries{.gc = geometry };
-
-			auto createBundlePassData = [&]<E_PASS_TYPE ept, nbl::core::StringLiteral vPath, nbl::core::StringLiteral fPath>(const auto& objects)
-			{
-				for (auto& object : objects)
-					if (!createPassData<vPath,fPath>(ept, object, pipelineLayout.get(), renderpass))
-						return logFail("Could not create pass data!");
-
-				return true;
-			};
-
-			if (!createBundlePassData.template operator() < EPT_GEOMETRY_CREATOR, NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.vertex.spv"), NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv")> (geometries.basic))
-				return false;
-
-			if (!createBundlePassData.template operator() < EPT_GEOMETRY_CREATOR, NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.cone.vertex.spv"), NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (geometries.cone)) // note we reuse basic fragment shader
-				return false;
-
-			if (!createBundlePassData.template operator() < EPT_GEOMETRY_CREATOR, NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.ico.vertex.spv"), NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (geometries.ico)) // note we reuse basic fragment shader
-				return false;
-
-			if (!createBundlePassData.template operator() < EPT_GRID, NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/grid.vertex.spv"), NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/grid.fragment.spv") > (geometries.grid))
-				return false;
+			using Builder = typename CScene::CreateResourcesDirectlyWithDevice::Builder;
+			//using Builder = typename CScene::CreateResourcesWithAssetConverter::Builder;
+			auto oneRunCmd = CScene::createCommandBuffer(m_utils->getLogicalDevice(), m_utils->getLogger(), gQueue->getFamilyIndex());
+			Builder builder(m_utils.get(), oneRunCmd.get(), m_logger.get(), geometry);
 
 			// gpu resources
+			if (builder.build())
 			{
-				const auto mask = m_device->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
-
-				m_ubo = m_device->createBuffer({{.size = sizeof(SBasicViewParameters), .usage = core::bitflag(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF} });
-
-				for (auto it : { m_ubo })
-				{
-					IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = it->getMemoryReqs();
-					reqs.memoryTypeBits &= mask;
-
-					m_device->allocate(reqs, it.get());
-				}
-
-				{
-					video::IGPUDescriptorSet::SWriteDescriptorSet write;
-					write.dstSet = m_gpuDescriptorSet.get();
-					write.binding = 0;
-					write.arrayElement = 0u;
-					write.count = 1u;
-					video::IGPUDescriptorSet::SDescriptorInfo info;
-					{
-						info.desc = core::smart_refctd_ptr(m_ubo);
-						info.info.buffer.offset = 0ull;
-						info.info.buffer.size = m_ubo->getSize();
-					}
-					write.info = &info;
-					m_device->updateDescriptorSets(1u, &write, 0u, nullptr);
-				}
+				if (!builder.finalize(resources, gQueue))
+					m_logger->log("Could not finalize resource objects to gpu objects!", ILogger::ELL_ERROR);
 			}
+			else
+				m_logger->log("Could not build resource objects!", ILogger::ELL_ERROR);
 
 			// camera
 			{
@@ -407,6 +291,12 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); mouseProcess(events); }, m_logger.get());
 				keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { camera.keyboardProcess(events); }, m_logger.get());
 				camera.endInputProcessing(nextPresentationTimestamp);
+
+				const auto type = static_cast<ObjectType>(gcIndex);
+				const auto& [gpu, meta] = resources.objects[type];
+
+				object.meta.type = type;
+				object.meta.name = meta.name;
 			}
 
 			const auto viewMatrix = camera.getViewMatrix();
@@ -427,10 +317,9 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 			memcpy(uboData.MV, modelViewMatrix.pointer(), sizeof(uboData.MV));
 			memcpy(uboData.NormalMat, normalMatrix.pointer(), sizeof(uboData.NormalMat));
 			{
-
 				SBufferRange<IGPUBuffer> range;
-				range.buffer = core::smart_refctd_ptr(m_ubo);
-				range.size = m_ubo->getSize();
+				range.buffer = core::smart_refctd_ptr(resources.ubo.buffer);
+				range.size = resources.ubo.buffer->getSize();
 
 				cb->updateBuffer(range, &uboData);
 			}
@@ -476,30 +365,22 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 				cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 			}
 
-			auto render = [&]<E_PASS_TYPE ept>(uint16_t index = 0) -> void
+			const auto& [hook, meta] = resources.objects[object.meta.type];
+			auto* rawPipeline = hook.pipeline.get();
+
+			SBufferBinding<const IGPUBuffer> vertex = hook.bindings.vertex, index = hook.bindings.index;
+
+			cb->bindGraphicsPipeline(rawPipeline);
+			cb->bindDescriptorSets(EPBP_GRAPHICS, rawPipeline->getLayout(), 1, 1, &resources.descriptorSet.get());
+			cb->bindVertexBuffers(0, 1, &vertex);
+
+			if (index.buffer && hook.indexType != EIT_UNKNOWN)
 			{
-				auto& hook = gpu.pass[ept][index];
-
-				auto* rawPipeline = hook.pipeline.get();
-				cb->bindGraphicsPipeline(rawPipeline);
-				cb->bindDescriptorSets(EPBP_GRAPHICS, rawPipeline->getLayout(), 1, 1, &m_gpuDescriptorSet.get());
-
-				const asset::SBufferBinding<const IGPUBuffer> bVertices[] = { {.offset = 0, .buffer = hook.m_vertexBuffer} };
-				const asset::SBufferBinding<const IGPUBuffer> bIndices = { .offset = 0, .buffer = hook.m_indexBuffer };
-
-				cb->bindVertexBuffers(0, 1, bVertices);
-
-				if (bIndices.buffer && hook.indexType != EIT_UNKNOWN)
-				{
-					cb->bindIndexBuffer(bIndices, hook.indexType);
-					cb->drawIndexed(hook.indexCount, 1, 0, 0, 0);
-				}
-				else
-					cb->draw(hook.indexCount, 1, 0, 0);
-			};
-
-			render.template operator() < EPT_GEOMETRY_CREATOR > (gcIndex);
-			render.template operator() < EPT_GRID > ();
+				cb->bindIndexBuffer(index, hook.indexType);
+				cb->drawIndexed(hook.indexCount, 1, 0, 0, 0);
+			}
+			else
+				cb->draw(hook.indexCount, 1, 0, 0);
 
 			cb->endRenderPass();
 			cb->end();
@@ -508,8 +389,8 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 				{
 					{
 						.semaphore = m_semaphore.get(),
-						.value = ++m_submitIx,
-						.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
+						.value = ++m_realFrameIx,
+						.stageMask = PIPELINE_STAGE_FLAGS::ALL_GRAPHICS_BITS
 					}
 				};
 				{
@@ -536,20 +417,28 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 							}
 						};
 
-						if (queue->submit(infos) != IQueue::RESULT::SUCCESS)
-							m_submitIx--;
+						if (queue->submit(infos) == IQueue::RESULT::SUCCESS)
+						{
+							const nbl::video::ISemaphore::SWaitInfo waitInfos[] =
+							{ {
+								.semaphore = m_semaphore.get(),
+								.value = m_realFrameIx
+							} };
+
+							m_device->blockForSemaphores(waitInfos); // this is not solution, quick wa to not throw validation errors
+						}
+						else
+							--m_realFrameIx;
 					}
 				}
 
 				std::string caption = "[Nabla Engine] Geometry Creator";
 				{
-					caption += ", displaying [" + gpu.pass[EPT_GEOMETRY_CREATOR][gcIndex].displayName + "]";
+					caption += ", displaying [" + std::string(object.meta.name.data()) + "]";
 					m_window->setCaption(caption);
 				}
 				m_surface->present(m_currentImageAcquire.imageIndex, rendered);
 			}
-
-			m_realFrameIx++;
 		}
 
 		inline bool keepRunning() override
@@ -568,11 +457,8 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 	private:
 		smart_refctd_ptr<IWindow> m_window;
 		smart_refctd_ptr<CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>> m_surface;
-		smart_refctd_ptr<IGPUGraphicsPipeline> m_pipeline;
 		smart_refctd_ptr<ISemaphore> m_semaphore;
-		smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
 		uint64_t m_realFrameIx : 59 = 0;
-		uint64_t m_submitIx : 59 = 0;
 		uint64_t m_maxFramesInFlight : 5;
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>, ISwapchain::MaxImages> m_cmdBufs;
 		ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
@@ -584,176 +470,9 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
 		video::CDumbPresentationOracle oracle;
 
-		core::smart_refctd_ptr<video::IDescriptorPool> m_descriptorPool;
-		core::smart_refctd_ptr<video::IGPUDescriptorSet> m_gpuDescriptorSet;
-
-		using O_DATA = std::pair<IGeometryCreator::return_type, std::string>;
-
-		enum E_PASS_TYPE
-		{
-			EPT_GEOMETRY_CREATOR,
-			EPT_GRID,
-			EPT_COUNT
-		};
-
-		struct Pass {
-			core::smart_refctd_ptr<video::IGPUGraphicsPipeline> pipeline;
-			core::smart_refctd_ptr<video::IGPUBuffer> m_vertexBuffer, m_indexBuffer;
-			E_INDEX_TYPE indexType;
-			uint32_t indexCount;
-			std::string displayName;
-		};
-
-		struct GPUPData
-		{
-			std::array<std::vector<Pass>, EPT_COUNT> pass = {};
-		} gpu;
-
+		ResourcesBundle resources;
+		ObjectDrawHookCpu object;
 		uint16_t gcIndex = {};
-		core::smart_refctd_ptr<video::IGPUBuffer> m_ubo;
-
-		template<nbl::core::StringLiteral vPath, nbl::core::StringLiteral fPath>
-		bool createPassData(E_PASS_TYPE ept, const O_DATA& oData, const video::IGPUPipelineLayout* pl, const video::IGPURenderpass* rp)
-		{
-			const auto& geo = oData.first;
-
-			struct
-			{
-				core::smart_refctd_ptr<video::IGPUShader> vertex, geometry, fragment;
-			} shaders;
-
-			{
-				struct
-				{
-					const system::SBuiltinFile vertex = ::geometry::creator::spirv::builtin::get_resource<vPath>();
-					const system::SBuiltinFile fragment = ::geometry::creator::spirv::builtin::get_resource<fPath>();
-				} spirv;
-
-				auto createShader = [&](const system::SBuiltinFile& in, asset::IShader::E_SHADER_STAGE stage) -> core::smart_refctd_ptr<video::IGPUShader>
-				{
-					const auto buffer = core::make_smart_refctd_ptr<asset::CCustomAllocatorCPUBuffer<core::null_allocator<uint8_t>, true> >(in.size, (void*)in.contents, core::adopt_memory);
-					const auto shader = make_smart_refctd_ptr<ICPUShader>(core::smart_refctd_ptr(buffer), stage, IShader::E_CONTENT_TYPE::ECT_SPIRV, "");
-
-					// also first should look for cached/already created to not duplicate
-					return m_device->createShader(shader.get());
-				};
-
-				shaders.vertex = createShader(spirv.vertex, IShader::E_SHADER_STAGE::ESS_VERTEX);
-				shaders.fragment = createShader(spirv.fragment, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			}
-
-			SBlendParams blendParams{};
-			{
-				blendParams.logicOp = ELO_NO_OP;
-
-				auto& param = blendParams.blendParams[0];
-				param.srcColorFactor = EBF_SRC_ALPHA;//VK_BLEND_FACTOR_SRC_ALPHA;
-				param.dstColorFactor = EBF_ONE_MINUS_SRC_ALPHA;//VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-				param.colorBlendOp = EBO_ADD;//VK_BLEND_OP_ADD;
-				param.srcAlphaFactor = EBF_ONE_MINUS_SRC_ALPHA;//VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-				param.dstAlphaFactor = EBF_ZERO;//VK_BLEND_FACTOR_ZERO;
-				param.alphaBlendOp = EBO_ADD;//VK_BLEND_OP_ADD;
-				param.colorWriteMask = (1u << 0u) | (1u << 1u) | (1u << 2u) | (1u << 3u);//VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-			}
-
-			SRasterizationParams rasterizationParams{};
-			rasterizationParams.faceCullingMode = EFCM_NONE;
-
-			{
-				const IGPUShader::SSpecInfo specs[] =
-				{
-					{.entryPoint = "VSMain", .shader = shaders.vertex.get() },
-					{.entryPoint = "PSMain", .shader = shaders.fragment.get() }
-				};
-
-				IGPUGraphicsPipeline::SCreationParams params[1];
-				{
-					auto& param = params[0];
-					param.layout = pl;
-					param.shaders = specs;
-					param.renderpass = rp;
-					param.cached = { .vertexInput = geo.inputParams, .primitiveAssembly = geo.assemblyParams, .rasterization = rasterizationParams, .blend = blendParams, .subpassIx = 0u };
-				};
-
-				auto& hook = gpu.pass[ept].emplace_back();
-
-				hook.indexCount = geo.indexCount;
-				hook.indexType = geo.indexType;
-				hook.displayName = oData.second;
-
-				// first should look for cached pipeline to not duplicate but lets leave how it is now
-				if (!m_device->createGraphicsPipelines(nullptr, params, &hook.pipeline))
-					return false;
-
-				if (!createVIBuffers(hook, geo))
-					return false;
-
-				return true;
-			}
-		}
-
-		bool createVIBuffers(Pass& hook, const CGeometryCreator::return_type& oData)
-		{
-			const auto mask = m_device->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
-
-			auto vBuffer = core::smart_refctd_ptr(oData.bindings[0].buffer); // no offset
-			auto iBuffer = core::smart_refctd_ptr(oData.indexBuffer.buffer); // no offset
-
-			hook.m_vertexBuffer = m_device->createBuffer({ {.size = vBuffer->getSize(), .usage = core::bitflag(asset::IBuffer::EUF_VERTEX_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF}});
-			hook.m_indexBuffer = iBuffer ? m_device->createBuffer({ {.size = iBuffer->getSize(), .usage = core::bitflag(asset::IBuffer::EUF_INDEX_BUFFER_BIT) | asset::IBuffer::EUF_VERTEX_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF}}) : nullptr;
-
-			if (!hook.m_vertexBuffer)
-				return false;
-
-			if (oData.indexType != EIT_UNKNOWN)
-				if (!hook.m_indexBuffer)
-					return false;
-
-			for (auto it : { hook.m_vertexBuffer , hook.m_indexBuffer })
-			{
-				if (it)
-				{
-					IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = it->getMemoryReqs();
-					reqs.memoryTypeBits &= mask;
-
-					m_device->allocate(reqs, it.get());
-				}
-			}
-
-			{
-				auto fillGPUBuffer = [&m_logger = m_logger](smart_refctd_ptr<ICPUBuffer> cBuffer, smart_refctd_ptr<IGPUBuffer> gBuffer)
-				{
-					auto binding = gBuffer->getBoundMemory();
-
-					if (!binding.memory->map({ 0ull, binding.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ))
-					{
-						m_logger->log("Could not map device memory", system::ILogger::ELL_ERROR);
-						return false;
-					}
-
-					if (!binding.memory->isCurrentlyMapped())
-					{
-						m_logger->log("Buffer memory is not mapped!", system::ILogger::ELL_ERROR);
-						return false;
-					}
-
-					auto* mPointer = binding.memory->getMappedPointer();
-					memcpy(mPointer, cBuffer->getPointer(), gBuffer->getSize());
-					binding.memory->unmap();
-
-					return true;
-				};
-
-				if (!fillGPUBuffer(vBuffer, hook.m_vertexBuffer))
-					return false;
-
-				if(hook.m_indexBuffer)
-					if (!fillGPUBuffer(iBuffer, hook.m_indexBuffer))
-						return false;
-			}
-
-			return true;
-		}
 
 		void mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
 		{
@@ -762,7 +481,7 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 				auto ev = *eventIt;
 
 				if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
-					gcIndex = std::clamp<uint16_t>(int16_t(gcIndex) + int16_t(core::sign(ev.scrollEvent.verticalScroll)), int64_t(0), int64_t( gpu.pass[EPT_GEOMETRY_CREATOR].size() - 1));
+					gcIndex = std::clamp<uint16_t>(int16_t(gcIndex) + int16_t(core::sign(ev.scrollEvent.verticalScroll)), int64_t(0), int64_t(OT_COUNT - (uint8_t)1u));
 			}
 		}
 };
