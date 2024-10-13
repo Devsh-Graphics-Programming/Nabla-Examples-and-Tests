@@ -2,7 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#include "nbl/this_example/common.hpp"
+#include "common.hpp"
 
 using namespace nbl;
 using namespace core;

@@ -5,7 +5,7 @@
 #include "nbl/ext/ImGui/ImGui.h"
 #include "imgui/imgui_internal.h"
 #include "imguizmo/ImGuizmo.h"
-#include "renderpass/scene.hpp"
+#include "scene.hpp"
 
 struct TransformRequestParams
 {

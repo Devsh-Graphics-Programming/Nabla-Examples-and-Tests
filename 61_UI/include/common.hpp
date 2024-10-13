@@ -8,9 +8,8 @@
 #include "SimpleWindowedApplication.hpp"
 #include "CEventCallback.hpp"
 
-// example's own headers
-#include "nbl/this_example/transform.hpp"
-#include "nbl/this_example/renderpass/scene.hpp"
-//#include "nbl/this_example/renderpass/ui.hpp"
+// the example's headers
+#include "transform.hpp"
+#include "scene.hpp"
 
 #endif // __NBL_THIS_EXAMPLE_COMMON_H_INCLUDED__
