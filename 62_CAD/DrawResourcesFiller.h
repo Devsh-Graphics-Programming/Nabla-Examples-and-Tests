@@ -40,6 +40,8 @@ public:
 
 	typedef uint32_t index_buffer_type;
 
+	using msdf_hash = std::size_t;
+
 	DrawResourcesFiller();
 
 	DrawResourcesFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue);
@@ -61,8 +63,8 @@ public:
 
 	// functions that user should set to get MSDF texture if it's not available in cache.
 	// it's up to user to return cached or generate on the fly.
-	typedef std::function<core::smart_refctd_ptr<ICPUBuffer>(nbl::ext::TextRendering::FontFace* /*face*/, uint32_t /*glyphIdx*/)> GetGlyphMSDFTextureFunc;
-	typedef std::function<core::smart_refctd_ptr<ICPUBuffer>(HatchFillPattern/*pattern*/)> GetHatchFillPatternMSDFTextureFunc;
+	typedef std::function<core::smart_refctd_ptr<ICPUImage>(nbl::ext::TextRendering::FontFace* /*face*/, uint32_t /*glyphIdx*/)> GetGlyphMSDFTextureFunc;
+	typedef std::function<core::smart_refctd_ptr<ICPUImage>(HatchFillPattern/*pattern*/)> GetHatchFillPatternMSDFTextureFunc;
 	void setGlyphMSDFTextureFunction(const GetGlyphMSDFTextureFunc& func);
 	void setHatchFillMSDFTextureFunction(const GetHatchFillPatternMSDFTextureFunc& func);
 
@@ -205,21 +207,23 @@ public:
 		auto extents = msdfTextureArray->getCreationParameters().image->getCreationParameters().extent;
 		return uint32_t2(extents.width, extents.height);
 	}
+	uint32_t getMSDFMips() {
+		return msdfTextureArray->getCreationParameters().image->getCreationParameters().mipLevels;
+	}
+
+	// TODO: Return to protected after testing
+	uint32_t addMSDFTexture(std::function<core::smart_refctd_ptr<ICPUImage>()> createResourceIfEmpty, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
 
 protected:
 	
 	struct TextureCopy
 	{
-		core::smart_refctd_ptr<ICPUBuffer> srcBuffer;
-		uint64_t bufferOffset;
-		uint32_t3 imageExtent;
+		core::smart_refctd_ptr<ICPUImage> image;
 		uint32_t index;
 	};
 
 	SubmitFunc submitDraws;
 	
-	static constexpr uint32_t InvalidStyleIdx = ~0u;
-
 	void finalizeMainObjectCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
 	void finalizeGeometryCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
@@ -300,7 +304,6 @@ protected:
 
 	// MSDF Hashing and Caching Internal Functions 
 	static constexpr uint64_t InvalidMSDFHash = std::numeric_limits<uint64_t>::max();
-	using msdf_hash = std::size_t;
 	enum class MSDFType : uint8_t
 	{
 		HATCH_FILL_PATTERN,
@@ -341,9 +344,7 @@ protected:
 		return textureIdx;
 	}
 
-	uint32_t addMSDFTexture(std::function<core::smart_refctd_ptr<ICPUBuffer>()> createResourceIfEmpty, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
-
-	uint32_t addMSDFTexture(core::smart_refctd_ptr<ICPUBuffer> textureBuffer, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
+	uint32_t addMSDFTexture(core::smart_refctd_ptr<ICPUImage> textureBuffer, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
 	
 	// Members
 	smart_refctd_ptr<IUtilities> m_utilities;
