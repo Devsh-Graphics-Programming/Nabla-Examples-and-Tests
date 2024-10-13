@@ -150,7 +150,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			params.transfer = getTransferUpQueue();
 			params.utilities = m_utils;
 			{
-				pass.ui.manager = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(std::move(params));
+				pass.ui.manager = nbl::ext::imgui::UI::create(std::move(params));
+
+				if (!pass.ui.manager)
+					return false;
 
 				// note that we use default layout provided by our extension, but you are free to create your own by filling nbl::ext::imgui::UI::S_CREATION_PARAMETERS::resources
 				const auto* descriptorSetLayout = pass.ui.manager->getPipeline()->getLayout()->getDescriptorSetLayout(0u);
