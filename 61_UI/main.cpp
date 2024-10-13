@@ -589,6 +589,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				auto* pipeline = pass.ui.manager->getPipeline();
 				cb->bindGraphicsPipeline(pipeline);
 				cb->bindDescriptorSets(EPBP_GRAPHICS, pipeline->getLayout(), uiParams.resources.texturesInfo.setIx, 1u, &pass.ui.descriptorSet.get()); // note that we use default UI pipeline layout where uiParams.resources.textures.setIx == uiParams.resources.samplers.setIx
+				
+				if (!keepRunning())
+					return;
+				
 				if (!pass.ui.manager->render(cb,waitInfo))
 				{
 					// TODO: need to present acquired image before bailing because its already acquired
