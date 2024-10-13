@@ -478,7 +478,10 @@ private:
 			}
 		};
 
-		scratch.descriptorSetLayout = create<typename TYPES::DESCRIPTOR_SET_LAYOUT>(bindings);
+		if constexpr (withAssetConverter)
+			scratch.descriptorSetLayout = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(bindings);
+		else
+			scratch.descriptorSetLayout = utilities->getLogicalDevice()->createDescriptorSetLayout(bindings);
 
 		if (!scratch.descriptorSetLayout)
 		{
@@ -527,7 +530,10 @@ private:
 
 		const std::span<const SPushConstantRange> range = {};
 
-		scratch.pipelineLayout = create<typename TYPES::PIPELINE_LAYOUT>(range, nullptr, smart_refctd_ptr(scratch.descriptorSetLayout), nullptr, nullptr);
+		if constexpr (withAssetConverter)
+			scratch.pipelineLayout = make_smart_refctd_ptr<ICPUPipelineLayout>(range, nullptr, smart_refctd_ptr(scratch.descriptorSetLayout), nullptr, nullptr);
+		else
+			scratch.pipelineLayout = utilities->getLogicalDevice()->createPipelineLayout(range, nullptr, smart_refctd_ptr(scratch.descriptorSetLayout), nullptr, nullptr);
 
 		if (!scratch.pipelineLayout)
 		{
@@ -636,7 +642,7 @@ private:
 		if constexpr (withAssetConverter)
 			scratch.renderpass = ICPURenderpass::create(params);
 		else
-			scratch.renderpass = create<typename TYPES::RENDERPASS>(params);
+			scratch.renderpass = utilities->getLogicalDevice()->createRenderpass(params);
 
 		if (!scratch.renderpass)
 		{
@@ -682,7 +688,7 @@ private:
 					if constexpr (withAssetConverter)
 						image = ICPUImage::create(params);
 					else
-						image = create<typename TYPES::IMAGE>(std::move(params));
+						image = utilities->getLogicalDevice()->createImage(std::move(params));
 				}
 
 				if (!image)
@@ -734,8 +740,11 @@ private:
 					.subresourceRange = { .aspectMask = ASPECT, .baseMipLevel = 0u, .levelCount = 1u, .baseArrayLayer = 0u, .layerCount = 1u }
 				});
 
-				outView = create<typename TYPES::IMAGE_VIEW>(std::move(params));
-
+				if constexpr (withAssetConverter)
+					outView = make_smart_refctd_ptr<ICPUImageView>(std::move(params));
+				else
+					outView = utilities->getLogicalDevice()->createImageView(std::move(params));
+ 
 				if (!outView)
 				{
 					logger->log("Could not create image view!", ILogger::ELL_ERROR);
@@ -775,7 +784,7 @@ private:
 				outShader = std::move(shader);
 			}
 			else
-				outShader = create<typename TYPES::SHADER>(shader.get()); // note: dependency between cpu object instance & gpu object creation, not sure if its our API design failure or maybe I'm just thinking too much
+				outShader = utilities->getLogicalDevice()->createShader(shader.get());
 
 			return outShader;
 		};
@@ -862,7 +871,7 @@ private:
 				else
 				{
 					const std::span<const IGPUGraphicsPipeline::SCreationParams> info = { { params.pipeline } };
-					create<typename TYPES::GRAPHICS_PIPELINE>(nullptr, info, &obj.pipeline);
+					utilities->getLogicalDevice()->createGraphicsPipelines(nullptr, info, &obj.pipeline);
 				}
 
 				if (!obj.pipeline)
@@ -907,8 +916,8 @@ private:
 					}
 					else
 					{
-						auto vertexBuffer = create<typename TYPES::BUFFER>(typename TYPES::BUFFER::SCreationParams({ .size = vBuffer->getSize(), .usage = VERTEX_USAGE }));
-						auto indexBuffer = iBuffer ? create<typename TYPES::BUFFER>(typename TYPES::BUFFER::SCreationParams({ .size = iBuffer->getSize(), .usage = INDEX_USAGE })) : nullptr;
+						auto vertexBuffer = utilities->getLogicalDevice()->createBuffer(IGPUBuffer::SCreationParams({ .size = vBuffer->getSize(), .usage = VERTEX_USAGE }));
+						auto indexBuffer = iBuffer ? utilities->getLogicalDevice()->createBuffer(IGPUBuffer::SCreationParams({ .size = iBuffer->getSize(), .usage = INDEX_USAGE })) : nullptr;
 
 						if (!vertexBuffer)
 							return false;
@@ -999,8 +1008,7 @@ private:
 		else
 		{
 			const auto mask = utilities->getLogicalDevice()->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
-
-			auto uboBuffer = create<typename TYPES::BUFFER>(typename TYPES::BUFFER::SCreationParams({ .size = sizeof(SBasicViewParameters), .usage = UBO_USAGE }));
+			auto uboBuffer = utilities->getLogicalDevice()->createBuffer(IGPUBuffer::SCreationParams({ .size = sizeof(SBasicViewParameters), .usage = UBO_USAGE }));
 
 			if (!uboBuffer)
 				return false;
@@ -1017,35 +1025,6 @@ private:
 		}
 
 		return true;
-	}
-
-	template<typename T, typename... Args>
-	inline nbl::core::smart_refctd_ptr<T> create(Args&&... args) requires RESOURCE_TYPE_CONCEPT<T, TYPES>
-	{
-		if constexpr (withAssetConverter)
-			return nbl::core::make_smart_refctd_ptr<T>(std::forward<Args>(args)...); // TODO: cases where our api requires to call ::create(...) instead directly calling "make smart pointer" could be here handled instead of in .build method
-		else
-			if constexpr (std::same_as<T, typename TYPES::DESCRIPTOR_SET_LAYOUT>)
-				return utilities->getLogicalDevice()->createDescriptorSetLayout(std::forward<Args>(args)...);
-			else if constexpr (std::same_as<T, typename TYPES::PIPELINE_LAYOUT>)
-				return utilities->getLogicalDevice()->createPipelineLayout(std::forward<Args>(args)...);
-			else if constexpr (std::same_as<T, typename TYPES::RENDERPASS>)
-				return utilities->getLogicalDevice()->createRenderpass(std::forward<Args>(args)...);
-			else if constexpr (std::same_as<T, typename TYPES::IMAGE_VIEW>)
-				return utilities->getLogicalDevice()->createImageView(std::forward<Args>(args)...);
-			else if constexpr (std::same_as<T, typename TYPES::IMAGE>)
-				return utilities->getLogicalDevice()->createImage(std::forward<Args>(args)...);
-			else if constexpr (std::same_as<T, typename TYPES::BUFFER>)
-				return utilities->getLogicalDevice()->createBuffer(std::forward<Args>(args)...);
-			else if constexpr (std::same_as<T, typename TYPES::SHADER>)
-				return utilities->getLogicalDevice()->createShader(std::forward<Args>(args)...);
-			else if constexpr (std::same_as<T, typename TYPES::GRAPHICS_PIPELINE>)
-			{
-				bool status = utilities->getLogicalDevice()->createGraphicsPipelines(std::forward<Args>(args)...);
-				return nullptr; // I assume caller with use output from forwarded args, another inconsistency in our api imho
-			}
-			else
-				return nullptr; // TODO: should static assert
 	}
 
 	struct GEOMETRIES_CPU
