@@ -143,7 +143,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			params.resources.samplersInfo = { .setIx = 0u, .bindingIx = 1u };
 			params.assetManager = m_assetManager;
 			params.pipelineCache = nullptr;
-			params.pipelineLayout = nbl::ext::imgui::UI::createDefaultPipelineLayout(m_utils.get(), params.resources.texturesInfo, params.resources.samplersInfo, TexturesAmount);
+			params.pipelineLayout = nbl::ext::imgui::UI::createDefaultPipelineLayout(m_utils->getLogicalDevice(), params.resources.texturesInfo, params.resources.samplersInfo, TexturesAmount);
 			params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
 			params.streamingBuffer = nullptr;
 			params.subpassIx = 0u;
