@@ -10,6 +10,6 @@
 
 // the example's headers
 #include "transform.hpp"
-#include "scene.hpp"
+#include "CGeomtryCreatorScene.hpp"
 
 #endif // __NBL_THIS_EXAMPLE_COMMON_H_INCLUDED__

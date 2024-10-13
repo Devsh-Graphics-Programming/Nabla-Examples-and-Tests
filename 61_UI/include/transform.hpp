@@ -5,7 +5,6 @@
 #include "nbl/ext/ImGui/ImGui.h"
 #include "imgui/imgui_internal.h"
 #include "imguizmo/ImGuizmo.h"
-#include "scene.hpp"
 
 static constexpr inline auto OfflineSceneTextureIx = 1u;
 
