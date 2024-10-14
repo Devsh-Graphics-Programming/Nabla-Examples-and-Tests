@@ -824,8 +824,8 @@ class CAssetConverter : public core::IReferenceCounted
 
 			// One queue is for copies, another is for mip map generation and Acceleration Structure building
 			// SCRATCH COMMAND BUFFERS MUST BE DIFFERENT (for submission/non-idling efficiency)
-			SIntendedSubmitInfo transfer = {};
-			SIntendedSubmitInfo compute = {};
+			SIntendedSubmitInfo* transfer = {};
+			SIntendedSubmitInfo* compute = {};
 			// required for Buffer or Image upload operations
 			IUtilities* utilities = nullptr;
 		};
@@ -997,17 +997,15 @@ class CAssetConverter : public core::IReferenceCounted
 						ILogicalDevice* device = nullptr;
 						core::bitflag<IQueue::FAMILY_FLAGS> submitsNeeded = IQueue::FAMILY_FLAGS::NONE;
 				};
-				// IMPORTANT: The returned `SConvertResult` holds a pointer to members of `params`, do not make `params` leave the scope!
 				// IMPORTANT: Barriers are NOT automatically issued AFTER the last command to touch a converted resource unless Queue Family Ownership needs to be released!
-				// Therefore, unless you end and Submit the SIntendedSubmit command buffers of `params` and synchronise those submission semaphore signal with a wait on the next
-				// submission to use the resources on the same queue, YOU NEED TO RECORD THE PIPELINE BARRIERS YOURSELF!
+// Therefore, unless you end and Submit the SIntendedSubmit command buffers of `params` and synchronise those submission semaphore signal with a wait on the next submission to use the resources on the same queue, YOU NEED TO RECORD THE PIPELINE BARRIERS YOURSELF!
 				// **If there were QFOT Releases done, you need to record pipeline barriers with QFOT acquire yourself anyway!**
 				// We only record pipeline barriers AFTER the last command if the image layout was meant to change.
-				// TL;DR if appending more commands that use the converted resources to `params`'s SIntendedSubmit scratch command buffers or submitting other command buffers to
-				// the same queues without a semaphore-signal wait, just issue global all-memory mega-barriers with TRANSFER or COMPUTE source stages and MEOMRY_WRITE access masks.
+// TL;DR if appending more commands that use the converted resources to `params`'s SIntendedSubmit scratch command buffers or submitting other command buffers to
+// the same queues without a semaphore-signal wait, just issue global all-memory mega-barriers with TRANSFER or COMPUTE source stages and MEOMRY_WRITE access masks.
 				inline SConvertResult convert(SConvertParams& params)
 				{
-					SConvertResult enqueueSuccess = m_converter->convert_impl(std::move(*this),params);
+					SConvertResult enqueueSuccess = m_converter->convert_impl(*this,params);
 					if (enqueueSuccess)
 					{
 						// wipe after success
@@ -1090,7 +1088,7 @@ class CAssetConverter : public core::IReferenceCounted
 		}
 
 		friend struct SReserveResult;
-		SReserveResult::SConvertResult convert_impl(SReserveResult&& reservations, SConvertParams& params);
+		SReserveResult::SConvertResult convert_impl(SReserveResult& reservations, SConvertParams& params);
 
         SCreationParams m_params;
 		core::tuple_transform_t<CCache,supported_asset_types> m_caches;
