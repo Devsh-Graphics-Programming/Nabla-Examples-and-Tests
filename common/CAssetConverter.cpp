@@ -3149,7 +3149,7 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 					const bool concurrentSharing = image->getCachedCreationParams().isConcurrentSharing();
 					uint8_t lvl = 0;
 					bool _prevRecompute = false;
-					while (lvl<creationParams.mipLevels)
+					for (; lvl<creationParams.mipLevels; lvl++)
 					{
 						// always start with a new struct to not get stale/old value bugs
 						IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> tmp =
