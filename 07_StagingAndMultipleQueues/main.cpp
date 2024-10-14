@@ -94,9 +94,13 @@ protected:
 	}
 
 private:
+	// first = image loaded and ready for use, second = histogram computed and ready for access, third = histogram consumed and ready for re-use
 	smart_refctd_ptr<ISemaphore> m_imagesLoadedSemaphore, m_imagesProcessedSemaphore, m_histogramSavedSemaphore;
 	std::atomic<uint32_t> imageHandlesCreated = 0u;
+	// protect us from an out-of-order submit on a single queue
 	std::atomic<uint32_t> transfersSubmitted = 0u;
+	// protect us from annoying renderdoc with signal-after-submit
+	std::atomic<uint32_t> histogramsSaved = 0u;
 	std::array<core::smart_refctd_ptr<IGPUImage>, IMAGE_CNT> images;
 
 	// these could actually be different numbers for each thread
@@ -192,6 +196,8 @@ private:
 				logFailAndTerminate("Failed to load image from path %s",ILogger::ELL_ERROR,imagePathToLoad);
 
 			std::get<CAssetConverter::SInputs::asset_span_t<ICPUImage>>(inputs.assets) = {&cpuImage.get(),1};
+			// assert that we don't need to provide patches
+			assert(cpuImage->getImageUsageFlags().hasFlags(ICPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT));
 			auto reservation = converter->reserve(inputs);
 			// the `.value` is just a funny way to make the `smart_refctd_ptr` copyable
 			images[imageIdx] = reservation.getGPUObjects<ICPUImage>().front().value;
@@ -224,9 +230,6 @@ private:
 			// notify
 			transfersSubmitted++;
 			transfersSubmitted.notify_one();
-
-			// TODO: this is for basic testing purposes, will be deleted ofc
-			//std::this_thread::sleep_for(std::chrono::milliseconds(6969));
 		}
 	}
 
@@ -272,17 +275,16 @@ private:
 		std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer>, SUBMITS_IN_FLIGHT> commandBuffers;
 		for (uint32_t i = 0u; i < SUBMITS_IN_FLIGHT; ++i)
 		{
-			const core::bitflag<IGPUCommandPool::CREATE_FLAGS> commandPoolFlags = IGPUCommandPool::CREATE_FLAGS::NONE;
-			commandPools[i] = m_device->createCommandPool(getComputeQueue()->getFamilyIndex(), commandPoolFlags);
-			commandPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, {commandBuffers.data() + i, 1}, core::smart_refctd_ptr(m_logger));
-			commandBuffers[i]->setObjectDebugName(("Histogram Command Buffer #" + std::to_string(i)).c_str());
+			commandPools[i] = m_device->createCommandPool(getComputeQueue()->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::NONE);
+			commandPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, {commandBuffers.data()+i,1}, core::smart_refctd_ptr(m_logger));
+			commandBuffers[i]->setObjectDebugName(("Histogram Command Buffer #"+std::to_string(i)).c_str());
 		}
 
 		// LOAD SHADER FROM FILE
 		smart_refctd_ptr<ICPUShader> source;
 		{
 			source = loadFistAssetInBundle<ICPUShader>("../app_resources/comp_shader.hlsl");
-			source->setShaderStage(IShader::E_SHADER_STAGE::ESS_COMPUTE);
+			source->setShaderStage(IShader::E_SHADER_STAGE::ESS_COMPUTE); // can also be done via a #pragma in the shader
 		}
 
 		if (!source)
@@ -311,7 +313,7 @@ private:
 			params.shader.entryPoint = "main";
 			params.shader.shader = shader.get();
 			// we'll cover the specialization constant API in another example
-			if (!m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline))
+			if (!m_device->createComputePipelines(nullptr,{&params,1},&pipeline))
 				logFailAndTerminate("Failed to create pipelines (compile & link shaders)!\n");
 		}
 
@@ -348,6 +350,7 @@ private:
 			m_histogramBufferMemPtrs[2] = m_histogramBufferMemPtrs[1] + HISTOGRAM_SIZE;
 		}
 
+		// could have actually put the offset into histogram buffer in the desc set instead of push constants
 		IGPUDescriptorSet::SDescriptorInfo bufInfo;
 		bufInfo.desc = smart_refctd_ptr(histogramBuffer);
 		bufInfo.info.buffer = { .offset = 0u, .size = histogramBuffer->getSize() };
@@ -426,12 +429,18 @@ private:
 			};
 			submitInfo[0].commandBuffers = cmdBuffSubmitInfo;
 			submitInfo[0].signalSemaphores = signalSemaphoreSubmitInfo;
-			submitInfo[0].waitSemaphores = {waitSemaphoreSubmitInfo, imageToProcessId < SUBMITS_IN_FLIGHT ? 1u : 2u};
+			submitInfo[0].waitSemaphores = waitSemaphoreSubmitInfo;
+			// there's no save to wait on, or need to prevent signal-after-submit because Renderdoc freezes because it
+			// starts capturing immediately upon a submit and can't defer a capture till semaphores signal.
+			if (imageToProcessId<SUBMITS_IN_FLIGHT || m_api->isRunningInRenderdoc())
+				submitInfo[0].waitSemaphores = {waitSemaphoreSubmitInfo,1};
+			if (m_api->isRunningInRenderdoc() && imageToProcessId>=SUBMITS_IN_FLIGHT)
+			for (auto old = histogramsSaved.load(); old < histogramSaveWaitSemaphoreValue; old = histogramsSaved.load())
+				histogramsSaved.wait(old);
 			// Some Devices like all of the Intel GPUs do not have enough queues for us to allocate different queues to compute and transfers,
 			// so our `BasicMultiQueueApplication` will "alias" a single queue to both usages. Normally you don't need to care, but here we're
 			// attempting to do "out-of-order" "submit-before-signal" so we need to "hold back" submissions if the queues are aliased!
-			// TODO: Renderdoc freezes because it starts capturing immediately upon a submit and can't defer a capture till semaphores signal.
-			if (getTransferUpQueue()==computeQueue /*|| m_api->isRunningInRenderdoc()*/)
+			if (getTransferUpQueue()==computeQueue || m_api->isRunningInRenderdoc())
 			for (auto old = transfersSubmitted.load(); old <= imageToProcessId; old = transfersSubmitted.load())
 				transfersSubmitted.wait(old);
 			computeQueue->submit(submitInfo);
@@ -480,7 +489,11 @@ private:
 			if(!m_device->flushMappedMemoryRanges(1, &m_histogramBufferMemoryRanges[resourceIdx]))
 				logFailAndTerminate("Failed to flush the Device Memory!\n");
 
-			m_histogramSavedSemaphore->signal(imageHistogramIdx + 1);
+			m_histogramSavedSemaphore->signal(imageHistogramIdx+1);
+			// notify
+			histogramsSaved++;
+			histogramsSaved.notify_one();
+			
 			std::string msg = std::string("Image nr ") + std::to_string(imageHistogramIdx) + " saved. Resource idx: " + std::to_string(resourceIdx);
 			m_logger->log(msg);
 		}
