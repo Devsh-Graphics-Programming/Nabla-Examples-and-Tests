@@ -158,10 +158,8 @@ private:
 			const core::set<uint32_t> uniqueFamilyIndices = { getTransferUpQueue()->getFamilyIndex(), getComputeQueue()->getFamilyIndex() };
 			inputs.familyIndices = {uniqueFamilyIndices.begin(),uniqueFamilyIndices.end()};
 		}
-		// Normally we'd have to inherit and override the `getFinalOwnerQueueFamily` callback to ensure that the
-		// compute queue becomes the owner of the buffers and images post-transfer, but in this example we use concurrent sharing
-		CAssetConverter::SConvertParams params = {};
-		params.transfer = {
+		// scratch command buffers for asset converter transfer commands
+		SIntendedSubmitInfo transfer = {
 			.queue = transferUpQueue,
 			.waitSemaphores = {},
 			.prevCommandBuffers = {},
@@ -173,6 +171,10 @@ private:
 				.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 			}
 		};
+		// Normally we'd have to inherit and override the `getFinalOwnerQueueFamily` callback to ensure that the
+		// compute queue becomes the owner of the buffers and images post-transfer, but in this example we use concurrent sharing
+		CAssetConverter::SConvertParams params = {};
+		params.transfer = &transfer;
 		params.utilities = m_utils.get();
 
 		for (uint32_t imageIdx = 0; imageIdx < IMAGE_CNT; ++imageIdx)
@@ -202,15 +204,12 @@ private:
 			cmdBuff->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			// finish filling the intended submit
 			IQueue::SSubmitInfo::SCommandBufferInfo imgFillCmdBuffInfo = {cmdBuff.get()};
-			params.transfer.scratchCommandBuffers = {&imgFillCmdBuffInfo,1};
-			// and launch the conversions
-			auto result = reservation.convert(params);
-			if (!result)
-				logFailAndTerminate("Failed to record conversions");
+			transfer.scratchCommandBuffers = {&imgFillCmdBuffInfo,1};
 			// debug log about overflows
-			const auto oldScratchVal = params.transfer.scratchSemaphore.value;
-			if (const auto diff=params.transfer.scratchSemaphore.value-oldScratchVal; diff>0)
-				m_logger->log("%d overflows when uploading image %d!\n",ILogger::ELL_PERFORMANCE,diff,imageIdx);
+			transfer.overflowCallback = [&](const ISemaphore::SWaitInfo&)->void
+			{
+				m_logger->log("Overflown when uploading image nr. %d !\n",ILogger::ELL_PERFORMANCE,imageIdx);
+			};
 			// we want our converter's submit to signal a semaphore that image contents are ready
 			const IQueue::SSubmitInfo::SSemaphoreInfo signalSemaphore = {
                     .semaphore = m_imagesLoadedSemaphore.get(),
@@ -219,8 +218,11 @@ private:
 					// and we need to wait for right after and they don't have an explicit stage
                     .stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
             };
-            if (!result.submit({&signalSemaphore,1}))
-                    logFailAndTerminate("Failed to submit and await conversions");
+			params.extraSignalSemaphores = {&signalSemaphore,1};
+			// and launch the conversions
+			auto result = reservation.convert(params);
+			if (!result.blocking() && result.copy()!=IQueue::RESULT::SUCCESS)
+				logFailAndTerminate("Failed to record or submit conversions");
 			// notify
 			transfersSubmitted++;
 			transfersSubmitted.notify_one();

@@ -2907,25 +2907,25 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 }
 
 //
-auto CAssetConverter::convert_impl(SReserveResult& reservations, SConvertParams& params) -> SReserveResult::SConvertResult
+ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResult& reservations, SConvertParams& params)
 {
+	ISemaphore::future_t<IQueue::RESULT> retval = IQueue::RESULT::OTHER_ERROR;
 	if (!reservations.m_converter)
 	{
 		reservations.m_logger.log("Cannot call convert on an unsuccessful reserve result! Or are you attempting to do a double run of `convert` ?",system::ILogger::ELL_ERROR);
-		return {};
+		return retval;
 	}
 	assert(reservations.m_converter.get()==this);
 	auto device = m_params.device;
 	const auto reqQueueFlags = reservations.getRequiredQueueFlags();
 
-	SReserveResult::SConvertResult retval = {};
 	// Anything to do?
 	if (reqQueueFlags.value!=IQueue::FAMILY_FLAGS::NONE)
 	{
 		if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT) && (!params.utilities || params.utilities->getLogicalDevice()!=device))
 		{
 			reservations.m_logger.log("Transfer Capability required for this conversion and no compatible `utilities` provided!", system::ILogger::ELL_ERROR);
-			return {};
+			return retval;
 		}
 
 		auto invalidIntended = [reqQueueFlags,device,&reservations](const IQueue::FAMILY_FLAGS flag, const SIntendedSubmitInfo* intended)->bool
@@ -2956,10 +2956,10 @@ auto CAssetConverter::convert_impl(SReserveResult& reservations, SConvertParams&
 		if (reservations.m_queueFlags.hasFlags(IQueue::FAMILY_FLAGS::GRAPHICS_BIT))
 			reqTransferQueueCaps |= IQueue::FAMILY_FLAGS::GRAPHICS_BIT;
 		if (invalidIntended(reqTransferQueueCaps,params.transfer))
-			return {};
+			return retval;
 		// If the compute queue will be used, the compute Intended Submit Info must be valid and utilities must be provided
 		if (invalidIntended(IQueue::FAMILY_FLAGS::COMPUTE_BIT,params.compute))
-			return {};
+			return retval;
 
 		if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT|IQueue::FAMILY_FLAGS::TRANSFER_BIT))
 		{
@@ -2971,7 +2971,7 @@ auto CAssetConverter::convert_impl(SReserveResult& reservations, SConvertParams&
 			if (uniqueCmdBufs.size()!=params.compute->scratchCommandBuffers.size()+params.transfer->scratchCommandBuffers.size())
 			{
 				reservations.m_logger.log("The Compute `SIntendedSubmit` Scratch Command Buffers cannot be idential to Transfer's!",system::ILogger::ELL_ERROR);
-				return {};
+				return retval;
 			}
 		}
 
@@ -2990,6 +2990,9 @@ auto CAssetConverter::convert_impl(SReserveResult& reservations, SConvertParams&
 			// change the content hash on the reverse map to a NoContentHash
 			*hash = CHashCache::NoContentHash;
 		};
+
+		//
+		core::bitflag<IQueue::FAMILY_FLAGS> submitsNeeded = IQueue::FAMILY_FLAGS::NONE;
 
 		//
 		const auto transferFamily = params.transfer->queue->getFamilyIndex();
@@ -3045,7 +3048,7 @@ auto CAssetConverter::convert_impl(SReserveResult& reservations, SConvertParams&
 					markFailureInStaging(buffer,pFoundHash);
 					continue;
 				}
-				retval.submitsNeeded |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
+				submitsNeeded |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
 				// enqueue ownership release if necessary
 				if (ownerQueueFamily!=IQueue::FamilyIgnored)
 					ownershipTransfers.push_back({
@@ -3077,7 +3080,7 @@ auto CAssetConverter::convert_impl(SReserveResult& reservations, SConvertParams&
 		const auto computeFamily = shouldDoSomeCompute ? params.compute->queue->getFamilyIndex():IQueue::FamilyIgnored;
 		// whenever transfer needs to do a submit overflow because it ran out of memory for streaming an image, we can already submit the recorded mip-map compute shader dispatches
 		auto computeCmdBuf = shouldDoSomeCompute ? params.compute->getCommandBufferForRecording():nullptr;
-		auto drainCompute = [&params,shouldDoSomeCompute,&computeCmdBuf]()->auto
+		auto drainCompute = [&params,shouldDoSomeCompute,&computeCmdBuf](const std::span<const IQueue::SSubmitInfo::SSemaphoreInfo> extraSignal={})->auto
 		{
 			if (!shouldDoSomeCompute || computeCmdBuf->cmdbuf->empty())
 				return IQueue::RESULT::SUCCESS;
@@ -3095,7 +3098,12 @@ auto CAssetConverter::convert_impl(SReserveResult& reservations, SConvertParams&
 				waitSemaphoreSpan = {patchedWaits.get(),origCount+1};
 			}
 			// don't worry about resetting old `waitSemaphores` because they get cleared to an empty span after overflow submit
-			return params.compute->overflowSubmit(computeCmdBuf);
+            IQueue::RESULT res = params.compute->submit(computeCmdBuf,extraSignal);
+            if (res!=IQueue::RESULT::SUCCESS)
+                return res;
+            if (!params.compute->beginNextCommandBuffer(computeCmdBuf))
+                return IQueue::RESULT::OTHER_ERROR;
+			return res;
 		};
 		// compose our overflow callback on top of what's already there, only if we need to ofc 
 		auto origXferStallCallback = params.transfer->overflowCallback;
@@ -3238,7 +3246,7 @@ auto CAssetConverter::convert_impl(SReserveResult& reservations, SConvertParams&
 									source.oldLayout = layout_t::GENERAL;
 								}
 								computeCmdBuf->cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers=preComputeBarriers});
-								retval.submitsNeeded |= IQueue::FAMILY_FLAGS::COMPUTE_BIT;
+								submitsNeeded |= IQueue::FAMILY_FLAGS::COMPUTE_BIT;
 							}
 // TODO: update descriptor set pool + overflow submit if we cannot allocate a spot
 // TODO: put source and destination image indices in push constants, then dispatch compute shader
@@ -3305,7 +3313,7 @@ auto CAssetConverter::convert_impl(SReserveResult& reservations, SConvertParams&
 									break;
 								}
 								// first use owns
-								retval.submitsNeeded |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
+								submitsNeeded |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
 								// start recording uploads
 								{
 									const auto oldImmediateSubmitSignalValue = params.transfer->scratchSemaphore.value;
@@ -3379,14 +3387,14 @@ auto CAssetConverter::convert_impl(SReserveResult& reservations, SConvertParams&
 						markFailureInStaging(image, pFoundHash);
 						continue;
 					}
-					retval.submitsNeeded |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
+					submitsNeeded |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
 				}
 				if (!computeBarriers.empty())
 				{
 					if (!computeCmdBuf->cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {},.bufBarriers = {},.imgBarriers = computeBarriers }))
 					{
 						reservations.m_logger.log("Final Pipeline Barrier recording to Compute Command Buffer failed", system::ILogger::ELL_ERROR);
-						markFailureInStaging(image, pFoundHash);
+						markFailureInStaging(image,pFoundHash);
 						continue;
 					}
 				}
@@ -3398,6 +3406,19 @@ auto CAssetConverter::convert_impl(SReserveResult& reservations, SConvertParams&
 		{
 		}
 
+		const bool computeSubmitIsNeeded = submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT);
+		// first submit transfer
+		if (submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT))
+		{
+			constexpr auto emptySignalSpan = std::span<const IQueue::SSubmitInfo::SSemaphoreInfo>{};
+			if (params.transfer->submit(xferCmdBuf,computeSubmitIsNeeded ? emptySignalSpan:params.extraSignalSemaphores)!=IQueue::RESULT::SUCCESS)
+				return retval;
+			// leave open for next user
+			params.transfer->beginNextCommandBuffer(xferCmdBuf);
+			// set the future
+			if (!computeSubmitIsNeeded)
+				retval.set({params.transfer->scratchSemaphore.semaphore,params.transfer->scratchSemaphore.value});
+		}
 		// reset original callback
 		params.transfer->overflowCallback = origXferStallCallback;
 		
@@ -3407,13 +3428,13 @@ auto CAssetConverter::convert_impl(SReserveResult& reservations, SConvertParams&
 		// - Opaquely blocking any workload they would submit between now and when they submit the coonvert result open Compute scratch
 		// - Violating the spec if anyone submits binary semaphore or fence signals on the Compute Queue between now and when 
 		//   the open Transfer Scratch Command Buffer is submitted (e.g. swapchain or some other external Native use of Vulkan)
-		if (retval.submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT))
+		if (computeSubmitIsNeeded)
 		{
-			// Use `overflowSubmit` instead of just `submit` to leave an open scratch command buffer for the next user
-			params.transfer->overflowSubmit(xferCmdBuf);
 			// we may as well actually submit the compute commands instead of doing a silly empty submit to sync compute with transfer
-			drainCompute();
 			// the only other option is to literally have the coupling between transfer and compute explicit in the public api
+			if (drainCompute(params.extraSignalSemaphores)!=IQueue::RESULT::SUCCESS)
+				return retval;
+			retval.set({params.compute->scratchSemaphore.semaphore,params.compute->scratchSemaphore.value});
 		}
 	}
 	
@@ -3526,10 +3547,7 @@ auto CAssetConverter::convert_impl(SReserveResult& reservations, SConvertParams&
 	mergeCache.operator()<ICPUDescriptorSet>();
 //	mergeCache.operator()<ICPUFramebuffer>();
 
-	// to make it valid
-	retval.device = device;
-	retval.transfer = params.transfer;
-	retval.compute = params.compute;
+	retval.set(IQueue::RESULT::SUCCESS);
 	return retval;
 }
 

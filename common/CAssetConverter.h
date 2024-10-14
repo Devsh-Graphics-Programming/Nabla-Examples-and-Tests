@@ -828,6 +828,8 @@ class CAssetConverter : public core::IReferenceCounted
 			SIntendedSubmitInfo* compute = {};
 			// required for Buffer or Image upload operations
 			IUtilities* utilities = nullptr;
+			// optional, last submit (compute, transfer if no compute needed) signals these in addition to the scratch semaphore
+			std::span<const IQueue::SSubmitInfo::SSemaphoreInfo> extraSignalSemaphores = {};
 		};
         struct SReserveResult final
         {
@@ -867,146 +869,18 @@ class CAssetConverter : public core::IReferenceCounted
 				template<asset::Asset AssetType>
 				const auto& getStagingCache() const {return std::get<staging_cache_t<AssetType>>(m_stagingCaches);}
 
-				// You only get to call this once if successful, return value tells you whether you can submit the cmdbuffers
-				struct SConvertResult final
-				{
-					public:
-						inline ~SConvertResult() = default;
-
-						// Just because this class converts to true, DOESN'T MEAN the gpu objects are ready for use! You need to submit the intended submits for that first!
-						inline operator bool() const {return device;}
-
-						struct SSubmitResult
-						{
-							inline bool blocking() const {return transfer.blocking()||compute.blocking();}
-
-							inline bool ready() const {return transfer.ready()&&compute.ready();}
-
-							inline ISemaphore::WAIT_RESULT wait() const
-							{
-								if (transfer.blocking())
-								{
-									if (compute.blocking())
-									{
-										const ISemaphore::SWaitInfo waitInfos[2] = {transfer,compute};
-										auto* device = const_cast<ILogicalDevice*>(waitInfos[0].semaphore->getOriginDevice());
-										assert(waitInfos[1].semaphore->getOriginDevice()==device);
-										return device->blockForSemaphores(waitInfos,true);
-									}
-									return transfer.wait();
-								}
-								return compute.wait();
-							}
-
-							inline operator bool() const
-							{
-								if (wait()!=ISemaphore::WAIT_RESULT::SUCCESS)
-									return false;
-								return transfer.copy()==IQueue::RESULT::SUCCESS && compute.copy()==IQueue::RESULT::SUCCESS;
-							}
-
-							ISemaphore::future_t<IQueue::RESULT> transfer = IQueue::RESULT::OTHER_ERROR;
-							ISemaphore::future_t<IQueue::RESULT> compute = IQueue::RESULT::OTHER_ERROR;
-						};
-						// Submits the buffered up calls, unline IUtilities::autoSubmit, no patching, it complicates life too much, just please pass correct open SIntendedSubmits.
-						inline SSubmitResult submit(
-							std::span<const IQueue::SSubmitInfo::SSemaphoreInfo> extraTransferSignalSemaphores={},
-							std::span<const IQueue::SSubmitInfo::SSemaphoreInfo> extraComputeSignalSemaphores={}
-						)
-						{
-							// invalid
-							if (!device)
-								return {};
-							for (const auto& signal : extraTransferSignalSemaphores)
-							if (signal.semaphore->getOriginDevice()!=device)
-								return {};
-							for (const auto& signal : extraComputeSignalSemaphores)
-							if (signal.semaphore->getOriginDevice()!=device)
-								return {};
-							// you only get one shot at this!
-							device = nullptr;
-
-							SSubmitResult retval = {};
-							// patch tmps
-							core::smart_refctd_ptr<ISemaphore> patchSema;
-							IQueue::SSubmitInfo::SSemaphoreInfo patch;
-							// first submit transfer
-							if (const IQueue::SSubmitInfo::SCommandBufferInfo* scratch=transfer ? transfer->valid():nullptr; submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT) && scratch) // TODO: a check for any commands recorded?
-							{
-								scratch->cmdbuf->end();
-								// patch if needed (todo: use the scratch signal instead?)
-								if (extraTransferSignalSemaphores.empty())
-								{
-									patchSema = device->createSemaphore(0);
-									// cannot signal from TRANSFER stages because there might be a ownership transfer or layout transition
-									// and we need to wait for right after that, which doesn't have an explicit stage
-									patch = {patchSema.get(),1,asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS};
-									extraTransferSignalSemaphores = {&patch,1};
-								}
-								// submit
-								auto submit = transfer->popSubmit(scratch->cmdbuf,extraTransferSignalSemaphores);
-								if (const auto error=transfer->queue->submit(submit); error!=IQueue::RESULT::SUCCESS)
-									return {error};
-								retval.transfer.set({extraTransferSignalSemaphores.back().semaphore,extraTransferSignalSemaphores.back().value});
-							}
-							else
-							for (auto& sema : extraTransferSignalSemaphores)
-								sema.semaphore->signal(sema.value);
-							retval.transfer.set(IQueue::RESULT::SUCCESS);
-
-							// then submit compute
-							if (const IQueue::SSubmitInfo::SCommandBufferInfo* scratch=compute ? compute->valid():nullptr; submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT) && scratch) // TODO: a check for any commands recorded?
-							{
-								scratch->cmdbuf->end();
-								// TODO: make the compute wait on transfer submit!
-								// patch if needed (todo: use the scratch signal instead?)
-								if (extraComputeSignalSemaphores.empty())
-								{
-									patchSema = device->createSemaphore(0);
-									// cannot signal from COMPUTE stages because there might be a ownership transfer or layout transition
-									// and we need to wait for right after that, which doesn't have an explicit stage
-									patch = {patchSema.get(),1,asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS};
-									extraComputeSignalSemaphores = {&patch,1};
-								}
-								// submit
-								auto submit = compute->popSubmit(scratch->cmdbuf,extraComputeSignalSemaphores);
-								if (const auto error=compute->queue->submit(submit); error!=IQueue::RESULT::SUCCESS)
-									return {std::move(retval.transfer),error};
-								retval.compute.set({extraComputeSignalSemaphores.back().semaphore,extraComputeSignalSemaphores.back().value});
-							}
-							else
-							for (auto& sema : extraComputeSignalSemaphores)
-								sema.semaphore->signal(sema.value);
-							retval.compute.set(IQueue::RESULT::SUCCESS);
-
-							return retval;
-						}
-
-					private:
-						friend class SReserveResult;
-						friend class CAssetConverter;
-
-						inline SConvertResult() = default;
-						// because the intended submits are pointers, return value of `convert` should not be allowed to escape its scope
-						inline SConvertResult(SConvertResult&&) = default;
-						inline SConvertResult& operator=(SConvertResult&&) = default;
-
-						// these get set after a successful conversion
-						SIntendedSubmitInfo* transfer = nullptr;
-						SIntendedSubmitInfo* compute = nullptr;
-						ILogicalDevice* device = nullptr;
-						core::bitflag<IQueue::FAMILY_FLAGS> submitsNeeded = IQueue::FAMILY_FLAGS::NONE;
-				};
+				// You only get to call this once if successful, it submits right away (no potentially left-over commands in open scratch buffers) because Asset Conversion is meant to be a heavy-weight operation.
+				// Leaving the final commands dangling in the `SIntendedSubmitInfo` members of `SConvertParams` creates fairly fragile and pessimistic scheduling (ensuring compute waits on transfer) and a complex API for the user. 
 				// IMPORTANT: Barriers are NOT automatically issued AFTER the last command to touch a converted resource unless Queue Family Ownership needs to be released!
-// Therefore, unless you end and Submit the SIntendedSubmit command buffers of `params` and synchronise those submission semaphore signal with a wait on the next submission to use the resources on the same queue, YOU NEED TO RECORD THE PIPELINE BARRIERS YOURSELF!
+				// Therefore, unless you synchronise the submissions of future workloads using converted resources using semaphore wait on respective scratch or extra signal semaphores, YOU NEED TO RECORD THE PIPELINE BARRIERS YOURSELF!
 				// **If there were QFOT Releases done, you need to record pipeline barriers with QFOT acquire yourself anyway!**
 				// We only record pipeline barriers AFTER the last command if the image layout was meant to change.
-// TL;DR if appending more commands that use the converted resources to `params`'s SIntendedSubmit scratch command buffers or submitting other command buffers to
-// the same queues without a semaphore-signal wait, just issue global all-memory mega-barriers with TRANSFER or COMPUTE source stages and MEOMRY_WRITE access masks.
-				inline SConvertResult convert(SConvertParams& params)
+				// TL;DR Syncrhonize access to converted contents with the retured semaphore signal value if in doubt.
+				inline ISemaphore::future_t<IQueue::RESULT> convert(SConvertParams& params)
 				{
-					SConvertResult enqueueSuccess = m_converter->convert_impl(*this,params);
-					if (enqueueSuccess)
+					auto enqueueSuccess = m_converter->convert_impl(*this,params);
+					// leveraging implementation details nastily, another way is `retval.blocking() || retval.copy()`
+					if (reinterpret_cast<const IQueue::RESULT&>(enqueueSuccess)==IQueue::RESULT::SUCCESS)
 					{
 						// wipe after success
 						core::for_each_in_tuple(m_stagingCaches,[](auto& stagingCache)->void{stagingCache.clear();});
@@ -1088,7 +962,7 @@ class CAssetConverter : public core::IReferenceCounted
 		}
 
 		friend struct SReserveResult;
-		SReserveResult::SConvertResult convert_impl(SReserveResult& reservations, SConvertParams& params);
+		ISemaphore::future_t<IQueue::RESULT> convert_impl(SReserveResult& reservations, SConvertParams& params);
 
         SCreationParams m_params;
 		core::tuple_transform_t<CCache,supported_asset_types> m_caches;
