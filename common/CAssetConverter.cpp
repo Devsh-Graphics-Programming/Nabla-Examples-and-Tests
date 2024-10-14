@@ -3078,19 +3078,13 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 			const auto computeFamily = shouldComputeSomeMipMaps ? params.compute.queue->getFamilyIndex():IQueue::FamilyIgnored;
 			// because of the layout transitions
 			params.transfer.scratchSemaphore.stageMask |= PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-			//
-			core::vector<IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> transferBarriers;
-			core::vector<IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> computeBarriers;
-			// max mips in a single image minus 1
-			transferBarriers.reserve(16);
-			computeBarriers.reserve(16);
 			// do the uploads and mipmapping if necessary
 			auto xferCmdBuf = params.transfer.getCommandBufferForRecording();
 			auto computeCmdBuf = shouldComputeSomeMipMaps ? params.compute.getCommandBufferForRecording():nullptr;
 			// whenever transfer needs to do a submit overflow because it ran out of memory for streaming an image, we can already submit the recorded mip-map compute shader dispatches
 			auto drainCompute = [&params,&computeCmdBuf]()->auto
 			{
-				if (!computeCmdBuf || !computeCmdBuf->cmdbuf)// || computeCmdBuf->cmdbuf->empty())
+				if (!shouldComputeSomeMipMaps)// || computeCmdBuf->cmdbuf->empty())
 					return IQueue::RESULT::SUCCESS;
 				// before we overflow submit we need to inject extra wait semaphores
 				auto& waitSemaphoreSpan = params.compute.waitSemaphores;
@@ -3118,6 +3112,11 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 						origXferStallCallback(tillScratchResettable);
 				};
 			// finally go over the images
+			core::vector<IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> transferBarriers;
+			core::vector<IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> computeBarriers;
+			// max mips in a single image minus 1
+			transferBarriers.reserve(16);
+			computeBarriers.reserve(16);
 			for (auto& item : imagesToUpload)
 			{
 				// basiscs
@@ -3392,9 +3391,30 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 			}
 			// reset original callback
 			params.transfer.overflowCallback = origXferStallCallback;
-
-// TODO: If compute submit is needed, then record the transfer scratch semaphore value it needs to wait for.
-			// Don't just rely on querying it during the `submit` because someone else may use it with a utility and overflow
+			// Empty submissions are actually quite cheap I hear.
+			if (shouldComputeSomeMipMaps) // &&!computeCmdBuf->cmdbuf->empty())
+			{
+				const IQueue::SSubmitInfo::SSemaphoreInfo waitInfo = {
+					.semaphore = params.transfer.scratchSemaphore.semaphore,
+					.value = params.transfer.getFutureScratchSemaphore().value,
+					// could optimize with just TRANSFER but that would require checking that there are no QFOTs between Transfer and Compute
+					.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+				};
+				// This solves multiple problems:
+				// 1. Compute submission of the current scratch we submit outside of `convert` needing to wait for Transfer
+				// 2. Not requiring that `transfer.scratchSemaphore` be in the `compute.waitSemaphores` and restore it after every overflow submit + modify the counter.
+				//    Note that `waitSemaphores` is a `span<const >` and modifying the wait values is horribly nasty! 
+				// Obviously due to storage lifetime issues (everything being a span) the following was never an option:
+				// `params.compute.waitSemaphores = concatenate(params.compute.waitSemaphores,params.transfer.getFutureScratchSemaphore());`
+				const IQueue::SSubmitInfo submit = {
+					.waitSemaphores = {&waitInfo,1}
+				};
+				params.compute.queue->submit({&submit,1});
+				// This approach has the unfortunate downsides of:
+				// - Bricking your Compute Queue if you forget to submit the transfers!
+				// - Opaquely blocking any workload you would submit between now and when you submit the coonvert result open Compute scratch
+				// - Violating the spec if you submit binary semaphore or fence signals on the Compute Queue between now and when you submit the open Transfer scratch (e.g. swapchain or some other external Native use of Vulkan)
+			}
 		}
 
 		// TODO: build BLASes and TLASes
