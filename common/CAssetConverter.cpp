@@ -2994,15 +2994,18 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 		//
 		constexpr uint32_t QueueFamilyInvalid = 0xffffffffu;
 		const auto transferFamily = params.transfer.queue->getFamilyIndex();
-		auto checkOwnership = [&]<bool FamilyFromCallback=false>(auto* gpuObj, const uint32_t ownerQueueFamily)->auto
+		auto checkOwnership = [&](auto* gpuObj, const uint32_t nextQueueFamily, const uint32_t currentQueueFamily)->auto
 		{
-			if (ownerQueueFamily==IQueue::FamilyIgnored)
+			// didn't ask for a QFOT
+			if (nextQueueFamily==IQueue::FamilyIgnored)
+				return IQueue::FamilyIgnored;
+			// we already own
+			if (nextQueueFamily==currentQueueFamily)
 				return IQueue::FamilyIgnored;
 			// silently skip ownership transfer
 			if (gpuObj->getCachedCreationParams().isConcurrentSharing())
 			{
-				if constexpr (FamilyFromCallback)
-					reservations.m_logger.log("IDeviceMemoryBacked %s created with concurrent sharing, you cannot perform an ownership transfer on it!",system::ILogger::ELL_ERROR,gpuObj->getObjectDebugName());
+				reservations.m_logger.log("IDeviceMemoryBacked %s created with concurrent sharing, you cannot perform an ownership transfer on it!",system::ILogger::ELL_ERROR,gpuObj->getObjectDebugName());
 				// TODO: check whether `ownerQueueFamily` is in the concurrent sharing set
 				// if (!std::find(gpuObj->getConcurrentSharingQueueFamilies(),ownerQueueFamily))
 				// {
@@ -3011,10 +3014,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 				// }
 				return IQueue::FamilyIgnored;
 			}
-			// we already own
-			if (transferFamily==ownerQueueFamily)
-				return IQueue::FamilyIgnored;
-			return ownerQueueFamily;
+			return nextQueueFamily;
 		};
 		using ownership_op_t = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP;
 
@@ -3034,7 +3034,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 				};
 				auto pFoundHash = findInStaging.operator()<ICPUBuffer>(buffer);
 				//
-				const auto ownerQueueFamily = checkOwnership.operator()<true>(buffer,params.getFinalOwnerQueueFamily(buffer,*pFoundHash));
+				const auto ownerQueueFamily = checkOwnership(buffer,params.getFinalOwnerQueueFamily(buffer,*pFoundHash),transferFamily);
 				bool success = ownerQueueFamily!=QueueFamilyInvalid;
 				// do the upload
 				success = success && params.utilities->updateBufferRangeViaStagingBuffer(params.transfer,range,item.canonical->getPointer());
@@ -3075,7 +3075,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 			const bool shouldComputeSomeMipMaps = reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT);
 			// the flag check stops us derefercing an invalid pointer
 			const bool uniQueue = !shouldComputeSomeMipMaps || params.transfer.queue->getNativeHandle()==params.compute.queue->getNativeHandle();
-			const auto computeFamily = shouldComputeSomeMipMaps ? params.compute.queue->getFamilyIndex();
+			const auto computeFamily = shouldComputeSomeMipMaps ? params.compute.queue->getFamilyIndex():IQueue::FamilyIgnored;
 			// because of the layout transitions
 			params.transfer.scratchSemaphore.stageMask |= PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
 			//
@@ -3137,6 +3137,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 				{
 					transferBarriers.clear();
 					computeBarriers.clear();
+					const bool concurrentSharing = image->getCachedCreationParams().isConcurrentSharing();
 					uint8_t lvl = 0;
 					bool _prevRecompute = false;
 					while (lvl<creationParams.mipLevels)
@@ -3186,7 +3187,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 						if (recomputeMip)
 						{
 							// query final owner from callback
-							const auto finalOwnerQueueFamily = checkOwnership.operator()<true>(image,suggestedFinalOwner);
+							const auto finalOwnerQueueFamily = checkOwnership(image,suggestedFinalOwner,computeFamily);
 							if (finalOwnerQueueFamily==QueueFamilyInvalid)
 								break;
 							// layout transition from UNDEFINED to GENERAL
@@ -3204,12 +3205,15 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 								decltype(tmp) preComputeBarriers[2] = { tmp,tmp };
 								{
 									auto& source = preComputeBarriers[1];
+									// we will read from this level
+									source.barrier.dep.dstAccessMask = ACCESS_FLAGS::STORAGE_READ_BIT|ACCESS_FLAGS::SAMPLED_READ_BIT;
+									// now what happened before depends on:
 									if (prevRecomputed)
 									{
 										// compute wrote into this image level we will use as source
 										source.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
 										source.barrier.dep.srcAccessMask = ACCESS_FLAGS::STORAGE_WRITE_BIT;
-										// no ownership acquire, we already had it
+										// no ownership acquire, we already have it acquired
 									}
 									else 
 									{
@@ -3219,18 +3223,16 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 											source.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
 											source.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
 										}
-										else
+										// else, no source masks because semaphore wait is right behind us
+										else if (!concurrentSharing && computeFamily!=transferFamily)
 										{
-											// no source masks because semaphore wait is right behind us
 											source.barrier.otherQueueFamilyIndex = transferFamily;
 											// exemption to the rule, this time we acquire if necessary
 											source.barrier.ownershipOp = ownership_op_t::ACQUIRE;
 										}
 										// Theoretically we could exclude this subresource from the barrier if there's no QFOT and transfer and compute are different queues
-										// but we have another subresource with subset stage flags in the barrier anyway, and no QFOT happens if otherQueueFamilyIndex is same as commandbuffer pool's.
+										// but we have another subresource with subset stage flags in the barrier anyway.
 									}
-									// and we will read from this level
-									source.barrier.dep.dstAccessMask = ACCESS_FLAGS::STORAGE_READ_BIT|ACCESS_FLAGS::SAMPLED_READ_BIT;
 									// should have already been in GENERAL by now
 									source.oldLayout = layout_t::GENERAL;
 								}
@@ -3242,7 +3244,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 							_prevRecompute = true;
 							// record deferred layout transitions and QFOTs
 							{
-								// protect against anything that may overlap our layout transition end
+								// protect against anything that may overlap our compute and optional layout transition end
 								barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,ACCESS_FLAGS::MEMORY_READ_BITS|ACCESS_FLAGS::MEMORY_WRITE_BITS);
 								tmp.oldLayout = tmp.newLayout;
 								tmp.newLayout = finalLayout;
@@ -3254,7 +3256,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 						else
 						{
 							// query final owner from callback
-							const auto finalOwnerQueueFamily = checkOwnership.operator()<true>(image,suggestedFinalOwner);
+							const auto finalOwnerQueueFamily = checkOwnership(image,suggestedFinalOwner,transferFamily);
 							if (finalOwnerQueueFamily==QueueFamilyInvalid)
 								break;
 							// a non-recomputed mip level can either be empty or have content
@@ -3263,7 +3265,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 								// nothing needs to be done, evidently user wants to transition this mip level themselves
 								if (finalLayout!=layout_t::UNDEFINED)
 									continue;
-								//
+								// such an action makes no sense but we'll respect it
 								if (finalOwnerQueueFamily!=IQueue::FamilyIgnored)
 								{
 									// issue a warning, because your application code will just be more verbose (you still have to place an almost identical barrier on a queue in the acquiring family)
@@ -3326,9 +3328,9 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 								// slightly different post-barriers are needed post-upload
 								if (sourceForNextMipCompute)
 								{
-									// oif submitting to same queue, then we use compute commandbuffer to perform the barrier between Xfer and compute
-									// if no QFOT, no barrier needed at all because layout stays unchanged
-									if (uniQueue || computeFamily==transferFamily || image->getCachedCreationParams().isConcurrentSharing())
+									// If submitting to same queue, then we use compute commandbuffer to perform the barrier between Xfer and compute stages.
+									// also do this if no QFOT, because no barrier needed at all because layout stays unchanged and semaphore signal-wait perform big memory barriers
+									if (uniQueue || computeFamily==transferFamily || concurrentSharing)
 										continue;
 									// stay in the same layout, no transition (both match)
 									tmp.newLayout = layout_t::GENERAL;
