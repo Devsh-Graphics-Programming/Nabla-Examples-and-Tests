@@ -99,8 +99,8 @@ private:
 	std::atomic<uint32_t> transfersSubmitted = 0u;
 	std::array<core::smart_refctd_ptr<IGPUImage>, IMAGE_CNT> images;
 
+	// these could actually be different numbers for each thread
 	static constexpr uint32_t SUBMITS_IN_FLIGHT = 3u;
-	smart_refctd_ptr<video::IGPUCommandPool> commandPools[SUBMITS_IN_FLIGHT];
 
 	smart_refctd_ptr<IGPUBuffer> histogramBuffer = nullptr;
 	nbl::video::IDeviceMemoryAllocator::SAllocation m_histogramBufferAllocation = {};
@@ -114,15 +114,20 @@ private:
 		lp.logger = m_logger.get();
 
 		auto transferUpQueue = getTransferUpQueue();
-		std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, SUBMITS_IN_FLIGHT> commandPools = {};
-		std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer>, SUBMITS_IN_FLIGHT> commandBuffers;
 
-		for (uint32_t i=0u; i<SUBMITS_IN_FLIGHT; ++i)
+		// intialize command buffers
+		constexpr auto TransfersInFlight = 2;
+		std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer>,TransfersInFlight> commandBuffers;
+		m_device->createCommandPool(
+			transferUpQueue->getFamilyIndex(),
+			IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT
+		)->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{commandBuffers.data(),TransfersInFlight},core::smart_refctd_ptr(m_logger));
+		//
+		std::array<IQueue::SSubmitInfo::SCommandBufferInfo,TransfersInFlight> commandBufferInfos;
+		for (uint32_t i=0u; i<TransfersInFlight; ++i)
 		{
-			const core::bitflag<IGPUCommandPool::CREATE_FLAGS> commandPoolFlags = IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT;
-			commandPools[i] = m_device->createCommandPool(transferUpQueue->getFamilyIndex(), commandPoolFlags);
-			commandPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{commandBuffers.data()+i,1},core::smart_refctd_ptr(m_logger));
 			commandBuffers[i]->setObjectDebugName(("Upload Command Buffer #"+std::to_string(i)).c_str());
+			commandBufferInfos[i].cmdbuf = commandBuffers[i].get();
 		}
 
 		core::smart_refctd_ptr<ISemaphore> imgFillSemaphore = m_device->createSemaphore(0);
@@ -163,7 +168,7 @@ private:
 			.queue = transferUpQueue,
 			.waitSemaphores = {},
 			.prevCommandBuffers = {},
-			.scratchCommandBuffers = {}, // fill later
+			.scratchCommandBuffers = commandBufferInfos,
 			.scratchSemaphore = {
 				.semaphore = imgFillSemaphore.get(),
 				.value = 0,
@@ -171,6 +176,8 @@ private:
 				.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 			}
 		};
+		// as per the `SIntendedSubmitInfo` one commandbuffer must be begun
+		commandBuffers[0]->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		// Normally we'd have to inherit and override the `getFinalOwnerQueueFamily` callback to ensure that the
 		// compute queue becomes the owner of the buffers and images post-transfer, but in this example we use concurrent sharing
 		CAssetConverter::SConvertParams params = {};
@@ -180,8 +187,6 @@ private:
 		for (uint32_t imageIdx = 0; imageIdx < IMAGE_CNT; ++imageIdx)
 		{
 			const auto imagePathToLoad = imagesToLoad[imageIdx];
-			const size_t resourceIdx = imageIdx%SUBMITS_IN_FLIGHT;
-			
 			auto cpuImage = loadFistAssetInBundle<ICPUImage>(imagePathToLoad);
 			if (!cpuImage)
 				logFailAndTerminate("Failed to load image from path %s",ILogger::ELL_ERROR,imagePathToLoad);
@@ -196,15 +201,8 @@ private:
 			imageHandlesCreated++;
 			imageHandlesCreated.notify_one();
 
-			// pick scratch commandbuffer
-			auto& cmdBuff = commandBuffers[resourceIdx];
 			// handle not resetting a pending cmdbuf
 			waitForResourceAvailability(m_imagesLoadedSemaphore.get(),imageIdx);
-			// this automatically resets if commandbuffer is resettable
-			cmdBuff->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-			// finish filling the intended submit
-			IQueue::SSubmitInfo::SCommandBufferInfo imgFillCmdBuffInfo = {cmdBuff.get()};
-			transfer.scratchCommandBuffers = {&imgFillCmdBuffInfo,1};
 			// debug log about overflows
 			transfer.overflowCallback = [&](const ISemaphore::SWaitInfo&)->void
 			{
