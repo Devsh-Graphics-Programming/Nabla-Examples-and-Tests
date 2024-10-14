@@ -3547,6 +3547,10 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 	mergeCache.operator()<ICPUDescriptorSet>();
 //	mergeCache.operator()<ICPUFramebuffer>();
 
+	// no submit was necessary, so should signal the extra semaphores from the host
+	if (!retval.blocking())
+	for (const auto& info : params.extraSignalSemaphores)
+		info.semaphore->signal(info.value);
 	retval.set(IQueue::RESULT::SUCCESS);
 	return retval;
 }
