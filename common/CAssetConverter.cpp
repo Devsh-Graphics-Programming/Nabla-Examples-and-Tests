@@ -3079,7 +3079,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 		auto computeCmdBuf = shouldDoSomeCompute ? params.compute.getCommandBufferForRecording():nullptr;
 		auto drainCompute = [&params,shouldDoSomeCompute,&computeCmdBuf]()->auto
 		{
-			if (!shouldDoSomeCompute)// || computeCmdBuf->cmdbuf->empty())
+			if (!shouldDoSomeCompute || computeCmdBuf->cmdbuf->empty())
 				return IQueue::RESULT::SUCCESS;
 			// before we overflow submit we need to inject extra wait semaphores
 			auto& waitSemaphoreSpan = params.compute.waitSemaphores;
@@ -3297,67 +3297,67 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 								// whether next mip will need to read from this one to recompute itself
 								const bool sourceForNextMipCompute = item.recomputeMips&(0x1u<<lvl);
 								// keep in general layout to avoid a transfer->general transition
-tmp.newLayout = sourceForNextMipCompute ? layout_t::GENERAL : layout_t::TRANSFER_DST_OPTIMAL;
-// fire off the pipeline barrier so we can start uploading right away
-if (!xferCmdBuf->cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {},.bufBarriers = {},.imgBarriers = {&tmp,1} }))
-{
-	reservations.m_logger.log("Initial Pre-Image-Region-Upload Layout Transition failed!", system::ILogger::ELL_ERROR);
-	break;
-}
-// first use owns
-retval.submitsNeeded |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
-// start recording uploads
-{
-	const auto oldImmediateSubmitSignalValue = params.transfer.scratchSemaphore.value;
-	if (!params.utilities->updateImageViaStagingBuffer(params.transfer, cpuImg->getBuffer()->getPointer(), cpuImg->getCreationParameters().format, image, tmp.newLayout, regions))
-	{
-		reservations.m_logger.log("Image Redion Upload failed!", system::ILogger::ELL_ERROR);
-		break;
-	}
-	// stall callback is only called if multiple buffering of scratch commandbuffers fails, we also want to submit compute if transfer was submitted
-	if (oldImmediateSubmitSignalValue != params.transfer.scratchSemaphore.value)
-	{
-		drainCompute();
-		// and our recording scratch commandbuffer most likely changed
-		xferCmdBuf = params.transfer.getCommandBufferForRecording();
-	}
-}
-// new layout becomes old
-tmp.oldLayout = tmp.newLayout;
-// good initial variable value from initialization
-assert(barrier.otherQueueFamilyIndex == IQueue::FamilyIgnored);
-// slightly different post-barriers are needed post-upload
-if (sourceForNextMipCompute)
-{
-	// If submitting to same queue, then we use compute commandbuffer to perform the barrier between Xfer and compute stages.
-	// also do this if no QFOT, because no barrier needed at all because layout stays unchanged and semaphore signal-wait perform big memory barriers
-	if (uniQueue || computeFamily == transferFamily || concurrentSharing)
-		continue;
-	// stay in the same layout, no transition (both match)
-	tmp.newLayout = layout_t::GENERAL;
-	barrier.otherQueueFamilyIndex = computeFamily;
-	// we only sync with semaphore signal
-	barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::NONE, ACCESS_FLAGS::NONE);
-}
-else // no usage from compute command buffer
-{
-	tmp.newLayout = finalLayout;
-	// there shouldn't actually be a QFOT because its the same family or concurrent sharing
-	if (finalOwnerQueueFamily != IQueue::FamilyIgnored)
-	{
-		// QFOT release must only sync against semaphore signal
-		barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::NONE, ACCESS_FLAGS::NONE);
-	}
-	else
-	{
-		// There is no layout transition to perform, and no QFOT release, all memory and execution dependency will be done externally
-		if (tmp.newLayout == tmp.oldLayout)
-			continue;
-		// Otherwise protect against anything that may overlap our layout transition end if no QFOT
-		barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS, ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS);
-	}
-	barrier.otherQueueFamilyIndex = finalOwnerQueueFamily;
-}
+								tmp.newLayout = sourceForNextMipCompute ? layout_t::GENERAL : layout_t::TRANSFER_DST_OPTIMAL;
+								// fire off the pipeline barrier so we can start uploading right away
+								if (!xferCmdBuf->cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {},.bufBarriers = {},.imgBarriers = {&tmp,1} }))
+								{
+									reservations.m_logger.log("Initial Pre-Image-Region-Upload Layout Transition failed!", system::ILogger::ELL_ERROR);
+									break;
+								}
+								// first use owns
+								retval.submitsNeeded |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
+								// start recording uploads
+								{
+									const auto oldImmediateSubmitSignalValue = params.transfer.scratchSemaphore.value;
+									if (!params.utilities->updateImageViaStagingBuffer(params.transfer, cpuImg->getBuffer()->getPointer(), cpuImg->getCreationParameters().format, image, tmp.newLayout, regions))
+									{
+										reservations.m_logger.log("Image Redion Upload failed!", system::ILogger::ELL_ERROR);
+										break;
+									}
+									// stall callback is only called if multiple buffering of scratch commandbuffers fails, we also want to submit compute if transfer was submitted
+									if (oldImmediateSubmitSignalValue != params.transfer.scratchSemaphore.value)
+									{
+										drainCompute();
+										// and our recording scratch commandbuffer most likely changed
+										xferCmdBuf = params.transfer.getCommandBufferForRecording();
+									}
+								}
+								// new layout becomes old
+								tmp.oldLayout = tmp.newLayout;
+								// good initial variable value from initialization
+								assert(barrier.otherQueueFamilyIndex == IQueue::FamilyIgnored);
+								// slightly different post-barriers are needed post-upload
+								if (sourceForNextMipCompute)
+								{
+									// If submitting to same queue, then we use compute commandbuffer to perform the barrier between Xfer and compute stages.
+									// also do this if no QFOT, because no barrier needed at all because layout stays unchanged and semaphore signal-wait perform big memory barriers
+									if (uniQueue || computeFamily == transferFamily || concurrentSharing)
+										continue;
+									// stay in the same layout, no transition (both match)
+									tmp.newLayout = layout_t::GENERAL;
+									barrier.otherQueueFamilyIndex = computeFamily;
+									// we only sync with semaphore signal
+									barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::NONE, ACCESS_FLAGS::NONE);
+								}
+								else // no usage from compute command buffer
+								{
+									tmp.newLayout = finalLayout;
+									// there shouldn't actually be a QFOT because its the same family or concurrent sharing
+									if (finalOwnerQueueFamily != IQueue::FamilyIgnored)
+									{
+										// QFOT release must only sync against semaphore signal
+										barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::NONE, ACCESS_FLAGS::NONE);
+									}
+									else
+									{
+										// There is no layout transition to perform, and no QFOT release, all memory and execution dependency will be done externally
+										if (tmp.newLayout == tmp.oldLayout)
+											continue;
+										// Otherwise protect against anything that may overlap our layout transition end if no QFOT
+										barrier.dep = barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS, ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS);
+									}
+									barrier.otherQueueFamilyIndex = finalOwnerQueueFamily;
+								}
 							}
 							// we need a layout transition anyway
 							transferBarriers.push_back(tmp);
