@@ -39,12 +39,6 @@ constexpr static inline struct ClearValues
 	nbl::video::IGPUCommandBuffer::SClearDepthStencilValue depth = { .depth = 0.f };
 } clear;
 
-template<typename T, typename... Types>
-concept _implIsResourceTypeC = (std::same_as<T, Types> || ...);
-
-template<typename T, typename Types>
-concept ResourceTypeConcept = _implIsResourceTypeC<T, typename Types::descriptor_set_layout_t, typename Types::pipeline_layout_t, typename Types::renderpass_t, typename Types::image_view_t, typename Types::image_t, typename Types::buffer_t, typename Types::shader_t, typename Types::graphics_pipeline_t, typename Types::descriptor_set>;
-
 #define TYPES_IMPL_BOILERPLATE(WithConverter) struct Types \
 { \
 	using descriptor_set_layout_t = std::conditional_t<WithConverter, nbl::asset::ICPUDescriptorSetLayout, nbl::video::IGPUDescriptorSetLayout>; \
