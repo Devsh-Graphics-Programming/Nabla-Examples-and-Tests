@@ -2041,7 +2041,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 				//
 				dfsCache.for_each([&inputs,&retval,&conversionRequests](const instance_t<AssetType>& instance, dfs_cache<AssetType>::created_t& created)->void
 					{
-						if (!created.gpuObj)
+						if (created.gpuObj)
 							return;
 						auto found = conversionRequests.find(created.contentHash);
 						// may not find things because of unconverted dummy deps
