@@ -164,17 +164,8 @@ public:
 	{
 		EXPOSE_NABLA_NAMESPACES();
 
-		auto completed = utilities->getLogicalDevice()->createSemaphore(0u);
-
-		std::array<IQueue::SSubmitInfo::SSemaphoreInfo, 1u> signals;
-		{
-			auto& signal = signals.front();
-			signal.value = 0x45;
-			signal.stageMask = bitflag(PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS);
-			signal.semaphore = completed.get();
-		}
-
-		std::array<IQueue::SSubmitInfo::SCommandBufferInfo, 1u> commandBuffers = {};
+		// TODO: use multiple command buffers
+		std::array<IQueue::SSubmitInfo::SCommandBufferInfo,1u> commandBuffers = {};
 		{
 			commandBuffers.front().cmdbuf = commandBuffer;
 		}
@@ -277,133 +268,140 @@ public:
 
 			auto semaphore = utilities->getLogicalDevice()->createSemaphore(0u);
 
-			CAssetConverter::SConvertParams params = {};
-			params.utilities = utilities;
-			params.transfer.queue = transferCapableQueue;
-			params.transfer.scratchSemaphore.semaphore = semaphore.get();
-			params.transfer.scratchSemaphore.value = 0u; // the initial signal value is incremented by one for each submit so let's start with 0u, we will have only one submit so our scratch signal value will be 1u
-			params.transfer.scratchSemaphore.stageMask = bitflag(PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS);
-			params.transfer.commandBuffers = commandBuffers;
-
-			// basically it records all data uploads, but remember for gpu objects to be finalized you also have to submit the conversion afterwards to the queue!
-			auto result = reservation.convert(params);
-
-			if (!result)
+			// TODO: compute submit as well for the images' mipmaps
+			SIntendedSubmitInfo transfer = {};
+			transfer.queue = transferCapableQueue;
+			transfer.scratchCommandBuffers = commandBuffers;
+			transfer.scratchSemaphore = {
+				.semaphore = semaphore.get(),
+				.value = 0u,
+				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+			};
+			// issue the convert call
 			{
-				logger->log("Failed to record assets conversion!", ILogger::ELL_ERROR);
-				return false;
-			}
+				CAssetConverter::SConvertParams params = {};
+				params.utilities = utilities;
+				params.transfer = &transfer;
 
-			// submit the work to queue, note we will have 2 semaphores under the hood, scratch + our signal
-			auto future = result.submit(signals);
-
-			// and note that this operator actually blocks for semaphores!
-			if (!future)
-			{
-				logger->log("Failed to await submission feature!", ILogger::ELL_ERROR);
-				return false;
-			}
-
-			// assign gpu objects to output
-			auto& base = static_cast<ResourcesBundle::base_t&>(output);
-			{
-				auto&& [renderpass, pipelines, buffers, descriptorSet] = std::make_tuple(reservation.getGPUObjects<ICPURenderpass>().front().value, reservation.getGPUObjects<ICPUGraphicsPipeline>(), reservation.getGPUObjects<ICPUBuffer>(), reservation.getGPUObjects<ICPUDescriptorSet>().front().value);
+				// basically it records all data uploads and submits them right away
+				auto future = reservation.convert(params);
+				if (future.copy()!=IQueue::RESULT::SUCCESS)
 				{
-					base.renderpass = renderpass;
-					for (uint32_t i = 0u; i < pipelines.size(); ++i)
+					logger->log("Failed to await submission feature!", ILogger::ELL_ERROR);
+					return false;
+				}
+
+				// assign gpu objects to output
+				auto& base = static_cast<ResourcesBundle::base_t&>(output);
+				{
+					auto&& [renderpass, pipelines, buffers, descriptorSet] = std::make_tuple(reservation.getGPUObjects<ICPURenderpass>().front().value, reservation.getGPUObjects<ICPUGraphicsPipeline>(), reservation.getGPUObjects<ICPUBuffer>(), reservation.getGPUObjects<ICPUDescriptorSet>().front().value);
 					{
-						const auto type = static_cast<ObjectType>(i);
-						const auto& [rcpu, rmeta] = scratch.objects[type];
-						auto& [gpu, meta] = base.objects[type];
+						base.renderpass = renderpass;
+						for (uint32_t i = 0u; i < pipelines.size(); ++i)
+						{
+							const auto type = static_cast<ObjectType>(i);
+							const auto& [rcpu, rmeta] = scratch.objects[type];
+							auto& [gpu, meta] = base.objects[type];
 
-						gpu.pipeline = pipelines[i].value;
-						// [[ [vertex, index] [vertex, index] [vertex, index] ... [ubo] ]]
-						gpu.bindings.vertex = {.offset = 0u, .buffer = buffers[2u * i + 0u].value};
-						gpu.bindings.index = {.offset = 0u, .buffer = buffers[2u * i + 1u].value};
+							gpu.pipeline = pipelines[i].value;
+							// [[ [vertex, index] [vertex, index] [vertex, index] ... [ubo] ]]
+							gpu.bindings.vertex = {.offset = 0u, .buffer = buffers[2u * i + 0u].value};
+							gpu.bindings.index = {.offset = 0u, .buffer = buffers[2u * i + 1u].value};
 
-						gpu.indexCount = rcpu.indexCount;
-						gpu.indexType = rcpu.indexType;
-						meta.name = rmeta.name;
-						meta.type = rmeta.type;
-					}
-					base.ubo = {.offset = 0u, .buffer = buffers.back().value};
-					base.descriptorSet = descriptorSet;
+							gpu.indexCount = rcpu.indexCount;
+							gpu.indexType = rcpu.indexType;
+							meta.name = rmeta.name;
+							meta.type = rmeta.type;
+						}
+						base.ubo = {.offset = 0u, .buffer = buffers.back().value};
+						base.descriptorSet = descriptorSet;
 					
-					/*
-						// base.attachments.color = attachments[AI_COLOR].value;
-						// base.attachments.depth = attachments[AI_DEPTH].value;
+						/*
+							// base.attachments.color = attachments[AI_COLOR].value;
+							// base.attachments.depth = attachments[AI_DEPTH].value;
 
-						note conversion of image views is not yet supported by the asset converter 
-						- it's complicated, we have to kinda temporary ignore DRY a bit here to not break the design which is correct
+							note conversion of image views is not yet supported by the asset converter 
+							- it's complicated, we have to kinda temporary ignore DRY a bit here to not break the design which is correct
 
-						TEMPORARY: we patch attachments by allocating them ourselves here given cpu instances & parameters
-						TODO: remove following code once asset converter works with image views & update stuff
-					*/
+							TEMPORARY: we patch attachments by allocating them ourselves here given cpu instances & parameters
+							TODO: remove following code once asset converter works with image views & update stuff
+						*/
 
-					for (uint32_t i = 0u; i < AI_COUNT; ++i)
-					{
-						const auto* reference = hooks.attachments[i];
-						auto& out = (i == AI_COLOR ? base.attachments.color : base.attachments.depth);
-
-						const auto& viewParams = reference->getCreationParameters();
-						const auto& imageParams = viewParams.image->getCreationParameters();
-
-						auto image = utilities->getLogicalDevice()->createImage
-						(
-							IGPUImage::SCreationParams
-							({
-								.type = imageParams.type,
-								.samples = imageParams.samples,
-								.format = imageParams.format,
-								.extent = imageParams.extent,
-								.mipLevels = imageParams.mipLevels,
-								.arrayLayers = imageParams.arrayLayers,
-								.usage = imageParams.usage
-							})
-						);
-
-						if (!image)
+						for (uint32_t i = 0u; i < AI_COUNT; ++i)
 						{
-							logger->log("Could not create image!", ILogger::ELL_ERROR);
-							return false;
-						}
+							const auto* reference = hooks.attachments[i];
+							auto& out = (i == AI_COLOR ? base.attachments.color : base.attachments.depth);
 
-						bool IS_DEPTH = isDepthOrStencilFormat(imageParams.format);
-						std::string_view DEBUG_NAME = IS_DEPTH ? "UI Scene Depth Attachment Image" : "UI Scene Color Attachment Image";
-						image->setObjectDebugName(DEBUG_NAME.data());
+							const auto& viewParams = reference->getCreationParameters();
+							const auto& imageParams = viewParams.image->getCreationParameters();
 
-						if (!utilities->getLogicalDevice()->allocate(image->getMemoryReqs(), image.get()).isValid())
-						{
-							logger->log("Could not allocate memory for an image!", ILogger::ELL_ERROR);
-							return false;
-						}
+							auto image = utilities->getLogicalDevice()->createImage
+							(
+								IGPUImage::SCreationParams
+								({
+									.type = imageParams.type,
+									.samples = imageParams.samples,
+									.format = imageParams.format,
+									.extent = imageParams.extent,
+									.mipLevels = imageParams.mipLevels,
+									.arrayLayers = imageParams.arrayLayers,
+									.usage = imageParams.usage
+								})
+							);
+
+							if (!image)
+							{
+								logger->log("Could not create image!", ILogger::ELL_ERROR);
+								return false;
+							}
+
+							bool IS_DEPTH = isDepthOrStencilFormat(imageParams.format);
+							std::string_view DEBUG_NAME = IS_DEPTH ? "UI Scene Depth Attachment Image" : "UI Scene Color Attachment Image";
+							image->setObjectDebugName(DEBUG_NAME.data());
+
+							if (!utilities->getLogicalDevice()->allocate(image->getMemoryReqs(), image.get()).isValid())
+							{
+								logger->log("Could not allocate memory for an image!", ILogger::ELL_ERROR);
+								return false;
+							}
 						
-						out = utilities->getLogicalDevice()->createImageView
-						(
-							IGPUImageView::SCreationParams
-							({
-								.flags = viewParams.flags,
-								.subUsages = viewParams.subUsages,
-								.image = std::move(image),
-								.viewType = viewParams.viewType,
-								.format = viewParams.format,
-								.subresourceRange = viewParams.subresourceRange
-							})
-						);
+							out = utilities->getLogicalDevice()->createImageView
+							(
+								IGPUImageView::SCreationParams
+								({
+									.flags = viewParams.flags,
+									.subUsages = viewParams.subUsages,
+									.image = std::move(image),
+									.viewType = viewParams.viewType,
+									.format = viewParams.format,
+									.subresourceRange = viewParams.subresourceRange
+								})
+							);
 
-						if (!out)
-						{
-							logger->log("Could not create image view!", ILogger::ELL_ERROR);
-							return false;
+							if (!out)
+							{
+								logger->log("Could not create image view!", ILogger::ELL_ERROR);
+								return false;
+							}
 						}
-					}
 
-					logger->log("Image View attachments has been allocated by hand after asset converter successful submit becasuse it doesn't support converting them yet!", ILogger::ELL_WARNING);
+						logger->log("Image View attachments has been allocated by hand after asset converter successful submit becasuse it doesn't support converting them yet!", ILogger::ELL_WARNING);
+					}
 				}
 			}
 		}
 		else
 		{
+			auto completed = utilities->getLogicalDevice()->createSemaphore(0u);
+
+			std::array<IQueue::SSubmitInfo::SSemaphoreInfo, 1u> signals;
+			{
+				auto& signal = signals.front();
+				signal.value = 1;
+				signal.stageMask = bitflag(PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS);
+				signal.semaphore = completed.get();
+			}
+
 			const IQueue::SSubmitInfo infos [] =
 			{
 				{
@@ -422,7 +420,7 @@ public:
 			const ISemaphore::SWaitInfo info [] =
 			{ {
 				.semaphore = completed.get(),
-				.value = 0x45
+				.value = 1
 			} };
 
 			utilities->getLogicalDevice()->blockForSemaphores(info);

@@ -219,8 +219,8 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 			auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
 			auto* geometry = assetManager->getGeometryCreator();
 
-			using Builder = typename CScene::CreateResourcesDirectlyWithDevice::Builder;
-			//using Builder = typename CScene::CreateResourcesWithAssetConverter::Builder;
+			//using Builder = typename CScene::CreateResourcesDirectlyWithDevice::Builder;
+			using Builder = typename CScene::CreateResourcesWithAssetConverter::Builder;
 			auto oneRunCmd = CScene::createCommandBuffer(m_utils->getLogicalDevice(), m_utils->getLogger(), gQueue->getFamilyIndex());
 			Builder builder(m_utils.get(), oneRunCmd.get(), m_logger.get(), geometry);
 
