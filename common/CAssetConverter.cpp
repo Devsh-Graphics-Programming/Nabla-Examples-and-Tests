@@ -1,7 +1,6 @@
 // Copyright (C) 2024-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 #include "CAssetConverter.h"
-#include "nbl/video/alloc/SubAllocatedDescriptorSet.h"
 
 #include <type_traits>
 
@@ -2911,6 +2910,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResult& reservations, SConvertParams& params)
 {
 	ISemaphore::future_t<IQueue::RESULT> retval = IQueue::RESULT::OTHER_ERROR;
+	system::logger_opt_ptr logger = reservations.m_logger.get().get();
 	if (!reservations.m_converter)
 	{
 		reservations.m_logger.log("Cannot call convert on an unsuccessful reserve result! Or are you attempting to do a double run of `convert` ?",system::ILogger::ELL_ERROR);
@@ -3120,6 +3120,7 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 		if (!imagesToUpload.empty())
 		{
 			//
+			constexpr auto MaxMipLevelsPastBase = 16;
 			constexpr auto SrcMipBinding = 1;
 			constexpr auto DstMipBinding = 1;
 			core::smart_refctd_ptr<SubAllocatedDescriptorSet> dsAlloc;
@@ -3131,21 +3132,36 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 				});
 				using binding_create_flags_t = IGPUDescriptorSetLayout::SBindingBase::E_CREATE_FLAGS;
 				constexpr auto BindingFlags = SubAllocatedDescriptorSet::RequiredBindingFlags;
+				// need at least as many elements in descriptor array as scratch buffers, and no more than total images
+				const uint32_t imageCount = imagesToUpload.size();
+				const uint32_t computeMultiBufferingCount = params.compute->scratchCommandBuffers.size();
 				const IGPUDescriptorSetLayout::SBinding bindings[3] = {
 					{.binding=0,.type=IDescriptor::E_TYPE::ET_SAMPLER,.createFlags=BindingFlags,.stageFlags=IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,.count=1,.immutableSamplers=&repeatSampler},
-					{.binding=SrcMipBinding,.type=IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,.createFlags=BindingFlags,.stageFlags=IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,.count=6969},
-					{.binding=DstMipBinding,.type=IDescriptor::E_TYPE::ET_STORAGE_IMAGE,.createFlags=BindingFlags,.stageFlags=IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,.count=6969}
+					{
+						.binding = SrcMipBinding,
+						.type = IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
+						.createFlags = BindingFlags,
+						.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+						.count = std::min(std::max(computeMultiBufferingCount,params.sampledImageBindingCount),imageCount)
+					},
+					{
+						.binding = DstMipBinding,
+						.type = IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+						.createFlags = BindingFlags,
+						.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+						.count = std::min(std::max(MaxMipLevelsPastBase*computeMultiBufferingCount,params.storageImageBindingCount),MaxMipLevelsPastBase*imageCount)
+					}
 				};
 				auto layout = device->createDescriptorSetLayout(bindings);
 				auto pool = device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT,{&layout.get(),1});
 				dsAlloc = core::make_smart_refctd_ptr<SubAllocatedDescriptorSet>(pool->createDescriptorSet(std::move(layout)));
 			}
-			auto quickWriteDescriptor = [device,&dsAlloc](const uint32_t binding, const uint32_t arrayElement, core::smart_refctd_ptr<IGPUImageView> view)->bool
+			auto quickWriteDescriptor = [device,logger,&dsAlloc](const uint32_t binding, const uint32_t arrayElement, core::smart_refctd_ptr<IGPUImageView> view)->bool
 			{
 				auto* ds = dsAlloc->getDescriptorSet();
-				const IGPUDescriptorSet::SDescriptorInfo info = {
-					std::move(view),IGPUImage::LAYOUT::GENERAL
-				};
+				IGPUDescriptorSet::SDescriptorInfo info = {};
+				info.desc = std::move(view);
+				info.info.image.imageLayout = IGPUImage::LAYOUT::GENERAL;
 				const IGPUDescriptorSet::SWriteDescriptorSet write = {
 					.dstSet = ds,
 					.binding = binding,
@@ -3155,7 +3171,7 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 				};
 				if (!device->updateDescriptorSets({&write,1},{}))
 				{
-					// TODO: log error
+					logger.log("Failed to write to binding %d element %d in the Suballocated Descriptor Set, despite allocation success!",system::ILogger::ELL_ERROR,binding,arrayElement);
 					return false;
 				}
 				return true;
@@ -3166,9 +3182,8 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 			//
 			core::vector<IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> transferBarriers;
 			core::vector<IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> computeBarriers;
-			// max mips in a single image minus 1
-			transferBarriers.reserve(16);
-			computeBarriers.reserve(16);
+			transferBarriers.reserve(MaxMipLevelsPastBase);
+			computeBarriers.reserve(MaxMipLevelsPastBase);
 			// finally go over the images
 			for (auto& item : imagesToUpload)
 			{
@@ -3186,6 +3201,7 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 				// allocate the offset in the binding array and write the source image view into the descriptor set
 				auto srcIx = SubAllocatedDescriptorSet::invalid_value;
 				// clean up the allocation if we fail to make it to the end of loop for whatever reason
+				// cannot do `multi_deallocate` with future semaphore value right away, because we don't know the last submit to use this descriptor, yet. 
 				auto deallocSrc = core::makeRAIIExiter([SrcMipBinding,&dsAlloc,&srcIx]()->void{
 					if (srcIx!=SubAllocatedDescriptorSet::invalid_value)
 						dsAlloc->multi_deallocate(SrcMipBinding,1,&srcIx,{});
@@ -3336,9 +3352,9 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 							}
 							//
 							{
-								// no point caching this, has to be created individually for each mip level with modified format
+								// If format cannot be stored directly, alias the texel block to a compatible `uint_t` format and we'll encode manually.
 								auto storeFormat = format;
-								if (device->getPhysicalDevice()->getImageFormatUsages(image->getTiling())[format].storageImage)
+								if (!device->getPhysicalDevice()->getImageFormatUsages(image->getTiling())[format].storageImage)
 								switch (image->getTexelBlockInfo().getBlockByteSize())
 								{
 									case 1:
@@ -3363,6 +3379,7 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 										assert(false);
 										break;
 								}
+								// no point caching this view, has to be created individually for each mip level with modified format
 								auto dstView = device->createImageView({
 									.flags = IGPUImageView::ECF_NONE,
 									.subUsages = IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT,
@@ -3382,7 +3399,9 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 									uint64_t srcMipLevel : 20;
 									uint64_t dstIx : 22;
 								} pc;
-								// allocate slots in the descriptor set and write them
+								pc.srcIx = srcIx;
+								pc.srcMipLevel = lvl-1;
+								// allocate slot for the output image view and write it
 								{
 									auto dstIx = SubAllocatedDescriptorSet::invalid_value;
 									for (uint32_t i=0; dsAlloc->try_multi_allocate(DstMipBinding,1,&dstIx)!=0; i++)
@@ -3401,9 +3420,10 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 										dsAlloc->multi_deallocate(DstMipBinding,1,&dstIx,{});
 										break;
 									}
+									pc.dstIx = dstIx;
 								}
 							}
-// TODO: put source and destination image indices and mip level in push constants (22,22,20 bits), then dispatch compute shader
+// TODO: push constants, and dispatch compute shader
 							_prevRecompute = true;
 							// record deferred layout transitions and QFOTs
 							{

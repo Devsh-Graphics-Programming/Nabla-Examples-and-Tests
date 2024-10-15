@@ -543,11 +543,11 @@ private:
 		IAssetLoader::SAssetLoadParams lp;
 		SAssetBundle bundle = m_assetMgr->getAsset(path, lp);
 		if (bundle.getContents().empty())
-			logFailAndTerminate("Couldn't load an asset.", ILogger::ELL_ERROR);
+			logFailAndTerminate("Couldn't load an asset.",ILogger::ELL_ERROR);
 
 		auto asset = IAsset::castDown<AssetType>(bundle.getContents()[0]);
 		if (!asset)
-			logFailAndTerminate("Incorrect asset loaded.", ILogger::ELL_ERROR);
+			logFailAndTerminate("Incorrect asset loaded.",ILogger::ELL_ERROR);
 
 		return asset;
 	}

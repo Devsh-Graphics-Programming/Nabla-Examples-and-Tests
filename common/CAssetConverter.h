@@ -830,6 +830,9 @@ class CAssetConverter : public core::IReferenceCounted
 			IUtilities* utilities = nullptr;
 			// optional, last submit (compute, transfer if no compute needed) signals these in addition to the scratch semaphore
 			std::span<const IQueue::SSubmitInfo::SSemaphoreInfo> extraSignalSemaphores = {};
+			// specific to mip-map recomputation, these are okay defaults for the size of our Descriptor Indexed temporary descriptor set
+			uint32_t sampledImageBindingCount = 1<<10;
+			uint32_t storageImageBindingCount = 11<<10;
 		};
         struct SReserveResult final
         {
