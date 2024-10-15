@@ -61,6 +61,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			m_camera = Camera(cameraPos, core::vectorSIMDf(0, 0, 0), proj);
 		}
 
+		inline bool isComputeOnly() const override { return false; }
+
 		inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 		{
 			if (!m_surface)
