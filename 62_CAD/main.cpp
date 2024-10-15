@@ -68,7 +68,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0,	// CASE_8
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_4;
+constexpr ExampleMode mode = ExampleMode::CASE_8;
 
 class Camera2D
 {
@@ -631,6 +631,12 @@ public:
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
+		float32_t2 a(1.0, 2.3);
+		using VecT = emulated_vector_t<emulated_float64_t<true, true>, 2>;
+
+		VecT b = _static_cast<VecT>(a);
+		std::cout << _static_cast<float>(b.x) << ' ' << _static_cast<float>(b.y) << std::endl;
+
 		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
 		// Remember to call the base class initialization!
