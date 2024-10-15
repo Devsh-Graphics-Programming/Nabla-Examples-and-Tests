@@ -1,6 +1,7 @@
 // Copyright (C) 2024-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 #include "CAssetConverter.h"
+#include "nbl/video/alloc/SubAllocatedDescriptorSet.h"
 
 #include <type_traits>
 
@@ -3118,6 +3119,48 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 		auto& imagesToUpload = std::get<SReserveResult::conversion_requests_t<ICPUImage>>(reservations.m_conversionRequests);
 		if (!imagesToUpload.empty())
 		{
+			//
+			constexpr auto SrcMipBinding = 1;
+			constexpr auto DstMipBinding = 1;
+			core::smart_refctd_ptr<SubAllocatedDescriptorSet> dsAlloc;
+			if (shouldDoSomeCompute)
+			{
+				// TODO: add mip-map recomputation sampler to the patch params (wrap modes and border color), and hash & cache them during creation
+				const auto repeatSampler = device->createSampler({
+					// default everything
+				});
+				using binding_create_flags_t = IGPUDescriptorSetLayout::SBindingBase::E_CREATE_FLAGS;
+				constexpr auto BindingFlags = SubAllocatedDescriptorSet::RequiredBindingFlags;
+				const IGPUDescriptorSetLayout::SBinding bindings[3] = {
+					{.binding=0,.type=IDescriptor::E_TYPE::ET_SAMPLER,.createFlags=BindingFlags,.stageFlags=IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,.count=1,.immutableSamplers=&repeatSampler},
+					{.binding=SrcMipBinding,.type=IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,.createFlags=BindingFlags,.stageFlags=IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,.count=6969},
+					{.binding=DstMipBinding,.type=IDescriptor::E_TYPE::ET_STORAGE_IMAGE,.createFlags=BindingFlags,.stageFlags=IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,.count=6969}
+				};
+				auto layout = device->createDescriptorSetLayout(bindings);
+				auto pool = device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT,{&layout.get(),1});
+				dsAlloc = core::make_smart_refctd_ptr<SubAllocatedDescriptorSet>(pool->createDescriptorSet(std::move(layout)));
+			}
+			auto quickWriteDescriptor = [device,&dsAlloc](const uint32_t binding, const uint32_t arrayElement, core::smart_refctd_ptr<IGPUImageView> view)->bool
+			{
+				auto* ds = dsAlloc->getDescriptorSet();
+				const IGPUDescriptorSet::SDescriptorInfo info = {
+					std::move(view),IGPUImage::LAYOUT::GENERAL
+				};
+				const IGPUDescriptorSet::SWriteDescriptorSet write = {
+					.dstSet = ds,
+					.binding = binding,
+					.arrayElement = arrayElement,
+					.count = 1,
+					.info = &info
+				};
+				if (!device->updateDescriptorSets({&write,1},{}))
+				{
+					// TODO: log error
+					return false;
+				}
+				return true;
+			};
+
 			// because of the layout transitions
 			params.transfer->scratchSemaphore.stageMask |= PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
 			//
@@ -3140,6 +3183,49 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 				const core::bitflag<aspect_flags_t> aspects = isDepthOrStencilFormat(format) ? static_cast<aspect_flags_t>(
 						(isDepthOnlyFormat(format) ? aspect_flags_t::EAF_NONE:aspect_flags_t::EAF_STENCIL_BIT)|(isStencilOnlyFormat(format) ? aspect_flags_t::EAF_NONE:aspect_flags_t::EAF_DEPTH_BIT)
 					):aspect_flags_t::EAF_COLOR_BIT;
+				// allocate the offset in the binding array and write the source image view into the descriptor set
+				auto srcIx = SubAllocatedDescriptorSet::invalid_value;
+				// clean up the allocation if we fail to make it to the end of loop for whatever reason
+				auto deallocSrc = core::makeRAIIExiter([SrcMipBinding,&dsAlloc,&srcIx]()->void{
+					if (srcIx!=SubAllocatedDescriptorSet::invalid_value)
+						dsAlloc->multi_deallocate(SrcMipBinding,1,&srcIx,{});
+				});
+				IGPUImageView::E_TYPE viewType = IGPUImageView::E_TYPE::ET_2D_ARRAY;
+				if (item.recomputeMips)
+				{
+					switch (creationParams.type)
+					{
+						case IGPUImage::E_TYPE::ET_1D:
+							viewType = IGPUImageView::E_TYPE::ET_1D_ARRAY;
+							break;
+						case IGPUImage::E_TYPE::ET_3D:
+							viewType = IGPUImageView::E_TYPE::ET_3D;
+							break;
+						default:
+							break;
+					}
+					// creating and hashing those ahead of time makes no sense, because all `imagesToUpload` have different hashes
+					auto srcView = device->createImageView({
+						.flags = IGPUImageView::ECF_NONE,
+						.subUsages = IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT,
+						.image = core::smart_refctd_ptr<IGPUImage>(image),
+						.viewType = viewType,
+						.format = format,
+						.subresourceRange = {}
+					});
+					// its our own resource, it will eventually be free
+					while (dsAlloc->multi_allocate(SrcMipBinding,1,&srcIx)!=0)
+					{
+						drainCompute();
+						//params.compute->overflowCallback(); // erm what semaphore would we even be waiting for? TODO: need an event handler/timeline method to give lowest latch event/semaphore value
+						dsAlloc->cull_frees();
+					}
+					if (!quickWriteDescriptor(SrcMipBinding,srcIx,std::move(srcView)))
+					{
+						markFailureInStaging(image,pFoundHash);
+						continue;
+					}
+				}
 				//
 				using layout_t = IGPUImage::LAYOUT;
 				// record optional transitions to transfer/mip recompute layout and optional transfers, then transitions to desired layout after transfer
@@ -3248,8 +3334,76 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 								computeCmdBuf->cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers=preComputeBarriers});
 								submitsNeeded |= IQueue::FAMILY_FLAGS::COMPUTE_BIT;
 							}
-// TODO: update descriptor set pool + overflow submit if we cannot allocate a spot
-// TODO: put source and destination image indices in push constants, then dispatch compute shader
+							//
+							{
+								// no point caching this, has to be created individually for each mip level with modified format
+								auto storeFormat = format;
+								if (device->getPhysicalDevice()->getImageFormatUsages(image->getTiling())[format].storageImage)
+								switch (image->getTexelBlockInfo().getBlockByteSize())
+								{
+									case 1:
+										storeFormat = asset::EF_R8_UINT;
+										break;
+									case 2:
+										storeFormat = asset::EF_R16_UINT;
+										break;
+									case 4:
+										storeFormat = asset::EF_R32_UINT;
+										break;
+									case 8:
+										storeFormat = asset::EF_R32G32_UINT;
+										break;
+									case 16:
+										storeFormat = asset::EF_R32G32B32A32_UINT;
+										break;
+									case 32:
+										storeFormat = asset::EF_R64G64B64A64_UINT;
+										break;
+									default:
+										assert(false);
+										break;
+								}
+								auto dstView = device->createImageView({
+									.flags = IGPUImageView::ECF_NONE,
+									.subUsages = IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT,
+									.image = core::smart_refctd_ptr<IGPUImage>(image),
+									.viewType = viewType,
+									.format = format,
+									.subresourceRange = {
+										.aspectMask = IGPUImage::EAF_COLOR_BIT,
+										.baseMipLevel = lvl,
+										.levelCount = 1
+									}
+								});
+								// TODO: move to blit ext
+								struct PushConstant
+								{
+									uint64_t srcIx : 22;
+									uint64_t srcMipLevel : 20;
+									uint64_t dstIx : 22;
+								} pc;
+								// allocate slots in the descriptor set and write them
+								{
+									auto dstIx = SubAllocatedDescriptorSet::invalid_value;
+									for (uint32_t i=0; dsAlloc->try_multi_allocate(DstMipBinding,1,&dstIx)!=0; i++)
+									{
+										if (i) // don't submit on first fail
+											drainCompute();
+										dsAlloc->cull_frees();
+									}
+									if (quickWriteDescriptor(DstMipBinding,dstIx,std::move(dstView)))
+									{
+										pc.dstIx = dstIx; // before gets wiped
+										dsAlloc->multi_deallocate(DstMipBinding,1,&dstIx,params.compute->getFutureScratchSemaphore());
+									}
+									else
+									{
+										dsAlloc->multi_deallocate(DstMipBinding,1,&dstIx,{});
+										break;
+									}
+								}
+							}
+// TODO: put source and destination image indices and mip level in push constants (22,22,20 bits), then dispatch compute shader
 							_prevRecompute = true;
 							// record deferred layout transitions and QFOTs
 							{
@@ -3339,7 +3493,7 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 								{
 									// If submitting to same queue, then we use compute commandbuffer to perform the barrier between Xfer and compute stages.
 									// also do this if no QFOT, because no barrier needed at all because layout stays unchanged and semaphore signal-wait perform big memory barriers
-									if (uniQueue || computeFamily == transferFamily || concurrentSharing)
+									if (uniQueue || computeFamily==transferFamily || concurrentSharing)
 										continue;
 									// stay in the same layout, no transition (both match)
 									tmp.newLayout = layout_t::GENERAL;
@@ -3391,6 +3545,7 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 				}
 				if (!computeBarriers.empty())
 				{
+					dsAlloc->multi_deallocate(SrcMipBinding,1,&srcIx,params.compute->getFutureScratchSemaphore());
 					if (!computeCmdBuf->cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {},.bufBarriers = {},.imgBarriers = computeBarriers }))
 					{
 						reservations.m_logger.log("Final Pipeline Barrier recording to Compute Command Buffer failed", system::ILogger::ELL_ERROR);
