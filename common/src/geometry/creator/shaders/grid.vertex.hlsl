@@ -1,6 +1,4 @@
-#include "gc.common.hlsl"
-
-[[vk::push_constant]] struct PushConstants pc;
+#include "template/grid.common.hlsl"
 
 // set 1, binding 0
 [[vk::binding(0, 1)]]
@@ -12,13 +10,8 @@ cbuffer CameraData
 PSInput VSMain(VSInput input)
 {
     PSInput output;
-
     output.position = mul(params.MVP, float4(input.position, 1.0));
-    output.color = float4(input.normal * 0.5 + 0.5, 1.0);
-
+    output.uv = (input.uv - float2(0.5, 0.5)) * abs(input.position.xy);
+    
     return output;
 }
-
-/*
-    do not remove this text, WAVE is so bad that you can get errors if no proper ending xD
-*/
