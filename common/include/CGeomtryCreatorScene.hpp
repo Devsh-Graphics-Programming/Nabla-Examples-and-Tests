@@ -5,7 +5,6 @@
 
 #include "nbl/asset/utils/CGeometryCreator.h"
 #include "SBasicViewParameters.hlsl"
-#include "CAssetConverter.h"
 #include "geometry/creator/spirv/builtin/CArchive.h"
 #include "geometry/creator/spirv/builtin/builtinResources.h"
 
@@ -867,7 +866,7 @@ private:
 					obj.pipeline = ICPUGraphicsPipeline::create(params.pipeline);
 				else
 				{
-					const std::span<const IGPUGraphicsPipeline::SCreationParams> info = { { params.pipeline } };
+					const std::array<const IGPUGraphicsPipeline::SCreationParams,1> info = { { params.pipeline } };
 					utilities->getLogicalDevice()->createGraphicsPipelines(nullptr, info, &obj.pipeline);
 				}
 
