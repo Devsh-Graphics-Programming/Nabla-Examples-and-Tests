@@ -2913,7 +2913,7 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 	system::logger_opt_ptr logger = reservations.m_logger.get().get();
 	if (!reservations.m_converter)
 	{
-		reservations.m_logger.log("Cannot call convert on an unsuccessful reserve result! Or are you attempting to do a double run of `convert` ?",system::ILogger::ELL_ERROR);
+		logger.log("Cannot call convert on an unsuccessful reserve result! Or are you attempting to do a double run of `convert` ?",system::ILogger::ELL_ERROR);
 		return retval;
 	}
 	assert(reservations.m_converter.get()==this);
@@ -2925,29 +2925,29 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 	{
 		if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT) && (!params.utilities || params.utilities->getLogicalDevice()!=device))
 		{
-			reservations.m_logger.log("Transfer Capability required for this conversion and no compatible `utilities` provided!", system::ILogger::ELL_ERROR);
+			logger.log("Transfer Capability required for this conversion and no compatible `utilities` provided!", system::ILogger::ELL_ERROR);
 			return retval;
 		}
 
-		auto invalidIntended = [reqQueueFlags,device,&reservations](const IQueue::FAMILY_FLAGS flag, const SIntendedSubmitInfo* intended)->bool
+		auto invalidIntended = [reqQueueFlags,device,logger](const IQueue::FAMILY_FLAGS flag, const SIntendedSubmitInfo* intended)->bool
 		{
 			if (!reqQueueFlags.hasFlags(flag))
 				return false;
 			if (!intended || !intended->valid())
 			{
-				reservations.m_logger.log("Invalid `SIntendedSubmitInfo` for queue capability %d!",system::ILogger::ELL_ERROR,flag);
+				logger.log("Invalid `SIntendedSubmitInfo` for queue capability %d!",system::ILogger::ELL_ERROR,flag);
 				return true;
 			}
 			const auto* queue = intended->queue;
 			if (queue->getOriginDevice()!=device)
 			{
-				reservations.m_logger.log("Provided Queue's device %p doesn't match CAssetConverter's device %p!",system::ILogger::ELL_ERROR,queue->getOriginDevice(),device);
+				logger.log("Provided Queue's device %p doesn't match CAssetConverter's device %p!",system::ILogger::ELL_ERROR,queue->getOriginDevice(),device);
 				return true;
 			}
 			const auto& qFamProps = device->getPhysicalDevice()->getQueueFamilyProperties();
 			if (!qFamProps[queue->getFamilyIndex()].queueFlags.hasFlags(flag))
 			{
-				reservations.m_logger.log("Provided Queue %p in Family %d does not have the required capabilities %d!",system::ILogger::ELL_ERROR,queue,queue->getFamilyIndex(),flag);
+				logger.log("Provided Queue %p in Family %d does not have the required capabilities %d!",system::ILogger::ELL_ERROR,queue,queue->getFamilyIndex(),flag);
 				return true;
 			}
 			return false;
@@ -2971,7 +2971,7 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 				uniqueCmdBufs.insert(scratch.cmdbuf);
 			if (uniqueCmdBufs.size()!=params.compute->scratchCommandBuffers.size()+params.transfer->scratchCommandBuffers.size())
 			{
-				reservations.m_logger.log("The Compute `SIntendedSubmit` Scratch Command Buffers cannot be idential to Transfer's!",system::ILogger::ELL_ERROR);
+				logger.log("The Compute `SIntendedSubmit` Scratch Command Buffers cannot be idential to Transfer's!",system::ILogger::ELL_ERROR);
 				return retval;
 			}
 		}
@@ -2985,9 +2985,9 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 			return const_cast<core::blake3_hash_t*>(&found->second.value);
 		};
 		// wipe gpu item in staging cache (this may drop it as well if it was made for only a root asset == no users)
-		auto markFailureInStaging = [&reservations](auto* gpuObj, core::blake3_hash_t* hash)->void
+		auto markFailureInStaging = [logger](auto* gpuObj, core::blake3_hash_t* hash)->void
 		{
-			reservations.m_logger.log("Data upload failed for \"%s\"",system::ILogger::ELL_ERROR,gpuObj->getObjectDebugName());
+			logger.log("Data upload failed for \"%s\"",system::ILogger::ELL_ERROR,gpuObj->getObjectDebugName());
 			// change the content hash on the reverse map to a NoContentHash
 			*hash = CHashCache::NoContentHash;
 		};
@@ -3009,11 +3009,11 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 			// silently skip ownership transfer
 			if (gpuObj->getCachedCreationParams().isConcurrentSharing())
 			{
-				reservations.m_logger.log("IDeviceMemoryBacked %s created with concurrent sharing, you cannot perform an ownership transfer on it!",system::ILogger::ELL_ERROR,gpuObj->getObjectDebugName());
+				logger.log("IDeviceMemoryBacked %s created with concurrent sharing, you cannot perform an ownership transfer on it!",system::ILogger::ELL_ERROR,gpuObj->getObjectDebugName());
 				// TODO: check whether `ownerQueueFamily` is in the concurrent sharing set
 				// if (!std::find(gpuObj->getConcurrentSharingQueueFamilies(),ownerQueueFamily))
 				// {
-				//	reservations.m_logger.log("Queue Family %d not in the concurrent sharing set of IDeviceMemoryBacked %s, marking as failure",system::ILogger::ELL_ERROR,gpuObj->getObjectDebugName());
+				//	logger.log("Queue Family %d not in the concurrent sharing set of IDeviceMemoryBacked %s, marking as failure",system::ILogger::ELL_ERROR,gpuObj->getObjectDebugName());
 				//	return QueueFamilyInvalid;
 				// }
 				return IQueue::FamilyIgnored;
@@ -3069,7 +3069,7 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 			// release ownership
 			if (!ownershipTransfers.empty())
 			if (!params.transfer->getCommandBufferForRecording()->cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers=ownershipTransfers}))
-				reservations.m_logger.log("Ownership Releases of Buffers Failed",system::ILogger::ELL_ERROR);
+				logger.log("Ownership Releases of Buffers Failed",system::ILogger::ELL_ERROR);
 		}
 
 		// some state so we don't need to look later
@@ -3290,7 +3290,7 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 						_prevRecompute = false;
 						if (finalLayout==layout_t::UNDEFINED && !regions.empty() && !recomputeMip)
 						{
-							reservations.m_logger.log("What are you doing requesting layout UNDEFINED for mip level % of image %s after Upload or Mip Recomputation!?",system::ILogger::ELL_ERROR,lvl,image->getObjectDebugName());
+							logger.log("What are you doing requesting layout UNDEFINED for mip level % of image %s after Upload or Mip Recomputation!?",system::ILogger::ELL_ERROR,lvl,image->getObjectDebugName());
 							break;
 						}
 						const auto suggestedFinalOwner = params.getFinalOwnerQueueFamily(image,*pFoundHash,lvl);
@@ -3452,7 +3452,7 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 								if (finalOwnerQueueFamily!=IQueue::FamilyIgnored)
 								{
 									// issue a warning, because your application code will just be more verbose (you still have to place an almost identical barrier on a queue in the acquiring family)
-									reservations.m_logger.log(
+									logger.log(
 										"It makes no sense to split-transition mip-level %d of image %s to layout %d with a QFOT to %d as no queue owns it yet! Just keep it in UNDEFINED and do the transition on the final owning queue yourself without the ownership acquire.",
 										system::ILogger::ELL_PERFORMANCE,lvl,image->getObjectDebugName(),finalLayout,finalOwnerQueueFamily
 									);
@@ -3483,7 +3483,7 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 								// fire off the pipeline barrier so we can start uploading right away
 								if (!xferCmdBuf->cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {},.bufBarriers = {},.imgBarriers = {&tmp,1} }))
 								{
-									reservations.m_logger.log("Initial Pre-Image-Region-Upload Layout Transition failed!", system::ILogger::ELL_ERROR);
+									logger.log("Initial Pre-Image-Region-Upload Layout Transition failed!", system::ILogger::ELL_ERROR);
 									break;
 								}
 								// first use owns
@@ -3493,7 +3493,7 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 									const auto oldImmediateSubmitSignalValue = params.transfer->scratchSemaphore.value;
 									if (!params.utilities->updateImageViaStagingBuffer(*params.transfer,cpuImg->getBuffer()->getPointer(),cpuImg->getCreationParameters().format,image,tmp.newLayout,regions))
 									{
-										reservations.m_logger.log("Image Redion Upload failed!", system::ILogger::ELL_ERROR);
+										logger.log("Image Redion Upload failed!", system::ILogger::ELL_ERROR);
 										break;
 									}
 									// stall callback is only called if multiple buffering of scratch commandbuffers fails, we also want to submit compute if transfer was submitted
@@ -3557,7 +3557,7 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 				{
 					if (!xferCmdBuf->cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {},.bufBarriers = {},.imgBarriers = transferBarriers }))
 					{
-						reservations.m_logger.log("Final Pipeline Barrier recording to Transfer Command Buffer failed", system::ILogger::ELL_ERROR);
+						logger.log("Final Pipeline Barrier recording to Transfer Command Buffer failed", system::ILogger::ELL_ERROR);
 						markFailureInStaging(image, pFoundHash);
 						continue;
 					}
@@ -3568,7 +3568,7 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 					dsAlloc->multi_deallocate(SrcMipBinding,1,&srcIx,params.compute->getFutureScratchSemaphore());
 					if (!computeCmdBuf->cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {},.bufBarriers = {},.imgBarriers = computeBarriers }))
 					{
-						reservations.m_logger.log("Final Pipeline Barrier recording to Compute Command Buffer failed", system::ILogger::ELL_ERROR);
+						logger.log("Final Pipeline Barrier recording to Compute Command Buffer failed", system::ILogger::ELL_ERROR);
 						markFailureInStaging(image,pFoundHash);
 						continue;
 					}
@@ -3691,7 +3691,7 @@ ISemaphore::future_t<IQueue::RESULT> CAssetConverter::convert_impl(SReserveResul
 			if (depsMissing)
 			{
 				const auto* hashAsU64 = reinterpret_cast<const uint64_t*>(item.second.value.data);
-				reservations.m_logger.log("GPU Obj %s not writing to final cache because conversion of a dependant failed!", system::ILogger::ELL_ERROR, item.first->getObjectDebugName());
+				logger.log("GPU Obj %s not writing to final cache because conversion of a dependant failed!", system::ILogger::ELL_ERROR, item.first->getObjectDebugName());
 				// wipe self, to let users know
 				item.second.value = {};
 				continue;
