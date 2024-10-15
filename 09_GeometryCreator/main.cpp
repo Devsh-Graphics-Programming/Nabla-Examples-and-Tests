@@ -184,6 +184,7 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 			IGPURenderpass::SCreationParams::DependenciesEnd
 			};
 
+			// TODO: promote the depth format if D16 not supported, or quote the spec if there's guaranteed support for it
 			auto scResources = std::make_unique<CSwapchainFramebuffersAndDepth>(m_device.get(), EF_D16_UNORM, swapchainParams.surfaceFormat.format, dependencies);
 
 			auto* renderpass = scResources->getRenderpass();
