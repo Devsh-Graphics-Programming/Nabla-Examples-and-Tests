@@ -2,7 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-#include "../common/SimpleWindowedApplication.hpp"
+#include "SimpleWindowedApplication.hpp"
 
 #include "nbl/video/surface/CSurfaceVulkan.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
@@ -310,8 +310,9 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 				m_intendedSubmit.queue = queue;
 				// wait for nothing before upload
 				m_intendedSubmit.waitSemaphores = {};
+				m_intendedSubmit.prevCommandBuffers = {};
 				// fill later
-				m_intendedSubmit.commandBuffers = {};
+				m_intendedSubmit.scratchCommandBuffers = {};
 				m_intendedSubmit.scratchSemaphore = {
 					.semaphore = m_scratchSemaphore.get(),
 					.value = 0,
@@ -366,16 +367,19 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 						return nullptr;
 					}
 
-					const auto inViewParams = inView->getCreationParameters();
-					const auto inImageParams = inViewParams.image->getCreationParameters();
-					smart_refctd_ptr<ICPUBuffer> inBuffer = core::make_smart_refctd_ptr<asset::CCustomAllocatorCPUBuffer<core::null_allocator<uint8_t>, true> >(inViewParams.image->getBuffer()->getSize(), (uint8_t*)inViewParams.image->getBuffer()->getPointer(), core::adopt_memory); // adopt memory & don't free it on exit
-					const auto inRegions = inViewParams.image->getRegionArray();
+					// we always need to re-create the view because KTX image views load as 2D instead of 2D_ARRAY type
+					auto outViewParams = inView->getCreationParameters();
+					outViewParams.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D_ARRAY;
+					const auto* inImage = outViewParams.image.get();
+
+					const auto inImageParams = inImage->getCreationParameters();
+					smart_refctd_ptr<ICPUBuffer> inBuffer = core::make_smart_refctd_ptr<asset::CCustomAllocatorCPUBuffer<core::null_allocator<uint8_t>, true> >(inImage->getBuffer()->getSize(), (uint8_t*)inImage->getBuffer()->getPointer(), core::adopt_memory); // adopt memory & don't free it on exit
+					const auto inRegions = inImage->getRegionArray();
 					const auto inAmountOfRegions = inRegions->size();
 
 					/*
 						patterns to copy only the regions marked by X (for 0th mip level only we respecify)
 					*/
-
 					switch (mode)
 					{
 						/*
@@ -388,7 +392,6 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 						case EIR_FLATTEN_FULL_EXTENT:
 						{
-							return inView; // no need to respecify, inView is already flatten & covers full mip extent
 						} break;
 
 						/*
@@ -440,7 +443,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 							auto outRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(newRegions.size());
 							memcpy(outRegions->data(), newRegions.data(), outRegions->bytesize()); // full content copy
 
-							auto outImage = smart_refctd_ptr_static_cast<ICPUImage>(inViewParams.image->clone(0u)); // without contents
+							auto outImage = smart_refctd_ptr_static_cast<ICPUImage>(inImage->clone(0u)); // without contents
 							if (!outImage->setBufferAndRegions(smart_refctd_ptr(inBuffer), std::move(outRegions))) // do NOT make copy of the input buffer (we won't modify its content!) & set respecified regions
 							{
 								assert(false);
@@ -449,18 +452,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 							outImage->setContentHash(outImage->computeContentHash());
 
-							auto outViewParams = inViewParams;
 							outViewParams.image = std::move(outImage);
-
-							auto outView = ICPUImageView::create(std::move(outViewParams));
-
-							if (!outView)
-							{
-								assert(false);
-								return nullptr;
-							}
-
-							return outView;
 						} break;
 
 						/*
@@ -499,7 +491,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 							auto outRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(newRegions.size());
 							memcpy(outRegions->data(), newRegions.data(), outRegions->bytesize()); // full content copy
 
-							auto outImage = smart_refctd_ptr_static_cast<ICPUImage>(inViewParams.image->clone(0u)); // without contents
+							auto outImage = smart_refctd_ptr_static_cast<ICPUImage>(inImage->clone(0u)); // without contents
 							if (!outImage->setBufferAndRegions(smart_refctd_ptr(inBuffer), std::move(outRegions))) // do NOT make copy of the input buffer (we won't modify its content!) & set respecified regions
 							{
 								assert(false);
@@ -508,18 +500,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 							outImage->setContentHash(outImage->computeContentHash());
 
-							auto outViewParams = inViewParams;
 							outViewParams.image = std::move(outImage);
-
-							auto outView = ICPUImageView::create(std::move(outViewParams));
-
-							if (!outView)
-							{
-								assert(false);
-								return nullptr;
-							}
-
-							return outView;
 						} break;
 
 						default:
@@ -529,6 +510,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 						} break;
 					}
 
+					return ICPUImageView::create(std::move(outViewParams));
 				};
 
 				const auto cpuImgView = getRespecifedView();
@@ -667,92 +649,90 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					// we don't want to overcomplicate the example with multi-queue
 					auto queue = getGraphicsQueue();
 					auto cmdbuf = m_cmdBufs[resourceIx].get();
-					IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = {cmdbuf};
-					m_intendedSubmit.commandBuffers = {&cmdbufInfo,1};
-			
-					// there's no previous operation to wait for
-					const SMemoryBarrier toTransferBarrier = {
-						.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
-						.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
-					};
+					// needs to be open for the utility
+					cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
-					// upload image and write to descriptor set
-					queue->startCapture();
-					smart_refctd_ptr<IGPUImage> gpuImg;
 					auto ds = m_descriptorSets[resourceIx].get();
+
+					// want to capture the image data upload as well
+					queue->startCapture();
+					// make sure we don't leave the tooling dangling if we fail
+					auto endCaptureOnScopeExit = core::makeRAIIExiter([queue]()->void{queue->endCapture();});
+
+					// get our GPU Image view
+					auto converter = CAssetConverter::create({.device=m_device.get()});
 					{
-						/*
-						* Since we're using a combined image sampler with an immutable sampler, we only need to update the sampled image at the binding. Do note however that had we chosen
-						* to use a mutable sampler instead, we'd need to write to it at least once, via the SDescriptorInfo info.info.combinedImageSampler.sampler field
-						* WARNING: With an immutable sampler on a combined image sampler, trying to write to it is valid according to Vulkan spec, although the sampler is ignored and only
-						* the image is updated. Please note that this is NOT the case in Nabla: if you try to write to a combined image sampler, then
-						* info.info.combinedImageSampler.sampler MUST be nullptr
-						*/
-						IGPUDescriptorSet::SDescriptorInfo info = {};
-						info.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+						// Test the provision of a custom patch this time
+						CAssetConverter::patch_t<ICPUImageView> patch(cpuImgView.get(),IImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT);
+
+						// We don't want to generate mip-maps for these images (YET), to ensure that we must override the default callbacks.
+						struct SInputs final : CAssetConverter::SInputs
 						{
-							const auto& origParams = cpuImgView->getCreationParameters();
-							const auto origImage = origParams.image;
-
-							// create matching size image
-							IGPUImage::SCreationParams imageParams = {};
-							imageParams = origImage->getCreationParameters();
-							imageParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT|IGPUImage::EUF_SAMPLED_BIT|IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT;
-							// promote format because RGB8 and friends don't actually exist in HW
+							inline uint8_t getMipLevelCount(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
 							{
-								const IPhysicalDevice::SImageFormatPromotionRequest request = {
-									.originalFormat = imageParams.format,
-									.usages = IPhysicalDevice::SFormatImageUsages::SUsage(imageParams.usage)
-								};
-								imageParams.format = m_physicalDevice->promoteImageFormat(request,imageParams.tiling);
+								return image->getCreationParameters().mipLevels;
 							}
-							if (imageParams.type==IGPUImage::ET_3D)
-								imageParams.flags |= IGPUImage::ECF_2D_ARRAY_COMPATIBLE_BIT;
-							gpuImg = m_device->createImage(std::move(imageParams));
-							if (!gpuImg || !m_device->allocate(gpuImg->getMemoryReqs(),gpuImg.get()).isValid())
-								return false;
-							gpuImg->setObjectDebugName(m_nextPath.c_str());
+							inline uint16_t needToRecomputeMips(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+							{
+								return 0b0u;
+							}
+						} inputs = {};
+						std::get<CAssetConverter::SInputs::asset_span_t<ICPUImageView>>(inputs.assets) = { &cpuImgView.get(),1 };
+						std::get<CAssetConverter::SInputs::patch_span_t<ICPUImageView>>(inputs.patches) = { &patch,1 };
+						inputs.logger = m_logger.get();
 
-							cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-							// change the layout of the image
-							const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = {{
-								.barrier = {
-									.dep = toTransferBarrier
-									// no ownership transfers
-								},
-								.image = gpuImg.get(),
-								// transition the whole view
-								.subresourceRange = origParams.subresourceRange,
-								// a wiping transition
-								.newLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL
-							}};
-							cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.imgBarriers=imgBarriers});
-							// upload contents and submit right away
+						//
+						auto reservation = converter->reserve(inputs);
 
-							m_utils->updateImageViaStagingBufferAutoSubmit(m_intendedSubmit, origImage->getBuffer()->getPointer(), origImage->getCreationParameters().format, gpuImg.get(), IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL, origImage->getRegions());
+						// get the created image view
+						auto gpuView = reservation.getGPUObjects<ICPUImageView>().front().value;
+						if (!gpuView)
+							return false;
+						gpuView->getCreationParameters().image->setObjectDebugName(m_nextPath.c_str());
 
-							IGPUImageView::SCreationParams viewParams = {
-								.image = gpuImg,
-								.viewType = IGPUImageView::ET_2D_ARRAY,
-								.format = gpuImg->getCreationParameters().format
-							};
-							info.desc = m_device->createImageView(std::move(viewParams));
+						// write to descriptor set
+						{
+							/*
+							* Since we're using a combined image sampler with an immutable sampler, we only need to update the sampled image at the binding. Do note however that had we chosen
+							* to use a mutable sampler instead, we'd need to write to it at least once, via the SDescriptorInfo info.info.combinedImageSampler.sampler field
+							* WARNING: With an immutable sampler on a combined image sampler, trying to write to it is valid according to Vulkan spec, although the sampler is ignored and only
+							* the image is updated. Please note that this is NOT the case in Nabla: if you try to write to a combined image sampler, then
+							* info.info.combinedImageSampler.sampler MUST be nullptr
+							*/
+							IGPUDescriptorSet::SDescriptorInfo info = {};
+							info.desc = std::move(gpuView);
+							info.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+							const IGPUDescriptorSet::SWriteDescriptorSet writes[] = { {
+								.dstSet = ds,
+								.binding = 0,
+								.arrayElement = 0,
+								.count = 1,
+								.info = &info
+							} };
+							m_device->updateDescriptorSets(writes, {});
 						}
-						const IGPUDescriptorSet::SWriteDescriptorSet writes[] = {{
-							.dstSet = ds,
-							.binding = 0,
-							.arrayElement = 0,
-							.count = 1,
-							.info = &info
-						}};
-						m_device->updateDescriptorSets(writes,{});
+						
+						// we should multi-buffer to not stall before renderpass recording but oh well
+						IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = {cmdbuf};
+
+						// now convert
+						m_intendedSubmit.scratchCommandBuffers = {&cmdbufInfo,1};
+						// TODO: FIXME ImGUI needs to know what Queue will have ownership of the image AFTER its uploaded (need to know the family of the graphics queue)
+						// right now, the transfer queue will stay the owner after upload
+						CAssetConverter::SConvertParams params = {};
+						params.transfer = &m_intendedSubmit;
+						params.utilities = m_utils.get();
+						auto result = reservation.convert(params);
+						// block immediately
+						if (result.copy()!=IQueue::RESULT::SUCCESS)
+							return false;
 					}
 
 					// now we can sleep till we're ready for next render
 					std::this_thread::sleep_until(m_lastImageEnqueued+DisplayImageDuration);
 					m_lastImageEnqueued = clock_t::now();
 
-					const auto& params = gpuImg->getCreationParameters();
+					const auto& params = cpuImgView->getCreationParameters().image->getCreationParameters();
 					const auto imageExtent = params.extent;
 					push_constants_t pc;
 					{
@@ -779,20 +759,8 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 					// Render to the Image
 					{
-						cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-
-						// need a pipeline barrier to transition layout
-						const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = {{
-							.barrier = {
-								.dep = toTransferBarrier.nextBarrier(PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,ACCESS_FLAGS::SAMPLED_READ_BIT)
-							},
-							.image = gpuImg.get(),
-							.subresourceRange = cpuImgView->getCreationParameters().subresourceRange,
-							.oldLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-							.newLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL
-						}};
-						cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.imgBarriers=imgBarriers});
-
+						// don't need a barrier on the image because the Asset Converter did a full barrier because of Layout Transition from TRANSFER DST to READ ONLY
+						// and it also did a submit we blocked on with the host
 						const VkRect2D currentRenderArea =
 						{
 							.offset = {0,0},
@@ -879,7 +847,6 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 					// Present
 					m_surface->present(acquire.imageIndex, rendered);
-					getGraphicsQueue()->endCapture();
 
 					// Now do a write to disk in the meantime
 					{
@@ -1049,7 +1016,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					{
 						.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
 						.image = std::move(image),
-						.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
+						.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D_ARRAY,
 						.format = format,
 						.subresourceRange = {
 							.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
