@@ -18,7 +18,7 @@ inline float4 cubic(float v)
     return float4(x, y, z, w) * (1.0f / 6.0f);
 }
 
-inline float4 tricubicInterpolate(Texture3D<float4> grid, SamplerState _sampler, float3 coords, int4 gridSize)
+inline float tricubicInterpolate(Texture3D<float> grid, SamplerState _sampler, float3 coords, int4 gridSize)
 {
     float4 texelSize = float4(1.0f / gridSize.xz, gridSize.xz);
     coords = coords * gridSize.xyz - 0.5f;
@@ -45,62 +45,62 @@ inline float4 tricubicInterpolate(Texture3D<float4> grid, SamplerState _sampler,
     offsety /= gridSize.yy;
     offsetz /= gridSize.zz;
 
-    float4 tex0 = grid.SampleLevel(_sampler, float3(offsetx.x, offsety.x, offsetz.x), 0);
-    float4 tex1 = grid.SampleLevel(_sampler, float3(offsetx.y, offsety.x, offsetz.x), 0);
-    float4 tex2 = grid.SampleLevel(_sampler, float3(offsetx.x, offsety.y, offsetz.x), 0);
-    float4 tex3 = grid.SampleLevel(_sampler, float3(offsetx.y, offsety.y, offsetz.x), 0);
-    float4 tex4 = grid.SampleLevel(_sampler, float3(offsetx.x, offsety.x, offsetz.y), 0);
-    float4 tex5 = grid.SampleLevel(_sampler, float3(offsetx.y, offsety.x, offsetz.y), 0);
-    float4 tex6 = grid.SampleLevel(_sampler, float3(offsetx.x, offsety.y, offsetz.y), 0);
-    float4 tex7 = grid.SampleLevel(_sampler, float3(offsetx.y, offsety.y, offsetz.y), 0);
+    float tex0 = grid.SampleLevel(_sampler, float3(offsetx.x, offsety.x, offsetz.x), 0);
+    float tex1 = grid.SampleLevel(_sampler, float3(offsetx.y, offsety.x, offsetz.x), 0);
+    float tex2 = grid.SampleLevel(_sampler, float3(offsetx.x, offsety.y, offsetz.x), 0);
+    float tex3 = grid.SampleLevel(_sampler, float3(offsetx.y, offsety.y, offsetz.x), 0);
+    float tex4 = grid.SampleLevel(_sampler, float3(offsetx.x, offsety.x, offsetz.y), 0);
+    float tex5 = grid.SampleLevel(_sampler, float3(offsetx.y, offsety.x, offsetz.y), 0);
+    float tex6 = grid.SampleLevel(_sampler, float3(offsetx.x, offsety.y, offsetz.y), 0);
+    float tex7 = grid.SampleLevel(_sampler, float3(offsetx.y, offsety.y, offsetz.y), 0);
 
     float gx = sx.x / (sx.x + sx.y);
     float gy = sy.x / (sy.x + sy.y);
     float gz = sz.x / (sz.x + sz.y);
 
-    float4 x0 = lerp(tex1, tex0, gx);
-    float4 x1 = lerp(tex3, tex2, gx);
-    float4 x2 = lerp(tex5, tex4, gx);
-    float4 x3 = lerp(tex6, tex6, gx);
+    float x0 = lerp(tex1, tex0, gx);
+    float x1 = lerp(tex3, tex2, gx);
+    float x2 = lerp(tex5, tex4, gx);
+    float x3 = lerp(tex6, tex6, gx);
 
-    float4 y0 = lerp(x1, x0, gy);
-    float4 y1 = lerp(x3, x2, gy);
+    float y0 = lerp(x1, x0, gy);
+    float y1 = lerp(x3, x2, gy);
     
     return lerp(y1, y0, gz);
 }
 
-inline float _sampleVelocity(float3 pos, Texture3D<float4> grid, SamplerState _sampler, SGridData gridData, uint axis)
+inline float _sampleVelocity(float3 pos, Texture3D<float> grid, SamplerState _sampler, SGridData gridData)
 {
     float3 coords = pos / gridData.gridSize.xyz;
     // float4 s = grid.SampleLevel(_sampler, coords, 0);
-    float4 s = tricubicInterpolate(grid, _sampler, coords, gridData.gridSize);
-    return s[axis];
+    float s = tricubicInterpolate(grid, _sampler, coords, gridData.gridSize);
+    return s;
 }
 
-inline float _sampleVelX(float3 pos, Texture3D<float4> grid, SamplerState _sampler, SGridData gridData)
+inline float _sampleVelX(float3 pos, Texture3D<float> grid, SamplerState _sampler, SGridData gridData)
 {
     float3 gridPos = worldPosToGridPos(pos, gridData) + float3(0.5f, 0.0f, 0.0f);
-    return _sampleVelocity(gridPos, grid, _sampler, gridData, 0);
+    return _sampleVelocity(gridPos, grid, _sampler, gridData);
 }
 
-inline float _sampleVelY(float3 pos, Texture3D<float4> grid, SamplerState _sampler, SGridData gridData)
+inline float _sampleVelY(float3 pos, Texture3D<float> grid, SamplerState _sampler, SGridData gridData)
 {
     float3 gridPos = worldPosToGridPos(pos, gridData) + float3(0.0f, 0.5f, 0.0f);
-    return _sampleVelocity(gridPos, grid, _sampler, gridData, 1);
+    return _sampleVelocity(gridPos, grid, _sampler, gridData);
 }
 
-inline float _sampleVelZ(float3 pos, Texture3D<float4> grid, SamplerState _sampler, SGridData gridData)
+inline float _sampleVelZ(float3 pos, Texture3D<float> grid, SamplerState _sampler, SGridData gridData)
 {
     float3 gridPos = worldPosToGridPos(pos, gridData) + float3(0.0f, 0.0f, 0.5f);
-    return _sampleVelocity(gridPos, grid, _sampler, gridData, 2);
+    return _sampleVelocity(gridPos, grid, _sampler, gridData);
 }
 
-inline float3 sampleVelocityAt(float3 pos, Texture3D<float4> grid, SamplerState _sampler, SGridData gridData)
+inline float3 sampleVelocityAt(float3 pos, Texture3D<float> grid[3], SamplerState _sampler, SGridData gridData)
 {
     float3 val;
-    val.x = _sampleVelX(pos, grid, _sampler, gridData);
-    val.y = _sampleVelY(pos, grid, _sampler, gridData);
-    val.z = _sampleVelZ(pos, grid, _sampler, gridData);
+    val.x = _sampleVelX(pos, grid[0], _sampler, gridData);
+    val.y = _sampleVelY(pos, grid[1], _sampler, gridData);
+    val.z = _sampleVelZ(pos, grid[2], _sampler, gridData);
     return val;
 }
 

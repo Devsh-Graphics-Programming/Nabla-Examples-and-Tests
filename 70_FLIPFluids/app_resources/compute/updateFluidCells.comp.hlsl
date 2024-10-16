@@ -1,7 +1,3 @@
-#pragma kernel updateFluidCells
-#pragma kernel updateNeighborFluidCells
-#pragma kernel addParticlesToCells
-
 #include "../common.hlsl"
 #include "../gridUtils.hlsl"
 #include "../cellUtils.hlsl"
@@ -20,8 +16,8 @@ cbuffer GridData
 [[vk::binding(b_ufcCMInBuffer, s_ufc)]]     RWStructuredBuffer<uint> cellMaterialInBuffer;
 [[vk::binding(b_ufcCMOutBuffer, s_ufc)]]    RWStructuredBuffer<uint> cellMaterialOutBuffer;
 
-[[vk::binding(b_ufcVelBuffer, s_ufc)]]      RWTexture3D<float4> velocityFieldBuffer;
-[[vk::binding(b_ufcPrevVelBuffer, s_ufc)]]  RWTexture3D<float4> prevVelocityFieldBuffer;
+[[vk::binding(b_ufcVelBuffer, s_ufc)]]      RWTexture3D<float> velocityFieldBuffer[3];
+[[vk::binding(b_ufcPrevVelBuffer, s_ufc)]]  RWTexture3D<float> prevVelocityFieldBuffer[3];
 
 static const int kernel[6] = { -1, 1, -1, 1, -1, 1 };
 
@@ -115,6 +111,10 @@ void addParticlesToCells(uint32_t3 ID : SV_DispatchThreadID)
 
     enforceBoundaryCondition(velocity, cellMaterialInBuffer[tid]);
 
-    velocityFieldBuffer[cIdx].xyz = velocity;
-    prevVelocityFieldBuffer[cIdx].xyz = velocity;
+    velocityFieldBuffer[0][cIdx] = velocity.x;
+    velocityFieldBuffer[1][cIdx] = velocity.y;
+    velocityFieldBuffer[2][cIdx] = velocity.z;
+    prevVelocityFieldBuffer[0][cIdx] = velocity.x;
+    prevVelocityFieldBuffer[1][cIdx] = velocity.y;
+    prevVelocityFieldBuffer[2][cIdx] = velocity.z;
 }

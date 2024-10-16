@@ -9,8 +9,8 @@ cbuffer GridData
 };
 
 [[vk::binding(b_evPBuffer, s_ev)]] RWStructuredBuffer<Particle> particleBuffer;
-[[vk::binding(b_evVelFieldBuffer, s_ev)]] Texture3D<float4> velocityFieldBuffer;
-[[vk::binding(b_evPrevVelFieldBuffer, s_ev)]] Texture3D<float4> prevVelocityFieldBuffer;
+[[vk::binding(b_evVelFieldBuffer, s_ev)]] Texture3D<float> velocityFieldBuffer[3];
+[[vk::binding(b_evPrevVelFieldBuffer, s_ev)]] Texture3D<float> prevVelocityFieldBuffer[3];
 [[vk::binding(b_evVelSampler, s_ev)]] SamplerState velocityFieldSampler;
 
 [numthreads(WorkgroupSize, 1, 1)]

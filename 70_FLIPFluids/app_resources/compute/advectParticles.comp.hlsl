@@ -9,7 +9,7 @@ cbuffer GridData
 };
 
 [[vk::binding(b_apPBuffer, s_ap)]] RWStructuredBuffer<Particle> particleBuffer;
-[[vk::binding(b_apVelFieldBuffer, s_ap)]] Texture3D<float4> velocityFieldBuffer;
+[[vk::binding(b_apVelFieldBuffer, s_ap)]] Texture3D<float> velocityFieldBuffer[3];
 [[vk::binding(b_apVelSampler, s_ap)]] SamplerState velocityFieldSampler;
 
 // delta time push constant?

@@ -335,73 +335,14 @@ public:
 		createBuffer(particleCellPairBuffer, params);
 
 		// velocity field stuffs
+		asset::VkExtent3D gridExtent = {m_gridData.gridSize.x, m_gridData.gridSize.y, m_gridData.gridSize.z};
+		for (uint32_t i = 0; i < 3; i++)
 		{
-			IGPUImage::SCreationParams imgInfo;
-			imgInfo.format = asset::EF_R32G32B32A32_SFLOAT;
-			imgInfo.type = IGPUImage::ET_3D;
-			imgInfo.extent.width = m_gridData.gridSize.x;
-			imgInfo.extent.height = m_gridData.gridSize.y;
-			imgInfo.extent.depth = m_gridData.gridSize.z;
-			imgInfo.mipLevels = 1u;
-			imgInfo.arrayLayers = 1u;
-			imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
-			imgInfo.flags = asset::IImage::E_CREATE_FLAGS::ECF_NONE;
-			imgInfo.usage = asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_SAMPLED_BIT;
-			imgInfo.tiling = IGPUImage::TILING::OPTIMAL;
+			createGridTexture(velocityFieldImageViews[i], asset::EF_R32_SFLOAT, gridExtent,
+				asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_SAMPLED_BIT, "velocity field" + std::to_string(i));
 
-			auto image = m_device->createImage(std::move(imgInfo));
-			auto imageMemReqs = image->getMemoryReqs();
-			imageMemReqs.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
-			m_device->allocate(imageMemReqs, image.get());
-
-			image->setObjectDebugName("velocity field");
-
-			IGPUImageView::SCreationParams imgViewInfo;
-			imgViewInfo.image = std::move(image);
-			imgViewInfo.format = asset::EF_R32G32B32A32_SFLOAT;
-			imgViewInfo.viewType = IGPUImageView::ET_3D;
-			imgViewInfo.flags = IGPUImageView::E_CREATE_FLAGS::ECF_NONE;
-			imgViewInfo.subresourceRange.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-			imgViewInfo.subresourceRange.baseArrayLayer = 0u;
-			imgViewInfo.subresourceRange.baseMipLevel = 0u;
-			imgViewInfo.subresourceRange.layerCount = 1u;
-			imgViewInfo.subresourceRange.levelCount = 1u;
-
-			velocityFieldImageView = m_device->createImageView(std::move(imgViewInfo));
-		}
-		{
-			IGPUImage::SCreationParams imgInfo;
-			imgInfo.format = asset::EF_R32G32B32A32_SFLOAT;
-			imgInfo.type = IGPUImage::ET_3D;
-			imgInfo.extent.width = m_gridData.gridSize.x;
-			imgInfo.extent.height = m_gridData.gridSize.y;
-			imgInfo.extent.depth = m_gridData.gridSize.z;
-			imgInfo.mipLevels = 1u;
-			imgInfo.arrayLayers = 1u;
-			imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
-			imgInfo.flags = asset::IImage::E_CREATE_FLAGS::ECF_NONE;
-			imgInfo.usage = asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_SAMPLED_BIT;
-			imgInfo.tiling = IGPUImage::TILING::OPTIMAL;
-
-			auto image = m_device->createImage(std::move(imgInfo));
-			auto imageMemReqs = image->getMemoryReqs();
-			imageMemReqs.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
-			m_device->allocate(imageMemReqs, image.get());
-
-			image->setObjectDebugName("prev velocity field");
-
-			IGPUImageView::SCreationParams imgViewInfo;
-			imgViewInfo.image = std::move(image);
-			imgViewInfo.format = asset::EF_R32G32B32A32_SFLOAT;
-			imgViewInfo.viewType = IGPUImageView::ET_3D;
-			imgViewInfo.flags = IGPUImageView::E_CREATE_FLAGS::ECF_NONE;
-			imgViewInfo.subresourceRange.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-			imgViewInfo.subresourceRange.baseArrayLayer = 0u;
-			imgViewInfo.subresourceRange.baseMipLevel = 0u;
-			imgViewInfo.subresourceRange.layerCount = 1u;
-			imgViewInfo.subresourceRange.levelCount = 1u;
-
-			prevVelocityFieldImageView = m_device->createImageView(std::move(imgViewInfo));
+			createGridTexture(prevVelocityFieldImageViews[i], asset::EF_R32_SFLOAT, gridExtent,
+				asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_SAMPLED_BIT, "prev velocity field" + std::to_string(i));
 		}
 
 		IGPUSampler::SParams samplerParams = {};
@@ -532,7 +473,7 @@ public:
 				"app_resources/compute/updateFluidCells.comp.hlsl", "addParticlesToCells", ufcParticleToCell_bs1);
 
 			{
-				IGPUDescriptorSet::SDescriptorInfo infos[6];
+				IGPUDescriptorSet::SDescriptorInfo infos[4];
 				infos[0].desc = smart_refctd_ptr(gridDataBuffer);
 				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
 				infos[1].desc = smart_refctd_ptr(particleBuffer);
@@ -541,19 +482,36 @@ public:
 				infos[2].info.buffer = {.offset = 0, .size = gridParticleIDBuffer->getSize()};
 				infos[3].desc = smart_refctd_ptr(gridCellMaterialBuffer);
 				infos[3].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
-				infos[4].desc = velocityFieldImageView;
-				infos[4].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-				infos[4].info.combinedImageSampler.sampler = nullptr;
-				infos[5].desc = prevVelocityFieldImageView;
-				infos[5].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-				infos[5].info.combinedImageSampler.sampler = nullptr;
+
+				IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
+				imgInfosVel0[0].desc = velocityFieldImageViews[0];
+				imgInfosVel0[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[0].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel0[1].desc = velocityFieldImageViews[1];
+				imgInfosVel0[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[1].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel0[2].desc = velocityFieldImageViews[2];
+				imgInfosVel0[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[2].info.combinedImageSampler.sampler = nullptr;
+
+				IGPUDescriptorSet::SDescriptorInfo imgInfosVel1[3];
+				imgInfosVel1[0].desc = prevVelocityFieldImageViews[0];
+				imgInfosVel1[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel1[0].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel1[1].desc = prevVelocityFieldImageViews[1];
+				imgInfosVel1[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel1[1].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel1[2].desc = prevVelocityFieldImageViews[2];
+				imgInfosVel1[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel1[2].info.combinedImageSampler.sampler = nullptr;
+
 				IGPUDescriptorSet::SWriteDescriptorSet writes[6] = {
 					{.dstSet = m_particleToCellDs.get(), .binding = b_ufcGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
 					{.dstSet = m_particleToCellDs.get(), .binding = b_ufcPBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
 					{.dstSet = m_particleToCellDs.get(), .binding = b_ufcGridIDBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
 					{.dstSet = m_particleToCellDs.get(), .binding = b_ufcCMInBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
-					{.dstSet = m_particleToCellDs.get(), .binding = b_ufcVelBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
-					{.dstSet = m_particleToCellDs.get(), .binding = b_ufcPrevVelBuffer, .arrayElement = 0, .count = 1, .info = &infos[5]},
+					{.dstSet = m_particleToCellDs.get(), .binding = b_ufcVelBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
+					{.dstSet = m_particleToCellDs.get(), .binding = b_ufcPrevVelBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel1},
 				};
 				m_device->updateDescriptorSets(std::span(writes, 6), {});
 			}
@@ -564,18 +522,27 @@ public:
 				"app_resources/compute/applyBodyForces.comp.hlsl", "main", abfApplyForces_bs1);
 
 			{
-				IGPUDescriptorSet::SDescriptorInfo infos[3];
+				IGPUDescriptorSet::SDescriptorInfo infos[2];
 				infos[0].desc = smart_refctd_ptr(gridDataBuffer);
 				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
-				infos[1].desc = velocityFieldImageView;
-				infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-				infos[1].info.combinedImageSampler.sampler = nullptr;
-				infos[2].desc = smart_refctd_ptr(gridCellMaterialBuffer);
-				infos[2].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
+				infos[1].desc = smart_refctd_ptr(gridCellMaterialBuffer);
+				infos[1].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
+
+				IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
+				imgInfosVel0[0].desc = velocityFieldImageViews[0];
+				imgInfosVel0[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[0].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel0[1].desc = velocityFieldImageViews[1];
+				imgInfosVel0[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[1].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel0[2].desc = velocityFieldImageViews[2];
+				imgInfosVel0[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[2].info.combinedImageSampler.sampler = nullptr;
+
 				IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
 					{.dstSet = m_applyForcesDs.get(), .binding = b_abfGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-					{.dstSet = m_applyForcesDs.get(), .binding = b_abfVelFieldBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
-					{.dstSet = m_applyForcesDs.get(), .binding = b_abfCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
+					{.dstSet = m_applyForcesDs.get(), .binding = b_abfVelFieldBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
+					{.dstSet = m_applyForcesDs.get(), .binding = b_abfCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
 				};
 				m_device->updateDescriptorSets(std::span(writes, 3), {});
 			}
@@ -648,52 +615,70 @@ public:
 			m_device->createComputePipelines(nullptr, { &params,1 }, &m_diffusionPipeline);
 
 			{
-				IGPUDescriptorSet::SDescriptorInfo infos[6];
+				IGPUDescriptorSet::SDescriptorInfo infos[5];
 				infos[0].desc = smart_refctd_ptr(gridDataBuffer);
 				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};				
 				infos[1].desc = smart_refctd_ptr(gridCellMaterialBuffer);
 				infos[1].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
-				infos[2].desc = velocityFieldImageView;
-				infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-				infos[2].info.combinedImageSampler.sampler = nullptr;
-				infos[3].desc = smart_refctd_ptr(gridAxisCellMaterialBuffer);
-				infos[3].info.buffer = {.offset = 0, .size = gridAxisCellMaterialBuffer->getSize()};
-				infos[4].desc = smart_refctd_ptr(tempDiffusionBuffer);
-				infos[4].info.buffer = {.offset = 0, .size = tempDiffusionBuffer->getSize()};
-				infos[5].desc = smart_refctd_ptr(gridDiffusionBuffer);
-				infos[5].info.buffer = {.offset = 0, .size = gridDiffusionBuffer->getSize()};
+				infos[2].desc = smart_refctd_ptr(gridAxisCellMaterialBuffer);
+				infos[2].info.buffer = {.offset = 0, .size = gridAxisCellMaterialBuffer->getSize()};
+				infos[3].desc = smart_refctd_ptr(tempDiffusionBuffer);
+				infos[3].info.buffer = {.offset = 0, .size = tempDiffusionBuffer->getSize()};
+				infos[4].desc = smart_refctd_ptr(gridDiffusionBuffer);
+				infos[4].info.buffer = {.offset = 0, .size = gridDiffusionBuffer->getSize()};
+
+				IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
+				imgInfosVel0[0].desc = velocityFieldImageViews[0];
+				imgInfosVel0[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[0].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel0[1].desc = velocityFieldImageViews[1];
+				imgInfosVel0[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[1].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel0[2].desc = velocityFieldImageViews[2];
+				imgInfosVel0[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[2].info.combinedImageSampler.sampler = nullptr;
+
 				IGPUDescriptorSet::SWriteDescriptorSet writes[6] = {
 					{.dstSet = m_diffusionDs[0].get(), .binding = b_dGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
 					{.dstSet = m_diffusionDs[0].get(), .binding = b_dCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
-					{.dstSet = m_diffusionDs[0].get(), .binding = b_dVelBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
-					{.dstSet = m_diffusionDs[0].get(), .binding = b_dAxisInBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
-					{.dstSet = m_diffusionDs[0].get(), .binding = b_dDiffInBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
-					{.dstSet = m_diffusionDs[0].get(), .binding = b_dDiffOutBuffer, .arrayElement = 0, .count = 1, .info = &infos[5]},
+					{.dstSet = m_diffusionDs[0].get(), .binding = b_dVelBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
+					{.dstSet = m_diffusionDs[0].get(), .binding = b_dAxisInBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
+					{.dstSet = m_diffusionDs[0].get(), .binding = b_dDiffInBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
+					{.dstSet = m_diffusionDs[0].get(), .binding = b_dDiffOutBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
 				};
 				m_device->updateDescriptorSets(std::span(writes, 6), {});
 			}
 			{
-				IGPUDescriptorSet::SDescriptorInfo infos[6];
+				IGPUDescriptorSet::SDescriptorInfo infos[5];
 				infos[0].desc = smart_refctd_ptr(gridDataBuffer);
 				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};				
 				infos[1].desc = smart_refctd_ptr(gridCellMaterialBuffer);
 				infos[1].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
-				infos[2].desc = velocityFieldImageView;
-				infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-				infos[2].info.combinedImageSampler.sampler = nullptr;
-				infos[3].desc = smart_refctd_ptr(gridAxisCellMaterialBuffer);
-				infos[3].info.buffer = {.offset = 0, .size = gridAxisCellMaterialBuffer->getSize()};
-				infos[4].desc = smart_refctd_ptr(gridDiffusionBuffer);
-				infos[4].info.buffer = {.offset = 0, .size = gridDiffusionBuffer->getSize()};
-				infos[5].desc = smart_refctd_ptr(tempDiffusionBuffer);
-				infos[5].info.buffer = {.offset = 0, .size = tempDiffusionBuffer->getSize()};
+				infos[2].desc = smart_refctd_ptr(gridAxisCellMaterialBuffer);
+				infos[2].info.buffer = {.offset = 0, .size = gridAxisCellMaterialBuffer->getSize()};
+				infos[3].desc = smart_refctd_ptr(gridDiffusionBuffer);
+				infos[3].info.buffer = {.offset = 0, .size = gridDiffusionBuffer->getSize()};
+				infos[4].desc = smart_refctd_ptr(tempDiffusionBuffer);
+				infos[4].info.buffer = {.offset = 0, .size = tempDiffusionBuffer->getSize()};
+
+				IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
+				imgInfosVel0[0].desc = velocityFieldImageViews[0];
+				imgInfosVel0[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[0].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel0[1].desc = velocityFieldImageViews[1];
+				imgInfosVel0[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[1].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel0[2].desc = velocityFieldImageViews[2];
+				imgInfosVel0[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[2].info.combinedImageSampler.sampler = nullptr;
+
 				IGPUDescriptorSet::SWriteDescriptorSet writes[6] = {
 					{.dstSet = m_diffusionDs[1].get(), .binding = b_dGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
 					{.dstSet = m_diffusionDs[1].get(), .binding = b_dCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
-					{.dstSet = m_diffusionDs[1].get(), .binding = b_dVelBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
-					{.dstSet = m_diffusionDs[1].get(), .binding = b_dAxisInBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
-					{.dstSet = m_diffusionDs[1].get(), .binding = b_dDiffInBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
-					{.dstSet = m_diffusionDs[1].get(), .binding = b_dDiffOutBuffer, .arrayElement = 0, .count = 1, .info = &infos[5]},
+					{.dstSet = m_diffusionDs[1].get(), .binding = b_dVelBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
+					{.dstSet = m_diffusionDs[1].get(), .binding = b_dAxisInBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
+					{.dstSet = m_diffusionDs[1].get(), .binding = b_dDiffInBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
+					{.dstSet = m_diffusionDs[1].get(), .binding = b_dDiffOutBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
 				};
 				m_device->updateDescriptorSets(std::span(writes, 6), {});
 			}
@@ -703,21 +688,30 @@ public:
 				"app_resources/compute/diffusion.comp.hlsl", "updateVelocity", dUpdateVelD_bs1);
 
 			{
-				IGPUDescriptorSet::SDescriptorInfo infos[4];
+				IGPUDescriptorSet::SDescriptorInfo infos[3];
 				infos[0].desc = smart_refctd_ptr(gridDataBuffer);
 				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};				
 				infos[1].desc = smart_refctd_ptr(gridCellMaterialBuffer);
 				infos[1].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
-				infos[2].desc = velocityFieldImageView;
-				infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-				infos[2].info.combinedImageSampler.sampler = nullptr;
-				infos[3].desc = smart_refctd_ptr(gridDiffusionBuffer);
-				infos[3].info.buffer = {.offset = 0, .size = gridDiffusionBuffer->getSize()};
+				infos[2].desc = smart_refctd_ptr(gridDiffusionBuffer);
+				infos[2].info.buffer = {.offset = 0, .size = gridDiffusionBuffer->getSize()};
+
+				IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
+				imgInfosVel0[0].desc = velocityFieldImageViews[0];
+				imgInfosVel0[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[0].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel0[1].desc = velocityFieldImageViews[1];
+				imgInfosVel0[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[1].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel0[2].desc = velocityFieldImageViews[2];
+				imgInfosVel0[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[2].info.combinedImageSampler.sampler = nullptr;
+
 				IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
 					{.dstSet = m_updateVelDDs.get(), .binding = b_dGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
 					{.dstSet = m_updateVelDDs.get(), .binding = b_dCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
-					{.dstSet = m_updateVelDDs.get(), .binding = b_dVelBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
-					{.dstSet = m_updateVelDDs.get(), .binding = b_dDiffInBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
+					{.dstSet = m_updateVelDDs.get(), .binding = b_dVelBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
+					{.dstSet = m_updateVelDDs.get(), .binding = b_dDiffInBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
 				};
 				m_device->updateDescriptorSets(std::span(writes, 4), {});
 			}
@@ -728,21 +722,30 @@ public:
 				"app_resources/compute/pressureSolver.comp.hlsl", "calculateNegativeDivergence", psDivergence_bs1);
 
 			{
-				IGPUDescriptorSet::SDescriptorInfo infos[4];
+				IGPUDescriptorSet::SDescriptorInfo infos[3];
 				infos[0].desc = smart_refctd_ptr(gridDataBuffer);
 				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
 				infos[1].desc = smart_refctd_ptr(gridCellMaterialBuffer);
 				infos[1].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
-				infos[2].desc = velocityFieldImageView;
-				infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-				infos[2].info.combinedImageSampler.sampler = nullptr;
-				infos[3].desc = smart_refctd_ptr(divergenceBuffer);
-				infos[3].info.buffer = {.offset = 0, .size = divergenceBuffer->getSize()};
+				infos[2].desc = smart_refctd_ptr(divergenceBuffer);
+				infos[2].info.buffer = {.offset = 0, .size = divergenceBuffer->getSize()};
+
+				IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
+				imgInfosVel0[0].desc = velocityFieldImageViews[0];
+				imgInfosVel0[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[0].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel0[1].desc = velocityFieldImageViews[1];
+				imgInfosVel0[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[1].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel0[2].desc = velocityFieldImageViews[2];
+				imgInfosVel0[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[2].info.combinedImageSampler.sampler = nullptr;
+
 				IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
 					{.dstSet = m_calcDivergenceDs.get(), .binding = b_psGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
 					{.dstSet = m_calcDivergenceDs.get(), .binding = b_psCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
-					{.dstSet = m_calcDivergenceDs.get(), .binding = b_psVelBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
-					{.dstSet = m_calcDivergenceDs.get(), .binding = b_psDivBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
+					{.dstSet = m_calcDivergenceDs.get(), .binding = b_psVelBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
+					{.dstSet = m_calcDivergenceDs.get(), .binding = b_psDivBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
 				};
 				m_device->updateDescriptorSets(std::span(writes, 4), {});
 			}
@@ -825,24 +828,33 @@ public:
 				"app_resources/compute/pressureSolver.comp.hlsl", "updateVelocities", psUpdateVelPs_bs1);
 
 			{
-				IGPUDescriptorSet::SDescriptorInfo infos[5];
+				IGPUDescriptorSet::SDescriptorInfo infos[4];
 				infos[0].desc = smart_refctd_ptr(gridDataBuffer);
 				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
 				infos[1].desc = smart_refctd_ptr(pressureParamsBuffer);
 				infos[1].info.buffer = {.offset = 0, .size = pressureParamsBuffer->getSize()};
 				infos[2].desc = smart_refctd_ptr(gridCellMaterialBuffer);
 				infos[2].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
-				infos[3].desc = velocityFieldImageView;
-				infos[3].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-				infos[3].info.combinedImageSampler.sampler = nullptr;
-				infos[4].desc = smart_refctd_ptr(pressureBuffer);
-				infos[4].info.buffer = {.offset = 0, .size = pressureBuffer->getSize()};
+				infos[3].desc = smart_refctd_ptr(pressureBuffer);
+				infos[3].info.buffer = {.offset = 0, .size = pressureBuffer->getSize()};
+
+				IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
+				imgInfosVel0[0].desc = velocityFieldImageViews[0];
+				imgInfosVel0[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[0].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel0[1].desc = velocityFieldImageViews[1];
+				imgInfosVel0[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[1].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel0[2].desc = velocityFieldImageViews[2];
+				imgInfosVel0[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[2].info.combinedImageSampler.sampler = nullptr;
+
 				IGPUDescriptorSet::SWriteDescriptorSet writes[5] = {
 					{.dstSet = m_updateVelPsDs.get(), .binding = b_psGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
 					{.dstSet = m_updateVelPsDs.get(), .binding = b_psParams, .arrayElement = 0, .count = 1, .info = &infos[1]},
 					{.dstSet = m_updateVelPsDs.get(), .binding = b_psCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
-					{.dstSet = m_updateVelPsDs.get(), .binding = b_psVelBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
-					{.dstSet = m_updateVelPsDs.get(), .binding = b_psPresInBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
+					{.dstSet = m_updateVelPsDs.get(), .binding = b_psVelBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
+					{.dstSet = m_updateVelPsDs.get(), .binding = b_psPresInBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
 				};
 				m_device->updateDescriptorSets(std::span(writes, 5), {});
 			}
@@ -853,22 +865,41 @@ public:
 				"app_resources/compute/extrapolateVelocities.comp.hlsl", "main", evExtrapolateVel_bs1);
 
 			{
-				IGPUDescriptorSet::SDescriptorInfo infos[5];
+				IGPUDescriptorSet::SDescriptorInfo infos[3];
 				infos[0].desc = smart_refctd_ptr(gridDataBuffer);
 				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
 				infos[1].desc = smart_refctd_ptr(particleBuffer);
 				infos[1].info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
-				infos[2].desc = velocityFieldImageView;
-				infos[2].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				infos[3].desc = prevVelocityFieldImageView;
-				infos[3].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				infos[4].desc = velocityFieldSampler;
+				infos[2].desc = velocityFieldSampler;
+
+				IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
+				imgInfosVel0[0].desc = velocityFieldImageViews[0];
+				imgInfosVel0[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[0].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel0[1].desc = velocityFieldImageViews[1];
+				imgInfosVel0[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[1].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel0[2].desc = velocityFieldImageViews[2];
+				imgInfosVel0[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[2].info.combinedImageSampler.sampler = nullptr;
+
+				IGPUDescriptorSet::SDescriptorInfo imgInfosVel1[3];
+				imgInfosVel1[0].desc = prevVelocityFieldImageViews[0];
+				imgInfosVel1[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel1[0].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel1[1].desc = prevVelocityFieldImageViews[1];
+				imgInfosVel1[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel1[1].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel1[2].desc = prevVelocityFieldImageViews[2];
+				imgInfosVel1[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel1[2].info.combinedImageSampler.sampler = nullptr;
+
 				IGPUDescriptorSet::SWriteDescriptorSet writes[5] = {
 					{.dstSet = m_extrapolateVelDs.get(), .binding = b_evGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
 					{.dstSet = m_extrapolateVelDs.get(), .binding = b_evPBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
-					{.dstSet = m_extrapolateVelDs.get(), .binding = b_evVelFieldBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
-					{.dstSet = m_extrapolateVelDs.get(), .binding = b_evPrevVelFieldBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
-					{.dstSet = m_extrapolateVelDs.get(), .binding = b_evVelSampler, .arrayElement = 0, .count = 1, .info = &infos[4]}
+					{.dstSet = m_extrapolateVelDs.get(), .binding = b_evVelFieldBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
+					{.dstSet = m_extrapolateVelDs.get(), .binding = b_evPrevVelFieldBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel1},
+					{.dstSet = m_extrapolateVelDs.get(), .binding = b_evVelSampler, .arrayElement = 0, .count = 1, .info = &infos[2]}
 				};
 				m_device->updateDescriptorSets(std::span(writes, 5), {});
 			}
@@ -878,19 +909,29 @@ public:
 			createComputePipeline(m_advectParticlesPipeline, m_advectParticlesPool, m_advectParticlesDs, "app_resources/compute/advectParticles.comp.hlsl", "main", apAdvectParticles_bs1);
 
 			{
-				IGPUDescriptorSet::SDescriptorInfo infos[4];
+				IGPUDescriptorSet::SDescriptorInfo infos[3];
 				infos[0].desc = smart_refctd_ptr(gridDataBuffer);
 				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
 				infos[1].desc = smart_refctd_ptr(particleBuffer);
 				infos[1].info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
-				infos[2].desc = velocityFieldImageView;
-				infos[2].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				infos[3].desc = velocityFieldSampler;
+				infos[2].desc = velocityFieldSampler;
+
+				IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
+				imgInfosVel0[0].desc = velocityFieldImageViews[0];
+				imgInfosVel0[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[0].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel0[1].desc = velocityFieldImageViews[1];
+				imgInfosVel0[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[1].info.combinedImageSampler.sampler = nullptr;
+				imgInfosVel0[2].desc = velocityFieldImageViews[2];
+				imgInfosVel0[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				imgInfosVel0[2].info.combinedImageSampler.sampler = nullptr;
+
 				IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
 					{.dstSet = m_advectParticlesDs.get(), .binding = b_apGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
 					{.dstSet = m_advectParticlesDs.get(), .binding = b_apPBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
-					{.dstSet = m_advectParticlesDs.get(), .binding = b_apVelFieldBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
-					{.dstSet = m_advectParticlesDs.get(), .binding = b_apVelSampler, .arrayElement = 0, .count = 1, .info = &infos[3]}
+					{.dstSet = m_advectParticlesDs.get(), .binding = b_apVelFieldBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
+					{.dstSet = m_advectParticlesDs.get(), .binding = b_apVelSampler, .arrayElement = 0, .count = 1, .info = &infos[2]}
 				};
 				m_device->updateDescriptorSets(std::span(writes, 4), {});
 			}
@@ -1099,85 +1140,47 @@ public:
 			initializeParticles(cmdbuf);
 
 			// transition layouts
-			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[2];
-			imageBarriers[0].barrier = {
-				.dep = {
-					.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
-					.srcAccessMask = ACCESS_FLAGS::NONE,
-					.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-					.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
-			}
-			};
-			imageBarriers[0].image = velocityFieldImageView->getCreationParameters().image.get();
-			imageBarriers[0].subresourceRange = {
-				.aspectMask = IImage::EAF_COLOR_BIT,
-				.baseMipLevel = 0u,
-				.levelCount = 1u,
-				.baseArrayLayer = 0u,
-				.layerCount = 1u
-			};
-			imageBarriers[0].oldLayout = IImage::LAYOUT::UNDEFINED;
-			imageBarriers[0].newLayout = IImage::LAYOUT::GENERAL;
-			imageBarriers[1].barrier = {
-				.dep = {
-					.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
-					.srcAccessMask = ACCESS_FLAGS::NONE,
-					.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-					.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
-			}
-			};
-			imageBarriers[1].image = prevVelocityFieldImageView->getCreationParameters().image.get();
-			imageBarriers[1].subresourceRange = {
-				.aspectMask = IImage::EAF_COLOR_BIT,
-				.baseMipLevel = 0u,
-				.levelCount = 1u,
-				.baseArrayLayer = 0u,
-				.layerCount = 1u
-			};
-			imageBarriers[1].oldLayout = IImage::LAYOUT::UNDEFINED;
-			imageBarriers[1].newLayout = IImage::LAYOUT::GENERAL;
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[6];
+			for (uint32_t i = 0; i < 3; i++)
+			{
+				imageBarriers[i * 2].barrier = {
+					.dep = {
+						.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+						.srcAccessMask = ACCESS_FLAGS::NONE,
+						.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+						.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+				}
+				};
+				imageBarriers[i * 2].image = velocityFieldImageViews[i]->getCreationParameters().image.get();
+				imageBarriers[i * 2].subresourceRange = {
+					.aspectMask = IImage::EAF_COLOR_BIT,
+					.baseMipLevel = 0u,
+					.levelCount = 1u,
+					.baseArrayLayer = 0u,
+					.layerCount = 1u
+				};
+				imageBarriers[i * 2].oldLayout = IImage::LAYOUT::UNDEFINED;
+				imageBarriers[i * 2].newLayout = IImage::LAYOUT::GENERAL;
 
-			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.imgBarriers = imageBarriers});
-		}
-		else
-		{
-			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[2];
-			imageBarriers[0].barrier = {
-				.dep = {
-					.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-					.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS | ACCESS_FLAGS::SHADER_READ_BITS,
-					.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-					.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+				imageBarriers[i * 2 + 1].barrier = {
+					.dep = {
+						.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+						.srcAccessMask = ACCESS_FLAGS::NONE,
+						.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+						.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+				}
+				};
+				imageBarriers[i * 2 + 1].image = prevVelocityFieldImageViews[i]->getCreationParameters().image.get();
+				imageBarriers[i * 2 + 1].subresourceRange = {
+					.aspectMask = IImage::EAF_COLOR_BIT,
+					.baseMipLevel = 0u,
+					.levelCount = 1u,
+					.baseArrayLayer = 0u,
+					.layerCount = 1u
+				};
+				imageBarriers[i * 2 + 1].oldLayout = IImage::LAYOUT::UNDEFINED;
+				imageBarriers[i * 2 + 1].newLayout = IImage::LAYOUT::GENERAL;
 			}
-			};
-			imageBarriers[0].image = velocityFieldImageView->getCreationParameters().image.get();
-			imageBarriers[0].subresourceRange = {
-				.aspectMask = IImage::EAF_COLOR_BIT,
-				.baseMipLevel = 0u,
-				.levelCount = 1u,
-				.baseArrayLayer = 0u,
-				.layerCount = 1u
-			};
-			imageBarriers[0].oldLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			imageBarriers[0].newLayout = IImage::LAYOUT::GENERAL;
-			imageBarriers[1].barrier = {
-				.dep = {
-					.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-					.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS | ACCESS_FLAGS::SHADER_READ_BITS,
-					.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-					.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
-			}
-			};
-			imageBarriers[1].image = prevVelocityFieldImageView->getCreationParameters().image.get();
-			imageBarriers[1].subresourceRange = {
-				.aspectMask = IImage::EAF_COLOR_BIT,
-				.baseMipLevel = 0u,
-				.levelCount = 1u,
-				.baseArrayLayer = 0u,
-				.layerCount = 1u
-			};
-			imageBarriers[1].oldLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			imageBarriers[1].newLayout = IImage::LAYOUT::GENERAL;
 
 			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.imgBarriers = imageBarriers});
 		}
@@ -1511,50 +1514,12 @@ public:
 	void dispatchExtrapolateVelocities(IGPUCommandBuffer* cmdbuf)
 	{
 		{
-			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[2];
-			imageBarriers[0].barrier = {
-				.dep = {
-					.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-					.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS | ACCESS_FLAGS::SHADER_READ_BITS,
-					.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-					.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
-			}
-			};
-			imageBarriers[0].image = velocityFieldImageView->getCreationParameters().image.get();
-			imageBarriers[0].subresourceRange = {
-				.aspectMask = IImage::EAF_COLOR_BIT,
-				.baseMipLevel = 0u,
-				.levelCount = 1u,
-				.baseArrayLayer = 0u,
-				.layerCount = 1u
-			};
-			imageBarriers[0].oldLayout = IImage::LAYOUT::GENERAL;
-			imageBarriers[0].newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			imageBarriers[1].barrier = {
-				.dep = {
-					.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-					.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS | ACCESS_FLAGS::SHADER_READ_BITS,
-					.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-					.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
-			}
-			};
-			imageBarriers[1].image = prevVelocityFieldImageView->getCreationParameters().image.get();
-			imageBarriers[1].subresourceRange = {
-				.aspectMask = IImage::EAF_COLOR_BIT,
-				.baseMipLevel = 0u,
-				.levelCount = 1u,
-				.baseArrayLayer = 0u,
-				.layerCount = 1u
-			};
-			imageBarriers[1].oldLayout = IImage::LAYOUT::GENERAL;
-			imageBarriers[1].newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-
 			SMemoryBarrier memBarrier;
 			memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
 			memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
 			memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
 			memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
-			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}, .imgBarriers = imageBarriers});
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
         }
 
 		cmdbuf->bindComputePipeline(m_extrapolateVelPipeline.get());
@@ -1665,6 +1630,44 @@ private:
 		auto bufMem = m_device->allocate(reqs, buffer.get());
 		if (!bufMem.isValid())
 			return logFail("Failed to allocate device memory compatible with gpu buffer!\n");
+
+		return true;
+	}
+
+	bool createGridTexture(smart_refctd_ptr<IGPUImageView>& imageView, asset::E_FORMAT format, asset::VkExtent3D extent,
+		core::bitflag<asset::IImage::E_USAGE_FLAGS> usage, const std::string& debugName = "")
+	{
+		IGPUImage::SCreationParams imgInfo;
+		imgInfo.format = format;
+		imgInfo.type = IGPUImage::ET_3D;
+		imgInfo.extent = extent;
+		imgInfo.mipLevels = 1u;
+		imgInfo.arrayLayers = 1u;
+		imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
+		imgInfo.flags = asset::IImage::E_CREATE_FLAGS::ECF_NONE;
+		imgInfo.usage = usage;
+		imgInfo.tiling = IGPUImage::TILING::OPTIMAL;
+
+		auto image = m_device->createImage(std::move(imgInfo));
+		auto imageMemReqs = image->getMemoryReqs();
+		imageMemReqs.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
+		m_device->allocate(imageMemReqs, image.get());
+
+		if (!debugName.empty())
+			image->setObjectDebugName("velocity field");
+
+		IGPUImageView::SCreationParams imgViewInfo;
+		imgViewInfo.image = std::move(image);
+		imgViewInfo.format = format;
+		imgViewInfo.viewType = IGPUImageView::ET_3D;
+		imgViewInfo.flags = IGPUImageView::E_CREATE_FLAGS::ECF_NONE;
+		imgViewInfo.subresourceRange.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+		imgViewInfo.subresourceRange.baseArrayLayer = 0u;
+		imgViewInfo.subresourceRange.baseMipLevel = 0u;
+		imgViewInfo.subresourceRange.layerCount = 1u;
+		imgViewInfo.subresourceRange.levelCount = 1u;
+
+		imageView = m_device->createImageView(std::move(imgViewInfo));
 
 		return true;
 	}
@@ -2222,8 +2225,8 @@ private:
 	smart_refctd_ptr<IGPUBuffer> gridParticleIDBuffer;	// uint2
 	smart_refctd_ptr<IGPUBuffer> gridCellMaterialBuffer;	// uint, fluid or solid
 
-	smart_refctd_ptr<IGPUImageView> velocityFieldImageView;		// float4
-	smart_refctd_ptr<IGPUImageView> prevVelocityFieldImageView;	// float4
+	std::array<smart_refctd_ptr<IGPUImageView>, 3> velocityFieldImageViews;		// float * 3 (per axis)
+	std::array<smart_refctd_ptr<IGPUImageView>, 3> prevVelocityFieldImageViews;	// float * 3
 	smart_refctd_ptr<IGPUSampler> velocityFieldSampler;
 
 	smart_refctd_ptr<IGPUBuffer> gridDiffusionBuffer;	// float4

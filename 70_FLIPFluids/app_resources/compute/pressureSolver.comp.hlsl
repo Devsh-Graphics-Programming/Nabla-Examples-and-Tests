@@ -22,7 +22,7 @@ cbuffer PressureSolverParams
 };
 
 [[vk::binding(b_psCMBuffer, s_ps)]] RWStructuredBuffer<uint> cellMaterialBuffer;
-[[vk::binding(b_psVelBuffer, s_ps)]] RWTexture3D<float4> velocityFieldBuffer;
+[[vk::binding(b_psVelBuffer, s_ps)]] RWTexture3D<float> velocityFieldBuffer[3];
 [[vk::binding(b_psDivBuffer, s_ps)]] RWStructuredBuffer<float> divergenceBuffer;
 [[vk::binding(b_psPresInBuffer, s_ps)]] RWStructuredBuffer<float> pressureInBuffer;
 [[vk::binding(b_psPresOutBuffer, s_ps)]] RWStructuredBuffer<float> pressureOutBuffer;
@@ -34,22 +34,25 @@ void calculateNegativeDivergence(uint32_t3 ID : SV_DispatchThreadID)
     int3 cellIdx = flatIdxToCellIdx(cid, gridData.gridSize);
 
     float3 param = (float3)gridData.gridInvCellSize;
-    float3 velocity = velocityFieldBuffer[cellIdx].xyz;
+    float3 velocity;
+    velocity.x = velocityFieldBuffer[0][cellIdx];
+    velocity.y = velocityFieldBuffer[1][cellIdx];
+    velocity.z = velocityFieldBuffer[2][cellIdx];
 
     float divergence = 0;
     if (isFluidCell(getCellMaterial(cellMaterialBuffer[cid])))
     {
         int3 cell_xn = cellIdx + int3(1, 0, 0);
         uint cid_xn = cellIdxToFlatIdx(cell_xn, gridData.gridSize);
-        divergence += param.x * ((cell_xn.x < gridData.gridSize.x ? velocityFieldBuffer[cell_xn].x : 0.0f) - velocity.x);
+        divergence += param.x * ((cell_xn.x < gridData.gridSize.x ? velocityFieldBuffer[0][cell_xn] : 0.0f) - velocity.x);
 
         int3 cell_yn = cellIdx + int3(0, 1, 0);
         uint cid_yn = cellIdxToFlatIdx(cell_yn, gridData.gridSize);
-        divergence += param.y * ((cell_yn.y < gridData.gridSize.y ? velocityFieldBuffer[cell_yn].y : 0.0f) - velocity.y);
+        divergence += param.y * ((cell_yn.y < gridData.gridSize.y ? velocityFieldBuffer[1][cell_yn] : 0.0f) - velocity.y);
 
         int3 cell_zn = cellIdx + int3(0, 0, 1);
         uint cid_zn = cellIdxToFlatIdx(cell_zn, gridData.gridSize);
-        divergence += param.z * ((cell_zn.z < gridData.gridSize.z ? velocityFieldBuffer[cell_zn].z : 0.0f) - velocity.z);
+        divergence += param.z * ((cell_zn.z < gridData.gridSize.z ? velocityFieldBuffer[3][cell_zn] : 0.0f) - velocity.z);
     }
 
     divergenceBuffer[cid] = divergence;
@@ -99,7 +102,10 @@ void updateVelocities(uint32_t3 ID : SV_DispatchThreadID)
 
     uint cellMaterial = cellMaterialBuffer[cid];
 
-    float3 velocity = velocityFieldBuffer[cellIdx].xyz;
+    float3 velocity;
+    velocity.x = velocityFieldBuffer[0][cellIdx];
+    velocity.y = velocityFieldBuffer[1][cellIdx];
+    velocity.z = velocityFieldBuffer[2][cellIdx];
     float pressure = pressureInBuffer[cid];
 
     uint cid_xp = cellIdxToFlatIdx(cellIdx + int3(-1, 0, 0), gridData.gridSize);
@@ -116,5 +122,7 @@ void updateVelocities(uint32_t3 ID : SV_DispatchThreadID)
 
     enforceBoundaryCondition(velocity, cellMaterial);
 
-    velocityFieldBuffer[cellIdx].xyz = velocity;
+    velocityFieldBuffer[0][cellIdx] = velocity.x;
+    velocityFieldBuffer[1][cellIdx] = velocity.y;
+    velocityFieldBuffer[2][cellIdx] = velocity.z;
 }
