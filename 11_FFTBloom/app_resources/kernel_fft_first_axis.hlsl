@@ -1,7 +1,5 @@
 #include "common.hlsl"
-#include "nbl/builtin/hlsl/workgroup/shuffle.hlsl"
-#include "nbl/builtin/hlsl/cpp_compat/promote.hlsl"
-#include "nbl/builtin/hlsl/memory_accessor.hlsl"
+#include "nbl/builtin/hlsl/workgroup/fft.hlsl"
 
 /*
  * Remember we have these defines: 

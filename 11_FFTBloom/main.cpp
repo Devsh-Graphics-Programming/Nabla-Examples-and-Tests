@@ -6,6 +6,8 @@
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 
+// TODO: Consider adding ImGUI overlay to dynamically modify bloom size
+
 using namespace nbl;
 using namespace core;
 using namespace system;
@@ -60,7 +62,7 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 	// Other parameter-dependent variables
 	asset::VkExtent3D marginSrcDim;
 
-	// This example really lets the advantages of a timeline semaphore shine through!
+	// TODO: Remove if unnecessary
 	smart_refctd_ptr<ISemaphore> m_timeline;
 	uint64_t m_iteration = 0;
 
@@ -82,7 +84,7 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 				ISampler::ETF_LINEAR,
 				ISampler::ETF_LINEAR,
 				ISampler::ESMM_LINEAR,
-				8u,
+				3u,
 				0u,
 				ISampler::ECO_ALWAYS
 			}
@@ -105,7 +107,7 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 		m_device->updateDescriptorSets(1u, &write, 0u, nullptr);
 	}
 
-	inline void updateDescriptorSetConvolution(IGPUDescriptorSet* set, const smart_refctd_ptr<IGPUImageView>* kernelNormalizedSpectrumImageDescriptors)
+	inline void updateDescriptorSetConvolutionAndNormalization(IGPUDescriptorSet* set, const smart_refctd_ptr<IGPUImageView>* kernelNormalizedSpectrumImageDescriptors)
 	{
 		IGPUDescriptorSet::SDescriptorInfo pInfos[CHANNELS];
 		IGPUDescriptorSet::SWriteDescriptorSet write;
@@ -186,7 +188,6 @@ public:
 	FFTBloomApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
 		system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
-	// we stuff all our work here because its a "single shot" app
 	bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
 		// Remember to call the base class initialization!

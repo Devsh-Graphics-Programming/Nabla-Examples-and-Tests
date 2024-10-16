@@ -1,4 +1,5 @@
 #include "common.hlsl"
+#include "nbl/builtin/hlsl/workgroup/fft.hlsl"
 
 // TODO: There's a lot of redundant stuff in every FFT file, I'd like to move that to another file that I can sourceFmt at runtime then include in all of them (something like 
 // a runtime common.hlsl)
