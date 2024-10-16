@@ -9,8 +9,8 @@ using namespace video;
 
 
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-#include "../common/SimpleWindowedApplication.hpp"
-#include "../common/InputSystem.hpp"
+#include "SimpleWindowedApplication.hpp"
+#include "InputSystem.hpp"
 #include "nbl/video/utilities/CSimpleResizeSurface.h"
 
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
@@ -23,6 +23,7 @@ using namespace video;
 #include "Hatch.h"
 #include "Polyline.h"
 #include "DrawResourcesFiller.h"
+#include "SingleLineText.h"
 
 #include "nbl/video/surface/CSurfaceVulkan.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
@@ -67,7 +68,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0,	// CASE_8
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_3;
+constexpr ExampleMode mode = ExampleMode::CASE_7;
 
 class Camera2D
 {
@@ -344,6 +345,46 @@ public:
 				pseudoStencilImageView = m_device->createImageView(std::move(imgViewInfo));
 			}
 		}
+		
+		// colorStorage
+		{
+			asset::E_FORMAT colorStorageFormat = asset::EF_R32_UINT;
+			{
+				IGPUImage::SCreationParams imgInfo;
+				imgInfo.format = colorStorageFormat;
+				imgInfo.type = IGPUImage::ET_2D;
+				imgInfo.extent.width = m_window->getWidth();
+				imgInfo.extent.height = m_window->getHeight();
+				imgInfo.extent.depth = 1u;
+				imgInfo.mipLevels = 1u;
+				imgInfo.arrayLayers = 1u;
+				imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
+				imgInfo.flags = asset::IImage::E_CREATE_FLAGS::ECF_NONE;
+				imgInfo.usage = asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT;
+				// [VKTODO] imgInfo.initialLayout = IGPUImage::EL_UNDEFINED;
+				imgInfo.tiling = IGPUImage::TILING::OPTIMAL;
+
+				auto image = m_device->createImage(std::move(imgInfo));
+				auto imageMemReqs = image->getMemoryReqs();
+				imageMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+				m_device->allocate(imageMemReqs, image.get());
+
+				image->setObjectDebugName("colorStorage Image");
+
+				IGPUImageView::SCreationParams imgViewInfo;
+				imgViewInfo.image = std::move(image);
+				imgViewInfo.format = colorStorageFormat;
+				imgViewInfo.viewType = IGPUImageView::ET_2D;
+				imgViewInfo.flags = IGPUImageView::E_CREATE_FLAGS::ECF_NONE;
+				imgViewInfo.subresourceRange.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+				imgViewInfo.subresourceRange.baseArrayLayer = 0u;
+				imgViewInfo.subresourceRange.baseMipLevel = 0u;
+				imgViewInfo.subresourceRange.layerCount = 1u;
+				imgViewInfo.subresourceRange.levelCount = 1u;
+
+				colorStorageImageView = m_device->createImageView(std::move(imgViewInfo));
+			}
+		}
 
 		IGPUSampler::SParams samplerParams = {};
 		samplerParams.TextureWrapU = IGPUSampler::ETC_CLAMP_TO_BORDER;
@@ -360,6 +401,129 @@ public:
 		samplerParams.MinLod = -1000.f;
 		samplerParams.MaxLod = 1000.f;
 		msdfTextureSampler = m_device->createSampler(samplerParams);
+	
+		// Initial Pipeline Transitions and Clearing of PseudoStencil and ColorStorage
+		// Recorded to Temporary CommandBuffer, Submitted to Graphics Queue, and Blocked on here
+		{
+			auto cmdPool = m_device->createCommandPool(getGraphicsQueue()->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+			smart_refctd_ptr<IGPUCommandBuffer> tmpCmdBuffer;
+			cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &tmpCmdBuffer, 1 });
+			auto tmpJobFinishedSema = m_device->createSemaphore(0ull);
+
+			tmpCmdBuffer->begin(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			{
+				// Clear pseudoStencil
+				auto pseudoStencilImage = pseudoStencilImageView->getCreationParameters().image;
+				auto colorStorageImage = colorStorageImageView->getCreationParameters().image;
+
+				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t beforeClearImageBarrier[] =
+				{
+					{
+						.barrier = {
+							.dep = {
+								.srcStageMask = PIPELINE_STAGE_FLAGS::NONE, // previous top of pipe -> top_of_pipe in first scope = none
+								.srcAccessMask = ACCESS_FLAGS::NONE,
+								.dstStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT,
+								.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT, // could be ALL_TRANSFER but let's be specific we only want to CLEAR right now
+							}
+							// .ownershipOp. No queueFam ownership transfer
+						},
+						.image = pseudoStencilImage.get(),
+						.subresourceRange = {
+							.aspectMask = IImage::EAF_COLOR_BIT,
+							.baseMipLevel = 0u,
+							.levelCount = 1u,
+							.baseArrayLayer = 0u,
+							.layerCount = 1u,
+						},
+						.oldLayout = IImage::LAYOUT::UNDEFINED,
+						.newLayout = IImage::LAYOUT::GENERAL,
+					}
+				};
+
+				tmpCmdBuffer->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = beforeClearImageBarrier });
+
+				uint32_t pseudoStencilInvalidValue = core::bitfieldInsert<uint32_t>(0u, InvalidMainObjectIdx, AlphaBits, MainObjectIdxBits);
+				IGPUCommandBuffer::SClearColorValue clear = {};
+				clear.uint32[0] = pseudoStencilInvalidValue;
+
+				asset::IImage::SSubresourceRange subresourceRange = {};
+				subresourceRange.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+				subresourceRange.baseArrayLayer = 0u;
+				subresourceRange.baseMipLevel = 0u;
+				subresourceRange.layerCount = 1u;
+				subresourceRange.levelCount = 1u;
+
+				tmpCmdBuffer->clearColorImage(pseudoStencilImage.get(), asset::IImage::LAYOUT::GENERAL, &clear, 1u, &subresourceRange);
+
+				// prepare pseudoStencilImage for usage in drawcall
+
+				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t beforeUsageImageBarriers[] =
+				{
+					{
+						.barrier = {
+							.dep = {
+								.srcStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT,
+								.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+								.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
+								.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS, // could be ALL_TRANSFER but let's be specific we only want to CLEAR right now
+							}
+							// .ownershipOp. No queueFam ownership transfer
+						},
+						.image = pseudoStencilImage.get(),
+						.subresourceRange = {
+							.aspectMask = IImage::EAF_COLOR_BIT,
+							.baseMipLevel = 0u,
+							.levelCount = 1u,
+							.baseArrayLayer = 0u,
+							.layerCount = 1u,
+						},
+						.oldLayout = IImage::LAYOUT::GENERAL,
+						.newLayout = IImage::LAYOUT::GENERAL,
+					}, 
+					{
+						.barrier = {
+							.dep = {
+								.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+								.srcAccessMask = ACCESS_FLAGS::NONE,
+								.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
+								.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS, // could be ALL_TRANSFER but let's be specific we only want to CLEAR right now
+							}
+							// .ownershipOp. No queueFam ownership transfer
+						},
+						.image = colorStorageImage.get(),
+						.subresourceRange = {
+							.aspectMask = IImage::EAF_COLOR_BIT,
+							.baseMipLevel = 0u,
+							.levelCount = 1u,
+							.baseArrayLayer = 0u,
+							.layerCount = 1u,
+						},
+						.oldLayout = IImage::LAYOUT::UNDEFINED,
+						.newLayout = IImage::LAYOUT::GENERAL,
+					}
+				};
+
+				tmpCmdBuffer->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = beforeUsageImageBarriers });
+			}
+			tmpCmdBuffer->end();
+
+			IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1u] = { {.cmdbuf = tmpCmdBuffer.get() } };
+			IQueue::SSubmitInfo::SSemaphoreInfo singalSemaphores[1] = {};
+			singalSemaphores[0].semaphore = tmpJobFinishedSema.get();
+			singalSemaphores[0].stageMask = asset::PIPELINE_STAGE_FLAGS::NONE;
+			singalSemaphores[0].value = 1u;
+
+			IQueue::SSubmitInfo submitInfo = {};
+			submitInfo.commandBuffers = cmdbufs;
+			submitInfo.waitSemaphores = {};
+			submitInfo.signalSemaphores = singalSemaphores;
+
+			getGraphicsQueue()->submit({ &submitInfo, 1u });
+
+			ISemaphore::SWaitInfo waitTmpJobFinish = { .semaphore = tmpJobFinishedSema.get(), .value = 1u};
+			m_device->blockForSemaphores({ &waitTmpJobFinish, 1u });
+		}
 	}
 	
 	smart_refctd_ptr<IGPURenderpass> createRenderpass(
@@ -582,6 +746,13 @@ public:
 					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 					.count = 1u,
 				},
+				{
+					.binding = 1u,
+					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+					.count = 1u,
+				},
 			};
 			descriptorSetLayout1 = m_device->createDescriptorSetLayout(bindingsSet1);
 			if (!descriptorSetLayout1)
@@ -631,11 +802,15 @@ public:
 				// descriptorInfosSet0[6u].desc = drawResourcesFiller.getMSDFsTextureArray();
 
 				// Descriptors For Set 1:
-				constexpr uint32_t DescriptorCountSet1 = 1u;
-				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfosSet1[DescriptorCountSet0] = {};
+				constexpr uint32_t DescriptorCountSet1 = 2u;
+				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfosSet1[DescriptorCountSet1] = {};
 				descriptorInfosSet1[0u].info.image.imageLayout = IImage::LAYOUT::GENERAL;
 				descriptorInfosSet1[0u].info.combinedImageSampler.sampler = nullptr;
 				descriptorInfosSet1[0u].desc = pseudoStencilImageView;
+
+				descriptorInfosSet1[1u].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				descriptorInfosSet1[1u].info.combinedImageSampler.sampler = nullptr;
+				descriptorInfosSet1[1u].desc = colorStorageImageView;
 
 				constexpr uint32_t DescriptorUpdatesCount = DescriptorCountSet0 + DescriptorCountSet1;
 				video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[DescriptorUpdatesCount] = {};
@@ -683,6 +858,12 @@ public:
 				descriptorUpdates[6u].arrayElement = 0u;
 				descriptorUpdates[6u].count = 1u;
 				descriptorUpdates[6u].info = &descriptorInfosSet1[0u];
+
+				descriptorUpdates[7u].dstSet = descriptorSet1.get();
+				descriptorUpdates[7u].binding = 1u;
+				descriptorUpdates[7u].arrayElement = 0u;
+				descriptorUpdates[7u].count = 1u;
+				descriptorUpdates[7u].info = &descriptorInfosSet1[1u];
 
 
 				m_device->updateDescriptorSets(DescriptorUpdatesCount, descriptorUpdates, 0u, nullptr);
@@ -899,23 +1080,22 @@ public:
 		
 		// Loading font stuff
 		m_textRenderer = nbl::core::make_smart_refctd_ptr<TextRenderer>();
-		m_arialFont = nbl::core::make_smart_refctd_ptr<FontFace>(core::smart_refctd_ptr(m_textRenderer), std::string("C:\\Windows\\Fonts\\arial.ttf"));
 
-		const auto str = "MSDF: ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnoprstuvwxyz '1234567890-=\"!@#$%¨&*()_+";
+		m_arialFont = nbl::core::make_smart_refctd_ptr<FontFace>(core::smart_refctd_ptr(m_textRenderer), std::string("C:\\Windows\\Fonts\\arial.ttf"));
+		const auto str = "MSDF: ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnoprstuvwxyz '1234567890-=\"!@#$%&*()_+";
 		singleLineText = std::unique_ptr<SingleLineText>(new SingleLineText(
 			core::smart_refctd_ptr<FontFace>(m_arialFont), 
 			std::string(str)));
 
-
 		drawResourcesFiller.setGlyphMSDFTextureFunction(
-			[&](nbl::ext::TextRendering::FontFace* face, uint32_t glyphIdx) -> core::smart_refctd_ptr<asset::ICPUBuffer>
+			[&](nbl::ext::TextRendering::FontFace* face, uint32_t glyphIdx) -> core::smart_refctd_ptr<asset::ICPUImage>
 			{
-				return face->generateGlyphMSDF(MSDFPixelRange, glyphIdx, drawResourcesFiller.getMSDFResolution());
+				return std::move(face->generateGlyphMSDF(MSDFPixelRange, glyphIdx, drawResourcesFiller.getMSDFResolution(), MSDFMips));
 			}
 		);
 
 		drawResourcesFiller.setHatchFillMSDFTextureFunction(
-			[&](HatchFillPattern pattern) -> core::smart_refctd_ptr<asset::ICPUBuffer>
+			[&](HatchFillPattern pattern) -> core::smart_refctd_ptr<asset::ICPUImage>
 			{
 				return Hatch::generateHatchFillPatternMSDF(m_textRenderer.get(), pattern, drawResourcesFiller.getMSDFResolution());
 			}
@@ -1049,51 +1229,6 @@ public:
 		bool updateSuccess = cb->updateBuffer(globalBufferUpdateRange, &globalData);
 		assert(updateSuccess);
 		
-		// Clear pseudoStencil
-		{
-			auto pseudoStencilImage = pseudoStencilImageView->getCreationParameters().image;
-
-			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[] =
-			{
-				{
-					.barrier = {
-						.dep = {
-							.srcStageMask = PIPELINE_STAGE_FLAGS::NONE, // previous top of pipe -> top_of_pipe in first scope = none
-							.srcAccessMask = ACCESS_FLAGS::NONE,
-							.dstStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT,
-							.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT, // could be ALL_TRANSFER but let's be specific we only want to CLEAR right now
-						}
-						// .ownershipOp. No queueFam ownership transfer
-					},
-					.image = pseudoStencilImage.get(),
-					.subresourceRange = {
-						.aspectMask = IImage::EAF_COLOR_BIT,
-						.baseMipLevel = 0u,
-						.levelCount = 1u,
-						.baseArrayLayer = 0u,
-						.layerCount = 1u,
-					},
-					.oldLayout = IImage::LAYOUT::UNDEFINED,
-					.newLayout = IImage::LAYOUT::GENERAL,
-				}
-			};
-
-			cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,  { .imgBarriers = imageBarriers  });
-
-			uint32_t pseudoStencilInvalidValue = core::bitfieldInsert<uint32_t>(0u, InvalidMainObjectIdx, AlphaBits, MainObjectIdxBits);
-			IGPUCommandBuffer::SClearColorValue clear = {};
-			clear.uint32[0] = pseudoStencilInvalidValue;
-
-			asset::IImage::SSubresourceRange subresourceRange = {};
-			subresourceRange.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-			subresourceRange.baseArrayLayer = 0u;
-			subresourceRange.baseMipLevel = 0u;
-			subresourceRange.layerCount = 1u;
-			subresourceRange.levelCount = 1u;
-
-			cb->clearColorImage(pseudoStencilImage.get(), asset::IImage::LAYOUT::GENERAL, &clear, 1u, &subresourceRange);
-		}
-
 		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
 		auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
 		const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
@@ -1146,35 +1281,7 @@ public:
 		cb->setScissor(0u, 1u, &scissor);
 
 		// pipelineBarriersBeforeDraw
-		{
-			// prepare pseudoStencilImage for usage in drawcall
-			auto pseudoStencilImage = pseudoStencilImageView->getCreationParameters().image;
-			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[] =
-			{
-				{
-					.barrier = {
-						.dep = {
-							.srcStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT,
-							.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-							.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
-							.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS, // could be ALL_TRANSFER but let's be specific we only want to CLEAR right now
-						}
-						// .ownershipOp. No queueFam ownership transfer
-					},
-					.image = pseudoStencilImage.get(),
-					.subresourceRange = {
-						.aspectMask = IImage::EAF_COLOR_BIT,
-						.baseMipLevel = 0u,
-						.levelCount = 1u,
-						.baseArrayLayer = 0u,
-						.layerCount = 1u,
-					},
-					.oldLayout = IImage::LAYOUT::GENERAL,
-					.newLayout = IImage::LAYOUT::GENERAL,
-				}
-			};
-
-			
+		{	
 			constexpr uint32_t MaxBufferBarriersCount = 6u;
 			uint32_t bufferBarriersCount = 0u;
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t bufferBarriers[MaxBufferBarriersCount];
@@ -1264,7 +1371,7 @@ public:
 					.buffer = drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer,
 				};
 			}
-			cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .bufBarriers = {bufferBarriers, bufferBarriersCount}, .imgBarriers = imageBarriers });
+			cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .bufBarriers = {bufferBarriers, bufferBarriersCount}, .imgBarriers = {} });
 		}
 
 		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
@@ -2692,7 +2799,7 @@ protected:
 			{
 				// Load image
 				system::path m_loadCWD = "..";
-				std::string imagePath = "../../media/color_space_test/R8G8B8_1.jpg";
+				std::string imagePath = "../../media/color_space_test/R8G8B8A8_1.png";
 				
 				constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
 				const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get(),m_loadCWD);
@@ -2830,6 +2937,7 @@ protected:
 				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,  { .imgBarriers = afterCopyImageBarriers  });
 			}
 			drawResourcesFiller._test_addImageObject({ 0.0, 0.0 }, { 100.0, 100.0 }, 0.0, intendedNextSubmit);
+			drawResourcesFiller._test_addImageObject({ 40.0, +40.0 }, { 100.0, 100.0 }, 0.0, intendedNextSubmit);
 			
 			LineStyleInfo lineStyle = 
 			{
@@ -2894,6 +3002,9 @@ protected:
 			{
 				float32_t rotation = 0.0; // nbl::core::PI<float>()* abs(cos(m_timeElapsed * 0.00005));
 				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-100.0), float32_t2(1.0, 1.0), rotation);
+				// Smaller text to test mip maps
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-130.0), float32_t2(0.4, 0.4), rotation);
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-150.0), float32_t2(0.2, 0.2), rotation);
 			}
 
 			const bool drawTextHatches = true;
@@ -2921,7 +3032,7 @@ protected:
 				{
 					char k = TestString[i];
 					auto glyphIndex = m_arialFont->getGlyphIndex(wchar_t(k));
-					const auto glyphMetrics = m_arialFont->getGlyphMetricss(glyphIndex);
+					const auto glyphMetrics = m_arialFont->getGlyphMetrics(glyphIndex);
 					const float64_t2 baselineStart = currentBaselineStart;
 
 					currentBaselineStart += glyphMetrics.advance;
@@ -3106,9 +3217,12 @@ protected:
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<CSwapchainResources>> m_surface;
 	smart_refctd_ptr<IGPUImageView> pseudoStencilImageView;
+	smart_refctd_ptr<IGPUImageView> colorStorageImageView;
 	smart_refctd_ptr<TextRenderer> m_textRenderer;
 	smart_refctd_ptr<FontFace> m_arialFont;
+	smart_refctd_ptr<FontFace> m_webdingsFont;
 	std::unique_ptr<SingleLineText> singleLineText = nullptr;
+	std::unique_ptr<SingleLineText> webdingsSquareText = nullptr;
 	
 	std::vector<std::unique_ptr<msdfgen::Shape>> m_shapeMSDFImages = {};
 

@@ -1,9 +1,10 @@
+#pragma once
 #include "Polyline.h"
 #include "Hatch.h"
 #include "IndexAllocator.h"
 #include <nbl/video/utilities/SIntendedSubmitInfo.h>
 #include <nbl/core/containers/LRUCache.h>  
-#include "nbl/ext/TextRendering/TextRendering.h"
+#include <nbl/ext/TextRendering/TextRendering.h>
 
 using namespace nbl;
 using namespace nbl::video;
@@ -39,6 +40,8 @@ public:
 
 	typedef uint32_t index_buffer_type;
 
+	using msdf_hash = std::size_t;
+
 	DrawResourcesFiller();
 
 	DrawResourcesFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue);
@@ -60,8 +63,8 @@ public:
 
 	// functions that user should set to get MSDF texture if it's not available in cache.
 	// it's up to user to return cached or generate on the fly.
-	typedef std::function<core::smart_refctd_ptr<ICPUBuffer>(nbl::ext::TextRendering::FontFace* /*face*/, uint32_t /*glyphIdx*/)> GetGlyphMSDFTextureFunc;
-	typedef std::function<core::smart_refctd_ptr<ICPUBuffer>(HatchFillPattern/*pattern*/)> GetHatchFillPatternMSDFTextureFunc;
+	typedef std::function<core::smart_refctd_ptr<ICPUImage>(nbl::ext::TextRendering::FontFace* /*face*/, uint32_t /*glyphIdx*/)> GetGlyphMSDFTextureFunc;
+	typedef std::function<core::smart_refctd_ptr<ICPUImage>(HatchFillPattern/*pattern*/)> GetHatchFillPatternMSDFTextureFunc;
 	void setGlyphMSDFTextureFunction(const GetGlyphMSDFTextureFunc& func);
 	void setHatchFillMSDFTextureFunction(const GetHatchFillPatternMSDFTextureFunc& func);
 
@@ -204,21 +207,23 @@ public:
 		auto extents = msdfTextureArray->getCreationParameters().image->getCreationParameters().extent;
 		return uint32_t2(extents.width, extents.height);
 	}
+	uint32_t getMSDFMips() {
+		return msdfTextureArray->getCreationParameters().image->getCreationParameters().mipLevels;
+	}
+
+	// TODO: Return to protected after testing
+	uint32_t addMSDFTexture(std::function<core::smart_refctd_ptr<ICPUImage>()> createResourceIfEmpty, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
 
 protected:
 	
 	struct TextureCopy
 	{
-		core::smart_refctd_ptr<ICPUBuffer> srcBuffer;
-		uint64_t bufferOffset;
-		uint32_t3 imageExtent;
+		core::smart_refctd_ptr<ICPUImage> image;
 		uint32_t index;
 	};
 
 	SubmitFunc submitDraws;
 	
-	static constexpr uint32_t InvalidStyleIdx = ~0u;
-
 	void finalizeMainObjectCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
 	void finalizeGeometryCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
@@ -299,7 +304,6 @@ protected:
 
 	// MSDF Hashing and Caching Internal Functions 
 	static constexpr uint64_t InvalidMSDFHash = std::numeric_limits<uint64_t>::max();
-	using msdf_hash = std::size_t;
 	enum class MSDFType : uint8_t
 	{
 		HATCH_FILL_PATTERN,
@@ -340,9 +344,7 @@ protected:
 		return textureIdx;
 	}
 
-	uint32_t addMSDFTexture(std::function<core::smart_refctd_ptr<ICPUBuffer>()> createResourceIfEmpty, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
-
-	uint32_t addMSDFTexture(core::smart_refctd_ptr<ICPUBuffer> textureBuffer, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
+	uint32_t addMSDFTexture(core::smart_refctd_ptr<ICPUImage> textureBuffer, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
 	
 	// Members
 	smart_refctd_ptr<IUtilities> m_utilities;
@@ -384,34 +386,5 @@ protected:
 	static constexpr asset::E_FORMAT	MSDFTextureFormat = asset::E_FORMAT::EF_R8G8B8_SNORM;
 
 	bool m_hasInitializedMSDFTextureArrays = false;
-};
-
-class SingleLineText
-{
-public:
-	// constructs and fills the `glyphBoxes`
-	SingleLineText(core::smart_refctd_ptr<nbl::ext::TextRendering::FontFace>&& face, const std::string& text);
-
-	// iterates over `glyphBoxes` generates textures msdfs if failed to add to cache (through that lambda you put)
-	// void Draw(DrawResourcesFiller& drawResourcesFiller, SIntendedSubmitInfo& intendedNextSubmit);
-	void Draw(
-		DrawResourcesFiller& drawResourcesFiller,
-		SIntendedSubmitInfo& intendedNextSubmit,
-		const float64_t2& baselineStart = float64_t2(0.0,0.0),
-		const float32_t2& scale = float64_t2(1.0, 1.0),
-		const float32_t& rotateAngle = 0);
-
-protected:
-	
-	struct GlyphBox
-	{
-		float64_t2 topLeft;
-		float32_t2 size;
-		uint32_t glyphIdx;
-		uint32_t pad;
-	};
-
-	std::vector<GlyphBox> glyphBoxes;
-	core::smart_refctd_ptr<nbl::ext::TextRendering::FontFace> m_face;
 };
 

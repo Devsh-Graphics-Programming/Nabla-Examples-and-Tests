@@ -136,7 +136,7 @@ void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, ui
 		imgInfo.format = msdfFormat;
 		imgInfo.type = IGPUImage::ET_2D;
 		imgInfo.extent = MSDFsExtent;
-		imgInfo.mipLevels = 1u; // TODO: MipMapping MSDFs?
+		imgInfo.mipLevels = MSDFMips; 
 		imgInfo.arrayLayers = maxMSDFs;
 		imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
 		imgInfo.flags = asset::IImage::E_CREATE_FLAGS::ECF_NONE;
@@ -159,7 +159,7 @@ void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, ui
 		imgViewInfo.subresourceRange.baseArrayLayer = 0u;
 		imgViewInfo.subresourceRange.baseMipLevel = 0u;
 		imgViewInfo.subresourceRange.layerCount = maxMSDFs;
-		imgViewInfo.subresourceRange.levelCount = 1u; // TODO: MipMapping MSDFs?
+		imgViewInfo.subresourceRange.levelCount = MSDFMips;
 
 		msdfTextureArray = logicalDevice->createImageView(std::move(imgViewInfo));
 	}
@@ -436,7 +436,7 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 				.subresourceRange = {
 					.aspectMask = IImage::EAF_COLOR_BIT,
 					.baseMipLevel = 0u,
-					.levelCount = 1u,
+					.levelCount = msdfImage->getCreationParameters().mipLevels,
 					.baseArrayLayer = 0u,
 					.layerCount = msdfTextureArray->getCreationParameters().image->getCreationParameters().arrayLayers,
 				},
@@ -455,22 +455,30 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 	for (uint32_t i = 0; i < textureCopies.size(); i++)
 	{
 		auto& textureCopy = textureCopies[i];
-		asset::IImage::SBufferCopy region = {};
-		region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
-		region.imageSubresource.mipLevel = 0u;
-		region.imageSubresource.baseArrayLayer = textureCopy.index;
-		region.imageSubresource.layerCount = 1u;
-		region.bufferOffset = 0u;
-		region.bufferRowLength = textureCopy.imageExtent.x;
-		region.bufferImageHeight = 0u;
-		region.imageExtent = { textureCopy.imageExtent.x, textureCopy.imageExtent.y, textureCopy.imageExtent.z };
-		region.imageOffset = { 0u, 0u, 0u };
+		for (uint32_t mip = 0; mip < textureCopy.image->getCreationParameters().mipLevels; mip++)
+		{
+			auto mipImageRegion = textureCopy.image->getRegion(mip, core::vectorSIMDu32(0u, 0u));
 
-		m_utilities->updateImageViaStagingBuffer(
-			intendedNextSubmit, 
-			textureCopy.srcBuffer->getPointer(), nbl::ext::TextRendering::TextRenderer::MSDFTextureFormat,
-			msdfImage.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 
-			{ &region, &region + 1 });
+			asset::IImage::SBufferCopy region = {};
+			region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
+			region.imageSubresource.mipLevel = mipImageRegion->imageSubresource.mipLevel;
+			region.imageSubresource.baseArrayLayer = textureCopy.index;
+			region.imageSubresource.layerCount = 1u;
+			region.bufferOffset = 0u;
+			region.bufferRowLength = mipImageRegion->getExtent().width;
+			region.bufferImageHeight = 0u;
+			region.imageExtent = mipImageRegion->imageExtent;
+			region.imageOffset = { 0u, 0u, 0u };
+
+			auto buffer = reinterpret_cast<uint8_t*>(textureCopy.image->getBuffer()->getPointer());
+			auto bufferOffset = mipImageRegion->bufferOffset;
+
+			m_utilities->updateImageViaStagingBuffer(
+				intendedNextSubmit, 
+				buffer + bufferOffset, nbl::ext::TextRendering::TextRenderer::MSDFTextureFormat,
+				msdfImage.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 
+				{ &region, &region + 1 });
+		}
 	}
 		
 	// preparing images for use
@@ -490,7 +498,7 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 				.subresourceRange = {
 					.aspectMask = IImage::EAF_COLOR_BIT,
 					.baseMipLevel = 0u,
-					.levelCount = 1u,
+					.levelCount = msdfImage->getCreationParameters().mipLevels,
 					.baseArrayLayer = 0u,
 					.layerCount = msdfTextureArray->getCreationParameters().image->getCreationParameters().arrayLayers,
 				},
@@ -842,7 +850,7 @@ uint32_t DrawResourcesFiller::getMSDFTextureIndex(msdf_hash hash)
 	else return InvalidMSDFHash;
 }
 
-uint32_t DrawResourcesFiller::addMSDFTexture(std::function<core::smart_refctd_ptr<ICPUBuffer>()> createResourceIfEmpty, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawResourcesFiller::addMSDFTexture(std::function<core::smart_refctd_ptr<ICPUImage>()> createResourceIfEmpty, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// TextureReferences hold the semaValue related to the "scratch semaphore" in IntendedSubmitInfo
 	// Every single submit increases this value by 1
@@ -875,104 +883,34 @@ uint32_t DrawResourcesFiller::addMSDFTexture(std::function<core::smart_refctd_pt
 	// if inserted->alloc_idx was not InvalidTextureIdx then it means we had a cache hit and updated the value of our sema, in which case we don't queue anything for upload, and return the idx
 	if (inserted->alloc_idx == InvalidTextureIdx)
 	{
-		auto textureBuffer = createResourceIfEmpty();
+		auto cpuImage = createResourceIfEmpty();
 
-		// New insertion == cache miss happened and insertion was successfull
-		inserted->alloc_idx = IndexAllocator::AddressAllocator::invalid_address;
-		msdfTextureArrayIndexAllocator->multi_allocate(1u, &inserted->alloc_idx);
+		const auto cpuImageSize = cpuImage->getMipSize(0);
+		const bool sizeMatch = cpuImageSize.x == getMSDFResolution().x && cpuImageSize.y == getMSDFResolution().y && cpuImageSize.z == 1u;
 
-		// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
-		textureCopies.push_back({
-			.srcBuffer = textureBuffer,
-			.bufferOffset = 0u,
-			.imageExtent = uint32_t3(getMSDFResolution(), 1u),
-			.index = inserted->alloc_idx,
-		});
+		if (sizeMatch)
+		{
+			// New insertion == cache miss happened and insertion was successfull
+			inserted->alloc_idx = IndexAllocator::AddressAllocator::invalid_address;
+			msdfTextureArrayIndexAllocator->multi_allocate(1u, &inserted->alloc_idx);
+
+			// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
+			textureCopies.push_back({ .image = std::move(cpuImage), .index = inserted->alloc_idx });
+		}
 	}
-	msdfTextureArrayIndicesUsed.emplace(inserted->alloc_idx);
 
 	assert(inserted->alloc_idx != InvalidTextureIdx);
+	if (inserted->alloc_idx != InvalidTextureIdx)
+		msdfTextureArrayIndicesUsed.emplace(inserted->alloc_idx);
+
 	return inserted->alloc_idx;
 }
 
-uint32_t DrawResourcesFiller::addMSDFTexture(core::smart_refctd_ptr<ICPUBuffer> textureBuffer, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawResourcesFiller::addMSDFTexture(core::smart_refctd_ptr<ICPUImage> textureBuffer, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	return addMSDFTexture(
-		[textureBuffer] { return textureBuffer; },
+		[textureBuffer] { return std::move(textureBuffer); },
 		hash,
 		intendedNextSubmit
 	);
 }
-
-SingleLineText::SingleLineText(core::smart_refctd_ptr<nbl::ext::TextRendering::FontFace>&& face, const std::string& text)
-{
-	m_face = std::move(face);
-	glyphBoxes.reserve(text.length());
-
-	// Position transform
-	float64_t2 currentPos = float32_t2(0.0, 0.0);
-	for (uint32_t i = 0; i < text.length(); i++)
-	{
-		const auto glyphIndex = m_face->getGlyphIndex(wchar_t(text.at(i)));
-		const auto glyphMetrics = m_face->getGlyphMetricss(glyphIndex);
-		const bool skipGenerateGlyph = (glyphIndex == 0 || (glyphMetrics.size.x == 0.0 && glyphMetrics.size.y == 0.0));
-
-		if (!skipGenerateGlyph)
-		{
-#ifdef VERIFY_DEBUG
-			msdfgen::Shape shape = m_face->generateGlyphShape(glyphIndex);
-			_NBL_BREAK_IF(shape.contours.empty());
-#endif
-			GlyphBox glyphBbox = 
-			{
-				.topLeft = currentPos + glyphMetrics.horizontalBearing,
-				.size = glyphMetrics.size,
-				.glyphIdx = glyphIndex,
-			};
-			glyphBoxes.push_back(glyphBbox);
-		}
-		currentPos += glyphMetrics.advance;
-	}
-}
-
-void SingleLineText::Draw(
-	DrawResourcesFiller& drawResourcesFiller,
-	SIntendedSubmitInfo& intendedNextSubmit,
-	const float64_t2& baselineStart,
-	const float32_t2& scale,
-	const float32_t& rotateAngle)
-{
-	float32_t2 vec(cos(rotateAngle), sin(rotateAngle));
-	float64_t3x3 rotationMulScaleMat =
-	{
-		vec.x  * scale.x,	vec.y * scale.y,	0.0,
-		-vec.y * scale.x,	vec.x * scale.y,	0.0,
-		0.0,				0.0,				1.0,
-	};
-	float64_t3x3 translationMat =
-	{
-		1.0,	0.0,	baselineStart.x,
-		0.0,	1.0,	baselineStart.y,
-		0.0,	0.0,	1.0,
-	};
-	float64_t3x3 transformation = mul(translationMat, rotationMulScaleMat);
-
-	LineStyleInfo lineStyle = {};
-	lineStyle.color = float32_t4(1.0, 1.0, 1.0, 1.0);
-	const uint32_t styleIdx = drawResourcesFiller.addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
-	auto glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
-
-	for (const auto& glyphBox : glyphBoxes)
-	{
-		const float64_t2 topLeft = mul(transformation, float64_t3(glyphBox.topLeft, 1.0)).xy;
-		const float64_t2 dirU = mul(transformation, float64_t3(glyphBox.size.x, 0.0, 0.0)).xy;
-		const float64_t2 dirV = mul(transformation, float64_t3(0.0, -glyphBox.size.y, 0.0)).xy;
-
-		// float32_t3 xx = float64_t3(0.0, -glyphBox.size.y, 0.0);
-		const float32_t aspectRatio = static_cast<float32_t>(glm::length(dirV) / glm::length(dirU)); // check if you can just do: (glyphBox.size.y * scale.y) / glyphBox.size.x * scale.x)
-		const float32_t2 minUV = m_face->getUV(float32_t2(0.0f,0.0f), glyphBox.size, drawResourcesFiller.getMSDFResolution(), MSDFPixelRange);
-		drawResourcesFiller.drawFontGlyph(m_face.get(), glyphBox.glyphIdx, topLeft, dirU, aspectRatio, minUV, glyphObjectIdx, intendedNextSubmit);
-	}
-
-}
-

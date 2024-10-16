@@ -340,52 +340,72 @@ typedef StyleClipper< nbl::hlsl::shapes::Line<float> > LineStyleClipper;
 // textureColor: color sampled from a texture
 // useStyleColor: instead of writing and reading from colorStorage, use main object Idx to find the style color for the object.
 template<bool FragmentShaderPixelInterlock>
-float32_t4 calculateFinalColor(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 textureColor, bool useStyleColor);
+float32_t4 calculateFinalColor(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 textureColor);
 
 template<>
-float32_t4 calculateFinalColor<false>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 textureColor, bool useStyleColor)
+float32_t4 calculateFinalColor<false>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 localTextureColor)
 {
-    if (useStyleColor)
+    uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
+    const bool colorFromStyle = styleIdx != InvalidStyleIdx;
+    if (colorFromStyle)
     {
-        float32_t4 col = lineStyles[mainObjects[currentMainObjectIdx].styleIdx].color;
+        float32_t4 col = lineStyles[styleIdx].color;
         col.w *= localAlpha;
         return float4(col);
     }
     else
-        return float4(textureColor, localAlpha);
+        return float4(localTextureColor, localAlpha);
 }
 template<>
-float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 textureColor, bool useStyleColor)
+float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 localTextureColor)
 {
+    float32_t4 color;
+    
     nbl::hlsl::spirv::execution_mode::PixelInterlockOrderedEXT();
     nbl::hlsl::spirv::beginInvocationInterlockEXT();
 
     const uint32_t packedData = pseudoStencil[fragCoord];
 
     const uint32_t localQuantizedAlpha = (uint32_t)(localAlpha * 255.f);
-    const uint32_t quantizedAlpha = bitfieldExtract(packedData,0,AlphaBits);
+    const uint32_t storedQuantizedAlpha = nbl::hlsl::glsl::bitfieldExtract<uint32_t>(packedData,0,AlphaBits);
+    const uint32_t storedMainObjectIdx = nbl::hlsl::glsl::bitfieldExtract<uint32_t>(packedData,AlphaBits,MainObjectIdxBits);
     // if geomID has changed, we resolve the SDF alpha (draw using blend), else accumulate
-    const uint32_t mainObjectIdx = bitfieldExtract(packedData,AlphaBits,MainObjectIdxBits);
-    const bool resolve = currentMainObjectIdx != mainObjectIdx;
-    if (resolve || localQuantizedAlpha > quantizedAlpha)
-        pseudoStencil[fragCoord] = bitfieldInsert(localQuantizedAlpha,currentMainObjectIdx,AlphaBits,MainObjectIdxBits);
+    const bool resolve = currentMainObjectIdx != storedMainObjectIdx;
+    uint32_t resolveStyleIdx = mainObjects[storedMainObjectIdx].styleIdx;
+    const bool resolveColorFromStyle = resolveStyleIdx != InvalidStyleIdx;
+    
+    // load from colorStorage only if we want to resolve color from texture instead of style
+    // sampling from colorStorage needs to happen in critical section because another fragment may also want to store into it at the same time + need to happen before store
+    if (resolve && !resolveColorFromStyle)
+        color = float32_t4(unpackR11G11B10_UNORM(colorStorage[fragCoord]), 1.0f);
 
+    if (resolve || localQuantizedAlpha > storedQuantizedAlpha)
+    {
+        pseudoStencil[fragCoord] = nbl::hlsl::glsl::bitfieldInsert<uint32_t>(localQuantizedAlpha,currentMainObjectIdx,AlphaBits,MainObjectIdxBits);
+        colorStorage[fragCoord] = packR11G11B10_UNORM(localTextureColor);
+    }
+    
     nbl::hlsl::spirv::endInvocationInterlockEXT();
 
     if (!resolve)
         discard;
 
-    // draw with previous geometry's style's color :kek:
-    float32_t4 col = lineStyles[mainObjects[mainObjectIdx].styleIdx].color;
-    col.w *= float(quantizedAlpha) / 255.f;
-    return col;
+    // draw with previous geometry's style's color or stored in texture buffer :kek:
+    // we don't need to load the style's color in critical section because we've already retrieved the style index from the stored main obj
+    if (resolveColorFromStyle)
+        color = lineStyles[resolveStyleIdx].color;
+    color.a *= float(storedQuantizedAlpha) / 255.f;
+    
+    return color;
 }
+
 
 float4 main(PSInput input) : SV_TARGET
 {
-    ObjectType objType = input.getObjType();
     float localAlpha = 0.0f;
+    ObjectType objType = input.getObjType();
     const uint32_t currentMainObjectIdx = input.getMainObjectIdx();
+    const MainObject mainObj = mainObjects[currentMainObjectIdx];
     float3 textureColor = float3(0, 0, 0); // color sampled from a texture
     
     // figure out local alpha with sdf
@@ -396,7 +416,7 @@ float4 main(PSInput input) : SV_TARGET
         {
             const float2 start = input.getLineStart();
             const float2 end = input.getLineEnd();
-            const uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
+            const uint32_t styleIdx = mainObj.styleIdx;
             const float thickness = input.getLineThickness();
             const float phaseShift = input.getCurrentPhaseShift();
             const float stretch = input.getPatternStretch();
@@ -422,7 +442,7 @@ float4 main(PSInput input) : SV_TARGET
             nbl::hlsl::shapes::Quadratic<float> quadratic = input.getQuadratic();
             nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator arcLenCalc = input.getQuadraticArcLengthCalculator();
 
-            const uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
+            const uint32_t styleIdx = mainObj.styleIdx;
             const float thickness = input.getLineThickness();
             const float phaseShift = input.getCurrentPhaseShift();
             const float stretch = input.getPatternStretch();
@@ -561,13 +581,15 @@ float4 main(PSInput input) : SV_TARGET
             localAlpha = 1.0f - smoothstep(0.0, globals.antiAliasingFactor, dist);
         }
 
-        LineStyle style = lineStyles[mainObjects[currentMainObjectIdx].styleIdx];
+        LineStyle style = lineStyles[mainObj.styleIdx];
         uint32_t textureId = asuint(style.screenSpaceLineWidth);
         if (textureId != InvalidTextureIdx)
         {
-            float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(frac(input.position.xy / HatchFillMSDFSceenSpaceSize), float(textureId))).xyz;
-            float msdf = nbl::hlsl::text::msdfDistance(msdfSample, MSDFPixelRange, HatchFillMSDFSceenSpaceSize / MSDFSize);
-            localAlpha = smoothstep(+globals.antiAliasingFactor / 2.0, -globals.antiAliasingFactor / 2.0f, msdf);
+            // For Hatch fiils we sample the first mip as we don't fill the others, because they are constant in screenspace and render as expected
+            // If later on we decided that we can have different sizes here, we should do computations similar to FONT_GLYPH
+            float3 msdfSample = msdfTextures.SampleLevel(msdfSampler, float3(frac(input.position.xy / HatchFillMSDFSceenSpaceSize), float(textureId)), 0.0).xyz;
+            float msdf = nbl::hlsl::text::msdfDistance(msdfSample, MSDFPixelRange * HatchFillMSDFSceenSpaceSize / MSDFSize);
+            localAlpha *= smoothstep(+globals.antiAliasingFactor / 2.0, -globals.antiAliasingFactor / 2.0f, msdf);
         }
     }
     else if (objType == ObjectType::FONT_GLYPH) 
@@ -577,12 +599,24 @@ float4 main(PSInput input) : SV_TARGET
 
         if (textureId != InvalidTextureIdx)
         {
-            float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(float2(uv.x, uv.y), float(textureId)));
-            float msdf = nbl::hlsl::text::msdfDistance(msdfSample, MSDFPixelRange, input.getFontGlyphScreenPxRange());
-            
-            // localAlpha = smoothstep(-globals.antiAliasingFactor, 0.0, msdf); 
-            // IDK why but it looks best if aa is done on the inside of the shape too esp for curved and diagonal shapes, it may make the shape a tiny bit thinner but worth it
-            localAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, msdf); 
+            float mipLevel = msdfTextures.CalculateLevelOfDetail(msdfSampler, uv);
+            float3 msdfSample = msdfTextures.SampleLevel(msdfSampler, float3(uv, float(textureId)), mipLevel);
+            float msdf = nbl::hlsl::text::msdfDistance(msdfSample, input.getFontGlyphScreenPxRange());
+            /*
+                explaining "*= exp2(max(mipLevel,0.0))"
+                Each mip level has constant MSDFPixelRange
+                Which essentially makes the msdfSamples here (Harware Sampled) have different scales per mip
+                As we go up 1 mip level, the msdf distance should be multiplied by 2.0
+                While this makes total sense for NEAREST mip sampling when mipLevel is an integer and only one mip is being sampled.
+                It's a bit complex when it comes to trilinear filtering (LINEAR mip sampling), but it works in practice!
+                
+                Alternatively you can think of it as doing this instead:
+                localAlpha = smoothstep(+globals.antiAliasingFactor / exp2(max(mipLevel,0.0)), 0.0, msdf);
+                Which is reducing the aa feathering as we go up the mip levels. 
+                to avoid aa feathering of the MAX_MSDF_DISTANCE_VALUE to be less than aa factor and eventually color it and cause greyed out area around the main glyph
+            */
+            msdf *= exp2(max(mipLevel,0.0));
+            localAlpha = smoothstep(+globals.antiAliasingFactor / 2.0f, -globals.antiAliasingFactor / 2.0f, msdf);
         }
     }
     else if (objType == ObjectType::IMAGE) 
@@ -603,6 +637,5 @@ float4 main(PSInput input) : SV_TARGET
     if (localAlpha <= 0)
         discard;
     
-    bool useStyleColor = (objType != ObjectType::IMAGE);
-    return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx, textureColor, useStyleColor);
+    return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx, textureColor);
 }
