@@ -2,7 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-#include "../common/SimpleWindowedApplication.hpp"
+#include "SimpleWindowedApplication.hpp"
 
 #include "nbl/video/surface/CSurfaceVulkan.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
@@ -310,8 +310,9 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 				m_intendedSubmit.queue = queue;
 				// wait for nothing before upload
 				m_intendedSubmit.waitSemaphores = {};
+				m_intendedSubmit.prevCommandBuffers = {};
 				// fill later
-				m_intendedSubmit.commandBuffers = {};
+				m_intendedSubmit.scratchCommandBuffers = {};
 				m_intendedSubmit.scratchSemaphore = {
 					.semaphore = m_scratchSemaphore.get(),
 					.value = 0,
@@ -668,7 +669,8 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					auto queue = getGraphicsQueue();
 					auto cmdbuf = m_cmdBufs[resourceIx].get();
 					IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = {cmdbuf};
-					m_intendedSubmit.commandBuffers = {&cmdbufInfo,1};
+					// can't be bothered with variable cycling through commandbuffers so we just force it to the current statically cycled one
+					m_intendedSubmit.scratchCommandBuffers = {&cmdbufInfo,1};
 			
 					// there's no previous operation to wait for
 					const SMemoryBarrier toTransferBarrier = {

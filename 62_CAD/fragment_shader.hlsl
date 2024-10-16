@@ -616,7 +616,7 @@ float4 main(PSInput input) : SV_TARGET
                 to avoid aa feathering of the MAX_MSDF_DISTANCE_VALUE to be less than aa factor and eventually color it and cause greyed out area around the main glyph
             */
             msdf *= exp2(max(mipLevel,0.0));
-            localAlpha = smoothstep(+globals.antiAliasingFactor, 0.0, msdf);
+            localAlpha = smoothstep(+globals.antiAliasingFactor / 2.0f, -globals.antiAliasingFactor / 2.0f, msdf);
         }
     }
     else if (objType == ObjectType::IMAGE) 
