@@ -367,16 +367,19 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 						return nullptr;
 					}
 
-					const auto inViewParams = inView->getCreationParameters();
-					const auto inImageParams = inViewParams.image->getCreationParameters();
-					smart_refctd_ptr<ICPUBuffer> inBuffer = core::make_smart_refctd_ptr<asset::CCustomAllocatorCPUBuffer<core::null_allocator<uint8_t>, true> >(inViewParams.image->getBuffer()->getSize(), (uint8_t*)inViewParams.image->getBuffer()->getPointer(), core::adopt_memory); // adopt memory & don't free it on exit
-					const auto inRegions = inViewParams.image->getRegionArray();
+					// we always need to re-create the view because KTX image views load as 2D instead of 2D_ARRAY type
+					auto outViewParams = inView->getCreationParameters();
+					outViewParams.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D_ARRAY;
+					const auto* inImage = outViewParams.image.get();
+
+					const auto inImageParams = inImage->getCreationParameters();
+					smart_refctd_ptr<ICPUBuffer> inBuffer = core::make_smart_refctd_ptr<asset::CCustomAllocatorCPUBuffer<core::null_allocator<uint8_t>, true> >(inImage->getBuffer()->getSize(), (uint8_t*)inImage->getBuffer()->getPointer(), core::adopt_memory); // adopt memory & don't free it on exit
+					const auto inRegions = inImage->getRegionArray();
 					const auto inAmountOfRegions = inRegions->size();
 
 					/*
 						patterns to copy only the regions marked by X (for 0th mip level only we respecify)
 					*/
-
 					switch (mode)
 					{
 						/*
@@ -389,7 +392,6 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 						case EIR_FLATTEN_FULL_EXTENT:
 						{
-							return inView; // no need to respecify, inView is already flatten & covers full mip extent
 						} break;
 
 						/*
@@ -441,7 +443,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 							auto outRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(newRegions.size());
 							memcpy(outRegions->data(), newRegions.data(), outRegions->bytesize()); // full content copy
 
-							auto outImage = smart_refctd_ptr_static_cast<ICPUImage>(inViewParams.image->clone(0u)); // without contents
+							auto outImage = smart_refctd_ptr_static_cast<ICPUImage>(inImage->clone(0u)); // without contents
 							if (!outImage->setBufferAndRegions(smart_refctd_ptr(inBuffer), std::move(outRegions))) // do NOT make copy of the input buffer (we won't modify its content!) & set respecified regions
 							{
 								assert(false);
@@ -450,18 +452,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 							outImage->setContentHash(outImage->computeContentHash());
 
-							auto outViewParams = inViewParams;
 							outViewParams.image = std::move(outImage);
-
-							auto outView = ICPUImageView::create(std::move(outViewParams));
-
-							if (!outView)
-							{
-								assert(false);
-								return nullptr;
-							}
-
-							return outView;
 						} break;
 
 						/*
@@ -500,7 +491,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 							auto outRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(newRegions.size());
 							memcpy(outRegions->data(), newRegions.data(), outRegions->bytesize()); // full content copy
 
-							auto outImage = smart_refctd_ptr_static_cast<ICPUImage>(inViewParams.image->clone(0u)); // without contents
+							auto outImage = smart_refctd_ptr_static_cast<ICPUImage>(inImage->clone(0u)); // without contents
 							if (!outImage->setBufferAndRegions(smart_refctd_ptr(inBuffer), std::move(outRegions))) // do NOT make copy of the input buffer (we won't modify its content!) & set respecified regions
 							{
 								assert(false);
@@ -509,18 +500,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 							outImage->setContentHash(outImage->computeContentHash());
 
-							auto outViewParams = inViewParams;
 							outViewParams.image = std::move(outImage);
-
-							auto outView = ICPUImageView::create(std::move(outViewParams));
-
-							if (!outView)
-							{
-								assert(false);
-								return nullptr;
-							}
-
-							return outView;
 						} break;
 
 						default:
@@ -530,6 +510,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 						} break;
 					}
 
+					return ICPUImageView::create(std::move(outViewParams));
 				};
 
 				const auto cpuImgView = getRespecifedView();
