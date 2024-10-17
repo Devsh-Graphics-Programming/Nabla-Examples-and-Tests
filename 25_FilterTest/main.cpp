@@ -687,7 +687,7 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 				blitFilter->updateDescriptorSet(blitDS.get(), blitWeightsDS.get(), inImageView, normalizationInImageView, coverageAdjustmentScratchBuffer, scaledKernelPhasedLUTView);
 
 				m_parentApp->m_logger->log("GPU begin..");
-				m_parentApp->queue->startCapture();
+				m_parentApp->m_api->startCapture();
 				blitFilter->blit<BlitUtilities>(
 					m_parentApp->queue, m_alphaSemantic,
 					blitDS.get(), alphaTestPipeline.get(),
@@ -697,7 +697,7 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 					layersToBlit,
 					coverageAdjustmentScratchBuffer, m_referenceAlpha,
 					m_alphaBinCount, BlitWorkgroupSize);
-				m_parentApp->queue->endCapture();
+				m_parentApp->m_api->endCapture();
 				m_parentApp->m_logger->log("GPU end..");
 
 				if (m_alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)

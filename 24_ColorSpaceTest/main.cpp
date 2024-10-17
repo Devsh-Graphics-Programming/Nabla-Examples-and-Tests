@@ -655,7 +655,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					auto ds = m_descriptorSets[resourceIx].get();
 
 					// want to capture the image data upload as well
-					queue->startCapture();
+					m_api->startCapture();
 					// make sure we don't leave the tooling dangling if we fail
 					auto endCaptureOnScopeExit = core::makeRAIIExiter([queue]()->void{queue->endCapture();});
 
