@@ -306,15 +306,6 @@ public:
         params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
         createBuffer(gridParticleIDBuffer, params);
 
-        params.size = numGridCells * sizeof(float);
-        params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
-        createBuffer(pressureBuffer, params);
-        params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_SRC_BIT;
-        createBuffer(tempPressureBuffer, params);
-
-        params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-        createBuffer(divergenceBuffer, params);
-
         params.size = numParticles * 6 * sizeof(VertexInfo);
         createBuffer(particleVertexBuffer, params);
 
@@ -333,6 +324,11 @@ public:
         // diffusion grids
         createGridTexture(gridDiffusionImageView, asset::EF_R32G32B32A32_SFLOAT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "diffusion0");
         createGridTexture(tempDiffusionImageView, asset::EF_R32G32B32A32_SFLOAT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "diffusion1");
+
+        // pressure grids
+        createGridTexture(pressureImageView, asset::EF_R32_SFLOAT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "pressure0");
+        createGridTexture(tempPressureImageView, asset::EF_R32_SFLOAT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "pressure1");
+        createGridTexture(divergenceImageView, asset::EF_R32_SFLOAT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "divergence");
 
         // velocity field stuffs
         for (uint32_t i = 0; i < 3; i++)
@@ -746,8 +742,9 @@ public:
                 infos[1].desc = gridCellMaterialImageView;
                 infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
                 infos[1].info.combinedImageSampler.sampler = nullptr;
-                infos[2].desc = smart_refctd_ptr(divergenceBuffer);
-                infos[2].info.buffer = {.offset = 0, .size = divergenceBuffer->getSize()};
+                infos[2].desc = divergenceImageView;
+                infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+                infos[2].info.combinedImageSampler.sampler = nullptr;
 
                 IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
                 imgInfosVel0[0].desc = velocityFieldImageViews[0];
@@ -802,12 +799,15 @@ public:
                 infos[2].desc = gridCellMaterialImageView;
                 infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
                 infos[2].info.combinedImageSampler.sampler = nullptr;
-                infos[3].desc = smart_refctd_ptr(divergenceBuffer);
-                infos[3].info.buffer = {.offset = 0, .size = divergenceBuffer->getSize()};
-                infos[4].desc = smart_refctd_ptr(tempPressureBuffer);
-                infos[4].info.buffer = {.offset = 0, .size = tempPressureBuffer->getSize()};
-                infos[5].desc = smart_refctd_ptr(pressureBuffer);
-                infos[5].info.buffer = {.offset = 0, .size = pressureBuffer->getSize()};
+                infos[3].desc = divergenceImageView;
+                infos[3].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+                infos[3].info.combinedImageSampler.sampler = nullptr;
+                infos[4].desc = tempPressureImageView;
+                infos[4].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+                infos[4].info.combinedImageSampler.sampler = nullptr;
+                infos[5].desc = pressureImageView;
+                infos[5].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+                infos[5].info.combinedImageSampler.sampler = nullptr;
                 IGPUDescriptorSet::SWriteDescriptorSet writes[6] = {
                     {.dstSet = m_solvePressureDs[0].get(), .binding = b_psGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
                     {.dstSet = m_solvePressureDs[0].get(), .binding = b_psParams, .arrayElement = 0, .count = 1, .info = &infos[1]},
@@ -827,12 +827,15 @@ public:
                 infos[2].desc = gridCellMaterialImageView;
                 infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
                 infos[2].info.combinedImageSampler.sampler = nullptr;
-                infos[3].desc = smart_refctd_ptr(divergenceBuffer);
-                infos[3].info.buffer = {.offset = 0, .size = divergenceBuffer->getSize()};
-                infos[4].desc = smart_refctd_ptr(pressureBuffer);
-                infos[4].info.buffer = {.offset = 0, .size = pressureBuffer->getSize()};
-                infos[5].desc = smart_refctd_ptr(tempPressureBuffer);
-                infos[5].info.buffer = {.offset = 0, .size = tempPressureBuffer->getSize()};
+                infos[3].desc = divergenceImageView;
+                infos[3].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+                infos[3].info.combinedImageSampler.sampler = nullptr;
+                infos[4].desc = pressureImageView;
+                infos[4].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+                infos[4].info.combinedImageSampler.sampler = nullptr;
+                infos[5].desc = tempPressureImageView;
+                infos[5].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+                infos[5].info.combinedImageSampler.sampler = nullptr;
                 IGPUDescriptorSet::SWriteDescriptorSet writes[6] = {
                     {.dstSet = m_solvePressureDs[1].get(), .binding = b_psGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
                     {.dstSet = m_solvePressureDs[1].get(), .binding = b_psParams, .arrayElement = 0, .count = 1, .info = &infos[1]},
@@ -857,8 +860,9 @@ public:
                 infos[2].desc = gridCellMaterialImageView;
                 infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
                 infos[2].info.combinedImageSampler.sampler = nullptr;
-                infos[3].desc = smart_refctd_ptr(pressureBuffer);
-                infos[3].info.buffer = {.offset = 0, .size = pressureBuffer->getSize()};
+                infos[3].desc = pressureImageView;
+                infos[3].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+                infos[3].info.combinedImageSampler.sampler = nullptr;
 
                 IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
                 imgInfosVel0[0].desc = velocityFieldImageViews[0];
@@ -1889,7 +1893,7 @@ private:
                 barrier.newLayout = IImage::LAYOUT::GENERAL;
             };
 
-        IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[12];
+        IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[15];
         for (uint32_t i = 0; i < 3; i++)
         {
             fillGridBarrierInfo(imageBarriers[i * 2], velocityFieldImageViews[i]);
@@ -1904,6 +1908,10 @@ private:
 
         fillGridBarrierInfo(imageBarriers[10], gridDiffusionImageView);
         fillGridBarrierInfo(imageBarriers[11], tempDiffusionImageView);
+
+        fillGridBarrierInfo(imageBarriers[12], pressureImageView);
+        fillGridBarrierInfo(imageBarriers[13], tempPressureImageView);
+        fillGridBarrierInfo(imageBarriers[14], divergenceImageView);
 
         cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imageBarriers });
     }
@@ -2253,15 +2261,15 @@ private:
     std::array<smart_refctd_ptr<IGPUImageView>, 3> prevVelocityFieldImageViews;	// float * 3
     smart_refctd_ptr<IGPUSampler> velocityFieldSampler;
 
-    smart_refctd_ptr<IGPUImageView> gridDiffusionImageView;	// float3
-    smart_refctd_ptr<IGPUImageView> gridAxisCellMaterialImageView;	// uint3
-    smart_refctd_ptr<IGPUBuffer> divergenceBuffer;		// float
-    smart_refctd_ptr<IGPUBuffer> pressureBuffer;		// float
+    smart_refctd_ptr<IGPUImageView> gridDiffusionImageView;	// float4
+    smart_refctd_ptr<IGPUImageView> gridAxisCellMaterialImageView;	// uint4
+    smart_refctd_ptr<IGPUImageView> divergenceImageView;		// float
+    smart_refctd_ptr<IGPUImageView> pressureImageView;		// float
 
     smart_refctd_ptr<IGPUImageView> tempCellMaterialImageView;	// uint, fluid or solid
-    smart_refctd_ptr<IGPUImageView> tempDiffusionImageView;	// float3
-    smart_refctd_ptr<IGPUImageView> tempAxisCellMaterialImageView;	// uint3
-    smart_refctd_ptr<IGPUBuffer> tempPressureBuffer;	// float
+    smart_refctd_ptr<IGPUImageView> tempDiffusionImageView;	// float4
+    smart_refctd_ptr<IGPUImageView> tempAxisCellMaterialImageView;	// uint4
+    smart_refctd_ptr<IGPUImageView> tempPressureImageView;	// float
 };
 
 NBL_MAIN_FUNC(FLIPFluidsApp)

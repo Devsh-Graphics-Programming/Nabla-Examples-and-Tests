@@ -370,7 +370,7 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding psDivergence_bs1[] = {
     },
     {
         .binding = b_psDivBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,
@@ -400,21 +400,21 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding psSolvePressure_bs1[] = {
     },
     {
         .binding = b_psDivBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,
     },
     {
         .binding = b_psPresInBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,
     },
     {
         .binding = b_psPresOutBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,
@@ -451,7 +451,7 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding psUpdateVelPs_bs1[] = {
     },
     {
         .binding = b_psPresInBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,

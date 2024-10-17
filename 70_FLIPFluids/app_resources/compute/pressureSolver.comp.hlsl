@@ -23,9 +23,9 @@ cbuffer PressureSolverParams
 
 [[vk::binding(b_psCMBuffer, s_ps)]] RWTexture3D<uint> cellMaterialBuffer;
 [[vk::binding(b_psVelBuffer, s_ps)]] RWTexture3D<float> velocityFieldBuffer[3];
-[[vk::binding(b_psDivBuffer, s_ps)]] RWStructuredBuffer<float> divergenceBuffer;
-[[vk::binding(b_psPresInBuffer, s_ps)]] RWStructuredBuffer<float> pressureInBuffer;
-[[vk::binding(b_psPresOutBuffer, s_ps)]] RWStructuredBuffer<float> pressureOutBuffer;
+[[vk::binding(b_psDivBuffer, s_ps)]] RWTexture3D<float> divergenceBuffer;
+[[vk::binding(b_psPresInBuffer, s_ps)]] RWTexture3D<float> pressureInBuffer;
+[[vk::binding(b_psPresOutBuffer, s_ps)]] RWTexture3D<float> pressureOutBuffer;
 
 [numthreads(WorkgroupSize, 1, 1)]
 void calculateNegativeDivergence(uint32_t3 ID : SV_DispatchThreadID)
@@ -43,19 +43,16 @@ void calculateNegativeDivergence(uint32_t3 ID : SV_DispatchThreadID)
     if (isFluidCell(getCellMaterial(cellMaterialBuffer[cellIdx])))
     {
         int3 cell_xn = cellIdx + int3(1, 0, 0);
-        uint cid_xn = cellIdxToFlatIdx(cell_xn, gridData.gridSize);
         divergence += param.x * ((cell_xn.x < gridData.gridSize.x ? velocityFieldBuffer[0][cell_xn] : 0.0f) - velocity.x);
 
         int3 cell_yn = cellIdx + int3(0, 1, 0);
-        uint cid_yn = cellIdxToFlatIdx(cell_yn, gridData.gridSize);
         divergence += param.y * ((cell_yn.y < gridData.gridSize.y ? velocityFieldBuffer[1][cell_yn] : 0.0f) - velocity.y);
 
         int3 cell_zn = cellIdx + int3(0, 0, 1);
-        uint cid_zn = cellIdxToFlatIdx(cell_zn, gridData.gridSize);
         divergence += param.z * ((cell_zn.z < gridData.gridSize.z ? velocityFieldBuffer[2][cell_zn] : 0.0f) - velocity.z);
     }
 
-    divergenceBuffer[cid] = divergence;
+    divergenceBuffer[cellIdx] = divergence;
 }
 
 [numthreads(WorkgroupSize, 1, 1)]
@@ -70,28 +67,28 @@ void solvePressureSystem(uint32_t3 ID : SV_DispatchThreadID)
 
     if (isFluidCell(getCellMaterial(cellMaterial)))
     {
-        uint cid_xp = cellIdxToFlatIdx(cellIdx + int3(-1, 0, 0), gridData.gridSize);
-        cid_xp = isSolidCell(getXPrevMaterial(cellMaterial)) ? cid : cid_xp;
-        uint cid_xn = cellIdxToFlatIdx(cellIdx + int3(1, 0, 0), gridData.gridSize);
-        cid_xn = isSolidCell(getXNextMaterial(cellMaterial)) ? cid : cid_xn;
-        pressure += params.coeff1.x * (pressureInBuffer[cid_xp] + pressureInBuffer[cid_xn]);
+        int3 cell_xp = clampToGrid(cellIdx + int3(-1, 0, 0), gridData.gridSize);
+        cell_xp = isSolidCell(getXPrevMaterial(cellMaterial)) ? cellIdx : cell_xp;
+        int3 cell_xn = clampToGrid(cellIdx + int3(1, 0, 0), gridData.gridSize);
+        cell_xn = isSolidCell(getXNextMaterial(cellMaterial)) ? cellIdx : cell_xn;
+        pressure += params.coeff1.x * (pressureInBuffer[cell_xp] + pressureInBuffer[cell_xn]);
 
-        uint cid_yp = cellIdxToFlatIdx(cellIdx + int3(0, -1, 0), gridData.gridSize);
-        cid_yp = isSolidCell(getYPrevMaterial(cellMaterial)) ? cid : cid_yp;
-        uint cid_yn = cellIdxToFlatIdx(cellIdx + int3(0, 1, 0), gridData.gridSize);
-        cid_yn = isSolidCell(getYNextMaterial(cellMaterial)) ? cid : cid_yn;
-        pressure += params.coeff1.y * (pressureInBuffer[cid_yp] + pressureInBuffer[cid_yn]);
+        int3 cell_yp = clampToGrid(cellIdx + int3(0, -1, 0), gridData.gridSize);
+        cell_yp = isSolidCell(getYPrevMaterial(cellMaterial)) ? cellIdx : cell_yp;
+        int3 cell_yn = clampToGrid(cellIdx + int3(0, 1, 0), gridData.gridSize);
+        cell_yn = isSolidCell(getYNextMaterial(cellMaterial)) ? cellIdx : cell_yn;
+        pressure += params.coeff1.y * (pressureInBuffer[cell_yp] + pressureInBuffer[cell_yn]);
 
-        uint cid_zp = cellIdxToFlatIdx(cellIdx + int3(0, 0, -1), gridData.gridSize);
-        cid_zp = isSolidCell(getZPrevMaterial(cellMaterial)) ? cid : cid_zp;
-        uint cid_zn = cellIdxToFlatIdx(cellIdx + int3(0, 0, 1), gridData.gridSize);
-        cid_zn = isSolidCell(getZNextMaterial(cellMaterial)) ? cid : cid_zn;
-        pressure += params.coeff1.z * (pressureInBuffer[cid_zp] + pressureInBuffer[cid_zn]);
+        int3 cell_zp = clampToGrid(cellIdx + int3(0, 0, -1), gridData.gridSize);
+        cell_zp = isSolidCell(getZPrevMaterial(cellMaterial)) ? cellIdx : cell_zp;
+        int3 cell_zn = clampToGrid(cellIdx + int3(0, 0, 1), gridData.gridSize);
+        cell_zn = isSolidCell(getZNextMaterial(cellMaterial)) ? cellIdx : cell_zn;
+        pressure += params.coeff1.z * (pressureInBuffer[cell_zp] + pressureInBuffer[cell_zn]);
 
-        pressure += params.coeff1.w * divergenceBuffer[cid];
+        pressure += params.coeff1.w * divergenceBuffer[cellIdx];
     }
 
-    pressureOutBuffer[cid] = pressure;
+    pressureOutBuffer[cellIdx] = pressure;
 }
 
 [numthreads(WorkgroupSize, 1, 1)]
@@ -106,19 +103,19 @@ void updateVelocities(uint32_t3 ID : SV_DispatchThreadID)
     velocity.x = velocityFieldBuffer[0][cellIdx];
     velocity.y = velocityFieldBuffer[1][cellIdx];
     velocity.z = velocityFieldBuffer[2][cellIdx];
-    float pressure = pressureInBuffer[cid];
+    float pressure = pressureInBuffer[cellIdx];
 
-    uint cid_xp = cellIdxToFlatIdx(cellIdx + int3(-1, 0, 0), gridData.gridSize);
-    cid_xp = isSolidCell(getXPrevMaterial(cellMaterial)) ? cid : cid_xp;
-    velocity.x -= params.coeff2.x * (pressure - pressureInBuffer[cid_xp]);
+    int3 cell_xp = clampToGrid(cellIdx + int3(-1, 0, 0), gridData.gridSize);
+    cell_xp = isSolidCell(getXPrevMaterial(cellMaterial)) ? cellIdx : cell_xp;
+    velocity.x -= params.coeff2.x * (pressure - pressureInBuffer[cell_xp]);
 
-    uint cid_yp = cellIdxToFlatIdx(cellIdx + int3(0, -1, 0), gridData.gridSize);
-    cid_yp = isSolidCell(getYPrevMaterial(cellMaterial)) ? cid : cid_yp;
-    velocity.y -= params.coeff2.y * (pressure - pressureInBuffer[cid_yp]);
+    int3 cell_yp = clampToGrid(cellIdx + int3(0, -1, 0), gridData.gridSize);
+    cell_yp = isSolidCell(getYPrevMaterial(cellMaterial)) ? cellIdx : cell_yp;
+    velocity.y -= params.coeff2.y * (pressure - pressureInBuffer[cell_yp]);
 
-    uint cid_zp = cellIdxToFlatIdx(cellIdx + int3(0, 0, -1), gridData.gridSize);
-    cid_zp = isSolidCell(getZPrevMaterial(cellMaterial)) ? cid : cid_zp;
-    velocity.z -= params.coeff2.z * (pressure - pressureInBuffer[cid_zp]);
+    int3 cell_zp = clampToGrid(cellIdx + int3(0, 0, -1), gridData.gridSize);
+    cell_zp = isSolidCell(getZPrevMaterial(cellMaterial)) ? cellIdx : cell_zp;
+    velocity.z -= params.coeff2.z * (pressure - pressureInBuffer[cell_zp]);
 
     enforceBoundaryCondition(velocity, cellMaterial);
 
