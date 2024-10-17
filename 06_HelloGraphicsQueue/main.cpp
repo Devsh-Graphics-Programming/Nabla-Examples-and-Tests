@@ -247,9 +247,9 @@ class HelloGraphicsQueueApp final : public application_templates::MonoDeviceAppl
 
 			cmdbuf->end();
 
-			queue->startCapture();
+			m_api->startCapture();
 			queue->submit(submitInfos);
-			queue->endCapture();
+			m_api->endCapture();
 		
 			// The signalling and waiting on the semaphore make all writes from the Semaphore Signal Stages visible and available to the Host
 			const ISemaphore::SWaitInfo waitInfos[1] = { {
