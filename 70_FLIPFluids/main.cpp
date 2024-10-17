@@ -315,14 +315,6 @@ public:
         params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
         createBuffer(divergenceBuffer, params);
 
-        params.size = numGridCells * sizeof(uint32_t4);
-        createBuffer(gridAxisCellMaterialBuffer, params);
-        createBuffer(tempAxisCellMaterialBuffer, params);
-
-        params.size = numGridCells * sizeof(float32_t4);
-        createBuffer(gridDiffusionBuffer, params);
-        createBuffer(tempDiffusionBuffer, params);
-
         params.size = numParticles * 6 * sizeof(VertexInfo);
         createBuffer(particleVertexBuffer, params);
 
@@ -332,8 +324,15 @@ public:
         asset::VkExtent3D gridExtent = { m_gridData.gridSize.x, m_gridData.gridSize.y, m_gridData.gridSize.z };
 
         // cell materials
-        createGridTexture(gridCellMaterialImageView, asset::EF_R32_UINT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "cell material");
-        createGridTexture(tempCellMaterialImageView, asset::EF_R32_UINT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "cell material");
+        createGridTexture(gridCellMaterialImageView, asset::EF_R32_UINT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "cell material0");
+        createGridTexture(tempCellMaterialImageView, asset::EF_R32_UINT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "cell material1");
+
+        createGridTexture(gridAxisCellMaterialImageView, asset::EF_R32G32B32A32_UINT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "axis cell material0");
+        createGridTexture(tempAxisCellMaterialImageView, asset::EF_R32G32B32A32_UINT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "axis cell material1");
+
+        // diffusion grids
+        createGridTexture(gridDiffusionImageView, asset::EF_R32G32B32A32_SFLOAT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "diffusion0");
+        createGridTexture(tempDiffusionImageView, asset::EF_R32G32B32A32_SFLOAT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "diffusion1");
 
         // velocity field stuffs
         for (uint32_t i = 0; i < 3; i++)
@@ -564,8 +563,9 @@ public:
                 infos[1].desc = gridCellMaterialImageView;
                 infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
                 infos[1].info.combinedImageSampler.sampler = nullptr;
-                infos[2].desc = smart_refctd_ptr(tempAxisCellMaterialBuffer);
-                infos[2].info.buffer = {.offset = 0, .size = tempAxisCellMaterialBuffer->getSize()};
+                infos[2].desc = tempAxisCellMaterialImageView;
+                infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+                infos[2].info.combinedImageSampler.sampler = nullptr;
                 IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
                     {.dstSet = m_axisCellsDs.get(), .binding = b_dGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
                     {.dstSet = m_axisCellsDs.get(), .binding = b_dCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
@@ -582,10 +582,12 @@ public:
                 IGPUDescriptorSet::SDescriptorInfo infos[3];
                 infos[0].desc = smart_refctd_ptr(gridDataBuffer);
                 infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};				
-                infos[1].desc = smart_refctd_ptr(tempAxisCellMaterialBuffer);
-                infos[1].info.buffer = {.offset = 0, .size = tempAxisCellMaterialBuffer->getSize()};
-                infos[2].desc = smart_refctd_ptr(gridAxisCellMaterialBuffer);
-                infos[2].info.buffer = {.offset = 0, .size = gridAxisCellMaterialBuffer->getSize()};
+                infos[1].desc = tempAxisCellMaterialImageView;
+                infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+                infos[1].info.combinedImageSampler.sampler = nullptr;
+                infos[2].desc = gridAxisCellMaterialImageView;
+                infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+                infos[2].info.combinedImageSampler.sampler = nullptr;
                 IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
                     {.dstSet = m_neighborAxisCellsDs.get(), .binding = b_dGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
                     {.dstSet = m_neighborAxisCellsDs.get(), .binding = b_dAxisInBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
@@ -627,12 +629,15 @@ public:
                 infos[1].desc = gridCellMaterialImageView;
                 infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
                 infos[1].info.combinedImageSampler.sampler = nullptr;
-                infos[2].desc = smart_refctd_ptr(gridAxisCellMaterialBuffer);
-                infos[2].info.buffer = {.offset = 0, .size = gridAxisCellMaterialBuffer->getSize()};
-                infos[3].desc = smart_refctd_ptr(tempDiffusionBuffer);
-                infos[3].info.buffer = {.offset = 0, .size = tempDiffusionBuffer->getSize()};
-                infos[4].desc = smart_refctd_ptr(gridDiffusionBuffer);
-                infos[4].info.buffer = {.offset = 0, .size = gridDiffusionBuffer->getSize()};
+                infos[2].desc = gridAxisCellMaterialImageView;
+                infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+                infos[2].info.combinedImageSampler.sampler = nullptr;
+                infos[3].desc = tempDiffusionImageView;
+                infos[3].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+                infos[3].info.combinedImageSampler.sampler = nullptr;
+                infos[4].desc = gridDiffusionImageView;
+                infos[4].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+                infos[4].info.combinedImageSampler.sampler = nullptr;
 
                 IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
                 imgInfosVel0[0].desc = velocityFieldImageViews[0];
@@ -662,12 +667,15 @@ public:
                 infos[1].desc = gridCellMaterialImageView;
                 infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
                 infos[1].info.combinedImageSampler.sampler = nullptr;
-                infos[2].desc = smart_refctd_ptr(gridAxisCellMaterialBuffer);
-                infos[2].info.buffer = {.offset = 0, .size = gridAxisCellMaterialBuffer->getSize()};
-                infos[3].desc = smart_refctd_ptr(gridDiffusionBuffer);
-                infos[3].info.buffer = {.offset = 0, .size = gridDiffusionBuffer->getSize()};
-                infos[4].desc = smart_refctd_ptr(tempDiffusionBuffer);
-                infos[4].info.buffer = {.offset = 0, .size = tempDiffusionBuffer->getSize()};
+                infos[2].desc = gridAxisCellMaterialImageView;
+                infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+                infos[2].info.combinedImageSampler.sampler = nullptr;
+                infos[3].desc = gridDiffusionImageView;
+                infos[3].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+                infos[3].info.combinedImageSampler.sampler = nullptr;
+                infos[4].desc = tempDiffusionImageView;
+                infos[4].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+                infos[4].info.combinedImageSampler.sampler = nullptr;
 
                 IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
                 imgInfosVel0[0].desc = velocityFieldImageViews[0];
@@ -702,8 +710,9 @@ public:
                 infos[1].desc = gridCellMaterialImageView;
                 infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
                 infos[1].info.combinedImageSampler.sampler = nullptr;
-                infos[2].desc = smart_refctd_ptr(gridDiffusionBuffer);
-                infos[2].info.buffer = {.offset = 0, .size = gridDiffusionBuffer->getSize()};
+                infos[2].desc = gridDiffusionImageView;
+                infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+                infos[2].info.combinedImageSampler.sampler = nullptr;
 
                 IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
                 imgInfosVel0[0].desc = velocityFieldImageViews[0];
@@ -1857,86 +1866,44 @@ private:
     void transitionGridImageLayouts(IGPUCommandBuffer* cmdbuf)
     {
         // transition layouts, only after after initialization
-        IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[8];
+        auto fillGridBarrierInfo = [&](IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t& barrier,
+            smart_refctd_ptr<IGPUImageView>& imageView) -> void
+            {
+                barrier.barrier = {
+                    .dep = {
+                        .srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+                        .srcAccessMask = ACCESS_FLAGS::NONE,
+                        .dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+                        .dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+                }
+                };
+                barrier.image = imageView->getCreationParameters().image.get();
+                barrier.subresourceRange = {
+                    .aspectMask = IImage::EAF_COLOR_BIT,
+                    .baseMipLevel = 0u,
+                    .levelCount = 1u,
+                    .baseArrayLayer = 0u,
+                    .layerCount = 1u
+                };
+                barrier.oldLayout = IImage::LAYOUT::UNDEFINED;
+                barrier.newLayout = IImage::LAYOUT::GENERAL;
+            };
+
+        IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[12];
         for (uint32_t i = 0; i < 3; i++)
         {
-            imageBarriers[i * 2].barrier = {
-                .dep = {
-                    .srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
-                    .srcAccessMask = ACCESS_FLAGS::NONE,
-                    .dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-                    .dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
-            }
-            };
-            imageBarriers[i * 2].image = velocityFieldImageViews[i]->getCreationParameters().image.get();
-            imageBarriers[i * 2].subresourceRange = {
-                .aspectMask = IImage::EAF_COLOR_BIT,
-                .baseMipLevel = 0u,
-                .levelCount = 1u,
-                .baseArrayLayer = 0u,
-                .layerCount = 1u
-            };
-            imageBarriers[i * 2].oldLayout = IImage::LAYOUT::UNDEFINED;
-            imageBarriers[i * 2].newLayout = IImage::LAYOUT::GENERAL;
-
-            imageBarriers[i * 2 + 1].barrier = {
-                .dep = {
-                    .srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
-                    .srcAccessMask = ACCESS_FLAGS::NONE,
-                    .dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-                    .dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
-            }
-            };
-            imageBarriers[i * 2 + 1].image = prevVelocityFieldImageViews[i]->getCreationParameters().image.get();
-            imageBarriers[i * 2 + 1].subresourceRange = {
-                .aspectMask = IImage::EAF_COLOR_BIT,
-                .baseMipLevel = 0u,
-                .levelCount = 1u,
-                .baseArrayLayer = 0u,
-                .layerCount = 1u
-            };
-            imageBarriers[i * 2 + 1].oldLayout = IImage::LAYOUT::UNDEFINED;
-            imageBarriers[i * 2 + 1].newLayout = IImage::LAYOUT::GENERAL;
+            fillGridBarrierInfo(imageBarriers[i * 2], velocityFieldImageViews[i]);
+            fillGridBarrierInfo(imageBarriers[i * 2 + 1], prevVelocityFieldImageViews[i]);
         }
 
-        imageBarriers[6].barrier = {
-                .dep = {
-                    .srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
-                    .srcAccessMask = ACCESS_FLAGS::NONE,
-                    .dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-                    .dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
-            }
-        };
-        imageBarriers[6].image = gridCellMaterialImageView->getCreationParameters().image.get();
-        imageBarriers[6].subresourceRange = {
-            .aspectMask = IImage::EAF_COLOR_BIT,
-            .baseMipLevel = 0u,
-            .levelCount = 1u,
-            .baseArrayLayer = 0u,
-            .layerCount = 1u
-        };
-        imageBarriers[6].oldLayout = IImage::LAYOUT::UNDEFINED;
-        imageBarriers[6].newLayout = IImage::LAYOUT::GENERAL;
+        fillGridBarrierInfo(imageBarriers[6], gridCellMaterialImageView);
+        fillGridBarrierInfo(imageBarriers[7], tempCellMaterialImageView);
 
-        imageBarriers[7].barrier = {
-                .dep = {
-                    .srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
-                    .srcAccessMask = ACCESS_FLAGS::NONE,
-                    .dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-                    .dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
-            }
-        };
-        imageBarriers[7].image = tempCellMaterialImageView->getCreationParameters().image.get();
-        imageBarriers[7].subresourceRange = {
-            .aspectMask = IImage::EAF_COLOR_BIT,
-            .baseMipLevel = 0u,
-            .levelCount = 1u,
-            .baseArrayLayer = 0u,
-            .layerCount = 1u
-        };
-        imageBarriers[7].oldLayout = IImage::LAYOUT::UNDEFINED;
-        imageBarriers[7].newLayout = IImage::LAYOUT::GENERAL;
+        fillGridBarrierInfo(imageBarriers[8], gridAxisCellMaterialImageView);
+        fillGridBarrierInfo(imageBarriers[9], tempAxisCellMaterialImageView);
 
+        fillGridBarrierInfo(imageBarriers[10], gridDiffusionImageView);
+        fillGridBarrierInfo(imageBarriers[11], tempDiffusionImageView);
 
         cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imageBarriers });
     }
@@ -2286,14 +2253,14 @@ private:
     std::array<smart_refctd_ptr<IGPUImageView>, 3> prevVelocityFieldImageViews;	// float * 3
     smart_refctd_ptr<IGPUSampler> velocityFieldSampler;
 
-    smart_refctd_ptr<IGPUBuffer> gridDiffusionBuffer;	// float4
-    smart_refctd_ptr<IGPUBuffer> gridAxisCellMaterialBuffer;	// uint3
+    smart_refctd_ptr<IGPUImageView> gridDiffusionImageView;	// float3
+    smart_refctd_ptr<IGPUImageView> gridAxisCellMaterialImageView;	// uint3
     smart_refctd_ptr<IGPUBuffer> divergenceBuffer;		// float
     smart_refctd_ptr<IGPUBuffer> pressureBuffer;		// float
 
     smart_refctd_ptr<IGPUImageView> tempCellMaterialImageView;	// uint, fluid or solid
-    smart_refctd_ptr<IGPUBuffer> tempDiffusionBuffer;	// float4
-    smart_refctd_ptr<IGPUBuffer> tempAxisCellMaterialBuffer;	// uint4
+    smart_refctd_ptr<IGPUImageView> tempDiffusionImageView;	// float3
+    smart_refctd_ptr<IGPUImageView> tempAxisCellMaterialImageView;	// uint3
     smart_refctd_ptr<IGPUBuffer> tempPressureBuffer;	// float
 };
 

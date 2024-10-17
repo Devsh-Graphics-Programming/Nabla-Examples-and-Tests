@@ -59,22 +59,22 @@ void updateNeighborFluidCells(uint32_t3 ID : SV_DispatchThreadID)
     uint cellMaterial = 0;
     setCellMaterial(cellMaterial, thisCellMaterial);
 
-    uint xpCm = cIdx.x == 0 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[clamp(cIdx + int3(-1, 0, 0), (int3)0, gridData.gridSize.xyz - 1)]);
+    uint xpCm = cIdx.x == 0 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[clampToGrid(cIdx + int3(-1, 0, 0), gridData.gridSize)]);
     setXPrevMaterial(cellMaterial, xpCm);
 
-    uint xnCm = cIdx.x == gridData.gridSize.x - 1 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[clamp(cIdx + int3(1, 0, 0), (int3)0, gridData.gridSize.xyz - 1)]);
+    uint xnCm = cIdx.x == gridData.gridSize.x - 1 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[clampToGrid(cIdx + int3(1, 0, 0), gridData.gridSize)]);
     setXNextMaterial(cellMaterial, xnCm);
 
-    uint ypCm = cIdx.y == 0 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[clamp(cIdx + int3(0, -1, 0), (int3)0, gridData.gridSize.xyz - 1)]);
+    uint ypCm = cIdx.y == 0 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[clampToGrid(cIdx + int3(0, -1, 0), gridData.gridSize)]);
     setYPrevMaterial(cellMaterial, ypCm);
 
-    uint ynCm = cIdx.y == gridData.gridSize.y - 1 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[clamp(cIdx + int3(0, 1, 0), (int3)0, gridData.gridSize.xyz - 1)]);
+    uint ynCm = cIdx.y == gridData.gridSize.y - 1 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[clampToGrid(cIdx + int3(0, 1, 0), gridData.gridSize)]);
     setYNextMaterial(cellMaterial, ynCm);
 
-    uint zpCm = cIdx.z == 0 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[clamp(cIdx + int3(0, 0, -1), (int3)0, gridData.gridSize.xyz - 1)]);
+    uint zpCm = cIdx.z == 0 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[clampToGrid(cIdx + int3(0, 0, -1), gridData.gridSize)]);
     setZPrevMaterial(cellMaterial, zpCm);
 
-    uint znCm = cIdx.z == gridData.gridSize.z - 1 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[clamp(cIdx + int3(0, 0, 1), (int3)0, gridData.gridSize.xyz - 1)]);
+    uint znCm = cIdx.z == gridData.gridSize.z - 1 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[clampToGrid(cIdx + int3(0, 0, 1), gridData.gridSize)]);
     setZNextMaterial(cellMaterial, znCm);
 
     cellMaterialOutBuffer[cIdx] = cellMaterial;

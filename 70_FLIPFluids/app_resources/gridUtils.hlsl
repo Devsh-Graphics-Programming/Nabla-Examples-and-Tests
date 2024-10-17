@@ -24,9 +24,14 @@ float4 clampPosition(float4 position, float4 gridMin, float4 gridMax)
     return float4(clamp(position.xyz, gridMin.xyz + POSITION_EPSILON, gridMax.xyz - POSITION_EPSILON), 1);
 }
 
+int3 clampToGrid(int3 index, int4 gridSize)
+{
+    return clamp(index, (int3)0, gridSize.xyz - (int3)1);
+}
+
 inline uint cellIdxToFlatIdx(int3 index, int4 gridSize)
 {
-    uint3 idxClamp = clamp(index, (int3)0, gridSize.xyz - 1);
+    uint3 idxClamp = clamp(index, (int3)0, gridSize.xyz - (int3)1);
     return idxClamp.x + idxClamp.y * gridSize.x + idxClamp.z * gridSize.x * gridSize.y;
 }
 
