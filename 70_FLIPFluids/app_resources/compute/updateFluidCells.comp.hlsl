@@ -13,13 +13,19 @@ cbuffer GridData
 [[vk::binding(b_ufcPBuffer, s_ufc)]]        RWStructuredBuffer<Particle> particleBuffer;
 [[vk::binding(b_ufcGridIDBuffer, s_ufc)]]   RWStructuredBuffer<uint2> gridParticleIDBuffer;
 
-[[vk::binding(b_ufcCMInBuffer, s_ufc)]]     RWStructuredBuffer<uint> cellMaterialInBuffer;
-[[vk::binding(b_ufcCMOutBuffer, s_ufc)]]    RWStructuredBuffer<uint> cellMaterialOutBuffer;
+[[vk::binding(b_ufcCMInBuffer, s_ufc)]]     RWTexture3D<uint> cellMaterialInBuffer;
+[[vk::binding(b_ufcCMOutBuffer, s_ufc)]]    RWTexture3D<uint> cellMaterialOutBuffer;
 
 [[vk::binding(b_ufcVelBuffer, s_ufc)]]      RWTexture3D<float> velocityFieldBuffer[3];
 [[vk::binding(b_ufcPrevVelBuffer, s_ufc)]]  RWTexture3D<float> prevVelocityFieldBuffer[3];
 
 static const int kernel[6] = { -1, 1, -1, 1, -1, 1 };
+
+// big change!
+// new kernel here: thread per particle, add particle velocity * weight to velocity fields
+// each particle contributes to 7 cells: own cell + 6 neighbors
+// store weights in new grid as well, particle velocity weights
+// do final velocity weight in updateFluidCells
 
 [numthreads(WorkgroupSize, 1, 1)]
 void updateFluidCells(uint32_t3 ID : SV_DispatchThreadID)
@@ -27,7 +33,7 @@ void updateFluidCells(uint32_t3 ID : SV_DispatchThreadID)
     uint tid = ID.x;
     int3 cIdx = flatIdxToCellIdx(tid, gridData.gridSize);
 
-    uint2 pid = gridParticleIDBuffer[tid];
+    uint2 pid = gridParticleIDBuffer[tid];  // will be removed, use new weights buffer to determine if fluid vs air
     uint thisCellMaterial =
         isSolidCell(cellIdxToWorldPos(cIdx, gridData)) ? CM_SOLID :
         pid.y - pid.x > 0 ? CM_FLUID :
@@ -36,7 +42,11 @@ void updateFluidCells(uint32_t3 ID : SV_DispatchThreadID)
     uint cellMaterial = 0;
     setCellMaterial(cellMaterial, thisCellMaterial);
 
-    cellMaterialOutBuffer[tid] = cellMaterial;
+    cellMaterialOutBuffer[cIdx] = cellMaterial;
+
+    // do final velocity weight here, after sync
+    // float3 velocity = select(totalWeight > 0, totalVel / max(totalWeight, FLT_MIN), 0.0f);
+    // enforceBoundaryCondition(velocity, cellMaterialInBuffer[tid]);
 }
 
 [numthreads(WorkgroupSize, 1, 1)]
@@ -45,29 +55,29 @@ void updateNeighborFluidCells(uint32_t3 ID : SV_DispatchThreadID)
     uint tid = ID.x;
     int3 cIdx = flatIdxToCellIdx(tid, gridData.gridSize);
 
-    uint thisCellMaterial = getCellMaterial(cellMaterialInBuffer[tid]);
+    uint thisCellMaterial = getCellMaterial(cellMaterialInBuffer[cIdx]);
     uint cellMaterial = 0;
     setCellMaterial(cellMaterial, thisCellMaterial);
 
-    uint xpCm = cIdx.x == 0 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[cellIdxToFlatIdx(cIdx + int3(-1, 0, 0), gridData.gridSize)]);
+    uint xpCm = cIdx.x == 0 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[clamp(cIdx + int3(-1, 0, 0), (int3)0, gridData.gridSize.xyz - 1)]);
     setXPrevMaterial(cellMaterial, xpCm);
 
-    uint xnCm = cIdx.x == gridData.gridSize.x - 1 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[cellIdxToFlatIdx(cIdx + int3(1, 0, 0), gridData.gridSize)]);
+    uint xnCm = cIdx.x == gridData.gridSize.x - 1 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[clamp(cIdx + int3(1, 0, 0), (int3)0, gridData.gridSize.xyz - 1)]);
     setXNextMaterial(cellMaterial, xnCm);
 
-    uint ypCm = cIdx.y == 0 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[cellIdxToFlatIdx(cIdx + int3(0, -1, 0), gridData.gridSize)]);
+    uint ypCm = cIdx.y == 0 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[clamp(cIdx + int3(0, -1, 0), (int3)0, gridData.gridSize.xyz - 1)]);
     setYPrevMaterial(cellMaterial, ypCm);
 
-    uint ynCm = cIdx.y == gridData.gridSize.y - 1 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[cellIdxToFlatIdx(cIdx + int3(0, 1, 0), gridData.gridSize)]);
+    uint ynCm = cIdx.y == gridData.gridSize.y - 1 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[clamp(cIdx + int3(0, 1, 0), (int3)0, gridData.gridSize.xyz - 1)]);
     setYNextMaterial(cellMaterial, ynCm);
 
-    uint zpCm = cIdx.z == 0 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[cellIdxToFlatIdx(cIdx + int3(0, 0, -1), gridData.gridSize)]);
+    uint zpCm = cIdx.z == 0 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[clamp(cIdx + int3(0, 0, -1), (int3)0, gridData.gridSize.xyz - 1)]);
     setZPrevMaterial(cellMaterial, zpCm);
 
-    uint znCm = cIdx.z == gridData.gridSize.z - 1 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[cellIdxToFlatIdx(cIdx + int3(0, 0, 1), gridData.gridSize)]);
+    uint znCm = cIdx.z == gridData.gridSize.z - 1 ? CM_SOLID : getCellMaterial(cellMaterialInBuffer[clamp(cIdx + int3(0, 0, 1), (int3)0, gridData.gridSize.xyz - 1)]);
     setZNextMaterial(cellMaterial, znCm);
 
-    cellMaterialOutBuffer[tid] = cellMaterial;
+    cellMaterialOutBuffer[cIdx] = cellMaterial;
 }
 
 [numthreads(WorkgroupSize, 1, 1)]
@@ -109,7 +119,7 @@ void addParticlesToCells(uint32_t3 ID : SV_DispatchThreadID)
 
     float3 velocity = select(totalWeight > 0, totalVel / max(totalWeight, FLT_MIN), 0.0f);
 
-    enforceBoundaryCondition(velocity, cellMaterialInBuffer[tid]);
+    enforceBoundaryCondition(velocity, cellMaterialInBuffer[cIdx]);
 
     velocityFieldBuffer[0][cIdx] = velocity.x;
     velocityFieldBuffer[1][cIdx] = velocity.y;

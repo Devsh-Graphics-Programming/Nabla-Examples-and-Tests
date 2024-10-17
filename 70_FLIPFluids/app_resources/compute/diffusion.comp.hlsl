@@ -16,7 +16,7 @@ cbuffer GridData
     SGridData gridData;
 };
 
-[[vk::binding(b_dCMBuffer, s_d)]] RWStructuredBuffer<uint> cellMaterialBuffer;
+[[vk::binding(b_dCMBuffer, s_d)]] RWTexture3D<uint> cellMaterialBuffer;
 [[vk::binding(b_dVelBuffer, s_d)]] RWTexture3D<float> velocityFieldBuffer[3];
 [[vk::binding(b_dAxisInBuffer, s_d)]] RWStructuredBuffer<uint4> axisCellMaterialInBuffer;
 [[vk::binding(b_dAxisOutBuffer, s_d)]] RWStructuredBuffer<uint4> axisCellMaterialOutBuffer;
@@ -29,7 +29,7 @@ void setAxisCellMaterial(uint32_t3 ID : SV_DispatchThreadID)
     uint cid = ID.x;
     int3 cellIdx = flatIdxToCellIdx(cid, gridData.gridSize);
 
-    uint cellMaterial = cellMaterialBuffer[cid];
+    uint cellMaterial = cellMaterialBuffer[cellIdx];
 
     uint this_cm = getCellMaterial(cellMaterial);
     uint xp_cm = getXPrevMaterial(cellMaterial);
@@ -127,7 +127,7 @@ void applyDiffusion(uint32_t3 ID : SV_DispatchThreadID)
     sampledVel.z = velocityFieldBuffer[2][cellIdx];
     velocity += pc.diffusionParameters.w * sampledVel;
 
-    enforceBoundaryCondition(velocity, cellMaterialBuffer[cid]);
+    enforceBoundaryCondition(velocity, cellMaterialBuffer[cellIdx]);
 
     gridDiffusionOutBuffer[cid].xyz = velocity;
 }
@@ -140,7 +140,7 @@ void updateVelocity(uint32_t3 ID : SV_DispatchThreadID)
 
     float3 velocity = gridDiffusionInBuffer[cid].xyz;
 
-    enforceBoundaryCondition(velocity, cellMaterialBuffer[cid]);
+    enforceBoundaryCondition(velocity, cellMaterialBuffer[cellIdx]);
 
     velocityFieldBuffer[0][cellIdx] = velocity.x;
     velocityFieldBuffer[1][cellIdx] = velocity.y;

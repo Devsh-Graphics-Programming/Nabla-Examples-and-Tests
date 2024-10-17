@@ -21,7 +21,7 @@ cbuffer PressureSolverParams
     SPressureSolverParams params;
 };
 
-[[vk::binding(b_psCMBuffer, s_ps)]] RWStructuredBuffer<uint> cellMaterialBuffer;
+[[vk::binding(b_psCMBuffer, s_ps)]] RWTexture3D<uint> cellMaterialBuffer;
 [[vk::binding(b_psVelBuffer, s_ps)]] RWTexture3D<float> velocityFieldBuffer[3];
 [[vk::binding(b_psDivBuffer, s_ps)]] RWStructuredBuffer<float> divergenceBuffer;
 [[vk::binding(b_psPresInBuffer, s_ps)]] RWStructuredBuffer<float> pressureInBuffer;
@@ -40,7 +40,7 @@ void calculateNegativeDivergence(uint32_t3 ID : SV_DispatchThreadID)
     velocity.z = velocityFieldBuffer[2][cellIdx];
 
     float divergence = 0;
-    if (isFluidCell(getCellMaterial(cellMaterialBuffer[cid])))
+    if (isFluidCell(getCellMaterial(cellMaterialBuffer[cellIdx])))
     {
         int3 cell_xn = cellIdx + int3(1, 0, 0);
         uint cid_xn = cellIdxToFlatIdx(cell_xn, gridData.gridSize);
@@ -66,7 +66,7 @@ void solvePressureSystem(uint32_t3 ID : SV_DispatchThreadID)
 
     float pressure = 0;
 
-    uint cellMaterial = cellMaterialBuffer[cid];
+    uint cellMaterial = cellMaterialBuffer[cellIdx];
 
     if (isFluidCell(getCellMaterial(cellMaterial)))
     {
@@ -100,7 +100,7 @@ void updateVelocities(uint32_t3 ID : SV_DispatchThreadID)
     uint cid = ID.x;
     int3 cellIdx = flatIdxToCellIdx(cid, gridData.gridSize);
 
-    uint cellMaterial = cellMaterialBuffer[cid];
+    uint cellMaterial = cellMaterialBuffer[cellIdx];
 
     float3 velocity;
     velocity.x = velocityFieldBuffer[0][cellIdx];

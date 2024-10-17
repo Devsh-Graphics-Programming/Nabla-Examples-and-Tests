@@ -10,7 +10,7 @@ cbuffer GridData
 };
 
 [[vk::binding(b_abfVelFieldBuffer, s_abf)]] RWTexture3D<float> velocityFieldBuffer[3];
-[[vk::binding(b_abfCMBuffer, s_abf)]] RWStructuredBuffer<uint> cellMaterialBuffer;
+[[vk::binding(b_abfCMBuffer, s_abf)]] RWTexture3D<uint> cellMaterialBuffer;
 
 [numthreads(WorkgroupSize, 1, 1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)
@@ -26,7 +26,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
     velocity += float3(0, -1, 0) * gravity * deltaTime;
 
-    enforceBoundaryCondition(velocity, cellMaterialBuffer[c_id]);
+    enforceBoundaryCondition(velocity, cellMaterialBuffer[cIdx]);
 
     velocityFieldBuffer[0][cIdx] = velocity.x;
     velocityFieldBuffer[1][cIdx] = velocity.y;
