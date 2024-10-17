@@ -656,8 +656,9 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 					// want to capture the image data upload as well
 					m_api->startCapture();
+
 					// make sure we don't leave the tooling dangling if we fail
-					auto endCaptureOnScopeExit = core::makeRAIIExiter([queue]()->void{queue->endCapture();});
+					auto endCaptureOnScopeExit = core::makeRAIIExiter([this]()->void{this->m_api->endCapture();});
 
 					// get our GPU Image view
 					auto converter = CAssetConverter::create({.device=m_device.get()});
