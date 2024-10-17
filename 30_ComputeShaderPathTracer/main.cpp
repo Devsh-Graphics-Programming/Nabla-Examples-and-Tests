@@ -104,9 +104,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					return false;
 
 				m_uiSemaphore = m_device->createSemaphore(m_realFrameIx);
-				m_renderSemaphore = m_device->createSemaphore(m_realFrameIx);
-				if (!m_uiSemaphore || !m_renderSemaphore)
-					return logFail("Failed to Create semaphores!");
+				if (!m_uiSemaphore)
+					return logFail("Failed to create semaphore!");
 			}
 
 			// Create renderpass and init surface
@@ -984,6 +983,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						}
 					};
 					cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+					cmdbuf->beginDebugMarker("ComputeShaderPathtracer IMGUI Frame");
 					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
 				}
 
@@ -995,35 +995,38 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
 					cmdbuf->dispatch(1 + (WindowDimensions.x - 1) / DefaultWorkGroupSize, 1 + (WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u);
 				}
-				cmdbuf->end();
 				// TODO: tone mapping and stuff
 
-				// submit
-				const IQueue::SSubmitInfo::SSemaphoreInfo rendered[1] = { {
-					.semaphore = m_renderSemaphore.get(),
-					.value = m_realFrameIx + 1u,
-					// just as we've outputted all pixels, signal
-					.stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
-				} };
-				const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[1] = { {
-					.cmdbuf = cmdbuf.get()
-				} };
-				const IQueue::SSubmitInfo infos[1] = { {
-					.waitSemaphores = {},
-					.commandBuffers =  commandBuffers,
-					.signalSemaphores = rendered
-				}};
-
-				queue->submit({ infos, 1 });
-
-				queue->endCapture();
+				// Wait for offline compute render
+				{
+					constexpr SMemoryBarrier barriers[] = {
+						{
+							.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+							.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
+							.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
+							.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
+						}
+					};
+					const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = {
+						{
+							.barrier = {
+								.dep = barriers[0]
+							},
+							.image = m_outImgView->getCreationParameters().image.get(),
+							.subresourceRange = {
+								.aspectMask = IImage::EAF_COLOR_BIT,
+								.baseMipLevel = 0u,
+								.levelCount = 1u,
+								.baseArrayLayer = 0u,
+								.layerCount = 1u
+							}
+						}
+					};
+					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
+				}
 			}
 
 			auto* const cb = m_cmdBufs.data()[resourceIx].get();
-			cb->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
-			cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-			cb->beginDebugMarker("ComputeShaderPathtracer IMGUI Frame");
-
 			auto* queue = getGraphicsQueue();
 
 			asset::SViewport viewport;
@@ -1056,6 +1059,10 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				ISemaphore::SWaitInfo waitInfo = { .semaphore = m_uiSemaphore.get(), .value = m_realFrameIx + 1u };
 
 				cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+				const auto uiParams = m_ui.manager->getCreationParameters();
+				auto* pipeline = m_ui.manager->getPipeline();
+				cb->bindGraphicsPipeline(pipeline);
+				cb->bindDescriptorSets(EPBP_GRAPHICS, pipeline->getLayout(), uiParams.resources.texturesInfo.setIx, 1u, &m_ui.descriptorSet.get()); // note that we use default UI pipeline layout where uiParams.resources.textures.setIx == uiParams.resources.samplers.setIx
 				m_ui.manager->render(cb, waitInfo);
 				cb->endRenderPass();
 			}
@@ -1092,14 +1099,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 								.signalSemaphores = rendered
 							} 
 						};
-
-						const nbl::video::ISemaphore::SWaitInfo waitInfos[] = 
-						{ {
-							.semaphore = m_renderSemaphore.get(),
-							.value = m_realFrameIx
-						} };
-						
-						m_device->blockForSemaphores(waitInfos);
 
 						updateGUIDescriptorSet();
 
@@ -1234,7 +1233,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		smart_refctd_ptr<IGPUImageView> m_outImgView;
 
 		// sync
-		smart_refctd_ptr<ISemaphore> m_uiSemaphore, m_renderSemaphore;
+		smart_refctd_ptr<ISemaphore> m_uiSemaphore;
 
 		// image upload resources
 		smart_refctd_ptr<ISemaphore> m_scratchSemaphore;
