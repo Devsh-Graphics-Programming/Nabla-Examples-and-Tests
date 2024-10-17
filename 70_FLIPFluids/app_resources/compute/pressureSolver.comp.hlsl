@@ -52,7 +52,7 @@ void calculateNegativeDivergence(uint32_t3 ID : SV_DispatchThreadID)
 
         int3 cell_zn = cellIdx + int3(0, 0, 1);
         uint cid_zn = cellIdxToFlatIdx(cell_zn, gridData.gridSize);
-        divergence += param.z * ((cell_zn.z < gridData.gridSize.z ? velocityFieldBuffer[3][cell_zn] : 0.0f) - velocity.z);
+        divergence += param.z * ((cell_zn.z < gridData.gridSize.z ? velocityFieldBuffer[2][cell_zn] : 0.0f) - velocity.z);
     }
 
     divergenceBuffer[cid] = divergence;

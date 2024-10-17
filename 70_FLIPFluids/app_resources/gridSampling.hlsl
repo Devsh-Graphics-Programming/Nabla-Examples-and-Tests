@@ -72,9 +72,7 @@ inline float tricubicInterpolate(Texture3D<float> grid, SamplerState _sampler, f
 inline float _sampleVelocity(float3 pos, Texture3D<float> grid, SamplerState _sampler, SGridData gridData)
 {
     float3 coords = pos / gridData.gridSize.xyz;
-    // float4 s = grid.SampleLevel(_sampler, coords, 0);
-    float s = tricubicInterpolate(grid, _sampler, coords, gridData.gridSize);
-    return s;
+    return tricubicInterpolate(grid, _sampler, coords, gridData.gridSize);
 }
 
 inline float _sampleVelX(float3 pos, Texture3D<float> grid, SamplerState _sampler, SGridData gridData)

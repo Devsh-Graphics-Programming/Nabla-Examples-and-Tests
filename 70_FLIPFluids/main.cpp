@@ -349,7 +349,7 @@ public:
         samplerParams.TextureWrapU = IGPUSampler::ETC_CLAMP_TO_BORDER;
         samplerParams.TextureWrapV = IGPUSampler::ETC_CLAMP_TO_BORDER;
         samplerParams.TextureWrapW = IGPUSampler::ETC_CLAMP_TO_BORDER;
-        samplerParams.BorderColor  = IGPUSampler::ETBC_FLOAT_OPAQUE_BLACK;
+        samplerParams.BorderColor  = IGPUSampler::ETBC_FLOAT_TRANSPARENT_BLACK;
         samplerParams.MinFilter		= IGPUSampler::ETF_LINEAR;
         samplerParams.MaxFilter		= IGPUSampler::ETF_LINEAR;
         samplerParams.MipmapMode	= IGPUSampler::ESMM_LINEAR;
@@ -1654,7 +1654,7 @@ private:
         m_device->allocate(imageMemReqs, image.get());
 
         if (!debugName.empty())
-            image->setObjectDebugName("velocity field");
+            image->setObjectDebugName(debugName.c_str());
 
         IGPUImageView::SCreationParams imgViewInfo;
         imgViewInfo.image = std::move(image);
