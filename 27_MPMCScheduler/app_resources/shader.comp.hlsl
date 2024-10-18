@@ -12,14 +12,15 @@
 
 using namespace nbl::hlsl;
 
-
-#if 0
+// Scene
 enum Material : uint32_t
 {
     Emission = 0,
     Metal,
     Glass
 };
+const static uint32_t SphereCount = 5;
+#if 0
 struct Sphere
 {
     static const uint32_t MaxColorValue = 1023;
@@ -36,7 +37,6 @@ struct Sphere
     uint32_t B : 10;
     Material material : 2;
 };
-const static uint32_t SphereCount = 5;
 const static Sphere spheres[5] = {
     {
         float32_t3(0,5,0),
@@ -82,6 +82,7 @@ const static Sphere spheres[5] = {
 };
 #endif
 
+// Payload and Executor for our Task-Graph
 struct WhittedTask
 {
     static const uint32_t MaxDepth = (1<<2)-1;
@@ -130,7 +131,10 @@ struct WhittedTask
         return dir;
     }
 
-    void operator()();
+    // yay workaround for https://github.com/microsoft/DirectXShaderCompiler/issues/6973
+    void __impl_call();
+
+    void operator()() {__impl_call();}
 };
 //NBL_REGISTER_OBJ_TYPE(WhittedTask,8);
 
@@ -165,6 +169,7 @@ struct SharedAccessor
     }
 };
 static nbl::hlsl::MPMCScheduler<WhittedTask,8*8,SharedAccessor> scheduler;
+#endif
 
 // stolen from Nabla GLSL
 bool nbl_glsl_getOrientedEtas(out float orientedEta, out float rcpOrientedEta, in float NdotI, in float eta)
@@ -196,13 +201,11 @@ float32_t3 nbl_glsl_refract(in float32_t3 I, in float32_t3 N, in bool backside, 
     const float NdotT = backside ? abs_NdotT:(-abs_NdotT);
     return N*(NdotI*rcpOrientedEta + NdotT) - rcpOrientedEta*I;
 }
-#endif
 
 [[vk::binding(0,0)]] RWTexture2D<uint32_t> framebuffer;
 
-void WhittedTask::operator()()
+void WhittedTask::__impl_call()
 {
-#if 0
     const float32_t3 rayDir = getRayDir();
     const float32_t3 throughput = getThroughput();
 
@@ -210,14 +213,17 @@ void WhittedTask::operator()()
     uint32_t closestIx = SphereCount;
     const float NoHit = bit_cast<float32_t>(numeric_limits<float32_t>::infinity);
     float closestD = NoHit;
+#if 0
     if (depth<MaxDepth)
     for (uint32_t i=0; i<SphereCount; i++)
     {
         const Sphere sphere = spheres[i];
 // TODO intersection
     }
+#endif
 
     float32_t3 contribution = float32_t3(0,0,0);
+#if 0
     if (closestD<NoHit)
     {
         const Sphere sphere = spheres[closestIx];
@@ -269,63 +275,14 @@ void WhittedTask::operator()()
     }
     else // miss
         contribution = throughput*(rayDir.y>0.f ? float32_t3(0.1,0.7,0.03):float32_t3(0.05,0.25,1.0));
-
+#endif
     if (contribution.r+contribution.g+contribution.b<1.f/2047.f)
         return;
-#endif
 
     // Use device traits to do CAS loops on R32_UINT view of RGB9E5 when no VK_NV_shader_atomic_float16_vector
 //    spirv::atomicAdd(spirv::addrof(framebuffer),contribution);
     framebuffer[uint32_t2(outputX,outputY)] = 0xffFFffFFu;
 }
-
-// move to `nbl/builtin/hlsl/shared_exp_t3.hlsl`
-
-template<typename UintT, uint16_t ExponentBits>
-struct shared_exp_t3
-{
-    using this_t = shared_exp_t3;
-
-    UintT storage;
-};
-
-/*
-uvec3 nbl_glsl_impl_sharedExponentEncodeCommon(in vec3 clamped, in int newExpBias, in int newMaxExp, in int mantissaBits, out int shared_exp)
-{
-    const float maxrgb = max(max(clamped.r, clamped.g), clamped.b);
-    // TODO: optimize this
-    const int f32_exp = int(nbl_glsl_ieee754_extract_biased_exponent(maxrgb)) - 126;
-
-    shared_exp = clamp(f32_exp, -newExpBias, newMaxExp + 1);
-
-    float scale = exp2(mantissaBits - shared_exp);
-    const uint maxm = uint(maxrgb * scale + 0.5);
-    const bool need = maxm == (0x1u << mantissaBits);
-    scale = need ? 0.5 * scale : scale;
-    shared_exp = need ? (shared_exp + 1) : shared_exp;
-    return uvec3(clamped * scale + vec3(0.5));
-}
-
-uvec2 nbl_glsl_encodeRGB9E5(in vec3 col)
-{
-    const vec3 clamped = clamp(col, vec3(0.0), vec3(nbl_glsl_MAX_RGB19E7));
-
-    int shared_exp;
-    const uvec3 mantissas = nbl_glsl_impl_sharedExponentEncodeCommon(clamped, nbl_glsl_RGB19E7_EXP_BIAS, nbl_glsl_MAX_RGB19E7_EXP, nbl_glsl_RGB19E7_MANTISSA_BITS, shared_exp);
-
-    uvec2 encoded;
-    encoded.x = bitfieldInsert(mantissas.x, mantissas.y, nbl_glsl_RGB19E7_COMPONENT_BITOFFSETS[1], nbl_glsl_RGB19E7_G_COMPONENT_SPLIT);
-    encoded.y = bitfieldInsert(
-        mantissas.y >> nbl_glsl_RGB19E7_G_COMPONENT_SPLIT,
-        mantissas.z,
-        nbl_glsl_RGB19E7_COMPONENT_BITOFFSETS[2],
-        nbl_glsl_RGB19E7_MANTISSA_BITS)
-        | uint((shared_exp + nbl_glsl_RGB19E7_EXP_BIAS) << nbl_glsl_RGB19E7_COMPONENT_BITOFFSETS[3]);
-
-    return encoded;
-}
-*/
-
 
 struct Dummy
 {
@@ -358,14 +315,13 @@ void main()
     // manually push an explicit workload
     {
         // reconstruct the actual XY coordinate we want
-        uint32_t2 GlobalInvocationID = glsl::gl_WorkGroupID().xy*glsl::gl_WorkGroupSize().xy;
+        uint32_t2 GlobalInvocationID = glsl::gl_WorkGroupID().xy*uint32_t2(WorkgroupSizeX,WorkgroupSizeY);
         // TODO: morton code 
         {
             const uint32_t linearIx = glsl::gl_LocalInvocationIndex();
             GlobalInvocationID.x += linearIx%WorkgroupSizeX;
             GlobalInvocationID.y += linearIx/WorkgroupSizeX;
         }
-#if 0
         scheduler.next.origin = float32_t3(0,0,-5);
         scheduler.next.setThroughput(float32_t3(1,1,1));
         scheduler.next.outputX = GlobalInvocationID.x;
@@ -382,12 +338,11 @@ void main()
             scheduler.next.setRayDir(normalize(ndc));
         }
         scheduler.next.depth = 0;
-#endif
 //        scheduler.sharedAcceptableIdleCount = 0;
 //        scheduler.globalAcceptableIdleCount = 0;
         scheduler.nextValid = true;
     }
 
     // excute implcit as scheduled
-//    scheduler();
+    scheduler();
 }
