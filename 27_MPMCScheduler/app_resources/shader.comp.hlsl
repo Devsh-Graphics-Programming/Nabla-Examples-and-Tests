@@ -5,6 +5,7 @@
 #include "nbl/builtin/hlsl/type_traits.hlsl"
 #include "nbl/builtin/hlsl/bda/__ptr.hlsl"
 
+#include "workgroup/stack.hlsl"
 
 namespace nbl
 {

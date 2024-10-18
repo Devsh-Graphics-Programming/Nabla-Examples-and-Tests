@@ -59,7 +59,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				return false;
 			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
-
+/*
 			smart_refctd_ptr<IGPUShader> shader;
 			{
 				IAssetLoader::SAssetLoadParams lp = {};
@@ -79,7 +79,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				if (!shader)
 					return false;
 			}
-			
+*/			
 			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
 			{
 				const IGPUDescriptorSetLayout::SBinding bindings[1] = { {
@@ -94,7 +94,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				if (!dsLayout)
 					return logFail("Failed to Create Descriptor Layout");
 			}
-
+/*
 			{
 				auto layout = m_device->createPipelineLayout({},smart_refctd_ptr(dsLayout));
 				const IGPUComputePipeline::SCreationParams params[] = { {
@@ -114,7 +114,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				if (!m_device->createComputePipelines(nullptr,params,&m_ppln))
 					return logFail("Failed to create Pipeline");
 			}
-
+*/
 			m_hdr = m_device->createImage({
 				{
 					.type = IGPUImage::E_TYPE::ET_2D,
@@ -127,7 +127,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 					.usage = IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT | IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT
 				}
 			});
-			if (!m_hdr || m_device->allocate(m_hdr->getMemoryReqs(),m_hdr.get()).isValid())
+			if (!m_hdr || !m_device->allocate(m_hdr->getMemoryReqs(),m_hdr.get()).isValid())
 				return logFail("Could not create HDR Image");
 
 			{
@@ -154,7 +154,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				const IGPUDescriptorSet::SWriteDescriptorSet writes[] = {{
 					.dstSet = ds.get(),
 					.binding = 0,
-					.arrayElement =1,
+					.arrayElement = 0,
 					.count = 1,
 					.info = &info
 				}};
@@ -224,8 +224,18 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 			auto* const cb = m_cmdBufs.data()[resourceIx].get();
 			cb->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
 			cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			
+			const IGPUImage::SSubresourceRange whole2DColorImage =
+			{
+				.aspectMask = IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+				.baseMipLevel = 0,
+				.levelCount = 1,
+				.baseArrayLayer = 0,
+				.layerCount = 1
+			};
 
-			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = {{
+			using image_memory_barrier_t = IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>;
+			image_memory_barrier_t imgBarrier = {
 				.barrier = {
 					.dep = {
 						.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
@@ -233,16 +243,16 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 						.dstStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT,
 						.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
 					}
-					// no ownership transfer
+					// no ownership transfer and don't care about contents
 				},
-				.subresourceRange = {
-				},
+				.image = m_hdr.get(),
+				.subresourceRange = whole2DColorImage,
 				.oldLayout = IImage::LAYOUT::UNDEFINED, // don't care about old contents
 				.newLayout = IImage::LAYOUT::GENERAL
-			}};
+			};
 
 			// clear the image
-			cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers=imgBarriers});
+			cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers={&imgBarrier,1}});
 			{
 				const IGPUCommandBuffer::SClearColorValue color = {
 					.float32 = {0,0,0,1}
@@ -256,7 +266,11 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				};
 				cb->clearColorImage(m_hdr.get(),IGPUImage::LAYOUT::GENERAL,&color,1,&range);
 				// now we stay in same layout for remainder of the frame
-				imgBarriers[0].oldLayout = IImage::LAYOUT::GENERAL;
+				imgBarrier.oldLayout = IImage::LAYOUT::GENERAL;
+			}
+
+			// clear the allocator and debug buffer
+			{
 			}
 
 			const SMemoryBarrier computeToBlit = {
@@ -266,15 +280,60 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				.dstAccessMask = ACCESS_FLAGS::STORAGE_READ_BIT
 			};
 
-			auto& imgDep = imgBarriers[0].barrier.dep;
+			auto& imgDep = imgBarrier.barrier.dep;
+			// use the "generate a barrier between the one before and after" API
 			imgDep = imgDep.nextBarrier(computeToBlit);
-			cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers=imgBarriers});
+			cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers={&imgBarrier,1}});
 
 			// write the image
 			{
 				//
 	//			cb->bindComputePipeline(rawPipeline);
 	// push constants
+			}
+
+			{
+				auto swapImg = m_surface->getSwapchainResources()->getImage(m_currentImageAcquire.imageIndex);
+				imgDep = computeToBlit;
+				// special case, the swapchain is a NONE stage with NONE accesses
+				image_memory_barrier_t imgBarriers[] = {
+					imgBarrier,
+					{
+						.barrier = {
+							.dep = {
+								.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+								.srcAccessMask = ACCESS_FLAGS::NONE,
+								.dstStageMask = PIPELINE_STAGE_FLAGS::BLIT_BIT,
+								.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
+							}
+							// no ownership transfer and don't care about contents
+						},
+						.image = swapImg,
+						.subresourceRange = whole2DColorImage,
+						.oldLayout = IImage::LAYOUT::UNDEFINED, // don't care about old contents
+						.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL
+					}
+				};
+				cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers=imgBarriers});
+
+				const IGPUCommandBuffer::SImageBlit regions[] = {{
+					.srcMinCoord = {0,0,0},
+					.srcMaxCoord = {WIN_W,WIN_H,1},
+					.dstMinCoord = {0,0,0},
+					.dstMaxCoord = {WIN_W,WIN_H,1},
+					.layerCount = 1,
+					.srcBaseLayer = 0,
+					.dstBaseLayer = 0,
+					.srcMipLevel = 0,
+					.dstMipLevel = 0,
+					.aspectMask = IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT
+				}};
+				cb->blitImage(m_hdr.get(),IGPUImage::LAYOUT::GENERAL,swapImg,IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,regions,IGPUSampler::ETF_NEAREST);
+
+				auto& swapImageBarrier = imgBarriers[1];
+				swapImageBarrier.barrier.dep = swapImageBarrier.barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::NONE,ACCESS_FLAGS::NONE);
+				swapImageBarrier.oldLayout = imgBarriers[1].newLayout;
+				swapImageBarrier.newLayout = IGPUImage::LAYOUT::PRESENT_SRC;
 			}
 
 			cb->end();
@@ -285,7 +344,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 					{
 						.semaphore = m_semaphore.get(),
 						.value = ++m_realFrameIx,
-						.stageMask = PIPELINE_STAGE_FLAGS::ALL_GRAPHICS_BITS
+						.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS // because of the layout transition of the swapchain image
 					}
 				};
 				{
@@ -327,7 +386,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 					}
 				}
 
-				m_surface->present(m_currentImageAcquire.imageIndex, rendered);
+				m_surface->present(m_currentImageAcquire.imageIndex,rendered);
 			}
 		}
 
