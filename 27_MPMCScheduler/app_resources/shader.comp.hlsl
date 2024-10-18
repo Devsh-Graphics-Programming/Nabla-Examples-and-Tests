@@ -19,8 +19,6 @@ enum Material : uint32_t
     Metal,
     Glass
 };
-const static uint32_t SphereCount = 5;
-#if 0
 struct Sphere
 {
     static const uint32_t MaxColorValue = 1023;
@@ -30,17 +28,32 @@ struct Sphere
         return float32_t3(R,G,B)/float32_t3(MaxColorValue,MaxColorValue,MaxColorValue);
     }
 
+    float32_t intersect(const float32_t3 rayOrigin, const float32_t3 rayDir)
+    {
+        float32_t3 relOrigin = rayOrigin - position;
+        float32_t relOriginLen2 = dot(relOrigin,relOrigin);
+
+        float32_t dirDotRelOrigin = dot(rayDir,relOrigin);
+        float32_t det = radius2 - relOriginLen2 + dirDotRelOrigin * dirDotRelOrigin;
+
+        // do some speculative math here
+        float32_t detsqrt = sqrt(det);
+        return -dirDotRelOrigin + (relOriginLen2 > radius2 ? (-detsqrt) : detsqrt);
+    }
+
     float32_t3 position;
-    float32_t radius;
+    float32_t radius2;
     uint32_t R : 10;
     uint32_t G : 10;
     uint32_t B : 10;
-    Material material : 2;
+    uint32_t material : 2;
 };
+
+const static uint32_t SphereCount = 5;
 const static Sphere spheres[5] = {
     {
         float32_t3(0,5,0),
-        0.5f,
+        0.25f,
         Sphere::MaxColorValue,
         0,
         0,
@@ -48,7 +61,7 @@ const static Sphere spheres[5] = {
     },
     {
         float32_t3(-2,3,0),
-        0.6f,
+        0.36f,
         Sphere::MaxColorValue,
         Sphere::MaxColorValue,
         0,
@@ -56,7 +69,7 @@ const static Sphere spheres[5] = {
     },
     {
         float32_t3(2,3,0),
-        0.4f,
+        0.64f,
         0,
         Sphere::MaxColorValue,
         Sphere::MaxColorValue,
@@ -65,7 +78,7 @@ const static Sphere spheres[5] = {
     // Glass balls need to be monochromatic, cause I didn't do RGB in my task payload
     {
         float32_t3(-1,1,0),
-        0.7f,
+        0.49f,
         Sphere::MaxColorValue,
         Sphere::MaxColorValue,
         Sphere::MaxColorValue,
@@ -73,14 +86,14 @@ const static Sphere spheres[5] = {
     },
     {
         float32_t3(-1,1,0),
-        0.7f,
+        0.49f,
         0,
         Sphere::MaxColorValue/2,
         0,
         Material::Glass
     }
 };
-#endif
+
 
 // Payload and Executor for our Task-Graph
 struct WhittedTask
@@ -213,17 +226,19 @@ void WhittedTask::__impl_call()
     uint32_t closestIx = SphereCount;
     const float NoHit = bit_cast<float32_t>(numeric_limits<float32_t>::infinity);
     float closestD = NoHit;
-#if 0
     if (depth<MaxDepth)
     for (uint32_t i=0; i<SphereCount; i++)
     {
         const Sphere sphere = spheres[i];
-// TODO intersection
+        const float32_t d = sphere.intersect(origin,rayDir);
+        if (d>0 && d<closestD)
+        {
+            closestIx = i;
+            closestD = d;
+        }
     }
-#endif
 
     float32_t3 contribution = float32_t3(0,0,0);
-#if 0
     if (closestD<NoHit)
     {
         const Sphere sphere = spheres[closestIx];
@@ -231,7 +246,7 @@ void WhittedTask::__impl_call()
         if (sphere.material!=Material::Emission)
         {
             const float32_t3 hitPoint = origin+rayDir*closestD;
-            const float32_t3 normal = (hitPoint-sphere.position)/sphere.radius;
+            const float32_t3 normal = (hitPoint-sphere.position)*rsqrt(sphere.radius2);
             const float32_t NdotV = dot(-rayDir,normal);
             float orientedEta, rcpOrientedEta;
             const bool backside = nbl_glsl_getOrientedEtas(orientedEta,rcpOrientedEta,NdotV,1.333f);
@@ -275,7 +290,7 @@ void WhittedTask::__impl_call()
     }
     else // miss
         contribution = throughput*(rayDir.y>0.f ? float32_t3(0.1,0.7,0.03):float32_t3(0.05,0.25,1.0));
-#endif
+
     if (contribution.r+contribution.g+contribution.b<1.f/2047.f)
         return;
 
@@ -315,14 +330,15 @@ void main()
     // manually push an explicit workload
     {
         // reconstruct the actual XY coordinate we want
-        uint32_t2 GlobalInvocationID = glsl::gl_WorkGroupID().xy*uint32_t2(WorkgroupSizeX,WorkgroupSizeY);
+        const uint32_t2 VirtualWorkgroupSize = uint32_t2(WorkgroupSizeX,WorkgroupSizeY);
+        uint32_t2 GlobalInvocationID = glsl::gl_WorkGroupID().xy*VirtualWorkgroupSize;
         // TODO: morton code 
         {
             const uint32_t linearIx = glsl::gl_LocalInvocationIndex();
             GlobalInvocationID.x += linearIx%WorkgroupSizeX;
             GlobalInvocationID.y += linearIx/WorkgroupSizeX;
         }
-        scheduler.next.origin = float32_t3(0,0,-5);
+        scheduler.next.origin = float32_t3(0,1,-25);
         scheduler.next.setThroughput(float32_t3(1,1,1));
         scheduler.next.outputX = GlobalInvocationID.x;
         scheduler.next.outputY = GlobalInvocationID.y;
@@ -330,7 +346,7 @@ void main()
             using namespace nbl::hlsl;
             float32_t3 ndc;
             {
-                const float32_t2 totalInvocations = glsl::gl_NumWorkGroups().xy*8.f;
+                const float32_t2 totalInvocations = glsl::gl_NumWorkGroups().xy*VirtualWorkgroupSize;
                 ndc.xy = (float32_t2(GlobalInvocationID.xy)+float32_t2(0.5,0.5))*2.f/totalInvocations-float32_t2(1,1);
                 ndc.y *= totalInvocations.y/totalInvocations.x; // aspect raio
             }
