@@ -28,13 +28,13 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 
 		inline bool isComputeOnly() const override { return false; }
 
-		inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
+		inline core::vector<SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 		{
 			if (!m_surface)
 			{
 				{
 					IWindow::SCreationParams params = {};
-					params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
+					params.callback = core::make_smart_refctd_ptr<ISimpleManagedSurface::ICallback>();
 					params.width = WIN_W;
 					params.height = WIN_H;
 					params.x = 32;
@@ -44,7 +44,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 					const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
 				}
 				auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
-				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = nbl::video::CSimpleResizeSurface<CDefaultSwapchainFramebuffers>::create(std::move(surface));
+				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>::create(std::move(surface));
 			}
 
 			if (m_surface)
@@ -124,7 +124,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 					.mipLevels = 1,
 					.arrayLayers = 1,
 					.flags = core::bitflag(IGPUImage::E_CREATE_FLAGS::ECF_MUTABLE_FORMAT_BIT) | IGPUImage::E_CREATE_FLAGS::ECF_EXTENDED_USAGE_BIT,
-					.usage = IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT | IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT
+					.usage = IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT | IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT | IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT
 				}
 			});
 			if (!m_hdr || !m_device->allocate(m_hdr->getMemoryReqs(),m_hdr.get()).isValid())
@@ -193,7 +193,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 			m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
 			m_surface->recreateSwapchain();
 
-			auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
+			auto assetManager = make_smart_refctd_ptr<IAssetManager>(smart_refctd_ptr(system));
 
 			m_winMgr->show(m_window.get());
 
@@ -277,7 +277,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
 				.srcAccessMask = ACCESS_FLAGS::STORAGE_WRITE_BIT|ACCESS_FLAGS::STORAGE_READ_BIT,
 				.dstStageMask = PIPELINE_STAGE_FLAGS::BLIT_BIT,
-				.dstAccessMask = ACCESS_FLAGS::STORAGE_READ_BIT
+				.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
 			};
 
 			auto& imgDep = imgBarrier.barrier.dep;
@@ -334,6 +334,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				swapImageBarrier.barrier.dep = swapImageBarrier.barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::NONE,ACCESS_FLAGS::NONE);
 				swapImageBarrier.oldLayout = imgBarriers[1].newLayout;
 				swapImageBarrier.newLayout = IGPUImage::LAYOUT::PRESENT_SRC;
+				cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers={&swapImageBarrier,1}});
 			}
 
 			cb->end();
@@ -371,9 +372,10 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 							}
 						};
 
+						m_api->startCapture();
 						if (getGraphicsQueue()->submit(infos) == IQueue::RESULT::SUCCESS)
 						{
-							const nbl::video::ISemaphore::SWaitInfo waitInfos[] =
+							const ISemaphore::SWaitInfo waitInfos[] =
 							{ {
 								.semaphore = m_semaphore.get(),
 								.value = m_realFrameIx
@@ -383,6 +385,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 						}
 						else
 							--m_realFrameIx;
+						m_api->endCapture();
 					}
 				}
 
