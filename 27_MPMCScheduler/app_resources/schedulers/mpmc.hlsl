@@ -16,7 +16,7 @@ namespace schedulers
 {
 
 // TODO: improve and use a Global Pool Allocator and stop moving whole payloads around in VRAM
-template<typename Task, uint32_t WorkGroupSize, typename SharedAccessor, typename GlobalQueue, class device_capabilities=void>
+template<typename Task, uint32_t WorkGroupSize, typename SharedAccessor, class device_capabilities=void>
 struct MPMC
 {
     // TODO: static asset that the signature of the `Task::operator()` is `void()`

@@ -12,6 +12,7 @@ using namespace nbl::asset;
 using namespace nbl::ui;
 using namespace nbl::video;
 
+#include "app_resources/common.hlsl"
 
 class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
@@ -59,7 +60,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				return false;
 			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
-/*
+
 			smart_refctd_ptr<IGPUShader> shader;
 			{
 				IAssetLoader::SAssetLoadParams lp = {};
@@ -79,7 +80,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				if (!shader)
 					return false;
 			}
-*/			
+			
 			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
 			{
 				const IGPUDescriptorSetLayout::SBinding bindings[1] = { {
@@ -94,9 +95,14 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				if (!dsLayout)
 					return logFail("Failed to Create Descriptor Layout");
 			}
-/*
+
 			{
-				auto layout = m_device->createPipelineLayout({},smart_refctd_ptr(dsLayout));
+				const asset::SPushConstantRange ranges[] = {{
+					.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.offset = 0,
+					.size = sizeof(PushConstants)
+				}};
+				auto layout = m_device->createPipelineLayout(ranges,smart_refctd_ptr(dsLayout));
 				const IGPUComputePipeline::SCreationParams params[] = { {
 					{
 						.layout = layout.get()
@@ -114,7 +120,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				if (!m_device->createComputePipelines(nullptr,params,&m_ppln))
 					return logFail("Failed to create Pipeline");
 			}
-*/
+
 			m_hdr = m_device->createImage({
 				{
 					.type = IGPUImage::E_TYPE::ET_2D,
@@ -134,8 +140,8 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE,{&dsLayout.get(),1});
 				if (!pool)
 					return logFail("Could not create Descriptor Pool");
-				auto ds = pool->createDescriptorSet(std::move(dsLayout));
-				if (!ds)
+				m_ds = pool->createDescriptorSet(std::move(dsLayout));
+				if (!m_ds)
 					return logFail("Could not create Descriptor Set");
 				IGPUDescriptorSet::SDescriptorInfo info = {};
 				{
@@ -152,7 +158,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 					info.info.image.imageLayout = IGPUImage::LAYOUT::GENERAL;
 				}
 				const IGPUDescriptorSet::SWriteDescriptorSet writes[] = {{
-					.dstSet = ds.get(),
+					.dstSet = m_ds.get(),
 					.binding = 0,
 					.arrayElement = 0,
 					.count = 1,
@@ -287,9 +293,15 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 
 			// write the image
 			{
-				//
-	//			cb->bindComputePipeline(rawPipeline);
-	// push constants
+				cb->bindComputePipeline(m_ppln.get());
+				auto* layout = m_ppln->getLayout();
+				cb->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_COMPUTE,layout,0,1,&m_ds.get());
+				const PushConstants pc = {
+					.sharedAcceptableIdleCount = 0,
+					.globalAcceptableIdleCount = 0
+				};
+				cb->pushConstants(layout,IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,0,sizeof(pc),&pc);
+				cb->dispatch(WIN_W/WorkgroupSizeX,WIN_H/WorkgroupSizeY,1);
 			}
 
 			{
@@ -409,8 +421,9 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 	private:
 		smart_refctd_ptr<IWindow> m_window;
 		smart_refctd_ptr<CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>> m_surface;
-		smart_refctd_ptr<IGPUImage> m_hdr;
 		smart_refctd_ptr<IGPUComputePipeline> m_ppln;
+		smart_refctd_ptr<IGPUDescriptorSet> m_ds;
+		smart_refctd_ptr<IGPUImage> m_hdr;
 		smart_refctd_ptr<ISemaphore> m_semaphore;
 		uint64_t m_realFrameIx : 59 = 0;
 		uint64_t m_maxFramesInFlight : 5;
