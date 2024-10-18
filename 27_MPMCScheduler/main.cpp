@@ -171,7 +171,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				return logFail("Could not choose a Surface Format for the Swapchain!");
 
 			auto gQueue = getGraphicsQueue();
-			if (!m_surface || !m_surface->init(gQueue, nullptr, swapchainParams.sharedParams))
+			if (!m_surface || !m_surface->init(gQueue, std::make_unique<ISimpleManagedSurface::ISwapchainResources>(), swapchainParams.sharedParams))
 				return logFail("Could not create Window & Surface or initialize the Surface!");
 
 			m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
@@ -405,7 +405,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 
 	private:
 		smart_refctd_ptr<IWindow> m_window;
-		smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
+		smart_refctd_ptr<CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>> m_surface;
 		smart_refctd_ptr<IGPUImage> m_hdr;
 		smart_refctd_ptr<IGPUComputePipeline> m_ppln;
 		smart_refctd_ptr<ISemaphore> m_semaphore;
