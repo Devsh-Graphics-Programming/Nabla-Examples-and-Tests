@@ -23,11 +23,10 @@ cbuffer GridData
 [[vk::binding(b_dDiffInBuffer, s_d)]] RWTexture3D<float4> gridDiffusionInBuffer;
 [[vk::binding(b_dDiffOutBuffer, s_d)]] RWTexture3D<float4> gridDiffusionOutBuffer;
 
-[numthreads(WorkgroupSize, 1, 1)]
+[numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
 void setAxisCellMaterial(uint32_t3 ID : SV_DispatchThreadID)
 {
-    uint cid = ID.x;
-    int3 cellIdx = flatIdxToCellIdx(cid, gridData.gridSize);
+    int3 cellIdx = ID;
 
     uint cellMaterial = cellMaterialBuffer[cellIdx];
 
@@ -56,11 +55,10 @@ void setAxisCellMaterial(uint32_t3 ID : SV_DispatchThreadID)
     axisCellMaterialOutBuffer[cellIdx].xyz = cmAxisTypes;
 }
 
-[numthreads(WorkgroupSize, 1, 1)]
+[numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
 void setNeighborAxisCellMaterial(uint32_t3 ID : SV_DispatchThreadID)
 {
-    uint cid = ID.x;
-    int3 cellIdx = flatIdxToCellIdx(cid, gridData.gridSize);
+    int3 cellIdx = ID;
 
     uint3 axisCm = (uint3)0;
     uint3 this_axiscm = getCellMaterial(axisCellMaterialInBuffer[cellIdx].xyz);
@@ -87,11 +85,10 @@ void setNeighborAxisCellMaterial(uint32_t3 ID : SV_DispatchThreadID)
     axisCellMaterialOutBuffer[cellIdx].xyz = axisCm;
 }
 
-[numthreads(WorkgroupSize, 1, 1)]
+[numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
 void applyDiffusion(uint32_t3 ID : SV_DispatchThreadID)
 {
-    uint cid = ID.x;
-    int3 cellIdx = flatIdxToCellIdx(cid, gridData.gridSize);
+    int3 cellIdx = ID;
 
     uint3 axisCm = axisCellMaterialInBuffer[cellIdx].xyz;
     float3 velocity = (float3)0;
@@ -132,11 +129,10 @@ void applyDiffusion(uint32_t3 ID : SV_DispatchThreadID)
     gridDiffusionOutBuffer[cellIdx].xyz = velocity;
 }
 
-[numthreads(WorkgroupSize, 1, 1)]
+[numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
 void updateVelocity(uint32_t3 ID : SV_DispatchThreadID)
 {
-    uint cid = ID.x;
-    int3 cellIdx = flatIdxToCellIdx(cid, gridData.gridSize);
+    int3 cellIdx = ID;
 
     float3 velocity = gridDiffusionInBuffer[cellIdx].xyz;
 

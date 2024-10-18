@@ -27,11 +27,13 @@ static const int kernel[6] = { -1, 1, -1, 1, -1, 1 };
 // store weights in new grid as well, particle velocity weights
 // do final velocity weight in updateFluidCells
 
-[numthreads(WorkgroupSize, 1, 1)]
+[numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
 void updateFluidCells(uint32_t3 ID : SV_DispatchThreadID)
 {
-    uint tid = ID.x;
-    int3 cIdx = flatIdxToCellIdx(tid, gridData.gridSize);
+    // uint tid = ID.x;
+    // int3 cIdx = flatIdxToCellIdx(tid, gridData.gridSize);
+    int3 cIdx = ID;
+    uint tid = cellIdxToFlatIdx(cIdx, gridData.gridSize);
 
     uint2 pid = gridParticleIDBuffer[tid];  // will be removed, use new weights buffer to determine if fluid vs air
     uint thisCellMaterial =
@@ -49,11 +51,10 @@ void updateFluidCells(uint32_t3 ID : SV_DispatchThreadID)
     // enforceBoundaryCondition(velocity, cellMaterialInBuffer[tid]);
 }
 
-[numthreads(WorkgroupSize, 1, 1)]
+[numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
 void updateNeighborFluidCells(uint32_t3 ID : SV_DispatchThreadID)
 {
-    uint tid = ID.x;
-    int3 cIdx = flatIdxToCellIdx(tid, gridData.gridSize);
+    int3 cIdx = ID;
 
     uint thisCellMaterial = getCellMaterial(cellMaterialInBuffer[cIdx]);
     uint cellMaterial = 0;
@@ -80,11 +81,10 @@ void updateNeighborFluidCells(uint32_t3 ID : SV_DispatchThreadID)
     cellMaterialOutBuffer[cIdx] = cellMaterial;
 }
 
-[numthreads(WorkgroupSize, 1, 1)]
+[numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
 void addParticlesToCells(uint32_t3 ID : SV_DispatchThreadID)
 {
-    uint tid = ID.x;
-    int3 cIdx = flatIdxToCellIdx(tid, gridData.gridSize);
+    int3 cIdx = ID;
 
     float3 position = cellIdxToWorldPos(cIdx, gridData);
     float3 posvx = position + float3(-0.5f * gridData.gridCellSize, 0.0f, 0.0f);

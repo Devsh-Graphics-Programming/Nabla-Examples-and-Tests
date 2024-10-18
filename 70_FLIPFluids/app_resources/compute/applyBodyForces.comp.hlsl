@@ -12,12 +12,11 @@ cbuffer GridData
 [[vk::binding(b_abfVelFieldBuffer, s_abf)]] RWTexture3D<float> velocityFieldBuffer[3];
 [[vk::binding(b_abfCMBuffer, s_abf)]] RWTexture3D<uint> cellMaterialBuffer;
 
-[numthreads(WorkgroupSize, 1, 1)]
+[numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
     // only gravity for now
-    uint c_id = ID.x;
-    int3 cIdx = flatIdxToCellIdx(c_id, gridData.gridSize);
+    int3 cIdx = ID;
 
     float3 velocity;
     velocity.x = velocityFieldBuffer[0][cIdx];

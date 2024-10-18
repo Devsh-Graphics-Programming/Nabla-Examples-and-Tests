@@ -27,11 +27,10 @@ cbuffer PressureSolverParams
 [[vk::binding(b_psPresInBuffer, s_ps)]] RWTexture3D<float> pressureInBuffer;
 [[vk::binding(b_psPresOutBuffer, s_ps)]] RWTexture3D<float> pressureOutBuffer;
 
-[numthreads(WorkgroupSize, 1, 1)]
+[numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
 void calculateNegativeDivergence(uint32_t3 ID : SV_DispatchThreadID)
 {
-    uint cid = ID.x;
-    int3 cellIdx = flatIdxToCellIdx(cid, gridData.gridSize);
+    int3 cellIdx = ID;
 
     float3 param = (float3)gridData.gridInvCellSize;
     float3 velocity;
@@ -55,11 +54,10 @@ void calculateNegativeDivergence(uint32_t3 ID : SV_DispatchThreadID)
     divergenceBuffer[cellIdx] = divergence;
 }
 
-[numthreads(WorkgroupSize, 1, 1)]
+[numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
 void solvePressureSystem(uint32_t3 ID : SV_DispatchThreadID)
 {
-    uint cid = ID.x;
-    int3 cellIdx = flatIdxToCellIdx(cid, gridData.gridSize);
+    int3 cellIdx = ID;
 
     float pressure = 0;
 
@@ -91,11 +89,10 @@ void solvePressureSystem(uint32_t3 ID : SV_DispatchThreadID)
     pressureOutBuffer[cellIdx] = pressure;
 }
 
-[numthreads(WorkgroupSize, 1, 1)]
+[numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
 void updateVelocities(uint32_t3 ID : SV_DispatchThreadID)
 {
-    uint cid = ID.x;
-    int3 cellIdx = flatIdxToCellIdx(cid, gridData.gridSize);
+    int3 cellIdx = ID;
 
     uint cellMaterial = cellMaterialBuffer[cellIdx];
 

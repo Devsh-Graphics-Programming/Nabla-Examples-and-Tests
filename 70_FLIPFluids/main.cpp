@@ -267,7 +267,11 @@ public:
         usePreset(CENTER_DROP);
         
         WorkgroupCountParticles = (numParticles + WorkgroupSize - 1) / WorkgroupSize;
-        WorkgroupCountGrid = (numGridCells + WorkgroupSize - 1) / WorkgroupSize;
+        WorkgroupCountGrid = {
+            (m_gridData.gridSize.x + WorkgroupGridDim - 1) / WorkgroupGridDim,
+            (m_gridData.gridSize.y + WorkgroupGridDim - 1) / WorkgroupGridDim,
+            (m_gridData.gridSize.z + WorkgroupGridDim - 1) / WorkgroupGridDim
+        };
 
         {
             float zNear = 0.1f, zFar = 10000.f;
@@ -1335,7 +1339,7 @@ public:
         
         cmdbuf->bindComputePipeline(m_updateFluidCellsPipeline.get());
         cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_updateFluidCellsPipeline->getLayout(), 1, 1, &m_updateFluidCellsDs.get());
-        cmdbuf->dispatch(WorkgroupCountGrid, 1, 1);
+        cmdbuf->dispatch(WorkgroupCountGrid.x, WorkgroupCountGrid.y, WorkgroupCountGrid.z);
 
         {
             SMemoryBarrier memBarrier;
@@ -1348,7 +1352,7 @@ public:
 
         cmdbuf->bindComputePipeline(m_updateNeighborCellsPipeline.get());
         cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_updateNeighborCellsPipeline->getLayout(), 1, 1, &m_updateNeighborCellsDs.get());
-        cmdbuf->dispatch(WorkgroupCountGrid, 1, 1);
+        cmdbuf->dispatch(WorkgroupCountGrid.x, WorkgroupCountGrid.y, WorkgroupCountGrid.z);
 
         {
             SMemoryBarrier memBarrier;
@@ -1361,7 +1365,7 @@ public:
 
         cmdbuf->bindComputePipeline(m_particleToCellPipeline.get());
         cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_particleToCellPipeline->getLayout(), 1, 1, &m_particleToCellDs.get());
-        cmdbuf->dispatch(WorkgroupCountGrid, 1, 1);
+        cmdbuf->dispatch(WorkgroupCountGrid.x, WorkgroupCountGrid.y, WorkgroupCountGrid.z);
     }
     
     void dispatchApplyBodyForces(IGPUCommandBuffer* cmdbuf, bool isFirstSubstep)
@@ -1377,7 +1381,7 @@ public:
 
         cmdbuf->bindComputePipeline(m_applyBodyForcesPipeline.get());
         cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_applyBodyForcesPipeline->getLayout(), 1, 1, &m_applyForcesDs.get());
-        cmdbuf->dispatch(WorkgroupCountGrid, 1, 1);
+        cmdbuf->dispatch(WorkgroupCountGrid.x, WorkgroupCountGrid.y, WorkgroupCountGrid.z);
     }
     
     void dispatchApplyDiffusion(IGPUCommandBuffer* cmdbuf)
@@ -1396,7 +1400,7 @@ public:
 
         cmdbuf->bindComputePipeline(m_axisCellsPipeline.get());
         cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_axisCellsPipeline->getLayout(), 1, 1, &m_axisCellsDs.get());
-        cmdbuf->dispatch(WorkgroupCountGrid, 1, 1);
+        cmdbuf->dispatch(WorkgroupCountGrid.x, WorkgroupCountGrid.y, WorkgroupCountGrid.z);
 
         {
             SMemoryBarrier memBarrier;
@@ -1409,7 +1413,7 @@ public:
 
         cmdbuf->bindComputePipeline(m_neighborAxisCellsPipeline.get());
         cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_neighborAxisCellsPipeline->getLayout(), 1, 1, &m_neighborAxisCellsDs.get());
-        cmdbuf->dispatch(WorkgroupCountGrid, 1, 1);
+        cmdbuf->dispatch(WorkgroupCountGrid.x, WorkgroupCountGrid.y, WorkgroupCountGrid.z);
 
         float a = viscosity * deltaTime;
         float32_t3 b = float32_t3(m_gridData.gridInvCellSize * m_gridData.gridInvCellSize);
@@ -1432,7 +1436,7 @@ public:
             }
 
             cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_diffusionPipeline->getLayout(), 1, 1, &m_diffusionDs[i % 2].get());
-            cmdbuf->dispatch(WorkgroupCountGrid, 1, 1);
+            cmdbuf->dispatch(WorkgroupCountGrid.x, WorkgroupCountGrid.y, WorkgroupCountGrid.z);
         }
         
         {
@@ -1446,7 +1450,7 @@ public:
 
         cmdbuf->bindComputePipeline(m_updateVelDPipeline.get());
         cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_updateVelDPipeline->getLayout(), 1, 1, &m_updateVelDDs.get());
-        cmdbuf->dispatch(WorkgroupCountGrid, 1, 1);
+        cmdbuf->dispatch(WorkgroupCountGrid.x, WorkgroupCountGrid.y, WorkgroupCountGrid.z);
     }
     
     void dispatchApplyPressure(IGPUCommandBuffer* cmdbuf)
@@ -1462,7 +1466,7 @@ public:
 
         cmdbuf->bindComputePipeline(m_calcDivergencePipeline.get());
         cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_calcDivergencePipeline->getLayout(), 1, 1, &m_calcDivergenceDs.get());
-        cmdbuf->dispatch(WorkgroupCountGrid, 1, 1);
+        cmdbuf->dispatch(WorkgroupCountGrid.x, WorkgroupCountGrid.y, WorkgroupCountGrid.z);
 
         cmdbuf->bindComputePipeline(m_solvePressurePipeline.get());
         for (int i = 0; i < pressureSolverIterations; i++)
@@ -1477,7 +1481,7 @@ public:
             }
 
             cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_solvePressurePipeline->getLayout(), 1, 1, &m_solvePressureDs[i % 2].get());
-            cmdbuf->dispatch(WorkgroupCountGrid, 1, 1);
+            cmdbuf->dispatch(WorkgroupCountGrid.x, WorkgroupCountGrid.y, WorkgroupCountGrid.z);
         }
 
         {
@@ -1491,7 +1495,7 @@ public:
 
         cmdbuf->bindComputePipeline(m_updateVelPsPipeline.get());
         cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_updateVelPsPipeline->getLayout(), 1, 1, &m_updateVelPsDs.get());
-        cmdbuf->dispatch(WorkgroupCountGrid, 1, 1);
+        cmdbuf->dispatch(WorkgroupCountGrid.x, WorkgroupCountGrid.y, WorkgroupCountGrid.z);
     }
     
     void dispatchExtrapolateVelocities(IGPUCommandBuffer* cmdbuf)
@@ -2231,7 +2235,7 @@ private:
 
     // simulation constants
     size_t WorkgroupCountParticles;
-    size_t WorkgroupCountGrid;
+    uint32_t3 WorkgroupCountGrid;
     uint32_t m_substepsPerFrame = 1;
     SGridData m_gridData;
     SParticleRenderParams m_pRenderParams;
