@@ -360,8 +360,9 @@ public:
         if (!initGraphicsPipeline())
             return logFail("Failed to initialize render pipeline!\n");
 
-        auto createComputePipeline = [&](smart_refctd_ptr<IGPUComputePipeline>& pipeline, smart_refctd_ptr<IDescriptorPool>& pool, smart_refctd_ptr<IGPUDescriptorSet>& set, 
-            const std::string& shaderPath, const std::string& entryPoint, const std::span<const IGPUDescriptorSetLayout::SBinding> bindings) -> void
+        auto createComputePipeline = [&](smart_refctd_ptr<IGPUComputePipeline>& pipeline, smart_refctd_ptr<IDescriptorPool>& pool,
+            smart_refctd_ptr<IGPUDescriptorSet>& set, const std::string& shaderPath, const std::string& entryPoint,
+            const std::span<const IGPUDescriptorSetLayout::SBinding> bindings, const asset::SPushConstantRange& pcRange = {}) -> void
             {
                 auto shader = compileShader(shaderPath, entryPoint);
 
@@ -376,7 +377,11 @@ public:
                 pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()));
                 set = pool->createDescriptorSet(descriptorSetLayout1);
 
-                smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pipelineLayout = m_device->createPipelineLayout({}, nullptr, smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
+                smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pipelineLayout;
+                if (pcRange.size == 0)
+                    pipelineLayout = m_device->createPipelineLayout({}, nullptr, smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
+                else
+                    pipelineLayout = m_device->createPipelineLayout({ &pcRange, 1 }, nullptr, smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
 
                 IGPUComputePipeline::SCreationParams params = {};
                 params.layout = pipelineLayout.get();
@@ -388,7 +393,8 @@ public:
 
         {
             // init particles pipeline
-            createComputePipeline(m_initParticlePipeline, m_initParticlePool, m_initParticleDs, "app_resources/compute/particlesInit.comp.hlsl", "main", piParticlesInit_bs1);
+            createComputePipeline(m_initParticlePipeline, m_initParticlePool, m_initParticleDs,
+                "app_resources/compute/particlesInit.comp.hlsl", "main", piParticlesInit_bs1);
 
             {
                 IGPUDescriptorSet::SDescriptorInfo infos[2];
@@ -405,7 +411,8 @@ public:
         }
         {
             // generate particle vertex pipeline
-            createComputePipeline(m_genParticleVerticesPipeline, m_genVerticesPool, m_genVerticesDs, "app_resources/compute/genParticleVertices.comp.hlsl", "main", gpvGenVertices_bs1);
+            createComputePipeline(m_genParticleVerticesPipeline, m_genVerticesPool, m_genVerticesDs,
+                "app_resources/compute/genParticleVertices.comp.hlsl", "main", gpvGenVertices_bs1);
 
             {
                 IGPUDescriptorSet::SDescriptorInfo infos[4];
@@ -1897,25 +1904,26 @@ private:
                 barrier.newLayout = IImage::LAYOUT::GENERAL;
             };
 
+        uint32_t count = 0;
         IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[15];
         for (uint32_t i = 0; i < 3; i++)
         {
-            fillGridBarrierInfo(imageBarriers[i * 2], velocityFieldImageViews[i]);
-            fillGridBarrierInfo(imageBarriers[i * 2 + 1], prevVelocityFieldImageViews[i]);
+            fillGridBarrierInfo(imageBarriers[count++], velocityFieldImageViews[i]);
+            fillGridBarrierInfo(imageBarriers[count++], prevVelocityFieldImageViews[i]);
         }
 
-        fillGridBarrierInfo(imageBarriers[6], gridCellMaterialImageView);
-        fillGridBarrierInfo(imageBarriers[7], tempCellMaterialImageView);
+        fillGridBarrierInfo(imageBarriers[count++], gridCellMaterialImageView);
+        fillGridBarrierInfo(imageBarriers[count++], tempCellMaterialImageView);
 
-        fillGridBarrierInfo(imageBarriers[8], gridAxisCellMaterialImageView);
-        fillGridBarrierInfo(imageBarriers[9], tempAxisCellMaterialImageView);
+        fillGridBarrierInfo(imageBarriers[count++], gridAxisCellMaterialImageView);
+        fillGridBarrierInfo(imageBarriers[count++], tempAxisCellMaterialImageView);
 
-        fillGridBarrierInfo(imageBarriers[10], gridDiffusionImageView);
-        fillGridBarrierInfo(imageBarriers[11], tempDiffusionImageView);
+        fillGridBarrierInfo(imageBarriers[count++], gridDiffusionImageView);
+        fillGridBarrierInfo(imageBarriers[count++], tempDiffusionImageView);
 
-        fillGridBarrierInfo(imageBarriers[12], pressureImageView);
-        fillGridBarrierInfo(imageBarriers[13], tempPressureImageView);
-        fillGridBarrierInfo(imageBarriers[14], divergenceImageView);
+        fillGridBarrierInfo(imageBarriers[count++], pressureImageView);
+        fillGridBarrierInfo(imageBarriers[count++], tempPressureImageView);
+        fillGridBarrierInfo(imageBarriers[count++], divergenceImageView);
 
         cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imageBarriers });
     }
