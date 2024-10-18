@@ -66,7 +66,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0,	// CASE_8
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_2;
+constexpr ExampleMode mode = ExampleMode::CASE_8;
 
 class Camera2D
 {
@@ -1037,7 +1037,7 @@ public:
 		// Loading font stuff
 		m_textRenderer = nbl::core::make_smart_refctd_ptr<TextRenderer>();
 
-		m_arialFont = nbl::core::make_smart_refctd_ptr<FontFace>(core::smart_refctd_ptr(m_textRenderer), std::string("C:\\Windows\\Fonts\\arial.ttf"));
+		m_arialFont = FontFace::create(core::smart_refctd_ptr(m_textRenderer), std::string("C:\\Windows\\Fonts\\arial.ttf"));
 		const auto str = "MSDF: ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnoprstuvwxyz '1234567890-=\"!@#$%&*()_+";
 		singleLineText = std::unique_ptr<SingleLineText>(new SingleLineText(
 			core::smart_refctd_ptr<FontFace>(m_arialFont), 
@@ -1077,10 +1077,7 @@ public:
 		for (uint32_t i = 0; i < MaxSubmitsInFlight; ++i)
 			m_commandBufferInfos[i] = { .cmdbuf = m_commandBuffersInFlight[i].get() };
 		m_intendedNextSubmit.scratchCommandBuffers = m_commandBufferInfos;
-
 		m_currentRecordingCommandBufferInfo = &m_commandBufferInfos[0];
-		m_currentRecordingCommandBufferInfo->cmdbuf->reset(video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
-		m_currentRecordingCommandBufferInfo->cmdbuf->begin(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
 		return true;
 	}
@@ -1527,8 +1524,74 @@ protected:
 			};
 
 			int32_t hatchDebugStep = m_hatchDebugStep;
+			
+			if (true)
+			{
+				// Degenerate and Corner cases for hatches
+				{
+					{
+						float64_t miniGap = 1.0e-15;
+						// degenerate major const line points:
+						float64_t2 pointA = { 0.0, -50.0 + miniGap };
+						float64_t2 pointB = { 50.0, -50.0 };
+						CPolyline polyline;
+						std::vector<float64_t2> linePoints;
+						{
+							linePoints.push_back({ 0.0, 0.0 });
+							linePoints.push_back({ 50.0, 0.0 });
+							linePoints.push_back(pointB);
+							linePoints.push_back(pointA);
+							linePoints.push_back({ 0.0, 0.0 });
+						}
+						polyline.addLinePoints(linePoints);
+						Hatch hatch({ &polyline, 1u }, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
+						drawResourcesFiller.drawHatch(hatch, float32_t4(0.4f, 1.0f, 0.1f, 1.0f), intendedNextSubmit);
+						linePoints.clear();
+						polyline.clearEverything();
+						{
+							linePoints.push_back(pointA);
+							linePoints.push_back(pointB);
+							linePoints.push_back({ 50.0, -100.0 });
+							linePoints.push_back({ 0.0, -100.0 });
+							linePoints.push_back(pointA);
+						}
+						polyline.addLinePoints(linePoints);
+						Hatch hatch2({ &polyline, 1u }, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
+						drawResourcesFiller.drawHatch(hatch2, float32_t4(0.4f, 0.6f, 0.8f, 1.0f), intendedNextSubmit);
+					}
+				}
+				
 
-			if (hatchDebugStep > 0)
+
+				{
+					{
+						float64_t2 offset = { 150.0, 0.0 };
+						float64_t miniGap = 1.0e-15 + abs(cos(m_timeElapsed * 0.00018)) * 15.0f;
+						CPolyline polyline;
+						std::vector<float64_t2> linePoints;
+						{
+							linePoints.push_back(offset + float64_t2{ 0.0, 0.0 });
+							linePoints.push_back(offset + float64_t2{ 100.0, 0.0 });
+							linePoints.push_back(offset + float64_t2{ 100.0, -100.0 });
+							linePoints.push_back(offset + float64_t2{ 0.0, -100.0 + miniGap });
+							linePoints.push_back(offset + float64_t2{ 0.0, 0.0 });
+						}
+						polyline.addLinePoints(linePoints);
+						linePoints.clear();
+						{
+							linePoints.push_back(offset + float64_t2{ 20.0, -20.0 });
+							linePoints.push_back(offset + float64_t2{ 80.0, -20.0 });
+							linePoints.push_back(offset + float64_t2{ 80.0, -80.0 });
+							linePoints.push_back(offset + float64_t2{ 20.0, -80.0 + miniGap });
+							linePoints.push_back(offset + float64_t2{ 20.0, -20.0 });
+						}
+						polyline.addLinePoints(linePoints);
+						Hatch hatch({ &polyline, 1u }, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
+						drawResourcesFiller.drawHatch(hatch, float32_t4(0.4f, 1.0f, 0.1f, 1.0f), intendedNextSubmit);
+					}
+				}
+			}
+			if (false)
 			{
 #include "bike_hatch.h"
 				for (uint32_t i = 0; i < polylines.size(); i++)
@@ -1541,23 +1604,22 @@ protected:
 				}
 				//printf("hatchDebugStep = %d\n", hatchDebugStep);
 				std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
-				Hatch hatch(polylines, SelectedMajorAxis, &hatchDebugStep, debug);
+				Hatch hatch(polylines, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-				// std::cout << "Hatch::Hatch time = " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "[us]" << std::endl;
-				std::sort(hatch.intersectionAmounts.begin(), hatch.intersectionAmounts.end());
+				//// std::cout << "Hatch::Hatch time = " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "[us]" << std::endl;
+				//std::sort(hatch.intersectionAmounts.begin(), hatch.intersectionAmounts.end());
 
-				auto percentile = [&](float percentile)
-					{
-						return hatch.intersectionAmounts[uint32_t(round(percentile * float(hatch.intersectionAmounts.size() - 1)))];
-					};
+				//auto percentile = [&](float percentile)
+				//	{
+				//		return hatch.intersectionAmounts[uint32_t(round(percentile * float(hatch.intersectionAmounts.size() - 1)))];
+				//	};
 				//printf(std::format(
 				//	"Intersection amounts: 10%%: {}, 25%%: {}, 50%%: {}, 75%%: {}, 90%%: {}, 100%% (max): {}\n",
 				//	percentile(0.1), percentile(0.25), percentile(0.5), percentile(0.75), percentile(0.9), hatch.intersectionAmounts[hatch.intersectionAmounts.size() - 1]
 				//).c_str());
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.6, 0.6, 0.1, 1.0f), intendedNextSubmit);
 			}
-
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				std::vector <CPolyline> polylines;
 				auto line = [&](float64_t2 begin, float64_t2 end) {
@@ -1597,11 +1659,10 @@ protected:
 					polylines.push_back(polyline);
 				}
 
-				Hatch hatch(polylines, SelectedMajorAxis, &hatchDebugStep, debug);
+				Hatch hatch(polylines, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.0, 1.0, 0.1, 1.0f), intendedNextSubmit);
 			}
-
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				std::vector <CPolyline> polylines;
 				auto circleThing = [&](float64_t2 offset)
@@ -1630,11 +1691,10 @@ protected:
 				circleThing(float64_t2(0, -500));
 				circleThing(float64_t2(0, 500));
 
-				Hatch hatch(polylines, SelectedMajorAxis, &hatchDebugStep, debug);
+				Hatch hatch(polylines, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(1.0, 0.1, 0.1, 1.0f), intendedNextSubmit);
 			}
-
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				std::vector <CPolyline> polylines;
 				auto line = [&](float64_t2 begin, float64_t2 end) {
@@ -1672,8 +1732,7 @@ protected:
 					polyline.addQuadBeziers(beziers);
 				}
 			}
-
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				std::vector <CPolyline> polylines;
 				{
@@ -1784,11 +1843,10 @@ protected:
 					polyline.addLinePoints(points);
 					polylines.push_back(polyline);
 				}
-				Hatch hatch(polylines, SelectedMajorAxis, &hatchDebugStep, debug);
+				Hatch hatch(polylines, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.0, 0.0, 1.0, 1.0f), intendedNextSubmit);
 			}
-			
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				std::vector<float64_t2> points;
 				double sqrt3 = sqrt(3.0);
@@ -1823,11 +1881,10 @@ protected:
 				polyline.addLinePoints(points);
 				polyline.addQuadBeziers(beziers);
 
-				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, &hatchDebugStep, debug);
+				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(1.0f, 0.325f, 0.103f, 1.0f), intendedNextSubmit);
 			}
-			
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				CPolyline polyline;
 				std::vector<shapes::QuadraticBezier<double>> beziers;
@@ -1841,12 +1898,29 @@ protected:
 					100.0 * float64_t2(3.7, 7.27) });
 				polyline.addQuadBeziers(beziers);
 			
-				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, &hatchDebugStep, debug);
+				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.619f, 0.325f, 0.709f, 0.9f), intendedNextSubmit);
 			}
 		}
 		else if (mode == ExampleMode::CASE_3)
 		{
+			// Testing Degenerate Cases Causing Bugs/Nan/Crashes
+			// 0 Sized Rect --> generateOffsetPolyline shouldn't return nan
+			{
+				CPolyline polyline;
+				std::vector<float64_t2> linePoints;
+				{
+					linePoints.push_back({ 1.0, -20.0 });
+					linePoints.push_back({ 1.0, -20.0 });
+					linePoints.push_back({ 1.0, 0.0 });
+					linePoints.push_back({ 1.0, 0.0 });
+					linePoints.push_back({ 1.0, -20.0 });
+				}
+				polyline.addLinePoints(linePoints);
+				auto parallelPoly = polyline.generateParallelPolyline(1.0);
+				assert(!std::isnan(parallelPoly.getLinePointAt(0).p[0]));
+			}
+
 			LineStyleInfo style = {};
 			style.screenSpaceLineWidth = 4.0f;
 			style.worldSpaceLineWidth = 0.0f;

@@ -730,6 +730,15 @@ public:
 	{
 		// DISCONNECTION DETECTED, will break styling and offsetting the polyline, if you don't care about those then ignore discontinuity.
 		_NBL_DEBUG_BREAK_IF(!checkSectionsContinuity());
+		
+		// TODO: move to nbl::hlsl later on as convenience function, correctly templated
+		auto safe_normalize = [](nbl::hlsl::float64_t2 vec) -> nbl::hlsl::float64_t2
+			{
+				const float64_t dirLen = glm::length(vec);
+				if (dirLen == 0.0)
+					return nbl::hlsl::float64_t2(0.0, 0.0);
+				return vec / dirLen;
+			};
 
 		CPolyline parallelPolyline = {};
 		parallelPolyline.setClosed(m_closedPolygon);
@@ -919,22 +928,22 @@ public:
 					float64_t2 offsetVector;
 					if (j == 0)
 					{
-						const float64_t2 tangent = glm::normalize(m_linePoints[linePointIdx + 1].p - m_linePoints[linePointIdx].p);
+						const float64_t2 tangent = safe_normalize(m_linePoints[linePointIdx + 1].p - m_linePoints[linePointIdx].p);
 						offsetVector = float64_t2(tangent.y, -tangent.x);
 					}
 					else if (j == section.count)
 					{
-						const float64_t2 tangent = glm::normalize(m_linePoints[linePointIdx].p - m_linePoints[linePointIdx - 1].p);
+						const float64_t2 tangent = safe_normalize(m_linePoints[linePointIdx].p - m_linePoints[linePointIdx - 1].p);
 						offsetVector = float64_t2(tangent.y, -tangent.x);
 					}
 					else
 					{
-						const float64_t2 tangentPrevLine = glm::normalize(m_linePoints[linePointIdx].p - m_linePoints[linePointIdx - 1].p);
+						const float64_t2 tangentPrevLine = safe_normalize(m_linePoints[linePointIdx].p - m_linePoints[linePointIdx - 1].p);
 						const float64_t2 normalPrevLine = float64_t2(tangentPrevLine.y, -tangentPrevLine.x);
-						const float64_t2 tangentNextLine = glm::normalize(m_linePoints[linePointIdx + 1].p - m_linePoints[linePointIdx].p);
+						const float64_t2 tangentNextLine = safe_normalize(m_linePoints[linePointIdx + 1].p - m_linePoints[linePointIdx].p);
 						const float64_t2 normalNextLine = float64_t2(tangentNextLine.y, -tangentNextLine.x);
 
-						const float64_t2 intersectionDirection = glm::normalize(normalPrevLine + normalNextLine);
+						const float64_t2 intersectionDirection = safe_normalize(normalPrevLine + normalNextLine);
 						const float64_t cosAngleBetweenNormals = glm::dot(normalPrevLine, normalNextLine);
 						offsetVector = intersectionDirection * sqrt(2.0 / (1.0 + cosAngleBetweenNormals));
 					}
