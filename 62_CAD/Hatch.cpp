@@ -274,6 +274,13 @@ Hatch::Hatch(std::span<CPolyline> lines, const MajorAxis majorAxis, nbl::system:
 				}
 			}
 		}
+		
+		if (segments.empty())
+		{
+			logger.log("Empty Polylines with no segments were fed into the Hatch construction.", nbl::system::ILogger::ELL_WARNING);
+			return;
+		}
+
 		for (uint32_t bezierIdx = 0; bezierIdx < beziers.size(); bezierIdx++)
 		{
 			auto hatchBezier = &beziers[bezierIdx];
