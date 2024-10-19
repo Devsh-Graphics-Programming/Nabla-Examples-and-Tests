@@ -14,19 +14,24 @@ namespace format
 {
 
 template<typename IntT, uint16_t _Components, uint16_t _ExponentBits>
-struct shared_exp
+struct shared_exp// : enable_if_t<_ExponentBits<16> need a way to static_assert in SPIRV!
 {
     using this_t = shared_exp<IntT,_Components,_ExponentBits>;
     using storage_t = typename make_unsigned<IntT>::type;
-//    static_assert(_ExponentBits<16);
-
-    //
     NBL_CONSTEXPR_STATIC_INLINE uint16_t Components = _Components;
-    //
     NBL_CONSTEXPR_STATIC_INLINE uint16_t ExponentBits = _ExponentBits;
 
     // Not even going to consider fp16 and fp64 dependence on device traits
     using decode_t = float32_t;
+
+    bool operator==(const this_t other)
+    {
+        return storage==other.storage;
+    }
+    bool operator!=(const this_t other)
+    {
+        return storage==other.storage;
+    }
 
     storage_t storage;
 };

@@ -220,7 +220,6 @@ float32_t3 nbl_glsl_refract(in float32_t3 I, in float32_t3 N, in bool backside, 
 
 void WhittedTask::__impl_call()
 {
-#if 0
     const float32_t3 rayDir = getRayDir();
     const float32_t3 throughput = getThroughput();
 
@@ -295,16 +294,19 @@ void WhittedTask::__impl_call()
 
     if (contribution.r+contribution.g+contribution.b<1.f/2047.f)
         return;
-#endif
-    float32_t3 contribution = float32_t3(outputX,outputY,0)/float32_t3(1280,720,1);
 
+    const uint32_t2 output = uint32_t2(outputX,outputY);
+    // CAS loops on R32_UINT view of RGB9E5 because there's no atomic add (only NV has vector half float atomics, but RGB9E5 not storable)
     using rgb9e5_t = format::shared_exp<uint32_t,3,5>;
-    // TODO: CAS loops on R32_UINT view of RGB9E5
+    rgb9e5_t actual,expected;
+    // assume image is empty, good assumption always true once
+    actual.storage = 0;
+    do
     {
-        // required for the encode to work properly
-        contribution = clamp(contribution,promote<float32_t3>(0.f),promote<float32_t3>(numeric_limits<rgb9e5_t>::max));
-        framebuffer[uint32_t2(outputX,outputY)] = format::_static_cast<rgb9e5_t>(format::_static_cast<float32_t3>(format::_static_cast<rgb9e5_t>(contribution))).storage;
-    }
+        expected = actual;
+        rgb9e5_t newVal = format::_static_cast<rgb9e5_t>(format::_static_cast<float32_t3>(expected)+contribution);
+        InterlockedCompareExchange(framebuffer[output],expected.storage,newVal.storage,actual.storage);
+    } while (expected!=actual);
 }
 
 struct Dummy
