@@ -52,23 +52,23 @@ const static uint32_t SphereCount = 5;
 const static Sphere spheres[5] = {
     {
         float32_t3(0,5,0),
-        0.25f,
+        0.5f,
         Sphere::MaxColorValue,
         0,
         0,
         Material::Emission
     },
     {
-        float32_t3(-2,3,0),
-        0.36f,
+        float32_t3(-1,1,0),
+        0.6f,
         Sphere::MaxColorValue,
         Sphere::MaxColorValue,
         0,
         Material::Metal
     },
     {
-        float32_t3(2,3,0),
-        0.64f,
+        float32_t3(1,1,0),
+        0.8f,
         0,
         Sphere::MaxColorValue,
         Sphere::MaxColorValue,
@@ -76,16 +76,16 @@ const static Sphere spheres[5] = {
     },
     // Glass balls need to be monochromatic, cause I didn't do RGB in my task payload
     {
-        float32_t3(-1,1,0),
-        0.49f,
+        float32_t3(-2,3,0),
+        0.7f,
         Sphere::MaxColorValue,
         Sphere::MaxColorValue,
         Sphere::MaxColorValue,
         Material::Glass
     },
     {
-        float32_t3(1,1,0),
-        0.49f,
+        float32_t3(2,3,0),
+        0.7f,
         0,
         Sphere::MaxColorValue/2,
         0,
@@ -172,6 +172,29 @@ struct SharedAccessor
 static nbl::hlsl::MPMCScheduler<WhittedTask,8*8,SharedAccessor> scheduler;
 #endif
 
+struct Dummy
+{
+    void operator()()
+    {
+        while (nextValid)
+        {
+            nextValid = false;
+            next();
+        }
+    }
+
+    void push(WhittedTask el)
+    {
+        if (!nextValid)
+            next = el;
+        nextValid = true;
+    }
+
+    WhittedTask next;
+    bool nextValid;
+};
+static Dummy scheduler;
+
 // stolen from Nabla GLSL
 bool nbl_glsl_getOrientedEtas(out float orientedEta, out float rcpOrientedEta, in float NdotI, in float eta)
 {
@@ -202,6 +225,7 @@ float32_t3 nbl_glsl_refract(in float32_t3 I, in float32_t3 N, in bool backside, 
     const float NdotT = backside ? abs_NdotT:(-abs_NdotT);
     return N*(NdotI*rcpOrientedEta + NdotT) - rcpOrientedEta*I;
 }
+
 
 
 #include "nbl/builtin/hlsl/format/shared_exp.hlsl"
@@ -242,7 +266,7 @@ void WhittedTask::__impl_call()
             const bool isGlass = sphere.material==Material::Glass;
             WhittedTask newTask = this;
             newTask.depth++;
-            newTask.origin = hitPoint;
+            newTask.origin = hitPoint+normal*0.0001;
 
             // deal with reflection
             float16_t3 newThroughput = throughput;
@@ -262,7 +286,7 @@ void WhittedTask::__impl_call()
                 if (!isGlass)
                     newTask.throughput *= color;
                 newTask.setRayDir(reflected);
-//                scheduler.push(newTask);
+                scheduler.push(newTask);
             }
             // deal with refraction
             if (isGlass)
@@ -299,18 +323,6 @@ void WhittedTask::__impl_call()
     } while (expected!=actual);
 }
 
-struct Dummy
-{
-    void operator()()
-    {
-        next();
-    }
-
-    WhittedTask next;
-    bool nextValid;
-};
-static Dummy scheduler;
-
 [[vk::push_constant]] PushConstants pc;
 
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
@@ -340,7 +352,7 @@ void main()
             GlobalInvocationID.x += linearIx%WorkgroupSizeX;
             GlobalInvocationID.y += linearIx/WorkgroupSizeX;
         }
-        scheduler.next.origin = float32_t3(0,2,8);
+        scheduler.next.origin = float32_t3(0,2.5,6);
         scheduler.next.throughput = float16_t3(1,1,1);
         scheduler.next.contribution = float16_t3(0,0,0);
         scheduler.next.outputX = GlobalInvocationID.x;
