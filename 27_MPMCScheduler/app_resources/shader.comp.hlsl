@@ -8,6 +8,7 @@
 
 #include "nbl/builtin/hlsl/limits.hlsl"
 #include "nbl/builtin/hlsl/numbers.hlsl"
+#include "format/shared_exp.hlsl"
 
 
 using namespace nbl::hlsl;
@@ -219,6 +220,8 @@ float32_t3 nbl_glsl_refract(in float32_t3 I, in float32_t3 N, in bool backside, 
 
 void WhittedTask::__impl_call()
 {
+    framebuffer[uint32_t2(outputX,outputY)] = 0xffFFffFFu;
+
     const float32_t3 rayDir = getRayDir();
     const float32_t3 throughput = getThroughput();
 
@@ -294,9 +297,15 @@ void WhittedTask::__impl_call()
     if (contribution.r+contribution.g+contribution.b<1.f/2047.f)
         return;
 
-    // Use device traits to do CAS loops on R32_UINT view of RGB9E5 when no VK_NV_shader_atomic_float16_vector
-//    spirv::atomicAdd(spirv::addrof(framebuffer),contribution);
-    framebuffer[uint32_t2(outputX,outputY)] = 0xffFFffFFu;
+
+    using rgb9e5_t = format::shared_exp<uint32_t,3,5>;
+    const float32_t MaxEncVal = 69.f;//numeric_limits<rgb9e5_t>::max;
+    // TODO: CAS loops on R32_UINT view of RGB9E5
+    {
+        // required for the encode to work properly
+        contribution = clamp(contribution,float32_t3(0.f,0.f,0.f),float32_t3(MaxEncVal,MaxEncVal,MaxEncVal));
+        framebuffer[uint32_t2(outputX,outputY)] = format::_static_cast<rgb9e5_t>(contribution).storage;
+    }
 }
 
 struct Dummy
