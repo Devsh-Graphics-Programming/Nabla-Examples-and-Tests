@@ -2,13 +2,11 @@
 //#include "nbl/builtin/hlsl/type_traits.hlsl"
 
 //#include "schedulers/mpmc.hlsl"
-#include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 
 #include "common.hlsl"
 
 #include "nbl/builtin/hlsl/limits.hlsl"
 #include "nbl/builtin/hlsl/numbers.hlsl"
-#include "format/shared_exp.hlsl"
 
 
 using namespace nbl::hlsl;
@@ -86,7 +84,7 @@ const static Sphere spheres[5] = {
         Material::Glass
     },
     {
-        float32_t3(-1,1,0),
+        float32_t3(1,1,0),
         0.49f,
         0,
         Sphere::MaxColorValue/2,
@@ -95,42 +93,43 @@ const static Sphere spheres[5] = {
     }
 };
 
+#include "nbl/builtin/hlsl/format/octahedral.hlsl"
+
+
+// TODO: remove after the `emulated_float` merge
+namespace remove_TODO
+{
+template<typename T, typename U>
+T _static_cast(U val)
+{
+    nbl::hlsl::impl::_static_cast_helper<T,U> fn;
+    return fn(val);
+}
+}
 
 // Payload and Executor for our Task-Graph
 struct WhittedTask
 {
-    static const uint32_t MaxDepth = (1<<2)-1;
-    static const uint32_t MaxTheta = (1<<19)-1;
-    static const uint32_t MaxPhi = (1<<20)-1;
+    static const uint32_t MaxDepth = (1<<5)-1;
+
+    using dir_t = format::octahedral<uint32_t>;
 
     float32_t3 origin;
-    float16_t3 throughput;
+    dir_t dir;
+    float16_t3 throughput; 
     float16_t3 contribution;
     //
-    uint64_t outputX : 12;
-    uint64_t outputY : 11;
-    uint64_t dirTheta : 19;
-    uint64_t dirPhi : 20;
-    uint64_t depth : 2;
+    uint32_t outputX : 14;
+    uint32_t outputY : 13;
+    uint32_t depth : 5;
 
-    void setRayDir(float32_t3 dir)
+    void setRayDir(float32_t3 _dir)
     {
-        const float32_t pi = nbl::hlsl::numbers::pi<float32_t>;
-        dirTheta = acos(dir.z)*float32_t(MaxTheta)/pi+0.5f;
-        // rely on integer wraparound to map (-pi,0) to [UINT_MAX,INT_MAX)
-        dirPhi = uint32_t(floor(atan2(dir.x,dir.y)*float32_t(MaxPhi)/pi+0.5f));
+        dir = remove_TODO::_static_cast<dir_t>(_dir);
     }
-    float32_t3 getRayDir()
+    float32_t3 getRayDir() 
     {
-        float32_t3 dir;
-        const float32_t pi = nbl::hlsl::numbers::pi<float32_t>;
-        dir.z = cos(float32_t(dirTheta)*pi/float32_t(MaxTheta));
-        // shtuff
-        {
-            const float32_t phi = float32_t(dirPhi)/float32_t(MaxPhi);
-            dir.xy = float32_t2(cos(phi),sin(phi));
-        }
-        return dir;
+        return remove_TODO::_static_cast<float32_t3>(dir);
     }
 
     // yay workaround for https://github.com/microsoft/DirectXShaderCompiler/issues/6973
@@ -204,6 +203,8 @@ float32_t3 nbl_glsl_refract(in float32_t3 I, in float32_t3 N, in bool backside, 
     return N*(NdotI*rcpOrientedEta + NdotT) - rcpOrientedEta*I;
 }
 
+
+#include "nbl/builtin/hlsl/format/shared_exp.hlsl"
 [[vk::binding(0,0)]] RWTexture2D<uint32_t> framebuffer;
 
 void WhittedTask::__impl_call()
@@ -279,7 +280,7 @@ void WhittedTask::__impl_call()
             contribution += throughput*color;
     }
     else // miss
-        contribution += throughput*(rayDir.y>0.f ? float16_t3(0.1,0.7,0.03):float16_t3(0.05,0.25,1.0));
+        contribution += throughput*(rayDir.y<0.f ? float16_t3(0.1,0.7,0.03):float16_t3(0.05,0.25,1.0));
 
     if (contribution.r+contribution.g+contribution.b<1.f/2047.f)
         return;
@@ -293,7 +294,7 @@ void WhittedTask::__impl_call()
     do
     {
         expected = actual;
-        rgb9e5_t newVal = format::_static_cast<rgb9e5_t>(format::_static_cast<float32_t3>(expected)+float32_t3(contribution));
+        rgb9e5_t newVal = remove_TODO::_static_cast<rgb9e5_t>(remove_TODO::_static_cast<float32_t3>(expected)+float32_t3(contribution));
         InterlockedCompareExchange(framebuffer[output],expected.storage,newVal.storage,actual.storage);
     } while (expected!=actual);
 }
@@ -311,6 +312,8 @@ struct Dummy
 static Dummy scheduler;
 
 [[vk::push_constant]] PushConstants pc;
+
+#include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 
 // have to do weird stuff with workgroup size because of subgroup full spec
 namespace nbl
@@ -337,7 +340,7 @@ void main()
             GlobalInvocationID.x += linearIx%WorkgroupSizeX;
             GlobalInvocationID.y += linearIx/WorkgroupSizeX;
         }
-        scheduler.next.origin = float32_t3(0,1,-25);
+        scheduler.next.origin = float32_t3(0,2,8);
         scheduler.next.throughput = float16_t3(1,1,1);
         scheduler.next.contribution = float16_t3(0,0,0);
         scheduler.next.outputX = GlobalInvocationID.x;
@@ -347,11 +350,11 @@ void main()
             float32_t3 ndc;
             {
                 const float32_t2 totalInvocations = glsl::gl_NumWorkGroups().xy*VirtualWorkgroupSize;
-                ndc.xy = (float32_t2(GlobalInvocationID.xy)+float32_t2(0.5,0.5))*2.f/totalInvocations-float32_t2(1,1);
+                ndc.xy = float32_t2(GlobalInvocationID.xy)*float32_t2(2,-2)/totalInvocations+float32_t2(-1.f,1.f)+float32_t2(1,1)/totalInvocations;
                 ndc.y *= totalInvocations.y/totalInvocations.x; // aspect raio
             }
-            ndc.z = 1.f; // FOV of 90 degrees
-            scheduler.next.setRayDir(normalize(ndc));
+            ndc.z = -1.f; // FOV of 90 degrees
+            scheduler.next.setRayDir(ndc);
         }
         scheduler.next.depth = 0;
 //        scheduler.sharedAcceptableIdleCount = 0;
