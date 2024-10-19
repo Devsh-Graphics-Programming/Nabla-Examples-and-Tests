@@ -29,9 +29,6 @@ struct shared_exp
     using decode_t = float32_t;
 
     storage_t storage;
-
-// private: // lots of fun things because DXC sucks with bugs
-    NBL_CONSTEXPR_STATIC_INLINE bool __private_is_signed = is_signed_v<IntT>;
 };
 
 // all of this because DXC has bugs in partial template spec
@@ -60,11 +57,10 @@ struct numeric_limits_shared_exp
     NBL_CONSTEXPR_STATIC_INLINE bool is_iec559 = false;
     NBL_CONSTEXPR_STATIC_INLINE bool is_bounded = true;
     NBL_CONSTEXPR_STATIC_INLINE bool is_modulo = false;
-#if 0
-    NBL_CONSTEXPR_STATIC_INLINE int32_t digits = (sizeof(__storage_t)*8-(is_signed ? _Components:0)-_ExponentBits)/_Components;
+    NBL_CONSTEXPR_STATIC_INLINE int32_t digits = (sizeof(IntT)*8-(is_signed ? _Components:0)-_ExponentBits)/_Components;
     NBL_CONSTEXPR_STATIC_INLINE int32_t radix = 2;
-    NBL_CONSTEXPR_STATIC_INLINE int32_t max_exponent = 1<<(_ExponentBits-1);
-    NBL_CONSTEXPR_STATIC_INLINE int32_t min_exponent = 1-max_exponent;
+    NBL_CONSTEXPR_STATIC_INLINE int32_t float_max_exponent = 1<<(_ExponentBits-1);
+    NBL_CONSTEXPR_STATIC_INLINE int32_t float_min_exponent = 1-float_max_exponent;
     NBL_CONSTEXPR_STATIC_INLINE bool traps = false;
     
     // extras
@@ -72,20 +68,14 @@ struct numeric_limits_shared_exp
     NBL_CONSTEXPR_STATIC_INLINE uint16_t ExponentBits = _ExponentBits;
     NBL_CONSTEXPR_STATIC_INLINE uint16_t ExponentMask = uint16_t((1<<_ExponentBits)-1);
 
-
  // TODO: functions done as vars
 //    NBL_CONSTEXPR_STATIC_INLINE value_type min = base::min();
-    NBL_CONSTEXPR_STATIC_INLINE value_type max = asfloat(
-        0x477f8000u
-//        ((max_exponent+numeric_limits<value_type>::min_exponent)<<(numeric_limits<value_type>::digits-1))|
-//        (MantissaMask<<(numeric_limits<value_type>::digits-1-digits))
-    );
-    NBL_CONSTEXPR_STATIC_INLINE value_type lowest = is_signed ? (-max):value_type(0.f);
+    NBL_CONSTEXPR_STATIC_INLINE __storage_t max = ((float_max_exponent+numeric_limits<value_type>::min_exponent)<<(numeric_limits<value_type>::digits-1))|(MantissaMask<<(numeric_limits<value_type>::digits-1-digits));
+    NBL_CONSTEXPR_STATIC_INLINE __storage_t lowest = is_signed ? ((__storage_t(1)<<(sizeof(__storage_t)*8-1))|max):__storage_t(0);
 /*
     NBL_CONSTEXPR_STATIC_INLINE value_type epsilon = base::epsilon();
     NBL_CONSTEXPR_STATIC_INLINE value_type round_error = base::round_error();
 */
-#endif
 };
 }
 
@@ -115,26 +105,25 @@ struct _static_cast_helper<
 
     T operator()(U val)
     {
-#if 0
         using storage_t = typename U::storage_t;
-        using decode_t = typename U::decode_t;
-        using limits_t = numeric_limits<U>;
+        // DXC error: error: expression class 'DependentScopeDeclRefExpr' unimplemented, doesn't matter as decode_t is always float32_t for now
+        //using decode_t = typename T::decode_t;
+        using decode_t = float32_t;
+        // no clue why the compiler doesn't pick up the partial specialization and tries to use the general one
+        using limits_t = format::impl::numeric_limits_shared_exp<IntT,_Components,_ExponentBits>;
 
         T retval;
         for (uint16_t i=0; i<_Components; i++)
             retval[i] = decode_t((val.storage>>storage_t(limits_t::digits*i))&limits_t::MantissaMask);
         uint16_t exponent = val.storage>>storage_t(limits_t::digits*3);
-        if (U::IsSigned)
+        if (limits_t::is_signed)
         {
             for (uint16_t i=0; i<_Components; i++)
             if (exponent&(uint16_t(1)<<(_ExponentBits+i)))
                 retval[i] = -retval[i];
             exponent &= limits_t::ExponentMask;
         }
-        return retval*exp2(int32_t(exponent-limits_t::digits)+limits_t::min_exponent);
-#endif
-        T retval;
-        return retval;
+        return retval*exp2(int32_t(exponent-limits_t::digits)+limits_t::float_min_exponent);
     }
 };
 // encode (WARNING DOES NOT CHECK THAT INPUT IS IN THE RANGE!)
@@ -146,52 +135,47 @@ struct _static_cast_helper<
 {
     using T = format::shared_exp<IntT,_Components,_ExponentBits>;
     using U = vector<typename T::decode_t,_Components>;
-#if 0
-    //private
-    using decode_t = typename T::decode_t;
-    using decode_bits_t = unsigned_integer_of_size<sizeof(decode_t)>;
-
-    NBL_CONSTEXPR_STATIC_INLINE int32_t dec_MantissaStoredBits = numeric_limits<decode_t>::digits-1;
-
-    uint16_t extract_biased_exponent(decode_t v)
-    {
-        if (T::IsSigned)
-            v = abs(v);
-        return uint16_t(bit_cast<decode_bits_t>(v)>>dec_MantissaStoredBits);
-    }
-#endif
 
     T operator()(U val)
     {
-#if 0
         using storage_t = typename T::storage_t;
+        // DXC error: error: expression class 'DependentScopeDeclRefExpr' unimplemented, doesn't matter as decode_t is always float32_t for now
+        //using decode_t = typename T::decode_t;
+        using decode_t = float32_t;
         //
-        const decode_bits_t dec_MantissaMask = (decode_bits_t(1)<<dec_MantissaStoredBits)-1;
+        using decode_bits_t = unsigned_integer_of_size<sizeof(decode_t)>::type;
+        // no clue why the compiler doesn't pick up the partial specialization and tries to use the general one
+        using limits_t = format::impl::numeric_limits_shared_exp<IntT,_Components,_ExponentBits>;
 
         // get exponents
         vector<uint16_t,_Components> exponentsDecBias;
+        const int32_t dec_MantissaStoredBits = numeric_limits<decode_t>::digits-1;
         for (uint16_t i=0; i<_Components; i++)
-            exponentsDecBias[i] = extract_biased_exponent(val[i]);
+        {
+            decode_t v = val[i];
+            if (limits_t::is_signed)
+                v = abs(v);
+            exponentsDecBias[i] = uint16_t(asuint(v)>>dec_MantissaStoredBits);
+        }
 
         // get the maximum exponent
         uint16_t sharedExponentDecBias = exponentsDecBias[0];
         for (uint16_t i=1; i<_Components; i++)
             sharedExponentDecBias = max(exponentsDecBias[i], sharedExponentDecBias);
 
-        // NOTE: we don't consider clamping against `limits_t::max_exponent`, should be ensured by clamping the inputs against `limits_t::max` before casting!
-        using limits_t = numeric_limits<T>;
+        // NOTE: we don't consider clamping against `limits_t::float_max_exponent`, should be ensured by clamping the inputs against `limits_t::max` before casting!
 
         // we need to stop "shifting up" implicit leading 1. to farthest left position if the exponent too small
         uint16_t clampedSharedExponentDecBias;
         if (limits_t::float_min_exponent>numeric_limits<decode_t>::float_min_exponent) // if ofc its needed at all
-            clampedSharedExponentDecBias = max(sharedExponentDecBias,limits_t::float_min_exponent-numeric_limits<decode_t>::float_min_exponent);
+            clampedSharedExponentDecBias = max(sharedExponentDecBias,uint16_t(limits_t::float_min_exponent-numeric_limits<decode_t>::float_min_exponent));
         else
             clampedSharedExponentDecBias = sharedExponentDecBias;
 
         // we always shift down, the question is how much
         vector<uint16_t,_Components> mantissaShifts;
         for (uint16_t i=0; i<_Components; i++)
-            mantissaShifts[i] = max(clampedSharedExponentDecBias-exponentsDecBias[i],numeric_limits<decode_t>::digits);
+            mantissaShifts[i] = max(clampedSharedExponentDecBias-exponentsDecBias[i],uint16_t(numeric_limits<decode_t>::digits));
 
         // finally lets re-bias our exponent (it will always be positive)
         const uint16_t sharedExponentEncBias = int16_t(clampedSharedExponentDecBias+uint16_t(-numeric_limits<decode_t>::float_min_exponent))+int16_t(limits_t::float_min_exponent);
@@ -199,6 +183,7 @@ struct _static_cast_helper<
         //
         T retval;
         retval.storage = storage_t(sharedExponentEncBias)<<(limits_t::digits*3);
+        const decode_bits_t dec_MantissaMask = (decode_bits_t(1)<<dec_MantissaStoredBits)-1;
         for (uint16_t i=0; i<_Components; i++)
         {
             decode_bits_t origBitPattern = bit_cast<decode_bits_t>(val[i])&dec_MantissaMask;
@@ -207,7 +192,7 @@ struct _static_cast_helper<
             // shift and put in the right place
             retval.storage |= storage_t(origBitPattern>>mantissaShifts[i])<<(limits_t::digits*i);
         }
-        if (T::IsSigned)
+        if (limits_t::is_signed)
         {
             // doing ops on smaller integers is faster
             decode_bits_t SignMask = 0x1<<(sizeof(decode_t)*8-1);
@@ -216,8 +201,6 @@ struct _static_cast_helper<
                 signs |= (bit_cast<decode_bits_t>(val[i])&SignMask)>>i;
             retval.storage |= storage_t(signs)<<((sizeof(storage_t)-sizeof(decode_t))*8);
         }
-#endif
-        T retval;
         return retval;
     }
 };
