@@ -24,9 +24,9 @@ struct Sphere
 {
     static const uint32_t MaxColorValue = 1023;
 
-    float32_t3 getColor()
+    float16_t3 getColor()
     {
-        return float32_t3(R,G,B)/float32_t3(MaxColorValue,MaxColorValue,MaxColorValue);
+        return float16_t3(R,G,B)/float16_t3(MaxColorValue,MaxColorValue,MaxColorValue);
     }
 
     float32_t intersect(const float32_t3 rayOrigin, const float32_t3 rayDir)
@@ -104,26 +104,14 @@ struct WhittedTask
     static const uint32_t MaxPhi = (1<<20)-1;
 
     float32_t3 origin;
-    uint32_t throughputR : 11;
-    uint32_t throughputG : 11;
-    uint32_t throughputB : 10;
+    float16_t3 throughput;
+    float16_t3 contribution;
     //
     uint64_t outputX : 12;
     uint64_t outputY : 11;
     uint64_t dirTheta : 19;
     uint64_t dirPhi : 20;
     uint64_t depth : 2;
-
-    void setThroughput(const float32_t3 col)
-    {
-        throughputR = uint32_t(col.r*2047.f+0.4f);
-        throughputG = uint32_t(col.g*2047.f+0.4f);
-        throughputB = uint32_t(col.b*1023.f+0.4f);
-    }
-    float32_t3 getThroughput()
-    {
-        return float32_t3(throughputR,throughputG,throughputB)/float32_t3(2047,2047,1023);
-    }
 
     void setRayDir(float32_t3 dir)
     {
@@ -221,7 +209,6 @@ float32_t3 nbl_glsl_refract(in float32_t3 I, in float32_t3 N, in bool backside, 
 void WhittedTask::__impl_call()
 {
     const float32_t3 rayDir = getRayDir();
-    const float32_t3 throughput = getThroughput();
 
     // intersect with spheres
     uint32_t closestIx = SphereCount;
@@ -239,11 +226,10 @@ void WhittedTask::__impl_call()
         }
     }
 
-    float32_t3 contribution = float32_t3(0,0,0);
     if (closestD<NoHit)
     {
         const Sphere sphere = spheres[closestIx];
-        const float32_t3 color = sphere.getColor();
+        const float16_t3 color = sphere.getColor();
         if (sphere.material!=Material::Emission)
         {
             const float32_t3 hitPoint = origin+rayDir*closestD;
@@ -258,39 +244,42 @@ void WhittedTask::__impl_call()
             newTask.origin = hitPoint;
 
             // deal with reflection
-            float32_t3 newThroughput = throughput;
+            float16_t3 newThroughput = throughput;
             // fresnel
             float32_t fresnel;
             if (isGlass)
             {
                 const float32_t F0 = 0.08f;
                 float32_t fresnel = nbl_glsl_fresnel_dielectric_common(orientedEta*orientedEta,abs(NdotV));
-                newThroughput *= fresnel;
+                newThroughput *= float16_t(fresnel);
             }
             // push reflection ray
             {
                 const float32_t3 reflected = 2.f*normal+rayDir;
 
-                newTask.setThroughput(isGlass ? newThroughput:(color*newThroughput));
+                newTask.throughput = newThroughput;
+                if (!isGlass)
+                    newTask.throughput *= color;
                 newTask.setRayDir(reflected);
 //                scheduler.push(newTask);
             }
             // deal with refraction
             if (isGlass)
             {
-                newThroughput -= throughput;
-                newThroughput *= color;
-                newTask.setThroughput(newThroughput);
+                newTask.throughput -= throughput;
+                newTask.throughput *= color;
                 newTask.setRayDir(nbl_glsl_refract(-rayDir,normal,backside,NdotV,rcpOrientedEta));
 //                scheduler.push(newTask);
 
             }
+            // we'll keep counting up the contribution
+            return;
         }
         else
-            contribution = throughput*color;
+            contribution += throughput*color;
     }
     else // miss
-        contribution = throughput*(rayDir.y>0.f ? float32_t3(0.1,0.7,0.03):float32_t3(0.05,0.25,1.0));
+        contribution += throughput*(rayDir.y>0.f ? float16_t3(0.1,0.7,0.03):float16_t3(0.05,0.25,1.0));
 
     if (contribution.r+contribution.g+contribution.b<1.f/2047.f)
         return;
@@ -304,7 +293,7 @@ void WhittedTask::__impl_call()
     do
     {
         expected = actual;
-        rgb9e5_t newVal = format::_static_cast<rgb9e5_t>(format::_static_cast<float32_t3>(expected)+contribution);
+        rgb9e5_t newVal = format::_static_cast<rgb9e5_t>(format::_static_cast<float32_t3>(expected)+float32_t3(contribution));
         InterlockedCompareExchange(framebuffer[output],expected.storage,newVal.storage,actual.storage);
     } while (expected!=actual);
 }
@@ -349,7 +338,8 @@ void main()
             GlobalInvocationID.y += linearIx/WorkgroupSizeX;
         }
         scheduler.next.origin = float32_t3(0,1,-25);
-        scheduler.next.setThroughput(float32_t3(1,1,1));
+        scheduler.next.throughput = float16_t3(1,1,1);
+        scheduler.next.contribution = float16_t3(0,0,0);
         scheduler.next.outputX = GlobalInvocationID.x;
         scheduler.next.outputY = GlobalInvocationID.y;
         {

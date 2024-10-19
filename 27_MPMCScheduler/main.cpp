@@ -29,6 +29,14 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 
 		inline bool isComputeOnly() const override { return false; }
 
+		// tired of packing and unpacking from float16_t, let some Junior do device traits / manual pack
+		virtual video::SPhysicalDeviceLimits getRequiredDeviceLimits() const override
+		{
+			auto retval = device_base_t::getRequiredDeviceLimits();
+			retval.shaderFloat16 = true;
+			return retval;
+		}
+
 		inline core::vector<SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 		{
 			if (!m_surface)

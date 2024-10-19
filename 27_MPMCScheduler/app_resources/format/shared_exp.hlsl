@@ -101,6 +101,8 @@ namespace impl
 template<typename T, typename U>
 struct _static_cast_helper;
 
+// TODO: versions for `float16_t`
+
 // decode
 template<typename IntT, uint16_t _Components, uint16_t _ExponentBits>
 struct _static_cast_helper<
