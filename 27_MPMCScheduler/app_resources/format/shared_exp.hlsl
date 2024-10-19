@@ -118,7 +118,7 @@ struct _static_cast_helper<
         T retval;
         for (uint16_t i=0; i<_Components; i++)
             retval[i] = decode_t((val.storage>>storage_t(limits_t::digits*i))&limits_t::MantissaMask);
-        uint16_t exponent = val.storage>>storage_t(limits_t::digits*3);
+        uint16_t exponent = uint16_t(val.storage>>storage_t(limits_t::digits*3));
         if (limits_t::is_signed)
         {
             for (uint16_t i=0; i<_Components; i++)

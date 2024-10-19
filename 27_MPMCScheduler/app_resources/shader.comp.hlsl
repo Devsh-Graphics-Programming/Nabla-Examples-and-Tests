@@ -299,12 +299,11 @@ void WhittedTask::__impl_call()
     float32_t3 contribution = float32_t3(outputX,outputY,0)/float32_t3(1280,720,1);
 
     using rgb9e5_t = format::shared_exp<uint32_t,3,5>;
-    const float32_t MaxEncVal = numeric_limits<rgb9e5_t>::max;
     // TODO: CAS loops on R32_UINT view of RGB9E5
     {
         // required for the encode to work properly
-        contribution = clamp(contribution,float32_t3(0.f,0.f,0.f),float32_t3(MaxEncVal,MaxEncVal,MaxEncVal));
-        framebuffer[uint32_t2(outputX,outputY)] = format::_static_cast<rgb9e5_t>(contribution).storage;
+        contribution = clamp(contribution,promote<float32_t3>(0.f),promote<float32_t3>(numeric_limits<rgb9e5_t>::max));
+        framebuffer[uint32_t2(outputX,outputY)] = format::_static_cast<rgb9e5_t>(format::_static_cast<float32_t3>(format::_static_cast<rgb9e5_t>(contribution))).storage;
     }
 }
 
