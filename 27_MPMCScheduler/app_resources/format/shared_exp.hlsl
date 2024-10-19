@@ -59,8 +59,8 @@ struct numeric_limits_shared_exp
     NBL_CONSTEXPR_STATIC_INLINE bool is_modulo = false;
     NBL_CONSTEXPR_STATIC_INLINE int32_t digits = (sizeof(IntT)*8-(is_signed ? _Components:0)-_ExponentBits)/_Components;
     NBL_CONSTEXPR_STATIC_INLINE int32_t radix = 2;
-    NBL_CONSTEXPR_STATIC_INLINE int32_t float_max_exponent = 1<<(_ExponentBits-1);
-    NBL_CONSTEXPR_STATIC_INLINE int32_t float_min_exponent = 1-float_max_exponent;
+    NBL_CONSTEXPR_STATIC_INLINE int32_t max_exponent = 1<<(_ExponentBits-1);
+    NBL_CONSTEXPR_STATIC_INLINE int32_t min_exponent = 1-max_exponent;
     NBL_CONSTEXPR_STATIC_INLINE bool traps = false;
     
     // extras
@@ -70,7 +70,10 @@ struct numeric_limits_shared_exp
 
  // TODO: functions done as vars
 //    NBL_CONSTEXPR_STATIC_INLINE value_type min = base::min();
-    NBL_CONSTEXPR_STATIC_INLINE __storage_t max = ((float_max_exponent+numeric_limits<value_type>::min_exponent)<<(numeric_limits<value_type>::digits-1))|(MantissaMask<<(numeric_limits<value_type>::digits-1-digits));
+    // shift down by 1 to get rid of explicit 1 in mantissa that is now implicit, then +1 in the exponent to compensate
+    NBL_CONSTEXPR_STATIC_INLINE __storage_t max =
+        ((max_exponent+1-numeric_limits<value_type>::min_exponent)<<(numeric_limits<value_type>::digits-1))|
+        ((MantissaMask>>1)<<(numeric_limits<value_type>::digits-digits));
     NBL_CONSTEXPR_STATIC_INLINE __storage_t lowest = is_signed ? ((__storage_t(1)<<(sizeof(__storage_t)*8-1))|max):__storage_t(0);
 /*
     NBL_CONSTEXPR_STATIC_INLINE value_type epsilon = base::epsilon();
@@ -123,7 +126,7 @@ struct _static_cast_helper<
                 retval[i] = -retval[i];
             exponent &= limits_t::ExponentMask;
         }
-        return retval*exp2(int32_t(exponent-limits_t::digits)+limits_t::float_min_exponent);
+        return retval*exp2(int32_t(exponent-limits_t::digits)+limits_t::min_exponent);
     }
 };
 // encode (WARNING DOES NOT CHECK THAT INPUT IS IN THE RANGE!)
@@ -161,24 +164,24 @@ struct _static_cast_helper<
         // get the maximum exponent
         uint16_t sharedExponentDecBias = exponentsDecBias[0];
         for (uint16_t i=1; i<_Components; i++)
-            sharedExponentDecBias = max(exponentsDecBias[i], sharedExponentDecBias);
+            sharedExponentDecBias = max(exponentsDecBias[i],sharedExponentDecBias);
 
-        // NOTE: we don't consider clamping against `limits_t::float_max_exponent`, should be ensured by clamping the inputs against `limits_t::max` before casting!
+        // NOTE: we don't consider clamping against `limits_t::max_exponent`, should be ensured by clamping the inputs against `limits_t::max` before casting!
 
         // we need to stop "shifting up" implicit leading 1. to farthest left position if the exponent too small
         uint16_t clampedSharedExponentDecBias;
-        if (limits_t::float_min_exponent>numeric_limits<decode_t>::float_min_exponent) // if ofc its needed at all
-            clampedSharedExponentDecBias = max(sharedExponentDecBias,uint16_t(limits_t::float_min_exponent-numeric_limits<decode_t>::float_min_exponent));
+        if (limits_t::min_exponent>numeric_limits<decode_t>::min_exponent) // if ofc its needed at all
+            clampedSharedExponentDecBias = max(sharedExponentDecBias,uint16_t(limits_t::min_exponent-numeric_limits<decode_t>::min_exponent));
         else
             clampedSharedExponentDecBias = sharedExponentDecBias;
 
         // we always shift down, the question is how much
         vector<uint16_t,_Components> mantissaShifts;
         for (uint16_t i=0; i<_Components; i++)
-            mantissaShifts[i] = max(clampedSharedExponentDecBias-exponentsDecBias[i],uint16_t(numeric_limits<decode_t>::digits));
-
-        // finally lets re-bias our exponent (it will always be positive)
-        const uint16_t sharedExponentEncBias = int16_t(clampedSharedExponentDecBias+uint16_t(-numeric_limits<decode_t>::float_min_exponent))+int16_t(limits_t::float_min_exponent);
+            mantissaShifts[i] = min(clampedSharedExponentDecBias+uint16_t(-limits_t::min_exponent)-exponentsDecBias[i],uint16_t(numeric_limits<decode_t>::digits));
+        
+        // finally lets re-bias our exponent (it will always be positive), note the -1 because IEEE754 floats reserve the lowest exponent values for denorm
+        const uint16_t sharedExponentEncBias = int16_t(clampedSharedExponentDecBias+int16_t(-limits_t::min_exponent))-uint16_t(1-numeric_limits<decode_t>::min_exponent);
 
         //
         T retval;
