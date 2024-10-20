@@ -1,10 +1,9 @@
 // Copyright (C) 2024-2025 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-
-
-#include "nbl/examples/examples.hpp"
-#include "nbl/this_example/builtin/build/spirv/keys.hpp"
+#include "nabla.h"
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "SimpleWindowedApplication.hpp"
 
 using namespace nbl;
 using namespace nbl::core;
@@ -12,33 +11,22 @@ using namespace nbl::system;
 using namespace nbl::asset;
 using namespace nbl::ui;
 using namespace nbl::video;
-using namespace nbl::examples;
-
-#include "app_resources/common.hlsl"
 
 
-class MPMCSchedulerApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
+class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-		using device_base_t = SimpleWindowedApplication;
-		using asset_base_t = BuiltinResourcesApplication;
+		using device_base_t = examples::SimpleWindowedApplication;
+		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 		using clock_t = std::chrono::steady_clock;
 
-		constexpr static inline uint32_t WIN_W = 1280, WIN_H = 720;
+		constexpr static inline uint32_t WIN_W = 1280, WIN_H = 720, SC_IMG_COUNT = 3u, FRAMES_IN_FLIGHT = 5u;
+		static_assert(FRAMES_IN_FLIGHT > SC_IMG_COUNT);
 
 	public:
 		inline MPMCSchedulerApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
 			: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
 		inline bool isComputeOnly() const override { return false; }
-
-		// tired of packing and unpacking from float16_t, let some Junior do device traits / manual pack
-		virtual video::SPhysicalDeviceLimits getRequiredDeviceLimits() const override
-		{
-			auto retval = device_base_t::getRequiredDeviceLimits();
-			retval.shaderSubgroupArithmetic = true;
-			retval.shaderFloat16 = true;
-			return retval;
-		}
 
 		inline core::vector<SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 		{
@@ -71,34 +59,27 @@ class MPMCSchedulerApp final : public SimpleWindowedApplication, public BuiltinR
 				return false;
 			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
-
-			smart_refctd_ptr<IShader> shader;
+/*
+			smart_refctd_ptr<IGPUShader> shader;
 			{
-				// load shader
-				{
-					IAssetLoader::SAssetLoadParams lp = {};
-					lp.logger = m_logger.get();
-					lp.workingDirectory = "";
+				IAssetLoader::SAssetLoadParams lp = {};
+				lp.logger = m_logger.get();
+				lp.workingDirectory = ""; // virtual root
+				auto assetBundle = m_assetMgr->getAsset("app_resources/shader.comp.hlsl", lp);
+				const auto assets = assetBundle.getContents();
+				if (assets.empty())
+					return logFail("Failed to load shader from disk");
 
-					auto key = "app_resources/" + nbl::this_example::builtin::build::get_spirv_key<"shader">(m_device.get());
-					const auto bundle = m_assetMgr->getAsset(key.data(), lp);
+				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+				auto source = IAsset::castDown<ICPUShader>(assets[0]);
+				if (!source)
+					return logFail("Failed to load shader from disk");
 
-					const auto contents = bundle.getContents();
-
-					if (contents.empty())
-						return logFail("Failed to load shader from disk");
-
-					if (bundle.getAssetType() != IAsset::ET_SHADER)
-						return logFail("Loaded asset has wrong type!");
-
-					shader = IAsset::castDown<IShader>(contents[0]);
-
-					if (!shader)
-						false;
-				}
-
+				shader = m_device->createShader(source.get());
+				if (!shader)
+					return false;
 			}
-			
+*/			
 			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
 			{
 				const IGPUDescriptorSetLayout::SBinding bindings[1] = { {
@@ -113,23 +94,27 @@ class MPMCSchedulerApp final : public SimpleWindowedApplication, public BuiltinR
 				if (!dsLayout)
 					return logFail("Failed to Create Descriptor Layout");
 			}
-
+/*
 			{
-				const asset::SPushConstantRange ranges[] = {{
-					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-					.offset = 0,
-					.size = sizeof(PushConstants)
+				auto layout = m_device->createPipelineLayout({},smart_refctd_ptr(dsLayout));
+				const IGPUComputePipeline::SCreationParams params[] = { {
+					{
+						.layout = layout.get()
+					},
+					{},
+					IGPUComputePipeline::SCreationParams::FLAGS::NONE,
+					{
+						.entryPoint = "main",
+						.shader = shader.get(),
+						.entries = nullptr,
+						.requiredSubgroupSize = IGPUShader::SSpecInfo::SUBGROUP_SIZE::UNKNOWN,
+						.requireFullSubgroups = true
+					}
 				}};
-				auto layout = m_device->createPipelineLayout(ranges,smart_refctd_ptr(dsLayout));
-				IGPUComputePipeline::SCreationParams params;
-				params.layout = layout.get();
-				params.shader.shader = shader.get();
-				params.shader.entryPoint = "main";
-				params.cached.requireFullSubgroups = true;
-				if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &m_ppln))
+				if (!m_device->createComputePipelines(nullptr,params,&m_ppln))
 					return logFail("Failed to create Pipeline");
 			}
-
+*/
 			m_hdr = m_device->createImage({
 				{
 					.type = IGPUImage::E_TYPE::ET_2D,
@@ -149,8 +134,8 @@ class MPMCSchedulerApp final : public SimpleWindowedApplication, public BuiltinR
 				auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE,{&dsLayout.get(),1});
 				if (!pool)
 					return logFail("Could not create Descriptor Pool");
-				m_ds = pool->createDescriptorSet(std::move(dsLayout));
-				if (!m_ds)
+				auto ds = pool->createDescriptorSet(std::move(dsLayout));
+				if (!ds)
 					return logFail("Could not create Descriptor Set");
 				IGPUDescriptorSet::SDescriptorInfo info = {};
 				{
@@ -167,7 +152,7 @@ class MPMCSchedulerApp final : public SimpleWindowedApplication, public BuiltinR
 					info.info.image.imageLayout = IGPUImage::LAYOUT::GENERAL;
 				}
 				const IGPUDescriptorSet::SWriteDescriptorSet writes[] = {{
-					.dstSet = m_ds.get(),
+					.dstSet = ds.get(),
 					.binding = 0,
 					.arrayElement = 0,
 					.count = 1,
@@ -189,8 +174,15 @@ class MPMCSchedulerApp final : public SimpleWindowedApplication, public BuiltinR
 			if (!m_surface || !m_surface->init(gQueue, std::make_unique<ISimpleManagedSurface::ISwapchainResources>(), swapchainParams.sharedParams))
 				return logFail("Could not create Window & Surface or initialize the Surface!");
 
+			m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
+			if (FRAMES_IN_FLIGHT < m_maxFramesInFlight)
+			{
+				m_logger->log("Lowering frames in flight!", ILogger::ELL_WARNING);
+				m_maxFramesInFlight = FRAMES_IN_FLIGHT;
+			}
+
 			auto pool = m_device->createCommandPool(gQueue->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-			for (auto i=0u; i<MaxFramesInFlight; i++)
+			for (auto i=0u; i<m_maxFramesInFlight; i++)
 			{
 				if (!pool)
 					return logFail("Couldn't create Command Pool!");
@@ -210,25 +202,20 @@ class MPMCSchedulerApp final : public SimpleWindowedApplication, public BuiltinR
 
 		inline void workLoopBody() override
 		{
-			// framesInFlight: ensuring safe execution of command buffers and acquires, `framesInFlight` only affect semaphore waits, don't use this to index your resources because it can change with swapchain recreation.
-			const uint32_t framesInFlight = core::min(MaxFramesInFlight, m_surface->getMaxAcquiresInFlight());
-			// We block for semaphores for 2 reasons here:
-				// A) Resource: Can't use resource like a command buffer BEFORE previous use is finished! [MaxFramesInFlight]
-				// B) Acquire: Can't have more acquires in flight than a certain threshold returned by swapchain or your surface helper class. [MaxAcquiresInFlight]
-			if (m_realFrameIx >= framesInFlight)
+			const auto resourceIx = m_realFrameIx % m_maxFramesInFlight;
+
+			if (m_realFrameIx >= m_maxFramesInFlight)
 			{
 				const ISemaphore::SWaitInfo cbDonePending[] =
 				{
 					{
 						.semaphore = m_semaphore.get(),
-						.value = m_realFrameIx + 1 - framesInFlight
+						.value = m_realFrameIx + 1 - m_maxFramesInFlight
 					}
 				};
 				if (m_device->blockForSemaphores(cbDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
 					return;
 			}
-
-			const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
 
 			m_currentImageAcquire = m_surface->acquireNextImage();
 			if (!m_currentImageAcquire)
@@ -300,15 +287,9 @@ class MPMCSchedulerApp final : public SimpleWindowedApplication, public BuiltinR
 
 			// write the image
 			{
-				cb->bindComputePipeline(m_ppln.get());
-				auto* layout = m_ppln->getLayout();
-				cb->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_COMPUTE,layout,0,1,&m_ds.get());
-				const PushConstants pc = {
-					.sharedAcceptableIdleCount = 0,
-					.globalAcceptableIdleCount = 0
-				};
-				cb->pushConstants(layout,hlsl::ShaderStage::ESS_COMPUTE,0,sizeof(pc),&pc);
-				cb->dispatch(WIN_W/WorkgroupSizeX,WIN_H/WorkgroupSizeY,1);
+				//
+	//			cb->bindComputePipeline(rawPipeline);
+	// push constants
 			}
 
 			{
@@ -426,16 +407,14 @@ class MPMCSchedulerApp final : public SimpleWindowedApplication, public BuiltinR
 		}
 
 	private:
-		// Maximum frames which can be simultaneously submitted, used to cycle through our per-frame resources like command buffers
-		constexpr static inline uint32_t MaxFramesInFlight = 3u;
 		smart_refctd_ptr<IWindow> m_window;
 		smart_refctd_ptr<CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>> m_surface;
-		smart_refctd_ptr<IGPUComputePipeline> m_ppln;
-		smart_refctd_ptr<IGPUDescriptorSet> m_ds;
 		smart_refctd_ptr<IGPUImage> m_hdr;
+		smart_refctd_ptr<IGPUComputePipeline> m_ppln;
 		smart_refctd_ptr<ISemaphore> m_semaphore;
-		uint64_t m_realFrameIx = 0;
-		std::array<smart_refctd_ptr<IGPUCommandBuffer>,MaxFramesInFlight> m_cmdBufs;
+		uint64_t m_realFrameIx : 59 = 0;
+		uint64_t m_maxFramesInFlight : 5;
+		std::array<smart_refctd_ptr<IGPUCommandBuffer>,ISwapchain::MaxImages> m_cmdBufs;
 		ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 };
 

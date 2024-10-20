@@ -37,7 +37,13 @@ uint nbl_glsl_ext_FFT_Parameters_t_getPaddingType()
 #define _NBL_GLSL_EXT_FFT_MAX_DIM_SIZE_ 16384
 
 
-//#define SHARED_CHANNELS 3
+#define SHARED_CHANNELS 3
+struct f16vec3_packed
+{
+	float16_t x;
+	float16_t y;
+	float16_t z;
+};
 
 
 // luma metering stuff
@@ -85,10 +91,10 @@ uint nbl_glsl_ext_FFT_Parameters_t_getPaddingType()
 		return int((~pc.data.flags)&0x1u);
 	}
 
-	vec4 globalPixelData;
+	vec3 globalPixelData;
 	vec3 nbl_glsl_ext_LumaMeter_getColor(bool wgExecutionMask)
 	{
-		return globalPixelData.rgb;
+		return globalPixelData;
 	}
 #else
 	#include "nbl/builtin/glsl/ext/LumaMeter/common.glsl"

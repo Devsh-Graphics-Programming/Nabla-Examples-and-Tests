@@ -1,9 +1,10 @@
 ﻿// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-#include "nbl/this_example/builtin/build/spirv/keys.hpp"
-#include "nbl/examples/examples.hpp"
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "SimpleWindowedApplication.hpp"
 
+#include "nbl/video/surface/CSurfaceVulkan.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
 #include "nlohmann/json.hpp"
@@ -18,15 +19,14 @@ using namespace system;
 using namespace asset;
 using namespace ui;
 using namespace video;
-using namespace nbl::examples;
 
 // defines for sampler tests can be found in the file below
 #include "app_resources/push_constants.hlsl"
 
-class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
+class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-		using device_base_t = SimpleWindowedApplication;
-		using asset_base_t = BuiltinResourcesApplication;
+		using device_base_t = examples::SimpleWindowedApplication;
+		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 		using clock_t = std::chrono::steady_clock;
 		using perf_clock_resolution_t = std::chrono::milliseconds;
 
@@ -161,24 +161,26 @@ class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public B
 					return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
 
 				// Load Custom Shader
-				auto loadPrecompiledShader = [&]<core::StringLiteral ShaderKey>() -> smart_refctd_ptr<IShader>
-				{
-					IAssetLoader::SAssetLoadParams lp = {};
-					lp.logger = m_logger.get();
-					lp.workingDirectory = "app_resources";
+				auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IGPUShader>
+					{
+						IAssetLoader::SAssetLoadParams lp = {};
+						lp.logger = m_logger.get();
+						lp.workingDirectory = ""; // virtual root
+						auto assetBundle = m_assetMgr->getAsset(relPath, lp);
+						const auto assets = assetBundle.getContents();
+						if (assets.empty())
+							return nullptr;
 
-					auto key = nbl::this_example::builtin::build::get_spirv_key<ShaderKey>(m_device.get());
-					auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
-					const auto assets = assetBundle.getContents();
-					if (assets.empty())
-						return nullptr;
+						// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+						auto source = IAsset::castDown<ICPUShader>(assets[0]);
+						if (!source)
+							return nullptr;
 
-					auto shader = IAsset::castDown<IShader>(assets[0]);
-					return shader;
-				};
-				auto fragmentShader = loadPrecompiledShader.operator()<"present">(); // "app_resources/present.frag.hlsl"
+						return m_device->createShader(source.get());
+					};
+				auto fragmentShader = loadCompileAndCreateShader("app_resources/present.frag.hlsl");
 				if (!fragmentShader)
-					return logFail("Failed to load precompiled fragment shader!");
+					return logFail("Failed to Load and Compile Fragment Shader!");
 
 				// Now surface indep resources
 				m_semaphore = m_device->createSemaphore(m_submitIx);
@@ -253,14 +255,14 @@ class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public B
 				// Now create the pipeline
 				{
 					const asset::SPushConstantRange range = {
-						.stageFlags = ESS_FRAGMENT,
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 						.offset = 0,
 						.size = sizeof(push_constants_t)
 					};
 					auto layout = m_device->createPipelineLayout({ &range,1 }, nullptr, nullptr, nullptr, core::smart_refctd_ptr(dsLayout));
-					const IGPUPipelineBase::SShaderSpecInfo fragSpec = {
-						.shader = fragmentShader.get(),
+					const IGPUShader::SSpecInfo fragSpec = {
 						.entryPoint = "main",
+						.shader = fragmentShader.get()
 					};
 					m_pipeline = fsTriProtoPPln.createPipeline(fragSpec, layout.get(), scResources->getRenderpass()/*,default is subpass 0*/);
 					if (!m_pipeline)
@@ -271,15 +273,16 @@ class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public B
 				// Let's just use the same queue since there's no need for async present
 				if (!m_surface || !m_surface->init(queue, std::move(scResources), swapchainParams.sharedParams))
 					return logFail("Could not create Window & Surface or initialize the Surface!");
+				m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
 
 				// create the descriptor sets, 1 per FIF and with enough room for one image sampler
 				{
-					const uint32_t setCount = MaxFramesInFlight;
+					const uint32_t setCount = m_maxFramesInFlight;
 					auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, { &dsLayout.get(),1 }, &setCount);
 					if (!pool)
 						return logFail("Failed to Create Descriptor Pool");
 
-					for (auto i = 0u; i < MaxFramesInFlight; i++)
+					for (auto i = 0u; i < m_maxFramesInFlight; i++)
 					{
 						m_descriptorSets[i] = pool->createDescriptorSet(core::smart_refctd_ptr(dsLayout));
 						if (!m_descriptorSets[i])
@@ -290,7 +293,7 @@ class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public B
 				// need resetttable commandbuffers for the upload utility
 				m_cmdPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 				// create the commandbuffers
-				for (auto i = 0u; i < MaxFramesInFlight; i++)
+				for (auto i = 0u; i < m_maxFramesInFlight; i++)
 				{
 					if (!m_cmdPool)
 						return logFail("Couldn't create Command Pool!");
@@ -370,7 +373,7 @@ class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public B
 					const auto* inImage = outViewParams.image.get();
 
 					const auto inImageParams = inImage->getCreationParameters();
-					smart_refctd_ptr<ICPUBuffer> inBuffer = asset::ICPUBuffer::create({ { inImage->getBuffer()->getSize() }, const_cast<void*>(inImage->getBuffer()->getPointer()), core::getNullMemoryResource() }, core::adopt_memory); // adopt memory & don't free it on exit
+					smart_refctd_ptr<ICPUBuffer> inBuffer = core::make_smart_refctd_ptr<asset::CCustomAllocatorCPUBuffer<core::null_allocator<uint8_t>, true> >(inImage->getBuffer()->getSize(), (uint8_t*)inImage->getBuffer()->getPointer(), core::adopt_memory); // adopt memory & don't free it on exit
 					const auto inRegions = inImage->getRegionArray();
 					const auto inAmountOfRegions = inRegions->size();
 
@@ -541,7 +544,7 @@ class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public B
 						struct
 						{
 							std::string path;
-							::json data;
+							json data;
 						} current, reference;
 
 						current.path = (localOutputCWD / filename).make_preferred().string() + "_" + modeAsString + extension.string() + ".json";
@@ -552,7 +555,7 @@ class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public B
 						m_logger->log("Mode: \"%s\"", ILogger::ELL_INFO, modeAsString.c_str());
 						m_logger->log("Writing \"%ls\"'s image hash to \"%s\"", ILogger::ELL_INFO, filename.c_str(), current.path.c_str());
 
-						current.data["image"] = ::json::array();
+						current.data["image"] = json::array();
 						for (const auto& it : hash)
 							current.data["image"].push_back(it);
 
@@ -561,7 +564,7 @@ class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public B
 						const std::string prettyJson = current.data.dump(4);
 
 						if (options.verbose)
-							m_logger->log("%s", ILogger::ELL_INFO, prettyJson);
+							m_logger->log(prettyJson, ILogger::ELL_INFO);
 
 						system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
 						m_system->createFile(future, current.path, system::IFileBase::ECF_WRITE);
@@ -629,25 +632,19 @@ class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public B
 				}
 				else
 				{
-					// framesInFlight: ensuring safe execution of command buffers and acquires, `framesInFlight` only affect semaphore waits, don't use this to index your resources because it can change with swapchain recreation.
-					const uint32_t framesInFlight = core::min(MaxFramesInFlight, m_surface->getMaxAcquiresInFlight());
-					// We block for semaphores for 2 reasons here:
-						// A) Resource: Can't use resource like a command buffer BEFORE previous use is finished! [MaxFramesInFlight]
-						// B) Acquire: Can't have more acquires in flight than a certain threshold returned by swapchain or your surface helper class. [MaxAcquiresInFlight]
-					if (m_submitIx >= framesInFlight)
+					// Can't reset a cmdbuffer before the previous use of commandbuffer is finished!
+					if (m_submitIx>=m_maxFramesInFlight)
 					{
-						const ISemaphore::SWaitInfo cbDonePending[] =
-						{
-							{
+						const ISemaphore::SWaitInfo cmdbufDonePending[] = {
+							{ 
 								.semaphore = m_semaphore.get(),
-								.value = m_submitIx + 1 - framesInFlight
+								.value = m_submitIx+1-m_maxFramesInFlight
 							}
 						};
-						if (m_device->blockForSemaphores(cbDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
+						if (m_device->blockForSemaphores(cmdbufDonePending)!=ISemaphore::WAIT_RESULT::SUCCESS)
 							return false;
 					}
-
-					const auto resourceIx = m_submitIx%MaxFramesInFlight;
+					const auto resourceIx = m_submitIx%m_maxFramesInFlight;
 
 					// we don't want to overcomplicate the example with multi-queue
 					auto queue = getGraphicsQueue();
@@ -793,9 +790,8 @@ class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public B
 							};
 							cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 						}
-
 						cmdbuf->bindGraphicsPipeline(m_pipeline.get());
-						cmdbuf->pushConstants(m_pipeline->getLayout(),hlsl::ShaderStage::ESS_FRAGMENT,0,sizeof(push_constants_t),&pc);
+						cmdbuf->pushConstants(m_pipeline->getLayout(),IGPUShader::E_SHADER_STAGE::ESS_FRAGMENT,0,sizeof(push_constants_t),&pc);
 						cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS,m_pipeline->getLayout(),3,1,&ds);
 						ext::FullScreenTriangle::recordDrawCall(cmdbuf);
 						cmdbuf->endRenderPass();
@@ -968,12 +964,12 @@ class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public B
 		smart_refctd_ptr<ISemaphore> m_scratchSemaphore;
 		SIntendedSubmitInfo m_intendedSubmit;
 		// Use a separate counter to cycle through our resources for clarity
-		uint64_t m_submitIx = 0;
-		// Maximum frames which can be simultaneously submitted,used to cycle through our per-frame resources like command buffers
-		constexpr static inline uint32_t MaxFramesInFlight = 3u;
+		uint64_t m_submitIx : 59 = 0;
+		// Maximum frames which can be simultaneously rendered
+		uint64_t m_maxFramesInFlight : 5;
 		// Enough Command Buffers and other resources for all frames in flight!
-		std::array<smart_refctd_ptr<IGPUDescriptorSet>,MaxFramesInFlight> m_descriptorSets;
-		std::array<smart_refctd_ptr<IGPUCommandBuffer>,MaxFramesInFlight> m_cmdBufs;
+		std::array<smart_refctd_ptr<IGPUDescriptorSet>,ISwapchain::MaxImages> m_descriptorSets;
+		std::array<smart_refctd_ptr<IGPUCommandBuffer>,ISwapchain::MaxImages> m_cmdBufs;
 
 	private:
 

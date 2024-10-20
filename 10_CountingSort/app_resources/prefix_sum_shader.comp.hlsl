@@ -4,7 +4,6 @@
 [[vk::push_constant]] CountingPushData pushData;
 
 [numthreads(WorkgroupSize,1,1)]
-[shader("compute")]
 void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 {
     sort::CountingParameters < uint32_t > params;

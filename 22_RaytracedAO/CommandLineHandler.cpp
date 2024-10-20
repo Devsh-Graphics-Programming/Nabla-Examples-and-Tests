@@ -95,14 +95,7 @@ CommandLineHandler::CommandLineHandler(const std::vector<std::string>& argv)
 		else
 		{
 			const auto offset = firstHyphen + 1;
-			bool hasArguments = true;
-			auto endOfFetchedVariableName = rawFetchedCmdArgument.find_first_of("=");
-			if (endOfFetchedVariableName == std::string::npos)
-			{
-				hasArguments = false;
-				endOfFetchedVariableName = std::distance(rawFetchedCmdArgument.begin(), rawFetchedCmdArgument.end());
-			}
-
+			const auto endOfFetchedVariableName = rawFetchedCmdArgument.find_first_of("=");
 			const auto count = endOfFetchedVariableName - offset;
 			const auto cmdFetchedVariable = rawFetchedCmdArgument.substr(offset, count);
 			std::string variable = cmdFetchedVariable;
@@ -122,10 +115,9 @@ CommandLineHandler::CommandLineHandler(const std::vector<std::string>& argv)
 				break;
 			}
 			
-			if(hasArguments)
+			if(endOfFetchedVariableName != std::string::npos)
 			{
 				auto value = rawFetchedCmdArgument.substr(endOfFetchedVariableName + 1);
-
 				auto zipExtensionPos = value.find(".zip");
 				if(zipExtensionPos == std::string::npos)
 					zipExtensionPos = value.find(".ZIP");
@@ -152,6 +144,7 @@ CommandLineHandler::CommandLineHandler(const std::vector<std::string>& argv)
 					toAdd.push_back(value);
 					rawVariables[arg].emplace(toAdd);
 				}
+
 			}
 			else
 			{
@@ -161,6 +154,7 @@ CommandLineHandler::CommandLineHandler(const std::vector<std::string>& argv)
 
 			previousArg = arg;
 		}
+
 	}
 
 	if (!validateParameters() || !success)

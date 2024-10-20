@@ -5,8 +5,7 @@
 
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
 #include "nbl/application_templates/MonoDeviceApplication.hpp"
-#include "nbl/examples/common/BuiltinResourcesApplication.hpp"
-#include "nbl/this_example/builtin/build/spirv/keys.hpp"
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 
 using namespace nbl;
@@ -21,10 +20,10 @@ using namespace video;
 
 
 // In this application we'll cover buffer streaming, Buffer Device Address (BDA) and push constants 
-class StreamingAndBufferDeviceAddressApp final : public application_templates::MonoDeviceApplication, public examples::BuiltinResourcesApplication
+class StreamingAndBufferDeviceAddressApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 		using device_base_t = application_templates::MonoDeviceApplication;
-		using asset_base_t = examples::BuiltinResourcesApplication;
+		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 
 		// This is the first example that submits multiple workloads in-flight. 
 		// What the shader does is it computes the minimum distance of each point against K other random input points.
@@ -92,21 +91,25 @@ class StreamingAndBufferDeviceAddressApp final : public application_templates::M
 				return false;
 
 			// this time we load a shader directly from a file
-			smart_refctd_ptr<IShader> shader;
+			smart_refctd_ptr<IGPUShader> shader;
 			{
 				IAssetLoader::SAssetLoadParams lp = {};
 				lp.logger = m_logger.get();
-				lp.workingDirectory = "app_resources"; // virtual root
-
-				auto key = nbl::this_example::builtin::build::get_spirv_key<"shader">(m_device.get());
-				auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
+				lp.workingDirectory = ""; // virtual root
+				auto assetBundle = m_assetMgr->getAsset("app_resources/shader.comp.hlsl",lp);
 				const auto assets = assetBundle.getContents();
 				if (assets.empty())
 					return logFail("Could not load shader!");
 
-				shader = IAsset::castDown<IShader>(assets[0]);
+				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+				auto source = IAsset::castDown<ICPUShader>(assets[0]);
 				// The down-cast should not fail!
-				assert(shader);
+				assert(source);
+
+				// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
+				shader = m_device->createShader(source.get());
+				if (!shader)
+					return logFail("Creation of a GPU Shader to from CPU Shader source failed!");
 			}
 
 			// The StreamingTransientDataBuffers are actually composed on top of another useful utility called `CAsyncSingleBufferSubAllocator`
@@ -114,8 +117,8 @@ class StreamingAndBufferDeviceAddressApp final : public application_templates::M
 			// `CAsyncSingleBufferSubAllocator` just allows you suballocate subranges of any `IGPUBuffer` range with deferred/latched frees.
 			constexpr uint32_t DownstreamBufferSize = sizeof(output_t)<<23;
 			constexpr uint32_t UpstreamBufferSize = sizeof(input_t)<<23;
-			
-			m_utils = IUtilities::create(smart_refctd_ptr(m_device),smart_refctd_ptr(m_logger),DownstreamBufferSize,UpstreamBufferSize);
+
+			m_utils = make_smart_refctd_ptr<IUtilities>(smart_refctd_ptr(m_device),smart_refctd_ptr(m_logger),DownstreamBufferSize,UpstreamBufferSize);
 			if (!m_utils)
 				return logFail("Failed to create Utilities!");
 			m_upStreamingBuffer = m_utils->getDefaultUpStreamingBuffer();
@@ -136,7 +139,6 @@ class StreamingAndBufferDeviceAddressApp final : public application_templates::M
 				IGPUComputePipeline::SCreationParams params = {};
 				params.layout = layout.get();
 				params.shader.shader = shader.get();
-				params.shader.entryPoint = "main";
 				if (!m_device->createComputePipelines(nullptr,{&params,1},&m_pipeline))
 					return logFail("Failed to create compute pipeline!\n");
 			}

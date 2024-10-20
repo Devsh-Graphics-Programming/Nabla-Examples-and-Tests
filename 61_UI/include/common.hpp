@@ -1,22 +1,25 @@
-#ifndef _NBL_THIS_EXAMPLE_COMMON_H_INCLUDED_
-#define _NBL_THIS_EXAMPLE_COMMON_H_INCLUDED_
+#ifndef __NBL_THIS_EXAMPLE_COMMON_H_INCLUDED__
+#define __NBL_THIS_EXAMPLE_COMMON_H_INCLUDED__
 
+#include <nabla.h>
 
-#include "nbl/examples/examples.hpp"
-
-// extensions
-#include "nbl/ext/Frustum/CDrawFrustum.h"
+// common api
+#include "CCamera.hpp"
+#include "SimpleWindowedApplication.hpp"
+#include "CEventCallback.hpp"
 
 // the example's headers
 #include "transform.hpp"
+#include "CGeomtryCreatorScene.hpp"
 
 using namespace nbl;
-using namespace nbl::core;
-using namespace nbl::hlsl;
-using namespace nbl::system;
-using namespace nbl::asset;
-using namespace nbl::ui;
-using namespace nbl::video;
-using namespace nbl::examples;
+using namespace core;
+using namespace hlsl;
+using namespace system;
+using namespace asset;
+using namespace ui;
+using namespace video;
+using namespace scene;
+using namespace geometrycreator;
 
-#endif // _NBL_THIS_EXAMPLE_COMMON_H_INCLUDED_
+#endif // __NBL_THIS_EXAMPLE_COMMON_H_INCLUDED__

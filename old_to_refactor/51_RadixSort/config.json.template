@@ -1,0 +1,30 @@
+{
+  "enableParallelBuild": true,
+  "threadsPerBuildProcess" : 2,
+  "isExecuted": false,
+  "scriptPath": "",
+  "cmake": {
+    "configurations": [ "Release", "Debug", "RelWithDebInfo" ],
+    "buildModes": [],
+    "requiredOptions": []
+  },
+  "profiles": [
+    {
+      "backend": "vulkan",
+      "platform": "windows",
+      "buildModes": [],
+      "runConfiguration": "Release",
+      "gpuArchitectures": [],
+	    "inputs": []
+    },
+	{
+      "backend": "vulkan",
+      "platform": "windows",
+      "buildModes": [],
+      "runConfiguration": "Debug",
+      "gpuArchitectures": [],
+	  "inputs": []
+    }
+  ],
+  "inputs": []
+}

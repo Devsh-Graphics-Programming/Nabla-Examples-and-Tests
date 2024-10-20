@@ -3,20 +3,18 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 
-#include "nbl/examples/examples.hpp"
+// I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
+#include "nbl/application_templates/MonoDeviceApplication.hpp"
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 
 
 using namespace nbl;
-using namespace nbl::core;
-using namespace nbl::hlsl;
-using namespace nbl::system;
-using namespace nbl::asset;
-using namespace nbl::ui;
-using namespace nbl::video;
-using namespace nbl::examples;
-
+using namespace core;
+using namespace system;
+using namespace asset;
+using namespace video;
 
 // Here we showcase the use of Graphics Queue only 
 // Steps we take in this example:
@@ -28,10 +26,10 @@ using namespace nbl::examples;
 // - save the smallImg to disk
 // 
 // all without using IUtilities.
-class HelloGraphicsQueueApp final : public application_templates::MonoDeviceApplication, public BuiltinResourcesApplication
+class HelloGraphicsQueueApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 		using device_base_t = application_templates::MonoDeviceApplication;
-		using asset_base_t = BuiltinResourcesApplication;
+		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 
 	public:
 		// Yay thanks to multiple inheritance we cannot forward ctors anymore.
@@ -285,9 +283,9 @@ class HelloGraphicsQueueApp final : public application_templates::MonoDeviceAppl
 				// which also means it can be sparsely(with gaps) specified.
 				params.image = ICPUImage::create(ouputImageCreationParams);
 				{
-					// null_memory_resource is used for creating ICPUBuffer over an already existing memory, without any memcopy operations 
-					// or taking over the memory ownership. null_memory_resource cannot free its memory.
-					auto cpuOutputImageBuffer = ICPUBuffer::create({ { smallImgByteSize }, imageBufferMemPtr, core::getNullMemoryResource() }, core::adopt_memory_t());
+					// CDummyCPUBuffer is used for creating ICPUBuffer over an already existing memory, without any memcopy operations 
+					// or taking over the memory ownership. CDummyCPUBuffer cannot free its memory.
+					auto cpuOutputImageBuffer = core::make_smart_refctd_ptr<CDummyCPUBuffer>(smallImgByteSize, imageBufferMemPtr, core::adopt_memory_t());
 					ICPUImage::SBufferCopy region = {};
 					region.imageSubresource.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
 					region.imageSubresource.layerCount = 1;

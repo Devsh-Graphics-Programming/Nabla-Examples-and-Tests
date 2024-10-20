@@ -2,8 +2,8 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-// <nabla.h> public interface and common examples API, always include first before std:: headers
-#include "nbl/examples/examples.hpp"
+// always include nabla first before std:: headers
+#include "nabla.h"
 
 #include "nbl/system/IApplicationFramework.h"
 

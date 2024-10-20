@@ -1,23 +1,20 @@
-#ifndef _NBL_THIS_EXAMPLE_TRANSFORM_H_INCLUDED_
-#define _NBL_THIS_EXAMPLE_TRANSFORM_H_INCLUDED_
-
+#ifndef __NBL_THIS_EXAMPLE_TRANSFORM_H_INCLUDED__
+#define __NBL_THIS_EXAMPLE_TRANSFORM_H_INCLUDED__
 
 #include "nbl/ui/ICursorControl.h"
-
 #include "nbl/ext/ImGui/ImGui.h"
-
 #include "imgui/imgui_internal.h"
 #include "imguizmo/ImGuizmo.h"
 
+static constexpr inline auto OfflineSceneTextureIx = 1u;
 
 struct TransformRequestParams
 {
-	float camDistance = 8.f;
-	uint8_t sceneTexDescIx = ~0;
 	bool useWindow = true, editTransformDecomposition = false, enableViewManipulate = false;
+	float camDistance = 8.f;
 };
 
-nbl::hlsl::uint16_t2 EditTransform(float* cameraView, const float* cameraProjection, float* matrix, const TransformRequestParams& params)
+void EditTransform(float* cameraView, const float* cameraProjection, float* matrix, const TransformRequestParams& params)
 {
 	static ImGuizmo::OPERATION mCurrentGizmoOperation(ImGuizmo::TRANSLATE);
 	static ImGuizmo::MODE mCurrentGizmoMode(ImGuizmo::LOCAL);
@@ -102,12 +99,11 @@ nbl::hlsl::uint16_t2 EditTransform(float* cameraView, const float* cameraProject
 		rendered is aligned to our texture scene using 
         imgui  "cursor" screen positions
 	*/
-// TODO: this shouldn't be handled here I think
+
 	SImResourceInfo info;
-	info.textureID = params.sceneTexDescIx;
+	info.textureID = OfflineSceneTextureIx;
 	info.samplerIx = (uint16_t)nbl::ext::imgui::UI::DefaultSamplerIx::USER;
 
-	nbl::hlsl::uint16_t2 retval;
 	if (params.useWindow)
 	{
 		ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Appearing);
@@ -122,7 +118,6 @@ nbl::hlsl::uint16_t2 EditTransform(float* cameraView, const float* cameraProject
 
 		ImGui::Image(info, contentRegionSize);
 		ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
-		retval = {contentRegionSize.x,contentRegionSize.y};
 
 		viewManipulateRight = cursorPos.x + contentRegionSize.x;
 		viewManipulateTop = cursorPos.y;
@@ -142,7 +137,6 @@ nbl::hlsl::uint16_t2 EditTransform(float* cameraView, const float* cameraProject
 
 		ImGui::Image(info, contentRegionSize);
 		ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
-		retval = {contentRegionSize.x,contentRegionSize.y};
 
 		viewManipulateRight = cursorPos.x + contentRegionSize.x;
 		viewManipulateTop = cursorPos.y;
@@ -155,8 +149,6 @@ nbl::hlsl::uint16_t2 EditTransform(float* cameraView, const float* cameraProject
 
 	ImGui::End();
 	ImGui::PopStyleColor();
-
-	return retval;
 }
 
 #endif // __NBL_THIS_EXAMPLE_TRANSFORM_H_INCLUDED__
