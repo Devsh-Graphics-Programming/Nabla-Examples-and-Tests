@@ -11,8 +11,8 @@ requires nbl::is_any_of_v<std::ranges::range_value_t<Range>, float64_t4x4, float
 class IProjection
 {
 public:
-    using value_t = std::ranges::iterator_t<Range>;
     using range_t = Range;
+    using range_value_t = std::ranges::range_value_t<range_t>;
 
 protected:
     IProjection(const range_t& matrices) : m_projMatrices(matrices) {}
