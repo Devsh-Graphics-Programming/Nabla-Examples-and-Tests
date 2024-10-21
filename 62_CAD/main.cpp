@@ -68,7 +68,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0,	// CASE_8
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_7;
+constexpr ExampleMode mode = ExampleMode::CASE_8;
 
 class Camera2D
 {
@@ -993,6 +993,10 @@ public:
 			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			assert(shaders[0]);
+			assert(shaders[1]);
+			assert(shaders[2]);
+			assert(shaders[3]);
 #endif
 		}
 
