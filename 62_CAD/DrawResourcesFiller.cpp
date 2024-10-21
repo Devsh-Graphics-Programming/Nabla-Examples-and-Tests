@@ -248,7 +248,7 @@ void DrawResourcesFiller::drawHatch(
 		textureIdx = getTextureIndexFromHash(msdfHash, intendedNextSubmit);
 		if (textureIdx == InvalidTextureIdx)
 			textureIdx = addMSDFTexture(getHatchFillPatternMSDF(fillPattern), msdfHash, intendedNextSubmit);
-		assert(textureIdx != InvalidTextureIdx);
+		_NBL_DEBUG_BREAK_IF(textureIdx == InvalidTextureIdx);
 	}
 
 	LineStyleInfo lineStyle = {};
@@ -287,15 +287,21 @@ void DrawResourcesFiller::drawFontGlyph(
 	textureIdx = getTextureIndexFromHash(msdfHash, intendedNextSubmit);
 	if (textureIdx == InvalidTextureIdx)
 		textureIdx = addMSDFTexture(getGlyphMSDF(fontFace, glyphIdx), msdfHash, intendedNextSubmit);
-	assert(textureIdx != InvalidTextureIdx);
-	
-	GlyphInfo glyphInfo = GlyphInfo(topLeft, dirU, aspectRatio, textureIdx, minUV);
-	if (!addFontGlyph_Internal(glyphInfo, mainObjIdx))
+	if (textureIdx != InvalidTextureIdx)
 	{
-		// single font glyph couldn't fit into memory to push to gpu, so we submit rendering current objects and reset geometry buffer and draw objects
-		submitCurrentObjectsAndReset(intendedNextSubmit, mainObjIdx);
-		bool success = addFontGlyph_Internal(glyphInfo, mainObjIdx);
-		assert(success); // this should always be true, otherwise it's either bug in code or not enough memory allocated to hold a single GlyphInfo
+		GlyphInfo glyphInfo = GlyphInfo(topLeft, dirU, aspectRatio, textureIdx, minUV);
+		if (!addFontGlyph_Internal(glyphInfo, mainObjIdx))
+		{
+			// single font glyph couldn't fit into memory to push to gpu, so we submit rendering current objects and reset geometry buffer and draw objects
+			submitCurrentObjectsAndReset(intendedNextSubmit, mainObjIdx);
+			bool success = addFontGlyph_Internal(glyphInfo, mainObjIdx);
+			assert(success); // this should always be true, otherwise it's either bug in code or not enough memory allocated to hold a single GlyphInfo
+		}
+	}
+	else
+	{
+		// TODO: Log
+		_NBL_DEBUG_BREAK_IF(true);
 	}
 }
 
@@ -850,8 +856,11 @@ uint32_t DrawResourcesFiller::getMSDFTextureIndex(msdf_hash hash)
 	else return InvalidMSDFHash;
 }
 
-uint32_t DrawResourcesFiller::addMSDFTexture(std::function<core::smart_refctd_ptr<ICPUImage>()> createResourceIfEmpty, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawResourcesFiller::addMSDFTexture(core::smart_refctd_ptr<ICPUImage> cpuImage, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
 {
+	if (!cpuImage)
+		return InvalidTextureIdx;
+
 	// TextureReferences hold the semaValue related to the "scratch semaphore" in IntendedSubmitInfo
 	// Every single submit increases this value by 1
 	// The reason for hiolding on to the lastUsedSema is deferred dealloc, which we call in the case of eviction, making sure we get rid of the entry inside the allocator only when the texture is done being used
@@ -883,8 +892,6 @@ uint32_t DrawResourcesFiller::addMSDFTexture(std::function<core::smart_refctd_pt
 	// if inserted->alloc_idx was not InvalidTextureIdx then it means we had a cache hit and updated the value of our sema, in which case we don't queue anything for upload, and return the idx
 	if (inserted->alloc_idx == InvalidTextureIdx)
 	{
-		auto cpuImage = createResourceIfEmpty();
-
 		const auto cpuImageSize = cpuImage->getMipSize(0);
 		const bool sizeMatch = cpuImageSize.x == getMSDFResolution().x && cpuImageSize.y == getMSDFResolution().y && cpuImageSize.z == 1u;
 
@@ -897,20 +904,15 @@ uint32_t DrawResourcesFiller::addMSDFTexture(std::function<core::smart_refctd_pt
 			// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
 			textureCopies.push_back({ .image = std::move(cpuImage), .index = inserted->alloc_idx });
 		}
+		else
+		{
+			// TODO: Log
+		}
 	}
 
-	assert(inserted->alloc_idx != InvalidTextureIdx);
+	_NBL_DEBUG_BREAK_IF(inserted->alloc_idx == InvalidTextureIdx);
 	if (inserted->alloc_idx != InvalidTextureIdx)
 		msdfTextureArrayIndicesUsed.emplace(inserted->alloc_idx);
 
 	return inserted->alloc_idx;
-}
-
-uint32_t DrawResourcesFiller::addMSDFTexture(core::smart_refctd_ptr<ICPUImage> textureBuffer, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
-{
-	return addMSDFTexture(
-		[textureBuffer] { return std::move(textureBuffer); },
-		hash,
-		intendedNextSubmit
-	);
 }

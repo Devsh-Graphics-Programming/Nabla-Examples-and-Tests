@@ -211,9 +211,6 @@ public:
 		return msdfTextureArray->getCreationParameters().image->getCreationParameters().mipLevels;
 	}
 
-	// TODO: Return to protected after testing
-	uint32_t addMSDFTexture(std::function<core::smart_refctd_ptr<ICPUImage>()> createResourceIfEmpty, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
-
 protected:
 	
 	struct TextureCopy
@@ -344,7 +341,7 @@ protected:
 		return textureIdx;
 	}
 
-	uint32_t addMSDFTexture(core::smart_refctd_ptr<ICPUImage> textureBuffer, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
+	uint32_t addMSDFTexture(core::smart_refctd_ptr<ICPUImage> cpuImage, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
 	
 	// Members
 	smart_refctd_ptr<IUtilities> m_utilities;

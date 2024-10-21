@@ -1037,14 +1037,14 @@ public:
 		// Loading font stuff
 		m_textRenderer = nbl::core::make_smart_refctd_ptr<TextRenderer>();
 
-		m_Font = FontFace::create(core::smart_refctd_ptr(m_textRenderer), std::string("C:\\Windows\\Fonts\\webdings.ttf"));
+		m_font = FontFace::create(core::smart_refctd_ptr(m_textRenderer), std::string("C:\\Windows\\Fonts\\arial.ttf"));
 	
-		if (m_Font->getFreetypeFace()->num_charmaps > 0)
-			FT_Set_Charmap(m_Font->getFreetypeFace(), m_Font->getFreetypeFace()->charmaps[0]);
+		if (m_font->getFreetypeFace()->num_charmaps > 0)
+			FT_Set_Charmap(m_font->getFreetypeFace(), m_font->getFreetypeFace()->charmaps[0]);
 		
 		const auto str = "MSDF: ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnoprstuvwxyz '1234567890-=\"!@#$%&*()_+";
 		singleLineText = std::unique_ptr<SingleLineText>(new SingleLineText(
-			core::smart_refctd_ptr<FontFace>(m_Font), 
+			core::smart_refctd_ptr<FontFace>(m_font), 
 			std::string(str)));
 
 		drawResourcesFiller.setGlyphMSDFTextureFunction(
@@ -1529,7 +1529,7 @@ protected:
 
 			int32_t hatchDebugStep = m_hatchDebugStep;
 			
-			if (true)
+			if (hatchDebugStep > 0)
 			{
 				// Degenerate and Corner cases for hatches
 				{
@@ -1595,7 +1595,7 @@ protected:
 					}
 				}
 			}
-			if (false)
+			if (hatchDebugStep > 0)
 			{
 #include "bike_hatch.h"
 				for (uint32_t i = 0; i < polylines.size(); i++)
@@ -1623,7 +1623,7 @@ protected:
 				//).c_str());
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.6, 0.6, 0.1, 1.0f), intendedNextSubmit);
 			}
-			if (false)
+			if (hatchDebugStep > 0)
 			{
 				std::vector <CPolyline> polylines;
 				auto line = [&](float64_t2 begin, float64_t2 end) {
@@ -1666,7 +1666,7 @@ protected:
 				Hatch hatch(polylines, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.0, 1.0, 0.1, 1.0f), intendedNextSubmit);
 			}
-			if (false)
+			if (hatchDebugStep > 0)
 			{
 				std::vector <CPolyline> polylines;
 				auto circleThing = [&](float64_t2 offset)
@@ -1698,7 +1698,7 @@ protected:
 				Hatch hatch(polylines, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(1.0, 0.1, 0.1, 1.0f), intendedNextSubmit);
 			}
-			if (false)
+			if (hatchDebugStep > 0)
 			{
 				std::vector <CPolyline> polylines;
 				auto line = [&](float64_t2 begin, float64_t2 end) {
@@ -1736,7 +1736,7 @@ protected:
 					polyline.addQuadBeziers(beziers);
 				}
 			}
-			if (false)
+			if (hatchDebugStep > 0)
 			{
 				std::vector <CPolyline> polylines;
 				{
@@ -1850,7 +1850,7 @@ protected:
 				Hatch hatch(polylines, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.0, 0.0, 1.0, 1.0f), intendedNextSubmit);
 			}
-			if (false)
+			if (hatchDebugStep > 0)
 			{
 				std::vector<float64_t2> points;
 				double sqrt3 = sqrt(3.0);
@@ -1888,7 +1888,7 @@ protected:
 				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(1.0f, 0.325f, 0.103f, 1.0f), intendedNextSubmit);
 			}
-			if (false)
+			if (hatchDebugStep > 0)
 			{
 				CPolyline polyline;
 				std::vector<shapes::QuadraticBezier<double>> beziers;
@@ -3031,7 +3031,7 @@ protected:
 						squareBelow.addLinePoints(points);
 					}
 
-					Hatch filledHatch(std::span<CPolyline, 1>{std::addressof(squareBelow), 1}, SelectedMajorAxis);
+					Hatch filledHatch({&squareBelow, 1}, SelectedMajorAxis);
 					// This draws a square that is textured with the fill pattern at hatchFillShapeIdx
 					drawResourcesFiller.drawHatch(
 						filledHatch, 
@@ -3076,8 +3076,8 @@ protected:
 				for (uint32_t i = 0; i < strlen(TestString); i++)
 				{
 					char k = TestString[i];
-					auto glyphIndex = m_Font->getGlyphIndex(wchar_t(k));
-					const auto glyphMetrics = m_Font->getGlyphMetrics(glyphIndex);
+					auto glyphIndex = m_font->getGlyphIndex(wchar_t(k));
+					const auto glyphMetrics = m_font->getGlyphMetrics(glyphIndex);
 					const float64_t2 baselineStart = currentBaselineStart;
 
 					currentBaselineStart += glyphMetrics.advance;
@@ -3125,12 +3125,12 @@ protected:
 								ftFunctions.cubic_to = &ftCubicTo;
 								ftFunctions.shift = 0;
 								ftFunctions.delta = 0;
-								auto error = FT_Outline_Decompose(&m_Font->getGlyphSlot(glyphIndex)->outline, &ftFunctions, &hatchBuilder);
+								auto error = FT_Outline_Decompose(&m_font->getGlyphSlot(glyphIndex)->outline, &ftFunctions, &hatchBuilder);
 								assert(!error);
 								hatchBuilder.finish();
 							}
 							msdfgen::Shape glyphShape;
-							bool loadedGlyph = drawFreetypeGlyph(glyphShape, m_textRenderer->getFreetypeLibrary(), m_Font->getFreetypeFace());
+							bool loadedGlyph = drawFreetypeGlyph(glyphShape, m_textRenderer->getFreetypeLibrary(), m_font->getFreetypeFace());
 							assert(loadedGlyph);
 
 							auto& shapePolylines = hatchBuilder.polylines;
@@ -3268,7 +3268,7 @@ protected:
 	smart_refctd_ptr<IGPUImageView> pseudoStencilImageView;
 	smart_refctd_ptr<IGPUImageView> colorStorageImageView;
 	smart_refctd_ptr<TextRenderer> m_textRenderer;
-	smart_refctd_ptr<FontFace> m_Font;
+	smart_refctd_ptr<FontFace> m_font;
 	std::unique_ptr<SingleLineText> singleLineText = nullptr;
 	
 	std::vector<std::unique_ptr<msdfgen::Shape>> m_shapeMSDFImages = {};

@@ -274,12 +274,6 @@ Hatch::Hatch(std::span<CPolyline> lines, const MajorAxis majorAxis, nbl::system:
 				}
 			}
 		}
-		
-		if (segments.empty())
-		{
-			logger.log("Empty Polylines with no segments were fed into the Hatch construction.", nbl::system::ILogger::ELL_WARNING);
-			return;
-		}
 
 		for (uint32_t bezierIdx = 0; bezierIdx < beziers.size(); bezierIdx++)
 		{
@@ -289,6 +283,12 @@ Hatch::Hatch(std::span<CPolyline> lines, const MajorAxis majorAxis, nbl::system:
 			segment.t_start = 0.0;
 			segment.t_end = 1.0;
 			segments.push_back(segment);
+		}
+		
+		if (segments.empty())
+		{
+			logger.log("Empty Polylines with no segments were fed into the Hatch construction.", nbl::system::ILogger::ELL_WARNING);
+			return;
 		}
 
 		std::sort(segments.begin(), segments.end(), [&](const Segment& a, const Segment& b) { return a.originalBezier->P0[major] > b.originalBezier->P0[major]; });
