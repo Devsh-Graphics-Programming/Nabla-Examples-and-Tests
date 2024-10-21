@@ -15,7 +15,7 @@ public:
     using range_t = typename base_t::range_t;
     using projection_t = typename base_t::projection_t;
 
-    ILinearProjection(range_t&& projections) : base_t(projections) {}
+    ILinearProjection(range_t&& projections) : base_t(std::move(projections)) {}
 
 protected:
     inline range_t& getViewportProjections()

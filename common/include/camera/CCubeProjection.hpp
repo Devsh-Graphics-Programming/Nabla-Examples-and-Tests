@@ -6,23 +6,26 @@
 namespace nbl::hlsl
 {
 
-struct CCubeProjectionBase
+template<ProjectionMatrix T>
+struct CCubeProjectionConstraints
 {
-    using projection_t = typename IProjection<float64_t4x4>;
-    using projection_range_t = std::array<typename projection_t, 6u>;
+    using matrix_t = typename T;
+    using projection_t = typename IProjection<typename matrix_t>;
+    using projection_range_t = std::array<typename core::smart_refctd_ptr<projection_t>, 6u>;
     using base_t = ILinearProjection<typename projection_range_t>;
 };
 
 //! Class providing linear cube projections with projection matrix per face of a cube, each projection matrix represents a single view-port
-class CCubeProjection : public CCubeProjectionBase::base_t
+template<ProjectionMatrix T = float64_t4x4>
+class CCubeProjection : public CCubeProjectionConstraints<T>::base_t
 {
 public:
-    using base_t = typename CCubeProjectionBase::base_t;
-    using projection_range_t = typename base_t::range_t;
+    using constraints_t = CCubeProjectionConstraints<T>;
+    using base_t = typename constraints_t::base_t;
 
-    CCubeProjection(projection_range_t&& projections = {}) : base_t(std::move(projections)) {}
+    CCubeProjection(constraints_t::projection_range_t&& projections = {}) : base_t(std::move(projections)) {}
 
-    projection_range_t& getCubeFaceProjections()
+    constraints_t::projection_range_t& getCubeFaceProjections()
     {
         return base_t::getViewportProjections();
     }

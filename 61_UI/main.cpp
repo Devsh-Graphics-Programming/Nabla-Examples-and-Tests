@@ -4,6 +4,10 @@
 
 #include "common.hpp"
 
+#include "camera/CCubeProjection.hpp"
+#include "camera/ICameraControl.hpp"
+#include "glm/glm/ext/matrix_clip_space.hpp" // TODO: TESTING
+
 /*
 	Renders scene texture to an offline
 	framebuffer which color attachment
@@ -488,6 +492,26 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			m_winMgr->show(m_window.get());
 			oracle.reportBeginFrameRecord();
 			camera.mapKeysToArrows();
+
+			/*
+				TESTS, TODO: remove all once finished work & integrate with the example properly
+			*/
+
+			using cube_projection_t = CCubeProjection<float64_t4x4>;
+			using constraints_t = CCubeProjection<>::constraints_t;
+			using camera_control_t = ICameraController<constraints_t::matrix_t>;
+			using gimbal_t = camera_control_t::CGimbal;
+
+			cube_projection_t cubeProjection; // can init all at construction, but will init only first for tests
+			auto& projections = cubeProjection.getCubeFaceProjections();
+			auto firstFaceProjection = projections.front();
+			firstFaceProjection = make_smart_refctd_ptr<constraints_t::projection_t>(glm::perspectiveLH(glm::radians(fov), float(m_window->getWidth()) / float(m_window->getHeight()), zNear, zFar));
+			
+			const float32_t3 position(cosf(camYAngle)* cosf(camXAngle)* transformParams.camDistance, sinf(camXAngle)* transformParams.camDistance, sinf(camYAngle)* cosf(camXAngle)* transformParams.camDistance),
+			target(0.f, 0.f, 0.f), up(0.f, 1.f, 0.f);
+
+			auto gimbal = make_smart_refctd_ptr<gimbal_t>(smart_refctd_ptr(firstFaceProjection), position, target, up);
+			auto controller = make_smart_refctd_ptr<camera_control_t>(smart_refctd_ptr(gimbal));
 
 			return true;
 		}
