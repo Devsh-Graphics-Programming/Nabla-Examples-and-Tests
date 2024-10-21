@@ -2,6 +2,8 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+#include <nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl>
+#include <nbl/builtin/hlsl/projection/projection.hlsl>
 #include "common.hpp"
 
 class CSwapchainFramebuffersAndDepth final : public nbl::video::CDefaultSwapchainFramebuffers
@@ -235,9 +237,9 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 
 			// camera
 			{
-				core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
-				core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
-				matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.1, 10000);
+				hlsl::float32_t3 cameraPosition(-5.81655884, 2.58630896, -4.23974705);
+				hlsl::float32_t3 cameraTarget(-0.349590302, -0.213266611, 0.317821503);
+				float32_t4x4 projectionMatrix = hlsl::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.1, 10000);
 				camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
 			}
 
@@ -303,12 +305,12 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 			const auto viewMatrix = camera.getViewMatrix();
 			const auto viewProjectionMatrix = camera.getConcatenatedMatrix();
 
-			core::matrix3x4SIMD modelMatrix;
-			modelMatrix.setTranslation(nbl::core::vectorSIMDf(0, 0, 0, 0));
-			modelMatrix.setRotation(quaternion(0, 0, 0));
+			hlsl::float32_t3x4 modelMatrix;
+			hlsl::setTranslation(modelMatrix, hlsl::float32_t3(0));
+			hlsl::setRotation(modelMatrix, quaternion(0, 0, 0));
 
-			core::matrix3x4SIMD modelViewMatrix = core::concatenateBFollowedByA(viewMatrix, modelMatrix);
-			core::matrix4SIMD modelViewProjectionMatrix = core::concatenateBFollowedByA(viewProjectionMatrix, modelMatrix);
+			hlsl::float32_t3x4 modelViewMatrix = hlsl::concatenateBFollowedByA(viewMatrix, modelMatrix);
+			hlsl::float32_t4x4 modelViewProjectionMatrix = hlsl::concatenateBFollowedByA(viewProjectionMatrix, hlsl::getMatrix3x4As4x4(modelMatrix));
 
 			core::matrix3x4SIMD normalMatrix;
 			modelViewMatrix.getSub3x3InverseTranspose(normalMatrix);
@@ -468,7 +470,7 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 		InputSystem::ChannelReader<IMouseEventChannel> mouse;
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
-		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
+		Camera camera = Camera(hlsl::float32_t3(0, 0, 0), hlsl::float32_t3(0, 0, 0), hlsl::float32_t4x4(1));
 		video::CDumbPresentationOracle oracle;
 
 		ResourcesBundle resources;

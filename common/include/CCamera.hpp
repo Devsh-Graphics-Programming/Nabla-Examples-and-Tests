@@ -6,6 +6,7 @@
 #define _CAMERA_IMPL_
 
 #include <nabla.h>
+#include <nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl>
 #include <iostream>
 #include <cstdio>
 #include <fstream>
@@ -15,7 +16,7 @@ class Camera
 { 
 public:
 	Camera() = default;
-	Camera(const nbl::core::vectorSIMDf& position, const nbl::core::vectorSIMDf& lookat, const nbl::core::matrix4SIMD& projection, float moveSpeed = 1.0f, float rotateSpeed = 1.0f, const nbl::core::vectorSIMDf& upVec = nbl::core::vectorSIMDf(0.0f, 1.0f, 0.0f), const nbl::core::vectorSIMDf& backupUpVec = nbl::core::vectorSIMDf(0.5f, 1.0f, 0.0f)) 
+	Camera(const nbl::hlsl::float32_t3& position, const nbl::hlsl::float32_t3& lookat, const nbl::hlsl::float32_t4x4& projection, float moveSpeed = 1.0f, float rotateSpeed = 1.0f, const nbl::hlsl::float32_t3& upVec = nbl::hlsl::float32_t3(0.0f, 1.0f, 0.0f), const nbl::hlsl::float32_t3& backupUpVec = nbl::hlsl::float32_t3(0.5f, 1.0f, 0.0f))
 		: position(position)
 		, initialPosition(position)
 		, target(lookat)
@@ -61,44 +62,44 @@ public:
 
 	inline void mapKeysCustom(std::array<nbl::ui::E_KEY_CODE, ECMK_COUNT>& map) { keysMap = map; }
 
-	inline const nbl::core::matrix4SIMD& getProjectionMatrix() const { return projMatrix; }
-	inline const nbl::core::matrix3x4SIMD& getViewMatrix() const {	return viewMatrix; }
-	inline const nbl::core::matrix4SIMD& getConcatenatedMatrix() const { return concatMatrix; }
+	inline const nbl::hlsl::float32_t4x4& getProjectionMatrix() const { return projMatrix; }
+	inline const nbl::hlsl::float32_t3x4& getViewMatrix() const { return viewMatrix; }
+	inline const nbl::hlsl::float32_t4x4& getConcatenatedMatrix() const { return concatMatrix; }
 
-	inline void setProjectionMatrix(const nbl::core::matrix4SIMD& projection)
+	inline void setProjectionMatrix(const nbl::hlsl::float32_t4x4& projection)
 	{
 		projMatrix = projection;
+		leftHanded = nbl::hlsl::determinant(projection) < 0.f;
 
-		const auto hlslMatMap = *reinterpret_cast<const nbl::hlsl::float32_t4x4*>(&projMatrix); // TEMPORARY TILL THE CAMERA CLASS IS REFACTORED TO WORK WITH HLSL MATRICIES!
-		{
-			leftHanded = nbl::hlsl::determinant(hlslMatMap) < 0.f;
-		}
-		concatMatrix = nbl::core::matrix4SIMD::concatenateBFollowedByAPrecisely(projMatrix, nbl::core::matrix4SIMD(viewMatrix));
+		float64_t4x4 projMatPrecise = float64_t4x4(projMatrix);
+		float64_t4x4 viewMatPrecise = nbl::hlsl::getMatrix3x4As4x4(viewMatrix);
+
+		concatMatrix = nbl::hlsl::concatenateBFollowedByAPrecisely(projMatrix, nbl::hlsl::getMatrix3x4As4x4(viewMatrix));
 	}
 	
-	inline void setPosition(const nbl::core::vectorSIMDf& pos)
+	inline void setPosition(const nbl::hlsl::float32_t3& pos)
 	{
-		position.set(pos);
+		position = pos;
 		recomputeViewMatrix();
 	}
 	
-	inline const nbl::core::vectorSIMDf& getPosition() const { return position; }
+	inline const nbl::hlsl::float32_t3& getPosition() const { return position; }
 
-	inline void setTarget(const nbl::core::vectorSIMDf& pos) 
+	inline void setTarget(const nbl::hlsl::float32_t3& pos) 
 	{
-		target.set(pos);
+		target = pos;
 		recomputeViewMatrix();
 	}
 
-	inline const nbl::core::vectorSIMDf& getTarget() const { return target; }
+	inline const nbl::hlsl::float32_t3& getTarget() const { return target; }
 
-	inline void setUpVector(const nbl::core::vectorSIMDf& up) { upVector = up; }
+	inline void setUpVector(const nbl::hlsl::float32_t3& up) { upVector = up; }
 	
-	inline void setBackupUpVector(const nbl::core::vectorSIMDf& up) { backupUpVector = up; }
+	inline void setBackupUpVector(const nbl::hlsl::float32_t3& up) { backupUpVector = up; }
 
-	inline const nbl::core::vectorSIMDf& getUpVector() const { return upVector; }
+	inline const nbl::hlsl::float32_t3& getUpVector() const { return upVector; }
 	
-	inline const nbl::core::vectorSIMDf& getBackupUpVector() const { return backupUpVector; }
+	inline const nbl::hlsl::float32_t3& getBackupUpVector() const { return backupUpVector; }
 
 	inline const float getMoveSpeed() const { return moveSpeed; }
 
@@ -110,22 +111,22 @@ public:
 
 	inline void recomputeViewMatrix() 
 	{
-		nbl::core::vectorSIMDf pos = position;
-		nbl::core::vectorSIMDf localTarget = nbl::core::normalize(target - pos);
+		nbl::hlsl::float32_t3 pos = position;
+		nbl::hlsl::float32_t3 localTarget = nbl::core::normalize(target - pos);
 
 		// if upvector and vector to the target are the same, we have a
 		// problem. so solve this problem:
-		nbl::core::vectorSIMDf up = nbl::core::normalize(upVector);
-		nbl::core::vectorSIMDf cross = nbl::core::cross(localTarget, up);
+		nbl::hlsl::float32_t3 up = nbl::core::normalize(upVector);
+		nbl::hlsl::float32_t3 cross = nbl::core::cross(localTarget, up);
 		bool upVectorNeedsChange = nbl::core::lengthsquared(cross)[0] == 0;
 		if (upVectorNeedsChange)
 			up = nbl::core::normalize(backupUpVector);
 
 		if (leftHanded)
-			viewMatrix = nbl::core::matrix3x4SIMD::buildCameraLookAtMatrixLH(pos, target, up);
+			viewMatrix = nbl::hlsl::buildCameraLookAtMatrixLH(pos, target, up);
 		else
-			viewMatrix = nbl::core::matrix3x4SIMD::buildCameraLookAtMatrixRH(pos, target, up);
-		concatMatrix = nbl::core::matrix4SIMD::concatenateBFollowedByAPrecisely(projMatrix, nbl::core::matrix4SIMD(viewMatrix));
+			viewMatrix = nbl::hlsl::buildCameraLookAtMatrixRH(pos, target, up);
+		concatMatrix = nbl::hlsl::concatenateBFollowedByAPrecisely(projMatrix, nbl::hlsl::getMatrix3x4As4x4(viewMatrix));
 	}
 
 	inline bool getLeftHanded() const { return leftHanded; }
@@ -146,14 +147,14 @@ public:
 
 			if(ev.type == nbl::ui::SMouseEvent::EET_MOVEMENT && mouseDown) 
 			{
-				nbl::core::vectorSIMDf pos = getPosition();
-				nbl::core::vectorSIMDf localTarget = getTarget() - pos;
+				nbl::hlsl::float32_t3 pos = getPosition();
+				nbl::hlsl::float32_t3 localTarget = getTarget() - pos;
 
 				// Get Relative Rotation for localTarget in Radians
 				float relativeRotationX, relativeRotationY;
-				relativeRotationY = atan2(localTarget.X, localTarget.Z);
-				const double z1 = nbl::core::sqrt(localTarget.X*localTarget.X + localTarget.Z*localTarget.Z);
-				relativeRotationX = atan2(z1, localTarget.Y) - nbl::core::PI<float>()/2;
+				relativeRotationY = atan2(localTarget.z, localTarget.z);
+				const double z1 = nbl::core::sqrt(localTarget.x*localTarget.x + localTarget.z*localTarget.z);
+				relativeRotationX = atan2(z1, localTarget.y) - nbl::core::PI<float>()/2;
 				
 				constexpr float RotateSpeedScale = 0.003f; 
 				relativeRotationX -= ev.movementEvent.relativeMovementY * rotateSpeed * RotateSpeedScale * -1.0f;
@@ -172,12 +173,12 @@ public:
 					if (relativeRotationX > MaxVerticalAngle && relativeRotationX < 2 * nbl::core::PI<float>()-MaxVerticalAngle)
 						relativeRotationX = MaxVerticalAngle;
 
-				localTarget.set(0,0, nbl::core::max(1.f, nbl::core::length(pos)[0]), 1.f);
+				localTarget = nbl::hlsl::float32_t3(0,0, nbl::core::max(1.f, nbl::core::length(pos)[0]));
 
-				nbl::core::matrix3x4SIMD mat;
-				mat.setRotation(nbl::core::quaternion(relativeRotationX, relativeRotationY, 0));
-				mat.transformVect(localTarget);
-				
+				nbl::hlsl::float32_t3x4 mat;
+				nbl::hlsl::setRotation(mat, nbl::core::quaternion(relativeRotationX, relativeRotationY, 0));
+				localTarget = mul(mat, nbl::hlsl::float32_t4(localTarget, 1.0f)); // TODO: w = 1.0f for sure?
+
 				setTarget(localTarget + pos);
 			}
 		}
@@ -249,33 +250,34 @@ public:
 	
 	void endInputProcessing(std::chrono::microseconds _nextPresentationTimeStamp)
 	{
-		nbl::core::vectorSIMDf pos = getPosition();
-		nbl::core::vectorSIMDf localTarget = getTarget() - pos;
+		nbl::hlsl::float32_t3 pos = getPosition();
+		nbl::hlsl::float32_t3 localTarget = getTarget() - pos;
 
 		if (!firstUpdate)
 		{
-			nbl::core::vectorSIMDf movedir = localTarget;
-			movedir.makeSafe3D();
+			nbl::hlsl::float32_t3 movedir = localTarget;
+			// TODO:
+			//movedir.makeSafe3D();
 			movedir = nbl::core::normalize(movedir);
 
 			constexpr float MoveSpeedScale = 0.02f; 
 
-			pos += movedir * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_FORWARD] * moveSpeed * MoveSpeedScale;
-			pos -= movedir * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_BACKWARD] * moveSpeed * MoveSpeedScale;
+			pos += movedir * nbl::hlsl::float32_t3(perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_FORWARD] * moveSpeed * MoveSpeedScale);
+			pos -= movedir * nbl::hlsl::float32_t3(perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_BACKWARD] * moveSpeed * MoveSpeedScale);
 
 			// strafing
 		
 			// if upvector and vector to the target are the same, we have a
 			// problem. so solve this problem:
-			nbl::core::vectorSIMDf up = nbl::core::normalize(upVector);
-			nbl::core::vectorSIMDf cross = nbl::core::cross(localTarget, up);
+			nbl::hlsl::float32_t3 up = nbl::core::normalize(upVector);
+			nbl::hlsl::float32_t3 cross = nbl::core::cross(localTarget, up);
 			bool upVectorNeedsChange = nbl::core::lengthsquared(cross)[0] == 0;
 			if (upVectorNeedsChange)
 			{
 				up = nbl::core::normalize(backupUpVector);
 			}
 
-			nbl::core::vectorSIMDf strafevect = localTarget;
+			nbl::hlsl::float32_t3 strafevect = localTarget;
 			if (leftHanded)
 				strafevect = nbl::core::cross(strafevect, up);
 			else
@@ -283,8 +285,8 @@ public:
 
 			strafevect = nbl::core::normalize(strafevect);
 
-			pos += strafevect * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_LEFT] * moveSpeed * MoveSpeedScale;
-			pos -= strafevect * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_RIGHT] * moveSpeed * MoveSpeedScale;
+			pos += strafevect * nbl::hlsl::float32_t3(perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_LEFT] * moveSpeed * MoveSpeedScale);
+			pos -= strafevect * nbl::hlsl::float32_t3(perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_RIGHT] * moveSpeed * MoveSpeedScale);
 		}
 		else
 			firstUpdate = false;
@@ -308,9 +310,9 @@ private:
 	}
 
 private:
-	nbl::core::vectorSIMDf initialPosition, initialTarget, position, target, upVector, backupUpVector; // TODO: make first 2 const + add default copy constructor
-	nbl::core::matrix3x4SIMD viewMatrix;
-	nbl::core::matrix4SIMD concatMatrix, projMatrix;
+	nbl::hlsl::float32_t3 initialPosition, initialTarget, position, target, upVector, backupUpVector; // TODO: make first 2 const + add default copy constructor
+	nbl::hlsl::float32_t3x4 viewMatrix;
+	nbl::hlsl::float32_t4x4 concatMatrix, projMatrix;
 
 	float moveSpeed, rotateSpeed;
 	bool leftHanded, firstUpdate = true, mouseDown = false;
