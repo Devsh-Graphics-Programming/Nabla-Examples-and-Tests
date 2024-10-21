@@ -264,9 +264,9 @@ public:
         //    submitInfos[0].commandBuffers = cmdbufs;
         //    const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = progress.get(),.value = FinishedValue1,.stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
         //    submitInfos[0].signalSemaphores = signals;
-        //    m_queue->startCapture();
+        //    m_api->startCapture();
         //    m_queue->submit(submitInfos);  //Command buffer is NOT IN THE EXECUTABLE STATE
-        //    m_queue->endCapture();
+        //    m_api->endCapture();
         //    const ISemaphore::SWaitInfo waitInfos[] = { {
         //            .semaphore = progress.get(),
         //            .value = FinishedValue1
@@ -296,9 +296,9 @@ public:
             submitInfos[0].commandBuffers = cmdbufs;
             const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = progress.get(),.value = FinishedValue,.stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
             submitInfos[0].signalSemaphores = signals;
-            m_queue->startCapture();
+            m_api->startCapture();
             m_queue->submit(submitInfos);
-            m_queue->endCapture();
+            m_api->endCapture();
             const ISemaphore::SWaitInfo waitInfos[] = { {
                     .semaphore = progress.get(),
                     .value = FinishedValue

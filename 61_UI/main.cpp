@@ -2,319 +2,17 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#define _NBL_STATIC_LIB_
-#include <nabla.h>
-#include "nbl/video/utilities/CSimpleResizeSurface.h"
+#include "common.hpp"
 
-#include "../common/SimpleWindowedApplication.hpp"
-#include "../common/InputSystem.hpp"
+/*
+	Renders scene texture to an offline
+	framebuffer which color attachment
+	is then sampled into a imgui window.
 
-#include "nbl/ext/ImGui/ImGui.h"
-#include "nbl/ui/ICursorControl.h"
-
-#include "imgui/imgui_internal.h"
-#include "imguizmo/ImGuizmo.h"
-
-using namespace nbl;
-using namespace core;
-using namespace hlsl;
-using namespace system;
-using namespace asset;
-using namespace ui;
-using namespace video;
-
-// https://github.com/Devsh-Graphics-Programming/ImGuizmo/blob/master/example/main.cpp
-// https://github.com/Devsh-Graphics-Programming/ImGuizmo/blob/master/LICENSE
-
-bool useWindow = true;
-int gizmoCount = 1;
-float camDistance = 8.f;
-static ImGuizmo::OPERATION mCurrentGizmoOperation(ImGuizmo::TRANSLATE);
-
-float objectMatrix[4][16] = {
-  { 1.f, 0.f, 0.f, 0.f,
-	0.f, 1.f, 0.f, 0.f,
-	0.f, 0.f, 1.f, 0.f,
-	0.f, 0.f, 0.f, 1.f },
-
-  { 1.f, 0.f, 0.f, 0.f,
-  0.f, 1.f, 0.f, 0.f,
-  0.f, 0.f, 1.f, 0.f,
-  2.f, 0.f, 0.f, 1.f },
-
-  { 1.f, 0.f, 0.f, 0.f,
-  0.f, 1.f, 0.f, 0.f,
-  0.f, 0.f, 1.f, 0.f,
-  2.f, 0.f, 2.f, 1.f },
-
-  { 1.f, 0.f, 0.f, 0.f,
-  0.f, 1.f, 0.f, 0.f,
-  0.f, 0.f, 1.f, 0.f,
-  0.f, 0.f, 2.f, 1.f }
-};
-
-static const float identityMatrix[16] =
-{ 1.f, 0.f, 0.f, 0.f,
-	0.f, 1.f, 0.f, 0.f,
-	0.f, 0.f, 1.f, 0.f,
-	0.f, 0.f, 0.f, 1.f };
-
-void Frustum(float left, float right, float bottom, float top, float znear, float zfar, float* m16)
-{
-	float temp, temp2, temp3, temp4;
-	temp = 2.0f * znear;
-	temp2 = right - left;
-	temp3 = top - bottom;
-	temp4 = zfar - znear;
-	m16[0] = temp / temp2;
-	m16[1] = 0.0;
-	m16[2] = 0.0;
-	m16[3] = 0.0;
-	m16[4] = 0.0;
-	m16[5] = temp / temp3;
-	m16[6] = 0.0;
-	m16[7] = 0.0;
-	m16[8] = (right + left) / temp2;
-	m16[9] = (top + bottom) / temp3;
-	m16[10] = (-zfar - znear) / temp4;
-	m16[11] = -1.0f;
-	m16[12] = 0.0;
-	m16[13] = 0.0;
-	m16[14] = (-temp * zfar) / temp4;
-	m16[15] = 0.0;
-}
-
-void Perspective(float fovyInDegrees, float aspectRatio, float znear, float zfar, float* m16)
-{
-	float ymax, xmax;
-	ymax = znear * tanf(fovyInDegrees * 3.141592f / 180.0f);
-	xmax = ymax * aspectRatio;
-	Frustum(-xmax, xmax, -ymax, ymax, znear, zfar, m16);
-}
-
-void Cross(const float* a, const float* b, float* r)
-{
-	r[0] = a[1] * b[2] - a[2] * b[1];
-	r[1] = a[2] * b[0] - a[0] * b[2];
-	r[2] = a[0] * b[1] - a[1] * b[0];
-}
-
-float Dot(const float* a, const float* b)
-{
-	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
-void Normalize(const float* a, float* r)
-{
-	float il = 1.f / (sqrtf(Dot(a, a)) + FLT_EPSILON);
-	r[0] = a[0] * il;
-	r[1] = a[1] * il;
-	r[2] = a[2] * il;
-}
-
-void LookAt(const float* eye, const float* at, const float* up, float* m16)
-{
-	float X[3], Y[3], Z[3], tmp[3];
-
-	tmp[0] = eye[0] - at[0];
-	tmp[1] = eye[1] - at[1];
-	tmp[2] = eye[2] - at[2];
-	Normalize(tmp, Z);
-	Normalize(up, Y);
-
-	Cross(Y, Z, tmp);
-	Normalize(tmp, X);
-
-	Cross(Z, X, tmp);
-	Normalize(tmp, Y);
-
-	m16[0] = X[0];
-	m16[1] = Y[0];
-	m16[2] = Z[0];
-	m16[3] = 0.0f;
-	m16[4] = X[1];
-	m16[5] = Y[1];
-	m16[6] = Z[1];
-	m16[7] = 0.0f;
-	m16[8] = X[2];
-	m16[9] = Y[2];
-	m16[10] = Z[2];
-	m16[11] = 0.0f;
-	m16[12] = -Dot(X, eye);
-	m16[13] = -Dot(Y, eye);
-	m16[14] = -Dot(Z, eye);
-	m16[15] = 1.0f;
-}
-
-void OrthoGraphic(const float l, float r, float b, const float t, float zn, const float zf, float* m16)
-{
-	m16[0] = 2 / (r - l);
-	m16[1] = 0.0f;
-	m16[2] = 0.0f;
-	m16[3] = 0.0f;
-	m16[4] = 0.0f;
-	m16[5] = 2 / (t - b);
-	m16[6] = 0.0f;
-	m16[7] = 0.0f;
-	m16[8] = 0.0f;
-	m16[9] = 0.0f;
-	m16[10] = 1.0f / (zf - zn);
-	m16[11] = 0.0f;
-	m16[12] = (l + r) / (l - r);
-	m16[13] = (t + b) / (b - t);
-	m16[14] = zn / (zn - zf);
-	m16[15] = 1.0f;
-}
-
-void EditTransform(float* cameraView, float* cameraProjection, float* matrix, bool editTransformDecomposition)
-{
-	static ImGuizmo::MODE mCurrentGizmoMode(ImGuizmo::LOCAL);
-	static bool useSnap = false;
-	static float snap[3] = { 1.f, 1.f, 1.f };
-	static float bounds[] = { -0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f };
-	static float boundsSnap[] = { 0.1f, 0.1f, 0.1f };
-	static bool boundSizing = false;
-	static bool boundSizingSnap = false;
-
-	if (editTransformDecomposition)
-	{
-		if (ImGui::IsKeyPressed(ImGuiKey_T))
-			mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
-		if (ImGui::IsKeyPressed(ImGuiKey_E))
-			mCurrentGizmoOperation = ImGuizmo::ROTATE;
-		if (ImGui::IsKeyPressed(ImGuiKey_R)) // r Key
-			mCurrentGizmoOperation = ImGuizmo::SCALE;
-		if (ImGui::RadioButton("Translate", mCurrentGizmoOperation == ImGuizmo::TRANSLATE))
-			mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
-		ImGui::SameLine();
-		if (ImGui::RadioButton("Rotate", mCurrentGizmoOperation == ImGuizmo::ROTATE))
-			mCurrentGizmoOperation = ImGuizmo::ROTATE;
-		ImGui::SameLine();
-		if (ImGui::RadioButton("Scale", mCurrentGizmoOperation == ImGuizmo::SCALE))
-			mCurrentGizmoOperation = ImGuizmo::SCALE;
-		if (ImGui::RadioButton("Universal", mCurrentGizmoOperation == ImGuizmo::UNIVERSAL))
-			mCurrentGizmoOperation = ImGuizmo::UNIVERSAL;
-		float matrixTranslation[3], matrixRotation[3], matrixScale[3];
-		ImGuizmo::DecomposeMatrixToComponents(matrix, matrixTranslation, matrixRotation, matrixScale);
-		ImGui::InputFloat3("Tr", matrixTranslation);
-		ImGui::InputFloat3("Rt", matrixRotation);
-		ImGui::InputFloat3("Sc", matrixScale);
-		ImGuizmo::RecomposeMatrixFromComponents(matrixTranslation, matrixRotation, matrixScale, matrix);
-
-		if (mCurrentGizmoOperation != ImGuizmo::SCALE)
-		{
-			if (ImGui::RadioButton("Local", mCurrentGizmoMode == ImGuizmo::LOCAL))
-				mCurrentGizmoMode = ImGuizmo::LOCAL;
-			ImGui::SameLine();
-			if (ImGui::RadioButton("World", mCurrentGizmoMode == ImGuizmo::WORLD))
-				mCurrentGizmoMode = ImGuizmo::WORLD;
-		}
-		if (ImGui::IsKeyPressed(ImGuiKey_S))
-			useSnap = !useSnap;
-		ImGui::Checkbox("##UseSnap", &useSnap);
-		ImGui::SameLine();
-
-		switch (mCurrentGizmoOperation)
-		{
-		case ImGuizmo::TRANSLATE:
-			ImGui::InputFloat3("Snap", &snap[0]);
-			break;
-		case ImGuizmo::ROTATE:
-			ImGui::InputFloat("Angle Snap", &snap[0]);
-			break;
-		case ImGuizmo::SCALE:
-			ImGui::InputFloat("Scale Snap", &snap[0]);
-			break;
-		}
-		ImGui::Checkbox("Bound Sizing", &boundSizing);
-		if (boundSizing)
-		{
-			ImGui::PushID(3);
-			ImGui::Checkbox("##BoundSizing", &boundSizingSnap);
-			ImGui::SameLine();
-			ImGui::InputFloat3("Snap", boundsSnap);
-			ImGui::PopID();
-		}
-	}
-
-	ImGuiIO& io = ImGui::GetIO();
-	float viewManipulateRight = io.DisplaySize.x;
-	float viewManipulateTop = 0;
-	static ImGuiWindowFlags gizmoWindowFlags = 0;
-	if (useWindow)
-	{
-		ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Appearing);
-		ImGui::SetNextWindowPos(ImVec2(400, 20), ImGuiCond_Appearing);
-		ImGui::PushStyleColor(ImGuiCol_WindowBg, (ImVec4)ImColor(0.35f, 0.3f, 0.3f));
-		ImGui::Begin("Gizmo", 0, gizmoWindowFlags);
-		ImGuizmo::SetDrawlist();
-		float windowWidth = (float)ImGui::GetWindowWidth();
-		float windowHeight = (float)ImGui::GetWindowHeight();
-		ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, windowWidth, windowHeight);
-		viewManipulateRight = ImGui::GetWindowPos().x + windowWidth;
-		viewManipulateTop = ImGui::GetWindowPos().y;
-		ImGuiWindow* window = ImGui::GetCurrentWindow();
-		gizmoWindowFlags = ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(window->InnerRect.Min, window->InnerRect.Max) ? ImGuiWindowFlags_NoMove : 0;
-	}
-	else
-	{
-		ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
-	}
-
-	ImGuizmo::DrawGrid(cameraView, cameraProjection, identityMatrix, 100.f);
-	ImGuizmo::DrawCubes(cameraView, cameraProjection, &objectMatrix[0][0], gizmoCount);
-	ImGuizmo::Manipulate(cameraView, cameraProjection, mCurrentGizmoOperation, mCurrentGizmoMode, matrix, NULL, useSnap ? &snap[0] : NULL, boundSizing ? bounds : NULL, boundSizingSnap ? boundsSnap : NULL);
-
-	ImGuizmo::ViewManipulate(cameraView, camDistance, ImVec2(viewManipulateRight - 128, viewManipulateTop), ImVec2(128, 128), 0x10101010);
-
-	if (useWindow)
-	{
-		ImGui::End();
-		ImGui::PopStyleColor(1);
-	}
-}
-
-class CEventCallback : public ISimpleManagedSurface::ICallback
-{
-public:
-	CEventCallback(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(m_inputSystem)), m_logger(std::move(logger)) {}
-	CEventCallback() {}
-
-	void setLogger(nbl::system::logger_opt_smart_ptr& logger)
-	{
-		m_logger = logger;
-	}
-	void setInputSystem(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem)
-	{
-		m_inputSystem = std::move(m_inputSystem);
-	}
-private:
-
-	void onMouseConnected_impl(nbl::core::smart_refctd_ptr<nbl::ui::IMouseEventChannel>&& mch) override
-	{
-		m_logger.log("A mouse %p has been connected", nbl::system::ILogger::ELL_INFO, mch.get());
-		m_inputSystem.get()->add(m_inputSystem.get()->m_mouse, std::move(mch));
-	}
-	void onMouseDisconnected_impl(nbl::ui::IMouseEventChannel* mch) override
-	{
-		m_logger.log("A mouse %p has been disconnected", nbl::system::ILogger::ELL_INFO, mch);
-		m_inputSystem.get()->remove(m_inputSystem.get()->m_mouse, mch);
-	}
-	void onKeyboardConnected_impl(nbl::core::smart_refctd_ptr<nbl::ui::IKeyboardEventChannel>&& kbch) override
-	{
-		m_logger.log("A keyboard %p has been connected", nbl::system::ILogger::ELL_INFO, kbch.get());
-		m_inputSystem.get()->add(m_inputSystem.get()->m_keyboard, std::move(kbch));
-	}
-	void onKeyboardDisconnected_impl(nbl::ui::IKeyboardEventChannel* kbch) override
-	{
-		m_logger.log("A keyboard %p has been disconnected", nbl::system::ILogger::ELL_INFO, kbch);
-		m_inputSystem.get()->remove(m_inputSystem.get()->m_keyboard, kbch);
-	}
-
-private:
-	nbl::core::smart_refctd_ptr<InputSystem> m_inputSystem = nullptr;
-	nbl::system::logger_opt_smart_ptr m_logger = nullptr;
-};
+	Written with Nabla, it's UI extension
+	and got integrated with ImGuizmo to 
+	handle scene's object translations.
+*/
 
 class UISampleApp final : public examples::SimpleWindowedApplication
 {
@@ -364,6 +62,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
+
+			m_assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(m_system));
+			auto* geometry = m_assetManager->getGeometryCreator();
 
 			m_semaphore = m_device->createSemaphore(m_realFrameIx);
 			if (!m_semaphore)
@@ -424,33 +125,71 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data() + i, 1 }))
 					return logFail("Couldn't create Command Buffer!");
 			}
+			
+			//pass.scene = CScene::create<CScene::CreateResourcesDirectlyWithDevice>(smart_refctd_ptr(m_utils), smart_refctd_ptr(m_logger), gQueue, geometry);
+			pass.scene = CScene::create<CScene::CreateResourcesWithAssetConverter>(smart_refctd_ptr(m_utils), smart_refctd_ptr(m_logger), gQueue, geometry);
 
-			ui = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(smart_refctd_ptr(m_device), (int)m_maxFramesInFlight, renderpass, nullptr, smart_refctd_ptr(m_window));
-			ui->Register([this]() -> void 
+			nbl::ext::imgui::UI::SCreationParameters params;
+
+			params.resources.texturesInfo = { .setIx = 0u, .bindingIx = 0u };
+			params.resources.samplersInfo = { .setIx = 0u, .bindingIx = 1u };
+			params.assetManager = m_assetManager;
+			params.pipelineCache = nullptr;
+			params.pipelineLayout = nbl::ext::imgui::UI::createDefaultPipelineLayout(m_utils->getLogicalDevice(), params.resources.texturesInfo, params.resources.samplersInfo, TexturesAmount);
+			params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
+			params.streamingBuffer = nullptr;
+			params.subpassIx = 0u;
+			params.transfer = getTransferUpQueue();
+			params.utilities = m_utils;
+			{
+				pass.ui.manager = nbl::ext::imgui::UI::create(std::move(params));
+
+				if (!pass.ui.manager)
+					return false;
+
+				// note that we use default layout provided by our extension, but you are free to create your own by filling nbl::ext::imgui::UI::S_CREATION_PARAMETERS::resources
+				const auto* descriptorSetLayout = pass.ui.manager->getPipeline()->getLayout()->getDescriptorSetLayout(0u);
+				const auto& params = pass.ui.manager->getCreationParameters();
+
+				IDescriptorPool::SCreateInfo descriptorPoolInfo = {};
+				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLER)] = (uint32_t)nbl::ext::imgui::UI::DefaultSamplerIx::COUNT;
+				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE)] = TexturesAmount;
+				descriptorPoolInfo.maxSets = 1u;
+				descriptorPoolInfo.flags = IDescriptorPool::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT;
+
+				m_descriptorSetPool = m_device->createDescriptorPool(std::move(descriptorPoolInfo));
+				assert(m_descriptorSetPool);
+
+				m_descriptorSetPool->createDescriptorSets(1u, &descriptorSetLayout, &pass.ui.descriptorSet);
+				assert(pass.ui.descriptorSet);
+			}
+			pass.ui.manager->registerListener([this]() -> void
 				{
-					/*
-
-					ui->BeginWindow("Test window");
-					ui->SetNextItemWidth(100);
-					ui->Text("Hi");
-					ui->SetNextItemWidth(100);
-					ui->Button("Button", []()->void { printf("Button pressed!\n"); });
-					ui->EndWindow();
-
-					*/
-
 					ImGuiIO& io = ImGui::GetIO();
 
-					if (isPerspective)
+					camera.setProjectionMatrix([&]() 
 					{
-						Perspective(fov, io.DisplaySize.x / io.DisplaySize.y, 0.1f, 100.f, cameraProjection);
-					}
-					else
-					{
-						float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
-						OrthoGraphic(-viewWidth, viewWidth, -viewHeight, viewHeight, 1000.f, -1000.f, cameraProjection);
-					}
-					ImGuizmo::SetOrthographic(!isPerspective);
+						static matrix4SIMD projection;
+
+						if (isPerspective)
+							if(isLH)
+								projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+							else
+								projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+						else
+						{
+							float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
+
+							if(isLH)
+								projection = matrix4SIMD::buildProjectionMatrixOrthoLH(viewWidth, viewHeight, zNear, zFar);
+							else
+								projection = matrix4SIMD::buildProjectionMatrixOrthoRH(viewWidth, viewHeight, zNear, zFar);
+						}
+
+						return projection;
+					}());
+
+					ImGuizmo::SetOrthographic(false);
 					ImGuizmo::BeginFrame();
 
 					ImGui::SetNextWindowPos(ImVec2(1024, 100), ImGuiCond_Appearing);
@@ -460,32 +199,63 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Appearing);
 					ImGui::SetNextWindowSize(ImVec2(320, 340), ImGuiCond_Appearing);
 					ImGui::Begin("Editor");
-					if (ImGui::RadioButton("Full view", !useWindow)) useWindow = false;
+
+					if (ImGui::RadioButton("Full view", !transformParams.useWindow))
+						transformParams.useWindow = false;
+
 					ImGui::SameLine();
-					if (ImGui::RadioButton("Window", useWindow)) useWindow = true;
+
+					if (ImGui::RadioButton("Window", transformParams.useWindow))
+						transformParams.useWindow = true;
 
 					ImGui::Text("Camera");
 					bool viewDirty = false;
-					if (ImGui::RadioButton("Perspective", isPerspective)) isPerspective = true;
+
+					if (ImGui::RadioButton("LH", isLH))
+						isLH = true;
+
 					ImGui::SameLine();
-					if (ImGui::RadioButton("Orthographic", !isPerspective)) isPerspective = false;
+
+					if (ImGui::RadioButton("RH", !isLH))
+						isLH = false;
+
+					if (ImGui::RadioButton("Perspective", isPerspective))
+						isPerspective = true;
+
+					ImGui::SameLine();
+
+					if (ImGui::RadioButton("Orthographic", !isPerspective))
+						isPerspective = false;
+
+					ImGui::Checkbox("Enable \"view manipulate\"", &transformParams.enableViewManipulate);
+					ImGui::Checkbox("Enable camera movement", &move);
+					ImGui::SliderFloat("Move speed", &moveSpeed, 0.1f, 10.f);
+					ImGui::SliderFloat("Rotate speed", &rotateSpeed, 0.1f, 10.f);
+
+					// ImGui::Checkbox("Flip Gizmo's Y axis", &flipGizmoY); // let's not expose it to be changed in UI but keep the logic in case
+
 					if (isPerspective)
-					{
-						ImGui::SliderFloat("Fov", &fov, 20.f, 110.f);
-					}
+						ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
 					else
-					{
 						ImGui::SliderFloat("Ortho width", &viewWidth, 1, 20);
-					}
-					viewDirty |= ImGui::SliderFloat("Distance", &camDistance, 1.f, 10.f);
-					//ImGui::SliderInt("Gizmo count", &gizmoCount, 1, 4);
+
+					ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
+					ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
+
+					viewDirty |= ImGui::SliderFloat("Distance", &transformParams.camDistance, 1.f, 69.f);
 
 					if (viewDirty || firstFrame)
 					{
-						float eye[] = { cosf(camYAngle) * cosf(camXAngle) * camDistance, sinf(camXAngle) * camDistance, sinf(camYAngle) * cosf(camXAngle) * camDistance };
-						float at[] = { 0.f, 0.f, 0.f };
-						float up[] = { 0.f, 1.f, 0.f };
-						LookAt(eye, at, up, cameraView);
+						core::vectorSIMDf cameraPosition(cosf(camYAngle)* cosf(camXAngle)* transformParams.camDistance, sinf(camXAngle)* transformParams.camDistance, sinf(camYAngle)* cosf(camXAngle)* transformParams.camDistance);
+						core::vectorSIMDf cameraTarget(0.f, 0.f, 0.f);
+						const static core::vectorSIMDf up(0.f, 1.f, 0.f);
+
+						camera.setPosition(cameraPosition);
+						camera.setTarget(cameraTarget);
+						camera.setBackupUpVector(up);
+
+						camera.recomputeViewMatrix();
+
 						firstFrame = false;
 					}
 
@@ -505,15 +275,208 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						ImGui::Text(ImGuizmo::IsOver(ImGuizmo::SCALE) ? "Over scale gizmo" : "");
 					}
 					ImGui::Separator();
-					for (int matId = 0; matId < gizmoCount; matId++)
-					{
-						ImGuizmo::SetID(matId);
 
-						EditTransform(cameraView, cameraProjection, objectMatrix[matId], lastUsing == matId);
-						if (ImGuizmo::IsUsing())
+					/*
+					* ImGuizmo expects view & perspective matrix to be column major both with 4x4 layout
+					* and Nabla uses row major matricies - 3x4 matrix for view & 4x4 for projection
+
+					- VIEW:
+
+						ImGuizmo
+
+						|     X[0]          Y[0]          Z[0]         0.0f |
+						|     X[1]          Y[1]          Z[1]         0.0f |
+						|     X[2]          Y[2]          Z[2]         0.0f |
+						| -Dot(X, eye)  -Dot(Y, eye)  -Dot(Z, eye)     1.0f |
+
+						Nabla
+
+						|     X[0]         X[1]           X[2]     -Dot(X, eye)  |
+						|     Y[0]         Y[1]           Y[2]     -Dot(Y, eye)  |
+						|     Z[0]         Z[1]           Z[2]     -Dot(Z, eye)  |
+
+						<ImGuizmo View Matrix> = transpose(nbl::core::matrix4SIMD(<Nabla View Matrix>))
+
+					- PERSPECTIVE [PROJECTION CASE]:
+
+						ImGuizmo
+
+						|      (temp / temp2)                 (0.0)                       (0.0)                   (0.0)  |
+						|          (0.0)                  (temp / temp3)                  (0.0)                   (0.0)  |
+						| ((right + left) / temp2)   ((top + bottom) / temp3)    ((-zfar - znear) / temp4)       (-1.0f) |
+						|          (0.0)                      (0.0)               ((-temp * zfar) / temp4)        (0.0)  |
+
+						Nabla
+
+						|            w                        (0.0)                       (0.0)                   (0.0)               |
+						|          (0.0)                       -h                         (0.0)                   (0.0)               |
+						|          (0.0)                      (0.0)               (-zFar/(zFar-zNear))     (-zNear*zFar/(zFar-zNear)) |
+						|          (0.0)                      (0.0)                      (-1.0)                   (0.0)               |
+
+						<ImGuizmo Projection Matrix> = transpose(<Nabla Projection Matrix>)
+
+					*
+					* the ViewManipulate final call (inside EditTransform) returns world space column major matrix for an object,
+					* note it also modifies input view matrix but projection matrix is immutable
+					*/
+
+					static struct
+					{
+						core::matrix4SIMD view, projection, model;
+					} imguizmoM16InOut;
+
+					ImGuizmo::SetID(0u);
+
+					imguizmoM16InOut.view = core::transpose(matrix4SIMD(camera.getViewMatrix()));
+					imguizmoM16InOut.projection = core::transpose(camera.getProjectionMatrix());
+					imguizmoM16InOut.model = core::transpose(core::matrix4SIMD(pass.scene->object.model));
+					{
+						if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
+							imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
+
+						transformParams.editTransformDecomposition = true;
+						EditTransform(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.model.pointer(), transformParams);
+					}
+
+					// to Nabla + update camera & model matrices
+					const auto& view = camera.getViewMatrix();
+					const auto& projection = camera.getProjectionMatrix();
+
+					// TODO: make it more nicely
+					const_cast<core::matrix3x4SIMD&>(view) = core::transpose(imguizmoM16InOut.view).extractSub3x4(); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
+					camera.setProjectionMatrix(projection); // update concatanated matrix
+					{
+						static nbl::core::matrix3x4SIMD modelView, normal;
+						static nbl::core::matrix4SIMD modelViewProjection;
+
+						auto& hook = pass.scene->object;
+						hook.model = core::transpose(imguizmoM16InOut.model).extractSub3x4();
 						{
-							lastUsing = matId;
+							const auto& references = pass.scene->getResources().objects;
+							const auto type = static_cast<ObjectType>(gcIndex);
+
+							const auto& [gpu, meta] = references[type];
+							hook.meta.type = type;
+							hook.meta.name = meta.name;
 						}
+
+						auto& ubo = hook.viewParameters;
+
+						modelView = nbl::core::concatenateBFollowedByA(view, hook.model);
+						modelView.getSub3x3InverseTranspose(normal);
+						modelViewProjection = nbl::core::concatenateBFollowedByA(camera.getConcatenatedMatrix(), hook.model);
+
+						memcpy(ubo.MVP, modelViewProjection.pointer(), sizeof(ubo.MVP));
+						memcpy(ubo.MV, modelView.pointer(), sizeof(ubo.MV));
+						memcpy(ubo.NormalMat, normal.pointer(), sizeof(ubo.NormalMat));
+
+						// object meta display
+						{
+							ImGui::Begin("Object");
+							ImGui::Text("type: \"%s\"", hook.meta.name.data());
+							ImGui::End();
+						}
+					}
+					
+					// view matrices editor
+					{
+						ImGui::Begin("Matrices");
+
+						auto addMatrixTable = [&](const char* topText, const char* tableName, const int rows, const int columns, const float* pointer, const bool withSeparator = true)
+						{
+							ImGui::Text(topText);
+							if (ImGui::BeginTable(tableName, columns))
+							{
+								for (int y = 0; y < rows; ++y)
+								{
+									ImGui::TableNextRow();
+									for (int x = 0; x < columns; ++x)
+									{
+										ImGui::TableSetColumnIndex(x);
+										ImGui::Text("%.3f", *(pointer + (y * columns) + x));
+									}
+								}
+								ImGui::EndTable();
+							}
+
+							if (withSeparator)
+								ImGui::Separator();
+						};
+
+						addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, pass.scene->object.model.pointer());
+						addMatrixTable("Camera View Matrix", "ViewMatrixTable", 3, 4, view.pointer());
+						addMatrixTable("Camera View Projection Matrix", "ViewProjectionMatrixTable", 4, 4, projection.pointer(), false);
+
+						ImGui::End();
+					}
+
+					// Nabla Imgui backend MDI buffer info
+					// To be 100% accurate and not overly conservative we'd have to explicitly `cull_frees` and defragment each time,
+					// so unless you do that, don't use this basic info to optimize the size of your IMGUI buffer.
+					{
+						auto* streaminingBuffer = pass.ui.manager->getStreamingBuffer();
+
+						const size_t total = streaminingBuffer->get_total_size();			// total memory range size for which allocation can be requested
+						const size_t freeSize = streaminingBuffer->getAddressAllocator().get_free_size();		// max total free bloock memory size we can still allocate from total memory available
+						const size_t consumedMemory = total - freeSize;			// memory currently consumed by streaming buffer
+
+						float freePercentage = 100.0f * (float)(freeSize) / (float)total;
+						float allocatedPercentage = (float)(consumedMemory) / (float)total;
+
+						ImVec2 barSize = ImVec2(400, 30);
+						float windowPadding = 10.0f;
+						float verticalPadding = ImGui::GetStyle().FramePadding.y;
+
+						ImGui::SetNextWindowSize(ImVec2(barSize.x + 2 * windowPadding, 110 + verticalPadding), ImGuiCond_Always);
+						ImGui::Begin("Nabla Imgui MDI Buffer Info", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar);
+
+						ImGui::Text("Total Allocated Size: %zu bytes", total);
+						ImGui::Text("In use: %zu bytes", consumedMemory);
+						ImGui::Text("Buffer Usage:");
+
+						ImGui::SetCursorPosX(windowPadding);
+
+						if (freePercentage > 70.0f)
+							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.0f, 1.0f, 0.0f, 0.4f));  // Green
+						else if (freePercentage > 30.0f)
+							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 1.0f, 0.0f, 0.4f));  // Yellow
+						else
+							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 0.0f, 0.0f, 0.4f));  // Red
+
+						ImGui::ProgressBar(allocatedPercentage, barSize, "");
+
+						ImGui::PopStyleColor();
+
+						ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+						ImVec2 progressBarPos = ImGui::GetItemRectMin();
+						ImVec2 progressBarSize = ImGui::GetItemRectSize();
+
+						const char* text = "%.2f%% free";
+						char textBuffer[64];
+						snprintf(textBuffer, sizeof(textBuffer), text, freePercentage);
+
+						ImVec2 textSize = ImGui::CalcTextSize(textBuffer);
+						ImVec2 textPos = ImVec2
+						(
+							progressBarPos.x + (progressBarSize.x - textSize.x) * 0.5f,
+							progressBarPos.y + (progressBarSize.y - textSize.y) * 0.5f
+						);
+
+						ImVec4 bgColor = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+						drawList->AddRectFilled
+						(
+							ImVec2(textPos.x - 5, textPos.y - 2),
+							ImVec2(textPos.x + textSize.x + 5, textPos.y + textSize.y + 2),
+							ImGui::GetColorU32(bgColor)
+						);
+
+						ImGui::SetCursorScreenPos(textPos);
+						ImGui::Text("%s", textBuffer);
+
+						ImGui::Dummy(ImVec2(0.0f, verticalPadding));
+
+						ImGui::End();
 					}
 
 					ImGui::End();
@@ -523,8 +486,35 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
 			m_surface->recreateSwapchain();
 			m_winMgr->show(m_window.get());
+			oracle.reportBeginFrameRecord();
+			camera.mapKeysToArrows();
 
 			return true;
+		}
+
+		bool updateGUIDescriptorSet()
+		{
+			// texture atlas + our scene texture, note we don't create info & write pair for the font sampler because UI extension's is immutable and baked into DS layout
+			static std::array<IGPUDescriptorSet::SDescriptorInfo, TexturesAmount> descriptorInfo;
+			static IGPUDescriptorSet::SWriteDescriptorSet writes[TexturesAmount];
+
+			descriptorInfo[nbl::ext::imgui::UI::FontAtlasTexId].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			descriptorInfo[nbl::ext::imgui::UI::FontAtlasTexId].desc = core::smart_refctd_ptr<nbl::video::IGPUImageView>(pass.ui.manager->getFontAtlasView());
+
+			descriptorInfo[OfflineSceneTextureIx].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			descriptorInfo[OfflineSceneTextureIx].desc = pass.scene->getResources().attachments.color;
+
+			for (uint32_t i = 0; i < descriptorInfo.size(); ++i)
+			{
+				writes[i].dstSet = pass.ui.descriptorSet.get();
+				writes[i].binding = 0u;
+				writes[i].arrayElement = i;
+				writes[i].count = 1u;
+			}
+			writes[nbl::ext::imgui::UI::FontAtlasTexId].info = descriptorInfo.data() + nbl::ext::imgui::UI::FontAtlasTexId;
+			writes[OfflineSceneTextureIx].info = descriptorInfo.data() + OfflineSceneTextureIx;
+
+			return m_device->updateDescriptorSets(writes, {});
 		}
 
 		inline void workLoopBody() override
@@ -544,14 +534,22 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					return;
 			}
 
-			m_currentImageAcquire = m_surface->acquireNextImage();
-			if (!m_currentImageAcquire)
-				return;
+			// CPU events
+			update();
+
+			// render whole scene to offline frame buffer & submit
+			pass.scene->begin();
+			{
+				pass.scene->update();
+				pass.scene->record();
+				pass.scene->end();
+			}
+			pass.scene->submit();
 
 			auto* const cb = m_cmdBufs.data()[resourceIx].get();
 			cb->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
 			cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-			cb->beginDebugMarker("UISampleApp Frame");
+			cb->beginDebugMarker("UISampleApp IMGUI Frame");
 
 			auto* queue = getGraphicsQueue();
 
@@ -565,29 +563,43 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				viewport.height = WIN_H;
 			}
 			cb->setViewport(0u, 1u, &viewport);
-			{
-				const VkRect2D currentRenderArea =
-				{
-					.offset = {0,0},
-					.extent = {m_window->getWidth(),m_window->getHeight()}
-				};
 
-				const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
+			const VkRect2D currentRenderArea =
+			{
+				.offset = {0,0},
+				.extent = {m_window->getWidth(),m_window->getHeight()}
+			};
+
+			IQueue::SSubmitInfo::SCommandBufferInfo commandBuffersInfo[] = {{.cmdbuf = cb }};
+
+			// UI render pass
+			{
 				auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-				const IGPUCommandBuffer::SRenderpassBeginInfo info = 
+				const IGPUCommandBuffer::SRenderpassBeginInfo renderpassInfo = 
 				{
 					.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
-					.colorClearValues = &clearValue,
+					.colorClearValues = &clear.color,
 					.depthStencilClearValues = nullptr,
 					.renderArea = currentRenderArea
 				};
-				cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-			}
+				nbl::video::ISemaphore::SWaitInfo waitInfo = { .semaphore = m_semaphore.get(), .value = m_realFrameIx + 1u };
 
-			// TODO: Use real deltaTime instead
-			float deltaTimeInSec = 0.1f;
-			ui->Render(cb, resourceIx);
-			cb->endRenderPass();
+				cb->beginRenderPass(renderpassInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+				const auto uiParams = pass.ui.manager->getCreationParameters();
+				auto* pipeline = pass.ui.manager->getPipeline();
+				cb->bindGraphicsPipeline(pipeline);
+				cb->bindDescriptorSets(EPBP_GRAPHICS, pipeline->getLayout(), uiParams.resources.texturesInfo.setIx, 1u, &pass.ui.descriptorSet.get()); // note that we use default UI pipeline layout where uiParams.resources.textures.setIx == uiParams.resources.samplers.setIx
+				
+				if (!keepRunning())
+					return;
+				
+				if (!pass.ui.manager->render(cb,waitInfo))
+				{
+					// TODO: need to present acquired image before bailing because its already acquired
+					return;
+				}
+				cb->endRenderPass();
+			}
 			cb->end();
 			{
 				const IQueue::SSubmitInfo::SSemaphoreInfo rendered[] = 
@@ -598,13 +610,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
 					} 
 				};
+
 				{
 					{
-						const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[] = 
-						{ 
-							{ .cmdbuf = cb } 
-						};
-
 						const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] = 
 						{ 
 							{
@@ -613,14 +621,25 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 								.stageMask = PIPELINE_STAGE_FLAGS::NONE
 							} 
 						};
+
 						const IQueue::SSubmitInfo infos[] = 
 						{ 
 							{
 								.waitSemaphores = acquired,
-								.commandBuffers = commandBuffers,
+								.commandBuffers = commandBuffersInfo,
 								.signalSemaphores = rendered
 							} 
 						};
+
+						const nbl::video::ISemaphore::SWaitInfo waitInfos[] = 
+						{ {
+							.semaphore = pass.scene->semaphore.progress.get(),
+							.value = pass.scene->semaphore.finishedValue
+						} };
+						
+						m_device->blockForSemaphores(waitInfos);
+
+						updateGUIDescriptorSet();
 
 						if (queue->submit(infos) != IQueue::RESULT::SUCCESS)
 							m_realFrameIx--;
@@ -630,36 +649,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				m_window->setCaption("[Nabla Engine] UI App Test Demo");
 				m_surface->present(m_currentImageAcquire.imageIndex, rendered);
 			}
-
-			static std::chrono::microseconds previousEventTimestamp{};
-
-			struct
-			{
-				std::vector<SMouseEvent> mouse{};
-			} capturedEvents;
-
-			m_inputSystem->getDefaultMouse(&mouse);
-			m_inputSystem->getDefaultKeyboard(&keyboard);
-
-			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
-			{
-				for (auto event : events)
-				{
-					if (event.timeStamp < previousEventTimestamp)
-						continue;
-
-					previousEventTimestamp = event.timeStamp;
-					capturedEvents.mouse.push_back(event);
-				}
-			}, m_logger.get());
-
-			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
-			{
-				// TOOD
-			}, m_logger.get());
-
-			const auto mousePosition = m_window->getCursorControl()->getPosition();
-			ui->Update(deltaTimeInSec, static_cast<float>(mousePosition.x), static_cast<float>(mousePosition.y), capturedEvents.mouse.size(), capturedEvents.mouse.data());
 		}
 
 		inline bool keepRunning() override
@@ -675,6 +664,85 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			return device_base_t::onAppTerminated();
 		}
 
+		inline void update()
+		{
+			camera.setMoveSpeed(moveSpeed);
+			camera.setRotateSpeed(rotateSpeed);
+
+			static std::chrono::microseconds previousEventTimestamp{};
+
+			m_inputSystem->getDefaultMouse(&mouse);
+			m_inputSystem->getDefaultKeyboard(&keyboard);
+
+			auto updatePresentationTimestamp = [&]()
+			{
+				m_currentImageAcquire = m_surface->acquireNextImage();
+
+				oracle.reportEndFrameRecord();
+				const auto timestamp = oracle.getNextPresentationTimeStamp();
+				oracle.reportBeginFrameRecord();
+
+				return timestamp;
+			};
+
+			const auto nextPresentationTimestamp = updatePresentationTimestamp();
+
+			struct
+			{
+				std::vector<SMouseEvent> mouse{};
+				std::vector<SKeyboardEvent> keyboard{};
+			} capturedEvents;
+
+			if (move) camera.beginInputProcessing(nextPresentationTimestamp);
+			{
+				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
+				{
+					if (move)
+						camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
+
+					for (const auto& e : events) // here capture
+					{
+						if (e.timeStamp < previousEventTimestamp)
+							continue;
+
+						previousEventTimestamp = e.timeStamp;
+						capturedEvents.mouse.emplace_back(e);
+
+						if (e.type == nbl::ui::SMouseEvent::EET_SCROLL)
+							gcIndex = std::clamp<uint16_t>(int16_t(gcIndex) + int16_t(core::sign(e.scrollEvent.verticalScroll)), int64_t(0), int64_t(OT_COUNT - (uint8_t)1u));
+					}
+				}, m_logger.get());
+
+			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
+				{
+					if (move)
+						camera.keyboardProcess(events); // don't capture the events, only let camera handle them with its impl
+
+					for (const auto& e : events) // here capture
+					{
+						if (e.timeStamp < previousEventTimestamp)
+							continue;
+
+						previousEventTimestamp = e.timeStamp;
+						capturedEvents.keyboard.emplace_back(e);
+					}
+				}, m_logger.get());
+			}
+			if (move) camera.endInputProcessing(nextPresentationTimestamp);
+
+			const auto cursorPosition = m_window->getCursorControl()->getPosition();
+
+			nbl::ext::imgui::UI::SUpdateParameters params = 
+			{
+				.mousePosition = nbl::hlsl::float32_t2(cursorPosition.x, cursorPosition.y) - nbl::hlsl::float32_t2(m_window->getX(), m_window->getY()),
+				.displaySize = { m_window->getWidth(), m_window->getHeight() },
+				.mouseEvents = { capturedEvents.mouse.data(), capturedEvents.mouse.size() },
+				.keyboardEvents = { capturedEvents.keyboard.data(), capturedEvents.keyboard.size() }
+			};
+
+			pass.ui.manager->update(params);
+		}
+
 	private:
 		smart_refctd_ptr<IWindow> m_window;
 		smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
@@ -686,25 +754,42 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>, ISwapchain::MaxImages> m_cmdBufs;
 		ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 
-		nbl::core::smart_refctd_ptr<nbl::ext::imgui::UI> ui;
+		smart_refctd_ptr<nbl::asset::IAssetManager> m_assetManager;
 		core::smart_refctd_ptr<InputSystem> m_inputSystem;
 		InputSystem::ChannelReader<IMouseEventChannel> mouse;
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
-		int lastUsing = 0;
+		constexpr static inline auto TexturesAmount = 2u;
 
-		float cameraView[16] =
-		{ 1.f, 0.f, 0.f, 0.f,
-		  0.f, 1.f, 0.f, 0.f,
-		  0.f, 0.f, 1.f, 0.f,
-		  0.f, 0.f, 0.f, 1.f };
+		core::smart_refctd_ptr<IDescriptorPool> m_descriptorSetPool;
 
-		float cameraProjection[16];
+		struct C_UI
+		{
+			nbl::core::smart_refctd_ptr<nbl::ext::imgui::UI> manager;
 
-		// Camera projection
-		bool isPerspective = true;
-		float fov = 27.f;
-		float viewWidth = 10.f; // for orthographic
+			struct
+			{
+				core::smart_refctd_ptr<video::IGPUSampler> gui, scene;
+			} samplers;
+
+			core::smart_refctd_ptr<IGPUDescriptorSet> descriptorSet;
+		};
+
+		struct E_APP_PASS
+		{
+			nbl::core::smart_refctd_ptr<CScene> scene;
+			C_UI ui;
+		} pass;
+
+		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
+		video::CDumbPresentationOracle oracle;
+
+		uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
+
+		TransformRequestParams transformParams;
+		bool isPerspective = true, isLH = true, flipGizmoY = true, move = false;
+		float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
+		float viewWidth = 10.f;
 		float camYAngle = 165.f / 180.f * 3.14159f;
 		float camXAngle = 32.f / 180.f * 3.14159f;
 
