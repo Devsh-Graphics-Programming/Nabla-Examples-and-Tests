@@ -33,6 +33,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 		virtual video::SPhysicalDeviceLimits getRequiredDeviceLimits() const override
 		{
 			auto retval = device_base_t::getRequiredDeviceLimits();
+			retval.shaderSubgroupArithmetic = true;
 			retval.shaderFloat16 = true;
 			return retval;
 		}
