@@ -1037,16 +1037,20 @@ public:
 		// Loading font stuff
 		m_textRenderer = nbl::core::make_smart_refctd_ptr<TextRenderer>();
 
-		m_arialFont = FontFace::create(core::smart_refctd_ptr(m_textRenderer), std::string("C:\\Windows\\Fonts\\arial.ttf"));
+		m_Font = FontFace::create(core::smart_refctd_ptr(m_textRenderer), std::string("C:\\Windows\\Fonts\\webdings.ttf"));
+	
+		if (m_Font->getFreetypeFace()->num_charmaps > 0)
+			FT_Set_Charmap(m_Font->getFreetypeFace(), m_Font->getFreetypeFace()->charmaps[0]);
+		
 		const auto str = "MSDF: ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnoprstuvwxyz '1234567890-=\"!@#$%&*()_+";
 		singleLineText = std::unique_ptr<SingleLineText>(new SingleLineText(
-			core::smart_refctd_ptr<FontFace>(m_arialFont), 
+			core::smart_refctd_ptr<FontFace>(m_Font), 
 			std::string(str)));
 
 		drawResourcesFiller.setGlyphMSDFTextureFunction(
 			[&](nbl::ext::TextRendering::FontFace* face, uint32_t glyphIdx) -> core::smart_refctd_ptr<asset::ICPUImage>
 			{
-				return std::move(face->generateGlyphMSDF(MSDFPixelRange, glyphIdx, drawResourcesFiller.getMSDFResolution(), MSDFMips));
+				return face->generateGlyphMSDF(MSDFPixelRange, glyphIdx, drawResourcesFiller.getMSDFResolution(), MSDFMips);
 			}
 		);
 
@@ -3072,8 +3076,8 @@ protected:
 				for (uint32_t i = 0; i < strlen(TestString); i++)
 				{
 					char k = TestString[i];
-					auto glyphIndex = m_arialFont->getGlyphIndex(wchar_t(k));
-					const auto glyphMetrics = m_arialFont->getGlyphMetrics(glyphIndex);
+					auto glyphIndex = m_Font->getGlyphIndex(wchar_t(k));
+					const auto glyphMetrics = m_Font->getGlyphMetrics(glyphIndex);
 					const float64_t2 baselineStart = currentBaselineStart;
 
 					currentBaselineStart += glyphMetrics.advance;
@@ -3121,12 +3125,12 @@ protected:
 								ftFunctions.cubic_to = &ftCubicTo;
 								ftFunctions.shift = 0;
 								ftFunctions.delta = 0;
-								auto error = FT_Outline_Decompose(&m_arialFont->getGlyphSlot(glyphIndex)->outline, &ftFunctions, &hatchBuilder);
+								auto error = FT_Outline_Decompose(&m_Font->getGlyphSlot(glyphIndex)->outline, &ftFunctions, &hatchBuilder);
 								assert(!error);
 								hatchBuilder.finish();
 							}
 							msdfgen::Shape glyphShape;
-							bool loadedGlyph = drawFreetypeGlyph(glyphShape, m_textRenderer->getFreetypeLibrary(), m_arialFont->getFreetypeFace());
+							bool loadedGlyph = drawFreetypeGlyph(glyphShape, m_textRenderer->getFreetypeLibrary(), m_Font->getFreetypeFace());
 							assert(loadedGlyph);
 
 							auto& shapePolylines = hatchBuilder.polylines;
@@ -3264,10 +3268,8 @@ protected:
 	smart_refctd_ptr<IGPUImageView> pseudoStencilImageView;
 	smart_refctd_ptr<IGPUImageView> colorStorageImageView;
 	smart_refctd_ptr<TextRenderer> m_textRenderer;
-	smart_refctd_ptr<FontFace> m_arialFont;
-	smart_refctd_ptr<FontFace> m_webdingsFont;
+	smart_refctd_ptr<FontFace> m_Font;
 	std::unique_ptr<SingleLineText> singleLineText = nullptr;
-	std::unique_ptr<SingleLineText> webdingsSquareText = nullptr;
 	
 	std::vector<std::unique_ptr<msdfgen::Shape>> m_shapeMSDFImages = {};
 
