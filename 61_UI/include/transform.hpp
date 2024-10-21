@@ -5,7 +5,8 @@
 #include "nbl/ext/ImGui/ImGui.h"
 #include "imgui/imgui_internal.h"
 #include "imguizmo/ImGuizmo.h"
-#include "renderpass/scene.hpp"
+
+static constexpr inline auto OfflineSceneTextureIx = 1u;
 
 struct TransformRequestParams
 {
@@ -100,7 +101,7 @@ void EditTransform(float* cameraView, const float* cameraProjection, float* matr
 	*/
 
 	SImResourceInfo info;
-	info.textureID = CScene::NBL_OFFLINE_SCENE_TEX_ID;
+	info.textureID = OfflineSceneTextureIx;
 	info.samplerIx = (uint16_t)nbl::ext::imgui::UI::DefaultSamplerIx::USER;
 
 	if (params.useWindow)

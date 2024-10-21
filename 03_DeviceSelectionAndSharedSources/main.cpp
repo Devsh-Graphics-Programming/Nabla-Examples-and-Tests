@@ -208,9 +208,9 @@ public:
 			submitInfo.signalSemaphores = signals;
 
 			// To keep the sample renderdoc-able
-			queue->startCapture();
+			m_api->startCapture();
 			queue->submit({{submitInfo}});
-			queue->endCapture();
+			m_api->endCapture();
 		}
 
 		// As the name implies this function will not progress until the fence signals or repeated waiting returns an error.

@@ -210,7 +210,7 @@ public:
 			for (uint32_t workgroupSize = subgroupSize; workgroupSize <= MaxWorkgroupSize; workgroupSize += subgroupSize)
 			{
 				// make sure renderdoc captures everything for debugging
-				computeQueue->startCapture();
+				m_api->startCapture();
 				m_logger->log("Testing Workgroup Size %u with Subgroup Size %u", ILogger::ELL_INFO, workgroupSize, subgroupSize);
 
 				bool passed = true;
@@ -231,7 +231,7 @@ public:
 					passed = runTest<emulatedScanExclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
 					logTestOutcome(passed, itemsPerWG);
 				}
-				computeQueue->endCapture();
+				m_api->endCapture();
 
 				// save cache every now and then	
 				{

@@ -90,7 +90,7 @@ public:
 	std::vector<uint32_t> intersectionAmounts;
 
 	// Generate Fill Pattern
-	static core::smart_refctd_ptr<asset::ICPUBuffer> generateHatchFillPatternMSDF(nbl::ext::TextRendering::TextRenderer* textRenderer, HatchFillPattern fillPattern, uint32_t2 msdfExtents);
+	static core::smart_refctd_ptr<asset::ICPUImage> generateHatchFillPatternMSDF(nbl::ext::TextRendering::TextRenderer* textRenderer, HatchFillPattern fillPattern, uint32_t2 msdfExtents);
 
 private:
 	std::vector<CurveHatchBox> hatchBoxes;

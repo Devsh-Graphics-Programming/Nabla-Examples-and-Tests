@@ -2,15 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#include "nbl/this_example/common.hpp"
-
-using namespace nbl;
-using namespace core;
-using namespace hlsl;
-using namespace system;
-using namespace asset;
-using namespace ui;
-using namespace video;
+#include "common.hpp"
 
 /*
 	Renders scene texture to an offline
@@ -134,8 +126,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					return logFail("Couldn't create Command Buffer!");
 			}
 			
-			//pass.scene = CScene::create<CScene::CREATE_RESOURCES_DIRECTLY_WITH_DEVICE>(smart_refctd_ptr(m_utils), smart_refctd_ptr(m_logger), gQueue, geometry);
-			pass.scene = CScene::create<CScene::CREATE_RESOURCES_WITH_ASSET_CONVERTER>(smart_refctd_ptr(m_utils), smart_refctd_ptr(m_logger), gQueue, geometry);
+			//pass.scene = CScene::create<CScene::CreateResourcesDirectlyWithDevice>(smart_refctd_ptr(m_utils), smart_refctd_ptr(m_logger), gQueue, geometry);
+			pass.scene = CScene::create<CScene::CreateResourcesWithAssetConverter>(smart_refctd_ptr(m_utils), smart_refctd_ptr(m_logger), gQueue, geometry);
 
 			nbl::ext::imgui::UI::SCreationParameters params;
 
@@ -143,14 +135,17 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			params.resources.samplersInfo = { .setIx = 0u, .bindingIx = 1u };
 			params.assetManager = m_assetManager;
 			params.pipelineCache = nullptr;
-			params.pipelineLayout = nbl::ext::imgui::UI::createDefaultPipelineLayout(m_utils.get(), params.resources.texturesInfo, params.resources.samplersInfo, TexturesAmount);
+			params.pipelineLayout = nbl::ext::imgui::UI::createDefaultPipelineLayout(m_utils->getLogicalDevice(), params.resources.texturesInfo, params.resources.samplersInfo, TexturesAmount);
 			params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
 			params.streamingBuffer = nullptr;
 			params.subpassIx = 0u;
 			params.transfer = getTransferUpQueue();
 			params.utilities = m_utils;
 			{
-				pass.ui.manager = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(std::move(params));
+				pass.ui.manager = nbl::ext::imgui::UI::create(std::move(params));
+
+				if (!pass.ui.manager)
+					return false;
 
 				// note that we use default layout provided by our extension, but you are free to create your own by filling nbl::ext::imgui::UI::S_CREATION_PARAMETERS::resources
 				const auto* descriptorSetLayout = pass.ui.manager->getPipeline()->getLayout()->getDescriptorSetLayout(0u);
@@ -167,7 +162,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 				m_descriptorSetPool->createDescriptorSets(1u, &descriptorSetLayout, &pass.ui.descriptorSet);
 				assert(pass.ui.descriptorSet);
-
 			}
 			pass.ui.manager->registerListener([this]() -> void
 				{
@@ -359,7 +353,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						hook.model = core::transpose(imguizmoM16InOut.model).extractSub3x4();
 						{
 							const auto& references = pass.scene->getResources().objects;
-							const auto type = static_cast<E_OBJECT_TYPE>(gcIndex);
+							const auto type = static_cast<ObjectType>(gcIndex);
 
 							const auto& [gpu, meta] = references[type];
 							hook.meta.type = type;
@@ -417,14 +411,16 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					}
 
 					// Nabla Imgui backend MDI buffer info
+					// To be 100% accurate and not overly conservative we'd have to explicitly `cull_frees` and defragment each time,
+					// so unless you do that, don't use this basic info to optimize the size of your IMGUI buffer.
 					{
 						auto* streaminingBuffer = pass.ui.manager->getStreamingBuffer();
 
 						const size_t total = streaminingBuffer->get_total_size();			// total memory range size for which allocation can be requested
-						const size_t maxSizeToAllocate = ((nbl::ext::imgui::UI::SMdiBuffer::compose_t*)streaminingBuffer)->max_size();		// max total free bloock memory size we can still allocate from total memory available
-						const size_t consumedMemory = total - maxSizeToAllocate;			// memory currently consumed by streaming buffer
+						const size_t freeSize = streaminingBuffer->getAddressAllocator().get_free_size();		// max total free bloock memory size we can still allocate from total memory available
+						const size_t consumedMemory = total - freeSize;			// memory currently consumed by streaming buffer
 
-						float freePercentage = 100.0f * (float)(maxSizeToAllocate) / (float)total;
+						float freePercentage = 100.0f * (float)(freeSize) / (float)total;
 						float allocatedPercentage = (float)(consumedMemory) / (float)total;
 
 						ImVec2 barSize = ImVec2(400, 30);
@@ -505,9 +501,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			descriptorInfo[nbl::ext::imgui::UI::FontAtlasTexId].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 			descriptorInfo[nbl::ext::imgui::UI::FontAtlasTexId].desc = core::smart_refctd_ptr<nbl::video::IGPUImageView>(pass.ui.manager->getFontAtlasView());
 
-			descriptorInfo[CScene::NBL_OFFLINE_SCENE_TEX_ID].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-
-			descriptorInfo[CScene::NBL_OFFLINE_SCENE_TEX_ID].desc = pass.scene->getResources().attachments.color;
+			descriptorInfo[OfflineSceneTextureIx].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			descriptorInfo[OfflineSceneTextureIx].desc = pass.scene->getResources().attachments.color;
 
 			for (uint32_t i = 0; i < descriptorInfo.size(); ++i)
 			{
@@ -517,7 +512,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				writes[i].count = 1u;
 			}
 			writes[nbl::ext::imgui::UI::FontAtlasTexId].info = descriptorInfo.data() + nbl::ext::imgui::UI::FontAtlasTexId;
-			writes[CScene::NBL_OFFLINE_SCENE_TEX_ID].info = descriptorInfo.data() + CScene::NBL_OFFLINE_SCENE_TEX_ID;
+			writes[OfflineSceneTextureIx].info = descriptorInfo.data() + OfflineSceneTextureIx;
 
 			return m_device->updateDescriptorSets(writes, {});
 		}
@@ -594,7 +589,15 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				auto* pipeline = pass.ui.manager->getPipeline();
 				cb->bindGraphicsPipeline(pipeline);
 				cb->bindDescriptorSets(EPBP_GRAPHICS, pipeline->getLayout(), uiParams.resources.texturesInfo.setIx, 1u, &pass.ui.descriptorSet.get()); // note that we use default UI pipeline layout where uiParams.resources.textures.setIx == uiParams.resources.samplers.setIx
-				pass.ui.manager->render(cb, waitInfo);
+				
+				if (!keepRunning())
+					return;
+				
+				if (!pass.ui.manager->render(cb,waitInfo))
+				{
+					// TODO: need to present acquired image before bailing because its already acquired
+					return;
+				}
 				cb->endRenderPass();
 			}
 			cb->end();
@@ -706,7 +709,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						capturedEvents.mouse.emplace_back(e);
 
 						if (e.type == nbl::ui::SMouseEvent::EET_SCROLL)
-							gcIndex = std::clamp<uint16_t>(int16_t(gcIndex) + int16_t(core::sign(e.scrollEvent.verticalScroll)), int64_t(0), int64_t(EOT_COUNT - (uint8_t)1u));
+							gcIndex = std::clamp<uint16_t>(int16_t(gcIndex) + int16_t(core::sign(e.scrollEvent.verticalScroll)), int64_t(0), int64_t(OT_COUNT - (uint8_t)1u));
 					}
 				}, m_logger.get());
 

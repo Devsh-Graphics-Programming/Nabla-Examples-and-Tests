@@ -80,8 +80,10 @@ struct GlyphInfo
     void packMinUV_TextureID(float32_t2 minUV, uint16_t textureId)
     {
         minUV_textureID_packed = textureId;
-        minUV_textureID_packed = nbl::hlsl::glsl::bitfieldInsert<uint32_t>(minUV_textureID_packed, (uint32_t)(minUV.x * 255.0f), 16, 8);
-        minUV_textureID_packed = nbl::hlsl::glsl::bitfieldInsert<uint32_t>(minUV_textureID_packed, (uint32_t)(minUV.y * 255.0f), 24, 8);
+        uint32_t uPacked = (uint32_t)(clamp(minUV.x, 0.0f, 1.0f) * 255.0f);
+        uint32_t vPacked = (uint32_t)(clamp(minUV.y, 0.0f, 1.0f) * 255.0f);
+        minUV_textureID_packed = nbl::hlsl::glsl::bitfieldInsert<uint32_t>(minUV_textureID_packed, uPacked, 16, 8);
+        minUV_textureID_packed = nbl::hlsl::glsl::bitfieldInsert<uint32_t>(minUV_textureID_packed, vPacked, 24, 8);
     }
 
     float32_t2 getMinUV()
@@ -105,6 +107,38 @@ struct ImageObjectInfo
     float32_t aspectRatio; // 4 bytes (28)
     uint32_t textureID; // 4 bytes (32)
 };
+
+static uint32_t packR11G11B10_UNORM(float32_t3 color)
+{
+    // Scale and convert to integers
+    uint32_t r = (uint32_t)(clamp(color.r, 0.0f, 1.0f) * 2047.0f + 0.5f); // 11 bits -> 2^11 - 1 = 2047
+    uint32_t g = (uint32_t)(clamp(color.g, 0.0f, 1.0f) * 2047.0f + 0.5f); // 11 bits -> 2^11 - 1 = 2047
+    uint32_t b = (uint32_t)(clamp(color.b, 0.0f, 1.0f) * 1023.0f + 0.5f); // 10 bits -> 2^10 - 1 = 1023
+
+    // Insert each component into the correct position
+    uint32_t packed = r;  // R: bits 0-10
+    packed = nbl::hlsl::glsl::bitfieldInsert<uint32_t>(packed, g, 11, 11); // G: bits 11-21
+    packed = nbl::hlsl::glsl::bitfieldInsert<uint32_t>(packed, b, 22, 10); // B: bits 22-31
+
+    return packed;
+}
+
+static float32_t3 unpackR11G11B10_UNORM(uint32_t packed)
+{
+    float32_t3 color;
+
+    // Extract each component from the packed integer
+    uint32_t r = nbl::hlsl::glsl::bitfieldExtract<uint32_t>(packed, 0, 11);  // R: bits 0-10
+    uint32_t g = nbl::hlsl::glsl::bitfieldExtract<uint32_t>(packed, 11, 11); // G: bits 11-21
+    uint32_t b = nbl::hlsl::glsl::bitfieldExtract<uint32_t>(packed, 22, 10); // B: bits 22-31
+
+    // Convert back to float and scale to [0, 1] range
+    color.r = (float32_t)(r) / 2047.0f;
+    color.g = (float32_t)(g) / 2047.0f;
+    color.b = (float32_t)(b) / 1023.0f;
+
+    return color;
+}
 
 struct PolylineConnector
 {
@@ -247,6 +281,7 @@ inline bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 NBL_CONSTEXPR uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
 NBL_CONSTEXPR uint32_t AlphaBits = 32u - MainObjectIdxBits;
 NBL_CONSTEXPR uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
+NBL_CONSTEXPR uint32_t InvalidStyleIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
 NBL_CONSTEXPR uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
 NBL_CONSTEXPR uint64_t InvalidClipProjectionAddress = nbl::hlsl::numeric_limits<uint64_t>::max;
 NBL_CONSTEXPR uint32_t InvalidTextureIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
@@ -255,6 +290,7 @@ NBL_CONSTEXPR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
 NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1 - (uint32_t) SelectedMajorAxis);
 NBL_CONSTEXPR float MSDFPixelRange = 4.0;
 NBL_CONSTEXPR float MSDFSize = 32.0; 
+NBL_CONSTEXPR uint32_t MSDFMips = 4; 
 NBL_CONSTEXPR float HatchFillMSDFSceenSpaceSize = 8.0; 
 
 #ifdef __HLSL_VERSION
@@ -279,25 +315,6 @@ uint32_t2 packCurveBoxUnorm(float32_t2 value)
 int32_t2 packCurveBoxSnorm(float32_t2 value)
 {
     return value * float32_t(nbl::hlsl::numeric_limits<int32_t>::max);
-}
-
-uint bitfieldInsert(uint base, uint insert, int offset, int bits)
-{
-	const uint mask = (1u << bits) - 1u;
-	const uint shifted_mask = mask << offset;
-
-	insert &= mask;
-	base &= (~shifted_mask);
-	base |= (insert << offset);
-
-	return base;
-}
-
-uint bitfieldExtract(uint value, int offset, int bits)
-{
-	uint retval = value;
-	retval >>= offset;
-	return retval & ((1u<<bits) - 1u);
 }
 
 // TODO: Remove these two when we include our builtin shaders
@@ -503,7 +520,7 @@ struct PSInput
 
 // Set 1 - Window dependant data which has higher update frequency due to multiple windows and resize need image recreation and descriptor writes
 [[vk::binding(0, 1)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);
-// [[vk::binding(0, 2)]] globallycoherent RWTexture2D<uint> colorStorage : register(u1);
+[[vk::binding(1, 1)]] globallycoherent RWTexture2D<uint> colorStorage : register(u1);
 
 #endif
 

@@ -265,9 +265,9 @@ class StreamingAndBufferDeviceAddressApp final : public application_templates::M
 					.signalSemaphores = {&signalInfo,1}
 				};
 
-				queue->startCapture();
+				m_api->startCapture();
 				queue->submit({&submitInfo,1});
-				queue->endCapture();
+				m_api->endCapture();
 			}
 				
 			// We let all latches know what semaphore and counter value has to be passed for the functors to execute
