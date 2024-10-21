@@ -8,18 +8,19 @@ namespace nbl::hlsl
 
 //! Interface class for linear projections range storage - a projection matrix represents single view-port
 template<typename T>
-class ILinearProjection : protected IProjection<T>
+class ILinearProjection : protected IProjectionRange<T>
 {
 public:
-    using base_t = typename IProjection<T>;
+    using base_t = typename IProjectionRange<T>;
     using range_t = typename base_t::range_t;
+    using projection_t = typename base_t::projection_t;
 
-    ILinearProjection(range_t&& matrices) : base_t(matrices) {}
+    ILinearProjection(range_t&& projections) : base_t(projections) {}
 
 protected:
-    inline range_t& getViewportMatrices()
+    inline range_t& getViewportProjections()
     {
-        return base_t::m_projMatrices;
+        return base_t::m_projectionRange;
     }
 };
 

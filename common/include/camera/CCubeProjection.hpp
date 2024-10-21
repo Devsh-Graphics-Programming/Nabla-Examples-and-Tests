@@ -8,7 +8,9 @@ namespace nbl::hlsl
 
 struct CCubeProjectionBase
 {
-    using base_t = ILinearProjection<std::array<float64_t4x4, 6u>>;
+    using projection_t = typename IProjection<float64_t4x4>;
+    using projection_range_t = std::array<typename projection_t, 6u>;
+    using base_t = ILinearProjection<typename projection_range_t>;
 };
 
 //! Class providing linear cube projections with projection matrix per face of a cube, each projection matrix represents a single view-port
@@ -16,13 +18,13 @@ class CCubeProjection : public CCubeProjectionBase::base_t
 {
 public:
     using base_t = typename CCubeProjectionBase::base_t;
-    using range_t = typename base_t::range_t;
+    using projection_range_t = typename base_t::range_t;
 
-    CCubeProjection(range_t&& matrices = {}) : base_t(std::move(matrices)) {}
+    CCubeProjection(projection_range_t&& projections = {}) : base_t(std::move(projections)) {}
 
-    range_t& getCubeFaceProjectionMatrices()
+    projection_range_t& getCubeFaceProjections()
     {
-        return base_t::getViewportMatrices();
+        return base_t::getViewportProjections();
     }
 };
 
