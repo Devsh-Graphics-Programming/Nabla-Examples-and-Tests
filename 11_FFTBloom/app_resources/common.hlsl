@@ -10,4 +10,5 @@ struct PushConstantData
 	uint64_t rowMajorBufferAddress;
 	uint32_t dataElementCount;
 	float32_t2 kernelHalfPixelSize;
+	uint32_t numWorkgroupsLog2;
 };

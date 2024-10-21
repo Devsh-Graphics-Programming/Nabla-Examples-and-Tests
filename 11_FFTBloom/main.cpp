@@ -211,8 +211,8 @@ public:
 			IAssetLoader::SAssetLoadParams lp = {};
 			lp.logger = m_logger.get();
 			lp.workingDirectory = ""; // virtual root
-			auto srcImageBundle = m_assetMgr->getAsset("../media/colorexr.exr", lp);
-			auto kerImageBundle = m_assetMgr->getAsset("../media/kernels/physical_flare_256.exr", lp);
+			auto srcImageBundle = m_assetMgr->getAsset("../../media/colorexr.exr", lp);
+			auto kerImageBundle = m_assetMgr->getAsset("../../media/kernels/physical_flare_256.exr", lp);
 			const auto srcImages = srcImageBundle.getContents();
 			const auto kerImages = kerImageBundle.getContents();
 			if (srcImages.empty() or kerImages.empty())
@@ -253,7 +253,7 @@ public:
 			srcImgViewInfo.image = m_srcImage;
 			srcImgViewInfo.viewType = IGPUImageView::ET_2D;
 			srcImgViewInfo.format = srcImgViewInfo.image->getCreationParameters().format;
-			srcImgViewInfo.subresourceRange.aspectMask = static_cast<IImage::E_ASPECT_FLAGS>(0u);
+			srcImgViewInfo.subresourceRange.aspectMask = IImage::EAF_COLOR_BIT;
 			srcImgViewInfo.subresourceRange.baseMipLevel = 0;
 			srcImgViewInfo.subresourceRange.levelCount = 1;
 			srcImgViewInfo.subresourceRange.baseArrayLayer = 0;
@@ -265,7 +265,7 @@ public:
 			kerImgViewInfo.image = m_kerImage;
 			kerImgViewInfo.viewType = IGPUImageView::ET_2D;
 			kerImgViewInfo.format = kerImgViewInfo.image->getCreationParameters().format;
-			kerImgViewInfo.subresourceRange.aspectMask = static_cast<IImage::E_ASPECT_FLAGS>(0u);
+			kerImgViewInfo.subresourceRange.aspectMask = IImage::EAF_COLOR_BIT;
 			kerImgViewInfo.subresourceRange.baseMipLevel = 0;
 			kerImgViewInfo.subresourceRange.levelCount = kerImgViewInfo.image->getCreationParameters().mipLevels;
 			kerImgViewInfo.subresourceRange.baseArrayLayer = 0;
@@ -282,12 +282,12 @@ public:
 			dstImgInfo.usage = IImage::EUF_STORAGE_BIT | IImage::EUF_TRANSFER_SRC_BIT;
 			m_outImg = m_device->createImage(std::move(dstImgInfo));
 
-			dstImgViewInfo.image = m_outImg;
-			m_outImgView = m_device->createImageView(IGPUImageView::SCreationParams(dstImgViewInfo));
-
 			auto memReqs = m_outImg->getMemoryReqs();
 			memReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 			auto gpuMem = m_device->allocate(memReqs, m_outImg.get());
+
+			dstImgViewInfo.image = m_outImg;
+			m_outImgView = m_device->createImageView(IGPUImageView::SCreationParams(dstImgViewInfo));
 		}
 
 		// agree on formats
@@ -482,9 +482,11 @@ public:
 					viewParams.viewType = video::IGPUImageView::ET_2D;
 					viewParams.format = useHalfFloats ? EF_R16G16_SFLOAT : EF_R32G32_SFLOAT;
 					viewParams.components = {};
-					viewParams.subresourceRange = {};
-					viewParams.subresourceRange.levelCount = 1u;
-					viewParams.subresourceRange.layerCount = 1u;
+					viewParams.subresourceRange.aspectMask = IImage::EAF_COLOR_BIT;
+					viewParams.subresourceRange.baseMipLevel = 0;
+					viewParams.subresourceRange.levelCount = 1;
+					viewParams.subresourceRange.baseArrayLayer = 0;
+					viewParams.subresourceRange.layerCount = 1;
 					return m_device->createImageView(std::move(viewParams));
 				};
 
@@ -517,16 +519,23 @@ public:
 			uint32_t elementsPerThread = 1, workgroupSize;
 			do
 			{
-				elementsPerThread << 1;
+				elementsPerThread <<= 1;
 				workgroupSize = paddedKerDim.width / elementsPerThread;
 			} 
 			while (workgroupSize > maxWorkgroupSize);
 
 			// Create shaders
 			smart_refctd_ptr<IGPUShader> shaders[3];
-			shaders[0] = createShader("app_resources/kernel_fft_first_axis.hlsl", workgroupSize, elementsPerThread, bloomScale);
-			shaders[1] = createShader("app_resources/kernel_fft_second_axis.hlsl", workgroupSize, elementsPerThread, bloomScale);
-			shaders[2] = createShader("app_resources/kernel_spectrum_normalize.hlsl", workgroupSize, elementsPerThread, bloomScale);
+			//shaders[0] = createShader("app_resources/kernel_fft_first_axis.hlsl", workgroupSize, elementsPerThread, bloomScale);
+			//shaders[1] = createShader("app_resources/kernel_fft_second_axis.hlsl", workgroupSize, elementsPerThread, bloomScale);
+			//shaders[2] = createShader("app_resources/kernel_spectrum_normalize.hlsl", workgroupSize, elementsPerThread, bloomScale);
+
+			// ------------------- DEBUG -----------------------
+			//shaders[0] = createShader("app_resources/image_fft_first_axis.hlsl", workgroupSize, elementsPerThread);
+			//shaders[2] = createShader("app_resources/image_ifft_first_axis.hlsl", workgroupSize, elementsPerThread);
+			shaders[1] = createShader("app_resources/fft_convolve_ifft.hlsl", workgroupSize, elementsPerThread);
+
+			// -------------------------------------------
 
 			// Create compute pipelines - First axis FFT -> Second axis FFT -> Normalization
 			IGPUComputePipeline::SCreationParams params[3];
@@ -634,9 +643,9 @@ public:
 					.signalSemaphores = {&signalInfo,1}
 				};
 
-				queue->startCapture();
+				//queue->startCapture();
 				queue->submit({ &submitInfo,1 });
-				queue->endCapture();
+				//queue->endCapture();
 			}
 		}
 		// ----------------------------------------- KERNEL PRECOMP END -------------------------------------------------
@@ -646,7 +655,7 @@ public:
 		uint32_t elementsPerThread = 1, workgroupSize;
 		do
 		{
-			elementsPerThread << 1;
+			elementsPerThread <<= 1;
 			// First axis FFT is along Y axis
 			workgroupSize = core::roundUpToPoT(marginSrcDim.height) / elementsPerThread;
 		} while (workgroupSize > maxWorkgroupSize);
@@ -660,7 +669,7 @@ public:
 		elementsPerThread = 1;
 		do
 		{
-			elementsPerThread << 1;
+			elementsPerThread <<= 1;
 			// First axis FFT is along Y axis
 			workgroupSize = core::roundUpToPoT(marginSrcDim.width) / elementsPerThread;
 		} while (workgroupSize > maxWorkgroupSize);
@@ -728,9 +737,9 @@ public:
 
 		m_computeCmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		// Pipeline barrier: transition kernel spectrum images into read only, and outImage into general
-		IGPUCommandBuffer::SPipelineBarrierDependencyInfo pipelineBarrierInfo = {};
-		decltype(pipelineBarrierInfo)::image_barrier_t imgBarriers[CHANNELS + 1];
-		pipelineBarrierInfo.imgBarriers = { imgBarriers, CHANNELS + 1};
+		IGPUCommandBuffer::SPipelineBarrierDependencyInfo imagePipelineBarrierInfo = {};
+		decltype(imagePipelineBarrierInfo)::image_barrier_t imgBarriers[CHANNELS + 1];
+		imagePipelineBarrierInfo.imgBarriers = { imgBarriers, CHANNELS + 1};
 
 		// outImage just needs a layout transition before it can be written to
 		imgBarriers[0].image = m_outImg.get();
@@ -753,7 +762,7 @@ public:
 			imgBarriers[i + 1].newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 		}
 
-		m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
+		m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), imagePipelineBarrierInfo);
 		
 		// Prepare for first axis FFT
 		// Push Constants - only need to specify BDAs here
@@ -776,9 +785,9 @@ public:
 		m_computeCmdBuf->dispatch(marginSrcDim.width / 2, 1, 1);
 
 		// Pipeline Barrier: Wait for colMajorBuffer to be written to before reading it from next shader
-		IGPUCommandBuffer::SPipelineBarrierDependencyInfo pipelineBarrierInfo = {};
-		decltype(pipelineBarrierInfo)::buffer_barrier_t bufBarrier = {};
-		pipelineBarrierInfo.bufBarriers = { &bufBarrier, 1u };
+		IGPUCommandBuffer::SPipelineBarrierDependencyInfo bufferPipelineBarrierInfo = {};
+		decltype(bufferPipelineBarrierInfo)::buffer_barrier_t bufBarrier = {};
+		bufferPipelineBarrierInfo.bufBarriers = { &bufBarrier, 1u };
 
 		// First axis FFT writes to colMajorBuffer
 		bufBarrier.range.buffer = m_colMajorBuffer;
@@ -789,16 +798,20 @@ public:
 		bufBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
 		bufBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS;
 
-		m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
+		m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), bufferPipelineBarrierInfo);
 		// Now comes Second axis FFT + Conv + IFFT
 		m_computeCmdBuf->bindComputePipeline(m_lastAxisFFT_convolution_lastAxisIFFTPipeline.get());
 		m_computeCmdBuf->bindDescriptorSets(asset::EPBP_COMPUTE, m_lastAxisFFT_convolution_lastAxisIFFTPipeline->getLayout(), 0, 1, &m_lastAxisFFT_convolution_lastAxisIFFTDescriptorSet.get());
-		
-		m_computeCmdBuf->dispatch(core::roundUpToPoT(marginSrcDim.height) / 2, 1, 1);
+		// We need to pass the log of number of workgroups as a push constant now
+		uint32_t numWorkgroups = core::roundUpToPoT(marginSrcDim.height) / 2;
+		uint32_t workgroupsLog2 = std::bit_width(numWorkgroups) - 1;
+		m_computeCmdBuf->pushConstants(m_lastAxisFFT_convolution_lastAxisIFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, numWorkgroupsLog2), sizeof(pushConstants.numWorkgroupsLog2), &workgroupsLog2);
+
+		m_computeCmdBuf->dispatch(numWorkgroups, 1, 1);
 
 		// Recycle pipeline barrier, only have to change which buffer we need to wait to be written to
 		bufBarrier.range.buffer = m_rowMajorBuffer;
-		m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
+		m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), bufferPipelineBarrierInfo);
 
 		// Finally run the IFFT on the first axis
 		m_computeCmdBuf->bindComputePipeline(m_firstAxisIFFTPipeline.get());

@@ -289,9 +289,9 @@ public:
 				.signalSemaphores = {&signalInfo,1}
 			};
 
-			queue->startCapture();
+			//queue->startCapture();
 			queue->submit({ &submitInfo,1 });
-			queue->endCapture();
+			//queue->endCapture();
 		}
 
 		// We let all latches know what semaphore and counter value has to be passed for the functors to execute

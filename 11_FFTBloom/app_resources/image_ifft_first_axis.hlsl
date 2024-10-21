@@ -18,10 +18,11 @@
 #define scalar_t float32_t
 #endif
 
+
 #define FFT_LENGTH (_NBL_HLSL_WORKGROUP_SIZE_ * ELEMENTS_PER_THREAD)
 
 [[vk::push_constant]] PushConstantData pushConstants;
-[[vk::binding(0, 0)]] RWTexture2D<vector<scalar_t, 3> > convolvedImage;
+[[vk::binding(0, 0)]] RWTexture2D<float32_t3> convolvedImage;
 
 groupshared uint32_t sharedmem[workgroup::fft::SharedMemoryDWORDs<scalar_t, _NBL_HLSL_WORKGROUP_SIZE_>];
 
@@ -48,13 +49,13 @@ struct SharedMemoryAccessor
 };
 
 // ---------------------------------------------------- Utils ---------------------------------------------------------
-uint32_t rowMajorOffset(uint32_t x, uint32_t y)
+uint64_t rowMajorOffset(uint32_t x, uint32_t y)
 {
-	return y * pushContants.dataElementCount + x; // can no longer sum with | since there's no guarantees on row length
+	return y * pushConstants.dataElementCount + x; // can no longer sum with | since there's no guarantees on row length
 }
 
 // Same numbers as forward FFT
-uint32_t getChannelStartAddress(uint32_t channel)
+uint64_t getChannelStartAddress(uint32_t channel)
 {
 	return pushConstants.rowMajorBufferAddress + channel * glsl::gl_NumWorkGroups().x * FFT_LENGTH * sizeof(complex_t<scalar_t>);
 }
@@ -68,7 +69,7 @@ struct PreloadedAccessorBase {
 
 	void get(uint32_t idx, NBL_REF_ARG(nbl::hlsl::complex_t<scalar_t>) value)
 	{
-		value = preloaded[idx / _NBL_HLSL_WORKGROUP_SIZE_]
+		value = preloaded[idx / _NBL_HLSL_WORKGROUP_SIZE_];
 	}
 
 	void memoryBarrier()
@@ -93,7 +94,10 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorBase {
 		uint32_t elementToTradeGlobalIdx = workgroup::fft::getNegativeIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(otherThreadGlobalElementIdx);
 		uint32_t elementToTradeLocalIdx = elementToTradeGlobalIdx / _NBL_HLSL_WORKGROUP_SIZE_;
 		complex_t<Scalar> toTrade = preloaded[elementToTradeLocalIdx];
-		workgroup::Shuffle<SharedmemAdaptor, complex_t<Scalar> >::__call(toTrade, otherThreadID, sharedmemAdaptor);
+		vector<Scalar, 2> toTradeVector = { toTrade.real(), toTrade.imag() };
+		workgroup::Shuffle<SharedmemAdaptor, vector<Scalar, 2> >::__call(toTradeVector, otherThreadID, sharedmemAdaptor);
+		toTrade.real(toTradeVector.x);
+		toTrade.imag(toTradeVector.y);
 		return toTrade;
 	}
 
@@ -107,24 +111,24 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorBase {
 	template<typename SharedmemAdaptor>
 	void preload(uint32_t channel, SharedmemAdaptor sharedmemAdaptor)
 	{
-		uint32_t startAddress = getChannelStartAddress(channel);
+		uint64_t startAddress = getChannelStartAddress(channel);
 		// Load all even elements of first column
 		for (uint32_t localElementIndex = 0; localElementIndex < (ELEMENTS_PER_THREAD / 2); localElementIndex ++)
 		{
 			const uint32_t index = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | workgroup::SubgroupContiguousIndex();
-			preloaded[localElementIndex << 1] = vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + rowMajorOffset(2 * gl_WorkGroupID().x, index) * sizeof(complex_t<scalar_t>));
+			preloaded[localElementIndex << 1] = vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + rowMajorOffset(2 * glsl::gl_WorkGroupID().x, index) * sizeof(complex_t<scalar_t>));
 		}
 		// Get all odd elements by trading
 		for (uint32_t localElementIndex = 1; localElementIndex < ELEMENTS_PER_THREAD; localElementIndex += 2)
 		{
 			preloaded[localElementIndex] = conj(trade<scalar_t, SharedmemAdaptor>(localElementIndex, sharedmemAdaptor));
 		}
-		// Load event elements of second column, multiply them by i and add them to even positions
+		// Load even elements of second column, multiply them by i and add them to even positions
 		// This makes even positions hold C1 + iC2
 		for (uint32_t localElementIndex = 0; localElementIndex < (ELEMENTS_PER_THREAD / 2); localElementIndex++)
 		{
 			const uint32_t index = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | workgroup::SubgroupContiguousIndex();
-			preloaded[localElementIndex << 1] = preloaded[localElementIndex << 1] + rotateLeft<scalar_t>(vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + rowMajorOffset(2 * gl_WorkGroupID().x + 1, index) * sizeof(complex_t<scalar_t>)));
+			preloaded[localElementIndex << 1] = preloaded[localElementIndex << 1] + rotateLeft<scalar_t>(vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + rowMajorOffset(2 * glsl::gl_WorkGroupID().x + 1, index) * sizeof(complex_t<scalar_t>)));
 		}
 		// Finally, trade to get odd elements of second column. Note that by trading we receive an element of the form C1 + iC2 for an even position. The current odd position holds conj(C1) and we
 		// want it to hold conj(C1) + i*conj(C2). So we first do conj(C1 + iC2) to yield conj(C1) - i*conj(C2). Then we subtract conj(C1) to get -i*conj(C2), negate that to get i * conj(C2), and finally
@@ -138,10 +142,11 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorBase {
 				// preloaded[0] currently holds (C1(Z) - C2(N)) + i * (C1(N) + C2(Z)). This is because of how we loaded the even elements of both columns.
 				// We want preloaded[0] to hold C1(Z) + i * C2(Z) and preloaded[1] to hold C1(N) + i * C2(N).
 				// We can re-load C2(Z) + i * C2(N) and use it to unpack the values
-				complex_t<scalar_t> c2 = vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + rowMajorOffset(2 * gl_WorkGroupID().x + 1, 0) * sizeof(complex_t<scalar_t>));
+				complex_t<scalar_t> c2 = vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + rowMajorOffset(2 * glsl::gl_WorkGroupID().x + 1, 0) * sizeof(complex_t<scalar_t>));
 				complex_t<scalar_t> p1 = { preloaded[0].imag() - c2.real(), c2.imag() };
 				preloaded[1] = p1;
 				complex_t<scalar_t> p0 = { preloaded[0].real() + c2.imag() , c2.real()};
+				preloaded[0] = p1;
 			}
 			else 
 			{
@@ -156,21 +161,21 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorBase {
 	void unload(uint32_t channel)
 	{
 		uint32_t2 imageDimensions;
-		convolvedImage.GetDimensions(inputImageSize.x, inputImageSize.y);
-		const uint32_t padding = (FFT_LENGTH - inputImageSize.y) >> 1;
+		convolvedImage.GetDimensions(imageDimensions.x, imageDimensions.y);
+		const uint32_t padding = uint32_t(FFT_LENGTH - imageDimensions.y) >> 1;
 		for (uint32_t localElementIndex = 0; localElementIndex < ELEMENTS_PER_THREAD; localElementIndex++)
 		{
 			const uint32_t index = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | workgroup::SubgroupContiguousIndex();
 			const uint32_t paddedIndex = index - padding;
-			if (paddedIndex >= 0 && paddedIndex < inputImageSize.y)
+			if (paddedIndex >= 0 && paddedIndex < imageDimensions.y)
 			{
-				vector<scalar_t, 3> texValue = convolvedImage.Load(uint32_t2(2 * gl_WorkGroupID().x, paddedIndex));
-				texValue[channel] = preloaded[localElementIndex].real();
-				convolvedImage[uint32_t2(2 * gl_WorkGroupID().x, paddedIndex)] = texValue;
+				float32_t3 texValue = convolvedImage.Load(uint32_t2(2 * glsl::gl_WorkGroupID().x, paddedIndex));
+				texValue[channel] = float32_t(preloaded[localElementIndex].real());
+				convolvedImage[uint32_t2(2 * glsl::gl_WorkGroupID().x, paddedIndex)] = texValue;
 				
-				texValue = convolvedImage.Load(uint32_t2(2 * gl_WorkGroupID().x + 1, paddedIndex));
-				texValue[channel] = preloaded[localElementIndex].imag();
-				convolvedImage[uint32_t2(2 * gl_WorkGroupID().x + 1, paddedIndex)] = texValue;
+				texValue = convolvedImage.Load(uint32_t2(2 * glsl::gl_WorkGroupID().x + 1, paddedIndex));
+				texValue[channel] = float32_t(preloaded[localElementIndex].imag());
+				convolvedImage[uint32_t2(2 * glsl::gl_WorkGroupID().x + 1, paddedIndex)] = texValue;
 			}
 		}
 	}
@@ -191,7 +196,7 @@ void lastAxisFFT()
 		preloadedAccessor.preload<adaptor_t>(channel, sharedmemAdaptor);
 		// Update state after preload
 		sharedmemAccessor = sharedmemAdaptor.accessor;
-		FFT<ELEMENTS_PER_THREAD, false, _NBL_HLSL_WORKGROUP_SIZE_, scalar_t>::template __call(preloadedAccessor, sharedmemAccessor);
+		workgroup::FFT<ELEMENTS_PER_THREAD, false, _NBL_HLSL_WORKGROUP_SIZE_, scalar_t>::template __call(preloadedAccessor, sharedmemAccessor);
 		preloadedAccessor.unload(channel);
 	}
 }

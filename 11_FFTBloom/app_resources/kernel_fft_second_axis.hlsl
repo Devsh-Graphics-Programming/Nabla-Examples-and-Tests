@@ -47,22 +47,22 @@ struct SharedMemoryAccessor
 };
 
 // ---------------------------------------------------- Utils ---------------------------------------------------------
-uint32_t colMajorOffset(uint32_t x, uint32_t y)
+uint64_t colMajorOffset(uint32_t x, uint32_t y)
 {
 	return x * (IMAGE_SIDE_LENGTH / 2) | y;
 }
 
-uint32_t rowMajorOffset(uint32_t x, uint32_t y)
+uint64_t rowMajorOffset(uint32_t x, uint32_t y)
 {
 	return y * IMAGE_SIDE_LENGTH | x;
 }
 
-uint32_t getColMajorChannelStartAddress(uint32_t channel)
+uint64_t getColMajorChannelStartAddress(uint32_t channel)
 {
 	return pushConstants.colMajorBufferAddress + channel * IMAGE_SIDE_LENGTH * IMAGE_SIDE_LENGTH / 2 * sizeof(complex_t<scalar_t>);
 }
 
-uint32_t getRowMajorChannelStartAddress(uint32_t channel)
+uint64_t getRowMajorChannelStartAddress(uint32_t channel)
 {
 	return pushConstants.rowMajorBufferAddress + channel * IMAGE_SIDE_LENGTH * IMAGE_SIDE_LENGTH / 2 * sizeof(complex_t<scalar_t>);
 }
@@ -76,7 +76,7 @@ struct PreloadedAccessorBase {
 
 	void get(uint32_t idx, NBL_REF_ARG(nbl::hlsl::complex_t<scalar_t>) value)
 	{
-		value = preloaded[idx / _NBL_HLSL_WORKGROUP_SIZE_]
+		value = preloaded[idx / _NBL_HLSL_WORKGROUP_SIZE_];
 	}
 
 	void memoryBarrier()
@@ -101,25 +101,25 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase
 {
 	void preload(uint32_t channel)
 	{
-		const uint32_t startAddress = getColMajorChannelStartAddress(channel);
+		const uint64_t startAddress = getColMajorChannelStartAddress(channel);
 
 		for (uint32_t elementIndex = 0; elementIndex < ELEMENTS_PER_THREAD; elementIndex++)
 		{
 			const uint32_t index = _NBL_HLSL_WORKGROUP_SIZE_ * elementIndex | workgroup::SubgroupContiguousIndex();
-			preloaded[elementIndex] = vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + colMajorOffset(index, gl_WorkGroupID().x) * sizeof(complex_t<scalar_t>));
+			preloaded[elementIndex] = vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + colMajorOffset(index, glsl::gl_WorkGroupID().x) * sizeof(complex_t<scalar_t>));
 		}
 	}
 
 	// Util to write values to output buffer in row major order
-	void storeRowMajor(uint32_t startAddress, uint32_t index, NBL_CONST_REF_ARG(complex_t<scalar_t>) value)
+	void storeRowMajor(uint64_t startAddress, uint32_t index, NBL_CONST_REF_ARG(complex_t<scalar_t>) value)
 	{
-		vk::RawBufferStore<complex_t<scalar_t> >(startAddress + rowMajorOffset(index, gl_WorkGroupID().x) * sizeof(complex_t<scalar_t>), value);
+		vk::RawBufferStore<complex_t<scalar_t> >(startAddress + rowMajorOffset(index, glsl::gl_WorkGroupID().x) * sizeof(complex_t<scalar_t>), value);
 	}
 
 	// Save a column back in row major order. Remember that the first row (one with `gl_WorkGroupID().x == 0`) will actually hold the packed FFT of Zero and Nyquist rows.
 	void unload(uint32_t channel)
 	{
-		const uint32_t startAddress = getRowMajorChannelStartAddress(channel);
+		const uint64_t startAddress = getRowMajorChannelStartAddress(channel);
 
 		for (uint32_t elementIndex = 0; elementIndex < ELEMENTS_PER_THREAD; elementIndex++)
 		{
@@ -137,7 +137,7 @@ void secondAxisFFT()
 	for (uint32_t channel = 0; channel < CHANNELS; channel++)
 	{
 		preloadedAccessor.preload(channel);
-		FFT<ELEMENTS_PER_THREAD, false, _NBL_HLSL_WORKGROUP_SIZE_, scalar_t>::template __call(preloadedAccessor, sharedmemAccessor);
+		workgroup::FFT<ELEMENTS_PER_THREAD, false, _NBL_HLSL_WORKGROUP_SIZE_, scalar_t>::template __call(preloadedAccessor, sharedmemAccessor);
 		preloadedAccessor.unload(channel);
 	}
 }

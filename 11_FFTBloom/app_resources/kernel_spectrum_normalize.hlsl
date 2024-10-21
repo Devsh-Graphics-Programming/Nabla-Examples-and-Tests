@@ -27,12 +27,12 @@
 groupshared uint32_t sharedmem[workgroup::fft::SharedMemoryDWORDs<scalar_t, _NBL_HLSL_WORKGROUP_SIZE_>];
 
 // ---------------------------------------------------- Utils ---------------------------------------------------------
-uint32_t rowMajorOffset(uint32_t x, uint32_t y)
+uint64_t rowMajorOffset(uint32_t x, uint32_t y)
 {
 	return y * IMAGE_SIDE_LENGTH | x;
 }
 
-uint32_t getChannelStartAddress(uint32_t channel)
+uint64_t getChannelStartAddress(uint32_t channel)
 {
 	return pushConstants.rowMajorBufferAddress + channel * IMAGE_SIDE_LENGTH * IMAGE_SIDE_LENGTH / 2 * sizeof(complex_t<scalar_t>);
 }
@@ -45,19 +45,19 @@ scalar_t getPower()
 	vector <scalar_t, 3> channelWiseSums;
 
 	for (uint32_t channel = 0u; channel < CHANNELS; channel++) {
-		channelWiseSums[i] = vk::RawBufferLoad<scalar_t>(getChannelStartAddress(channel));
+		channelWiseSums[channel] = vk::RawBufferLoad<scalar_t>(getChannelStartAddress(channel));
 	}
-	return (colorspace::scRGBtoXYZ * channelWiseSums).y;
+	return (mul(colorspace::scRGBtoXYZ, channelWiseSums)).y;
 }
 
 // Still launching IMAGE_SIDE_LENGTH / 2 workgroups
 void normalize(uint32_t channel)
 {
 	const scalar_t power = getPower();
-	const uint32_t startAddress = getChannelStartAddress(channel);
+	const uint64_t startAddress = getChannelStartAddress(channel);
 
 	// Remember that the first row has packed `Z + iN` so it has to unpack those
-	if (!gl_WorkGroupID().x)
+	if (!glsl::gl_WorkGroupID().x)
 	{
 		// FFT[Z + iN] was stored in the Nabla order, so we need to unpack it differently from what we did in the first axis FFT case - we're going to store it whole
 		for (uint32_t localElementIndex = 0; localElementIndex < ELEMENTS_PER_THREAD; localElementIndex++)
@@ -73,13 +73,13 @@ void normalize(uint32_t channel)
 
 			// Store zeroth element
 			const uint32_t2 zeroCoord = uint32_t2(indexDFT, 0);
-			complex_t<scalar_t> shift = polar(scalar_t(1), - numbers::pi<scalar_t> * scalar_t(indexDFT));
+			complex_t<scalar_t> shift = { indexDFT & 1 ? scalar_t(-1) : scalar_t(1), scalar_t(0) };
 			zero = (shift * zero) / power;
 			kernelChannels[uint32_t3(zeroCoord, channel)] = zero;
 
 			// Store nyquist element
 			const uint32_t2 nyquistCoord = uint32_t2(indexDFT, IMAGE_SIDE_LENGTH / 2);
-			shift = polar(scalar_t(1), - numbers::pi<scalar_t> * scalar_t(IMAGE_SIDE_LENGTH / 2 + indexDFT));
+			// IMAGE_SIDE_LENGTH / 2 is even, so indexDFT + IMAGE_SIDE_LENGTH / 2 is even iff indexDFT is even, which then means the shift factor stays the same
 			nyquist = (shift * nyquist) / power;
 			kernelChannels[uint32_t3(nyquistCoord, channel)] = nyquist;
 		}
@@ -94,12 +94,12 @@ void normalize(uint32_t channel)
 		{
 			const uint32_t index = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | workgroup::SubgroupContiguousIndex();
 			// Get the element at `x' = index`, `y' = gl_WorkGroupID().x`
-			complex_t<scalar_t> toStore = vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + rowMajorOffset(index, gl_WorkGroupID().x) * sizeof(complex_t<scalar_t>));
+			complex_t<scalar_t> toStore = vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + rowMajorOffset(index, glsl::gl_WorkGroupID().x) * sizeof(complex_t<scalar_t>));
 
 			// Number of bits needed to represent the range of half the DFT
 			NBL_CONSTEXPR uint32_t bits = uint32_t(mpl::log2<IMAGE_SIDE_LENGTH>::value - 1);
 			uint32_t x = workgroup::fft::getFrequencyIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(index);
-			uint32_t y = glsl::bitfieldReverse<uint32_t>(gl_WorkGroupID().x) >> (32 - bits);
+			uint32_t y = glsl::bitfieldReverse<uint32_t>(glsl::gl_WorkGroupID().x) >> (32 - bits);
 
 			// Store the element 
 			const complex_t<scalar_t> shift = polar(scalar_t(1), - numbers::pi<scalar_t> * scalar_t(x + y));

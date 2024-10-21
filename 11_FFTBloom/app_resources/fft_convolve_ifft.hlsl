@@ -12,15 +12,15 @@
  * KERNEL_SCALE
 */
 
-[[vk::push_constant]] PushConstantData pushConstants;
-[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2DArray kernelChannels;
-[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] SamplerState samplerState;
-
 #ifdef USE_HALF_PRECISION
 #define scalar_t float16_t
 #else
 #define scalar_t float32_t
 #endif
+
+[[vk::push_constant]] PushConstantData pushConstants;
+[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2DArray<complex_t<scalar_t> > kernelChannels;
+[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] SamplerState samplerState;
 
 #define FFT_LENGTH (_NBL_HLSL_WORKGROUP_SIZE_ * ELEMENTS_PER_THREAD)
 
@@ -49,27 +49,27 @@ struct SharedMemoryAccessor
 };
 
 // ---------------------------------------------------- Utils ---------------------------------------------------------
-uint32_t colMajorOffset(uint32_t x, uint32_t y)
+uint64_t colMajorOffset(uint32_t x, uint32_t y)
 {
-	return x * gl_NumWorkGroups().x | y; // can sum with | here because NumWorkGroups is still PoT (has to match half the FFT_LENGTH of previous pass)
+	return x * glsl::gl_NumWorkGroups().x | y; // can sum with | here because NumWorkGroups is still PoT (has to match half the FFT_LENGTH of previous pass)
 }
 
-uint32_t rowMajorOffset(uint32_t x, uint32_t y)
+uint64_t rowMajorOffset(uint32_t x, uint32_t y)
 {
-	return y * pushContants.dataElementCount + x; // can no longer sum with | since there's no guarantees on row length
+	return y * pushConstants.dataElementCount + x; // can no longer sum with | since there's no guarantees on row length
 }
 
-// Same as what was used to store in col-major after first axis FFT. This time we launch one workgroup per row so the height of the channel's image is `glsl::gl_NumWorkGroups().x`,
+// Same as what was used to store in col-major after first axis FFT. This time we launch one workgroup per row so the height of the channel's (half) image is `glsl::gl_NumWorkGroups().x`,
 // and the width (number of columns) is passed as a push constant
-uint32_t getColMajorChannelStartAddress(uint32_t channel)
+uint64_t getColMajorChannelStartAddress(uint32_t channel)
 {
-	return pushConstants.colMajorBufferAddress + channel * glsl::gl_NumWorkGroups().x * pushContants.dataElementCount * sizeof(complex_t<scalar_t>);
+	return pushConstants.colMajorBufferAddress + channel * glsl::gl_NumWorkGroups().x * pushConstants.dataElementCount * sizeof(complex_t<scalar_t>);
 }
 
 // Image saved has the same size as image read 
-uint32_t getRowMajorChannelStartAddress(uint32_t channel)
+uint64_t getRowMajorChannelStartAddress(uint32_t channel)
 {
-	return pushConstants.rowMajorBufferAddress + channel * glsl::gl_NumWorkGroups().x * pushContants.dataElementCount * sizeof(complex_t<scalar_t>);
+	return pushConstants.rowMajorBufferAddress + channel * glsl::gl_NumWorkGroups().x * pushConstants.dataElementCount * sizeof(complex_t<scalar_t>);
 }
 
 struct PreloadedAccessorBase {
@@ -81,7 +81,7 @@ struct PreloadedAccessorBase {
 
 	void get(uint32_t idx, NBL_REF_ARG(nbl::hlsl::complex_t<scalar_t>) value)
 	{
-		value = preloaded[idx / _NBL_HLSL_WORKGROUP_SIZE_]
+		value = preloaded[idx / _NBL_HLSL_WORKGROUP_SIZE_];
 	}
 
 	void memoryBarrier()
@@ -106,23 +106,23 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase
 	int32_t mirrorWrap(int32_t paddedCoordinate)
 	{
 		const int32_t negMask = paddedCoordinate >> 31u;
-		const int32_t d = ((paddedCoordinate ^ negMask) / pushContants.dataElementCount) ^ negMask;
-		paddedCoordinate = paddedCoordinate - d * pushContants.dataElementCount;
+		const int32_t d = ((paddedCoordinate ^ negMask) / pushConstants.dataElementCount) ^ negMask;
+		paddedCoordinate = paddedCoordinate - d * pushConstants.dataElementCount;
 		const int32_t flip = d & 0x1;
-		return (1 - flip) * paddedCoordinate + flip * (pushContants.dataElementCount - 1 - paddedCoordinate); //lerping is a float op
+		return (1 - flip) * paddedCoordinate + flip * (pushConstants.dataElementCount - 1 - paddedCoordinate); //lerping is a float op
 	}
 
 	void preload(uint32_t channel)
 	{
-		const uint32_t startAddress = getColMajorChannelStartAddress(channel);
-		const uint32_t padding = (FFT_LENGTH - pushContants.dataElementCount) >> 1;
+		const uint64_t startAddress = getColMajorChannelStartAddress(channel);
+		const uint32_t padding = uint32_t(FFT_LENGTH - pushConstants.dataElementCount) >> 1;
 
 		for (uint32_t elementIndex = 0; elementIndex < ELEMENTS_PER_THREAD; elementIndex++)
 		{
 			const uint32_t index = _NBL_HLSL_WORKGROUP_SIZE_ * elementIndex | workgroup::SubgroupContiguousIndex();
-			const uint32_t paddedIndex = index - padding;
-			const uint32_t wrappedIndex = mirrorWrap(paddedIndex);
-			preloaded[elementIndex] = vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + colMajorOffset(wrappedIndex, gl_WorkGroupID().x) * sizeof(complex_t<scalar_t>));
+			const int32_t paddedIndex = index - int32_t(padding);
+			const int32_t wrappedIndex = mirrorWrap(paddedIndex);
+			preloaded[elementIndex] = vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + colMajorOffset(wrappedIndex, glsl::gl_WorkGroupID().x) * sizeof(complex_t<scalar_t>));
 		}
 	}
 
@@ -136,7 +136,10 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase
 		uint32_t elementToTradeGlobalIdx = workgroup::fft::getNegativeIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(otherThreadGlobalElementIdx);
 		uint32_t elementToTradeLocalIdx = elementToTradeGlobalIdx / _NBL_HLSL_WORKGROUP_SIZE_;
 		complex_t<Scalar> toTrade = preloaded[elementToTradeLocalIdx];
-		workgroup::Shuffle<SharedmemAdaptor, complex_t<Scalar> >::__call(toTrade, otherThreadID, sharedmemAdaptor);
+		vector<Scalar, 2> toTradeVector = { toTrade.real(), toTrade.imag() };
+		workgroup::Shuffle<SharedmemAdaptor, vector<Scalar, 2> >::__call(toTradeVector, otherThreadID, sharedmemAdaptor);
+		toTrade.real(toTradeVector.x);
+		toTrade.imag(toTradeVector.y);
 		return toTrade;
 	}
 
@@ -146,11 +149,11 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase
 	void convolve(uint32_t channel, SharedmemAdaptor sharedmemAdaptor)
 	{
 		// Remember first row holds Z + iN
-		if (!gl_WorkGroupID().x)
+		if (!glsl::gl_WorkGroupID().x)
 		{
 			for (uint32_t localElementIndex = 0; localElementIndex < ELEMENTS_PER_THREAD; localElementIndex++)
 			{
-				const uint32_t globalElementIndex = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIdx | workgroup::SubgroupContiguousIndex();
+				const uint32_t globalElementIndex = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | workgroup::SubgroupContiguousIndex();
 				complex_t<scalar_t> zero = preloaded[localElementIndex];
 				complex_t<scalar_t> nyquist = trade<scalar_t, SharedmemAdaptor>(localElementIndex, sharedmemAdaptor);
 
@@ -195,11 +198,11 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase
 		{
 			for (uint32_t localElementIndex = 0; localElementIndex < ELEMENTS_PER_THREAD; localElementIndex++)
 			{
-				const uint32_t globalElementIndex = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIdx | workgroup::SubgroupContiguousIndex();
+				const uint32_t globalElementIndex = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | workgroup::SubgroupContiguousIndex();
 				const uint32_t indexDFT = workgroup::fft::getFrequencyIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(globalElementIndex);
-				const uint32_t bits = uint32_t(mpl::log2<glsl::gl_NumWorkGroups().x>::value);
-				const uint32_t y = glsl::bitfieldReverse<uint32_t>(gl_WorkGroupID().x) >> (32 - bits);
-				const uint32_t texCoords = uint32_t(indexDFT, y);
+				const uint32_t bits = pushConstants.numWorkgroupsLog2;
+				const uint32_t y = glsl::bitfieldReverse<uint32_t>(glsl::gl_WorkGroupID().x) >> (32 - bits);
+				const uint32_t2 texCoords = uint32_t2(indexDFT, y);
 				const float32_t2 uv = texCoords / float32_t2(FFT_LENGTH, 2 * glsl::gl_NumWorkGroups().x) + pushConstants.kernelHalfPixelSize;
 				preloaded[localElementIndex] = preloaded[localElementIndex] * kernelChannels.Sample(samplerState, float32_t3(uv, channel));
 			}
@@ -207,22 +210,22 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase
 	}
 
 	// Util to write values to output buffer in row major order
-	void storeRowMajor(uint32_t startAddress, uint32_t index, NBL_CONST_REF_ARG(complex_t<scalar_t>) value)
+	void storeRowMajor(uint64_t startAddress, uint32_t index, NBL_CONST_REF_ARG(complex_t<scalar_t>) value)
 	{
-		vk::RawBufferStore<complex_t<scalar_t> >(startAddress + rowMajorOffset(index, gl_WorkGroupID().x) * sizeof(complex_t<scalar_t>), value);
+		vk::RawBufferStore<complex_t<scalar_t> >(startAddress + rowMajorOffset(index, glsl::gl_WorkGroupID().x) * sizeof(complex_t<scalar_t>), value);
 	}
 
 	// Save a row back in row major order. Remember that the first row (one with `gl_WorkGroupID().x == 0`) will actually hold the packed IFFT of Zero and Nyquist rows.
 	void unload(uint32_t channel)
 	{
-		const uint32_t startAddress = getRowMajorChannelStartAddress(channel);
+		const uint64_t startAddress = getRowMajorChannelStartAddress(channel);
 
 		for (uint32_t localElementIndex = 0; localElementIndex < ELEMENTS_PER_THREAD; localElementIndex++)
 		{
 			const uint32_t globalElementIndex = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | workgroup::SubgroupContiguousIndex();
-			const uint32_t padding = (FFT_LENGTH - pushContants.dataElementCount) >> 1;
-			const uint32_t paddedIndex = index - padding;
-			if (paddedIndex >= 0 && paddedIndex < pushContants.dataElementCount)
+			const uint32_t padding = uint32_t(FFT_LENGTH - pushConstants.dataElementCount) >> 1;
+			const int32_t paddedIndex = globalElementIndex - int32_t(padding);
+			if (paddedIndex >= 0 && paddedIndex < pushConstants.dataElementCount)
 				storeRowMajor(startAddress, paddedIndex, preloaded[localElementIndex]);
 		}
 	}
@@ -240,13 +243,13 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	for (uint32_t channel = 0; channel < CHANNELS; channel++)
 	{
 		preloadedAccessor.preload(channel);
-		FFT<ELEMENTS_PER_THREAD, false, _NBL_HLSL_WORKGROUP_SIZE_, scalar_t>::template __call(preloadedAccessor, sharedmemAccessor);
+		workgroup::FFT<ELEMENTS_PER_THREAD, false, _NBL_HLSL_WORKGROUP_SIZE_, scalar_t>::template __call(preloadedAccessor, sharedmemAccessor);
 		// Update state after FFT run
 		sharedmemAdaptor.accessor = sharedmemAccessor;
 		preloadedAccessor.convolve(channel, sharedmemAdaptor);
 		// Remember to update the accessor's state
 		sharedmemAccessor = sharedmemAdaptor.accessor;
-		FFT<ELEMENTS_PER_THREAD, true, _NBL_HLSL_WORKGROUP_SIZE_, scalar_t>::template __call(preloadedAccessor, sharedmemAccessor);
+		workgroup::FFT<ELEMENTS_PER_THREAD, true, _NBL_HLSL_WORKGROUP_SIZE_, scalar_t>::template __call(preloadedAccessor, sharedmemAccessor);
 		preloadedAccessor.unload(channel);
 	}
 }
