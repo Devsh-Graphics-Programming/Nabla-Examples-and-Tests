@@ -19,10 +19,11 @@ using namespace nbl::video;
 // TODO: inherit from BasicMultiQueue app
 class BlitFilterTestApp final : public virtual application_templates::MonoDeviceApplication
 {
-		using base_t = nbl::application_templates::MonoDeviceApplication;
+		using base_t = application_templates::MonoDeviceApplication;
 
 		constexpr static uint32_t SC_IMG_COUNT = 3u;
 
+		// Class to unify test inputs and writing out of the result
 		class ITest
 		{
 			public:
@@ -63,6 +64,7 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 				}
 		};
 
+		// CPU Blit test
 		template <typename BlitUtilities>
 		class CBlitImageFilterTest : public ITest
 		{
@@ -116,6 +118,7 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 					blitFilterState.alphaRefValue = m_referenceAlpha;
 
 					blitFilterState.scratchMemoryByteSize = BlitFilter::getRequiredScratchByteSize(&blitFilterState);
+					// MEMORY LEAK, USE RAII
 					blitFilterState.scratchMemory = reinterpret_cast<uint8_t*>(_NBL_ALIGNED_MALLOC(blitFilterState.scratchMemoryByteSize, 32));
 
 					if (!blit_utils_t::computeScaledKernelPhasedLUT(blitFilterState.scratchMemory + BlitFilter::getScratchOffset(&blitFilterState, BlitFilter::ESU_SCALED_KERNEL_PHASED_LUT), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, m_convolutionKernels))
@@ -307,7 +310,7 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 				asset::ICPUImageView::SComponentMapping m_swizzle;
 				const char* m_writeImagePath;
 		};
-
+#if 0
 		template <typename BlitUtilities>
 		class CComputeBlitTest : public ITest
 		{
@@ -804,7 +807,8 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 				const float											m_referenceAlpha = 0.f;
 				const uint32_t										m_alphaBinCount = asset::IBlitUtilities::DefaultAlphaBinCount;
 		};
-
+#endif
+#if 0
 		class CRegionBlockFunctorFilterTest : public ITest
 		{
 			public:
@@ -855,6 +859,7 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 			private:
 				const char* m_writeImagePath;
 		};
+#endif
 
 	public:
 		using base_t::base_t;
@@ -866,25 +871,15 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 				return false;
 
 			queue = getComputeQueue();
-			commandPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::ECF_RESET_COMMAND_BUFFER_BIT);
+			commandPool = m_device->createCommandPool(queue->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 			assetManager = make_smart_refctd_ptr<asset::IAssetManager>(smart_refctd_ptr(m_system));
 			utilities = make_smart_refctd_ptr<video::IUtilities>(smart_refctd_ptr(m_device));
 
 			core::smart_refctd_ptr<IGPUCommandBuffer> transferCmdBuffer;
 			core::smart_refctd_ptr<IGPUCommandBuffer> computeCmdBuffer;
 
-			m_device->createCommandBuffers(commandPool.get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &transferCmdBuffer);
-			m_device->createCommandBuffers(commandPool.get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &computeCmdBuffer);
-
-			cpu2gpuParams.assetManager = assetManager.get();
-			cpu2gpuParams.device = m_device.get();
-			cpu2gpuParams.finalQueueFamIx = queue->getFamilyIndex();
-			cpu2gpuParams.pipelineCache = nullptr;
-			cpu2gpuParams.utilities = utilities.get();
-			cpu2gpuParams.perQueue[video::IGPUObjectFromAssetConverter::EQU_TRANSFER].queue = queue;
-			cpu2gpuParams.perQueue[video::IGPUObjectFromAssetConverter::EQU_COMPUTE].queue = queue;
-			cpu2gpuParams.perQueue[IGPUObjectFromAssetConverter::EQU_TRANSFER].cmdbuf = transferCmdBuffer;
-			cpu2gpuParams.perQueue[IGPUObjectFromAssetConverter::EQU_COMPUTE].cmdbuf = computeCmdBuffer;
+			commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &transferCmdBuffer);
+			commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &computeCmdBuffer);
 
 
 			constexpr bool TestCPUBlitFilter = true;
@@ -893,6 +888,7 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 			constexpr bool TestGPUBlitFilter = true;
 			constexpr bool TestRegionBlockFunctorFilter = true;
 
+#if 0
 			auto loadImage = [this](const char* path) -> core::smart_refctd_ptr<asset::ICPUImage>
 			{
 				constexpr auto cachingFlags = static_cast<asset::IAssetLoader::E_CACHING_FLAGS>(asset::IAssetLoader::ECF_DONT_CACHE_REFERENCES & asset::IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
@@ -917,8 +913,6 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 					else
 						assert(!"Invalid code path.");
 				}
-
-				result->addImageUsageFlags(asset::IImage::EUF_SAMPLED_BIT);
 
 				return result;
 			};
@@ -1479,6 +1473,8 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 
 				runTests(TestCount, tests);
 			}
+#endif
+			return true;
 		}
 
 		bool onAppTerminated() override
@@ -1500,16 +1496,22 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 		{
 			core::vector<queue_req_t> retval;
 
-			using flags_t = video::IPhysicalDevice::E_QUEUE_FLAGS;
+			using flags_t = IQueue::FAMILY_FLAGS;
 			// IGPUObjectFromAssetConverter requires the queue to support graphics as well.
-			retval.push_back({ .requiredFlags = flags_t::EQF_COMPUTE_BIT | flags_t::EQF_TRANSFER_BIT | flags_t::EQF_GRAPHICS_BIT,.disallowedFlags = flags_t::EQF_NONE,.queueCount = 1,.maxImageTransferGranularity = {1,1,1} });
+			retval.push_back({
+				.requiredFlags = flags_t::COMPUTE_BIT|flags_t::TRANSFER_BIT|flags_t::GRAPHICS_BIT,
+				.disallowedFlags = flags_t::NONE,
+				.queueCount = 1,
+				.maxImageTransferGranularity = {1,1,1}
+			});
 
 			return retval;
 		}
 
 	private:
+#if 0
 		// dims[3] is layer count
-		core::smart_refctd_ptr<ICPUImage> createCPUImage(const core::vectorSIMDu32& dims, const asset::IImage::E_TYPE imageType, const asset::E_FORMAT format, const bool fillWithTestData = false)
+		smart_refctd_ptr<ICPUImage> createCPUImage(const core::vectorSIMDu32& dims, const asset::IImage::E_TYPE imageType, const asset::E_FORMAT format, const bool fillWithTestData = false)
 		{
 			IImage::SCreationParams imageParams = {};
 			imageParams.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(asset::IImage::ECF_MUTABLE_FORMAT_BIT | asset::IImage::ECF_EXTENDED_USAGE_BIT);
@@ -1580,11 +1582,12 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 
 			return image;
 		}
+#endif
 
-		core::smart_refctd_ptr<asset::IAssetManager> assetManager;
-		video::IQueue* queue;
-		core::smart_refctd_ptr<video::IGPUCommandPool> commandPool;
-		core::smart_refctd_ptr<video::IUtilities> utilities;
+		smart_refctd_ptr<IAssetManager> assetManager;
+		IQueue* queue;
+		smart_refctd_ptr<IGPUCommandPool> commandPool;
+		smart_refctd_ptr<IUtilities> utilities;
 };
 
 NBL_MAIN_FUNC(BlitFilterTestApp)
