@@ -6,7 +6,11 @@
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 
-// TODO: Consider adding ImGUI overlay to dynamically modify bloom size
+// TODO: Copy HelloSwapchain to set up a swapchain, draw to a surface
+// TODO: Dynamically modify bloom size with mouse scroll/ +- keys
+//		 Notes: To do so must check required size against buffer size (expand buffer and recompile kernel if it starts being small), also after making kernel larger then small again
+//		        probably no need to shrink buffer and recompile kernel but would be nice to add that as well)
+// TODO: Clean up example after FFT ext
 
 using namespace nbl;
 using namespace core;
@@ -33,19 +37,19 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 	// Descriptor Sets
 	smart_refctd_ptr<IGPUDescriptorSet> m_firstAxisFFTDescriptorSet;
 	smart_refctd_ptr<IGPUDescriptorSet> m_lastAxisFFT_convolution_lastAxisIFFTDescriptorSet;
-	smart_refctd_ptr<IGPUDescriptorSet> m_lastAxisFFTDescriptorSet;
+	smart_refctd_ptr<IGPUDescriptorSet> m_firstAxisIFFTDescriptorSet;
 
 	// Utils (might be useful, they stay for now)
 	smart_refctd_ptr<nbl::video::IUtilities> m_utils;
 
 	// Resources
-	smart_refctd_ptr<IGPUImage> srcImage;
-	smart_refctd_ptr<IGPUImageView> srcImageView;
-	smart_refctd_ptr<IGPUImage> kerImage;
-	smart_refctd_ptr<IGPUImageView> kerImageView;
-	smart_refctd_ptr<IGPUImage> outImg;
-	smart_refctd_ptr<IGPUImageView> outImgView;
-	smart_refctd_ptr<IGPUImageView> kernelNormalizedSpectrums[CHANNELS];
+	smart_refctd_ptr<IGPUImage> m_srcImage;
+	smart_refctd_ptr<IGPUImageView> m_srcImageView;
+	smart_refctd_ptr<IGPUImage> m_kerImage;
+	smart_refctd_ptr<IGPUImageView> m_kerImageView;
+	smart_refctd_ptr<IGPUImage> m_outImg;
+	smart_refctd_ptr<IGPUImageView> m_outImgView;
+	smart_refctd_ptr<IGPUImageView> m_kernelNormalizedSpectrums[CHANNELS];
 
 	// Used to store intermediate results
 	smart_refctd_ptr<nbl::video::IGPUBuffer> m_rowMajorBuffer;
@@ -62,9 +66,15 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 	// Other parameter-dependent variables
 	asset::VkExtent3D marginSrcDim;
 
-	// TODO: Remove if unnecessary
+	// We only hold onto one cmdbuffer at a time
+	smart_refctd_ptr<nbl::video::IGPUCommandBuffer> m_computeCmdBuf;
+
+	// Sync primitives
 	smart_refctd_ptr<ISemaphore> m_timeline;
-	uint64_t m_iteration = 0;
+	uint64_t semaphorValue = 0;
+
+	// Termination cond
+	bool m_keepRunning = true;
 
 	smart_refctd_ptr<IGPUPipelineLayout> createPipelineLayout(const std::span<const IGPUDescriptorSetLayout::SBinding> bindings)
 	{
@@ -72,25 +82,8 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 		return m_device->createPipelineLayout({ &pcRange,1 }, m_device->createDescriptorSetLayout(bindings));
 	}
 
-	inline void updateDescriptorSetFirstAxisFFT(IGPUDescriptorSet* set, smart_refctd_ptr<IGPUImageView> inputImageDescriptor, ISampler::E_TEXTURE_CLAMP textureWrap)
+	inline void updateDescriptorSetFirstAxisFFT(IGPUDescriptorSet* set, smart_refctd_ptr<IGPUImageView> inputImageDescriptor)
 	{
-		IGPUSampler::SParams params =
-		{
-			{
-				textureWrap,
-				textureWrap,
-				textureWrap,
-				ISampler::ETBC_FLOAT_OPAQUE_BLACK,
-				ISampler::ETF_LINEAR,
-				ISampler::ETF_LINEAR,
-				ISampler::ESMM_LINEAR,
-				3u,
-				0u,
-				ISampler::ECO_ALWAYS
-			}
-		};
-		auto sampler = m_device->createSampler(std::move(params));
-
 		IGPUDescriptorSet::SDescriptorInfo info;
 		IGPUDescriptorSet::SWriteDescriptorSet write;
 
@@ -101,13 +94,13 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 		write.info = &info;
 
 		info.desc = inputImageDescriptor;
-		info.info.combinedImageSampler.sampler = sampler;
-		info.info.combinedImageSampler.imageLayout = IImage::LAYOUT::UNDEFINED;
+		info.info.combinedImageSampler.sampler = nullptr;
+		info.info.combinedImageSampler.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 
 		m_device->updateDescriptorSets(1u, &write, 0u, nullptr);
 	}
 
-	inline void updateDescriptorSetConvolutionAndNormalization(IGPUDescriptorSet* set, const smart_refctd_ptr<IGPUImageView>* kernelNormalizedSpectrumImageDescriptors)
+	inline void updateDescriptorSetConvolutionAndNormalization(IGPUDescriptorSet* set, const smart_refctd_ptr<IGPUImageView>* kernelNormalizedSpectrumImageDescriptors, IImage::LAYOUT layout)
 	{
 		IGPUDescriptorSet::SDescriptorInfo pInfos[CHANNELS];
 		IGPUDescriptorSet::SWriteDescriptorSet write;
@@ -122,11 +115,21 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 		{
 			auto& info = pInfos[i];
 			info.desc = kernelNormalizedSpectrumImageDescriptors[i];
-			info.info.combinedImageSampler.imageLayout = IImage::LAYOUT::UNDEFINED;
+			info.info.combinedImageSampler.imageLayout = layout;
 			info.info.combinedImageSampler.sampler = nullptr;
 		}
 
 		m_device->updateDescriptorSets(1, &write, 0u, nullptr);
+	}
+
+	inline void updateDescriptorSetConvolution(IGPUDescriptorSet* set, const smart_refctd_ptr<IGPUImageView>* kernelNormalizedSpectrumImageDescriptors)
+	{
+		updateDescriptorSetConvolutionAndNormalization(set, kernelNormalizedSpectrumImageDescriptors, IImage::LAYOUT::READ_ONLY_OPTIMAL);
+	}
+
+	inline void updateDescriptorSetNormalization(IGPUDescriptorSet* set, const smart_refctd_ptr<IGPUImageView>* kernelNormalizedSpectrumImageDescriptors)
+	{
+		updateDescriptorSetConvolutionAndNormalization(set, kernelNormalizedSpectrumImageDescriptors, IImage::LAYOUT::GENERAL);
 	}
 
 	inline void updateDescriptorSetFirstAxisIFFT(IGPUDescriptorSet* set, smart_refctd_ptr<IGPUImageView> outputImageDescriptor)
@@ -137,11 +140,11 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 		write.dstSet = set;
 		write.binding = 0;
 		write.arrayElement = 0u;
-		write.count = CHANNELS;
+		write.count = 1;
 		write.info = &info;
 
 		info.desc = outputImageDescriptor;
-		info.info.combinedImageSampler.imageLayout = IImage::LAYOUT::UNDEFINED;
+		info.info.combinedImageSampler.imageLayout = IImage::LAYOUT::GENERAL;
 		info.info.combinedImageSampler.sampler = nullptr;
 
 		m_device->updateDescriptorSets(1u, &write, 0u, nullptr);
@@ -196,6 +199,13 @@ public:
 		if (!asset_base_t::onAppInitialized(std::move(system)))
 			return false;
 
+		// Setup semaphore
+		m_timeline = m_device->createSemaphore(semaphorValue);
+
+		// Get compute queue 
+		IQueue* const queue = getComputeQueue();
+		uint32_t queueFamilyIndex = queue->getFamilyIndex();
+
 		// Load source and kernel images
 		{
 			IAssetLoader::SAssetLoadParams lp = {};
@@ -206,21 +216,41 @@ public:
 			const auto srcImages = srcImageBundle.getContents();
 			const auto kerImages = kerImageBundle.getContents();
 			if (srcImages.empty() or kerImages.empty())
-				return logFail("Could not load shader!");
+				return logFail("Could not load image or kernel!");
+			const auto srcImageCPU = IAsset::castDown<ICPUImage>(srcImages[0]);
+			const auto kerImageCPU = IAsset::castDown<ICPUImage>(kerImages[0]);
 
-			srcImage = IAsset::castDown<IGPUImage>(srcImages[0]);
-			kerImage = IAsset::castDown<IGPUImage>(kerImages[0]);
+			// yay for asset converter
+			smart_refctd_ptr<nbl::video::CAssetConverter> converter = nbl::video::CAssetConverter::create({ .device = m_device.get(),.optimizer = {} });
+			CAssetConverter::SInputs inputs = {};
+			inputs.logger = m_logger.get();
+			nbl::asset::ICPUImage* CPUImages[2] = { srcImageCPU.get(), kerImageCPU.get() };
+			std::get<CAssetConverter::SInputs::asset_span_t<ICPUImage>>(inputs.assets) = { CPUImages, 2};
+			
+			// Need to provide patches
+			CAssetConverter::patch_t<ICPUImage> srcImagePatch(srcImageCPU.get());
+			srcImagePatch.usageFlags |= IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT;
+			CAssetConverter::patch_t<ICPUImage> kerImagePatch(kerImageCPU.get());
+			kerImagePatch.usageFlags |= IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT;
+			CAssetConverter::patch_t<ICPUImage> patches[2] = { std::move(srcImagePatch), std::move(kerImagePatch)};
+
+			std::get<CAssetConverter::SInputs::patch_span_t<ICPUImage>>(inputs.patches) = { patches, 2 };
+			auto reservation = converter->reserve(inputs);
+			const auto GPUImages = reservation.getGPUObjects<ICPUImage>();
+
+			m_srcImage = GPUImages[0].value;
+			m_kerImage = GPUImages[1].value;
 
 			// The down-cast should not fail!
-			assert(srcImage);
-			assert(kerImage);
+			assert(m_srcImage);
+			assert(m_kerImage);
 		}
 
 		// Create views for these images
 		{
 			IGPUImageView::SCreationParams srcImgViewInfo;
 			srcImgViewInfo.flags = static_cast<IGPUImageView::E_CREATE_FLAGS>(0u);
-			srcImgViewInfo.image = srcImage;
+			srcImgViewInfo.image = m_srcImage;
 			srcImgViewInfo.viewType = IGPUImageView::ET_2D;
 			srcImgViewInfo.format = srcImgViewInfo.image->getCreationParameters().format;
 			srcImgViewInfo.subresourceRange.aspectMask = static_cast<IImage::E_ASPECT_FLAGS>(0u);
@@ -228,11 +258,11 @@ public:
 			srcImgViewInfo.subresourceRange.levelCount = 1;
 			srcImgViewInfo.subresourceRange.baseArrayLayer = 0;
 			srcImgViewInfo.subresourceRange.layerCount = 1;
-			srcImageView = m_device->createImageView(std::move(srcImgViewInfo));
+			m_srcImageView = m_device->createImageView(std::move(srcImgViewInfo));
 
 			IGPUImageView::SCreationParams kerImgViewInfo;
 			kerImgViewInfo.flags = static_cast<IGPUImageView::E_CREATE_FLAGS>(0u);
-			kerImgViewInfo.image = kerImage;
+			kerImgViewInfo.image = m_kerImage;
 			kerImgViewInfo.viewType = IGPUImageView::ET_2D;
 			kerImgViewInfo.format = kerImgViewInfo.image->getCreationParameters().format;
 			kerImgViewInfo.subresourceRange.aspectMask = static_cast<IImage::E_ASPECT_FLAGS>(0u);
@@ -240,29 +270,31 @@ public:
 			kerImgViewInfo.subresourceRange.levelCount = kerImgViewInfo.image->getCreationParameters().mipLevels;
 			kerImgViewInfo.subresourceRange.baseArrayLayer = 0;
 			kerImgViewInfo.subresourceRange.layerCount = 1;
-			kerImageView = m_device->createImageView(std::move(kerImgViewInfo));
+			m_kerImageView = m_device->createImageView(std::move(kerImgViewInfo));
 		}
 
 		// Create Out Image
 		{
-			auto dstImgViewInfo = srcImageView->getCreationParameters();
+			auto dstImgViewInfo = m_srcImageView->getCreationParameters();
 
 			IGPUImage::SCreationParams dstImgInfo(dstImgViewInfo.image->getCreationParameters());
-			outImg = m_device->createImage(std::move(dstImgInfo));
+			// Specify we want this to be a storage image, + transfer for readback (blit when we have swapchain up)
+			dstImgInfo.usage = IImage::EUF_STORAGE_BIT | IImage::EUF_TRANSFER_SRC_BIT;
+			m_outImg = m_device->createImage(std::move(dstImgInfo));
 
-			dstImgViewInfo.image = outImg;
-			outImgView = m_device->createImageView(IGPUImageView::SCreationParams(dstImgViewInfo));
+			dstImgViewInfo.image = m_outImg;
+			m_outImgView = m_device->createImageView(IGPUImageView::SCreationParams(dstImgViewInfo));
 
-			auto memReqs = outImg->getMemoryReqs();
+			auto memReqs = m_outImg->getMemoryReqs();
 			memReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			auto gpuMem = m_device->allocate(memReqs, outImg.get());
+			auto gpuMem = m_device->allocate(memReqs, m_outImg.get());
 		}
 
 		// agree on formats
-		const E_FORMAT srcFormat = srcImageView->getCreationParameters().format;
+		const E_FORMAT srcFormat = m_srcImageView->getCreationParameters().format;
 		// TODO: this might be pointless?
 		uint32_t srcNumChannels = getFormatChannelCount(srcFormat);
-		uint32_t kerNumChannels = getFormatChannelCount(kerImageView->getCreationParameters().format);
+		uint32_t kerNumChannels = getFormatChannelCount(m_kerImageView->getCreationParameters().format);
 		//! OVERRIDE (we dont need alpha)
 		srcNumChannels = CHANNELS;
 		kerNumChannels = CHANNELS;
@@ -272,8 +304,8 @@ public:
 
 		// Kernel pixel to image pixel conversion ratio
 		const float bloomRelativeScale = 0.25f;
-		const auto kerDim = kerImageView->getCreationParameters().image->getCreationParameters().extent;
-		const auto srcDim = srcImageView->getCreationParameters().image->getCreationParameters().extent;
+		const auto kerDim = m_kerImageView->getCreationParameters().image->getCreationParameters().extent;
+		const auto srcDim = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
 		bloomScale = core::min(float(srcDim.width) / float(kerDim.width), float(srcDim.height) / float(kerDim.height)) * bloomRelativeScale;
 		if (bloomScale > 1.f)
 			std::cout << "WARNING: Bloom Kernel will Clip and loose sharpness, increase resolution of bloom kernel!" << std::endl;
@@ -283,16 +315,12 @@ public:
 		{
 			const auto coord = (&kerDim.width)[i];
 			if (coord > 1u)
-				// TODO: Maybe round up, though 1 pixel who cares
-				(&marginSrcDim.width)[i] += core::max(coord * bloomScale, 1u) - 1u;
+				(&marginSrcDim.width)[i] += ceil(core::max(coord * bloomScale, 1u)) - 1u;
 		}
 		
 		// Create intermediate buffers
 		{
 			IGPUBuffer::SCreationParams deviceLocalBufferParams = {};
-
-			IQueue* const queue = getComputeQueue();
-			uint32_t queueFamilyIndex = queue->getFamilyIndex();
 
 			deviceLocalBufferParams.queueFamilyIndexCount = 1;
 			deviceLocalBufferParams.queueFamilyIndices = &queueFamilyIndex;
@@ -315,67 +343,118 @@ public:
 		}
 
 		// Create pipeline layouts
-		smart_refctd_ptr<IGPUPipelineLayout> m_firstAxisFFTPipelineLayout;
+		auto createSampler = [&](ISampler::E_TEXTURE_CLAMP textureWrap) -> smart_refctd_ptr<IGPUSampler>
 		{
-			IGPUDescriptorSetLayout::SBinding bnd[] =
+			IGPUSampler::SParams params =
 			{
+				textureWrap,
+				textureWrap,
+				textureWrap,
+				ISampler::ETBC_FLOAT_OPAQUE_BLACK,
+				ISampler::ETF_LINEAR,
+				ISampler::ETF_LINEAR,
+				ISampler::ESMM_LINEAR,
+				3u,
+				0u,
+				ISampler::ECO_ALWAYS
+			};
+			return m_device->createSampler(std::move(params));
+		};
+
+		smart_refctd_ptr<IGPUPipelineLayout> imageFirstAxisFFTPipelineLayout;
+		{
+			auto sampler = createSampler(ISampler::E_TEXTURE_CLAMP::ETC_MIRROR);
+			IGPUDescriptorSetLayout::SBinding bnd =
+			{
+				IDescriptorSetLayoutBase::SBindingBase(),
+				0u,
+				IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+				IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+				IShader::E_SHADER_STAGE::ESS_COMPUTE,
+				1u,
+				&sampler
+			};
+
+			imageFirstAxisFFTPipelineLayout = createPipelineLayout({ &bnd, 1 });
+		}
+
+		smart_refctd_ptr<IGPUPipelineLayout> lastAxisFFT_convolution_lastAxisIFFTPipelineLayout;
+		{
+			auto sampler = createSampler(ISampler::E_TEXTURE_CLAMP::ETC_MIRROR);
+			smart_refctd_ptr<IGPUSampler> samplers[CHANNELS];
+			std::fill_n(samplers, CHANNELS, sampler);
+			IGPUDescriptorSetLayout::SBinding bnd =
+			{
+				IDescriptorSetLayoutBase::SBindingBase(),
+				0u,
+				IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+				IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+				IShader::E_SHADER_STAGE::ESS_COMPUTE,
+				CHANNELS,
+				samplers
+			};
+
+			lastAxisFFT_convolution_lastAxisIFFTPipelineLayout = createPipelineLayout({ &bnd, 1 });
+		}
+
+		smart_refctd_ptr<IGPUPipelineLayout> imageFirstAxisIFFTPipelineLayout;
+		{
+			IGPUDescriptorSetLayout::SBinding bnd =
+			{
+				IDescriptorSetLayoutBase::SBindingBase(),
+				0u,
+				IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+				IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+				IShader::E_SHADER_STAGE::ESS_COMPUTE,
+				1,
+				nullptr
+			};
+
+			imageFirstAxisIFFTPipelineLayout = createPipelineLayout({ &bnd, 1 });
+		}
+
+		// Kernel second axis FFT has no descriptor sets so we just create another pipeline with the same layout
+		// TODO: To avoid duplicated layouts we could make samplers dynamic in the first axis FFT. Also if we don't hardcode (by #defining) some stuff in the first axis FFT
+		//		 (once FFT ext is back) we can also avoid having duplicated pipelines (like the old Bloom example, which had a single pipeline for forward FFT along an axis)
+		//       and setting stuff via shader push constants (such as which axis to perform FFT on and the size of output image).
+
+		// -------------------------------------- KERNEL FFT PRECOMP ----------------------------------------------------------------
+		{
+			// Pipeline Layouts
+			smart_refctd_ptr<IGPUPipelineLayout> kernelFirstAxisFFTPipelineLayout;
+			{
+				auto sampler = createSampler(ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER);
+				IGPUDescriptorSetLayout::SBinding bnd =
 				{
+					IDescriptorSetLayoutBase::SBindingBase(),
 					0u,
 					IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 					IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					1u,
-					nullptr
-				}
-			};
-			m_firstAxisFFTPipelineLayout = createPipelineLayout({bnd, 1});
-		}
+					&sampler
+				};
 
-		smart_refctd_ptr<IGPUPipelineLayout> m_lastAxisFFT_convolution_lastAxisIFFTPipelineLayout;
-		{
-			IGPUSampler::SParams params;
-			params.MipmapMode = ISampler::ESMM_NEAREST;
-			params.AnisotropicFilter = 0u;
-			params.CompareEnable = false;
-			params.CompareFunc = ISampler::ECO_ALWAYS;
-			auto sampler = m_device->createSampler(std::move(params));
-			smart_refctd_ptr<IGPUSampler> samplers[CHANNELS];
-			std::fill_n(samplers, CHANNELS, sampler);
+				kernelFirstAxisFFTPipelineLayout = createPipelineLayout({ &bnd, 1 });
+			}
 
-			IGPUDescriptorSetLayout::SBinding bnd[] =
+			smart_refctd_ptr<IGPUPipelineLayout> kernelNormalizationPipelineLayout;
 			{
+				IGPUDescriptorSetLayout::SBinding bnd =
 				{
-					0u,
-					IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
-					IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					IShader::E_SHADER_STAGE::ESS_COMPUTE,
-					CHANNELS,
-					samplers
-				}
-			};
-
-			m_lastAxisFFT_convolution_lastAxisIFFTPipelineLayout = createPipelineLayout({ bnd, 1 });
-		}
-
-		smart_refctd_ptr<IGPUPipelineLayout> m_firstAxisIFFTPipelineLayout; 
-		{
-			IGPUDescriptorSetLayout::SBinding bnd[] =
-			{
-				{
+					IDescriptorSetLayoutBase::SBindingBase(),
 					0u,
 					IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
 					IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					IShader::E_SHADER_STAGE::ESS_COMPUTE,
-					1,
-					nullptr		
-				}
-			};
-			
-			m_lastAxisFFT_convolution_lastAxisIFFTPipelineLayout = createPipelineLayout({ bnd, 1 });
-		}
+					CHANNELS,
+					nullptr
+				};
 
-		// Kernel FFT precomp
-		{
+				kernelNormalizationPipelineLayout = createPipelineLayout({ &bnd, 1 });
+			}
+
+
 			const asset::VkExtent3D paddedKerDim = padDimensions(kerDim);
 
 			// create kernel spectrums
@@ -389,6 +468,7 @@ public:
 					imageParams.mipLevels = 1u;
 					imageParams.arrayLayers = 1u;
 					imageParams.samples = asset::IImage::ESCF_1_BIT;
+					imageParams.usage = IImage::EUF_STORAGE_BIT | IImage::EUF_SAMPLED_BIT;
 
 					auto kernelImg = m_device->createImage(std::move(imageParams));
 
@@ -407,439 +487,334 @@ public:
 					viewParams.subresourceRange.layerCount = 1u;
 					return m_device->createImageView(std::move(viewParams));
 				};
+
 			for (uint32_t i = 0u; i < CHANNELS; i++)
-				kernelNormalizedSpectrums[i] = createKernelSpectrum();
+				m_kernelNormalizedSpectrums[i] = createKernelSpectrum();
 
-			// Invoke a workgroup per scanline
-			FFTClass::Parameters_t fftPushConstants[2];
-			FFTClass::DispatchInfo_t fftDispatchInfo[2];
-			const ISampler::E_TEXTURE_CLAMP fftPadding[2] = { ISampler::ETC_CLAMP_TO_BORDER,ISampler::ETC_CLAMP_TO_BORDER };
-			const auto passes = FFTClass::buildParameters(false, srcNumChannels, kerDim, fftPushConstants, fftDispatchInfo, fftPadding);
-			assert(passes == 2u);
-			// last axis FFT pipeline
-			core::smart_refctd_ptr<IGPUComputePipeline> fftPipeline_SSBOInput(core::make_smart_refctd_ptr<FFTClass>(driver, 0x1u << fftPushConstants[1].getLog2FFTSize(), useHalfFloats)->getDefaultPipeline());
+			// Invoke a workgroup per two vertical scanlines. Kernel is square and runs first in the y-direction.
+			// That means we have to create a shader that does an FFT of size `paddedKerDim.height = paddedKerDim.width` (length of each column, already padded to PoT), 
+			// and call `paddedKerDim.width / 2` workgroups to run it. We also have to keep in mind `paddedKerDim.y = WorkgroupSize * ElementsPerInvocation`. 
+			// We prefer to go with 2 elements per invocation and max out WorkgroupSize when possible.
+			// This is because we use PreloadedAccessors which reduce global memory accesses at the cost of decreasing occupancy with increasing ElementsPerInvocation
 
-			// descriptor sets
-			core::smart_refctd_ptr<IGPUDescriptorSet> fftDescriptorSet_Ker_FFT[2] =
+			// Create descriptor sets
+			const IGPUDescriptorSetLayout* kernelDSLayouts[2] = { kernelFirstAxisFFTPipelineLayout->getDescriptorSetLayout(0), kernelNormalizationPipelineLayout->getDescriptorSetLayout(0) };
+			smart_refctd_ptr<IDescriptorPool> kernelFFTDSPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { kernelDSLayouts, 2 });
+			smart_refctd_ptr<IGPUDescriptorSet> kernelFFTDescriptorSets[2];
+			uint32_t dsCreated = kernelFFTDSPool->createDescriptorSets({kernelDSLayouts, 2}, kernelFFTDescriptorSets);
+
+			// Cba to handle errors it's an example
+			if (dsCreated != 2)
+				return logFail("Failed to create Descriptor Sets!\n");
+
+			// Write descriptor sets
+			updateDescriptorSetFirstAxisFFT(kernelFFTDescriptorSets[0].get(), m_kerImageView);
+			updateDescriptorSetNormalization(kernelFFTDescriptorSets[1].get(), m_kernelNormalizedSpectrums);
+
+			// Compute required WorkgroupSize and ElementsPerThread for FFT
+			// Remember we assume kernel is square!
+			uint32_t maxWorkgroupSize = *m_device->getPhysicalDevice()->getLimits().maxWorkgroupSize;
+			uint32_t elementsPerThread = 1, workgroupSize;
+			do
 			{
-				driver->createDescriptorSet(core::smart_refctd_ptr<const IGPUDescriptorSetLayout>(imageFirstFFTPipelineLayout->getDescriptorSetLayout(0u))),
-				driver->createDescriptorSet(core::smart_refctd_ptr<const IGPUDescriptorSetLayout>(fftPipeline_SSBOInput->getLayout()->getDescriptorSetLayout(0u)))
-			};
-			updateDescriptorSet(fftDescriptorSet_Ker_FFT[0].get(), kerImageView, ISampler::ETC_CLAMP_TO_BORDER, fftOutputBuffer_0);
-			FFTClass::updateDescriptorSet(driver, fftDescriptorSet_Ker_FFT[1].get(), fftOutputBuffer_0, fftOutputBuffer_1);
+				elementsPerThread << 1;
+				workgroupSize = paddedKerDim.width / elementsPerThread;
+			} 
+			while (workgroupSize > maxWorkgroupSize);
 
-			// Normalization of FFT spectrum
-			struct NormalizationPushConstants
+			// Create shaders
+			smart_refctd_ptr<IGPUShader> shaders[3];
+			shaders[0] = createShader("app_resources/kernel_fft_first_axis.hlsl", workgroupSize, elementsPerThread, bloomScale);
+			shaders[1] = createShader("app_resources/kernel_fft_second_axis.hlsl", workgroupSize, elementsPerThread, bloomScale);
+			shaders[2] = createShader("app_resources/kernel_spectrum_normalize.hlsl", workgroupSize, elementsPerThread, bloomScale);
+
+			// Create compute pipelines - First axis FFT -> Second axis FFT -> Normalization
+			IGPUComputePipeline::SCreationParams params[3];
+			// First axis FFT
+			params[0].layout = kernelFirstAxisFFTPipelineLayout.get();
+			params[0].shader.entryPoint = "main";
+			params[0].shader.shader = shaders[0].get();
+			// Second axis FFT -  since no descriptor sets are used, just keep the same pipeline layout to avoid having yet another pipeline layout creation step
+			params[0].layout = kernelFirstAxisFFTPipelineLayout.get();
+			params[0].shader.entryPoint = "main";
+			params[0].shader.shader = shaders[1].get();
+			// Normalization
+			params[0].layout = kernelNormalizationPipelineLayout.get();
+			params[0].shader.entryPoint = "main";
+			params[0].shader.shader = shaders[2].get();
+			
+			smart_refctd_ptr<IGPUComputePipeline> pipelines[3];
+			bool success = m_device->createComputePipelines(nullptr, { params, 3 }, pipelines);
+			if(! success)
+				return logFail("Failed to create Compute Pipelines!\n");
+
+			// Push Constants - only need to specify BDAs here
+			PushConstantData pushConstants;
+			pushConstants.colMajorBufferAddress = m_colMajorBufferAddress;
+			pushConstants.rowMajorBufferAddress = m_rowMajorBufferAddress;
+
+			// Set up cmdbuf to be transient
 			{
-				ext::FFT::uvec4 stride;
-				ext::FFT::uvec4 bitreverse_shift;
-			};
-			auto fftPipelineLayout_KernelNormalization = [&]() -> auto
+				smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(queueFamilyIndex, IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+				if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &m_computeCmdBuf))
+					return logFail("Failed to create Command Buffers!\n");
+			}
+
+			m_computeCmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			// First Axis FFT
+			m_computeCmdBuf->bindComputePipeline(pipelines[0].get());
+			m_computeCmdBuf->bindDescriptorSets(asset::EPBP_COMPUTE, pipelines[0]->getLayout(), 0, 1, &kernelFFTDescriptorSets[0].get());
+			m_computeCmdBuf->pushConstants(pipelines[0]->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(pushConstants), &pushConstants);
+			// One workgroup per 2 columns
+			m_computeCmdBuf->dispatch(paddedKerDim.width / 2, 1, 1);
+
+			// Pipeline barrier: wait for first axis FFT before second axis can begin
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo pipelineBarrierInfo = {};
+			decltype(pipelineBarrierInfo)::buffer_barrier_t bufBarrier = {};
+			pipelineBarrierInfo.bufBarriers = { &bufBarrier, 1u };
+			
+			// First axis FFT writes to colMajorBuffer
+			bufBarrier.range.buffer = m_colMajorBuffer;
+
+			// Wait for first compute write (first axis FFT) before next compute read (second axis FFT)
+			bufBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+			bufBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS;
+			bufBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+			bufBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS;
+
+			m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
+
+			// Now do second axis FFT - no need to push the same constants again I think
+			m_computeCmdBuf->bindComputePipeline(pipelines[1].get());
+			// Same number of workgroups - this time because we only saved half the rows
+			m_computeCmdBuf->dispatch(paddedKerDim.width / 2, 1, 1);
+
+			// Recycle the pipelineBarrierInfo since it's identical, just change buffer access: Second axis FFT writes to rowMajorBuffer
+			bufBarrier.range.buffer = m_rowMajorBuffer;
+
+			// Also set kernel channel images to GENERAL for writing
+			decltype(pipelineBarrierInfo)::image_barrier_t imgBarriers[CHANNELS];
+			pipelineBarrierInfo.imgBarriers = { imgBarriers, CHANNELS };
+			for (auto i = 0u; i < CHANNELS; i++)
+			{
+				imgBarriers[i].image = m_kernelNormalizedSpectrums[i]->getCreationParameters().image.get();
+				imgBarriers[i].barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+				imgBarriers[i].barrier.dep.srcAccessMask = ACCESS_FLAGS::NONE;
+				imgBarriers[i].barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+				imgBarriers[i].barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
+				imgBarriers[i].oldLayout = IImage::LAYOUT::UNDEFINED;
+				imgBarriers[i].newLayout = IImage::LAYOUT::GENERAL;
+			}
+
+			m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
+
+			//Finally, normalize kernel Image - same number of workgroups
+			m_computeCmdBuf->bindComputePipeline(pipelines[2].get());
+			m_computeCmdBuf->bindDescriptorSets(asset::EPBP_COMPUTE, pipelines[2]->getLayout(), 0, 1, &kernelFFTDescriptorSets[1].get());
+			m_computeCmdBuf->dispatch(paddedKerDim.width / 2, 1, 1);
+			m_computeCmdBuf->end();
+
+			// Submit to queue and add sync point
+			semaphorValue++;
+			{
+				const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo =
 				{
-					IGPUDescriptorSetLayout::SBinding bnd[] =
-					{
-						{
-							0u,
-							EDT_STORAGE_BUFFER,
-							1u,
-							ISpecializedShader::ESS_COMPUTE,
-							nullptr
-						},
-						{
-							1u,
-							EDT_STORAGE_IMAGE,
-							CHANNELS,
-							ISpecializedShader::ESS_COMPUTE,
-							nullptr
-						},
-					};
-					SPushConstantRange pc_rng;
-					pc_rng.offset = 0u;
-					pc_rng.size = sizeof(NormalizationPushConstants);
-					pc_rng.stageFlags = ISpecializedShader::ESS_COMPUTE;
-					return driver->createPipelineLayout(
-						&pc_rng, &pc_rng + 1u,
-						driver->createDescriptorSetLayout(bnd, bnd + 2), nullptr, nullptr, nullptr
-					);
-				}();
-				auto fftDescriptorSet_KernelNormalization = [&]() -> auto
-					{
-						auto dset = driver->createDescriptorSet(core::smart_refctd_ptr<const IGPUDescriptorSetLayout>(fftPipelineLayout_KernelNormalization->getDescriptorSetLayout(0u)));
+					.cmdbuf = m_computeCmdBuf.get()
+				};
+				const IQueue::SSubmitInfo::SSemaphoreInfo signalInfo =
+				{
+					.semaphore = m_timeline.get(),
+					.value = semaphorValue,
+					.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
+				};
 
-						video::IGPUDescriptorSet::SDescriptorInfo pInfos[1 + CHANNELS];
-						video::IGPUDescriptorSet::SWriteDescriptorSet pWrites[2];
+				const IQueue::SSubmitInfo submitInfo = {
+					.waitSemaphores = {},
+					.commandBuffers = {&cmdbufInfo,1},
+					.signalSemaphores = {&signalInfo,1}
+				};
 
-						for (auto i = 0; i < 2; i++)
-						{
-							pWrites[i].dstSet = dset.get();
-							pWrites[i].arrayElement = 0u;
-							pWrites[i].count = 1u;
-							pWrites[i].info = pInfos + i;
-						}
-
-						// In Buffer 
-						pWrites[0].binding = 0;
-						pWrites[0].descriptorType = asset::EDT_STORAGE_BUFFER;
-						pWrites[0].count = 1;
-						pInfos[0].desc = fftOutputBuffer_1;
-						pInfos[0].buffer.size = fftOutputBuffer_1->getSize();
-						pInfos[0].buffer.offset = 0u;
-
-						// Out Buffer 
-						pWrites[1].binding = 1;
-						pWrites[1].descriptorType = asset::EDT_STORAGE_IMAGE;
-						pWrites[1].count = CHANNELS;
-						for (uint32_t i = 0u; i < CHANNELS; i++)
-						{
-							auto& info = pInfos[1u + i];
-							info.desc = kernelNormalizedSpectrums[i];
-							//info.image.imageLayout = ;
-							info.image.sampler = nullptr;
-						}
-
-						driver->updateDescriptorSets(2u, pWrites, 0u, nullptr);
-						return dset;
-					}();
-
-					// Ker Image First Axis FFT
-					{
-						auto fftPipeline_ImageInput = driver->createComputePipeline(nullptr, core::smart_refctd_ptr(imageFirstFFTPipelineLayout), createShader(driver, 0x1u << fftPushConstants[0].getLog2FFTSize(), useHalfFloats, "../image_first_fft.comp", bloomScale));
-						driver->bindComputePipeline(fftPipeline_ImageInput.get());
-						driver->bindDescriptorSets(EPBP_COMPUTE, imageFirstFFTPipelineLayout.get(), 0u, 1u, &fftDescriptorSet_Ker_FFT[0].get(), nullptr);
-						FFTClass::dispatchHelper(driver, imageFirstFFTPipelineLayout.get(), fftPushConstants[0], fftDispatchInfo[0]);
-					}
-
-					// Ker Image Last Axis FFT
-					driver->bindComputePipeline(fftPipeline_SSBOInput.get());
-					driver->bindDescriptorSets(EPBP_COMPUTE, fftPipeline_SSBOInput->getLayout(), 0u, 1u, &fftDescriptorSet_Ker_FFT[1].get(), nullptr);
-					FFTClass::dispatchHelper(driver, fftPipeline_SSBOInput->getLayout(), fftPushConstants[1], fftDispatchInfo[1]);
-
-					// Ker Normalization
-					auto fftPipeline_KernelNormalization = driver->createComputePipeline(nullptr, core::smart_refctd_ptr(fftPipelineLayout_KernelNormalization), createShader(driver, 0xdeadbeefu, useHalfFloats, "../normalization.comp"));
-					driver->bindComputePipeline(fftPipeline_KernelNormalization.get());
-					driver->bindDescriptorSets(EPBP_COMPUTE, fftPipelineLayout_KernelNormalization.get(), 0u, 1u, &fftDescriptorSet_KernelNormalization.get(), nullptr);
-					{
-						NormalizationPushConstants normalizationPC;
-						normalizationPC.stride = fftPushConstants[1].output_strides;
-						normalizationPC.bitreverse_shift.x = 32 - core::findMSB(paddedKerDim.width);
-						normalizationPC.bitreverse_shift.y = 32 - core::findMSB(paddedKerDim.height);
-						normalizationPC.bitreverse_shift.z = 0;
-						driver->pushConstants(fftPipelineLayout_KernelNormalization.get(), ICPUSpecializedShader::ESS_COMPUTE, 0u, sizeof(normalizationPC), &normalizationPC);
-					}
-					{
-						const uint32_t dispatchSizeX = (paddedKerDim.width - 1u) / 16u + 1u;
-						const uint32_t dispatchSizeY = (paddedKerDim.height - 1u) / 16u + 1u;
-						driver->dispatch(dispatchSizeX, dispatchSizeY, kerNumChannels);
-						FFTClass::defaultBarrier();
-					}
-		}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-		// this time we load a shader directly from a file
-		smart_refctd_ptr<IGPUShader> shader;
-		{
-			IAssetLoader::SAssetLoadParams lp = {};
-			lp.logger = m_logger.get();
-			lp.workingDirectory = ""; // virtual root
-			auto assetBundle = m_assetMgr->getAsset("app_resources/shader.comp.hlsl", lp);
-			const auto assets = assetBundle.getContents();
-			if (assets.empty())
-				return logFail("Could not load shader!");
-
-			// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-			auto source = IAsset::castDown<ICPUShader>(assets[0]);
-			// The down-cast should not fail!
-			assert(source);
-
-			// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
-			shader = m_device->createShader(source.get());
-			if (!shader)
-				return logFail("Creation of a GPU Shader to from CPU Shader source failed!");
-		}
-
-		// The StreamingTransientDataBuffers are actually composed on top of another useful utility called `CAsyncSingleBufferSubAllocator`
-		// The difference is that the streaming ones are made on top of ranges of `IGPUBuffer`s backed by mappable memory, whereas the
-		// `CAsyncSingleBufferSubAllocator` just allows you suballocate subranges of any `IGPUBuffer` range with deferred/latched frees.
-		constexpr uint32_t DownstreamBufferSize = sizeof(output_t) << 23;
-		constexpr uint32_t UpstreamBufferSize = sizeof(input_t) << 23;
-
-		m_utils = make_smart_refctd_ptr<IUtilities>(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), DownstreamBufferSize, UpstreamBufferSize);
-		if (!m_utils)
-			return logFail("Failed to create Utilities!");
-		m_upStreamingBuffer = m_utils->getDefaultUpStreamingBuffer();
-		m_downStreamingBuffer = m_utils->getDefaultDownStreamingBuffer();
-		m_upStreamingBufferAddress = m_upStreamingBuffer->getBuffer()->getDeviceAddress();
-		m_downStreamingBufferAddress = m_downStreamingBuffer->getBuffer()->getDeviceAddress();
-
-		// Create device-local buffer
-		
-		{
-			const uint32_t scalarElementCount = 2 * complexElementCount;
-			IGPUBuffer::SCreationParams deviceLocalBufferParams = {};
-			
-			IQueue* const queue = getComputeQueue();
-			uint32_t queueFamilyIndex = queue->getFamilyIndex();
-			
-			deviceLocalBufferParams.queueFamilyIndexCount = 1;
-			deviceLocalBufferParams.queueFamilyIndices = &queueFamilyIndex;
-			deviceLocalBufferParams.size = sizeof(input_t) * scalarElementCount;
-			deviceLocalBufferParams.usage = nbl::asset::IBuffer::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT | nbl::asset::IBuffer::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT | nbl::asset::IBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
-			
-			m_deviceLocalBuffer = m_device->createBuffer(std::move(deviceLocalBufferParams));
-			auto mreqs = m_deviceLocalBuffer->getMemoryReqs();
-			mreqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			auto gpubufMem = m_device->allocate(mreqs, m_deviceLocalBuffer.get(), IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT);
-
-			m_deviceLocalBufferAddress = m_deviceLocalBuffer.get()->getDeviceAddress();
-		}
-		
-
-		// People love Reflection but I prefer Shader Sources instead!
-		const nbl::asset::SPushConstantRange pcRange = { .stageFlags = IShader::ESS_COMPUTE,.offset = 0,.size = sizeof(PushConstantData) };
-
-		{
-			auto layout = m_device->createPipelineLayout({ &pcRange,1 });
-			IGPUComputePipeline::SCreationParams params = {};
-			params.layout = layout.get();
-			params.shader.shader = shader.get();
-			params.shader.requireFullSubgroups = true;
-			if (!m_device->createComputePipelines(nullptr, { &params,1 }, &m_pipeline))
-				return logFail("Failed to create compute pipeline!\n");
-		}
-
-		const auto& deviceLimits = m_device->getPhysicalDevice()->getLimits();
-		// The ranges of non-coherent mapped memory you flush or invalidate need to be aligned. You'll often see a value of 64 reported by devices
-		// which just happens to coincide with a CPU cache line size. So we ask our streaming buffers during allocation to give us properly aligned offsets.
-		// Sidenote: For SSBOs, UBOs, BufferViews, Vertex Buffer Bindings, Acceleration Structure BDAs, Shader Binding Tables, Descriptor Buffers, etc.
-		// there is also a requirement to bind buffers at offsets which have a certain alignment. Memory binding to Buffers and Images also has those.
-		// We'll align to max of coherent atom size even if the memory is coherent,
-		// and we also need to take into account BDA shader loads need to be aligned to the type being loaded.
-		m_alignment = core::max(deviceLimits.nonCoherentAtomSize, alignof(float));
-
-		// We'll allow subsequent iterations to overlap each other on the GPU, the only limiting factors are
-		// the amount of memory in the streaming buffers and the number of commandpools we can use simultaenously.
-		constexpr auto MaxConcurrency = 64;
-
-		// Since this time we don't throw the Command Pools away and we'll reset them instead, we don't create the pools with the transient flag
-		m_poolCache = ICommandPoolCache::create(core::smart_refctd_ptr(m_device), getComputeQueue()->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::NONE, MaxConcurrency);
-
-		// In contrast to fences, we just need one semaphore to rule all dispatches
-		m_timeline = m_device->createSemaphore(m_iteration);
-
-		return true;
-	}
-
-	// Ok this time we'll actually have a work loop (maybe just for the sake of future WASM so we don't timeout a Browser Tab with an unresponsive script)
-	bool keepRunning() override { return m_iteration < MaxIterations; }
-
-	// Finally the first actual work-loop
-	void workLoopBody() override
-	{
-		IQueue* const queue = getComputeQueue();
-
-		// Note that I'm using the sample struct with methods that have identical code which compiles as both C++ and HLSL
-		auto rng = nbl::hlsl::Xoroshiro64StarStar::construct({ m_iteration ^ 0xdeadbeefu,std::hash<string>()(_NBL_APP_NAME_) });
-
-		const uint32_t scalarElementCount = 2 * complexElementCount;
-		const uint32_t inputSize = sizeof(input_t) * scalarElementCount;
-
-		// The allocators can do multiple allocations at once for efficiency
-		const uint32_t AllocationCount = 1;
-
-		// It comes with a certain drawback that you need to remember to initialize your "yet unallocated" offsets to the Invalid value
-		// this is to allow a set of allocations to fail, and you to re-try after doing something to free up space without repacking args.
-		auto inputOffset = m_upStreamingBuffer->invalid_value;
-
-		// We always just wait till an allocation becomes possible (during allocation previous "latched" frees get their latch conditions polled)
-		// Freeing of Streaming Buffer Allocations can and should be deferred until an associated polled event signals done (more on that later).
-		std::chrono::steady_clock::time_point waitTill(std::chrono::years(45));
-		// note that the API takes a time-point not a duration, because there are multiple waits and preemptions possible, so the durations wouldn't add up properly
-		m_upStreamingBuffer->multi_allocate(waitTill, AllocationCount, &inputOffset, &inputSize, &m_alignment);
-
-		// Generate our data in-place on the allocated staging buffer
-		{	
-			auto* const inputPtr = reinterpret_cast<input_t*>(reinterpret_cast<uint8_t*>(m_upStreamingBuffer->getBufferPointer()) + inputOffset);
-			std::cout << "Begin array CPU\n";
-			for (auto j = 0; j < complexElementCount; j++)
-			{
-				//Random array
-				/*
-				float x = rng() / float(nbl::hlsl::numeric_limits<decltype(rng())>::max), y = 0;//= rng() / float(nbl::hlsl::numeric_limits<decltype(rng())>::max);
-				*/
-				// FFT( (1,0), (0,0), (0,0),... ) = (1,0), (1,0), (1,0),...
-				/*
-				float x = j > 0 ? 0.f : 1.f;
-				float y = 0;
-				*/
-				// FFT( (c,0), (c,0), (c,0),... ) = (Nc,0), (0,0), (0,0),...
-				
-				float x = 2.f;
-				float y = 0.f;
-				
-				inputPtr[2 * j] = x;
-				inputPtr[2 * j + 1] = y;
-				std::cout << "(" << x << ", " << y << "), ";
-			}
-			std::cout << "\nEnd array CPU\n";
-			// Always remember to flush!
-			if (m_upStreamingBuffer->needsManualFlushOrInvalidate())
-			{
-				const auto bound = m_upStreamingBuffer->getBuffer()->getBoundMemory();
-				const ILogicalDevice::MappedMemoryRange range(bound.memory, bound.offset + inputOffset, inputSize);
-				m_device->flushMappedMemoryRanges(1, &range);
+				queue->startCapture();
+				queue->submit({ &submitInfo,1 });
+				queue->endCapture();
 			}
 		}
+		// ----------------------------------------- KERNEL PRECOMP END -------------------------------------------------
 
-		// Obtain our command pool once one gets recycled
-		uint32_t poolIx;
+		// Now create the pipelines for the image FFT
+		uint32_t maxWorkgroupSize = *m_device->getPhysicalDevice()->getLimits().maxWorkgroupSize;
+		uint32_t elementsPerThread = 1, workgroupSize;
 		do
 		{
-			poolIx = m_poolCache->acquirePool();
-		} while (poolIx == ICommandPoolCache::invalid_index);
+			elementsPerThread << 1;
+			// First axis FFT is along Y axis
+			workgroupSize = core::roundUpToPoT(marginSrcDim.height) / elementsPerThread;
+		} while (workgroupSize > maxWorkgroupSize);
 
-		// finally allocate our output range
-		const uint32_t outputSize = inputSize;
-
-		auto outputOffset = m_downStreamingBuffer->invalid_value;
-		m_downStreamingBuffer->multi_allocate(waitTill, AllocationCount, &outputOffset, &outputSize, &m_alignment);
-
-		smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
+		smart_refctd_ptr<IGPUShader> shaders[3];
+		shaders[0] = createShader("app_resources/image_fft_first_axis.hlsl", workgroupSize, elementsPerThread);
+		// IFFT along first axis has same dimensions as FFT
+		shaders[2] = createShader("app_resources/image_ifft_first_axis.hlsl", workgroupSize, elementsPerThread);
+		
+		// Second axis FFT might have different dimensions
+		elementsPerThread = 1;
+		do
 		{
-			m_poolCache->getPool(poolIx)->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &cmdbuf,1 }, core::smart_refctd_ptr(m_logger));
-			// lets record, its still a one time submit because we have to re-record with different push constants each time
-			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-			cmdbuf->bindComputePipeline(m_pipeline.get());
-			// This is the new fun part, pushing constants
-			const PushConstantData pc = {
-				.inputAddress = m_deviceLocalBufferAddress,
-				.outputAddress = m_deviceLocalBufferAddress,
-				.dataElementCount = scalarElementCount
-			};
-			IGPUCommandBuffer::SBufferCopy copyInfo = {};
-			copyInfo.srcOffset = 0;
-			copyInfo.dstOffset = 0;
-			copyInfo.size = m_deviceLocalBuffer->getSize();
-			cmdbuf->copyBuffer(m_upStreamingBuffer->getBuffer(), m_deviceLocalBuffer.get(), 1, &copyInfo);
-			cmdbuf->pushConstants(m_pipeline->getLayout(), IShader::ESS_COMPUTE, 0u, sizeof(pc), &pc);
-			// Good old trick to get rounded up divisions, in case you're not familiar
-			cmdbuf->dispatch(1, 1, 1);
+			elementsPerThread << 1;
+			// First axis FFT is along Y axis
+			workgroupSize = core::roundUpToPoT(marginSrcDim.width) / elementsPerThread;
+		} while (workgroupSize > maxWorkgroupSize);
+		shaders[1] = createShader("app_resources/fft_convolve_ifft.hlsl", workgroupSize, elementsPerThread);
 
-			// Pipeline barrier: wait for FFT shader to be done before copying to downstream buffer 
-			IGPUCommandBuffer::SPipelineBarrierDependencyInfo pipelineBarrierInfo = {};
-			decltype(pipelineBarrierInfo)::buffer_barrier_t barrier = {};
-			pipelineBarrierInfo.bufBarriers = {&barrier, 1u};
+		// Create compute pipelines - First axis FFT -> Second axis FFT -> Normalization
+		IGPUComputePipeline::SCreationParams params[3];
+		// First axis FFT
+		params[0].layout = imageFirstAxisFFTPipelineLayout.get();
+		params[0].shader.entryPoint = "main";
+		params[0].shader.shader = shaders[0].get();
+		// Second axis FFT + Conv + IFFT
+		params[0].layout = lastAxisFFT_convolution_lastAxisIFFTPipelineLayout.get();
+		params[0].shader.entryPoint = "main";
+		params[0].shader.shader = shaders[1].get();
+		// First axis IFFT
+		params[0].layout = imageFirstAxisIFFTPipelineLayout.get();
+		params[0].shader.entryPoint = "main";
+		params[0].shader.shader = shaders[2].get();
 
-			barrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-			barrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS;
-			barrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-			barrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS;
+		smart_refctd_ptr<IGPUComputePipeline> pipelines[3];
+		bool success = m_device->createComputePipelines(nullptr, { params, 3 }, pipelines);
+		if (!success)
+			return logFail("Failed to create Compute Pipelines!\n");
 
-			cmdbuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
-			cmdbuf->copyBuffer(m_deviceLocalBuffer.get(), m_downStreamingBuffer->getBuffer(), 1, &copyInfo);
-			cmdbuf->end();
+		m_firstAxisFFTPipeline = pipelines[0];
+		m_lastAxisFFT_convolution_lastAxisIFFTPipeline = pipelines[1];
+		m_firstAxisIFFTPipeline = pipelines[2];
+
+		// Create descriptor sets
+		const IGPUDescriptorSetLayout* DSLayouts[3] = { pipelines[0]->getLayout()->getDescriptorSetLayout(0), pipelines[1]->getLayout()->getDescriptorSetLayout(0) , pipelines[2]->getLayout()->getDescriptorSetLayout(0) };
+		smart_refctd_ptr<IDescriptorPool> DSPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { DSLayouts, 3 });
+		smart_refctd_ptr<IGPUDescriptorSet> descriptorSets[3];
+		uint32_t dsCreated = DSPool->createDescriptorSets({ DSLayouts, 3 }, descriptorSets);
+
+		// Cba to handle errors it's an example
+		if (dsCreated != 3)
+			return logFail("Failed to create Descriptor Sets!\n");
+
+		m_firstAxisFFTDescriptorSet = descriptorSets[0];
+		m_lastAxisFFT_convolution_lastAxisIFFTDescriptorSet = descriptorSets[1];
+		m_firstAxisIFFTDescriptorSet = descriptorSets[2];
+
+		// Write descriptor sets
+		updateDescriptorSetFirstAxisFFT(m_firstAxisFFTDescriptorSet.get(), m_srcImageView);
+		updateDescriptorSetConvolution(m_lastAxisFFT_convolution_lastAxisIFFTDescriptorSet.get(), m_kernelNormalizedSpectrums);
+		updateDescriptorSetFirstAxisIFFT(m_firstAxisIFFTDescriptorSet.get(), m_outImgView);
+	}
+
+	bool keepRunning() override { return m_keepRunning; }
+
+	// Right now it's one shot app, but I put this code here for easy refactoring when it refactors into it being a live app
+	void workLoopBody() override
+	{
+		// Get compute queue 
+		IQueue* const queue = getComputeQueue();
+		uint32_t queueFamilyIndex = queue->getFamilyIndex();
+
+		// Set up cmdbuf to be transient
+		{
+			smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(queueFamilyIndex, IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+			if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &m_computeCmdBuf))
+				logFail("Failed to create Command Buffers!\n");
 		}
 
+		m_computeCmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+		// Pipeline barrier: transition kernel spectrum images into read only, and outImage into general
+		IGPUCommandBuffer::SPipelineBarrierDependencyInfo pipelineBarrierInfo = {};
+		decltype(pipelineBarrierInfo)::image_barrier_t imgBarriers[CHANNELS + 1];
+		pipelineBarrierInfo.imgBarriers = { imgBarriers, CHANNELS + 1};
 
-		const auto savedIterNum = m_iteration++;
+		// outImage just needs a layout transition before it can be written to
+		imgBarriers[0].image = m_outImg.get();
+		imgBarriers[0].barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+		imgBarriers[0].barrier.dep.srcAccessMask = ACCESS_FLAGS::NONE;
+		imgBarriers[0].barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+		imgBarriers[0].barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
+		imgBarriers[0].oldLayout = IImage::LAYOUT::UNDEFINED;
+		imgBarriers[0].newLayout = IImage::LAYOUT::GENERAL;
+
+		// We need to wait on kernel spectrums to be written to before we can read them
+		for (auto i = 0u; i < CHANNELS; i++)
 		{
-			const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo =
-			{
-				.cmdbuf = cmdbuf.get()
-			};
-			const IQueue::SSubmitInfo::SSemaphoreInfo signalInfo =
-			{
-				.semaphore = m_timeline.get(),
-				.value = m_iteration,
-				.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
-			};
-			// Generally speaking we don't need to wait on any semaphore because in this example every dispatch gets its own clean piece of memory to use
-			// from the point of view of the GPU. Implicit domain operations between Host and Device happen upon a submit and a semaphore/fence signal operation,
-			// this ensures we can touch the input and get accurate values from the output memory using the CPU before and after respectively, each submit becoming PENDING.
-			// If we actually cared about this submit seeing the memory accesses of a previous dispatch we could add a semaphore wait
-			const IQueue::SSubmitInfo submitInfo = {
-				.waitSemaphores = {},
-				.commandBuffers = {&cmdbufInfo,1},
-				.signalSemaphores = {&signalInfo,1}
-			};
-
-			queue->startCapture();
-			queue->submit({ &submitInfo,1 });
-			queue->endCapture();
+			imgBarriers[i + 1].image = m_kernelNormalizedSpectrums[i]->getCreationParameters().image.get();
+			imgBarriers[i + 1].barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+			imgBarriers[i + 1].barrier.dep.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
+			imgBarriers[i + 1].barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+			imgBarriers[i + 1].barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+			imgBarriers[i + 1].oldLayout = IImage::LAYOUT::GENERAL;
+			imgBarriers[i + 1].newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 		}
 
-		// We let all latches know what semaphore and counter value has to be passed for the functors to execute
-		const ISemaphore::SWaitInfo futureWait = { m_timeline.get(),m_iteration };
+		m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
+		
+		// Prepare for first axis FFT
+		// Push Constants - only need to specify BDAs here
+		PushConstantData pushConstants;
+		pushConstants.colMajorBufferAddress = m_colMajorBufferAddress;
+		pushConstants.rowMajorBufferAddress = m_rowMajorBufferAddress;
+		pushConstants.dataElementCount = m_srcImage->getCreationParameters().extent.width;
+		// Compute kernel half pixel size
+		const auto& kernelImgExtent = m_kernelNormalizedSpectrums[0]->getCreationParameters().image->getCreationParameters().extent;
+		float32_t2 kernelHalfPixelSize{ 0.5f,0.5f };
+		kernelHalfPixelSize.x /= kernelImgExtent.width;
+		kernelHalfPixelSize.y /= kernelImgExtent.height;
+		pushConstants.kernelHalfPixelSize = kernelHalfPixelSize;
 
-		// We can also actually latch our Command Pool reset and its return to the pool of free pools!
-		m_poolCache->releasePool(futureWait, poolIx);
 
-		// As promised, we can defer an upstreaming buffer deallocation until a fence is signalled
-		// You can also attach an additional optional IReferenceCounted derived object to hold onto until deallocation.
-		m_upStreamingBuffer->multi_deallocate(AllocationCount, &inputOffset, &inputSize, futureWait);
+		m_computeCmdBuf->bindComputePipeline(m_firstAxisFFTPipeline.get());
+		m_computeCmdBuf->bindDescriptorSets(asset::EPBP_COMPUTE, m_firstAxisFFTPipeline->getLayout(), 0, 1, &m_firstAxisFFTDescriptorSet.get());
+		m_computeCmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(pushConstants), &pushConstants);
+		// One workgroup per 2 columns
+		m_computeCmdBuf->dispatch(marginSrcDim.width / 2, 1, 1);
 
-		// Now a new and even more advanced usage of the latched events, we make our own refcounted object with a custom destructor and latch that like we did the commandbuffer.
-		// Instead of making our own and duplicating logic, we'll use one from IUtilities meant for down-staging memory.
-		// Its nice because it will also remember to invalidate our memory mapping if its not coherent.
-		auto latchedConsumer = make_smart_refctd_ptr<IUtilities::CDownstreamingDataConsumer>(
-			IDeviceMemoryAllocation::MemoryRange(outputOffset, outputSize),
-			// Note the use of capture by-value [=] and not by-reference [&] because this lambda will be called asynchronously whenever the event signals
-			[=](const size_t dstOffset, const void* bufSrc, const size_t size)->void
-			{
-				// The unused variable is used for letting the consumer know the subsection of the output we've managed to download
-				// But here we're sure we can get the whole thing in one go because we allocated the whole range ourselves.
-				assert(dstOffset == 0 && size == outputSize);
+		// Pipeline Barrier: Wait for colMajorBuffer to be written to before reading it from next shader
+		IGPUCommandBuffer::SPipelineBarrierDependencyInfo pipelineBarrierInfo = {};
+		decltype(pipelineBarrierInfo)::buffer_barrier_t bufBarrier = {};
+		pipelineBarrierInfo.bufBarriers = { &bufBarrier, 1u };
 
-				std::cout << "Begin array GPU\n";
-				output_t* const data = reinterpret_cast<output_t*>(const_cast<void*>(bufSrc));
-				for (auto i = 0u; i < complexElementCount; i++) {
-					std::cout << "(" << data[2 * i] << ", " << data[2 * i + 1] << "), ";
-				}
+		// First axis FFT writes to colMajorBuffer
+		bufBarrier.range.buffer = m_colMajorBuffer;
 
-				std::cout << "\nEnd array GPU\n";
-			},
-			// Its also necessary to hold onto the commandbuffer, even though we take care to not reset the parent pool, because if it
-			// hits its destructor, our automated reference counting will drop all references to objects used in the recorded commands.
-			// It could also be latched in the upstreaming deallocate, because its the same fence.
-			std::move(cmdbuf), m_downStreamingBuffer
-		);
-		// We put a function we want to execute 
-		m_downStreamingBuffer->multi_deallocate(AllocationCount, &outputOffset, &outputSize, futureWait, &latchedConsumer.get());
+		// Wait for first compute write (first axis FFT) before next compute read (second axis FFT)
+		bufBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+		bufBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS;
+		bufBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+		bufBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS;
+
+		m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
+		// Now comes Second axis FFT + Conv + IFFT
+		m_computeCmdBuf->bindComputePipeline(m_lastAxisFFT_convolution_lastAxisIFFTPipeline.get());
+		m_computeCmdBuf->bindDescriptorSets(asset::EPBP_COMPUTE, m_lastAxisFFT_convolution_lastAxisIFFTPipeline->getLayout(), 0, 1, &m_lastAxisFFT_convolution_lastAxisIFFTDescriptorSet.get());
+		
+		m_computeCmdBuf->dispatch(core::roundUpToPoT(marginSrcDim.height) / 2, 1, 1);
+
+		// Recycle pipeline barrier, only have to change which buffer we need to wait to be written to
+		bufBarrier.range.buffer = m_rowMajorBuffer;
+		m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
+
+		// Finally run the IFFT on the first axis
+		m_computeCmdBuf->bindComputePipeline(m_firstAxisIFFTPipeline.get());
+		m_computeCmdBuf->bindDescriptorSets(asset::EPBP_COMPUTE, m_firstAxisIFFTPipeline->getLayout(), 0, 1, &m_firstAxisIFFTDescriptorSet.get());
+		// One workgroup per 2 columns
+		m_computeCmdBuf->dispatch(marginSrcDim.width / 2, 1, 1);
+
+		// Kill after one iteration for now
+		m_keepRunning = false;
 	}
 
 	bool onAppTerminated() override
 	{
-		// Need to make sure that there are no events outstanding if we want all lambdas to eventually execute before `onAppTerminated`
-		// (the destructors of the Command Pool Cache and Streaming buffers will still wait for all lambda events to drain)
-		while (m_downStreamingBuffer->cull_frees()) {}
 		return device_base_t::onAppTerminated();
 	}
 };
 
 
-NBL_MAIN_FUNC(StreamingAndBufferDeviceAddressApp)
+NBL_MAIN_FUNC(FFTBloomApp)

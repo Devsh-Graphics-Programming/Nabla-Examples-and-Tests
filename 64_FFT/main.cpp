@@ -46,6 +46,28 @@ class FFT_Test final : public application_templates::MonoDeviceApplication, publ
 	smart_refctd_ptr<ISemaphore> m_timeline;
 	uint64_t semaphorValue = 0;
 
+	inline core::smart_refctd_ptr<video::IGPUShader> createShader(
+		const char* includeMainName)
+	{
+
+		const char* sourceFmt =
+			R"===(
+		#include "%s"
+		)===";
+
+		const size_t extraSize = 4u + 4u + 26u + 128u;
+
+		auto shader = core::make_smart_refctd_ptr<ICPUBuffer>(strlen(sourceFmt) + extraSize + 1u);
+		snprintf(
+			reinterpret_cast<char*>(shader->getPointer()), shader->getSize(), sourceFmt,
+			includeMainName
+		);
+
+		auto CPUShader = core::make_smart_refctd_ptr<ICPUShader>(std::move(shader), IShader::E_SHADER_STAGE::ESS_COMPUTE, IShader::E_CONTENT_TYPE::ECT_HLSL, includeMainName);
+		assert(CPUShader);
+		return m_device->createShader(CPUShader.get());
+	}
+
 public:
 	// Yay thanks to multiple inheritance we cannot forward ctors anymore
 	FFT_Test(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
@@ -62,7 +84,7 @@ public:
 
 		// this time we load a shader directly from a file
 		smart_refctd_ptr<IGPUShader> shader;
-		{
+		/* {
 			IAssetLoader::SAssetLoadParams lp = {};
 			lp.logger = m_logger.get();
 			lp.workingDirectory = ""; // virtual root
@@ -80,7 +102,8 @@ public:
 			shader = m_device->createShader(source.get());
 			if (!shader)
 				return logFail("Creation of a GPU Shader to from CPU Shader source failed!");
-		}
+		}*/
+		shader = createShader("app_resources/shader.comp.hlsl");
 
 		// Create massive upload/download buffers
 		constexpr uint32_t DownstreamBufferSize = sizeof(scalar_t) << 23;
