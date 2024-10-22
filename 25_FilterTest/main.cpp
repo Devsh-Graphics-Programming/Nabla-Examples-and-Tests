@@ -135,19 +135,19 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 				using convolution_kernels_t = typename blit_utils_t::convolution_kernels_t;
 
 			public:
-				// TODO: code cleanup, whenever you find yourself passing a crapton of arguments to a ctor just to copy/move them into identical member vars, package them into a paramater struct!
 				CBlitImageFilterTest(
-					smart_refctd_ptr<ICPUImage>&&			inImage,
 					BlitFilterTestApp*						parentApp,
-					const core::vectorSIMDu32&				outImageDim,
+					smart_refctd_ptr<ICPUImage>&&			inImage,
+					const hlsl::uint32_t3&					outImageDim,
+					const uint32_t&							outImageLayers,
 					const E_FORMAT							outImageFormat,
 					const char*								writeImagePath,
 					const convolution_kernels_t&			convolutionKernels,
 					const IBlitUtilities::E_ALPHA_SEMANTIC	alphaSemantic = IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED,
 					const float								referenceAlpha = 0.5f,
 					const uint32_t							alphaBinCount = IBlitUtilities::DefaultAlphaBinCount)
-					: ITest(std::move(inImage), parentApp), m_outImageDim(outImageDim), m_outImageFormat(outImageFormat),
-					m_convolutionKernels(convolutionKernels), m_writeImagePath(writeImagePath),
+					: ITest(std::move(inImage), parentApp),	m_convolutionKernels(convolutionKernels), m_writeImagePath(writeImagePath),
+					m_outImageDim(outImageDim), m_outImageLayers(outImageLayers), m_outImageFormat(outImageFormat),
 					m_alphaSemantic(alphaSemantic), m_referenceAlpha(referenceAlpha), m_alphaBinCount(alphaBinCount)
 				{}
 
@@ -158,7 +158,7 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 
 					assert(m_outImageDim.w == m_inImage->getCreationParameters().arrayLayers);
 
-					auto outImage = createCPUImage({m_outImageDim[0],m_outImageDim[1],m_outImageDim[2]}, m_outImageDim[3], m_inImage->getCreationParameters().type, m_outImageFormat);
+					auto outImage = createCPUImage(m_outImageDim, m_outImageLayers, m_inImage->getCreationParameters().type, m_outImageFormat);
 					if (!outImage)
 					{
 						m_parentApp->m_logger->log("Failed to create CPU image for output.", system::ILogger::ELL_ERROR);
@@ -176,7 +176,7 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 					blitFilterState.outImage = outImage.get();
 
 					blitFilterState.outOffsetBaseLayer = core::vectorSIMDu32();
-					blitFilterState.outExtentLayerCount = m_outImageDim;
+					blitFilterState.outExtentLayerCount = core::vectorSIMDu32(m_outImageDim[0],m_outImageDim[1],m_outImageDim[2],m_outImageLayers);
 
 					blitFilterState.alphaSemantic = m_alphaSemantic;
 					blitFilterState.alphaBinCount = m_alphaBinCount;
@@ -211,10 +211,11 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 			}
 
 			private:
-				const core::vectorSIMDu32				m_outImageDim;
-				const E_FORMAT							m_outImageFormat;
 				const convolution_kernels_t				m_convolutionKernels;
 				const char*								m_writeImagePath;
+				const hlsl::uint32_t3					m_outImageDim;
+				const uint32_t							m_outImageLayers;
+				const E_FORMAT							m_outImageFormat;
 				const IBlitUtilities::E_ALPHA_SEMANTIC	m_alphaSemantic;
 				const float								m_referenceAlpha;
 				const uint32_t							m_alphaBinCount;
@@ -285,28 +286,31 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 				asset::ICPUImageView::SComponentMapping m_swizzle;
 				const char* m_writeImagePath;
 		};
-#if 0
+
 		template <typename BlitUtilities>
 		class CComputeBlitTest : public ITest
 		{
 				using blit_utils_t = BlitUtilities;
+				using convolution_kernels_t = typename blit_utils_t::convolution_kernels_t;
 
 			public:
 				CComputeBlitTest(
-					core::smart_refctd_ptr<asset::ICPUImage>&&			inImage,
-					BlitFilterTestApp*									parentApp,
-					const core::vectorSIMDu32&							outImageDim,
-					const typename blit_utils_t::convolution_kernels_t& convolutionKernels,
-					const IBlitUtilities::E_ALPHA_SEMANTIC				alphaSemantic = asset::IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED,
-					const float											referenceAlpha = 0.f,
-					const uint32_t										alphaBinCount = asset::IBlitUtilities::DefaultAlphaBinCount)
-					: ITest(std::move(inImage), parentApp), m_outImageDim(outImageDim), m_convolutionKernels(convolutionKernels),
-					m_alphaSemantic(alphaSemantic), m_referenceAlpha(referenceAlpha), m_alphaBinCount(alphaBinCount)
-				{}
+					BlitFilterTestApp*						parentApp,
+					smart_refctd_ptr<ICPUImage>&&			inImage,
+					const hlsl::uint32_t3&					outImageDim,
+					const uint32_t							outImageLayers,
+					const convolution_kernels_t&			convolutionKernels,
+					const IBlitUtilities::E_ALPHA_SEMANTIC	alphaSemantic = asset::IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED,
+					const float								referenceAlpha = 0.f,
+					const uint32_t							alphaBinCount = asset::IBlitUtilities::DefaultAlphaBinCount
+				) : ITest(std::move(inImage), parentApp), m_convolutionKernels(convolutionKernels),	m_alphaSemantic(alphaSemantic), m_referenceAlpha(referenceAlpha), m_alphaBinCount(alphaBinCount)
+				{
+				}
 
 				bool run() override
 				{
 					assert(m_inImage->getCreationParameters().mipLevels == 1);
+#if 0
 					// GPU clamps when storing to a texture, so the CPU needs to as well
 					using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle, asset::IdentityDither, void, true, blit_utils_t>;
 
@@ -773,16 +777,17 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 					constexpr double MaxAllowedRMSE = 0.0046; // arbitrary
 
 					return (RMSE <= MaxAllowedRMSE) && !std::isnan(RMSE);
+#endif
+					return false;
 				}
 
 			private:
-				const core::vectorSIMDu32							m_outImageDim;
 				const IBlitUtilities::E_ALPHA_SEMANTIC				m_alphaSemantic;
 				const typename blit_utils_t::convolution_kernels_t	m_convolutionKernels;
 				const float											m_referenceAlpha = 0.f;
 				const uint32_t										m_alphaBinCount = asset::IBlitUtilities::DefaultAlphaBinCount;
 		};
-#endif
+
 		class CRegionBlockFunctorFilterTest : public ITest
 		{
 			public:
@@ -919,18 +924,19 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 					if (inImage)
 					{
 						const auto& inExtent = inImage->getCreationParameters().extent;
-						const auto outImageDim = core::vectorSIMDu32(inExtent.width/2, inExtent.height/4, 1, 1);
+						const hlsl::uint32_t3 outImageDim(inExtent.width/2,inExtent.height/4,1);
 						const auto outImageFormat = asset::EF_R8G8B8A8_SRGB;
 
 						using BlitUtilities = CBlitUtilities<CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>>;
 
-						auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SMitchellFunction<>>>(core::vectorSIMDu32(inExtent.width, inExtent.height, inExtent.depth, 1), outImageDim);
+						auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SMitchellFunction<>>>({inExtent.width,inExtent.height,inExtent.depth},outImageDim);
 
 						tests[0] = std::make_unique<CBlitImageFilterTest<BlitUtilities>>
 						(
-							std::move(inImage),
 							this,
+							std::move(inImage),
 							outImageDim,
+							1,
 							outImageFormat,
 							"CBlitImageFilter_0.png",
 							convolutionKernels
@@ -945,19 +951,20 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 
 					if (inImage)
 					{
-						const auto& inExtent = inImage->getCreationParameters().extent;
-						const auto outImageDim = core::vectorSIMDu32(inExtent.width*2, inExtent.height*4, 1, 1);
-						const auto outImageFormat = asset::EF_R32G32B32A32_SFLOAT;
 
 						using BlitUtilities = CBlitUtilities<CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SKaiserFunction>, CWeightFunction1D<SKaiserFunction>>>>;
+						
+						const auto& inExtent = inImage->getCreationParameters().extent;
+						const hlsl::uint32_t3 outImageDim(inExtent.width*2, inExtent.height*4, 1);
+						auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SKaiserFunction>>({inExtent.width,inExtent.height,inExtent.depth},outImageDim);
 
-						auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SKaiserFunction>>(core::vectorSIMDu32(inExtent.width, inExtent.height, inExtent.depth, 1), outImageDim);
-
+						const auto outImageFormat = asset::EF_R32G32B32A32_SFLOAT;
 						tests[1] = std::make_unique<CBlitImageFilterTest<BlitUtilities>>
 						(
-							std::move(inImage),
 							this,
+							std::move(inImage),
 							outImageDim,
+							1,
 							outImageFormat,
 							"CBlitImageFilter_1.exr",
 							convolutionKernels
@@ -1105,44 +1112,39 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 				constexpr uint32_t TestCount = 6;
 				std::unique_ptr<ITest> tests[TestCount] = { nullptr };
 
-#if 0
 				// Test 0: Resize 1D image with Mitchell
 				{
+					const hlsl::uint32_t3 inImageDim(59u,1u,1u);
 					const auto layerCount = 10;
-					const core::vectorSIMDu32 inImageDim(59u, 1u, 1u, layerCount);
-					const asset::IImage::E_TYPE inImageType = asset::IImage::ET_1D;
-					const asset::E_FORMAT inImageFormat = asset::EF_R32_SFLOAT;
-					auto inImage = createCPUImage(inImageDim, layerCount, inImageType, inImageFormat, true);
+					auto inImage = createCPUImage(inImageDim,layerCount,IImage::ET_1D,EF_R32_SFLOAT,true);
+					assert(inImage);
 
-					if (inImage)
-					{
-						const core::vectorSIMDu32 outImageDim(800u, 1u, 1u, layerCount);
+					auto reconstructionX = asset::CWeightFunction1D<asset::SMitchellFunction<>>();
+					reconstructionX.stretchAndScale(0.35f);
 
-						auto reconstructionX = asset::CWeightFunction1D<asset::SMitchellFunction<>>();
-						reconstructionX.stretchAndScale(0.35f);
+					auto resamplingX = asset::CWeightFunction1D<asset::SMitchellFunction<>>();
+					resamplingX.stretchAndScale(0.35f);
 
-						auto resamplingX = asset::CWeightFunction1D<asset::SMitchellFunction<>>();
-						resamplingX.stretchAndScale(0.35f);
+					using LutDataType = uint16_t;
+					using BlitUtilities = CBlitUtilities<
+						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
+						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
+						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
+						LutDataType>;
 
-						using LutDataType = uint16_t;
-						using BlitUtilities = CBlitUtilities<
-							CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
-							CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
-							CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
-							LutDataType>;
+					const hlsl::uint32_t3 outImageDim(800u, 1u, 1u);
+					auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SMitchellFunction<>>>(inImageDim, outImageDim, std::move(reconstructionX), std::move(resamplingX));
 
-						auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SMitchellFunction<>>>(inImageDim, outImageDim, std::move(reconstructionX), std::move(resamplingX));
-
-						tests[0] = std::make_unique<CComputeBlitTest<BlitUtilities>>
-						(
-							std::move(inImage),
-							this,
-							outImageDim,
-							convolutionKernels
-						);
-					}
+					tests[0] = std::make_unique<CComputeBlitTest<BlitUtilities>>
+					(
+						this,
+						std::move(inImage),
+						outImageDim,
+						1,
+						convolutionKernels
+					);
 				}
-
+#if 0
 				// Test 1: Resize 2D image with Kaiser
 				{
 					const char* path = "../../media/colorexr.exr";
