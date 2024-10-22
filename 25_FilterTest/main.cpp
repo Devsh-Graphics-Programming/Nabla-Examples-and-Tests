@@ -11,14 +11,77 @@
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 
 using namespace nbl;
-using namespace nbl::asset;
 using namespace nbl::core;
+using namespace nbl::system;
+using namespace nbl::asset;
 using namespace nbl::video;
 
 
 // TODO: inherit from BasicMultiQueue app
 class BlitFilterTestApp final : public virtual application_templates::MonoDeviceApplication
 {
+		static smart_refctd_ptr<ICPUImage> createCPUImage(const hlsl::uint32_t3 extent, const uint32_t layers, const IImage::E_TYPE imageType, const E_FORMAT format, const bool fillWithTestData = false)
+		{
+			IImage::SCreationParams imageParams = {};
+			imageParams.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(asset::IImage::ECF_MUTABLE_FORMAT_BIT | asset::IImage::ECF_EXTENDED_USAGE_BIT);
+			imageParams.type = imageType;
+			imageParams.format = format;
+			imageParams.extent = { extent[0], extent[1], extent[2] };
+			imageParams.mipLevels = 1;
+			imageParams.arrayLayers = layers;
+			imageParams.samples = ICPUImage::ESCF_1_BIT;
+			imageParams.usage = IImage::EUF_SAMPLED_BIT;
+
+			smart_refctd_ptr<ICPUImage> image = ICPUImage::create(std::move(imageParams));
+			assert(image);
+			
+			const size_t bufferSize = (((static_cast<size_t>(layers) * extent[0]) * extent[1]) * extent[2]) * getTexelOrBlockBytesize(format);
+			{
+				auto imageRegions = make_refctd_dynamic_array<smart_refctd_dynamic_array<IImage::SBufferCopy>>(1ull);
+				auto& region = imageRegions->front();
+				region.bufferImageHeight = 0u;
+				region.bufferOffset = 0ull;
+				region.bufferRowLength = extent[0];
+				region.imageExtent = { extent[0], extent[1], extent[2] };
+				region.imageOffset = { 0u, 0u, 0u };
+				region.imageSubresource.aspectMask = IImage::EAF_COLOR_BIT;
+				region.imageSubresource.baseArrayLayer = 0u;
+				region.imageSubresource.layerCount = layers;
+				region.imageSubresource.mipLevel = 0;
+
+				image->setBufferAndRegions(make_smart_refctd_ptr<ICPUBuffer>(bufferSize),std::move(imageRegions));
+			}
+
+			if (fillWithTestData)
+			{
+				double pixelValueUpperBound = 20.0;
+				if (asset::isNormalizedFormat(format) || format == asset::EF_B10G11R11_UFLOAT_PACK32)
+					pixelValueUpperBound = 1.00000000001;
+
+				std::uniform_real_distribution<double> dist(0.0, pixelValueUpperBound);
+				std::mt19937 prng;
+
+				uint8_t* bytePtr = reinterpret_cast<uint8_t*>(image->getBuffer()->getPointer());
+				const auto layerSize = bufferSize / imageParams.arrayLayers;
+
+				double dummyVal = 1.0;
+				for (auto layer = 0; layer < layers; ++layer)
+				for (uint64_t k = 0u; k < extent[2]; ++k)
+				for (uint64_t j = 0u; j < extent[1]; ++j)
+				for (uint64_t i = 0; i < extent[0]; ++i)
+				{
+					double decodedPixel[4] = { 0 };
+					for (uint32_t ch = 0u; ch < asset::getFormatChannelCount(format); ++ch)
+						decodedPixel[ch] = dist(prng);
+
+					const uint64_t pixelIndex = (k * extent[1] * extent[0]) + (j * extent[0]) + i;
+					asset::encodePixelsRuntime(format, bytePtr + layer * layerSize + pixelIndex * asset::getTexelOrBlockBytesize(format), decodedPixel);
+				}
+			}
+
+			return image;
+		}
+
 		using base_t = application_templates::MonoDeviceApplication;
 
 		constexpr static uint32_t SC_IMG_COUNT = 3u;
@@ -30,25 +93,25 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 				virtual bool run() = 0;
 
 			protected:
-				ITest(core::smart_refctd_ptr<asset::ICPUImage>&& inImage, BlitFilterTestApp* parentApp) : m_inImage(std::move(inImage)), m_parentApp(parentApp) { assert(m_parentApp); }
+				ITest(smart_refctd_ptr<ICPUImage>&& inImage, BlitFilterTestApp* parentApp) : m_inImage(std::move(inImage)), m_parentApp(parentApp) { assert(m_parentApp); }
 
-				core::smart_refctd_ptr<asset::ICPUImage> m_inImage = nullptr;
+				smart_refctd_ptr<ICPUImage> m_inImage = nullptr;
 				BlitFilterTestApp* m_parentApp = nullptr;
 
-				void writeImage(core::smart_refctd_ptr<asset::ICPUImage>&& image, const char* path)
+				void writeImage(smart_refctd_ptr<ICPUImage>&& image, const char* path)
 				{
-					asset::ICPUImageView::SCreationParams viewParams = {};
+					ICPUImageView::SCreationParams viewParams = {};
 					viewParams.flags = static_cast<decltype(viewParams.flags)>(0u);
 					viewParams.image = std::move(image);
 					viewParams.format = viewParams.image->getCreationParameters().format;
-					viewParams.viewType = asset::ICPUImageView::ET_2D;
+					viewParams.viewType = ICPUImageView::ET_2D;
 					viewParams.subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
 					viewParams.subresourceRange.baseArrayLayer = 0u;
 					viewParams.subresourceRange.layerCount = viewParams.image->getCreationParameters().arrayLayers;
 					viewParams.subresourceRange.baseMipLevel = 0u;
 					viewParams.subresourceRange.levelCount = viewParams.image->getCreationParameters().mipLevels;
 
-					auto imageViewToWrite = asset::ICPUImageView::create(std::move(viewParams));
+					auto imageViewToWrite = ICPUImageView::create(std::move(viewParams));
 					if (!imageViewToWrite)
 					{
 						m_parentApp->m_logger->log("Failed to create image view for the output image to write it to disk.", system::ILogger::ELL_ERROR);
@@ -65,22 +128,24 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 		};
 
 		// CPU Blit test
-		template <typename BlitUtilities>
+		template <typename BlitUtilities> requires std::is_base_of_v<asset::IBlitUtilities,BlitUtilities>
 		class CBlitImageFilterTest : public ITest
 		{
 				using blit_utils_t = BlitUtilities;
+				using convolution_kernels_t = typename blit_utils_t::convolution_kernels_t;
 
 			public:
+				// TODO: code cleanup, whenever you find yourself passing a crapton of arguments to a ctor just to copy/move them into identical member vars, package them into a paramater struct!
 				CBlitImageFilterTest(
-					core::smart_refctd_ptr<asset::ICPUImage>&&				inImage,
-					BlitFilterTestApp*										parentApp,
-					const core::vectorSIMDu32&								outImageDim,
-					const asset::E_FORMAT									outImageFormat,
-					const char*												writeImagePath,
-					const typename blit_utils_t::convolution_kernels_t&		convolutionKernels,
-					const IBlitUtilities::E_ALPHA_SEMANTIC					alphaSemantic = asset::IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED,
-					const float												referenceAlpha = 0.5f,
-					const uint32_t											alphaBinCount = asset::IBlitUtilities::DefaultAlphaBinCount)
+					smart_refctd_ptr<ICPUImage>&&			inImage,
+					BlitFilterTestApp*						parentApp,
+					const core::vectorSIMDu32&				outImageDim,
+					const E_FORMAT							outImageFormat,
+					const char*								writeImagePath,
+					const convolution_kernels_t&			convolutionKernels,
+					const IBlitUtilities::E_ALPHA_SEMANTIC	alphaSemantic = IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED,
+					const float								referenceAlpha = 0.5f,
+					const uint32_t							alphaBinCount = IBlitUtilities::DefaultAlphaBinCount)
 					: ITest(std::move(inImage), parentApp), m_outImageDim(outImageDim), m_outImageFormat(outImageFormat),
 					m_convolutionKernels(convolutionKernels), m_writeImagePath(writeImagePath),
 					m_alphaSemantic(alphaSemantic), m_referenceAlpha(referenceAlpha), m_alphaBinCount(alphaBinCount)
@@ -93,7 +158,7 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 
 					assert(m_outImageDim.w == m_inImage->getCreationParameters().arrayLayers);
 
-					auto outImage = m_parentApp->createCPUImage(m_outImageDim, m_inImage->getCreationParameters().type, m_outImageFormat);
+					auto outImage = createCPUImage({m_outImageDim[0],m_outImageDim[1],m_outImageDim[2]}, m_outImageDim[3], m_inImage->getCreationParameters().type, m_outImageFormat);
 					if (!outImage)
 					{
 						m_parentApp->m_logger->log("Failed to create CPU image for output.", system::ILogger::ELL_ERROR);
@@ -101,7 +166,7 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 					}
 
 					// enabled clamping so the test outputs don't look weird on Kaiser filters which ring
-					using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle, asset::IdentityDither, void, true, BlitUtilities>;
+					using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle,asset::IdentityDither,void,true,BlitUtilities>;
 					typename BlitFilter::state_type blitFilterState(m_convolutionKernels);
 
 					blitFilterState.inOffsetBaseLayer = core::vectorSIMDu32();
@@ -118,131 +183,41 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 					blitFilterState.alphaRefValue = m_referenceAlpha;
 
 					blitFilterState.scratchMemoryByteSize = BlitFilter::getRequiredScratchByteSize(&blitFilterState);
-					// MEMORY LEAK, USE RAII
-					blitFilterState.scratchMemory = reinterpret_cast<uint8_t*>(_NBL_ALIGNED_MALLOC(blitFilterState.scratchMemoryByteSize, 32));
+					auto scratch = std::make_unique<uint8_t[]>(blitFilterState.scratchMemoryByteSize);
+					blitFilterState.scratchMemory = scratch.get();
 
-					if (!blit_utils_t::computeScaledKernelPhasedLUT(blitFilterState.scratchMemory + BlitFilter::getScratchOffset(&blitFilterState, BlitFilter::ESU_SCALED_KERNEL_PHASED_LUT), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, m_convolutionKernels))
+					const auto lutOffsetInScratch = BlitFilter::getScratchOffset(&blitFilterState,BlitFilter::ESU_SCALED_KERNEL_PHASED_LUT);
+					if (!blit_utils_t::computeScaledKernelPhasedLUT(
+						blitFilterState.scratchMemory+lutOffsetInScratch,
+						blitFilterState.inExtentLayerCount,
+						blitFilterState.outExtentLayerCount,
+						blitFilterState.inImage->getCreationParameters().type,
+						m_convolutionKernels
+					))
 					{
-						m_parentApp->m_logger->log("Failed to compute the LUT for blitting", system::ILogger::ELL_ERROR);
+						m_parentApp->m_logger->log("Failed to compute the LUT for blitting",ILogger::ELL_ERROR);
 						return false;
 					}
 
-					if (!BlitFilter::execute(core::execution::par_unseq, &blitFilterState))
+					if (!BlitFilter::execute(core::execution::par_unseq,&blitFilterState))
 					{
-						m_parentApp->m_logger->log("Failed to blit", system::ILogger::ELL_ERROR);
+						m_parentApp->m_logger->log("Failed to blit",ILogger::ELL_ERROR);
 						return false;
 					}
 
-					_NBL_ALIGNED_FREE(blitFilterState.scratchMemory);
-
-					writeImage(std::move(outImage), m_writeImagePath);
+					writeImage(std::move(outImage),m_writeImagePath);
 
 					return true;
 			}
 
 			private:
-				const core::vectorSIMDu32					m_outImageDim;
-				const asset::E_FORMAT						m_outImageFormat;
-				const typename blit_utils_t::convolution_kernels_t	m_convolutionKernels;
-				const char*									m_writeImagePath;
-				const IBlitUtilities::E_ALPHA_SEMANTIC		m_alphaSemantic;
-				const float									m_referenceAlpha;
-				const uint32_t								m_alphaBinCount;
-		};
-
-		class CFlattenRegionsImageFilterTest : public ITest
-		{
-			public:
-				CFlattenRegionsImageFilterTest(
-					core::smart_refctd_ptr<asset::ICPUImage>&& inImage,
-					BlitFilterTestApp* parentApp,
-					const bool enablePrefill,
-					const asset::IImageFilter::IState::ColorValue& fillColor,
-					const char* writeImagePath)
-					: ITest(std::move(inImage), parentApp), m_enablePrefill(enablePrefill), m_writeImagePath(writeImagePath)
-				{
-					memcpy(&m_fillColorValue, &fillColor, sizeof(asset::IImageFilter::IState::ColorValue));
-				}
-
-				bool run() override
-				{
-					const auto& inImageExtent = m_inImage->getCreationParameters().extent;
-					const auto& inImageFormat = m_inImage->getCreationParameters().format;
-					const uint32_t inImageMipCount = m_inImage->getCreationParameters().mipLevels;
-
-					core::smart_refctd_ptr<ICPUImage> flattenInImage;
-					{
-						const uint64_t bufferSizeNeeded = (inImageExtent.width * inImageExtent.height * inImageExtent.depth * asset::getTexelOrBlockBytesize(inImageFormat)) / 2ull;
-
-						IImage::SCreationParams imageParams = {};
-						imageParams.type = asset::ICPUImage::ET_2D;
-						imageParams.format = inImageFormat;
-						imageParams.extent = { inImageExtent.width, inImageExtent.height, inImageExtent.depth };
-						imageParams.mipLevels = 1u;
-						imageParams.arrayLayers = 1u;
-						imageParams.samples = asset::ICPUImage::ESCF_1_BIT;
-
-						auto imageRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<asset::IImage::SBufferCopy>>(2ull);
-						std::fill(imageRegions->begin(),imageRegions->end(),*m_inImage->getRegion(0,core::vectorSIMDu32(0,0,0)));
-						{
-							auto& region = (*imageRegions)[0];
-							region.bufferOffset = 0ull;
-							if (!region.bufferRowLength)
-								region.bufferRowLength = region.imageExtent.width;
-							region.imageExtent = { imageParams.extent.width / 2, imageParams.extent.height / 2, core::max(imageParams.extent.depth / 2, 1) };
-							region.imageOffset = { 0u, 0u, 0u };
-						}
-						{
-							auto& region = (*imageRegions)[1];
-							if (!region.bufferRowLength)
-								region.bufferRowLength = region.imageExtent.width;
-							region.imageExtent = { imageParams.extent.width / 2, imageParams.extent.height / 2, core::max(imageParams.extent.depth / 2, 1) };
-							region.imageOffset = { imageParams.extent.width / 2, imageParams.extent.height / 2, 0u };
-							const auto blockSize = asset::getBlockDimensions(inImageFormat);
-							region.bufferOffset += ((region.bufferRowLength/blockSize[0])*(region.imageOffset.y/blockSize[1])+region.imageOffset.x/blockSize[0])*asset::getTexelOrBlockBytesize(inImageFormat);
-						}
-
-						flattenInImage = ICPUImage::create(std::move(imageParams));
-						if (!flattenInImage)
-						{
-							m_parentApp->m_logger->log("Failed to create the flatten input image.", system::ILogger::ELL_ERROR);
-							return false;
-						}
-
-						flattenInImage->setBufferAndRegions(core::smart_refctd_ptr<ICPUBuffer>(m_inImage->getBuffer()), imageRegions);
-					}
-
-					asset::CFlattenRegionsImageFilter::CState filterState;
-					filterState.inImage = flattenInImage.get();
-					filterState.outImage = nullptr;
-					filterState.preFill = m_enablePrefill;
-
-					if (filterState.preFill)
-					{
-						const auto inImageFormat = filterState.inImage->getCreationParameters().format;
-						if (asset::isBlockCompressionFormat(inImageFormat))
-							memcpy(filterState.fillValue.asCompressedBlock, m_fillColorValue.asCompressedBlock, asset::getTexelOrBlockBytesize(inImageFormat));
-						else if (asset::isFloatingPointFormat(inImageFormat))
-							filterState.fillValue.asFloat = m_fillColorValue.asFloat;
-						else
-							_NBL_TODO();
-					} 
-
-					if (!asset::CFlattenRegionsImageFilter::execute(&filterState))
-					{
-						m_parentApp->m_logger->log("CFlattenRegionsImageFilter failed.", system::ILogger::ELL_ERROR);
-						return false;
-					}
-
-					writeImage(core::smart_refctd_ptr(filterState.outImage), m_writeImagePath);
-
-					return true;
-				}
-
-			private:
-				const bool m_enablePrefill;
-				asset::IImageFilter::IState::ColorValue m_fillColorValue;
-				const char* m_writeImagePath;
+				const core::vectorSIMDu32				m_outImageDim;
+				const E_FORMAT							m_outImageFormat;
+				const convolution_kernels_t				m_convolutionKernels;
+				const char*								m_writeImagePath;
+				const IBlitUtilities::E_ALPHA_SEMANTIC	m_alphaSemantic;
+				const float								m_referenceAlpha;
+				const uint32_t							m_alphaBinCount;
 		};
 
 		template <typename Dither = IdentityDither, typename Normalization = void, bool Clamp = false>
@@ -267,7 +242,7 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 					const auto& inImageExtent = m_inImage->getCreationParameters().extent;
 					const auto& inImageFormat = m_inImage->getCreationParameters().format;
 
-					auto outImage = m_parentApp->createCPUImage(core::vectorSIMDu32(inImageExtent.width, inImageExtent.height, inImageExtent.depth, m_inImage->getCreationParameters().arrayLayers), m_inImage->getCreationParameters().type, m_outFormat);
+					auto outImage = createCPUImage({inImageExtent.width,inImageExtent.height,inImageExtent.depth}, m_inImage->getCreationParameters().arrayLayers, m_inImage->getCreationParameters().type, m_outFormat);
 					if (!outImage)
 						return false;
 
@@ -378,7 +353,7 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 					// CPU
 					core::vector<uint8_t> cpuOutput(static_cast<uint64_t>(m_outImageDim[0]) * m_outImageDim[1] * m_outImageDim[2] * asset::getTexelOrBlockBytesize(outImageFormat) * layerCount);
 					{
-						auto outImageCPU = m_parentApp->createCPUImage(m_outImageDim, m_inImage->getCreationParameters().type, outImageFormat, 1);
+						auto outImageCPU = createCPUImage(m_outImageDim, m_inImage->getCreationParameters().type, outImageFormat, 1);
 						if (!outImageCPU)
 							return false;
 
@@ -808,42 +783,40 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 				const uint32_t										m_alphaBinCount = asset::IBlitUtilities::DefaultAlphaBinCount;
 		};
 #endif
-#if 0
 		class CRegionBlockFunctorFilterTest : public ITest
 		{
 			public:
-				CRegionBlockFunctorFilterTest(core::smart_refctd_ptr<asset::ICPUImage>&& inImage, BlitFilterTestApp* parentApp, const char* writeImagePath)
+				CRegionBlockFunctorFilterTest(smart_refctd_ptr<ICPUImage>&& inImage, BlitFilterTestApp* parentApp, const char* writeImagePath)
 					: ITest(std::move(inImage), parentApp), m_writeImagePath(writeImagePath)
 				{}
 
 				bool run() override
 				{
-					auto outImage = core::smart_refctd_ptr_static_cast<ICPUImage>(m_inImage->clone());
+					auto outImage = smart_refctd_ptr_static_cast<ICPUImage>(m_inImage->clone());
 					if (!outImage)
 						return false;
 
+					// this is our per-block function
 					const auto format = m_inImage->getCreationParameters().format;
+					const auto regions = m_inImage->getRegions();
+					const auto region = regions.begin();
 					TexelBlockInfo blockInfo(format);
-
-					const auto strides = m_inImage->getRegions().begin()->getByteStrides(blockInfo);
-
-					auto copyFromLevel0 = [this, &outImage, format, &blockInfo, &strides](uint64_t dstByteOffset, core::vectorSIMDu32 coord)
+					const auto strides = region->getByteStrides(blockInfo);
+					uint8_t* src = reinterpret_cast<uint8_t*>(m_inImage->getBuffer()->getPointer());
+					uint8_t* dst = reinterpret_cast<uint8_t*>(outImage->getBuffer()->getPointer());
+					auto copyFromLevel0 = [src, dst, &blockInfo, region, strides](uint64_t dstByteOffset, vectorSIMDu32 coord)
 					{
-						const uint64_t srcByteOffset = m_inImage->getRegions().begin()->getByteOffset(coord, strides);
-
-						uint8_t* src = reinterpret_cast<uint8_t*>(m_inImage->getBuffer()->getPointer()) + srcByteOffset;
-						uint8_t* dst = reinterpret_cast<uint8_t*>(outImage->getBuffer()->getPointer()) + dstByteOffset;
-						memcpy(dst, src, asset::getTexelOrBlockBytesize(format));
+						const uint64_t srcByteOffset = region->getByteOffset(coord, strides);
+						memcpy(dst+dstByteOffset, src+srcByteOffset, blockInfo.getBlockByteSize());
 					};
 
 					using region_block_filter_t = asset::CRegionBlockFunctorFilter<decltype(copyFromLevel0), false>;
 
-					region_block_filter_t::CState filterState(copyFromLevel0, outImage.get(), outImage->getRegions().begin() + 1);
+					region_block_filter_t::CState filterState(copyFromLevel0,outImage.get(),regions.data()+1);
 
-					for (uint32_t i = 1; i < outImage->getCreationParameters().mipLevels; ++i)
+					for (uint32_t i=1; i<outImage->getCreationParameters().mipLevels; ++i)
 					{
-						filterState.regionIterator = outImage->getRegions().begin() + i;
-
+						filterState.regionIterator = outImage->getRegions().data()+i;
 						if (!region_block_filter_t::execute(&filterState))
 						{
 							m_parentApp->m_logger->log("CRegionBlockFunctorFilter failed for mip level %u", system::ILogger::ELL_ERROR, i);
@@ -859,7 +832,6 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 			private:
 				const char* m_writeImagePath;
 		};
-#endif
 
 	public:
 		using base_t::base_t;
@@ -883,16 +855,15 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 
 
 			constexpr bool TestCPUBlitFilter = true;
-			constexpr bool TestFlattenFilter = true;
 			constexpr bool TestSwizzleAndConvertFilter = true;
 			constexpr bool TestGPUBlitFilter = true;
 			constexpr bool TestRegionBlockFunctorFilter = true;
 
-#if 0
-			auto loadImage = [this](const char* path) -> core::smart_refctd_ptr<asset::ICPUImage>
+			auto loadImage = [this](const char* path) -> smart_refctd_ptr<ICPUImage>
 			{
-				constexpr auto cachingFlags = static_cast<asset::IAssetLoader::E_CACHING_FLAGS>(asset::IAssetLoader::ECF_DONT_CACHE_REFERENCES & asset::IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
-				asset::IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags);
+				// to prevent the images hanging around in the cache and taking up RAM
+				constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
+				IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags);
 				auto imageBundle = assetManager->getAsset(path, loadParams);
 				auto imageContents = imageBundle.getContents();
 
@@ -904,12 +875,12 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 
 				auto asset = *imageContents.begin();
 
-				core::smart_refctd_ptr<asset::ICPUImage> result;
+				smart_refctd_ptr<ICPUImage> result;
 				{
-					if (asset->getAssetType() == asset::IAsset::ET_IMAGE_VIEW)
-						result = core::smart_refctd_ptr_static_cast<asset::ICPUImageView>(asset)->getCreationParameters().image;
-					else if (asset->getAssetType() == asset::IAsset::ET_IMAGE)
-						result = std::move(core::smart_refctd_ptr_static_cast<asset::ICPUImage>(asset));
+					if (asset->getAssetType() == IAsset::ET_IMAGE_VIEW)
+						result = smart_refctd_ptr_static_cast<ICPUImageView>(asset)->getCreationParameters().image;
+					else if (asset->getAssetType() == IAsset::ET_IMAGE)
+						result = std::move(smart_refctd_ptr_static_cast<ICPUImage>(asset));
 					else
 						assert(!"Invalid code path.");
 				}
@@ -917,19 +888,17 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 				return result;
 			};
 
-			auto runTests = [this](const uint32_t count, std::unique_ptr<ITest>* tests)
+			auto runTests = [this](const std::span<std::unique_ptr<ITest>> tests)
 			{
-				assert(tests);
-
-				for (uint32_t i = 0; i < count; ++i)
+				auto i = 0;
+				for (auto& test : tests)
 				{
-					if (tests[i])
-					{
-						if (!tests[i]->run())
-							m_logger->log("Test #%u failed.", system::ILogger::ELL_ERROR, i);
-						else
-							m_logger->log("Test #%u passed.", system::ILogger::ELL_INFO, i);
-					}
+					assert(test);
+					if (!test->run())
+						m_logger->log("Test #%u failed.", system::ILogger::ELL_ERROR, i);
+					else
+						m_logger->log("Test #%u passed.", system::ILogger::ELL_INFO, i);
+					i++;
 				}
 			};
 
@@ -996,112 +965,12 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 					}
 				}
 
-				runTests(TestCount, tests);
-			}
-
-			if (TestFlattenFilter)
-			{
-				asset::IImageFilter::IState::ColorValue fillColorValue;
-				auto getFillValueAsFirstBlockOrTexel = [&fillColorValue](asset::ICPUImage* image)
-				{
-					const auto format = image->getCreationParameters().format;
-					if (asset::isBlockCompressionFormat(format))
-						memcpy(fillColorValue.asCompressedBlock, image->getBuffer()->getPointer(), asset::getTexelOrBlockBytesize(format));
-					else if (asset::isFloatingPointFormat(format))
-						fillColorValue.asFloat.set(reinterpret_cast<float*>(image->getBuffer()->getPointer()));
-					else
-						_NBL_TODO();				
-				};
-
-				m_logger->log("CFlattenRegionsImageFilter", system::ILogger::ELL_INFO);
-
-				constexpr uint32_t TestCount = 4;
-				std::unique_ptr<ITest> tests[TestCount] = { nullptr };
-
-				// Test 0: BC format with prefill
-				{
-					const char* path = "../../media/GLI/kueken7_rgba_dxt1_unorm.dds";
-					auto inImage = loadImage(path);
-
-					if (inImage)
-					{
-						const auto inImageFormat = inImage->getCreationParameters().format;
-						getFillValueAsFirstBlockOrTexel(inImage.get());
-
-						tests[0] = std::make_unique<CFlattenRegionsImageFilterTest>
-						(
-							std::move(inImage),
-							this,
-							true,
-							fillColorValue,
-							"CFlattenRegionsImageFilter_0.dds"
-						);
-					}
-				}
-
-				// Test 1: Non BC format with prefill
-				{
-					const char* path = "../../media/colorexr.exr";
-					auto inImage = loadImage(path);
-
-					if (inImage)
-					{
-						const auto inImageFormat = inImage->getCreationParameters().format;
-						getFillValueAsFirstBlockOrTexel(inImage.get());
-
-						tests[1] = std::make_unique<CFlattenRegionsImageFilterTest>
-						(
-							std::move(inImage),
-							this,
-							true,
-							fillColorValue,
-							"CFlattenRegionsImageFilter_1.exr"
-						);
-					}
-				}
-
-				// Test 2: BC format without prefill
-				{
-					const char* path = "../../media/GLI/kueken7_rgba_dxt5_unorm.dds";
-					auto inImage = loadImage(path);
-				
-					if (inImage)
-					{
-						tests[2] = std::make_unique<CFlattenRegionsImageFilterTest>
-						(
-							std::move(inImage),
-							this,
-							false,
-							asset::IImageFilter::IState::ColorValue(),
-							"CFlattenRegionsImageFilter_2.dds"
-						);
-					}
-				}
-
-				// Test 3: Non BC format without prefill
-				{
-					const char* path = "../../media/color_space_test/R8G8B8_2.jpg";
-					auto inImage = loadImage(path);
-
-					if (inImage)
-					{
-						tests[3] = std::make_unique<CFlattenRegionsImageFilterTest>
-						(
-							std::move(inImage),
-							this,
-							false,
-							asset::IImageFilter::IState::ColorValue(),
-							"CFlattenRegionsImageFilter_3.jpg"
-						);
-					}
-				}
-
-				runTests(TestCount, tests);
+				runTests(tests);
 			}
 
 			if (TestSwizzleAndConvertFilter)
 			{
-				m_logger->log("CSwizzleAndConvertImageFilter", system::ILogger::ELL_INFO);
+				m_logger->log("CSwizzleAndConvertImageFilter",ILogger::ELL_INFO);
 
 				constexpr uint32_t TestCount = 6;
 				std::unique_ptr<ITest> tests[TestCount] = { nullptr };
@@ -1226,25 +1095,24 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 					}
 				}
 
-				runTests(TestCount, tests);
+				runTests(tests);
 			}
 
 			if (TestGPUBlitFilter)
 			{
-				using namespace asset;
-
 				m_logger->log("CComputeBlit", system::ILogger::ELL_INFO);
 
 				constexpr uint32_t TestCount = 6;
 				std::unique_ptr<ITest> tests[TestCount] = { nullptr };
 
+#if 0
 				// Test 0: Resize 1D image with Mitchell
 				{
 					const auto layerCount = 10;
 					const core::vectorSIMDu32 inImageDim(59u, 1u, 1u, layerCount);
 					const asset::IImage::E_TYPE inImageType = asset::IImage::ET_1D;
 					const asset::E_FORMAT inImageFormat = asset::EF_R32_SFLOAT;
-					auto inImage = createCPUImage(inImageDim, inImageType, inImageFormat, true);
+					auto inImage = createCPUImage(inImageDim, layerCount, inImageType, inImageFormat, true);
 
 					if (inImage)
 					{
@@ -1455,11 +1323,12 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 				}
 
 				runTests(TestCount, tests);
+#endif
 			}
 
 			if (TestRegionBlockFunctorFilter)
 			{
-				m_logger->log("CRegionBlockFunctorFilter", system::ILogger::ELL_INFO);
+				m_logger->log("CRegionBlockFunctorFilter",ILogger::ELL_INFO);
 
 				constexpr uint32_t TestCount = 1;
 				std::unique_ptr<ITest> tests[TestCount] = { nullptr };
@@ -1471,9 +1340,9 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 						tests[0] = std::make_unique<CRegionBlockFunctorFilterTest>(std::move(inImage), this, "CRegionBlockFunctorFilter_0.dds");
 				}
 
-				runTests(TestCount, tests);
+				runTests(tests);
 			}
-#endif
+
 			return true;
 		}
 
@@ -1509,81 +1378,6 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 		}
 
 	private:
-#if 0
-		// dims[3] is layer count
-		smart_refctd_ptr<ICPUImage> createCPUImage(const core::vectorSIMDu32& dims, const asset::IImage::E_TYPE imageType, const asset::E_FORMAT format, const bool fillWithTestData = false)
-		{
-			IImage::SCreationParams imageParams = {};
-			imageParams.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(asset::IImage::ECF_MUTABLE_FORMAT_BIT | asset::IImage::ECF_EXTENDED_USAGE_BIT);
-			imageParams.type = imageType;
-			imageParams.format = format;
-			imageParams.extent = { dims[0], dims[1], dims[2] };
-			imageParams.mipLevels = 1;
-			imageParams.arrayLayers = dims[3];
-			imageParams.samples = asset::ICPUImage::ESCF_1_BIT;
-			imageParams.usage = asset::IImage::EUF_SAMPLED_BIT;
-
-			auto imageRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<asset::IImage::SBufferCopy>>(1ull);
-			auto& region = (*imageRegions)[0];
-			region.bufferImageHeight = 0u;
-			region.bufferOffset = 0ull;
-			region.bufferRowLength = dims[0];
-			region.imageExtent = { dims[0], dims[1], dims[2] };
-			region.imageOffset = { 0u, 0u, 0u };
-			region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
-			region.imageSubresource.baseArrayLayer = 0u;
-			region.imageSubresource.layerCount = imageParams.arrayLayers;
-			region.imageSubresource.mipLevel = 0;
-
-			size_t bufferSize = imageParams.arrayLayers * asset::getTexelOrBlockBytesize(imageParams.format) * static_cast<size_t>(region.imageExtent.width) * region.imageExtent.height * region.imageExtent.depth;
-			auto imageBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(bufferSize);
-
-			core::smart_refctd_ptr<ICPUImage> image = ICPUImage::create(std::move(imageParams));
-			if (!image)
-			{
-				m_logger->log("Failed to create a CPU image", system::ILogger::ELL_ERROR);
-				return nullptr;
-			}
-
-			image->setBufferAndRegions(core::smart_refctd_ptr(imageBuffer), imageRegions);
-
-			if (fillWithTestData)
-			{
-				double pixelValueUpperBound = 20.0;
-				if (asset::isNormalizedFormat(format) || format == asset::EF_B10G11R11_UFLOAT_PACK32)
-					pixelValueUpperBound = 1.00000000001;
-
-				std::uniform_real_distribution<double> dist(0.0, pixelValueUpperBound);
-				std::mt19937 prng;
-
-				uint8_t* bytePtr = reinterpret_cast<uint8_t*>(image->getBuffer()->getPointer());
-				const auto layerSize = bufferSize / imageParams.arrayLayers;
-
-				double dummyVal = 1.0;
-				for (auto layer = 0; layer < image->getCreationParameters().arrayLayers; ++layer)
-				{
-					for (uint64_t k = 0u; k < dims[2]; ++k)
-					{
-						for (uint64_t j = 0u; j < dims[1]; ++j)
-						{
-							for (uint64_t i = 0; i < dims[0]; ++i)
-							{
-								double decodedPixel[4] = { 0 };
-								for (uint32_t ch = 0u; ch < asset::getFormatChannelCount(format); ++ch)
-									decodedPixel[ch] = dist(prng);
-
-								const uint64_t pixelIndex = (k * dims[1] * dims[0]) + (j * dims[0]) + i;
-								asset::encodePixelsRuntime(format, bytePtr + layer * layerSize + pixelIndex * asset::getTexelOrBlockBytesize(format), decodedPixel);
-							}
-						}
-					}
-				}
-			}
-
-			return image;
-		}
-#endif
-
 		smart_refctd_ptr<IAssetManager> assetManager;
 		IQueue* queue;
 		smart_refctd_ptr<IGPUCommandPool> commandPool;
