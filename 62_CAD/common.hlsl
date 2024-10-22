@@ -1,11 +1,30 @@
 #ifndef _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 #define _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 
+#include <nbl/builtin/hlsl/portable/float64_t.hlsl>
+#include <nbl/builtin/hlsl/portable/vector_t.hlsl>
+#include <nbl/builtin/hlsl/portable/matrix_t.hlsl>
 #include <nbl/builtin/hlsl/limits.hlsl>
 #include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #ifdef __HLSL_VERSION
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
+#include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
+#endif
+
+using namespace nbl::hlsl;
+
+// because we can't use jit/device_capabilities.hlsl in c++ code
+#ifdef __HLSL_VERSION
+using cpp_hlsl_portable_float64_t = portable_float64_t<jit::device_capabilities>;
+using cpp_hlsl_portable_float64_t2 = portable_float64_t2<jit::device_capabilities>;
+using cpp_hlsl_portable_float64_t3 = portable_float64_t3<jit::device_capabilities>;
+using cpp_hlsl_portable_float64_t3x3 = portable_float64_t3x3<jit::device_capabilities>;
+#else
+using cpp_hlsl_portable_float64_t = float64_t;
+using cpp_hlsl_portable_float64_t2 = nbl::hlsl::vector<float64_t, 2>;
+using cpp_hlsl_portable_float64_t3 = nbl::hlsl::vector<float64_t, 3>;
+using cpp_hlsl_portable_float64_t3x3 = portable_float64_t3x3<>;
 #endif
 
 enum class ObjectType : uint32_t
@@ -41,14 +60,14 @@ struct DrawObject
 
 struct LinePointInfo
 {
-    float64_t2 p;
+    cpp_hlsl_portable_float64_t2 p;
     float32_t phaseShift;
     float32_t stretchValue;
 };
 
 struct QuadraticBezierInfo
 {
-    nbl::hlsl::shapes::QuadraticBezier<float64_t> shape; // 48bytes = 3 (control points) x 16 (float64_t2)
+    shapes::QuadraticBezier<cpp_hlsl_portable_float64_t> shape; // 48bytes = 3 (control points) x 16 (emulated_float64_t)
     float32_t phaseShift;
     float32_t stretchValue;
 };
@@ -58,7 +77,7 @@ static_assert(offsetof(QuadraticBezierInfo, phaseShift) == 48u);
 
 struct GlyphInfo
 {
-    float64_t2 topLeft; // 2 * 8 = 16 bytes
+    cpp_hlsl_portable_float64_t2 topLeft; // 2 * 8 = 16 bytes
     float32_t2 dirU; // 2 * 4 = 8 bytes (24)
     float32_t aspectRatio; // 4 bytes (32)
     // unorm8 minU;
@@ -67,12 +86,12 @@ struct GlyphInfo
     uint32_t minUV_textureID_packed; // 4 bytes (36)
     
 #ifndef __HLSL_VERSION
-    GlyphInfo(float64_t2 topLeft, float32_t2 dirU, float32_t aspectRatio, uint16_t textureId, float32_t2 minUV) :
+    GlyphInfo(cpp_hlsl_portable_float64_t2 topLeft, float32_t2 dirU, float32_t aspectRatio, uint16_t textureId, float32_t2 minUV) :
         topLeft(topLeft),
         dirU(dirU),
         aspectRatio(aspectRatio)
     {
-        assert(textureId < nbl::hlsl::numeric_limits<uint16_t>::max);
+        assert(textureId < numeric_limits<uint16_t>::max);
         packMinUV_TextureID(minUV, textureId);
     }
 #endif
@@ -89,20 +108,20 @@ struct GlyphInfo
     float32_t2 getMinUV()
     {
         return float32_t2(
-            float32_t(nbl::hlsl::glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 16, 8)) / 255.0,
-            float32_t(nbl::hlsl::glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 24, 8)) / 255.0
+            float32_t(glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 16, 8)) / 255.0,
+            float32_t(glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 24, 8)) / 255.0
         );
     }
 
     uint16_t getTextureID()
     {
-        return uint16_t(nbl::hlsl::glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 0, 16));
+        return uint16_t(glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 0, 16));
     }
 };
 
 struct ImageObjectInfo
 {
-    float64_t2 topLeft; // 2 * 8 = 16 bytes (16)
+    cpp_hlsl_portable_float64_t2 topLeft; // 2 * 8 = 16 bytes (16)
     float32_t2 dirU; // 2 * 4 = 8 bytes (24)
     float32_t aspectRatio; // 4 bytes (28)
     uint32_t textureID; // 4 bytes (32)
@@ -142,7 +161,7 @@ static float32_t3 unpackR11G11B10_UNORM(uint32_t packed)
 
 struct PolylineConnector
 {
-    float64_t2 circleCenter;
+    cpp_hlsl_portable_float64_t2 circleCenter;
     float32_t2 v;
     float32_t cosAngleDifferenceHalf;
     float32_t _reserved_pad;
@@ -152,8 +171,8 @@ struct PolylineConnector
 struct CurveBox
 {
     // will get transformed in the vertex shader, and will be calculated on the cpu when generating these boxes
-    float64_t2 aabbMin; // 16
-    float64_t2 aabbMax; // 32 , TODO: we know it's a square/box -> we save 8 bytes if we needed to store extra data
+    cpp_hlsl_portable_float64_t2 aabbMin; // 16
+    cpp_hlsl_portable_float64_t2 aabbMax; // 32 , TODO: we know it's a square/box -> we save 8 bytes if we needed to store extra data
     float32_t2 curveMin[3]; // 56
     float32_t2 curveMax[3]; // 80
 };
@@ -170,7 +189,7 @@ static_assert(sizeof(CurveBox) == 80u);
 //      of course we could have the clip values to be in world units and also the matrix to transform to world instead of ndc but that requires extra computations(matrix multiplications) per vertex
 struct ClipProjectionData
 {
-    float64_t3x3 projectionToNDC; // 72 -> because we use scalar_layout
+    cpp_hlsl_portable_float64_t3x3 projectionToNDC; // 72 -> because we use scalar_layout
     float32_t2 minClipNDC; // 80
     float32_t2 maxClipNDC; // 88
 };
@@ -184,8 +203,8 @@ static_assert(offsetof(ClipProjectionData, maxClipNDC) == 80u);
 struct Globals
 {
     ClipProjectionData defaultClipProjection; // 88
-    double screenToWorldRatio; // 96
-    double worldToScreenRatio; // 100
+    cpp_hlsl_portable_float64_t screenToWorldRatio; // 96
+    cpp_hlsl_portable_float64_t worldToScreenRatio; // 100
     uint32_t2 resolution; // 108
     float antiAliasingFactor; // 112
     float miterLimit; // 116
@@ -202,7 +221,7 @@ static_assert(offsetof(Globals, miterLimit) == 116u);
 #endif
 
 NBL_CONSTEXPR uint32_t InvalidRigidSegmentIndex = 0xffffffff;
-NBL_CONSTEXPR float InvalidStyleStretchValue = nbl::hlsl::numeric_limits<float>::infinity;
+NBL_CONSTEXPR float InvalidStyleStretchValue = numeric_limits<float>::infinity;
 
 struct LineStyle
 {
@@ -283,8 +302,8 @@ NBL_CONSTEXPR uint32_t AlphaBits = 32u - MainObjectIdxBits;
 NBL_CONSTEXPR uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
 NBL_CONSTEXPR uint32_t InvalidStyleIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
 NBL_CONSTEXPR uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
-NBL_CONSTEXPR uint64_t InvalidClipProjectionAddress = nbl::hlsl::numeric_limits<uint64_t>::max;
-NBL_CONSTEXPR uint32_t InvalidTextureIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
+NBL_CONSTEXPR uint64_t InvalidClipProjectionAddress = numeric_limits<uint64_t>::max;
+NBL_CONSTEXPR uint32_t InvalidTextureIdx = numeric_limits<uint32_t>::max;
 NBL_CONSTEXPR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
 // TODO: get automatic version working on HLSL
 NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1 - (uint32_t) SelectedMajorAxis);
@@ -295,26 +314,26 @@ NBL_CONSTEXPR float HatchFillMSDFSceenSpaceSize = 8.0;
 
 #ifdef __HLSL_VERSION
 
-// TODO: Use these in C++ as well once nbl::hlsl::numeric_limits<uint32_t> compiles on C++
+// TODO: Use these in C++ as well once numeric_limits<uint32_t> compiles on C++
 float32_t2 unpackCurveBoxUnorm(uint32_t2 value)
 {
-    return float32_t2(value) / float32_t(nbl::hlsl::numeric_limits<uint32_t>::max);
+    return float32_t2(value) / float32_t(numeric_limits<uint32_t>::max);
 }
 
 float32_t2 unpackCurveBoxSnorm(int32_t2 value)
 {
-    return float32_t2(value) / float32_t(nbl::hlsl::numeric_limits<int32_t>::max);
+    return float32_t2(value) / float32_t(numeric_limits<int32_t>::max);
 }
 
 
 uint32_t2 packCurveBoxUnorm(float32_t2 value)
 {
-    return value * float32_t(nbl::hlsl::numeric_limits<uint32_t>::max);
+    return value * float32_t(numeric_limits<uint32_t>::max);
 }
 
 int32_t2 packCurveBoxSnorm(float32_t2 value)
 {
-    return value * float32_t(nbl::hlsl::numeric_limits<int32_t>::max);
+    return value * float32_t(numeric_limits<int32_t>::max);
 }
 
 // TODO: Remove these two when we include our builtin shaders
@@ -349,7 +368,7 @@ struct PrecomputedRootFinder
         return result;
     }
 
-    static PrecomputedRootFinder construct(nbl::hlsl::math::equations::Quadratic<float_t> quadratic)
+    static PrecomputedRootFinder construct(math::equations::Quadratic<float_t> quadratic)
     {
         PrecomputedRootFinder result;
         result.C2 = quadratic.c * 2.0;
@@ -401,25 +420,25 @@ struct PSInput
     void setLineEnd(float2 lineEnd) { data2.zw = lineEnd; }
     
     /* QUAD_BEZIER */
-    nbl::hlsl::shapes::Quadratic<float> getQuadratic()
+    shapes::Quadratic<float> getQuadratic()
     {
-        return nbl::hlsl::shapes::Quadratic<float>::construct(data2.xy, data2.zw, data3.xy);
+        return shapes::Quadratic<float>::construct(data2.xy, data2.zw, data3.xy);
     }
-    void setQuadratic(nbl::hlsl::shapes::Quadratic<float> quadratic)
+    void setQuadratic(shapes::Quadratic<float> quadratic)
     {
         data2.xy = quadratic.A;
         data2.zw = quadratic.B;
         data3.xy = quadratic.C;
     }
     
-    void setQuadraticPrecomputedArcLenData(nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator preCompData) 
+    void setQuadraticPrecomputedArcLenData(shapes::Quadratic<float>::ArcLengthCalculator preCompData) 
     {
         data3.zw = float2(preCompData.lenA2, preCompData.AdotB);
         data4 = float4(preCompData.a, preCompData.b, preCompData.c, preCompData.b_over_4a);
     }
-    nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator getQuadraticArcLengthCalculator()
+    shapes::Quadratic<float>::ArcLengthCalculator getQuadraticArcLengthCalculator()
     {
-        return nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
+        return shapes::Quadratic<float>::ArcLengthCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
     }
     
     /* CURVE_BOX */
@@ -429,38 +448,38 @@ struct PSInput
     // TODO: possible optimization: passing precomputed values for solving the quadratic equation instead
 
     // data2, data3, data4
-    nbl::hlsl::math::equations::Quadratic<float> getCurveMinMinor() {
-        return nbl::hlsl::math::equations::Quadratic<float>::construct(data2.x, data2.y, data2.z);
+    math::equations::Quadratic<float> getCurveMinMinor() {
+        return math::equations::Quadratic<float>::construct(data2.x, data2.y, data2.z);
     }
-    nbl::hlsl::math::equations::Quadratic<float> getCurveMaxMinor() {
-        return nbl::hlsl::math::equations::Quadratic<float>::construct(data2.w, data3.x, data3.y);
+    math::equations::Quadratic<float> getCurveMaxMinor() {
+        return math::equations::Quadratic<float>::construct(data2.w, data3.x, data3.y);
     }
 
-    void setCurveMinMinor(nbl::hlsl::math::equations::Quadratic<float> bezier) {
+    void setCurveMinMinor(math::equations::Quadratic<float> bezier) {
         data2.x = bezier.a;
         data2.y = bezier.b;
         data2.z = bezier.c;
     }
-    void setCurveMaxMinor(nbl::hlsl::math::equations::Quadratic<float> bezier) {
+    void setCurveMaxMinor(math::equations::Quadratic<float> bezier) {
         data2.w = bezier.a;
         data3.x = bezier.b;
         data3.y = bezier.c;
     }
 
     // data4
-    nbl::hlsl::math::equations::Quadratic<float> getCurveMinMajor() {
-        return nbl::hlsl::math::equations::Quadratic<float>::construct(data4.x, data4.y, data3.z);
+    math::equations::Quadratic<float> getCurveMinMajor() {
+        return math::equations::Quadratic<float>::construct(data4.x, data4.y, data3.z);
     }
-    nbl::hlsl::math::equations::Quadratic<float> getCurveMaxMajor() {
-        return nbl::hlsl::math::equations::Quadratic<float>::construct(data4.z, data4.w, data3.w);
+    math::equations::Quadratic<float> getCurveMaxMajor() {
+        return math::equations::Quadratic<float>::construct(data4.z, data4.w, data3.w);
     }
 
-    void setCurveMinMajor(nbl::hlsl::math::equations::Quadratic<float> bezier) {
+    void setCurveMinMajor(math::equations::Quadratic<float> bezier) {
         data4.x = bezier.a;
         data4.y = bezier.b;
         data3.z = bezier.c;
     }
-    void setCurveMaxMajor(nbl::hlsl::math::equations::Quadratic<float> bezier) {
+    void setCurveMaxMajor(math::equations::Quadratic<float> bezier) {
         data4.z = bezier.a;
         data4.w = bezier.b;
         data3.w = bezier.c;
