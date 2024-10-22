@@ -19,7 +19,7 @@
 #endif
 
 [[vk::push_constant]] PushConstantData pushConstants;
-[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2DArray<complex_t<scalar_t> > kernelChannels;
+[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2DArray<vector<scalar_t, 2> > kernelChannels;
 [[vk::combinedImageSampler]] [[vk::binding(0, 0)]] SamplerState samplerState;
 
 #define FFT_LENGTH (_NBL_HLSL_WORKGROUP_SIZE_ * ELEMENTS_PER_THREAD)
@@ -171,21 +171,15 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase
 				const uint32_t left = floor(kernelSize.x * zeroNyquistU);
 				const uint32_t right = left + 1;
 
-				const complex_t<scalar_t> zeroKernelLeft = kernelChannels.Load(uint32_t4(left, 0, channel, 0));
-				const complex_t<scalar_t> zeroKernelRight = kernelChannels.Load(uint32_t4(right, 0, channel, 0));
-				// Very annoying that I can't directly lerp complex_t, or even bit_cast
-				const float32_t2 zeroKernelLeftVector = { zeroKernelLeft.real(), zeroKernelLeft.imag() };
-				const float32_t2 zeroKernelRightVector = { zeroKernelRight.real(), zeroKernelRight.imag() };
+				const float32_t2 zeroKernelLeftVector = kernelChannels.Load(uint32_t4(left, 0, channel, 0));
+				const float32_t2 zeroKernelRightVector = kernelChannels.Load(uint32_t4(right, 0, channel, 0));
 				const float32_t2 zeroKernelVector = lerp(zeroKernelLeftVector, zeroKernelRightVector, frac(kernelSize.x * zeroNyquistU));
 				const complex_t<float32_t> zeroKernel = { zeroKernelVector.x, zeroKernelVector.y };
 				zero = zero * zeroKernel;
 
 				// Do the same for the nyquist coord
-				const complex_t<scalar_t> nyquistKernelLeft = kernelChannels.Load(uint32_t4(left, glsl::gl_NumWorkGroups().x, channel, 0));
-				const complex_t<scalar_t> nyquistKernelRight = kernelChannels.Load(uint32_t4(right, glsl::gl_NumWorkGroups().x, channel, 0));
-				// Same annoyance
-				const float32_t2 nyquistKernelLeftVector = { nyquistKernelLeft.real(), nyquistKernelLeft.imag() };
-				const float32_t2 nyquistKernelRightVector = { nyquistKernelRight.real(), nyquistKernelRight.imag() };
+				const float32_t2 nyquistKernelLeftVector = kernelChannels.Load(uint32_t4(left, glsl::gl_NumWorkGroups().x, channel, 0));
+				const float32_t2 nyquistKernelRightVector = kernelChannels.Load(uint32_t4(right, glsl::gl_NumWorkGroups().x, channel, 0));
 				const float32_t2 nyquistKernelVector = lerp(nyquistKernelLeftVector, nyquistKernelRightVector, frac(kernelSize.x * zeroNyquistU));
 				const complex_t<float32_t> nyquistKernel = { nyquistKernelVector.x, nyquistKernelVector.y };
 				nyquist = nyquist * nyquistKernel;
@@ -204,7 +198,9 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase
 				const uint32_t y = glsl::bitfieldReverse<uint32_t>(glsl::gl_WorkGroupID().x) >> (32 - bits);
 				const uint32_t2 texCoords = uint32_t2(indexDFT, y);
 				const float32_t2 uv = texCoords / float32_t2(FFT_LENGTH, 2 * glsl::gl_NumWorkGroups().x) + pushConstants.kernelHalfPixelSize;
-				preloaded[localElementIndex] = preloaded[localElementIndex] * kernelChannels.Sample(samplerState, float32_t3(uv, channel));
+				const vector<scalar_t, 2> sampledKernelVector = kernelChannels.Sample(samplerState, float32_t3(uv, channel));
+				const complex_t<scalar_t> sampledKernel = { sampledKernelVector.x, sampledKernelVector.y };
+				preloaded[localElementIndex] = preloaded[localElementIndex] * sampledKernel;
 			}
 		}
 	}

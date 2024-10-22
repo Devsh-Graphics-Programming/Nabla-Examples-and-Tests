@@ -22,7 +22,7 @@
 #define IMAGE_SIDE_LENGTH (_NBL_HLSL_WORKGROUP_SIZE_ * ELEMENTS_PER_THREAD)
 
 [[vk::push_constant]] PushConstantData pushConstants;
-[[vk::binding(0, 0)]] RWTexture2DArray<complex_t<scalar_t> > kernelChannels;
+[[vk::binding(0, 0)]] RWTexture2DArray<vector<scalar_t, 2> > kernelChannels;
 
 groupshared uint32_t sharedmem[workgroup::fft::SharedMemoryDWORDs<scalar_t, _NBL_HLSL_WORKGROUP_SIZE_>];
 
@@ -75,13 +75,15 @@ void normalize(uint32_t channel)
 			const uint32_t2 zeroCoord = uint32_t2(indexDFT, 0);
 			complex_t<scalar_t> shift = { indexDFT & 1 ? scalar_t(-1) : scalar_t(1), scalar_t(0) };
 			zero = (shift * zero) / power;
-			kernelChannels[uint32_t3(zeroCoord, channel)] = zero;
+			vector<scalar_t, 2> zeroVector = { zero.real(), zero.imag() };
+			kernelChannels[uint32_t3(zeroCoord, channel)] = zeroVector;
 
 			// Store nyquist element
 			const uint32_t2 nyquistCoord = uint32_t2(indexDFT, IMAGE_SIDE_LENGTH / 2);
 			// IMAGE_SIDE_LENGTH / 2 is even, so indexDFT + IMAGE_SIDE_LENGTH / 2 is even iff indexDFT is even, which then means the shift factor stays the same
 			nyquist = (shift * nyquist) / power;
-			kernelChannels[uint32_t3(nyquistCoord, channel)] = nyquist;
+			vector<scalar_t, 2> nyquistVector = { nyquist.real(), nyquist.imag() };
+			kernelChannels[uint32_t3(nyquistCoord, channel)] = nyquistVector;
 		}
 	}
 	// The other rows have easier rules: They have to reflect their values along the Nyquist row
@@ -104,14 +106,18 @@ void normalize(uint32_t channel)
 			// Store the element 
 			const complex_t<scalar_t> shift = polar(scalar_t(1), - numbers::pi<scalar_t> * scalar_t(x + y));
 			toStore = (shift * toStore) / power;
-			kernelChannels[uint32_t3(x, y, channel)] = toStore;
+			vector<scalar_t, 2> toStoreVector = { toStore.real(), toStore.imag() };
+			kernelChannels[uint32_t3(x, y, channel)] = toStoreVector;
 
 			// Store the element at the column mirrored about the Nyquist column (so x'' = mirror(x))
 			// https://en.wikipedia.org/wiki/Discrete_Fourier_transform#Conjugation_in_time
 			// Guess what? The above says the row index is also the mirror about Nyquist! Neat
 			x = workgroup::fft::mirror<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(x);
 			y = workgroup::fft::mirror<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(y);
-			kernelChannels[uint32_t3(x, y, channel)] = conj(toStore);
+			const complex_t<scalar_t> conjugated = conj(toStore);
+			toStoreVector.x = conjugated.real();
+			toStoreVector.y = conjugated.imag();
+			kernelChannels[uint32_t3(x, y, channel)] = toStoreVector;
 		}
 	}
 }
