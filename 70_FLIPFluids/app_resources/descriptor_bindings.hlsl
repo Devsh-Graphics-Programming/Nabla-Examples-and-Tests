@@ -71,13 +71,50 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding gpvGenVertices_bs1[] = {
 NBL_CONSTEXPR uint32_t s_ufc = 1;
 NBL_CONSTEXPR uint32_t b_ufcGridData = 0;
 NBL_CONSTEXPR uint32_t b_ufcPBuffer = 1;
-NBL_CONSTEXPR uint32_t b_ufcGridIDBuffer = 2;
+NBL_CONSTEXPR uint32_t b_ufcGridPCountBuffer = 2;
 NBL_CONSTEXPR uint32_t b_ufcCMInBuffer = 3;
 NBL_CONSTEXPR uint32_t b_ufcCMOutBuffer = 4;
 NBL_CONSTEXPR uint32_t b_ufcVelBuffer = 5;
 NBL_CONSTEXPR uint32_t b_ufcPrevVelBuffer = 6;
 
 #ifndef __HLSL_VERSION
+NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding ufcAccWeights_bs1[] = {
+    {
+        .binding = b_ufcGridData,
+        .type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
+        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+        .count = 1,
+    },
+    {
+        .binding = b_ufcPBuffer,
+        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+        .count = 1,
+    },
+    {
+        .binding = b_ufcGridPCountBuffer,
+        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+        .count = 1,
+    },
+    {
+        .binding = b_ufcVelBuffer,
+        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+        .count = 3,
+    },
+    {
+        .binding = b_ufcPrevVelBuffer,
+        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+        .count = 3,
+    }
+};
 NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding ufcFluidCell_bs1[] = {
     {
         .binding = b_ufcGridData,
@@ -87,8 +124,8 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding ufcFluidCell_bs1[] = {
         .count = 1,
     },
     {
-        .binding = b_ufcGridIDBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+        .binding = b_ufcGridPCountBuffer,
+        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,
@@ -118,36 +155,6 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding ufcNeighborCell_bs1[] = {
     },
     {
         .binding = b_ufcCMOutBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    }
-};
-NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding ufcParticleToCell_bs1[] = {
-    {
-        .binding = b_ufcGridData,
-        .type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    },
-    {
-        .binding = b_ufcPBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    },
-    {
-        .binding = b_ufcGridIDBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    },
-    {
-        .binding = b_ufcCMInBuffer,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,

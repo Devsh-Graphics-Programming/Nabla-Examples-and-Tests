@@ -1,7 +1,6 @@
 #include "../common.hlsl"
 #include "../gridUtils.hlsl"
 #include "../cellUtils.hlsl"
-#include "../kernel.hlsl"
 #include "../descriptor_bindings.hlsl"
 
 [[vk::binding(b_ufcGridData, s_ufc)]]
@@ -11,7 +10,7 @@ cbuffer GridData
 };
 
 [[vk::binding(b_ufcPBuffer, s_ufc)]]        RWStructuredBuffer<Particle> particleBuffer;
-[[vk::binding(b_ufcGridIDBuffer, s_ufc)]]   RWStructuredBuffer<uint2> gridParticleIDBuffer;
+[[vk::binding(b_ufcGridPCountBuffer, s_ufc)]]   RWTexture3D<uint> gridParticleCountBuffer;
 
 [[vk::binding(b_ufcCMInBuffer, s_ufc)]]     RWTexture3D<uint> cellMaterialInBuffer;
 [[vk::binding(b_ufcCMOutBuffer, s_ufc)]]    RWTexture3D<uint> cellMaterialOutBuffer;
@@ -19,36 +18,21 @@ cbuffer GridData
 [[vk::binding(b_ufcVelBuffer, s_ufc)]]      RWTexture3D<float> velocityFieldBuffer[3];
 [[vk::binding(b_ufcPrevVelBuffer, s_ufc)]]  RWTexture3D<float> prevVelocityFieldBuffer[3];
 
-static const int kernel[6] = { -1, 1, -1, 1, -1, 1 };
-
-// big change!
-// new kernel here: thread per particle, add particle velocity * weight to velocity fields
-// each particle contributes to 7 cells: own cell + 6 neighbors
-// store weights in new grid as well, particle velocity weights
-// do final velocity weight in updateFluidCells
-
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
 void updateFluidCells(uint32_t3 ID : SV_DispatchThreadID)
 {
-    // uint tid = ID.x;
-    // int3 cIdx = flatIdxToCellIdx(tid, gridData.gridSize);
     int3 cIdx = ID;
-    uint tid = cellIdxToFlatIdx(cIdx, gridData.gridSize);
 
-    uint2 pid = gridParticleIDBuffer[tid];  // will be removed, use new weights buffer to determine if fluid vs air
+    uint count = gridParticleCountBuffer[cIdx];
     uint thisCellMaterial =
         isSolidCell(cellIdxToWorldPos(cIdx, gridData)) ? CM_SOLID :
-        pid.y - pid.x > 0 ? CM_FLUID :
+        count > 0 ? CM_FLUID :
         CM_AIR;
 
     uint cellMaterial = 0;
     setCellMaterial(cellMaterial, thisCellMaterial);
 
     cellMaterialOutBuffer[cIdx] = cellMaterial;
-
-    // do final velocity weight here, after sync
-    // float3 velocity = select(totalWeight > 0, totalVel / max(totalWeight, FLT_MIN), 0.0f);
-    // enforceBoundaryCondition(velocity, cellMaterialInBuffer[tid]);
 }
 
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
@@ -79,47 +63,22 @@ void updateNeighborFluidCells(uint32_t3 ID : SV_DispatchThreadID)
     setZNextMaterial(cellMaterial, znCm);
 
     cellMaterialOutBuffer[cIdx] = cellMaterial;
-}
 
-[numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
-void addParticlesToCells(uint32_t3 ID : SV_DispatchThreadID)
-{
-    int3 cIdx = ID;
+    GroupMemoryBarrierWithGroupSync();
 
-    float3 position = cellIdxToWorldPos(cIdx, gridData);
-    float3 posvx = position + float3(-0.5f * gridData.gridCellSize, 0.0f, 0.0f);
-    float3 posvy = position + float3(0.0f, -0.5f * gridData.gridCellSize, 0.0f);
-    float3 posvz = position + float3(0.0f, 0.0f, -0.5f * gridData.gridCellSize);
+    // do final velocity weight here, after sync
+    float3 totalVelocity;
+    totalVelocity.x = velocityFieldBuffer[0][cIdx];
+    totalVelocity.y = velocityFieldBuffer[1][cIdx];
+    totalVelocity.z = velocityFieldBuffer[2][cIdx];
 
-    float3 totalWeight = 0;
-    float3 totalVel = 0;
+    float3 totalWeight;
+    totalWeight.x = prevVelocityFieldBuffer[0][cIdx];
+    totalWeight.y = prevVelocityFieldBuffer[1][cIdx];
+    totalWeight.z = prevVelocityFieldBuffer[2][cIdx];
 
-    for (int i = max(cIdx.x - 1, 0); i <= min(cIdx.x + 1, gridData.gridSize.x - 1); i++)
-    {
-        for (int j = max(cIdx.y - 1, 0); j <= min(cIdx.y + 1, gridData.gridSize.y - 1); j++)
-        {
-            for (int k = max(cIdx.z - 1, 0); k <= min(cIdx.z + 1, gridData.gridSize.z - 1); k++)
-            {
-                uint2 idx = gridParticleIDBuffer[cellIdxToFlatIdx(int3(i, j, k), gridData.gridSize)];
-                for (uint pid = idx.x; pid < idx.y; pid++)
-                {
-                    Particle p = particleBuffer[pid];
-                    
-                    float3 weight;
-                    weight.x = getWeight(p.position.xyz, posvx, gridData.gridInvCellSize);
-                    weight.y = getWeight(p.position.xyz, posvy, gridData.gridInvCellSize);
-                    weight.z = getWeight(p.position.xyz, posvz, gridData.gridInvCellSize);
-
-                    totalWeight += weight;
-                    totalVel += weight * p.velocity.xyz;
-                }
-            }
-        }
-    }
-
-    float3 velocity = select(totalWeight > 0, totalVel / max(totalWeight, FLT_MIN), 0.0f);
-
-    enforceBoundaryCondition(velocity, cellMaterialInBuffer[cIdx]);
+    float3 velocity = select(totalWeight > 0, totalVelocity / max(totalWeight, FLT_MIN), 0.0f);
+    enforceBoundaryCondition(velocity, cellMaterial);
 
     velocityFieldBuffer[0][cIdx] = velocity.x;
     velocityFieldBuffer[1][cIdx] = velocity.y;
