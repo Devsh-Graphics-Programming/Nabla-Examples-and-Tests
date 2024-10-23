@@ -24,62 +24,9 @@ public:
 	Camera() = default;
 	~Camera() = default;
 
-
-	
-	
-	inline void setPosition(const nbl::core::vectorSIMDf& pos)
-	{
-		position.set(pos);
-		recomputeViewMatrix();
-	}
-	
-	inline const nbl::core::vectorSIMDf& getPosition() const { return position; }
-
-	inline void setTarget(const nbl::core::vectorSIMDf& pos) 
-	{
-		target.set(pos);
-		recomputeViewMatrix();
-	}
-
-	inline const nbl::core::vectorSIMDf& getTarget() const { return target; }
-
-	inline void setUpVector(const nbl::core::vectorSIMDf& up) { upVector = up; }
-	
-	inline void setBackupUpVector(const nbl::core::vectorSIMDf& up) { backupUpVector = up; }
-
-	inline const nbl::core::vectorSIMDf& getUpVector() const { return upVector; }
-	
-	inline const nbl::core::vectorSIMDf& getBackupUpVector() const { return backupUpVector; }
-
-	inline const float getMoveSpeed() const { return moveSpeed; }
-
-	inline void setMoveSpeed(const float _moveSpeed) { moveSpeed = _moveSpeed; }
-
-	inline const float getRotateSpeed() const { return rotateSpeed; }
-
-	inline void setRotateSpeed(const float _rotateSpeed) { rotateSpeed = _rotateSpeed; }
-
-	inline void recomputeViewMatrix() 
-	{
-		nbl::core::vectorSIMDf pos = position;
-		nbl::core::vectorSIMDf localTarget = nbl::core::normalize(target - pos);
-
-		// if upvector and vector to the target are the same, we have a
-		// problem. so solve this problem:
-		nbl::core::vectorSIMDf up = nbl::core::normalize(upVector);
-		nbl::core::vectorSIMDf cross = nbl::core::cross(localTarget, up);
-		bool upVectorNeedsChange = nbl::core::lengthsquared(cross)[0] == 0;
-		if (upVectorNeedsChange)
-			up = nbl::core::normalize(backupUpVector);
-
-		if (leftHanded)
-			viewMatrix = nbl::core::matrix3x4SIMD::buildCameraLookAtMatrixLH(pos, target, up);
-		else
-			viewMatrix = nbl::core::matrix3x4SIMD::buildCameraLookAtMatrixRH(pos, target, up);
-		concatMatrix = nbl::core::matrix4SIMD::concatenateBFollowedByAPrecisely(projMatrix, nbl::core::matrix4SIMD(viewMatrix));
-	}
-
-	inline bool getLeftHanded() const { return leftHanded; }
+	/*
+		TODO: controller + gimbal to do all of this -> override virtual manipulate method
+	*/
 
 public:
 
@@ -257,21 +204,6 @@ private:
 
 		mouseDown = false;
 	}
-
-private:
-	nbl::core::vectorSIMDf initialPosition, initialTarget, position, target, upVector, backupUpVector; // TODO: make first 2 const + add default copy constructor
-	nbl::core::matrix3x4SIMD viewMatrix;
-	nbl::core::matrix4SIMD concatMatrix, projMatrix;
-
-	float moveSpeed, rotateSpeed;
-	bool leftHanded, firstUpdate = true, mouseDown = false;
-	
-	std::array<nbl::ui::E_KEY_CODE, ECMK_COUNT> keysMap = { {nbl::ui::EKC_NONE} }; // map camera E_CAMERA_MOVE_KEYS to corresponding Nabla key codes, by default camera uses WSAD to move
-	// TODO: make them use std::array
-	bool keysDown[E_CAMERA_MOVE_KEYS::ECMK_COUNT] = {};
-	double perActionDt[E_CAMERA_MOVE_KEYS::ECMK_COUNT] = {}; // durations for which the key was being held down from lastVirtualUpTimeStamp(=last "guessed" presentation time) to nextPresentationTimeStamp
-
-	std::chrono::microseconds nextPresentationTimeStamp, lastVirtualUpTimeStamp;
 };
 
 #endif // _CAMERA_IMPL_

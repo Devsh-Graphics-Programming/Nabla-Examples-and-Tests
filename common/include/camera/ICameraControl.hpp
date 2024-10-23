@@ -350,6 +350,13 @@ public:
     }
 
 protected:
+
+    inline void setMoveSpeed(const float moveSpeed) { moveSpeed = m_moveSpeed; }
+    inline void setRotateSpeed(const float rotateSpeed) { rotateSpeed = m_rotateSpeed; }
+
+    inline const float getMoveSpeed() const { return m_moveSpeed; }
+    inline const float getRotateSpeed() const { return m_rotateSpeed; }
+
     std::array<std::vector<ui::E_KEY_CODE>, EventsCount> m_keysToEvent = {};
 
     // speed factors
