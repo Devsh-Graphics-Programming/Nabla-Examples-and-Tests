@@ -11,70 +11,21 @@
 #include <fstream>
 #include <chrono>
 
-class Camera 
+#include "camera/ICameraControl.hpp"
+
+// FPS Camera, we will have more types soon
+
+template<ProjectionMatrix T = float64_t4x4>
+class Camera : public ICameraController<typename T>
 { 
 public:
-	Camera() = default;
-	Camera(const nbl::core::vectorSIMDf& position, const nbl::core::vectorSIMDf& lookat, const nbl::core::matrix4SIMD& projection, float moveSpeed = 1.0f, float rotateSpeed = 1.0f, const nbl::core::vectorSIMDf& upVec = nbl::core::vectorSIMDf(0.0f, 1.0f, 0.0f), const nbl::core::vectorSIMDf& backupUpVec = nbl::core::vectorSIMDf(0.5f, 1.0f, 0.0f)) 
-		: position(position)
-		, initialPosition(position)
-		, target(lookat)
-		, initialTarget(lookat)
-		, firstUpdate(true)
-		, moveSpeed(moveSpeed)
-		, rotateSpeed(rotateSpeed)
-		, upVector(upVec)
-		, backupUpVector(backupUpVec)
-	{
-		initDefaultKeysMap();
-		allKeysUp();
-		setProjectionMatrix(projection);
-		recomputeViewMatrix();
-	}
+	using matrix_t = T;
 
+	Camera() = default;
 	~Camera() = default;
 
-	enum E_CAMERA_MOVE_KEYS : uint8_t
-	{
-		ECMK_MOVE_FORWARD = 0,
-		ECMK_MOVE_BACKWARD,
-		ECMK_MOVE_LEFT,
-		ECMK_MOVE_RIGHT,
-		ECMK_COUNT,
-	};
 
-	inline void mapKeysToWASD()
-	{
-		keysMap[ECMK_MOVE_FORWARD] = nbl::ui::EKC_W;
-		keysMap[ECMK_MOVE_BACKWARD] = nbl::ui::EKC_S;
-		keysMap[ECMK_MOVE_LEFT] = nbl::ui::EKC_A;
-		keysMap[ECMK_MOVE_RIGHT] = nbl::ui::EKC_D;
-	}
-
-	inline void mapKeysToArrows()
-	{
-		keysMap[ECMK_MOVE_FORWARD] = nbl::ui::EKC_UP_ARROW;
-		keysMap[ECMK_MOVE_BACKWARD] = nbl::ui::EKC_DOWN_ARROW;
-		keysMap[ECMK_MOVE_LEFT] = nbl::ui::EKC_LEFT_ARROW;
-		keysMap[ECMK_MOVE_RIGHT] = nbl::ui::EKC_RIGHT_ARROW;
-	}
-
-	inline void mapKeysCustom(std::array<nbl::ui::E_KEY_CODE, ECMK_COUNT>& map) { keysMap = map; }
-
-	inline const nbl::core::matrix4SIMD& getProjectionMatrix() const { return projMatrix; }
-	inline const nbl::core::matrix3x4SIMD& getViewMatrix() const {	return viewMatrix; }
-	inline const nbl::core::matrix4SIMD& getConcatenatedMatrix() const { return concatMatrix; }
-
-	inline void setProjectionMatrix(const nbl::core::matrix4SIMD& projection)
-	{
-		projMatrix = projection;
-
-		const auto hlslMatMap = *reinterpret_cast<const nbl::hlsl::float32_t4x4*>(&projMatrix); // TEMPORARY TILL THE CAMERA CLASS IS REFACTORED TO WORK WITH HLSL MATRICIES!
-		{
-			leftHanded = nbl::hlsl::determinant(hlslMatMap) < 0.f;
-		}
-		concatMatrix = nbl::core::matrix4SIMD::concatenateBFollowedByAPrecisely(projMatrix, nbl::core::matrix4SIMD(viewMatrix));
-	}
+	
 	
 	inline void setPosition(const nbl::core::vectorSIMDf& pos)
 	{
