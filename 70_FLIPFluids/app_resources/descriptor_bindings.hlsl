@@ -383,7 +383,7 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding psDivergence_bs1[] = {
         .count = 1,
     }
 };
-NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding psSolvePressure_bs1[] = {
+NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding psIteratePressure_bs1[] = {
     {
         .binding = b_psGridData,
         .type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
@@ -418,15 +418,52 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding psSolvePressure_bs1[] = {
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,
-    },
-    {
-        .binding = b_psPresOutBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
     }
 };
+// NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding psSolvePressure_bs1[] = {
+//     {
+//         .binding = b_psGridData,
+//         .type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
+//         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+//         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+//         .count = 1,
+//     },
+//     {
+//         .binding = b_psParams,
+//         .type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
+//         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+//         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+//         .count = 1,
+//     },
+//     {
+//         .binding = b_psCMBuffer,
+//         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+//         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+//         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+//         .count = 1,
+//     },
+//     {
+//         .binding = b_psDivBuffer,
+//         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+//         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+//         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+//         .count = 1,
+//     },
+//     {
+//         .binding = b_psPresInBuffer,
+//         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+//         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+//         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+//         .count = 1,
+//     },
+//     {
+//         .binding = b_psPresOutBuffer,
+//         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+//         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+//         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+//         .count = 1,
+//     }
+// };
 NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding psUpdateVelPs_bs1[] = {
     {
         .binding = b_psGridData,
@@ -547,79 +584,6 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding apAdvectParticles_bs1[] = {
     {
         .binding = b_apVelSampler,
         .type = asset::IDescriptor::E_TYPE::ET_SAMPLER,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    }
-};
-#endif
-
-// prepareCellUpdate
-NBL_CONSTEXPR uint32_t s_pcu = 1;
-NBL_CONSTEXPR uint32_t b_pcuGridData = 0;
-NBL_CONSTEXPR uint32_t b_pcuPInBuffer = 1;
-NBL_CONSTEXPR uint32_t b_pcuPOutBuffer = 2;
-NBL_CONSTEXPR uint32_t b_pcuPairBuffer = 3;
-NBL_CONSTEXPR uint32_t b_pcuGridIDBuffer = 4;
-
-#ifndef __HLSL_VERSION
-NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding pcuMakePairs_bs1[] = {
-    {
-        .binding = b_pcuGridData,
-        .type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    },
-    {
-        .binding = b_pcuPInBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    },
-    {
-        .binding = b_pcuPairBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    }
-};
-NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding pcuSetGridID_bs1[] = {
-    {
-        .binding = b_pcuPairBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    },
-    {
-        .binding = b_pcuGridIDBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    }
-};
-NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding pcuShuffle_bs1[] = {
-    {
-        .binding = b_pcuPInBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    },
-    {
-        .binding = b_pcuPOutBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    },
-    {
-        .binding = b_pcuPairBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,

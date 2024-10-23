@@ -833,63 +833,15 @@ public:
             }
         }
         {
-            const std::string entryPoint = "solvePressureSystem";
-            auto shader = compileShader("app_resources/compute/pressureSolver.comp.hlsl", entryPoint);
-
-            auto descriptorSetLayout1 = m_device->createDescriptorSetLayout(psSolvePressure_bs1);
-
-            const std::array<IGPUDescriptorSetLayout*, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> dscLayoutPtrs = {
-                nullptr,
-                descriptorSetLayout1.get()
-            };
-            const uint32_t setCounts[2u] = { 0u, 2u };
-            m_solvePressurePool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()), setCounts);
-            m_solvePressureDs[0] = m_solvePressurePool->createDescriptorSet(descriptorSetLayout1);
-            m_solvePressureDs[1] = m_solvePressurePool->createDescriptorSet(descriptorSetLayout1);
-
-            smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pipelineLayout = m_device->createPipelineLayout({}, nullptr, smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
-
-            IGPUComputePipeline::SCreationParams params = {};
-            params.layout = pipelineLayout.get();
-            params.shader.entryPoint = entryPoint;
-            params.shader.shader = shader.get();
-                
-            m_device->createComputePipelines(nullptr, { &params,1 }, &m_solvePressurePipeline);
+            createComputePipeline(m_iteratePressurePipeline, m_iteratePressurePool, m_iteratePressureDs,
+                "app_resources/compute/pressureSolver.comp.hlsl", "iteratePressureSystem", psIteratePressure_bs1);
 
             {
-                IGPUDescriptorSet::SDescriptorInfo infos[6];
+                IGPUDescriptorSet::SDescriptorInfo infos[5];
                 infos[0].desc = smart_refctd_ptr(gridDataBuffer);
-                infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
+                infos[0].info.buffer = { .offset = 0, .size = gridDataBuffer->getSize() };
                 infos[1].desc = smart_refctd_ptr(pressureParamsBuffer);
-                infos[1].info.buffer = {.offset = 0, .size = pressureParamsBuffer->getSize()};
-                infos[2].desc = gridCellMaterialImageView;
-                infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                infos[2].info.combinedImageSampler.sampler = nullptr;
-                infos[3].desc = divergenceImageView;
-                infos[3].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                infos[3].info.combinedImageSampler.sampler = nullptr;
-                infos[4].desc = tempPressureImageView;
-                infos[4].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                infos[4].info.combinedImageSampler.sampler = nullptr;
-                infos[5].desc = pressureImageView;
-                infos[5].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                infos[5].info.combinedImageSampler.sampler = nullptr;
-                IGPUDescriptorSet::SWriteDescriptorSet writes[6] = {
-                    {.dstSet = m_solvePressureDs[0].get(), .binding = b_psGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-                    {.dstSet = m_solvePressureDs[0].get(), .binding = b_psParams, .arrayElement = 0, .count = 1, .info = &infos[1]},
-                    {.dstSet = m_solvePressureDs[0].get(), .binding = b_psCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
-                    {.dstSet = m_solvePressureDs[0].get(), .binding = b_psDivBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
-                    {.dstSet = m_solvePressureDs[0].get(), .binding = b_psPresInBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
-                    {.dstSet = m_solvePressureDs[0].get(), .binding = b_psPresOutBuffer, .arrayElement = 0, .count = 1, .info = &infos[5]},
-                };
-                m_device->updateDescriptorSets(std::span(writes, 6), {});
-            }
-            {
-                IGPUDescriptorSet::SDescriptorInfo infos[6];
-                infos[0].desc = smart_refctd_ptr(gridDataBuffer);
-                infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
-                infos[1].desc = smart_refctd_ptr(pressureParamsBuffer);
-                infos[1].info.buffer = {.offset = 0, .size = pressureParamsBuffer->getSize()};
+                infos[1].info.buffer = { .offset = 0, .size = pressureParamsBuffer->getSize() };
                 infos[2].desc = gridCellMaterialImageView;
                 infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
                 infos[2].info.combinedImageSampler.sampler = nullptr;
@@ -899,20 +851,97 @@ public:
                 infos[4].desc = pressureImageView;
                 infos[4].info.image.imageLayout = IImage::LAYOUT::GENERAL;
                 infos[4].info.combinedImageSampler.sampler = nullptr;
-                infos[5].desc = tempPressureImageView;
-                infos[5].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                infos[5].info.combinedImageSampler.sampler = nullptr;
-                IGPUDescriptorSet::SWriteDescriptorSet writes[6] = {
-                    {.dstSet = m_solvePressureDs[1].get(), .binding = b_psGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-                    {.dstSet = m_solvePressureDs[1].get(), .binding = b_psParams, .arrayElement = 0, .count = 1, .info = &infos[1]},
-                    {.dstSet = m_solvePressureDs[1].get(), .binding = b_psCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
-                    {.dstSet = m_solvePressureDs[1].get(), .binding = b_psDivBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
-                    {.dstSet = m_solvePressureDs[1].get(), .binding = b_psPresInBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
-                    {.dstSet = m_solvePressureDs[1].get(), .binding = b_psPresOutBuffer, .arrayElement = 0, .count = 1, .info = &infos[5]},
+                IGPUDescriptorSet::SWriteDescriptorSet writes[5] = {
+                    {.dstSet = m_iteratePressureDs.get(), .binding = b_psGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
+                    {.dstSet = m_iteratePressureDs.get(), .binding = b_psParams, .arrayElement = 0, .count = 1, .info = &infos[1]},
+                    {.dstSet = m_iteratePressureDs.get(), .binding = b_psCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
+                    {.dstSet = m_iteratePressureDs.get(), .binding = b_psDivBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
+                    {.dstSet = m_iteratePressureDs.get(), .binding = b_psPresInBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
                 };
-                m_device->updateDescriptorSets(std::span(writes, 6), {});
+                m_device->updateDescriptorSets(std::span(writes, 5), {});
             }
         }
+        //{
+        //    const std::string entryPoint = "solvePressureSystem";
+        //    auto shader = compileShader("app_resources/compute/pressureSolver.comp.hlsl", entryPoint);
+
+        //    auto descriptorSetLayout1 = m_device->createDescriptorSetLayout(psSolvePressure_bs1);
+
+        //    const std::array<IGPUDescriptorSetLayout*, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> dscLayoutPtrs = {
+        //        nullptr,
+        //        descriptorSetLayout1.get()
+        //    };
+        //    const uint32_t setCounts[2u] = { 0u, 2u };
+        //    m_solvePressurePool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()), setCounts);
+        //    m_solvePressureDs[0] = m_solvePressurePool->createDescriptorSet(descriptorSetLayout1);
+        //    m_solvePressureDs[1] = m_solvePressurePool->createDescriptorSet(descriptorSetLayout1);
+
+        //    smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pipelineLayout = m_device->createPipelineLayout({}, nullptr, smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
+
+        //    IGPUComputePipeline::SCreationParams params = {};
+        //    params.layout = pipelineLayout.get();
+        //    params.shader.entryPoint = entryPoint;
+        //    params.shader.shader = shader.get();
+        //        
+        //    m_device->createComputePipelines(nullptr, { &params,1 }, &m_solvePressurePipeline);
+
+        //    {
+        //        IGPUDescriptorSet::SDescriptorInfo infos[6];
+        //        infos[0].desc = smart_refctd_ptr(gridDataBuffer);
+        //        infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
+        //        infos[1].desc = smart_refctd_ptr(pressureParamsBuffer);
+        //        infos[1].info.buffer = {.offset = 0, .size = pressureParamsBuffer->getSize()};
+        //        infos[2].desc = gridCellMaterialImageView;
+        //        infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+        //        infos[2].info.combinedImageSampler.sampler = nullptr;
+        //        infos[3].desc = divergenceImageView;
+        //        infos[3].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+        //        infos[3].info.combinedImageSampler.sampler = nullptr;
+        //        infos[4].desc = tempPressureImageView;
+        //        infos[4].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+        //        infos[4].info.combinedImageSampler.sampler = nullptr;
+        //        infos[5].desc = pressureImageView;
+        //        infos[5].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+        //        infos[5].info.combinedImageSampler.sampler = nullptr;
+        //        IGPUDescriptorSet::SWriteDescriptorSet writes[6] = {
+        //            {.dstSet = m_solvePressureDs[0].get(), .binding = b_psGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
+        //            {.dstSet = m_solvePressureDs[0].get(), .binding = b_psParams, .arrayElement = 0, .count = 1, .info = &infos[1]},
+        //            {.dstSet = m_solvePressureDs[0].get(), .binding = b_psCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
+        //            {.dstSet = m_solvePressureDs[0].get(), .binding = b_psDivBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
+        //            {.dstSet = m_solvePressureDs[0].get(), .binding = b_psPresInBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
+        //            {.dstSet = m_solvePressureDs[0].get(), .binding = b_psPresOutBuffer, .arrayElement = 0, .count = 1, .info = &infos[5]},
+        //        };
+        //        m_device->updateDescriptorSets(std::span(writes, 6), {});
+        //    }
+        //    {
+        //        IGPUDescriptorSet::SDescriptorInfo infos[6];
+        //        infos[0].desc = smart_refctd_ptr(gridDataBuffer);
+        //        infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
+        //        infos[1].desc = smart_refctd_ptr(pressureParamsBuffer);
+        //        infos[1].info.buffer = {.offset = 0, .size = pressureParamsBuffer->getSize()};
+        //        infos[2].desc = gridCellMaterialImageView;
+        //        infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+        //        infos[2].info.combinedImageSampler.sampler = nullptr;
+        //        infos[3].desc = divergenceImageView;
+        //        infos[3].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+        //        infos[3].info.combinedImageSampler.sampler = nullptr;
+        //        infos[4].desc = pressureImageView;
+        //        infos[4].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+        //        infos[4].info.combinedImageSampler.sampler = nullptr;
+        //        infos[5].desc = tempPressureImageView;
+        //        infos[5].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+        //        infos[5].info.combinedImageSampler.sampler = nullptr;
+        //        IGPUDescriptorSet::SWriteDescriptorSet writes[6] = {
+        //            {.dstSet = m_solvePressureDs[1].get(), .binding = b_psGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
+        //            {.dstSet = m_solvePressureDs[1].get(), .binding = b_psParams, .arrayElement = 0, .count = 1, .info = &infos[1]},
+        //            {.dstSet = m_solvePressureDs[1].get(), .binding = b_psCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
+        //            {.dstSet = m_solvePressureDs[1].get(), .binding = b_psDivBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
+        //            {.dstSet = m_solvePressureDs[1].get(), .binding = b_psPresInBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
+        //            {.dstSet = m_solvePressureDs[1].get(), .binding = b_psPresOutBuffer, .arrayElement = 0, .count = 1, .info = &infos[5]},
+        //        };
+        //        m_device->updateDescriptorSets(std::span(writes, 6), {});
+        //    }
+        //}
         {
             createComputePipeline(m_updateVelPsPipeline, m_updateVelPsPool, m_updateVelPsDs, 
                 "app_resources/compute/pressureSolver.comp.hlsl", "updateVelocities", psUpdateVelPs_bs1);
@@ -1474,8 +1503,9 @@ public:
         cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_calcDivergencePipeline->getLayout(), 1, 1, &m_calcDivergenceDs.get());
         cmdbuf->dispatch(WorkgroupCountGrid.x, WorkgroupCountGrid.y, WorkgroupCountGrid.z);
 
-        cmdbuf->bindComputePipeline(m_solvePressurePipeline.get());
-        for (int i = 0; i < pressureSolverIterations; i++)
+        cmdbuf->bindComputePipeline(m_iteratePressurePipeline.get());
+        cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_iteratePressurePipeline->getLayout(), 1, 1, &m_iteratePressureDs.get());
+        for (int i = 0; i < 5; i++)
         {
             {
                 SMemoryBarrier memBarrier;
@@ -1486,7 +1516,6 @@ public:
                 cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
             }
 
-            cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_solvePressurePipeline->getLayout(), 1, 1, &m_solvePressureDs[i % 2].get());
             cmdbuf->dispatch(WorkgroupCountGrid.x, WorkgroupCountGrid.y, WorkgroupCountGrid.z);
         }
 
@@ -1959,7 +1988,8 @@ private:
     smart_refctd_ptr<IGPUComputePipeline> m_updateVelDPipeline;
 
     smart_refctd_ptr<IGPUComputePipeline> m_calcDivergencePipeline;
-    smart_refctd_ptr<IGPUComputePipeline> m_solvePressurePipeline;
+    smart_refctd_ptr<IGPUComputePipeline> m_iteratePressurePipeline;
+    // smart_refctd_ptr<IGPUComputePipeline> m_solvePressurePipeline;
     smart_refctd_ptr<IGPUComputePipeline> m_updateVelPsPipeline;
 
     smart_refctd_ptr<IGPUComputePipeline> m_extrapolateVelPipeline;
@@ -1991,8 +2021,10 @@ private:
 
     smart_refctd_ptr<video::IDescriptorPool> m_calcDivergencePool;
     smart_refctd_ptr<IGPUDescriptorSet> m_calcDivergenceDs;
-    smart_refctd_ptr<video::IDescriptorPool> m_solvePressurePool;
-    std::array<smart_refctd_ptr<IGPUDescriptorSet>, 2> m_solvePressureDs;
+    smart_refctd_ptr<video::IDescriptorPool> m_iteratePressurePool;
+    smart_refctd_ptr<IGPUDescriptorSet> m_iteratePressureDs;
+    // smart_refctd_ptr<video::IDescriptorPool> m_solvePressurePool;
+    // std::array<smart_refctd_ptr<IGPUDescriptorSet>, 2> m_solvePressureDs;
     smart_refctd_ptr<video::IDescriptorPool> m_updateVelPsPool;
     smart_refctd_ptr<IGPUDescriptorSet> m_updateVelPsDs;
     
