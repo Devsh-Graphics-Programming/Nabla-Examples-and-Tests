@@ -179,15 +179,17 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 					// enabled clamping so the test outputs don't look weird on Kaiser filters which ring
 					using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle,asset::IdentityDither,void,true,BlitUtilities>;
 					typename BlitFilter::state_type blitFilterState(m_convolutionKernels);
+					
+					const auto mipSize = m_inImage->getMipSize();
 
-					blitFilterState.inOffsetBaseLayer = core::vectorSIMDu32();
-					blitFilterState.inExtentLayerCount = core::vectorSIMDu32(0u, 0u, 0u, m_inImage->getCreationParameters().arrayLayers) + m_inImage->getMipSize();
+					blitFilterState.inOffsetBaseLayer = hlsl::uint32_t4(0,0,0,0);
+					blitFilterState.inExtentLayerCount = hlsl::uint32_t4(mipSize.x,mipSize.y,mipSize.z,m_outImageLayers);
 					blitFilterState.inImage = m_inImage.get();
 
 					blitFilterState.outImage = outImage.get();
 
-					blitFilterState.outOffsetBaseLayer = core::vectorSIMDu32();
-					blitFilterState.outExtentLayerCount = core::vectorSIMDu32(m_outImageDim[0],m_outImageDim[1],m_outImageDim[2],m_outImageLayers);
+					blitFilterState.outOffsetBaseLayer = hlsl::uint32_t4();
+					blitFilterState.outExtentLayerCount = hlsl::uint32_t4(m_outImageDim[0],m_outImageDim[1],m_outImageDim[2],m_outImageLayers);
 
 					blitFilterState.alphaSemantic = m_alphaSemantic;
 					blitFilterState.alphaBinCount = m_alphaBinCount;
@@ -239,8 +241,8 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 				CSwizzleAndConvertTest(core::smart_refctd_ptr<asset::ICPUImage>&& inImage,
 					BlitFilterTestApp* parentApp,
 					const asset::E_FORMAT outFormat,
-					core::vectorSIMDu32 inOffsetBaseLayer,
-					core::vectorSIMDu32 outOffsetBaseLayer,
+					hlsl::uint32_t4 inOffsetBaseLayer,
+					hlsl::uint32_t4 outOffsetBaseLayer,
 					asset::ICPUImageView::SComponentMapping swizzle,
 					const char* writeImagePath)
 					: ITest(std::move(inImage), parentApp), m_outFormat(outFormat), m_inOffsetBaseLayer(inOffsetBaseLayer), m_outOffsetBaseLayer(outOffsetBaseLayer), m_swizzle(swizzle), m_writeImagePath(writeImagePath)
@@ -261,11 +263,16 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 					using convert_filter_t = asset::CSwizzleAndConvertImageFilter<asset::EF_UNKNOWN, asset::EF_UNKNOWN, asset::DefaultSwizzle, Dither, Normalization, Clamp>;
 
 					typename convert_filter_t::state_type filterState = {};
-					filterState.extentLayerCount = core::vectorSIMDu32(inImageExtent.width, inImageExtent.height, inImageExtent.depth, m_inImage->getCreationParameters().arrayLayers) - m_inOffsetBaseLayer;
+					filterState.extentLayerCount = core::vectorSIMDu32(
+						inImageExtent.width-m_inOffsetBaseLayer.x,
+						inImageExtent.height-m_inOffsetBaseLayer.y,
+						inImageExtent.depth- m_inOffsetBaseLayer.z,
+						m_inImage->getCreationParameters().arrayLayers-m_inOffsetBaseLayer.w
+					);
 					assert((static_cast<core::vectorSIMDi32>(filterState.extentLayerCount) > core::vectorSIMDi32(0)).all());
 
-					filterState.inOffsetBaseLayer = m_inOffsetBaseLayer;
-					filterState.outOffsetBaseLayer = m_outOffsetBaseLayer;
+					filterState.inOffsetBaseLayer = reinterpret_cast<const core::vectorSIMDu32&>(m_inOffsetBaseLayer);
+					filterState.outOffsetBaseLayer = reinterpret_cast<const core::vectorSIMDu32&>(m_outOffsetBaseLayer);
 					filterState.inMipLevel = 0;
 					filterState.outMipLevel = 0;
 					filterState.inImage = m_inImage.get();
@@ -292,8 +299,8 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 
 			private:
 				asset::E_FORMAT m_outFormat = asset::EF_UNKNOWN;
-				core::vectorSIMDu32 m_inOffsetBaseLayer;
-				core::vectorSIMDu32 m_outOffsetBaseLayer;
+				hlsl::uint32_t4 m_inOffsetBaseLayer;
+				hlsl::uint32_t4 m_outOffsetBaseLayer;
 				asset::ICPUImageView::SComponentMapping m_swizzle;
 				const char* m_writeImagePath;
 		};
@@ -371,13 +378,15 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 
 						typename BlitFilter::state_type blitFilterState = typename BlitFilter::state_type(m_convolutionKernels);
 
-						blitFilterState.inOffsetBaseLayer = core::vectorSIMDu32();
-						blitFilterState.inExtentLayerCount = core::vectorSIMDu32(0u, 0u, 0u, layerCount) + m_inImage->getMipSize();
+						const auto mipSize = m_inImage->getMipSize();
+
+						blitFilterState.inOffsetBaseLayer = hlsl::uint32_t4(0,0,0,0);
+						blitFilterState.inExtentLayerCount = hlsl::uint32_t4(mipSize.x,mipSize.y,mipSize.z,layerCount);
 						blitFilterState.inImage = m_inImage.get();
 						blitFilterState.outImage = outImageCPU.get();
 
-						blitFilterState.outOffsetBaseLayer = core::vectorSIMDu32();
-						blitFilterState.outExtentLayerCount = core::vectorSIMDu32(m_outImageDim[0],m_outImageDim[1],m_outImageDim[2],layerCount);
+						blitFilterState.outOffsetBaseLayer = hlsl::uint32_t4();
+						blitFilterState.outExtentLayerCount = hlsl::uint32_t4(m_outImageDim[0],m_outImageDim[1],m_outImageDim[2],layerCount);
 
 						blitFilterState.axisWraps[0] = asset::ISampler::ETC_CLAMP_TO_EDGE;
 						blitFilterState.axisWraps[1] = asset::ISampler::ETC_CLAMP_TO_EDGE;
@@ -1010,8 +1019,8 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 							std::move(inImage),
 							this,
 							asset::EF_R8G8B8A8_SRGB,
-							core::vectorSIMDu32(0, 0, 0, 0),
-							core::vectorSIMDu32(0, 0, 0, 0),
+							hlsl::uint32_t4(0, 0, 0, 0),
+							hlsl::uint32_t4(0, 0, 0, 0),
 							asset::ICPUImageView::SComponentMapping(),
 							"CSwizzleAndConvertImageFilter_0.png"
 						);
@@ -1030,8 +1039,8 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 							std::move(inImage),
 							this,
 							asset::EF_R32G32B32A32_SFLOAT,
-							core::vectorSIMDu32(64, 64, 0, 0),
-							core::vectorSIMDu32(64, 0, 0, 0),
+							hlsl::uint32_t4(64, 64, 0, 0),
+							hlsl::uint32_t4(64, 0, 0, 0),
 							asset::ICPUImageView::SComponentMapping(),
 							"CSwizzleAndConvertImageFilter_1.exr"
 						);
@@ -1050,8 +1059,8 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 							std::move(inImage),
 							this,
 							asset::EF_R32G32B32A32_SFLOAT,
-							core::vectorSIMDu32(0, 0, 0, 0),
-							core::vectorSIMDu32(0, 0, 0, 0),
+							hlsl::uint32_t4(0, 0, 0, 0),
+							hlsl::uint32_t4(0, 0, 0, 0),
 							asset::ICPUImageView::SComponentMapping(asset::ICPUImageView::SComponentMapping::ES_G, asset::ICPUImageView::SComponentMapping::ES_B, asset::ICPUImageView::SComponentMapping::ES_R, asset::ICPUImageView::SComponentMapping::ES_A),
 							"CSwizzleAndConvertImageFilter_2.exr"
 						);
@@ -1070,8 +1079,8 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 							std::move(inImage),
 							this,
 							asset::EF_R8G8B8_SRGB,
-							core::vectorSIMDu32(0, 0, 0, 0),
-							core::vectorSIMDu32(0, 0, 0, 0),
+							hlsl::uint32_t4(0, 0, 0, 0),
+							hlsl::uint32_t4(0, 0, 0, 0),
 							asset::ICPUImageView::SComponentMapping(),
 							"CSwizzleAndConvertImageFilter_3.jpg"
 						);
@@ -1090,8 +1099,8 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 							std::move(inImage),
 							this,
 							asset::EF_R32G32B32A32_SFLOAT,
-							core::vectorSIMDu32(0, 0, 0, 0),
-							core::vectorSIMDu32(0, 0, 0, 0),
+							hlsl::uint32_t4(0, 0, 0, 0),
+							hlsl::uint32_t4(0, 0, 0, 0),
 							asset::ICPUImageView::SComponentMapping(),
 							"CSwizzleAndConvertImageFilter_4.exr"
 						);
@@ -1110,8 +1119,8 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 							std::move(inImage),
 							this,
 							asset::EF_R8G8B8A8_SRGB,
-							core::vectorSIMDu32(0, 0, 0, 0),
-							core::vectorSIMDu32(0, 0, 0, 0),
+							hlsl::uint32_t4(0, 0, 0, 0),
+							hlsl::uint32_t4(0, 0, 0, 0),
 							asset::ICPUImageView::SComponentMapping(),
 							"CSwizzleAndConvertImageFilter_5.png"
 						);
@@ -1141,7 +1150,7 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 					auto resamplingX = asset::CWeightFunction1D<asset::SMitchellFunction<>>();
 					resamplingX.stretchAndScale(0.35f);
 
-					using LutDataType = uint16_t;
+					using LutDataType = hlsl::float16_t;
 					using BlitUtilities = CBlitUtilities<
 						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
 						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
@@ -1209,7 +1218,7 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 					auto resamplingY = asset::CWeightFunction1D<asset::SBoxFunction>();
 					resamplingY.stretchAndScale(9.f/16.f);
 
-					using LutDataType = uint16_t;
+					using LutDataType = hlsl::float16_t;
 					using BlitUtilities = CBlitUtilities<
 						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SBoxFunction>, CWeightFunction1D<SBoxFunction>>>,
 						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SBoxFunction>, CWeightFunction1D<SBoxFunction>>>,
@@ -1276,7 +1285,7 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 					auto inImage = createCPUImage(inImageDim, layerCount, inImageType, inImageFormat, true);
 					assert(inImage);
 
-					using LutDataType = uint16_t;
+					using LutDataType = hlsl::float16_t;
 					using BlitUtilities = CBlitUtilities<
 						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
 						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
