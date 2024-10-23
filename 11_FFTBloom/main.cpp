@@ -43,9 +43,7 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 	smart_refctd_ptr<nbl::video::IUtilities> m_utils;
 
 	// Resources
-	smart_refctd_ptr<IGPUImage> m_srcImage;
 	smart_refctd_ptr<IGPUImageView> m_srcImageView;
-	smart_refctd_ptr<IGPUImage> m_kerImage;
 	smart_refctd_ptr<IGPUImageView> m_kerImageView;
 	smart_refctd_ptr<IGPUImage> m_outImg;
 	smart_refctd_ptr<IGPUImageView> m_outImgView;
@@ -238,49 +236,90 @@ public:
 				return logFail("Could not load image or kernel!");
 			const auto srcImageCPU = IAsset::castDown<ICPUImage>(srcImages[0]);
 			const auto kerImageCPU = IAsset::castDown<ICPUImage>(kerImages[0]);
+			const auto srcImageFormat = srcImageCPU->getCreationParameters().format;
+			const auto kerImageFormat = kerImageCPU->getCreationParameters().format;
+
+
+			// Create views for these images
+			ICPUImageView::SCreationParams viewParams[2] =
+			{
+				{
+					.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
+					.image = std::move(srcImageCPU),
+					.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
+					.format = srcImageFormat,
+					.subresourceRange = {
+						.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+						.baseMipLevel = 0u,
+						.levelCount = ICPUImageView::remaining_mip_levels,
+						.baseArrayLayer = 0u,
+						.layerCount = ICPUImageView::remaining_array_layers
+					}
+				},
+				{
+					.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
+					.image = std::move(kerImageCPU),
+					.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
+					.format = kerImageFormat,
+					.subresourceRange = {
+						.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+						.baseMipLevel = 0u,
+						.levelCount = ICPUImageView::remaining_mip_levels,
+						.baseArrayLayer = 0u,
+						.layerCount = ICPUImageView::remaining_array_layers
+					}
+			}
+			};
+			const auto srcImageViewCPU = ICPUImageView::create(std::move(viewParams[0]));
+			const auto kerImageViewCPU = ICPUImageView::create(std::move(viewParams[1]));
 
 			// Using asset converter
 			smart_refctd_ptr<nbl::video::CAssetConverter> converter = nbl::video::CAssetConverter::create({ .device = m_device.get(),.optimizer = {} });
 			CAssetConverter::SInputs inputs = {};
 			inputs.logger = m_logger.get();
-			nbl::asset::ICPUImage* CPUImages[2] = { srcImageCPU.get(), kerImageCPU.get() };
-			std::get<CAssetConverter::SInputs::asset_span_t<ICPUImage>>(inputs.assets) = { CPUImages, 2};
+			nbl::asset::ICPUImageView* CPUImageViews[2] = { srcImageViewCPU.get(), kerImageViewCPU.get() };
 			
-			// Need to provide patches
-			CAssetConverter::patch_t<ICPUImage> srcImagePatch(srcImageCPU.get());
-			srcImagePatch.usageFlags |= IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT;
-			CAssetConverter::patch_t<ICPUImage> kerImagePatch(kerImageCPU.get());
-			kerImagePatch.usageFlags |= IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT;
-			CAssetConverter::patch_t<ICPUImage> patches[2] = { std::move(srcImagePatch), std::move(kerImagePatch)};
 
-			std::get<CAssetConverter::SInputs::patch_span_t<ICPUImage>>(inputs.patches) = { patches, 2 };
+			// Need to provide patches to make sure we specify SAMPLED to get READ_ONLY_OPTIMAL layout after upload
+			CAssetConverter::patch_t<ICPUImageView> patches[2] =
+			{
+				{
+					CPUImageViews[0],
+					IImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT
+				},
+				{
+					CPUImageViews[1],
+					IImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT
+				}
+			};
+
+			std::get<CAssetConverter::SInputs::asset_span_t<ICPUImageView>>(inputs.assets) = { CPUImageViews, 2 };
+			std::get<CAssetConverter::SInputs::patch_span_t<ICPUImageView>>(inputs.patches) = { patches, 2 };
 			auto reservation = converter->reserve(inputs);
-			const auto GPUImages = reservation.getGPUObjects<ICPUImage>();
+			const auto GPUImages = reservation.getGPUObjects<ICPUImageView>();
 
-			m_srcImage = GPUImages[0].value;
-			m_kerImage = GPUImages[1].value;
+			m_srcImageView = GPUImages[0].value;
+			m_kerImageView = GPUImages[1].value;
 
 			// The down-cast should not fail!
-			assert(m_srcImage);
-			assert(m_kerImage);
+			assert(m_srcImageView);
+			assert(m_kerImageView);
 
 			// Required size for uploads
-			auto srcImageDims = m_srcImage->getCreationParameters().extent;
-			auto kerImageDims = m_kerImage->getCreationParameters().extent;
+			auto srcImageDims = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
+			auto kerImageDims = m_kerImageView->getCreationParameters().image->getCreationParameters().extent;
 			uint32_t srcImageSize = srcImageDims.height * srcImageDims.width * srcImageDims.depth * CHANNELS * sizeof(float32_t);
 			uint32_t kerImageSize = kerImageDims.height * kerImageDims.width * kerImageDims.depth * CHANNELS * sizeof(float32_t);
 
 			m_utils = make_smart_refctd_ptr<IUtilities>(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), srcImageSize, srcImageSize + kerImageSize);
 			{
 				uint32_t localOffset = video::StreamingTransientDataBufferMT<>::invalid_value;
-				uint32_t maxFreeBlock = m_utils->getDefaultUpStreamingBuffer()->max_size();
 				const uint32_t allocationAlignment = 64u;
 				const uint32_t allocationSize = srcImageSize + kerImageSize;
 				m_utils->getDefaultUpStreamingBuffer()->multi_allocate(std::chrono::steady_clock::now() + std::chrono::microseconds(500u), 1u, &localOffset, &allocationSize, &allocationAlignment);
 			}
 
 			// Now convert uploads
-
 			// Get graphics queue for image transfer
 			auto graphicsQueue = getQueue(IQueue::FAMILY_FLAGS::GRAPHICS_BIT);
 			m_graphicsIntendedSubmit.queue = graphicsQueue;
@@ -293,14 +332,24 @@ public:
 			m_graphicsIntendedSubmit.scratchSemaphore = {
 				.semaphore = m_scratchSemaphore.get(),
 				.value = 0,
-				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+				// because of layout transitions
+				.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 			};
 
 			// Set up the same for mipmap generation
 			m_computeIntendedSubmit.queue = m_queue;
 			// Set up submit for image transfers
-			// wait for nothing
-			m_computeIntendedSubmit.waitSemaphores = { };
+			// wait for layout transitions of graphics queue
+			IQueue::SSubmitInfo::SSemaphoreInfo layoutTransitionSemaphoreInfo = {
+				.semaphore = m_scratchSemaphore.get(),
+				// Image upload semaphore increments this by one
+				.value = 1,
+				.stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
+			};
+			m_computeIntendedSubmit.waitSemaphores = {};
+			// If they're the same queue this gets pipeline barriered
+			if (m_queue == graphicsQueue) 
+				m_computeIntendedSubmit.waitSemaphores = { &layoutTransitionSemaphoreInfo, 1 };
 			m_computeIntendedSubmit.prevCommandBuffers = {};
 			// fill later
 			m_computeIntendedSubmit.scratchCommandBuffers = {};
@@ -314,18 +363,20 @@ public:
 			// now convert
 			IQueue::SSubmitInfo::SCommandBufferInfo computeCmdbufInfo = { m_computeCmdBuf.get() };
 			m_computeIntendedSubmit.scratchCommandBuffers = { &computeCmdbufInfo,1 };
-			
-			// Create a one-time command buffer for graphics submit
+
+			// Create a command buffer for graphics submit, though it has to be resettable
 			smart_refctd_ptr<IGPUCommandBuffer> graphicsCmdBuf;
-			smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(graphicsQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+			smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(graphicsQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 			if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &graphicsCmdBuf))
 				return logFail("Failed to create Command Buffers!\n");
+
+			// Needs to be open for utilities
+			graphicsCmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
 			IQueue::SSubmitInfo::SCommandBufferInfo graphicsCmdbufInfo = { graphicsCmdBuf.get() };
 			m_graphicsIntendedSubmit.scratchCommandBuffers = { &graphicsCmdbufInfo,1 };
 
-			// TODO: FIXME ImGUI needs to know what Queue will have ownership of the image AFTER its uploaded (need to know the family of the graphics queue)
-			// right now, the transfer queue will stay the owner after upload
+			// We need compute queue to be the owner of the images after transfer + layout transition, but apparently that's the default
 			CAssetConverter::SConvertParams params = {};
 			params.transfer = &m_graphicsIntendedSubmit;
 			params.compute = &m_computeIntendedSubmit;
@@ -334,33 +385,6 @@ public:
 			// block immediately
 			if (result.copy() != IQueue::RESULT::SUCCESS)
 				return false;
-		}
-
-		// Create views for these images
-		{
-			IGPUImageView::SCreationParams srcImgViewInfo;
-			srcImgViewInfo.flags = static_cast<IGPUImageView::E_CREATE_FLAGS>(0u);
-			srcImgViewInfo.image = m_srcImage;
-			srcImgViewInfo.viewType = IGPUImageView::ET_2D;
-			srcImgViewInfo.format = srcImgViewInfo.image->getCreationParameters().format;
-			srcImgViewInfo.subresourceRange.aspectMask = IImage::EAF_COLOR_BIT;
-			srcImgViewInfo.subresourceRange.baseMipLevel = 0;
-			srcImgViewInfo.subresourceRange.levelCount = 1;
-			srcImgViewInfo.subresourceRange.baseArrayLayer = 0;
-			srcImgViewInfo.subresourceRange.layerCount = 1;
-			m_srcImageView = m_device->createImageView(std::move(srcImgViewInfo));
-
-			IGPUImageView::SCreationParams kerImgViewInfo;
-			kerImgViewInfo.flags = static_cast<IGPUImageView::E_CREATE_FLAGS>(0u);
-			kerImgViewInfo.image = m_kerImage;
-			kerImgViewInfo.viewType = IGPUImageView::ET_2D;
-			kerImgViewInfo.format = kerImgViewInfo.image->getCreationParameters().format;
-			kerImgViewInfo.subresourceRange.aspectMask = IImage::EAF_COLOR_BIT;
-			kerImgViewInfo.subresourceRange.baseMipLevel = 0;
-			kerImgViewInfo.subresourceRange.levelCount = kerImgViewInfo.image->getCreationParameters().mipLevels;
-			kerImgViewInfo.subresourceRange.baseArrayLayer = 0;
-			kerImgViewInfo.subresourceRange.layerCount = 1;
-			m_kerImageView = m_device->createImageView(std::move(kerImgViewInfo));
 		}
 
 		// Create Out Image
@@ -842,7 +866,7 @@ public:
 		PushConstantData pushConstants;
 		pushConstants.colMajorBufferAddress = m_colMajorBufferAddress;
 		pushConstants.rowMajorBufferAddress = m_rowMajorBufferAddress;
-		pushConstants.dataElementCount = m_srcImage->getCreationParameters().extent.width;
+		pushConstants.dataElementCount = m_srcImageView->getCreationParameters().image->getCreationParameters().extent.width;
 		// Compute kernel half pixel size
 		const auto& kernelImgExtent = m_kernelNormalizedSpectrums[0]->getCreationParameters().image->getCreationParameters().extent;
 		float32_t2 kernelHalfPixelSize{ 0.5f,0.5f };
