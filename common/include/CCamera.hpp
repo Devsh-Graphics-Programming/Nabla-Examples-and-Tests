@@ -71,10 +71,10 @@ public:
 		projMatrix = projection;
 		leftHanded = nbl::hlsl::determinant(projection) < 0.f;
 
-		float64_t4x4 projMatPrecise = float64_t4x4(projMatrix);
-		float64_t4x4 viewMatPrecise = nbl::hlsl::getMatrix3x4As4x4(viewMatrix);
+		nbl::hlsl::float64_t4x4 projMatPrecise = nbl::hlsl::get64BitPrecisionMatrix(projMatrix);
+		nbl::hlsl::float64_t4x4 viewMatPrecise = nbl::hlsl::get64BitPrecisionMatrix(nbl::hlsl::getMatrix3x4As4x4(viewMatrix));
 
-		concatMatrix = nbl::hlsl::concatenateBFollowedByAPrecisely(projMatrix, nbl::hlsl::getMatrix3x4As4x4(viewMatrix));
+		concatMatrix = mul(projMatrix, nbl::hlsl::getMatrix3x4As4x4(viewMatrix));
 	}
 	
 	inline void setPosition(const nbl::hlsl::float32_t3& pos)
@@ -112,21 +112,21 @@ public:
 	inline void recomputeViewMatrix() 
 	{
 		nbl::hlsl::float32_t3 pos = position;
-		nbl::hlsl::float32_t3 localTarget = nbl::core::normalize(target - pos);
+		nbl::hlsl::float32_t3 localTarget = nbl::hlsl::normalize(target - pos);
 
 		// if upvector and vector to the target are the same, we have a
 		// problem. so solve this problem:
-		nbl::hlsl::float32_t3 up = nbl::core::normalize(upVector);
-		nbl::hlsl::float32_t3 cross = nbl::core::cross(localTarget, up);
+		nbl::hlsl::float32_t3 up = nbl::hlsl::normalize(upVector);
+		nbl::hlsl::float32_t3 cross = nbl::hlsl::cross(localTarget, up);
 		bool upVectorNeedsChange = nbl::core::lengthsquared(cross)[0] == 0;
 		if (upVectorNeedsChange)
-			up = nbl::core::normalize(backupUpVector);
+			up = nbl::hlsl::normalize(backupUpVector);
 
 		if (leftHanded)
 			viewMatrix = nbl::hlsl::buildCameraLookAtMatrixLH(pos, target, up);
 		else
 			viewMatrix = nbl::hlsl::buildCameraLookAtMatrixRH(pos, target, up);
-		concatMatrix = nbl::hlsl::concatenateBFollowedByAPrecisely(projMatrix, nbl::hlsl::getMatrix3x4As4x4(viewMatrix));
+		concatMatrix = mul(projMatrix, nbl::hlsl::getMatrix3x4As4x4(viewMatrix));
 	}
 
 	inline bool getLeftHanded() const { return leftHanded; }
@@ -258,7 +258,7 @@ public:
 			nbl::hlsl::float32_t3 movedir = localTarget;
 			// TODO:
 			//movedir.makeSafe3D();
-			movedir = nbl::core::normalize(movedir);
+			movedir = nbl::hlsl::normalize(movedir);
 
 			constexpr float MoveSpeedScale = 0.02f; 
 
@@ -269,21 +269,21 @@ public:
 		
 			// if upvector and vector to the target are the same, we have a
 			// problem. so solve this problem:
-			nbl::hlsl::float32_t3 up = nbl::core::normalize(upVector);
-			nbl::hlsl::float32_t3 cross = nbl::core::cross(localTarget, up);
-			bool upVectorNeedsChange = nbl::core::lengthsquared(cross)[0] == 0;
+			nbl::hlsl::float32_t3 up = nbl::hlsl::normalize(upVector);
+			nbl::hlsl::float32_t3 cross = nbl::hlsl::cross(localTarget, up);
+			bool upVectorNeedsChange = nbl::hlsl::dot(cross, cross) == 0;
 			if (upVectorNeedsChange)
 			{
-				up = nbl::core::normalize(backupUpVector);
+				up = nbl::hlsl::normalize(backupUpVector);
 			}
 
 			nbl::hlsl::float32_t3 strafevect = localTarget;
 			if (leftHanded)
-				strafevect = nbl::core::cross(strafevect, up);
+				strafevect = nbl::hlsl::cross(strafevect, up);
 			else
-				strafevect = nbl::core::cross(up, strafevect);
+				strafevect = nbl::hlsl::cross(up, strafevect);
 
-			strafevect = nbl::core::normalize(strafevect);
+			strafevect = nbl::hlsl::normalize(strafevect);
 
 			pos += strafevect * nbl::hlsl::float32_t3(perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_LEFT] * moveSpeed * MoveSpeedScale);
 			pos -= strafevect * nbl::hlsl::float32_t3(perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_RIGHT] * moveSpeed * MoveSpeedScale);
