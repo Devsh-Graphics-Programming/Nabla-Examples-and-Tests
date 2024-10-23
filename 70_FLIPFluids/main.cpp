@@ -326,8 +326,7 @@ public:
         createGridTexture(tempDiffusionImageView, asset::EF_R32G32B32A32_SFLOAT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "diffusion1");
 
         // pressure grids
-        createGridTexture(pressureImageView, asset::EF_R32_SFLOAT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "pressure0");
-        createGridTexture(tempPressureImageView, asset::EF_R32_SFLOAT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "pressure1");
+        createGridTexture(pressureImageView, asset::EF_R32_SFLOAT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "pressure");
         createGridTexture(divergenceImageView, asset::EF_R32_SFLOAT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "divergence");
 
         // velocity field stuffs
@@ -856,92 +855,11 @@ public:
                     {.dstSet = m_iteratePressureDs.get(), .binding = b_psParams, .arrayElement = 0, .count = 1, .info = &infos[1]},
                     {.dstSet = m_iteratePressureDs.get(), .binding = b_psCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
                     {.dstSet = m_iteratePressureDs.get(), .binding = b_psDivBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
-                    {.dstSet = m_iteratePressureDs.get(), .binding = b_psPresInBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
+                    {.dstSet = m_iteratePressureDs.get(), .binding = b_psPresBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
                 };
                 m_device->updateDescriptorSets(std::span(writes, 5), {});
             }
         }
-        //{
-        //    const std::string entryPoint = "solvePressureSystem";
-        //    auto shader = compileShader("app_resources/compute/pressureSolver.comp.hlsl", entryPoint);
-
-        //    auto descriptorSetLayout1 = m_device->createDescriptorSetLayout(psSolvePressure_bs1);
-
-        //    const std::array<IGPUDescriptorSetLayout*, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> dscLayoutPtrs = {
-        //        nullptr,
-        //        descriptorSetLayout1.get()
-        //    };
-        //    const uint32_t setCounts[2u] = { 0u, 2u };
-        //    m_solvePressurePool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()), setCounts);
-        //    m_solvePressureDs[0] = m_solvePressurePool->createDescriptorSet(descriptorSetLayout1);
-        //    m_solvePressureDs[1] = m_solvePressurePool->createDescriptorSet(descriptorSetLayout1);
-
-        //    smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pipelineLayout = m_device->createPipelineLayout({}, nullptr, smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
-
-        //    IGPUComputePipeline::SCreationParams params = {};
-        //    params.layout = pipelineLayout.get();
-        //    params.shader.entryPoint = entryPoint;
-        //    params.shader.shader = shader.get();
-        //        
-        //    m_device->createComputePipelines(nullptr, { &params,1 }, &m_solvePressurePipeline);
-
-        //    {
-        //        IGPUDescriptorSet::SDescriptorInfo infos[6];
-        //        infos[0].desc = smart_refctd_ptr(gridDataBuffer);
-        //        infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
-        //        infos[1].desc = smart_refctd_ptr(pressureParamsBuffer);
-        //        infos[1].info.buffer = {.offset = 0, .size = pressureParamsBuffer->getSize()};
-        //        infos[2].desc = gridCellMaterialImageView;
-        //        infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-        //        infos[2].info.combinedImageSampler.sampler = nullptr;
-        //        infos[3].desc = divergenceImageView;
-        //        infos[3].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-        //        infos[3].info.combinedImageSampler.sampler = nullptr;
-        //        infos[4].desc = tempPressureImageView;
-        //        infos[4].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-        //        infos[4].info.combinedImageSampler.sampler = nullptr;
-        //        infos[5].desc = pressureImageView;
-        //        infos[5].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-        //        infos[5].info.combinedImageSampler.sampler = nullptr;
-        //        IGPUDescriptorSet::SWriteDescriptorSet writes[6] = {
-        //            {.dstSet = m_solvePressureDs[0].get(), .binding = b_psGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-        //            {.dstSet = m_solvePressureDs[0].get(), .binding = b_psParams, .arrayElement = 0, .count = 1, .info = &infos[1]},
-        //            {.dstSet = m_solvePressureDs[0].get(), .binding = b_psCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
-        //            {.dstSet = m_solvePressureDs[0].get(), .binding = b_psDivBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
-        //            {.dstSet = m_solvePressureDs[0].get(), .binding = b_psPresInBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
-        //            {.dstSet = m_solvePressureDs[0].get(), .binding = b_psPresOutBuffer, .arrayElement = 0, .count = 1, .info = &infos[5]},
-        //        };
-        //        m_device->updateDescriptorSets(std::span(writes, 6), {});
-        //    }
-        //    {
-        //        IGPUDescriptorSet::SDescriptorInfo infos[6];
-        //        infos[0].desc = smart_refctd_ptr(gridDataBuffer);
-        //        infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
-        //        infos[1].desc = smart_refctd_ptr(pressureParamsBuffer);
-        //        infos[1].info.buffer = {.offset = 0, .size = pressureParamsBuffer->getSize()};
-        //        infos[2].desc = gridCellMaterialImageView;
-        //        infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-        //        infos[2].info.combinedImageSampler.sampler = nullptr;
-        //        infos[3].desc = divergenceImageView;
-        //        infos[3].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-        //        infos[3].info.combinedImageSampler.sampler = nullptr;
-        //        infos[4].desc = pressureImageView;
-        //        infos[4].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-        //        infos[4].info.combinedImageSampler.sampler = nullptr;
-        //        infos[5].desc = tempPressureImageView;
-        //        infos[5].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-        //        infos[5].info.combinedImageSampler.sampler = nullptr;
-        //        IGPUDescriptorSet::SWriteDescriptorSet writes[6] = {
-        //            {.dstSet = m_solvePressureDs[1].get(), .binding = b_psGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-        //            {.dstSet = m_solvePressureDs[1].get(), .binding = b_psParams, .arrayElement = 0, .count = 1, .info = &infos[1]},
-        //            {.dstSet = m_solvePressureDs[1].get(), .binding = b_psCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
-        //            {.dstSet = m_solvePressureDs[1].get(), .binding = b_psDivBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
-        //            {.dstSet = m_solvePressureDs[1].get(), .binding = b_psPresInBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
-        //            {.dstSet = m_solvePressureDs[1].get(), .binding = b_psPresOutBuffer, .arrayElement = 0, .count = 1, .info = &infos[5]},
-        //        };
-        //        m_device->updateDescriptorSets(std::span(writes, 6), {});
-        //    }
-        //}
         {
             createComputePipeline(m_updateVelPsPipeline, m_updateVelPsPool, m_updateVelPsDs, 
                 "app_resources/compute/pressureSolver.comp.hlsl", "updateVelocities", psUpdateVelPs_bs1);
@@ -975,7 +893,7 @@ public:
                     {.dstSet = m_updateVelPsDs.get(), .binding = b_psParams, .arrayElement = 0, .count = 1, .info = &infos[1]},
                     {.dstSet = m_updateVelPsDs.get(), .binding = b_psCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
                     {.dstSet = m_updateVelPsDs.get(), .binding = b_psVelBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
-                    {.dstSet = m_updateVelPsDs.get(), .binding = b_psPresInBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
+                    {.dstSet = m_updateVelPsDs.get(), .binding = b_psPresBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
                 };
                 m_device->updateDescriptorSets(std::span(writes, 5), {});
             }
@@ -1505,7 +1423,7 @@ public:
 
         cmdbuf->bindComputePipeline(m_iteratePressurePipeline.get());
         cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_iteratePressurePipeline->getLayout(), 1, 1, &m_iteratePressureDs.get());
-        for (int i = 0; i < 5; i++)
+        for (int i = 0; i < pressureSolverIterations; i++)
         {
             {
                 SMemoryBarrier memBarrier;
@@ -1934,7 +1852,7 @@ private:
             };
 
         uint32_t count = 0;
-        IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[16];
+        IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[15];
         for (uint32_t i = 0; i < 3; i++)
         {
             fillGridBarrierInfo(imageBarriers[count++], velocityFieldImageViews[i]);
@@ -1952,7 +1870,6 @@ private:
         fillGridBarrierInfo(imageBarriers[count++], tempDiffusionImageView);
 
         fillGridBarrierInfo(imageBarriers[count++], pressureImageView);
-        fillGridBarrierInfo(imageBarriers[count++], tempPressureImageView);
         fillGridBarrierInfo(imageBarriers[count++], divergenceImageView);
 
         cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imageBarriers });
@@ -1989,7 +1906,6 @@ private:
 
     smart_refctd_ptr<IGPUComputePipeline> m_calcDivergencePipeline;
     smart_refctd_ptr<IGPUComputePipeline> m_iteratePressurePipeline;
-    // smart_refctd_ptr<IGPUComputePipeline> m_solvePressurePipeline;
     smart_refctd_ptr<IGPUComputePipeline> m_updateVelPsPipeline;
 
     smart_refctd_ptr<IGPUComputePipeline> m_extrapolateVelPipeline;
@@ -2023,8 +1939,6 @@ private:
     smart_refctd_ptr<IGPUDescriptorSet> m_calcDivergenceDs;
     smart_refctd_ptr<video::IDescriptorPool> m_iteratePressurePool;
     smart_refctd_ptr<IGPUDescriptorSet> m_iteratePressureDs;
-    // smart_refctd_ptr<video::IDescriptorPool> m_solvePressurePool;
-    // std::array<smart_refctd_ptr<IGPUDescriptorSet>, 2> m_solvePressureDs;
     smart_refctd_ptr<video::IDescriptorPool> m_updateVelPsPool;
     smart_refctd_ptr<IGPUDescriptorSet> m_updateVelPsDs;
     
@@ -2057,7 +1971,7 @@ private:
     
     const float viscosity = 0.f;
     const uint32_t diffusionIterations = 15;
-    const uint32_t pressureSolverIterations = 15;
+    const uint32_t pressureSolverIterations = 5;
 
     // buffers
     smart_refctd_ptr<IGPUBuffer> cameraBuffer;
@@ -2087,7 +2001,6 @@ private:
     smart_refctd_ptr<IGPUImageView> tempCellMaterialImageView;	// uint, fluid or solid
     smart_refctd_ptr<IGPUImageView> tempDiffusionImageView;	// float4
     smart_refctd_ptr<IGPUImageView> tempAxisCellMaterialImageView;	// uint4
-    smart_refctd_ptr<IGPUImageView> tempPressureImageView;	// float
 };
 
 NBL_MAIN_FUNC(FLIPFluidsApp)
