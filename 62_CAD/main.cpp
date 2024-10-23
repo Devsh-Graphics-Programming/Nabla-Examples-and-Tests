@@ -285,13 +285,13 @@ public:
 		drawResourcesFiller.allocateIndexBuffer(m_device.get(), maxIndices);
 		drawResourcesFiller.allocateMainObjectsBuffer(m_device.get(), maxObjects);
 		drawResourcesFiller.allocateDrawObjectsBuffer(m_device.get(), maxObjects * 5u);
-		drawResourcesFiller.allocateStylesBuffer(m_device.get(), 32u);
+		drawResourcesFiller.allocateStylesBuffer(m_device.get(), 512u);
 
 		// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)
 		// + 128 ClipProjData
 		size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3 + 128 * sizeof(ClipProjectionData);
 		drawResourcesFiller.allocateGeometryBuffer(m_device.get(), geometryBufferSize);
-		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 512u, uint32_t2(MSDFSize, MSDFSize));
+		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 256u, uint32_t2(MSDFSize, MSDFSize));
 
 		{
 			IGPUBuffer::SCreationParams globalsCreationParams = {};
@@ -665,7 +665,7 @@ public:
 
 		m_framesInFlight = min(m_surface->getMaxFramesInFlight(), MaxFramesInFlight);
 
-		allocateResources(256u);
+		allocateResources(1024 * 1024u);
 
 		const bitflag<IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS> bindlessTextureFlags =
 			IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT |
