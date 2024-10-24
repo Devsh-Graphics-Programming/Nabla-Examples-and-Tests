@@ -60,10 +60,19 @@ public:
         EventsCount
     };
 
+    //! Virtual event representing a manipulation
+    struct CVirtualEvent
+    {
+        using manipulation_encode_t = float64_t;
+
+        VirtualEventType type;
+        manipulation_encode_t value;
+    };
+
     class CGimbal : virtual public core::IReferenceCounted
     {
     public:
-        //! Virtual event representing a manipulation
+        //! Virtual event representing a combined gimbal manipulation
         enum VirtualEventType
         {
             //! Move the camera in the direction of strafe vector
@@ -111,31 +120,20 @@ public:
                 ~ManipulationValue() {}
             };
 
-            CVirtualEvent(VirtualEventType type, const ManipulationValue manipulation)
-                : m_type(type), m_manipulation(manipulation)
+            CVirtualEvent() {}
+
+            CVirtualEvent(VirtualEventType _type, const ManipulationValue _manipulation)
+                : type(_type), manipulation(_manipulation)
             {
                 static_assert(sizeof(manipulation_encode_t) == sizeof(ManipulationValue));
             }
 
-            // Returns the type of manipulation value
-            VirtualEventType getType() const
-            {
-                return m_type;
-            }
-
-            // Returns manipulation value
-            ManipulationValue getManipulation() const
-            {
-                return m_manipulation;
-            }
-
-        private:
-            VirtualEventType m_type;
-            ManipulationValue m_manipulation;
+            VirtualEventType type;
+            ManipulationValue manipulation;
         };
 
         CGimbal(const core::smart_refctd_ptr<projection_t>&& projection, const float32_t3& position, const float32_t3& lookat, const float32_t3& upVec = float32_t3(0.0f, 1.0f, 0.0f), const float32_t3& backupUpVec = float32_t3(0.5f, 1.0f, 0.0f))
-            : m_projection(projection), m_position(position), m_target(lookat), m_upVec(upVec), m_backupUpVec(backupUpVec), m_initialPosition(position), m_initialTarget(lookat), m_orientation(glm::quat(1.0f, 0.0f, 0.0f, 0.0f)), m_viewMatrix({}), m_isLeftHanded(isLeftHanded(m_projection->getProjectionMatrix()))
+            : m_projection(projection), m_position(position), m_target(lookat), m_upVec(upVec), m_backupUpVec(backupUpVec), m_initialPosition(position), m_initialTarget(lookat), m_orientation(glm::quat(1.0f, 0.0f, 0.0f, 0.0f)), m_viewMatrix({}), m_isLeftHanded(checkIfLeftHanded(m_projection->getProjectionMatrix()))
         {
             recomputeViewMatrix();
         }
@@ -155,26 +153,29 @@ public:
             if (!m_recordingManipulation)
                 return; // TODO: log it
 
-            const auto manipulation = virtualEvent.getManipulation();
+            const auto& manipulation = virtualEvent.manipulation;
 
-            case VirtualEventType::Strafe:
+            switch (virtualEvent.type)
             {
-                strafe(manipulation.strafe.direction, manipulation.strafe.distance);
-            } break;
+                case VirtualEventType::Strafe:
+                {
+                    strafe(manipulation.strafe.direction, manipulation.strafe.distance);
+                } break;
 
-            case VirtualEventType::Rotate:
-            {
-                rotate(manipulation.rotation.pitch, manipulation.rotation.yaw, manipulation.rotation.roll);
-            } break;
+                case VirtualEventType::Rotate:
+                {
+                    rotate(manipulation.rotation.pitch, manipulation.rotation.yaw, manipulation.rotation.roll);
+                } break;
 
-            case VirtualEventType::State:
-            {
-                if (manipulation.state.reset)
-                    reset();
-            } break;
+                case VirtualEventType::State:
+                {
+                    if (manipulation.state.reset)
+                        reset();
+                } break;
 
-            default:
-                break;
+                default:
+                    break;
+            }
         }
 
         // Record change of position vector, global update
@@ -204,7 +205,7 @@ public:
         //! End the gimbal manipulation session, recompute view matrix if required and update handedness state from projection
         inline void end()
         {
-            m_isLeftHanded = isLeftHanded(m_projection->getProjectionMatrix());
+            m_isLeftHanded = checkIfLeftHanded(m_projection->getProjectionMatrix());
 
             if (m_needsToRecomputeViewMatrix)
                 recomputeViewMatrix();
@@ -213,13 +214,32 @@ public:
             m_recordingManipulation = false;
         }
 
+        inline projection_t* getProjection() { return m_projection.get(); }
         inline const float32_t3& getPosition() const { return m_position; }
         inline const float32_t3& getTarget() const { return m_target; }
         inline const float32_t3& getUpVector() const { return m_upVec; }
         inline const float32_t3& getBackupUpVector() const { return m_backupUpVec; }
         inline const float32_t3 getLocalTarget() const { return m_target - m_position; }
         inline const float32_t3 getForwardDirection() const { return glm::normalize(getLocalTarget()); }
-        inline const projection_t* getProjection() { return m_projection.get(); }
+        inline const float32_t4x4& getViewMatrix() const { return m_viewMatrix; }
+        inline bool isLeftHanded() { return m_isLeftHanded; }
+
+        inline float32_t3 getPatchedUpVector()
+        {
+            // if up vector and vector to the target are the same we patch the up vector
+            auto up = glm::normalize(m_upVec);
+
+            const auto localTarget = getForwardDirection();
+            const auto cross = glm::cross(localTarget, up);
+
+            // we compute squared length but for checking if the len is 0 it doesnt matter 
+            const bool upVectorZeroLength = glm::dot(cross, cross) == 0.f;
+
+            if (upVectorZeroLength)
+                up = glm::normalize(m_backupUpVec);
+
+            return up;
+        }
 
         // TODO: getConcatenatedMatrix()
         // TODO: getViewMatrix()
@@ -257,7 +277,7 @@ public:
             // Rotate around Y (yaw)
             glm::quat qYaw = glm::angleAxis(dYawDeltaRadians, glm::vec3(0.0f, 1.0f, 0.0f));
 
-            // Rotate around Z (roll) // TODO: handness!!
+            // Rotate around Z (roll)
             glm::quat qRoll = glm::angleAxis(dRollDeltaRadians, glm::vec3(0.0f, 0.0f, 1.0f));
 
             // Combine the new rotations with the current orientation
@@ -280,30 +300,17 @@ public:
         {
             auto up = getPatchedUpVector();
 
+            // TODO!!!! CASTS
+
+            /*
             if (m_isLeftHanded)
                 m_viewMatrix = glm::lookAtLH(m_position, m_target, up);
             else
                 m_viewMatrix = glm::lookAtRH(m_position, m_target, up);
+                */
         }
 
-        inline float32_t3 getPatchedUpVector()
-        {
-            // if up vector and vector to the target are the same we patch the up vector
-            auto up = glm::normalize(m_upVec);
-
-            const auto localTarget = getForwardDirection();
-            const auto cross = glm::cross(localTarget, up);
-
-            // we compute squared length but for checking if the len is 0 it doesnt matter 
-            const bool upVectorZeroLength = glm::dot(cross, cross) == 0.f;
-
-            if (upVectorZeroLength)
-                up = glm::normalize(m_backupUpVec);
-
-            return up;
-        }
-
-        inline bool isLeftHanded(const auto& projectionMatrix)
+        inline bool checkIfLeftHanded(const auto& projectionMatrix)
         {
             return hlsl::determinant(projectionMatrix) < 0.f;
         }
@@ -313,35 +320,24 @@ public:
         const float32_t3 m_initialPosition, m_initialTarget;
 
         glm::quat m_orientation;
-        float64_t4x4 m_viewMatrix;
+        float32_t4x4 m_viewMatrix;
 
         bool m_isLeftHanded, 
         m_needsToRecomputeViewMatrix = false,
         m_recordingManipulation = false;
     };
 
-    ICameraController() : {}
-
-    // controller overrides how a manipulation is done for a given camera event with a gimbal
-    virtual void manipulate(CGimbal* gimbal, VirtualEventType event) = 0;
-
-    // controller can override default set of event map
-    virtual void initKeysToEvent()
+    struct SUpdateParameters
     {
-        m_keysToEvent[MoveForward] = { ui::E_KEY_CODE::EKC_W };
-        m_keysToEvent[MoveBackward] = { ui::E_KEY_CODE::EKC_S };
-        m_keysToEvent[MoveLeft] = { ui::E_KEY_CODE::EKC_A };
-        m_keysToEvent[MoveRight] = { ui::E_KEY_CODE::EKC_D };
-        m_keysToEvent[MoveUp] = { ui::E_KEY_CODE::EKC_SPACE };
-        m_keysToEvent[MoveDown] = { ui::E_KEY_CODE::EKC_LEFT_SHIFT };
-        m_keysToEvent[TiltUp] = { ui::E_KEY_CODE::EKC_NONE };
-        m_keysToEvent[TiltDown] = { ui::E_KEY_CODE::EKC_NONE };
-        m_keysToEvent[PanLeft] = { ui::E_KEY_CODE::EKC_NONE };
-        m_keysToEvent[PanRight] = { ui::E_KEY_CODE::EKC_NONE };
-        m_keysToEvent[RollLeft] = { ui::E_KEY_CODE::EKC_NONE };
-        m_keysToEvent[RollRight] = { ui::E_KEY_CODE::EKC_NONE };
-        m_keysToEvent[Reset] = { ui::E_KEY_CODE::EKC_R };
-    }
+        //! Nabla mouse events you want to be handled with a controller
+        std::span<const ui::SMouseEvent> mouseEvents = {};
+
+        //! Nabla keyboard events you want to be handled with a controller
+        std::span<const ui::SKeyboardEvent> keyboardEvents = {};
+    };
+
+    ICameraController(core::smart_refctd_ptr<CGimbal>&& gimbal) 
+        : m_gimbal(core::smart_refctd_ptr(gimbal)) {}
 
     // controller can override which keys correspond to which event
     void updateKeysToEvent(const std::vector<ui::E_KEY_CODE>& codes, VirtualEventType event)
@@ -349,26 +345,121 @@ public:
         m_keysToEvent[event] = std::move(codes);
     }
 
-protected:
+    virtual void begin(std::chrono::microseconds nextPresentationTimeStamp)
+    {
+        m_nextPresentationTimeStamp = nextPresentationTimeStamp;
+        return;
+    }
 
-    inline void setMoveSpeed(const float moveSpeed) { moveSpeed = m_moveSpeed; }
-    inline void setRotateSpeed(const float rotateSpeed) { rotateSpeed = m_rotateSpeed; }
+    virtual void manipulate(SUpdateParameters parameters) = 0;
+
+    void end(std::chrono::microseconds nextPresentationTimeStamp)
+    {
+        m_lastVirtualUpTimeStamp = nextPresentationTimeStamp;
+    }
+
+    inline void setMoveSpeed(const float moveSpeed) { m_moveSpeed = moveSpeed; }
+    inline void setRotateSpeed(const float rotateSpeed) { m_rotateSpeed = rotateSpeed; }
 
     inline const float getMoveSpeed() const { return m_moveSpeed; }
     inline const float getRotateSpeed() const { return m_rotateSpeed; }
 
-    std::array<std::vector<ui::E_KEY_CODE>, EventsCount> m_keysToEvent = {};
+protected:
+    // process keyboard to generate virtual manipulation events
+    std::vector<CVirtualEvent> processKeyboard(std::span<const ui::SKeyboardEvent> events)
+    {
+        std::vector<CVirtualEvent> virtualEvents;
 
-    // speed factors
+        for (const auto& ev : events)
+        {
+            constexpr auto NblVirtualKeys = std::to_array({ MoveForward, MoveBackward, MoveLeft, MoveRight, MoveUp, MoveDown, TiltUp, TiltDown, PanLeft, PanRight, RollLeft, RollRight, Reset });
+            static_assert(NblVirtualKeys.size() == EventsCount);
+
+            for (const auto virtualKey : NblVirtualKeys)
+            {
+                const auto code = m_keysToEvent[virtualKey];
+
+                if (ev.keyCode == code)
+                {
+                    if (code == ui::EKC_NONE)
+                        continue;
+
+                    const auto dt = std::chrono::duration_cast<std::chrono::milliseconds>(m_nextPresentationTimeStamp - ev.timeStamp).count();
+                    assert(dt >= 0);
+
+                    if (ev.action == nbl::ui::SKeyboardEvent::ECA_PRESSED && !m_keysDown[virtualKey])
+                    {
+                        m_keysDown[virtualKey] = true;
+                        virtualEvents.emplace_back(CVirtualEvent{ virtualKey, static_cast<float64_t>(dt) });
+                    }
+                    else if (ev.action == nbl::ui::SKeyboardEvent::ECA_RELEASED)
+                    {
+                        m_keysDown[virtualKey] = false;
+                    }
+                }
+            }
+        }
+
+        return virtualEvents;
+    }
+
+    /*
+    // [OPTIONAL]: process mouse to generate virtual manipulation events
+    // note:
+    // - all manipulations *may* be done with keyboard keys, it means you can have a pad/touch pad for which keys could be bound and skip the mouse
+    // - default implementation which is FPS camera-like controller doesn't perform roll rotation which is around Z axis! If you want more complex manipulations then override the method
+    // - it doesn't make the manipulation itself! It only process your mouse events you got from OS & accumulate data values to create manipulation virtual events!
+    */
+    virtual std::vector<CVirtualEvent> processMouse(std::span<const ui::SMouseEvent> events) const
+    {
+        // accumulate total pitch & yaw delta from mouse movement events
+        const auto [dTotalPitch, dTotalYaw] = [&]()
+        {
+            double dPitch = {}, dYaw = {};
+
+            for (const auto& ev : events)
+                if (ev.type == nbl::ui::SMouseEvent::EET_MOVEMENT)
+                {
+                    dYaw += ev.movementEvent.relativeMovementX;  // (yaw)
+                    dPitch -= ev.movementEvent.relativeMovementY; // (pitch)
+                }
+
+            return std::make_tuple(dPitch, dYaw);
+        }();
+
+        CVirtualEvent pitch;
+        pitch.type = (pitch.value = dTotalPitch) > 0.f ? TiltUp : TiltDown;
+
+        CVirtualEvent yaw;
+        yaw.type = (yaw.value = dTotalYaw) > 0.f ? PanRight : PanLeft;
+
+        return { pitch, yaw };
+    }
+
+    // controller can override default set of event map
+    virtual void initKeysToEvent()
+    {
+        m_keysToEvent[MoveForward] = ui::E_KEY_CODE::EKC_W ;
+        m_keysToEvent[MoveBackward] =  ui::E_KEY_CODE::EKC_S ;
+        m_keysToEvent[MoveLeft] =  ui::E_KEY_CODE::EKC_A ;
+        m_keysToEvent[MoveRight] =  ui::E_KEY_CODE::EKC_D ;
+        m_keysToEvent[MoveUp] =  ui::E_KEY_CODE::EKC_SPACE ;
+        m_keysToEvent[MoveDown] =  ui::E_KEY_CODE::EKC_LEFT_SHIFT ;
+        m_keysToEvent[TiltUp] =  ui::E_KEY_CODE::EKC_NONE ;
+        m_keysToEvent[TiltDown] =  ui::E_KEY_CODE::EKC_NONE ;
+        m_keysToEvent[PanLeft] =  ui::E_KEY_CODE::EKC_NONE ;
+        m_keysToEvent[PanRight] =  ui::E_KEY_CODE::EKC_NONE ;
+        m_keysToEvent[RollLeft] =  ui::E_KEY_CODE::EKC_NONE ;
+        m_keysToEvent[RollRight] =  ui::E_KEY_CODE::EKC_NONE ;
+        m_keysToEvent[Reset] =  ui::E_KEY_CODE::EKC_R ;
+    }
+
+    core::smart_refctd_ptr<CGimbal> m_gimbal;
+    std::array<ui::E_KEY_CODE, EventsCount> m_keysToEvent = {};
     float m_moveSpeed = 1.f, m_rotateSpeed = 1.f;
-
-    // states signaling if keys are pressed down or not
     bool m_keysDown[EventsCount] = {};
 
-    // durations for which the key was being held down from lastVirtualUpTimeStamp(=last "guessed" presentation time) to nextPresentationTimeStamp
-    double m_perActionDt[EventsCount] = {};
-
-    std::chrono::microseconds nextPresentationTimeStamp, lastVirtualUpTimeStamp;
+    std::chrono::microseconds m_nextPresentationTimeStamp, m_lastVirtualUpTimeStamp;
 };
 
 } // nbl::hlsl namespace

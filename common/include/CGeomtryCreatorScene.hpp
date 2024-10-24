@@ -1098,7 +1098,7 @@ private:
 
 struct ObjectDrawHookCpu
 {
-	nbl::core::matrix3x4SIMD model;
+	nbl::hlsl::float32_t4x4 model;
 	nbl::asset::SBasicViewParameters viewParameters;
 	ObjectMeta meta;
 };
