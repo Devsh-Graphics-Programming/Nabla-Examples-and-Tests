@@ -15,195 +15,132 @@
 
 // FPS Camera, we will have more types soon
 
+namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
+{
+
 template<ProjectionMatrix T = float64_t4x4>
 class Camera : public ICameraController<typename T>
 { 
 public:
-	using matrix_t = T;
+	using matrix_t = typename T;
+	using base_t = typename ICameraController<typename T>;
+	using gimbal_t = typename base_t::CGimbal;
+    using gimbal_virtual_event_t = typename gimbal_t::CVirtualEvent;
+	using controller_virtual_event_t = typename base_t::CVirtualEvent;
 
-	Camera() = default;
+	Camera(core::smart_refctd_ptr<gimbal_t>&& gimbal)
+		: base_t(core::smart_refctd_ptr(gimbal)) {}
 	~Camera() = default;
-
-	/*
-		TODO: controller + gimbal to do all of this -> override virtual manipulate method
-	*/
 
 public:
 
-	void mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
+	void manipulate(base_t::SUpdateParameters parameters)
 	{
-		for (auto eventIt=events.begin(); eventIt!=events.end(); eventIt++)
+		auto* gimbal = base_t::m_gimbal.get();
+
+		auto process = [&](const std::vector<base_t::CVirtualEvent>& virtualEvents) -> void
 		{
-			auto ev = *eventIt;
+			const auto forward = gimbal->getForwardDirection();
+			const auto up = gimbal->getPatchedUpVector();
+			const bool leftHanded = gimbal->isLeftHanded();
 
-			if(ev.type == nbl::ui::SMouseEvent::EET_CLICK && ev.clickEvent.mouseButton == nbl::ui::EMB_LEFT_BUTTON)
-				if(ev.clickEvent.action == nbl::ui::SMouseEvent::SClickEvent::EA_PRESSED) 
-					mouseDown = true;
-				else if (ev.clickEvent.action == nbl::ui::SMouseEvent::SClickEvent::EA_RELEASED)
-					mouseDown = false;
+			// strafe vector we move along when requesting left/right movements
+			const auto strafeLeftRight = leftHanded ? glm::normalize(glm::cross(forward, up)) : glm::normalize(glm::cross(up, forward));
 
-			if(ev.type == nbl::ui::SMouseEvent::EET_MOVEMENT && mouseDown) 
+			constexpr auto MoveSpeedScale = 0.003f;
+			constexpr auto RotateSpeedScale = 0.003f;
+
+			const auto dMoveFactor = base_t::m_moveSpeed * MoveSpeedScale;
+			const auto dRotateFactor = base_t::m_rotateSpeed * RotateSpeedScale;
+
+			// TODO: UB/LB for pitch [-88,88]!!! we are not in cosmos but handle FPS camera
+
+			for (const controller_virtual_event_t& ev : virtualEvents)
 			{
-				nbl::core::vectorSIMDf pos = getPosition();
-				nbl::core::vectorSIMDf localTarget = getTarget() - pos;
+                const auto dMoveValue = ev.value * dMoveFactor;
+                const auto dRotateValue = ev.value * dRotateFactor;
 
-				// Get Relative Rotation for localTarget in Radians
-				float relativeRotationX, relativeRotationY;
-				relativeRotationY = atan2(localTarget.X, localTarget.Z);
-				const double z1 = nbl::core::sqrt(localTarget.X*localTarget.X + localTarget.Z*localTarget.Z);
-				relativeRotationX = atan2(z1, localTarget.Y) - nbl::core::PI<float>()/2;
-				
-				constexpr float RotateSpeedScale = 0.003f; 
-				relativeRotationX -= ev.movementEvent.relativeMovementY * rotateSpeed * RotateSpeedScale * -1.0f;
-				float tmpYRot = ev.movementEvent.relativeMovementX * rotateSpeed * RotateSpeedScale * -1.0f;
+                gimbal_virtual_event_t gimbalEvent;
 
-				if (leftHanded)
-					relativeRotationY -= tmpYRot;
-				else
-					relativeRotationY += tmpYRot;
+                switch (ev.type)
+                {
+                    case base_t::MoveForward:
+                    {
+                        gimbalEvent.type = gimbal_t::Strafe;
+                        gimbalEvent.manipulation.strafe.direction = forward;
+                        gimbalEvent.manipulation.strafe.distance = dMoveValue;
+                    } break;
 
-				const double MaxVerticalAngle = nbl::core::radians<float>(88.0f);
+                    case base_t::MoveBackward:
+                    {
+                        gimbalEvent.type = gimbal_t::Strafe;
+                        gimbalEvent.manipulation.strafe.direction = -forward;
+                        gimbalEvent.manipulation.strafe.distance = dMoveValue;
+                    } break;
 
-				if (relativeRotationX > MaxVerticalAngle*2 && relativeRotationX < 2 * nbl::core::PI<float>()-MaxVerticalAngle)
-					relativeRotationX = 2 * nbl::core::PI<float>()-MaxVerticalAngle;
-				else
-					if (relativeRotationX > MaxVerticalAngle && relativeRotationX < 2 * nbl::core::PI<float>()-MaxVerticalAngle)
-						relativeRotationX = MaxVerticalAngle;
+                    case base_t::MoveLeft:
+                    {
+                        gimbalEvent.type = gimbal_t::Strafe;
+                        gimbalEvent.manipulation.strafe.direction = -strafeLeftRight;
+                        gimbalEvent.manipulation.strafe.distance = dMoveValue;
+                    } break;
 
-				localTarget.set(0,0, nbl::core::max(1.f, nbl::core::length(pos)[0]), 1.f);
+                    case base_t::MoveRight:
+                    {
+                        gimbalEvent.type = gimbal_t::Strafe;
+                        gimbalEvent.manipulation.strafe.direction = strafeLeftRight;
+                        gimbalEvent.manipulation.strafe.distance = dMoveValue;
+                    } break;
 
-				nbl::core::matrix3x4SIMD mat;
-				mat.setRotation(nbl::core::quaternion(relativeRotationX, relativeRotationY, 0));
-				mat.transformVect(localTarget);
-				
-				setTarget(localTarget + pos);
+                    case base_t::TiltUp:
+                    {
+                        gimbalEvent.type = gimbal_t::Rotate;
+                        gimbalEvent.manipulation.rotation.pitch = dRotateValue;
+                        gimbalEvent.manipulation.rotation.roll = 0.0f;
+                        gimbalEvent.manipulation.rotation.yaw = 0.0f;
+                    } break;
+
+                    case base_t::TiltDown:
+                    {
+                        gimbalEvent.type = gimbal_t::Rotate;
+                        gimbalEvent.manipulation.rotation.pitch = -dRotateValue;
+                        gimbalEvent.manipulation.rotation.roll = 0.0f;
+                        gimbalEvent.manipulation.rotation.yaw = 0.0f;
+                    } break;
+
+                    case base_t::PanLeft:
+                    {
+                        gimbalEvent.type = gimbal_t::Rotate;
+                        gimbalEvent.manipulation.rotation.pitch = 0.0f;
+                        gimbalEvent.manipulation.rotation.roll = 0.0f;
+                        gimbalEvent.manipulation.rotation.yaw = -dRotateValue;
+                    } break;
+
+                    case base_t::PanRight:
+                    {
+                        gimbalEvent.type = gimbal_t::Rotate;
+                        gimbalEvent.manipulation.rotation.pitch = 0.0f;
+                        gimbalEvent.manipulation.rotation.roll = 0.0f;
+                        gimbalEvent.manipulation.rotation.yaw = dRotateValue;
+                    } break;
+
+                    default:
+                        continue;
+                }
+
+                gimbal->manipulate(gimbalEvent);
 			}
-		}
-	}
+		};
 
-	void keyboardProcess(const nbl::ui::IKeyboardEventChannel::range_t& events)
-	{
-		for(uint32_t k = 0; k < E_CAMERA_MOVE_KEYS::ECMK_COUNT; ++k)
-			perActionDt[k] = 0.0;
-
-		/*
-		* If a Key was already being held down from previous frames
-		* Compute with this assumption that the key will be held down for this whole frame as well,
-		* And If an UP event was sent It will get subtracted it from this value. (Currently Disabled Because we Need better Oracle)
-		*/
-
-		for(uint32_t k = 0; k < E_CAMERA_MOVE_KEYS::ECMK_COUNT; ++k) 
-			if(keysDown[k]) 
-			{
-				auto timeDiff = std::chrono::duration_cast<std::chrono::milliseconds>(nextPresentationTimeStamp - lastVirtualUpTimeStamp).count();
-				assert(timeDiff >= 0);
-				perActionDt[k] += timeDiff;
-			}
-
-		for (auto eventIt=events.begin(); eventIt!=events.end(); eventIt++)
+		gimbal->begin();
 		{
-			const auto ev = *eventIt;
-			
-			// accumulate the periods for which a key was down
-			const auto timeDiff = std::chrono::duration_cast<std::chrono::milliseconds>(nextPresentationTimeStamp - ev.timeStamp).count();
-			assert(timeDiff >= 0);
-
-			// handle camera movement
-			for (const auto logicalKey : { ECMK_MOVE_FORWARD, ECMK_MOVE_BACKWARD, ECMK_MOVE_LEFT, ECMK_MOVE_RIGHT })
-			{
-				const auto code = keysMap[logicalKey];
-
-				if (ev.keyCode == code)
-				{
-					if (ev.action == nbl::ui::SKeyboardEvent::ECA_PRESSED && !keysDown[logicalKey]) 
-					{
-						perActionDt[logicalKey] += timeDiff;
-						keysDown[logicalKey] = true;
-					}
-					else if (ev.action == nbl::ui::SKeyboardEvent::ECA_RELEASED) 
-					{
-						// perActionDt[logicalKey] -= timeDiff; 
-						keysDown[logicalKey] = false;
-					}
-				}
-			}
-
-			// handle reset to default state
-			if (ev.keyCode == nbl::ui::EKC_HOME)
-				if (ev.action == nbl::ui::SKeyboardEvent::ECA_RELEASED)
-				{
-					position = initialPosition;
-					target = initialTarget;
-					recomputeViewMatrix();
-				}
+			process(base_t::processMouse(parameters.mouseEvents));
+			process(base_t::processKeyboard(parameters.keyboardEvents));
 		}
-	}
-
-	void beginInputProcessing(std::chrono::microseconds _nextPresentationTimeStamp)
-	{
-		nextPresentationTimeStamp = _nextPresentationTimeStamp;
-		return;
-	}
-	
-	void endInputProcessing(std::chrono::microseconds _nextPresentationTimeStamp)
-	{
-		nbl::core::vectorSIMDf pos = getPosition();
-		nbl::core::vectorSIMDf localTarget = getTarget() - pos;
-
-		if (!firstUpdate)
-		{
-			nbl::core::vectorSIMDf movedir = localTarget;
-			movedir.makeSafe3D();
-			movedir = nbl::core::normalize(movedir);
-
-			constexpr float MoveSpeedScale = 0.02f; 
-
-			pos += movedir * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_FORWARD] * moveSpeed * MoveSpeedScale;
-			pos -= movedir * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_BACKWARD] * moveSpeed * MoveSpeedScale;
-
-			// strafing
-		
-			// if upvector and vector to the target are the same, we have a
-			// problem. so solve this problem:
-			nbl::core::vectorSIMDf up = nbl::core::normalize(upVector);
-			nbl::core::vectorSIMDf cross = nbl::core::cross(localTarget, up);
-			bool upVectorNeedsChange = nbl::core::lengthsquared(cross)[0] == 0;
-			if (upVectorNeedsChange)
-			{
-				up = nbl::core::normalize(backupUpVector);
-			}
-
-			nbl::core::vectorSIMDf strafevect = localTarget;
-			if (leftHanded)
-				strafevect = nbl::core::cross(strafevect, up);
-			else
-				strafevect = nbl::core::cross(up, strafevect);
-
-			strafevect = nbl::core::normalize(strafevect);
-
-			pos += strafevect * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_LEFT] * moveSpeed * MoveSpeedScale;
-			pos -= strafevect * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_RIGHT] * moveSpeed * MoveSpeedScale;
-		}
-		else
-			firstUpdate = false;
-
-		setPosition(pos);
-		setTarget(localTarget+pos);
-
-		lastVirtualUpTimeStamp = nextPresentationTimeStamp;
-	}
-
-private:
-
-	inline void initDefaultKeysMap() { mapKeysToWASD(); }
-	
-	inline void allKeysUp() 
-	{
-		for (uint32_t i=0; i< E_CAMERA_MOVE_KEYS::ECMK_COUNT; ++i)
-			keysDown[i] = false;
-
-		mouseDown = false;
+		gimbal->end();
 	}
 };
+
+}
 
 #endif // _CAMERA_IMPL_
