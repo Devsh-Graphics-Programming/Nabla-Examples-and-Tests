@@ -221,8 +221,7 @@ NBL_CONSTEXPR uint32_t b_dCMBuffer = 1;
 NBL_CONSTEXPR uint32_t b_dVelBuffer = 2;
 NBL_CONSTEXPR uint32_t b_dAxisInBuffer = 3;
 NBL_CONSTEXPR uint32_t b_dAxisOutBuffer = 4;
-NBL_CONSTEXPR uint32_t b_dDiffInBuffer = 5;
-NBL_CONSTEXPR uint32_t b_dDiffOutBuffer = 6;
+NBL_CONSTEXPR uint32_t b_dDiffBuffer = 5;
 
 #ifndef __HLSL_VERSION
 NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding dAxisCM_bs1[] = {
@@ -301,44 +300,7 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding dDiffuse_bs1[] = {
         .count = 1,
     },
     {
-        .binding = b_dDiffInBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    },
-    {
-        .binding = b_dDiffOutBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    }
-};
-NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding dUpdateVelD_bs1[] = {
-    {
-        .binding = b_dGridData,
-        .type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    },
-    {
-        .binding = b_dCMBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    },
-    {
-        .binding = b_dVelBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 3,
-    },
-    {
-        .binding = b_dDiffInBuffer,
+        .binding = b_dDiffBuffer,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,

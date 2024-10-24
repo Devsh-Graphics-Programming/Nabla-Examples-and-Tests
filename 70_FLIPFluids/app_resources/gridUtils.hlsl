@@ -67,6 +67,17 @@ inline float4 gridPosToWorldPos(float4 position, SGridData data)
 {
     return float4(data.worldMin.xyz + position.xyz * data.gridCellSize, 1);
 }
+
+int3 flatIdxToLocalGridID(uint idx, int size)
+{
+    uint a = size * size;
+    int3 b;
+    b.z = idx / a;
+    b.x = idx - b.z * a;
+    b.y = b.x / size;
+    b.x = b.x - b.y * size;
+    return b;
+}
 #endif
 
 #endif

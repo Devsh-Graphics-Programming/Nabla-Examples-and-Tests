@@ -322,8 +322,7 @@ public:
             asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT, "particle counts");
 
         // diffusion grids
-        createGridTexture(gridDiffusionImageView, asset::EF_R32G32B32A32_SFLOAT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "diffusion0");
-        createGridTexture(tempDiffusionImageView, asset::EF_R32G32B32A32_SFLOAT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "diffusion1");
+        createGridTexture(gridDiffusionImageView, asset::EF_R32G32B32A32_SFLOAT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "diffusion");
 
         // pressure grids
         createGridTexture(pressureImageView, asset::EF_R32_SFLOAT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "pressure");
@@ -658,8 +657,10 @@ public:
             }
         }
         {
-            const std::string entryPoint = "applyDiffusion";
-            auto shader = compileShader("app_resources/compute/diffusion.comp.hlsl", entryPoint);
+            const std::string iterateKernel = "iterateDiffusion";
+            const std::string applyKernel = "applyDiffusion";
+            auto iterateShader = compileShader("app_resources/compute/diffusion.comp.hlsl", iterateKernel);
+            auto applyShader = compileShader("app_resources/compute/diffusion.comp.hlsl", applyKernel);
 
             auto descriptorSetLayout1 = m_device->createDescriptorSetLayout(dDiffuse_bs1);
 
@@ -669,60 +670,31 @@ public:
             };
             const uint32_t setCounts[2u] = { 0u, 2u };
             m_diffusionPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()), setCounts);
-            m_diffusionDs[0] = m_diffusionPool->createDescriptorSet(descriptorSetLayout1);
-            m_diffusionDs[1] = m_diffusionPool->createDescriptorSet(descriptorSetLayout1);
+            m_diffusionDs = m_diffusionPool->createDescriptorSet(descriptorSetLayout1);
 
             const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0, .size = 4 * sizeof(uint32_t) };
 
             smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pipelineLayout = m_device->createPipelineLayout({ &pcRange, 1 }, nullptr, smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
 
-            IGPUComputePipeline::SCreationParams params = {};
-            params.layout = pipelineLayout.get();
-            params.shader.entryPoint = entryPoint;
-            params.shader.shader = shader.get();
-                
-            m_device->createComputePipelines(nullptr, { &params,1 }, &m_diffusionPipeline);
-
             {
-                IGPUDescriptorSet::SDescriptorInfo infos[5];
-                infos[0].desc = smart_refctd_ptr(gridDataBuffer);
-                infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};				
-                infos[1].desc = gridCellMaterialImageView;
-                infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                infos[1].info.combinedImageSampler.sampler = nullptr;
-                infos[2].desc = gridAxisCellMaterialImageView;
-                infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                infos[2].info.combinedImageSampler.sampler = nullptr;
-                infos[3].desc = tempDiffusionImageView;
-                infos[3].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                infos[3].info.combinedImageSampler.sampler = nullptr;
-                infos[4].desc = gridDiffusionImageView;
-                infos[4].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                infos[4].info.combinedImageSampler.sampler = nullptr;
+                IGPUComputePipeline::SCreationParams params = {};
+                params.layout = pipelineLayout.get();
+                params.shader.entryPoint = iterateKernel;
+                params.shader.shader = iterateShader.get();
 
-                IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
-                imgInfosVel0[0].desc = velocityFieldImageViews[0];
-                imgInfosVel0[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                imgInfosVel0[0].info.combinedImageSampler.sampler = nullptr;
-                imgInfosVel0[1].desc = velocityFieldImageViews[1];
-                imgInfosVel0[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                imgInfosVel0[1].info.combinedImageSampler.sampler = nullptr;
-                imgInfosVel0[2].desc = velocityFieldImageViews[2];
-                imgInfosVel0[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                imgInfosVel0[2].info.combinedImageSampler.sampler = nullptr;
-
-                IGPUDescriptorSet::SWriteDescriptorSet writes[6] = {
-                    {.dstSet = m_diffusionDs[0].get(), .binding = b_dGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-                    {.dstSet = m_diffusionDs[0].get(), .binding = b_dCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
-                    {.dstSet = m_diffusionDs[0].get(), .binding = b_dVelBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
-                    {.dstSet = m_diffusionDs[0].get(), .binding = b_dAxisInBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
-                    {.dstSet = m_diffusionDs[0].get(), .binding = b_dDiffInBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
-                    {.dstSet = m_diffusionDs[0].get(), .binding = b_dDiffOutBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
-                };
-                m_device->updateDescriptorSets(std::span(writes, 6), {});
+                m_device->createComputePipelines(nullptr, { &params,1 }, &m_iterateDiffusionPipeline);
             }
             {
-                IGPUDescriptorSet::SDescriptorInfo infos[5];
+                IGPUComputePipeline::SCreationParams params = {};
+                params.layout = pipelineLayout.get();
+                params.shader.entryPoint = applyKernel;
+                params.shader.shader = applyShader.get();
+
+                m_device->createComputePipelines(nullptr, { &params,1 }, &m_diffusionPipeline);
+            }
+
+            {
+                IGPUDescriptorSet::SDescriptorInfo infos[4];
                 infos[0].desc = smart_refctd_ptr(gridDataBuffer);
                 infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};				
                 infos[1].desc = gridCellMaterialImageView;
@@ -734,9 +706,6 @@ public:
                 infos[3].desc = gridDiffusionImageView;
                 infos[3].info.image.imageLayout = IImage::LAYOUT::GENERAL;
                 infos[3].info.combinedImageSampler.sampler = nullptr;
-                infos[4].desc = tempDiffusionImageView;
-                infos[4].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                infos[4].info.combinedImageSampler.sampler = nullptr;
 
                 IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
                 imgInfosVel0[0].desc = velocityFieldImageViews[0];
@@ -749,50 +718,14 @@ public:
                 imgInfosVel0[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
                 imgInfosVel0[2].info.combinedImageSampler.sampler = nullptr;
 
-                IGPUDescriptorSet::SWriteDescriptorSet writes[6] = {
-                    {.dstSet = m_diffusionDs[1].get(), .binding = b_dGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-                    {.dstSet = m_diffusionDs[1].get(), .binding = b_dCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
-                    {.dstSet = m_diffusionDs[1].get(), .binding = b_dVelBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
-                    {.dstSet = m_diffusionDs[1].get(), .binding = b_dAxisInBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
-                    {.dstSet = m_diffusionDs[1].get(), .binding = b_dDiffInBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
-                    {.dstSet = m_diffusionDs[1].get(), .binding = b_dDiffOutBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
+                IGPUDescriptorSet::SWriteDescriptorSet writes[5] = {
+                    {.dstSet = m_diffusionDs.get(), .binding = b_dGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
+                    {.dstSet = m_diffusionDs.get(), .binding = b_dCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
+                    {.dstSet = m_diffusionDs.get(), .binding = b_dVelBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
+                    {.dstSet = m_diffusionDs.get(), .binding = b_dAxisInBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
+                    {.dstSet = m_diffusionDs.get(), .binding = b_dDiffBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]}
                 };
-                m_device->updateDescriptorSets(std::span(writes, 6), {});
-            }
-        }
-        {
-            createComputePipeline(m_updateVelDPipeline, m_updateVelDPool, m_updateVelDDs, 
-                "app_resources/compute/diffusion.comp.hlsl", "updateVelocity", dUpdateVelD_bs1);
-
-            {
-                IGPUDescriptorSet::SDescriptorInfo infos[3];
-                infos[0].desc = smart_refctd_ptr(gridDataBuffer);
-                infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};				
-                infos[1].desc = gridCellMaterialImageView;
-                infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                infos[1].info.combinedImageSampler.sampler = nullptr;
-                infos[2].desc = gridDiffusionImageView;
-                infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                infos[2].info.combinedImageSampler.sampler = nullptr;
-
-                IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
-                imgInfosVel0[0].desc = velocityFieldImageViews[0];
-                imgInfosVel0[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                imgInfosVel0[0].info.combinedImageSampler.sampler = nullptr;
-                imgInfosVel0[1].desc = velocityFieldImageViews[1];
-                imgInfosVel0[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                imgInfosVel0[1].info.combinedImageSampler.sampler = nullptr;
-                imgInfosVel0[2].desc = velocityFieldImageViews[2];
-                imgInfosVel0[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                imgInfosVel0[2].info.combinedImageSampler.sampler = nullptr;
-
-                IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
-                    {.dstSet = m_updateVelDDs.get(), .binding = b_dGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-                    {.dstSet = m_updateVelDDs.get(), .binding = b_dCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
-                    {.dstSet = m_updateVelDDs.get(), .binding = b_dVelBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
-                    {.dstSet = m_updateVelDDs.get(), .binding = b_dDiffInBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
-                };
-                m_device->updateDescriptorSets(std::span(writes, 4), {});
+                m_device->updateDescriptorSets(std::span(writes, 5), {});
             }
         }
         // solve pressure system pipelines
@@ -1375,8 +1308,9 @@ public:
         diffParam.xyz = a * b * c;
         diffParam.w = c;
 
-        cmdbuf->bindComputePipeline(m_diffusionPipeline.get());
-        cmdbuf->pushConstants(m_diffusionPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(float32_t4), &diffParam);
+        cmdbuf->bindComputePipeline(m_iterateDiffusionPipeline.get());
+        cmdbuf->pushConstants(m_iterateDiffusionPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(float32_t4), &diffParam);
+        cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_iterateDiffusionPipeline->getLayout(), 1, 1, &m_diffusionDs.get());
         for (int i = 0; i < diffusionIterations; i++)
         {
             {
@@ -1388,7 +1322,6 @@ public:
                 cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
             }
 
-            cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_diffusionPipeline->getLayout(), 1, 1, &m_diffusionDs[i % 2].get());
             cmdbuf->dispatch(WorkgroupCountGrid.x, WorkgroupCountGrid.y, WorkgroupCountGrid.z);
         }
         
@@ -1401,8 +1334,9 @@ public:
             cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
         }
 
-        cmdbuf->bindComputePipeline(m_updateVelDPipeline.get());
-        cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_updateVelDPipeline->getLayout(), 1, 1, &m_updateVelDDs.get());
+        cmdbuf->bindComputePipeline(m_diffusionPipeline.get());
+        cmdbuf->pushConstants(m_diffusionPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(float32_t4), &diffParam);
+        cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_diffusionPipeline->getLayout(), 1, 1, &m_diffusionDs.get());
         cmdbuf->dispatch(WorkgroupCountGrid.x, WorkgroupCountGrid.y, WorkgroupCountGrid.z);
     }
     
@@ -1852,7 +1786,7 @@ private:
             };
 
         uint32_t count = 0;
-        IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[15];
+        IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[14];
         for (uint32_t i = 0; i < 3; i++)
         {
             fillGridBarrierInfo(imageBarriers[count++], velocityFieldImageViews[i]);
@@ -1867,7 +1801,6 @@ private:
         fillGridBarrierInfo(imageBarriers[count++], tempAxisCellMaterialImageView);
 
         fillGridBarrierInfo(imageBarriers[count++], gridDiffusionImageView);
-        fillGridBarrierInfo(imageBarriers[count++], tempDiffusionImageView);
 
         fillGridBarrierInfo(imageBarriers[count++], pressureImageView);
         fillGridBarrierInfo(imageBarriers[count++], divergenceImageView);
@@ -1901,8 +1834,8 @@ private:
     
     smart_refctd_ptr<IGPUComputePipeline> m_axisCellsPipeline;
     smart_refctd_ptr<IGPUComputePipeline> m_neighborAxisCellsPipeline;
+    smart_refctd_ptr<IGPUComputePipeline> m_iterateDiffusionPipeline;
     smart_refctd_ptr<IGPUComputePipeline> m_diffusionPipeline;
-    smart_refctd_ptr<IGPUComputePipeline> m_updateVelDPipeline;
 
     smart_refctd_ptr<IGPUComputePipeline> m_calcDivergencePipeline;
     smart_refctd_ptr<IGPUComputePipeline> m_iteratePressurePipeline;
@@ -1931,9 +1864,7 @@ private:
     smart_refctd_ptr<video::IDescriptorPool> m_neighborAxisCellsPool;
     smart_refctd_ptr<IGPUDescriptorSet> m_neighborAxisCellsDs;
     smart_refctd_ptr<video::IDescriptorPool> m_diffusionPool;
-    std::array<smart_refctd_ptr<IGPUDescriptorSet>, 2> m_diffusionDs;
-    smart_refctd_ptr<video::IDescriptorPool> m_updateVelDPool;
-    smart_refctd_ptr<IGPUDescriptorSet> m_updateVelDDs;
+    smart_refctd_ptr<IGPUDescriptorSet> m_diffusionDs;
 
     smart_refctd_ptr<video::IDescriptorPool> m_calcDivergencePool;
     smart_refctd_ptr<IGPUDescriptorSet> m_calcDivergenceDs;
@@ -1968,9 +1899,9 @@ private:
     uint32_t particlesPerCell = 8;
     uint32_t numParticles;
     uint32_t numGridCells;
-    
+
     const float viscosity = 0.f;
-    const uint32_t diffusionIterations = 15;
+    const uint32_t diffusionIterations = 5;
     const uint32_t pressureSolverIterations = 5;
 
     // buffers
@@ -1981,8 +1912,8 @@ private:
     smart_refctd_ptr<IGPUBuffer> pParamsBuffer;			// SParticleRenderParams
     smart_refctd_ptr<IGPUBuffer> particleVertexBuffer;	// VertexInfo * 6 vertices
 
-    smart_refctd_ptr<IGPUBuffer> gridDataBuffer;		// SGridData
-    smart_refctd_ptr<IGPUBuffer> pressureParamsBuffer;	// SPressureSolverParams
+    smart_refctd_ptr<IGPUBuffer> gridDataBuffer;		        // SGridData
+    smart_refctd_ptr<IGPUBuffer> pressureParamsBuffer;	        // SPressureSolverParams
     smart_refctd_ptr<IGPUImageView> gridParticleCountImageView;	// uint
     smart_refctd_ptr<IGPUImageView> gridCellMaterialImageView;	// uint, fluid or solid
 
@@ -1993,13 +1924,12 @@ private:
     std::array<smart_refctd_ptr<IGPUImageView>, 3> velocityFieldUintViews;
     std::array<smart_refctd_ptr<IGPUImageView>, 3> prevVelocityFieldUintViews;
 
-    smart_refctd_ptr<IGPUImageView> gridDiffusionImageView;	// float4
+    smart_refctd_ptr<IGPUImageView> gridDiffusionImageView;	        // float4
     smart_refctd_ptr<IGPUImageView> gridAxisCellMaterialImageView;	// uint4
-    smart_refctd_ptr<IGPUImageView> divergenceImageView;		// float
-    smart_refctd_ptr<IGPUImageView> pressureImageView;		// float
+    smart_refctd_ptr<IGPUImageView> divergenceImageView;		    // float
+    smart_refctd_ptr<IGPUImageView> pressureImageView;		        // float
 
-    smart_refctd_ptr<IGPUImageView> tempCellMaterialImageView;	// uint, fluid or solid
-    smart_refctd_ptr<IGPUImageView> tempDiffusionImageView;	// float4
+    smart_refctd_ptr<IGPUImageView> tempCellMaterialImageView;	    // uint, fluid or solid
     smart_refctd_ptr<IGPUImageView> tempAxisCellMaterialImageView;	// uint4
 };
 

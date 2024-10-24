@@ -59,17 +59,6 @@ void calculateNegativeDivergence(uint32_t3 ID : SV_DispatchThreadID)
     divergenceBuffer[cellIdx] = divergence;
 }
 
-int3 flatIdxToLocalGridID(uint idx, int size)
-{
-    uint a = 14 * 14;
-    int3 b;
-    b.z = idx / a;
-    b.x = idx - b.z * a;
-    b.y = b.x / 14;
-    b.x = b.x - b.y * 14;
-    return b;
-}
-
 float calculatePressureStep(int3 idx)
 {
     float pressure = 0.0f;
