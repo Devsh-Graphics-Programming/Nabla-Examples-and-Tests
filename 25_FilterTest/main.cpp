@@ -1242,6 +1242,8 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 				// Test 3: Resize 2D image with alpha coverage adjustment
 				{
 					// We should find a better image for testing coverage adjustment
+					// WARNING: The output of this will turn pixels with Alpha 1.0 to pixels with Alpha slightly > referenceAlpha !!!!
+					// This is simply how coverage adjustment works!
 					const char* path = "../../media/colorexr.exr";
 					auto inImage = loadImage(path);
 					if (inImage)
