@@ -7,9 +7,11 @@
 #include "camera/CCubeProjection.hpp"
 #include "camera/ICameraControl.hpp"
 #include "glm/glm/ext/matrix_clip_space.hpp" // TODO: TESTING
+#include "nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl"
 
 // FPS Camera, TESTS
-using camera_t = Camera<float32_t4x4>;
+using projection_matrix_t = float32_t4x4;
+using camera_t = Camera<projection_matrix_t>;
 using gimbal_t = camera_t::CGimbal;
 using projection_t = camera_t::base_t::projection_t;
 
@@ -177,29 +179,23 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					ImGuiIO& io = ImGui::GetIO();
 					{
 						auto& projection = gimbal->getProjection()->getProjectionMatrix();
-						
-
-						// TODO CASTS
-
-						/*
 
 						if (isPerspective)
 						{
 							if (isLH)
-								projection = glm::perspectiveLH(glm::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+								projection = projection_t::value_t(glm::perspectiveLH(glm::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar));
 							else
-								projection = glm::perspectiveRH(glm::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+								projection = projection_t::value_t(glm::perspectiveRH(glm::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar));
 						}
 						else
 						{
 							float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
 
 							if (isLH)
-								projection = glm::orthoLH(-viewWidth / 2.0f, viewWidth / 2.0f, -viewHeight / 2.0f, viewHeight / 2.0f, zNear, zFar);
+								projection = projection_t::value_t(glm::orthoLH(-viewWidth / 2.0f, viewWidth / 2.0f, -viewHeight / 2.0f, viewHeight / 2.0f, zNear, zFar));
 							else
-								projection = glm::orthoRH(-viewWidth / 2.0f, viewWidth / 2.0f, -viewHeight / 2.0f, viewHeight / 2.0f, zNear, zFar);
+								projection = projection_t::value_t(glm::orthoRH(-viewWidth / 2.0f, viewWidth / 2.0f, -viewHeight / 2.0f, viewHeight / 2.0f, zNear, zFar));
 						}
-						*/
 					}
 
 					ImGuizmo::SetOrthographic(false);
@@ -335,14 +331,22 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					* note it also modifies input view matrix but projection matrix is immutable
 					*/
 
+
+
+					/*
+					
+							TODODOD
+					
+
+
+
 					static struct
 					{
 						float32_t4x4 view, projection, model;
 					} imguizmoM16InOut;
 
 					ImGuizmo::SetID(0u);
-
-					imguizmoM16InOut.view = transpose(gimbal->getViewMatrix());
+					imguizmoM16InOut.view = transpose(getMatrix3x4As4x4(gimbal->getViewMatrix()));
 					imguizmoM16InOut.projection = transpose(gimbal->getProjection()->getProjectionMatrix());
 					imguizmoM16InOut.model = transpose(pass.scene->object.model);
 					{
@@ -353,26 +357,19 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						EditTransform(&imguizmoM16InOut.view[0][0], &imguizmoM16InOut.projection[0][0], &imguizmoM16InOut.model[0][0], transformParams);
 					}
 
-
 					// to Nabla + update camera & model matrices
 					const auto& view = gimbal->getViewMatrix();
 					const auto& projection = gimbal->getProjection()->getProjectionMatrix();
-
-
-					/*
-
-							TODO!!!
-
-
+				
 					// TODO: make it more nicely
-					const_cast<float32_t4x4&>(view) = transpose(imguizmoM16InOut.view); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
-					camera.setProjectionMatrix(projection); // update concatanated matrix
+					const_cast<float32_t3x4&>(view) = float32_t3x4(transpose(imguizmoM16InOut.view)); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
+					//camera.setProjectionMatrix(projection); // update concatanated matrix
 					{
-						static nbl::core::matrix3x4SIMD modelView, normal;
-						static nbl::core::matrix4SIMD modelViewProjection;
+						static float32_t3x4 modelView, normal;
+						static float32_t4x4 modelViewProjection;
 
 						auto& hook = pass.scene->object;
-						hook.model = core::transpose(imguizmoM16InOut.model);
+						hook.model = core::transpose(float32_t3x4(imguizmoM16InOut.model));
 						{
 							const auto& references = pass.scene->getResources().objects;
 							const auto type = static_cast<ObjectType>(gcIndex);
@@ -384,8 +381,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						auto& ubo = hook.viewParameters;
 
-						modelView = nbl::core::concatenateBFollowedByA(view, hook.model);
-						modelView.getSub3x3InverseTranspose(normal);
+						modelView = concatenateBFollowedByA<float>(view, hook.model);
+
+						// TODO
+						//modelView.getSub3x3InverseTranspose(normal);
 						modelViewProjection = nbl::core::concatenateBFollowedByA(camera.getConcatenatedMatrix(), hook.model);
 
 						memcpy(ubo.MVP, modelViewProjection.pointer(), sizeof(ubo.MVP));
@@ -432,7 +431,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						ImGui::End();
 					}
-					*/
+
+										*/
 
 					// Nabla Imgui backend MDI buffer info
 					// To be 100% accurate and not overly conservative we'd have to explicitly `cull_frees` and defragment each time,
@@ -522,7 +522,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			auto pMatrix = glm::perspectiveLH(glm::radians(fov), float(m_window->getWidth()) / float(m_window->getHeight()), zNear, zFar);
 			auto projection = make_smart_refctd_ptr<projection_t>(); // TODO: CASTS FOR PROJ
 			gimbal = make_smart_refctd_ptr<gimbal_t>(smart_refctd_ptr(projection), position, target, up);
-			camera = make_smart_refctd_ptr<camera_t>(smart_refctd_ptr(gimbal)); // note we still have shared ownership, TESTS
+			camera = make_smart_refctd_ptr<camera_t>();
 
 			return true;
 		}
@@ -770,7 +770,14 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			if (move)
 			{
-				camera->manipulate({ .mouseEvents = params.mouseEvents, .keyboardEvents = params.keyboardEvents, });
+				const auto virtualMouseEvents = camera->processMouse(params.mouseEvents);
+				const auto virtualKeyboardEvents = camera->processMouse(params.mouseEvents);
+
+				gimbal->begin();
+				camera->manipulate(gimbal.get(), { virtualMouseEvents.data(), virtualMouseEvents.size()});
+				camera->manipulate(gimbal.get(), { virtualKeyboardEvents.data(), virtualKeyboardEvents.size()});
+				gimbal->end();
+
 				camera->end(nextPresentationTimestamp);
 			}
 
@@ -816,7 +823,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		} pass;
 
 		core::smart_refctd_ptr<gimbal_t> gimbal;
-		core::smart_refctd_ptr<camera_t> camera;
+		core::smart_refctd_ptr<ICamera<projection_matrix_t>> camera;
 		video::CDumbPresentationOracle oracle;
 
 		uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed

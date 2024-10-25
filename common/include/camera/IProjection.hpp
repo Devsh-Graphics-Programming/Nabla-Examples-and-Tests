@@ -19,6 +19,11 @@ public:
     IProjection(const value_t& matrix = {}) : m_projectionMatrix(matrix) {}
     value_t& getProjectionMatrix() { return m_projectionMatrix; }
 
+    inline bool isLeftHanded()
+    {
+        return hlsl::determinant(m_projectionMatrix) < 0.f;
+    }
+
 protected:
     value_t m_projectionMatrix;
 };

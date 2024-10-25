@@ -2,145 +2,126 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#ifndef _CAMERA_IMPL_
-#define _CAMERA_IMPL_
+#ifndef _C_CAMERA_HPP_
+#define _C_CAMERA_HPP_
 
-#include <nabla.h>
-#include <iostream>
-#include <cstdio>
-#include <fstream>
-#include <chrono>
-
-#include "camera/ICameraControl.hpp"
-
-// FPS Camera, we will have more types soon
+#include "ICamera.hpp"
 
 namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
 {
 
+// FPS Camera
 template<ProjectionMatrix T = float64_t4x4>
-class Camera : public ICameraController<typename T>
+class Camera : public ICamera<typename T>
 { 
 public:
-	using matrix_t = typename T;
-	using base_t = typename ICameraController<typename T>;
-	using gimbal_t = typename base_t::CGimbal;
-    using gimbal_virtual_event_t = typename gimbal_t::CVirtualEvent;
-	using controller_virtual_event_t = typename base_t::CVirtualEvent;
+    using base_t = ICamera<typename T>;
+    using traits_t = typename base_t::Traits;
 
-	Camera(core::smart_refctd_ptr<gimbal_t>&& gimbal)
-		: base_t(core::smart_refctd_ptr(gimbal)) {}
+	Camera() : base_t() {}
 	~Camera() = default;
 
-public:
-
-	void manipulate(base_t::SUpdateParameters parameters)
+	virtual void manipulate(traits_t::gimbal_t* gimbal, std::span<const typename traits_t::controller_virtual_event_t> virtualEvents) override
 	{
-		auto* gimbal = base_t::m_gimbal.get();
+        if (!gimbal)
+            return; // TODO: LOG
 
-		auto process = [&](const std::vector<base_t::CVirtualEvent>& virtualEvents) -> void
-		{
-			const auto forward = gimbal->getForwardDirection();
-			const auto up = gimbal->getPatchedUpVector();
-			const bool leftHanded = gimbal->isLeftHanded();
+        if (!gimbal->isRecordingManipulation())
+            return; // TODO: LOG
 
-			// strafe vector we move along when requesting left/right movements
-			const auto strafeLeftRight = leftHanded ? glm::normalize(glm::cross(forward, up)) : glm::normalize(glm::cross(up, forward));
+        const auto forward = gimbal->getForwardDirection();
+        const auto up = gimbal->getPatchedUpVector();
+        const bool leftHanded = gimbal->isLeftHanded();
 
-			constexpr auto MoveSpeedScale = 0.003f;
-			constexpr auto RotateSpeedScale = 0.003f;
+        // strafe vector we move along when requesting left/right movements
+        const auto strafeLeftRight = leftHanded ? glm::normalize(glm::cross(forward, up)) : glm::normalize(glm::cross(up, forward));
 
-			const auto dMoveFactor = base_t::m_moveSpeed * MoveSpeedScale;
-			const auto dRotateFactor = base_t::m_rotateSpeed * RotateSpeedScale;
+        constexpr auto MoveSpeedScale = 0.003f;
+        constexpr auto RotateSpeedScale = 0.003f;
 
-			// TODO: UB/LB for pitch [-88,88]!!! we are not in cosmos but handle FPS camera
+        const auto dMoveFactor = traits_t::controller_t::m_moveSpeed * MoveSpeedScale;
+        const auto dRotateFactor = traits_t::controller_t::m_rotateSpeed * RotateSpeedScale;
 
-			for (const controller_virtual_event_t& ev : virtualEvents)
-			{
-                const auto dMoveValue = ev.value * dMoveFactor;
-                const auto dRotateValue = ev.value * dRotateFactor;
+        // TODO: UB/LB for pitch [-88,88]!!! we are not in cosmos but handle FPS camera in default case
 
-                gimbal_virtual_event_t gimbalEvent;
+        for (const traits_t::controller_virtual_event_t& ev : virtualEvents)
+        {
+            const auto dMoveValue = ev.value * dMoveFactor;
+            const auto dRotateValue = ev.value * dRotateFactor;
 
-                switch (ev.type)
-                {
-                    case base_t::MoveForward:
-                    {
-                        gimbalEvent.type = gimbal_t::Strafe;
-                        gimbalEvent.manipulation.strafe.direction = forward;
-                        gimbalEvent.manipulation.strafe.distance = dMoveValue;
-                    } break;
+            typename traits_t::gimbal_virtual_event_t gimbalEvent;
 
-                    case base_t::MoveBackward:
-                    {
-                        gimbalEvent.type = gimbal_t::Strafe;
-                        gimbalEvent.manipulation.strafe.direction = -forward;
-                        gimbalEvent.manipulation.strafe.distance = dMoveValue;
-                    } break;
+            switch (ev.type)
+            {
+            case traits_t::controller_t::MoveForward:
+            {
+                gimbalEvent.type = traits_t::gimbal_t::Strafe;
+                gimbalEvent.manipulation.strafe.direction = forward;
+                gimbalEvent.manipulation.strafe.distance = dMoveValue;
+            } break;
 
-                    case base_t::MoveLeft:
-                    {
-                        gimbalEvent.type = gimbal_t::Strafe;
-                        gimbalEvent.manipulation.strafe.direction = -strafeLeftRight;
-                        gimbalEvent.manipulation.strafe.distance = dMoveValue;
-                    } break;
+            case traits_t::controller_t::MoveBackward:
+            {
+                gimbalEvent.type = traits_t::gimbal_t::Strafe;
+                gimbalEvent.manipulation.strafe.direction = -forward;
+                gimbalEvent.manipulation.strafe.distance = dMoveValue;
+            } break;
 
-                    case base_t::MoveRight:
-                    {
-                        gimbalEvent.type = gimbal_t::Strafe;
-                        gimbalEvent.manipulation.strafe.direction = strafeLeftRight;
-                        gimbalEvent.manipulation.strafe.distance = dMoveValue;
-                    } break;
+            case traits_t::controller_t::MoveLeft:
+            {
+                gimbalEvent.type = traits_t::gimbal_t::Strafe;
+                gimbalEvent.manipulation.strafe.direction = -strafeLeftRight;
+                gimbalEvent.manipulation.strafe.distance = dMoveValue;
+            } break;
 
-                    case base_t::TiltUp:
-                    {
-                        gimbalEvent.type = gimbal_t::Rotate;
-                        gimbalEvent.manipulation.rotation.pitch = dRotateValue;
-                        gimbalEvent.manipulation.rotation.roll = 0.0f;
-                        gimbalEvent.manipulation.rotation.yaw = 0.0f;
-                    } break;
+            case traits_t::controller_t::MoveRight:
+            {
+                gimbalEvent.type = traits_t::gimbal_t::Strafe;
+                gimbalEvent.manipulation.strafe.direction = strafeLeftRight;
+                gimbalEvent.manipulation.strafe.distance = dMoveValue;
+            } break;
 
-                    case base_t::TiltDown:
-                    {
-                        gimbalEvent.type = gimbal_t::Rotate;
-                        gimbalEvent.manipulation.rotation.pitch = -dRotateValue;
-                        gimbalEvent.manipulation.rotation.roll = 0.0f;
-                        gimbalEvent.manipulation.rotation.yaw = 0.0f;
-                    } break;
+            case traits_t::controller_t::TiltUp:
+            {
+                gimbalEvent.type = traits_t::gimbal_t::Rotate;
+                gimbalEvent.manipulation.rotation.pitch = dRotateValue;
+                gimbalEvent.manipulation.rotation.roll = 0.0f;
+                gimbalEvent.manipulation.rotation.yaw = 0.0f;
+            } break;
 
-                    case base_t::PanLeft:
-                    {
-                        gimbalEvent.type = gimbal_t::Rotate;
-                        gimbalEvent.manipulation.rotation.pitch = 0.0f;
-                        gimbalEvent.manipulation.rotation.roll = 0.0f;
-                        gimbalEvent.manipulation.rotation.yaw = -dRotateValue;
-                    } break;
+            case traits_t::controller_t::TiltDown:
+            {
+                gimbalEvent.type = traits_t::gimbal_t::Rotate;
+                gimbalEvent.manipulation.rotation.pitch = -dRotateValue;
+                gimbalEvent.manipulation.rotation.roll = 0.0f;
+                gimbalEvent.manipulation.rotation.yaw = 0.0f;
+            } break;
 
-                    case base_t::PanRight:
-                    {
-                        gimbalEvent.type = gimbal_t::Rotate;
-                        gimbalEvent.manipulation.rotation.pitch = 0.0f;
-                        gimbalEvent.manipulation.rotation.roll = 0.0f;
-                        gimbalEvent.manipulation.rotation.yaw = dRotateValue;
-                    } break;
+            case traits_t::controller_t::PanLeft:
+            {
+                gimbalEvent.type = traits_t::gimbal_t::Rotate;
+                gimbalEvent.manipulation.rotation.pitch = 0.0f;
+                gimbalEvent.manipulation.rotation.roll = 0.0f;
+                gimbalEvent.manipulation.rotation.yaw = -dRotateValue;
+            } break;
 
-                    default:
-                        continue;
-                }
+            case traits_t::controller_t::PanRight:
+            {
+                gimbalEvent.type = traits_t::gimbal_t::Rotate;
+                gimbalEvent.manipulation.rotation.pitch = 0.0f;
+                gimbalEvent.manipulation.rotation.roll = 0.0f;
+                gimbalEvent.manipulation.rotation.yaw = dRotateValue;
+            } break;
 
-                gimbal->manipulate(gimbalEvent);
-			}
-		};
+            default:
+                continue;
+            }
 
-		gimbal->begin();
-		{
-			process(base_t::processMouse(parameters.mouseEvents));
-			process(base_t::processKeyboard(parameters.keyboardEvents));
-		}
-		gimbal->end();
+            gimbal->manipulate(gimbalEvent);
+        }
 	}
 };
 
 }
 
-#endif // _CAMERA_IMPL_
+#endif // _C_CAMERA_HPP_
