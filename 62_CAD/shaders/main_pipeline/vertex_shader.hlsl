@@ -7,11 +7,6 @@
 #include <nbl/builtin/hlsl/algorithm.hlsl>
 #include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
 
-using ActualFloat64 = portable_float64_t<jit::device_capabilities>;
-using ActualFloat64Matrix3x3 = portable_float64_t3x3<jit::device_capabilities>;
-using ActualFloat64Vector2 = portable_float64_t2<jit::device_capabilities>;
-using ActualFloat64Vector3 = portable_float64_t3<jit::device_capabilities>;
-
 // TODO[Lucas]: Move these functions to builtin hlsl functions (Even the shadertoy obb and aabb ones)
 float cross2D(float2 a, float2 b)
 {
@@ -33,9 +28,9 @@ ClipProjectionData getClipProjectionData(in MainObject mainObj)
     if (mainObj.clipProjectionAddress != InvalidClipProjectionAddress)
     {
         ClipProjectionData ret;
-        ret.projectionToNDC = vk::RawBufferLoad<ActualFloat64Matrix3x3>(mainObj.clipProjectionAddress, 8u);
-        ret.minClipNDC      = vk::RawBufferLoad<float32_t2>(mainObj.clipProjectionAddress + sizeof(ActualFloat64Matrix3x3), 8u);
-        ret.maxClipNDC      = vk::RawBufferLoad<float32_t2>(mainObj.clipProjectionAddress + sizeof(ActualFloat64Matrix3x3) + sizeof(float32_t2), 8u);
+        ret.projectionToNDC = vk::RawBufferLoad<pfloat64_t3x3>(mainObj.clipProjectionAddress, 8u);
+        ret.minClipNDC      = vk::RawBufferLoad<float32_t2>(mainObj.clipProjectionAddress + sizeof(pfloat64_t3x3), 8u);
+        ret.maxClipNDC      = vk::RawBufferLoad<float32_t2>(mainObj.clipProjectionAddress + sizeof(pfloat64_t3x3) + sizeof(float32_t2), 8u);
 
         return ret;
     }
@@ -45,14 +40,18 @@ ClipProjectionData getClipProjectionData(in MainObject mainObj)
     }
 }
 
-float32_t2 transformPointScreenSpace(float64_t3x3 transformation, uint32_t2 resolution, float64_t2 point2d) 
+// TODO[Przemok]: Fix/Remove your todo here?!
+float2 transformPointScreenSpace(pfloat64_t3x3 transformation, uint32_t2 resolution, pfloat64_t2 point2d)
 {
-    float64_t2 ndc = transformPointNdc(transformation, point2d);
-    return (float32_t2)((ndc + 1.0) * 0.5 * resolution);
+    pfloat64_t2 ndc = transformPointNdc(transformation, point2d);
+    // TODO: "ndc + 1" doesn't work, probably because of `emulated_float64_t::create(float val)`
+    pfloat64_t2 result = (ndc + 1.0f) * 0.5f * _static_cast<pfloat64_t2>(resolution);
+
+    return _static_cast<float2>(result);
 }
-float32_t2 transformFromSreenSpaceToNdc(float32_t2 pos, uint32_t2 resolution)
+float32_t4 transformFromSreenSpaceToNdc(float2 pos, uint32_t2 resolution)
 {
-    return float32_t2((pos / (float32_t2)resolution) * 2.0f - 1.0f);
+    return float32_t4((pos.xy / (float32_t2)resolution) * 2.0f - 1.0f, 0.0f, 1.0f);
 }
 
 template<bool FragmentShaderPixelInterlock>
@@ -118,23 +117,23 @@ PSInput main(uint vertexID : SV_VertexID)
         LineStyle lineStyle = lineStyles[mainObj.styleIdx];
 
         // Width is on both sides, thickness is one one side of the curve (div by 2.0f)
-        const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<ActualFloat64>(lineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
+        const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(lineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
         const float antiAliasedLineThickness = screenSpaceLineWidth * 0.5f + globals.antiAliasingFactor;
         const float sdfLineThickness = screenSpaceLineWidth / 2.0f;
         outV.setLineThickness(sdfLineThickness);
         outV.setCurrentWorldToScreenRatio(
-            _static_cast<float>((_static_cast<ActualFloat64>(2.0f) /
-            (clipProjectionData.projectionToNDC[0].x * _static_cast<ActualFloat64>(globals.resolution.x))))
+            _static_cast<float>((_static_cast<pfloat64_t>(2.0f) /
+            (clipProjectionData.projectionToNDC[0].x * _static_cast<pfloat64_t>(globals.resolution.x))))
         );
 
         if (objType == ObjectType::LINE)
         {
-            ActualFloat64Vector2 points[2u];
-            points[0u] = vk::RawBufferLoad<ActualFloat64Vector2>(drawObj.geometryAddress, 8u);
-            points[1u] = vk::RawBufferLoad<ActualFloat64Vector2>(drawObj.geometryAddress + sizeof(LinePointInfo), 8u);
+            pfloat64_t2 points[2u];
+            points[0u] = vk::RawBufferLoad<pfloat64_t2>(drawObj.geometryAddress, 8u);
+            points[1u] = vk::RawBufferLoad<pfloat64_t2>(drawObj.geometryAddress + sizeof(LinePointInfo), 8u);
 
-            const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2), 8u);
-            const float patternStretch = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) + sizeof(float), 8u);
+            const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
+            const float patternStretch = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float), 8u);
             outV.setCurrentPhaseShift(phaseShift);
             outV.setPatternStretch(patternStretch);
 
@@ -169,13 +168,13 @@ PSInput main(uint vertexID : SV_VertexID)
         }
         else if (objType == ObjectType::QUAD_BEZIER)
         {
-            ActualFloat64Vector2 points[3u];
-            points[0u] = vk::RawBufferLoad<ActualFloat64Vector2>(drawObj.geometryAddress, 8u);
-            points[1u] = vk::RawBufferLoad<ActualFloat64Vector2>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2), 8u);
-            points[2u] = vk::RawBufferLoad<ActualFloat64Vector2>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) * 2u, 8u);
+            pfloat64_t2 points[3u];
+            points[0u] = vk::RawBufferLoad<pfloat64_t2>(drawObj.geometryAddress, 8u);
+            points[1u] = vk::RawBufferLoad<pfloat64_t2>(drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
+            points[2u] = vk::RawBufferLoad<pfloat64_t2>(drawObj.geometryAddress + sizeof(pfloat64_t2) * 2u, 8u);
 
-            const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) * 3u, 8u);
-            const float patternStretch = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) * 3u + sizeof(float), 8u);
+            const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(pfloat64_t2) * 3u, 8u);
+            const float patternStretch = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(pfloat64_t2) * 3u + sizeof(float), 8u);
             outV.setCurrentPhaseShift(phaseShift);
             outV.setPatternStretch(patternStretch);
 
@@ -344,9 +343,9 @@ PSInput main(uint vertexID : SV_VertexID)
 
             if (lineStyle.isRoadStyleFlag)
             {
-                const ActualFloat64Vector2 circleCenter = vk::RawBufferLoad<ActualFloat64Vector2>(drawObj.geometryAddress, 8u);
-                const float2 v = vk::RawBufferLoad<float2>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2), 8u);
-                const float cosHalfAngleBetweenNormals = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) + sizeof(float2), 8u);
+                const pfloat64_t2 circleCenter = vk::RawBufferLoad<pfloat64_t2>(drawObj.geometryAddress, 8u);
+                const float2 v = vk::RawBufferLoad<float2>(drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
+                const float cosHalfAngleBetweenNormals = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2), 8u);
 
                 const float2 circleCenterScreenSpace = transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, circleCenter);
                 outV.setPolylineConnectorCircleCenter(circleCenterScreenSpace);
@@ -406,20 +405,20 @@ PSInput main(uint vertexID : SV_VertexID)
     else if (objType == ObjectType::CURVE_BOX)
     {
         CurveBox curveBox;
-        curveBox.aabbMin = vk::RawBufferLoad<ActualFloat64Vector2>(drawObj.geometryAddress, 8u);
-        curveBox.aabbMax = vk::RawBufferLoad<ActualFloat64Vector2>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2), 8u);
+        curveBox.aabbMin = vk::RawBufferLoad<pfloat64_t2>(drawObj.geometryAddress, 8u);
+        curveBox.aabbMax = vk::RawBufferLoad<pfloat64_t2>(drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
 
         for (uint32_t i = 0; i < 3; i ++)
         {
-            curveBox.curveMin[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) * 2 + sizeof(float32_t2) * i, 4u);
-            curveBox.curveMax[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) * 2 + sizeof(float32_t2) * (3 + i), 4u);
+            curveBox.curveMin[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(pfloat64_t2) * 2 + sizeof(float32_t2) * i, 4u);
+            curveBox.curveMax[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(pfloat64_t2) * 2 + sizeof(float32_t2) * (3 + i), 4u);
         }
 
-        ActualFloat64Vector2 aabbMaxXMinY;
+        pfloat64_t2 aabbMaxXMinY;
         aabbMaxXMinY.x = curveBox.aabbMax.x;
         aabbMaxXMinY.y = curveBox.aabbMin.y;
 
-        ActualFloat64Vector2 aabbMinXMaxY;
+        pfloat64_t2 aabbMinXMaxY;
         aabbMinXMaxY.x = curveBox.aabbMin.x;
         aabbMinXMaxY.y = curveBox.aabbMax.y;
 
@@ -432,7 +431,7 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setCurveBoxScreenSpaceSize(float2(screenSpaceAabbExtents));
         
         const float2 undilatedCorner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
-        const ActualFloat64Vector2 undilatedCornerF64 = _static_cast<ActualFloat64Vector2>(undilatedCorner);
+        const pfloat64_t2 undilatedCornerF64 = _static_cast<pfloat64_t2>(undilatedCorner);
 
         // We don't dilate on AMD (= no fragShaderInterlock)
         const float pixelsToIncreaseOnEachSide = globals.antiAliasingFactor + 1.0;
@@ -442,10 +441,10 @@ PSInput main(uint vertexID : SV_VertexID)
         dilateHatch<jit::device_capabilities::fragmentShaderPixelInterlock>(dilateVec, dilatedUV, undilatedCorner, dilateRate, ndcAxisU, ndcAxisV);
 
         // doing interpolation this way to ensure correct endpoints and 0 and 1, we can alternatively use branches to set current corner based on vertexIdx
-        const ActualFloat64Vector2 currentCorner = curveBox.aabbMin * (_static_cast<ActualFloat64Vector2>(float2(1.0f, 1.0f)) - undilatedCornerF64) +
+        const pfloat64_t2 currentCorner = curveBox.aabbMin * (_static_cast<pfloat64_t2>(float2(1.0f, 1.0f)) - undilatedCornerF64) +
             curveBox.aabbMax * undilatedCornerF64;
 
-        const float2 coord = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, currentCorner) + _static_cast<ActualFloat64Vector2>(dilateVec));
+        const float2 coord = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, currentCorner) + _static_cast<pfloat64_t2>(dilateVec));
 
         outV.position = float4(coord, 0.f, 1.f);
  
@@ -497,18 +496,18 @@ PSInput main(uint vertexID : SV_VertexID)
         const float italicTiltSlope = lineStyle.screenSpaceLineWidth; // aliased text style member with line style
         
         GlyphInfo glyphInfo;
-        glyphInfo.topLeft = vk::RawBufferLoad<ActualFloat64Vector2>(drawObj.geometryAddress, 8u);
-        glyphInfo.dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2), 4u);
-        glyphInfo.aspectRatio = vk::RawBufferLoad<float32_t>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) + sizeof(float2), 4u);
-        glyphInfo.minUV_textureID_packed = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) + sizeof(float2) + sizeof(float), 4u);
+        glyphInfo.topLeft = vk::RawBufferLoad<pfloat64_t2>(drawObj.geometryAddress, 8u);
+        glyphInfo.dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(pfloat64_t2), 4u);
+        glyphInfo.aspectRatio = vk::RawBufferLoad<float32_t>(drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2), 4u);
+        glyphInfo.minUV_textureID_packed = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2) + sizeof(float), 4u);
 
         float32_t2 minUV = glyphInfo.getMinUV();
         uint16_t textureID = glyphInfo.getTextureID();
 
         const float32_t2 dirV = float32_t2(glyphInfo.dirU.y, -glyphInfo.dirU.x) * glyphInfo.aspectRatio;
         const float2 screenTopLeft = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, glyphInfo.topLeft));
-        const float2 screenDirU = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<ActualFloat64Vector2>(glyphInfo.dirU)));
-        const float2 screenDirV = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<ActualFloat64Vector2>(dirV)));
+        const float2 screenDirU = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(glyphInfo.dirU)));
+        const float2 screenDirV = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirV)));
 
         const float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1)); // corners of square from (0, 0) to (1, 1)
         const float2 undilatedCornerNDC = corner * 2.0 - 1.0; // corners of square from (-1, -1) to (1, 1)
@@ -548,15 +547,15 @@ PSInput main(uint vertexID : SV_VertexID)
     }
     else if (objType == ObjectType::IMAGE)
     {
-        ActualFloat64Vector2 topLeft = vk::RawBufferLoad<ActualFloat64Vector2>(drawObj.geometryAddress, 8u);
-        float32_t2 dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2), 4u);
-        float32_t aspectRatio = vk::RawBufferLoad<float32_t>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) + sizeof(float2), 4u);
-        uint32_t textureID = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) + sizeof(float2) + sizeof(float), 4u);
+        pfloat64_t2 topLeft = vk::RawBufferLoad<pfloat64_t2>(drawObj.geometryAddress, 8u);
+        float32_t2 dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(pfloat64_t2), 4u);
+        float32_t aspectRatio = vk::RawBufferLoad<float32_t>(drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2), 4u);
+        uint32_t textureID = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2) + sizeof(float), 4u);
 
         const float32_t2 dirV = float32_t2(dirU.y, -dirU.x) * aspectRatio;
         const float2 ndcTopLeft = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, topLeft));
-        const float2 ndcDirU = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<ActualFloat64Vector2>(dirU)));
-        const float2 ndcDirV = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<ActualFloat64Vector2>(dirV)));
+        const float2 ndcDirU = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirU)));
+        const float2 ndcDirV = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirV)));
 
         float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
         float2 uv = corner; // non-dilated
