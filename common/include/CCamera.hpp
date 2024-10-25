@@ -31,7 +31,7 @@ public:
 
         const auto forward = gimbal->getForwardDirection();
         const auto up = gimbal->getPatchedUpVector();
-        const bool leftHanded = gimbal->isLeftHanded();
+        const bool leftHanded = gimbal->getProjection()->isLeftHanded();
 
         // strafe vector we move along when requesting left/right movements
         const auto strafeLeftRight = leftHanded ? glm::normalize(glm::cross(forward, up)) : glm::normalize(glm::cross(up, forward));
