@@ -3021,7 +3021,7 @@ protected:
 						auto addPt = [&](float64_t2 p)
 						{
 							auto point = p / 8.0;
-							points.push_back(point * hatchFillShapeSize + float64_t2(offset, -200.0 - hatchFillShapeSize));
+							points.push_back(point * hatchFillShapeSize + float64_t2(offset, -300.0 - hatchFillShapeSize));
 						};
 						addPt(float64_t2(0.0, 0.0));
 						addPt(float64_t2(8.0, 0.0));
