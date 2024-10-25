@@ -16,16 +16,25 @@ class IProjection : virtual public core::IReferenceCounted
 public:
     using value_t = T;
 
-    IProjection(const value_t& matrix = {}) : m_projectionMatrix(matrix) {}
-    value_t& getProjectionMatrix() { return m_projectionMatrix; }
+    IProjection(const value_t& matrix = {}) : m_projectionMatrix(matrix) { updateHandnessState(); }
 
-    inline bool isLeftHanded()
+    inline void setMatrix(const value_t& projectionMatrix)
     {
-        return hlsl::determinant(m_projectionMatrix) < 0.f;
+        m_projectionMatrix = projectionMatrix;
+        updateHandnessState();
     }
 
-protected:
+    inline const value_t& getMatrix() { return m_projectionMatrix; }
+    inline bool isLeftHanded() { return m_isLeftHanded; }
+
+private:
+    inline void updateHandnessState()
+    {
+        m_isLeftHanded = hlsl::determinant(m_projectionMatrix) < 0.f;
+    }
+
     value_t m_projectionMatrix;
+    bool m_isLeftHanded;
 };
 
 template<typename R>

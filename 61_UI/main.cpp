@@ -178,23 +178,23 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				{
 					ImGuiIO& io = ImGui::GetIO();
 					{
-						auto& projection = gimbal->getProjection()->getProjectionMatrix();
+						auto* projection = gimbal->getProjection();
 
 						if (isPerspective)
 						{
 							if (isLH)
-								projection = projection_t::value_t(glm::perspectiveLH(glm::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar));
+								projection->setMatrix(projection_t::value_t(glm::perspectiveLH(glm::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar)));
 							else
-								projection = projection_t::value_t(glm::perspectiveRH(glm::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar));
+								projection->setMatrix(projection_t::value_t(glm::perspectiveRH(glm::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar)));
 						}
 						else
 						{
 							float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
 
 							if (isLH)
-								projection = projection_t::value_t(glm::orthoLH(-viewWidth / 2.0f, viewWidth / 2.0f, -viewHeight / 2.0f, viewHeight / 2.0f, zNear, zFar));
+								projection->setMatrix(projection_t::value_t(glm::orthoLH(-viewWidth / 2.0f, viewWidth / 2.0f, -viewHeight / 2.0f, viewHeight / 2.0f, zNear, zFar)));
 							else
-								projection = projection_t::value_t(glm::orthoRH(-viewWidth / 2.0f, viewWidth / 2.0f, -viewHeight / 2.0f, viewHeight / 2.0f, zNear, zFar));
+								projection->setMatrix(projection_t::value_t(glm::orthoRH(-viewWidth / 2.0f, viewWidth / 2.0f, -viewHeight / 2.0f, viewHeight / 2.0f, zNear, zFar)));
 						}
 					}
 
@@ -331,24 +331,17 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					* note it also modifies input view matrix but projection matrix is immutable
 					*/
 
-
-
-					/*
-					
-							TODODOD
-					
-
-
-
 					static struct
 					{
 						float32_t4x4 view, projection, model;
 					} imguizmoM16InOut;
 
+					const auto& projectionMatrix = gimbal->getProjection()->getMatrix();
+
 					ImGuizmo::SetID(0u);
 					imguizmoM16InOut.view = transpose(getMatrix3x4As4x4(gimbal->getViewMatrix()));
-					imguizmoM16InOut.projection = transpose(gimbal->getProjection()->getProjectionMatrix());
-					imguizmoM16InOut.model = transpose(pass.scene->object.model);
+					imguizmoM16InOut.projection = transpose(projectionMatrix);
+					imguizmoM16InOut.model = transpose(getMatrix3x4As4x4(pass.scene->object.model));
 					{
 						if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
 							imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
@@ -359,17 +352,15 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					// to Nabla + update camera & model matrices
 					const auto& view = gimbal->getViewMatrix();
-					const auto& projection = gimbal->getProjection()->getProjectionMatrix();
 				
 					// TODO: make it more nicely
 					const_cast<float32_t3x4&>(view) = float32_t3x4(transpose(imguizmoM16InOut.view)); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
-					//camera.setProjectionMatrix(projection); // update concatanated matrix
 					{
 						static float32_t3x4 modelView, normal;
 						static float32_t4x4 modelViewProjection;
 
 						auto& hook = pass.scene->object;
-						hook.model = core::transpose(float32_t3x4(imguizmoM16InOut.model));
+						hook.model = float32_t3x4(transpose(imguizmoM16InOut.model));
 						{
 							const auto& references = pass.scene->getResources().objects;
 							const auto type = static_cast<ObjectType>(gcIndex);
@@ -385,11 +376,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						// TODO
 						//modelView.getSub3x3InverseTranspose(normal);
-						modelViewProjection = nbl::core::concatenateBFollowedByA(camera.getConcatenatedMatrix(), hook.model);
 
-						memcpy(ubo.MVP, modelViewProjection.pointer(), sizeof(ubo.MVP));
-						memcpy(ubo.MV, modelView.pointer(), sizeof(ubo.MV));
-						memcpy(ubo.NormalMat, normal.pointer(), sizeof(ubo.NormalMat));
+						auto concatMatrix = mul(projectionMatrix, getMatrix3x4As4x4(view));
+						modelViewProjection = mul(concatMatrix, getMatrix3x4As4x4(hook.model));
+
+						memcpy(ubo.MVP, &modelViewProjection[0][0], sizeof(ubo.MVP));
+						memcpy(ubo.MV, &modelView[0][0], sizeof(ubo.MV));
+						memcpy(ubo.NormalMat, &normal[0][0], sizeof(ubo.NormalMat));
 
 						// object meta display
 						{
@@ -398,7 +391,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							ImGui::End();
 						}
 					}
-					
 					
 					// view matrices editor
 					{
@@ -425,14 +417,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 								ImGui::Separator();
 						};
 
-						addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, pass.scene->object.model.pointer());
-						addMatrixTable("Camera View Matrix", "ViewMatrixTable", 3, 4, view.pointer());
-						addMatrixTable("Camera View Projection Matrix", "ViewProjectionMatrixTable", 4, 4, projection.pointer(), false);
+						addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, &pass.scene->object.model[0][0]);
+						addMatrixTable("Camera Gimbal View Matrix", "ViewMatrixTable", 3, 4, &view[0][0]);
+						addMatrixTable("Camera Gimbal Projection Matrix", "ProjectionMatrixTable", 4, 4, &projectionMatrix[0][0], false);
 
 						ImGui::End();
 					}
-
-										*/
 
 					// Nabla Imgui backend MDI buffer info
 					// To be 100% accurate and not overly conservative we'd have to explicitly `cull_frees` and defragment each time,

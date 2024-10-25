@@ -222,7 +222,6 @@ public:
         inline const float32_t3 getLocalTarget() const { return m_target - m_position; }
         inline const float32_t3 getForwardDirection() const { return glm::normalize(getLocalTarget()); }
         inline const float32_t3x4& getViewMatrix() const { return m_viewMatrix; }
-        inline bool isLeftHanded() { return m_isLeftHanded; }
 
         inline float32_t3 getPatchedUpVector()
         {
@@ -240,9 +239,6 @@ public:
 
             return up;
         }
-
-        // TODO: getConcatenatedMatrix()
-        // TODO: getViewMatrix()
 
     private:
         //! Reset the gimbal to its initial position, target, and orientation
@@ -292,7 +288,6 @@ public:
             // And we can simply update target vector
             m_target = m_position + localTargetRotated;
 
-            // TODO: std::any + nice checks for deltas (radians - periodic!)
             m_needsToRecomputeViewMatrix = true;
         }
 
@@ -300,9 +295,7 @@ public:
         {
             auto up = getPatchedUpVector();
 
-            m_isLeftHanded = m_projection->isLeftHanded();
-
-            if (m_isLeftHanded)
+            if (m_projection->isLeftHanded())
                 m_viewMatrix = float32_t3x4(float32_t4x4(glm::lookAtLH(m_position, m_target, up)));
             else
                 m_viewMatrix = float32_t3x4(float32_t4x4(glm::lookAtRH(m_position, m_target, up)));
@@ -315,8 +308,7 @@ public:
         glm::quat m_orientation;
         float32_t3x4 m_viewMatrix;
 
-        bool m_isLeftHanded = false,
-        m_needsToRecomputeViewMatrix = false,
+        bool m_needsToRecomputeViewMatrix = true,
         m_recordingManipulation = false;
     };
 
