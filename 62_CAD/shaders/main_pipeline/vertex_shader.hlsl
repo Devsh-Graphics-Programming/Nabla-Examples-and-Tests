@@ -45,45 +45,14 @@ ClipProjectionData getClipProjectionData(in MainObject mainObj)
     }
 }
 
-ActualFloat64Vector2 transformPointNdc(ActualFloat64Matrix3x3 transformation, ActualFloat64Vector2 point2d)
+float32_t2 transformPointScreenSpace(float64_t3x3 transformation, uint32_t2 resolution, float64_t2 point2d) 
 {
-    ActualFloat64Vector3 point3d;
-    point3d.x = point2d.x;
-    point3d.y = point2d.y;
-    point3d.z = _static_cast<ActualFloat64>(1.0f);
-
-    ActualFloat64Vector3 transformationResult = portableMul64<ActualFloat64Matrix3x3, ActualFloat64Vector3, jit::device_capabilities>(transformation, point3d);
-    ActualFloat64Vector2 output;
-    output.x = transformationResult.x;
-    output.y = transformationResult.y;
-
-    return output;
+    float64_t2 ndc = transformPointNdc(transformation, point2d);
+    return (float32_t2)((ndc + 1.0) * 0.5 * resolution);
 }
-ActualFloat64Vector2 transformVectorNdc(ActualFloat64Matrix3x3 transformation, ActualFloat64Vector2 vector2d)
+float32_t2 transformFromSreenSpaceToNdc(float32_t2 pos, uint32_t2 resolution)
 {
-    ActualFloat64Vector3 vector3d;
-    vector3d.x = vector2d.x;
-    vector3d.y = vector2d.y;
-    vector3d.z = _static_cast<ActualFloat64>(0.0f);
-
-    ActualFloat64Vector3 transformationResult = portableMul64<ActualFloat64Matrix3x3, ActualFloat64Vector3, jit::device_capabilities>(transformation, vector3d);
-    ActualFloat64Vector2 output;
-    output.x = transformationResult.x;
-    output.y = transformationResult.y;
-
-    return output;
-}
-float2 transformPointScreenSpace(ActualFloat64Matrix3x3 transformation, ActualFloat64Vector2 point2d)
-{
-    ActualFloat64Vector2 ndc = transformPointNdc(transformation, point2d);
-    // TODO: "ndc + 1" doesn't work, probably because of `emulated_float64_t::create(float val)`
-    ActualFloat64Vector2 result = (ndc + 1.0f) * 0.5f * _static_cast<ActualFloat64Vector2>(globals.resolution);
-
-    return _static_cast<float2>(result);
-}
-float4 transformFromSreenSpaceToNdc(float2 pos)
-{
-    return float4((pos.xy / globals.resolution) * 2.0f - 1.0f, 0.0f, 1.0f);
+    return float32_t2((pos / (float32_t2)resolution) * 2.0f - 1.0f);
 }
 
 template<bool FragmentShaderPixelInterlock>
@@ -131,7 +100,7 @@ PSInput main(uint vertexID : SV_VertexID)
     PSInput outV;
 
     // Default Initialize PS Input
-    outV.position.z = 0.0;
+    outV.position.zw = float2(0.0, 1.0);
     outV.data1 = uint4(0, 0, 0, 0);
     outV.data2 = float4(0, 0, 0, 0);
     outV.data3 = float4(0, 0, 0, 0);
@@ -171,7 +140,9 @@ PSInput main(uint vertexID : SV_VertexID)
 
             float2 transformedPoints[2u];
             for (uint i = 0u; i < 2u; ++i)
-                transformedPoints[i] = transformPointScreenSpace(clipProjectionData.projectionToNDC, points[i]);
+            {
+                transformedPoints[i] = transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, points[i]);
+            }
 
             const float2 lineVector = normalize(transformedPoints[1u] - transformedPoints[0u]);
             const float2 normalToLine = float2(-lineVector.y, lineVector.x);
@@ -194,7 +165,7 @@ PSInput main(uint vertexID : SV_VertexID)
             outV.setLineStart(transformedPoints[0u]);
             outV.setLineEnd(transformedPoints[1u]);
 
-            outV.position = transformFromSreenSpaceToNdc(outV.position.xy);
+            outV.position.xy = transformFromSreenSpaceToNdc(outV.position.xy, globals.resolution);
         }
         else if (objType == ObjectType::QUAD_BEZIER)
         {
@@ -211,7 +182,9 @@ PSInput main(uint vertexID : SV_VertexID)
             // transform these points into screen space and pass to fragment
             float2 transformedPoints[3u];
             for (uint i = 0u; i < 3u; ++i)
-                transformedPoints[i] = transformPointScreenSpace(clipProjectionData.projectionToNDC, points[i]);
+            {
+                transformedPoints[i] = transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, points[i]);
+            }
 
             shapes::QuadraticBezier<float> quadraticBezier = shapes::QuadraticBezier<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
             shapes::Quadratic<float> quadratic = shapes::Quadratic<float>::constructFromBezier(quadraticBezier);
@@ -375,7 +348,7 @@ PSInput main(uint vertexID : SV_VertexID)
                 const float2 v = vk::RawBufferLoad<float2>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2), 8u);
                 const float cosHalfAngleBetweenNormals = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2) + sizeof(float2), 8u);
 
-                const float2 circleCenterScreenSpace = transformPointScreenSpace(clipProjectionData.projectionToNDC, circleCenter);
+                const float2 circleCenterScreenSpace = transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, circleCenter);
                 outV.setPolylineConnectorCircleCenter(circleCenterScreenSpace);
 
                 // Find other miter vertices
@@ -422,7 +395,7 @@ PSInput main(uint vertexID : SV_VertexID)
                     outV.position = float4(screenSpaceV2, 0.0f, 1.0f);
                 }
 
-                outV.position = transformFromSreenSpaceToNdc(outV.position.xy);
+                outV.position.xy = transformFromSreenSpaceToNdc(outV.position.xy, globals.resolution);
             }
             else
             {
@@ -520,6 +493,9 @@ PSInput main(uint vertexID : SV_VertexID)
     }
     else if (objType == ObjectType::FONT_GLYPH)
     {
+        LineStyle lineStyle = lineStyles[mainObj.styleIdx];
+        const float italicTiltSlope = lineStyle.screenSpaceLineWidth; // aliased text style member with line style
+        
         GlyphInfo glyphInfo;
         glyphInfo.topLeft = vk::RawBufferLoad<ActualFloat64Vector2>(drawObj.geometryAddress, 8u);
         glyphInfo.dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(ActualFloat64Vector2), 4u);
@@ -544,17 +520,20 @@ PSInput main(uint vertexID : SV_VertexID)
         const float2 vx = screenDirU * dilateRate.x;
         const float2 vy = screenDirV * dilateRate.y;
         const float2 offsetVec = vx * undilatedCornerNDC.x + vy * undilatedCornerNDC.y;
-        const float2 coord = screenTopLeft + corner.x * screenDirU + corner.y * screenDirV + offsetVec;
+        float2 coord = screenTopLeft + corner.x * screenDirU + corner.y * screenDirV + offsetVec;
 
+        if (corner.y == 0 && italicTiltSlope > 0.0f)
+            coord += normalize(screenDirU) * length(screenDirV) * italicTiltSlope;
+        
         // If aspect ratio of the dimensions and glyph inside the texture are the same then screenPxRangeX === screenPxRangeY
         // but if the glyph box is stretched in any way then we won't get correct msdf
         // in that case we need to take the max(screenPxRangeX, screenPxRangeY) to avoid blur due to underexaggerated distances
         // We compute screenPxRange using the ratio of our screenspace extent to the texel space our glyph takes inside the texture
         // Our glyph is centered inside the texture, so `maxUV = 1.0 - minUV` and `glyphTexelSize = (1.0-2.0*minUV) * MSDFSize
-        const float screenPxRangeX = screenSpaceAabbExtents.x / ((1.0 - 2.0 * minUV.x));
-        const float screenPxRangeY = screenSpaceAabbExtents.y / ((1.0 - 2.0 * minUV.y));
-        float screenPxRange = max(max(screenPxRangeX, screenPxRangeY), 1.0) * MSDFPixelRange / MSDFSize;
-        
+        const float screenPxRangeX = screenSpaceAabbExtents.x / ((1.0 - 2.0 * minUV.x)); // division by MSDFSize happens after max
+        const float screenPxRangeY = screenSpaceAabbExtents.y / ((1.0 - 2.0 * minUV.y)); // division by MSDFSize happens after max
+        outV.setFontGlyphPxRange((max(max(screenPxRangeX, screenPxRangeY), 1.0) * MSDFPixelRangeHalf) / MSDFSize); // we premultuply by MSDFPixelRange/2.0, to avoid doing it in frag shader
+
         // In order to keep the shape scale constant with any dilation values:
         // We compute the new dilated minUV that gets us minUV when interpolated on the previous undilated top left
         const float2 topLeftInterpolationValue = (dilateRate/(1.0+2.0*dilateRate));
@@ -566,7 +545,6 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.position = float4(coord, 0.f, 1.f);
         outV.setFontGlyphUV(uv);
         outV.setFontGlyphTextureId(textureID);
-        outV.setFontGlyphScreenPxRange(screenPxRange);
     }
     else if (objType == ObjectType::IMAGE)
     {

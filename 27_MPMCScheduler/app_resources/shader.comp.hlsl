@@ -1,7 +1,4 @@
 //#include "nbl/builtin/hlsl/memory_accessor.hlsl"
-//#include "nbl/builtin/hlsl/type_traits.hlsl"
-
-//#include "schedulers/mpmc.hlsl"
 
 #include "common.hlsl"
 
@@ -139,8 +136,8 @@ struct WhittedTask
 };
 //NBL_REGISTER_OBJ_TYPE(WhittedTask,8);
 
-#if 0
 // something something, Nvidia can do 32 bytes of smem per invocation
+#include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 groupshared uint32_t sdata[512];
 struct SharedAccessor
 {
@@ -169,31 +166,14 @@ struct SharedAccessor
         val = sdata[ix];
     }
 };
-static nbl::hlsl::MPMCScheduler<WhittedTask,8*8,SharedAccessor> scheduler;
-#endif
 
-struct Dummy
+//
+#include "schedulers/mpmc.hlsl"
+struct SubgroupCaps
 {
-    void operator()()
-    {
-        while (nextValid)
-        {
-            nextValid = false;
-            next();
-        }
-    }
-
-    void push(WhittedTask el)
-    {
-        if (!nextValid)
-            next = el;
-        nextValid = true;
-    }
-
-    WhittedTask next;
-    bool nextValid;
+    NBL_CONSTEXPR_STATIC_INLINE bool shaderSubgroupArithmetic = true;
 };
-static Dummy scheduler;
+static nbl::hlsl::schedulers::MPMC<WhittedTask,WorkgroupSizeX*WorkgroupSizeY,SharedAccessor,SubgroupCaps> scheduler;
 
 // stolen from Nabla GLSL
 bool nbl_glsl_getOrientedEtas(out float orientedEta, out float rcpOrientedEta, in float NdotI, in float eta)
@@ -325,8 +305,6 @@ void WhittedTask::__impl_call()
 
 [[vk::push_constant]] PushConstants pc;
 
-#include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
-
 // have to do weird stuff with workgroup size because of subgroup full spec
 namespace nbl
 {
@@ -369,8 +347,8 @@ void main()
             scheduler.next.setRayDir(ndc);
         }
         scheduler.next.depth = 0;
-//        scheduler.sharedAcceptableIdleCount = 0;
-//        scheduler.globalAcceptableIdleCount = 0;
+        scheduler.sharedAcceptableIdleCount = 0;
+        scheduler.globalAcceptableIdleCount = 0;
         scheduler.nextValid = true;
     }
 
