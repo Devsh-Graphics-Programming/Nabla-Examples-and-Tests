@@ -2,7 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#include "nbl/application_templates/MonoDeviceApplication.hpp"
+#include "nbl/application_templates/BasicMultiQueueApplication.hpp"
 
 // TODO: these should come from <nabla.h> and nbl/asset/asset.h find out why they don't
 #include "nbl/asset/filters/CRegionBlockFunctorFilter.h"
@@ -18,7 +18,7 @@ using namespace nbl::video;
 
 
 // TODO: inherit from BasicMultiQueue app
-class BlitFilterTestApp final : public virtual application_templates::MonoDeviceApplication
+class BlitFilterTestApp final : public virtual application_templates::BasicMultiQueueApplication
 {
 		static smart_refctd_ptr<ICPUImage> createCPUImage(const hlsl::uint32_t3 extent, const uint32_t layers, const IImage::E_TYPE imageType, const E_FORMAT format, const bool fillWithTestData = false)
 		{
@@ -82,7 +82,7 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 			return image;
 		}
 
-		using base_t = application_templates::MonoDeviceApplication;
+		using base_t = application_templates::BasicMultiQueueApplication;
 
 		constexpr static uint32_t SC_IMG_COUNT = 3u;
 
@@ -334,45 +334,45 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 					using BlitFilter = CBlitImageFilter<VoidSwizzle,IdentityDither,void,true,blit_utils_t>;
 
 					const auto inCreationParams = m_inImage->getCreationParameters();
-					const auto type = inCreationParams.type;
 					const auto layerCount = inCreationParams.arrayLayers;
-					const E_FORMAT inImageFormat = inCreationParams.format;
-					const E_FORMAT outImageFormat = inImageFormat;
 
-					auto computeAlphaCoverage = [this](ICPUImage* image) -> float
+					auto* logger = m_parentApp->m_logger.get();
+
+					auto computeAlphaCoverage = [&](ICPUImage* image) -> void
 					{
 						constexpr uint32_t mipLevel = 0u;
 
-						const auto params = image->getCreationParameters();
-						const auto format = params.format;
-						const auto extent = params.extent;
-						const auto layerCount = params.arrayLayers;
-
-						uint64_t alphaTestPassCount = 0u;
-
-						for (auto layer = 0; layer < layerCount; ++layer)
-						for (uint32_t z = 0u; z < extent.depth; ++z)
-						for (uint32_t y = 0u; y < extent.height; ++y)
-						for (uint32_t x = 0u; x < extent.width; ++x)
+						const auto format = image->getCreationParameters().format;
+						const auto extent = image->getCreationParameters().extent;
+						for (auto layer=0; layer<layerCount; ++layer)
 						{
-							const core::vectorSIMDu32 texCoord(x, y, z, layer);
-							core::vectorSIMDu32 dummy;
-							const void* encodedPixel = image->getTexelBlockData(mipLevel, texCoord, dummy);
+							uint64_t alphaTestPassCount = 0u;
+							for (uint32_t z=0u; z<extent.depth; ++z)
+							for (uint32_t y=0u; y<extent.height; ++y)
+							for (uint32_t x=0u; x<extent.width; ++x)
+							{
+								const core::vectorSIMDu32 texCoord(x,y,z,layer);
+								core::vectorSIMDu32 dummy;
+								const void* encodedPixel = image->getTexelBlockData(mipLevel,texCoord,dummy);
 
-							double decodedPixel[4];
-							asset::decodePixelsRuntime(format, &encodedPixel, decodedPixel, dummy.x, dummy.y);
+								double decodedPixel[4];
+								asset::decodePixelsRuntime(format, &encodedPixel, decodedPixel, dummy.x, dummy.y);
 
-							if (decodedPixel[3] > m_referenceAlpha)
-								++alphaTestPassCount;
+								if (decodedPixel[3] > m_referenceAlpha)
+									++alphaTestPassCount;
+							}
+							const float alphaCoverage = float(alphaTestPassCount) / float(extent.width * extent.height * extent.depth);
+							logger->log("CPU alpha coverage: %f with reference value %f", ILogger::ELL_INFO, alphaCoverage, m_referenceAlpha);
 						}
-
-						const float alphaCoverage = float(alphaTestPassCount) / float(extent.width * extent.height * extent.depth * layerCount);
-						return alphaCoverage;
 					};
+
+					const auto type = inCreationParams.type;
+					const E_FORMAT inImageFormat = inCreationParams.format;
+					const E_FORMAT outImageFormat = inImageFormat;
 
 					// CPU
 					{
-						auto outImageCPU = createCPUImage(m_outImageDim,layerCount,m_inImage->getCreationParameters().type,outImageFormat);
+						auto outImageCPU = createCPUImage(m_outImageDim,layerCount,type,outImageFormat);
 						if (!outImageCPU)
 							return false;
 
@@ -408,206 +408,238 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 								type,
 								m_convolutionKernels
 							))
-							m_parentApp->m_logger->log("Failed to compute the LUT for blitting\n", ILogger::ELL_ERROR);
+							logger->log("Failed to compute the LUT for blitting\n", ILogger::ELL_ERROR);
 
-						m_parentApp->m_logger->log("CPU begin..");
+						logger->log("CPU begin..");
 						if (!BlitFilter::execute(core::execution::par_unseq, &blitFilterState))
-							m_parentApp->m_logger->log("Failed to blit\n", ILogger::ELL_ERROR);
-						m_parentApp->m_logger->log("CPU end..");
+							logger->log("Failed to blit\n", ILogger::ELL_ERROR);
+						logger->log("CPU end..");
 
 						if (m_alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
-							m_parentApp->m_logger->log("CPU alpha coverage: %f with reference value %f", ILogger::ELL_INFO, computeAlphaCoverage(outImageCPU.get()), m_referenceAlpha);
+							computeAlphaCoverage(outImageCPU.get());
 
 						_NBL_ALIGNED_FREE(blitFilterState.scratchMemory);
 
 						writeImage(outImageCPU.get(),"cpu_blit_ref_"+m_outputName+".dds");
 					}
-#if 0
 					// GPU
-					core::vector<uint8_t> gpuOutput(static_cast<uint64_t>(m_outImageDim[0]) * m_outImageDim[1] * m_outImageDim[2] * asset::getTexelOrBlockBytesize(outImageFormat) * layerCount);
 					{
-						constexpr auto BlitWorkgroupSize = video::CComputeBlit::DefaultBlitWorkgroupSize;
+						auto* device = m_parentApp->m_device.get();
+						auto* computeQueue = m_parentApp->getComputeQueue();
 
-						assert(m_inImage->getCreationParameters().mipLevels == 1);
+						auto* utils = m_parentApp->m_utils.get();
+						// timeline semaphore
+						auto semaphore = device->createSemaphore(0);
 
-						auto transitionImageLayout = [this](core::smart_refctd_ptr<video::IGPUImage>&& image, const asset::IImage::E_LAYOUT finalLayout)
+						assert(m_inImage->getCreationParameters().mipLevels==1);
+
+						//
+						IImageViewBase::E_TYPE viewType;
+						switch (type)
 						{
-							core::smart_refctd_ptr<video::IGPUCommandBuffer> cmdbuf = nullptr;
-							m_parentApp->m_device->createCommandBuffers(m_parentApp->commandPool.get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
-
-							auto fence = m_parentApp->m_device->createFence(video::IGPUFence::ECF_UNSIGNALED);
-
-							video::IGPUCommandBuffer::SImageMemoryBarrier barrier = {};
-							barrier.oldLayout = asset::IImage::EL_UNDEFINED;
-							barrier.newLayout = finalLayout;
-							barrier.srcQueueFamilyIndex = ~0u;
-							barrier.dstQueueFamilyIndex = ~0u;
-							barrier.image = image;
-							barrier.subresourceRange.aspectMask = video::IGPUImage::EAF_COLOR_BIT;
-							barrier.subresourceRange.levelCount = image->getCreationParameters().mipLevels;
-							barrier.subresourceRange.layerCount = image->getCreationParameters().arrayLayers;
-
-							cmdbuf->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
-							cmdbuf->pipelineBarrier(asset::EPSF_TOP_OF_PIPE_BIT, asset::EPSF_BOTTOM_OF_PIPE_BIT, asset::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, &barrier);
-							cmdbuf->end();
-
-							video::IGPUQueue::SSubmitInfo submitInfo = {};
-							submitInfo.commandBufferCount = 1u;
-							submitInfo.commandBuffers = &cmdbuf.get();
-							m_parentApp->queue->submit(1u, &submitInfo, fence.get());
-							m_parentApp->m_device->blockForFences(1u, &fence.get());
-						};
-
-						core::smart_refctd_ptr<video::IGPUImage> inImageGPU = nullptr;
-						{
-							m_parentApp->cpu2gpuParams.beginCommandBuffers();
-							auto gpuArray = m_parentApp->cpu2gpu.getGPUObjectsFromAssets(&m_inImage, &m_inImage+ 1ull, m_parentApp->cpu2gpuParams);
-							m_parentApp->cpu2gpuParams.waitForCreationToComplete();
-							if (!gpuArray || gpuArray->size() < 1ull || (!(*gpuArray)[0]))
-							{
-								m_parentApp->m_logger->log("Cannot convert the inpute CPU image to GPU image", system::ILogger::ELL_ERROR);
-								return false;
-							}
-
-							inImageGPU = gpuArray->begin()[0];
-
-							// Do layout transition to SHADER_READ_ONLY_OPTIMAL 
-							// I think it might be a good idea to allow the user to change asset::ICPUImage's initialLayout and have the asset converter
-							// do the layout transition for them.
-							transitionImageLayout(core::smart_refctd_ptr(inImageGPU), asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL);
+							case IImage::E_TYPE::ET_1D:
+								viewType = IImageViewBase::E_TYPE::ET_1D_ARRAY;
+								break;
+							case IImage::E_TYPE::ET_3D:
+								viewType = IImageViewBase::E_TYPE::ET_3D;
+								break;
+							default:
+								viewType = IImageViewBase::E_TYPE::ET_2D_ARRAY;
+								break;
 						}
 
-						core::smart_refctd_ptr<video::IGPUImage> outImageGPU = nullptr;
+						// start capturing
+						m_parentApp->m_api->startCapture();
+
+						// just use the asset converter to make the image view as well
+						smart_refctd_ptr<IGPUImageView> inImageView;
 						{
-							video::IGPUImage::SCreationParams creationParams = {};
-							creationParams.flags = video::IGPUImage::ECF_MUTABLE_FORMAT_BIT;
-							creationParams.type = inImageGPU->getCreationParameters().type;
-							creationParams.format = outImageFormat;
-							creationParams.extent = { m_outImageDim.x, m_outImageDim.y, m_outImageDim.z };
-							creationParams.mipLevels = m_inImage->getCreationParameters().mipLevels; // Asset converter will make the mip levels 10 for inImage, so use the original value of m_inImage
-							creationParams.arrayLayers = layerCount;
-							creationParams.samples = video::IGPUImage::ESCF_1_BIT;
-							creationParams.tiling = video::IGPUImage::ET_OPTIMAL;
-							creationParams.usage = static_cast<video::IGPUImage::E_USAGE_FLAGS>(video::IGPUImage::EUF_STORAGE_BIT | video::IGPUImage::EUF_TRANSFER_SRC_BIT | video::IGPUImage::EUF_SAMPLED_BIT);
+							auto* queue = m_parentApp->getTransferUpQueue();
+							// intialize command buffers
+							constexpr auto MultiBuffering = 2;
+							std::array<smart_refctd_ptr<IGPUCommandBuffer>, MultiBuffering> commandBuffers;
+							std::array<IQueue::SSubmitInfo::SCommandBufferInfo, MultiBuffering> commandBufferInfos;
+							{
+								auto pool = device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+								pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{commandBuffers.data(),MultiBuffering},smart_refctd_ptr<ILogger>(logger));
+								//
+								for (uint32_t i = 0u; i < MultiBuffering; ++i)
+								{
+									commandBuffers[i]->setObjectDebugName(("Command Buffer #" + std::to_string(i)).c_str());
+									commandBufferInfos[i].cmdbuf = commandBuffers[i].get();
+								}
+							}
 
-							outImageGPU = m_parentApp->m_device->createImage(std::move(creationParams));
-							auto memReqs = outImageGPU->getMemoryReqs();
-							memReqs.memoryTypeBits &= m_parentApp->m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-							m_parentApp->m_device->allocate(memReqs, outImageGPU.get());
+							// test creation of image views, also it seems more ergonomic this way
+							smart_refctd_ptr<ICPUImageView> cpuImageView;
+							{
+								ICPUImageView::SCreationParams params = {};
+								params.image = m_inImage;
+								params.viewType = viewType;
+								params.format = inImageFormat;
+								cpuImageView = ICPUImageView::create(std::move(params));
+							}
+							video::IGPUImageView::SCreationParams creationParams = {};
 
-							transitionImageLayout(core::smart_refctd_ptr(outImageGPU), asset::IImage::EL_GENERAL);
+							//
+							auto converter = CAssetConverter::create({.device=device});
+							// We don't want to generate mip-maps for these images, because compute blitting is what does it and we want to test it here! 
+							struct SInputs final : CAssetConverter::SInputs
+							{
+								inline uint8_t getMipLevelCount(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+								{
+									return 1;
+								}
+								inline uint16_t needToRecomputeMips(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+								{
+									return 0b0u;
+								}
+							} inputs = {};
+							inputs.readCache = converter.get();
+							inputs.logger = logger;
+							std::get<CAssetConverter::SInputs::asset_span_t<ICPUImageView>>(inputs.assets) = { &cpuImageView.get(),1 };
+							auto reservation = converter->reserve(inputs);
+							// the `.value` is just a funny way to make the `smart_refctd_ptr` copyable
+							inImageView = reservation.getGPUObjects<ICPUImageView>().front().value;
+							if (!inImageView)
+							{
+								logger->log("Cannot create a GPU image for the input CPU images!",ILogger::ELL_ERROR);
+								return false;
+							}
+							inImageView->setObjectDebugName((m_outputName+" Input View").c_str());
+
+							// scratch command buffers for asset converter transfer commands
+							SIntendedSubmitInfo transfer =
+							{
+								.queue = queue,
+								.waitSemaphores = {},
+								.prevCommandBuffers = {},
+								.scratchCommandBuffers = commandBufferInfos,
+								.scratchSemaphore = {
+									.semaphore = semaphore.get(),
+									.value = 0,
+									// because of layout transitions
+									.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+								}
+							};
+							// as per the `SIntendedSubmitInfo` one commandbuffer must be begun
+							commandBuffers[0]->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+							// make sure we
+							struct SConvertParams : CAssetConverter::SConvertParams
+							{
+								inline uint32_t getFinalOwnerQueueFamily(const IGPUImage* image, const core::blake3_hash_t& createdFrom, const uint8_t mipLevel) override
+								{
+									return m_finalFamily;
+								}
+								// keep the default final layout deduction rules
+
+								uint32_t m_finalFamily;
+							};
+							SConvertParams params = {};
+							params.transfer = &transfer;
+							params.utilities = utils;
+							params.m_finalFamily = computeQueue->getFamilyIndex();
+							auto result = reservation.convert(params);
+							if (!result.blocking() && result.copy()!=IQueue::RESULT::SUCCESS)
+							{
+								logger->log("Failed to upload CPU image data to GPU!",ILogger::ELL_ERROR);
+								return false;
+							}
 						}
 
 						// Create resources needed to do the blit
-						auto blitFilter = video::CComputeBlit::create(core::smart_refctd_ptr(m_parentApp->m_device));
+//						auto blitFilter = video::CComputeBlit::create(smart_refctd_ptr<ILogicalDevice>(device));
 
-						const asset::E_FORMAT outImageViewFormat = blitFilter->getOutImageViewFormat(outImageFormat);
-
-						const auto layersToBlit = layerCount;
-						core::smart_refctd_ptr<video::IGPUImageView> inImageView = nullptr;
-						core::smart_refctd_ptr<video::IGPUImageView> outImageView = nullptr;
+						// create the outputs
+						uint32_t normalizationScratchSize = 0;
+						smart_refctd_ptr<IGPUImageView> outImageView;
 						{
-							video::IGPUImageView::SCreationParams creationParams = {};
-							creationParams.image = inImageGPU;
-							creationParams.viewType = getImageViewTypeFromImageType_GPU(inImageGPU->getCreationParameters().type);
-							creationParams.format = inImageGPU->getCreationParameters().format;
-							creationParams.subresourceRange.aspectMask = video::IGPUImage::EAF_COLOR_BIT;
-							creationParams.subresourceRange.baseMipLevel = 0;
-							creationParams.subresourceRange.levelCount = 1;
-							creationParams.subresourceRange.baseArrayLayer = 0;
-							creationParams.subresourceRange.layerCount = layersToBlit;
+							const auto outImageViewFormat = outImageFormat;//blitFilter->getOutImageViewFormat(outImageFormat);
+							const bool manualEncoding = false;
 
-							video::IGPUImageView::SCreationParams outCreationParams = creationParams;
-							outCreationParams.image = outImageGPU;
-							outCreationParams.format = outImageViewFormat;
-
-							inImageView = m_parentApp->m_device->createImageView(std::move(creationParams));
-							outImageView = m_parentApp->m_device->createImageView(std::move(outCreationParams));
-						}
-
-						core::smart_refctd_ptr<video::IGPUImageView> normalizationInImageView = outImageView;
-						core::smart_refctd_ptr<video::IGPUImage> normalizationInImage = outImageGPU;
-						auto normalizationInFormat = outImageFormat;
-						if (m_alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
-						{
-							normalizationInFormat = video::CComputeBlit::getCoverageAdjustmentIntermediateFormat(outImageFormat);
-
-							if (normalizationInFormat != outImageFormat)
+							smart_refctd_ptr<IGPUImage> outImage;
 							{
-								video::IGPUImage::SCreationParams creationParams;
-								creationParams = outImageGPU->getCreationParameters();
-								creationParams.format = normalizationInFormat;
-								creationParams.usage = static_cast<video::IGPUImage::E_USAGE_FLAGS>(video::IGPUImage::EUF_STORAGE_BIT | video::IGPUImage::EUF_SAMPLED_BIT);
-								normalizationInImage = m_parentApp->m_device->createImage(std::move(creationParams));
-								auto memReqs = normalizationInImage->getMemoryReqs();
-								memReqs.memoryTypeBits &= m_parentApp->m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-								m_parentApp->m_device->allocate(memReqs, normalizationInImage.get());
-								transitionImageLayout(core::smart_refctd_ptr(normalizationInImage), asset::IImage::EL_GENERAL); // First we do the blit which requires storage image so starting layout is GENERAL
+								IGPUImage::SCreationParams creationParams = {};
+								creationParams.type = type;
+								creationParams.samples = IGPUImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT;
+								creationParams.format = outImageFormat;
+								creationParams.extent = { m_outImageDim.x, m_outImageDim.y, m_outImageDim.z };
+								creationParams.mipLevels = inCreationParams.mipLevels;
+								creationParams.arrayLayers = layerCount;
+								if (manualEncoding)
+									creationParams.flags = core::bitflag(IGPUImage::ECF_MUTABLE_FORMAT_BIT)|IGPUImage::ECF_EXTENDED_USAGE_BIT;
+								creationParams.usage = IGPUImage::EUF_STORAGE_BIT|video::IGPUImage::EUF_TRANSFER_SRC_BIT;
+								creationParams.viewFormats.set(outImageFormat,true);
+//								creationParams.viewFormats.set(outImageViewFormat,true);
+								outImage = device->createImage(std::move(creationParams));
+								if (!outImage || !device->allocate(outImage->getMemoryReqs(),outImage.get()).isValid())
+								{
+									logger->log("Failed to create output GPU image!");
+									return false;
+								}
+								outImage->setObjectDebugName((m_outputName + " Output").c_str());
+							}
 
-								video::IGPUImageView::SCreationParams viewCreationParams = {};
-								viewCreationParams.image = normalizationInImage;
-								viewCreationParams.viewType = getImageViewTypeFromImageType_GPU(inImageGPU->getCreationParameters().type);
-								viewCreationParams.format = normalizationInImage->getCreationParameters().format;
-								viewCreationParams.subresourceRange.aspectMask = video::IGPUImage::EAF_COLOR_BIT;
-								viewCreationParams.subresourceRange.baseMipLevel = 0;
-								viewCreationParams.subresourceRange.levelCount = 1;
-								viewCreationParams.subresourceRange.baseArrayLayer = 0;
-								viewCreationParams.subresourceRange.layerCount = layersToBlit;
+							IGPUImageView::SCreationParams params = {};
+							params.image = std::move(outImage);
+							params.viewType = viewType;
+							params.format = outImageViewFormat;
+							outImageView = device->createImageView(std::move(params));
+							
+							if (m_alphaSemantic==IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
+							{
+/*
+								normalizationInFormat = CComputeBlit::getCoverageAdjustmentIntermediateFormat(outImageFormat);
 
-								normalizationInImageView = m_parentApp->m_device->createImageView(std::move(viewCreationParams));
+								if (normalizationInFormat != outImageFormat)
+								{
+									video::IGPUImage::SCreationParams creationParams;
+									creationParams = outImageGPU->getCreationParameters();
+									creationParams.format = normalizationInFormat;
+									creationParams.usage = IGPUImage::EUF_STORAGE_BIT | IGPUImage::EUF_SAMPLED_BIT);
+									normalizationInImage = device->createImage(std::move(creationParams));
+									auto memReqs = normalizationInImage->getMemoryReqs();
+									memReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+									device->allocate(memReqs, normalizationInImage.get());
+									transitionImageLayout(core::smart_refctd_ptr(normalizationInImage), asset::IImage::EL_GENERAL); // First we do the blit which requires storage image so starting layout is GENERAL
+
+									video::IGPUImageView::SCreationParams viewCreationParams = {};
+									viewCreationParams.image = normalizationInImage;
+									viewCreationParams.viewType = getImageViewTypeFromImageType_GPU(inImageGPU->getCreationParameters().type);
+									viewCreationParams.format = normalizationInImage->getCreationParameters().format;
+
+									normalizationInImageView = device->createImageView(std::move(viewCreationParams));
+								}
+*/
+
+								// TODO: create coverage adjustment scratch
 							}
 						}
 
-						const core::vectorSIMDu32 inExtent(inImageGPU->getCreationParameters().extent.width, inImageGPU->getCreationParameters().extent.height, inImageGPU->getCreationParameters().extent.depth, 1);
-						const auto inImageType = inImageGPU->getCreationParameters().type;
-
-						// create scratch buffer
-						core::smart_refctd_ptr<video::IGPUBuffer> coverageAdjustmentScratchBuffer = nullptr;
-						{
-							const size_t scratchSize = blitFilter->getCoverageAdjustmentScratchSize(m_alphaSemantic, inImageType, m_alphaBinCount, layersToBlit);
-							if (scratchSize > 0)
-							{
-								video::IGPUBuffer::SCreationParams creationParams = {};
-								creationParams.size = scratchSize;
-								creationParams.usage = static_cast<video::IGPUBuffer::E_USAGE_FLAGS>(video::IGPUBuffer::EUF_TRANSFER_DST_BIT | video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT);
-
-								coverageAdjustmentScratchBuffer = m_parentApp->m_device->createBuffer(std::move(creationParams));
-								auto memReqs = coverageAdjustmentScratchBuffer->getMemoryReqs();
-								memReqs.memoryTypeBits &= m_parentApp->m_physicalDevice->getDeviceLocalMemoryTypeBits();
-								m_parentApp->m_device->allocate(memReqs, coverageAdjustmentScratchBuffer.get());
-
-								asset::SBufferRange<video::IGPUBuffer> bufferRange = {};
-								bufferRange.offset = 0ull;
-								bufferRange.size = coverageAdjustmentScratchBuffer->getSize();
-								bufferRange.buffer = coverageAdjustmentScratchBuffer;
-
-								core::vector<uint32_t> fillValues(scratchSize / sizeof(uint32_t), 0u);
-								m_parentApp->utilities->updateBufferRangeViaStagingBufferAutoSubmit(bufferRange, fillValues.data(), m_parentApp->queue);
-							}
-						}
+						const hlsl::uint32_t3 inExtent(inCreationParams.extent.width,inCreationParams.extent.height,inCreationParams.extent.depth);
 
 						// create scaledKernelPhasedLUT and its view
-						core::smart_refctd_ptr<video::IGPUBufferView> scaledKernelPhasedLUTView = nullptr;
+						smart_refctd_ptr<IGPUBufferView> scaledKernelPhasedLUTView;
 						{
-							const auto lutSize = blit_utils_t::getScaledKernelPhasedLUTSize(inExtent, m_outImageDim, inImageType, m_convolutionKernels);
+							const auto lutOffset = normalizationScratchSize;
+							const auto lutSize = blit_utils_t::getScaledKernelPhasedLUTSize(inExtent,m_outImageDim,type,m_convolutionKernels);
 
-							uint8_t* lutMemory = reinterpret_cast<uint8_t*>(_NBL_ALIGNED_MALLOC(lutSize, 32));
-							if (!blit_utils_t::computeScaledKernelPhasedLUT(lutMemory, inExtent, m_outImageDim, inImageType, m_convolutionKernels))
+							auto lutMemory = std::make_unique<uint8_t[]>(lutSize);
+							if (!blit_utils_t::computeScaledKernelPhasedLUT(lutMemory.get(),inExtent,m_outImageDim,type,m_convolutionKernels))
 							{
-								m_parentApp->m_logger->log("Failed to compute scaled kernel phased LUT for the GPU case!", system::ILogger::ELL_ERROR);
+								logger->log("Failed to compute scaled kernel phased LUT for the GPU case!",ILogger::ELL_ERROR);
 								return false;
 							}
 
-							video::IGPUBuffer::SCreationParams creationParams = {};
-							creationParams.usage = static_cast<video::IGPUBuffer::E_USAGE_FLAGS>(video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT | video::IGPUBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT);
+							IGPUBuffer::SCreationParams creationParams = {};
+							// `samplerBuffer`, lut upload and scratch clear command, BDA
+							creationParams.usage = IGPUBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT|IGPUBuffer::EUF_TRANSFER_DST_BIT|IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 							creationParams.size = lutSize;
-							auto scaledKernelPhasedLUT = m_parentApp->m_device->createBuffer(std::move(creationParams));
-							auto memReqs = scaledKernelPhasedLUT->getMemoryReqs();
-							memReqs.memoryTypeBits &= m_parentApp->m_physicalDevice->getDeviceLocalMemoryTypeBits();
-							m_parentApp->m_device->allocate(memReqs, scaledKernelPhasedLUT.get());
-
+							auto scaledKernelPhasedLUT = device->createBuffer(std::move(creationParams));
+							device->allocate(scaledKernelPhasedLUT->getMemoryReqs(),scaledKernelPhasedLUT.get(),IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+/*
 							// fill it up with data
-							asset::SBufferRange<video::IGPUBuffer> bufferRange = {};
+							SBufferRange<IGPUBuffer> bufferRange = {};
 							bufferRange.offset = 0ull;
 							bufferRange.size = lutSize;
 							bufferRange.buffer = scaledKernelPhasedLUT;
@@ -621,10 +653,41 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 							else
 								assert(false);
 
-							scaledKernelPhasedLUTView = m_parentApp->m_device->createBufferView(scaledKernelPhasedLUT.get(), bufferViewFormat, 0ull, scaledKernelPhasedLUT->getSize());
-
-							_NBL_ALIGNED_FREE(lutMemory);
+							scaledKernelPhasedLUTView = device->createBufferView(scaledKernelPhasedLUT.get(), bufferViewFormat, 0ull, scaledKernelPhasedLUT->getSize());
+*/
 						}
+
+#if 0
+						core::smart_refctd_ptr<video::IGPUImageView> normalizationInImageView = outImageView;
+						core::smart_refctd_ptr<video::IGPUImage> normalizationInImage = outImageGPU;
+						auto normalizationInFormat = outImageFormat;
+
+
+						// create scratch buffer
+						core::smart_refctd_ptr<video::IGPUBuffer> coverageAdjustmentScratchBuffer = nullptr;
+						{
+							const size_t scratchSize = blitFilter->getCoverageAdjustmentScratchSize(m_alphaSemantic, inImageType, m_alphaBinCount, layersToBlit);
+							if (scratchSize > 0)
+							{
+								video::IGPUBuffer::SCreationParams creationParams = {};
+								creationParams.size = scratchSize;
+								creationParams.usage = static_cast<video::IGPUBuffer::E_USAGE_FLAGS>(video::IGPUBuffer::EUF_TRANSFER_DST_BIT | video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT);
+
+								coverageAdjustmentScratchBuffer = device->createBuffer(std::move(creationParams));
+								auto memReqs = coverageAdjustmentScratchBuffer->getMemoryReqs();
+								memReqs.memoryTypeBits &= m_parentApp->m_physicalDevice->getDeviceLocalMemoryTypeBits();
+								device->allocate(memReqs, coverageAdjustmentScratchBuffer.get());
+
+								asset::SBufferRange<video::IGPUBuffer> bufferRange = {};
+								bufferRange.offset = 0ull;
+								bufferRange.size = coverageAdjustmentScratchBuffer->getSize();
+								bufferRange.buffer = coverageAdjustmentScratchBuffer;
+
+								core::vector<uint32_t> fillValues(scratchSize / sizeof(uint32_t), 0u);
+								m_parentApp->utilities->updateBufferRangeViaStagingBufferAutoSubmit(bufferRange, fillValues.data(), m_parentApp->queue);
+							}
+						}
+
 
 						auto blitDSLayout = blitFilter->getDefaultBlitDescriptorSetLayout(m_alphaSemantic);
 						auto kernelWeightsDSLayout = blitFilter->getDefaultKernelWeightsDescriptorSetLayout();
@@ -632,7 +695,7 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 
 						video::IGPUDescriptorSetLayout* blitDSLayouts_raw[] = { blitDSLayout.get(), kernelWeightsDSLayout.get() };
 						uint32_t dsCounts[] = { 2, 1 };
-						auto descriptorPool = m_parentApp->m_device->createDescriptorPoolForDSLayouts(video::IDescriptorPool::ECF_NONE, blitDSLayouts_raw, blitDSLayouts_raw + 2ull, dsCounts);
+						auto descriptorPool = device->createDescriptorPoolForDSLayouts(video::IDescriptorPool::ECF_NONE, blitDSLayouts_raw, blitDSLayouts_raw + 2ull, dsCounts);
 
 						core::smart_refctd_ptr<video::IGPUComputePipeline> blitPipeline = nullptr;
 						core::smart_refctd_ptr<video::IGPUDescriptorSet> blitDS = nullptr;
@@ -657,8 +720,6 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 
 						blitFilter->updateDescriptorSet(blitDS.get(), blitWeightsDS.get(), inImageView, normalizationInImageView, coverageAdjustmentScratchBuffer, scaledKernelPhasedLUTView);
 
-						m_parentApp->m_logger->log("GPU begin..");
-						m_parentApp->m_api->startCapture();
 						blitFilter->blit<BlitUtilities>(
 							m_parentApp->queue, m_alphaSemantic,
 							blitDS.get(), alphaTestPipeline.get(),
@@ -668,29 +729,19 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 							layersToBlit,
 							coverageAdjustmentScratchBuffer, m_referenceAlpha,
 							m_alphaBinCount, BlitWorkgroupSize);
-						m_parentApp->m_api->endCapture();
-						m_parentApp->m_logger->log("GPU end..");
 
 						if (m_alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
-						if (outImageGPU->getCreationParameters().type == asset::IImage::ET_2D) // TODO: why alpha coverage only for 2D ?
 						{
-							if (layerCount > 1)
-							{
-								// This can be removed once ext::ScreenShot::createScreenShot works for multiple layers.
-								m_parentApp->m_logger->log("Layer count (%d) is greater than 1 for a 2D image, not calculating GPU alpha coverage..", system::ILogger::ELL_WARNING, layerCount);
-							}
-							else
-							{
-								auto outCPUImageView = ext::ScreenShot::createScreenShot(
-									m_parentApp->m_device.get(),
-									m_parentApp->queue,
-									nullptr,
-									outImageView.get(),
-									asset::EAF_NONE,
-									asset::IImage::EL_GENERAL);
+							auto outCPUImageView = ext::ScreenShot::createScreenShot(
+								device.get(),
+								m_parentApp->getTransferQueue(),
+								nullptr,
+								outImageView.get(),
+								asset::EAF_NONE,
+								IImage::EL_GENERAL
+							);
 
-								m_parentApp->m_logger->log("GPU alpha coverage: %f", system::ILogger::ELL_DEBUG, computeAlphaCoverage(m_referenceAlpha, outCPUImageView->getCreationParameters().image.get()));
-							}
+							m_parentApp->m_logger->log("GPU alpha coverage: %f", system::ILogger::ELL_DEBUG, computeAlphaCoverage(m_referenceAlpha, outCPUImageView->getCreationParameters().image.get()));
 						}
 
 						// download results to check
@@ -739,7 +790,12 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 
 							// TODO: also save the gpu image to disk!
 						}
+#endif
 					}
+
+					m_parentApp->m_api->endCapture();
+#if 0
+//					core::vector<uint8_t> gpuOutput(static_cast<uint64_t>(m_outImageDim[0]) * m_outImageDim[1] * m_outImageDim[2] * asset::getTexelOrBlockBytesize(outImageFormat) * layerCount);
 
 					assert(gpuOutput.size() == cpuOutput.size());
 
@@ -872,16 +928,7 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 			if (!base_t::onAppInitialized(std::move(system)))
 				return false;
 
-			queue = getComputeQueue();
-			commandPool = m_device->createCommandPool(queue->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 			assetManager = make_smart_refctd_ptr<asset::IAssetManager>(smart_refctd_ptr(m_system));
-			utilities = make_smart_refctd_ptr<video::IUtilities>(smart_refctd_ptr(m_device));
-
-			core::smart_refctd_ptr<IGPUCommandBuffer> transferCmdBuffer;
-			core::smart_refctd_ptr<IGPUCommandBuffer> computeCmdBuffer;
-
-			commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &transferCmdBuffer);
-			commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &computeCmdBuffer);
 
 
 			constexpr bool TestCPUBlitFilter = true;
@@ -1401,8 +1448,6 @@ class BlitFilterTestApp final : public virtual application_templates::MonoDevice
 	private:
 		smart_refctd_ptr<IAssetManager> assetManager;
 		IQueue* queue;
-		smart_refctd_ptr<IGPUCommandPool> commandPool;
-		smart_refctd_ptr<IUtilities> utilities;
 };
 
 NBL_MAIN_FUNC(BlitFilterTestApp)
