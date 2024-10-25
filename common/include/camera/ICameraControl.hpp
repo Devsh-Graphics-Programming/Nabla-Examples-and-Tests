@@ -6,6 +6,7 @@
 #include "CVirtualCameraEvent.hpp"
 #include "glm/glm/ext/matrix_transform.hpp" // TODO: TEMPORARY!!! whatever used will be moved to cpp
 #include "glm/glm/gtc/quaternion.hpp"
+#include "nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl"
 
 // TODO: DIFFERENT NAMESPACE
 namespace nbl::hlsl 
@@ -296,9 +297,9 @@ public:
             auto up = getPatchedUpVector();
 
             if (m_projection->isLeftHanded())
-                m_viewMatrix = float32_t3x4(float32_t4x4(glm::lookAtLH(m_position, m_target, up)));
+                m_viewMatrix = buildCameraLookAtMatrixLH<float>(m_position, m_target, up);
             else
-                m_viewMatrix = float32_t3x4(float32_t4x4(glm::lookAtRH(m_position, m_target, up)));
+                m_viewMatrix = buildCameraLookAtMatrixRH<float>(m_position, m_target, up);
         }
 
         core::smart_refctd_ptr<projection_t> m_projection;
