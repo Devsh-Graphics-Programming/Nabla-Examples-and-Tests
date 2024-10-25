@@ -7,7 +7,6 @@
 #include "camera/CCubeProjection.hpp"
 #include "camera/ICameraControl.hpp"
 #include "glm/glm/ext/matrix_clip_space.hpp" // TODO: TESTING
-#include "nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl"
 
 // FPS Camera, TESTS
 using projection_matrix_t = float32_t4x4;
@@ -509,8 +508,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			const float32_t3 position(cosf(camYAngle)* cosf(camXAngle)* transformParams.camDistance, sinf(camXAngle)* transformParams.camDistance, sinf(camYAngle)* cosf(camXAngle)* transformParams.camDistance),
 			target(0.f, 0.f, 0.f), up(0.f, 1.f, 0.f);
 
-			auto pMatrix = glm::perspectiveLH(glm::radians(fov), float(m_window->getWidth()) / float(m_window->getHeight()), zNear, zFar);
-			auto projection = make_smart_refctd_ptr<projection_t>(); // TODO: CASTS FOR PROJ
+			auto projection = make_smart_refctd_ptr<projection_t>();
+			projection->setMatrix(projection_matrix_t(glm::perspectiveLH(glm::radians(fov), float(m_window->getWidth()) / float(m_window->getHeight()), zNear, zFar)));
 			gimbal = make_smart_refctd_ptr<gimbal_t>(smart_refctd_ptr(projection), position, target, up);
 			camera = make_smart_refctd_ptr<camera_t>();
 
