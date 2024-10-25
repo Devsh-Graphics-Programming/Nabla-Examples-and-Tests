@@ -8,6 +8,7 @@
 #include "Curves.h"
 
 // holds values for `LineStyle` struct and caculates stipple pattern re values, cant think of better name
+// Also used for TextStyles aliased with some members here. (temporarily?)
 struct LineStyleInfo
 {
 	static constexpr int32_t InvalidStipplePatternSize = -1;
@@ -17,8 +18,8 @@ struct LineStyleInfo
 	static const uint32_t StipplePatternMaxSize = LineStyle::StipplePatternMaxSize;
 
 	float32_t4 color;
-	float screenSpaceLineWidth;
-	float worldSpaceLineWidth;
+	float screenSpaceLineWidth; // alternatively used as TextStyle::italicTiltSlope
+	float worldSpaceLineWidth;  // alternatively used as TextStyle::boldInPixels
 	
 	/*
 		Stippling Values:

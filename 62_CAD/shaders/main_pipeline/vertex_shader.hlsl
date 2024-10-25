@@ -472,6 +472,9 @@ PSInput main(uint vertexID : SV_VertexID)
     }
     else if (objType == ObjectType::FONT_GLYPH)
     {
+        LineStyle lineStyle = lineStyles[mainObj.styleIdx];
+        const float italicTiltSlope = lineStyle.screenSpaceLineWidth; // aliased text style member with line style
+        
         GlyphInfo glyphInfo;
         glyphInfo.topLeft = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
         glyphInfo.dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(double2), 4u);
@@ -496,17 +499,20 @@ PSInput main(uint vertexID : SV_VertexID)
         const float2 vx = screenDirU * dilateRate.x;
         const float2 vy = screenDirV * dilateRate.y;
         const float2 offsetVec = vx * undilatedCornerNDC.x + vy * undilatedCornerNDC.y;
-        const float2 coord = screenTopLeft + corner.x * screenDirU + corner.y * screenDirV + offsetVec;
+        float2 coord = screenTopLeft + corner.x * screenDirU + corner.y * screenDirV + offsetVec;
 
+        if (corner.y == 0 && italicTiltSlope > 0.0f)
+            coord += normalize(screenDirU) * length(screenDirV) * italicTiltSlope;
+        
         // If aspect ratio of the dimensions and glyph inside the texture are the same then screenPxRangeX === screenPxRangeY
         // but if the glyph box is stretched in any way then we won't get correct msdf
         // in that case we need to take the max(screenPxRangeX, screenPxRangeY) to avoid blur due to underexaggerated distances
         // We compute screenPxRange using the ratio of our screenspace extent to the texel space our glyph takes inside the texture
         // Our glyph is centered inside the texture, so `maxUV = 1.0 - minUV` and `glyphTexelSize = (1.0-2.0*minUV) * MSDFSize
-        const float screenPxRangeX = screenSpaceAabbExtents.x / ((1.0 - 2.0 * minUV.x));
-        const float screenPxRangeY = screenSpaceAabbExtents.y / ((1.0 - 2.0 * minUV.y));
-        float screenPxRange = max(max(screenPxRangeX, screenPxRangeY), 1.0) * MSDFPixelRange / MSDFSize;
-        
+        const float screenPxRangeX = screenSpaceAabbExtents.x / ((1.0 - 2.0 * minUV.x)); // division by MSDFSize happens after max
+        const float screenPxRangeY = screenSpaceAabbExtents.y / ((1.0 - 2.0 * minUV.y)); // division by MSDFSize happens after max
+        outV.setFontGlyphPxRange((max(max(screenPxRangeX, screenPxRangeY), 1.0) * MSDFPixelRangeHalf) / MSDFSize); // we premultuply by MSDFPixelRange/2.0, to avoid doing it in frag shader
+
         // In order to keep the shape scale constant with any dilation values:
         // We compute the new dilated minUV that gets us minUV when interpolated on the previous undilated top left
         const float2 topLeftInterpolationValue = (dilateRate/(1.0+2.0*dilateRate));
@@ -518,7 +524,6 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.position = float4(coord, 0.f, 1.f);
         outV.setFontGlyphUV(uv);
         outV.setFontGlyphTextureId(textureID);
-        outV.setFontGlyphScreenPxRange(screenPxRange);
     }
     else if (objType == ObjectType::IMAGE)
     {

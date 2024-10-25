@@ -46,7 +46,9 @@ void SingleLineText::Draw(
 	const float64_t2& baselineStart,
 	const float32_t2& scale,
 	const float32_t& rotateAngle,
-	const float32_t4& color) const
+	const float32_t4& color,
+	const float32_t tiltTiltAngle,
+	const float32_t boldInPixels) const
 {
 	float32_t2 vec(cos(rotateAngle), sin(rotateAngle));
 	float64_t3x3 rotationMulScaleMat =
@@ -63,8 +65,11 @@ void SingleLineText::Draw(
 	};
 	float64_t3x3 transformation = mul(translationMat, rotationMulScaleMat);
 
+	// TODO: Use Separate TextStyleInfo or something, and somehow alias with line style for improved readability
 	LineStyleInfo lineStyle = {};
 	lineStyle.color = color;
+	lineStyle.screenSpaceLineWidth = tan(tiltTiltAngle);
+	lineStyle.worldSpaceLineWidth = boldInPixels;
 	const uint32_t styleIdx = drawResourcesFiller.addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
 	auto glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
 

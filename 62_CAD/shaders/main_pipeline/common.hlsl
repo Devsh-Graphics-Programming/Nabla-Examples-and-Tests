@@ -170,14 +170,15 @@ static_assert(sizeof(CurveBox) == 80u);
 NBL_CONSTEXPR uint32_t InvalidRigidSegmentIndex = 0xffffffff;
 NBL_CONSTEXPR float InvalidStyleStretchValue = nbl::hlsl::numeric_limits<float>::infinity;
 
+// The color parameter is also used for styling non-curve objects such as text glyphs and hatches with solid color
 struct LineStyle
 {
     const static uint32_t StipplePatternMaxSize = 14u;
 
     // common data
     float32_t4 color;
-    float screenSpaceLineWidth;
-    float worldSpaceLineWidth;
+    float screenSpaceLineWidth; // alternatively used as TextStyle::italicTiltSlope
+    float worldSpaceLineWidth;  // alternatively used as TextStyle::boldInPixels
     
     // stipple pattern data
     int32_t stipplePatternSize;
@@ -254,8 +255,9 @@ NBL_CONSTEXPR uint32_t InvalidTextureIdx = nbl::hlsl::numeric_limits<uint32_t>::
 NBL_CONSTEXPR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
 // TODO: get automatic version working on HLSL
 NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1 - (uint32_t) SelectedMajorAxis);
-NBL_CONSTEXPR float MSDFPixelRange = 4.0;
-NBL_CONSTEXPR float MSDFSize = 32.0; 
+NBL_CONSTEXPR float MSDFPixelRange = 4.0f;
+NBL_CONSTEXPR float MSDFPixelRangeHalf = MSDFPixelRange / 2.0f;
+NBL_CONSTEXPR float MSDFSize = 32.0f; 
 NBL_CONSTEXPR uint32_t MSDFMips = 4; 
 NBL_CONSTEXPR float HatchFillMSDFSceenSpaceSize = 8.0; 
 
@@ -457,13 +459,12 @@ struct PSInput
     /* FONT_GLYPH */
     float2 getFontGlyphUV() { return interp_data5.xy; }
     uint32_t getFontGlyphTextureId() { return asuint(data2.x); }
-    float getFontGlyphScreenPxRange() { return data2.y; }
-    
+    float getFontGlyphPxRange() { return data2.y; }
+
     void setFontGlyphUV(float2 uv) { interp_data5.xy = uv; }
     void setFontGlyphTextureId(uint32_t textureId) { data2.x = asfloat(textureId); }
-    void setFontGlyphScreenPxRange(float glyphScreenPxRange) { data2.y = glyphScreenPxRange; }
-    
-    
+    void setFontGlyphPxRange(float glyphPxRange) { data2.y = glyphPxRange; }
+
     /* IMAGE */
     float2 getImageUV() { return interp_data5.xy; }
     uint32_t getImageTextureId() { return asuint(data2.x); }

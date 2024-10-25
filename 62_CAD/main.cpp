@@ -3046,10 +3046,15 @@ protected:
 			if (singleLineText)
 			{
 				float32_t rotation = 0.0; // nbl::core::PI<float>()* abs(cos(m_timeElapsed * 0.00005));
-				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-100.0), float32_t2(1.0, 1.0), rotation);
+				float32_t italicTiltAngle = nbl::core::PI<float>() / 9.0f;
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-100.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), 0.0f, 0.0f);
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-150.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), 0.0f, 0.5f);
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-200.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), italicTiltAngle, 0.0f);
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-250.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), italicTiltAngle, 0.5f);
+				// singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-200.0), float32_t2(1.0, 1.0), nbl::core::PI<float>() * abs(cos(m_timeElapsed * 0.00005)));
 				// Smaller text to test mip maps
-				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-130.0), float32_t2(0.4, 0.4), rotation);
-				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-150.0), float32_t2(0.2, 0.2), rotation);
+				//singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-130.0), float32_t2(0.4, 0.4), rotation);
+				//singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-150.0), float32_t2(0.2, 0.2), rotation);
 			}
 
 			const bool drawTextHatches = true;
