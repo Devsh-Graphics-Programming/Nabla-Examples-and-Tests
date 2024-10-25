@@ -2,6 +2,7 @@
 #define _NBL_I_CAMERA_CONTROLLER_HPP_
 
 #include "IProjection.hpp"
+#include "../ICamera.hpp"
 #include "CVirtualCameraEvent.hpp"
 #include "glm/glm/ext/matrix_transform.hpp" // TODO: TEMPORARY!!! whatever used will be moved to cpp
 #include "glm/glm/gtc/quaternion.hpp"
@@ -133,7 +134,7 @@ public:
         };
 
         CGimbal(const core::smart_refctd_ptr<projection_t>&& projection, const float32_t3& position, const float32_t3& lookat, const float32_t3& upVec = float32_t3(0.0f, 1.0f, 0.0f), const float32_t3& backupUpVec = float32_t3(0.5f, 1.0f, 0.0f))
-            : m_projection(projection), m_position(position), m_target(lookat), m_upVec(upVec), m_backupUpVec(backupUpVec), m_initialPosition(position), m_initialTarget(lookat), m_orientation(glm::quat(1.0f, 0.0f, 0.0f, 0.0f)), m_viewMatrix({}), m_isLeftHanded(checkIfLeftHanded(m_projection->getProjectionMatrix()))
+            : m_projection(projection), m_position(position), m_target(lookat), m_upVec(upVec), m_backupUpVec(backupUpVec), m_initialPosition(position), m_initialTarget(lookat), m_orientation(glm::quat(1.0f, 0.0f, 0.0f, 0.0f)), m_viewMatrix({})
         {
             recomputeViewMatrix();
         }
@@ -205,8 +206,6 @@ public:
         //! End the gimbal manipulation session, recompute view matrix if required and update handedness state from projection
         inline void end()
         {
-            m_isLeftHanded = checkIfLeftHanded(m_projection->getProjectionMatrix());
-
             if (m_needsToRecomputeViewMatrix)
                 recomputeViewMatrix();
 
@@ -214,6 +213,7 @@ public:
             m_recordingManipulation = false;
         }
 
+        inline bool isRecordingManipulation() { return m_recordingManipulation; }
         inline projection_t* getProjection() { return m_projection.get(); }
         inline const float32_t3& getPosition() const { return m_position; }
         inline const float32_t3& getTarget() const { return m_target; }
@@ -221,7 +221,7 @@ public:
         inline const float32_t3& getBackupUpVector() const { return m_backupUpVec; }
         inline const float32_t3 getLocalTarget() const { return m_target - m_position; }
         inline const float32_t3 getForwardDirection() const { return glm::normalize(getLocalTarget()); }
-        inline const float32_t4x4& getViewMatrix() const { return m_viewMatrix; }
+        inline const float32_t3x4& getViewMatrix() const { return m_viewMatrix; }
         inline bool isLeftHanded() { return m_isLeftHanded; }
 
         inline float32_t3 getPatchedUpVector()
@@ -300,19 +300,12 @@ public:
         {
             auto up = getPatchedUpVector();
 
-            // TODO!!!! CASTS
+            m_isLeftHanded = m_projection->isLeftHanded();
 
-            /*
             if (m_isLeftHanded)
-                m_viewMatrix = glm::lookAtLH(m_position, m_target, up);
+                m_viewMatrix = float32_t3x4(float32_t4x4(glm::lookAtLH(m_position, m_target, up)));
             else
-                m_viewMatrix = glm::lookAtRH(m_position, m_target, up);
-                */
-        }
-
-        inline bool checkIfLeftHanded(const auto& projectionMatrix)
-        {
-            return hlsl::determinant(projectionMatrix) < 0.f;
+                m_viewMatrix = float32_t3x4(float32_t4x4(glm::lookAtRH(m_position, m_target, up)));
         }
 
         core::smart_refctd_ptr<projection_t> m_projection;
@@ -320,52 +313,42 @@ public:
         const float32_t3 m_initialPosition, m_initialTarget;
 
         glm::quat m_orientation;
-        float32_t4x4 m_viewMatrix;
+        float32_t3x4 m_viewMatrix;
 
-        bool m_isLeftHanded, 
+        bool m_isLeftHanded = false,
         m_needsToRecomputeViewMatrix = false,
         m_recordingManipulation = false;
     };
 
-    struct SUpdateParameters
-    {
-        //! Nabla mouse events you want to be handled with a controller
-        std::span<const ui::SMouseEvent> mouseEvents = {};
+    ICameraController() {}
 
-        //! Nabla keyboard events you want to be handled with a controller
-        std::span<const ui::SKeyboardEvent> keyboardEvents = {};
-    };
-
-    ICameraController(core::smart_refctd_ptr<CGimbal>&& gimbal) 
-        : m_gimbal(core::smart_refctd_ptr(gimbal)) {}
-
-    // controller can override which keys correspond to which event
+    // override controller keys map, it binds a key code to a virtual event
     void updateKeysToEvent(const std::vector<ui::E_KEY_CODE>& codes, VirtualEventType event)
     {
         m_keysToEvent[event] = std::move(codes);
     }
 
+    // start controller manipulation session
     virtual void begin(std::chrono::microseconds nextPresentationTimeStamp)
     {
         m_nextPresentationTimeStamp = nextPresentationTimeStamp;
         return;
     }
 
-    virtual void manipulate(SUpdateParameters parameters) = 0;
+    // manipulate camera with gimbal & virtual events, begin must be called before that!
+    virtual void manipulate(CGimbal* gimbal, std::span<const CVirtualEvent> virtualEvents) = 0;
 
+    // finish controller manipulation session, call after last manipulate in the hot loop
     void end(std::chrono::microseconds nextPresentationTimeStamp)
     {
         m_lastVirtualUpTimeStamp = nextPresentationTimeStamp;
     }
 
-    inline void setMoveSpeed(const float moveSpeed) { m_moveSpeed = moveSpeed; }
-    inline void setRotateSpeed(const float rotateSpeed) { m_rotateSpeed = rotateSpeed; }
-
-    inline const float getMoveSpeed() const { return m_moveSpeed; }
-    inline const float getRotateSpeed() const { return m_rotateSpeed; }
-
-protected:
+    /*
     // process keyboard to generate virtual manipulation events
+    // note that:
+    // - it doesn't make the manipulation itself!
+    */
     std::vector<CVirtualEvent> processKeyboard(std::span<const ui::SKeyboardEvent> events)
     {
         std::vector<CVirtualEvent> virtualEvents;
@@ -405,12 +388,11 @@ protected:
 
     /*
     // [OPTIONAL]: process mouse to generate virtual manipulation events
-    // note:
-    // - all manipulations *may* be done with keyboard keys, it means you can have a pad/touch pad for which keys could be bound and skip the mouse
-    // - default implementation which is FPS camera-like controller doesn't perform roll rotation which is around Z axis! If you want more complex manipulations then override the method
-    // - it doesn't make the manipulation itself! It only process your mouse events you got from OS & accumulate data values to create manipulation virtual events!
+    // note that:
+    // - all manipulations *may* be done with keyboard keys (if you have a touchpad or sth an ui:: event could be a code!)
+    // - it doesn't make the manipulation itself!
     */
-    virtual std::vector<CVirtualEvent> processMouse(std::span<const ui::SMouseEvent> events) const
+    std::vector<CVirtualEvent> processMouse(std::span<const ui::SMouseEvent> events) const
     {
         // accumulate total pitch & yaw delta from mouse movement events
         const auto [dTotalPitch, dTotalYaw] = [&]()
@@ -436,6 +418,13 @@ protected:
         return { pitch, yaw };
     }
 
+    inline void setMoveSpeed(const float moveSpeed) { m_moveSpeed = moveSpeed; }
+    inline void setRotateSpeed(const float rotateSpeed) { m_rotateSpeed = rotateSpeed; }
+
+    inline const float getMoveSpeed() const { return m_moveSpeed; }
+    inline const float getRotateSpeed() const { return m_rotateSpeed; }
+
+protected:
     // controller can override default set of event map
     virtual void initKeysToEvent()
     {
@@ -454,7 +443,6 @@ protected:
         m_keysToEvent[Reset] =  ui::E_KEY_CODE::EKC_R ;
     }
 
-    core::smart_refctd_ptr<CGimbal> m_gimbal;
     std::array<ui::E_KEY_CODE, EventsCount> m_keysToEvent = {};
     float m_moveSpeed = 1.f, m_rotateSpeed = 1.f;
     bool m_keysDown[EventsCount] = {};
