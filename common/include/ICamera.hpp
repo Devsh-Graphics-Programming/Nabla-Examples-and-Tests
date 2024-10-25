@@ -17,7 +17,7 @@ namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
 {
 
 template<ProjectionMatrix T = float64_t4x4>
-class ICamera : public ICameraController<typename T>
+class ICamera : public virtual ICameraController<typename T>
 { 
 public:
 	using base_t = typename ICameraController<typename T>;
