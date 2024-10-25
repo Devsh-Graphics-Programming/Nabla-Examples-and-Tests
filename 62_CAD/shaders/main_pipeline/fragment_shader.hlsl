@@ -601,7 +601,7 @@ float4 main(PSInput input) : SV_TARGET
         {
             float mipLevel = msdfTextures.CalculateLevelOfDetail(msdfSampler, uv);
             float3 msdfSample = msdfTextures.SampleLevel(msdfSampler, float3(uv, float(textureId)), mipLevel);
-            float msdf = nbl::hlsl::text::msdfDistance(msdfSample, input.getFontGlyphScreenPxRange());
+            float msdf = nbl::hlsl::text::msdfDistance(msdfSample, input.getFontGlyphPxRange());
             /*
                 explaining "*= exp2(max(mipLevel,0.0))"
                 Each mip level has constant MSDFPixelRange
@@ -616,7 +616,11 @@ float4 main(PSInput input) : SV_TARGET
                 to avoid aa feathering of the MAX_MSDF_DISTANCE_VALUE to be less than aa factor and eventually color it and cause greyed out area around the main glyph
             */
             msdf *= exp2(max(mipLevel,0.0));
-            localAlpha = smoothstep(+globals.antiAliasingFactor / 2.0f, -globals.antiAliasingFactor / 2.0f, msdf);
+            
+            LineStyle style = lineStyles[mainObj.styleIdx];
+            const float screenPxRange = input.getFontGlyphPxRange() / MSDFPixelRangeHalf;
+            const float bolden = style.worldSpaceLineWidth * screenPxRange; // worldSpaceLineWidth is actually boldenInPixels, aliased TextStyle with LineStyle
+            localAlpha = smoothstep(+globals.antiAliasingFactor / 2.0f + bolden, -globals.antiAliasingFactor / 2.0f + bolden, msdf);
         }
     }
     else if (objType == ObjectType::IMAGE) 
