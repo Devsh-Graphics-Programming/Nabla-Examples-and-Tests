@@ -12,13 +12,13 @@ namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
 
 // FPS Camera
 template<ProjectionMatrix T = float64_t4x4>
-class Camera : public ICamera<typename T>
+class Camera final : public ICamera<typename T>
 { 
 public:
     using base_t = ICamera<typename T>;
     using traits_t = typename base_t::Traits;
 
-	Camera() : base_t() {}
+	Camera() : base_t() { traits_t::controller_t::initKeysToEvent(); }
 	~Camera() = default;
 
 	virtual void manipulate(traits_t::gimbal_t* gimbal, std::span<const typename traits_t::controller_virtual_event_t> virtualEvents) override

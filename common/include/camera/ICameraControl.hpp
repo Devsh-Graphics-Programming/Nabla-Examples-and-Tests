@@ -440,7 +440,7 @@ protected:
     float m_moveSpeed = 1.f, m_rotateSpeed = 1.f;
     bool m_keysDown[EventsCount] = {};
 
-    std::chrono::microseconds m_nextPresentationTimeStamp, m_lastVirtualUpTimeStamp;
+    std::chrono::microseconds m_nextPresentationTimeStamp = {}, m_lastVirtualUpTimeStamp = {};
 };
 
 } // nbl::hlsl namespace
