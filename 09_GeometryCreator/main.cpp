@@ -312,13 +312,13 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 			hlsl::float32_t3x4 modelViewMatrix = hlsl::concatenateBFollowedByA(viewMatrix, modelMatrix);
 			hlsl::float32_t4x4 modelViewProjectionMatrix = mul(viewProjectionMatrix, hlsl::getMatrix3x4As4x4(modelMatrix));
 
-			core::matrix3x4SIMD normalMatrix;
+			hlsl::float32_t3x4 normalMatrix;
 			//modelViewMatrix.getSub3x3InverseTranspose(normalMatrix);
 
 			SBasicViewParameters uboData;
 			memcpy(uboData.MVP, &modelViewProjectionMatrix, sizeof(uboData.MVP));
 			memcpy(uboData.MV, &modelViewMatrix, sizeof(uboData.MV));
-			memcpy(uboData.NormalMat, normalMatrix.pointer(), sizeof(uboData.NormalMat));
+			memcpy(uboData.NormalMat, &normalMatrix, sizeof(uboData.NormalMat));
 			{
 				SBufferRange<IGPUBuffer> range;
 				range.buffer = core::smart_refctd_ptr(resources.ubo.buffer);
