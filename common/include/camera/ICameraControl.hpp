@@ -75,7 +75,7 @@ public:
     {
     public:
         CGimbal(const float32_t3& position, glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f))
-            : m_position(position), m_orientation(orientation) {}
+            : m_position(position), m_orientation(orientation) { updateOrthonormalMatrix(); }
 
         inline void setPosition(const float32_t3& position)
         {
@@ -86,7 +86,7 @@ public:
         {
             glm::quat dRotation = glm::angleAxis(dRadians, axis);
             m_orientation = glm::normalize(dRotation * m_orientation);
-            m_orthonormal = float32_t3x3(glm::mat3_cast(m_orientation));
+            updateOrthonormalMatrix();
         }
 
         inline void strafe(float distance)
@@ -133,6 +133,8 @@ public:
         inline const float32_t3& getZAxis() const { return m_orthonormal[2u]; }
 
     private:
+        inline void updateOrthonormalMatrix() { m_orthonormal = float32_t3x3(glm::mat3_cast(glm::normalize(m_orientation))); }
+
         float32_t3 m_position;
         glm::quat m_orientation;
 
