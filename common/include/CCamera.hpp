@@ -40,7 +40,7 @@ public:
         const auto dRotateFactor = traits_t::controller_t::m_rotateSpeed * RotateSpeedScale;
 
         // TODO: UB/LB for pitch [-88,88]!!! we are not in cosmos but handle FPS camera in default case
-        // TODO: accumulate move scalars & rotate scalars then do single move & rotate
+        // TODO: accumulate move & rotate scalars then do single move & rotate gimbal manipulation
 
         for (const traits_t::controller_virtual_event_t& ev : virtualEvents)
         {

@@ -757,7 +757,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			if (move)
 			{
 				const auto virtualMouseEvents = camera->processMouse(params.mouseEvents);
-				const auto virtualKeyboardEvents = camera->processMouse(params.mouseEvents);
+				const auto virtualKeyboardEvents = camera->processKeyboard(params.keyboardEvents);
 
 				camera->manipulate({ virtualMouseEvents.data(), virtualMouseEvents.size()});
 				camera->manipulate({ virtualKeyboardEvents.data(), virtualKeyboardEvents.size()});
