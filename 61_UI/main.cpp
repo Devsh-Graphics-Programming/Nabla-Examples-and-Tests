@@ -177,7 +177,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				{
 					ImGuiIO& io = ImGui::GetIO();
 					{
-						auto* projection = gimbal->getProjection();
+						auto* projection = camera->getProjection();
 
 						if (isPerspective)
 						{
@@ -256,15 +256,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					{
 						float32_t3 cameraPosition(cosf(camYAngle)* cosf(camXAngle)* transformParams.camDistance, sinf(camXAngle)* transformParams.camDistance, sinf(camYAngle)* cosf(camXAngle)* transformParams.camDistance);
 						float32_t3 cameraTarget(0.f, 0.f, 0.f);
-						const static float32_t3 up(0.f, 1.f, 0.f);
 
-						gimbal->begin();
-						{
-							gimbal->setPosition(cameraPosition);
-							gimbal->setTarget(cameraTarget);
-							gimbal->setBackupUpVector(up);
-						}
-						gimbal->end();
+						gimbal->setPosition(cameraPosition);
+						camera->setTarget(cameraTarget);
 
 						firstFrame = false;
 					}
@@ -335,10 +329,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						float32_t4x4 view, projection, model;
 					} imguizmoM16InOut;
 
-					const auto& projectionMatrix = gimbal->getProjection()->getMatrix();
+					const auto& projectionMatrix = camera->getProjection()->getMatrix();
 
 					ImGuizmo::SetID(0u);
-					imguizmoM16InOut.view = transpose(getMatrix3x4As4x4(gimbal->getViewMatrix()));
+					imguizmoM16InOut.view = transpose(getMatrix3x4As4x4(camera->getViewMatrix()));
 					imguizmoM16InOut.projection = transpose(projectionMatrix);
 					imguizmoM16InOut.model = transpose(getMatrix3x4As4x4(pass.scene->object.model));
 					{
@@ -350,7 +344,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					}
 
 					// to Nabla + update camera & model matrices
-					const auto& view = gimbal->getViewMatrix();
+					const auto& view = camera->getViewMatrix();
 				
 					// TODO: make it more nicely
 					const_cast<float32_t3x4&>(view) = float32_t3x4(transpose(imguizmoM16InOut.view)); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
@@ -449,6 +443,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						ImGui::SetCursorPosX(windowPadding);
 
+					
+
 						if (freePercentage > 70.0f)
 							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.0f, 1.0f, 0.0f, 0.4f));  // Green
 						else if (freePercentage > 30.0f)
@@ -506,12 +502,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			*/
 
 			const float32_t3 position(cosf(camYAngle)* cosf(camXAngle)* transformParams.camDistance, sinf(camXAngle)* transformParams.camDistance, sinf(camYAngle)* cosf(camXAngle)* transformParams.camDistance),
-			target(0.f, 0.f, 0.f), up(0.f, 1.f, 0.f);
+			target(0.f, 0.f, 0.f);
 
 			auto projection = make_smart_refctd_ptr<projection_t>();
 			projection->setMatrix(projection_matrix_t(glm::perspectiveLH(glm::radians(fov), float(m_window->getWidth()) / float(m_window->getHeight()), zNear, zFar)));
-			gimbal = make_smart_refctd_ptr<gimbal_t>(smart_refctd_ptr(projection), position, target, up);
-			camera = make_smart_refctd_ptr<camera_t>();
+			
+			gimbal = make_smart_refctd_ptr<gimbal_t>(position);
+			camera = make_smart_refctd_ptr<camera_t>(core::smart_refctd_ptr(gimbal), core::smart_refctd_ptr(projection), target);
 
 			return true;
 		}
@@ -762,10 +759,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				const auto virtualMouseEvents = camera->processMouse(params.mouseEvents);
 				const auto virtualKeyboardEvents = camera->processMouse(params.mouseEvents);
 
-				gimbal->begin();
-				camera->manipulate(gimbal.get(), { virtualMouseEvents.data(), virtualMouseEvents.size()});
-				camera->manipulate(gimbal.get(), { virtualKeyboardEvents.data(), virtualKeyboardEvents.size()});
-				gimbal->end();
+				camera->manipulate({ virtualMouseEvents.data(), virtualMouseEvents.size()});
+				camera->manipulate({ virtualKeyboardEvents.data(), virtualKeyboardEvents.size()});
 
 				camera->end(nextPresentationTimestamp);
 			}
