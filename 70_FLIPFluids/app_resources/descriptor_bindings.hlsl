@@ -425,60 +425,13 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding psUpdateVelPs_bs1[] = {
 };
 #endif
 
-// extrapolateVelocities
-NBL_CONSTEXPR uint32_t s_ev = 1;
-NBL_CONSTEXPR uint32_t b_evGridData = 0;
-NBL_CONSTEXPR uint32_t b_evPBuffer = 1;
-NBL_CONSTEXPR uint32_t b_evVelFieldBuffer = 2;
-NBL_CONSTEXPR uint32_t b_evPrevVelFieldBuffer = 3;
-NBL_CONSTEXPR uint32_t b_evVelSampler = 4;
-
-#ifndef __HLSL_VERSION
-NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding evExtrapolateVel_bs1[] = {
-    {
-        .binding = b_evGridData,
-        .type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    },
-    {
-        .binding = b_evPBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    },
-    {
-        .binding = b_evVelFieldBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 3,
-    },
-    {
-        .binding = b_evPrevVelFieldBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 3,
-    },
-    {
-        .binding = b_evVelSampler,
-        .type = asset::IDescriptor::E_TYPE::ET_SAMPLER,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    }
-};
-#endif
-
 // advectParticles
 NBL_CONSTEXPR uint32_t s_ap = 1;
 NBL_CONSTEXPR uint32_t b_apGridData = 0;
 NBL_CONSTEXPR uint32_t b_apPBuffer = 1;
 NBL_CONSTEXPR uint32_t b_apVelFieldBuffer = 2;
-NBL_CONSTEXPR uint32_t b_apVelSampler = 3;
+NBL_CONSTEXPR uint32_t b_apPrevVelFieldBuffer = 3;
+NBL_CONSTEXPR uint32_t b_apVelSampler = 4;
 
 #ifndef __HLSL_VERSION
 NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding apAdvectParticles_bs1[] = {
@@ -498,6 +451,13 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding apAdvectParticles_bs1[] = {
     },
     {
         .binding = b_apVelFieldBuffer,
+        .type = asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
+        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+        .count = 3,
+    },
+    {
+        .binding = b_apPrevVelFieldBuffer,
         .type = asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,

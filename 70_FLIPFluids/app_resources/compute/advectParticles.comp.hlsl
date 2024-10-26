@@ -10,6 +10,7 @@ cbuffer GridData
 
 [[vk::binding(b_apPBuffer, s_ap)]] RWStructuredBuffer<Particle> particleBuffer;
 [[vk::binding(b_apVelFieldBuffer, s_ap)]] Texture3D<float> velocityFieldBuffer[3];
+[[vk::binding(b_apPrevVelFieldBuffer, s_ap)]] Texture3D<float> prevVelocityFieldBuffer[3];
 [[vk::binding(b_apVelSampler, s_ap)]] SamplerState velocityFieldSampler;
 
 // delta time push constant?
@@ -21,8 +22,17 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
     Particle p = particleBuffer[pid];
 
-    // use RK4
-    float3 k1 = sampleVelocityAt(p.position.xyz, velocityFieldBuffer, velocityFieldSampler, gridData);
+    // advect velocity
+    float3 gridPrevVel = sampleVelocityAt(p.position.xyz, prevVelocityFieldBuffer, velocityFieldSampler, gridData);
+    float3 gridVel = sampleVelocityAt(p.position.xyz, velocityFieldBuffer, velocityFieldSampler, gridData);
+
+    float3 picVel = gridVel;
+    float3 flipVel = p.velocity.xyz + gridVel - gridPrevVel;
+
+    p.velocity.xyz = lerp(picVel, flipVel, ratioFLIPPIC);
+
+    // move particle, use RK4
+    float3 k1 = gridVel;
     float3 k2 = sampleVelocityAt(p.position.xyz + k1 * 0.5f * deltaTime, velocityFieldBuffer, velocityFieldSampler, gridData);
     float3 k3 = sampleVelocityAt(p.position.xyz + k2 * 0.5f * deltaTime, velocityFieldBuffer, velocityFieldSampler, gridData);
     float3 k4 = sampleVelocityAt(p.position.xyz + k3 * deltaTime, velocityFieldBuffer, velocityFieldSampler, gridData);

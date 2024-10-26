@@ -1,3 +1,4 @@
+// TODO: obsolete, function merged into advectParticles
 #include "../common.hlsl"
 #include "../gridSampling.hlsl"
 #include "../descriptor_bindings.hlsl"

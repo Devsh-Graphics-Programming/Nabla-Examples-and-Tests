@@ -831,10 +831,54 @@ public:
                 m_device->updateDescriptorSets(std::span(writes, 5), {});
             }
         }
+        //{
+        //    // extrapolate velocities pipeline
+        //    createComputePipeline(m_extrapolateVelPipeline, m_extrapolateVelPool, m_extrapolateVelDs, 
+        //        "app_resources/compute/extrapolateVelocities.comp.hlsl", "main", evExtrapolateVel_bs1);
+
+        //    {
+        //        IGPUDescriptorSet::SDescriptorInfo infos[3];
+        //        infos[0].desc = smart_refctd_ptr(gridDataBuffer);
+        //        infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
+        //        infos[1].desc = smart_refctd_ptr(particleBuffer);
+        //        infos[1].info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
+        //        infos[2].desc = velocityFieldSampler;
+
+        //        IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
+        //        imgInfosVel0[0].desc = velocityFieldImageViews[0];
+        //        imgInfosVel0[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+        //        imgInfosVel0[0].info.combinedImageSampler.sampler = nullptr;
+        //        imgInfosVel0[1].desc = velocityFieldImageViews[1];
+        //        imgInfosVel0[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+        //        imgInfosVel0[1].info.combinedImageSampler.sampler = nullptr;
+        //        imgInfosVel0[2].desc = velocityFieldImageViews[2];
+        //        imgInfosVel0[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+        //        imgInfosVel0[2].info.combinedImageSampler.sampler = nullptr;
+
+        //        IGPUDescriptorSet::SDescriptorInfo imgInfosVel1[3];
+        //        imgInfosVel1[0].desc = prevVelocityFieldImageViews[0];
+        //        imgInfosVel1[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+        //        imgInfosVel1[0].info.combinedImageSampler.sampler = nullptr;
+        //        imgInfosVel1[1].desc = prevVelocityFieldImageViews[1];
+        //        imgInfosVel1[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+        //        imgInfosVel1[1].info.combinedImageSampler.sampler = nullptr;
+        //        imgInfosVel1[2].desc = prevVelocityFieldImageViews[2];
+        //        imgInfosVel1[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+        //        imgInfosVel1[2].info.combinedImageSampler.sampler = nullptr;
+
+        //        IGPUDescriptorSet::SWriteDescriptorSet writes[5] = {
+        //            {.dstSet = m_extrapolateVelDs.get(), .binding = b_evGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
+        //            {.dstSet = m_extrapolateVelDs.get(), .binding = b_evPBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
+        //            {.dstSet = m_extrapolateVelDs.get(), .binding = b_evVelFieldBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
+        //            {.dstSet = m_extrapolateVelDs.get(), .binding = b_evPrevVelFieldBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel1},
+        //            {.dstSet = m_extrapolateVelDs.get(), .binding = b_evVelSampler, .arrayElement = 0, .count = 1, .info = &infos[2]}
+        //        };
+        //        m_device->updateDescriptorSets(std::span(writes, 5), {});
+        //    }
+        //}
         {
-            // extrapolate velocities pipeline
-            createComputePipeline(m_extrapolateVelPipeline, m_extrapolateVelPool, m_extrapolateVelDs, 
-                "app_resources/compute/extrapolateVelocities.comp.hlsl", "main", evExtrapolateVel_bs1);
+            // advect particles pipeline
+            createComputePipeline(m_advectParticlesPipeline, m_advectParticlesPool, m_advectParticlesDs, "app_resources/compute/advectParticles.comp.hlsl", "main", apAdvectParticles_bs1);
 
             {
                 IGPUDescriptorSet::SDescriptorInfo infos[3];
@@ -867,45 +911,13 @@ public:
                 imgInfosVel1[2].info.combinedImageSampler.sampler = nullptr;
 
                 IGPUDescriptorSet::SWriteDescriptorSet writes[5] = {
-                    {.dstSet = m_extrapolateVelDs.get(), .binding = b_evGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-                    {.dstSet = m_extrapolateVelDs.get(), .binding = b_evPBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
-                    {.dstSet = m_extrapolateVelDs.get(), .binding = b_evVelFieldBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
-                    {.dstSet = m_extrapolateVelDs.get(), .binding = b_evPrevVelFieldBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel1},
-                    {.dstSet = m_extrapolateVelDs.get(), .binding = b_evVelSampler, .arrayElement = 0, .count = 1, .info = &infos[2]}
-                };
-                m_device->updateDescriptorSets(std::span(writes, 5), {});
-            }
-        }
-        {
-            // advect particles pipeline
-            createComputePipeline(m_advectParticlesPipeline, m_advectParticlesPool, m_advectParticlesDs, "app_resources/compute/advectParticles.comp.hlsl", "main", apAdvectParticles_bs1);
-
-            {
-                IGPUDescriptorSet::SDescriptorInfo infos[3];
-                infos[0].desc = smart_refctd_ptr(gridDataBuffer);
-                infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
-                infos[1].desc = smart_refctd_ptr(particleBuffer);
-                infos[1].info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
-                infos[2].desc = velocityFieldSampler;
-
-                IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
-                imgInfosVel0[0].desc = velocityFieldImageViews[0];
-                imgInfosVel0[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                imgInfosVel0[0].info.combinedImageSampler.sampler = nullptr;
-                imgInfosVel0[1].desc = velocityFieldImageViews[1];
-                imgInfosVel0[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                imgInfosVel0[1].info.combinedImageSampler.sampler = nullptr;
-                imgInfosVel0[2].desc = velocityFieldImageViews[2];
-                imgInfosVel0[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                imgInfosVel0[2].info.combinedImageSampler.sampler = nullptr;
-
-                IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
                     {.dstSet = m_advectParticlesDs.get(), .binding = b_apGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
                     {.dstSet = m_advectParticlesDs.get(), .binding = b_apPBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
                     {.dstSet = m_advectParticlesDs.get(), .binding = b_apVelFieldBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
+                    {.dstSet = m_advectParticlesDs.get(), .binding = b_apPrevVelFieldBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel1},
                     {.dstSet = m_advectParticlesDs.get(), .binding = b_apVelSampler, .arrayElement = 0, .count = 1, .info = &infos[2]}
                 };
-                m_device->updateDescriptorSets(std::span(writes, 4), {});
+                m_device->updateDescriptorSets(std::span(writes, 5), {});
             }
         }
 
@@ -1045,7 +1057,6 @@ public:
             dispatchApplyBodyForces(cmdbuf, i == 0);	// external forces, e.g. gravity
             dispatchApplyDiffusion(cmdbuf);
             dispatchApplyPressure(cmdbuf);
-            dispatchExtrapolateVelocities(cmdbuf);	// grid -> particle vel
             dispatchAdvection(cmdbuf);				// update/advect fluid
         }
 
@@ -1383,22 +1394,6 @@ public:
         cmdbuf->bindComputePipeline(m_updateVelPsPipeline.get());
         cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_updateVelPsPipeline->getLayout(), 1, 1, &m_updateVelPsDs.get());
         cmdbuf->dispatch(WorkgroupCountGrid.x, WorkgroupCountGrid.y, WorkgroupCountGrid.z);
-    }
-    
-    void dispatchExtrapolateVelocities(IGPUCommandBuffer* cmdbuf)
-    {
-        {
-            SMemoryBarrier memBarrier;
-            memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-            memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
-            memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-            memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
-            cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
-        }
-
-        cmdbuf->bindComputePipeline(m_extrapolateVelPipeline.get());
-        cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_extrapolateVelPipeline->getLayout(), 1, 1, &m_extrapolateVelDs.get());
-        cmdbuf->dispatch(WorkgroupCountParticles, 1, 1);
     }
             
     void dispatchAdvection(IGPUCommandBuffer* cmdbuf)
@@ -1841,7 +1836,6 @@ private:
     smart_refctd_ptr<IGPUComputePipeline> m_iteratePressurePipeline;
     smart_refctd_ptr<IGPUComputePipeline> m_updateVelPsPipeline;
 
-    smart_refctd_ptr<IGPUComputePipeline> m_extrapolateVelPipeline;
     smart_refctd_ptr<IGPUComputePipeline> m_advectParticlesPipeline;
     smart_refctd_ptr<IGPUComputePipeline> m_genParticleVerticesPipeline;
 
@@ -1873,8 +1867,6 @@ private:
     smart_refctd_ptr<video::IDescriptorPool> m_updateVelPsPool;
     smart_refctd_ptr<IGPUDescriptorSet> m_updateVelPsDs;
     
-    smart_refctd_ptr<video::IDescriptorPool> m_extrapolateVelPool;
-    smart_refctd_ptr<IGPUDescriptorSet> m_extrapolateVelDs;
     smart_refctd_ptr<video::IDescriptorPool> m_advectParticlesPool;
     smart_refctd_ptr<IGPUDescriptorSet> m_advectParticlesDs;
     smart_refctd_ptr<video::IDescriptorPool> m_genVerticesPool;
