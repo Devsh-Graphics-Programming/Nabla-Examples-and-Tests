@@ -173,7 +173,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				m_intendedSubmit.waitSemaphores = {};
 				m_intendedSubmit.waitSemaphores = {};
 				// fill later
-				m_intendedSubmit.commandBuffers = {};
+				m_intendedSubmit.scratchCommandBuffers = {};
 				m_intendedSubmit.scratchSemaphore = {
 					.semaphore = m_scratchSemaphore.get(),
 					.value = 0,
@@ -302,7 +302,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			{
 				IAssetLoader::SAssetLoadParams params;
 				auto imageBundle = m_assetMgr->getAsset(DefaultImagePathsFile.data(), params);
-				auto cpuImg = IAsset::castDown<ICPUImage>(imageBundle.getContents().begin()[0]);
+				auto cpuImg = smart_refctd_ptr_static_cast<ICPUImage>(imageBundle.getContents()[0]);
 				auto format = cpuImg->getCreationParameters().format;
 
 				ICPUImageView::SCreationParams viewParams = {
@@ -365,8 +365,12 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				auto params = cpuImgView->getCreationParameters();
 				auto extent = params.image->getCreationParameters().extent;
 				m_envMapView = createHDRIImageView(params.format, extent.width, extent.height);
+				m_envMapView->setObjectDebugName("Env Map");
+				auto params2 = m_envMapView->getCreationParameters().image->getCreationParameters();
 				m_scrambleView = createHDRIImageView(asset::E_FORMAT::EF_R32G32_UINT, extent.width, extent.height);
+				m_scrambleView->setObjectDebugName("Scramble Map");
 				m_outImgView = createHDRIImageView(asset::E_FORMAT::EF_R16G16B16A16_SFLOAT, WindowDimensions.x, WindowDimensions.y);
+				m_outImgView->setObjectDebugName("Output Image");
 			}
 
 			// create ubo and sequence buffer view
@@ -377,6 +381,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					params.size = sizeof(SBasicViewParametersAligned);
 
 					m_ubo = m_device->createBuffer(std::move(params));
+					m_ubo->setObjectDebugName("UBO");
 					auto memReqs = m_ubo->getMemoryReqs();
 					memReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 					m_device->allocate(memReqs, m_ubo.get());
@@ -404,10 +409,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					auto cmdbuf = m_cmdBufs[0].get();
 					cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
 					IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf };
-					m_intendedSubmit.commandBuffers = { &cmdbufInfo, 1 };
+					m_intendedSubmit.scratchCommandBuffers = { &cmdbufInfo, 1 };
 
-					queue->startCapture();
-
+					cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 					auto bufferFuture = m_utils->createFilledDeviceLocalBufferOnDedMem(
 						m_intendedSubmit,
 						std::move(params),
@@ -416,9 +420,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					bufferFuture.wait();
 					auto buffer = bufferFuture.get();
 
-					queue->endCapture();
-
 					m_sequenceBufferView = m_device->createBufferView({ 0u, buffer->get()->getSize(), *buffer }, asset::E_FORMAT::EF_R32G32B32_UINT);
+					m_sequenceBufferView->setObjectDebugName("Sequence Buffer");
 				}
 			}
 
@@ -434,7 +437,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					auto cmdbuf = m_cmdBufs[0].get();
 					cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
 					IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf };
-					m_intendedSubmit.commandBuffers = { &cmdbufInfo, 1 };
+					m_intendedSubmit.scratchCommandBuffers = { &cmdbufInfo, 1 };
 
 					// there's no previous operation to wait for
 					const SMemoryBarrier transferBarriers[] = {
@@ -449,8 +452,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					};
 
 					// upload image and write to descriptor set
-					queue->startCapture();
-
 					cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 					// change the layout of the image
 					const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers1[] = {
@@ -492,8 +493,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					);
 					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers2 });
 					m_utils->autoSubmit(m_intendedSubmit, [&](SIntendedSubmitInfo& nextSubmit) -> bool { return true; });
-
-					queue->endCapture();
 				}
 
 				// upload scramble data
@@ -525,10 +524,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					auto cmdbuf = m_cmdBufs[0].get();
 					cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
 					IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf };
-					m_intendedSubmit.commandBuffers = { &cmdbufInfo, 1 };
+					m_intendedSubmit.scratchCommandBuffers = { &cmdbufInfo, 1 };
 
-					queue->startCapture();
-
+					cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 					m_utils->updateImageViaStagingBufferAutoSubmit(
 						m_intendedSubmit,
 						random.data(),
@@ -537,8 +535,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						IGPUImage::LAYOUT::UNDEFINED,
 						regions
 					);
-
-					queue->endCapture();
 				}
 			}
 
@@ -683,14 +679,14 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				params.resources.samplersInfo = { .setIx = 0u, .bindingIx = 1u };
 				params.assetManager = m_assetMgr;
 				params.pipelineCache = nullptr;
-				params.pipelineLayout = nbl::ext::imgui::UI::createDefaultPipelineLayout(m_utils.get(), params.resources.texturesInfo, params.resources.samplersInfo, MaxUITextureCount);
+				params.pipelineLayout = nbl::ext::imgui::UI::createDefaultPipelineLayout(m_utils->getLogicalDevice(), params.resources.texturesInfo, params.resources.samplersInfo, MaxUITextureCount);
 				params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
 				params.streamingBuffer = nullptr;
 				params.subpassIx = 0u;
 				params.transfer = getTransferUpQueue();
 				params.utilities = m_utils;
 				{
-					m_ui.manager = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(std::move(params));
+					m_ui.manager = ext::imgui::UI::create(std::move(params));
 
 					// note that we use default layout provided by our extension, but you are free to create your own by filling nbl::ext::imgui::UI::S_CREATION_PARAMETERS::resources
 					const auto* descriptorSetLayout = m_ui.manager->getPipeline()->getLayout()->getDescriptorSetLayout(0u);
@@ -747,13 +743,16 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					ImGui::Image(SceneTextureIndex, ImGui::GetContentRegionAvail());
 
 					// Nabla Imgui backend MDI buffer info
+					// To be 100% accurate and not overly conservative we'd have to explicitly `cull_frees` and defragment each time,
+					// so unless you do that, don't use this basic info to optimize the size of your IMGUI buffer.
 					{
 						auto* streamingBuffer = m_ui.manager->getStreamingBuffer();
-						const size_t totalAllocatedSize = streamingBuffer->get_total_size();
-						const size_t isUse = ((nbl::ext::imgui::UI::SMdiBuffer::compose_t*)streamingBuffer)->max_size();
+						const size_t total = streamingBuffer->get_total_size();			// total memory range size for which allocation can be requested
+						const size_t freeSize = streamingBuffer->getAddressAllocator().get_free_size();		// max total free bloock memory size we can still allocate from total memory available
+						const size_t consumedMemory = total - freeSize;			// memory currently consumed by streaming buffer
 
-						float freePercentage = 100.0f * (float)(totalAllocatedSize - isUse) / (float)totalAllocatedSize;
-						float allocatedPercentage = 1.0f - (float)(totalAllocatedSize - isUse) / (float)totalAllocatedSize;
+						float freePercentage = 100.0f * (float)(freeSize) / (float)total;
+						float allocatedPercentage = (float)(consumedMemory) / (float)total;
 
 						ImVec2 barSize = ImVec2(400, 30);
 						float windowPadding = 10.0f;
@@ -762,8 +761,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						ImGui::SetNextWindowSize(ImVec2(barSize.x + 2 * windowPadding, 110 + verticalPadding), ImGuiCond_Always);
 						ImGui::Begin("Nabla Imgui MDI Buffer Info", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar);
 
-						ImGui::Text("Total Allocated Size: %zu bytes", totalAllocatedSize);
-						ImGui::Text("In use: %zu bytes", isUse);
+						ImGui::Text("Total Allocated Size: %zu bytes", total);
+						ImGui::Text("In use: %zu bytes", consumedMemory);
 						ImGui::Text("Buffer Usage:");
 
 						ImGui::SetCursorPosX(windowPadding);
@@ -867,6 +866,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					return;
 			}
 
+			m_api->startCapture();
+
 			// CPU events
 			update();
 
@@ -884,8 +885,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						m_camera.getConcatenatedMatrix()
 					);
 				*/
-
-				queue->startCapture();
 
 				// safe to proceed
 				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
@@ -906,7 +905,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					range.size = sizeof(viewParams);
 					
 					IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf.get() };
-					m_intendedSubmit.commandBuffers = { &cmdbufInfo, 1 };
+					m_intendedSubmit.scratchCommandBuffers = { &cmdbufInfo, 1 };
 					
 					m_utils->updateBufferRangeViaStagingBuffer(m_intendedSubmit, range, &viewParams);
 					m_utils->autoSubmit(m_intendedSubmit, [&](SIntendedSubmitInfo& nextSubmit) -> bool { return true; });
@@ -1107,9 +1106,10 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					}
 				}
 
-				m_window->setCaption("[Nabla Engine] UI App Test Demo");
+				m_window->setCaption("[Nabla Engine] Computer Path Tracer");
 				m_surface->present(m_currentImageAcquire.imageIndex, rendered);
 			}
+			m_api->endCapture();
 		}
 
 		inline bool keepRunning() override
@@ -1227,7 +1227,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
 		// pathtracer resources
-		smart_refctd_ptr<IGPUImageView> m_envMapView, m_scrambleView;
+		smart_refctd_ptr<IGPUImageView> m_envMapView, m_scrambleView, m_tmpView;
 		smart_refctd_ptr<IGPUBufferView> m_sequenceBufferView;
 		smart_refctd_ptr<IGPUBuffer> m_ubo;
 		smart_refctd_ptr<IGPUImageView> m_outImgView;
