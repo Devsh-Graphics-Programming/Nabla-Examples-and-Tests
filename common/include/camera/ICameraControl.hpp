@@ -174,7 +174,7 @@ public:
     */
     std::vector<CVirtualEvent> processKeyboard(std::span<const ui::SKeyboardEvent> events)
     {
-        std::vector<CVirtualEvent> virtualEvents;
+        std::vector<CVirtualEvent> output;
 
         for (const auto& ev : events)
         {
@@ -196,7 +196,7 @@ public:
                     if (ev.action == nbl::ui::SKeyboardEvent::ECA_PRESSED && !m_keysDown[virtualKey])
                     {
                         m_keysDown[virtualKey] = true;
-                        virtualEvents.emplace_back(CVirtualEvent{ virtualKey, static_cast<float64_t>(dt) });
+                        output.emplace_back(CVirtualEvent{ virtualKey, static_cast<float64_t>(dt) });
                     }
                     else if (ev.action == nbl::ui::SKeyboardEvent::ECA_RELEASED)
                     {
@@ -206,7 +206,7 @@ public:
             }
         }
 
-        return virtualEvents;
+        return output;
     }
 
     /*
@@ -217,28 +217,30 @@ public:
     */
     std::vector<CVirtualEvent> processMouse(std::span<const ui::SMouseEvent> events) const
     {
-        // accumulate total pitch & yaw delta from mouse movement events
-        const auto [dTotalPitch, dTotalYaw] = [&]()
+        double dPitch = {}, dYaw = {};
+
+        for (const auto& ev : events)
+            if (ev.type == nbl::ui::SMouseEvent::EET_MOVEMENT)
+            {
+                dYaw += ev.movementEvent.relativeMovementX;
+                dPitch += ev.movementEvent.relativeMovementY;
+            }
+
+        std::vector<CVirtualEvent> output;
+
+        if (dPitch)
         {
-            double dPitch = {}, dYaw = {};
+            auto& pitch = output.emplace_back();
+            pitch.type = (pitch.value = dPitch) > 0.f ? TiltUp : TiltDown;
+        }
 
-            for (const auto& ev : events)
-                if (ev.type == nbl::ui::SMouseEvent::EET_MOVEMENT)
-                {
-                    dYaw += ev.movementEvent.relativeMovementX;  // (yaw)
-                    dPitch -= ev.movementEvent.relativeMovementY; // (pitch)
-                }
+        if (dYaw)
+        {
+            auto& yaw = output.emplace_back();
+            yaw.type = (yaw.value = dYaw) > 0.f ? PanRight : PanLeft;
+        }
 
-            return std::make_tuple(dPitch, dYaw);
-        }();
-
-        CVirtualEvent pitch;
-        pitch.type = (pitch.value = dTotalPitch) > 0.f ? TiltUp : TiltDown;
-
-        CVirtualEvent yaw;
-        yaw.type = (yaw.value = dTotalYaw) > 0.f ? PanRight : PanLeft;
-
-        return { pitch, yaw };
+        return output;
     }
 
     inline void setMoveSpeed(const float moveSpeed) { m_moveSpeed = moveSpeed; }
