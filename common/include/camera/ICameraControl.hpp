@@ -74,246 +74,74 @@ public:
     class CGimbal : virtual public core::IReferenceCounted
     {
     public:
-        //! Virtual event representing a combined gimbal manipulation
-        enum VirtualEventType
-        {
-            //! Move the camera in the direction of strafe vector
-            Strafe,
+        CGimbal(const float32_t3& position, glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f))
+            : m_position(position), m_orientation(orientation) {}
 
-            //! Update orientation of camera by rotating around X, Y, Z axes
-            Rotate,
-
-            //! Signals boolean state, for example "reset"
-            State
-        };
-
-        class CVirtualEvent
-        {
-        public:
-            using manipulation_encode_t = float32_t4;
-
-            struct StrafeManipulation
-            {
-                float32_t3 direction = {};
-                float distance = {};
-            };
-
-            struct RotateManipulation
-            {
-                float pitch = {}, roll = {}, yaw = {};
-            };
-
-            struct StateManipulation
-            {
-                uint32_t reset : 1;
-                uint32_t reserved : 31;
-
-                StateManipulation() { memset(this, 0, sizeof(StateManipulation)); }
-                ~StateManipulation() {}
-            };
-
-            union ManipulationValue
-            {
-                StrafeManipulation strafe;
-                RotateManipulation rotation;
-                StateManipulation state;
-
-                ManipulationValue() { memset(this, 0, sizeof(ManipulationValue)); }
-                ~ManipulationValue() {}
-            };
-
-            CVirtualEvent() {}
-
-            CVirtualEvent(VirtualEventType _type, const ManipulationValue _manipulation)
-                : type(_type), manipulation(_manipulation)
-            {
-                static_assert(sizeof(manipulation_encode_t) == sizeof(ManipulationValue));
-            }
-
-            VirtualEventType type;
-            ManipulationValue manipulation;
-        };
-
-        CGimbal(const core::smart_refctd_ptr<projection_t>&& projection, const float32_t3& position, const float32_t3& lookat, const float32_t3& upVec = float32_t3(0.0f, 1.0f, 0.0f), const float32_t3& backupUpVec = float32_t3(0.5f, 1.0f, 0.0f))
-            : m_projection(projection), m_position(position), m_target(lookat), m_upVec(upVec), m_backupUpVec(backupUpVec), m_initialPosition(position), m_initialTarget(lookat), m_orientation(glm::quat(1.0f, 0.0f, 0.0f, 0.0f)), m_viewMatrix({})
-        {
-            recomputeViewMatrix();
-        }
-
-        // TODO: ctor with core::path to json config file to load defaults
-
-        //! Start a gimbal manipulation session
-        inline void begin()
-        {
-            m_needsToRecomputeViewMatrix = false;
-            m_recordingManipulation = true;
-        }
-
-        //! Record manipulation of the gimbal, note those events are delta manipulations
-        void manipulate(const CVirtualEvent& virtualEvent)
-        {
-            if (!m_recordingManipulation)
-                return; // TODO: log it
-
-            const auto& manipulation = virtualEvent.manipulation;
-
-            switch (virtualEvent.type)
-            {
-                case VirtualEventType::Strafe:
-                {
-                    strafe(manipulation.strafe.direction, manipulation.strafe.distance);
-                } break;
-
-                case VirtualEventType::Rotate:
-                {
-                    rotate(manipulation.rotation.pitch, manipulation.rotation.yaw, manipulation.rotation.roll);
-                } break;
-
-                case VirtualEventType::State:
-                {
-                    if (manipulation.state.reset)
-                        reset();
-                } break;
-
-                default:
-                    break;
-            }
-        }
-
-        // Record change of position vector, global update
         inline void setPosition(const float32_t3& position)
         {
-            if (!m_recordingManipulation)
-                return; // TODO: log it
-
             m_position = position;
         }
 
-        // Record change of target vector, global update
-        inline void setTarget(const float32_t3& target)
+        inline void rotate(const float32_t3& axis, float dRadians)
         {
-            if (!m_recordingManipulation)
-                return; // TODO: log it
-
-            m_target = target;
+            glm::quat dRotation = glm::angleAxis(dRadians, axis);
+            m_orientation = glm::normalize(dRotation * m_orientation);
+            m_orthonormal = float32_t3x3(glm::mat3_cast(m_orientation));
         }
 
-        // Change up vector, global update
-        inline void setUpVector(const float32_t3& up) { m_upVec = up; }
-
-        // Change backupUp vector, global update
-        inline void setBackupUpVector(const float32_t3& backupUp) { m_backupUpVec = backupUp; }
-
-        //! End the gimbal manipulation session, recompute view matrix if required and update handedness state from projection
-        inline void end()
+        inline void strafe(float distance)
         {
-            if (m_needsToRecomputeViewMatrix)
-                recomputeViewMatrix();
-
-            m_needsToRecomputeViewMatrix = false;
-            m_recordingManipulation = false;
+            move({ 0.f, distance, 0.f });
         }
 
-        inline bool isRecordingManipulation() { return m_recordingManipulation; }
-        inline projection_t* getProjection() { return m_projection.get(); }
-        inline const float32_t3& getPosition() const { return m_position; }
-        inline const float32_t3& getTarget() const { return m_target; }
-        inline const float32_t3& getUpVector() const { return m_upVec; }
-        inline const float32_t3& getBackupUpVector() const { return m_backupUpVec; }
-        inline const float32_t3 getLocalTarget() const { return m_target - m_position; }
-        inline const float32_t3 getForwardDirection() const { return glm::normalize(getLocalTarget()); }
-        inline const float32_t3x4& getViewMatrix() const { return m_viewMatrix; }
-
-        inline float32_t3 getPatchedUpVector()
+        inline void climb(float distance)
         {
-            // if up vector and vector to the target are the same we patch the up vector
-            auto up = glm::normalize(m_upVec);
-
-            const auto localTarget = getForwardDirection();
-            const auto cross = glm::cross(localTarget, up);
-
-            // we compute squared length but for checking if the len is 0 it doesnt matter 
-            const bool upVectorZeroLength = glm::dot(cross, cross) == 0.f;
-
-            if (upVectorZeroLength)
-                up = glm::normalize(m_backupUpVec);
-
-            return up;
+            move({ 0.f, 0.f, distance });
         }
 
-    private:
-        //! Reset the gimbal to its initial position, target, and orientation
+        inline void advance(float distance)
+        {
+            move({ distance, 0.f, 0.f });
+        }
+
+        inline void move(float32_t3 delta)
+        {
+            m_position += mul(m_orthonormal, delta);
+        }
+
         inline void reset()
         {
-            m_position = m_initialPosition;
-            m_target = m_initialTarget;
-            m_orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-
-            recomputeViewMatrix();  // Recompute the view matrix after resetting
+            // TODO
         }
 
-        //! Move in the direction of strafe (mostly left/right, up/down)
-        inline void strafe(const glm::vec3& direction, float distance)
-        {
-            if (distance != 0.0f)
-            {
-                const auto strafeVector = glm::normalize(direction) * distance;
-                m_position += strafeVector;
-                m_target += strafeVector;
+        // Position of gimbal
+        inline const float32_t3& getPosition() const { return m_position; }
 
-                m_needsToRecomputeViewMatrix = true;
-            }
-        }
+        // Orientation of gimbal
+        inline const glm::quat& getOrientation() const { return m_orientation; }
 
-        //! Update orientation by rotating around all XYZ axes - delta rotations in radians
-        inline void rotate(float dPitchRadians, float dYawDeltaRadians, float dRollDeltaRadians)
-        {
-            // Rotate around X (pitch)
-            glm::quat qPitch = glm::angleAxis(dPitchRadians, glm::vec3(1.0f, 0.0f, 0.0f));
+        // Orthonormal [getXAxis(), getYAxis(), getZAxis()] matrix
+        inline const float32_t3x3& getOrthonornalMatrix() const { return m_orthonormal; }
 
-            // Rotate around Y (yaw)
-            glm::quat qYaw = glm::angleAxis(dYawDeltaRadians, glm::vec3(0.0f, 1.0f, 0.0f));
+        // Base right vector in orthonormal basis, base "right" vector (X-axis)
+        inline const float32_t3& getXAxis() const { return m_orthonormal[0u]; }
 
-            // Rotate around Z (roll)
-            glm::quat qRoll = glm::angleAxis(dRollDeltaRadians, glm::vec3(0.0f, 0.0f, 1.0f));
+        // Base up vector in orthonormal basis, base "up" vector (Y-axis)
+        inline const float32_t3& getYAxis() const { return m_orthonormal[1u]; }
 
-            // Combine the new rotations with the current orientation
-            m_orientation = glm::normalize(qYaw * qPitch * qRoll * m_orientation);
+        // Base forward vector in orthonormal basis, base "forward" vector (Z-axis)
+        inline const float32_t3& getZAxis() const { return m_orthonormal[2u]; }
 
-            // Now we have rotation transformation as 3x3 matrix
-            auto rotate = glm::mat3_cast(m_orientation);
-
-            // We do not change magnitude of the vector
-            auto localTargetRotated = rotate * getLocalTarget();
-
-            // And we can simply update target vector
-            m_target = m_position + localTargetRotated;
-
-            m_needsToRecomputeViewMatrix = true;
-        }
-
-        inline void recomputeViewMatrix()
-        {
-            auto up = getPatchedUpVector();
-
-            if (m_projection->isLeftHanded())
-                m_viewMatrix = buildCameraLookAtMatrixLH<float>(m_position, m_target, up);
-            else
-                m_viewMatrix = buildCameraLookAtMatrixRH<float>(m_position, m_target, up);
-        }
-
-        core::smart_refctd_ptr<projection_t> m_projection;
-        float32_t3 m_position, m_target, m_upVec, m_backupUpVec;
-        const float32_t3 m_initialPosition, m_initialTarget;
-
+    private:
+        float32_t3 m_position;
         glm::quat m_orientation;
-        float32_t3x4 m_viewMatrix;
 
-        bool m_needsToRecomputeViewMatrix = true,
-        m_recordingManipulation = false;
+        // Represents the camera's orthonormal basis
+        // https://en.wikipedia.org/wiki/Orthonormal_basis
+        float32_t3x3 m_orthonormal;
     };
 
-    ICameraController() {}
+    ICameraController(core::smart_refctd_ptr<CGimbal>&& gimbal) : m_gimbal(core::smart_refctd_ptr(gimbal)) {}
 
     // override controller keys map, it binds a key code to a virtual event
     void updateKeysToEvent(const std::vector<ui::E_KEY_CODE>& codes, VirtualEventType event)
@@ -329,7 +157,7 @@ public:
     }
 
     // manipulate camera with gimbal & virtual events, begin must be called before that!
-    virtual void manipulate(CGimbal* gimbal, std::span<const CVirtualEvent> virtualEvents) = 0;
+    virtual void manipulate(std::span<const CVirtualEvent> virtualEvents) = 0;
 
     // finish controller manipulation session, call after last manipulate in the hot loop
     void end(std::chrono::microseconds nextPresentationTimeStamp)
@@ -436,6 +264,7 @@ protected:
         m_keysToEvent[Reset] =  ui::E_KEY_CODE::EKC_R ;
     }
 
+    core::smart_refctd_ptr<CGimbal> m_gimbal;
     std::array<ui::E_KEY_CODE, EventsCount> m_keysToEvent = {};
     float m_moveSpeed = 1.f, m_rotateSpeed = 1.f;
     bool m_keysDown[EventsCount] = {};
