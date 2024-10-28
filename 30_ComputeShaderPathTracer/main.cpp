@@ -199,10 +199,10 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					{
 						.binding = 0u,
 						.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
-						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-						.count = 1u,
-						.immutableSamplers = nullptr
+							.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+							.count = 1u,
+							.immutableSamplers = nullptr
 					}
 				};
 				IGPUDescriptorSetLayout::SBinding uboBindings[] = {
@@ -251,46 +251,46 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				}
 
 				auto createGpuResources = [&](std::string pathToShader, smart_refctd_ptr<IGPUComputePipeline>&& pipeline) -> bool
-				{
-					IAssetLoader::SAssetLoadParams lp = {};
-					lp.logger = m_logger.get();
-					lp.workingDirectory = ""; // virtual root
-					auto assetBundle = m_assetMgr->getAsset(pathToShader, lp);
-					const auto assets = assetBundle.getContents();
-					if (assets.empty())
 					{
-						return logFail("Could not load shader!");
-					}
+						IAssetLoader::SAssetLoadParams lp = {};
+						lp.logger = m_logger.get();
+						lp.workingDirectory = ""; // virtual root
+						auto assetBundle = m_assetMgr->getAsset(pathToShader, lp);
+						const auto assets = assetBundle.getContents();
+						if (assets.empty())
+						{
+							return logFail("Could not load shader!");
+						}
 
-					auto source = IAsset::castDown<ICPUShader>(assets[0]);
-					// The down-cast should not fail!
-					assert(source);
+						auto source = IAsset::castDown<ICPUShader>(assets[0]);
+						// The down-cast should not fail!
+						assert(source);
 
-					// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
-					auto shader = m_device->createShader(source.get());
-					if (!shader)
-					{
-						return logFail("Shader creationed failed: %s!", pathToShader);
-					}
+						// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
+						auto shader = m_device->createShader(source.get());
+						if (!shader)
+						{
+							return logFail("Shader creationed failed: %s!", pathToShader);
+						}
 
-					auto gpuPipelineLayout = m_device->createPipelineLayout({}, core::smart_refctd_ptr(gpuDescriptorSetLayout0), core::smart_refctd_ptr(gpuDescriptorSetLayout1), core::smart_refctd_ptr(gpuDescriptorSetLayout2), nullptr);
-					if (!gpuPipelineLayout) {
-						return logFail("Failed to create pipeline layout");
-					}
+						auto gpuPipelineLayout = m_device->createPipelineLayout({}, core::smart_refctd_ptr(gpuDescriptorSetLayout0), core::smart_refctd_ptr(gpuDescriptorSetLayout1), core::smart_refctd_ptr(gpuDescriptorSetLayout2), nullptr);
+						if (!gpuPipelineLayout) {
+							return logFail("Failed to create pipeline layout");
+						}
 
-					IGPUComputePipeline::SCreationParams params = {};
-					params.layout = gpuPipelineLayout.get();
-					params.shader.shader = shader.get();
-					params.shader.entryPoint = "main";
-					params.shader.entries = nullptr;
-					params.shader.requireFullSubgroups = true;
-					params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
-					if (!m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline)) {
-						return logFail("Failed to create compute pipeline!\n");
-					}
+						IGPUComputePipeline::SCreationParams params = {};
+						params.layout = gpuPipelineLayout.get();
+						params.shader.shader = shader.get();
+						params.shader.entryPoint = "main";
+						params.shader.entries = nullptr;
+						params.shader.requireFullSubgroups = true;
+						params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+						if (!m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline)) {
+							return logFail("Failed to create compute pipeline!\n");
+						}
 
-					return true;
-				};
+						return true;
+					};
 
 				if (!createGpuResources(ShaderPaths[LightGeom], std::move(m_pipeline))) {
 					return logFail("Pipeline creation failed!");
@@ -298,78 +298,159 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			}
 
 			// load image
-			smart_refctd_ptr<ICPUImageView> cpuImgView;
 			{
-				IAssetLoader::SAssetLoadParams params;
-				auto imageBundle = m_assetMgr->getAsset(DefaultImagePathsFile.data(), params);
-				auto cpuImg = smart_refctd_ptr_static_cast<ICPUImage>(imageBundle.getContents()[0]);
-				auto format = cpuImg->getCreationParameters().format;
+				IAssetLoader::SAssetLoadParams lp;
+				lp.logger = m_logger.get();
 
-				ICPUImageView::SCreationParams viewParams = {
-					.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
-					.image = std::move(cpuImg),
-					.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
-					.format = format,
-					.subresourceRange = {
-						.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
-						.baseMipLevel = 0u,
-						.levelCount = ICPUImageView::remaining_mip_levels,
-						.baseArrayLayer = 0u,
-						.layerCount = ICPUImageView::remaining_array_layers
+				auto queue = getGraphicsQueue();
+				auto cmdbuf = m_cmdBufs[0].get();
+				std::array<IQueue::SSubmitInfo::SCommandBufferInfo, 1> commandBufferInfo = { cmdbuf };
+				core::smart_refctd_ptr<ISemaphore> imgFillSemaphore = m_device->createSemaphore(0);
+				imgFillSemaphore->setObjectDebugName("Image Fill Semaphore");
+
+				auto converter = CAssetConverter::create({ .device = m_device.get() });
+				// We don't want to generate mip-maps for these images, to ensure that we must override the default callbacks.
+				struct SInputs final : CAssetConverter::SInputs
+				{
+					// we also need to override this to have concurrent sharing
+					inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t groupCopyID, const asset::ICPUImage* buffer, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+					{
+						if (familyIndices.size() > 1)
+							return familyIndices;
+						return {};
+					}
+
+					inline uint8_t getMipLevelCount(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+					{
+						return image->getCreationParameters().mipLevels;
+					}
+					inline uint16_t needToRecomputeMips(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+					{
+						return 0b0u;
+					}
+
+					std::vector<uint32_t> familyIndices;
+				} inputs = {};
+				inputs.readCache = converter.get();
+				inputs.logger = m_logger.get();
+				{
+					const core::set<uint32_t> uniqueFamilyIndices = { queue->getFamilyIndex(), queue->getFamilyIndex() };
+					inputs.familyIndices = { uniqueFamilyIndices.begin(),uniqueFamilyIndices.end() };
+				}
+				// scratch command buffers for asset converter transfer commands
+				SIntendedSubmitInfo transfer = {
+					.queue = queue,
+					.waitSemaphores = {},
+					.prevCommandBuffers = {},
+					.scratchCommandBuffers = commandBufferInfo,
+					.scratchSemaphore = {
+						.semaphore = imgFillSemaphore.get(),
+						.value = 0,
+						// because of layout transitions
+						.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 					}
 				};
+				// as per the `SIntendedSubmitInfo` one commandbuffer must be begun
+				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+				// Normally we'd have to inherit and override the `getFinalOwnerQueueFamily` callback to ensure that the
+				// compute queue becomes the owner of the buffers and images post-transfer, but in this example we use concurrent sharing
+				CAssetConverter::SConvertParams params = {};
+				params.transfer = &transfer;
+				params.utilities = m_utils.get();
 
-				cpuImgView = ICPUImageView::create(std::move(viewParams));
+				auto loadFistAssetInBundle = [&](const std::string& path) {
+					IAssetLoader::SAssetLoadParams lp;
+					SAssetBundle bundle = m_assetMgr->getAsset(path, lp);
+					if (bundle.getContents().empty()) {
+						m_logger->log("Couldn't load an asset.", ILogger::ELL_ERROR);
+						std::exit(-1);
+					}
+
+					auto asset = IAsset::castDown<ICPUImage>(bundle.getContents()[0]);
+					if (!asset) {
+						m_logger->log("Couldn't load an asset.", ILogger::ELL_ERROR);
+						std::exit(-1);
+					}
+
+					return asset;
+					};
+
+				auto cpuImage = loadFistAssetInBundle(DefaultImagePathsFile);
+				std::get<CAssetConverter::SInputs::asset_span_t<ICPUImage>>(inputs.assets) = { &cpuImage.get(),1 };
+				// assert that we don't need to provide patches
+				assert(cpuImage->getImageUsageFlags().hasFlags(ICPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT));
+				auto reservation = converter->reserve(inputs);
+				// the `.value` is just a funny way to make the `smart_refctd_ptr` copyable
+				m_envMap = reservation.getGPUObjects<ICPUImage>().front().value;
+				m_envMap->setObjectDebugName("Env Map");
+				if (!m_envMap) {
+					m_logger->log("Failed to convert %s into an IGPUImage handle", ILogger::ELL_ERROR, DefaultImagePathsFile);
+					std::exit(-1);
+				}
+
+				// we want our converter's submit to signal a semaphore that image contents are ready
+				const IQueue::SSubmitInfo::SSemaphoreInfo signalSemaphore = {
+						.semaphore = imgFillSemaphore.get(),
+						.value = 1u,
+						// cannot signal from COPY stage because there's a layout transition and a possible ownership transfer
+						// and we need to wait for right after and they don't have an explicit stage
+						.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+				};
+				params.extraSignalSemaphores = { &signalSemaphore,1 };
+				// and launch the conversions
+				auto result = reservation.convert(params);
+				if (!result.blocking() && result.copy() != IQueue::RESULT::SUCCESS) {
+					m_logger->log("Failed to record or submit conversions", ILogger::ELL_ERROR);
+					std::exit(-1);
+				}
 			}
 
 			// create views for textures
 			{
-				auto createHDRIImageView = [&](const asset::E_FORMAT colorFormat, const uint32_t width, const uint32_t height) ->smart_refctd_ptr<IGPUImageView>
+				auto createHDRIImage = [this](const asset::E_FORMAT colorFormat, const uint32_t width, const uint32_t height) -> smart_refctd_ptr<IGPUImage> {
+					IGPUImage::SCreationParams imgInfo;
+					imgInfo.format = colorFormat;
+					imgInfo.type = IGPUImage::ET_2D;
+					imgInfo.extent.width = width;
+					imgInfo.extent.height = height;
+					imgInfo.extent.depth = 1u;
+					imgInfo.mipLevels = 1u;
+					imgInfo.arrayLayers = 1u;
+					imgInfo.samples = IGPUImage::ESCF_1_BIT;
+					imgInfo.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(0u);
+					imgInfo.usage = asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_SAMPLED_BIT;
+
+					auto image = m_device->createImage(std::move(imgInfo));
+					auto imageMemReqs = image->getMemoryReqs();
+					imageMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+					m_device->allocate(imageMemReqs, image.get());
+
+					return image;
+				};
+				auto createHDRIImageView = [this](smart_refctd_ptr<IGPUImage> img) -> smart_refctd_ptr<IGPUImageView>
 				{
-					smart_refctd_ptr<IGPUImageView> view;
-					{
-						IGPUImage::SCreationParams imgInfo;
-						imgInfo.format = colorFormat;
-						imgInfo.type = IGPUImage::ET_2D;
-						imgInfo.extent.width = width;
-						imgInfo.extent.height = height;
-						imgInfo.extent.depth = 1u;
-						imgInfo.mipLevels = 1u;
-						imgInfo.arrayLayers = 1u;
-						imgInfo.samples = IGPUImage::ESCF_1_BIT;
-						imgInfo.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(0u);
-						imgInfo.usage = asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_SAMPLED_BIT;
+					auto format = img->getCreationParameters().format;
+					IGPUImageView::SCreationParams imgViewInfo;
+					imgViewInfo.image = std::move(img);
+					imgViewInfo.format = format;
+					imgViewInfo.viewType = IGPUImageView::ET_2D;
+					imgViewInfo.flags = static_cast<IGPUImageView::E_CREATE_FLAGS>(0u);
+					imgViewInfo.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+					imgViewInfo.subresourceRange.baseArrayLayer = 0u;
+					imgViewInfo.subresourceRange.baseMipLevel = 0u;
+					imgViewInfo.subresourceRange.layerCount = 1u;
+					imgViewInfo.subresourceRange.levelCount = 1u;
 
-						auto image = m_device->createImage(std::move(imgInfo));
-						auto imageMemReqs = image->getMemoryReqs();
-						imageMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-						m_device->allocate(imageMemReqs, image.get());
-
-						IGPUImageView::SCreationParams imgViewInfo;
-						imgViewInfo.image = std::move(image);
-						imgViewInfo.format = colorFormat;
-						imgViewInfo.viewType = IGPUImageView::ET_2D;
-						imgViewInfo.flags = static_cast<IGPUImageView::E_CREATE_FLAGS>(0u);
-						imgViewInfo.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-						imgViewInfo.subresourceRange.baseArrayLayer = 0u;
-						imgViewInfo.subresourceRange.baseMipLevel = 0u;
-						imgViewInfo.subresourceRange.layerCount = 1u;
-						imgViewInfo.subresourceRange.levelCount = 1u;
-
-						view = m_device->createImageView(std::move(imgViewInfo));
-					}
-
-					return view;
+					return m_device->createImageView(std::move(imgViewInfo));
 				};
 
-				auto params = cpuImgView->getCreationParameters();
-				auto extent = params.image->getCreationParameters().extent;
-				m_envMapView = createHDRIImageView(params.format, extent.width, extent.height);
-				m_envMapView->setObjectDebugName("Env Map");
-				auto params2 = m_envMapView->getCreationParameters().image->getCreationParameters();
-				m_scrambleView = createHDRIImageView(asset::E_FORMAT::EF_R32G32_UINT, extent.width, extent.height);
+				auto params = m_envMap->getCreationParameters();
+				auto extent = params.extent;
+				m_envMapView = createHDRIImageView(m_envMap);
+				m_envMapView->setObjectDebugName("Env Map View");
+				m_scrambleView = createHDRIImageView(createHDRIImage(asset::E_FORMAT::EF_R32G32_UINT, extent.width, extent.height));
 				m_scrambleView->setObjectDebugName("Scramble Map");
-				m_outImgView = createHDRIImageView(asset::E_FORMAT::EF_R16G16B16A16_SFLOAT, WindowDimensions.x, WindowDimensions.y);
+				m_outImgView = createHDRIImageView(createHDRIImage(asset::E_FORMAT::EF_R16G16B16A16_SFLOAT, WindowDimensions.x, WindowDimensions.y));
 				m_outImgView->setObjectDebugName("Output Image");
 			}
 
@@ -427,77 +508,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 			// upload data
 			{
-				// upload env map
-				{
-					auto& gpuImg = m_envMapView->getCreationParameters().image;
-					auto& cpuImg = cpuImgView->getCreationParameters().image;
-
-					// we don't want to overcomplicate the example with multi-queue
-					auto queue = getGraphicsQueue();
-					auto cmdbuf = m_cmdBufs[0].get();
-					cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
-					IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf };
-					m_intendedSubmit.scratchCommandBuffers = { &cmdbufInfo, 1 };
-
-					// there's no previous operation to wait for
-					const SMemoryBarrier transferBarriers[] = {
-						{
-							.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
-							.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
-						},
-						{
-							.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
-							.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-						}
-					};
-
-					// upload image and write to descriptor set
-					cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-					// change the layout of the image
-					const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers1[] = {
-						{
-							.barrier = {
-								.dep = transferBarriers[0]
-								// no ownership transfers
-							},
-							.image = gpuImg.get(),
-						// transition the whole view
-						.subresourceRange = cpuImgView->getCreationParameters().subresourceRange,
-						// a wiping transition
-						.newLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL
-					}
-					};
-					const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers2[] = {
-						{
-							.barrier = {
-								.dep = transferBarriers[1]
-								// no ownership transfers
-							},
-							.image = gpuImg.get(),
-						// transition the whole view
-						.subresourceRange = cpuImgView->getCreationParameters().subresourceRange,
-						// a wiping transition
-						.oldLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-						.newLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL
-					}
-					};
-					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers1 });
-					// upload contents
-					m_utils->updateImageViaStagingBuffer(
-						m_intendedSubmit,
-						cpuImg->getBuffer()->getPointer(),
-						cpuImg->getCreationParameters().format,
-						gpuImg.get(),
-						IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-						cpuImg->getRegions()
-					);
-					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers2 });
-					m_utils->autoSubmit(m_intendedSubmit, [&](SIntendedSubmitInfo& nextSubmit) -> bool { return true; });
-				}
-
 				// upload scramble data
 				{
-					auto extent = cpuImgView->getCreationParameters().image->getCreationParameters().extent;
+					auto extent = m_envMap->getCreationParameters().extent;
 
 					IGPUImage::SBufferCopy region = {};
 					region.bufferOffset = 0u;
@@ -1227,7 +1240,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
 		// pathtracer resources
-		smart_refctd_ptr<IGPUImageView> m_envMapView, m_scrambleView, m_tmpView;
+		smart_refctd_ptr<IGPUImage> m_envMap;
+		smart_refctd_ptr<IGPUImageView> m_envMapView, m_scrambleView;
 		smart_refctd_ptr<IGPUBufferView> m_sequenceBufferView;
 		smart_refctd_ptr<IGPUBuffer> m_ubo;
 		smart_refctd_ptr<IGPUImageView> m_outImgView;
