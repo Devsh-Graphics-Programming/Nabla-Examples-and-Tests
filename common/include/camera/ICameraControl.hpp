@@ -133,7 +133,31 @@ public:
         inline const float32_t3& getZAxis() const { return m_orthonormal[2u]; }
 
     private:
-        inline void updateOrthonormalMatrix() { m_orthonormal = float32_t3x3(glm::mat3_cast(glm::normalize(m_orientation))); }
+        inline void updateOrthonormalMatrix() 
+        { 
+            m_orthonormal = float32_t3x3(glm::mat3_cast(glm::normalize(m_orientation))); 
+
+            // DEBUG
+            const auto [xaxis, yaxis, zaxis] = std::make_tuple(getXAxis(),getYAxis(), getZAxis());
+
+            auto isNormalized = [](const auto& v, float epsilon) -> bool
+            {
+                return glm::epsilonEqual(glm::length(v), 1.0f, epsilon);
+            };
+
+            auto isOrthogonal = [](const auto& a, const auto& b, float epsilon) -> bool
+            {
+                return glm::epsilonEqual(glm::dot(a, b), 0.0f, epsilon);
+            };
+
+            auto isOrthoBase = [&](const auto& x, const auto& y, const auto& z, float epsilon = 1e-6f) -> bool
+            {
+                return isNormalized(x, epsilon) && isNormalized(y, epsilon) && isNormalized(z, epsilon) &&
+                    isOrthogonal(x, y, epsilon) && isOrthogonal(x, z, epsilon) && isOrthogonal(y, z, epsilon);
+            };
+
+            assert(isOrthoBase(xaxis, yaxis, zaxis));
+        }
 
         float32_t3 m_position;
         glm::quat m_orientation;
