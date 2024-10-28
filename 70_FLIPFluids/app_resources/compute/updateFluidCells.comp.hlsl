@@ -9,7 +9,6 @@ cbuffer GridData
     SGridData gridData;
 };
 
-[[vk::binding(b_ufcPBuffer, s_ufc)]]        RWStructuredBuffer<Particle> particleBuffer;
 [[vk::binding(b_ufcGridPCountBuffer, s_ufc)]]   RWTexture3D<uint> gridParticleCountBuffer;
 
 [[vk::binding(b_ufcCMInBuffer, s_ufc)]]     RWTexture3D<uint> cellMaterialInBuffer;

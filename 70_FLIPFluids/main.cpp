@@ -5,8 +5,6 @@
 #include "InputSystem.hpp"
 #include "CCamera.hpp"
 
-//#include "gpuRadixSort.h"
-
 #include "glm/glm/glm.hpp"
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
@@ -301,13 +299,11 @@ public:
         createBuffer(pParamsBuffer, params);
 
         params.size = numParticles * sizeof(Particle);
-        params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_SRC_BIT;
-        createBuffer(particleBuffer, params);
-        params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
-        createBuffer(tempParticleBuffer, params);
+        params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;;
+        createBuffer(particleBuffer, params, IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
 
         params.size = numParticles * 6 * sizeof(VertexInfo);
-        createBuffer(particleVertexBuffer, params);
+        createBuffer(particleVertexBuffer, params, IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
 
         asset::VkExtent3D gridExtent = { m_gridData.gridSize.x, m_gridData.gridSize.y, m_gridData.gridSize.z };
 
@@ -423,60 +419,52 @@ public:
 
         {
             // init particles pipeline
+            const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0, .size = sizeof(uint64_t) };
             createComputePipeline(m_initParticlePipeline, m_initParticlePool, m_initParticleDs,
-                "app_resources/compute/particlesInit.comp.hlsl", "main", piParticlesInit_bs1);
+                "app_resources/compute/particlesInit.comp.hlsl", "main", piParticlesInit_bs1, pcRange);
 
             {
-                IGPUDescriptorSet::SDescriptorInfo infos[2];
+                IGPUDescriptorSet::SDescriptorInfo infos[1];
                 infos[0].desc = smart_refctd_ptr(gridDataBuffer);
                 infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
-                infos[1].desc = smart_refctd_ptr(particleBuffer);
-                infos[1].info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
-                IGPUDescriptorSet::SWriteDescriptorSet writes[2] = {
-                    {.dstSet = m_initParticleDs.get(), .binding = b_piGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-                    {.dstSet = m_initParticleDs.get(), .binding = b_piPBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
+                IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
+                    {.dstSet = m_initParticleDs.get(), .binding = b_piGridData, .arrayElement = 0, .count = 1, .info = &infos[0]}
                 };
-                m_device->updateDescriptorSets(std::span(writes, 2), {});
+                m_device->updateDescriptorSets(std::span(writes, 1), {});
             }
         }
         {
             // generate particle vertex pipeline
+            const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0, .size = 2 * sizeof(uint64_t) };
             createComputePipeline(m_genParticleVerticesPipeline, m_genVerticesPool, m_genVerticesDs,
-                "app_resources/compute/genParticleVertices.comp.hlsl", "main", gpvGenVertices_bs1);
+                "app_resources/compute/genParticleVertices.comp.hlsl", "main", gpvGenVertices_bs1, pcRange);
 
             {
-                IGPUDescriptorSet::SDescriptorInfo infos[4];
+                IGPUDescriptorSet::SDescriptorInfo infos[2];
                 infos[0].desc = smart_refctd_ptr(cameraBuffer);
                 infos[0].info.buffer = {.offset = 0, .size = cameraBuffer->getSize()};
                 infos[1].desc = smart_refctd_ptr(pParamsBuffer);
                 infos[1].info.buffer = {.offset = 0, .size = pParamsBuffer->getSize()};
-                infos[2].desc = smart_refctd_ptr(particleBuffer);
-                infos[2].info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
-                infos[3].desc = smart_refctd_ptr(particleVertexBuffer);
-                infos[3].info.buffer = {.offset = 0, .size = particleVertexBuffer->getSize()};
-                IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
+                IGPUDescriptorSet::SWriteDescriptorSet writes[2] = {
                     {.dstSet = m_genVerticesDs.get(), .binding = b_gpvCamData, .arrayElement = 0, .count = 1, .info = &infos[0]},
                     {.dstSet = m_genVerticesDs.get(), .binding = b_gpvPParams, .arrayElement = 0, .count = 1, .info = &infos[1]},
-                    {.dstSet = m_genVerticesDs.get(), .binding = b_gpvPBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
-                    {.dstSet = m_genVerticesDs.get(), .binding = b_gpvPVertBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]}
                 };
-                m_device->updateDescriptorSets(std::span(writes, 4), {});
+                m_device->updateDescriptorSets(std::span(writes, 2), {});
             }
         }
         // update fluid cells pipelines
         {
+            const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0, .size = sizeof(uint64_t) };
             createComputePipeline(m_accumulateWeightsPipeline, m_accumulateWeightsPool, m_accumulateWeightsDs,
-                "app_resources/compute/prepareCellUpdate.comp.hlsl", "main", ufcAccWeights_bs1);
+                "app_resources/compute/prepareCellUpdate.comp.hlsl", "main", ufcAccWeights_bs1, pcRange);
 
             {
-                IGPUDescriptorSet::SDescriptorInfo infos[3];
+                IGPUDescriptorSet::SDescriptorInfo infos[2];
                 infos[0].desc = smart_refctd_ptr(gridDataBuffer);
                 infos[0].info.buffer = { .offset = 0, .size = gridDataBuffer->getSize() };
-                infos[1].desc = smart_refctd_ptr(particleBuffer);
-                infos[1].info.buffer = { .offset = 0, .size = particleBuffer->getSize() };
-                infos[2].desc = gridParticleCountImageView;
-                infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-                infos[2].info.combinedImageSampler.sampler = nullptr;
+                infos[1].desc = gridParticleCountImageView;
+                infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+                infos[1].info.combinedImageSampler.sampler = nullptr;
 
                 IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
                 imgInfosVel0[0].desc = velocityFieldUintViews[0];
@@ -500,14 +488,13 @@ public:
                 imgInfosVel1[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
                 imgInfosVel1[2].info.combinedImageSampler.sampler = nullptr;
 
-                IGPUDescriptorSet::SWriteDescriptorSet writes[5] = {
+                IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
                     {.dstSet = m_accumulateWeightsDs.get(), .binding = b_ufcGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-                    {.dstSet = m_accumulateWeightsDs.get(), .binding = b_ufcPBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
-                    {.dstSet = m_accumulateWeightsDs.get(), .binding = b_ufcGridPCountBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
+                    {.dstSet = m_accumulateWeightsDs.get(), .binding = b_ufcGridPCountBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
                     {.dstSet = m_accumulateWeightsDs.get(), .binding = b_ufcVelBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
                     {.dstSet = m_accumulateWeightsDs.get(), .binding = b_ufcPrevVelBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel1},
                 };
-                m_device->updateDescriptorSets(std::span(writes, 5), {});
+                m_device->updateDescriptorSets(std::span(writes, 4), {});
             }
         }
         {
@@ -831,62 +818,17 @@ public:
                 m_device->updateDescriptorSets(std::span(writes, 5), {});
             }
         }
-        //{
-        //    // extrapolate velocities pipeline
-        //    createComputePipeline(m_extrapolateVelPipeline, m_extrapolateVelPool, m_extrapolateVelDs, 
-        //        "app_resources/compute/extrapolateVelocities.comp.hlsl", "main", evExtrapolateVel_bs1);
-
-        //    {
-        //        IGPUDescriptorSet::SDescriptorInfo infos[3];
-        //        infos[0].desc = smart_refctd_ptr(gridDataBuffer);
-        //        infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
-        //        infos[1].desc = smart_refctd_ptr(particleBuffer);
-        //        infos[1].info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
-        //        infos[2].desc = velocityFieldSampler;
-
-        //        IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
-        //        imgInfosVel0[0].desc = velocityFieldImageViews[0];
-        //        imgInfosVel0[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-        //        imgInfosVel0[0].info.combinedImageSampler.sampler = nullptr;
-        //        imgInfosVel0[1].desc = velocityFieldImageViews[1];
-        //        imgInfosVel0[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-        //        imgInfosVel0[1].info.combinedImageSampler.sampler = nullptr;
-        //        imgInfosVel0[2].desc = velocityFieldImageViews[2];
-        //        imgInfosVel0[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-        //        imgInfosVel0[2].info.combinedImageSampler.sampler = nullptr;
-
-        //        IGPUDescriptorSet::SDescriptorInfo imgInfosVel1[3];
-        //        imgInfosVel1[0].desc = prevVelocityFieldImageViews[0];
-        //        imgInfosVel1[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-        //        imgInfosVel1[0].info.combinedImageSampler.sampler = nullptr;
-        //        imgInfosVel1[1].desc = prevVelocityFieldImageViews[1];
-        //        imgInfosVel1[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-        //        imgInfosVel1[1].info.combinedImageSampler.sampler = nullptr;
-        //        imgInfosVel1[2].desc = prevVelocityFieldImageViews[2];
-        //        imgInfosVel1[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-        //        imgInfosVel1[2].info.combinedImageSampler.sampler = nullptr;
-
-        //        IGPUDescriptorSet::SWriteDescriptorSet writes[5] = {
-        //            {.dstSet = m_extrapolateVelDs.get(), .binding = b_evGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-        //            {.dstSet = m_extrapolateVelDs.get(), .binding = b_evPBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
-        //            {.dstSet = m_extrapolateVelDs.get(), .binding = b_evVelFieldBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
-        //            {.dstSet = m_extrapolateVelDs.get(), .binding = b_evPrevVelFieldBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel1},
-        //            {.dstSet = m_extrapolateVelDs.get(), .binding = b_evVelSampler, .arrayElement = 0, .count = 1, .info = &infos[2]}
-        //        };
-        //        m_device->updateDescriptorSets(std::span(writes, 5), {});
-        //    }
-        //}
         {
             // advect particles pipeline
-            createComputePipeline(m_advectParticlesPipeline, m_advectParticlesPool, m_advectParticlesDs, "app_resources/compute/advectParticles.comp.hlsl", "main", apAdvectParticles_bs1);
+            const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0, .size = sizeof(uint64_t) };
+            createComputePipeline(m_advectParticlesPipeline, m_advectParticlesPool, m_advectParticlesDs,
+                "app_resources/compute/advectParticles.comp.hlsl", "main", apAdvectParticles_bs1, pcRange);
 
             {
-                IGPUDescriptorSet::SDescriptorInfo infos[3];
+                IGPUDescriptorSet::SDescriptorInfo infos[2];
                 infos[0].desc = smart_refctd_ptr(gridDataBuffer);
                 infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
-                infos[1].desc = smart_refctd_ptr(particleBuffer);
-                infos[1].info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
-                infos[2].desc = velocityFieldSampler;
+                infos[1].desc = velocityFieldSampler;
 
                 IGPUDescriptorSet::SDescriptorInfo imgInfosVel0[3];
                 imgInfosVel0[0].desc = velocityFieldImageViews[0];
@@ -910,14 +852,13 @@ public:
                 imgInfosVel1[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
                 imgInfosVel1[2].info.combinedImageSampler.sampler = nullptr;
 
-                IGPUDescriptorSet::SWriteDescriptorSet writes[5] = {
+                IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
                     {.dstSet = m_advectParticlesDs.get(), .binding = b_apGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-                    {.dstSet = m_advectParticlesDs.get(), .binding = b_apPBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
                     {.dstSet = m_advectParticlesDs.get(), .binding = b_apVelFieldBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
                     {.dstSet = m_advectParticlesDs.get(), .binding = b_apPrevVelFieldBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel1},
-                    {.dstSet = m_advectParticlesDs.get(), .binding = b_apVelSampler, .arrayElement = 0, .count = 1, .info = &infos[2]}
+                    {.dstSet = m_advectParticlesDs.get(), .binding = b_apVelSampler, .arrayElement = 0, .count = 1, .info = &infos[1]}
                 };
-                m_device->updateDescriptorSets(std::span(writes, 5), {});
+                m_device->updateDescriptorSets(std::span(writes, 4), {});
             }
         }
 
@@ -1070,9 +1011,17 @@ public:
         }
 
         // prepare particle vertices for render
-        cmdbuf->bindComputePipeline(m_genParticleVerticesPipeline.get());
-        cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_genParticleVerticesPipeline->getLayout(), 1, 1, &m_genVerticesDs.get());
-        cmdbuf->dispatch(WorkgroupCountParticles, 1, 1);
+        {
+            const uint64_t bufferAddr[2] = {
+                particleBuffer->getDeviceAddress(),
+                particleVertexBuffer->getDeviceAddress()
+            };
+
+            cmdbuf->bindComputePipeline(m_genParticleVerticesPipeline.get());
+            cmdbuf->pushConstants(m_genParticleVerticesPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, 2 * sizeof(uint64_t), bufferAddr);
+            cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_genParticleVerticesPipeline->getLayout(), 1, 1, &m_genVerticesDs.get());
+            cmdbuf->dispatch(WorkgroupCountParticles, 1, 1);
+        }
 
         {
             SMemoryBarrier memBarrier;
@@ -1125,7 +1074,10 @@ public:
         }
         cmdbuf->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 
+        const uint64_t bufferAddr = particleVertexBuffer->getDeviceAddress();
+
         cmdbuf->bindGraphicsPipeline(m_graphicsPipeline.get());
+        cmdbuf->pushConstants(m_graphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX, 0, sizeof(uint64_t), &bufferAddr);
         cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, m_graphicsPipeline->getLayout(), 1, 1, &m_renderDs.get());
 
         cmdbuf->draw(numParticles * 6, 1, 0, 0);
@@ -1234,7 +1186,10 @@ public:
             cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {&memBarrier, 1} });
         }
 
+        const uint64_t bufferAddr = particleBuffer->getDeviceAddress();
+
         cmdbuf->bindComputePipeline(m_accumulateWeightsPipeline.get());
+        cmdbuf->pushConstants(m_accumulateWeightsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(uint64_t), &bufferAddr);
         cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_accumulateWeightsPipeline->getLayout(), 1, 1, &m_accumulateWeightsDs.get());
         cmdbuf->dispatch(WorkgroupCountParticles, 1, 1);
 
@@ -1407,7 +1362,10 @@ public:
             cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
         }
 
+        const uint64_t bufferAddr = particleBuffer->getDeviceAddress();
+
         cmdbuf->bindComputePipeline(m_advectParticlesPipeline.get());
+        cmdbuf->pushConstants(m_advectParticlesPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(uint64_t), &bufferAddr);
         cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_advectParticlesPipeline->getLayout(), 1, 1, &m_advectParticlesDs.get());
         cmdbuf->dispatch(WorkgroupCountParticles, 1, 1);
     }
@@ -1487,7 +1445,8 @@ private:
         return m_device->createShader(shader.get());
     }
 
-    bool createBuffer(smart_refctd_ptr<IGPUBuffer>& buffer, video::IGPUBuffer::SCreationParams& params)
+    bool createBuffer(smart_refctd_ptr<IGPUBuffer>& buffer, video::IGPUBuffer::SCreationParams& params,
+        core::bitflag<IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS> allocFlags = IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE)
     {
         buffer = m_device->createBuffer(std::move(params));
         if (!buffer)
@@ -1496,7 +1455,7 @@ private:
         video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = buffer->getMemoryReqs();
         reqs.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
 
-        auto bufMem = m_device->allocate(reqs, buffer.get());
+        auto bufMem = m_device->allocate(reqs, buffer.get(), allocFlags);
         if (!bufMem.isValid())
             return logFail("Failed to allocate device memory compatible with gpu buffer!\n");
 
@@ -1632,7 +1591,7 @@ private:
         auto vs = compileShader("app_resources/fluidParticles.vertex.hlsl", IShader::E_SHADER_STAGE::ESS_VERTEX);
         auto fs = compileShader("app_resources/fluidParticles.fragment.hlsl", IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 
-        smart_refctd_ptr<video::IGPUDescriptorSetLayout> descriptorSetLayout1, descriptorSetLayout2;
+        smart_refctd_ptr<video::IGPUDescriptorSetLayout> descriptorSetLayout1;
         {
             // init descriptors
             video::IGPUDescriptorSetLayout::SBinding bindingsSet1[] = {
@@ -1641,13 +1600,6 @@ private:
                     .type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
                     .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
                     .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-                    .count = 1u,
-                },
-                {
-                    .binding = 1u,
-                    .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-                    .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-                    .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_VERTEX,
                     .count = 1u,
                 }
             };
@@ -1671,14 +1623,10 @@ private:
             IGPUDescriptorSet::SDescriptorInfo camInfo;
             camInfo.desc = smart_refctd_ptr(cameraBuffer);
             camInfo.info.buffer = {.offset = 0, .size = cameraBuffer->getSize()};
-            IGPUDescriptorSet::SDescriptorInfo verticesInfo;
-            verticesInfo.desc = smart_refctd_ptr(particleVertexBuffer);
-            verticesInfo.info.buffer = {.offset = 0, .size = particleVertexBuffer->getSize()};
-            IGPUDescriptorSet::SWriteDescriptorSet writes[2] = {
-                {.dstSet = m_renderDs.get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &camInfo},
-                {.dstSet = m_renderDs.get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &verticesInfo},
+            IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
+                {.dstSet = m_renderDs.get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &camInfo}
             };
-            m_device->updateDescriptorSets(std::span(writes, 2), {});
+            m_device->updateDescriptorSets(std::span(writes, 1), {});
         }
 
         SBlendParams blendParams = {};
@@ -1697,7 +1645,8 @@ private:
                 {.shader = fs.get()},
             };
 
-            const auto pipelineLayout = m_device->createPipelineLayout({}, nullptr, smart_refctd_ptr(descriptorSetLayout1), smart_refctd_ptr(descriptorSetLayout2), nullptr);
+            const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX, .offset = 0, .size = sizeof(uint64_t) };
+            const auto pipelineLayout = m_device->createPipelineLayout({ &pcRange , 1 }, nullptr, smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
 
             SRasterizationParams rasterizationParams{};
             rasterizationParams.faceCullingMode = EFCM_NONE;
@@ -1746,8 +1695,11 @@ private:
             memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
             cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
         }
+
+        const uint64_t bufferAddr = particleBuffer->getDeviceAddress();
         
         cmdbuf->bindComputePipeline(m_initParticlePipeline.get());
+        cmdbuf->pushConstants(m_initParticlePipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(uint64_t), &bufferAddr);
         cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_initParticlePipeline->getLayout(), 1, 1, &m_initParticleDs.get());
         cmdbuf->dispatch(WorkgroupCountParticles, 1, 1);
 
@@ -1899,15 +1851,14 @@ private:
     // buffers
     smart_refctd_ptr<IGPUBuffer> cameraBuffer;
 
-    smart_refctd_ptr<IGPUBuffer> particleBuffer;		// Particle
-    smart_refctd_ptr<IGPUBuffer> tempParticleBuffer;	// Particle
-    smart_refctd_ptr<IGPUBuffer> pParamsBuffer;			// SParticleRenderParams
-    smart_refctd_ptr<IGPUBuffer> particleVertexBuffer;	// VertexInfo * 6 vertices
+    smart_refctd_ptr<IGPUBuffer> particleBuffer;		            // Particle
+    smart_refctd_ptr<IGPUBuffer> pParamsBuffer;			            // SParticleRenderParams
+    smart_refctd_ptr<IGPUBuffer> particleVertexBuffer;	            // VertexInfo * 6 vertices
 
-    smart_refctd_ptr<IGPUBuffer> gridDataBuffer;		        // SGridData
-    smart_refctd_ptr<IGPUBuffer> pressureParamsBuffer;	        // SPressureSolverParams
-    smart_refctd_ptr<IGPUImageView> gridParticleCountImageView;	// uint
-    smart_refctd_ptr<IGPUImageView> gridCellMaterialImageView;	// uint, fluid or solid
+    smart_refctd_ptr<IGPUBuffer> gridDataBuffer;		            // SGridData
+    smart_refctd_ptr<IGPUBuffer> pressureParamsBuffer;	            // SPressureSolverParams
+    smart_refctd_ptr<IGPUImageView> gridParticleCountImageView;	    // uint
+    smart_refctd_ptr<IGPUImageView> gridCellMaterialImageView;	    // uint, fluid or solid
 
     std::array<smart_refctd_ptr<IGPUImageView>, 3> velocityFieldImageViews;		// float * 3 (per axis)
     std::array<smart_refctd_ptr<IGPUImageView>, 3> prevVelocityFieldImageViews;	// float * 3

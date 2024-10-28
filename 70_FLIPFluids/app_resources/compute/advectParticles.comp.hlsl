@@ -2,13 +2,19 @@
 #include "../gridSampling.hlsl"
 #include "../descriptor_bindings.hlsl"
 
+struct SPushConstants
+{
+    uint64_t particleAddress;
+};
+
+[[vk::push_constant]] SPushConstants pc;
+
 [[vk::binding(b_apGridData, s_ap)]]
 cbuffer GridData
 {
     SGridData gridData;
 };
 
-[[vk::binding(b_apPBuffer, s_ap)]] RWStructuredBuffer<Particle> particleBuffer;
 [[vk::binding(b_apVelFieldBuffer, s_ap)]] Texture3D<float> velocityFieldBuffer[3];
 [[vk::binding(b_apPrevVelFieldBuffer, s_ap)]] Texture3D<float> prevVelocityFieldBuffer[3];
 [[vk::binding(b_apVelSampler, s_ap)]] SamplerState velocityFieldSampler;
@@ -20,7 +26,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 {
     uint32_t pid = ID.x;
 
-    Particle p = particleBuffer[pid];
+    Particle p = vk::RawBufferLoad<Particle>(pc.particleAddress + sizeof(Particle) * pid);
 
     // advect velocity
     float3 gridPrevVel = sampleVelocityAt(p.position.xyz, prevVelocityFieldBuffer, velocityFieldSampler, gridData);
@@ -42,5 +48,5 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
     p.position = clampPosition(p.position, gridData.worldMin, gridData.worldMax);
 
-    particleBuffer[pid] = p;
+    vk::RawBufferStore<Particle>(pc.particleAddress + sizeof(Particle) * pid, p);
 }

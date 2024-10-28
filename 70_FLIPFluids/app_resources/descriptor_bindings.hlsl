@@ -11,20 +11,12 @@ using namespace video;
 // particlesInit
 NBL_CONSTEXPR uint32_t s_pi = 1;
 NBL_CONSTEXPR uint32_t b_piGridData = 0;
-NBL_CONSTEXPR uint32_t b_piPBuffer = 1;
 
 #ifndef __HLSL_VERSION
 NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding piParticlesInit_bs1[] = {
     {
         .binding = b_piGridData,
         .type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    },
-    {
-        .binding = b_piPBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,
@@ -36,8 +28,6 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding piParticlesInit_bs1[] = {
 NBL_CONSTEXPR uint32_t s_gpv = 1;
 NBL_CONSTEXPR uint32_t b_gpvCamData = 0;
 NBL_CONSTEXPR uint32_t b_gpvPParams = 1;
-NBL_CONSTEXPR uint32_t b_gpvPBuffer = 2;
-NBL_CONSTEXPR uint32_t b_gpvPVertBuffer = 3;
 
 #ifndef __HLSL_VERSION
 NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding gpvGenVertices_bs1[] = {
@@ -54,20 +44,6 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding gpvGenVertices_bs1[] = {
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,
-    },
-    {
-        .binding = b_gpvPBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    },
-    {
-        .binding = b_gpvPVertBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
     }
 };
 #endif
@@ -75,25 +51,17 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding gpvGenVertices_bs1[] = {
 // updateFluidCells
 NBL_CONSTEXPR uint32_t s_ufc = 1;
 NBL_CONSTEXPR uint32_t b_ufcGridData = 0;
-NBL_CONSTEXPR uint32_t b_ufcPBuffer = 1;
-NBL_CONSTEXPR uint32_t b_ufcGridPCountBuffer = 2;
-NBL_CONSTEXPR uint32_t b_ufcCMInBuffer = 3;
-NBL_CONSTEXPR uint32_t b_ufcCMOutBuffer = 4;
-NBL_CONSTEXPR uint32_t b_ufcVelBuffer = 5;
-NBL_CONSTEXPR uint32_t b_ufcPrevVelBuffer = 6;
+NBL_CONSTEXPR uint32_t b_ufcGridPCountBuffer = 1;
+NBL_CONSTEXPR uint32_t b_ufcCMInBuffer = 2;
+NBL_CONSTEXPR uint32_t b_ufcCMOutBuffer = 3;
+NBL_CONSTEXPR uint32_t b_ufcVelBuffer = 4;
+NBL_CONSTEXPR uint32_t b_ufcPrevVelBuffer = 5;
 
 #ifndef __HLSL_VERSION
 NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding ufcAccWeights_bs1[] = {
     {
         .binding = b_ufcGridData,
         .type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    },
-    {
-        .binding = b_ufcPBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,
@@ -428,23 +396,15 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding psUpdateVelPs_bs1[] = {
 // advectParticles
 NBL_CONSTEXPR uint32_t s_ap = 1;
 NBL_CONSTEXPR uint32_t b_apGridData = 0;
-NBL_CONSTEXPR uint32_t b_apPBuffer = 1;
-NBL_CONSTEXPR uint32_t b_apVelFieldBuffer = 2;
-NBL_CONSTEXPR uint32_t b_apPrevVelFieldBuffer = 3;
-NBL_CONSTEXPR uint32_t b_apVelSampler = 4;
+NBL_CONSTEXPR uint32_t b_apVelFieldBuffer = 1;
+NBL_CONSTEXPR uint32_t b_apPrevVelFieldBuffer = 2;
+NBL_CONSTEXPR uint32_t b_apVelSampler = 3;
 
 #ifndef __HLSL_VERSION
 NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding apAdvectParticles_bs1[] = {
     {
         .binding = b_apGridData,
         .type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-        .count = 1,
-    },
-    {
-        .binding = b_apPBuffer,
-        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,

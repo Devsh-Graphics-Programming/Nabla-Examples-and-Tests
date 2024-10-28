@@ -3,13 +3,19 @@
 #include "../kernel.hlsl"
 #include "../descriptor_bindings.hlsl"
 
+struct SPushConstants
+{
+    uint64_t particleAddress;
+};
+
+[[vk::push_constant]] SPushConstants pc;
+
 [[vk::binding(b_ufcGridData, s_ufc)]]
 cbuffer GridData
 {
     SGridData gridData;
 };
 
-[[vk::binding(b_ufcPBuffer, s_ufc)]]        RWStructuredBuffer<Particle> particleBuffer;
 [[vk::binding(b_ufcGridPCountBuffer, s_ufc)]]   RWTexture3D<uint> gridParticleCountBuffer;
 
 [[vk::binding(b_ufcVelBuffer, s_ufc)]]      RWTexture3D<uint> velocityFieldBuffer[3];
@@ -31,7 +37,7 @@ void casAdd(RWTexture3D<uint> grid, int3 idx, float value)
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
     uint pid = ID.x;
-    Particle p = particleBuffer[pid];
+    Particle p = vk::RawBufferLoad<Particle>(pc.particleAddress + sizeof(Particle) * pid);
     int3 cIdx = worldPosToCellIdx(p.position.xyz, gridData);
 
     for (int i = max(cIdx.x - 1, 0); i <= min(cIdx.x + 1, gridData.gridSize.x - 1); i++)
