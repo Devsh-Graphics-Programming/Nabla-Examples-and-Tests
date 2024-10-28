@@ -37,6 +37,8 @@ public:
         const auto [forward, up, right] = std::make_tuple(gimbal->getZAxis(), gimbal->getYAxis(), gimbal->getXAxis());
         const bool isLeftHanded = projection->isLeftHanded(); // TODO?
 
+        const auto moveDirection = float32_t3(gimbal->getOrientation() * glm::vec3(0.0f, 0.0f, 1.0f));
+
         constexpr auto MoveSpeedScale = 0.003f;
         constexpr auto RotateSpeedScale = 0.003f;
 
@@ -48,29 +50,29 @@ public:
 
         for (const traits_t::controller_virtual_event_t& ev : virtualEvents)
         {
-            const auto dMoveValue = ev.value * dMoveFactor;
-            const auto dRotateValue = ev.value * dRotateFactor;
+            const float dMoveValue = ev.value * dMoveFactor;
+            const float dRotateValue = ev.value * dRotateFactor;
 
             switch (ev.type)
             {
                 case traits_t::controller_t::MoveForward:
                 {
-                    gimbal->advance(dMoveValue);
+                    gimbal->move(moveDirection * dMoveValue);
                 } break;
 
                 case traits_t::controller_t::MoveBackward:
                 {
-                    gimbal->advance(-dMoveValue);
-                } break;
-
-                case traits_t::controller_t::MoveLeft:
-                {
-                    gimbal->strafe(dMoveValue);
+                    gimbal->move(moveDirection * (-dMoveValue));
                 } break;
 
                 case traits_t::controller_t::MoveRight:
                 {
-                    gimbal->strafe(-dMoveValue);
+                    gimbal->move(right * dMoveValue);
+                } break;
+
+                case traits_t::controller_t::MoveLeft:
+                {
+                    gimbal->move(right * (-dMoveValue));
                 } break;
 
                 case traits_t::controller_t::TiltUp:
