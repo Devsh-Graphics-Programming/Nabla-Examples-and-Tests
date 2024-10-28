@@ -449,6 +449,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				auto params = m_envMap->getCreationParameters();
 				auto extent = params.extent;
 				m_envMapView = createHDRIImageView(m_envMap);
+				// TODO: ALSO NAME THE IMAGES!
 				m_envMapView->setObjectDebugName("Env Map View");
 				m_scrambleView = createHDRIImageView(createHDRIImage(asset::E_FORMAT::EF_R32G32_UINT, extent.width, extent.height));
 				m_scrambleView->setObjectDebugName("Scramble Map");
@@ -545,6 +546,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 					cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 					m_api->startCapture();
+					// TODO: USE ASSET CONVERTER FOR THIS! ONE CANNOT TRANSFER TO IMAGE IN UNDEFINED LAYOUT!
+					// TODO: this silently failed for some reason instead of telling you its bad, add logging of errors in CommandBuffer and IUtilities.
 					m_utils->updateImageViaStagingBufferAutoSubmit(
 						m_intendedSubmit,
 						random.data(),
@@ -558,6 +561,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			}
 
 			// create pathtracer descriptors
+			// TODO: Best Practice, create the whole descriptor set as ICPUDescriptorSet, then use Asset Converter on whole thing (ass conv root is DS then)
 			{
 				nbl::video::IDescriptorPool::SCreateInfo createInfo;
 				createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER)] = MaxDescriptorCount * 1;
@@ -864,31 +868,15 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 				// TRANSITION m_outImgView to GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
 				{
-					constexpr SMemoryBarrier barriers[] = {
-						{
-							.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
-							.srcAccessMask = ACCESS_FLAGS::NONE,
-							.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-							.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
-						},
-						{
-							.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
-							.srcAccessMask = ACCESS_FLAGS::NONE,
-							.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-							.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
-						},
-						{
-							.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
-							.srcAccessMask = ACCESS_FLAGS::NONE,
-							.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-							.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
-						}
-					};
-
 					const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = {
 						{
 							.barrier = {
-								.dep = barriers[0]
+								.dep = {
+									.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+									.srcAccessMask = ACCESS_FLAGS::NONE,
+									.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+									.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+								}
 							},
 							.image = m_outImgView->getCreationParameters().image.get(),
 							.subresourceRange = {
@@ -900,36 +888,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 							},
 							.oldLayout = IImage::LAYOUT::UNDEFINED,
 							.newLayout = IImage::LAYOUT::GENERAL
-						},
-						{
-							.barrier = {
-								.dep = barriers[1]
-							},
-							.image = m_scrambleView->getCreationParameters().image.get(),
-							.subresourceRange = {
-								.aspectMask = IImage::EAF_COLOR_BIT,
-								.baseMipLevel = 0u,
-								.levelCount = 1u,
-								.baseArrayLayer = 0u,
-								.layerCount = 1u
-							},
-							.oldLayout = IImage::LAYOUT::UNDEFINED,
-							.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL
-						},
-						{
-							.barrier = {
-								.dep = barriers[2]
-							},
-							.image = m_envMapView->getCreationParameters().image.get(),
-							.subresourceRange = {
-								.aspectMask = IImage::EAF_COLOR_BIT,
-								.baseMipLevel = 0u,
-								.levelCount = m_envMapView->getCreationParameters().subresourceRange.levelCount,
-								.baseArrayLayer = 0u,
-								.layerCount = m_envMapView->getCreationParameters().subresourceRange.layerCount
-							},
-							.oldLayout = IImage::LAYOUT::UNDEFINED,
-							.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL
 						}
 					};
 					cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
