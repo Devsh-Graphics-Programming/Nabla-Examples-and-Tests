@@ -13,6 +13,8 @@ set(EXAMPLE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/DrawResourcesFiller.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/SingleLineText.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/SingleLineText.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/GeoTexture.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/GeoTexture.h"
   "../../src/nbl/ext/TextRendering/TextRendering.cpp" # TODO: this one will be a part of dedicated Nabla ext called "TextRendering" later on which uses MSDF + Freetype
 )
 set(EXAMPLE_INCLUDES

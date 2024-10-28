@@ -241,9 +241,9 @@ class CountingSortApp final : public application_templates::MonoDeviceApplicatio
 				};
 				submit_infos[0].signalSemaphores = signals;
 
-				queue->startCapture();
+				m_api->startCapture();
 				queue->submit(submit_infos);
-				queue->endCapture();
+				m_api->endCapture();
 			}
 
 			const ISemaphore::SWaitInfo wait_infos[] = { {
@@ -291,9 +291,9 @@ class CountingSortApp final : public application_templates::MonoDeviceApplicatio
 				};
 				submit_infos[0].signalSemaphores = signals;
 
-				queue->startCapture();
+				m_api->startCapture();
 				queue->submit(submit_infos);
-				queue->endCapture();
+				m_api->endCapture();
 			}
 
 			const ISemaphore::SWaitInfo wait_infos2[] = {{

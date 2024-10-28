@@ -60,7 +60,7 @@ public:
 		// TODO: create/initialize array of atomic pointers to IGPUImage* and IGPUBuffer* to hold results
 
 		// TODO: Change the capture start/end to become methods of IAPIConnection, because our current API is not how renderdoc works
-		getComputeQueue()->startCapture();
+		m_api->startCapture();
 		std::thread loadImagesThread(&StagingAndMultipleQueuesApp::loadImages, this);
 		std::thread saveHistogramsThread(&StagingAndMultipleQueuesApp::saveHistograms, this);
 
@@ -68,7 +68,7 @@ public:
 
 		loadImagesThread.join();
 		saveHistogramsThread.join();
-		getComputeQueue()->endCapture();
+		m_api->endCapture();
 
 		return true;
 	}

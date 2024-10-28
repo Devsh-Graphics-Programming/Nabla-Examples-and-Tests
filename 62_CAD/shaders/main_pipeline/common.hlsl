@@ -1,6 +1,7 @@
-#ifndef _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
-#define _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
+#ifndef _CAD_EXAMPLE_MAIN_PIPELINE_COMMON_HLSL_INCLUDED_
+#define _CAD_EXAMPLE_MAIN_PIPELINE_COMMON_HLSL_INCLUDED_
 
+#include "../globals.hlsl"
 #include <nbl/builtin/hlsl/limits.hlsl>
 #include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
@@ -165,53 +166,19 @@ static_assert(offsetof(CurveBox, curveMin[0]) == 32u);
 static_assert(offsetof(CurveBox, curveMax[0]) == 56u);
 static_assert(sizeof(CurveBox) == 80u);
 #endif
-// TODO: Compute this in a compute shader from the world counterparts
-//      because this struct includes NDC coordinates, the values will change based camera zoom and move
-//      of course we could have the clip values to be in world units and also the matrix to transform to world instead of ndc but that requires extra computations(matrix multiplications) per vertex
-struct ClipProjectionData
-{
-    float64_t3x3 projectionToNDC; // 72 -> because we use scalar_layout
-    float32_t2 minClipNDC; // 80
-    float32_t2 maxClipNDC; // 88
-};
-
-#ifndef __HLSL_VERSION
-static_assert(offsetof(ClipProjectionData, projectionToNDC) == 0u);
-static_assert(offsetof(ClipProjectionData, minClipNDC) == 72u);
-static_assert(offsetof(ClipProjectionData, maxClipNDC) == 80u);
-#endif
-
-struct Globals
-{
-    ClipProjectionData defaultClipProjection; // 88
-    double screenToWorldRatio; // 96
-    double worldToScreenRatio; // 100
-    uint32_t2 resolution; // 108
-    float antiAliasingFactor; // 112
-    float miterLimit; // 116
-    float32_t2 _padding; // 128
-};
-
-#ifndef __HLSL_VERSION
-static_assert(offsetof(Globals, defaultClipProjection) == 0u);
-static_assert(offsetof(Globals, screenToWorldRatio) == 88u);
-static_assert(offsetof(Globals, worldToScreenRatio) == 96u);
-static_assert(offsetof(Globals, resolution) == 104u);
-static_assert(offsetof(Globals, antiAliasingFactor) == 112u);
-static_assert(offsetof(Globals, miterLimit) == 116u);
-#endif
 
 NBL_CONSTEXPR uint32_t InvalidRigidSegmentIndex = 0xffffffff;
 NBL_CONSTEXPR float InvalidStyleStretchValue = nbl::hlsl::numeric_limits<float>::infinity;
 
+// The color parameter is also used for styling non-curve objects such as text glyphs and hatches with solid color
 struct LineStyle
 {
     const static uint32_t StipplePatternMaxSize = 14u;
 
     // common data
     float32_t4 color;
-    float screenSpaceLineWidth;
-    float worldSpaceLineWidth;
+    float screenSpaceLineWidth; // alternatively used as TextStyle::italicTiltSlope
+    float worldSpaceLineWidth;  // alternatively used as TextStyle::boldInPixels
     
     // stipple pattern data
     int32_t stipplePatternSize;
@@ -288,8 +255,9 @@ NBL_CONSTEXPR uint32_t InvalidTextureIdx = nbl::hlsl::numeric_limits<uint32_t>::
 NBL_CONSTEXPR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
 // TODO: get automatic version working on HLSL
 NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1 - (uint32_t) SelectedMajorAxis);
-NBL_CONSTEXPR float MSDFPixelRange = 4.0;
-NBL_CONSTEXPR float MSDFSize = 32.0; 
+NBL_CONSTEXPR float MSDFPixelRange = 4.0f;
+NBL_CONSTEXPR float MSDFPixelRangeHalf = MSDFPixelRange / 2.0f;
+NBL_CONSTEXPR float MSDFSize = 32.0f; 
 NBL_CONSTEXPR uint32_t MSDFMips = 4; 
 NBL_CONSTEXPR float HatchFillMSDFSceenSpaceSize = 8.0; 
 
@@ -491,13 +459,12 @@ struct PSInput
     /* FONT_GLYPH */
     float2 getFontGlyphUV() { return interp_data5.xy; }
     uint32_t getFontGlyphTextureId() { return asuint(data2.x); }
-    float getFontGlyphScreenPxRange() { return data2.y; }
-    
+    float getFontGlyphPxRange() { return data2.y; }
+
     void setFontGlyphUV(float2 uv) { interp_data5.xy = uv; }
     void setFontGlyphTextureId(uint32_t textureId) { data2.x = asfloat(textureId); }
-    void setFontGlyphScreenPxRange(float glyphScreenPxRange) { data2.y = glyphScreenPxRange; }
-    
-    
+    void setFontGlyphPxRange(float glyphPxRange) { data2.y = glyphPxRange; }
+
     /* IMAGE */
     float2 getImageUV() { return interp_data5.xy; }
     uint32_t getImageTextureId() { return asuint(data2.x); }

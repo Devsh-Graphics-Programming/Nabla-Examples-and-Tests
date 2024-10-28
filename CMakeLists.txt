@@ -59,6 +59,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(23_ArithmeticUnitTest EXCLUDE_FROM_ALL)
 	add_subdirectory(24_ColorSpaceTest EXCLUDE_FROM_ALL)
 	add_subdirectory(25_FilterTest EXCLUDE_FROM_ALL)
+	add_subdirectory(27_MPMCScheduler EXCLUDE_FROM_ALL)
 	# add_subdirectory(36_CUDAInterop EXCLUDE_FROM_ALL)
 
 	add_subdirectory(38_EXRSplit EXCLUDE_FROM_ALL)
