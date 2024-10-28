@@ -19,7 +19,11 @@ public:
     using traits_t = typename base_t::Traits;
 
 	Camera(core::smart_refctd_ptr<typename traits_t::gimbal_t>&& gimbal, core::smart_refctd_ptr<typename traits_t::projection_t> projection, const float32_t3& target = { 0,0,0 })
-        : base_t(core::smart_refctd_ptr(gimbal), core::smart_refctd_ptr(projection), target) { traits_t::controller_t::initKeysToEvent(); }
+        : base_t(core::smart_refctd_ptr(gimbal), core::smart_refctd_ptr(projection), target) 
+    { 
+        traits_t::controller_t::initKeysToEvent(); 
+        base_t::recomputeViewMatrix();
+    }
 	~Camera() = default;
 
 	virtual void manipulate(std::span<const typename traits_t::controller_virtual_event_t> virtualEvents) override
@@ -79,12 +83,12 @@ public:
                     gimbal->rotate(right, -dRotateValue);
                 } break;
 
-                case traits_t::controller_t::PanLeft:
+                case traits_t::controller_t::PanRight:
                 {
                     gimbal->rotate(up, dRotateValue);
                 } break;
 
-                case traits_t::controller_t::PanRight:
+                case traits_t::controller_t::PanLeft:
                 {
                     gimbal->rotate(up, -dRotateValue);
                 } break;
@@ -93,6 +97,8 @@ public:
                     continue;
             }
         }
+
+        base_t::recomputeViewMatrix();
 	}
 };
 

@@ -58,7 +58,7 @@ public:
 	inline const float32_t3x4& getViewMatrix() const { return m_viewMatrix; }
 	inline Traits::projection_t* getProjection() { return m_projection.get(); }
 
-private:
+protected:
 	inline void recomputeViewMatrix()
 	{
 		// TODO: adjust for handedness (axes flip)
