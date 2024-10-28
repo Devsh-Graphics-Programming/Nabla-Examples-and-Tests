@@ -1,20 +1,25 @@
-#pragma shader_stage(vertex)
-
 #include "common.hlsl"
 #include "render_common.hlsl"
 
-[[vk::binding(1, 1)]] RWStructuredBuffer<VertexInfo> particleVertexBuffer;
+struct SPushConstants
+{
+    uint64_t particleVerticesAddress;
+};
+
+[[vk::push_constant]] SPushConstants pc;
 
 PSInput main(uint vertexID : SV_VertexID)
 {
     PSInput output;
 
-    output.position = particleVertexBuffer[vertexID].position;
-    output.vsSpherePos = particleVertexBuffer[vertexID].vsSpherePos.xyz;
+    VertexInfo vertex = vk::RawBufferLoad<VertexInfo>(pc.particleVerticesAddress + sizeof(VertexInfo) * vertexID);
 
-    output.radius = particleVertexBuffer[vertexID].radius;
-    output.color = particleVertexBuffer[vertexID].color;
-    output.uv = particleVertexBuffer[vertexID].uv;
+    output.position = vertex.position;
+    output.vsSpherePos = vertex.vsSpherePos.xyz;
+
+    output.radius = vertex.radius;
+    output.color = vertex.color;
+    output.uv = vertex.uv;
 
     return output;
 }

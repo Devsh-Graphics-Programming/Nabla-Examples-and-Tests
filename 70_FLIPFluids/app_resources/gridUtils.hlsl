@@ -24,9 +24,14 @@ float4 clampPosition(float4 position, float4 gridMin, float4 gridMax)
     return float4(clamp(position.xyz, gridMin.xyz + POSITION_EPSILON, gridMax.xyz - POSITION_EPSILON), 1);
 }
 
+int3 clampToGrid(int3 index, int4 gridSize)
+{
+    return clamp(index, (int3)0, gridSize.xyz - (int3)1);
+}
+
 inline uint cellIdxToFlatIdx(int3 index, int4 gridSize)
 {
-    uint3 idxClamp = clamp(index, (int3)0, gridSize.xyz - 1);
+    uint3 idxClamp = clamp(index, (int3)0, gridSize.xyz - (int3)1);
     return idxClamp.x + idxClamp.y * gridSize.x + idxClamp.z * gridSize.x * gridSize.y;
 }
 
@@ -61,6 +66,17 @@ inline uint worldPosToFlatIdx(float3 position, SGridData data)
 inline float4 gridPosToWorldPos(float4 position, SGridData data)
 {
     return float4(data.worldMin.xyz + position.xyz * data.gridCellSize, 1);
+}
+
+int3 flatIdxToLocalGridID(uint idx, int size)
+{
+    uint a = size * size;
+    int3 b;
+    b.z = idx / a;
+    b.x = idx - b.z * a;
+    b.y = b.x / size;
+    b.x = b.x - b.y * size;
+    return b;
 }
 #endif
 

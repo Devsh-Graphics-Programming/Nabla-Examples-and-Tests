@@ -9,8 +9,8 @@ using namespace video;
 
 
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-#include "../common/SimpleWindowedApplication.hpp"
-#include "../common/InputSystem.hpp"
+#include "SimpleWindowedApplication.hpp"
+#include "InputSystem.hpp"
 #include "nbl/video/utilities/CSimpleResizeSurface.h"
 
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"

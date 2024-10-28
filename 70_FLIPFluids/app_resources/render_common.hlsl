@@ -14,12 +14,6 @@ struct VertexInfo
     float2 uv;
 };
 
-// obsolete
-struct GSInput
-{
-	float4 particle : TEXCOORD0;
-};
-
 struct PSInput
 {
 	float4 position : SV_Position;

@@ -1,16 +1,19 @@
-#pragma shader_stage(compute)
-
 #include "../common.hlsl"
 #include "../gridUtils.hlsl"
 #include "../descriptor_bindings.hlsl"
+
+struct SPushConstants
+{
+    uint64_t particleAddress;
+};
+
+[[vk::push_constant]] SPushConstants pc;
 
 [[vk::binding(b_piGridData, s_pi)]]
 cbuffer GridData
 {
     SGridData gridData;
 };
-
-[[vk::binding(b_piPBuffer, s_pi)]] RWStructuredBuffer<Particle> particleBuffer;
 
 [numthreads(WorkgroupSize, 1, 1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)
@@ -26,8 +29,8 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     position = clampPosition(position, gridData.worldMin, gridData.worldMax);
 
     p.id = pid;
-    p.position = position;// float4(0, pid, 0, 1);//position;
+    p.position = position;
     p.velocity = float4(0, 0, 0, 1);
 
-    particleBuffer[pid] = p;
+    vk::RawBufferStore<Particle>(pc.particleAddress + sizeof(Particle) * pid, p);
 }

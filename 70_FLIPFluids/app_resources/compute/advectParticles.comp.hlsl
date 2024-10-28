@@ -2,14 +2,21 @@
 #include "../gridSampling.hlsl"
 #include "../descriptor_bindings.hlsl"
 
+struct SPushConstants
+{
+    uint64_t particleAddress;
+};
+
+[[vk::push_constant]] SPushConstants pc;
+
 [[vk::binding(b_apGridData, s_ap)]]
 cbuffer GridData
 {
     SGridData gridData;
 };
 
-[[vk::binding(b_apPBuffer, s_ap)]] RWStructuredBuffer<Particle> particleBuffer;
-[[vk::binding(b_apVelFieldBuffer, s_ap)]] Texture3D<float4> velocityFieldBuffer;
+[[vk::binding(b_apVelFieldBuffer, s_ap)]] Texture3D<float> velocityFieldBuffer[3];
+[[vk::binding(b_apPrevVelFieldBuffer, s_ap)]] Texture3D<float> prevVelocityFieldBuffer[3];
 [[vk::binding(b_apVelSampler, s_ap)]] SamplerState velocityFieldSampler;
 
 // delta time push constant?
@@ -19,10 +26,19 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 {
     uint32_t pid = ID.x;
 
-    Particle p = particleBuffer[pid];
+    Particle p = vk::RawBufferLoad<Particle>(pc.particleAddress + sizeof(Particle) * pid);
 
-    // use RK4
-    float3 k1 = sampleVelocityAt(p.position.xyz, velocityFieldBuffer, velocityFieldSampler, gridData);
+    // advect velocity
+    float3 gridPrevVel = sampleVelocityAt(p.position.xyz, prevVelocityFieldBuffer, velocityFieldSampler, gridData);
+    float3 gridVel = sampleVelocityAt(p.position.xyz, velocityFieldBuffer, velocityFieldSampler, gridData);
+
+    float3 picVel = gridVel;
+    float3 flipVel = p.velocity.xyz + gridVel - gridPrevVel;
+
+    p.velocity.xyz = lerp(picVel, flipVel, ratioFLIPPIC);
+
+    // move particle, use RK4
+    float3 k1 = gridVel;
     float3 k2 = sampleVelocityAt(p.position.xyz + k1 * 0.5f * deltaTime, velocityFieldBuffer, velocityFieldSampler, gridData);
     float3 k3 = sampleVelocityAt(p.position.xyz + k2 * 0.5f * deltaTime, velocityFieldBuffer, velocityFieldSampler, gridData);
     float3 k4 = sampleVelocityAt(p.position.xyz + k3 * deltaTime, velocityFieldBuffer, velocityFieldSampler, gridData);
@@ -32,5 +48,5 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
     p.position = clampPosition(p.position, gridData.worldMin, gridData.worldMax);
 
-    particleBuffer[pid] = p;
+    vk::RawBufferStore<Particle>(pc.particleAddress + sizeof(Particle) * pid, p);
 }

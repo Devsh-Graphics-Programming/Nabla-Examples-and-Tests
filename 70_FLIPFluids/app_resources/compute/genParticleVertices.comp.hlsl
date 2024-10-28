@@ -4,6 +4,14 @@
 #include "../render_common.hlsl"
 #include "../descriptor_bindings.hlsl"
 
+struct SPushConstants
+{
+    uint64_t particleAddress;
+    uint64_t particleVerticesAddress;
+};
+
+[[vk::push_constant]] SPushConstants pc;
+
 [[vk::binding(b_gpvCamData, s_gpv)]]
 cbuffer CameraData
 {
@@ -15,9 +23,6 @@ cbuffer ParticleParams
 {
     SParticleRenderParams pParams;
 };
-
-[[vk::binding(b_gpvPBuffer, s_gpv)]] RWStructuredBuffer<Particle> particleBuffer;
-[[vk::binding(b_gpvPVertBuffer, s_gpv)]] RWStructuredBuffer<VertexInfo> particleVertexBuffer;
 
 static const uint vertexOrder[6] = {0, 1, 2, 2, 1, 3};
 
@@ -46,7 +51,7 @@ static const float2 quadUVs[4] = {
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
     uint32_t pid = ID.x;
-    Particle p = particleBuffer[pid];
+    Particle p = vk::RawBufferLoad<Particle>(pc.particleAddress + sizeof(Particle) * pid);
 
     uint32_t quadBeginIdx = pid * 6;
 
@@ -97,6 +102,6 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
         vertex.uv = quadUVs[vertexOrder[i]];
 
-        particleVertexBuffer[quadBeginIdx + i] = vertex;
+        vk::RawBufferStore<VertexInfo>(pc.particleVerticesAddress + sizeof(VertexInfo) * (quadBeginIdx + i), vertex);
     }
 }

@@ -3,6 +3,8 @@
 #include "../cellUtils.hlsl"
 #include "../descriptor_bindings.hlsl"
 
+#include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
+
 struct SPressureSolverParams
 {
     float4 coeff1;
@@ -21,100 +23,170 @@ cbuffer PressureSolverParams
     SPressureSolverParams params;
 };
 
-[[vk::binding(b_psCMBuffer, s_ps)]] RWStructuredBuffer<uint> cellMaterialBuffer;
-[[vk::binding(b_psVelBuffer, s_ps)]] RWTexture3D<float4> velocityFieldBuffer;
-[[vk::binding(b_psDivBuffer, s_ps)]] RWStructuredBuffer<float> divergenceBuffer;
-[[vk::binding(b_psPresInBuffer, s_ps)]] RWStructuredBuffer<float> pressureInBuffer;
-[[vk::binding(b_psPresOutBuffer, s_ps)]] RWStructuredBuffer<float> pressureOutBuffer;
+[[vk::binding(b_psCMBuffer, s_ps)]] RWTexture3D<uint> cellMaterialBuffer;
+[[vk::binding(b_psVelBuffer, s_ps)]] RWTexture3D<float> velocityFieldBuffer[3];
+[[vk::binding(b_psDivBuffer, s_ps)]] RWTexture3D<float> divergenceBuffer;
+[[vk::binding(b_psPresBuffer, s_ps)]] RWTexture3D<float> pressureBuffer;
 
-[numthreads(WorkgroupSize, 1, 1)]
+groupshared uint sCellMat[14][14][14];
+groupshared float sDivergence[14][14][14];
+groupshared float sPressure[14][14][14];
+
+[numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
 void calculateNegativeDivergence(uint32_t3 ID : SV_DispatchThreadID)
 {
-    uint cid = ID.x;
-    int3 cellIdx = flatIdxToCellIdx(cid, gridData.gridSize);
+    int3 cellIdx = ID;
 
     float3 param = (float3)gridData.gridInvCellSize;
-    float3 velocity = velocityFieldBuffer[cellIdx].xyz;
+    float3 velocity;
+    velocity.x = velocityFieldBuffer[0][cellIdx];
+    velocity.y = velocityFieldBuffer[1][cellIdx];
+    velocity.z = velocityFieldBuffer[2][cellIdx];
 
     float divergence = 0;
-    if (isFluidCell(getCellMaterial(cellMaterialBuffer[cid])))
+    if (isFluidCell(getCellMaterial(cellMaterialBuffer[cellIdx])))
     {
         int3 cell_xn = cellIdx + int3(1, 0, 0);
-        uint cid_xn = cellIdxToFlatIdx(cell_xn, gridData.gridSize);
-        divergence += param.x * ((cell_xn.x < gridData.gridSize.x ? velocityFieldBuffer[cell_xn].x : 0.0f) - velocity.x);
+        divergence += param.x * ((cell_xn.x < gridData.gridSize.x ? velocityFieldBuffer[0][cell_xn] : 0.0f) - velocity.x);
 
         int3 cell_yn = cellIdx + int3(0, 1, 0);
-        uint cid_yn = cellIdxToFlatIdx(cell_yn, gridData.gridSize);
-        divergence += param.y * ((cell_yn.y < gridData.gridSize.y ? velocityFieldBuffer[cell_yn].y : 0.0f) - velocity.y);
+        divergence += param.y * ((cell_yn.y < gridData.gridSize.y ? velocityFieldBuffer[1][cell_yn] : 0.0f) - velocity.y);
 
         int3 cell_zn = cellIdx + int3(0, 0, 1);
-        uint cid_zn = cellIdxToFlatIdx(cell_zn, gridData.gridSize);
-        divergence += param.z * ((cell_zn.z < gridData.gridSize.z ? velocityFieldBuffer[cell_zn].z : 0.0f) - velocity.z);
+        divergence += param.z * ((cell_zn.z < gridData.gridSize.z ? velocityFieldBuffer[2][cell_zn] : 0.0f) - velocity.z);
     }
 
-    divergenceBuffer[cid] = divergence;
+    divergenceBuffer[cellIdx] = divergence;
 }
 
-[numthreads(WorkgroupSize, 1, 1)]
-void solvePressureSystem(uint32_t3 ID : SV_DispatchThreadID)
+float calculatePressureStep(int3 idx)
 {
-    uint cid = ID.x;
-    int3 cellIdx = flatIdxToCellIdx(cid, gridData.gridSize);
-
-    float pressure = 0;
-
-    uint cellMaterial = cellMaterialBuffer[cid];
+    float pressure = 0.0f;
+    uint cellMaterial = sCellMat[idx.x][idx.y][idx.z];
 
     if (isFluidCell(getCellMaterial(cellMaterial)))
     {
-        uint cid_xp = cellIdxToFlatIdx(cellIdx + int3(-1, 0, 0), gridData.gridSize);
-        cid_xp = isSolidCell(getXPrevMaterial(cellMaterial)) ? cid : cid_xp;
-        uint cid_xn = cellIdxToFlatIdx(cellIdx + int3(1, 0, 0), gridData.gridSize);
-        cid_xn = isSolidCell(getXNextMaterial(cellMaterial)) ? cid : cid_xn;
-        pressure += params.coeff1.x * (pressureInBuffer[cid_xp] + pressureInBuffer[cid_xn]);
+        int3 xp = isSolidCell(getXPrevMaterial(cellMaterial)) ? idx : idx + int3(-1, 0, 0);
+        int3 xn = isSolidCell(getXNextMaterial(cellMaterial)) ? idx : idx + int3(1, 0, 0);
+        pressure += params.coeff1.x * (sPressure[xp.x][xp.y][xp.z] + sPressure[xn.x][xn.y][xn.z]);
 
-        uint cid_yp = cellIdxToFlatIdx(cellIdx + int3(0, -1, 0), gridData.gridSize);
-        cid_yp = isSolidCell(getYPrevMaterial(cellMaterial)) ? cid : cid_yp;
-        uint cid_yn = cellIdxToFlatIdx(cellIdx + int3(0, 1, 0), gridData.gridSize);
-        cid_yn = isSolidCell(getYNextMaterial(cellMaterial)) ? cid : cid_yn;
-        pressure += params.coeff1.y * (pressureInBuffer[cid_yp] + pressureInBuffer[cid_yn]);
+        int3 yp = isSolidCell(getYPrevMaterial(cellMaterial)) ? idx : idx + int3(0, -1, 0);
+        int3 yn = isSolidCell(getYNextMaterial(cellMaterial)) ? idx : idx + int3(0, 1, 0);
+        pressure += params.coeff1.y * (sPressure[yp.x][yp.y][yp.z] + sPressure[yn.x][yn.y][yn.z]);
 
-        uint cid_zp = cellIdxToFlatIdx(cellIdx + int3(0, 0, -1), gridData.gridSize);
-        cid_zp = isSolidCell(getZPrevMaterial(cellMaterial)) ? cid : cid_zp;
-        uint cid_zn = cellIdxToFlatIdx(cellIdx + int3(0, 0, 1), gridData.gridSize);
-        cid_zn = isSolidCell(getZNextMaterial(cellMaterial)) ? cid : cid_zn;
-        pressure += params.coeff1.z * (pressureInBuffer[cid_zp] + pressureInBuffer[cid_zn]);
+        int3 zp = isSolidCell(getZPrevMaterial(cellMaterial)) ? idx : idx + int3(0, 0, -1);
+        int3 zn = isSolidCell(getZNextMaterial(cellMaterial)) ? idx : idx + int3(0, 0, 1);
+        pressure += params.coeff1.z * (sPressure[zp.x][zp.y][zp.z] + sPressure[zn.x][zn.y][zn.z]);
 
-        pressure += params.coeff1.w * divergenceBuffer[cid];
+        pressure += params.coeff1.w * sDivergence[idx.x][idx.y][idx.z];
     }
 
-    pressureOutBuffer[cid] = pressure;
+    return pressure;
 }
 
-[numthreads(WorkgroupSize, 1, 1)]
+[numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
+void iteratePressureSystem(uint32_t3 ID : SV_DispatchThreadID)
+{
+    uint3 gid = nbl::hlsl::glsl::gl_WorkGroupID();
+
+    // load shared mem
+    for (uint virtualIdx = nbl::hlsl::glsl::gl_LocalInvocationIndex();
+        virtualIdx < 14 * 14 * 14; virtualIdx += 8 * 8 * 8)
+    {
+        int3 lid = flatIdxToLocalGridID(virtualIdx, 14);
+        
+        int3 cellIdx = clampToGrid(lid + int3(-3, -3, -3) + gid * WorkgroupGridDim, gridData.gridSize);
+        sCellMat[lid.x][lid.y][lid.z] = cellMaterialBuffer[cellIdx];
+        sDivergence[lid.x][lid.y][lid.z] = divergenceBuffer[cellIdx];
+        sPressure[lid.x][lid.y][lid.z] = pressureBuffer[cellIdx];
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // do 12x12x12 iteration
+    float tmp[6];
+    uint i = 0;
+    for (uint virtualIdx = nbl::hlsl::glsl::gl_LocalInvocationIndex();
+        virtualIdx < 12 * 12 * 12; virtualIdx += 8 * 8 * 8)
+    {
+        int3 lid = flatIdxToLocalGridID(virtualIdx, 12);
+        lid += int3(1, 1, 1);
+
+        float pressure = calculatePressureStep(lid);
+
+        tmp[i++] = pressure;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    i = 0;
+    for (uint virtualIdx = nbl::hlsl::glsl::gl_LocalInvocationIndex();
+        virtualIdx < 12 * 12 * 12; virtualIdx += 8 * 8 * 8)
+    {
+        int3 lid = flatIdxToLocalGridID(virtualIdx, 12);
+        lid += int3(1, 1, 1);
+        sPressure[lid.x][lid.y][lid.z] = tmp[i++];
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // do 10x10x10 iteration
+    i = 0;
+    for (uint virtualIdx = nbl::hlsl::glsl::gl_LocalInvocationIndex();
+        virtualIdx < 10 * 10 * 10; virtualIdx += 8 * 8 * 8)
+    {
+        int3 lid = flatIdxToLocalGridID(virtualIdx, 10);
+        lid += int3(2, 2, 2);
+
+        float pressure = calculatePressureStep(lid);
+
+        tmp[i++] = pressure;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    i = 0;
+    for (uint virtualIdx = nbl::hlsl::glsl::gl_LocalInvocationIndex();
+        virtualIdx < 10 * 10 * 10; virtualIdx += 8 * 8 * 8)
+    {
+        int3 lid = flatIdxToLocalGridID(virtualIdx, 10);
+        lid += int3(2, 2, 2);
+        sPressure[lid.x][lid.y][lid.z] = tmp[i++];
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    // do 8x8x8 iteration (final) and write
+    int3 lid = nbl::hlsl::glsl::gl_LocalInvocationID();
+    lid += int3(3, 3, 3);
+
+    float pressure = calculatePressureStep(lid);
+    pressureBuffer[ID] = pressure;
+}
+
+[numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
 void updateVelocities(uint32_t3 ID : SV_DispatchThreadID)
 {
-    uint cid = ID.x;
-    int3 cellIdx = flatIdxToCellIdx(cid, gridData.gridSize);
+    int3 cellIdx = ID;
 
-    uint cellMaterial = cellMaterialBuffer[cid];
+    uint cellMaterial = cellMaterialBuffer[cellIdx];
 
-    float3 velocity = velocityFieldBuffer[cellIdx].xyz;
-    float pressure = pressureInBuffer[cid];
+    float3 velocity;
+    velocity.x = velocityFieldBuffer[0][cellIdx];
+    velocity.y = velocityFieldBuffer[1][cellIdx];
+    velocity.z = velocityFieldBuffer[2][cellIdx];
+    float pressure = pressureBuffer[cellIdx];
 
-    uint cid_xp = cellIdxToFlatIdx(cellIdx + int3(-1, 0, 0), gridData.gridSize);
-    cid_xp = isSolidCell(getXPrevMaterial(cellMaterial)) ? cid : cid_xp;
-    velocity.x -= params.coeff2.x * (pressure - pressureInBuffer[cid_xp]);
+    int3 cell_xp = clampToGrid(cellIdx + int3(-1, 0, 0), gridData.gridSize);
+    cell_xp = isSolidCell(getXPrevMaterial(cellMaterial)) ? cellIdx : cell_xp;
+    velocity.x -= params.coeff2.x * (pressure - pressureBuffer[cell_xp]);
 
-    uint cid_yp = cellIdxToFlatIdx(cellIdx + int3(0, -1, 0), gridData.gridSize);
-    cid_yp = isSolidCell(getYPrevMaterial(cellMaterial)) ? cid : cid_yp;
-    velocity.y -= params.coeff2.y * (pressure - pressureInBuffer[cid_yp]);
+    int3 cell_yp = clampToGrid(cellIdx + int3(0, -1, 0), gridData.gridSize);
+    cell_yp = isSolidCell(getYPrevMaterial(cellMaterial)) ? cellIdx : cell_yp;
+    velocity.y -= params.coeff2.y * (pressure - pressureBuffer[cell_yp]);
 
-    uint cid_zp = cellIdxToFlatIdx(cellIdx + int3(0, 0, -1), gridData.gridSize);
-    cid_zp = isSolidCell(getZPrevMaterial(cellMaterial)) ? cid : cid_zp;
-    velocity.z -= params.coeff2.z * (pressure - pressureInBuffer[cid_zp]);
+    int3 cell_zp = clampToGrid(cellIdx + int3(0, 0, -1), gridData.gridSize);
+    cell_zp = isSolidCell(getZPrevMaterial(cellMaterial)) ? cellIdx : cell_zp;
+    velocity.z -= params.coeff2.z * (pressure - pressureBuffer[cell_zp]);
 
     enforceBoundaryCondition(velocity, cellMaterial);
 
-    velocityFieldBuffer[cellIdx].xyz = velocity;
+    velocityFieldBuffer[0][cellIdx] = velocity.x;
+    velocityFieldBuffer[1][cellIdx] = velocity.y;
+    velocityFieldBuffer[2][cellIdx] = velocity.z;
 }
