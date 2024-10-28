@@ -255,13 +255,15 @@ public:
         if (dPitch)
         {
             auto& pitch = output.emplace_back();
-            pitch.type = (pitch.value = dPitch) > 0.f ? TiltUp : TiltDown;
+            pitch.type = dPitch > 0.f ? TiltUp : TiltDown;
+            pitch.value = std::abs(dPitch);
         }
 
         if (dYaw)
         {
             auto& yaw = output.emplace_back();
-            yaw.type = (yaw.value = dYaw) > 0.f ? PanRight : PanLeft;
+            yaw.type = dYaw > 0.f ? PanRight : PanLeft;
+            yaw.value = std::abs(dYaw);
         }
 
         return output;

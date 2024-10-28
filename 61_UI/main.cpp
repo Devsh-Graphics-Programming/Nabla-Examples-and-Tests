@@ -182,18 +182,18 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						if (isPerspective)
 						{
 							if (isLH)
-								projection->setMatrix(projection_t::value_t(glm::perspectiveLH(glm::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar)));
+								projection->setMatrix(buildProjectionMatrixPerspectiveFovLH(glm::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar));
 							else
-								projection->setMatrix(projection_t::value_t(glm::perspectiveRH(glm::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar)));
+								projection->setMatrix(buildProjectionMatrixPerspectiveFovRH(glm::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar));
 						}
 						else
 						{
 							float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
 
 							if (isLH)
-								projection->setMatrix(projection_t::value_t(glm::orthoLH(-viewWidth / 2.0f, viewWidth / 2.0f, -viewHeight / 2.0f, viewHeight / 2.0f, zNear, zFar)));
+								projection->setMatrix(buildProjectionMatrixOrthoLH(viewWidth, viewHeight, zNear, zFar));
 							else
-								projection->setMatrix(projection_t::value_t(glm::orthoRH(-viewWidth / 2.0f, viewWidth / 2.0f, -viewHeight / 2.0f, viewHeight / 2.0f, zNear, zFar)));
+								projection->setMatrix(buildProjectionMatrixOrthoRH(viewWidth, viewHeight, zNear, zFar));
 						}
 					}
 
@@ -410,7 +410,16 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 								ImGui::Separator();
 						};
 
+						auto& orientation = gimbal->getOrthonornalMatrix();
+
 						addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, &pass.scene->object.model[0][0]);
+						
+						addMatrixTable("Right", "OrientationRightVec", 1, 3, &gimbal->getXAxis()[0]);
+						addMatrixTable("Up", "OrientationUpVec", 1, 3, &gimbal->getYAxis()[0]);
+						addMatrixTable("Forward", "OrientationForwardVec", 1, 3, &gimbal->getZAxis()[0]);
+						addMatrixTable("Position", "PositionForwardVec", 1, 3, &gimbal->getPosition()[0]);
+
+						//addMatrixTable("Camera Gimbal Orientation Matrix", "OrientationMatrixTable", 3, 3, &orientation[0][0]);
 						addMatrixTable("Camera Gimbal View Matrix", "ViewMatrixTable", 3, 4, &view[0][0]);
 						addMatrixTable("Camera Gimbal Projection Matrix", "ProjectionMatrixTable", 4, 4, &projectionMatrix[0][0], false);
 
@@ -442,8 +451,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						ImGui::Text("Buffer Usage:");
 
 						ImGui::SetCursorPosX(windowPadding);
-
-					
 
 						if (freePercentage > 70.0f)
 							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.0f, 1.0f, 0.0f, 0.4f));  // Green
@@ -505,7 +512,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			target(0.f, 0.f, 0.f);
 
 			auto projection = make_smart_refctd_ptr<projection_t>();
-			projection->setMatrix(projection_matrix_t(glm::perspectiveLH(glm::radians(fov), float(m_window->getWidth()) / float(m_window->getHeight()), zNear, zFar)));
+			projection->setMatrix(buildProjectionMatrixPerspectiveFovLH(glm::radians(fov), float(m_window->getWidth()) / float(m_window->getHeight()), zNear, zFar));
 			
 			gimbal = make_smart_refctd_ptr<gimbal_t>(position);
 			camera = make_smart_refctd_ptr<camera_t>(core::smart_refctd_ptr(gimbal), core::smart_refctd_ptr(projection), target);
