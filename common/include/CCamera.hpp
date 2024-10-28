@@ -34,10 +34,7 @@ public:
         assert(gimbal); // TODO
         assert(projection); // TODO
 
-        const auto [forward, up, right] = std::make_tuple(gimbal->getZAxis(), gimbal->getYAxis(), gimbal->getXAxis());
         const bool isLeftHanded = projection->isLeftHanded(); // TODO?
-
-        const auto moveDirection = float32_t3(gimbal->getOrientation() * glm::vec3(0.0f, 0.0f, 1.0f));
 
         constexpr auto MoveSpeedScale = 0.003f;
         constexpr auto RotateSpeedScale = 0.003f;
@@ -50,6 +47,7 @@ public:
 
         for (const traits_t::controller_virtual_event_t& ev : virtualEvents)
         {
+            const auto& forward = gimbal->getZAxis(), up = gimbal->getYAxis(), right = gimbal->getXAxis();
             const float dMoveValue = ev.value * dMoveFactor;
             const float dRotateValue = ev.value * dRotateFactor;
 
@@ -57,12 +55,12 @@ public:
             {
                 case traits_t::controller_t::MoveForward:
                 {
-                    gimbal->move(moveDirection * dMoveValue);
+                    gimbal->move(forward * dMoveValue);
                 } break;
 
                 case traits_t::controller_t::MoveBackward:
                 {
-                    gimbal->move(moveDirection * (-dMoveValue));
+                    gimbal->move(forward * (-dMoveValue));
                 } break;
 
                 case traits_t::controller_t::MoveRight:
