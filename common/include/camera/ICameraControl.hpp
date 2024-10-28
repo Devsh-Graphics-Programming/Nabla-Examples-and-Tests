@@ -106,7 +106,7 @@ public:
 
         inline void move(float32_t3 delta)
         {
-            m_position += mul(m_orthonormal, delta);
+            m_position += delta;
         }
 
         inline void reset()
@@ -217,15 +217,8 @@ public:
                     const auto dt = std::chrono::duration_cast<std::chrono::milliseconds>(m_nextPresentationTimeStamp - ev.timeStamp).count();
                     assert(dt >= 0);
 
-                    if (ev.action == nbl::ui::SKeyboardEvent::ECA_PRESSED && !m_keysDown[virtualKey])
-                    {
-                        m_keysDown[virtualKey] = true;
+                    if (ev.action == nbl::ui::SKeyboardEvent::ECA_PRESSED)
                         output.emplace_back(CVirtualEvent{ virtualKey, static_cast<float64_t>(dt) });
-                    }
-                    else if (ev.action == nbl::ui::SKeyboardEvent::ECA_RELEASED)
-                    {
-                        m_keysDown[virtualKey] = false;
-                    }
                 }
             }
         }
