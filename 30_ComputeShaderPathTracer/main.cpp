@@ -15,37 +15,37 @@ using namespace video;
 // TODO: Add a QueryPool for timestamping once its ready
 class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-	using device_base_t = examples::SimpleWindowedApplication;
-	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
-	using clock_t = std::chrono::steady_clock;
+		using device_base_t = examples::SimpleWindowedApplication;
+		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+		using clock_t = std::chrono::steady_clock;
 
-	enum E_LIGHT_GEOMETRY : uint8_t
-	{
-		ELG_SPHERE,
-		ELG_TRIANGLE,
-		ELG_RECTANGLE,
-		ELG_COUNT
-	};
+		enum E_LIGHT_GEOMETRY : uint8_t
+		{
+			ELG_SPHERE,
+			ELG_TRIANGLE,
+			ELG_RECTANGLE,
+			ELG_COUNT
+		};
 
-	struct SBasicViewParametersAligned
-	{
-		SBasicViewParameters uboData;
-	};
+		struct SBasicViewParametersAligned
+		{
+			SBasicViewParameters uboData;
+		};
 
-	_NBL_STATIC_INLINE_CONSTEXPR uint32_t2 WindowDimensions = { 1280, 720 };
-	_NBL_STATIC_INLINE_CONSTEXPR uint32_t FramesInFlight = 5;
-	_NBL_STATIC_INLINE_CONSTEXPR clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
-	_NBL_STATIC_INLINE_CONSTEXPR E_LIGHT_GEOMETRY LightGeom = E_LIGHT_GEOMETRY::ELG_SPHERE;
-	_NBL_STATIC_INLINE_CONSTEXPR uint32_t DefaultWorkGroupSize = 16u;
-	_NBL_STATIC_INLINE_CONSTEXPR uint32_t MaxDescriptorCount = 256u;
-	_NBL_STATIC_INLINE_CONSTEXPR uint32_t MaxDepthLog2 = 4u; // 5
-	_NBL_STATIC_INLINE_CONSTEXPR uint32_t MaxSamplesLog2 = 10u; // 18
-	_NBL_STATIC_INLINE_CONSTEXPR uint32_t MaxBufferDimensions = 3u << MaxDepthLog2;
-	_NBL_STATIC_INLINE_CONSTEXPR uint32_t MaxBufferSamples = 1u << MaxSamplesLog2;
-	_NBL_STATIC_INLINE_CONSTEXPR uint8_t MaxUITextureCount = 2u;
-	_NBL_STATIC_INLINE_CONSTEXPR uint8_t SceneTextureIndex = 1u;
-	_NBL_STATIC_INLINE std::string DefaultImagePathsFile = "../../media/envmap/envmap_0.exr";
-	_NBL_STATIC_INLINE std::array<std::string, 3> ShaderPaths = { "app_resources/litBySphere.comp", "app_resources/litByTriangle.comp", "app_resources/litByRectangle.comp" };
+		constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
+		constexpr static inline uint32_t FramesInFlight = 5;
+		constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
+		constexpr static inline E_LIGHT_GEOMETRY LightGeom = E_LIGHT_GEOMETRY::ELG_SPHERE;
+		constexpr static inline uint32_t DefaultWorkGroupSize = 16u;
+		constexpr static inline uint32_t MaxDescriptorCount = 256u;
+		constexpr static inline uint32_t MaxDepthLog2 = 4u; // 5
+		constexpr static inline uint32_t MaxSamplesLog2 = 10u; // 18
+		constexpr static inline uint32_t MaxBufferDimensions = 3u << MaxDepthLog2;
+		constexpr static inline uint32_t MaxBufferSamples = 1u << MaxSamplesLog2;
+		constexpr static inline uint8_t MaxUITextureCount = 2u;
+		constexpr static inline uint8_t SceneTextureIndex = 1u;
+		static inline std::string DefaultImagePathsFile = "../../media/envmap/envmap_0.exr";
+		static inline std::array<std::string, 3> ShaderPaths = { "app_resources/litBySphere.comp", "app_resources/litByTriangle.comp", "app_resources/litByRectangle.comp" };
 
 	public:
 		inline ComputeShaderPathtracer(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
@@ -398,7 +398,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				};
 				params.extraSignalSemaphores = { &signalSemaphore,1 };
 				// and launch the conversions
+				m_api->startCapture();
 				auto result = reservation.convert(params);
+				m_api->endCapture();
 				if (!result.blocking() && result.copy() != IQueue::RESULT::SUCCESS) {
 					m_logger->log("Failed to record or submit conversions", ILogger::ELL_ERROR);
 					std::exit(-1);
@@ -493,11 +495,13 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					m_intendedSubmit.scratchCommandBuffers = { &cmdbufInfo, 1 };
 
 					cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+					m_api->startCapture();
 					auto bufferFuture = m_utils->createFilledDeviceLocalBufferOnDedMem(
 						m_intendedSubmit,
 						std::move(params),
 						sampleSequence->getPointer()
 					);
+					m_api->endCapture();
 					bufferFuture.wait();
 					auto buffer = bufferFuture.get();
 
@@ -540,6 +544,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					m_intendedSubmit.scratchCommandBuffers = { &cmdbufInfo, 1 };
 
 					cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+					m_api->startCapture();
 					m_utils->updateImageViaStagingBufferAutoSubmit(
 						m_intendedSubmit,
 						random.data(),
@@ -548,6 +553,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						IGPUImage::LAYOUT::UNDEFINED,
 						regions
 					);
+					m_api->endCapture();
 				}
 			}
 
@@ -754,74 +760,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
 
 					ImGui::Image(SceneTextureIndex, ImGui::GetContentRegionAvail());
-
-					// Nabla Imgui backend MDI buffer info
-					// To be 100% accurate and not overly conservative we'd have to explicitly `cull_frees` and defragment each time,
-					// so unless you do that, don't use this basic info to optimize the size of your IMGUI buffer.
-					{
-						auto* streamingBuffer = m_ui.manager->getStreamingBuffer();
-						const size_t total = streamingBuffer->get_total_size();			// total memory range size for which allocation can be requested
-						const size_t freeSize = streamingBuffer->getAddressAllocator().get_free_size();		// max total free bloock memory size we can still allocate from total memory available
-						const size_t consumedMemory = total - freeSize;			// memory currently consumed by streaming buffer
-
-						float freePercentage = 100.0f * (float)(freeSize) / (float)total;
-						float allocatedPercentage = (float)(consumedMemory) / (float)total;
-
-						ImVec2 barSize = ImVec2(400, 30);
-						float windowPadding = 10.0f;
-						float verticalPadding = ImGui::GetStyle().FramePadding.y;
-
-						ImGui::SetNextWindowSize(ImVec2(barSize.x + 2 * windowPadding, 110 + verticalPadding), ImGuiCond_Always);
-						ImGui::Begin("Nabla Imgui MDI Buffer Info", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar);
-
-						ImGui::Text("Total Allocated Size: %zu bytes", total);
-						ImGui::Text("In use: %zu bytes", consumedMemory);
-						ImGui::Text("Buffer Usage:");
-
-						ImGui::SetCursorPosX(windowPadding);
-
-						if (freePercentage > 70.0f)
-							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.0f, 1.0f, 0.0f, 0.4f));
-						else if (freePercentage > 30.0f)
-							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 1.0f, 0.0f, 0.4f));
-						else
-							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 0.0f, 0.0f, 0.4f));
-
-						ImGui::ProgressBar(allocatedPercentage, barSize, "");
-
-						ImGui::PopStyleColor();
-
-						ImDrawList* drawList = ImGui::GetWindowDrawList();
-
-						ImVec2 progressBarPos = ImGui::GetItemRectMin();
-						ImVec2 progressBarSize = ImGui::GetItemRectSize();
-
-						const char* text = "%.2f%% free";
-						char textBuffer[64];
-						snprintf(textBuffer, sizeof(textBuffer), text, freePercentage);
-
-						ImVec2 textSize = ImGui::CalcTextSize(textBuffer);
-						ImVec2 textPos = ImVec2
-						(
-							progressBarPos.x + (progressBarSize.x - textSize.x) * 0.5f,
-							progressBarPos.y + (progressBarSize.y - textSize.y) * 0.5f
-						);
-
-						ImVec4 bgColor = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
-						drawList->AddRectFilled
-						(
-							ImVec2(textPos.x - 5, textPos.y - 2),
-							ImVec2(textPos.x + textSize.x + 5, textPos.y + textSize.y + 2),
-							ImGui::GetColorU32(bgColor)
-						);
-
-						ImGui::SetCursorScreenPos(textPos);
-						ImGui::Text("%s", textBuffer);
-
-						ImGui::Dummy(ImVec2(0.0f, verticalPadding));
-
-						ImGui::End();
-					}
 
 					ImGui::End();
 				}
