@@ -1119,11 +1119,11 @@ public:
                     .signalSemaphores = rendered
                 }};
                 if (bCaptureTestInitParticles)
-                    queue->startCapture();
+                    m_api->startCapture();
                 if (queue->submit(infos)!=IQueue::RESULT::SUCCESS)
                     m_submitIx--;
                 if (bCaptureTestInitParticles)
-                    queue->endCapture();
+                    m_api->endCapture();
             }
         }
 
