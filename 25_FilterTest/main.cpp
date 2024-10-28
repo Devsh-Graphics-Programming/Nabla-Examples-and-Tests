@@ -548,14 +548,19 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 						}
 
 						// Create resources needed to do the blit
-//						auto blitFilter = video::CComputeBlit::create(smart_refctd_ptr<ILogicalDevice>(device));
+						auto blitFilter = make_smart_refctd_ptr<CComputeBlit>(smart_refctd_ptr<ILogicalDevice>(device));
 
 						// create the outputs
 						uint32_t normalizationScratchSize = 0;
 						smart_refctd_ptr<IGPUImageView> outImageView;
 						{
-							const auto outImageViewFormat = outImageFormat;//blitFilter->getOutImageViewFormat(outImageFormat);
-							const bool manualEncoding = false;
+							const auto outImageViewFormat = blitFilter->getOutputViewFormat(outImageFormat);
+							if (outImageViewFormat==EF_UNKNOWN)
+							{
+								logger->log("Cannot encode into this format, even manually!",ILogger::ELL_ERROR);
+								return false;
+							}
+							const bool manualEncoding = outImageViewFormat!=outImageFormat;
 
 							smart_refctd_ptr<IGPUImage> outImage;
 							{
@@ -570,11 +575,11 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 									creationParams.flags = core::bitflag(IGPUImage::ECF_MUTABLE_FORMAT_BIT)|IGPUImage::ECF_EXTENDED_USAGE_BIT;
 								creationParams.usage = IGPUImage::EUF_STORAGE_BIT|video::IGPUImage::EUF_TRANSFER_SRC_BIT;
 								creationParams.viewFormats.set(outImageFormat,true);
-//								creationParams.viewFormats.set(outImageViewFormat,true);
+								creationParams.viewFormats.set(outImageViewFormat,true);
 								outImage = device->createImage(std::move(creationParams));
 								if (!outImage || !device->allocate(outImage->getMemoryReqs(),outImage.get()).isValid())
 								{
-									logger->log("Failed to create output GPU image!");
+									logger->log("Failed to create output GPU image!",ILogger::ELL_ERROR);
 									return false;
 								}
 								outImage->setObjectDebugName((m_outputName + " Output").c_str());
@@ -634,9 +639,13 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 							IGPUBuffer::SCreationParams creationParams = {};
 							// `samplerBuffer`, lut upload and scratch clear command, BDA
 							creationParams.usage = IGPUBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT|IGPUBuffer::EUF_TRANSFER_DST_BIT|IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-							creationParams.size = lutSize;
+							creationParams.size = normalizationScratchSize+lutSize;
 							auto scaledKernelPhasedLUT = device->createBuffer(std::move(creationParams));
-							device->allocate(scaledKernelPhasedLUT->getMemoryReqs(),scaledKernelPhasedLUT.get(),IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+							if (!device->allocate(scaledKernelPhasedLUT->getMemoryReqs(),scaledKernelPhasedLUT.get(),IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT).isValid())
+							{
+								logger->log("Failed to create the Phase LUT and coverage buffer!",ILogger::ELL_ERROR);
+								return false;
+							}
 /*
 							// fill it up with data
 							SBufferRange<IGPUBuffer> bufferRange = {};
