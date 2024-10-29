@@ -6,7 +6,8 @@
 
 struct SPushConstants
 {
-    uint64_t particleAddress;
+    uint64_t particlePosAddress;
+    uint64_t particleVelAddress;
     uint64_t particleVerticesAddress;
 };
 
@@ -51,11 +52,15 @@ static const float2 quadUVs[4] = {
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
     uint32_t pid = ID.x;
-    Particle p = vk::RawBufferLoad<Particle>(pc.particleAddress + sizeof(Particle) * pid);
+    Particle p;
+
+    int offset = sizeof(float32_t3) * pid;
+    p.position = vk::RawBufferLoad<float32_t3>(pc.particlePosAddress + offset);
+    p.velocity = vk::RawBufferLoad<float32_t3>(pc.particleVelAddress + offset);
 
     uint32_t quadBeginIdx = pid * 6;
 
-    float3 wsSpherePos = p.position.xyz;
+    float3 wsSpherePos = p.position;
     float radius = pParams.radius;
 
     float3 wsCamPos = camParams.camPos.xyz;
@@ -70,7 +75,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
     const float4 color1 = float4(0, 0.35, 0.75, 1);
     const float4 color2 = float4(0.85, 0.2, 0, 1);
-    float speed = length(p.velocity.xyz);
+    float speed = length(p.velocity);
     float factor = saturate((speed - 0.5) / 10.0);
     float4 color = lerp(color1, color2, factor);
 

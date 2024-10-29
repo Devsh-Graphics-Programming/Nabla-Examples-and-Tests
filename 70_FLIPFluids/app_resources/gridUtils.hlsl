@@ -1,27 +1,27 @@
 #ifndef _FLIP_EXAMPLE_GRID_UTILS_HLSL
 #define _FLIP_EXAMPLE_GRID_UTILS_HLSL
 
-#ifdef __HLSL_VERSION
 struct SGridData
 {
-    float gridCellSize;
-    float gridInvCellSize;
-    float pad0[2];
+    float32_t gridCellSize;
+    float32_t gridInvCellSize;
 
-    int4 particleInitMin;
-    int4 particleInitMax;
-    int4 particleInitSize;
+    int32_t4 particleInitMin;
+    int32_t4 particleInitMax;
+    int32_t4 particleInitSize;
 
-    float4 worldMin;
-    float4 worldMax;
-    int4 gridSize;
+    float32_t4 worldMin;
+    float32_t4 worldMax;
+    int32_t4 gridSize;
 };
+
+#ifdef __HLSL_VERSION
 
 static const float POSITION_EPSILON = 1e-4;
 
-float4 clampPosition(float4 position, float4 gridMin, float4 gridMax)
+float3 clampPosition(float3 position, float4 gridMin, float4 gridMax)
 {
-    return float4(clamp(position.xyz, gridMin.xyz + POSITION_EPSILON, gridMax.xyz - POSITION_EPSILON), 1);
+    return clamp(position, gridMin.xyz + POSITION_EPSILON, gridMax.xyz - POSITION_EPSILON);
 }
 
 int3 clampToGrid(int3 index, int4 gridSize)
@@ -63,9 +63,9 @@ inline uint worldPosToFlatIdx(float3 position, SGridData data)
     return cellIdxToFlatIdx(worldPosToCellIdx(position, data), data.gridSize);
 }
 
-inline float4 gridPosToWorldPos(float4 position, SGridData data)
+inline float3 gridPosToWorldPos(float3 position, SGridData data)
 {
-    return float4(data.worldMin.xyz + position.xyz * data.gridCellSize, 1);
+    return data.worldMin.xyz + position * data.gridCellSize;
 }
 
 int3 flatIdxToLocalGridID(uint idx, int size)

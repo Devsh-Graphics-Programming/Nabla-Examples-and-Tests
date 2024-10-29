@@ -3,6 +3,8 @@
 #include "../cellUtils.hlsl"
 #include "../descriptor_bindings.hlsl"
 
+#include "nbl/builtin/hlsl/limits.hlsl"
+
 [[vk::binding(b_ufcGridData, s_ufc)]]
 cbuffer GridData
 {
@@ -76,7 +78,7 @@ void updateNeighborFluidCells(uint32_t3 ID : SV_DispatchThreadID)
     totalWeight.y = prevVelocityFieldBuffer[1][cIdx];
     totalWeight.z = prevVelocityFieldBuffer[2][cIdx];
 
-    float3 velocity = select(totalWeight > 0, totalVelocity / max(totalWeight, FLT_MIN), 0.0f);
+    float3 velocity = select(totalWeight > 0, totalVelocity / max(totalWeight, nbl::hlsl::numeric_limits<float32_t>::min), 0.0f);
     enforceBoundaryCondition(velocity, cellMaterial);
 
     velocityFieldBuffer[0][cIdx] = velocity.x;

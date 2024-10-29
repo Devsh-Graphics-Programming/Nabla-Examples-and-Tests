@@ -1,19 +1,25 @@
 #ifndef _FLIP_EXAMPLE_RENDER_COMMON_HLSL
 #define _FLIP_EXAMPLE_RENDER_COMMON_HLSL
 
-#ifdef __HLSL_VERSION
-struct VertexInfo
+struct SParticleRenderParams
 {
-    float4 position;
-	float4 vsSpherePos;
-    
     float radius;
+    float zNear;
+    float zFar;
     float pad;
-
-    float4 color;
-    float2 uv;
 };
 
+struct VertexInfo
+{
+    float32_t4 position;
+	float32_t4 vsSpherePos;
+    float32_t radius;
+
+    float32_t4 color;
+    float32_t2 uv;
+};
+
+#ifdef __HLSL_VERSION
 struct PSInput
 {
 	float4 position : SV_Position;
@@ -21,14 +27,6 @@ struct PSInput
 	nointerpolation float3 vsSpherePos : TEXCOORD1;
     nointerpolation float radius : TEXCOORD2;
     nointerpolation float4 color : TEXCOORD3;
-};
-
-struct SParticleRenderParams
-{
-    float radius;
-    float zNear;
-    float zFar;
-    float pad;
 };
 #endif
 

@@ -9,9 +9,6 @@
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 
-#include "app_resources/common.hlsl"
-#include "app_resources/descriptor_bindings.hlsl"
-
 using namespace nbl::hlsl;
 using namespace nbl;
 using namespace core;
@@ -21,35 +18,15 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
+#include "app_resources/common.hlsl"
+#include "app_resources/gridUtils.hlsl"
+#include "app_resources/render_common.hlsl"
+#include "app_resources/descriptor_bindings.hlsl"
 
 enum SimPresets
 {
     CENTER_DROP,
     LONG_BOX
-};
-
-struct Particle
-{
-    float32_t4 position;
-    float32_t4 velocity;
-
-    uint32_t id;
-    uint32_t pad[3];
-};
-
-struct SGridData
-{
-    float gridCellSize;
-    float gridInvCellSize;
-    float pad0[2];
-
-    int32_t4 particleInitMin;
-    int32_t4 particleInitMax;
-    int32_t4 particleInitSize;
-
-    float32_t4 worldMin;
-    float32_t4 worldMax;
-    int32_t4 gridSize;
 };
 
 struct SMVPParams
@@ -60,26 +37,6 @@ struct SMVPParams
     float M[4*4];
     float V[4*4];
     float P[4*4];
-};
-
-struct SParticleRenderParams
-{
-    float radius;
-    float zNear;
-    float zFar;
-    float pad;
-};
-
-struct VertexInfo
-{
-    float32_t4 position;
-    float32_t4 vsSpherePos;
-
-    float radius;
-    float pad;
-
-    float32_t4 color;
-    float32_t2 uv;
 };
 
 class CSwapchainFramebuffersAndDepth final : public nbl::video::CDefaultSwapchainFramebuffers
@@ -298,9 +255,10 @@ public:
         params.size = sizeof(SParticleRenderParams);
         createBuffer(pParamsBuffer, params);
 
-        params.size = numParticles * sizeof(Particle);
+        params.size = numParticles * sizeof(float32_t3);
         params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;;
-        createBuffer(particleBuffer, params, IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+        createBuffer(particleData.positionBuffer, params, IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+        createBuffer(particleData.velocityBuffer, params, IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
 
         params.size = numParticles * 6 * sizeof(VertexInfo);
         createBuffer(particleVertexBuffer, params, IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
@@ -419,7 +377,7 @@ public:
 
         {
             // init particles pipeline
-            const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0, .size = sizeof(uint64_t) };
+            const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0, .size = 2 * sizeof(uint64_t) };
             createComputePipeline(m_initParticlePipeline, m_initParticlePool, m_initParticleDs,
                 "app_resources/compute/particlesInit.comp.hlsl", "main", piParticlesInit_bs1, pcRange);
 
@@ -435,7 +393,7 @@ public:
         }
         {
             // generate particle vertex pipeline
-            const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0, .size = 2 * sizeof(uint64_t) };
+            const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0, .size = 3 * sizeof(uint64_t) };
             createComputePipeline(m_genParticleVerticesPipeline, m_genVerticesPool, m_genVerticesDs,
                 "app_resources/compute/genParticleVertices.comp.hlsl", "main", gpvGenVertices_bs1, pcRange);
 
@@ -454,7 +412,7 @@ public:
         }
         // update fluid cells pipelines
         {
-            const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0, .size = sizeof(uint64_t) };
+            const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0, .size = 2 * sizeof(uint64_t) };
             createComputePipeline(m_accumulateWeightsPipeline, m_accumulateWeightsPool, m_accumulateWeightsDs,
                 "app_resources/compute/prepareCellUpdate.comp.hlsl", "main", ufcAccWeights_bs1, pcRange);
 
@@ -820,7 +778,7 @@ public:
         }
         {
             // advect particles pipeline
-            const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0, .size = sizeof(uint64_t) };
+            const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0, .size = 2 * sizeof(uint64_t) };
             createComputePipeline(m_advectParticlesPipeline, m_advectParticlesPool, m_advectParticlesDs,
                 "app_resources/compute/advectParticles.comp.hlsl", "main", apAdvectParticles_bs1, pcRange);
 
@@ -1012,13 +970,14 @@ public:
 
         // prepare particle vertices for render
         {
-            const uint64_t bufferAddr[2] = {
-                particleBuffer->getDeviceAddress(),
+            const uint64_t bufferAddr[3] = {
+                particleData.positionBuffer->getDeviceAddress(),
+                particleData.velocityBuffer->getDeviceAddress(),
                 particleVertexBuffer->getDeviceAddress()
             };
 
             cmdbuf->bindComputePipeline(m_genParticleVerticesPipeline.get());
-            cmdbuf->pushConstants(m_genParticleVerticesPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, 2 * sizeof(uint64_t), bufferAddr);
+            cmdbuf->pushConstants(m_genParticleVerticesPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, 3 * sizeof(uint64_t), bufferAddr);
             cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_genParticleVerticesPipeline->getLayout(), 1, 1, &m_genVerticesDs.get());
             cmdbuf->dispatch(WorkgroupCountParticles, 1, 1);
         }
@@ -1186,10 +1145,13 @@ public:
             cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {&memBarrier, 1} });
         }
 
-        const uint64_t bufferAddr = particleBuffer->getDeviceAddress();
+        const uint64_t bufferAddr[2] = {
+            particleData.positionBuffer->getDeviceAddress(),
+            particleData.velocityBuffer->getDeviceAddress()
+        };
 
         cmdbuf->bindComputePipeline(m_accumulateWeightsPipeline.get());
-        cmdbuf->pushConstants(m_accumulateWeightsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(uint64_t), &bufferAddr);
+        cmdbuf->pushConstants(m_accumulateWeightsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, 2 * sizeof(uint64_t), bufferAddr);
         cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_accumulateWeightsPipeline->getLayout(), 1, 1, &m_accumulateWeightsDs.get());
         cmdbuf->dispatch(WorkgroupCountParticles, 1, 1);
 
@@ -1362,10 +1324,13 @@ public:
             cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
         }
 
-        const uint64_t bufferAddr = particleBuffer->getDeviceAddress();
+        const uint64_t bufferAddr[2] = {
+            particleData.positionBuffer->getDeviceAddress(),
+            particleData.velocityBuffer->getDeviceAddress()
+        };
 
         cmdbuf->bindComputePipeline(m_advectParticlesPipeline.get());
-        cmdbuf->pushConstants(m_advectParticlesPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(uint64_t), &bufferAddr);
+        cmdbuf->pushConstants(m_advectParticlesPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, 2 * sizeof(uint64_t), bufferAddr);
         cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_advectParticlesPipeline->getLayout(), 1, 1, &m_advectParticlesDs.get());
         cmdbuf->dispatch(WorkgroupCountParticles, 1, 1);
     }
@@ -1696,10 +1661,13 @@ private:
             cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
         }
 
-        const uint64_t bufferAddr = particleBuffer->getDeviceAddress();
+        const uint64_t bufferAddr[2] = { 
+            particleData.positionBuffer->getDeviceAddress(),
+            particleData.velocityBuffer->getDeviceAddress()
+        };
         
         cmdbuf->bindComputePipeline(m_initParticlePipeline.get());
-        cmdbuf->pushConstants(m_initParticlePipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(uint64_t), &bufferAddr);
+        cmdbuf->pushConstants(m_initParticlePipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, 2 * sizeof(uint64_t), bufferAddr);
         cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_initParticlePipeline->getLayout(), 1, 1, &m_initParticleDs.get());
         cmdbuf->dispatch(WorkgroupCountParticles, 1, 1);
 
@@ -1851,7 +1819,13 @@ private:
     // buffers
     smart_refctd_ptr<IGPUBuffer> cameraBuffer;
 
-    smart_refctd_ptr<IGPUBuffer> particleBuffer;		            // Particle
+    struct ParticleData
+    {
+        smart_refctd_ptr<IGPUBuffer> positionBuffer;
+        smart_refctd_ptr<IGPUBuffer> velocityBuffer;
+    };
+    ParticleData particleData;
+
     smart_refctd_ptr<IGPUBuffer> pParamsBuffer;			            // SParticleRenderParams
     smart_refctd_ptr<IGPUBuffer> particleVertexBuffer;	            // VertexInfo * 6 vertices
 
