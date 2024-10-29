@@ -26,80 +26,68 @@ public:
     }
 	~Camera() = default;
 
-	virtual void manipulate(std::span<const typename traits_t::controller_virtual_event_t> virtualEvents) override
-	{
+    virtual void manipulate(std::span<const typename traits_t::controller_virtual_event_t> virtualEvents) override
+    {
         auto* gimbal = traits_t::controller_t::m_gimbal.get();
-        auto* projection = base_t::getProjection();
+        assert(gimbal);
 
-        assert(gimbal); // TODO
-        assert(projection); // TODO
+        constexpr float MoveSpeedScale = 0.01f, RotateSpeedScale = 0.003f, MaxVerticalAngle = glm::radians(88.0f), MinVerticalAngle = -MaxVerticalAngle;
+        const auto& gForward = gimbal->getZAxis(), gRight = gimbal->getXAxis();
 
-        const bool isLeftHanded = projection->isLeftHanded(); // TODO?
-
-        constexpr auto MoveSpeedScale = 0.003f;
-        constexpr auto RotateSpeedScale = 0.003f;
-
-        const auto dMoveFactor = traits_t::controller_t::m_moveSpeed * MoveSpeedScale;
-        const auto dRotateFactor = traits_t::controller_t::m_rotateSpeed * RotateSpeedScale;
-
-        // TODO: UB/LB for pitch [-88,88]!!! we are not in cosmos but handle FPS camera in default case
-        // TODO: accumulate move & rotate scalars then do single move & rotate gimbal manipulation
-
-        for (const traits_t::controller_virtual_event_t& ev : virtualEvents)
+        struct
         {
-            const auto& forward = gimbal->getZAxis(), up = gimbal->getYAxis(), right = gimbal->getXAxis();
-            const float dMoveValue = ev.value * dMoveFactor;
-            const float dRotateValue = ev.value * dRotateFactor;
+            float dPitch = 0.f, dYaw = 0.f;
+            float32_t3 dMove = { 0.f, 0.f, 0.f };
+        } accumulated;
 
-            switch (ev.type)
+        for (const auto& event : virtualEvents)
+        {
+            const float moveScalar = event.value * MoveSpeedScale;
+            const float rotateScalar = event.value * RotateSpeedScale;
+
+            switch (event.type)
             {
-                case traits_t::controller_t::MoveForward:
-                {
-                    gimbal->move(forward * dMoveValue);
-                } break;
-
-                case traits_t::controller_t::MoveBackward:
-                {
-                    gimbal->move(forward * (-dMoveValue));
-                } break;
-
-                case traits_t::controller_t::MoveRight:
-                {
-                    gimbal->move(right * dMoveValue);
-                } break;
-
-                case traits_t::controller_t::MoveLeft:
-                {
-                    gimbal->move(right * (-dMoveValue));
-                } break;
-
-                case traits_t::controller_t::TiltUp:
-                {
-                    gimbal->rotate(right, dRotateValue);
-                } break;
-
-                case traits_t::controller_t::TiltDown:
-                {
-                    gimbal->rotate(right, -dRotateValue);
-                } break;
-
-                case traits_t::controller_t::PanRight:
-                {
-                    gimbal->rotate(up, dRotateValue);
-                } break;
-
-                case traits_t::controller_t::PanLeft:
-                {
-                    gimbal->rotate(up, -dRotateValue);
-                } break;
-
-                default:
-                    continue;
+            case traits_t::controller_t::MoveForward:
+                accumulated.dMove += gForward * moveScalar;
+                break;
+            case traits_t::controller_t::MoveBackward:
+                accumulated.dMove -= gForward * moveScalar;
+                break;
+            case traits_t::controller_t::MoveRight:
+                accumulated.dMove += gRight * moveScalar;
+                break;
+            case traits_t::controller_t::MoveLeft:
+                accumulated.dMove -= gRight * moveScalar;
+                break;
+            case traits_t::controller_t::TiltUp:
+                accumulated.dPitch += rotateScalar;
+                break;
+            case traits_t::controller_t::TiltDown:
+                accumulated.dPitch -= rotateScalar;
+                break;
+            case traits_t::controller_t::PanRight:
+                accumulated.dYaw += rotateScalar;
+                break;
+            case traits_t::controller_t::PanLeft:
+                accumulated.dYaw -= rotateScalar;
+                break;
+            default:
+                break;
             }
         }
 
+        float currentPitch = atan2(glm::length(glm::vec2(gForward.x, gForward.z)), gForward.y) - glm::half_pi<float>();
+        float currentYaw = atan2(gForward.x, gForward.z);
+
+        currentPitch = std::clamp(currentPitch + accumulated.dPitch, MinVerticalAngle, MaxVerticalAngle);
+        currentYaw += accumulated.dYaw;
+
+        glm::quat orientation = glm::quat(glm::vec3(currentPitch, currentYaw, 0.0f));
+        gimbal->setOrientation(orientation);
+        gimbal->move(accumulated.dMove);
+
         base_t::recomputeViewMatrix();
-	}
+    }
 };
 
 }

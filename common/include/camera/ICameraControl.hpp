@@ -82,6 +82,12 @@ public:
             m_position = position;
         }
 
+        inline void setOrientation(const glm::quat& orientation)
+        {
+            m_orientation = glm::normalize(orientation);
+            updateOrthonormalMatrix();
+        }
+
         inline void rotate(const float32_t3& axis, float dRadians)
         {
             glm::quat dRotation = glm::angleAxis(dRadians, axis);
@@ -198,29 +204,50 @@ public:
     */
     std::vector<CVirtualEvent> processKeyboard(std::span<const ui::SKeyboardEvent> events)
     {
+        if (events.empty())
+            return {};
+
         std::vector<CVirtualEvent> output;
 
-        for (const auto& ev : events)
+        constexpr auto NblVirtualKeys = std::to_array({ MoveForward, MoveBackward, MoveLeft, MoveRight, MoveUp, MoveDown, TiltUp, TiltDown, PanLeft, PanRight, RollLeft, RollRight, Reset });
+        static_assert(NblVirtualKeys.size() == EventsCount);
+
+        for (const auto virtualKey : NblVirtualKeys)
         {
-            constexpr auto NblVirtualKeys = std::to_array({ MoveForward, MoveBackward, MoveLeft, MoveRight, MoveUp, MoveDown, TiltUp, TiltDown, PanLeft, PanRight, RollLeft, RollRight, Reset });
-            static_assert(NblVirtualKeys.size() == EventsCount);
+            const auto code = m_keysToEvent[virtualKey];
+            bool& keyDown = m_keysDown[virtualKey];
 
-            for (const auto virtualKey : NblVirtualKeys)
+            using virtual_key_state_t = std::tuple<ui::E_KEY_CODE /*physical key representing virtual key*/, bool /*is pressed*/, float64_t /*delta action*/>;
+
+            auto updateVirtualState = [&]() -> virtual_key_state_t
             {
-                const auto code = m_keysToEvent[virtualKey];
+                virtual_key_state_t state = { ui::E_KEY_CODE::EKC_NONE, false, 0.f };
 
-                if (ev.keyCode == code)
+                for (const auto& ev : events) // TODO: improve the search
                 {
-                    if (code == ui::EKC_NONE)
-                        continue;
+                    if (ev.keyCode == code)
+                    {
+                        if (ev.action == nbl::ui::SKeyboardEvent::ECA_PRESSED && !keyDown)
+                            keyDown = true;
+                        else if (ev.action == nbl::ui::SKeyboardEvent::ECA_RELEASED)
+                            keyDown = false;
 
-                    const auto dt = std::chrono::duration_cast<std::chrono::milliseconds>(m_nextPresentationTimeStamp - ev.timeStamp).count();
-                    assert(dt >= 0);
+                        const auto dt = std::chrono::duration_cast<std::chrono::milliseconds>(m_nextPresentationTimeStamp - ev.timeStamp).count();
+                        assert(dt >= 0);
 
-                    if (ev.action == nbl::ui::SKeyboardEvent::ECA_PRESSED)
-                        output.emplace_back(CVirtualEvent{ virtualKey, static_cast<float64_t>(dt) });
+                        state = std::make_tuple(code, keyDown, dt);
+                        break;
+                    }
                 }
-            }
+
+                return state;
+            };
+
+            const auto&& [physicalKey, isDown, dtAction] = updateVirtualState();
+
+            if (physicalKey != ui::E_KEY_CODE::EKC_NONE)
+                if (isDown)
+                    output.emplace_back(CVirtualEvent{ virtualKey, static_cast<float64_t>(dtAction) });
         }
 
         return output;
