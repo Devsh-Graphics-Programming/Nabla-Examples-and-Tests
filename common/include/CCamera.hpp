@@ -7,12 +7,13 @@
 
 #include <nabla.h>
 #include <nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl>
+#include <nbl/builtin/hlsl/vector_utils/vector_utils.hlsl>
 #include <iostream>
 #include <cstdio>
 #include <fstream>
 #include <chrono>
 
-class Camera 
+class Camera
 { 
 public:
 	Camera() = default;
@@ -112,15 +113,15 @@ public:
 	inline void recomputeViewMatrix() 
 	{
 		nbl::hlsl::float32_t3 pos = position;
-		nbl::hlsl::float32_t3 localTarget = nbl::core::normalize(target - pos);
+		nbl::hlsl::float32_t3 localTarget = nbl::hlsl::normalize(target - pos);
 
 		// if upvector and vector to the target are the same, we have a
 		// problem. so solve this problem:
-		nbl::hlsl::float32_t3 up = nbl::core::normalize(upVector);
+		nbl::hlsl::float32_t3 up = nbl::hlsl::normalize(upVector);
 		nbl::hlsl::float32_t3 cross = nbl::hlsl::cross(localTarget, up);
-		bool upVectorNeedsChange = nbl::core::lengthsquared(cross)[0] == 0;
+		bool upVectorNeedsChange = nbl::hlsl::lengthsquared(cross) == 0;
 		if (upVectorNeedsChange)
-			up = nbl::core::normalize(backupUpVector);
+			up = nbl::hlsl::normalize(backupUpVector);
 
 		if (leftHanded)
 			viewMatrix = nbl::hlsl::buildCameraLookAtMatrixLH(pos, target, up);
@@ -173,7 +174,7 @@ public:
 					if (relativeRotationX > MaxVerticalAngle && relativeRotationX < 2 * nbl::core::PI<float>()-MaxVerticalAngle)
 						relativeRotationX = MaxVerticalAngle;
 
-				localTarget = nbl::hlsl::float32_t3(0,0, nbl::core::max(1.f, nbl::core::length(pos)[0]));
+				localTarget = nbl::hlsl::float32_t3(0,0, nbl::core::max(1.f, nbl::hlsl::length(pos)));
 
 				nbl::hlsl::float32_t3x4 mat;
 				nbl::hlsl::setRotation(mat, nbl::hlsl::quaternion<float>::create(relativeRotationX, relativeRotationY, 0));
@@ -258,7 +259,7 @@ public:
 			nbl::hlsl::float32_t3 movedir = localTarget;
 			// TODO:
 			//movedir.makeSafe3D();
-			movedir = nbl::core::normalize(movedir);
+			movedir = nbl::hlsl::normalize(movedir);
 
 			constexpr float MoveSpeedScale = 0.02f; 
 
@@ -269,12 +270,12 @@ public:
 		
 			// if upvector and vector to the target are the same, we have a
 			// problem. so solve this problem:
-			nbl::hlsl::float32_t3 up = nbl::core::normalize(upVector);
+			nbl::hlsl::float32_t3 up = nbl::hlsl::normalize(upVector);
 			nbl::hlsl::float32_t3 cross = nbl::hlsl::cross(localTarget, up);
 			bool upVectorNeedsChange = nbl::hlsl::dot(cross, cross) == 0;
 			if (upVectorNeedsChange)
 			{
-				up = nbl::core::normalize(backupUpVector);
+				up = nbl::hlsl::normalize(backupUpVector);
 			}
 
 			nbl::hlsl::float32_t3 strafevect = localTarget;
@@ -283,7 +284,7 @@ public:
 			else
 				strafevect = nbl::hlsl::cross(up, strafevect);
 
-			strafevect = nbl::core::normalize(strafevect);
+			strafevect = nbl::hlsl::normalize(strafevect);
 
 			pos += strafevect * nbl::hlsl::float32_t3(perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_LEFT] * moveSpeed * MoveSpeedScale);
 			pos -= strafevect * nbl::hlsl::float32_t3(perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_RIGHT] * moveSpeed * MoveSpeedScale);
