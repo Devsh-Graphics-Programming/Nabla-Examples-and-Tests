@@ -307,7 +307,7 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 
 			hlsl::float32_t3x4 modelMatrix;
 			hlsl::setTranslation(modelMatrix, hlsl::float32_t3(0));
-			hlsl::setRotation(modelMatrix, hlsl::quaternion<float>(0, 0, 0));
+			hlsl::setRotation(modelMatrix, hlsl::quaternion<float>::create(0, 0, 0));
 
 			hlsl::float32_t3x4 modelViewMatrix = hlsl::concatenateBFollowedByA(viewMatrix, modelMatrix);
 			hlsl::float32_t4x4 modelViewProjectionMatrix = mul(viewProjectionMatrix, hlsl::getMatrix3x4As4x4(modelMatrix));
