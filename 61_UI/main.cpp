@@ -2,6 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+#include "nbl/builtin/hlsl/projection/projection.hlsl"
 #include "common.hpp"
 
 /*
@@ -169,21 +170,21 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					camera.setProjectionMatrix([&]() 
 					{
-						static matrix4SIMD projection;
+						static hlsl::float32_t4x4 projection;
 
 						if (isPerspective)
 							if(isLH)
-								projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+								projection = hlsl::buildProjectionMatrixPerspectiveFovLH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
 							else
-								projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+								projection = hlsl::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
 						else
 						{
 							float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
 
 							if(isLH)
-								projection = matrix4SIMD::buildProjectionMatrixOrthoLH(viewWidth, viewHeight, zNear, zFar);
+								projection = hlsl::buildProjectionMatrixOrthoLH(viewWidth, viewHeight, zNear, zFar);
 							else
-								projection = matrix4SIMD::buildProjectionMatrixOrthoRH(viewWidth, viewHeight, zNear, zFar);
+								projection = hlsl::buildProjectionMatrixOrthoRH(viewWidth, viewHeight, zNear, zFar);
 						}
 
 						return projection;
@@ -246,9 +247,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					if (viewDirty || firstFrame)
 					{
-						core::vectorSIMDf cameraPosition(cosf(camYAngle)* cosf(camXAngle)* transformParams.camDistance, sinf(camXAngle)* transformParams.camDistance, sinf(camYAngle)* cosf(camXAngle)* transformParams.camDistance);
-						core::vectorSIMDf cameraTarget(0.f, 0.f, 0.f);
-						const static core::vectorSIMDf up(0.f, 1.f, 0.f);
+						hlsl::float32_t3 cameraPosition(cosf(camYAngle)* cosf(camXAngle)* transformParams.camDistance, sinf(camXAngle)* transformParams.camDistance, sinf(camYAngle)* cosf(camXAngle)* transformParams.camDistance);
+						hlsl::float32_t3 cameraTarget(0.f, 0.f, 0.f);
+						const static hlsl::float32_t3 up(0.f, 1.f, 0.f);
 
 						camera.setPosition(cameraPosition);
 						camera.setTarget(cameraTarget);
@@ -322,20 +323,23 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					static struct
 					{
-						core::matrix4SIMD view, projection, model;
+						hlsl::float32_t4x4 view, projection, model;
 					} imguizmoM16InOut;
 
 					ImGuizmo::SetID(0u);
 
-					imguizmoM16InOut.view = core::transpose(matrix4SIMD(camera.getViewMatrix()));
-					imguizmoM16InOut.projection = core::transpose(camera.getProjectionMatrix());
-					imguizmoM16InOut.model = core::transpose(core::matrix4SIMD(pass.scene->object.model));
+					imguizmoM16InOut.view = hlsl::transpose(hlsl::getMatrix3x4As4x4(camera.getViewMatrix()));
+					imguizmoM16InOut.projection = hlsl::transpose(camera.getProjectionMatrix());
+					imguizmoM16InOut.model = hlsl::transpose(hlsl::getMatrix3x4As4x4(pass.scene->object.model));
 					{
 						if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
 							imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
 
 						transformParams.editTransformDecomposition = true;
-						EditTransform(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.model.pointer(), transformParams);
+						EditTransform(reinterpret_cast<float*>(&imguizmoM16InOut.view), 
+							reinterpret_cast<float*>(&imguizmoM16InOut.projection),
+							reinterpret_cast<float*>(&imguizmoM16InOut.model),
+							transformParams);
 					}
 
 					// to Nabla + update camera & model matrices
@@ -343,14 +347,14 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					const auto& projection = camera.getProjectionMatrix();
 
 					// TODO: make it more nicely
-					const_cast<core::matrix3x4SIMD&>(view) = core::transpose(imguizmoM16InOut.view).extractSub3x4(); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
+					const_cast<hlsl::float32_t3x4&>(view) = float32_t3x4(hlsl::transpose(imguizmoM16InOut.view)); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
 					camera.setProjectionMatrix(projection); // update concatanated matrix
 					{
-						static nbl::core::matrix3x4SIMD modelView, normal;
-						static nbl::core::matrix4SIMD modelViewProjection;
+						static nbl::hlsl::float32_t3x4 modelView, normal;
+						static nbl::hlsl::float32_t4x4 modelViewProjection;
 
 						auto& hook = pass.scene->object;
-						hook.model = core::transpose(imguizmoM16InOut.model).extractSub3x4();
+						hook.model = float32_t3x4(hlsl::transpose(imguizmoM16InOut.model));
 						{
 							const auto& references = pass.scene->getResources().objects;
 							const auto type = static_cast<ObjectType>(gcIndex);
@@ -362,13 +366,19 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						auto& ubo = hook.viewParameters;
 
-						modelView = nbl::core::concatenateBFollowedByA(view, hook.model);
-						modelView.getSub3x3InverseTranspose(normal);
-						modelViewProjection = nbl::core::concatenateBFollowedByA(camera.getConcatenatedMatrix(), hook.model);
+						modelView = nbl::hlsl::concatenateBFollowedByA(view, hook.model);
+						float32_t3x3 normalTmp;
+						hlsl::getSub3x3InverseTranspose(modelView, normalTmp);
+						normal = float32_t3x4(
+							float32_t4(normalTmp[0], 0),
+							float32_t4(normalTmp[0], 0),
+							float32_t4(normalTmp[0], 0)
+						);
+						//modelViewProjection = camera.getConcatenatedMatrix() * hlsl::getMatrix3x4As4x4(hook.model);
 
-						memcpy(ubo.MVP, modelViewProjection.pointer(), sizeof(ubo.MVP));
-						memcpy(ubo.MV, modelView.pointer(), sizeof(ubo.MV));
-						memcpy(ubo.NormalMat, normal.pointer(), sizeof(ubo.NormalMat));
+						memcpy(ubo.MVP, reinterpret_cast<float*>(&modelViewProjection), sizeof(ubo.MVP));
+						memcpy(ubo.MV, reinterpret_cast<float*>(&modelView), sizeof(ubo.MV));
+						memcpy(ubo.NormalMat, reinterpret_cast<float*>(&normal), sizeof(ubo.NormalMat));
 
 						// object meta display
 						{
@@ -403,9 +413,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 								ImGui::Separator();
 						};
 
-						addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, pass.scene->object.model.pointer());
-						addMatrixTable("Camera View Matrix", "ViewMatrixTable", 3, 4, view.pointer());
-						addMatrixTable("Camera View Projection Matrix", "ViewProjectionMatrixTable", 4, 4, projection.pointer(), false);
+						addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, reinterpret_cast<const float*>(&(pass.scene->object.model)));
+						addMatrixTable("Camera View Matrix", "ViewMatrixTable", 3, 4, reinterpret_cast<const float*>(&view));
+						addMatrixTable("Camera View Projection Matrix", "ViewProjectionMatrixTable", 4, 4, reinterpret_cast<const float*>(&projection), false);
 
 						ImGui::End();
 					}
@@ -781,7 +791,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			C_UI ui;
 		} pass;
 
-		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
+		Camera camera = Camera(hlsl::float32_t3(0, 0, 0), hlsl::float32_t3(0, 0, 0), hlsl::IdentityFloat32_t4x4);
 		video::CDumbPresentationOracle oracle;
 
 		uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
