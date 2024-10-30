@@ -29,17 +29,15 @@ using namespace video;
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
 #include "HatchGlyphBuilder.h"
+#include "GeoTexture.h"
 
 #include <chrono>
 #define BENCHMARK_TILL_FIRST_FRAME
 
-// Shader cache tests. Only define one of these, or none for no use of the Cache
-//#define SHADER_CACHE_TEST_COMPILATION_CACHE_STORE
-//#define SHADER_CACHE_TEST_CACHE_RETRIEVE
-
 static constexpr bool DebugModeWireframe = false;
 static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
+static constexpr bool LargeGeoTextureStreaming = true;
 
 enum class ExampleMode
 {
@@ -68,7 +66,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0,	// CASE_8
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_7;
+constexpr ExampleMode mode = ExampleMode::CASE_8;
 
 class Camera2D
 {
@@ -273,7 +271,8 @@ class ComputerAidedDesign final : public examples::SimpleWindowedApplication, pu
 	
 	constexpr static uint32_t WindowWidthRequest = 1600u;
 	constexpr static uint32_t WindowHeightRequest = 900u;
-	constexpr static uint32_t MaxFramesInFlight = 8u;
+	constexpr static uint32_t MaxFramesInFlight = 3u;
+	constexpr static uint32_t MaxSubmitsInFlight = 16u;
 public:
 
 	void allocateResources(uint32_t maxObjects)
@@ -286,25 +285,32 @@ public:
 		drawResourcesFiller.allocateIndexBuffer(m_device.get(), maxIndices);
 		drawResourcesFiller.allocateMainObjectsBuffer(m_device.get(), maxObjects);
 		drawResourcesFiller.allocateDrawObjectsBuffer(m_device.get(), maxObjects * 5u);
-		drawResourcesFiller.allocateStylesBuffer(m_device.get(), 32u);
+		drawResourcesFiller.allocateStylesBuffer(m_device.get(), 512u);
 
 		// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)
 		// + 128 ClipProjData
 		size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3 + 128 * sizeof(ClipProjectionData);
 		drawResourcesFiller.allocateGeometryBuffer(m_device.get(), geometryBufferSize);
-		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 512u, uint32_t2(MSDFSize, MSDFSize));
+		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 256u, uint32_t2(MSDFSize, MSDFSize));
 
 		{
 			IGPUBuffer::SCreationParams globalsCreationParams = {};
 			globalsCreationParams.size = sizeof(Globals);
 			globalsCreationParams.usage = IGPUBuffer::EUF_UNIFORM_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
-			globalsBuffer = m_device->createBuffer(std::move(globalsCreationParams));
+			m_globalsBuffer = m_device->createBuffer(std::move(globalsCreationParams));
 
-			IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = globalsBuffer->getMemoryReqs();
+			IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = m_globalsBuffer->getMemoryReqs();
 			memReq.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			auto globalsBufferMem = m_device->allocate(memReq, globalsBuffer.get());
+			auto globalsBufferMem = m_device->allocate(memReq, m_globalsBuffer.get());
 		}
 		
+		size_t sumBufferSizes =
+			drawResourcesFiller.gpuDrawBuffers.drawObjectsBuffer->getSize() +
+			drawResourcesFiller.gpuDrawBuffers.geometryBuffer->getSize() +
+			drawResourcesFiller.gpuDrawBuffers.indexBuffer->getSize() +
+			drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer->getSize() +
+			drawResourcesFiller.gpuDrawBuffers.mainObjectsBuffer->getSize();
+		m_logger->log("Buffers Size = %.2fKB", ILogger::E_LOG_LEVEL::ELL_INFO, sumBufferSizes / 1024.0f);
 
 		// pseudoStencil
 		{
@@ -641,21 +647,6 @@ public:
 		
 		fragmentShaderInterlockEnabled = m_device->getEnabledFeatures().fragmentShaderPixelInterlock;
 		
-		// Create the Semaphores
-		m_renderSemaphore = m_device->createSemaphore(0ull);
-		m_renderSemaphore->setObjectDebugName("m_renderSemaphore");
-		m_overflowSubmitScratchSemaphore = m_device->createSemaphore(0ull);
-		m_overflowSubmitScratchSemaphore->setObjectDebugName("m_overflowSubmitScratchSemaphore");
-		if (!m_renderSemaphore || !m_overflowSubmitScratchSemaphore)
-			return logFail("Failed to Create Semaphores!");
-		
-		// Set Queue and ScratchSemaInfo -> wait semaphores and command buffers will be modified by workLoop each frame
-		m_intendedNextSubmit.queue = getGraphicsQueue();
-		m_intendedNextSubmit.scratchSemaphore = {
-				.semaphore = m_overflowSubmitScratchSemaphore.get(),
-				.value = 0ull,
-		};
-
 		// Let's just use the same queue since there's no need for async present
 		if (!m_surface)
 			return logFail("Could not create Window & Surface!");
@@ -674,7 +665,7 @@ public:
 
 		m_framesInFlight = min(m_surface->getMaxFramesInFlight(), MaxFramesInFlight);
 
-		allocateResources(256u);
+		allocateResources(1024 * 1024u);
 
 		const bitflag<IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS> bindlessTextureFlags =
 			IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT |
@@ -776,8 +767,8 @@ public:
 
 				// Descriptors For Set 0:
 				descriptorInfosSet0[0u].info.buffer.offset = 0u;
-				descriptorInfosSet0[0u].info.buffer.size = globalsBuffer->getCreationParams().size;
-				descriptorInfosSet0[0u].desc = globalsBuffer;
+				descriptorInfosSet0[0u].info.buffer.size = m_globalsBuffer->getCreationParams().size;
+				descriptorInfosSet0[0u].desc = m_globalsBuffer;
 
 				descriptorInfosSet0[1u].info.buffer.offset = 0u;
 				descriptorInfosSet0[1u].info.buffer.size = drawResourcesFiller.gpuDrawBuffers.drawObjectsBuffer->getCreationParams().size;
@@ -872,15 +863,45 @@ public:
 			pipelineLayout = m_device->createPipelineLayout({}, core::smart_refctd_ptr(descriptorSetLayout0), core::smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
 		}
 		
-		// Shaders
-		std::array<smart_refctd_ptr<IGPUShader>, 4u> shaders = {};
+		// Main Pipeline Shaders
+		std::array<smart_refctd_ptr<IGPUShader>, 4u> mainPipelineShaders = {};
+		constexpr auto vertexShaderPath = "../shaders/main_pipeline/vertex_shader.hlsl";
+		constexpr auto fragmentShaderPath = "../shaders/main_pipeline/fragment_shader.hlsl";
+		constexpr auto debugfragmentShaderPath = "../shaders/main_pipeline/fragment_shader_debug.hlsl";
+		constexpr auto resolveAlphasShaderPath = "../shaders/main_pipeline/resolve_alphas.hlsl";
+		// GeoTexture Pipeline Shaders
+		std::array<smart_refctd_ptr<IGPUShader>, 2u> geoTexturePipelineShaders = {};
 		{
-			constexpr auto vertexShaderPath = "../vertex_shader.hlsl";
-			constexpr auto fragmentShaderPath = "../fragment_shader.hlsl";
-			constexpr auto debugfragmentShaderPath = "../fragment_shader_debug.hlsl";
-			constexpr auto resolveAlphasShaderPath = "../resolve_alphas.hlsl";
-#if defined(SHADER_CACHE_TEST_COMPILATION_CACHE_STORE)
-			auto cache = core::make_smart_refctd_ptr<IShaderCompiler::CCache>();
+			smart_refctd_ptr<IShaderCompiler::CCache> shaderReadCache = nullptr;
+			smart_refctd_ptr<IShaderCompiler::CCache> shaderWriteCache = core::make_smart_refctd_ptr<IShaderCompiler::CCache>();
+			auto shaderCachePath = localOutputCWD / "main_pipeline_shader_cache.bin";
+
+			{
+				core::smart_refctd_ptr<system::IFile> shaderReadCacheFile;
+				{
+					system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
+					m_system->createFile(future, shaderCachePath.c_str(), system::IFile::ECF_READ);
+					if (future.wait())
+					{
+						future.acquire().move_into(shaderReadCacheFile);
+						if (shaderReadCacheFile)
+						{
+							const size_t size = shaderReadCacheFile->getSize();
+							if (size > 0ull)
+							{
+								std::vector<uint8_t> contents(size);
+								system::IFile::success_t succ;
+								shaderReadCacheFile->read(succ, contents.data(), 0, size);
+								if (succ)
+									shaderReadCache = IShaderCompiler::CCache::deserialize(contents);
+							}
+						}
+					}
+					else
+						m_logger->log("Failed Openning Shader Cache File.", ILogger::ELL_ERROR);
+				}
+
+			}
 
 			// Load Custom Shader
 			auto loadCompileAndCreateShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<IGPUShader>
@@ -899,101 +920,41 @@ public:
 					if (!cpuShader)
 						return nullptr;
 
-					return m_device->createShader({ cpuShader.get(), nullptr, nullptr, cache.get() });
+					return m_device->createShader({ cpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get()});
 				};
-			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::E_SHADER_STAGE::ESS_VERTEX);
-			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-
-			auto serializedCache = cache->serialize();
-			auto savePath = localOutputCWD / "cache.bin";
-			core::smart_refctd_ptr<system::IFile> f;
+			mainPipelineShaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::E_SHADER_STAGE::ESS_VERTEX);
+			mainPipelineShaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			mainPipelineShaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			mainPipelineShaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			
+			geoTexturePipelineShaders[0] = loadCompileAndCreateShader(GeoTextureRenderer::VertexShaderRelativePath, IShader::E_SHADER_STAGE::ESS_VERTEX);
+			geoTexturePipelineShaders[1] = loadCompileAndCreateShader(GeoTextureRenderer::FragmentShaderRelativePath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			
+			core::smart_refctd_ptr<system::IFile> shaderWriteCacheFile;
 			{
 				system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
-				m_system->createFile(future, savePath.c_str(), system::IFile::ECF_WRITE);
-				if (!future.wait())
-					return {};
-				future.acquire().move_into(f);
-			}
-			if (!f)
-			return {};
-			system::IFile::success_t succ;
-			f->write(succ, serializedCache->getPointer(), 0, serializedCache->getSize());
-			const bool success = bool(succ);
-			assert(success);
-#elif defined(SHADER_CACHE_TEST_CACHE_RETRIEVE)
-			auto savePath = localOutputCWD / "cache.bin";
-
-			core::smart_refctd_ptr<system::IFile> f;
-			{
-				system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
-				m_system->createFile(future, savePath.c_str(), system::IFile::ECF_READ);
-				if (!future.wait())
-					return {};
-				future.acquire().move_into(f);
-			}
-			if (!f)
-				return {};
-			const size_t size = f->getSize();
-
-			std::vector<uint8_t> contents(size);
-			system::IFile::success_t succ;
-			f->read(succ, contents.data(), 0, size);
-			const bool success = bool(succ);
-			assert(success);
-
-			auto cache = IShaderCompiler::CCache::deserialize(contents);
-
-			// Load Custom Shader
-			auto loadCompileAndCreateShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<IGPUShader>
+				m_system->deleteFile(shaderCachePath); // temp solution instead of trimming, to make sure we won't have corrupted json
+				m_system->createFile(future, shaderCachePath.c_str(), system::IFile::ECF_WRITE);
+				if (future.wait())
 				{
-					IAssetLoader::SAssetLoadParams lp = {};
-					lp.logger = m_logger.get();
-					lp.workingDirectory = ""; // virtual root
-					auto assetBundle = m_assetMgr->getAsset(relPath, lp);
-					const auto assets = assetBundle.getContents();
-					if (assets.empty())
-						return nullptr;
-
-					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-					auto cpuShader = IAsset::castDown<ICPUShader>(assets[0]);
-					cpuShader->setShaderStage(stage);
-					if (!cpuShader)
-						return nullptr;
-
-					return m_device->createShader({ cpuShader.get(), nullptr, cache.get(), nullptr });
-				};
-			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::E_SHADER_STAGE::ESS_VERTEX);
-			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-#else
-
-			// Load Custom Shader
-			auto loadCompileAndCreateShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<IGPUShader>
-				{
-					IAssetLoader::SAssetLoadParams lp = {};
-					lp.logger = m_logger.get();
-					lp.workingDirectory = ""; // virtual root
-					auto assetBundle = m_assetMgr->getAsset(relPath, lp);
-					const auto assets = assetBundle.getContents();
-					if (assets.empty())
-						return nullptr;
-
-					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-					auto cpuShader = IAsset::castDown<ICPUShader>(assets[0]);
-					cpuShader->setShaderStage(stage);
-					if (!cpuShader)
-						return nullptr;
-
-					return m_device->createShader(cpuShader.get());
-				};
-			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::E_SHADER_STAGE::ESS_VERTEX);
-			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-#endif
+					future.acquire().move_into(shaderWriteCacheFile);
+					if (shaderWriteCacheFile)
+					{
+						auto serializedCache = shaderWriteCache->serialize();
+						if (shaderWriteCacheFile)
+						{
+							system::IFile::success_t succ;
+							shaderWriteCacheFile->write(succ, serializedCache->getPointer(), 0, serializedCache->getSize());
+							if (!succ)
+								m_logger->log("Failed Writing To Shader Cache File.", ILogger::ELL_ERROR);
+						}
+					}
+					else
+						m_logger->log("Failed Creating Shader Cache File.", ILogger::ELL_ERROR);
+				}
+				else
+					m_logger->log("Failed Creating Shader Cache File.", ILogger::ELL_ERROR);
+			}
 		}
 
 		// Shared Blend Params between pipelines
@@ -1013,7 +974,7 @@ public:
 			
 			const IGPUShader::SSpecInfo fragSpec = {
 				.entryPoint = "main",
-				.shader = shaders[3u].get()
+				.shader = mainPipelineShaders[3u].get()
 			};
 
 			resolveAlphaGraphicsPipeline = fsTriangleProtoPipe.createPipeline(fragSpec, pipelineLayout.get(), compatibleRenderPass.get(), 0u, blendParams);
@@ -1026,8 +987,8 @@ public:
 		{
 			
 			IGPUShader::SSpecInfo specInfo[2] = {
-				{.shader=shaders[0u].get() },
-				{.shader=shaders[1u].get() },
+				{.shader=mainPipelineShaders[0u].get() },
+				{.shader=mainPipelineShaders[1u].get() },
 			};
 
 			IGPUGraphicsPipeline::SCreationParams params[1] = {};
@@ -1052,7 +1013,7 @@ public:
 
 			if constexpr (DebugModeWireframe)
 			{
-				specInfo[1u].shader = shaders[2u].get(); // change only fragment shader to fragment_shader_debug.hlsl
+				specInfo[1u].shader = mainPipelineShaders[2u].get(); // change only fragment shader to fragment_shader_debug.hlsl
 				params[0].cached.rasterization.polygonMode = asset::EPM_LINE;
 				
 				if (!m_device->createGraphicsPipelines(nullptr,params,&debugGraphicsPipeline))
@@ -1061,16 +1022,11 @@ public:
 		}
 
 		// Create the commandbuffers and pools, this time properly 1 pool per FIF
-		for (auto i=0u; i<m_framesInFlight; i++)
-		{
-			// non-individually-resettable commandbuffers have an advantage over invidually-resettable
-			// mainly that the pool can use a "cheaper", faster allocator internally
-			m_graphicsCommandPools[i] = m_device->createCommandPool(getGraphicsQueue()->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-			if (!m_graphicsCommandPools[i])
-				return logFail("Couldn't create Command Pool!");
-			if (!m_graphicsCommandPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{m_commandBuffers.data()+i,1}))
-				return logFail("Couldn't create Command Buffer!");
-		}
+		m_graphicsCommandPool = m_device->createCommandPool(getGraphicsQueue()->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+		if (!m_graphicsCommandPool)
+			return logFail("Couldn't create Command Pool!");
+		if (!m_graphicsCommandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{m_commandBuffersInFlight.data(),MaxSubmitsInFlight}))
+			return logFail("Couldn't create Command Buffers!");
 		
 		m_Camera.setOrigin({ 0.0, 0.0 });
 		m_Camera.setAspectRatio((double)m_window->getWidth() / m_window->getHeight());
@@ -1081,16 +1037,20 @@ public:
 		// Loading font stuff
 		m_textRenderer = nbl::core::make_smart_refctd_ptr<TextRenderer>();
 
-		m_arialFont = nbl::core::make_smart_refctd_ptr<FontFace>(core::smart_refctd_ptr(m_textRenderer), std::string("C:\\Windows\\Fonts\\arial.ttf"));
+		m_font = FontFace::create(core::smart_refctd_ptr(m_textRenderer), std::string("C:\\Windows\\Fonts\\arial.ttf"));
+	
+		if (m_font->getFreetypeFace()->num_charmaps > 0)
+			FT_Set_Charmap(m_font->getFreetypeFace(), m_font->getFreetypeFace()->charmaps[0]);
+		
 		const auto str = "MSDF: ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnoprstuvwxyz '1234567890-=\"!@#$%&*()_+";
 		singleLineText = std::unique_ptr<SingleLineText>(new SingleLineText(
-			core::smart_refctd_ptr<FontFace>(m_arialFont), 
+			core::smart_refctd_ptr<FontFace>(m_font), 
 			std::string(str)));
 
 		drawResourcesFiller.setGlyphMSDFTextureFunction(
 			[&](nbl::ext::TextRendering::FontFace* face, uint32_t glyphIdx) -> core::smart_refctd_ptr<asset::ICPUImage>
 			{
-				return std::move(face->generateGlyphMSDF(MSDFPixelRange, glyphIdx, drawResourcesFiller.getMSDFResolution(), MSDFMips));
+				return face->generateGlyphMSDF(MSDFPixelRange, glyphIdx, drawResourcesFiller.getMSDFResolution(), MSDFMips);
 			}
 		);
 
@@ -1100,14 +1060,35 @@ public:
 				return Hatch::generateHatchFillPatternMSDF(m_textRenderer.get(), pattern, drawResourcesFiller.getMSDFResolution());
 			}
 		);
+		
+		m_geoTextureRenderer = std::unique_ptr<GeoTextureRenderer>(new GeoTextureRenderer(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger)));
+		m_geoTextureRenderer->initialize(geoTexturePipelineShaders[0].get(), geoTexturePipelineShaders[1].get(), compatibleRenderPass.get(), m_globalsBuffer);
+		
+		// Create the Semaphores
+		m_renderSemaphore = m_device->createSemaphore(0ull);
+		m_renderSemaphore->setObjectDebugName("m_renderSemaphore");
+		m_overflowSubmitScratchSemaphore = m_device->createSemaphore(0ull);
+		m_overflowSubmitScratchSemaphore->setObjectDebugName("m_overflowSubmitScratchSemaphore");
+		if (!m_renderSemaphore || !m_overflowSubmitScratchSemaphore)
+			return logFail("Failed to Create Semaphores!");
+
+		// Set Queue and ScratchSemaInfo -> wait semaphores and command buffers will be modified by workLoop each frame
+		m_intendedNextSubmit.queue = getGraphicsQueue();
+		m_intendedNextSubmit.scratchSemaphore = {
+				.semaphore = m_overflowSubmitScratchSemaphore.get(),
+				.value = 0ull,
+		};
+		for (uint32_t i = 0; i < MaxSubmitsInFlight; ++i)
+			m_commandBufferInfos[i] = { .cmdbuf = m_commandBuffersInFlight[i].get() };
+		m_intendedNextSubmit.scratchCommandBuffers = m_commandBufferInfos;
+		m_currentRecordingCommandBufferInfo = &m_commandBufferInfos[0];
+
 		return true;
 	}
 
 	// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
 	inline void workLoopBody() override
 	{
-		const auto resourceIx = m_realFrameIx%m_framesInFlight;
-
 		auto now = std::chrono::high_resolution_clock::now();
 		dt = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime).count();
 		lastTime = now;
@@ -1162,11 +1143,8 @@ public:
 			.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 		};
 
-		IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1u] = { {.cmdbuf = m_commandBuffers[resourceIx].get() } };
 		IQueue::SSubmitInfo::SSemaphoreInfo waitSems[2u] = { acquired, prevFrameRendered };
-
 		m_intendedNextSubmit.waitSemaphores = waitSems;
-		m_intendedNextSubmit.commandBuffers = cmdbufs;
 		
 		addObjects(m_intendedNextSubmit);
 		
@@ -1197,19 +1175,20 @@ public:
 			if (m_device->blockForSemaphores(cmdbufDonePending)!=ISemaphore::WAIT_RESULT::SUCCESS)
 				return false;
 		}
-		
+
 		// Acquire
 		m_currentImageAcquire = m_surface->acquireNextImage();
 		if (!m_currentImageAcquire)
 			return false;
-
-		const auto resourceIx = m_realFrameIx%m_framesInFlight;
-		auto& cb = m_commandBuffers[resourceIx];
-		auto& commandPool = m_graphicsCommandPools[resourceIx];
+		
+		const bool beganSuccess = m_intendedNextSubmit.beginNextCommandBuffer(m_currentRecordingCommandBufferInfo);
+		assert(beganSuccess);
+		auto* cb = m_currentRecordingCommandBufferInfo->cmdbuf;
 
 		// safe to proceed
-		cb->reset(video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
-		cb->begin(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+		// no need to reset and begin new command buffers as SIntendedSubmitInfo already handled that.
+		// cb->reset(video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+		// cb->begin(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		cb->beginDebugMarker("Frame");
 
 		float64_t3x3 projectionToNDC;
@@ -1225,7 +1204,7 @@ public:
 		globalData.screenToWorldRatio = screenToWorld;
 		globalData.worldToScreenRatio = (1.0/screenToWorld);
 		globalData.miterLimit = 10.0f;
-		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = globalsBuffer.get() };
+		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = m_globalsBuffer.get() };
 		bool updateSuccess = cb->updateBuffer(globalBufferUpdateRange, &globalData);
 		assert(updateSuccess);
 		
@@ -1258,8 +1237,8 @@ public:
 	
 	void submitDraws(SIntendedSubmitInfo& intendedSubmitInfo, bool inBetweenSubmit)
 	{
-		const auto resourceIx = m_realFrameIx%m_framesInFlight;
-		auto* cb = intendedSubmitInfo.getScratchCommandBuffer();
+		// Use the current recording command buffer of the intendedSubmitInfos scratchCommandBuffers, it should be in recording state
+		auto* cb = m_currentRecordingCommandBufferInfo->cmdbuf;
 		auto&r = drawResourcesFiller;
 		
 		asset::SViewport vp =
@@ -1301,7 +1280,7 @@ public:
 					.buffer = drawResourcesFiller.gpuDrawBuffers.indexBuffer,
 				};
 			}
-			if (globalsBuffer->getSize() > 0u)
+			if (m_globalsBuffer->getSize() > 0u)
 			{
 				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
 				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
@@ -1311,8 +1290,8 @@ public:
 				bufferBarrier.range =
 				{
 					.offset = 0u,
-					.size = globalsBuffer->getSize(),
-					.buffer = globalsBuffer,
+					.size = m_globalsBuffer->getSize(),
+					.buffer = m_globalsBuffer,
 				};
 			}
 			if (drawResourcesFiller.getCurrentDrawObjectsBufferSize() > 0u)
@@ -1400,7 +1379,6 @@ public:
 		cb->bindIndexBuffer({ .offset = 0u, .buffer = drawResourcesFiller.gpuDrawBuffers.indexBuffer.get() }, asset::EIT_32BIT);
 		cb->bindGraphicsPipeline(graphicsPipeline.get());
 		cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
-
 		if (fragmentShaderInterlockEnabled)
 		{
 			cb->bindGraphicsPipeline(resolveAlphaGraphicsPipeline.get());
@@ -1420,14 +1398,14 @@ public:
 
 		if (inBetweenSubmit)
 		{
-			if (intendedSubmitInfo.overflowSubmit() != IQueue::RESULT::SUCCESS)
+			if (intendedSubmitInfo.overflowSubmit(m_currentRecordingCommandBufferInfo) != IQueue::RESULT::SUCCESS)
 			{
 				m_logger->log("overflow submit failed.", ILogger::ELL_ERROR);
 			}
 		}
 		else
 		{
-			cb->end();
+			// cb->end();
 			
 			const auto nextFrameIx = m_realFrameIx+1u;
 			const IQueue::SSubmitInfo::SSemaphoreInfo thisFrameRendered = {
@@ -1435,7 +1413,7 @@ public:
 				.value = nextFrameIx,
 				.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 			};
-			if (getGraphicsQueue()->submit(intendedSubmitInfo.popSubmit({&thisFrameRendered,1})) == IQueue::RESULT::SUCCESS)
+			if (intendedSubmitInfo.submit(m_currentRecordingCommandBufferInfo, { &thisFrameRendered,1 }) == IQueue::RESULT::SUCCESS)
 			{
 				m_realFrameIx = nextFrameIx;
 				
@@ -1466,6 +1444,8 @@ public:
 
 	virtual bool onAppTerminated() override
 	{
+		m_currentRecordingCommandBufferInfo->cmdbuf->end();
+
 		// We actually want to wait for all the frames to finish rendering, otherwise our destructors will run out of order late
 		m_device->waitIdle();
 
@@ -1503,8 +1483,8 @@ protected:
 			return;
 		}
 
-		// Use the last command buffer in intendedNextSubmit, it should be in recording state
-		auto* cmdbuf = intendedNextSubmit.getScratchCommandBuffer();
+		// Use the current recording command buffer of the intendedSubmitInfos scratchCommandBuffers, it should be in recording state
+		auto* cmdbuf = m_currentRecordingCommandBufferInfo->cmdbuf;
 
 		assert(cmdbuf->getState() == video::IGPUCommandBuffer::STATE::RECORDING && cmdbuf->isResettable());
 		assert(cmdbuf->getRecordingFlags().hasFlags(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT));
@@ -1538,18 +1518,7 @@ protected:
 		}
 		else if (mode == ExampleMode::CASE_1)
 		{
-			LineStyleInfo style = {};
-			style.screenSpaceLineWidth = 0.0f;
-			style.worldSpaceLineWidth = 0.8f;
-			style.color = float32_t4(0.619f, 0.325f, 0.709f, 0.2f);
-
-			LineStyleInfo style2 = {};
-			style2.screenSpaceLineWidth = 0.0f;
-			style2.worldSpaceLineWidth = 0.8f;
-			style2.color = float32_t4(0.119f, 0.825f, 0.709f, 0.5f);
-
-			// drawResourcesFiller.drawPolyline(bigPolyline, style, intendedNextSubmit);
-			// drawResourcesFiller.drawPolyline(bigPolyline2, style2, intendedNextSubmit);
+			// For Taking
 		}
 		else if (mode == ExampleMode::CASE_2)
 		{
@@ -1559,7 +1528,73 @@ protected:
 			};
 
 			int32_t hatchDebugStep = m_hatchDebugStep;
+			
+			if (hatchDebugStep > 0)
+			{
+				// Degenerate and Corner cases for hatches
+				{
+					{
+						float64_t miniGap = 1.0e-15;
+						// degenerate major const line points:
+						float64_t2 pointA = { 0.0, -50.0 + miniGap };
+						float64_t2 pointB = { 50.0, -50.0 };
+						CPolyline polyline;
+						std::vector<float64_t2> linePoints;
+						{
+							linePoints.push_back({ 0.0, 0.0 });
+							linePoints.push_back({ 50.0, 0.0 });
+							linePoints.push_back(pointB);
+							linePoints.push_back(pointA);
+							linePoints.push_back({ 0.0, 0.0 });
+						}
+						polyline.addLinePoints(linePoints);
+						Hatch hatch({ &polyline, 1u }, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
+						drawResourcesFiller.drawHatch(hatch, float32_t4(0.4f, 1.0f, 0.1f, 1.0f), intendedNextSubmit);
+						linePoints.clear();
+						polyline.clearEverything();
+						{
+							linePoints.push_back(pointA);
+							linePoints.push_back(pointB);
+							linePoints.push_back({ 50.0, -100.0 });
+							linePoints.push_back({ 0.0, -100.0 });
+							linePoints.push_back(pointA);
+						}
+						polyline.addLinePoints(linePoints);
+						Hatch hatch2({ &polyline, 1u }, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
+						drawResourcesFiller.drawHatch(hatch2, float32_t4(0.4f, 0.6f, 0.8f, 1.0f), intendedNextSubmit);
+					}
+				}
+				
 
+
+				{
+					{
+						float64_t2 offset = { 150.0, 0.0 };
+						float64_t miniGap = 1.0e-15 + abs(cos(m_timeElapsed * 0.00018)) * 15.0f;
+						CPolyline polyline;
+						std::vector<float64_t2> linePoints;
+						{
+							linePoints.push_back(offset + float64_t2{ 0.0, 0.0 });
+							linePoints.push_back(offset + float64_t2{ 100.0, 0.0 });
+							linePoints.push_back(offset + float64_t2{ 100.0, -100.0 });
+							linePoints.push_back(offset + float64_t2{ 0.0, -100.0 + miniGap });
+							linePoints.push_back(offset + float64_t2{ 0.0, 0.0 });
+						}
+						polyline.addLinePoints(linePoints);
+						linePoints.clear();
+						{
+							linePoints.push_back(offset + float64_t2{ 20.0, -20.0 });
+							linePoints.push_back(offset + float64_t2{ 80.0, -20.0 });
+							linePoints.push_back(offset + float64_t2{ 80.0, -80.0 });
+							linePoints.push_back(offset + float64_t2{ 20.0, -80.0 + miniGap });
+							linePoints.push_back(offset + float64_t2{ 20.0, -20.0 });
+						}
+						polyline.addLinePoints(linePoints);
+						Hatch hatch({ &polyline, 1u }, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
+						drawResourcesFiller.drawHatch(hatch, float32_t4(0.4f, 1.0f, 0.1f, 1.0f), intendedNextSubmit);
+					}
+				}
+			}
 			if (hatchDebugStep > 0)
 			{
 #include "bike_hatch.h"
@@ -1573,22 +1608,21 @@ protected:
 				}
 				//printf("hatchDebugStep = %d\n", hatchDebugStep);
 				std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
-				Hatch hatch(polylines, SelectedMajorAxis, &hatchDebugStep, debug);
+				Hatch hatch(polylines, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-				// std::cout << "Hatch::Hatch time = " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "[us]" << std::endl;
-				std::sort(hatch.intersectionAmounts.begin(), hatch.intersectionAmounts.end());
+				//// std::cout << "Hatch::Hatch time = " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "[us]" << std::endl;
+				//std::sort(hatch.intersectionAmounts.begin(), hatch.intersectionAmounts.end());
 
-				auto percentile = [&](float percentile)
-					{
-						return hatch.intersectionAmounts[uint32_t(round(percentile * float(hatch.intersectionAmounts.size() - 1)))];
-					};
+				//auto percentile = [&](float percentile)
+				//	{
+				//		return hatch.intersectionAmounts[uint32_t(round(percentile * float(hatch.intersectionAmounts.size() - 1)))];
+				//	};
 				//printf(std::format(
 				//	"Intersection amounts: 10%%: {}, 25%%: {}, 50%%: {}, 75%%: {}, 90%%: {}, 100%% (max): {}\n",
 				//	percentile(0.1), percentile(0.25), percentile(0.5), percentile(0.75), percentile(0.9), hatch.intersectionAmounts[hatch.intersectionAmounts.size() - 1]
 				//).c_str());
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.6, 0.6, 0.1, 1.0f), intendedNextSubmit);
 			}
-
 			if (hatchDebugStep > 0)
 			{
 				std::vector <CPolyline> polylines;
@@ -1629,10 +1663,9 @@ protected:
 					polylines.push_back(polyline);
 				}
 
-				Hatch hatch(polylines, SelectedMajorAxis, &hatchDebugStep, debug);
+				Hatch hatch(polylines, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.0, 1.0, 0.1, 1.0f), intendedNextSubmit);
 			}
-
 			if (hatchDebugStep > 0)
 			{
 				std::vector <CPolyline> polylines;
@@ -1662,10 +1695,9 @@ protected:
 				circleThing(float64_t2(0, -500));
 				circleThing(float64_t2(0, 500));
 
-				Hatch hatch(polylines, SelectedMajorAxis, &hatchDebugStep, debug);
+				Hatch hatch(polylines, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(1.0, 0.1, 0.1, 1.0f), intendedNextSubmit);
 			}
-
 			if (hatchDebugStep > 0)
 			{
 				std::vector <CPolyline> polylines;
@@ -1704,7 +1736,6 @@ protected:
 					polyline.addQuadBeziers(beziers);
 				}
 			}
-
 			if (hatchDebugStep > 0)
 			{
 				std::vector <CPolyline> polylines;
@@ -1816,10 +1847,9 @@ protected:
 					polyline.addLinePoints(points);
 					polylines.push_back(polyline);
 				}
-				Hatch hatch(polylines, SelectedMajorAxis, &hatchDebugStep, debug);
+				Hatch hatch(polylines, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.0, 0.0, 1.0, 1.0f), intendedNextSubmit);
 			}
-			
 			if (hatchDebugStep > 0)
 			{
 				std::vector<float64_t2> points;
@@ -1855,10 +1885,9 @@ protected:
 				polyline.addLinePoints(points);
 				polyline.addQuadBeziers(beziers);
 
-				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, &hatchDebugStep, debug);
+				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(1.0f, 0.325f, 0.103f, 1.0f), intendedNextSubmit);
 			}
-			
 			if (hatchDebugStep > 0)
 			{
 				CPolyline polyline;
@@ -1873,12 +1902,29 @@ protected:
 					100.0 * float64_t2(3.7, 7.27) });
 				polyline.addQuadBeziers(beziers);
 			
-				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, &hatchDebugStep, debug);
+				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, logger_opt_smart_ptr(smart_refctd_ptr(m_logger)), &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.619f, 0.325f, 0.709f, 0.9f), intendedNextSubmit);
 			}
 		}
 		else if (mode == ExampleMode::CASE_3)
 		{
+			// Testing Degenerate Cases Causing Bugs/Nan/Crashes
+			// 0 Sized Rect --> generateOffsetPolyline shouldn't return nan
+			{
+				CPolyline polyline;
+				std::vector<float64_t2> linePoints;
+				{
+					linePoints.push_back({ 1.0, -20.0 });
+					linePoints.push_back({ 1.0, -20.0 });
+					linePoints.push_back({ 1.0, 0.0 });
+					linePoints.push_back({ 1.0, 0.0 });
+					linePoints.push_back({ 1.0, -20.0 });
+				}
+				polyline.addLinePoints(linePoints);
+				auto parallelPoly = polyline.generateParallelPolyline(1.0);
+				assert(!std::isnan(parallelPoly.getLinePointAt(0).p[0]));
+			}
+
 			LineStyleInfo style = {};
 			style.screenSpaceLineWidth = 4.0f;
 			style.worldSpaceLineWidth = 0.0f;
@@ -2841,7 +2887,6 @@ protected:
 						break;
 					default:
 						m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type, skipping!",ILogger::ELL_ERROR);
-						return;
 				}
 			
 
@@ -2862,7 +2907,7 @@ protected:
 				}
 				gpuImg = m_device->createImage(std::move(imageParams));
 				if (!gpuImg || !m_device->allocate(gpuImg->getMemoryReqs(),gpuImg.get()).isValid())
-					return;
+					m_logger->log("Failed to create or allocate gpu image!",ILogger::ELL_ERROR);
 				gpuImg->setObjectDebugName(imagePath.c_str());
 				
 				IGPUImageView::SCreationParams viewParams = {
@@ -2976,7 +3021,7 @@ protected:
 						auto addPt = [&](float64_t2 p)
 						{
 							auto point = p / 8.0;
-							points.push_back(point * hatchFillShapeSize + float64_t2(offset, -200.0 - hatchFillShapeSize));
+							points.push_back(point * hatchFillShapeSize + float64_t2(offset, -300.0 - hatchFillShapeSize));
 						};
 						addPt(float64_t2(0.0, 0.0));
 						addPt(float64_t2(8.0, 0.0));
@@ -2986,7 +3031,7 @@ protected:
 						squareBelow.addLinePoints(points);
 					}
 
-					Hatch filledHatch(std::span<CPolyline, 1>{std::addressof(squareBelow), 1}, SelectedMajorAxis);
+					Hatch filledHatch({&squareBelow, 1}, SelectedMajorAxis);
 					// This draws a square that is textured with the fill pattern at hatchFillShapeIdx
 					drawResourcesFiller.drawHatch(
 						filledHatch, 
@@ -3001,10 +3046,15 @@ protected:
 			if (singleLineText)
 			{
 				float32_t rotation = 0.0; // nbl::core::PI<float>()* abs(cos(m_timeElapsed * 0.00005));
-				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-100.0), float32_t2(1.0, 1.0), rotation);
+				float32_t italicTiltAngle = nbl::core::PI<float>() / 9.0f;
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-100.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), 0.0f, 0.0f);
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-150.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), 0.0f, 0.5f);
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-200.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), italicTiltAngle, 0.0f);
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-250.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), italicTiltAngle, 0.5f);
+				// singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-200.0), float32_t2(1.0, 1.0), nbl::core::PI<float>() * abs(cos(m_timeElapsed * 0.00005)));
 				// Smaller text to test mip maps
-				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-130.0), float32_t2(0.4, 0.4), rotation);
-				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-150.0), float32_t2(0.2, 0.2), rotation);
+				//singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-130.0), float32_t2(0.4, 0.4), rotation);
+				//singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-150.0), float32_t2(0.2, 0.2), rotation);
 			}
 
 			const bool drawTextHatches = true;
@@ -3031,8 +3081,8 @@ protected:
 				for (uint32_t i = 0; i < strlen(TestString); i++)
 				{
 					char k = TestString[i];
-					auto glyphIndex = m_arialFont->getGlyphIndex(wchar_t(k));
-					const auto glyphMetrics = m_arialFont->getGlyphMetrics(glyphIndex);
+					auto glyphIndex = m_font->getGlyphIndex(wchar_t(k));
+					const auto glyphMetrics = m_font->getGlyphMetrics(glyphIndex);
 					const float64_t2 baselineStart = currentBaselineStart;
 
 					currentBaselineStart += glyphMetrics.advance;
@@ -3080,12 +3130,12 @@ protected:
 								ftFunctions.cubic_to = &ftCubicTo;
 								ftFunctions.shift = 0;
 								ftFunctions.delta = 0;
-								auto error = FT_Outline_Decompose(&m_arialFont->getGlyphSlot(glyphIndex)->outline, &ftFunctions, &hatchBuilder);
+								auto error = FT_Outline_Decompose(&m_font->getGlyphSlot(glyphIndex)->outline, &ftFunctions, &hatchBuilder);
 								assert(!error);
 								hatchBuilder.finish();
 							}
 							msdfgen::Shape glyphShape;
-							bool loadedGlyph = drawFreetypeGlyph(glyphShape, m_textRenderer->getFreetypeLibrary(), m_arialFont->getFreetypeFace());
+							bool loadedGlyph = drawFreetypeGlyph(glyphShape, m_textRenderer->getFreetypeLibrary(), m_font->getFreetypeFace());
 							assert(loadedGlyph);
 
 							auto& shapePolylines = hatchBuilder.polylines;
@@ -3183,12 +3233,16 @@ protected:
 	smart_refctd_ptr<IGPURenderpass> renderpassInBetween; // this renderpass will load the attachment and transition it to COLOR_ATTACHMENT_OPTIMAL
 	smart_refctd_ptr<IGPURenderpass> renderpassFinal; // this renderpass will load the attachment and transition it to PRESENT
 	
-	std::array<smart_refctd_ptr<IGPUCommandPool>,	MaxFramesInFlight>	m_graphicsCommandPools;
-	std::array<smart_refctd_ptr<IGPUCommandBuffer>,	MaxFramesInFlight>	m_commandBuffers;
-	
+	smart_refctd_ptr<IGPUCommandPool> m_graphicsCommandPool;
+	std::array<smart_refctd_ptr<IGPUCommandBuffer>,	MaxSubmitsInFlight>	m_commandBuffersInFlight; 
+	// ref to above cmd buffers, these go into SIntendedSubmitInfo as command buffers available for recording.
+	std::array<IQueue::SSubmitInfo::SCommandBufferInfo,	MaxSubmitsInFlight>	m_commandBufferInfos;
+	// pointer to one of the command buffer infos from above, this is the only command buffer used to record current submit in current frame, it will be updated by SIntendedSubmitInfo
+	IQueue::SSubmitInfo::SCommandBufferInfo const * m_currentRecordingCommandBufferInfo; // pointer can change, value cannot
+
 	smart_refctd_ptr<IGPUSampler>		msdfTextureSampler;
 
-	smart_refctd_ptr<IGPUBuffer>		globalsBuffer;
+	smart_refctd_ptr<IGPUBuffer>		m_globalsBuffer;
 	smart_refctd_ptr<IGPUDescriptorSet>	descriptorSet0;
 	smart_refctd_ptr<IGPUDescriptorSet>	descriptorSet1;
 	DrawResourcesFiller drawResourcesFiller; // you can think of this as the scene data needed to draw everything, we only have one instance so let's use a timeline semaphore to sync all renders
@@ -3219,10 +3273,8 @@ protected:
 	smart_refctd_ptr<IGPUImageView> pseudoStencilImageView;
 	smart_refctd_ptr<IGPUImageView> colorStorageImageView;
 	smart_refctd_ptr<TextRenderer> m_textRenderer;
-	smart_refctd_ptr<FontFace> m_arialFont;
-	smart_refctd_ptr<FontFace> m_webdingsFont;
+	smart_refctd_ptr<FontFace> m_font;
 	std::unique_ptr<SingleLineText> singleLineText = nullptr;
-	std::unique_ptr<SingleLineText> webdingsSquareText = nullptr;
 	
 	std::vector<std::unique_ptr<msdfgen::Shape>> m_shapeMSDFImages = {};
 
@@ -3235,6 +3287,8 @@ protected:
 	const std::chrono::steady_clock::time_point startBenchmark = std::chrono::high_resolution_clock::now();
 	bool stopBenchamrkFlag = false;
 	#endif
+	
+	std::unique_ptr<GeoTextureRenderer> m_geoTextureRenderer;
 };
 
 NBL_MAIN_FUNC(ComputerAidedDesign)

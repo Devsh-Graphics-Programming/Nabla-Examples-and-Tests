@@ -12,6 +12,7 @@ using namespace nbl::asset;
 using namespace nbl::ui;
 using namespace nbl::video;
 
+#include "app_resources/common.hlsl"
 
 class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
@@ -28,13 +29,22 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 
 		inline bool isComputeOnly() const override { return false; }
 
-		inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
+		// tired of packing and unpacking from float16_t, let some Junior do device traits / manual pack
+		virtual video::SPhysicalDeviceLimits getRequiredDeviceLimits() const override
+		{
+			auto retval = device_base_t::getRequiredDeviceLimits();
+			retval.shaderSubgroupArithmetic = true;
+			retval.shaderFloat16 = true;
+			return retval;
+		}
+
+		inline core::vector<SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 		{
 			if (!m_surface)
 			{
 				{
 					IWindow::SCreationParams params = {};
-					params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
+					params.callback = core::make_smart_refctd_ptr<ISimpleManagedSurface::ICallback>();
 					params.width = WIN_W;
 					params.height = WIN_H;
 					params.x = 32;
@@ -44,7 +54,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 					const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
 				}
 				auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
-				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = nbl::video::CSimpleResizeSurface<CDefaultSwapchainFramebuffers>::create(std::move(surface));
+				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>::create(std::move(surface));
 			}
 
 			if (m_surface)
@@ -59,7 +69,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				return false;
 			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
-/*
+
 			smart_refctd_ptr<IGPUShader> shader;
 			{
 				IAssetLoader::SAssetLoadParams lp = {};
@@ -79,7 +89,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				if (!shader)
 					return false;
 			}
-*/			
+			
 			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
 			{
 				const IGPUDescriptorSetLayout::SBinding bindings[1] = { {
@@ -94,9 +104,14 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				if (!dsLayout)
 					return logFail("Failed to Create Descriptor Layout");
 			}
-/*
+
 			{
-				auto layout = m_device->createPipelineLayout({},smart_refctd_ptr(dsLayout));
+				const asset::SPushConstantRange ranges[] = {{
+					.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.offset = 0,
+					.size = sizeof(PushConstants)
+				}};
+				auto layout = m_device->createPipelineLayout(ranges,smart_refctd_ptr(dsLayout));
 				const IGPUComputePipeline::SCreationParams params[] = { {
 					{
 						.layout = layout.get()
@@ -114,7 +129,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				if (!m_device->createComputePipelines(nullptr,params,&m_ppln))
 					return logFail("Failed to create Pipeline");
 			}
-*/
+
 			m_hdr = m_device->createImage({
 				{
 					.type = IGPUImage::E_TYPE::ET_2D,
@@ -124,7 +139,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 					.mipLevels = 1,
 					.arrayLayers = 1,
 					.flags = core::bitflag(IGPUImage::E_CREATE_FLAGS::ECF_MUTABLE_FORMAT_BIT) | IGPUImage::E_CREATE_FLAGS::ECF_EXTENDED_USAGE_BIT,
-					.usage = IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT | IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT
+					.usage = IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT | IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT | IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT
 				}
 			});
 			if (!m_hdr || !m_device->allocate(m_hdr->getMemoryReqs(),m_hdr.get()).isValid())
@@ -134,8 +149,8 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE,{&dsLayout.get(),1});
 				if (!pool)
 					return logFail("Could not create Descriptor Pool");
-				auto ds = pool->createDescriptorSet(std::move(dsLayout));
-				if (!ds)
+				m_ds = pool->createDescriptorSet(std::move(dsLayout));
+				if (!m_ds)
 					return logFail("Could not create Descriptor Set");
 				IGPUDescriptorSet::SDescriptorInfo info = {};
 				{
@@ -152,7 +167,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 					info.info.image.imageLayout = IGPUImage::LAYOUT::GENERAL;
 				}
 				const IGPUDescriptorSet::SWriteDescriptorSet writes[] = {{
-					.dstSet = ds.get(),
+					.dstSet = m_ds.get(),
 					.binding = 0,
 					.arrayElement = 0,
 					.count = 1,
@@ -171,7 +186,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				return logFail("Could not choose a Surface Format for the Swapchain!");
 
 			auto gQueue = getGraphicsQueue();
-			if (!m_surface || !m_surface->init(gQueue, nullptr, swapchainParams.sharedParams))
+			if (!m_surface || !m_surface->init(gQueue, std::make_unique<ISimpleManagedSurface::ISwapchainResources>(), swapchainParams.sharedParams))
 				return logFail("Could not create Window & Surface or initialize the Surface!");
 
 			m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
@@ -193,7 +208,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 			m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
 			m_surface->recreateSwapchain();
 
-			auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
+			auto assetManager = make_smart_refctd_ptr<IAssetManager>(smart_refctd_ptr(system));
 
 			m_winMgr->show(m_window.get());
 
@@ -277,7 +292,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
 				.srcAccessMask = ACCESS_FLAGS::STORAGE_WRITE_BIT|ACCESS_FLAGS::STORAGE_READ_BIT,
 				.dstStageMask = PIPELINE_STAGE_FLAGS::BLIT_BIT,
-				.dstAccessMask = ACCESS_FLAGS::STORAGE_READ_BIT
+				.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
 			};
 
 			auto& imgDep = imgBarrier.barrier.dep;
@@ -287,9 +302,15 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 
 			// write the image
 			{
-				//
-	//			cb->bindComputePipeline(rawPipeline);
-	// push constants
+				cb->bindComputePipeline(m_ppln.get());
+				auto* layout = m_ppln->getLayout();
+				cb->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_COMPUTE,layout,0,1,&m_ds.get());
+				const PushConstants pc = {
+					.sharedAcceptableIdleCount = 0,
+					.globalAcceptableIdleCount = 0
+				};
+				cb->pushConstants(layout,IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,0,sizeof(pc),&pc);
+				cb->dispatch(WIN_W/WorkgroupSizeX,WIN_H/WorkgroupSizeY,1);
 			}
 
 			{
@@ -334,6 +355,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				swapImageBarrier.barrier.dep = swapImageBarrier.barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::NONE,ACCESS_FLAGS::NONE);
 				swapImageBarrier.oldLayout = imgBarriers[1].newLayout;
 				swapImageBarrier.newLayout = IGPUImage::LAYOUT::PRESENT_SRC;
+				cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers={&swapImageBarrier,1}});
 			}
 
 			cb->end();
@@ -371,9 +393,10 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 							}
 						};
 
+						m_api->startCapture();
 						if (getGraphicsQueue()->submit(infos) == IQueue::RESULT::SUCCESS)
 						{
-							const nbl::video::ISemaphore::SWaitInfo waitInfos[] =
+							const ISemaphore::SWaitInfo waitInfos[] =
 							{ {
 								.semaphore = m_semaphore.get(),
 								.value = m_realFrameIx
@@ -383,6 +406,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 						}
 						else
 							--m_realFrameIx;
+						m_api->endCapture();
 					}
 				}
 
@@ -405,9 +429,10 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 
 	private:
 		smart_refctd_ptr<IWindow> m_window;
-		smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
-		smart_refctd_ptr<IGPUImage> m_hdr;
+		smart_refctd_ptr<CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>> m_surface;
 		smart_refctd_ptr<IGPUComputePipeline> m_ppln;
+		smart_refctd_ptr<IGPUDescriptorSet> m_ds;
+		smart_refctd_ptr<IGPUImage> m_hdr;
 		smart_refctd_ptr<ISemaphore> m_semaphore;
 		uint64_t m_realFrameIx : 59 = 0;
 		uint64_t m_maxFramesInFlight : 5;
