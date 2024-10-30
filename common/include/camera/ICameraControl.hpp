@@ -95,21 +95,6 @@ public:
             updateOrthonormalMatrix();
         }
 
-        inline void strafe(float distance)
-        {
-            move({ 0.f, distance, 0.f });
-        }
-
-        inline void climb(float distance)
-        {
-            move({ 0.f, 0.f, distance });
-        }
-
-        inline void advance(float distance)
-        {
-            move({ distance, 0.f, 0.f });
-        }
-
         inline void move(float32_t3 delta)
         {
             m_position += delta;
