@@ -3,6 +3,7 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "nbl/this_example/common.hpp"
+#include "nbl/asset/interchange/IImageAssetHandlerBase.h"
 
 using namespace nbl;
 using namespace core;
@@ -297,114 +298,166 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				}
 			}
 
-			// load image
+			// load CPUImages and convert to GPUImages
+			smart_refctd_ptr<IGPUImage> envMap, scrambleMap;
 			{
-				IAssetLoader::SAssetLoadParams lp;
-				lp.logger = m_logger.get();
+				auto convertImgCPU2GPU = [&](smart_refctd_ptr<ICPUImage> cpuImg) {
+					auto queue = getGraphicsQueue();
+					auto cmdbuf = m_cmdBufs[0].get();
+					cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
+					std::array<IQueue::SSubmitInfo::SCommandBufferInfo, 1> commandBufferInfo = { cmdbuf };
+					core::smart_refctd_ptr<ISemaphore> imgFillSemaphore = m_device->createSemaphore(0);
+					imgFillSemaphore->setObjectDebugName("Image Fill Semaphore");
 
-				auto queue = getGraphicsQueue();
-				auto cmdbuf = m_cmdBufs[0].get();
-				std::array<IQueue::SSubmitInfo::SCommandBufferInfo, 1> commandBufferInfo = { cmdbuf };
-				core::smart_refctd_ptr<ISemaphore> imgFillSemaphore = m_device->createSemaphore(0);
-				imgFillSemaphore->setObjectDebugName("Image Fill Semaphore");
-
-				auto converter = CAssetConverter::create({ .device = m_device.get() });
-				// We don't want to generate mip-maps for these images, to ensure that we must override the default callbacks.
-				struct SInputs final : CAssetConverter::SInputs
-				{
-					// we also need to override this to have concurrent sharing
-					inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t groupCopyID, const asset::ICPUImage* buffer, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+					auto converter = CAssetConverter::create({ .device = m_device.get() });
+					// We don't want to generate mip-maps for these images, to ensure that we must override the default callbacks.
+					struct SInputs final : CAssetConverter::SInputs
 					{
-						if (familyIndices.size() > 1)
-							return familyIndices;
-						return {};
+						// we also need to override this to have concurrent sharing
+						inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t groupCopyID, const asset::ICPUImage* buffer, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+						{
+							if (familyIndices.size() > 1)
+								return familyIndices;
+							return {};
+						}
+
+						inline uint8_t getMipLevelCount(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+						{
+							return image->getCreationParameters().mipLevels;
+						}
+						inline uint16_t needToRecomputeMips(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+						{
+							return 0b0u;
+						}
+
+						std::vector<uint32_t> familyIndices;
+					} inputs = {};
+					inputs.readCache = converter.get();
+					inputs.logger = m_logger.get();
+					{
+						const core::set<uint32_t> uniqueFamilyIndices = { queue->getFamilyIndex(), queue->getFamilyIndex() };
+						inputs.familyIndices = { uniqueFamilyIndices.begin(),uniqueFamilyIndices.end() };
+					}
+					// scratch command buffers for asset converter transfer commands
+					SIntendedSubmitInfo transfer = {
+						.queue = queue,
+						.waitSemaphores = {},
+						.prevCommandBuffers = {},
+						.scratchCommandBuffers = commandBufferInfo,
+						.scratchSemaphore = {
+							.semaphore = imgFillSemaphore.get(),
+							.value = 0,
+							// because of layout transitions
+							.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+						}
+					};
+					// as per the `SIntendedSubmitInfo` one commandbuffer must be begun
+					cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+					// Normally we'd have to inherit and override the `getFinalOwnerQueueFamily` callback to ensure that the
+					// compute queue becomes the owner of the buffers and images post-transfer, but in this example we use concurrent sharing
+					CAssetConverter::SConvertParams params = {};
+					params.transfer = &transfer;
+					params.utilities = m_utils.get();
+
+					std::get<CAssetConverter::SInputs::asset_span_t<ICPUImage>>(inputs.assets) = { &cpuImg.get(),1 };
+					// assert that we don't need to provide patches
+					assert(cpuImg->getImageUsageFlags().hasFlags(ICPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT));
+					auto reservation = converter->reserve(inputs);
+					// the `.value` is just a funny way to make the `smart_refctd_ptr` copyable
+					auto gpuImg = reservation.getGPUObjects<ICPUImage>().front().value;
+					if (!gpuImg) {
+						m_logger->log("Failed to convert %s into an IGPUImage handle", ILogger::ELL_ERROR, DefaultImagePathsFile);
+						std::exit(-1);
 					}
 
-					inline uint8_t getMipLevelCount(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
-					{
-						return image->getCreationParameters().mipLevels;
-					}
-					inline uint16_t needToRecomputeMips(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
-					{
-						return 0b0u;
+					// we want our converter's submit to signal a semaphore that image contents are ready
+					const IQueue::SSubmitInfo::SSemaphoreInfo signalSemaphore = {
+							.semaphore = imgFillSemaphore.get(),
+							.value = 1u,
+							// cannot signal from COPY stage because there's a layout transition and a possible ownership transfer
+							// and we need to wait for right after and they don't have an explicit stage
+							.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+					};
+					params.extraSignalSemaphores = { &signalSemaphore,1 };
+					// and launch the conversions
+					m_api->startCapture();
+					auto result = reservation.convert(params);
+					m_api->endCapture();
+					if (!result.blocking() && result.copy() != IQueue::RESULT::SUCCESS) {
+						m_logger->log("Failed to record or submit conversions", ILogger::ELL_ERROR);
+						std::exit(-1);
 					}
 
-					std::vector<uint32_t> familyIndices;
-				} inputs = {};
-				inputs.readCache = converter.get();
-				inputs.logger = m_logger.get();
-				{
-					const core::set<uint32_t> uniqueFamilyIndices = { queue->getFamilyIndex(), queue->getFamilyIndex() };
-					inputs.familyIndices = { uniqueFamilyIndices.begin(),uniqueFamilyIndices.end() };
-				}
-				// scratch command buffers for asset converter transfer commands
-				SIntendedSubmitInfo transfer = {
-					.queue = queue,
-					.waitSemaphores = {},
-					.prevCommandBuffers = {},
-					.scratchCommandBuffers = commandBufferInfo,
-					.scratchSemaphore = {
-						.semaphore = imgFillSemaphore.get(),
-						.value = 0,
-						// because of layout transitions
-						.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
-					}
+					return gpuImg;
 				};
-				// as per the `SIntendedSubmitInfo` one commandbuffer must be begun
-				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-				// Normally we'd have to inherit and override the `getFinalOwnerQueueFamily` callback to ensure that the
-				// compute queue becomes the owner of the buffers and images post-transfer, but in this example we use concurrent sharing
-				CAssetConverter::SConvertParams params = {};
-				params.transfer = &transfer;
-				params.utilities = m_utils.get();
 
-				auto loadFistAssetInBundle = [&](const std::string& path) {
+				smart_refctd_ptr<ICPUImage> envMapCPU, scrambleMapCPU;
+				{
 					IAssetLoader::SAssetLoadParams lp;
-					SAssetBundle bundle = m_assetMgr->getAsset(path, lp);
+					SAssetBundle bundle = m_assetMgr->getAsset(DefaultImagePathsFile, lp);
 					if (bundle.getContents().empty()) {
 						m_logger->log("Couldn't load an asset.", ILogger::ELL_ERROR);
 						std::exit(-1);
 					}
 
-					auto asset = IAsset::castDown<ICPUImage>(bundle.getContents()[0]);
-					if (!asset) {
+					envMapCPU = IAsset::castDown<ICPUImage>(bundle.getContents()[0]);
+					if (!envMapCPU) {
 						m_logger->log("Couldn't load an asset.", ILogger::ELL_ERROR);
 						std::exit(-1);
 					}
-
-					return asset;
-					};
-
-				auto cpuImage = loadFistAssetInBundle(DefaultImagePathsFile);
-				std::get<CAssetConverter::SInputs::asset_span_t<ICPUImage>>(inputs.assets) = { &cpuImage.get(),1 };
-				// assert that we don't need to provide patches
-				assert(cpuImage->getImageUsageFlags().hasFlags(ICPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT));
-				auto reservation = converter->reserve(inputs);
-				// the `.value` is just a funny way to make the `smart_refctd_ptr` copyable
-				m_envMap = reservation.getGPUObjects<ICPUImage>().front().value;
-				m_envMap->setObjectDebugName("Env Map");
-				if (!m_envMap) {
-					m_logger->log("Failed to convert %s into an IGPUImage handle", ILogger::ELL_ERROR, DefaultImagePathsFile);
-					std::exit(-1);
-				}
-
-				// we want our converter's submit to signal a semaphore that image contents are ready
-				const IQueue::SSubmitInfo::SSemaphoreInfo signalSemaphore = {
-						.semaphore = imgFillSemaphore.get(),
-						.value = 1u,
-						// cannot signal from COPY stage because there's a layout transition and a possible ownership transfer
-						// and we need to wait for right after and they don't have an explicit stage
-						.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 				};
-				params.extraSignalSemaphores = { &signalSemaphore,1 };
-				// and launch the conversions
-				m_api->startCapture();
-				auto result = reservation.convert(params);
-				m_api->endCapture();
-				if (!result.blocking() && result.copy() != IQueue::RESULT::SUCCESS) {
-					m_logger->log("Failed to record or submit conversions", ILogger::ELL_ERROR);
-					std::exit(-1);
+				{
+					asset::ICPUImage::SCreationParams info;
+					info.format = asset::E_FORMAT::EF_R32G32_UINT;
+					info.type = asset::ICPUImage::ET_2D;
+					auto extent = envMapCPU->getCreationParameters().extent;
+					info.extent.width = extent.width;
+					info.extent.height = extent.height;
+					info.extent.depth = 1u;
+					info.mipLevels = 1u;
+					info.arrayLayers = 1u;
+					info.samples = asset::ICPUImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT;
+					info.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(0u);
+					info.usage = asset::IImage::EUF_TRANSFER_SRC_BIT | asset::IImage::EUF_SAMPLED_BIT;
+
+					scrambleMapCPU = ICPUImage::create(std::move(info));
+					const uint32_t texelFormatByteSize = getTexelOrBlockBytesize(scrambleMapCPU->getCreationParameters().format);
+					const uint32_t texelBufferSize = scrambleMapCPU->getImageDataSizeInBytes();
+					auto texelBuffer = core::make_smart_refctd_ptr<ICPUBuffer>(texelBufferSize);
+
+					core::RandomSampler rng(0xbadc0ffeu);
+					std::vector<uint8_t> random(texelBuffer->getSize());
+					for (int index = 0; index < texelBuffer->getSize(); index += 4) {
+						auto sample = rng.nextSample();
+						random[index] = sample & 0xFF;
+						random[index + 1] = (sample & 0xFFFF) >> 8;
+						random[index + 2] = (sample & 0xFFFFFF) >> 16;
+						random[index + 3] = (sample & 0xFFFFFFFF) >> 24;
+					}
+
+					memcpy(
+						texelBuffer->getPointer(),
+						random.data(),
+						texelBuffer->getSize()
+					);
+
+					auto regions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1u);
+					ICPUImage::SBufferCopy& region = regions->front();
+					region.imageSubresource.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+					region.imageSubresource.mipLevel = 0u;
+					region.imageSubresource.baseArrayLayer = 0u;
+					region.imageSubresource.layerCount = 1u;
+					region.bufferOffset = 0u;
+					region.bufferRowLength = IImageAssetHandlerBase::calcPitchInBlocks(extent.width, texelFormatByteSize);
+					region.bufferImageHeight = 0u;
+					region.imageOffset = { 0u, 0u, 0u };
+					region.imageExtent = scrambleMapCPU->getCreationParameters().extent;
+
+					scrambleMapCPU->setBufferAndRegions(std::move(texelBuffer), regions);
 				}
+
+				envMap = convertImgCPU2GPU(envMapCPU);
+				scrambleMap = convertImgCPU2GPU(scrambleMapCPU);
 			}
 
 			// create views for textures
@@ -446,15 +499,18 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					return m_device->createImageView(std::move(imgViewInfo));
 				};
 
-				auto params = m_envMap->getCreationParameters();
+				auto params = envMap->getCreationParameters();
 				auto extent = params.extent;
-				m_envMapView = createHDRIImageView(m_envMap);
-				// TODO: ALSO NAME THE IMAGES!
+				envMap->setObjectDebugName("Env Map");
+				m_envMapView = createHDRIImageView(envMap);
 				m_envMapView->setObjectDebugName("Env Map View");
-				m_scrambleView = createHDRIImageView(createHDRIImage(asset::E_FORMAT::EF_R32G32_UINT, extent.width, extent.height));
-				m_scrambleView->setObjectDebugName("Scramble Map");
-				m_outImgView = createHDRIImageView(createHDRIImage(asset::E_FORMAT::EF_R16G16B16A16_SFLOAT, WindowDimensions.x, WindowDimensions.y));
-				m_outImgView->setObjectDebugName("Output Image");
+				scrambleMap->setObjectDebugName("Scramble Map");
+				m_scrambleView = createHDRIImageView(scrambleMap);
+				m_scrambleView->setObjectDebugName("Scramble Map View");
+				auto outImg = createHDRIImage(asset::E_FORMAT::EF_R16G16B16A16_SFLOAT, WindowDimensions.x, WindowDimensions.y);
+				outImg->setObjectDebugName("Output Image");
+				m_outImgView = createHDRIImageView(outImg);
+				m_outImgView->setObjectDebugName("Output Image View");
 			}
 
 			// create ubo and sequence buffer view
@@ -511,11 +567,12 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				}
 			}
 
+#if 0
 			// upload data
 			{
 				// upload scramble data
 				{
-					auto extent = m_envMap->getCreationParameters().extent;
+					auto extent = m_envMapView->getCreationParameters().image->getCreationParameters().extent;
 
 					IGPUImage::SBufferCopy region = {};
 					region.bufferOffset = 0u;
@@ -525,15 +582,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					region.imageOffset = { 0u,0u,0u };
 					region.imageSubresource.layerCount = 1u;
 					region.imageSubresource.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-
-					constexpr auto ScrambleStateChannels = 2u;
-					const auto renderPixelCount = extent.width * extent.height;
-					core::vector<uint32_t> random(renderPixelCount * ScrambleStateChannels);
-					{
-						core::RandomSampler rng(0xbadc0ffeu);
-						for (auto& pixel : random)
-							pixel = rng.nextSample();
-					}
 
 					const std::span<const asset::IImage::SBufferCopy> regions = { &region, 1 };
 
@@ -559,6 +607,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					m_api->endCapture();
 				}
 			}
+#endif
 
 			// create pathtracer descriptors
 			// TODO: Best Practice, create the whole descriptor set as ICPUDescriptorSet, then use Asset Converter on whole thing (ass conv root is DS then)
@@ -1136,7 +1185,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
 		// pathtracer resources
-		smart_refctd_ptr<IGPUImage> m_envMap;
 		smart_refctd_ptr<IGPUImageView> m_envMapView, m_scrambleView;
 		smart_refctd_ptr<IGPUBufferView> m_sequenceBufferView;
 		smart_refctd_ptr<IGPUBuffer> m_ubo;
