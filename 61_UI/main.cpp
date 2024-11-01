@@ -2,8 +2,18 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#include "nbl/builtin/hlsl/projection/projection.hlsl"
 #include "common.hpp"
+
+#include "camera/CCubeProjection.hpp"
+#include "camera/ICameraControl.hpp"
+#include "nbl/builtin/hlsl/projection/projection.hlsl"
+#include "glm/glm/ext/matrix_clip_space.hpp" // TODO: TESTING
+
+// FPS Camera, TESTS
+using projection_matrix_t = float32_t4x4;
+using camera_t = Camera<projection_matrix_t>;
+using gimbal_t = camera_t::CGimbal;
+using projection_t = camera_t::base_t::projection_t;
 
 /*
 	Renders scene texture to an offline
@@ -167,28 +177,26 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			pass.ui.manager->registerListener([this]() -> void
 				{
 					ImGuiIO& io = ImGui::GetIO();
-
-					camera.setProjectionMatrix([&]() 
 					{
-						static hlsl::float32_t4x4 projection;
+						auto* projection = camera->getProjection();
 
 						if (isPerspective)
-							if(isLH)
-								projection = hlsl::buildProjectionMatrixPerspectiveFovLH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+						{
+							if (isLH)
+								projection->setMatrix(hlsl::buildProjectionMatrixPerspectiveFovLH(glm::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar));
 							else
-								projection = hlsl::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+								projection->setMatrix(hlsl::buildProjectionMatrixPerspectiveFovRH(glm::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar));
+						}
 						else
 						{
 							float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
 
-							if(isLH)
-								projection = hlsl::buildProjectionMatrixOrthoLH(viewWidth, viewHeight, zNear, zFar);
+							if (isLH)
+								projection->setMatrix(hlsl::buildProjectionMatrixOrthoLH(viewWidth, viewHeight, zNear, zFar));
 							else
-								projection = hlsl::buildProjectionMatrixOrthoRH(viewWidth, viewHeight, zNear, zFar);
+								projection->setMatrix(hlsl::buildProjectionMatrixOrthoRH(viewWidth, viewHeight, zNear, zFar));
 						}
-
-						return projection;
-					}());
+					}
 
 					ImGuizmo::SetOrthographic(false);
 					ImGuizmo::BeginFrame();
@@ -247,15 +255,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					if (viewDirty || firstFrame)
 					{
-						hlsl::float32_t3 cameraPosition(cosf(camYAngle)* cosf(camXAngle)* transformParams.camDistance, sinf(camXAngle)* transformParams.camDistance, sinf(camYAngle)* cosf(camXAngle)* transformParams.camDistance);
-						hlsl::float32_t3 cameraTarget(0.f, 0.f, 0.f);
-						const static hlsl::float32_t3 up(0.f, 1.f, 0.f);
+						float32_t3 cameraPosition(cosf(camYAngle)* cosf(camXAngle)* transformParams.camDistance, sinf(camXAngle)* transformParams.camDistance, sinf(camYAngle)* cosf(camXAngle)* transformParams.camDistance);
+						float32_t3 cameraTarget(0.f, 0.f, 0.f);
 
-						camera.setPosition(cameraPosition);
-						camera.setTarget(cameraTarget);
-						camera.setBackupUpVector(up);
-
-						camera.recomputeViewMatrix();
+						gimbal->setPosition(cameraPosition);
+						camera->setTarget(cameraTarget);
 
 						firstFrame = false;
 					}
@@ -323,38 +327,34 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					static struct
 					{
-						hlsl::float32_t4x4 view, projection, model;
+						float32_t4x4 view, projection, model;
 					} imguizmoM16InOut;
 
-					ImGuizmo::SetID(0u);
+					const auto& projectionMatrix = camera->getProjection()->getMatrix();
 
-					imguizmoM16InOut.view = hlsl::transpose(hlsl::getMatrix3x4As4x4(camera.getViewMatrix()));
-					imguizmoM16InOut.projection = hlsl::transpose(camera.getProjectionMatrix());
-					imguizmoM16InOut.model = hlsl::transpose(hlsl::getMatrix3x4As4x4(pass.scene->object.model));
+					ImGuizmo::SetID(0u);
+					imguizmoM16InOut.view = transpose(getMatrix3x4As4x4(camera->getViewMatrix()));
+					imguizmoM16InOut.projection = transpose(projectionMatrix);
+					imguizmoM16InOut.model = transpose(getMatrix3x4As4x4(pass.scene->object.model));
 					{
 						if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
 							imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
 
 						transformParams.editTransformDecomposition = true;
-						EditTransform(reinterpret_cast<float*>(&imguizmoM16InOut.view), 
-							reinterpret_cast<float*>(&imguizmoM16InOut.projection),
-							reinterpret_cast<float*>(&imguizmoM16InOut.model),
-							transformParams);
+						EditTransform(&imguizmoM16InOut.view[0][0], &imguizmoM16InOut.projection[0][0], &imguizmoM16InOut.model[0][0], transformParams);
 					}
 
 					// to Nabla + update camera & model matrices
-					const auto& view = camera.getViewMatrix();
-					const auto& projection = camera.getProjectionMatrix();
-
+					const auto& view = camera->getViewMatrix();
+				
 					// TODO: make it more nicely
-					const_cast<hlsl::float32_t3x4&>(view) = float32_t3x4(hlsl::transpose(imguizmoM16InOut.view)); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
-					camera.setProjectionMatrix(projection); // update concatanated matrix
+					const_cast<float32_t3x4&>(view) = float32_t3x4(transpose(imguizmoM16InOut.view)); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
 					{
-						static nbl::hlsl::float32_t3x4 modelView, normal;
-						static nbl::hlsl::float32_t4x4 modelViewProjection;
+						static float32_t3x4 modelView, normal;
+						static float32_t4x4 modelViewProjection;
 
 						auto& hook = pass.scene->object;
-						hook.model = float32_t3x4(hlsl::transpose(imguizmoM16InOut.model));
+						hook.model = float32_t3x4(transpose(imguizmoM16InOut.model));
 						{
 							const auto& references = pass.scene->getResources().objects;
 							const auto type = static_cast<ObjectType>(gcIndex);
@@ -366,19 +366,17 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						auto& ubo = hook.viewParameters;
 
-						modelView = nbl::hlsl::concatenateBFollowedByA(view, hook.model);
-						float32_t3x3 normalTmp;
-						hlsl::getSub3x3InverseTranspose(modelView, normalTmp);
-						normal = float32_t3x4(
-							float32_t4(normalTmp[0], 0),
-							float32_t4(normalTmp[0], 0),
-							float32_t4(normalTmp[0], 0)
-						);
-						//modelViewProjection = camera.getConcatenatedMatrix() * hlsl::getMatrix3x4As4x4(hook.model);
+						modelView = concatenateBFollowedByA<float>(view, hook.model);
 
-						memcpy(ubo.MVP, reinterpret_cast<float*>(&modelViewProjection), sizeof(ubo.MVP));
-						memcpy(ubo.MV, reinterpret_cast<float*>(&modelView), sizeof(ubo.MV));
-						memcpy(ubo.NormalMat, reinterpret_cast<float*>(&normal), sizeof(ubo.NormalMat));
+						// TODO
+						//modelView.getSub3x3InverseTranspose(normal);
+
+						auto concatMatrix = mul(projectionMatrix, getMatrix3x4As4x4(view));
+						modelViewProjection = mul(concatMatrix, getMatrix3x4As4x4(hook.model));
+
+						memcpy(ubo.MVP, &modelViewProjection[0][0], sizeof(ubo.MVP));
+						memcpy(ubo.MV, &modelView[0][0], sizeof(ubo.MV));
+						memcpy(ubo.NormalMat, &normal[0][0], sizeof(ubo.NormalMat));
 
 						// object meta display
 						{
@@ -413,9 +411,18 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 								ImGui::Separator();
 						};
 
-						addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, reinterpret_cast<const float*>(&(pass.scene->object.model)));
-						addMatrixTable("Camera View Matrix", "ViewMatrixTable", 3, 4, reinterpret_cast<const float*>(&view));
-						addMatrixTable("Camera View Projection Matrix", "ViewProjectionMatrixTable", 4, 4, reinterpret_cast<const float*>(&projection), false);
+						auto& orientation = gimbal->getOrthonornalMatrix();
+
+						addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, &pass.scene->object.model[0][0]);
+						
+						addMatrixTable("Right", "OrientationRightVec", 1, 3, &gimbal->getXAxis()[0]);
+						addMatrixTable("Up", "OrientationUpVec", 1, 3, &gimbal->getYAxis()[0]);
+						addMatrixTable("Forward", "OrientationForwardVec", 1, 3, &gimbal->getZAxis()[0]);
+						addMatrixTable("Position", "PositionForwardVec", 1, 3, &gimbal->getPosition()[0]);
+
+						//addMatrixTable("Camera Gimbal Orientation Matrix", "OrientationMatrixTable", 3, 3, &orientation[0][0]);
+						addMatrixTable("Camera Gimbal View Matrix", "ViewMatrixTable", 3, 4, &view[0][0]);
+						addMatrixTable("Camera Gimbal Projection Matrix", "ProjectionMatrixTable", 4, 4, &projectionMatrix[0][0], false);
 
 						ImGui::End();
 					}
@@ -497,7 +504,19 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			m_surface->recreateSwapchain();
 			m_winMgr->show(m_window.get());
 			oracle.reportBeginFrameRecord();
-			camera.mapKeysToArrows();
+
+			/*
+				TESTS, TODO: remove all once finished work & integrate with the example properly
+			*/
+
+			const float32_t3 position(cosf(camYAngle)* cosf(camXAngle)* transformParams.camDistance, sinf(camXAngle)* transformParams.camDistance, sinf(camYAngle)* cosf(camXAngle)* transformParams.camDistance),
+			target(0.f, 0.f, 0.f);
+
+			auto projection = make_smart_refctd_ptr<projection_t>();
+			projection->setMatrix(buildProjectionMatrixPerspectiveFovLH(glm::radians(fov), float(m_window->getWidth()) / float(m_window->getHeight()), zNear, zFar));
+			
+			gimbal = make_smart_refctd_ptr<gimbal_t>(position);
+			camera = make_smart_refctd_ptr<camera_t>(core::smart_refctd_ptr(gimbal), core::smart_refctd_ptr(projection), target);
 
 			return true;
 		}
@@ -676,8 +695,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 		inline void update()
 		{
-			camera.setMoveSpeed(moveSpeed);
-			camera.setRotateSpeed(rotateSpeed);
+			camera->setMoveSpeed(moveSpeed);
+			camera->setRotateSpeed(rotateSpeed);
 
 			static std::chrono::microseconds previousEventTimestamp{};
 
@@ -702,53 +721,57 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				std::vector<SMouseEvent> mouse{};
 				std::vector<SKeyboardEvent> keyboard{};
 			} capturedEvents;
+			
+			if (move)
+				camera->begin(nextPresentationTimestamp);
 
-			if (move) camera.beginInputProcessing(nextPresentationTimestamp);
+			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 			{
-				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
+				for (const auto& e : events) // here capture
 				{
-					if (move)
-						camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
+					if (e.timeStamp < previousEventTimestamp)
+						continue;
 
-					for (const auto& e : events) // here capture
-					{
-						if (e.timeStamp < previousEventTimestamp)
-							continue;
+					previousEventTimestamp = e.timeStamp;
+					capturedEvents.mouse.emplace_back(e);
 
-						previousEventTimestamp = e.timeStamp;
-						capturedEvents.mouse.emplace_back(e);
-
-						if (e.type == nbl::ui::SMouseEvent::EET_SCROLL)
-							gcIndex = std::clamp<uint16_t>(int16_t(gcIndex) + int16_t(core::sign(e.scrollEvent.verticalScroll)), int64_t(0), int64_t(OT_COUNT - (uint8_t)1u));
-					}
-				}, m_logger.get());
+					if (e.type == nbl::ui::SMouseEvent::EET_SCROLL)
+						gcIndex = std::clamp<uint16_t>(int16_t(gcIndex) + int16_t(core::sign(e.scrollEvent.verticalScroll)), int64_t(0), int64_t(OT_COUNT - (uint8_t)1u));
+				}
+			}, m_logger.get());
 
 			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
+			{
+				for (const auto& e : events) // here capture
 				{
-					if (move)
-						camera.keyboardProcess(events); // don't capture the events, only let camera handle them with its impl
+					if (e.timeStamp < previousEventTimestamp)
+						continue;
 
-					for (const auto& e : events) // here capture
-					{
-						if (e.timeStamp < previousEventTimestamp)
-							continue;
-
-						previousEventTimestamp = e.timeStamp;
-						capturedEvents.keyboard.emplace_back(e);
-					}
-				}, m_logger.get());
-			}
-			if (move) camera.endInputProcessing(nextPresentationTimestamp);
+					previousEventTimestamp = e.timeStamp;
+					capturedEvents.keyboard.emplace_back(e);
+				}
+			}, m_logger.get());
 
 			const auto cursorPosition = m_window->getCursorControl()->getPosition();
 
-			nbl::ext::imgui::UI::SUpdateParameters params = 
+			nbl::ext::imgui::UI::SUpdateParameters params =
 			{
 				.mousePosition = nbl::hlsl::float32_t2(cursorPosition.x, cursorPosition.y) - nbl::hlsl::float32_t2(m_window->getX(), m_window->getY()),
 				.displaySize = { m_window->getWidth(), m_window->getHeight() },
 				.mouseEvents = { capturedEvents.mouse.data(), capturedEvents.mouse.size() },
 				.keyboardEvents = { capturedEvents.keyboard.data(), capturedEvents.keyboard.size() }
 			};
+
+			if (move)
+			{
+				const auto virtualMouseEvents = camera->processMouse(params.mouseEvents);
+				const auto virtualKeyboardEvents = camera->processKeyboard(params.keyboardEvents);
+
+				camera->manipulate({ virtualMouseEvents.data(), virtualMouseEvents.size()});
+				camera->manipulate({ virtualKeyboardEvents.data(), virtualKeyboardEvents.size()});
+
+				camera->end(nextPresentationTimestamp);
+			}
 
 			pass.ui.manager->update(params);
 		}
@@ -791,7 +814,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			C_UI ui;
 		} pass;
 
-		Camera camera = Camera(hlsl::float32_t3(0, 0, 0), hlsl::float32_t3(0, 0, 0), hlsl::IdentityFloat32_t4x4);
+		core::smart_refctd_ptr<gimbal_t> gimbal;
+		core::smart_refctd_ptr<ICamera<projection_matrix_t>> camera;
 		video::CDumbPresentationOracle oracle;
 
 		uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
