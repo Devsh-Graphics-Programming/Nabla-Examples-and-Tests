@@ -16,11 +16,11 @@
 namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
 {
 
-template<ProjectionMatrix T = float64_t4x4>
-class ICamera : public ICameraController<typename T>
+template<typename T>
+class ICamera : public ICameraController<T>
 { 
 public:
-	using base_t = typename ICameraController<typename T>;
+	using base_t = typename ICameraController<T>;
 
 	struct Traits
 	{
@@ -28,53 +28,33 @@ public:
 		using projection_t = typename controller_t::projection_t;
 		using gimbal_t = typename controller_t::CGimbal;
 		using controller_virtual_event_t = typename controller_t::CVirtualEvent;
+		using matrix_precision_t = typename T; // TODO: actually all vectors/scalars should have precision type T and because of projection matrix constraints allowed is only float32_t & float64_t
 	};
 
-	ICamera(core::smart_refctd_ptr<typename Traits::gimbal_t>&& gimbal, core::smart_refctd_ptr<typename Traits::projection_t> projection, const float32_t3& target = {0,0,0})
-		: base_t(core::smart_refctd_ptr(gimbal)), m_projection(core::smart_refctd_ptr(projection)) { setTarget(target); }
+	ICamera(core::smart_refctd_ptr<typename Traits::projection_t> projection)
+		: base_t(), m_projection(core::smart_refctd_ptr(projection)) {}
 	~ICamera() = default;
 
-	inline void setPosition(const float32_t3& position)
-	{
-		const auto* gimbal = base_t::m_gimbal.get();
-		gimbal->setPosition(position);
-		recomputeViewMatrix();
-	}
-
-	inline void setTarget(const float32_t3& position)
-	{
-		m_target = position;
+	// NOTE: I dont like to make it virtual but if we assume we can 
+	// have more gimbals & we dont store single one in the interface
+	// then one of them must be the one we model the camera view with
+	// eg "Follow Camera" -> range of 2 gimbals but only first
+	// models the camera view
+	virtual const Traits::gimbal_t& getGimbal() = 0u;
 	
-		const auto* gimbal = base_t::m_gimbal.get();
-		auto localTarget = m_target - gimbal->getPosition();
-
-		// TODO: use gimbal to perform a rotation!
-
-		recomputeViewMatrix();
-	}
-
-	inline const float32_t3& getPosition() { return base_t::m_gimbal->getPosition(); }
-	inline const float32_t3& getTarget() { return m_target; }
-	inline const float32_t3x4& getViewMatrix() const { return m_viewMatrix; }
+	inline const matrix<typename Traits::matrix_precision_t, 3, 4>& getViewMatrix() const { return m_viewMatrix; }
 	inline Traits::projection_t* getProjection() { return m_projection.get(); }
 
 protected:
-	inline void recomputeViewMatrix()
+	// Recomputes view matrix for a given gimbal. Note that a camera type implementation could have multiple gimbals - not all of them will be used to model the camera view itself but one 
+	// (TODO: (*) unless? I guess its to decide if we talk bout single view or to allow to have view per gimbal, but imho we should have 1 -> could just spam more instances of camera type to cover more views)
+	inline void recomputeViewMatrix(Traits::gimbal_t& gimbal)
 	{
-		// TODO: adjust for handedness (axes flip)
-		const bool isLeftHanded = m_projection->isLeftHanded();
-		const auto* gimbal = base_t::m_gimbal.get();
-		const auto& position = gimbal->getPosition();
-
-		const auto [xaxis, yaxis, zaxis] = std::make_tuple(gimbal->getXAxis(), gimbal->getYAxis(), gimbal->getZAxis());
-		m_viewMatrix[0u] = float32_t4(xaxis, -hlsl::dot(xaxis, position));
-		m_viewMatrix[1u] = float32_t4(yaxis, -hlsl::dot(yaxis, position));
-		m_viewMatrix[2u] = float32_t4(zaxis, -hlsl::dot(zaxis, position));
+		gimbal.computeViewMatrix(m_viewMatrix, m_projection->isLeftHanded());
 	}
 
-	const core::smart_refctd_ptr<typename Traits::projection_t> m_projection;
-	float32_t3x4 m_viewMatrix;
-	float32_t3 m_target;
+	const core::smart_refctd_ptr<typename Traits::projection_t> m_projection; // TODO: move it from here
+	matrix<typename Traits::matrix_precision_t, 3, 4> m_viewMatrix;
 };
 
 }
