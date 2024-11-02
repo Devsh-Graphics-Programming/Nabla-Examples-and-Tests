@@ -2,8 +2,6 @@
 #define _NBL_I_CAMERA_CONTROLLER_HPP_
 
 #include "IProjection.hpp"
-#include "../ICamera.hpp"
-#include "CVirtualCameraEvent.hpp"
 #include "glm/glm/ext/matrix_transform.hpp" // TODO: TEMPORARY!!! whatever used will be moved to cpp
 #include "glm/glm/gtc/quaternion.hpp"
 #include "nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl"
@@ -12,11 +10,12 @@
 namespace nbl::hlsl 
 {
 
-template<ProjectionMatrix T = float64_t4x4>
+template<typename T>
 class ICameraController : virtual public core::IReferenceCounted
 {
 public:
-    using projection_t = typename IProjection<typename T>;
+    using matrix_precision_t = typename T;
+    using projection_t = typename IProjection<matrix<typename matrix_precision_t, 4u, 4u>>;
 
     enum VirtualEventType : uint8_t
     {
@@ -71,7 +70,7 @@ public:
         manipulation_encode_t value;
     };
 
-    class CGimbal : virtual public core::IReferenceCounted
+    class CGimbal
     {
     public:
         CGimbal(const float32_t3& position, glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f))
@@ -123,6 +122,14 @@ public:
         // Base forward vector in orthonormal basis, base "forward" vector (Z-axis)
         inline const float32_t3& getZAxis() const { return m_orthonormal[2u]; }
 
+        inline void computeViewMatrix(matrix<matrix_precision_t, 3, 4>& output, bool isLeftHanded)
+        {
+            const auto&& [xaxis, yaxis, zaxis] = std::make_tuple(getXAxis(), getYAxis(), getZAxis() * (isLeftHanded ? 1.f : -1.f));
+            output[0u] = vector<matrix_precision_t, 4>(xaxis, -hlsl::dot(xaxis, m_position));
+            output[1u] = vector<matrix_precision_t, 4>(yaxis, -hlsl::dot(yaxis, m_position));
+            output[2u] = vector<matrix_precision_t, 4>(zaxis, -hlsl::dot(zaxis, m_position));
+        }
+
     private:
         inline void updateOrthonormalMatrix() 
         { 
@@ -158,7 +165,7 @@ public:
         float32_t3x3 m_orthonormal;
     };
 
-    ICameraController(core::smart_refctd_ptr<CGimbal>&& gimbal) : m_gimbal(core::smart_refctd_ptr(gimbal)) {}
+    ICameraController() {}
 
     // override controller keys map, it binds a key code to a virtual event
     void updateKeysToEvent(const std::vector<ui::E_KEY_CODE>& codes, VirtualEventType event)
@@ -299,13 +306,37 @@ protected:
         m_keysToEvent[Reset] =  ui::E_KEY_CODE::EKC_R ;
     }
 
-    core::smart_refctd_ptr<CGimbal> m_gimbal;
     std::array<ui::E_KEY_CODE, EventsCount> m_keysToEvent = {};
     float m_moveSpeed = 1.f, m_rotateSpeed = 1.f;
     bool m_keysDown[EventsCount] = {};
 
     std::chrono::microseconds m_nextPresentationTimeStamp = {}, m_lastVirtualUpTimeStamp = {};
 };
+
+template<typename R>
+concept GimbalRange = GeneralPurposeRange<R> && requires 
+{
+    requires ProjectionMatrix<typename std::ranges::range_value_t<R>::projection_t>;
+    requires std::same_as<std::ranges::range_value_t<R>, typename ICameraController<typename std::ranges::range_value_t<R>::projection_t>::CGimbal>;
+};
+
+template<GimbalRange Range>
+class IGimbalRange : public IRange<typename Range>
+{
+public:
+    using base_t = IRange<typename Range>;
+    using range_t = typename base_t::range_t;
+    using gimbal_t = typename base_t::range_value_t;
+
+    IGimbalRange(range_t&& gimbals) : base_t(std::move(gimbals)) {}
+    inline const range_t& getGimbals() const { return base_t::m_range; }
+
+protected:
+    inline range_t& getGimbals() const { return base_t::m_range; }
+};
+
+// TODO NOTE: eg. "follow camera" should use GimbalRange<std::array<ICameraController<T>::CGimbal, 2u>>, 
+// one per camera itself and one for target it follows
 
 } // nbl::hlsl namespace
 

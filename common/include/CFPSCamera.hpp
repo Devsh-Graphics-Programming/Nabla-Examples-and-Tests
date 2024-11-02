@@ -11,28 +11,30 @@ namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
 {
 
 // FPS Camera
-template<ProjectionMatrix T = float64_t4x4>
-class Camera final : public ICamera<typename T>
+template<typename T = float64_t>
+class CFPSCamera final : public ICamera<T>
 { 
 public:
-    using base_t = ICamera<typename T>;
+    using base_t = ICamera<T>;
     using traits_t = typename base_t::Traits;
 
-	Camera(core::smart_refctd_ptr<typename traits_t::gimbal_t>&& gimbal, core::smart_refctd_ptr<typename traits_t::projection_t> projection, const float32_t3& target = { 0,0,0 })
-        : base_t(core::smart_refctd_ptr(gimbal), core::smart_refctd_ptr(projection), target) 
+    CFPSCamera(core::smart_refctd_ptr<typename traits_t::projection_t> projection, const float32_t3& position, glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f))
+        : base_t(core::smart_refctd_ptr(projection)), m_gimbal(position, orientation)
     { 
         traits_t::controller_t::initKeysToEvent(); 
-        base_t::recomputeViewMatrix();
+        base_t::recomputeViewMatrix(m_gimbal);
     }
-	~Camera() = default;
+	~CFPSCamera() = default;
+
+    const typename traits_t::gimbal_t& getGimbal() override
+    {
+        return m_gimbal;
+    }
 
     virtual void manipulate(std::span<const typename traits_t::controller_virtual_event_t> virtualEvents) override
     {
-        auto* gimbal = traits_t::controller_t::m_gimbal.get();
-        assert(gimbal);
-
         constexpr float MoveSpeedScale = 0.01f, RotateSpeedScale = 0.003f, MaxVerticalAngle = glm::radians(88.0f), MinVerticalAngle = -MaxVerticalAngle;
-        const auto& gForward = gimbal->getZAxis(), gRight = gimbal->getXAxis();
+        const auto& gForward = m_gimbal.getZAxis(), gRight = m_gimbal.getXAxis();
 
         struct
         {
@@ -83,11 +85,14 @@ public:
         currentYaw += accumulated.dYaw;
 
         glm::quat orientation = glm::quat(glm::vec3(currentPitch, currentYaw, 0.0f));
-        gimbal->setOrientation(orientation);
-        gimbal->move(accumulated.dMove);
+        m_gimbal.setOrientation(orientation);
+        m_gimbal.move(accumulated.dMove);
 
-        base_t::recomputeViewMatrix();
+        base_t::recomputeViewMatrix(m_gimbal);
     }
+
+private:
+    traits_t::gimbal_t m_gimbal;
 };
 
 }
