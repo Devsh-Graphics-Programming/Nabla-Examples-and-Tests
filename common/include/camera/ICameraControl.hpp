@@ -55,16 +55,16 @@ struct CVirtualGimbalEvent
     };
 
     using manipulation_encode_t = float64_t;
-    using keys_to_virtual_events_t = std::array<ui::E_KEY_CODE, CVirtualGimbalEvent::EventsCount - 1u>;
+    using keys_to_virtual_events_t = std::array<ui::E_KEY_CODE, CVirtualGimbalEvent::EventsCount>;
 
     VirtualEventType type;
     manipulation_encode_t magnitude;
 
     static inline constexpr auto VirtualEventsTypeTable = []()
     {
-        std::array<VirtualEventType, EventsCount - 1u> output;
+        std::array<VirtualEventType, EventsCount> output;
 
-        for (uint16_t i = 0u; i < EventsCount - 1u; ++i)
+        for (uint16_t i = 0u; i < EventsCount; ++i)
         {
             output[i] = static_cast<VirtualEventType>(i);
         }
