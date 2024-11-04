@@ -15,14 +15,19 @@
 
 #ifdef USE_HALF_PRECISION
 #define scalar_t float16_t
+#define FORMAT "rg16f"
 #else
 #define scalar_t float32_t
+#define FORMAT "rg32f"
 #endif
 
 #define IMAGE_SIDE_LENGTH (_NBL_HLSL_WORKGROUP_SIZE_ * ELEMENTS_PER_THREAD)
 
+// Users MUST define this method for FFT to work
+uint32_t3 glsl::gl_WorkGroupSize() { return uint32_t3(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1); }
+
 [[vk::push_constant]] PushConstantData pushConstants;
-[[vk::binding(0, 0)]] RWTexture2DArray<vector<scalar_t, 2> > kernelChannels;
+[[vk::binding(0, 0)]] [[vk::image_format( FORMAT )]] RWTexture2D<float32_t2> kernelChannels[CHANNELS];
 
 groupshared uint32_t sharedmem[workgroup::fft::SharedMemoryDWORDs<scalar_t, _NBL_HLSL_WORKGROUP_SIZE_>];
 
@@ -51,11 +56,10 @@ scalar_t getPower()
 }
 
 // Still launching IMAGE_SIDE_LENGTH / 2 workgroups
-void normalize(uint32_t channel)
+void normalize1(uint32_t channel, scalar_t power)
 {
-	const scalar_t power = getPower();
 	const uint64_t startAddress = getChannelStartAddress(channel);
-
+	
 	// Remember that the first row has packed `Z + iN` so it has to unpack those
 	if (!glsl::gl_WorkGroupID().x)
 	{
@@ -73,17 +77,17 @@ void normalize(uint32_t channel)
 
 			// Store zeroth element
 			const uint32_t2 zeroCoord = uint32_t2(indexDFT, 0);
-			complex_t<scalar_t> shift = { indexDFT & 1 ? scalar_t(-1) : scalar_t(1), scalar_t(0) };
-			zero = (shift * zero) / power;
+			const scalar_t shift = indexDFT & 1 ? scalar_t(-1) : scalar_t(1);
+			zero = (zero * shift) / power;
 			vector<scalar_t, 2> zeroVector = { zero.real(), zero.imag() };
-			kernelChannels[uint32_t3(zeroCoord, channel)] = zeroVector;
+			kernelChannels[channel][zeroCoord] = zeroVector;
 
 			// Store nyquist element
 			const uint32_t2 nyquistCoord = uint32_t2(indexDFT, IMAGE_SIDE_LENGTH / 2);
 			// IMAGE_SIDE_LENGTH / 2 is even, so indexDFT + IMAGE_SIDE_LENGTH / 2 is even iff indexDFT is even, which then means the shift factor stays the same
-			nyquist = (shift * nyquist) / power;
+			nyquist = (nyquist * shift) / power;
 			vector<scalar_t, 2> nyquistVector = { nyquist.real(), nyquist.imag() };
-			kernelChannels[uint32_t3(nyquistCoord, channel)] = nyquistVector;
+			kernelChannels[channel][nyquistCoord] = nyquistVector;
 		}
 	}
 	// The other rows have easier rules: They have to reflect their values along the Nyquist row
@@ -104,10 +108,10 @@ void normalize(uint32_t channel)
 			uint32_t y = glsl::bitfieldReverse<uint32_t>(glsl::gl_WorkGroupID().x) >> (32 - bits);
 
 			// Store the element 
-			const complex_t<scalar_t> shift = polar(scalar_t(1), - numbers::pi<scalar_t> * scalar_t(x + y));
-			toStore = (shift * toStore) / power;
+			const scalar_t shift = (x + y) & 1 ? scalar_t(-1) : scalar_t(1);
+			toStore = (toStore * shift) / power;
 			vector<scalar_t, 2> toStoreVector = { toStore.real(), toStore.imag() };
-			kernelChannels[uint32_t3(x, y, channel)] = toStoreVector;
+			kernelChannels[channel][uint32_t2(x, y)] = toStoreVector;
 
 			// Store the element at the column mirrored about the Nyquist column (so x'' = mirror(x))
 			// https://en.wikipedia.org/wiki/Discrete_Fourier_transform#Conjugation_in_time
@@ -117,7 +121,7 @@ void normalize(uint32_t channel)
 			const complex_t<scalar_t> conjugated = conj(toStore);
 			toStoreVector.x = conjugated.real();
 			toStoreVector.y = conjugated.imag();
-			kernelChannels[uint32_t3(x, y, channel)] = toStoreVector;
+			kernelChannels[channel][uint32_t2(x, y)] = toStoreVector;
 		}
 	}
 }
@@ -125,6 +129,8 @@ void normalize(uint32_t channel)
 [numthreads(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
+	scalar_t power = getPower();
+
 	for (uint32_t channel = 0; channel < CHANNELS; channel++)
-		normalize(channel);
+		normalize1(channel, power);
 }

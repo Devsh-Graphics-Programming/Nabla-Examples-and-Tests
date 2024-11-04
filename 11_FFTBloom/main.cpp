@@ -6,11 +6,12 @@
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 
-// TODO: Copy HelloSwapchain to set up a swapchain, draw to a surface
+// TODO: Copy HelloSwapchain to set up a swapchain, draw to a surface. Or copy the new MPMC example.
 // TODO: Dynamically modify bloom size with mouse scroll/ +- keys
 //		 Notes: To do so must check required size against buffer size (expand buffer and recompile kernel if it starts being small), also after making kernel larger then small again
 //		        probably no need to shrink buffer and recompile kernel but would be nice to add that as well)
 // TODO: Clean up example after FFT ext
+// TODO: Make sampling formats be #defined depending on how they were loaded on GPU side
 
 using namespace nbl;
 using namespace core;
@@ -40,7 +41,7 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 	smart_refctd_ptr<IGPUDescriptorSet> m_firstAxisIFFTDescriptorSet;
 
 	// Utils (might be useful, they stay for now)
-	smart_refctd_ptr<nbl::video::IUtilities> m_utils;
+	smart_refctd_ptr<IUtilities> m_utils;
 
 	// Resources
 	smart_refctd_ptr<IGPUImageView> m_srcImageView;
@@ -50,8 +51,8 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 	smart_refctd_ptr<IGPUImageView> m_kernelNormalizedSpectrums[CHANNELS];
 
 	// Used to store intermediate results
-	smart_refctd_ptr<nbl::video::IGPUBuffer> m_rowMajorBuffer;
-	smart_refctd_ptr<nbl::video::IGPUBuffer> m_colMajorBuffer;
+	smart_refctd_ptr<IGPUBuffer> m_rowMajorBuffer;
+	smart_refctd_ptr<IGPUBuffer> m_colMajorBuffer;
 
 	// These are Buffer Device Addresses
 	uint64_t m_rowMajorBufferAddress;
@@ -64,16 +65,18 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 	// Other parameter-dependent variables
 	asset::VkExtent3D marginSrcDim;
 
-	// We only hold onto one cmdbuffer at a time
-	smart_refctd_ptr<nbl::video::IGPUCommandBuffer> m_computeCmdBuf;
+	// We only hold onto one cmdbuffer at a time, but having it here doesn't hurt
+	smart_refctd_ptr<IGPUCommandBuffer> m_computeCmdBuf;
+
+	// Shader Cache
+	smart_refctd_ptr<IShaderCompiler::CCache> m_cache;
 
 	// Sync primitives
 	smart_refctd_ptr<ISemaphore> m_timeline;
 	uint64_t semaphorValue = 0;
 	// For image uploads
-	SIntendedSubmitInfo m_graphicsIntendedSubmit;
+	SIntendedSubmitInfo m_intendedSubmit;
 	smart_refctd_ptr<ISemaphore> m_scratchSemaphore;
-	SIntendedSubmitInfo m_computeIntendedSubmit;
 
 	// Only use one queue
 	IQueue* m_queue;
@@ -163,7 +166,7 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 	{
 
 		const char* sourceFmt =
-		R"===(
+			R"===(
 		#define _NBL_HLSL_WORKGROUP_SIZE_ %u
 		#define ELEMENTS_PER_THREAD %u
 		%s
@@ -188,7 +191,7 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 
 		auto CPUShader = core::make_smart_refctd_ptr<ICPUShader>(std::move(shader), IShader::E_SHADER_STAGE::ESS_COMPUTE, IShader::E_CONTENT_TYPE::ECT_HLSL, includeMainName);
 		assert(CPUShader);
-		return m_device->createShader(CPUShader.get());
+		return m_device->createShader({ CPUShader.get(), nullptr, m_cache.get(), m_cache.get()});
 	}
 
 public:
@@ -220,8 +223,8 @@ public:
 				return logFail("Failed to create Command Buffers!\n");
 		}
 
-		// Needs to be open for utilities
-		m_computeCmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+		// want to capture the image data upload as well
+		//m_api->startCapture();
 
 		// Load source and kernel images
 		{
@@ -234,11 +237,10 @@ public:
 			const auto kerImages = kerImageBundle.getContents();
 			if (srcImages.empty() or kerImages.empty())
 				return logFail("Could not load image or kernel!");
-			const auto srcImageCPU = IAsset::castDown<ICPUImage>(srcImages[0]);
-			const auto kerImageCPU = IAsset::castDown<ICPUImage>(kerImages[0]);
+			auto srcImageCPU = IAsset::castDown<ICPUImage>(srcImages[0]);
+			auto kerImageCPU = IAsset::castDown<ICPUImage>(kerImages[0]);
 			const auto srcImageFormat = srcImageCPU->getCreationParameters().format;
 			const auto kerImageFormat = kerImageCPU->getCreationParameters().format;
-
 
 			// Create views for these images
 			ICPUImageView::SCreationParams viewParams[2] =
@@ -275,7 +277,18 @@ public:
 
 			// Using asset converter
 			smart_refctd_ptr<nbl::video::CAssetConverter> converter = nbl::video::CAssetConverter::create({ .device = m_device.get(),.optimizer = {} });
-			CAssetConverter::SInputs inputs = {};
+			// We don't want to generate mip-maps for these images (YET), to ensure that we must override the default callbacks.
+			struct SInputs final : CAssetConverter::SInputs
+			{
+				inline uint8_t getMipLevelCount(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+				{
+					return image->getCreationParameters().mipLevels;
+				}
+				inline uint16_t needToRecomputeMips(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+				{
+					return 0b0u;
+				}
+			} inputs = {};
 			inputs.logger = m_logger.get();
 			nbl::asset::ICPUImageView* CPUImageViews[2] = { srcImageViewCPU.get(), kerImageViewCPU.get() };
 			
@@ -301,6 +314,12 @@ public:
 			m_srcImageView = GPUImages[0].value;
 			m_kerImageView = GPUImages[1].value;
 
+			// Give them debug names
+			m_srcImageView->setObjectDebugName("Source image view");
+			m_srcImageView->getCreationParameters().image->setObjectDebugName("Source Image");
+			m_kerImageView->setObjectDebugName("Bloom kernel image view");
+			m_kerImageView->getCreationParameters().image->setObjectDebugName("Bloom kernel Image");
+
 			// The down-cast should not fail!
 			assert(m_srcImageView);
 			assert(m_kerImageView);
@@ -308,61 +327,28 @@ public:
 			// Required size for uploads
 			auto srcImageDims = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
 			auto kerImageDims = m_kerImageView->getCreationParameters().image->getCreationParameters().extent;
-			uint32_t srcImageSize = srcImageDims.height * srcImageDims.width * srcImageDims.depth * CHANNELS * sizeof(float32_t);
-			uint32_t kerImageSize = kerImageDims.height * kerImageDims.width * kerImageDims.depth * CHANNELS * sizeof(float32_t);
+			// Add a bit extra because EXR has alpha
+			uint32_t srcImageSize = srcImageDims.height * srcImageDims.width * srcImageDims.depth * (CHANNELS + 1) * sizeof(float32_t);
+			uint32_t kerImageSize = kerImageDims.height * kerImageDims.width * kerImageDims.depth * (CHANNELS + 1) * sizeof(float32_t);
 
 			m_utils = make_smart_refctd_ptr<IUtilities>(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), srcImageSize, srcImageSize + kerImageSize);
-			{
-				uint32_t localOffset = video::StreamingTransientDataBufferMT<>::invalid_value;
-				const uint32_t allocationAlignment = 64u;
-				const uint32_t allocationSize = srcImageSize + kerImageSize;
-				m_utils->getDefaultUpStreamingBuffer()->multi_allocate(std::chrono::steady_clock::now() + std::chrono::microseconds(500u), 1u, &localOffset, &allocationSize, &allocationAlignment);
-			}
 
 			// Now convert uploads
 			// Get graphics queue for image transfer
 			auto graphicsQueue = getQueue(IQueue::FAMILY_FLAGS::GRAPHICS_BIT);
-			m_graphicsIntendedSubmit.queue = graphicsQueue;
+			m_intendedSubmit.queue = graphicsQueue;
 			// Set up submit for image transfers
 			// wait for nothing before upload
-			m_graphicsIntendedSubmit.waitSemaphores = {};
-			m_graphicsIntendedSubmit.prevCommandBuffers = {};
+			m_intendedSubmit.waitSemaphores = {};
+			m_intendedSubmit.prevCommandBuffers = {};
 			// fill later
-			m_graphicsIntendedSubmit.scratchCommandBuffers = {};
-			m_graphicsIntendedSubmit.scratchSemaphore = {
+			m_intendedSubmit.scratchCommandBuffers = {};
+			m_intendedSubmit.scratchSemaphore = {
 				.semaphore = m_scratchSemaphore.get(),
 				.value = 0,
 				// because of layout transitions
 				.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 			};
-
-			// Set up the same for mipmap generation
-			m_computeIntendedSubmit.queue = m_queue;
-			// Set up submit for image transfers
-			// wait for layout transitions of graphics queue
-			IQueue::SSubmitInfo::SSemaphoreInfo layoutTransitionSemaphoreInfo = {
-				.semaphore = m_scratchSemaphore.get(),
-				// Image upload semaphore increments this by one
-				.value = 1,
-				.stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
-			};
-			m_computeIntendedSubmit.waitSemaphores = {};
-			// If they're the same queue this gets pipeline barriered
-			if (m_queue == graphicsQueue) 
-				m_computeIntendedSubmit.waitSemaphores = { &layoutTransitionSemaphoreInfo, 1 };
-			m_computeIntendedSubmit.prevCommandBuffers = {};
-			// fill later
-			m_computeIntendedSubmit.scratchCommandBuffers = {};
-			// Signal to timeline semaphore although it's not needed because it's pipeline barriered
-			m_computeIntendedSubmit.scratchSemaphore = {
-				.semaphore = m_timeline.get(),
-				.value = ++semaphorValue,
-				.stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
-			};
-
-			// now convert
-			IQueue::SSubmitInfo::SCommandBufferInfo computeCmdbufInfo = { m_computeCmdBuf.get() };
-			m_computeIntendedSubmit.scratchCommandBuffers = { &computeCmdbufInfo,1 };
 
 			// Create a command buffer for graphics submit, though it has to be resettable
 			smart_refctd_ptr<IGPUCommandBuffer> graphicsCmdBuf;
@@ -374,12 +360,21 @@ public:
 			graphicsCmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
 			IQueue::SSubmitInfo::SCommandBufferInfo graphicsCmdbufInfo = { graphicsCmdBuf.get() };
-			m_graphicsIntendedSubmit.scratchCommandBuffers = { &graphicsCmdbufInfo,1 };
+			m_intendedSubmit.scratchCommandBuffers = { &graphicsCmdbufInfo,1 };
 
-			// We need compute queue to be the owner of the images after transfer + layout transition, but apparently that's the default
-			CAssetConverter::SConvertParams params = {};
-			params.transfer = &m_graphicsIntendedSubmit;
-			params.compute = &m_computeIntendedSubmit;
+			// We need compute queue to be the owner of the images after transfer + layout transition
+			struct SConvertParams : CAssetConverter::SConvertParams
+			{
+				virtual inline uint32_t getFinalOwnerQueueFamily(const IGPUImage* image, const core::blake3_hash_t& createdFrom, const uint8_t mipLevel)
+				{
+					return computeFamilyIndex;
+				}
+
+				uint32_t computeFamilyIndex;
+			};
+			SConvertParams params = {};
+			params.computeFamilyIndex = queueFamilyIndex;
+			params.transfer = &m_intendedSubmit;
 			params.utilities = m_utils.get();
 			auto result = reservation.convert(params);
 			// block immediately
@@ -394,14 +389,21 @@ public:
 			IGPUImage::SCreationParams dstImgInfo(dstImgViewInfo.image->getCreationParameters());
 			// Specify we want this to be a storage image, + transfer for readback (blit when we have swapchain up)
 			dstImgInfo.usage = IImage::EUF_STORAGE_BIT | IImage::EUF_TRANSFER_SRC_BIT;
+			dstImgInfo.format = useHalfFloats ? EF_R16G16B16A16_SFLOAT : EF_R32G32B32A32_SFLOAT;
 			m_outImg = m_device->createImage(std::move(dstImgInfo));
+
+			m_outImg->setObjectDebugName("Convolved Image");
 
 			auto memReqs = m_outImg->getMemoryReqs();
 			memReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 			auto gpuMem = m_device->allocate(memReqs, m_outImg.get());
 
 			dstImgViewInfo.image = m_outImg;
+			dstImgViewInfo.subUsages = IImage::EUF_STORAGE_BIT | IImage::EUF_TRANSFER_SRC_BIT;
+			dstImgViewInfo.format = useHalfFloats ? EF_R16G16B16A16_SFLOAT : EF_R32G32B32A32_SFLOAT;
 			m_outImgView = m_device->createImageView(IGPUImageView::SCreationParams(dstImgViewInfo));
+
+			m_outImgView->setObjectDebugName("Convolved Image View");
 		}
 
 		// agree on formats
@@ -527,6 +529,32 @@ public:
 			imageFirstAxisIFFTPipelineLayout = createPipelineLayout({ &bnd, 1 });
 		}
 
+		// Load cache
+		auto cacheSavePath = localOutputCWD / "cache.bin";
+		core::smart_refctd_ptr<system::IFile> f;
+		{
+			system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
+			m_system->createFile(future, cacheSavePath.c_str(), system::IFile::ECF_READ);
+			if (!future.wait())
+				return {};
+			future.acquire().move_into(f);
+		}
+		// No cache found, create a new one
+		if (!f)
+		{
+			m_cache = make_smart_refctd_ptr<IShaderCompiler::CCache>();;
+		}
+		else {
+			const size_t size = f->getSize();
+			std::vector<uint8_t> contents(size);
+			system::IFile::success_t succ;
+			f->read(succ, contents.data(), 0, size);
+			assert(bool(succ));
+
+			m_cache = IShaderCompiler::CCache::deserialize(contents);
+		}
+		
+
 		// Kernel second axis FFT has no descriptor sets so we just create another pipeline with the same layout
 		// TODO: To avoid duplicated layouts we could make samplers dynamic in the first axis FFT. Also if we don't hardcode (by #defining) some stuff in the first axis FFT
 		//		 (once FFT ext is back) we can also avoid having duplicated pipelines (like the old Bloom example, which had a single pipeline for forward FFT along an axis)
@@ -607,6 +635,14 @@ public:
 			for (uint32_t i = 0u; i < CHANNELS; i++)
 				m_kernelNormalizedSpectrums[i] = createKernelSpectrum();
 
+			// Give them names
+			m_kernelNormalizedSpectrums[0]->setObjectDebugName("Kernel red channel spectrum view");
+			m_kernelNormalizedSpectrums[0]->getCreationParameters().image->setObjectDebugName("Kernel red channel spectrum");
+			m_kernelNormalizedSpectrums[1]->setObjectDebugName("Kernel green channel spectrum view");
+			m_kernelNormalizedSpectrums[1]->getCreationParameters().image->setObjectDebugName("Kernel green channel spectrum");
+			m_kernelNormalizedSpectrums[2]->setObjectDebugName("Kernel blue channel spectrum view");
+			m_kernelNormalizedSpectrums[2]->getCreationParameters().image->setObjectDebugName("Kernel blue channel spectrum");
+
 			// Invoke a workgroup per two vertical scanlines. Kernel is square and runs first in the y-direction.
 			// That means we have to create a shader that does an FFT of size `paddedKerDim.height = paddedKerDim.width` (length of each column, already padded to PoT), 
 			// and call `paddedKerDim.width / 2` workgroups to run it. We also have to keep in mind `paddedKerDim.y = WorkgroupSize * ElementsPerInvocation`. 
@@ -662,14 +698,18 @@ public:
 			}
 			
 			smart_refctd_ptr<IGPUComputePipeline> pipelines[3];
-			bool success = m_device->createComputePipelines(nullptr, { params, 3 }, pipelines);
-			if(! success)
+			if(!m_device->createComputePipelines(nullptr, { params, 3 }, pipelines))
 				return logFail("Failed to create Compute Pipelines!\n");
 
 			// Push Constants - only need to specify BDAs here
 			PushConstantData pushConstants;
 			pushConstants.colMajorBufferAddress = m_colMajorBufferAddress;
 			pushConstants.rowMajorBufferAddress = m_rowMajorBufferAddress;
+
+			// Begin capture - let's ignore uploads
+			m_api->startCapture();
+
+			m_computeCmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
 			// First Axis FFT
 			m_computeCmdBuf->bindComputePipeline(pipelines[0].get());
@@ -740,9 +780,15 @@ public:
 					.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
 				};
 
-				// No need to wait on transfer since it's done in same queue (pipeline barriered)
+				// Could check whether queue used for upload is different than the compute one, but oh well
+				IQueue::SSubmitInfo::SSemaphoreInfo transferSemaphore = {
+					.semaphore = m_scratchSemaphore.get(),
+					.value = 1,
+					// because of layout transitions
+				.	stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+				};
 				const IQueue::SSubmitInfo submitInfo = {
-					.waitSemaphores = {},
+					.waitSemaphores = {&transferSemaphore, 1},
 					.commandBuffers = {&cmdbufInfo,1},
 					.signalSemaphores = {&signalInfo,1}
 				};
@@ -774,7 +820,7 @@ public:
 		do
 		{
 			elementsPerThread <<= 1;
-			// First axis FFT is along Y axis
+			// Second axis FFT is along X axis
 			workgroupSize = core::roundUpToPoT(marginSrcDim.width) / elementsPerThread;
 		} while (workgroupSize > maxWorkgroupSize);
 		shaders[1] = createShader("app_resources/fft_convolve_ifft.hlsl", workgroupSize, elementsPerThread);
@@ -795,8 +841,7 @@ public:
 		}
 
 		smart_refctd_ptr<IGPUComputePipeline> pipelines[3];
-		bool success = m_device->createComputePipelines(nullptr, { params, 3 }, pipelines);
-		if (!success)
+		if (!m_device->createComputePipelines(nullptr, { params, 3 }, pipelines))
 			return logFail("Failed to create Compute Pipelines!\n");
 
 		m_firstAxisFFTPipeline = pipelines[0];
@@ -821,6 +866,30 @@ public:
 		updateDescriptorSetFirstAxisFFT(m_firstAxisFFTDescriptorSet.get(), m_srcImageView);
 		updateDescriptorSetConvolution(m_lastAxisFFT_convolution_lastAxisIFFTDescriptorSet.get(), m_kernelNormalizedSpectrums);
 		updateDescriptorSetFirstAxisIFFT(m_firstAxisIFFTDescriptorSet.get(), m_outImgView);
+
+		// Block and wait until kernel FFT is done before we drop the pipelines.
+		// Ideally not be lazy and create a latch that does nothing but capture the pipelines and gets called when scratch semaphore is signalled
+		const ISemaphore::SWaitInfo waitInfo = { m_timeline.get(), semaphorValue };
+
+		m_device->blockForSemaphores({ &waitInfo, 1 });
+
+		// Dump cache to disk since we won't be doing any more compilations - for now
+		auto serializedCache = m_cache->serialize();
+		f = nullptr;
+		{
+			system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
+			m_system->createFile(future, cacheSavePath.c_str(), system::IFile::ECF_WRITE);
+			if (!future.wait())
+				return {};
+			future.acquire().move_into(f);
+		}
+		if (!f)
+			logFail("Failed to save Shader Cache!\n");
+		system::IFile::success_t succ;
+		f->write(succ, serializedCache->getPointer(), 0, serializedCache->getSize());
+		assert(bool(succ));
+		//m_api->endCapture();
+		return true;
 	}
 
 	bool keepRunning() override { return m_keepRunning; }
@@ -846,6 +915,7 @@ public:
 		imgBarriers[0].barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
 		imgBarriers[0].oldLayout = IImage::LAYOUT::UNDEFINED;
 		imgBarriers[0].newLayout = IImage::LAYOUT::GENERAL;
+		imgBarriers[0].subresourceRange = { IGPUImage::EAF_COLOR_BIT, 0u, 1u, 0u, 1 };
 
 		// We need to wait on kernel spectrums to be written to before we can read them
 		for (auto i = 0u; i < CHANNELS; i++)
@@ -857,6 +927,7 @@ public:
 			imgBarriers[i + 1].barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
 			imgBarriers[i + 1].oldLayout = IImage::LAYOUT::GENERAL;
 			imgBarriers[i + 1].newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			imgBarriers[i + 1].subresourceRange = { IGPUImage::EAF_COLOR_BIT, 0u, 1u, 0u, 1 };
 		}
 
 		m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), imagePipelineBarrierInfo);
@@ -879,7 +950,8 @@ public:
 		m_computeCmdBuf->bindDescriptorSets(asset::EPBP_COMPUTE, m_firstAxisFFTPipeline->getLayout(), 0, 1, &m_firstAxisFFTDescriptorSet.get());
 		m_computeCmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(pushConstants), &pushConstants);
 		// One workgroup per 2 columns
-		m_computeCmdBuf->dispatch(marginSrcDim.width / 2, 1, 1);
+		auto srcDim = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
+		m_computeCmdBuf->dispatch(srcDim.width / 2, 1, 1);
 
 		// Pipeline Barrier: Wait for colMajorBuffer to be written to before reading it from next shader
 		IGPUCommandBuffer::SPipelineBarrierDependencyInfo bufferPipelineBarrierInfo = {};
@@ -914,7 +986,7 @@ public:
 		m_computeCmdBuf->bindComputePipeline(m_firstAxisIFFTPipeline.get());
 		m_computeCmdBuf->bindDescriptorSets(asset::EPBP_COMPUTE, m_firstAxisIFFTPipeline->getLayout(), 0, 1, &m_firstAxisIFFTDescriptorSet.get());
 		// One workgroup per 2 columns
-		m_computeCmdBuf->dispatch(marginSrcDim.width / 2, 1, 1);
+		m_computeCmdBuf->dispatch(srcDim.width / 2, 1, 1);
 		m_computeCmdBuf->end();
 
 		// Submit to queue and add sync point
@@ -940,6 +1012,8 @@ public:
 			m_queue->submit({ &submitInfo,1 });
 			//queue->endCapture();
 		}
+
+		m_api->endCapture();
 
 		// Kill after one iteration for now
 		m_keepRunning = false;

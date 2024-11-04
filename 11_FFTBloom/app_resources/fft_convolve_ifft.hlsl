@@ -14,13 +14,16 @@
 
 #ifdef USE_HALF_PRECISION
 #define scalar_t float16_t
+#define FORMAT rg16f
 #else
 #define scalar_t float32_t
+#define FORMAT rg32f
 #endif
 
 [[vk::push_constant]] PushConstantData pushConstants;
-[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2DArray<vector<scalar_t, 2> > kernelChannels;
-[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] SamplerState samplerState;
+// Can't specify format
+/* [[vk::combinedImageSampler]]*/ [[vk::binding(0, 0)]] /* [[vk::image_format(FORMAT)]]*/ Texture2D<float32_t2> kernelChannels[CHANNELS] : register(t0);
+/* [[vk::combinedImageSampler]]*/ [[vk::binding(0, 0)]] SamplerState samplerState[CHANNELS] : register(s0);
 
 #define FFT_LENGTH (_NBL_HLSL_WORKGROUP_SIZE_ * ELEMENTS_PER_THREAD)
 
@@ -59,6 +62,11 @@ uint64_t rowMajorOffset(uint32_t x, uint32_t y)
 	return y * pushConstants.dataElementCount + x; // can no longer sum with | since there's no guarantees on row length
 }
 
+uint64_t debugRowMajorOffset(uint32_t x, uint32_t y)
+{
+	return y * FFT_LENGTH | x; // can no longer sum with | since there's no guarantees on row length
+}
+
 // Same as what was used to store in col-major after first axis FFT. This time we launch one workgroup per row so the height of the channel's (half) image is `glsl::gl_NumWorkGroups().x`,
 // and the width (number of columns) is passed as a push constant
 uint64_t getColMajorChannelStartAddress(uint32_t channel)
@@ -70,6 +78,11 @@ uint64_t getColMajorChannelStartAddress(uint32_t channel)
 uint64_t getRowMajorChannelStartAddress(uint32_t channel)
 {
 	return pushConstants.rowMajorBufferAddress + channel * glsl::gl_NumWorkGroups().x * pushConstants.dataElementCount * sizeof(complex_t<scalar_t>);
+}
+
+uint64_t getRowMajorDebugChannelStartAddress(uint32_t channel)
+{
+	return pushConstants.rowMajorBufferAddress + channel * glsl::gl_NumWorkGroups().x * FFT_LENGTH * sizeof(complex_t<scalar_t>);
 }
 
 struct PreloadedAccessorBase {
@@ -151,41 +164,42 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase
 		// Remember first row holds Z + iN
 		if (!glsl::gl_WorkGroupID().x)
 		{
-			for (uint32_t localElementIndex = 0; localElementIndex < ELEMENTS_PER_THREAD; localElementIndex++)
+			for (uint32_t localElementIndex = 0; localElementIndex < ELEMENTS_PER_THREAD; localElementIndex += 2)
 			{
-				const uint32_t globalElementIndex = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | workgroup::SubgroupContiguousIndex();
 				complex_t<scalar_t> zero = preloaded[localElementIndex];
 				complex_t<scalar_t> nyquist = trade<scalar_t, SharedmemAdaptor>(localElementIndex, sharedmemAdaptor);
 
 				workgroup::fft::unpack<scalar_t>(zero, nyquist);
+
 				// We now have zero and Nyquist frequencies at NFFT[index], so we must use `getFrequencyIndex(index)` to get the actual index into the DFT
+				const uint32_t globalElementIndex = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | workgroup::SubgroupContiguousIndex();
 				const uint32_t indexDFT = workgroup::fft::getFrequencyIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(globalElementIndex);
 
-				// We want IFFT of these to be strictly real so the packing stays consistent
-				// To do so, we're going to load the values at the correponding row exactly, and lerp them ourselves to ensure interpolation happens across one dimension only.
-				// That way, we make sure to interpolate only along a row corresponding to the DFT of a real signal, which makes its IFFT stay real
-				// MAYBE this isn't necessary
-				const float32_t zeroNyquistU = indexDFT / float32_t(FFT_LENGTH) + pushConstants.kernelHalfPixelSize.x;
-				uint32_t3 kernelSize;
-				kernelChannels.GetDimensions(kernelSize.x, kernelSize.y, kernelSize.z);
-				const uint32_t left = floor(kernelSize.x * zeroNyquistU);
-				const uint32_t right = left + 1;
-
-				const float32_t2 zeroKernelLeftVector = kernelChannels.Load(uint32_t4(left, 0, channel, 0));
-				const float32_t2 zeroKernelRightVector = kernelChannels.Load(uint32_t4(right, 0, channel, 0));
-				const float32_t2 zeroKernelVector = lerp(zeroKernelLeftVector, zeroKernelRightVector, frac(kernelSize.x * zeroNyquistU));
-				const complex_t<float32_t> zeroKernel = { zeroKernelVector.x, zeroKernelVector.y };
+				float32_t2 uv = float32_t2(indexDFT / float32_t(FFT_LENGTH), float32_t(0)) + pushConstants.kernelHalfPixelSize;
+				const vector<scalar_t, 2> zeroKernelVector = kernelChannels[channel].SampleLevel(samplerState[channel], uv, 0);
+				const complex_t<scalar_t> zeroKernel = { zeroKernelVector.x, zeroKernelVector.y };
 				zero = zero * zeroKernel;
 
 				// Do the same for the nyquist coord
-				const float32_t2 nyquistKernelLeftVector = kernelChannels.Load(uint32_t4(left, glsl::gl_NumWorkGroups().x, channel, 0));
-				const float32_t2 nyquistKernelRightVector = kernelChannels.Load(uint32_t4(right, glsl::gl_NumWorkGroups().x, channel, 0));
-				const float32_t2 nyquistKernelVector = lerp(nyquistKernelLeftVector, nyquistKernelRightVector, frac(kernelSize.x * zeroNyquistU));
-				const complex_t<float32_t> nyquistKernel = { nyquistKernelVector.x, nyquistKernelVector.y };
+				uv.y += 0.5;
+				const vector<scalar_t, 2> nyquistKernelVector = kernelChannels[channel].SampleLevel(samplerState[channel], uv, 0);
+				const complex_t<scalar_t> nyquistKernel = { nyquistKernelVector.x, nyquistKernelVector.y };
 				nyquist = nyquist * nyquistKernel;
 
 				// Since their IFFT is going to be real, we can pack them back as Z + iN, do a single IFFT and recover them afterwards
 				preloaded[localElementIndex] = zero + rotateLeft<scalar_t>(nyquist);
+
+				const complex_t<scalar_t> mirrored = conj(zero) + rotateLeft<scalar_t>(conj(nyquist));
+				vector<scalar_t, 2> mirroredVector = { mirrored.real(), mirrored.imag() };
+				// All of this math is shared with trade so maybe factor it out? idk
+				const uint32_t otherElementIdx = workgroup::fft::getNegativeIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(globalElementIndex);
+				const uint32_t otherThreadID = otherElementIdx & (_NBL_HLSL_WORKGROUP_SIZE_ - 1);
+				const uint32_t otherThreadGlobalElementIndex = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | otherThreadID;
+				const uint32_t elementToTradeGlobalIdx = workgroup::fft::getNegativeIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(otherThreadGlobalElementIndex);
+				const uint32_t elementToTradeLocalIdx = elementToTradeGlobalIdx / _NBL_HLSL_WORKGROUP_SIZE_;
+				workgroup::Shuffle<SharedmemAdaptor, vector<scalar_t, 2> >::__call(mirroredVector, otherThreadID, sharedmemAdaptor);
+				preloaded[elementToTradeLocalIdx].real(mirroredVector.x);
+				preloaded[elementToTradeLocalIdx].imag(mirroredVector.y);
 			}
 		}
 		else
@@ -198,7 +212,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase
 				const uint32_t y = glsl::bitfieldReverse<uint32_t>(glsl::gl_WorkGroupID().x) >> (32 - bits);
 				const uint32_t2 texCoords = uint32_t2(indexDFT, y);
 				const float32_t2 uv = texCoords / float32_t2(FFT_LENGTH, 2 * glsl::gl_NumWorkGroups().x) + pushConstants.kernelHalfPixelSize;
-				const vector<scalar_t, 2> sampledKernelVector = kernelChannels.Sample(samplerState, float32_t3(uv, channel));
+				const vector<scalar_t, 2> sampledKernelVector = kernelChannels[channel].SampleLevel(samplerState[channel], uv, 0);
 				const complex_t<scalar_t> sampledKernel = { sampledKernelVector.x, sampledKernelVector.y };
 				preloaded[localElementIndex] = preloaded[localElementIndex] * sampledKernel;
 			}
@@ -223,6 +237,18 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase
 			const int32_t paddedIndex = globalElementIndex - int32_t(padding);
 			if (paddedIndex >= 0 && paddedIndex < pushConstants.dataElementCount)
 				storeRowMajor(startAddress, paddedIndex, preloaded[localElementIndex]);
+		}
+	}
+
+	void debugUnload(uint32_t channel)
+	{
+		const uint64_t startAddress = getRowMajorDebugChannelStartAddress(channel);
+
+		for (uint32_t localElementIndex = 0; localElementIndex < ELEMENTS_PER_THREAD; localElementIndex++)
+		{
+			const uint32_t globalElementIndex = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | workgroup::SubgroupContiguousIndex();
+			
+			vk::RawBufferStore<complex_t<scalar_t> >(startAddress + debugRowMajorOffset(globalElementIndex, glsl::gl_WorkGroupID().x) * sizeof(complex_t<scalar_t>), preloaded[localElementIndex]);
 		}
 	}
 };

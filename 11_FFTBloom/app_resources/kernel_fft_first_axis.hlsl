@@ -13,15 +13,16 @@
 //        - You can get away with saving only half of the kernel (didn't do it here), especially if FFT of the image is always done in the same order (in that case you can just
 //          store the same half of the kernel spectrum as you do the image's).
 
-[[vk::push_constant]] PushConstantData pushConstants;
-[[vk::combinedImageSampler]][[vk::binding(0,0)]] Texture2D texture;
-[[vk::combinedImageSampler]][[vk::binding(0,0)]] SamplerState samplerState;
-
 #ifdef USE_HALF_PRECISION
 #define scalar_t float16_t
 #else
 #define scalar_t float32_t
 #endif
+
+[[vk::push_constant]] PushConstantData pushConstants;
+// Can't specify format
+[[vk::combinedImageSampler]][[vk::binding(0,0)]] /* [[vk::image_format(rgba32f)]]*/ Texture2D<float32_t4> texture;
+[[vk::combinedImageSampler]][[vk::binding(0,0)]] SamplerState samplerState;
 
 #define IMAGE_SIDE_LENGTH (_NBL_HLSL_WORKGROUP_SIZE_ * ELEMENTS_PER_THREAD)
 
@@ -108,8 +109,8 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorBase {
 			const uint32_t index = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | workgroup::SubgroupContiguousIndex();
 			normalizedCoordsFirstLine.y = (float32_t(index) + 0.5f) / (inputImageSize.y * KERNEL_SCALE);
 			normalizedCoordsSecondLine.y = normalizedCoordsFirstLine.y;
-			preloaded[localElementIndex].real(scalar_t(texture.SampleLevel(samplerState, normalizedCoordsFirstLine + promote<float32_t2, float32_t>(0.5 - 0.5 / KERNEL_SCALE), -log2(KERNEL_SCALE))[channel]));
-			preloaded[localElementIndex].imag(scalar_t(texture.SampleLevel(samplerState, normalizedCoordsSecondLine + promote<float32_t2, float32_t>(0.5 - 0.5/KERNEL_SCALE), -log2(KERNEL_SCALE))[channel]));
+			preloaded[localElementIndex].real(scalar_t(texture.SampleLevel(samplerState, normalizedCoordsFirstLine + promote<float32_t2, float32_t>(0.5 - 0.5 / KERNEL_SCALE), 0)[channel]));
+			preloaded[localElementIndex].imag(scalar_t(texture.SampleLevel(samplerState, normalizedCoordsSecondLine + promote<float32_t2, float32_t>(0.5 - 0.5/KERNEL_SCALE), 0)[channel]));
 		}
 	}
 

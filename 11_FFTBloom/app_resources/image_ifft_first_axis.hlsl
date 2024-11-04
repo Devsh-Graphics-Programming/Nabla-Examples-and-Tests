@@ -14,15 +14,17 @@
 
 #ifdef USE_HALF_PRECISION
 #define scalar_t float16_t
+#define FORMAT "rgba16f"
 #else
 #define scalar_t float32_t
+#define FORMAT "rgba32f"
 #endif
 
 
 #define FFT_LENGTH (_NBL_HLSL_WORKGROUP_SIZE_ * ELEMENTS_PER_THREAD)
 
 [[vk::push_constant]] PushConstantData pushConstants;
-[[vk::binding(0, 0)]] RWTexture2D<float32_t3> convolvedImage;
+[[vk::binding(0, 0)]] [[vk::image_format( FORMAT )]] RWTexture2D<float32_t4> convolvedImage;
 
 groupshared uint32_t sharedmem[workgroup::fft::SharedMemoryDWORDs<scalar_t, _NBL_HLSL_WORKGROUP_SIZE_>];
 
@@ -146,7 +148,7 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorBase {
 				complex_t<scalar_t> p1 = { preloaded[0].imag() - c2.real(), c2.imag() };
 				preloaded[1] = p1;
 				complex_t<scalar_t> p0 = { preloaded[0].real() + c2.imag() , c2.real()};
-				preloaded[0] = p1;
+				preloaded[0] = p0;
 			}
 			else 
 			{
@@ -169,12 +171,14 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorBase {
 			const uint32_t paddedIndex = index - padding;
 			if (paddedIndex >= 0 && paddedIndex < imageDimensions.y)
 			{
-				float32_t3 texValue = convolvedImage.Load(uint32_t2(2 * glsl::gl_WorkGroupID().x, paddedIndex));
-				texValue[channel] = float32_t(preloaded[localElementIndex].real());
+				vector<scalar_t, 4> texValue = convolvedImage.Load(uint32_t2(2 * glsl::gl_WorkGroupID().x, paddedIndex));
+				texValue[channel] = scalar_t(preloaded[localElementIndex].real());
+				texValue.a = scalar_t(1);
 				convolvedImage[uint32_t2(2 * glsl::gl_WorkGroupID().x, paddedIndex)] = texValue;
-				
+
 				texValue = convolvedImage.Load(uint32_t2(2 * glsl::gl_WorkGroupID().x + 1, paddedIndex));
-				texValue[channel] = float32_t(preloaded[localElementIndex].imag());
+				texValue[channel] = scalar_t(preloaded[localElementIndex].imag());
+				texValue.a = scalar_t(1);
 				convolvedImage[uint32_t2(2 * glsl::gl_WorkGroupID().x + 1, paddedIndex)] = texValue;
 			}
 		}
@@ -196,7 +200,7 @@ void lastAxisFFT()
 		preloadedAccessor.preload<adaptor_t>(channel, sharedmemAdaptor);
 		// Update state after preload
 		sharedmemAccessor = sharedmemAdaptor.accessor;
-		workgroup::FFT<ELEMENTS_PER_THREAD, false, _NBL_HLSL_WORKGROUP_SIZE_, scalar_t>::template __call(preloadedAccessor, sharedmemAccessor);
+		workgroup::FFT<ELEMENTS_PER_THREAD, true, _NBL_HLSL_WORKGROUP_SIZE_, scalar_t>::template __call(preloadedAccessor, sharedmemAccessor);
 		preloadedAccessor.unload(channel);
 	}
 }
