@@ -113,6 +113,13 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorBase {
 			normalizedCoordsSecondLine.y = normalizedCoordsFirstLine.y;
 			preloaded[localElementIndex].real(scalar_t(texture.SampleLevel(samplerState, normalizedCoordsFirstLine + promote<float32_t2, float32_t>(0.5 - 0.5 / KERNEL_SCALE), 0)[channel]));
 			preloaded[localElementIndex].imag(scalar_t(texture.SampleLevel(samplerState, normalizedCoordsSecondLine + promote<float32_t2, float32_t>(0.5 - 0.5 / KERNEL_SCALE), 0)[channel]));
+			if (normalizedCoordsFirstLine.y < 0.f || normalizedCoordsFirstLine.y > 1.f)
+			{
+				vector<scalar_t, 2> aux = { preloaded[localElementIndex].real(), preloaded[localElementIndex].imag() };
+				aux = saturate(aux);
+				preloaded[localElementIndex].real(aux.x);
+				preloaded[localElementIndex].imag(aux.y);
+			}
 		}
 	}
 

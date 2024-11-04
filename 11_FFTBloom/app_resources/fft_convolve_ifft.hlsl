@@ -62,11 +62,6 @@ uint64_t rowMajorOffset(uint32_t x, uint32_t y)
 	return y * pushConstants.dataElementCount + x; // can no longer sum with | since there's no guarantees on row length
 }
 
-uint64_t debugRowMajorOffset(uint32_t x, uint32_t y)
-{
-	return y * FFT_LENGTH | x; // can no longer sum with | since there's no guarantees on row length
-}
-
 // Same as what was used to store in col-major after first axis FFT. This time we launch one workgroup per row so the height of the channel's (half) image is `glsl::gl_NumWorkGroups().x`,
 // and the width (number of columns) is passed as a push constant
 uint64_t getColMajorChannelStartAddress(uint32_t channel)
@@ -237,18 +232,6 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase
 			const int32_t paddedIndex = globalElementIndex - int32_t(padding);
 			if (paddedIndex >= 0 && paddedIndex < pushConstants.dataElementCount)
 				storeRowMajor(startAddress, paddedIndex, preloaded[localElementIndex]);
-		}
-	}
-
-	void debugUnload(uint32_t channel)
-	{
-		const uint64_t startAddress = getRowMajorDebugChannelStartAddress(channel);
-
-		for (uint32_t localElementIndex = 0; localElementIndex < ELEMENTS_PER_THREAD; localElementIndex++)
-		{
-			const uint32_t globalElementIndex = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | workgroup::SubgroupContiguousIndex();
-			
-			vk::RawBufferStore<complex_t<scalar_t> >(startAddress + debugRowMajorOffset(globalElementIndex, glsl::gl_WorkGroupID().x) * sizeof(complex_t<scalar_t>), preloaded[localElementIndex]);
 		}
 	}
 };

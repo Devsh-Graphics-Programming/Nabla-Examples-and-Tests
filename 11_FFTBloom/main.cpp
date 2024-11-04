@@ -706,9 +706,6 @@ public:
 			pushConstants.colMajorBufferAddress = m_colMajorBufferAddress;
 			pushConstants.rowMajorBufferAddress = m_rowMajorBufferAddress;
 
-			// Begin capture - let's ignore uploads
-			m_api->startCapture();
-
 			m_computeCmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
 			// First Axis FFT
@@ -878,6 +875,8 @@ public:
 		f = nullptr;
 		{
 			system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
+			// Cleanup earlier cache save
+			m_system->deleteFile(cacheSavePath.c_str());
 			m_system->createFile(future, cacheSavePath.c_str(), system::IFile::ECF_WRITE);
 			if (!future.wait())
 				return {};
@@ -888,7 +887,6 @@ public:
 		system::IFile::success_t succ;
 		f->write(succ, serializedCache->getPointer(), 0, serializedCache->getSize());
 		assert(bool(succ));
-		//m_api->endCapture();
 		return true;
 	}
 
@@ -1008,12 +1006,12 @@ public:
 				.signalSemaphores = {&signalInfo,1}
 			};
 
-			//queue->startCapture();
+			m_api->startCapture();
 			m_queue->submit({ &submitInfo,1 });
-			//queue->endCapture();
+			m_api->endCapture();
 		}
 
-		m_api->endCapture();
+		
 
 		// Kill after one iteration for now
 		m_keepRunning = false;
