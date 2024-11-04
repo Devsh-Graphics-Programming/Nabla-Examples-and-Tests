@@ -3,17 +3,15 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "common.hpp"
-
 #include "camera/CCubeProjection.hpp"
 #include "camera/ICameraControl.hpp"
 #include "nbl/builtin/hlsl/projection/projection.hlsl"
 #include "glm/glm/ext/matrix_clip_space.hpp" // TODO: TESTING
 
 // FPS Camera, TESTS
-using projection_matrix_t = float32_t4x4;
-using camera_t = Camera<projection_matrix_t>;
-using gimbal_t = camera_t::CGimbal;
-using projection_t = camera_t::base_t::projection_t;
+using matrix_precision_t = float32_t;
+using camera_t = CFPSCamera<matrix_precision_t>;
+using projection_t = IProjection<matrix<matrix_precision_t, 4u, 4u>>; // TODO: temporary -> projections will own/reference cameras
 
 /*
 	Renders scene texture to an offline
@@ -178,23 +176,21 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				{
 					ImGuiIO& io = ImGui::GetIO();
 					{
-						auto* projection = camera->getProjection();
-
 						if (isPerspective)
 						{
 							if (isLH)
-								projection->setMatrix(hlsl::buildProjectionMatrixPerspectiveFovLH(glm::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar));
+								projection->setMatrix(buildProjectionMatrixPerspectiveFovLH<matrix_precision_t>(glm::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar));
 							else
-								projection->setMatrix(hlsl::buildProjectionMatrixPerspectiveFovRH(glm::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar));
+								projection->setMatrix(buildProjectionMatrixPerspectiveFovRH<matrix_precision_t>(glm::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar));
 						}
 						else
 						{
 							float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
 
 							if (isLH)
-								projection->setMatrix(hlsl::buildProjectionMatrixOrthoLH(viewWidth, viewHeight, zNear, zFar));
+								projection->setMatrix(buildProjectionMatrixOrthoLH<matrix_precision_t>(viewWidth, viewHeight, zNear, zFar));
 							else
-								projection->setMatrix(hlsl::buildProjectionMatrixOrthoRH(viewWidth, viewHeight, zNear, zFar));
+								projection->setMatrix(buildProjectionMatrixOrthoRH<matrix_precision_t>(viewWidth, viewHeight, zNear, zFar));
 						}
 					}
 
@@ -258,8 +254,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						float32_t3 cameraPosition(cosf(camYAngle)* cosf(camXAngle)* transformParams.camDistance, sinf(camXAngle)* transformParams.camDistance, sinf(camYAngle)* cosf(camXAngle)* transformParams.camDistance);
 						float32_t3 cameraTarget(0.f, 0.f, 0.f);
 
-						gimbal->setPosition(cameraPosition);
-						camera->setTarget(cameraTarget);
+						// TODO: lets generate events and make it 
+						// happen purely on gimbal manipulation!
+						
+						//camera->getGimbal()->setPosition(cameraPosition);
+						//camera->getGimbal()->setTarget(cameraTarget);
 
 						firstFrame = false;
 					}
@@ -330,10 +329,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						float32_t4x4 view, projection, model;
 					} imguizmoM16InOut;
 
-					const auto& projectionMatrix = camera->getProjection()->getMatrix();
+					const auto& projectionMatrix = projection->getMatrix();
+					const auto& view = camera->getGimbal().getView().value();
 
 					ImGuizmo::SetID(0u);
-					imguizmoM16InOut.view = transpose(getMatrix3x4As4x4(camera->getViewMatrix()));
+					imguizmoM16InOut.view = transpose(getMatrix3x4As4x4(view.matrix));
 					imguizmoM16InOut.projection = transpose(projectionMatrix);
 					imguizmoM16InOut.model = transpose(getMatrix3x4As4x4(pass.scene->object.model));
 					{
@@ -345,10 +345,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					}
 
 					// to Nabla + update camera & model matrices
-					const auto& view = camera->getViewMatrix();
 				
 					// TODO: make it more nicely
-					const_cast<float32_t3x4&>(view) = float32_t3x4(transpose(imguizmoM16InOut.view)); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
+					const_cast<float32_t3x4&>(view.matrix) = float32_t3x4(transpose(imguizmoM16InOut.view)); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
 					{
 						static float32_t3x4 modelView, normal;
 						static float32_t4x4 modelViewProjection;
@@ -366,12 +365,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						auto& ubo = hook.viewParameters;
 
-						modelView = concatenateBFollowedByA<float>(view, hook.model);
+						modelView = concatenateBFollowedByA<float>(view.matrix, hook.model);
 
 						// TODO
 						//modelView.getSub3x3InverseTranspose(normal);
 
-						auto concatMatrix = mul(projectionMatrix, getMatrix3x4As4x4(view));
+						auto concatMatrix = mul(projectionMatrix, getMatrix3x4As4x4(view.matrix));
 						modelViewProjection = mul(concatMatrix, getMatrix3x4As4x4(hook.model));
 
 						memcpy(ubo.MVP, &modelViewProjection[0][0], sizeof(ubo.MVP));
@@ -411,17 +410,17 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 								ImGui::Separator();
 						};
 
-						auto& orientation = gimbal->getOrthonornalMatrix();
+						const auto& orientation = camera->getGimbal().getOrthonornalMatrix();
 
 						addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, &pass.scene->object.model[0][0]);
 						
-						addMatrixTable("Right", "OrientationRightVec", 1, 3, &gimbal->getXAxis()[0]);
-						addMatrixTable("Up", "OrientationUpVec", 1, 3, &gimbal->getYAxis()[0]);
-						addMatrixTable("Forward", "OrientationForwardVec", 1, 3, &gimbal->getZAxis()[0]);
-						addMatrixTable("Position", "PositionForwardVec", 1, 3, &gimbal->getPosition()[0]);
+						addMatrixTable("Right", "OrientationRightVec", 1, 3, &camera->getGimbal().getXAxis()[0]);
+						addMatrixTable("Up", "OrientationUpVec", 1, 3, &camera->getGimbal().getYAxis()[0]);
+						addMatrixTable("Forward", "OrientationForwardVec", 1, 3, &camera->getGimbal().getZAxis()[0]);
+						addMatrixTable("Position", "PositionForwardVec", 1, 3, &camera->getGimbal().getPosition()[0]);
 
 						//addMatrixTable("Camera Gimbal Orientation Matrix", "OrientationMatrixTable", 3, 3, &orientation[0][0]);
-						addMatrixTable("Camera Gimbal View Matrix", "ViewMatrixTable", 3, 4, &view[0][0]);
+						addMatrixTable("Camera Gimbal View Matrix", "ViewMatrixTable", 3, 4, &view.matrix[0][0]);
 						addMatrixTable("Camera Gimbal Projection Matrix", "ProjectionMatrixTable", 4, 4, &projectionMatrix[0][0], false);
 
 						ImGui::End();
@@ -509,14 +508,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				TESTS, TODO: remove all once finished work & integrate with the example properly
 			*/
 
-			const float32_t3 position(cosf(camYAngle)* cosf(camXAngle)* transformParams.camDistance, sinf(camXAngle)* transformParams.camDistance, sinf(camYAngle)* cosf(camXAngle)* transformParams.camDistance),
-			target(0.f, 0.f, 0.f);
-
-			auto projection = make_smart_refctd_ptr<projection_t>();
-			projection->setMatrix(buildProjectionMatrixPerspectiveFovLH(glm::radians(fov), float(m_window->getWidth()) / float(m_window->getHeight()), zNear, zFar));
-			
-			gimbal = make_smart_refctd_ptr<gimbal_t>(position);
-			camera = make_smart_refctd_ptr<camera_t>(core::smart_refctd_ptr(gimbal), core::smart_refctd_ptr(projection), target);
+			const float32_t3 position(cosf(camYAngle)* cosf(camXAngle)* transformParams.camDistance, sinf(camXAngle)* transformParams.camDistance, sinf(camYAngle)* cosf(camXAngle)* transformParams.camDistance);
+			projection->setMatrix(buildProjectionMatrixPerspectiveFovLH<matrix_precision_t>(glm::radians(fov), float(m_window->getWidth()) / float(m_window->getHeight()), zNear, zFar));
+			camera = make_smart_refctd_ptr<camera_t>(position);
 
 			return true;
 		}
@@ -695,9 +689,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 		inline void update()
 		{
-			camera->setMoveSpeed(moveSpeed);
-			camera->setRotateSpeed(rotateSpeed);
-
 			static std::chrono::microseconds previousEventTimestamp{};
 
 			m_inputSystem->getDefaultMouse(&mouse);
@@ -721,9 +712,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				std::vector<SMouseEvent> mouse{};
 				std::vector<SKeyboardEvent> keyboard{};
 			} capturedEvents;
-			
-			if (move)
-				camera->begin(nextPresentationTimestamp);
 
 			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 			{
@@ -764,13 +752,14 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			if (move)
 			{
-				const auto virtualMouseEvents = camera->processMouse(params.mouseEvents);
-				const auto virtualKeyboardEvents = camera->processKeyboard(params.keyboardEvents);
+				static std::vector<CVirtualGimbalEvent> virtualMouseEvents(CVirtualGimbalEvent::VirtualEventsTypeTable.size()), virtualKeyboardEvents(CVirtualGimbalEvent::VirtualEventsTypeTable.size());
+				uint32_t vEventsMouseCount, vEventsKeyboardCount;
 
-				camera->manipulate({ virtualMouseEvents.data(), virtualMouseEvents.size()});
-				camera->manipulate({ virtualKeyboardEvents.data(), virtualKeyboardEvents.size()});
+				camera->processMouse(virtualMouseEvents.data(), vEventsMouseCount,  params.mouseEvents);
+				camera->processKeyboard(virtualKeyboardEvents.data(), vEventsKeyboardCount, params.keyboardEvents);
 
-				camera->end(nextPresentationTimestamp);
+				camera->manipulate({ virtualMouseEvents.data(), vEventsMouseCount });
+				camera->manipulate({ virtualKeyboardEvents.data(), vEventsKeyboardCount });
 			}
 
 			pass.ui.manager->update(params);
@@ -814,8 +803,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			C_UI ui;
 		} pass;
 
-		core::smart_refctd_ptr<gimbal_t> gimbal;
-		core::smart_refctd_ptr<ICamera<projection_matrix_t>> camera;
+		smart_refctd_ptr<projection_t> projection = make_smart_refctd_ptr<projection_t>(); // TMP!
+		core::smart_refctd_ptr<ICamera<matrix_precision_t>> camera;
 		video::CDumbPresentationOracle oracle;
 
 		uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
