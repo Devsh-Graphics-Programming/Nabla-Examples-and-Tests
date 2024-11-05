@@ -4,6 +4,15 @@
 
 #include "common.hpp"
 
+struct SCameraParameters
+{
+	float camPos[3];
+
+	float MVP[4 * 4];
+	float V[3 * 4];
+	float P[3 * 4];
+};
+
 class CSwapchainFramebuffersAndDepth final : public nbl::video::CDefaultSwapchainFramebuffers
 {
 	using base_t = CDefaultSwapchainFramebuffers;
@@ -86,9 +95,10 @@ protected:
 	smart_refctd_ptr<IGPUImageView> m_depthBuffer;
 };
 
-class RayQueryGeometryApp final : public examples::SimpleWindowedApplication
+class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 		using device_base_t = examples::SimpleWindowedApplication;
+		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 		using clock_t = std::chrono::steady_clock;
 
 		constexpr static inline uint32_t WIN_W = 1280, WIN_H = 720, SC_IMG_COUNT = 3u, FRAMES_IN_FLIGHT = 5u;
@@ -217,6 +227,47 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication
 			m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
 			m_surface->recreateSwapchain();
 
+			// create output images
+			for (uint32_t i = 0; i < m_maxFramesInFlight; i++)
+			{
+				IGPUImage::SCreationParams imgInfo;
+				imgInfo.format = asset::EF_R16G16B16A16_SFLOAT;
+				imgInfo.type = IGPUImage::ET_2D;
+				imgInfo.extent.width = WIN_W;
+				imgInfo.extent.height = WIN_H;
+				imgInfo.extent.depth = 1u;
+				imgInfo.mipLevels = 1u;
+				imgInfo.arrayLayers = 1u;
+				imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
+				imgInfo.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(0u);
+				imgInfo.usage = core::bitflag(asset::IImage::EUF_STORAGE_BIT) | asset::IImage::EUF_TRANSFER_SRC_BIT;
+
+				auto image = m_device->createImage(std::move(imgInfo));
+				auto imageReqs = image->getMemoryReqs();
+				imageReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+				auto imageMem = m_device->allocate(imageReqs, image.get());
+
+				IGPUImageView::SCreationParams imgViewInfo;
+				imgViewInfo.image = std::move(image);
+				imgViewInfo.format = asset::EF_R16G16B16A16_SFLOAT;
+				imgViewInfo.viewType = IGPUImageView::ET_2D;
+				imgViewInfo.flags = static_cast<IGPUImageView::E_CREATE_FLAGS>(0u);
+				imgViewInfo.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+				imgViewInfo.subresourceRange.baseArrayLayer = 0u;
+				imgViewInfo.subresourceRange.baseMipLevel = 0u;
+				imgViewInfo.subresourceRange.layerCount = 1u;
+				imgViewInfo.subresourceRange.levelCount = 1u;
+
+				outHDRImageViews[i] = m_device->createImageView(std::move(imgViewInfo));
+			}
+
+			{
+				IGPUBuffer::SCreationParams params;
+				params.usage = IGPUBuffer::EUF_UNIFORM_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
+				params.size = sizeof(SCameraParameters);
+				cameraBuffer = createBuffer(params);
+			}
+
 			auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
 			auto* geometryCreator = assetManager->getGeometryCreator();
 
@@ -273,6 +324,83 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication
 				m_device->blockForSemaphores(info);
 			}
 
+			// create pipelines
+			{
+				// shader
+				const std::string shaderPath = "render.comp.hlsl";
+				IAssetLoader::SAssetLoadParams lparams = {};
+				lparams.logger = m_logger.get();
+				lparams.workingDirectory = "";
+				auto bundle = m_assetMgr->getAsset(shaderPath, lparams);
+				if (bundle.getContents().empty() || bundle.getAssetType() != IAsset::ET_SHADER)
+				{
+					m_logger->log("Shader %s not found!", ILogger::ELL_ERROR, shaderPath);
+					exit(-1);
+				}
+
+				const auto assets = bundle.getContents();
+				assert(assets.size() == 1);
+				smart_refctd_ptr<ICPUShader> shaderSrc = IAsset::castDown<ICPUShader>(assets[0]);
+				shaderSrc->setShaderStage(IShader::E_SHADER_STAGE::ESS_COMPUTE);
+				auto shader = m_device->createShader(shaderSrc.get());
+
+				// descriptors
+				IGPUDescriptorSetLayout::SBinding bindings[] = {
+					{
+						.binding = 0,
+						.type = asset::IDescriptor::E_TYPE::ET_ACCELERATION_STRUCTURE,
+						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+						.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+						.count = 1,
+					},
+					{
+						.binding = 1,
+						.type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
+						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+						.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+						.count = 1,
+					},
+					{
+						.binding = 2,
+						.type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+						.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+						.count = 1,
+					}
+				};
+				auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
+
+				const std::array<IGPUDescriptorSetLayout*, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> dsLayoutPtrs = { descriptorSetLayout.get(), nullptr, nullptr, nullptr};
+				renderPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dsLayoutPtrs.begin(), dsLayoutPtrs.end()));
+				for (uint32_t i = 0; i < m_maxFramesInFlight; i++)
+					renderDs[i] = renderPool->createDescriptorSet(descriptorSetLayout);
+
+				SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0u, .size = 2 * sizeof(uint64_t) };
+				auto pipelineLayout = m_device->createPipelineLayout({ &pcRange, 1 }, smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
+
+				IGPUComputePipeline::SCreationParams params = {};
+				params.layout = pipelineLayout.get();
+				params.shader.shader = shader.get();
+				m_device->createComputePipelines(nullptr, { &params, 1 }, &renderPipeline);
+			}
+
+			// write descriptors
+			for (uint32_t i = 0; i < m_maxFramesInFlight; i++)
+			{
+				IGPUDescriptorSet::SDescriptorInfo infos[3];
+				infos[0].desc = gpuTlas;
+				infos[1].desc = smart_refctd_ptr(cameraBuffer);
+				infos[1].info.buffer.size = cameraBuffer->getSize();
+				infos[2].desc = outHDRImageViews[i];
+				infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
+					{.dstSet = renderDs[i].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
+					{.dstSet = renderDs[i].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
+					{.dstSet = renderDs[i].get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
+				};
+				m_device->updateDescriptorSets(std::span(writes, 3), {});
+			}
+
 			// camera
 			{
 				core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
@@ -323,10 +451,10 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication
 			if (!m_currentImageAcquire)
 				return;
 
-			auto* const cb = m_cmdBufs.data()[resourceIx].get();
-			cb->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
-			cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-			cb->beginDebugMarker("RayQueryGeometryApp Frame");
+			auto* const cmdbuf = m_cmdBufs.data()[resourceIx].get();
+			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			cmdbuf->beginDebugMarker("RayQueryGeometryApp Frame");
 			{
 				camera.beginInputProcessing(nextPresentationTimestamp);
 				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); mouseProcess(events); }, m_logger.get());
@@ -345,90 +473,160 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication
 			}
 
 			const auto viewMatrix = camera.getViewMatrix();
+			const auto projectionMatrix = camera.getProjectionMatrix();
 			const auto viewProjectionMatrix = camera.getConcatenatedMatrix();
 
 			core::matrix3x4SIMD modelMatrix;
 			modelMatrix.setTranslation(nbl::core::vectorSIMDf(0, 0, 0, 0));
 			modelMatrix.setRotation(quaternion(0, 0, 0));
 
-			core::matrix3x4SIMD modelViewMatrix = core::concatenateBFollowedByA(viewMatrix, modelMatrix);
 			core::matrix4SIMD modelViewProjectionMatrix = core::concatenateBFollowedByA(viewProjectionMatrix, modelMatrix);
 
-			core::matrix3x4SIMD normalMatrix;
-			modelViewMatrix.getSub3x3InverseTranspose(normalMatrix);
-
-			SBasicViewParameters uboData;
+			SCameraParameters uboData;
+			const core::vector3df camPos = camera.getPosition().getAsVector3df();
+			camPos.getAs3Values(uboData.camPos);
 			memcpy(uboData.MVP, modelViewProjectionMatrix.pointer(), sizeof(uboData.MVP));
-			memcpy(uboData.MV, modelViewMatrix.pointer(), sizeof(uboData.MV));
-			memcpy(uboData.NormalMat, normalMatrix.pointer(), sizeof(uboData.NormalMat));
+			memcpy(uboData.V, viewMatrix.pointer(), sizeof(uboData.V));
+			memcpy(uboData.P, projectionMatrix.pointer(), sizeof(uboData.P));
 			{
 				SBufferRange<IGPUBuffer> range;
-				range.buffer = core::smart_refctd_ptr(resources.ubo.buffer);
-				range.size = resources.ubo.buffer->getSize();
+				range.buffer = smart_refctd_ptr(cameraBuffer);
+				range.size = cameraBuffer->getSize();
 
-				cb->updateBuffer(range, &uboData);
+				cmdbuf->updateBuffer(range, &uboData);
 			}
 
 			auto* queue = getGraphicsQueue();
 
-			asset::SViewport viewport;
+			// TODO: transition to render
 			{
-				viewport.minDepth = 1.f;
-				viewport.maxDepth = 0.f;
-				viewport.x = 0u;
-				viewport.y = 0u;
-				viewport.width = m_window->getWidth();
-				viewport.height = m_window->getHeight();
+				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[1];
+				imageBarriers[0].barrier = {
+				   .dep = {
+					   .srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+					   .srcAccessMask = ACCESS_FLAGS::NONE,
+					   .dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+					   .dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+					}
+				};
+				imageBarriers[0].image = outHDRImageViews[m_currentImageAcquire.imageIndex]->getCreationParameters().image.get();
+				imageBarriers[0].subresourceRange = {
+					.aspectMask = IImage::EAF_COLOR_BIT,
+					.baseMipLevel = 0u,
+					.levelCount = 1u,
+					.baseArrayLayer = 0u,
+					.layerCount = 1u
+				};
+				imageBarriers[0].oldLayout = IImage::LAYOUT::UNDEFINED;
+				imageBarriers[0].newLayout = IImage::LAYOUT::GENERAL;
+				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imageBarriers });
 			}
-			cb->setViewport(0u, 1u, &viewport);
-		
-			VkRect2D scissor =
-			{
-				.offset = { 0, 0 },
-				.extent = { m_window->getWidth(), m_window->getHeight() },
+
+			// do ray query
+			auto obj = objectsGpu[OT_SPHERE];
+			auto vertex = obj.bindings.vertex;
+			auto index = obj.bindings.index;
+
+			const uint64_t bufAddr[] = {
+				vertex.buffer->getDeviceAddress(),
+				index.buffer->getDeviceAddress()
 			};
-			cb->setScissor(0u, 1u, &scissor);
+
+			cmdbuf->bindComputePipeline(renderPipeline.get());
+			cmdbuf->pushConstants(renderPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, 2 * sizeof(uint64_t), bufAddr);
+			cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, renderPipeline->getLayout(), 0, 1, &renderDs[m_currentImageAcquire.imageIndex].get());
+			cmdbuf->dispatch(getWorkgroupCount(WIN_W, WorkgroupSize), getWorkgroupCount(WIN_H, WorkgroupSize), 1);
+
+			// blit
+			{
+				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[2];
+				imageBarriers[0].barrier = {
+				   .dep = {
+					   .srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+					   .srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
+					   .dstStageMask = PIPELINE_STAGE_FLAGS::BLIT_BIT,
+					   .dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
+					}
+				};
+				imageBarriers[0].image = outHDRImageViews[m_currentImageAcquire.imageIndex]->getCreationParameters().image.get();
+				imageBarriers[0].subresourceRange = {
+					.aspectMask = IImage::EAF_COLOR_BIT,
+					.baseMipLevel = 0u,
+					.levelCount = 1u,
+					.baseArrayLayer = 0u,
+					.layerCount = 1u
+				};
+				imageBarriers[0].oldLayout = IImage::LAYOUT::UNDEFINED;
+				imageBarriers[0].newLayout = IImage::LAYOUT::TRANSFER_SRC_OPTIMAL;
+
+				imageBarriers[1].barrier = {
+				   .dep = {
+					   .srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+					   .srcAccessMask = ACCESS_FLAGS::NONE,
+					   .dstStageMask = PIPELINE_STAGE_FLAGS::BLIT_BIT,
+					   .dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
+					}
+				};
+				imageBarriers[1].image = m_surface->getSwapchainResources()->getImage(m_currentImageAcquire.imageIndex);
+				imageBarriers[1].subresourceRange = {
+					.aspectMask = IImage::EAF_COLOR_BIT,
+					.baseMipLevel = 0u,
+					.levelCount = 1u,
+					.baseArrayLayer = 0u,
+					.layerCount = 1u
+				};
+				imageBarriers[1].oldLayout = IImage::LAYOUT::UNDEFINED;
+				imageBarriers[1].newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL;
+
+				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imageBarriers });
+			}
 
 			{
-				const VkRect2D currentRenderArea =
-				{
-					.offset = {0,0},
-					.extent = {m_window->getWidth(),m_window->getHeight()}
-				};
-
-				const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
-				const IGPUCommandBuffer::SClearDepthStencilValue depthValue = { .depth = 0.f };
+				IGPUCommandBuffer::SImageBlit regions[] = {{
+					.srcMinCoord = {0,0,0},
+					.srcMaxCoord = {WIN_W,WIN_H,1},
+					.dstMinCoord = {0,0,0},
+					.dstMaxCoord = {WIN_W,WIN_H,1},
+					.layerCount = 1,
+					.srcBaseLayer = 0,
+					.dstBaseLayer = 0,
+					.srcMipLevel = 0,
+					.dstMipLevel = 0,
+					.aspectMask = IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT
+				}};
+				
+				auto srcImg = outHDRImageViews[m_currentImageAcquire.imageIndex]->getCreationParameters().image.get();
 				auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-				const IGPUCommandBuffer::SRenderpassBeginInfo info =
-				{
-					.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
-					.colorClearValues = &clearValue,
-					.depthStencilClearValues = &depthValue,
-					.renderArea = currentRenderArea
-				};
+				auto dstImg = scRes->getImage(m_currentImageAcquire.imageIndex);
 
-				cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+				cmdbuf->blitImage(srcImg, IImage::LAYOUT::TRANSFER_SRC_OPTIMAL, dstImg, IImage::LAYOUT::TRANSFER_DST_OPTIMAL, regions, ISampler::ETF_NEAREST);
 			}
 
-			const auto& [hook, meta] = resources.objects[object.meta.type];
-			auto* rawPipeline = hook.pipeline.get();
-
-			SBufferBinding<const IGPUBuffer> vertex = hook.bindings.vertex, index = hook.bindings.index;
-
-			cb->bindGraphicsPipeline(rawPipeline);
-			cb->bindDescriptorSets(EPBP_GRAPHICS, rawPipeline->getLayout(), 1, 1, &resources.descriptorSet.get());
-			cb->bindVertexBuffers(0, 1, &vertex);
-
-			if (index.buffer && hook.indexType != EIT_UNKNOWN)
+			// TODO: transition to present
 			{
-				cb->bindIndexBuffer(index, hook.indexType);
-				cb->drawIndexed(hook.indexCount, 1, 0, 0, 0);
-			}
-			else
-				cb->draw(hook.indexCount, 1, 0, 0);
+				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[2];
+				imageBarriers[1].barrier = {
+				   .dep = {
+					   .srcStageMask = PIPELINE_STAGE_FLAGS::BLIT_BIT,
+					   .srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+					   .dstStageMask = PIPELINE_STAGE_FLAGS::NONE,
+					   .dstAccessMask = ACCESS_FLAGS::NONE
+					}
+				};
+				imageBarriers[1].image = m_surface->getSwapchainResources()->getImage(m_currentImageAcquire.imageIndex);
+				imageBarriers[1].subresourceRange = {
+					.aspectMask = IImage::EAF_COLOR_BIT,
+					.baseMipLevel = 0u,
+					.levelCount = 1u,
+					.baseArrayLayer = 0u,
+					.layerCount = 1u
+				};
+				imageBarriers[1].oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL;
+				imageBarriers[1].newLayout = IImage::LAYOUT::PRESENT_SRC;
 
-			cb->endRenderPass();
-			cb->end();
+				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imageBarriers });
+			}
+
 			{
 				const IQueue::SSubmitInfo::SSemaphoreInfo rendered[] =
 				{
@@ -442,7 +640,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication
 					{
 						const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[] =
 						{
-							{.cmdbuf = cb }
+							{.cmdbuf = cmdbuf }
 						};
 
 						const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] =
@@ -500,6 +698,11 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication
 		}
 
 	private:
+		uint32_t getWorkgroupCount(uint32_t dim, uint32_t size)
+		{
+			return (dim + size - 1) / size;
+		}
+
 		smart_refctd_ptr<IGPUBuffer> createBuffer(IGPUBuffer::SCreationParams& params)
 		{
 			smart_refctd_ptr<IGPUBuffer> buffer;
@@ -783,8 +986,11 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication
 		smart_refctd_ptr<IGPUTopLevelAccelerationStructure> gpuTlas;
 		smart_refctd_ptr<IGPUBuffer> instancesBuffer;
 
-		smart_refctd_ptr<IGPUGraphicsPipeline> renderPipeline;
-		smart_refctd_ptr<IGPUDescriptorSet> renderDs;
+		smart_refctd_ptr<IGPUBuffer> cameraBuffer;
+		std::array<smart_refctd_ptr<IGPUImageView>, ISwapchain::MaxImages> outHDRImageViews;
+
+		smart_refctd_ptr<IGPUComputePipeline> renderPipeline;
+		std::array<smart_refctd_ptr<IGPUDescriptorSet>, ISwapchain::MaxImages> renderDs;
 		smart_refctd_ptr<IDescriptorPool> renderPool;
 
 		uint16_t gcIndex = {};

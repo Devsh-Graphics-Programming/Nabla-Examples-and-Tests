@@ -3,12 +3,15 @@
 
 #include <nabla.h>
 #include "nbl/asset/utils/CGeometryCreator.h"
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 #include "SimpleWindowedApplication.hpp"
+
 #include "InputSystem.hpp"
 #include "CEventCallback.hpp"
 
 #include "CCamera.hpp"
+#include "common.hlsl"
 #include "SBasicViewParameters.hlsl"
 
 #include "geometry/creator/spirv/builtin/CArchive.h"

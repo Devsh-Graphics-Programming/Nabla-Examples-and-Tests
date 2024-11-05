@@ -12,7 +12,7 @@ struct VertexData
     float3 normal;
 };
 
-struct SBasicViewParameters //! matches CPU version size & alignment (160, 4)
+struct SCameraParameters //! matches CPU version size & alignment (160, 4)
 {
     float3 camPos;
 
