@@ -743,11 +743,18 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 							writes[3].binding = outputBinding.binding;
 							infos[3].desc = core::smart_refctd_ptr(outImageView);
 							infos[3].info.image.imageLayout = IGPUImage::LAYOUT::GENERAL;
-							writes[4].binding = outputBinding.binding;
-							writes[4].arrayElement = 1;
-							infos[4].desc = core::smart_refctd_ptr(intermediateAlphaView);
-							infos[4].info.image.imageLayout = IGPUImage::LAYOUT::GENERAL;
-							device->updateDescriptorSets(writes,{});
+							std::span<const IGPUDescriptorSet::SWriteDescriptorSet> writeSpan;
+							if (intermediateAlphaView)
+							{
+								writes[4].binding = outputBinding.binding;
+								writes[4].arrayElement = 1;
+								infos[4].desc = core::smart_refctd_ptr(intermediateAlphaView);
+								infos[4].info.image.imageLayout = IGPUImage::LAYOUT::GENERAL;
+								writeSpan = writes;
+							}
+							else
+								writeSpan = {writes,WriteCount-1};
+							device->updateDescriptorSets(writeSpan,{});
 						}
 
 						{
