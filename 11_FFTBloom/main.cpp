@@ -40,7 +40,7 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 	smart_refctd_ptr<IGPUDescriptorSet> m_lastAxisFFT_convolution_lastAxisIFFTDescriptorSet;
 	smart_refctd_ptr<IGPUDescriptorSet> m_firstAxisIFFTDescriptorSet;
 
-	// Utils (might be useful, they stay for now)
+	// Utils
 	smart_refctd_ptr<IUtilities> m_utils;
 
 	// Resources
@@ -1011,14 +1011,154 @@ public:
 			m_api->endCapture();
 		}
 
-		
-
 		// Kill after one iteration for now
 		m_keepRunning = false;
 	}
 
 	bool onAppTerminated() override
 	{
+		// Wait for all work to be done
+		m_device->waitIdle();
+
+		// Copied from 64_FFT which I think copies from ex 07
+		// Create a buffer for download
+		const auto& deviceLimits = m_device->getPhysicalDevice()->getLimits();
+		uint32_t alignment = core::max(deviceLimits.nonCoherentAtomSize, alignof(float));
+		auto srcImageDims = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
+		const uint32_t srcImageSize = srcImageDims.height * srcImageDims.width * srcImageDims.depth * (CHANNELS + 1) * sizeof(float32_t);
+
+		auto downStreamingBuffer = m_utils->getDefaultDownStreamingBuffer();
+
+		auto outputOffset = downStreamingBuffer->invalid_value;
+		std::chrono::steady_clock::time_point waitTill(std::chrono::years(45));
+		const uint32_t AllocationCount = 1;
+		downStreamingBuffer->multi_allocate(waitTill, AllocationCount, &outputOffset, &srcImageSize, &alignment);
+		
+		// Send download commands to GPU
+		{
+			m_computeCmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			// Pipeline barrier: transition outImg to transfer source optimal
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo imagePipelineBarrierInfo = {};
+			decltype(imagePipelineBarrierInfo)::image_barrier_t imgBarrier;
+			imagePipelineBarrierInfo.imgBarriers = { &imgBarrier, 1 };
+
+			imgBarrier.image = m_outImg.get();
+			imgBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+			imgBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS;
+			imgBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+			imgBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS;
+			imgBarrier.oldLayout = IImage::LAYOUT::GENERAL;
+			imgBarrier.newLayout = IImage::LAYOUT::TRANSFER_SRC_OPTIMAL;
+			imgBarrier.subresourceRange = { IGPUImage::EAF_COLOR_BIT, 0u, 1u, 0u, 1 };
+
+			m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), imagePipelineBarrierInfo);
+			IImage::SBufferCopy copy;
+			copy.imageExtent = m_outImg->getCreationParameters().extent;
+			copy.imageSubresource = { IImage::EAF_COLOR_BIT, 0u, 0u, 1u };
+			m_computeCmdBuf->copyImageToBuffer(m_outImg.get(), IImage::LAYOUT::TRANSFER_SRC_OPTIMAL, downStreamingBuffer->getBuffer(), 1, &copy);
+			m_computeCmdBuf->end();
+		}
+		// Submit
+		{
+			const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo =
+			{
+				.cmdbuf = m_computeCmdBuf.get()
+			};
+			const IQueue::SSubmitInfo::SSemaphoreInfo waitInfo =
+			{
+				.semaphore = m_timeline.get(),
+				.value = semaphorValue++,
+				.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
+			};
+			const IQueue::SSubmitInfo::SSemaphoreInfo signalInfo =
+			{
+				.semaphore = m_timeline.get(),
+				.value = semaphorValue,
+				.stageMask = asset::PIPELINE_STAGE_FLAGS::COPY_BIT
+			};
+
+			const IQueue::SSubmitInfo submitInfo = {
+				.waitSemaphores = {&waitInfo, 1},
+				.commandBuffers = {&cmdbufInfo,1},
+				.signalSemaphores = {&signalInfo,1}
+			};
+
+			m_queue->submit({ &submitInfo,1 });
+		}
+
+		// We let all latches know what semaphore and counter value has to be passed for the functors to execute
+		const ISemaphore::SWaitInfo futureWait = { m_timeline.get(),semaphorValue };
+
+		// Now a new and even more advanced usage of the latched events, we make our own refcounted object with a custom destructor and latch that like we did the commandbuffer.
+		// Instead of making our own and duplicating logic, we'll use one from IUtilities meant for down-staging memory.
+		// Its nice because it will also remember to invalidate our memory mapping if its not coherent.
+		auto latchedConsumer = make_smart_refctd_ptr<IUtilities::CDownstreamingDataConsumer>(
+			IDeviceMemoryAllocation::MemoryRange(outputOffset, srcImageSize),
+			// Note the use of capture by-value [=] and not by-reference [&] because this lambda will be called asynchronously whenever the event signals
+			[=](const size_t dstOffset, const void* bufSrc, const size_t size)->void
+			{
+				// image view
+				core::smart_refctd_ptr<ICPUImageView> imageView;
+				{
+					// create image
+					ICPUImage::SCreationParams imgParams;
+					imgParams.flags = static_cast<ICPUImage::E_CREATE_FLAGS>(0u); // no flags
+					imgParams.type = ICPUImage::ET_2D;
+					imgParams.format = m_outImg->getCreationParameters().format;
+					imgParams.extent = m_outImg->getCreationParameters().extent;
+					imgParams.mipLevels = 1u;
+					imgParams.arrayLayers = 1u;
+					imgParams.samples = ICPUImage::ESCF_1_BIT;
+
+					auto image = ICPUImage::create(std::move(imgParams));
+					{
+						// set up regions
+						auto regions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<IImage::SBufferCopy> >(1u);
+						{
+							auto& region = regions->front();
+							region.bufferOffset = 0u;
+							region.bufferRowLength = 0;
+							region.bufferImageHeight = 0;
+							region.imageSubresource.aspectMask = IImage::EAF_COLOR_BIT;
+							region.imageSubresource.mipLevel = 0u;
+							region.imageSubresource.baseArrayLayer = 0u;
+							region.imageSubresource.layerCount = 1u;
+							region.imageOffset = { 0u,0u,0u };
+							region.imageExtent = imgParams.extent;
+						}
+						// the cpu is not touching the data yet because the custom CPUBuffer is adopting the memory (no copy)
+						auto* data = reinterpret_cast<uint8_t*>(downStreamingBuffer->getBufferPointer()) + outputOffset;
+						auto cpubufferalias = core::make_smart_refctd_ptr<asset::CCustomAllocatorCPUBuffer<core::null_allocator<uint8_t> > >(srcImageSize, data, core::adopt_memory);
+						image->setBufferAndRegions(std::move(cpubufferalias), regions);
+					}
+
+					// create image view
+					ICPUImageView::SCreationParams imgViewParams;
+					imgViewParams.flags = static_cast<ICPUImageView::E_CREATE_FLAGS>(0u);
+					imgViewParams.format = image->getCreationParameters().format;
+					imgViewParams.image = std::move(image);
+					imgViewParams.viewType = ICPUImageView::ET_2D;
+					imgViewParams.subresourceRange = { IImage::EAF_COLOR_BIT,0u,1u,0u,1u };
+					imageView = ICPUImageView::create(std::move(imgViewParams));
+				}
+
+				// save as .EXR image
+				{
+					IAssetWriter::SAssetWriteParams wp(imageView.get());
+					m_assetMgr->writeAsset((localOutputCWD / "convolved.exr").string(), wp);
+				}
+			},
+			// Its also necessary to hold onto the commandbuffer, even though we take care to not reset the parent pool, because if it
+			// hits its destructor, our automated reference counting will drop all references to objects used in the recorded commands.
+			// It could also be latched in the upstreaming deallocate, because its the same fence.
+			std::move(m_computeCmdBuf), downStreamingBuffer
+		);
+		// We put a function we want to execute 
+		downStreamingBuffer->multi_deallocate(AllocationCount, &outputOffset, &srcImageSize, futureWait, &latchedConsumer.get());
+
+		// Need to make sure that there are no events outstanding if we want all lambdas to eventually execute before `onAppTerminated`
+		// (the destructors of the Command Pool Cache and Streaming buffers will still wait for all lambda events to drain)
+		while (downStreamingBuffer->cull_frees()) {}
 		return device_base_t::onAppTerminated();
 	}
 };
