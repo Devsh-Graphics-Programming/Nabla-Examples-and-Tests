@@ -9,8 +9,8 @@
 // TODO: Copy HelloSwapchain to set up a swapchain, draw to a surface. Or copy the new MPMC example.
 // TODO: Dynamically modify bloom size with mouse scroll/ +- keys
 //		 Notes: To do so must check required size against buffer size (expand buffer and recompile kernel if it starts being small), also after making kernel larger then small again
-//		        probably no need to shrink buffer and recompile kernel but would be nice to add that as well)
-// TODO: Clean up example after FFT ext
+//		        there's probably no need to shrink buffer and recompile kernel but would be nice to add that as well)
+// TODO: Refactor after FFT ext is back
 // TODO: Make sampling formats be #defined depending on how they were loaded on GPU side
 
 using namespace nbl;
@@ -169,23 +169,25 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 			R"===(
 		#define _NBL_HLSL_WORKGROUP_SIZE_ %u
 		#define ELEMENTS_PER_THREAD %u
-		%s
 		
 		#define KERNEL_SCALE %f
+		#define scalar_t %s
+		#define FORMAT %s
  
 		#include "%s"
 
 		)===";
 
-		const size_t extraSize = 4u + 4u + 26u + 128u;
+		const size_t extraSize = 4u + 4u + 9u + 7u + 128u;
 
 		auto shader = core::make_smart_refctd_ptr<ICPUBuffer>(strlen(sourceFmt) + extraSize + 1u);
 		snprintf(
 			reinterpret_cast<char*>(shader->getPointer()), shader->getSize(), sourceFmt,
 			workgroupSize,
 			elementsPerThread,
-			useHalfFloats ? "#define USE_HALF_PRECISION" : "",
 			kernelScale,
+			useHalfFloats ? "float16_t" : "float32_t",
+			useHalfFloats ? "\"rg16f\"" : "\"rg32f\"",
 			includeMainName
 		);
 

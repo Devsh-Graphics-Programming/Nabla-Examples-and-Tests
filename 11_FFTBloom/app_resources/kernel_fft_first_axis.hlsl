@@ -1,25 +1,18 @@
 #include "common.hlsl"
-#include "nbl/builtin/hlsl/workgroup/fft.hlsl"
 
 /*
- * Remember we have these defines: 
+ * Remember we have these defines:
  * _NBL_HLSL_WORKGROUP_SIZE_
  * ELEMENTS_PER_THREAD
- * (may be defined) USE_HALF_PRECISION
  * KERNEL_SCALE
+ * scalar_t
+ * FORMAT
 */
 
 // TODOS:
 //        - You can get away with saving only half of the kernel (didn't do it here), especially if FFT of the image is always done in the same order (in that case you can just
 //          store the same half of the kernel spectrum as you do the image's).
 
-#ifdef USE_HALF_PRECISION
-#define scalar_t float16_t
-#else
-#define scalar_t float32_t
-#endif
-
-[[vk::push_constant]] PushConstantData pushConstants;
 // Can't specify format
 [[vk::combinedImageSampler]][[vk::binding(0,0)]] /* [[vk::image_format(rgba32f)]]*/ Texture2D<float32_t4> texture;
 [[vk::combinedImageSampler]][[vk::binding(0,0)]] SamplerState samplerState;
@@ -65,35 +58,14 @@ uint64_t getChannelStartAddress(uint32_t channel)
 	return pushConstants.colMajorBufferAddress + channel * IMAGE_SIDE_LENGTH * IMAGE_SIDE_LENGTH / 2 * sizeof(complex_t<scalar_t>);
 }
 
-struct PreloadedAccessorBase {
-	
-	void set(uint32_t idx, nbl::hlsl::complex_t<scalar_t> value) 
-	{
-		preloaded[idx / _NBL_HLSL_WORKGROUP_SIZE_] = value;
-	}
-	
-	void get(uint32_t idx, NBL_REF_ARG(nbl::hlsl::complex_t<scalar_t>) value) 
-	{
-		value = preloaded[idx / _NBL_HLSL_WORKGROUP_SIZE_];
-	}
-
-	void memoryBarrier() 
-	{
-		// only one workgroup is touching any memory it wishes to trade
-		spirv::memoryBarrier(spv::ScopeWorkgroup, spv::MemorySemanticsAcquireReleaseMask | spv::MemorySemanticsUniformMemoryMask);
-	}
-
-	complex_t<scalar_t> preloaded[ELEMENTS_PER_THREAD];
-};
-
-
 // -------------------------------------------- FIRST AXIS FFT ------------------------------------------------------------------
 
 // Each Workgroup computes the FFT along two consecutive vertical scanlines (fixed x for the whole Workgroup) so we use `2 * gl_WorkGroupID().x, 2 * gl_WorkGroupID().x + 1` 
 // to get the x coordinates for each of the consecutive lines
 // Since the output images (one per channel) are square of size IMAGE_SIDE_LENGTH (defined above) we will be launching half that amount of workgroups
 
-struct PreloadedFirstAxisAccessor : PreloadedAccessorBase {
+struct PreloadedFirstAxisAccessor : PreloadedAccessorBase<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_, scalar_t> 
+{
 	
 	void preload(uint32_t channel)
 	{
@@ -112,37 +84,16 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorBase {
 			preloaded[localElementIndex].real(scalar_t(texture.SampleLevel(samplerState, normalizedCoordsFirstLine + promote<float32_t2, float32_t>(0.5 - 0.5 / KERNEL_SCALE), 0)[channel]));
 			preloaded[localElementIndex].imag(scalar_t(texture.SampleLevel(samplerState, normalizedCoordsSecondLine + promote<float32_t2, float32_t>(0.5 - 0.5/KERNEL_SCALE), 0)[channel]));
 		}
+
+		// Set LegacyBdaAccessor for posterior writing
+		colMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(getChannelStartAddress(channel));
 	}
 
 	// Util to write values to output buffer in column major order - this ensures coalesced writes
-	void storeColMajor(uint64_t startAddress, uint32_t index, NBL_CONST_REF_ARG(complex_t<scalar_t>) firstValue, NBL_CONST_REF_ARG(complex_t<scalar_t>) secondValue)
+	void storeColMajor(uint32_t index, NBL_CONST_REF_ARG(complex_t<scalar_t>) firstValue, NBL_CONST_REF_ARG(complex_t<scalar_t>) secondValue)
 	{
-		vk::RawBufferStore<complex_t<scalar_t> >(startAddress + colMajorOffset(2 * glsl::gl_WorkGroupID().x, index) * sizeof(complex_t<scalar_t>), firstValue);
-		vk::RawBufferStore<complex_t<scalar_t> >(startAddress + colMajorOffset(2 * glsl::gl_WorkGroupID().x + 1, index) * sizeof(complex_t<scalar_t>), secondValue);
-	}
-
-	// TODO: Explain this a bit better in the readme
-	// Util to trade values between threads, needed for FFT unpacking. We're going to abuse the SharedmemAccessor :)
-	// An even local element of `localElementIdx` contains the element of `T = globalElementIdx = WorkgroupSize * localElementIdx + threadID` in the global array. 
-	// Then to unpack we need element at `U = F^{-1}(-F(T))` (see readme). Turns out U's lower `log2(WorkgroupSize)` bits give the ID `otherThreadID` of the thread holding U. 
-	// That thread has to store element `V = WorkgroupSize * localElementIdx + otherThreadID`, for which it needs access to element `W = F^{-1}(-F(V))`. Rather surprisingly,
-	// but yet unproven, W's lower bits give as ID the current thread's ID. That means that the other thread expects one of our elements to unpack, just like we expect one of their
-	// elements. This discussion is again in the readme, but it turns out W's upper bits give its local element index.
-	template<typename Scalar, typename SharedmemAdaptor>
-	complex_t<Scalar> trade(uint32_t localElementIdx, SharedmemAdaptor sharedmemAdaptor)
-	{
-		uint32_t globalElementIdx = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIdx | workgroup::SubgroupContiguousIndex();
-		uint32_t otherElementIdx = workgroup::fft::getNegativeIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(globalElementIdx);
-		uint32_t otherThreadID = otherElementIdx & (_NBL_HLSL_WORKGROUP_SIZE_ - 1);
-		uint32_t otherThreadGlobalElementIdx = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIdx | otherThreadID;
-		uint32_t elementToTradeGlobalIdx = workgroup::fft::getNegativeIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(otherThreadGlobalElementIdx);
-		uint32_t elementToTradeLocalIdx = elementToTradeGlobalIdx / _NBL_HLSL_WORKGROUP_SIZE_;
-		complex_t<Scalar> toTrade = preloaded[elementToTradeLocalIdx];
-		vector<Scalar, 2> toTradeVector = { toTrade.real(), toTrade.imag() };
-		workgroup::Shuffle<SharedmemAdaptor, vector<Scalar, 2> >::__call(toTradeVector, otherThreadID, sharedmemAdaptor);
-		toTrade.real(toTradeVector.x);
-		toTrade.imag(toTradeVector.y);
-		return toTrade;
+		colMajorAccessor.set(colMajorOffset(2 * glsl::gl_WorkGroupID().x, index), firstValue);
+		colMajorAccessor.set(colMajorOffset(2 * glsl::gl_WorkGroupID().x + 1, index), secondValue);
 	}
 
 	// Once the FFT is done, each thread should write its elements back. Storage is in column-major order because this avoids cache misses when writing.
@@ -153,8 +104,6 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorBase {
 	template<typename SharedmemAdaptor>
 	void unload(uint32_t channel, SharedmemAdaptor sharedmemAdaptor)
 	{
-		const uint64_t startAddress = getChannelStartAddress(channel);
-
 		// Storing even elements of NFFT is storing the bitreversed lower half of DFT - see readme
 		for (uint32_t localElementIndex = 0; localElementIndex < ELEMENTS_PER_THREAD; localElementIndex += 2)
 		{
@@ -163,19 +112,19 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorBase {
 			{
 				complex_t<scalar_t> packedZeroNyquistLo = { preloaded[0].real(), preloaded[1].real() };
 				complex_t<scalar_t> packedZeroNyquistHi = { preloaded[0].imag(), preloaded[1].imag() };
-				storeColMajor(startAddress, 0, packedZeroNyquistLo, packedZeroNyquistHi);
+				storeColMajor(0, packedZeroNyquistLo, packedZeroNyquistHi);
 			}
 			else 
 			{
 				complex_t<scalar_t> lo = preloaded[localElementIndex];
-				complex_t<scalar_t> hi = trade<scalar_t, SharedmemAdaptor>(localElementIndex, sharedmemAdaptor);
+				complex_t<scalar_t> hi = getDFTMirror<SharedmemAdaptor>(localElementIndex, sharedmemAdaptor);
 				workgroup::fft::unpack<scalar_t>(lo, hi);
 				// Divide localElementIdx by 2 to keep even elements packed together when writing
-				storeColMajor(startAddress, _NBL_HLSL_WORKGROUP_SIZE_ * (localElementIndex >> 1) | workgroup::SubgroupContiguousIndex(), lo, hi);
+				storeColMajor(_NBL_HLSL_WORKGROUP_SIZE_ * (localElementIndex >> 1) | workgroup::SubgroupContiguousIndex(), lo, hi);
 			}
 		}
-
 	}
+	LegacyBdaAccessor<complex_t<scalar_t> > colMajorAccessor;
 };
 
 void firstAxisFFT()

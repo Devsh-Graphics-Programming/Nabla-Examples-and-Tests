@@ -1,24 +1,13 @@
 #include "common.hlsl"
-#include "nbl/builtin/hlsl/workgroup/fft.hlsl"
-
-// TODO: There's a lot of redundant stuff in every FFT file, I'd like to move that to another file that I can sourceFmt at runtime then include in all of them (something like 
-// a runtime common.hlsl)
 
 /*
  * Remember we have these defines:
  * _NBL_HLSL_WORKGROUP_SIZE_
  * ELEMENTS_PER_THREAD
- * (may be defined) USE_HALF_PRECISION
  * KERNEL_SCALE
+ * scalar_t
+ * FORMAT
 */
-
-[[vk::push_constant]] PushConstantData pushConstants;
-
-#ifdef USE_HALF_PRECISION
-#define scalar_t float16_t
-#else
-#define scalar_t float32_t
-#endif
 
 #define IMAGE_SIDE_LENGTH (_NBL_HLSL_WORKGROUP_SIZE_ * ELEMENTS_PER_THREAD)
 
@@ -67,27 +56,6 @@ uint64_t getRowMajorChannelStartAddress(uint32_t channel)
 	return pushConstants.rowMajorBufferAddress + channel * IMAGE_SIDE_LENGTH * IMAGE_SIDE_LENGTH / 2 * sizeof(complex_t<scalar_t>);
 }
 
-struct PreloadedAccessorBase {
-
-	void set(uint32_t idx, nbl::hlsl::complex_t<scalar_t> value)
-	{
-		preloaded[idx / _NBL_HLSL_WORKGROUP_SIZE_] = value;
-	}
-
-	void get(uint32_t idx, NBL_REF_ARG(nbl::hlsl::complex_t<scalar_t>) value)
-	{
-		value = preloaded[idx / _NBL_HLSL_WORKGROUP_SIZE_];
-	}
-
-	void memoryBarrier()
-	{
-		// only one workgroup is touching any memory it wishes to trade
-		spirv::memoryBarrier(spv::ScopeWorkgroup, spv::MemorySemanticsAcquireReleaseMask | spv::MemorySemanticsUniformMemoryMask);
-	}
-
-	complex_t<scalar_t> preloaded[ELEMENTS_PER_THREAD];
-};
-
 
 // ------------------------------------------ SECOND AXIS FFT -------------------------------------------------------------
 
@@ -97,36 +65,31 @@ struct PreloadedAccessorBase {
 // where `Z` is the actual 0th row and `N` is the Nyquist row (the one with index IMAGE_SIDE_LENGTH / 2). Those are packed together
 // so they need to be unpacked properly after FFT like we did earlier.
 
-struct PreloadedSecondAxisAccessor : PreloadedAccessorBase
+struct PreloadedSecondAxisAccessor : PreloadedAccessorBase<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_, scalar_t>
 {
 	void preload(uint32_t channel)
 	{
-		const uint64_t startAddress = getColMajorChannelStartAddress(channel);
+		// Set up accessor to point at channel offsets
+		bothBuffersAccessor = DoubleLegacyBdaAccessor<complex_t<scalar_t> >::create(getColMajorChannelStartAddress(channel), getRowMajorChannelStartAddress(channel));
 
 		for (uint32_t elementIndex = 0; elementIndex < ELEMENTS_PER_THREAD; elementIndex++)
 		{
 			const uint32_t index = _NBL_HLSL_WORKGROUP_SIZE_ * elementIndex | workgroup::SubgroupContiguousIndex();
-			preloaded[elementIndex] = vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + colMajorOffset(index, glsl::gl_WorkGroupID().x) * sizeof(complex_t<scalar_t>));
+			preloaded[elementIndex] = bothBuffersAccessor.get(colMajorOffset(index, glsl::gl_WorkGroupID().x));
 		}
 	}
 
-	// Util to write values to output buffer in row major order
-	void storeRowMajor(uint64_t startAddress, uint32_t index, NBL_CONST_REF_ARG(complex_t<scalar_t>) value)
-	{
-		vk::RawBufferStore<complex_t<scalar_t> >(startAddress + rowMajorOffset(index, glsl::gl_WorkGroupID().x) * sizeof(complex_t<scalar_t>), value);
-	}
-
-	// Save a column back in row major order. Remember that the first row (one with `gl_WorkGroupID().x == 0`) will actually hold the packed FFT of Zero and Nyquist rows.
+	// Save a row back in row major order. Remember that the first row (one with `gl_WorkGroupID().x == 0`) will actually hold the packed FFT of Zero and Nyquist rows.
 	void unload(uint32_t channel)
 	{
-		const uint64_t startAddress = getRowMajorChannelStartAddress(channel);
-
 		for (uint32_t elementIndex = 0; elementIndex < ELEMENTS_PER_THREAD; elementIndex++)
 		{
 			const uint32_t index = _NBL_HLSL_WORKGROUP_SIZE_ * elementIndex | workgroup::SubgroupContiguousIndex();
-			storeRowMajor(startAddress, index, preloaded[elementIndex]);
+			bothBuffersAccessor.set(rowMajorOffset(index, glsl::gl_WorkGroupID().x), preloaded[elementIndex]);
 		}
 	}
+
+	DoubleLegacyBdaAccessor<complex_t<scalar_t> > bothBuffersAccessor;
 };
 
 void secondAxisFFT()

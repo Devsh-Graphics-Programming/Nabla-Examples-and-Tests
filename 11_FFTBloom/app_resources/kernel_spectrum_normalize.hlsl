@@ -1,35 +1,21 @@
 #include "common.hlsl"
-#include "nbl/builtin/hlsl/workgroup/fft.hlsl"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
-
-// TODO: There's a lot of redundant stuff in every FFT file, I'd like to move that to another file that I can sourceFmt at runtime then include in all of them (something like 
-// a runtime common.hlsl)
 
 /*
  * Remember we have these defines:
  * _NBL_HLSL_WORKGROUP_SIZE_
  * ELEMENTS_PER_THREAD
- * (may be defined) USE_HALF_PRECISION
  * KERNEL_SCALE
+ * scalar_t
+ * FORMAT
 */
-
-#ifdef USE_HALF_PRECISION
-#define scalar_t float16_t
-#define FORMAT "rg16f"
-#else
-#define scalar_t float32_t
-#define FORMAT "rg32f"
-#endif
 
 #define IMAGE_SIDE_LENGTH (_NBL_HLSL_WORKGROUP_SIZE_ * ELEMENTS_PER_THREAD)
 
 // Users MUST define this method for FFT to work
 uint32_t3 glsl::gl_WorkGroupSize() { return uint32_t3(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1); }
 
-[[vk::push_constant]] PushConstantData pushConstants;
 [[vk::binding(0, 0)]] [[vk::image_format( FORMAT )]] RWTexture2D<float32_t2> kernelChannels[CHANNELS];
-
-groupshared uint32_t sharedmem[workgroup::fft::SharedMemoryDWORDs<scalar_t, _NBL_HLSL_WORKGROUP_SIZE_>];
 
 // ---------------------------------------------------- Utils ---------------------------------------------------------
 uint64_t rowMajorOffset(uint32_t x, uint32_t y)
@@ -56,10 +42,8 @@ scalar_t getPower()
 }
 
 // Still launching IMAGE_SIDE_LENGTH / 2 workgroups
-void normalize1(uint32_t channel, scalar_t power)
+void normalizeChannel(uint32_t channel, scalar_t power, LegacyBdaAccessor<complex_t<scalar_t> > rowMajorAccessor)
 {
-	const uint64_t startAddress = getChannelStartAddress(channel);
-	
 	// Remember that the first row has packed `Z + iN` so it has to unpack those
 	if (!glsl::gl_WorkGroupID().x)
 	{
@@ -68,8 +52,8 @@ void normalize1(uint32_t channel, scalar_t power)
 		{
 			const uint32_t index = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | workgroup::SubgroupContiguousIndex();
 			const uint32_t otherIndex = workgroup::fft::getNegativeIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(index);
-			complex_t<scalar_t> zero = vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + rowMajorOffset(index, 0) * sizeof(complex_t<scalar_t>));
-			complex_t<scalar_t> nyquist = vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + rowMajorOffset(otherIndex, 0) * sizeof(complex_t<scalar_t>));
+			complex_t<scalar_t> zero = rowMajorAccessor.get(rowMajorOffset(index, 0));
+			complex_t<scalar_t> nyquist = rowMajorAccessor.get(rowMajorOffset(otherIndex, 0));
 
 			workgroup::fft::unpack<scalar_t>(zero, nyquist);
 			// We now have zero and Nyquist frequencies at NFFT[index], so we must use `getFrequencyIndex(index)` to get the actual index into the DFT
@@ -100,7 +84,7 @@ void normalize1(uint32_t channel, scalar_t power)
 		{
 			const uint32_t index = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | workgroup::SubgroupContiguousIndex();
 			// Get the element at `x' = index`, `y' = gl_WorkGroupID().x`
-			complex_t<scalar_t> toStore = vk::RawBufferLoad<complex_t<scalar_t> >(startAddress + rowMajorOffset(index, glsl::gl_WorkGroupID().x) * sizeof(complex_t<scalar_t>));
+			complex_t<scalar_t> toStore = rowMajorAccessor.get(rowMajorOffset(index, glsl::gl_WorkGroupID().x));
 
 			// Number of bits needed to represent the range of half the DFT
 			NBL_CONSTEXPR uint32_t bits = uint32_t(mpl::log2<IMAGE_SIDE_LENGTH>::value - 1);
@@ -130,7 +114,11 @@ void normalize1(uint32_t channel, scalar_t power)
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
 	scalar_t power = getPower();
+	LegacyBdaAccessor<complex_t<scalar_t> > rowMajorAccessor;
 
 	for (uint32_t channel = 0; channel < CHANNELS; channel++)
-		normalize1(channel, power);
+	{
+		rowMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(getChannelStartAddress(channel));
+		normalizeChannel(channel, power, rowMajorAccessor);
+	}
 }
