@@ -641,7 +641,7 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 								intermediateAlphaView = device->createImageView(std::move(viewCreationParams));
 
 								// TODO: one more util function!
-								normalizationScratchSize = CComputeBlit::getAlphaBinCount(pipelines.workgroupSize,format)*sizeof(uint16_t)+sizeof(uint32_t)+sizeof(uint32_t);
+								normalizationScratchSize = CComputeBlit::getAlphaBinCount(pipelines.workgroupSize,format,layerCount)*sizeof(uint16_t)+sizeof(uint32_t)+sizeof(uint32_t);
 							}
 						}
 
@@ -684,7 +684,7 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 										return utils->updateBufferRangeViaStagingBuffer(info,bufferRange,lutMemory.get());
 									}
 								);
-								if (result.copy()!=IQueue::RESULT::SUCCESS)
+								if (transferred.copy()!=IQueue::RESULT::SUCCESS)
 								{
 									logger->log("Failed to upload Convolution Weights to GPU!",ILogger::ELL_ERROR);
 									return false;
@@ -700,7 +700,7 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 							{
 								assert(false);
 							}
-							scaledKernelPhasedLUTView = device->createBufferView(bufferRange,bufferViewFormat,layersToBlit);
+							scaledKernelPhasedLUTView = device->createBufferView(bufferRange,bufferViewFormat);
 						}
 
 						// will need this later
@@ -710,7 +710,7 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 						smart_refctd_ptr<IGPUDescriptorSet> ds;
 						{
 							auto descriptorPool = device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT,layout->getDescriptorSetLayouts());
-							ds = descriptorPool->createDescriptorSet(layout->getDescriptorSetLayout(0));
+							ds = descriptorPool->createDescriptorSet(smart_refctd_ptr<const IGPUDescriptorSetLayout>(layout->getDescriptorSetLayout(0)));
 						}
 
 						{
@@ -780,9 +780,9 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 								const IQueue::SSubmitInfo::SCommandBufferInfo cmbBufInfos[1] = {{.cmdbuf=cmdbuf.get()}};
 								const IQueue::SSubmitInfo::SSemaphoreInfo signalSemaphores[1] = {{
 									.semaphore = semaphore.get(),
-									.stageMask = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
 									// I can do this because I've already awaited the semaphore on host and I have no pending signals
-									.value = semaphore->getCounterValue()+1
+									.value = semaphore->getCounterValue()+1,
+									.stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
 								}};
 								const IQueue::SSubmitInfo info = {
 									.waitSemaphores = {},
