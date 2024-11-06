@@ -19,6 +19,7 @@ class ICameraController : virtual public core::IReferenceCounted
 {
 public:
     using precision_t = typename T;
+    using keys_to_virtual_events_t = std::unordered_map<ui::E_KEY_CODE, CVirtualGimbalEvent::CRequestInfo>;
 
     // Gimbal with view parameters representing a camera in world space
     class CGimbal : public IGimbal<precision_t>
@@ -78,8 +79,8 @@ public:
 
     ICameraController() {}
 
-    // Binds key codes to virtual events, the mapKeys lambda will be executed with controller CVirtualGimbalEvent::keys_to_virtual_events_t table 
-    void updateKeysToEvent(const std::function<void(CVirtualGimbalEvent::keys_to_virtual_events_t&)>& mapKeys)
+    // Binds key codes to virtual events, the mapKeys lambda will be executed with controller keys_to_virtual_events_t table 
+    void updateKeysToEvent(const std::function<void(keys_to_virtual_events_t&)>& mapKeys)
     {
         mapKeys(m_keysToVirtualEvents);
     }
@@ -95,7 +96,7 @@ public:
     {
         if (!output)
         {
-            count = CVirtualGimbalEvent::EventsCount;
+            count = events.size();
             return;
         }
 
@@ -106,49 +107,36 @@ public:
 
         const auto timestamp = getEventGenerationTimestamp();
 
-        for (const auto virtualEventType : CVirtualGimbalEvent::VirtualEventsTypeTable)
+        for (const auto& keyboardEvent : events)
         {
-            const auto code = m_keysToVirtualEvents[virtualEventType];
-            bool& keyDown = m_keysDown[virtualEventType];
+            auto request = m_keysToVirtualEvents.find(keyboardEvent.keyCode);
+            bool isKeyMapped = request != std::end(m_keysToVirtualEvents);            
 
-            using virtual_key_state_t = std::tuple<ui::E_KEY_CODE /*physical key representing virtual key*/, bool /*is pressed*/, float64_t /*delta action*/>;
-
-            auto updateVirtualState = [&]() -> virtual_key_state_t
+            if (isKeyMapped)
             {
-                virtual_key_state_t state = { ui::E_KEY_CODE::EKC_NONE, false, 0.f };
+                auto& key = request->first; auto& info = request->second;
 
-                for (const auto& ev : events) // TODO: improve the search
+                if (keyboardEvent.keyCode == key)
                 {
-                    if (ev.keyCode == code)
-                    {
-                        if (ev.action == nbl::ui::SKeyboardEvent::ECA_PRESSED && !keyDown)
-                            keyDown = true;
-                        else if (ev.action == nbl::ui::SKeyboardEvent::ECA_RELEASED)
-                            keyDown = false;
-
-                        const auto dt = std::chrono::duration_cast<std::chrono::milliseconds>(timestamp - ev.timeStamp).count();
-                        assert(dt >= 0);
-
-                        state = std::make_tuple(code, keyDown, dt);
-                        break;
-                    }
+                    if (keyboardEvent.action == nbl::ui::SKeyboardEvent::ECA_PRESSED && !info.active)
+                        info.active = true;
+                    else if (keyboardEvent.action == nbl::ui::SKeyboardEvent::ECA_RELEASED)
+                        info.active = false;   
                 }
 
-                return state;
-            };
-
-            const auto&& [physicalKey, isDown, dtAction] = updateVirtualState();
-
-            if (physicalKey != ui::E_KEY_CODE::EKC_NONE)
-                if (isDown)
+                if (info.active)
                 {
+                    const auto dtAction = std::chrono::duration_cast<std::chrono::milliseconds>(timestamp - keyboardEvent.timeStamp).count();
+                    assert(dtAction >= 0);
+
                     auto* virtualEvent = output + count;
                     assert(virtualEvent); // TODO: maybe just log error and return 0 count
 
-                    virtualEvent->type = virtualEventType;
+                    virtualEvent->type = info.type;
                     virtualEvent->magnitude = static_cast<float64_t>(dtAction);
                     ++count;
                 }
+            }
         }
     }
 
@@ -200,7 +188,7 @@ protected:
     virtual void initKeysToEvent() = 0;
 
 private:
-    CVirtualGimbalEvent::keys_to_virtual_events_t m_keysToVirtualEvents = { { ui::E_KEY_CODE::EKC_NONE } };
+    keys_to_virtual_events_t m_keysToVirtualEvents;
     bool m_keysDown[CVirtualGimbalEvent::EventsCount] = {};
 
     // exactly what our Nabla events do, actually I don't want users to pass timestamp since I know when it should be best to make a request -> just before generating events!
