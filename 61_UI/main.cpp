@@ -328,7 +328,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					} imguizmoM16InOut;
 
 					const auto& projectionMatrix = projection->getMatrix();
-					const auto& view = camera->getGimbal().getView().value();
+					const auto& view = camera->getGimbal().getView();
 
 					ImGuizmo::SetID(0u);
 					imguizmoM16InOut.view = transpose(getMatrix3x4As4x4(view.matrix));
