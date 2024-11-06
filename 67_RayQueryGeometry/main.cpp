@@ -716,7 +716,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 		bool createGeometries(IGPUCommandBuffer* cmdbuf, const IGeometryCreator* gc)
 		{
-			EXPOSE_NABLA_NAMESPACES();
+			//EXPOSE_NABLA_NAMESPACES();
 
 			std::array<ReferenceObjectCpu, OT_COUNT> objectsCpu;
 			objectsCpu[OT_CUBE] = ReferenceObjectCpu{ .meta = {.type = OT_CUBE, .name = "Cube Mesh" }, .shadersType = GP_BASIC, .data = gc->createCubeMesh(nbl::core::vector3df(1.f, 1.f, 1.f)) };

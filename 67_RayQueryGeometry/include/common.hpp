@@ -11,13 +11,10 @@
 #include "CEventCallback.hpp"
 
 #include "CCamera.hpp"
-#include "common.hlsl"
+#include "app_resources/common.hlsl"
 #include "SBasicViewParameters.hlsl"
 
-#include "geometry/creator/spirv/builtin/CArchive.h"
-#include "geometry/creator/spirv/builtin/builtinResources.h"
-
-#include "CGeomtryCreatorScene.hpp"
+//#include "CGeomtryCreatorScene.hpp"
 
 using namespace nbl;
 using namespace core;
