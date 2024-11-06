@@ -10,53 +10,50 @@ namespace nbl::hlsl
 {
     struct CVirtualGimbalEvent
     {
-        //! Virtual event representing a gimbal manipulation
-        enum VirtualEventType : uint8_t
+        enum VirtualEventType : uint32_t
         {
-            // Strafe forward
-            MoveForward = 0,
+            None = 0,
 
-            // Strafe backward
-            MoveBackward,
+            // Individual events
+            MoveForward = core::createBitmask({ 0 }),
+            MoveBackward = core::createBitmask({ 1 }),
+            MoveLeft = core::createBitmask({ 2 }),
+            MoveRight = core::createBitmask({ 3 }),
+            MoveUp = core::createBitmask({ 4 }),
+            MoveDown = core::createBitmask({ 5 }),
+            TiltUp = core::createBitmask({ 6 }),
+            TiltDown = core::createBitmask({ 7 }),
+            PanLeft = core::createBitmask({ 8 }),
+            PanRight = core::createBitmask({ 9 }),
+            RollLeft = core::createBitmask({ 10 }),
+            RollRight = core::createBitmask({ 11 }),
+            ScaleXInc = core::createBitmask({ 12 }),
+            ScaleXDec = core::createBitmask({ 13 }),
+            ScaleYInc = core::createBitmask({ 14 }),
+            ScaleYDec = core::createBitmask({ 15 }),
+            ScaleZInc = core::createBitmask({ 16 }),
+            ScaleZDec = core::createBitmask({ 17 }),
 
-            // Strafe left
-            MoveLeft,
+            EventsCount = 18,
 
-            // Strafe right
-            MoveRight,
+            // Grouped bitmasks
+            Translate = MoveForward | MoveBackward | MoveLeft | MoveRight | MoveUp | MoveDown,
+            Rotate = TiltUp | TiltDown | PanLeft | PanRight | RollLeft | RollRight,
+            Scale = ScaleXInc | ScaleXDec | ScaleYInc | ScaleYDec | ScaleZInc | ScaleZDec
+        };
 
-            // Strafe up
-            MoveUp,
+        struct CRequestInfo
+        {
+            CRequestInfo() : type(None) {}
+            CRequestInfo(VirtualEventType _type) : type(_type) {}
+            ~CRequestInfo() = default;
 
-            // Strafe down
-            MoveDown,
-
-            // Tilt the camera upward (pitch)
-            TiltUp,
-
-            // Tilt the camera downward (pitch)
-            TiltDown,
-
-            // Rotate the camera left around the vertical axis (yaw)
-            PanLeft,
-
-            // Rotate the camera right around the vertical axis (yaw)
-            PanRight,
-
-            // Roll the camera counterclockwise around the forward axis (roll)
-            RollLeft,
-
-            // Roll the camera clockwise around the forward axis (roll)
-            RollRight,
-
-            // TODO: scale events
-
-            EventsCount
+            VirtualEventType type;
+            bool active = false;
         };
 
         using manipulation_encode_t = float64_t;
-        using keys_to_virtual_events_t = std::array<ui::E_KEY_CODE, EventsCount>;
-
+        
         VirtualEventType type;
         manipulation_encode_t magnitude;
 
@@ -77,6 +74,105 @@ namespace nbl::hlsl
     {
     public:
         using precision_t = T;
+
+        struct VirtualImpulse
+        {
+            vector<precision_t, 3u> dVirtualTranslate { 0.0f }, dVirtualRotation { 0.0f }, dVirtualScale { 0.0f };
+        };
+
+        template <uint32_t AllowedEvents>
+        VirtualImpulse accumulate(std::span<const CVirtualGimbalEvent> virtualEvents, const vector<precision_t, 3u>& gRightOverride, const vector<precision_t, 3u>& gUpOverride, const vector<precision_t, 3u>& gForwardOverride)
+        {
+            VirtualImpulse impulse;
+
+            const auto& gRight = gRightOverride, gUp = gUpOverride, gForward = gForwardOverride;
+
+            for (const auto& event : virtualEvents)
+            {
+                // translation events
+                if constexpr (AllowedEvents & CVirtualGimbalEvent::MoveForward)
+                    if (event.type == CVirtualGimbalEvent::MoveForward)
+                        impulse.dVirtualTranslate += gForward * static_cast<precision_t>(event.magnitude);
+
+                if constexpr (AllowedEvents & CVirtualGimbalEvent::MoveBackward)
+                    if (event.type == CVirtualGimbalEvent::MoveBackward)
+                        impulse.dVirtualTranslate -= gForward * static_cast<precision_t>(event.magnitude);
+
+                if constexpr (AllowedEvents & CVirtualGimbalEvent::MoveRight)
+                    if (event.type == CVirtualGimbalEvent::MoveRight)
+                        impulse.dVirtualTranslate += gRight * static_cast<precision_t>(event.magnitude);
+
+                if constexpr (AllowedEvents & CVirtualGimbalEvent::MoveLeft)
+                    if (event.type == CVirtualGimbalEvent::MoveLeft)
+                        impulse.dVirtualTranslate -= gRight * static_cast<precision_t>(event.magnitude);
+
+                if constexpr (AllowedEvents & CVirtualGimbalEvent::MoveUp)
+                    if (event.type == CVirtualGimbalEvent::MoveUp)
+                        impulse.dVirtualTranslate += gUp * static_cast<precision_t>(event.magnitude);
+
+                if constexpr (AllowedEvents & CVirtualGimbalEvent::MoveDown)
+                    if (event.type == CVirtualGimbalEvent::MoveDown)
+                        impulse.dVirtualTranslate -= gUp * static_cast<precision_t>(event.magnitude);
+
+                // rotation events
+                if constexpr (AllowedEvents & CVirtualGimbalEvent::TiltUp)
+                    if (event.type == CVirtualGimbalEvent::TiltUp)
+                        impulse.dVirtualRotation.x += static_cast<precision_t>(event.magnitude);
+
+                if constexpr (AllowedEvents & CVirtualGimbalEvent::TiltDown)
+                    if (event.type == CVirtualGimbalEvent::TiltDown)
+                        impulse.dVirtualRotation.x -= static_cast<precision_t>(event.magnitude);
+
+                if constexpr (AllowedEvents & CVirtualGimbalEvent::PanRight)
+                    if (event.type == CVirtualGimbalEvent::PanRight)
+                        impulse.dVirtualRotation.y += static_cast<precision_t>(event.magnitude);
+
+                if constexpr (AllowedEvents & CVirtualGimbalEvent::PanLeft)
+                    if (event.type == CVirtualGimbalEvent::PanLeft)
+                        impulse.dVirtualRotation.y -= static_cast<precision_t>(event.magnitude);
+
+                if constexpr (AllowedEvents & CVirtualGimbalEvent::RollRight)
+                    if (event.type == CVirtualGimbalEvent::RollRight)
+                        impulse.dVirtualRotation.z += static_cast<precision_t>(event.magnitude);
+
+                if constexpr (AllowedEvents & CVirtualGimbalEvent::RollLeft)
+                    if (event.type == CVirtualGimbalEvent::RollLeft)
+                        impulse.dVirtualRotation.z -= static_cast<precision_t>(event.magnitude);
+
+                // scaling events
+                if constexpr (AllowedEvents & CVirtualGimbalEvent::ScaleXInc)
+                    if (event.type == CVirtualGimbalEvent::ScaleXInc)
+                        impulse.dVirtualScale.x += static_cast<precision_t>(event.magnitude);
+
+                if constexpr (AllowedEvents & CVirtualGimbalEvent::ScaleXDec)
+                    if (event.type == CVirtualGimbalEvent::ScaleXDec)
+                        impulse.dVirtualScale.x -= static_cast<precision_t>(event.magnitude);
+
+                if constexpr (AllowedEvents & CVirtualGimbalEvent::ScaleYInc)
+                    if (event.type == CVirtualGimbalEvent::ScaleYInc)
+                        impulse.dVirtualScale.y += static_cast<precision_t>(event.magnitude);
+
+                if constexpr (AllowedEvents & CVirtualGimbalEvent::ScaleYDec)
+                    if (event.type == CVirtualGimbalEvent::ScaleYDec)
+                        impulse.dVirtualScale.y -= static_cast<precision_t>(event.magnitude);
+
+                if constexpr (AllowedEvents & CVirtualGimbalEvent::ScaleZInc)
+                    if (event.type == CVirtualGimbalEvent::ScaleZInc)
+                        impulse.dVirtualScale.z += static_cast<precision_t>(event.magnitude);
+
+                if constexpr (AllowedEvents & CVirtualGimbalEvent::ScaleZDec)
+                    if (event.type == CVirtualGimbalEvent::ScaleZDec)
+                        impulse.dVirtualScale.z -= static_cast<precision_t>(event.magnitude);
+            }
+
+            return impulse;
+        }
+
+        template <uint32_t AllowedEvents>
+        VirtualImpulse accumulate(std::span<const CVirtualGimbalEvent> virtualEvents)
+        {
+            return accumulate<AllowedEvents>(virtualEvents, getXAxis(), getYAxis(), getZAxis());
+        }
 
         struct SCreationParameters
         {

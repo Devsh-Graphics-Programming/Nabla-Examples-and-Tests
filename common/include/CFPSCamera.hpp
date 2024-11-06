@@ -32,66 +32,30 @@ public:
 
     virtual void manipulate(std::span<const CVirtualGimbalEvent> virtualEvents) override
     {
+        constexpr auto AllowedEvents = CVirtualGimbalEvent::MoveForward | CVirtualGimbalEvent::MoveBackward | CVirtualGimbalEvent::MoveRight | CVirtualGimbalEvent::MoveLeft | CVirtualGimbalEvent::TiltUp | CVirtualGimbalEvent::TiltDown | CVirtualGimbalEvent::PanRight | CVirtualGimbalEvent::PanLeft;
+        constexpr float MoveSpeedScale = 0.01f, RotateSpeedScale = 0.003f, MaxVerticalAngle = glm::radians(88.0f), MinVerticalAngle = -MaxVerticalAngle;
+
         if (!virtualEvents.size())
             return;
 
-        constexpr float MoveSpeedScale = 0.01f, RotateSpeedScale = 0.003f, MaxVerticalAngle = glm::radians(88.0f), MinVerticalAngle = -MaxVerticalAngle;
+        const auto impulse = m_gimbal.accumulate<AllowedEvents>(virtualEvents);
         const auto& gForward = m_gimbal.getZAxis(), gRight = m_gimbal.getXAxis();
-
-        struct
-        {
-            float dPitch = 0.f, dYaw = 0.f;
-            float32_t3 dMove = { 0.f, 0.f, 0.f };
-        } accumulated;
-
-        for (const auto& event : virtualEvents)
-        {
-            const float moveScalar = event.magnitude * MoveSpeedScale;
-            const float rotateScalar = event.magnitude * RotateSpeedScale;
-
-            switch (event.type)
-            {
-            case CVirtualGimbalEvent::MoveForward:
-                accumulated.dMove += gForward * moveScalar;
-                break;
-            case CVirtualGimbalEvent::MoveBackward:
-                accumulated.dMove -= gForward * moveScalar;
-                break;
-            case CVirtualGimbalEvent::MoveRight:
-                accumulated.dMove += gRight * moveScalar;
-                break;
-            case CVirtualGimbalEvent::MoveLeft:
-                accumulated.dMove -= gRight * moveScalar;
-                break;
-            case CVirtualGimbalEvent::TiltUp:
-                accumulated.dPitch += rotateScalar;
-                break;
-            case CVirtualGimbalEvent::TiltDown:
-                accumulated.dPitch -= rotateScalar;
-                break;
-            case CVirtualGimbalEvent::PanRight:
-                accumulated.dYaw += rotateScalar;
-                break;
-            case CVirtualGimbalEvent::PanLeft:
-                accumulated.dYaw -= rotateScalar;
-                break;
-            default:
-                break;
-            }
-        }
 
         float currentPitch = atan2(glm::length(glm::vec2(gForward.x, gForward.z)), gForward.y) - glm::half_pi<float>();
         float currentYaw = atan2(gForward.x, gForward.z);
 
-        currentPitch = std::clamp(currentPitch + accumulated.dPitch, MinVerticalAngle, MaxVerticalAngle);
-        currentYaw += accumulated.dYaw;
+        // adjust the current pitch and yaw
+        currentPitch = std::clamp(currentPitch + impulse.dVirtualRotation.x * RotateSpeedScale, MinVerticalAngle, MaxVerticalAngle);
+        currentYaw += impulse.dVirtualRotation.y * RotateSpeedScale;
 
+        // create new orientation based on accumulated pitch and yaw from a virtual impulse
         glm::quat orientation = glm::quat(glm::vec3(currentPitch, currentYaw, 0.0f));
 
+        // manipulate view gimbal
         m_gimbal.begin();
         {
             m_gimbal.setOrientation(orientation);
-            m_gimbal.move(accumulated.dMove);
+            m_gimbal.move(impulse.dVirtualTranslate * MoveSpeedScale);
             m_gimbal.updateView();
         }
         m_gimbal.end();
@@ -100,14 +64,12 @@ public:
 private:
     void initKeysToEvent() override
     {
-        traits_t::controller_t::updateKeysToEvent([](CVirtualGimbalEvent::keys_to_virtual_events_t& keys)
+        traits_t::controller_t::updateKeysToEvent([](traits_t::controller_t::keys_to_virtual_events_t& keys)
         {
-            keys[CVirtualGimbalEvent::MoveForward] = ui::E_KEY_CODE::EKC_W;
-            keys[CVirtualGimbalEvent::MoveBackward] = ui::E_KEY_CODE::EKC_S;
-            keys[CVirtualGimbalEvent::MoveLeft] = ui::E_KEY_CODE::EKC_A;
-            keys[CVirtualGimbalEvent::MoveRight] = ui::E_KEY_CODE::EKC_D;
-            keys[CVirtualGimbalEvent::MoveUp] = ui::E_KEY_CODE::EKC_SPACE;
-            keys[CVirtualGimbalEvent::MoveDown] = ui::E_KEY_CODE::EKC_LEFT_SHIFT;
+            keys[ui::E_KEY_CODE::EKC_W] = CVirtualGimbalEvent::MoveForward;
+            keys[ui::E_KEY_CODE::EKC_S] = CVirtualGimbalEvent::MoveBackward;
+            keys[ui::E_KEY_CODE::EKC_A] = CVirtualGimbalEvent::MoveLeft;
+            keys[ui::E_KEY_CODE::EKC_D] = CVirtualGimbalEvent::MoveRight;
         });
     }
 
