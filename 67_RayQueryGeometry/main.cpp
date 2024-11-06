@@ -110,10 +110,19 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 		inline RayQueryGeometryApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
 			: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
-		virtual SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
+		inline SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
 		{
 			auto retval = device_base_t::getRequiredDeviceFeatures();
-			retval.geometryShader = true;
+			retval.accelerationStructure = true;
+			retval.rayQuery = true;
+			return retval;
+		}
+
+		// TODO: Implement the feature intersection operator in the JSON generator and fix the TODO in `MonoDeviceApplication::getPreferredDeviceFeatures`!
+		inline SPhysicalDeviceFeatures getPreferredDeviceFeatures() const override
+		{
+			auto retval = device_base_t::getPreferredDeviceFeatures();
+			retval.accelerationStructureHostCommands = true;
 			return retval;
 		}
 
@@ -143,6 +152,14 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				return { {m_surface->getSurface()/*,EQF_NONE*/} };
 
 			return {};
+		}
+
+		// so that we can use the same queue for asset converter and rendering
+		inline core::vector<queue_req_t> getQueueRequirements() const override
+		{
+			auto reqs = device_base_t::getQueueRequirements();
+			reqs.front().requiredFlags |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
+			return reqs;
 		}
 
 		inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
@@ -277,6 +294,9 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf))
 					return logFail("Failed to create one time Command Buffer!\n");
 			}
+
+			// open the command buffer!
+			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
 			// create geometry objects
 			createGeometries(cmdbuf.get(), geometryCreator);
@@ -739,6 +759,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				obj.indexCount = geom.data.indexCount;
 				obj.indexType = geom.data.indexType;
 
+// TODO: use asset converter to convert all buffers to IGPUBuffers (that part 100% works)
+
 				auto vBuffer = smart_refctd_ptr(geom.data.bindings[0].buffer); // no offset
 				IGPUBuffer::SCreationParams vParams;
 				vParams.size = vBuffer->getSize();
@@ -961,6 +983,9 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 				cmdbuf->buildAccelerationStructures({ &tlasBuildInfo, 1 }, pRangeInfos);
 			}
+
+//TODO : ERROR HANDLING FOR ALL THE CALLS ABOVE!
+			return true;
 		}
 
 
