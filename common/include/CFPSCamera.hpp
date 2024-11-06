@@ -18,8 +18,8 @@ public:
     using base_t = ICamera<T>;
     using traits_t = typename base_t::Traits;
 
-    CFPSCamera(const float32_t3& position, glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f))
-        : base_t(), m_gimbal({ .position = position, .orientation = orientation, .withView = true })
+    CFPSCamera(const vector<typename traits_t::precision_t, 3u>& position, glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f))
+        : base_t(), m_gimbal({ .position = position, .orientation = orientation })
     { 
         initKeysToEvent(); 
     }
@@ -92,6 +92,7 @@ public:
         {
             m_gimbal.setOrientation(orientation);
             m_gimbal.move(accumulated.dMove);
+            m_gimbal.updateView();
         }
         m_gimbal.end();
     }

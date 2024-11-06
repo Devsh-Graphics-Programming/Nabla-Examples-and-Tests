@@ -1,217 +1,48 @@
 #ifndef _NBL_I_CAMERA_CONTROLLER_HPP_
 #define _NBL_I_CAMERA_CONTROLLER_HPP_
 
+#include <nabla.h>
+#include <iostream>
+#include <cstdio>
+#include <fstream>
+#include <chrono>
+
 #include "IProjection.hpp"
-#include "glm/glm/ext/matrix_transform.hpp" // TODO: TEMPORARY!!! whatever used will be moved to cpp
-#include "glm/glm/gtc/quaternion.hpp"
-#include "nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl"
+#include "CGeneralPurposeGimbal.hpp"
 
 // TODO: DIFFERENT NAMESPACE
 namespace nbl::hlsl 
 {
 
-struct CVirtualGimbalEvent
-{
-    //! Virtual event representing a gimbal manipulation
-    enum VirtualEventType : uint8_t
-    {
-        // Strafe forward
-        MoveForward = 0,
-
-        // Strafe backward
-        MoveBackward,
-
-        // Strafe left
-        MoveLeft,
-
-        // Strafe right
-        MoveRight,
-
-        // Strafe up
-        MoveUp,
-
-        // Strafe down
-        MoveDown,
-
-        // Tilt the camera upward (pitch)
-        TiltUp,
-
-        // Tilt the camera downward (pitch)
-        TiltDown,
-
-        // Rotate the camera left around the vertical axis (yaw)
-        PanLeft,
-
-        // Rotate the camera right around the vertical axis (yaw)
-        PanRight,
-
-        // Roll the camera counterclockwise around the forward axis (roll)
-        RollLeft,
-
-        // Roll the camera clockwise around the forward axis (roll)
-        RollRight,
-
-        EventsCount
-    };
-
-    using manipulation_encode_t = float64_t;
-    using keys_to_virtual_events_t = std::array<ui::E_KEY_CODE, CVirtualGimbalEvent::EventsCount>;
-
-    VirtualEventType type;
-    manipulation_encode_t magnitude;
-
-    static inline constexpr auto VirtualEventsTypeTable = []()
-    {
-        std::array<VirtualEventType, EventsCount> output;
-
-        for (uint16_t i = 0u; i < EventsCount; ++i)
-        {
-            output[i] = static_cast<VirtualEventType>(i);
-        }
-
-        return output;
-    }();
-};
-
 template<typename T>
 class ICameraController : virtual public core::IReferenceCounted
 {
 public:
-    using matrix_precision_t = typename T;
+    using precision_t = typename T;
 
-    class CGimbal
+    // Gimbal with view parameters representing a camera in world space
+    class CGimbal : public IGimbal<precision_t>
     {
     public:
-        struct SCreationParameters
-        {
-            float32_t3 position;
-            glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-            bool withView = true;
-        };
+        using base_t = IGimbal<precision_t>;
 
-        // Gimbal's view matrix consists of an orthonormal basis (https://en.wikipedia.org/wiki/Orthonormal_basis) 
-        // for orientation and a translation component that positions the world relative to the gimbal's position.
-        // Any camera type is supposed to manipulate a position & orientation of a gimbal 
-        // with "virtual events" which model its view bound to the camera
+        CGimbal(typename base_t::SCreationParameters&& parameters) : base_t(std::move(parameters)) {}
+        ~CGimbal() = default;
+
         struct SView
         {
-            matrix<matrix_precision_t, 3, 4> matrix = {};
+            matrix<precision_t, 3, 4> matrix = {};
             bool isLeftHandSystem = true;
         };
 
-        CGimbal(SCreationParameters&& parameters)
-            : m_position(parameters.position), m_orientation(parameters.orientation)
-        {
-            updateOrthonormalOrientationBase();
-
-            if (parameters.withView)
-            {
-                m_view = std::optional<SView>(SView{}); // RVO
-                updateView();
-            } 
-        }
-
-        void begin()
-        {
-            m_isManipulating = true;
-            m_counter = 0u;
-        }
-
-        inline void setPosition(const float32_t3& position)
-        {
-            assert(m_isManipulating); // TODO: log error and return without doing nothing
-
-            if (m_position != position)
-                m_counter++;
-
-            m_position = position;
-        }
-
-        inline void setOrientation(const glm::quat& orientation)
-        {
-            assert(m_isManipulating); // TODO: log error and return without doing nothing
-
-            if(m_orientation != orientation)
-                m_counter++;
-
-            m_orientation = glm::normalize(orientation);
-            updateOrthonormalOrientationBase();
-        }
-
-        inline void rotate(const float32_t3& axis, float dRadians)
-        {
-            assert(m_isManipulating); // TODO: log error and return without doing nothing
-
-            if(dRadians)
-                m_counter++;
-
-            glm::quat dRotation = glm::angleAxis(dRadians, axis);
-            m_orientation = glm::normalize(dRotation * m_orientation);
-            updateOrthonormalOrientationBase();
-        }
-
-        inline void move(float32_t3 delta)
-        {
-            assert(m_isManipulating); // TODO: log error and return without doing nothing
-
-            auto newPosition = m_position + delta;
-
-            if (newPosition != m_position)
-                m_counter++;
-
-            m_position = newPosition;
-        }
-
-        void end()
-        {
-            m_isManipulating = false;
-
-            if (m_counter > 0u)
-                updateView();
-
-            m_counter = 0u;
-        }
-
-        // Position of gimbal
-        inline const float32_t3& getPosition() const { return m_position; }
-
-        // Orientation of gimbal
-        inline const glm::quat& getOrientation() const { return m_orientation; }
-
-        // Orthonormal [getXAxis(), getYAxis(), getZAxis()] orientation matrix
-        inline const float32_t3x3& getOrthonornalMatrix() const { return m_orthonormal; }
-
-        // Base "right" vector in orthonormal orientation basis (X-axis)
-        inline const float32_t3& getXAxis() const { return m_orthonormal[0u]; }
-
-        // Base "up" vector in orthonormal orientation basis (Y-axis)
-        inline const float32_t3& getYAxis() const { return m_orthonormal[1u]; }
-
-        // Base "forward" vector in orthonormal orientation basis (Z-axis)
-        inline const float32_t3& getZAxis() const { return m_orthonormal[2u]; }
-
-        // Optional view of a gimbal
-        inline const std::optional<SView>& getView() const { return m_view; }
-
-        inline const size_t& getManipulationCounter() { return m_counter; }
-        inline bool isManipulating() const { return m_isManipulating; }
-
-    private:
-        inline void updateOrthonormalOrientationBase()
-        {
-            m_orthonormal = matrix<matrix_precision_t, 3, 3>(glm::mat3_cast(glm::normalize(m_orientation)));
-        }
-
         inline void updateView()
         {
-            if (m_view.has_value()) // TODO: this could be templated + constexpr actually if gimbal doesn't init this on runtime depending on sth
+            if (base_t::getManipulationCounter())
             {
-                auto& view = m_view.value();
-                const auto& gRight = getXAxis(), gUp = getYAxis(), gForward = getZAxis();
+                const auto& gRight = base_t::getXAxis(), gUp = base_t::getYAxis(), gForward = base_t::getZAxis();
 
-                // TODO: I think I will provide convert utility allowing to go from one hand system to another, its just a matter to take care of m_view->matrix[2u] to perform a LH/RH flip
-                // in general this should not know about projections which are now supposed to be independent and store reference to a camera (or own it)
-                view.isLeftHandSystem = hlsl::determinant(m_orthonormal) < 0.0f;
+                // TODO: I think this should be set as request state, depending on the value we do m_view.matrix[2u] flip accordingly
+                // m_view.isLeftHandSystem;
 
                 auto isNormalized = [](const auto& v, float epsilon) -> bool
                 {
@@ -231,24 +62,18 @@ public:
 
                 assert(isOrthoBase(gRight, gUp, gForward));
 
-                view.matrix[0u] = vector<matrix_precision_t, 4u>(gRight, -glm::dot(gRight, m_position));
-                view.matrix[1u] = vector<matrix_precision_t, 4u>(gUp, -glm::dot(gUp, m_position));
-                view.matrix[2u] = vector<matrix_precision_t, 4u>(gForward, -glm::dot(gForward, m_position));
+                const auto& position = base_t::getPosition();
+                m_view.matrix[0u] = vector<precision_t, 4u>(gRight, -glm::dot(gRight, position));
+                m_view.matrix[1u] = vector<precision_t, 4u>(gUp, -glm::dot(gUp, position));
+                m_view.matrix[2u] = vector<precision_t, 4u>(gForward, -glm::dot(gForward, position));
             }
         }
 
-        float32_t3 m_position;
-        glm::quat m_orientation;
-        matrix<matrix_precision_t, 3, 3> m_orthonormal;
+        // Getter for gimbal's view
+        inline const SView& getView() const { return m_view; }
 
-        // For a camera implementation at least one gimbal models its view but not all gimbals (if multiple) are expected to do so
-        std::optional<SView> m_view = std::nullopt;
-        
-        // Counts *performed* manipulations, a manipulation with 0 delta is not counted!
-        size_t m_counter = {};
-
-        // Records manipulation state
-        bool m_isManipulating = false;
+    private:
+        SView m_view;
     };
 
     ICameraController() {}

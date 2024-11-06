@@ -5,12 +5,6 @@
 #ifndef _I_CAMERA_HPP_
 #define _I_CAMERA_HPP_
 
-#include <nabla.h>
-#include <iostream>
-#include <cstdio>
-#include <fstream>
-#include <chrono>
-
 #include "camera/ICameraControl.hpp"
 
 namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
@@ -26,7 +20,7 @@ public:
 	{
 		using controller_t = base_t;
 		using gimbal_t = typename controller_t::CGimbal;
-		using matrix_precision_t = typename T; // TODO: actually all vectors/scalars should have precision type T and because of projection matrix constraints allowed is only float32_t & float64_t
+		using precision_t = typename T; // TODO: actually all vectors/scalars should have precision type T and because of projection matrix constraints allowed is only float32_t & float64_t
 	};
 
 	ICamera() : base_t() {}
