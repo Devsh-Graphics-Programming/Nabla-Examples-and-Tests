@@ -39,22 +39,14 @@ public:
             return;
 
         const auto impulse = m_gimbal.accumulate<AllowedEvents>(virtualEvents);
-        const auto& gForward = m_gimbal.getZAxis(), gRight = m_gimbal.getXAxis();
 
-        float currentPitch = atan2(glm::length(glm::vec2(gForward.x, gForward.z)), gForward.y) - glm::half_pi<float>();
-        float currentYaw = atan2(gForward.x, gForward.z);
+        const auto& gForward = m_gimbal.getZAxis();
+        const float currentPitch = atan2(glm::length(glm::vec2(gForward.x, gForward.z)), gForward.y) - glm::half_pi<float>(), currentYaw = atan2(gForward.x, gForward.z);
+        const auto newPitch = std::clamp(currentPitch + impulse.dVirtualRotation.x * RotateSpeedScale, MinVerticalAngle, MaxVerticalAngle), newYaw = currentYaw + impulse.dVirtualRotation.y * RotateSpeedScale;
 
-        // adjust the current pitch and yaw
-        currentPitch = std::clamp(currentPitch + impulse.dVirtualRotation.x * RotateSpeedScale, MinVerticalAngle, MaxVerticalAngle);
-        currentYaw += impulse.dVirtualRotation.y * RotateSpeedScale;
-
-        // create new orientation based on accumulated pitch and yaw from a virtual impulse
-        glm::quat orientation = glm::quat(glm::vec3(currentPitch, currentYaw, 0.0f));
-
-        // manipulate view gimbal
         m_gimbal.begin();
         {
-            m_gimbal.setOrientation(orientation);
+            m_gimbal.setOrientation(glm::quat(glm::vec3(newPitch, newYaw, 0.0f)));
             m_gimbal.move(impulse.dVirtualTranslate * MoveSpeedScale);
             m_gimbal.updateView();
         }

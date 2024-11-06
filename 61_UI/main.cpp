@@ -750,14 +750,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			if (move)
 			{
-				static std::vector<CVirtualGimbalEvent> virtualMouseEvents(CVirtualGimbalEvent::VirtualEventsTypeTable.size()), virtualKeyboardEvents(CVirtualGimbalEvent::VirtualEventsTypeTable.size());
+				static std::vector<CVirtualGimbalEvent> virtualEvents(CVirtualGimbalEvent::VirtualEventsTypeTable.size() * 2);
 				uint32_t vEventsMouseCount, vEventsKeyboardCount;
 
-				camera->processMouse(virtualMouseEvents.data(), vEventsMouseCount,  params.mouseEvents);
-				camera->processKeyboard(virtualKeyboardEvents.data(), vEventsKeyboardCount, params.keyboardEvents);
+				camera->processMouse(virtualEvents.data(), vEventsMouseCount,  params.mouseEvents);
+				camera->processKeyboard(virtualEvents.data() + vEventsMouseCount, vEventsKeyboardCount, params.keyboardEvents);
 
-				camera->manipulate({ virtualMouseEvents.data(), vEventsMouseCount });
-				camera->manipulate({ virtualKeyboardEvents.data(), vEventsKeyboardCount });
+				camera->manipulate({ virtualEvents.data(), vEventsMouseCount + vEventsKeyboardCount });
 			}
 
 			pass.ui.manager->update(params);
