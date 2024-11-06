@@ -449,7 +449,7 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 						}
 						
 						// Create resources needed to do the blit
-						auto blitFilter = make_smart_refctd_ptr<CComputeBlit>(smart_refctd_ptr<ILogicalDevice>(device));
+						auto blitFilter = m_parentApp->m_blitFilter.get();
 						
 						//
 						auto converter = CAssetConverter::create({.device=device});
@@ -624,9 +624,11 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 								const auto format = CComputeBlit::getCoverageAdjustmentIntermediateFormat(outImageFormat);
 
 								IGPUImage::SCreationParams creationParams = {};
-								creationParams = outImage->getCreationParameters();
+								creationParams = outImageView->getCreationParameters().image->getCreationParameters();
 								creationParams.format = format;
 								creationParams.usage = IGPUImage::EUF_STORAGE_BIT;
+								creationParams.viewFormats.reset();
+								creationParams.viewFormats.set(format,true);
 								auto image = device->createImage(std::move(creationParams));
 								if (!image || !device->allocate(image->getMemoryReqs(), image.get()).isValid())
 								{
@@ -1266,6 +1268,8 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 			{
 				m_logger->log("CComputeBlit", system::ILogger::ELL_INFO);
 
+				m_blitFilter = make_smart_refctd_ptr<CComputeBlit>(smart_refctd_ptr(m_device));
+
 				constexpr uint32_t TestCount = 6;
 				std::unique_ptr<ITest> tests[TestCount] = { nullptr };
 
@@ -1529,6 +1533,8 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 
 			return retval;
 		}
+
+		smart_refctd_ptr<CComputeBlit> m_blitFilter;
 
 	private:
 		smart_refctd_ptr<IAssetManager> assetManager;
