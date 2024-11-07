@@ -493,6 +493,39 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						ImGui::End();
 					}
 
+					{
+						ImGui::Begin("Key Mappings & Virtual States");
+
+						ImGui::Text("Key Mappings");
+						ImGui::Separator();
+
+						const auto& keysToVirtualEvents = camera->getKeysToVirtualEvents();
+
+						for (const auto& [key, info] : keysToVirtualEvents)
+						{
+							const char physicalChar = ui::keyCodeToChar(key, true);
+							const auto eventName = CVirtualGimbalEvent::virtualEventToString(info.type);
+
+							ImGui::Text("Key: %s", &physicalChar);
+							ImGui::SameLine();
+							ImGui::Text("Virtual Event: %s", eventName.data());
+							ImGui::SameLine();
+
+							if (info.active)
+							{
+								ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Active");
+								ImGui::SameLine();
+								ImGui::Text("Delta Time: %.2f ms", info.dtAction);
+							}
+							else
+							{
+								ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Inactive");
+							}
+						}
+
+						ImGui::End();
+					}
+
 					ImGui::End();
 				}
 			);
@@ -687,8 +720,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 		inline void update()
 		{
-			static std::chrono::microseconds previousEventTimestamp{};
-
 			m_inputSystem->getDefaultMouse(&mouse);
 			m_inputSystem->getDefaultKeyboard(&keyboard);
 
@@ -707,18 +738,14 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			struct
 			{
-				std::vector<SMouseEvent> mouse{};
-				std::vector<SKeyboardEvent> keyboard{};
+				std::vector<SMouseEvent> mouse {};
+				std::vector<SKeyboardEvent> keyboard {};
 			} capturedEvents;
 
 			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 			{
-				for (const auto& e : events) // here capture
+				for (const auto& e : events)
 				{
-					if (e.timeStamp < previousEventTimestamp)
-						continue;
-
-					previousEventTimestamp = e.timeStamp;
 					capturedEvents.mouse.emplace_back(e);
 
 					if (e.type == nbl::ui::SMouseEvent::EET_SCROLL)
@@ -728,12 +755,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 			{
-				for (const auto& e : events) // here capture
+				for (const auto& e : events)
 				{
-					if (e.timeStamp < previousEventTimestamp)
-						continue;
-
-					previousEventTimestamp = e.timeStamp;
 					capturedEvents.keyboard.emplace_back(e);
 				}
 			}, m_logger.get());
@@ -753,8 +776,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				static std::vector<CVirtualGimbalEvent> virtualEvents(CVirtualGimbalEvent::VirtualEventsTypeTable.size() * 2);
 				uint32_t vEventsMouseCount, vEventsKeyboardCount;
 
-				camera->processMouse(virtualEvents.data(), vEventsMouseCount,  params.mouseEvents);
-				camera->processKeyboard(virtualEvents.data() + vEventsMouseCount, vEventsKeyboardCount, params.keyboardEvents);
+				camera->beginInputProcessing(nextPresentationTimestamp);
+				camera->processKeyboard(virtualEvents.data(), vEventsKeyboardCount, params.keyboardEvents);
+				camera->processMouse(virtualEvents.data() + vEventsKeyboardCount, vEventsMouseCount,  params.mouseEvents);
+				camera->endInputProcessing();
 
 				camera->manipulate({ virtualEvents.data(), vEventsMouseCount + vEventsKeyboardCount });
 			}

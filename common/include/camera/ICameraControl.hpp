@@ -19,7 +19,19 @@ class ICameraController : virtual public core::IReferenceCounted
 {
 public:
     using precision_t = typename T;
-    using keys_to_virtual_events_t = std::unordered_map<ui::E_KEY_CODE, CVirtualGimbalEvent::CRequestInfo>;
+
+    struct CRequestInfo
+    {
+        CRequestInfo() {}
+        CRequestInfo(CVirtualGimbalEvent::VirtualEventType _type) : type(_type) {}
+        ~CRequestInfo() = default;
+
+        CVirtualGimbalEvent::VirtualEventType type = CVirtualGimbalEvent::VirtualEventType::None;
+        bool active = false;
+        float64_t dtAction = {};
+    };
+
+    using keys_to_virtual_events_t = std::unordered_map<ui::E_KEY_CODE, CRequestInfo>;
 
     // Gimbal with view parameters representing a camera in world space
     class CGimbal : public IGimbal<precision_t>
@@ -91,51 +103,70 @@ public:
     // TODO: *maybe* would be good to have a class interface for virtual event generators,
     // eg keyboard, mouse but maybe custom stuff too eg events from gimbal drag & drop
 
+    void beginInputProcessing(const std::chrono::microseconds _nextPresentationTimeStamp)
+    {
+        nextPresentationTimeStamp = _nextPresentationTimeStamp;
+    }
+
     // Processes keyboard events to generate virtual manipulation events, note that it doesn't make the manipulation itself!
     void processKeyboard(CVirtualGimbalEvent* output, uint32_t& count, std::span<const ui::SKeyboardEvent> events)
     {
+        count = 0u;
+
         if (!output)
         {
-            count = events.size();
+            count = m_keysToVirtualEvents.size();
             return;
         }
 
-        count = 0u;
+        const auto frameDeltaTime = std::chrono::duration_cast<std::chrono::milliseconds>(nextPresentationTimeStamp - lastVirtualUpTimeStamp).count();
+        assert(frameDeltaTime >= 0.f);
 
-        if (events.empty())
-            return;
+        for (auto& [key, info] : m_keysToVirtualEvents)
+        {
+            info.dtAction = 0.f;
 
-        const auto timestamp = getEventGenerationTimestamp();
+            /*
+                if a key was already being held down from previous frames we compute with this 
+                assumption that the key will be held down for this whole frame as well and its
+                delta action time is simply frame delta time
+            */
+
+            if (info.active)
+                info.dtAction = static_cast<float64_t>(frameDeltaTime);
+        }
 
         for (const auto& keyboardEvent : events)
         {
             auto request = m_keysToVirtualEvents.find(keyboardEvent.keyCode);
-            bool isKeyMapped = request != std::end(m_keysToVirtualEvents);            
-
-            if (isKeyMapped)
+            if (request != std::end(m_keysToVirtualEvents))
             {
-                auto& key = request->first; auto& info = request->second;
+                auto& info = request->second;
 
-                if (keyboardEvent.keyCode == key)
+                if (keyboardEvent.action == nbl::ui::SKeyboardEvent::ECA_PRESSED)
                 {
-                    if (keyboardEvent.action == nbl::ui::SKeyboardEvent::ECA_PRESSED && !info.active)
+                    if (!info.active)
+                    {
+                        const auto keyDeltaTime = std::chrono::duration_cast<std::chrono::milliseconds>(nextPresentationTimeStamp - keyboardEvent.timeStamp).count();
+                        assert(keyDeltaTime >= 0);
+
                         info.active = true;
-                    else if (keyboardEvent.action == nbl::ui::SKeyboardEvent::ECA_RELEASED)
-                        info.active = false;   
+                        info.dtAction = keyDeltaTime;
+                    }
                 }
+                else if (keyboardEvent.action == nbl::ui::SKeyboardEvent::ECA_RELEASED)
+                    info.active = false;
+            }
+        }
 
-                if (info.active)
-                {
-                    const auto dtAction = std::chrono::duration_cast<std::chrono::milliseconds>(timestamp - keyboardEvent.timeStamp).count();
-                    assert(dtAction >= 0);
-
-                    auto* virtualEvent = output + count;
-                    assert(virtualEvent); // TODO: maybe just log error and return 0 count
-
-                    virtualEvent->type = info.type;
-                    virtualEvent->magnitude = static_cast<float64_t>(dtAction);
-                    ++count;
-                }
+        for (const auto& [key, info] : m_keysToVirtualEvents)
+        {
+            if (info.active)
+            {
+                auto* virtualEvent = output + count;
+                virtualEvent->type = info.type;
+                virtualEvent->magnitude = info.dtAction;
+                ++count;
             }
         }
     }
@@ -144,18 +175,17 @@ public:
     // Limited to Pan & Tilt rotation events, camera type implements how event magnitudes should be interpreted
     void processMouse(CVirtualGimbalEvent* output, uint32_t& count, std::span<const ui::SMouseEvent> events)
     {
+        count = 0u;
+
         if (!output)
         {
             count = 2u;
             return;
         }
 
-        count = 0u;
-
         if (events.empty())
             return;
 
-        const auto timestamp = getEventGenerationTimestamp();
         double dYaw = {}, dPitch = {};
 
         for (const auto& ev : events)
@@ -184,16 +214,20 @@ public:
         }
     }
 
+    void endInputProcessing()
+    {
+        lastVirtualUpTimeStamp = nextPresentationTimeStamp;
+    }
+
+    inline const keys_to_virtual_events_t& getKeysToVirtualEvents() { return m_keysToVirtualEvents; }
+
 protected:
     virtual void initKeysToEvent() = 0;
 
 private:
     keys_to_virtual_events_t m_keysToVirtualEvents;
     bool m_keysDown[CVirtualGimbalEvent::EventsCount] = {};
-
-    // exactly what our Nabla events do, actually I don't want users to pass timestamp since I know when it should be best to make a request -> just before generating events!
-    // TODO: need to think about this
-    inline std::chrono::microseconds getEventGenerationTimestamp() { return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()); }
+    std::chrono::microseconds nextPresentationTimeStamp, lastVirtualUpTimeStamp;
 };
 
 #if 0 // TOOD: update

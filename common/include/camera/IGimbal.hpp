@@ -42,20 +42,41 @@ namespace nbl::hlsl
             Scale = ScaleXInc | ScaleXDec | ScaleYInc | ScaleYDec | ScaleZInc | ScaleZDec
         };
 
-        struct CRequestInfo
-        {
-            CRequestInfo() : type(None) {}
-            CRequestInfo(VirtualEventType _type) : type(_type) {}
-            ~CRequestInfo() = default;
-
-            VirtualEventType type;
-            bool active = false;
-        };
-
         using manipulation_encode_t = float64_t;
         
         VirtualEventType type;
         manipulation_encode_t magnitude;
+
+        static constexpr std::string_view virtualEventToString(VirtualEventType event)
+        {
+            switch (event)
+            {
+                case MoveForward: return "MoveForward";
+                case MoveBackward: return "MoveBackward";
+                case MoveLeft: return "MoveLeft";
+                case MoveRight: return "MoveRight";
+                case MoveUp: return "MoveUp";
+                case MoveDown: return "MoveDown";
+                case TiltUp: return "TiltUp";
+                case TiltDown: return "TiltDown";
+                case PanLeft: return "PanLeft";
+                case PanRight: return "PanRight";
+                case RollLeft: return "RollLeft";
+                case RollRight: return "RollRight";
+                case ScaleXInc: return "ScaleXInc";
+                case ScaleXDec: return "ScaleXDec";
+                case ScaleYInc: return "ScaleYInc";
+                case ScaleYDec: return "ScaleYDec";
+                case ScaleZInc: return "ScaleZInc";
+                case ScaleZDec: return "ScaleZDec";
+                case Translate: return "Translate";
+                case Rotate: return "Rotate";
+                case Scale: return "Scale";
+                case None: return "None";
+                default: return "Unknown";
+            }
+        }
+
 
         static inline constexpr auto VirtualEventsTypeTable = []()
         {
