@@ -85,6 +85,11 @@ struct ReferenceObjectGpu
 	Bindings bindings;
 	nbl::asset::E_INDEX_TYPE indexType = nbl::asset::E_INDEX_TYPE::EIT_UNKNOWN;
 	uint32_t indexCount = {};
+
+	const bool useIndex() const
+	{
+		return bindings.index.buffer && (indexType != E_INDEX_TYPE::EIT_UNKNOWN);
+	}
 };
 }
 

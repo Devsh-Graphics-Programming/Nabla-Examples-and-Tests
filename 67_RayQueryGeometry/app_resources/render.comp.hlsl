@@ -2,6 +2,7 @@
 
 struct SPushConstants
 {
+    bool useIndex;
     uint64_t vertexBufferAddress;
     uint64_t indexBufferAddress;
 };
@@ -11,13 +12,13 @@ struct SPushConstants
 [[vk::binding(0, 0)]]
 RaytracingAccelerationStructure topLevelAS;
 
-[[vk::binding(0, 1)]]
+[[vk::binding(1, 0)]]
 cbuffer CameraData
 {
-    SBasicViewParameters params;
+    SCameraParameters params;
 };
 
-[[vk::binding(0, 2)]] RWTexture2D<float4> outImage;
+[[vk::binding(2, 0)]] RWTexture2D<float4> outImage;
 
 [numthreads(WorkgroupSize, WorkgroupSize, 1)]
 void main(uint32_t3 threadID : SV_DispatchThreadID)
@@ -31,13 +32,11 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
         return;
 
     float4 color = float4(0, 0, 0, 1);
-
-    const float4x4 invMVP = inverse(cameraData.params.MVP);
     
     float4 NDC = float4(texCoords * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
     float3 targetPos;
     {
-        vec4 tmp = invMVP * NDC;
+        float4 tmp = mul(params.invMVP, NDC);
         targetPos = tmp.xyz / tmp.w;
         NDC.z = 1.0;
     }
@@ -57,14 +56,26 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     {
         const int primID = query.CommittedPrimitiveIndex();
 
-        uint idxOffset = primID * 3 * sizeof(uint32_t);
-        uint i0 = vk::RawBufferLoad<uint32_t>(pc.indexBufferAddress + idxOffset);
-        uint i1 = vk::RawBufferLoad<uint32_t>(pc.indexBufferAddress + idxOffset + 1);
-        uint i2 = vk::RawBufferLoad<uint32_t>(pc.indexBufferAddress + idxOffset + 2);
+        uint idxOffset = primID * 3;
+        VertexData v0, v1, v2;
 
-        VertexData v0 = vk::RawBufferLoad<VertexData>(pc.vertexBufferAddress + i0 * sizeof(VertexData));
-        VertexData v1 = vk::RawBufferLoad<VertexData>(pc.vertexBufferAddress + i1 * sizeof(VertexData));
-        VertexData v2 = vk::RawBufferLoad<VertexData>(pc.vertexBufferAddress + i2 * sizeof(VertexData));
+        if (pc.useIndex)
+        {
+            uint i0 = vk::RawBufferLoad<uint32_t>(pc.indexBufferAddress + idxOffset * sizeof(uint32_t) + 0);
+            uint i1 = vk::RawBufferLoad<uint32_t>(pc.indexBufferAddress + idxOffset * sizeof(uint32_t) + 1);
+            uint i2 = vk::RawBufferLoad<uint32_t>(pc.indexBufferAddress + idxOffset * sizeof(uint32_t) + 2);
+
+            v0 = vk::RawBufferLoad<VertexData>(pc.vertexBufferAddress + i0 * sizeof(VertexData));
+            v1 = vk::RawBufferLoad<VertexData>(pc.vertexBufferAddress + i1 * sizeof(VertexData));
+            v2 = vk::RawBufferLoad<VertexData>(pc.vertexBufferAddress + i2 * sizeof(VertexData));
+        }
+        else
+        {
+            v0 = vk::RawBufferLoad<VertexData>(pc.vertexBufferAddress + idxOffset * sizeof(VertexData) + 0);
+            v1 = vk::RawBufferLoad<VertexData>(pc.vertexBufferAddress + idxOffset * sizeof(VertexData) + 1);
+            v2 = vk::RawBufferLoad<VertexData>(pc.vertexBufferAddress + idxOffset * sizeof(VertexData) + 2);
+        }
+        
 
         float3 barycentrics = float3(0.0, query.CommittedTriangleBarycentrics());
         barycentrics.x = 1.0 - barycentrics.y - barycentrics.z;

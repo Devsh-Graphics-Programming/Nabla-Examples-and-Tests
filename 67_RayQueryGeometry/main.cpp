@@ -4,11 +4,19 @@
 
 #include "common.hpp"
 
+struct SPushConstants
+{
+	VkBool32 useIndex;
+	uint64_t vertexBufferAddress;
+	uint64_t indexBufferAddress;
+};
+
 struct SCameraParameters
 {
 	float camPos[3];
 
 	float MVP[4 * 4];
+	float invMVP[4 * 4];
 	float V[3 * 4];
 	float P[3 * 4];
 };
@@ -169,6 +177,9 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 
+			if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
+				return false;
+
 			m_semaphore = m_device->createSemaphore(m_realFrameIx);
 			if (!m_semaphore)
 				return logFail("Failed to Create a Semaphore!");
@@ -230,8 +241,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				m_maxFramesInFlight = FRAMES_IN_FLIGHT;
 			}
 
-			auto cQueue = getComputeQueue();
-			auto pool = m_device->createCommandPool(cQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+			auto pool = m_device->createCommandPool(gQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 
 			for (auto i = 0u; i < m_maxFramesInFlight; i++)
 			{
@@ -288,6 +298,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
 			auto* geometryCreator = assetManager->getGeometryCreator();
 
+			auto cQueue = getComputeQueue();
 			smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
 			{
 				smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(cQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
@@ -303,6 +314,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 			// create blas/tlas
 			createAccelerationStructures(cmdbuf.get());
+
+			cmdbuf->end();
 
 			// submit builds
 			{
@@ -347,7 +360,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			// create pipelines
 			{
 				// shader
-				const std::string shaderPath = "render.comp.hlsl";
+				const std::string shaderPath = "app_resources/render.comp.hlsl";
 				IAssetLoader::SAssetLoadParams lparams = {};
 				lparams.logger = m_logger.get();
 				lparams.workingDirectory = "";
@@ -390,12 +403,13 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				};
 				auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
 
-				const std::array<IGPUDescriptorSetLayout*, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> dsLayoutPtrs = { descriptorSetLayout.get(), nullptr, nullptr, nullptr};
-				renderPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dsLayoutPtrs.begin(), dsLayoutPtrs.end()));
+				const std::array<IGPUDescriptorSetLayout*, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> dsLayoutPtrs = { descriptorSetLayout.get() };
+				const uint32_t setCounts[1u] = { m_maxFramesInFlight };
+				renderPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dsLayoutPtrs.begin(), dsLayoutPtrs.end()), setCounts);
 				for (uint32_t i = 0; i < m_maxFramesInFlight; i++)
 					renderDs[i] = renderPool->createDescriptorSet(descriptorSetLayout);
 
-				SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0u, .size = 2 * sizeof(uint64_t) };
+				SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0u, .size = sizeof(SPushConstants)};
 				auto pipelineLayout = m_device->createPipelineLayout({ &pcRange, 1 }, smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
 
 				IGPUComputePipeline::SCreationParams params = {};
@@ -501,11 +515,14 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			modelMatrix.setRotation(quaternion(0, 0, 0));
 
 			core::matrix4SIMD modelViewProjectionMatrix = core::concatenateBFollowedByA(viewProjectionMatrix, modelMatrix);
+			core::matrix4SIMD invModelViewProjectionMatrix;
+			modelViewProjectionMatrix.getInverseTransform(invModelViewProjectionMatrix);
 
 			SCameraParameters uboData;
 			const core::vector3df camPos = camera.getPosition().getAsVector3df();
 			camPos.getAs3Values(uboData.camPos);
 			memcpy(uboData.MVP, modelViewProjectionMatrix.pointer(), sizeof(uboData.MVP));
+			memcpy(uboData.invMVP, invModelViewProjectionMatrix.pointer(), sizeof(uboData.invMVP));
 			memcpy(uboData.V, viewMatrix.pointer(), sizeof(uboData.V));
 			memcpy(uboData.P, projectionMatrix.pointer(), sizeof(uboData.P));
 			{
@@ -547,16 +564,17 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			auto vertex = obj.bindings.vertex;
 			auto index = obj.bindings.index;
 
-			const uint64_t bufAddr[] = {
-				vertex.buffer->getDeviceAddress(),
-				index.buffer->getDeviceAddress()
+			const SPushConstants pc = {
+				.useIndex = obj.useIndex() ? VK_TRUE : VK_FALSE,
+				.vertexBufferAddress = vertex.buffer->getDeviceAddress(),
+				.indexBufferAddress = obj.useIndex() ? index.buffer->getDeviceAddress() : 0
 			};
 
 			cmdbuf->bindComputePipeline(renderPipeline.get());
-			cmdbuf->pushConstants(renderPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, 2 * sizeof(uint64_t), bufAddr);
-			cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, renderPipeline->getLayout(), 0, 1, &renderDs[m_currentImageAcquire.imageIndex].get());
+			cmdbuf->pushConstants(renderPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(SPushConstants), &pc);
+			cmdbuf->bindDescriptorSets(EPBP_COMPUTE, renderPipeline->getLayout(), 0, 1, &renderDs[m_currentImageAcquire.imageIndex].get());
 			cmdbuf->dispatch(getWorkgroupCount(WIN_W, WorkgroupSize), getWorkgroupCount(WIN_H, WorkgroupSize), 1);
-
+			
 			// blit
 			{
 				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[2];
@@ -624,8 +642,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 			// TODO: transition to present
 			{
-				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[2];
-				imageBarriers[1].barrier = {
+				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[1];
+				imageBarriers[0].barrier = {
 				   .dep = {
 					   .srcStageMask = PIPELINE_STAGE_FLAGS::BLIT_BIT,
 					   .srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
@@ -633,19 +651,22 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					   .dstAccessMask = ACCESS_FLAGS::NONE
 					}
 				};
-				imageBarriers[1].image = m_surface->getSwapchainResources()->getImage(m_currentImageAcquire.imageIndex);
-				imageBarriers[1].subresourceRange = {
+				imageBarriers[0].image = m_surface->getSwapchainResources()->getImage(m_currentImageAcquire.imageIndex);
+				imageBarriers[0].subresourceRange = {
 					.aspectMask = IImage::EAF_COLOR_BIT,
 					.baseMipLevel = 0u,
 					.levelCount = 1u,
 					.baseArrayLayer = 0u,
 					.layerCount = 1u
 				};
-				imageBarriers[1].oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL;
-				imageBarriers[1].newLayout = IImage::LAYOUT::PRESENT_SRC;
+				imageBarriers[0].oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL;
+				imageBarriers[0].newLayout = IImage::LAYOUT::PRESENT_SRC;
 
 				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imageBarriers });
 			}
+
+			cmdbuf->endDebugMarker();
+			cmdbuf->end();
 
 			{
 				const IQueue::SSubmitInfo::SSemaphoreInfo rendered[] =
@@ -736,8 +757,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 		bool createGeometries(IGPUCommandBuffer* cmdbuf, const IGeometryCreator* gc)
 		{
-			//EXPOSE_NABLA_NAMESPACES();
-
 			std::array<ReferenceObjectCpu, OT_COUNT> objectsCpu;
 			objectsCpu[OT_CUBE] = ReferenceObjectCpu{ .meta = {.type = OT_CUBE, .name = "Cube Mesh" }, .shadersType = GP_BASIC, .data = gc->createCubeMesh(nbl::core::vector3df(1.f, 1.f, 1.f)) };
 			objectsCpu[OT_SPHERE] = ReferenceObjectCpu{ .meta = {.type = OT_SPHERE, .name = "Sphere Mesh" }, .shadersType = GP_BASIC, .data = gc->createSphereMesh(2, 16, 16) };
@@ -762,23 +781,19 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 // TODO: use asset converter to convert all buffers to IGPUBuffers (that part 100% works)
 
 				auto vBuffer = smart_refctd_ptr(geom.data.bindings[0].buffer); // no offset
-				IGPUBuffer::SCreationParams vParams;
-				vParams.size = vBuffer->getSize();
-				vParams.usage = bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | 
+				auto vUsage = bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | 
 					asset::IBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 				obj.bindings.vertex.offset = 0u;
-				auto vertexBuffer = m_device->createBuffer(std::move(vParams));
+				auto vertexBuffer = m_device->createBuffer(IGPUBuffer::SCreationParams({.size = vBuffer->getSize(), .usage = vUsage}));
 
 				//if (!vertexBuffer)
 				//	return false;
 
 				auto iBuffer = smart_refctd_ptr(geom.data.indexBuffer.buffer); // no offset
-				IGPUBuffer::SCreationParams iParams;
-				iParams.size = iBuffer->getSize();
-				iParams.usage = bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF |
+				auto iUsage = bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF |
 					asset::IBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 				obj.bindings.index.offset = 0u;
-				auto indexBuffer = m_device->createBuffer(std::move(iParams));
+				auto indexBuffer = iBuffer ? m_device->createBuffer(IGPUBuffer::SCreationParams({ .size = iBuffer->getSize(), .usage = iUsage })) : nullptr;
 
 				//if (geom.data.indexType != EIT_UNKNOWN)
 				//	if (!indexBuffer)
@@ -799,9 +814,12 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				SBufferRange<IGPUBuffer> vRange = { .offset = obj.bindings.vertex.offset, .size = obj.bindings.vertex.buffer->getSize(), .buffer = obj.bindings.vertex.buffer };
 				cmdbuf->updateBuffer(vRange, vBuffer->getPointer());
 
-				obj.bindings.index = { .offset = 0u, .buffer = std::move(indexBuffer) };
-				SBufferRange<IGPUBuffer> iRange = { .offset = obj.bindings.index.offset, .size = obj.bindings.index.buffer->getSize(), .buffer = obj.bindings.index.buffer };
-				cmdbuf->updateBuffer(iRange, iBuffer->getPointer());
+				if (iBuffer)
+				{
+					obj.bindings.index = { .offset = 0u, .buffer = std::move(indexBuffer) };
+					SBufferRange<IGPUBuffer> iRange = { .offset = obj.bindings.index.offset, .size = obj.bindings.index.buffer->getSize(), .buffer = obj.bindings.index.buffer };
+					cmdbuf->updateBuffer(iRange, iBuffer->getPointer());
+				}
 			}
 
 			return true;
@@ -813,13 +831,18 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			{
 				const auto& obj = objectsGpu[OT_CUBE];
 
-				const uint32_t trisCount = obj.indexCount / 3;
-				uint32_t vertexStride = 12 * sizeof(float32_t);	// TODO: vary by object type, this is standard triangles for sphere etc.
+				const uint32_t vertexStride = 12 * sizeof(float32_t);	// TODO: vary by object type, this is standard triangles for sphere etc.
+				const uint32_t numVertices = obj.bindings.vertex.buffer->getSize() / (vertexStride * 3);
+				uint32_t trisCount;
+				if (obj.useIndex())
+					trisCount = obj.indexCount / 3;
+				else
+					trisCount = numVertices / 3;
 
 				IGPUBottomLevelAccelerationStructure::Triangles<const IGPUBuffer> triangles;
 				triangles.vertexData[0] = obj.bindings.vertex;
 				triangles.indexData = obj.bindings.index;
-				triangles.maxVertex = obj.bindings.vertex.buffer->getSize() / (vertexStride * 3) - 1;
+				triangles.maxVertex = numVertices - 1;
 				triangles.vertexStride = vertexStride;
 				triangles.vertexFormat = EF_R32G32B32_SFLOAT;
 				triangles.indexType = obj.indexType;
@@ -887,36 +910,37 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			}
 
 			// compact blas
-			IQueryPool::SCreationParams qParams{ .queryCount = 1, .queryType = IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE };
-			smart_refctd_ptr<IQueryPool> queryPool = m_device->createQueryPool(std::move(qParams));
+			//IQueryPool::SCreationParams qParams{ .queryCount = 1, .queryType = IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE };
+			//smart_refctd_ptr<IQueryPool> queryPool = m_device->createQueryPool(std::move(qParams));
+			//cmdbuf->resetQueryPool(queryPool.get(), 0, 1);
 
-			uint32_t queryCount = 0;
-			const IGPUAccelerationStructure* ases[1u] = { gpuBlas.get() };
-			cmdbuf->writeAccelerationStructureProperties({ ases, 1}, IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE, queryPool.get(), queryCount++);
+			//uint32_t queryCount = 0;
+			//const IGPUAccelerationStructure* ases[1u] = { gpuBlas.get() };
+			//cmdbuf->writeAccelerationStructureProperties({ ases, 1}, IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE, queryPool.get(), queryCount++);
 
-			size_t asSizes[1];
-			m_device->getQueryPoolResults(queryPool.get(), 0, queryCount, asSizes, sizeof(size_t), IQueryPool::WAIT_BIT);
-			
-			auto cleanupBlas = gpuBlas;
-			{
-				IGPUBuffer::SCreationParams params;
-				params.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_ACCELERATION_STRUCTURE_STORAGE_BIT;
-				params.size = asSizes[0];
-				smart_refctd_ptr<IGPUBuffer> asBuffer = createBuffer(params);
+			//size_t asSizes[1];
+			//m_device->getQueryPoolResults(queryPool.get(), 0, queryCount, asSizes, sizeof(size_t), IQueryPool::WAIT_BIT);
+			//
+			//auto cleanupBlas = gpuBlas;
+			//{
+			//	IGPUBuffer::SCreationParams params;
+			//	params.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_ACCELERATION_STRUCTURE_STORAGE_BIT;
+			//	params.size = asSizes[0];
+			//	smart_refctd_ptr<IGPUBuffer> asBuffer = createBuffer(params);
 
-				IGPUBottomLevelAccelerationStructure::SCreationParams blasParams;
-				blasParams.bufferRange.buffer = asBuffer;
-				blasParams.bufferRange.offset = 0u;
-				blasParams.bufferRange.size = asSizes[0];
-				blasParams.flags = IGPUBottomLevelAccelerationStructure::SCreationParams::FLAGS::NONE;
-				gpuBlas = m_device->createBottomLevelAccelerationStructure(std::move(blasParams));
-			}
+			//	IGPUBottomLevelAccelerationStructure::SCreationParams blasParams;
+			//	blasParams.bufferRange.buffer = asBuffer;
+			//	blasParams.bufferRange.offset = 0u;
+			//	blasParams.bufferRange.size = asSizes[0];
+			//	blasParams.flags = IGPUBottomLevelAccelerationStructure::SCreationParams::FLAGS::NONE;
+			//	gpuBlas = m_device->createBottomLevelAccelerationStructure(std::move(blasParams));
+			//}
 
-			IGPUBottomLevelAccelerationStructure::CopyInfo copyInfo;
-			copyInfo.src = cleanupBlas.get();
-			copyInfo.dst = gpuBlas.get();
-			copyInfo.mode = IGPUBottomLevelAccelerationStructure::COPY_MODE::COMPACT;
-			cmdbuf->copyAccelerationStructure(copyInfo);
+			//IGPUBottomLevelAccelerationStructure::CopyInfo copyInfo;
+			//copyInfo.src = cleanupBlas.get();
+			//copyInfo.dst = gpuBlas.get();
+			//copyInfo.mode = IGPUBottomLevelAccelerationStructure::COPY_MODE::COMPACT;
+			//cmdbuf->copyAccelerationStructure(copyInfo);
 
 			// build top level AS
 			{
@@ -929,7 +953,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					size_t bufSize = sizeof(IGPUTopLevelAccelerationStructure::DeviceInstance);
 					IGPUBuffer::SCreationParams params;
 					params.usage = bitflag(IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT |
-						IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+						IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 					params.size = bufSize;
 					instancesBuffer = createBuffer(params);	// does this need host visible memory?
 
