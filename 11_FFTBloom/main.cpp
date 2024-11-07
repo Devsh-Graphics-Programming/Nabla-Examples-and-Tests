@@ -60,7 +60,7 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 
 	// Some parameters
 	float bloomScale = 1.f;
-	float useHalfFloats = false;
+	float useHalfFloats = true;
 	
 	// Other parameter-dependent variables
 	asset::VkExtent3D marginSrcDim;
@@ -194,7 +194,11 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 
 		auto CPUShader = core::make_smart_refctd_ptr<ICPUShader>(std::move(shader), IShader::E_SHADER_STAGE::ESS_COMPUTE, IShader::E_CONTENT_TYPE::ECT_HLSL, includeMainName);
 		assert(CPUShader);
-		return m_device->createShader({ CPUShader.get(), nullptr, m_readCache.get(), m_writeCache.get()});
+
+		core::vector<ISPIRVOptimizer::E_OPTIMIZER_PASS> optPasses = { ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO };
+		auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::move(optPasses));
+
+		return m_device->createShader({ CPUShader.get(), opt.get(), m_readCache.get(), m_writeCache.get()});
 	}
 
 public:
