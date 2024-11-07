@@ -904,19 +904,24 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				SMemoryBarrier memBarrier;
 				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT;
 				memBarrier.srcAccessMask = ACCESS_FLAGS::ACCELERATION_STRUCTURE_WRITE_BIT;
-				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT;
+				// apparently a query is a copy?
+				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_COPY_BIT;
 				memBarrier.dstAccessMask = ACCESS_FLAGS::ACCELERATION_STRUCTURE_READ_BIT;
+				// for now, remove once the Compact and TLAS build is in a separate submit
+				memBarrier.dstStageMask |= PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT;
 				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {&memBarrier, 1} });
 			}
 
 			// compact blas
-			//IQueryPool::SCreationParams qParams{ .queryCount = 1, .queryType = IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE };
-			//smart_refctd_ptr<IQueryPool> queryPool = m_device->createQueryPool(std::move(qParams));
-			//cmdbuf->resetQueryPool(queryPool.get(), 0, 1);
+			IQueryPool::SCreationParams qParams{ .queryCount = 1, .queryType = IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE };
+			smart_refctd_ptr<IQueryPool> queryPool = m_device->createQueryPool(std::move(qParams));
+			cmdbuf->resetQueryPool(queryPool.get(), 0, 1);
 
-			//uint32_t queryCount = 0;
-			//const IGPUAccelerationStructure* ases[1u] = { gpuBlas.get() };
-			//cmdbuf->writeAccelerationStructureProperties({ ases, 1}, IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE, queryPool.get(), queryCount++);
+			uint32_t queryCount = 0;
+			const IGPUAccelerationStructure* ases[1u] = { gpuBlas.get() };
+			cmdbuf->writeAccelerationStructureProperties({ ases, 1}, IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE, queryPool.get(), queryCount++);
+
+// TODO: SUBMIT THE BLAS BUILD FIRST AND AWAIT ITS COMPLETION WITH A SEMAPHORE SIGNAL
 
 			//size_t asSizes[1];
 			//m_device->getQueryPoolResults(queryPool.get(), 0, queryCount, asSizes, sizeof(size_t), IQueryPool::WAIT_BIT);
