@@ -69,7 +69,8 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 	smart_refctd_ptr<IGPUCommandBuffer> m_computeCmdBuf;
 
 	// Shader Cache
-	smart_refctd_ptr<IShaderCompiler::CCache> m_cache;
+	smart_refctd_ptr<IShaderCompiler::CCache> m_readCache;
+	smart_refctd_ptr<IShaderCompiler::CCache> m_writeCache;
 
 	// Sync primitives
 	smart_refctd_ptr<ISemaphore> m_timeline;
@@ -193,7 +194,7 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 
 		auto CPUShader = core::make_smart_refctd_ptr<ICPUShader>(std::move(shader), IShader::E_SHADER_STAGE::ESS_COMPUTE, IShader::E_CONTENT_TYPE::ECT_HLSL, includeMainName);
 		assert(CPUShader);
-		return m_device->createShader({ CPUShader.get(), nullptr, m_cache.get(), m_cache.get()});
+		return m_device->createShader({ CPUShader.get(), nullptr, m_readCache.get(), m_writeCache.get()});
 	}
 
 public:
@@ -531,29 +532,35 @@ public:
 			imageFirstAxisIFFTPipelineLayout = createPipelineLayout({ &bnd, 1 });
 		}
 
-		// Load cache
-		auto cacheSavePath = localOutputCWD / "cache.bin";
-		core::smart_refctd_ptr<system::IFile> f;
-		{
-			system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
-			m_system->createFile(future, cacheSavePath.c_str(), system::IFile::ECF_READ);
-			if (!future.wait())
-				return {};
-			future.acquire().move_into(f);
-		}
-		// No cache found, create a new one
-		if (!f)
-		{
-			m_cache = make_smart_refctd_ptr<IShaderCompiler::CCache>();;
-		}
-		else {
-			const size_t size = f->getSize();
-			std::vector<uint8_t> contents(size);
-			system::IFile::success_t succ;
-			f->read(succ, contents.data(), 0, size);
-			assert(bool(succ));
+		m_readCache = nullptr;
+		m_writeCache = core::make_smart_refctd_ptr<IShaderCompiler::CCache>();
+		auto shaderCachePath = localOutputCWD / "cache.bin";
 
-			m_cache = IShaderCompiler::CCache::deserialize(contents);
+		{
+			core::smart_refctd_ptr<system::IFile> shaderReadCacheFile;
+			{
+				system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
+				m_system->createFile(future, shaderCachePath.c_str(), system::IFile::ECF_READ);
+				if (future.wait())
+				{
+					future.acquire().move_into(shaderReadCacheFile);
+					if (shaderReadCacheFile)
+					{
+						const size_t size = shaderReadCacheFile->getSize();
+						if (size > 0ull)
+						{
+							std::vector<uint8_t> contents(size);
+							system::IFile::success_t succ;
+							shaderReadCacheFile->read(succ, contents.data(), 0, size);
+							if (succ)
+								m_readCache = IShaderCompiler::CCache::deserialize(contents);
+						}
+					}
+				}
+				else
+					m_logger->log("Failed Opening Shader Cache File.", ILogger::ELL_ERROR);
+			}
+
 		}
 		
 
@@ -866,29 +873,41 @@ public:
 		updateDescriptorSetConvolution(m_lastAxisFFT_convolution_lastAxisIFFTDescriptorSet.get(), m_kernelNormalizedSpectrums);
 		updateDescriptorSetFirstAxisIFFT(m_firstAxisIFFTDescriptorSet.get(), m_outImgView);
 
+		// Dump cache to disk since we won't be doing any more compilations - for now
+		{
+			core::smart_refctd_ptr<system::IFile> shaderWriteCacheFile;
+			{
+				system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
+				m_system->deleteFile(shaderCachePath); // temp solution instead of trimming, to make sure we won't have corrupted json
+				m_system->createFile(future, shaderCachePath.c_str(), system::IFile::ECF_WRITE);
+				if (future.wait())
+				{
+					future.acquire().move_into(shaderWriteCacheFile);
+					if (shaderWriteCacheFile)
+					{
+						auto serializedCache = m_writeCache->serialize();
+						if (shaderWriteCacheFile)
+						{
+							system::IFile::success_t succ;
+							shaderWriteCacheFile->write(succ, serializedCache->getPointer(), 0, serializedCache->getSize());
+							if (!succ)
+								m_logger->log("Failed Writing To Shader Cache File.", ILogger::ELL_ERROR);
+						}
+					}
+					else
+						m_logger->log("Failed Creating Shader Cache File.", ILogger::ELL_ERROR);
+				}
+				else
+					m_logger->log("Failed Creating Shader Cache File.", ILogger::ELL_ERROR);
+			}
+
+		}
 		// Block and wait until kernel FFT is done before we drop the pipelines.
 		// Ideally not be lazy and create a latch that does nothing but capture the pipelines and gets called when scratch semaphore is signalled
 		const ISemaphore::SWaitInfo waitInfo = { m_timeline.get(), semaphorValue };
 
 		m_device->blockForSemaphores({ &waitInfo, 1 });
 
-		// Dump cache to disk since we won't be doing any more compilations - for now
-		auto serializedCache = m_cache->serialize();
-		f = nullptr;
-		{
-			system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
-			// Cleanup earlier cache save
-			m_system->deleteFile(cacheSavePath.c_str());
-			m_system->createFile(future, cacheSavePath.c_str(), system::IFile::ECF_WRITE);
-			if (!future.wait())
-				return {};
-			future.acquire().move_into(f);
-		}
-		if (!f)
-			logFail("Failed to save Shader Cache!\n");
-		system::IFile::success_t succ;
-		f->write(succ, serializedCache->getPointer(), 0, serializedCache->getSize());
-		assert(bool(succ));
 		return true;
 	}
 
