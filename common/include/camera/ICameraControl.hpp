@@ -112,61 +112,66 @@ public:
     void processKeyboard(CVirtualGimbalEvent* output, uint32_t& count, std::span<const ui::SKeyboardEvent> events)
     {
         count = 0u;
+        const auto mappedVirtualEventsCount = m_keysToVirtualEvents.size();
 
         if (!output)
         {
-            count = m_keysToVirtualEvents.size();
+            count = mappedVirtualEventsCount;
             return;
         }
 
-        const auto frameDeltaTime = std::chrono::duration_cast<std::chrono::milliseconds>(nextPresentationTimeStamp - lastVirtualUpTimeStamp).count();
-        assert(frameDeltaTime >= 0.f);
-
-        for (auto& [key, info] : m_keysToVirtualEvents)
+        if (mappedVirtualEventsCount)
         {
-            info.dtAction = 0.f;
+            const auto frameDeltaTime = std::chrono::duration_cast<std::chrono::milliseconds>(nextPresentationTimeStamp - lastVirtualUpTimeStamp).count();
+            assert(frameDeltaTime >= 0.f);
 
-            /*
-                if a key was already being held down from previous frames we compute with this 
-                assumption that the key will be held down for this whole frame as well and its
-                delta action time is simply frame delta time
-            */
-
-            if (info.active)
-                info.dtAction = static_cast<float64_t>(frameDeltaTime);
-        }
-
-        for (const auto& keyboardEvent : events)
-        {
-            auto request = m_keysToVirtualEvents.find(keyboardEvent.keyCode);
-            if (request != std::end(m_keysToVirtualEvents))
+            for (auto& [key, info] : m_keysToVirtualEvents)
             {
-                auto& info = request->second;
+                info.dtAction = 0.f;
 
-                if (keyboardEvent.action == nbl::ui::SKeyboardEvent::ECA_PRESSED)
-                {
-                    if (!info.active)
-                    {
-                        const auto keyDeltaTime = std::chrono::duration_cast<std::chrono::milliseconds>(nextPresentationTimeStamp - keyboardEvent.timeStamp).count();
-                        assert(keyDeltaTime >= 0);
+                /*
+                    if a key was already being held down from previous frames we compute with this 
+                    assumption that the key will be held down for this whole frame as well and its
+                    delta action is simply frame delta time
+                */
 
-                        info.active = true;
-                        info.dtAction = keyDeltaTime;
-                    }
-                }
-                else if (keyboardEvent.action == nbl::ui::SKeyboardEvent::ECA_RELEASED)
-                    info.active = false;
+                if (info.active)
+                    info.dtAction = frameDeltaTime;
             }
-        }
 
-        for (const auto& [key, info] : m_keysToVirtualEvents)
-        {
-            if (info.active)
+            for (const auto& keyboardEvent : events)
             {
-                auto* virtualEvent = output + count;
-                virtualEvent->type = info.type;
-                virtualEvent->magnitude = info.dtAction;
-                ++count;
+                auto request = m_keysToVirtualEvents.find(keyboardEvent.keyCode);
+                if (request != std::end(m_keysToVirtualEvents))
+                {
+                    auto& info = request->second;
+
+                    if (keyboardEvent.action == nbl::ui::SKeyboardEvent::ECA_PRESSED)
+                    {
+                        if (!info.active)
+                        {
+                            // and if a key has been pressed after its last release event then first delta action is the key delta
+                            const auto keyDeltaTime = std::chrono::duration_cast<std::chrono::milliseconds>(nextPresentationTimeStamp - keyboardEvent.timeStamp).count();
+                            assert(keyDeltaTime >= 0);
+
+                            info.active = true;
+                            info.dtAction = keyDeltaTime;
+                        }
+                    }
+                    else if (keyboardEvent.action == nbl::ui::SKeyboardEvent::ECA_RELEASED)
+                        info.active = false;
+                }
+            }
+
+            for (const auto& [key, info] : m_keysToVirtualEvents)
+            {
+                if (info.active)
+                {
+                    auto* virtualEvent = output + count;
+                    virtualEvent->type = info.type;
+                    virtualEvent->magnitude = info.dtAction;
+                    ++count;
+                }
             }
         }
     }
@@ -198,7 +203,6 @@ public:
         if (dPitch)
         {
             auto* pitch = output + count;
-            assert(pitch); // TODO: maybe just log error and return 0 count
             pitch->type = dPitch > 0.f ? CVirtualGimbalEvent::TiltUp : CVirtualGimbalEvent::TiltDown;
             pitch->magnitude = std::abs(dPitch);
             count++;
@@ -227,7 +231,7 @@ protected:
 private:
     keys_to_virtual_events_t m_keysToVirtualEvents;
     bool m_keysDown[CVirtualGimbalEvent::EventsCount] = {};
-    std::chrono::microseconds nextPresentationTimeStamp, lastVirtualUpTimeStamp;
+    std::chrono::microseconds nextPresentationTimeStamp = {}, lastVirtualUpTimeStamp = {};
 };
 
 #if 0 // TOOD: update
