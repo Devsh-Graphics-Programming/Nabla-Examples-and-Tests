@@ -2,7 +2,6 @@
 
 struct SPushConstants
 {
-    bool useIndex;
     uint64_t vertexBufferAddress;
     uint64_t indexBufferAddress;
 };
@@ -59,7 +58,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
         uint idxOffset = primID * 3;
         VertexData v0, v1, v2;
 
-        if (pc.useIndex)
+        if (pc.indexBufferAddress != pc.vertexBufferAddress)
         {
             uint i0 = vk::RawBufferLoad<uint32_t>(pc.indexBufferAddress + idxOffset * sizeof(uint32_t) + 0);
             uint i1 = vk::RawBufferLoad<uint32_t>(pc.indexBufferAddress + idxOffset * sizeof(uint32_t) + 1);

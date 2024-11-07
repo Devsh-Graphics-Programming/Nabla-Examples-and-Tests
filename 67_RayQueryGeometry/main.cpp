@@ -6,7 +6,6 @@
 
 struct SPushConstants
 {
-	VkBool32 useIndex;
 	uint64_t vertexBufferAddress;
 	uint64_t indexBufferAddress;
 };
@@ -299,63 +298,13 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			auto* geometryCreator = assetManager->getGeometryCreator();
 
 			auto cQueue = getComputeQueue();
-			smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
-			{
-				smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(cQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
-				if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf))
-					return logFail("Failed to create one time Command Buffer!\n");
-			}
-
-			// open the command buffer!
-			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			smart_refctd_ptr<nbl::video::IGPUCommandPool> singleUsePool = m_device->createCommandPool(cQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
 
 			// create geometry objects
-			createGeometries(cmdbuf.get(), geometryCreator);
+			createGeometries(singleUsePool, geometryCreator);
 
 			// create blas/tlas
-			createAccelerationStructures(cmdbuf.get());
-
-			cmdbuf->end();
-
-			// submit builds
-			{
-				auto completed = m_device->createSemaphore(0u);
-
-				std::array<IQueue::SSubmitInfo::SSemaphoreInfo, 1u> signals;
-				{
-					auto& signal = signals.front();
-					signal.value = 1;
-					signal.stageMask = bitflag(PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS);
-					signal.semaphore = completed.get();
-				}
-
-				const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[1] = { {
-					.cmdbuf = cmdbuf.get()
-				} };
-
-				const IQueue::SSubmitInfo infos[] =
-				{
-					{
-						.waitSemaphores = {},
-						.commandBuffers = commandBuffers,
-						.signalSemaphores = signals
-					}
-				};
-
-				if (cQueue->submit(infos) != IQueue::RESULT::SUCCESS)
-				{
-					m_logger->log("Failed to submit geometry transfer upload operations!", ILogger::ELL_ERROR);
-					return false;
-				}
-
-				const ISemaphore::SWaitInfo info[] =
-				{ {
-					.semaphore = completed.get(),
-					.value = 1
-				} };
-
-				m_device->blockForSemaphores(info);
-			}
+			createAccelerationStructures(singleUsePool);
 
 			// create pipelines
 			{
@@ -565,9 +514,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			auto index = obj.bindings.index;
 
 			const SPushConstants pc = {
-				.useIndex = obj.useIndex() ? VK_TRUE : VK_FALSE,
 				.vertexBufferAddress = vertex.buffer->getDeviceAddress(),
-				.indexBufferAddress = obj.useIndex() ? index.buffer->getDeviceAddress() : 0
+				.indexBufferAddress = obj.useIndex() ? index.buffer->getDeviceAddress() : vertex.buffer->getDeviceAddress()
 			};
 
 			cmdbuf->bindComputePipeline(renderPipeline.get());
@@ -755,7 +703,63 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			return buffer;
 		}
 
-		bool createGeometries(IGPUCommandBuffer* cmdbuf, const IGeometryCreator* gc)
+		smart_refctd_ptr<IGPUCommandBuffer> getSingleUseCommandBufferAndBegin(smart_refctd_ptr<IGPUCommandPool> pool)
+		{
+			smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
+			if (!pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf))
+				return nullptr;
+
+			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+
+			return cmdbuf;
+		}
+
+		void cmdbufSubmitAndWait(smart_refctd_ptr<IGPUCommandBuffer> cmdbuf, CThreadSafeQueueAdapter* queue)
+		{
+			cmdbuf->end();
+
+			// submit builds
+			{
+				auto completed = m_device->createSemaphore(0u);
+
+				std::array<IQueue::SSubmitInfo::SSemaphoreInfo, 1u> signals;
+				{
+					auto& signal = signals.front();
+					signal.value = 1;
+					signal.stageMask = bitflag(PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS);
+					signal.semaphore = completed.get();
+				}
+
+				const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[1] = { {
+					.cmdbuf = cmdbuf.get()
+				} };
+
+				const IQueue::SSubmitInfo infos[] =
+				{
+					{
+						.waitSemaphores = {},
+						.commandBuffers = commandBuffers,
+						.signalSemaphores = signals
+					}
+				};
+
+				if (queue->submit(infos) != IQueue::RESULT::SUCCESS)
+				{
+					m_logger->log("Failed to submit geometry transfer upload operations!", ILogger::ELL_ERROR);
+					return;
+				}
+
+				const ISemaphore::SWaitInfo info[] =
+				{ {
+					.semaphore = completed.get(),
+					.value = 1
+				} };
+
+				m_device->blockForSemaphores(info);
+			}
+		}
+
+		bool createGeometries(smart_refctd_ptr<IGPUCommandPool> pool, const IGeometryCreator* gc)
 		{
 			std::array<ReferenceObjectCpu, OT_COUNT> objectsCpu;
 			objectsCpu[OT_CUBE] = ReferenceObjectCpu{ .meta = {.type = OT_CUBE, .name = "Cube Mesh" }, .shadersType = GP_BASIC, .data = gc->createCubeMesh(nbl::core::vector3df(1.f, 1.f, 1.f)) };
@@ -766,6 +770,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			objectsCpu[OT_ARROW] = ReferenceObjectCpu{ .meta = {.type = OT_ARROW, .name = "Arrow Mesh" }, .shadersType = GP_BASIC, .data = gc->createArrowMesh() };
 			objectsCpu[OT_CONE] = ReferenceObjectCpu{ .meta = {.type = OT_CONE, .name = "Cone Mesh" }, .shadersType = GP_CONE, .data = gc->createConeMesh(2, 3, 10) };
 			objectsCpu[OT_ICOSPHERE] = ReferenceObjectCpu{ .meta = {.type = OT_ICOSPHERE, .name = "Icosphere Mesh" }, .shadersType = GP_ICO, .data = gc->createIcoSphere(1, 3, true) };
+
+			auto cmdbuf = getSingleUseCommandBufferAndBegin(pool);
 
 			for (uint32_t i = 0; i < objectsCpu.size(); i++)
 			{
@@ -809,7 +815,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					}
 				}
 
-				// TODO: couldn't figure out how to use SIntendedNextSubmit and updateBufferRangeViaStagingBuffer
 				obj.bindings.vertex = { .offset = 0u, .buffer = std::move(vertexBuffer) };
 				SBufferRange<IGPUBuffer> vRange = { .offset = obj.bindings.vertex.offset, .size = obj.bindings.vertex.buffer->getSize(), .buffer = obj.bindings.vertex.buffer };
 				cmdbuf->updateBuffer(vRange, vBuffer->getPointer());
@@ -822,11 +827,18 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				}
 			}
 
+			cmdbufSubmitAndWait(cmdbuf, getComputeQueue());
+
 			return true;
 		}
 
-		bool createAccelerationStructures(IGPUCommandBuffer* cmdbuf)
+		bool createAccelerationStructures(smart_refctd_ptr<IGPUCommandPool> pool)
 		{
+			IQueryPool::SCreationParams qParams{ .queryCount = 1, .queryType = IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE };
+			smart_refctd_ptr<IQueryPool> queryPool = m_device->createQueryPool(std::move(qParams));
+
+			auto cmdbufBlas = getSingleUseCommandBufferAndBegin(pool);
+
 			// build bottom level ASes
 			{
 				const auto& obj = objectsGpu[OT_CUBE];
@@ -897,7 +909,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				IGPUBottomLevelAccelerationStructure::BuildRangeInfo* pRangeInfos[1u];
 				pRangeInfos[0] = &buildRangeInfos[0];
 
-				cmdbuf->buildAccelerationStructures({ &blasBuildInfo, 1 }, pRangeInfos);
+				cmdbufBlas->buildAccelerationStructures({ &blasBuildInfo, 1 }, pRangeInfos);
 			}
 
 			{
@@ -909,19 +921,20 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				memBarrier.dstAccessMask = ACCESS_FLAGS::ACCELERATION_STRUCTURE_READ_BIT;
 				// for now, remove once the Compact and TLAS build is in a separate submit
 				memBarrier.dstStageMask |= PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT;
-				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {&memBarrier, 1} });
+				cmdbufBlas->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {&memBarrier, 1} });
 			}
 
-			// compact blas
-			IQueryPool::SCreationParams qParams{ .queryCount = 1, .queryType = IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE };
-			smart_refctd_ptr<IQueryPool> queryPool = m_device->createQueryPool(std::move(qParams));
-			cmdbuf->resetQueryPool(queryPool.get(), 0, 1);
+			cmdbufBlas->resetQueryPool(queryPool.get(), 0, 1);
 
 			uint32_t queryCount = 0;
 			const IGPUAccelerationStructure* ases[1u] = { gpuBlas.get() };
-			cmdbuf->writeAccelerationStructureProperties({ ases, 1}, IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE, queryPool.get(), queryCount++);
+			cmdbufBlas->writeAccelerationStructureProperties({ ases, 1}, IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE, queryPool.get(), queryCount++);
+
+			cmdbufSubmitAndWait(cmdbufBlas, getComputeQueue());
 
 // TODO: SUBMIT THE BLAS BUILD FIRST AND AWAIT ITS COMPLETION WITH A SEMAPHORE SIGNAL
+
+			auto cmdbufTlas = getSingleUseCommandBufferAndBegin(pool);
 
 			//size_t asSizes[1];
 			//m_device->getQueryPoolResults(queryPool.get(), 0, queryCount, asSizes, sizeof(size_t), IQueryPool::WAIT_BIT);
@@ -963,7 +976,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					instancesBuffer = createBuffer(params);	// does this need host visible memory?
 
 					SBufferRange<IGPUBuffer> range = { .offset = 0u, .size = bufSize, .buffer = instancesBuffer };
-					cmdbuf->updateBuffer(range, instances);
+					cmdbufTlas->updateBuffer(range, instances);
 				}
 
 				auto tlasFlags = bitflag(IGPUTopLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT);
@@ -1010,8 +1023,10 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				IGPUTopLevelAccelerationStructure::BuildRangeInfo* pRangeInfos;
 				pRangeInfos = &buildRangeInfo[0];
 
-				cmdbuf->buildAccelerationStructures({ &tlasBuildInfo, 1 }, pRangeInfos);
+				cmdbufTlas->buildAccelerationStructures({ &tlasBuildInfo, 1 }, pRangeInfos);
 			}
+
+			cmdbufSubmitAndWait(cmdbufTlas, getComputeQueue());
 
 //TODO : ERROR HANDLING FOR ALL THE CALLS ABOVE!
 			return true;
