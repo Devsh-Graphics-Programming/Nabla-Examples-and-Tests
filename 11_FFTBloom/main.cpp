@@ -60,7 +60,7 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 
 	// Some parameters
 	float bloomScale = 1.f;
-	float useHalfFloats = true;
+	float useHalfFloats = false;
 	
 	// Other parameter-dependent variables
 	asset::VkExtent3D marginSrcDim;
