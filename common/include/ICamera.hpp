@@ -28,6 +28,9 @@ public:
 
 	// Returns a gimbal which *models the camera view*, note that a camera type implementation may have multiple gimbals under the hood
 	virtual const Traits::gimbal_t& getGimbal() = 0u;
+
+	// VirtualEventType bitmask for a camera view gimbal manipulation requests filtering
+	virtual const uint32_t getAllowedVirtualEvents() = 0u;
 };
 
 }

@@ -3,11 +3,11 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "common.hpp"
+#include "keysmapping.hpp"
 #include "camera/CCubeProjection.hpp"
 #include "glm/glm/ext/matrix_clip_space.hpp" // TODO: TESTING
 
 // FPS Camera, TESTS
-using matrix_precision_t = float32_t;
 using camera_t = CFPSCamera<matrix_precision_t>;
 using projection_t = IProjection<matrix<matrix_precision_t, 4u, 4u>>; // TODO: temporary -> projections will own/reference cameras
 
@@ -493,38 +493,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						ImGui::End();
 					}
 
-					{
-						ImGui::Begin("Key Mappings & Virtual States");
-
-						ImGui::Text("Key Mappings");
-						ImGui::Separator();
-
-						const auto& keysToVirtualEvents = camera->getKeysToVirtualEvents();
-
-						for (const auto& [key, info] : keysToVirtualEvents)
-						{
-							const char physicalChar = ui::keyCodeToChar(key, true);
-							const auto eventName = CVirtualGimbalEvent::virtualEventToString(info.type);
-
-							ImGui::Text("Key: %s", &physicalChar);
-							ImGui::SameLine();
-							ImGui::Text("Virtual Event: %s", eventName.data());
-							ImGui::SameLine();
-
-							if (info.active)
-							{
-								ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Active");
-								ImGui::SameLine();
-								ImGui::Text("Delta Time: %.2f ms", info.dtAction);
-							}
-							else
-							{
-								ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Inactive");
-							}
-						}
-
-						ImGui::End();
-					}
+					displayKeyMappingsAndVirtualStates(camera.get());
 
 					ImGui::End();
 				}

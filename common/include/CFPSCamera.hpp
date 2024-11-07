@@ -32,13 +32,12 @@ public:
 
     virtual void manipulate(std::span<const CVirtualGimbalEvent> virtualEvents) override
     {
-        constexpr auto AllowedEvents = CVirtualGimbalEvent::MoveForward | CVirtualGimbalEvent::MoveBackward | CVirtualGimbalEvent::MoveRight | CVirtualGimbalEvent::MoveLeft | CVirtualGimbalEvent::TiltUp | CVirtualGimbalEvent::TiltDown | CVirtualGimbalEvent::PanRight | CVirtualGimbalEvent::PanLeft;
         constexpr float MoveSpeedScale = 0.01f, RotateSpeedScale = 0.003f, MaxVerticalAngle = glm::radians(88.0f), MinVerticalAngle = -MaxVerticalAngle;
 
         if (!virtualEvents.size())
             return;
 
-        const auto impulse = m_gimbal.accumulate<AllowedEvents>(virtualEvents);
+        const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
 
         const auto& gForward = m_gimbal.getZAxis();
         const float currentPitch = atan2(glm::length(glm::vec2(gForward.x, gForward.z)), gForward.y) - glm::half_pi<float>(), currentYaw = atan2(gForward.x, gForward.z);
@@ -53,6 +52,11 @@ public:
         m_gimbal.end();
     }
 
+    virtual const uint32_t getAllowedVirtualEvents() override
+    {
+        return AllowedVirtualEvents;
+    }
+
 private:
     void initKeysToEvent() override
     {
@@ -62,10 +66,15 @@ private:
             keys[ui::E_KEY_CODE::EKC_S] = CVirtualGimbalEvent::MoveBackward;
             keys[ui::E_KEY_CODE::EKC_A] = CVirtualGimbalEvent::MoveLeft;
             keys[ui::E_KEY_CODE::EKC_D] = CVirtualGimbalEvent::MoveRight;
+            keys[ui::E_KEY_CODE::EKC_I] = CVirtualGimbalEvent::TiltDown;
+            keys[ui::E_KEY_CODE::EKC_K] = CVirtualGimbalEvent::TiltUp;
+            keys[ui::E_KEY_CODE::EKC_J] = CVirtualGimbalEvent::PanLeft;
+            keys[ui::E_KEY_CODE::EKC_L] = CVirtualGimbalEvent::PanRight;
         });
     }
 
     traits_t::gimbal_t m_gimbal;
+    static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::MoveForward | CVirtualGimbalEvent::MoveBackward | CVirtualGimbalEvent::MoveRight | CVirtualGimbalEvent::MoveLeft | CVirtualGimbalEvent::TiltUp | CVirtualGimbalEvent::TiltDown | CVirtualGimbalEvent::PanRight | CVirtualGimbalEvent::PanLeft;
 };
 
 }

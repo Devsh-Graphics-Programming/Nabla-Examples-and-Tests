@@ -39,7 +39,9 @@ namespace nbl::hlsl
             // Grouped bitmasks
             Translate = MoveForward | MoveBackward | MoveLeft | MoveRight | MoveUp | MoveDown,
             Rotate = TiltUp | TiltDown | PanLeft | PanRight | RollLeft | RollRight,
-            Scale = ScaleXInc | ScaleXDec | ScaleYInc | ScaleYDec | ScaleZInc | ScaleZDec
+            Scale = ScaleXInc | ScaleXDec | ScaleYInc | ScaleYDec | ScaleZInc | ScaleZDec,
+
+            All = Translate | Rotate | Scale
         };
 
         using manipulation_encode_t = float64_t;
@@ -77,13 +79,12 @@ namespace nbl::hlsl
             }
         }
 
-
         static inline constexpr auto VirtualEventsTypeTable = []()
         {
             std::array<VirtualEventType, EventsCount> output;
 
             for (uint16_t i = 0u; i < EventsCount; ++i)
-                output[i] = static_cast<VirtualEventType>(i);
+                output[i] = static_cast<VirtualEventType>(core::createBitmask({ i }));
 
             return output;
         }();
