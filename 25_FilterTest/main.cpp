@@ -643,7 +643,7 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 								intermediateAlphaView = device->createImageView(std::move(viewCreationParams));
 
 								normalizationScratchSize = core::roundUp<uint16_t>(
-									CComputeBlit::getNormalizationByteSize(pipelines.workgroupSize,format,layerCount),
+									CComputeBlit::getNormalizationByteSize(pipelines,format,layerCount),
 									device->getPhysicalDevice()->getLimits().bufferViewAlignment
 								);
 							}
@@ -854,38 +854,53 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 							}
 							cmdbuf->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_COMPUTE,layout,0,1,&ds.get());
 							cmdbuf->bindComputePipeline(pipelines.blit.get());
-//							cmdbuf->pushConstants();
-//							cmdbuf->dispatch();
-							if (m_alphaSemantic==IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
 							{
-								// alpha histogram, color output and intermediate alpha
+								const hlsl::uint16_t3 outExtent16(m_outImageDim);
+								const hlsl::blit::Parameters params = {
+									.perWG = CComputeBlit::computePerWorkGroup<blit_utils_t>(pipelines.sharedMemorySize,m_convolutionKernels,type,hlsl::uint16_t3(inExtent),outExtent16),
+									.inputDescIx = 0,
+									.samplerDescIx = 0,
+									.unused0 = 0,
+									.outputDescIx = 0
+								};
+								if (!params)
 								{
-									const buffer_barrier_t bufBarrier = {
-										.barrier = {
-											.dep = {
-												.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-												.srcAccessMask = ACCESS_FLAGS::SHADER_READ_BITS|ACCESS_FLAGS::SHADER_WRITE_BITS,
-												.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-												.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
-											} // no ownership transfers, etc.
-										},
-										.range = {.offset=0,.size=normalizationScratchSize,.buffer=scratchAndScaledKernelPhasedLUT}
-									};
-									const SMemoryUsage src = {PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,ACCESS_FLAGS::SHADER_WRITE_BITS};
-									const SMemoryUsage dst = {PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,ACCESS_FLAGS::SHADER_READ_BITS};
-									const image_barrier_t imgBarriers[] = {
-										imageBarrierFromView(outImageView,src,dst),
-										imageBarrierFromView(intermediateAlphaView,src,dst)
-									};
-									cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{
-										.memBarriers = {},
-										.bufBarriers = {&bufBarrier,normalizationScratchSize ? 1ull:0ull},
-										.imgBarriers = {imgBarriers,intermediateAlphaView ? 2ull:1ull}
-									});
+									logger->log("Failed to fit the preload region in shared memory even for 1x1x1 workgroup!",ILogger::ELL_ERROR);
+									return false;
 								}
-								cmdbuf->bindComputePipeline(pipelines.coverage.get());
-//								cmdbuf->pushConstants();
-//								cmdbuf->dispatch();
+								cmdbuf->pushConstants(layout,IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,0,sizeof(params),&params);
+								cmdbuf->dispatch(params.perWG.getWorkgroupCount(outExtent16));
+								if (m_alphaSemantic==IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
+								{
+									// alpha histogram, color output and intermediate alpha
+									{
+										const buffer_barrier_t bufBarrier = {
+											.barrier = {
+												.dep = {
+													.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+													.srcAccessMask = ACCESS_FLAGS::SHADER_READ_BITS|ACCESS_FLAGS::SHADER_WRITE_BITS,
+													.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+													.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
+												} // no ownership transfers, etc.
+											},
+											.range = {.offset=0,.size=normalizationScratchSize,.buffer=scratchAndScaledKernelPhasedLUT}
+										};
+										const SMemoryUsage src = {PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,ACCESS_FLAGS::SHADER_WRITE_BITS};
+										const SMemoryUsage dst = {PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,ACCESS_FLAGS::SHADER_READ_BITS};
+										const image_barrier_t imgBarriers[] = {
+											imageBarrierFromView(outImageView,src,dst),
+											imageBarrierFromView(intermediateAlphaView,src,dst)
+										};
+										cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{
+											.memBarriers = {},
+											.bufBarriers = {&bufBarrier,normalizationScratchSize ? 1ull:0ull},
+											.imgBarriers = {imgBarriers,intermediateAlphaView ? 2ull:1ull}
+										});
+									}
+									cmdbuf->bindComputePipeline(pipelines.coverage.get());
+	//								cmdbuf->pushConstants();
+	//								cmdbuf->dispatch();
+								}
 							}
 							cmdbuf->end();
 
@@ -917,31 +932,18 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 							}
 						}
 #if 0
-						blitFilter->blit<BlitUtilities>(
-							m_parentApp->queue, m_alphaSemantic,
-							blitDS.get(), alphaTestPipeline.get(),
-							blitDS.get(), blitWeightsDS.get(), blitPipeline.get(),
-							normalizationDS.get(), normalizationPipeline.get(),
-							inExtent, inImageType, inImageFormat, normalizationInImage, m_convolutionKernels,
-							layersToBlit,
-							coverageAdjustmentScratchBuffer, m_referenceAlpha,
-							m_alphaBinCount, BlitWorkgroupSize);
+						auto outCPUImageView = ext::ScreenShot::createScreenShot(
+							device.get(),
+							m_parentApp->getTransferQueue(),
+							nullptr,
+							outImageView.get(),
+							asset::EAF_NONE,
+							IImage::EL_GENERAL
+						);
 
-						if (m_alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
-						{
-							auto outCPUImageView = ext::ScreenShot::createScreenShot(
-								device.get(),
-								m_parentApp->getTransferQueue(),
-								nullptr,
-								outImageView.get(),
-								asset::EAF_NONE,
-								IImage::EL_GENERAL
-							);
+						// TODO: also save the gpu image to disk!
 
-							// TODO: also save the gpu image to disk!
-
-							logger.log("GPU alpha coverage: %f", system::ILogger::ELL_DEBUG, computeAlphaCoverage(m_referenceAlpha, outCPUImageView->getCreationParameters().image.get()));
-						}
+						logger.log("GPU alpha coverage: %f", system::ILogger::ELL_DEBUG, computeAlphaCoverage(m_referenceAlpha, outCPUImageView->getCreationParameters().image.get()));
 
 						// download results to check
 						{
