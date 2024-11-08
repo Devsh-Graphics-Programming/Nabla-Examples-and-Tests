@@ -7,6 +7,7 @@
 
 // common api
 #include "CFPSCamera.hpp"
+#include "camera/CCameraController.hpp"
 #include "SimpleWindowedApplication.hpp"
 #include "CEventCallback.hpp"
 

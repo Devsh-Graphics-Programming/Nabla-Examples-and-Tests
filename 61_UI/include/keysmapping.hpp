@@ -2,203 +2,225 @@
 #define __NBL_KEYSMAPPING_H_INCLUDED__
 
 #include "common.hpp"
+#include "camera/CCameraController.hpp"
 
-template<typename T = matrix_precision_t>
-void displayKeyMappingsAndVirtualStates(ICamera<T>* camera)
+template<typename T>
+void handleAddMapping(const char* tableID, CCameraController<T>* controller, ICameraController::ControllerType activeController, CVirtualGimbalEvent::VirtualEventType& selectedEventType, ui::E_KEY_CODE& newKey, ui::E_MOUSE_CODE& newMouseCode, bool& addMode)
 {
-    static bool addMode = false;
-    static bool pendingChanges = false;
-    static std::unordered_map<CVirtualGimbalEvent::VirtualEventType, std::vector<ui::E_KEY_CODE>> tempKeyMappings;
-    static CVirtualGimbalEvent::VirtualEventType selectedEventType = CVirtualGimbalEvent::VirtualEventType::MoveForward;
-    static ui::E_KEY_CODE newKey = ui::E_KEY_CODE::EKC_A;
-
-    const uint32_t allowedEventsMask = camera->getAllowedVirtualEvents();
-
-    std::vector<CVirtualGimbalEvent::VirtualEventType> allowedEvents;
-    for (const auto& eventType : CVirtualGimbalEvent::VirtualEventsTypeTable)
-        if ((eventType & allowedEventsMask))
-            allowedEvents.push_back(eventType);
-
-    ImGui::SetNextWindowSize(ImVec2(600, 400), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSizeConstraints(ImVec2(600, 400), ImVec2(600, 69000));
-
-    ImGui::Begin("Key Mappings & Virtual States", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysVerticalScrollbar);
-
-    ImVec2 windowPadding = ImGui::GetStyle().WindowPadding;
-    float verticalPadding = ImGui::GetStyle().FramePadding.y;
-
-    if (ImGui::Button("Add key", ImVec2(100, 30)))
-        addMode = !addMode;
-
-    ImGui::Separator();
-
-    ImGui::BeginTable("KeyMappingsTable", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame);
-    ImGui::TableSetupColumn("Virtual Event", ImGuiTableColumnFlags_WidthStretch, 0.2f);
-    ImGui::TableSetupColumn("Key(s)", ImGuiTableColumnFlags_WidthStretch, 0.2f);
-    ImGui::TableSetupColumn("Active Status", ImGuiTableColumnFlags_WidthStretch, 0.2f);
-    ImGui::TableSetupColumn("Delta Time (ms)", ImGuiTableColumnFlags_WidthStretch, 0.2f);
-    ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthStretch, 0.2f);
+    ImGui::BeginTable(tableID, 3, ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame);
+    ImGui::TableSetupColumn("Virtual Event", ImGuiTableColumnFlags_WidthStretch, 0.33f);
+    ImGui::TableSetupColumn("Key", ImGuiTableColumnFlags_WidthStretch, 0.33f);
+    ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthStretch, 0.33f);
     ImGui::TableHeadersRow();
 
-    const auto& keysToVirtualEvents = camera->getKeysToVirtualEvents();
-    for (const auto& eventType : allowedEvents)
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+    ImGui::AlignTextToFramePadding();
+    if (ImGui::BeginCombo("##selectEvent", CVirtualGimbalEvent::virtualEventToString(selectedEventType).data()))
     {
-        auto it = std::find_if(keysToVirtualEvents.begin(), keysToVirtualEvents.end(), [eventType](const auto& pair) 
+        for (const auto& eventType : CVirtualGimbalEvent::VirtualEventsTypeTable)
         {
-            return pair.second.type == eventType;
-        });
-
-        if (it != keysToVirtualEvents.end())
-        {
-            ImGui::TableNextRow();
-
-            const char* eventName = CVirtualGimbalEvent::virtualEventToString(eventType).data();
-            ImGui::TableSetColumnIndex(0);
-            ImGui::AlignTextToFramePadding();
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetColumnWidth() - ImGui::CalcTextSize(eventName).x) * 0.5f);
-            ImGui::TextWrapped("%s", eventName);
-
-            ImGui::TableSetColumnIndex(1);
-            std::vector<ui::E_KEY_CODE> mappedKeys;
-            for (const auto& [key, info] : keysToVirtualEvents)
-                if (info.type == eventType)
-                    mappedKeys.push_back(key);
-
-            if (!mappedKeys.empty())
-            {
-                std::string concatenatedKeys;
-                for (size_t i = 0; i < mappedKeys.size(); ++i)
-                {
-                    if (i > 0)
-                        concatenatedKeys += " | ";
-                    if (keysToVirtualEvents.at(mappedKeys[i]).active)
-                        concatenatedKeys += "[" + std::string(1, ui::keyCodeToChar(mappedKeys[i], true)) + "]";
-                    else
-                        concatenatedKeys += std::string(1, ui::keyCodeToChar(mappedKeys[i], true));
-                }
-                ImGui::AlignTextToFramePadding();
-                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetColumnWidth() - ImGui::CalcTextSize(concatenatedKeys.c_str()).x) * 0.5f);
-                ImGui::TextWrapped("%s", concatenatedKeys.c_str());
-            }
-
-            ImGui::TableSetColumnIndex(2);
-            ImVec4 statusColor = it->second.active ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f) : ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
-            const char* statusText = it->second.active ? "Active" : "Inactive";
-            ImGui::AlignTextToFramePadding();
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetColumnWidth() - ImGui::CalcTextSize(statusText).x) * 0.5f);
-            ImGui::TextColored(statusColor, "%s", statusText);
-
-            ImGui::TableSetColumnIndex(3);
-            float accumulatedDelta = 0.0f;
-            for (const auto& [key, info] : keysToVirtualEvents)
-                if (info.type == eventType)
-                    accumulatedDelta += info.dtAction;
-
-            char deltaText[16];
-            snprintf(deltaText, 16, "%.2f", accumulatedDelta);
-            ImGui::AlignTextToFramePadding();
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetColumnWidth() - ImGui::CalcTextSize(deltaText).x) * 0.5f);
-            ImGui::TextWrapped("%s", deltaText);
-
-            ImGui::TableSetColumnIndex(4);
-            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5, 5));
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetColumnWidth() - 80) * 0.5f);
-            if (ImGui::Button(std::string("Delete##deleteKey" + std::to_string(static_cast<int>(eventType))).c_str(), ImVec2(80, 30)))
-            {
-                camera->updateKeysToEvent([&](auto& keys)
-                {
-                    for (auto it = keys.begin(); it != keys.end();)
-                    {
-                        if (it->second.type == eventType)
-                            it = keys.erase(it);
-                        else
-                            ++it;
-                    }
-                });
-                pendingChanges = true;
-            }
-            ImGui::PopStyleVar();
+            bool isSelected = (selectedEventType == eventType);
+            if (ImGui::Selectable(CVirtualGimbalEvent::virtualEventToString(eventType).data(), isSelected))
+                selectedEventType = eventType;
+            if (isSelected)
+                ImGui::SetItemDefaultFocus();
         }
+        ImGui::EndCombo();
     }
-    ImGui::EndTable();
 
-    if (addMode)
+    ImGui::TableSetColumnIndex(1);
+    if (activeController == ICameraController::Keyboard)
     {
-        ImGui::Separator();
-
-        ImGui::BeginTable("AddKeyMappingTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame);
-        ImGui::TableSetupColumn("Virtual Event", ImGuiTableColumnFlags_WidthStretch, 0.33f);
-        ImGui::TableSetupColumn("Key", ImGuiTableColumnFlags_WidthStretch, 0.33f);
-        ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthStretch, 0.33f);
-        ImGui::TableHeadersRow();
-
-        ImGui::TableNextRow();
-        ImGui::TableSetColumnIndex(0);
-        ImGui::AlignTextToFramePadding();
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + verticalPadding);
-        ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x - 2 * ImGui::GetStyle().FramePadding.x);
-        if (ImGui::BeginCombo("##selectEvent", CVirtualGimbalEvent::virtualEventToString(selectedEventType).data(), ImGuiComboFlags_None))
-        {
-            for (const auto& eventType : allowedEvents)
-            {
-                bool isSelected = (selectedEventType == eventType);
-                if (ImGui::Selectable(CVirtualGimbalEvent::virtualEventToString(eventType).data(), isSelected))
-                    selectedEventType = eventType;
-                if (isSelected)
-                    ImGui::SetItemDefaultFocus();
-            }
-            ImGui::EndCombo();
-        }
-        ImGui::PopItemWidth();
-
-        ImGui::TableSetColumnIndex(1);
-        ImGui::AlignTextToFramePadding();
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + verticalPadding);
-        ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x - 2 * ImGui::GetStyle().FramePadding.x);
         char newKeyDisplay[2] = { ui::keyCodeToChar(newKey, true), '\0' };
-        if (ImGui::BeginCombo("##selectKey", newKeyDisplay, ImGuiComboFlags_None))
+        if (ImGui::BeginCombo("##selectKey", newKeyDisplay))
         {
             for (int i = ui::E_KEY_CODE::EKC_A; i <= ui::E_KEY_CODE::EKC_Z; ++i)
             {
                 bool isSelected = (newKey == static_cast<ui::E_KEY_CODE>(i));
                 char label[2] = { ui::keyCodeToChar(static_cast<ui::E_KEY_CODE>(i), true), '\0' };
                 if (ImGui::Selectable(label, isSelected))
-                {
-                    auto duplicateKey = std::find_if(tempKeyMappings[selectedEventType].begin(), tempKeyMappings[selectedEventType].end(),
-                        [i](const auto& key) {
-                            return key == static_cast<ui::E_KEY_CODE>(i);
-                        });
-
-                    if (duplicateKey == tempKeyMappings[selectedEventType].end())
-                        newKey = static_cast<ui::E_KEY_CODE>(i);
-                }
+                    newKey = static_cast<ui::E_KEY_CODE>(i);
                 if (isSelected)
                     ImGui::SetItemDefaultFocus();
             }
             ImGui::EndCombo();
         }
-        ImGui::PopItemWidth();
-
-        ImGui::TableSetColumnIndex(2);
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5, 5));
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetColumnWidth() - 100) * 0.5f);
-        if (ImGui::Button("Confirm Add", ImVec2(100, 30)))
+    }
+    else
+    {
+        if (ImGui::BeginCombo("##selectMouseKey", ui::mouseCodeToString(newMouseCode).data()))
         {
-            tempKeyMappings[selectedEventType].push_back(newKey);
-            pendingChanges = true;
-            addMode = false;
-
-            camera->updateKeysToEvent([&](auto& keys)
+            for (int i = ui::EMC_LEFT_BUTTON; i < ui::EMC_COUNT; ++i)
             {
-                keys.emplace(newKey, selectedEventType);
-            });
+                bool isSelected = (newMouseCode == static_cast<ui::E_MOUSE_CODE>(i));
+                if (ImGui::Selectable(ui::mouseCodeToString(static_cast<ui::E_MOUSE_CODE>(i)).data(), isSelected))
+                    newMouseCode = static_cast<ui::E_MOUSE_CODE>(i);
+                if (isSelected)
+                    ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
         }
-        ImGui::PopStyleVar();
-
-        ImGui::EndTable();
     }
 
-    ImGui::Dummy(ImVec2(0.0f, verticalPadding));
+    ImGui::TableSetColumnIndex(2);
+    if (ImGui::Button("Confirm Add", ImVec2(100, 30)))
+    {
+        if (activeController == ICameraController::Keyboard)
+            controller->updateKeyboardMapping([&](auto& keys) { keys[newKey] = selectedEventType; });
+        else
+            controller->updateMouseMapping([&](auto& mouse) { mouse[newMouseCode] = selectedEventType; });
+        addMode = false;
+    }
+
+    ImGui::EndTable();
+}
+
+template<typename T = matrix_precision_t>
+void displayKeyMappingsAndVirtualStates(CCameraController<T>* controller)
+{
+    static bool addMode = false, pendingChanges = false;
+    static CVirtualGimbalEvent::VirtualEventType selectedEventType = CVirtualGimbalEvent::VirtualEventType::MoveForward;
+    static ui::E_KEY_CODE newKey = ui::E_KEY_CODE::EKC_A;
+    static ui::E_MOUSE_CODE newMouseCode = ui::EMC_LEFT_BUTTON;
+    static ICameraController::ControllerType activeController = ICameraController::Keyboard;
+
+    const auto& keyboardMappings = controller->getKeyboardVirtualEventMap();
+    const auto& mouseMappings = controller->getMouseVirtualEventMap();
+
+    ImGui::SetNextWindowSize(ImVec2(600, 400), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(600, 400), ImVec2(600, 69000));
+
+    ImGui::Begin("Controller Mappings & Virtual States", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysVerticalScrollbar);
+
+    if (ImGui::BeginTabBar("ControllersTabBar"))
+    {
+        if (ImGui::BeginTabItem("Keyboard"))
+        {
+            activeController = ICameraController::Keyboard;
+            ImGui::Separator();
+
+            if (ImGui::Button("Add key", ImVec2(100, 30)))
+                addMode = !addMode;
+
+            ImGui::Separator();
+
+            ImGui::BeginTable("KeyboardMappingsTable", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame);
+            ImGui::TableSetupColumn("Virtual Event", ImGuiTableColumnFlags_WidthStretch, 0.2f);
+            ImGui::TableSetupColumn("Key(s)", ImGuiTableColumnFlags_WidthStretch, 0.2f);
+            ImGui::TableSetupColumn("Active Status", ImGuiTableColumnFlags_WidthStretch, 0.2f);
+            ImGui::TableSetupColumn("Magnitude", ImGuiTableColumnFlags_WidthStretch, 0.2f);
+            ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthStretch, 0.2f);
+            ImGui::TableHeadersRow();
+
+            for (const auto& [keyboardCode, hash] : keyboardMappings)
+            {
+                ImGui::TableNextRow();
+
+                const char* eventName = CVirtualGimbalEvent::virtualEventToString(hash.event.type).data();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextWrapped("%s", eventName);
+
+                ImGui::TableSetColumnIndex(1);
+                std::string keyString(1, ui::keyCodeToChar(keyboardCode, true));
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextWrapped("%s", keyString.c_str());
+
+                ImGui::TableSetColumnIndex(2);
+                bool isActive = (hash.event.magnitude > 0);
+                ImVec4 statusColor = isActive ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f) : ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
+                ImGui::TextColored(statusColor, "%s", isActive ? "Active" : "Inactive");
+
+                ImGui::TableSetColumnIndex(3);
+                std::array<char, 16> deltaText;
+                snprintf(deltaText.data(), deltaText.size(), "%.2f", hash.event.magnitude);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextWrapped("%s", deltaText.data());
+
+                ImGui::TableSetColumnIndex(4);
+                if (ImGui::Button(("Delete##deleteKey" + std::to_string(static_cast<int>(hash.event.type))).c_str()))
+                {
+                    controller->updateKeyboardMapping([&](auto& keys) { keys.erase(keyboardCode); });
+                    pendingChanges = true;
+                    break;
+                }
+            }
+            ImGui::EndTable();
+
+            if (addMode)
+            {
+                ImGui::Separator();
+                handleAddMapping("AddKeyboardMappingTable", controller, activeController, selectedEventType, newKey, newMouseCode, addMode);
+            }
+
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Mouse"))
+        {
+            activeController = ICameraController::Mouse;
+            ImGui::Separator();
+
+            if (ImGui::Button("Add key", ImVec2(100, 30)))
+                addMode = !addMode;
+
+            ImGui::Separator();
+
+            ImGui::BeginTable("MouseMappingsTable", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame);
+            ImGui::TableSetupColumn("Virtual Event", ImGuiTableColumnFlags_WidthStretch, 0.2f);
+            ImGui::TableSetupColumn("Mouse Button(s)", ImGuiTableColumnFlags_WidthStretch, 0.2f);
+            ImGui::TableSetupColumn("Active Status", ImGuiTableColumnFlags_WidthStretch, 0.2f);
+            ImGui::TableSetupColumn("Magnitude", ImGuiTableColumnFlags_WidthStretch, 0.2f);
+            ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthStretch, 0.2f);
+            ImGui::TableHeadersRow();
+
+            for (const auto& [mouseCode, hash] : mouseMappings)
+            {
+                ImGui::TableNextRow();
+
+                const char* eventName = CVirtualGimbalEvent::virtualEventToString(hash.event.type).data();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextWrapped("%s", eventName);
+
+                ImGui::TableSetColumnIndex(1);
+                const char* mouseButtonName = ui::mouseCodeToString(mouseCode).data();
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextWrapped("%s", mouseButtonName);
+
+                ImGui::TableSetColumnIndex(2);
+                bool isActive = (hash.event.magnitude > 0);
+                ImVec4 statusColor = isActive ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f) : ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
+                ImGui::TextColored(statusColor, "%s", isActive ? "Active" : "Inactive");
+
+                ImGui::TableSetColumnIndex(3);
+                std::array<char, 16> deltaText;
+                snprintf(deltaText.data(), deltaText.size(), "%.2f", hash.event.magnitude);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextWrapped("%s", deltaText.data());
+
+                ImGui::TableSetColumnIndex(4);
+                if (ImGui::Button(("Delete##deleteMouse" + std::to_string(static_cast<int>(hash.event.type))).c_str()))
+                {
+                    controller->updateMouseMapping([&](auto& mouse) { mouse.erase(mouseCode); });
+                    pendingChanges = true;
+                    break;
+                }
+            }
+            ImGui::EndTable();
+
+            if (addMode)
+            {
+                ImGui::Separator();
+                handleAddMapping("AddMouseMappingTable", controller, activeController, selectedEventType, newKey, newMouseCode, addMode);
+            }
+            ImGui::EndTabItem();
+        }
+
+        ImGui::EndTabBar();
+    }
+
     ImGui::End();
 }
 
