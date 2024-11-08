@@ -3257,7 +3257,7 @@ protected:
 	
 	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 
-	uint64_t m_realFrameIx;
+	uint64_t m_realFrameIx = 0u;
 
 	smart_refctd_ptr<IGPUGraphicsPipeline>		debugGraphicsPipeline;
 	smart_refctd_ptr<IGPUDescriptorSetLayout>	descriptorSetLayout0;
