@@ -451,8 +451,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				//object.meta.name = meta.name;
 
 				// TODO: hard code test one object first
-				object.meta.type = OT_SPHERE;
-				object.meta.name = objectsGpu[OT_SPHERE].meta.name;
+				object.meta.type = OT_CUBE;
+				object.meta.name = objectsGpu[OT_CUBE].meta.name;
 			}
 
 			const auto viewMatrix = camera.getViewMatrix();
@@ -509,7 +509,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			}
 
 			// do ray query
-			auto obj = objectsGpu[OT_SPHERE];
+			auto obj = objectsGpu[OT_CUBE];
 			auto vertex = obj.bindings.vertex;
 			auto index = obj.bindings.index;
 
@@ -785,6 +785,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 				obj.indexCount = geom.data.indexCount;
 				obj.indexType = geom.data.indexType;
+				obj.vertexStride = geom.data.inputParams.bindings[0].stride;
 
 // TODO: use asset converter to convert all buffers to IGPUBuffers (that part 100% works)
 
@@ -845,7 +846,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			{
 				const auto& obj = objectsGpu[OT_CUBE];
 
-				const uint32_t vertexStride = 12 * sizeof(float32_t);	// TODO: vary by object type, this is standard triangles for sphere etc.
+				const uint32_t vertexStride = obj.vertexStride;	// TODO: vary by object type, this is standard triangles for sphere etc.
 				const uint32_t numVertices = obj.bindings.vertex.buffer->getSize() / vertexStride;
 				uint32_t trisCount;
 				if (obj.useIndex())
@@ -962,9 +963,11 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			// build top level AS
 			{
 				const uint32_t instancesCount = 1;	// TODO: temporary for now
-				IGPUTopLevelAccelerationStructure::DeviceInstance instances[instancesCount];
+				IGPUTopLevelAccelerationStructure::DeviceStaticInstance instances[instancesCount];
 				core::matrix3x4SIMD identity;
-				instances[0].blas.deviceAddress = gpuBlas->getReferenceForDeviceOperations().deviceAddress;
+				//instances[0].blas.deviceAddress = gpuBlas->getReferenceForDeviceOperations().deviceAddress;
+				instances[0].base.blas.deviceAddress = gpuBlas->getReferenceForDeviceOperations().deviceAddress;
+				instances[0].transform = identity;
 
 				{
 					size_t bufSize = sizeof(IGPUTopLevelAccelerationStructure::DeviceStaticInstance);

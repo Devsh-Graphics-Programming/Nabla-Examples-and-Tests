@@ -83,6 +83,7 @@ struct ReferenceObjectGpu
 
 	ObjectMeta meta;
 	Bindings bindings;
+	uint32_t vertexStride;
 	nbl::asset::E_INDEX_TYPE indexType = nbl::asset::E_INDEX_TYPE::EIT_UNKNOWN;
 	uint32_t indexCount = {};
 

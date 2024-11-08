@@ -60,9 +60,9 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 
         if (pc.indexBufferAddress != pc.vertexBufferAddress)
         {
-            uint i0 = vk::RawBufferLoad<uint32_t>(pc.indexBufferAddress + idxOffset * sizeof(uint32_t) + 0);
-            uint i1 = vk::RawBufferLoad<uint32_t>(pc.indexBufferAddress + idxOffset * sizeof(uint32_t) + 1);
-            uint i2 = vk::RawBufferLoad<uint32_t>(pc.indexBufferAddress + idxOffset * sizeof(uint32_t) + 2);
+            uint i0 = vk::RawBufferLoad<uint16_t>(pc.indexBufferAddress + idxOffset * sizeof(uint16_t) + 0);
+            uint i1 = vk::RawBufferLoad<uint16_t>(pc.indexBufferAddress + idxOffset * sizeof(uint16_t) + 1);
+            uint i2 = vk::RawBufferLoad<uint16_t>(pc.indexBufferAddress + idxOffset * sizeof(uint16_t) + 2);
 
             v0 = vk::RawBufferLoad<VertexData>(pc.vertexBufferAddress + i0 * sizeof(VertexData));
             v1 = vk::RawBufferLoad<VertexData>(pc.vertexBufferAddress + i1 * sizeof(VertexData));
