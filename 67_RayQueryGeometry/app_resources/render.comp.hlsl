@@ -25,7 +25,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     uint2 coords = threadID.xy;
     uint2 resolution;
     outImage.GetDimensions(resolution.x, resolution.y);
-    uint2 texCoords = uint2(float(coords.x) / resolution.x, 1.0 - float(coords.y) / resolution.y);
+    float2 texCoords = float2(float(coords.x) / resolution.x, 1.0 - float(coords.y) / resolution.y);
 
     if (any(coords >= resolution))
         return;

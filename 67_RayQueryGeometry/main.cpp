@@ -714,18 +714,20 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			return cmdbuf;
 		}
 
-		void cmdbufSubmitAndWait(smart_refctd_ptr<IGPUCommandBuffer> cmdbuf, CThreadSafeQueueAdapter* queue)
+		void cmdbufSubmitAndWait(smart_refctd_ptr<IGPUCommandBuffer> cmdbuf, CThreadSafeQueueAdapter* queue, uint64_t startValue)
 		{
 			cmdbuf->end();
 
+			uint64_t finishedValue = startValue + 1;
+
 			// submit builds
 			{
-				auto completed = m_device->createSemaphore(0u);
+				auto completed = m_device->createSemaphore(startValue);
 
 				std::array<IQueue::SSubmitInfo::SSemaphoreInfo, 1u> signals;
 				{
 					auto& signal = signals.front();
-					signal.value = 1;
+					signal.value = finishedValue;
 					signal.stageMask = bitflag(PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS);
 					signal.semaphore = completed.get();
 				}
@@ -752,7 +754,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				const ISemaphore::SWaitInfo info[] =
 				{ {
 					.semaphore = completed.get(),
-					.value = 1
+					.value = finishedValue
 				} };
 
 				m_device->blockForSemaphores(info);
@@ -827,7 +829,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				}
 			}
 
-			cmdbufSubmitAndWait(cmdbuf, getComputeQueue());
+			cmdbufSubmitAndWait(cmdbuf, getComputeQueue(), 24);
 
 			return true;
 		}
@@ -844,7 +846,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				const auto& obj = objectsGpu[OT_CUBE];
 
 				const uint32_t vertexStride = 12 * sizeof(float32_t);	// TODO: vary by object type, this is standard triangles for sphere etc.
-				const uint32_t numVertices = obj.bindings.vertex.buffer->getSize() / (vertexStride * 3);
+				const uint32_t numVertices = obj.bindings.vertex.buffer->getSize() / vertexStride;
 				uint32_t trisCount;
 				if (obj.useIndex())
 					trisCount = obj.indexCount / 3;
@@ -892,7 +894,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				smart_refctd_ptr<IGPUBuffer> scratchBuffer;
 				{
 					IGPUBuffer::SCreationParams params;
-					params.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_ACCELERATION_STRUCTURE_STORAGE_BIT;
+					params.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
 					params.size = buildSizes.buildScratchSize;
 					scratchBuffer = createBuffer(params);
 				}
@@ -916,11 +918,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				SMemoryBarrier memBarrier;
 				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT;
 				memBarrier.srcAccessMask = ACCESS_FLAGS::ACCELERATION_STRUCTURE_WRITE_BIT;
-				// apparently a query is a copy?
-				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_COPY_BIT;
+				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT;
 				memBarrier.dstAccessMask = ACCESS_FLAGS::ACCELERATION_STRUCTURE_READ_BIT;
-				// for now, remove once the Compact and TLAS build is in a separate submit
-				memBarrier.dstStageMask |= PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT;
 				cmdbufBlas->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {&memBarrier, 1} });
 			}
 
@@ -930,7 +929,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			const IGPUAccelerationStructure* ases[1u] = { gpuBlas.get() };
 			cmdbufBlas->writeAccelerationStructureProperties({ ases, 1}, IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE, queryPool.get(), queryCount++);
 
-			cmdbufSubmitAndWait(cmdbufBlas, getComputeQueue());
+			cmdbufSubmitAndWait(cmdbufBlas, getComputeQueue(), 39);
 
 // TODO: SUBMIT THE BLAS BUILD FIRST AND AWAIT ITS COMPLETION WITH A SEMAPHORE SIGNAL
 
@@ -965,10 +964,10 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				const uint32_t instancesCount = 1;	// TODO: temporary for now
 				IGPUTopLevelAccelerationStructure::DeviceInstance instances[instancesCount];
 				core::matrix3x4SIMD identity;
-				instances[0].blas.deviceAddress = gpuBlas->getCreationParams().bufferRange.buffer->getDeviceAddress();
+				instances[0].blas.deviceAddress = gpuBlas->getReferenceForDeviceOperations().deviceAddress;
 
 				{
-					size_t bufSize = sizeof(IGPUTopLevelAccelerationStructure::DeviceInstance);
+					size_t bufSize = sizeof(IGPUTopLevelAccelerationStructure::DeviceStaticInstance);
 					IGPUBuffer::SCreationParams params;
 					params.usage = bitflag(IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT |
 						IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
@@ -977,6 +976,16 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 					SBufferRange<IGPUBuffer> range = { .offset = 0u, .size = bufSize, .buffer = instancesBuffer };
 					cmdbufTlas->updateBuffer(range, instances);
+				}
+
+				// make sure instances upload complete first
+				{
+					SMemoryBarrier memBarrier;
+					memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
+					memBarrier.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+					memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT;
+					memBarrier.dstAccessMask = ACCESS_FLAGS::ACCELERATION_STRUCTURE_WRITE_BIT;
+					cmdbufTlas->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {&memBarrier, 1} });
 				}
 
 				auto tlasFlags = bitflag(IGPUTopLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT);
@@ -1008,7 +1017,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				smart_refctd_ptr<IGPUBuffer> scratchBuffer;
 				{
 					IGPUBuffer::SCreationParams params;
-					params.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_ACCELERATION_STRUCTURE_STORAGE_BIT;
+					params.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
 					params.size = buildSizes.buildScratchSize;
 					scratchBuffer = createBuffer(params);
 				}
@@ -1026,7 +1035,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				cmdbufTlas->buildAccelerationStructures({ &tlasBuildInfo, 1 }, pRangeInfos);
 			}
 
-			cmdbufSubmitAndWait(cmdbufTlas, getComputeQueue());
+			cmdbufSubmitAndWait(cmdbufTlas, getComputeQueue(), 45);
 
 //TODO : ERROR HANDLING FOR ALL THE CALLS ABOVE!
 			return true;
