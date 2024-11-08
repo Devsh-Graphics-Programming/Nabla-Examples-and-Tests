@@ -16,16 +16,12 @@ class CFPSCamera final : public ICamera<T>
 { 
 public:
     using base_t = ICamera<T>;
-    using traits_t = typename base_t::Traits;
 
-    CFPSCamera(const vector<typename traits_t::precision_t, 3u>& position, glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f))
-        : base_t(), m_gimbal({ .position = position, .orientation = orientation })
-    { 
-        initKeysToEvent(); 
-    }
+    CFPSCamera(const vector<typename base_t::precision_t, 3u>& position, glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f))
+        : base_t(), m_gimbal({ .position = position, .orientation = orientation }) {}
 	~CFPSCamera() = default;
 
-    const typename traits_t::gimbal_t& getGimbal() override
+    const typename base_t::CGimbal& getGimbal() override
     {
         return m_gimbal;
     }
@@ -58,22 +54,7 @@ public:
     }
 
 private:
-    void initKeysToEvent() override
-    {
-        traits_t::controller_t::updateKeysToEvent([](traits_t::controller_t::keys_to_virtual_events_t& keys)
-        {
-            keys[ui::E_KEY_CODE::EKC_W] = CVirtualGimbalEvent::MoveForward;
-            keys[ui::E_KEY_CODE::EKC_S] = CVirtualGimbalEvent::MoveBackward;
-            keys[ui::E_KEY_CODE::EKC_A] = CVirtualGimbalEvent::MoveLeft;
-            keys[ui::E_KEY_CODE::EKC_D] = CVirtualGimbalEvent::MoveRight;
-            keys[ui::E_KEY_CODE::EKC_I] = CVirtualGimbalEvent::TiltDown;
-            keys[ui::E_KEY_CODE::EKC_K] = CVirtualGimbalEvent::TiltUp;
-            keys[ui::E_KEY_CODE::EKC_J] = CVirtualGimbalEvent::PanLeft;
-            keys[ui::E_KEY_CODE::EKC_L] = CVirtualGimbalEvent::PanRight;
-        });
-    }
-
-    traits_t::gimbal_t m_gimbal;
+    typename base_t::CGimbal m_gimbal;
     static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::MoveForward | CVirtualGimbalEvent::MoveBackward | CVirtualGimbalEvent::MoveRight | CVirtualGimbalEvent::MoveLeft | CVirtualGimbalEvent::TiltUp | CVirtualGimbalEvent::TiltDown | CVirtualGimbalEvent::PanRight | CVirtualGimbalEvent::PanLeft;
 };
 

@@ -46,8 +46,8 @@ namespace nbl::hlsl
 
         using manipulation_encode_t = float64_t;
         
-        VirtualEventType type;
-        manipulation_encode_t magnitude;
+        VirtualEventType type = None;
+        manipulation_encode_t magnitude = {};
 
         static constexpr std::string_view virtualEventToString(VirtualEventType event)
         {

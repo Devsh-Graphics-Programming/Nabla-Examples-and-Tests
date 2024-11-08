@@ -9,6 +9,7 @@
 
 // FPS Camera, TESTS
 using camera_t = CFPSCamera<matrix_precision_t>;
+using controller_t = CCameraController<matrix_precision_t>;
 using projection_t = IProjection<matrix<matrix_precision_t, 4u, 4u>>; // TODO: temporary -> projections will own/reference cameras
 
 /*
@@ -493,7 +494,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						ImGui::End();
 					}
 
-					displayKeyMappingsAndVirtualStates(camera.get());
+					displayKeyMappingsAndVirtualStates(controller.get());
 
 					ImGui::End();
 				}
@@ -511,6 +512,29 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			const float32_t3 position(cosf(camYAngle)* cosf(camXAngle)* transformParams.camDistance, sinf(camXAngle)* transformParams.camDistance, sinf(camYAngle)* cosf(camXAngle)* transformParams.camDistance);
 			projection->setMatrix(buildProjectionMatrixPerspectiveFovLH<matrix_precision_t>(glm::radians(fov), float(m_window->getWidth()) / float(m_window->getHeight()), zNear, zFar));
 			camera = make_smart_refctd_ptr<camera_t>(position);
+			controller = make_smart_refctd_ptr<controller_t>(core::smart_refctd_ptr(camera));
+
+			// init keyboard map
+			controller->updateKeyboardMapping([](auto& keys)
+			{
+				keys[ui::E_KEY_CODE::EKC_W] = CVirtualGimbalEvent::MoveForward;
+				keys[ui::E_KEY_CODE::EKC_S] = CVirtualGimbalEvent::MoveBackward;
+				keys[ui::E_KEY_CODE::EKC_A] = CVirtualGimbalEvent::MoveLeft;
+				keys[ui::E_KEY_CODE::EKC_D] = CVirtualGimbalEvent::MoveRight;
+				keys[ui::E_KEY_CODE::EKC_I] = CVirtualGimbalEvent::TiltDown;
+				keys[ui::E_KEY_CODE::EKC_K] = CVirtualGimbalEvent::TiltUp;
+				keys[ui::E_KEY_CODE::EKC_J] = CVirtualGimbalEvent::PanLeft;
+				keys[ui::E_KEY_CODE::EKC_L] = CVirtualGimbalEvent::PanRight;
+			});
+
+			// init mouse map
+			controller->updateMouseMapping([](auto& keys)
+			{
+				keys[ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_X] = CVirtualGimbalEvent::PanRight;
+				keys[ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_X] = CVirtualGimbalEvent::PanLeft;
+				keys[ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_Y] = CVirtualGimbalEvent::TiltUp;
+				keys[ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_Y] = CVirtualGimbalEvent::TiltDown;
+			});
 
 			return true;
 		}
@@ -742,15 +766,19 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			if (move)
 			{
-				static std::vector<CVirtualGimbalEvent> virtualEvents(CVirtualGimbalEvent::VirtualEventsTypeTable.size() * 2);
-				uint32_t vEventsMouseCount, vEventsKeyboardCount;
+				static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
+				uint32_t vCount;
 
-				camera->beginInputProcessing(nextPresentationTimestamp);
-				camera->processKeyboard(virtualEvents.data(), vEventsKeyboardCount, params.keyboardEvents);
-				camera->processMouse(virtualEvents.data() + vEventsKeyboardCount, vEventsMouseCount,  params.mouseEvents);
-				camera->endInputProcessing();
+				controller->beginInputProcessing(nextPresentationTimestamp);
+				controller->process(nullptr, vCount);
 
-				camera->manipulate({ virtualEvents.data(), vEventsMouseCount + vEventsKeyboardCount });
+				if (virtualEvents.size() < vCount)
+					virtualEvents.resize(vCount);
+
+				controller->process(virtualEvents.data(), vCount, { params.keyboardEvents, params.mouseEvents });
+				controller->endInputProcessing();
+				
+				controller->getCamera()->manipulate({ virtualEvents.data(), vCount });
 			}
 
 			pass.ui.manager->update(params);
@@ -796,6 +824,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 		smart_refctd_ptr<projection_t> projection = make_smart_refctd_ptr<projection_t>(); // TMP!
 		core::smart_refctd_ptr<ICamera<matrix_precision_t>> camera;
+		core::smart_refctd_ptr<controller_t> controller;
 		video::CDumbPresentationOracle oracle;
 
 		uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
