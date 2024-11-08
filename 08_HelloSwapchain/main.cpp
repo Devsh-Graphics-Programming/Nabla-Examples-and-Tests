@@ -249,7 +249,8 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 
 			// When a swapchain gets recreated (resize or mode change) the number of images might change.
 			// So we need the maximum possible number of in-flight resources so we never have too little.
-			m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
+			m_maxFramesInFlight = m_surface->getMaxAcquiresInFlightUpperLimit();
+			assert(m_maxFramesInFlight < ISwapchain::MaxImages);
 
 			// Normally you'd want to recreate these images whenever the swapchain is resized in some increment, like 64 pixels or something.
 			// But I'm super lazy here and will just create "worst case sized images" and waste all the VRAM I can get.
@@ -322,13 +323,17 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 		// We do a very simple thing, and just keep on clearing the swapchain image to red and present
 		void workLoopBody() override
 		{
-			// Can't reset a cmdbuffer before the previous use of commandbuffer is finished!
-			if (m_realFrameIx>=m_maxFramesInFlight)
+			// framesInFlight: ensuring safe execution of command buffers and acquires, `framesInFlight` only affect semaphore waits, don't use this to index your resources because it can change with swapchain recreation.
+			const uint32_t framesInFlight = core::min(m_maxFramesInFlight, m_surface->getMaxAcquiresInFlight());
+			// We block for semaphores for 2 reasons here:
+				// A) Resource: Can't use resource like a command buffer BEFORE previous use is finished! [MaxFramesInFlight]
+				// B) Acquire: Can't have more acquires in flight than a certain threshold returned by swapchain or your surface helper class. [MaxAcquiresInFlight]
+			if (m_realFrameIx>=framesInFlight)
 			{
 				const ISemaphore::SWaitInfo cmdbufDonePending[] = {
 					{ 
 						.semaphore = m_semaphore.get(),
-						.value = m_realFrameIx+1-m_maxFramesInFlight
+						.value = m_realFrameIx+1-framesInFlight
 					}
 				};
 				if (m_device->blockForSemaphores(cmdbufDonePending)!=ISemaphore::WAIT_RESULT::SUCCESS)
