@@ -63,11 +63,6 @@ uint64_t getRowMajorChannelStartAddress(uint32_t channel)
 	return pushConstants.rowMajorBufferAddress + channel * glsl::gl_NumWorkGroups().x * pushConstants.dataElementCount * sizeof(complex_t<scalar_t>);
 }
 
-uint64_t getRowMajorDebugChannelStartAddress(uint32_t channel)
-{
-	return pushConstants.rowMajorBufferAddress + channel * glsl::gl_NumWorkGroups().x * FFT_LENGTH * sizeof(complex_t<scalar_t>);
-}
-
 
 // ------------------------------------------ SECOND AXIS FFT + CONVOLUTION + IFFT -------------------------------------------------------------
 
