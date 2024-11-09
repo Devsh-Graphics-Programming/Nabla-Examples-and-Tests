@@ -476,7 +476,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 		// At least two timelines must be used.
 		smart_refctd_ptr<ISemaphore> m_semaphore;
 		// MaxFramesInFlight to cycle through our resources and command buffers
-		static constexpr uint32_t MaxFramesInFlight = 3u;
+		constexpr static inline uint32_t MaxFramesInFlight = 3u;
 		// Use a separate counter to cycle through our resources because `getAcquireCount()` increases upon spontaneous resizes with immediate blit-presents 
 		uint64_t m_realFrameIx = 0;
 		// We'll write to the Triple Buffer with a Renderpass
