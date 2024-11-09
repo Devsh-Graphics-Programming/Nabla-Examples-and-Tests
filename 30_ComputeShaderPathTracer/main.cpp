@@ -4,6 +4,8 @@
 
 #include "nbl/this_example/common.hpp"
 #include "nbl/asset/interchange/IImageAssetHandlerBase.h"
+#include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+
 
 using namespace nbl;
 using namespace core;
@@ -14,6 +16,7 @@ using namespace ui;
 using namespace video;
 
 // TODO: Add a QueryPool for timestamping once its ready
+// TODO: Do buffer creation using assConv
 class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 		using device_base_t = examples::SimpleWindowedApplication;
@@ -34,7 +37,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		};
 
 		constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
-		constexpr static inline uint32_t FramesInFlight = 5;
+		constexpr static inline uint32_t FramesInFlight = 1;
 		constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
 		constexpr static inline E_LIGHT_GEOMETRY LightGeom = E_LIGHT_GEOMETRY::ELG_SPHERE;
 		constexpr static inline uint32_t DefaultWorkGroupSize = 16u;
@@ -46,7 +49,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		constexpr static inline uint8_t MaxUITextureCount = 2u;
 		constexpr static inline uint8_t SceneTextureIndex = 1u;
 		static inline std::string DefaultImagePathsFile = "../../media/envmap/envmap_0.exr";
-		static inline std::array<std::string, 3> ShaderPaths = { "app_resources/litBySphere.comp", "app_resources/litByTriangle.comp", "app_resources/litByRectangle.comp" };
+		static inline std::array<std::string, 3> PTShaderPaths = { "app_resources/litBySphere.comp", "app_resources/litByTriangle.comp", "app_resources/litByRectangle.comp" };
+		static inline std::string PresentShaderPath = "app_resources/present.frag";
 
 	public:
 		inline ComputeShaderPathtracer(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
@@ -104,8 +108,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				if (!asset_base_t::onAppInitialized(std::move(system)))
 					return false;
 
-				m_uiSemaphore = m_device->createSemaphore(m_realFrameIx);
-				if (!m_uiSemaphore)
+				m_semaphore = m_device->createSemaphore(m_realFrameIx);
+				if (!m_semaphore)
 					return logFail("Failed to create semaphore!");
 			}
 
@@ -241,7 +245,12 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				std::array<ICPUDescriptorSetLayout::SBinding, 1> descriptorSet0Bindings = {};
 				std::array<ICPUDescriptorSetLayout::SBinding, 1> uboBindings = {};
 				std::array<ICPUDescriptorSetLayout::SBinding, 3> descriptorSet3Bindings = {};
+				std::array<ICPUDescriptorSetLayout::SBinding, 1> presentDescriptorSetBindings = {};
 
+				ISampler::SParams samplerParams = {
+					.AnisotropicFilter = 0
+				};
+				auto defaultSampler = make_smart_refctd_ptr<ICPUSampler>(samplerParams);
 				descriptorSet0Bindings[0] = {
 					.binding = 0u,
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
@@ -282,67 +291,109 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					.count = 1u,
 					.immutableSamplers = nullptr
 				};
+				presentDescriptorSetBindings[0] = {
+					.binding = 0u,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+					.count = 1u,
+					.immutableSamplers = &defaultSampler
+				};
 
 				auto cpuDescriptorSetLayout0 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(descriptorSet0Bindings);
 				auto cpuDescriptorSetLayout1 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(uboBindings);
 				auto cpuDescriptorSetLayout2 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(descriptorSet3Bindings);
-
-				auto cpuDescriptorSet0 = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuDescriptorSetLayout0));
-				auto cpuDescriptorSet1 = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuDescriptorSetLayout1));
-				auto cpuDescriptorSet2 = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuDescriptorSetLayout2));
+				auto cpuPresentDescriptorSetLayout = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(presentDescriptorSetBindings);
 
 				auto gpuDescriptorSetLayout0 = convertDSLayoutCPU2GPU(cpuDescriptorSetLayout0);
 				auto gpuDescriptorSetLayout1 = convertDSLayoutCPU2GPU(cpuDescriptorSetLayout1);
 				auto gpuDescriptorSetLayout2 = convertDSLayoutCPU2GPU(cpuDescriptorSetLayout2);
+				auto gpuPresentDescriptorSetLayout = convertDSLayoutCPU2GPU(cpuPresentDescriptorSetLayout);
+
+				auto cpuDescriptorSet0 = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuDescriptorSetLayout0));
+				auto cpuDescriptorSet1 = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuDescriptorSetLayout1));
+				auto cpuDescriptorSet2 = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuDescriptorSetLayout2));
+				auto cpuPresentDescriptorSet = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuPresentDescriptorSetLayout));
 
 				m_descriptorSet0 = convertDSCPU2GPU(cpuDescriptorSet0);
 				m_uboDescriptorSet1 = convertDSCPU2GPU(cpuDescriptorSet1);
 				m_descriptorSet2 = convertDSCPU2GPU(cpuDescriptorSet2);
+				m_presentDescriptorSet = convertDSCPU2GPU(cpuPresentDescriptorSet);
 
-				auto createGpuResources = [&](std::string pathToShader, smart_refctd_ptr<IGPUComputePipeline>&& pipeline) -> bool
+				// Create Shaders
+				auto loadAndCompileShader = [&](std::string pathToShader) {
+					IAssetLoader::SAssetLoadParams lp = {};
+					auto assetBundle = m_assetMgr->getAsset(pathToShader, lp);
+					const auto assets = assetBundle.getContents();
+					if (assets.empty())
 					{
-						IAssetLoader::SAssetLoadParams lp = {};
-						lp.logger = m_logger.get();
-						lp.workingDirectory = ""; // virtual root
-						auto assetBundle = m_assetMgr->getAsset(pathToShader, lp);
-						const auto assets = assetBundle.getContents();
-						if (assets.empty())
-						{
-							return logFail("Could not load shader!");
-						}
+						m_logger->log("Could not load shader: ", ILogger::ELL_ERROR, pathToShader);
+						std::exit(-1);
+					}
 
-						auto source = IAsset::castDown<ICPUShader>(assets[0]);
-						// The down-cast should not fail!
-						assert(source);
+					auto x = assets[0]->getAssetType();
+					auto source = IAsset::castDown<ICPUShader>(assets[0]);
+					// The down-cast should not fail!
+					assert(source);
 
-						// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
-						auto shader = m_device->createShader(source.get());
-						if (!shader)
-						{
-							return logFail("Shader creationed failed: %s!", pathToShader);
-						}
+					// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
+					auto shader = m_device->createShader(source.get());
+					if (!shader)
+					{
+						m_logger->log("Shader creationed failed: %s!", ILogger::ELL_ERROR, pathToShader);
+						std::exit(-1);
+					}
 
-						auto gpuPipelineLayout = m_device->createPipelineLayout({}, core::smart_refctd_ptr(gpuDescriptorSetLayout0), core::smart_refctd_ptr(gpuDescriptorSetLayout1), core::smart_refctd_ptr(gpuDescriptorSetLayout2), nullptr);
-						if (!gpuPipelineLayout) {
-							return logFail("Failed to create pipeline layout");
-						}
+					return shader;
+				};
 
-						IGPUComputePipeline::SCreationParams params = {};
-						params.layout = gpuPipelineLayout.get();
-						params.shader.shader = shader.get();
-						params.shader.entryPoint = "main";
-						params.shader.entries = nullptr;
-						params.shader.requireFullSubgroups = true;
-						params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
-						if (!m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline)) {
-							return logFail("Failed to create compute pipeline!\n");
-						}
+				// Create compute pipeline
+				{
+					auto ptShader = loadAndCompileShader(PTShaderPaths[LightGeom]);
+					auto ptPipelineLayout = m_device->createPipelineLayout({}, core::smart_refctd_ptr(gpuDescriptorSetLayout0), core::smart_refctd_ptr(gpuDescriptorSetLayout1), core::smart_refctd_ptr(gpuDescriptorSetLayout2), nullptr);
+					if (!ptPipelineLayout) {
+						return logFail("Failed to create Pathtracing pipeline layout");
+					}
 
-						return true;
+					IGPUComputePipeline::SCreationParams params = {};
+					params.layout = ptPipelineLayout.get();
+					params.shader.shader = ptShader.get();
+					params.shader.entryPoint = "main";
+					params.shader.entries = nullptr;
+					params.shader.requireFullSubgroups = true;
+					params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+					if (!m_device->createComputePipelines(nullptr, { &params,1 }, &m_PTPipeline)) {
+						return logFail("Failed to create compute pipeline!\n");
+					}
+				}
+
+				// Create graphics pipeline
+				{
+					auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+					ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(m_assetMgr.get(), m_device.get(), m_logger.get());
+					if (!fsTriProtoPPln)
+						return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
+
+					// Load Fragment Shader
+					auto fragmentShader = loadAndCompileShader(PresentShaderPath);
+					if (!fragmentShader)
+						return logFail("Failed to Load and Compile Fragment Shader: lumaMeterShader!");
+
+					const IGPUShader::SSpecInfo fragSpec = {
+						.entryPoint = "main",
+						.shader = fragmentShader.get()
 					};
+					auto presentLayout = m_device->createPipelineLayout(
+						{},
+						core::smart_refctd_ptr(gpuPresentDescriptorSetLayout),
+						nullptr,
+						nullptr,
+						nullptr
+					);
+					m_presentPipeline = fsTriProtoPPln.createPipeline(fragSpec, presentLayout.get(), scRes->getRenderpass());
+					if (!m_presentPipeline)
+						return logFail("Could not create Graphics Pipeline!");
 
-				if (!createGpuResources(ShaderPaths[LightGeom], std::move(m_pipeline))) {
-					return logFail("Pipeline creation failed!");
 				}
 
 				// Update Descriptors
@@ -374,7 +425,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				};
 				auto sampler1 = m_device->createSampler(samplerParams1);
 
-				std::array<IGPUDescriptorSet::SDescriptorInfo, 5> writeDSInfos = {};
+				std::array<IGPUDescriptorSet::SDescriptorInfo, 6> writeDSInfos = {};
 				writeDSInfos[0].desc = m_outImgView;
 				writeDSInfos[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
 				writeDSInfos[1].desc = m_ubo;
@@ -389,8 +440,10 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				// ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_INT_OPAQUE_BLACK, ISampler::ETF_NEAREST, ISampler::ETF_NEAREST, ISampler::ESMM_NEAREST, 0u, false, ECO_ALWAYS };
 				writeDSInfos[4].info.combinedImageSampler.sampler = sampler1;
 				writeDSInfos[4].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				writeDSInfos[5].desc = m_outImgView;
+				writeDSInfos[5].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 
-				std::array<IGPUDescriptorSet::SWriteDescriptorSet, 5> writeDescriptorSets = {};
+				std::array<IGPUDescriptorSet::SWriteDescriptorSet, 6> writeDescriptorSets = {};
 				writeDescriptorSets[0] = {
 					.dstSet = m_descriptorSet0.get(),
 					.binding = 0,
@@ -425,6 +478,13 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					.arrayElement = 0u,
 					.count = 1u,
 					.info = &writeDSInfos[4]
+				};
+				writeDescriptorSets[5] = {
+					.dstSet = m_presentDescriptorSet.get(),
+					.binding = 0,
+					.arrayElement = 0u,
+					.count = 1u,
+					.info = &writeDSInfos[5]
 				};
 
 				m_device->updateDescriptorSets(writeDescriptorSets, {});
@@ -877,7 +937,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				const ISemaphore::SWaitInfo cbDonePending[] = 
 				{
 					{
-						.semaphore = m_uiSemaphore.get(),
+						.semaphore = m_semaphore.get(),
 						.value = m_realFrameIx + 1 - m_maxFramesInFlight
 					}
 				};
@@ -890,10 +950,11 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			// CPU events
 			update();
 
+			auto queue = getGraphicsQueue();
+			auto& cmdbuf = m_cmdBufs[resourceIx];
+
 			// render whole scene to offline frame buffer & submit
 			{
-				auto queue = getGraphicsQueue();
-				auto& cmdbuf = m_cmdBufs[resourceIx];
 				cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
 				const auto viewMatrix = m_camera.getViewMatrix();
 				const auto viewProjectionMatrix = matrix4SIMD();
@@ -906,6 +967,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				*/
 
 				// safe to proceed
+				// upload buffer data
 				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 				{
 					auto mv = viewMatrix;
@@ -930,6 +992,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					m_utils->autoSubmit(m_intendedSubmit, [&](SIntendedSubmitInfo& nextSubmit) -> bool { return true; });
 				}
 
+				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+				cmdbuf->beginDebugMarker("ComputeShaderPathtracer IMGUI Frame");
+
 				// TRANSITION m_outImgView to GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
 				{
 					const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = {
@@ -937,9 +1002,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 							.barrier = {
 								.dep = {
 									.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
-									.srcAccessMask = ACCESS_FLAGS::NONE,
 									.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-									.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
 								}
 							},
 							.image = m_outImgView->getCreationParameters().image.get(),
@@ -954,35 +1017,29 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 							.newLayout = IImage::LAYOUT::GENERAL
 						}
 					};
-					cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-					cmdbuf->beginDebugMarker("ComputeShaderPathtracer IMGUI Frame");
 					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
 				}
 
 				// cube envmap handle
 				{
-					cmdbuf->bindComputePipeline(m_pipeline.get());
-					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
-					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_pipeline->getLayout(), 1u, 1u, &m_uboDescriptorSet1.get());
-					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
+					cmdbuf->bindComputePipeline(m_PTPipeline.get());
+					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_PTPipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
+					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_PTPipeline->getLayout(), 1u, 1u, &m_uboDescriptorSet1.get());
+					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_PTPipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
 					cmdbuf->dispatch(1 + (WindowDimensions.x - 1) / DefaultWorkGroupSize, 1 + (WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u);
 				}
-				// TODO: tone mapping and stuff
 
-				// Wait for offline compute render
+				// TRANSITION m_outImgView to READ (because of descriptorSets0 -> ComputeShader Writes into the image)
 				{
-					constexpr SMemoryBarrier barriers[] = {
-						{
-							.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-							.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
-							.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
-							.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
-						}
-					};
 					const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = {
 						{
 							.barrier = {
-								.dep = barriers[0]
+								.dep = {
+									.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+									.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
+									.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
+									.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
+								}
 							},
 							.image = m_outImgView->getCreationParameters().image.get(),
 							.subresourceRange = {
@@ -991,85 +1048,81 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 								.levelCount = 1u,
 								.baseArrayLayer = 0u,
 								.layerCount = 1u
-							}
+							},
+							.oldLayout = IImage::LAYOUT::GENERAL,
+							.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL
 						}
 					};
 					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
 				}
+
+				// TODO: tone mapping and stuff
 			}
 
-			auto* const cb = m_cmdBufs.data()[resourceIx].get();
-			auto* queue = getGraphicsQueue();
-
-			asset::SViewport viewport;
+			// Upload m_outImg to swapchain
 			{
-				viewport.minDepth = 1.f;
-				viewport.maxDepth = 0.f;
-				viewport.x = 0u;
-				viewport.y = 0u;
-				viewport.width = WindowDimensions.x;
-				viewport.height = WindowDimensions.y;
-			}
-			cb->setViewport(0u, 1u, &viewport);
+				asset::SViewport viewport;
+				{
+					viewport.minDepth = 1.f;
+					viewport.maxDepth = 0.f;
+					viewport.x = 0u;
+					viewport.y = 0u;
+					viewport.width = WindowDimensions.x;
+					viewport.height = WindowDimensions.y;
+				}
+				cmdbuf->setViewport(0u, 1u, &viewport);
 
-			const VkRect2D currentRenderArea =
-			{
-				.offset = {0,0},
-				.extent = {m_window->getWidth(),m_window->getHeight()}
-			};
+				const VkRect2D currentRenderArea =
+				{
+					.offset = {0,0},
+					.extent = {m_window->getWidth(),m_window->getHeight()}
+				};
 
-			// UI render pass
-			{
 				auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-				const IGPUCommandBuffer::SRenderpassBeginInfo info = 
+				const IGPUCommandBuffer::SRenderpassBeginInfo info =
 				{
 					.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
 					.colorClearValues = &clearColor,
 					.depthStencilClearValues = nullptr,
 					.renderArea = currentRenderArea
 				};
-				ISemaphore::SWaitInfo waitInfo = { .semaphore = m_uiSemaphore.get(), .value = m_realFrameIx + 1u };
-
-				cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-				const auto uiParams = m_ui.manager->getCreationParameters();
-				auto* pipeline = m_ui.manager->getPipeline();
-				cb->bindGraphicsPipeline(pipeline);
-				cb->bindDescriptorSets(EPBP_GRAPHICS, pipeline->getLayout(), uiParams.resources.texturesInfo.setIx, 1u, &m_ui.descriptorSet.get()); // note that we use default UI pipeline layout where uiParams.resources.textures.setIx == uiParams.resources.samplers.setIx
-				m_ui.manager->render(cb, waitInfo);
-				cb->endRenderPass();
+				cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+				cmdbuf->bindGraphicsPipeline(m_presentPipeline.get());
+				cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, m_presentPipeline->getLayout(), 0, 1u, &m_presentDescriptorSet.get());
+				cmdbuf->endRenderPass();
 			}
-			cb->end();
+			cmdbuf->end();
 			{
-				const IQueue::SSubmitInfo::SSemaphoreInfo rendered[] = 
-				{ 
+				const IQueue::SSubmitInfo::SSemaphoreInfo rendered[] =
+				{
 					{
-						.semaphore = m_uiSemaphore.get(),
+						.semaphore = m_semaphore.get(),
 						.value = ++m_realFrameIx,
 						.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
-					} 
+					}
 				};
 				{
 					{
-						const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[] = 
-						{ 
-							{ .cmdbuf = cb } 
+						const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[] =
+						{
+							{.cmdbuf = cmdbuf.get() }
 						};
 
-						const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] = 
-						{ 
+						const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] =
+						{
 							{
 								.semaphore = m_currentImageAcquire.semaphore,
 								.value = m_currentImageAcquire.acquireCount,
 								.stageMask = PIPELINE_STAGE_FLAGS::NONE
-							} 
+							}
 						};
-						const IQueue::SSubmitInfo infos[] = 
-						{ 
+						const IQueue::SSubmitInfo infos[] =
+						{
 							{
 								.waitSemaphores = acquired,
 								.commandBuffers = commandBuffers,
 								.signalSemaphores = rendered
-							} 
+							}
 						};
 
 						updateGUIDescriptorSet();
@@ -1185,12 +1238,13 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 		// gpu resources
 		smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
-		smart_refctd_ptr<IGPUComputePipeline> m_pipeline;
+		smart_refctd_ptr<IGPUComputePipeline> m_PTPipeline;
+		smart_refctd_ptr<IGPUGraphicsPipeline> m_presentPipeline;
 		uint64_t m_realFrameIx : 59 = 0;
 		uint64_t m_maxFramesInFlight : 5;
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>, ISwapchain::MaxImages> m_cmdBufs;
 		ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
-		smart_refctd_ptr<IGPUDescriptorSet> m_descriptorSet0, m_uboDescriptorSet1, m_descriptorSet2;
+		smart_refctd_ptr<IGPUDescriptorSet> m_descriptorSet0, m_uboDescriptorSet1, m_descriptorSet2, m_presentDescriptorSet;
 
 		core::smart_refctd_ptr<IDescriptorPool> m_guiDescriptorSetPool;
 
@@ -1206,7 +1260,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		smart_refctd_ptr<IGPUImageView> m_outImgView;
 
 		// sync
-		smart_refctd_ptr<ISemaphore> m_uiSemaphore;
+		smart_refctd_ptr<ISemaphore> m_semaphore;
 
 		// image upload resources
 		smart_refctd_ptr<ISemaphore> m_scratchSemaphore;
