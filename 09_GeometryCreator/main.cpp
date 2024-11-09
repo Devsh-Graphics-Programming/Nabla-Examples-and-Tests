@@ -93,7 +93,7 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 
 		constexpr static inline uint32_t WIN_W = 1280, WIN_H = 720;
 		
-		// MaxFramesInFlight to cycle through our resources and command buffers
+		// Maximum frames which can be simultaneously submitted, used to cycle through our per-frame resources like command buffers
 		constexpr static inline uint32_t MaxFramesInFlight = 3u;
 
 		constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
@@ -244,8 +244,6 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 
 		inline void workLoopBody() override
 		{
-			const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
-			
 			// framesInFlight: ensuring safe execution of command buffers and acquires, `framesInFlight` only affect semaphore waits, don't use this to index your resources because it can change with swapchain recreation.
 			const uint32_t framesInFlight = core::min(MaxFramesInFlight, m_surface->getMaxAcquiresInFlight());
 			// We block for semaphores for 2 reasons here:
@@ -263,6 +261,8 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 				if (m_device->blockForSemaphores(cbDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
 					return;
 			}
+
+			const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
 
 			m_inputSystem->getDefaultMouse(&mouse);
 			m_inputSystem->getDefaultKeyboard(&keyboard);

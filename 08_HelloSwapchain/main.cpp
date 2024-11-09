@@ -475,7 +475,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 		// We can't use the same semaphore for acquire and present, because that would disable "Frames in Flight" by syncing previous present against next acquire.
 		// At least two timelines must be used.
 		smart_refctd_ptr<ISemaphore> m_semaphore;
-		// MaxFramesInFlight to cycle through our resources and command buffers
+		// Maximum frames which can be simultaneously submitted,used to cycle through our per-frame resources like command buffers
 		constexpr static inline uint32_t MaxFramesInFlight = 3u;
 		// Use a separate counter to cycle through our resources because `getAcquireCount()` increases upon spontaneous resizes with immediate blit-presents 
 		uint64_t m_realFrameIx = 0;
