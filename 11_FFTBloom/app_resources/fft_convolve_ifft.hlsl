@@ -112,9 +112,9 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase<ELEMENTS_PER_THREAD, 
 
 				workgroup::fft::unpack<scalar_t>(zero, nyquist);
 
-				// We now have zero and Nyquist frequencies at NFFT[index], so we must use `getFrequencyIndex(index)` to get the actual index into the DFT
+				// We now have zero and Nyquist frequencies at NFFT[index], so we must use `getDFTIndex(index)` to get the actual index into the DFT
 				const uint32_t globalElementIndex = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | workgroup::SubgroupContiguousIndex();
-				const uint32_t indexDFT = workgroup::fft::getFrequencyIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(globalElementIndex);
+				const uint32_t indexDFT = workgroup::fft::FFTIndexingUtils<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>::getDFTIndex(globalElementIndex);
 
 				float32_t2 uv = float32_t2(indexDFT / float32_t(FFT_LENGTH), float32_t(0)) + pushConstants.kernelHalfPixelSize;
 				const vector<scalar_t, 2> zeroKernelVector = kernelChannels[channel].SampleLevel(samplerState[channel], uv, 0);
@@ -136,10 +136,10 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase<ELEMENTS_PER_THREAD, 
 				// `elementToTradeLocalIdx`. Then we get conj(Z) + i * conj(N) from that thread and send our own via a shuffle
 				const complex_t<scalar_t> mirrored = conj(zero) + rotateLeft<scalar_t>(conj(nyquist));
 				vector<scalar_t, 2> mirroredVector = { mirrored.real(), mirrored.imag() };
-				const uint32_t otherElementIdx = workgroup::fft::getNegativeIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(globalElementIndex);
+				const uint32_t otherElementIdx = workgroup::fft::FFTIndexingUtils<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>::getNablaMirrorIndex(globalElementIndex);
 				const uint32_t otherThreadID = otherElementIdx & (_NBL_HLSL_WORKGROUP_SIZE_ - 1);
 				const uint32_t otherThreadGlobalElementIndex = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | otherThreadID;
-				const uint32_t elementToTradeGlobalIdx = workgroup::fft::getNegativeIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(otherThreadGlobalElementIndex);
+				const uint32_t elementToTradeGlobalIdx = workgroup::fft::FFTIndexingUtils<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>::getNablaMirrorIndex(otherThreadGlobalElementIndex);
 				const uint32_t elementToTradeLocalIdx = elementToTradeGlobalIdx / _NBL_HLSL_WORKGROUP_SIZE_;
 				workgroup::Shuffle<SharedmemAdaptor, vector<scalar_t, 2> >::__call(mirroredVector, otherThreadID, sharedmemAdaptor);
 				preloaded[elementToTradeLocalIdx].real(mirroredVector.x);
@@ -151,7 +151,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase<ELEMENTS_PER_THREAD, 
 			for (uint32_t localElementIndex = 0; localElementIndex < ELEMENTS_PER_THREAD; localElementIndex++)
 			{
 				const uint32_t globalElementIndex = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | workgroup::SubgroupContiguousIndex();
-				const uint32_t indexDFT = workgroup::fft::getFrequencyIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(globalElementIndex);
+				const uint32_t indexDFT = workgroup::fft::FFTIndexingUtils<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>::getDFTIndex(globalElementIndex);
 				const uint32_t bits = pushConstants.numWorkgroupsLog2;
 				const uint32_t y = glsl::bitfieldReverse<uint32_t>(glsl::gl_WorkGroupID().x) >> (32 - bits);
 				const uint32_t2 texCoords = uint32_t2(indexDFT, y);

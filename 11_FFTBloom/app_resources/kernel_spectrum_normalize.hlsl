@@ -51,13 +51,13 @@ void normalizeChannel(uint32_t channel, scalar_t power, LegacyBdaAccessor<comple
 		for (uint32_t localElementIndex = 0; localElementIndex < ELEMENTS_PER_THREAD; localElementIndex++)
 		{
 			const uint32_t index = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | workgroup::SubgroupContiguousIndex();
-			const uint32_t otherIndex = workgroup::fft::getNegativeIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(index);
+			const uint32_t otherIndex = workgroup::fft::FFTIndexingUtils<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>::getNablaMirrorIndex(index);
 			complex_t<scalar_t> zero = rowMajorAccessor.get(rowMajorOffset(index, 0));
 			complex_t<scalar_t> nyquist = rowMajorAccessor.get(rowMajorOffset(otherIndex, 0));
 
 			workgroup::fft::unpack<scalar_t>(zero, nyquist);
-			// We now have zero and Nyquist frequencies at NFFT[index], so we must use `getFrequencyIndex(index)` to get the actual index into the DFT
-			const uint32_t indexDFT = workgroup::fft::getFrequencyIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(index);
+			// We now have zero and Nyquist frequencies at NFFT[index], so we must use `getDFTIndex(index)` to get the actual index into the DFT
+			const uint32_t indexDFT = workgroup::fft::FFTIndexingUtils<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>::getDFTIndex(index);
 
 			// Store zeroth element
 			const uint32_t2 zeroCoord = uint32_t2(indexDFT, 0);
@@ -88,7 +88,7 @@ void normalizeChannel(uint32_t channel, scalar_t power, LegacyBdaAccessor<comple
 
 			// Number of bits needed to represent the range of half the DFT
 			NBL_CONSTEXPR uint32_t bits = uint32_t(mpl::log2<IMAGE_SIDE_LENGTH>::value - 1);
-			uint32_t x = workgroup::fft::getFrequencyIndex<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(index);
+			uint32_t x = workgroup::fft::FFTIndexingUtils<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>::getDFTIndex(index);
 			uint32_t y = glsl::bitfieldReverse<uint32_t>(glsl::gl_WorkGroupID().x) >> (32 - bits);
 
 			// Store the element 
@@ -100,8 +100,8 @@ void normalizeChannel(uint32_t channel, scalar_t power, LegacyBdaAccessor<comple
 			// Store the element at the column mirrored about the Nyquist column (so x'' = mirror(x))
 			// https://en.wikipedia.org/wiki/Discrete_Fourier_transform#Conjugation_in_time
 			// Guess what? The above says the row index is also the mirror about Nyquist! Neat
-			x = workgroup::fft::mirror<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(x);
-			y = workgroup::fft::mirror<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>(y);
+			x = workgroup::fft::FFTIndexingUtils<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>::getDFTMirrorIndex(x);
+			y = workgroup::fft::FFTIndexingUtils<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_>::getDFTMirrorIndex(y);
 			const complex_t<scalar_t> conjugated = conj(toStore);
 			toStoreVector.x = conjugated.real();
 			toStoreVector.y = conjugated.imag();

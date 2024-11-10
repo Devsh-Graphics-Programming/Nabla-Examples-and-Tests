@@ -57,10 +57,10 @@ struct PreloadedAccessorBase {
 	complex_t<Scalar> getDFTMirror(uint32_t localElementIdx, SharedmemAdaptor sharedmemAdaptor)
 	{
 		uint32_t globalElementIdx = WorkgroupSize * localElementIdx | workgroup::SubgroupContiguousIndex();
-		uint32_t otherElementIdx = workgroup::fft::getNegativeIndex<ElementsPerThread, WorkgroupSize>(globalElementIdx);
+		uint32_t otherElementIdx = workgroup::fft::FFTIndexingUtils<ElementsPerThread, WorkgroupSize>::getNablaMirrorIndex(globalElementIdx);
 		uint32_t otherThreadID = otherElementIdx & (WorkgroupSize - 1);
 		uint32_t otherThreadGlobalElementIdx = WorkgroupSize * localElementIdx | otherThreadID;
-		uint32_t elementToTradeGlobalIdx = workgroup::fft::getNegativeIndex<ElementsPerThread, WorkgroupSize>(otherThreadGlobalElementIdx);
+		uint32_t elementToTradeGlobalIdx = workgroup::fft::FFTIndexingUtils<ElementsPerThread, WorkgroupSize>::getNablaMirrorIndex(otherThreadGlobalElementIdx);
 		uint32_t elementToTradeLocalIdx = elementToTradeGlobalIdx / WorkgroupSize;
 		complex_t<Scalar> toTrade = preloaded[elementToTradeLocalIdx];
 		vector<Scalar, 2> toTradeVector = { toTrade.real(), toTrade.imag() };
