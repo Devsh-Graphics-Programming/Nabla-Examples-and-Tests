@@ -5,7 +5,7 @@
 #include "camera/CCameraController.hpp"
 
 template<typename T>
-void handleAddMapping(const char* tableID, CCameraController<T>* controller, ICameraController::ControllerType activeController, CVirtualGimbalEvent::VirtualEventType& selectedEventType, ui::E_KEY_CODE& newKey, ui::E_MOUSE_CODE& newMouseCode, bool& addMode)
+void handleAddMapping(const char* tableID, CCameraController<T>* controller, IGimbalManipulateEncoder::EncoderType activeController, CVirtualGimbalEvent::VirtualEventType& selectedEventType, ui::E_KEY_CODE& newKey, ui::E_MOUSE_CODE& newMouseCode, bool& addMode)
 {
     ImGui::BeginTable(tableID, 3, ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame);
     ImGui::TableSetupColumn("Virtual Event", ImGuiTableColumnFlags_WidthStretch, 0.33f);
@@ -30,7 +30,7 @@ void handleAddMapping(const char* tableID, CCameraController<T>* controller, ICa
     }
 
     ImGui::TableSetColumnIndex(1);
-    if (activeController == ICameraController::Keyboard)
+    if (activeController == IGimbalManipulateEncoder::Keyboard)
     {
         char newKeyDisplay[2] = { ui::keyCodeToChar(newKey, true), '\0' };
         if (ImGui::BeginCombo("##selectKey", newKeyDisplay))
@@ -66,7 +66,7 @@ void handleAddMapping(const char* tableID, CCameraController<T>* controller, ICa
     ImGui::TableSetColumnIndex(2);
     if (ImGui::Button("Confirm Add", ImVec2(100, 30)))
     {
-        if (activeController == ICameraController::Keyboard)
+        if (activeController == IGimbalManipulateEncoder::Keyboard)
             controller->updateKeyboardMapping([&](auto& keys) { keys[newKey] = selectedEventType; });
         else
             controller->updateMouseMapping([&](auto& mouse) { mouse[newMouseCode] = selectedEventType; });
@@ -83,7 +83,7 @@ void displayKeyMappingsAndVirtualStates(CCameraController<T>* controller)
     static CVirtualGimbalEvent::VirtualEventType selectedEventType = CVirtualGimbalEvent::VirtualEventType::MoveForward;
     static ui::E_KEY_CODE newKey = ui::E_KEY_CODE::EKC_A;
     static ui::E_MOUSE_CODE newMouseCode = ui::EMC_LEFT_BUTTON;
-    static ICameraController::ControllerType activeController = ICameraController::Keyboard;
+    static IGimbalManipulateEncoder::EncoderType activeController = IGimbalManipulateEncoder::Keyboard;
 
     const auto& keyboardMappings = controller->getKeyboardVirtualEventMap();
     const auto& mouseMappings = controller->getMouseVirtualEventMap();
@@ -97,7 +97,7 @@ void displayKeyMappingsAndVirtualStates(CCameraController<T>* controller)
     {
         if (ImGui::BeginTabItem("Keyboard"))
         {
-            activeController = ICameraController::Keyboard;
+            activeController = IGimbalManipulateEncoder::Keyboard;
             ImGui::Separator();
 
             if (ImGui::Button("Add key", ImVec2(100, 30)))
@@ -159,7 +159,7 @@ void displayKeyMappingsAndVirtualStates(CCameraController<T>* controller)
 
         if (ImGui::BeginTabItem("Mouse"))
         {
-            activeController = ICameraController::Mouse;
+            activeController = IGimbalManipulateEncoder::Mouse;
             ImGui::Separator();
 
             if (ImGui::Button("Add key", ImVec2(100, 30)))

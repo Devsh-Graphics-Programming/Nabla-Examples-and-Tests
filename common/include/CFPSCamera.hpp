@@ -21,41 +21,119 @@ public:
         : base_t(), m_gimbal({ .position = position, .orientation = orientation }) {}
 	~CFPSCamera() = default;
 
+    const base_t::keyboard_to_virtual_events_t& getKeyboardMappingPreset() const override { return m_keyboard_to_virtual_events_preset; }
+    const base_t::mouse_to_virtual_events_t& getMouseMappingPreset() const override { return m_mouse_to_virtual_events_preset; }
+    const base_t::imguizmo_to_virtual_events_t& getImguizmoMappingPreset() const override { return m_imguizmo_to_virtual_events_preset; }
+
     const typename base_t::CGimbal& getGimbal() override
     {
         return m_gimbal;
     }
 
-    virtual void manipulate(std::span<const CVirtualGimbalEvent> virtualEvents) override
+    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, base_t::ManipulationMode mode) override
     {
         constexpr float MoveSpeedScale = 0.01f, RotateSpeedScale = 0.003f, MaxVerticalAngle = glm::radians(88.0f), MinVerticalAngle = -MaxVerticalAngle;
 
         if (!virtualEvents.size())
-            return;
-
-        const auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
+            return false;
 
         const auto& gForward = m_gimbal.getZAxis();
-        const float currentPitch = atan2(glm::length(glm::vec2(gForward.x, gForward.z)), gForward.y) - glm::half_pi<float>(), currentYaw = atan2(gForward.x, gForward.z);
-        const auto newPitch = std::clamp(currentPitch + impulse.dVirtualRotation.x * RotateSpeedScale, MinVerticalAngle, MaxVerticalAngle), newYaw = currentYaw + impulse.dVirtualRotation.y * RotateSpeedScale;
+        const float gPitch = atan2(glm::length(glm::vec2(gForward.x, gForward.z)), gForward.y) - glm::half_pi<float>(), gYaw = atan2(gForward.x, gForward.z);
+
+        glm::quat newOrientation; vector<typename base_t::precision_t, 3u> newPosition;
+
+        switch (mode)
+        {
+            case base_t::Local:
+            {
+                const auto impulse = m_gimbal.accumulate<AllowedLocalVirtualEvents>(virtualEvents);  
+                const auto newPitch = std::clamp(gPitch + impulse.dVirtualRotation.x * RotateSpeedScale, MinVerticalAngle, MaxVerticalAngle), newYaw = gYaw + impulse.dVirtualRotation.y * RotateSpeedScale;
+                newOrientation = glm::quat(glm::vec3(newPitch, newYaw, 0.0f)); newPosition = m_gimbal.getPosition() + impulse.dVirtualTranslate * MoveSpeedScale;
+            } break;
+
+            case base_t::World: 
+            {
+                const auto transform = m_gimbal.accumulate<AllowedWorldVirtualEvents>(virtualEvents);
+                const auto newPitch = std::clamp(transform.dVirtualRotation.x, MinVerticalAngle, MaxVerticalAngle), newYaw = transform.dVirtualRotation.y;
+                newOrientation = glm::quat(glm::vec3(newPitch, newYaw, 0.0f)); newPosition = transform.dVirtualTranslate;
+            } break;
+
+            default: return false;
+        }
+
+        bool manipulated = true;
 
         m_gimbal.begin();
         {
-            m_gimbal.setOrientation(glm::quat(glm::vec3(newPitch, newYaw, 0.0f)));
-            m_gimbal.move(impulse.dVirtualTranslate * MoveSpeedScale);
+            m_gimbal.setOrientation(newOrientation);
+            m_gimbal.setPosition(newPosition);
             m_gimbal.updateView();
+            manipulated &= bool(m_gimbal.getManipulationCounter());
         }
         m_gimbal.end();
+
+        return manipulated;
     }
 
-    virtual const uint32_t getAllowedVirtualEvents() override
+    virtual const uint32_t getAllowedVirtualEvents(base_t::ManipulationMode mode) override
     {
-        return AllowedVirtualEvents;
+        switch (mode)
+        {
+            case base_t::Local: return AllowedLocalVirtualEvents;
+            case base_t::World: return AllowedWorldVirtualEvents;
+            default: return CVirtualGimbalEvent::None;
+        }
     }
 
 private:
     typename base_t::CGimbal m_gimbal;
-    static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::MoveForward | CVirtualGimbalEvent::MoveBackward | CVirtualGimbalEvent::MoveRight | CVirtualGimbalEvent::MoveLeft | CVirtualGimbalEvent::TiltUp | CVirtualGimbalEvent::TiltDown | CVirtualGimbalEvent::PanRight | CVirtualGimbalEvent::PanLeft;
+
+    static inline constexpr auto AllowedLocalVirtualEvents = CVirtualGimbalEvent::MoveForward | CVirtualGimbalEvent::MoveBackward | CVirtualGimbalEvent::MoveRight | CVirtualGimbalEvent::MoveLeft | CVirtualGimbalEvent::TiltUp | CVirtualGimbalEvent::TiltDown | CVirtualGimbalEvent::PanRight | CVirtualGimbalEvent::PanLeft;
+    static inline constexpr auto AllowedWorldVirtualEvents = AllowedLocalVirtualEvents | CVirtualGimbalEvent::Translate;
+
+    static inline const auto m_keyboard_to_virtual_events_preset = []()
+    {
+        typename base_t::keyboard_to_virtual_events_t preset;
+
+        preset[ui::E_KEY_CODE::EKC_W] = CVirtualGimbalEvent::MoveForward;
+        preset[ui::E_KEY_CODE::EKC_S] = CVirtualGimbalEvent::MoveBackward;
+        preset[ui::E_KEY_CODE::EKC_A] = CVirtualGimbalEvent::MoveLeft;
+        preset[ui::E_KEY_CODE::EKC_D] = CVirtualGimbalEvent::MoveRight;
+        preset[ui::E_KEY_CODE::EKC_I] = CVirtualGimbalEvent::TiltDown;
+        preset[ui::E_KEY_CODE::EKC_K] = CVirtualGimbalEvent::TiltUp;
+        preset[ui::E_KEY_CODE::EKC_J] = CVirtualGimbalEvent::PanLeft;
+        preset[ui::E_KEY_CODE::EKC_L] = CVirtualGimbalEvent::PanRight;
+
+        return preset;
+    }();
+
+    static inline const auto m_mouse_to_virtual_events_preset = []()
+    {
+        typename base_t::mouse_to_virtual_events_t preset;
+
+        preset[ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_X] = CVirtualGimbalEvent::PanRight;
+        preset[ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_X] = CVirtualGimbalEvent::PanLeft;
+        preset[ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_Y] = CVirtualGimbalEvent::TiltUp;
+        preset[ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_Y] = CVirtualGimbalEvent::TiltDown;
+
+        return preset;
+    }();
+
+    static inline const auto m_imguizmo_to_virtual_events_preset = []()
+    {
+        typename base_t::imguizmo_to_virtual_events_t preset;
+
+        preset[CVirtualGimbalEvent::MoveForward] = CVirtualGimbalEvent::MoveForward;
+        preset[CVirtualGimbalEvent::MoveBackward] = CVirtualGimbalEvent::MoveBackward;
+        preset[CVirtualGimbalEvent::MoveLeft] = CVirtualGimbalEvent::MoveLeft;
+        preset[CVirtualGimbalEvent::MoveRight] = CVirtualGimbalEvent::MoveRight;
+        preset[CVirtualGimbalEvent::TiltDown] = CVirtualGimbalEvent::TiltDown;
+        preset[CVirtualGimbalEvent::TiltUp] = CVirtualGimbalEvent::TiltUp;
+        preset[CVirtualGimbalEvent::PanLeft] = CVirtualGimbalEvent::PanLeft;
+        preset[CVirtualGimbalEvent::PanRight] = CVirtualGimbalEvent::PanRight;
+
+        return preset;
+    }();
 };
 
 }

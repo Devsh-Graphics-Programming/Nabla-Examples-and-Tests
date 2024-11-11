@@ -9,9 +9,10 @@ namespace nbl::hlsl
     template<typename T = float64_t>
     class CGeneralPurposeGimbal : public IGimbal<T>
     {
+    public:
         using base_t = IGimbal<T>;
 
-        CGeneralPurposeGimbal(base_t::SCreationParameters&& parameters) : base_t(std::move(parameters)) {}
+        CGeneralPurposeGimbal(typename base_t::SCreationParameters&& parameters) : base_t(std::move(parameters)) {}
         ~CGeneralPurposeGimbal() = default;
     };
 }

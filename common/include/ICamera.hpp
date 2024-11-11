@@ -5,16 +5,28 @@
 #ifndef _I_CAMERA_HPP_
 #define _I_CAMERA_HPP_
 
-#include "camera/IGimbal.hpp"
+#include "camera/IGimbalController.hpp"
 
 namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
 {
 
 template<typename T>
-class ICamera : virtual public core::IReferenceCounted
+class ICamera : public IGimbalManipulateEncoder, virtual public core::IReferenceCounted
 { 
 public:
+    using IGimbalManipulateEncoder::IGimbalManipulateEncoder;
 	using precision_t = T;
+
+    //! Manipulation mode for virtual events
+    //! TODO: this should belong to IObjectTransform or something
+    enum ManipulationMode
+    {
+        // Interpret virtual events as accumulated impulse representing relative manipulation with respect to view gimbal base 
+        Local,
+
+        // Interpret virtual events as accumulated absolute manipulation with respect to world base 
+        World
+    };
 
     // Gimbal with view parameters representing a camera in world space
     class CGimbal : public IGimbal<precision_t>
@@ -75,14 +87,15 @@ public:
     ICamera() {}
 	~ICamera() = default;
 
-	// Returns a gimbal which *models the camera view*, note that a camera type implementation may have multiple gimbals under the hood
+	// Returns a gimbal which *models the camera view*
 	virtual const CGimbal& getGimbal() = 0u;
 
-    // Manipulates camera with view gimbal & virtual events
-    virtual void manipulate(std::span<const CVirtualGimbalEvent> virtualEvents) = 0;
+    // Manipulates camera with virtual events, returns true if *any* manipulation happens, it may fail partially or fully because each camera type has certain constraints which determine how it actually works
+    // TODO: this really needs to be moved to more abstract interface, eg. IObjectTransform or something and ICamera should inherit it (its also an object!)
+    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, ManipulationMode mode) = 0;
 
 	// VirtualEventType bitmask for a camera view gimbal manipulation requests filtering
-	virtual const uint32_t getAllowedVirtualEvents() = 0u;
+	virtual const uint32_t getAllowedVirtualEvents(ManipulationMode mode) = 0u;
 };
 
 }
