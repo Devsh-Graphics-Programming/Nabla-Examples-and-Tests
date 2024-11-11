@@ -449,7 +449,7 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 						}
 						
 						// Create resources needed to do the blit
-						auto blitFilter = make_smart_refctd_ptr<CComputeBlit>(smart_refctd_ptr<ILogicalDevice>(device));
+						auto blitFilter = m_parentApp->m_blitFilter.get();
 						
 						//
 						auto converter = CAssetConverter::create({.device=device});
@@ -484,15 +484,15 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 						m_parentApp->m_api->startCapture();
 
 						// just use the asset converter to make the image view as well
+						auto* uploadQueue = m_parentApp->getTransferUpQueue();
 						smart_refctd_ptr<IGPUImageView> inImageView;
 						{
-							auto* queue = m_parentApp->getTransferUpQueue();
 							// intialize command buffers
 							constexpr auto MultiBuffering = 2;
 							std::array<smart_refctd_ptr<IGPUCommandBuffer>, MultiBuffering> commandBuffers;
 							std::array<IQueue::SSubmitInfo::SCommandBufferInfo, MultiBuffering> commandBufferInfos;
 							{
-								auto pool = device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+								auto pool = device->createCommandPool(uploadQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 								pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{commandBuffers.data(),MultiBuffering},smart_refctd_ptr<ILogger>(logger));
 								//
 								for (uint32_t i = 0u; i < MultiBuffering; ++i)
@@ -541,7 +541,7 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 							// scratch command buffers for asset converter transfer commands
 							SIntendedSubmitInfo transfer =
 							{
-								.queue = queue,
+								.queue = uploadQueue,
 								.waitSemaphores = {},
 								.prevCommandBuffers = {},
 								.scratchCommandBuffers = commandBufferInfos,
@@ -624,9 +624,11 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 								const auto format = CComputeBlit::getCoverageAdjustmentIntermediateFormat(outImageFormat);
 
 								IGPUImage::SCreationParams creationParams = {};
-								creationParams = outImage->getCreationParameters();
+								creationParams = outImageView->getCreationParameters().image->getCreationParameters();
 								creationParams.format = format;
 								creationParams.usage = IGPUImage::EUF_STORAGE_BIT;
+								creationParams.viewFormats.reset();
+								creationParams.viewFormats.set(format,true);
 								auto image = device->createImage(std::move(creationParams));
 								if (!image || !device->allocate(image->getMemoryReqs(), image.get()).isValid())
 								{
@@ -640,14 +642,17 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 								viewCreationParams.format = format;
 								intermediateAlphaView = device->createImageView(std::move(viewCreationParams));
 
-								// TODO: one more util function!
-								normalizationScratchSize = CComputeBlit::getAlphaBinCount(pipelines.workgroupSize,format,layerCount)*sizeof(uint16_t)+sizeof(uint32_t)+sizeof(uint32_t);
+								normalizationScratchSize = core::roundUp<uint16_t>(
+									CComputeBlit::getNormalizationByteSize(pipelines,format,layerCount),
+									device->getPhysicalDevice()->getLimits().bufferViewAlignment
+								);
 							}
 						}
 
 						const hlsl::uint32_t3 inExtent(inCreationParams.extent.width,inCreationParams.extent.height,inCreationParams.extent.depth);
-
+						
 						// create scaledKernelPhasedLUT and its view
+						smart_refctd_ptr<IGPUBuffer> scratchAndScaledKernelPhasedLUT;
 						smart_refctd_ptr<IGPUBufferView> scaledKernelPhasedLUTView;
 						{
 							const auto lutOffset = normalizationScratchSize;
@@ -665,7 +670,7 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 							// `samplerBuffer`, lut upload and scratch clear command, BDA
 							creationParams.usage = IGPUBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT|IGPUBuffer::EUF_TRANSFER_DST_BIT|IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 							creationParams.size = normalizationScratchSize+lutSize;
-							auto scratchAndScaledKernelPhasedLUT = device->createBuffer(std::move(creationParams));
+							scratchAndScaledKernelPhasedLUT = device->createBuffer(std::move(creationParams));
 							if (!device->allocate(scratchAndScaledKernelPhasedLUT->getMemoryReqs(),scratchAndScaledKernelPhasedLUT.get(),IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT).isValid())
 							{
 								logger->log("Failed to create the Phase LUT and coverage buffer!",ILogger::ELL_ERROR);
@@ -674,11 +679,12 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 
 							// fill it up with data
 							SBufferRange<IGPUBuffer> bufferRange = {};
-							bufferRange.offset = 0ull;
+							bufferRange.offset = lutOffset;
 							bufferRange.size = lutSize;
-							bufferRange.buffer = std::move(scratchAndScaledKernelPhasedLUT);
+							bufferRange.buffer = scratchAndScaledKernelPhasedLUT;
 							{
-								SIntendedSubmitInfo intended = {.queue=m_parentApp->getTransferUpQueue()};
+								// "wrong" queue just so that we don't need to do ownership transfers
+								SIntendedSubmitInfo intended = {.queue=computeQueue};
 								auto transferred = utils->autoSubmit(intended,[&](auto& info)->bool
 									{
 										return utils->updateBufferRangeViaStagingBuffer(info,bufferRange,lutMemory.get());
@@ -713,6 +719,7 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 							ds = descriptorPool->createDescriptorSet(smart_refctd_ptr<const IGPUDescriptorSetLayout>(layout->getDescriptorSetLayout(0)));
 						}
 
+						using layout_t = IGPUImage::LAYOUT;
 						{
 							constexpr auto WriteCount = 5u;
 							IGPUDescriptorSet::SDescriptorInfo infos[WriteCount];
@@ -730,8 +737,8 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 							writes[0].binding = kernelBinding.binding;
 							infos[0].desc = core::smart_refctd_ptr(scaledKernelPhasedLUTView);
 							writes[1].binding = inputBinding.binding;
-							infos[1].desc = std::move(inImageView);
-							infos[1].info.image.imageLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL;
+							infos[1].desc = core::smart_refctd_ptr(inImageView);
+							infos[1].info.image.imageLayout = layout_t::READ_ONLY_OPTIMAL;
 							writes[2].binding = samplerBinding.binding;
 							using wrap_t = IGPUSampler::E_TEXTURE_CLAMP;
 							infos[2].desc = device->createSampler({
@@ -742,14 +749,14 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 							});
 							writes[3].binding = outputBinding.binding;
 							infos[3].desc = core::smart_refctd_ptr(outImageView);
-							infos[3].info.image.imageLayout = IGPUImage::LAYOUT::GENERAL;
+							infos[3].info.image.imageLayout = layout_t::GENERAL;
 							std::span<const IGPUDescriptorSet::SWriteDescriptorSet> writeSpan;
 							if (intermediateAlphaView)
 							{
 								writes[4].binding = outputBinding.binding;
 								writes[4].arrayElement = 1;
 								infos[4].desc = core::smart_refctd_ptr(intermediateAlphaView);
-								infos[4].info.image.imageLayout = IGPUImage::LAYOUT::GENERAL;
+								infos[4].info.image.imageLayout = layout_t::GENERAL;
 								writeSpan = writes;
 							}
 							else
@@ -762,37 +769,157 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 							auto pool = device->createCommandPool(computeQueue->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
 							pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{&cmdbuf,1},smart_refctd_ptr<ILogger>(logger));
 
+							struct SMemoryUsage
+							{
+								core::bitflag<PIPELINE_STAGE_FLAGS> stageMask = PIPELINE_STAGE_FLAGS::NONE;
+								core::bitflag<ACCESS_FLAGS> accessMask = ACCESS_FLAGS::NONE;
+							};
+
+							using buffer_barrier_t = IGPUCommandBuffer::SBufferMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>;
+							using image_barrier_t = IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>;
+							auto imageBarrierFromView = [layerCount](
+								const auto& imageView, const SMemoryUsage& src, const SMemoryUsage& dst,
+								const layout_t oldLayout=layout_t::UNDEFINED, const layout_t newLayout=layout_t::UNDEFINED,
+								const uint32_t acquireFromFamilyIndex=IQueue::FamilyIgnored
+							)->image_barrier_t
+							{
+								if (!imageView)
+									return {};
+								return image_barrier_t{
+									.barrier = {
+										.dep = {
+											.srcStageMask = src.stageMask,
+											.srcAccessMask = src.accessMask,
+											.dstStageMask = dst.stageMask,
+											.dstAccessMask = dst.accessMask
+										},
+										.ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::ACQUIRE,
+										.otherQueueFamilyIndex = acquireFromFamilyIndex
+									},
+									.image = imageView->getCreationParameters().image.get(),
+									// whole image view
+									//.subresourceRange = imageView->getCreationParameters().subresourceRange,
+									// https://github.com/KhronosGroup/Vulkan-ValidationLayers/issues/8823
+									.subresourceRange = {
+										.aspectMask = IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+										.baseMipLevel = 0,
+										.levelCount = 1,
+										.baseArrayLayer = 0,
+										.layerCount = layerCount
+									},
+									.oldLayout = oldLayout,
+									.newLayout = newLayout
+								};
+							};
+
 							cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+							// if doing coverage, clear the buffer to 0
+							if (normalizationScratchSize)
+								cmdbuf->fillBuffer({.offset=0,.size=normalizationScratchSize,.buffer=scratchAndScaledKernelPhasedLUT},0);
 							// Acquire ownership of input and split layout transition from transfer
 							{
-								//cmdbuf->pipelineBarrier();
+								const buffer_barrier_t bufBarrier = {
+									.barrier = {
+										.dep = {
+											.srcStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT|PIPELINE_STAGE_FLAGS::COPY_BIT,
+											.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+											.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+											.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS|ACCESS_FLAGS::SHADER_WRITE_BITS
+										} // no ownership transfers, etc.
+									},
+									// whole buffer because we transferred the contents into it
+									.range = {.offset=0,.size=scratchAndScaledKernelPhasedLUT->getSize(),.buffer=scratchAndScaledKernelPhasedLUT}
+								};
+								// we're synchronised by a semaphore signal op or first usage, no stages or masks needed
+								const SMemoryUsage src = {PIPELINE_STAGE_FLAGS::NONE,ACCESS_FLAGS::NONE};
+								const SMemoryUsage dstWrite = {PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,ACCESS_FLAGS::SHADER_WRITE_BITS};
+								// split transition during an ownership transfer, needs to match
+								const bool splitLayoutXsition = computeQueue->getFamilyIndex()!=uploadQueue->getFamilyIndex();
+								const SMemoryUsage dstRead = {PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,ACCESS_FLAGS::SAMPLED_READ_BIT};
+								const image_barrier_t imgBarriers[] = {
+									imageBarrierFromView(
+										inImageView,src,dstRead,
+										splitLayoutXsition ? layout_t::TRANSFER_DST_OPTIMAL:layout_t::UNDEFINED,
+										splitLayoutXsition ? layout_t::READ_ONLY_OPTIMAL:layout_t::UNDEFINED,
+										uploadQueue->getFamilyIndex()
+									),
+									imageBarrierFromView(outImageView,src,dstWrite,layout_t::UNDEFINED,layout_t::GENERAL),
+									imageBarrierFromView(intermediateAlphaView,src,dstWrite,layout_t::UNDEFINED,layout_t::GENERAL)
+								};
+								cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{
+									.memBarriers = {},
+									.bufBarriers = {&bufBarrier,1},
+									.imgBarriers = {imgBarriers,intermediateAlphaView ? 3ull:2ull}
+								});
 							}
 							cmdbuf->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_COMPUTE,layout,0,1,&ds.get());
 							cmdbuf->bindComputePipeline(pipelines.blit.get());
-//							cmdbuf->pushConstants();
-//							cmdbuf->dispatch();
-							if (m_alphaSemantic==IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
 							{
-								// alpha histogram, color output and intermediate alpha
+								const hlsl::uint16_t3 outExtent16(m_outImageDim);
+								const hlsl::blit::Parameters params = {
+									.perWG = CComputeBlit::computePerWorkGroup<blit_utils_t>(pipelines.sharedMemorySize,m_convolutionKernels,type,hlsl::uint16_t3(inExtent),outExtent16),
+									.inputDescIx = 0,
+									.samplerDescIx = 0,
+									.unused0 = 0,
+									.outputDescIx = 0
+								};
+								if (!params)
 								{
-									//cmdbuf->pipelineBarrier();
+									logger->log("Failed to fit the preload region in shared memory even for 1x1x1 workgroup!",ILogger::ELL_ERROR);
+									return false;
 								}
-								cmdbuf->bindComputePipeline(pipelines.coverage.get());
-//								cmdbuf->pushConstants();
-//								cmdbuf->dispatch();
+								cmdbuf->pushConstants(layout,IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,0,sizeof(params),&params);
+								cmdbuf->dispatch(params.perWG.getWorkgroupCount(outExtent16));
+								if (m_alphaSemantic==IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
+								{
+									// alpha histogram, color output and intermediate alpha
+									{
+										const buffer_barrier_t bufBarrier = {
+											.barrier = {
+												.dep = {
+													.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+													.srcAccessMask = ACCESS_FLAGS::SHADER_READ_BITS|ACCESS_FLAGS::SHADER_WRITE_BITS,
+													.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+													.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
+												} // no ownership transfers, etc.
+											},
+											.range = {.offset=0,.size=normalizationScratchSize,.buffer=scratchAndScaledKernelPhasedLUT}
+										};
+										const SMemoryUsage src = {PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,ACCESS_FLAGS::SHADER_WRITE_BITS};
+										const SMemoryUsage dst = {PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,ACCESS_FLAGS::SHADER_READ_BITS};
+										const image_barrier_t imgBarriers[] = {
+											imageBarrierFromView(outImageView,src,dst),
+											imageBarrierFromView(intermediateAlphaView,src,dst)
+										};
+										cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{
+											.memBarriers = {},
+											.bufBarriers = {&bufBarrier,normalizationScratchSize ? 1ull:0ull},
+											.imgBarriers = {imgBarriers,intermediateAlphaView ? 2ull:1ull}
+										});
+									}
+									cmdbuf->bindComputePipeline(pipelines.coverage.get());
+	//								cmdbuf->pushConstants();
+	//								cmdbuf->dispatch();
+								}
 							}
 							cmdbuf->end();
 
 							{
+								// I can do this because I've already awaited the semaphore on host and I have no pending signals
+								const auto semaphoreValue = semaphore->getCounterValue();
+								const IQueue::SSubmitInfo::SSemaphoreInfo waitSemaphores[1] = {{
+									.semaphore = semaphore.get(),
+									.value = semaphoreValue,
+									.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+								}};
 								const IQueue::SSubmitInfo::SCommandBufferInfo cmbBufInfos[1] = {{.cmdbuf=cmdbuf.get()}};
 								const IQueue::SSubmitInfo::SSemaphoreInfo signalSemaphores[1] = {{
 									.semaphore = semaphore.get(),
-									// I can do this because I've already awaited the semaphore on host and I have no pending signals
-									.value = semaphore->getCounterValue()+1,
+									.value = semaphoreValue+1,
 									.stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
 								}};
 								const IQueue::SSubmitInfo info = {
-									.waitSemaphores = {},
+									.waitSemaphores = waitSemaphores,
 									.commandBuffers = cmbBufInfos,
 									.signalSemaphores = signalSemaphores
 								};
@@ -805,31 +932,18 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 							}
 						}
 #if 0
-						blitFilter->blit<BlitUtilities>(
-							m_parentApp->queue, m_alphaSemantic,
-							blitDS.get(), alphaTestPipeline.get(),
-							blitDS.get(), blitWeightsDS.get(), blitPipeline.get(),
-							normalizationDS.get(), normalizationPipeline.get(),
-							inExtent, inImageType, inImageFormat, normalizationInImage, m_convolutionKernels,
-							layersToBlit,
-							coverageAdjustmentScratchBuffer, m_referenceAlpha,
-							m_alphaBinCount, BlitWorkgroupSize);
+						auto outCPUImageView = ext::ScreenShot::createScreenShot(
+							device.get(),
+							m_parentApp->getTransferQueue(),
+							nullptr,
+							outImageView.get(),
+							asset::EAF_NONE,
+							IImage::EL_GENERAL
+						);
 
-						if (m_alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
-						{
-							auto outCPUImageView = ext::ScreenShot::createScreenShot(
-								device.get(),
-								m_parentApp->getTransferQueue(),
-								nullptr,
-								outImageView.get(),
-								asset::EAF_NONE,
-								IImage::EL_GENERAL
-							);
+						// TODO: also save the gpu image to disk!
 
-							// TODO: also save the gpu image to disk!
-
-							logger.log("GPU alpha coverage: %f", system::ILogger::ELL_DEBUG, computeAlphaCoverage(m_referenceAlpha, outCPUImageView->getCreationParameters().image.get()));
-						}
+						logger.log("GPU alpha coverage: %f", system::ILogger::ELL_DEBUG, computeAlphaCoverage(m_referenceAlpha, outCPUImageView->getCreationParameters().image.get()));
 
 						// download results to check
 						{
@@ -1266,6 +1380,8 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 			{
 				m_logger->log("CComputeBlit", system::ILogger::ELL_INFO);
 
+				m_blitFilter = make_smart_refctd_ptr<CComputeBlit>(smart_refctd_ptr(m_device));
+
 				constexpr uint32_t TestCount = 6;
 				std::unique_ptr<ITest> tests[TestCount] = { nullptr };
 
@@ -1529,6 +1645,8 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 
 			return retval;
 		}
+
+		smart_refctd_ptr<CComputeBlit> m_blitFilter;
 
 	private:
 		smart_refctd_ptr<IAssetManager> assetManager;
