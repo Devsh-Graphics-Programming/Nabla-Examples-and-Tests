@@ -138,7 +138,8 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorBase<ELEMENTS_PER_THREAD, _
 	LegacyBdaAccessor<complex_t<scalar_t> > rowMajorAccessor;
 };
 
-void lastAxisFFT()
+[numthreads(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1)]
+void main(uint32_t3 ID : SV_DispatchThreadID)
 {
 	SharedMemoryAccessor sharedmemAccessor;
 	// Set up the memory adaptor
@@ -155,10 +156,4 @@ void lastAxisFFT()
 		workgroup::FFT<ELEMENTS_PER_THREAD, true, _NBL_HLSL_WORKGROUP_SIZE_, scalar_t>::template __call(preloadedAccessor, sharedmemAccessor);
 		preloadedAccessor.unload(channel);
 	}
-}
-
-[numthreads(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1)]
-void main(uint32_t3 ID : SV_DispatchThreadID)
-{
-	lastAxisFFT();
 }

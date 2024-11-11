@@ -129,7 +129,8 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorBase<ELEMENTS_PER_THREAD, _
 	LegacyBdaAccessor<complex_t<scalar_t> > colMajorAccessor;
 };
 
-void firstAxisFFT()
+[numthreads(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1)]
+void main(uint32_t3 ID : SV_DispatchThreadID)
 {
 	SharedMemoryAccessor sharedmemAccessor;
 	// Set up the memory adaptor
@@ -147,10 +148,4 @@ void firstAxisFFT()
 		// Remember to update the accessor's state
 		sharedmemAccessor = sharedmemAdaptor.accessor;
 	}
-}
-
-[numthreads(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1)]
-void main(uint32_t3 ID : SV_DispatchThreadID)
-{
-	firstAxisFFT();
 }
