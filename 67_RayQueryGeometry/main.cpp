@@ -20,88 +20,6 @@ struct SCameraParameters
 	float P[3 * 4];
 };
 
-class CSwapchainFramebuffersAndDepth final : public nbl::video::CDefaultSwapchainFramebuffers
-{
-	using base_t = CDefaultSwapchainFramebuffers;
-
-public:
-	template<typename... Args>
-	inline CSwapchainFramebuffersAndDepth(ILogicalDevice* device, const asset::E_FORMAT _desiredDepthFormat, Args&&... args) : CDefaultSwapchainFramebuffers(device, std::forward<Args>(args)...)
-	{
-		const IPhysicalDevice::SImageFormatPromotionRequest req = {
-			.originalFormat = _desiredDepthFormat,
-			.usages = {IGPUImage::EUF_RENDER_ATTACHMENT_BIT}
-		};
-		m_depthFormat = m_device->getPhysicalDevice()->promoteImageFormat(req, IGPUImage::TILING::OPTIMAL);
-
-		const static IGPURenderpass::SCreationParams::SDepthStencilAttachmentDescription depthAttachments[] = {
-			{{
-				{
-					.format = m_depthFormat,
-					.samples = IGPUImage::ESCF_1_BIT,
-					.mayAlias = false
-				},
-			/*.loadOp = */{IGPURenderpass::LOAD_OP::CLEAR},
-			/*.storeOp = */{IGPURenderpass::STORE_OP::STORE},
-			/*.initialLayout = */{IGPUImage::LAYOUT::UNDEFINED}, // because we clear we don't care about contents
-			/*.finalLayout = */{IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL} // transition to presentation right away so we can skip a barrier
-		}},
-		IGPURenderpass::SCreationParams::DepthStencilAttachmentsEnd
-		};
-		m_params.depthStencilAttachments = depthAttachments;
-
-		static IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
-			m_params.subpasses[0],
-			IGPURenderpass::SCreationParams::SubpassesEnd
-		};
-		subpasses[0].depthStencilAttachment.render = { .attachmentIndex = 0,.layout = IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL };
-		m_params.subpasses = subpasses;
-	}
-
-protected:
-	inline bool onCreateSwapchain_impl(const uint8_t qFam) override
-	{
-		auto device = const_cast<ILogicalDevice*>(m_renderpass->getOriginDevice());
-
-		const auto depthFormat = m_renderpass->getCreationParameters().depthStencilAttachments[0].format;
-		const auto& sharedParams = getSwapchain()->getCreationParameters().sharedParams;
-		auto image = device->createImage({ IImage::SCreationParams{
-			.type = IGPUImage::ET_2D,
-			.samples = IGPUImage::ESCF_1_BIT,
-			.format = depthFormat,
-			.extent = {sharedParams.width,sharedParams.height,1},
-			.mipLevels = 1,
-			.arrayLayers = 1,
-			.depthUsage = IGPUImage::EUF_RENDER_ATTACHMENT_BIT
-		} });
-
-		device->allocate(image->getMemoryReqs(), image.get());
-
-		m_depthBuffer = device->createImageView({
-			.flags = IGPUImageView::ECF_NONE,
-			.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
-			.image = std::move(image),
-			.viewType = IGPUImageView::ET_2D,
-			.format = depthFormat,
-			.subresourceRange = {IGPUImage::EAF_DEPTH_BIT,0,1,0,1}
-			});
-
-		const auto retval = base_t::onCreateSwapchain_impl(qFam);
-		m_depthBuffer = nullptr;
-		return retval;
-	}
-
-	inline smart_refctd_ptr<IGPUFramebuffer> createFramebuffer(IGPUFramebuffer::SCreationParams&& params) override
-	{
-		params.depthStencilAttachments = &m_depthBuffer.get();
-		return m_device->createFramebuffer(std::move(params));
-	}
-
-	E_FORMAT m_depthFormat;
-	// only used to pass a parameter from `onCreateSwapchain_impl` to `createFramebuffer`
-	smart_refctd_ptr<IGPUImageView> m_depthBuffer;
-};
-
 class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 		using device_base_t = examples::SimpleWindowedApplication;
@@ -152,7 +70,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				}
 
 				auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
-				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = nbl::video::CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>::create(std::move(surface));
+				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = nbl::video::CSimpleResizeSurface<nbl::video::CDefaultSwapchainFramebuffers>::create(std::move(surface));
 			}
 
 			if (m_surface)
@@ -187,42 +105,35 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			if (!swapchainParams.deduceFormat(m_physicalDevice))
 				return logFail("Could not choose a Surface Format for the Swapchain!");
 
-			// Subsequent submits don't wait for each other, hence its important to have External Dependencies which prevent users of the depth attachment overlapping.
 			const static IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
 				// wipe-transition of Color to ATTACHMENT_OPTIMAL
 				{
 					.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
 					.dstSubpass = 0,
-					.memoryBarrier = {
-					// last place where the depth can get modified in previous frame
-					.srcStageMask = PIPELINE_STAGE_FLAGS::LATE_FRAGMENT_TESTS_BIT,
-					// only write ops, reads can't be made available
-					.srcAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-					// destination needs to wait as early as possible
-					.dstStageMask = PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT,
-					// because of depth test needing a read and a write
-					.dstAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_READ_BIT
-				}
+					.memoryBarrier = 
+					{
+						// srcs is NONE
+						.dstStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+						.dstAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+					}
 				// leave view offsets and flags default
 			},
 				// color from ATTACHMENT_OPTIMAL to PRESENT_SRC
 				{
 					.srcSubpass = 0,
 					.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
-					.memoryBarrier = {
-					// last place where the depth can get modified
-					.srcStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-					// only write ops, reads can't be made available
-					.srcAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-					// spec says nothing is needed when presentation is the destination
-				}
+					.memoryBarrier = 
+					{
+						.srcStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+						.srcAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+						// spec says nothing is needed when presentation is the destination
+					}
 				// leave view offsets and flags default
 			},
 			IGPURenderpass::SCreationParams::DependenciesEnd
 			};
 
-			// TODO: promote the depth format if D16 not supported, or quote the spec if there's guaranteed support for it
-			auto scResources = std::make_unique<CSwapchainFramebuffersAndDepth>(m_device.get(), EF_D16_UNORM, swapchainParams.surfaceFormat.format, dependencies);
+			auto scResources = std::make_unique<CDefaultSwapchainFramebuffers>(m_device.get(), swapchainParams.surfaceFormat.format, dependencies);
 
 			auto* renderpass = scResources->getRenderpass();
 
@@ -479,7 +390,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 			auto* queue = getGraphicsQueue();
 
-			// TODO: transition to render
 			{
 				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[1];
 				imageBarriers[0].barrier = {
@@ -1041,7 +951,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 
 		smart_refctd_ptr<IWindow> m_window;
-		smart_refctd_ptr<CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>> m_surface;
+		smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
 		smart_refctd_ptr<ISemaphore> m_semaphore;
 		uint64_t m_realFrameIx = 0;
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;

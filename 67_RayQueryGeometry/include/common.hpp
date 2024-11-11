@@ -12,9 +12,6 @@
 
 #include "CCamera.hpp"
 #include "app_resources/common.hlsl"
-#include "SBasicViewParameters.hlsl"
-
-//#include "CGeomtryCreatorScene.hpp"
 
 using namespace nbl;
 using namespace core;
@@ -24,7 +21,6 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 using namespace scene;
-//using namespace geometrycreator;
 
 namespace nbl::scene
 {
