@@ -515,25 +515,21 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			controller = make_smart_refctd_ptr<controller_t>(core::smart_refctd_ptr(camera));
 
 			// init keyboard map
-			controller->updateKeyboardMapping([](auto& keys)
+			controller->updateKeyboardMapping([&](auto& keys)
 			{
-				keys[ui::E_KEY_CODE::EKC_W] = CVirtualGimbalEvent::MoveForward;
-				keys[ui::E_KEY_CODE::EKC_S] = CVirtualGimbalEvent::MoveBackward;
-				keys[ui::E_KEY_CODE::EKC_A] = CVirtualGimbalEvent::MoveLeft;
-				keys[ui::E_KEY_CODE::EKC_D] = CVirtualGimbalEvent::MoveRight;
-				keys[ui::E_KEY_CODE::EKC_I] = CVirtualGimbalEvent::TiltDown;
-				keys[ui::E_KEY_CODE::EKC_K] = CVirtualGimbalEvent::TiltUp;
-				keys[ui::E_KEY_CODE::EKC_J] = CVirtualGimbalEvent::PanLeft;
-				keys[ui::E_KEY_CODE::EKC_L] = CVirtualGimbalEvent::PanRight;
+				keys = controller->getCamera()->getKeyboardMappingPreset();
 			});
 
 			// init mouse map
-			controller->updateMouseMapping([](auto& keys)
+			controller->updateMouseMapping([&](auto& keys)
 			{
-				keys[ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_X] = CVirtualGimbalEvent::PanRight;
-				keys[ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_X] = CVirtualGimbalEvent::PanLeft;
-				keys[ui::E_MOUSE_CODE::EMC_RELATIVE_POSITIVE_MOVEMENT_Y] = CVirtualGimbalEvent::TiltUp;
-				keys[ui::E_MOUSE_CODE::EMC_RELATIVE_NEGATIVE_MOVEMENT_Y] = CVirtualGimbalEvent::TiltDown;
+				keys = controller->getCamera()->getMouseMappingPreset();
+			});
+
+			// init imguizmo map
+			controller->updateImguizmoMapping([&](auto& keys)
+			{
+				keys = controller->getCamera()->getImguizmoMappingPreset();
 			});
 
 			return true;
@@ -766,19 +762,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			if (move)
 			{
-				static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
-				uint32_t vCount;
-
-				controller->beginInputProcessing(nextPresentationTimestamp);
-				controller->process(nullptr, vCount);
-
-				if (virtualEvents.size() < vCount)
-					virtualEvents.resize(vCount);
-
-				controller->process(virtualEvents.data(), vCount, { params.keyboardEvents, params.mouseEvents });
-				controller->endInputProcessing();
-				
-				controller->getCamera()->manipulate({ virtualEvents.data(), vCount });
+				// TODO: testing
+				controller->manipulateViewGimbal({ params.keyboardEvents, params.mouseEvents }, nextPresentationTimestamp);
 			}
 
 			pass.ui.manager->update(params);

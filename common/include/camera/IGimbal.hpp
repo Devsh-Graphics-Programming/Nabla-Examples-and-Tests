@@ -202,6 +202,11 @@ namespace nbl::hlsl
             glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
         };
 
+        IGimbal(const IGimbal&) = default;
+        IGimbal(IGimbal&&) noexcept = default;
+        IGimbal& operator=(const IGimbal&) = default;
+        IGimbal& operator=(IGimbal&&) noexcept = default;
+
         IGimbal(SCreationParameters&& parameters)
             : m_position(parameters.position), m_orientation(parameters.orientation), m_id(reinterpret_cast<uintptr_t>(this))
         {
@@ -261,30 +266,54 @@ namespace nbl::hlsl
             m_position = newPosition;
         }
 
+        inline void strafe(precision_t distance)
+        {
+            move(getXAxis() * distance);
+        }
+
+        inline void climb(precision_t distance)
+        {
+            move(getYAxis() * distance);
+        }
+
+        inline void advance(precision_t distance)
+        {
+            move(getZAxis() * distance);
+        }
+
         void end()
         {
             m_isManipulating = false;
         }
 
-        // Position of gimbal
+        //! Position of gimbal in world space
         inline const auto& getPosition() const { return m_position; }
 
-        // Orientation of gimbal
+        //! Orientation of gimbal
         inline const auto& getOrientation() const { return m_orientation; }
 
-        // Orthonormal [getXAxis(), getYAxis(), getZAxis()] orientation matrix
+        //! Orthonormal [getXAxis(), getYAxis(), getZAxis()] orientation matrix
         inline const auto& getOrthonornalMatrix() const { return m_orthonormal; }
 
-        // Base "right" vector in orthonormal orientation basis (X-axis)
+        //! Base "right" vector in orthonormal orientation basis (X-axis)
         inline const auto& getXAxis() const { return m_orthonormal[0u]; }
 
-        // Base "up" vector in orthonormal orientation basis (Y-axis)
+        //! Base "up" vector in orthonormal orientation basis (Y-axis)
         inline const auto& getYAxis() const { return m_orthonormal[1u]; }
 
-        // Base "forward" vector in orthonormal orientation basis (Z-axis)
+        //! Base "forward" vector in orthonormal orientation basis (Z-axis)
         inline const auto& getZAxis() const { return m_orthonormal[2u]; }
 
+        //! Target vector in local space, alias for getZAxis()
+        inline const auto getLocalTarget() const { return getZAxis(); }
+
+        //! Target vector in world space
+        inline const auto getWorldTarget() const { return getPosition() + getLocalTarget(); }
+
+        //! Counts how many times a valid manipulation has been performed, the counter resets when begin() is called
         inline const auto& getManipulationCounter() { return m_counter; }
+
+        //! Returns true if gimbal records a manipulation 
         inline bool isManipulating() const { return m_isManipulating; }
 
     private:
@@ -293,17 +322,23 @@ namespace nbl::hlsl
             m_orthonormal = matrix<precision_t, 3, 3>(glm::mat3_cast(glm::normalize(m_orientation)));
         }
 
+        //! Position of a gimbal in world space
         vector<precision_t, 3u> m_position;
-        glm::quat m_orientation; // TODO: precision
+
+        //! Normalized orientation of gimbal
+        //! TODO: precision + replace with our "quat at home"
+        glm::quat m_orientation;
+
+        //! Orthonormal base composed from "m_orientation" representing gimbal's "forward", "up" & "right" vectors in local space
         matrix<precision_t, 3, 3> m_orthonormal;
         
-        // Counts *performed* manipulations, a manipulation with 0 delta is not counted!
+        //! Counter that increments for each performed manipulation, resets with each begin() call
         size_t m_counter = {};
 
-        // Records manipulation state
+        //! Tracks whether gimbal is currently in manipulation mode
         bool m_isManipulating = false;
 
-        // the fact ImGUIZMO has global context I don't like, however for IDs we can do a life-tracking trick and cast addresses which are unique & we don't need any global associative container to track them!
+        //! The fact ImGUIZMO has global context I don't like, however for IDs we can do a life-tracking trick and cast addresses which are unique & we don't need any global associative container to track them!
         const uintptr_t m_id;
     };
 } // namespace nbl::hlsl
