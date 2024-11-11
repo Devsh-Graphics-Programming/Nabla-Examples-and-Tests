@@ -108,8 +108,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 		using clock_t = std::chrono::steady_clock;
 
-		constexpr static inline uint32_t WIN_W = 1280, WIN_H = 720, SC_IMG_COUNT = 3u, FRAMES_IN_FLIGHT = 5u;
-		static_assert(FRAMES_IN_FLIGHT > SC_IMG_COUNT);
+		constexpr static inline uint32_t WIN_W = 1280, WIN_H = 720;
+		constexpr static inline uint32_t MaxFramesInFlight = 3u;
 
 		constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
 
@@ -233,16 +233,9 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			if (!m_surface || !m_surface->init(gQueue, std::move(scResources), swapchainParams.sharedParams))
 				return logFail("Could not create Window & Surface or initialize the Surface!");
 
-			m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
-			if (FRAMES_IN_FLIGHT < m_maxFramesInFlight)
-			{
-				m_logger->log("Lowering frames in flight!", ILogger::ELL_WARNING);
-				m_maxFramesInFlight = FRAMES_IN_FLIGHT;
-			}
-
 			auto pool = m_device->createCommandPool(gQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 
-			for (auto i = 0u; i < m_maxFramesInFlight; i++)
+			for (auto i = 0u; i < MaxFramesInFlight; i++)
 			{
 				if (!pool)
 					return logFail("Couldn't create Command Pool!");
@@ -254,7 +247,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			m_surface->recreateSwapchain();
 
 			// create output images
-			for (uint32_t i = 0; i < m_maxFramesInFlight; i++)
+			for (uint32_t i = 0; i < MaxFramesInFlight; i++)
 			{
 				IGPUImage::SCreationParams imgInfo;
 				imgInfo.format = asset::EF_R16G16B16A16_SFLOAT;
@@ -353,9 +346,9 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
 
 				const std::array<IGPUDescriptorSetLayout*, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> dsLayoutPtrs = { descriptorSetLayout.get() };
-				const uint32_t setCounts[1u] = { m_maxFramesInFlight };
+				const uint32_t setCounts[1u] = { MaxFramesInFlight };
 				renderPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dsLayoutPtrs.begin(), dsLayoutPtrs.end()), setCounts);
-				for (uint32_t i = 0; i < m_maxFramesInFlight; i++)
+				for (uint32_t i = 0; i < MaxFramesInFlight; i++)
 					renderDs[i] = renderPool->createDescriptorSet(descriptorSetLayout);
 
 				SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0u, .size = sizeof(SPushConstants)};
@@ -368,7 +361,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			}
 
 			// write descriptors
-			for (uint32_t i = 0; i < m_maxFramesInFlight; i++)
+			for (uint32_t i = 0; i < MaxFramesInFlight; i++)
 			{
 				IGPUDescriptorSet::SDescriptorInfo infos[3];
 				infos[0].desc = gpuTlas;
@@ -400,15 +393,17 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 		inline void workLoopBody() override
 		{
-			const auto resourceIx = m_realFrameIx % m_maxFramesInFlight;
+			const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
 
-			if (m_realFrameIx >= m_maxFramesInFlight)
+			const uint32_t framesInFlight = core::min(MaxFramesInFlight, m_surface->getMaxAcquiresInFlight());
+
+			if (m_realFrameIx >= framesInFlight)
 			{
 				const ISemaphore::SWaitInfo cbDonePending[] =
 				{
 					{
 						.semaphore = m_semaphore.get(),
-						.value = m_realFrameIx + 1 - m_maxFramesInFlight
+						.value = m_realFrameIx + 1 - framesInFlight
 					}
 				};
 				if (m_device->blockForSemaphores(cbDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
@@ -1048,9 +1043,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 		smart_refctd_ptr<IWindow> m_window;
 		smart_refctd_ptr<CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>> m_surface;
 		smart_refctd_ptr<ISemaphore> m_semaphore;
-		uint64_t m_realFrameIx : 59 = 0;
-		uint64_t m_maxFramesInFlight : 5;
-		std::array<smart_refctd_ptr<IGPUCommandBuffer>, ISwapchain::MaxImages> m_cmdBufs;
+		uint64_t m_realFrameIx = 0;
+		std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
 		ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 
 		core::smart_refctd_ptr<InputSystem> m_inputSystem;
@@ -1068,10 +1062,10 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 		smart_refctd_ptr<IGPUBuffer> instancesBuffer;
 
 		smart_refctd_ptr<IGPUBuffer> cameraBuffer;
-		std::array<smart_refctd_ptr<IGPUImageView>, ISwapchain::MaxImages> outHDRImageViews;
+		std::array<smart_refctd_ptr<IGPUImageView>, MaxFramesInFlight> outHDRImageViews;
 
 		smart_refctd_ptr<IGPUComputePipeline> renderPipeline;
-		std::array<smart_refctd_ptr<IGPUDescriptorSet>, ISwapchain::MaxImages> renderDs;
+		std::array<smart_refctd_ptr<IGPUDescriptorSet>, MaxFramesInFlight> renderDs;
 		smart_refctd_ptr<IDescriptorPool> renderPool;
 
 		uint16_t gcIndex = {};
