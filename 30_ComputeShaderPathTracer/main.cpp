@@ -530,9 +530,15 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					const uint32_t texelBufferSize = scrambleMapCPU->getImageDataSizeInBytes();
 					auto texelBuffer = core::make_smart_refctd_ptr<ICPUBuffer>(texelBufferSize);
 
+					core::RandomSampler rng(0xbadc0ffeu);
 					auto out = reinterpret_cast<uint8_t *>(texelBuffer->getPointer());
-					for(auto index = 0u; index < texelBufferSize; index++)
-						out[index] = 0;
+					for (auto index = 0u; index < texelBufferSize; index += 4) {
+						auto sample = rng.nextSample();
+						out[index] = sample & 0xFF;
+						out[index + 1] = (sample >> 8) & 0xFF;
+						out[index + 2] = (sample >> 16) & 0xFF;
+						out[index + 3] = (sample >> 24) & 0xFF;
+					}
 
 					auto regions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1u);
 					ICPUImage::SBufferCopy& region = regions->front();
@@ -981,6 +987,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 				// safe to proceed
 				// upload buffer data
+				cmdbuf->beginDebugMarker("ComputeShaderPathtracer IMGUI Frame");
 				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 				{
 					auto mv = viewMatrix;
@@ -1002,11 +1009,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					m_intendedSubmit.scratchCommandBuffers = { &cmdbufInfo, 1 };
 					
 					m_utils->updateBufferRangeViaStagingBuffer(m_intendedSubmit, range, &viewParams);
-					m_utils->autoSubmit(m_intendedSubmit, [&](SIntendedSubmitInfo& nextSubmit) -> bool { return true; });
 				}
-
-				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-				cmdbuf->beginDebugMarker("ComputeShaderPathtracer IMGUI Frame");
 
 				// TRANSITION m_outImgView to GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
 				{
@@ -1014,8 +1017,10 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						{
 							.barrier = {
 								.dep = {
-									.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+									.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS,
+									.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
 									.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+									.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
 								}
 							},
 							.image = m_outImgView->getCreationParameters().image.get(),
