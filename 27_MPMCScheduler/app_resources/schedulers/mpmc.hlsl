@@ -1,8 +1,8 @@
-#ifndef _NBL_HLSL_MPMC_HLSL_
-#define _NBL_HLSL_MPMC_HLSL_
+#ifndef _NBL_HLSL_SCHEDULERS_MPMC_HLSL_
+#define _NBL_HLSL_SCHEDULERS_MPMC_HLSL_
 
-#include "workgroup/stack.hlsl"
-#include "mpmc_queue.hlsl"
+//#include "../workgroup/stack.hlsl"
+//#include "mpmc_queue.hlsl"
 
 #include "nbl/builtin/hlsl/workgroup/scratch_size.hlsl"
 #include "nbl/builtin/hlsl/workgroup/arithmetic.hlsl"
@@ -29,17 +29,20 @@ struct MPMC
         // already stole some work, need to spill
         if (nextValid)
         {
+#if 0
             // if the shared memory stack will overflow
             if (!sStack.push(payload))
             {
                 // spill to a global queue
                 gQueue.push(payload);
             }
+#endif
         }
         else
             next = payload;
     }
 
+#if 0
     // returns if there's any invocation at all that wants to pop
     uint16_t popCountInclusive_impl(out uint16_t reduction)
     {
@@ -61,6 +64,7 @@ struct MPMC
         sStack.accessor.get(PopCountOffset,reduction);
         return retval;
     }
+#endif
 
     void operator()()
     {
@@ -75,6 +79,7 @@ struct MPMC
                 nextValid = false;
                 tmp();
             }
+#if 0
             // everyone sync up here so we can count how many invocations won't have jobs
             glsl::barrier();
             uint16_t popCountInclusive = popCountInclusive_impl(popCount);
@@ -91,20 +96,20 @@ struct MPMC
                     gQueue.pop(sStack.accessor,!nextValid,next,popCountInclusive,lastInvocationInGroup,0);
                 }
             }
+#else
+            popCount = 0;
+#endif
         }
     }
 
-    MPMCQueue<Task> gQueue;
-    workgroup::Stack<Task,SharedAccessor,PopCountOffset+1> sStack;
+//    MPMCQueue<Task> gQueue;
+//    workgroup::Stack<Task,SharedAccessor,PopCountOffset+1> sStack;
     Task next;
     // popping work from the stack and queue might be expensive, expensive enough to not justify doing all the legwork to just pull a few items of work
     uint16_t sharedAcceptableIdleCount;
     uint16_t globalAcceptableIdleCount;
     bool nextValid;
 };
-
-}
-}
 
 }
 }
