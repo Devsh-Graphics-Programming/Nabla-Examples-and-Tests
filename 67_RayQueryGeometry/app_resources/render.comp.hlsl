@@ -19,6 +19,16 @@ cbuffer CameraData
 
 [[vk::binding(2, 0)]] RWTexture2D<float4> outImage;
 
+// TODO: don't know if this is correct
+float3 getNormalsFromMask(int bn, int mask)
+{
+    float3 n = (float3)0;
+    n.x = float(asint((bn >> 24) & mask));
+    n.y = float((bn >> 16) & mask);
+    n.z = float((bn >> 8) & mask);
+    return n;
+}
+
 [numthreads(WorkgroupSize, WorkgroupSize, 1)]
 void main(uint32_t3 threadID : SV_DispatchThreadID)
 {
@@ -46,7 +56,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     ray.Origin = params.camPos;
     ray.Direction = normalize(targetPos - params.camPos);
 
-    RayQuery<RAY_FLAG_NONE> query;
+    RayQuery<RAY_FLAG_FORCE_OPAQUE> query;
     query.TraceRayInline(topLevelAS, 0, 0xFF, ray);
 
     while (query.Proceed()) {}
@@ -56,31 +66,40 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
         const int primID = query.CommittedPrimitiveIndex();
 
         uint idxOffset = primID * 3;
-        VertexData v0, v1, v2;
+
+        // TODO: put into struct per geometry type
+        const uint vertexStride = 24;
+        const uint byteOffset = 18;
+        const uint bitMask = 0xff;
+
+        int v0, v1, v2;
 
         if (pc.indexBufferAddress != pc.vertexBufferAddress)
         {
-            uint i0 = vk::RawBufferLoad<uint16_t>(pc.indexBufferAddress + idxOffset * sizeof(uint16_t) + 0);
-            uint i1 = vk::RawBufferLoad<uint16_t>(pc.indexBufferAddress + idxOffset * sizeof(uint16_t) + 1);
-            uint i2 = vk::RawBufferLoad<uint16_t>(pc.indexBufferAddress + idxOffset * sizeof(uint16_t) + 2);
+            uint i0 = vk::RawBufferLoad<uint16_t>(pc.indexBufferAddress + (idxOffset + 0) * sizeof(uint16_t));
+            uint i1 = vk::RawBufferLoad<uint16_t>(pc.indexBufferAddress + (idxOffset + 1) * sizeof(uint16_t));
+            uint i2 = vk::RawBufferLoad<uint16_t>(pc.indexBufferAddress + (idxOffset + 2) * sizeof(uint16_t));
 
-            v0 = vk::RawBufferLoad<VertexData>(pc.vertexBufferAddress + i0 * sizeof(VertexData));
-            v1 = vk::RawBufferLoad<VertexData>(pc.vertexBufferAddress + i1 * sizeof(VertexData));
-            v2 = vk::RawBufferLoad<VertexData>(pc.vertexBufferAddress + i2 * sizeof(VertexData));
+            v0 = vk::RawBufferLoad<int>(pc.vertexBufferAddress + i0 * vertexStride + byteOffset);
+            v1 = vk::RawBufferLoad<int>(pc.vertexBufferAddress + i1 * vertexStride + byteOffset);
+            v2 = vk::RawBufferLoad<int>(pc.vertexBufferAddress + i2 * vertexStride + byteOffset);
         }
         else
         {
-            v0 = vk::RawBufferLoad<VertexData>(pc.vertexBufferAddress + idxOffset * sizeof(VertexData) + 0);
-            v1 = vk::RawBufferLoad<VertexData>(pc.vertexBufferAddress + idxOffset * sizeof(VertexData) + 1);
-            v2 = vk::RawBufferLoad<VertexData>(pc.vertexBufferAddress + idxOffset * sizeof(VertexData) + 2);
+            v0 = vk::RawBufferLoad<int>(pc.vertexBufferAddress + (idxOffset + 0) * vertexStride + byteOffset);
+            v1 = vk::RawBufferLoad<int>(pc.vertexBufferAddress + (idxOffset + 1) * vertexStride + byteOffset);
+            v2 = vk::RawBufferLoad<int>(pc.vertexBufferAddress + (idxOffset + 2) * vertexStride + byteOffset);
         }
-        
 
+        float3 n0 = getNormalsFromMask(v0, bitMask);
+        float3 n1 = getNormalsFromMask(v1, bitMask);
+        float3 n2 = getNormalsFromMask(v2, bitMask);
+        
         float3 barycentrics = float3(0.0, query.CommittedTriangleBarycentrics());
         barycentrics.x = 1.0 - barycentrics.y - barycentrics.z;
 
-        float3 normalInterp = barycentrics.x * v0.normal + barycentrics.y * v1.normal + barycentrics.z * v2.normal;
-        color = float4(normalInterp, 1.0);
+        float3 normalInterp = barycentrics.x * n0 + barycentrics.y * n1 + barycentrics.z * n2;
+        color = float4(normalInterp * 0.5 + 0.5, 1.0);
     }
 
     outImage[coords] = color;

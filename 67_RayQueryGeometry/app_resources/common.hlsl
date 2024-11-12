@@ -6,15 +6,13 @@
 NBL_CONSTEXPR uint32_t WorkgroupSize = 16;
 
 #ifdef __HLSL_VERSION
-struct VertexData
+struct VertexInfo
 {
-    float3 position;
-    float4 color;
-    float2 uv;
-    float3 normal;
+    uint vertexStride;
+    uint byteOffset;
 };
 
-struct SCameraParameters //! matches CPU version size & alignment (160, 4)
+struct SCameraParameters
 {
     float3 camPos;
 

@@ -292,7 +292,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			{
 				core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
 				core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
-				matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.1, 10000);
+				matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.1, 1000);
 				camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
 			}
 
@@ -766,6 +766,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				triangles.vertexStride = vertexStride;
 				triangles.vertexFormat = EF_R32G32B32_SFLOAT;
 				triangles.indexType = obj.indexType;
+				triangles.geometryFlags = IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::OPAQUE_BIT;
 
 				const auto blasFlags = bitflag(IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT) | IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_COMPACTION_BIT;
 
@@ -870,8 +871,11 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				const uint32_t instancesCount = 1;	// TODO: temporary for now
 				IGPUTopLevelAccelerationStructure::DeviceStaticInstance instances[instancesCount];
 				core::matrix3x4SIMD identity;
-				//instances[0].blas.deviceAddress = gpuBlas->getReferenceForDeviceOperations().deviceAddress;
 				instances[0].base.blas.deviceAddress = gpuBlas->getReferenceForDeviceOperations().deviceAddress;
+				instances[0].base.mask = 0xFF;
+				instances[0].base.instanceCustomIndex = 0;
+				instances[0].base.instanceShaderBindingTableRecordOffset = 0;
+				instances[0].base.flags = (uint32_t)IGPUTopLevelAccelerationStructure::INSTANCE_FLAGS::TRIANGLE_FACING_CULL_DISABLE_BIT;
 				instances[0].transform = identity;
 
 				{
