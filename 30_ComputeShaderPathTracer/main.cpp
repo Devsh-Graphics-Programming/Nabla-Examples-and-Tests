@@ -50,7 +50,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		constexpr static inline uint8_t SceneTextureIndex = 1u;
 		static inline std::string DefaultImagePathsFile = "../../media/envmap/envmap_0.exr";
 		static inline std::array<std::string, 3> PTShaderPaths = { "app_resources/litBySphere.comp", "app_resources/litByTriangle.comp", "app_resources/litByRectangle.comp" };
-		static inline std::string PresentShaderPath = "app_resources/present.frag";
+		static inline std::string PresentShaderPath = "app_resources/present.frag.hlsl";
 
 	public:
 		inline ComputeShaderPathtracer(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
@@ -197,6 +197,11 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					return logFail("Couldn't create Command Buffer!");
 			}
 
+			ISampler::SParams samplerParams = {
+				.AnisotropicFilter = 0
+			};
+			auto defaultSampler = m_device->createSampler(samplerParams);
+
 			// Create descriptors and pipeline for the pathtracer
 			{
 				auto convertDSLayoutCPU2GPU = [&](smart_refctd_ptr<ICPUDescriptorSetLayout> cpuLayout) {
@@ -219,7 +224,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					}
 
 					return gpuLayout;
-				};
+					};
 				auto convertDSCPU2GPU = [&](smart_refctd_ptr<ICPUDescriptorSet> cpuDS) {
 					auto converter = CAssetConverter::create({ .device = m_device.get() });
 					CAssetConverter::SInputs inputs = {};
@@ -240,17 +245,12 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					}
 
 					return gpuDS;
-				};
+					};
 
 				std::array<ICPUDescriptorSetLayout::SBinding, 1> descriptorSet0Bindings = {};
 				std::array<ICPUDescriptorSetLayout::SBinding, 1> uboBindings = {};
 				std::array<ICPUDescriptorSetLayout::SBinding, 3> descriptorSet3Bindings = {};
-				std::array<ICPUDescriptorSetLayout::SBinding, 1> presentDescriptorSetBindings = {};
 
-				ISampler::SParams samplerParams = {
-					.AnisotropicFilter = 0
-				};
-				auto defaultSampler = make_smart_refctd_ptr<ICPUSampler>(samplerParams);
 				descriptorSet0Bindings[0] = {
 					.binding = 0u,
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
@@ -291,9 +291,10 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					.count = 1u,
 					.immutableSamplers = nullptr
 				};
+				std::array<IGPUDescriptorSetLayout::SBinding, 1> presentDescriptorSetBindings;
 				presentDescriptorSetBindings[0] = {
 					.binding = 0u,
-					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 					.count = 1u,
@@ -303,22 +304,27 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				auto cpuDescriptorSetLayout0 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(descriptorSet0Bindings);
 				auto cpuDescriptorSetLayout1 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(uboBindings);
 				auto cpuDescriptorSetLayout2 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(descriptorSet3Bindings);
-				auto cpuPresentDescriptorSetLayout = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(presentDescriptorSetBindings);
 
 				auto gpuDescriptorSetLayout0 = convertDSLayoutCPU2GPU(cpuDescriptorSetLayout0);
 				auto gpuDescriptorSetLayout1 = convertDSLayoutCPU2GPU(cpuDescriptorSetLayout1);
 				auto gpuDescriptorSetLayout2 = convertDSLayoutCPU2GPU(cpuDescriptorSetLayout2);
-				auto gpuPresentDescriptorSetLayout = convertDSLayoutCPU2GPU(cpuPresentDescriptorSetLayout);
+				auto gpuPresentDescriptorSetLayout = m_device->createDescriptorSetLayout(presentDescriptorSetBindings);
 
 				auto cpuDescriptorSet0 = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuDescriptorSetLayout0));
 				auto cpuDescriptorSet1 = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuDescriptorSetLayout1));
 				auto cpuDescriptorSet2 = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuDescriptorSetLayout2));
-				auto cpuPresentDescriptorSet = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuPresentDescriptorSetLayout));
 
 				m_descriptorSet0 = convertDSCPU2GPU(cpuDescriptorSet0);
 				m_uboDescriptorSet1 = convertDSCPU2GPU(cpuDescriptorSet1);
 				m_descriptorSet2 = convertDSCPU2GPU(cpuDescriptorSet2);
-				m_presentDescriptorSet = convertDSCPU2GPU(cpuPresentDescriptorSet);
+
+				smart_refctd_ptr<IDescriptorPool> presentDSPool;
+				{
+					const video::IGPUDescriptorSetLayout* const layouts[] = { gpuPresentDescriptorSetLayout.get() };
+					const uint32_t setCounts[] = { 1u };
+					presentDSPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
+				}
+				m_presentDescriptorSet = presentDSPool->createDescriptorSet(gpuPresentDescriptorSetLayout);
 
 				// Create Shaders
 				auto loadAndCompileShader = [&](std::string pathToShader) {
@@ -331,8 +337,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						std::exit(-1);
 					}
 
-					auto x = assets[0]->getAssetType();
-					auto source = IAsset::castDown<ICPUShader>(assets[0]);
+					auto source = IAsset::castDown<ICPUShader>(std::move(assets[0]));
 					// The down-cast should not fail!
 					assert(source);
 
@@ -383,6 +388,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						.entryPoint = "main",
 						.shader = fragmentShader.get()
 					};
+
 					auto presentLayout = m_device->createPipelineLayout(
 						{},
 						core::smart_refctd_ptr(gpuPresentDescriptorSetLayout),
@@ -395,99 +401,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						return logFail("Could not create Graphics Pipeline!");
 
 				}
-
-				// Update Descriptors
-
-				ISampler::SParams samplerParams0 = {
-					ISampler::ETC_CLAMP_TO_EDGE,
-					ISampler::ETC_CLAMP_TO_EDGE,
-					ISampler::ETC_CLAMP_TO_EDGE,
-					ISampler::ETBC_FLOAT_OPAQUE_BLACK,
-					ISampler::ETF_LINEAR,
-					ISampler::ETF_LINEAR,
-					ISampler::ESMM_LINEAR,
-					0u,
-					false,
-					ECO_ALWAYS
-				};
-				auto sampler0 = m_device->createSampler(samplerParams0);
-				ISampler::SParams samplerParams1 = {
-					ISampler::ETC_CLAMP_TO_EDGE,
-					ISampler::ETC_CLAMP_TO_EDGE,
-					ISampler::ETC_CLAMP_TO_EDGE,
-					ISampler::ETBC_INT_OPAQUE_BLACK,
-					ISampler::ETF_NEAREST,
-					ISampler::ETF_NEAREST,
-					ISampler::ESMM_NEAREST,
-					0u,
-					false,
-					ECO_ALWAYS
-				};
-				auto sampler1 = m_device->createSampler(samplerParams1);
-
-				std::array<IGPUDescriptorSet::SDescriptorInfo, 6> writeDSInfos = {};
-				writeDSInfos[0].desc = m_outImgView;
-				writeDSInfos[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-				writeDSInfos[1].desc = m_ubo;
-				writeDSInfos[1].info.buffer.offset = 0ull;
-				writeDSInfos[1].info.buffer.size = sizeof(SBasicViewParametersAligned);
-				writeDSInfos[2].desc = m_envMapView;
-				// ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_FLOAT_OPAQUE_BLACK, ISampler::ETF_LINEAR, ISampler::ETF_LINEAR, ISampler::ESMM_LINEAR, 0u, false, ECO_ALWAYS };
-				writeDSInfos[2].info.combinedImageSampler.sampler = sampler0;
-				writeDSInfos[2].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				writeDSInfos[3].desc = m_sequenceBufferView;
-				writeDSInfos[4].desc = m_scrambleView;
-				// ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_INT_OPAQUE_BLACK, ISampler::ETF_NEAREST, ISampler::ETF_NEAREST, ISampler::ESMM_NEAREST, 0u, false, ECO_ALWAYS };
-				writeDSInfos[4].info.combinedImageSampler.sampler = sampler1;
-				writeDSInfos[4].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				writeDSInfos[5].desc = m_outImgView;
-				writeDSInfos[5].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-
-				std::array<IGPUDescriptorSet::SWriteDescriptorSet, 6> writeDescriptorSets = {};
-				writeDescriptorSets[0] = {
-					.dstSet = m_descriptorSet0.get(),
-					.binding = 0,
-					.arrayElement = 0u,
-					.count = 1u,
-					.info = &writeDSInfos[0]
-				};
-				writeDescriptorSets[1] = {
-					.dstSet = m_uboDescriptorSet1.get(),
-					.binding = 0,
-					.arrayElement = 0u,
-					.count = 1u,
-					.info = &writeDSInfos[1]
-				};
-				writeDescriptorSets[2] = {
-					.dstSet = m_descriptorSet2.get(),
-					.binding = 0,
-					.arrayElement = 0u,
-					.count = 1u,
-					.info = &writeDSInfos[2]
-				};
-				writeDescriptorSets[3] = {
-					.dstSet = m_descriptorSet2.get(),
-					.binding = 1,
-					.arrayElement = 0u,
-					.count = 1u,
-					.info = &writeDSInfos[3]
-				};
-				writeDescriptorSets[4] = {
-					.dstSet = m_descriptorSet2.get(),
-					.binding = 2,
-					.arrayElement = 0u,
-					.count = 1u,
-					.info = &writeDSInfos[4]
-				};
-				writeDescriptorSets[5] = {
-					.dstSet = m_presentDescriptorSet.get(),
-					.binding = 0,
-					.arrayElement = 0u,
-					.count = 1u,
-					.info = &writeDSInfos[5]
-				};
-
-				m_device->updateDescriptorSets(writeDescriptorSets, {});
 			}
 
 			// load CPUImages and convert to GPUImages
@@ -747,6 +660,100 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				}
 			}
 
+			// Update Descriptors
+			{
+				ISampler::SParams samplerParams0 = {
+					ISampler::ETC_CLAMP_TO_EDGE,
+					ISampler::ETC_CLAMP_TO_EDGE,
+					ISampler::ETC_CLAMP_TO_EDGE,
+					ISampler::ETBC_FLOAT_OPAQUE_BLACK,
+					ISampler::ETF_LINEAR,
+					ISampler::ETF_LINEAR,
+					ISampler::ESMM_LINEAR,
+					0u,
+					false,
+					ECO_ALWAYS
+				};
+				auto sampler0 = m_device->createSampler(samplerParams0);
+				ISampler::SParams samplerParams1 = {
+					ISampler::ETC_CLAMP_TO_EDGE,
+					ISampler::ETC_CLAMP_TO_EDGE,
+					ISampler::ETC_CLAMP_TO_EDGE,
+					ISampler::ETBC_INT_OPAQUE_BLACK,
+					ISampler::ETF_NEAREST,
+					ISampler::ETF_NEAREST,
+					ISampler::ESMM_NEAREST,
+					0u,
+					false,
+					ECO_ALWAYS
+				};
+				auto sampler1 = m_device->createSampler(samplerParams1);
+
+				std::array<IGPUDescriptorSet::SDescriptorInfo, 6> writeDSInfos = {};
+				writeDSInfos[0].desc = m_outImgView;
+				writeDSInfos[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				writeDSInfos[1].desc = m_ubo;
+				writeDSInfos[1].info.buffer.offset = 0ull;
+				writeDSInfos[1].info.buffer.size = sizeof(SBasicViewParametersAligned);
+				writeDSInfos[2].desc = m_envMapView;
+				// ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_FLOAT_OPAQUE_BLACK, ISampler::ETF_LINEAR, ISampler::ETF_LINEAR, ISampler::ESMM_LINEAR, 0u, false, ECO_ALWAYS };
+				writeDSInfos[2].info.combinedImageSampler.sampler = sampler0;
+				writeDSInfos[2].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				writeDSInfos[3].desc = m_sequenceBufferView;
+				writeDSInfos[4].desc = m_scrambleView;
+				// ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_INT_OPAQUE_BLACK, ISampler::ETF_NEAREST, ISampler::ETF_NEAREST, ISampler::ESMM_NEAREST, 0u, false, ECO_ALWAYS };
+				writeDSInfos[4].info.combinedImageSampler.sampler = sampler1;
+				writeDSInfos[4].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				writeDSInfos[5].desc = m_outImgView;
+				writeDSInfos[5].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+
+				std::array<IGPUDescriptorSet::SWriteDescriptorSet, 6> writeDescriptorSets = {};
+				writeDescriptorSets[0] = {
+					.dstSet = m_descriptorSet0.get(),
+					.binding = 0,
+					.arrayElement = 0u,
+					.count = 1u,
+					.info = &writeDSInfos[0]
+				};
+				writeDescriptorSets[1] = {
+					.dstSet = m_uboDescriptorSet1.get(),
+					.binding = 0,
+					.arrayElement = 0u,
+					.count = 1u,
+					.info = &writeDSInfos[1]
+				};
+				writeDescriptorSets[2] = {
+					.dstSet = m_descriptorSet2.get(),
+					.binding = 0,
+					.arrayElement = 0u,
+					.count = 1u,
+					.info = &writeDSInfos[2]
+				};
+				writeDescriptorSets[3] = {
+					.dstSet = m_descriptorSet2.get(),
+					.binding = 1,
+					.arrayElement = 0u,
+					.count = 1u,
+					.info = &writeDSInfos[3]
+				};
+				writeDescriptorSets[4] = {
+					.dstSet = m_descriptorSet2.get(),
+					.binding = 2,
+					.arrayElement = 0u,
+					.count = 1u,
+					.info = &writeDSInfos[4]
+				};
+				writeDescriptorSets[5] = {
+					.dstSet = m_presentDescriptorSet.get(),
+					.binding = 0,
+					.arrayElement = 0u,
+					.count = 1u,
+					.info = &writeDSInfos[5]
+				};
+
+				m_device->updateDescriptorSets(writeDescriptorSets, {});
+			}
+
 #if 0
 			// upload data
 			{
@@ -787,7 +794,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				}
 			}
 #endif
-
+			/*
 			// Create ui descriptors
 			{
 				using binding_flags_t = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS;
@@ -893,6 +900,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				}
 			);
 
+			*/
+
 			m_winMgr->setWindowSize(m_window.get(), WindowDimensions.x, WindowDimensions.y);
 			m_surface->recreateSwapchain();
 			m_winMgr->show(m_window.get());
@@ -904,6 +913,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 		bool updateGUIDescriptorSet()
 		{
+			/*
 			// texture atlas + our scene texture, note we don't create info & write pair for the font sampler because UI extension's is immutable and baked into DS layout
 			static std::array<IGPUDescriptorSet::SDescriptorInfo, MaxUITextureCount> descriptorInfo;
 			static IGPUDescriptorSet::SWriteDescriptorSet writes[MaxUITextureCount];
@@ -926,6 +936,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			writes[SceneTextureIndex].info = descriptorInfo.data() + SceneTextureIndex;
 
 			return m_device->updateDescriptorSets(writes, {});
+			*/
+
+			return true;
 		}
 
 		inline void workLoopBody() override
@@ -1217,7 +1230,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			}
 			if (move) m_camera.endInputProcessing(nextPresentationTimestamp);
 
-			const core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
+			/*const core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
 			const core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
 			const auto cursorPosition = m_window->getCursorControl()->getPosition();
 
@@ -1229,7 +1242,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				.keyboardEvents = keyboardEvents
 			};
 
-			m_ui.manager->update(params);
+			m_ui.manager->update(params);*/
 		}
 
 	private:
@@ -1266,7 +1279,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		smart_refctd_ptr<ISemaphore> m_scratchSemaphore;
 		SIntendedSubmitInfo m_intendedSubmit;
 
-		struct C_UI
+		/*struct C_UI
 		{
 			nbl::core::smart_refctd_ptr<nbl::ext::imgui::UI> manager;
 
@@ -1276,7 +1289,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			} samplers;
 
 			core::smart_refctd_ptr<IGPUDescriptorSet> descriptorSet;
-		} m_ui;
+		} m_ui; */
 
 		Camera m_camera;
 		video::CDumbPresentationOracle m_oracle;
