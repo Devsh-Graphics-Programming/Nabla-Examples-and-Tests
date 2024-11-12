@@ -15,7 +15,7 @@
 // Users MUST define this method for FFT to work
 uint32_t3 glsl::gl_WorkGroupSize() { return uint32_t3(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1); }
 
-[[vk::binding(0, 0)]] [[vk::image_format( FORMAT )]] RWTexture2D<float32_t2> kernelChannels[CHANNELS];
+[[vk::binding(0, 0)]] RWTexture2D<float32_t2> kernelChannels[CHANNELS];
 
 // ---------------------------------------------------- Utils ---------------------------------------------------------
 uint64_t rowMajorOffset(uint32_t x, uint32_t y)

@@ -12,7 +12,7 @@
 
 #define FFT_LENGTH (_NBL_HLSL_WORKGROUP_SIZE_ * ELEMENTS_PER_THREAD)
 
-[[vk::binding(0, 0)]] [[vk::image_format( FORMAT )]] RWTexture2D<float32_t4> convolvedImage;
+[[vk::binding(0, 0)]] RWTexture2D<float32_t4> convolvedImage;
 
 groupshared uint32_t sharedmem[workgroup::fft::SharedMemoryDWORDs<scalar_t, _NBL_HLSL_WORKGROUP_SIZE_>];
 

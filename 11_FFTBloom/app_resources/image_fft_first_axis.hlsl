@@ -9,8 +9,7 @@
  * FORMAT
 */
 
-// Can't specify format
-[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] /* [[vk::image_format(rgba16f)]]*/ Texture2D<float32_t4> texture;
+[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2D<float32_t4> texture;
 [[vk::combinedImageSampler]] [[vk::binding(0, 0)]] SamplerState samplerState;
 
 #define FFT_LENGTH (_NBL_HLSL_WORKGROUP_SIZE_ * ELEMENTS_PER_THREAD)

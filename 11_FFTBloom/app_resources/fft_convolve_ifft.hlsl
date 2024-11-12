@@ -9,9 +9,8 @@
  * FORMAT
 */
 
-// Can't specify format
-/* [[vk::combinedImageSampler]]*/ [[vk::binding(0, 0)]] /* [[vk::image_format(FORMAT)]]*/ Texture2D<float32_t2> kernelChannels[CHANNELS] : register(t0);
-/* [[vk::combinedImageSampler]]*/ [[vk::binding(0, 0)]] SamplerState samplerState[CHANNELS] : register(s0);
+[[vk::binding(0, 0)]] Texture2D<float32_t2> kernelChannels[CHANNELS];
+[[vk::binding(0, 0)]] SamplerState samplerState[CHANNELS];
 
 #define FFT_LENGTH (_NBL_HLSL_WORKGROUP_SIZE_ * ELEMENTS_PER_THREAD)
 
