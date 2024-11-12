@@ -700,18 +700,11 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				obj.bindings.vertex.offset = 0u;
 				auto vertexBuffer = m_device->createBuffer(IGPUBuffer::SCreationParams({.size = vBuffer->getSize(), .usage = vUsage}));
 
-				//if (!vertexBuffer)
-				//	return false;
-
 				auto iBuffer = smart_refctd_ptr(geom.data.indexBuffer.buffer); // no offset
 				auto iUsage = bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF |
 					asset::IBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 				obj.bindings.index.offset = 0u;
 				auto indexBuffer = iBuffer ? m_device->createBuffer(IGPUBuffer::SCreationParams({ .size = iBuffer->getSize(), .usage = iUsage })) : nullptr;
-
-				//if (geom.data.indexType != EIT_UNKNOWN)
-				//	if (!indexBuffer)
-				//		return false;
 
 				for (auto buf : { vertexBuffer, indexBuffer })
 				{
@@ -751,7 +744,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			{
 				const auto& obj = objectsGpu[OT_CUBE];
 
-				const uint32_t vertexStride = obj.vertexStride;	// TODO: vary by object type, this is standard triangles for sphere etc.
+				const uint32_t vertexStride = obj.vertexStride;
 				const uint32_t numVertices = obj.bindings.vertex.buffer->getSize() / vertexStride;
 				uint32_t trisCount;
 				if (obj.useIndex())
@@ -838,33 +831,39 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 			cmdbufSubmitAndWait(cmdbufBlas, getComputeQueue(), 39);
 
-// TODO: SUBMIT THE BLAS BUILD FIRST AND AWAIT ITS COMPLETION WITH A SEMAPHORE SIGNAL
+			//auto cmdbufCompact = getSingleUseCommandBufferAndBegin(pool);
 
-			auto cmdbufTlas = getSingleUseCommandBufferAndBegin(pool);
-
-			//size_t asSizes[1];
-			//m_device->getQueryPoolResults(queryPool.get(), 0, queryCount, asSizes, sizeof(size_t), IQueryPool::WAIT_BIT);
-			//
-			//auto cleanupBlas = gpuBlas;
+			// compact blas, TODO loop individually per geometry?
 			//{
-			//	IGPUBuffer::SCreationParams params;
-			//	params.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_ACCELERATION_STRUCTURE_STORAGE_BIT;
-			//	params.size = asSizes[0];
-			//	smart_refctd_ptr<IGPUBuffer> asBuffer = createBuffer(params);
+			//	size_t asSizes[1];
+			//	queryCount = 0;
+			//	m_device->getQueryPoolResults(queryPool.get(), 0, queryCount, asSizes, sizeof(size_t), IQueryPool::WAIT_BIT);
 
-			//	IGPUBottomLevelAccelerationStructure::SCreationParams blasParams;
-			//	blasParams.bufferRange.buffer = asBuffer;
-			//	blasParams.bufferRange.offset = 0u;
-			//	blasParams.bufferRange.size = asSizes[0];
-			//	blasParams.flags = IGPUBottomLevelAccelerationStructure::SCreationParams::FLAGS::NONE;
-			//	gpuBlas = m_device->createBottomLevelAccelerationStructure(std::move(blasParams));
+			//	auto cleanupBlas = gpuBlas;
+			//	{
+			//		IGPUBuffer::SCreationParams params;
+			//		params.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_ACCELERATION_STRUCTURE_STORAGE_BIT;
+			//		params.size = asSizes[0];
+			//		smart_refctd_ptr<IGPUBuffer> asBuffer = createBuffer(params);
+
+			//		IGPUBottomLevelAccelerationStructure::SCreationParams blasParams;
+			//		blasParams.bufferRange.buffer = asBuffer;
+			//		blasParams.bufferRange.offset = 0u;
+			//		blasParams.bufferRange.size = asSizes[0];
+			//		blasParams.flags = IGPUBottomLevelAccelerationStructure::SCreationParams::FLAGS::NONE;
+			//		gpuBlas = m_device->createBottomLevelAccelerationStructure(std::move(blasParams));
+			//	}
+
+			//	IGPUBottomLevelAccelerationStructure::CopyInfo copyInfo;
+			//	copyInfo.src = cleanupBlas.get();
+			//	copyInfo.dst = gpuBlas.get();
+			//	copyInfo.mode = IGPUBottomLevelAccelerationStructure::COPY_MODE::COMPACT;
+			//	cmdbufTlas->copyAccelerationStructure(copyInfo);
 			//}
 
-			//IGPUBottomLevelAccelerationStructure::CopyInfo copyInfo;
-			//copyInfo.src = cleanupBlas.get();
-			//copyInfo.dst = gpuBlas.get();
-			//copyInfo.mode = IGPUBottomLevelAccelerationStructure::COPY_MODE::COMPACT;
-			//cmdbuf->copyAccelerationStructure(copyInfo);
+			//cmdbufSubmitAndWait(cmdbufCompact, getComputeQueue(), 40);
+
+			auto cmdbufTlas = getSingleUseCommandBufferAndBegin(pool);
 
 			// build top level AS
 			{

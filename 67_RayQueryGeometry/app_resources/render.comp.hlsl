@@ -91,15 +91,15 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
             v2 = vk::RawBufferLoad<int>(pc.vertexBufferAddress + (idxOffset + 2) * vertexStride + byteOffset);
         }
 
-        float3 n0 = getNormalsFromMask(v0, bitMask);
-        float3 n1 = getNormalsFromMask(v1, bitMask);
-        float3 n2 = getNormalsFromMask(v2, bitMask);
+        float3 n0 = getNormalsFromMask(v0, bitMask) * 0.5 + 0.5;
+        float3 n1 = getNormalsFromMask(v1, bitMask) * 0.5 + 0.5;
+        float3 n2 = getNormalsFromMask(v2, bitMask) * 0.5 + 0.5;
         
         float3 barycentrics = float3(0.0, query.CommittedTriangleBarycentrics());
         barycentrics.x = 1.0 - barycentrics.y - barycentrics.z;
 
         float3 normalInterp = barycentrics.x * n0 + barycentrics.y * n1 + barycentrics.z * n2;
-        color = float4(normalInterp * 0.5 + 0.5, 1.0);
+        color = float4(normalInterp, 1.0);
     }
 
     outImage[coords] = color;
