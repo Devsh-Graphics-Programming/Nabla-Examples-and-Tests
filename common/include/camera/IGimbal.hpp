@@ -102,6 +102,7 @@ namespace nbl::hlsl
             vector<precision_t, 3u> dVirtualTranslate { 0.0f }, dVirtualRotation { 0.0f }, dVirtualScale { 0.0f };
         };
 
+        // TODO: document it
         template <uint32_t AllowedEvents>
         VirtualImpulse accumulate(std::span<const CVirtualGimbalEvent> virtualEvents, const vector<precision_t, 3u>& gRightOverride, const vector<precision_t, 3u>& gUpOverride, const vector<precision_t, 3u>& gForwardOverride)
         {

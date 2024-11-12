@@ -53,7 +53,9 @@ public:
 
             case base_t::World: 
             {
-                const auto transform = m_gimbal.accumulate<AllowedWorldVirtualEvents>(virtualEvents);
+                // TODO: I make assumption what world base is now (at least temporary), I need to think of this but maybe each ITransformObject should know what its world is
+                // in ideal scenario we would define this crazy enum with all possible standard bases but in Nabla we only really care about LH/RH coordinate systems
+                const auto transform = m_gimbal.accumulate<AllowedWorldVirtualEvents>(virtualEvents, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 });
                 const auto newPitch = std::clamp(transform.dVirtualRotation.x, MinVerticalAngle, MaxVerticalAngle), newYaw = transform.dVirtualRotation.y;
                 newOrientation = glm::quat(glm::vec3(newPitch, newYaw, 0.0f)); newPosition = transform.dVirtualTranslate;
             } break;
@@ -67,10 +69,13 @@ public:
         {
             m_gimbal.setOrientation(newOrientation);
             m_gimbal.setPosition(newPosition);
-            m_gimbal.updateView();
-            manipulated &= bool(m_gimbal.getManipulationCounter());
         }
         m_gimbal.end();
+
+        manipulated &= bool(m_gimbal.getManipulationCounter());
+
+        if(manipulated)
+            m_gimbal.updateView();
 
         return manipulated;
     }
