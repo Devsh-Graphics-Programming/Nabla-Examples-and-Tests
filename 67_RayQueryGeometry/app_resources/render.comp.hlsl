@@ -1,5 +1,7 @@
 #include "common.hlsl"
 
+#include "nbl/builtin/hlsl/spirv_intrinsics/core.hlsl"
+
 struct SPushConstants
 {
     uint64_t vertexBufferAddress;
@@ -19,14 +21,12 @@ cbuffer CameraData
 
 [[vk::binding(2, 0)]] RWTexture2D<float4> outImage;
 
-// TODO: don't know if this is correct
-float3 getNormalsFromMask(int bn, int mask)
+float3 getNormalsFromMask(uint32_t n)
 {
-    float3 n = (float3)0;
-    n.x = float(asint((bn >> 24) & mask));
-    n.y = float((bn >> 16) & mask);
-    n.z = float((bn >> 8) & mask);
-    return n;
+    // this still doesn't feel right
+    // int8_t3 --> SSCALED (converts to float) --> unpackUnorm (read as uint --> float / 255)
+    float4 v = nbl::hlsl::spirv::unpackUnorm4x8(n) * 255.0;
+    return v.xyz;
 }
 
 [numthreads(WorkgroupSize, WorkgroupSize, 1)]
@@ -91,9 +91,9 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
             v2 = vk::RawBufferLoad<int>(pc.vertexBufferAddress + (idxOffset + 2) * vertexStride + byteOffset);
         }
 
-        float3 n0 = getNormalsFromMask(v0, bitMask) * 0.5 + 0.5;
-        float3 n1 = getNormalsFromMask(v1, bitMask) * 0.5 + 0.5;
-        float3 n2 = getNormalsFromMask(v2, bitMask) * 0.5 + 0.5;
+        float3 n0 = getNormalsFromMask(v0) * 0.5 + 0.5;
+        float3 n1 = getNormalsFromMask(v1) * 0.5 + 0.5;
+        float3 n2 = getNormalsFromMask(v2) * 0.5 + 0.5;
         
         float3 barycentrics = float3(0.0, query.CommittedTriangleBarycentrics());
         barycentrics.x = 1.0 - barycentrics.y - barycentrics.z;
