@@ -191,7 +191,7 @@ public:
 		auto workgroupTestSource = getShaderSource("app_resources/testWorkgroup.comp.hlsl");
 		// now create or retrieve final resources to run our tests
 		sema = m_device->createSemaphore(timelineValue);
-		resultsBuffer = make_smart_refctd_ptr<ICPUBuffer>(outputBuffers[0]->getSize());
+		resultsBuffer = ICPUBuffer::create({ outputBuffers[0]->getSize() });
 		{
 			smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(computeQueue->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 			if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{&cmdbuf,1}))

@@ -302,7 +302,7 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 			gpuComputeShader = (*gpu_array)[0];
 		}
 
-		auto cpuSSBOBuffer = core::make_smart_refctd_ptr<ICPUBuffer>(sizeof(SShaderStorageBufferObject));
+		auto cpuSSBOBuffer = ICPUBuffer::create({ sizeof(SShaderStorageBufferObject) });
 		cpuSSBOBuffer->addUsageFlags(asset::IBuffer::EUF_STORAGE_BUFFER_BIT);
 		triggerRandomSetup(reinterpret_cast<SShaderStorageBufferObject*>(cpuSSBOBuffer->getPointer()));
 		core::smart_refctd_ptr<video::IGPUBuffer> gpuSSBOBuffer;

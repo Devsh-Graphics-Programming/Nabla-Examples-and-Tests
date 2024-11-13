@@ -758,7 +758,7 @@ public:
 			constexpr uint32_t MaxSamples = ENVMAP_SAMPLE_COUNT;
 			constexpr uint32_t Channels = 3u;
 
-			auto sampleSequence = core::make_smart_refctd_ptr<asset::ICPUBuffer>(sizeof(uint32_t) * MaxSamples * Channels);
+			auto sampleSequence = asset::ICPUBuffer::create({ sizeof(uint32_t) * MaxSamples * Channels });
 
 			core::OwenSampler sampler(Channels, 0xdeadbeefu);
 
@@ -801,7 +801,7 @@ public:
 					pixel = rng.nextSample();
 			}
 
-			auto cpuBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(random.size() * sizeof(uint32_t));
+			auto cpuBuffer = asset::ICPUBuffer::create({ random.size() * sizeof(uint32_t) });
 			memcpy(cpuBuffer->getPointer(), random.data(), cpuBuffer->getSize());
 			//auto gpuSSBOOffsetBufferPair = cpu2gpu.getGPUObjectsFromAssets(&cpuBuffer, &cpuBuffer + 1u, cpu2gpuParams)->begin()[0];
 			//cpu2gpuParams.waitForCreationToComplete();
@@ -823,7 +823,7 @@ public:
 
 		gpuDS2 = logicalDevice->createDescriptorSet(descriptorPool.get(), std::move(gpuDS2Layout));
 		{
-			auto cpuBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(lights.size() * sizeof(SLight));
+			auto cpuBuffer = asset::ICPUBuffer::create({ lights.size() * sizeof(SLight) });
 			memcpy(cpuBuffer->getPointer(), lights.data(), cpuBuffer->getSize());
 			auto gpuSSBOOffsetBufferPair = cpu2gpu.getGPUObjectsFromAssets(&cpuBuffer, &cpuBuffer + 1u, cpu2gpuParams)->begin()[0];
 			cpu2gpuParams.waitForCreationToComplete();
@@ -1504,7 +1504,7 @@ public:
 //		constexpr uint32_t MaxSamples = ENVMAP_SAMPLE_COUNT;
 //		constexpr uint32_t Channels = 3u;
 //
-//		auto sampleSequence = core::make_smart_refctd_ptr<asset::ICPUBuffer>(sizeof(uint32_t) * MaxSamples * Channels);
+//		auto sampleSequence = asset::ICPUBuffer::create({ sizeof(uint32_t) * MaxSamples * Channels });
 //
 //		core::OwenSampler sampler(Channels, 0xdeadbeefu);
 //
@@ -1547,7 +1547,7 @@ public:
 //				pixel = rng.nextSample();
 //		}
 //
-//		auto cpuBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(random.size() * sizeof(uint32_t));
+//		auto cpuBuffer = asset::ICPUBuffer::create({ random.size() * sizeof(uint32_t) });
 //		memcpy(cpuBuffer->getPointer(), random.data(), cpuBuffer->getSize());
 //		//auto gpuSSBOOffsetBufferPair = cpu2gpu.getGPUObjectsFromAssets(&cpuBuffer, &cpuBuffer + 1u, cpu2gpuParams)->begin()[0];
 //		//cpu2gpuParams.waitForCreationToComplete();
@@ -1569,7 +1569,7 @@ public:
 //
 //	auto gpuDS2 = logicalDevice->createDescriptorSet(descriptorPool.get(), std::move(gpuDS2Layout));
 //	{
-//		auto cpuBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(lights.size() * sizeof(SLight));
+//		auto cpuBuffer = asset::ICPUBuffer::create({ lights.size() * sizeof(SLight) });
 //		memcpy(cpuBuffer->getPointer(), lights.data(), cpuBuffer->getSize());
 //		auto gpuSSBOOffsetBufferPair = cpu2gpu.getGPUObjectsFromAssets(&cpuBuffer, &cpuBuffer + 1u, cpu2gpuParams)->begin()[0];
 //		cpu2gpuParams.waitForCreationToComplete();

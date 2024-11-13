@@ -42,7 +42,7 @@ R"===(#version 430 core
 	const size_t extraSize = 4u+8u+8u+128u;
 	
 	constexpr uint32_t DEFAULT_WORK_GROUP_SIZE = FFTClass::DEFAULT_WORK_GROUP_SIZE;
-	auto shader = core::make_smart_refctd_ptr<ICPUBuffer>(strlen(sourceFmt)+extraSize+1u);
+	auto shader = ICPUBuffer::create({ strlen(sourceFmt)+extraSize+1u });
 	snprintf(
 		reinterpret_cast<char*>(shader->getPointer()),shader->getSize(), sourceFmt,
 		DEFAULT_WORK_GROUP_SIZE,

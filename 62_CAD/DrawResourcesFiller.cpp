@@ -19,7 +19,7 @@ void DrawResourcesFiller::allocateIndexBuffer(ILogicalDevice* logicalDevice, uin
 {
 	maxIndexCount = maxIndices;
 	const size_t indexBufferSize = maxIndices * sizeof(index_buffer_type);
-	auto indexBuffer = make_smart_refctd_ptr<ICPUBuffer>(indexBufferSize);
+	auto indexBuffer = ICPUBuffer::create({ indexBufferSize });
 
 	index_buffer_type* indices = reinterpret_cast<index_buffer_type*>(indexBuffer->getPointer());
 	for (uint32_t i = 0u; i < maxIndices / 6u; ++i)
@@ -57,7 +57,7 @@ void DrawResourcesFiller::allocateMainObjectsBuffer(ILogicalDevice* logicalDevic
 	memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 	auto mainObjectsBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.mainObjectsBuffer.get());
 
-	cpuDrawBuffers.mainObjectsBuffer = make_smart_refctd_ptr<ICPUBuffer>(mainObjectsBufferSize);
+	cpuDrawBuffers.mainObjectsBuffer = ICPUBuffer::create({ mainObjectsBufferSize });
 }
 
 void DrawResourcesFiller::allocateDrawObjectsBuffer(ILogicalDevice* logicalDevice, uint32_t drawObjects)
@@ -75,7 +75,7 @@ void DrawResourcesFiller::allocateDrawObjectsBuffer(ILogicalDevice* logicalDevic
 	memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 	auto drawObjectsBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.drawObjectsBuffer.get());
 
-	cpuDrawBuffers.drawObjectsBuffer = make_smart_refctd_ptr<ICPUBuffer>(drawObjectsBufferSize);
+	cpuDrawBuffers.drawObjectsBuffer = ICPUBuffer::create({ drawObjectsBufferSize });
 }
 
 void DrawResourcesFiller::allocateGeometryBuffer(ILogicalDevice* logicalDevice, size_t size)
@@ -93,7 +93,7 @@ void DrawResourcesFiller::allocateGeometryBuffer(ILogicalDevice* logicalDevice, 
 	auto geometryBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.geometryBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
 	geometryBufferAddress = gpuDrawBuffers.geometryBuffer->getDeviceAddress();
 
-	cpuDrawBuffers.geometryBuffer = make_smart_refctd_ptr<ICPUBuffer>(size);
+	cpuDrawBuffers.geometryBuffer = ICPUBuffer::create({ size });
 }
 
 void DrawResourcesFiller::allocateStylesBuffer(ILogicalDevice* logicalDevice, uint32_t lineStylesCount)
@@ -112,7 +112,7 @@ void DrawResourcesFiller::allocateStylesBuffer(ILogicalDevice* logicalDevice, ui
 		memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 		auto stylesBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.lineStylesBuffer.get());
 
-		cpuDrawBuffers.lineStylesBuffer = make_smart_refctd_ptr<ICPUBuffer>(lineStylesBufferSize);
+		cpuDrawBuffers.lineStylesBuffer = ICPUBuffer::create({ lineStylesBufferSize });
 	}
 }
 
