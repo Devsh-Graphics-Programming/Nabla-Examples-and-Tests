@@ -21,7 +21,7 @@ cbuffer CameraData
 
 [[vk::binding(2, 0)]] RWTexture2D<float4> outImage;
 
-float3 getNormalsFromMask(uint32_t n)
+float3 getNormalsFromMask(uint32_t n)   // also probably need template specialization for each geometry XD
 {
     // this still doesn't feel right
     // int8_t3 --> SSCALED (converts to float) --> unpackUnorm (read as uint --> float / 255)
@@ -70,14 +70,15 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
         // TODO: put into struct per geometry type
         const uint vertexStride = 24;
         const uint byteOffset = 18;
+        const uint indexType = 0;   // value from obj.indexType
 
         uint32_t v0, v1, v2;
 
-        if (pc.indexBufferAddress != pc.vertexBufferAddress)
+        if (indexType != 2)
         {
-            uint i0 = vk::RawBufferLoad<uint16_t>(pc.indexBufferAddress + (idxOffset + 0) * sizeof(uint16_t));
-            uint i1 = vk::RawBufferLoad<uint16_t>(pc.indexBufferAddress + (idxOffset + 1) * sizeof(uint16_t));
-            uint i2 = vk::RawBufferLoad<uint16_t>(pc.indexBufferAddress + (idxOffset + 2) * sizeof(uint16_t));
+            uint i0 = getIndex<indexType>(pc.indexBufferAddress, idxOffset + 0);
+            uint i1 = getIndex<indexType>(pc.indexBufferAddress, idxOffset + 1);
+            uint i2 = getIndex<indexType>(pc.indexBufferAddress, idxOffset + 2);
 
             v0 = vk::RawBufferLoad<uint32_t>(pc.vertexBufferAddress + i0 * vertexStride + byteOffset);
             v1 = vk::RawBufferLoad<uint32_t>(pc.vertexBufferAddress + i1 * vertexStride + byteOffset);
