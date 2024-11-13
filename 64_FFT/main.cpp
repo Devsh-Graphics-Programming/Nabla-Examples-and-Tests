@@ -192,14 +192,14 @@ public:
 			{
 				//Random array
 
-				scalar_t x = rng() / scalar_t(nbl::hlsl::numeric_limits<decltype(rng())>::max), y = rng() / scalar_t(nbl::hlsl::numeric_limits<decltype(rng())>::max);
+				//scalar_t x = rng() / scalar_t(nbl::hlsl::numeric_limits<decltype(rng())>::max), y = rng() / scalar_t(nbl::hlsl::numeric_limits<decltype(rng())>::max);
 
 				// FFT( (1,0), (0,0), (0,0),... ) = (1,0), (1,0), (1,0),...
 				
-				/*
+				
 				scalar_t x = j > 0 ? 0.f : 1.f;
 				scalar_t y = 0;
-				*/
+				
 				
 				// FFT( (c,0), (c,0), (c,0),... ) = (Nc,0), (0,0), (0,0),...
 				

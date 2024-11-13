@@ -48,7 +48,7 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 	smart_refctd_ptr<IGPUImageView> m_kerImageView;
 	smart_refctd_ptr<IGPUImage> m_outImg;
 	smart_refctd_ptr<IGPUImageView> m_outImgView;
-	smart_refctd_ptr<IGPUImageView> m_kernelNormalizedSpectrums[CHANNELS];
+	smart_refctd_ptr<IGPUImageView> m_kernelNormalizedSpectrums[Channels];
 
 	// Used to store intermediate results
 	smart_refctd_ptr<IGPUBuffer> m_rowMajorBuffer;
@@ -111,16 +111,16 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 
 	inline void updateDescriptorSetConvolutionAndNormalization(IGPUDescriptorSet* set, const smart_refctd_ptr<IGPUImageView>* kernelNormalizedSpectrumImageDescriptors, IImage::LAYOUT layout)
 	{
-		IGPUDescriptorSet::SDescriptorInfo pInfos[CHANNELS];
+		IGPUDescriptorSet::SDescriptorInfo pInfos[Channels];
 		IGPUDescriptorSet::SWriteDescriptorSet write;
 
 		write.dstSet = set;
 		write.binding = 0;
 		write.arrayElement = 0u;
-		write.count = CHANNELS;
+		write.count = Channels;
 		write.info = pInfos;
 
-		for (uint32_t i = 0u; i < CHANNELS; i++)
+		for (uint32_t i = 0u; i < Channels; i++)
 		{
 			auto& info = pInfos[i];
 			info.desc = kernelNormalizedSpectrumImageDescriptors[i];
@@ -161,19 +161,19 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 
 	inline core::smart_refctd_ptr<video::IGPUShader> createShader(
 		const char* includeMainName,
-		uint32_t workgroupSize,
-		uint32_t elementsPerThread,
+		uint32_t workgroupSizeLog2,
+		uint32_t elementsPerThreadLog2,
 		float kernelScale = 1.f)
 	{
 
 		const char* sourceFmt =
 			R"===(
-		#define _NBL_HLSL_WORKGROUP_SIZE_ %u
-		#define ELEMENTS_PER_THREAD %u
-		
-		#define KERNEL_SCALE %f
-		#define scalar_t %s
-		#define FORMAT %s
+		#include "nbl/builtin/hlsl/workgroup/fft.hlsl"
+		struct ConstevalParameters
+		{
+			using FFTParameters = nbl::hlsl::workgroup::fft::ConstevalParameters<%u, %u, %s>;
+			NBL_CONSTEXPR_STATIC_INLINE float32_t KernelScale = %f;
+		};
  
 		#include "%s"
 
@@ -184,11 +184,10 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 		auto shader = core::make_smart_refctd_ptr<ICPUBuffer>(strlen(sourceFmt) + extraSize + 1u);
 		snprintf(
 			reinterpret_cast<char*>(shader->getPointer()), shader->getSize(), sourceFmt,
-			workgroupSize,
-			elementsPerThread,
-			kernelScale,
+			elementsPerThreadLog2,
+			workgroupSizeLog2,
 			useHalfFloats ? "float16_t" : "float32_t",
-			useHalfFloats ? "\"rg16f\"" : "\"rg32f\"",
+			kernelScale,
 			includeMainName
 		);
 
@@ -335,8 +334,8 @@ public:
 			auto srcImageDims = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
 			auto kerImageDims = m_kerImageView->getCreationParameters().image->getCreationParameters().extent;
 			// Add a bit extra because EXR has alpha
-			uint32_t srcImageSize = srcImageDims.height * srcImageDims.width * srcImageDims.depth * (CHANNELS + 1) * sizeof(float32_t);
-			uint32_t kerImageSize = kerImageDims.height * kerImageDims.width * kerImageDims.depth * (CHANNELS + 1) * sizeof(float32_t);
+			uint32_t srcImageSize = srcImageDims.height * srcImageDims.width * srcImageDims.depth * (Channels + 1) * sizeof(float32_t);
+			uint32_t kerImageSize = kerImageDims.height * kerImageDims.width * kerImageDims.depth * (Channels + 1) * sizeof(float32_t);
 
 			m_utils = make_smart_refctd_ptr<IUtilities>(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), srcImageSize, srcImageSize + kerImageSize);
 
@@ -419,8 +418,8 @@ public:
 		uint32_t srcNumChannels = getFormatChannelCount(srcFormat);
 		uint32_t kerNumChannels = getFormatChannelCount(m_kerImageView->getCreationParameters().format);
 		//! OVERRIDE (we dont need alpha)
-		srcNumChannels = CHANNELS;
-		kerNumChannels = CHANNELS;
+		srcNumChannels = Channels;
+		kerNumChannels = Channels;
 		assert(srcNumChannels == kerNumChannels); // Just to make sure, because the other case is not handled in this example
 
 		// Compute (kernel) padding size
@@ -504,8 +503,8 @@ public:
 		smart_refctd_ptr<IGPUPipelineLayout> lastAxisFFT_convolution_lastAxisIFFTPipelineLayout;
 		{
 			auto sampler = createSampler(ISampler::E_TEXTURE_CLAMP::ETC_MIRROR);
-			smart_refctd_ptr<IGPUSampler> samplers[CHANNELS];
-			std::fill_n(samplers, CHANNELS, sampler);
+			smart_refctd_ptr<IGPUSampler> samplers[Channels];
+			std::fill_n(samplers, Channels, sampler);
 			IGPUDescriptorSetLayout::SBinding bnd =
 			{
 				IDescriptorSetLayoutBase::SBindingBase(),
@@ -513,7 +512,7 @@ public:
 				IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 				IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 				IShader::E_SHADER_STAGE::ESS_COMPUTE,
-				CHANNELS,
+				Channels,
 				samplers
 			};
 
@@ -602,7 +601,7 @@ public:
 					IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
 					IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					IShader::E_SHADER_STAGE::ESS_COMPUTE,
-					CHANNELS,
+					Channels,
 					nullptr
 				};
 
@@ -645,7 +644,7 @@ public:
 					return m_device->createImageView(std::move(viewParams));
 				};
 
-			for (uint32_t i = 0u; i < CHANNELS; i++)
+			for (uint32_t i = 0u; i < Channels; i++)
 				m_kernelNormalizedSpectrums[i] = createKernelSpectrum();
 
 			// Give them names
@@ -689,9 +688,9 @@ public:
 
 			// Create shaders
 			smart_refctd_ptr<IGPUShader> shaders[3];
-			shaders[0] = createShader("app_resources/kernel_fft_first_axis.hlsl", workgroupSize, elementsPerThread, bloomScale);
-			shaders[1] = createShader("app_resources/kernel_fft_second_axis.hlsl", workgroupSize, elementsPerThread, bloomScale);
-			shaders[2] = createShader("app_resources/kernel_spectrum_normalize.hlsl", workgroupSize, elementsPerThread, bloomScale);
+			shaders[0] = createShader("app_resources/kernel_fft_first_axis.hlsl", nbl::hlsl::findMSB(workgroupSize), nbl::hlsl::findMSB(elementsPerThread), bloomScale);
+			shaders[1] = createShader("app_resources/kernel_fft_second_axis.hlsl", nbl::hlsl::findMSB(workgroupSize), nbl::hlsl::findMSB(elementsPerThread), bloomScale);
+			shaders[2] = createShader("app_resources/kernel_spectrum_normalize.hlsl", nbl::hlsl::findMSB(workgroupSize), nbl::hlsl::findMSB(elementsPerThread), bloomScale);
 
 			// -------------------------------------------
 
@@ -753,9 +752,9 @@ public:
 			bufBarrier.range.buffer = m_rowMajorBuffer;
 
 			// Also set kernel channel images to GENERAL for writing
-			decltype(pipelineBarrierInfo)::image_barrier_t imgBarriers[CHANNELS];
-			pipelineBarrierInfo.imgBarriers = { imgBarriers, CHANNELS };
-			for (auto i = 0u; i < CHANNELS; i++)
+			decltype(pipelineBarrierInfo)::image_barrier_t imgBarriers[Channels];
+			pipelineBarrierInfo.imgBarriers = { imgBarriers, Channels };
+			for (auto i = 0u; i < Channels; i++)
 			{
 				imgBarriers[i].image = m_kernelNormalizedSpectrums[i]->getCreationParameters().image.get();
 				imgBarriers[i].subresourceRange.aspectMask =IImage::EAF_COLOR_BIT;
@@ -821,9 +820,9 @@ public:
 		} while (workgroupSize > maxWorkgroupSize);
 
 		smart_refctd_ptr<IGPUShader> shaders[3];
-		shaders[0] = createShader("app_resources/image_fft_first_axis.hlsl", workgroupSize, elementsPerThread);
+		shaders[0] = createShader("app_resources/image_fft_first_axis.hlsl", nbl::hlsl::findMSB(workgroupSize), nbl::hlsl::findMSB(elementsPerThread));
 		// IFFT along first axis has same dimensions as FFT
-		shaders[2] = createShader("app_resources/image_ifft_first_axis.hlsl", workgroupSize, elementsPerThread);
+		shaders[2] = createShader("app_resources/image_ifft_first_axis.hlsl", nbl::hlsl::findMSB(workgroupSize), nbl::hlsl::findMSB(elementsPerThread));
 		
 		// Second axis FFT might have different dimensions
 		elementsPerThread = 1;
@@ -833,7 +832,7 @@ public:
 			// Second axis FFT is along X axis
 			workgroupSize = core::roundUpToPoT(marginSrcDim.width) / elementsPerThread;
 		} while (workgroupSize > maxWorkgroupSize);
-		shaders[1] = createShader("app_resources/fft_convolve_ifft.hlsl", workgroupSize, elementsPerThread);
+		shaders[1] = createShader("app_resources/fft_convolve_ifft.hlsl", nbl::hlsl::findMSB(workgroupSize), nbl::hlsl::findMSB(elementsPerThread));
 
 		// Create compute pipelines - First axis FFT -> Second axis FFT -> Normalization
 		IGPUComputePipeline::SCreationParams params[3];
@@ -927,8 +926,8 @@ public:
 		m_computeCmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		// Pipeline barrier: transition kernel spectrum images into read only, and outImage into general
 		IGPUCommandBuffer::SPipelineBarrierDependencyInfo imagePipelineBarrierInfo = {};
-		decltype(imagePipelineBarrierInfo)::image_barrier_t imgBarriers[CHANNELS + 1];
-		imagePipelineBarrierInfo.imgBarriers = { imgBarriers, CHANNELS + 1};
+		decltype(imagePipelineBarrierInfo)::image_barrier_t imgBarriers[Channels + 1];
+		imagePipelineBarrierInfo.imgBarriers = { imgBarriers, Channels + 1};
 
 		// outImage just needs a layout transition before it can be written to
 		imgBarriers[0].image = m_outImg.get();
@@ -941,7 +940,7 @@ public:
 		imgBarriers[0].subresourceRange = { IGPUImage::EAF_COLOR_BIT, 0u, 1u, 0u, 1 };
 
 		// We need to wait on kernel spectrums to be written to before we can read them
-		for (auto i = 0u; i < CHANNELS; i++)
+		for (auto i = 0u; i < Channels; i++)
 		{
 			imgBarriers[i + 1].image = m_kernelNormalizedSpectrums[i]->getCreationParameters().image.get();
 			imgBarriers[i + 1].barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
@@ -1050,7 +1049,7 @@ public:
 		const auto& deviceLimits = m_device->getPhysicalDevice()->getLimits();
 		uint32_t alignment = core::max(deviceLimits.nonCoherentAtomSize, alignof(float));
 		auto srcImageDims = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
-		const uint32_t srcImageSize = srcImageDims.height * srcImageDims.width * srcImageDims.depth * (CHANNELS + 1) * sizeof(float32_t);
+		const uint32_t srcImageSize = srcImageDims.height * srcImageDims.width * srcImageDims.depth * (Channels + 1) * sizeof(float32_t);
 
 		auto downStreamingBuffer = m_utils->getDefaultDownStreamingBuffer();
 

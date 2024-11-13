@@ -1,42 +1,6 @@
-#include "common.hlsl"
-
-/*
- * Remember we have these defines:
- * _NBL_HLSL_WORKGROUP_SIZE_
- * ELEMENTS_PER_THREAD
- * KERNEL_SCALE
- * scalar_t
- * FORMAT
-*/
-
-
-#define FFT_LENGTH (_NBL_HLSL_WORKGROUP_SIZE_ * ELEMENTS_PER_THREAD)
+#include "fft_common.hlsl"
 
 [[vk::binding(0, 0)]] RWTexture2D<float32_t4> convolvedImage;
-
-groupshared uint32_t sharedmem[workgroup::fft::SharedMemoryDWORDs<scalar_t, _NBL_HLSL_WORKGROUP_SIZE_>];
-
-// Users MUST define this method for FFT to work
-uint32_t3 glsl::gl_WorkGroupSize() { return uint32_t3(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1); }
-
-struct SharedMemoryAccessor
-{
-	void set(uint32_t idx, uint32_t value)
-	{
-		sharedmem[idx] = value;
-	}
-
-	void get(uint32_t idx, NBL_REF_ARG(uint32_t) value)
-	{
-		value = sharedmem[idx];
-	}
-
-	void workgroupExecutionAndMemoryBarrier()
-	{
-		glsl::barrier();
-	}
-
-};
 
 // ---------------------------------------------------- Utils ---------------------------------------------------------
 uint64_t rowMajorOffset(uint32_t x, uint32_t y)
@@ -47,11 +11,11 @@ uint64_t rowMajorOffset(uint32_t x, uint32_t y)
 // Same numbers as forward FFT
 uint64_t getChannelStartAddress(uint32_t channel)
 {
-	return pushConstants.rowMajorBufferAddress + channel * glsl::gl_NumWorkGroups().x * FFT_LENGTH * sizeof(complex_t<scalar_t>);
+	return pushConstants.rowMajorBufferAddress + channel * glsl::gl_NumWorkGroups().x * FFTParameters::TotalSize * sizeof(complex_t<scalar_t>);
 }
 
 // -------------------------------------------- FIRST AXIS IFFT ------------------------------------------------------------------
-struct PreloadedFirstAxisAccessor : PreloadedAccessorBase<ELEMENTS_PER_THREAD, _NBL_HLSL_WORKGROUP_SIZE_, scalar_t> 
+struct PreloadedFirstAxisAccessor : PreloadedAccessorBase<FFTParameters>
 {
 
 	// Each column of the data currently stored in the rowMajorBuffer corresponds to (half) a column of the DFT of a column of the convolved image. With this in mind, knowing that the IFFT will yield
@@ -67,27 +31,27 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorBase<ELEMENTS_PER_THREAD, _
 		// Set LegacyBdaAccessor for reading
 		rowMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(getChannelStartAddress(channel));
 		// Load all even elements of first column
-		for (uint32_t localElementIndex = 0; localElementIndex < (ELEMENTS_PER_THREAD / 2); localElementIndex ++)
+		for (uint32_t localElementIndex = 0; localElementIndex < (ElementsPerInvocation / 2); localElementIndex ++)
 		{
-			const uint32_t index = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | workgroup::SubgroupContiguousIndex();
+			const uint32_t index = WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex();
 			preloaded[localElementIndex << 1] = rowMajorAccessor.get(rowMajorOffset(2 * glsl::gl_WorkGroupID().x, index));
 		}
 		// Get all odd elements by trading
-		for (uint32_t localElementIndex = 1; localElementIndex < ELEMENTS_PER_THREAD; localElementIndex += 2)
+		for (uint32_t localElementIndex = 1; localElementIndex < ElementsPerInvocation; localElementIndex += 2)
 		{
 			preloaded[localElementIndex] = conj(getDFTMirror<SharedmemAdaptor>(localElementIndex, sharedmemAdaptor));
 		}
 		// Load even elements of second column, multiply them by i and add them to even positions
 		// This makes even positions hold C1 + iC2
-		for (uint32_t localElementIndex = 0; localElementIndex < (ELEMENTS_PER_THREAD / 2); localElementIndex++)
+		for (uint32_t localElementIndex = 0; localElementIndex < (ElementsPerInvocation / 2); localElementIndex++)
 		{
-			const uint32_t index = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | workgroup::SubgroupContiguousIndex();
+			const uint32_t index = WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex();
 			preloaded[localElementIndex << 1] = preloaded[localElementIndex << 1] + rotateLeft<scalar_t>(rowMajorAccessor.get(rowMajorOffset(2 * glsl::gl_WorkGroupID().x + 1, index)));
 		}
 		// Finally, trade to get odd elements of second column. Note that by trading we receive an element of the form C1 + iC2 for an even position. The current odd position holds conj(C1) and we
 		// want it to hold conj(C1) + i*conj(C2). So we first do conj(C1 + iC2) to yield conj(C1) - i*conj(C2). Then we subtract conj(C1) to get -i*conj(C2), negate that to get i * conj(C2), and finally
 		// add conj(C1) back to have conj(C1) + i * conj(C2).
-		for (uint32_t localElementIndex = 1; localElementIndex < ELEMENTS_PER_THREAD; localElementIndex += 2)
+		for (uint32_t localElementIndex = 1; localElementIndex < ElementsPerInvocation; localElementIndex += 2)
 		{
 			// Thread 0's first odd element is Nyquist, which was packed alongside Zero - this means that what was said above breaks in this particular case and needs special treatment
 			if (!workgroup::SubgroupContiguousIndex() && 1 == localElementIndex)
@@ -116,10 +80,10 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorBase<ELEMENTS_PER_THREAD, _
 	{
 		uint32_t2 imageDimensions;
 		convolvedImage.GetDimensions(imageDimensions.x, imageDimensions.y);
-		const uint32_t padding = uint32_t(FFT_LENGTH - imageDimensions.y) >> 1;
-		for (uint32_t localElementIndex = 0; localElementIndex < ELEMENTS_PER_THREAD; localElementIndex++)
+		const uint32_t padding = uint32_t(TotalSize - imageDimensions.y) >> 1;
+		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 		{
-			const uint32_t index = _NBL_HLSL_WORKGROUP_SIZE_ * localElementIndex | workgroup::SubgroupContiguousIndex();
+			const uint32_t index = WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex();
 			const uint32_t paddedIndex = index - padding;
 			if (paddedIndex >= 0 && paddedIndex < imageDimensions.y)
 			{
@@ -138,22 +102,22 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorBase<ELEMENTS_PER_THREAD, _
 	LegacyBdaAccessor<complex_t<scalar_t> > rowMajorAccessor;
 };
 
-[numthreads(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1)]
+[numthreads(FFTParameters::WorkgroupSize, 1, 1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
 	SharedMemoryAccessor sharedmemAccessor;
 	// Set up the memory adaptor
-	using adaptor_t = accessor_adaptors::StructureOfArrays<SharedMemoryAccessor, uint32_t, uint32_t, 1, _NBL_HLSL_WORKGROUP_SIZE_>;
+	using adaptor_t = accessor_adaptors::StructureOfArrays<SharedMemoryAccessor, uint32_t, uint32_t, 1, FFTParameters::WorkgroupSize>;
 	adaptor_t sharedmemAdaptor;
 
 	PreloadedFirstAxisAccessor preloadedAccessor;
-	for (uint32_t channel = 0; channel < CHANNELS; channel++)
+	for (uint32_t channel = 0; channel < Channels; channel++)
 	{
 		sharedmemAdaptor.accessor = sharedmemAccessor;
 		preloadedAccessor.preload<adaptor_t>(channel, sharedmemAdaptor);
 		// Update state after preload
 		sharedmemAccessor = sharedmemAdaptor.accessor;
-		workgroup::FFT<ELEMENTS_PER_THREAD, true, _NBL_HLSL_WORKGROUP_SIZE_, scalar_t>::template __call(preloadedAccessor, sharedmemAccessor);
+		workgroup::FFT<true, FFTParameters>::template __call(preloadedAccessor, sharedmemAccessor);
 		preloadedAccessor.unload(channel);
 	}
 }

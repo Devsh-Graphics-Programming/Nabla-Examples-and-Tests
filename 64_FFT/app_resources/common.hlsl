@@ -9,6 +9,6 @@ struct PushConstantData
 	uint32_t dataElementCount;
 };
 
-NBL_CONSTEXPR uint32_t WorkgroupSize = 64;
-NBL_CONSTEXPR uint32_t ElementsPerThread = 8;
-NBL_CONSTEXPR uint32_t complexElementCount = WorkgroupSize * ElementsPerThread;
+NBL_CONSTEXPR uint32_t WorkgroupSizeLog2 = 6;
+NBL_CONSTEXPR uint32_t ElementsPerThreadLog2 = 3;
+NBL_CONSTEXPR uint32_t complexElementCount = uint32_t(1) << (WorkgroupSizeLog2 + ElementsPerThreadLog2);
