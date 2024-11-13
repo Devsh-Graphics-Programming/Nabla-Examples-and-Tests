@@ -912,37 +912,38 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			cmdbufBlas->endDebugMarker();
 			cmdbufSubmitAndWait(cmdbufBlas, getComputeQueue(), 39);
 
-			//auto cmdbufCompact = getSingleUseCommandBufferAndBegin(pool);
+			auto cmdbufCompact = getSingleUseCommandBufferAndBegin(pool);
+			cmdbufCompact->beginDebugMarker("Compact BLAS");
 
 			// compact blas, TODO loop individually per geometry?
-			//{
-			//	size_t asSizes[1];
-			//	queryCount = 0;
-			//	m_device->getQueryPoolResults(queryPool.get(), 0, queryCount, asSizes, sizeof(size_t), IQueryPool::WAIT_BIT);
+			{
+				size_t asSizes[1];
+				m_device->getQueryPoolResults(queryPool.get(), 0, queryCount, asSizes, sizeof(size_t), IQueryPool::WAIT_BIT);
 
-			//	auto cleanupBlas = gpuBlas;
-			//	{
-			//		IGPUBuffer::SCreationParams params;
-			//		params.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_ACCELERATION_STRUCTURE_STORAGE_BIT;
-			//		params.size = asSizes[0];
-			//		smart_refctd_ptr<IGPUBuffer> asBuffer = createBuffer(params);
+				auto cleanupBlas = gpuBlas;
+				{
+					IGPUBuffer::SCreationParams params;
+					params.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_ACCELERATION_STRUCTURE_STORAGE_BIT;
+					params.size = asSizes[0];
+					smart_refctd_ptr<IGPUBuffer> asBuffer = createBuffer(params);
 
-			//		IGPUBottomLevelAccelerationStructure::SCreationParams blasParams;
-			//		blasParams.bufferRange.buffer = asBuffer;
-			//		blasParams.bufferRange.offset = 0u;
-			//		blasParams.bufferRange.size = asSizes[0];
-			//		blasParams.flags = IGPUBottomLevelAccelerationStructure::SCreationParams::FLAGS::NONE;
-			//		gpuBlas = m_device->createBottomLevelAccelerationStructure(std::move(blasParams));
-			//	}
+					IGPUBottomLevelAccelerationStructure::SCreationParams blasParams;
+					blasParams.bufferRange.buffer = asBuffer;
+					blasParams.bufferRange.offset = 0u;
+					blasParams.bufferRange.size = asSizes[0];
+					blasParams.flags = IGPUBottomLevelAccelerationStructure::SCreationParams::FLAGS::NONE;
+					gpuBlas = m_device->createBottomLevelAccelerationStructure(std::move(blasParams));
+				}
 
-			//	IGPUBottomLevelAccelerationStructure::CopyInfo copyInfo;
-			//	copyInfo.src = cleanupBlas.get();
-			//	copyInfo.dst = gpuBlas.get();
-			//	copyInfo.mode = IGPUBottomLevelAccelerationStructure::COPY_MODE::COMPACT;
-			//	cmdbufTlas->copyAccelerationStructure(copyInfo);
-			//}
+				IGPUBottomLevelAccelerationStructure::CopyInfo copyInfo;
+				copyInfo.src = cleanupBlas.get();
+				copyInfo.dst = gpuBlas.get();
+				copyInfo.mode = IGPUBottomLevelAccelerationStructure::COPY_MODE::COMPACT;
+				cmdbufCompact->copyAccelerationStructure(copyInfo);
+			}
 
-			//cmdbufSubmitAndWait(cmdbufCompact, getComputeQueue(), 40);
+			cmdbufCompact->endDebugMarker();
+			cmdbufSubmitAndWait(cmdbufCompact, getComputeQueue(), 40);
 
 			auto cmdbufTlas = getSingleUseCommandBufferAndBegin(pool);
 			cmdbufTlas->beginDebugMarker("Build TLAS");

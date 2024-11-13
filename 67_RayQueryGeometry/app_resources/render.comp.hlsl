@@ -70,9 +70,8 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
         // TODO: put into struct per geometry type
         const uint vertexStride = 24;
         const uint byteOffset = 18;
-        const uint bitMask = 0xff;
 
-        int v0, v1, v2;
+        uint32_t v0, v1, v2;
 
         if (pc.indexBufferAddress != pc.vertexBufferAddress)
         {
@@ -80,15 +79,15 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
             uint i1 = vk::RawBufferLoad<uint16_t>(pc.indexBufferAddress + (idxOffset + 1) * sizeof(uint16_t));
             uint i2 = vk::RawBufferLoad<uint16_t>(pc.indexBufferAddress + (idxOffset + 2) * sizeof(uint16_t));
 
-            v0 = vk::RawBufferLoad<int>(pc.vertexBufferAddress + i0 * vertexStride + byteOffset);
-            v1 = vk::RawBufferLoad<int>(pc.vertexBufferAddress + i1 * vertexStride + byteOffset);
-            v2 = vk::RawBufferLoad<int>(pc.vertexBufferAddress + i2 * vertexStride + byteOffset);
+            v0 = vk::RawBufferLoad<uint32_t>(pc.vertexBufferAddress + i0 * vertexStride + byteOffset);
+            v1 = vk::RawBufferLoad<uint32_t>(pc.vertexBufferAddress + i1 * vertexStride + byteOffset);
+            v2 = vk::RawBufferLoad<uint32_t>(pc.vertexBufferAddress + i2 * vertexStride + byteOffset);
         }
         else
         {
-            v0 = vk::RawBufferLoad<int>(pc.vertexBufferAddress + (idxOffset + 0) * vertexStride + byteOffset);
-            v1 = vk::RawBufferLoad<int>(pc.vertexBufferAddress + (idxOffset + 1) * vertexStride + byteOffset);
-            v2 = vk::RawBufferLoad<int>(pc.vertexBufferAddress + (idxOffset + 2) * vertexStride + byteOffset);
+            v0 = vk::RawBufferLoad<uint32_t>(pc.vertexBufferAddress + (idxOffset + 0) * vertexStride + byteOffset);
+            v1 = vk::RawBufferLoad<uint32_t>(pc.vertexBufferAddress + (idxOffset + 1) * vertexStride + byteOffset);
+            v2 = vk::RawBufferLoad<uint32_t>(pc.vertexBufferAddress + (idxOffset + 2) * vertexStride + byteOffset);
         }
 
         float3 n0 = getNormalsFromMask(v0) * 0.5 + 0.5;
