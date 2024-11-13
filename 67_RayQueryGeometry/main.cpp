@@ -202,13 +202,12 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			auto* geometryCreator = assetManager->getGeometryCreator();
 
 			auto cQueue = getComputeQueue();
-			smart_refctd_ptr<nbl::video::IGPUCommandPool> singleUsePool = m_device->createCommandPool(cQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
 
 			// create geometry objects
-			createGeometries(singleUsePool, geometryCreator);
+			createGeometries(gQueue, geometryCreator);
 
 			// create blas/tlas
-			createAccelerationStructures(singleUsePool);
+			createAccelerationStructures(cQueue);
 
 			// create pipelines
 			{
@@ -614,6 +613,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			if (!pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf))
 				return nullptr;
 
+			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
 			return cmdbuf;
@@ -666,8 +666,12 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			}
 		}
 
-		bool createGeometries(smart_refctd_ptr<IGPUCommandPool> pool, const IGeometryCreator* gc)
+		bool createGeometries(video::CThreadSafeQueueAdapter* queue, const IGeometryCreator* gc)
 		{
+			auto pool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+			if (!pool)
+				return logFail("Couldn't create Command Pool for geometry creation!");
+
 			std::array<ReferenceObjectCpu, OT_COUNT> objectsCpu;
 			objectsCpu[OT_CUBE] = ReferenceObjectCpu{ .meta = {.type = OT_CUBE, .name = "Cube Mesh" }, .shadersType = GP_BASIC, .data = gc->createCubeMesh(nbl::core::vector3df(1.f, 1.f, 1.f)) };
 			objectsCpu[OT_SPHERE] = ReferenceObjectCpu{ .meta = {.type = OT_SPHERE, .name = "Sphere Mesh" }, .shadersType = GP_BASIC, .data = gc->createSphereMesh(2, 16, 16) };
@@ -678,12 +682,17 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			objectsCpu[OT_CONE] = ReferenceObjectCpu{ .meta = {.type = OT_CONE, .name = "Cone Mesh" }, .shadersType = GP_CONE, .data = gc->createConeMesh(2, 3, 10) };
 			objectsCpu[OT_ICOSPHERE] = ReferenceObjectCpu{ .meta = {.type = OT_ICOSPHERE, .name = "Icosphere Mesh" }, .shadersType = GP_ICO, .data = gc->createIcoSphere(1, 3, true) };
 
-			auto cmdbuf = getSingleUseCommandBufferAndBegin(pool);
+			struct ScratchVIBindings
+			{
+				nbl::asset::SBufferBinding<ICPUBuffer> vertex, index;
+			};
+			std::array<ScratchVIBindings, OT_COUNT> scratchBuffers;
 
 			for (uint32_t i = 0; i < objectsCpu.size(); i++)
 			{
 				const auto& geom = objectsCpu[i];
 				auto& obj = objectsGpu[i];
+				auto& scratchObj = scratchBuffers[i];
 
 				obj.meta.name = geom.meta.name;
 				obj.meta.type = geom.meta.type;
@@ -692,53 +701,124 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				obj.indexType = geom.data.indexType;
 				obj.vertexStride = geom.data.inputParams.bindings[0].stride;
 
-// TODO: use asset converter to convert all buffers to IGPUBuffers (that part 100% works)
-
 				auto vBuffer = smart_refctd_ptr(geom.data.bindings[0].buffer); // no offset
 				auto vUsage = bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | 
 					asset::IBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 				obj.bindings.vertex.offset = 0u;
-				auto vertexBuffer = m_device->createBuffer(IGPUBuffer::SCreationParams({.size = vBuffer->getSize(), .usage = vUsage}));
 
 				auto iBuffer = smart_refctd_ptr(geom.data.indexBuffer.buffer); // no offset
 				auto iUsage = bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF |
 					asset::IBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 				obj.bindings.index.offset = 0u;
-				auto indexBuffer = iBuffer ? m_device->createBuffer(IGPUBuffer::SCreationParams({ .size = iBuffer->getSize(), .usage = iUsage })) : nullptr;
 
-				for (auto buf : { vertexBuffer, indexBuffer })
-				{
-					if (buf)
+				vBuffer->addUsageFlags(vUsage);
+				vBuffer->setContentHash(vBuffer->computeContentHash());
+				scratchObj.vertex = { .offset = 0, .buffer = vBuffer };
+
+				if (geom.data.indexType != EIT_UNKNOWN)
+					if (iBuffer)
 					{
-						auto reqs = buf->getMemoryReqs();
-						reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
-						m_device->allocate(reqs, buf.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+						iBuffer->addUsageFlags(iUsage);
+						iBuffer->setContentHash(iBuffer->computeContentHash());
 					}
-				}
-
-				obj.bindings.vertex = { .offset = 0u, .buffer = std::move(vertexBuffer) };
-				SBufferRange<IGPUBuffer> vRange = { .offset = obj.bindings.vertex.offset, .size = obj.bindings.vertex.buffer->getSize(), .buffer = obj.bindings.vertex.buffer };
-				cmdbuf->updateBuffer(vRange, vBuffer->getPointer());
-
-				if (iBuffer)
-				{
-					obj.bindings.index = { .offset = 0u, .buffer = std::move(indexBuffer) };
-					SBufferRange<IGPUBuffer> iRange = { .offset = obj.bindings.index.offset, .size = obj.bindings.index.buffer->getSize(), .buffer = obj.bindings.index.buffer };
-					cmdbuf->updateBuffer(iRange, iBuffer->getPointer());
-				}
+				scratchObj.index = { .offset = 0, .buffer = iBuffer };
 			}
 
-			cmdbufSubmitAndWait(cmdbuf, getComputeQueue(), 24);
+			auto cmdbuf = getSingleUseCommandBufferAndBegin(pool);
+			cmdbuf->beginDebugMarker("Build geometry vertex and index buffers");
+
+			smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get(), .optimizer = {} });
+			CAssetConverter::SInputs inputs = {};
+			inputs.logger = m_logger.get();
+
+			std::array<ICPUBuffer*, OT_COUNT * 2u> tmpBuffers;
+			{
+				for (uint32_t i = 0; i < objectsCpu.size(); i++)
+				{
+					tmpBuffers[2 * i + 0] = scratchBuffers[i].vertex.buffer.get();
+					tmpBuffers[2 * i + 1] = scratchBuffers[i].index.buffer.get();
+				}
+
+				std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = tmpBuffers;
+			}
+
+			auto reservation = converter->reserve(inputs);
+			{
+				auto prepass = [&]<typename asset_type_t>(const auto & references) -> bool
+				{
+					auto objects = reservation.getGPUObjects<asset_type_t>();
+					uint32_t counter = {};
+					for (auto& object : objects)
+					{
+						auto gpu = object.value;
+						auto* reference = references[counter];
+
+						if (reference)
+						{
+							if (!gpu)
+							{
+								m_logger->log("Failed to convert a CPU object to GPU!", ILogger::ELL_ERROR);
+								return false;
+							}
+						}
+						counter++;
+					}
+					return true;
+				};
+
+				prepass.template operator() < ICPUBuffer > (tmpBuffers);
+			}
+
+			// not sure if need this (probably not, originally for transition img view)
+			auto semaphore = m_device->createSemaphore(0u);
+
+			std::array<IQueue::SSubmitInfo::SCommandBufferInfo, 1> cmdbufs = {};
+			cmdbufs.front().cmdbuf = cmdbuf.get();
+
+			SIntendedSubmitInfo transfer = {};
+			transfer.queue = queue;
+			transfer.scratchCommandBuffers = cmdbufs;
+			transfer.scratchSemaphore = {
+				.semaphore = semaphore.get(),
+				.value = 0u,
+				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+			};
+			// convert
+			{
+				CAssetConverter::SConvertParams params = {};
+				params.utilities = m_utils.get();
+				params.transfer = &transfer;
+
+				auto future = reservation.convert(params);
+				if (future.copy() != IQueue::RESULT::SUCCESS)
+				{
+					m_logger->log("Failed to await submission feature!", ILogger::ELL_ERROR);
+					return false;
+				}
+
+				// assign gpu objects to output
+				auto&& buffers = reservation.getGPUObjects<ICPUBuffer>();
+				for (uint32_t i = 0; i < objectsCpu.size(); i++)
+				{
+					auto& obj = objectsGpu[i];
+					obj.bindings.vertex = { .offset = 0, .buffer = buffers[2 * i + 0].value };
+					obj.bindings.index = { .offset = 0, .buffer = buffers[2 * i + 1].value };
+				}
+			}
 
 			return true;
 		}
 
-		bool createAccelerationStructures(smart_refctd_ptr<IGPUCommandPool> pool)
+		bool createAccelerationStructures(video::CThreadSafeQueueAdapter* queue)
 		{
 			IQueryPool::SCreationParams qParams{ .queryCount = 1, .queryType = IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE };
 			smart_refctd_ptr<IQueryPool> queryPool = m_device->createQueryPool(std::move(qParams));
 
+			auto pool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT | IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+			if (!pool)
+				return logFail("Couldn't create Command Pool for blas/tlas creation!");
 			auto cmdbufBlas = getSingleUseCommandBufferAndBegin(pool);
+			cmdbufBlas->beginDebugMarker("Build BLAS");
 
 			// build bottom level ASes
 			{
@@ -829,6 +909,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			const IGPUAccelerationStructure* ases[1u] = { gpuBlas.get() };
 			cmdbufBlas->writeAccelerationStructureProperties({ ases, 1}, IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE, queryPool.get(), queryCount++);
 
+			cmdbufBlas->endDebugMarker();
 			cmdbufSubmitAndWait(cmdbufBlas, getComputeQueue(), 39);
 
 			//auto cmdbufCompact = getSingleUseCommandBufferAndBegin(pool);
@@ -864,6 +945,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			//cmdbufSubmitAndWait(cmdbufCompact, getComputeQueue(), 40);
 
 			auto cmdbufTlas = getSingleUseCommandBufferAndBegin(pool);
+			cmdbufTlas->beginDebugMarker("Build TLAS");
 
 			// build top level AS
 			{
@@ -946,6 +1028,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				cmdbufTlas->buildAccelerationStructures({ &tlasBuildInfo, 1 }, pRangeInfos);
 			}
 
+			cmdbufTlas->endDebugMarker();
 			cmdbufSubmitAndWait(cmdbufTlas, getComputeQueue(), 45);
 
 //TODO : ERROR HANDLING FOR ALL THE CALLS ABOVE!
