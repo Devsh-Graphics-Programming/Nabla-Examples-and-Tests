@@ -165,33 +165,30 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 		uint32_t elementsPerThreadLog2,
 		float kernelScale = 1.f)
 	{
+		std::ostringstream constevalParametersFFTStream;
+		constevalParametersFFTStream << "<" << elementsPerThreadLog2 << "," << workgroupSizeLog2 << "," << (useHalfFloats ? "float16_t" : "float32_t") << ">";
+		std::string constevalParametersFFT = constevalParametersFFTStream.str();
 
-		const char* sourceFmt =
-			R"===(
-		#include "nbl/builtin/hlsl/workgroup/fft.hlsl"
-		struct ConstevalParameters
-		{
-			using FFTParameters = nbl::hlsl::workgroup::fft::ConstevalParameters<%u, %u, %s>;
-			NBL_CONSTEXPR_STATIC_INLINE float32_t KernelScale = %f;
-		};
- 
-		#include "%s"
+		const auto prelude = [&]()->std::string
+			{
+				std::ostringstream tmp;
+				tmp << R"===(
+				#include "nbl/builtin/hlsl/workgroup/fft.hlsl"
+				struct ConstevalParameters
+				{
+					using FFTParameters = nbl::hlsl::workgroup::fft::ConstevalParameters)===" << constevalParametersFFT << R"===(;
+					NBL_CONSTEXPR_STATIC_INLINE float32_t KernelScale = )===" << kernelScale << R"===(;
+				};
+				)===";
+				return tmp.str();
+			}();
 
-		)===";
 
-		const size_t extraSize = 4u + 4u + 9u + 7u + 128u;
 
-		auto shader = core::make_smart_refctd_ptr<ICPUBuffer>(strlen(sourceFmt) + extraSize + 1u);
-		snprintf(
-			reinterpret_cast<char*>(shader->getPointer()), shader->getSize(), sourceFmt,
-			elementsPerThreadLog2,
-			workgroupSizeLog2,
-			useHalfFloats ? "float16_t" : "float32_t",
-			kernelScale,
-			includeMainName
-		);
-
-		auto CPUShader = core::make_smart_refctd_ptr<ICPUShader>(std::move(shader), IShader::E_SHADER_STAGE::ESS_COMPUTE, IShader::E_CONTENT_TYPE::ECT_HLSL, includeMainName);
+		auto CPUShader = core::make_smart_refctd_ptr<ICPUShader>((prelude+"\n#include \"" + includeMainName + "\"\n").c_str(),
+																IShader::E_SHADER_STAGE::ESS_COMPUTE, 
+																IShader::E_CONTENT_TYPE::ECT_HLSL, 
+																includeMainName);
 		assert(CPUShader);
 
 		ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;

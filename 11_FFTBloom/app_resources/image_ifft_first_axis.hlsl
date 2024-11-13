@@ -1,4 +1,4 @@
-#include "fft_common.hlsl"
+#include "fft_mirror_common.hlsl"
 
 [[vk::binding(0, 0)]] RWTexture2D<float32_t4> convolvedImage;
 
@@ -15,7 +15,7 @@ uint64_t getChannelStartAddress(uint32_t channel)
 }
 
 // -------------------------------------------- FIRST AXIS IFFT ------------------------------------------------------------------
-struct PreloadedFirstAxisAccessor : PreloadedAccessorBase<FFTParameters>
+struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 {
 
 	// Each column of the data currently stored in the rowMajorBuffer corresponds to (half) a column of the DFT of a column of the convolved image. With this in mind, knowing that the IFFT will yield

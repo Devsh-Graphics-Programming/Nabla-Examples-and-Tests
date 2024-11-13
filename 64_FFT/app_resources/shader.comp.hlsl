@@ -35,8 +35,6 @@ struct SharedMemoryAccessor
 
 struct Accessor : DoubleLegacyBdaAccessor< complex_t<scalar_t> >
 {
-	NBL_CONSTEXPR_STATIC_INLINE scalar_t foo = 1.f;
-
 	static Accessor create(const uint64_t inputAddress, const uint64_t outputAddress)
     {
         Accessor accessor;
@@ -50,21 +48,6 @@ struct Accessor : DoubleLegacyBdaAccessor< complex_t<scalar_t> >
 		// only one workgroup is touching any memory it wishes to trade
 		spirv::memoryBarrier(spv::ScopeWorkgroup, spv::MemorySemanticsAcquireReleaseMask | spv::MemorySemanticsUniformMemoryMask);
 	}
-
-	complex_t<scalar_t> get(const uint64_t index)
-	{
-		return vk::RawBufferLoad<complex_t<scalar_t> >(inputAddress + index * sizeof(complex_t<scalar_t>)) * foo;
-	}
-
-	void get(const uint64_t index, NBL_REF_ARG(complex_t<scalar_t>) value)
-	{
-		value = vk::RawBufferLoad<complex_t<scalar_t> >(inputAddress + index * sizeof(complex_t<scalar_t>)) * foo;
-	}
-
-	void set(const uint64_t index, const complex_t<scalar_t> value)
-	{
-		vk::RawBufferStore<complex_t<scalar_t> >(outputAddress + index * sizeof(complex_t<scalar_t>), value * foo);
-	}
 };
 
 [numthreads(ConstevalParameters::WorkgroupSize,1,1)]
@@ -77,5 +60,5 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
 	workgroup::FFT<false, ConstevalParameters>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);
 	accessor.workgroupExecutionAndMemoryBarrier();
-	//workgroup::FFT<true, ConstevalParameters>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);	
+	workgroup::FFT<true, ConstevalParameters>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);	
 }

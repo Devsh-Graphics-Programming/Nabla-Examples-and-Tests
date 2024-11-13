@@ -1,4 +1,4 @@
-#include "fft_common.hlsl"
+#include "fft_mirror_common.hlsl"
 
 [[vk::binding(0, 0)]] Texture2D<float32_t2> kernelChannels[Channels];
 [[vk::binding(0, 0)]] SamplerState samplerState[Channels];
@@ -35,7 +35,7 @@ uint64_t getRowMajorChannelStartAddress(uint32_t channel)
 // where `Z` is the actual 0th row and `N` is the Nyquist row (the one with index TotalSize / 2). Those are packed together
 // so they need to be unpacked properly after FFT like we did earlier.
 
-struct PreloadedSecondAxisAccessor : PreloadedAccessorBase<FFTParameters>
+struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 {
 	int32_t mirrorWrap(int32_t paddedCoordinate)
 	{

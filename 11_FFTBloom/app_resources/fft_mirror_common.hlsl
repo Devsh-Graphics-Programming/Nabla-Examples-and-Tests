@@ -1,7 +1,6 @@
 #include "fft_common.hlsl"
 
-template<typename fft_consteval_parameters_t>
-struct PreloadedAccessorMirrorTradeBase : PreloadedAccessorBase<fft_consteval_parameters_t> {
+struct PreloadedAccessorMirrorTradeBase : PreloadedAccessorBase<FFTParameters> {
 	
 	// TODO: Explain this a bit better in the readme
 	// When unpacking a packed FFT of two real signals, to obtain `DFT[T]` you need `DFT[-T]`, `-T` being the mirror along Nyquist of `T`.

@@ -1,4 +1,4 @@
-#include "fft_common.hlsl"
+#include "fft_mirror_common.hlsl"
 
 [[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2D<float32_t4> texture;
 [[vk::combinedImageSampler]] [[vk::binding(0, 0)]] SamplerState samplerState;
@@ -26,7 +26,7 @@ uint64_t getChannelStartAddress(uint32_t channel)
 // Each Workgroup computes the FFT along two consecutive vertical scanlines (fixed x for the whole Workgroup) so we use `2 * gl_WorkGroupID().x, 2 * gl_WorkGroupID().x + 1` 
 // to get the x coordinates for each of the consecutive lines. This time we launch `inputImageSize.x / 2` workgroups 
 
-struct PreloadedFirstAxisAccessor : PreloadedAccessorBase<FFTParameters>
+struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 {
 
 	void preload(uint32_t channel)

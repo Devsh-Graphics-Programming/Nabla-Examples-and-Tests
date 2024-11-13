@@ -1,4 +1,4 @@
-#include "fft_common.hlsl"
+#include "fft_mirror_common.hlsl"
 
 // TODOS:
 //        - You can get away with saving only half of the kernel (didn't do it here), especially if FFT of the image is always done in the same order (in that case you can just
@@ -28,7 +28,7 @@ uint64_t getChannelStartAddress(uint32_t channel)
 // to get the x coordinates for each of the consecutive lines
 // Since the output images (one per channel) are square of size ConstevalParameters::TotalSize (defined above) we will be launching half that amount of workgroups
 
-struct PreloadedFirstAxisAccessor : PreloadedAccessorBase<FFTParameters> 
+struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 {
 	NBL_CONSTEXPR_STATIC_INLINE float32_t KernelScale = ConstevalParameters::KernelScale;
 	
