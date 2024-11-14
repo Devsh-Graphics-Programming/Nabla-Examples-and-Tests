@@ -51,7 +51,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					params.height = WIN_H;
 					params.x = 32;
 					params.y = 32;
-					params.flags = ui::IWindow::ECF_HIDDEN | IWindow::ECF_BORDERLESS | IWindow::ECF_RESIZABLE;
+					params.flags = ui::IWindow::ECF_HIDDEN | IWindow::ECF_BORDERLESS | IWindow::ECF_RESIZABLE | IWindow::ECF_CAN_RESIZE | IWindow::ECF_CAN_MAXIMIZE;
 					params.windowCaption = "UISampleApp";
 					params.callback = windowCallback;
 					const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
@@ -603,8 +603,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				viewport.maxDepth = 0.f;
 				viewport.x = 0u;
 				viewport.y = 0u;
-				viewport.width = WIN_W;
-				viewport.height = WIN_H;
+				viewport.width = m_window->getWidth();
+				viewport.height = m_window->getHeight();
 			}
 			cb->setViewport(0u, 1u, &viewport);
 
