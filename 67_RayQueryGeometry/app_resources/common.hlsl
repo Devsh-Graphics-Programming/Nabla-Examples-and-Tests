@@ -10,7 +10,8 @@ struct VertexInfo
 {
     uint vertexStride;
     uint byteOffset;
-    uint vertexType;
+    uint indexType; // 16 bit, 32 bit or none
+    uint geomType;  // defines both vertex stride and byte offset
 };
 
 struct SCameraParameters

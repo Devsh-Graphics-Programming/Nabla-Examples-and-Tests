@@ -41,7 +41,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
         return;
 
     float4 color = float4(0, 0, 0, 1);
-    
+
     float4 NDC = float4(texCoords * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
     float3 targetPos;
     {
@@ -85,9 +85,9 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
             break;
             case 1: // EIT_32BIT
             {
-                i0 = vk::RawBufferLoad<uint32_t>(pc.indexBufferAddress + (idxOffset + 0) * sizeof(uint32_t)));
-                i1 = vk::RawBufferLoad<uint32_t>(pc.indexBufferAddress + (idxOffset + 1) * sizeof(uint32_t)));
-                i2 = vk::RawBufferLoad<uint32_t>(pc.indexBufferAddress + (idxOffset + 2) * sizeof(uint32_t)));
+                i0 = vk::RawBufferLoad<uint32_t>(pc.indexBufferAddress + (idxOffset + 0) * sizeof(uint32_t));
+                i1 = vk::RawBufferLoad<uint32_t>(pc.indexBufferAddress + (idxOffset + 1) * sizeof(uint32_t));
+                i2 = vk::RawBufferLoad<uint32_t>(pc.indexBufferAddress + (idxOffset + 2) * sizeof(uint32_t));
             }
             break;
             default:    // EIT_NONE
@@ -105,13 +105,13 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
         float3 n0 = getNormalsFromMask(v0) * 0.5 + 0.5;
         float3 n1 = getNormalsFromMask(v1) * 0.5 + 0.5;
         float3 n2 = getNormalsFromMask(v2) * 0.5 + 0.5;
-        
+
         float3 barycentrics = float3(0.0, query.CommittedTriangleBarycentrics());
         barycentrics.x = 1.0 - barycentrics.y - barycentrics.z;
 
         float3 normalInterp = barycentrics.x * n0 + barycentrics.y * n1 + barycentrics.z * n2;
-        color = float4(normalInterp, 1.0);
-        //color = float4(0.8, 0, 0.2, 1.0);
+        //color = float4(normalInterp, 1.0);
+        color = float4(0.8, 0, 0.2, 1.0);
     }
 
     outImage[coords] = color;

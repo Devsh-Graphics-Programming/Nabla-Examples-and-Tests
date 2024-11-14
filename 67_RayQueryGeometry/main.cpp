@@ -811,135 +811,152 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 		bool createAccelerationStructures(video::CThreadSafeQueueAdapter* queue)
 		{
-			IQueryPool::SCreationParams qParams{ .queryCount = 1, .queryType = IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE };
+			IQueryPool::SCreationParams qParams{ .queryCount = OT_COUNT, .queryType = IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE };
 			smart_refctd_ptr<IQueryPool> queryPool = m_device->createQueryPool(std::move(qParams));
 
 			auto pool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT | IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
 			if (!pool)
 				return logFail("Couldn't create Command Pool for blas/tlas creation!");
-			auto cmdbufBlas = getSingleUseCommandBufferAndBegin(pool);
-			cmdbufBlas->beginDebugMarker("Build BLAS");
+
+			size_t maxScratchSize = 0;
 
 			// build bottom level ASes
 			{
-				const auto& obj = objectsGpu[OT_CUBE];
+				ILogicalDevice::AccelerationStructureBuildSizes buildSizes[OT_COUNT];
+				IGPUBottomLevelAccelerationStructure::DeviceBuildInfo blasBuildInfos[OT_COUNT];
+				uint32_t primitiveCounts[OT_COUNT];
+				IGPUBottomLevelAccelerationStructure::Triangles<const IGPUBuffer> triangles[OT_COUNT];
 
-				const uint32_t vertexStride = obj.vertexStride;
-				const uint32_t numVertices = obj.bindings.vertex.buffer->getSize() / vertexStride;
-				uint32_t trisCount;
-				if (obj.useIndex())
-					trisCount = obj.indexCount / 3;
-				else
-					trisCount = numVertices / 3;
-
-				IGPUBottomLevelAccelerationStructure::Triangles<const IGPUBuffer> triangles;
-				triangles.vertexData[0] = obj.bindings.vertex;
-				triangles.indexData = obj.bindings.index;
-				triangles.maxVertex = numVertices - 1;
-				triangles.vertexStride = vertexStride;
-				triangles.vertexFormat = EF_R32G32B32_SFLOAT;
-				triangles.indexType = obj.indexType;
-				triangles.geometryFlags = IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::OPAQUE_BIT;
-
-				const auto blasFlags = bitflag(IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT) | IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_COMPACTION_BIT;
-
-				IGPUBottomLevelAccelerationStructure::DeviceBuildInfo blasBuildInfo;
-				blasBuildInfo.buildFlags = blasFlags;
-				blasBuildInfo.geometryCount = 1;	// only 1 geometry object per blas
-				blasBuildInfo.srcAS = nullptr;
-				blasBuildInfo.dstAS = nullptr;
-				blasBuildInfo.triangles = &triangles;
-				blasBuildInfo.scratch = {};
-
-				ILogicalDevice::AccelerationStructureBuildSizes buildSizes;
+				for (uint32_t i = 0; i < objectsGpu.size(); i++)
 				{
-					const uint32_t maxPrimCount[1] = { trisCount };
-					buildSizes = m_device->getAccelerationStructureBuildSizes(blasFlags, false, std::span{ &triangles, 1 }, maxPrimCount);
+					const auto& obj = objectsGpu[i];
+
+					const uint32_t vertexStride = obj.vertexStride;
+					const uint32_t numVertices = obj.bindings.vertex.buffer->getSize() / vertexStride;
+					if (obj.useIndex())
+						primitiveCounts[i] = obj.indexCount / 3;
+					else
+						primitiveCounts[i] = numVertices / 3;
+
+					triangles[i].vertexData[0] = obj.bindings.vertex;
+					triangles[i].indexData = obj.useIndex() ? obj.bindings.index : obj.bindings.vertex;
+					triangles[i].maxVertex = numVertices - 1;
+					triangles[i].vertexStride = vertexStride;
+					triangles[i].vertexFormat = EF_R32G32B32_SFLOAT;
+					triangles[i].indexType = obj.indexType;
+					triangles[i].geometryFlags = IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::OPAQUE_BIT;
+
+					const auto blasFlags = bitflag(IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT) | IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_COMPACTION_BIT;
+
+					blasBuildInfos[i].buildFlags = blasFlags;
+					blasBuildInfos[i].geometryCount = 1;	// only 1 geometry object per blas
+					blasBuildInfos[i].srcAS = nullptr;
+					blasBuildInfos[i].dstAS = nullptr;
+					blasBuildInfos[i].triangles = &triangles[i];
+					blasBuildInfos[i].scratch = {};
+
+					{
+						const uint32_t maxPrimCount[1] = { primitiveCounts[i] };
+						buildSizes[i] = m_device->getAccelerationStructureBuildSizes(blasFlags, false, std::span{&triangles[i], 1}, maxPrimCount);
+					}
+
+					maxScratchSize = std::max(maxScratchSize, buildSizes[i].accelerationStructureSize);
+
+					{
+						IGPUBuffer::SCreationParams params;
+						params.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_ACCELERATION_STRUCTURE_STORAGE_BIT;
+						params.size = buildSizes[i].accelerationStructureSize;
+						smart_refctd_ptr<IGPUBuffer> asBuffer = createBuffer(params);
+
+						IGPUBottomLevelAccelerationStructure::SCreationParams blasParams;
+						blasParams.bufferRange.buffer = asBuffer;
+						blasParams.bufferRange.offset = 0u;
+						blasParams.bufferRange.size = buildSizes[i].accelerationStructureSize;
+						blasParams.flags = IGPUBottomLevelAccelerationStructure::SCreationParams::FLAGS::NONE;
+						gpuBlas[i] = m_device->createBottomLevelAccelerationStructure(std::move(blasParams));
+					}
 				}
 
-				{
-					IGPUBuffer::SCreationParams params;
-					params.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_ACCELERATION_STRUCTURE_STORAGE_BIT;
-					params.size = buildSizes.accelerationStructureSize;
-					smart_refctd_ptr<IGPUBuffer> asBuffer = createBuffer(params);
+				auto cmdbufBlas = getSingleUseCommandBufferAndBegin(pool);
+				cmdbufBlas->beginDebugMarker("Build BLAS");
 
-					IGPUBottomLevelAccelerationStructure::SCreationParams blasParams;
-					blasParams.bufferRange.buffer = asBuffer;
-					blasParams.bufferRange.offset = 0u;
-					blasParams.bufferRange.size = buildSizes.accelerationStructureSize;
-					blasParams.flags = IGPUBottomLevelAccelerationStructure::SCreationParams::FLAGS::NONE;
-					gpuBlas = m_device->createBottomLevelAccelerationStructure(std::move(blasParams));
-				}
+				cmdbufBlas->resetQueryPool(queryPool.get(), 0, objectsGpu.size());
 
 				smart_refctd_ptr<IGPUBuffer> scratchBuffer;
 				{
 					IGPUBuffer::SCreationParams params;
 					params.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-					params.size = buildSizes.buildScratchSize;
+					params.size = maxScratchSize;
 					scratchBuffer = createBuffer(params);
 				}
 
-				blasBuildInfo.dstAS = gpuBlas.get();
-				blasBuildInfo.scratch.buffer = scratchBuffer;
-				blasBuildInfo.scratch.offset = 0u;
+				uint32_t queryCount = 0;
+				for (uint32_t i = 0; i < objectsGpu.size(); i++)
+				{
+					blasBuildInfos[i].dstAS = gpuBlas[i].get();
+					blasBuildInfos[i].scratch.buffer = scratchBuffer;
+					blasBuildInfos[i].scratch.offset = 0u;
 
-				IGPUBottomLevelAccelerationStructure::BuildRangeInfo buildRangeInfos[1u];
-				buildRangeInfos[0].primitiveCount = trisCount;
-				buildRangeInfos[0].primitiveByteOffset = 0u;
-				buildRangeInfos[0].firstVertex = 0u;
-				buildRangeInfos[0].transformByteOffset = 0u;
-				IGPUBottomLevelAccelerationStructure::BuildRangeInfo* pRangeInfos[1u];
-				pRangeInfos[0] = &buildRangeInfos[0];
+					IGPUBottomLevelAccelerationStructure::BuildRangeInfo buildRangeInfos[1u];
+					buildRangeInfos[0].primitiveCount = primitiveCounts[i];
+					buildRangeInfos[0].primitiveByteOffset = 0u;
+					buildRangeInfos[0].firstVertex = 0u;
+					buildRangeInfos[0].transformByteOffset = 0u;
+					IGPUBottomLevelAccelerationStructure::BuildRangeInfo* pRangeInfos[1u];
+					pRangeInfos[0] = &buildRangeInfos[0];
 
-				cmdbufBlas->buildAccelerationStructures({ &blasBuildInfo, 1 }, pRangeInfos);
+					cmdbufBlas->buildAccelerationStructures({ &blasBuildInfos[i], 1 }, pRangeInfos);
+
+					{
+						SMemoryBarrier memBarrier;
+						memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT;
+						memBarrier.srcAccessMask = ACCESS_FLAGS::ACCELERATION_STRUCTURE_WRITE_BIT;
+						memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT;
+						memBarrier.dstAccessMask = ACCESS_FLAGS::ACCELERATION_STRUCTURE_READ_BIT;
+						cmdbufBlas->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {&memBarrier, 1} });
+					}
+
+					const IGPUAccelerationStructure* ases[1u] = { gpuBlas[i].get() };
+					cmdbufBlas->writeAccelerationStructureProperties({ ases, 1 }, IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE,
+						queryPool.get(), queryCount++);
+				}
+
+				cmdbufBlas->endDebugMarker();
+				cmdbufSubmitAndWait(cmdbufBlas, getComputeQueue(), 39);
 			}
-
-			{
-				SMemoryBarrier memBarrier;
-				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT;
-				memBarrier.srcAccessMask = ACCESS_FLAGS::ACCELERATION_STRUCTURE_WRITE_BIT;
-				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT;
-				memBarrier.dstAccessMask = ACCESS_FLAGS::ACCELERATION_STRUCTURE_READ_BIT;
-				cmdbufBlas->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {&memBarrier, 1} });
-			}
-
-			cmdbufBlas->resetQueryPool(queryPool.get(), 0, 1);
-
-			uint32_t queryCount = 0;
-			const IGPUAccelerationStructure* ases[1u] = { gpuBlas.get() };
-			cmdbufBlas->writeAccelerationStructureProperties({ ases, 1}, IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE, queryPool.get(), queryCount++);
-
-			cmdbufBlas->endDebugMarker();
-			cmdbufSubmitAndWait(cmdbufBlas, getComputeQueue(), 39);
 
 			auto cmdbufCompact = getSingleUseCommandBufferAndBegin(pool);
 			cmdbufCompact->beginDebugMarker("Compact BLAS");
 
-			// compact blas, TODO loop individually per geometry?
+			// compact blas
 			{
-				size_t asSizes[1];
-				m_device->getQueryPoolResults(queryPool.get(), 0, queryCount, asSizes, sizeof(size_t), IQueryPool::WAIT_BIT);
+				std::array<size_t, OT_COUNT> asSizes{ 0 };
+				m_device->getQueryPoolResults(queryPool.get(), 0, objectsGpu.size(), asSizes.data(), sizeof(size_t), IQueryPool::WAIT_BIT);
 
-				auto cleanupBlas = gpuBlas;
+				std::array<smart_refctd_ptr<IGPUBottomLevelAccelerationStructure>, OT_COUNT> cleanupBlas;
+				for (uint32_t i = 0; i < objectsGpu.size(); i++)
 				{
-					IGPUBuffer::SCreationParams params;
-					params.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_ACCELERATION_STRUCTURE_STORAGE_BIT;
-					params.size = asSizes[0];
-					smart_refctd_ptr<IGPUBuffer> asBuffer = createBuffer(params);
+					cleanupBlas[i] = gpuBlas[i];
+					{
+						IGPUBuffer::SCreationParams params;
+						params.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_ACCELERATION_STRUCTURE_STORAGE_BIT;
+						params.size = asSizes[i];
+						smart_refctd_ptr<IGPUBuffer> asBuffer = createBuffer(params);
 
-					IGPUBottomLevelAccelerationStructure::SCreationParams blasParams;
-					blasParams.bufferRange.buffer = asBuffer;
-					blasParams.bufferRange.offset = 0u;
-					blasParams.bufferRange.size = asSizes[0];
-					blasParams.flags = IGPUBottomLevelAccelerationStructure::SCreationParams::FLAGS::NONE;
-					gpuBlas = m_device->createBottomLevelAccelerationStructure(std::move(blasParams));
+						IGPUBottomLevelAccelerationStructure::SCreationParams blasParams;
+						blasParams.bufferRange.buffer = asBuffer;
+						blasParams.bufferRange.offset = 0u;
+						blasParams.bufferRange.size = asSizes[i];
+						blasParams.flags = IGPUBottomLevelAccelerationStructure::SCreationParams::FLAGS::NONE;
+						gpuBlas[i] = m_device->createBottomLevelAccelerationStructure(std::move(blasParams));
+					}
+
+					IGPUBottomLevelAccelerationStructure::CopyInfo copyInfo;
+					copyInfo.src = cleanupBlas[i].get();
+					copyInfo.dst = gpuBlas[i].get();
+					copyInfo.mode = IGPUBottomLevelAccelerationStructure::COPY_MODE::COMPACT;
+					cmdbufCompact->copyAccelerationStructure(copyInfo);
 				}
-
-				IGPUBottomLevelAccelerationStructure::CopyInfo copyInfo;
-				copyInfo.src = cleanupBlas.get();
-				copyInfo.dst = gpuBlas.get();
-				copyInfo.mode = IGPUBottomLevelAccelerationStructure::COPY_MODE::COMPACT;
-				cmdbufCompact->copyAccelerationStructure(copyInfo);
 			}
 
 			cmdbufCompact->endDebugMarker();
@@ -950,23 +967,27 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 			// build top level AS
 			{
-				const uint32_t instancesCount = 1;	// TODO: temporary for now
-				IGPUTopLevelAccelerationStructure::DeviceStaticInstance instances[instancesCount];
-				core::matrix3x4SIMD identity;
-				instances[0].base.blas.deviceAddress = gpuBlas->getReferenceForDeviceOperations().deviceAddress;
-				instances[0].base.mask = 0xFF;
-				instances[0].base.instanceCustomIndex = 0;
-				instances[0].base.instanceShaderBindingTableRecordOffset = 0;
-				instances[0].base.flags = (uint32_t)IGPUTopLevelAccelerationStructure::INSTANCE_FLAGS::TRIANGLE_FACING_CULL_DISABLE_BIT;
-				instances[0].transform = identity;
+				const uint32_t instancesCount = objectsGpu.size();
+				IGPUTopLevelAccelerationStructure::DeviceStaticInstance instances[OT_COUNT];
+				for (uint32_t i = 0; i < instancesCount; i++)
+				{
+					core::matrix3x4SIMD transform;
+					transform.setTranslation(nbl::core::vectorSIMDf(5.f * i, 0, 0, 0));
+					instances[i].base.blas.deviceAddress = gpuBlas[i]->getReferenceForDeviceOperations().deviceAddress;
+					instances[i].base.mask = 0xFF;
+					instances[i].base.instanceCustomIndex = i;
+					instances[i].base.instanceShaderBindingTableRecordOffset = 0;
+					instances[i].base.flags = static_cast<uint32_t>(IGPUTopLevelAccelerationStructure::INSTANCE_FLAGS::TRIANGLE_FACING_CULL_DISABLE_BIT);
+					instances[i].transform = transform;
+				}
 
 				{
-					size_t bufSize = sizeof(IGPUTopLevelAccelerationStructure::DeviceStaticInstance);
+					size_t bufSize = instancesCount * sizeof(IGPUTopLevelAccelerationStructure::DeviceStaticInstance);
 					IGPUBuffer::SCreationParams params;
 					params.usage = bitflag(IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT |
 						IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 					params.size = bufSize;
-					instancesBuffer = createBuffer(params);	// does this need host visible memory?
+					instancesBuffer = createBuffer(params);
 
 					SBufferRange<IGPUBuffer> range = { .offset = 0u, .size = bufSize, .buffer = instancesBuffer };
 					cmdbufTlas->updateBuffer(range, instances);
@@ -992,7 +1013,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				tlasBuildInfo.instanceData.offset = 0u;
 				tlasBuildInfo.scratch = {};
 
-				auto buildSizes = m_device->getAccelerationStructureBuildSizes(tlasFlags, 0, instancesCount);
+				auto buildSizes = m_device->getAccelerationStructureBuildSizes(tlasFlags, false, instancesCount);
 
 				{
 					IGPUBuffer::SCreationParams params;
@@ -1054,7 +1075,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 		std::array<ReferenceObjectGpu, OT_COUNT> objectsGpu;
 		ObjectDrawHookCpu object;
 
-		smart_refctd_ptr<IGPUBottomLevelAccelerationStructure> gpuBlas;
+		std::array<smart_refctd_ptr<IGPUBottomLevelAccelerationStructure>, OT_COUNT> gpuBlas;
 		smart_refctd_ptr<IGPUTopLevelAccelerationStructure> gpuTlas;
 		smart_refctd_ptr<IGPUBuffer> instancesBuffer;
 
