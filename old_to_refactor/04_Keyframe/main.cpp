@@ -58,13 +58,13 @@ int main()
 		constexpr uint32_t kJointCount = 2u;
 		asset::SBufferBinding<asset::ICPUBuffer> parentIDs,defaultTransforms,inverseBindPoses,jointAABBs;
 		{
-			parentIDs.buffer = asset::ICPUBuffer::create({ sizeof(asset::ICPUSkeleton)*kJointCount });
+			parentIDs.buffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(sizeof(asset::ICPUSkeleton)*kJointCount);
 			{
 				asset::ICPUSkeleton::joint_id_t parentJointIDs[] = { asset::ICPUSkeleton::invalid_joint_id,0u };
 				memcpy(parentIDs.buffer->getPointer(),parentJointIDs,sizeof(parentJointIDs));
 			}
-			defaultTransforms.buffer = asset::ICPUBuffer::create({ sizeof(matrix3x4SIMD)*kJointCount });
-			inverseBindPoses.buffer = asset::ICPUBuffer::create({ sizeof(matrix3x4SIMD)*kJointCount });
+			defaultTransforms.buffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(sizeof(matrix3x4SIMD)*kJointCount);
+			inverseBindPoses.buffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(sizeof(matrix3x4SIMD)*kJointCount);
 			{
 				auto* dftTransforms = reinterpret_cast<matrix3x4SIMD*>(defaultTransforms.buffer->getPointer());
 				auto* invBindPoses = reinterpret_cast<matrix3x4SIMD*>(inverseBindPoses.buffer->getPointer());
@@ -75,7 +75,7 @@ int main()
 					dftTransforms[i].getInverse(invBindPoses[i]);
 				}
 			}
-			jointAABBs.buffer = asset::ICPUBuffer::create({ sizeof(aabbox3df)*kJointCount });
+			jointAABBs.buffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(sizeof(aabbox3df)*kJointCount);
 		}
 		const char* jointNames[] = {"root","bendy"};
 		skeleton = core::make_smart_refctd_ptr<asset::ICPUSkeleton>(std::move(parentIDs),std::move(defaultTransforms),&jointNames[0],&jointNames[0]+kJointCount);
@@ -86,12 +86,12 @@ int main()
 		constexpr uint32_t kAnimationCount = 3u;
 		core::smart_refctd_ptr<asset::ICPUAnimationLibrary> animations;
 		{
-			asset::SBufferBinding<asset::ICPUBuffer> keyframes = {0ull,asset::ICPUBuffer::create({ sizeof(asset::ICPUAnimationLibrary::Keyframe)*kKeyframeCount })};
-			asset::SBufferBinding<asset::ICPUBuffer> timestamps = {0ull,asset::ICPUBuffer::create({ sizeof(asset::ICPUAnimationLibrary::timestamp_t)*kKeyframeCount })};
+			asset::SBufferBinding<asset::ICPUBuffer> keyframes = {0ull,core::make_smart_refctd_ptr<asset::ICPUBuffer>(sizeof(asset::ICPUAnimationLibrary::Keyframe)*kKeyframeCount)};
+			asset::SBufferBinding<asset::ICPUBuffer> timestamps = {0ull,core::make_smart_refctd_ptr<asset::ICPUBuffer>(sizeof(asset::ICPUAnimationLibrary::timestamp_t)*kKeyframeCount)};
 			asset::SBufferRange<asset::ICPUBuffer> namedAnims;
 			namedAnims.offset = 0ull;
 			namedAnims.size = sizeof(asset::ICPUAnimationLibrary::Animation)*kAnimationCount;
-			namedAnims.buffer = asset::ICPUBuffer::create({ namedAnims.size });
+			namedAnims.buffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(namedAnims.size);
 			animations = core::make_smart_refctd_ptr<asset::ICPUAnimationLibrary>(std::move(keyframes),std::move(timestamps),kKeyframeCount,std::move(namedAnims));
 		}
 		{

@@ -139,7 +139,7 @@ public:
 
 					regionOffsets += fullMipMapExtent.x * fullMipMapExtent.y * fullMipMapExtent.z * newImageParams.arrayLayers * asset::getTexelOrBlockBytesize(newImageParams.format);
 				}
-				newCpuBuffer = ICPUBuffer::create({ regionOffsets });
+				newCpuBuffer = ICPUBuffer::create({ .size = regionOffsets });
 				#else
 
 				/*
@@ -150,7 +150,7 @@ public:
 				const auto info = image->getTexelBlockInfo();
 				const auto fullMipMapExtentInBlocks = info.convertTexelsToBlocks(fullMipMapExtent);
 				const size_t bufferByteSize = fullMipMapExtentInBlocks.x * fullMipMapExtentInBlocks.y * fullMipMapExtentInBlocks.z * newImageParams.arrayLayers * asset::getTexelOrBlockBytesize(newImageParams.format);
-				newCpuBuffer = ICPUBuffer::create({ bufferByteSize });
+				newCpuBuffer = ICPUBuffer::create({ .size = bufferByteSize });
 
 				auto newFirstRegion = newRegions->begin();
 				*newFirstRegion = *(referenceRegion++);

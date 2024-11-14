@@ -141,8 +141,8 @@ int main()
 	video::IVideoDriver* driver = device->getVideoDriver();
 
 
-	core::smart_refctd_ptr<asset::ICPUBuffer> cpubuffers[2] = {	asset::ICPUBuffer::create({ _size }),
-																asset::ICPUBuffer::create({ _size })};
+	core::smart_refctd_ptr<asset::ICPUBuffer> cpubuffers[2] = {	asset::ICPUBuffer::create({ .size = _size }),
+																asset::ICPUBuffer::create({ .size = _size })};
 	for (auto j=0; j<2; j++)
 	for (auto i=0; i<numElements; i++)
 		reinterpret_cast<float*>(cpubuffers[j]->getPointer())[i] = rand();

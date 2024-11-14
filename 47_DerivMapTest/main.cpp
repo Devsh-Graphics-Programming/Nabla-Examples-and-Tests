@@ -199,7 +199,7 @@ static core::smart_refctd_ptr<asset::ICPUImage> createDerivMapFromHeightMap(asse
 	auto outParams = inParams;
 	outParams.format = getRGformat(outParams.format);
 	const uint32_t pitch = IImageAssetHandlerBase::calcPitchInBlocks(outParams.extent.width, asset::getTexelOrBlockBytesize(outParams.format));
-	auto buffer = asset::ICPUBuffer::create({ asset::getTexelOrBlockBytesize(outParams.format) * pitch * outParams.extent.height });
+	auto buffer = asset::ICPUBuffer::create({ .size = asset::getTexelOrBlockBytesize(outParams.format) * pitch * outParams.extent.height });
 	asset::ICPUImage::SBufferCopy region;
 	region.imageOffset = { 0,0,0 };
 	region.imageExtent = outParams.extent;

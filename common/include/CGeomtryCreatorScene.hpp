@@ -693,7 +693,7 @@ private:
 
 				if constexpr (withAssetConverter)
 				{
-					auto dummyBuffer = ICPUBuffer::create({ FramebufferW * FramebufferH * getTexelOrBlockBytesize<format>() });
+					auto dummyBuffer = ICPUBuffer::create({ .size = FramebufferW * FramebufferH * getTexelOrBlockBytesize<format>() });
 					dummyBuffer->setContentHash(dummyBuffer->computeContentHash());
 
 					auto regions = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1u);
@@ -993,7 +993,7 @@ private:
 
 		if constexpr (withAssetConverter)
 		{
-			auto uboBuffer = ICPUBuffer::create({ sizeof(SBasicViewParameters) });
+			auto uboBuffer = ICPUBuffer::create({ .size = sizeof(SBasicViewParameters) });
 			uboBuffer->addUsageFlags(UboUsage);
 			uboBuffer->setContentHash(uboBuffer->computeContentHash());
 			scratch.ubo = { .offset = 0u, .buffer = std::move(uboBuffer) };

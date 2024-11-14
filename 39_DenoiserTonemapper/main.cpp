@@ -1718,7 +1718,7 @@ nbl_glsl_complex nbl_glsl_ext_FFT_getPaddedData(ivec3 coordinate, in uint channe
 					const auto newTexelOrBlockByteSize = asset::getTexelOrBlockBytesize(outFormat);
 
 					auto newImageParams = referenceImageParams;
-					auto newCpuBuffer = ICPUBuffer::create({ referenceRegion->getExtent().width * referenceRegion->getExtent().height * referenceRegion->getExtent().depth * newTexelOrBlockByteSize });
+					auto newCpuBuffer = ICPUBuffer::create({ .size = referenceRegion->getExtent().width * referenceRegion->getExtent().height * referenceRegion->getExtent().depth * newTexelOrBlockByteSize });
 					auto newRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1);
 
 					*newRegions->begin() = *referenceRegion;

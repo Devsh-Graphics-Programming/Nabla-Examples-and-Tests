@@ -49,7 +49,7 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 				region.imageSubresource.layerCount = layers;
 				region.imageSubresource.mipLevel = 0;
 
-				image->setBufferAndRegions(ICPUBuffer::create({ bufferSize }),std::move(imageRegions));
+				image->setBufferAndRegions(ICPUBuffer::create({ .size = bufferSize }),std::move(imageRegions));
 			}
 
 			if (fillWithTestData)
