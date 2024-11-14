@@ -769,7 +769,7 @@ private:
 			// TODO: use SPIRV loader & our ::system ns to get those cpu shaders, do not create myself (shit I forgot it exists)
 
 			const SBuiltinFile& in = ::geometry::creator::spirv::builtin::get_resource<virtualPath>();
-			const auto buffer = make_smart_refctd_ptr<CCustomAllocatorCPUBuffer<null_allocator<uint8_t>, true> >(in.size, (void*)in.contents, adopt_memory);
+			const auto buffer = ICPUBuffer::create({ .size = in.size, .data = (void*)in.contents, .memoryResource = core::getNullMemoryResource() }, adopt_memory);
 			auto shader = make_smart_refctd_ptr<ICPUShader>(smart_refctd_ptr(buffer), stage, IShader::E_CONTENT_TYPE::ECT_SPIRV, ""); // must create cpu instance regardless underlying type
 
 			if constexpr (withAssetConverter)
