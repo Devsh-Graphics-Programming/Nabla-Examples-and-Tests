@@ -478,8 +478,8 @@ void Subdivision::adaptive(const OffsettedBezier& curve, float64_t targetMaxErro
 {
     const float64_t2 cusps = curve.findCusps();
 
-    const float64_t t0 = min(cusps[0], cusps[1]);
-    const float64_t t1 = max(cusps[0], cusps[1]);
+    const float64_t t0 = nbl::core::min(cusps[0], cusps[1]);
+    const float64_t t1 = nbl::core::max(cusps[0], cusps[1]);
 
     const bool firstCusp = t0 > 0.0 && t0 < 1.0;
     const bool secondCusp = t1 > 0.0 && t1 < 1.0;

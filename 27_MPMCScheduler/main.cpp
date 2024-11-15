@@ -12,6 +12,7 @@ using namespace nbl::asset;
 using namespace nbl::ui;
 using namespace nbl::video;
 
+#include "app_resources/common.hlsl"
 
 class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
@@ -19,14 +20,22 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 		using clock_t = std::chrono::steady_clock;
 
-		constexpr static inline uint32_t WIN_W = 1280, WIN_H = 720, SC_IMG_COUNT = 3u, FRAMES_IN_FLIGHT = 5u;
-		static_assert(FRAMES_IN_FLIGHT > SC_IMG_COUNT);
+		constexpr static inline uint32_t WIN_W = 1280, WIN_H = 720;
 
 	public:
 		inline MPMCSchedulerApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
 			: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
 		inline bool isComputeOnly() const override { return false; }
+
+		// tired of packing and unpacking from float16_t, let some Junior do device traits / manual pack
+		virtual video::SPhysicalDeviceLimits getRequiredDeviceLimits() const override
+		{
+			auto retval = device_base_t::getRequiredDeviceLimits();
+			retval.shaderSubgroupArithmetic = true;
+			retval.shaderFloat16 = true;
+			return retval;
+		}
 
 		inline core::vector<SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 		{
@@ -59,7 +68,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				return false;
 			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
-/*
+
 			smart_refctd_ptr<IGPUShader> shader;
 			{
 				IAssetLoader::SAssetLoadParams lp = {};
@@ -79,7 +88,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				if (!shader)
 					return false;
 			}
-*/			
+			
 			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
 			{
 				const IGPUDescriptorSetLayout::SBinding bindings[1] = { {
@@ -94,9 +103,14 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				if (!dsLayout)
 					return logFail("Failed to Create Descriptor Layout");
 			}
-/*
+
 			{
-				auto layout = m_device->createPipelineLayout({},smart_refctd_ptr(dsLayout));
+				const asset::SPushConstantRange ranges[] = {{
+					.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.offset = 0,
+					.size = sizeof(PushConstants)
+				}};
+				auto layout = m_device->createPipelineLayout(ranges,smart_refctd_ptr(dsLayout));
 				const IGPUComputePipeline::SCreationParams params[] = { {
 					{
 						.layout = layout.get()
@@ -114,7 +128,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				if (!m_device->createComputePipelines(nullptr,params,&m_ppln))
 					return logFail("Failed to create Pipeline");
 			}
-*/
+
 			m_hdr = m_device->createImage({
 				{
 					.type = IGPUImage::E_TYPE::ET_2D,
@@ -134,8 +148,8 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE,{&dsLayout.get(),1});
 				if (!pool)
 					return logFail("Could not create Descriptor Pool");
-				auto ds = pool->createDescriptorSet(std::move(dsLayout));
-				if (!ds)
+				m_ds = pool->createDescriptorSet(std::move(dsLayout));
+				if (!m_ds)
 					return logFail("Could not create Descriptor Set");
 				IGPUDescriptorSet::SDescriptorInfo info = {};
 				{
@@ -152,7 +166,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 					info.info.image.imageLayout = IGPUImage::LAYOUT::GENERAL;
 				}
 				const IGPUDescriptorSet::SWriteDescriptorSet writes[] = {{
-					.dstSet = ds.get(),
+					.dstSet = m_ds.get(),
 					.binding = 0,
 					.arrayElement = 0,
 					.count = 1,
@@ -174,15 +188,8 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 			if (!m_surface || !m_surface->init(gQueue, std::make_unique<ISimpleManagedSurface::ISwapchainResources>(), swapchainParams.sharedParams))
 				return logFail("Could not create Window & Surface or initialize the Surface!");
 
-			m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
-			if (FRAMES_IN_FLIGHT < m_maxFramesInFlight)
-			{
-				m_logger->log("Lowering frames in flight!", ILogger::ELL_WARNING);
-				m_maxFramesInFlight = FRAMES_IN_FLIGHT;
-			}
-
 			auto pool = m_device->createCommandPool(gQueue->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-			for (auto i=0u; i<m_maxFramesInFlight; i++)
+			for (auto i=0u; i<MaxFramesInFlight; i++)
 			{
 				if (!pool)
 					return logFail("Couldn't create Command Pool!");
@@ -202,20 +209,25 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 
 		inline void workLoopBody() override
 		{
-			const auto resourceIx = m_realFrameIx % m_maxFramesInFlight;
-
-			if (m_realFrameIx >= m_maxFramesInFlight)
+			// framesInFlight: ensuring safe execution of command buffers and acquires, `framesInFlight` only affect semaphore waits, don't use this to index your resources because it can change with swapchain recreation.
+			const uint32_t framesInFlight = core::min(MaxFramesInFlight, m_surface->getMaxAcquiresInFlight());
+			// We block for semaphores for 2 reasons here:
+				// A) Resource: Can't use resource like a command buffer BEFORE previous use is finished! [MaxFramesInFlight]
+				// B) Acquire: Can't have more acquires in flight than a certain threshold returned by swapchain or your surface helper class. [MaxAcquiresInFlight]
+			if (m_realFrameIx >= framesInFlight)
 			{
 				const ISemaphore::SWaitInfo cbDonePending[] =
 				{
 					{
 						.semaphore = m_semaphore.get(),
-						.value = m_realFrameIx + 1 - m_maxFramesInFlight
+						.value = m_realFrameIx + 1 - framesInFlight
 					}
 				};
 				if (m_device->blockForSemaphores(cbDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
 					return;
 			}
+
+			const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
 
 			m_currentImageAcquire = m_surface->acquireNextImage();
 			if (!m_currentImageAcquire)
@@ -287,9 +299,15 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 
 			// write the image
 			{
-				//
-	//			cb->bindComputePipeline(rawPipeline);
-	// push constants
+				cb->bindComputePipeline(m_ppln.get());
+				auto* layout = m_ppln->getLayout();
+				cb->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_COMPUTE,layout,0,1,&m_ds.get());
+				const PushConstants pc = {
+					.sharedAcceptableIdleCount = 0,
+					.globalAcceptableIdleCount = 0
+				};
+				cb->pushConstants(layout,IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,0,sizeof(pc),&pc);
+				cb->dispatch(WIN_W/WorkgroupSizeX,WIN_H/WorkgroupSizeY,1);
 			}
 
 			{
@@ -407,14 +425,16 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 		}
 
 	private:
+		// Maximum frames which can be simultaneously submitted, used to cycle through our per-frame resources like command buffers
+		constexpr static inline uint32_t MaxFramesInFlight = 3u;
 		smart_refctd_ptr<IWindow> m_window;
 		smart_refctd_ptr<CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>> m_surface;
-		smart_refctd_ptr<IGPUImage> m_hdr;
 		smart_refctd_ptr<IGPUComputePipeline> m_ppln;
+		smart_refctd_ptr<IGPUDescriptorSet> m_ds;
+		smart_refctd_ptr<IGPUImage> m_hdr;
 		smart_refctd_ptr<ISemaphore> m_semaphore;
-		uint64_t m_realFrameIx : 59 = 0;
-		uint64_t m_maxFramesInFlight : 5;
-		std::array<smart_refctd_ptr<IGPUCommandBuffer>,ISwapchain::MaxImages> m_cmdBufs;
+		uint64_t m_realFrameIx = 0;
+		std::array<smart_refctd_ptr<IGPUCommandBuffer>,MaxFramesInFlight> m_cmdBufs;
 		ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 };
 

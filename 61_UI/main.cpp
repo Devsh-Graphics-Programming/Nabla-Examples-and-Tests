@@ -30,8 +30,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 	using device_base_t = examples::SimpleWindowedApplication;
 	using clock_t = std::chrono::steady_clock;
 
-	_NBL_STATIC_INLINE_CONSTEXPR uint32_t WIN_W = 1280, WIN_H = 720, SC_IMG_COUNT = 3u, FRAMES_IN_FLIGHT = 5u;
-	static_assert(FRAMES_IN_FLIGHT > SC_IMG_COUNT);
+	_NBL_STATIC_INLINE_CONSTEXPR uint32_t WIN_W = 1280, WIN_H = 720;
 
 	constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
 
@@ -559,7 +558,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			// B) Acquire: Can't have more acquires in flight than a certain threshold returned by swapchain or your surface helper class. [MaxAcquiresInFlight]
 			if (m_realFrameIx >= framesInFlight)
 			{
-				const ISemaphore::SWaitInfo cbDonePending[] = 
+				const ISemaphore::SWaitInfo cbDonePending[] =
 				{
 					{
 						.semaphore = m_semaphore.get(),
@@ -765,6 +764,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		}
 
 	private:
+		// Maximum frames which can be simultaneously submitted, used to cycle through our per-frame resources like command buffers
+		constexpr static inline uint32_t MaxFramesInFlight = 3u;
+
 		smart_refctd_ptr<IWindow> m_window;
 		smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
 		smart_refctd_ptr<IGPUGraphicsPipeline> m_pipeline;
