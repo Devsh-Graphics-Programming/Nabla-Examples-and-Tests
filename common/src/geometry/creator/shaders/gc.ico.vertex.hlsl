@@ -1,6 +1,8 @@
-#include "template/gc.ico.vertex.input.hlsl"
-#include "template/gc.vertex.hlsl"
+struct VSInput
+{
+    [[vk::location(0)]] float3 position : POSITION;
+    [[vk::location(1)]] float3 normal : NORMAL;
+    [[vk::location(2)]] float2 uv : TEXCOORD;
+};
 
-/*
-    do not remove this text, WAVE is so bad that you can get errors if no proper ending xD
-*/
+#include "template/gc.vertex.hlsl"

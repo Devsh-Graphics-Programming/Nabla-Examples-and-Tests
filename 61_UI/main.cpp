@@ -51,7 +51,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					params.height = WIN_H;
 					params.x = 32;
 					params.y = 32;
-					params.flags = ui::IWindow::ECF_HIDDEN | IWindow::ECF_BORDERLESS | IWindow::ECF_RESIZABLE | IWindow::ECF_CAN_RESIZE | IWindow::ECF_CAN_MAXIMIZE;
+					params.flags = ui::IWindow::ECF_HIDDEN | IWindow::ECF_BORDERLESS | IWindow::ECF_MAXIMIZED;
 					params.windowCaption = "UISampleApp";
 					params.callback = windowCallback;
 					const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
@@ -407,16 +407,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						const auto& orientation = camera->getGimbal().getOrthonornalMatrix();
 
-						addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, &pass.scene->object.model[0][0]);
-						
-						addMatrixTable("Right", "OrientationRightVec", 1, 3, &camera->getGimbal().getXAxis()[0]);
-						addMatrixTable("Up", "OrientationUpVec", 1, 3, &camera->getGimbal().getYAxis()[0]);
-						addMatrixTable("Forward", "OrientationForwardVec", 1, 3, &camera->getGimbal().getZAxis()[0]);
-						addMatrixTable("Position", "PositionForwardVec", 1, 3, &camera->getGimbal().getPosition()[0]);
-
-						//addMatrixTable("Camera Gimbal Orientation Matrix", "OrientationMatrixTable", 3, 3, &orientation[0][0]);
-						addMatrixTable("Camera Gimbal View Matrix", "ViewMatrixTable", 3, 4, &view.matrix[0][0]);
-						addMatrixTable("Camera Gimbal Projection Matrix", "ProjectionMatrixTable", 4, 4, &projectionMatrix[0][0], false);
+						addMatrixTable("Object's Model Matrix", "ModelMatrixTable", 3, 4, &pass.scene->object.model[0][0]);
+						addMatrixTable("Camera's Position", "PositionForwardVec", 1, 3, &camera->getGimbal().getPosition()[0]);
+						addMatrixTable("Camera's Orientation Quat", "OrientationQuatTable", 1, 4, &camera->getGimbal().getOrientation()[0]);
+						addMatrixTable("Camera's View Matrix", "ViewMatrixTable", 3, 4, &view.matrix[0][0]);
+						addMatrixTable("Bound Projection Matrix", "ProjectionMatrixTable", 4, 4, &projectionMatrix[0][0], false);
 
 						ImGui::End();
 					}
@@ -505,9 +500,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				TESTS, TODO: remove all once finished work & integrate with the example properly
 			*/
 
-			const float32_t3 position(cosf(camYAngle)* cosf(camXAngle)* transformParams.camDistance, sinf(camXAngle)* transformParams.camDistance, sinf(camYAngle)* cosf(camXAngle)* transformParams.camDistance);
 			projection->setMatrix(buildProjectionMatrixPerspectiveFovLH<matrix_precision_t>(glm::radians(fov), float(m_window->getWidth()) / float(m_window->getHeight()), zNear, zFar));
-			camera = make_smart_refctd_ptr<camera_t>(position);
+			camera = make_smart_refctd_ptr<camera_t>(float32_t3{ -1.958f, 0.697f, 0.881f }, glm::quat(0.092f, 0.851f, -0.159f, 0.492f));
 			controller = make_smart_refctd_ptr<controller_t>(core::smart_refctd_ptr(camera));
 
 			// init keyboard map
