@@ -22,7 +22,6 @@ cbuffer CameraData
 
 float3 unpackNormals3x10(uint32_t v)
 {
-    // I have no idea how to unpack this correctly
     // host side changes float32_t3 to EF_A2B10G10R10_SNORM_PACK32
     float3 n = (float3)0;
     const uint mask = 0x3FF;    // 10 bits
@@ -90,9 +89,9 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
         {
             case 0: // EIT_16BIT
             {
-                i0 = uint32_t(vk::RawBufferLoad<uint16_t>(pc.geom[instID].indexBufferAddress + (idxOffset + 0) * sizeof(uint16_t)));
-                i1 = uint32_t(vk::RawBufferLoad<uint16_t>(pc.geom[instID].indexBufferAddress + (idxOffset + 1) * sizeof(uint16_t)));
-                i2 = uint32_t(vk::RawBufferLoad<uint16_t>(pc.geom[instID].indexBufferAddress + (idxOffset + 2) * sizeof(uint16_t)));
+                i0 = uint32_t(vk::RawBufferLoad<uint16_t>(pc.geom[instID].indexBufferAddress + (idxOffset + 0) * sizeof(uint16_t), 2u));
+                i1 = uint32_t(vk::RawBufferLoad<uint16_t>(pc.geom[instID].indexBufferAddress + (idxOffset + 1) * sizeof(uint16_t), 2u));
+                i2 = uint32_t(vk::RawBufferLoad<uint16_t>(pc.geom[instID].indexBufferAddress + (idxOffset + 2) * sizeof(uint16_t), 2u));
             }
             break;
             case 1: // EIT_32BIT
@@ -110,21 +109,18 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
             }
         }
 
-        uint32_t v0 = vk::RawBufferLoad<uint32_t>(pc.geom[instID].vertexBufferAddress + i0 * vertexStride + byteOffset);
-        uint32_t v1 = vk::RawBufferLoad<uint32_t>(pc.geom[instID].vertexBufferAddress + i1 * vertexStride + byteOffset);
-        uint32_t v2 = vk::RawBufferLoad<uint32_t>(pc.geom[instID].vertexBufferAddress + i2 * vertexStride + byteOffset);
-
         float3 n0, n1, n2;
         switch (instID)
         {
             case OT_CUBE:
             {
-                // this still doesn't feel right
-                // int8_t3 --> SSCALED (converts to float) --> unpackUnorm (read as uint --> float / 255)
-                n0 = normalize(float3(asint(nbl::hlsl::spirv::unpackUnorm4x8(v0)).xyz));
-                n1 = normalize(float3(asint(nbl::hlsl::spirv::unpackUnorm4x8(v1)).xyz));
-                n2 = normalize(float3(asint(nbl::hlsl::spirv::unpackUnorm4x8(v2)).xyz));
-                n2 = any(isnan(n2)) ? float3(0, 0, 0) : n2; // sometimes n2 is (0, 0, 0), normalizing produces nan, probably reading wrong somehow
+                uint32_t v0 = vk::RawBufferLoad<uint32_t>(pc.geom[instID].vertexBufferAddress + i0 * vertexStride + byteOffset, 2u);
+                uint32_t v1 = vk::RawBufferLoad<uint32_t>(pc.geom[instID].vertexBufferAddress + i1 * vertexStride + byteOffset, 2u);
+                uint32_t v2 = vk::RawBufferLoad<uint32_t>(pc.geom[instID].vertexBufferAddress + i2 * vertexStride + byteOffset, 2u);
+
+                n0 = normalize(nbl::hlsl::spirv::unpackUnorm4x8(v0).xyz);
+                n1 = normalize(nbl::hlsl::spirv::unpackUnorm4x8(v1).xyz);
+                n2 = normalize(nbl::hlsl::spirv::unpackUnorm4x8(v2).xyz);
             }
             break;
             case OT_SPHERE:
@@ -132,6 +128,10 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
             case OT_ARROW:
             case OT_CONE:
             {
+                uint32_t v0 = vk::RawBufferLoad<uint32_t>(pc.geom[instID].vertexBufferAddress + i0 * vertexStride + byteOffset);
+                uint32_t v1 = vk::RawBufferLoad<uint32_t>(pc.geom[instID].vertexBufferAddress + i1 * vertexStride + byteOffset);
+                uint32_t v2 = vk::RawBufferLoad<uint32_t>(pc.geom[instID].vertexBufferAddress + i2 * vertexStride + byteOffset);
+
                 n0 = normalize(unpackNormals3x10(v0));
                 n1 = normalize(unpackNormals3x10(v1));
                 n2 = normalize(unpackNormals3x10(v2));
