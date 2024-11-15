@@ -34,7 +34,7 @@ public:
     public:
         using base_t = IGimbal<precision_t>;
 
-        CGimbal(typename base_t::SCreationParameters&& parameters) : base_t(std::move(parameters)) {}
+        CGimbal(typename base_t::SCreationParameters&& parameters) : base_t(std::move(parameters)) { updateView(); }
         ~CGimbal() = default;
 
         struct SView

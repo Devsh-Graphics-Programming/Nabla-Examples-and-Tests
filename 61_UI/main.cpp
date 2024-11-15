@@ -435,7 +435,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			*/
 
 			projection->setMatrix(buildProjectionMatrixPerspectiveFovLH<matrix_precision_t>(glm::radians(fov), float(m_window->getWidth()) / float(m_window->getHeight()), zNear, zFar));
-			camera = make_smart_refctd_ptr<camera_t>(float32_t3{ -1.958f, 0.697f, 0.881f }, glm::quat(0.092f, 0.851f, -0.159f, 0.492f));
+			camera = make_smart_refctd_ptr<camera_t>(float32_t3{ -2.017f, 0.386f, 0.684f }, glm::quat(0.55f, 0.047f, 0.830f, -0.072f)); // order important for quat, the ctor is GLM_FUNC_QUALIFIER GLM_CONSTEXPR qua<T, Q>::qua(T _w, T _x, T _y, T _z)
 			controller = make_smart_refctd_ptr<controller_t>(core::smart_refctd_ptr(camera));
 
 			// init keyboard map
