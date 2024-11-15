@@ -76,7 +76,7 @@ public:
 		bool isStraightLineConstantMajor() const;
 	};
 
-	Hatch(std::span<CPolyline> lines, const MajorAxis majorAxis, int32_t* debugStep = nullptr, const std::function<void(CPolyline, LineStyleInfo)>& debugOutput = {});
+	Hatch(std::span<CPolyline> lines, const MajorAxis majorAxis, nbl::system::logger_opt_smart_ptr logger = nullptr, int32_t* debugStep = nullptr, const std::function<void(CPolyline, LineStyleInfo)>& debugOutput = {});
 	
 	// (temporary)
 	Hatch(std::vector<CurveHatchBox>&& in_hatchBoxes) :
@@ -86,8 +86,6 @@ public:
 
 	const CurveHatchBox& getHatchBox(uint32_t idx) const { return hatchBoxes[idx]; }
 	uint32_t getHatchBoxCount() const { return hatchBoxes.size(); }
-
-	std::vector<uint32_t> intersectionAmounts;
 
 	// Generate Fill Pattern
 	static core::smart_refctd_ptr<asset::ICPUImage> generateHatchFillPatternMSDF(nbl::ext::TextRendering::TextRenderer* textRenderer, HatchFillPattern fillPattern, uint32_t2 msdfExtents);

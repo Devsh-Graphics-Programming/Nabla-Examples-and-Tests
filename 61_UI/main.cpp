@@ -5,6 +5,9 @@
 #include "common.hpp"
 #include "keysmapping.hpp"
 #include "camera/CCubeProjection.hpp"
+#include "camera/ICameraControl.hpp"
+#include "nbl/builtin/hlsl/projection/projection.hlsl"
+#include "nbl/builtin/hlsl/camera/view_matrix.hlsl"
 #include "glm/glm/ext/matrix_clip_space.hpp" // TODO: TESTING
 
 // FPS Camera, TESTS
