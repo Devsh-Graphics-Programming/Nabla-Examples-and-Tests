@@ -4,11 +4,11 @@
 
 #include "common.hpp"
 
-struct SPushConstants
-{
-	uint64_t vertexBufferAddress;
-	uint64_t indexBufferAddress;
-};
+//struct SPushConstants
+//{
+//	uint64_t vertexBufferAddress;
+//	uint64_t indexBufferAddress;
+//};
 
 struct SCameraParameters
 {
@@ -261,7 +261,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				for (uint32_t i = 0; i < MaxFramesInFlight; i++)
 					renderDs[i] = renderPool->createDescriptorSet(descriptorSetLayout);
 
-				SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0u, .size = sizeof(SPushConstants)};
+				SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0u, .size = OT_COUNT * sizeof(SGeomBDA)};
 				auto pipelineLayout = m_device->createPipelineLayout({ &pcRange, 1 }, smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
 
 				IGPUComputePipeline::SCreationParams params = {};
@@ -350,14 +350,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				camera.endInputProcessing(nextPresentationTimestamp);
 
 				const auto type = static_cast<ObjectType>(gcIndex);
-				// const auto& [gpu, meta] = resources.objects[type];
-
-				//object.meta.type = type;
-				//object.meta.name = meta.name;
-
-				// TODO: hard code test one object first
-				object.meta.type = OT_CUBE;
-				object.meta.name = objectsGpu[OT_CUBE].meta.name;
 			}
 
 			const auto viewMatrix = camera.getViewMatrix();
@@ -413,17 +405,19 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			}
 
 			// do ray query
-			auto obj = objectsGpu[OT_CUBE];
-			auto vertex = obj.bindings.vertex;
-			auto index = obj.bindings.index;
+			SGeomBDA bdas[OT_COUNT];
+			for (uint32_t i = 0; i < objectsGpu.size(); i++)
+			{
+				auto obj = objectsGpu[i];
+				auto vertex = obj.bindings.vertex;
+				auto index = obj.bindings.index;
 
-			const SPushConstants pc = {
-				.vertexBufferAddress = vertex.buffer->getDeviceAddress(),
-				.indexBufferAddress = obj.useIndex() ? index.buffer->getDeviceAddress() : vertex.buffer->getDeviceAddress()
-			};
+				bdas[i].vertexBufferAddress = vertex.buffer->getDeviceAddress();
+				bdas[i].indexBufferAddress = obj.useIndex() ? index.buffer->getDeviceAddress() : vertex.buffer->getDeviceAddress();
+			}
 
 			cmdbuf->bindComputePipeline(renderPipeline.get());
-			cmdbuf->pushConstants(renderPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(SPushConstants), &pc);
+			cmdbuf->pushConstants(renderPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, OT_COUNT * sizeof(SGeomBDA), bdas);
 			cmdbuf->bindDescriptorSets(EPBP_COMPUTE, renderPipeline->getLayout(), 0, 1, &renderDs[m_currentImageAcquire.imageIndex].get());
 			cmdbuf->dispatch(getWorkgroupCount(WIN_W, WorkgroupSize), getWorkgroupCount(WIN_H, WorkgroupSize), 1);
 			
@@ -570,7 +564,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 				std::string caption = "[Nabla Engine] Geometry Creator";
 				{
-					caption += ", displaying [" + std::string(object.meta.name.data()) + "]";
+					caption += ", displaying [all objects]";
 					m_window->setCaption(caption);
 				}
 				m_surface->present(m_currentImageAcquire.imageIndex, rendered);
@@ -1073,7 +1067,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 		video::CDumbPresentationOracle oracle;
 
 		std::array<ReferenceObjectGpu, OT_COUNT> objectsGpu;
-		ObjectDrawHookCpu object;
 
 		std::array<smart_refctd_ptr<IGPUBottomLevelAccelerationStructure>, OT_COUNT> gpuBlas;
 		smart_refctd_ptr<IGPUTopLevelAccelerationStructure> gpuTlas;
