@@ -9,7 +9,7 @@
 #include "CFPSCamera.hpp"
 #include "camera/CCameraController.hpp"
 #include "SimpleWindowedApplication.hpp"
-#include "CEventCallback.hpp"
+#include "InputSystem.hpp"
 
 // the example's headers
 #include "transform.hpp"
