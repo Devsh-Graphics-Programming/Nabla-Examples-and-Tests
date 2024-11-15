@@ -92,18 +92,6 @@ const static Sphere spheres[5] = {
 
 #include "nbl/builtin/hlsl/format/octahedral.hlsl"
 
-
-// TODO: remove after the `emulated_float` merge
-namespace remove_TODO
-{
-template<typename T, typename U>
-T _static_cast(U val)
-{
-    nbl::hlsl::impl::_static_cast_helper<T,U> fn;
-    return fn(val);
-}
-}
-
 // Payload and Executor for our Task-Graph
 struct WhittedTask
 {
@@ -122,11 +110,11 @@ struct WhittedTask
 
     void setRayDir(float32_t3 _dir)
     {
-        dir = remove_TODO::_static_cast<dir_t>(_dir);
+        dir = _static_cast<dir_t>(_dir);
     }
     float32_t3 getRayDir() 
     {
-        return remove_TODO::_static_cast<float32_t3>(dir);
+        return _static_cast<float32_t3>(dir);
     }
 
     // yay workaround for https://github.com/microsoft/DirectXShaderCompiler/issues/6973
@@ -298,7 +286,7 @@ void WhittedTask::__impl_call()
     do
     {
         expected = actual;
-        rgb9e5_t newVal = remove_TODO::_static_cast<rgb9e5_t>(remove_TODO::_static_cast<float32_t3>(expected)+float32_t3(contribution));
+        rgb9e5_t newVal = _static_cast<rgb9e5_t>(_static_cast<float32_t3>(expected)+float32_t3(contribution));
         InterlockedCompareExchange(framebuffer[output],expected.storage,newVal.storage,actual.storage);
     } while (expected!=actual);
 }
