@@ -434,7 +434,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				TESTS, TODO: remove all once finished work & integrate with the example properly
 			*/
 
-			projection->setMatrix(buildProjectionMatrixPerspectiveFovLH<matrix_precision_t>(glm::radians(fov), float(m_window->getWidth()) / float(m_window->getHeight()), zNear, zFar));
+			transformParams.aspectRatio = float(m_window->getWidth()) / float(m_window->getHeight());
+			transformParams.invAspectRatio = float(m_window->getHeight()) / float(m_window->getWidth());
+
 			camera = make_smart_refctd_ptr<camera_t>(float32_t3{ -2.017f, 0.386f, 0.684f }, glm::quat(0.55f, 0.047f, 0.830f, -0.072f)); // order important for quat, the ctor is GLM_FUNC_QUALIFIER GLM_CONSTEXPR qua<T, Q>::qua(T _w, T _x, T _y, T _z)
 			controller = make_smart_refctd_ptr<controller_t>(core::smart_refctd_ptr(camera));
 
@@ -769,25 +771,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		inline void imguiListen()
 		{
 			ImGuiIO& io = ImGui::GetIO();
-			{
-				if (isPerspective)
-				{
-					if (isLH)
-						projection->setMatrix(buildProjectionMatrixPerspectiveFovLH<matrix_precision_t>(glm::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar));
-					else
-						projection->setMatrix(buildProjectionMatrixPerspectiveFovRH<matrix_precision_t>(glm::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar));
-				}
-				else
-				{
-					float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
-
-					if (isLH)
-						projection->setMatrix(buildProjectionMatrixOrthoLH<matrix_precision_t>(viewWidth, viewHeight, zNear, zFar));
-					else
-						projection->setMatrix(buildProjectionMatrixOrthoRH<matrix_precision_t>(viewWidth, viewHeight, zNear, zFar));
-				}
-			}
-
+			
 			ImGuizmo::SetOrthographic(false);
 			ImGuizmo::BeginFrame();
 
@@ -801,6 +785,27 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			if (ImGui::RadioButton("Full view", !transformParams.useWindow))
 				transformParams.useWindow = false;
+			
+			// TODO: I need this logic per viewport we will render a scene from a point of view of its bound camera
+			{
+
+				if (isPerspective)
+				{
+					if (isLH)
+						projection->setMatrix(buildProjectionMatrixPerspectiveFovLH<matrix_precision_t>(glm::radians(fov), transformParams.aspectRatio, zNear, zFar));
+					else
+						projection->setMatrix(buildProjectionMatrixPerspectiveFovRH<matrix_precision_t>(glm::radians(fov), transformParams.aspectRatio, zNear, zFar));
+				}
+				else
+				{
+					float viewHeight = viewWidth * transformParams.invAspectRatio;
+
+					if (isLH)
+						projection->setMatrix(buildProjectionMatrixOrthoLH<matrix_precision_t>(viewWidth, viewHeight, zNear, zFar));
+					else
+						projection->setMatrix(buildProjectionMatrixOrthoRH<matrix_precision_t>(viewWidth, viewHeight, zNear, zFar));
+				}
+			}
 
 			ImGui::SameLine();
 

@@ -10,11 +10,11 @@ static constexpr inline auto OfflineSceneTextureIx = 1u;
 
 struct TransformRequestParams
 {
-	bool useWindow = true, editTransformDecomposition = false, enableViewManipulate = false;
-	float camDistance = 8.f;
+	bool useWindow = true, editTransformDecomposition = false, enableViewManipulate = false; 
+	float camDistance = 8.f, aspectRatio = {}, invAspectRatio = {};
 };
 
-void EditTransform(float* cameraView, const float* cameraProjection, float* matrix, const TransformRequestParams& params)
+void EditTransform(float* cameraView, const float* cameraProjection, float* matrix, TransformRequestParams& params)
 {
 	static ImGuizmo::OPERATION mCurrentGizmoOperation(ImGuizmo::TRANSLATE);
 	static ImGuizmo::MODE mCurrentGizmoMode(ImGuizmo::LOCAL);
@@ -116,6 +116,9 @@ void EditTransform(float* cameraView, const float* cameraProjection, float* matr
 		ImVec2 windowPos = ImGui::GetWindowPos();
 		ImVec2 cursorPos = ImGui::GetCursorScreenPos();
 
+		params.aspectRatio = contentRegionSize.x / contentRegionSize.y;
+		params.invAspectRatio = contentRegionSize.y / contentRegionSize.x;
+
 		ImGui::Image(info, contentRegionSize);
 		ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
 
@@ -140,6 +143,9 @@ void EditTransform(float* cameraView, const float* cameraProjection, float* matr
 
 		viewManipulateRight = cursorPos.x + contentRegionSize.x;
 		viewManipulateTop = cursorPos.y;
+
+		params.aspectRatio = io.DisplaySize.x / io.DisplaySize.y;
+		params.invAspectRatio = io.DisplaySize.y / io.DisplaySize.x;
 	}
 
 	ImGuizmo::Manipulate(cameraView, cameraProjection, mCurrentGizmoOperation, mCurrentGizmoMode, matrix, NULL, useSnap ? &snap[0] : NULL, boundSizing ? bounds : NULL, boundSizingSnap ? boundsSnap : NULL);
