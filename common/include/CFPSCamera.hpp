@@ -17,7 +17,7 @@ class CFPSCamera final : public ICamera<T>
 public:
     using base_t = ICamera<T>;
 
-    CFPSCamera(const vector<typename base_t::precision_t, 3u>& position, glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f))
+    CFPSCamera(const vector<typename base_t::precision_t, 3u>& position, const glm::quat& orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f))
         : base_t(), m_gimbal({ .position = position, .orientation = orientation }) {}
 	~CFPSCamera() = default;
 
