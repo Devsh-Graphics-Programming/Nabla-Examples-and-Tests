@@ -29,7 +29,7 @@ float3 unpackNormals3x10(uint32_t v)
     n.x = float(asint((v >> 20) & mask));
     n.y = float(asint((v >> 10) & mask));
     n.z = float(asint((v >> 0) & mask));
-    return normalize(n);
+    return n;
 }
 
 // How the normals are packed
@@ -121,9 +121,10 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
             {
                 // this still doesn't feel right
                 // int8_t3 --> SSCALED (converts to float) --> unpackUnorm (read as uint --> float / 255)
-                n0 = (nbl::hlsl::spirv::unpackUnorm4x8(v0) * 255.0).yzw;
-                n1 = (nbl::hlsl::spirv::unpackUnorm4x8(v1) * 255.0).yzw;
-                n2 = (nbl::hlsl::spirv::unpackUnorm4x8(v2) * 255.0).yzw;
+                n0 = normalize(float3(asint(nbl::hlsl::spirv::unpackUnorm4x8(v0)).xyz));
+                n1 = normalize(float3(asint(nbl::hlsl::spirv::unpackUnorm4x8(v1)).xyz));
+                n2 = normalize(float3(asint(nbl::hlsl::spirv::unpackUnorm4x8(v2)).xyz));
+                n2 = any(isnan(n2)) ? float3(0, 0, 0) : n2; // sometimes n2 is (0, 0, 0), normalizing produces nan, probably reading wrong somehow
             }
             break;
             case OT_SPHERE:
@@ -131,9 +132,9 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
             case OT_ARROW:
             case OT_CONE:
             {
-                n0 = unpackNormals3x10(v0);
-                n1 = unpackNormals3x10(v1);
-                n2 = unpackNormals3x10(v2);
+                n0 = normalize(unpackNormals3x10(v0));
+                n1 = normalize(unpackNormals3x10(v1));
+                n2 = normalize(unpackNormals3x10(v2));
             }
             break;
             case OT_RECTANGLE:
@@ -141,9 +142,9 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
             case OT_ICOSPHERE:
             default:
             {
-                n0 = vk::RawBufferLoad<float3>(pc.geom[instID].vertexBufferAddress + i0 * vertexStride + byteOffset);
-                n1 = vk::RawBufferLoad<float3>(pc.geom[instID].vertexBufferAddress + i1 * vertexStride + byteOffset);
-                n2 = vk::RawBufferLoad<float3>(pc.geom[instID].vertexBufferAddress + i2 * vertexStride + byteOffset);
+                n0 = normalize(vk::RawBufferLoad<float3>(pc.geom[instID].vertexBufferAddress + i0 * vertexStride + byteOffset));
+                n1 = normalize(vk::RawBufferLoad<float3>(pc.geom[instID].vertexBufferAddress + i1 * vertexStride + byteOffset));
+                n2 = normalize(vk::RawBufferLoad<float3>(pc.geom[instID].vertexBufferAddress + i2 * vertexStride + byteOffset));
             }
         }
 
