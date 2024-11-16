@@ -81,21 +81,24 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 	// Termination cond
 	bool m_keepRunning = true;
 
-	static inline asset::VkExtent3D padDimensions(asset::VkExtent3D dimension, std::span<int> axes)
+	static inline asset::VkExtent3D padDimensions(asset::VkExtent3D dimension, std::span<uint16_t> axes, bool realFFT = false)
 	{
+		uint16_t axisCount = 0;
 		for (auto i : axes)
 		{
 			auto& coord = (&dimension.width)[i];
 			coord = core::roundUpToPoT(coord);
+			if (realFFT && !axisCount++)
+				coord /= 2;
 		}
 		return dimension;
 	}
 
-	static inline size_t getOutputBufferSize(const asset::VkExtent3D& inputDimensions, uint32_t numChannels, std::span<int> axes, bool realFFT = false, bool halfFloats = true)
+	static inline size_t getOutputBufferSize(const asset::VkExtent3D& inputDimensions, uint32_t numChannels, std::span<uint16_t> axes, bool realFFT = false, bool halfFloats = false)
 	{
 		auto paddedDims = padDimensions(inputDimensions, axes);
-		size_t numberOfComplexElements = paddedDims.width * paddedDims.height * paddedDims.depth * numChannels * (realFFT ? 1 : 2);
-		return numberOfComplexElements * (halfFloats ? sizeof(uint16_t) : sizeof(uint32_t));
+		size_t numberOfComplexElements = paddedDims.width * paddedDims.height * paddedDims.depth * numChannels;
+		return 2 * numberOfComplexElements * (halfFloats ? sizeof(float16_t) : sizeof(float32_t));
 	}
 
 	smart_refctd_ptr<IGPUPipelineLayout> createPipelineLayout(const std::span<const IGPUDescriptorSetLayout::SBinding> bindings)
@@ -204,10 +207,13 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 																includeMainName);
 		assert(CPUShader);
 
+		#ifndef _NBL_DEBUG
 		ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
 		auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
-
 		return m_device->createShader({ CPUShader.get(), opt.get(), m_readCache.get(), m_writeCache.get()});
+		#else 
+		return m_device->createShader({ CPUShader.get(), nullptr, m_readCache.get(), m_writeCache.get() });
+		#endif
 	}
 
 public:
@@ -424,7 +430,7 @@ public:
 			deviceLocalBufferParams.queueFamilyIndexCount = 1;
 			deviceLocalBufferParams.queueFamilyIndices = &queueFamilyIndex;
 			// Axis on which we perform first FFT is the only one that needs to be padded - in this case it's the y-axis
-			int firstAxis = 1;
+			uint16_t firstAxis = 1;
 			deviceLocalBufferParams.size = getOutputBufferSize(marginSrcDim, 3, {&firstAxis, 1}, true, useHalfFloats);
 			deviceLocalBufferParams.usage = nbl::asset::IBuffer::E_USAGE_FLAGS::EUF_STORAGE_BUFFER_BIT | nbl::asset::IBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
@@ -809,7 +815,7 @@ public:
 		shaders[1] = createShader("app_resources/fft_convolve_ifft.hlsl", nbl::hlsl::findMSB(workgroupSize), nbl::hlsl::findMSB(elementsPerThread));
 
 		// Create compute pipelines - First axis FFT -> Second axis FFT -> Normalization
-		IGPUComputePipeline::SCreationParams params[3];
+		IGPUComputePipeline::SCreationParams params[3] = {};
 		// First axis FFT
 		params[0].layout = imageFirstAxisFFTPipelineLayout.get();
 		// Second axis FFT + Conv + IFFT

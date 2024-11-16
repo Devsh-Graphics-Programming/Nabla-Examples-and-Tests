@@ -63,8 +63,8 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 
 	// Each element on this row is Nabla-ordered. So the element at `x' = index, y' = gl_WorkGroupID().x` that we're operating on is actually the element at
 	// `x = F(index), y = bitreverse(gl_WorkGroupID().x)` (with the bitreversal done as an N-1 bit number, for `N = log2(TotalSize)` *of the first axist FFT*)
-	template<typename SharedmemAdaptor>
-	void convolve(uint32_t channel, SharedmemAdaptor sharedmemAdaptor)
+	template<typename sharedmem_adaptor_t>
+	void convolve(uint32_t channel, sharedmem_adaptor_t adaptorForSharedMemory)
 	{
 		// Remember first row holds Z + iN
 		if (!glsl::gl_WorkGroupID().x)
@@ -72,7 +72,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex += 2)
 			{
 				complex_t<scalar_t> zero = preloaded[localElementIndex];
-				complex_t<scalar_t> nyquist = getDFTMirror<SharedmemAdaptor>(localElementIndex, sharedmemAdaptor);
+				complex_t<scalar_t> nyquist = getDFTMirror<sharedmem_adaptor_t>(localElementIndex, adaptorForSharedMemory);
 
 				workgroup::fft::unpack<scalar_t>(zero, nyquist);
 
@@ -105,7 +105,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				const uint32_t otherThreadGlobalElementIndex = WorkgroupSize * localElementIndex | otherThreadID;
 				const uint32_t elementToTradeGlobalIdx = FFTIndexingUtils::getNablaMirrorIndex(otherThreadGlobalElementIndex);
 				const uint32_t elementToTradeLocalIdx = elementToTradeGlobalIdx / WorkgroupSize;
-				workgroup::Shuffle<SharedmemAdaptor, vector<scalar_t, 2> >::__call(mirroredVector, otherThreadID, sharedmemAdaptor);
+				workgroup::Shuffle<sharedmem_adaptor_t, vector<scalar_t, 2> >::__call(mirroredVector, otherThreadID, adaptorForSharedMemory);
 				preloaded[elementToTradeLocalIdx].real(mirroredVector.x);
 				preloaded[elementToTradeLocalIdx].imag(mirroredVector.y);
 			}
@@ -150,8 +150,8 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 {
 	SharedMemoryAccessor sharedmemAccessor;
 	// Set up the memory adaptor
-	using adaptor_t = accessor_adaptors::StructureOfArrays<SharedMemoryAccessor, uint32_t, uint32_t, 1, FFTParameters::WorkgroupSize>;
-	adaptor_t sharedmemAdaptor;
+	using sharedmem_adaptor_t = accessor_adaptors::StructureOfArrays<SharedMemoryAccessor, uint32_t, uint32_t, 1, FFTParameters::WorkgroupSize>;
+	sharedmem_adaptor_t adaptorForSharedMemory;
 
 	PreloadedSecondAxisAccessor preloadedAccessor;
 	for (uint32_t channel = 0; channel < Channels; channel++)
@@ -159,10 +159,10 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 		preloadedAccessor.preload(channel);
 		workgroup::FFT<false, FFTParameters>::template __call(preloadedAccessor, sharedmemAccessor);
 		// Update state after FFT run
-		sharedmemAdaptor.accessor = sharedmemAccessor;
-		preloadedAccessor.convolve(channel, sharedmemAdaptor);
+		adaptorForSharedMemory.accessor = sharedmemAccessor;
+		preloadedAccessor.convolve(channel, adaptorForSharedMemory);
 		// Remember to update the accessor's state
-		sharedmemAccessor = sharedmemAdaptor.accessor;
+		sharedmemAccessor = adaptorForSharedMemory.accessor;
 		workgroup::FFT<true, FFTParameters>::template __call(preloadedAccessor, sharedmemAccessor);
 		preloadedAccessor.unload(channel);
 	}

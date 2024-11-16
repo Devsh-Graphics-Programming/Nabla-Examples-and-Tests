@@ -25,13 +25,13 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 	// we can load each thread's even elements. Their odd elements, however, are the conjugates of even elements of some other threads - which element of which thread follows the same logic we used to 
 	// unpack the FFT in the forward step.
 	// Since complex conjugation is not linear, we cannot simply store two columns and pass around their conjugates. We load one, trade, then load the other, trade again.
-	template<typename SharedmemAdaptor>
-	void preload(uint32_t channel, SharedmemAdaptor sharedmemAdaptor)
+	template<typename sharedmem_adaptor_t>
+	void preload(uint32_t channel, sharedmem_adaptor_t adaptorForSharedMemory)
 	{
 		// Set LegacyBdaAccessor for reading
 		rowMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(getChannelStartAddress(channel));
 		// Load all even elements of first column
-		for (uint32_t localElementIndex = 0; localElementIndex < (ElementsPerInvocation / 2); localElementIndex ++)
+		for (uint32_t localElementIndex = 0; localElementIndex < (ElementsPerInvocation / 2); localElementIndex++)
 		{
 			const uint32_t index = WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex();
 			preloaded[localElementIndex << 1] = rowMajorAccessor.get(rowMajorOffset(2 * glsl::gl_WorkGroupID().x, index));
@@ -39,7 +39,7 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 		// Get all odd elements by trading
 		for (uint32_t localElementIndex = 1; localElementIndex < ElementsPerInvocation; localElementIndex += 2)
 		{
-			preloaded[localElementIndex] = conj(getDFTMirror<SharedmemAdaptor>(localElementIndex, sharedmemAdaptor));
+			preloaded[localElementIndex] = conj(getDFTMirror<sharedmem_adaptor_t>(localElementIndex, adaptorForSharedMemory));
 		}
 		// Load even elements of second column, multiply them by i and add them to even positions
 		// This makes even positions hold C1 + iC2
@@ -63,12 +63,12 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 				complex_t<scalar_t> c2 = rowMajorAccessor.get(rowMajorOffset(2 * glsl::gl_WorkGroupID().x + 1, 0));
 				complex_t<scalar_t> p1 = { preloaded[0].imag() - c2.real(), c2.imag() };
 				preloaded[1] = p1;
-				complex_t<scalar_t> p0 = { preloaded[0].real() + c2.imag() , c2.real()};
+				complex_t<scalar_t> p0 = { preloaded[0].real() + c2.imag() , c2.real() };
 				preloaded[0] = p0;
 			}
-			else 
+			else
 			{
-				complex_t<scalar_t> otherThreadEven = conj(getDFTMirror<SharedmemAdaptor>(localElementIndex, sharedmemAdaptor));
+				complex_t<scalar_t> otherThreadEven = conj(getDFTMirror<sharedmem_adaptor_t>(localElementIndex, adaptorForSharedMemory));
 				otherThreadEven = otherThreadEven - preloaded[localElementIndex];
 				otherThreadEven = otherThreadEven * scalar_t(-1);
 				preloaded[localElementIndex] = preloaded[localElementIndex] + otherThreadEven;
@@ -107,16 +107,16 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 {
 	SharedMemoryAccessor sharedmemAccessor;
 	// Set up the memory adaptor
-	using adaptor_t = accessor_adaptors::StructureOfArrays<SharedMemoryAccessor, uint32_t, uint32_t, 1, FFTParameters::WorkgroupSize>;
-	adaptor_t sharedmemAdaptor;
+	using sharedmem_adaptor_t = accessor_adaptors::StructureOfArrays<SharedMemoryAccessor, uint32_t, uint32_t, 1, FFTParameters::WorkgroupSize>;
+	sharedmem_adaptor_t adaptorForSharedMemory;
 
 	PreloadedFirstAxisAccessor preloadedAccessor;
 	for (uint32_t channel = 0; channel < Channels; channel++)
 	{
-		sharedmemAdaptor.accessor = sharedmemAccessor;
-		preloadedAccessor.preload<adaptor_t>(channel, sharedmemAdaptor);
+		adaptorForSharedMemory.accessor = sharedmemAccessor;
+		preloadedAccessor.preload(channel, adaptorForSharedMemory);
 		// Update state after preload
-		sharedmemAccessor = sharedmemAdaptor.accessor;
+		sharedmemAccessor = adaptorForSharedMemory.accessor;
 		workgroup::FFT<true, FFTParameters>::template __call(preloadedAccessor, sharedmemAccessor);
 		preloadedAccessor.unload(channel);
 	}

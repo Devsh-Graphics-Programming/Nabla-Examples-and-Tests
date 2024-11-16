@@ -66,8 +66,8 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 	// see https://en.wikipedia.org/wiki/Discrete_Fourier_transform#DFT_of_real_and_purely_imaginary_signals
 	// FFT unpacking rules explained in the readme
 	// Also, elements 0 and Nyquist fit into a single complex element since they're both real, and it's always thread 0 holding these values
-	template<typename SharedmemAdaptor>
-	void unload(uint32_t channel, SharedmemAdaptor sharedmemAdaptor)
+	template<typename sharedmem_adaptor_t>
+	void unload(uint32_t channel, sharedmem_adaptor_t adaptorForSharedMemory)
 	{
 		// Storing even elements of NFFT is storing the bitreversed lower half of DFT - see readme
 		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex += 2)
@@ -82,7 +82,7 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 			else
 			{
 				complex_t<scalar_t> lo = preloaded[localElementIndex];
-				complex_t<scalar_t> hi = getDFTMirror<SharedmemAdaptor>(localElementIndex, sharedmemAdaptor);
+				complex_t<scalar_t> hi = getDFTMirror<sharedmem_adaptor_t>(localElementIndex, adaptorForSharedMemory);
 				workgroup::fft::unpack<scalar_t>(lo, hi);
 				// Divide localElementIdx by 2 to keep even elements packed together when writing
 				storeColMajor(localElementIndex * (WorkgroupSize / 2) | workgroup::SubgroupContiguousIndex(), lo, hi);
@@ -98,8 +98,8 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 {
 	SharedMemoryAccessor sharedmemAccessor;
 	// Set up the memory adaptor
-	using adaptor_t = accessor_adaptors::StructureOfArrays<SharedMemoryAccessor, uint32_t, uint32_t, 1, FFTParameters::WorkgroupSize>;
-	adaptor_t sharedmemAdaptor;
+	using sharedmem_adaptor_t = accessor_adaptors::StructureOfArrays<SharedMemoryAccessor, uint32_t, uint32_t, 1, FFTParameters::WorkgroupSize>;
+	sharedmem_adaptor_t adaptorForSharedMemory;
 
 	PreloadedFirstAxisAccessor preloadedAccessor;
 	for (uint32_t channel = 0; channel < Channels; channel++)
@@ -107,9 +107,9 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 		preloadedAccessor.preload(channel);
 		workgroup::FFT<false, FFTParameters>::template __call(preloadedAccessor, sharedmemAccessor);
 		// Update state after FFT run
-		sharedmemAdaptor.accessor = sharedmemAccessor;
-		preloadedAccessor.unload<adaptor_t>(channel, sharedmemAdaptor);
+		adaptorForSharedMemory.accessor = sharedmemAccessor;
+		preloadedAccessor.unload(channel, adaptorForSharedMemory);
 		// Remember to update the accessor's state
-		sharedmemAccessor = sharedmemAdaptor.accessor;
+		sharedmemAccessor = adaptorForSharedMemory.accessor;
 	}
 }

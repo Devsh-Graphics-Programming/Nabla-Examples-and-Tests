@@ -16,8 +16,8 @@ struct PreloadedAccessorMirrorTradeBase : PreloadedAccessorBase<FFTParameters> {
 	// Rather miraculously (haven't proven this yet) it is ALWAYS the case that at each step every two pair of threads trade their elements between themselves, 
 	// so it's always the case that you give one element to a thread and receive one from the same thread. So for the current thread we find which of our elements the other thread expects to get
 	// (since we know its global index, we divide by WorkgroupSize to get the element in the preloaded array). Finally we do a shuffle to trade these elements.
-	template<typename SharedmemAdaptor>
-	complex_t<scalar_t> getDFTMirror(uint32_t localElementIdx, SharedmemAdaptor sharedmemAdaptor)
+	template<typename sharedmem_adaptor_t>
+	complex_t<scalar_t> getDFTMirror(uint32_t localElementIdx, sharedmem_adaptor_t adaptorForSharedMemory)
 	{
 		uint32_t globalElementIdx = localElementIdx * WorkgroupSize | workgroup::SubgroupContiguousIndex();
 		uint32_t otherElementIdx = FFTIndexingUtils::getNablaMirrorIndex(globalElementIdx);
@@ -27,7 +27,7 @@ struct PreloadedAccessorMirrorTradeBase : PreloadedAccessorBase<FFTParameters> {
 		uint32_t elementToTradeLocalIdx = elementToTradeGlobalIdx / WorkgroupSize;
 		complex_t<scalar_t> toTrade = preloaded[elementToTradeLocalIdx];
 		vector<scalar_t, 2> toTradeVector = { toTrade.real(), toTrade.imag() };
-		workgroup::Shuffle<SharedmemAdaptor, vector<scalar_t, 2> >::__call(toTradeVector, otherThreadID, sharedmemAdaptor);
+		workgroup::Shuffle<sharedmem_adaptor_t, vector<scalar_t, 2> >::__call(toTradeVector, otherThreadID, adaptorForSharedMemory);
 		toTrade.real(toTradeVector.x);
 		toTrade.imag(toTradeVector.y);
 		return toTrade;
