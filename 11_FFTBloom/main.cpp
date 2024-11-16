@@ -22,7 +22,6 @@ using namespace video;
 
 #include "app_resources/common.hlsl"
 #include "nbl/builtin/hlsl/bit.hlsl"
-#include "utils.h"
 
 // In this application we'll cover buffer streaming, Buffer Device Address (BDA) and push constants 
 class FFTBloomApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
@@ -75,15 +74,29 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 	// Sync primitives
 	smart_refctd_ptr<ISemaphore> m_timeline;
 	uint64_t semaphorValue = 0;
-	// For image uploads
-	SIntendedSubmitInfo m_intendedSubmit;
-	smart_refctd_ptr<ISemaphore> m_scratchSemaphore;
 
 	// Only use one queue
 	IQueue* m_queue;
 
 	// Termination cond
 	bool m_keepRunning = true;
+
+	static inline asset::VkExtent3D padDimensions(asset::VkExtent3D dimension, std::span<int> axes)
+	{
+		for (auto i : axes)
+		{
+			auto& coord = (&dimension.width)[i];
+			coord = core::roundUpToPoT(coord);
+		}
+		return dimension;
+	}
+
+	static inline size_t getOutputBufferSize(const asset::VkExtent3D& inputDimensions, uint32_t numChannels, std::span<int> axes, bool realFFT = false, bool halfFloats = true)
+	{
+		auto paddedDims = padDimensions(inputDimensions, axes);
+		size_t numberOfComplexElements = paddedDims.width * paddedDims.height * paddedDims.depth * numChannels * (realFFT ? 1 : 2);
+		return numberOfComplexElements * (halfFloats ? sizeof(uint16_t) : sizeof(uint32_t));
+	}
 
 	smart_refctd_ptr<IGPUPipelineLayout> createPipelineLayout(const std::span<const IGPUDescriptorSetLayout::SBinding> bindings)
 	{
@@ -212,8 +225,8 @@ public:
 
 		// Setup semaphores
 		m_timeline = m_device->createSemaphore(semaphorValue);
-		// We can't use the same sepahore for uploads so we signal a different semaphore if we need to
-		m_scratchSemaphore = m_device->createSemaphore(0);
+		// We can't use the same sepahore for uploads so we signal a different semaphore
+		smart_refctd_ptr<ISemaphore> scratchSemaphore = m_device->createSemaphore(0);
 
 		// Get compute queue
 		m_queue = getComputeQueue();
@@ -253,26 +266,12 @@ public:
 					.image = std::move(srcImageCPU),
 					.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
 					.format = srcImageFormat,
-					.subresourceRange = {
-						.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
-						.baseMipLevel = 0u,
-						.levelCount = ICPUImageView::remaining_mip_levels,
-						.baseArrayLayer = 0u,
-						.layerCount = ICPUImageView::remaining_array_layers
-					}
 				},
 				{
 					.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
 					.image = std::move(kerImageCPU),
 					.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
 					.format = kerImageFormat,
-					.subresourceRange = {
-						.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
-						.baseMipLevel = 0u,
-						.levelCount = ICPUImageView::remaining_mip_levels,
-						.baseArrayLayer = 0u,
-						.layerCount = ICPUImageView::remaining_array_layers
-					}
 			}
 			};
 			const auto srcImageViewCPU = ICPUImageView::create(std::move(viewParams[0]));
@@ -327,27 +326,24 @@ public:
 			assert(m_srcImageView);
 			assert(m_kerImageView);
 
-			// Required size for uploads
-			auto srcImageDims = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
-			auto kerImageDims = m_kerImageView->getCreationParameters().image->getCreationParameters().extent;
-			// Add a bit extra because EXR has alpha
-			uint32_t srcImageSize = srcImageDims.height * srcImageDims.width * srcImageDims.depth * (Channels + 1) * sizeof(float32_t);
-			uint32_t kerImageSize = kerImageDims.height * kerImageDims.width * kerImageDims.depth * (Channels + 1) * sizeof(float32_t);
-
-			m_utils = make_smart_refctd_ptr<IUtilities>(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), srcImageSize, srcImageSize + kerImageSize);
+			// Going to need an IUtils to perform uploads/downloads
+			m_utils = make_smart_refctd_ptr<IUtilities>(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger));
 
 			// Now convert uploads
 			// Get graphics queue for image transfer
+			// For image uploads
+			SIntendedSubmitInfo intendedSubmit;
+
 			auto graphicsQueue = getQueue(IQueue::FAMILY_FLAGS::GRAPHICS_BIT);
-			m_intendedSubmit.queue = graphicsQueue;
+			intendedSubmit.queue = graphicsQueue;
 			// Set up submit for image transfers
 			// wait for nothing before upload
-			m_intendedSubmit.waitSemaphores = {};
-			m_intendedSubmit.prevCommandBuffers = {};
+			intendedSubmit.waitSemaphores = {};
+			intendedSubmit.prevCommandBuffers = {};
 			// fill later
-			m_intendedSubmit.scratchCommandBuffers = {};
-			m_intendedSubmit.scratchSemaphore = {
-				.semaphore = m_scratchSemaphore.get(),
+			intendedSubmit.scratchCommandBuffers = {};
+			intendedSubmit.scratchSemaphore = {
+				.semaphore = scratchSemaphore.get(),
 				.value = 0,
 				// because of layout transitions
 				.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
@@ -363,21 +359,10 @@ public:
 			graphicsCmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
 			IQueue::SSubmitInfo::SCommandBufferInfo graphicsCmdbufInfo = { graphicsCmdBuf.get() };
-			m_intendedSubmit.scratchCommandBuffers = { &graphicsCmdbufInfo,1 };
+			intendedSubmit.scratchCommandBuffers = { &graphicsCmdbufInfo,1 };
 
-			// We need compute queue to be the owner of the images after transfer + layout transition
-			struct SConvertParams : CAssetConverter::SConvertParams
-			{
-				virtual inline uint32_t getFinalOwnerQueueFamily(const IGPUImage* image, const core::blake3_hash_t& createdFrom, const uint8_t mipLevel)
-				{
-					return computeFamilyIndex;
-				}
-
-				uint32_t computeFamilyIndex;
-			};
-			SConvertParams params = {};
-			params.computeFamilyIndex = queueFamilyIndex;
-			params.transfer = &m_intendedSubmit;
+			CAssetConverter::SConvertParams params = {};
+			params.transfer = &intendedSubmit;
 			params.utilities = m_utils.get();
 			auto result = reservation.convert(params);
 			// block immediately
@@ -411,15 +396,10 @@ public:
 
 		// agree on formats
 		const E_FORMAT srcFormat = m_srcImageView->getCreationParameters().format;
-		// TODO: this might be pointless?
-		uint32_t srcNumChannels = getFormatChannelCount(srcFormat);
-		uint32_t kerNumChannels = getFormatChannelCount(m_kerImageView->getCreationParameters().format);
+		
 		//! OVERRIDE (we dont need alpha)
-		srcNumChannels = Channels;
-		kerNumChannels = Channels;
-		assert(srcNumChannels == kerNumChannels); // Just to make sure, because the other case is not handled in this example
-
-		// Compute (kernel) padding size
+		uint32_t srcNumChannels = Channels;
+		uint32_t kerNumChannels = Channels;
 
 		// Kernel pixel to image pixel conversion ratio
 		const float bloomRelativeScale = 0.25f;
@@ -443,7 +423,9 @@ public:
 
 			deviceLocalBufferParams.queueFamilyIndexCount = 1;
 			deviceLocalBufferParams.queueFamilyIndices = &queueFamilyIndex;
-			deviceLocalBufferParams.size = getOutputBufferSize(marginSrcDim, 3, useHalfFloats);
+			// Axis on which we perform first FFT is the only one that needs to be padded - in this case it's the y-axis
+			int firstAxis = 1;
+			deviceLocalBufferParams.size = getOutputBufferSize(marginSrcDim, 3, {&firstAxis, 1}, true, useHalfFloats);
 			deviceLocalBufferParams.usage = nbl::asset::IBuffer::E_USAGE_FLAGS::EUF_STORAGE_BUFFER_BIT | nbl::asset::IBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
 			m_rowMajorBuffer = m_device->createBuffer(std::move(deviceLocalBufferParams));
@@ -605,8 +587,8 @@ public:
 				kernelNormalizationPipelineLayout = createPipelineLayout({ &bnd, 1 });
 			}
 
-
-			const asset::VkExtent3D paddedKerDim = padDimensions(kerDim);
+			// TODO: change when changing kernel logic
+			const asset::VkExtent3D paddedKerDim = kerDim;
 
 			// create kernel spectrums
 			auto createKernelSpectrum = [&]() -> auto
@@ -633,11 +615,6 @@ public:
 					viewParams.viewType = video::IGPUImageView::ET_2D;
 					viewParams.format = useHalfFloats ? EF_R16G16_SFLOAT : EF_R32G32_SFLOAT;
 					viewParams.components = {};
-					viewParams.subresourceRange.aspectMask = IImage::EAF_COLOR_BIT;
-					viewParams.subresourceRange.baseMipLevel = 0;
-					viewParams.subresourceRange.levelCount = 1;
-					viewParams.subresourceRange.baseArrayLayer = 0;
-					viewParams.subresourceRange.layerCount = 1;
 					return m_device->createImageView(std::move(viewParams));
 				};
 
@@ -749,12 +726,12 @@ public:
 			bufBarrier.range.buffer = m_rowMajorBuffer;
 
 			// Also set kernel channel images to GENERAL for writing
-			decltype(pipelineBarrierInfo)::image_barrier_t imgBarriers[Channels];
+			decltype(pipelineBarrierInfo)::image_barrier_t imgBarriers[Channels] = {};
 			pipelineBarrierInfo.imgBarriers = { imgBarriers, Channels };
 			for (auto i = 0u; i < Channels; i++)
 			{
 				imgBarriers[i].image = m_kernelNormalizedSpectrums[i]->getCreationParameters().image.get();
-				imgBarriers[i].subresourceRange.aspectMask =IImage::EAF_COLOR_BIT;
+				imgBarriers[i].subresourceRange.aspectMask = IImage::EAF_COLOR_BIT;
 				imgBarriers[i].subresourceRange.levelCount = 1u;
 				imgBarriers[i].subresourceRange.layerCount = 1u;
 				imgBarriers[i].barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
@@ -788,7 +765,7 @@ public:
 
 				// Could check whether queue used for upload is different than the compute one, but oh well
 				IQueue::SSubmitInfo::SSemaphoreInfo transferSemaphore = {
-					.semaphore = m_scratchSemaphore.get(),
+					.semaphore = scratchSemaphore.get(),
 					.value = 1,
 					// because of layout transitions
 				.	stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
@@ -923,7 +900,7 @@ public:
 		m_computeCmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		// Pipeline barrier: transition kernel spectrum images into read only, and outImage into general
 		IGPUCommandBuffer::SPipelineBarrierDependencyInfo imagePipelineBarrierInfo = {};
-		decltype(imagePipelineBarrierInfo)::image_barrier_t imgBarriers[Channels + 1];
+		decltype(imagePipelineBarrierInfo)::image_barrier_t imgBarriers[Channels + 1] = {}; 
 		imagePipelineBarrierInfo.imgBarriers = { imgBarriers, Channels + 1};
 
 		// outImage just needs a layout transition before it can be written to
