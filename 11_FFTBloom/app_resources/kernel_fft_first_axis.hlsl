@@ -72,21 +72,23 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 		// Storing even elements of NFFT is storing the bitreversed lower half of DFT - see readme
 		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex += 2)
 		{
+			complex_t<scalar_t> lo, hi;
 			// First element of 0th thread has a special packing rule
-			if (!workgroup::SubgroupContiguousIndex() && !localElementIndex)
+			if (!localElementIndex && !workgroup::SubgroupContiguousIndex())
 			{
-				complex_t<scalar_t> packedZeroNyquistLo = { preloaded[0].real(), preloaded[1].real() };
-				complex_t<scalar_t> packedZeroNyquistHi = { preloaded[0].imag(), preloaded[1].imag() };
-				storeColMajor(0, packedZeroNyquistLo, packedZeroNyquistHi);
+				lo.real(preloaded[0].real());
+				lo.imag(preloaded[1].real());
+				hi.real(preloaded[0].imag());
+				hi.imag(preloaded[1].imag());
 			}
 			else
 			{
-				complex_t<scalar_t> lo = preloaded[localElementIndex];
-				complex_t<scalar_t> hi = getDFTMirror<sharedmem_adaptor_t>(localElementIndex, adaptorForSharedMemory);
+				lo = preloaded[localElementIndex];
+				hi = getDFTMirror<sharedmem_adaptor_t>(localElementIndex, adaptorForSharedMemory);
 				workgroup::fft::unpack<scalar_t>(lo, hi);
-				// Divide localElementIdx by 2 to keep even elements packed together when writing
-				storeColMajor(localElementIndex * (WorkgroupSize / 2) | workgroup::SubgroupContiguousIndex(), lo, hi);
 			}
+			// Divide localElementIdx by 2 to keep even elements packed together when writing
+			storeColMajor(localElementIndex * (WorkgroupSize / 2) | workgroup::SubgroupContiguousIndex(), lo, hi);
 		}
 	}
 	LegacyBdaAccessor<complex_t<scalar_t> > colMajorAccessor;
