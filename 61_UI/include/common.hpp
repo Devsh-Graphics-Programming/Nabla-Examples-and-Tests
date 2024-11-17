@@ -3,10 +3,13 @@
 
 #include <nabla.h>
 
+#include <bitset>
+
 // common api
-#include "CCamera.hpp"
+#include "CFPSCamera.hpp"
+#include "camera/CCameraController.hpp"
 #include "SimpleWindowedApplication.hpp"
-#include "CEventCallback.hpp"
+#include "InputSystem.hpp"
 
 // the example's headers
 #include "transform.hpp"
@@ -21,5 +24,7 @@ using namespace ui;
 using namespace video;
 using namespace scene;
 using namespace geometrycreator;
+
+using matrix_precision_t = float32_t;
 
 #endif // __NBL_THIS_EXAMPLE_COMMON_H_INCLUDED__
