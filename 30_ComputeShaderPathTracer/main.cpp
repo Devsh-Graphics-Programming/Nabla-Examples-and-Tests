@@ -760,46 +760,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				m_device->updateDescriptorSets(writeDescriptorSets, {});
 			}
 
-#if 0
-			// upload data
-			{
-				// upload scramble data
-				{
-					auto extent = m_envMapView->getCreationParameters().image->getCreationParameters().extent;
-
-					IGPUImage::SBufferCopy region = {};
-					region.bufferOffset = 0u;
-					region.bufferRowLength = 0u;
-					region.bufferImageHeight = 0u;
-					region.imageExtent = extent;
-					region.imageOffset = { 0u,0u,0u };
-					region.imageSubresource.layerCount = 1u;
-					region.imageSubresource.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-
-					const std::span<const asset::IImage::SBufferCopy> regions = { &region, 1 };
-
-					// we don't want to overcomplicate the example with multi-queue
-					auto queue = getGraphicsQueue();
-					auto cmdbuf = m_cmdBufs[0].get();
-					cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
-					IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf };
-					m_intendedSubmit.scratchCommandBuffers = { &cmdbufInfo, 1 };
-
-					cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-					m_api->startCapture();
-					// TODO: this silently failed for some reason instead of telling you its bad, add logging of errors in CommandBuffer and IUtilities.
-					m_utils->updateImageViaStagingBufferAutoSubmit(
-						m_intendedSubmit,
-						random.data(),
-						asset::E_FORMAT::EF_R32G32_UINT,
-						m_scrambleView->getCreationParameters().image.get(),
-						IGPUImage::LAYOUT::UNDEFINED,
-						regions
-					);
-					m_api->endCapture();
-				}
-			}
-#endif
 			/*
 			// Create ui descriptors
 			{
