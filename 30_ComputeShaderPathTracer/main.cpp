@@ -147,8 +147,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			}
 
 			// Compute no of frames in flight
-			{
-				m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
+			{ // TODO: upgrade in-line with Erfan's best practices
+				m_maxFramesInFlight = m_surface->getMaxAcquiresInFlightUpperLimit();
 				if (FramesInFlight < m_maxFramesInFlight)
 				{
 					m_logger->log("Lowering frames in flight!", ILogger::ELL_WARNING);
@@ -518,7 +518,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					scrambleMapCPU = ICPUImage::create(std::move(info));
 					const uint32_t texelFormatByteSize = getTexelOrBlockBytesize(scrambleMapCPU->getCreationParameters().format);
 					const uint32_t texelBufferSize = scrambleMapCPU->getImageDataSizeInBytes();
-					auto texelBuffer = core::make_smart_refctd_ptr<ICPUBuffer>(texelBufferSize);
+					auto texelBuffer = ICPUBuffer::create({.size=texelBufferSize});
 
 					core::RandomSampler rng(0xbadc0ffeu);
 					auto out = reinterpret_cast<uint32_t *>(texelBuffer->getPointer());
@@ -541,6 +541,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					scrambleMapCPU->setBufferAndRegions(std::move(texelBuffer), regions);
 				}
 
+// TODO: WHY ARE YOU CONVERTING 1-by-1 !??!?!?!?!?!?!?!?!?!?!?! DO BATCHES!
 				envMap = convertImgCPU2GPU(envMapCPU);
 				scrambleMap = convertImgCPU2GPU(scrambleMapCPU);
 			}
@@ -588,7 +589,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				auto extent = params.extent;
 				envMap->setObjectDebugName("Env Map");
 				m_envMapView = createHDRIImageView(envMap);
-				m_envMapView->setObjectDebugName("Env Map View");
+				m_envMapView->setObjectDebugName("Env Map View"); 
 				scrambleMap->setObjectDebugName("Scramble Map");
 				m_scrambleView = createHDRIImageView(scrambleMap);
 				m_scrambleView->setObjectDebugName("Scramble Map View");
@@ -613,7 +614,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				}
 
 				{
-					auto sampleSequence = core::make_smart_refctd_ptr<asset::ICPUBuffer>(sizeof(uint32_t) * MaxBufferDimensions * MaxBufferSamples);
+					auto sampleSequence = asset::ICPUBuffer::create({.size=sizeof(uint32_t)*MaxBufferDimensions*MaxBufferSamples});
 
 					core::OwenSampler sampler(MaxBufferDimensions, 0xdeadbeefu);
 					//core::SobolSampler sampler(MaxBufferDimensions);
@@ -909,7 +910,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		{
 			const auto resourceIx = m_realFrameIx % m_maxFramesInFlight;
 
-			if (m_realFrameIx >= m_maxFramesInFlight)
+			if (m_realFrameIx >= m_maxFramesInFlight) // TODO: upgrade in-line with Erfan's best practices
 			{
 				const ISemaphore::SWaitInfo cbDonePending[] = 
 				{
@@ -934,14 +935,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			{
 				cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
 				const auto viewMatrix = m_camera.getViewMatrix();
-				const auto viewProjectionMatrix = matrix4SIMD();
-				/*
-				* Temporarily use identity matrix (Desktop only)
-					matrix4SIMD::concatenateBFollowedByAPrecisely(
-						video::ISurface::getSurfaceTransformationMatrix(swapchain->getPreTransform()),
-						m_camera.getConcatenatedMatrix()
-					);
-				*/
+				// disregard surface/swapchain transformation for now
+				const auto viewProjectionMatrix = m_camera.getConcatenatedMatrix();
 
 				// safe to proceed
 				// upload buffer data
@@ -1222,7 +1217,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		smart_refctd_ptr<IGPUComputePipeline> m_PTPipeline;
 		smart_refctd_ptr<IGPUGraphicsPipeline> m_presentPipeline;
 		uint64_t m_realFrameIx : 59 = 0;
-		uint64_t m_maxFramesInFlight : 5;
+		uint64_t m_maxFramesInFlight : 5;  // TODO: upgrade in-line with Erfan's best practices
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>, ISwapchain::MaxImages> m_cmdBufs;
 		ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 		smart_refctd_ptr<IGPUDescriptorSet> m_descriptorSet0, m_uboDescriptorSet1, m_descriptorSet2, m_presentDescriptorSet;
