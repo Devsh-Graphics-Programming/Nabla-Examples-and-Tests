@@ -41,22 +41,6 @@ enum ObjectType : uint32_t  // matches c++
 
     OT_COUNT
 };
-
-struct SVertexInfo
-{
-    
-    uint geomType;  // defines both vertex stride and byte offset
-};
-
-struct SCameraParameters
-{
-    float3 camPos;
-
-	float4x4 MVP;
-    float4x4 invMVP;
-	float3x4 V;
-    float3x4 P;
-};
 #endif
 
 #endif  // RQG_COMMON_HLSL
