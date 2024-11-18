@@ -465,15 +465,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						std::exit(-1);
 					}
 
-					// we want our converter's submit to signal a semaphore that image contents are ready
-					const IQueue::SSubmitInfo::SSemaphoreInfo signalSemaphore = {
-							.semaphore = imgFillSemaphore.get(),
-							.value = 1u,
-							// cannot signal from COPY stage because there's a layout transition and a possible ownership transfer
-							// and we need to wait for right after and they don't have an explicit stage
-							.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
-					};
-					params.extraSignalSemaphores = { &signalSemaphore,1 };
 					// and launch the conversions
 					m_api->startCapture();
 					auto result = reservation.convert(params);
