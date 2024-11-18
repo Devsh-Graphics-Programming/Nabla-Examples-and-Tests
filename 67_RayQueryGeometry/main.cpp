@@ -4,12 +4,6 @@
 
 #include "common.hpp"
 
-//struct SPushConstants
-//{
-//	uint64_t vertexBufferAddress;
-//	uint64_t indexBufferAddress;
-//};
-
 struct SCameraParameters
 {
 	float camPos[3];
@@ -43,7 +37,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			return retval;
 		}
 
-		// TODO: Implement the feature intersection operator in the JSON generator and fix the TODO in `MonoDeviceApplication::getPreferredDeviceFeatures`!
 		inline SPhysicalDeviceFeatures getPreferredDeviceFeatures() const override
 		{
 			auto retval = device_base_t::getPreferredDeviceFeatures();
@@ -58,7 +51,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				{
 					auto windowCallback = core::make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
 					IWindow::SCreationParams params = {};
-					params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
+					params.callback = core::make_smart_refctd_ptr<ISimpleManagedSurface::ICallback>();
 					params.width = WIN_W;
 					params.height = WIN_H;
 					params.x = 32;
@@ -70,7 +63,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				}
 
 				auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
-				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = nbl::video::CSimpleResizeSurface<nbl::video::CDefaultSwapchainFramebuffers>::create(std::move(surface));
+				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>::create(std::move(surface));
 			}
 
 			if (m_surface)
@@ -105,43 +98,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			if (!swapchainParams.deduceFormat(m_physicalDevice))
 				return logFail("Could not choose a Surface Format for the Swapchain!");
 
-			const static IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
-				// wipe-transition of Color to ATTACHMENT_OPTIMAL
-				{
-					.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
-					.dstSubpass = 0,
-					.memoryBarrier = 
-					{
-						// srcs is NONE
-						.dstStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-						.dstAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-					}
-				// leave view offsets and flags default
-			},
-				// color from ATTACHMENT_OPTIMAL to PRESENT_SRC
-				{
-					.srcSubpass = 0,
-					.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
-					.memoryBarrier = 
-					{
-						.srcStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-						.srcAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-						// spec says nothing is needed when presentation is the destination
-					}
-				// leave view offsets and flags default
-			},
-			IGPURenderpass::SCreationParams::DependenciesEnd
-			};
-
-			auto scResources = std::make_unique<CDefaultSwapchainFramebuffers>(m_device.get(), swapchainParams.surfaceFormat.format, dependencies);
-
-			auto* renderpass = scResources->getRenderpass();
-
-			if (!renderpass)
-				return logFail("Failed to create Renderpass!");
-
 			auto gQueue = getGraphicsQueue();
-			if (!m_surface || !m_surface->init(gQueue, std::move(scResources), swapchainParams.sharedParams))
+			if (!m_surface || !m_surface->init(gQueue, std::make_unique<ISimpleManagedSurface::ISwapchainResources>(), swapchainParams.sharedParams))
 				return logFail("Could not create Window & Surface or initialize the Surface!");
 
 			auto pool = m_device->createCommandPool(gQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
@@ -1053,7 +1011,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 
 		smart_refctd_ptr<IWindow> m_window;
-		smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
+		smart_refctd_ptr<CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>> m_surface;
 		smart_refctd_ptr<ISemaphore> m_semaphore;
 		uint64_t m_realFrameIx = 0;
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;

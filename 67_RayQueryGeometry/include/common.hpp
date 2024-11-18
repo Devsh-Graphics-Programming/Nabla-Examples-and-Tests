@@ -75,8 +75,6 @@ struct ReferenceObjectGpu
 		nbl::asset::SBufferBinding<IGPUBuffer> vertex, index;
 	};
 
-	//nbl::core::smart_refctd_ptr<typename Types::graphics_pipeline_t> pipeline = nullptr;
-
 	ObjectMeta meta;
 	Bindings bindings;
 	uint32_t vertexStride;
