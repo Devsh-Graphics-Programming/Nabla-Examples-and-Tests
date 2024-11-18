@@ -23,12 +23,10 @@ cbuffer CameraData
 float3 unpackNormals3x10(uint32_t v)
 {
     // host side changes float32_t3 to EF_A2B10G10R10_SNORM_PACK32
-    float3 n = (float3)0;
-    const uint mask = 0x3FF;    // 10 bits
-    n.x = float(asint((v >> 20) & mask));
-    n.y = float(asint((v >> 10) & mask));
-    n.z = float(asint((v >> 0) & mask));
-    return n;
+    // follows unpacking scheme from https://github.com/KhronosGroup/SPIRV-Cross/blob/main/reference/shaders-hlsl/frag/unorm-snorm-packing.frag
+    int signedValue = int(v);
+    int3 pn = int3(signedValue << 22, signedValue << 12, signedValue << 2) >> 22;
+    return clamp(float3(pn) / 511.0, -1.0, 1.0);
 }
 
 // How the normals are packed
@@ -118,9 +116,9 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
                 uint32_t v1 = vk::RawBufferLoad<uint32_t>(pc.geom[instID].vertexBufferAddress + i1 * vertexStride + byteOffset, 2u);
                 uint32_t v2 = vk::RawBufferLoad<uint32_t>(pc.geom[instID].vertexBufferAddress + i2 * vertexStride + byteOffset, 2u);
 
-                n0 = normalize(nbl::hlsl::spirv::unpackUnorm4x8(v0).xyz);
-                n1 = normalize(nbl::hlsl::spirv::unpackUnorm4x8(v1).xyz);
-                n2 = normalize(nbl::hlsl::spirv::unpackUnorm4x8(v2).xyz);
+                n0 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v0).xyz);
+                n1 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v1).xyz);
+                n2 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v2).xyz);
             }
             break;
             case OT_SPHERE:
