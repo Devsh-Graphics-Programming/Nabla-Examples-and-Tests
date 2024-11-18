@@ -21,6 +21,9 @@ struct SPushConstants
 
 	float32_t3 camPos;
 	float32_t4x4 invMVP;
+
+	float32_t2 scaleNDC;
+	float32_t2 offsetNDC;
 };
 
 #ifdef __HLSL_VERSION

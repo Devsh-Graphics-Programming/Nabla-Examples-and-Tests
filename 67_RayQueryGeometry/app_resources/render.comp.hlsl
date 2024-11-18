@@ -1,5 +1,6 @@
 #include "common.hlsl"
 
+#include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 #include "nbl/builtin/hlsl/spirv_intrinsics/core.hlsl"
 
 [[vk::push_constant]] SPushConstants pc;
@@ -26,21 +27,16 @@ static const uint byteOffsets[OT_COUNT]     = { 18, 24, 24, 20, 20, 24, 16, 12 }
 void main(uint32_t3 threadID : SV_DispatchThreadID)
 {
     uint2 coords = threadID.xy;
-    uint2 resolution;
-    outImage.GetDimensions(resolution.x, resolution.y);
-    float2 texCoords = float2(float(coords.x) / resolution.x, 1.0 - float(coords.y) / resolution.y);
-
-    if (any(coords >= resolution))
-        return;
-
-    float4 color = float4(0, 0, 0, 1);
-
-    float4 NDC = float4(texCoords * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
+    coords.y = nbl::hlsl::glsl::gl_NumWorkGroups().y * WorkgroupSize - coords.y;    // need to invert it
+    
+    float4 NDC;
+    NDC.xy = float2(coords) * pc.scaleNDC;
+    NDC.xy += pc.offsetNDC;
+    NDC.zw = float2(0, 1);
     float3 targetPos;
     {
         float4 tmp = mul(pc.invMVP, NDC);
         targetPos = tmp.xyz / tmp.w;
-        NDC.z = 1.0;
     }
 
     RayDesc ray;
@@ -53,6 +49,8 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     query.TraceRayInline(topLevelAS, 0, 0xFF, ray);
 
     while (query.Proceed()) {}
+
+    float4 color = float4(0, 0, 0, 1);
 
     if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
     {
@@ -142,5 +140,5 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
         color = float4(normalInterp, 1.0);
     }
 
-    outImage[coords] = color;
+    outImage[threadID.xy] = color;
 }

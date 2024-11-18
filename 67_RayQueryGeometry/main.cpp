@@ -324,6 +324,9 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			pc.camPos = { camPos.X, camPos.Y, camPos.Z };
 			memcpy(&pc.invMVP, invModelViewProjectionMatrix.pointer(), sizeof(pc.invMVP));
 
+			pc.scaleNDC = { 2.f / WIN_W, -2.f / WIN_H };
+			pc.offsetNDC = { -1.f, 1.f };
+
 			cmdbuf->bindComputePipeline(renderPipeline.get());
 			cmdbuf->pushConstants(renderPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(SPushConstants), &pc);
 			cmdbuf->bindDescriptorSets(EPBP_COMPUTE, renderPipeline->getLayout(), 0, 1, &renderDs.get());
