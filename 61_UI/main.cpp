@@ -469,8 +469,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				TESTS, TODO: remove all once finished work & integrate with the example properly
 			*/
 
-			transformParams.aspectRatio = float(m_window->getWidth()) / float(m_window->getHeight());
-			transformParams.invAspectRatio = float(m_window->getHeight()) / float(m_window->getWidth());
+			aspectRatio = float(m_window->getWidth()) / float(m_window->getHeight());
+			invAspectRatio = float(m_window->getHeight()) / float(m_window->getWidth());
 
 			if (base_t::argv.size() >= 3 && argv[1] == "-timeout_seconds")
 				timeout = std::chrono::seconds(std::atoi(argv[2].c_str()));
@@ -816,8 +816,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			ImGui::SetNextWindowSize(ImVec2(320, 340), ImGuiCond_Appearing);
 			ImGui::Begin("Editor");
 
-			if (ImGui::RadioButton("Full view", !transformParams.useWindow))
-				transformParams.useWindow = false;
+			if (ImGui::RadioButton("Full view", !useWindow))
+				useWindow = false;
 			
 			// TODO: I need this logic per viewport we will render a scene from a point of view of its bound camera
 			{
@@ -825,13 +825,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				if (isPerspective)
 				{
 					if (isLH)
-						projection->setMatrix(buildProjectionMatrixPerspectiveFovLH<matrix_precision_t>(glm::radians(fov), transformParams.aspectRatio, zNear, zFar));
+						projection->setMatrix(buildProjectionMatrixPerspectiveFovLH<matrix_precision_t>(glm::radians(fov), aspectRatio, zNear, zFar));
 					else
-						projection->setMatrix(buildProjectionMatrixPerspectiveFovRH<matrix_precision_t>(glm::radians(fov), transformParams.aspectRatio, zNear, zFar));
+						projection->setMatrix(buildProjectionMatrixPerspectiveFovRH<matrix_precision_t>(glm::radians(fov), aspectRatio, zNear, zFar));
 				}
 				else
 				{
-					float viewHeight = viewWidth * transformParams.invAspectRatio;
+					float viewHeight = viewWidth * invAspectRatio;
 
 					if (isLH)
 						projection->setMatrix(buildProjectionMatrixOrthoLH<matrix_precision_t>(viewWidth, viewHeight, zNear, zFar));
@@ -842,12 +842,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			ImGui::SameLine();
 
-			if (ImGui::RadioButton("Window", transformParams.useWindow))
-				transformParams.useWindow = true;
+			if (ImGui::RadioButton("Window", useWindow))
+				useWindow = true;
 
 			ImGui::Text("Camera");
-			bool viewDirty = false;
-
+			
 			if (ImGui::RadioButton("LH", isLH))
 				isLH = true;
 
@@ -864,7 +863,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			if (ImGui::RadioButton("Orthographic", !isPerspective))
 				isPerspective = false;
 
-			ImGui::Checkbox("Enable \"view manipulate\"", &transformParams.enableViewManipulate);
 			ImGui::Checkbox("Enable camera movement", &move);
 			ImGui::SliderFloat("Move speed", &moveSpeed, 0.1f, 10.f);
 			ImGui::SliderFloat("Rotate speed", &rotateSpeed, 0.1f, 10.f);
@@ -878,22 +876,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
 			ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
-
-			viewDirty |= ImGui::SliderFloat("Distance", &transformParams.camDistance, 1.f, 69.f);
-
-			if (viewDirty || firstFrame)
-			{
-				float32_t3 cameraPosition(cosf(camYAngle) * cosf(camXAngle) * transformParams.camDistance, sinf(camXAngle) * transformParams.camDistance, sinf(camYAngle) * cosf(camXAngle) * transformParams.camDistance);
-				float32_t3 cameraTarget(0.f, 0.f, 0.f);
-
-				// TODO: lets generate events and make it 
-				// happen purely on gimbal manipulation!
-
-				//camera->getGimbal()->setPosition(cameraPosition);
-				//camera->getGimbal()->setTarget(cameraTarget);
-
-				firstFrame = false;
-			}
 
 			ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
 			if (ImGuizmo::IsUsing())
@@ -972,154 +954,30 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
 					imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
 
-				transformParams.editTransformDecomposition = true;
+				// imguizmo manipulations
 				{
-					static ImGuizmo::OPERATION mCurrentGizmoOperation(ImGuizmo::TRANSLATE);
-					static ImGuizmo::MODE mCurrentGizmoMode(ImGuizmo::LOCAL);
-					static bool useSnap = false;
-					static float snap[3] = { 1.f, 1.f, 1.f };
-					static float bounds[] = { -0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f };
-					static float boundsSnap[] = { 0.1f, 0.1f, 0.1f };
-					static bool boundSizing = false;
-					static bool boundSizingSnap = false;
-
 					auto* cameraView = &imguizmoM16InOut.view[0][0];
 					auto* cameraProjection = &imguizmoM16InOut.projection[0][0];
-					auto* matrix = &imguizmoM16InOut.model[0][0];
+					float* objectMatrices[2u];
+					
+					objectMatrices[0u] = &imguizmoM16InOut.model[0][0];
 
-					if (transformParams.editTransformDecomposition)
+					// TODO: here we will use second camera model as temp input to get deltra TRS matrix for imguizmo controller
+					objectMatrices[1u] = secondCameraModel.data();
+
+					TransformStart(cameraView, cameraProjection, objectMatrices[lastUsing]);
+					for (int matId = 0; matId < 2u; matId++)
 					{
-						if (ImGui::IsKeyPressed(ImGuiKey_T))
-							mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
-						if (ImGui::IsKeyPressed(ImGuiKey_R))
-							mCurrentGizmoOperation = ImGuizmo::ROTATE;
-						if (ImGui::IsKeyPressed(ImGuiKey_S))
-							mCurrentGizmoOperation = ImGuizmo::SCALE;
-						if (ImGui::RadioButton("Translate", mCurrentGizmoOperation == ImGuizmo::TRANSLATE))
-							mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
-						ImGui::SameLine();
-						if (ImGui::RadioButton("Rotate", mCurrentGizmoOperation == ImGuizmo::ROTATE))
-							mCurrentGizmoOperation = ImGuizmo::ROTATE;
-						ImGui::SameLine();
-						if (ImGui::RadioButton("Scale", mCurrentGizmoOperation == ImGuizmo::SCALE))
-							mCurrentGizmoOperation = ImGuizmo::SCALE;
-						if (ImGui::RadioButton("Universal", mCurrentGizmoOperation == ImGuizmo::UNIVERSAL))
-							mCurrentGizmoOperation = ImGuizmo::UNIVERSAL;
-						float matrixTranslation[3], matrixRotation[3], matrixScale[3];
-						ImGuizmo::DecomposeMatrixToComponents(matrix, matrixTranslation, matrixRotation, matrixScale);
-						ImGui::InputFloat3("Tr", matrixTranslation);
-						ImGui::InputFloat3("Rt", matrixRotation);
-						ImGui::InputFloat3("Sc", matrixScale);
-						ImGuizmo::RecomposeMatrixFromComponents(matrixTranslation, matrixRotation, matrixScale, matrix);
+						ImGuizmo::PushID(matId);
 
-						if (mCurrentGizmoOperation != ImGuizmo::SCALE)
-						{
-							if (ImGui::RadioButton("Local", mCurrentGizmoMode == ImGuizmo::LOCAL))
-								mCurrentGizmoMode = ImGuizmo::LOCAL;
-							ImGui::SameLine();
-							if (ImGui::RadioButton("World", mCurrentGizmoMode == ImGuizmo::WORLD))
-								mCurrentGizmoMode = ImGuizmo::WORLD;
-						}
-						if (ImGui::IsKeyPressed(ImGuiKey_S) && ImGui::IsKeyPressed(ImGuiKey_LeftShift))
-							useSnap = !useSnap;
-						ImGui::Checkbox("##UseSnap", &useSnap);
-						ImGui::SameLine();
-
-						switch (mCurrentGizmoOperation)
-						{
-						case ImGuizmo::TRANSLATE:
-							ImGui::InputFloat3("Snap", &snap[0]);
-							break;
-						case ImGuizmo::ROTATE:
-							ImGui::InputFloat("Angle Snap", &snap[0]);
-							break;
-						case ImGuizmo::SCALE:
-							ImGui::InputFloat("Scale Snap", &snap[0]);
-							break;
-						}
-						ImGui::Checkbox("Bound Sizing", &boundSizing);
-						if (boundSizing)
-						{
-							ImGui::PushID(3);
-							ImGui::Checkbox("##BoundSizing", &boundSizingSnap);
-							ImGui::SameLine();
-							ImGui::InputFloat3("Snap", boundsSnap);
-							ImGui::PopID();
-						}
+						EditTransform(cameraView, cameraProjection, objectMatrices[matId]);
+						if (ImGuizmo::IsUsing())
+							lastUsing = matId;
+						ImGuizmo::PopID();
 					}
+					TransformEnd();
 
-					ImGuiIO& io = ImGui::GetIO();
-					float viewManipulateRight = io.DisplaySize.x;
-					float viewManipulateTop = 0;
-					static ImGuiWindowFlags gizmoWindowFlags = 0;
-
-					/*
-						for the "useWindow" case we just render to a gui area,
-						otherwise to fake full screen transparent window
-
-						note that for both cases we make sure gizmo being
-						rendered is aligned to our texture scene using
-						imgui  "cursor" screen positions
-					*/
-
-					SImResourceInfo info;
-					info.textureID = OfflineSceneTextureIx;
-					info.samplerIx = (uint16_t)nbl::ext::imgui::UI::DefaultSamplerIx::USER;
-
-					if (transformParams.useWindow)
-					{
-						ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Appearing);
-						ImGui::SetNextWindowPos(ImVec2(400, 20), ImGuiCond_Appearing);
-						ImGui::PushStyleColor(ImGuiCol_WindowBg, (ImVec4)ImColor(0.35f, 0.3f, 0.3f));
-						ImGui::Begin("Gizmo", 0, gizmoWindowFlags);
-						ImGuizmo::SetDrawlist();
-
-						ImVec2 contentRegionSize = ImGui::GetContentRegionAvail();
-						ImVec2 windowPos = ImGui::GetWindowPos();
-						ImVec2 cursorPos = ImGui::GetCursorScreenPos();
-
-						transformParams.aspectRatio = contentRegionSize.x / contentRegionSize.y;
-						transformParams.invAspectRatio = contentRegionSize.y / contentRegionSize.x;
-
-						ImGui::Image(info, contentRegionSize);
-						ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
-
-						viewManipulateRight = cursorPos.x + contentRegionSize.x;
-						viewManipulateTop = cursorPos.y;
-
-						ImGuiWindow* window = ImGui::GetCurrentWindow();
-						gizmoWindowFlags = (ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(window->InnerRect.Min, window->InnerRect.Max) ? ImGuiWindowFlags_NoMove : 0);
-					}
-					else
-					{
-						ImGui::SetNextWindowPos(ImVec2(0, 0));
-						ImGui::SetNextWindowSize(io.DisplaySize);
-						ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0)); // fully transparent fake window
-						ImGui::Begin("FullScreenWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
-
-						ImVec2 contentRegionSize = ImGui::GetContentRegionAvail();
-						ImVec2 cursorPos = ImGui::GetCursorScreenPos();
-
-						ImGui::Image(info, contentRegionSize);
-						ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
-
-						viewManipulateRight = cursorPos.x + contentRegionSize.x;
-						viewManipulateTop = cursorPos.y;
-
-						transformParams.aspectRatio = io.DisplaySize.x / io.DisplaySize.y;
-						transformParams.invAspectRatio = io.DisplaySize.y / io.DisplaySize.x;
-					}
-
-					// object gizmo
-					ImGuizmo::Manipulate(cameraView, cameraProjection, mCurrentGizmoOperation, mCurrentGizmoMode, matrix, NULL, useSnap ? &snap[0] : NULL, boundSizing ? bounds : NULL, boundSizingSnap ? boundsSnap : NULL);
-
-					// second camera
-					{
-						// TODO: manipulate second camera given view & projection from first, use delta matrix to be passed to imguizmo controller
-					}
-
-					ImGui::End();
-					ImGui::PopStyleColor();
+					//ImGui::End();
 				}
 			}
 
@@ -1275,6 +1133,149 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			ImGui::End();
 		}
 
+
+		void TransformStart(float* cameraView, float* cameraProjection, float* matrix)
+		{
+			static float bounds[] = { -0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f };
+			static float boundsSnap[] = { 0.1f, 0.1f, 0.1f };
+			static bool boundSizing = false;
+			static bool boundSizingSnap = false;
+
+			if (ImGui::IsKeyPressed(ImGuiKey_T))
+				mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
+			if (ImGui::IsKeyPressed(ImGuiKey_E))
+				mCurrentGizmoOperation = ImGuizmo::ROTATE;
+			if (ImGui::IsKeyPressed(ImGuiKey_R)) // r Key
+				mCurrentGizmoOperation = ImGuizmo::SCALE;
+			if (ImGui::RadioButton("Translate", mCurrentGizmoOperation == ImGuizmo::TRANSLATE))
+				mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
+			ImGui::SameLine();
+			if (ImGui::RadioButton("Rotate", mCurrentGizmoOperation == ImGuizmo::ROTATE))
+				mCurrentGizmoOperation = ImGuizmo::ROTATE;
+			ImGui::SameLine();
+			if (ImGui::RadioButton("Scale", mCurrentGizmoOperation == ImGuizmo::SCALE))
+				mCurrentGizmoOperation = ImGuizmo::SCALE;
+			float matrixTranslation[3], matrixRotation[3], matrixScale[3];
+			ImGuizmo::DecomposeMatrixToComponents(matrix, matrixTranslation, matrixRotation, matrixScale);
+			ImGui::InputFloat3("Tr", matrixTranslation);
+			ImGui::InputFloat3("Rt", matrixRotation);
+			ImGui::InputFloat3("Sc", matrixScale);
+			ImGuizmo::RecomposeMatrixFromComponents(matrixTranslation, matrixRotation, matrixScale, matrix);
+
+			if (mCurrentGizmoOperation != ImGuizmo::SCALE)
+			{
+				if (ImGui::RadioButton("Local", mCurrentGizmoMode == ImGuizmo::LOCAL))
+					mCurrentGizmoMode = ImGuizmo::LOCAL;
+				ImGui::SameLine();
+				if (ImGui::RadioButton("World", mCurrentGizmoMode == ImGuizmo::WORLD))
+					mCurrentGizmoMode = ImGuizmo::WORLD;
+			}
+
+			if (ImGui::IsKeyPressed(ImGuiKey_S))
+				useSnap = !useSnap;
+			ImGui::Checkbox(" ", &useSnap);
+			ImGui::SameLine();
+			switch (mCurrentGizmoOperation)
+			{
+			case ImGuizmo::TRANSLATE:
+				ImGui::InputFloat3("Snap", &snap[0]);
+				break;
+			case ImGuizmo::ROTATE:
+				ImGui::InputFloat("Angle Snap", &snap[0]);
+				break;
+			case ImGuizmo::SCALE:
+				ImGui::InputFloat("Scale Snap", &snap[0]);
+				break;
+			}
+
+			ImGuiIO& io = ImGui::GetIO();
+			float viewManipulateRight = io.DisplaySize.x;
+			float viewManipulateTop = 0;
+			static ImGuiWindowFlags gizmoWindowFlags = 0;
+
+			/*
+				for the "useWindow" case we just render to a gui area,
+				otherwise to fake full screen transparent window
+
+				note that for both cases we make sure gizmo being
+				rendered is aligned to our texture scene using
+				imgui  "cursor" screen positions
+			*/
+
+			SImResourceInfo info;
+			info.textureID = OfflineSceneTextureIx;
+			info.samplerIx = (uint16_t)nbl::ext::imgui::UI::DefaultSamplerIx::USER;
+
+			if (useWindow)
+			{
+				ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Appearing);
+				ImGui::SetNextWindowPos(ImVec2(400, 20), ImGuiCond_Appearing);
+				ImGui::PushStyleColor(ImGuiCol_WindowBg, (ImVec4)ImColor(0.35f, 0.3f, 0.3f));
+				ImGui::Begin("Gizmo", 0, gizmoWindowFlags);
+				ImGuizmo::SetDrawlist();
+
+				ImVec2 contentRegionSize = ImGui::GetContentRegionAvail();
+				ImVec2 windowPos = ImGui::GetWindowPos();
+				ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+
+				aspectRatio = contentRegionSize.x / contentRegionSize.y;
+				invAspectRatio = contentRegionSize.y / contentRegionSize.x;
+
+				ImGui::Image(info, contentRegionSize);
+				ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
+
+				viewManipulateRight = cursorPos.x + contentRegionSize.x;
+				viewManipulateTop = cursorPos.y;
+
+				ImGuiWindow* window = ImGui::GetCurrentWindow();
+				gizmoWindowFlags = (ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(window->InnerRect.Min, window->InnerRect.Max) ? ImGuiWindowFlags_NoMove : 0);
+			}
+			else
+			{
+				ImGui::SetNextWindowPos(ImVec2(0, 0));
+				ImGui::SetNextWindowSize(io.DisplaySize);
+				ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0)); // fully transparent fake window
+				ImGui::Begin("FullScreenWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
+
+				ImVec2 contentRegionSize = ImGui::GetContentRegionAvail();
+				ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+
+				ImGui::Image(info, contentRegionSize);
+				ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
+
+				viewManipulateRight = cursorPos.x + contentRegionSize.x;
+				viewManipulateTop = cursorPos.y;
+
+				aspectRatio = io.DisplaySize.x / io.DisplaySize.y;
+				invAspectRatio = io.DisplaySize.y / io.DisplaySize.x;
+			}
+		}
+
+		void EditTransform(float* cameraView, float* cameraProjection, float* matrix)
+		{
+			ImGuiIO& io = ImGui::GetIO();
+			float windowWidth = (float)ImGui::GetWindowWidth();
+			float windowHeight = (float)ImGui::GetWindowHeight();
+			if (!useWindow)
+			{
+				ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
+			}
+			else
+			{
+				ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, windowWidth, windowHeight);
+			}
+			ImGuizmo::Manipulate(cameraView, cameraProjection, mCurrentGizmoOperation, mCurrentGizmoMode, matrix, NULL, useSnap ? &snap[0] : NULL);
+		}
+
+		void TransformEnd()
+		{
+			if (useWindow)
+			{
+				ImGui::End();
+			}
+			ImGui::PopStyleColor(1);
+		}
+
 		std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
 		clock_t::time_point start;
 
@@ -1335,15 +1336,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 		uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
 
-		struct TransformRequestParams
-		{
-			bool useWindow = true, editTransformDecomposition = false, enableViewManipulate = false;
-			float camDistance = 8.f, aspectRatio = {}, invAspectRatio = {};
-		};
-
 		static constexpr inline auto OfflineSceneTextureIx = 1u;
 
-		TransformRequestParams transformParams;
 		bool isPerspective = true, isLH = true, flipGizmoY = true, move = false;
 		float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
 		float viewWidth = 10.f;
@@ -1351,6 +1345,22 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		float camXAngle = 32.f / 180.f * 3.14159f;
 
 		bool firstFrame = true;
+
+		// gizmo stuff
+		float camDistance = 8.f, aspectRatio = {}, invAspectRatio = {};
+		bool useWindow = true, useSnap = false;
+		ImGuizmo::OPERATION mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
+		ImGuizmo::MODE mCurrentGizmoMode = ImGuizmo::WORLD;
+		float snap[3] = { 1.f, 1.f, 1.f };
+		int lastUsing = 0;
+
+		// TMP
+		std::array<float, 16u> secondCameraModel = {
+			1.f, 0.f, 0.f, 0.f,
+			0.f, 1.f, 0.f, 0.f,
+			0.f, 0.f, 1.f, 0.f,
+			0.f, 0.f, 0.f, 1.f
+		};
 };
 
 NBL_MAIN_FUNC(UISampleApp)
