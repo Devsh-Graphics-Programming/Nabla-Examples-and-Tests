@@ -970,7 +970,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			update();
 
 			auto queue = getGraphicsQueue();
-			auto& cmdbuf = m_cmdBufs[resourceIx];
+			auto cmdbuf = m_cmdBufs[resourceIx].get();
 
 			// render whole scene to offline frame buffer & submit
 			{
@@ -1005,7 +1005,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					range.offset = 0ull;
 					range.size = sizeof(viewParams);
 					
-					IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf.get() };
+					IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf };
 					m_intendedSubmit.scratchCommandBuffers = { &cmdbufInfo, 1 };
 					
 					m_utils->updateBufferRangeViaStagingBuffer(m_intendedSubmit, range, &viewParams);
@@ -1107,6 +1107,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 				cmdbuf->bindGraphicsPipeline(m_presentPipeline.get());
 				cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, m_presentPipeline->getLayout(), 0, 1u, &m_presentDescriptorSet.get());
+				ext::FullScreenTriangle::recordDrawCall(cmdbuf);
 				cmdbuf->endRenderPass();
 			}
 			cmdbuf->end();
@@ -1123,7 +1124,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					{
 						const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[] =
 						{
-							{.cmdbuf = cmdbuf.get() }
+							{.cmdbuf = cmdbuf }
 						};
 
 						const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] =
