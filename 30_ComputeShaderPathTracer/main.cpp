@@ -521,13 +521,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					auto texelBuffer = core::make_smart_refctd_ptr<ICPUBuffer>(texelBufferSize);
 
 					core::RandomSampler rng(0xbadc0ffeu);
-					auto out = reinterpret_cast<uint8_t *>(texelBuffer->getPointer());
-					for (auto index = 0u; index < texelBufferSize; index += 4) {
-						auto sample = rng.nextSample();
-						out[index] = sample & 0xFF;
-						out[index + 1] = (sample >> 8) & 0xFF;
-						out[index + 2] = (sample >> 16) & 0xFF;
-						out[index + 3] = (sample >> 24) & 0xFF;
+					auto out = reinterpret_cast<uint32_t *>(texelBuffer->getPointer());
+					for (auto index = 0u; index < texelBufferSize / 4; index++) {
+						out[index] = rng.nextSample();
 					}
 
 					auto regions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1u);
