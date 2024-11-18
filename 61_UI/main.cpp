@@ -9,7 +9,6 @@
 
 // FPS Camera, TESTS
 using camera_t = CFPSCamera<matrix_precision_t>;
-using controller_t = CCameraController<matrix_precision_t>;
 using projection_t = IProjection<matrix<matrix_precision_t, 4u, 4u>>; // TODO: temporary -> projections will own/reference cameras
 
 constexpr IGPUImage::SSubresourceRange TripleBufferUsedSubresourceRange = 
@@ -398,14 +397,14 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					params.transfer = getTransferUpQueue();
 					params.utilities = m_utils;
 
-					pass.ui.manager = nbl::ext::imgui::UI::create(std::move(params));
+					m_ui.manager = nbl::ext::imgui::UI::create(std::move(params));
 				}
 
-				if (!pass.ui.manager)
+				if (!m_ui.manager)
 					return false;
 
 				// note that we use default layout provided by our extension, but you are free to create your own by filling nbl::ext::imgui::UI::S_CREATION_PARAMETERS::resources
-				const auto* descriptorSetLayout = pass.ui.manager->getPipeline()->getLayout()->getDescriptorSetLayout(0u);
+				const auto* descriptorSetLayout = m_ui.manager->getPipeline()->getLayout()->getDescriptorSetLayout(0u);
 
 				IDescriptorPool::SCreateInfo descriptorPoolInfo = {};
 				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLER)] = (uint32_t)nbl::ext::imgui::UI::DefaultSamplerIx::COUNT;
@@ -416,16 +415,52 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				m_descriptorSetPool = m_device->createDescriptorPool(std::move(descriptorPoolInfo));
 				assert(m_descriptorSetPool);
 
-				m_descriptorSetPool->createDescriptorSets(1u, &descriptorSetLayout, &pass.ui.descriptorSet);
-				assert(pass.ui.descriptorSet);
+				m_descriptorSetPool->createDescriptorSets(1u, &descriptorSetLayout, &m_ui.descriptorSet);
+				assert(m_ui.descriptorSet);
 
-				pass.ui.manager->registerListener([this]() -> void { imguiListen(); });
+				m_ui.manager->registerListener([this]() -> void { imguiListen(); });
 			}
 
-			// Geometry Creator Scene
+			// Geometry Creator Render Scenes
 			{
-				//pass.scene = CScene::create<CScene::CreateResourcesDirectlyWithDevice>(smart_refctd_ptr(m_utils), smart_refctd_ptr(m_logger), getGraphicsQueue(), m_assetManager->getGeometryCreator());
-				pass.scene = CScene::create<CScene::CreateResourcesWithAssetConverter>(smart_refctd_ptr(m_utils), smart_refctd_ptr(m_logger), getGraphicsQueue(), m_assetManager->getGeometryCreator());
+				resources = ResourcesBundle::create(m_device.get(), m_logger.get(), getGraphicsQueue(), m_assetManager->getGeometryCreator());
+
+				if (!resources)
+				{
+					m_logger->log("Could not create geometry creator gpu resources!", ILogger::ELL_ERROR);
+					return false;
+				}
+
+				for (auto& camera : cameraz)
+					camera = make_smart_refctd_ptr<camera_t>(float32_t3{ -2.017f, 0.386f, 0.684f }, glm::quat(0.55f, 0.047f, 0.830f, -0.072f)); // order important for quat, the ctor is GLM_FUNC_QUALIFIER GLM_CONSTEXPR qua<T, Q>::qua(T _w, T _x, T _y, T _z)
+				
+				// lets use key map presets to update the controller
+				auto& camera = cameraz.front();
+				scene = CScene::create(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), getGraphicsQueue(), smart_refctd_ptr(resources));
+
+				if (!scene)
+				{
+					m_logger->log("Could not create geometry creator scene!", ILogger::ELL_ERROR);
+					return false;
+				}
+				
+				// init keyboard map
+				camera->updateKeyboardMapping([&](auto& keys)
+				{
+					keys = camera->getKeyboardMappingPreset();
+				});
+
+				// init mouse map
+				camera->updateMouseMapping([&](auto& keys)
+				{
+					keys = camera->getMouseMappingPreset();
+				});
+
+				// init imguizmo map
+				camera->updateImguizmoMapping([&](auto& keys)
+				{
+					keys = camera->getImguizmoMappingPreset();
+				});
 			}
 
 			oracle.reportBeginFrameRecord();
@@ -436,27 +471,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			transformParams.aspectRatio = float(m_window->getWidth()) / float(m_window->getHeight());
 			transformParams.invAspectRatio = float(m_window->getHeight()) / float(m_window->getWidth());
-
-			camera = make_smart_refctd_ptr<camera_t>(float32_t3{ -2.017f, 0.386f, 0.684f }, glm::quat(0.55f, 0.047f, 0.830f, -0.072f)); // order important for quat, the ctor is GLM_FUNC_QUALIFIER GLM_CONSTEXPR qua<T, Q>::qua(T _w, T _x, T _y, T _z)
-			controller = make_smart_refctd_ptr<controller_t>(core::smart_refctd_ptr(camera));
-
-			// init keyboard map
-			controller->updateKeyboardMapping([&](auto& keys)
-			{
-				keys = controller->getCamera()->getKeyboardMappingPreset();
-			});
-
-			// init mouse map
-			controller->updateMouseMapping([&](auto& keys)
-			{
-				keys = controller->getCamera()->getMouseMappingPreset();
-			});
-
-			// init imguizmo map
-			controller->updateImguizmoMapping([&](auto& keys)
-			{
-				keys = controller->getCamera()->getImguizmoMappingPreset();
-			});
 
 			if (base_t::argv.size() >= 3 && argv[1] == "-timeout_seconds")
 				timeout = std::chrono::seconds(std::atoi(argv[2].c_str()));
@@ -471,14 +485,14 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			static IGPUDescriptorSet::SWriteDescriptorSet writes[TexturesAmount];
 
 			descriptorInfo[nbl::ext::imgui::UI::FontAtlasTexId].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			descriptorInfo[nbl::ext::imgui::UI::FontAtlasTexId].desc = core::smart_refctd_ptr<nbl::video::IGPUImageView>(pass.ui.manager->getFontAtlasView());
+			descriptorInfo[nbl::ext::imgui::UI::FontAtlasTexId].desc = core::smart_refctd_ptr<nbl::video::IGPUImageView>(m_ui.manager->getFontAtlasView());
 
 			descriptorInfo[OfflineSceneTextureIx].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			descriptorInfo[OfflineSceneTextureIx].desc = pass.scene->getResources().attachments.color;
+			descriptorInfo[OfflineSceneTextureIx].desc = scene->getColorAttachment();
 
 			for (uint32_t i = 0; i < descriptorInfo.size(); ++i)
 			{
-				writes[i].dstSet = pass.ui.descriptorSet.get();
+				writes[i].dstSet = m_ui.descriptorSet.get();
 				writes[i].binding = 0u;
 				writes[i].arrayElement = i;
 				writes[i].count = 1u;
@@ -530,13 +544,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				// render geometry creator scene to offline frame buffer & submit
 				// TODO: OK with TRI buffer this thing is retarded now
 				// (**) <- a note why bellow before submit
-				pass.scene->begin();
+				scene->begin();
 				{
-					pass.scene->update();
-					pass.scene->record();
-					pass.scene->end();
+					scene->update();
+					scene->record();
+					scene->end();
 				}
-				pass.scene->submit();
+				scene->submit(getGraphicsQueue());
 
 				willSubmit &= cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
 				willSubmit &= cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
@@ -573,25 +587,27 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					IQueue::SSubmitInfo::SCommandBufferInfo commandBuffersInfo[] = { {.cmdbuf = cmdbuf } };
 
+
+
 					const IGPUCommandBuffer::SRenderpassBeginInfo info =
 					{
 						.framebuffer = m_framebuffers[resourceIx].get(),
-						.colorClearValues = &clear.color,
+						.colorClearValues = &Traits::clearColor,
 						.depthStencilClearValues = nullptr,
 						.renderArea = currentRenderArea
 					};
 
 					nbl::video::ISemaphore::SWaitInfo waitInfo = { .semaphore = m_semaphore.get(), .value = m_realFrameIx + 1u };
-					const auto uiParams = pass.ui.manager->getCreationParameters();
-					auto* pipeline = pass.ui.manager->getPipeline();
+					const auto uiParams = m_ui.manager->getCreationParameters();
+					auto* pipeline = m_ui.manager->getPipeline();
 
 					cmdbuf->bindGraphicsPipeline(pipeline);
-					cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, pipeline->getLayout(), uiParams.resources.texturesInfo.setIx, 1u, &pass.ui.descriptorSet.get()); // note that we use default UI pipeline layout where uiParams.resources.textures.setIx == uiParams.resources.samplers.setIx
+					cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, pipeline->getLayout(), uiParams.resources.texturesInfo.setIx, 1u, &m_ui.descriptorSet.get()); // note that we use default UI pipeline layout where uiParams.resources.textures.setIx == uiParams.resources.samplers.setIx
 
 					if (!keepRunning())
 						return;
 
-					willSubmit &= pass.ui.manager->render(cmdbuf, waitInfo);
+					willSubmit &= m_ui.manager->render(cmdbuf, waitInfo);
 				}
 				willSubmit &= cmdbuf->endRenderPass();
 
@@ -666,8 +682,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				{
 					const nbl::video::ISemaphore::SWaitInfo waitInfos[] =
 					{ {
-						.semaphore = pass.scene->semaphore.progress.get(),
-						.value = pass.scene->semaphore.finishedValue
+						.semaphore = scene->semaphore.progress.get(),
+						.value = scene->semaphore.finishedValue
 					} };
 
 					m_device->blockForSemaphores(waitInfos);
@@ -761,10 +777,27 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			if (move)
 			{
 				// TODO: testing
-				controller->manipulateViewGimbal({ params.keyboardEvents, params.mouseEvents }, nextPresentationTimestamp);
+				auto& camera = cameraz.front().get();
+
+
+				std::vector<CVirtualGimbalEvent> virtualEvents(0x45); // TODO: tmp
+				uint32_t vCount;
+
+				camera->beginInputProcessing(nextPresentationTimestamp);
+				{
+					camera->process(nullptr, vCount);
+
+					if (virtualEvents.size() < vCount)
+						virtualEvents.resize(vCount);
+
+					camera->process(virtualEvents.data(), vCount, { params.keyboardEvents, params.mouseEvents });
+				}
+				camera->endInputProcessing();
+
+				camera->manipulate({ virtualEvents.data(), vCount }, ICamera<matrix_precision_t>::Local);
 			}
 
-			pass.ui.manager->update(params);
+			m_ui.manager->update(params);
 		}
 
 	private:
@@ -929,18 +962,165 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			} imguizmoM16InOut;
 
 			const auto& projectionMatrix = projection->getMatrix();
-			const auto& view = camera->getGimbal().getView();
+			const auto& view = cameraz.front()->getGimbal().getView();
 
 			ImGuizmo::SetID(0u);
 			imguizmoM16InOut.view = transpose(getMatrix3x4As4x4(view.matrix));
 			imguizmoM16InOut.projection = transpose(projectionMatrix);
-			imguizmoM16InOut.model = transpose(getMatrix3x4As4x4(pass.scene->object.model));
+			imguizmoM16InOut.model = transpose(getMatrix3x4As4x4(scene->object.model));
 			{
 				if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
 					imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
 
 				transformParams.editTransformDecomposition = true;
-				EditTransform(&imguizmoM16InOut.view[0][0], &imguizmoM16InOut.projection[0][0], &imguizmoM16InOut.model[0][0], transformParams);
+				{
+					static ImGuizmo::OPERATION mCurrentGizmoOperation(ImGuizmo::TRANSLATE);
+					static ImGuizmo::MODE mCurrentGizmoMode(ImGuizmo::LOCAL);
+					static bool useSnap = false;
+					static float snap[3] = { 1.f, 1.f, 1.f };
+					static float bounds[] = { -0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f };
+					static float boundsSnap[] = { 0.1f, 0.1f, 0.1f };
+					static bool boundSizing = false;
+					static bool boundSizingSnap = false;
+
+					auto* cameraView = &imguizmoM16InOut.view[0][0];
+					auto* cameraProjection = &imguizmoM16InOut.projection[0][0];
+					auto* matrix = &imguizmoM16InOut.model[0][0];
+
+					if (transformParams.editTransformDecomposition)
+					{
+						if (ImGui::IsKeyPressed(ImGuiKey_T))
+							mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
+						if (ImGui::IsKeyPressed(ImGuiKey_R))
+							mCurrentGizmoOperation = ImGuizmo::ROTATE;
+						if (ImGui::IsKeyPressed(ImGuiKey_S))
+							mCurrentGizmoOperation = ImGuizmo::SCALE;
+						if (ImGui::RadioButton("Translate", mCurrentGizmoOperation == ImGuizmo::TRANSLATE))
+							mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
+						ImGui::SameLine();
+						if (ImGui::RadioButton("Rotate", mCurrentGizmoOperation == ImGuizmo::ROTATE))
+							mCurrentGizmoOperation = ImGuizmo::ROTATE;
+						ImGui::SameLine();
+						if (ImGui::RadioButton("Scale", mCurrentGizmoOperation == ImGuizmo::SCALE))
+							mCurrentGizmoOperation = ImGuizmo::SCALE;
+						if (ImGui::RadioButton("Universal", mCurrentGizmoOperation == ImGuizmo::UNIVERSAL))
+							mCurrentGizmoOperation = ImGuizmo::UNIVERSAL;
+						float matrixTranslation[3], matrixRotation[3], matrixScale[3];
+						ImGuizmo::DecomposeMatrixToComponents(matrix, matrixTranslation, matrixRotation, matrixScale);
+						ImGui::InputFloat3("Tr", matrixTranslation);
+						ImGui::InputFloat3("Rt", matrixRotation);
+						ImGui::InputFloat3("Sc", matrixScale);
+						ImGuizmo::RecomposeMatrixFromComponents(matrixTranslation, matrixRotation, matrixScale, matrix);
+
+						if (mCurrentGizmoOperation != ImGuizmo::SCALE)
+						{
+							if (ImGui::RadioButton("Local", mCurrentGizmoMode == ImGuizmo::LOCAL))
+								mCurrentGizmoMode = ImGuizmo::LOCAL;
+							ImGui::SameLine();
+							if (ImGui::RadioButton("World", mCurrentGizmoMode == ImGuizmo::WORLD))
+								mCurrentGizmoMode = ImGuizmo::WORLD;
+						}
+						if (ImGui::IsKeyPressed(ImGuiKey_S) && ImGui::IsKeyPressed(ImGuiKey_LeftShift))
+							useSnap = !useSnap;
+						ImGui::Checkbox("##UseSnap", &useSnap);
+						ImGui::SameLine();
+
+						switch (mCurrentGizmoOperation)
+						{
+						case ImGuizmo::TRANSLATE:
+							ImGui::InputFloat3("Snap", &snap[0]);
+							break;
+						case ImGuizmo::ROTATE:
+							ImGui::InputFloat("Angle Snap", &snap[0]);
+							break;
+						case ImGuizmo::SCALE:
+							ImGui::InputFloat("Scale Snap", &snap[0]);
+							break;
+						}
+						ImGui::Checkbox("Bound Sizing", &boundSizing);
+						if (boundSizing)
+						{
+							ImGui::PushID(3);
+							ImGui::Checkbox("##BoundSizing", &boundSizingSnap);
+							ImGui::SameLine();
+							ImGui::InputFloat3("Snap", boundsSnap);
+							ImGui::PopID();
+						}
+					}
+
+					ImGuiIO& io = ImGui::GetIO();
+					float viewManipulateRight = io.DisplaySize.x;
+					float viewManipulateTop = 0;
+					static ImGuiWindowFlags gizmoWindowFlags = 0;
+
+					/*
+						for the "useWindow" case we just render to a gui area,
+						otherwise to fake full screen transparent window
+
+						note that for both cases we make sure gizmo being
+						rendered is aligned to our texture scene using
+						imgui  "cursor" screen positions
+					*/
+
+					SImResourceInfo info;
+					info.textureID = OfflineSceneTextureIx;
+					info.samplerIx = (uint16_t)nbl::ext::imgui::UI::DefaultSamplerIx::USER;
+
+					if (transformParams.useWindow)
+					{
+						ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Appearing);
+						ImGui::SetNextWindowPos(ImVec2(400, 20), ImGuiCond_Appearing);
+						ImGui::PushStyleColor(ImGuiCol_WindowBg, (ImVec4)ImColor(0.35f, 0.3f, 0.3f));
+						ImGui::Begin("Gizmo", 0, gizmoWindowFlags);
+						ImGuizmo::SetDrawlist();
+
+						ImVec2 contentRegionSize = ImGui::GetContentRegionAvail();
+						ImVec2 windowPos = ImGui::GetWindowPos();
+						ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+
+						transformParams.aspectRatio = contentRegionSize.x / contentRegionSize.y;
+						transformParams.invAspectRatio = contentRegionSize.y / contentRegionSize.x;
+
+						ImGui::Image(info, contentRegionSize);
+						ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
+
+						viewManipulateRight = cursorPos.x + contentRegionSize.x;
+						viewManipulateTop = cursorPos.y;
+
+						ImGuiWindow* window = ImGui::GetCurrentWindow();
+						gizmoWindowFlags = (ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(window->InnerRect.Min, window->InnerRect.Max) ? ImGuiWindowFlags_NoMove : 0);
+					}
+					else
+					{
+						ImGui::SetNextWindowPos(ImVec2(0, 0));
+						ImGui::SetNextWindowSize(io.DisplaySize);
+						ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0)); // fully transparent fake window
+						ImGui::Begin("FullScreenWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
+
+						ImVec2 contentRegionSize = ImGui::GetContentRegionAvail();
+						ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+
+						ImGui::Image(info, contentRegionSize);
+						ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
+
+						viewManipulateRight = cursorPos.x + contentRegionSize.x;
+						viewManipulateTop = cursorPos.y;
+
+						transformParams.aspectRatio = io.DisplaySize.x / io.DisplaySize.y;
+						transformParams.invAspectRatio = io.DisplaySize.y / io.DisplaySize.x;
+					}
+
+					// object gizmo
+					ImGuizmo::Manipulate(cameraView, cameraProjection, mCurrentGizmoOperation, mCurrentGizmoMode, matrix, NULL, useSnap ? &snap[0] : NULL, boundSizing ? bounds : NULL, boundSizingSnap ? boundsSnap : NULL);
+
+					// second camera
+					{
+						// TODO: manipulate second camera given view & projection from first, use delta matrix to be passed to imguizmo controller
+					}
+
+					ImGui::End();
+					ImGui::PopStyleColor();
+				}
 			}
 
 			// to Nabla + update camera & model matrices
@@ -951,10 +1131,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				static float32_t3x4 modelView, normal;
 				static float32_t4x4 modelViewProjection;
 
-				auto& hook = pass.scene->object;
+				auto& hook = scene->object;
 				hook.model = float32_t3x4(transpose(imguizmoM16InOut.model));
 				{
-					const auto& references = pass.scene->getResources().objects;
+					const auto& references = resources->objects;
 					const auto type = static_cast<ObjectType>(gcIndex);
 
 					const auto& [gpu, meta] = references[type];
@@ -1009,9 +1189,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							ImGui::Separator();
 					};
 
-				const auto& orientation = camera->getGimbal().getOrthonornalMatrix();
+				auto& camera = cameraz.front();
+				const auto& orientation = cameraz.front()->getGimbal().getOrthonornalMatrix();
 
-				addMatrixTable("Object's Model Matrix", "ModelMatrixTable", 3, 4, &pass.scene->object.model[0][0]);
+				addMatrixTable("Object's Model Matrix", "ModelMatrixTable", 3, 4, &scene->object.model[0][0]);
 				addMatrixTable("Camera's Position", "PositionForwardVec", 1, 3, &camera->getGimbal().getPosition()[0]);
 				addMatrixTable("Camera's Orientation Quat", "OrientationQuatTable", 1, 4, &camera->getGimbal().getOrientation()[0]);
 				addMatrixTable("Camera's View Matrix", "ViewMatrixTable", 3, 4, &view.matrix[0][0]);
@@ -1024,7 +1205,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			// To be 100% accurate and not overly conservative we'd have to explicitly `cull_frees` and defragment each time,
 			// so unless you do that, don't use this basic info to optimize the size of your IMGUI buffer.
 			{
-				auto* streaminingBuffer = pass.ui.manager->getStreamingBuffer();
+				auto* streaminingBuffer = m_ui.manager->getStreamingBuffer();
 
 				const size_t total = streaminingBuffer->get_total_size();			// total memory range size for which allocation can be requested
 				const size_t freeSize = streaminingBuffer->getAddressAllocator().get_free_size();		// max total free bloock memory size we can still allocate from total memory available
@@ -1089,7 +1270,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				ImGui::End();
 			}
 
-			displayKeyMappingsAndVirtualStates(controller.get());
+			displayKeyMappingsAndVirtualStates(cameraz.front().get());
 
 			ImGui::End();
 		}
@@ -1130,7 +1311,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 		core::smart_refctd_ptr<IDescriptorPool> m_descriptorSetPool;
 
-		struct C_UI
+		struct CRenderUI
 		{
 			nbl::core::smart_refctd_ptr<nbl::ext::imgui::UI> manager;
 
@@ -1142,18 +1323,25 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			core::smart_refctd_ptr<IGPUDescriptorSet> descriptorSet;
 		};
 
-		struct E_APP_PASS
-		{
-			nbl::core::smart_refctd_ptr<CScene> scene;
-			C_UI ui;
-		} pass;
+		nbl::core::smart_refctd_ptr<CScene> scene;
+		// lets first test 2 cameras & imguizmo controller, then we will add second scene to render into 2 frame buffers
+		std::array<core::smart_refctd_ptr<ICamera<matrix_precision_t>>, 2u> cameraz;
+		nbl::core::smart_refctd_ptr<ResourcesBundle> resources;
+
+		CRenderUI m_ui;
 
 		smart_refctd_ptr<projection_t> projection = make_smart_refctd_ptr<projection_t>(); // TMP!
-		core::smart_refctd_ptr<ICamera<matrix_precision_t>> camera;
-		core::smart_refctd_ptr<controller_t> controller;
 		video::CDumbPresentationOracle oracle;
 
 		uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
+
+		struct TransformRequestParams
+		{
+			bool useWindow = true, editTransformDecomposition = false, enableViewManipulate = false;
+			float camDistance = 8.f, aspectRatio = {}, invAspectRatio = {};
+		};
+
+		static constexpr inline auto OfflineSceneTextureIx = 1u;
 
 		TransformRequestParams transformParams;
 		bool isPerspective = true, isLH = true, flipGizmoY = true, move = false;
