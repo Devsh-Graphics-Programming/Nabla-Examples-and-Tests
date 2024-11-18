@@ -7,12 +7,14 @@
 
 // common api
 #include "CFPSCamera.hpp"
-#include "camera/CCameraController.hpp"
 #include "SimpleWindowedApplication.hpp"
 #include "InputSystem.hpp"
 
 // the example's headers
-#include "transform.hpp"
+#include "nbl/ui/ICursorControl.h"
+#include "nbl/ext/ImGui/ImGui.h"
+#include "imgui/imgui_internal.h"
+#include "imguizmo/ImGuizmo.h"
 #include "CGeomtryCreatorScene.hpp"
 
 using namespace nbl;

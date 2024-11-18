@@ -11,10 +11,10 @@ namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
 {
 
 template<typename T>
-class ICamera : public IGimbalManipulateEncoder, virtual public core::IReferenceCounted
+class ICamera : public IGimbalController, virtual public core::IReferenceCounted
 { 
 public:
-    using IGimbalManipulateEncoder::IGimbalManipulateEncoder;
+    using IGimbalController::IGimbalController;
 	using precision_t = T;
 
     //! Manipulation mode for virtual events

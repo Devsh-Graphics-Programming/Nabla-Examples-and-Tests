@@ -86,7 +86,7 @@ struct IGimbalManipulateEncoder
     virtual const imguizmo_to_virtual_events_t& getImguizmoMappingPreset() const = 0u;
 };
 
-class IGimbalController : public IGimbalManipulateEncoder, virtual public core::IReferenceCounted
+class IGimbalController : public IGimbalManipulateEncoder
 {
 public:
     using IGimbalManipulateEncoder::IGimbalManipulateEncoder;
