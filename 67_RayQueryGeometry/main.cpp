@@ -4,16 +4,6 @@
 
 #include "common.hpp"
 
-struct SCameraParameters
-{
-	float camPos[3];
-
-	float MVP[4 * 4];
-	float invMVP[4 * 4];
-	float V[3 * 4];
-	float P[3 * 4];
-};
-
 class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 		using device_base_t = examples::SimpleWindowedApplication;
