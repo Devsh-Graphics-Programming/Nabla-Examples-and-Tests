@@ -5,10 +5,19 @@
 
 NBL_CONSTEXPR uint32_t WorkgroupSize = 16;
 
-struct SGeomBDA
+struct SGeomInfo
 {
     uint64_t vertexBufferAddress;
     uint64_t indexBufferAddress;
+
+	uint32_t indexType; // 16 bit, 32 bit or none
+	uint32_t vertexStride;
+	uint32_t byteOffset;
+};
+
+struct SPushConstants
+{
+    uint64_t geometryInfoBuffer;
 };
 
 #ifdef __HLSL_VERSION
@@ -29,7 +38,7 @@ enum ObjectType : uint32_t  // matches c++
 
 struct SVertexInfo
 {
-    uint indexType; // 16 bit, 32 bit or none
+    
     uint geomType;  // defines both vertex stride and byte offset
 };
 

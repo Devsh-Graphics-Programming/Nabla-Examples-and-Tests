@@ -2,11 +2,6 @@
 
 #include "nbl/builtin/hlsl/spirv_intrinsics/core.hlsl"
 
-struct SPushConstants
-{
-    SGeomBDA geom[OT_COUNT];
-};
-
 [[vk::push_constant]] SPushConstants pc;
 
 [[vk::binding(0, 0)]]
@@ -76,27 +71,32 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
         const int instID = query.CommittedInstanceIndex();
         const int primID = query.CommittedPrimitiveIndex();
 
+        const SGeomInfo geom = vk::RawBufferLoad<SGeomInfo>(pc.geometryInfoBuffer + instID * sizeof(SGeomInfo));
+
         uint idxOffset = primID * 3;
 
-        const uint indexType = indexTypes[instID];      // matches obj.indexType
-        const uint vertexStride = vertexStrides[instID];
-        const uint byteOffset = byteOffsets[instID];
+        const uint indexType = geom.indexType;
+        const uint vertexStride = geom.vertexStride;
+        const uint byteOffset = geom.byteOffset;
+
+        const uint64_t vertexBufferAddress = geom.vertexBufferAddress;
+        const uint64_t indexBufferAddress = geom.indexBufferAddress;
 
         uint i0, i1, i2;
         switch (indexType)
         {
             case 0: // EIT_16BIT
             {
-                i0 = uint32_t(vk::RawBufferLoad<uint16_t>(pc.geom[instID].indexBufferAddress + (idxOffset + 0) * sizeof(uint16_t), 2u));
-                i1 = uint32_t(vk::RawBufferLoad<uint16_t>(pc.geom[instID].indexBufferAddress + (idxOffset + 1) * sizeof(uint16_t), 2u));
-                i2 = uint32_t(vk::RawBufferLoad<uint16_t>(pc.geom[instID].indexBufferAddress + (idxOffset + 2) * sizeof(uint16_t), 2u));
+                i0 = uint32_t(vk::RawBufferLoad<uint16_t>(indexBufferAddress + (idxOffset + 0) * sizeof(uint16_t), 2u));
+                i1 = uint32_t(vk::RawBufferLoad<uint16_t>(indexBufferAddress + (idxOffset + 1) * sizeof(uint16_t), 2u));
+                i2 = uint32_t(vk::RawBufferLoad<uint16_t>(indexBufferAddress + (idxOffset + 2) * sizeof(uint16_t), 2u));
             }
             break;
             case 1: // EIT_32BIT
             {
-                i0 = vk::RawBufferLoad<uint32_t>(pc.geom[instID].indexBufferAddress + (idxOffset + 0) * sizeof(uint32_t));
-                i1 = vk::RawBufferLoad<uint32_t>(pc.geom[instID].indexBufferAddress + (idxOffset + 1) * sizeof(uint32_t));
-                i2 = vk::RawBufferLoad<uint32_t>(pc.geom[instID].indexBufferAddress + (idxOffset + 2) * sizeof(uint32_t));
+                i0 = vk::RawBufferLoad<uint32_t>(indexBufferAddress + (idxOffset + 0) * sizeof(uint32_t));
+                i1 = vk::RawBufferLoad<uint32_t>(indexBufferAddress + (idxOffset + 1) * sizeof(uint32_t));
+                i2 = vk::RawBufferLoad<uint32_t>(indexBufferAddress + (idxOffset + 2) * sizeof(uint32_t));
             }
             break;
             default:    // EIT_NONE
@@ -112,9 +112,9 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
         {
             case OT_CUBE:
             {
-                uint32_t v0 = vk::RawBufferLoad<uint32_t>(pc.geom[instID].vertexBufferAddress + i0 * vertexStride + byteOffset, 2u);
-                uint32_t v1 = vk::RawBufferLoad<uint32_t>(pc.geom[instID].vertexBufferAddress + i1 * vertexStride + byteOffset, 2u);
-                uint32_t v2 = vk::RawBufferLoad<uint32_t>(pc.geom[instID].vertexBufferAddress + i2 * vertexStride + byteOffset, 2u);
+                uint32_t v0 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + i0 * vertexStride + byteOffset, 2u);
+                uint32_t v1 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + i1 * vertexStride + byteOffset, 2u);
+                uint32_t v2 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + i2 * vertexStride + byteOffset, 2u);
 
                 n0 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v0).xyz);
                 n1 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v1).xyz);
@@ -126,9 +126,9 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
             case OT_ARROW:
             case OT_CONE:
             {
-                uint32_t v0 = vk::RawBufferLoad<uint32_t>(pc.geom[instID].vertexBufferAddress + i0 * vertexStride + byteOffset);
-                uint32_t v1 = vk::RawBufferLoad<uint32_t>(pc.geom[instID].vertexBufferAddress + i1 * vertexStride + byteOffset);
-                uint32_t v2 = vk::RawBufferLoad<uint32_t>(pc.geom[instID].vertexBufferAddress + i2 * vertexStride + byteOffset);
+                uint32_t v0 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + i0 * vertexStride + byteOffset);
+                uint32_t v1 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + i1 * vertexStride + byteOffset);
+                uint32_t v2 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + i2 * vertexStride + byteOffset);
 
                 n0 = normalize(unpackNormals3x10(v0));
                 n1 = normalize(unpackNormals3x10(v1));
@@ -140,9 +140,9 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
             case OT_ICOSPHERE:
             default:
             {
-                n0 = normalize(vk::RawBufferLoad<float3>(pc.geom[instID].vertexBufferAddress + i0 * vertexStride + byteOffset));
-                n1 = normalize(vk::RawBufferLoad<float3>(pc.geom[instID].vertexBufferAddress + i1 * vertexStride + byteOffset));
-                n2 = normalize(vk::RawBufferLoad<float3>(pc.geom[instID].vertexBufferAddress + i2 * vertexStride + byteOffset));
+                n0 = normalize(vk::RawBufferLoad<float3>(vertexBufferAddress + i0 * vertexStride + byteOffset));
+                n1 = normalize(vk::RawBufferLoad<float3>(vertexBufferAddress + i1 * vertexStride + byteOffset));
+                n2 = normalize(vk::RawBufferLoad<float3>(vertexBufferAddress + i2 * vertexStride + byteOffset));
             }
         }
 
