@@ -131,13 +131,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			if (!outHDRImage || !m_device->allocate(outHDRImage->getMemoryReqs(), outHDRImage.get()).isValid())
 				return logFail("Could not create HDR Image");
 
-			{
-				IGPUBuffer::SCreationParams params;
-				params.usage = IGPUBuffer::EUF_UNIFORM_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
-				params.size = sizeof(SCameraParameters);
-				cameraBuffer = createBuffer(params);
-			}
-
 			auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
 			auto* geometryCreator = assetManager->getGeometryCreator();
 
@@ -180,13 +173,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					},
 					{
 						.binding = 1,
-						.type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-						.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-						.count = 1,
-					},
-					{
-						.binding = 2,
 						.type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
 						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 						.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
@@ -210,26 +196,23 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			}
 
 			// write descriptors
-			IGPUDescriptorSet::SDescriptorInfo infos[3];
+			IGPUDescriptorSet::SDescriptorInfo infos[2];
 			infos[0].desc = gpuTlas;
-			infos[1].desc = smart_refctd_ptr(cameraBuffer);
-			infos[1].info.buffer.size = cameraBuffer->getSize();
-			infos[2].desc = m_device->createImageView({
+			infos[1].desc = m_device->createImageView({
 				.flags = IGPUImageView::ECF_NONE,
 				.subUsages = IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT,
 				.image = outHDRImage,
 				.viewType = IGPUImageView::E_TYPE::ET_2D,
 				.format = asset::EF_R16G16B16A16_SFLOAT
 			});
-			if (!infos[2].desc)
+			if (!infos[1].desc)
 				return logFail("Failed to create image view");
-			infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+			infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
 			IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
 				{.dstSet = renderDs.get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
-				{.dstSet = renderDs.get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
-				{.dstSet = renderDs.get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
+				{.dstSet = renderDs.get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]}
 			};
-			m_device->updateDescriptorSets(std::span(writes, 3), {});
+			m_device->updateDescriptorSets(std::span(writes, 2), {});
 
 			// camera
 			{
@@ -308,21 +291,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			core::matrix4SIMD invModelViewProjectionMatrix;
 			modelViewProjectionMatrix.getInverseTransform(invModelViewProjectionMatrix);
 
-			SCameraParameters uboData;
-			const core::vector3df camPos = camera.getPosition().getAsVector3df();
-			camPos.getAs3Values(uboData.camPos);
-			memcpy(uboData.MVP, modelViewProjectionMatrix.pointer(), sizeof(uboData.MVP));
-			memcpy(uboData.invMVP, invModelViewProjectionMatrix.pointer(), sizeof(uboData.invMVP));
-			memcpy(uboData.V, viewMatrix.pointer(), sizeof(uboData.V));
-			memcpy(uboData.P, projectionMatrix.pointer(), sizeof(uboData.P));
-			{
-				SBufferRange<IGPUBuffer> range;
-				range.buffer = smart_refctd_ptr(cameraBuffer);
-				range.size = cameraBuffer->getSize();
-
-				cmdbuf->updateBuffer(range, &uboData);
-			}
-
 			auto* queue = getGraphicsQueue();
 
 			{
@@ -351,6 +319,10 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			// do ray query
 			SPushConstants pc;
 			pc.geometryInfoBuffer = geometryInfoBuffer->getDeviceAddress();
+
+			const core::vector3df camPos = camera.getPosition().getAsVector3df();
+			pc.camPos = { camPos.X, camPos.Y, camPos.Z };
+			memcpy(&pc.invMVP, invModelViewProjectionMatrix.pointer(), sizeof(pc.invMVP));
 
 			cmdbuf->bindComputePipeline(renderPipeline.get());
 			cmdbuf->pushConstants(renderPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(SPushConstants), &pc);
@@ -641,13 +613,13 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				geomInfos[i].byteOffset = byteOffsets[i];
 
 				auto vBuffer = smart_refctd_ptr(geom.data.bindings[0].buffer); // no offset
-				auto vUsage = bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | 
-					asset::IBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+				auto vUsage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | 
+					IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 				obj.bindings.vertex.offset = 0u;
 
 				auto iBuffer = smart_refctd_ptr(geom.data.indexBuffer.buffer); // no offset
-				auto iUsage = bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF |
-					asset::IBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+				auto iUsage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF |
+					IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 				obj.bindings.index.offset = 0u;
 
 				vBuffer->addUsageFlags(vUsage);
@@ -750,7 +722,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 			{
 				IGPUBuffer::SCreationParams params;
-				params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
+				params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 				params.size = OT_COUNT * sizeof(SGeomInfo);
 				m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{.queue = queue}, std::move(params), geomInfos).move_into(geometryInfoBuffer);
 			}
@@ -1033,7 +1005,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 		smart_refctd_ptr<IGPUBuffer> instancesBuffer;
 
 		smart_refctd_ptr<IGPUBuffer> geometryInfoBuffer;
-		smart_refctd_ptr<IGPUBuffer> cameraBuffer;
 		smart_refctd_ptr<IGPUImage> outHDRImage;
 
 		smart_refctd_ptr<IGPUComputePipeline> renderPipeline;

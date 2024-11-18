@@ -18,6 +18,9 @@ struct SGeomInfo
 struct SPushConstants
 {
     uint64_t geometryInfoBuffer;
+
+	float32_t3 camPos;
+	float32_t4x4 invMVP;
 };
 
 #ifdef __HLSL_VERSION

@@ -11,7 +11,9 @@
 #include "CEventCallback.hpp"
 
 #include "CCamera.hpp"
-#include "app_resources/common.hlsl"
+
+#include <nbl/builtin/hlsl/cpp_compat.hlsl>
+#include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 
 using namespace nbl;
 using namespace core;
@@ -21,6 +23,8 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 using namespace scene;
+
+#include "app_resources/common.hlsl"
 
 namespace nbl::scene
 {

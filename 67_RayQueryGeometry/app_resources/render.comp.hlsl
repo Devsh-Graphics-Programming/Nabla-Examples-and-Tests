@@ -7,13 +7,7 @@
 [[vk::binding(0, 0)]]
 RaytracingAccelerationStructure topLevelAS;
 
-[[vk::binding(1, 0)]]
-cbuffer CameraData
-{
-    SCameraParameters params;
-};
-
-[[vk::binding(2, 0)]] RWTexture2D<float4> outImage;
+[[vk::binding(1, 0)]] RWTexture2D<float4> outImage;
 
 float3 unpackNormals3x10(uint32_t v)
 {
@@ -24,12 +18,6 @@ float3 unpackNormals3x10(uint32_t v)
     return clamp(float3(pn) / 511.0, -1.0, 1.0);
 }
 
-// How the normals are packed
-// cube                     uint32_t - 8, 8, 8, 8
-// sphere, cylinder, arrow  uint32_t - 10, 10, 10, 2
-// rectangle, disk          float3
-// cone                     uint32_t - 10, 10, 10, 2
-// icosphere                float3
 static const uint indexTypes[OT_COUNT]      = { 0, 1, 0, 0, 2, 0, 0, 1 };
 static const uint vertexStrides[OT_COUNT]   = { 24, 28, 28, 32, 32, 28, 20, 32 };
 static const uint byteOffsets[OT_COUNT]     = { 18, 24, 24, 20, 20, 24, 16, 12 };
@@ -50,7 +38,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     float4 NDC = float4(texCoords * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
     float3 targetPos;
     {
-        float4 tmp = mul(params.invMVP, NDC);
+        float4 tmp = mul(pc.invMVP, NDC);
         targetPos = tmp.xyz / tmp.w;
         NDC.z = 1.0;
     }
@@ -58,8 +46,8 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     RayDesc ray;
     ray.TMin = 0.01;
     ray.TMax = 1000.0;
-    ray.Origin = params.camPos;
-    ray.Direction = normalize(targetPos - params.camPos);
+    ray.Origin = pc.camPos;
+    ray.Direction = normalize(targetPos - pc.camPos);
 
     RayQuery<RAY_FLAG_FORCE_OPAQUE> query;
     query.TraceRayInline(topLevelAS, 0, 0xFF, ray);
