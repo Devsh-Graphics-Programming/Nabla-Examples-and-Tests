@@ -5,7 +5,7 @@
 #include "nbl/this_example/common.hpp"
 #include "nbl/asset/interchange/IImageAssetHandlerBase.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
-
+#include "nbl/builtin/hlsl/surface_transform.h"
 
 using namespace nbl;
 using namespace core;
@@ -54,17 +54,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 	public:
 		inline ComputeShaderPathtracer(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
-			: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {
-			const auto cameraPos = core::vectorSIMDf(0, 5, -10);
-			matrix4SIMD proj = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(
-				core::radians(fov),
-				static_cast<float32_t>(WindowDimensions.x) / static_cast<float32_t>(WindowDimensions.y),
-				zNear,
-				zFar
-			);
-
-			m_camera = Camera(cameraPos, core::vectorSIMDf(0, 0, 0), proj);
-		}
+			: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
 		inline bool isComputeOnly() const override { return false; }
 
@@ -868,6 +858,18 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 			*/
 
+			// Set Camera
+			{
+				core::vectorSIMDf cameraPosition(0, 5, -10);
+				matrix4SIMD proj = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(
+					core::radians(60.0f),
+					transformedAspectRatio(SurfaceTransform::FLAG_BITS::IDENTITY_BIT, WindowDimensions),
+					0.01f,
+					500.0f
+				);
+				m_camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), proj);
+			}
+
 			m_winMgr->setWindowSize(m_window.get(), WindowDimensions.x, WindowDimensions.y);
 			m_surface->recreateSwapchain();
 			m_winMgr->show(m_window.get());
@@ -1049,6 +1051,10 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					viewport.height = WindowDimensions.y;
 				}
 				cmdbuf->setViewport(0u, 1u, &viewport);
+
+
+				VkRect2D defaultScisors[] = { {.offset = {(int32_t)viewport.x, (int32_t)viewport.y}, .extent = {(uint32_t)viewport.width, (uint32_t)viewport.height}} };
+				cmdbuf->setScissor(defaultScisors);
 
 				const VkRect2D currentRenderArea =
 				{
@@ -1258,6 +1264,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		} m_ui; */
 
 		Camera m_camera;
+
 		video::CDumbPresentationOracle m_oracle;
 
 		uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
