@@ -782,9 +782,9 @@ public:
 					.signalSemaphores = {&signalInfo,1}
 				};
 
-				//queue->startCapture();
+				m_api->startCapture();
 				m_queue->submit({ &submitInfo,1 });
-				//queue->endCapture();
+				m_api->endCapture();
 			}
 		}
 		// ----------------------------------------- KERNEL PRECOMP END -------------------------------------------------
