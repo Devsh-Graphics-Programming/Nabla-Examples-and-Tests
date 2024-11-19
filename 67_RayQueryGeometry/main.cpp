@@ -127,10 +127,12 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			auto cQueue = getComputeQueue();
 
 			// create geometry objects
-			createGeometries(gQueue, geometryCreator);
+			if (!createGeometries(gQueue, geometryCreator))
+				return logFail("Could not create geometries from geometry creator");
 
 			// create blas/tlas
-			createAccelerationStructures(cQueue);
+			if (!createAccelerationStructures(cQueue))
+				return logFail("Could not create acceleration structures");
 
 			// create pipelines
 			{
@@ -151,6 +153,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				smart_refctd_ptr<ICPUShader> shaderSrc = IAsset::castDown<ICPUShader>(assets[0]);
 				shaderSrc->setShaderStage(IShader::E_SHADER_STAGE::ESS_COMPUTE);
 				auto shader = m_device->createShader(shaderSrc.get());
+				if (!shader)
+					return logFail("Failed to create shader!");
 
 				// descriptors
 				IGPUDescriptorSetLayout::SBinding bindings[] = {
@@ -172,9 +176,12 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
 
 				const std::array<IGPUDescriptorSetLayout*, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> dsLayoutPtrs = { descriptorSetLayout.get() };
-				/*const uint32_t setCounts[1u] = { MaxFramesInFlight };*/
 				renderPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dsLayoutPtrs.begin(), dsLayoutPtrs.end()));
+				if (!renderPool)
+					return logFail("Could not create descriptor pool");
 				renderDs = renderPool->createDescriptorSet(descriptorSetLayout);
+				if (!renderDs)
+					return logFail("Could not create descriptor set");
 
 				SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0u, .size = sizeof(SPushConstants)};
 				auto pipelineLayout = m_device->createPipelineLayout({ &pcRange, 1 }, smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
@@ -182,7 +189,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				IGPUComputePipeline::SCreationParams params = {};
 				params.layout = pipelineLayout.get();
 				params.shader.shader = shader.get();
-				m_device->createComputePipelines(nullptr, { &params, 1 }, &renderPipeline);
+				if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &renderPipeline))
+					return logFail("Failed to create compute pipeline");
 			}
 
 			// write descriptors
@@ -773,6 +781,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					{
 						const uint32_t maxPrimCount[1] = { primitiveCounts[i] };
 						buildSizes = m_device->getAccelerationStructureBuildSizes(blasFlags, false, std::span{&triangles[i], 1}, maxPrimCount);
+						if (!buildSizes)
+							return logFail("Failed to get BLAS build sizes");
 					}
 
 					scratchSizes[i] = buildSizes.buildScratchSize;
@@ -790,6 +800,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 						blasParams.bufferRange.size = buildSizes.accelerationStructureSize;
 						blasParams.flags = IGPUBottomLevelAccelerationStructure::SCreationParams::FLAGS::NONE;
 						gpuBlas[i] = m_device->createBottomLevelAccelerationStructure(std::move(blasParams));
+						if (!gpuBlas[i])
+							return logFail("Could not create BLAS");
 					}
 				}
 
@@ -823,7 +835,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					pRangeInfos[i] = &buildRangeInfos[i];
 				}
 
-				cmdbufBlas->buildAccelerationStructures({ blasBuildInfos, OT_COUNT }, pRangeInfos);
+				if (!cmdbufBlas->buildAccelerationStructures({ blasBuildInfos, OT_COUNT }, pRangeInfos))
+					return logFail("Failed to build BLAS");
 
 				{
 					SMemoryBarrier memBarrier;
@@ -837,8 +850,9 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				const IGPUAccelerationStructure* ases[OT_COUNT];
 				for (uint32_t i = 0; i < objectsGpu.size(); i++)
 					ases[i] = gpuBlas[i].get();
-				cmdbufBlas->writeAccelerationStructureProperties({ ases, OT_COUNT }, IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE,
-					queryPool.get(), queryCount++);
+				if (!cmdbufBlas->writeAccelerationStructureProperties({ ases, OT_COUNT }, IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE,
+					queryPool.get(), queryCount++))
+					return logFail("Failed to write acceleration structure properties!");
 
 				cmdbufBlas->endDebugMarker();
 				cmdbufSubmitAndWait(cmdbufBlas, getComputeQueue(), 39);
@@ -850,7 +864,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			// compact blas
 			{
 				std::array<size_t, OT_COUNT> asSizes{ 0 };
-				m_device->getQueryPoolResults(queryPool.get(), 0, objectsGpu.size(), asSizes.data(), sizeof(size_t), IQueryPool::WAIT_BIT);
+				if (!m_device->getQueryPoolResults(queryPool.get(), 0, objectsGpu.size(), asSizes.data(), sizeof(size_t), IQueryPool::WAIT_BIT))
+					return logFail("Could not get query pool results for AS sizes");
 
 				std::array<smart_refctd_ptr<IGPUBottomLevelAccelerationStructure>, OT_COUNT> cleanupBlas;
 				for (uint32_t i = 0; i < objectsGpu.size(); i++)
@@ -868,13 +883,16 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 						blasParams.bufferRange.size = asSizes[i];
 						blasParams.flags = IGPUBottomLevelAccelerationStructure::SCreationParams::FLAGS::NONE;
 						gpuBlas[i] = m_device->createBottomLevelAccelerationStructure(std::move(blasParams));
+						if (!gpuBlas[i])
+							return logFail("Could not create compacted BLAS");
 					}
 
 					IGPUBottomLevelAccelerationStructure::CopyInfo copyInfo;
 					copyInfo.src = cleanupBlas[i].get();
 					copyInfo.dst = gpuBlas[i].get();
 					copyInfo.mode = IGPUBottomLevelAccelerationStructure::COPY_MODE::COMPACT;
-					cmdbufCompact->copyAccelerationStructure(copyInfo);
+					if (!cmdbufCompact->copyAccelerationStructure(copyInfo))
+						return logFail("Failed to copy AS to compact");
 				}
 			}
 
@@ -933,6 +951,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				tlasBuildInfo.scratch = {};
 
 				auto buildSizes = m_device->getAccelerationStructureBuildSizes(tlasFlags, false, instancesCount);
+				if (!buildSizes)
+					return logFail("Failed to get TLAS build sizes");
 
 				{
 					IGPUBuffer::SCreationParams params;
@@ -946,6 +966,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					tlasParams.bufferRange.size = buildSizes.accelerationStructureSize;
 					tlasParams.flags = IGPUTopLevelAccelerationStructure::SCreationParams::FLAGS::NONE;
 					gpuTlas = m_device->createTopLevelAccelerationStructure(std::move(tlasParams));
+					if (!gpuTlas)
+						return logFail("Could not create TLAS");
 				}
 
 				smart_refctd_ptr<IGPUBuffer> scratchBuffer;
@@ -966,13 +988,13 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				IGPUTopLevelAccelerationStructure::BuildRangeInfo* pRangeInfos;
 				pRangeInfos = &buildRangeInfo[0];
 
-				cmdbufTlas->buildAccelerationStructures({ &tlasBuildInfo, 1 }, pRangeInfos);
+				if (!cmdbufTlas->buildAccelerationStructures({ &tlasBuildInfo, 1 }, pRangeInfos))
+					return logFail("Failed to build TLAS");
 			}
 
 			cmdbufTlas->endDebugMarker();
 			cmdbufSubmitAndWait(cmdbufTlas, getComputeQueue(), 45);
 
-//TODO : ERROR HANDLING FOR ALL THE CALLS ABOVE!
 			return true;
 		}
 
