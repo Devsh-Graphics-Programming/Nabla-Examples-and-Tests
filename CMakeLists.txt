@@ -80,6 +80,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(61_UI EXCLUDE_FROM_ALL)
 	add_subdirectory(62_CAD EXCLUDE_FROM_ALL)
 	add_subdirectory(62_SchusslerTest EXCLUDE_FROM_ALL)
+	add_subdirectory(64_EmulatedFloatTest EXCLUDE_FROM_ALL)
 	add_subdirectory(0_ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
 
 	NBL_HOOK_COMMON_API("${NBL_COMMON_API_TARGETS}")
