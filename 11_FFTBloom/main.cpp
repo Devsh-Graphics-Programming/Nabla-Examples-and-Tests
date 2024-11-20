@@ -1132,8 +1132,9 @@ public:
 						}
 						// the cpu is not touching the data yet because the custom CPUBuffer is adopting the memory (no copy)
 						auto* data = reinterpret_cast<uint8_t*>(downStreamingBuffer->getBufferPointer()) + outputOffset;
-						auto cpubufferalias = core::make_smart_refctd_ptr<asset::CCustomAllocatorCPUBuffer<core::null_allocator<uint8_t> > >(srcImageSize, data, core::adopt_memory);
-						image->setBufferAndRegions(std::move(cpubufferalias), regions);
+						ICPUBuffer::SCreationParams cpuBufferAliasCreationParams = { .size = srcImageSize, .data = data, .memoryResource = core::getNullMemoryResource() }; // Don't free on exit, we're not taking ownership
+						auto cpuBufferAlias = ICPUBuffer::create(std::move(cpuBufferAliasCreationParams), core::adopt_memory);
+						image->setBufferAndRegions(std::move(cpuBufferAlias), regions);
 					}
 
 					// create image view
