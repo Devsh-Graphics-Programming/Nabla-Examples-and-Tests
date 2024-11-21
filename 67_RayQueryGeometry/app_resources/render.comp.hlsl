@@ -2,11 +2,13 @@
 
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 #include "nbl/builtin/hlsl/spirv_intrinsics/core.hlsl"
+#include "nbl/builtin/hlsl/spirv_intrinsics/raytracing.hlsl"
+
+using namespace nbl::hlsl;
 
 [[vk::push_constant]] SPushConstants pc;
 
-[[vk::binding(0, 0)]]
-RaytracingAccelerationStructure topLevelAS;
+[[vk::binding(0, 0)]] RaytracingAccelerationStructure topLevelAS;
 
 [[vk::binding(1, 0)]] RWTexture2D<float4> outImage;
 
@@ -39,23 +41,19 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
         targetPos = tmp.xyz / tmp.w;
     }
 
-    RayDesc ray;
-    ray.TMin = 0.01;
-    ray.TMax = 1000.0;
-    ray.Origin = pc.camPos;
-    ray.Direction = normalize(targetPos - pc.camPos);
+    float3 direction = normalize(targetPos - pc.camPos);
 
-    RayQuery<RAY_FLAG_FORCE_OPAQUE> query;
-    query.TraceRayInline(topLevelAS, 0, 0xFF, ray);
+    spirv::RayQueryKHR query;
+    spirv::rayQueryInitializeKHR(query, topLevelAS, RAY_FLAG_FORCE_OPAQUE, 0xFF, pc.camPos, 0.01, direction, 1000.0);
 
-    while (query.Proceed()) {}
+    while (spirv::rayQueryProceedKHR(query)) {}
 
     float4 color = float4(0, 0, 0, 1);
 
-    if (query.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
+    if (spirv::rayQueryGetIntersectionTypeKHR(query, true) == spirv::RayQueryCommittedIntersectionTriangleKHR)
     {
-        const int instID = query.CommittedInstanceIndex();
-        const int primID = query.CommittedPrimitiveIndex();
+        const int instID = spirv::rayQueryGetIntersectionInstanceIdKHR(query, true);
+        const int primID = spirv::rayQueryGetIntersectionPrimitiveIndexKHR(query, true);
 
         const SGeomInfo geom = vk::RawBufferLoad<SGeomInfo>(pc.geometryInfoBuffer + instID * sizeof(SGeomInfo));
 
@@ -132,7 +130,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
             }
         }
 
-        float3 barycentrics = float3(0.0, query.CommittedTriangleBarycentrics());
+        float3 barycentrics = float3(0.0, spirv::rayQueryGetIntersectionBarycentricsKHR(query, true));
         barycentrics.x = 1.0 - barycentrics.y - barycentrics.z;
 
         float3 normalInterp = barycentrics.x * n0 + barycentrics.y * n1 + barycentrics.z * n2;
