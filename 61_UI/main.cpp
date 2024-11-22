@@ -976,6 +976,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				}
 			}
 
+			auto& hook = scene->object;
+
 			// to Nabla + update camera & model matrices
 
 			// TODO: make it more nicely
@@ -984,7 +986,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				static float32_t3x4 modelView, normal;
 				static float32_t4x4 modelViewProjection;
 
-				auto& hook = scene->object;
+
 				hook.model = float32_t3x4(transpose(imguizmoM16InOut.model[0]));
 				{
 					const auto& references = resources->objects;
@@ -1008,52 +1010,115 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				memcpy(ubo.MVP, &modelViewProjection[0][0], sizeof(ubo.MVP));
 				memcpy(ubo.MV, &modelView[0][0], sizeof(ubo.MV));
 				memcpy(ubo.NormalMat, &normal[0][0], sizeof(ubo.NormalMat));
+			}
 
-				// object meta display
+			{
+				auto addMatrixTable = [&](const char* topText, const char* tableName, int rows, int columns, const float* pointer, bool withSeparator = true)
 				{
-					ImGui::Begin("Object");
-					ImGui::Text("type: \"%s\"", hook.meta.name.data());
+					ImGui::Text(topText);
+					ImGui::PushStyleColor(ImGuiCol_TableRowBg, ImGui::GetStyleColorVec4(ImGuiCol_ChildBg));
+					ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, ImGui::GetStyleColorVec4(ImGuiCol_WindowBg));
+					if (ImGui::BeginTable(tableName, columns, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame))
+					{
+						for (int y = 0; y < rows; ++y)
+						{
+							ImGui::TableNextRow();
+							for (int x = 0; x < columns; ++x)
+							{
+								ImGui::TableSetColumnIndex(x);
+								if (pointer)
+									ImGui::Text("%.3f", *(pointer + (y * columns) + x));
+								else
+									ImGui::Text("-");
+							}
+						}
+						ImGui::EndTable();
+					}
+					ImGui::PopStyleColor(2);
+					if (withSeparator)
+						ImGui::Separator();
+				};
+
+				// Scene Model Object
+				{
+					ImGui::SetNextWindowSize(ImVec2(600, 400), ImGuiCond_FirstUseEver);
+					ImGui::Begin("Object Info and Model Matrix", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysVerticalScrollbar);
+
+					ImGui::Text("Type: \"%s\"", hook.meta.name.data());
+					ImGui::Separator();
+
+					ImGui::PushStyleColor(ImGuiCol_TableRowBg, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
+					ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
+
+					addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, &scene->object.model[0][0]);
+
+					ImGui::PopStyleColor(2);
 					ImGui::End();
+				}
+
+				// Cameraz
+				{
+					size_t cameraCount = cameraz.size();
+					if (cameraCount > 0)
+					{
+						size_t columns = std::max<size_t>(1, static_cast<size_t>(std::sqrt(static_cast<double>(cameraCount))));
+						size_t rows = (cameraCount + columns - 1) / columns;
+
+						ImGui::Begin("Camera Matrices", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysVerticalScrollbar);
+
+						ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(4.0f, 2.0f));
+
+						for (size_t row = 0; row < rows; ++row)
+						{
+							for (size_t col = 0; col < columns; ++col)
+							{
+								size_t cameraIndex = row * columns + col;
+								if (cameraIndex >= cameraCount)
+									break;
+
+								auto& camera = cameraz[cameraIndex];
+								if (!camera)
+									continue;
+
+								auto& gimbal = camera->getGimbal();
+								const auto& position = gimbal.getPosition();
+								const auto& orientation = gimbal.getOrientation();
+								const auto& viewMatrix = gimbal.getView().matrix;
+
+								ImGui::Text("ID: %zu", cameraIndex);
+								ImGui::Separator();
+
+								ImGui::Text("Type: %s", camera->getIdentifier().data());
+								ImGui::Separator();
+
+								ImGui::PushStyleColor(ImGuiCol_TableRowBg, ImGui::GetStyleColorVec4(ImGuiCol_ChildBg));
+								ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, ImGui::GetStyleColorVec4(ImGuiCol_WindowBg));
+
+								if (ImGui::BeginTable(("CameraTable" + std::to_string(cameraIndex)).c_str(), 1, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame))
+								{
+									ImGui::TableNextRow();
+									ImGui::TableSetColumnIndex(0);
+
+									addMatrixTable("Position", ("PositionTable" + std::to_string(cameraIndex)).c_str(), 1, 3, &position[0], false);
+									addMatrixTable("Orientation (Quaternion)", ("OrientationTable" + std::to_string(cameraIndex)).c_str(), 1, 4, &orientation[0], false);
+									addMatrixTable("View Matrix", ("ViewMatrixTable" + std::to_string(cameraIndex)).c_str(), 3, 4, &viewMatrix[0][0], true);
+
+									ImGui::EndTable();
+								}
+
+								ImGui::PopStyleColor(2);
+							}
+						}
+
+						ImGui::PopStyleVar();
+						ImGui::End();
+					}
+					else
+						ImGui::Text("No camera properties to display.");
 				}
 			}
 
-			// view matrices editor
-			{
-				ImGui::Begin("Matrices");
-
-				auto addMatrixTable = [&](const char* topText, const char* tableName, const int rows, const int columns, const float* pointer, const bool withSeparator = true)
-					{
-						ImGui::Text(topText);
-						if (ImGui::BeginTable(tableName, columns))
-						{
-							for (int y = 0; y < rows; ++y)
-							{
-								ImGui::TableNextRow();
-								for (int x = 0; x < columns; ++x)
-								{
-									ImGui::TableSetColumnIndex(x);
-									ImGui::Text("%.3f", *(pointer + (y * columns) + x));
-								}
-							}
-							ImGui::EndTable();
-						}
-
-						if (withSeparator)
-							ImGui::Separator();
-					};
-
-				auto& camera = cameraz.front();
-				const auto& orientation = cameraz.front()->getGimbal().getOrthonornalMatrix();
-
-				addMatrixTable("Object's Model Matrix", "ModelMatrixTable", 3, 4, &scene->object.model[0][0]);
-				addMatrixTable("Camera's Position", "PositionForwardVec", 1, 3, &camera->getGimbal().getPosition()[0]);
-				addMatrixTable("Camera's Orientation Quat", "OrientationQuatTable", 1, 4, &camera->getGimbal().getOrientation()[0]);
-				addMatrixTable("Camera's View Matrix", "ViewMatrixTable", 3, 4, &view.matrix[0][0]);
-				addMatrixTable("Bound Projection Matrix", "ProjectionMatrixTable", 4, 4, &projectionMatrix[0][0], false);
-
-				ImGui::End();
-			}
-
+			
 			// Nabla Imgui backend MDI buffer info
 			// To be 100% accurate and not overly conservative we'd have to explicitly `cull_frees` and defragment each time,
 			// so unless you do that, don't use this basic info to optimize the size of your IMGUI buffer.

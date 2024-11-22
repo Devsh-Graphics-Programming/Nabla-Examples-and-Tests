@@ -90,6 +90,11 @@ public:
         }
     }
 
+    virtual const std::string_view getIdentifier() override
+    {
+        return "FPS Camera";
+    }
+
 private:
     typename base_t::CGimbal m_gimbal;
 
