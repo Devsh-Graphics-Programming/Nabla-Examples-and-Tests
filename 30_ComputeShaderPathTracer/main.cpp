@@ -49,6 +49,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		constexpr static inline uint8_t MaxUITextureCount = 2u;
 		constexpr static inline uint8_t SceneTextureIndex = 1u;
 		static inline std::string DefaultImagePathsFile = "../../media/envmap/envmap_0.exr";
+		static inline std::string OwenSamplerFilePath = "bin/owen_sampler_buffer";
 		static inline std::array<std::string, 3> PTShaderPaths = { "app_resources/litBySphere.comp", "app_resources/litByTriangle.comp", "app_resources/litByRectangle.comp" };
 		static inline std::string PresentShaderPath = "app_resources/present.frag.hlsl";
 
@@ -591,21 +592,46 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			// create sequence buffer view
 			{
 				{
-					auto sampleSequence = asset::ICPUBuffer::create({.size=sizeof(uint32_t)*MaxBufferDimensions*MaxBufferSamples});
+					IAssetLoader::SAssetLoadParams lp;
+					auto assets = m_assetMgr->getAsset(OwenSamplerFilePath, lp).getContents();
+					smart_refctd_ptr<ICPUBuffer> sampleSeq;
+					if (assets.empty()) {
+						sampleSeq = asset::ICPUBuffer::create({ .size = sizeof(uint32_t) * MaxBufferDimensions * MaxBufferSamples });
 
-					core::OwenSampler sampler(MaxBufferDimensions, 0xdeadbeefu);
-					//core::SobolSampler sampler(MaxBufferDimensions);
+						core::OwenSampler sampler(MaxBufferDimensions, 0xdeadbeefu);
+						//core::SobolSampler sampler(MaxBufferDimensions);
 
-					auto out = reinterpret_cast<uint32_t*>(sampleSequence->getPointer());
-					for (auto dim = 0u; dim < MaxBufferDimensions; dim++)
-						for (uint32_t i = 0; i < MaxBufferSamples; i++)
+						auto out = reinterpret_cast<uint32_t*>(sampleSeq->getPointer());
+						for (auto dim = 0u; dim < MaxBufferDimensions; dim++)
+							for (uint32_t i = 0; i < MaxBufferSamples; i++)
+							{
+								out[i * MaxBufferDimensions + dim] = sampler.sample(dim, i);
+							}
+						ISystem::future_t<smart_refctd_ptr<nbl::system::IFile>> owenSamplerFileFuture;
+						m_system->createFile(owenSamplerFileFuture, OwenSamplerFilePath, IFile::ECF_WRITE);
+						smart_refctd_ptr<IFile> owenSamplerFile;
+
+						if (owenSamplerFileFuture.wait())
 						{
-							out[i * MaxBufferDimensions + dim] = sampler.sample(dim, i);
-						}
+							owenSamplerFileFuture.acquire().move_into(owenSamplerFile);
+							if (owenSamplerFile)
+							{
+								auto assetParams = IAssetWriter::SAssetWriteParams(sampleSeq.get(), EWF_BINARY);
+								auto writeSuccess = m_assetMgr->writeAsset(owenSamplerFile.get(), assetParams);
+								if (!writeSuccess) {
+									m_logger->log("Failed writing to Owen Sampler Cache File.", ILogger::ELL_WARNING);
+								}
+							}
+						} else
+							m_logger->log("Failed creating Owen Sampler Cache File.", ILogger::ELL_WARNING);
+					} else {
+						auto asset = IAsset::castDown<ICPUBuffer>(assets[0]);
+						sampleSeq = asset::ICPUBuffer::create({ .size = sizeof(uint32_t) * MaxBufferDimensions * MaxBufferSamples, .data = asset->getPointer()});
+					}
 
 					IGPUBuffer::SCreationParams params = {};
 					params.usage = asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT;
-					params.size = sampleSequence->getSize();
+					params.size = sampleSeq->getSize();
 
 					// we don't want to overcomplicate the example with multi-queue
 					auto queue = getGraphicsQueue();
@@ -619,7 +645,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					auto bufferFuture = m_utils->createFilledDeviceLocalBufferOnDedMem(
 						m_intendedSubmit,
 						std::move(params),
-						sampleSequence->getPointer()
+						sampleSeq->getPointer()
 					);
 					m_api->endCapture();
 					bufferFuture.wait();
