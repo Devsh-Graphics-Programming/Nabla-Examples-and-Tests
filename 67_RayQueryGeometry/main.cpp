@@ -387,7 +387,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					.dstMipLevel = 0,
 					.aspectMask = IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT
 				}};
-				
+
 				auto srcImg = outHDRImage.get();
 				auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 				auto dstImg = scRes->getImage(m_currentImageAcquire.imageIndex);
@@ -429,7 +429,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					{
 						.semaphore = m_semaphore.get(),
 						.value = ++m_realFrameIx,
-						.stageMask = PIPELINE_STAGE_FLAGS::ALL_GRAPHICS_BITS
+						.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
 					}
 				};
 				{
@@ -595,6 +595,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			
 			SGeomInfo* geomInfos = reinterpret_cast<SGeomInfo*>(geomInfoBuffer->getPointer());
 			const uint32_t byteOffsets[OT_COUNT] = { 18, 24, 24, 20, 20, 24, 16, 12 };	// based on normals data position
+			const uint32_t smoothNormals[OT_COUNT] = { 0, 1, 1, 0, 0, 1, 1, 1 };
 
 			for (uint32_t i = 0; i < objectsCpu.size(); i++)
 			{
@@ -611,7 +612,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 				geomInfos[i].indexType = obj.indexType;
 				geomInfos[i].vertexStride = obj.vertexStride;
-				geomInfos[i].byteOffset = byteOffsets[i];
+				geomInfos[i].smoothNormals = smoothNormals[i];
 
 				auto vBuffer = smart_refctd_ptr(geom.data.bindings[0].buffer); // no offset
 				auto vUsage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | 
@@ -716,7 +717,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					obj.bindings.vertex = { .offset = 0, .buffer = buffers[2 * i + 0].value };
 					obj.bindings.index = { .offset = 0, .buffer = buffers[2 * i + 1].value };
 
-					geomInfos[i].vertexBufferAddress = obj.bindings.vertex.buffer->getDeviceAddress();
+					geomInfos[i].vertexBufferAddress = obj.bindings.vertex.buffer->getDeviceAddress() + byteOffsets[i];
 					geomInfos[i].indexBufferAddress = obj.useIndex() ? obj.bindings.index.buffer->getDeviceAddress() : geomInfos[i].vertexBufferAddress;
 				}
 			}
@@ -768,7 +769,9 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					triangles[i].indexType = obj.indexType;
 					triangles[i].geometryFlags = IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::OPAQUE_BIT;
 
-					const auto blasFlags = bitflag(IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT) | IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_COMPACTION_BIT;
+					auto blasFlags = bitflag(IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT) | IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_COMPACTION_BIT;
+					if (m_physicalDevice->getProperties().limits.rayTracingPositionFetch)
+						blasFlags |= IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_DATA_ACCESS_KHR;
 
 					blasBuildInfos[i].buildFlags = blasFlags;
 					blasBuildInfos[i].geometryCount = 1;	// only 1 geometry object per blas
