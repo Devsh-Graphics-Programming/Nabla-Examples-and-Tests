@@ -28,7 +28,6 @@ float3 calculateSmoothNormals(int instID, int primID, SGeomInfo geom, float2 bar
 
     const uint indexType = geom.indexType;
     const uint vertexStride = geom.vertexStride;
-    const uint byteOffset = geom.byteOffset;
 
     const uint64_t vertexBufferAddress = geom.vertexBufferAddress;
     const uint64_t indexBufferAddress = geom.indexBufferAddress;
@@ -63,9 +62,9 @@ float3 calculateSmoothNormals(int instID, int primID, SGeomInfo geom, float2 bar
     {
         case OT_CUBE:
         {
-            uint32_t v0 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + i0 * vertexStride + byteOffset, 2u);
-            uint32_t v1 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + i1 * vertexStride + byteOffset, 2u);
-            uint32_t v2 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + i2 * vertexStride + byteOffset, 2u);
+            uint32_t v0 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + i0 * vertexStride, 2u);
+            uint32_t v1 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + i1 * vertexStride, 2u);
+            uint32_t v2 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + i2 * vertexStride, 2u);
 
             n0 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v0).xyz);
             n1 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v1).xyz);
@@ -77,9 +76,9 @@ float3 calculateSmoothNormals(int instID, int primID, SGeomInfo geom, float2 bar
         case OT_ARROW:
         case OT_CONE:
         {
-            uint32_t v0 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + i0 * vertexStride + byteOffset);
-            uint32_t v1 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + i1 * vertexStride + byteOffset);
-            uint32_t v2 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + i2 * vertexStride + byteOffset);
+            uint32_t v0 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + i0 * vertexStride);
+            uint32_t v1 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + i1 * vertexStride);
+            uint32_t v2 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + i2 * vertexStride);
 
             n0 = normalize(unpackNormals3x10(v0));
             n1 = normalize(unpackNormals3x10(v1));
@@ -91,9 +90,9 @@ float3 calculateSmoothNormals(int instID, int primID, SGeomInfo geom, float2 bar
         case OT_ICOSPHERE:
         default:
         {
-            n0 = normalize(vk::RawBufferLoad<float3>(vertexBufferAddress + i0 * vertexStride + byteOffset));
-            n1 = normalize(vk::RawBufferLoad<float3>(vertexBufferAddress + i1 * vertexStride + byteOffset));
-            n2 = normalize(vk::RawBufferLoad<float3>(vertexBufferAddress + i2 * vertexStride + byteOffset));
+            n0 = normalize(vk::RawBufferLoad<float3>(vertexBufferAddress + i0 * vertexStride));
+            n1 = normalize(vk::RawBufferLoad<float3>(vertexBufferAddress + i1 * vertexStride));
+            n2 = normalize(vk::RawBufferLoad<float3>(vertexBufferAddress + i2 * vertexStride));
         }
     }
 
@@ -122,13 +121,13 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     float3 direction = normalize(targetPos - pc.camPos);
 
     spirv::RayQueryKHR query;
-    spirv::rayQueryInitializeKHR(query, topLevelAS, RAY_FLAG_FORCE_OPAQUE, 0xFF, pc.camPos, 0.01, direction, 1000.0);
+    spirv::rayQueryInitializeKHR(query, topLevelAS, spv::RayFlagsOpaqueKHRMask, 0xFF, pc.camPos, 0.01, direction, 1000.0);
 
     while (spirv::rayQueryProceedKHR(query)) {}
 
     float4 color = float4(0, 0, 0, 1);
 
-    if (spirv::rayQueryGetIntersectionTypeKHR(query, true) == spirv::RayQueryCommittedIntersectionTriangleKHR)
+    if (spirv::rayQueryGetIntersectionTypeKHR(query, true) == spv::RayQueryCommittedIntersectionTypeRayQueryCommittedIntersectionTriangleKHR)
     {
         const int instID = spirv::rayQueryGetIntersectionInstanceIdKHR(query, true);
         const int primID = spirv::rayQueryGetIntersectionPrimitiveIndexKHR(query, true);

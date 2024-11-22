@@ -612,7 +612,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 				geomInfos[i].indexType = obj.indexType;
 				geomInfos[i].vertexStride = obj.vertexStride;
-				geomInfos[i].byteOffset = byteOffsets[i];
 				geomInfos[i].smoothNormals = smoothNormals[i];
 
 				auto vBuffer = smart_refctd_ptr(geom.data.bindings[0].buffer); // no offset
@@ -718,7 +717,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					obj.bindings.vertex = { .offset = 0, .buffer = buffers[2 * i + 0].value };
 					obj.bindings.index = { .offset = 0, .buffer = buffers[2 * i + 1].value };
 
-					geomInfos[i].vertexBufferAddress = obj.bindings.vertex.buffer->getDeviceAddress();
+					geomInfos[i].vertexBufferAddress = obj.bindings.vertex.buffer->getDeviceAddress() + byteOffsets[i];
 					geomInfos[i].indexBufferAddress = obj.useIndex() ? obj.bindings.index.buffer->getDeviceAddress() : geomInfos[i].vertexBufferAddress;
 				}
 			}
