@@ -432,10 +432,30 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				}
 
 				for (auto& camera : cameraz)
+				{
+					// lets use key map presets to update the controller
+
 					camera = make_smart_refctd_ptr<camera_t>(float32_t3{ -2.017f, 0.386f, 0.684f }, glm::quat(0.55f, 0.047f, 0.830f, -0.072f)); // order important for quat, the ctor is GLM_FUNC_QUALIFIER GLM_CONSTEXPR qua<T, Q>::qua(T _w, T _x, T _y, T _z)
-				
-				// lets use key map presets to update the controller
-				auto& camera = cameraz.front();
+
+					// init keyboard map
+					camera->updateKeyboardMapping([&](auto& keys)
+					{
+						keys = camera->getKeyboardMappingPreset();
+					});
+
+					// init mouse map
+					camera->updateMouseMapping([&](auto& keys)
+					{
+						keys = camera->getMouseMappingPreset();
+					});
+
+					// init imguizmo map
+					camera->updateImguizmoMapping([&](auto& keys)
+					{
+						keys = camera->getImguizmoMappingPreset();
+					});
+				}
+
 				scene = CScene::create(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), getGraphicsQueue(), smart_refctd_ptr(resources));
 
 				if (!scene)
@@ -444,23 +464,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					return false;
 				}
 				
-				// init keyboard map
-				camera->updateKeyboardMapping([&](auto& keys)
-				{
-					keys = camera->getKeyboardMappingPreset();
-				});
-
-				// init mouse map
-				camera->updateMouseMapping([&](auto& keys)
-				{
-					keys = camera->getMouseMappingPreset();
-				});
-
-				// init imguizmo map
-				camera->updateImguizmoMapping([&](auto& keys)
-				{
-					keys = camera->getImguizmoMappingPreset();
-				});
 			}
 
 			oracle.reportBeginFrameRecord();
@@ -586,8 +589,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					};
 
 					IQueue::SSubmitInfo::SCommandBufferInfo commandBuffersInfo[] = { {.cmdbuf = cmdbuf } };
-
-
 
 					const IGPUCommandBuffer::SRenderpassBeginInfo info =
 					{
@@ -779,7 +780,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				// TODO: testing
 				auto& camera = cameraz.front().get();
 
-
 				std::vector<CVirtualGimbalEvent> virtualEvents(0x45); // TODO: tmp
 				uint32_t vCount;
 
@@ -940,7 +940,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			static struct
 			{
-				float32_t4x4 view, projection, model;
+				float32_t4x4 view, projection, model[2u], deltaTRS[2u];
 			} imguizmoM16InOut;
 
 			const auto& projectionMatrix = projection->getMatrix();
@@ -949,7 +949,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			ImGuizmo::SetID(0u);
 			imguizmoM16InOut.view = transpose(getMatrix3x4As4x4(view.matrix));
 			imguizmoM16InOut.projection = transpose(projectionMatrix);
-			imguizmoM16InOut.model = transpose(getMatrix3x4As4x4(scene->object.model));
+			imguizmoM16InOut.model[0] = transpose(getMatrix3x4As4x4(scene->object.model));
+			imguizmoM16InOut.model[1] = transpose(getMatrix3x4As4x4(cameraz.back()->getGimbal()()));
 			{
 				if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
 					imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
@@ -958,19 +959,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				{
 					auto* cameraView = &imguizmoM16InOut.view[0][0];
 					auto* cameraProjection = &imguizmoM16InOut.projection[0][0];
-					float* objectMatrices[2u];
-					
-					objectMatrices[0u] = &imguizmoM16InOut.model[0][0];
 
-					// TODO: here we will use second camera model as temp input to get deltra TRS matrix for imguizmo controller
-					objectMatrices[1u] = secondCameraModel.data();
-
-					TransformStart(cameraView, cameraProjection, objectMatrices[lastUsing]);
+					TransformStart(cameraView, cameraProjection, &imguizmoM16InOut.model[lastUsing][0][0]);
 					for (int matId = 0; matId < 2u; matId++)
 					{
 						ImGuizmo::PushID(matId);
 
-						EditTransform(cameraView, cameraProjection, objectMatrices[matId]);
+						EditTransform(cameraView, cameraProjection, &imguizmoM16InOut.model[matId][0][0], &imguizmoM16InOut.deltaTRS[matId][0][0]);
 						if (ImGuizmo::IsUsing())
 							lastUsing = matId;
 						ImGuizmo::PopID();
@@ -990,7 +985,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				static float32_t4x4 modelViewProjection;
 
 				auto& hook = scene->object;
-				hook.model = float32_t3x4(transpose(imguizmoM16InOut.model));
+				hook.model = float32_t3x4(transpose(imguizmoM16InOut.model[0]));
 				{
 					const auto& references = resources->objects;
 					const auto type = static_cast<ObjectType>(gcIndex);
@@ -1251,7 +1246,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			}
 		}
 
-		void EditTransform(float* cameraView, float* cameraProjection, float* matrix)
+		void EditTransform(float* cameraView, float* cameraProjection, float* matrix, float* deltaTRS)
 		{
 			ImGuiIO& io = ImGui::GetIO();
 			float windowWidth = (float)ImGui::GetWindowWidth();
@@ -1264,7 +1259,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			{
 				ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, windowWidth, windowHeight);
 			}
-			ImGuizmo::Manipulate(cameraView, cameraProjection, mCurrentGizmoOperation, mCurrentGizmoMode, matrix, NULL, useSnap ? &snap[0] : NULL);
+			ImGuizmo::Manipulate(cameraView, cameraProjection, mCurrentGizmoOperation, mCurrentGizmoMode, matrix, deltaTRS, useSnap ? &snap[0] : NULL);
 		}
 
 		void TransformEnd()
@@ -1353,14 +1348,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		ImGuizmo::MODE mCurrentGizmoMode = ImGuizmo::WORLD;
 		float snap[3] = { 1.f, 1.f, 1.f };
 		int lastUsing = 0;
-
-		// TMP
-		std::array<float, 16u> secondCameraModel = {
-			1.f, 0.f, 0.f, 0.f,
-			0.f, 1.f, 0.f, 0.f,
-			0.f, 0.f, 1.f, 0.f,
-			0.f, 0.f, 0.f, 1.f
-		};
 };
 
 NBL_MAIN_FUNC(UISampleApp)
