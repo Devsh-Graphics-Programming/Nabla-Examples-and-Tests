@@ -13,6 +13,7 @@ struct SGeomInfo
 	uint32_t indexType; // 16 bit, 32 bit or none
 	uint32_t vertexStride;
 	uint32_t byteOffset;
+	uint32_t smoothNormals;	// flat for cube, rectangle, disk
 };
 
 struct SPushConstants
@@ -27,7 +28,6 @@ struct SPushConstants
 };
 
 #ifdef __HLSL_VERSION
-//NBL_CONSTEXPR uint32_t OT_COUNT = 8;
 enum ObjectType : uint32_t  // matches c++
 {
 	OT_CUBE = 0,
