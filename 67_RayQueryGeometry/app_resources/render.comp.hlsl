@@ -133,9 +133,15 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
         float3 barycentrics = float3(0.0, spirv::rayQueryGetIntersectionBarycentricsKHR(query, true));
         barycentrics.x = 1.0 - barycentrics.y - barycentrics.z;
 
+        float3 pos[3];
+        pos = spirv::rayQueryGetIntersectionTriangleVertexPositionsKHR(query, true);
+
+        float3 geoN = cross(pos[1] - pos[0], pos[2] - pos[0]);
+
         float3 normalInterp = barycentrics.x * n0 + barycentrics.y * n1 + barycentrics.z * n2;
         normalInterp = normalize(normalInterp) * 0.5 + 0.5;
         color = float4(normalInterp, 1.0);
+        color = float4(normalize(geoN), 1.0);
     }
 
     outImage[threadID.xy] = color;
