@@ -33,7 +33,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 		struct SBasicViewParametersAligned
 		{
-			SBasicViewParameters uboData;
+			SBasicViewParameters params;
 		};
 
 		constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
@@ -238,20 +238,12 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					};
 
 				std::array<ICPUDescriptorSetLayout::SBinding, 1> descriptorSet0Bindings = {};
-				std::array<ICPUDescriptorSetLayout::SBinding, 1> uboBindings = {};
 				std::array<ICPUDescriptorSetLayout::SBinding, 3> descriptorSet3Bindings = {};
+				std::array<IGPUDescriptorSetLayout::SBinding, 1> presentDescriptorSetBindings;
 
 				descriptorSet0Bindings[0] = {
 					.binding = 0u,
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
-					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-					.count = 1u,
-					.immutableSamplers = nullptr
-				};
-				uboBindings[0] = {
-					.binding = 0u,
-					.type = nbl::asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
 					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					.count = 1u,
@@ -281,7 +273,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					.count = 1u,
 					.immutableSamplers = nullptr
 				};
-				std::array<IGPUDescriptorSetLayout::SBinding, 1> presentDescriptorSetBindings;
 				presentDescriptorSetBindings[0] = {
 					.binding = 0u,
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
@@ -292,20 +283,16 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				};
 
 				auto cpuDescriptorSetLayout0 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(descriptorSet0Bindings);
-				auto cpuDescriptorSetLayout1 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(uboBindings);
 				auto cpuDescriptorSetLayout2 = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(descriptorSet3Bindings);
 
 				auto gpuDescriptorSetLayout0 = convertDSLayoutCPU2GPU(cpuDescriptorSetLayout0);
-				auto gpuDescriptorSetLayout1 = convertDSLayoutCPU2GPU(cpuDescriptorSetLayout1);
 				auto gpuDescriptorSetLayout2 = convertDSLayoutCPU2GPU(cpuDescriptorSetLayout2);
 				auto gpuPresentDescriptorSetLayout = m_device->createDescriptorSetLayout(presentDescriptorSetBindings);
 
 				auto cpuDescriptorSet0 = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuDescriptorSetLayout0));
-				auto cpuDescriptorSet1 = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuDescriptorSetLayout1));
 				auto cpuDescriptorSet2 = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuDescriptorSetLayout2));
 
 				m_descriptorSet0 = convertDSCPU2GPU(cpuDescriptorSet0);
-				m_uboDescriptorSet1 = convertDSCPU2GPU(cpuDescriptorSet1);
 				m_descriptorSet2 = convertDSCPU2GPU(cpuDescriptorSet2);
 
 				smart_refctd_ptr<IDescriptorPool> presentDSPool;
@@ -345,7 +332,18 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				// Create compute pipeline
 				{
 					auto ptShader = loadAndCompileShader(PTShaderPaths[LightGeom]);
-					auto ptPipelineLayout = m_device->createPipelineLayout({}, core::smart_refctd_ptr(gpuDescriptorSetLayout0), core::smart_refctd_ptr(gpuDescriptorSetLayout1), core::smart_refctd_ptr(gpuDescriptorSetLayout2), nullptr);
+					const nbl::asset::SPushConstantRange pcRange = {
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+						.offset = 0,
+						.size = sizeof(SBasicViewParametersAligned)
+					};
+					auto ptPipelineLayout = m_device->createPipelineLayout(
+						{&pcRange, 1},
+						core::smart_refctd_ptr(gpuDescriptorSetLayout0),
+						nullptr,
+						core::smart_refctd_ptr(gpuDescriptorSetLayout2),
+						nullptr
+					);
 					if (!ptPipelineLayout) {
 						return logFail("Failed to create Pathtracing pipeline layout");
 					}
@@ -590,20 +588,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				m_outImgView->setObjectDebugName("Output Image View");
 			}
 
-			// create ubo and sequence buffer view
+			// create sequence buffer view
 			{
-				{
-					IGPUBuffer::SCreationParams params = {};
-					params.usage = IGPUBuffer::EUF_UNIFORM_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
-					params.size = sizeof(SBasicViewParametersAligned);
-
-					m_ubo = m_device->createBuffer(std::move(params));
-					m_ubo->setObjectDebugName("UBO");
-					auto memReqs = m_ubo->getMemoryReqs();
-					memReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-					m_device->allocate(memReqs, m_ubo.get());
-				}
-
 				{
 					auto sampleSequence = asset::ICPUBuffer::create({.size=sizeof(uint32_t)*MaxBufferDimensions*MaxBufferSamples});
 
@@ -673,25 +659,22 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				};
 				auto sampler1 = m_device->createSampler(samplerParams1);
 
-				std::array<IGPUDescriptorSet::SDescriptorInfo, 6> writeDSInfos = {};
+				std::array<IGPUDescriptorSet::SDescriptorInfo, 5> writeDSInfos = {};
 				writeDSInfos[0].desc = m_outImgView;
 				writeDSInfos[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-				writeDSInfos[1].desc = m_ubo;
-				writeDSInfos[1].info.buffer.offset = 0ull;
-				writeDSInfos[1].info.buffer.size = sizeof(SBasicViewParametersAligned);
-				writeDSInfos[2].desc = m_envMapView;
+				writeDSInfos[1].desc = m_envMapView;
 				// ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_FLOAT_OPAQUE_BLACK, ISampler::ETF_LINEAR, ISampler::ETF_LINEAR, ISampler::ESMM_LINEAR, 0u, false, ECO_ALWAYS };
-				writeDSInfos[2].info.combinedImageSampler.sampler = sampler0;
-				writeDSInfos[2].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				writeDSInfos[3].desc = m_sequenceBufferView;
-				writeDSInfos[4].desc = m_scrambleView;
+				writeDSInfos[1].info.combinedImageSampler.sampler = sampler0;
+				writeDSInfos[1].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				writeDSInfos[2].desc = m_sequenceBufferView;
+				writeDSInfos[3].desc = m_scrambleView;
 				// ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_INT_OPAQUE_BLACK, ISampler::ETF_NEAREST, ISampler::ETF_NEAREST, ISampler::ESMM_NEAREST, 0u, false, ECO_ALWAYS };
-				writeDSInfos[4].info.combinedImageSampler.sampler = sampler1;
-				writeDSInfos[4].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				writeDSInfos[5].desc = m_outImgView;
-				writeDSInfos[5].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				writeDSInfos[3].info.combinedImageSampler.sampler = sampler1;
+				writeDSInfos[3].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				writeDSInfos[4].desc = m_outImgView;
+				writeDSInfos[4].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 
-				std::array<IGPUDescriptorSet::SWriteDescriptorSet, 6> writeDescriptorSets = {};
+				std::array<IGPUDescriptorSet::SWriteDescriptorSet, 5> writeDescriptorSets = {};
 				writeDescriptorSets[0] = {
 					.dstSet = m_descriptorSet0.get(),
 					.binding = 0,
@@ -700,7 +683,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					.info = &writeDSInfos[0]
 				};
 				writeDescriptorSets[1] = {
-					.dstSet = m_uboDescriptorSet1.get(),
+					.dstSet = m_descriptorSet2.get(),
 					.binding = 0,
 					.arrayElement = 0u,
 					.count = 1u,
@@ -708,31 +691,24 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				};
 				writeDescriptorSets[2] = {
 					.dstSet = m_descriptorSet2.get(),
-					.binding = 0,
+					.binding = 1,
 					.arrayElement = 0u,
 					.count = 1u,
 					.info = &writeDSInfos[2]
 				};
 				writeDescriptorSets[3] = {
 					.dstSet = m_descriptorSet2.get(),
-					.binding = 1,
+					.binding = 2,
 					.arrayElement = 0u,
 					.count = 1u,
 					.info = &writeDSInfos[3]
 				};
 				writeDescriptorSets[4] = {
-					.dstSet = m_descriptorSet2.get(),
-					.binding = 2,
-					.arrayElement = 0u,
-					.count = 1u,
-					.info = &writeDSInfos[4]
-				};
-				writeDescriptorSets[5] = {
 					.dstSet = m_presentDescriptorSet.get(),
 					.binding = 0,
 					.arrayElement = 0u,
 					.count = 1u,
-					.info = &writeDSInfos[5]
+					.info = &writeDSInfos[4]
 				};
 
 				m_device->updateDescriptorSets(writeDescriptorSets, {});
@@ -929,31 +905,26 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				// disregard surface/swapchain transformation for now
 				const auto viewProjectionMatrix = m_camera.getConcatenatedMatrix();
 
+				// compute view matrix
+				auto mv = viewMatrix;
+				auto mvp = viewProjectionMatrix;
+				core::matrix3x4SIMD normalMat;
+				mv.getSub3x3InverseTranspose(normalMat);
+				SBasicViewParametersAligned pc;
+
+				SBasicViewParametersAligned viewParams;
+				memcpy(viewParams.params.MV, mv.pointer(), sizeof(mv));
+				memcpy(viewParams.params.MVP, mvp.pointer(), sizeof(mvp));
+				memcpy(viewParams.params.NormalMat, normalMat.pointer(), sizeof(normalMat));
+
+				memcpy(pc.params.MV, mv.pointer(), sizeof(mv));
+				memcpy(pc.params.MVP, mvp.pointer(), sizeof(mvp));
+				memcpy(pc.params.NormalMat, normalMat.pointer(), sizeof(normalMat));
+
 				// safe to proceed
 				// upload buffer data
 				cmdbuf->beginDebugMarker("ComputeShaderPathtracer IMGUI Frame");
 				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-				{
-					auto mv = viewMatrix;
-					auto mvp = viewProjectionMatrix;
-					core::matrix3x4SIMD normalMat;
-					mv.getSub3x3InverseTranspose(normalMat);
-
-					SBasicViewParametersAligned viewParams;
-					memcpy(viewParams.uboData.MV, mv.pointer(), sizeof(mv));
-					memcpy(viewParams.uboData.MVP, mvp.pointer(), sizeof(mvp));
-					memcpy(viewParams.uboData.NormalMat, normalMat.pointer(), sizeof(normalMat));
-
-					asset::SBufferRange<video::IGPUBuffer> range;
-					range.buffer = m_ubo;
-					range.offset = 0ull;
-					range.size = sizeof(viewParams);
-					
-					IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf };
-					m_intendedSubmit.scratchCommandBuffers = { &cmdbufInfo, 1 };
-					
-					m_utils->updateBufferRangeViaStagingBuffer(m_intendedSubmit, range, &viewParams);
-				}
 
 				// TRANSITION m_outImgView to GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
 				{
@@ -986,8 +957,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				{
 					cmdbuf->bindComputePipeline(m_PTPipeline.get());
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_PTPipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
-					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_PTPipeline->getLayout(), 1u, 1u, &m_uboDescriptorSet1.get());
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_PTPipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
+					cmdbuf->pushConstants(m_PTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(SBasicViewParametersAligned), &pc);
 					cmdbuf->dispatch(1 + (WindowDimensions.x - 1) / DefaultWorkGroupSize, 1 + (WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u);
 				}
 
@@ -1211,7 +1182,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		uint64_t m_maxFramesInFlight : 5;  // TODO: upgrade in-line with Erfan's best practices
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>, ISwapchain::MaxImages> m_cmdBufs;
 		ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
-		smart_refctd_ptr<IGPUDescriptorSet> m_descriptorSet0, m_uboDescriptorSet1, m_descriptorSet2, m_presentDescriptorSet;
+		smart_refctd_ptr<IGPUDescriptorSet> m_descriptorSet0, m_descriptorSet2, m_presentDescriptorSet;
 
 		core::smart_refctd_ptr<IDescriptorPool> m_guiDescriptorSetPool;
 
@@ -1223,7 +1194,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		// pathtracer resources
 		smart_refctd_ptr<IGPUImageView> m_envMapView, m_scrambleView;
 		smart_refctd_ptr<IGPUBufferView> m_sequenceBufferView;
-		smart_refctd_ptr<IGPUBuffer> m_ubo;
 		smart_refctd_ptr<IGPUImageView> m_outImgView;
 
 		// sync

@@ -38,11 +38,10 @@ vec2 getTexCoords() {
 
 #include <nbl/builtin/glsl/sampling/box_muller_transform.glsl>
 
-layout(set = 1, binding = 0, row_major, std140) uniform UBO
+layout(push_constant, row_major) uniform constants
 {
 	nbl_glsl_SBasicViewParameters params;
 } cameraData;
-
 
 #define INVALID_ID_16BIT 0xffffu
 struct Sphere
