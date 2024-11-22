@@ -89,6 +89,9 @@ public:
 
 	// VirtualEventType bitmask for a camera view gimbal manipulation requests filtering
 	virtual const uint32_t getAllowedVirtualEvents(ManipulationMode mode) = 0u;
+
+    // Identifier of a camera type
+    virtual const std::string_view getIdentifier() = 0u;
 };
 
 }
