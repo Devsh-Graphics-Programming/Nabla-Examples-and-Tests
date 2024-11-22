@@ -1,6 +1,6 @@
 #include "fft_mirror_common.hlsl"
 
-[[vk::binding(0, 0)]] RWTexture2D<float32_t4> convolvedImage;
+[[vk::binding(2, 0)]] RWTexture2D<float32_t4> convolvedImage;
 
 // ---------------------------------------------------- Utils ---------------------------------------------------------
 uint64_t rowMajorOffset(uint32_t x, uint32_t y)

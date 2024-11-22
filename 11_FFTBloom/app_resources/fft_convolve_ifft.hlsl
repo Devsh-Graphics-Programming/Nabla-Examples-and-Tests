@@ -1,7 +1,7 @@
 #include "fft_mirror_common.hlsl"
 
-[[vk::binding(0, 0)]] Texture2D<float32_t2> kernelChannels[Channels];
-[[vk::binding(0, 0)]] SamplerState samplerState[Channels];
+[[vk::binding(3, 0)]] Texture2DArray<float32_t2> kernelChannels;
+[[vk::binding(1, 0)]] SamplerState samplerState;
 
 // ---------------------------------------------------- Utils ---------------------------------------------------------
 uint64_t colMajorOffset(uint32_t x, uint32_t y)
@@ -37,15 +37,6 @@ uint64_t getRowMajorChannelStartAddress(uint32_t channel)
 
 struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 {
-	int32_t mirrorWrap(int32_t paddedCoordinate)
-	{
-		const int32_t negMask = paddedCoordinate >> 31u;
-		const int32_t d = ((paddedCoordinate ^ negMask) / pushConstants.dataElementCount) ^ negMask;
-		paddedCoordinate = paddedCoordinate - d * pushConstants.dataElementCount;
-		const int32_t flip = d & 0x1;
-		return (1 - flip) * paddedCoordinate + flip * (pushConstants.dataElementCount - 1 - paddedCoordinate); //lerping is a float op
-	}
-
 	void preload(uint32_t channel)
 	{
 		// Set up accessor to point at channel offsets
@@ -56,7 +47,8 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 		{
 			const uint32_t index = WorkgroupSize * elementIndex | workgroup::SubgroupContiguousIndex();
 			const int32_t paddedIndex = index - int32_t(padding);
-			const int32_t wrappedIndex = mirrorWrap(paddedIndex);
+			int32_t wrappedIndex = paddedIndex < 0 ? ~ paddedIndex : paddedIndex; // ~x = - x - 1 in two's complement (except maybe at the borders of representable range) 
+			wrappedIndex = paddedIndex < pushConstants.dataElementCount ? wrappedIndex : 2 * pushConstants.dataElementCount - paddedIndex + 1;
 			preloaded[elementIndex] = bothBuffersAccessor.get(colMajorOffset(wrappedIndex, glsl::gl_WorkGroupID().x));
 		}
 	}
@@ -74,20 +66,20 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				complex_t<scalar_t> zero = preloaded[localElementIndex];
 				complex_t<scalar_t> nyquist = getDFTMirror<sharedmem_adaptor_t>(localElementIndex, adaptorForSharedMemory);
 
-				workgroup::fft::unpack<scalar_t>(zero, nyquist);
+				fft::unpack<scalar_t>(zero, nyquist);
 
 				// We now have zero and Nyquist frequencies at NFFT[index], so we must use `getDFTIndex(index)` to get the actual index into the DFT
 				const uint32_t globalElementIndex = WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex();
-				const uint32_t indexDFT = FFTIndexingUtils::getDFTIndex(globalElementIndex);
+				const float32_t indexDFT = float32_t(FFTIndexingUtils::getDFTIndex(globalElementIndex));
 
 				float32_t2 uv = float32_t2(indexDFT / float32_t(TotalSize), float32_t(0)) + pushConstants.kernelHalfPixelSize;
-				const vector<scalar_t, 2> zeroKernelVector = kernelChannels[channel].SampleLevel(samplerState[channel], uv, 0);
+				const vector<scalar_t, 2> zeroKernelVector = kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0);
 				const complex_t<scalar_t> zeroKernel = { zeroKernelVector.x, zeroKernelVector.y };
 				zero = zero * zeroKernel;
 
 				// Do the same for the nyquist coord
 				uv.y += 0.5;
-				const vector<scalar_t, 2> nyquistKernelVector = kernelChannels[channel].SampleLevel(samplerState[channel], uv, 0);
+				const vector<scalar_t, 2> nyquistKernelVector = kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0);
 				const complex_t<scalar_t> nyquistKernel = { nyquistKernelVector.x, nyquistKernelVector.y };
 				nyquist = nyquist * nyquistKernel;
 
@@ -120,7 +112,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				const uint32_t y = glsl::bitfieldReverse<uint32_t>(glsl::gl_WorkGroupID().x) >> (32 - bits);
 				const uint32_t2 texCoords = uint32_t2(indexDFT, y);
 				const float32_t2 uv = texCoords / float32_t2(TotalSize, 2 * glsl::gl_NumWorkGroups().x) + pushConstants.kernelHalfPixelSize;
-				const vector<scalar_t, 2> sampledKernelVector = kernelChannels[channel].SampleLevel(samplerState[channel], uv, 0);
+				const vector<scalar_t, 2> sampledKernelVector = kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0);
 				const complex_t<scalar_t> sampledKernel = { sampledKernelVector.x, sampledKernelVector.y };
 				preloaded[localElementIndex] = preloaded[localElementIndex] * sampledKernel;
 			}

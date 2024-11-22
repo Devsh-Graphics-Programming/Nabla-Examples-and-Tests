@@ -1,7 +1,7 @@
 #include "common.hlsl"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
 
-[[vk::binding(0, 0)]] RWTexture2D<float32_t2> kernelChannels[Channels];
+[[vk::binding(2, 0)]] RWTexture2DArray<float32_t2> kernelChannels;
 
 // ---------------------------------------------------- Utils ---------------------------------------------------------
 uint64_t rowMajorOffset(uint32_t x, uint32_t y)
@@ -41,7 +41,7 @@ void normalizeChannel(uint32_t channel, scalar_t power, LegacyBdaAccessor<comple
 			complex_t<scalar_t> zero = rowMajorAccessor.get(rowMajorOffset(index, 0));
 			complex_t<scalar_t> nyquist = rowMajorAccessor.get(rowMajorOffset(otherIndex, 0));
 
-			workgroup::fft::unpack<scalar_t>(zero, nyquist);
+			fft::unpack<scalar_t>(zero, nyquist);
 			// We now have zero and Nyquist frequencies at NFFT[index], so we must use `getDFTIndex(index)` to get the actual index into the DFT
 			const uint32_t indexDFT = FFTIndexingUtils::getDFTIndex(index);
 
@@ -50,14 +50,14 @@ void normalizeChannel(uint32_t channel, scalar_t power, LegacyBdaAccessor<comple
 			const scalar_t shift = indexDFT & 1 ? scalar_t(-1) : scalar_t(1);
 			zero = (zero * shift) / power;
 			vector<scalar_t, 2> zeroVector = { zero.real(), zero.imag() };
-			kernelChannels[channel][zeroCoord] = zeroVector;
+			kernelChannels[uint32_t3(zeroCoord, channel)] = zeroVector;
 
 			// Store nyquist element
 			const uint32_t2 nyquistCoord = uint32_t2(indexDFT, FFTParameters::TotalSize / 2);
 			// FFTParameters::TotalSize / 2 is even, so indexDFT + FFTParameters::TotalSize / 2 is even iff indexDFT is even, which then means the shift factor stays the same
 			nyquist = (nyquist * shift) / power;
 			vector<scalar_t, 2> nyquistVector = { nyquist.real(), nyquist.imag() };
-			kernelChannels[channel][nyquistCoord] = nyquistVector;
+			kernelChannels[uint32_t3(nyquistCoord, channel)] = nyquistVector;
 		}
 	}
 	// The other rows have easier rules: They have to reflect their values along the Nyquist row
@@ -81,7 +81,7 @@ void normalizeChannel(uint32_t channel, scalar_t power, LegacyBdaAccessor<comple
 			const scalar_t shift = (x + y) & 1 ? scalar_t(-1) : scalar_t(1);
 			toStore = (toStore * shift) / power;
 			vector<scalar_t, 2> toStoreVector = { toStore.real(), toStore.imag() };
-			kernelChannels[channel][uint32_t2(x, y)] = toStoreVector;
+			kernelChannels[uint32_t3(x, y, channel)] = toStoreVector;
 
 			// Store the element at the column mirrored about the Nyquist column (so x'' = mirror(x))
 			// https://en.wikipedia.org/wiki/Discrete_Fourier_transform#Conjugation_in_time
@@ -91,7 +91,7 @@ void normalizeChannel(uint32_t channel, scalar_t power, LegacyBdaAccessor<comple
 			const complex_t<scalar_t> conjugated = conj(toStore);
 			toStoreVector.x = conjugated.real();
 			toStoreVector.y = conjugated.imag();
-			kernelChannels[channel][uint32_t2(x, y)] = toStoreVector;
+			kernelChannels[uint32_t3(x, y, channel)] = toStoreVector;
 		}
 	}
 }

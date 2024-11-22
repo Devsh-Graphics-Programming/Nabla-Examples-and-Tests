@@ -1,7 +1,7 @@
 #include "fft_mirror_common.hlsl"
 
-[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2D<float32_t4> texture;
-[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] SamplerState samplerState;
+[[vk::binding(0, 0)]] Texture2D<float32_t4> texture;
+[[vk::binding(1, 0)]] SamplerState samplerState;
 
 // ---------------------------------------------------- Utils ---------------------------------------------------------
 
@@ -85,7 +85,7 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 			{
 				lo = preloaded[localElementIndex];
 				hi = getDFTMirror<sharedmem_adaptor_t>(localElementIndex, adaptorForSharedMemory);
-				workgroup::fft::unpack<scalar_t>(lo, hi);
+				fft::unpack<scalar_t>(lo, hi);
 			}
 			// Divide localElementIdx by 2 to keep even elements packed together when writing
 			storeColMajor(localElementIndex * (WorkgroupSize / 2) | workgroup::SubgroupContiguousIndex(), lo, hi);

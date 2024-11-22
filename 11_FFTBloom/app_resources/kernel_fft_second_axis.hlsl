@@ -87,7 +87,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase<FFTParameters>
 				hi.real(z2);
 			}
 			else {
-				workgroup::fft::unpack<scalar_t>(lo, hi);
+				fft::unpack<scalar_t>(lo, hi);
 			}
 			preloaded[elementIndex] = ternaryOperator(oddThread, hi, lo);
 		}

@@ -4,8 +4,8 @@
 //        - You can get away with saving only half of the kernel (didn't do it here), especially if FFT of the image is always done in the same order (in that case you can just
 //          store the same half of the kernel spectrum as you do the image's).
 
-[[vk::combinedImageSampler]][[vk::binding(0,0)]] Texture2D<float32_t4> texture;
-[[vk::combinedImageSampler]][[vk::binding(0,0)]] SamplerState samplerState;
+[[vk::binding(0,0)]] Texture2D<float32_t4> texture;
+[[vk::binding(1,0)]] SamplerState samplerState;
 
 // ---------------------------------------------------- Utils ---------------------------------------------------------
 
@@ -46,7 +46,7 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 			normalizedCoordsFirstLine.y = (float32_t(index) + 0.5f) / (inputImageSize.y * KernelScale);
 			normalizedCoordsSecondLine.y = normalizedCoordsFirstLine.y;
 			preloaded[localElementIndex].real(scalar_t(texture.SampleLevel(samplerState, normalizedCoordsFirstLine + promote<float32_t2, float32_t>(0.5 - 0.5 / KernelScale), 0)[channel]));
-			preloaded[localElementIndex].imag(scalar_t(texture.SampleLevel(samplerState, normalizedCoordsSecondLine + promote<float32_t2, float32_t>(0.5 - 0.5/ KernelScale), 0)[channel]));
+			preloaded[localElementIndex].imag(scalar_t(texture.SampleLevel(samplerState, normalizedCoordsSecondLine + promote<float32_t2, float32_t>(0.5 - 0.5 / KernelScale), 0)[channel]));
 		}
 
 		// Set LegacyBdaAccessor for posterior writing
