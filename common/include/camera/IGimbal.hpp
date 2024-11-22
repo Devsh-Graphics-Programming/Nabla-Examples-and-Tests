@@ -232,6 +232,12 @@ namespace nbl::hlsl
             m_position = position;
         }
 
+        inline void setScale(const vector<precision_t, 3u>& scale)
+        {
+            // we are not consider it a manipulation because it only impacts TRS world matrix we do not store
+            m_scale = scale;
+        }
+
         inline void setOrientation(const glm::quat& orientation)
         {
             assert(m_isManipulating); // TODO: log error and return without doing nothing
@@ -293,6 +299,24 @@ namespace nbl::hlsl
         //! Orientation of gimbal
         inline const auto& getOrientation() const { return m_orientation; }
 
+        //! Scale transform component
+        inline const auto& getScale() const { return m_scale; }
+
+        //! World matrix (TRS)
+        inline const matrix<precision_t, 3, 4> operator()() const
+        { 
+            const auto& position = getPosition();
+            const auto& rotation = getOrthonornalMatrix();
+            const auto& scale = getScale();
+
+            return
+            {
+                vector<precision_t, 4>(rotation[0] * scale.x, position.x),
+                vector<precision_t, 4>(rotation[1] * scale.y, position.y),
+                vector<precision_t, 4>(rotation[2] * scale.z, position.z)
+            };
+        }
+
         //! Orthonormal [getXAxis(), getYAxis(), getZAxis()] orientation matrix
         inline const auto& getOrthonornalMatrix() const { return m_orthonormal; }
 
@@ -330,9 +354,12 @@ namespace nbl::hlsl
         //! TODO: precision + replace with our "quat at home"
         glm::quat m_orientation;
 
-        //! Orthonormal base composed from "m_orientation" representing gimbal's "forward", "up" & "right" vectors in local space
+        //! Scale transform component
+        vector<precision_t, 3u> m_scale = { 1.f, 1.f , 1.f };
+
+        //! Orthonormal base composed from "m_orientation" representing gimbal's "forward", "up" & "right" vectors in local space - basically it spans orientation space
         matrix<precision_t, 3, 3> m_orthonormal;
-        
+
         //! Counter that increments for each performed manipulation, resets with each begin() call
         size_t m_counter = {};
 
