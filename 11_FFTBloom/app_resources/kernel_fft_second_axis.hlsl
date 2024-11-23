@@ -33,6 +33,8 @@ uint64_t getRowMajorChannelStartAddress(uint32_t channel)
 
 struct PreloadedSecondAxisAccessor : PreloadedAccessorBase<FFTParameters>
 {
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t PreviousWorkgroupSize = uint32_t(ConstevalParameters::PreviousWorkgroupSize);
+
 	// The lower half of the DFT is retrieved (in bit-reversed order as an N/2 bit number, N being the length of the whole DFT) as the even elements of the Nabla-ordered FFT.
 	// That is, for the threads in the previous pass you take all `preloaded[0]` elements in thread-ascending order (so preloaded[0] for the 0th thread, then 1st thread etc).
 	// Then you do the same for the next even index of `preloaded` (`prealoded[2]`, `preloaded[4]`, etc).
@@ -60,15 +62,14 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase<FFTParameters>
 			if (!glsl::gl_WorkGroupID().x)
 			{
 				// Even thread retrieves Zero, odd thread retrieves Nyquist. Zero is always `preloaded[0]` of the previous FFT's 0th thread, while Nyquist is always `preloaded[1]` of that same thread.
-				// Therefore we know Nyquist ends up exactly at y = glsl::gl_WorkGroupSize().x
-				// TODO: This is only valid in this case because Kernel is square. To unify shaders with image FFT we need a push constant here with workgroupSize of previous FFT pass. 
-				y = oddThread ? glsl::gl_WorkGroupSize().x : 0;
+				// Therefore we know Nyquist ends up exactly at y = PreviousWorkgroupSize
+				y = oddThread ? PreviousWorkgroupSize : 0;
 			}
 			else {
-				// Even thread must index a y corresponding to an even element of the previous FFT pass, and the odd thread must index its DFT Mirror. 
-				// TODO: Once again the math here works for Kernel because it's square. Otherwise this math has to take into account the workgroupSize of the previous pass
-				// Can pass (previous) workgroupSizeLog2 as pc for fast division, since it's PoT
-				const uint32_t evenRow = glsl::gl_WorkGroupID().x + ((glsl::gl_WorkGroupID().x / glsl::gl_WorkGroupSize().x) * glsl::gl_WorkGroupSize().x);
+				// Even thread must index a y corresponding to an even element of the previous FFT pass, and the odd thread must index its DFT Mirror
+				// The math here essentially ensues we enumerate all even elements in order: we alternate `PreviousWorkgroupSize` even elements (all `preloaded[0]` elements of
+				// the previous pass' threads), then `PreviousWorkgroupSize` odd elements (`preloaded[1]`) and so on
+				const uint32_t evenRow = glsl::gl_WorkGroupID().x + ((glsl::gl_WorkGroupID().x / PreviousWorkgroupSize) * PreviousWorkgroupSize);
 				y = oddThread ? FFTIndexingUtils::getNablaMirrorIndex(evenRow) : evenRow;
 			}
 			const complex_t<scalar_t> loOrHi = bothBuffersAccessor.get(colMajorOffset(index, y));

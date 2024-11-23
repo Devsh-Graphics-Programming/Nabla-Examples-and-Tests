@@ -30,6 +30,7 @@ scalar_t getPower()
 // Still launching FFTParameters::TotalSize / 2 workgroups
 void normalizeChannel(uint32_t channel, scalar_t power, LegacyBdaAccessor<complex_t<scalar_t> > rowMajorAccessor)
 {
+	NBL_CONSTEXPR_STATIC_INLINE uint16_t NumWorkgroupsLog2 = ConstevalParameters::NumWorkgroupsLog2;
 	// Remember that the first row has packed `Z + iN` so it has to unpack those
 	if (!glsl::gl_WorkGroupID().x)
 	{
@@ -72,10 +73,8 @@ void normalizeChannel(uint32_t channel, scalar_t power, LegacyBdaAccessor<comple
 			// Get the element at `x' = index`, `y' = gl_WorkGroupID().x`
 			complex_t<scalar_t> toStore = rowMajorAccessor.get(rowMajorOffset(index, glsl::gl_WorkGroupID().x));
 
-			// Number of bits needed to represent the range of half the DFT
-			NBL_CONSTEXPR uint32_t bits = uint32_t(mpl::log2<FFTParameters::TotalSize>::value - 1);
 			uint32_t x = FFTIndexingUtils::getDFTIndex(index);
-			uint32_t y = glsl::bitfieldReverse<uint32_t>(glsl::gl_WorkGroupID().x) >> (32 - bits);
+			uint32_t y = fft::bitReverse<uint32_t, NumWorkgroupsLog2>(glsl::gl_WorkGroupID().x);
 
 			// Store the element 
 			const scalar_t shift = (x + y) & 1 ? scalar_t(-1) : scalar_t(1);

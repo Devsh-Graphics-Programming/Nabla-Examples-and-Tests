@@ -13,10 +13,17 @@ struct PushConstantData
 	uint64_t colMajorBufferAddress;
 	uint64_t rowMajorBufferAddress;
 	// To save some work, we don't mirror the image along both directions when doing the FFT. This means that when doing the FFT along the second axis, we do an FFT of length
-	// `RoundUpToPoT(dataElementCount + kernelPadding)` where `dataElementCount` is the actual length of the image along the second axis. We need it to keep track of the image's original dimension.
-	uint32_t dataElementCount;
-	float32_t2 kernelHalfPixelSize;
-	uint32_t numWorkgroupsLog2;
+	// `RoundUpToPoT(imageRowLength + kernelPadding)` where `imageRowLength` is the actual length of the image along the second axis. We need it to keep track of the image's original dimension.
+	// The following three fields being push constants allow dynamic resizing of the image without recompiling shaders (limited by the FFT length)
+	uint32_t imageRowLength;
+	// Mirror indexing uses this, we just precompute it. It's `2 * IRL + 1`, `IRL` being the field above 
+	uint32_t twiceImageRowLengthPlusOne;
+	// Used by IFFT to tell if an index belongs to an image or is in the padding
+	uint32_t imageColumnLength;
+	int32_t padding;
+	float32_t2 imageHalfPixelSize;
+	float32_t2 imagePixelSize;
+	float32_t imageTwoPixelSize_x;
 };
 
 #ifdef __HLSL_VERSION

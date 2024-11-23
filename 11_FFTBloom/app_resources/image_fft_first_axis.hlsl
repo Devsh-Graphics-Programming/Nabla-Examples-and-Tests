@@ -28,23 +28,17 @@ uint64_t getChannelStartAddress(uint32_t channel)
 
 struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 {
-
 	void preload(uint32_t channel)
 	{
-		float32_t2 inputImageSize;
-		texture.GetDimensions(inputImageSize.x, inputImageSize.y);
 		float32_t2 normalizedCoordsFirstLine, normalizedCoordsSecondLine;
-		normalizedCoordsFirstLine.x = (float32_t(2 * glsl::gl_WorkGroupID().x) + 0.5f) / inputImageSize.x;
-		normalizedCoordsSecondLine.x = (float32_t(2 * glsl::gl_WorkGroupID().x + 1) + 0.5f) / inputImageSize.x;
-
-		// Remember to add padding before and after - we will be sampling the original image mirrored at the borders - this avoids loss of brightness at the edges
-		const uint32_t padding = uint32_t(FFTParameters::TotalSize - inputImageSize.y) >> 1;
+		normalizedCoordsFirstLine.x = float32_t(glsl::gl_WorkGroupID().x) * pushConstants.imageTwoPixelSize_x + pushConstants.imageHalfPixelSize.x;
+		normalizedCoordsSecondLine.x = normalizedCoordsFirstLine.x + pushConstants.imagePixelSize.x;                                         
 
 		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 		{
 			// Index computation here is easier than FFT since the stride is fixed at WorkgroupSize
-			const uint32_t index = WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex();
-			normalizedCoordsFirstLine.y = (float32_t(index) - padding + 0.5f) / inputImageSize.y;
+			const int32_t index = int32_t(WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex());
+			normalizedCoordsFirstLine.y = float32_t(index - pushConstants.padding) * pushConstants.imagePixelSize.y + pushConstants.imageHalfPixelSize.y;
 			normalizedCoordsSecondLine.y = normalizedCoordsFirstLine.y;
 			preloaded[localElementIndex].real(scalar_t(texture.SampleLevel(samplerState, normalizedCoordsFirstLine, 0)[channel]));
 			preloaded[localElementIndex].imag(scalar_t(texture.SampleLevel(samplerState, normalizedCoordsSecondLine, 0)[channel]));

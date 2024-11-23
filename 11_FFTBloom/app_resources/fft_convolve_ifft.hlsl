@@ -11,20 +11,20 @@ uint64_t colMajorOffset(uint32_t x, uint32_t y)
 
 uint64_t rowMajorOffset(uint32_t x, uint32_t y)
 {
-	return y * pushConstants.dataElementCount + x; // can no longer sum with | since there's no guarantees on row length
+	return y * pushConstants.imageRowLength + x; // can no longer sum with | since there's no guarantees on row length
 }
 
 // Same as what was used to store in col-major after first axis FFT. This time we launch one workgroup per row so the height of the channel's (half) image is `glsl::gl_NumWorkGroups().x`,
 // and the width (number of columns) is passed as a push constant
 uint64_t getColMajorChannelStartAddress(uint32_t channel)
 {
-	return pushConstants.colMajorBufferAddress + channel * glsl::gl_NumWorkGroups().x * pushConstants.dataElementCount * sizeof(complex_t<scalar_t>);
+	return pushConstants.colMajorBufferAddress + channel * glsl::gl_NumWorkGroups().x * pushConstants.imageRowLength * sizeof(complex_t<scalar_t>);
 }
 
 // Image saved has the same size as image read 
 uint64_t getRowMajorChannelStartAddress(uint32_t channel)
 {
-	return pushConstants.rowMajorBufferAddress + channel * glsl::gl_NumWorkGroups().x * pushConstants.dataElementCount * sizeof(complex_t<scalar_t>);
+	return pushConstants.rowMajorBufferAddress + channel * glsl::gl_NumWorkGroups().x * pushConstants.imageRowLength * sizeof(complex_t<scalar_t>);
 }
 
 
@@ -37,18 +37,22 @@ uint64_t getRowMajorChannelStartAddress(uint32_t channel)
 
 struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 {
+	NBL_CONSTEXPR_STATIC_INLINE uint16_t NumWorkgroupsLog2 = ConstevalParameters::NumWorkgroupsLog2;
+	NBL_CONSTEXPR_STATIC_INLINE uint16_t NumWorkgroups = uint16_t(1) << NumWorkgroupsLog2;
+	NBL_CONSTEXPR_STATIC_INLINE float32_t TotalSizeReciprocal = ConstevalParameters::TotalSizeReciprocal;
+	NBL_CONSTEXPR_STATIC_INLINE float32_t2 KernelHalfPixelSize;
+
 	void preload(uint32_t channel)
 	{
 		// Set up accessor to point at channel offsets
 		bothBuffersAccessor = DoubleLegacyBdaAccessor<complex_t<scalar_t> >::create(getColMajorChannelStartAddress(channel), getRowMajorChannelStartAddress(channel));
-		const uint32_t padding = uint32_t(TotalSize - pushConstants.dataElementCount) >> 1;
 
 		for (uint32_t elementIndex = 0; elementIndex < ElementsPerInvocation; elementIndex++)
 		{
-			const uint32_t index = WorkgroupSize * elementIndex | workgroup::SubgroupContiguousIndex();
-			const int32_t paddedIndex = index - int32_t(padding);
-			int32_t wrappedIndex = paddedIndex < 0 ? ~ paddedIndex : paddedIndex; // ~x = - x - 1 in two's complement (except maybe at the borders of representable range) 
-			wrappedIndex = paddedIndex < pushConstants.dataElementCount ? wrappedIndex : 2 * pushConstants.dataElementCount - paddedIndex + 1;
+			const int32_t index = int32_t(WorkgroupSize * elementIndex | workgroup::SubgroupContiguousIndex());
+			const int32_t paddedIndex = index - pushConstants.padding;
+			int32_t wrappedIndex = paddedIndex < 0 ? ~paddedIndex : paddedIndex; // ~x = - x - 1 in two's complement (except maybe at the borders of representable range) 
+			wrappedIndex = paddedIndex < pushConstants.imageRowLength ? wrappedIndex : pushConstants.twiceImageRowLengthPlusOne - paddedIndex ;
 			preloaded[elementIndex] = bothBuffersAccessor.get(colMajorOffset(wrappedIndex, glsl::gl_WorkGroupID().x));
 		}
 	}
@@ -72,7 +76,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				const uint32_t globalElementIndex = WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex();
 				const float32_t indexDFT = float32_t(FFTIndexingUtils::getDFTIndex(globalElementIndex));
 
-				float32_t2 uv = float32_t2(indexDFT / float32_t(TotalSize), float32_t(0)) + pushConstants.kernelHalfPixelSize;
+				float32_t2 uv = float32_t2(indexDFT * TotalSizeReciprocal, float32_t(0)) + KernelHalfPixelSize;
 				const vector<scalar_t, 2> zeroKernelVector = kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0);
 				const complex_t<scalar_t> zeroKernel = { zeroKernelVector.x, zeroKernelVector.y };
 				zero = zero * zeroKernel;
@@ -108,10 +112,9 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 			{
 				const uint32_t globalElementIndex = WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex();
 				const uint32_t indexDFT = FFTIndexingUtils::getDFTIndex(globalElementIndex);
-				const uint32_t bits = pushConstants.numWorkgroupsLog2;
-				const uint32_t y = glsl::bitfieldReverse<uint32_t>(glsl::gl_WorkGroupID().x) >> (32 - bits);
+				const uint32_t y = fft::bitReverse<uint32_t, NumWorkgroupsLog2>(glsl::gl_WorkGroupID().x);
 				const uint32_t2 texCoords = uint32_t2(indexDFT, y);
-				const float32_t2 uv = texCoords / float32_t2(TotalSize, 2 * glsl::gl_NumWorkGroups().x) + pushConstants.kernelHalfPixelSize;
+				const float32_t2 uv = texCoords * float32_t2(TotalSizeReciprocal, 1.f / (2 * NumWorkgroups)) + KernelHalfPixelSize;
 				const vector<scalar_t, 2> sampledKernelVector = kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0);
 				const complex_t<scalar_t> sampledKernel = { sampledKernelVector.x, sampledKernelVector.y };
 				preloaded[localElementIndex] = preloaded[localElementIndex] * sampledKernel;
@@ -126,16 +129,17 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 
 		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 		{
-			const uint32_t globalElementIndex = WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex();
-			const uint32_t padding = uint32_t(TotalSize - pushConstants.dataElementCount) >> 1;
-			const int32_t paddedIndex = globalElementIndex - int32_t(padding);
-			if (paddedIndex >= 0 && paddedIndex < pushConstants.dataElementCount)
+			const int32_t globalElementIndex = int32_t(WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex());
+			const int32_t paddedIndex = globalElementIndex - pushConstants.padding;
+			if (paddedIndex >= 0 && paddedIndex < pushConstants.imageRowLength)
 				bothBuffersAccessor.set(rowMajorOffset(paddedIndex, glsl::gl_WorkGroupID().x), preloaded[localElementIndex]);
 		}
 	}
 
 	DoubleLegacyBdaAccessor<complex_t<scalar_t> > bothBuffersAccessor;
 };
+
+NBL_CONSTEXPR_STATIC_INLINE float32_t2 PreloadedSecondAxisAccessor::KernelHalfPixelSize = ConstevalParameters::KernelHalfPixelSize;
 
 [numthreads(FFTParameters::WorkgroupSize, 1, 1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)

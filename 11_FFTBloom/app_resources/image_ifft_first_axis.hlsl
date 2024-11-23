@@ -5,7 +5,7 @@
 // ---------------------------------------------------- Utils ---------------------------------------------------------
 uint64_t rowMajorOffset(uint32_t x, uint32_t y)
 {
-	return y * pushConstants.dataElementCount + x; // can no longer sum with | since there's no guarantees on row length
+	return y * pushConstants.imageRowLength + x; // can no longer sum with | since there's no guarantees on row length
 }
 
 // Same numbers as forward FFT
@@ -17,7 +17,6 @@ uint64_t getChannelStartAddress(uint32_t channel)
 // -------------------------------------------- FIRST AXIS IFFT ------------------------------------------------------------------
 struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 {
-
 	// Each column of the data currently stored in the rowMajorBuffer corresponds to (half) a column of the DFT of a column of the convolved image. With this in mind, knowing that the IFFT will yield
 	// a real result, we can pack two consecutive columns as Z = C1 + iC2 and by linearity of DFT we get IFFT(C1) = Re(IFFT(Z)), IFFT(C2) = Im(IFFT(Z)). This is the inverse of the packing trick
 	// in the forward FFT, with a much easier expression.
@@ -78,14 +77,11 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 
 	void unload(uint32_t channel)
 	{
-		uint32_t2 imageDimensions;
-		convolvedImage.GetDimensions(imageDimensions.x, imageDimensions.y);
-		const uint32_t padding = uint32_t(TotalSize - imageDimensions.y) >> 1;
 		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 		{
-			const uint32_t index = WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex();
-			const uint32_t paddedIndex = index - padding;
-			if (paddedIndex >= 0 && paddedIndex < imageDimensions.y)
+			const int32_t index = int32_t(WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex());
+			const int32_t paddedIndex = index - pushConstants.padding;
+			if (paddedIndex >= 0 && paddedIndex < pushConstants.imageColumnLength)
 			{
 				vector<scalar_t, 4> texValue = convolvedImage.Load(uint32_t2(2 * glsl::gl_WorkGroupID().x, paddedIndex));
 				texValue[channel] = scalar_t(preloaded[localElementIndex].real());

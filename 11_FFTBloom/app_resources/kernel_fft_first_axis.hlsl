@@ -30,20 +30,20 @@ uint64_t getChannelStartAddress(uint32_t channel)
 struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 {
 	NBL_CONSTEXPR_STATIC_INLINE float32_t KernelScale = ConstevalParameters::KernelScale;
+	NBL_CONSTEXPR_STATIC_INLINE float32_t2 KernelDimensions;
 	
 	void preload(uint32_t channel)
 	{
-		float32_t2 inputImageSize;
-		texture.GetDimensions(inputImageSize.x, inputImageSize.y);
 		float32_t2 normalizedCoordsFirstLine, normalizedCoordsSecondLine;
-		normalizedCoordsFirstLine.x = (float32_t(2 * glsl::gl_WorkGroupID().x)+0.5f)/(inputImageSize.x*KernelScale);
-		normalizedCoordsSecondLine.x = (float32_t(2 * glsl::gl_WorkGroupID().x + 1)+0.5f)/(inputImageSize.x*KernelScale);
+		// Good compiler turns this into a single FMA
+		normalizedCoordsFirstLine.x = float32_t(glsl::gl_WorkGroupID().x) * 2 / (KernelDimensions.x * KernelScale) + 0.5f / (KernelDimensions.x * KernelScale);
+		normalizedCoordsSecondLine.x = normalizedCoordsFirstLine.x + 1 / (KernelDimensions.x * KernelScale);
 
 		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 		{
 			// Index computation here is easier than FFT since the stride is fixed at _NBL_HLSL_WORKGROUP_SIZE_
 			const uint32_t index = localElementIndex * WorkgroupSize | workgroup::SubgroupContiguousIndex();
-			normalizedCoordsFirstLine.y = (float32_t(index) + 0.5f) / (inputImageSize.y * KernelScale);
+			normalizedCoordsFirstLine.y = float32_t(index) / (KernelDimensions.y * KernelScale) + 0.5f / (KernelDimensions.y * KernelScale);
 			normalizedCoordsSecondLine.y = normalizedCoordsFirstLine.y;
 			preloaded[localElementIndex].real(scalar_t(texture.SampleLevel(samplerState, normalizedCoordsFirstLine + promote<float32_t2, float32_t>(0.5 - 0.5 / KernelScale), 0)[channel]));
 			preloaded[localElementIndex].imag(scalar_t(texture.SampleLevel(samplerState, normalizedCoordsSecondLine + promote<float32_t2, float32_t>(0.5 - 0.5 / KernelScale), 0)[channel]));
@@ -72,6 +72,7 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 	}
 	LegacyBdaAccessor<complex_t<scalar_t> > colMajorAccessor;
 };
+NBL_CONSTEXPR_STATIC_INLINE float32_t2 PreloadedFirstAxisAccessor::KernelDimensions = ConstevalParameters::KernelDimensions;
 
 [numthreads(FFTParameters::WorkgroupSize, 1, 1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)

@@ -23,6 +23,7 @@ using namespace video;
 
 #include "app_resources/common.hlsl"
 #include "nbl/builtin/hlsl/bit.hlsl"
+#include "nbl/builtin/hlsl/workgroup/fft.hlsl"
 
 // In this application we'll cover buffer streaming, Buffer Device Address (BDA) and push constants 
 class FFTBloomApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
@@ -57,11 +58,11 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 	uint64_t m_colMajorBufferAddress;
 
 	// Some parameters
-	float bloomScale = 1.f;
-	float useHalfFloats = false;
+	float m_bloomScale = 1.f;
+	float m_useHalfFloats = false;
 	
 	// Other parameter-dependent variables
-	asset::VkExtent3D marginSrcDim;
+	asset::VkExtent3D m_marginSrcDim;
 
 	// We only hold onto one cmdbuffer at a time, but having it here doesn't hurt
 	smart_refctd_ptr<IGPUCommandBuffer> m_computeCmdBuf;
@@ -72,7 +73,7 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 
 	// Sync primitives
 	smart_refctd_ptr<ISemaphore> m_timeline;
-	uint64_t semaphorValue = 0;
+	uint64_t m_semaphorValue = 0;
 
 	// Only use one queue
 	IQueue* m_queue;
@@ -80,39 +81,9 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 	// Termination cond
 	bool m_keepRunning = true;
 
-	// TODO: Figure out why I can't put this in an hlsl file
-	inline std::pair<uint16_t, uint16_t> optimalFFTParameters(const nbl::video::ILogicalDevice* device, uint32_t inputArrayLength)
-	{
-		uint32_t maxWorkgroupSize = *device->getPhysicalDevice()->getLimits().maxWorkgroupSize;
-		// This is the logic found in core::roundUpToPoT to get the log2
-		uint16_t workgroupSizeLog2 = 1u + hlsl::findMSB(core::min(inputArrayLength / 2, maxWorkgroupSize) - 1u);
-		uint16_t elementPerInvocationLog2 = 1u + hlsl::findMSB(core::max((inputArrayLength >> workgroupSizeLog2) - 1u, 1u));
-		return { elementPerInvocationLog2, workgroupSizeLog2 };
-	}
-
-	static inline asset::VkExtent3D padDimensions(asset::VkExtent3D dimension, std::span<uint16_t> axes, bool realFFT = false)
-	{
-		uint16_t axisCount = 0;
-		for (auto i : axes)
-		{
-			auto& coord = (&dimension.width)[i];
-			coord = core::roundUpToPoT(coord);
-			if (realFFT && !axisCount++)
-				coord /= 2;
-		}
-		return dimension;
-	}
-
-	static inline size_t getOutputBufferSize(const asset::VkExtent3D& inputDimensions, uint32_t numChannels, std::span<uint16_t> axes, bool realFFT = false, bool halfFloats = false)
-	{
-		auto paddedDims = padDimensions(inputDimensions, axes);
-		size_t numberOfComplexElements = paddedDims.width * paddedDims.height * paddedDims.depth * numChannels;
-		return 2 * numberOfComplexElements * (halfFloats ? sizeof(float16_t) : sizeof(float32_t));
-	}
-
 	smart_refctd_ptr<IGPUPipelineLayout> createPipelineLayout(const std::span<const IGPUDescriptorSetLayout::SBinding> bindings)
 	{
-		const nbl::asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,.offset = 0,.size = sizeof(PushConstantData) };
+		const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,.offset = 0,.size = sizeof(PushConstantData) };
 		return m_device->createPipelineLayout({ &pcRange,1 }, m_device->createDescriptorSetLayout(bindings));
 	}
 
@@ -144,15 +115,36 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 		m_device->updateDescriptorSets({ writes, 4 }, std::span<IGPUDescriptorSet::SCopyDescriptorSet>());
 	}
 
-	inline core::smart_refctd_ptr<video::IGPUShader> createShader(
-		const char* includeMainName,
-		uint16_t elementsPerInvocationLog2,
-		uint16_t workgroupSizeLog2,
-		float kernelScale = 1.f)
+	struct ShaderConstantParameters
+	{
+		uint16_t elementsPerInvocationLog2 = 0;
+		uint16_t workgroupSizeLog2 = 0;
+		uint16_t2 kernelDimensions = { uint16_t(1), uint16_t(1)};
+		uint16_t numWorkgroupsLog2 = 0;
+		uint16_t previousWorkgroupSizeLog2 = 0;
+		float32_t kernelScale = 1.f;
+		float32_t2 kernelHalfPixelSize = {0.5f, 0.5f};
+	};
+
+	inline core::smart_refctd_ptr<video::IGPUShader> createShader(const char* includeMainName, const ShaderConstantParameters& shaderConstants)
 	{
 		std::ostringstream constevalParametersFFTStream;
-		constevalParametersFFTStream << "<" << elementsPerInvocationLog2 << "," << workgroupSizeLog2 << "," << (useHalfFloats ? "float16_t" : "float32_t") << ">";
+		constevalParametersFFTStream << "<" << shaderConstants.elementsPerInvocationLog2 << "," << shaderConstants.workgroupSizeLog2 << "," << (m_useHalfFloats ? "float16_t" : "float32_t") << ">";
 		std::string constevalParametersFFT = constevalParametersFFTStream.str();
+
+		// Precompute reciprocal of FFT Length (1 / FFTParameters::TotalSize)
+		const uint32_t totalSize = uint32_t(1) << (shaderConstants.elementsPerInvocationLog2 + shaderConstants.workgroupSizeLog2);
+		const float32_t totalSizeReciprocal = 1.f / float32_t(totalSize);
+		const uint16_t previousWorkgroupSize = uint16_t(1) << shaderConstants.previousWorkgroupSizeLog2;
+
+		// The annoying "const static member field must be initialized outside of struct" bug strikes again
+		std::ostringstream kernelHalfPixelSizeStream;
+		kernelHalfPixelSizeStream << "{" << shaderConstants.kernelHalfPixelSize.x << "," << shaderConstants.kernelHalfPixelSize.y << "}";
+		std::string kernelHalfPixelSizeString = kernelHalfPixelSizeStream.str();
+
+		std::ostringstream kernelDimensionsStream;
+		kernelDimensionsStream << "{" << float32_t(shaderConstants.kernelDimensions.x) << "," << float32_t(shaderConstants.kernelDimensions.y) << "}";
+		std::string kernelDimensionsString = kernelDimensionsStream.str();
 
 		const auto prelude = [&]()->std::string
 			{
@@ -162,8 +154,15 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 				struct ConstevalParameters
 				{
 					using FFTParameters = nbl::hlsl::workgroup::fft::ConstevalParameters)===" << constevalParametersFFT << R"===(;
-					NBL_CONSTEXPR_STATIC_INLINE float32_t KernelScale = )===" << kernelScale << R"===(;
+					NBL_CONSTEXPR_STATIC_INLINE uint16_t NumWorkgroupsLog2 = )===" << shaderConstants.numWorkgroupsLog2 << R"===(;
+					NBL_CONSTEXPR_STATIC_INLINE uint16_t PreviousWorkgroupSize = )===" << previousWorkgroupSize << R"===(;
+					NBL_CONSTEXPR_STATIC_INLINE float32_t KernelScale = )===" << shaderConstants.kernelScale << R"===(;
+					NBL_CONSTEXPR_STATIC_INLINE float32_t2 KernelDimensions;
+					NBL_CONSTEXPR_STATIC_INLINE float32_t2 KernelHalfPixelSize;
+					NBL_CONSTEXPR_STATIC_INLINE float32_t TotalSizeReciprocal = )===" << totalSizeReciprocal << R"===(;
 				};
+				NBL_CONSTEXPR_STATIC_INLINE float32_t2 ConstevalParameters::KernelHalfPixelSize = )===" << kernelHalfPixelSizeString << R"===(;
+				NBL_CONSTEXPR_STATIC_INLINE float32_t2 ConstevalParameters::KernelDimensions = )===" << kernelDimensionsString << R"===(;
 				)===";
 				return tmp.str();
 			}();
@@ -199,7 +198,7 @@ public:
 			return false;
 
 		// Setup semaphores
-		m_timeline = m_device->createSemaphore(semaphorValue);
+		m_timeline = m_device->createSemaphore(m_semaphorValue);
 		// We can't use the same sepahore for uploads so we signal a different semaphore
 		smart_refctd_ptr<ISemaphore> scratchSemaphore = m_device->createSemaphore(0);
 
@@ -209,7 +208,7 @@ public:
 
 		// Create a resettable command buffer
 		{
-			smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(queueFamilyIndex, IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+			smart_refctd_ptr<video::IGPUCommandPool> cmdpool = m_device->createCommandPool(queueFamilyIndex, IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 			if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &m_computeCmdBuf))
 				return logFail("Failed to create Command Buffers!\n");
 		}
@@ -253,7 +252,7 @@ public:
 			const auto kerImageViewCPU = ICPUImageView::create(std::move(viewParams[1]));
 
 			// Using asset converter
-			smart_refctd_ptr<nbl::video::CAssetConverter> converter = nbl::video::CAssetConverter::create({ .device = m_device.get(),.optimizer = {} });
+			smart_refctd_ptr<video::CAssetConverter> converter = video::CAssetConverter::create({ .device = m_device.get(),.optimizer = {} });
 			// We don't want to generate mip-maps for these images (YET), to ensure that we must override the default callbacks.
 			struct SInputs final : CAssetConverter::SInputs
 			{
@@ -267,7 +266,7 @@ public:
 				}
 			} inputs = {};
 			inputs.logger = m_logger.get();
-			nbl::asset::ICPUImageView* CPUImageViews[2] = { srcImageViewCPU.get(), kerImageViewCPU.get() };
+			asset::ICPUImageView* CPUImageViews[2] = { srcImageViewCPU.get(), kerImageViewCPU.get() };
 			
 
 			// Need to provide patches to make sure we specify SAMPLED to get READ_ONLY_OPTIMAL layout after upload
@@ -326,7 +325,7 @@ public:
 
 			// Create a command buffer for graphics submit, though it has to be resettable
 			smart_refctd_ptr<IGPUCommandBuffer> graphicsCmdBuf;
-			smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(graphicsQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+			smart_refctd_ptr<video::IGPUCommandPool> cmdpool = m_device->createCommandPool(graphicsQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 			if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &graphicsCmdBuf))
 				return logFail("Failed to create Command Buffers!\n");
 
@@ -352,7 +351,7 @@ public:
 			IGPUImage::SCreationParams dstImgInfo(dstImgViewInfo.image->getCreationParameters());
 			// Specify we want this to be a storage image, + transfer for readback (blit when we have swapchain up)
 			dstImgInfo.usage = IImage::EUF_STORAGE_BIT | IImage::EUF_TRANSFER_SRC_BIT;
-			dstImgInfo.format = useHalfFloats ? EF_R16G16B16A16_SFLOAT : EF_R32G32B32A32_SFLOAT;
+			dstImgInfo.format = m_useHalfFloats ? EF_R16G16B16A16_SFLOAT : EF_R32G32B32A32_SFLOAT;
 			m_outImg = m_device->createImage(std::move(dstImgInfo));
 
 			m_outImg->setObjectDebugName("Convolved Image");
@@ -363,7 +362,7 @@ public:
 
 			dstImgViewInfo.image = m_outImg;
 			dstImgViewInfo.subUsages = IImage::EUF_STORAGE_BIT | IImage::EUF_TRANSFER_SRC_BIT;
-			dstImgViewInfo.format = useHalfFloats ? EF_R16G16B16A16_SFLOAT : EF_R32G32B32A32_SFLOAT;
+			dstImgViewInfo.format = m_useHalfFloats ? EF_R16G16B16A16_SFLOAT : EF_R32G32B32A32_SFLOAT;
 			m_outImgView = m_device->createImageView(IGPUImageView::SCreationParams(dstImgViewInfo));
 
 			m_outImgView->setObjectDebugName("Convolved Image View");
@@ -380,16 +379,16 @@ public:
 		const float bloomRelativeScale = 0.25f;
 		const auto kerDim = m_kerImageView->getCreationParameters().image->getCreationParameters().extent;
 		const auto srcDim = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
-		bloomScale = core::min(float(srcDim.width) / float(kerDim.width), float(srcDim.height) / float(kerDim.height)) * bloomRelativeScale;
-		assert(bloomScale <= 1.f);
+		m_bloomScale = core::min(float(srcDim.width) / float(kerDim.width), float(srcDim.height) / float(kerDim.height)) * bloomRelativeScale;
+		assert(m_bloomScale <= 1.f);
 
-		marginSrcDim = srcDim;
-		// Add padding to marginSrcDim
+		m_marginSrcDim = srcDim;
+		// Add padding to m_marginSrcDim
 		for (auto i = 0u; i < 3u; i++)
 		{
 			const auto coord = (&kerDim.width)[i];
 			if (coord > 1u)
-				(&marginSrcDim.width)[i] += ceil(core::max(coord * bloomScale, 1u)) - 1u;
+				(&m_marginSrcDim.width)[i] += ceil(core::max(coord * m_bloomScale, 1u)) - 1u;
 		}
 		
 		// Create intermediate buffers
@@ -400,8 +399,9 @@ public:
 			deviceLocalBufferParams.queueFamilyIndices = &queueFamilyIndex;
 			// Axis on which we perform first FFT is the only one that needs to be padded - in this case it's the y-axis
 			uint16_t firstAxis = 1;
-			deviceLocalBufferParams.size = getOutputBufferSize(marginSrcDim, 3, {&firstAxis, 1}, true, useHalfFloats);
-			deviceLocalBufferParams.usage = nbl::asset::IBuffer::E_USAGE_FLAGS::EUF_STORAGE_BUFFER_BIT | nbl::asset::IBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
+			uint32_t3 paddedSrcDimensions = { m_marginSrcDim.width, m_marginSrcDim.height, m_marginSrcDim.depth };
+			deviceLocalBufferParams.size = fft::getOutputBufferSize(paddedSrcDimensions, 3, {&firstAxis, 1}, true, m_useHalfFloats);
+			deviceLocalBufferParams.usage = asset::IBuffer::E_USAGE_FLAGS::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
 			m_rowMajorBuffer = m_device->createBuffer(std::move(deviceLocalBufferParams));
 			deviceLocalBufferParams = m_rowMajorBuffer->getCreationParams();
@@ -546,7 +546,7 @@ public:
 					video::IGPUImage::SCreationParams imageParams;
 					imageParams.flags = static_cast<video::IGPUImage::E_CREATE_FLAGS>(0u);
 					imageParams.type = asset::IImage::ET_2D;
-					imageParams.format = useHalfFloats ? EF_R16G16_SFLOAT : EF_R32G32_SFLOAT;
+					imageParams.format = m_useHalfFloats ? EF_R16G16_SFLOAT : EF_R32G32_SFLOAT;
 					imageParams.extent = { kerDim.width,kerDim.height, 1u };
 					imageParams.mipLevels = 1u;
 					imageParams.arrayLayers = Channels;
@@ -563,7 +563,7 @@ public:
 					viewParams.flags = static_cast<video::IGPUImageView::E_CREATE_FLAGS>(0u);
 					viewParams.image = kernelImg;
 					viewParams.viewType = video::IGPUImageView::ET_2D_ARRAY;
-					viewParams.format = useHalfFloats ? EF_R16G16_SFLOAT : EF_R32G32_SFLOAT;
+					viewParams.format = m_useHalfFloats ? EF_R16G16_SFLOAT : EF_R32G32_SFLOAT;
 					viewParams.subresourceRange.layerCount = Channels;
 					return m_device->createImageView(std::move(viewParams));
 				};
@@ -587,13 +587,16 @@ public:
 			// Compute required WorkgroupSize and ElementsPerThread for FFT
 			// Remember we assume kernel is square!
 
-			auto [elementsPerInvocationLog2, workgroupSizeLog2] = optimalFFTParameters(m_device.get(), kerDim.width);
-
+			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device.get(), kerDim.width);
+			// Normalization shader needs this info
+			uint16_t secondAxisFFTHalfLengthLog2 = elementsPerInvocationLog2 + workgroupSizeLog2 - 1;
 			// Create shaders
 			smart_refctd_ptr<IGPUShader> shaders[3];
-			shaders[0] = createShader("app_resources/kernel_fft_first_axis.hlsl", elementsPerInvocationLog2, workgroupSizeLog2, bloomScale);
-			shaders[1] = createShader("app_resources/kernel_fft_second_axis.hlsl", elementsPerInvocationLog2, workgroupSizeLog2, bloomScale);
-			shaders[2] = createShader("app_resources/kernel_spectrum_normalize.hlsl", elementsPerInvocationLog2, workgroupSizeLog2, bloomScale);
+			uint16_t2 kernelDimensions = { kerDim.width, kerDim.height };
+			ShaderConstantParameters shaderConstantParameters = { .elementsPerInvocationLog2 = elementsPerInvocationLog2, .workgroupSizeLog2 = workgroupSizeLog2, .kernelDimensions = kernelDimensions, .numWorkgroupsLog2 = secondAxisFFTHalfLengthLog2, .previousWorkgroupSizeLog2 = workgroupSizeLog2, .kernelScale = m_bloomScale };
+			shaders[0] = createShader("app_resources/kernel_fft_first_axis.hlsl", shaderConstantParameters);
+			shaders[1] = createShader("app_resources/kernel_fft_second_axis.hlsl", shaderConstantParameters);
+			shaders[2] = createShader("app_resources/kernel_spectrum_normalize.hlsl", shaderConstantParameters);
 
 			// Create compute pipelines - First axis FFT -> Second axis FFT -> Normalization
 			IGPUComputePipeline::SCreationParams params[3];
@@ -639,7 +642,7 @@ public:
 
 			m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
 
-			// Now do second axis FFT - no need to push the same constants again I think
+			// Now do second axis FFT
 			m_computeCmdBuf->bindComputePipeline(pipelines[1].get());
 			// Same number of workgroups - this time because we only saved half the rows
 			m_computeCmdBuf->dispatch(kerDim.width / 2, 1, 1);
@@ -706,7 +709,7 @@ public:
 				const IQueue::SSubmitInfo::SSemaphoreInfo signalInfo =
 				{
 					.semaphore = m_timeline.get(),
-					.value = ++semaphorValue,
+					.value = ++m_semaphorValue,
 					.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
 				};
 
@@ -731,18 +734,29 @@ public:
 		// ----------------------------------------- KERNEL PRECOMP END -------------------------------------------------
 
 		// Now create the pipelines for the image FFT
+
+		// Second axis FFT launches an amount of workgroups equal to half of the length of the first axis FFT. Second pass FFT needs the log2 of this number baked in as a constant.
+		uint16_t firstAxisFFTHalfLengthLog2;
 		smart_refctd_ptr<IGPUShader> shaders[3];
 		{
-			auto [elementsPerInvocationLog2, workgroupSizeLog2] = optimalFFTParameters(m_device.get(), marginSrcDim.height);
-			shaders[0] = createShader("app_resources/image_fft_first_axis.hlsl", elementsPerInvocationLog2, workgroupSizeLog2);
+			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device.get(), m_marginSrcDim.height);
+			ShaderConstantParameters shaderConstantParameters = { .elementsPerInvocationLog2 = elementsPerInvocationLog2, .workgroupSizeLog2 = workgroupSizeLog2};
+			shaders[0] = createShader("app_resources/image_fft_first_axis.hlsl", shaderConstantParameters);
 			// IFFT along first axis has same dimensions as FFT
-			shaders[2] = createShader("app_resources/image_ifft_first_axis.hlsl", elementsPerInvocationLog2, workgroupSizeLog2);
+			shaders[2] = createShader("app_resources/image_ifft_first_axis.hlsl", shaderConstantParameters);
+			firstAxisFFTHalfLengthLog2 = elementsPerInvocationLog2 + workgroupSizeLog2 - 1;
 		}
 
 		// Second axis FFT might have different dimensions
 		{
-			auto [elementsPerInvocationLog2, workgroupSizeLog2] = optimalFFTParameters(m_device.get(), marginSrcDim.width);
-			shaders[1] = createShader("app_resources/fft_convolve_ifft.hlsl", elementsPerInvocationLog2, workgroupSizeLog2);
+			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device.get(), m_marginSrcDim.width);
+			// Compute kernel half pixel size
+			const auto& kernelImgExtent = m_kernelNormalizedSpectrums->getCreationParameters().image->getCreationParameters().extent;
+			float32_t2 kernelHalfPixelSize{ 0.5f,0.5f };
+			kernelHalfPixelSize.x /= kernelImgExtent.width;
+			kernelHalfPixelSize.y /= kernelImgExtent.height;
+			ShaderConstantParameters shaderConstantParameters = { .elementsPerInvocationLog2 = elementsPerInvocationLog2, .workgroupSizeLog2 = workgroupSizeLog2, .numWorkgroupsLog2 = firstAxisFFTHalfLengthLog2, .kernelHalfPixelSize = kernelHalfPixelSize};
+			shaders[1] = createShader("app_resources/fft_convolve_ifft.hlsl", shaderConstantParameters);
 		}
 
 		// Create compute pipelines - First axis FFT -> Second axis FFT -> Normalization
@@ -793,7 +807,7 @@ public:
 		}
 		// Block and wait until kernel FFT is done before we drop the pipelines.
 		// Ideally not be lazy and create a latch that does nothing but capture the pipelines and gets called when scratch semaphore is signalled
-		const ISemaphore::SWaitInfo waitInfo = { m_timeline.get(), semaphorValue };
+		const ISemaphore::SWaitInfo waitInfo = { m_timeline.get(), m_semaphorValue };
 
 		m_device->blockForSemaphores({ &waitInfo, 1 });
 
@@ -816,17 +830,24 @@ public:
 		
 		// Prepare for first axis FFT
 		// Push Constants - only need to specify BDAs here
+		const auto& imageExtent = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
+		const int32_t paddingAlongColumns = (core::roundUpToPoT(m_marginSrcDim.height) - imageExtent.height) / 2;
+		const int32_t paddingAlongRows = (core::roundUpToPoT(m_marginSrcDim.width) - imageExtent.width) / 2;
+
 		PushConstantData pushConstants;
 		pushConstants.colMajorBufferAddress = m_colMajorBufferAddress;
 		pushConstants.rowMajorBufferAddress = m_rowMajorBufferAddress;
-		pushConstants.dataElementCount = m_srcImageView->getCreationParameters().image->getCreationParameters().extent.width;
-		// Compute kernel half pixel size
-		const auto& kernelImgExtent = m_kernelNormalizedSpectrums->getCreationParameters().image->getCreationParameters().extent;
-		float32_t2 kernelHalfPixelSize{ 0.5f,0.5f };
-		kernelHalfPixelSize.x /= kernelImgExtent.width;
-		kernelHalfPixelSize.y /= kernelImgExtent.height;
-		pushConstants.kernelHalfPixelSize = kernelHalfPixelSize;
+		pushConstants.imageRowLength = imageExtent.width;
+		pushConstants.twiceImageRowLengthPlusOne = 2 * pushConstants.imageRowLength + 1;
+		pushConstants.imageColumnLength = imageExtent.height;
+		pushConstants.padding = paddingAlongColumns;
 
+		float32_t2 imageHalfPixelSize = { 0.5f, 0.5f };
+		imageHalfPixelSize.x /= imageExtent.width;
+		imageHalfPixelSize.y /= imageExtent.height;
+		pushConstants.imageHalfPixelSize = imageHalfPixelSize;
+		pushConstants.imagePixelSize = 2.f * imageHalfPixelSize;
+		pushConstants.imageTwoPixelSize_x = 4.f * imageHalfPixelSize.x;
 
 		m_computeCmdBuf->bindComputePipeline(m_firstAxisFFTPipeline.get());
 		m_computeCmdBuf->bindDescriptorSets(asset::EPBP_COMPUTE, m_firstAxisFFTPipeline->getLayout(), 0, 1, &m_descriptorSet.get());
@@ -852,12 +873,10 @@ public:
 		m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), bufferPipelineBarrierInfo);
 		// Now comes Second axis FFT + Conv + IFFT
 		m_computeCmdBuf->bindComputePipeline(m_lastAxisFFT_convolution_lastAxisIFFTPipeline.get());
-		// We need to pass the log of number of workgroups as a push constant now
-		uint32_t numWorkgroups = core::roundUpToPoT(marginSrcDim.height) / 2;
-		uint32_t workgroupsLog2 = std::bit_width(numWorkgroups) - 1;
-		m_computeCmdBuf->pushConstants(m_lastAxisFFT_convolution_lastAxisIFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, numWorkgroupsLog2), sizeof(pushConstants.numWorkgroupsLog2), &workgroupsLog2);
-
-		m_computeCmdBuf->dispatch(numWorkgroups, 1, 1);
+		// Update padding for run along rows
+		m_computeCmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, padding), sizeof(paddingAlongRows), &paddingAlongRows);
+		// One workgroup per row in the lower half of the DFT
+		m_computeCmdBuf->dispatch(core::roundUpToPoT(m_marginSrcDim.height) / 2, 1, 1);
 
 		// Recycle pipeline barrier, only have to change which buffer we need to wait to be written to
 		bufBarrier.range.buffer = m_rowMajorBuffer;
@@ -865,6 +884,8 @@ public:
 
 		// Finally run the IFFT on the first axis
 		m_computeCmdBuf->bindComputePipeline(m_firstAxisIFFTPipeline.get());
+		// Update padding for run along columns
+		m_computeCmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, padding), sizeof(paddingAlongColumns), &paddingAlongColumns);
 		// One workgroup per 2 columns
 		m_computeCmdBuf->dispatch(srcDim.width / 2, 1, 1);
 		m_computeCmdBuf->end();
@@ -878,7 +899,7 @@ public:
 			const IQueue::SSubmitInfo::SSemaphoreInfo signalInfo =
 			{
 				.semaphore = m_timeline.get(),
-				.value = ++semaphorValue,
+				.value = ++m_semaphorValue,
 				.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
 			};
 
@@ -949,13 +970,13 @@ public:
 			const IQueue::SSubmitInfo::SSemaphoreInfo waitInfo =
 			{
 				.semaphore = m_timeline.get(),
-				.value = semaphorValue++,
+				.value = m_semaphorValue++,
 				.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
 			};
 			const IQueue::SSubmitInfo::SSemaphoreInfo signalInfo =
 			{
 				.semaphore = m_timeline.get(),
-				.value = semaphorValue,
+				.value = m_semaphorValue,
 				.stageMask = asset::PIPELINE_STAGE_FLAGS::COPY_BIT
 			};
 
@@ -969,7 +990,7 @@ public:
 		}
 
 		// We let all latches know what semaphore and counter value has to be passed for the functors to execute
-		const ISemaphore::SWaitInfo futureWait = { m_timeline.get(),semaphorValue };
+		const ISemaphore::SWaitInfo futureWait = { m_timeline.get(),m_semaphorValue };
 
 		// Now a new and even more advanced usage of the latched events, we make our own refcounted object with a custom destructor and latch that like we did the commandbuffer.
 		// Instead of making our own and duplicating logic, we'll use one from IUtilities meant for down-staging memory.
