@@ -31,11 +31,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			ELG_COUNT
 		};
 
-		struct SBasicViewParametersAligned
-		{
-			SBasicViewParameters params;
-		};
-
 		constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
 		constexpr static inline uint32_t FramesInFlight = 1;
 		constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
@@ -336,7 +331,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					const nbl::asset::SPushConstantRange pcRange = {
 						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 						.offset = 0,
-						.size = sizeof(SBasicViewParametersAligned)
+						.size = sizeof(matrix4SIMD)
 					};
 					auto ptPipelineLayout = m_device->createPipelineLayout(
 						{&pcRange, 1},
@@ -960,25 +955,10 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			// render whole scene to offline frame buffer & submit
 			{
 				cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
-				const auto viewMatrix = m_camera.getViewMatrix();
 				// disregard surface/swapchain transformation for now
 				const auto viewProjectionMatrix = m_camera.getConcatenatedMatrix();
-
-				// compute view matrix
-				auto mv = viewMatrix;
-				auto mvp = viewProjectionMatrix;
-				core::matrix3x4SIMD normalMat;
-				mv.getSub3x3InverseTranspose(normalMat);
-				SBasicViewParametersAligned pc;
-
-				SBasicViewParametersAligned viewParams;
-				memcpy(viewParams.params.MV, mv.pointer(), sizeof(mv));
-				memcpy(viewParams.params.MVP, mvp.pointer(), sizeof(mvp));
-				memcpy(viewParams.params.NormalMat, normalMat.pointer(), sizeof(normalMat));
-
-				memcpy(pc.params.MV, mv.pointer(), sizeof(mv));
-				memcpy(pc.params.MVP, mvp.pointer(), sizeof(mvp));
-				memcpy(pc.params.NormalMat, normalMat.pointer(), sizeof(normalMat));
+				matrix4SIMD pc;
+				viewProjectionMatrix.getInverseTransform(pc);
 
 				// safe to proceed
 				// upload buffer data
@@ -1017,7 +997,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					cmdbuf->bindComputePipeline(m_PTPipeline.get());
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_PTPipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_PTPipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
-					cmdbuf->pushConstants(m_PTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(SBasicViewParametersAligned), &pc);
+					cmdbuf->pushConstants(m_PTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(matrix4SIMD), &pc);
 					cmdbuf->dispatch(1 + (WindowDimensions.x - 1) / DefaultWorkGroupSize, 1 + (WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u);
 				}
 
