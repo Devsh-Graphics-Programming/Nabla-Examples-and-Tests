@@ -310,7 +310,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						std::exit(-1);
 					}
 
-					auto source = IAsset::castDown<ICPUShader>(std::move(assets[0]));
+					auto source = IAsset::castDown<ICPUShader>(assets[0]);
 					// The down-cast should not fail!
 					assert(source);
 
@@ -892,7 +892,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			m_surface->recreateSwapchain();
 			m_winMgr->show(m_window.get());
 			m_oracle.reportBeginFrameRecord();
-			m_camera.mapKeysToArrows();
+			m_camera.mapKeysToWASD();
 
 			return true;
 		}
@@ -1157,12 +1157,11 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				std::vector<SKeyboardEvent> keyboard{};
 			} capturedEvents;
 
-			if (move) m_camera.beginInputProcessing(nextPresentationTimestamp);
+			m_camera.beginInputProcessing(nextPresentationTimestamp);
 			{
 				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 				{
-					if (move)
-						m_camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
+					m_camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
 
 					for (const auto& e : events) // here capture
 					{
@@ -1179,8 +1178,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 				{
-					if (move)
-						m_camera.keyboardProcess(events); // don't capture the events, only let camera handle them with its impl
+					m_camera.keyboardProcess(events); // don't capture the events, only let camera handle them with its impl
 
 					for (const auto& e : events) // here capture
 					{
@@ -1192,7 +1190,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					}
 				}, m_logger.get());
 			}
-			if (move) m_camera.endInputProcessing(nextPresentationTimestamp);
+			m_camera.endInputProcessing(nextPresentationTimestamp);
 
 			/*const core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
 			const core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
@@ -1260,7 +1258,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 		uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
 
-		bool move = false;
 		float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
 		float viewWidth = 10.f;
 		float camYAngle = 165.f / 180.f * 3.14159f;
