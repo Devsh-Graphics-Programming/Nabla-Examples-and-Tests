@@ -881,7 +881,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				core::vectorSIMDf cameraPosition(0, 5, -10);
 				matrix4SIMD proj = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(
 					core::radians(60.0f),
-					transformedAspectRatio(SurfaceTransform::FLAG_BITS::IDENTITY_BIT, WindowDimensions),
+					1.0 / transformedAspectRatio(SurfaceTransform::FLAG_BITS::IDENTITY_BIT, WindowDimensions),
 					0.01f,
 					500.0f
 				);
