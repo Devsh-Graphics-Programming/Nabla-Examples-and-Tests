@@ -41,8 +41,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		constexpr static inline uint32_t MaxSamplesLog2 = 10u; // 18
 		constexpr static inline uint32_t MaxBufferDimensions = 3u << MaxDepthLog2;
 		constexpr static inline uint32_t MaxBufferSamples = 1u << MaxSamplesLog2;
-		constexpr static inline uint8_t MaxUITextureCount = 2u;
-		constexpr static inline uint8_t SceneTextureIndex = 1u;
+		constexpr static inline uint8_t MaxUITextureCount = 1u;
 		static inline std::string DefaultImagePathsFile = "../../media/envmap/envmap_0.exr";
 		static inline std::string OwenSamplerFilePath = "owen_sampler_buffer";
 		static inline std::array<std::string, 3> PTShaderPaths = { "app_resources/litBySphere.comp", "app_resources/litByTriangle.comp", "app_resources/litByRectangle.comp" };
@@ -95,7 +94,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					return false;
 
 				m_semaphore = m_device->createSemaphore(m_realFrameIx);
-				if (!m_semaphore)
+				m_uiSemaphore = m_device->createSemaphore(m_realFrameIx);
+
+				if (!m_semaphore || !m_uiSemaphore)
 					return logFail("Failed to create semaphore!");
 			}
 
@@ -768,7 +769,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				m_device->updateDescriptorSets(writeDescriptorSets, {});
 			}
 
-			/*
 			// Create ui descriptors
 			{
 				using binding_flags_t = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS;
@@ -781,18 +781,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 					m_ui.samplers.gui = m_device->createSampler(params);
 					m_ui.samplers.gui->setObjectDebugName("Nabla IMGUI UI Sampler");
-				}
-
-				{
-					IGPUSampler::SParams params;
-					params.MinLod = 0.f;
-					params.MaxLod = 0.f;
-					params.TextureWrapU = ISampler::ETC_CLAMP_TO_EDGE;
-					params.TextureWrapV = ISampler::ETC_CLAMP_TO_EDGE;
-					params.TextureWrapW = ISampler::ETC_CLAMP_TO_EDGE;
-
-					m_ui.samplers.scene = m_device->createSampler(params);
-					m_ui.samplers.scene->setObjectDebugName("Nabla IMGUI Scene Sampler");
 				}
 
 				std::array<core::smart_refctd_ptr<IGPUSampler>, 69u> immutableSamplers;
@@ -837,44 +825,28 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				[this]() -> void {
 					ImGuiIO& io = ImGui::GetIO();
 
-					m_camera.setProjectionMatrix([&]()
-					{
-						static matrix4SIMD projection;
-
-						projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
-
-						return projection;
-					}());
-
 					ImGui::SetNextWindowPos(ImVec2(1024, 100), ImGuiCond_Appearing);
 					ImGui::SetNextWindowSize(ImVec2(256, 256), ImGuiCond_Appearing);
 
 					// create a window and insert the inspector
 					ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Appearing);
 					ImGui::SetNextWindowSize(ImVec2(320, 340), ImGuiCond_Appearing);
-					ImGui::Begin("Editor");
+					ImGui::Begin("Controls");
 
 					ImGui::SameLine();
 
 					ImGui::Text("Camera");
 
-					ImGui::Checkbox("Enable camera movement", &move);
 					ImGui::SliderFloat("Move speed", &moveSpeed, 0.1f, 10.f);
-
 					ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
-
 					ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
 					ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
 
 					ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
 
-					ImGui::Image(SceneTextureIndex, ImGui::GetContentRegionAvail());
-
 					ImGui::End();
 				}
 			);
-
-			*/
 
 			// Set Camera
 			{
@@ -899,17 +871,12 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 		bool updateGUIDescriptorSet()
 		{
-			/*
-			// texture atlas + our scene texture, note we don't create info & write pair for the font sampler because UI extension's is immutable and baked into DS layout
+			// texture atlas, note we don't create info & write pair for the font sampler because UI extension's is immutable and baked into DS layout
 			static std::array<IGPUDescriptorSet::SDescriptorInfo, MaxUITextureCount> descriptorInfo;
 			static IGPUDescriptorSet::SWriteDescriptorSet writes[MaxUITextureCount];
 
 			descriptorInfo[nbl::ext::imgui::UI::FontAtlasTexId].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 			descriptorInfo[nbl::ext::imgui::UI::FontAtlasTexId].desc = smart_refctd_ptr<IGPUImageView>(m_ui.manager->getFontAtlasView());
-
-			descriptorInfo[SceneTextureIndex].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-
-			descriptorInfo[SceneTextureIndex].desc = m_outImgView;
 
 			for (uint32_t i = 0; i < descriptorInfo.size(); ++i)
 			{
@@ -919,12 +886,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				writes[i].count = 1u;
 			}
 			writes[nbl::ext::imgui::UI::FontAtlasTexId].info = descriptorInfo.data() + nbl::ext::imgui::UI::FontAtlasTexId;
-			writes[SceneTextureIndex].info = descriptorInfo.data() + SceneTextureIndex;
 
 			return m_device->updateDescriptorSets(writes, {});
-			*/
-
-			return true;
 		}
 
 		inline void workLoopBody() override
@@ -1031,30 +994,30 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				// TODO: tone mapping and stuff
 			}
 
-			// Upload m_outImg to swapchain
+			asset::SViewport viewport;
 			{
-				asset::SViewport viewport;
-				{
-					viewport.minDepth = 1.f;
-					viewport.maxDepth = 0.f;
-					viewport.x = 0u;
-					viewport.y = 0u;
-					viewport.width = WindowDimensions.x;
-					viewport.height = WindowDimensions.y;
-				}
-				cmdbuf->setViewport(0u, 1u, &viewport);
+				viewport.minDepth = 1.f;
+				viewport.maxDepth = 0.f;
+				viewport.x = 0u;
+				viewport.y = 0u;
+				viewport.width = WindowDimensions.x;
+				viewport.height = WindowDimensions.y;
+			}
+			cmdbuf->setViewport(0u, 1u, &viewport);
 
 
-				VkRect2D defaultScisors[] = { {.offset = {(int32_t)viewport.x, (int32_t)viewport.y}, .extent = {(uint32_t)viewport.width, (uint32_t)viewport.height}} };
-				cmdbuf->setScissor(defaultScisors);
+			VkRect2D defaultScisors[] = { {.offset = {(int32_t)viewport.x, (int32_t)viewport.y}, .extent = {(uint32_t)viewport.width, (uint32_t)viewport.height}} };
+			cmdbuf->setScissor(defaultScisors);
 
-				const VkRect2D currentRenderArea =
-				{
-					.offset = {0,0},
-					.extent = {m_window->getWidth(),m_window->getHeight()}
-				};
+			const VkRect2D currentRenderArea =
+			{
+				.offset = {0,0},
+				.extent = {m_window->getWidth(),m_window->getHeight()}
+			};
+			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 
-				auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+			// Upload m_outImg to swapchain + UI
+			{
 				const IGPUCommandBuffer::SRenderpassBeginInfo info =
 				{
 					.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
@@ -1062,12 +1025,23 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					.depthStencilClearValues = nullptr,
 					.renderArea = currentRenderArea
 				};
+				nbl::video::ISemaphore::SWaitInfo waitInfo = { .semaphore = m_uiSemaphore.get(), .value = m_realFrameIx + 1u };
+
 				cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+
 				cmdbuf->bindGraphicsPipeline(m_presentPipeline.get());
 				cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, m_presentPipeline->getLayout(), 0, 1u, &m_presentDescriptorSet.get());
 				ext::FullScreenTriangle::recordDrawCall(cmdbuf);
+
+				const auto uiParams = m_ui.manager->getCreationParameters();
+				auto* uiPipeline = m_ui.manager->getPipeline();
+				cmdbuf->bindGraphicsPipeline(uiPipeline);
+				cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, uiPipeline->getLayout(), uiParams.resources.texturesInfo.setIx, 1u, &m_ui.descriptorSet.get());
+				m_ui.manager->render(cmdbuf, waitInfo);
+
 				cmdbuf->endRenderPass();
 			}
+
 			cmdbuf->end();
 			{
 				const IQueue::SSubmitInfo::SSemaphoreInfo rendered[] =
@@ -1176,7 +1150,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					}
 				}, m_logger.get());
 
-			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
+				keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 				{
 					m_camera.keyboardProcess(events); // don't capture the events, only let camera handle them with its impl
 
@@ -1192,19 +1166,20 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			}
 			m_camera.endInputProcessing(nextPresentationTimestamp);
 
-			/*const core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
+			const core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
 			const core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
 			const auto cursorPosition = m_window->getCursorControl()->getPosition();
+			const auto mousePosition = float32_t2(cursorPosition.x, cursorPosition.y) - float32_t2(m_window->getX(), m_window->getY());
 
 			const ext::imgui::UI::SUpdateParameters params =
 			{
-				.mousePosition = float32_t2(cursorPosition.x, cursorPosition.y) - float32_t2(m_window->getX(), m_window->getY()),
+				.mousePosition = mousePosition,
 				.displaySize = { m_window->getWidth(), m_window->getHeight() },
 				.mouseEvents = mouseEvents,
 				.keyboardEvents = keyboardEvents
 			};
 
-			m_ui.manager->update(params);*/
+			m_ui.manager->update(params);
 		}
 
 	private:
@@ -1234,13 +1209,13 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		smart_refctd_ptr<IGPUImageView> m_outImgView;
 
 		// sync
-		smart_refctd_ptr<ISemaphore> m_semaphore;
+		smart_refctd_ptr<ISemaphore> m_semaphore, m_uiSemaphore;
 
 		// image upload resources
 		smart_refctd_ptr<ISemaphore> m_scratchSemaphore;
 		SIntendedSubmitInfo m_intendedSubmit;
 
-		/*struct C_UI
+		struct C_UI
 		{
 			nbl::core::smart_refctd_ptr<nbl::ext::imgui::UI> manager;
 
@@ -1250,7 +1225,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			} samplers;
 
 			core::smart_refctd_ptr<IGPUDescriptorSet> descriptorSet;
-		} m_ui; */
+		} m_ui;
 
 		Camera m_camera;
 
