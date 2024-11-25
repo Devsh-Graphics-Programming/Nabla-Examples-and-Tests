@@ -2,7 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#include "nbl/application_templates/MonoDeviceApplication.hpp"
+#include "SimpleWindowedApplication.hpp"
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 
@@ -19,16 +19,20 @@ using namespace core;
 using namespace system;
 using namespace asset;
 using namespace video;
-
+using namespace ui;
 
 #include "app_resources/common.hlsl"
 #include "nbl/builtin/hlsl/bit.hlsl"
 #include "nbl/builtin/hlsl/workgroup/fft.hlsl"
 
+// Defaults that match this example's image
+#define WIN_W 1280
+#define WIN_H 720
+
 // In this application we'll cover buffer streaming, Buffer Device Address (BDA) and push constants 
-class FFTBloomApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class FFTBloomApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-	using device_base_t = application_templates::MonoDeviceApplication;
+	using device_base_t = examples::SimpleWindowedApplication;
 	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 
 	// Persistent compute Pipelines
@@ -45,7 +49,6 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 	// Resources
 	smart_refctd_ptr<IGPUImageView> m_srcImageView;
 	smart_refctd_ptr<IGPUImageView> m_kerImageView;
-	smart_refctd_ptr<IGPUImage> m_outImg;
 	smart_refctd_ptr<IGPUImageView> m_outImgView;
 	smart_refctd_ptr<IGPUImageView> m_kernelNormalizedSpectrums;
 
@@ -80,6 +83,51 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 
 	// Termination cond
 	bool m_keepRunning = true;
+
+	// Windowed App members
+	constexpr static inline uint32_t MaxFramesInFlight = 3u;
+	smart_refctd_ptr<IWindow> m_window;
+	smart_refctd_ptr<CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>> m_surface;
+	uint64_t m_realFrameIx = 0;
+	std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
+	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
+
+	// -------------------------------- WINDOWED APP OVERRIDES ---------------------------------------------------
+	inline bool isComputeOnly() const override { return false; }
+
+	virtual video::SPhysicalDeviceLimits getRequiredDeviceLimits() const override
+	{
+		auto retval = device_base_t::getRequiredDeviceLimits();
+		retval.shaderFloat16 = m_useHalfFloats;
+		return retval;
+	}
+
+	inline core::vector<SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
+	{
+		if (!m_surface)
+		{
+			{
+				IWindow::SCreationParams params = {};
+				params.callback = core::make_smart_refctd_ptr<ISimpleManagedSurface::ICallback>();
+				params.width = WIN_W;
+				params.height = WIN_H;
+				params.x = 32;
+				params.y = 32;
+				params.flags = IWindow::ECF_BORDERLESS | IWindow::ECF_HIDDEN;
+				params.windowCaption = "MPMCSchedulerApp";
+				const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
+			}
+			auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
+			const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>::create(std::move(surface));
+		}
+
+		if (m_surface)
+			return { {m_surface->getSurface()/*,EQF_NONE*/} };
+
+		return {};
+	}
+
+	// -------------------------------- END WINDOWED APP OVERRIDES ---------------------------------------------------
 
 	smart_refctd_ptr<IGPUPipelineLayout> createPipelineLayout(const std::span<const IGPUDescriptorSetLayout::SBinding> bindings)
 	{
@@ -202,19 +250,24 @@ public:
 		// We can't use the same sepahore for uploads so we signal a different semaphore
 		smart_refctd_ptr<ISemaphore> scratchSemaphore = m_device->createSemaphore(0);
 
-		// Get compute queue
-		m_queue = getComputeQueue();
+		// Get graphics queue - these queues can do compute + blit 
+		// In the real world you might do queue ownership transfers and have compute-dedicated queues - but here we KISS
+		m_queue = getGraphicsQueue();
 		uint32_t queueFamilyIndex = m_queue->getFamilyIndex();
 
-		// Create a resettable command buffer
+		// Create command buffers for managing frames in flight + 1 extra for asset converter use
 		{
-			smart_refctd_ptr<video::IGPUCommandPool> cmdpool = m_device->createCommandPool(queueFamilyIndex, IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-			if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &m_computeCmdBuf))
-				return logFail("Failed to create Command Buffers!\n");
-		}
+			std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight + 1> commandBuffers;
 
-		// want to capture the image data upload as well
-		//m_api->startCapture();
+			smart_refctd_ptr<video::IGPUCommandPool> cmdpool = m_device->createCommandPool(queueFamilyIndex, IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+			if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, commandBuffers))
+				return logFail("Failed to create Command Buffers!\n");
+			
+			for (auto i = 0u; i < MaxFramesInFlight; i++)
+				m_cmdBufs[i] = std::move(commandBuffers[i]);
+
+			m_computeCmdBuf = std::move(commandBuffers[MaxFramesInFlight]);
+		}
 
 		// Load source and kernel images
 		{
@@ -352,15 +405,15 @@ public:
 			// Specify we want this to be a storage image, + transfer for readback (blit when we have swapchain up)
 			dstImgInfo.usage = IImage::EUF_STORAGE_BIT | IImage::EUF_TRANSFER_SRC_BIT;
 			dstImgInfo.format = m_useHalfFloats ? EF_R16G16B16A16_SFLOAT : EF_R32G32B32A32_SFLOAT;
-			m_outImg = m_device->createImage(std::move(dstImgInfo));
+			auto outImg = m_device->createImage(std::move(dstImgInfo));
 
-			m_outImg->setObjectDebugName("Convolved Image");
+			outImg->setObjectDebugName("Convolved Image");
 
-			auto memReqs = m_outImg->getMemoryReqs();
+			auto memReqs = outImg->getMemoryReqs();
 			memReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			auto gpuMem = m_device->allocate(memReqs, m_outImg.get());
+			auto gpuMem = m_device->allocate(memReqs, outImg.get());
 
-			dstImgViewInfo.image = m_outImg;
+			dstImgViewInfo.image = outImg;
 			dstImgViewInfo.subUsages = IImage::EUF_STORAGE_BIT | IImage::EUF_TRANSFER_SRC_BIT;
 			dstImgViewInfo.format = m_useHalfFloats ? EF_R16G16B16A16_SFLOAT : EF_R32G32B32A32_SFLOAT;
 			m_outImgView = m_device->createImageView(IGPUImageView::SCreationParams(dstImgViewInfo));
@@ -677,7 +730,7 @@ public:
 			imagePipelineBarrierInfo.imgBarriers = { imgBarriers, 2 };
 
 			// outImage just needs a layout transition before it can be written to
-			imgBarriers[0].image = m_outImg.get();
+			imgBarriers[0].image = m_outImgView->getCreationParameters().image.get();
 			imgBarriers[0].barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::NONE;
 			imgBarriers[0].barrier.dep.srcAccessMask = ACCESS_FLAGS::NONE;
 			imgBarriers[0].barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::NONE;
@@ -945,7 +998,7 @@ public:
 			decltype(imagePipelineBarrierInfo)::image_barrier_t imgBarrier;
 			imagePipelineBarrierInfo.imgBarriers = { &imgBarrier, 1 };
 
-			imgBarrier.image = m_outImg.get();
+			imgBarrier.image = m_outImgView->getCreationParameters().image.get();
 			imgBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
 			imgBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
 			imgBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
@@ -956,9 +1009,9 @@ public:
 
 			m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), imagePipelineBarrierInfo);
 			IImage::SBufferCopy copy;
-			copy.imageExtent = m_outImg->getCreationParameters().extent;
+			copy.imageExtent = m_outImgView->getCreationParameters().image->getCreationParameters().extent;
 			copy.imageSubresource = { IImage::EAF_COLOR_BIT, 0u, 0u, 1u };
-			m_computeCmdBuf->copyImageToBuffer(m_outImg.get(), IImage::LAYOUT::TRANSFER_SRC_OPTIMAL, downStreamingBuffer->getBuffer(), 1, &copy);
+			m_computeCmdBuf->copyImageToBuffer(m_outImgView->getCreationParameters().image.get(), IImage::LAYOUT::TRANSFER_SRC_OPTIMAL, downStreamingBuffer->getBuffer(), 1, &copy);
 			m_computeCmdBuf->end();
 		}
 		// Submit
@@ -1007,8 +1060,8 @@ public:
 					ICPUImage::SCreationParams imgParams;
 					imgParams.flags = static_cast<ICPUImage::E_CREATE_FLAGS>(0u); // no flags
 					imgParams.type = ICPUImage::ET_2D;
-					imgParams.format = m_outImg->getCreationParameters().format;
-					imgParams.extent = m_outImg->getCreationParameters().extent;
+					imgParams.format = m_outImgView->getCreationParameters().image->getCreationParameters().format;
+					imgParams.extent = m_outImgView->getCreationParameters().image->getCreationParameters().extent;
 					imgParams.mipLevels = 1u;
 					imgParams.arrayLayers = 1u;
 					imgParams.samples = ICPUImage::ESCF_1_BIT;
