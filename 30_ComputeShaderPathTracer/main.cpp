@@ -32,7 +32,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		};
 
 		constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
-		constexpr static inline uint32_t FramesInFlight = 1;
+		constexpr static inline uint32_t MaxFramesInFlight = 5;
 		constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
 		constexpr static inline E_LIGHT_GEOMETRY LightGeom = E_LIGHT_GEOMETRY::ELG_SPHERE;
 		constexpr static inline uint32_t DefaultWorkGroupSize = 16u;
@@ -143,16 +143,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					return logFail("Could not create Window & Surface or initialize the Surface!");
 			}
 
-			// Compute no of frames in flight
-			{ // TODO: upgrade in-line with Erfan's best practices
-				m_maxFramesInFlight = m_surface->getMaxAcquiresInFlightUpperLimit();
-				if (FramesInFlight < m_maxFramesInFlight)
-				{
-					m_logger->log("Lowering frames in flight!", ILogger::ELL_WARNING);
-					m_maxFramesInFlight = FramesInFlight;
-				}
-			}
-
 			// image upload utils
 			{
 				m_scratchSemaphore = m_device->createSemaphore(0);
@@ -180,7 +170,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				if (!m_cmdPool)
 					return logFail("Couldn't create Command Pool!");
 
-				if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data(), 2 * m_maxFramesInFlight }))
+				if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data(), MaxFramesInFlight }))
 					return logFail("Couldn't create Command Buffer!");
 			}
 
@@ -892,20 +882,24 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 		inline void workLoopBody() override
 		{
-			const auto resourceIx = m_realFrameIx % m_maxFramesInFlight;
-
-			if (m_realFrameIx >= m_maxFramesInFlight) // TODO: upgrade in-line with Erfan's best practices
+			// framesInFlight: ensuring safe execution of command buffers and acquires, `framesInFlight` only affect semaphore waits, don't use this to index your resources because it can change with swapchain recreation.
+			const uint32_t framesInFlight = core::min(MaxFramesInFlight, m_surface->getMaxAcquiresInFlight());
+			// We block for semaphores for 2 reasons here:
+				// A) Resource: Can't use resource like a command buffer BEFORE previous use is finished! [MaxFramesInFlight]
+				// B) Acquire: Can't have more acquires in flight than a certain threshold returned by swapchain or your surface helper class. [MaxAcquiresInFlight]
+			if (m_realFrameIx >= framesInFlight)
 			{
 				const ISemaphore::SWaitInfo cbDonePending[] = 
 				{
 					{
 						.semaphore = m_semaphore.get(),
-						.value = m_realFrameIx + 1 - m_maxFramesInFlight
+						.value = m_realFrameIx + 1 - framesInFlight
 					}
 				};
 				if (m_device->blockForSemaphores(cbDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
 					return;
 			}
+			const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
 
 			m_api->startCapture();
 
@@ -1190,9 +1184,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
 		smart_refctd_ptr<IGPUComputePipeline> m_PTPipeline;
 		smart_refctd_ptr<IGPUGraphicsPipeline> m_presentPipeline;
-		uint64_t m_realFrameIx : 59 = 0;
-		uint64_t m_maxFramesInFlight : 5;  // TODO: upgrade in-line with Erfan's best practices
-		std::array<smart_refctd_ptr<IGPUCommandBuffer>, ISwapchain::MaxImages> m_cmdBufs;
+		uint64_t m_realFrameIx = 0;
+		std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
 		ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 		smart_refctd_ptr<IGPUDescriptorSet> m_descriptorSet0, m_descriptorSet2, m_presentDescriptorSet;
 
