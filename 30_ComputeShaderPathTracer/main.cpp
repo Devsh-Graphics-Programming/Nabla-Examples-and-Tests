@@ -387,7 +387,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			// load CPUImages and convert to GPUImages
 			smart_refctd_ptr<IGPUImage> envMap, scrambleMap;
 			{
-				auto convertImgCPU2GPU = [&](smart_refctd_ptr<ICPUImage> cpuImg) {
+				auto convertImgCPU2GPU = [&](std::span<ICPUImage *> cpuImgs) {
 					auto queue = getGraphicsQueue();
 					auto cmdbuf = m_cmdBufs[0].get();
 					cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
@@ -445,15 +445,17 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					params.transfer = &transfer;
 					params.utilities = m_utils.get();
 
-					std::get<CAssetConverter::SInputs::asset_span_t<ICPUImage>>(inputs.assets) = { &cpuImg.get(),1 };
+					std::get<CAssetConverter::SInputs::asset_span_t<ICPUImage>>(inputs.assets) = cpuImgs;
 					// assert that we don't need to provide patches
-					assert(cpuImg->getImageUsageFlags().hasFlags(ICPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT));
+					assert(cpuImgs[0]->getImageUsageFlags().hasFlags(ICPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT));
 					auto reservation = converter->reserve(inputs);
 					// the `.value` is just a funny way to make the `smart_refctd_ptr` copyable
-					auto gpuImg = reservation.getGPUObjects<ICPUImage>().front().value;
-					if (!gpuImg) {
-						m_logger->log("Failed to convert %s into an IGPUImage handle", ILogger::ELL_ERROR, DefaultImagePathsFile);
-						std::exit(-1);
+					auto gpuImgs = reservation.getGPUObjects<ICPUImage>();
+					for (auto& gpuImg : gpuImgs) {
+						if (!gpuImg) {
+							m_logger->log("Failed to convert %s into an IGPUImage handle", ILogger::ELL_ERROR, DefaultImagePathsFile);
+							std::exit(-1);
+						}
 					}
 
 					// and launch the conversions
@@ -465,7 +467,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						std::exit(-1);
 					}
 
-					return gpuImg;
+					envMap = gpuImgs[0].value;
+					scrambleMap = gpuImgs[1].value;
 				};
 
 				smart_refctd_ptr<ICPUImage> envMapCPU, scrambleMapCPU;
@@ -523,9 +526,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					scrambleMapCPU->setBufferAndRegions(std::move(texelBuffer), regions);
 				}
 
-// TODO: WHY ARE YOU CONVERTING 1-by-1 !??!?!?!?!?!?!?!?!?!?!?! DO BATCHES!
-				envMap = convertImgCPU2GPU(envMapCPU);
-				scrambleMap = convertImgCPU2GPU(scrambleMapCPU);
+				std::array<ICPUImage*, 2> cpuImgs = { envMapCPU.get(), scrambleMapCPU.get()};
+				convertImgCPU2GPU(cpuImgs);
 			}
 
 			// create views for textures
