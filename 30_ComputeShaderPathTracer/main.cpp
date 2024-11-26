@@ -814,6 +814,15 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				[this]() -> void {
 					ImGuiIO& io = ImGui::GetIO();
 
+					m_camera.setProjectionMatrix([&]()
+					{
+						static matrix4SIMD projection;
+
+						projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+
+						return projection;
+					}());
+
 					ImGui::SetNextWindowPos(ImVec2(1024, 100), ImGuiCond_Appearing);
 					ImGui::SetNextWindowSize(ImVec2(256, 256), ImGuiCond_Appearing);
 
