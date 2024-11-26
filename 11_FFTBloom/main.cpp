@@ -5,11 +5,6 @@
 #include "SimpleWindowedApplication.hpp"
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
-
-// TODO: Copy HelloSwapchain to set up a swapchain, draw to a surface. Or copy the new MPMC example.
-// TODO: Dynamically modify bloom size with mouse scroll/ +- keys
-//		 Notes: To do so must check required size against buffer size (expand buffer and recompile kernel if it starts being small), also after making kernel larger then small again
-//		        there's probably no need to shrink buffer and recompile kernel but would be nice to add that as well)
 // TODO: Refactor after FFT ext is back
 // TODO: Make sampling formats be #defined depending on how they were loaded on GPU side
 // TODO: Require kerDim be PoT
@@ -29,11 +24,11 @@ using namespace ui;
 #define WIN_W 1280
 #define WIN_H 720
 
-// In this application we'll cover buffer streaming, Buffer Device Address (BDA) and push constants 
 class FFTBloomApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 	using device_base_t = examples::SimpleWindowedApplication;
 	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+	using clock_t = std::chrono::steady_clock;
 
 	// Persistent compute Pipelines
 	smart_refctd_ptr<IGPUComputePipeline> m_firstAxisFFTPipeline;
@@ -67,30 +62,24 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 	// Other parameter-dependent variables
 	asset::VkExtent3D m_marginSrcDim;
 
-	// We only hold onto one cmdbuffer at a time, but having it here doesn't hurt
-	smart_refctd_ptr<IGPUCommandBuffer> m_computeCmdBuf;
-
 	// Shader Cache
 	smart_refctd_ptr<IShaderCompiler::CCache> m_readCache;
 	smart_refctd_ptr<IShaderCompiler::CCache> m_writeCache;
 
-	// Sync primitives
-	smart_refctd_ptr<ISemaphore> m_timeline;
-	uint64_t m_semaphorValue = 0;
-
 	// Only use one queue
 	IQueue* m_queue;
-
-	// Termination cond
-	bool m_keepRunning = true;
 
 	// Windowed App members
 	constexpr static inline uint32_t MaxFramesInFlight = 3u;
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>> m_surface;
+	smart_refctd_ptr<ISemaphore> m_timeline;
 	uint64_t m_realFrameIx = 0;
 	std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
 	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
+
+	// Profiling
+	float32_t epochSeconds;
 
 	// -------------------------------- WINDOWED APP OVERRIDES ---------------------------------------------------
 	inline bool isComputeOnly() const override { return false; }
@@ -114,7 +103,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 				params.x = 32;
 				params.y = 32;
 				params.flags = IWindow::ECF_BORDERLESS | IWindow::ECF_HIDDEN;
-				params.windowCaption = "MPMCSchedulerApp";
+				params.windowCaption = "FFT Bloom Demo";
 				const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
 			}
 			auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
@@ -246,27 +235,38 @@ public:
 			return false;
 
 		// Setup semaphores
-		m_timeline = m_device->createSemaphore(m_semaphorValue);
+		m_timeline = m_device->createSemaphore(m_realFrameIx);
 		// We can't use the same sepahore for uploads so we signal a different semaphore
 		smart_refctd_ptr<ISemaphore> scratchSemaphore = m_device->createSemaphore(0);
 
+		// Create a swapchain
+		ISwapchain::SCreationParams swapchainParams = { .surface = m_surface->getSurface() };
+		if (!swapchainParams.deduceFormat(m_physicalDevice))
+			return logFail("Could not choose a Surface Format for the Swapchain!");
+
+		// Initialize surface
+		auto graphicsQueue = getGraphicsQueue();
+		if (!m_surface || !m_surface->init(graphicsQueue, std::make_unique<ISimpleManagedSurface::ISwapchainResources>(), swapchainParams.sharedParams))
+			return logFail("Could not create Window & Surface or initialize the Surface!");
+
 		// Get graphics queue - these queues can do compute + blit 
 		// In the real world you might do queue ownership transfers and have compute-dedicated queues - but here we KISS
-		m_queue = getGraphicsQueue();
+		m_queue = graphicsQueue;
 		uint32_t queueFamilyIndex = m_queue->getFamilyIndex();
 
-		// Create command buffers for managing frames in flight + 1 extra for asset converter use
+		// Create command buffers for managing frames in flight + 1 extra
+		smart_refctd_ptr<IGPUCommandBuffer> assConvCmdBuf;
 		{
 			std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight + 1> commandBuffers;
 
 			smart_refctd_ptr<video::IGPUCommandPool> cmdpool = m_device->createCommandPool(queueFamilyIndex, IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 			if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, commandBuffers))
 				return logFail("Failed to create Command Buffers!\n");
-			
+
 			for (auto i = 0u; i < MaxFramesInFlight; i++)
 				m_cmdBufs[i] = std::move(commandBuffers[i]);
 
-			m_computeCmdBuf = std::move(commandBuffers[MaxFramesInFlight]);
+			assConvCmdBuf = std::move(commandBuffers[MaxFramesInFlight]);
 		}
 
 		// Load source and kernel images
@@ -361,8 +361,7 @@ public:
 			// For image uploads
 			SIntendedSubmitInfo intendedSubmit;
 
-			auto graphicsQueue = getQueue(IQueue::FAMILY_FLAGS::GRAPHICS_BIT);
-			intendedSubmit.queue = graphicsQueue;
+			intendedSubmit.queue = m_queue;
 			// Set up submit for image transfers
 			// wait for nothing before upload
 			intendedSubmit.waitSemaphores = {};
@@ -376,17 +375,11 @@ public:
 				.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 			};
 
-			// Create a command buffer for graphics submit, though it has to be resettable
-			smart_refctd_ptr<IGPUCommandBuffer> graphicsCmdBuf;
-			smart_refctd_ptr<video::IGPUCommandPool> cmdpool = m_device->createCommandPool(graphicsQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-			if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &graphicsCmdBuf))
-				return logFail("Failed to create Command Buffers!\n");
-
 			// Needs to be open for utilities
-			graphicsCmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			assConvCmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
-			IQueue::SSubmitInfo::SCommandBufferInfo graphicsCmdbufInfo = { graphicsCmdBuf.get() };
-			intendedSubmit.scratchCommandBuffers = { &graphicsCmdbufInfo,1 };
+			IQueue::SSubmitInfo::SCommandBufferInfo assConvCmdBufInfo = { assConvCmdBuf.get() };
+			intendedSubmit.scratchCommandBuffers = { &assConvCmdBufInfo,1 };
 
 			CAssetConverter::SConvertParams params = {};
 			params.transfer = &intendedSubmit;
@@ -396,6 +389,13 @@ public:
 			if (result.copy() != IQueue::RESULT::SUCCESS)
 				return false;
 		}
+
+		// Set window size to match input image
+		auto srcImgExtent = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
+		m_winMgr->setWindowSize(m_window.get(), srcImgExtent.width, srcImgExtent.height);
+		m_surface->recreateSwapchain();
+
+		m_winMgr->show(m_window.get());
 
 		// Create Out Image
 		{
@@ -436,6 +436,7 @@ public:
 		assert(m_bloomScale <= 1.f);
 
 		m_marginSrcDim = srcDim;
+		
 		// Add padding to m_marginSrcDim
 		for (auto i = 0u; i < 3u; i++)
 		{
@@ -443,6 +444,7 @@ public:
 			if (coord > 1u)
 				(&m_marginSrcDim.width)[i] += ceil(core::max(coord * m_bloomScale, 1u)) - 1u;
 		}
+		
 		
 		// Create intermediate buffers
 		{
@@ -670,20 +672,28 @@ public:
 			pushConstants.colMajorBufferAddress = m_colMajorBufferAddress;
 			pushConstants.rowMajorBufferAddress = m_rowMajorBufferAddress;
 
-			m_computeCmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			// Create a command buffer for this submit only
+			smart_refctd_ptr<IGPUCommandBuffer> kernelPrecompCmdBuf;
+			{
+				smart_refctd_ptr<video::IGPUCommandPool> cmdpool = m_device->createCommandPool(queueFamilyIndex, IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+				if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, {&kernelPrecompCmdBuf, 1u}))
+					return logFail("Failed to create Command Buffers!\n");
+			}
+
+			kernelPrecompCmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
 			// First Axis FFT
-			m_computeCmdBuf->bindComputePipeline(pipelines[0].get());
-			m_computeCmdBuf->bindDescriptorSets(asset::EPBP_COMPUTE, pipelines[0]->getLayout(), 0, 1, &m_descriptorSet.get());
-			m_computeCmdBuf->pushConstants(pipelines[0]->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(pushConstants), &pushConstants);
+			kernelPrecompCmdBuf->bindComputePipeline(pipelines[0].get());
+			kernelPrecompCmdBuf->bindDescriptorSets(asset::EPBP_COMPUTE, pipelines[0]->getLayout(), 0, 1, &m_descriptorSet.get());
+			kernelPrecompCmdBuf->pushConstants(pipelines[0]->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(pushConstants), &pushConstants);
 			// One workgroup per 2 columns
-			m_computeCmdBuf->dispatch(kerDim.width / 2, 1, 1);
+			kernelPrecompCmdBuf->dispatch(kerDim.width / 2, 1, 1);
 
 			// Pipeline barrier: wait for first axis FFT before second axis can begin
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo pipelineBarrierInfo = {};
 			decltype(pipelineBarrierInfo)::buffer_barrier_t bufBarrier = {};
 			pipelineBarrierInfo.bufBarriers = { &bufBarrier, 1u };
-			
+
 			// First axis FFT writes to colMajorBuffer
 			bufBarrier.range.buffer = m_colMajorBuffer;
 
@@ -693,12 +703,12 @@ public:
 			bufBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
 			bufBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
 
-			m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
+			kernelPrecompCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
 
 			// Now do second axis FFT
-			m_computeCmdBuf->bindComputePipeline(pipelines[1].get());
+			kernelPrecompCmdBuf->bindComputePipeline(pipelines[1].get());
 			// Same number of workgroups - this time because we only saved half the rows
-			m_computeCmdBuf->dispatch(kerDim.width / 2, 1, 1);
+			kernelPrecompCmdBuf->dispatch(kerDim.width / 2, 1, 1);
 
 			// Recycle the pipelineBarrierInfo since it's identical, just change buffer access: Second axis FFT writes to rowMajorBuffer
 			bufBarrier.range.buffer = m_rowMajorBuffer;
@@ -718,11 +728,11 @@ public:
 			imgBarrier.oldLayout = IImage::LAYOUT::UNDEFINED;
 			imgBarrier.newLayout = IImage::LAYOUT::GENERAL;
 
-			m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
+			kernelPrecompCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
 
 			//Finally, normalize kernel Image - same number of workgroups
-			m_computeCmdBuf->bindComputePipeline(pipelines[2].get());
-			m_computeCmdBuf->dispatch(kerDim.width / 2, 1, 1);
+			kernelPrecompCmdBuf->bindComputePipeline(pipelines[2].get());
+			kernelPrecompCmdBuf->dispatch(kerDim.width / 2, 1, 1);
 
 			// Pipeline barrier: transition kernel spectrum images into read only, and outImage into general
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo imagePipelineBarrierInfo = {};
@@ -749,20 +759,20 @@ public:
 			imgBarriers[1].newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 			imgBarriers[1].subresourceRange = { IGPUImage::EAF_COLOR_BIT, 0u, 1u, 0u, Channels };
 
-			m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), imagePipelineBarrierInfo);
+			kernelPrecompCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), imagePipelineBarrierInfo);
 
-			m_computeCmdBuf->end();
+			kernelPrecompCmdBuf->end();
 
 			// Submit to queue and add sync point
 			{
 				const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo =
 				{
-					.cmdbuf = m_computeCmdBuf.get()
+					.cmdbuf = kernelPrecompCmdBuf.get()
 				};
 				const IQueue::SSubmitInfo::SSemaphoreInfo signalInfo =
 				{
 					.semaphore = m_timeline.get(),
-					.value = ++m_semaphorValue,
+					.value = 1,
 					.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
 				};
 
@@ -860,7 +870,8 @@ public:
 		}
 		// Block and wait until kernel FFT is done before we drop the pipelines.
 		// Ideally not be lazy and create a latch that does nothing but capture the pipelines and gets called when scratch semaphore is signalled
-		const ISemaphore::SWaitInfo waitInfo = { m_timeline.get(), m_semaphorValue };
+		// IMPORTANT: This wait offsets our frames in flight math by 1, so it's important to remember it
+		const ISemaphore::SWaitInfo waitInfo = { m_timeline.get(), 1 };
 
 		m_device->blockForSemaphores({ &waitInfo, 1 });
 
@@ -870,17 +881,58 @@ public:
 		return true;
 	}
 
-	bool keepRunning() override { return m_keepRunning; }
+	bool keepRunning() override 
+	{
+		if (m_surface->irrecoverable())
+			return false;
+
+		return true;
+	}
 
 	// Right now it's one shot app, but I put this code here for easy refactoring when it refactors into it being a live app
 	void workLoopBody() override
 	{
-		uint32_t queueFamilyIndex = m_queue->getFamilyIndex();
+		// framesInFlight: ensuring safe execution of command buffers and acquires, `framesInFlight` only affect semaphore waits, don't use this to index your resources because it can change with swapchain recreation.
+		const uint32_t framesInFlight = core::min(MaxFramesInFlight, m_surface->getMaxAcquiresInFlight());
+		// We block for semaphores for 2 reasons here:
+			// A) Resource: Can't use resource like a command buffer BEFORE previous use is finished! [MaxFramesInFlight]
+			// B) Acquire: Can't have more acquires in flight than a certain threshold returned by swapchain or your surface helper class. [MaxAcquiresInFlight]
+		if (m_realFrameIx >= framesInFlight)
+		{
+			const ISemaphore::SWaitInfo cbDonePending[] =
+			{
+				{
+					.semaphore = m_timeline.get(),
+					.value = m_realFrameIx + 2 - framesInFlight // There is a +2 here instead of +1 to account for the kernel precomp value increase
+				}
+			};
+			if (m_device->blockForSemaphores(cbDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
+				return;
+		}
 
-		// RESET COMMAND BUFFER OR SOMETHING
+		const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
 
-		m_computeCmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+		m_currentImageAcquire = m_surface->acquireNextImage();
+		if (!m_currentImageAcquire)
+			return;
+
+		// Acquire and reset command buffer
+		auto* const cmdBuf = m_cmdBufs[resourceIx].get();
+		cmdBuf->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+		cmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+
+		// Compute to blit barrier: Ensure compute pass is done before blitting from image
+		const IGPUImage::SSubresourceRange whole2DColorImage =
+		{
+			.aspectMask = IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+			.baseMipLevel = 0,
+			.levelCount = 1,
+			.baseArrayLayer = 0,
+			.layerCount = 1
+		};
 		
+		// -------------------------------------- DRAW BEGIN -------------------------------------------
+
 		// Prepare for first axis FFT
 		// Push Constants - only need to specify BDAs here
 		const auto& imageExtent = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
@@ -902,12 +954,20 @@ public:
 		pushConstants.imagePixelSize = 2.f * imageHalfPixelSize;
 		pushConstants.imageTwoPixelSize_x = 4.f * imageHalfPixelSize.x;
 
-		m_computeCmdBuf->bindComputePipeline(m_firstAxisFFTPipeline.get());
-		m_computeCmdBuf->bindDescriptorSets(asset::EPBP_COMPUTE, m_firstAxisFFTPipeline->getLayout(), 0, 1, &m_descriptorSet.get());
-		m_computeCmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(pushConstants), &pushConstants);
+		// Interpolate between dirac delta and kernel based on current time
+		auto nextEpochSeconds = clock_t::now().time_since_epoch().count() / 1000000000.f;
+		pushConstants.interpolatingFactor = cos(nextEpochSeconds) * cos(nextEpochSeconds);
+
+		// Show ms per frame
+		std::cout << "mspf: " << (nextEpochSeconds - epochSeconds) * 1000 << std::endl;
+		epochSeconds = nextEpochSeconds;
+
+		cmdBuf->bindComputePipeline(m_firstAxisFFTPipeline.get());
+		cmdBuf->bindDescriptorSets(asset::EPBP_COMPUTE, m_firstAxisFFTPipeline->getLayout(), 0, 1, &m_descriptorSet.get());
+		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(pushConstants), &pushConstants);
 		// One workgroup per 2 columns
 		auto srcDim = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
-		m_computeCmdBuf->dispatch(srcDim.width / 2, 1, 1);
+		cmdBuf->dispatch(srcDim.width / 2, 1, 1);
 
 		// Pipeline Barrier: Wait for colMajorBuffer to be written to before reading it from next shader
 		IGPUCommandBuffer::SPipelineBarrierDependencyInfo bufferPipelineBarrierInfo = {};
@@ -923,52 +983,136 @@ public:
 		bufBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
 		bufBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
 
-		m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), bufferPipelineBarrierInfo);
+		cmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), bufferPipelineBarrierInfo);
 		// Now comes Second axis FFT + Conv + IFFT
-		m_computeCmdBuf->bindComputePipeline(m_lastAxisFFT_convolution_lastAxisIFFTPipeline.get());
+		cmdBuf->bindComputePipeline(m_lastAxisFFT_convolution_lastAxisIFFTPipeline.get());
 		// Update padding for run along rows
-		m_computeCmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, padding), sizeof(paddingAlongRows), &paddingAlongRows);
+		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, padding), sizeof(paddingAlongRows), &paddingAlongRows);
 		// One workgroup per row in the lower half of the DFT
-		m_computeCmdBuf->dispatch(core::roundUpToPoT(m_marginSrcDim.height) / 2, 1, 1);
+		cmdBuf->dispatch(core::roundUpToPoT(m_marginSrcDim.height) / 2, 1, 1);
 
 		// Recycle pipeline barrier, only have to change which buffer we need to wait to be written to
 		bufBarrier.range.buffer = m_rowMajorBuffer;
-		m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), bufferPipelineBarrierInfo);
+		cmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), bufferPipelineBarrierInfo);
 
 		// Finally run the IFFT on the first axis
-		m_computeCmdBuf->bindComputePipeline(m_firstAxisIFFTPipeline.get());
+		cmdBuf->bindComputePipeline(m_firstAxisIFFTPipeline.get());
 		// Update padding for run along columns
-		m_computeCmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, padding), sizeof(paddingAlongColumns), &paddingAlongColumns);
+		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, padding), sizeof(paddingAlongColumns), &paddingAlongColumns);
 		// One workgroup per 2 columns
-		m_computeCmdBuf->dispatch(srcDim.width / 2, 1, 1);
-		m_computeCmdBuf->end();
+		cmdBuf->dispatch(srcDim.width / 2, 1, 1);
+
+		// -------------------------------------- DRAW END ----------------------------------------
+
+		// BLIT
+		{
+			auto swapImg = m_surface->getSwapchainResources()->getImage(m_currentImageAcquire.imageIndex);
+
+			using image_memory_barrier_t = IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>;
+			image_memory_barrier_t imgComputeToBlitBarrier = {
+				.barrier = {
+					.dep = {
+						.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+						.srcAccessMask = ACCESS_FLAGS::STORAGE_WRITE_BIT | ACCESS_FLAGS::STORAGE_READ_BIT,
+						.dstStageMask = PIPELINE_STAGE_FLAGS::BLIT_BIT,
+						.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
+					}
+			},
+			.image = m_outImgView->getCreationParameters().image.get(),
+			.subresourceRange = whole2DColorImage,
+			.oldLayout = IImage::LAYOUT::GENERAL,
+			.newLayout = IImage::LAYOUT::GENERAL
+			};
+
+			// special case, the swapchain is a NONE stage with NONE accesses
+			image_memory_barrier_t swapchainAcquireToBlitBarrier = {
+					.barrier = {
+						.dep = {
+							.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+							.srcAccessMask = ACCESS_FLAGS::NONE,
+							.dstStageMask = PIPELINE_STAGE_FLAGS::BLIT_BIT,
+							.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
+						}
+				// no ownership transfer and don't care about contents
+			},
+			.image = swapImg,
+			.subresourceRange = whole2DColorImage,
+			.oldLayout = IImage::LAYOUT::UNDEFINED, // don't care about old contents
+			.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL
+			};
+
+			image_memory_barrier_t imgBarriers[] = {imgComputeToBlitBarrier, swapchainAcquireToBlitBarrier};
+			cmdBuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {},.bufBarriers = {},.imgBarriers = imgBarriers });
+
+			auto outImg = m_outImgView->getCreationParameters().image.get();
+			auto outImgExtent = outImg->getCreationParameters().extent;
+
+			const IGPUCommandBuffer::SImageBlit regions[] = { {
+				.srcMinCoord = {0,0,0},
+				.srcMaxCoord = {outImgExtent.width,outImgExtent.height,1},
+				.dstMinCoord = {0,0,0},
+				.dstMaxCoord = {outImgExtent.width,outImgExtent.height,1},
+				.layerCount = 1,
+				.srcBaseLayer = 0,
+				.dstBaseLayer = 0,
+				.srcMipLevel = 0,
+				.dstMipLevel = 0,
+				.aspectMask = IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT
+			} };
+			cmdBuf->blitImage(outImg, IGPUImage::LAYOUT::GENERAL, swapImg, IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL, regions, IGPUSampler::ETF_NEAREST);
+
+			auto& swapImageBarrier = imgBarriers[1];
+			swapImageBarrier.barrier.dep = swapImageBarrier.barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::NONE, ACCESS_FLAGS::NONE);
+			swapImageBarrier.oldLayout = imgBarriers[1].newLayout;
+			swapImageBarrier.newLayout = IGPUImage::LAYOUT::PRESENT_SRC;
+			cmdBuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {},.bufBarriers = {},.imgBarriers = {&swapImageBarrier,1} });
+		}
+
+		cmdBuf->end();
 
 		// Submit to queue and add sync point
 		{
-			const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo =
+			const IQueue::SSubmitInfo::SSemaphoreInfo rendered[] =
 			{
-				.cmdbuf = m_computeCmdBuf.get()
+				{
+					.semaphore = m_timeline.get(),
+					.value = ++m_realFrameIx,
+					.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS // because of the layout transition of the swapchain image
+				}
 			};
-			const IQueue::SSubmitInfo::SSemaphoreInfo signalInfo =
 			{
-				.semaphore = m_timeline.get(),
-				.value = ++m_semaphorValue,
-				.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
-			};
+				{
+					const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[] =
+					{
+						{.cmdbuf = cmdBuf }
+					};
 
-			const IQueue::SSubmitInfo submitInfo = {
-				.waitSemaphores = {},
-				.commandBuffers = {&cmdbufInfo,1},
-				.signalSemaphores = {&signalInfo,1}
-			};
+					const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] =
+					{
+						{
+							.semaphore = m_currentImageAcquire.semaphore,
+							.value = m_currentImageAcquire.acquireCount,
+							.stageMask = PIPELINE_STAGE_FLAGS::NONE
+						}
+					};
+					const IQueue::SSubmitInfo infos[] =
+					{
+						{
+							.waitSemaphores = acquired,
+							.commandBuffers = commandBuffers,
+							.signalSemaphores = rendered
+						}
+					};
 
-			m_api->startCapture();
-			m_queue->submit({ &submitInfo,1 });
-			m_api->endCapture();
+					m_api->startCapture();
+					if (m_queue->submit(infos) != IQueue::RESULT::SUCCESS)
+						--m_realFrameIx;
+					m_api->endCapture();
+				}
+			}
+
+			m_surface->present(m_currentImageAcquire.imageIndex, rendered);
 		}
-
-		// Kill after one iteration for now
-		m_keepRunning = false;
 	}
 
 	bool onAppTerminated() override
@@ -990,9 +1134,14 @@ public:
 		const uint32_t AllocationCount = 1;
 		downStreamingBuffer->multi_allocate(waitTill, AllocationCount, &outputOffset, &srcImageSize, &alignment);
 		
+		// Since all work is done grab any command buffer
+		auto cmdBuf = m_cmdBufs[0];
+
 		// Send download commands to GPU
 		{
-			m_computeCmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			cmdBuf->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+			cmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+
 			// Pipeline barrier: transition outImg to transfer source optimal
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo imagePipelineBarrierInfo = {};
 			decltype(imagePipelineBarrierInfo)::image_barrier_t imgBarrier;
@@ -1007,34 +1156,27 @@ public:
 			imgBarrier.newLayout = IImage::LAYOUT::TRANSFER_SRC_OPTIMAL;
 			imgBarrier.subresourceRange = { IGPUImage::EAF_COLOR_BIT, 0u, 1u, 0u, 1 };
 
-			m_computeCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), imagePipelineBarrierInfo);
+			cmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), imagePipelineBarrierInfo);
 			IImage::SBufferCopy copy;
 			copy.imageExtent = m_outImgView->getCreationParameters().image->getCreationParameters().extent;
 			copy.imageSubresource = { IImage::EAF_COLOR_BIT, 0u, 0u, 1u };
-			m_computeCmdBuf->copyImageToBuffer(m_outImgView->getCreationParameters().image.get(), IImage::LAYOUT::TRANSFER_SRC_OPTIMAL, downStreamingBuffer->getBuffer(), 1, &copy);
-			m_computeCmdBuf->end();
+			cmdBuf->copyImageToBuffer(m_outImgView->getCreationParameters().image.get(), IImage::LAYOUT::TRANSFER_SRC_OPTIMAL, downStreamingBuffer->getBuffer(), 1, &copy);
+			cmdBuf->end();
 		}
 		// Submit
 		{
 			const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo =
 			{
-				.cmdbuf = m_computeCmdBuf.get()
-			};
-			const IQueue::SSubmitInfo::SSemaphoreInfo waitInfo =
-			{
-				.semaphore = m_timeline.get(),
-				.value = m_semaphorValue++,
-				.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
+				.cmdbuf = cmdBuf.get()
 			};
 			const IQueue::SSubmitInfo::SSemaphoreInfo signalInfo =
 			{
 				.semaphore = m_timeline.get(),
-				.value = m_semaphorValue,
+				.value = m_realFrameIx + 1,
 				.stageMask = asset::PIPELINE_STAGE_FLAGS::COPY_BIT
 			};
 
 			const IQueue::SSubmitInfo submitInfo = {
-				.waitSemaphores = {&waitInfo, 1},
 				.commandBuffers = {&cmdbufInfo,1},
 				.signalSemaphores = {&signalInfo,1}
 			};
@@ -1043,7 +1185,7 @@ public:
 		}
 
 		// We let all latches know what semaphore and counter value has to be passed for the functors to execute
-		const ISemaphore::SWaitInfo futureWait = { m_timeline.get(),m_semaphorValue };
+		const ISemaphore::SWaitInfo futureWait = { m_timeline.get(),m_realFrameIx + 1 };
 
 		// Now a new and even more advanced usage of the latched events, we make our own refcounted object with a custom destructor and latch that like we did the commandbuffer.
 		// Instead of making our own and duplicating logic, we'll use one from IUtilities meant for down-staging memory.
@@ -1108,7 +1250,7 @@ public:
 			// Its also necessary to hold onto the commandbuffer, even though we take care to not reset the parent pool, because if it
 			// hits its destructor, our automated reference counting will drop all references to objects used in the recorded commands.
 			// It could also be latched in the upstreaming deallocate, because its the same fence.
-			std::move(m_computeCmdBuf), downStreamingBuffer
+			std::move(cmdBuf), downStreamingBuffer
 		);
 		// We put a function we want to execute 
 		downStreamingBuffer->multi_deallocate(AllocationCount, &outputOffset, &srcImageSize, futureWait, &latchedConsumer.get());

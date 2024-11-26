@@ -42,6 +42,8 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 	NBL_CONSTEXPR_STATIC_INLINE float32_t TotalSizeReciprocal = ConstevalParameters::TotalSizeReciprocal;
 	NBL_CONSTEXPR_STATIC_INLINE float32_t2 KernelHalfPixelSize;
 
+	NBL_CONSTEXPR_STATIC_INLINE vector<scalar_t, 2> One;
+
 	void preload(uint32_t channel)
 	{
 		// Set up accessor to point at channel offsets
@@ -78,14 +80,16 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 
 				float32_t2 uv = float32_t2(indexDFT * TotalSizeReciprocal, float32_t(0)) + KernelHalfPixelSize;
 				const vector<scalar_t, 2> zeroKernelVector = kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0);
-				const complex_t<scalar_t> zeroKernel = { zeroKernelVector.x, zeroKernelVector.y };
-				zero = zero * zeroKernel;
+				const vector<scalar_t, 2> zeroKernelInterpolatedVector = lerp(zeroKernelVector, One, pushConstants.interpolatingFactor);
+				const complex_t<scalar_t> zeroKernelInterpolated = { zeroKernelInterpolatedVector.x, zeroKernelInterpolatedVector.y };
+				zero = zero * zeroKernelInterpolated;
 
 				// Do the same for the nyquist coord
 				uv.y += 0.5;
 				const vector<scalar_t, 2> nyquistKernelVector = kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0);
-				const complex_t<scalar_t> nyquistKernel = { nyquistKernelVector.x, nyquistKernelVector.y };
-				nyquist = nyquist * nyquistKernel;
+				const vector<scalar_t, 2> nyquistKernelInterpolatedVector = lerp(nyquistKernelVector, One, pushConstants.interpolatingFactor);
+				const complex_t<scalar_t> nyquistKernelInterpolated = { nyquistKernelInterpolatedVector.x, nyquistKernelInterpolatedVector.y };
+				nyquist = nyquist * nyquistKernelInterpolated;
 
 				// Since their IFFT is going to be real, we can pack them back as Z + iN, do a single IFFT and recover them afterwards
 				preloaded[localElementIndex] = zero + rotateLeft<scalar_t>(nyquist);
@@ -116,8 +120,9 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				const uint32_t2 texCoords = uint32_t2(indexDFT, y);
 				const float32_t2 uv = texCoords * float32_t2(TotalSizeReciprocal, 1.f / (2 * NumWorkgroups)) + KernelHalfPixelSize;
 				const vector<scalar_t, 2> sampledKernelVector = kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0);
-				const complex_t<scalar_t> sampledKernel = { sampledKernelVector.x, sampledKernelVector.y };
-				preloaded[localElementIndex] = preloaded[localElementIndex] * sampledKernel;
+				const vector<scalar_t, 2> sampledKernelInterpolatedVector = lerp(sampledKernelVector, One, pushConstants.interpolatingFactor);
+				const complex_t<scalar_t> sampledKernelInterpolated = { sampledKernelInterpolatedVector.x, sampledKernelInterpolatedVector.y };
+				preloaded[localElementIndex] = preloaded[localElementIndex] * sampledKernelInterpolated;
 			}
 		}
 	}
@@ -140,6 +145,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 };
 
 NBL_CONSTEXPR_STATIC_INLINE float32_t2 PreloadedSecondAxisAccessor::KernelHalfPixelSize = ConstevalParameters::KernelHalfPixelSize;
+NBL_CONSTEXPR_STATIC_INLINE vector<scalar_t, 2> PreloadedSecondAxisAccessor::One = {1.0f, 0.f};
 
 [numthreads(FFTParameters::WorkgroupSize, 1, 1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)

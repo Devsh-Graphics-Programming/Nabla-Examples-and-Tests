@@ -24,6 +24,7 @@ struct PushConstantData
 	float32_t2 imageHalfPixelSize;
 	float32_t2 imagePixelSize;
 	float32_t imageTwoPixelSize_x;
+	float32_t interpolatingFactor;
 };
 
 #ifdef __HLSL_VERSION
