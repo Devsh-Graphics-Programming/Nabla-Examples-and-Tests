@@ -926,6 +926,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			auto queue = getGraphicsQueue();
 			auto cmdbuf = m_cmdBufs[resourceIx].get();
 
+			if (!keepRunning())
+				return;
+
 			// render whole scene to offline frame buffer & submit
 			{
 				cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
