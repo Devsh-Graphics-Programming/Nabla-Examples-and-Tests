@@ -6,6 +6,7 @@
 #include <nbl/builtin/hlsl/portable/matrix_t.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/basic.h>
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
+#include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 
 #ifdef __HLSL_VERSION
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
@@ -63,17 +64,19 @@ static_assert(offsetof(Globals, antiAliasingFactor) == 112u);
 static_assert(offsetof(Globals, miterLimit) == 116u);
 #endif
 
-// TODO[Przemek]: remove `#ifdef __HLSL_VERSION` and mul shouldn't use jit::device_caps, preferably do this with nbl::hlsl::mul  instead of portableMul64
 #ifdef __HLSL_VERSION
 pfloat64_t2 transformPointNdc(pfloat64_t3x3 transformation, pfloat64_t2 point2d)
 {
     pfloat64_t3 point3d;
     point3d.x = point2d.x;
     point3d.y = point2d.y;
-    point3d.z = _static_cast < pfloat64_t > (1.0f);
+    point3d.z = _static_cast<pfloat64_t>(1.0f);
 
-    pfloat64_t3 transformationResult = portableMul64 < pfloat64_t3x3, pfloat64_t3, jit::
-    device_capabilities > (transformation, point3d);
+    float32_t4x4 a;
+    float32_t4 b;
+    float32_t4 result = nbl::hlsl::mul(a, b);
+
+    pfloat64_t3 transformationResult = nbl::hlsl::mul(transformation, point3d);
     pfloat64_t2 output;
     output.x = transformationResult.x;
     output.y = transformationResult.y;
@@ -87,8 +90,7 @@ pfloat64_t2 transformVectorNdc(pfloat64_t3x3 transformation, pfloat64_t2 vector2
     vector3d.y = vector2d.y;
     vector3d.z = _static_cast < pfloat64_t > (0.0f);
 
-    pfloat64_t3 transformationResult = portableMul64 < pfloat64_t3x3, pfloat64_t3, jit::
-    device_capabilities > (transformation, vector3d);
+    pfloat64_t3 transformationResult = nbl::hlsl::mul(transformation, vector3d);
     pfloat64_t2 output;
     output.x = transformationResult.x;
     output.y = transformationResult.y;
@@ -96,7 +98,6 @@ pfloat64_t2 transformVectorNdc(pfloat64_t3x3 transformation, pfloat64_t2 vector2
     return output;
 }
 #endif
-
 
 enum class ObjectType : uint32_t
 {
@@ -131,14 +132,14 @@ struct DrawObject
 
 struct LinePointInfo
 {
-    float64_t2 p;
+    pfloat64_t2 p;
     float32_t phaseShift;
     float32_t stretchValue;
 };
 
 struct QuadraticBezierInfo
 {
-    nbl::hlsl::shapes::QuadraticBezier<float64_t> shape; // 48bytes = 3 (control points) x 16 (float64_t2)
+    nbl::hlsl::shapes::QuadraticBezier<pfloat64_t> shape; // 48bytes = 3 (control points) x 16 (float64_t2)
     float32_t phaseShift;
     float32_t stretchValue;
 };
@@ -148,7 +149,7 @@ static_assert(offsetof(QuadraticBezierInfo, phaseShift) == 48u);
 
 struct GlyphInfo
 {
-    float64_t2 topLeft; // 2 * 8 = 16 bytes
+    pfloat64_t2 topLeft; // 2 * 8 = 16 bytes
     float32_t2 dirU; // 2 * 4 = 8 bytes (24)
     float32_t aspectRatio; // 4 bytes (32)
     // unorm8 minU;
@@ -157,7 +158,7 @@ struct GlyphInfo
     uint32_t minUV_textureID_packed; // 4 bytes (36)
     
 #ifndef __HLSL_VERSION
-    GlyphInfo(float64_t2 topLeft, float32_t2 dirU, float32_t aspectRatio, uint16_t textureId, float32_t2 minUV) :
+    GlyphInfo(pfloat64_t2  topLeft, float32_t2 dirU, float32_t aspectRatio, uint16_t textureId, float32_t2 minUV) :
         topLeft(topLeft),
         dirU(dirU),
         aspectRatio(aspectRatio)
@@ -192,7 +193,7 @@ struct GlyphInfo
 
 struct ImageObjectInfo
 {
-    float64_t2 topLeft; // 2 * 8 = 16 bytes (16)
+    pfloat64_t2  topLeft; // 2 * 8 = 16 bytes (16)
     float32_t2 dirU; // 2 * 4 = 8 bytes (24)
     float32_t aspectRatio; // 4 bytes (28)
     uint32_t textureID; // 4 bytes (32)
@@ -232,7 +233,7 @@ static float32_t3 unpackR11G11B10_UNORM(uint32_t packed)
 
 struct PolylineConnector
 {
-    float64_t2 circleCenter;
+    pfloat64_t2 circleCenter;
     float32_t2 v;
     float32_t cosAngleDifferenceHalf;
     float32_t _reserved_pad;
@@ -242,8 +243,8 @@ struct PolylineConnector
 struct CurveBox
 {
     // will get transformed in the vertex shader, and will be calculated on the cpu when generating these boxes
-    float64_t2 aabbMin; // 16
-    float64_t2 aabbMax; // 32 , TODO: we know it's a square/box -> we save 8 bytes if we needed to store extra data
+    pfloat64_t2 aabbMin; // 16
+    pfloat64_t2 aabbMax; // 32 , TODO: we know it's a square/box -> we save 8 bytes if we needed to store extra data
     float32_t2 curveMin[3]; // 56
     float32_t2 curveMax[3]; // 80
 };

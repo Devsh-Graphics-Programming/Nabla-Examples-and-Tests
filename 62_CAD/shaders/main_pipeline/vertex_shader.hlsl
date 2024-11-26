@@ -40,11 +40,9 @@ ClipProjectionData getClipProjectionData(in MainObject mainObj)
     }
 }
 
-// TODO[Przemok]: Fix/Remove your todo here?!
 float2 transformPointScreenSpace(pfloat64_t3x3 transformation, uint32_t2 resolution, pfloat64_t2 point2d)
 {
     pfloat64_t2 ndc = transformPointNdc(transformation, point2d);
-    // TODO: "ndc + 1" doesn't work, probably because of `emulated_float64_t::create(float val)`
     pfloat64_t2 result = (ndc + 1.0f) * 0.5f * _static_cast<pfloat64_t2>(resolution);
 
     return _static_cast<float2>(result);

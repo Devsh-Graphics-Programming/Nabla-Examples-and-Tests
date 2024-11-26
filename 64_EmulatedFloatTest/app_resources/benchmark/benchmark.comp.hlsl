@@ -15,20 +15,13 @@ using namespace nbl::hlsl;
 [[vk::binding(0, 0)]] RWByteAddressBuffer outputBuffer;
 [[vk::push_constant]] BenchmarkPushConstants pc;
 
-// for initial seed of 69, the polynomial is:
-//	f(x) = x^15 * 187.804 + x^14 * 11.6964 + x^13 * 2450.9 + x^12 * 88.6756 + x^11 * 3.62408 + x^10 * 11.4605 + x^9 * 53276.3 + x^8 * 16045.4 + x^7 * 2260.61 + x^6 * 8162.57
-// + x^5 * 20.674 + x^4 * 13918.6 + x^3 * 2.36093 + x^2 * 8.72536 + x^1 * 2335.63 + 176.719
-// f(1) = 98961.74987
-// int from 0 to 69 = 3.11133×10^30
-
 template<typename F64>
 struct Random16thPolynomial
 {
 	void randomizeCoefficients()
 	{
-		Xoroshiro64Star rng = Xoroshiro64Star::construct(69);
+		Xoroshiro64Star rng = Xoroshiro64Star::construct(100);
 
-		// can't just do `coefficients[i] = rng()` this will create retarded numbers or special value exponents
 		for (int i = 0; i < CoefficientNumber; ++i)
 		{
 			uint64_t exp = uint64_t(rng()) % 16 + ieee754::traits<float64_t>::exponentBias;

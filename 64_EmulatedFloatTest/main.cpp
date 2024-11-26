@@ -419,10 +419,10 @@ private:
             submitInfos[0].commandBuffers = cmdbufs;
             const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = m_semaphore.get(), .value = ++m_semaphoreCounter, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT}};
             submitInfos[0].signalSemaphores = signals;
-
-            m_queue->startCapture();
+            
+            m_base.m_api->startCapture();
             m_queue->submit(submitInfos);
-            m_queue->endCapture();
+            m_base.m_api->endCapture();
 
             m_base.m_device->waitIdle();
             TestValues<false, true> output;
@@ -926,6 +926,7 @@ private:
         {
             m_device = base.m_device;
             m_logger = base.m_logger;
+            m_api = base.m_api;
 
             // setting up pipeline in the constructor
             m_queueFamily = base.getComputeQueue()->getFamilyIndex();
@@ -1113,12 +1114,12 @@ private:
             for (int i = 0; i < WarmupIterations; ++i)
             {
                 if(i == 0)
-                m_computeQueue->startCapture();
+                    m_api->startCapture();
                 waits[0].value = semaphoreCounter;
                 signals[0].value = ++semaphoreCounter;
                 m_computeQueue->submit(benchmarkSubmitInfos);
                 if (i == 0)
-                m_computeQueue->endCapture();
+                    m_api->endCapture();
             }
 
             waits[0].value = semaphoreCounter;
@@ -1188,6 +1189,7 @@ private:
         }
 
     private:
+        core::smart_refctd_ptr<video::CVulkanConnection> m_api;
         smart_refctd_ptr<ILogicalDevice> m_device;
         smart_refctd_ptr<ILogger> m_logger;
 
