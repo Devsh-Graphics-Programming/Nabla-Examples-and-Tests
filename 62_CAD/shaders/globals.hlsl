@@ -88,7 +88,7 @@ pfloat64_t2 transformVectorNdc(pfloat64_t3x3 transformation, pfloat64_t2 vector2
     pfloat64_t3 vector3d;
     vector3d.x = vector2d.x;
     vector3d.y = vector2d.y;
-    vector3d.z = _static_cast < pfloat64_t > (0.0f);
+    vector3d.z = _static_cast<pfloat64_t>(0.0f);
 
     pfloat64_t3 transformationResult = nbl::hlsl::mul(transformation, vector3d);
     pfloat64_t2 output;

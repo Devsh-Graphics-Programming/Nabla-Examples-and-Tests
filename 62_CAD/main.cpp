@@ -637,6 +637,52 @@ public:
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
+		// TODO: delete all quick tests
+		{
+			using ef64_t = hlsl::emulated_float64_t<true, true>;
+			nbl::hlsl::array_get<hlsl::emulated_vector_t4<hlsl::emulated_float64_t<true, true>>, hlsl::emulated_float64_t<true, true>> getter;
+			nbl::hlsl::array_set<hlsl::emulated_vector_t4<hlsl::emulated_float64_t<true, true>>, hlsl::emulated_float64_t<true, true>> setter;
+			emulated_vector_t4<ef64_t> dupa;
+
+			for (int i = 0; i < 4; ++i)
+				setter(dupa, i, hlsl::emulated_float64_t<true, true>::create(i + 0.5));
+
+			for (int i = 0; i < 4; ++i)
+			{
+				auto a = getter(dupa, i).data;
+				std::cout << reinterpret_cast<double&>(a) << std::endl;
+			}
+
+			emulated_matrix_t4x4<ef64_t> matrix;
+
+			for (int i = 0; i < 4; ++i)
+				matrix.rows[i] = dupa;
+
+			auto matrixTransposed = matrix.getTransposed();
+
+			for (int i = 0; i < 4; ++i)
+			{
+				for (int j = 0; j < 4; ++j)
+				{
+					auto y = getter(matrix.rows[i], j);
+					std::cout << reinterpret_cast<double&>(y) << ' ';
+				}
+
+				std::cout << '\n';
+			}
+
+			for (int i = 0; i < 4; ++i)
+			{
+				for (int j = 0; j < 4; ++j)
+				{
+					auto y = getter(matrixTransposed.rows[i], j);
+					std::cout << reinterpret_cast<double&>(y) << ' ';
+				}
+
+				std::cout << '\n';
+			}
+		}
+
 		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
 		// Remember to call the base class initialization!
