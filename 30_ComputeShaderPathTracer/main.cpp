@@ -15,6 +15,11 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
+struct PTPushConstant {
+	matrix4SIMD invMVP;
+	int sampleCount;
+};
+
 // TODO: Add a QueryPool for timestamping once its ready
 // TODO: Do buffer creation using assConv
 class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
@@ -327,7 +332,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						const nbl::asset::SPushConstantRange pcRange = {
 							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 							.offset = 0,
-							.size = sizeof(matrix4SIMD)
+							.size = sizeof(PTPushConstant)
 						};
 						auto ptPipelineLayout = m_device->createPipelineLayout(
 							{ &pcRange, 1 },
@@ -850,6 +855,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
 					ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
 					ImGui::ListBox("Shader", &PTPipline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
+					ImGui::SliderInt("SPP", &spp, 1, MaxBufferSamples);
 
 					ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
 
@@ -936,8 +942,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
 				// disregard surface/swapchain transformation for now
 				const auto viewProjectionMatrix = m_camera.getConcatenatedMatrix();
-				matrix4SIMD pc;
-				viewProjectionMatrix.getInverseTransform(pc);
+				PTPushConstant pc;
+				viewProjectionMatrix.getInverseTransform(pc.invMVP);
+				pc.sampleCount = spp;
 
 				// safe to proceed
 				// upload buffer data
@@ -977,7 +984,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					cmdbuf->bindComputePipeline(pipeline);
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
-					cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(matrix4SIMD), &pc);
+					cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(PTPushConstant), &pc);
 					cmdbuf->dispatch(1 + (WindowDimensions.x - 1) / DefaultWorkGroupSize, 1 + (WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u);
 				}
 
@@ -1254,6 +1261,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		float camYAngle = 165.f / 180.f * 3.14159f;
 		float camXAngle = 32.f / 180.f * 3.14159f;
 		int PTPipline = E_LIGHT_GEOMETRY::ELG_SPHERE;
+		int spp = 128;
 
 		bool m_firstFrame = true;
 		IGPUCommandBuffer::SClearColorValue clearColor = { .float32 = {0.f,0.f,0.f,1.f} };

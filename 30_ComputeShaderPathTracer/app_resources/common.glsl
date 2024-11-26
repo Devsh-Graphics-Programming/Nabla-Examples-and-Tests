@@ -4,7 +4,6 @@
 
 // basic settings
 #define MAX_DEPTH 3
-#define SAMPLES 128
 
 // firefly and variance reduction techniques
 //#define KILL_DIFFUSE_SPECULAR_PATHS
@@ -41,7 +40,8 @@ vec2 getTexCoords() {
 layout(push_constant, row_major) uniform constants
 {
     mat4 invMVP;
-} cameraData;
+    int sampleCount;
+} PTPushConstant;
 
 #define INVALID_ID_16BIT 0xffffu
 struct Sphere
@@ -694,7 +694,7 @@ void main()
         return;
     }
 
-    if (((MAX_DEPTH-1)>>MAX_DEPTH_LOG2)>0 || ((SAMPLES-1)>>MAX_SAMPLES_LOG2)>0)
+    if (((MAX_DEPTH-1)>>MAX_DEPTH_LOG2)>0 || ((PTPushConstant.sampleCount-1)>>MAX_SAMPLES_LOG2)>0)
     {
         vec4 pixelCol = vec4(1.0,0.0,0.0,1.0);
         imageStore(outImage, coords, pixelCol);
@@ -705,7 +705,7 @@ void main()
     const vec2 pixOffsetParam = vec2(1.0)/vec2(textureSize(scramblebuf,0));
 
 
-    const mat4 invMVP = cameraData.invMVP;
+    const mat4 invMVP = PTPushConstant.invMVP;
     
     vec4 NDC = vec4(texCoord*vec2(2.0,-2.0)+vec2(-1.0,1.0),0.0,1.0);
     vec3 camPos;
@@ -718,7 +718,7 @@ void main()
     vec3 color = vec3(0.0);
     float meanLumaSquared = 0.0;
     // TODO: if we collapse the nested for loop, then all GPUs will get `MAX_DEPTH` factor speedup, not just NV with separate PC
-    for (int i=0; i<SAMPLES; i++)
+    for (int i=0; i<PTPushConstant.sampleCount; i++)
     {
         nbl_glsl_xoroshiro64star_state_t scramble_state = scramble_start_state;
 
