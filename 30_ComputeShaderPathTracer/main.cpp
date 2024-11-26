@@ -836,6 +836,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					ImGui::Text("Camera");
 
 					ImGui::SliderFloat("Move speed", &moveSpeed, 0.1f, 10.f);
+					ImGui::SliderFloat("Rotate speed", &rotateSpeed, 0.1f, 10.f);
 					ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
 					ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
 					ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
