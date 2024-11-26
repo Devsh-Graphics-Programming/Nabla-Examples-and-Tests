@@ -34,7 +34,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
 		constexpr static inline uint32_t MaxFramesInFlight = 5;
 		constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
-		constexpr static inline E_LIGHT_GEOMETRY LightGeom = E_LIGHT_GEOMETRY::ELG_SPHERE;
 		constexpr static inline uint32_t DefaultWorkGroupSize = 16u;
 		constexpr static inline uint32_t MaxDescriptorCount = 256u;
 		constexpr static inline uint32_t MaxDepthLog2 = 4u; // 5
@@ -44,8 +43,14 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		constexpr static inline uint8_t MaxUITextureCount = 1u;
 		static inline std::string DefaultImagePathsFile = "../../media/envmap/envmap_0.exr";
 		static inline std::string OwenSamplerFilePath = "owen_sampler_buffer";
-		static inline std::array<std::string, 3> PTShaderPaths = { "app_resources/litBySphere.comp", "app_resources/litByTriangle.comp", "app_resources/litByRectangle.comp" };
+		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTShaderPaths = { "app_resources/litBySphere.comp", "app_resources/litByTriangle.comp", "app_resources/litByRectangle.comp" };
 		static inline std::string PresentShaderPath = "app_resources/present.frag.hlsl";
+
+		const char* shaderNames[E_LIGHT_GEOMETRY::ELG_COUNT] = {
+			"ELG_SPHERE",
+			"ELG_TRIANGLE",
+			"ELG_RECTANGLE"
+		};
 
 	public:
 		inline ComputeShaderPathtracer(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
@@ -315,34 +320,36 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					return shader;
 				};
 
-				// Create compute pipeline
+				// Create compute pipelines
 				{
-					auto ptShader = loadAndCompileShader(PTShaderPaths[LightGeom]);
-					const nbl::asset::SPushConstantRange pcRange = {
-						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-						.offset = 0,
-						.size = sizeof(matrix4SIMD)
-					};
-					auto ptPipelineLayout = m_device->createPipelineLayout(
-						{&pcRange, 1},
-						core::smart_refctd_ptr(gpuDescriptorSetLayout0),
-						nullptr,
-						core::smart_refctd_ptr(gpuDescriptorSetLayout2),
-						nullptr
-					);
-					if (!ptPipelineLayout) {
-						return logFail("Failed to create Pathtracing pipeline layout");
-					}
+					for (int index = 0; index < E_LIGHT_GEOMETRY::ELG_COUNT; index++) {
+						auto ptShader = loadAndCompileShader(PTShaderPaths[index]);
+						const nbl::asset::SPushConstantRange pcRange = {
+							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+							.offset = 0,
+							.size = sizeof(matrix4SIMD)
+						};
+						auto ptPipelineLayout = m_device->createPipelineLayout(
+							{ &pcRange, 1 },
+							core::smart_refctd_ptr(gpuDescriptorSetLayout0),
+							nullptr,
+							core::smart_refctd_ptr(gpuDescriptorSetLayout2),
+							nullptr
+						);
+						if (!ptPipelineLayout) {
+							return logFail("Failed to create Pathtracing pipeline layout");
+						}
 
-					IGPUComputePipeline::SCreationParams params = {};
-					params.layout = ptPipelineLayout.get();
-					params.shader.shader = ptShader.get();
-					params.shader.entryPoint = "main";
-					params.shader.entries = nullptr;
-					params.shader.requireFullSubgroups = true;
-					params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
-					if (!m_device->createComputePipelines(nullptr, { &params,1 }, &m_PTPipeline)) {
-						return logFail("Failed to create compute pipeline!\n");
+						IGPUComputePipeline::SCreationParams params = {};
+						params.layout = ptPipelineLayout.get();
+						params.shader.shader = ptShader.get();
+						params.shader.entryPoint = "main";
+						params.shader.entries = nullptr;
+						params.shader.requireFullSubgroups = true;
+						params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+						if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTPipelines.data() + index)) {
+							return logFail("Failed to create compute pipeline!\n");
+						}
 					}
 				}
 
@@ -840,6 +847,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
 					ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
 					ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
+					ImGui::ListBox("Shader", &PTPipline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
 
 					ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
 
@@ -960,10 +968,11 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 				// cube envmap handle
 				{
-					cmdbuf->bindComputePipeline(m_PTPipeline.get());
-					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_PTPipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
-					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_PTPipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
-					cmdbuf->pushConstants(m_PTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(matrix4SIMD), &pc);
+					auto pipeline = m_PTPipelines[PTPipline].get();
+					cmdbuf->bindComputePipeline(pipeline);
+					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
+					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
+					cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(matrix4SIMD), &pc);
 					cmdbuf->dispatch(1 + (WindowDimensions.x - 1) / DefaultWorkGroupSize, 1 + (WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u);
 				}
 
@@ -1191,7 +1200,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 		// gpu resources
 		smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
-		smart_refctd_ptr<IGPUComputePipeline> m_PTPipeline;
+		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTPipelines;
 		smart_refctd_ptr<IGPUGraphicsPipeline> m_presentPipeline;
 		uint64_t m_realFrameIx = 0;
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
@@ -1239,6 +1248,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		float viewWidth = 10.f;
 		float camYAngle = 165.f / 180.f * 3.14159f;
 		float camXAngle = 32.f / 180.f * 3.14159f;
+		int PTPipline = E_LIGHT_GEOMETRY::ELG_SPHERE;
 
 		bool m_firstFrame = true;
 		IGPUCommandBuffer::SClearColorValue clearColor = { .float32 = {0.f,0.f,0.f,1.f} };
