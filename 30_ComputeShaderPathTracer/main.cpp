@@ -94,9 +94,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					return false;
 
 				m_semaphore = m_device->createSemaphore(m_realFrameIx);
-				m_uiSemaphore = m_device->createSemaphore(m_realFrameIx);
 
-				if (!m_semaphore || !m_uiSemaphore)
+				if (!m_semaphore)
 					return logFail("Failed to create semaphore!");
 			}
 
@@ -1019,7 +1018,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					.depthStencilClearValues = nullptr,
 					.renderArea = currentRenderArea
 				};
-				nbl::video::ISemaphore::SWaitInfo waitInfo = { .semaphore = m_uiSemaphore.get(), .value = m_realFrameIx + 1u };
+				nbl::video::ISemaphore::SWaitInfo waitInfo = { .semaphore = m_semaphore.get(), .value = m_realFrameIx + 1u };
 
 				cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 
@@ -1202,7 +1201,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		smart_refctd_ptr<IGPUImageView> m_outImgView;
 
 		// sync
-		smart_refctd_ptr<ISemaphore> m_semaphore, m_uiSemaphore;
+		smart_refctd_ptr<ISemaphore> m_semaphore;
 
 		// image upload resources
 		smart_refctd_ptr<ISemaphore> m_scratchSemaphore;
