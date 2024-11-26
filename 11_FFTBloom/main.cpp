@@ -79,7 +79,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 
 	// Profiling
-	float32_t epochSeconds;
+	uint64_t epochNanoseconds;
 
 	// -------------------------------- WINDOWED APP OVERRIDES ---------------------------------------------------
 	inline bool isComputeOnly() const override { return false; }
@@ -234,24 +234,15 @@ public:
 		if (!asset_base_t::onAppInitialized(std::move(system)))
 			return false;
 
+		
 		// Setup semaphores
 		m_timeline = m_device->createSemaphore(m_realFrameIx);
 		// We can't use the same sepahore for uploads so we signal a different semaphore
 		smart_refctd_ptr<ISemaphore> scratchSemaphore = m_device->createSemaphore(0);
 
-		// Create a swapchain
-		ISwapchain::SCreationParams swapchainParams = { .surface = m_surface->getSurface() };
-		if (!swapchainParams.deduceFormat(m_physicalDevice))
-			return logFail("Could not choose a Surface Format for the Swapchain!");
-
-		// Initialize surface
-		auto graphicsQueue = getGraphicsQueue();
-		if (!m_surface || !m_surface->init(graphicsQueue, std::make_unique<ISimpleManagedSurface::ISwapchainResources>(), swapchainParams.sharedParams))
-			return logFail("Could not create Window & Surface or initialize the Surface!");
-
 		// Get graphics queue - these queues can do compute + blit 
 		// In the real world you might do queue ownership transfers and have compute-dedicated queues - but here we KISS
-		m_queue = graphicsQueue;
+		m_queue = getGraphicsQueue();
 		uint32_t queueFamilyIndex = m_queue->getFamilyIndex();
 
 		// Create command buffers for managing frames in flight + 1 extra
@@ -389,6 +380,16 @@ public:
 			if (result.copy() != IQueue::RESULT::SUCCESS)
 				return false;
 		}
+
+		// Create a swapchain
+		ISwapchain::SCreationParams swapchainParams = { .surface = m_surface->getSurface(), .sharedParams = {.presentMode = ISurface::EPM_IMMEDIATE} };
+		if (!swapchainParams.deduceFormat(m_physicalDevice))
+			return logFail("Could not choose a Surface Format for the Swapchain!");
+
+		// Initialize surface
+		auto graphicsQueue = getGraphicsQueue();
+		if (!m_surface || !m_surface->init(graphicsQueue, std::make_unique<ISimpleManagedSurface::ISwapchainResources>(), swapchainParams.sharedParams))
+			return logFail("Could not create Window & Surface or initialize the Surface!");
 
 		// Set window size to match input image
 		auto srcImgExtent = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
@@ -955,12 +956,11 @@ public:
 		pushConstants.imageTwoPixelSize_x = 4.f * imageHalfPixelSize.x;
 
 		// Interpolate between dirac delta and kernel based on current time
-		auto nextEpochSeconds = clock_t::now().time_since_epoch().count() / 1000000000.f;
-		pushConstants.interpolatingFactor = cos(nextEpochSeconds) * cos(nextEpochSeconds);
-
+		auto nextEpochNanoSeconds = clock_t::now().time_since_epoch().count();
 		// Show ms per frame
-		std::cout << "mspf: " << (nextEpochSeconds - epochSeconds) * 1000 << std::endl;
-		epochSeconds = nextEpochSeconds;
+		std::cout << "mspf: " << (nextEpochNanoSeconds - epochNanoseconds) / 1000000.f << std::endl;
+		epochNanoseconds = nextEpochNanoSeconds;
+		pushConstants.interpolatingFactor = cos(epochNanoseconds / 1000000000.f) * cos(epochNanoseconds / 1000000000.f);
 
 		cmdBuf->bindComputePipeline(m_firstAxisFFTPipeline.get());
 		cmdBuf->bindDescriptorSets(asset::EPBP_COMPUTE, m_firstAxisFFTPipeline->getLayout(), 0, 1, &m_descriptorSet.get());
