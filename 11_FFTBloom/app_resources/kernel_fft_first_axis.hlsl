@@ -14,7 +14,7 @@ uint64_t colMajorOffset(uint32_t x, uint32_t y)
 	return x * FFTParameters::TotalSize | y;
 }
 
-// Each channel after first FFT will be stored as half the image (cut along the x axis) in col-major order, and the whole size of the image is N^2, 
+// Each channel after first FFT will be stored as half the image (every two columns have been packed into one column of complex numbers) in col-major order, and the whole size of the image is N^2, 
 // for N = FFTParameters::TotalSize
 uint64_t getChannelStartAddress(uint32_t channel)
 {
@@ -61,13 +61,11 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 
 	// Once the FFT is done, each thread should write its elements back. Storage is in column-major order because this avoids cache misses when writing.
 	// Channels will be contiguous in buffer memory.
-	template<typename sharedmem_adaptor_t>
-	void unload(uint32_t channel, sharedmem_adaptor_t adaptorForSharedMemory)
+	void unload(uint32_t channel)
 	{
 		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 		{
 			storeColMajor(localElementIndex * WorkgroupSize | workgroup::SubgroupContiguousIndex(), preloaded[localElementIndex]);
-
 		}
 	}
 	LegacyBdaAccessor<complex_t<scalar_t> > colMajorAccessor;
@@ -78,19 +76,12 @@ NBL_CONSTEXPR_STATIC_INLINE float32_t2 PreloadedFirstAxisAccessor::KernelDimensi
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
 	SharedMemoryAccessor sharedmemAccessor;
-	// Set up the memory adaptor
-	using sharedmem_adaptor_t = accessor_adaptors::StructureOfArrays<SharedMemoryAccessor, uint32_t, uint32_t, 1, FFTParameters::WorkgroupSize>;
-	sharedmem_adaptor_t adaptorForSharedMemory;
 
 	PreloadedFirstAxisAccessor preloadedAccessor;
 	for (uint32_t channel = 0; channel < Channels; channel++)
 	{
 		preloadedAccessor.preload(channel);
 		workgroup::FFT<false, FFTParameters>::template __call(preloadedAccessor, sharedmemAccessor);
-		// Update state after FFT run
-		adaptorForSharedMemory.accessor = sharedmemAccessor;
-		preloadedAccessor.unload(channel, adaptorForSharedMemory);
-		// Remember to update the accessor's state
-		sharedmemAccessor = adaptorForSharedMemory.accessor;
+		preloadedAccessor.unload(channel);
 	}
 }

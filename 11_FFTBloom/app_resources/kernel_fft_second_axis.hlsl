@@ -29,7 +29,7 @@ uint64_t getRowMajorChannelStartAddress(uint32_t channel)
 // for more info on how `DFT(conj(Z))` relates to `DFT(Z)`). 
 // We have thus launched FFTParameters::TotalSize / 2 workgroups, as there are exactly that amount of rows to be computed. 
 // Since Z and N are real signals (where `Z` is the actual 0th row and `N` is the Nyquist row, as in the one with index FFTParameters::TotalSize / 2) we can pack those together again for an FFT.  
-// For now we unpack those on store here. 
+// We unpack values on load 
 
 struct PreloadedSecondAxisAccessor : PreloadedAccessorBase<FFTParameters>
 {
