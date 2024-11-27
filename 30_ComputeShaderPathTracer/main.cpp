@@ -18,6 +18,7 @@ using namespace video;
 struct PTPushConstant {
 	matrix4SIMD invMVP;
 	int sampleCount;
+	int depth;
 };
 
 // TODO: Add a QueryPool for timestamping once its ready
@@ -856,6 +857,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
 					ImGui::ListBox("Shader", &PTPipline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
 					ImGui::SliderInt("SPP", &spp, 1, MaxBufferSamples);
+					ImGui::SliderInt("Depth", &depth, 1, MaxBufferDimensions / 3);
 
 					ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
 
@@ -945,6 +947,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				PTPushConstant pc;
 				viewProjectionMatrix.getInverseTransform(pc.invMVP);
 				pc.sampleCount = spp;
+				pc.depth = depth;
 
 				// safe to proceed
 				// upload buffer data
@@ -1261,7 +1264,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		float camYAngle = 165.f / 180.f * 3.14159f;
 		float camXAngle = 32.f / 180.f * 3.14159f;
 		int PTPipline = E_LIGHT_GEOMETRY::ELG_SPHERE;
-		int spp = 128;
+		int spp = 32;
+		int depth = 3;
 
 		bool m_firstFrame = true;
 		IGPUCommandBuffer::SClearColorValue clearColor = { .float32 = {0.f,0.f,0.f,1.f} };

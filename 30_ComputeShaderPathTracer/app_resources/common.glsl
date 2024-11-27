@@ -2,9 +2,6 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-// basic settings
-#define MAX_DEPTH 3
-
 // firefly and variance reduction techniques
 //#define KILL_DIFFUSE_SPECULAR_PATHS
 //#define VISUALIZE_HIGH_VARIANCE
@@ -41,6 +38,7 @@ layout(push_constant, row_major) uniform constants
 {
     mat4 invMVP;
     int sampleCount;
+    int depth;
 } PTPushConstant;
 
 #define INVALID_ID_16BIT 0xffffu
@@ -694,7 +692,7 @@ void main()
         return;
     }
 
-    if (((MAX_DEPTH-1)>>MAX_DEPTH_LOG2)>0 || ((PTPushConstant.sampleCount-1)>>MAX_SAMPLES_LOG2)>0)
+    if (((PTPushConstant.depth-1)>>MAX_DEPTH_LOG2)>0 || ((PTPushConstant.sampleCount-1)>>MAX_SAMPLES_LOG2)>0)
     {
         vec4 pixelCol = vec4(1.0,0.0,0.0,1.0);
         imageStore(outImage, coords, pixelCol);
@@ -717,7 +715,7 @@ void main()
 
     vec3 color = vec3(0.0);
     float meanLumaSquared = 0.0;
-    // TODO: if we collapse the nested for loop, then all GPUs will get `MAX_DEPTH` factor speedup, not just NV with separate PC
+    // TODO: if we collapse the nested for loop, then all GPUs will get `PTPushConstant.depth` factor speedup, not just NV with separate PC
     for (int i=0; i<PTPushConstant.sampleCount; i++)
     {
         nbl_glsl_xoroshiro64star_state_t scramble_state = scramble_start_state;
@@ -755,7 +753,7 @@ void main()
         // bounces
         {
             bool hit = true; bool rayAlive = true;
-            for (int d=1; d<=MAX_DEPTH && hit && rayAlive; d+=2)
+            for (int d=1; d<=PTPushConstant.depth && hit && rayAlive; d+=2)
             {
                 ray._mutable.intersectionT = nbl_glsl_FLT_MAX;
                 ray._mutable.objectID = traceRay(ray._mutable.intersectionT,ray._immutable.origin,ray._immutable.direction);
