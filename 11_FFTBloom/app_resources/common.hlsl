@@ -15,9 +15,8 @@ struct PushConstantData
 	// To save some work, we don't mirror the image along both directions when doing the FFT. This means that when doing the FFT along the second axis, we do an FFT of length
 	// `RoundUpToPoT(imageRowLength + kernelPadding)` where `imageRowLength` is the actual length of the image along the second axis. We need it to keep track of the image's original dimension.
 	// The following three fields being push constants allow dynamic resizing of the image without recompiling shaders (limited by the FFT length)
-	uint32_t imageRowLength;
-	// Mirror indexing uses this, we just precompute it. It's `2 * IRL + 1`, `IRL` being the field above 
-	uint32_t twiceImageRowLengthPlusOne;
+	int32_t imageRowLength; 
+	int32_t imageHalfRowLength;
 	// Used by IFFT to tell if an index belongs to an image or is in the padding
 	uint32_t imageColumnLength;
 	int32_t padding;

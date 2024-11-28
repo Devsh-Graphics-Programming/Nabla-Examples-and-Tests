@@ -8,13 +8,12 @@
 // After first FFT we only store half of a column, so the offset per column is half the image side length
 uint32_t colMajorOffset(uint32_t x, uint32_t y)
 {
-	return x * (FFTParameters::TotalSize / 2) | y;
+	return x * FFTParameters::TotalSize | y;
 }
 
-// We store half of a column, but unlike the kernel we only store as many columns as there actually are in the image
-// We launch one workgroup every two columns in the image, and we only write (per channel) one column per column in the image
-// This is unlike the kernel, in which we always upsample it to nearest PoT
-// So there are `2 * glsl::gl_NumWorkGroups().x` columns per channel, each of size `FFTParameters::TotalSize / 2` (we only store half) and the 2's cancel out
+// Each channel after first FFT will be stored as half the image (every two columns have been packed into one column of complex numbers) in col-major order.
+// We launch one workgroup every two columns in the image, so there are `glsl::gl_NumWorkGroups().x` columns (of complex elements) per channel, 
+// each of size `FFTParameters::TotalSize`
 uint64_t getChannelStartAddress(uint32_t channel)
 {
 	return pushConstants.colMajorBufferAddress + channel * glsl::gl_NumWorkGroups().x * FFTParameters::TotalSize * sizeof(complex_t<scalar_t>);
@@ -49,42 +48,19 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 	}
 
 	// Util to write values to output buffer in column major order - this ensures coalesced writes
-	void storeColMajor(uint32_t index, NBL_CONST_REF_ARG(complex_t<scalar_t>) firstValue, NBL_CONST_REF_ARG(complex_t<scalar_t>) secondValue)
+	void storeColMajor(uint32_t index, NBL_CONST_REF_ARG(complex_t<scalar_t>) value)
 	{
-		colMajorAccessor.set(colMajorOffset(2 * glsl::gl_WorkGroupID().x, index), firstValue);
-		colMajorAccessor.set(colMajorOffset(2 * glsl::gl_WorkGroupID().x + 1, index), secondValue);
+		colMajorAccessor.set(colMajorOffset(glsl::gl_WorkGroupID().x, index), value);
 	}
 
 	// Once the FFT is done, each thread should write its elements back. Storage is in column-major order because this avoids cache misses when writing.
-	// Channels will be contiguous in buffer memory. We only need to store outputs 0 through Nyquist, since the rest can be recovered via complex conjugation:
-	// see https://en.wikipedia.org/wiki/Discrete_Fourier_transform#DFT_of_real_and_purely_imaginary_signals
-	// FFT unpacking rules explained in the readme
-	// Also, elements 0 and Nyquist fit into a single complex element since they're both real, and it's always thread 0 holding these values
-	template<typename sharedmem_adaptor_t>
-	void unload(uint32_t channel, sharedmem_adaptor_t adaptorForSharedMemory)
+	// Channels will be contiguous in buffer memory. 
+	void unload(uint32_t channel)
 	{
-		// Storing even elements of NFFT is storing the bitreversed lower half of DFT - see readme
-		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex += 2)
+		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 		{
-			complex_t<scalar_t> lo, hi;
-			// First element of 0th thread has a special packing rule
-			if (!localElementIndex && !workgroup::SubgroupContiguousIndex())
-			{
-				lo.real(preloaded[0].real());
-				lo.imag(preloaded[1].real());
-				hi.real(preloaded[0].imag());
-				hi.imag(preloaded[1].imag());
-			}
-			else
-			{
-				lo = preloaded[localElementIndex];
-				hi = getDFTMirror<sharedmem_adaptor_t>(localElementIndex, adaptorForSharedMemory);
-				fft::unpack<scalar_t>(lo, hi);
-			}
-			// Divide localElementIdx by 2 to keep even elements packed together when writing
-			storeColMajor(localElementIndex * (WorkgroupSize / 2) | workgroup::SubgroupContiguousIndex(), lo, hi);
+			storeColMajor(localElementIndex * WorkgroupSize | workgroup::SubgroupContiguousIndex(), preloaded[localElementIndex]);
 		}
-
 	}
 	LegacyBdaAccessor<complex_t<scalar_t> > colMajorAccessor;
 };
@@ -93,19 +69,12 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
 	SharedMemoryAccessor sharedmemAccessor;
-	// Set up the memory adaptor
-	using sharedmem_adaptor_t = accessor_adaptors::StructureOfArrays<SharedMemoryAccessor, uint32_t, uint32_t, 1, FFTParameters::WorkgroupSize>;
-	sharedmem_adaptor_t adaptorForSharedMemory;
 
 	PreloadedFirstAxisAccessor preloadedAccessor;
 	for (uint32_t channel = 0; channel < Channels; channel++)
 	{
 		preloadedAccessor.preload(channel);
 		workgroup::FFT<false, FFTParameters>::template __call(preloadedAccessor, sharedmemAccessor);
-		// Update state after FFT run
-		adaptorForSharedMemory.accessor = sharedmemAccessor;
-		preloadedAccessor.unload(channel, adaptorForSharedMemory);
-		// Remember to update the accessor's state
-		sharedmemAccessor = adaptorForSharedMemory.accessor;
+		preloadedAccessor.unload(channel);
 	}
 }

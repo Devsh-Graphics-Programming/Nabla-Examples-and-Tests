@@ -6,7 +6,7 @@
 // ---------------------------------------------------- Utils ---------------------------------------------------------
 uint64_t colMajorOffset(uint32_t x, uint32_t y)
 {
-	return x * glsl::gl_NumWorkGroups().x | y; // can sum with | here because NumWorkGroups is still PoT (has to match half the TotalSize of previous pass)
+	return x * (ConstevalParameters::NumWorkgroups << 1) | y; // can sum with | here because NumWorkGroups is still PoT (has to match half the TotalSize of previous pass)
 }
 
 uint64_t rowMajorOffset(uint32_t x, uint32_t y)
@@ -14,17 +14,17 @@ uint64_t rowMajorOffset(uint32_t x, uint32_t y)
 	return y * pushConstants.imageRowLength + x; // can no longer sum with | since there's no guarantees on row length
 }
 
-// Same as what was used to store in col-major after first axis FFT. This time we launch one workgroup per row so the height of the channel's (half) image is `glsl::gl_NumWorkGroups().x`,
+// Same as what was used to store in col-major after first axis FFT. This time we launch one workgroup per row so the height of the channel's (half) image is ConstevalParameters::NumWorkgroups,
 // and the width (number of columns) is passed as a push constant
 uint64_t getColMajorChannelStartAddress(uint32_t channel)
 {
-	return pushConstants.colMajorBufferAddress + channel * glsl::gl_NumWorkGroups().x * pushConstants.imageRowLength * sizeof(complex_t<scalar_t>);
+	return pushConstants.colMajorBufferAddress + channel * ConstevalParameters::NumWorkgroups * pushConstants.imageRowLength * sizeof(complex_t<scalar_t>);
 }
 
 // Image saved has the same size as image read 
 uint64_t getRowMajorChannelStartAddress(uint32_t channel)
 {
-	return pushConstants.rowMajorBufferAddress + channel * glsl::gl_NumWorkGroups().x * pushConstants.imageRowLength * sizeof(complex_t<scalar_t>);
+	return pushConstants.rowMajorBufferAddress + channel * ConstevalParameters::NumWorkgroups * pushConstants.imageRowLength * sizeof(complex_t<scalar_t>);
 }
 
 
@@ -35,27 +35,92 @@ uint64_t getRowMajorChannelStartAddress(uint32_t channel)
 // where `Z` is the actual 0th row and `N` is the Nyquist row (the one with index TotalSize / 2). Those are packed together
 // so they need to be unpacked properly after FFT like we did earlier.
 
+// Reordering for unpacking on load is used with info from the previous pass FFT
+using PreviousPassFFTIndexingUtils = workgroup::fft::FFTIndexingUtils<ConstevalParameters::PreviousElementsPerInvocationLog2, ConstevalParameters::PreviousWorkgroupSizeLog2>;
+
 struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 {
 	NBL_CONSTEXPR_STATIC_INLINE uint16_t NumWorkgroupsLog2 = ConstevalParameters::NumWorkgroupsLog2;
-	NBL_CONSTEXPR_STATIC_INLINE uint16_t NumWorkgroups = uint16_t(1) << NumWorkgroupsLog2;
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t NumWorkgroups = ConstevalParameters::NumWorkgroups;
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t PreviousWorkgroupSize = uint32_t(ConstevalParameters::PreviousWorkgroupSize);
 	NBL_CONSTEXPR_STATIC_INLINE float32_t TotalSizeReciprocal = ConstevalParameters::TotalSizeReciprocal;
 	NBL_CONSTEXPR_STATIC_INLINE float32_t2 KernelHalfPixelSize;
 
 	NBL_CONSTEXPR_STATIC_INLINE vector<scalar_t, 2> One;
 
+	// The lower half of the DFT is retrieved (in bit-reversed order as an N/2 bit number, N being the length of the whole DFT) as the even elements of the Nabla-ordered FFT.
+	// That is, for the threads in the previous pass you take all `preloaded[0]` elements in thread-ascending order (so preloaded[0] for the 0th thread, then 1st thread etc).
+	// Then you do the same for the next even index of `preloaded` (`prealoded[2]`, `preloaded[4]`, etc).
+	// Every two consecutive threads here have to get the value for the row given by `gl_WorkGroupID().x`, for two consecutive columns which were stored as one column holding the packed FFT.
+	// Except for the special case `gl_WorkGroupID().x = 0`, to unpack the values for the current two columns at `y = NablaFFT[gl_WorkGroupID().x] = DFT[T]` we need the value at 
+	// `NablaFFT[getDFTMirrorIndex(gl_WorkGroupID().x)] = DFT[-T]`. To achieve this, we make the thread with an even ID load the former element and the one with an odd ID load the latter.
+	// Then, we do a subgroup shuffle (`xor`ing with 1) so each even thread shares its value with their corresponding odd thread. Then they perform a computation to retrieve the value
+	// corresponding to the column they correspond to. 
+	// The `gl_WorkGroupID().x = 0` case is special because instead of getting the mirror we need to get both zero and nyquist frequencies for the columns, which doesn't happen just by mirror
+	// indexing. 
 	void preload(uint32_t channel)
 	{
 		// Set up accessor to point at channel offsets
 		bothBuffersAccessor = DoubleLegacyBdaAccessor<complex_t<scalar_t> >::create(getColMajorChannelStartAddress(channel), getRowMajorChannelStartAddress(channel));
 
+		// This one shows up a lot so we give it a name
+		const bool oddThread = glsl::gl_SubgroupInvocationID() & 1u;
+
 		for (uint32_t elementIndex = 0; elementIndex < ElementsPerInvocation; elementIndex++)
 		{
-			const int32_t index = int32_t(WorkgroupSize * elementIndex | workgroup::SubgroupContiguousIndex());
+			// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
+			const int32_t index = int32_t(WorkgroupSize * elementIndex | workgroup::SubgroupContiguousIndex()) / 2;
 			const int32_t paddedIndex = index - pushConstants.padding;
 			int32_t wrappedIndex = paddedIndex < 0 ? ~paddedIndex : paddedIndex; // ~x = - x - 1 in two's complement (except maybe at the borders of representable range) 
-			wrappedIndex = paddedIndex < pushConstants.imageRowLength ? wrappedIndex : pushConstants.twiceImageRowLengthPlusOne - paddedIndex ;
-			preloaded[elementIndex] = bothBuffersAccessor.get(colMajorOffset(wrappedIndex, glsl::gl_WorkGroupID().x));
+			wrappedIndex = paddedIndex < pushConstants.imageHalfRowLength ? wrappedIndex : pushConstants.imageRowLength + ~paddedIndex;
+			// If mirrored, we need to invert which thread is loading lo and which is loading hi
+			bool invert = paddedIndex < 0 || paddedIndex >= pushConstants.imageHalfRowLength;
+			uint32_t y;
+			// Special case where we retrieve 0 and Nyquist
+			if (!glsl::gl_WorkGroupID().x)
+			{
+				// Even thread retrieves Zero, odd thread retrieves Nyquist. Zero is always `preloaded[0]` of the previous FFT's 0th thread, while Nyquist is always `preloaded[1]` of that same thread.
+				// Therefore we know Nyquist ends up exactly at y = PreviousWorkgroupSize
+				y = oddThread ? PreviousWorkgroupSize : 0;
+			}
+			else {
+				// Even thread must index a y corresponding to an even element of the previous FFT pass, and the odd thread must index its DFT Mirror
+				// The math here essentially ensues we enumerate all even elements in order: we alternate `PreviousWorkgroupSize` even elements (all `preloaded[0]` elements of
+				// the previous pass' threads), then `PreviousWorkgroupSize` odd elements (`preloaded[1]`) and so on
+				const uint32_t evenRow = glsl::gl_WorkGroupID().x + ((glsl::gl_WorkGroupID().x / PreviousWorkgroupSize) * PreviousWorkgroupSize);
+				y = oddThread ? PreviousPassFFTIndexingUtils::getNablaMirrorIndex(evenRow) : evenRow;
+			}
+			const complex_t<scalar_t> loOrHi = bothBuffersAccessor.get(colMajorOffset(wrappedIndex, y));
+			/*
+			if (!glsl::gl_WorkGroupID().x && !wrappedIndex)
+				printf("I retrieved %f,%f for channel %u", loOrHi.real(), loOrHi.imag(), channel);
+			*/
+			// Make it a vector so it can be subgroup-shuffled
+			const vector <scalar_t, 2> loOrHiVector = vector <scalar_t, 2>(loOrHi.real(), loOrHi.imag());
+			const vector <scalar_t, 2> otherThreadloOrHiVector = glsl::subgroupShuffleXor< vector <scalar_t, 2> >(loOrHiVector, 1u);
+			const complex_t<scalar_t> otherThreadLoOrHi = { otherThreadloOrHiVector.x, otherThreadloOrHiVector.y };
+			complex_t<scalar_t> lo = ternaryOperator(oddThread, otherThreadLoOrHi, loOrHi);
+			complex_t<scalar_t> hi = ternaryOperator(oddThread, loOrHi, otherThreadLoOrHi);
+			/*
+			if (!glsl::gl_WorkGroupID().x && !wrappedIndex)
+				printf("Before unpacking, my lo is %f,%f and my hi is %f,%f for channel %u", lo.real(), lo.imag(), hi.real(), hi.imag(), channel);
+			*/
+			// Unpacking rules are again special for row holding zero + nyquist
+			if (!glsl::gl_WorkGroupID().x)
+			{
+				// If on 0th row, then `lo` actually holds `Z1 + iZ2` and `hi` holds `N1 + iN2`. We want at the end for `lo` to hold the packed `Z1 + iN1` and `hi` to hold `Z2 + iN2`
+				const scalar_t z2 = lo.imag();
+				lo.imag(hi.real());
+				hi.real(z2);
+			}
+			else {
+				fft::unpack<scalar_t>(lo, hi);
+			}
+			preloaded[elementIndex] = ternaryOperator(oddThread ^ invert, hi, lo);
+			/*
+			if (glsl::gl_WorkGroupID().x == 1 && !wrappedIndex)
+				printf("Just read %f, %f at channel %u", preloaded[elementIndex].real(), preloaded[elementIndex].imag(), channel);
+			*/
 		}
 	}
 

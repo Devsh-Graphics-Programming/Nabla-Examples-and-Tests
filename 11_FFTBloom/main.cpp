@@ -158,6 +158,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 		uint16_t workgroupSizeLog2 = 0;
 		uint16_t2 kernelDimensions = { uint16_t(1), uint16_t(1)};
 		uint16_t numWorkgroupsLog2 = 0;
+		uint16_t previousElementsPerInvocationLog2 = 0;
 		uint16_t previousWorkgroupSizeLog2 = 0;
 		float32_t kernelScale = 1.f;
 		float32_t2 kernelHalfPixelSize = {0.5f, 0.5f};
@@ -168,6 +169,9 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 		std::ostringstream constevalParametersFFTStream;
 		constevalParametersFFTStream << "<" << shaderConstants.elementsPerInvocationLog2 << "," << shaderConstants.workgroupSizeLog2 << "," << (m_useHalfFloats ? "float16_t" : "float32_t") << ">";
 		std::string constevalParametersFFT = constevalParametersFFTStream.str();
+
+		// Get NumWorkgroups
+		const uint32_t numWorkgroups = 1u << shaderConstants.numWorkgroupsLog2;
 
 		// Precompute reciprocal of FFT Length (1 / FFTParameters::TotalSize)
 		const uint32_t totalSize = uint32_t(1) << (shaderConstants.elementsPerInvocationLog2 + shaderConstants.workgroupSizeLog2);
@@ -192,6 +196,9 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 				{
 					using FFTParameters = nbl::hlsl::workgroup::fft::ConstevalParameters)===" << constevalParametersFFT << R"===(;
 					NBL_CONSTEXPR_STATIC_INLINE uint16_t NumWorkgroupsLog2 = )===" << shaderConstants.numWorkgroupsLog2 << R"===(;
+					NBL_CONSTEXPR_STATIC_INLINE uint32_t NumWorkgroups = )===" << numWorkgroups << R"===(;
+					NBL_CONSTEXPR_STATIC_INLINE uint16_t PreviousElementsPerInvocationLog2 = )===" << shaderConstants.previousElementsPerInvocationLog2 << R"===(;
+					NBL_CONSTEXPR_STATIC_INLINE uint16_t PreviousWorkgroupSizeLog2 = )===" << shaderConstants.previousWorkgroupSizeLog2 << R"===(;
 					NBL_CONSTEXPR_STATIC_INLINE uint16_t PreviousWorkgroupSize = )===" << previousWorkgroupSize << R"===(;
 					NBL_CONSTEXPR_STATIC_INLINE float32_t KernelScale = )===" << shaderConstants.kernelScale << R"===(;
 					NBL_CONSTEXPR_STATIC_INLINE float32_t2 KernelDimensions;
@@ -801,6 +808,8 @@ public:
 
 		// Second axis FFT launches an amount of workgroups equal to half of the length of the first axis FFT. Second pass FFT needs the log2 of this number baked in as a constant.
 		uint16_t firstAxisFFTHalfLengthLog2;
+		uint16_t firstAxisFFTElementsPerInvocationLog2;
+		uint16_t firstAxisFFTWorkgroupSizeLog2;
 		smart_refctd_ptr<IGPUShader> shaders[3];
 		{
 			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device.get(), m_marginSrcDim.height);
@@ -809,6 +818,8 @@ public:
 			// IFFT along first axis has same dimensions as FFT
 			shaders[2] = createShader("app_resources/image_ifft_first_axis.hlsl", shaderConstantParameters);
 			firstAxisFFTHalfLengthLog2 = elementsPerInvocationLog2 + workgroupSizeLog2 - 1;
+			firstAxisFFTElementsPerInvocationLog2 = elementsPerInvocationLog2;
+			firstAxisFFTWorkgroupSizeLog2 = workgroupSizeLog2;
 		}
 
 		// Second axis FFT might have different dimensions
@@ -819,7 +830,13 @@ public:
 			float32_t2 kernelHalfPixelSize{ 0.5f,0.5f };
 			kernelHalfPixelSize.x /= kernelImgExtent.width;
 			kernelHalfPixelSize.y /= kernelImgExtent.height;
-			ShaderConstantParameters shaderConstantParameters = { .elementsPerInvocationLog2 = elementsPerInvocationLog2, .workgroupSizeLog2 = workgroupSizeLog2, .numWorkgroupsLog2 = firstAxisFFTHalfLengthLog2, .kernelHalfPixelSize = kernelHalfPixelSize};
+			ShaderConstantParameters shaderConstantParameters = { 
+				.elementsPerInvocationLog2 = elementsPerInvocationLog2, 
+				.workgroupSizeLog2 = workgroupSizeLog2, 
+				.numWorkgroupsLog2 = firstAxisFFTHalfLengthLog2, 
+				.previousElementsPerInvocationLog2 = firstAxisFFTElementsPerInvocationLog2,
+				.previousWorkgroupSizeLog2 = firstAxisFFTWorkgroupSizeLog2, 
+				.kernelHalfPixelSize = kernelHalfPixelSize};
 			shaders[1] = createShader("app_resources/fft_convolve_ifft.hlsl", shaderConstantParameters);
 		}
 
@@ -938,13 +955,14 @@ public:
 		// Push Constants - only need to specify BDAs here
 		const auto& imageExtent = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
 		const int32_t paddingAlongColumns = (core::roundUpToPoT(m_marginSrcDim.height) - imageExtent.height) / 2;
-		const int32_t paddingAlongRows = (core::roundUpToPoT(m_marginSrcDim.width) - imageExtent.width) / 2;
+		// Divide by 4: We have "half the padding" since we're considering half the columns for mirroring along the second axis (we consider packed columns)
+		const int32_t paddingAlongRows = (core::roundUpToPoT(m_marginSrcDim.width) - imageExtent.width) / 4;
 
 		PushConstantData pushConstants;
 		pushConstants.colMajorBufferAddress = m_colMajorBufferAddress;
 		pushConstants.rowMajorBufferAddress = m_rowMajorBufferAddress;
-		pushConstants.imageRowLength = imageExtent.width;
-		pushConstants.twiceImageRowLengthPlusOne = 2 * pushConstants.imageRowLength + 1;
+		pushConstants.imageRowLength = int32_t(imageExtent.width);
+		pushConstants.imageHalfRowLength = imageExtent.width / 2;
 		pushConstants.imageColumnLength = imageExtent.height;
 		pushConstants.padding = paddingAlongColumns;
 
