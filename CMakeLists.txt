@@ -62,6 +62,9 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(27_MPMCScheduler EXCLUDE_FROM_ALL)
 	# add_subdirectory(36_CUDAInterop EXCLUDE_FROM_ALL)
 
+	# Showcase compute pathtracing
+	add_subdirectory(30_ComputeShaderPathTracer EXCLUDE_FROM_ALL)
+
 	add_subdirectory(38_EXRSplit EXCLUDE_FROM_ALL)
 	# if (NBL_BUILD_MITSUBA_LOADER AND NBL_BUILD_OPTIX)
 	#	add_subdirectory(39_DenoiserTonemapper EXCLUDE_FROM_ALL)
