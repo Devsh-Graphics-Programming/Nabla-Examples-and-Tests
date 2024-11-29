@@ -69,14 +69,15 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase<FFTParameters>
 				const vector <scalar_t, 2> loOrHiVector = vector <scalar_t, 2>(loOrHi.real(), loOrHi.imag());
 				const vector <scalar_t, 2> otherThreadloOrHiVector = glsl::subgroupShuffleXor< vector <scalar_t, 2> >(loOrHiVector, 1u);
 				const complex_t<scalar_t> otherThreadLoOrHi = { otherThreadloOrHiVector.x, otherThreadloOrHiVector.y };
-				complex_t<scalar_t> lo = ternaryOperator(oddThread, otherThreadLoOrHi, loOrHi);
-				complex_t<scalar_t> hi = ternaryOperator(oddThread, loOrHi, otherThreadLoOrHi);
 				
-				// If on 0th row, then `lo` actually holds `Z1 + iZ2` and `hi` holds `N1 + iN2`. We want at the end for `lo` to hold the packed `Z1 + iN1` and `hi` to hold `Z2 + iN2`
-				const scalar_t z2 = lo.imag();
-				lo.imag(hi.real());
-				hi.real(z2);
-				preloaded[elementIndex] = ternaryOperator(oddThread, hi, lo);
+				// `lo` holds `Z0 + iZ1` and `hi` holds `N0 + iN1`. We want at the end for `lo` to hold the packed `Z0 + iN0` and `hi` to hold `Z1 + iN1`
+				// For the even thread (`oddThread == false`) `lo = loOrHi` and `hi = otherThreadLoOrHi`. For the odd thread the opposite is true
+
+				// Even thread writes `lo = Z0 + iN0`
+				const complex_t<scalar_t> evenThreadLo = { loOrHi.real(), otherThreadLoOrHi.real() };
+				// Odd thread writes `hi = Z1 + iN1`
+				const complex_t<scalar_t> oddThreadHi = { otherThreadLoOrHi.imag(), loOrHi.imag() };
+				preloaded[elementIndex] = ternaryOperator(oddThread, oddThreadHi, evenThreadLo);
 			}
 		}
 		else
