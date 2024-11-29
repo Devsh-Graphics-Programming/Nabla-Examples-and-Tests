@@ -53,44 +53,53 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase<FFTParameters>
 		// This one shows up a lot so we give it a name
 		const bool oddThread = glsl::gl_SubgroupInvocationID() & 1u;
 
-		for (uint32_t elementIndex = 0; elementIndex < ElementsPerInvocation; elementIndex++)
+		// Special case where we retrieve 0 and Nyquist
+		if (!glsl::gl_WorkGroupID().x)
 		{
-			// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
-			const uint32_t index = (WorkgroupSize * elementIndex | workgroup::SubgroupContiguousIndex()) / 2;
-			uint32_t y;
-			// Special case where we retrieve 0 and Nyquist
-			if (!glsl::gl_WorkGroupID().x)
+			for (uint32_t elementIndex = 0; elementIndex < ElementsPerInvocation; elementIndex++)
 			{
+				// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
+				const uint32_t index = (WorkgroupSize * elementIndex | workgroup::SubgroupContiguousIndex()) / 2;
+				
 				// Even thread retrieves Zero, odd thread retrieves Nyquist. Zero is always `preloaded[0]` of the previous FFT's 0th thread, while Nyquist is always `preloaded[1]` of that same thread.
 				// Therefore we know Nyquist ends up exactly at y = PreviousWorkgroupSize
-				y = oddThread ? PreviousWorkgroupSize : 0;
-			}
-			else {
-				// Even thread must index a y corresponding to an even element of the previous FFT pass, and the odd thread must index its DFT Mirror
-				// The math here essentially ensues we enumerate all even elements in order: we alternate `PreviousWorkgroupSize` even elements (all `preloaded[0]` elements of
-				// the previous pass' threads), then `PreviousWorkgroupSize` odd elements (`preloaded[1]`) and so on
-				const uint32_t evenRow = glsl::gl_WorkGroupID().x + ((glsl::gl_WorkGroupID().x / PreviousWorkgroupSize) * PreviousWorkgroupSize);
-				y = oddThread ? FFTIndexingUtils::getNablaMirrorIndex(evenRow) : evenRow;
-			}
-			const complex_t<scalar_t> loOrHi = bothBuffersAccessor.get(colMajorOffset(index, y));
-			// Make it a vector so it can be subgroup-shuffled
-			const vector <scalar_t, 2> loOrHiVector = vector <scalar_t, 2>(loOrHi.real(), loOrHi.imag());
-			const vector <scalar_t, 2> otherThreadloOrHiVector = glsl::subgroupShuffleXor< vector <scalar_t, 2> >(loOrHiVector, 1u);
-			const complex_t<scalar_t> otherThreadLoOrHi = { otherThreadloOrHiVector.x, otherThreadloOrHiVector.y };
-			complex_t<scalar_t> lo = ternaryOperator(oddThread, otherThreadLoOrHi, loOrHi);
-			complex_t<scalar_t> hi = ternaryOperator(oddThread, loOrHi, otherThreadLoOrHi);
-			// Unpacking rules are again special for row holding zero + nyquist
-			if (!glsl::gl_WorkGroupID().x)
-			{
+				uint32_t y = oddThread ? PreviousWorkgroupSize : 0;
+				const complex_t<scalar_t> loOrHi = bothBuffersAccessor.get(colMajorOffset(index, y));
+				// Make it a vector so it can be subgroup-shuffled
+				const vector <scalar_t, 2> loOrHiVector = vector <scalar_t, 2>(loOrHi.real(), loOrHi.imag());
+				const vector <scalar_t, 2> otherThreadloOrHiVector = glsl::subgroupShuffleXor< vector <scalar_t, 2> >(loOrHiVector, 1u);
+				const complex_t<scalar_t> otherThreadLoOrHi = { otherThreadloOrHiVector.x, otherThreadloOrHiVector.y };
+				complex_t<scalar_t> lo = ternaryOperator(oddThread, otherThreadLoOrHi, loOrHi);
+				complex_t<scalar_t> hi = ternaryOperator(oddThread, loOrHi, otherThreadLoOrHi);
+				
 				// If on 0th row, then `lo` actually holds `Z1 + iZ2` and `hi` holds `N1 + iN2`. We want at the end for `lo` to hold the packed `Z1 + iN1` and `hi` to hold `Z2 + iN2`
 				const scalar_t z2 = lo.imag();
 				lo.imag(hi.real());
 				hi.real(z2);
+				preloaded[elementIndex] = ternaryOperator(oddThread, hi, lo);
 			}
-			else {
+		}
+		else
+		{
+			for (uint32_t elementIndex = 0; elementIndex < ElementsPerInvocation; elementIndex++)
+			{
+				// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
+				const uint32_t index = (WorkgroupSize * elementIndex | workgroup::SubgroupContiguousIndex()) / 2;
+				// Even thread must index a y corresponding to an even element of the previous FFT pass, and the odd thread must index its DFT Mirror
+				// The math here essentially ensues we enumerate all even elements in order: we alternate `PreviousWorkgroupSize` even elements (all `preloaded[0]` elements of
+				// the previous pass' threads), then `PreviousWorkgroupSize` odd elements (`preloaded[1]`) and so on
+				const uint32_t evenRow = glsl::gl_WorkGroupID().x + ((glsl::gl_WorkGroupID().x / PreviousWorkgroupSize) * PreviousWorkgroupSize);
+				uint32_t y = oddThread ? FFTIndexingUtils::getNablaMirrorIndex(evenRow) : evenRow;
+				const complex_t<scalar_t> loOrHi = bothBuffersAccessor.get(colMajorOffset(index, y));
+				// Make it a vector so it can be subgroup-shuffled
+				const vector <scalar_t, 2> loOrHiVector = vector <scalar_t, 2>(loOrHi.real(), loOrHi.imag());
+				const vector <scalar_t, 2> otherThreadloOrHiVector = glsl::subgroupShuffleXor< vector <scalar_t, 2> >(loOrHiVector, 1u);
+				const complex_t<scalar_t> otherThreadLoOrHi = { otherThreadloOrHiVector.x, otherThreadloOrHiVector.y };
+				complex_t<scalar_t> lo = ternaryOperator(oddThread, otherThreadLoOrHi, loOrHi);
+				complex_t<scalar_t> hi = ternaryOperator(oddThread, loOrHi, otherThreadLoOrHi);
 				fft::unpack<scalar_t>(lo, hi);
+				preloaded[elementIndex] = ternaryOperator(oddThread, hi, lo);
 			}
-			preloaded[elementIndex] = ternaryOperator(oddThread, hi, lo);
 		}
 	}
 
