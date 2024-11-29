@@ -78,9 +78,6 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 	std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
 	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 
-	// Profiling
-	uint64_t epochNanoseconds;
-
 	// -------------------------------- WINDOWED APP OVERRIDES ---------------------------------------------------
 	inline bool isComputeOnly() const override { return false; }
 
@@ -954,9 +951,9 @@ public:
 		// Prepare for first axis FFT
 		// Push Constants - only need to specify BDAs here
 		const auto& imageExtent = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
-		const int32_t paddingAlongColumns = (core::roundUpToPoT(m_marginSrcDim.height) - imageExtent.height) / 2;
-		// Divide by 4: We have "half the padding" since we're considering half the columns for mirroring along the second axis (we consider packed columns)
-		const int32_t paddingAlongRows = (core::roundUpToPoT(m_marginSrcDim.width) - imageExtent.width) / 4;
+		const uint32_t paddingAlongColumns = (core::roundUpToPoT(m_marginSrcDim.height) - imageExtent.height) / 2;
+		const uint32_t paddingAlongRows = (core::roundUpToPoT(m_marginSrcDim.width) - imageExtent.width) / 2;
+		const uint32_t halfPaddingAlongRows = paddingAlongRows / 2;
 
 		PushConstantData pushConstants;
 		pushConstants.colMajorBufferAddress = m_colMajorBufferAddress;
@@ -965,6 +962,7 @@ public:
 		pushConstants.imageHalfRowLength = imageExtent.width / 2;
 		pushConstants.imageColumnLength = imageExtent.height;
 		pushConstants.padding = paddingAlongColumns;
+		pushConstants.halfPadding = halfPaddingAlongRows;
 
 		float32_t2 imageHalfPixelSize = { 0.5f, 0.5f };
 		imageHalfPixelSize.x /= imageExtent.width;
@@ -974,10 +972,7 @@ public:
 		pushConstants.imageTwoPixelSize_x = 4.f * imageHalfPixelSize.x;
 
 		// Interpolate between dirac delta and kernel based on current time
-		auto nextEpochNanoSeconds = clock_t::now().time_since_epoch().count();
-		// Show ms per frame
-		std::cout << "mspf: " << (nextEpochNanoSeconds - epochNanoseconds) / 1000000.f << std::endl;
-		epochNanoseconds = nextEpochNanoSeconds;
+		auto epochNanoseconds = clock_t::now().time_since_epoch().count();
 		pushConstants.interpolatingFactor = cos(epochNanoseconds / 1000000000.f) * cos(epochNanoseconds / 1000000000.f);
 
 		cmdBuf->bindComputePipeline(m_firstAxisFFTPipeline.get());

@@ -70,7 +70,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 		{
 			// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
 			const int32_t index = int32_t(WorkgroupSize * elementIndex | workgroup::SubgroupContiguousIndex()) / 2;
-			const int32_t paddedIndex = index - pushConstants.padding;
+			const int32_t paddedIndex = index - pushConstants.halfPadding;
 			int32_t wrappedIndex = paddedIndex < 0 ? ~paddedIndex : paddedIndex; // ~x = - x - 1 in two's complement (except maybe at the borders of representable range) 
 			wrappedIndex = paddedIndex < pushConstants.imageHalfRowLength ? wrappedIndex : pushConstants.imageRowLength + ~paddedIndex;
 			// If mirrored, we need to invert which thread is loading lo and which is loading hi

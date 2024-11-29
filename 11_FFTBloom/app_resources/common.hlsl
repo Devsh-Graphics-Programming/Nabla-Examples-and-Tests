@@ -19,7 +19,8 @@ struct PushConstantData
 	int32_t imageHalfRowLength;
 	// Used by IFFT to tell if an index belongs to an image or is in the padding
 	uint32_t imageColumnLength;
-	int32_t padding;
+	uint32_t padding;
+	uint32_t halfPadding;
 	float32_t2 imageHalfPixelSize;
 	float32_t2 imagePixelSize;
 	float32_t imageTwoPixelSize_x;
