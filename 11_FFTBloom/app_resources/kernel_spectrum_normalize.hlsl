@@ -24,7 +24,8 @@ scalar_t getPower()
 	for (uint32_t channel = 0u; channel < Channels; channel++) {
 		channelWiseSums[channel] = vk::RawBufferLoad<scalar_t>(getChannelStartAddress(channel));
 	}
-	return (mul(colorspace::scRGBtoXYZ, channelWiseSums)).y;
+	// Just need Y
+	return mul(colorspace::scRGBtoXYZ._m10_m11_m12, channelWiseSums);
 }
 
 // Still launching FFTParameters::TotalSize / 2 workgroups
