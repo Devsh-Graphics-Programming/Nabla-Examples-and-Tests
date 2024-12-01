@@ -639,24 +639,26 @@ public:
 	{
 		// TODO: delete all quick tests
 		{
+
+
 			using ef64_t = hlsl::emulated_float64_t<true, true>;
 			nbl::hlsl::array_get<hlsl::emulated_vector_t4<hlsl::emulated_float64_t<true, true>>, hlsl::emulated_float64_t<true, true>> getter;
 			nbl::hlsl::array_set<hlsl::emulated_vector_t4<hlsl::emulated_float64_t<true, true>>, hlsl::emulated_float64_t<true, true>> setter;
-			emulated_vector_t4<ef64_t> dupa;
+			emulated_vector_t4<ef64_t> vec;
 
 			for (int i = 0; i < 4; ++i)
-				setter(dupa, i, hlsl::emulated_float64_t<true, true>::create(i + 0.5));
+				setter(vec, i, hlsl::emulated_float64_t<true, true>::create(i + 0.5));
 
 			for (int i = 0; i < 4; ++i)
 			{
-				auto a = getter(dupa, i).data;
+				auto a = getter(vec, i).data;
 				std::cout << reinterpret_cast<double&>(a) << std::endl;
 			}
 
 			emulated_matrix_t4x4<ef64_t> matrix;
 
 			for (int i = 0; i < 4; ++i)
-				matrix.rows[i] = dupa;
+				matrix.rows[i] = vec;
 
 			auto matrixTransposed = matrix.getTransposed();
 
@@ -670,6 +672,7 @@ public:
 
 				std::cout << '\n';
 			}
+			std::cout << '\n';
 
 			for (int i = 0; i < 4; ++i)
 			{
@@ -681,6 +684,17 @@ public:
 
 				std::cout << '\n';
 			}
+			std::cout << '\n';
+
+			float32_t4 fff;
+			auto dotRes = nbl::hlsl::dot(fff, fff);
+			auto mulResult = nbl::hlsl::mul(matrix, vec);
+
+			for (int i = 0; i < 4; ++i)
+			{
+				//std::cout << getter(mulResult, i).data << ' ';
+			}
+			std::cout << '\n';
 		}
 
 		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));

@@ -40,7 +40,6 @@ public:
         std::fesetround(FE_TOWARDZERO);
 
         nbl::hlsl::emulated_float64_t<false, true> c = nbl::hlsl::emulated_float64_t<false, true>::create(1.0f);
-
         nbl::hlsl::emulated_float64_t<false, true> a = nbl::hlsl::emulated_float64_t<false, true>::create(-59981.1);
         nbl::hlsl::emulated_float64_t<false, true> b = nbl::hlsl::emulated_float64_t<false, true>::create(-78853.9);
         
