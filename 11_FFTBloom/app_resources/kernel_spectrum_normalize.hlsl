@@ -32,8 +32,41 @@ scalar_t getPower()
 void normalizeChannel(uint32_t channel, scalar_t power, LegacyBdaAccessor<complex_t<scalar_t> > rowMajorAccessor)
 {
 	NBL_CONSTEXPR_STATIC_INLINE uint16_t NumWorkgroupsLog2 = ConstevalParameters::NumWorkgroupsLog2;
+	
+	// Most rows have just have to reflect their values along the Nyquist row.
+	// If you'll remember, however, the first axis FFT stored the lower half of the DFT, bit-reversed not as a `log2(FFTSize)` bit number but in the range of the lower half 
+	// (so as a `log2(FFTSize / 2) bit number)`. Which means that whenever we get an element at `x' = index`, `y' = gl_WorkGroupID().x` we must get the actual coordinates of 
+	// the element in the DFT with `x = F(x')` and `y = bitreverse(y')`
+	if (glsl::gl_WorkGroupID().x)
+	{
+		for (uint32_t localElementIndex = 0; localElementIndex < FFTParameters::ElementsPerInvocation; localElementIndex++)
+		{
+			const uint32_t index = FFTParameters::WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex();
+			// Get the element at `x' = index`, `y' = gl_WorkGroupID().x`
+			complex_t<scalar_t> toStore = rowMajorAccessor.get(rowMajorOffset(index, glsl::gl_WorkGroupID().x));
+
+			uint32_t x = FFTIndexingUtils::getDFTIndex(index);
+			uint32_t y = fft::bitReverse<uint32_t, NumWorkgroupsLog2>(glsl::gl_WorkGroupID().x);
+
+			// Store the element 
+			const scalar_t shift = (x + y) & 1 ? scalar_t(-1) : scalar_t(1);
+			toStore = (toStore * shift) / power;
+			vector<scalar_t, 2> toStoreVector = { toStore.real(), toStore.imag() };
+			kernelChannels[uint32_t3(x, y, channel)] = toStoreVector;
+
+			// Store the element at the column mirrored about the Nyquist column (so x'' = mirror(x))
+			// https://en.wikipedia.org/wiki/Discrete_Fourier_transform#Conjugation_in_time
+			// Guess what? The above says the row index is also the mirror about Nyquist! Neat
+			x = FFTIndexingUtils::getDFTMirrorIndex(x);
+			y = FFTIndexingUtils::getDFTMirrorIndex(y);
+			const complex_t<scalar_t> conjugated = conj(toStore);
+			toStoreVector.x = conjugated.real();
+			toStoreVector.y = conjugated.imag();
+			kernelChannels[uint32_t3(x, y, channel)] = toStoreVector;
+		}
+	}
 	// Remember that the first row has packed `Z + iN` so it has to unpack those
-	if (!glsl::gl_WorkGroupID().x)
+	else
 	{
 		// FFT[Z + iN] was stored in the Nabla order, so we need to unpack it differently from what we did in the first axis FFT case - we're going to store it whole
 		for (uint32_t localElementIndex = 0; localElementIndex < FFTParameters::ElementsPerInvocation; localElementIndex++)
@@ -60,38 +93,6 @@ void normalizeChannel(uint32_t channel, scalar_t power, LegacyBdaAccessor<comple
 			nyquist = (nyquist * shift) / power;
 			vector<scalar_t, 2> nyquistVector = { nyquist.real(), nyquist.imag() };
 			kernelChannels[uint32_t3(nyquistCoord, channel)] = nyquistVector;
-		}
-	}
-	// The other rows have easier rules: They have to reflect their values along the Nyquist row
-	// If you'll remember, however, the first axis FFT stored the lower half of the DFT, bit-reversed not as a `log2(FFTSize)` bit number but in the range of the lower half 
-	// (so as a `log2(FFTSize / 2) bit number)`. Which means that whenever we get an element at `x' = index`, `y' = gl_WorkGroupID().x` we must get the actual coordinates of 
-	// the element in the DFT with `x = F(x')` and `y = bitreverse(y')`
-	else
-	{
-		for (uint32_t localElementIndex = 0; localElementIndex < FFTParameters::ElementsPerInvocation; localElementIndex++)
-		{
-			const uint32_t index = FFTParameters::WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex();
-			// Get the element at `x' = index`, `y' = gl_WorkGroupID().x`
-			complex_t<scalar_t> toStore = rowMajorAccessor.get(rowMajorOffset(index, glsl::gl_WorkGroupID().x));
-
-			uint32_t x = FFTIndexingUtils::getDFTIndex(index);
-			uint32_t y = fft::bitReverse<uint32_t, NumWorkgroupsLog2>(glsl::gl_WorkGroupID().x);
-
-			// Store the element 
-			const scalar_t shift = (x + y) & 1 ? scalar_t(-1) : scalar_t(1);
-			toStore = (toStore * shift) / power;
-			vector<scalar_t, 2> toStoreVector = { toStore.real(), toStore.imag() };
-			kernelChannels[uint32_t3(x, y, channel)] = toStoreVector;
-
-			// Store the element at the column mirrored about the Nyquist column (so x'' = mirror(x))
-			// https://en.wikipedia.org/wiki/Discrete_Fourier_transform#Conjugation_in_time
-			// Guess what? The above says the row index is also the mirror about Nyquist! Neat
-			x = FFTIndexingUtils::getDFTMirrorIndex(x);
-			y = FFTIndexingUtils::getDFTMirrorIndex(y);
-			const complex_t<scalar_t> conjugated = conj(toStore);
-			toStoreVector.x = conjugated.real();
-			toStoreVector.y = conjugated.imag();
-			kernelChannels[uint32_t3(x, y, channel)] = toStoreVector;
 		}
 	}
 }

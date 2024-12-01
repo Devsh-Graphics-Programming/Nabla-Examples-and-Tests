@@ -15,6 +15,11 @@ uint64_t getChannelStartAddress(uint32_t channel)
 }
 
 // -------------------------------------------- FIRST AXIS IFFT ------------------------------------------------------------------
+
+// Previous shader stored results unpacked, and we re-pack them before IFFT here. Although re-packing on store achieves a much higher L2 cache hit ratio and depending on the implementation it can be done
+// with no barriers (and reads that all over the place) OR half the amount of barriers done here with the same accesses to memory, the SM throughput inexplicably falls by about 5%.
+// So re-pack on load it is.
+
 struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 {
 	// Each column of the data currently stored in the rowMajorBuffer corresponds to (half) a column of the DFT of a column of the convolved image. With this in mind, knowing that the IFFT will yield
@@ -52,8 +57,15 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 		// add conj(C1) back to have conj(C1) + i * conj(C2).
 		for (uint32_t localElementIndex = 1; localElementIndex < ElementsPerInvocation; localElementIndex += 2)
 		{
+			if (workgroup::SubgroupContiguousIndex() || localElementIndex != 1)
+			{
+				complex_t<scalar_t> otherThreadEven = conj(getDFTMirror<sharedmem_adaptor_t>(localElementIndex, adaptorForSharedMemory));
+				otherThreadEven = otherThreadEven - preloaded[localElementIndex];
+				otherThreadEven = otherThreadEven * scalar_t(-1);
+				preloaded[localElementIndex] = preloaded[localElementIndex] + otherThreadEven;
+			}
 			// Thread 0's first odd element is Nyquist, which was packed alongside Zero - this means that what was said above breaks in this particular case and needs special treatment
-			if (!workgroup::SubgroupContiguousIndex() && 1 == localElementIndex)
+			else
 			{
 				// preloaded[1] currently holds trash - this is because 0 and Nyquist are the only fixed points of T -> -T. 
 				// preloaded[0] currently holds (C1(Z) - C2(N)) + i * (C1(N) + C2(Z)). This is because of how we loaded the even elements of both columns.
@@ -64,13 +76,6 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorMirrorTradeBase
 				preloaded[1] = p1;
 				complex_t<scalar_t> p0 = { preloaded[0].real() + c2.imag() , c2.real() };
 				preloaded[0] = p0;
-			}
-			else
-			{
-				complex_t<scalar_t> otherThreadEven = conj(getDFTMirror<sharedmem_adaptor_t>(localElementIndex, adaptorForSharedMemory));
-				otherThreadEven = otherThreadEven - preloaded[localElementIndex];
-				otherThreadEven = otherThreadEven * scalar_t(-1);
-				preloaded[localElementIndex] = preloaded[localElementIndex] + otherThreadEven;
 			}
 		}
 	}

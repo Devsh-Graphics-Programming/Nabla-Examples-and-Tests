@@ -53,34 +53,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase<FFTParameters>
 		// This one shows up a lot so we give it a name
 		const bool oddThread = glsl::gl_SubgroupInvocationID() & 1u;
 
-		// Special case where we retrieve 0 and Nyquist
-		if (!glsl::gl_WorkGroupID().x)
-		{
-			for (uint32_t elementIndex = 0; elementIndex < ElementsPerInvocation; elementIndex++)
-			{
-				// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
-				const uint32_t index = (WorkgroupSize * elementIndex | workgroup::SubgroupContiguousIndex()) / 2;
-				
-				// Even thread retrieves Zero, odd thread retrieves Nyquist. Zero is always `preloaded[0]` of the previous FFT's 0th thread, while Nyquist is always `preloaded[1]` of that same thread.
-				// Therefore we know Nyquist ends up exactly at y = PreviousWorkgroupSize
-				uint32_t y = oddThread ? PreviousWorkgroupSize : 0;
-				const complex_t<scalar_t> loOrHi = bothBuffersAccessor.get(colMajorOffset(index, y));
-				// Make it a vector so it can be subgroup-shuffled
-				const vector <scalar_t, 2> loOrHiVector = vector <scalar_t, 2>(loOrHi.real(), loOrHi.imag());
-				const vector <scalar_t, 2> otherThreadloOrHiVector = glsl::subgroupShuffleXor< vector <scalar_t, 2> >(loOrHiVector, 1u);
-				const complex_t<scalar_t> otherThreadLoOrHi = { otherThreadloOrHiVector.x, otherThreadloOrHiVector.y };
-				
-				// `lo` holds `Z0 + iZ1` and `hi` holds `N0 + iN1`. We want at the end for `lo` to hold the packed `Z0 + iN0` and `hi` to hold `Z1 + iN1`
-				// For the even thread (`oddThread == false`) `lo = loOrHi` and `hi = otherThreadLoOrHi`. For the odd thread the opposite is true
-
-				// Even thread writes `lo = Z0 + iN0`
-				const complex_t<scalar_t> evenThreadLo = { loOrHi.real(), otherThreadLoOrHi.real() };
-				// Odd thread writes `hi = Z1 + iN1`
-				const complex_t<scalar_t> oddThreadHi = { otherThreadLoOrHi.imag(), loOrHi.imag() };
-				preloaded[elementIndex] = ternaryOperator(oddThread, oddThreadHi, evenThreadLo);
-			}
-		}
-		else
+		if (glsl::gl_WorkGroupID().x)
 		{
 			for (uint32_t elementIndex = 0; elementIndex < ElementsPerInvocation; elementIndex++)
 			{
@@ -100,6 +73,33 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorBase<FFTParameters>
 				complex_t<scalar_t> hi = ternaryOperator(oddThread, loOrHi, otherThreadLoOrHi);
 				fft::unpack<scalar_t>(lo, hi);
 				preloaded[elementIndex] = ternaryOperator(oddThread, hi, lo);
+			}
+		}
+		// Special case where we retrieve 0 and Nyquist
+		else
+		{
+			for (uint32_t elementIndex = 0; elementIndex < ElementsPerInvocation; elementIndex++)
+			{
+				// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
+				const uint32_t index = (WorkgroupSize * elementIndex | workgroup::SubgroupContiguousIndex()) / 2;
+
+				// Even thread retrieves Zero, odd thread retrieves Nyquist. Zero is always `preloaded[0]` of the previous FFT's 0th thread, while Nyquist is always `preloaded[1]` of that same thread.
+				// Therefore we know Nyquist ends up exactly at y = PreviousWorkgroupSize
+				uint32_t y = oddThread ? PreviousWorkgroupSize : 0;
+				const complex_t<scalar_t> loOrHi = bothBuffersAccessor.get(colMajorOffset(index, y));
+				// Make it a vector so it can be subgroup-shuffled
+				const vector <scalar_t, 2> loOrHiVector = vector <scalar_t, 2>(loOrHi.real(), loOrHi.imag());
+				const vector <scalar_t, 2> otherThreadloOrHiVector = glsl::subgroupShuffleXor< vector <scalar_t, 2> >(loOrHiVector, 1u);
+				const complex_t<scalar_t> otherThreadLoOrHi = { otherThreadloOrHiVector.x, otherThreadloOrHiVector.y };
+
+				// `lo` holds `Z0 + iZ1` and `hi` holds `N0 + iN1`. We want at the end for `lo` to hold the packed `Z0 + iN0` and `hi` to hold `Z1 + iN1`
+				// For the even thread (`oddThread == false`) `lo = loOrHi` and `hi = otherThreadLoOrHi`. For the odd thread the opposite is true
+
+				// Even thread writes `lo = Z0 + iN0`
+				const complex_t<scalar_t> evenThreadLo = { loOrHi.real(), otherThreadLoOrHi.real() };
+				// Odd thread writes `hi = Z1 + iN1`
+				const complex_t<scalar_t> oddThreadHi = { otherThreadLoOrHi.imag(), loOrHi.imag() };
+				preloaded[elementIndex] = ternaryOperator(oddThread, oddThreadHi, evenThreadLo);
 			}
 		}
 	}

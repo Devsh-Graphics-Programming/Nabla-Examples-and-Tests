@@ -23,8 +23,8 @@ using namespace ui;
 #include "nbl/builtin/hlsl/workgroup/fft.hlsl"
 
 // Defaults that match this example's image
-#define WIN_W 1280
-#define WIN_H 720
+constexpr uint32_t WIN_W = 1280;
+constexpr uint32_t WIN_H = 720;
 
 class FFTBloomApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
@@ -661,7 +661,7 @@ public:
 			shaders[2] = createShader("app_resources/kernel_spectrum_normalize.hlsl", shaderConstantParameters);
 
 			// Create compute pipelines - First axis FFT -> Second axis FFT -> Normalization
-			IGPUComputePipeline::SCreationParams params[3];
+			IGPUComputePipeline::SCreationParams params[3] = {};
 			for (auto i = 0u; i < 3; i++)
 			{
 				params[i].layout = pipelineLayout.get();
@@ -747,6 +747,7 @@ public:
 			imagePipelineBarrierInfo.imgBarriers = { imgBarriers, 2 };
 
 			// outImage just needs a layout transition before it can be written to
+			// Masks left empty because we will wait on device idle at the end of app initialization anyway
 			imgBarriers[0].image = m_outImgView->getCreationParameters().image.get();
 			imgBarriers[0].barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::NONE;
 			imgBarriers[0].barrier.dep.srcAccessMask = ACCESS_FLAGS::NONE;
@@ -886,7 +887,7 @@ public:
 
 		}
 		// Block and wait until kernel FFT is done before we drop the pipelines.
-		// Ideally not be lazy and create a latch that does nothing but capture the pipelines and gets called when scratch semaphore is signalled
+		// One could instead opt to create a latch that does nothing but capture the pipelines and gets called when semaphore is signalled.
 		// IMPORTANT: This wait offsets our frames in flight math by 1, so it's important to remember it
 		const ISemaphore::SWaitInfo waitInfo = { m_timeline.get(), 1 };
 
@@ -1035,8 +1036,8 @@ public:
 			},
 			.image = m_outImgView->getCreationParameters().image.get(),
 			.subresourceRange = whole2DColorImage,
-			.oldLayout = IImage::LAYOUT::GENERAL,
-			.newLayout = IImage::LAYOUT::GENERAL
+			.oldLayout = IImage::LAYOUT::UNDEFINED,
+			.newLayout = IImage::LAYOUT::UNDEFINED
 			};
 
 			// special case, the swapchain is a NONE stage with NONE accesses
@@ -1091,7 +1092,7 @@ public:
 			{
 				{
 					.semaphore = m_timeline.get(),
-					.value = ++m_realFrameIx,
+					.value = ++m_realFrameIx + 1, // The +1 here is to account for the first submit on this semaphore on kernel precomp
 					.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS // because of the layout transition of the swapchain image
 				}
 			};

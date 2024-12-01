@@ -36,8 +36,8 @@ struct PreloadedFirstAxisAccessor : PreloadedAccessorBase<FFTParameters>
 	{
 		float32_t2 normalizedCoordsFirstLine, normalizedCoordsSecondLine;
 		// Good compiler turns this into a single FMA
-		normalizedCoordsFirstLine.x = float32_t(glsl::gl_WorkGroupID().x) * 2 / (KernelDimensions.x * KernelScale) + 0.5f / (KernelDimensions.x * KernelScale);
-		normalizedCoordsSecondLine.x = normalizedCoordsFirstLine.x + 1 / (KernelDimensions.x * KernelScale);
+		normalizedCoordsFirstLine.x = float32_t(glsl::gl_WorkGroupID().x) * 2.f / (KernelDimensions.x * KernelScale) + 0.5f / (KernelDimensions.x * KernelScale);
+		normalizedCoordsSecondLine.x = normalizedCoordsFirstLine.x + 1.f / (KernelDimensions.x * KernelScale);
 
 		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 		{

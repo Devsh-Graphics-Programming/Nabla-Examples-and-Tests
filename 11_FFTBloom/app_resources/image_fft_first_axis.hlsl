@@ -25,6 +25,7 @@ uint64_t getChannelStartAddress(uint32_t channel)
 // Each Workgroup computes the FFT along two consecutive vertical scanlines (fixed x for the whole Workgroup) so we use `2 * gl_WorkGroupID().x, 2 * gl_WorkGroupID().x + 1` 
 // to get the x coordinates for each of the consecutive lines. This time we launch `inputImageSize.x / 2` workgroups 
 
+// After first axis FFT we store results packed. This is because unpacking on load is faster: Unpacking on store would require many workgroup shuffles, which incur a barrier
 struct PreloadedFirstAxisAccessor : PreloadedAccessorBase<FFTParameters>
 {
 	void preload(uint32_t channel)
