@@ -500,7 +500,6 @@ struct ResourcesBundle : public virtual nbl::core::IReferenceCounted
 
 struct ObjectInstance
 {
-	nbl::hlsl::float32_t3x4 model = nbl::hlsl::float32_t3x4(1.f);
 	nbl::asset::SBasicViewParameters viewParameters;
 	ObjectMeta meta;
 };
