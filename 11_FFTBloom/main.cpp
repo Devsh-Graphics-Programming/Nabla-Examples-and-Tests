@@ -711,16 +711,6 @@ public:
 			bufBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
 			bufBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
 
-			kernelPrecompCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
-
-			// Now do second axis FFT
-			kernelPrecompCmdBuf->bindComputePipeline(pipelines[1].get());
-			// Same number of workgroups - this time because we only saved half the rows
-			kernelPrecompCmdBuf->dispatch(kerDim.width / 2, 1, 1);
-
-			// Recycle the pipelineBarrierInfo since it's identical, just change buffer access: Second axis FFT writes to rowMajorBuffer
-			bufBarrier.range.buffer = m_rowMajorBuffer;
-
 			// Also set kernel channel image array to GENERAL for writing
 			decltype(pipelineBarrierInfo)::image_barrier_t imgBarrier = {};
 			pipelineBarrierInfo.imgBarriers = { &imgBarrier, 1 };
@@ -738,8 +728,31 @@ public:
 
 			kernelPrecompCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
 
+			// Now do second axis FFT
+			kernelPrecompCmdBuf->bindComputePipeline(pipelines[1].get());
+			// Same number of workgroups - this time because we only saved half the rows
+			kernelPrecompCmdBuf->dispatch(kerDim.width / 2, 1, 1);
+
+			// Wait on second axis FFT to write the kernel image before running normalization step
+			// Recycle pipeline info, get rid of buffer barriers
+			pipelineBarrierInfo.bufBarriers = std::span<decltype(pipelineBarrierInfo)::buffer_barrier_t>();
+
+			// No layout transition now
+			imgBarrier.oldLayout = IImage::LAYOUT::UNDEFINED;
+			imgBarrier.newLayout = IImage::LAYOUT::UNDEFINED;
+
+			// Wait on second axis FFT write ...
+			imgBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+			imgBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
+			// ... before normalization read
+			imgBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+			imgBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+
+			kernelPrecompCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
+
 			//Finally, normalize kernel Image - same number of workgroups
 			kernelPrecompCmdBuf->bindComputePipeline(pipelines[2].get());
+			// Hardcoded 8x8 workgroup seems to be optimal for tex access
 			kernelPrecompCmdBuf->dispatch(kerDim.width / 8, kerDim.height / 8, 1);
 
 			// Pipeline barrier: transition kernel spectrum images into read only, and outImage into general
