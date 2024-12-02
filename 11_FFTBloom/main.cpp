@@ -667,8 +667,7 @@ public:
 				params[i].layout = pipelineLayout.get();
 				params[i].shader.entryPoint = "main";
 				params[i].shader.shader = shaders[i].get();
-				// Normalization does not require full subgroups
-				params[i].shader.requireFullSubgroups = bool(2 - i);
+				params[i].shader.requireFullSubgroups = true;
 			}
 			
 			smart_refctd_ptr<IGPUComputePipeline> pipelines[3];
@@ -740,7 +739,7 @@ public:
 
 			//Finally, normalize kernel Image - same number of workgroups
 			kernelPrecompCmdBuf->bindComputePipeline(pipelines[2].get());
-			kernelPrecompCmdBuf->dispatch(kerDim.width / 8, kerDim.height / 8, 1);
+			kernelPrecompCmdBuf->dispatch(kerDim.width / 2, 1, 1);
 
 			// Pipeline barrier: transition kernel spectrum images into read only, and outImage into general
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo imagePipelineBarrierInfo = {};
