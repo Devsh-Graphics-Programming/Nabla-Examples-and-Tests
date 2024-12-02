@@ -148,6 +148,8 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex += 2)
 			{
 				complex_t<scalar_t> zero = preloaded[localElementIndex];
+				// Either wait on FFT pass or previous iteration's workgroup shuffle
+				adaptorForSharedMemory.workgroupExecutionAndMemoryBarrier();
 				complex_t<scalar_t> nyquist = getDFTMirror<sharedmem_adaptor_t>(localElementIndex, adaptorForSharedMemory);
 
 				fft::unpack<scalar_t>(zero, nyquist);
@@ -183,6 +185,8 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				const uint32_t otherThreadGlobalElementIndex = WorkgroupSize * localElementIndex | otherThreadID;
 				const uint32_t elementToTradeGlobalIdx = FFTIndexingUtils::getNablaMirrorIndex(otherThreadGlobalElementIndex);
 				const uint32_t elementToTradeLocalIdx = elementToTradeGlobalIdx / WorkgroupSize;
+				// Make sure the `getDFTMirror` at the top is done
+				adaptorForSharedMemory.workgroupExecutionAndMemoryBarrier();
 				workgroup::Shuffle<sharedmem_adaptor_t, vector<scalar_t, 2> >::__call(mirroredVector, otherThreadID, adaptorForSharedMemory);
 				preloaded[elementToTradeLocalIdx].real(mirroredVector.x);
 				preloaded[elementToTradeLocalIdx].imag(mirroredVector.y);
@@ -221,12 +225,17 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	for (uint16_t channel = 0; channel < Channels; channel++)
 	{
 		preloadedAccessor.preload(channel);
+		// Wait on previous pass FFT
+		if(channel)
+			sharedmemAccessor.workgroupExecutionAndMemoryBarrier();
 		workgroup::FFT<false, FFTParameters>::template __call(preloadedAccessor, sharedmemAccessor);
 		// Update state after FFT run
 		adaptorForSharedMemory.accessor = sharedmemAccessor;
 		preloadedAccessor.convolve(channel, adaptorForSharedMemory);
 		// Remember to update the accessor's state
 		sharedmemAccessor = adaptorForSharedMemory.accessor;
+		// Either wait on FFT (most workgroups but 0) or convolution (only 0th workgroup actually uses sharedmem for convolution)
+		sharedmemAccessor.workgroupExecutionAndMemoryBarrier();
 		workgroup::FFT<true, FFTParameters>::template __call(preloadedAccessor, sharedmemAccessor);
 		preloadedAccessor.unload(channel);
 	}

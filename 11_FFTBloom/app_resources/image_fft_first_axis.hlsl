@@ -79,6 +79,9 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	for (uint16_t channel = 0; channel < Channels; channel++)
 	{
 		preloadedAccessor.currentChannel = channel;
+		// Wait on previous FFT pass to ensure no thread is on previous FFT trying to read from sharedmem
+		if (channel)
+			sharedmemAccessor.workgroupExecutionAndMemoryBarrier();
 		workgroup::FFT<false, FFTParameters>::template __call(preloadedAccessor, sharedmemAccessor);
 	}
 	preloadedAccessor.unload();
