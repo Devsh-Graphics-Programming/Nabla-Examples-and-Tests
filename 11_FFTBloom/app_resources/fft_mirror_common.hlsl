@@ -1,7 +1,7 @@
 #include "fft_common.hlsl"
 
-struct PreloadedAccessorMirrorTradeBase : PreloadedAccessorBase<FFTParameters> {
-	
+struct PreloadedAccessorMirrorTradeBase : PreloadedAccessorBase
+{
 	// TODO: Explain this a bit better in the readme
 	// Some operations require a thread to have both elements `DFT[T]` and `DFT[-T]` (where the latter is the mirror around Nyquist, or the "negative frequency" of T). For example,
 	// this is needed when unpacking two different FFTs of real sequences `x, y` from the FFT of a single packed sequence `z = x + iy`. 
@@ -26,6 +26,26 @@ struct PreloadedAccessorMirrorTradeBase : PreloadedAccessorBase<FFTParameters> {
 		uint32_t elementToTradeGlobalIdx = FFTIndexingUtils::getNablaMirrorIndex(otherThreadGlobalElementIdx);
 		uint32_t elementToTradeLocalIdx = elementToTradeGlobalIdx / WorkgroupSize;
 		complex_t<scalar_t> toTrade = preloaded[elementToTradeLocalIdx];
+		vector<scalar_t, 2> toTradeVector = { toTrade.real(), toTrade.imag() };
+		workgroup::Shuffle<sharedmem_adaptor_t, vector<scalar_t, 2> >::__call(toTradeVector, otherThreadID, adaptorForSharedMemory);
+		toTrade.real(toTradeVector.x);
+		toTrade.imag(toTradeVector.y);
+		return toTrade;
+	}
+};
+
+struct MultiChannelPreloadedAccessorMirrorTradeBase : MultiChannelPreloadedAccessorBase
+{
+	template<typename sharedmem_adaptor_t>
+	complex_t<scalar_t> getDFTMirror(uint32_t localElementIdx, uint16_t channel, sharedmem_adaptor_t adaptorForSharedMemory)
+	{
+		uint32_t globalElementIdx = localElementIdx * WorkgroupSize | workgroup::SubgroupContiguousIndex();
+		uint32_t otherElementIdx = FFTIndexingUtils::getNablaMirrorIndex(globalElementIdx);
+		uint32_t otherThreadID = otherElementIdx & (WorkgroupSize - 1);
+		uint32_t otherThreadGlobalElementIdx = localElementIdx * WorkgroupSize | otherThreadID;
+		uint32_t elementToTradeGlobalIdx = FFTIndexingUtils::getNablaMirrorIndex(otherThreadGlobalElementIdx);
+		uint32_t elementToTradeLocalIdx = elementToTradeGlobalIdx / WorkgroupSize;
+		complex_t<scalar_t> toTrade = preloaded[channel][elementToTradeLocalIdx];
 		vector<scalar_t, 2> toTradeVector = { toTrade.real(), toTrade.imag() };
 		workgroup::Shuffle<sharedmem_adaptor_t, vector<scalar_t, 2> >::__call(toTradeVector, otherThreadID, adaptorForSharedMemory);
 		toTrade.real(toTradeVector.x);

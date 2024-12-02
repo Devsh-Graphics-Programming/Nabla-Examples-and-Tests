@@ -3,31 +3,6 @@
 [[vk::binding(3, 0)]] Texture2DArray<float32_t2> kernelChannels;
 [[vk::binding(1, 0)]] SamplerState samplerState;
 
-// ---------------------------------------------------- Utils ---------------------------------------------------------
-uint64_t colMajorOffset(uint32_t x, uint32_t y)
-{
-	return x * (ConstevalParameters::NumWorkgroups << 1) | y; // can sum with | here because NumWorkGroups is still PoT (has to match half the TotalSize of previous pass)
-}
-
-uint64_t rowMajorOffset(uint32_t x, uint32_t y)
-{
-	return y * pushConstants.imageRowLength + x; // can no longer sum with | since there's no guarantees on row length
-}
-
-// Same as what was used to store in col-major after first axis FFT. This time we launch one workgroup per row so the height of the channel's (half) image is ConstevalParameters::NumWorkgroups,
-// and the width (number of columns) is passed as a push constant
-uint64_t getColMajorChannelStartAddress(uint32_t channel)
-{
-	return pushConstants.colMajorBufferAddress + channel * ConstevalParameters::NumWorkgroups * pushConstants.imageRowLength * sizeof(complex_t<scalar_t>);
-}
-
-// Image saved has the same size as image read 
-uint64_t getRowMajorChannelStartAddress(uint32_t channel)
-{
-	return pushConstants.rowMajorBufferAddress + channel * ConstevalParameters::NumWorkgroups * pushConstants.imageRowLength * sizeof(complex_t<scalar_t>);
-}
-
-
 // ------------------------------------------ SECOND AXIS FFT + CONVOLUTION + IFFT -------------------------------------------------------------
 
 // This time each Workgroup will compute the FFT along a horizontal line (fixed y for the whole Workgroup). We get the y coordinate for the
@@ -48,6 +23,26 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 
 	NBL_CONSTEXPR_STATIC_INLINE vector<scalar_t, 2> One;
 
+	// ---------------------------------------------------- Utils ---------------------------------------------------------
+	uint32_t colMajorOffset(uint32_t x, uint32_t y)
+	{
+		return x * (NumWorkgroups << 1) | y; // can sum with | here because NumWorkGroups is still PoT (has to match half the TotalSize of previous pass)
+	}
+
+	uint32_t rowMajorOffset(uint32_t x, uint32_t y)
+	{
+		return y * pushConstants.imageRowLength + x; // can no longer sum with | since there's no guarantees on row length
+	}
+
+	// Same as what was used to store in col-major after first axis FFT. This time we launch one workgroup per row so the height of the channel's (half) image is NumWorkgroups,
+	// and the width (number of columns) is passed as a push constant
+	uint64_t getChannelStartOffsetBytes(uint16_t channel)
+	{
+		return uint64_t(channel) * NumWorkgroups * pushConstants.imageRowLength * sizeof(complex_t<scalar_t>);
+	}
+
+	// ---------------------------------------------------- End Utils ---------------------------------------------------------
+
 	// The lower half of the DFT is retrieved (in bit-reversed order as an N/2 bit number, N being the length of the whole DFT) as the even elements of the Nabla-ordered FFT.
 	// That is, for the threads in the previous pass you take all `preloaded[0]` elements in thread-ascending order (so preloaded[0] for the 0th thread, then 1st thread etc).
 	// Then you do the same for the next even index of `preloaded` (`prealoded[2]`, `preloaded[4]`, etc).
@@ -58,10 +53,11 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 	// corresponding to the column they correspond to. 
 	// The `gl_WorkGroupID().x = 0` case is special because instead of getting the mirror we need to get both zero and nyquist frequencies for the columns, which doesn't happen just by mirror
 	// indexing. 
-	void preload(uint32_t channel)
+	void preload(uint16_t channel)
 	{
-		// Set up accessor to point at channel offsets
-		bothBuffersAccessor = DoubleLegacyBdaAccessor<complex_t<scalar_t> >::create(getColMajorChannelStartAddress(channel), getRowMajorChannelStartAddress(channel));
+		// Set up accessor to read in data
+		const uint64_t channelStartOffsetBytes = getChannelStartOffsetBytes(channel);
+		const LegacyBdaAccessor<complex_t<scalar_t> > colMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.colMajorBufferAddress + channelStartOffsetBytes);
 
 		// This one shows up a lot so we give it a name
 		const bool oddThread = glsl::gl_SubgroupInvocationID() & 1u;
@@ -82,7 +78,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				// the previous pass' threads), then `PreviousWorkgroupSize` odd elements (`preloaded[1]`) and so on
 				const uint32_t evenRow = glsl::gl_WorkGroupID().x + ((glsl::gl_WorkGroupID().x / PreviousWorkgroupSize) * PreviousWorkgroupSize);
 				uint32_t y = oddThread ? PreviousPassFFTIndexingUtils::getNablaMirrorIndex(evenRow) : evenRow;
-				const complex_t<scalar_t> loOrHi = bothBuffersAccessor.get(colMajorOffset(wrappedIndex, y));
+				const complex_t<scalar_t> loOrHi = colMajorAccessor.get(colMajorOffset(wrappedIndex, y));
 				// Make it a vector so it can be subgroup-shuffled
 				const vector <scalar_t, 2> loOrHiVector = vector <scalar_t, 2>(loOrHi.real(), loOrHi.imag());
 				const vector <scalar_t, 2> otherThreadloOrHiVector = glsl::subgroupShuffleXor< vector <scalar_t, 2> >(loOrHiVector, 1u);
@@ -108,7 +104,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				// Even thread retrieves Zero, odd thread retrieves Nyquist. Zero is always `preloaded[0]` of the previous FFT's 0th thread, while Nyquist is always `preloaded[1]` of that same thread.
 				// Therefore we know Nyquist ends up exactly at y = PreviousWorkgroupSize
 				uint32_t y = oddThread ? PreviousWorkgroupSize : 0;
-				const complex_t<scalar_t> loOrHi = bothBuffersAccessor.get(colMajorOffset(wrappedIndex, y));
+				const complex_t<scalar_t> loOrHi = colMajorAccessor.get(colMajorOffset(wrappedIndex, y));
 				// Make it a vector so it can be subgroup-shuffled
 				const vector <scalar_t, 2> loOrHiVector = vector <scalar_t, 2>(loOrHi.real(), loOrHi.imag());
 				const vector <scalar_t, 2> otherThreadloOrHiVector = glsl::subgroupShuffleXor< vector <scalar_t, 2> >(loOrHiVector, 1u);
@@ -195,22 +191,21 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 	}
 
 	// Save a row back in row major order. Remember that the first row (one with `gl_WorkGroupID().x == 0`) will actually hold the packed IFFT of Zero and Nyquist rows.
-	void unload(uint32_t channel)
+	void unload(uint16_t channel)
 	{
-		const uint64_t startAddress = getRowMajorChannelStartAddress(channel);
+		// Set up accessor to write out data
+		const uint64_t channelStartOffsetBytes = getChannelStartOffsetBytes(channel);
+		const LegacyBdaAccessor<complex_t<scalar_t> > rowMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.rowMajorBufferAddress + channelStartOffsetBytes);
 
 		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 		{
 			const int32_t globalElementIndex = int32_t(WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex());
 			const int32_t paddedIndex = globalElementIndex - pushConstants.padding;
 			if (paddedIndex >= 0 && paddedIndex < pushConstants.imageRowLength)
-				bothBuffersAccessor.set(rowMajorOffset(paddedIndex, glsl::gl_WorkGroupID().x), preloaded[localElementIndex]);
+				rowMajorAccessor.set(rowMajorOffset(paddedIndex, glsl::gl_WorkGroupID().x), preloaded[localElementIndex]);
 		}
 	}
-
-	DoubleLegacyBdaAccessor<complex_t<scalar_t> > bothBuffersAccessor;
 };
-
 NBL_CONSTEXPR_STATIC_INLINE float32_t2 PreloadedSecondAxisAccessor::KernelHalfPixelSize = ConstevalParameters::KernelHalfPixelSize;
 NBL_CONSTEXPR_STATIC_INLINE vector<scalar_t, 2> PreloadedSecondAxisAccessor::One = {1.0f, 0.f};
 
@@ -223,7 +218,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	sharedmem_adaptor_t adaptorForSharedMemory;
 
 	PreloadedSecondAxisAccessor preloadedAccessor;
-	for (uint32_t channel = 0; channel < Channels; channel++)
+	for (uint16_t channel = 0; channel < Channels; channel++)
 	{
 		preloadedAccessor.preload(channel);
 		workgroup::FFT<false, FFTParameters>::template __call(preloadedAccessor, sharedmemAccessor);
