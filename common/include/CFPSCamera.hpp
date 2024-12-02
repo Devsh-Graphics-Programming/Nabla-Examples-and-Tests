@@ -98,8 +98,8 @@ public:
 private:
     typename base_t::CGimbal m_gimbal;
 
-    static inline constexpr auto AllowedLocalVirtualEvents = CVirtualGimbalEvent::MoveForward | CVirtualGimbalEvent::MoveBackward | CVirtualGimbalEvent::MoveRight | CVirtualGimbalEvent::MoveLeft | CVirtualGimbalEvent::TiltUp | CVirtualGimbalEvent::TiltDown | CVirtualGimbalEvent::PanRight | CVirtualGimbalEvent::PanLeft;
-    static inline constexpr auto AllowedWorldVirtualEvents = AllowedLocalVirtualEvents | CVirtualGimbalEvent::Translate;
+    static inline constexpr auto AllowedLocalVirtualEvents = CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::TiltUp | CVirtualGimbalEvent::TiltDown | CVirtualGimbalEvent::PanRight | CVirtualGimbalEvent::PanLeft;
+    static inline constexpr auto AllowedWorldVirtualEvents = AllowedLocalVirtualEvents;
 
     static inline const auto m_keyboard_to_virtual_events_preset = []()
     {
@@ -137,6 +137,8 @@ private:
         preset[CVirtualGimbalEvent::MoveBackward] = CVirtualGimbalEvent::MoveBackward;
         preset[CVirtualGimbalEvent::MoveLeft] = CVirtualGimbalEvent::MoveLeft;
         preset[CVirtualGimbalEvent::MoveRight] = CVirtualGimbalEvent::MoveRight;
+        preset[CVirtualGimbalEvent::MoveUp] = CVirtualGimbalEvent::MoveUp;
+        preset[CVirtualGimbalEvent::MoveDown] = CVirtualGimbalEvent::MoveDown;
         preset[CVirtualGimbalEvent::TiltDown] = CVirtualGimbalEvent::TiltDown;
         preset[CVirtualGimbalEvent::TiltUp] = CVirtualGimbalEvent::TiltUp;
         preset[CVirtualGimbalEvent::PanLeft] = CVirtualGimbalEvent::PanLeft;
