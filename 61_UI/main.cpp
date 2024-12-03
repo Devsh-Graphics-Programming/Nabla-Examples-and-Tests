@@ -1021,7 +1021,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 				// ImGuizmo manipulations on the last used model matrix
 				TransformEditor(lastUsedModel);
+				uint32_t gizmoID = {};
+				bool manipulatedFromAnyWindow = false;
 
+				// we have 2 GUI windows we render into with FBOs
 				for (uint32_t windowIndex = 0; windowIndex < 2u; ++windowIndex)
 				{
 					auto* cameraView = views[windowIndex];
@@ -1029,6 +1032,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					TransformStart(windowIndex);
 
+					// but only 2 objects with matrices we will try to manipulate & we can do this from both windows!
+					// however note it only makes sense to obsly assume we cannot manipulate 2 objects at the same time
 					for (uint32_t matId = 0; matId < 2; matId++)
 					{
 						if(matId == 0)
@@ -1036,22 +1041,34 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						else
 							ImGuizmo::AllowAxisFlip(false);
 
-						// we must work on copies otherwise we enter bug zone, you need to be careful to not edit the same model twice since we share them with camera fbos
+						// and because of imguizmo API usage to achive it we must work on copies & filter the output (unless we try enable/disable logic described bellow) 
+						// -> in general again we need to be careful to not edit the same model twice
 						auto model = imguizmoM16InOut.inModel[matId];
 						float32_t4x4 deltaOutputTRS;
 
-						ImGuizmo::PushID(matId);
+						// note we also need to take care of unique gizmo IDs, we have in total 4 gizmos even though we only want to manipulate 2 objects in total
+						ImGuizmo::PushID(gizmoID);
 
 						ImGuiIO& io = ImGui::GetIO();
-						bool success = ImGuizmo::Manipulate(cameraView, cameraProjection, mCurrentGizmoOperation, mCurrentGizmoMode, &model[0][0], &deltaOutputTRS[0][0], useSnap ? &snap[0] : NULL);
+						const bool success = ImGuizmo::Manipulate(cameraView, cameraProjection, mCurrentGizmoOperation, mCurrentGizmoMode, &model[0][0], &deltaOutputTRS[0][0], useSnap ? &snap[0] : NULL);
 
-						imguizmoM16InOut.outModel[matId] = model;
-						imguizmoM16InOut.outDeltaTRS[matId] = deltaOutputTRS;
+						// we manipulated a gizmo from a X-th window, now we update output matrices and assume no more gizmos can be manipulated at the same frame
+						// here we could also extend the logic & keep track of the gizmo being handled and as long as its manipulated (hold by mouse) -> then given ID of this gizmo we would
+						// enable it & disable all other gizmos till we finish the manipulation
+						if (!manipulatedFromAnyWindow)
+						{
+							imguizmoM16InOut.outModel[matId] = model;
+							imguizmoM16InOut.outDeltaTRS[matId] = deltaOutputTRS;
+						}
+
+						if (success)
+							manipulatedFromAnyWindow = true;
 						
 						if (ImGuizmo::IsUsing())
 							lastUsing = matId;
 
 						ImGuizmo::PopID();
+						++gizmoID;
 					}
 
 					TransformEnd();
