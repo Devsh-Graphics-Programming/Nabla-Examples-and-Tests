@@ -9,24 +9,21 @@ struct PreloadedAccessorMirrorTradeBase : PreloadedAccessorBase
 	// If `NablaFFT[globalElementIdx] = DFT[T]` for some T, first we must find the `otherElementIdx` such that `NablaFFT[otherElementIdx] = DFT[-T]`. This way we know which is the other
 	// element to get to do something such as unpacking. This is achieved via `FFTIndexingUtils::getNablaMirrorIndex`. 
 	// Once we have the otherElementIdx, we must know which thread holds that other element. Thankfully, this is just the lower bits of the index. 
-	// Now here's the deal with the rest of the function: Just like our thread has one element and expects to receive an element from the other thread to do an operation, the other thread
-	// is currently doing exactly the same ("currently" here being up to an execution barrier because the other thread will usually be in another subgroup). So the other thread currently has an index
-	// "otherThreadGlobalElementIdx" such that `NablaFFT[otherThreadGlobalElementIdx] = DFT[T']` for some `T' `,. And similarly, that other thread want to get the element at `elementToTradeGlobalIdx`
-	// such that  `NablaFFT[elementToTradeGlobalIdx] = DFT[-T']`.  
-	// Rather miraculously (haven't proven this yet) it is ALWAYS the case that at each step every two pair of threads trade their elements between themselves, 
-	// so it's always the case that you give one element to a thread and receive one from the same thread. So for the current thread we find which of our elements the other thread expects to get
-	// (since we know its global index, we divide by WorkgroupSize to get the element in the preloaded array). Finally we do a shuffle to trade these elements.
+	// Now, either for our thread or for the other thread, we need to send an element to the other thread and receive one from them (there is a proof somewhere, might add it to
+	// readme, that at each step a pair of threads always trades two values between them, there's no long cycles of trades or anything like that. Known exception is the 0th
+	// element of the first two threads: threads indexed 0 and 1 actually trade with themselves).
+	// The question is which element. This part is still unproven, but it turns out that at each step the local element index `elementToTradeLocalIdx` of the element
+	// we need to send is a function of just `localElementIndex`, and it turns out to be the higher bits of `otherElementIdx`.
+	// Leaving this as comment for myself: The proof should be easy. It stands to reason that the chain of functions in `getNablaMirrorIndex` yield the same higher bits
+	// for X | Y for any Y as long as you fix X, probably because of how the `mirror` function works.
 	template<typename sharedmem_adaptor_t>
-	complex_t<scalar_t> getDFTMirror(uint32_t localElementIdx, sharedmem_adaptor_t adaptorForSharedMemory)
+	complex_t<scalar_t> getDFTMirror(uint32_t localElementIndex, sharedmem_adaptor_t adaptorForSharedMemory)
 	{
-		uint32_t globalElementIdx = localElementIdx * WorkgroupSize | workgroup::SubgroupContiguousIndex();
-		uint32_t otherElementIdx = FFTIndexingUtils::getNablaMirrorIndex(globalElementIdx);
-		uint32_t otherThreadID = otherElementIdx & (WorkgroupSize - 1);
-		uint32_t otherThreadGlobalElementIdx = localElementIdx * WorkgroupSize | otherThreadID;
-		uint32_t elementToTradeGlobalIdx = FFTIndexingUtils::getNablaMirrorIndex(otherThreadGlobalElementIdx);
-		uint32_t elementToTradeLocalIdx = elementToTradeGlobalIdx / WorkgroupSize;
+		FFTIndexingUtils::NablaMirrorTradeInfo info = FFTIndexingUtils::getNablaMirrorTradeInfo(localElementIndex);
+		uint32_t elementToTradeLocalIdx = info.mirrorLocalIndex;
 		complex_t<scalar_t> toTrade = preloaded[elementToTradeLocalIdx];
 		vector<scalar_t, 2> toTradeVector = { toTrade.real(), toTrade.imag() };
+		uint32_t otherThreadID = info.otherThreadID;
 		workgroup::Shuffle<sharedmem_adaptor_t, vector<scalar_t, 2> >::__call(toTradeVector, otherThreadID, adaptorForSharedMemory);
 		toTrade.real(toTradeVector.x);
 		toTrade.imag(toTradeVector.y);
@@ -37,16 +34,13 @@ struct PreloadedAccessorMirrorTradeBase : PreloadedAccessorBase
 struct MultiChannelPreloadedAccessorMirrorTradeBase : MultiChannelPreloadedAccessorBase
 {
 	template<typename sharedmem_adaptor_t>
-	complex_t<scalar_t> getDFTMirror(uint32_t localElementIdx, uint16_t channel, sharedmem_adaptor_t adaptorForSharedMemory)
+	complex_t<scalar_t> getDFTMirror(uint32_t localElementIndex, uint16_t channel, sharedmem_adaptor_t adaptorForSharedMemory)
 	{
-		uint32_t globalElementIdx = localElementIdx * WorkgroupSize | workgroup::SubgroupContiguousIndex();
-		uint32_t otherElementIdx = FFTIndexingUtils::getNablaMirrorIndex(globalElementIdx);
-		uint32_t otherThreadID = otherElementIdx & (WorkgroupSize - 1);
-		uint32_t otherThreadGlobalElementIdx = localElementIdx * WorkgroupSize | otherThreadID;
-		uint32_t elementToTradeGlobalIdx = FFTIndexingUtils::getNablaMirrorIndex(otherThreadGlobalElementIdx);
-		uint32_t elementToTradeLocalIdx = elementToTradeGlobalIdx / WorkgroupSize;
+		FFTIndexingUtils::NablaMirrorTradeInfo info = FFTIndexingUtils::getNablaMirrorTradeInfo(localElementIndex);
+		uint32_t elementToTradeLocalIdx = info.mirrorLocalIndex;		
 		complex_t<scalar_t> toTrade = preloaded[channel][elementToTradeLocalIdx];
 		vector<scalar_t, 2> toTradeVector = { toTrade.real(), toTrade.imag() };
+		uint32_t otherThreadID = info.otherThreadID;
 		workgroup::Shuffle<sharedmem_adaptor_t, vector<scalar_t, 2> >::__call(toTradeVector, otherThreadID, adaptorForSharedMemory);
 		toTrade.real(toTradeVector.x);
 		toTrade.imag(toTradeVector.y);
