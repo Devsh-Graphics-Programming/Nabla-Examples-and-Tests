@@ -135,16 +135,6 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 
 					vector<scalar_t, 2> toStoreVector = { preloaded[channel][localElementIndex].real(), preloaded[channel][localElementIndex].imag() };
 					kernelChannels[uint32_t3(x, y, channel)] = toStoreVector;
-
-					// Store the element at the column mirrored about the Nyquist column (so x'' = mirror(x))
-					// https://en.wikipedia.org/wiki/Discrete_Fourier_transform#Conjugation_in_time
-					// Guess what? The above says the row index is also the mirror about Nyquist! Neat
-					x = FFTIndexingUtils::getDFTMirrorIndex(x);
-					y = FFTIndexingUtils::getDFTMirrorIndex(y);
-					const complex_t<scalar_t> conjugated = conj(preloaded[channel][localElementIndex]);
-					toStoreVector.x = conjugated.real();
-					toStoreVector.y = conjugated.imag();
-					kernelChannels[uint32_t3(x, y, channel)] = toStoreVector;
 				}
 			}
 		}

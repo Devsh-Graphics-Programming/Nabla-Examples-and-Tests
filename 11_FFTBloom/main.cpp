@@ -442,8 +442,7 @@ public:
 		for (auto i = 0u; i < 3u; i++)
 		{
 			const auto coord = (&kerDim.width)[i];
-			if (coord > 1u)
-				(&m_marginSrcDim.width)[i] += core::max(coord, 1u) - 1u;
+			(&m_marginSrcDim.width)[i] += core::max(coord, 1u) - 1u;
 		}
 		
 		
@@ -455,7 +454,10 @@ public:
 			deviceLocalBufferParams.queueFamilyIndices = &queueFamilyIndex;
 			// Axis on which we perform first FFT is the only one that needs to be padded - in this case it's the y-axis
 			uint16_t firstAxis = 1;
-			uint32_t3 paddedSrcDimensions = { m_marginSrcDim.width, m_marginSrcDim.height, m_marginSrcDim.depth };
+			// We only need enough memory to hold (half, since it's real) of the original-sized image with padding for the kernel (and the padding up to PoT) only on the first axis.
+			// That's because (in this case, since it's a 2D convolution) the "middle" step (that which does the last FFT -> convolves -> first IFFT) doesn't store
+			// anything and the "padding" can be seen as virtual.
+			uint32_t3 paddedSrcDimensions = { srcDim.width, m_marginSrcDim.height, srcDim.depth };
 			deviceLocalBufferParams.size = fft::getOutputBufferSize(paddedSrcDimensions, 3, {&firstAxis, 1}, true, m_useHalfFloats);
 			deviceLocalBufferParams.usage = asset::IBuffer::E_USAGE_FLAGS::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
@@ -597,7 +599,7 @@ public:
 					imageParams.flags = static_cast<video::IGPUImage::E_CREATE_FLAGS>(0u);
 					imageParams.type = asset::IImage::ET_2D;
 					imageParams.format = m_useHalfFloats ? EF_R16G16_SFLOAT : EF_R32G32_SFLOAT;
-					imageParams.extent = { kerDim.width,kerDim.height, 1u };
+					imageParams.extent = { kerDim.width,kerDim.height / 2 + 1, 1u };
 					imageParams.mipLevels = 1u;
 					imageParams.arrayLayers = Channels;
 					imageParams.samples = asset::IImage::ESCF_1_BIT;
@@ -741,7 +743,8 @@ public:
 			//Finally, normalize kernel Image - same number of workgroups
 			kernelPrecompCmdBuf->bindComputePipeline(pipelines[2].get());
 			// Hardcoded 8x8 workgroup seems to be optimal for tex access
-			kernelPrecompCmdBuf->dispatch(kerDim.width / 8, kerDim.height / 8, 1);
+			const auto& kernelSpectraExtent = m_kernelNormalizedSpectrums->getCreationParameters().image->getCreationParameters().extent;
+			kernelPrecompCmdBuf->dispatch(kernelSpectraExtent.width / 8, kernelSpectraExtent.height / 8, 1);
 
 			// Pipeline barrier: transition kernel spectrum images into read only, and outImage into general
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo imagePipelineBarrierInfo = {};
@@ -828,10 +831,10 @@ public:
 		{
 			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device.get(), m_marginSrcDim.width);
 			// Compute kernel half pixel size
-			const auto& kernelImgExtent = m_kernelNormalizedSpectrums->getCreationParameters().image->getCreationParameters().extent;
+			const auto& kernelSpectraExtent = m_kernelNormalizedSpectrums->getCreationParameters().image->getCreationParameters().extent;
 			float32_t2 kernelHalfPixelSize{ 0.5f,0.5f };
-			kernelHalfPixelSize.x /= kernelImgExtent.width;
-			kernelHalfPixelSize.y /= kernelImgExtent.height;
+			kernelHalfPixelSize.x /= kernelSpectraExtent.width;
+			kernelHalfPixelSize.y /= kernelSpectraExtent.height;
 			ShaderConstantParameters shaderConstantParameters = { 
 				.elementsPerInvocationLog2 = elementsPerInvocationLog2, 
 				.workgroupSizeLog2 = workgroupSizeLog2, 

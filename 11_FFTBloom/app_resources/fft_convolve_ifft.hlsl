@@ -137,7 +137,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				const uint32_t indexDFT = FFTIndexingUtils::getDFTIndex(globalElementIndex);
 				const uint32_t y = fft::bitReverse<uint32_t, NumWorkgroupsLog2>(glsl::gl_WorkGroupID().x);
 				const uint32_t2 texCoords = uint32_t2(indexDFT, y);
-				const float32_t2 uv = texCoords * float32_t2(TotalSizeReciprocal, 1.f / (2 * NumWorkgroups)) + KernelHalfPixelSize;
+				const float32_t2 uv = texCoords * float32_t2(TotalSizeReciprocal, 1.f / NumWorkgroups) + KernelHalfPixelSize;
 				const vector<scalar_t, 2> sampledKernelVector = kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0);
 				const vector<scalar_t, 2> sampledKernelInterpolatedVector = lerp(sampledKernelVector, One, pushConstants.interpolatingFactor);
 				const complex_t<scalar_t> sampledKernelInterpolated = { sampledKernelInterpolatedVector.x, sampledKernelInterpolatedVector.y };
@@ -167,7 +167,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				zero = zero * zeroKernelInterpolated;
 
 				// Do the same for the nyquist coord
-				uv.y += 0.5;
+				uv.y = 1.f - KernelHalfPixelSize.y;
 				const vector<scalar_t, 2> nyquistKernelVector = kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0);
 				const vector<scalar_t, 2> nyquistKernelInterpolatedVector = lerp(nyquistKernelVector, One, pushConstants.interpolatingFactor);
 				const complex_t<scalar_t> nyquistKernelInterpolated = { nyquistKernelInterpolatedVector.x, nyquistKernelInterpolatedVector.y };
