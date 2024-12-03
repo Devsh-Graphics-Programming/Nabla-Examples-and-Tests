@@ -1,4 +1,7 @@
-#include "fft_common.hlsl"
+#include "fft_mirror_common.hlsl"
+#include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
+
+[[vk::binding(2, 0)]] RWTexture2DArray<float32_t2> kernelChannels;
 
 // ------------------------------------------ SECOND AXIS FFT -------------------------------------------------------------
 // This time each Workgroup will compute the FFT along a horizontal line (fixed y for the whole Workgroup). We get the y coordinate for the row a workgroup is working on via `gl_WorkGroupID().x`.
@@ -9,7 +12,7 @@
 // Since Z and N are real signals (where `Z` is the actual 0th row and `N` is the Nyquist row, as in the one with index FFTParameters::TotalSize / 2) we can pack those together again for an FFT.  
 // We unpack values on load 
 
-struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorBase
+struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 {
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t PreviousWorkgroupSize = uint32_t(ConstevalParameters::PreviousWorkgroupSize);
 
@@ -17,11 +20,6 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorBase
 	uint32_t colMajorOffset(uint32_t x, uint32_t y)
 	{
 		return x * TotalSize | y;
-	}
-
-	uint32_t rowMajorOffset(uint32_t x, uint32_t y)
-	{
-		return y * TotalSize | x;
 	}
 
 	uint64_t getChannelStartOffsetBytes(uint16_t channel)
@@ -111,19 +109,84 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorBase
 		}
 	}
 
-	// Save a row back in row major order. Remember that the first row (one with `gl_WorkGroupID().x == 0`) will actually hold the packed FFT of Zero and Nyquist rows.
-	void unload()
+	// Write spectra in their right positions
+	template<typename sharedmem_adaptor_t>
+	void unload(sharedmem_adaptor_t adaptorForSharedMemory)
 	{
-		for (uint16_t channel = 0; channel < Channels; channel++)
-		{
-			const uint64_t channelStartOffsetBytes = getChannelStartOffsetBytes(channel);
-			// Set LegacyBdaAccessor for writing
-			const LegacyBdaAccessor<complex_t<scalar_t> > rowMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.rowMajorBufferAddress + channelStartOffsetBytes);
+		NBL_CONSTEXPR_STATIC_INLINE uint16_t NumWorkgroupsLog2 = ConstevalParameters::NumWorkgroupsLog2;
 
-			for (uint32_t elementIndex = 0; elementIndex < ElementsPerInvocation; elementIndex++)
+		// Most rows have just have to reflect their values along the Nyquist row.
+		// If you'll remember, however, the first axis FFT stored the lower half of the DFT, bit-reversed not as a `log2(FFTSize)` bit number but in the range of the lower half 
+		// (so as a `log2(FFTSize / 2) bit number)`. Which means that whenever we get an element at `x' = index`, `y' = gl_WorkGroupID().x` we must get the actual coordinates of 
+		// the element in the DFT with `x = F(x')` and `y = bitreverse(y')`
+		if (glsl::gl_WorkGroupID().x)
+		{
+			for (uint16_t channel = 0; channel < Channels; channel++)
 			{
-				const uint32_t index = WorkgroupSize * elementIndex | workgroup::SubgroupContiguousIndex();
-				rowMajorAccessor.set(rowMajorOffset(index, glsl::gl_WorkGroupID().x), preloaded[channel][elementIndex]);
+				for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
+				{
+					const uint32_t index = WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex();
+
+					// Get actual x,y coordinates for the element we wish to write
+					uint32_t x = FFTIndexingUtils::getDFTIndex(index);
+					uint32_t y = fft::bitReverse<uint32_t, NumWorkgroupsLog2>(glsl::gl_WorkGroupID().x);
+
+					vector<scalar_t, 2> toStoreVector = { preloaded[channel][localElementIndex].real(), preloaded[channel][localElementIndex].imag() };
+					kernelChannels[uint32_t3(x, y, channel)] = toStoreVector;
+
+					// Store the element at the column mirrored about the Nyquist column (so x'' = mirror(x))
+					// https://en.wikipedia.org/wiki/Discrete_Fourier_transform#Conjugation_in_time
+					// Guess what? The above says the row index is also the mirror about Nyquist! Neat
+					x = FFTIndexingUtils::getDFTMirrorIndex(x);
+					y = FFTIndexingUtils::getDFTMirrorIndex(y);
+					const complex_t<scalar_t> conjugated = conj(preloaded[channel][localElementIndex]);
+					toStoreVector.x = conjugated.real();
+					toStoreVector.y = conjugated.imag();
+					kernelChannels[uint32_t3(x, y, channel)] = toStoreVector;
+				}
+			}
+		}
+		// Remember that the first row has packed `Z + iN` so it has to unpack those
+		else
+		{
+			for (uint16_t channel = 0; channel < Channels; channel++)
+			{
+				// FFT[Z + iN] was stored in the Nabla order
+				for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
+				{
+					complex_t<scalar_t> zero = preloaded[channel][localElementIndex];
+					// If one shuffle has already occurred, need to wait on every thread having read sharedmem before doing another
+					// Otherwise, we still need to wait for the last FFT to be done with sharedmem
+					adaptorForSharedMemory.workgroupExecutionAndMemoryBarrier();
+					complex_t<scalar_t> nyquist = getDFTMirror<sharedmem_adaptor_t>(localElementIndex, channel, adaptorForSharedMemory);
+					fft::unpack<scalar_t>(zero, nyquist);
+
+					const uint32_t index = WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex();
+
+					// We now have zero and Nyquist frequencies at NFFT[index], so we must use `getDFTIndex(index)` to get the actual index into the DFT
+					const uint32_t indexDFT = FFTIndexingUtils::getDFTIndex(index);
+
+					// Store zeroth element
+					const uint32_t2 zeroCoord = uint32_t2(indexDFT, 0);
+					vector<scalar_t, 2> zeroVector = { zero.real(), zero.imag() };
+					kernelChannels[uint32_t3(zeroCoord, channel)] = zeroVector;
+
+					// Store nyquist element
+					const uint32_t2 nyquistCoord = uint32_t2(indexDFT, TotalSize / 2);
+					vector<scalar_t, 2> nyquistVector = { nyquist.real(), nyquist.imag() };
+					kernelChannels[uint32_t3(nyquistCoord, channel)] = nyquistVector;
+
+					// Also save the result of unpacking for later in case it's the channelWiseSum - real part of element at (0,0) of a channel
+					if (!workgroup::SubgroupContiguousIndex() && !localElementIndex)
+						preloaded[channel][localElementIndex] = zero;
+				}
+			}
+			// Before leaving, store the power to the row major buffer start since we have that available
+			if (!workgroup::SubgroupContiguousIndex())
+			{
+				const vector <scalar_t, 3> channelWiseSums = { preloaded[0][0].real(), preloaded[1][0].real(), preloaded[2][0].real() };
+				const scalar_t power = mul(colorspace::scRGBtoXYZ._m10_m11_m12, channelWiseSums);
+				vk::RawBufferStore<scalar_t>(pushConstants.rowMajorBufferAddress, power);
 			}
 		}
 	}
@@ -139,7 +202,14 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	for (uint16_t channel = 0; channel < Channels; channel++)
 	{
 		preloadedAccessor.currentChannel = channel;
+		// Except for the first FFT, wait on the previous one to be done to ensure sharedmem memory usage does not overlap
+		if (channel)
+			sharedmemAccessor.workgroupExecutionAndMemoryBarrier();
 		workgroup::FFT<false, FFTParameters>::template __call(preloadedAccessor, sharedmemAccessor);
 	}
-	preloadedAccessor.unload();
+	// Set up the memory adaptor
+	using sharedmem_adaptor_t = accessor_adaptors::StructureOfArrays<SharedMemoryAccessor, uint32_t, uint32_t, 1, FFTParameters::WorkgroupSize>;
+	sharedmem_adaptor_t adaptorForSharedMemory;
+	adaptorForSharedMemory.accessor = sharedmemAccessor;
+	preloadedAccessor.unload(adaptorForSharedMemory);
 }

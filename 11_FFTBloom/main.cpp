@@ -667,7 +667,8 @@ public:
 				params[i].layout = pipelineLayout.get();
 				params[i].shader.entryPoint = "main";
 				params[i].shader.shader = shaders[i].get();
-				params[i].shader.requireFullSubgroups = true;
+				// Normalization doesn't require full subgroups
+				params[i].shader.requireFullSubgroups = bool(2-i);
 			}
 			
 			smart_refctd_ptr<IGPUComputePipeline> pipelines[3];
@@ -710,16 +711,6 @@ public:
 			bufBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
 			bufBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
 
-			kernelPrecompCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
-
-			// Now do second axis FFT
-			kernelPrecompCmdBuf->bindComputePipeline(pipelines[1].get());
-			// Same number of workgroups - this time because we only saved half the rows
-			kernelPrecompCmdBuf->dispatch(kerDim.width / 2, 1, 1);
-
-			// Recycle the pipelineBarrierInfo since it's identical, just change buffer access: Second axis FFT writes to rowMajorBuffer
-			bufBarrier.range.buffer = m_rowMajorBuffer;
-
 			// Also set kernel channel image array to GENERAL for writing
 			decltype(pipelineBarrierInfo)::image_barrier_t imgBarrier = {};
 			pipelineBarrierInfo.imgBarriers = { &imgBarrier, 1 };
@@ -727,7 +718,7 @@ public:
 			imgBarrier.image = m_kernelNormalizedSpectrums->getCreationParameters().image.get();
 			imgBarrier.subresourceRange.aspectMask = IImage::EAF_COLOR_BIT;
 			imgBarrier.subresourceRange.levelCount = 1u;
-			imgBarrier.subresourceRange.layerCount = 3u;
+			imgBarrier.subresourceRange.layerCount = Channels;
 			imgBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::NONE;
 			imgBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::NONE;
 			imgBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
@@ -737,9 +728,32 @@ public:
 
 			kernelPrecompCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
 
+			// Now do second axis FFT
+			kernelPrecompCmdBuf->bindComputePipeline(pipelines[1].get());
+			// Same number of workgroups - this time because we only saved half the rows
+			kernelPrecompCmdBuf->dispatch(kerDim.width / 2, 1, 1);
+
+			// Wait on second axis FFT to write the kernel image before running normalization step
+			// Normalization needs to access the power value stored in the rowmajorbuffer
+			bufBarrier.range.buffer = m_rowMajorBuffer;
+
+			// No layout transition now
+			imgBarrier.oldLayout = IImage::LAYOUT::UNDEFINED;
+			imgBarrier.newLayout = IImage::LAYOUT::UNDEFINED;
+
+			// Wait on second axis FFT write ...
+			imgBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+			imgBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
+			// ... before normalization read
+			imgBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+			imgBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+
+			kernelPrecompCmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
+
 			//Finally, normalize kernel Image - same number of workgroups
 			kernelPrecompCmdBuf->bindComputePipeline(pipelines[2].get());
-			kernelPrecompCmdBuf->dispatch(kerDim.width / 2, 1, 1);
+			// Hardcoded 8x8 workgroup seems to be optimal for tex access
+			kernelPrecompCmdBuf->dispatch(kerDim.width / 8, kerDim.height / 8, 1);
 
 			// Pipeline barrier: transition kernel spectrum images into read only, and outImage into general
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo imagePipelineBarrierInfo = {};

@@ -87,6 +87,8 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	for (uint16_t channel = 0; channel < Channels; channel++)
 	{
 		preloadedAccessor.currentChannel = channel;
+		if (channel)
+			sharedmemAccessor.workgroupExecutionAndMemoryBarrier();
 		workgroup::FFT<false, FFTParameters>::template __call(preloadedAccessor, sharedmemAccessor);
 	}
 	preloadedAccessor.unload();
