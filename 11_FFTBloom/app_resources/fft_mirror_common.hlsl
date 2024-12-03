@@ -19,11 +19,11 @@ struct PreloadedAccessorMirrorTradeBase : PreloadedAccessorBase
 	template<typename sharedmem_adaptor_t>
 	complex_t<scalar_t> getDFTMirror(uint32_t localElementIndex, sharedmem_adaptor_t adaptorForSharedMemory)
 	{
-		FFTIndexingUtils::NablaMirrorTradeInfo info = FFTIndexingUtils::getNablaMirrorTradeInfo(localElementIndex);
-		uint32_t elementToTradeLocalIdx = info.mirrorLocalIndex;
+		const FFTIndexingUtils::NablaMirrorLocalInfo info = FFTIndexingUtils::getNablaMirrorLocalInfo(localElementIndex);
+		const uint32_t elementToTradeLocalIdx = info.mirrorLocalIndex;
 		complex_t<scalar_t> toTrade = preloaded[elementToTradeLocalIdx];
 		vector<scalar_t, 2> toTradeVector = { toTrade.real(), toTrade.imag() };
-		uint32_t otherThreadID = info.otherThreadID;
+		const uint32_t otherThreadID = info.otherThreadID;
 		workgroup::Shuffle<sharedmem_adaptor_t, vector<scalar_t, 2> >::__call(toTradeVector, otherThreadID, adaptorForSharedMemory);
 		toTrade.real(toTradeVector.x);
 		toTrade.imag(toTradeVector.y);
@@ -36,11 +36,11 @@ struct MultiChannelPreloadedAccessorMirrorTradeBase : MultiChannelPreloadedAcces
 	template<typename sharedmem_adaptor_t>
 	complex_t<scalar_t> getDFTMirror(uint32_t localElementIndex, uint16_t channel, sharedmem_adaptor_t adaptorForSharedMemory)
 	{
-		FFTIndexingUtils::NablaMirrorTradeInfo info = FFTIndexingUtils::getNablaMirrorTradeInfo(localElementIndex);
-		uint32_t elementToTradeLocalIdx = info.mirrorLocalIndex;		
+		const FFTIndexingUtils::NablaMirrorLocalInfo info = FFTIndexingUtils::getNablaMirrorLocalInfo(localElementIndex);
+		const uint32_t elementToTradeLocalIdx = info.mirrorLocalIndex;		
 		complex_t<scalar_t> toTrade = preloaded[channel][elementToTradeLocalIdx];
 		vector<scalar_t, 2> toTradeVector = { toTrade.real(), toTrade.imag() };
-		uint32_t otherThreadID = info.otherThreadID;
+		const uint32_t otherThreadID = info.otherThreadID;
 		workgroup::Shuffle<sharedmem_adaptor_t, vector<scalar_t, 2> >::__call(toTradeVector, otherThreadID, adaptorForSharedMemory);
 		toTrade.real(toTradeVector.x);
 		toTrade.imag(toTradeVector.y);

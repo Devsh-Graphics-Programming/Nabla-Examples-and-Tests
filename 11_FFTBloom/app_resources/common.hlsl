@@ -1,4 +1,5 @@
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
+#include "nbl/builtin/hlsl/workgroup/fft.hlsl"
 
 NBL_CONSTEXPR_STATIC_INLINE uint32_t Channels = 3;
 

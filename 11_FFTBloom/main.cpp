@@ -20,7 +20,6 @@ using namespace ui;
 
 #include "app_resources/common.hlsl"
 #include "nbl/builtin/hlsl/bit.hlsl"
-#include "nbl/builtin/hlsl/workgroup/fft.hlsl"
 
 // Defaults that match this example's image
 constexpr uint32_t WIN_W = 1280;
