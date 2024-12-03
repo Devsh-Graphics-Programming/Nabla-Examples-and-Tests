@@ -43,6 +43,8 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 
 	// ---------------------------------------------------- End Utils ---------------------------------------------------------
 
+	// Unpacking on load: Has no workgroup shuffles (which become execution barriers) which would be necessary for unpacking on store
+
 	// The lower half of the DFT is retrieved (in bit-reversed order as an N/2 bit number, N being the length of the whole DFT) as the even elements of the Nabla-ordered FFT.
 	// That is, for the threads in the previous pass you take all `preloaded[0]` elements in thread-ascending order (so preloaded[0] for the 0th thread, then 1st thread etc).
 	// Then you do the same for the next even index of `preloaded` (`prealoded[2]`, `preloaded[4]`, etc).

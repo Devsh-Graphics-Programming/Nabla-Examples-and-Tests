@@ -5,7 +5,6 @@
 //          store the same half of the kernel spectrum as you do the image's).
 
 [[vk::binding(0, 0)]] Texture2D<float32_t4> texture;
-[[vk::binding(1, 0)]] SamplerState samplerState;
 
 // -------------------------------------------- FIRST AXIS FFT ------------------------------------------------------------------
 
@@ -15,9 +14,6 @@
 
 struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 {
-	NBL_CONSTEXPR_STATIC_INLINE float32_t KernelScale = ConstevalParameters::KernelScale;
-	NBL_CONSTEXPR_STATIC_INLINE float32_t2 KernelDimensions;
-
 	// ---------------------------------------------------- Utils ---------------------------------------------------------
 
 	uint32_t colMajorOffset(uint32_t x, uint32_t y)
@@ -36,23 +32,16 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 
 	void preload()
 	{
-		float32_t2 normalizedCoordsFirstLine, normalizedCoordsSecondLine;
-		// Good compiler turns this into a single FMA
-		normalizedCoordsFirstLine.x = float32_t(glsl::gl_WorkGroupID().x) * 2.f / (KernelDimensions.x * KernelScale) + 0.5f / (KernelDimensions.x * KernelScale);
-		normalizedCoordsSecondLine.x = normalizedCoordsFirstLine.x + 1.f / (KernelDimensions.x * KernelScale);
-
 		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 		{
 			// Index computation here is easier than FFT since the stride is fixed at _NBL_HLSL_WORKGROUP_SIZE_
 			const uint32_t index = localElementIndex * WorkgroupSize | workgroup::SubgroupContiguousIndex();
 
-			normalizedCoordsFirstLine.y = float32_t(index) / (KernelDimensions.y * KernelScale) + 0.5f / (KernelDimensions.y * KernelScale);
-			const float32_t4 firstLineTexValue = texture.SampleLevel(samplerState, normalizedCoordsFirstLine + promote<float32_t2, float32_t>(0.5 - 0.5 / KernelScale), 0);
+			const float32_t4 firstLineTexValue = texture[uint32_t2(2 * glsl::gl_WorkGroupID().x, index)];
 			for (uint16_t channel = 0; channel < Channels; channel++)
 				preloaded[channel][localElementIndex].real(scalar_t(firstLineTexValue[channel]));
 
-			normalizedCoordsSecondLine.y = normalizedCoordsFirstLine.y;
-			const float32_t4 secondLineTexValue = texture.SampleLevel(samplerState, normalizedCoordsSecondLine + promote<float32_t2, float32_t>(0.5 - 0.5 / KernelScale), 0);
+			const float32_t4 secondLineTexValue = texture[uint32_t2(2 * glsl::gl_WorkGroupID().x + 1, index)];
 			for (uint16_t channel = 0; channel < Channels; channel++)
 				preloaded[channel][localElementIndex].imag(scalar_t(secondLineTexValue[channel]));
 		}
@@ -75,7 +64,6 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 		}
 	}
 };
-NBL_CONSTEXPR_STATIC_INLINE float32_t2 PreloadedFirstAxisAccessor::KernelDimensions = ConstevalParameters::KernelDimensions;
 
 [numthreads(FFTParameters::WorkgroupSize, 1, 1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)

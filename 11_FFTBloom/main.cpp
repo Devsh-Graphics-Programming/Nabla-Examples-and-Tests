@@ -57,8 +57,6 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 	uint64_t m_rowMajorBufferAddress;
 	uint64_t m_colMajorBufferAddress;
 
-	// Some parameters
-	float m_bloomScale = 1.f;
 	float m_useHalfFloats = false;
 	
 	// Other parameter-dependent variables
@@ -123,14 +121,13 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 		return m_device->createPipelineLayout({ &pcRange,1 }, m_device->createDescriptorSetLayout(bindings));
 	}
 
-	inline void updateDescriptorSet(smart_refctd_ptr<IGPUImageView> imageDescriptor, smart_refctd_ptr<IGPUSampler> samplerDescriptor, smart_refctd_ptr<IGPUImageView> storageImageDescriptor, smart_refctd_ptr<IGPUImageView> textureArrayDescriptor = nullptr)
+	inline void updateDescriptorSet(smart_refctd_ptr<IGPUImageView> imageDescriptor, smart_refctd_ptr<IGPUImageView> storageImageDescriptor, smart_refctd_ptr<IGPUImageView> textureArrayDescriptor = nullptr)
 	{
-		IGPUDescriptorSet::SDescriptorInfo infos[4] = {};
-		IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {};
+		IGPUDescriptorSet::SDescriptorInfo infos[3] = {};
+		IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {};
 
-		for (auto i = 0u; i < 4; i++) {
+		for (auto i = 0u; i < 3; i++) {
 			writes[i].dstSet = m_descriptorSet.get();
-			writes[i].binding = i;
 			writes[i].arrayElement = 0u;
 			writes[i].count = 1u;
 			writes[i].info = &infos[i];
@@ -138,28 +135,32 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 
 		infos[0].desc = imageDescriptor;
 		infos[0].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+		// Read image at binding 0
+		writes[0].binding = 0;
 
-		infos[1].desc = samplerDescriptor;
+		// Binding 2 skipped since it's immutable sampler
 
-		infos[2].desc = storageImageDescriptor;
-		infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+		infos[1].desc = storageImageDescriptor;
+		infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+		// Storage image at binding 1
+		writes[1].binding = 2;
 
 		// If nullptr give it SOME value so validation layer doesn't complain even though we don't use it
-		infos[3].desc = textureArrayDescriptor ? textureArrayDescriptor : imageDescriptor;
-		infos[3].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+		infos[2].desc = textureArrayDescriptor ? textureArrayDescriptor : imageDescriptor;
+		infos[2].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+		// Texture array for reading at binding 3
+		writes[2].binding = 3;
 
-		m_device->updateDescriptorSets({ writes, 4 }, std::span<IGPUDescriptorSet::SCopyDescriptorSet>());
+		m_device->updateDescriptorSets(writes, std::span<IGPUDescriptorSet::SCopyDescriptorSet>());
 	}
 
 	struct ShaderConstantParameters
 	{
 		uint16_t elementsPerInvocationLog2 = 0;
 		uint16_t workgroupSizeLog2 = 0;
-		uint16_t2 kernelDimensions = { uint16_t(1), uint16_t(1)};
 		uint16_t numWorkgroupsLog2 = 0;
 		uint16_t previousElementsPerInvocationLog2 = 0;
 		uint16_t previousWorkgroupSizeLog2 = 0;
-		float32_t kernelScale = 1.f;
 		float32_t2 kernelHalfPixelSize = {0.5f, 0.5f};
 	};
 
@@ -182,10 +183,6 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 		kernelHalfPixelSizeStream << "{" << shaderConstants.kernelHalfPixelSize.x << "," << shaderConstants.kernelHalfPixelSize.y << "}";
 		std::string kernelHalfPixelSizeString = kernelHalfPixelSizeStream.str();
 
-		std::ostringstream kernelDimensionsStream;
-		kernelDimensionsStream << "{" << float32_t(shaderConstants.kernelDimensions.x) << "," << float32_t(shaderConstants.kernelDimensions.y) << "}";
-		std::string kernelDimensionsString = kernelDimensionsStream.str();
-
 		const auto prelude = [&]()->std::string
 			{
 				std::ostringstream tmp;
@@ -199,13 +196,10 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 					NBL_CONSTEXPR_STATIC_INLINE uint16_t PreviousElementsPerInvocationLog2 = )===" << shaderConstants.previousElementsPerInvocationLog2 << R"===(;
 					NBL_CONSTEXPR_STATIC_INLINE uint16_t PreviousWorkgroupSizeLog2 = )===" << shaderConstants.previousWorkgroupSizeLog2 << R"===(;
 					NBL_CONSTEXPR_STATIC_INLINE uint16_t PreviousWorkgroupSize = )===" << previousWorkgroupSize << R"===(;
-					NBL_CONSTEXPR_STATIC_INLINE float32_t KernelScale = )===" << shaderConstants.kernelScale << R"===(;
-					NBL_CONSTEXPR_STATIC_INLINE float32_t2 KernelDimensions;
 					NBL_CONSTEXPR_STATIC_INLINE float32_t2 KernelHalfPixelSize;
 					NBL_CONSTEXPR_STATIC_INLINE float32_t TotalSizeReciprocal = )===" << totalSizeReciprocal << R"===(;
 				};
 				NBL_CONSTEXPR_STATIC_INLINE float32_t2 ConstevalParameters::KernelHalfPixelSize = )===" << kernelHalfPixelSizeString << R"===(;
-				NBL_CONSTEXPR_STATIC_INLINE float32_t2 ConstevalParameters::KernelDimensions = )===" << kernelDimensionsString << R"===(;
 				)===";
 				return tmp.str();
 			}();
@@ -272,7 +266,7 @@ public:
 			lp.logger = m_logger.get();
 			lp.workingDirectory = ""; // virtual root
 			auto srcImageBundle = m_assetMgr->getAsset("../../media/colorexr.exr", lp);
-			auto kerImageBundle = m_assetMgr->getAsset("../../media/kernels/physical_flare_256.exr", lp);
+			auto kerImageBundle = m_assetMgr->getAsset("../../media/kernels/physical_flare_512.exr", lp);
 			const auto srcImages = srcImageBundle.getContents();
 			const auto kerImages = kerImageBundle.getContents();
 			if (srcImages.empty() or kerImages.empty())
@@ -439,7 +433,7 @@ public:
 		const float bloomRelativeScale = 0.25f;
 		const auto kerDim = m_kerImageView->getCreationParameters().image->getCreationParameters().extent;
 		const auto srcDim = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
-		m_bloomScale = core::min(float(srcDim.width) / float(kerDim.width), float(srcDim.height) / float(kerDim.height)) * bloomRelativeScale;
+		auto bloomScale = core::min(float(srcDim.width) / float(kerDim.width), float(srcDim.height) / float(kerDim.height)) * bloomRelativeScale;
 		assert(m_bloomScale <= 1.f);
 
 		m_marginSrcDim = srcDim;
@@ -449,7 +443,7 @@ public:
 		{
 			const auto coord = (&kerDim.width)[i];
 			if (coord > 1u)
-				(&m_marginSrcDim.width)[i] += ceil(core::max(coord * m_bloomScale, 1u)) - 1u;
+				(&m_marginSrcDim.width)[i] += core::max(coord, 1u) - 1u;
 		}
 		
 		
@@ -483,6 +477,20 @@ public:
 		// Universal pipeline layout
 		smart_refctd_ptr<IGPUPipelineLayout> pipelineLayout;
 		{
+			IGPUSampler::SParams params =
+			{
+				ISampler::ETC_MIRROR,
+				ISampler::ETC_MIRROR,
+				ISampler::ETC_MIRROR,
+				ISampler::ETBC_FLOAT_OPAQUE_BLACK,
+				ISampler::ETF_LINEAR,
+				ISampler::ETF_LINEAR,
+				ISampler::ESMM_LINEAR,
+				3u,
+				0u,
+				ISampler::ECO_ALWAYS
+			};
+			auto sampler = m_device->createSampler(std::move(params));
 			IGPUDescriptorSetLayout::SBinding bnd[4] =
 			{
 				// Kernel FFT and Image FFT read from a single Image
@@ -503,7 +511,7 @@ public:
 					IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					1u,
-					nullptr
+					&sampler
 				},
 				// Storage Image: Normalization binds a texture array, First Axis IFFT binds a single image
 				{
@@ -575,26 +583,6 @@ public:
 
 		}
 
-		// We'll be using this one twice, once with kernel and once with image
-		auto createSampler = [&](ISampler::E_TEXTURE_CLAMP textureWrap) -> smart_refctd_ptr<IGPUSampler>
-			{
-				IGPUSampler::SParams params =
-				{
-					textureWrap,
-					textureWrap,
-					textureWrap,
-					ISampler::ETBC_FLOAT_OPAQUE_BLACK,
-					ISampler::ETF_LINEAR,
-					ISampler::ETF_LINEAR,
-					ISampler::ESMM_LINEAR,
-					3u,
-					0u,
-					ISampler::ECO_ALWAYS
-				};
-				return m_device->createSampler(std::move(params));
-			};
-		
-
 		// Kernel second axis FFT has no descriptor sets so we just create another pipeline with the same layout
 		// TODO: To avoid duplicated layouts we could make samplers dynamic in the first axis FFT. Also if we don't hardcode (by #defining) some stuff in the first axis FFT
 		//		 (once FFT ext is back) we can also avoid having duplicated pipelines (like the old Bloom example, which had a single pipeline for forward FFT along an axis)
@@ -638,7 +626,7 @@ public:
 
 			// Write descriptor set for kernel FFT computation
 			// Sampler persists because the descriptor set takes ownership! Isn't that cool
-			updateDescriptorSet(m_kerImageView, createSampler(ISampler::ETC_CLAMP_TO_BORDER), m_kernelNormalizedSpectrums);
+			updateDescriptorSet(m_kerImageView, m_kernelNormalizedSpectrums);
 
 			// Invoke a workgroup per two vertical scanlines. Kernel is square and runs first in the y-direction.
 			// That means we have to create a shader that does an FFT of size `kerDim.height = kerDim.width` (length of each column, already padded to PoT), 
@@ -655,7 +643,7 @@ public:
 			// Create shaders
 			smart_refctd_ptr<IGPUShader> shaders[3];
 			uint16_t2 kernelDimensions = { kerDim.width, kerDim.height };
-			ShaderConstantParameters shaderConstantParameters = { .elementsPerInvocationLog2 = elementsPerInvocationLog2, .workgroupSizeLog2 = workgroupSizeLog2, .kernelDimensions = kernelDimensions, .numWorkgroupsLog2 = secondAxisFFTHalfLengthLog2, .previousWorkgroupSizeLog2 = workgroupSizeLog2, .kernelScale = m_bloomScale };
+			ShaderConstantParameters shaderConstantParameters = { .elementsPerInvocationLog2 = elementsPerInvocationLog2, .workgroupSizeLog2 = workgroupSizeLog2, .numWorkgroupsLog2 = secondAxisFFTHalfLengthLog2, .previousWorkgroupSizeLog2 = workgroupSizeLog2};
 			shaders[0] = createShader("app_resources/kernel_fft_first_axis.hlsl", shaderConstantParameters);
 			shaders[1] = createShader("app_resources/kernel_fft_second_axis.hlsl", shaderConstantParameters);
 			shaders[2] = createShader("app_resources/kernel_spectrum_normalize.hlsl", shaderConstantParameters);
@@ -908,7 +896,7 @@ public:
 		m_device->blockForSemaphores({ &waitInfo, 1 });
 
 		// Before leaving, update descriptor set with values needed by image transform
-		updateDescriptorSet(m_srcImageView, createSampler(ISampler::ETC_MIRROR), m_outImgView, m_kernelNormalizedSpectrums);
+		updateDescriptorSet(m_srcImageView, m_outImgView, m_kernelNormalizedSpectrums);
 
 		return true;
 	}
