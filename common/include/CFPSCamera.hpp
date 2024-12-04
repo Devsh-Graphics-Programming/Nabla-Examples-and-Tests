@@ -42,26 +42,13 @@ public:
 
         glm::quat newOrientation; vector<typename base_t::precision_t, 3u> newPosition;
 
-        switch (mode)
-        {
-            case base_t::Local:
-            {
-                const auto impulse = m_gimbal.accumulate<AllowedLocalVirtualEvents>(virtualEvents);  
-                const auto newPitch = std::clamp(gPitch + impulse.dVirtualRotation.x * RotateSpeedScale, MinVerticalAngle, MaxVerticalAngle), newYaw = gYaw + impulse.dVirtualRotation.y * RotateSpeedScale;
-                newOrientation = glm::quat(glm::vec3(newPitch, newYaw, 0.0f)); newPosition = m_gimbal.getPosition() + impulse.dVirtualTranslate * MoveSpeedScale;
-            } break;
+        // TODO: I make assumption what world base is now (at least temporary), I need to think of this but maybe each ITransformObject should know what its world is
+        // in ideal scenario we would define this crazy enum with all possible standard bases
+        const auto impulse = mode == base_t::Local ? m_gimbal.accumulate<AllowedLocalVirtualEvents>(virtualEvents)
+            : m_gimbal.accumulate<AllowedWorldVirtualEvents>(virtualEvents, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 });
 
-            case base_t::World: 
-            {
-                // TODO: I make assumption what world base is now (at least temporary), I need to think of this but maybe each ITransformObject should know what its world is
-                // in ideal scenario we would define this crazy enum with all possible standard bases but in Nabla we only really care about LH/RH coordinate systems
-                const auto transform = m_gimbal.accumulate<AllowedWorldVirtualEvents>(virtualEvents, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 });
-                const auto newPitch = std::clamp(transform.dVirtualRotation.x, MinVerticalAngle, MaxVerticalAngle), newYaw = transform.dVirtualRotation.y;
-                newOrientation = glm::quat(glm::vec3(newPitch, newYaw, 0.0f)); newPosition = transform.dVirtualTranslate;
-            } break;
-
-            default: return false;
-        }
+        const auto newPitch = std::clamp(gPitch + impulse.dVirtualRotation.x * RotateSpeedScale, MinVerticalAngle, MaxVerticalAngle), newYaw = gYaw + impulse.dVirtualRotation.y * RotateSpeedScale;
+        newOrientation = glm::quat(glm::vec3(newPitch, newYaw, 0.0f)); newPosition = m_gimbal.getPosition() + impulse.dVirtualTranslate * MoveSpeedScale;
 
         bool manipulated = true;
 

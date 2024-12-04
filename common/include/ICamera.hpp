@@ -24,7 +24,7 @@ public:
         // Interpret virtual events as accumulated impulse representing relative manipulation with respect to view gimbal base 
         Local,
 
-        // Interpret virtual events as accumulated absolute manipulation with respect to world base 
+        // Interpret virtual events as accumulated impulse representing relative manipulation with respect to world base
         World
     };
 
