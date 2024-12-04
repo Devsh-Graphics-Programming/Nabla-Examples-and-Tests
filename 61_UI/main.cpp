@@ -982,8 +982,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				float32_t4x4 view[CamerazCount], projection[ProjectionsCount], inModel[2u], outModel[2u], outDeltaTRS[2u];
 			} imguizmoM16InOut;
 
-			//const auto& projectionMatrix = projection->getMatrix();
-
 			const auto& firstcamera = cameraz.front();
 			const auto& secondcamera = cameraz.back();
 
@@ -995,10 +993,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			for(uint32_t i = 0u; i < ProjectionsCount; ++i)
 				imguizmoM16InOut.projection[i] = transpose(projections[i]->getMatrix());
 
-			// wth its kinda column major but seems to interprete RS part as row major?
-			// will think of it later and check what its doing under the hood, now it
-			// seems to match my local base orientation correctly
-			auto toRetardedImguizmoTRSInput = [&](const float32_t3x4& nablaTrs) -> float32_t4x4
+			// TODO: need to inspect where I'm wrong, workaround
+			auto gimbalToImguizmoTRS = [&](const float32_t3x4& nablaTrs) -> float32_t4x4
 			{
 				// *do not transpose whole matrix*, only the translate part
 				float32_t4x4 trs = getMatrix3x4As4x4(nablaTrs);
@@ -1010,10 +1006,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				return trs;
 			};
 
+			const auto secondCameraGimbalModel = secondcamera->getGimbal()();
+
 			// we will transform a scene object's model
-			imguizmoM16InOut.inModel[0] = toRetardedImguizmoTRSInput(m_model);
+			imguizmoM16InOut.inModel[0] = transpose(getMatrix3x4As4x4(m_model));
 			// and second camera's model too
-			imguizmoM16InOut.inModel[1] = toRetardedImguizmoTRSInput(secondcamera->getGimbal()());
+			imguizmoM16InOut.inModel[1] = gimbalToImguizmoTRS(secondCameraGimbalModel);
 			{
 				float* views[]
 				{
@@ -1032,12 +1030,15 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					for(uint32_t i = 0u; i < ProjectionsCount; ++i)
 						imguizmoM16InOut.projection[i][1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
 
-				float* lastUsedModel = &imguizmoM16InOut.inModel[lastUsing][0][0];
+				float* lastUsedModel = &imguizmoM16InOut.inModel[lastManipulatedModelIx][0][0];
 
 				// ImGuizmo manipulations on the last used model matrix
 				TransformEditor(lastUsedModel);
 				uint32_t gizmoID = {};
 				bool manipulatedFromAnyWindow = false;
+
+				ImGuizmo::AllowAxisFlip(false);
+				ImGuizmo::Enable(true);
 
 				// we have 2 GUI windows we render into with FBOs
 				for (uint32_t windowIndex = 0; windowIndex < 2u; ++windowIndex)
@@ -1051,13 +1052,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					// however note it only makes sense to obsly assume we cannot manipulate 2 objects at the same time
 					for (uint32_t matId = 0; matId < 2; matId++)
 					{
-						//if(matId == 0)
-						//	ImGuizmo::AllowAxisFlip(true);
-						//else
-							ImGuizmo::AllowAxisFlip(false);
-
-						// and because of imguizmo API usage to achive it we must work on copies & filter the output (unless we try enable/disable logic described bellow) 
-						// -> in general again we need to be careful to not edit the same model twice
+						// future logic will need to filter gizmos which represents gimbal of camera which view matrix we use to render scene with
+						if (gizmoID == 3)
+							continue;
+						
+						// and because of imguizmo API usage to achieve it we must work on copies & filter the output (unless we try gizmo enable/disable) 
+						// -> in general we need to be careful to not edit the same model twice
 						auto model = imguizmoM16InOut.inModel[matId];
 						float32_t4x4 deltaOutputTRS;
 
@@ -1068,19 +1068,49 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						const bool success = ImGuizmo::Manipulate(cameraView, cameraProjection, mCurrentGizmoOperation, mCurrentGizmoMode, &model[0][0], &deltaOutputTRS[0][0], useSnap ? &snap[0] : NULL);
 
 						// we manipulated a gizmo from a X-th window, now we update output matrices and assume no more gizmos can be manipulated at the same frame
-						// here we could also extend the logic & keep track of the gizmo being handled and as long as its manipulated (hold by mouse) -> then given ID of this gizmo we would
-						// enable it & disable all other gizmos till we finish the manipulation
 						if (!manipulatedFromAnyWindow)
 						{
-							imguizmoM16InOut.outModel[matId] = model;
-							imguizmoM16InOut.outDeltaTRS[matId] = deltaOutputTRS;
+							// TMP, imguizmo controller doesnt support rotation & scale yet
+							auto discard = gizmoID == 1 && mCurrentGizmoOperation != ImGuizmo::TRANSLATE;
+							if (!discard)
+							{
+								imguizmoM16InOut.outModel[matId] = model;
+								imguizmoM16InOut.outDeltaTRS[matId] = deltaOutputTRS;
+							}
 						}
 
 						if (success)
 							manipulatedFromAnyWindow = true;
-						
+
 						if (ImGuizmo::IsUsing())
-							lastUsing = matId;
+						{
+							lastManipulatedModelIx = matId;
+							lastManipulatedGizmoIx = gizmoID;
+						}
+
+						if (ImGuizmo::IsOver())
+						{
+							ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.2f, 0.2f, 0.2f, 0.8f));
+							ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+							ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.5f);
+
+							ImVec2 mousePos = io.MousePos;
+							ImGui::SetNextWindowPos(ImVec2(mousePos.x + 10, mousePos.y + 10), ImGuiCond_Always);
+
+							ImGui::Begin("InfoOverlay", NULL,
+								ImGuiWindowFlags_NoDecoration |
+								ImGuiWindowFlags_AlwaysAutoResize |
+								ImGuiWindowFlags_NoSavedSettings);
+
+							ImGui::Text("Type: %s", matId == 0 ? "Geometry Creator Object" : "Camera FPS");
+							ImGui::Text("Model ID: %u", matId);
+							ImGui::Text("Gizmo ID: %u", gizmoID);
+
+							ImGui::End();
+
+							ImGui::PopStyleVar();
+							ImGui::PopStyleColor(2);
+						}
 
 						ImGuizmo::PopID();
 						++gizmoID;
@@ -1091,7 +1121,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			}
 
 			/*
-				testing imguizmo controller, we use deltra TRS matrix to generate virtual events
+				testing imguizmo controller for second camera, we use delta world imguizmo TRS matrix to generate virtual events
 			*/
 
 			{
@@ -1107,25 +1137,31 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					IGimbalController::SUpdateParameters params;
 
-					params.imguizmoEvents = { { imguizmoM16InOut.outDeltaTRS[1u] } };
+					auto getOrientationBasis = [&]()
+					{
+						auto orientationBasis = (float32_t3x3(1.f));
 
+						switch (mCurrentGizmoMode)
+						{
+							case ImGuizmo::LOCAL:
+							{
+								orientationBasis = (float32_t3x3(secondCameraGimbalModel));
+							} break;
+
+							case ImGuizmo::WORLD: break;
+							default: break;
+						}
+
+						return orientationBasis;
+					};
+
+					params.imguizmoEvents = { { std::make_pair(imguizmoM16InOut.outDeltaTRS[1u], getOrientationBasis()) } };
 					secondcamera->process(virtualEvents.data(), vCount, params);
 				}
 				secondcamera->endInputProcessing();
 
 				// TOOD: this needs debugging
 				secondcamera->manipulate({ virtualEvents.data(), vCount }, ICamera<matrix_precision_t>::Local);
-				/*
-				if(vCount)
-					switch (mCurrentGizmoMode)
-					{
-						case ImGuizmo::MODE::LOCAL:
-							secondcamera->manipulate({ virtualEvents.data(), vCount }, ICamera<matrix_precision_t>::Local); break;
-						case ImGuizmo::MODE::WORLD:
-							secondcamera->manipulate({ virtualEvents.data(), vCount }, ICamera<matrix_precision_t>::World); break;
-						default: break;
-					}
-					*/
 			}
 
 			// update scenes data
@@ -1588,7 +1624,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		ImGuizmo::OPERATION mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
 		ImGuizmo::MODE mCurrentGizmoMode = ImGuizmo::WORLD;
 		float snap[3] = { 1.f, 1.f, 1.f };
-		int lastUsing = 0;
+		int lastManipulatedModelIx = 0;
+		int lastManipulatedGizmoIx = 0;
 
 		bool firstFrame = true;
 };
