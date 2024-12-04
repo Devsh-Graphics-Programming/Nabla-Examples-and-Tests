@@ -20,13 +20,13 @@ using namespace nbl::hlsl;
 using pfloat64_t = portable_float64_t<jit::device_capabilities>;
 using pfloat64_t2 = portable_float64_t2<jit::device_capabilities>;
 using pfloat64_t3 = portable_float64_t3<jit::device_capabilities>;
-using pfloat64_t3x3 = portable_float64_t3x3<jit::device_capabilities>;
 #else
 using pfloat64_t = float64_t;
 using pfloat64_t2 = nbl::hlsl::vector<float64_t, 2>;
 using pfloat64_t3 = nbl::hlsl::vector<float64_t, 3>;
-using pfloat64_t3x3 = portable_float64_t3x3<>;
 #endif
+
+using pfloat64_t3x3 = portable_matrix_t3x3<pfloat64_t>;
 
 // TODO: Compute this in a compute shader from the world counterparts
 //      because this struct includes NDC coordinates, the values will change based camera zoom and move
