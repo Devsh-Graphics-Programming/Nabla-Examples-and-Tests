@@ -56,7 +56,7 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 
 				// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
 				uint32_t index = workgroup::SubgroupContiguousIndex() / 2;
-				for (uint32_t elementIndex = 0; elementIndex < ElementsPerInvocation; elementIndex++)
+				for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 				{
 					// Even thread must index a y corresponding to an even element of the previous FFT pass, and the odd thread must index its DFT Mirror
 					// The math here essentially ensues we enumerate all even elements in order: we alternate `PreviousWorkgroupSize` even elements (all `preloaded[0]` elements of
@@ -71,7 +71,7 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 					complex_t<scalar_t> lo = ternaryOperator(oddThread, otherThreadLoOrHi, loOrHi);
 					complex_t<scalar_t> hi = ternaryOperator(oddThread, loOrHi, otherThreadLoOrHi);
 					fft::unpack<scalar_t>(lo, hi);
-					preloaded[channel][elementIndex] = ternaryOperator(oddThread, hi, lo);
+					preloaded[channel][localElementIndex] = ternaryOperator(oddThread, hi, lo);
 
 					index += WorkgroupSize / 2;
 				}
@@ -88,7 +88,7 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 
 				// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
 				uint32_t index = workgroup::SubgroupContiguousIndex() / 2;
-				for (uint32_t elementIndex = 0; elementIndex < ElementsPerInvocation; elementIndex++)
+				for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 				{
 					// Even thread retrieves Zero, odd thread retrieves Nyquist. Zero is always `preloaded[0]` of the previous FFT's 0th thread, while Nyquist is always `preloaded[1]` of that same thread.
 					// Therefore we know Nyquist ends up exactly at y = PreviousWorkgroupSize
@@ -106,7 +106,7 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 					const complex_t<scalar_t> evenThreadLo = { loOrHi.real(), otherThreadLoOrHi.real() };
 					// Odd thread writes `hi = Z1 + iN1`
 					const complex_t<scalar_t> oddThreadHi = { otherThreadLoOrHi.imag(), loOrHi.imag() };
-					preloaded[channel][elementIndex] = ternaryOperator(oddThread, oddThreadHi, evenThreadLo);
+					preloaded[channel][localElementIndex] = ternaryOperator(oddThread, oddThreadHi, evenThreadLo);
 
 					index += WorkgroupSize / 2;
 				}

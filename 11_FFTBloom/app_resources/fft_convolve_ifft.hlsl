@@ -199,7 +199,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				preloaded[elementToTradeLocalIdx].real(mirroredVector.x);
 				preloaded[elementToTradeLocalIdx].imag(mirroredVector.y);
 
-				globalElementIndex += WorkgroupSize;
+				globalElementIndex += 2 * WorkgroupSize;
 			}
 		}
 	}
