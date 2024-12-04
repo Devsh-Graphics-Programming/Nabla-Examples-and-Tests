@@ -101,7 +101,7 @@ public:
     using input_mouse_event_t = ui::SMouseEvent;
 
     //! input of ImGuizmo gimbal controller process utility - ImGuizmo manipulate utility produces "delta (TRS) matrix" events
-    using input_imguizmo_event_t = float32_t4x4;
+    using input_imguizmo_event_t = std::pair<float32_t4x4, float32_t3x3>;
 
     void beginInputProcessing(const std::chrono::microseconds nextPresentationTimeStamp)
     {
@@ -292,31 +292,53 @@ private:
         {
             preprocess(m_imguizmoVirtualEventMap);
 
-            for (const auto& deltaMatrix : events)
+            for (const auto& ev : events)
             {
-                std::array<float, 3> dTranslation, dRotation, dScale;
+                // TODO: debug assert "orientationBasis" is orthonormal
+                const auto& [deltaWorldTRS, orientationBasis] = ev;
 
-                // TODO: since I assume the delta matrix is from imguizmo I must follow its API (but this one I could actually steal & rewrite to Nabla to not call imguizmo stuff here)
-                ImGuizmo::DecomposeMatrixToComponents(&deltaMatrix[0][0], dTranslation.data(), dRotation.data(), dScale.data());
+                struct
+                {
+                    float32_t3 dTranslation, dRotation, dScale;
+                } world, local; // its important to notice our imguizmo deltas are written in world base, so I will assume you generate events with respect for input local basis
 
-                // note that translating imguizmo delta matrix to gimbal_event_t events is indeed hardcoded, but what
-                // *isn't* is those gimbal_event_t events are then translated according to m_imguizmoVirtualEventMap
-                // user defined map to
+                // TODO: since I assume the delta matrix is from imguizmo I must follow its API (but this one I could actually steal & rewrite to Nabla to not call imguizmo stuff here <- its TEMP)
+                ImGuizmo::DecomposeMatrixToComponents(&deltaWorldTRS[0][0], &world.dTranslation[0], &world.dRotation[0], &world.dScale[0]);
+
+                // FP precision threshold, lets filter small artifacts for this event generator to be more accurate
+                constexpr float threshold = 1e-8f;
+
+                auto filterDelta = [](const float32_t3& in) -> float32_t3 
+                {
+                    return 
+                    {
+                        (std::abs(in[0]) > threshold) ? in[0] : 0.0f,
+                        (std::abs(in[1]) > threshold) ? in[1] : 0.0f,
+                        (std::abs(in[2]) > threshold) ? in[2] : 0.0f
+                    };
+                };
+
+                local.dTranslation = filterDelta(mul(orientationBasis, world.dTranslation));
+                
+                // TODO
+                local.dRotation = { 0.f, 0.f, 0.f };
+                // TODO
+                local.dScale = { 1.f, 1.f, 1.f };
 
                 // Delta translation impulse
-                requestMagnitudeUpdateWithScalar(0.f, dTranslation[0], dTranslation[0], gimbal_event_t::MoveRight, gimbal_event_t::MoveLeft, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(0.f, dTranslation[1], dTranslation[1], gimbal_event_t::MoveUp, gimbal_event_t::MoveDown, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(0.f, dTranslation[2], dTranslation[2], gimbal_event_t::MoveForward, gimbal_event_t::MoveBackward, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(0.f, local.dTranslation[0], std::abs(local.dTranslation[0]), gimbal_event_t::MoveRight, gimbal_event_t::MoveLeft, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(0.f, local.dTranslation[1], std::abs(local.dTranslation[1]), gimbal_event_t::MoveUp, gimbal_event_t::MoveDown, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(0.f, local.dTranslation[2], std::abs(local.dTranslation[2]), gimbal_event_t::MoveForward, gimbal_event_t::MoveBackward, m_imguizmoVirtualEventMap);
 
                 // Delta rotation impulse
-                requestMagnitudeUpdateWithScalar(0.f, dRotation[0], dRotation[0], gimbal_event_t::PanRight, gimbal_event_t::PanLeft, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(0.f, dRotation[1], dRotation[1], gimbal_event_t::TiltUp, gimbal_event_t::TiltDown, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(0.f, dRotation[2], dRotation[2], gimbal_event_t::RollRight, gimbal_event_t::RollLeft, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(0.f, local.dRotation[0], std::abs(local.dRotation[0]), gimbal_event_t::PanRight, gimbal_event_t::PanLeft, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(0.f, local.dRotation[1], std::abs(local.dRotation[1]), gimbal_event_t::TiltUp, gimbal_event_t::TiltDown, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(0.f, local.dRotation[2], std::abs(local.dRotation[2]), gimbal_event_t::RollRight, gimbal_event_t::RollLeft, m_imguizmoVirtualEventMap);
 
                 // Delta scale impulse
-                requestMagnitudeUpdateWithScalar(1.f, dScale[0], dScale[0], gimbal_event_t::ScaleXInc, gimbal_event_t::ScaleXDec, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(1.f, dScale[1], dScale[1], gimbal_event_t::ScaleYInc, gimbal_event_t::ScaleYDec, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(1.f, dScale[2], dScale[2], gimbal_event_t::ScaleZInc, gimbal_event_t::ScaleZDec, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(1.f, local.dScale[0], std::abs(local.dScale[0]), gimbal_event_t::ScaleXInc, gimbal_event_t::ScaleXDec, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(1.f, local.dScale[1], std::abs(local.dScale[1]), gimbal_event_t::ScaleYInc, gimbal_event_t::ScaleYDec, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(1.f, local.dScale[2], std::abs(local.dScale[2]), gimbal_event_t::ScaleZInc, gimbal_event_t::ScaleZDec, m_imguizmoVirtualEventMap);
             }
 
             postprocess(m_imguizmoVirtualEventMap, output, count);
