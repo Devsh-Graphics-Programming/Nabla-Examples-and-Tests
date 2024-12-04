@@ -894,7 +894,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			ImGui::SameLine();
 
 			if (ImGui::RadioButton("RH", !isLH))
-				isLH = false;
+				isLH = true; // TMP WIP
+				//isLH = false;
 
 			//if (ImGui::RadioButton("Perspective", isPerspective))
 			//	isPerspective = true;
@@ -1070,7 +1071,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						// we manipulated a gizmo from a X-th window, now we update output matrices and assume no more gizmos can be manipulated at the same frame
 						if (!manipulatedFromAnyWindow)
 						{
-							// TMP, imguizmo controller doesnt support rotation & scale yet
+							// TMP WIP, our imguizmo controller doesnt support rotation & scale yet
 							auto discard = gizmoID == 1 && mCurrentGizmoOperation != ImGuizmo::TRANSLATE;
 							if (!discard)
 							{
@@ -1127,6 +1128,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			{
 				static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
 				uint32_t vCount;
+				auto nblManipulationMode = ICamera<matrix_precision_t>::Local;
 
 				secondcamera->beginInputProcessing(m_nextPresentationTimestamp);
 				{
@@ -1143,13 +1145,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						switch (mCurrentGizmoMode)
 						{
-							case ImGuizmo::LOCAL:
-							{
-								orientationBasis = (float32_t3x3(secondCameraGimbalModel));
-							} break;
-
-							case ImGuizmo::WORLD: break;
-							default: break;
+							case ImGuizmo::LOCAL: orientationBasis = (float32_t3x3(secondCameraGimbalModel));  break;
+							case ImGuizmo::WORLD: nblManipulationMode = ICamera<matrix_precision_t>::World; break;
+							default: assert(false); break;
 						}
 
 						return orientationBasis;
@@ -1160,8 +1158,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				}
 				secondcamera->endInputProcessing();
 
-				// TOOD: this needs debugging
-				secondcamera->manipulate({ virtualEvents.data(), vCount }, ICamera<matrix_precision_t>::Local);
+				secondcamera->manipulate({ virtualEvents.data(), vCount }, nblManipulationMode);
 			}
 
 			// update scenes data
@@ -1326,7 +1323,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 									addMatrixTable("Position", ("PositionTable" + idxstr).c_str(), 1, 3, &position[0], false);
 									addMatrixTable("Orientation (Quaternion)", ("OrientationTable" + idxstr).c_str(), 1, 4, &orientation[0], false);
 									addMatrixTable("View Matrix", ("ViewMatrixTable" + idxstr).c_str(), 3, 4, &viewMatrix[0][0], false);
-									addMatrixTable("TRS Matrix", ("TRSMatrixTable" + idxstr).c_str(), 3, 4, &trsMatrix[0][0], true);
+									//addMatrixTable("TRS Matrix", ("TRSMatrixTable" + idxstr).c_str(), 3, 4, &trsMatrix[0][0], true);
 
 									ImGui::EndTable();
 								}
