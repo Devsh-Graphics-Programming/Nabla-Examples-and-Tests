@@ -995,10 +995,25 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			for(uint32_t i = 0u; i < ProjectionsCount; ++i)
 				imguizmoM16InOut.projection[i] = transpose(projections[i]->getMatrix());
 
+			// wth its kinda column major but seems to interprete RS part as row major?
+			// will think of it later and check what its doing under the hood, now it
+			// seems to match my local base orientation correctly
+			auto toRetardedImguizmoTRSInput = [&](const float32_t3x4& nablaTrs) -> float32_t4x4
+			{
+				// *do not transpose whole matrix*, only the translate part
+				float32_t4x4 trs = getMatrix3x4As4x4(nablaTrs);
+				trs[3] = float32_t4(nablaTrs[0][3], nablaTrs[1][3], nablaTrs[2][3], 1.f);
+				trs[0][3] = 0.f;
+				trs[1][3] = 0.f;
+				trs[2][3] = 0.f;
+
+				return trs;
+			};
+
 			// we will transform a scene object's model
-			imguizmoM16InOut.inModel[0] = transpose(getMatrix3x4As4x4(m_model));
+			imguizmoM16InOut.inModel[0] = toRetardedImguizmoTRSInput(m_model);
 			// and second camera's model too
-			imguizmoM16InOut.inModel[1] = transpose(getMatrix3x4As4x4(secondcamera->getGimbal()()));
+			imguizmoM16InOut.inModel[1] = toRetardedImguizmoTRSInput(secondcamera->getGimbal()());
 			{
 				float* views[]
 				{
@@ -1036,9 +1051,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					// however note it only makes sense to obsly assume we cannot manipulate 2 objects at the same time
 					for (uint32_t matId = 0; matId < 2; matId++)
 					{
-						if(matId == 0)
-							ImGuizmo::AllowAxisFlip(true);
-						else
+						//if(matId == 0)
+						//	ImGuizmo::AllowAxisFlip(true);
+						//else
 							ImGuizmo::AllowAxisFlip(false);
 
 						// and because of imguizmo API usage to achive it we must work on copies & filter the output (unless we try enable/disable logic described bellow) 
@@ -1186,7 +1201,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						ImGui::Separator();
 				};
 
-				// Scene Model Object
+				// Scene Models
 				{
 					ImGui::SetNextWindowSize(ImVec2(600, 400), ImGuiCond_FirstUseEver);
 					ImGui::Begin("Object Info and Model Matrix", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysVerticalScrollbar);
@@ -1202,6 +1217,30 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					ImGui::PopStyleColor(2);
 					ImGui::End();
 				}
+
+				// ImGuizmo inputs
+				{
+					ImGui::SetNextWindowSize(ImVec2(600, 400), ImGuiCond_FirstUseEver);
+					ImGui::Begin("ImGuizmo model inputs", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysVerticalScrollbar);
+
+					ImGui::PushStyleColor(ImGuiCol_TableRowBg, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
+					ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
+
+					ImGui::Text("Type: GC Object");
+					ImGui::Separator();
+
+					addMatrixTable("Model", "GCIMGUIZMOTRS", 4, 4, &imguizmoM16InOut.inModel[0][0][0]);
+
+					ImGui::Text("Type: Camera ID \"1\" object");
+					ImGui::Separator();
+
+					addMatrixTable("Model", "CAMERASECIMGUIZMOTRS", 4, 4, &imguizmoM16InOut.inModel[1][0][0]);
+
+					ImGui::PopStyleColor(2);
+					ImGui::End();
+				}
+
+				//imguizmoM16InOut.inModel
 
 				// Cameraz
 				{
