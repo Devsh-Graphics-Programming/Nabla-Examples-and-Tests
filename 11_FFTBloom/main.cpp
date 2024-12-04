@@ -60,6 +60,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 	
 	// Other parameter-dependent variables
 	asset::VkExtent3D m_marginSrcDim;
+	uint16_t m_imageFirstAxisFFTWorkgroupSize;
 
 	// Shader Cache
 	smart_refctd_ptr<IShaderCompiler::CCache> m_readCache;
@@ -751,7 +752,8 @@ public:
 			kernelPrecompCmdBuf->bindComputePipeline(pipelines[2].get());
 			// Hardcoded 8x8 workgroup seems to be optimal for tex access
 			const auto& kernelSpectraExtent = m_kernelNormalizedSpectrums->getCreationParameters().image->getCreationParameters().extent;
-			kernelPrecompCmdBuf->dispatch(kernelSpectraExtent.width / 8, kernelSpectraExtent.height / 8, 1);
+			// Assumed PoT. +1 in Y dispatch to account for Nyquist row
+			kernelPrecompCmdBuf->dispatch(kernelSpectraExtent.width / 8, kernelSpectraExtent.height / 8 + 1, 1);
 
 			// Pipeline barrier: transition kernel spectrum images into read only, and outImage into general
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo imagePipelineBarrierInfo = {};
@@ -832,6 +834,7 @@ public:
 			firstAxisFFTHalfLengthLog2 = elementsPerInvocationLog2 + workgroupSizeLog2 - 1;
 			firstAxisFFTElementsPerInvocationLog2 = elementsPerInvocationLog2;
 			firstAxisFFTWorkgroupSizeLog2 = workgroupSizeLog2;
+			m_imageFirstAxisFFTWorkgroupSize = uint16_t(1) << workgroupSizeLog2;
 		}
 
 		// Second axis FFT might have different dimensions
@@ -966,16 +969,16 @@ public:
 		// Prepare for first axis FFT
 		// Push Constants - only need to specify BDAs here
 		const auto& imageExtent = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
-		const uint32_t paddingAlongColumns = (core::roundUpToPoT(m_marginSrcDim.height) - imageExtent.height) / 2;
-		const uint32_t paddingAlongRows = (core::roundUpToPoT(m_marginSrcDim.width) - imageExtent.width) / 2;
-		const uint32_t halfPaddingAlongRows = paddingAlongRows / 2;
+		const int32_t paddingAlongColumns = int32_t(core::roundUpToPoT(m_marginSrcDim.height) - imageExtent.height) / 2;
+		const int32_t paddingAlongRows = int32_t(core::roundUpToPoT(m_marginSrcDim.width) - imageExtent.width) / 2;
+		const int32_t halfPaddingAlongRows = paddingAlongRows / 2;
 
 		PushConstantData pushConstants;
 		pushConstants.colMajorBufferAddress = m_colMajorBufferAddress;
 		pushConstants.rowMajorBufferAddress = m_rowMajorBufferAddress;
 		pushConstants.imageRowLength = int32_t(imageExtent.width);
-		pushConstants.imageHalfRowLength = imageExtent.width / 2;
-		pushConstants.imageColumnLength = imageExtent.height;
+		pushConstants.imageHalfRowLength = int32_t(imageExtent.width) / 2;
+		pushConstants.imageColumnLength = int32_t(imageExtent.height);
 		pushConstants.padding = paddingAlongColumns;
 		pushConstants.halfPadding = halfPaddingAlongRows;
 
@@ -985,6 +988,7 @@ public:
 		pushConstants.imageHalfPixelSize = imageHalfPixelSize;
 		pushConstants.imagePixelSize = 2.f * imageHalfPixelSize;
 		pushConstants.imageTwoPixelSize_x = 4.f * imageHalfPixelSize.x;
+		pushConstants.imageWorkgroupSizePixelSize_y = m_imageFirstAxisFFTWorkgroupSize * pushConstants.imagePixelSize.y;
 
 		// Interpolate between dirac delta and kernel based on current time
 		auto epochNanoseconds = clock_t::now().time_since_epoch().count();

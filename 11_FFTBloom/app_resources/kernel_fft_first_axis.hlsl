@@ -32,11 +32,9 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 
 	void preload()
 	{
+		uint32_t index = workgroup::SubgroupContiguousIndex();
 		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 		{
-			// Index computation here is easier than FFT since the stride is fixed at _NBL_HLSL_WORKGROUP_SIZE_
-			const uint32_t index = localElementIndex * WorkgroupSize | workgroup::SubgroupContiguousIndex();
-
 			const float32_t4 firstLineTexValue = texture[uint32_t2(2 * glsl::gl_WorkGroupID().x, index)];
 			for (uint16_t channel = 0; channel < Channels; channel++)
 				preloaded[channel][localElementIndex].real(scalar_t(firstLineTexValue[channel]));
@@ -44,6 +42,8 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 			const float32_t4 secondLineTexValue = texture[uint32_t2(2 * glsl::gl_WorkGroupID().x + 1, index)];
 			for (uint16_t channel = 0; channel < Channels; channel++)
 				preloaded[channel][localElementIndex].imag(scalar_t(secondLineTexValue[channel]));
+
+			index += WorkgroupSize;
 		}
 	}
 
@@ -56,10 +56,11 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 			const uint64_t channelStartOffsetBytes = getChannelStartOffsetBytes(channel);
 			const LegacyBdaAccessor<complex_t<scalar_t> > colMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.colMajorBufferAddress + channelStartOffsetBytes);
 
+			uint32_t index = workgroup::SubgroupContiguousIndex();
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 			{
-				const uint32_t globalElementIdx = localElementIndex * WorkgroupSize | workgroup::SubgroupContiguousIndex();
-				colMajorAccessor.set(colMajorOffset(glsl::gl_WorkGroupID().x, globalElementIdx), preloaded[channel][localElementIndex]);
+				colMajorAccessor.set(colMajorOffset(glsl::gl_WorkGroupID().x, index), preloaded[channel][localElementIndex]);
+				index += WorkgroupSize;
 			}
 		}
 	}

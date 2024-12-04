@@ -66,11 +66,11 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 
 		if (glsl::gl_WorkGroupID().x)
 		{
-			for (uint32_t elementIndex = 0; elementIndex < ElementsPerInvocation; elementIndex++)
+			// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
+			const uint32_t firstIndex = workgroup::SubgroupContiguousIndex() / 2;
+			int32_t paddedIndex = int32_t(firstIndex) - pushConstants.halfPadding;
+			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 			{
-				// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
-				const int32_t index = int32_t(WorkgroupSize * elementIndex | workgroup::SubgroupContiguousIndex()) / 2;
-				const int32_t paddedIndex = index - pushConstants.halfPadding;
 				int32_t wrappedIndex = paddedIndex < 0 ? ~paddedIndex : paddedIndex; // ~x = - x - 1 in two's complement (except maybe at the borders of representable range) 
 				wrappedIndex = paddedIndex < pushConstants.imageHalfRowLength ? wrappedIndex : pushConstants.imageRowLength + ~paddedIndex;
 				// If mirrored, we need to invert which thread is loading lo and which is loading hi
@@ -88,17 +88,19 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				complex_t<scalar_t> lo = ternaryOperator(oddThread, otherThreadLoOrHi, loOrHi);
 				complex_t<scalar_t> hi = ternaryOperator(oddThread, loOrHi, otherThreadLoOrHi);
 				fft::unpack<scalar_t>(lo, hi);
-				preloaded[elementIndex] = ternaryOperator(oddThread ^ invert, hi, lo);
+				preloaded[localElementIndex] = ternaryOperator(oddThread ^ invert, hi, lo);
+
+				paddedIndex += WorkgroupSize / 2;
 			}
 		}
 		// Special case where we retrieve 0 and Nyquist
 		else
 		{
-			for (uint32_t elementIndex = 0; elementIndex < ElementsPerInvocation; elementIndex++)
+			// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
+			const uint32_t firstIndex = workgroup::SubgroupContiguousIndex() / 2;
+			int32_t paddedIndex = int32_t(firstIndex) - pushConstants.halfPadding;
+			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 			{
-				// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
-				const int32_t index = int32_t(WorkgroupSize * elementIndex | workgroup::SubgroupContiguousIndex()) / 2;
-				const int32_t paddedIndex = index - pushConstants.halfPadding;
 				int32_t wrappedIndex = paddedIndex < 0 ? ~paddedIndex : paddedIndex; // ~x = - x - 1 in two's complement (except maybe at the borders of representable range) 
 				wrappedIndex = paddedIndex < pushConstants.imageHalfRowLength ? wrappedIndex : pushConstants.imageRowLength + ~paddedIndex;
 				// If mirrored, we need to invert which thread is loading lo and which is loading hi
@@ -119,7 +121,9 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				const complex_t<scalar_t> evenThreadLo = { loOrHi.real(), otherThreadLoOrHi.real() };
 				// Odd thread writes `hi = Z1 + iN1`
 				const complex_t<scalar_t> oddThreadHi = { otherThreadLoOrHi.imag(), loOrHi.imag() };
-				preloaded[elementIndex] = ternaryOperator(oddThread ^ invert, oddThreadHi, evenThreadLo);
+				preloaded[localElementIndex] = ternaryOperator(oddThread ^ invert, oddThreadHi, evenThreadLo);
+
+				paddedIndex += WorkgroupSize / 2;
 			}
 		}
 	}
@@ -131,9 +135,9 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 	{
 		if (glsl::gl_WorkGroupID().x)
 		{
+			uint32_t globalElementIndex = workgroup::SubgroupContiguousIndex();
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 			{
-				const uint32_t globalElementIndex = WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex();
 				const uint32_t indexDFT = FFTIndexingUtils::getDFTIndex(globalElementIndex);
 				const uint32_t y = fft::bitReverse<uint32_t, NumWorkgroupsLog2>(glsl::gl_WorkGroupID().x);
 				const uint32_t2 texCoords = uint32_t2(indexDFT, y);
@@ -142,11 +146,14 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				const vector<scalar_t, 2> sampledKernelInterpolatedVector = lerp(sampledKernelVector, One, pushConstants.interpolatingFactor);
 				const complex_t<scalar_t> sampledKernelInterpolated = { sampledKernelInterpolatedVector.x, sampledKernelInterpolatedVector.y };
 				preloaded[localElementIndex] = preloaded[localElementIndex] * sampledKernelInterpolated;
+
+				globalElementIndex += WorkgroupSize;
 			}
 		}
 		// Remember first row holds Z + iN
 		else
 		{
+			uint32_t globalElementIndex = workgroup::SubgroupContiguousIndex();
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex += 2)
 			{
 				complex_t<scalar_t> zero = preloaded[localElementIndex];
@@ -157,7 +164,6 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				fft::unpack<scalar_t>(zero, nyquist);
 
 				// We now have zero and Nyquist frequencies at NFFT[index], so we must use `getDFTIndex(index)` to get the actual index into the DFT
-				const uint32_t globalElementIndex = WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex();
 				const float32_t indexDFT = float32_t(FFTIndexingUtils::getDFTIndex(globalElementIndex));
 
 				float32_t2 uv = float32_t2(indexDFT * TotalSizeReciprocal, float32_t(0)) + KernelHalfPixelSize;
@@ -192,6 +198,8 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				workgroup::Shuffle<sharedmem_adaptor_t, vector<scalar_t, 2> >::__call(mirroredVector, otherThreadID, adaptorForSharedMemory);
 				preloaded[elementToTradeLocalIdx].real(mirroredVector.x);
 				preloaded[elementToTradeLocalIdx].imag(mirroredVector.y);
+
+				globalElementIndex += WorkgroupSize;
 			}
 		}
 	}
@@ -203,12 +211,14 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 		const uint64_t channelStartOffsetBytes = getChannelStartOffsetBytes(channel);
 		const LegacyBdaAccessor<complex_t<scalar_t> > rowMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.rowMajorBufferAddress + channelStartOffsetBytes);
 
+		const uint32_t firstIndex = workgroup::SubgroupContiguousIndex();
+		int32_t paddedIndex = int32_t(firstIndex) - pushConstants.padding;
 		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 		{
-			const int32_t globalElementIndex = int32_t(WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex());
-			const int32_t paddedIndex = globalElementIndex - pushConstants.padding;
 			if (paddedIndex >= 0 && paddedIndex < pushConstants.imageRowLength)
 				rowMajorAccessor.set(rowMajorOffset(paddedIndex, glsl::gl_WorkGroupID().x), preloaded[localElementIndex]);
+			
+			paddedIndex += WorkgroupSize;
 		}
 	}
 };

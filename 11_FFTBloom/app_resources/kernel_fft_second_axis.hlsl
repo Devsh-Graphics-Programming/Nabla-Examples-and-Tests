@@ -54,10 +54,10 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 				// Set LegacyBdaAccessor for reading
 				const LegacyBdaAccessor<complex_t<scalar_t> > colMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.colMajorBufferAddress + channelStartOffsetBytes);
 
+				// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
+				uint32_t index = workgroup::SubgroupContiguousIndex() / 2;
 				for (uint32_t elementIndex = 0; elementIndex < ElementsPerInvocation; elementIndex++)
 				{
-					// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
-					const uint32_t index = (WorkgroupSize * elementIndex | workgroup::SubgroupContiguousIndex()) / 2;
 					// Even thread must index a y corresponding to an even element of the previous FFT pass, and the odd thread must index its DFT Mirror
 					// The math here essentially ensues we enumerate all even elements in order: we alternate `PreviousWorkgroupSize` even elements (all `preloaded[0]` elements of
 					// the previous pass' threads), then `PreviousWorkgroupSize` odd elements (`preloaded[1]`) and so on
@@ -72,6 +72,8 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 					complex_t<scalar_t> hi = ternaryOperator(oddThread, loOrHi, otherThreadLoOrHi);
 					fft::unpack<scalar_t>(lo, hi);
 					preloaded[channel][elementIndex] = ternaryOperator(oddThread, hi, lo);
+
+					index += WorkgroupSize / 2;
 				}
 			}
 		}
@@ -84,11 +86,10 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 				// Set LegacyBdaAccessor for reading
 				const LegacyBdaAccessor<complex_t<scalar_t> > colMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.colMajorBufferAddress + channelStartOffsetBytes);
 
+				// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
+				uint32_t index = workgroup::SubgroupContiguousIndex() / 2;
 				for (uint32_t elementIndex = 0; elementIndex < ElementsPerInvocation; elementIndex++)
 				{
-					// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
-					const uint32_t index = (WorkgroupSize * elementIndex | workgroup::SubgroupContiguousIndex()) / 2;
-
 					// Even thread retrieves Zero, odd thread retrieves Nyquist. Zero is always `preloaded[0]` of the previous FFT's 0th thread, while Nyquist is always `preloaded[1]` of that same thread.
 					// Therefore we know Nyquist ends up exactly at y = PreviousWorkgroupSize
 					uint32_t y = oddThread ? PreviousWorkgroupSize : 0;
@@ -106,6 +107,8 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 					// Odd thread writes `hi = Z1 + iN1`
 					const complex_t<scalar_t> oddThreadHi = { otherThreadLoOrHi.imag(), loOrHi.imag() };
 					preloaded[channel][elementIndex] = ternaryOperator(oddThread, oddThreadHi, evenThreadLo);
+
+					index += WorkgroupSize / 2;
 				}
 			}
 		}
@@ -125,16 +128,17 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 		{
 			for (uint16_t channel = 0; channel < Channels; channel++)
 			{
+				uint32_t index = workgroup::SubgroupContiguousIndex();
 				for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 				{
-					const uint32_t index = WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex();
-
 					// Get actual x,y coordinates for the element we wish to write
 					uint32_t x = FFTIndexingUtils::getDFTIndex(index);
 					uint32_t y = fft::bitReverse<uint32_t, NumWorkgroupsLog2>(glsl::gl_WorkGroupID().x);
 
 					vector<scalar_t, 2> toStoreVector = { preloaded[channel][localElementIndex].real(), preloaded[channel][localElementIndex].imag() };
 					kernelChannels[uint32_t3(x, y, channel)] = toStoreVector;
+
+					index += WorkgroupSize;
 				}
 			}
 		}
@@ -143,6 +147,8 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 		{
 			for (uint16_t channel = 0; channel < Channels; channel++)
 			{
+
+				uint32_t index = workgroup::SubgroupContiguousIndex();
 				// FFT[Z + iN] was stored in the Nabla order
 				for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 				{
@@ -152,8 +158,6 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 					adaptorForSharedMemory.workgroupExecutionAndMemoryBarrier();
 					complex_t<scalar_t> nyquist = getDFTMirror<sharedmem_adaptor_t>(localElementIndex, channel, adaptorForSharedMemory);
 					fft::unpack<scalar_t>(zero, nyquist);
-
-					const uint32_t index = WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex();
 
 					// We now have zero and Nyquist frequencies at NFFT[index], so we must use `getDFTIndex(index)` to get the actual index into the DFT
 					const uint32_t indexDFT = FFTIndexingUtils::getDFTIndex(index);
@@ -167,6 +171,8 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 					const uint32_t2 nyquistCoord = uint32_t2(indexDFT, TotalSize / 2);
 					vector<scalar_t, 2> nyquistVector = { nyquist.real(), nyquist.imag() };
 					kernelChannels[uint32_t3(nyquistCoord, channel)] = nyquistVector;
+
+					index += WorkgroupSize;
 
 					// Also save the result of unpacking for later in case it's the channelWiseSum - real part of element at (0,0) of a channel
 					if (!workgroup::SubgroupContiguousIndex() && !localElementIndex)

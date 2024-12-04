@@ -33,13 +33,10 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 		float32_t2 normalizedCoordsFirstLine, normalizedCoordsSecondLine;
 		normalizedCoordsFirstLine.x = float32_t(glsl::gl_WorkGroupID().x) * pushConstants.imageTwoPixelSize_x + pushConstants.imageHalfPixelSize.x;
 		normalizedCoordsSecondLine.x = normalizedCoordsFirstLine.x + pushConstants.imagePixelSize.x;
+		normalizedCoordsFirstLine.y = (int32_t(workgroup::SubgroupContiguousIndex()) - pushConstants.padding) * pushConstants.imagePixelSize.y + pushConstants.imageHalfPixelSize.y;
 
 		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 		{
-			// Index computation here is easier than FFT since the stride is fixed at WorkgroupSize
-			const int32_t index = int32_t(WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex());
-
-			normalizedCoordsFirstLine.y = float32_t(index - pushConstants.padding) * pushConstants.imagePixelSize.y + pushConstants.imageHalfPixelSize.y;
 			const float32_t4 firstLineTexValue = texture.SampleLevel(samplerState, normalizedCoordsFirstLine, 0);
 			for (uint16_t channel = 0; channel < Channels; channel++)
 				preloaded[channel][localElementIndex].real(scalar_t(firstLineTexValue[channel]));
@@ -48,6 +45,8 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 			const float32_t4 secondLineTexValue = texture.SampleLevel(samplerState, normalizedCoordsSecondLine, 0);
 			for (uint16_t channel = 0; channel < Channels; channel++)
 				preloaded[channel][localElementIndex].imag(scalar_t(secondLineTexValue[channel]));
+
+			normalizedCoordsFirstLine.y += pushConstants.imageWorkgroupSizePixelSize_y;
 		}	
 	}
 
@@ -60,10 +59,11 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 			const uint64_t channelStartOffsetBytes = getChannelStartOffsetBytes(channel);
 			const LegacyBdaAccessor<complex_t<scalar_t> > colMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.colMajorBufferAddress + channelStartOffsetBytes);
 
+			uint32_t globalElementIdx = workgroup::SubgroupContiguousIndex();
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 			{
-				const uint32_t globalElementIdx = localElementIndex * WorkgroupSize | workgroup::SubgroupContiguousIndex();
 				colMajorAccessor.set(colMajorOffset(glsl::gl_WorkGroupID().x, globalElementIdx), preloaded[channel][localElementIndex]);
+				globalElementIdx += WorkgroupSize;
 			}
 		}
 	}

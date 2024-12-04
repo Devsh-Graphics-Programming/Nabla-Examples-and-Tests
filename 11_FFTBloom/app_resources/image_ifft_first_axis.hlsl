@@ -42,11 +42,12 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 			// Set LegacyBdaAccessor for reading
 			const LegacyBdaAccessor<complex_t<scalar_t> > rowMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.rowMajorBufferAddress + channelStartOffsetBytes);
 
+			uint32_t index = workgroup::SubgroupContiguousIndex();
 			// Load all even elements of first column
 			for (uint32_t localElementIndex = 0; localElementIndex < (ElementsPerInvocation / 2); localElementIndex++)
 			{
-				const uint32_t index = WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex();
 				preloaded[channel][localElementIndex << 1] = rowMajorAccessor.get(rowMajorOffset(2 * glsl::gl_WorkGroupID().x, index));
+				index += WorkgroupSize;
 			}
 			// Get all odd elements by trading
 			for (uint32_t localElementIndex = 1; localElementIndex < ElementsPerInvocation; localElementIndex += 2)
@@ -55,10 +56,12 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 			}
 			// Load even elements of second column, multiply them by i and add them to even positions
 			// This makes even positions hold C1 + iC2
+			// Reset index
+			index = workgroup::SubgroupContiguousIndex();
 			for (uint32_t localElementIndex = 0; localElementIndex < (ElementsPerInvocation / 2); localElementIndex++)
 			{
-				const uint32_t index = WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex();
 				preloaded[channel][localElementIndex << 1] = preloaded[channel][localElementIndex << 1] + rotateLeft<scalar_t>(rowMajorAccessor.get(rowMajorOffset(2 * glsl::gl_WorkGroupID().x + 1, index)));
+				index += WorkgroupSize;
 			}
 			// Finally, trade to get odd elements of second column. Note that by trading we receive an element of the form C1 + iC2 for an even position. The current odd position holds conj(C1) and we
 			// want it to hold conj(C1) + i*conj(C2). So we first do conj(C1 + iC2) to yield conj(C1) - i*conj(C2). Then we subtract conj(C1) to get -i*conj(C2), negate that to get i * conj(C2), and finally
@@ -91,10 +94,10 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 
 	void unload()
 	{
+		const uint32_t firstIndex = workgroup::SubgroupContiguousIndex();
+		int32_t paddedIndex = int32_t(firstIndex) - pushConstants.padding;
 		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 		{
-			const int32_t index = int32_t(WorkgroupSize * localElementIndex | workgroup::SubgroupContiguousIndex());
-			const int32_t paddedIndex = index - pushConstants.padding;
 			if (paddedIndex >= 0 && paddedIndex < pushConstants.imageColumnLength)
 			{
 				vector<scalar_t, 4> firstLineTexValue, secondLineTexValue;
@@ -110,6 +113,7 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 				convolvedImage[uint32_t2(2 * glsl::gl_WorkGroupID().x, paddedIndex)] = firstLineTexValue;
 				convolvedImage[uint32_t2(2 * glsl::gl_WorkGroupID().x + 1, paddedIndex)] = secondLineTexValue;
 			}
+			paddedIndex += WorkgroupSize;
 		}
 	}
 };
