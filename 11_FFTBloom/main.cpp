@@ -120,12 +120,12 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 		return m_device->createPipelineLayout({ &pcRange,1 }, m_device->createDescriptorSetLayout(bindings));
 	}
 
-	inline void updateDescriptorSet(smart_refctd_ptr<IGPUImageView> imageDescriptor, smart_refctd_ptr<IGPUImageView> storageImageDescriptor, smart_refctd_ptr<IGPUImageView> textureArrayDescriptor = nullptr)
+	inline void updateDescriptorSet(smart_refctd_ptr<IGPUImageView> imageDescriptor, smart_refctd_ptr<IGPUImageView> storageImageDescriptor, smart_refctd_ptr<IGPUSampler> samplerDescriptor, smart_refctd_ptr<IGPUImageView> textureArrayDescriptor = nullptr)
 	{
-		IGPUDescriptorSet::SDescriptorInfo infos[3] = {};
-		IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {};
+		IGPUDescriptorSet::SDescriptorInfo infos[4] = {};
+		IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {};
 
-		for (auto i = 0u; i < 3; i++) {
+		for (auto i = 0u; i < 4; i++) {
 			writes[i].dstSet = m_descriptorSet.get();
 			writes[i].arrayElement = 0u;
 			writes[i].count = 1u;
@@ -135,22 +135,28 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 		infos[0].desc = imageDescriptor;
 		infos[0].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 		// Read image at binding 0
-		writes[0].binding = 0;
+		writes[0].binding = 0u;
 
 		// Binding 2 skipped since it's immutable sampler
 
 		infos[1].desc = storageImageDescriptor;
 		infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
 		// Storage image at binding 1
-		writes[1].binding = 2;
+		writes[1].binding = 2u;
 
 		// If nullptr give it SOME value so validation layer doesn't complain even though we don't use it
 		infos[2].desc = textureArrayDescriptor ? textureArrayDescriptor : imageDescriptor;
 		infos[2].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 		// Texture array for reading at binding 3
-		writes[2].binding = 3;
+		writes[2].binding = 3u;
 
-		m_device->updateDescriptorSets(writes, std::span<IGPUDescriptorSet::SCopyDescriptorSet>());
+		if (samplerDescriptor)
+		{
+			infos[3].desc = samplerDescriptor;
+			writes[3].binding = 1u;
+		}
+
+		m_device->updateDescriptorSets({writes, 3u + (samplerDescriptor ? 1u : 0u)}, std::span<IGPUDescriptorSet::SCopyDescriptorSet>());
 	}
 
 	struct ShaderConstantParameters
@@ -265,7 +271,7 @@ public:
 			lp.logger = m_logger.get();
 			lp.workingDirectory = ""; // virtual root
 			auto srcImageBundle = m_assetMgr->getAsset("../../media/colorexr.exr", lp);
-			auto kerImageBundle = m_assetMgr->getAsset("../../media/kernels/physical_flare_512.exr", lp);
+			auto kerImageBundle = m_assetMgr->getAsset("../../media/kernels/physical_flare_256.exr", lp);
 			const auto srcImages = srcImageBundle.getContents();
 			const auto kerImages = kerImageBundle.getContents();
 			if (srcImages.empty() or kerImages.empty())
@@ -433,7 +439,7 @@ public:
 		const auto kerDim = m_kerImageView->getCreationParameters().image->getCreationParameters().extent;
 		const auto srcDim = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
 		auto bloomScale = core::min(float(srcDim.width) / float(kerDim.width), float(srcDim.height) / float(kerDim.height)) * bloomRelativeScale;
-		assert(m_bloomScale <= 1.f);
+		assert(bloomScale <= 1.f);
 
 		m_marginSrcDim = srcDim;
 		
@@ -478,20 +484,6 @@ public:
 		// Universal pipeline layout
 		smart_refctd_ptr<IGPUPipelineLayout> pipelineLayout;
 		{
-			IGPUSampler::SParams params =
-			{
-				ISampler::ETC_MIRROR,
-				ISampler::ETC_MIRROR,
-				ISampler::ETC_MIRROR,
-				ISampler::ETBC_FLOAT_OPAQUE_BLACK,
-				ISampler::ETF_LINEAR,
-				ISampler::ETF_LINEAR,
-				ISampler::ESMM_LINEAR,
-				3u,
-				0u,
-				ISampler::ECO_ALWAYS
-			};
-			auto sampler = m_device->createSampler(std::move(params));
 			IGPUDescriptorSetLayout::SBinding bnd[4] =
 			{
 				// Kernel FFT and Image FFT read from a single Image
@@ -504,7 +496,8 @@ public:
 					1u,
 					nullptr
 				},
-				// Sampler: First Axis FFT (image) and convolution use a mirror-sampler, First Axis FFT (kernel) uses a clamp to border
+				// Sampler: First Axis FFT (image) and convolution use a mirror-sampler
+				// Could be static for each pipeline but since it's shared it implies no descriptor changes between pipelines
 				{
 					IDescriptorSetLayoutBase::SBindingBase(),
 					1u,
@@ -512,7 +505,7 @@ public:
 					IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					1u,
-					&sampler
+					nullptr
 				},
 				// Storage Image: Normalization binds a texture array, First Axis IFFT binds a single image
 				{
@@ -626,8 +619,23 @@ public:
 			m_kernelNormalizedSpectrums->getCreationParameters().image->setObjectDebugName("Kernel spectrum array");
 
 			// Write descriptor set for kernel FFT computation
+			IGPUSampler::SParams samplerCreationParams =
+			{
+				ISampler::ETC_MIRROR,
+				ISampler::ETC_MIRROR,
+				ISampler::ETC_MIRROR,
+				ISampler::ETBC_FLOAT_OPAQUE_BLACK,
+				ISampler::ETF_LINEAR,
+				ISampler::ETF_LINEAR,
+				ISampler::ESMM_LINEAR,
+				3u,
+				0u,
+				ISampler::ECO_ALWAYS
+			};
+			auto sampler = m_device->createSampler(std::move(samplerCreationParams));
+			// Provide sampler so it's bound and kernel FFT shaders don't complain, even if they don't use it
 			// Sampler persists because the descriptor set takes ownership! Isn't that cool
-			updateDescriptorSet(m_kerImageView, m_kernelNormalizedSpectrums);
+			updateDescriptorSet(m_kerImageView, m_kernelNormalizedSpectrums, sampler);
 
 			// Invoke a workgroup per two vertical scanlines. Kernel is square and runs first in the y-direction.
 			// That means we have to create a shader that does an FFT of size `kerDim.height = kerDim.width` (length of each column, already padded to PoT), 
@@ -898,7 +906,7 @@ public:
 		m_device->blockForSemaphores({ &waitInfo, 1 });
 
 		// Before leaving, update descriptor set with values needed by image transform
-		updateDescriptorSet(m_srcImageView, m_outImgView, m_kernelNormalizedSpectrums);
+		updateDescriptorSet(m_srcImageView, m_outImgView, nullptr, m_kernelNormalizedSpectrums);
 
 		return true;
 	}
