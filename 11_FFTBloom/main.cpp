@@ -5,8 +5,6 @@
 #include "SimpleWindowedApplication.hpp"
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
-// TODO: Require kerDim be PoT
-
 using namespace nbl;
 using namespace core;
 using namespace system;
