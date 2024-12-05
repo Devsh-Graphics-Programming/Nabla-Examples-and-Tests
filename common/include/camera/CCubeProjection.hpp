@@ -1,34 +1,37 @@
 #ifndef _NBL_CCUBE_PROJECTION_HPP_
 #define _NBL_CCUBE_PROJECTION_HPP_
 
-#include "ILinearProjection.hpp"
+#include "IRange.hpp"
+#include "IQuadProjection.hpp"
 
 namespace nbl::hlsl
 {
 
-template<ProjectionMatrix T>
-struct CCubeProjectionConstraints
-{
-    using matrix_t = typename T;
-    using projection_t = typename IProjection<typename matrix_t>;
-    using projection_range_t = std::array<typename core::smart_refctd_ptr<projection_t>, 6u>;
-    using base_t = ILinearProjection<typename projection_range_t>;
-};
-
-//! Class providing linear cube projections with projection matrix per face of a cube, each projection matrix represents a single view-port
-template<ProjectionMatrix T = float64_t4x4>
-class CCubeProjection : public CCubeProjectionConstraints<T>::base_t
+// A projection where each cube face is a quad we project onto
+class CCubeProjection final : public IQuadProjection
 {
 public:
-    using constraints_t = CCubeProjectionConstraints<T>;
-    using base_t = typename constraints_t::base_t;
+    static inline constexpr auto CubeFaces = 6u;
 
-    CCubeProjection(constraints_t::projection_range_t&& projections = {}) : base_t(std::move(projections)) {}
-
-    constraints_t::projection_range_t& getCubeFaceProjections()
+    inline static core::smart_refctd_ptr<CCubeProjection> create(core::smart_refctd_ptr<ICamera>&& camera)
     {
-        return base_t::getViewportProjections();
+        if (!camera)
+            return nullptr;
+
+        return core::smart_refctd_ptr<CCubeProjection>(new CCubeProjection(core::smart_refctd_ptr(camera)), core::dont_grab);
     }
+
+    virtual std::span<const CProjection> getQuadProjections() const
+    {
+        return m_cubefaceProjections;
+    }
+
+private:
+    CCubeProjection(core::smart_refctd_ptr<ICamera>&& camera)
+        : IQuadProjection(core::smart_refctd_ptr(camera)) {}
+    virtual ~CCubeProjection() = default;
+
+    std::array<CProjection, CubeFaces> m_cubefaceProjections;
 };
 
 } // nbl::hlsl namespace

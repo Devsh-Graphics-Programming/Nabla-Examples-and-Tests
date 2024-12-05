@@ -10,6 +10,9 @@
 #include "SimpleWindowedApplication.hpp"
 #include "InputSystem.hpp"
 
+#include "camera/ILinearProjection.hpp"
+#include "camera/IQuadProjection.hpp"
+
 // the example's headers
 #include "nbl/ui/ICursorControl.h"
 #include "nbl/ext/ImGui/ImGui.h"
