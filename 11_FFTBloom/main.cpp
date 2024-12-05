@@ -5,11 +5,7 @@
 #include "SimpleWindowedApplication.hpp"
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
-// TODO: Refactor after FFT ext is back
-// TODO: Make sampling formats be #defined depending on how they were loaded on GPU side
 // TODO: Require kerDim be PoT
-// TODO: Image can have arbitrary size, but shaders require the width to be an even number. It's not required to resize an image, but the math to get the required size of the buffer should
-//		 round the image width to the next even number to make sure we get the proper size for the buffer. PushConstants.imageRowLength must ALWAYS be even, so if image width is odd, round that up by 1
 
 using namespace nbl;
 using namespace core;
@@ -279,6 +275,12 @@ public:
 				return logFail("Could not load image or kernel!");
 			auto srcImageCPU = IAsset::castDown<ICPUImage>(srcImages[0]);
 			auto kerImageCPU = IAsset::castDown<ICPUImage>(kerImages[0]);
+			{
+				auto kerImageExtent = kerImageCPU->getCreationParameters().extent;
+				if (kerImageExtent.width != kerImageExtent.height || (kerImageExtent.width & (kerImageExtent.width - 1)))
+					return logFail("Kernel Image must be square, with side length a power of two!");
+			}
+
 			const auto srcImageFormat = srcImageCPU->getCreationParameters().format;
 			const auto kerImageFormat = kerImageCPU->getCreationParameters().format;
 

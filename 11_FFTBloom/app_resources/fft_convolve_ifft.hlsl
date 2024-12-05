@@ -64,6 +64,8 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 		// This one shows up a lot so we give it a name
 		const bool oddThread = glsl::gl_SubgroupInvocationID() & 1u;
 
+		ternary_operator<complex_t<scalar_t> > ternaryOp;
+
 		if (glsl::gl_WorkGroupID().x)
 		{
 			// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
@@ -85,10 +87,10 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				const vector <scalar_t, 2> loOrHiVector = vector <scalar_t, 2>(loOrHi.real(), loOrHi.imag());
 				const vector <scalar_t, 2> otherThreadloOrHiVector = glsl::subgroupShuffleXor< vector <scalar_t, 2> >(loOrHiVector, 1u);
 				const complex_t<scalar_t> otherThreadLoOrHi = { otherThreadloOrHiVector.x, otherThreadloOrHiVector.y };
-				complex_t<scalar_t> lo = ternaryOperator(oddThread, otherThreadLoOrHi, loOrHi);
-				complex_t<scalar_t> hi = ternaryOperator(oddThread, loOrHi, otherThreadLoOrHi);
+				complex_t<scalar_t> lo = ternaryOp(oddThread, otherThreadLoOrHi, loOrHi);
+				complex_t<scalar_t> hi = ternaryOp(oddThread, loOrHi, otherThreadLoOrHi);
 				fft::unpack<scalar_t>(lo, hi);
-				preloaded[localElementIndex] = ternaryOperator(oddThread ^ invert, hi, lo);
+				preloaded[localElementIndex] = ternaryOp(oddThread ^ invert, hi, lo);
 
 				paddedIndex += WorkgroupSize / 2;
 			}
@@ -120,7 +122,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				const complex_t<scalar_t> evenThreadLo = { loOrHi.real(), otherThreadLoOrHi.real() };
 				// Odd thread writes `hi = Z1 + iN1`
 				const complex_t<scalar_t> oddThreadHi = { otherThreadLoOrHi.imag(), loOrHi.imag() };
-				preloaded[localElementIndex] = ternaryOperator(oddThread ^ invert, oddThreadHi, evenThreadLo);
+				preloaded[localElementIndex] = ternaryOp(oddThread ^ invert, oddThreadHi, evenThreadLo);
 
 				paddedIndex += WorkgroupSize / 2;
 			}
@@ -142,7 +144,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				const uint32_t2 texCoords = uint32_t2(indexDFT, y);
 				const float32_t2 uv = texCoords * float32_t2(TotalSizeReciprocal, 1.f / NumWorkgroups) + KernelHalfPixelSize;
 				const vector<scalar_t, 2> sampledKernelVector = kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0);
-				const vector<scalar_t, 2> sampledKernelInterpolatedVector = lerp(sampledKernelVector, One, pushConstants.interpolatingFactor);
+				const vector<scalar_t, 2> sampledKernelInterpolatedVector = lerp(sampledKernelVector, One, promote<vector<scalar_t, 2>, float32_t>(pushConstants.interpolatingFactor));
 				const complex_t<scalar_t> sampledKernelInterpolated = { sampledKernelInterpolatedVector.x, sampledKernelInterpolatedVector.y };
 				preloaded[localElementIndex] = preloaded[localElementIndex] * sampledKernelInterpolated;
 
@@ -167,14 +169,14 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 
 				float32_t2 uv = float32_t2(indexDFT * TotalSizeReciprocal, float32_t(0)) + KernelHalfPixelSize;
 				const vector<scalar_t, 2> zeroKernelVector = kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0);
-				const vector<scalar_t, 2> zeroKernelInterpolatedVector = lerp(zeroKernelVector, One, pushConstants.interpolatingFactor);
+				const vector<scalar_t, 2> zeroKernelInterpolatedVector = lerp(zeroKernelVector, One, promote<vector<scalar_t, 2>, float32_t>(pushConstants.interpolatingFactor));
 				const complex_t<scalar_t> zeroKernelInterpolated = { zeroKernelInterpolatedVector.x, zeroKernelInterpolatedVector.y };
 				zero = zero * zeroKernelInterpolated;
 
 				// Do the same for the nyquist coord
 				uv.y = 1.f - KernelHalfPixelSize.y;
 				const vector<scalar_t, 2> nyquistKernelVector = kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0);
-				const vector<scalar_t, 2> nyquistKernelInterpolatedVector = lerp(nyquistKernelVector, One, pushConstants.interpolatingFactor);
+				const vector<scalar_t, 2> nyquistKernelInterpolatedVector = lerp(nyquistKernelVector, One, promote<vector<scalar_t, 2>, float32_t>(pushConstants.interpolatingFactor));
 				const complex_t<scalar_t> nyquistKernelInterpolated = { nyquistKernelInterpolatedVector.x, nyquistKernelInterpolatedVector.y };
 				nyquist = nyquist * nyquistKernelInterpolated;
 
@@ -182,21 +184,20 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				preloaded[localElementIndex] = zero + rotateLeft<scalar_t>(nyquist);
 
 				// We have set Z + iN for an even element (lower half of the DFT). We must now set conj(Z) + i * conj(N) for an odd element (upper half of DFT)
-				// The logic here is basically the same as in getDFTMirror: we figure out which of our odd elements corresponds to the other thread's
+				// The logic here is very similar to that in `getDFTMirror`: we figure out which of our odd elements corresponds to the other thread's
 				// current even element (current even element is `localElementIndex` and our local odd element that's the mirror of the other thread's even element is
-				// `elementToTradeLocalIdx`. Then we get conj(Z) + i * conj(N) from that thread and send our own via a shuffle
+				// `elementToTradeLocalIdx`. Then we get conj(Z) + i * conj(N) from that thread and send our own via a shuffle.
+				// Unlike `getDFTMirror` however, the logic is inverted, in the sense that we don't send `preloaded[mirrorLocalIndex]` but rather we receive a value to store there
 				const complex_t<scalar_t> mirrored = conj(zero) + rotateLeft<scalar_t>(conj(nyquist));
 				vector<scalar_t, 2> mirroredVector = { mirrored.real(), mirrored.imag() };
-				const uint32_t otherElementIdx = FFTIndexingUtils::getNablaMirrorIndex(globalElementIndex);
-				const uint32_t otherThreadID = otherElementIdx & (WorkgroupSize - 1);
-				const uint32_t otherThreadGlobalElementIndex = WorkgroupSize * localElementIndex | otherThreadID;
-				const uint32_t elementToTradeGlobalIdx = FFTIndexingUtils::getNablaMirrorIndex(otherThreadGlobalElementIndex);
-				const uint32_t elementToTradeLocalIdx = elementToTradeGlobalIdx / WorkgroupSize;
+				const FFTIndexingUtils::NablaMirrorLocalInfo info = FFTIndexingUtils::getNablaMirrorLocalInfo(globalElementIndex);
+				const uint32_t mirrorLocalIndex = info.mirrorLocalIndex;
+				const uint32_t otherThreadID = info.otherThreadID;
 				// Make sure the `getDFTMirror` at the top is done
 				adaptorForSharedMemory.workgroupExecutionAndMemoryBarrier();
 				workgroup::Shuffle<sharedmem_adaptor_t, vector<scalar_t, 2> >::__call(mirroredVector, otherThreadID, adaptorForSharedMemory);
-				preloaded[elementToTradeLocalIdx].real(mirroredVector.x);
-				preloaded[elementToTradeLocalIdx].imag(mirroredVector.y);
+				preloaded[mirrorLocalIndex].real(mirroredVector.x);
+				preloaded[mirrorLocalIndex].imag(mirroredVector.y);
 
 				globalElementIndex += 2 * WorkgroupSize;
 			}
