@@ -109,13 +109,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 
 	// -------------------------------- END WINDOWED APP OVERRIDES ---------------------------------------------------
 
-	smart_refctd_ptr<IGPUPipelineLayout> createPipelineLayout(const std::span<const IGPUDescriptorSetLayout::SBinding> bindings)
-	{
-		const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,.offset = 0,.size = sizeof(PushConstantData) };
-		return m_device->createPipelineLayout({ &pcRange,1 }, m_device->createDescriptorSetLayout(bindings));
-	}
-
-	inline void updateDescriptorSet(smart_refctd_ptr<IGPUImageView> imageDescriptor, smart_refctd_ptr<IGPUImageView> storageImageDescriptor, smart_refctd_ptr<IGPUSampler> samplerDescriptor, smart_refctd_ptr<IGPUImageView> textureArrayDescriptor = nullptr)
+	inline void updateDescriptorSet(smart_refctd_ptr<IGPUImageView> imageDescriptor, smart_refctd_ptr<IGPUImageView> storageImageDescriptor, smart_refctd_ptr<IGPUSampler> samplerDescriptor = nullptr, smart_refctd_ptr<IGPUImageView> textureArrayDescriptor = nullptr)
 	{
 		IGPUDescriptorSet::SDescriptorInfo infos[4] = {};
 		IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {};
@@ -260,8 +254,12 @@ public:
 			assConvCmdBuf = std::move(commandBuffers[MaxFramesInFlight]);
 		}
 
-		// Load source and kernel images
+		// Use asset converter to upload images to GPU, while at the same time creating our universal descriptor set and pipeline layout
+		smart_refctd_ptr<IGPUPipelineLayout> pipelineLayout;
+		// Make sampler persist until we write descriptor set with it later - I think asset converter is bugged
+		smart_refctd_ptr<IGPUSampler> sampler;
 		{
+			// Load source and kernel images
 			IAssetLoader::SAssetLoadParams lp = {};
 			lp.logger = m_logger.get();
 			lp.workingDirectory = ""; // virtual root
@@ -301,6 +299,89 @@ public:
 			const auto srcImageViewCPU = ICPUImageView::create(std::move(viewParams[0]));
 			const auto kerImageViewCPU = ICPUImageView::create(std::move(viewParams[1]));
 
+			// Create a CPU Descriptor Set
+			ICPUDescriptorSetLayout::SBinding bnd[4] =
+			{
+				// Kernel FFT and Image FFT read from a single Image
+				{
+					IDescriptorSetLayoutBase::SBindingBase(),
+					0u,
+					IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
+					IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					1u,
+					nullptr
+				},
+				// Sampler: First Axis FFT (image) and convolution use a mirror-sampler
+				// Could be static for each pipeline but since it's shared it implies no descriptor changes between pipelines
+				{
+					IDescriptorSetLayoutBase::SBindingBase(),
+					1u,
+					IDescriptor::E_TYPE::ET_SAMPLER,
+					IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					1u,
+					nullptr
+				},
+				// Storage Image: Normalization binds a texture array, First Axis IFFT binds a single image
+				{
+					IDescriptorSetLayoutBase::SBindingBase(),
+					2u,
+					IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+					IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					1,
+					nullptr
+				},
+				// Convolution binds a texture array. Trying to have this in same binding slot as image would be cool but we lose the ability to write the descriptor set only once
+				{
+					IDescriptorSetLayoutBase::SBindingBase(),
+					3u,
+					IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
+					IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					1,
+					nullptr
+				}
+			};
+			auto descriptorSetLayoutCPU = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(bnd);
+			// Create a CPU pipeline layout so we also create that one here
+			const asset::SPushConstantRange pcRange[1] = { {IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(PushConstantData)} };
+			auto pipelineLayoutCPU = make_smart_refctd_ptr <ICPUPipelineLayout>(pcRange, std::move(descriptorSetLayoutCPU), nullptr, nullptr, nullptr);
+
+			// Create a Descriptor Set and fill it out
+			// Reassing because it's been moved out of
+			descriptorSetLayoutCPU = smart_refctd_ptr<ICPUDescriptorSetLayout>(pipelineLayoutCPU->getDescriptorSetLayout(0));
+			auto descriptorSetCPU = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(descriptorSetLayoutCPU));
+			// Set descriptor set values for automatic upload
+			auto firstSampledImageDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(0u), IDescriptor::E_TYPE::ET_SAMPLED_IMAGE).front();
+			auto secondSampledImageDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(3u), IDescriptor::E_TYPE::ET_SAMPLED_IMAGE).front();
+
+			firstSampledImageDescriptorInfo.desc = kerImageViewCPU;
+			firstSampledImageDescriptorInfo.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+
+			secondSampledImageDescriptorInfo.desc = srcImageViewCPU;
+			secondSampledImageDescriptorInfo.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+
+			// Create a sampler
+			ICPUSampler::SParams samplerCreationParams =
+			{
+				ISampler::ETC_MIRROR,
+				ISampler::ETC_MIRROR,
+				ISampler::ETC_MIRROR,
+				ISampler::ETBC_FLOAT_OPAQUE_BLACK,
+				ISampler::ETF_LINEAR,
+				ISampler::ETF_LINEAR,
+				ISampler::ESMM_LINEAR,
+				3u,
+				0u,
+				ISampler::ECO_ALWAYS
+			};
+			auto samplerCPU = make_smart_refctd_ptr<ICPUSampler>(samplerCreationParams);
+
+			auto samplerDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(1u), IDescriptor::E_TYPE::ET_SAMPLER).front();
+			samplerDescriptorInfo.desc = samplerCPU;
+
 			// Using asset converter
 			smart_refctd_ptr<video::CAssetConverter> converter = video::CAssetConverter::create({ .device = m_device.get(),.optimizer = {} });
 			// We don't want to generate mip-maps for these images (YET), to ensure that we must override the default callbacks.
@@ -316,29 +397,27 @@ public:
 				}
 			} inputs = {};
 			inputs.logger = m_logger.get();
-			asset::ICPUImageView* CPUImageViews[2] = { srcImageViewCPU.get(), kerImageViewCPU.get() };
-			
+			asset::ICPUImageView* CPUImageViews[2] = { kerImageViewCPU.get(), srcImageViewCPU.get() };
 
-			// Need to provide patches to make sure we specify SAMPLED to get READ_ONLY_OPTIMAL layout after upload
-			CAssetConverter::patch_t<ICPUImageView> patches[2] =
-			{
-				{
-					CPUImageViews[0],
-					IImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT
-				},
-				{
-					CPUImageViews[1],
-					IImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT
-				}
-			};
-
+			std::get<CAssetConverter::SInputs::asset_span_t<ICPUPipelineLayout>>(inputs.assets) = { &pipelineLayoutCPU.get(), 1};
 			std::get<CAssetConverter::SInputs::asset_span_t<ICPUImageView>>(inputs.assets) = { CPUImageViews, 2 };
-			std::get<CAssetConverter::SInputs::patch_span_t<ICPUImageView>>(inputs.patches) = { patches, 2 };
+			std::get<CAssetConverter::SInputs::asset_span_t<ICPUSampler>>(inputs.assets) = { &samplerCPU.get(), 1};
+			std::get<CAssetConverter::SInputs::asset_span_t<ICPUDescriptorSet>>(inputs.assets) = { &descriptorSetCPU.get(), 1 };
 			auto reservation = converter->reserve(inputs);
-			const auto GPUImages = reservation.getGPUObjects<ICPUImageView>();
 
-			m_srcImageView = GPUImages[0].value;
-			m_kerImageView = GPUImages[1].value;
+			// Retrieve GPU uploads
+			const auto pipelineLayoutGPU = reservation.getGPUObjects<ICPUPipelineLayout>();
+			pipelineLayout = pipelineLayoutGPU.front().value;
+
+			const auto imagesGPU = reservation.getGPUObjects<ICPUImageView>();
+			m_kerImageView = imagesGPU[0].value;
+			m_srcImageView = imagesGPU[1].value;
+
+			const auto samplerGPU = reservation.getGPUObjects<ICPUSampler>();
+			sampler = samplerGPU.front().value;
+
+			const auto descriptorSetGPU = reservation.getGPUObjects<ICPUDescriptorSet>();
+			m_descriptorSet = descriptorSetGPU.front().value;
 
 			// Give them debug names
 			m_srcImageView->setObjectDebugName("Source image view");
@@ -481,65 +560,6 @@ public:
 			m_rowMajorBufferAddress = m_rowMajorBuffer.get()->getDeviceAddress();
 			m_colMajorBufferAddress = m_colMajorBuffer.get()->getDeviceAddress();
 		}
-
-		// Universal pipeline layout
-		smart_refctd_ptr<IGPUPipelineLayout> pipelineLayout;
-		{
-			IGPUDescriptorSetLayout::SBinding bnd[4] =
-			{
-				// Kernel FFT and Image FFT read from a single Image
-				{
-					IDescriptorSetLayoutBase::SBindingBase(),
-					0u,
-					IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
-					IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					IShader::E_SHADER_STAGE::ESS_COMPUTE,
-					1u,
-					nullptr
-				},
-				// Sampler: First Axis FFT (image) and convolution use a mirror-sampler
-				// Could be static for each pipeline but since it's shared it implies no descriptor changes between pipelines
-				{
-					IDescriptorSetLayoutBase::SBindingBase(),
-					1u,
-					IDescriptor::E_TYPE::ET_SAMPLER,
-					IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					IShader::E_SHADER_STAGE::ESS_COMPUTE,
-					1u,
-					nullptr
-				},
-				// Storage Image: Normalization binds a texture array, First Axis IFFT binds a single image
-				{
-					IDescriptorSetLayoutBase::SBindingBase(),
-					2u,
-					IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
-					IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					IShader::E_SHADER_STAGE::ESS_COMPUTE,
-					1,
-					nullptr
-				},
-				// Convolution binds a texture array. Trying to have this in same binding slot as image would be cool but we lose the ability to write the descriptor set only once
-				{
-					IDescriptorSetLayoutBase::SBindingBase(),
-					3u,
-					IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
-					IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					IShader::E_SHADER_STAGE::ESS_COMPUTE,
-					1,
-					nullptr
-				}
-			};
-
-			pipelineLayout = createPipelineLayout({ bnd, 4 });
-		}
-
-		// Create descriptor set
-		const IGPUDescriptorSetLayout* descriptorSetLayout = pipelineLayout->getDescriptorSetLayout(0);
-		smart_refctd_ptr<IDescriptorPool> descriptorSetPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &descriptorSetLayout, 1 });
-		uint32_t dsCreated = descriptorSetPool->createDescriptorSets({ &descriptorSetLayout, 1 }, &m_descriptorSet);
-		if (dsCreated != 1)
-			return logFail("Failed to create Descriptor Sets!\n");
-
 		// Create cache for shader compilation
 
 		m_readCache = nullptr;
@@ -619,24 +639,8 @@ public:
 			m_kernelNormalizedSpectrums->setObjectDebugName("Kernel spectrum array view");
 			m_kernelNormalizedSpectrums->getCreationParameters().image->setObjectDebugName("Kernel spectrum array");
 
-			// Write descriptor set for kernel FFT computation
-			IGPUSampler::SParams samplerCreationParams =
-			{
-				ISampler::ETC_MIRROR,
-				ISampler::ETC_MIRROR,
-				ISampler::ETC_MIRROR,
-				ISampler::ETBC_FLOAT_OPAQUE_BLACK,
-				ISampler::ETF_LINEAR,
-				ISampler::ETF_LINEAR,
-				ISampler::ESMM_LINEAR,
-				3u,
-				0u,
-				ISampler::ECO_ALWAYS
-			};
-			auto sampler = m_device->createSampler(std::move(samplerCreationParams));
-			// Provide sampler so it's bound and kernel FFT shaders don't complain, even if they don't use it
-			// Sampler persists because the descriptor set takes ownership! Isn't that cool
-			updateDescriptorSet(m_kerImageView, m_kernelNormalizedSpectrums, sampler);
+			// Provide sampler so it's bound already
+			updateDescriptorSet(m_kerImageView, m_kernelNormalizedSpectrums);
 
 			// Invoke a workgroup per two vertical scanlines. Kernel is square and runs first in the y-direction.
 			// That means we have to create a shader that does an FFT of size `kerDim.height = kerDim.width` (length of each column, already padded to PoT), 
@@ -909,7 +913,8 @@ public:
 		m_device->blockForSemaphores({ &waitInfo, 1 });
 
 		// Before leaving, update descriptor set with values needed by image transform
-		updateDescriptorSet(m_srcImageView, m_outImgView, nullptr, m_kernelNormalizedSpectrums);
+		// Write descriptor set for kernel FFT computation
+		updateDescriptorSet(m_srcImageView, m_outImgView, sampler, m_kernelNormalizedSpectrums);
 
 		return true;
 	}
