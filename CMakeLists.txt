@@ -46,6 +46,9 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(09_GeometryCreator EXCLUDE_FROM_ALL)
   # demonstrate the counting sort utility
 	add_subdirectory(10_CountingSort EXCLUDE_FROM_ALL)
+	# showcase use of FFT for post-FX Bloom  effect
+	add_subdirectory(11_FFTBloom EXCLUDE_FROM_ALL)
+
 
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo EXCLUDE_FROM_ALL)
@@ -80,6 +83,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(61_UI EXCLUDE_FROM_ALL)
 	add_subdirectory(62_CAD EXCLUDE_FROM_ALL)
 	add_subdirectory(62_SchusslerTest EXCLUDE_FROM_ALL)
+	add_subdirectory(64_FFT EXCLUDE_FROM_ALL)
 	add_subdirectory(0_ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
 
 	add_subdirectory(67_RayQueryGeometry EXCLUDE_FROM_ALL)
