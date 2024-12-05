@@ -53,6 +53,7 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 			for (uint32_t localElementIndex = 1; localElementIndex < ElementsPerInvocation; localElementIndex += 2)
 			{
 				preloaded[channel][localElementIndex] = conj(getDFTMirror<sharedmem_adaptor_t>(localElementIndex, channel, adaptorForSharedMemory));
+				adaptorForSharedMemory.workgroupExecutionAndMemoryBarrier();
 			}
 			// Load even elements of second column, multiply them by i and add them to even positions
 			// This makes even positions hold C1 + iC2
@@ -68,9 +69,9 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 			// add conj(C1) back to have conj(C1) + i * conj(C2).
 			for (uint32_t localElementIndex = 1; localElementIndex < ElementsPerInvocation; localElementIndex += 2)
 			{
+				complex_t<scalar_t> otherThreadEven = conj(getDFTMirror<sharedmem_adaptor_t>(localElementIndex, channel, adaptorForSharedMemory));
 				if (workgroup::SubgroupContiguousIndex() || localElementIndex != 1)
 				{
-					complex_t<scalar_t> otherThreadEven = conj(getDFTMirror<sharedmem_adaptor_t>(localElementIndex, channel, adaptorForSharedMemory));
 					otherThreadEven = otherThreadEven - preloaded[channel][localElementIndex];
 					otherThreadEven = otherThreadEven * scalar_t(-1);
 					preloaded[channel][localElementIndex] = preloaded[channel][localElementIndex] + otherThreadEven;
@@ -88,6 +89,7 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 					complex_t<scalar_t> p0 = { preloaded[channel][0].real() + c2.imag() , c2.real() };
 					preloaded[channel][0] = p0;
 				}
+				adaptorForSharedMemory.workgroupExecutionAndMemoryBarrier();
 			}
 		}
 	}
@@ -135,8 +137,8 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	for (uint16_t channel = 0; channel < Channels; channel++)
 	{
 		preloadedAccessor.currentChannel = channel;
-		// Either wait on previous pass FFT or preload
-		sharedmemAccessor.workgroupExecutionAndMemoryBarrier();
+		if (channel)
+			sharedmemAccessor.workgroupExecutionAndMemoryBarrier();
 		workgroup::FFT<true, FFTParameters>::template __call(preloadedAccessor, sharedmemAccessor);
 	}
 	preloadedAccessor.unload();
