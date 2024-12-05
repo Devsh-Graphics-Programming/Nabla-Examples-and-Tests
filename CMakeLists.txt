@@ -83,6 +83,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(0_ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
 
 	add_subdirectory(67_RayQueryGeometry EXCLUDE_FROM_ALL)
+	add_subdirectory(68_JpegLoading EXCLUDE_FROM_ALL)
 
 	NBL_HOOK_COMMON_API("${NBL_COMMON_API_TARGETS}")
 endif()
