@@ -905,7 +905,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			//if (ImGui::RadioButton("Orthographic", !isPerspective))
 			//	isPerspective = false;
 
-			ImGui::Checkbox("Enable camera movement", &move);
 			ImGui::SliderFloat("Move speed", &moveSpeed, 0.1f, 10.f);
 			ImGui::SliderFloat("Rotate speed", &rotateSpeed, 0.1f, 10.f);
 
@@ -926,6 +925,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			}
 			else
 			{
+				/*
 				ImGui::Text(ImGuizmo::IsOver() ? "Over gizmo" : "");
 				ImGui::SameLine();
 				ImGui::Text(ImGuizmo::IsOver(ImGuizmo::TRANSLATE) ? "Over translate gizmo" : "");
@@ -933,6 +933,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				ImGui::Text(ImGuizmo::IsOver(ImGuizmo::ROTATE) ? "Over rotate gizmo" : "");
 				ImGui::SameLine();
 				ImGui::Text(ImGuizmo::IsOver(ImGuizmo::SCALE) ? "Over scale gizmo" : "");
+				*/
 			}
 			ImGui::Separator();
 
@@ -995,11 +996,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				imguizmoM16InOut.projection[i] = transpose(projections[i]->getMatrix());
 
 			// TODO: need to inspect where I'm wrong, workaround
-			auto gimbalToImguizmoTRS = [&](const float32_t3x4& nablaTrs) -> float32_t4x4
+			auto gimbalToImguizmoTRS = [&](const float32_t3x4& nblGimbalTrs) -> float32_t4x4
 			{
 				// *do not transpose whole matrix*, only the translate part
-				float32_t4x4 trs = getMatrix3x4As4x4(nablaTrs);
-				trs[3] = float32_t4(nablaTrs[0][3], nablaTrs[1][3], nablaTrs[2][3], 1.f);
+				float32_t4x4 trs = getMatrix3x4As4x4(nblGimbalTrs);
+				trs[3] = float32_t4(nblGimbalTrs[0][3], nblGimbalTrs[1][3], nblGimbalTrs[2][3], 1.f);
 				trs[0][3] = 0.f;
 				trs[1][3] = 0.f;
 				trs[2][3] = 0.f;
@@ -1498,7 +1499,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Appearing);
 				ImGui::SetNextWindowPos(ImVec2(400, 20 + wCameraIndex * 420), ImGuiCond_Appearing);
 				ImGui::PushStyleColor(ImGuiCol_WindowBg, (ImVec4)ImColor(0.35f, 0.3f, 0.3f));
-				std::string ident = "Active Camera ID: " + std::to_string(wCameraIndex);
+				std::string ident = "Rendered from Camera \"" + std::to_string(wCameraIndex) + "\" Ix perspective";
 				ImGui::Begin(ident.data(), 0, gizmoWindowFlags);
 				ImGuizmo::SetDrawlist();
 

@@ -1,70 +1,62 @@
-#ifndef _NBL_IPROJECTION_HPP_
-#define _NBL_IPROJECTION_HPP_
+#ifndef _NBL_I_PROJECTION_HPP_
+#define _NBL_I_PROJECTION_HPP_
 
-#include "nbl/builtin/hlsl/cpp_compat/matrix.hlsl"
-#include "IRange.hpp"
+#include <nbl/builtin/hlsl/cpp_compat.hlsl>
 
 namespace nbl::hlsl
 {
 
-template<typename T>
-concept ProjectionMatrix = is_any_of_v<T, float64_t4x4, float32_t4x4>;
-
-//! Interface class for projection
-template<ProjectionMatrix T>
-class IProjection : virtual public core::IReferenceCounted
+//! Interface class for any type of projection
+class IProjection
 {
 public:
-    using value_t = T;
+    //! underlying type for all vectors we project or un-project (inverse), projections *may* transform vectors in less dimensions
+    using projection_vector_t = float64_t4;
 
-    IProjection(const value_t& matrix = {}) : m_projectionMatrix(matrix) { updateHandnessState(); }
-
-    inline void setMatrix(const value_t& projectionMatrix)
+    enum class ProjectionType
     {
-        m_projectionMatrix = projectionMatrix;
-        updateHandnessState();
-    }
+        //! Perspective, Orthographic, Oblique, Axonometric, Shear projections or any custom linear transformation - a linear projection represents transform to a view-port
+        Linear,
 
-    inline const value_t& getMatrix() { return m_projectionMatrix; }
-    inline bool isLeftHanded() { return m_isLeftHanded; }
+        //! Represents a non-linear/skewed pre-transform *concatenated* with linear view-port transform
+        Quad,
 
-private:
-    inline void updateHandnessState()
-    {
-        m_isLeftHanded = hlsl::determinant(m_projectionMatrix) < 0.f;
-    }
+        Spherical,
+        ThinLens,
+        
+        Count
+    };
+    
+    IProjection() = default;
+    virtual ~IProjection() = default;
 
-    value_t m_projectionMatrix;
-    bool m_isLeftHanded;
-};
+    /**
+    * @brief Transforms a vector from its input space into the projection space.
+    *
+    * @param "vecToProjectionSpace" is a vector to transform from its space into projection space.
+    * @param "output" is a vector which is "vecToProjectionSpace" transformed into projection space.
+    * @return The vector in projection space.
+    */
+    virtual void project(const projection_vector_t& vecToProjectionSpace, projection_vector_t& output) const = 0;
 
-template<typename T>
-struct is_projection : std::false_type {};
+    /**
+    * @brief Transforms a vector from the projection space back to the original space.
+    * Note the inverse transform may fail because original projection may be singular.
+    *
+    * @param "vecFromProjectionSpace" is a vector in the projection space to transform back to original space.
+    * @param "output" is a vector which is "vecFromProjectionSpace" transformed back to its original space.
+    * @return The vector in the original space.
+    */
+    virtual bool unproject(const projection_vector_t& vecFromProjectionSpace, projection_vector_t& output) const = 0;
 
-template<typename T>
-struct is_projection<IProjection<T>> : std::true_type {};
-
-template<typename T>
-inline constexpr bool is_projection_v = is_projection<T>::value;
-
-template<typename R>
-concept ProjectionRange = GeneralPurposeRange<R> && requires
-{
-    requires core::is_smart_refctd_ptr_v<std::ranges::range_value_t<R>>;
-    requires is_projection_v<typename std::ranges::range_value_t<R>::pointee>;
-};
-
-//! Interface class for a range of IProjection<ProjectionMatrix> projections
-template<ProjectionRange Range = std::array<core::smart_refctd_ptr<IProjection<float64_t4x4>>, 1u>>
-class IProjectionRange : public IRange<typename Range>
-{
-public:
-    using base_t = IRange<typename Range>;
-    using range_t = typename base_t::range_t;
-    using projection_t = typename base_t::range_value_t;
-
-    IProjectionRange(range_t&& projections) : base_t(std::move(projections)) {}
-    const range_t& getProjections() const { return base_t::m_range; }
+    /**
+    * @brief Returns the specific type of the projection
+    * (e.g., linear, spherical, thin-lens) as defined by the
+    * ProjectionType enumeration.
+    *
+    * @return The type of this projection.
+    */
+    virtual ProjectionType getProjectionType() const = 0;
 };
 
 } // namespace nbl::hlsl

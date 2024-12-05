@@ -10,12 +10,11 @@
 namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
 {
 
-template<typename T>
 class ICamera : public IGimbalController, virtual public core::IReferenceCounted
 { 
 public:
+    using precision_t = float64_t;
     using IGimbalController::IGimbalController;
-	using precision_t = T;
 
     //! Manipulation mode for virtual events
     //! TODO: this should belong to IObjectTransform or something
@@ -46,17 +45,17 @@ public:
         {            
             const auto& gRight = base_t::getXAxis(), gUp = base_t::getYAxis(), gForward = base_t::getZAxis();
 
-            auto isNormalized = [](const auto& v, float epsilon) -> bool
+            auto isNormalized = [](const auto& v, precision_t epsilon) -> bool
             {
-                return glm::epsilonEqual(glm::length(v), 1.0f, epsilon);
+                return glm::epsilonEqual(glm::length(v), 1.0, epsilon);
             };
 
-            auto isOrthogonal = [](const auto& a, const auto& b, float epsilon) -> bool
+            auto isOrthogonal = [](const auto& a, const auto& b, precision_t epsilon) -> bool
             {
-                return glm::epsilonEqual(glm::dot(a, b), 0.0f, epsilon);
+                return glm::epsilonEqual(glm::dot(a, b), 0.0, epsilon);
             };
 
-            auto isOrthoBase = [&](const auto& x, const auto& y, const auto& z, float epsilon = 1e-6f) -> bool
+            auto isOrthoBase = [&](const auto& x, const auto& y, const auto& z, precision_t epsilon = 1e-6) -> bool
             {
                 return isNormalized(x, epsilon) && isNormalized(y, epsilon) && isNormalized(z, epsilon) &&
                     isOrthogonal(x, y, epsilon) && isOrthogonal(x, z, epsilon) && isOrthogonal(y, z, epsilon);
