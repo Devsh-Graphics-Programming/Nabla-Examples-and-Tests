@@ -42,34 +42,40 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 			// Set LegacyBdaAccessor for reading
 			const LegacyBdaAccessor<complex_t<scalar_t> > rowMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.rowMajorBufferAddress + channelStartOffsetBytes);
 
-			uint32_t index = workgroup::SubgroupContiguousIndex();
+			uint32_t globalElementIndex = workgroup::SubgroupContiguousIndex();
 			// Load all even elements of first column
 			for (uint32_t localElementIndex = 0; localElementIndex < (ElementsPerInvocation / 2); localElementIndex++)
 			{
-				preloaded[channel][localElementIndex << 1] = rowMajorAccessor.get(rowMajorOffset(2 * glsl::gl_WorkGroupID().x, index));
-				index += WorkgroupSize;
+				preloaded[channel][localElementIndex << 1] = rowMajorAccessor.get(rowMajorOffset(2 * glsl::gl_WorkGroupID().x, globalElementIndex));
+				globalElementIndex += WorkgroupSize;
 			}
 			// Get all odd elements by trading
+			// Reset globalElementIndex - Add WorkgroupSize to account for `localElementIndex` starting at 1
+			globalElementIndex = WorkgroupSize | workgroup::SubgroupContiguousIndex();
 			for (uint32_t localElementIndex = 1; localElementIndex < ElementsPerInvocation; localElementIndex += 2)
 			{
-				preloaded[channel][localElementIndex] = conj(getDFTMirror<sharedmem_adaptor_t>(localElementIndex, channel, adaptorForSharedMemory));
+				preloaded[channel][localElementIndex] = conj(getDFTMirror<sharedmem_adaptor_t>(globalElementIndex, channel, adaptorForSharedMemory));
+				// Add 2 * WorkgroupSize since `localElementIndex` moves in strides of 2
+				globalElementIndex += 2 * WorkgroupSize;
 				adaptorForSharedMemory.workgroupExecutionAndMemoryBarrier();
 			}
 			// Load even elements of second column, multiply them by i and add them to even positions
 			// This makes even positions hold C1 + iC2
-			// Reset index
-			index = workgroup::SubgroupContiguousIndex();
+			// Reset globalElementIndex
+			globalElementIndex = workgroup::SubgroupContiguousIndex();
 			for (uint32_t localElementIndex = 0; localElementIndex < (ElementsPerInvocation / 2); localElementIndex++)
 			{
-				preloaded[channel][localElementIndex << 1] = preloaded[channel][localElementIndex << 1] + rotateLeft<scalar_t>(rowMajorAccessor.get(rowMajorOffset(2 * glsl::gl_WorkGroupID().x + 1, index)));
-				index += WorkgroupSize;
+				preloaded[channel][localElementIndex << 1] = preloaded[channel][localElementIndex << 1] + rotateLeft<scalar_t>(rowMajorAccessor.get(rowMajorOffset(2 * glsl::gl_WorkGroupID().x + 1, globalElementIndex)));
+				globalElementIndex += WorkgroupSize;
 			}
 			// Finally, trade to get odd elements of second column. Note that by trading we receive an element of the form C1 + iC2 for an even position. The current odd position holds conj(C1) and we
 			// want it to hold conj(C1) + i*conj(C2). So we first do conj(C1 + iC2) to yield conj(C1) - i*conj(C2). Then we subtract conj(C1) to get -i*conj(C2), negate that to get i * conj(C2), and finally
 			// add conj(C1) back to have conj(C1) + i * conj(C2).
+			// Reset globalElementIndex - Add WorkgroupSize to account for `localElementIndex` starting at 1
+			globalElementIndex = WorkgroupSize | workgroup::SubgroupContiguousIndex();
 			for (uint32_t localElementIndex = 1; localElementIndex < ElementsPerInvocation; localElementIndex += 2)
 			{
-				complex_t<scalar_t> otherThreadEven = conj(getDFTMirror<sharedmem_adaptor_t>(localElementIndex, channel, adaptorForSharedMemory));
+				complex_t<scalar_t> otherThreadEven = conj(getDFTMirror<sharedmem_adaptor_t>(globalElementIndex, channel, adaptorForSharedMemory));
 				if (workgroup::SubgroupContiguousIndex() || localElementIndex != 1)
 				{
 					otherThreadEven = otherThreadEven - preloaded[channel][localElementIndex];
@@ -89,6 +95,8 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 					complex_t<scalar_t> p0 = { preloaded[channel][0].real() + c2.imag() , c2.real() };
 					preloaded[channel][0] = p0;
 				}
+				// Add 2 * WorkgroupSize since `localElementIndex` moves in strides of 2
+				globalElementIndex += 2 * WorkgroupSize;
 				adaptorForSharedMemory.workgroupExecutionAndMemoryBarrier();
 			}
 		}

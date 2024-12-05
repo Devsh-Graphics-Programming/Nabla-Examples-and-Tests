@@ -59,11 +59,11 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 			const uint64_t channelStartOffsetBytes = getChannelStartOffsetBytes(channel);
 			const LegacyBdaAccessor<complex_t<scalar_t> > colMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.colMajorBufferAddress + channelStartOffsetBytes);
 
-			uint32_t globalElementIdx = workgroup::SubgroupContiguousIndex();
+			uint32_t globalElementIndex = workgroup::SubgroupContiguousIndex();
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 			{
-				colMajorAccessor.set(colMajorOffset(glsl::gl_WorkGroupID().x, globalElementIdx), preloaded[channel][localElementIndex]);
-				globalElementIdx += WorkgroupSize;
+				colMajorAccessor.set(colMajorOffset(glsl::gl_WorkGroupID().x, globalElementIndex), preloaded[channel][localElementIndex]);
+				globalElementIndex += WorkgroupSize;
 			}
 		}
 	}

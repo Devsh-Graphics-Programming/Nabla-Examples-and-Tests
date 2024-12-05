@@ -17,11 +17,11 @@ struct PreloadedAccessorMirrorTradeBase : PreloadedAccessorBase
 	// Leaving this as comment for myself: The proof should be easy. It stands to reason that the chain of functions in `getNablaMirrorIndex` yield the same higher bits
 	// for X | Y for any Y as long as you fix X, probably because of how the `mirror` function works.
 	template<typename sharedmem_adaptor_t>
-	complex_t<scalar_t> getDFTMirror(uint32_t localElementIndex, sharedmem_adaptor_t adaptorForSharedMemory)
+	complex_t<scalar_t> getDFTMirror(uint32_t globalElementIndex, sharedmem_adaptor_t adaptorForSharedMemory)
 	{
-		const FFTIndexingUtils::NablaMirrorLocalInfo info = FFTIndexingUtils::getNablaMirrorLocalInfo(localElementIndex);
-		const uint32_t elementToTradeLocalIdx = info.mirrorLocalIndex;
-		complex_t<scalar_t> toTrade = preloaded[elementToTradeLocalIdx];
+		const FFTIndexingUtils::NablaMirrorLocalInfo info = FFTIndexingUtils::getNablaMirrorLocalInfo(globalElementIndex);
+		const uint32_t elementToTradeLocalIndex = info.mirrorLocalIndex;
+		complex_t<scalar_t> toTrade = preloaded[elementToTradeLocalIndex];
 		vector<scalar_t, 2> toTradeVector = { toTrade.real(), toTrade.imag() };
 		const uint32_t otherThreadID = info.otherThreadID;
 		workgroup::Shuffle<sharedmem_adaptor_t, vector<scalar_t, 2> >::__call(toTradeVector, otherThreadID, adaptorForSharedMemory);
@@ -34,11 +34,11 @@ struct PreloadedAccessorMirrorTradeBase : PreloadedAccessorBase
 struct MultiChannelPreloadedAccessorMirrorTradeBase : MultiChannelPreloadedAccessorBase
 {
 	template<typename sharedmem_adaptor_t>
-	complex_t<scalar_t> getDFTMirror(uint32_t localElementIndex, uint16_t channel, sharedmem_adaptor_t adaptorForSharedMemory)
+	complex_t<scalar_t> getDFTMirror(uint32_t globalElementIndex, uint16_t channel, sharedmem_adaptor_t adaptorForSharedMemory)
 	{
-		const FFTIndexingUtils::NablaMirrorLocalInfo info = FFTIndexingUtils::getNablaMirrorLocalInfo(localElementIndex);
-		const uint32_t elementToTradeLocalIdx = info.mirrorLocalIndex;		
-		complex_t<scalar_t> toTrade = preloaded[channel][elementToTradeLocalIdx];
+		const FFTIndexingUtils::NablaMirrorLocalInfo info = FFTIndexingUtils::getNablaMirrorLocalInfo(globalElementIndex);
+		const uint32_t elementToTradeLocalIndex = info.mirrorLocalIndex;		
+		complex_t<scalar_t> toTrade = preloaded[channel][elementToTradeLocalIndex];
 		vector<scalar_t, 2> toTradeVector = { toTrade.real(), toTrade.imag() };
 		const uint32_t otherThreadID = info.otherThreadID;
 		workgroup::Shuffle<sharedmem_adaptor_t, vector<scalar_t, 2> >::__call(toTradeVector, otherThreadID, adaptorForSharedMemory);

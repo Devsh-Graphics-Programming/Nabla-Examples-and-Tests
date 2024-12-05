@@ -69,17 +69,17 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 			// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
 			const uint32_t firstIndex = workgroup::SubgroupContiguousIndex() / 2;
 			int32_t paddedIndex = int32_t(firstIndex) - pushConstants.halfPadding;
+			// Even thread must index a y corresponding to an even element of the previous FFT pass, and the odd thread must index its DFT Mirror
+			// The math here essentially ensues we enumerate all even elements in order: we alternate `PreviousWorkgroupSize` even elements (all `preloaded[0]` elements of
+			// the previous pass' threads), then `PreviousWorkgroupSize` odd elements (`preloaded[1]`) and so on
+			const uint32_t evenRow = glsl::gl_WorkGroupID().x + ((glsl::gl_WorkGroupID().x / PreviousWorkgroupSize) * PreviousWorkgroupSize);
+			const uint32_t y = oddThread ? PreviousPassFFTIndexingUtils::getNablaMirrorIndex(evenRow) : evenRow;
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 			{
 				int32_t wrappedIndex = paddedIndex < 0 ? ~paddedIndex : paddedIndex; // ~x = - x - 1 in two's complement (except maybe at the borders of representable range) 
 				wrappedIndex = paddedIndex < pushConstants.imageHalfRowLength ? wrappedIndex : pushConstants.imageRowLength + ~paddedIndex;
 				// If mirrored, we need to invert which thread is loading lo and which is loading hi
 				bool invert = paddedIndex < 0 || paddedIndex >= pushConstants.imageHalfRowLength;
-				// Even thread must index a y corresponding to an even element of the previous FFT pass, and the odd thread must index its DFT Mirror
-				// The math here essentially ensues we enumerate all even elements in order: we alternate `PreviousWorkgroupSize` even elements (all `preloaded[0]` elements of
-				// the previous pass' threads), then `PreviousWorkgroupSize` odd elements (`preloaded[1]`) and so on
-				const uint32_t evenRow = glsl::gl_WorkGroupID().x + ((glsl::gl_WorkGroupID().x / PreviousWorkgroupSize) * PreviousWorkgroupSize);
-				uint32_t y = oddThread ? PreviousPassFFTIndexingUtils::getNablaMirrorIndex(evenRow) : evenRow;
 				const complex_t<scalar_t> loOrHi = colMajorAccessor.get(colMajorOffset(wrappedIndex, y));
 				// Make it a vector so it can be subgroup-shuffled
 				const vector <scalar_t, 2> loOrHiVector = vector <scalar_t, 2>(loOrHi.real(), loOrHi.imag());
@@ -99,21 +99,20 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 			// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
 			const uint32_t firstIndex = workgroup::SubgroupContiguousIndex() / 2;
 			int32_t paddedIndex = int32_t(firstIndex) - pushConstants.halfPadding;
+			// Even thread retrieves Zero, odd thread retrieves Nyquist. Zero is always `preloaded[0]` of the previous FFT's 0th thread, while Nyquist is always `preloaded[1]` of that same thread.
+			// Therefore we know Nyquist ends up exactly at y = PreviousWorkgroupSize
+			const uint32_t y = oddThread ? PreviousWorkgroupSize : 0;
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 			{
 				int32_t wrappedIndex = paddedIndex < 0 ? ~paddedIndex : paddedIndex; // ~x = - x - 1 in two's complement (except maybe at the borders of representable range) 
 				wrappedIndex = paddedIndex < pushConstants.imageHalfRowLength ? wrappedIndex : pushConstants.imageRowLength + ~paddedIndex;
 				// If mirrored, we need to invert which thread is loading lo and which is loading hi
 				bool invert = paddedIndex < 0 || paddedIndex >= pushConstants.imageHalfRowLength;
-				// Even thread retrieves Zero, odd thread retrieves Nyquist. Zero is always `preloaded[0]` of the previous FFT's 0th thread, while Nyquist is always `preloaded[1]` of that same thread.
-				// Therefore we know Nyquist ends up exactly at y = PreviousWorkgroupSize
-				uint32_t y = oddThread ? PreviousWorkgroupSize : 0;
 				const complex_t<scalar_t> loOrHi = colMajorAccessor.get(colMajorOffset(wrappedIndex, y));
 				// Make it a vector so it can be subgroup-shuffled
 				const vector <scalar_t, 2> loOrHiVector = vector <scalar_t, 2>(loOrHi.real(), loOrHi.imag());
 				const vector <scalar_t, 2> otherThreadloOrHiVector = glsl::subgroupShuffleXor< vector <scalar_t, 2> >(loOrHiVector, 1u);
 				const complex_t<scalar_t> otherThreadLoOrHi = { otherThreadloOrHiVector.x, otherThreadloOrHiVector.y };
-
 				// `lo` holds `Z0 + iZ1` and `hi` holds `N0 + iN1`. We want at the end for `lo` to hold the packed `Z0 + iN0` and `hi` to hold `Z1 + iN1`
 				// For the even thread (`oddThread == false`) `lo = loOrHi` and `hi = otherThreadLoOrHi`. For the odd thread the opposite is true
 
@@ -135,11 +134,11 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 	{
 		if (glsl::gl_WorkGroupID().x)
 		{
+			const uint32_t y = fft::bitReverse<uint32_t, NumWorkgroupsLog2>(glsl::gl_WorkGroupID().x);
 			uint32_t globalElementIndex = workgroup::SubgroupContiguousIndex();
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 			{
 				const uint32_t indexDFT = FFTIndexingUtils::getDFTIndex(globalElementIndex);
-				const uint32_t y = fft::bitReverse<uint32_t, NumWorkgroupsLog2>(glsl::gl_WorkGroupID().x);
 				const uint32_t2 texCoords = uint32_t2(indexDFT, y);
 				const float32_t2 uv = texCoords * float32_t2(TotalSizeReciprocal, 1.f / NumWorkgroups) + KernelHalfPixelSize;
 				const vector<scalar_t, 2> sampledKernelVector = kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0);
@@ -159,7 +158,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				complex_t<scalar_t> zero = preloaded[localElementIndex];
 				// Either wait on FFT pass or previous iteration's workgroup shuffle
 				adaptorForSharedMemory.workgroupExecutionAndMemoryBarrier();
-				complex_t<scalar_t> nyquist = getDFTMirror<sharedmem_adaptor_t>(localElementIndex, adaptorForSharedMemory);
+				complex_t<scalar_t> nyquist = getDFTMirror<sharedmem_adaptor_t>(globalElementIndex, adaptorForSharedMemory);
 
 				fft::unpack<scalar_t>(zero, nyquist);
 
