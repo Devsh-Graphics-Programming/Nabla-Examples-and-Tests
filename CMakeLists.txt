@@ -47,7 +47,7 @@ if(NBL_BUILD_EXAMPLES)
   # demonstrate the counting sort utility
 	add_subdirectory(10_CountingSort EXCLUDE_FROM_ALL)
 	# showcase use of FFT for post-FX Bloom  effect
-	add_subdirectory(11_FFTBloom EXCLUDE_FROM_ALL)
+	add_subdirectory(11_FFT EXCLUDE_FROM_ALL)
 
 
 	# Waiting for a refactor
@@ -62,7 +62,8 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(23_ArithmeticUnitTest EXCLUDE_FROM_ALL)
 	add_subdirectory(24_ColorSpaceTest EXCLUDE_FROM_ALL)
 	add_subdirectory(25_FilterTest EXCLUDE_FROM_ALL)
-	add_subdirectory(27_MPMCScheduler EXCLUDE_FROM_ALL)
+	add_subdirectory(27_MPMCScheduler EXCLUDE_FROM_ALL)	
+	add_subdirectory(28_FFTBloom EXCLUDE_FROM_ALL)
 	# add_subdirectory(36_CUDAInterop EXCLUDE_FROM_ALL)
 
 	add_subdirectory(38_EXRSplit EXCLUDE_FROM_ALL)
@@ -83,7 +84,6 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(61_UI EXCLUDE_FROM_ALL)
 	add_subdirectory(62_CAD EXCLUDE_FROM_ALL)
 	add_subdirectory(62_SchusslerTest EXCLUDE_FROM_ALL)
-	add_subdirectory(64_FFT EXCLUDE_FROM_ALL)
 	add_subdirectory(0_ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
 
 	add_subdirectory(67_RayQueryGeometry EXCLUDE_FROM_ALL)
