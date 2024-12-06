@@ -6,7 +6,7 @@
 #include <bitset>
 
 // common api
-#include "CFPSCamera.hpp"
+#include "camera/CFPSCamera.hpp"
 #include "SimpleWindowedApplication.hpp"
 #include "InputSystem.hpp"
 

@@ -1,4 +1,4 @@
-#ifndef _NBL_I_LINEAR_PROJECTION_HPP_
+﻿#ifndef _NBL_I_LINEAR_PROJECTION_HPP_
 #define _NBL_I_LINEAR_PROJECTION_HPP_
 
 #include "IProjection.hpp"
@@ -7,23 +7,43 @@
 namespace nbl::hlsl
 {
 
-//! Interface class for linear projections like Perspective, Orthographic, Oblique, Axonometric, Shear projections or any custom linear transformation - any linear projection represents transform to a viewport
+/**
+ * @brief Interface class for any custom linear projection transformation (matrix elements are already evaluated scalars)
+ * referencing a camera, great for Perspective, Orthographic, Oblique, Axonometric and Shear projections
+ */
 class ILinearProjection
 {
+protected:
+    ILinearProjection(core::smart_refctd_ptr<ICamera>&& camera)
+        : m_camera(core::smart_refctd_ptr(camera)) {}
+    virtual ~ILinearProjection() = default;
+
+    core::smart_refctd_ptr<ICamera> m_camera;
 public:
-    struct CViewportProjection : public IProjection
+    //! underlying type for linear world TRS matrix
+    using model_matrix_t = typename decltype(m_camera)::pointee::CGimbal::model_matrix_t;
+
+    //! underlying type for linear concatenated matrix
+    using concatenated_matrix_t = float64_t4x4;
+
+    //! underlying type for linear inverse of concatenated matrix
+    using inv_concatenated_matrix_t = std::optional<float64_t4x4>;
+
+    struct CProjection : public IProjection
     {
         using IProjection::IProjection;
+        using projection_matrix_t = concatenated_matrix_t;
+        using inv_projection_matrix_t = inv_concatenated_matrix_t;
 
-        //! underlying type for linear projection matrix type
-        using projection_matrix_t = float64_t4x4;
+        CProjection(const projection_matrix_t& matrix) { setProjectionMatrix(matrix); }
 
         inline void setProjectionMatrix(const projection_matrix_t& matrix)
         {
             m_projectionMatrix = matrix;
             const auto det = hlsl::determinant(m_projectionMatrix);
 
-            // no singularity for linear projections, but we need to handle it somehow!
+            // we will allow you to lose a dimension since such a projection itself *may* 
+            // be valid, however then you cannot un-project because the inverse doesn't exist!
             m_isProjectionSingular = not det;
 
             if (m_isProjectionSingular)
@@ -38,8 +58,12 @@ public:
             }
         }
 
+        //! Returns P (Projection matrix)
         inline const projection_matrix_t& getProjectionMatrix() const { return m_projectionMatrix; }
-        inline const std::optional<projection_matrix_t>& getInvProjectionMatrix() const { return m_invProjectionMatrix; }
+
+        //! Returns P⁻¹ (Inverse of Projection matrix) *if it exists*
+        inline const inv_projection_matrix_t& getInvProjectionMatrix() const { return m_invProjectionMatrix; }
+
         inline const std::optional<bool>& isProjectionLeftHanded() const { return m_isProjectionLeftHanded; }
         inline bool isProjectionSingular() const { return m_isProjectionSingular; }
         virtual ProjectionType getProjectionType() const override { return ProjectionType::Linear; }
@@ -61,21 +85,76 @@ public:
 
     private:
         projection_matrix_t m_projectionMatrix;
-        std::optional<projection_matrix_t> m_invProjectionMatrix;
+        inv_projection_matrix_t m_invProjectionMatrix;
         std::optional<bool> m_isProjectionLeftHanded;
         bool m_isProjectionSingular;
     };
 
-    using CProjection = CViewportProjection;
+    virtual std::span<const CProjection> getLinearProjections() const = 0;
 
-    virtual std::span<const CProjection> getViewportProjections() const = 0;
+    /**
+    * @brief Computes Model View (MV) matrix
+    * @param "model" is world TRS matrix
+    * @return Returns MV matrix
+    */
+    inline concatenated_matrix_t getMV(const model_matrix_t& model) const
+    {
+        const auto& v = m_camera->getGimbal().getView().matrix;
+        return mul(getMatrix3x4As4x4(v), getMatrix3x4As4x4(model));
+    }
 
-protected:
-    ILinearProjection(core::smart_refctd_ptr<ICamera>&& camera)
-        : m_camera(core::smart_refctd_ptr(camera)) {}
-    virtual ~ILinearProjection() = default;
+    /**
+    * @brief Computes Model View Projection (MVP) matrix
+    * @param "projection" is linear projection
+    * @param "model" is world TRS matrix
+    * @return Returns MVP matrix
+    */
+    inline concatenated_matrix_t getMVP(const CProjection& projection, const model_matrix_t& model) const
+    {
+        const auto& v = m_camera->getGimbal().getView().matrix;
+        const auto& p = projection.getProjectionMatrix();
+        auto mv = mul(getMatrix3x4As4x4(v), getMatrix3x4As4x4(model));
+        return mul(p, mv);
+    }
 
-    core::smart_refctd_ptr<ICamera> m_camera;
+    /**
+    * @brief Computes Model View Projection (MVP) matrix
+    * @param "projection" is linear projection 
+    * @param "mv" is Model View (MV) matrix 
+    * @return Returns MVP matrix
+    */
+    inline concatenated_matrix_t getMVP(const CProjection& projection, const concatenated_matrix_t& mv) const
+    {
+        const auto& p = projection.getProjectionMatrix();
+        return mul(p, mv);
+    }
+
+    /**
+    * @brief Computes Inverse of Model View ((MV)⁻¹) matrix
+    * @param "mv" is Model View (MV) matrix
+    * @return Returns ((MV)⁻¹) matrix *if it exists*, otherwise returns std::nullopt
+    */
+    inline inv_concatenated_matrix_t getMVInverse(const model_matrix_t& model) const
+    {
+        const auto mv = getMV(model);
+        if (auto det = determinant(mv); det)
+            return inverse(mv);
+        return std::nullopt;
+    }
+
+    /**
+    * @brief Computes Inverse of Model View Projection ((MVP)⁻¹) matrix
+    * @param "projection" is linear projection 
+    * @param "model" is world TRS matrix
+    * @return Returns ((MVP)⁻¹) matrix *if it exists*, otherwise returns std::nullopt
+    */
+    inline inv_concatenated_matrix_t getMVPInverse(const CProjection& projection, const model_matrix_t& model) const
+    {
+        const auto mvp = getMVP(projection, model);
+        if (auto det = determinant(mvp); det)
+            return inverse(mvp);
+        return std::nullopt;
+    }
 };
 
 } // nbl::hlsl namespace

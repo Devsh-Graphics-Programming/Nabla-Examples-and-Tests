@@ -6,36 +6,46 @@
 namespace nbl::hlsl
 {
 
-//! Interface class for quad projections, basically represents a non-linear/skewed pre-transform concatenated with linear viewport transform, think of it as single quad of a cave designer
-class IQuadProjection
+/**
+* @brief Interface class for quad projections.
+*
+* This projection transforms a vector into the **model space of a quad**
+* (defined by the pre-transform matrix) and then projects it onto the quad using
+* the linear view-port transform.
+*
+* A quad projection is represented by:
+* - A **pre-transform matrix** (non-linear/skewed transformation).
+* - A **linear view-port transform matrix**.
+*
+* The final projection matrix is the concatenation of the pre-transform and the linear view-port transform.
+*
+* @note Single quad projection can represent a face quad of a CAVE-like system.
+*/
+class IQuadProjection : public ILinearProjection
 {
 public:
-    struct CCaveFaceProjection : public ILinearProjection::CViewportProjection
+    struct CProjection : ILinearProjection::CProjection
     {
-        using base_t = ILinearProjection::CViewportProjection;
+        using base_t = ILinearProjection::CProjection;
 
-        //! underlying type for pre-transform projection matrix type
-        using pretransform_matrix_t = float64_t3x4;
-
-        inline void setProjectionMatrix(const pretransform_matrix_t& pretransform, const base_t::projection_matrix_t& viewport)
+        inline void setQuadTransform(const ILinearProjection::model_matrix_t& pretransform, ILinearProjection::concatenated_matrix_t viewport)
         {
-            auto projection = mul(pretransform, viewport);
-            base_t::setProjectionMatrix(getMatrix3x4As4x4(projection));
+            auto concatenated = mul(getMatrix3x4As4x4(pretransform), viewport);
+            base_t::setProjectionMatrix(concatenated);
+
+            m_pretransform = pretransform;
+            m_viewport = viewport;
         }
 
-        // TODO: could store "pretransform" & "viewport", may be useful to combine with camera and extract matrices
+    private:
+        ILinearProjection::model_matrix_t m_pretransform;
+        ILinearProjection::concatenated_matrix_t m_viewport;
     };
-
-    using CProjection = CCaveFaceProjection;
-
-    virtual std::span<const CProjection> getQuadProjections() const = 0;
 
 protected:
     IQuadProjection(core::smart_refctd_ptr<ICamera>&& camera)
-        : m_camera(core::smart_refctd_ptr(camera)) {}
+        : ILinearProjection(core::smart_refctd_ptr(camera)) {}
     virtual ~IQuadProjection() = default;
-
-    core::smart_refctd_ptr<ICamera> m_camera;
 };
 
 } // nbl::hlsl namespace
