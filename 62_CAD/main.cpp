@@ -66,7 +66,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0,	// CASE_8
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_4;
+constexpr ExampleMode mode = ExampleMode::CASE_3;
 
 class Camera2D
 {
@@ -637,108 +637,6 @@ public:
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
-		// TODO: delete all quick tests
-		{
-			{
-				hlsl::emulated_float64_t<true, true> a;
-				hlsl::emulated_float64_t<false, true> b = hlsl::emulated_float64_t<false, true>::create(20.0f);
-
-				a = hlsl::emulated_float64_t<true, true>::create(b);
-
-				std::cout << "b: " << reinterpret_cast<double&>(b) << std::endl;
-				std::cout << "a: " << reinterpret_cast<double&>(a) << std::endl;
-			}
-
-			using ef64_t = hlsl::emulated_float64_t<true, true>;
-			nbl::hlsl::array_get<hlsl::emulated_vector_t4<hlsl::emulated_float64_t<true, true>>, hlsl::emulated_float64_t<true, true>> getter;
-			nbl::hlsl::array_set<hlsl::emulated_vector_t4<hlsl::emulated_float64_t<true, true>>, hlsl::emulated_float64_t<true, true>> setter;
-			emulated_vector_t4<ef64_t> vec;
-
-			std::cout << "SETTER AND GETTER\n";
-
-			for (int i = 0; i < 4; ++i)
-				setter(vec, i, hlsl::emulated_float64_t<true, true>::create(i + 0.5));
-
-			for (int i = 0; i < 4; ++i)
-			{
-				auto a = getter(vec, i).data;
-				std::cout << reinterpret_cast<double&>(a) << std::endl;
-			}
-
-			emulated_matrix_t4x4<ef64_t> matrix;
-
-			for (int i = 0; i < 4; ++i)
-				matrix.rows[i] = vec;
-
-			auto matrixTransposed = matrix.getTransposed();
-
-			std::cout << "MATRIX\n";
-			for (int i = 0; i < 4; ++i)
-			{
-				for (int j = 0; j < 4; ++j)
-				{
-					auto y = getter(matrix.rows[i], j);
-					std::cout << reinterpret_cast<double&>(y) << ' ';
-				}
-
-				std::cout << '\n';
-			}
-			std::cout << '\n';
-
-			std::cout << "TRANSPOSED MATRIX\n";
-			for (int i = 0; i < 4; ++i)
-			{
-				for (int j = 0; j < 4; ++j)
-				{
-					auto y = getter(matrixTransposed.rows[i], j);
-					std::cout << reinterpret_cast<double&>(y) << ' ';
-				}
-
-				std::cout << '\n';
-			}
-			std::cout << '\n';
-
-			float32_t3 fff = { 3,2,3 };
-			auto dotRes = nbl::hlsl::dot(fff, fff);
-			emulated_vector_t3<emulated_float64_t<true, true> > ddd;
-			ddd.x = emulated_float64_t<true, true>::create(1);
-			ddd.y = emulated_float64_t<true, true>::create(2);
-			ddd.z = emulated_float64_t<true, true>::create(3);
-			auto emulatedDotRes = nbl::hlsl::dot(ddd, ddd);
-
-			float32_t3x3 yyy;
-			yyy[0] = fff;
-			yyy[1] = fff;
-			yyy[2] = fff;
-
-
-			auto mulResult = nbl::hlsl::mul(yyy, fff);
-
-			std::cout << "MUL\n";
-			for (int i = 0; i < 3; ++i)
-				std::cout << mulResult[i] << ' ';
-			std::cout << '\n';
-
-			emulated_matrix_t3x4<ef64_t> emulatedMat;
-			emulated_vector_t4<ef64_t> emulatedVec;
-			emulatedVec.x = emulated_float64_t<true, true>::create(1);
-			emulatedVec.y = emulated_float64_t<true, true>::create(2);
-			emulatedVec.z = emulated_float64_t<true, true>::create(3);
-			emulatedVec.w = emulated_float64_t<true, true>::create(4);
-
-			emulatedMat.rows[0] = emulated_vector_t4<ef64_t>::create(emulatedVec);
-			emulatedMat.rows[1] = emulatedVec;
-			emulatedMat.rows[2] = emulatedVec;
-			emulatedMat.rows[3] = emulatedVec;
-
-			auto emulatedMulResult = nbl::hlsl::mul(emulatedMat, emulatedVec);
-
-			std::cout << "MUL\n";
-			for (int i = 0; i < 3; ++i)
-				std::cout << mulResult[i] << ' ';
-			std::cout << '\n';
-		}
-
 		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
 		// Remember to call the base class initialization!

@@ -15,6 +15,7 @@
 
 using namespace nbl::hlsl;
 
+
 // because we can't use jit/device_capabilities.hlsl in c++ code
 #ifdef __HLSL_VERSION
 using pfloat64_t = portable_float64_t<jit::device_capabilities>;
@@ -47,7 +48,7 @@ static_assert(offsetof(ClipProjectionData, maxClipNDC) == 80u);
 struct Globals
 {
     ClipProjectionData defaultClipProjection; // 88
-    pfloat64_t screenToWorldRatio; // 96
+    float64_t screenToWorldRatio; // 96
     pfloat64_t worldToScreenRatio; // 100
     uint32_t2 resolution; // 108
     float antiAliasingFactor; // 112

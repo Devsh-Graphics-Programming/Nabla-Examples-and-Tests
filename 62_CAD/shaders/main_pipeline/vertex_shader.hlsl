@@ -121,7 +121,7 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setLineThickness(sdfLineThickness);
         outV.setCurrentWorldToScreenRatio(
             _static_cast<float>((_static_cast<pfloat64_t>(2.0f) /
-            (clipProjectionData.projectionToNDC[0].x * _static_cast<pfloat64_t>(globals.resolution.x))))
+            (clipProjectionData.projectionToNDC.rows[0].x * _static_cast<pfloat64_t>(globals.resolution.x))))
         );
 
         if (objType == ObjectType::LINE)
