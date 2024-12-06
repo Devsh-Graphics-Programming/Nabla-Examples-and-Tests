@@ -109,12 +109,12 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 
 	// -------------------------------- END WINDOWED APP OVERRIDES ---------------------------------------------------
 
-	inline void updateDescriptorSet(smart_refctd_ptr<IGPUImageView> imageDescriptor, smart_refctd_ptr<IGPUImageView> storageImageDescriptor, smart_refctd_ptr<IGPUSampler> samplerDescriptor = nullptr, smart_refctd_ptr<IGPUImageView> textureArrayDescriptor = nullptr)
+	inline void updateDescriptorSet(smart_refctd_ptr<IGPUImageView> imageDescriptor, smart_refctd_ptr<IGPUImageView> storageImageDescriptor, smart_refctd_ptr<IGPUImageView> textureArrayDescriptor = nullptr)
 	{
-		IGPUDescriptorSet::SDescriptorInfo infos[4] = {};
-		IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {};
+		IGPUDescriptorSet::SDescriptorInfo infos[3] = {};
+		IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {};
 
-		for (auto i = 0u; i < 4; i++) {
+		for (auto i = 0u; i < 3; i++) {
 			writes[i].dstSet = m_descriptorSet.get();
 			writes[i].arrayElement = 0u;
 			writes[i].count = 1u;
@@ -126,7 +126,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 		// Read image at binding 0
 		writes[0].binding = 0u;
 
-		// Binding 2 skipped since it's immutable sampler
+		// Binding 2 skipped since it's the sampler which we never need to change
 
 		infos[1].desc = storageImageDescriptor;
 		infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
@@ -139,13 +139,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 		// Texture array for reading at binding 3
 		writes[2].binding = 3u;
 
-		if (samplerDescriptor)
-		{
-			infos[3].desc = samplerDescriptor;
-			writes[3].binding = 1u;
-		}
-
-		m_device->updateDescriptorSets({writes, 3u + (samplerDescriptor ? 1u : 0u)}, std::span<IGPUDescriptorSet::SCopyDescriptorSet>());
+		m_device->updateDescriptorSets(writes, std::span<IGPUDescriptorSet::SCopyDescriptorSet>());
 	}
 
 	struct ShaderConstantParameters
@@ -256,8 +250,6 @@ public:
 
 		// Use asset converter to upload images to GPU, while at the same time creating our universal descriptor set and pipeline layout
 		smart_refctd_ptr<IGPUPipelineLayout> pipelineLayout;
-		// Make sampler persist until we write descriptor set with it later - I think asset converter is bugged
-		smart_refctd_ptr<IGPUSampler> sampler;
 		{
 			// Load source and kernel images
 			IAssetLoader::SAssetLoadParams lp = {};
@@ -353,15 +345,19 @@ public:
 			// Reassing because it's been moved out of
 			descriptorSetLayoutCPU = smart_refctd_ptr<ICPUDescriptorSetLayout>(pipelineLayoutCPU->getDescriptorSetLayout(0));
 			auto descriptorSetCPU = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(descriptorSetLayoutCPU));
+			
 			// Set descriptor set values for automatic upload
-			auto firstSampledImageDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(0u), IDescriptor::E_TYPE::ET_SAMPLED_IMAGE).front();
-			auto secondSampledImageDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(3u), IDescriptor::E_TYPE::ET_SAMPLED_IMAGE).front();
+			// Blocked by https://github.com/Devsh-Graphics-Programming/Nabla/issues/798 - will throw a validation error
+			/*
+			auto& firstSampledImageDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(0u), IDescriptor::E_TYPE::ET_SAMPLED_IMAGE).front();
+			auto& secondSampledImageDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(3u), IDescriptor::E_TYPE::ET_SAMPLED_IMAGE).front();
 
 			firstSampledImageDescriptorInfo.desc = kerImageViewCPU;
 			firstSampledImageDescriptorInfo.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 
 			secondSampledImageDescriptorInfo.desc = srcImageViewCPU;
 			secondSampledImageDescriptorInfo.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			*/
 
 			// Create a sampler
 			ICPUSampler::SParams samplerCreationParams =
@@ -379,7 +375,7 @@ public:
 			};
 			auto samplerCPU = make_smart_refctd_ptr<ICPUSampler>(samplerCreationParams);
 
-			auto samplerDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(1u), IDescriptor::E_TYPE::ET_SAMPLER).front();
+			auto& samplerDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(1u), IDescriptor::E_TYPE::ET_SAMPLER).front();
 			samplerDescriptorInfo.desc = samplerCPU;
 
 			// Using asset converter
@@ -401,8 +397,8 @@ public:
 
 			std::get<CAssetConverter::SInputs::asset_span_t<ICPUPipelineLayout>>(inputs.assets) = { &pipelineLayoutCPU.get(), 1};
 			std::get<CAssetConverter::SInputs::asset_span_t<ICPUImageView>>(inputs.assets) = { CPUImageViews, 2 };
-			std::get<CAssetConverter::SInputs::asset_span_t<ICPUSampler>>(inputs.assets) = { &samplerCPU.get(), 1};
 			std::get<CAssetConverter::SInputs::asset_span_t<ICPUDescriptorSet>>(inputs.assets) = { &descriptorSetCPU.get(), 1 };
+
 			auto reservation = converter->reserve(inputs);
 
 			// Retrieve GPU uploads
@@ -412,9 +408,6 @@ public:
 			const auto imagesGPU = reservation.getGPUObjects<ICPUImageView>();
 			m_kerImageView = imagesGPU[0].value;
 			m_srcImageView = imagesGPU[1].value;
-
-			const auto samplerGPU = reservation.getGPUObjects<ICPUSampler>();
-			sampler = samplerGPU.front().value;
 
 			const auto descriptorSetGPU = reservation.getGPUObjects<ICPUDescriptorSet>();
 			m_descriptorSet = descriptorSetGPU.front().value;
@@ -914,7 +907,7 @@ public:
 
 		// Before leaving, update descriptor set with values needed by image transform
 		// Write descriptor set for kernel FFT computation
-		updateDescriptorSet(m_srcImageView, m_outImgView, sampler, m_kernelNormalizedSpectrums);
+		updateDescriptorSet(m_srcImageView, m_outImgView, m_kernelNormalizedSpectrums);
 
 		return true;
 	}
