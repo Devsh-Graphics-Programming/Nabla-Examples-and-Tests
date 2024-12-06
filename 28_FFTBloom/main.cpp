@@ -50,7 +50,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 	uint64_t m_rowMajorBufferAddress;
 	uint64_t m_colMajorBufferAddress;
 
-	float m_useHalfFloats = true;
+	bool m_useHalfFloats = false;
 	
 	// Other parameter-dependent variables
 	asset::VkExtent3D m_marginSrcDim;
@@ -142,30 +142,44 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 		m_device->updateDescriptorSets(writes, std::span<IGPUDescriptorSet::SCopyDescriptorSet>());
 	}
 
-	struct ShaderConstantParameters
+
+	struct SShaderConstevalParameters
 	{
-		uint16_t elementsPerInvocationLog2 = 0;
-		uint16_t workgroupSizeLog2 = 0;
-		uint16_t numWorkgroupsLog2 = 0;
-		uint16_t previousElementsPerInvocationLog2 = 0;
-		uint16_t previousWorkgroupSizeLog2 = 0;
-		float32_t2 kernelHalfPixelSize = {0.5f, 0.5f};
+		struct SShaderConstevalParametersCreateInfo
+		{
+			bool useHalfFloats = false;
+			uint16_t elementsPerInvocationLog2 = 0;
+			uint16_t workgroupSizeLog2 = 0;
+			uint16_t numWorkgroupsLog2 = 0;
+			uint16_t previousElementsPerInvocationLog2 = 0;
+			uint16_t previousWorkgroupSizeLog2 = 0;
+			float32_t2 kernelHalfPixelSize = { 0.5f, 0.5f };
+		};
+
+		SShaderConstevalParameters(SShaderConstevalParametersCreateInfo& info) : 
+			scalar_t(info.useHalfFloats ? "float16_t" : "float32_t"), elementsPerInvocationLog2(info.elementsPerInvocationLog2), 
+			workgroupSizeLog2(info.workgroupSizeLog2), numWorkgroupsLog2(info.numWorkgroupsLog2), numWorkgroups(uint32_t(1) << info.numWorkgroupsLog2), 
+			previousElementsPerInvocationLog2(info.previousElementsPerInvocationLog2), previousWorkgroupSizeLog2(info.previousWorkgroupSizeLog2), 
+			previousWorkgroupSize(uint16_t(1) << info.previousWorkgroupSizeLog2), kernelHalfPixelSize(info.kernelHalfPixelSize)
+		{
+			const uint32_t totalSize = uint32_t(1) << (elementsPerInvocationLog2 + workgroupSizeLog2);
+			totalSizeReciprocal = 1.f / float32_t(totalSize);
+		}
+
+		std::string scalar_t;
+		uint16_t elementsPerInvocationLog2;
+		uint16_t workgroupSizeLog2;
+		uint16_t numWorkgroupsLog2;
+		uint32_t numWorkgroups;
+		uint16_t previousElementsPerInvocationLog2;
+		uint16_t previousWorkgroupSizeLog2;
+		uint16_t previousWorkgroupSize;
+		float32_t2 kernelHalfPixelSize;
+		float32_t totalSizeReciprocal;
 	};
 
-	inline core::smart_refctd_ptr<video::IGPUShader> createShader(const char* includeMainName, const ShaderConstantParameters& shaderConstants)
+	inline core::smart_refctd_ptr<video::IGPUShader> createShader(const char* includeMainName, const SShaderConstevalParameters& shaderConstants)
 	{
-		std::ostringstream constevalParametersFFTStream;
-		constevalParametersFFTStream << "<" << shaderConstants.elementsPerInvocationLog2 << "," << shaderConstants.workgroupSizeLog2 << "," << (m_useHalfFloats ? "float16_t" : "float32_t") << ">";
-		std::string constevalParametersFFT = constevalParametersFFTStream.str();
-
-		// Get NumWorkgroups
-		const uint32_t numWorkgroups = 1u << shaderConstants.numWorkgroupsLog2;
-
-		// Precompute reciprocal of FFT Length (1 / FFTParameters::TotalSize)
-		const uint32_t totalSize = uint32_t(1) << (shaderConstants.elementsPerInvocationLog2 + shaderConstants.workgroupSizeLog2);
-		const float32_t totalSizeReciprocal = 1.f / float32_t(totalSize);
-		const uint16_t previousWorkgroupSize = uint16_t(1) << shaderConstants.previousWorkgroupSizeLog2;
-
 		// The annoying "const static member field must be initialized outside of struct" bug strikes again
 		std::ostringstream kernelHalfPixelSizeStream;
 		kernelHalfPixelSizeStream << "{" << shaderConstants.kernelHalfPixelSize.x << "," << shaderConstants.kernelHalfPixelSize.y << "}";
@@ -176,18 +190,21 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 				std::ostringstream tmp;
 				tmp << R"===(
 				#include "nbl/builtin/hlsl/workgroup/fft.hlsl"
-				struct ConstevalParameters
+				struct ShaderConstevalParameters
 				{
-					using FFTParameters = nbl::hlsl::workgroup::fft::ConstevalParameters)===" << constevalParametersFFT << R"===(;
+					using scalar_t = )===" << shaderConstants.scalar_t << R"===(;
+
+					NBL_CONSTEXPR_STATIC_INLINE uint16_t ElementsPerInvocationLog2 = )===" << shaderConstants.elementsPerInvocationLog2 << R"===(;
+					NBL_CONSTEXPR_STATIC_INLINE uint16_t WorkgroupSizeLog2 = )===" << shaderConstants.workgroupSizeLog2 << R"===(;
 					NBL_CONSTEXPR_STATIC_INLINE uint16_t NumWorkgroupsLog2 = )===" << shaderConstants.numWorkgroupsLog2 << R"===(;
-					NBL_CONSTEXPR_STATIC_INLINE uint32_t NumWorkgroups = )===" << numWorkgroups << R"===(;
+					NBL_CONSTEXPR_STATIC_INLINE uint32_t NumWorkgroups = )===" << shaderConstants.numWorkgroups << R"===(;
 					NBL_CONSTEXPR_STATIC_INLINE uint16_t PreviousElementsPerInvocationLog2 = )===" << shaderConstants.previousElementsPerInvocationLog2 << R"===(;
 					NBL_CONSTEXPR_STATIC_INLINE uint16_t PreviousWorkgroupSizeLog2 = )===" << shaderConstants.previousWorkgroupSizeLog2 << R"===(;
-					NBL_CONSTEXPR_STATIC_INLINE uint16_t PreviousWorkgroupSize = )===" << previousWorkgroupSize << R"===(;
+					NBL_CONSTEXPR_STATIC_INLINE uint16_t PreviousWorkgroupSize = )===" << shaderConstants.previousWorkgroupSize << R"===(;
 					NBL_CONSTEXPR_STATIC_INLINE float32_t2 KernelHalfPixelSize;
-					NBL_CONSTEXPR_STATIC_INLINE float32_t TotalSizeReciprocal = )===" << totalSizeReciprocal << R"===(;
+					NBL_CONSTEXPR_STATIC_INLINE float32_t TotalSizeReciprocal = )===" << shaderConstants.totalSizeReciprocal << R"===(;
 				};
-				NBL_CONSTEXPR_STATIC_INLINE float32_t2 ConstevalParameters::KernelHalfPixelSize = )===" << kernelHalfPixelSizeString << R"===(;
+				NBL_CONSTEXPR_STATIC_INLINE float32_t2 ShaderConstevalParameters::KernelHalfPixelSize = )===" << kernelHalfPixelSizeString << R"===(;
 				)===";
 				return tmp.str();
 			}();
@@ -650,10 +667,11 @@ public:
 			// Create shaders
 			smart_refctd_ptr<IGPUShader> shaders[3];
 			uint16_t2 kernelDimensions = { kerDim.width, kerDim.height };
-			ShaderConstantParameters shaderConstantParameters = { .elementsPerInvocationLog2 = elementsPerInvocationLog2, .workgroupSizeLog2 = workgroupSizeLog2, .numWorkgroupsLog2 = secondAxisFFTHalfLengthLog2, .previousWorkgroupSizeLog2 = workgroupSizeLog2};
-			shaders[0] = createShader("app_resources/kernel_fft_first_axis.hlsl", shaderConstantParameters);
-			shaders[1] = createShader("app_resources/kernel_fft_second_axis.hlsl", shaderConstantParameters);
-			shaders[2] = createShader("app_resources/kernel_spectrum_normalize.hlsl", shaderConstantParameters);
+			SShaderConstevalParameters::SShaderConstevalParametersCreateInfo shaderConstevalInfo = { .useHalfFloats = m_useHalfFloats, .elementsPerInvocationLog2 = elementsPerInvocationLog2, .workgroupSizeLog2 = workgroupSizeLog2, .numWorkgroupsLog2 = secondAxisFFTHalfLengthLog2, .previousWorkgroupSizeLog2 = workgroupSizeLog2 };
+			SShaderConstevalParameters shaderConstevalParameters(shaderConstevalInfo);
+			shaders[0] = createShader("app_resources/kernel_fft_first_axis.hlsl", shaderConstevalParameters);
+			shaders[1] = createShader("app_resources/kernel_fft_second_axis.hlsl", shaderConstevalParameters);
+			shaders[2] = createShader("app_resources/kernel_spectrum_normalize.hlsl", shaderConstevalParameters);
 
 			// Create compute pipelines - First axis FFT -> Second axis FFT -> Normalization
 			IGPUComputePipeline::SCreationParams params[3] = {};
@@ -824,10 +842,11 @@ public:
 		smart_refctd_ptr<IGPUShader> shaders[3];
 		{
 			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device.get(), m_marginSrcDim.height);
-			ShaderConstantParameters shaderConstantParameters = { .elementsPerInvocationLog2 = elementsPerInvocationLog2, .workgroupSizeLog2 = workgroupSizeLog2};
-			shaders[0] = createShader("app_resources/image_fft_first_axis.hlsl", shaderConstantParameters);
+			SShaderConstevalParameters::SShaderConstevalParametersCreateInfo shaderConstevalInfo = { .useHalfFloats = m_useHalfFloats, .elementsPerInvocationLog2 = elementsPerInvocationLog2, .workgroupSizeLog2 = workgroupSizeLog2 };
+			SShaderConstevalParameters shaderConstevalParameters(shaderConstevalInfo);
+			shaders[0] = createShader("app_resources/image_fft_first_axis.hlsl", shaderConstevalParameters);
 			// IFFT along first axis has same dimensions as FFT
-			shaders[2] = createShader("app_resources/image_ifft_first_axis.hlsl", shaderConstantParameters);
+			shaders[2] = createShader("app_resources/image_ifft_first_axis.hlsl", shaderConstevalParameters);
 			firstAxisFFTHalfLengthLog2 = elementsPerInvocationLog2 + workgroupSizeLog2 - 1;
 			firstAxisFFTElementsPerInvocationLog2 = elementsPerInvocationLog2;
 			firstAxisFFTWorkgroupSizeLog2 = workgroupSizeLog2;
@@ -842,14 +861,18 @@ public:
 			float32_t2 kernelHalfPixelSize{ 0.5f,0.5f };
 			kernelHalfPixelSize.x /= kernelSpectraExtent.width;
 			kernelHalfPixelSize.y /= kernelSpectraExtent.height;
-			ShaderConstantParameters shaderConstantParameters = { 
-				.elementsPerInvocationLog2 = elementsPerInvocationLog2, 
-				.workgroupSizeLog2 = workgroupSizeLog2, 
-				.numWorkgroupsLog2 = firstAxisFFTHalfLengthLog2, 
-				.previousElementsPerInvocationLog2 = firstAxisFFTElementsPerInvocationLog2,
-				.previousWorkgroupSizeLog2 = firstAxisFFTWorkgroupSizeLog2, 
-				.kernelHalfPixelSize = kernelHalfPixelSize};
-			shaders[1] = createShader("app_resources/fft_convolve_ifft.hlsl", shaderConstantParameters);
+			SShaderConstevalParameters::SShaderConstevalParametersCreateInfo shaderConstevalInfo =
+			{
+			.useHalfFloats = m_useHalfFloats,
+			.elementsPerInvocationLog2 = elementsPerInvocationLog2, 
+			.workgroupSizeLog2 = workgroupSizeLog2, 
+			.numWorkgroupsLog2 = firstAxisFFTHalfLengthLog2, 
+			.previousElementsPerInvocationLog2 = firstAxisFFTElementsPerInvocationLog2,
+			.previousWorkgroupSizeLog2 = firstAxisFFTWorkgroupSizeLog2, 
+			.kernelHalfPixelSize = kernelHalfPixelSize
+			};
+			SShaderConstevalParameters shaderConstevalParameters(shaderConstevalInfo);
+			shaders[1] = createShader("app_resources/fft_convolve_ifft.hlsl", shaderConstevalParameters);
 		}
 
 		// Create compute pipelines - First axis FFT -> Second axis FFT -> Normalization

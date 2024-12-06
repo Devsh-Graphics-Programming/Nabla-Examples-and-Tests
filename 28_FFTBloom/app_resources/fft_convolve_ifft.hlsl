@@ -11,14 +11,14 @@
 // so they need to be unpacked properly after FFT like we did earlier.
 
 // Reordering for unpacking on load is used with info from the previous pass FFT
-using PreviousPassFFTIndexingUtils = workgroup::fft::FFTIndexingUtils<ConstevalParameters::PreviousElementsPerInvocationLog2, ConstevalParameters::PreviousWorkgroupSizeLog2>;
+using PreviousPassFFTIndexingUtils = workgroup::fft::FFTIndexingUtils<ShaderConstevalParameters::PreviousElementsPerInvocationLog2, ShaderConstevalParameters::PreviousWorkgroupSizeLog2>;
 
 struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 {
-	NBL_CONSTEXPR_STATIC_INLINE uint16_t NumWorkgroupsLog2 = ConstevalParameters::NumWorkgroupsLog2;
-	NBL_CONSTEXPR_STATIC_INLINE uint32_t NumWorkgroups = ConstevalParameters::NumWorkgroups;
-	NBL_CONSTEXPR_STATIC_INLINE uint32_t PreviousWorkgroupSize = uint32_t(ConstevalParameters::PreviousWorkgroupSize);
-	NBL_CONSTEXPR_STATIC_INLINE float32_t TotalSizeReciprocal = ConstevalParameters::TotalSizeReciprocal;
+	NBL_CONSTEXPR_STATIC_INLINE uint16_t NumWorkgroupsLog2 = ShaderConstevalParameters::NumWorkgroupsLog2;
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t NumWorkgroups = ShaderConstevalParameters::NumWorkgroups;
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t PreviousWorkgroupSize = uint32_t(ShaderConstevalParameters::PreviousWorkgroupSize);
+	NBL_CONSTEXPR_STATIC_INLINE float32_t TotalSizeReciprocal = ShaderConstevalParameters::TotalSizeReciprocal;
 	NBL_CONSTEXPR_STATIC_INLINE float32_t2 KernelHalfPixelSize;
 
 	NBL_CONSTEXPR_STATIC_INLINE vector<scalar_t, 2> One;
@@ -217,12 +217,12 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 		{
 			if (paddedIndex >= 0 && paddedIndex < pushConstants.imageRowLength)
 				rowMajorAccessor.set(rowMajorOffset(paddedIndex, glsl::gl_WorkGroupID().x), preloaded[localElementIndex]);
-			
+
 			paddedIndex += WorkgroupSize;
 		}
 	}
 };
-NBL_CONSTEXPR_STATIC_INLINE float32_t2 PreloadedSecondAxisAccessor::KernelHalfPixelSize = ConstevalParameters::KernelHalfPixelSize;
+NBL_CONSTEXPR_STATIC_INLINE float32_t2 PreloadedSecondAxisAccessor::KernelHalfPixelSize = ShaderConstevalParameters::KernelHalfPixelSize;
 NBL_CONSTEXPR_STATIC_INLINE vector<scalar_t, 2> PreloadedSecondAxisAccessor::One = {1.0f, 0.f};
 
 [numthreads(FFTParameters::WorkgroupSize, 1, 1)]

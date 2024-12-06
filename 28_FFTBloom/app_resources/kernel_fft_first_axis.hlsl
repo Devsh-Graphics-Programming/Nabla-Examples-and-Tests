@@ -10,7 +10,7 @@
 
 // Each Workgroup computes the FFT along two consecutive vertical scanlines (fixed x for the whole Workgroup) so we use `2 * gl_WorkGroupID().x, 2 * gl_WorkGroupID().x + 1` 
 // to get the x coordinates for each of the consecutive lines
-// Since the output images (one per channel) are square of size ConstevalParameters::TotalSize (defined above) we will be launching half that amount of workgroups
+// Since the output images (one per channel) are square of size TotalSize (defined above) we will be launching half that amount of workgroups
 
 struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 {

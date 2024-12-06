@@ -36,8 +36,8 @@ struct PushConstantData
 
 [[vk::push_constant]] PushConstantData pushConstants;
 
-using FFTParameters = ConstevalParameters::FFTParameters;
-using scalar_t = FFTParameters::scalar_t;
+using scalar_t = ShaderConstevalParameters::scalar_t;
+using FFTParameters = workgroup::fft::ConstevalParameters<ShaderConstevalParameters::ElementsPerInvocationLog2, ShaderConstevalParameters::WorkgroupSizeLog2, scalar_t>;
 
 using FFTIndexingUtils = workgroup::fft::FFTIndexingUtils<FFTParameters::ElementsPerInvocationLog2, FFTParameters::WorkgroupSizeLog2>;
 
