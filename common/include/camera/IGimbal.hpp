@@ -96,6 +96,8 @@ namespace nbl::hlsl
     {
     public:
         using precision_t = T;
+        //! underlying type for world matrix (TRS)
+        using model_matrix_t = matrix<precision_t, 3, 4>;
 
         struct VirtualImpulse
         {
@@ -303,7 +305,7 @@ namespace nbl::hlsl
         inline const auto& getScale() const { return m_scale; }
 
         //! World matrix (TRS)
-        inline const matrix<precision_t, 3, 4> operator()() const
+        inline const model_matrix_t operator()() const
         { 
             const auto& position = getPosition();
             const auto& rotation = getOrthonornalMatrix();

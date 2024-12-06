@@ -21,6 +21,9 @@ public:
         //! Represents a non-linear/skewed pre-transform *concatenated* with linear view-port transform
         Quad,
 
+        //! Represents a projection onto cube consisting of 6 quad cube faces
+        Cube,
+
         Spherical,
         ThinLens,
         
