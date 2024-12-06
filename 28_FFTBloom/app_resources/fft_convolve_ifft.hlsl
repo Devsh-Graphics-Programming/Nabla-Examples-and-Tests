@@ -143,7 +143,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				const uint32_t indexDFT = FFTIndexingUtils::getDFTIndex(globalElementIndex);
 				const uint32_t2 texCoords = uint32_t2(indexDFT, y);
 				const float32_t2 uv = texCoords * float32_t2(TotalSizeReciprocal, 1.f / NumWorkgroups) + KernelHalfPixelSize;
-				const vector<scalar_t, 2> sampledKernelVector = kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0);
+				const vector<scalar_t, 2> sampledKernelVector = vector<scalar_t, 2>(kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0));
 				const vector<scalar_t, 2> sampledKernelInterpolatedVector = lerp(sampledKernelVector, One, promote<vector<scalar_t, 2>, float32_t>(pushConstants.interpolatingFactor));
 				const complex_t<scalar_t> sampledKernelInterpolated = { sampledKernelInterpolatedVector.x, sampledKernelInterpolatedVector.y };
 				preloaded[localElementIndex] = preloaded[localElementIndex] * sampledKernelInterpolated;
@@ -168,14 +168,14 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				const float32_t indexDFT = float32_t(FFTIndexingUtils::getDFTIndex(globalElementIndex));
 
 				float32_t2 uv = float32_t2(indexDFT * TotalSizeReciprocal, float32_t(0)) + KernelHalfPixelSize;
-				const vector<scalar_t, 2> zeroKernelVector = kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0);
+				const vector<scalar_t, 2> zeroKernelVector = vector<scalar_t, 2>(kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0));
 				const vector<scalar_t, 2> zeroKernelInterpolatedVector = lerp(zeroKernelVector, One, promote<vector<scalar_t, 2>, float32_t>(pushConstants.interpolatingFactor));
 				const complex_t<scalar_t> zeroKernelInterpolated = { zeroKernelInterpolatedVector.x, zeroKernelInterpolatedVector.y };
 				zero = zero * zeroKernelInterpolated;
 
 				// Do the same for the nyquist coord
 				uv.y = 1.f - KernelHalfPixelSize.y;
-				const vector<scalar_t, 2> nyquistKernelVector = kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0);
+				const vector<scalar_t, 2> nyquistKernelVector = vector<scalar_t, 2>(kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0));
 				const vector<scalar_t, 2> nyquistKernelInterpolatedVector = lerp(nyquistKernelVector, One, promote<vector<scalar_t, 2>, float32_t>(pushConstants.interpolatingFactor));
 				const complex_t<scalar_t> nyquistKernelInterpolated = { nyquistKernelInterpolatedVector.x, nyquistKernelInterpolatedVector.y };
 				nyquist = nyquist * nyquistKernelInterpolated;

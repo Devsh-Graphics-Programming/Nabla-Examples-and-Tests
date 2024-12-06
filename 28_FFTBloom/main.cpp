@@ -50,7 +50,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 	uint64_t m_rowMajorBufferAddress;
 	uint64_t m_colMajorBufferAddress;
 
-	float m_useHalfFloats = false;
+	float m_useHalfFloats = true;
 	
 	// Other parameter-dependent variables
 	asset::VkExtent3D m_marginSrcDim;
