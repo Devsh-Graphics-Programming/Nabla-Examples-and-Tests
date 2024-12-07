@@ -8,6 +8,7 @@
 #include <mutex>
 #include <queue>
 #include <functional>
+#include <condition_variable>
 
 #include "nlohmann/json.hpp"
 #include "argparse/argparse.hpp"
@@ -22,7 +23,60 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
-constexpr static uint32_t s_maxWorkers = 8;
+class ThreadPool {
+public:
+	using task_t = std::function<void()>;
+
+	ThreadPool() {
+		for (size_t i = 0; i < m_maxWorkers; i++) {
+			m_threads.emplace_back([this]() {
+				while (true) {
+					task_t task;
+
+					{
+						std::unique_lock<std::mutex> lock(m_queueMutex);
+						m_taskAvailable.wait(lock, [&]() { return !m_tasks.empty() || m_stop; });
+
+						if (m_stop && m_tasks.empty())
+							return;
+
+						task = std::move(m_tasks.front());
+						m_tasks.pop();
+					}
+
+					task();
+				}
+				});
+		}
+	}
+
+	~ThreadPool() {
+		{
+			std::lock_guard<std::mutex> lock(m_queueMutex);
+			m_stop = true;
+		}
+
+		m_taskAvailable.notify_all();
+
+		for (auto& thread : m_threads) {
+			thread.join();
+		}
+	}
+
+	void addTask(task_t task) {
+		std::lock_guard<std::mutex> queueLock(m_queueMutex);
+		m_tasks.emplace(std::move(task));
+		m_taskAvailable.notify_one();
+	}
+private:
+	const size_t m_maxWorkers = std::thread::hardware_concurrency();
+	std::vector<std::thread> m_threads;
+	std::condition_variable m_taskAvailable;
+	bool m_stop = false; // stops the threads on object destruction
+	
+	std::queue<task_t> m_tasks;
+	std::mutex m_queueMutex;
+};
 
 class JpegLoaderApp final : public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
@@ -60,6 +114,8 @@ public:
 		options.directory = program.get<std::string>("--directory");
 		options.outputFile = program.get<std::string>("--output");
 
+
+		ThreadPool threadPool;
 		// TODO: Load JPEGs
 		// TODO: Measure the time
 
