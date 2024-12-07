@@ -48,7 +48,7 @@ static_assert(offsetof(ClipProjectionData, maxClipNDC) == 80u);
 struct Globals
 {
     ClipProjectionData defaultClipProjection; // 88
-    float64_t screenToWorldRatio; // 96
+    pfloat64_t screenToWorldRatio; // 96
     pfloat64_t worldToScreenRatio; // 100
     uint32_t2 resolution; // 108
     float antiAliasingFactor; // 112
@@ -73,14 +73,12 @@ pfloat64_t2 transformPointNdc(pfloat64_t3x3 transformation, pfloat64_t2 point2d)
     point3d.y = point2d.y;
     point3d.z = _static_cast<pfloat64_t>(1.0f);
 
-    float32_t4x4 a;
-    float32_t4 b;
-    float32_t4 result = nbl::hlsl::mul(a, b);
-
     pfloat64_t3 transformationResult = nbl::hlsl::mul(transformation, point3d);
+
     pfloat64_t2 output;
     output.x = transformationResult.x;
     output.y = transformationResult.y;
+    printf("intput: %f, %f output: %f, %f", _static_cast<float>(point2d.x), _static_cast<float>(point2d.y), _static_cast<float>(output.x), _static_cast<float>(output.y));
 
     return output;
 }

@@ -637,6 +637,73 @@ public:
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
+		// TODO: delete all quick tests
+		{
+			using ef64_t = hlsl::emulated_float64_t<true, true>;
+			nbl::hlsl::array_get<hlsl::emulated_vector_t3<ef64_t>, ef64_t> getter;
+			nbl::hlsl::array_set<hlsl::emulated_vector_t3<ef64_t>, ef64_t> setter;
+			emulated_vector_t3<ef64_t> vec;
+
+			//for (int i = 0; i < 3; ++i)
+				//setter(vec, i, hlsl::emulated_float64_t<true, true>::create(i));
+
+			setter(vec, 0, hlsl::emulated_float64_t<true, true>::create(20));
+			setter(vec, 1, hlsl::emulated_float64_t<true, true>::create(5));
+			setter(vec, 2, hlsl::emulated_float64_t<true, true>::create(1));
+
+			std::cout << "VEC:\n";
+
+			for (int i = 0; i < 3; ++i)
+			{
+				auto a = getter(vec, i).data;
+				std::cout << reinterpret_cast<double&>(a) << ' ';
+				std::cout << std::endl;
+			}
+
+			emulated_matrix_t3x3<ef64_t> matrix;
+
+			/*for (int i = 0; i < 3; ++i)
+			{
+				static int a = 0;
+				matrix.rows[i].x = ef64_t::create(a++);
+				matrix.rows[i].y = ef64_t::create(a++);
+				matrix.rows[i].z = ef64_t::create(a++);
+			}*/
+
+			matrix.rows[0].x = ef64_t::create(0.1125); matrix.rows[0].y = ef64_t::create(0); matrix.rows[0].z = ef64_t::create(0);
+			matrix.rows[1].x = ef64_t::create(0); matrix.rows[1].y = ef64_t::create(-0.2); matrix.rows[1].z = ef64_t::create(0);
+			matrix.rows[2].x = ef64_t::create(0); matrix.rows[2].y = ef64_t::create(0); matrix.rows[2].z = ef64_t::create(1);
+
+			std::cout << "MAT:\n";
+
+			for (int i = 0; i < 3; ++i)
+			{
+				for (int j = 0; j < 3; ++j)
+				{
+					auto y = getter(matrix.rows[i], j);
+					std::cout << reinterpret_cast<double&>(y) << ' ';
+				}
+
+				std::cout << '\n';
+			}
+
+			std::cout << "MUL:\n";
+
+			emulated_vector_t3<ef64_t> mulResult = nbl::hlsl::mul(matrix, vec);
+
+			for (int i = 0; i < 3; ++i)
+			{
+				auto a = getter(mulResult, i).data;
+				std::cout << reinterpret_cast<double&>(a) << ' ';
+				std::cout << std::endl;
+			}
+
+			std::cout << "DOT:\n";
+
+			ef64_t dotResult = nbl::hlsl::dot(vec, vec);
+			std::cout << reinterpret_cast<double&>(dotResult) << ' ';
+		}
+
 		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
 		// Remember to call the base class initialization!

@@ -121,7 +121,7 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setLineThickness(sdfLineThickness);
         outV.setCurrentWorldToScreenRatio(
             _static_cast<float>((_static_cast<pfloat64_t>(2.0f) /
-            (clipProjectionData.projectionToNDC.rows[0].x * _static_cast<pfloat64_t>(globals.resolution.x))))
+            (clipProjectionData.projectionToNDC[0].x * _static_cast<pfloat64_t>(globals.resolution.x))))
         );
 
         if (objType == ObjectType::LINE)
@@ -162,7 +162,7 @@ PSInput main(uint vertexID : SV_VertexID)
             outV.setLineStart(transformedPoints[0u]);
             outV.setLineEnd(transformedPoints[1u]);
 
-            outV.position.xy = transformFromSreenSpaceToNdc(outV.position.xy, globals.resolution);
+            outV.position.xy = transformFromSreenSpaceToNdc(outV.position.xy, globals.resolution).xy;
         }
         else if (objType == ObjectType::QUAD_BEZIER)
         {
@@ -392,7 +392,7 @@ PSInput main(uint vertexID : SV_VertexID)
                     outV.position = float4(screenSpaceV2, 0.0f, 1.0f);
                 }
 
-                outV.position.xy = transformFromSreenSpaceToNdc(outV.position.xy, globals.resolution);
+                outV.position.xy = transformFromSreenSpaceToNdc(outV.position.xy, globals.resolution).xy;
             }
             else
             {
