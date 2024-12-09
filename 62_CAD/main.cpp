@@ -638,6 +638,7 @@ public:
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
 		// TODO: delete all quick tests
+
 		{
 			using ef64_t = hlsl::emulated_float64_t<true, true>;
 			nbl::hlsl::array_get<hlsl::emulated_vector_t3<ef64_t>, ef64_t> getter;

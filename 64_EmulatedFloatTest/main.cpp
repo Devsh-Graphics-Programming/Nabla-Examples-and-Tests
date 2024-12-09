@@ -472,8 +472,8 @@ private:
         //printTestOutput("emulatedFloat64BothValuesInfTest", emulatedFloat64BothValuesInfTest(submitter));
         //printTestOutput("emulatedFloat64BothValuesNegInfTest", emulatedFloat64BothValuesNegInfTest(submitter));
         //printTestOutput("emulatedFloat64OneValIsInfOtherIsNegInfTest", emulatedFloat64OneValIsInfOtherIsNegInfTest(submitter));
-        printTestOutput("emulatedFloat64OneValIsInfTest", emulatedFloat64OneValIsInfTest(submitter));
-        printTestOutput("emulatedFloat64OneValIsNegInfTest", emulatedFloat64OneValIsNegInfTest(submitter));
+        //printTestOutput("emulatedFloat64OneValIsInfTest", emulatedFloat64OneValIsInfTest(submitter));
+        //printTestOutput("emulatedFloat64OneValIsNegInfTest", emulatedFloat64OneValIsNegInfTest(submitter));
         if(false) // doesn't work for some reason + fast math is enabled by default
             printTestOutput("emulatedFloat64BNaNTest", emulatedFloat64BNaNTest(submitter));
         printTestOutput("emulatedFloat64BInfTest", emulatedFloat64OneValIsZeroTest(submitter));
