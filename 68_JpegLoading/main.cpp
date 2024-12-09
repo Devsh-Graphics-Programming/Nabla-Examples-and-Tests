@@ -3,12 +3,7 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
-#include <thread>
-#include <atomic>
-#include <mutex>
-#include <queue>
-#include <functional>
-#include <condition_variable>
+#include <future>
 
 #include "nlohmann/json.hpp"
 #include "argparse/argparse.hpp"
@@ -23,66 +18,11 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
-class ThreadPool {
-public:
-	using task_t = std::function<void()>;
-
-	ThreadPool() {
-		for (size_t i = 0; i < m_maxWorkers; i++) {
-			m_threads.emplace_back([this]() {
-				while (true) {
-					task_t task;
-
-					{
-						std::unique_lock<std::mutex> lock(m_queueMutex);
-						m_taskAvailable.wait(lock, [&]() { return !m_tasks.empty() || m_stop; });
-
-						if (m_stop && m_tasks.empty())
-							return;
-
-						task = std::move(m_tasks.front());
-						m_tasks.pop();
-					}
-
-					task();
-				}
-				});
-		}
-	}
-
-	~ThreadPool() {
-		{
-			std::lock_guard<std::mutex> lock(m_queueMutex);
-			m_stop = true;
-		}
-
-		m_taskAvailable.notify_all();
-
-		for (auto& thread : m_threads) {
-			thread.join();
-		}
-	}
-
-	void addTask(task_t task) {
-		std::lock_guard<std::mutex> queueLock(m_queueMutex);
-		m_tasks.emplace(std::move(task));
-		m_taskAvailable.notify_one();
-	}
-private:
-	const size_t m_maxWorkers = std::thread::hardware_concurrency();
-	std::vector<std::thread> m_threads;
-	std::condition_variable m_taskAvailable;
-	bool m_stop = false; // stops the threads on object destruction
-	
-	std::queue<task_t> m_tasks;
-	std::mutex m_queueMutex;
-};
-
 class JpegLoaderApp final : public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-	using base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 	using clock_t = std::chrono::steady_clock;
-	constexpr static inline uint32_t m_maxWorkers = 8;
+	using clock_resolution_t = std::chrono::milliseconds;
+	using base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 public:
 	using base_t::base_t;
 
@@ -114,11 +54,30 @@ public:
 		options.directory = program.get<std::string>("--directory");
 		options.outputFile = program.get<std::string>("--output");
 
+		auto start = clock_t::now();
 
-		ThreadPool threadPool;
+		{ // TODO: Make this multi-threaded
+			constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
+			const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get());
 
-		// TODO: Load JPEGs
-		// TODO: Measure the time
+			for (auto& item : std::filesystem::directory_iterator(options.directory))
+			{
+
+				auto& path = item.path();
+				auto extension = path.extension();
+
+				if (path.has_extension() && extension == ".jpg") 
+				{
+					m_logger->log("Loading %S", ILogger::ELL_INFO, path.c_str());
+					m_assetMgr->getAsset(path.generic_string(), loadParams); // discard the loaded image
+				}
+			}
+		}
+
+		auto stop = clock_t::now();
+		auto passed = std::chrono::duration_cast<clock_resolution_t>(stop - start).count();
+
+		m_logger->log("Process took %llu ms", ILogger::ELL_INFO, passed);
 
 		return true;
 	}
