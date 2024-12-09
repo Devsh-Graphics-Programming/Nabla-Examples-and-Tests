@@ -105,7 +105,7 @@ public:
 		catch (const std::exception& err)
 		{
 			std::cerr << err.what() << std::endl << program; // NOTE: std::cerr because logger isn't initialized yet
-			return 1;
+			return false;
 		}
 
 		if (!base_t::onAppInitialized(std::move(system)))
@@ -116,6 +116,7 @@ public:
 
 
 		ThreadPool threadPool;
+
 		// TODO: Load JPEGs
 		// TODO: Measure the time
 
