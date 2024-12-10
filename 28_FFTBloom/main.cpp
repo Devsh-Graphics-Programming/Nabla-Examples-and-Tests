@@ -477,7 +477,7 @@ public:
 		}
 
 		// Create a swapchain
-		ISwapchain::SCreationParams swapchainParams = { .surface = m_surface->getSurface(), .sharedParams = {.presentMode = ISurface::EPM_IMMEDIATE} };
+		ISwapchain::SCreationParams swapchainParams = { .surface = m_surface->getSurface(),.sharedParams = {.presentMode = ISurface::EPM_IMMEDIATE}};
 		if (!swapchainParams.deduceFormat(m_physicalDevice))
 			return logFail("Could not choose a Surface Format for the Swapchain!");
 

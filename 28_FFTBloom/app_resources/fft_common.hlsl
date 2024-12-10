@@ -24,6 +24,7 @@ struct SharedMemoryAccessor
 
 struct PreloadedAccessorCommonBase
 {
+	using scalar_t = scalar_t;
 	NBL_CONSTEXPR_STATIC_INLINE uint16_t ElementsPerInvocationLog2 = FFTParameters::ElementsPerInvocationLog2;
 	NBL_CONSTEXPR_STATIC_INLINE uint16_t WorkgroupSizeLog2 = FFTParameters::WorkgroupSizeLog2;
 
