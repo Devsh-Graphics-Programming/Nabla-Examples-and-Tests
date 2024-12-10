@@ -15,7 +15,7 @@ public:
 
     enum class ProjectionType
     {
-        //! Perspective, Orthographic, Oblique, Axonometric, Shear projections or any custom linear transformation - a linear projection represents transform to a view-port
+        //! Perspective, Orthographic, Oblique, Axonometric, Shear projections or any custom linear transformation
         Linear,
 
         //! Represents a non-linear/skewed pre-transform *concatenated* with linear view-port transform
