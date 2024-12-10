@@ -28,6 +28,11 @@ public:
     {
         using base_t = ILinearProjection::CProjection;
 
+        CProjection(const ILinearProjection::model_matrix_t& pretransform, ILinearProjection::concatenated_matrix_t viewport) 
+        {
+            setQuadTransform(pretransform, viewport); 
+        }
+
         inline void setQuadTransform(const ILinearProjection::model_matrix_t& pretransform, ILinearProjection::concatenated_matrix_t viewport)
         {
             auto concatenated = mul(getMatrix3x4As4x4(pretransform), viewport);
@@ -36,6 +41,9 @@ public:
             m_pretransform = pretransform;
             m_viewport = viewport;
         }
+
+        inline const ILinearProjection::model_matrix_t& getPretransform() const { return m_pretransform; }
+        inline const ILinearProjection::concatenated_matrix_t& getViewportProjection() const { return m_viewport; }
 
     private:
         ILinearProjection::model_matrix_t m_pretransform;
