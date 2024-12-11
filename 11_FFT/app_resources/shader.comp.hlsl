@@ -1,6 +1,5 @@
 #include "common.hlsl"
 #include "nbl/builtin/hlsl/workgroup/fft.hlsl"
-#include "nbl/builtin/hlsl/bda/legacy_bda_accessor.hlsl"
 
 [[vk::push_constant]] PushConstantData pushConstants;
 
@@ -33,7 +32,8 @@ struct SharedMemoryAccessor
 
 };
 
-struct Accessor : LegacyBdaAccessor< complex_t<scalar_t> >
+// Almost a LegacyBdaAccessor, but since we need `uint32_t index` getter and setter it's the same as writing one ourselves
+struct Accessor
 {
 	static Accessor create(const uint64_t address)
     {
@@ -42,11 +42,23 @@ struct Accessor : LegacyBdaAccessor< complex_t<scalar_t> >
         return accessor;
     }
 
+	void get(const uint32_t index, NBL_REF_ARG(complex_t<scalar_t>) value)
+	{
+		value = vk::RawBufferLoad<complex_t<scalar_t> >(address + index * sizeof(complex_t<scalar_t>));
+	}
+
+	void set(const uint32_t index, const complex_t<scalar_t> value)
+	{
+		vk::RawBufferStore<complex_t<scalar_t> >(address + index * sizeof(complex_t<scalar_t>), value);
+	}
+
 	void memoryBarrier() 
 	{
 		// only one workgroup is touching any memory it wishes to trade
 		spirv::memoryBarrier(spv::ScopeWorkgroup, spv::MemorySemanticsAcquireReleaseMask | spv::MemorySemanticsUniformMemoryMask);
 	}
+
+	uint64_t address;
 };
 
 [numthreads(ConstevalParameters::WorkgroupSize,1,1)]
@@ -58,6 +70,6 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	// FFT
 
 	workgroup::FFT<false, ConstevalParameters>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);
-	accessor.workgroupExecutionAndMemoryBarrier();
+	sharedmemAccessor.workgroupExecutionAndMemoryBarrier();
 	workgroup::FFT<true, ConstevalParameters>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);	
 }

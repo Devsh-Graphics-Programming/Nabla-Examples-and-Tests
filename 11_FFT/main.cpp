@@ -49,21 +49,8 @@ class FFT_Test final : public application_templates::MonoDeviceApplication, publ
 	inline core::smart_refctd_ptr<video::IGPUShader> createShader(
 		const char* includeMainName)
 	{
-
-		const char* sourceFmt =
-			R"===(
-		#include "%s"
-		)===";
-
-		const size_t extraSize = 4u + 4u + 26u + 128u;
-
-		auto shader = core::make_smart_refctd_ptr<ICPUBuffer>(strlen(sourceFmt) + extraSize + 1u);
-		snprintf(
-			reinterpret_cast<char*>(shader->getPointer()), shader->getSize(), sourceFmt,
-			includeMainName
-		);
-
-		auto CPUShader = core::make_smart_refctd_ptr<ICPUShader>(std::move(shader), IShader::E_SHADER_STAGE::ESS_COMPUTE, IShader::E_CONTENT_TYPE::ECT_HLSL, includeMainName);
+		std::string prelude = "#include \"";
+		auto CPUShader = core::make_smart_refctd_ptr<ICPUShader>((prelude + includeMainName + "\"\n").c_str(), IShader::E_SHADER_STAGE::ESS_COMPUTE, IShader::E_CONTENT_TYPE::ECT_HLSL, includeMainName);
 		assert(CPUShader);
 		return m_device->createShader(CPUShader.get());
 	}
