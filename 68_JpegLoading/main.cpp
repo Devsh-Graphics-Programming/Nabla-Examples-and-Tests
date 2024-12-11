@@ -73,7 +73,7 @@ private:
 	std::condition_variable m_taskAvailable;
 	std::vector<std::thread> m_workers;
 	std::queue<task_t> m_tasks;
-	std::atomic<bool> m_shouldStop;
+	std::atomic<bool> m_shouldStop = false;
 };
 
 class JpegLoaderApp final : public application_templates::MonoAssetManagerAndBuiltinResourceApplication
