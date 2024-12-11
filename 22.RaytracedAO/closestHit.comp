@@ -134,5 +134,6 @@ void main()
 		//
 		addAlbedo(contrib.albedo*aovThroughput,accumulationLocation);
 		addWorldspaceNormal(contrib.worldspaceNormal*nbl_glsl_MC_colorToScalar(aovThroughput),accumulationLocation);
+		addMask(0.f,accumulationLocation);
 	}
 }

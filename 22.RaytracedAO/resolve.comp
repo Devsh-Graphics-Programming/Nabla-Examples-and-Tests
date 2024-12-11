@@ -13,9 +13,10 @@ layout(set = 0, binding = 0, row_major) uniform StaticViewData
 layout(set = 0, binding = 1) uniform usampler2DArray colorSamples;
 layout(set = 0, binding = 2) uniform sampler2DArray albedoSamples;
 layout(set = 0, binding = 3) uniform usampler2DArray normalSamples;
-layout(set = 0, binding = 4, rgba16f) restrict uniform image2D framebuffer;
-layout(set = 0, binding = 5, r32ui) restrict uniform uimage2D albedo;
-layout(set = 0, binding = 6, rgba16f) restrict uniform image2D normals;
+layout(set = 0, binding = 4) uniform sampler2DArray maskSamples;
+layout(set = 0, binding = 5, rgba16f) restrict uniform image2D framebuffer;
+layout(set = 0, binding = 6, r32ui) restrict uniform uimage2D albedo;
+layout(set = 0, binding = 7, rgba16f) restrict uniform image2D normals;
 
 layout(push_constant, row_major) uniform PushConstants
 {
@@ -71,19 +72,22 @@ void main()
 		vec3 acc = nbl_glsl_RWMC_reweight(pc.rwmcReweightingParams,pixelCoord);
 		vec3 alb = texelFetch(albedoSamples,ivec3(pixelCoord,0),0).rgb;
 		vec3 nml = nbl_glsl_decodeRGB10A2_SNORM(texelFetch(normalSamples,ivec3(pixelCoord,0),0).r).xyz;
+		float msk = texelFetch(maskSamples,ivec3(pixelCoord,0),0).r;
 
 		for (uint i=1u; i<samplesPerPixelPerDispatch; i++)
 		{
 			alb += texelFetch(albedoSamples,ivec3(pixelCoord,i),0).rgb;
 			nml += nbl_glsl_decodeRGB10A2_SNORM(texelFetch(normalSamples,ivec3(pixelCoord,i),0).r).xyz;
+			msk += texelFetch(maskSamples,ivec3(pixelCoord,i),0).r;
 		}
 		alb /= float(samplesPerPixelPerDispatch);
 		nml /= float(samplesPerPixelPerDispatch);
+		msk /= float(samplesPerPixelPerDispatch);
 
 		// transform normal
 		nml = mat3(pc.viewMatrix)*nml;
 
-		imageStore(framebuffer,pixelCoord,vec4(acc,1.f));
+		imageStore(framebuffer,pixelCoord,vec4(acc,1.f-msk));
 		imageStore(albedo,pixelCoord,uvec4(nbl_glsl_encodeRGB10A2_UNORM(vec4(alb,1.0)),0u,0u,0u));
 		imageStore(normals,pixelCoord,vec4(nml,1.f));
 	}

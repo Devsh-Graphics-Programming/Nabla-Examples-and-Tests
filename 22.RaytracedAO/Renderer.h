@@ -254,6 +254,7 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_accumulation,m_tonemapOutput;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_albedoAcc,m_albedoRslv;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_normalAcc,m_normalRslv;
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_maskAcc;
 		nbl::video::IFrameBuffer* m_visibilityBuffer,* m_colorBuffer;
 		
 		// Resources used for envmap sampling

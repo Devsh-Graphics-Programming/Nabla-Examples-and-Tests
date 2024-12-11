@@ -44,10 +44,11 @@ layout(set = 2, binding = 4) restrict coherent buffer RayCount // maybe remove c
 // aovs
 layout(set = 2, binding = 5, r32ui) restrict uniform uimage2DArray albedoAOV;
 layout(set = 2, binding = 6, r32ui) restrict uniform uimage2DArray normalAOV;
+layout(set = 2, binding = 7, r16) restrict uniform image2DArray maskAOV;
 // environment emitter
-layout(set = 2, binding = 7) uniform sampler2D envMap;
-layout(set = 2, binding = 8) uniform sampler2D warpMap; 
-layout(set = 2, binding = 9) uniform sampler2D luminance;
+layout(set = 2, binding = 8) uniform sampler2D envMap;
+layout(set = 2, binding = 9) uniform sampler2D warpMap; 
+layout(set = 2, binding = 10) uniform sampler2D luminance;
 
 void clear_raycount()
 {
@@ -172,6 +173,29 @@ void addWorldspaceNormal(vec3 delta, in uvec3 coord, in float rcpN)
 void addWorldspaceNormal(vec3 delta, in uvec3 coord)
 {
 	impl_addWorldspaceNormal(delta,coord,0.f,false);
+}
+
+void storeMask(in float mask, in uvec3 coord)
+{
+	imageStore(maskAOV,ivec3(coord),vec4(mask,0.f,0.f,0.f));
+}
+void impl_addMask(float delta, in uvec3 coord, in float rcpN, in bool newSample)
+{
+	const float prev = imageLoad(maskAOV,ivec3(coord)).r;
+	if (newSample)
+		delta = (delta-prev)*rcpN;
+	if (abs(delta)>1.f/65536.f)
+		storeMask(prev+delta,coord);
+}
+// for starting a new sample
+void addMask(float delta, in uvec3 coord, in float rcpN)
+{
+	impl_addMask(delta,coord,rcpN,true);
+}
+// for adding to the last sample
+void addMask(float delta, in uvec3 coord)
+{
+	impl_addMask(delta,coord,0.f,false);
 }
 
 // due to memory limitations we can only do 6k renders
