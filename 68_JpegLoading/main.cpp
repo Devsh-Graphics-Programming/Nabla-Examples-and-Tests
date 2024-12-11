@@ -51,11 +51,7 @@ public:
 
 	~ThreadPool()
 	{
-		{
-			std::lock_guard<std::mutex> lock(m_queueLock);
-			m_shouldStop = true;
-		}
-
+		m_shouldStop = true;
 		m_taskAvailable.notify_all();
 
 		for (auto& worker : m_workers)
@@ -77,7 +73,7 @@ private:
 	std::condition_variable m_taskAvailable;
 	std::vector<std::thread> m_workers;
 	std::queue<task_t> m_tasks;
-	bool m_shouldStop = false;
+	std::atomic<bool> m_shouldStop;
 };
 
 class JpegLoaderApp final : public application_templates::MonoAssetManagerAndBuiltinResourceApplication
