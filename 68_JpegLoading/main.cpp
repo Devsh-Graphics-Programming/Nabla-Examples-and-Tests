@@ -124,6 +124,7 @@ public:
 		}
 
 		auto start = clock_t::now();
+		std::vector<std::string> files;
 
 		{
 			ThreadPool tp;
@@ -136,6 +137,7 @@ public:
 				auto& path = item.path();
 				if (path.has_extension() && path.extension() == ".jpg")
 				{
+					files.emplace_back(std::move(path.generic_string()));
 					tp.enqueue([=] {
 						m_logger->log("Loading %S", ILogger::ELL_INFO, path.c_str());
 						m_assetMgr->getAsset(path.generic_string(), loadParams);
@@ -148,6 +150,21 @@ public:
 		auto time = std::chrono::duration_cast<clock_resolution_t>(stop - start).count();
 
 		m_logger->log("Process took %llu ms", ILogger::ELL_INFO, time);
+
+		// Dump data to JSON
+		json j;
+		j["loaded_files"] = files;
+		j["duration_ms"] = time;
+		
+		std::ofstream output(options.outputFile);
+		if (!output.good())
+		{
+			logFail("Failed to open %S", options.outputFile);
+			return false;
+		}
+
+		output << j;
+
 		return true;
 	}
 
