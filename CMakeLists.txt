@@ -2,6 +2,23 @@
 # This file is part of the "Nabla Engine".
 # For conditions of distribution and use, see copyright notice in nabla.h
 
+function(NBL_HOOK_COMMON_API NBL_EXCLUDE_TARGETS_LIST)
+	if(NOT TARGET nblCommonAPI)
+		message(FATAL_ERROR "nblCommonAPI not defined!")
+	endif()
+
+    NBL_GET_ALL_TARGETS(NBL_TARGETS)
+
+    foreach(NBL_TARGET IN LISTS NBL_TARGETS)
+		# TODO: exclude builtin targets created by examples as well - doesn't impact anything at all now
+		if(NOT ${NBL_TARGET} IN_LIST NBL_EXCLUDE_TARGETS_LIST)
+
+			target_include_directories(${NBL_TARGET} PRIVATE $<TARGET_PROPERTY:nblCommonAPI,INTERFACE_INCLUDE_DIRECTORIES>)
+			target_link_libraries(${NBL_TARGET} PRIVATE nblCommonAPI)
+		endif()
+    endforeach()
+endfunction()
+
 # PCH & CommonAPI library for Nabla framework examples
 add_subdirectory(common EXCLUDE_FROM_ALL)
 
@@ -26,8 +43,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(07_StagingAndMultipleQueues EXCLUDE_FROM_ALL)
 	# showcase the set-up of a swapchain and picking of a matching device
 	add_subdirectory(08_HelloSwapchain EXCLUDE_FROM_ALL)
-	# showcase the use of a depth buffer and rudimentary camera
-	add_subdirectory(09_DepthBufferAndCamera EXCLUDE_FROM_ALL)
+	add_subdirectory(09_GeometryCreator EXCLUDE_FROM_ALL)
   # demonstrate the counting sort utility
 	add_subdirectory(10_CountingSort EXCLUDE_FROM_ALL)
 
@@ -35,7 +51,6 @@ if(NBL_BUILD_EXAMPLES)
 	#add_subdirectory(27_PLYSTLDemo EXCLUDE_FROM_ALL)
 	#add_subdirectory(29_SpecializationConstants EXCLUDE_FROM_ALL)
 	#add_subdirectory(33_Draw3DLine EXCLUDE_FROM_ALL)
-	add_subdirectory(35_GeometryCreator EXCLUDE_FROM_ALL)
 
 	# Unit Test Examples
 	add_subdirectory(20_AllocatorTest EXCLUDE_FROM_ALL)
@@ -45,6 +60,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(24_ColorSpaceTest EXCLUDE_FROM_ALL)
 	add_subdirectory(25_FilterTest EXCLUDE_FROM_ALL)
 	add_subdirectory(26_Autoexposure EXCLUDE_FROM_ALL)
+	add_subdirectory(27_MPMCScheduler EXCLUDE_FROM_ALL)
 	# add_subdirectory(36_CUDAInterop EXCLUDE_FROM_ALL)
 
 	add_subdirectory(38_EXRSplit EXCLUDE_FROM_ALL)
@@ -66,4 +82,8 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(62_CAD EXCLUDE_FROM_ALL)
 	add_subdirectory(62_SchusslerTest EXCLUDE_FROM_ALL)
 	add_subdirectory(0_ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
+
+	add_subdirectory(67_RayQueryGeometry EXCLUDE_FROM_ALL)
+
+	NBL_HOOK_COMMON_API("${NBL_COMMON_API_TARGETS}")
 endif()

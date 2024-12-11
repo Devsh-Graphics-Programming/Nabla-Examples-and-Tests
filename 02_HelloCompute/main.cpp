@@ -51,7 +51,6 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 			// This scope is kinda silly but it demonstrated that in Nabla we refcount all Vulkan resources and keep the ones used in sumbits (semaphores and commandbuffers) alive till the submit is no longer pending
 			{
 				// You should already know Vulkan and come here to save on the boilerplate, if you don't know what instances and instance extensions are, then find out.
-				smart_refctd_ptr<nbl::video::CVulkanConnection> api;
 				{
 					// You generally want to default initialize any parameter structs
 					nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable = {};
@@ -61,7 +60,7 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 					// want to make sure we have this so we can name resources for vieweing in RenderDoc captures
 					apiFeaturesToEnable.debugUtils = true;
 					// create our Vulkan instance
-					if (!(api=CVulkanConnection::create(smart_refctd_ptr(m_system),0,_NBL_APP_NAME_,smart_refctd_ptr(base_t::m_logger),apiFeaturesToEnable)))
+					if (!(m_api=CVulkanConnection::create(smart_refctd_ptr(m_system),0,_NBL_APP_NAME_,smart_refctd_ptr(base_t::m_logger),apiFeaturesToEnable)))
 						return logFail("Failed to crate an IAPIConnection!");
 				}
 
@@ -70,7 +69,7 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 				// Nabla has its own set of required baseline Vulkan features anyway, it won't report any device that doesn't meet them.
 				nbl::video::IPhysicalDevice* physDev = nullptr;
 				ILogicalDevice::SCreationParams params = {};
-				for (auto physDevIt=api->getPhysicalDevices().begin(); physDevIt!=api->getPhysicalDevices().end(); physDevIt++)
+				for (auto physDevIt= m_api->getPhysicalDevices().begin(); physDevIt!= m_api->getPhysicalDevices().end(); physDevIt++)
 				{
 					const auto familyProps = (*physDevIt)->getQueueFamilyProperties();
 					// this is the only "complicated" part, we want to create a queue that supports compute pipelines
@@ -278,9 +277,9 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 
 					// We have a cool integration with RenderDoc that allows you to start and end captures programmatically.
 					// This is super useful for debugging multi-queue workloads and by default RenderDoc delimits captures only by Swapchain presents.
-					queue->startCapture();
+					m_api->startCapture();
 					queue->submit(submitInfos);
-					queue->endCapture();
+					m_api->endCapture();
 				}
 			}
 
@@ -319,6 +318,8 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 		// Whether to keep invoking the above. In this example because its headless GPU compute, we do all the work in the app initialization.
 		bool keepRunning() override {return false;}
 
+	private:
+		smart_refctd_ptr<nbl::video::CVulkanConnection> m_api;
 };
 
 

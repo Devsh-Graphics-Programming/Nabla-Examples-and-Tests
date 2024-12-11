@@ -19,7 +19,7 @@ void DrawResourcesFiller::allocateIndexBuffer(ILogicalDevice* logicalDevice, uin
 {
 	maxIndexCount = maxIndices;
 	const size_t indexBufferSize = maxIndices * sizeof(index_buffer_type);
-	auto indexBuffer = make_smart_refctd_ptr<ICPUBuffer>(indexBufferSize);
+	auto indexBuffer = ICPUBuffer::create({ .size = indexBufferSize });
 
 	index_buffer_type* indices = reinterpret_cast<index_buffer_type*>(indexBuffer->getPointer());
 	for (uint32_t i = 0u; i < maxIndices / 6u; ++i)
@@ -57,7 +57,7 @@ void DrawResourcesFiller::allocateMainObjectsBuffer(ILogicalDevice* logicalDevic
 	memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 	auto mainObjectsBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.mainObjectsBuffer.get());
 
-	cpuDrawBuffers.mainObjectsBuffer = make_smart_refctd_ptr<ICPUBuffer>(mainObjectsBufferSize);
+	cpuDrawBuffers.mainObjectsBuffer = ICPUBuffer::create({ .size = mainObjectsBufferSize });
 }
 
 void DrawResourcesFiller::allocateDrawObjectsBuffer(ILogicalDevice* logicalDevice, uint32_t drawObjects)
@@ -75,7 +75,7 @@ void DrawResourcesFiller::allocateDrawObjectsBuffer(ILogicalDevice* logicalDevic
 	memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 	auto drawObjectsBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.drawObjectsBuffer.get());
 
-	cpuDrawBuffers.drawObjectsBuffer = make_smart_refctd_ptr<ICPUBuffer>(drawObjectsBufferSize);
+	cpuDrawBuffers.drawObjectsBuffer = ICPUBuffer::create({ .size = drawObjectsBufferSize });
 }
 
 void DrawResourcesFiller::allocateGeometryBuffer(ILogicalDevice* logicalDevice, size_t size)
@@ -93,7 +93,7 @@ void DrawResourcesFiller::allocateGeometryBuffer(ILogicalDevice* logicalDevice, 
 	auto geometryBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.geometryBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
 	geometryBufferAddress = gpuDrawBuffers.geometryBuffer->getDeviceAddress();
 
-	cpuDrawBuffers.geometryBuffer = make_smart_refctd_ptr<ICPUBuffer>(size);
+	cpuDrawBuffers.geometryBuffer = ICPUBuffer::create({ .size = size });
 }
 
 void DrawResourcesFiller::allocateStylesBuffer(ILogicalDevice* logicalDevice, uint32_t lineStylesCount)
@@ -112,13 +112,13 @@ void DrawResourcesFiller::allocateStylesBuffer(ILogicalDevice* logicalDevice, ui
 		memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 		auto stylesBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.lineStylesBuffer.get());
 
-		cpuDrawBuffers.lineStylesBuffer = make_smart_refctd_ptr<ICPUBuffer>(lineStylesBufferSize);
+		cpuDrawBuffers.lineStylesBuffer = ICPUBuffer::create({ .size = lineStylesBufferSize });
 	}
 }
 
 void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent)
 {
-	textureLRUCache = std::unique_ptr<MSDFsLRUCache>(new MSDFsLRUCache(maxMSDFs));
+	msdfLRUCache = std::unique_ptr<MSDFsLRUCache>(new MSDFsLRUCache(maxMSDFs));
 	msdfTextureArrayIndexAllocator = core::make_smart_refctd_ptr<IndexAllocator>(core::smart_refctd_ptr<ILogicalDevice>(logicalDevice), maxMSDFs);
 
 	asset::E_FORMAT msdfFormat = MSDFTextureFormat;
@@ -136,7 +136,7 @@ void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, ui
 		imgInfo.format = msdfFormat;
 		imgInfo.type = IGPUImage::ET_2D;
 		imgInfo.extent = MSDFsExtent;
-		imgInfo.mipLevels = 1u; // TODO: MipMapping MSDFs?
+		imgInfo.mipLevels = MSDFMips; 
 		imgInfo.arrayLayers = maxMSDFs;
 		imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
 		imgInfo.flags = asset::IImage::E_CREATE_FLAGS::ECF_NONE;
@@ -159,7 +159,7 @@ void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, ui
 		imgViewInfo.subresourceRange.baseArrayLayer = 0u;
 		imgViewInfo.subresourceRange.baseMipLevel = 0u;
 		imgViewInfo.subresourceRange.layerCount = maxMSDFs;
-		imgViewInfo.subresourceRange.levelCount = 1u; // TODO: MipMapping MSDFs?
+		imgViewInfo.subresourceRange.levelCount = MSDFMips;
 
 		msdfTextureArray = logicalDevice->createImageView(std::move(imgViewInfo));
 	}
@@ -202,7 +202,7 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, uint32_t p
 			currentObjectInSection = 0u;
 		}
 		else
-			submitCurrentObjectsAndReset(intendedNextSubmit, polylineMainObjIdx);
+			submitCurrentDrawObjectsAndReset(intendedNextSubmit, polylineMainObjIdx);
 	}
 
 	if (!polyline.getConnectors().empty())
@@ -213,7 +213,7 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, uint32_t p
 			addPolylineConnectors_Internal(polyline, currentConnectorPolylineObject, polylineMainObjIdx);
 
 			if (currentConnectorPolylineObject < polyline.getConnectors().size())
-				submitCurrentObjectsAndReset(intendedNextSubmit, polylineMainObjIdx);
+				submitCurrentDrawObjectsAndReset(intendedNextSubmit, polylineMainObjIdx);
 		}
 	}
 }
@@ -244,11 +244,11 @@ void DrawResourcesFiller::drawHatch(
 	uint32_t textureIdx = InvalidTextureIdx;
 	if (fillPattern != HatchFillPattern::SOLID_FILL)
 	{
-		const msdf_hash msdfHash = hashFillPattern(fillPattern);
-		textureIdx = getTextureIndexFromHash(msdfHash, intendedNextSubmit);
+		MSDFInputInfo msdfInfo = MSDFInputInfo(fillPattern);
+		textureIdx = getMSDFIndexFromInputInfo(msdfInfo, intendedNextSubmit);
 		if (textureIdx == InvalidTextureIdx)
-			textureIdx = addMSDFTexture(getHatchFillPatternMSDF(fillPattern), msdfHash, intendedNextSubmit);
-		assert(textureIdx != InvalidTextureIdx);
+			textureIdx = addMSDFTexture(msdfInfo, getHatchFillPatternMSDF(fillPattern), InvalidMainObjectIdx, intendedNextSubmit);
+		_NBL_DEBUG_BREAK_IF(textureIdx == InvalidTextureIdx); // probably getHatchFillPatternMSDF returned nullptr
 	}
 
 	LineStyleInfo lineStyle = {};
@@ -257,13 +257,12 @@ void DrawResourcesFiller::drawHatch(
 	const uint32_t styleIdx = addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
 
 	uint32_t mainObjIdx = addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
-
 	uint32_t currentObjectInSection = 0u; // Object here refers to DrawObject used in vertex shader. You can think of it as a Cage.
 	while (currentObjectInSection < hatch.getHatchBoxCount())
 	{
 		addHatch_Internal(hatch, currentObjectInSection, mainObjIdx);
 		if (currentObjectInSection < hatch.getHatchBoxCount())
-			submitCurrentObjectsAndReset(intendedNextSubmit, mainObjIdx);
+			submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjIdx);
 	}
 }
 
@@ -283,28 +282,37 @@ void DrawResourcesFiller::drawFontGlyph(
 		SIntendedSubmitInfo& intendedNextSubmit)
 {
 	uint32_t textureIdx = InvalidTextureIdx;
-	const msdf_hash msdfHash = hashFontGlyph(fontFace->getHash(), glyphIdx);
-	textureIdx = getTextureIndexFromHash(msdfHash, intendedNextSubmit);
+	const MSDFInputInfo msdfInput = MSDFInputInfo(fontFace->getHash(), glyphIdx);
+	textureIdx = getMSDFIndexFromInputInfo(msdfInput, intendedNextSubmit);
 	if (textureIdx == InvalidTextureIdx)
-		textureIdx = addMSDFTexture(getGlyphMSDF(fontFace, glyphIdx), msdfHash, intendedNextSubmit);
-	assert(textureIdx != InvalidTextureIdx);
-	
-	GlyphInfo glyphInfo = GlyphInfo(topLeft, dirU, aspectRatio, textureIdx, minUV);
-	if (!addFontGlyph_Internal(glyphInfo, mainObjIdx))
+		textureIdx = addMSDFTexture(msdfInput, getGlyphMSDF(fontFace, glyphIdx), mainObjIdx, intendedNextSubmit);
+
+	if (textureIdx != InvalidTextureIdx)
 	{
-		// single font glyph couldn't fit into memory to push to gpu, so we submit rendering current objects and reset geometry buffer and draw objects
-		submitCurrentObjectsAndReset(intendedNextSubmit, mainObjIdx);
-		bool success = addFontGlyph_Internal(glyphInfo, mainObjIdx);
-		assert(success); // this should always be true, otherwise it's either bug in code or not enough memory allocated to hold a single GlyphInfo
+		GlyphInfo glyphInfo = GlyphInfo(topLeft, dirU, aspectRatio, textureIdx, minUV);
+		if (!addFontGlyph_Internal(glyphInfo, mainObjIdx))
+		{
+			// single font glyph couldn't fit into memory to push to gpu, so we submit rendering current objects and reset geometry buffer and draw objects
+			submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjIdx);
+			bool success = addFontGlyph_Internal(glyphInfo, mainObjIdx);
+			assert(success); // this should always be true, otherwise it's either bug in code or not enough memory allocated to hold a single GlyphInfo
+		}
+	}
+	else
+	{
+		// TODO: Log, probably getGlyphMSDF(face,glyphIdx) returned nullptr ICPUImage ptr
+		_NBL_DEBUG_BREAK_IF(true);
 	}
 }
 
-void DrawResourcesFiller::finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
+bool DrawResourcesFiller::finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
 {
-	finalizeMainObjectCopiesToGPU(intendedNextSubmit);
-	finalizeGeometryCopiesToGPU(intendedNextSubmit);
-	finalizeLineStyleCopiesToGPU(intendedNextSubmit);
-	finalizeTextureCopies(intendedNextSubmit);
+	bool success = true;
+	success &= finalizeMainObjectCopiesToGPU(intendedNextSubmit);
+	success &= finalizeGeometryCopiesToGPU(intendedNextSubmit);
+	success &= finalizeLineStyleCopiesToGPU(intendedNextSubmit);
+	success &= finalizeTextureCopies(intendedNextSubmit);
+	return success;
 }
 
 uint32_t DrawResourcesFiller::addLineStyle_SubmitIfNeeded(const LineStyleInfo& lineStyle, SIntendedSubmitInfo& intendedNextSubmit)
@@ -365,64 +373,101 @@ void DrawResourcesFiller::popClipProjectionData()
 	clipProjectionAddresses.pop_back();
 }
 
-void DrawResourcesFiller::finalizeMainObjectCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
+bool DrawResourcesFiller::finalizeMainObjectCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
 {
+	bool success = true;
 	// Copy MainObjects
 	uint32_t remainingMainObjects = currentMainObjectCount - inMemMainObjectCount;
 	SBufferRange<IGPUBuffer> mainObjectsRange = { sizeof(MainObject) * inMemMainObjectCount, sizeof(MainObject) * remainingMainObjects, gpuDrawBuffers.mainObjectsBuffer };
-	const MainObject* srcMainObjData = reinterpret_cast<MainObject*>(cpuDrawBuffers.mainObjectsBuffer->getPointer()) + inMemMainObjectCount;
 	if (mainObjectsRange.size > 0u)
-		m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, mainObjectsRange, srcMainObjData);
-	inMemMainObjectCount = currentMainObjectCount;
+	{
+		const MainObject* srcMainObjData = reinterpret_cast<MainObject*>(cpuDrawBuffers.mainObjectsBuffer->getPointer()) + inMemMainObjectCount;
+		if (m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, mainObjectsRange, srcMainObjData))
+			inMemMainObjectCount = currentMainObjectCount;
+		else
+		{
+			// TODO: Log
+			success = false;
+		}
+	}
+	return success;
 }
 
-void DrawResourcesFiller::finalizeGeometryCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
+bool DrawResourcesFiller::finalizeGeometryCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
 {
+	bool success = true;
 	// Copy DrawObjects
 	uint32_t remainingDrawObjects = currentDrawObjectCount - inMemDrawObjectCount;
 	SBufferRange<IGPUBuffer> drawObjectsRange = { sizeof(DrawObject) * inMemDrawObjectCount, sizeof(DrawObject) * remainingDrawObjects, gpuDrawBuffers.drawObjectsBuffer };
-	const DrawObject* srcDrawObjData = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + inMemDrawObjectCount;
 	if (drawObjectsRange.size > 0u)
-		m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, drawObjectsRange, srcDrawObjData);
-	inMemDrawObjectCount = currentDrawObjectCount;
+	{
+		const DrawObject* srcDrawObjData = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + inMemDrawObjectCount;
+		if (m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, drawObjectsRange, srcDrawObjData))
+			inMemDrawObjectCount = currentDrawObjectCount;
+		else
+		{
+			// TODO: Log
+			success = false;
+		}
+	}
 
 	// Copy GeometryBuffer
 	uint64_t remainingGeometrySize = currentGeometryBufferSize - inMemGeometryBufferSize;
 	SBufferRange<IGPUBuffer> geomRange = { inMemGeometryBufferSize, remainingGeometrySize, gpuDrawBuffers.geometryBuffer };
-	const uint8_t* srcGeomData = reinterpret_cast<uint8_t*>(cpuDrawBuffers.geometryBuffer->getPointer()) + inMemGeometryBufferSize;
 	if (geomRange.size > 0u)
-		m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, geomRange, srcGeomData);
-	inMemGeometryBufferSize = currentGeometryBufferSize;
+	{
+		const uint8_t* srcGeomData = reinterpret_cast<uint8_t*>(cpuDrawBuffers.geometryBuffer->getPointer()) + inMemGeometryBufferSize;
+		if (m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, geomRange, srcGeomData))
+			inMemGeometryBufferSize = currentGeometryBufferSize;
+		else
+		{
+			// TODO: Log
+			success = false;
+		}
+	}
+	return success;
 }
 
-void DrawResourcesFiller::finalizeLineStyleCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
+bool DrawResourcesFiller::finalizeLineStyleCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
 {
+	bool success = true;
 	// Copy LineStyles
 	uint32_t remainingLineStyles = currentLineStylesCount - inMemLineStylesCount;
 	SBufferRange<IGPUBuffer> stylesRange = { sizeof(LineStyle) * inMemLineStylesCount, sizeof(LineStyle) * remainingLineStyles, gpuDrawBuffers.lineStylesBuffer };
-	const LineStyle* srcLineStylesData = reinterpret_cast<LineStyle*>(cpuDrawBuffers.lineStylesBuffer->getPointer()) + inMemLineStylesCount;
 	if (stylesRange.size > 0u)
-		m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, stylesRange, srcLineStylesData);
-	inMemLineStylesCount = currentLineStylesCount;
+	{
+		const LineStyle* srcLineStylesData = reinterpret_cast<LineStyle*>(cpuDrawBuffers.lineStylesBuffer->getPointer()) + inMemLineStylesCount;
+		if (m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, stylesRange, srcLineStylesData))
+			inMemLineStylesCount = currentLineStylesCount;
+		else
+		{
+			// TODO: Log
+			success = false;
+		}
+	}
+	return success;
 }
 
-void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNextSubmit)
+bool DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNextSubmit)
 {
-	auto cmdBuff = intendedNextSubmit.getScratchCommandBuffer();
+	msdfTextureArrayIndicesUsed.clear(); // clear msdf textures used in the frame, because the frame finished and called this function.
 
-	auto msdfImage = msdfTextureArray->getCreationParameters().image;
+	if (!msdfTextureCopies.size() && m_hasInitializedMSDFTextureArrays) // even if the textureCopies are empty, we want to continue if not initialized yet so that the layout of all layers become READ_ONLY_OPTIMAL
+		return true; // yay successfully copied nothing
 
-	msdfTextureArrayIndicesUsed.clear();
-
-	// if (!textureCopies.size())
-	// 	return;
-
-	// preparing images for copy
-	using image_barrier_t = IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t;
-	std::vector<image_barrier_t> barriers;
-	barriers.reserve(textureCopies.size());
+	auto* cmdBuffInfo = intendedNextSubmit.getCommandBufferForRecording();
+	
+	if (cmdBuffInfo)
 	{
-		barriers.push_back({
+		IGPUCommandBuffer* cmdBuff = cmdBuffInfo->cmdbuf;
+
+		auto msdfImage = msdfTextureArray->getCreationParameters().image;
+
+		// preparing msdfs for copy
+		using image_barrier_t = IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t;
+		image_barrier_t beforeTransferImageBarrier[] =
+		{
+			{
 				.barrier = {
 					.dep = {
 						.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
@@ -436,47 +481,85 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 				.subresourceRange = {
 					.aspectMask = IImage::EAF_COLOR_BIT,
 					.baseMipLevel = 0u,
-					.levelCount = 1u,
+					.levelCount = msdfImage->getCreationParameters().mipLevels,
 					.baseArrayLayer = 0u,
 					.layerCount = msdfTextureArray->getCreationParameters().image->getCreationParameters().arrayLayers,
 				},
 				.oldLayout = m_hasInitializedMSDFTextureArrays ? IImage::LAYOUT::READ_ONLY_OPTIMAL : IImage::LAYOUT::UNDEFINED,
 				.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-			});
-		video::IGPUCommandBuffer::SPipelineBarrierDependencyInfo barrierInfo = { .imgBarriers = barriers };
-		cmdBuff->pipelineBarrier(
-			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
-			barrierInfo);
+			}
+		};
+		cmdBuff->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = beforeTransferImageBarrier });
 
-		if (!m_hasInitializedMSDFTextureArrays)
-			m_hasInitializedMSDFTextureArrays = true;
-	}
+		// Do the copies and advance the iterator.
+		// this is the pattern we use for iterating when entries will get erased if processed successfully, but may get skipped for later.
+		auto oit = msdfTextureCopies.begin();
+		for (auto iit = msdfTextureCopies.begin(); iit != msdfTextureCopies.end(); iit++)
+		{
+			bool copySuccess = true;
+			if (iit->image && iit->index < msdfImage->getCreationParameters().arrayLayers)
+			{
+				for (uint32_t mip = 0; mip < iit->image->getCreationParameters().mipLevels; mip++)
+				{
+					auto mipImageRegion = iit->image->getRegion(mip, core::vectorSIMDu32(0u, 0u));
+					if (mipImageRegion)
+					{
+						asset::IImage::SBufferCopy region = {};
+						region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
+						region.imageSubresource.mipLevel = mipImageRegion->imageSubresource.mipLevel;
+						region.imageSubresource.baseArrayLayer = iit->index;
+						region.imageSubresource.layerCount = 1u;
+						region.bufferOffset = 0u;
+						region.bufferRowLength = mipImageRegion->getExtent().width;
+						region.bufferImageHeight = 0u;
+						region.imageExtent = mipImageRegion->imageExtent;
+						region.imageOffset = { 0u, 0u, 0u };
 
-	for (uint32_t i = 0; i < textureCopies.size(); i++)
-	{
-		auto& textureCopy = textureCopies[i];
-		asset::IImage::SBufferCopy region = {};
-		region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
-		region.imageSubresource.mipLevel = 0u;
-		region.imageSubresource.baseArrayLayer = textureCopy.index;
-		region.imageSubresource.layerCount = 1u;
-		region.bufferOffset = 0u;
-		region.bufferRowLength = textureCopy.imageExtent.x;
-		region.bufferImageHeight = 0u;
-		region.imageExtent = { textureCopy.imageExtent.x, textureCopy.imageExtent.y, textureCopy.imageExtent.z };
-		region.imageOffset = { 0u, 0u, 0u };
+						auto buffer = reinterpret_cast<uint8_t*>(iit->image->getBuffer()->getPointer());
+						auto bufferOffset = mipImageRegion->bufferOffset;
 
-		m_utilities->updateImageViaStagingBuffer(
-			intendedNextSubmit, 
-			textureCopy.srcBuffer->getPointer(), nbl::ext::TextRendering::TextRenderer::MSDFTextureFormat,
-			msdfImage.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 
-			{ &region, &region + 1 });
-	}
-		
-	// preparing images for use
-	{
-		barriers.clear();
-		barriers.push_back({
+						if (!m_utilities->updateImageViaStagingBuffer(
+							intendedNextSubmit,
+							buffer + bufferOffset,
+							nbl::ext::TextRendering::TextRenderer::MSDFTextureFormat,
+							msdfImage.get(),
+							IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+							{ &region, &region + 1 }))
+						{
+							// TODO: Log which mip failed
+							copySuccess = false;
+						}
+					}
+					else
+					{
+						// TODO: Log
+						copySuccess = false;
+					}
+				}
+			}
+			else
+			{
+				assert(false);
+				copySuccess = false;
+			}
+
+			if (!copySuccess)
+			{
+				// we move the failed copy to the oit and advance it
+				if (oit != iit)
+					*oit = *iit;
+				oit++;
+			}
+		}
+		// trim
+		const auto newSize = std::distance(msdfTextureCopies.begin(), oit);
+		_NBL_DEBUG_BREAK_IF(newSize != 0u); // we had failed copies
+		msdfTextureCopies.resize(newSize);
+
+		// preparing msdfs for use
+		image_barrier_t afterTransferImageBarrier[] =
+		{
+			{
 				.barrier = {
 					.dep = {
 						.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
@@ -490,24 +573,29 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 				.subresourceRange = {
 					.aspectMask = IImage::EAF_COLOR_BIT,
 					.baseMipLevel = 0u,
-					.levelCount = 1u,
+					.levelCount = msdfImage->getCreationParameters().mipLevels,
 					.baseArrayLayer = 0u,
 					.layerCount = msdfTextureArray->getCreationParameters().image->getCreationParameters().arrayLayers,
 				},
 				.oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
 				.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL,
-			});
-		video::IGPUCommandBuffer::SPipelineBarrierDependencyInfo barrierInfo = { .imgBarriers = barriers };
-		cmdBuff->pipelineBarrier(
-			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
-			barrierInfo);
-	}
+			}
+		};
+		cmdBuff->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = afterTransferImageBarrier });
+		
+		if (!m_hasInitializedMSDFTextureArrays)
+			m_hasInitializedMSDFTextureArrays = true;
 
-	// done copying textures
-	textureCopies.clear();
+		return true;
+	}
+	else
+	{
+		// TODO: Log no valid command buffer to record into
+		return false;
+	}
 }
 
-void DrawResourcesFiller::submitCurrentObjectsAndReset(SIntendedSubmitInfo& intendedNextSubmit, uint32_t mainObjectIndex)
+void DrawResourcesFiller::submitCurrentDrawObjectsAndReset(SIntendedSubmitInfo& intendedNextSubmit, uint32_t mainObjectIndex)
 {
 	finalizeAllCopiesToGPU(intendedNextSubmit);
 	submitDraws(intendedNextSubmit);
@@ -515,16 +603,44 @@ void DrawResourcesFiller::submitCurrentObjectsAndReset(SIntendedSubmitInfo& inte
 	// We reset Geometry Counters (drawObj+geometryInfos) because we're done rendering previous geometry
 	// We don't reset counters for styles because we will be reusing them
 	resetGeometryCounters();
-
-	uint64_t newClipProjectionAddress = acquireCurrentClipProjectionAddress(intendedNextSubmit);
-	// If the clip projection stack is non-empty, then it means we need to re-push the clipProjectionData (because it exists in geometry data and it was reset)
-	if (newClipProjectionAddress != InvalidClipProjectionAddress)
+	
+#if 1
+	if (mainObjectIndex < maxMainObjects)
 	{
-		// then modify the mainObject data
-		getMainObject(mainObjectIndex)->clipProjectionAddress = newClipProjectionAddress;
-		// we need to rewind back inMemMainObjectCount to this mainObjIndex so it re-uploads the current mainObject (because we modified it)
-		inMemMainObjectCount = min(inMemMainObjectCount, mainObjectIndex);
+		// Check if user is following proper usage, mainObjectIndex should be the last mainObj added before an autosubmit, because this is the only mainObj we want to maintain.
+		// See comments on`addMainObject_SubmitIfNeeded` function
+		// TODO: consider forcing this by not expose mainObjectIndex to user and keep track of a "currentMainObj" (?)
+		_NBL_DEBUG_BREAK_IF(mainObjectIndex != (currentMainObjectCount - 1u)); 
+
+		// If the clip projection stack is non-empty, then it means we need to re-push the clipProjectionData (because it existed in geometry data and it was erased)
+		uint64_t newClipProjectionAddress = acquireCurrentClipProjectionAddress(intendedNextSubmit);
+		// only re-upload mainObjData if it's clipProjectionAddress was changed
+		if (newClipProjectionAddress != getMainObject(mainObjectIndex)->clipProjectionAddress)
+		{
+			// then modify the mainObject data
+			getMainObject(mainObjectIndex)->clipProjectionAddress = newClipProjectionAddress;
+			// we need to rewind back inMemMainObjectCount to this mainObjIndex so it re-uploads the current mainObject (because we modified it)
+			inMemMainObjectCount = min(inMemMainObjectCount, mainObjectIndex);
+		}
 	}
+
+	// TODO: Consider resetting MainObjects here as well and addMainObject for the new data again, but account for the fact that mainObjectIndex now changed (either change through uint32_t& or keeping track of "currentMainObj" in drawResourcesFiller
+#else
+	resetMainObjectCounters();
+
+	// If there is a mainObject data we need to maintain and keep it's clipProjectionAddr valid
+	if (mainObjectIndex < maxMainObjects)
+	{
+		MainObject mainObjToMaintain = *getMainObject(mainObjectIndex);
+
+		// If the clip projection stack is non-empty, then it means we need to re-push the clipProjectionData (because it exists in geometry data and it was reset)
+		// `acquireCurrentClipProjectionAddress` shouldn't/won't trigger auto-submit because geometry buffer counters were reset and our geometry buffer is supposed to be larger than a single clipProjectionData
+		mainObjToMaintain->clipProjectionAddress = acquireCurrentClipProjectionAddress(intendedNextSubmit);
+		
+		// We're calling `addMainObject_Internal` instead of safer `addMainObject_SubmitIfNeeded` because we've reset our mainObject and we're sure this won't need an autoSubmit.
+		addMainObject_Internal(mainObjToMaintain);
+	}
+#endif
 }
 
 uint32_t DrawResourcesFiller::addMainObject_Internal(const MainObject& mainObject)
@@ -810,21 +926,6 @@ bool DrawResourcesFiller::addFontGlyph_Internal(const GlyphInfo& glyphInfo, uint
 	}
 }
 
-DrawResourcesFiller::msdf_hash DrawResourcesFiller::hashFillPattern(HatchFillPattern fillPattern)
-{
-	std::size_t hash = std::hash<uint32_t>{}(uint32_t(MSDFType::HATCH_FILL_PATTERN));
-	nbl::core::hash_combine(hash, std::hash<uint32_t>{}(uint32_t(fillPattern)));
-	return hash;
-}
-
-DrawResourcesFiller::msdf_hash DrawResourcesFiller::hashFontGlyph(size_t fontHash, uint32_t glyphIndex)
-{
-	std::size_t hash = std::hash<uint32_t>{}(uint32_t(MSDFType::FONT_GLYPH));
-	nbl::core::hash_combine(hash, std::hash<size_t>{}(fontHash));
-	nbl::core::hash_combine(hash, std::hash<uint32_t>{}(glyphIndex));
-	return hash;
-}
-
 void DrawResourcesFiller::setGlyphMSDFTextureFunction(const GetGlyphMSDFTextureFunc& func)
 {
 	getGlyphMSDF = func;
@@ -835,15 +936,16 @@ void DrawResourcesFiller::setHatchFillMSDFTextureFunction(const GetHatchFillPatt
 	getHatchFillPatternMSDF = func;
 }
 
-uint32_t DrawResourcesFiller::getMSDFTextureIndex(msdf_hash hash)
+uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, core::smart_refctd_ptr<ICPUImage>&& cpuImage, uint32_t mainObjIdx, SIntendedSubmitInfo& intendedNextSubmit)
 {
-	auto ptr = textureLRUCache->get(hash);
-	if (ptr) return ptr->alloc_idx;
-	else return InvalidMSDFHash;
-}
+	if (!cpuImage)
+		return InvalidTextureIdx; // TODO: Log
 
-uint32_t DrawResourcesFiller::addMSDFTexture(std::function<core::smart_refctd_ptr<ICPUBuffer>()> createResourceIfEmpty, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
-{
+	const auto cpuImageSize = cpuImage->getMipSize(0);
+	const bool sizeMatch = cpuImageSize.x == getMSDFResolution().x && cpuImageSize.y == getMSDFResolution().y && cpuImageSize.z == 1u;
+	if (!sizeMatch)
+		return InvalidTextureIdx; // TODO: Log
+
 	// TextureReferences hold the semaValue related to the "scratch semaphore" in IntendedSubmitInfo
 	// Every single submit increases this value by 1
 	// The reason for hiolding on to the lastUsedSema is deferred dealloc, which we call in the case of eviction, making sure we get rid of the entry inside the allocator only when the texture is done being used
@@ -856,50 +958,43 @@ uint32_t DrawResourcesFiller::addMSDFTexture(std::function<core::smart_refctd_pt
 			// Dealloc once submission is finished
 			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx, nextSemaSignal);
 
-			// Submit
-			finalizeAllCopiesToGPU(intendedNextSubmit);
-			submitDraws(intendedNextSubmit);
-			// Importatn: We don't reset anything because the auto submit wasn't due to lack of any of the buffers such as geometry, drawObjs or mainObjs
-			// If we reset it will cause an auto submission bug, where adding an msdf texture while constructing glyphs will invalidate geometries and main objects
-			// resetGeometryCounters();
-			// resetMainObjectCounters();
-		} else {
-			// We didn't use it this frame, so it's safe to dealloc now
+			// If we reset main objects will cause an auto submission bug, where adding an msdf texture while constructing glyphs will have wrong main object references (See how SingleLineTexts add Glyphs with a single mainObject)
+			// for the same reason we don't reset line styles
+			// `submitCurrentObjectsAndReset` function handles the above + updating clipProjectionData and making sure the mainObjectIdx references to the correct clipProj data after reseting geometry buffer
+			submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjIdx);
+		} 
+		else
+		{
+			// We didn't use it this frame, so it's safe to dealloc now, withou needing to "overflow" submit
 			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx);
 		}
 	};
 	
 	// We pass nextSemaValue instead of constructing a new MSDFReference and passing it into `insert` that's because we might get a cache hit and only update the value of the nextSema
-	MSDFReference* inserted = textureLRUCache->insert(hash, nextSemaSignal.value, evictionCallback);
+	MSDFReference* inserted = msdfLRUCache->insert(msdfInput, nextSemaSignal.value, evictionCallback);
 	
 	// if inserted->alloc_idx was not InvalidTextureIdx then it means we had a cache hit and updated the value of our sema, in which case we don't queue anything for upload, and return the idx
 	if (inserted->alloc_idx == InvalidTextureIdx)
 	{
-		auto textureBuffer = createResourceIfEmpty();
-
 		// New insertion == cache miss happened and insertion was successfull
 		inserted->alloc_idx = IndexAllocator::AddressAllocator::invalid_address;
-		msdfTextureArrayIndexAllocator->multi_allocate(1u, &inserted->alloc_idx);
+		msdfTextureArrayIndexAllocator->multi_allocate(std::chrono::time_point<std::chrono::steady_clock>::max(), 1u, &inserted->alloc_idx); // if the prev submit causes DEVICE_LOST then we'll get a deadlock here since we're using max timepoint
 
-		// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
-		textureCopies.push_back({
-			.srcBuffer = textureBuffer,
-			.bufferOffset = 0u,
-			.imageExtent = uint32_t3(getMSDFResolution(), 1u),
-			.index = inserted->alloc_idx,
-		});
+		if (inserted->alloc_idx != IndexAllocator::AddressAllocator::invalid_address)
+		{
+			// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
+			msdfTextureCopies.push_back({ .image = std::move(cpuImage), .index = inserted->alloc_idx });
+		}
+		else
+		{
+			// TODO: log here, assert will be called in a few lines
+			inserted->alloc_idx = InvalidTextureIdx;
+		}
 	}
-	msdfTextureArrayIndicesUsed.emplace(inserted->alloc_idx);
+	
+	assert(inserted->alloc_idx != InvalidTextureIdx); // shouldn't happen, because we're using LRU cache, so worst case eviction will happen + multi-deallocate and next next multi_allocate should definitely succeed
+	if (inserted->alloc_idx != InvalidTextureIdx)
+		msdfTextureArrayIndicesUsed.emplace(inserted->alloc_idx);
 
-	assert(inserted->alloc_idx != InvalidTextureIdx);
 	return inserted->alloc_idx;
-}
-
-uint32_t DrawResourcesFiller::addMSDFTexture(core::smart_refctd_ptr<ICPUBuffer> textureBuffer, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
-{
-	return addMSDFTexture(
-		[textureBuffer] { return textureBuffer; },
-		hash,
-		intendedNextSubmit
-	);
 }
