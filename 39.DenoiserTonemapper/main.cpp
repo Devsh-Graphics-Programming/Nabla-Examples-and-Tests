@@ -1543,7 +1543,7 @@ nbl_glsl_complex nbl_glsl_ext_FFT_getPaddedData(ivec3 coordinate, in uint channe
 				denoiserOutput.pixelStrideInBytes = forcedOptiXFormatPixelStrides[0];
 				denoiserOutput.rowStrideInBytes = param.width * denoiserOutput.pixelStrideInBytes;
 				denoiserOutput.format = forcedOptiXFormats[0];
-#if 0 // for easy debug with renderdoc disable optix stuff
+#if 1 // for easy debug with renderdoc disable optix stuff
 				//invoke
 				if (denoiser.m_denoiser->tileAndInvoke(
 					m_cudaStream,
