@@ -239,8 +239,7 @@ public:
 			cmdbuf->bindComputePipeline(m_pipeline.get());
 			// This is the new fun part, pushing constants
 			const PushConstantData pc = {
-				.inputAddress = m_deviceLocalBufferAddress,
-				.outputAddress = m_deviceLocalBufferAddress,
+				.deviceBufferAddress = m_deviceLocalBufferAddress,
 				.dataElementCount = scalarElementCount
 			};
 			IGPUCommandBuffer::SBufferCopy copyInfo = {};

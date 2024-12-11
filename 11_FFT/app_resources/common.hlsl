@@ -4,8 +4,7 @@ using scalar_t = nbl::hlsl::float32_t;
 
 struct PushConstantData
 {
-	uint64_t inputAddress;
-	uint64_t outputAddress;
+	uint64_t deviceBufferAddress;
 	uint32_t dataElementCount;
 };
 

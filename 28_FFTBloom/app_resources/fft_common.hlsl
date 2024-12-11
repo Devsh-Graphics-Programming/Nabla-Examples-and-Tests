@@ -24,7 +24,6 @@ struct SharedMemoryAccessor
 
 struct PreloadedAccessorCommonBase
 {
-	using scalar_t = scalar_t;
 	NBL_CONSTEXPR_STATIC_INLINE uint16_t ElementsPerInvocationLog2 = FFTParameters::ElementsPerInvocationLog2;
 	NBL_CONSTEXPR_STATIC_INLINE uint16_t WorkgroupSizeLog2 = FFTParameters::WorkgroupSizeLog2;
 
@@ -34,8 +33,7 @@ struct PreloadedAccessorCommonBase
 
 	void memoryBarrier()
 	{
-		// only one workgroup is touching any memory it wishes to trade
-		spirv::memoryBarrier(spv::ScopeWorkgroup, spv::MemorySemanticsAcquireReleaseMask | spv::MemorySemanticsUniformMemoryMask);
+		// Preloaded Accessors don't access any memory in this stage, so we don't need to do anything here
 	}
 };
 

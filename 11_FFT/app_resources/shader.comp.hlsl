@@ -33,13 +33,12 @@ struct SharedMemoryAccessor
 
 };
 
-struct Accessor : DoubleLegacyBdaAccessor< complex_t<scalar_t> >
+struct Accessor : LegacyBdaAccessor< complex_t<scalar_t> >
 {
-	static Accessor create(const uint64_t inputAddress, const uint64_t outputAddress)
+	static Accessor create(const uint64_t address)
     {
         Accessor accessor;
-        accessor.inputAddress = inputAddress;
-        accessor.outputAddress = outputAddress;
+        accessor.address = address;
         return accessor;
     }
 
@@ -53,7 +52,7 @@ struct Accessor : DoubleLegacyBdaAccessor< complex_t<scalar_t> >
 [numthreads(ConstevalParameters::WorkgroupSize,1,1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
-	Accessor accessor = Accessor::create(pushConstants.inputAddress, pushConstants.outputAddress);
+	Accessor accessor = Accessor::create(pushConstants.deviceBufferAddress);
 	SharedMemoryAccessor sharedmemAccessor;
 
 	// FFT
