@@ -18,6 +18,68 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
+class ThreadPool
+{
+	using task_t = std::function<void()>;
+public:
+	ThreadPool(size_t workers = std::thread::hardware_concurrency())
+	{
+		for (size_t i = 0; i < workers; i++)
+		{
+			m_workers.emplace_back([this] {
+				task_t task;
+
+				while (1)
+				{
+					{
+						std::unique_lock<std::mutex> lock(m_queueLock);
+						m_taskAvailable.wait(lock, [this] { return !m_tasks.empty() || m_shouldStop; });
+
+						if (m_shouldStop && m_tasks.empty()) {
+							return;
+						}
+
+						task = std::move(m_tasks.front());
+						m_tasks.pop();
+					}
+
+					task();
+				}
+			});
+		}
+	}
+
+	~ThreadPool()
+	{
+		{
+			std::lock_guard<std::mutex> lock(m_queueLock);
+			m_shouldStop = true;
+		}
+
+		m_taskAvailable.notify_all();
+
+		for (auto& worker : m_workers)
+		{
+			worker.join();
+		}
+	}
+
+	void enqueue(task_t task)
+	{
+		{
+			std::lock_guard<std::mutex> lock(m_queueLock);
+			m_tasks.emplace(std::move(task));
+		}
+		m_taskAvailable.notify_one();
+	}
+private:
+	std::mutex m_queueLock;
+	std::condition_variable m_taskAvailable;
+	std::vector<std::thread> m_workers;
+	std::queue<task_t> m_tasks;
+	bool m_shouldStop = false;
+};
+
 class JpegLoaderApp final : public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 	using clock_t = std::chrono::steady_clock;
@@ -54,31 +116,38 @@ public:
 		options.directory = program.get<std::string>("--directory");
 		options.outputFile = program.get<std::string>("--output");
 
+		// check if directory exists
+		if (!std::filesystem::exists(options.directory)) 
+		{
+			logFail("Provided directory doesn't exist");
+			return false;
+		}
+
 		auto start = clock_t::now();
 
-		{ // TODO: Make this multi-threaded
+		{
+			ThreadPool tp;
+
 			constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
 			const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get());
 
 			for (auto& item : std::filesystem::directory_iterator(options.directory))
 			{
-
 				auto& path = item.path();
-				auto extension = path.extension();
-
-				if (path.has_extension() && extension == ".jpg") 
+				if (path.has_extension() && path.extension() == ".jpg")
 				{
-					m_logger->log("Loading %S", ILogger::ELL_INFO, path.c_str());
-					m_assetMgr->getAsset(path.generic_string(), loadParams); // discard the loaded image
+					tp.enqueue([=] {
+						m_logger->log("Loading %S", ILogger::ELL_INFO, path.c_str());
+						m_assetMgr->getAsset(path.generic_string(), loadParams);
+					});
 				}
 			}
 		}
 
 		auto stop = clock_t::now();
-		auto passed = std::chrono::duration_cast<clock_resolution_t>(stop - start).count();
+		auto time = std::chrono::duration_cast<clock_resolution_t>(stop - start).count();
 
-		m_logger->log("Process took %llu ms", ILogger::ELL_INFO, passed);
-
+		m_logger->log("Process took %llu ms", ILogger::ELL_INFO, time);
 		return true;
 	}
 
