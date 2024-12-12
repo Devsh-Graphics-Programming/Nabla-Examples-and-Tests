@@ -620,7 +620,7 @@ void DrawResourcesFiller::submitCurrentDrawObjectsAndReset(SIntendedSubmitInfo& 
 			// then modify the mainObject data
 			getMainObject(mainObjectIndex)->clipProjectionAddress = newClipProjectionAddress;
 			// we need to rewind back inMemMainObjectCount to this mainObjIndex so it re-uploads the current mainObject (because we modified it)
-			inMemMainObjectCount = min(inMemMainObjectCount, mainObjectIndex);
+			inMemMainObjectCount = std::min(inMemMainObjectCount, mainObjectIndex);
 		}
 	}
 
@@ -737,8 +737,8 @@ void DrawResourcesFiller::addPolylineConnectors_Internal(const CPolylineBase& po
 	const auto maxGeometryBufferConnectors = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(PolylineConnector);
 
 	uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
-	uploadableObjects = min(uploadableObjects, maxGeometryBufferConnectors);
-	uploadableObjects = min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+	uploadableObjects = std::min(static_cast<uint64_t>(uploadableObjects), maxGeometryBufferConnectors);
+	uploadableObjects = std::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
 
 	const auto connectorCount = polyline.getConnectors().size();
 	const auto remainingObjects = connectorCount - currentPolylineConnectorObj;
@@ -780,12 +780,12 @@ void DrawResourcesFiller::addLines_Internal(const CPolylineBase& polyline, const
 	const auto maxGeometryBufferLines = (maxGeometryBufferPoints <= 1u) ? 0u : maxGeometryBufferPoints - 1u;
 
 	uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
-	uploadableObjects = min(uploadableObjects, maxGeometryBufferLines);
-	uploadableObjects = min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+	uploadableObjects = std::min(static_cast<uint64_t>(uploadableObjects), maxGeometryBufferLines);
+	uploadableObjects = std::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
 
 	const auto lineCount = section.count;
 	const auto remainingObjects = lineCount - currentObjectInSection;
-	uint32_t objectsToUpload = min(uploadableObjects, remainingObjects);
+	uint32_t objectsToUpload = std::min(uploadableObjects, remainingObjects);
 
 	// Add DrawObjs
 	DrawObject drawObj = {};
@@ -821,13 +821,13 @@ void DrawResourcesFiller::addQuadBeziers_Internal(const CPolylineBase& polyline,
 	const auto maxGeometryBufferBeziers = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(QuadraticBezierInfo);
 	
 	uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
-	uploadableObjects = min(uploadableObjects, maxGeometryBufferBeziers);
-	uploadableObjects = min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+	uploadableObjects = std::min(static_cast<uint64_t>(uploadableObjects), maxGeometryBufferBeziers);
+	uploadableObjects = std::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
 	uploadableObjects /= CagesPerQuadBezier;
 
 	const auto beziersCount = section.count;
 	const auto remainingObjects = beziersCount - currentObjectInSection;
-	uint32_t objectsToUpload = min(uploadableObjects, remainingObjects);
+	uint32_t objectsToUpload = std::min(uploadableObjects, remainingObjects);
 
 	// Add DrawObjs
 	DrawObject drawObj = {};
@@ -863,11 +863,11 @@ void DrawResourcesFiller::addHatch_Internal(const Hatch& hatch, uint32_t& curren
 	const auto maxGeometryBufferHatchBoxes = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(Hatch::CurveHatchBox);
 	
 	uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
-	uploadableObjects = min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
-	uploadableObjects = min(uploadableObjects, maxGeometryBufferHatchBoxes);
+	uploadableObjects = std::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+	uploadableObjects = std::min(static_cast<uint64_t>(uploadableObjects), maxGeometryBufferHatchBoxes);
 
 	uint32_t remainingObjects = hatch.getHatchBoxCount() - currentObjectInSection;
-	uploadableObjects = min(uploadableObjects, remainingObjects);
+	uploadableObjects = std::min(uploadableObjects, remainingObjects);
 
 	for (uint32_t i = 0; i < uploadableObjects; i++)
 	{
@@ -900,8 +900,8 @@ bool DrawResourcesFiller::addFontGlyph_Internal(const GlyphInfo& glyphInfo, uint
 	const auto maxGeometryBufferFontGlyphs = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(GlyphInfo);
 	
 	uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
-	uploadableObjects = min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
-	uploadableObjects = min(uploadableObjects, maxGeometryBufferFontGlyphs);
+	uploadableObjects = std::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+	uploadableObjects = std::min(static_cast<uint64_t>(uploadableObjects), maxGeometryBufferFontGlyphs);
 
 	if (uploadableObjects >= 1u)
 	{
