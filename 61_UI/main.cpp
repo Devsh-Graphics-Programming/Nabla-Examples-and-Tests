@@ -224,6 +224,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			if (m_surface)
 			{
 				m_window->getManager()->maximize(m_window.get());
+				auto* cc = m_window->getCursorControl();
+				cc->setVisible(false);
+
 				return { {m_surface->getSurface()/*,EQF_NONE*/} };
 			}
 			
@@ -459,7 +462,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					});
 				}
 
-			
 				// projections
 				projections = linear_projection_t::create(smart_refctd_ptr(cameraz.front()));
 
@@ -807,10 +809,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				.keyboardEvents = { capturedEvents.keyboard.data(), capturedEvents.keyboard.size() }
 			};
 
-			if (move)
+			if (enableActiveCameraMovement)
 			{
-				// TODO: testing
-				auto& camera = cameraz.front().get();
+				auto& camera = cameraz[activeCameraIndex];
 
 				static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
 				uint32_t vCount;
@@ -874,8 +875,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							projection->setProjectionMatrix(buildProjectionMatrixOrthoRH<float64_t>(viewWidth, viewHeight, zNear, zFar));
 					}
 				}
-
-				
 			}
 
 			ImGui::SameLine();
@@ -1280,68 +1279,94 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 				//imguizmoM16InOut.inModel
 
-				// Cameraz
 				{
-					size_t cameraCount = cameraz.size();
-					if (cameraCount > 0)
+					ImGuiIO& io = ImGui::GetIO();
+
+					if (ImGui::IsKeyPressed(ImGuiKey_C))
+						enableActiveCameraMovement = !enableActiveCameraMovement;
+
+					if (enableActiveCameraMovement)
 					{
-						size_t columns = std::max<size_t>(1, static_cast<size_t>(std::sqrt(static_cast<double>(cameraCount))));
-						size_t rows = (cameraCount + columns - 1) / columns;
-
-						ImGui::Begin("Camera Matrices", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysVerticalScrollbar);
-
-						ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(4.0f, 2.0f));
-
-						for (size_t row = 0; row < rows; ++row)
-						{
-							for (size_t col = 0; col < columns; ++col)
-							{
-								size_t cameraIndex = row * columns + col;
-								if (cameraIndex >= cameraCount)
-									break;
-
-								auto& camera = cameraz[cameraIndex];
-								if (!camera)
-									continue;
-
-								auto& gimbal = camera->getGimbal();
-								const auto position = getCastedVector<float32_t>(gimbal.getPosition());
-								const auto& orientation = gimbal.getOrientation();
-								const auto viewMatrix = getCastedMatrix<float32_t>(gimbal.getViewMatrix());
-								const auto trsMatrix = gimbal();
-
-								ImGui::Text("ID: %zu", cameraIndex);
-								ImGui::Separator();
-
-								ImGui::Text("Type: %s", camera->getIdentifier().data());
-								ImGui::Separator();
-
-								ImGui::PushStyleColor(ImGuiCol_TableRowBg, ImGui::GetStyleColorVec4(ImGuiCol_ChildBg));
-								ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, ImGui::GetStyleColorVec4(ImGuiCol_WindowBg));
-
-								if (ImGui::BeginTable(("CameraTable" + std::to_string(cameraIndex)).c_str(), 1, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame))
-								{
-									ImGui::TableNextRow();
-									ImGui::TableSetColumnIndex(0);
-
-									const auto idxstr = std::to_string(cameraIndex);
-									addMatrixTable("Position", ("PositionTable" + idxstr).c_str(), 1, 3, &position[0], false);
-									addMatrixTable("Orientation (Quaternion)", ("OrientationTable" + idxstr).c_str(), 1, 4, &orientation[0], false);
-									addMatrixTable("View Matrix", ("ViewMatrixTable" + idxstr).c_str(), 3, 4, &viewMatrix[0][0], false);
-									//addMatrixTable("TRS Matrix", ("TRSMatrixTable" + idxstr).c_str(), 3, 4, &trsMatrix[0][0], true);
-
-									ImGui::EndTable();
-								}
-
-								ImGui::PopStyleColor(2);
-							}
-						}
-
-						ImGui::PopStyleVar();
-						ImGui::End();
+						io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
+						io.MouseDrawCursor = false;
+						io.WantCaptureMouse = false;
 					}
 					else
-						ImGui::Text("No camera properties to display.");
+					{
+						io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
+						io.MouseDrawCursor = true;
+						io.WantCaptureMouse = true;
+					}
+
+					ImGui::Begin("Cameras", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysVerticalScrollbar);
+					ImGui::Text("Select Active Camera:");
+					ImGui::Separator();
+
+					if (ImGui::BeginCombo("Active Camera", ("Camera " + std::to_string(activeCameraIndex)).c_str()))
+					{
+						for (uint32_t cameraIndex = 0; cameraIndex < CamerazCount; ++cameraIndex)
+						{
+							bool isSelected = (cameraIndex == activeCameraIndex);
+							std::string comboLabel = "Camera " + std::to_string(cameraIndex);
+
+							if (ImGui::Selectable(comboLabel.c_str(), isSelected))
+								activeCameraIndex = cameraIndex;
+
+							if (isSelected)
+								ImGui::SetItemDefaultFocus();
+						}
+						ImGui::EndCombo();
+					}
+
+					ImGui::Separator();
+
+					if (enableActiveCameraMovement)
+						ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Active Camera Movement: Enabled");
+					else
+						ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Active Camera Movement: Disabled");
+
+					if (ImGui::IsItemHovered())
+					{
+						ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.2f, 0.2f, 0.2f, 0.8f));
+						ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+						ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.5f);
+						ImVec2 mousePos = ImGui::GetMousePos();
+						ImGui::SetNextWindowPos(ImVec2(mousePos.x + 10, mousePos.y + 10), ImGuiCond_Always);
+						ImGui::Begin("InfoOverlay", NULL,
+							ImGuiWindowFlags_NoDecoration |
+							ImGuiWindowFlags_AlwaysAutoResize |
+							ImGuiWindowFlags_NoSavedSettings);
+						ImGui::Text("Press 'C' to enable/disable selected camera movement.");
+						ImGui::End();
+						ImGui::PopStyleVar();
+						ImGui::PopStyleColor(2);
+					}
+
+					ImGui::Separator();
+
+					for (size_t cameraIndex = 0; cameraIndex < CamerazCount; ++cameraIndex)
+					{
+						auto& camera = cameraz[cameraIndex];
+						if (!camera)
+							continue;
+
+						std::string treeNodeLabel = "Camera " + std::to_string(cameraIndex);
+						if (ImGui::TreeNode(treeNodeLabel.c_str()))
+						{
+							auto& gimbal = camera->getGimbal();
+							const auto position = getCastedVector<float32_t>(gimbal.getPosition());
+							const auto& orientation = gimbal.getOrientation();
+							const auto viewMatrix = getCastedMatrix<float32_t>(gimbal.getViewMatrix());
+							ImGui::Text("Type: %s", camera->getIdentifier().data());
+							ImGui::Separator();
+							addMatrixTable("Position", ("PositionTable_" + std::to_string(cameraIndex)).c_str(), 1, 3, &position[0], false);
+							addMatrixTable("Orientation (Quaternion)", ("OrientationTable_" + std::to_string(cameraIndex)).c_str(), 1, 4, &orientation[0], false);
+							addMatrixTable("View Matrix", ("ViewMatrixTable_" + std::to_string(cameraIndex)).c_str(), 3, 4, &viewMatrix[0][0], false);
+							ImGui::TreePop();
+						}
+					}
+
+					ImGui::End();
 				}
 			}
 
@@ -1506,7 +1531,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Appearing);
 				ImGui::SetNextWindowPos(ImVec2(400, 20 + wCameraIndex * 420), ImGuiCond_Appearing);
 				ImGui::PushStyleColor(ImGuiCol_WindowBg, (ImVec4)ImColor(0.35f, 0.3f, 0.3f));
-				std::string ident = "Rendered from Camera \"" + std::to_string(wCameraIndex) + "\" Ix perspective";
+				std::string ident = "Camera \"" + std::to_string(wCameraIndex) + "\" View";
 				ImGui::Begin(ident.data(), 0, gizmoWindowFlags);
 				ImGuizmo::SetDrawlist();
 
@@ -1607,6 +1632,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		static constexpr inline auto CamerazCount = 2u;
 		std::array<nbl::core::smart_refctd_ptr<CScene>, CamerazCount> scenez;
 		std::array<core::smart_refctd_ptr<ICamera>, CamerazCount> cameraz;
+		uint32_t activeCameraIndex = 0;
+		bool enableActiveCameraMovement = false;
 		nbl::core::smart_refctd_ptr<ResourcesBundle> resources;
 
 		static constexpr inline auto OfflineSceneFirstCameraTextureIx = 1u;
@@ -1621,7 +1648,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		using linear_projection_t = CLinearProjection<linear_projections_range_t>;
 		nbl::core::smart_refctd_ptr<ILinearProjection> projections;
 
-		bool isPerspective[ProjectionsCount] = { true, true, true }, isLH = true, flipGizmoY = true, move = false;
+		bool isPerspective[ProjectionsCount] = { true, true, true }, isLH = true, flipGizmoY = true;
 		float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
 		float viewWidth = 10.f;
 		float camYAngle = 165.f / 180.f * 3.14159f;

@@ -93,7 +93,7 @@ public:
 
     virtual std::span<const CProjection> getLinearProjections() const = 0;
     
-    bool setCamera(core::smart_refctd_ptr<ICamera>&& camera)
+    inline bool setCamera(core::smart_refctd_ptr<ICamera>&& camera)
     {
         if (camera)
         {
@@ -102,6 +102,11 @@ public:
         }
 
         return false;
+    }
+
+    inline ICamera* getCamera()
+    {
+        return m_camera.get();
     }
 
     /**
