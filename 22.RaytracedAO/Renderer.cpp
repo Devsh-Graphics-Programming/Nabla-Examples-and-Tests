@@ -1475,7 +1475,7 @@ void Renderer::initScreenSizedResources(
 		});
 		
 		// Set last write
-		writes[10].binding = 9u;
+		writes[10].binding = 10u;
 		writes[10].arrayElement = 0u;
 		writes[10].count = 1u;
 		writes[10].descriptorType = EDT_COMBINED_IMAGE_SAMPLER;
