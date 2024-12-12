@@ -47,8 +47,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		constexpr static inline uint32_t MaxBufferDimensions = 3u << MaxDepthLog2;
 		constexpr static inline uint32_t MaxBufferSamples = 1u << MaxSamplesLog2;
 		constexpr static inline uint8_t MaxUITextureCount = 1u;
-		static inline std::string DefaultImagePathsFile = "../../media/envmap/envmap_0.exr";
-		static inline std::string OwenSamplerFilePath = "owen_sampler_buffer";
+		static inline std::string DefaultImagePathsFile = "envmap/envmap_0.exr";
+		static inline std::string OwenSamplerFilePath = "owen_sampler_buffer.bin";
 		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTShaderPaths = { "app_resources/litBySphere.comp", "app_resources/litByTriangle.comp", "app_resources/litByRectangle.comp" };
 		static inline std::string PresentShaderPath = "app_resources/present.frag.hlsl";
 
@@ -301,8 +301,10 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				m_presentDescriptorSet = presentDSPool->createDescriptorSet(gpuPresentDescriptorSetLayout);
 
 				// Create Shaders
-				auto loadAndCompileShader = [&](std::string pathToShader) {
+				auto loadAndCompileShader = [&](std::string pathToShader)
+				{
 					IAssetLoader::SAssetLoadParams lp = {};
+					lp.workingDirectory = localInputCWD;
 					auto assetBundle = m_assetMgr->getAsset(pathToShader, lp);
 					const auto assets = assetBundle.getContents();
 					if (assets.empty())
@@ -480,6 +482,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				smart_refctd_ptr<ICPUImage> envMapCPU, scrambleMapCPU;
 				{
 					IAssetLoader::SAssetLoadParams lp;
+					lp.workingDirectory = this->sharedInputCWD;
 					SAssetBundle bundle = m_assetMgr->getAsset(DefaultImagePathsFile, lp);
 					if (bundle.getContents().empty()) {
 						m_logger->log("Couldn't load an asset.", ILogger::ELL_ERROR);
@@ -591,12 +594,14 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 			// create sequence buffer view
 			{
+				// TODO: do this better use asset manager to get the ICPUBuffer from `.bin`
 				auto createBufferFromCacheFile = [this](
-					std::string filename,
+					system::path filename,
 					size_t bufferSize,
 					void *data,
 					smart_refctd_ptr<ICPUBuffer>& buffer
-					) -> std::pair<smart_refctd_ptr<IFile>, bool> {
+				) -> std::pair<smart_refctd_ptr<IFile>, bool>
+				{
 					ISystem::future_t<smart_refctd_ptr<nbl::system::IFile>> owenSamplerFileFuture;
 					ISystem::future_t<size_t> owenSamplerFileReadFuture;
 					size_t owenSamplerFileBytesRead;
@@ -611,10 +616,12 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 							return { nullptr, false };
 
 						owenSamplerFile->read(owenSamplerFileReadFuture, data, 0, bufferSize);
-						if (owenSamplerFileReadFuture.wait()) {
+						if (owenSamplerFileReadFuture.wait())
+						{
 							owenSamplerFileReadFuture.acquire().move_into(owenSamplerFileBytesRead);
 
-							if (owenSamplerFileBytesRead < bufferSize) {
+							if (owenSamplerFileBytesRead < bufferSize)
+							{
 								buffer = asset::ICPUBuffer::create(
 									{
 										.size = sizeof(uint32_t) * bufferSize
@@ -634,24 +641,28 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 					return { owenSamplerFile, true };
 				};
-				auto writeBufferIntoCacheFile = [this](smart_refctd_ptr<IFile> file, size_t bufferSize, void* data) {
+				auto writeBufferIntoCacheFile = [this](smart_refctd_ptr<IFile> file, size_t bufferSize, void* data)
+				{
 					ISystem::future_t<size_t> owenSamplerFileWriteFuture;
 					size_t owenSamplerFileBytesWritten;
 
 					file->write(owenSamplerFileWriteFuture, data, 0, bufferSize);
-					if (owenSamplerFileWriteFuture.wait()) {
+					if (owenSamplerFileWriteFuture.wait())
 						owenSamplerFileWriteFuture.acquire().move_into(owenSamplerFileBytesWritten);
-					}
 				};
 
 				constexpr size_t bufferSize = MaxBufferDimensions * MaxBufferSamples;
 				std::array<uint32_t, bufferSize> data = {};
 				smart_refctd_ptr<ICPUBuffer> sampleSeq;
 
-				auto cacheBufferResult = createBufferFromCacheFile(OwenSamplerFilePath, bufferSize, data.data(), sampleSeq);
-				if (!cacheBufferResult.second) {
+				auto cacheBufferResult = createBufferFromCacheFile(sharedOutputCWD/OwenSamplerFilePath, bufferSize, data.data(), sampleSeq);
+				if (!cacheBufferResult.second)
+				{
 					core::OwenSampler sampler(MaxBufferDimensions, 0xdeadbeefu);
-					//core::SobolSampler sampler(MaxBufferDimensions);
+
+					ICPUBuffer::SCreationParams params = {};
+					params.size = MaxBufferDimensions*MaxBufferSamples*sizeof(uint32_t);
+					sampleSeq = ICPUBuffer::create(std::move(params));
 
 					auto out = reinterpret_cast<uint32_t*>(sampleSeq->getPointer());
 					for (auto dim = 0u; dim < MaxBufferDimensions; dim++)
