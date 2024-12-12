@@ -850,29 +850,28 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			//if (ImGui::RadioButton("Full view", !useWindow))
 			//	useWindow = false;
 			
-			// TODO: I need this logic per viewport we will render a scene from a point of view of its bound camera
+			auto projectionMatrices = projections->getLinearProjections();
 			{
-				auto projectionMatrices = smart_refctd_ptr_static_cast<linear_projection_t>(projections)->getLinearProjections();
-
-				for (uint32_t i = 0u; i < projectionMatrices.size(); ++i)
+				auto mutableRange = smart_refctd_ptr_static_cast<linear_projection_t>(projections)->getLinearProjections();
+				for (uint32_t i = 0u; i < mutableRange.size(); ++i)
 				{
-					auto& projection = projectionMatrices[i];
+					auto projection = mutableRange.begin() + i;
 
 					if (isPerspective)
 					{
 						if (isLH)
-							projection.setProjectionMatrix(buildProjectionMatrixPerspectiveFovLH<float64_t>(glm::radians(fov), aspectRatio[i], zNear, zFar));
+							projection->setProjectionMatrix(buildProjectionMatrixPerspectiveFovLH<float64_t>(glm::radians(fov), aspectRatio[i], zNear, zFar));
 						else
-							projection.setProjectionMatrix(buildProjectionMatrixPerspectiveFovRH<float64_t>(glm::radians(fov), aspectRatio[i], zNear, zFar));
+							projection->setProjectionMatrix(buildProjectionMatrixPerspectiveFovRH<float64_t>(glm::radians(fov), aspectRatio[i], zNear, zFar));
 					}
 					else
 					{
 						float viewHeight = viewWidth * invAspectRatio[i];
 
 						if (isLH)
-							projection.setProjectionMatrix(buildProjectionMatrixOrthoLH<float64_t>(viewWidth, viewHeight, zNear, zFar));
+							projection->setProjectionMatrix(buildProjectionMatrixOrthoLH<float64_t>(viewWidth, viewHeight, zNear, zFar));
 						else
-							projection.setProjectionMatrix(buildProjectionMatrixOrthoRH<float64_t>(viewWidth, viewHeight, zNear, zFar));
+							projection->setProjectionMatrix(buildProjectionMatrixOrthoRH<float64_t>(viewWidth, viewHeight, zNear, zFar));
 					}
 				}
 
@@ -990,9 +989,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			imguizmoM16InOut.view[0u] = getCastedMatrix<float32_t>(transpose(getMatrix3x4As4x4(firstcamera->getGimbal().getViewMatrix())));
 			imguizmoM16InOut.view[1u] = getCastedMatrix<float32_t>(transpose(getMatrix3x4As4x4(secondcamera->getGimbal().getViewMatrix())));
 
-			auto linearProjections = projections->getLinearProjections();
 			for(uint32_t i = 0u; i < ProjectionsCount; ++i)
-				imguizmoM16InOut.projection[i] = getCastedMatrix<float32_t>(transpose(linearProjections[i].getProjectionMatrix()));
+				imguizmoM16InOut.projection[i] = getCastedMatrix<float32_t>(transpose(projectionMatrices[i].getProjectionMatrix()));
 
 			// TODO: need to inspect where I'm wrong, workaround
 			auto gimbalToImguizmoTRS = [&](const float32_t3x4& nblGimbalTrs) -> float32_t4x4
@@ -1166,7 +1164,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		
 			// TODO: make it more nicely
 			std::string_view mName;
-			const_cast<float64_t3x4&>(firstcamera->getGimbal().getViewMatrix()) = float64_t3x4(getCastedMatrix<float64_t>(transpose(imguizmoM16InOut.view[0u]))); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
+			//const_cast<float64_t3x4&>(firstcamera->getGimbal().getViewMatrix()) = float64_t3x4(getCastedMatrix<float64_t>(transpose(imguizmoM16InOut.view[0u]))); // a hack for "view manipulate", correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
 			{
 				m_model = float32_t3x4(transpose(imguizmoM16InOut.outModel[0]));
 
@@ -1200,7 +1198,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						// TODO
 						//modelView.getSub3x3InverseTranspose(normal);
 
-						auto concatMatrix = mul(getCastedMatrix<float32_t>(linearProjections[i].getProjectionMatrix()), getMatrix3x4As4x4(viewMatrix));
+						auto concatMatrix = mul(getCastedMatrix<float32_t>(projectionMatrices[i + 1u].getProjectionMatrix()), getMatrix3x4As4x4(viewMatrix));
 						modelViewProjection = mul(concatMatrix, getMatrix3x4As4x4(m_model));
 
 						memcpy(hook.viewParameters.MVP, &modelViewProjection[0][0], sizeof(hook.viewParameters.MVP));
@@ -1254,6 +1252,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					ImGui::End();
 				}
 
+				/*
+
 				// ImGuizmo inputs
 				{
 					ImGui::SetNextWindowSize(ImVec2(600, 400), ImGuiCond_FirstUseEver);
@@ -1275,6 +1275,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					ImGui::PopStyleColor(2);
 					ImGui::End();
 				}
+
+				*/
 
 				//imguizmoM16InOut.inModel
 
@@ -1343,6 +1345,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				}
 			}
 
+			/*
 			
 			// Nabla Imgui backend MDI buffer info
 			// To be 100% accurate and not overly conservative we'd have to explicitly `cull_frees` and defragment each time,
@@ -1412,6 +1415,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 				ImGui::End();
 			}
+
+			*/
 
 			displayKeyMappingsAndVirtualStates(cameraz.front().get());
 
@@ -1531,6 +1536,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				ImGui::Image(info, contentRegionSize);
 				ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
 			}
+
 
 			ImGuiWindow* window = ImGui::GetCurrentWindow();
 			gizmoWindowFlags = ImGuiWindowFlags_NoMove;//(ImGuizmo::IsUsing() && ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(window->InnerRect.Min, window->InnerRect.Max) ? ImGuiWindowFlags_NoMove : 0);
