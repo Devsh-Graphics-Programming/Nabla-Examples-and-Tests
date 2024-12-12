@@ -2,10 +2,9 @@
 #define __NBL_KEYSMAPPING_H_INCLUDED__
 
 #include "common.hpp"
-#include "ICamera.hpp"
+#include "camera/ICamera.hpp"
 
-template<typename T>
-void handleAddMapping(const char* tableID, ICamera<T>* camera, IGimbalManipulateEncoder::EncoderType activeController, CVirtualGimbalEvent::VirtualEventType& selectedEventType, ui::E_KEY_CODE& newKey, ui::E_MOUSE_CODE& newMouseCode, bool& addMode)
+void handleAddMapping(const char* tableID, ICamera* camera, IGimbalManipulateEncoder::EncoderType activeController, CVirtualGimbalEvent::VirtualEventType& selectedEventType, ui::E_KEY_CODE& newKey, ui::E_MOUSE_CODE& newMouseCode, bool& addMode)
 {
     ImGui::BeginTable(tableID, 3, ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame);
     ImGui::TableSetupColumn("Virtual Event", ImGuiTableColumnFlags_WidthStretch, 0.33f);
@@ -76,8 +75,7 @@ void handleAddMapping(const char* tableID, ICamera<T>* camera, IGimbalManipulate
     ImGui::EndTable();
 }
 
-template<typename T = matrix_precision_t>
-void displayKeyMappingsAndVirtualStates(ICamera<T>* camera)
+void displayKeyMappingsAndVirtualStates(ICamera* camera)
 {
     static bool addMode = false, pendingChanges = false;
     static CVirtualGimbalEvent::VirtualEventType selectedEventType = CVirtualGimbalEvent::VirtualEventType::MoveForward;

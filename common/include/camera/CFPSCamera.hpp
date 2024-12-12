@@ -2,8 +2,8 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#ifndef _C_CAMERA_HPP_
-#define _C_CAMERA_HPP_
+#ifndef _C_FPS_CAMERA_HPP_
+#define _C_FPS_CAMERA_HPP_
 
 #include "ICamera.hpp"
 
@@ -11,13 +11,12 @@ namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
 {
 
 // FPS Camera
-template<typename T = float64_t>
-class CFPSCamera final : public ICamera<T>
+class CFPSCamera final : public ICamera
 { 
 public:
-    using base_t = ICamera<T>;
+    using base_t = ICamera;
 
-    CFPSCamera(const vector<typename base_t::precision_t, 3u>& position, const glm::quat& orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f))
+    CFPSCamera(const float64_t3& position, const glm::quat& orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f))
         : base_t(), m_gimbal({ .position = position, .orientation = orientation }) {}
 	~CFPSCamera() = default;
 
@@ -32,7 +31,7 @@ public:
 
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, base_t::ManipulationMode mode) override
     {
-        constexpr float MoveSpeedScale = 0.01f, RotateSpeedScale = 0.003f, MaxVerticalAngle = glm::radians(88.0f), MinVerticalAngle = -MaxVerticalAngle;
+        constexpr double MoveSpeedScale = 0.01, RotateSpeedScale = 0.003, MaxVerticalAngle = glm::radians(88.0f), MinVerticalAngle = -MaxVerticalAngle;
 
         if (!virtualEvents.size())
             return false;
@@ -40,7 +39,7 @@ public:
         const auto& gForward = m_gimbal.getZAxis();
         const float gPitch = atan2(glm::length(glm::vec2(gForward.x, gForward.z)), gForward.y) - glm::half_pi<float>(), gYaw = atan2(gForward.x, gForward.z);
 
-        glm::quat newOrientation; vector<typename base_t::precision_t, 3u> newPosition;
+        glm::quat newOrientation; float64_t3 newPosition;
 
         // TODO: I make assumption what world base is now (at least temporary), I need to think of this but maybe each ITransformObject should know what its world is
         // in ideal scenario we would define this crazy enum with all possible standard bases
@@ -137,4 +136,4 @@ private:
 
 }
 
-#endif // _C_CAMERA_HPP_
+#endif // _C_FPS_CAMERA_HPP_

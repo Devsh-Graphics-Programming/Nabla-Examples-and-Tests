@@ -18,10 +18,10 @@ public:
         //! Perspective, Orthographic, Oblique, Axonometric, Shear projections or any custom linear transformation
         Linear,
 
-        //! Represents a non-linear/skewed pre-transform *concatenated* with linear view-port transform
-        Quad,
+        //! Represents pre-transform *concatenated* with linear view-port transform, projects onto a quad
+        Perspective,
 
-        //! Represents a projection onto cube consisting of 6 quad cube faces
+        //! Represents a Perspective projection onto cube consisting of 6 quad cube faces
         Cube,
 
         Spherical,

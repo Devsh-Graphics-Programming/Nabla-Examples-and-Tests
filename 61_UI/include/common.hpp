@@ -10,8 +10,8 @@
 #include "SimpleWindowedApplication.hpp"
 #include "InputSystem.hpp"
 
-#include "camera/ILinearProjection.hpp"
-#include "camera/IQuadProjection.hpp"
+#include "camera/CCubeProjection.hpp"
+#include "camera/CLinearProjection.hpp"
 
 // the example's headers
 #include "nbl/ui/ICursorControl.h"
@@ -29,7 +29,5 @@ using namespace ui;
 using namespace video;
 using namespace scene;
 using namespace geometrycreator;
-
-using matrix_precision_t = float32_t;
 
 #endif // __NBL_THIS_EXAMPLE_COMMON_H_INCLUDED__
