@@ -1036,7 +1036,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				bool manipulatedFromAnyWindow = false;
 
 				ImGuizmo::AllowAxisFlip(false);
-				ImGuizmo::Enable(true);
+
+				if(enableActiveCameraMovement)
+					ImGuizmo::Enable(false);
+				else
+					ImGuizmo::Enable(true);
 
 				// we have 2 GUI windows we render into with FBOs
 				for (uint32_t windowIndex = 0; windowIndex < 2u; ++windowIndex)
@@ -1124,38 +1128,42 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			{
 				static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
-				uint32_t vCount;
-				auto nblManipulationMode = ICamera::Local;
-
-				secondcamera->beginInputProcessing(m_nextPresentationTimestamp);
+				
+				if (ImGuizmo::IsUsingAny())
 				{
-					secondcamera->process(nullptr, vCount);
+					uint32_t vCount;
+					auto nblManipulationMode = ICamera::Local;
 
-					if (virtualEvents.size() < vCount)
-						virtualEvents.resize(vCount);
-
-					IGimbalController::SUpdateParameters params;
-
-					auto getOrientationBasis = [&]()
+					secondcamera->beginInputProcessing(m_nextPresentationTimestamp);
 					{
-						auto orientationBasis = (float32_t3x3(1.f));
+						secondcamera->process(nullptr, vCount);
 
-						switch (mCurrentGizmoMode)
-						{
-							case ImGuizmo::LOCAL: orientationBasis = (float32_t3x3(getCastedMatrix<float32_t>(secondCameraGimbalModel)));  break;
-							case ImGuizmo::WORLD: nblManipulationMode = ICamera::World; break;
-							default: assert(false); break;
-						}
+						if (virtualEvents.size() < vCount)
+							virtualEvents.resize(vCount);
 
-						return orientationBasis;
-					};
+						IGimbalController::SUpdateParameters params;
 
-					params.imguizmoEvents = { { std::make_pair(imguizmoM16InOut.outDeltaTRS[1u], getOrientationBasis()) } };
-					secondcamera->process(virtualEvents.data(), vCount, params);
+						auto getOrientationBasis = [&]()
+							{
+								auto orientationBasis = (float32_t3x3(1.f));
+
+								switch (mCurrentGizmoMode)
+								{
+								case ImGuizmo::LOCAL: orientationBasis = (float32_t3x3(getCastedMatrix<float32_t>(secondCameraGimbalModel)));  break;
+								case ImGuizmo::WORLD: nblManipulationMode = ICamera::World; break;
+								default: assert(false); break;
+								}
+
+								return orientationBasis;
+							};
+
+						params.imguizmoEvents = { { std::make_pair(imguizmoM16InOut.outDeltaTRS[1u], getOrientationBasis()) } };
+						secondcamera->process(virtualEvents.data(), vCount, params);
+					}
+					secondcamera->endInputProcessing();
+
+					secondcamera->manipulate({ virtualEvents.data(), vCount }, nblManipulationMode);
 				}
-				secondcamera->endInputProcessing();
-
-				secondcamera->manipulate({ virtualEvents.data(), vCount }, nblManipulationMode);
 			}
 
 			// update scenes data
@@ -1325,23 +1333,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					else
 						ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Active Camera Movement: Disabled");
 
-					if (ImGui::IsItemHovered())
-					{
-						ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.2f, 0.2f, 0.2f, 0.8f));
-						ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
-						ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.5f);
-						ImVec2 mousePos = ImGui::GetMousePos();
-						ImGui::SetNextWindowPos(ImVec2(mousePos.x + 10, mousePos.y + 10), ImGuiCond_Always);
-						ImGui::Begin("InfoOverlay", NULL,
-							ImGuiWindowFlags_NoDecoration |
-							ImGuiWindowFlags_AlwaysAutoResize |
-							ImGuiWindowFlags_NoSavedSettings);
-						ImGui::Text("Press 'C' to enable/disable selected camera movement.");
-						ImGui::End();
-						ImGui::PopStyleVar();
-						ImGui::PopStyleColor(2);
-					}
-
 					ImGui::Separator();
 
 					for (size_t cameraIndex = 0; cameraIndex < CamerazCount; ++cameraIndex)
@@ -1350,24 +1341,39 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						if (!camera)
 							continue;
 
+						const auto flags = (activeCameraIndex == cameraIndex) ? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None;
 						std::string treeNodeLabel = "Camera " + std::to_string(cameraIndex);
-						if (ImGui::TreeNode(treeNodeLabel.c_str()))
+
+						if (ImGui::TreeNodeEx(treeNodeLabel.c_str(), flags))
 						{
-							auto& gimbal = camera->getGimbal();
-							const auto position = getCastedVector<float32_t>(gimbal.getPosition());
-							const auto& orientation = gimbal.getOrientation();
-							const auto viewMatrix = getCastedMatrix<float32_t>(gimbal.getViewMatrix());
-							ImGui::Text("Type: %s", camera->getIdentifier().data());
-							ImGui::Separator();
-							addMatrixTable("Position", ("PositionTable_" + std::to_string(cameraIndex)).c_str(), 1, 3, &position[0], false);
-							addMatrixTable("Orientation (Quaternion)", ("OrientationTable_" + std::to_string(cameraIndex)).c_str(), 1, 4, &orientation[0], false);
-							addMatrixTable("View Matrix", ("ViewMatrixTable_" + std::to_string(cameraIndex)).c_str(), 3, 4, &viewMatrix[0][0], false);
+							if (ImGui::TreeNodeEx("Data", ImGuiTreeNodeFlags_None))
+							{
+								auto& gimbal = camera->getGimbal();
+								const auto position = getCastedVector<float32_t>(gimbal.getPosition());
+								const auto& orientation = gimbal.getOrientation();
+								const auto viewMatrix = getCastedMatrix<float32_t>(gimbal.getViewMatrix());
+
+								ImGui::Text("Type: %s", camera->getIdentifier().data());
+								ImGui::Separator();
+								addMatrixTable("Position", ("PositionTable_" + std::to_string(cameraIndex)).c_str(), 1, 3, &position[0], false);
+								addMatrixTable("Orientation (Quaternion)", ("OrientationTable_" + std::to_string(cameraIndex)).c_str(), 1, 4, &orientation[0], false);
+								addMatrixTable("View Matrix", ("ViewMatrixTable_" + std::to_string(cameraIndex)).c_str(), 3, 4, &viewMatrix[0][0], false);
+								ImGui::TreePop();
+							}
+
+							if (ImGui::TreeNodeEx("Virtual Event Mappings", ImGuiTreeNodeFlags_DefaultOpen))
+							{
+								displayKeyMappingsAndVirtualStatesInline(camera.get());
+								ImGui::TreePop();
+							}
+
 							ImGui::TreePop();
 						}
 					}
 
 					ImGui::End();
 				}
+
 			}
 
 			/*
@@ -1443,8 +1449,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			*/
 
-			displayKeyMappingsAndVirtualStates(cameraz.front().get());
-
 			ImGui::End();
 		}
 
@@ -1455,12 +1459,15 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			static bool boundSizing = false;
 			static bool boundSizingSnap = false;
 
+			/*
 			if (ImGui::IsKeyPressed(ImGuiKey_T))
 				mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
 			if (ImGui::IsKeyPressed(ImGuiKey_E))
 				mCurrentGizmoOperation = ImGuizmo::ROTATE;
-			if (ImGui::IsKeyPressed(ImGuiKey_R)) // r Key
+			if (ImGui::IsKeyPressed(ImGuiKey_R))
 				mCurrentGizmoOperation = ImGuizmo::SCALE;
+			*/
+
 			if (ImGui::RadioButton("Translate", mCurrentGizmoOperation == ImGuizmo::TRANSLATE))
 				mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
 			ImGui::SameLine();
@@ -1657,7 +1664,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		float camDistance = 8.f, aspectRatio[ProjectionsCount] = {}, invAspectRatio[ProjectionsCount] = {};
 		bool useWindow = true, useSnap = false;
 		ImGuizmo::OPERATION mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
-		ImGuizmo::MODE mCurrentGizmoMode = ImGuizmo::WORLD;
+		ImGuizmo::MODE mCurrentGizmoMode = ImGuizmo::LOCAL;
 		float snap[3] = { 1.f, 1.f, 1.f };
 		int lastManipulatedModelIx = 0;
 		int lastManipulatedGizmoIx = 0;
