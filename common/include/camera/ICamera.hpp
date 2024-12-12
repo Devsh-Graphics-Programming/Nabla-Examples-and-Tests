@@ -13,7 +13,6 @@ namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
 class ICamera : public IGimbalController, virtual public core::IReferenceCounted
 { 
 public:
-    using precision_t = float64_t;
     using IGimbalController::IGimbalController;
 
     //! Manipulation mode for virtual events
@@ -28,10 +27,10 @@ public:
     };
 
     // Gimbal with view parameters representing a camera in world space
-    class CGimbal : public IGimbal<precision_t>
+    class CGimbal : public IGimbal<float64_t>
     {
     public:
-        using base_t = IGimbal<precision_t>;
+        using base_t = IGimbal<float64_t>;
 
         CGimbal(typename base_t::SCreationParameters&& parameters) : base_t(std::move(parameters)) { updateView(); }
         ~CGimbal() = default;
@@ -64,16 +63,16 @@ public:
             assert(isOrthoBase(gRight, gUp, gForward));
 
             const auto& position = base_t::getPosition();
-            m_view.matrix[0u] = vector<precision_t, 4u>(gRight, -glm::dot(gRight, position));
-            m_view.matrix[1u] = vector<precision_t, 4u>(gUp, -glm::dot(gUp, position));
-            m_view.matrix[2u] = vector<precision_t, 4u>(gForward, -glm::dot(gForward, position));
+
+            m_viewMatrix[0u] = float64_t4(gRight, -glm::dot(gRight, position));
+            m_viewMatrix[1u] = float64_t4(gUp, -glm::dot(gUp, position));
+            m_viewMatrix[2u] = float64_t4(gForward, -glm::dot(gForward, position));
         }
 
-        // Getter for gimbal's view
-        inline const SView& getView() const { return m_view; }
+        inline const float64_t3x4& getViewMatrix() const { return m_viewMatrix; }
 
     private:
-        SView m_view;
+        float64_t3x4 m_viewMatrix;
     };
 
     ICamera() {}

@@ -11,7 +11,7 @@ namespace nbl::hlsl
  * @brief Interface class for any custom linear projection transformation (matrix elements are already evaluated scalars)
  * referencing a camera, great for Perspective, Orthographic, Oblique, Axonometric and Shear projections
  */
-class ILinearProjection
+class ILinearProjection : virtual public core::IReferenceCounted
 {
 protected:
     ILinearProjection(core::smart_refctd_ptr<ICamera>&& camera)
@@ -35,6 +35,7 @@ public:
         using projection_matrix_t = concatenated_matrix_t;
         using inv_projection_matrix_t = inv_concatenated_matrix_t;
 
+        CProjection() : CProjection(projection_matrix_t(1)) {}
         CProjection(const projection_matrix_t& matrix) { setProjectionMatrix(matrix); }
 
         inline void setProjectionMatrix(const projection_matrix_t& matrix)
@@ -91,6 +92,17 @@ public:
     };
 
     virtual std::span<const CProjection> getLinearProjections() const = 0;
+    
+    bool setCamera(core::smart_refctd_ptr<ICamera>&& camera)
+    {
+        if (camera)
+        {
+            m_camera = camera;
+            return true;
+        }
+
+        return false;
+    }
 
     /**
     * @brief Computes Model View (MV) matrix
@@ -99,7 +111,7 @@ public:
     */
     inline concatenated_matrix_t getMV(const model_matrix_t& model) const
     {
-        const auto& v = m_camera->getGimbal().getView().matrix;
+        const auto& v = m_camera->getGimbal().getViewMatrix();
         return mul(getMatrix3x4As4x4(v), getMatrix3x4As4x4(model));
     }
 
@@ -111,7 +123,7 @@ public:
     */
     inline concatenated_matrix_t getMVP(const CProjection& projection, const model_matrix_t& model) const
     {
-        const auto& v = m_camera->getGimbal().getView().matrix;
+        const auto& v = m_camera->getGimbal().getViewMatrix();
         const auto& p = projection.getProjectionMatrix();
         auto mv = mul(getMatrix3x4As4x4(v), getMatrix3x4As4x4(model));
         return mul(p, mv);

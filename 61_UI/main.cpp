@@ -7,10 +7,6 @@
 #include "camera/CCubeProjection.hpp"
 #include "glm/glm/ext/matrix_clip_space.hpp" // TODO: TESTING
 
-// FPS Camera, TESTS
-using camera_t = CFPSCamera<matrix_precision_t>;
-using projection_t = IProjection<matrix<matrix_precision_t, 4u, 4u>>; // TODO: temporary -> projections will own/reference cameras
-
 constexpr IGPUImage::SSubresourceRange TripleBufferUsedSubresourceRange = 
 {
 	.aspectMask = IGPUImage::EAF_COLOR_BIT,
@@ -421,9 +417,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				m_ui.manager->registerListener([this]() -> void { imguiListen(); });
 			}
 
-			for (auto& projection : projections)
-				projection = make_smart_refctd_ptr<projection_t>();
-
 			// Geometry Creator Render Scenes
 			{
 				resources = ResourcesBundle::create(m_device.get(), m_logger.get(), getGraphicsQueue(), m_assetManager->getGeometryCreator());
@@ -445,7 +438,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					// lets use key map presets to update the controller
 
-					camera = make_smart_refctd_ptr<camera_t>(iPosition[i], iOrientation[i]);
+					camera = make_smart_refctd_ptr<CFPSCamera>(iPosition[i], iOrientation[i]);
 
 					// init keyboard map
 					camera->updateKeyboardMapping([&](auto& keys)
@@ -465,6 +458,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						keys = camera->getImguizmoMappingPreset();
 					});
 				}
+
+			
+				// projections
+				projections = linear_projection_t::create(smart_refctd_ptr(cameraz.front()));
 
 				for (uint32_t i = 0u; i < scenez.size(); ++i)
 				{
@@ -828,7 +825,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					camera->process(virtualEvents.data(), vCount, { params.keyboardEvents, params.mouseEvents });
 				}
 				camera->endInputProcessing();
-				camera->manipulate({ virtualEvents.data(), vCount }, ICamera<matrix_precision_t>::Local);
+				camera->manipulate({ virtualEvents.data(), vCount }, ICamera::Local);
 			}
 
 			m_ui.manager->update(params);
@@ -855,26 +852,27 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			
 			// TODO: I need this logic per viewport we will render a scene from a point of view of its bound camera
 			{
+				auto projectionMatrices = smart_refctd_ptr_static_cast<linear_projection_t>(projections)->getLinearProjections();
 
-				for (uint32_t i = 0u; i < projections.size(); ++i)
+				for (uint32_t i = 0u; i < projectionMatrices.size(); ++i)
 				{
-					auto& projection = projections[i];
+					auto& projection = projectionMatrices[i];
 
 					if (isPerspective)
 					{
 						if (isLH)
-							projection->setMatrix(buildProjectionMatrixPerspectiveFovLH<matrix_precision_t>(glm::radians(fov), aspectRatio[i], zNear, zFar));
+							projection.setProjectionMatrix(buildProjectionMatrixPerspectiveFovLH<float64_t>(glm::radians(fov), aspectRatio[i], zNear, zFar));
 						else
-							projection->setMatrix(buildProjectionMatrixPerspectiveFovRH<matrix_precision_t>(glm::radians(fov), aspectRatio[i], zNear, zFar));
+							projection.setProjectionMatrix(buildProjectionMatrixPerspectiveFovRH<float64_t>(glm::radians(fov), aspectRatio[i], zNear, zFar));
 					}
 					else
 					{
 						float viewHeight = viewWidth * invAspectRatio[i];
 
 						if (isLH)
-							projection->setMatrix(buildProjectionMatrixOrthoLH<matrix_precision_t>(viewWidth, viewHeight, zNear, zFar));
+							projection.setProjectionMatrix(buildProjectionMatrixOrthoLH<float64_t>(viewWidth, viewHeight, zNear, zFar));
 						else
-							projection->setMatrix(buildProjectionMatrixOrthoRH<matrix_precision_t>(viewWidth, viewHeight, zNear, zFar));
+							projection.setProjectionMatrix(buildProjectionMatrixOrthoRH<float64_t>(viewWidth, viewHeight, zNear, zFar));
 					}
 				}
 
@@ -989,11 +987,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			ImGuizmo::SetID(0u);
 
-			imguizmoM16InOut.view[0u] = transpose(getMatrix3x4As4x4(firstcamera->getGimbal().getView().matrix));
-			imguizmoM16InOut.view[1u] = transpose(getMatrix3x4As4x4(secondcamera->getGimbal().getView().matrix));
+			imguizmoM16InOut.view[0u] = getCastedMatrix<float32_t>(transpose(getMatrix3x4As4x4(firstcamera->getGimbal().getViewMatrix())));
+			imguizmoM16InOut.view[1u] = getCastedMatrix<float32_t>(transpose(getMatrix3x4As4x4(secondcamera->getGimbal().getViewMatrix())));
 
+			auto linearProjections = projections->getLinearProjections();
 			for(uint32_t i = 0u; i < ProjectionsCount; ++i)
-				imguizmoM16InOut.projection[i] = transpose(projections[i]->getMatrix());
+				imguizmoM16InOut.projection[i] = getCastedMatrix<float32_t>(transpose(linearProjections[i].getProjectionMatrix()));
 
 			// TODO: need to inspect where I'm wrong, workaround
 			auto gimbalToImguizmoTRS = [&](const float32_t3x4& nblGimbalTrs) -> float32_t4x4
@@ -1013,7 +1012,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			// we will transform a scene object's model
 			imguizmoM16InOut.inModel[0] = transpose(getMatrix3x4As4x4(m_model));
 			// and second camera's model too
-			imguizmoM16InOut.inModel[1] = gimbalToImguizmoTRS(secondCameraGimbalModel);
+			imguizmoM16InOut.inModel[1] = gimbalToImguizmoTRS(getCastedMatrix<float32_t>(secondCameraGimbalModel));
 			{
 				float* views[]
 				{
@@ -1129,7 +1128,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			{
 				static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
 				uint32_t vCount;
-				auto nblManipulationMode = ICamera<matrix_precision_t>::Local;
+				auto nblManipulationMode = ICamera::Local;
 
 				secondcamera->beginInputProcessing(m_nextPresentationTimestamp);
 				{
@@ -1146,8 +1145,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						switch (mCurrentGizmoMode)
 						{
-							case ImGuizmo::LOCAL: orientationBasis = (float32_t3x3(secondCameraGimbalModel));  break;
-							case ImGuizmo::WORLD: nblManipulationMode = ICamera<matrix_precision_t>::World; break;
+							case ImGuizmo::LOCAL: orientationBasis = (float32_t3x3(getCastedMatrix<float32_t>(secondCameraGimbalModel)));  break;
+							case ImGuizmo::WORLD: nblManipulationMode = ICamera::World; break;
 							default: assert(false); break;
 						}
 
@@ -1167,14 +1166,17 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		
 			// TODO: make it more nicely
 			std::string_view mName;
-			const_cast<float32_t3x4&>(firstcamera->getGimbal().getView().matrix) = float32_t3x4(transpose(imguizmoM16InOut.view[0u])); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
+			const_cast<float64_t3x4&>(firstcamera->getGimbal().getViewMatrix()) = float64_t3x4(getCastedMatrix<float64_t>(transpose(imguizmoM16InOut.view[0u]))); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
 			{
 				m_model = float32_t3x4(transpose(imguizmoM16InOut.outModel[0]));
 
-				const float32_t3x4* views[] = 
+				auto firstCameraView = getCastedMatrix<float32_t>(firstcamera->getGimbal().getViewMatrix());
+				auto secondCameraView = getCastedMatrix<float32_t>(secondcamera->getGimbal().getViewMatrix());
+
+				const float32_t3x4* views[] =
 				{
-					&firstcamera->getGimbal().getView().matrix,
-					&secondcamera->getGimbal().getView().matrix
+					&firstCameraView,
+					&secondCameraView
 				};
 
 				const auto& references = resources->objects;
@@ -1198,7 +1200,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						// TODO
 						//modelView.getSub3x3InverseTranspose(normal);
 
-						auto concatMatrix = mul(projections[i]->getMatrix(), getMatrix3x4As4x4(viewMatrix));
+						auto concatMatrix = mul(getCastedMatrix<float32_t>(linearProjections[i].getProjectionMatrix()), getMatrix3x4As4x4(viewMatrix));
 						modelViewProjection = mul(concatMatrix, getMatrix3x4As4x4(m_model));
 
 						memcpy(hook.viewParameters.MVP, &modelViewProjection[0][0], sizeof(hook.viewParameters.MVP));
@@ -1301,9 +1303,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 									continue;
 
 								auto& gimbal = camera->getGimbal();
-								const auto& position = gimbal.getPosition();
+								const auto position = getCastedVector<float32_t>(gimbal.getPosition());
 								const auto& orientation = gimbal.getOrientation();
-								const auto& viewMatrix = gimbal.getView().matrix;
+								const auto viewMatrix = getCastedMatrix<float32_t>(gimbal.getViewMatrix());
 								const auto trsMatrix = gimbal();
 
 								ImGui::Text("ID: %zu", cameraIndex);
@@ -1598,7 +1600,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		nbl::hlsl::float32_t3x4 m_model = nbl::hlsl::float32_t3x4(1.f);
 		static constexpr inline auto CamerazCount = 2u;
 		std::array<nbl::core::smart_refctd_ptr<CScene>, CamerazCount> scenez;
-		std::array<core::smart_refctd_ptr<ICamera<matrix_precision_t>>, CamerazCount> cameraz;
+		std::array<core::smart_refctd_ptr<ICamera>, CamerazCount> cameraz;
 		nbl::core::smart_refctd_ptr<ResourcesBundle> resources;
 
 		static constexpr inline auto OfflineSceneFirstCameraTextureIx = 1u;
@@ -1606,11 +1608,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 		CRenderUI m_ui;
 		video::CDumbPresentationOracle oracle;
-
 		uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
 
-		static constexpr inline auto ProjectionsCount = 3u;
-		std::array<smart_refctd_ptr<projection_t>, ProjectionsCount> projections; // TMP!
+		static constexpr inline auto ProjectionsCount = 3u; // full screen, first & second GUI windows
+		using linear_projections_range_t = std::array<ILinearProjection::CProjection, ProjectionsCount>;
+		using linear_projection_t = CLinearProjection<linear_projections_range_t>;
+		nbl::core::smart_refctd_ptr<ILinearProjection> projections;
+
 		bool isPerspective[ProjectionsCount] = { true, true, true }, isLH = true, flipGizmoY = true, move = false;
 		float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
 		float viewWidth = 10.f;

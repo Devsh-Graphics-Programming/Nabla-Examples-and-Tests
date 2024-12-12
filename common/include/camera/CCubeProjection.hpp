@@ -2,20 +2,20 @@
 #define _NBL_CCUBE_PROJECTION_HPP_
 
 #include "IRange.hpp"
-#include "IQuadProjection.hpp"
+#include "IPerspectiveProjection.hpp"
 
 namespace nbl::hlsl
 {
 
 /**
-* @brief A projection where each cube face is a quad we project onto.
+* @brief A projection where each cube face is a perspective quad we project onto.
 *
 * Represents a cube projection given direction vector where each face of 
 * the cube is treated as a quad. The projection onto the cube is done using
 * these quads and each face has its own unique pre-transform and
 * view-port linear matrix.
 */
-class CCubeProjection final : public IQuadProjection, public IProjection
+class CCubeProjection final : public IPerspectiveProjection, public IProjection
 {
 public:
     //! Represents six face identifiers of a cube.
@@ -76,14 +76,14 @@ public:
 
     template<CubeFaces FaceIx>
     requires (FaceIx != CubeFacesCount)
-    inline const CProjection& getQuad()
+    inline const CProjection& getProjectionQuad()
     {
         return m_quads[FaceIx];
     }
 
 private:
     CCubeProjection(core::smart_refctd_ptr<ICamera>&& camera)
-        : IQuadProjection(core::smart_refctd_ptr(camera)) {}
+        : IPerspectiveProjection(core::smart_refctd_ptr(camera)) {}
     virtual ~CCubeProjection() = default;
 
     std::array<CProjection, CubeFacesCount> m_quads;

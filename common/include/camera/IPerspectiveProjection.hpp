@@ -9,25 +9,26 @@ namespace nbl::hlsl
 /**
 * @brief Interface class for quad projections.
 *
-* This projection transforms a vector into the **model space of a quad**
-* (defined by the pre-transform matrix) and then projects it onto the quad using
-* the linear view-port transform.
+* This projection transforms a vector into the **model space of a perspective quad**
+* (defined by the pre-transform matrix) and then projects it onto the perspective quad
+* using the linear view-port transform.
 *
-* A quad projection is represented by:
+* A perspective quad projection is represented by:
 * - A **pre-transform matrix** (non-linear/skewed transformation).
 * - A **linear view-port transform matrix**.
 *
 * The final projection matrix is the concatenation of the pre-transform and the linear view-port transform.
 *
-* @note Single quad projection can represent a face quad of a CAVE-like system.
+* @note Single perspective quad projection can represent a face quad of a CAVE-like system.
 */
-class IQuadProjection : public ILinearProjection
+class IPerspectiveProjection : public ILinearProjection
 {
 public:
     struct CProjection : ILinearProjection::CProjection
     {
         using base_t = ILinearProjection::CProjection;
 
+        CProjection() = default;
         CProjection(const ILinearProjection::model_matrix_t& pretransform, ILinearProjection::concatenated_matrix_t viewport) 
         {
             setQuadTransform(pretransform, viewport); 
@@ -46,14 +47,14 @@ public:
         inline const ILinearProjection::concatenated_matrix_t& getViewportProjection() const { return m_viewport; }
 
     private:
-        ILinearProjection::model_matrix_t m_pretransform;
-        ILinearProjection::concatenated_matrix_t m_viewport;
+        ILinearProjection::model_matrix_t m_pretransform = ILinearProjection::model_matrix_t(1);
+        ILinearProjection::concatenated_matrix_t m_viewport = ILinearProjection::concatenated_matrix_t(1);
     };
 
 protected:
-    IQuadProjection(core::smart_refctd_ptr<ICamera>&& camera)
+    IPerspectiveProjection(core::smart_refctd_ptr<ICamera>&& camera)
         : ILinearProjection(core::smart_refctd_ptr(camera)) {}
-    virtual ~IQuadProjection() = default;
+    virtual ~IPerspectiveProjection() = default;
 };
 
 } // nbl::hlsl namespace
