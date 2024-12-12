@@ -37,7 +37,7 @@ As you might know, the Cooley-Tukey FFT outputs the elements of a DFT in bit-rev
 
 Here's what happens for the FFT of a 16-element array using `ElementsPerInvocation = 2`, `WorkgroupSize = 8`. Please note below I use "invocation" and "thread" interchangeably.
 
-![Radix 2 FFT](https://github.com/user-attachments/assets/8ceacf0d-d615-4b5a-9e32-3b421c70846a)
+![Radix 2 FFT](https://github.com/user-attachments/assets/dd926394-3175-4820-aed1-b7ab21f09be9)
 
 Here's how to read this diagram: Since we're working with 16 elements with 2 elements per invocation, each invocation essentially holds two elements on which it performs a butterfly at any given time. On the left we have the input array with its elements numbered from 0 to 15, and their 4-bit representations. Colours are assigned per thread: thread 0 is blue, thread 1 is green and so on. Each invocation of id `threadID` initially holds two elements, those indexed `threadID` and `threadID + WorkgroupSize`. The elements a thread holds are called `lo` and `hi`, based on which index is higher. You can at all times in the diagram tell that for each thread, in each column, there are two elements with that thread's colour. The one closest to the top is `lo`, the other is `hi` (we start counting from the top).
 
