@@ -587,6 +587,8 @@ void convolve(in uint item_per_thread_count, in uint ch)
 			convSpectrum *= nbl_glsl_sRGBtoXYZ[2][1];
 			for (uint c=0; c<2; c++)
 				convSpectrum += textureLod(NormalizedKernel[c],uv,0).xy*nbl_glsl_sRGBtoXYZ[c][1];
+			// small boost because the spectra don't normalize ideally
+			convSpectrum *= 1.2f;
 		}
 		nbl_glsl_ext_FFT_impl_values[t] = nbl_glsl_complex_mul(sourceSpectrum,convSpectrum);
 	}

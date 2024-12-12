@@ -134,6 +134,17 @@ void main()
 		//
 		addAlbedo(contrib.albedo*aovThroughput,accumulationLocation);
 		addWorldspaceNormal(contrib.worldspaceNormal*nbl_glsl_MC_colorToScalar(aovThroughput),accumulationLocation);
-		addMask(0.f,accumulationLocation);
+		// only misses contribute to transparency
+		float mask = 0.f;
+		if (!hit)
+		{
+			// make the luma of throughput dictate transparency
+			mask = dot(aovThroughput,transpose(nbl_glsl_sRGBtoXYZ)[1]);
+			// only count transmissions
+			const vec2 texCoordUV = (vec2(accumulationLocation.xy)+vec2(0.5))/vec2(getImageDimensions(staticViewData));
+			const vec3 seeThroughDir = normalize(mat3(pc.cummon.viewDirReconFactors)*vec3(texCoordUV,1.f));
+			mask *= pow(max(dot(normalizedV,seeThroughDir),0.f),1024.f);
+		}
+		addMask(mask,accumulationLocation);
 	}
 }
