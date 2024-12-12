@@ -52,6 +52,14 @@ Multiple Sensor tags in mitsuba XML's is now supported. This feature helps you h
 
 You can switch between those sensors using `PAGE UP/DOWN` Keys defined in more detail below.
 
+### Properties added to \<integrator\>:
+
+| Property Name   | Description                               | Type    | Default Value  |
+|-----------------|-------------------------------------------|---------|----------------|
+| hideEnvironment | Replace bakcground with Transparent Alpha | boolean | false          |
+
+Note that we don't support Mitsuba's `hideEmitters`
+
 ### Properties added to \<sensor\>:
 
 | Property Name | Description           | Type  | Default Value                            |

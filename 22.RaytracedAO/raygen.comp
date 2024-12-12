@@ -127,18 +127,20 @@ void main()
 					);
 				}
 
+				const bool hideEnvmap = bool(staticViewData.sampleSequenceStride_hideEnvmap>>31);
 				// clear accumulations totally if beginning a new frame
 				if (firstFrame)
 				{
 					storeAlbedo(contrib.albedo,coord);
 					storeWorldspaceNormal(contrib.worldspaceNormal,coord);
-					storeMask(hit ? 0.f:1.f,coord);
+					storeMask(hideEnvmap&&(!hit) ? 1.f:0.f,coord);
 				}
 				else
 				{
 					addAlbedo(contrib.albedo,coord,pc.cummon.rcpFramesDispatched);
 					addWorldspaceNormal(contrib.worldspaceNormal,coord,pc.cummon.rcpFramesDispatched);
-					addMask(hit ? 0.f:1.f,coord,pc.cummon.rcpFramesDispatched);
+					if (hideEnvmap)
+						addMask(hit ? 0.f:1.f,coord,pc.cummon.rcpFramesDispatched);
 				}
 			}
 		}

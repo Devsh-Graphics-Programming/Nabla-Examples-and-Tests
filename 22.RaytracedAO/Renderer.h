@@ -207,7 +207,8 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 				nbl::core::smart_refctd_ptr<nbl::video::IGPUBufferView> bufferView;
 		} sampleSequence;
 		uint16_t maxPathDepth;
-		uint16_t noRussianRouletteDepth;
+		uint16_t noRussianRouletteDepth : 15;
+		uint16_t hideEnvironment : 1;
 		uint32_t maxSensorSamples;
 
 		// scene specific data

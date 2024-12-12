@@ -345,7 +345,7 @@ mat2x3 rand6d(in uvec3 scramble_keys[2], in int _sample, int depth)
 	// decrement depth because first vertex is rasterized and picked with a different sample sequence
 	--depth;
 	//
-	const int offset = int(_sample*staticViewData.sampleSequenceStride)+depth*SAMPLING_STRATEGY_COUNT;
+	const int offset = int(_sample*staticViewData.sampleSequenceStride_hideEnvmap&0x7fFFffFFu)+depth*SAMPLING_STRATEGY_COUNT;
 
 	const nbl_glsl_sampling_quantized3D quant1 = texelFetch(quantizedSampleSequence, offset).xy;
 	const nbl_glsl_sampling_quantized3D quant2 = texelFetch(quantizedSampleSequence, offset+1).xy;

@@ -51,7 +51,7 @@ Renderer::Renderer(IVideoDriver* _driver, IAssetManager* _assetManager, scene::I
 		m_rrManager(ext::RadeonRays::Manager::create(m_driver)),
 		m_prevView(), m_prevCamTform(), m_sceneBound(FLT_MAX,FLT_MAX,FLT_MAX,-FLT_MAX,-FLT_MAX,-FLT_MAX), m_maxAreaLightLuma(0.f),
 		m_framesDispatched(0u), m_rcpPixelSize{0.f,0.f},
-		m_staticViewData{ {0u,0u},0u,0u,0u,0u,core::infinity<float>(),{}}, m_raytraceCommonData{0.f,0u,0u,0u,core::matrix3x4SIMD()},
+		m_staticViewData{ {0u,0u},0u,0u,0u,0u,false,core::infinity<float>(),{}}, m_raytraceCommonData{0.f,0u,0u,0u,core::matrix3x4SIMD()},
 		m_indirectDrawBuffers{nullptr},m_cullPushConstants{core::matrix4SIMD(),1.f,0u,0u,0u},m_cullWorkGroups(0u),
 		m_raygenWorkGroups{0u,0u},m_visibilityBuffer(nullptr),m_colorBuffer(nullptr),
 		m_envMapImportanceSampling(_driver)
@@ -215,8 +215,11 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 			{
 				case Enum::DIRECT:
 					maxPathDepth = 2u;
+					hideEnvironment = integrator->direct.hideEnvironment;
 					break;
 				case Enum::PATH:
+					hideEnvironment = integrator->path.hideEnvironment;
+					[[fallthrough]];
 				case Enum::VOL_PATH_SIMPLE:
 				case Enum::VOL_PATH:
 				case Enum::BDPT:
@@ -1149,6 +1152,7 @@ void Renderer::initSceneResources(SAssetBundle& meshes, nbl::io::path&& _sampleS
 			}
 			std::cout << "\tmaxPathDepth = " << maxPathDepth << std::endl;
 			std::cout << "\tnoRussianRouletteDepth = " << noRussianRouletteDepth << std::endl;
+			std::cout << "\thideEnvironment = " << hideEnvironment << std::endl;
 			std::cout << "\tmaxSamples = " << maxSensorSamples << std::endl;
 		}
 	}
@@ -1188,7 +1192,7 @@ void Renderer::deinitSceneResources()
 	
 	m_finalEnvmap = nullptr;
 	m_envMapImportanceSampling.deinitResources();
-	m_staticViewData = {{0u,0u},0u,0u,0u,0u,core::infinity<float>(),{}};
+	m_staticViewData = {{0u,0u},0u,0u,0u,0u,false,core::infinity<float>(),{}};
 
 	auto rr = m_rrManager->getRadeonRaysAPI();
 	rr->DetachAll();
@@ -1204,6 +1208,7 @@ void Renderer::deinitSceneResources()
 
 	maxPathDepth = DefaultPathDepth;
 	noRussianRouletteDepth = 5u;
+	hideEnvironment = false;
 	maxSensorSamples = MaxFreeviewSamples;
 }
 
@@ -1282,6 +1287,7 @@ void Renderer::initScreenSizedResources(
 	{
 		m_staticViewData.maxPathDepth = maxPathDepth;
 		m_staticViewData.noRussianRouletteDepth = noRussianRouletteDepth;
+		m_staticViewData.hideEnvmap = hideEnvironment;
 
 		uint32_t _maxRaysPerDispatch = 0u;
 		auto setRayBufferSizes = [renderPixelCount,this,&_maxRaysPerDispatch,&raygenBufferSize,&intersectionBufferSize](uint32_t sampleMultiplier) -> void
@@ -1646,6 +1652,7 @@ void Renderer::deinitScreenSizedResources()
 	m_staticViewData.maxPathDepth = DefaultPathDepth;
 	m_staticViewData.noRussianRouletteDepth = 5u;
 	m_staticViewData.samplesPerPixelPerDispatch = 1u;
+	m_staticViewData.hideEnvmap = false;
 	m_staticViewData.envMapPDFNormalizationFactor = core::infinity<float>();
 	m_staticViewData.cascadeParams = {};
 	m_totalRaysCast = 0ull;

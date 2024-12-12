@@ -98,11 +98,13 @@ struct StaticViewData_t
 	uint8_t maxPathDepth;
 	uint8_t noRussianRouletteDepth;
 	uint16_t samplesPerPixelPerDispatch;
+	uint32_t sampleSequenceStride : 31;
+	uint32_t hideEnvmap : 1;
 #else
 	uint imageDimensions;
 	uint maxPathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch;
+	uint sampleSequenceStride_hideEnvmap;
 #endif
-	uint sampleSequenceStride; // this is a very small number actually, probably 20 bits left to play with
 	float envMapPDFNormalizationFactor;
 	nbl_glsl_RWMC_CascadeParameters cascadeParams;
 };
