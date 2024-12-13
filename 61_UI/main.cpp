@@ -185,9 +185,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 	using base_t = examples::SimpleWindowedApplication;
 	using clock_t = std::chrono::steady_clock;
 
-	//_NBL_STATIC_INLINE_CONSTEXPR uint32_t WIN_W = 1280, WIN_H = 720;
-
 	constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
+
+	enum CameraRenderImguiTextureIx
+	{
+		OfflineSceneFirstCameraTextureIx = 1u,
+		OfflineSceneSecondCameraTextureIx = 2u
+	};
 
 	public:
 		using base_t::base_t;
@@ -465,10 +469,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				// projections
 				projections = linear_projection_t::create(smart_refctd_ptr(cameraz.front()));
 
+				const auto dpyInfo = m_winMgr->getPrimaryDisplayInfo();
 				for (uint32_t i = 0u; i < scenez.size(); ++i)
 				{
 					auto& scene = scenez[i];
-					scene = CScene::create(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), getGraphicsQueue(), smart_refctd_ptr(resources));
+					scene = CScene::create(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), getGraphicsQueue(), smart_refctd_ptr(resources), dpyInfo.resX, dpyInfo.resY);
 
 					if (!scene)
 					{
@@ -566,11 +571,15 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			bool willSubmit = true;
 			{
+				willSubmit &= cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+				willSubmit &= cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+				willSubmit &= cmdbuf->beginDebugMarker("UIApp Frame");
+
 				// render geometry creator scene to offline frame buffer & submit
 				// TODO: OK with TRI buffer this thing is retarded now
 				// (**) <- a note why bellow before submit
 
-				for (auto scene : scenez)
+				auto renderOfflineScene = [&](auto& scene)
 				{
 					scene->begin();
 					{
@@ -579,11 +588,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						scene->end();
 					}
 					scene->submit(getGraphicsQueue());
-				}
+				};
 
-				willSubmit &= cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
-				willSubmit &= cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-				willSubmit &= cmdbuf->beginDebugMarker("UIApp Frame");
+				if (useWindow)
+					for (auto scene : scenez)
+						renderOfflineScene(scene);
+				else
+					renderOfflineScene(scenez.front().get()); // just to not render to all at once
 				
 				const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
 				const IGPUCommandBuffer::SRenderpassBeginInfo info = {
@@ -705,10 +716,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					}
 				};
 
-				// (**) -> wait on offline framebuffers
+				// (**) -> wait on offline framebuffers in window mode
 				{
 					const nbl::video::ISemaphore::SWaitInfo waitInfos[] =
-					{ 
+					{
 						// wait for first camera scene view fb
 						{
 							.semaphore = scenez[0]->semaphore.progress.get(),
@@ -721,7 +732,38 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						},
 					};
 
-					m_device->blockForSemaphores(waitInfos);
+					if (useWindow)
+					{
+						m_device->blockForSemaphores(std::to_array<nbl::video::ISemaphore::SWaitInfo>
+						(
+							{
+								// wait for first camera scene view fb
+								{
+									.semaphore = scenez[0]->semaphore.progress.get(),
+									.value = scenez[0]->semaphore.finishedValue
+								},
+								// and second one too
+								{
+									.semaphore = scenez[1]->semaphore.progress.get(),
+									.value = scenez[1]->semaphore.finishedValue
+								},
+							}
+						));
+					}
+					else
+					{
+						m_device->blockForSemaphores(std::to_array<nbl::video::ISemaphore::SWaitInfo>
+						(
+							{
+								// wait for first only, we use it temporary for FS render mode
+								{
+									.semaphore = scenez.front()->semaphore.progress.get(),
+									.value = scenez.front()->semaphore.finishedValue
+								}
+							}
+						));
+					}
+
 					updateGUIDescriptorSet();
 				}
 
@@ -839,17 +881,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			
 			ImGuizmo::SetOrthographic(false);
 			ImGuizmo::BeginFrame();
-
-			ImGui::SetNextWindowPos(ImVec2(1024, 100), ImGuiCond_Appearing);
-			ImGui::SetNextWindowSize(ImVec2(256, 256), ImGuiCond_Appearing);
-
-			// create a window and insert the inspector
-			ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Appearing);
-			ImGui::SetNextWindowSize(ImVec2(320, 340), ImGuiCond_Appearing);
-			ImGui::Begin("TRS Editor");
-
-			//if (ImGui::RadioButton("Full view", !useWindow))
-			//	useWindow = false;
 			
 			auto projectionMatrices = projections->getLinearProjections();
 			{
@@ -876,33 +907,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					}
 				}
 			}
-
-			ImGui::SameLine();
-
-			//if (ImGui::RadioButton("Window", useWindow))
-			//	useWindow = true;
-
-			// ImGui::Checkbox("Flip Gizmo's Y axis", &flipGizmoY); // let's not expose it to be changed in UI but keep the logic in case
-
-			ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
-			if (ImGuizmo::IsUsing())
-			{
-				ImGui::Text("Using gizmo");
-			}
-			else
-			{
-				/*
-				ImGui::Text(ImGuizmo::IsOver() ? "Over gizmo" : "");
-				ImGui::SameLine();
-				ImGui::Text(ImGuizmo::IsOver(ImGuizmo::TRANSLATE) ? "Over translate gizmo" : "");
-				ImGui::SameLine();
-				ImGui::Text(ImGuizmo::IsOver(ImGuizmo::ROTATE) ? "Over rotate gizmo" : "");
-				ImGui::SameLine();
-				ImGui::Text(ImGuizmo::IsOver(ImGuizmo::SCALE) ? "Over scale gizmo" : "");
-				*/
-			}
-			ImGui::Separator();
-
+			
 			/*
 			* ImGuizmo expects view & perspective matrix to be column major both with 4x4 layout
 			* and Nabla uses row major matricies - 3x4 matrix for view & 4x4 for projection
@@ -981,29 +986,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			// and second camera's model too
 			imguizmoM16InOut.inModel[1] = gimbalToImguizmoTRS(getCastedMatrix<float32_t>(secondCameraGimbalModel));
 			{
-				float* views[]
-				{
-					&imguizmoM16InOut.view[0u][0][0], // first camera
-					&imguizmoM16InOut.view[1u][0][0] // second camera
-				};
-
-				float* projections[]
-				{
-					&imguizmoM16InOut.projection[0u][0][0], // full screen, tmp off
-					&imguizmoM16InOut.projection[1u][0][0], // first camera
-					&imguizmoM16InOut.projection[2u][0][0] // second camera
-				};
-
 				if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
 					for(uint32_t i = 0u; i < ProjectionsCount; ++i)
 						imguizmoM16InOut.projection[i][1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
-
-				float* lastUsedModel = &imguizmoM16InOut.inModel[lastManipulatedModelIx][0][0];
-
-				// ImGuizmo manipulations on the last used model matrix
-				TransformEditor(lastUsedModel);
-				uint32_t gizmoID = {};
-				bool manipulatedFromAnyWindow = false;
 
 				ImGuizmo::AllowAxisFlip(false);
 
@@ -1012,84 +997,145 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				else
 					ImGuizmo::Enable(true);
 
-				// we have 2 GUI windows we render into with FBOs
-				for (uint32_t windowIndex = 0; windowIndex < 2u; ++windowIndex)
+				aspectRatio[0] = io.DisplaySize.x / io.DisplaySize.y;
+				invAspectRatio[0] = io.DisplaySize.y / io.DisplaySize.x;
+
+				SImResourceInfo info;
+				info.samplerIx = (uint16_t)nbl::ext::imgui::UI::DefaultSamplerIx::USER;
+
+				// render camera views onto GUIs
+				if (useWindow)
 				{
-					auto* cameraView = views[windowIndex];
-					auto* cameraProjection = projections[1u + windowIndex];
+					// ImGuizmo manipulations on the last used model matrix in window mode
+					TransformEditor(&imguizmoM16InOut.inModel[lastManipulatedModelIx][0][0]);
 
-					TransformStart(windowIndex);
+					uint32_t gizmoIx = {};
+					bool manipulatedFromAnyWindow = false;
 
-					// but only 2 objects with matrices we will try to manipulate & we can do this from both windows!
-					// however note it only makes sense to obsly assume we cannot manipulate 2 objects at the same time
-					for (uint32_t matId = 0; matId < 2; matId++)
+					// we have 2 GUI windows we render into with FBOs
+					for (uint32_t windowIndex = 0; windowIndex < 2u; ++windowIndex)
 					{
-						// future logic will need to filter gizmos which represents gimbal of camera which view matrix we use to render scene with
-						if (gizmoID == 3)
-							continue;
-						
-						// and because of imguizmo API usage to achieve it we must work on copies & filter the output (unless we try gizmo enable/disable) 
-						// -> in general we need to be careful to not edit the same model twice
-						auto model = imguizmoM16InOut.inModel[matId];
-						float32_t4x4 deltaOutputTRS;
+						const auto& cameraIx = windowIndex; // tmp bound & hardcoded, we will extend it later
+						const auto projectionIx = cameraIx + 1u; // offset because first projection belongs to full screen (**)
+						info.textureID = projectionIx;
 
-						// note we also need to take care of unique gizmo IDs, we have in total 4 gizmos even though we only want to manipulate 2 objects in total
-						ImGuizmo::PushID(gizmoID);
+						ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Appearing);
+						ImGui::SetNextWindowPos(ImVec2(400, 20 + cameraIx * 420), ImGuiCond_Appearing);
+						ImGui::PushStyleColor(ImGuiCol_WindowBg, (ImVec4)ImColor(0.35f, 0.3f, 0.3f));
+						std::string ident = "Camera \"" + std::to_string(cameraIx) + "\" View";
+						ImGui::Begin(ident.data(), 0, ImGuiWindowFlags_NoMove);
+						ImGuizmo::SetDrawlist();
 
-						ImGuiIO& io = ImGui::GetIO();
-						const bool success = ImGuizmo::Manipulate(cameraView, cameraProjection, mCurrentGizmoOperation, mCurrentGizmoMode, &model[0][0], &deltaOutputTRS[0][0], useSnap ? &snap[0] : NULL);
+						ImVec2 contentRegionSize, windowPos, cursorPos;
+						contentRegionSize = ImGui::GetContentRegionAvail();
+						cursorPos = ImGui::GetCursorScreenPos();
+						windowPos = ImGui::GetWindowPos();
 
-						// we manipulated a gizmo from a X-th window, now we update output matrices and assume no more gizmos can be manipulated at the same frame
-						if (!manipulatedFromAnyWindow)
+						// (**)
+						aspectRatio[projectionIx] = contentRegionSize.x / contentRegionSize.y;
+						invAspectRatio[projectionIx] = contentRegionSize.y / contentRegionSize.x;
+
+						ImGui::Image(info, contentRegionSize);
+						ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
+
+						if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+							lastProjectionIx = projectionIx;
+
+						// but only 2 objects with matrices we will try to manipulate & we can do this from both windows!
+						// however note it only makes sense to obsly assume we cannot manipulate 2 objects at the same time
+						for (uint32_t modelIx = 0; modelIx < 2; modelIx++)
 						{
-							// TMP WIP, our imguizmo controller doesnt support rotation & scale yet
-							auto discard = gizmoID == 1 && mCurrentGizmoOperation != ImGuizmo::TRANSLATE;
-							if (!discard)
+							// future logic will need to filter gizmos which represents gimbal of camera which view matrix we use to render scene with
+							if (gizmoIx == 3)
+								continue;
+
+							// and because of imguizmo API usage to achieve it we must work on copies & filter the output (unless we try gizmo enable/disable) 
+							// -> in general we need to be careful to not edit the same model twice
+							
+							auto model = imguizmoM16InOut.inModel[modelIx];
+							float32_t4x4 deltaOutputTRS;
+
+							// note we also need to take care of unique gizmo IDs, we have in total 4 gizmos even though we only want to manipulate 2 objects in total
+							ImGuizmo::PushID(gizmoIx);
+
+							ImGuiIO& io = ImGui::GetIO();
+
+							const bool success = ImGuizmo::Manipulate(&imguizmoM16InOut.view[cameraIx][0][0], &imguizmoM16InOut.projection[projectionIx][0][0], mCurrentGizmoOperation, mCurrentGizmoMode, &model[0][0], &deltaOutputTRS[0][0], useSnap ? &snap[0] : nullptr);
+
+							// we manipulated a gizmo from a X-th window, now we update output matrices and assume no more gizmos can be manipulated at the same frame
+							if (!manipulatedFromAnyWindow)
 							{
-								imguizmoM16InOut.outModel[matId] = model;
-								imguizmoM16InOut.outDeltaTRS[matId] = deltaOutputTRS;
+								// TMP WIP, our imguizmo controller doesnt support rotation & scale yet
+								auto discard = gizmoIx == 1 && mCurrentGizmoOperation != ImGuizmo::TRANSLATE;
+								if (!discard)
+								{
+									imguizmoM16InOut.outModel[modelIx] = model;
+									imguizmoM16InOut.outDeltaTRS[modelIx] = deltaOutputTRS;
+								}
 							}
+
+							if (success)
+								manipulatedFromAnyWindow = true;
+
+							if (ImGuizmo::IsUsing())
+							{
+								lastManipulatedModelIx = modelIx;
+								lastManipulatedGizmoIx = gizmoIx;
+								lastManipulatedModelIdentifier = lastManipulatedModelIx == 0 ? "Geometry Creator Object" : "Camera FPS";
+							}
+
+							if (ImGuizmo::IsOver())
+							{
+								ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.2f, 0.2f, 0.2f, 0.8f));
+								ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+								ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.5f);
+
+								ImVec2 mousePos = io.MousePos;
+								ImGui::SetNextWindowPos(ImVec2(mousePos.x + 10, mousePos.y + 10), ImGuiCond_Always);
+
+								ImGui::Begin("InfoOverlay", nullptr,
+									ImGuiWindowFlags_NoDecoration |
+									ImGuiWindowFlags_AlwaysAutoResize |
+									ImGuiWindowFlags_NoSavedSettings);
+
+								ImGui::Text("Identifier: %s", lastManipulatedModelIdentifier.c_str());
+								ImGui::Text("Object Ix: %u", modelIx);
+
+								ImGui::End();
+
+								ImGui::PopStyleVar();
+								ImGui::PopStyleColor(2);
+							}
+
+							ImGuizmo::PopID();
+							++gizmoIx;
 						}
 
-						if (success)
-							manipulatedFromAnyWindow = true;
-
-						if (ImGuizmo::IsUsing())
-						{
-							lastManipulatedModelIx = matId;
-							lastManipulatedGizmoIx = gizmoID;
-							lastManipulatedModelIdentifier = lastManipulatedModelIx == 0 ? "Geometry Creator Object" : "Camera FPS";
-						}
-
-						if (ImGuizmo::IsOver())
-						{
-							ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.2f, 0.2f, 0.2f, 0.8f));
-							ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
-							ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.5f);
-
-							ImVec2 mousePos = io.MousePos;
-							ImGui::SetNextWindowPos(ImVec2(mousePos.x + 10, mousePos.y + 10), ImGuiCond_Always);
-
-							ImGui::Begin("InfoOverlay", NULL,
-								ImGuiWindowFlags_NoDecoration |
-								ImGuiWindowFlags_AlwaysAutoResize |
-								ImGuiWindowFlags_NoSavedSettings);
-
-							ImGui::Text("Identifier: %s", lastManipulatedModelIdentifier.c_str());
-							ImGui::Text("Object Ix: %u", matId);
-							//ImGui::Text("Gizmo Ix: %u", gizmoID);
-
-							ImGui::End();
-
-							ImGui::PopStyleVar();
-							ImGui::PopStyleColor(2);
-						}
-
-						ImGuizmo::PopID();
-						++gizmoID;
+						ImGui::End();
+						ImGui::PopStyleColor(1);
 					}
+				}
+				// render selected camera view onto full screen
+				else
+				{
+					info.textureID = OfflineSceneFirstCameraTextureIx;;
+					lastProjectionIx = 0;
 
-					TransformEnd();
+					ImGui::SetNextWindowPos(ImVec2(0, 0));
+					ImGui::SetNextWindowSize(io.DisplaySize);
+					ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0)); // fully transparent fake window
+					ImGui::Begin("FullScreenWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
+
+					ImVec2 contentRegionSize, windowPos, cursorPos;
+					contentRegionSize = ImGui::GetContentRegionAvail();
+					cursorPos = ImGui::GetCursorScreenPos();
+					windowPos = ImGui::GetWindowPos();
+
+					ImGui::Image(info, contentRegionSize);
+					ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
+
+					ImGui::End();
+					ImGui::PopStyleColor(1);
 				}
 			}
 
@@ -1169,13 +1215,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						float32_t3x4 modelView, normal;
 						float32_t4x4 modelViewProjection;
 
-						const auto& viewMatrix = *views[i];
+						const auto& viewMatrix = *views[useWindow ? i : activeCameraIndex];
 						modelView = concatenateBFollowedByA<float>(viewMatrix, m_model);
 
 						// TODO
 						//modelView.getSub3x3InverseTranspose(normal);
 
-						auto concatMatrix = mul(getCastedMatrix<float32_t>(projectionMatrices[i + 1u].getProjectionMatrix()), getMatrix3x4As4x4(viewMatrix));
+						auto concatMatrix = mul(getCastedMatrix<float32_t>(projectionMatrices[useWindow ? i + 1u : 0u].getProjectionMatrix()), getMatrix3x4As4x4(viewMatrix));
 						modelViewProjection = mul(concatMatrix, getMatrix3x4As4x4(m_model));
 
 						memcpy(hook.viewParameters.MVP, &modelViewProjection[0][0], sizeof(hook.viewParameters.MVP));
@@ -1206,6 +1252,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					}
 
 					ImGui::Begin("Cameras", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysVerticalScrollbar);
+					ImGui::Checkbox("Window mode##useWindow", &useWindow);
 					ImGui::Text("Select Active Camera:");
 					ImGui::Separator();
 
@@ -1310,81 +1357,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 				ImGui::End();
 			}
-
-			/*
-			
-			// Nabla Imgui backend MDI buffer info
-			// To be 100% accurate and not overly conservative we'd have to explicitly `cull_frees` and defragment each time,
-			// so unless you do that, don't use this basic info to optimize the size of your IMGUI buffer.
-			{
-				auto* streaminingBuffer = m_ui.manager->getStreamingBuffer();
-
-				const size_t total = streaminingBuffer->get_total_size();			// total memory range size for which allocation can be requested
-				const size_t freeSize = streaminingBuffer->getAddressAllocator().get_free_size();		// max total free bloock memory size we can still allocate from total memory available
-				const size_t consumedMemory = total - freeSize;			// memory currently consumed by streaming buffer
-
-				float freePercentage = 100.0f * (float)(freeSize) / (float)total;
-				float allocatedPercentage = (float)(consumedMemory) / (float)total;
-
-				ImVec2 barSize = ImVec2(400, 30);
-				float windowPadding = 10.0f;
-				float verticalPadding = ImGui::GetStyle().FramePadding.y;
-
-				ImGui::SetNextWindowSize(ImVec2(barSize.x + 2 * windowPadding, 110 + verticalPadding), ImGuiCond_Always);
-				ImGui::Begin("Nabla Imgui MDI Buffer Info", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar);
-
-				ImGui::Text("Total Allocated Size: %zu bytes", total);
-				ImGui::Text("In use: %zu bytes", consumedMemory);
-				ImGui::Text("Buffer Usage:");
-
-				ImGui::SetCursorPosX(windowPadding);
-
-				if (freePercentage > 70.0f)
-					ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.0f, 1.0f, 0.0f, 0.4f));  // Green
-				else if (freePercentage > 30.0f)
-					ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 1.0f, 0.0f, 0.4f));  // Yellow
-				else
-					ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 0.0f, 0.0f, 0.4f));  // Red
-
-				ImGui::ProgressBar(allocatedPercentage, barSize, "");
-
-				ImGui::PopStyleColor();
-
-				ImDrawList* drawList = ImGui::GetWindowDrawList();
-
-				ImVec2 progressBarPos = ImGui::GetItemRectMin();
-				ImVec2 progressBarSize = ImGui::GetItemRectSize();
-
-				const char* text = "%.2f%% free";
-				char textBuffer[64];
-				snprintf(textBuffer, sizeof(textBuffer), text, freePercentage);
-
-				ImVec2 textSize = ImGui::CalcTextSize(textBuffer);
-				ImVec2 textPos = ImVec2
-				(
-					progressBarPos.x + (progressBarSize.x - textSize.x) * 0.5f,
-					progressBarPos.y + (progressBarSize.y - textSize.y) * 0.5f
-				);
-
-				ImVec4 bgColor = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
-				drawList->AddRectFilled
-				(
-					ImVec2(textPos.x - 5, textPos.y - 2),
-					ImVec2(textPos.x + textSize.x + 5, textPos.y + textSize.y + 2),
-					ImGui::GetColorU32(bgColor)
-				);
-
-				ImGui::SetCursorScreenPos(textPos);
-				ImGui::Text("%s", textBuffer);
-
-				ImGui::Dummy(ImVec2(0.0f, verticalPadding));
-
-				ImGui::End();
-			}
-
-			*/
-
-			ImGui::End();
 		}
 
 		inline void TransformEditor(float* matrix)
@@ -1394,6 +1366,17 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			static bool boundSizing = false;
 			static bool boundSizingSnap = false;
 
+			ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Appearing);
+			ImGui::SetNextWindowSize(ImVec2(320, 340), ImGuiCond_Appearing);
+			ImGui::Begin("TRS Editor");
+			ImGui::SameLine();
+
+			ImGuiIO& io = ImGui::GetIO();
+			ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
+			if (ImGuizmo::IsUsing())
+				ImGui::Text("Using gizmo");
+			ImGui::Separator();
+
 			ImGui::Text("Object Ix: \"%s\"", std::to_string(lastManipulatedModelIx).c_str());
 			ImGui::Separator();
 
@@ -1401,15 +1384,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			ImGui::Separator();
 
 			addMatrixTable("Model (TRS) Matrix", "ModelMatrixTable", 4, 4, matrix);
-
-			/*
-			if (ImGui::IsKeyPressed(ImGuiKey_T))
-				mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
-			if (ImGui::IsKeyPressed(ImGuiKey_E))
-				mCurrentGizmoOperation = ImGuizmo::ROTATE;
-			if (ImGui::IsKeyPressed(ImGuiKey_R))
-				mCurrentGizmoOperation = ImGuizmo::SCALE;
-			*/
 
 			if (ImGui::RadioButton("Translate", mCurrentGizmoOperation == ImGuizmo::TRANSLATE))
 				mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
@@ -1435,9 +1409,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					mCurrentGizmoMode = ImGuizmo::WORLD;
 			}
 
-			//if (ImGui::IsKeyPressed(ImGuiKey_S))
-			//	useSnap = !useSnap;
-
 			ImGui::Checkbox(" ", &useSnap);
 			ImGui::SameLine();
 			switch (mCurrentGizmoOperation)
@@ -1452,83 +1423,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				ImGui::InputFloat("Scale Snap", &snap[0]);
 				break;
 			}
-		}
 
-		inline void TransformStart(uint32_t wCameraIndex)
-		{
-			ImGuiIO& io = ImGui::GetIO();
-			static ImGuiWindowFlags gizmoWindowFlags = ImGuiWindowFlags_NoMove;
-
-			SImResourceInfo info;
-			switch (wCameraIndex) 
-			{
-				case 0:
-					info.textureID = OfflineSceneFirstCameraTextureIx;
-					break;
-				case 1:
-					info.textureID = OfflineSceneSecondCameraTextureIx;
-					break;
-				default:
-					assert(false); // "wCameraIndex OOB!"
-					break;
-			}
-			info.samplerIx = (uint16_t)nbl::ext::imgui::UI::DefaultSamplerIx::USER;
-
-			aspectRatio[0] = io.DisplaySize.x / io.DisplaySize.y;
-			invAspectRatio[0] = io.DisplaySize.y / io.DisplaySize.x;
-
-			if (useWindow)
-			{
-				ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Appearing);
-				ImGui::SetNextWindowPos(ImVec2(400, 20 + wCameraIndex * 420), ImGuiCond_Appearing);
-				ImGui::PushStyleColor(ImGuiCol_WindowBg, (ImVec4)ImColor(0.35f, 0.3f, 0.3f));
-				std::string ident = "Camera \"" + std::to_string(wCameraIndex) + "\" View";
-				ImGui::Begin(ident.data(), 0, gizmoWindowFlags);
-				ImGuizmo::SetDrawlist();
-
-				ImVec2 contentRegionSize, windowPos, cursorPos;
-				contentRegionSize = ImGui::GetContentRegionAvail();
-				cursorPos = ImGui::GetCursorScreenPos();
-				windowPos = ImGui::GetWindowPos();
-
-				aspectRatio[wCameraIndex + 1] = contentRegionSize.x / contentRegionSize.y;
-				invAspectRatio[wCameraIndex + 1] = contentRegionSize.y / contentRegionSize.x;
-
-				ImGui::Image(info, contentRegionSize);
-				ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
-
-				if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
-					lastProjectionIx = (int)(wCameraIndex + 1u);
-			}
-			else
-			{
-				ImGui::SetNextWindowPos(ImVec2(0, 0));
-				ImGui::SetNextWindowSize(io.DisplaySize);
-				ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0)); // fully transparent fake window
-				ImGui::Begin("FullScreenWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
-
-				ImVec2 contentRegionSize, windowPos, cursorPos;
-				contentRegionSize = ImGui::GetContentRegionAvail();
-				cursorPos = ImGui::GetCursorScreenPos();
-				windowPos = ImGui::GetWindowPos();
-
-				ImGui::Image(info, contentRegionSize);
-				ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
-
-				lastProjectionIx = 0;
-			}
-
-			ImGuiWindow* window = ImGui::GetCurrentWindow();
-			gizmoWindowFlags = ImGuiWindowFlags_NoMove;//(ImGuizmo::IsUsing() && ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(window->InnerRect.Min, window->InnerRect.Max) ? ImGuiWindowFlags_NoMove : 0);
-		}
-
-		inline void TransformEnd()
-		{
-			if (useWindow)
-			{
-				ImGui::End();
-			}
-			ImGui::PopStyleColor(1);
+			ImGui::End();
 		}
 
 		inline void addMatrixTable(const char* topText, const char* tableName, int rows, int columns, const float* pointer, bool withSeparator = true)
@@ -1616,9 +1512,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		uint32_t activeCameraIndex = 0;
 		bool enableActiveCameraMovement = false;
 		nbl::core::smart_refctd_ptr<ResourcesBundle> resources;
-
-		static constexpr inline auto OfflineSceneFirstCameraTextureIx = 1u;
-		static constexpr inline auto OfflineSceneSecondCameraTextureIx = 2u;
 
 		CRenderUI m_ui;
 		video::CDumbPresentationOracle oracle;

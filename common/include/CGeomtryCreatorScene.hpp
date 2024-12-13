@@ -19,7 +19,7 @@ using namespace system
 
 struct Traits
 {
-	static constexpr auto FramebufferW = 1280u, FramebufferH = 720u;
+	static constexpr auto DefaultFramebufferW = 1280u, DefaultFramebufferH = 720u;
 	static constexpr auto ColorFboAttachmentFormat = nbl::asset::EF_R8G8B8A8_SRGB, DepthFboAttachmentFormat = nbl::asset::EF_D16_UNORM;
 	static constexpr auto Samples = nbl::video::IGPUImage::ESCF_1_BIT;
 	static constexpr nbl::video::IGPUCommandBuffer::SClearColorValue clearColor = { .float32 = {0.f,0.f,0.f,1.f} };
@@ -515,7 +515,7 @@ public:
 		nbl::core::smart_refctd_ptr<nbl::video::ISemaphore> progress;
 	} semaphore;
 
-	static inline nbl::core::smart_refctd_ptr<CScene> create(nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> device, nbl::core::smart_refctd_ptr<nbl::system::ILogger> logger, nbl::video::CThreadSafeQueueAdapter* const transferCapableQueue, const nbl::core::smart_refctd_ptr<const ResourcesBundle> resources)
+	static inline nbl::core::smart_refctd_ptr<CScene> create(nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> device, nbl::core::smart_refctd_ptr<nbl::system::ILogger> logger, nbl::video::CThreadSafeQueueAdapter* const transferCapableQueue, const nbl::core::smart_refctd_ptr<const ResourcesBundle> resources, const uint32_t framebufferW = Traits::DefaultFramebufferW, const uint32_t framebufferH = Traits::DefaultFramebufferH)
 	{
 		EXPOSE_NABLA_NAMESPACES();
 
@@ -645,7 +645,7 @@ public:
 							.type = IGPUImage::ET_2D,
 							.samples = Traits::Samples,
 							.format = format,
-							.extent = { Traits::FramebufferW, Traits::FramebufferH, 1u },
+							.extent = { framebufferW, framebufferH, 1u },
 							.mipLevels = 1u,
 							.arrayLayers = 1u,
 							.usage = USAGE
@@ -742,7 +742,6 @@ public:
 	inline bool record()
 	{
 		EXPOSE_NABLA_NAMESPACES();
-
 		bool valid = true;
 
 		const struct 
@@ -783,24 +782,7 @@ public:
 		};
 
 		valid &= m_commandBuffer->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-
-		const auto& [hook, meta] = m_resources->objects[object.meta.type];
-		const auto* rawPipeline = hook.pipeline.get();
-
-		SBufferBinding<const IGPUBuffer> vertex = hook.bindings.vertex, index = hook.bindings.index;
-
-		valid &= m_commandBuffer->bindGraphicsPipeline(rawPipeline);
-		valid &= m_commandBuffer->bindDescriptorSets(EPBP_GRAPHICS, rawPipeline->getLayout(), 1, 1, &m_ds.get());
-		valid &= m_commandBuffer->bindVertexBuffers(0, 1, &vertex);
-
-		if (index.buffer && hook.indexType != EIT_UNKNOWN)
-		{
-			valid &= m_commandBuffer->bindIndexBuffer(index, hook.indexType);
-			valid &= m_commandBuffer->drawIndexed(hook.indexCount, 1, 0, 0, 0);
-		}
-		else
-			valid &= m_commandBuffer->draw(hook.indexCount, 1, 0, 0);
-
+		valid &= draw(m_commandBuffer.get());
 		valid &= m_commandBuffer->endRenderPass();
 
 		return valid;
@@ -837,7 +819,7 @@ public:
 		return queue->submit(infos) == IQueue::RESULT::SUCCESS;
 	}
 
-	inline void update()
+	inline bool update(nbl::video::IGPUCommandBuffer* cmdbuf = nullptr)
 	{
 		EXPOSE_NABLA_NAMESPACES();
 
@@ -845,12 +827,40 @@ public:
 		range.buffer = smart_refctd_ptr(m_ubo.buffer);
 		range.size = m_ubo.buffer->getSize();
 
-		m_commandBuffer->updateBuffer(range, &object.viewParameters);
+		if(cmdbuf)
+			return cmdbuf->updateBuffer(range, &object.viewParameters);
+
+		return m_commandBuffer->updateBuffer(range, &object.viewParameters);
 	}
 
 	inline auto getColorAttachment() { return nbl::core::smart_refctd_ptr(m_color); }
 
 private:
+	inline bool draw(nbl::video::IGPUCommandBuffer* cmdbuf)
+	{
+		EXPOSE_NABLA_NAMESPACES();
+		bool valid = true;
+
+		const auto& [hook, meta] = m_resources->objects[object.meta.type];
+		const auto* rawPipeline = hook.pipeline.get();
+
+		SBufferBinding<const IGPUBuffer> vertex = hook.bindings.vertex, index = hook.bindings.index;
+
+		valid &= cmdbuf->bindGraphicsPipeline(rawPipeline);
+		valid &= cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, rawPipeline->getLayout(), 1, 1, &m_ds.get());
+		valid &= cmdbuf->bindVertexBuffers(0, 1, &vertex);
+
+		if (index.buffer && hook.indexType != EIT_UNKNOWN)
+		{
+			valid &= cmdbuf->bindIndexBuffer(index, hook.indexType);
+			valid &= cmdbuf->drawIndexed(hook.indexCount, 1, 0, 0, 0);
+		}
+		else
+			valid &= cmdbuf->draw(hook.indexCount, 1, 0, 0);
+
+		return valid;
+	}
+
 	CScene(nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> device, nbl::core::smart_refctd_ptr<nbl::system::ILogger> logger, nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> commandBuffer, nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer> frameBuffer, nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSet> ds, nbl::asset::SBufferBinding<nbl::video::IGPUBuffer> ubo, nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> color, nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> depth, const nbl::core::smart_refctd_ptr<const ResourcesBundle> resources)
 		: m_device(nbl::core::smart_refctd_ptr(device)), m_logger(nbl::core::smart_refctd_ptr(logger)), m_commandBuffer(nbl::core::smart_refctd_ptr(commandBuffer)), m_frameBuffer(nbl::core::smart_refctd_ptr(frameBuffer)), m_ds(nbl::core::smart_refctd_ptr(ds)), m_ubo(ubo), m_color(nbl::core::smart_refctd_ptr(color)), m_depth(nbl::core::smart_refctd_ptr(depth)), m_resources(nbl::core::smart_refctd_ptr(resources)) {}
 
