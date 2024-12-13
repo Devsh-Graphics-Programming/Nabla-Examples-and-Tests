@@ -6,6 +6,9 @@
 //#define KILL_DIFFUSE_SPECULAR_PATHS
 //#define VISUALIZE_HIGH_VARIANCE
 
+// debug
+//#define NEE_ONLY
+
 layout(set = 2, binding = 0) uniform sampler2D envMap; 
 layout(set = 2, binding = 1) uniform usamplerBuffer sampleSequence;
 layout(set = 2, binding = 2) uniform usampler2D scramblebuf;
@@ -636,7 +639,7 @@ bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nb
                 float bsdfPdf;
                 neeContrib *= nbl_glsl_bsdf_cos_remainder_and_pdf(bsdfPdf,nee_sample,interaction,bsdf,monochromeEta,_cache)*throughput;
                 const float otherGenOverChoice = bsdfPdf*rcpChoiceProb;
-#if 0
+#ifndef NEE_ONLY
                 const float otherGenOverLightAndChoice = otherGenOverChoice/lightPdf;
                 neeContrib *= otherGenOverChoice/(1.f+otherGenOverLightAndChoice*otherGenOverLightAndChoice); // MIS weight
 #else
@@ -646,7 +649,7 @@ bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nb
                     ray._payload.accumulation += neeContrib;
             }}
         }
-#if 1
+#if NEE_ONLY
         return false;
 #endif
         // sample BSDF
