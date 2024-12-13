@@ -1314,8 +1314,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						if (ImGui::TreeNodeEx(treeNodeLabel.c_str(), flags))
 						{
-							ImGui::SliderFloat("Move speed", &moveSpeed[cameraIndex], 0.1f, 10.f);
-							ImGui::SliderFloat("Rotate speed", &rotateSpeed[cameraIndex], 0.1f, 10.f);
+							// WiP, does not affect camera yet
+							//ImGui::SliderFloat("Move speed", &moveSpeed[cameraIndex], 0.1f, 10.f);
+							//ImGui::SliderFloat("Rotate speed", &rotateSpeed[cameraIndex], 0.1f, 10.f);
 
 							if (ImGui::TreeNodeEx("Data", ImGuiTreeNodeFlags_None))
 							{
