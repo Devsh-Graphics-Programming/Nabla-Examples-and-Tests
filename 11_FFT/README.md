@@ -26,8 +26,21 @@ We made some decisions in the design of the FFT algorithm pertaining to load/sto
 * `uint32_t getDFTMirrorIndex(uint32_t freqIdx)`: A common operation you might encounter using FFTs (especially FFTs of real signals) is to get the mirror around the middle (Nyquist frequency) of a given frequency. Given an index `freqIdx` into the DFT, it returns a `mirrorIndex` which is the index of its mirrored frequency, which in general satisfies the equation `freqIdx + mirrorIndex = 0 (mod FFTLength)`. Two elements don't have proper mirrors and are fixed points of this function: the Zero and Nyquist frequencies. 
 * `uint32_t getNablaMirrorIndex(uint32_t outputIdx)`: Yields the same as above, but the input and output are given in Nabla order. This is not to say we mirror `outputIdx` around the middle frequency of the Nabla-ordered array (that operation makes zero sense) but rather this function is just `getNablaIndex ∘ getDFTMirrorIndex ∘ getDFTIndex`. That is, get the corresponding index in the proper DFT order, mirror THAT index around Nyquist, then go back to Nabla order. 
 
+For the next two functions in this struct, let's give an example of where you might need them first. Supposed you packed two real signals `x, y` as `x + iy` and did a single FFT to save compute. Now you might want to unpack them to get the FFTs of each signal. If you had the DFT in the right order, unpacking requires to have values `DFT[T]` and `DFT[-T]` to unpack the values for each FFT at those positions. Suppose also that you are using preloaded accessors, so the whole result of the FFT is
+currently resident in registers for threads in a workgroup. Each element a thread is currently holding is associated with a 
+unique `globalElementIndex`, and to unpack some value a thread needs to know both `NFFT[globalElementIndex]` and 
+`NFFT[getNablaMirrorIndex(globalElementIndex)]`. So, usually what you'd want to do is iterate over every `localElementIndex` 
+(which is associated with a `globalElementIndex`), get its mirror and do an unpack operation (an example of this is done 
+in the Bloom example but iterating only over some values because we only unpack one half of the DFT since it's conjugate
+symmetric for real signals). To get said mirror, we do a workgroup shuffle: with a shared memory array A, each thread of thread ID `threadID` in a workgroup writes an element at `A[threadID]` and reads a value from `A[otherThreadID]`, where 
+`otherThreadID` is the ID of the thread holding the element `NFFT[getNablaMirrorIndex(globalElementIndex)]` (again, see
+the Bloom example for an example of this). This works assuming that each workgroup shuffle is associated with the same 
+`localElementIndex` for every thread. The question now becomes, how does a thread know which value it has to send in this shuffle?
 
-There are other utils provided in relation to indexing, but we go over those in the Bloom example's readme, since they're related to packing/unpacking of real FFTs
+The functions `FFTIndexingUtils::getNablaMirrorLocalInfo(uint32_t globalElementIndex)` and `FFTIndexingUtils::getNablaMirrorGlobalInfo(uint32_t globalElementIndex)` handle this for you: given a `globalElementIndex`, `getNablaMirrorLocalInfo` returns a struct with a field `otherThreadID` (the one we will receive a value from in the shuffle) and a field `mirrorLocalIndex` which is the `localElementIndex` *of the element we should write to the shared memory array*. 
+`getNablaMirrorGlobalInfo` returns the same info but with a `mirrorGlobalIndex` instead, so instead of returning the `localElementIndex` of the element we have to send, it returns its `globalElementIndex`. 
+
+In case this is hard to follow (because frankly it might be since we're working in weird nonstandard orderings of the DFT) you can copy the template function we use to trade mirrors around in `fft_mirror_common.hlsl` in the Bloom example. 
 
 
 # For Maintainers
@@ -111,9 +124,34 @@ When doing DFT on a real array, its result is known to be "symmetric conjugate" 
 
 Here's an observation: each thread holds `ElementsPerThread` elements, and for a thread of ID `threadID` these happen to be `NFFT[threadID], NFFT[threadID + WorkgroupSize], ..., NFFT[threadID + (ElementsPerThread - 1) * WorkgroupSize]`. So the positions in the output NFFT array are parameterized by `threadID + k * WorkgroupSize`, where $\;0 \le k < \text{ElementsPerThread}$. We call an element of a thread even if its index is obtained from an even value of `k` in the previous parameterization. Enumerating the even elements in order produces a bitreversed lower half of the DFT. That is, the sequence `NFFT[0], NFFT[1], ..., NFFT[WorkgroupSize - 1], NFFT[0 + 2 * WorkgroupSize], NFFT[1 + 2 * WorkgroupSize], ..., NFFT[(WorkgroupSize - 1) + 2 * WorkgroupSize], NFFT[0 + 4 * WorkgroupSize], ..., NFFT[(WorkgroupSize - 1) + (ElementsPerThread - 2) * WorkgroupSize]` turns out to be exactly the lower half of the DFT (elements `0` through `Nyquist - 1` = $\frac N 2 - 1$, bitreversed *taking the indices as N-1 bit numbers* (so not taking into account the MSB of `0` they would have as indices in the whole DFT). 
 
-Consider the lower half of the DFT. These are all indexed by `0|0` through `0|Nyquist - 1` with the `0` before the `|` being a single bit. Then, we map `0|n` to `0|bitreverse(n)`, where it's an `N-1` bit bitreversal. Now let's try calling `F^{-1}(0|bitreverse(n))` to figure out where each one of these ends up in the NFFT. From the identities worked out when we found `F`, we use `F^{-1} = e ∘ bitreverse` (this time it's an `N` bit bitreversal). So `F^{-1}(0|bitreverse(n)) = e(n|0)` (after applying bitreversal). Remember `n` is an `N-1` bit number, `e` performs a circular right shift of the lower `N - E + 1` bits of its argument, and the log of the `WorkgroupSize`, `W`, is such that `W + E = N`. So we can also consider `e` performs a circular right shift of the lower `W + 1` bits of its argument. Now let-s consider what happens as we increase `n` starting from 0. The first `WorkgroupSize` elements only need `W` bits to be written, so for these elements `e(n|0) = n`. So far so good, since this gives all elements of the form `threadID + 0 * WorkgroupSize` with `threadID` running from 0 to `WorkgroupSize`. Now, what happens to the next `WorkgroupSize` elements? They can be written as `1|n` where `n` are now only the lower `W` bits. So `e(1|n|0) = 10|n`!. So the next `WorkgroupSize` elements are all elements of the form `threadID + 2 * WorkgroupSize`. I hope it's not hard to see how it follows forwards until we've covered all the lower half of the DFT, because I am NOT writing the whole inductive proof for this one :) (but to me this is formal enough to understand that the proof is solid).  
+Consider the lower half of the DFT. These are all indexed by `0|0` through `0|Nyquist - 1` with the `0` before the `|` being a single bit. Then, we map `0|n` to `0|bitreverse(n)`, where it's an `N-1` bit bitreversal. Now let's try calling `F^{-1}(0|bitreverse(n))` to figure out where each one of these ends up in the NFFT. From the identities worked out when we found `F`, we use `F^{-1} = e ∘ bitreverse` (this time it's an `N` bit bitreversal). So `F^{-1}(0|bitreverse(n)) = e(n|0)` (after applying bitreversal). Remember `n` is an `N-1` bit number, `e` performs a circular right shift of the lower `N - E + 1` bits of its argument, and the log of the `WorkgroupSize`, `W`, is such that `W + E = N`. So we can also consider `e` performs a circular right shift of the lower `W + 1` bits of its argument. Now let's consider what happens as we increase `n` starting from 0. The first `WorkgroupSize` elements only need `W` bits to be written, so for these elements `e(n|0) = n`. So far so good, since this gives all elements of the form `threadID + 0 * WorkgroupSize` with `threadID` running from 0 to `WorkgroupSize`. Now, what happens to the next `WorkgroupSize` elements? They can be written as `1|n` where `n` are now only the lower `W` bits. So `e(1|n|0) = 10|n`!. So the next `WorkgroupSize` elements are all elements of the form `threadID + 2 * WorkgroupSize`. I hope it's not hard to see how it follows forwards until we've covered all the lower half of the DFT, because I am NOT writing the whole inductive proof for this one :) (but to me this is formal enough to understand that the proof is solid).  
 
 Since `0` and `Nyquist` are also both real, we can conveniently pack them into the `0th` element as `NFFT[0] + i * NFFT[WorkgroupSize]` (remember from above discussion `NFFT[WorkgroupSize] = DFT[Nyquist]`).
 
-## Mirror trading when packing / unpacking real FFTs
+# Assertions with no proof 
 
+## Mirror trading when packing / unpacking real FFTs on preloaded accessors / avoiding global reads
+
+To explain how things work, I'm going to give an example that happens in the load before the last IFFT in the bloom example. Say we did the FFT 
+of a real signal like detailed above and we stored the lower half of the DFT in that manner (storing all even indices). Later, 
+we want to do the IFFT of that signal. To perform the IFFT, we need all threads in the workgroup to have the corresponding
+value of the FFT. We are also using preloaded accessors, so all values of the FFT need to be resident in registers for all threads
+involved. Since we know the order in which we stored the even values, we recover all even values for every thread by reading those
+from memory. We now need to set each thread's odd values before running the FFT. Since the even values covered the lower half 
+of the DFT, it stands to reason (and with the same proof) that odd values cover the upper half of the DFT. Also, since it's 
+the DFT of a real signal, it satisfies the conjugate symmetric property detailed earlier, meaning odd values are the conjugate 
+of some even value. So, once we have loaded all even values, we want to go over every thread's odd values in order, figure out 
+which even value of which thread is its conjugate, and set it to that value. A possible process could be, for each odd `localElementIndex`:
+
+1. Take the `globalElementIndex` corresponding to this thread's current `localElementIndex`. 
+2. Get a `mirrorIndex = FFTIndexingUtils::getNablaMirrorIndex(globalElementIndex)`, which is an even element of some other thread (it must be so because it's the mirror of an odd element and we ascertained that odd elements ar in the top half of the DFT and even elements in the bottom)
+3. Figure out which thread holds the element `NFFT[mirrorIndex]`, which is just the thread of ID given by the lower `W` bits of `mirrorIndex`. Let's say that other thread has ID `otherThreadID`.
+
+Once we have this, we know which thread we must receive our conjugated value from so we can store our odd local element. But how does that thread know it should 
+send us that value? In fact, just like we are expecting a value from some thread, there is also another thread that expects us to send a value.
+So we must figure out which value we are expected to send, and to whom. It turns out that the value we must send is obtained by taking 
+`mirrorIndex` and replacing its lower bits (those that gave the other thread's ID) with the current thread's ID. This is the 
+element at a local element index given by the higher bits of `mirrorIndex`. This also means that trades always happen 1 on 1: 
+The thread I send a value to is the same thread I will receive a value from. 
+
+Haven't come up with a proof for this one :(
