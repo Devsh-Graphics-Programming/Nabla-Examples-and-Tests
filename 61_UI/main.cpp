@@ -1279,6 +1279,28 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					else
 						ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Active Camera Movement: Disabled");
 
+					if (ImGui::IsItemHovered())
+					{
+						ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.2f, 0.2f, 0.2f, 0.8f));
+						ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+						ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.5f);
+
+						ImVec2 mousePos = ImGui::GetMousePos();
+						ImGui::SetNextWindowPos(ImVec2(mousePos.x + 10, mousePos.y + 10), ImGuiCond_Always);
+
+						ImGui::Begin("HoverOverlay", nullptr,
+							ImGuiWindowFlags_NoDecoration |
+							ImGuiWindowFlags_AlwaysAutoResize |
+							ImGuiWindowFlags_NoSavedSettings);
+
+						ImGui::Text("Press 'Left Shift' to Enable/Disable selected camera movement");
+
+						ImGui::End();
+
+						ImGui::PopStyleVar();
+						ImGui::PopStyleColor(2);
+					}
+
 					ImGui::Separator();
 
 					for (size_t cameraIndex = 0; cameraIndex < CamerazCount; ++cameraIndex)
