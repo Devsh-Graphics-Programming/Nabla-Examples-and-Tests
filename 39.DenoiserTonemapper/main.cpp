@@ -699,7 +699,7 @@ void nbl_glsl_ext_FFT_setData(in uvec3 coordinate, in uint channel, in nbl_glsl_
 	uint dataOffset = coords.y*pc.data.inImageTexelPitch[EII_COLOR]+coords.x;	
 	vec4 color = vec4(outBuffer[dataOffset]);
 	color[channel] = complex_value.x;
-	if (channel==4)
+	if (channel==3)
 	{
 		color.rgb = _NBL_GLSL_EXT_LUMA_METER_XYZ_CONVERSION_MATRIX_DEFINED_*color.rgb;
 		color.rgb *= intensity[pc.data.intensityBufferDWORDOffset]; // *= 0.18/AvgLuma
