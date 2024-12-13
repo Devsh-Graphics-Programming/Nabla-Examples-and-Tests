@@ -846,7 +846,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			// create a window and insert the inspector
 			ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Appearing);
 			ImGui::SetNextWindowSize(ImVec2(320, 340), ImGuiCond_Appearing);
-			ImGui::Begin("Editor");
+			ImGui::Begin("TRS Editor");
 
 			//if (ImGui::RadioButton("Full view", !useWindow))
 			//	useWindow = false;
@@ -858,21 +858,21 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				{
 					auto projection = mutableRange.begin() + i;
 
-					if (isPerspective)
+					if (isPerspective[i])
 					{
-						if (isLH)
-							projection->setProjectionMatrix(buildProjectionMatrixPerspectiveFovLH<float64_t>(glm::radians(fov), aspectRatio[i], zNear, zFar));
+						if (isLH[i])
+							projection->setProjectionMatrix(buildProjectionMatrixPerspectiveFovLH<float64_t>(glm::radians(fov[i]), aspectRatio[i], zNear[i], zFar[i]));
 						else
-							projection->setProjectionMatrix(buildProjectionMatrixPerspectiveFovRH<float64_t>(glm::radians(fov), aspectRatio[i], zNear, zFar));
+							projection->setProjectionMatrix(buildProjectionMatrixPerspectiveFovRH<float64_t>(glm::radians(fov[i]), aspectRatio[i], zNear[i], zFar[i]));
 					}
 					else
 					{
-						float viewHeight = viewWidth * invAspectRatio[i];
+						float viewHeight = viewWidth[i] * invAspectRatio[i];
 
-						if (isLH)
-							projection->setProjectionMatrix(buildProjectionMatrixOrthoLH<float64_t>(viewWidth, viewHeight, zNear, zFar));
+						if (isLH[i])
+							projection->setProjectionMatrix(buildProjectionMatrixOrthoLH<float64_t>(viewWidth[i], viewHeight, zNear[i], zFar[i]));
 						else
-							projection->setProjectionMatrix(buildProjectionMatrixOrthoRH<float64_t>(viewWidth, viewHeight, zNear, zFar));
+							projection->setProjectionMatrix(buildProjectionMatrixOrthoRH<float64_t>(viewWidth[i], viewHeight, zNear[i], zFar[i]));
 					}
 				}
 			}
@@ -882,37 +882,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			//if (ImGui::RadioButton("Window", useWindow))
 			//	useWindow = true;
 
-			ImGui::Text("Camera");
-			
-			if (ImGui::RadioButton("LH", isLH))
-				isLH = true;
-
-			ImGui::SameLine();
-
-			if (ImGui::RadioButton("RH", !isLH))
-				isLH = true; // TMP WIP
-				//isLH = false;
-
-			//if (ImGui::RadioButton("Perspective", isPerspective))
-			//	isPerspective = true;
-
-			//ImGui::SameLine();
-
-			//if (ImGui::RadioButton("Orthographic", !isPerspective))
-			//	isPerspective = false;
-
-			ImGui::SliderFloat("Move speed", &moveSpeed, 0.1f, 10.f);
-			ImGui::SliderFloat("Rotate speed", &rotateSpeed, 0.1f, 10.f);
-
 			// ImGui::Checkbox("Flip Gizmo's Y axis", &flipGizmoY); // let's not expose it to be changed in UI but keep the logic in case
-
-			if (isPerspective)
-				ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
-			else
-				ImGui::SliderFloat("Ortho width", &viewWidth, 1, 20);
-
-			ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
-			ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
 
 			ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
 			if (ImGuizmo::IsUsing())
@@ -1088,6 +1058,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						{
 							lastManipulatedModelIx = matId;
 							lastManipulatedGizmoIx = gizmoID;
+							lastManipulatedModelIdentifier = lastManipulatedModelIx == 0 ? "Geometry Creator Object" : "Camera FPS";
 						}
 
 						if (ImGuizmo::IsOver())
@@ -1104,9 +1075,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 								ImGuiWindowFlags_AlwaysAutoResize |
 								ImGuiWindowFlags_NoSavedSettings);
 
-							ImGui::Text("Type: %s", matId == 0 ? "Geometry Creator Object" : "Camera FPS");
-							ImGui::Text("Model ID: %u", matId);
-							ImGui::Text("Gizmo ID: %u", gizmoID);
+							ImGui::Text("Identifier: %s", lastManipulatedModelIdentifier.c_str());
+							ImGui::Text("Object Ix: %u", matId);
+							//ImGui::Text("Gizmo Ix: %u", gizmoID);
 
 							ImGui::End();
 
@@ -1169,8 +1140,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			// update scenes data
 			// to Nabla + update camera & model matrices
 		
-			// TODO: make it more nicely
-			std::string_view mName;
+			// TODO: make it more nicely once view manipulate supported
 			//const_cast<float64_t3x4&>(firstcamera->getGimbal().getViewMatrix()) = float64_t3x4(getCastedMatrix<float64_t>(transpose(imguizmoM16InOut.view[0u]))); // a hack for "view manipulate", correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
 			{
 				m_model = float32_t3x4(transpose(imguizmoM16InOut.outModel[0]));
@@ -1194,7 +1164,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					auto& hook = scene->object;
 
 					hook.meta.type = type;
-					mName = hook.meta.name = meta.name;
+					hook.meta.name = meta.name;
 					{
 						float32_t3x4 modelView, normal;
 						float32_t4x4 modelViewProjection;
@@ -1216,81 +1186,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			}
 
 			{
-				auto addMatrixTable = [&](const char* topText, const char* tableName, int rows, int columns, const float* pointer, bool withSeparator = true)
-				{
-					ImGui::Text(topText);
-					ImGui::PushStyleColor(ImGuiCol_TableRowBg, ImGui::GetStyleColorVec4(ImGuiCol_ChildBg));
-					ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, ImGui::GetStyleColorVec4(ImGuiCol_WindowBg));
-					if (ImGui::BeginTable(tableName, columns, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame))
-					{
-						for (int y = 0; y < rows; ++y)
-						{
-							ImGui::TableNextRow();
-							for (int x = 0; x < columns; ++x)
-							{
-								ImGui::TableSetColumnIndex(x);
-								if (pointer)
-									ImGui::Text("%.3f", *(pointer + (y * columns) + x));
-								else
-									ImGui::Text("-");
-							}
-						}
-						ImGui::EndTable();
-					}
-					ImGui::PopStyleColor(2);
-					if (withSeparator)
-						ImGui::Separator();
-				};
-
-				// Scene Models
-				{
-					ImGui::SetNextWindowSize(ImVec2(600, 400), ImGuiCond_FirstUseEver);
-					ImGui::Begin("Object Info and Model Matrix", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysVerticalScrollbar);
-
-					ImGui::Text("Type: \"%s\"", mName.data());
-					ImGui::Separator();
-
-					ImGui::PushStyleColor(ImGuiCol_TableRowBg, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
-					ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
-
-					addMatrixTable("Scene Object Model Matrix", "ModelMatrixTable", 3, 4, &m_model[0][0]);
-
-					ImGui::PopStyleColor(2);
-					ImGui::End();
-				}
-
-				/*
-
-				// ImGuizmo inputs
-				{
-					ImGui::SetNextWindowSize(ImVec2(600, 400), ImGuiCond_FirstUseEver);
-					ImGui::Begin("ImGuizmo model inputs", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysVerticalScrollbar);
-
-					ImGui::PushStyleColor(ImGuiCol_TableRowBg, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
-					ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
-
-					ImGui::Text("Type: GC Object");
-					ImGui::Separator();
-
-					addMatrixTable("Model", "GCIMGUIZMOTRS", 4, 4, &imguizmoM16InOut.inModel[0][0][0]);
-
-					ImGui::Text("Type: Camera ID \"1\" object");
-					ImGui::Separator();
-
-					addMatrixTable("Model", "CAMERASECIMGUIZMOTRS", 4, 4, &imguizmoM16InOut.inModel[1][0][0]);
-
-					ImGui::PopStyleColor(2);
-					ImGui::End();
-				}
-
-				*/
-
-				//imguizmoM16InOut.inModel
-
 				{
 					ImGuiIO& io = ImGui::GetIO();
 
-					if (ImGui::IsKeyPressed(ImGuiKey_C))
+					if (ImGui::IsKeyPressed(ImGuiKey_LeftShift))
 						enableActiveCameraMovement = !enableActiveCameraMovement;
 
 					if (enableActiveCameraMovement)
@@ -1346,6 +1245,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						if (ImGui::TreeNodeEx(treeNodeLabel.c_str(), flags))
 						{
+							ImGui::SliderFloat("Move speed", &moveSpeed[cameraIndex], 0.1f, 10.f);
+							ImGui::SliderFloat("Rotate speed", &rotateSpeed[cameraIndex], 0.1f, 10.f);
+
 							if (ImGui::TreeNodeEx("Data", ImGuiTreeNodeFlags_None))
 							{
 								auto& gimbal = camera->getGimbal();
@@ -1374,6 +1276,39 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					ImGui::End();
 				}
 
+			}
+
+			// Projections
+			{
+				ImGui::Begin("Projection");
+
+				ImGui::Text("Ix: %s", std::to_string(lastProjectionIx).c_str());
+
+				if (ImGui::RadioButton("Perspective", isPerspective[lastProjectionIx]))
+					isPerspective[lastProjectionIx] = true;
+
+				ImGui::SameLine();
+
+				if (ImGui::RadioButton("Orthographic", !isPerspective[lastProjectionIx]))
+					isPerspective[lastProjectionIx] = false;
+
+				if (ImGui::RadioButton("LH", isLH[lastProjectionIx]))
+					isLH[lastProjectionIx] = true;
+
+				ImGui::SameLine();
+
+				if (ImGui::RadioButton("RH", !isLH[lastProjectionIx]))
+					isLH[lastProjectionIx] = false;
+
+				if (isPerspective[lastProjectionIx])
+					ImGui::SliderFloat("Fov", &fov[lastProjectionIx], 20.f, 150.f, "%.1f");
+				else
+					ImGui::SliderFloat("Ortho width", &viewWidth[lastProjectionIx], 1.f, 20.f, "%.1f");
+
+				ImGui::SliderFloat("zNear", &zNear[lastProjectionIx], 0.1f, 100.f, "%.2f");
+				ImGui::SliderFloat("zFar", &zFar[lastProjectionIx], 110.f, 10000.f, "%.1f");
+
+				ImGui::End();
 			}
 
 			/*
@@ -1452,12 +1387,20 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			ImGui::End();
 		}
 
-		void TransformEditor(float* matrix)
+		inline void TransformEditor(float* matrix)
 		{
 			static float bounds[] = { -0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f };
 			static float boundsSnap[] = { 0.1f, 0.1f, 0.1f };
 			static bool boundSizing = false;
 			static bool boundSizingSnap = false;
+
+			ImGui::Text("Object Ix: \"%s\"", std::to_string(lastManipulatedModelIx).c_str());
+			ImGui::Separator();
+
+			ImGui::Text("Identifier: \"%s\"", lastManipulatedModelIdentifier.c_str());
+			ImGui::Separator();
+
+			addMatrixTable("Model (TRS) Matrix", "ModelMatrixTable", 4, 4, matrix);
 
 			/*
 			if (ImGui::IsKeyPressed(ImGuiKey_T))
@@ -1492,8 +1435,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					mCurrentGizmoMode = ImGuizmo::WORLD;
 			}
 
-			if (ImGui::IsKeyPressed(ImGuiKey_S))
-				useSnap = !useSnap;
+			//if (ImGui::IsKeyPressed(ImGuiKey_S))
+			//	useSnap = !useSnap;
+
 			ImGui::Checkbox(" ", &useSnap);
 			ImGui::SameLine();
 			switch (mCurrentGizmoOperation)
@@ -1510,7 +1454,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			}
 		}
 
-		void TransformStart(uint32_t wCameraIndex)
+		inline void TransformStart(uint32_t wCameraIndex)
 		{
 			ImGuiIO& io = ImGui::GetIO();
 			static ImGuiWindowFlags gizmoWindowFlags = ImGuiWindowFlags_NoMove;
@@ -1552,6 +1496,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 				ImGui::Image(info, contentRegionSize);
 				ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
+
+				if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+					lastProjectionIx = (int)(wCameraIndex + 1u);
 			}
 			else
 			{
@@ -1567,20 +1514,47 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 				ImGui::Image(info, contentRegionSize);
 				ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
-			}
 
+				lastProjectionIx = 0;
+			}
 
 			ImGuiWindow* window = ImGui::GetCurrentWindow();
 			gizmoWindowFlags = ImGuiWindowFlags_NoMove;//(ImGuizmo::IsUsing() && ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(window->InnerRect.Min, window->InnerRect.Max) ? ImGuiWindowFlags_NoMove : 0);
 		}
 
-		void TransformEnd()
+		inline void TransformEnd()
 		{
 			if (useWindow)
 			{
 				ImGui::End();
 			}
 			ImGui::PopStyleColor(1);
+		}
+
+		inline void addMatrixTable(const char* topText, const char* tableName, int rows, int columns, const float* pointer, bool withSeparator = true)
+		{
+			ImGui::Text(topText);
+			ImGui::PushStyleColor(ImGuiCol_TableRowBg, ImGui::GetStyleColorVec4(ImGuiCol_ChildBg));
+			ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, ImGui::GetStyleColorVec4(ImGuiCol_WindowBg));
+			if (ImGui::BeginTable(tableName, columns, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame))
+			{
+				for (int y = 0; y < rows; ++y)
+				{
+					ImGui::TableNextRow();
+					for (int x = 0; x < columns; ++x)
+					{
+						ImGui::TableSetColumnIndex(x);
+						if (pointer)
+							ImGui::Text("%.3f", *(pointer + (y * columns) + x));
+						else
+							ImGui::Text("-");
+					}
+				}
+				ImGui::EndTable();
+			}
+			ImGui::PopStyleColor(2);
+			if (withSeparator)
+				ImGui::Separator();
 		}
 
 		std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
@@ -1655,19 +1629,20 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		using linear_projection_t = CLinearProjection<linear_projections_range_t>;
 		nbl::core::smart_refctd_ptr<ILinearProjection> projections;
 
-		bool isPerspective[ProjectionsCount] = { true, true, true }, isLH = true, flipGizmoY = true;
-		float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
-		float viewWidth = 10.f;
+		bool flipGizmoY = true;
+		std::array<bool, ProjectionsCount> isPerspective = { true, true, true }, isLH = { true, true, true };
+		std::array<float, ProjectionsCount> fov = { 60.f, 60.f, 60.f }, zNear = { 0.1f, 0.1f, 0.1f }, zFar = { 10000.f, 10000.f, 10000.f }, viewWidth = { 10.f, 10.f, 10.f }, aspectRatio = {}, invAspectRatio = {};
+		std::array<float, CamerazCount> moveSpeed = { 1.f, 1.f }, rotateSpeed = { 1.f, 1.f };
+
 		float camYAngle = 165.f / 180.f * 3.14159f;
 		float camXAngle = 32.f / 180.f * 3.14159f;
-
-		float camDistance = 8.f, aspectRatio[ProjectionsCount] = {}, invAspectRatio[ProjectionsCount] = {};
+		float camDistance = 8.f;
 		bool useWindow = true, useSnap = false;
 		ImGuizmo::OPERATION mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
 		ImGuizmo::MODE mCurrentGizmoMode = ImGuizmo::LOCAL;
 		float snap[3] = { 1.f, 1.f, 1.f };
-		int lastManipulatedModelIx = 0;
-		int lastManipulatedGizmoIx = 0;
+		int lastManipulatedModelIx = 0, lastManipulatedGizmoIx = 0, lastProjectionIx = 0;
+		std::string lastManipulatedModelIdentifier = "Geometry Creator Object";
 
 		bool firstFrame = true;
 };

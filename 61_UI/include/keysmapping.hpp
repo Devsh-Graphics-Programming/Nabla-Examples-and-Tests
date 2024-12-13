@@ -143,7 +143,7 @@ void displayKeyMappingsAndVirtualStatesInline(ICamera* camera, bool spawnWindow 
                 ImGui::Text("%.2f", hash.event.magnitude);
 
                 ImGui::TableSetColumnIndex(4);
-                if (ImGui::Button(("Delete##deleteKey" + std::to_string(static_cast<int>(hash.event.type))).c_str()))
+                if (ImGui::Button(("Delete##deleteKey" + std::to_string(static_cast<int>(keyboardCode))).c_str()))
                 {
                     camera->updateKeyboardMapping([keyboardCode](auto& keys) { keys.erase(keyboardCode); });
                     break;
@@ -200,7 +200,7 @@ void displayKeyMappingsAndVirtualStatesInline(ICamera* camera, bool spawnWindow 
                 ImGui::Text("%.2f", hash.event.magnitude);
 
                 ImGui::TableSetColumnIndex(4);
-                if (ImGui::Button(("Delete##deleteMouse" + std::to_string(static_cast<int>(hash.event.type))).c_str()))
+                if (ImGui::Button(("Delete##deleteMouse" + std::to_string(static_cast<int>(mouseCode))).c_str()))
                 {
                     camera->updateMouseMapping([mouseCode](auto& mouse) { mouse.erase(mouseCode); });
                     break;
