@@ -1395,9 +1395,23 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				mCurrentGizmoOperation = ImGuizmo::SCALE;
 			float matrixTranslation[3], matrixRotation[3], matrixScale[3];
 			ImGuizmo::DecomposeMatrixToComponents(matrix, matrixTranslation, matrixRotation, matrixScale);
-			ImGui::InputFloat3("Tr", matrixTranslation);
-			ImGui::InputFloat3("Rt", matrixRotation);
-			ImGui::InputFloat3("Sc", matrixScale);
+			const bool isCameraModelBound = lastManipulatedModelIx == 1u;
+			{
+				ImGuiInputTextFlags flags = 0;
+
+				if (isCameraModelBound) // TODO: cameras are WiP here
+				{
+					ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1.0f, 0.0f, 0.0f, 0.5f));
+					flags |= ImGuiInputTextFlags_ReadOnly;
+				}
+
+				ImGui::InputFloat3("Tr", matrixTranslation, "%.3f", flags);
+				ImGui::InputFloat3("Rt", matrixRotation, "%.3f", flags);
+				ImGui::InputFloat3("Sc", matrixScale, "%.3f", flags);
+
+				if(isCameraModelBound)
+					ImGui::PopStyleColor();
+			}
 			ImGuizmo::RecomposeMatrixFromComponents(matrixTranslation, matrixRotation, matrixScale, matrix);
 
 			if (mCurrentGizmoOperation != ImGuizmo::SCALE)
@@ -1409,19 +1423,22 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					mCurrentGizmoMode = ImGuizmo::WORLD;
 			}
 
-			ImGui::Checkbox(" ", &useSnap);
-			ImGui::SameLine();
-			switch (mCurrentGizmoOperation)
+			if (not isCameraModelBound)  // TODO: cameras are WiP here
 			{
-			case ImGuizmo::TRANSLATE:
-				ImGui::InputFloat3("Snap", &snap[0]);
-				break;
-			case ImGuizmo::ROTATE:
-				ImGui::InputFloat("Angle Snap", &snap[0]);
-				break;
-			case ImGuizmo::SCALE:
-				ImGui::InputFloat("Scale Snap", &snap[0]);
-				break;
+				ImGui::Checkbox(" ", &useSnap);
+				ImGui::SameLine();
+				switch (mCurrentGizmoOperation)
+				{
+				case ImGuizmo::TRANSLATE:
+					ImGui::InputFloat3("Snap", &snap[0]);
+					break;
+				case ImGuizmo::ROTATE:
+					ImGui::InputFloat("Angle Snap", &snap[0]);
+					break;
+				case ImGuizmo::SCALE:
+					ImGui::InputFloat("Scale Snap", &snap[0]);
+					break;
+				}
 			}
 
 			ImGui::End();
