@@ -38,7 +38,7 @@ public:
     *
     * @param "vecToProjectionSpace" is a vector to transform from its space into projection space.
     * @param "output" is a vector which is "vecToProjectionSpace" transformed into projection space.
-    * @return The vector in projection space.
+    * @return void. "output" is the vector in projection space.
     */
     virtual void project(const projection_vector_t& vecToProjectionSpace, projection_vector_t& output) const = 0;
 
@@ -48,7 +48,7 @@ public:
     *
     * @param "vecFromProjectionSpace" is a vector in the projection space to transform back to original space.
     * @param "output" is a vector which is "vecFromProjectionSpace" transformed back to its original space.
-    * @return The vector in the original space.
+    * @return true if inverse succeeded and then "output" is the vector in the original space. False otherwise.
     */
     virtual bool unproject(const projection_vector_t& vecFromProjectionSpace, projection_vector_t& output) const = 0;
 

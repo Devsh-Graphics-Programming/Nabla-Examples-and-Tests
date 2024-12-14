@@ -83,7 +83,7 @@ public:
 
     // Manipulates camera with virtual events, returns true if *any* manipulation happens, it may fail partially or fully because each camera type has certain constraints which determine how it actually works
     // TODO: this really needs to be moved to more abstract interface, eg. IObjectTransform or something and ICamera should inherit it (its also an object!)
-    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, ManipulationMode mode) = 0;
+    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, ManipulationMode mode) = 0; 
 
 	// VirtualEventType bitmask for a camera view gimbal manipulation requests filtering
 	virtual const uint32_t getAllowedVirtualEvents(ManipulationMode mode) = 0u;
