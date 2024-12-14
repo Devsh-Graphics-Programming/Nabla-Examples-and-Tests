@@ -35,11 +35,6 @@ public:
         CGimbal(typename base_t::SCreationParameters&& parameters) : base_t(std::move(parameters)) { updateView(); }
         ~CGimbal() = default;
 
-        struct SView
-        {
-            matrix<precision_t, 3, 4> matrix = {};
-        };
-
         inline void updateView()
         {            
             const auto& gRight = base_t::getXAxis(), gUp = base_t::getYAxis(), gForward = base_t::getZAxis();
