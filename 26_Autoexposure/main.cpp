@@ -2,7 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-#include "../common/SimpleWindowedApplication.hpp"
+#include "SimpleWindowedApplication.hpp"
 
 #include "nbl/video/surface/CSurfaceVulkan.h"
 #include "nbl/asset/interchange/IAssetLoader.h"
@@ -24,7 +24,12 @@ class AutoexposureApp final : public examples::SimpleWindowedApplication, public
 	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 	using clock_t = std::chrono::steady_clock;
 
-	constexpr static inline std::string_view DefaultImagePathsFile = "../../media/noises/spp_benchmark_4k_512.exr";
+	static inline std::string DefaultImagePathsFile = "../../media/noises/spp_benchmark_4k_512.exr";
+	static inline std::array<std::string, 3> ShaderPaths = {
+		"app_resources/luma_meter.comp.hlsl",
+		"app_resources/luma_tonemap.comp.hlsl" ,
+		"app_resources/present.frag.hlsl"
+	};
 	constexpr static inline uint32_t2 Dimensions = { 1280, 720 };
 	constexpr static inline float32_t2 MeteringWindowScale = { 0.5f, 0.5f };
 	constexpr static inline float32_t2 MeteringWindowOffset = { 0.25f, 0.25f };
@@ -70,124 +75,29 @@ public:
 		if (!asset_base_t::onAppInitialized(std::move(system)))
 			return false;
 
-		/*
-			* We'll be using a combined image sampler for this example, which lets us assign both a sampled image and a sampler to the same binding.
-			* In this example we provide a sampler at descriptor set creation time, via the SBinding struct below. This specifies that the sampler for this binding is immutable,
-			* as evidenced by the name of the field in the SBinding.
-			* Samplers for combined image samplers can also be mutable, which for a binding of a descriptor set is specified also at creation time by leaving the immutableSamplers
-			* field set to its default (nullptr).
-			*/
-		std::array<smart_refctd_ptr<IGPUDescriptorSetLayout>, 3> dsLayouts;
-		{
-			auto defaultSampler = m_device->createSampler(
-				{
-					.AnisotropicFilter = 0
-				}
-			);
-
-			const IGPUDescriptorSetLayout::SBinding imgBindings[3][1] = {
-				{
-					{
-						.binding = 0,
-						.type = IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
-						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-						.count = 1,
-						.immutableSamplers = &defaultSampler
-					}
-				},
-				{
-					{
-						.binding = 0,
-						.type = IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
-						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-						.count = 1,
-						.immutableSamplers = nullptr
-					}
-				},
-				{
-					{
-						.binding = 0,
-						.type = IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
-						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-						.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-						.count = 1,
-						.immutableSamplers = &defaultSampler
-					}
-				}
-			};
-
-			bool dsLayoutCreation = true;
-			for (uint32_t index = 0; index < dsLayouts.size(); index++) {
-				dsLayouts[index] = m_device->createDescriptorSetLayout(imgBindings[index]);
-				dsLayoutCreation = dsLayoutCreation && dsLayouts[index];
-			}
-
-			if (!dsLayoutCreation)
-				return logFail("Failed to Create Descriptor Layouts");
-		}
-
 		// Create semaphores
 		m_meterSemaphore = m_device->createSemaphore(m_submitIx);
-		m_gatherSemaphore = m_device->createSemaphore(m_submitIx);
+		m_tonemapSemaphore = m_device->createSemaphore(m_submitIx);
 		m_presentSemaphore = m_device->createSemaphore(m_submitIx);
 
-		// create the descriptor sets and with enough room
+		// Create command pool and buffers
 		{
-			std::array<core::smart_refctd_ptr<IDescriptorPool>, 3> dsPools;
-			bool dsPoolCreation = true;
-			{
-				const video::IGPUDescriptorSetLayout* const layouts[] = { dsLayouts[0].get() };
-				const uint32_t setCounts[] = { 1u };
-				dsPools[0] = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
-				dsPoolCreation = dsPoolCreation && dsPools[0];
-			}
-			{
-				const video::IGPUDescriptorSetLayout* const layouts[] = { dsLayouts[1].get() };
-				const uint32_t setCounts[] = { 1u };
-				dsPools[1] = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
-				dsPoolCreation = dsPoolCreation && dsPools[1];
-			}
-			{
-				const video::IGPUDescriptorSetLayout* const layouts[] = { dsLayouts[2].get() };
-				const uint32_t setCounts[] = { 1u };
-				dsPools[2] = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
-				dsPoolCreation = dsPoolCreation && dsPools[2];
-			}
+			auto gQueue = getGraphicsQueue();
+			m_cmdPool = m_device->createCommandPool(gQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+			if (!m_cmdPool)
+				return logFail("Couldn't create Command Pool!");
 
-			if (!dsPoolCreation)
-				return logFail("Failed to Create Descriptor Pools");
-
-			bool dsCreation = true;
-			{
-				m_ds[0] = dsPools[0]->createDescriptorSet(dsLayouts[0]);
-				dsCreation = dsCreation && m_ds[0];
-			}
-			{
-				m_ds[1] = dsPools[1]->createDescriptorSet(dsLayouts[1]);
-				dsCreation = dsCreation && m_ds[1];
-			}
-			{
-				m_ds[2] = dsPools[2]->createDescriptorSet(dsLayouts[2]);
-				dsCreation = dsCreation && m_ds[2];
-			}
-
-			if (!dsCreation)
-				return logFail("Could not create Descriptor Sets!");
+			if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data(), 1 }))
+				return logFail("Couldn't create Command Buffer!");
 		}
 
-		auto graphicsQueue = getGraphicsQueue();
-		auto computeQueue = getComputeQueue();
-
-		// Gather swapchain resources
-		std::unique_ptr<CDefaultSwapchainFramebuffers> scResources;
-		ISwapchain::SCreationParams swapchainParams;
+		// Create renderpass and init surface
+		nbl::video::IGPURenderpass* renderpass;
 		{
-			swapchainParams = { .surface = smart_refctd_ptr<ISurface>(m_surface->getSurface()) };
-			// Need to choose a surface format
+			ISwapchain::SCreationParams swapchainParams = { .surface = smart_refctd_ptr<ISurface>(m_surface->getSurface()) };
 			if (!swapchainParams.deduceFormat(m_physicalDevice))
 				return logFail("Could not choose a Surface Format for the Swapchain!");
+
 			// We actually need external dependencies to ensure ordering of the Implicit Layout Transitions relative to the semaphore signals
 			constexpr IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
 				// wipe-transition to ATTACHMENT_OPTIMAL
@@ -202,7 +112,7 @@ public:
 					// because we clear and don't blend
 					.dstAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
 					}
-					// leave view offsets and flags default
+				// leave view offsets and flags default
 				},
 				// ATTACHMENT_OPTIMAL to PRESENT_SRC
 				{
@@ -213,31 +123,154 @@ public:
 						.srcAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
 						// we can have NONE as the Destinations because the spec says so about presents
 						}
-					// leave view offsets and flags default
+				// leave view offsets and flags default
 				},
 				IGPURenderpass::SCreationParams::DependenciesEnd
 			};
-			scResources = std::make_unique<CDefaultSwapchainFramebuffers>(m_device.get(), swapchainParams.surfaceFormat.format, dependencies);
-			if (!scResources->getRenderpass())
+
+			auto scResources = std::make_unique<CDefaultSwapchainFramebuffers>(m_device.get(), swapchainParams.surfaceFormat.format, dependencies);
+
+			renderpass = scResources->getRenderpass();
+
+			if (!renderpass)
 				return logFail("Failed to create Renderpass!");
+
+			auto gQueue = getGraphicsQueue();
+			if (!m_surface || !m_surface->init(gQueue, std::move(scResources), swapchainParams.sharedParams))
+				return logFail("Could not create Window & Surface or initialize the Surface!");
 		}
 
-		// Load the shaders and create the pipelines
+		// Create descriptors and pipelines
 		{
-			auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IGPUShader>
-			{
+			auto convertDSLayoutCPU2GPU = [&](std::span<ICPUDescriptorSetLayout *> cpuLayouts) {
+				auto converter = CAssetConverter::create({ .device = m_device.get() });
+				CAssetConverter::SInputs inputs = {};
+				inputs.readCache = converter.get();
+				inputs.logger = m_logger.get();
+				CAssetConverter::SConvertParams params = {};
+				params.utilities = m_utils.get();
+
+				std::get<CAssetConverter::SInputs::asset_span_t<ICPUDescriptorSetLayout>>(inputs.assets) = cpuLayouts;
+				// don't need to assert that we don't need to provide patches since layouts are not patchable
+				//assert(true);
+				auto reservation = converter->reserve(inputs);
+				// the `.value` is just a funny way to make the `smart_refctd_ptr` copyable
+				auto gpuLayouts = reservation.getGPUObjects<ICPUDescriptorSetLayout>();
+				std::vector<smart_refctd_ptr<IGPUDescriptorSetLayout>> result;
+				result.reserve(cpuLayouts.size());
+
+				for (auto& gpuLayout : gpuLayouts) {
+					auto layout = gpuLayout.value;
+					if (!layout) {
+						m_logger->log("Failed to convert %s into an IGPUDescriptorSetLayout handle", ILogger::ELL_ERROR);
+						std::exit(-1);
+					}
+					result.push_back(layout);
+				}
+
+				return result;
+			};
+			auto convertDSCPU2GPU = [&](std::span<ICPUDescriptorSet *> cpuDS) {
+				auto converter = CAssetConverter::create({ .device = m_device.get() });
+				CAssetConverter::SInputs inputs = {};
+				inputs.readCache = converter.get();
+				inputs.logger = m_logger.get();
+				CAssetConverter::SConvertParams params = {};
+				params.utilities = m_utils.get();
+
+				std::get<CAssetConverter::SInputs::asset_span_t<ICPUDescriptorSet>>(inputs.assets) = cpuDS;
+				// don't need to assert that we don't need to provide patches since layouts are not patchable
+				//assert(true);
+				auto reservation = converter->reserve(inputs);
+				// the `.value` is just a funny way to make the `smart_refctd_ptr` copyable
+				auto gpuDS = reservation.getGPUObjects<ICPUDescriptorSet>();
+				std::vector<smart_refctd_ptr<IGPUDescriptorSet>> result;
+				result.reserve(cpuDS.size());
+
+				for (auto& ds : gpuDS) {
+					if (!ds.value) {
+						m_logger->log("Failed to convert %s into an IGPUDescriptorSet handle", ILogger::ELL_ERROR);
+						std::exit(-1);
+					}
+					result.push_back(ds.value);
+				}
+
+				return result;
+			};
+
+			ISampler::SParams samplerParams = {
+				.AnisotropicFilter = 0
+			};
+			auto defaultSampler = make_smart_refctd_ptr<ICPUSampler>(samplerParams);
+
+			std::array<ICPUDescriptorSetLayout::SBinding, 1> meterBindings = {};
+			std::array<ICPUDescriptorSetLayout::SBinding, 1> tonemapBindings = {};
+			std::array<ICPUDescriptorSetLayout::SBinding, 1> presentBindings = {};
+
+			meterBindings[0] = {
+				.binding = 0u,
+				.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+				.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+				.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+				.count = 1u,
+				.immutableSamplers = &defaultSampler
+			};
+			tonemapBindings[0] = {
+				.binding = 0u,
+				.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+				.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+				.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+				.count = 1u,
+				.immutableSamplers = nullptr
+			};
+			presentBindings[0] = {
+				.binding = 0u,
+				.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+				.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+				.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+				.count = 1u,
+				.immutableSamplers = &defaultSampler
+			};
+
+			auto cpuMeterLayout = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(meterBindings);
+			auto cpuTonemapLayout = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(tonemapBindings);
+			auto cpuPresentLayout = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(presentBindings);
+
+			std::array<ICPUDescriptorSetLayout*, 3> cpuLayouts = {
+				cpuMeterLayout.get(),
+				cpuTonemapLayout.get(),
+				cpuPresentLayout.get()
+			};
+
+			auto gpuLayouts = convertDSLayoutCPU2GPU(cpuLayouts);
+
+			auto cpuMeterDS = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuMeterLayout));
+			auto cpuTonemapDS = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuTonemapLayout));
+			auto cpuPresentDS = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuPresentLayout));
+
+			std::array<ICPUDescriptorSet*, 3> cpuDS = {
+				cpuMeterDS.get(),
+				cpuTonemapDS.get(),
+				cpuPresentDS.get()
+			};
+
+			auto gpuDS = convertDSCPU2GPU(cpuDS);
+			m_meterDS = gpuDS[0];
+			m_tonemapDS = gpuDS[1];
+			m_presentDS = gpuDS[2];
+
+			// Create Shaders
+			auto loadAndCompileShader = [&](std::string pathToShader) {
 				IAssetLoader::SAssetLoadParams lp = {};
-				lp.logger = m_logger.get();
-				lp.workingDirectory = ""; // virtual root
-				auto assetBundle = m_assetMgr->getAsset(relPath, lp);
+				auto assetBundle = m_assetMgr->getAsset(pathToShader, lp);
 				const auto assets = assetBundle.getContents();
 				if (assets.empty())
-					return nullptr;
+				{
+					m_logger->log("Could not load shader: ", ILogger::ELL_ERROR, pathToShader);
+					std::exit(-1);
+				}
 
-				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
 				auto source = IAsset::castDown<ICPUShader>(assets[0]);
-				if (!source)
-					return nullptr;
 				const uint32_t workgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
 				const uint32_t subgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
 				auto overriddenSource = CHLSLCompiler::createOverridenCopy(
@@ -246,125 +279,89 @@ public:
 					workgroupSize,
 					subgroupSize
 				);
+				// The down-cast should not fail!
+				assert(overriddenSource);
 
-				return m_device->createShader(overriddenSource.get());
-			};
-
-			auto createComputePipeline = [&](smart_refctd_ptr<IGPUShader>& shader, smart_refctd_ptr<IGPUComputePipeline>& pipeline, smart_refctd_ptr<IGPUPipelineLayout> pipelineLayout) -> bool
-			{
+				// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
+				auto shader = m_device->createShader(overriddenSource.get());
+				if (!shader)
 				{
-					IGPUComputePipeline::SCreationParams params = {};
-					params.layout = pipelineLayout.get();
-					params.shader.shader = shader.get();
-					params.shader.entryPoint = "main";
-					params.shader.entries = nullptr;
-					params.shader.requireFullSubgroups = true;
-					params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
-					if (!m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline))
-						return logFail("Failed to create compute pipeline!\n");
+					m_logger->log("Shader creationed failed: %s!", ILogger::ELL_ERROR, pathToShader);
+					std::exit(-1);
 				}
 
-				return true;
+				return shader;
 			};
 
-			const nbl::asset::SPushConstantRange pcRange = {
-					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-					.offset = 0,
-					.size = sizeof(AutoexposurePushData)
-			};
+			// Create compute pipelines
+			{
+				std::array<IGPUComputePipeline::SCreationParams, 2> params;
+				std::array<smart_refctd_ptr<IGPUShader>, 2> shaders;
+				std::array<smart_refctd_ptr<IGPUPipelineLayout>, 2> pipelineLayouts;
+				std::array<smart_refctd_ptr<IGPUComputePipeline>, 2> pipelines;
+				for (int index = 0; index < 2; index++) {
+					shaders[index] = loadAndCompileShader(ShaderPaths[index]);
+					const nbl::asset::SPushConstantRange pcRange = {
+							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+							.offset = 0,
+							.size = sizeof(AutoexposurePushData)
+					};
+					pipelineLayouts[index] = m_device->createPipelineLayout(
+						{ &pcRange, 1 },
+						nullptr,
+						nullptr,
+						smart_refctd_ptr(gpuLayouts[index]),
+						nullptr
+					);
+					if (!pipelineLayouts[index]) {
+						return logFail("Failed to create pipeline layout");
+					}
 
-			// Luma Meter
-			auto meterShader = loadCompileAndCreateShader("app_resources/luma_meter.comp.hlsl");
-			if (!meterShader)
-				return logFail("Failed to Load and Compile Compute Shader: meterShader!");
-			auto meterLayout = m_device->createPipelineLayout(
-				{ &pcRange, 1 },
-				core::smart_refctd_ptr(dsLayouts[0]),
-				nullptr,
-				nullptr,
-				nullptr
-			);
-			if (!createComputePipeline(meterShader, m_meterPipeline, meterLayout))
-				return logFail("Could not create Luma Meter Pipeline!");
+					params[index] = {};
+					params[index].layout = pipelineLayouts[index].get();
+					params[index].shader.shader = shaders[index].get();
+					params[index].shader.entryPoint = "main";
+					params[index].shader.entries = nullptr;
+					params[index].shader.requireFullSubgroups = true;
+					params[index].shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+				}
+				
+				if (!m_device->createComputePipelines(nullptr, params, pipelines.data())) {
+					return logFail("Failed to create compute pipeline!\n");
+				}
 
-			// Luma Gather
-			auto gatherShader = loadCompileAndCreateShader("app_resources/luma_gather.comp.hlsl");
-			if (!gatherShader)
-				return logFail("Failed to Load and Compile Compute Shader: gatherShader!");
-			auto gatherLayout = m_device->createPipelineLayout(
-				{ &pcRange, 1 },
-				core::smart_refctd_ptr(dsLayouts[0]),
-				nullptr,
-				nullptr,
-				core::smart_refctd_ptr(dsLayouts[1])
-			);
-			if (!createComputePipeline(gatherShader, m_gatherPipeline, gatherLayout))
-				return logFail("Could not create Luma Gather Pipeline!");
+				m_meterPipeline = std::move(pipelines[0]);
+				m_tonemapPipeline = std::move(pipelines[1]);
+			}
 
-			// Load FSTri Shader
-			ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(m_assetMgr.get(), m_device.get(), m_logger.get());
-			if (!fsTriProtoPPln)
-				return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
+			// Create graphics pipeline
+			{
+				auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+				ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(m_assetMgr.get(), m_device.get(), m_logger.get());
+				if (!fsTriProtoPPln)
+					return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
 
-			// Load Fragment Shader
-			auto fragmentShader = loadCompileAndCreateShader("app_resources/present.frag.hlsl");;
-			if (!fragmentShader)
-				return logFail("Failed to Load and Compile Fragment Shader: lumaMeterShader!");
+				// Load Fragment Shader
+				auto fragmentShader = loadAndCompileShader(ShaderPaths[2]);
+				if (!fragmentShader)
+					return logFail("Failed to Load and Compile Fragment Shader: lumaMeterShader!");
 
-			const IGPUShader::SSpecInfo fragSpec = {
-				.entryPoint = "main",
-				.shader = fragmentShader.get()
-			};
-			auto presentLayout = m_device->createPipelineLayout(
-				{ &pcRange, 1 },
-				nullptr,
-				nullptr,
-				nullptr,
-				core::smart_refctd_ptr(dsLayouts[2])
-			);
-			m_presentPipeline = fsTriProtoPPln.createPipeline(fragSpec, presentLayout.get(), scResources->getRenderpass());
-			if (!m_presentPipeline)
-				return logFail("Could not create Graphics Pipeline!");
-		}
+				const IGPUShader::SSpecInfo fragSpec = {
+					.entryPoint = "main",
+					.shader = fragmentShader.get()
+				};
 
-		// Init the surface and create the swapchain
-		if (!m_surface || !m_surface->init(graphicsQueue, std::move(scResources), swapchainParams.sharedParams))
-			return logFail("Could not create Window & Surface or initialize the Surface!");
-
-		// need resetttable commandbuffers for the upload utility
-		{
-			m_graphicsCmdPool = m_device->createCommandPool(graphicsQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-			m_computeCmdPool = m_device->createCommandPool(computeQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-
-			// create the commandbuffers
-			if (!m_graphicsCmdPool || !m_computeCmdPool)
-				return logFail("Couldn't create Command Pools!");
-
-			if (
-				!m_graphicsCmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_graphicsCmdBufs.data(), 1 }) ||
-				!m_computeCmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_computeCmdBufs.data(), 2 })
-			)
-				return logFail("Couldn't create Command Buffers!");
-		}
-
-		// things for IUtilities
-		{
-			m_scratchSemaphore = m_device->createSemaphore(0);
-			if (!m_scratchSemaphore)
-				return logFail("Could not create Scratch Semaphore");
-			m_scratchSemaphore->setObjectDebugName("Scratch Semaphore");
-			// we don't want to overcomplicate the example with multi-queue
-			m_intendedSubmit.queue = graphicsQueue;
-			// wait for nothing before upload
-			m_intendedSubmit.waitSemaphores = {};
-			m_intendedSubmit.waitSemaphores = {};
-			// fill later
-			m_intendedSubmit.commandBuffers = {};
-			m_intendedSubmit.scratchSemaphore = {
-				.semaphore = m_scratchSemaphore.get(),
-				.value = 0,
-				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
-			};
+				auto presentLayout = m_device->createPipelineLayout(
+					{},
+					nullptr,
+					nullptr,
+					std::move(gpuLayouts[2]),
+					nullptr
+				);
+				m_presentPipeline = fsTriProtoPPln.createPipeline(fragSpec, presentLayout.get(), scRes->getRenderpass());
+				if (!m_presentPipeline)
+					return logFail("Could not create Graphics Pipeline!");
+			}
 		}
 
 		// Allocate and create buffer for Luma Gather
@@ -397,6 +394,7 @@ public:
 						return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 
 					assert(allocation->memory.get() == buffer->getBoundMemory().memory);
+					return true;
 				};
 
 				build_buffer(m_device, &m_gatherAllocation, buffer, m_physicalDevice->getLimits().maxSubgroupSize, "Luma Gather Buffer");
@@ -408,176 +406,188 @@ public:
 				return logFail("Failed to map the Device Memory!\n");
 		}
 
-		// Allocate and Leave 1/4 for image uploads, to test image copy with small memory remaining
+		// Load exr file into gpu
+		smart_refctd_ptr<IGPUImage> gpuImg;
 		{
-			uint32_t localOffset = video::StreamingTransientDataBufferMT<>::invalid_value;
-			uint32_t maxFreeBlock = m_utils->getDefaultUpStreamingBuffer()->max_size();
-			const uint32_t allocationAlignment = 64u;
-			const uint32_t allocationSize = (maxFreeBlock / 4) * 3;
-			m_utils->getDefaultUpStreamingBuffer()->multi_allocate(std::chrono::steady_clock::now() + std::chrono::microseconds(500u), 1u, &localOffset, &allocationSize, &allocationAlignment);
+			auto convertImgCPU2GPU = [&](ICPUImage* cpuImg) {
+				auto queue = getGraphicsQueue();
+				auto cmdbuf = m_cmdBufs[0].get();
+				cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
+				std::array<IQueue::SSubmitInfo::SCommandBufferInfo, 1> commandBufferInfo = { cmdbuf };
+				core::smart_refctd_ptr<ISemaphore> imgFillSemaphore = m_device->createSemaphore(0);
+				imgFillSemaphore->setObjectDebugName("Image Fill Semaphore");
+
+				auto converter = CAssetConverter::create({ .device = m_device.get() });
+				// We don't want to generate mip-maps for these images, to ensure that we must override the default callbacks.
+				struct SInputs final : CAssetConverter::SInputs
+				{
+					// we also need to override this to have concurrent sharing
+					inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t groupCopyID, const asset::ICPUImage* buffer, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+					{
+						if (familyIndices.size() > 1)
+							return familyIndices;
+						return {};
+					}
+
+					inline uint8_t getMipLevelCount(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+					{
+						return image->getCreationParameters().mipLevels;
+					}
+					inline uint16_t needToRecomputeMips(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+					{
+						return 0b0u;
+					}
+
+					std::vector<uint32_t> familyIndices;
+				} inputs = {};
+				inputs.readCache = converter.get();
+				inputs.logger = m_logger.get();
+				{
+					const core::set<uint32_t> uniqueFamilyIndices = { queue->getFamilyIndex(), queue->getFamilyIndex() };
+					inputs.familyIndices = { uniqueFamilyIndices.begin(),uniqueFamilyIndices.end() };
+				}
+				// scratch command buffers for asset converter transfer commands
+				SIntendedSubmitInfo transfer = {
+					.queue = queue,
+					.waitSemaphores = {},
+					.prevCommandBuffers = {},
+					.scratchCommandBuffers = commandBufferInfo,
+					.scratchSemaphore = {
+						.semaphore = imgFillSemaphore.get(),
+						.value = 0,
+						// because of layout transitions
+						.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+					}
+				};
+				// as per the `SIntendedSubmitInfo` one commandbuffer must be begun
+				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+				// Normally we'd have to inherit and override the `getFinalOwnerQueueFamily` callback to ensure that the
+				// compute queue becomes the owner of the buffers and images post-transfer, but in this example we use concurrent sharing
+				CAssetConverter::SConvertParams params = {};
+				params.transfer = &transfer;
+				params.utilities = m_utils.get();
+
+				std::get<CAssetConverter::SInputs::asset_span_t<ICPUImage>>(inputs.assets) = { &cpuImg, 1 };
+				// assert that we don't need to provide patches
+				assert(cpuImg->getImageUsageFlags().hasFlags(ICPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT));
+				auto reservation = converter->reserve(inputs);
+				// the `.value` is just a funny way to make the `smart_refctd_ptr` copyable
+				auto gpuImgs = reservation.getGPUObjects<ICPUImage>();
+				for (auto& gpuImg : gpuImgs) {
+					if (!gpuImg) {
+						m_logger->log("Failed to convert %s into an IGPUImage handle", ILogger::ELL_ERROR, DefaultImagePathsFile);
+						std::exit(-1);
+					}
+				}
+
+				// and launch the conversions
+				m_api->startCapture();
+				auto result = reservation.convert(params);
+				m_api->endCapture();
+				if (!result.blocking() && result.copy() != IQueue::RESULT::SUCCESS) {
+					m_logger->log("Failed to record or submit conversions", ILogger::ELL_ERROR);
+					std::exit(-1);
+				}
+
+				return gpuImgs[0].value;
+			};
+
+			smart_refctd_ptr<ICPUImage> cpuImg;
+			{
+				IAssetLoader::SAssetLoadParams lp;
+				SAssetBundle bundle = m_assetMgr->getAsset(DefaultImagePathsFile, lp);
+				if (bundle.getContents().empty()) {
+					m_logger->log("Couldn't load an asset.", ILogger::ELL_ERROR);
+					std::exit(-1);
+				}
+
+				cpuImg = IAsset::castDown<ICPUImage>(bundle.getContents()[0]);
+				if (!cpuImg) {
+					m_logger->log("Couldn't load an asset.", ILogger::ELL_ERROR);
+					std::exit(-1);
+				}
+			};
+
+			gpuImg = convertImgCPU2GPU(cpuImg.get());
 		}
 
-		// Load exr file into gpu
+		// create views for textures
 		{
-			IAssetLoader::SAssetLoadParams params;
-			auto imageBundle = m_assetMgr->getAsset(DefaultImagePathsFile.data(), params);
-			auto cpuImg = IAsset::castDown<ICPUImage>(imageBundle.getContents().begin()[0]);
-			auto format = cpuImg->getCreationParameters().format;
+			auto createHDRIImage = [this](const asset::E_FORMAT colorFormat, const uint32_t width, const uint32_t height) -> smart_refctd_ptr<IGPUImage> {
+				IGPUImage::SCreationParams imgInfo;
+				imgInfo.format = colorFormat;
+				imgInfo.type = IGPUImage::ET_2D;
+				imgInfo.extent.width = width;
+				imgInfo.extent.height = height;
+				imgInfo.extent.depth = 1u;
+				imgInfo.mipLevels = 1u;
+				imgInfo.arrayLayers = 1u;
+				imgInfo.samples = IGPUImage::ESCF_1_BIT;
+				imgInfo.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(0u);
+				imgInfo.usage = asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_SAMPLED_BIT;
 
-			ICPUImageView::SCreationParams viewParams = {
-				.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
-				.image = std::move(cpuImg),
-				.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
-				.format = format,
-				.subresourceRange = {
-					.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
-					.baseMipLevel = 0u,
-					.levelCount = ICPUImageView::remaining_mip_levels,
-					.baseArrayLayer = 0u,
-					.layerCount = ICPUImageView::remaining_array_layers
-				}
-			};
+				auto image = m_device->createImage(std::move(imgInfo));
+				auto imageMemReqs = image->getMemoryReqs();
+				imageMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+				m_device->allocate(imageMemReqs, image.get());
 
-			const auto cpuImgView = ICPUImageView::create(std::move(viewParams));
-			const auto& cpuImgParams = cpuImgView->getCreationParameters();
-
-			// create matching size image upto dimensions
-			IGPUImage::SCreationParams imageParams = {};
-			imageParams = cpuImgParams.image->getCreationParameters();
-			imageParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT | IGPUImage::EUF_SAMPLED_BIT | IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT;
-			// promote format because RGB8 and friends don't actually exist in HW
-			{
-				const IPhysicalDevice::SImageFormatPromotionRequest request = {
-					.originalFormat = imageParams.format,
-					.usages = IPhysicalDevice::SFormatImageUsages::SUsage(imageParams.usage)
+				return image;
 				};
-				imageParams.format = m_physicalDevice->promoteImageFormat(request, imageParams.tiling);
-			}
-			if (imageParams.type == IGPUImage::ET_3D)
-				imageParams.flags |= IGPUImage::ECF_2D_ARRAY_COMPATIBLE_BIT;
-			auto gpuImg = m_device->createImage(std::move(imageParams));
-			if (!gpuImg || !m_device->allocate(gpuImg->getMemoryReqs(), gpuImg.get()).isValid())
-				return false;
-			gpuImg->setObjectDebugName("Autoexposure Image");
-
-			imageParams = gpuImg->getCreationParameters();
-			imageParams.usage = IGPUImage::EUF_SAMPLED_BIT | IGPUImage::EUF_STORAGE_BIT;
-			auto tonemappedImg = m_device->createImage(std::move(imageParams));
-			if (!tonemappedImg || !m_device->allocate(tonemappedImg->getMemoryReqs(), tonemappedImg.get()).isValid())
-				return false;
-			tonemappedImg->setObjectDebugName("Tonemapped Image");
-
-			// Now show the window
-			m_winMgr->show(m_window.get());
-
-			// we don't want to overcomplicate the example with multi-queue
-			auto queue = getGraphicsQueue();
-			auto cmdbuf = m_graphicsCmdBufs[0].get();
-			IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf };
-			m_intendedSubmit.commandBuffers = { &cmdbufInfo, 1 };
-
-			// there's no previous operation to wait for
-			const SMemoryBarrier transferBarriers[] = {
+			auto createHDRIImageView = [this](smart_refctd_ptr<IGPUImage> img) -> smart_refctd_ptr<IGPUImageView>
 				{
-					.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
-					.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
-				},
-				{
-					.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
-					.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-				}
-			};
+					auto format = img->getCreationParameters().format;
+					IGPUImageView::SCreationParams imgViewInfo;
+					imgViewInfo.image = std::move(img);
+					imgViewInfo.format = format;
+					imgViewInfo.viewType = IGPUImageView::ET_2D;
+					imgViewInfo.flags = static_cast<IGPUImageView::E_CREATE_FLAGS>(0u);
+					imgViewInfo.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+					imgViewInfo.subresourceRange.baseArrayLayer = 0u;
+					imgViewInfo.subresourceRange.baseMipLevel = 0u;
+					imgViewInfo.subresourceRange.layerCount = 1u;
+					imgViewInfo.subresourceRange.levelCount = 1u;
 
-			// upload image and write to descriptor set
-			queue->startCapture();
+					return m_device->createImageView(std::move(imgViewInfo));
+				};
 
-			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-			// change the layout of the image
-			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers1[] = {
-				{
-					.barrier = {
-						.dep = transferBarriers[0]
-						// no ownership transfers
-					},
-					.image = gpuImg.get(),
-					// transition the whole view
-					.subresourceRange = cpuImgParams.subresourceRange,
-					// a wiping transition
-					.newLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL
-				},
-				{
-					.image = tonemappedImg.get(),
-					.subresourceRange = cpuImgParams.subresourceRange,
-					.newLayout = IGPUImage::LAYOUT::GENERAL
-				}
-			};
-			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers2[] = {
-				{
-					.barrier = {
-						.dep = transferBarriers[1]
-						// no ownership transfers
-					},
-					.image = gpuImg.get(),
-					// transition the whole view
-					.subresourceRange = cpuImgParams.subresourceRange,
-					// a wiping transition
-					.oldLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-					.newLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL
-				}
-			};
-			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers1 });
-			// upload contents
-			m_utils->updateImageViaStagingBuffer(
-				m_intendedSubmit,
-				cpuImgParams.image->getBuffer(),
-				cpuImgParams.image->getCreationParameters().format,
-				gpuImg.get(),
-				IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-				cpuImgParams.image->getRegions()
-			);
-			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers2 });
-			m_utils->autoSubmit(m_intendedSubmit, [&](SIntendedSubmitInfo& nextSubmit) -> bool { return true; });
+			auto params = gpuImg->getCreationParameters();
+			auto extent = params.extent;
+			gpuImg->setObjectDebugName("GPU Img");
+			m_gpuImgView = createHDRIImageView(gpuImg);
+			m_gpuImgView->setObjectDebugName("GPU Img View");
+			auto outImg = createHDRIImage(asset::E_FORMAT::EF_R16G16B16A16_SFLOAT, Dimensions.x, Dimensions.y);
+			outImg->setObjectDebugName("Tonemapped Image");
+			m_tonemappedImgView = createHDRIImageView(outImg);
+			m_tonemappedImgView->setObjectDebugName("Tonemapped Image View");
+		}
 
-			IGPUImageView::SCreationParams gpuImgViewParams = {
-				.image = gpuImg,
-				.viewType = IGPUImageView::ET_2D,
-				.format = gpuImg->getCreationParameters().format,
-			};
-			IGPUImageView::SCreationParams tonemappedImgViewParams = {
-				.image = tonemappedImg,
-				.viewType = IGPUImageView::ET_2D,
-				.format = tonemappedImg->getCreationParameters().format
-			};
-
-			m_gpuImgView = m_device->createImageView(std::move(gpuImgViewParams));
-			m_tonemappedImgView = m_device->createImageView(std::move(tonemappedImgViewParams));
-
+		// Update Descriptors
+		{
 			IGPUDescriptorSet::SDescriptorInfo infos[3];
 			infos[0].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 			infos[0].desc = m_gpuImgView;
 			infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
 			infos[1].desc = m_tonemappedImgView;
-			infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+			infos[2].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 			infos[2].desc = m_tonemappedImgView;
-
 
 			IGPUDescriptorSet::SWriteDescriptorSet writeDescriptors[] = {
 				{
-					.dstSet = m_ds[0].get(),
+					.dstSet = m_meterDS.get(),
 					.binding = 0,
 					.arrayElement = 0,
 					.count = 1,
 					.info = infos
 				},
 				{
-					.dstSet = m_ds[1].get(),
+					.dstSet = m_tonemapDS.get(),
 					.binding = 0,
 					.arrayElement = 0,
 					.count = 1,
 					.info = infos + 1
 				},
 				{
-					.dstSet = m_ds[2].get(),
+					.dstSet = m_presentDS.get(),
 					.binding = 0,
 					.arrayElement = 0,
 					.count = 1,
@@ -586,9 +596,11 @@ public:
 			};
 
 			m_device->updateDescriptorSets(3, writeDescriptors, 0, nullptr);
-
-			queue->endCapture();
 		}
+
+		m_winMgr->setWindowSize(m_window.get(), Dimensions.x, Dimensions.y);
+		m_surface->recreateSwapchain();
+		m_winMgr->show(m_window.get());
 
 		return true;
 	}
@@ -596,6 +608,7 @@ public:
 	// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
 	inline void workLoopBody() override
 	{
+#if 0
 		const uint32_t SubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
 
 		auto gpuImgExtent = m_gpuImgView->getCreationParameters().image->getCreationParameters().extent;
@@ -625,7 +638,7 @@ public:
 				1 + ((viewportSize.y / 2) - 1) / SubgroupSize
 			};
 
-			queue->startCapture();
+			m_api->startCapture();
 
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			cmdbuf->bindComputePipeline(m_meterPipeline.get());
@@ -652,7 +665,7 @@ public:
 				submit_infos[0].signalSemaphores = signals;
 
 				queue->submit(submit_infos);
-				queue->endCapture();
+				m_api->endCapture();
 			}
 
 			const ISemaphore::SWaitInfo wait_infos[] = {
@@ -686,7 +699,7 @@ public:
 				1 + ((viewportSize.y) - 1) / SubgroupSize
 			};
 
-			queue->startCapture();
+			m_api->startCapture();
 
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			cmdbuf->bindComputePipeline(m_gatherPipeline.get());
@@ -714,7 +727,7 @@ public:
 				submit_infos[0].signalSemaphores = signals;
 
 				queue->submit(submit_infos);
-				queue->endCapture();
+				m_api->endCapture();
 			}
 
 			const ISemaphore::SWaitInfo wait_infos[] = {
@@ -747,7 +760,7 @@ public:
 				.lumaMeterBDA = m_gatherBDA
 			};
 
-			queue->startCapture();
+			m_api->startCapture();
 
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
@@ -815,7 +828,7 @@ public:
 
 			// Present
 			m_surface->present(acquire.imageIndex, rendered);
-			queue->endCapture();
+			m_api->endCapture();
 
 			// Wait for completion
 			{
@@ -829,6 +842,8 @@ public:
 					return;
 			}
 		}
+
+#endif
 
 		m_submitIx++;
 	}
@@ -848,32 +863,29 @@ public:
 	}
 
 protected:
-	nbl::video::IDeviceMemoryAllocator::SAllocation m_gatherAllocation;
-	uint64_t m_gatherBDA;
-	smart_refctd_ptr<IGPUImageView> m_gpuImgView, m_tonemappedImgView;
-
-	// for image uploads
-	smart_refctd_ptr<ISemaphore> m_scratchSemaphore;
-	SIntendedSubmitInfo m_intendedSubmit;
-
-	// Pipelines
-	smart_refctd_ptr<IGPUComputePipeline> m_meterPipeline, m_gatherPipeline;
-	smart_refctd_ptr<IGPUGraphicsPipeline> m_presentPipeline;
-
-	// Descriptor Sets
-	std::array<smart_refctd_ptr<IGPUDescriptorSet>, 3> m_ds;
-
-	// Command Buffers
-	smart_refctd_ptr<IGPUCommandPool> m_graphicsCmdPool, m_computeCmdPool;
-	std::array<smart_refctd_ptr<IGPUCommandBuffer>, 2> m_graphicsCmdBufs, m_computeCmdBufs;
-
-	// Semaphores
-	smart_refctd_ptr<ISemaphore> m_meterSemaphore, m_gatherSemaphore, m_presentSemaphore;
-	uint64_t m_submitIx = 0;
-
 	// window
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
+
+	// Pipelines
+	smart_refctd_ptr<IGPUComputePipeline> m_meterPipeline, m_tonemapPipeline;
+	smart_refctd_ptr<IGPUGraphicsPipeline> m_presentPipeline;
+
+	// Descriptor Sets
+	smart_refctd_ptr<IGPUDescriptorSet> m_meterDS, m_tonemapDS, m_presentDS;
+
+	// Command Buffers
+	smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
+	std::array<smart_refctd_ptr<IGPUCommandBuffer>, 1> m_cmdBufs;
+
+	// Semaphores
+	smart_refctd_ptr<ISemaphore> m_meterSemaphore, m_tonemapSemaphore, m_presentSemaphore;
+	uint64_t m_submitIx = 0;
+
+	// example resources
+	nbl::video::IDeviceMemoryAllocator::SAllocation m_gatherAllocation;
+	uint64_t m_gatherBDA;
+	smart_refctd_ptr<IGPUImageView> m_gpuImgView, m_tonemappedImgView;
 };
 
 NBL_MAIN_FUNC(AutoexposureApp)
