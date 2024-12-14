@@ -31,7 +31,7 @@ public:
 
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, base_t::ManipulationMode mode) override
     {
-        constexpr double MoveSpeedScale = 0.01, RotateSpeedScale = 0.003, MaxVerticalAngle = glm::radians(88.0f), MinVerticalAngle = -MaxVerticalAngle;
+        constexpr double MaxVerticalAngle = glm::radians(88.0f), MinVerticalAngle = -MaxVerticalAngle;
 
         if (!virtualEvents.size())
             return false;
@@ -46,8 +46,8 @@ public:
         const auto impulse = mode == base_t::Local ? m_gimbal.accumulate<AllowedLocalVirtualEvents>(virtualEvents)
             : m_gimbal.accumulate<AllowedWorldVirtualEvents>(virtualEvents, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 });
 
-        const auto newPitch = std::clamp(gPitch + impulse.dVirtualRotation.x * RotateSpeedScale, MinVerticalAngle, MaxVerticalAngle), newYaw = gYaw + impulse.dVirtualRotation.y * RotateSpeedScale;
-        newOrientation = glm::quat(glm::vec3(newPitch, newYaw, 0.0f)); newPosition = m_gimbal.getPosition() + impulse.dVirtualTranslate * MoveSpeedScale;
+        const auto newPitch = std::clamp(gPitch + impulse.dVirtualRotation.x * m_rotationSpeedScale, MinVerticalAngle, MaxVerticalAngle), newYaw = gYaw + impulse.dVirtualRotation.y * m_rotationSpeedScale;
+        newOrientation = glm::quat(glm::vec3(newPitch, newYaw, 0.0f)); newPosition = m_gimbal.getPosition() + impulse.dVirtualTranslate * m_moveSpeedScale;
 
         bool manipulated = true;
 
@@ -81,8 +81,24 @@ public:
         return "FPS Camera";
     }
 
+    // (***)
+    inline void setMoveSpeedScale(double scalar)
+    {
+        m_moveSpeedScale = scalar;
+    }
+
+    // (***)
+    inline void setRotationSpeedScale(double scalar)
+    {
+        m_rotationSpeedScale = scalar;
+    }
+
 private:
     typename base_t::CGimbal m_gimbal;
+
+    // (***) TODO: I need to think whether a camera should own this or controllers should be able 
+    // to set sensitivity to scale magnitudes of generated events we put into manipulate method
+    double m_moveSpeedScale = 1, m_rotationSpeedScale = 1;
 
     static inline constexpr auto AllowedLocalVirtualEvents = CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::TiltUp | CVirtualGimbalEvent::TiltDown | CVirtualGimbalEvent::PanRight | CVirtualGimbalEvent::PanLeft;
     static inline constexpr auto AllowedWorldVirtualEvents = AllowedLocalVirtualEvents;

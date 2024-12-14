@@ -101,7 +101,7 @@ public:
     using input_mouse_event_t = ui::SMouseEvent;
 
     //! input of ImGuizmo gimbal controller process utility - ImGuizmo manipulate utility produces "delta (TRS) matrix" events
-    using input_imguizmo_event_t = std::pair<float32_t4x4, float32_t3x3>;
+    using input_imguizmo_event_t = float32_t4x4;
 
     void beginInputProcessing(const std::chrono::microseconds nextPresentationTimeStamp)
     {
@@ -131,7 +131,29 @@ public:
         std::span<const input_imguizmo_event_t> imguizmoEvents = {};
     };
 
-    // Processes SUpdateParameters events to generate virtual manipulation events
+    /**
+    * @brief Processes combined events from SUpdateParameters to generate virtual manipulation events.
+    *
+    * @note This function combines the processing of events from keyboards, mouse and ImGuizmo.
+    * It delegates the actual processing to the respective functions:
+    * - @ref processKeyboard for keyboard events
+    * - @ref processMouse for mouse events
+    * - @ref processImguizmo for ImGuizmo events
+    * The results are accumulated into the output array and the total count.
+    *
+    * @param "output" is a pointer to the array where all generated gimbal events will be stored.
+    * If nullptr, the function will only calculate the total count of potential
+    * output events without processing.
+    *
+    * @param "count" is a uint32_t reference to store the total count of generated gimbal events.
+    *
+    * @param "parameters" is an SUpdateParameters structure containing the individual event arrays
+    * for keyboard, mouse, and ImGuizmo inputs.
+    *
+    * @return void. If "count" > 0 and "output" is a valid pointer, use it to dereference your "output"
+    * containing "count" events. If "output" is nullptr, "count" tells you the total size of "output"
+    * you must guarantee to be valid.
+    */
     void process(gimbal_event_t* output, uint32_t& count, const SUpdateParameters parameters = {})
     {
         count = 0u;
@@ -158,7 +180,25 @@ public:
     inline const imguizmo_to_virtual_events_t& getImguizmoVirtualEventMap() { return m_imguizmoVirtualEventMap; }
 
 private:
-    // Processes keyboard events to generate virtual manipulation events
+    /**
+    * @brief Processes keyboard events to generate virtual manipulation events.
+    *
+    * @note This function maps keyboard events into virtual gimbal manipulation events
+    * based on predefined mappings. It supports event types such as key press and key release
+    * to trigger corresponding actions.
+    *
+    * @param "output" is a pointer to the array where generated gimbal events will be stored.
+    * If nullptr, the function will only calculate the count of potential
+    * output events without processing.
+    *
+    * @param "count" is a uint32_t reference to store the count of generated gimbal events.
+    *
+    * @param "events" is a span of input_keyboard_event_t. Each such event contains a key code and action,
+    * such as key press or release.
+    *
+    * @return void. If "count" > 0 and "output" is a valid pointer, use it to dereference your "output"
+    * containing "count" events. If "output" is nullptr, "count" tells you the size of "output" you must guarantee to be valid.
+    */
     void processKeyboard(gimbal_event_t* output, uint32_t& count, std::span<const input_keyboard_event_t> events)
     {
         count = 0u;
@@ -201,7 +241,25 @@ private:
         }
     }
 
-    // Processes mouse events to generate virtual manipulation events
+    /**
+    * @brief Processes mouse events to generate virtual manipulation events.
+    *
+    * @note This function processes mouse input, including clicks, scrolls, and movements,
+    * and maps them into virtual gimbal manipulation events. Mouse actions are processed
+    * using predefined mappings to determine corresponding gimbal manipulations.
+    *
+    * @param "output" is a pointer to the array where generated gimbal events will be stored.
+    * If nullptr, the function will only calculate the count of potential
+    * output events without processing.
+    *
+    * @param "count" is a uint32_t reference to store the count of generated gimbal events.
+    *
+    * @param "events" is a span of input_mouse_event_t. Each such event represents a mouse action,
+    * including clicks, scrolls, or movements.
+    *
+    * @return void. If "count" > 0 and "output" is a valid pointer, use it to dereference your "output"
+    * containing "count" events. If "output" is nullptr, "count" tells you the size of "output" you must guarantee to be valid.
+    */
     void processMouse(gimbal_event_t* output, uint32_t& count, std::span<const input_mouse_event_t> events)
     {
         count = 0u;
@@ -277,6 +335,26 @@ private:
         }
     }
 
+    /**
+    * @brief Processes input events from ImGuizmo and generates virtual gimbal events.
+    *
+    * @note This function is intended to process transformations provided by ImGuizmo and convert
+    * them into virtual gimbal events for the ICamera::World mode (ICamera::Local is invalid!). 
+    * The function computes translation, rotation, and scale deltas from ImGuizmo's delta matrix, 
+    * which are then mapped to corresponding virtual events using a predefined mapping.
+    *
+    * @param "output" is pointer to the array where generated gimbal events will be stored.
+    * If nullptr, the function will only calculate the count of potential
+    * output events without processing.
+    * 
+    * @param "count" is uint32_t reference to store the count of generated gimbal events.
+    * 
+    * @param "events" is a span of input_imguizmo_event_t. Each such event contains a delta
+    * transformation matrix that represents changes in world space.
+    * 
+    * @return void. If "count" > 0 & "output" was valid pointer then use it to dereference your "output" containing "count" events. 
+    * If "output" is nullptr then "count" tells you about size of "output" you must guarantee to be valid.
+    */
     void processImguizmo(gimbal_event_t* output, uint32_t& count, std::span<const input_imguizmo_event_t> events)
     {
         count = 0u;
@@ -294,51 +372,32 @@ private:
 
             for (const auto& ev : events)
             {
-                // TODO: debug assert "orientationBasis" is orthonormal
-                const auto& [deltaWorldTRS, orientationBasis] = ev;
+                const auto& deltaWorldTRS = ev;
 
                 struct
                 {
                     float32_t3 dTranslation, dRotation, dScale;
-                } world, local; // its important to notice our imguizmo deltas are written in world base, so I will assume you generate events with respect for input local basis
+                } world;
 
-                // TODO: since I assume the delta matrix is from imguizmo I must follow its API (but this one I could actually steal & rewrite to Nabla to not call imguizmo stuff here <- its TEMP)
+                // TODO: since I assume the delta matrix is from imguizmo I must follow its API (but this one I could actually steal & rewrite to Nabla to not call imguizmo stuff here <- its TEMP!!!!!!!)
+                // - there are numerical issues with imguizmo decompose/recompose TRS (and the author also says it, we should have this util in Nabla and work with doubles not floats)
+                // - in rotate mode delta TRS matrix contains translate part (how? no idea, maybe imguizmo bug) and it glitches everything, I get translations e-07 or something
                 ImGuizmo::DecomposeMatrixToComponents(&deltaWorldTRS[0][0], &world.dTranslation[0], &world.dRotation[0], &world.dScale[0]);
 
-                // FP precision threshold, lets filter small artifacts for this event generator to be more accurate
-                constexpr float threshold = 1e-8f;
-
-                auto filterDelta = [](const float32_t3& in) -> float32_t3 
-                {
-                    return 
-                    {
-                        (std::abs(in[0]) > threshold) ? in[0] : 0.0f,
-                        (std::abs(in[1]) > threshold) ? in[1] : 0.0f,
-                        (std::abs(in[2]) > threshold) ? in[2] : 0.0f
-                    };
-                };
-
-                local.dTranslation = filterDelta(mul(orientationBasis, world.dTranslation));
-                
-                // TODO
-                local.dRotation = { 0.f, 0.f, 0.f };
-                // TODO
-                local.dScale = { 1.f, 1.f, 1.f };
-
                 // Delta translation impulse
-                requestMagnitudeUpdateWithScalar(0.f, local.dTranslation[0], std::abs(local.dTranslation[0]), gimbal_event_t::MoveRight, gimbal_event_t::MoveLeft, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(0.f, local.dTranslation[1], std::abs(local.dTranslation[1]), gimbal_event_t::MoveUp, gimbal_event_t::MoveDown, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(0.f, local.dTranslation[2], std::abs(local.dTranslation[2]), gimbal_event_t::MoveForward, gimbal_event_t::MoveBackward, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(0.f, world.dTranslation[0], std::abs(world.dTranslation[0]), gimbal_event_t::MoveRight, gimbal_event_t::MoveLeft, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(0.f, world.dTranslation[1], std::abs(world.dTranslation[1]), gimbal_event_t::MoveUp, gimbal_event_t::MoveDown, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(0.f, world.dTranslation[2], std::abs(world.dTranslation[2]), gimbal_event_t::MoveForward, gimbal_event_t::MoveBackward, m_imguizmoVirtualEventMap);
 
                 // Delta rotation impulse
-                requestMagnitudeUpdateWithScalar(0.f, local.dRotation[0], std::abs(local.dRotation[0]), gimbal_event_t::PanRight, gimbal_event_t::PanLeft, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(0.f, local.dRotation[1], std::abs(local.dRotation[1]), gimbal_event_t::TiltUp, gimbal_event_t::TiltDown, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(0.f, local.dRotation[2], std::abs(local.dRotation[2]), gimbal_event_t::RollRight, gimbal_event_t::RollLeft, m_imguizmoVirtualEventMap);
+                //requestMagnitudeUpdateWithScalar(0.f, world.dRotation[0], std::abs(world.dRotation[0]), gimbal_event_t::TiltUp , gimbal_event_t::TiltDown, m_imguizmoVirtualEventMap);
+                //requestMagnitudeUpdateWithScalar(0.f, world.dRotation[1], std::abs(world.dRotation[1]), gimbal_event_t::PanRight, gimbal_event_t::PanLeft, m_imguizmoVirtualEventMap);
+                //requestMagnitudeUpdateWithScalar(0.f, world.dRotation[2], std::abs(world.dRotation[2]), gimbal_event_t::RollRight, gimbal_event_t::RollLeft, m_imguizmoVirtualEventMap);
 
                 // Delta scale impulse
-                requestMagnitudeUpdateWithScalar(1.f, local.dScale[0], std::abs(local.dScale[0]), gimbal_event_t::ScaleXInc, gimbal_event_t::ScaleXDec, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(1.f, local.dScale[1], std::abs(local.dScale[1]), gimbal_event_t::ScaleYInc, gimbal_event_t::ScaleYDec, m_imguizmoVirtualEventMap);
-                requestMagnitudeUpdateWithScalar(1.f, local.dScale[2], std::abs(local.dScale[2]), gimbal_event_t::ScaleZInc, gimbal_event_t::ScaleZDec, m_imguizmoVirtualEventMap);
+                //requestMagnitudeUpdateWithScalar(1.f, world.dScale[0], std::abs(world.dScale[0]), gimbal_event_t::ScaleXInc, gimbal_event_t::ScaleXDec, m_imguizmoVirtualEventMap);
+                //requestMagnitudeUpdateWithScalar(1.f, world.dScale[1], std::abs(world.dScale[1]), gimbal_event_t::ScaleYInc, gimbal_event_t::ScaleYDec, m_imguizmoVirtualEventMap);
+                //requestMagnitudeUpdateWithScalar(1.f, world.dScale[2], std::abs(world.dScale[2]), gimbal_event_t::ScaleZInc, gimbal_event_t::ScaleZDec, m_imguizmoVirtualEventMap);
             }
 
             postprocess(m_imguizmoVirtualEventMap, output, count);

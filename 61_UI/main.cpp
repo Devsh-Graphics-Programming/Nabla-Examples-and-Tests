@@ -879,7 +879,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		{
 			ImGuiIO& io = ImGui::GetIO();
 			
-			ImGuizmo::SetOrthographic(false);
 			ImGuizmo::BeginFrame();
 			
 			auto projectionMatrices = projections->getLinearProjections();
@@ -1007,7 +1006,39 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				if (useWindow)
 				{
 					// ImGuizmo manipulations on the last used model matrix in window mode
-					TransformEditor(&imguizmoM16InOut.inModel[lastManipulatedModelIx][0][0]);
+					IGimbalController::input_imguizmo_event_t deltaTRS;
+					TransformEditor(&imguizmoM16InOut.inModel[lastManipulatedModelIx][0][0], &deltaTRS); // TODO! DELTA TRS IS ONLY TRANSLATE TEMPORARY
+
+					if (isCameraModelBound)
+					{
+						{
+							static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
+
+							uint32_t vCount;
+
+							secondcamera->beginInputProcessing(m_nextPresentationTimestamp);
+							{
+								secondcamera->process(nullptr, vCount);
+
+								if (virtualEvents.size() < vCount)
+									virtualEvents.resize(vCount);
+
+								IGimbalController::SUpdateParameters params;
+								params.imguizmoEvents = { { deltaTRS } };
+								secondcamera->process(virtualEvents.data(), vCount, params);
+							}
+							secondcamera->endInputProcessing();
+
+							// I start to think controller should be able to set sensitivity to scale magnitudes of generated events
+							// in order for camera to not keep any magnitude scalars like move or rotation speed scales
+							smart_refctd_ptr_static_cast<CFPSCamera>(secondcamera)->setMoveSpeedScale(1);
+							smart_refctd_ptr_static_cast<CFPSCamera>(secondcamera)->setRotationSpeedScale(1);
+
+							// NOTE: generated events from ImGuizmo controller are always in world space!
+							if(vCount)
+								secondcamera->manipulate({ virtualEvents.data(), vCount }, ICamera::World);
+						}
+					}
 
 					uint32_t gizmoIx = {};
 					bool manipulatedFromAnyWindow = false;
@@ -1018,6 +1049,16 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						const auto& cameraIx = windowIndex; // tmp bound & hardcoded, we will extend it later
 						const auto projectionIx = cameraIx + 1u; // offset because first projection belongs to full screen (**)
 						info.textureID = projectionIx;
+
+						if(isPerspective[projectionIx])
+							ImGuizmo::SetOrthographic(false);
+						else
+							ImGuizmo::SetOrthographic(true);
+
+						if (areAxesFlipped[projectionIx])
+							ImGuizmo::AllowAxisFlip(true);
+						else
+							ImGuizmo::AllowAxisFlip(false);
 
 						ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Appearing);
 						ImGui::SetNextWindowPos(ImVec2(400, 20 + cameraIx * 420), ImGuiCond_Appearing);
@@ -1045,6 +1086,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						// however note it only makes sense to obsly assume we cannot manipulate 2 objects at the same time
 						for (uint32_t modelIx = 0; modelIx < 2; modelIx++)
 						{
+							const bool isCameraGizmoBound = gizmoIx == 1;
+							const bool discard = isCameraGizmoBound && mCurrentGizmoOperation != ImGuizmo::TRANSLATE;
+
 							// future logic will need to filter gizmos which represents gimbal of camera which view matrix we use to render scene with
 							if (gizmoIx == 3)
 								continue;
@@ -1065,8 +1109,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							// we manipulated a gizmo from a X-th window, now we update output matrices and assume no more gizmos can be manipulated at the same frame
 							if (!manipulatedFromAnyWindow)
 							{
-								// TMP WIP, our imguizmo controller doesnt support rotation & scale yet
-								auto discard = gizmoIx == 1 && mCurrentGizmoOperation != ImGuizmo::TRANSLATE;
+								// TMP WIP, our imguizmo controller doesnt support rotation & scale yet and its because
+								// - there are numerical issues with imguizmo decompose/recompose TRS (and the author also says it)
+								// - in rotate mode delta TRS matrix contains translate part (how? no idea, maybe imguizmo bug) and it glitches everything
+								
 								if (!discard)
 								{
 									imguizmoM16InOut.outModel[modelIx] = model;
@@ -1081,7 +1127,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							{
 								lastManipulatedModelIx = modelIx;
 								lastManipulatedGizmoIx = gizmoIx;
-								lastManipulatedModelIdentifier = lastManipulatedModelIx == 0 ? "Geometry Creator Object" : "Camera FPS";
+								isCameraModelBound = lastManipulatedModelIx == 1u;
+
+								lastManipulatedModelIdentifier = isCameraModelBound ? "Camera FPS" : "Geometry Creator Object";
 							}
 
 							if (ImGuizmo::IsOver())
@@ -1149,7 +1197,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				if (ImGuizmo::IsUsingAny())
 				{
 					uint32_t vCount;
-					auto nblManipulationMode = ICamera::Local;
 
 					secondcamera->beginInputProcessing(m_nextPresentationTimestamp);
 					{
@@ -1159,28 +1206,26 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							virtualEvents.resize(vCount);
 
 						IGimbalController::SUpdateParameters params;
-
-						auto getOrientationBasis = [&]()
-							{
-								auto orientationBasis = (float32_t3x3(1.f));
-
-								switch (mCurrentGizmoMode)
-								{
-								case ImGuizmo::LOCAL: orientationBasis = (float32_t3x3(getCastedMatrix<float32_t>(secondCameraGimbalModel)));  break;
-								case ImGuizmo::WORLD: nblManipulationMode = ICamera::World; break;
-								default: assert(false); break;
-								}
-
-								return orientationBasis;
-							};
-
-						params.imguizmoEvents = { { std::make_pair(imguizmoM16InOut.outDeltaTRS[1u], getOrientationBasis()) } };
+						params.imguizmoEvents = { { imguizmoM16InOut.outDeltaTRS[1u] } };
 						secondcamera->process(virtualEvents.data(), vCount, params);
 					}
 					secondcamera->endInputProcessing();
 
-					secondcamera->manipulate({ virtualEvents.data(), vCount }, nblManipulationMode);
+					// I start to think controller should be able to set sensitivity to scale magnitudes of generated events
+					// in order for camera to not keep any magnitude scalars like move or rotation speed scales
+					smart_refctd_ptr_static_cast<CFPSCamera>(secondcamera)->setMoveSpeedScale(1);
+					smart_refctd_ptr_static_cast<CFPSCamera>(secondcamera)->setRotationSpeedScale(1);
+
+					// NOTE: generated events from ImGuizmo controller are always in world space!
+					secondcamera->manipulate({ virtualEvents.data(), vCount }, ICamera::World);
 				}
+			}
+
+			for (uint32_t i = 0u; i < cameraz.size(); ++i)
+			{
+				auto& camera = cameraz[i];
+				smart_refctd_ptr_static_cast<CFPSCamera>(camera)->setMoveSpeedScale(moveSpeed[i]);
+				smart_refctd_ptr_static_cast<CFPSCamera>(camera)->setRotationSpeedScale(rotateSpeed[i]);
 			}
 
 			// update scenes data
@@ -1235,7 +1280,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				{
 					ImGuiIO& io = ImGui::GetIO();
 
-					if (ImGui::IsKeyPressed(ImGuiKey_LeftShift))
+					if (ImGui::IsKeyPressed(ImGuiKey_Space))
 						enableActiveCameraMovement = !enableActiveCameraMovement;
 
 					if (enableActiveCameraMovement)
@@ -1293,7 +1338,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							ImGuiWindowFlags_AlwaysAutoResize |
 							ImGuiWindowFlags_NoSavedSettings);
 
-						ImGui::Text("Press 'Left Shift' to Enable/Disable selected camera movement");
+						ImGui::Text("Press 'Space' to Enable/Disable selected camera movement");
 
 						ImGui::End();
 
@@ -1314,9 +1359,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						if (ImGui::TreeNodeEx(treeNodeLabel.c_str(), flags))
 						{
-							// WiP, does not affect camera yet
-							//ImGui::SliderFloat("Move speed", &moveSpeed[cameraIndex], 0.1f, 10.f);
-							//ImGui::SliderFloat("Rotate speed", &rotateSpeed[cameraIndex], 0.1f, 10.f);
+							ImGui::SliderFloat("Move speed factor", &moveSpeed[cameraIndex], 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
+							ImGui::SliderFloat("Rotate speed factor", &rotateSpeed[cameraIndex], 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
 
 							if (ImGui::TreeNodeEx("Data", ImGuiTreeNodeFlags_None))
 							{
@@ -1370,6 +1414,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				if (ImGui::RadioButton("RH", !isLH[lastProjectionIx]))
 					isLH[lastProjectionIx] = false;
 
+				if(useWindow)
+					ImGui::Checkbox("Allow axes to flip##allowAxesToFlip", areAxesFlipped.data() + lastProjectionIx);
+
 				if (isPerspective[lastProjectionIx])
 					ImGui::SliderFloat("Fov", &fov[lastProjectionIx], 20.f, 150.f, "%.1f");
 				else
@@ -1382,7 +1429,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			}
 		}
 
-		inline void TransformEditor(float* matrix)
+		inline void TransformEditor(float* matrix, IGimbalController::input_imguizmo_event_t* deltaTRS = nullptr)
 		{
 			static float bounds[] = { -0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f };
 			static float boundsSnap[] = { 0.1f, 0.1f, 0.1f };
@@ -1410,32 +1457,45 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			if (ImGui::RadioButton("Translate", mCurrentGizmoOperation == ImGuizmo::TRANSLATE))
 				mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
+
 			ImGui::SameLine();
 			if (ImGui::RadioButton("Rotate", mCurrentGizmoOperation == ImGuizmo::ROTATE))
 				mCurrentGizmoOperation = ImGuizmo::ROTATE;
 			ImGui::SameLine();
 			if (ImGui::RadioButton("Scale", mCurrentGizmoOperation == ImGuizmo::SCALE))
 				mCurrentGizmoOperation = ImGuizmo::SCALE;
-			float matrixTranslation[3], matrixRotation[3], matrixScale[3];
-			ImGuizmo::DecomposeMatrixToComponents(matrix, matrixTranslation, matrixRotation, matrixScale);
-			const bool isCameraModelBound = lastManipulatedModelIx == 1u;
+
+			float32_t3 matrixTranslation, matrixRotation, matrixScale;
+			IGimbalController::input_imguizmo_event_t decomposed, recomposed;
+
+			if (deltaTRS)
+				*deltaTRS = IGimbalController::input_imguizmo_event_t(1);
+
+			ImGuizmo::DecomposeMatrixToComponents(matrix, &matrixTranslation[0], &matrixRotation[0], &matrixScale[0]);
+			decomposed = *reinterpret_cast<float32_t4x4*>(matrix);
 			{
 				ImGuiInputTextFlags flags = 0;
 
-				if (isCameraModelBound) // TODO: cameras are WiP here
+				ImGui::InputFloat3("Tr", &matrixTranslation[0], "%.3f", flags);
+
+				if (isCameraModelBound) // TODO: cameras are WiP here, imguizmo controller only works with translate manipulation + abs are banned currently
 				{
 					ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1.0f, 0.0f, 0.0f, 0.5f));
 					flags |= ImGuiInputTextFlags_ReadOnly;
 				}
 
-				ImGui::InputFloat3("Tr", matrixTranslation, "%.3f", flags);
-				ImGui::InputFloat3("Rt", matrixRotation, "%.3f", flags);
-				ImGui::InputFloat3("Sc", matrixScale, "%.3f", flags);
+				ImGui::InputFloat3("Rt", &matrixRotation[0], "%.3f", flags);
+				ImGui::InputFloat3("Sc", &matrixScale[0], "%.3f", flags);
 
 				if(isCameraModelBound)
 					ImGui::PopStyleColor();
 			}
-			ImGuizmo::RecomposeMatrixFromComponents(matrixTranslation, matrixRotation, matrixScale, matrix);
+			ImGuizmo::RecomposeMatrixFromComponents(&matrixTranslation[0], &matrixRotation[0], &matrixScale[0], matrix);
+			recomposed = *reinterpret_cast<float32_t4x4*>(matrix);
+
+			// TODO AND NOTE: I only take care of translate part temporary!
+			if(deltaTRS)
+				deltaTRS->operator[](3) = recomposed[3] - decomposed[3];
 
 			if (mCurrentGizmoOperation != ImGuizmo::SCALE)
 			{
@@ -1446,22 +1506,19 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					mCurrentGizmoMode = ImGuizmo::WORLD;
 			}
 
-			if (not isCameraModelBound)  // TODO: cameras are WiP here
+			ImGui::Checkbox(" ", &useSnap);
+			ImGui::SameLine();
+			switch (mCurrentGizmoOperation)
 			{
-				ImGui::Checkbox(" ", &useSnap);
-				ImGui::SameLine();
-				switch (mCurrentGizmoOperation)
-				{
-				case ImGuizmo::TRANSLATE:
-					ImGui::InputFloat3("Snap", &snap[0]);
-					break;
-				case ImGuizmo::ROTATE:
-					ImGui::InputFloat("Angle Snap", &snap[0]);
-					break;
-				case ImGuizmo::SCALE:
-					ImGui::InputFloat("Scale Snap", &snap[0]);
-					break;
-				}
+			case ImGuizmo::TRANSLATE:
+				ImGui::InputFloat3("Snap", &snap[0]);
+				break;
+			case ImGuizmo::ROTATE:
+				ImGui::InputFloat("Angle Snap", &snap[0]);
+				break;
+			case ImGuizmo::SCALE:
+				ImGui::InputFloat("Scale Snap", &snap[0]);
+				break;
 			}
 
 			ImGui::End();
@@ -1562,11 +1619,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		using linear_projection_t = CLinearProjection<linear_projections_range_t>;
 		nbl::core::smart_refctd_ptr<ILinearProjection> projections;
 
-		bool flipGizmoY = true;
-		std::array<bool, ProjectionsCount> isPerspective = { true, true, true }, isLH = { true, true, true };
+		const bool flipGizmoY = true;
+		std::array<bool, ProjectionsCount> isPerspective = { true, true, true }, isLH = { true, true, true }, areAxesFlipped = { false, false, false };
 		std::array<float, ProjectionsCount> fov = { 60.f, 60.f, 60.f }, zNear = { 0.1f, 0.1f, 0.1f }, zFar = { 10000.f, 10000.f, 10000.f }, viewWidth = { 10.f, 10.f, 10.f }, aspectRatio = {}, invAspectRatio = {};
-		std::array<float, CamerazCount> moveSpeed = { 1.f, 1.f }, rotateSpeed = { 1.f, 1.f };
+		std::array<float, CamerazCount> moveSpeed = { 0.01, 0.01 }, rotateSpeed = { 0.003, 0.003 };
 
+		bool isCameraModelBound = false;
 		float camYAngle = 165.f / 180.f * 3.14159f;
 		float camXAngle = 32.f / 180.f * 3.14159f;
 		float camDistance = 8.f;
