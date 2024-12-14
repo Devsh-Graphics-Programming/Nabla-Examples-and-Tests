@@ -1386,7 +1386,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					ImGui::End();
 				}
-
 			}
 
 			// Projections
@@ -1415,12 +1414,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					ImGui::Checkbox("Allow axes to flip##allowAxesToFlip", areAxesFlipped.data() + lastProjectionIx);
 
 				if (isPerspective[lastProjectionIx])
-					ImGui::SliderFloat("Fov", &fov[lastProjectionIx], 20.f, 150.f, "%.1f");
+					ImGui::SliderFloat("Fov", &fov[lastProjectionIx], 20.f, 150.f, "%.1f", ImGuiSliderFlags_Logarithmic);
 				else
-					ImGui::SliderFloat("Ortho width", &viewWidth[lastProjectionIx], 1.f, 20.f, "%.1f");
+					ImGui::SliderFloat("Ortho width", &viewWidth[lastProjectionIx], 1.f, 20.f, "%.1f", ImGuiSliderFlags_Logarithmic);
 
-				ImGui::SliderFloat("zNear", &zNear[lastProjectionIx], 0.1f, 100.f, "%.2f");
-				ImGui::SliderFloat("zFar", &zFar[lastProjectionIx], 110.f, 10000.f, "%.1f");
+				ImGui::SliderFloat("zNear", &zNear[lastProjectionIx], 0.1f, 100.f, "%.2f", ImGuiSliderFlags_Logarithmic);
+				ImGui::SliderFloat("zFar", &zFar[lastProjectionIx], 110.f, 10000.f, "%.1f", ImGuiSliderFlags_Logarithmic);
 
 				ImGui::End();
 			}
