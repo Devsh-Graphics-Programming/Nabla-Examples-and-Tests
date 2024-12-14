@@ -785,6 +785,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				};
 				m_surface->present(std::move(swapchainLock), presentInfo);
 			}
+			firstFrame = false;
 		}
 
 		inline bool keepRunning() override
@@ -821,25 +822,21 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				std::vector<SMouseEvent> mouse {};
 				std::vector<SKeyboardEvent> keyboard {};
 			} capturedEvents;
-
-			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 			{
-				for (const auto& e : events)
+				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 				{
-					capturedEvents.mouse.emplace_back(e);
+					if (m_window->hasInputFocus())
+						for (const auto& e : events)
+							capturedEvents.mouse.emplace_back(e);
+				}, m_logger.get());
 
-					if (e.type == nbl::ui::SMouseEvent::EET_SCROLL)
-						gcIndex = std::clamp<uint16_t>(int16_t(gcIndex) + int16_t(core::sign(e.scrollEvent.verticalScroll)), int64_t(0), int64_t(OT_COUNT - (uint8_t)1u));
-				}
-			}, m_logger.get());
-
-			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
-			{
-				for (const auto& e : events)
+				keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 				{
-					capturedEvents.keyboard.emplace_back(e);
-				}
-			}, m_logger.get());
+					if (m_window->hasInputFocus())
+						for (const auto& e : events)
+							capturedEvents.keyboard.emplace_back(e);
+				}, m_logger.get());
+			}
 
 			const auto cursorPosition = m_window->getCursorControl()->getPosition();
 
@@ -1452,6 +1449,36 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			ImGui::Text("Identifier: \"%s\"", lastManipulatedModelIdentifier.c_str());
 			ImGui::Separator();
+
+
+			if (!isCameraModelBound)
+			{
+				static const char* gcObjectTypeNames[] = {
+					"Cube",
+					"Sphere",
+					"Cylinder",
+					"Rectangle",
+					"Disk",
+					"Arrow",
+					"Cone",
+					"Icosphere"
+				};
+
+				if (ImGui::BeginCombo("Object Type", gcObjectTypeNames[gcIndex]))
+				{
+					for (uint8_t i = 0; i < ObjectType::OT_COUNT; ++i)
+					{
+						bool isSelected = (static_cast<ObjectType>(gcIndex) == static_cast<ObjectType>(i));
+						if (ImGui::Selectable(gcObjectTypeNames[i], isSelected))
+							gcIndex = i;
+
+						if (isSelected)
+							ImGui::SetItemDefaultFocus();
+					}
+					ImGui::EndCombo();
+				}
+			}
+
 
 			addMatrixTable("Model (TRS) Matrix", "ModelMatrixTable", 4, 4, matrix);
 
