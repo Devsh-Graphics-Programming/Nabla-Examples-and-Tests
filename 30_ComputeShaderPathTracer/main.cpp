@@ -512,7 +512,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					scrambleMapCPU = ICPUImage::create(std::move(info));
 					const uint32_t texelFormatByteSize = getTexelOrBlockBytesize(scrambleMapCPU->getCreationParameters().format);
 					const uint32_t texelBufferSize = scrambleMapCPU->getImageDataSizeInBytes();
-					auto texelBuffer = ICPUBuffer::create({.size=texelBufferSize});
+					auto texelBuffer = ICPUBuffer::create({ texelBufferSize });
 
 					core::RandomSampler rng(0xbadc0ffeu);
 					auto out = reinterpret_cast<uint32_t *>(texelBuffer->getPointer());
@@ -622,20 +622,11 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 							if (owenSamplerFileBytesRead < bufferSize)
 							{
-								buffer = asset::ICPUBuffer::create(
-									{
-										.size = sizeof(uint32_t) * bufferSize
-									}
-								);
+								buffer = asset::ICPUBuffer::create({ sizeof(uint32_t) * bufferSize });
 								return { owenSamplerFile, false };
 							}
 
-							buffer = asset::ICPUBuffer::create(
-								{
-									.size = sizeof(uint32_t) * bufferSize,
-									.data = data
-								}
-							);
+							buffer = asset::ICPUBuffer::create({ { sizeof(uint32_t) * bufferSize }, data });
 						}
 					}
 
