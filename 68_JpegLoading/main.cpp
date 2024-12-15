@@ -20,165 +20,166 @@ using namespace video;
 
 class ThreadPool
 {
-	using task_t = std::function<void()>;
+using task_t = std::function<void()>;
 public:
-	ThreadPool(size_t workers = std::thread::hardware_concurrency())
-	{
-		for (size_t i = 0; i < workers; i++)
-		{
-			m_workers.emplace_back([this] {
-				task_t task;
+   ThreadPool(size_t workers = std::thread::hardware_concurrency())
+   {
+      for (size_t i = 0; i < workers; i++)
+      {
+         m_workers.emplace_back([this] {
+            task_t task;
 
-				while (1)
-				{
-					{
-						std::unique_lock<std::mutex> lock(m_queueLock);
-						m_taskAvailable.wait(lock, [this] { return !m_tasks.empty() || m_shouldStop; });
+            while (1)
+            {
+               {
+                  std::unique_lock<std::mutex> lock(m_queueLock);
+                  m_taskAvailable.wait(lock, [this] { return !m_tasks.empty() || m_shouldStop; });
 
-						if (m_shouldStop && m_tasks.empty()) {
-							return;
-						}
+                  if (m_shouldStop && m_tasks.empty()) {
+                     return;
+                  }
 
-						task = std::move(m_tasks.front());
-						m_tasks.pop();
-					}
+                  task = std::move(m_tasks.front());
+                  m_tasks.pop();
+               }
 
-					task();
-				}
-			});
-		}
-	}
+               task();
+            }
+         });
+      }
+   }
 
-	~ThreadPool()
-	{
-		m_shouldStop = true;
-		m_taskAvailable.notify_all();
+   ~ThreadPool()
+   {
+      m_shouldStop = true;
+      m_taskAvailable.notify_all();
 
-		for (auto& worker : m_workers)
-		{
-			worker.join();
-		}
-	}
+      for (auto& worker : m_workers)
+      {
+         worker.join();
+      }
+   }
 
-	void enqueue(task_t task)
-	{
-		{
-			std::lock_guard<std::mutex> lock(m_queueLock);
-			m_tasks.emplace(std::move(task));
-		}
-		m_taskAvailable.notify_one();
-	}
-private:
-	std::mutex m_queueLock;
-	std::condition_variable m_taskAvailable;
-	std::vector<std::thread> m_workers;
-	std::queue<task_t> m_tasks;
-	std::atomic<bool> m_shouldStop = false;
+   void enqueue(task_t task)
+   {
+      {
+         std::lock_guard<std::mutex> lock(m_queueLock);
+         m_tasks.emplace(std::move(task));
+      }
+      m_taskAvailable.notify_one();
+   }
+   private:
+   std::mutex m_queueLock;
+   std::condition_variable m_taskAvailable;
+   std::vector<std::thread> m_workers;
+   std::queue<task_t> m_tasks;
+   std::atomic<bool> m_shouldStop = false;
 };
 
 class JpegLoaderApp final : public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-	using clock_t = std::chrono::steady_clock;
-	using clock_resolution_t = std::chrono::milliseconds;
-	using base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
-public:
-	using base_t::base_t;
+   using clock_t = std::chrono::steady_clock;
+   using clock_resolution_t = std::chrono::milliseconds;
+   using base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+   public:
+   using base_t::base_t;
 
-	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
-	{
-		argparse::ArgumentParser program("Color Space");
+   inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
+   {
+      argparse::ArgumentParser program("Color Space");
 
-		program.add_argument<std::string>("--directory")
-			.required()
-			.help("Path to a directory where all JPEG files are stored (not recursive)");
+      program.add_argument<std::string>("--directory")
+         .required()
+         .help("Path to a directory where all JPEG files are stored (not recursive)");
 
-		program.add_argument<std::string>("--output")
-			.default_value("output.json")
-			.help("Path to the file where the benchmark result will be stored");
+      program.add_argument<std::string>("--output")
+         .default_value("output.json")
+         .help("Path to the file where the benchmark result will be stored");
 
-		try
-		{
-			program.parse_args({ argv.data(), argv.data() + argv.size() });
-		}
-		catch (const std::exception& err)
-		{
-			std::cerr << err.what() << std::endl << program; // NOTE: std::cerr because logger isn't initialized yet
-			return false;
-		}
+      try
+      {
+         program.parse_args({ argv.data(), argv.data() + argv.size() });
+      }
+      catch (const std::exception& err)
+      {
+         std::cerr << err.what() << std::endl << program; // NOTE: std::cerr because logger isn't initialized yet
+         return false;
+      }
 
-		if (!base_t::onAppInitialized(std::move(system)))
-			return false;
+      if (!base_t::onAppInitialized(std::move(system)))
+         return false;
 
-		options.directory = program.get<std::string>("--directory");
-		options.outputFile = program.get<std::string>("--output");
+      options.directory = program.get<std::string>("--directory");
+      options.outputFile = program.get<std::string>("--output");
 
-		// check if directory exists
-		if (!std::filesystem::exists(options.directory)) 
-		{
-			logFail("Provided directory doesn't exist");
-			return false;
-		}
+      // check if directory exists
+      if (!std::filesystem::exists(options.directory)) 
+      {
+         logFail("Provided directory doesn't exist");
+         return false;
+      }
 
-		auto start = clock_t::now();
-		std::vector<std::string> files;
+      auto start = clock_t::now();
+      std::vector<std::string> files;
 
-		{
-			ThreadPool tp;
+      {
+         ThreadPool tp;
 
-			constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
-			const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get());
+         constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
+         const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get());
 
-			for (auto& item : std::filesystem::directory_iterator(options.directory))
-			{
-				auto& path = item.path();
-				if (path.has_extension() && path.extension() == ".jpg")
-				{
-					files.emplace_back(std::move(path.generic_string()));
-					tp.enqueue([=] {
-						m_logger->log("Loading %S", ILogger::ELL_INFO, path.c_str());
-						m_assetMgr->getAsset(path.generic_string(), loadParams);
-					});
-				}
-			}
-		}
+         for (auto& item : std::filesystem::directory_iterator(options.directory))
+         {
+            auto& path = item.path();
+            if (path.has_extension() && path.extension() == ".jpg")
+            {
+               files.emplace_back(std::move(path.generic_string()));
+               tp.enqueue([=] {
+                  m_logger->log("Loading %S", ILogger::ELL_INFO, path.c_str());
+                  m_assetMgr->getAsset(path.generic_string(), loadParams);
+               });
+            }
+         }
+      }
 
-		auto stop = clock_t::now();
-		auto time = std::chrono::duration_cast<clock_resolution_t>(stop - start).count();
+      auto stop = clock_t::now();
+      auto time = std::chrono::duration_cast<clock_resolution_t>(stop - start).count();
 
-		m_logger->log("Process took %llu ms", ILogger::ELL_INFO, time);
+      m_logger->log("Process took %llu ms", ILogger::ELL_INFO, time);
 
-		// Dump data to JSON
-		json j;
-		j["loaded_files"] = files;
-		j["duration_ms"] = time;
-		
-		std::ofstream output(options.outputFile);
-		if (!output.good())
-		{
-			logFail("Failed to open %S", options.outputFile);
-			return false;
-		}
+      // Dump data to JSON
+      json j;
+      j["loaded_files"] = files;
+      j["duration_ms"] = time;
+      
+      std::ofstream output(options.outputFile);
+      if (!output.good())
+      {
+         logFail("Failed to open %S", options.outputFile);
+         return false;
+      }
 
-		output << j;
+      output << j;
 
-		return true;
-	}
+      return true;
+   }
 
-	inline bool keepRunning() override
-	{
-		return false;
-	}
+   inline bool keepRunning() override
+   {
+      return false;
+   }
 
-	inline void workLoopBody() override
-	{
+   inline void workLoopBody() override
+   {
 
-	}
+   }
+
 private:
-	struct NBL_APP_OPTIONS
-	{
-		std::string directory;
-		std::string outputFile;
-	} options;
+   struct NBL_APP_OPTIONS
+   {
+      std::string directory;
+      std::string outputFile;
+   } options;
 };
 
 NBL_MAIN_FUNC(JpegLoaderApp)
