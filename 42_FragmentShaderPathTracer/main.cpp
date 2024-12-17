@@ -198,7 +198,7 @@ int main()
 		auto cpuComputeSpecializedShader = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*spec.begin());
 
 		ISpecializedShader::SInfo info = cpuComputeSpecializedShader->getSpecializationInfo();
-		info.m_backingBuffer = ICPUBuffer::create({ .size = sizeof(ShaderParameters) });
+		info.m_backingBuffer = ICPUBuffer::create({ sizeof(ShaderParameters) });
 		memcpy(info.m_backingBuffer->getPointer(),&kShaderParameters,sizeof(ShaderParameters));
 		info.m_entries = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ISpecializedShader::SInfo::SMapEntry>>(2u);
 		for (uint32_t i=0; i<2; i++)

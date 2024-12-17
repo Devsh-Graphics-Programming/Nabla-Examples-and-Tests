@@ -1672,7 +1672,7 @@ nbl_glsl_complex nbl_glsl_ext_FFT_getPaddedData(ivec3 coordinate, in uint channe
 					}
 					// the cpu is not touching the data yet because the custom CPUBuffer is adopting the memory (no copy)
 					auto* data = reinterpret_cast<uint8_t*>(downloadStagingArea->getBufferPointer())+address;
-					auto cpubufferalias = asset::ICPUBuffer::create({ .size = colorBufferBytesize, .data = data, .memoryResource = core::getNullMemoryResource() }, core::adopt_memory);
+					auto cpubufferalias = asset::ICPUBuffer::create({ { colorBufferBytesize }, data, core::getNullMemoryResource() }, core::adopt_memory);
 					image->setBufferAndRegions(std::move(cpubufferalias),regions);
 
 					// wait for download fence and then invalidate the CPU cache
@@ -1718,7 +1718,7 @@ nbl_glsl_complex nbl_glsl_ext_FFT_getPaddedData(ivec3 coordinate, in uint channe
 					const auto newTexelOrBlockByteSize = asset::getTexelOrBlockBytesize(outFormat);
 
 					auto newImageParams = referenceImageParams;
-					auto newCpuBuffer = ICPUBuffer::create({ .size = referenceRegion->getExtent().width * referenceRegion->getExtent().height * referenceRegion->getExtent().depth * newTexelOrBlockByteSize });
+					auto newCpuBuffer = ICPUBuffer::create({ referenceRegion->getExtent().width * referenceRegion->getExtent().height * referenceRegion->getExtent().depth * newTexelOrBlockByteSize });
 					auto newRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1);
 
 					*newRegions->begin() = *referenceRegion;

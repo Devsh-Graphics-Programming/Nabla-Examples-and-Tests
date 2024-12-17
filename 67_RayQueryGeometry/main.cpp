@@ -591,7 +591,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			};
 			std::array<ScratchVIBindings, OT_COUNT> scratchBuffers;
 			//std::array<SGeomInfo, OT_COUNT> geomInfos;
-			auto geomInfoBuffer = ICPUBuffer::create({ .size = OT_COUNT * sizeof(SGeomInfo) });
+			auto geomInfoBuffer = ICPUBuffer::create({ OT_COUNT * sizeof(SGeomInfo) });
 			
 			SGeomInfo* geomInfos = reinterpret_cast<SGeomInfo*>(geomInfoBuffer->getPointer());
 			const uint32_t byteOffsets[OT_COUNT] = { 18, 24, 24, 20, 20, 24, 16, 12 };	// based on normals data position

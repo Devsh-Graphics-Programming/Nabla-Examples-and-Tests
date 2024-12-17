@@ -321,7 +321,7 @@ public:
 		
 			// auto raytracingFlags = core::bitflag(asset::IBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT) | asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
 			// | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT
-			core::smart_refctd_ptr<ICPUBuffer> aabbsBuffer = ICPUBuffer::create({ .size = aabbsBufferSize });
+			core::smart_refctd_ptr<ICPUBuffer> aabbsBuffer = ICPUBuffer::create({ aabbsBufferSize });
 			memcpy(aabbsBuffer->getPointer(), aabbs, aabbsBufferSize);
 
 			ICPUAccelerationStructure::SCreationParams asCreateParams;
@@ -618,7 +618,7 @@ public:
 			auto cpuComputeSpecializedShader = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*spec.begin());
 
 			ISpecializedShader::SInfo info = cpuComputeSpecializedShader->getSpecializationInfo();
-			info.m_backingBuffer = ICPUBuffer::create({ .size = sizeof(ShaderParameters) });
+			info.m_backingBuffer = ICPUBuffer::create({ sizeof(ShaderParameters) });
 			memcpy(info.m_backingBuffer->getPointer(),&kShaderParameters,sizeof(ShaderParameters));
 			info.m_entries = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ISpecializedShader::SInfo::SMapEntry>>(2u);
 			for (uint32_t i=0; i<2; i++)
