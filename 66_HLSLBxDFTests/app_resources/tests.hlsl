@@ -7,8 +7,10 @@
 #include "nbl/builtin/hlsl/bxdf/common.hlsl"
 #include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
 
-using namespace nbl;
-using namespace hlsl;
+namespace nbl
+{
+namespace hlsl
+{
 
 using ray_dir_info_t = ray_dir_info::SBasic<float>;
 using iso_interaction = surface_interactions::SIsotropic<ray_dir_info_t>;
@@ -16,7 +18,7 @@ using aniso_interaction = surface_interactions::SAnisotropic<ray_dir_info_t>;
 using sample_t = SLightSample<ray_dir_info_t>;
 using quotient_pdf_t = quotient_and_pdf<float32_t3, float>;
 
-float32_t3 testLambertianBRDF()
+inline float32_t3 testLambertianBRDF()
 {
     ray_dir_info_t V;
     V.direction = float32_t3(0.3, 0.4, 0.5);
@@ -33,6 +35,9 @@ float32_t3 testLambertianBRDF()
     // get jacobian
 
     return abs<float>(pdf.value() - brdf);
+}
+
+}
 }
 
 #endif
