@@ -77,13 +77,26 @@ struct IGimbalManipulateEncoder
     using imguizmo_to_virtual_events_t = std::unordered_map<encode_imguizmo_code_t, CHashInfo>;
 
     //! default preset with encode_keyboard_code_t to gimbal_virtual_event_t map
-    virtual const keyboard_to_virtual_events_t& getKeyboardMappingPreset() const = 0u;
+    virtual const keyboard_to_virtual_events_t getKeyboardMappingPreset() const { return {}; }
 
     //! default preset with encode_keyboard_code_t to gimbal_virtual_event_t map
-    virtual const mouse_to_virtual_events_t& getMouseMappingPreset() const = 0u;
+    virtual const mouse_to_virtual_events_t getMouseMappingPreset() const { return {}; }
 
     //! default preset with encode_keyboard_code_t to gimbal_virtual_event_t map
-    virtual const imguizmo_to_virtual_events_t& getImguizmoMappingPreset() const = 0u;
+    virtual const imguizmo_to_virtual_events_t getImguizmoMappingPreset() const { return {}; }
+
+    virtual const keyboard_to_virtual_events_t& getKeyboardVirtualEventMap() const = 0;
+    virtual const mouse_to_virtual_events_t& getMouseVirtualEventMap() const = 0;
+    virtual const imguizmo_to_virtual_events_t& getImguizmoVirtualEventMap() const = 0;
+
+    // Binds mouse key codes to virtual events, the mapKeys lambda will be executed with controller keyboard_to_virtual_events_t table 
+    virtual void updateKeyboardMapping(const std::function<void(keyboard_to_virtual_events_t&)>& mapKeys) = 0;
+
+    // Binds mouse key codes to virtual events, the mapKeys lambda will be executed with controller mouse_to_virtual_events_t table 
+    virtual void updateMouseMapping(const std::function<void(mouse_to_virtual_events_t&)>& mapKeys) = 0;
+
+    // Binds imguizmo key codes to virtual events, the mapKeys lambda will be executed with controller imguizmo_to_virtual_events_t table 
+    virtual void updateImguizmoMapping(const std::function<void(imguizmo_to_virtual_events_t&)>& mapKeys) = 0;
 };
 
 class IGimbalController : public IGimbalManipulateEncoder
@@ -115,14 +128,9 @@ public:
         m_lastVirtualUpTimeStamp = m_nextPresentationTimeStamp;
     }
 
-    // Binds mouse key codes to virtual events, the mapKeys lambda will be executed with controller keyboard_to_virtual_events_t table 
-    void updateKeyboardMapping(const std::function<void(keyboard_to_virtual_events_t&)>& mapKeys) { mapKeys(m_keyboardVirtualEventMap); }
-
-    // Binds mouse key codes to virtual events, the mapKeys lambda will be executed with controller mouse_to_virtual_events_t table 
-    void updateMouseMapping(const std::function<void(mouse_to_virtual_events_t&)>& mapKeys) { mapKeys(m_mouseVirtualEventMap); }
-
-    // Binds imguizmo key codes to virtual events, the mapKeys lambda will be executed with controller imguizmo_to_virtual_events_t table 
-    void updateImguizmoMapping(const std::function<void(imguizmo_to_virtual_events_t&)>& mapKeys) { mapKeys(m_imguizmoVirtualEventMap); }
+    virtual void updateKeyboardMapping(const std::function<void(keyboard_to_virtual_events_t&)>& mapKeys) override { mapKeys(m_keyboardVirtualEventMap); }
+    virtual void updateMouseMapping(const std::function<void(mouse_to_virtual_events_t&)>& mapKeys) override { mapKeys(m_mouseVirtualEventMap); }
+    virtual void updateImguizmoMapping(const std::function<void(imguizmo_to_virtual_events_t&)>& mapKeys) override { mapKeys(m_imguizmoVirtualEventMap); }
 
     struct SUpdateParameters
     {
@@ -175,9 +183,9 @@ public:
         count = vKeyboardEventsCount + vMouseEventsCount + vImguizmoEventsCount;
     }
 
-    inline const keyboard_to_virtual_events_t& getKeyboardVirtualEventMap() { return m_keyboardVirtualEventMap; }
-    inline const mouse_to_virtual_events_t& getMouseVirtualEventMap() { return m_mouseVirtualEventMap; }
-    inline const imguizmo_to_virtual_events_t& getImguizmoVirtualEventMap() { return m_imguizmoVirtualEventMap; }
+    virtual const keyboard_to_virtual_events_t& getKeyboardVirtualEventMap() const override { return m_keyboardVirtualEventMap; }
+    virtual const mouse_to_virtual_events_t& getMouseVirtualEventMap() const override { return m_mouseVirtualEventMap; }
+    virtual const imguizmo_to_virtual_events_t& getImguizmoVirtualEventMap() const override { return m_imguizmoVirtualEventMap; }
 
 private:
     /**

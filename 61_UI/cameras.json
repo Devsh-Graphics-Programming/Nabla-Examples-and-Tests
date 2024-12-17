@@ -1,0 +1,105 @@
+{
+    "cameras": [
+      {
+        "type": "FPS",
+        "position": [-2.238, 1.438, -1.558],
+        "orientation": [0.253, 0.368, -0.105, 0.888]
+      },
+      {
+        "type": "FPS",
+        "position": [-2.017, 0.386, 0.684],
+        "orientation": [0.047, 0.830, -0.072, 0.55]
+      }
+    ],
+    "projections": [
+      {
+        "type": "perspective",
+        "fov": 60.0,
+        "zNear": 0.1,
+        "zFar": 100.0,
+        "leftHanded": true
+      },
+      {
+        "type": "orthographic",
+        "orthoWidth": 10.0,
+        "zNear": 0.1,
+        "zFar": 100.0,
+        "leftHanded": true
+      }
+    ],
+    "viewports": [
+      {
+        "camera": 0,
+        "planarControllerSet": [
+          {
+            "projection": 0,
+            "controllers": {
+              "keyboard": 0,
+              "mouse": 0
+            }
+          },
+          {
+            "projection": 1,
+            "controllers": {
+              "keyboard": 1,
+              "mouse": 0
+            }
+          }
+        ]
+      },
+      {
+        "camera": 1,
+        "planarControllerSet": [
+          {
+            "projection": 0,
+            "controllers": {
+              "keyboard": 0,
+              "mouse": 0
+            }
+          },
+          {
+            "projection": 1,
+            "controllers": {
+              "keyboard": 1,
+              "mouse": 0
+            }
+          }
+        ]
+      }
+    ],
+    "controllers": {
+      "keyboard": [
+        {
+          "mappings": {
+            "W": "MoveForward",
+            "S": "MoveBackward",
+            "A": "MoveLeft",
+            "D": "MoveRight",
+            "I": "TiltDown",
+            "K": "TiltUp",
+            "J": "PanLeft",
+            "L": "PanRight"
+          }
+        },
+        {
+          "mappings": {
+            "W": "MoveUp",
+            "S": "MoveDown",
+            "A": "MoveLeft",
+            "D": "MoveRight"
+          }
+        }
+      ],
+      "mouse": [
+        {
+          "mappings": {
+            "RELATIVE_POSITIVE_MOVEMENT_X": "PanRight",
+            "RELATIVE_NEGATIVE_MOVEMENT_X": "PanLeft",
+            "RELATIVE_POSITIVE_MOVEMENT_Y": "TiltUp",
+            "RELATIVE_NEGATIVE_MOVEMENT_Y": "TiltDown"
+          }
+        }
+      ]
+    }
+  }
+  

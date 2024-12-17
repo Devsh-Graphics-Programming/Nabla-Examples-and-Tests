@@ -12,6 +12,7 @@
 
 #include "camera/CCubeProjection.hpp"
 #include "camera/CLinearProjection.hpp"
+#include "camera/CPlanarProjection.hpp"
 
 // the example's headers
 #include "nbl/ui/ICursorControl.h"

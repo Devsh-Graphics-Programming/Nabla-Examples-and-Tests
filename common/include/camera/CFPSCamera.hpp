@@ -20,9 +20,9 @@ public:
         : base_t(), m_gimbal({ .position = position, .orientation = orientation }) {}
 	~CFPSCamera() = default;
 
-    const base_t::keyboard_to_virtual_events_t& getKeyboardMappingPreset() const override { return m_keyboard_to_virtual_events_preset; }
-    const base_t::mouse_to_virtual_events_t& getMouseMappingPreset() const override { return m_mouse_to_virtual_events_preset; }
-    const base_t::imguizmo_to_virtual_events_t& getImguizmoMappingPreset() const override { return m_imguizmo_to_virtual_events_preset; }
+    const base_t::keyboard_to_virtual_events_t getKeyboardMappingPreset() const override { return m_keyboard_to_virtual_events_preset; }
+    const base_t::mouse_to_virtual_events_t getMouseMappingPreset() const override { return m_mouse_to_virtual_events_preset; }
+    const base_t::imguizmo_to_virtual_events_t getImguizmoMappingPreset() const override { return m_imguizmo_to_virtual_events_preset; }
 
     const typename base_t::CGimbal& getGimbal() override
     {

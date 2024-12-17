@@ -2,10 +2,20 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+#include "nlohmann/json.hpp"
+#include "argparse/argparse.hpp"
+using json = nlohmann::json;
+
 #include "common.hpp"
 #include "keysmapping.hpp"
 #include "camera/CCubeProjection.hpp"
 #include "glm/glm/ext/matrix_clip_space.hpp" // TODO: TESTING
+
+//! TODO: this could be engine class actually, temporary keepin it in the example though
+class CPlanarProjectionCameraController
+{
+
+};
 
 constexpr IGPUImage::SSubresourceRange TripleBufferUsedSubresourceRange = 
 {
@@ -239,6 +249,22 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 		inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
+			argparse::ArgumentParser program("Virtual camera event system demo");
+
+			program.add_argument<std::string>("--file")
+				.required()
+				.help("Path to json file with camera inputs");
+
+			try
+			{
+				program.parse_args({ argv.data(), argv.data() + argv.size() });
+			}
+			catch (const std::exception& err)
+			{
+				std::cerr << err.what() << std::endl << program;
+				return false;
+			}
+
 			// Create imput system
 			m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
@@ -485,9 +511,261 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			oracle.reportBeginFrameRecord();
 
-			/*
-				TESTS, TODO: remove all once finished work & integrate with the example properly
-			*/
+			// json file with camera inputs
+			// @Yas: TODO: THIS NEEDS BETTER VALIDATION AND LOGS ON FAILURE (+ status logs would be nice)!!!
+			{
+				const auto cameraJsonFile = program.get<std::string>("--file");
+
+				std::ifstream file(cameraJsonFile.c_str());
+				if (!file.is_open()) 
+				{
+					std::cerr << "Error: Cannot open input \"" << cameraJsonFile.c_str() << "\" json file.";
+					return false;
+				}
+
+				json j;
+				file >> j;
+
+				std::vector<smart_refctd_ptr<ICamera>> cameras;
+				for (const auto& jCamera : j["cameras"]) 
+				{
+					if (jCamera.contains("type"))
+					{
+						if (jCamera["type"] == "FPS")
+						{
+							if (!jCamera.contains("position"))
+							{
+								std::cerr << "Expected \"position\" keyword for camera definition!";
+								return false;
+							}
+
+							if (!jCamera.contains("orientation"))
+							{
+								std::cerr << "Expected \"orientation\" keyword for camera definition!";
+								return false;
+							}
+
+							auto position = [&]() 
+							{
+								auto jret = jCamera["position"].get<std::array<float, 3>>();
+								return float32_t3(jret[0], jret[1], jret[2]);
+							}();
+
+							auto orientation = [&]()
+							{
+								auto jret = jCamera["orientation"].get<std::array<float, 4>>();
+								return glm::quat(jret[0], jret[1], jret[2], jret[3]);
+							}();
+
+							cameras.emplace_back() = make_smart_refctd_ptr<CFPSCamera>(position, orientation);
+						}
+						else
+						{
+							std::cerr << "Unsupported camera type!";
+							return false;
+						}
+					}
+					else
+					{
+						std::cerr << "Expected \"type\" keyword for camera definition!";
+						return false;
+					}
+				}
+
+				std::vector<IPlanarProjection::CProjection> projections;
+				for (const auto& jProjection : j["projections"])
+				{
+					if (jProjection.contains("type"))
+					{
+						float zNear, zFar;
+						bool leftHanded;
+
+						if (!jProjection.contains("zNear"))
+						{
+							"Expected \"zNear\" keyword for planar projection definition!";
+							return false;
+						}
+
+						if (!jProjection.contains("zFar"))
+						{
+							"Expected \"zFar\" keyword for planar projection definition!";
+							return false;
+						}
+
+						if (!jProjection.contains("leftHanded"))
+						{
+							"Expected \"leftHanded\" keyword for planar projection definition!";
+							return false;
+						}
+
+						zNear = jProjection["zNear"].get<float>();
+						zFar = jProjection["zFar"].get<float>();
+						leftHanded = jProjection["leftHanded"].get<bool>();
+
+						if (jProjection["type"] == "perspective")
+						{
+							if (!jProjection.contains("fov"))
+							{
+								"Expected \"fov\" keyword for planar perspective projection definition!";
+								return false;
+							}
+
+							float fov = jProjection["fov"].get<float>();
+							projections.emplace_back(IPlanarProjection::CProjection::create<IPlanarProjection::CProjection::Perspective>(leftHanded, zNear, zFar, fov));
+
+						}
+						else if (jProjection["type"] == "orthographic")
+						{
+							if (!jProjection.contains("orthoWidth"))
+							{
+								"Expected \"orthoWidth\" keyword for planar orthographic projection definition!";
+								return false;
+							}
+
+							float orthoWidth = jProjection["orthoWidth"].get<float>();
+							projections.emplace_back(IPlanarProjection::CProjection::create<IPlanarProjection::CProjection::Orthographic>(leftHanded, zNear, zFar, orthoWidth));
+						}
+						else
+						{
+							std::cerr << "Unsupported projection!";
+							return false;
+						}
+					}
+				}
+
+				struct
+				{
+					std::vector<IGimbalManipulateEncoder::keyboard_to_virtual_events_t> keyboard;
+					std::vector<IGimbalManipulateEncoder::mouse_to_virtual_events_t> mouse;
+				} controllers;
+
+				if (j.contains("controllers")) 
+				{
+					const auto& jControllers = j["controllers"];
+
+					if (jControllers.contains("keyboard")) 
+					{
+						for (const auto& jKeyboard : jControllers["keyboard"]) 
+						{
+							if (jKeyboard.contains("mappings")) 
+							{
+								auto& controller = controllers.keyboard.emplace_back();
+								for (const auto& [key, value] : jKeyboard["mappings"].items()) 
+								{
+									const auto nativeCode = stringToKeyCode(key.c_str());
+
+									if (nativeCode == EKC_NONE)
+									{
+										std::cerr << "Invalid native key \"" << key.c_str() <<  "\" code mapping for keyboard controller!" << std::endl;
+										return false;
+									}
+
+									controller[nativeCode] = CVirtualGimbalEvent::stringToVirtualEvent(value.get<std::string>());
+								}
+							}
+							else 
+							{
+								std::cerr << "Expected \"mappings\" keyword for keyboard controller definition!" << std::endl;
+								return false;
+							}
+						}
+					}
+					else 
+					{
+						std::cerr << "Expected \"keyboard\" keyword in controllers definition!" << std::endl;
+						return false;
+					}
+
+					if (jControllers.contains("mouse")) 
+					{
+						for (const auto& jMouse : jControllers["mouse"]) 
+						{
+							if (jMouse.contains("mappings")) 
+							{
+								auto& controller = controllers.mouse.emplace_back();
+								for (const auto& [key, value] : jMouse["mappings"].items()) 
+								{
+									const auto nativeCode = stringToMouseCode(key.c_str());
+
+									if (nativeCode == EMC_NONE)
+									{
+										std::cerr << "Invalid native key \"" << key.c_str() << "\" code mapping for mouse controller!" << std::endl;
+										return false;
+									}
+
+									controller[nativeCode] = CVirtualGimbalEvent::stringToVirtualEvent(value.get<std::string>());
+								}
+							}
+							else 
+							{
+								std::cerr << "Expected \"mappings\" keyword for mouse controller definition!" << std::endl;
+								return false;
+							}
+						}
+					}
+					else 
+					{
+						std::cerr << "Expected \"mouse\" keyword in controllers definition!" << std::endl;
+						return false;
+					}
+				}
+				else 
+				{
+					std::cerr << "Expected \"controllers\" keyword in JSON!" << std::endl;
+					return false;
+				}
+
+
+				// viewpoets here
+				if (j.contains("viewports"))
+				{
+					for (const auto& jViewport : j["viewports"])
+					{
+						if (!jViewport.contains("camera"))
+						{
+							std::cerr << "Expected \"camera\" keyword in viewport definition!" << std::endl;
+							return false;
+						}
+
+						const auto cameraIx = jViewport["camera"].get<uint32_t>();
+						auto& planars = m_planarProjections.emplace_back() = planar_projection_t::create(smart_refctd_ptr(cameras[cameraIx]));
+
+						if (!jViewport.contains("planarControllerSet"))
+						{
+							std::cerr << "Expected \"planarControllerSet\" keyword in viewport definition!" << std::endl;
+							return false;
+						}
+
+						for (const auto& jPlanarController : jViewport["planarControllerSet"])
+						{
+							if (!jPlanarController.contains("projection"))
+							{
+								std::cerr << "Expected \"projection\" keyword in planarControllerSet!" << std::endl;
+								return false;
+							}
+
+							if (!jPlanarController.contains("controllers"))
+							{
+								std::cerr << "Expected \"controllers\" keyword in planarControllerSet!" << std::endl;
+								return false;
+							}
+
+							auto projectionIx = jPlanarController["projection"].get<uint32_t>();
+							auto keyboardControllerIx = jPlanarController["controllers"]["keyboard"].get<uint32_t>();
+							auto mouseControllerIx = jPlanarController["controllers"]["mouse"].get<uint32_t>();
+
+							auto& projection = planars->getPlanarProjections().emplace_back(projections[projectionIx]);
+							projection.updateKeyboardMapping([&](auto& map) { map = controllers.keyboard[keyboardControllerIx]; });
+							projection.updateMouseMapping([&](auto& map) { map = controllers.mouse[mouseControllerIx]; });
+						}
+					}
+				}
+				else
+				{
+					std::cerr << "Expected \"viewports\" keyword in JSON!" << std::endl;
+					return false;
+				}
+			}
 
 			const auto iAspectRatio = float(m_window->getWidth()) / float(m_window->getHeight());
 			const auto iInvAspectRatio = float(m_window->getHeight()) / float(m_window->getWidth());
@@ -880,7 +1158,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			
 			auto projectionMatrices = projections->getLinearProjections();
 			{
-				auto mutableRange = smart_refctd_ptr_static_cast<linear_projection_t>(projections)->getLinearProjections();
+
+				/*
+					TODO: update it
+
+					auto mutableRange = smart_refctd_ptr_static_cast<linear_projection_t>(projections)->getLinearProjections();
 				for (uint32_t i = 0u; i < mutableRange.size(); ++i)
 				{
 					auto projection = mutableRange.begin() + i;
@@ -902,6 +1184,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							projection->setProjectionMatrix(buildProjectionMatrixOrthoRH<float64_t>(viewWidth[i], viewHeight, zNear[i], zFar[i]));
 					}
 				}
+				*/
+
+				
 			}
 			
 			/*
@@ -1662,6 +1947,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		std::string lastManipulatedModelIdentifier = "Geometry Creator Object";
 
 		bool firstFrame = true;
+
+		using planar_projections_range_t = std::vector<IPlanarProjection::CProjection>;
+		using planar_projection_t = CPlanarProjection<planar_projections_range_t>;
+		std::vector<nbl::core::smart_refctd_ptr<planar_projection_t>> m_planarProjections;
 };
 
 NBL_MAIN_FUNC(UISampleApp)

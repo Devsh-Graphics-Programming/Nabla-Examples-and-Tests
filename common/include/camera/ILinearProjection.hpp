@@ -38,27 +38,6 @@ public:
         CProjection() : CProjection(projection_matrix_t(1)) {}
         CProjection(const projection_matrix_t& matrix) { setProjectionMatrix(matrix); }
 
-        inline void setProjectionMatrix(const projection_matrix_t& matrix)
-        {
-            m_projectionMatrix = matrix;
-            const auto det = hlsl::determinant(m_projectionMatrix);
-
-            // we will allow you to lose a dimension since such a projection itself *may* 
-            // be valid, however then you cannot un-project because the inverse doesn't exist!
-            m_isProjectionSingular = not det;
-
-            if (m_isProjectionSingular)
-            {
-                m_isProjectionLeftHanded = std::nullopt;
-                m_invProjectionMatrix = std::nullopt;
-            }
-            else
-            {
-                m_isProjectionLeftHanded = det < 0.0;
-                m_invProjectionMatrix = inverse(m_projectionMatrix);
-            }
-        }
-
         //! Returns P (Projection matrix)
         inline const projection_matrix_t& getProjectionMatrix() const { return m_projectionMatrix; }
 
@@ -82,6 +61,28 @@ public:
             output = mul(m_invProjectionMatrix.value(), vecFromProjectionSpace);
 
             return true;
+        }
+
+    protected:
+        inline void setProjectionMatrix(const projection_matrix_t& matrix)
+        {
+            m_projectionMatrix = matrix;
+            const auto det = hlsl::determinant(m_projectionMatrix);
+
+            // we will allow you to lose a dimension since such a projection itself *may* 
+            // be valid, however then you cannot un-project because the inverse doesn't exist!
+            m_isProjectionSingular = not det;
+
+            if (m_isProjectionSingular)
+            {
+                m_isProjectionLeftHanded = std::nullopt;
+                m_invProjectionMatrix = std::nullopt;
+            }
+            else
+            {
+                m_isProjectionLeftHanded = det < 0.0;
+                m_invProjectionMatrix = inverse(m_projectionMatrix);
+            }
         }
 
     private:
