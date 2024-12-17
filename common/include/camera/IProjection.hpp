@@ -15,13 +15,16 @@ public:
 
     enum class ProjectionType
     {
-        //! Perspective, Orthographic, Oblique, Axonometric, Shear projections or any custom linear transformation
+        //! Any raw linear transformation, for example it may represent Perspective, Orthographic, Oblique, Axonometric, Shear projections
         Linear,
 
-        //! Represents pre-transform *concatenated* with linear view-port transform, projects onto a quad
-        Perspective,
+        //! Specialized linear projection for planar projections with parameters
+        Planar,
 
-        //! Represents a Perspective projection onto cube consisting of 6 quad cube faces
+        //! Extension of planar projection represented by pre-transform & planar transform combined projecting onto R3 cave quad
+        CaveQuad,
+
+        //! Specialized CaveQuad projection, represents planar projections onto cube with 6 quad cube faces
         Cube,
 
         Spherical,

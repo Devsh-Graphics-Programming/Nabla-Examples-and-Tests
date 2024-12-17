@@ -6,40 +6,39 @@
 
 namespace nbl::hlsl
 {
-
-template<ContiguousGeneralPurposeRangeOf<ILinearProjection::CProjection> ProjectionsRange>
-class CLinearProjection : public ILinearProjection
-{
-public:
-    using ILinearProjection::ILinearProjection;
-
-	CLinearProjection() = default;
-
-	inline static core::smart_refctd_ptr<CLinearProjection> create(core::smart_refctd_ptr<ICamera>&& camera)
+	template<ContiguousGeneralPurposeRangeOf<ILinearProjection::CProjection> ProjectionsRange>
+	class CLinearProjection : public ILinearProjection
 	{
-		if (!camera)
-			return nullptr;
+	public:
+		using ILinearProjection::ILinearProjection;
 
-		return core::smart_refctd_ptr<CLinearProjection>(new CLinearProjection(core::smart_refctd_ptr(camera)), core::dont_grab);
-	}
+		CLinearProjection() = default;
 
-	virtual std::span<const CProjection> getLinearProjections() const override
-	{
-		return std::span<const CProjection>(m_projections.data(), m_projections.size());
-	}
+		inline static core::smart_refctd_ptr<CLinearProjection> create(core::smart_refctd_ptr<ICamera>&& camera)
+		{
+			if (!camera)
+				return nullptr;
 
-	inline std::span<CProjection> getLinearProjections()
-	{
-		return std::span<CProjection>(m_projections.data(), m_projections.size());
-	}
+			return core::smart_refctd_ptr<CLinearProjection>(new CLinearProjection(core::smart_refctd_ptr(camera)), core::dont_grab);
+		}
 
-private:
-	CLinearProjection(core::smart_refctd_ptr<ICamera>&& camera)
-		: ILinearProjection(core::smart_refctd_ptr(camera)) {}
-	virtual ~CLinearProjection() = default;
+		virtual std::span<const CProjection> getLinearProjections() const override
+		{
+			return std::span<const CProjection>(m_projections.data(), m_projections.size());
+		}
 
-	ProjectionsRange m_projections;
-};
+		inline std::span<CProjection> getLinearProjections()
+		{
+			return std::span<CProjection>(m_projections.data(), m_projections.size());
+		}
+
+	private:
+		CLinearProjection(core::smart_refctd_ptr<ICamera>&& camera)
+			: ILinearProjection(core::smart_refctd_ptr(camera)) {}
+		virtual ~CLinearProjection() = default;
+
+		ProjectionsRange m_projections;
+	};
 
 } // nbl::hlsl namespace
 

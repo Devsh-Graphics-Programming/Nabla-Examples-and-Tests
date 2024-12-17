@@ -79,6 +79,33 @@ namespace nbl::hlsl
             }
         }
 
+        static constexpr VirtualEventType stringToVirtualEvent(std::string_view event)
+        {
+            if (event == "MoveForward") return MoveForward;
+            if (event == "MoveBackward") return MoveBackward;
+            if (event == "MoveLeft") return MoveLeft;
+            if (event == "MoveRight") return MoveRight;
+            if (event == "MoveUp") return MoveUp;
+            if (event == "MoveDown") return MoveDown;
+            if (event == "TiltUp") return TiltUp;
+            if (event == "TiltDown") return TiltDown;
+            if (event == "PanLeft") return PanLeft;
+            if (event == "PanRight") return PanRight;
+            if (event == "RollLeft") return RollLeft;
+            if (event == "RollRight") return RollRight;
+            if (event == "ScaleXInc") return ScaleXInc;
+            if (event == "ScaleXDec") return ScaleXDec;
+            if (event == "ScaleYInc") return ScaleYInc;
+            if (event == "ScaleYDec") return ScaleYDec;
+            if (event == "ScaleZInc") return ScaleZInc;
+            if (event == "ScaleZDec") return ScaleZDec;
+            if (event == "Translate") return Translate;
+            if (event == "Rotate") return Rotate;
+            if (event == "Scale") return Scale;
+            if (event == "None") return None;
+            return None;
+        }
+
         static inline constexpr auto VirtualEventsTypeTable = []()
         {
             std::array<VirtualEventType, EventsCount> output;
