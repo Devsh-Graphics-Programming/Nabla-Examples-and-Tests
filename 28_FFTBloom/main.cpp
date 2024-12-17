@@ -359,22 +359,9 @@ public:
 			auto pipelineLayoutCPU = make_smart_refctd_ptr <ICPUPipelineLayout>(pcRange, std::move(descriptorSetLayoutCPU), nullptr, nullptr, nullptr);
 
 			// Create a Descriptor Set and fill it out
-			// Reassing because it's been moved out of
+			// Reassigning because it's been moved out of
 			descriptorSetLayoutCPU = smart_refctd_ptr<ICPUDescriptorSetLayout>(pipelineLayoutCPU->getDescriptorSetLayout(0));
 			auto descriptorSetCPU = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(descriptorSetLayoutCPU));
-			
-			// Set descriptor set values for automatic upload
-			// Blocked by https://github.com/Devsh-Graphics-Programming/Nabla/issues/798 - will throw a validation error
-			/*
-			auto& firstSampledImageDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(0u), IDescriptor::E_TYPE::ET_SAMPLED_IMAGE).front();
-			auto& secondSampledImageDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(3u), IDescriptor::E_TYPE::ET_SAMPLED_IMAGE).front();
-
-			firstSampledImageDescriptorInfo.desc = kerImageViewCPU;
-			firstSampledImageDescriptorInfo.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-
-			secondSampledImageDescriptorInfo.desc = srcImageViewCPU;
-			secondSampledImageDescriptorInfo.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			*/
 
 			// Create a sampler
 			ICPUSampler::SParams samplerCreationParams =
