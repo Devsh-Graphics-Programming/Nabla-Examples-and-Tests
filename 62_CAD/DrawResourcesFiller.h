@@ -113,8 +113,8 @@ public:
 			{
 				const auto maxGeometryBufferImageObjects = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(ImageObjectInfo);
 				uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
-				uploadableObjects = min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
-				uploadableObjects = min(uploadableObjects, maxGeometryBufferImageObjects);
+				uploadableObjects = std::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+				uploadableObjects = std::min(static_cast<uint64_t>(uploadableObjects), maxGeometryBufferImageObjects);
 
 				if (uploadableObjects >= 1u)
 				{
