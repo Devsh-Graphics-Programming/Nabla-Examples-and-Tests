@@ -673,7 +673,7 @@ public:
 
 			matrix.rows[0].x = ef64_t::create(0.1125); matrix.rows[0].y = ef64_t::create(0); matrix.rows[0].z = ef64_t::create(0);
 			matrix.rows[1].x = ef64_t::create(0); matrix.rows[1].y = ef64_t::create(-0.2); matrix.rows[1].z = ef64_t::create(0);
-			matrix.rows[2].x = ef64_t::create(0); matrix.rows[2].y = ef64_t::create(0); matrix.rows[2].z = ef64_t::create(1);
+			matrix.rows[2].x = ef64_t::create(8); matrix.rows[2].y = ef64_t::create(0); matrix.rows[2].z = ef64_t::create(1);
 
 			std::cout << "MAT:\n";
 
@@ -682,6 +682,21 @@ public:
 				for (int j = 0; j < 3; ++j)
 				{
 					auto y = getter(matrix.rows[i], j);
+					std::cout << reinterpret_cast<double&>(y) << ' ';
+				}
+
+				std::cout << '\n';
+			}			
+
+			auto transposed = hlsl::transpose(matrix);
+
+			std::cout << "TRANSPOSED MAT:\n";
+
+			for (int i = 0; i < 3; ++i)
+			{
+				for (int j = 0; j < 3; ++j)
+				{
+					auto y = getter(transposed.rows[i], j);
 					std::cout << reinterpret_cast<double&>(y) << ' ';
 				}
 
