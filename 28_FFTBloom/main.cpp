@@ -377,10 +377,25 @@ public:
 				0u,
 				ISampler::ECO_ALWAYS
 			};
+
+			// Set descriptor set values for automatic upload
+			
+			auto& firstSampledImageDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(0u), IDescriptor::E_TYPE::ET_SAMPLED_IMAGE).front();
+			auto& secondSampledImageDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(3u), IDescriptor::E_TYPE::ET_SAMPLED_IMAGE).front();
+			
+			firstSampledImageDescriptorInfo.desc = kerImageViewCPU;
+			firstSampledImageDescriptorInfo.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			
+			secondSampledImageDescriptorInfo.desc = srcImageViewCPU;
+			secondSampledImageDescriptorInfo.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			
+
 			auto samplerCPU = make_smart_refctd_ptr<ICPUSampler>(samplerCreationParams);
 
 			auto& samplerDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(1u), IDescriptor::E_TYPE::ET_SAMPLER).front();
 			samplerDescriptorInfo.desc = samplerCPU;
+
+
 
 			// Using asset converter
 			smart_refctd_ptr<video::CAssetConverter> converter = video::CAssetConverter::create({ .device = m_device.get(),.optimizer = {} });
@@ -1266,7 +1281,9 @@ public:
 						}
 						// the cpu is not touching the data yet because the custom CPUBuffer is adopting the memory (no copy)
 						auto* data = reinterpret_cast<uint8_t*>(downStreamingBuffer->getBufferPointer()) + outputOffset;
-						ICPUBuffer::SCreationParams cpuBufferAliasCreationParams = { .size = srcImageSize, .data = data, .memoryResource = core::getNullMemoryResource() }; // Don't free on exit, we're not taking ownership
+						//.size = srcImageSize, .data = data, .memoryResource = core::getNullMemoryResource()
+						ICPUBuffer::SCreationParams cpuBufferAliasCreationParams = { .data = data, .memoryResource = core::getNullMemoryResource()}; // Don't free on exit, we're not taking ownership
+						cpuBufferAliasCreationParams.size = srcImageSize;
 						auto cpuBufferAlias = ICPUBuffer::create(std::move(cpuBufferAliasCreationParams), core::adopt_memory);
 						image->setBufferAndRegions(std::move(cpuBufferAlias), regions);
 					}

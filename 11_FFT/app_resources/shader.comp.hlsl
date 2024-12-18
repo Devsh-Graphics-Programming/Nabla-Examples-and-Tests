@@ -7,7 +7,6 @@ using namespace nbl::hlsl;
 
 using ConstevalParameters = workgroup::fft::ConstevalParameters<ElementsPerThreadLog2, WorkgroupSizeLog2, scalar_t>;
 
-// careful: change size according to Scalar type
 groupshared uint32_t sharedmem[ ConstevalParameters::SharedMemoryDWORDs];
 
 // Users MUST define this method for FFT to work
@@ -15,20 +14,22 @@ uint32_t3 glsl::gl_WorkGroupSize() { return uint32_t3(uint32_t(ConstevalParamete
 
 struct SharedMemoryAccessor 
 {
-	void set(uint32_t idx, uint32_t value) 
+	template <typename IndexType, typename AccessType>
+	void set(IndexType idx, AccessType value)
 	{
 		sharedmem[idx] = value;
 	}
-	
-	void get(uint32_t idx, NBL_REF_ARG(uint32_t) value) 
+
+	template <typename IndexType, typename AccessType>
+	void get(IndexType idx, NBL_REF_ARG(AccessType) value)
 	{
 		value = sharedmem[idx];
 	}
 
-	void workgroupExecutionAndMemoryBarrier() 
+	void workgroupExecutionAndMemoryBarrier()
 	{
 		glsl::barrier();
-    }
+	}
 
 };
 

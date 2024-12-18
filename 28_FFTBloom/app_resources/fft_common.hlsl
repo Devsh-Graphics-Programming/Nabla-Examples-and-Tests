@@ -5,12 +5,14 @@ groupshared uint32_t sharedmem[FFTParameters::SharedMemoryDWORDs];
 
 struct SharedMemoryAccessor
 {
-	void set(uint32_t idx, uint32_t value)
+	template <typename IndexType, typename AccessType>
+	void set(IndexType idx, AccessType value)
 	{
 		sharedmem[idx] = value;
 	}
 
-	void get(uint32_t idx, NBL_REF_ARG(uint32_t) value)
+	template <typename IndexType, typename AccessType>
+	void get(IndexType idx, NBL_REF_ARG(AccessType) value)
 	{
 		value = sharedmem[idx];
 	}
