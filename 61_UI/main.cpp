@@ -11,12 +11,6 @@ using json = nlohmann::json;
 #include "camera/CCubeProjection.hpp"
 #include "glm/glm/ext/matrix_clip_space.hpp" // TODO: TESTING
 
-//! TODO: this could be engine class actually, temporary keepin it in the example though
-class CPlanarProjectionCameraController
-{
-
-};
-
 constexpr IGPUImage::SSubresourceRange TripleBufferUsedSubresourceRange = 
 {
 	.aspectMask = IGPUImage::EAF_COLOR_BIT,
@@ -196,12 +190,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 	using clock_t = std::chrono::steady_clock;
 
 	constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
-
-	enum CameraRenderImguiTextureIx
-	{
-		OfflineSceneFirstCameraTextureIx = 1u,
-		OfflineSceneSecondCameraTextureIx = 2u
-	};
 
 	public:
 		using base_t::base_t;
@@ -450,7 +438,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				m_ui.manager->registerListener([this]() -> void { imguiListen(); });
 			}
 
-			// Geometry Creator Render Scenes
+			// Geometry Creator Render Scene FBOs
 			{
 				resources = ResourcesBundle::create(m_device.get(), m_logger.get(), getGraphicsQueue(), m_assetManager->getGeometryCreator());
 
@@ -460,45 +448,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					return false;
 				}
 
-				// TOOD: we should be able to load position & orientation from json file, support multiple cameraz
-				const float32_t3 iPosition[CamerazCount] = { float32_t3{ -2.238f, 1.438f, -1.558f }, float32_t3{ -2.017f, 0.386f, 0.684f } };
-				// order important for glm::quat, the ctor is GLM_FUNC_QUALIFIER GLM_CONSTEXPR qua<T, Q>::qua(T _w, T _x, T _y, T _z) but memory layout is x,y,z,w
-				const glm::quat iOrientation[CamerazCount] = { glm::quat(0.888f, 0.253f, 0.368f, -0.105f), glm::quat(0.55f, 0.047f, 0.830f, -0.072f) };
-
-				for (uint32_t i = 0u; i < cameraz.size(); ++i)
-				{
-					auto& camera = cameraz[i];
-
-					// lets use key map presets to update the controller
-
-					camera = make_smart_refctd_ptr<CFPSCamera>(iPosition[i], iOrientation[i]);
-
-					// init keyboard map
-					camera->updateKeyboardMapping([&](auto& keys)
-					{
-						keys = camera->getKeyboardMappingPreset();
-					});
-
-					// init mouse map
-					camera->updateMouseMapping([&](auto& keys)
-					{
-						keys = camera->getMouseMappingPreset();
-					});
-
-					// init imguizmo map
-					camera->updateImguizmoMapping([&](auto& keys)
-					{
-						keys = camera->getImguizmoMappingPreset();
-					});
-				}
-
-				// projections
-				projections = linear_projection_t::create(smart_refctd_ptr(cameraz.front()));
-
 				const auto dpyInfo = m_winMgr->getPrimaryDisplayInfo();
-				for (uint32_t i = 0u; i < scenez.size(); ++i)
+
+				for (uint32_t i = 0u; i < sceneControlBinding.size(); ++i)
 				{
-					auto& scene = scenez[i];
+					auto& scene = sceneControlBinding[i].scene;
 					scene = CScene::create(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), getGraphicsQueue(), smart_refctd_ptr(resources), dpyInfo.resX, dpyInfo.resY);
 
 					if (!scene)
@@ -715,8 +669,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					return false;
 				}
 
-
-				// viewpoets here
 				if (j.contains("viewports"))
 				{
 					for (const auto& jViewport : j["viewports"])
@@ -765,15 +717,19 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					std::cerr << "Expected \"viewports\" keyword in JSON!" << std::endl;
 					return false;
 				}
-			}
 
-			const auto iAspectRatio = float(m_window->getWidth()) / float(m_window->getHeight());
-			const auto iInvAspectRatio = float(m_window->getHeight()) / float(m_window->getWidth());
+				if (m_planarProjections.size() < sceneControlBinding.size())
+				{
+					// TODO, temporary assuming it
+					std::cerr << "Expected at least " << std::to_string(sceneControlBinding.size()) << " planars!" << std::endl;
+					return false;
+				}
 
-			for (uint32_t i = 0u; i < ProjectionsCount; ++i)
-			{
-				aspectRatio[i] = iAspectRatio;
-				invAspectRatio[i] = iInvAspectRatio;
+				for (uint32_t i = 0u; i < sceneControlBinding.size(); ++i)
+				{
+					auto& planar = sceneControlBinding[i].planar;
+					planar = smart_refctd_ptr(m_planarProjections[i]);
+				}
 			}
 
 			if (base_t::argv.size() >= 3 && argv[1] == "-timeout_seconds")
@@ -790,12 +746,18 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			descriptorInfo[nbl::ext::imgui::UI::FontAtlasTexId].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 			descriptorInfo[nbl::ext::imgui::UI::FontAtlasTexId].desc = core::smart_refctd_ptr<nbl::video::IGPUImageView>(m_ui.manager->getFontAtlasView());
+			writes[nbl::ext::imgui::UI::FontAtlasTexId].info = descriptorInfo.data() + nbl::ext::imgui::UI::FontAtlasTexId;
 
-			descriptorInfo[OfflineSceneFirstCameraTextureIx].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			descriptorInfo[OfflineSceneFirstCameraTextureIx].desc = scenez[0]->getColorAttachment();
+			for (uint32_t i = 0; i < sceneControlBinding.size(); ++i)
+			{
+				const auto textureIx = i + 1u;
 
-			descriptorInfo[OfflineSceneSecondCameraTextureIx].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			descriptorInfo[OfflineSceneSecondCameraTextureIx].desc = scenez[1]->getColorAttachment();
+				descriptorInfo[textureIx].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				descriptorInfo[textureIx].desc = sceneControlBinding[i].scene->getColorAttachment();
+
+				writes[textureIx].info = descriptorInfo.data() + textureIx;
+				writes[textureIx].info = descriptorInfo.data() + textureIx;
+			}
 
 			for (uint32_t i = 0; i < descriptorInfo.size(); ++i)
 			{
@@ -804,9 +766,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				writes[i].arrayElement = i;
 				writes[i].count = 1u;
 			}
-			writes[nbl::ext::imgui::UI::FontAtlasTexId].info = descriptorInfo.data() + nbl::ext::imgui::UI::FontAtlasTexId;
-			writes[OfflineSceneFirstCameraTextureIx].info = descriptorInfo.data() + OfflineSceneFirstCameraTextureIx;
-			writes[OfflineSceneSecondCameraTextureIx].info = descriptorInfo.data() + OfflineSceneSecondCameraTextureIx;
 
 			return m_device->updateDescriptorSets(writes, {});
 		}
@@ -869,10 +828,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				};
 
 				if (useWindow)
-					for (auto scene : scenez)
-						renderOfflineScene(scene);
+					for (auto binding : sceneControlBinding)
+						renderOfflineScene(binding.scene);
 				else
-					renderOfflineScene(scenez.front().get()); // just to not render to all at once
+					renderOfflineScene(sceneControlBinding.front().scene.get()); // just to not render to all at once
 				
 				const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
 				const IGPUCommandBuffer::SRenderpassBeginInfo info = {
@@ -996,35 +955,21 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 				// (**) -> wait on offline framebuffers in window mode
 				{
-					const nbl::video::ISemaphore::SWaitInfo waitInfos[] =
-					{
-						// wait for first camera scene view fb
-						{
-							.semaphore = scenez[0]->semaphore.progress.get(),
-							.value = scenez[0]->semaphore.finishedValue
-						},
-						// and second one too
-						{
-							.semaphore = scenez[1]->semaphore.progress.get(),
-							.value = scenez[1]->semaphore.finishedValue
-						},
-					};
-
 					if (useWindow)
 					{
 						m_device->blockForSemaphores(std::to_array<nbl::video::ISemaphore::SWaitInfo>
 						(
 							{
-								// wait for first camera scene view fb
+								// wait for first planar scene view fb
 								{
-									.semaphore = scenez[0]->semaphore.progress.get(),
-									.value = scenez[0]->semaphore.finishedValue
+									.semaphore = sceneControlBinding[0].scene->semaphore.progress.get(),
+									.value = sceneControlBinding[0].scene->semaphore.finishedValue
 								},
 								// and second one too
 								{
-									.semaphore = scenez[1]->semaphore.progress.get(),
-									.value = scenez[1]->semaphore.finishedValue
-								},
+									.semaphore = sceneControlBinding[1].scene->semaphore.progress.get(),
+									.value = sceneControlBinding[1].scene->semaphore.finishedValue
+								}
 							}
 						));
 					}
@@ -1033,10 +978,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						m_device->blockForSemaphores(std::to_array<nbl::video::ISemaphore::SWaitInfo>
 						(
 							{
-								// wait for first only, we use it temporary for FS render mode
+								// wait for picked planar only
 								{
-									.semaphore = scenez.front()->semaphore.progress.get(),
-									.value = scenez.front()->semaphore.finishedValue
+									.semaphore = sceneControlBinding[activePlanarIx].scene->semaphore.progress.get(),
+									.value = sceneControlBinding[activePlanarIx].scene->semaphore.finishedValue
 								}
 							}
 						));
@@ -1128,7 +1073,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			if (enableActiveCameraMovement)
 			{
-				auto& camera = cameraz[activeCameraIndex];
+				auto* camera = m_planarProjections[activePlanarIx]->getCamera();
 
 				static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
 				uint32_t vCount;
@@ -1156,7 +1101,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			
 			ImGuizmo::BeginFrame();
 			
-			auto projectionMatrices = projections->getLinearProjections();
+			//auto projectionMatrices = projections->getLinearProjections();
 			{
 
 				/*
@@ -1231,22 +1176,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			*
 			*/
 
-			static struct
-			{
-				float32_t4x4 view[CamerazCount], projection[ProjectionsCount], inModel[2u], outModel[2u], outDeltaTRS[2u];
-			} imguizmoM16InOut;
-
-			const auto& firstcamera = cameraz.front();
-			const auto& secondcamera = cameraz.back();
-
-			ImGuizmo::SetID(0u);
-
-			imguizmoM16InOut.view[0u] = getCastedMatrix<float32_t>(transpose(getMatrix3x4As4x4(firstcamera->getGimbal().getViewMatrix())));
-			imguizmoM16InOut.view[1u] = getCastedMatrix<float32_t>(transpose(getMatrix3x4As4x4(secondcamera->getGimbal().getViewMatrix())));
-
-			for(uint32_t i = 0u; i < ProjectionsCount; ++i)
-				imguizmoM16InOut.projection[i] = getCastedMatrix<float32_t>(transpose(projectionMatrices[i].getProjectionMatrix()));
-
 			// TODO: need to inspect where I'm wrong, workaround
 			auto gimbalToImguizmoTRS = [&](const float32_t3x4& nblGimbalTrs) -> float32_t4x4
 			{
@@ -1260,26 +1189,30 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				return trs;
 			};
 
+	
+
+			ImGuizmo::SetID(0u);
+
+			/*
+
+			imguizmoM16InOut.view[0u] = getCastedMatrix<float32_t>(transpose(getMatrix3x4As4x4(firstcamera->getGimbal().getViewMatrix())));
+			imguizmoM16InOut.view[1u] = getCastedMatrix<float32_t>(transpose(getMatrix3x4As4x4(secondcamera->getGimbal().getViewMatrix())));
+
+			for (uint32_t i = 0u; i < ProjectionsCount; ++i)
+				imguizmoM16InOut.projection[i] = getCastedMatrix<float32_t>(transpose(projectionMatrices[i].getProjectionMatrix()));
+
 			const auto secondCameraGimbalModel = secondcamera->getGimbal()();
 
 			// we will transform a scene object's model
 			imguizmoM16InOut.inModel[0] = transpose(getMatrix3x4As4x4(m_model));
 			// and second camera's model too
 			imguizmoM16InOut.inModel[1] = gimbalToImguizmoTRS(getCastedMatrix<float32_t>(secondCameraGimbalModel));
+
+			*/
+
 			{
-				if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
-					for(uint32_t i = 0u; i < ProjectionsCount; ++i)
-						imguizmoM16InOut.projection[i][1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
-
 				ImGuizmo::AllowAxisFlip(false);
-
-				if(enableActiveCameraMovement)
-					ImGuizmo::Enable(false);
-				else
-					ImGuizmo::Enable(true);
-
-				aspectRatio[0] = io.DisplaySize.x / io.DisplaySize.y;
-				invAspectRatio[0] = io.DisplaySize.y / io.DisplaySize.x;
+				ImGuizmo::Enable(false);
 
 				SImResourceInfo info;
 				info.samplerIx = (uint16_t)nbl::ext::imgui::UI::DefaultSamplerIx::USER;
@@ -1287,158 +1220,259 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				// render camera views onto GUIs
 				if (useWindow)
 				{
-					// ImGuizmo manipulations on the last used model matrix in window mode
-					IGimbalController::input_imguizmo_event_t deltaTRS;
-					TransformEditor(&imguizmoM16InOut.inModel[lastManipulatedModelIx][0][0], &deltaTRS); // TODO! DELTA TRS IS ONLY TRANSLATE TEMPORARY
-
-					if (isCameraModelBound)
+					// the only reason for those is to remind we must go with transpose & 4x4 matrices
+					struct ImGuizmoPlanarM16InOut
 					{
+						float32_t4x4 view, projection;
+					};
+
+					struct ImGuizmoModelM16InOut
+					{
+						float32_t4x4 inTRS, outTRS, outDeltaTRS;
+					};
+
+					////////////////////////////////////////////////////////////////////////////
+					// ABS TRS control with editor, only single object can be manipulated at time
+					{
+						ImGuizmoModelM16InOut imguizmoModel;
+
+						if (boundCameraToManipulate)
+							imguizmoModel.inTRS = gimbalToImguizmoTRS(getCastedMatrix<float32_t>(boundCameraToManipulate->getGimbal()()));
+						else
+							imguizmoModel.inTRS = transpose(getMatrix3x4As4x4(m_model));
+
+						imguizmoModel.outTRS = imguizmoModel.inTRS;
+
+						// TODO! DELTA TRS IS ONLY TRANSLATE TEMPORARY
+						TransformEditor(&imguizmoModel.outTRS[0][0], &imguizmoModel.outDeltaTRS);
+
+						// generate virtual events given delta TRS matrix
+						if (boundCameraToManipulate)
 						{
-							static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
-
-							uint32_t vCount;
-
-							secondcamera->beginInputProcessing(m_nextPresentationTimestamp);
 							{
-								secondcamera->process(nullptr, vCount);
+								static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
 
-								if (virtualEvents.size() < vCount)
-									virtualEvents.resize(vCount);
+								uint32_t vCount;
 
-								IGimbalController::SUpdateParameters params;
-								params.imguizmoEvents = { { deltaTRS } };
-								secondcamera->process(virtualEvents.data(), vCount, params);
+								boundCameraToManipulate->beginInputProcessing(m_nextPresentationTimestamp);
+								{
+									boundCameraToManipulate->process(nullptr, vCount);
+
+									if (virtualEvents.size() < vCount)
+										virtualEvents.resize(vCount);
+
+									IGimbalController::SUpdateParameters params;
+									params.imguizmoEvents = { { imguizmoModel.outDeltaTRS } };
+									boundCameraToManipulate->process(virtualEvents.data(), vCount, params);
+								}
+								boundCameraToManipulate->endInputProcessing();
+
+								// I start to think controller should be able to set sensitivity to scale magnitudes of generated events
+								// in order for camera to not keep any magnitude scalars like move or rotation speed scales
+
+								auto* fps = dynamic_cast<CFPSCamera*>(boundCameraToManipulate.get());
+
+								if (fps)
+								{
+									smart_refctd_ptr_static_cast<CFPSCamera>(boundCameraToManipulate)->setMoveSpeedScale(1);
+									smart_refctd_ptr_static_cast<CFPSCamera>(boundCameraToManipulate)->setRotationSpeedScale(1);
+								}
+
+								// NOTE: generated events from ImGuizmo controller are always in world space!
+								if (vCount)
+									boundCameraToManipulate->manipulate({ virtualEvents.data(), vCount }, ICamera::World);
 							}
-							secondcamera->endInputProcessing();
-
-							// I start to think controller should be able to set sensitivity to scale magnitudes of generated events
-							// in order for camera to not keep any magnitude scalars like move or rotation speed scales
-							smart_refctd_ptr_static_cast<CFPSCamera>(secondcamera)->setMoveSpeedScale(1);
-							smart_refctd_ptr_static_cast<CFPSCamera>(secondcamera)->setRotationSpeedScale(1);
-
-							// NOTE: generated events from ImGuizmo controller are always in world space!
-							if(vCount)
-								secondcamera->manipulate({ virtualEvents.data(), vCount }, ICamera::World);
+						}
+						else
+						{
+							// for scene demo model full affine transformation without limits is assumed 
+							m_model = float32_t3x4(transpose(imguizmoModel.outTRS));
 						}
 					}
+					////////////////////////////////////////////////////////////////////////////
 
-					uint32_t gizmoIx = {};
-					bool manipulatedFromAnyWindow = false;
-
-					// we have 2 GUI windows we render into with FBOs
-					for (uint32_t windowIndex = 0; windowIndex < 2u; ++windowIndex)
+					for (uint32_t windowIx = 0; windowIx < sceneControlBinding.size(); ++windowIx)
 					{
-						const auto& cameraIx = windowIndex; // tmp bound & hardcoded, we will extend it later
-						const auto projectionIx = cameraIx + 1u; // offset because first projection belongs to full screen (**)
-						info.textureID = projectionIx;
+						// setup imgui window
+						ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Appearing);
+						ImGui::SetNextWindowPos(ImVec2(400, 20 + windowIx * 420), ImGuiCond_Appearing);
+						ImGui::PushStyleColor(ImGuiCol_WindowBg, (ImVec4)ImColor(0.35f, 0.3f, 0.3f));
+						const std::string ident = "Render Window \"" + std::to_string(windowIx) + "\"";
+						ImGui::Begin(ident.data(), 0, ImGuiWindowFlags_NoMove);
+						const ImVec2 contentRegionSize = ImGui::GetContentRegionAvail(), windowPos = ImGui::GetCursorScreenPos(), cursorPos = ImGui::GetWindowPos();
 
-						if(isPerspective[projectionIx])
-							ImGuizmo::SetOrthographic(false);
-						else
-							ImGuizmo::SetOrthographic(true);
+						// setup bound entities for the window like camera & projections
+						auto& binding = sceneControlBinding[windowIx];
+						binding.aspectRatio = contentRegionSize.x / contentRegionSize.y;
+						auto* planarViewCameraBound = binding.planar->getCamera();
+						assert(planarViewCameraBound);
 
-						if (areAxesFlipped[projectionIx])
+						auto& projection = binding.planar->getPlanarProjections()[binding.boundProjectionIx];
+
+						// first 0th texture is for UI texture atlas, then there are our window textures
+						auto fboImguiTextureID = windowIx + 1u;
+						info.textureID = fboImguiTextureID;
+
+						if(binding.allowGizmoAxesToFlip)
 							ImGuizmo::AllowAxisFlip(true);
 						else
 							ImGuizmo::AllowAxisFlip(false);
 
-						ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Appearing);
-						ImGui::SetNextWindowPos(ImVec2(400, 20 + cameraIx * 420), ImGuiCond_Appearing);
-						ImGui::PushStyleColor(ImGuiCol_WindowBg, (ImVec4)ImColor(0.35f, 0.3f, 0.3f));
-						std::string ident = "Camera \"" + std::to_string(cameraIx) + "\" View";
-						ImGui::Begin(ident.data(), 0, ImGuiWindowFlags_NoMove);
+						if(projection.getParameters().m_type == IPlanarProjection::CProjection::Orthographic)
+							ImGuizmo::SetOrthographic(true);
+						else
+							ImGuizmo::SetOrthographic(false);
+
+						// set imguizmo draw lists
 						ImGuizmo::SetDrawlist();
-
-						ImVec2 contentRegionSize, windowPos, cursorPos;
-						contentRegionSize = ImGui::GetContentRegionAvail();
-						cursorPos = ImGui::GetCursorScreenPos();
-						windowPos = ImGui::GetWindowPos();
-
-						// (**)
-						aspectRatio[projectionIx] = contentRegionSize.x / contentRegionSize.y;
-						invAspectRatio[projectionIx] = contentRegionSize.y / contentRegionSize.x;
 
 						ImGui::Image(info, contentRegionSize);
 						ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
 
+						// I will assume we need to focus a window to start manipulating objects from it
 						if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
-							lastProjectionIx = projectionIx;
+							activePlanarIx = windowIx;
 
-						// but only 2 objects with matrices we will try to manipulate & we can do this from both windows!
-						// however note it only makes sense to obsly assume we cannot manipulate 2 objects at the same time
-						for (uint32_t modelIx = 0; modelIx < 2; modelIx++)
+						if (windowIx == activePlanarIx && not enableActiveCameraMovement)
+							ImGuizmo::Enable(true);
+
+						ImGuizmoPlanarM16InOut imguizmoPlanar;
+						imguizmoPlanar.view = getCastedMatrix<float32_t>(transpose(getMatrix3x4As4x4(planarViewCameraBound->getGimbal().getViewMatrix())));
+						imguizmoPlanar.projection = getCastedMatrix<float32_t>(transpose(projection.getProjectionMatrix()));
+
+						if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
+							imguizmoPlanar.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
+
+						for (uint32_t modelIx = 0; modelIx < 1u + m_planarProjections.size(); modelIx++)
 						{
-							const bool isCameraGizmoBound = gizmoIx == 1;
-							const bool discard = isCameraGizmoBound && mCurrentGizmoOperation != ImGuizmo::TRANSLATE;
+							const bool isCameraGimbalTarget = modelIx; // I assume scene demo model is 0th ix then cameras
+							ICamera* const targetGimbalManipulationCamera = isCameraGimbalTarget ? m_planarProjections[modelIx - 1u]->getCamera() : nullptr;
+							const bool discard = isCameraGimbalTarget && mCurrentGizmoOperation != ImGuizmo::TRANSLATE; // discard WiP stuff
 
-							// future logic will need to filter gizmos which represents gimbal of camera which view matrix we use to render scene with
-							if (gizmoIx == 3)
+							// if we try to manipulate a camera which appears to be the same camera we see scene from then obvsly it doesn't make sense to manipulate its gizmo so we skip it
+							if (targetGimbalManipulationCamera == planarViewCameraBound)
 								continue;
 
-							// and because of imguizmo API usage to achieve it we must work on copies & filter the output (unless we try gizmo enable/disable) 
-							// -> in general we need to be careful to not edit the same model twice
-							
-							auto model = imguizmoM16InOut.inModel[modelIx];
-							float32_t4x4 deltaOutputTRS;
+							ImGuizmoModelM16InOut imguizmoModel;
 
-							// note we also need to take care of unique gizmo IDs, we have in total 4 gizmos even though we only want to manipulate 2 objects in total
-							ImGuizmo::PushID(gizmoIx);
-
-							ImGuiIO& io = ImGui::GetIO();
-
-							const bool success = ImGuizmo::Manipulate(&imguizmoM16InOut.view[cameraIx][0][0], &imguizmoM16InOut.projection[projectionIx][0][0], mCurrentGizmoOperation, mCurrentGizmoMode, &model[0][0], &deltaOutputTRS[0][0], useSnap ? &snap[0] : nullptr);
-
-							// we manipulated a gizmo from a X-th window, now we update output matrices and assume no more gizmos can be manipulated at the same frame
-							if (!manipulatedFromAnyWindow)
+							if (isCameraGimbalTarget)
 							{
-								// TMP WIP, our imguizmo controller doesnt support rotation & scale yet and its because
-								// - there are numerical issues with imguizmo decompose/recompose TRS (and the author also says it)
-								// - in rotate mode delta TRS matrix contains translate part (how? no idea, maybe imguizmo bug) and it glitches everything
-								
-								if (!discard)
+								assert(targetGimbalManipulationCamera);
+								imguizmoModel.inTRS = gimbalToImguizmoTRS(getCastedMatrix<float32_t>(targetGimbalManipulationCamera->getGimbal()()));
+							}
+							else
+								imguizmoModel.inTRS = transpose(getMatrix3x4As4x4(m_model));
+
+							imguizmoModel.outTRS = imguizmoModel.inTRS;
+							
+							ImGuizmo::PushID(modelIx);
+							{
+								const bool success = ImGuizmo::Manipulate(&imguizmoPlanar.view[0][0], &imguizmoPlanar.projection[0][0], mCurrentGizmoOperation, mCurrentGizmoMode, &imguizmoModel.outTRS[0][0], &imguizmoModel.outDeltaTRS[0][0], useSnap ? &snap[0] : nullptr);
+
+								if (success)
 								{
-									imguizmoM16InOut.outModel[modelIx] = model;
-									imguizmoM16InOut.outDeltaTRS[modelIx] = deltaOutputTRS;
+									// TMP WIP, our imguizmo controller doesnt support rotation & scale yet and its because
+									// - there are numerical issues with imguizmo decompose/recompose TRS (and the author also says it)
+									// - in rotate mode delta TRS matrix contains translate part (how? no idea, maybe imguizmo bug) and it glitches everything
+
+									if (!discard)
+									{
+										if (targetGimbalManipulationCamera)
+										{
+											boundCameraToManipulate = smart_refctd_ptr<ICamera>(targetGimbalManipulationCamera);
+
+											/*
+												testing imguizmo controller for target camera, we use delta world imguizmo TRS matrix to generate virtual events
+											*/
+
+											{
+												static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
+
+												if (ImGuizmo::IsUsingAny())
+												{
+													uint32_t vCount;
+
+													targetGimbalManipulationCamera->beginInputProcessing(m_nextPresentationTimestamp);
+													{
+														targetGimbalManipulationCamera->process(nullptr, vCount);
+
+														if (virtualEvents.size() < vCount)
+															virtualEvents.resize(vCount);
+
+														IGimbalController::SUpdateParameters params;
+														params.imguizmoEvents = { { imguizmoModel.outTRS } };
+														targetGimbalManipulationCamera->process(virtualEvents.data(), vCount, params);
+													}
+													targetGimbalManipulationCamera->endInputProcessing();
+
+													auto* fps = dynamic_cast<CFPSCamera*>(targetGimbalManipulationCamera);
+
+													float pMoveSpeed = 1.f, pRotationSpeed = 1.f;
+
+													if (fps)
+													{
+														pMoveSpeed = fps->getMoveSpeedScale();
+														pRotationSpeed = fps->getRotationSpeedScale();
+
+														// I start to think controller should be able to set sensitivity to scale magnitudes of generated events
+														// in order for camera to not keep any magnitude scalars like move or rotation speed scales
+
+														fps->setMoveSpeedScale(1);
+														fps->setRotationSpeedScale(1);
+													}
+
+													// NOTE: generated events from ImGuizmo controller are always in world space!
+													targetGimbalManipulationCamera->manipulate({ virtualEvents.data(), vCount }, ICamera::World);
+
+													if (fps)
+													{
+														fps->setMoveSpeedScale(pMoveSpeed);
+														fps->setRotationSpeedScale(pRotationSpeed);
+													}
+												}
+											}
+										}
+										else
+										{
+											// again, for scene demo model full affine transformation without limits is assumed 
+											m_model = float32_t3x4(transpose(imguizmoModel.outTRS));
+											boundCameraToManipulate = nullptr;
+										}
+									}
+								}
+
+								if (ImGuizmo::IsOver())
+								{
+									ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.2f, 0.2f, 0.2f, 0.8f));
+									ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+									ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.5f);
+
+									ImGuiIO& io = ImGui::GetIO();
+									ImVec2 mousePos = io.MousePos;
+									ImGui::SetNextWindowPos(ImVec2(mousePos.x + 10, mousePos.y + 10), ImGuiCond_Always);
+
+									ImGui::Begin("InfoOverlay", nullptr,
+										ImGuiWindowFlags_NoDecoration |
+										ImGuiWindowFlags_AlwaysAutoResize |
+										ImGuiWindowFlags_NoSavedSettings);
+
+									std::string ident;
+
+									if (targetGimbalManipulationCamera)
+										ident = targetGimbalManipulationCamera->getIdentifier();
+									else
+										ident = "Geometry Creator Object";
+
+									ImGui::Text("Identifier: %s", ident.c_str());
+									ImGui::Text("Object Ix: %u", modelIx);
+
+									ImGui::End();
+
+									ImGui::PopStyleVar();
+									ImGui::PopStyleColor(2);
 								}
 							}
-
-							if (success)
-								manipulatedFromAnyWindow = true;
-
-							if (ImGuizmo::IsUsing())
-							{
-								lastManipulatedModelIx = modelIx;
-								lastManipulatedGizmoIx = gizmoIx;
-								isCameraModelBound = lastManipulatedModelIx == 1u;
-
-								lastManipulatedModelIdentifier = isCameraModelBound ? "Camera FPS" : "Geometry Creator Object";
-							}
-
-							if (ImGuizmo::IsOver())
-							{
-								ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.2f, 0.2f, 0.2f, 0.8f));
-								ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
-								ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.5f);
-
-								ImVec2 mousePos = io.MousePos;
-								ImGui::SetNextWindowPos(ImVec2(mousePos.x + 10, mousePos.y + 10), ImGuiCond_Always);
-
-								ImGui::Begin("InfoOverlay", nullptr,
-									ImGuiWindowFlags_NoDecoration |
-									ImGuiWindowFlags_AlwaysAutoResize |
-									ImGuiWindowFlags_NoSavedSettings);
-
-								ImGui::Text("Identifier: %s", lastManipulatedModelIdentifier.c_str());
-								ImGui::Text("Object Ix: %u", modelIx);
-
-								ImGui::End();
-
-								ImGui::PopStyleVar();
-								ImGui::PopStyleColor(2);
-							}
-
 							ImGuizmo::PopID();
-							++gizmoIx;
 						}
 
 						ImGui::End();
@@ -1448,18 +1482,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				// render selected camera view onto full screen
 				else
 				{
-					info.textureID = OfflineSceneFirstCameraTextureIx;;
-					lastProjectionIx = 0;
+					info.textureID = 1u + activePlanarIx;
 
 					ImGui::SetNextWindowPos(ImVec2(0, 0));
 					ImGui::SetNextWindowSize(io.DisplaySize);
 					ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0)); // fully transparent fake window
 					ImGui::Begin("FullScreenWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
-
-					ImVec2 contentRegionSize, windowPos, cursorPos;
-					contentRegionSize = ImGui::GetContentRegionAvail();
-					cursorPos = ImGui::GetCursorScreenPos();
-					windowPos = ImGui::GetWindowPos();
+					const ImVec2 contentRegionSize = ImGui::GetContentRegionAvail(), windowPos = ImGui::GetCursorScreenPos(), cursorPos = ImGui::GetWindowPos();
 
 					ImGui::Image(info, contentRegionSize);
 					ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
@@ -1469,96 +1498,133 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				}
 			}
 
-			/*
-				testing imguizmo controller for second camera, we use delta world imguizmo TRS matrix to generate virtual events
-			*/
-
-			{
-				static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
-				
-				if (ImGuizmo::IsUsingAny())
-				{
-					uint32_t vCount;
-
-					secondcamera->beginInputProcessing(m_nextPresentationTimestamp);
-					{
-						secondcamera->process(nullptr, vCount);
-
-						if (virtualEvents.size() < vCount)
-							virtualEvents.resize(vCount);
-
-						IGimbalController::SUpdateParameters params;
-						params.imguizmoEvents = { { imguizmoM16InOut.outDeltaTRS[1u] } };
-						secondcamera->process(virtualEvents.data(), vCount, params);
-					}
-					secondcamera->endInputProcessing();
-
-					// I start to think controller should be able to set sensitivity to scale magnitudes of generated events
-					// in order for camera to not keep any magnitude scalars like move or rotation speed scales
-					smart_refctd_ptr_static_cast<CFPSCamera>(secondcamera)->setMoveSpeedScale(1);
-					smart_refctd_ptr_static_cast<CFPSCamera>(secondcamera)->setRotationSpeedScale(1);
-
-					// NOTE: generated events from ImGuizmo controller are always in world space!
-					secondcamera->manipulate({ virtualEvents.data(), vCount }, ICamera::World);
-				}
-			}
-
-			for (uint32_t i = 0u; i < cameraz.size(); ++i)
-			{
-				auto& camera = cameraz[i];
-				smart_refctd_ptr_static_cast<CFPSCamera>(camera)->setMoveSpeedScale(moveSpeed[i]);
-				smart_refctd_ptr_static_cast<CFPSCamera>(camera)->setRotationSpeedScale(rotateSpeed[i]);
-			}
-
-			// update scenes data
 			// to Nabla + update camera & model matrices
-		
-			// TODO: make it more nicely once view manipulate supported
-			//const_cast<float64_t3x4&>(firstcamera->getGimbal().getViewMatrix()) = float64_t3x4(getCastedMatrix<float64_t>(transpose(imguizmoM16InOut.view[0u]))); // a hack for "view manipulate", correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
 			{
-				m_model = float32_t3x4(transpose(imguizmoM16InOut.outModel[0]));
-
-				auto firstCameraView = getCastedMatrix<float32_t>(firstcamera->getGimbal().getViewMatrix());
-				auto secondCameraView = getCastedMatrix<float32_t>(secondcamera->getGimbal().getViewMatrix());
-
-				const float32_t3x4* views[] =
-				{
-					&firstCameraView,
-					&secondCameraView
-				};
-
 				const auto& references = resources->objects;
 				const auto type = static_cast<ObjectType>(gcIndex);
 				const auto& [gpu, meta] = references[type];
 
-				for (uint32_t i = 0u; i < cameraz.size(); ++i)
+				for (uint32_t i = 0u; i < sceneControlBinding.size(); ++i)
 				{
-					auto& scene = scenez[i];
-					auto& hook = scene->object;
+					auto& binding = sceneControlBinding[i];
+					auto& hook = binding.scene->object;
+
+					auto* boundPlanarCamera = binding.planar->getCamera();
 
 					hook.meta.type = type;
 					hook.meta.name = meta.name;
 					{
-						float32_t3x4 modelView, normal;
-						float32_t4x4 modelViewProjection;
+						float32_t3x4 viewMatrix, modelViewMatrix, normalMatrix;
+						float32_t4x4 modelViewProjectionMatrix;
 
-						const auto& viewMatrix = *views[useWindow ? i : activeCameraIndex];
-						modelView = concatenateBFollowedByA<float>(viewMatrix, m_model);
+						viewMatrix = getCastedMatrix<float32_t>(boundPlanarCamera->getGimbal().getViewMatrix());
+						modelViewMatrix = concatenateBFollowedByA<float>(viewMatrix, m_model);
 
-						// TODO
-						//modelView.getSub3x3InverseTranspose(normal);
+						auto& projection = binding.planar->getPlanarProjections()[binding.boundProjectionIx];
 
-						auto concatMatrix = mul(getCastedMatrix<float32_t>(projectionMatrices[useWindow ? i + 1u : 0u].getProjectionMatrix()), getMatrix3x4As4x4(viewMatrix));
-						modelViewProjection = mul(concatMatrix, getMatrix3x4As4x4(m_model));
+						auto concatMatrix = mul(getCastedMatrix<float32_t>(projection.getProjectionMatrix()), getMatrix3x4As4x4(viewMatrix));
+						modelViewProjectionMatrix = mul(concatMatrix, getMatrix3x4As4x4(m_model));
 
-						memcpy(hook.viewParameters.MVP, &modelViewProjection[0][0], sizeof(hook.viewParameters.MVP));
-						memcpy(hook.viewParameters.MV, &modelView[0][0], sizeof(hook.viewParameters.MV));
-						memcpy(hook.viewParameters.NormalMat, &normal[0][0], sizeof(hook.viewParameters.NormalMat));
+						memcpy(hook.viewParameters.MVP, &modelViewProjectionMatrix[0][0], sizeof(hook.viewParameters.MVP));
+						memcpy(hook.viewParameters.MV, &modelViewMatrix[0][0], sizeof(hook.viewParameters.MV));
+						memcpy(hook.viewParameters.NormalMat, &normalMatrix[0][0], sizeof(hook.viewParameters.NormalMat));
 					}
 				}
 			}
 
+			// Planars
 			{
+				ImGui::Begin("Projection");
+
+				ImGui::Checkbox("Window mode##useWindow", &useWindow);
+
+				ImGui::Separator();
+
+				const auto activePlanarIxString = std::to_string(activePlanarIx);
+				ImGui::Text("Active Planar Ix: %s", activePlanarIxString.c_str());
+				
+				auto& active = sceneControlBinding[activePlanarIx];
+				const auto& params = active.planar->getPlanarProjections()[active.boundProjectionIx].getParameters();
+				auto selectedProjectionType = params.m_type;
+				{
+					const char* labels[] = { "Perspective", "Orthographic" };
+					int type = static_cast<int>(params.m_type);
+
+					if (ImGui::Combo("Projection Type", &type, labels, IM_ARRAYSIZE(labels)))
+						selectedProjectionType = static_cast<IPlanarProjection::CProjection::ProjectionType>(type);
+				}
+
+				auto getPresetName = [&](auto ix) -> std::string
+				{
+					switch (selectedProjectionType)
+					{
+						case IPlanarProjection::CProjection::Perspective: return "Perspective Projection Preset " + std::to_string(ix);
+						case IPlanarProjection::CProjection::Orthographic: return "Orthographic Projection Preset " + std::to_string(ix);
+						default: return "Unknown Projection Preset " + std::to_string(ix);
+					}
+				};
+
+				if (ImGui::BeginCombo("Projection Preset", getPresetName(active.boundProjectionIx).c_str()))
+				{
+					auto& projections = active.planar->getPlanarProjections();
+
+					for (uint32_t i = 0; i < projections.size(); ++i)
+					{
+						const auto& projection = projections[i];
+						const auto& params = projection.getParameters();
+
+						if (params.m_type != selectedProjectionType)
+							continue;
+
+						bool isSelected = (i == active.boundProjectionIx);
+
+						if (ImGui::Selectable(getPresetName(i).c_str(), isSelected))
+							active.boundProjectionIx = i;
+
+						if (isSelected)
+							ImGui::SetItemDefaultFocus();
+					}
+					ImGui::EndCombo();
+				}
+
+				auto* const boundCamera = active.planar->getCamera();
+				auto& boundProjection = active.planar->getPlanarProjections()[active.boundProjectionIx];
+				assert(not boundProjection.isProjectionSingular());
+
+				auto updateParameters = boundProjection.getParameters();
+				bool isLH = boundProjection.isProjectionLeftHanded().value();
+
+				if (useWindow)
+					ImGui::Checkbox("Allow axes to flip##allowAxesToFlip", &active.allowGizmoAxesToFlip);
+
+				if (ImGui::RadioButton("LH", boundProjection.isProjectionLeftHanded().value()))
+					isLH = true;
+
+				ImGui::SameLine();
+
+				if (ImGui::RadioButton("RH", not isLH))
+					isLH = false;
+
+				ImGui::SliderFloat("zNear", &updateParameters.m_zNear, 0.1f, 100.f, "%.2f", ImGuiSliderFlags_Logarithmic);
+				ImGui::SliderFloat("zFar", &updateParameters.m_zFar, 110.f, 10000.f, "%.1f", ImGuiSliderFlags_Logarithmic);
+
+				switch (selectedProjectionType)
+				{
+					case IPlanarProjection::CProjection::Perspective:
+					{
+						ImGui::SliderFloat("Fov", &updateParameters.m_planar.perspective.fov, 20.f, 150.f, "%.1f", ImGuiSliderFlags_Logarithmic);
+						boundProjection.setPerspective(isLH, updateParameters.m_zNear, updateParameters.m_zFar, updateParameters.m_planar.perspective.fov, active.aspectRatio);
+					} break;
+
+					case IPlanarProjection::CProjection::Orthographic:
+					{
+						ImGui::SliderFloat("Ortho width", &updateParameters.m_planar.orthographic.orthoWidth, 1.f, 20.f, "%.1f", ImGuiSliderFlags_Logarithmic);
+						boundProjection.setOrthographic(isLH, updateParameters.m_zNear, updateParameters.m_zFar, updateParameters.m_planar.orthographic.orthoWidth, active.aspectRatio);
+					} break;
+
+					default: break;
+				}
+
 				{
 					ImGuiIO& io = ImGui::GetIO();
 
@@ -1578,33 +1644,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						io.WantCaptureMouse = true;
 					}
 
-					ImGui::Begin("Cameras", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysVerticalScrollbar);
-					ImGui::Checkbox("Window mode##useWindow", &useWindow);
-					ImGui::Text("Select Active Camera:");
-					ImGui::Separator();
-
-					if (ImGui::BeginCombo("Active Camera", ("Camera " + std::to_string(activeCameraIndex)).c_str()))
-					{
-						for (uint32_t cameraIndex = 0; cameraIndex < CamerazCount; ++cameraIndex)
-						{
-							bool isSelected = (cameraIndex == activeCameraIndex);
-							std::string comboLabel = "Camera " + std::to_string(cameraIndex);
-
-							if (ImGui::Selectable(comboLabel.c_str(), isSelected))
-								activeCameraIndex = cameraIndex;
-
-							if (isSelected)
-								ImGui::SetItemDefaultFocus();
-						}
-						ImGui::EndCombo();
-					}
-
-					ImGui::Separator();
-
 					if (enableActiveCameraMovement)
-						ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Active Camera Movement: Enabled");
+						ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Bound Camera Movement: Enabled");
 					else
-						ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Active Camera Movement: Disabled");
+						ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Bound Camera Movement: Disabled");
 
 					if (ImGui::IsItemHovered())
 					{
@@ -1620,7 +1663,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							ImGuiWindowFlags_AlwaysAutoResize |
 							ImGuiWindowFlags_NoSavedSettings);
 
-						ImGui::Text("Press 'Space' to Enable/Disable selected camera movement");
+						ImGui::Text("Press 'Space' to Enable/Disable bound planar camera movement");
 
 						ImGui::End();
 
@@ -1630,87 +1673,59 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					ImGui::Separator();
 
-					for (size_t cameraIndex = 0; cameraIndex < CamerazCount; ++cameraIndex)
+					const auto flags = ImGuiTreeNodeFlags_DefaultOpen;
+					if (ImGui::TreeNodeEx("Bound Camera", flags))
 					{
-						auto& camera = cameraz[cameraIndex];
-						if (!camera)
-							continue;
-
-						const auto flags = (activeCameraIndex == cameraIndex) ? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None;
-						std::string treeNodeLabel = "Camera " + std::to_string(cameraIndex);
-
-						if (ImGui::TreeNodeEx(treeNodeLabel.c_str(), flags))
 						{
-							ImGui::SliderFloat("Move speed factor", &moveSpeed[cameraIndex], 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
-							ImGui::SliderFloat("Rotate speed factor", &rotateSpeed[cameraIndex], 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
+							auto* fps = dynamic_cast<CFPSCamera*>(boundCamera);
 
-							if (ImGui::TreeNodeEx("Data", ImGuiTreeNodeFlags_None))
+							if (fps)
 							{
-								auto& gimbal = camera->getGimbal();
-								const auto position = getCastedVector<float32_t>(gimbal.getPosition());
-								const auto& orientation = gimbal.getOrientation();
-								const auto viewMatrix = getCastedMatrix<float32_t>(gimbal.getViewMatrix());
+								float moveSpeed = fps->getMoveSpeedScale();
+								float rotationSpeed = fps->getRotationSpeedScale();
 
-								ImGui::Text("Type: %s", camera->getIdentifier().data());
-								ImGui::Separator();
-								addMatrixTable("Position", ("PositionTable_" + std::to_string(cameraIndex)).c_str(), 1, 3, &position[0], false);
-								addMatrixTable("Orientation (Quaternion)", ("OrientationTable_" + std::to_string(cameraIndex)).c_str(), 1, 4, &orientation[0], false);
-								addMatrixTable("View Matrix", ("ViewMatrixTable_" + std::to_string(cameraIndex)).c_str(), 3, 4, &viewMatrix[0][0], false);
-								ImGui::TreePop();
+								ImGui::SliderFloat("Move speed factor", &moveSpeed, 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
+								ImGui::SliderFloat("Rotate speed factor", &rotationSpeed, 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
+
+								fps->setMoveSpeedScale(moveSpeed);
+								fps->setRotationSpeedScale(rotationSpeed);
 							}
+						}
 
-							if (ImGui::TreeNodeEx("Virtual Event Mappings", ImGuiTreeNodeFlags_DefaultOpen))
-							{
-								displayKeyMappingsAndVirtualStatesInline(camera.get());
-								ImGui::TreePop();
-							}
+						if (ImGui::TreeNodeEx("World Data", ImGuiTreeNodeFlags_None))
+						{
+							auto& gimbal = boundCamera->getGimbal();
+							const auto position = getCastedVector<float32_t>(gimbal.getPosition());
+							const auto& orientation = gimbal.getOrientation();
+							const auto viewMatrix = getCastedMatrix<float32_t>(gimbal.getViewMatrix());
 
+							ImGui::Text("Type: %s", boundCamera->getIdentifier().data());
+							ImGui::Separator();
+							addMatrixTable("Position", ("PositionTable_" + activePlanarIxString).c_str(), 1, 3, &position[0], false);
+							addMatrixTable("Orientation (Quaternion)", ("OrientationTable_" + activePlanarIxString).c_str(), 1, 4, &orientation[0], false);
+							addMatrixTable("View Matrix", ("ViewMatrixTable_" + activePlanarIxString).c_str(), 3, 4, &viewMatrix[0][0], false);
 							ImGui::TreePop();
 						}
+
+						if (ImGui::TreeNodeEx("Virtual Event Mappings", flags))
+						{
+							auto* encoder = static_cast<IGimbalManipulateEncoder*>(&boundProjection);
+							displayKeyMappingsAndVirtualStatesInline(encoder);
+							ImGui::TreePop();
+						}
+
+						ImGui::TreePop();
 					}
 
-					ImGui::End();
+					boundCamera->updateKeyboardMapping([&](auto& map) { map = boundProjection.getKeyboardVirtualEventMap(); });
+					boundCamera->updateMouseMapping([&](auto& map) { map = boundProjection.getMouseVirtualEventMap(); });
 				}
-			}
-
-			// Projections
-			{
-				ImGui::Begin("Projection");
-
-				ImGui::Text("Ix: %s", std::to_string(lastProjectionIx).c_str());
-
-				if (ImGui::RadioButton("Perspective", isPerspective[lastProjectionIx]))
-					isPerspective[lastProjectionIx] = true;
-
-				ImGui::SameLine();
-
-				if (ImGui::RadioButton("Orthographic", !isPerspective[lastProjectionIx]))
-					isPerspective[lastProjectionIx] = false;
-
-				if (ImGui::RadioButton("LH", isLH[lastProjectionIx]))
-					isLH[lastProjectionIx] = true;
-
-				ImGui::SameLine();
-
-				if (ImGui::RadioButton("RH", !isLH[lastProjectionIx]))
-					isLH[lastProjectionIx] = false;
-
-				if(useWindow)
-					ImGui::Checkbox("Allow axes to flip##allowAxesToFlip", areAxesFlipped.data() + lastProjectionIx);
-
-				if (isPerspective[lastProjectionIx])
-					ImGui::SliderFloat("Fov", &fov[lastProjectionIx], 20.f, 150.f, "%.1f", ImGuiSliderFlags_Logarithmic);
-				else
-					ImGui::SliderFloat("Ortho width", &viewWidth[lastProjectionIx], 1.f, 20.f, "%.1f", ImGuiSliderFlags_Logarithmic);
-
-				ImGui::SliderFloat("zNear", &zNear[lastProjectionIx], 0.1f, 100.f, "%.2f", ImGuiSliderFlags_Logarithmic);
-				ImGui::SliderFloat("zFar", &zFar[lastProjectionIx], 110.f, 10000.f, "%.1f", ImGuiSliderFlags_Logarithmic);
 
 				ImGui::End();
 			}
 		}
 
-		inline void TransformEditor(float* matrix, IGimbalController::input_imguizmo_event_t* deltaTRS = nullptr)
+		inline void TransformEditor(float* m16TRSmatrix, IGimbalController::input_imguizmo_event_t* deltaTRS = nullptr)
 		{
 			static float bounds[] = { -0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f };
 			static float boundsSnap[] = { 0.1f, 0.1f, 0.1f };
@@ -1728,14 +1743,16 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				ImGui::Text("Using gizmo");
 			ImGui::Separator();
 
-			ImGui::Text("Object Ix: \"%s\"", std::to_string(lastManipulatedModelIx).c_str());
+			std::string indent; 
+			if (boundCameraToManipulate)
+				indent = boundCameraToManipulate->getIdentifier();
+			else
+				indent = "Geometry Creator Object";
+
+			ImGui::Text("Identifier: \"%s\"", indent.c_str());
 			ImGui::Separator();
 
-			ImGui::Text("Identifier: \"%s\"", lastManipulatedModelIdentifier.c_str());
-			ImGui::Separator();
-
-
-			if (!isCameraModelBound)
+			if (!boundCameraToManipulate)
 			{
 				static const char* gcObjectTypeNames[] = {
 					"Cube",
@@ -1763,8 +1780,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				}
 			}
 
-
-			addMatrixTable("Model (TRS) Matrix", "ModelMatrixTable", 4, 4, matrix);
+			addMatrixTable("Model (TRS) Matrix", "ModelMatrixTable", 4, 4, m16TRSmatrix);
 
 			if (ImGui::RadioButton("Translate", mCurrentGizmoOperation == ImGuizmo::TRANSLATE))
 				mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
@@ -1782,14 +1798,14 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			if (deltaTRS)
 				*deltaTRS = IGimbalController::input_imguizmo_event_t(1);
 
-			ImGuizmo::DecomposeMatrixToComponents(matrix, &matrixTranslation[0], &matrixRotation[0], &matrixScale[0]);
-			decomposed = *reinterpret_cast<float32_t4x4*>(matrix);
+			ImGuizmo::DecomposeMatrixToComponents(m16TRSmatrix, &matrixTranslation[0], &matrixRotation[0], &matrixScale[0]);
+			decomposed = *reinterpret_cast<float32_t4x4*>(m16TRSmatrix);
 			{
 				ImGuiInputTextFlags flags = 0;
 
 				ImGui::InputFloat3("Tr", &matrixTranslation[0], "%.3f", flags);
 
-				if (isCameraModelBound) // TODO: cameras are WiP here, imguizmo controller only works with translate manipulation + abs are banned currently
+				if (boundCameraToManipulate) // TODO: cameras are WiP here, imguizmo controller only works with translate manipulation + abs are banned currently
 				{
 					ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1.0f, 0.0f, 0.0f, 0.5f));
 					flags |= ImGuiInputTextFlags_ReadOnly;
@@ -1798,11 +1814,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				ImGui::InputFloat3("Rt", &matrixRotation[0], "%.3f", flags);
 				ImGui::InputFloat3("Sc", &matrixScale[0], "%.3f", flags);
 
-				if(isCameraModelBound)
+				if(boundCameraToManipulate)
 					ImGui::PopStyleColor();
 			}
-			ImGuizmo::RecomposeMatrixFromComponents(&matrixTranslation[0], &matrixRotation[0], &matrixScale[0], matrix);
-			recomposed = *reinterpret_cast<float32_t4x4*>(matrix);
+			ImGuizmo::RecomposeMatrixFromComponents(&matrixTranslation[0], &matrixRotation[0], &matrixScale[0], m16TRSmatrix);
+			recomposed = *reinterpret_cast<float32_t4x4*>(m16TRSmatrix);
 
 			// TODO AND NOTE: I only take care of translate part temporary!
 			if(deltaTRS)
@@ -1895,9 +1911,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		//! next presentation timestamp
 		std::chrono::microseconds m_nextPresentationTimestamp = {};
 
-		// UI font atlas; first camera fb, second camera fb
-		constexpr static inline auto TotalUISampleTexturesAmount = 3u;
-
 		core::smart_refctd_ptr<IDescriptorPool> m_descriptorSetPool;
 
 		struct CRenderUI
@@ -1912,30 +1925,40 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			core::smart_refctd_ptr<IGPUDescriptorSet> descriptorSet;
 		};
 
-		// one model object in the world, testing 2 cameraz for which view is rendered to separate frame buffers (so what they see) with new controller API including imguizmo
+		// one model object in the world, testing multiuple cameraz for which view is rendered to separate frame buffers (so what they see) with new controller API including imguizmo
 		nbl::hlsl::float32_t3x4 m_model = nbl::hlsl::float32_t3x4(1.f);
-		static constexpr inline auto CamerazCount = 2u;
-		std::array<nbl::core::smart_refctd_ptr<CScene>, CamerazCount> scenez;
-		std::array<core::smart_refctd_ptr<ICamera>, CamerazCount> cameraz;
-		uint32_t activeCameraIndex = 0;
+		nbl::core::smart_refctd_ptr<ICamera> boundCameraToManipulate;
+
+		using planar_projections_range_t = std::vector<IPlanarProjection::CProjection>;
+		using planar_projection_t = CPlanarProjection<planar_projections_range_t>;
+		std::vector<nbl::core::smart_refctd_ptr<planar_projection_t>> m_planarProjections;
+
 		bool enableActiveCameraMovement = false;
+
+		struct SceneControlBinding
+		{
+			nbl::core::smart_refctd_ptr<CScene> scene;
+			nbl::core::smart_refctd_ptr<planar_projection_t> planar;
+			uint32_t boundProjectionIx = 0u;
+			bool allowGizmoAxesToFlip = false;
+			float aspectRatio = 16.f / 9.f;
+		};
+
+		static constexpr inline auto MaxSceneFBOs = 2u;
+		std::array<SceneControlBinding, MaxSceneFBOs> sceneControlBinding;
+		uint32_t activePlanarIx = 0u;
+
+		// UI font atlas + viewport FBO color attachment textures
+		constexpr static inline auto TotalUISampleTexturesAmount = 1u + MaxSceneFBOs;
+
 		nbl::core::smart_refctd_ptr<ResourcesBundle> resources;
 
 		CRenderUI m_ui;
 		video::CDumbPresentationOracle oracle;
-		uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
-
-		static constexpr inline auto ProjectionsCount = 3u; // full screen, first & second GUI windows
-		using linear_projections_range_t = std::array<ILinearProjection::CProjection, ProjectionsCount>;
-		using linear_projection_t = CLinearProjection<linear_projections_range_t>;
-		nbl::core::smart_refctd_ptr<ILinearProjection> projections;
+		uint16_t gcIndex = {}; 
 
 		const bool flipGizmoY = true;
-		std::array<bool, ProjectionsCount> isPerspective = { true, true, true }, isLH = { true, true, true }, areAxesFlipped = { false, false, false };
-		std::array<float, ProjectionsCount> fov = { 60.f, 60.f, 60.f }, zNear = { 0.1f, 0.1f, 0.1f }, zFar = { 10000.f, 10000.f, 10000.f }, viewWidth = { 10.f, 10.f, 10.f }, aspectRatio = {}, invAspectRatio = {};
-		std::array<float, CamerazCount> moveSpeed = { 0.01, 0.01 }, rotateSpeed = { 0.003, 0.003 };
 
-		bool isCameraModelBound = false;
 		float camYAngle = 165.f / 180.f * 3.14159f;
 		float camXAngle = 32.f / 180.f * 3.14159f;
 		float camDistance = 8.f;
@@ -1943,14 +1966,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		ImGuizmo::OPERATION mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
 		ImGuizmo::MODE mCurrentGizmoMode = ImGuizmo::LOCAL;
 		float snap[3] = { 1.f, 1.f, 1.f };
-		int lastManipulatedModelIx = 0, lastManipulatedGizmoIx = 0, lastProjectionIx = 0;
-		std::string lastManipulatedModelIdentifier = "Geometry Creator Object";
 
 		bool firstFrame = true;
-
-		using planar_projections_range_t = std::vector<IPlanarProjection::CProjection>;
-		using planar_projection_t = CPlanarProjection<planar_projections_range_t>;
-		std::vector<nbl::core::smart_refctd_ptr<planar_projection_t>> m_planarProjections;
 };
 
 NBL_MAIN_FUNC(UISampleApp)

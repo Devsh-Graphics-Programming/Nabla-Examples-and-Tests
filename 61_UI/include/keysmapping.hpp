@@ -2,9 +2,8 @@
 #define __NBL_KEYSMAPPING_H_INCLUDED__
 
 #include "common.hpp"
-#include "camera/ICamera.hpp"
 
-void handleAddMapping(const char* tableID, ICamera* camera, IGimbalManipulateEncoder::EncoderType activeController, CVirtualGimbalEvent::VirtualEventType& selectedEventType, ui::E_KEY_CODE& newKey, ui::E_MOUSE_CODE& newMouseCode, bool& addMode)
+void handleAddMapping(const char* tableID, IGimbalManipulateEncoder* encoder, IGimbalManipulateEncoder::EncoderType activeController, CVirtualGimbalEvent::VirtualEventType& selectedEventType, ui::E_KEY_CODE& newKey, ui::E_MOUSE_CODE& newMouseCode, bool& addMode)
 {
     ImGui::BeginTable(tableID, 3, ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame);
     ImGui::TableSetupColumn("Virtual Event", ImGuiTableColumnFlags_WidthStretch, 0.33f);
@@ -66,20 +65,19 @@ void handleAddMapping(const char* tableID, ICamera* camera, IGimbalManipulateEnc
     if (ImGui::Button("Confirm Add", ImVec2(100, 30)))
     {
         if (activeController == IGimbalManipulateEncoder::Keyboard)
-            camera->updateKeyboardMapping([&](auto& keys) { keys[newKey] = selectedEventType; });
+            encoder->updateKeyboardMapping([&](auto& keys) { keys[newKey] = selectedEventType; });
         else
-            camera->updateMouseMapping([&](auto& mouse) { mouse[newMouseCode] = selectedEventType; });
+            encoder->updateMouseMapping([&](auto& mouse) { mouse[newMouseCode] = selectedEventType; });
         addMode = false;
     }
 
     ImGui::EndTable();
 }
 
-void displayKeyMappingsAndVirtualStatesInline(ICamera* camera, bool spawnWindow = false)
+void displayKeyMappingsAndVirtualStatesInline(IGimbalManipulateEncoder* encoder, bool spawnWindow = false)
 {
-    if (!camera) return;
+    if (!encoder) return;
 
-    // Per-camera state for UI rendering
     struct MappingState
     {
         bool addMode = false;
@@ -89,11 +87,11 @@ void displayKeyMappingsAndVirtualStatesInline(ICamera* camera, bool spawnWindow 
         IGimbalManipulateEncoder::EncoderType activeController = IGimbalManipulateEncoder::Keyboard;
     };
 
-    static std::unordered_map<ICamera*, MappingState> cameraStates;
-    auto& state = cameraStates[camera];
+    static std::unordered_map<IGimbalManipulateEncoder*, MappingState> cameraStates;
+    auto& state = cameraStates[encoder];
 
-    const auto& keyboardMappings = camera->getKeyboardVirtualEventMap();
-    const auto& mouseMappings = camera->getMouseVirtualEventMap();
+    const auto& keyboardMappings = encoder->getKeyboardVirtualEventMap();
+    const auto& mouseMappings = encoder->getMouseVirtualEventMap();
 
     if (spawnWindow)
     {
@@ -145,7 +143,7 @@ void displayKeyMappingsAndVirtualStatesInline(ICamera* camera, bool spawnWindow 
                 ImGui::TableSetColumnIndex(4);
                 if (ImGui::Button(("Delete##deleteKey" + std::to_string(static_cast<int>(keyboardCode))).c_str()))
                 {
-                    camera->updateKeyboardMapping([keyboardCode](auto& keys) { keys.erase(keyboardCode); });
+                    encoder->updateKeyboardMapping([keyboardCode](auto& keys) { keys.erase(keyboardCode); });
                     break;
                 }
             }
@@ -154,7 +152,7 @@ void displayKeyMappingsAndVirtualStatesInline(ICamera* camera, bool spawnWindow 
             if (state.addMode)
             {
                 ImGui::Separator();
-                handleAddMapping("AddKeyboardMappingTable", camera, state.activeController, state.selectedEventType, state.newKey, state.newMouseCode, state.addMode);
+                handleAddMapping("AddKeyboardMappingTable", encoder, state.activeController, state.selectedEventType, state.newKey, state.newMouseCode, state.addMode);
             }
 
             ImGui::EndTabItem();
@@ -202,7 +200,7 @@ void displayKeyMappingsAndVirtualStatesInline(ICamera* camera, bool spawnWindow 
                 ImGui::TableSetColumnIndex(4);
                 if (ImGui::Button(("Delete##deleteMouse" + std::to_string(static_cast<int>(mouseCode))).c_str()))
                 {
-                    camera->updateMouseMapping([mouseCode](auto& mouse) { mouse.erase(mouseCode); });
+                    encoder->updateMouseMapping([mouseCode](auto& mouse) { mouse.erase(mouseCode); });
                     break;
                 }
             }
@@ -211,7 +209,7 @@ void displayKeyMappingsAndVirtualStatesInline(ICamera* camera, bool spawnWindow 
             if (state.addMode)
             {
                 ImGui::Separator();
-                handleAddMapping("AddMouseMappingTable", camera, state.activeController, state.selectedEventType, state.newKey, state.newMouseCode, state.addMode);
+                handleAddMapping("AddMouseMappingTable", encoder, state.activeController, state.selectedEventType, state.newKey, state.newMouseCode, state.addMode);
             }
             ImGui::EndTabItem();
         }

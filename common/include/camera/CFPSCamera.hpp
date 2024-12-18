@@ -83,7 +83,7 @@ public:
 
     // (***)
     inline void setMoveSpeedScale(double scalar)
-    {
+     {
         m_moveSpeedScale = scalar;
     }
 
@@ -92,6 +92,9 @@ public:
     {
         m_rotationSpeedScale = scalar;
     }
+
+    inline double getMoveSpeedScale() const { return m_moveSpeedScale; }
+    inline double getRotationSpeedScale() const { return m_rotationSpeedScale; }
 
 private:
     typename base_t::CGimbal m_gimbal;
