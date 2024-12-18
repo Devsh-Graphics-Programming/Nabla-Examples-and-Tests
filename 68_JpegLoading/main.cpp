@@ -134,10 +134,18 @@ class JpegLoaderApp final : public application_templates::MonoAssetManagerAndBui
             if (path.has_extension() && path.extension() == ".jpg")
             {
                files.emplace_back(std::move(path.generic_string()));
-               tp.enqueue([=] {
-                  m_logger->log("Loading %S", ILogger::ELL_INFO, path.c_str());
-                  m_assetMgr->getAsset(path.generic_string(), loadParams);
-               });
+
+               ISystem::future_t<smart_refctd_ptr<system::IFile>> future;
+               m_system->createFile(future, path, IFile::ECF_READ);
+
+               if (auto pFile = future.acquire(); pFile && pFile->get()) 
+               {
+                  auto& file = *pFile;
+                  tp.enqueue([=] {
+                     m_logger->log("Loading %S", ILogger::ELL_INFO, path.c_str());
+                     m_assetMgr->getAsset(file.get(), path.generic_string(), loadParams);
+                  });
+               }
             }
          }
       }
