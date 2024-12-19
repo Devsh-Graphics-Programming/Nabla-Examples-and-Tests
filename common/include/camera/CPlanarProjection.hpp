@@ -30,7 +30,7 @@ namespace nbl::hlsl
 			return m_projections;
 		}
 
-	private:
+	protected:
 		CPlanarProjection(core::smart_refctd_ptr<ICamera>&& camera)
 			: IPlanarProjection(core::smart_refctd_ptr(camera)) {}
 
