@@ -1119,81 +1119,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			ImGuiIO& io = ImGui::GetIO();
 			
 			ImGuizmo::BeginFrame();
-			
-			//auto projectionMatrices = projections->getLinearProjections();
-			{
-
-				/*
-					TODO: update it
-
-					auto mutableRange = smart_refctd_ptr_static_cast<linear_projection_t>(projections)->getLinearProjections();
-				for (uint32_t i = 0u; i < mutableRange.size(); ++i)
-				{
-					auto projection = mutableRange.begin() + i;
-
-					if (isPerspective[i])
-					{
-						if (isLH[i])
-							projection->setProjectionMatrix(buildProjectionMatrixPerspectiveFovLH<float64_t>(glm::radians(fov[i]), aspectRatio[i], zNear[i], zFar[i]));
-						else
-							projection->setProjectionMatrix(buildProjectionMatrixPerspectiveFovRH<float64_t>(glm::radians(fov[i]), aspectRatio[i], zNear[i], zFar[i]));
-					}
-					else
-					{
-						float viewHeight = viewWidth[i] * invAspectRatio[i];
-
-						if (isLH[i])
-							projection->setProjectionMatrix(buildProjectionMatrixOrthoLH<float64_t>(viewWidth[i], viewHeight, zNear[i], zFar[i]));
-						else
-							projection->setProjectionMatrix(buildProjectionMatrixOrthoRH<float64_t>(viewWidth[i], viewHeight, zNear[i], zFar[i]));
-					}
-				}
-				*/
-
-				
-			}
-			
-			/*
-			* ImGuizmo expects view & perspective matrix to be column major both with 4x4 layout
-			* and Nabla uses row major matricies - 3x4 matrix for view & 4x4 for projection
-
-			- VIEW:
-
-				ImGuizmo
-
-				|     X[0]          Y[0]          Z[0]         0.0f |
-				|     X[1]          Y[1]          Z[1]         0.0f |
-				|     X[2]          Y[2]          Z[2]         0.0f |
-				| -Dot(X, eye)  -Dot(Y, eye)  -Dot(Z, eye)     1.0f |
-
-				Nabla
-
-				|     X[0]         X[1]           X[2]     -Dot(X, eye)  |
-				|     Y[0]         Y[1]           Y[2]     -Dot(Y, eye)  |
-				|     Z[0]         Z[1]           Z[2]     -Dot(Z, eye)  |
-
-				<ImGuizmo View Matrix> = transpose(nbl::core::matrix4SIMD(<Nabla View Matrix>))
-
-			- PERSPECTIVE [PROJECTION CASE]:
-
-				ImGuizmo
-
-				|      (temp / temp2)                 (0.0)                       (0.0)                   (0.0)  |
-				|          (0.0)                  (temp / temp3)                  (0.0)                   (0.0)  |
-				| ((right + left) / temp2)   ((top + bottom) / temp3)    ((-zfar - znear) / temp4)       (-1.0f) |
-				|          (0.0)                      (0.0)               ((-temp * zfar) / temp4)        (0.0)  |
-
-				Nabla
-
-				|            w                        (0.0)                       (0.0)                   (0.0)               |
-				|          (0.0)                       -h                         (0.0)                   (0.0)               |
-				|          (0.0)                      (0.0)               (-zFar/(zFar-zNear))     (-zNear*zFar/(zFar-zNear)) |
-				|          (0.0)                      (0.0)                      (-1.0)                   (0.0)               |
-
-				<ImGuizmo Projection Matrix> = transpose(<Nabla Projection Matrix>)
-
-			*
-			*/
 
 			// TODO: need to inspect where I'm wrong, workaround
 			auto gimbalToImguizmoTRS = [&](const float32_t3x4& nblGimbalTrs) -> float32_t4x4
@@ -1208,31 +1133,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				return trs;
 			};
 
-	
-
-			ImGuizmo::SetID(0u);
-
-			/*
-
-			imguizmoM16InOut.view[0u] = getCastedMatrix<float32_t>(transpose(getMatrix3x4As4x4(firstcamera->getGimbal().getViewMatrix())));
-			imguizmoM16InOut.view[1u] = getCastedMatrix<float32_t>(transpose(getMatrix3x4As4x4(secondcamera->getGimbal().getViewMatrix())));
-
-			for (uint32_t i = 0u; i < ProjectionsCount; ++i)
-				imguizmoM16InOut.projection[i] = getCastedMatrix<float32_t>(transpose(projectionMatrices[i].getProjectionMatrix()));
-
-			const auto secondCameraGimbalModel = secondcamera->getGimbal()();
-
-			// we will transform a scene object's model
-			imguizmoM16InOut.inModel[0] = transpose(getMatrix3x4As4x4(m_model));
-			// and second camera's model too
-			imguizmoM16InOut.inModel[1] = gimbalToImguizmoTRS(getCastedMatrix<float32_t>(secondCameraGimbalModel));
-
-			*/
-
 			{
-				ImGuizmo::AllowAxisFlip(false);
-				ImGuizmo::Enable(false);
-
 				SImResourceInfo info;
 				info.samplerIx = (uint16_t)nbl::ext::imgui::UI::DefaultSamplerIx::USER;
 
@@ -1310,6 +1211,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					}
 					////////////////////////////////////////////////////////////////////////////
 
+					if(enableActiveCameraMovement)
+						ImGuizmo::Enable(false);
+					else
+						ImGuizmo::Enable(true);
+
+					size_t gizmoIx = {};
 					for (uint32_t windowIx = 0; windowIx < sceneControlBinding.size(); ++windowIx)
 					{
 						// setup imgui window
@@ -1344,18 +1251,14 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						else
 							ImGuizmo::SetOrthographic(false);
 
-						// set imguizmo draw lists
-						ImGuizmo::SetDrawlist();
-
 						ImGui::Image(info, contentRegionSize);
 						ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
 
 						// I will assume we need to focus a window to start manipulating objects from it
 						if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
 							activePlanarIx = windowIx;
-
-						if (windowIx == activePlanarIx && not enableActiveCameraMovement)
-							ImGuizmo::Enable(true);
+				
+						ImGuizmo::SetDrawlist();
 
 						ImGuizmoPlanarM16InOut imguizmoPlanar;
 						imguizmoPlanar.view = getCastedMatrix<float32_t>(transpose(getMatrix3x4As4x4(planarViewCameraBound->getGimbal().getViewMatrix())));
@@ -1366,13 +1269,18 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						for (uint32_t modelIx = 0; modelIx < 1u + m_planarProjections.size(); modelIx++)
 						{
+							ImGuizmo::PushID(gizmoIx); ++gizmoIx;
+
 							const bool isCameraGimbalTarget = modelIx; // I assume scene demo model is 0th ix then cameras
 							ICamera* const targetGimbalManipulationCamera = isCameraGimbalTarget ? m_planarProjections[modelIx - 1u]->getCamera() : nullptr;
 							const bool discard = isCameraGimbalTarget && mCurrentGizmoOperation != ImGuizmo::TRANSLATE; // discard WiP stuff
 
 							// if we try to manipulate a camera which appears to be the same camera we see scene from then obvsly it doesn't make sense to manipulate its gizmo so we skip it
 							if (targetGimbalManipulationCamera == planarViewCameraBound)
+							{
+								ImGuizmo::PopID();
 								continue;
+							}
 
 							ImGuizmoModelM16InOut imguizmoModel;
 
@@ -1385,8 +1293,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 								imguizmoModel.inTRS = transpose(getMatrix3x4As4x4(m_model));
 
 							imguizmoModel.outTRS = imguizmoModel.inTRS;
-							
-							ImGuizmo::PushID(modelIx);
 							{
 								const bool success = ImGuizmo::Manipulate(&imguizmoPlanar.view[0][0], &imguizmoPlanar.projection[0][0], mCurrentGizmoOperation, mCurrentGizmoMode, &imguizmoModel.outTRS[0][0], &imguizmoModel.outDeltaTRS[0][0], useSnap ? &snap[0] : nullptr);
 
