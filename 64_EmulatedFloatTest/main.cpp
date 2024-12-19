@@ -39,20 +39,6 @@ public:
         // since emulated_float64_t rounds to zero
         std::fesetround(FE_TOWARDZERO);
 
-        nbl::hlsl::emulated_float64_t<false, true> c = nbl::hlsl::emulated_float64_t<false, true>::create(1.0f);
-        nbl::hlsl::emulated_float64_t<false, true> a = nbl::hlsl::emulated_float64_t<false, true>::create(-59981.1);
-        nbl::hlsl::emulated_float64_t<false, true> b = nbl::hlsl::emulated_float64_t<false, true>::create(-78853.9);
-        
-        double correctOutput = -59981.1 - (-78853.9);
-        auto output = a - b;
-
-        std::cout << "correct: " << reinterpret_cast<double&>(correctOutput) << std::endl;
-        std::cout << "my:      " << reinterpret_cast<double&>(output) << std::endl;
-
-        std::cout << "seeeeeeeeeeemmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm\n";
-        std::cout << std::bitset<64>(reinterpret_cast<uint64_t&>(correctOutput)) << " - correct" << std::endl;
-        std::cout << std::bitset<64>(output.data) << std::endl;
-
         // Remember to call the base class initialization!
         if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
             return false;
@@ -468,12 +454,11 @@ private:
         printTestOutput("emulatedFloat64RandomValuesTest", emulatedFloat64RandomValuesTest(submitter));
         printTestOutput("emulatedFloat64RandomValuesTestContrastingExponents", emulatedFloat64RandomValuesTestContrastingExponents(submitter));
         printTestOutput("emulatedFloat64NegAndPosZeroTest", emulatedFloat64NegAndPosZeroTest(submitter));
-            // TODO: what is up with substraction for inf?
-        //printTestOutput("emulatedFloat64BothValuesInfTest", emulatedFloat64BothValuesInfTest(submitter));
-        //printTestOutput("emulatedFloat64BothValuesNegInfTest", emulatedFloat64BothValuesNegInfTest(submitter));
-        //printTestOutput("emulatedFloat64OneValIsInfOtherIsNegInfTest", emulatedFloat64OneValIsInfOtherIsNegInfTest(submitter));
-        //printTestOutput("emulatedFloat64OneValIsInfTest", emulatedFloat64OneValIsInfTest(submitter));
-        //printTestOutput("emulatedFloat64OneValIsNegInfTest", emulatedFloat64OneValIsNegInfTest(submitter));
+        printTestOutput("emulatedFloat64BothValuesInfTest", emulatedFloat64BothValuesInfTest(submitter));
+        printTestOutput("emulatedFloat64BothValuesNegInfTest", emulatedFloat64BothValuesNegInfTest(submitter));
+        printTestOutput("emulatedFloat64OneValIsInfOtherIsNegInfTest", emulatedFloat64OneValIsInfOtherIsNegInfTest(submitter));
+        printTestOutput("emulatedFloat64OneValIsInfTest", emulatedFloat64OneValIsInfTest(submitter));
+        printTestOutput("emulatedFloat64OneValIsNegInfTest", emulatedFloat64OneValIsNegInfTest(submitter));
         if(false) // doesn't work for some reason + fast math is enabled by default
             printTestOutput("emulatedFloat64BNaNTest", emulatedFloat64BNaNTest(submitter));
         printTestOutput("emulatedFloat64BInfTest", emulatedFloat64OneValIsZeroTest(submitter));
