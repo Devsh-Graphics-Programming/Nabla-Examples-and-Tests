@@ -66,7 +66,7 @@ static_assert(offsetof(Globals, miterLimit) == 116u);
 #endif
 
 #ifdef __HLSL_VERSION
-pfloat64_t2 transformPointNdc(pfloat64_t3x3 transformation, pfloat64_t2 point2d)
+pfloat64_t2 transformPointNdc(NBL_CONST_REF_ARG(pfloat64_t3x3) transformation, NBL_CONST_REF_ARG(pfloat64_t2) point2d)
 {
     pfloat64_t3 point3d;
     point3d.x = point2d.x;
@@ -78,11 +78,10 @@ pfloat64_t2 transformPointNdc(pfloat64_t3x3 transformation, pfloat64_t2 point2d)
     pfloat64_t2 output;
     output.x = transformationResult.x;
     output.y = transformationResult.y;
-    printf("intput: %f, %f output: %f, %f", _static_cast<float>(point2d.x), _static_cast<float>(point2d.y), _static_cast<float>(output.x), _static_cast<float>(output.y));
 
     return output;
 }
-pfloat64_t2 transformVectorNdc(pfloat64_t3x3 transformation, pfloat64_t2 vector2d)
+pfloat64_t2 transformVectorNdc(NBL_CONST_REF_ARG(pfloat64_t3x3) transformation, NBL_CONST_REF_ARG(pfloat64_t2) vector2d)
 {
     pfloat64_t3 vector3d;
     vector3d.x = vector2d.x;

@@ -66,7 +66,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0,	// CASE_8
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_4;
+constexpr ExampleMode mode = ExampleMode::CASE_8;
 
 class Camera2D
 {
@@ -640,6 +640,7 @@ public:
 		// TODO: delete all quick tests
 
 		{
+
 			using ef64_t = hlsl::emulated_float64_t<true, true>;
 			nbl::hlsl::array_get<hlsl::emulated_vector_t3<ef64_t>, ef64_t> getter;
 			nbl::hlsl::array_set<hlsl::emulated_vector_t3<ef64_t>, ef64_t> setter;
