@@ -12,22 +12,7 @@ using json = nlohmann::json;
 #include "glm/glm/ext/matrix_clip_space.hpp" // TODO: TESTING
 
 using planar_projections_range_t = std::vector<IPlanarProjection::CProjection>;
-struct CPlanarProjectionWithMeta : public CPlanarProjection<planar_projections_range_t>
-{
-	using base_t = CPlanarProjection<planar_projections_range_t>;
-
-	inline static core::smart_refctd_ptr<CPlanarProjectionWithMeta> create(core::smart_refctd_ptr<ICamera>&& camera)
-	{
-		if (!camera) return nullptr;
-		return core::smart_refctd_ptr<CPlanarProjectionWithMeta>(new CPlanarProjectionWithMeta(core::smart_refctd_ptr(camera)), core::dont_grab);
-	}
-
-	std::optional<uint32_t> boundProjectionIx = std::nullopt, lastBoundPerspectivePresetProjectionIx = std::nullopt, lastBoundOrthoPresetProjectionIx = std::nullopt;
-private:
-	CPlanarProjectionWithMeta(core::smart_refctd_ptr<ICamera>&& camera)
-		: base_t::CPlanarProjection(core::smart_refctd_ptr(camera)) {}
-};
-using planar_projection_t = CPlanarProjectionWithMeta;
+using planar_projection_t = CPlanarProjection<planar_projections_range_t>;
 
 constexpr IGPUImage::SSubresourceRange TripleBufferUsedSubresourceRange = 
 {
@@ -703,7 +688,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						const auto cameraIx = jViewport["camera"].get<uint32_t>();
 						auto& planars = m_planarProjections.emplace_back() = planar_projection_t::create(smart_refctd_ptr(cameras[cameraIx]));
-						planars->boundProjectionIx = 0u; // I will assume I bind first by default
 
 						if (!jViewport.contains("planarControllerSet"))
 						{
@@ -743,15 +727,22 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 				if (m_planarProjections.size() < sceneControlBinding.size())
 				{
-					// TODO, temporary assuming it
+					// TODO, temporary assuming it, I'm not going to implement each possible case now
 					std::cerr << "Expected at least " << std::to_string(sceneControlBinding.size()) << " planars!" << std::endl;
 					return false;
 				}
 
 				for (uint32_t i = 0u; i < sceneControlBinding.size(); ++i)
 				{
-					auto& planar = sceneControlBinding[i].planar;
-					planar = smart_refctd_ptr(m_planarProjections[i]);
+					auto& binding = sceneControlBinding[i];
+					
+					const auto& projections = m_planarProjections[binding.activePlanarIx = 0]->getPlanarProjections();
+					binding.pickDefaultProjections(projections);
+
+					if (i)
+						binding.boundProjectionIx = binding.lastBoundOrthoPresetProjectionIx.value();
+					else
+						binding.boundProjectionIx = binding.lastBoundPerspectivePresetProjectionIx.value();
 				}
 			}
 
@@ -1003,8 +994,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							{
 								// wait for picked planar only
 								{
-									.semaphore = sceneControlBinding[activePlanarIx].scene->semaphore.progress.get(),
-									.value = sceneControlBinding[activePlanarIx].scene->semaphore.finishedValue
+									.semaphore = sceneControlBinding[activeRenderWindowIx].scene->semaphore.progress.get(),
+									.value = sceneControlBinding[activeRenderWindowIx].scene->semaphore.finishedValue
 								}
 							}
 						));
@@ -1096,7 +1087,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			if (enableActiveCameraMovement)
 			{
-				auto* camera = m_planarProjections[activePlanarIx]->getCamera();
+				auto* camera = m_planarProjections[sceneControlBinding[activeRenderWindowIx].activePlanarIx]->getCamera();
 
 				static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
 				uint32_t vCount;
@@ -1111,7 +1102,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					camera->process(virtualEvents.data(), vCount, { params.keyboardEvents, params.mouseEvents });
 				}
 				camera->endInputProcessing();
-				camera->manipulate({ virtualEvents.data(), vCount }, ICamera::Local);
+
+				if(vCount)
+					camera->manipulate({ virtualEvents.data(), vCount }, ICamera::Local);
 			}
 
 			m_ui.manager->update(params);
@@ -1248,13 +1241,16 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						// setup bound entities for the window like camera & projections
 						auto& binding = sceneControlBinding[windowIx];
+						auto& planarBound = m_planarProjections[binding.activePlanarIx];
+						assert(planarBound);
+
 						binding.aspectRatio = contentRegionSize.x / contentRegionSize.y;
-						auto* planarViewCameraBound = binding.planar->getCamera();
+						auto* planarViewCameraBound = planarBound->getCamera();
 
 						assert(planarViewCameraBound);
-						assert(binding.planar->boundProjectionIx.has_value());
+						assert(binding.boundProjectionIx.has_value());
 						
-						auto& projection = binding.planar->getPlanarProjections()[binding.planar->boundProjectionIx.value()];
+						auto& projection = planarBound->getPlanarProjections()[binding.boundProjectionIx.value()];
 
 						// first 0th texture is for UI texture atlas, then there are our window textures
 						auto fboImguiTextureID = windowIx + 1u;
@@ -1270,14 +1266,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						else
 							ImGuizmo::SetOrthographic(false);
 
+						ImGuizmo::SetDrawlist();
 						ImGui::Image(info, contentRegionSize);
 						ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
 
 						// I will assume we need to focus a window to start manipulating objects from it
 						if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
-							activePlanarIx = windowIx;
-				
-						ImGuizmo::SetDrawlist();
+							activeRenderWindowIx = windowIx;
 
 						// we render a scene from view of a camera bound to planar window
 						ImGuizmoPlanarM16InOut imguizmoPlanar;
@@ -1286,6 +1281,17 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
 							imguizmoPlanar.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
+
+						static constexpr float identityMatrix[] =
+						{
+							1.f, 0.f, 0.f, 0.f,
+							0.f, 1.f, 0.f, 0.f,
+							0.f, 0.f, 1.f, 0.f,
+							0.f, 0.f, 0.f, 1.f 
+						};
+
+						if(binding.enableDebugGridDraw)
+							ImGuizmo::DrawGrid(&imguizmoPlanar.view[0][0], &imguizmoPlanar.projection[0][0], identityMatrix, 100.f);
 
 						for (uint32_t modelIx = 0; modelIx < 1u + m_planarProjections.size(); modelIx++)
 						{
@@ -1430,7 +1436,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				// render selected camera view onto full screen
 				else
 				{
-					info.textureID = 1u + activePlanarIx;
+					info.textureID = 1u + activeRenderWindowIx;
 
 					ImGui::SetNextWindowPos(ImVec2(0, 0));
 					ImGui::SetNextWindowSize(io.DisplaySize);
@@ -1457,7 +1463,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					auto& binding = sceneControlBinding[i];
 					auto& hook = binding.scene->object;
 
-					auto* boundPlanarCamera = binding.planar->getCamera();
+					auto& planarBound = m_planarProjections[binding.activePlanarIx];
+					assert(planarBound);
+					auto* boundPlanarCamera = planarBound->getCamera();
 
 					hook.meta.type = type;
 					hook.meta.name = meta.name;
@@ -1468,8 +1476,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						viewMatrix = getCastedMatrix<float32_t>(boundPlanarCamera->getGimbal().getViewMatrix());
 						modelViewMatrix = concatenateBFollowedByA<float>(viewMatrix, m_model);
 
-						assert(binding.planar->boundProjectionIx.has_value());
-						auto& projection = binding.planar->getPlanarProjections()[binding.planar->boundProjectionIx.value()];
+						assert(binding.boundProjectionIx.has_value());
+						auto& projection = planarBound->getPlanarProjections()[binding.boundProjectionIx.value()];
 
 						auto concatMatrix = mul(getCastedMatrix<float32_t>(projection.getProjectionMatrix()), getMatrix3x4As4x4(viewMatrix));
 						modelViewProjectionMatrix = mul(concatMatrix, getMatrix3x4As4x4(m_model));
@@ -1484,41 +1492,44 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			// Planars
 			{
 				ImGui::Begin("Projection");
-
 				ImGui::Checkbox("Window mode##useWindow", &useWindow);
-
 				ImGui::Separator();
 
-				const auto activePlanarIxString = std::to_string(activePlanarIx);
-				ImGui::Text("Active Planar Ix: %s", activePlanarIxString.c_str());
-				
-				auto& active = sceneControlBinding[activePlanarIx];
-				assert(active.planar->boundProjectionIx.has_value());
+				const auto activeRenderWindowIxString = std::to_string(activeRenderWindowIx);
 
-				auto requestPlanarCacheInit = [&](std::optional<uint32_t>& optionalPresetIx, IPlanarProjection::CProjection::ProjectionType requestedType) -> void
+				ImGui::Text("Active Render Window: %s", activeRenderWindowIxString.c_str());
 				{
-					if (not optionalPresetIx.has_value())
+					const size_t planarsCount = m_planarProjections.size();
+					assert(planarsCount);
+
+					std::vector<std::string> sbels(planarsCount);
+					for (size_t i = 0; i < planarsCount; ++i)
+						sbels[i] = "Planar " + std::to_string(i);
+
+					std::vector<const char*> labels(planarsCount);
+					for (size_t i = 0; i < planarsCount; ++i)
+						labels[i] = sbels[i].c_str();
+
+					auto& active = sceneControlBinding[activeRenderWindowIx];
+					int currentPlanarIx = static_cast<int>(active.activePlanarIx);
+					if (ImGui::Combo("Active Planar", &currentPlanarIx, labels.data(), static_cast<int>(labels.size())))
 					{
-						const auto& projections = active.planar->getPlanarProjections();
-
-						for (uint32_t i = 0u; i < projections.size(); ++i)
-						{
-							const auto& params = projections[i].getParameters();
-							if (params.m_type == requestedType)
-							{
-								optionalPresetIx = i; 
-								break;
-							}
-						}
+						active.activePlanarIx = static_cast<uint32_t>(currentPlanarIx);
+						active.pickDefaultProjections(m_planarProjections[active.activePlanarIx]->getPlanarProjections());
 					}
+				}
 
-					assert(optionalPresetIx.has_value());
-				};
+				auto& active = sceneControlBinding[activeRenderWindowIx];
 
-				requestPlanarCacheInit(active.planar->lastBoundPerspectivePresetProjectionIx, IPlanarProjection::CProjection::Perspective);
-				requestPlanarCacheInit(active.planar->lastBoundOrthoPresetProjectionIx, IPlanarProjection::CProjection::Orthographic);
+				assert(active.boundProjectionIx.has_value());
+				assert(active.lastBoundPerspectivePresetProjectionIx.has_value());
+				assert(active.lastBoundOrthoPresetProjectionIx.has_value());
 
-				auto selectedProjectionType = active.planar->getPlanarProjections()[active.planar->boundProjectionIx.value()].getParameters().m_type;
+				const auto activePlanarIxString = std::to_string(active.activePlanarIx);
+				auto& planarBound = m_planarProjections[active.activePlanarIx];
+				assert(planarBound);
+
+				auto selectedProjectionType = planarBound->getPlanarProjections()[active.boundProjectionIx.value()].getParameters().m_type;
 				{
 					const char* labels[] = { "Perspective", "Orthographic" };
 					int type = static_cast<int>(selectedProjectionType);
@@ -1529,9 +1540,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						switch (selectedProjectionType)
 						{
-							case IPlanarProjection::CProjection::Perspective: active.planar->boundProjectionIx = active.planar->lastBoundPerspectivePresetProjectionIx.value(); break;
-							case IPlanarProjection::CProjection::Orthographic: active.planar->boundProjectionIx = active.planar->lastBoundOrthoPresetProjectionIx.value(); break;
-							default: active.planar->boundProjectionIx = std::nullopt; assert(false); break;
+							case IPlanarProjection::CProjection::Perspective: active.boundProjectionIx = active.lastBoundPerspectivePresetProjectionIx.value(); break;
+							case IPlanarProjection::CProjection::Orthographic: active.boundProjectionIx = active.lastBoundOrthoPresetProjectionIx.value(); break;
+							default: active.boundProjectionIx = std::nullopt; assert(false); break;
 						}
 					}
 				}
@@ -1546,9 +1557,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					}
 				};
 
-				if (ImGui::BeginCombo("Projection Preset", getPresetName(active.planar->boundProjectionIx.value()).c_str()))
+				if (ImGui::BeginCombo("Projection Preset", getPresetName(active.boundProjectionIx.value()).c_str()))
 				{
-					auto& projections = active.planar->getPlanarProjections();
+					auto& projections = planarBound->getPlanarProjections();
 
 					for (uint32_t i = 0; i < projections.size(); ++i)
 					{
@@ -1558,16 +1569,16 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						if (params.m_type != selectedProjectionType)
 							continue;
 
-						bool isSelected = (i == active.planar->boundProjectionIx.value());
+						bool isSelected = (i == active.boundProjectionIx.value());
 
 						if (ImGui::Selectable(getPresetName(i).c_str(), isSelected))
 						{
-							active.planar->boundProjectionIx = i;
+							active.boundProjectionIx = i;
 
 							switch (selectedProjectionType)
 							{
-								case IPlanarProjection::CProjection::Perspective: active.planar->lastBoundPerspectivePresetProjectionIx = active.planar->boundProjectionIx.value(); break;
-								case IPlanarProjection::CProjection::Orthographic: active.planar->lastBoundOrthoPresetProjectionIx = active.planar->boundProjectionIx.value(); break;
+								case IPlanarProjection::CProjection::Perspective: active.lastBoundPerspectivePresetProjectionIx = active.boundProjectionIx.value(); break;
+								case IPlanarProjection::CProjection::Orthographic: active.lastBoundOrthoPresetProjectionIx = active.boundProjectionIx.value(); break;
 								default: assert(false); break;
 							}
 						}
@@ -1578,8 +1589,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					ImGui::EndCombo();
 				}
 
-				auto* const boundCamera = active.planar->getCamera();
-				auto& boundProjection = active.planar->getPlanarProjections()[active.planar->boundProjectionIx.value()];
+				auto* const boundCamera = planarBound->getCamera();
+				auto& boundProjection = planarBound->getPlanarProjections()[active.boundProjectionIx.value()];
 				assert(not boundProjection.isProjectionSingular());
 
 				auto updateParameters = boundProjection.getParameters();
@@ -1587,6 +1598,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 				if (useWindow)
 					ImGui::Checkbox("Allow axes to flip##allowAxesToFlip", &active.allowGizmoAxesToFlip);
+
+				ImGui::Checkbox("Draw debug grid##drawDebugGrid", &active.enableDebugGridDraw);
 
 				if (ImGui::RadioButton("LH", boundProjection.isProjectionLeftHanded().value()))
 					isLH = true;
@@ -1918,6 +1931,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 		// one model object in the world, testing multiuple cameraz for which view is rendered to separate frame buffers (so what they see) with new controller API including imguizmo
 		nbl::hlsl::float32_t3x4 m_model = nbl::hlsl::float32_t3x4(1.f);
+
+		// if we had working IObjectTransform or something similar then it would be it instead, it is "last manipulated object" I need for TRS editor
 		nbl::core::smart_refctd_ptr<ICamera> boundCameraToManipulate;
 
 		std::vector<nbl::core::smart_refctd_ptr<planar_projection_t>> m_planarProjections;
@@ -1927,14 +1942,40 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		struct SceneControlBinding
 		{
 			nbl::core::smart_refctd_ptr<CScene> scene;
-			nbl::core::smart_refctd_ptr<planar_projection_t> planar;
+
+			uint32_t activePlanarIx = 0u;
 			bool allowGizmoAxesToFlip = false;
+			bool enableDebugGridDraw = true;
 			float aspectRatio = 16.f / 9.f;
+
+			std::optional<uint32_t> boundProjectionIx = std::nullopt, lastBoundPerspectivePresetProjectionIx = std::nullopt, lastBoundOrthoPresetProjectionIx = std::nullopt;
+
+			inline void pickDefaultProjections(const planar_projections_range_t& projections)
+			{
+				auto init = [&](std::optional<uint32_t>& presetix, IPlanarProjection::CProjection::ProjectionType requestedType) -> void
+				{
+					for (uint32_t i = 0u; i < projections.size(); ++i)
+					{
+						const auto& params = projections[i].getParameters();
+						if (params.m_type == requestedType)
+						{
+							presetix = i;
+							break;
+						}
+					}
+
+					assert(presetix.has_value());
+				};
+
+				init(lastBoundPerspectivePresetProjectionIx = std::nullopt, IPlanarProjection::CProjection::Perspective);
+				init(lastBoundOrthoPresetProjectionIx = std::nullopt, IPlanarProjection::CProjection::Orthographic);
+				boundProjectionIx = lastBoundPerspectivePresetProjectionIx.value();
+			}
 		};
 
 		static constexpr inline auto MaxSceneFBOs = 2u;
 		std::array<SceneControlBinding, MaxSceneFBOs> sceneControlBinding;
-		uint32_t activePlanarIx = 0u;
+		uint32_t activeRenderWindowIx = 0u;
 
 		// UI font atlas + viewport FBO color attachment textures
 		constexpr static inline auto TotalUISampleTexturesAmount = 1u + MaxSceneFBOs;

@@ -3,12 +3,17 @@
       {
         "type": "FPS",
         "position": [-2.238, 1.438, -1.558],
-        "orientation": [0.253, 0.368, -0.105, 0.888]
+        "orientation": [0.204, 0.385, -0.088, 0.896]
       },
       {
         "type": "FPS",
         "position": [-2.017, 0.386, 0.684],
         "orientation": [0.047, 0.830, -0.072, 0.55]
+      },
+      {
+        "type": "FPS",
+        "position": [2.116, 0.826, 1.152],
+        "orientation": [0.095, -0.835, 0.152, 0.521]
       }
     ],
     "projections": [
@@ -49,6 +54,25 @@
       },
       {
         "camera": 1,
+        "planarControllerSet": [
+          {
+            "projection": 0,
+            "controllers": {
+              "keyboard": 0,
+              "mouse": 0
+            }
+          },
+          {
+            "projection": 1,
+            "controllers": {
+              "keyboard": 1,
+              "mouse": 0
+            }
+          }
+        ]
+      },
+      {
+        "camera": 2,
         "planarControllerSet": [
           {
             "projection": 0,
