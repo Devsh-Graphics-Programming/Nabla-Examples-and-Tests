@@ -37,7 +37,6 @@ struct PushConstantData
 #ifdef __HLSL_VERSION
 
 #include "nbl/builtin/hlsl/bda/legacy_bda_accessor.hlsl"
-#include "nbl/builtin/hlsl/workgroup/fft.hlsl"
 
 [[vk::push_constant]] PushConstantData pushConstants;
 
