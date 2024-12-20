@@ -17,7 +17,12 @@ public:
     using base_t = ICamera;
 
     CFPSCamera(const float64_t3& position, const glm::quat& orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f))
-        : base_t(), m_gimbal({ .position = position, .orientation = orientation }) {}
+        : base_t(), m_gimbal({ .position = position, .orientation = orientation }) 
+    {
+        updateKeyboardMapping([](auto& map) { map = m_keyboard_to_virtual_events_preset; });
+        updateMouseMapping([](auto& map) { map = m_mouse_to_virtual_events_preset; });
+        updateImguizmoMapping([](auto& map) { map = m_imguizmo_to_virtual_events_preset; });
+    }
 	~CFPSCamera() = default;
 
     const base_t::keyboard_to_virtual_events_t getKeyboardMappingPreset() const override { return m_keyboard_to_virtual_events_preset; }
@@ -101,7 +106,7 @@ private:
 
     // (***) TODO: I need to think whether a camera should own this or controllers should be able 
     // to set sensitivity to scale magnitudes of generated events we put into manipulate method
-    double m_moveSpeedScale = 1, m_rotationSpeedScale = 1;
+    double m_moveSpeedScale = 0.01, m_rotationSpeedScale = 0.003;
 
     static inline constexpr auto AllowedLocalVirtualEvents = CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::TiltUp | CVirtualGimbalEvent::TiltDown | CVirtualGimbalEvent::PanRight | CVirtualGimbalEvent::PanLeft;
     static inline constexpr auto AllowedWorldVirtualEvents = AllowedLocalVirtualEvents;

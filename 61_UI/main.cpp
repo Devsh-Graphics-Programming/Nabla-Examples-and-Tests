@@ -526,7 +526,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							auto orientation = [&]()
 							{
 								auto jret = jCamera["orientation"].get<std::array<float, 4>>();
-								return glm::quat(jret[0], jret[1], jret[2], jret[3]);
+
+								// order important for glm::quat,
+								// the ctor is GLM_FUNC_QUALIFIER GLM_CONSTEXPR qua<T, Q>::qua(T _w, T _x, T _y, T _z)
+								// but memory layout (and json) is x,y,z,w
+								return glm::quat(jret[3], jret[0], jret[1], jret[2]);
 							}();
 
 							cameras.emplace_back() = make_smart_refctd_ptr<CFPSCamera>(position, orientation);
@@ -1172,7 +1176,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							{
 								static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
 
-								uint32_t vCount;
+								uint32_t vCount = {};
 
 								boundCameraToManipulate->beginInputProcessing(m_nextPresentationTimestamp);
 								{
@@ -1192,15 +1196,27 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 								auto* fps = dynamic_cast<CFPSCamera*>(boundCameraToManipulate.get());
 
+								float pmSpeed = 1.f;
+								float prSpeed = 1.f;
+
 								if (fps)
 								{
-									smart_refctd_ptr_static_cast<CFPSCamera>(boundCameraToManipulate)->setMoveSpeedScale(1);
-									smart_refctd_ptr_static_cast<CFPSCamera>(boundCameraToManipulate)->setRotationSpeedScale(1);
+									float pmSpeed = fps->getMoveSpeedScale();
+									float prSpeed = fps->getRotationSpeedScale();
+
+									fps->setMoveSpeedScale(1);
+									fps->setRotationSpeedScale(1);
 								}
 
 								// NOTE: generated events from ImGuizmo controller are always in world space!
 								if (vCount)
 									boundCameraToManipulate->manipulate({ virtualEvents.data(), vCount }, ICamera::World);
+
+								if (fps)
+								{
+									fps->setMoveSpeedScale(pmSpeed);
+									fps->setRotationSpeedScale(prSpeed);
+								}
 							}
 						}
 						else
@@ -1217,15 +1233,18 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						ImGuizmo::Enable(true);
 
 					size_t gizmoIx = {};
+					size_t manipulationCounter = {};
 					for (uint32_t windowIx = 0; windowIx < sceneControlBinding.size(); ++windowIx)
 					{
 						// setup imgui window
 						ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Appearing);
 						ImGui::SetNextWindowPos(ImVec2(400, 20 + windowIx * 420), ImGuiCond_Appearing);
+						ImGui::SetNextWindowSizeConstraints(ImVec2(0x45, 0x45), ImVec2(7680, 4320));
+
 						ImGui::PushStyleColor(ImGuiCol_WindowBg, (ImVec4)ImColor(0.35f, 0.3f, 0.3f));
 						const std::string ident = "Render Window \"" + std::to_string(windowIx) + "\"";
 						ImGui::Begin(ident.data(), 0, ImGuiWindowFlags_NoMove);
-						const ImVec2 contentRegionSize = ImGui::GetContentRegionAvail(), windowPos = ImGui::GetCursorScreenPos(), cursorPos = ImGui::GetWindowPos();
+						const ImVec2 contentRegionSize = ImGui::GetContentRegionAvail(), windowPos = ImGui::GetWindowPos(), cursorPos = ImGui::GetCursorScreenPos();
 
 						// setup bound entities for the window like camera & projections
 						auto& binding = sceneControlBinding[windowIx];
@@ -1260,6 +1279,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				
 						ImGuizmo::SetDrawlist();
 
+						// we render a scene from view of a camera bound to planar window
 						ImGuizmoPlanarM16InOut imguizmoPlanar;
 						imguizmoPlanar.view = getCastedMatrix<float32_t>(transpose(getMatrix3x4As4x4(planarViewCameraBound->getGimbal().getViewMatrix())));
 						imguizmoPlanar.projection = getCastedMatrix<float32_t>(transpose(projection.getProjectionMatrix()));
@@ -1271,9 +1291,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						{
 							ImGuizmo::PushID(gizmoIx); ++gizmoIx;
 
-							const bool isCameraGimbalTarget = modelIx; // I assume scene demo model is 0th ix then cameras
+							const bool isCameraGimbalTarget = modelIx; // I assume scene demo model is 0th ix, left are cameras
 							ICamera* const targetGimbalManipulationCamera = isCameraGimbalTarget ? m_planarProjections[modelIx - 1u]->getCamera() : nullptr;
-							const bool discard = isCameraGimbalTarget && mCurrentGizmoOperation != ImGuizmo::TRANSLATE; // discard WiP stuff
+							bool discard = isCameraGimbalTarget && mCurrentGizmoOperation != ImGuizmo::TRANSLATE; // discard WiP stuff
 
 							// if we try to manipulate a camera which appears to be the same camera we see scene from then obvsly it doesn't make sense to manipulate its gizmo so we skip it
 							if (targetGimbalManipulationCamera == planarViewCameraBound)
@@ -1298,6 +1318,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 								if (success)
 								{
+									++manipulationCounter;
+									discard &= manipulationCounter > 1;
+
 									// TMP WIP, our imguizmo controller doesnt support rotation & scale yet and its because
 									// - there are numerical issues with imguizmo decompose/recompose TRS (and the author also says it)
 									// - in rotate mode delta TRS matrix contains translate part (how? no idea, maybe imguizmo bug) and it glitches everything
@@ -1314,48 +1337,45 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 											{
 												static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
+												uint32_t vCount = {};
 
-												if (ImGuizmo::IsUsingAny())
+												targetGimbalManipulationCamera->beginInputProcessing(m_nextPresentationTimestamp);
 												{
-													uint32_t vCount;
+													targetGimbalManipulationCamera->process(nullptr, vCount);
 
-													targetGimbalManipulationCamera->beginInputProcessing(m_nextPresentationTimestamp);
-													{
-														targetGimbalManipulationCamera->process(nullptr, vCount);
+													if (virtualEvents.size() < vCount)
+														virtualEvents.resize(vCount);
 
-														if (virtualEvents.size() < vCount)
-															virtualEvents.resize(vCount);
+													IGimbalController::SUpdateParameters params;
+													params.imguizmoEvents = { { imguizmoModel.outDeltaTRS } };
+													targetGimbalManipulationCamera->process(virtualEvents.data(), vCount, params);
+												}
+												targetGimbalManipulationCamera->endInputProcessing();
 
-														IGimbalController::SUpdateParameters params;
-														params.imguizmoEvents = { { imguizmoModel.outTRS } };
-														targetGimbalManipulationCamera->process(virtualEvents.data(), vCount, params);
-													}
-													targetGimbalManipulationCamera->endInputProcessing();
+												auto* fps = dynamic_cast<CFPSCamera*>(targetGimbalManipulationCamera);
 
-													auto* fps = dynamic_cast<CFPSCamera*>(targetGimbalManipulationCamera);
+												float pMoveSpeed = 1.f, pRotationSpeed = 1.f;
 
-													float pMoveSpeed = 1.f, pRotationSpeed = 1.f;
+												if (fps)
+												{
+													pMoveSpeed = fps->getMoveSpeedScale();
+													pRotationSpeed = fps->getRotationSpeedScale();
 
-													if (fps)
-													{
-														pMoveSpeed = fps->getMoveSpeedScale();
-														pRotationSpeed = fps->getRotationSpeedScale();
+													// I start to think controller should be able to set sensitivity to scale magnitudes of generated events
+													// in order for camera to not keep any magnitude scalars like move or rotation speed scales
 
-														// I start to think controller should be able to set sensitivity to scale magnitudes of generated events
-														// in order for camera to not keep any magnitude scalars like move or rotation speed scales
+													fps->setMoveSpeedScale(1);
+													fps->setRotationSpeedScale(1);
+												}
 
-														fps->setMoveSpeedScale(1);
-														fps->setRotationSpeedScale(1);
-													}
-
-													// NOTE: generated events from ImGuizmo controller are always in world space!
+												// NOTE: generated events from ImGuizmo controller are always in world space!
+												if (vCount)
 													targetGimbalManipulationCamera->manipulate({ virtualEvents.data(), vCount }, ICamera::World);
 
-													if (fps)
-													{
-														fps->setMoveSpeedScale(pMoveSpeed);
-														fps->setRotationSpeedScale(pRotationSpeed);
-													}
+												if (fps)
+												{
+													fps->setMoveSpeedScale(pMoveSpeed);
+													fps->setRotationSpeedScale(pRotationSpeed);
 												}
 											}
 										}
@@ -1405,6 +1425,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						ImGui::End();
 						ImGui::PopStyleColor(1);
 					}
+					assert(manipulationCounter <= 1u);
 				}
 				// render selected camera view onto full screen
 				else
@@ -1415,7 +1436,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					ImGui::SetNextWindowSize(io.DisplaySize);
 					ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0)); // fully transparent fake window
 					ImGui::Begin("FullScreenWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
-					const ImVec2 contentRegionSize = ImGui::GetContentRegionAvail(), windowPos = ImGui::GetCursorScreenPos(), cursorPos = ImGui::GetWindowPos();
+					const ImVec2 contentRegionSize = ImGui::GetContentRegionAvail(), windowPos = ImGui::GetWindowPos(), cursorPos = ImGui::GetCursorScreenPos();
 
 					ImGui::Image(info, contentRegionSize);
 					ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
