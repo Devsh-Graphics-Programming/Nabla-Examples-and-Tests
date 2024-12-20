@@ -118,7 +118,7 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 
 	// Write spectra in their right positions
 	template<typename sharedmem_adaptor_t>
-	void unload(sharedmem_adaptor_t adaptorForSharedMemory)
+	void unload(NBL_REF_ARG(sharedmem_adaptor_t) adaptorForSharedMemory)
 	{
 		NBL_CONSTEXPR_STATIC_INLINE uint16_t NumWorkgroupsLog2 = ShaderConstevalParameters::NumWorkgroupsLog2;
 

@@ -2,7 +2,6 @@
 
 struct PreloadedAccessorMirrorTradeBase : PreloadedAccessorBase
 {
-	// TODO: Explain this a bit better in the readme
 	// Some operations require a thread to have both elements `DFT[T]` and `DFT[-T]` (where the latter is the mirror around Nyquist, or the "negative frequency" of T). For example,
 	// this is needed when unpacking two different FFTs of real sequences `x, y` from the FFT of a single packed sequence `z = x + iy`. 
 	// Suppose we are on a particular thread, we have an index `globalElementIdx` for a particular element (this index is an index into the Nabla-ordered array, not the proper DFT-ordered one)
@@ -14,10 +13,8 @@ struct PreloadedAccessorMirrorTradeBase : PreloadedAccessorBase
 	// element of the first two threads: threads indexed 0 and 1 actually trade with themselves).
 	// The question is which element. This part is still unproven, but it turns out that at each step the local element index `elementToTradeLocalIdx` of the element
 	// we need to send is a function of just `localElementIndex`, and it turns out to be the higher bits of `otherElementIdx`.
-	// Leaving this as comment for myself: The proof should be easy. It stands to reason that the chain of functions in `getNablaMirrorIndex` yield the same higher bits
-	// for X | Y for any Y as long as you fix X, probably because of how the `mirror` function works.
 	template<typename sharedmem_adaptor_t>
-	complex_t<scalar_t> getDFTMirror(uint32_t globalElementIndex, sharedmem_adaptor_t adaptorForSharedMemory)
+	complex_t<scalar_t> getDFTMirror(uint32_t globalElementIndex, NBL_REF_ARG(sharedmem_adaptor_t) adaptorForSharedMemory)
 	{
 		const FFTIndexingUtils::NablaMirrorLocalInfo info = FFTIndexingUtils::getNablaMirrorLocalInfo(globalElementIndex);
 		const uint32_t mirrorLocalIndex = info.mirrorLocalIndex;
@@ -34,7 +31,7 @@ struct PreloadedAccessorMirrorTradeBase : PreloadedAccessorBase
 struct MultiChannelPreloadedAccessorMirrorTradeBase : MultiChannelPreloadedAccessorBase
 {
 	template<typename sharedmem_adaptor_t>
-	complex_t<scalar_t> getDFTMirror(uint32_t globalElementIndex, uint16_t channel, sharedmem_adaptor_t adaptorForSharedMemory)
+	complex_t<scalar_t> getDFTMirror(uint32_t globalElementIndex, uint16_t channel, NBL_REF_ARG(sharedmem_adaptor_t) adaptorForSharedMemory)
 	{
 		const FFTIndexingUtils::NablaMirrorLocalInfo info = FFTIndexingUtils::getNablaMirrorLocalInfo(globalElementIndex);
 		const uint32_t mirrorLocalIndex = info.mirrorLocalIndex;		

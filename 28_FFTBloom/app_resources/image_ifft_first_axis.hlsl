@@ -34,7 +34,7 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 	// unpack the FFT in the forward step.
 	// Since complex conjugation is not linear, we cannot simply store two columns and pass around their conjugates. We load one, trade, then load the other, trade again.
 	template<typename sharedmem_adaptor_t>
-	void preload(sharedmem_adaptor_t adaptorForSharedMemory)
+	void preload(NBL_REF_ARG(sharedmem_adaptor_t) adaptorForSharedMemory)
 	{
 		for (uint16_t channel = 0; channel < Channels; channel++)
 		{

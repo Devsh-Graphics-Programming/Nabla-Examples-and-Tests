@@ -132,7 +132,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 	// Each element on this row is Nabla-ordered. So the element at `x' = index, y' = gl_WorkGroupID().x` that we're operating on is actually the element at
 	// `x = F(index), y = bitreverse(gl_WorkGroupID().x)` (with the bitreversal done as an N-1 bit number, for `N = log2(TotalSize)` *of the first axist FFT*)
 	template<typename sharedmem_adaptor_t>
-	void convolve(uint32_t channel, sharedmem_adaptor_t adaptorForSharedMemory)
+	void convolve(uint32_t channel, NBL_REF_ARG(sharedmem_adaptor_t) adaptorForSharedMemory)
 	{
 		if (glsl::gl_WorkGroupID().x)
 		{
