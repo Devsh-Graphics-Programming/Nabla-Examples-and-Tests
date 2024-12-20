@@ -865,13 +865,13 @@ public:
 			kernelHalfPixelSize.y /= kernelSpectraExtent.height;
 			SShaderConstevalParameters::SShaderConstevalParametersCreateInfo shaderConstevalInfo =
 			{
-			.useHalfFloats = m_useHalfFloats,
-			.elementsPerInvocationLog2 = elementsPerInvocationLog2, 
-			.workgroupSizeLog2 = workgroupSizeLog2, 
-			.numWorkgroupsLog2 = firstAxisFFTHalfLengthLog2, 
-			.previousElementsPerInvocationLog2 = firstAxisFFTElementsPerInvocationLog2,
-			.previousWorkgroupSizeLog2 = firstAxisFFTWorkgroupSizeLog2, 
-			.kernelHalfPixelSize = kernelHalfPixelSize
+				.useHalfFloats = m_useHalfFloats,
+				.elementsPerInvocationLog2 = elementsPerInvocationLog2, 
+				.workgroupSizeLog2 = workgroupSizeLog2, 
+				.numWorkgroupsLog2 = firstAxisFFTHalfLengthLog2, 
+				.previousElementsPerInvocationLog2 = firstAxisFFTElementsPerInvocationLog2,
+				.previousWorkgroupSizeLog2 = firstAxisFFTWorkgroupSizeLog2, 
+				.kernelHalfPixelSize = kernelHalfPixelSize
 			};
 			SShaderConstevalParameters shaderConstevalParameters(shaderConstevalInfo);
 			shaders[1] = createShader("app_resources/fft_convolve_ifft.hlsl", shaderConstevalParameters);
