@@ -128,7 +128,7 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 		// the element in the DFT with `x = F(x')` and `y = bitreverse(y')`
 		if (glsl::gl_WorkGroupID().x)
 		{
-			const uint32_t y = fft::bitReverse<uint32_t, NumWorkgroupsLog2>(glsl::gl_WorkGroupID().x);
+			const uint32_t y = fft::bitReverseAs<uint32_t, NumWorkgroupsLog2>(glsl::gl_WorkGroupID().x);
 			for (uint16_t channel = 0; channel < Channels; channel++)
 			{
 				uint32_t globalElementIndex = workgroup::SubgroupContiguousIndex();
