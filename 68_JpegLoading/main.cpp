@@ -136,7 +136,7 @@ class JpegLoaderApp final : public application_templates::MonoAssetManagerAndBui
                files.emplace_back(std::move(path.generic_string()));
 
                ISystem::future_t<smart_refctd_ptr<system::IFile>> future;
-               m_system->createFile(future, path, IFile::ECF_READ);
+               m_system->createFile(future, path, IFile::ECF_READ | IFile::ECF_MAPPABLE);
 
                if (auto pFile = future.acquire(); pFile && pFile->get()) 
                {
