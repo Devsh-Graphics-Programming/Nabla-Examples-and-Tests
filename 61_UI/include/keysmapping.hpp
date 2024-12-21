@@ -3,8 +3,9 @@
 
 #include "common.hpp"
 
-void handleAddMapping(const char* tableID, IGimbalManipulateEncoder* encoder, IGimbalManipulateEncoder::EncoderType activeController, CVirtualGimbalEvent::VirtualEventType& selectedEventType, ui::E_KEY_CODE& newKey, ui::E_MOUSE_CODE& newMouseCode, bool& addMode)
+bool handleAddMapping(const char* tableID, IGimbalManipulateEncoder* encoder, IGimbalManipulateEncoder::EncoderType activeController, CVirtualGimbalEvent::VirtualEventType& selectedEventType, ui::E_KEY_CODE& newKey, ui::E_MOUSE_CODE& newMouseCode, bool& addMode)
 {
+    bool anyMapUpdated = false;
     ImGui::BeginTable(tableID, 3, ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame);
     ImGui::TableSetupColumn("Virtual Event", ImGuiTableColumnFlags_WidthStretch, 0.33f);
     ImGui::TableSetupColumn("Key", ImGuiTableColumnFlags_WidthStretch, 0.33f);
@@ -64,6 +65,7 @@ void handleAddMapping(const char* tableID, IGimbalManipulateEncoder* encoder, IG
     ImGui::TableSetColumnIndex(2);
     if (ImGui::Button("Confirm Add", ImVec2(100, 30)))
     {
+        anyMapUpdated |= true;
         if (activeController == IGimbalManipulateEncoder::Keyboard)
             encoder->updateKeyboardMapping([&](auto& keys) { keys[newKey] = selectedEventType; });
         else
@@ -72,11 +74,15 @@ void handleAddMapping(const char* tableID, IGimbalManipulateEncoder* encoder, IG
     }
 
     ImGui::EndTable();
+
+    return anyMapUpdated;
 }
 
-void displayKeyMappingsAndVirtualStatesInline(IGimbalManipulateEncoder* encoder, bool spawnWindow = false)
+bool displayKeyMappingsAndVirtualStatesInline(IGimbalManipulateEncoder* encoder, bool spawnWindow = false)
 {
-    if (!encoder) return;
+    bool anyMapUpdated = false;
+
+    if (!encoder) return anyMapUpdated;
 
     struct MappingState
     {
@@ -143,6 +149,7 @@ void displayKeyMappingsAndVirtualStatesInline(IGimbalManipulateEncoder* encoder,
                 ImGui::TableSetColumnIndex(4);
                 if (ImGui::Button(("Delete##deleteKey" + std::to_string(static_cast<int>(keyboardCode))).c_str()))
                 {
+                    anyMapUpdated |= true;
                     encoder->updateKeyboardMapping([keyboardCode](auto& keys) { keys.erase(keyboardCode); });
                     break;
                 }
@@ -152,7 +159,7 @@ void displayKeyMappingsAndVirtualStatesInline(IGimbalManipulateEncoder* encoder,
             if (state.addMode)
             {
                 ImGui::Separator();
-                handleAddMapping("AddKeyboardMappingTable", encoder, state.activeController, state.selectedEventType, state.newKey, state.newMouseCode, state.addMode);
+                anyMapUpdated |= handleAddMapping("AddKeyboardMappingTable", encoder, state.activeController, state.selectedEventType, state.newKey, state.newMouseCode, state.addMode);
             }
 
             ImGui::EndTabItem();
@@ -200,6 +207,7 @@ void displayKeyMappingsAndVirtualStatesInline(IGimbalManipulateEncoder* encoder,
                 ImGui::TableSetColumnIndex(4);
                 if (ImGui::Button(("Delete##deleteMouse" + std::to_string(static_cast<int>(mouseCode))).c_str()))
                 {
+                    anyMapUpdated |= true;
                     encoder->updateMouseMapping([mouseCode](auto& mouse) { mouse.erase(mouseCode); });
                     break;
                 }
@@ -219,6 +227,8 @@ void displayKeyMappingsAndVirtualStatesInline(IGimbalManipulateEncoder* encoder,
 
     if (spawnWindow)
         ImGui::End();
+
+    return anyMapUpdated;
 }
 
 #endif // __NBL_KEYSMAPPING_H_INCLUDED__

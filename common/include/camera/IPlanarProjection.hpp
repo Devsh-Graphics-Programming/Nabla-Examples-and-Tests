@@ -9,7 +9,7 @@ namespace nbl::hlsl
 class IPlanarProjection : public ILinearProjection
 {
 public:
-    struct CProjection : public ILinearProjection::CProjection, public IGimbalManipulateEncoder
+    struct CProjection : public ILinearProjection::CProjection, public IGimbalController
     {
         using base_t = ILinearProjection::CProjection;
 
@@ -88,21 +88,10 @@ public:
                 base_t::setProjectionMatrix(buildProjectionMatrixOrthoRH<float64_t>(orthoWidth, viewHeight, zNear, zFar));
         }
 
-        virtual void updateKeyboardMapping(const std::function<void(keyboard_to_virtual_events_t&)>& mapKeys) override { mapKeys(m_keyboardVirtualEventMap); }
-        virtual void updateMouseMapping(const std::function<void(mouse_to_virtual_events_t&)>& mapKeys) override { mapKeys(m_mouseVirtualEventMap); }
-        virtual void updateImguizmoMapping(const std::function<void(imguizmo_to_virtual_events_t&)>& mapKeys) override { mapKeys(m_imguizmoVirtualEventMap); }
-
-        virtual const keyboard_to_virtual_events_t& getKeyboardVirtualEventMap() const override { return m_keyboardVirtualEventMap; }
-        virtual const mouse_to_virtual_events_t& getMouseVirtualEventMap() const override { return m_mouseVirtualEventMap; }
-        virtual const imguizmo_to_virtual_events_t& getImguizmoVirtualEventMap() const override { return m_imguizmoVirtualEventMap; }
         inline const ProjectionParameters& getParameters() const { return m_parameters; }
     private:
         CProjection() = default;
         ProjectionParameters m_parameters;
-
-        keyboard_to_virtual_events_t m_keyboardVirtualEventMap;
-        mouse_to_virtual_events_t m_mouseVirtualEventMap;
-        imguizmo_to_virtual_events_t m_imguizmoVirtualEventMap;
     };
 
 protected:
