@@ -539,7 +539,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					if (jProjection.contains("type"))
 					{
 						float zNear, zFar;
-						bool leftHanded;
 
 						if (!jProjection.contains("zNear"))
 						{
@@ -553,15 +552,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							return false;
 						}
 
-						if (!jProjection.contains("leftHanded"))
-						{
-							"Expected \"leftHanded\" keyword for planar projection definition!";
-							return false;
-						}
-
 						zNear = jProjection["zNear"].get<float>();
 						zFar = jProjection["zFar"].get<float>();
-						leftHanded = jProjection["leftHanded"].get<bool>();
 
 						if (jProjection["type"] == "perspective")
 						{
@@ -572,7 +564,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							}
 
 							float fov = jProjection["fov"].get<float>();
-							projections.emplace_back(IPlanarProjection::CProjection::create<IPlanarProjection::CProjection::Perspective>(leftHanded, zNear, zFar, fov));
+							projections.emplace_back(IPlanarProjection::CProjection::create<IPlanarProjection::CProjection::Perspective>(zNear, zFar, fov));
 
 						}
 						else if (jProjection["type"] == "orthographic")
@@ -584,7 +576,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							}
 
 							float orthoWidth = jProjection["orthoWidth"].get<float>();
-							projections.emplace_back(IPlanarProjection::CProjection::create<IPlanarProjection::CProjection::Orthographic>(leftHanded, zNear, zFar, orthoWidth));
+							projections.emplace_back(IPlanarProjection::CProjection::create<IPlanarProjection::CProjection::Orthographic>(zNear, zFar, orthoWidth));
 						}
 						else
 						{
@@ -1258,6 +1250,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						assert(binding.boundProjectionIx.has_value());
 						
 						auto& projection = planarBound->getPlanarProjections()[binding.boundProjectionIx.value()];
+						projection.update(binding.leftHandedProjection, binding.aspectRatio);
 
 						// first 0th texture is for UI texture atlas, then there are our window textures
 						auto fboImguiTextureID = windowIx + 1u;
@@ -1602,20 +1595,19 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				assert(not boundProjection.isProjectionSingular());
 
 				auto updateParameters = boundProjection.getParameters();
-				bool isLH = boundProjection.isProjectionLeftHanded().value();
 
 				if (useWindow)
 					ImGui::Checkbox("Allow axes to flip##allowAxesToFlip", &active.allowGizmoAxesToFlip);
 
 				ImGui::Checkbox("Draw debug grid##drawDebugGrid", &active.enableDebugGridDraw);
 
-				if (ImGui::RadioButton("LH", boundProjection.isProjectionLeftHanded().value()))
-					isLH = true;
+				if (ImGui::RadioButton("LH", active.leftHandedProjection))
+					active.leftHandedProjection = true;
 
 				ImGui::SameLine();
 
-				if (ImGui::RadioButton("RH", not isLH))
-					isLH = false;
+				if (ImGui::RadioButton("RH", not active.leftHandedProjection))
+					active.leftHandedProjection = false;
 
 				ImGui::SliderFloat("zNear", &updateParameters.m_zNear, 0.1f, 100.f, "%.2f", ImGuiSliderFlags_Logarithmic);
 				ImGui::SliderFloat("zFar", &updateParameters.m_zFar, 110.f, 10000.f, "%.1f", ImGuiSliderFlags_Logarithmic);
@@ -1625,13 +1617,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					case IPlanarProjection::CProjection::Perspective:
 					{
 						ImGui::SliderFloat("Fov", &updateParameters.m_planar.perspective.fov, 20.f, 150.f, "%.1f", ImGuiSliderFlags_Logarithmic);
-						boundProjection.setPerspective(isLH, updateParameters.m_zNear, updateParameters.m_zFar, updateParameters.m_planar.perspective.fov, active.aspectRatio);
+						boundProjection.setPerspective(updateParameters.m_zNear, updateParameters.m_zFar, updateParameters.m_planar.perspective.fov);
 					} break;
 
 					case IPlanarProjection::CProjection::Orthographic:
 					{
 						ImGui::SliderFloat("Ortho width", &updateParameters.m_planar.orthographic.orthoWidth, 1.f, 20.f, "%.1f", ImGuiSliderFlags_Logarithmic);
-						boundProjection.setOrthographic(isLH, updateParameters.m_zNear, updateParameters.m_zFar, updateParameters.m_planar.orthographic.orthoWidth, active.aspectRatio);
+						boundProjection.setOrthographic(updateParameters.m_zNear, updateParameters.m_zFar, updateParameters.m_planar.orthographic.orthoWidth);
 					} break;
 
 					default: break;
@@ -1951,6 +1943,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			bool allowGizmoAxesToFlip = false;
 			bool enableDebugGridDraw = true;
 			float aspectRatio = 16.f / 9.f;
+			bool leftHandedProjection = true;
 
 			std::optional<uint32_t> boundProjectionIx = std::nullopt, lastBoundPerspectivePresetProjectionIx = std::nullopt, lastBoundOrthoPresetProjectionIx = std::nullopt;
 

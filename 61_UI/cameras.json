@@ -21,15 +21,13 @@
         "type": "perspective",
         "fov": 60.0,
         "zNear": 0.1,
-        "zFar": 100.0,
-        "leftHanded": true
+        "zFar": 100.0
       },
       {
         "type": "orthographic",
         "orthoWidth": 10.0,
         "zNear": 0.1,
-        "zFar": 100.0,
-        "leftHanded": true
+        "zFar": 100.0
       }
     ],
     "viewports": [
