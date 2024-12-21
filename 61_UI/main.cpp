@@ -732,12 +732,14 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					return false;
 				}
 
+				// init render window planar references - we make all render windows start with focus on first
+				// planar but in a way that first window has the planar's perspective preset bound & second orthographic
 				for (uint32_t i = 0u; i < sceneControlBinding.size(); ++i)
 				{
 					auto& binding = sceneControlBinding[i];
 					
-					const auto& projections = m_planarProjections[binding.activePlanarIx = 0]->getPlanarProjections();
-					binding.pickDefaultProjections(projections);
+					auto& planar = m_planarProjections[binding.activePlanarIx = 0];
+					binding.pickDefaultProjections(planar->getPlanarProjections());
 
 					if (i)
 						binding.boundProjectionIx = binding.lastBoundOrthoPresetProjectionIx.value();
@@ -1087,21 +1089,26 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			if (enableActiveCameraMovement)
 			{
-				auto* camera = m_planarProjections[sceneControlBinding[activeRenderWindowIx].activePlanarIx]->getCamera();
+				auto& binding = sceneControlBinding[activeRenderWindowIx];
+				auto& planar = m_planarProjections[binding.activePlanarIx];
+				auto* camera = planar->getCamera();
+				
+				assert(binding.boundProjectionIx.has_value());
+				auto& projection = planar->getPlanarProjections()[binding.boundProjectionIx.value()];
 
 				static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
 				uint32_t vCount;
 
-				camera->beginInputProcessing(m_nextPresentationTimestamp);
+				projection.beginInputProcessing(m_nextPresentationTimestamp);
 				{
-					camera->process(nullptr, vCount);
+					projection.process(nullptr, vCount);
 
 					if (virtualEvents.size() < vCount)
 						virtualEvents.resize(vCount);
 
-					camera->process(virtualEvents.data(), vCount, { params.keyboardEvents, params.mouseEvents });
+					projection.process(virtualEvents.data(), vCount, { params.keyboardEvents, params.mouseEvents });
 				}
-				camera->endInputProcessing();
+				projection.endInputProcessing();
 
 				if(vCount)
 					camera->manipulate({ virtualEvents.data(), vCount }, ICamera::Local);
@@ -1495,6 +1502,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				ImGui::Checkbox("Window mode##useWindow", &useWindow);
 				ImGui::Separator();
 
+				auto& active = sceneControlBinding[activeRenderWindowIx];
 				const auto activeRenderWindowIxString = std::to_string(activeRenderWindowIx);
 
 				ImGui::Text("Active Render Window: %s", activeRenderWindowIxString.c_str());
@@ -1510,7 +1518,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					for (size_t i = 0; i < planarsCount; ++i)
 						labels[i] = sbels[i].c_str();
 
-					auto& active = sceneControlBinding[activeRenderWindowIx];
+
 					int currentPlanarIx = static_cast<int>(active.activePlanarIx);
 					if (ImGui::Combo("Active Planar", &currentPlanarIx, labels.data(), static_cast<int>(labels.size())))
 					{
@@ -1518,8 +1526,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						active.pickDefaultProjections(m_planarProjections[active.activePlanarIx]->getPlanarProjections());
 					}
 				}
-
-				auto& active = sceneControlBinding[activeRenderWindowIx];
 
 				assert(active.boundProjectionIx.has_value());
 				assert(active.lastBoundPerspectivePresetProjectionIx.has_value());
@@ -1557,6 +1563,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					}
 				};
 
+				bool updateBoundVirtualMaps = false;
 				if (ImGui::BeginCombo("Projection Preset", getPresetName(active.boundProjectionIx.value()).c_str()))
 				{
 					auto& projections = planarBound->getPlanarProjections();
@@ -1574,6 +1581,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						if (ImGui::Selectable(getPresetName(i).c_str(), isSelected))
 						{
 							active.boundProjectionIx = i;
+							updateBoundVirtualMaps |= true;
 
 							switch (selectedProjectionType)
 							{
@@ -1713,16 +1721,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						if (ImGui::TreeNodeEx("Virtual Event Mappings", flags))
 						{
-							auto* encoder = static_cast<IGimbalManipulateEncoder*>(&boundProjection);
-							displayKeyMappingsAndVirtualStatesInline(encoder);
+							displayKeyMappingsAndVirtualStatesInline(&boundProjection);
 							ImGui::TreePop();
 						}
 
 						ImGui::TreePop();
 					}
-
-					boundCamera->updateKeyboardMapping([&](auto& map) { map = boundProjection.getKeyboardVirtualEventMap(); });
-					boundCamera->updateMouseMapping([&](auto& map) { map = boundProjection.getMouseVirtualEventMap(); });
 				}
 
 				ImGui::End();
