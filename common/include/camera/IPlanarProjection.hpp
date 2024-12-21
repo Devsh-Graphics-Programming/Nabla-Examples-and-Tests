@@ -60,32 +60,47 @@ public:
             float m_zFar;
         };
 
-        inline void setPerspective(bool leftHanded = true, float zNear = 0.1f, float zFar = 100.f, float fov = 60.f, float aspectRatio = 16.f / 9.f)
+        inline void update(bool leftHanded, float aspectRatio)
+        {
+            switch (m_parameters.m_type)
+            {
+                case Perspective:
+                {
+                    const auto& fov = m_parameters.m_planar.perspective.fov;
+
+                    if (leftHanded)
+                        base_t::setProjectionMatrix(buildProjectionMatrixPerspectiveFovLH<float64_t>(glm::radians(fov), aspectRatio, m_parameters.m_zNear, m_parameters.m_zFar));
+                    else
+                        base_t::setProjectionMatrix(buildProjectionMatrixPerspectiveFovRH<float64_t>(glm::radians(fov), aspectRatio, m_parameters.m_zNear, m_parameters.m_zFar));
+                } break;
+
+                case Orthographic:
+                {
+                    const auto& orthoW = m_parameters.m_planar.orthographic.orthoWidth;
+                    const auto viewHeight = orthoW * core::reciprocal(aspectRatio);
+
+                    if (leftHanded)
+                        base_t::setProjectionMatrix(buildProjectionMatrixOrthoLH<float64_t>(orthoW, viewHeight, m_parameters.m_zNear, m_parameters.m_zFar));
+                    else
+                        base_t::setProjectionMatrix(buildProjectionMatrixOrthoRH<float64_t>(orthoW, viewHeight, m_parameters.m_zNear, m_parameters.m_zFar));
+                } break;
+            }
+        }
+
+        inline void setPerspective(float zNear = 0.1f, float zFar = 100.f, float fov = 60.f)
         {
             m_parameters.m_type = Perspective;
             m_parameters.m_planar.perspective.fov = fov;
             m_parameters.m_zNear = zNear;
             m_parameters.m_zFar = zFar;
-
-            if (leftHanded)
-                base_t::setProjectionMatrix(buildProjectionMatrixPerspectiveFovLH<float64_t>(glm::radians(fov), aspectRatio, zNear, zFar));
-            else
-                base_t::setProjectionMatrix(buildProjectionMatrixPerspectiveFovRH<float64_t>(glm::radians(fov), aspectRatio, zNear, zFar));
         }
 
-        inline void setOrthographic(bool leftHanded = true, float zNear = 0.1f, float zFar = 100.f, float orthoWidth = 10.f, float aspectRatio = 16.f / 9.f)
+        inline void setOrthographic(float zNear = 0.1f, float zFar = 100.f, float orthoWidth = 10.f)
         {
             m_parameters.m_type = Orthographic;
             m_parameters.m_planar.orthographic.orthoWidth = orthoWidth;
             m_parameters.m_zNear = zNear;
             m_parameters.m_zFar = zFar;
-
-            const auto viewHeight = orthoWidth * core::reciprocal(aspectRatio);
-
-            if (leftHanded)
-                base_t::setProjectionMatrix(buildProjectionMatrixOrthoLH<float64_t>(orthoWidth, viewHeight, zNear, zFar));
-            else
-                base_t::setProjectionMatrix(buildProjectionMatrixOrthoRH<float64_t>(orthoWidth, viewHeight, zNear, zFar));
         }
 
         inline const ProjectionParameters& getParameters() const { return m_parameters; }
