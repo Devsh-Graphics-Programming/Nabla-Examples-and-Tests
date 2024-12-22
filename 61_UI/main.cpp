@@ -1663,6 +1663,22 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					}
 				}
 
+				{
+					ImGuiIO& io = ImGui::GetIO();
+					ImVec2 mousePos = ImGui::GetMousePos();
+					ImVec2 viewportSize = io.DisplaySize;
+					auto* cc = m_window->getCursorControl();
+
+					if (mousePos.x < 0.0f || mousePos.y < 0.0f || mousePos.x > viewportSize.x || mousePos.y > viewportSize.y)
+					{
+						cc->setVisible(true);
+					}
+					else
+					{
+						cc->setVisible(false);
+					}
+				}
+
 				ImGui::End();
 			}
 		}
