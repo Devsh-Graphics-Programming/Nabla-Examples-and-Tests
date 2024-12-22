@@ -690,7 +690,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					return false;
 				}
 
-				if (j.contains("viewports"))
+				/*if (j.contains("viewports"))
 				{
 					for (const auto& jViewport : j["viewports"])
 					{
@@ -736,6 +736,66 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				else
 				{
 					std::cerr << "Expected \"viewports\" keyword in JSON!" << std::endl;
+					return false;
+				}*/
+
+				if (j.contains("viewports") && j.contains("planars"))
+				{
+					for (const auto& jPlanar : j["planars"])
+					{
+						if (!jPlanar.contains("camera"))
+						{
+							logFail("Expected \"camera\" value in planar object");
+							return false;
+						}
+
+						if (!jPlanar.contains("viewports"))
+						{
+							logFail("Expected \"viewports\" list in planar object");
+							return false;
+						}
+
+						const auto cameraIx = jPlanar["camera"].get<uint32_t>();
+						auto boundViewports = jPlanar["viewports"].get<std::vector<uint32_t>>();
+
+						auto& planars = m_planarProjections.emplace_back() = planar_projection_t::create(smart_refctd_ptr(cameras[cameraIx]));
+						for (const auto viewportIx : boundViewports)
+						{
+							auto& viewport = j["viewports"][viewportIx];
+							if (!viewport.contains("projection") || !viewport.contains("controllers"))
+							{
+								logFail("\"projection\" or \"controllers\" missing in viewport object index %d", viewportIx);
+								return false;
+							}
+
+							if (!viewport["controllers"].contains("keyboard"))
+							{
+								logFail("\"keyboard\" value missing in controllers in viewport object index %d", viewportIx);
+								return false;
+							}
+
+							if (!viewport["controllers"].contains("mouse"))
+							{
+								logFail("\"mouse\" value missing in controllers in viewport object index %d", viewportIx);
+								return false;
+							}
+
+							auto keyboardIx = viewport["controllers"]["keyboard"].get<uint32_t>();
+							auto mouseIx = viewport["controllers"]["mouse"].get<uint32_t>();
+
+							auto projectionIx = viewport["projection"].get<uint32_t>();
+							auto keyboardControllerIx = viewport["controllers"]["keyboard"].get<uint32_t>();
+							auto mouseControllerIx = viewport["controllers"]["mouse"].get<uint32_t>();
+
+							auto& projection = planars->getPlanarProjections().emplace_back(projections[projectionIx]);
+							projection.updateKeyboardMapping([&](auto& map) { map = controllers.keyboard[keyboardControllerIx]; });
+							projection.updateMouseMapping([&](auto& map) { map = controllers.mouse[mouseControllerIx]; });
+						}
+					}
+				}
+				else
+				{
+					logFail("Expected \"viewports\" and \"planars\" lists in JSON");
 					return false;
 				}
 
