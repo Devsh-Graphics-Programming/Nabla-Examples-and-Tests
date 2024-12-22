@@ -459,7 +459,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 				if (!resources)
 				{
-					m_logger->log("Could not create geometry creator gpu resources!", ILogger::ELL_ERROR);
+					logFail("Could not create geometry creator gpu resources!");
 					return false;
 				}
 
@@ -472,7 +472,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					if (!scene)
 					{
-						m_logger->log("Could not create geometry creator scene[%d]!", ILogger::ELL_ERROR, i);
+						logFail("Could not create geometry creator scene[%d]!", i);
 						return false;
 					}
 				}
@@ -514,13 +514,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						{
 							if (!jCamera.contains("position"))
 							{
-								std::cerr << "Expected \"position\" keyword for camera definition!";
+								logFail("Expected \"position\" keyword for camera definition!");
 								return false;
 							}
 
 							if (!jCamera.contains("orientation"))
 							{
-								std::cerr << "Expected \"orientation\" keyword for camera definition!";
+								logFail("Expected \"orientation\" keyword for camera definition!");
 								return false;
 							}
 
@@ -544,13 +544,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						}
 						else
 						{
-							std::cerr << "Unsupported camera type!";
+							logFail("Unsupported camera type!");
 							return false;
 						}
 					}
 					else
 					{
-						std::cerr << "Expected \"type\" keyword for camera definition!";
+						logFail("Expected \"type\" keyword for camera definition!");
 						return false;
 					}
 				}
@@ -564,13 +564,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						if (!jProjection.contains("zNear"))
 						{
-							"Expected \"zNear\" keyword for planar projection definition!";
+							logFail("Expected \"zNear\" keyword for planar projection definition!");
 							return false;
 						}
 
 						if (!jProjection.contains("zFar"))
 						{
-							"Expected \"zFar\" keyword for planar projection definition!";
+							logFail("Expected \"zFar\" keyword for planar projection definition!");
 							return false;
 						}
 
@@ -581,7 +581,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						{
 							if (!jProjection.contains("fov"))
 							{
-								"Expected \"fov\" keyword for planar perspective projection definition!";
+								logFail("Expected \"fov\" keyword for planar perspective projection definition!");
 								return false;
 							}
 
@@ -593,7 +593,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						{
 							if (!jProjection.contains("orthoWidth"))
 							{
-								"Expected \"orthoWidth\" keyword for planar orthographic projection definition!";
+								logFail("Expected \"orthoWidth\" keyword for planar orthographic projection definition!");
 								return false;
 							}
 
@@ -602,7 +602,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						}
 						else
 						{
-							std::cerr << "Unsupported projection!";
+							logFail("Unsupported projection!");
 							return false;
 						}
 					}
@@ -631,7 +631,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 									if (nativeCode == EKC_NONE)
 									{
-										std::cerr << "Invalid native key \"" << key.c_str() <<  "\" code mapping for keyboard controller!" << std::endl;
+										logFail("Invalid native key \"%s\" code mapping for keyboard controller", key.c_str());
 										return false;
 									}
 
@@ -640,14 +640,14 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							}
 							else 
 							{
-								std::cerr << "Expected \"mappings\" keyword for keyboard controller definition!" << std::endl;
+								logFail("Expected \"mappings\" keyword for keyboard controller definition!");
 								return false;
 							}
 						}
 					}
 					else 
 					{
-						std::cerr << "Expected \"keyboard\" keyword in controllers definition!" << std::endl;
+						logFail("Expected \"keyboard\" keyword in controllers definition!");
 						return false;
 					}
 
@@ -664,7 +664,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 									if (nativeCode == EMC_NONE)
 									{
-										std::cerr << "Invalid native key \"" << key.c_str() << "\" code mapping for mouse controller!" << std::endl;
+										logFail("Invalid native key \"%s\" code mapping for mouse controller", key.c_str());
 										return false;
 									}
 
@@ -673,71 +673,22 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							}
 							else 
 							{
-								std::cerr << "Expected \"mappings\" keyword for mouse controller definition!" << std::endl;
+								logFail("Expected \"mappings\" keyword for mouse controller definition!");
 								return false;
 							}
 						}
 					}
 					else 
 					{
-						std::cerr << "Expected \"mouse\" keyword in controllers definition!" << std::endl;
+						logFail("Expected \"mouse\" keyword in controllers definition");
 						return false;
 					}
 				}
 				else 
 				{
-					std::cerr << "Expected \"controllers\" keyword in JSON!" << std::endl;
+					logFail("Expected \"controllers\" keyword in controllers JSON");
 					return false;
 				}
-
-				/*if (j.contains("viewports"))
-				{
-					for (const auto& jViewport : j["viewports"])
-					{
-						if (!jViewport.contains("camera"))
-						{
-							std::cerr << "Expected \"camera\" keyword in viewport definition!" << std::endl;
-							return false;
-						}
-
-						const auto cameraIx = jViewport["camera"].get<uint32_t>();
-						auto& planars = m_planarProjections.emplace_back() = planar_projection_t::create(smart_refctd_ptr(cameras[cameraIx]));
-
-						if (!jViewport.contains("planarControllerSet"))
-						{
-							std::cerr << "Expected \"planarControllerSet\" keyword in viewport definition!" << std::endl;
-							return false;
-						}
-
-						for (const auto& jPlanarController : jViewport["planarControllerSet"])
-						{
-							if (!jPlanarController.contains("projection"))
-							{
-								std::cerr << "Expected \"projection\" keyword in planarControllerSet!" << std::endl;
-								return false;
-							}
-
-							if (!jPlanarController.contains("controllers"))
-							{
-								std::cerr << "Expected \"controllers\" keyword in planarControllerSet!" << std::endl;
-								return false;
-							}
-
-							auto projectionIx = jPlanarController["projection"].get<uint32_t>();
-							auto keyboardControllerIx = jPlanarController["controllers"]["keyboard"].get<uint32_t>();
-							auto mouseControllerIx = jPlanarController["controllers"]["mouse"].get<uint32_t>();
-
-							auto& projection = planars->getPlanarProjections().emplace_back(projections[projectionIx]);
-							projection.updateKeyboardMapping([&](auto& map) { map = controllers.keyboard[keyboardControllerIx]; });
-							projection.updateMouseMapping([&](auto& map) { map = controllers.mouse[mouseControllerIx]; });
-						}
-					}
-				}
-				else
-				{
-					std::cerr << "Expected \"viewports\" keyword in JSON!" << std::endl;
-					return false;
-				}*/
 
 				if (j.contains("viewports") && j.contains("planars"))
 				{
@@ -802,7 +753,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				if (m_planarProjections.size() < windowControlBinding.size())
 				{
 					// TODO, temporary assuming it, I'm not going to implement each possible case now
-					std::cerr << "Expected at least " << std::to_string(windowControlBinding.size()) << " planars!" << std::endl;
+					logFail("Expected at least %d planars", windowControlBinding.size());
 					return false;
 				}
 
