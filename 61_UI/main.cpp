@@ -275,6 +275,297 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			if (!base_t::onAppInitialized(std::move(system)))
 				return false;
 
+			{
+				const auto cameraJsonFile = program.get<std::string>("--file");
+
+				json j;
+				std::ifstream file(cameraJsonFile.c_str());
+				if (!file.is_open())
+				{
+					m_logger->log("Cannot open input \"%s\" json file. Switching to default config.", ILogger::ELL_WARNING, cameraJsonFile.c_str());
+					auto assets = make_smart_refctd_ptr<this_example::builtin::CArchive>(smart_refctd_ptr(m_logger));
+					auto pFile = assets->getFile("cameras.json", IFile::ECF_READ, "");
+
+					string config;
+					IFile::success_t result;
+					config.resize(pFile->getSize());
+					pFile->read(result, config.data(), 0, pFile->getSize());
+
+					j = json::parse(config);
+				}
+				else
+				{
+					file >> j;
+				}
+
+				std::vector<smart_refctd_ptr<ICamera>> cameras;
+				for (const auto& jCamera : j["cameras"])
+				{
+					if (jCamera.contains("type"))
+					{
+						if (jCamera["type"] == "FPS")
+						{
+							if (!jCamera.contains("position"))
+							{
+								logFail("Expected \"position\" keyword for camera definition!");
+								return false;
+							}
+
+							if (!jCamera.contains("orientation"))
+							{
+								logFail("Expected \"orientation\" keyword for camera definition!");
+								return false;
+							}
+
+							auto position = [&]()
+								{
+									auto jret = jCamera["position"].get<std::array<float, 3>>();
+									return float32_t3(jret[0], jret[1], jret[2]);
+								}();
+
+							auto orientation = [&]()
+								{
+									auto jret = jCamera["orientation"].get<std::array<float, 4>>();
+
+									// order important for glm::quat,
+									// the ctor is GLM_FUNC_QUALIFIER GLM_CONSTEXPR qua<T, Q>::qua(T _w, T _x, T _y, T _z)
+									// but memory layout (and json) is x,y,z,w
+									return glm::quat(jret[3], jret[0], jret[1], jret[2]);
+								}();
+
+							cameras.emplace_back() = make_smart_refctd_ptr<CFPSCamera>(position, orientation);
+						}
+						else
+						{
+							logFail("Unsupported camera type!");
+							return false;
+						}
+					}
+					else
+					{
+						logFail("Expected \"type\" keyword for camera definition!");
+						return false;
+					}
+				}
+
+				std::vector<IPlanarProjection::CProjection> projections;
+				for (const auto& jProjection : j["projections"])
+				{
+					if (jProjection.contains("type"))
+					{
+						float zNear, zFar;
+
+						if (!jProjection.contains("zNear"))
+						{
+							logFail("Expected \"zNear\" keyword for planar projection definition!");
+							return false;
+						}
+
+						if (!jProjection.contains("zFar"))
+						{
+							logFail("Expected \"zFar\" keyword for planar projection definition!");
+							return false;
+						}
+
+						zNear = jProjection["zNear"].get<float>();
+						zFar = jProjection["zFar"].get<float>();
+
+						if (jProjection["type"] == "perspective")
+						{
+							if (!jProjection.contains("fov"))
+							{
+								logFail("Expected \"fov\" keyword for planar perspective projection definition!");
+								return false;
+							}
+
+							float fov = jProjection["fov"].get<float>();
+							projections.emplace_back(IPlanarProjection::CProjection::create<IPlanarProjection::CProjection::Perspective>(zNear, zFar, fov));
+
+						}
+						else if (jProjection["type"] == "orthographic")
+						{
+							if (!jProjection.contains("orthoWidth"))
+							{
+								logFail("Expected \"orthoWidth\" keyword for planar orthographic projection definition!");
+								return false;
+							}
+
+							float orthoWidth = jProjection["orthoWidth"].get<float>();
+							projections.emplace_back(IPlanarProjection::CProjection::create<IPlanarProjection::CProjection::Orthographic>(zNear, zFar, orthoWidth));
+						}
+						else
+						{
+							logFail("Unsupported projection!");
+							return false;
+						}
+					}
+				}
+
+				struct
+				{
+					std::vector<IGimbalManipulateEncoder::keyboard_to_virtual_events_t> keyboard;
+					std::vector<IGimbalManipulateEncoder::mouse_to_virtual_events_t> mouse;
+				} controllers;
+
+				if (j.contains("controllers"))
+				{
+					const auto& jControllers = j["controllers"];
+
+					if (jControllers.contains("keyboard"))
+					{
+						for (const auto& jKeyboard : jControllers["keyboard"])
+						{
+							if (jKeyboard.contains("mappings"))
+							{
+								auto& controller = controllers.keyboard.emplace_back();
+								for (const auto& [key, value] : jKeyboard["mappings"].items())
+								{
+									const auto nativeCode = stringToKeyCode(key.c_str());
+
+									if (nativeCode == EKC_NONE)
+									{
+										logFail("Invalid native key \"%s\" code mapping for keyboard controller", key.c_str());
+										return false;
+									}
+
+									controller[nativeCode] = CVirtualGimbalEvent::stringToVirtualEvent(value.get<std::string>());
+								}
+							}
+							else
+							{
+								logFail("Expected \"mappings\" keyword for keyboard controller definition!");
+								return false;
+							}
+						}
+					}
+					else
+					{
+						logFail("Expected \"keyboard\" keyword in controllers definition!");
+						return false;
+					}
+
+					if (jControllers.contains("mouse"))
+					{
+						for (const auto& jMouse : jControllers["mouse"])
+						{
+							if (jMouse.contains("mappings"))
+							{
+								auto& controller = controllers.mouse.emplace_back();
+								for (const auto& [key, value] : jMouse["mappings"].items())
+								{
+									const auto nativeCode = stringToMouseCode(key.c_str());
+
+									if (nativeCode == EMC_NONE)
+									{
+										logFail("Invalid native key \"%s\" code mapping for mouse controller", key.c_str());
+										return false;
+									}
+
+									controller[nativeCode] = CVirtualGimbalEvent::stringToVirtualEvent(value.get<std::string>());
+								}
+							}
+							else
+							{
+								logFail("Expected \"mappings\" keyword for mouse controller definition!");
+								return false;
+							}
+						}
+					}
+					else
+					{
+						logFail("Expected \"mouse\" keyword in controllers definition");
+						return false;
+					}
+				}
+				else
+				{
+					logFail("Expected \"controllers\" keyword in controllers JSON");
+					return false;
+				}
+
+				if (j.contains("viewports") && j.contains("planars"))
+				{
+					for (const auto& jPlanar : j["planars"])
+					{
+						if (!jPlanar.contains("camera"))
+						{
+							logFail("Expected \"camera\" value in planar object");
+							return false;
+						}
+
+						if (!jPlanar.contains("viewports"))
+						{
+							logFail("Expected \"viewports\" list in planar object");
+							return false;
+						}
+
+						const auto cameraIx = jPlanar["camera"].get<uint32_t>();
+						auto boundViewports = jPlanar["viewports"].get<std::vector<uint32_t>>();
+
+						auto& planars = m_planarProjections.emplace_back() = planar_projection_t::create(smart_refctd_ptr(cameras[cameraIx]));
+						for (const auto viewportIx : boundViewports)
+						{
+							auto& viewport = j["viewports"][viewportIx];
+							if (!viewport.contains("projection") || !viewport.contains("controllers"))
+							{
+								logFail("\"projection\" or \"controllers\" missing in viewport object index %d", viewportIx);
+								return false;
+							}
+
+							if (!viewport["controllers"].contains("keyboard"))
+							{
+								logFail("\"keyboard\" value missing in controllers in viewport object index %d", viewportIx);
+								return false;
+							}
+
+							if (!viewport["controllers"].contains("mouse"))
+							{
+								logFail("\"mouse\" value missing in controllers in viewport object index %d", viewportIx);
+								return false;
+							}
+
+							auto keyboardIx = viewport["controllers"]["keyboard"].get<uint32_t>();
+							auto mouseIx = viewport["controllers"]["mouse"].get<uint32_t>();
+
+							auto projectionIx = viewport["projection"].get<uint32_t>();
+							auto keyboardControllerIx = viewport["controllers"]["keyboard"].get<uint32_t>();
+							auto mouseControllerIx = viewport["controllers"]["mouse"].get<uint32_t>();
+
+							auto& projection = planars->getPlanarProjections().emplace_back(projections[projectionIx]);
+							projection.updateKeyboardMapping([&](auto& map) { map = controllers.keyboard[keyboardControllerIx]; });
+							projection.updateMouseMapping([&](auto& map) { map = controllers.mouse[mouseControllerIx]; });
+						}
+					}
+				}
+				else
+				{
+					logFail("Expected \"viewports\" and \"planars\" lists in JSON");
+					return false;
+				}
+
+				if (m_planarProjections.size() < windowControlBinding.size())
+				{
+					// TODO, temporary assuming it, I'm not going to implement each possible case now
+					logFail("Expected at least %d planars", windowControlBinding.size());
+					return false;
+				}
+
+				// init render window planar references - we make all render windows start with focus on first
+				// planar but in a way that first window has the planar's perspective preset bound & second orthographic
+				for (uint32_t i = 0u; i < windowControlBinding.size(); ++i)
+				{
+					auto& binding = windowControlBinding[i];
+
+					auto& planar = m_planarProjections[binding.activePlanarIx = 0];
+					binding.pickDefaultProjections(planar->getPlanarProjections());
+
+					if (i)
+						binding.boundProjectionIx = binding.lastBoundOrthoPresetProjectionIx.value();
+					else
+						binding.boundProjectionIx = binding.lastBoundPerspectivePresetProjectionIx.value();
+				}
+			}
+
 			// Create asset manager
 			m_assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(m_system));
 
@@ -479,299 +770,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			}
 
 			oracle.reportBeginFrameRecord();
-
-			// json file with camera inputs
-			// @Yas: TODO: THIS NEEDS BETTER VALIDATION AND LOGS ON FAILURE (+ status logs would be nice)!!!
-			{
-				const auto cameraJsonFile = program.get<std::string>("--file");
-
-				json j;
-				std::ifstream file(cameraJsonFile.c_str());
-				if (!file.is_open()) 
-				{
-					m_logger->log("Cannot open input \"%s\" json file. Switching to default config.", ILogger::ELL_WARNING, cameraJsonFile.c_str());
-					auto assets = make_smart_refctd_ptr<this_example::builtin::CArchive>(smart_refctd_ptr(m_logger));
-					auto pFile = assets->getFile("cameras.json", IFile::ECF_READ, "");
-
-					string config;
-					IFile::success_t result;
-					config.resize(pFile->getSize());
-					pFile->read(result, config.data(), 0, pFile->getSize());
-
-					j = json::parse(config);
-				}
-				else
-				{
-					file >> j;
-				}
-
-				std::vector<smart_refctd_ptr<ICamera>> cameras;
-				for (const auto& jCamera : j["cameras"]) 
-				{
-					if (jCamera.contains("type"))
-					{
-						if (jCamera["type"] == "FPS")
-						{
-							if (!jCamera.contains("position"))
-							{
-								logFail("Expected \"position\" keyword for camera definition!");
-								return false;
-							}
-
-							if (!jCamera.contains("orientation"))
-							{
-								logFail("Expected \"orientation\" keyword for camera definition!");
-								return false;
-							}
-
-							auto position = [&]() 
-							{
-								auto jret = jCamera["position"].get<std::array<float, 3>>();
-								return float32_t3(jret[0], jret[1], jret[2]);
-							}();
-
-							auto orientation = [&]()
-							{
-								auto jret = jCamera["orientation"].get<std::array<float, 4>>();
-
-								// order important for glm::quat,
-								// the ctor is GLM_FUNC_QUALIFIER GLM_CONSTEXPR qua<T, Q>::qua(T _w, T _x, T _y, T _z)
-								// but memory layout (and json) is x,y,z,w
-								return glm::quat(jret[3], jret[0], jret[1], jret[2]);
-							}();
-
-							cameras.emplace_back() = make_smart_refctd_ptr<CFPSCamera>(position, orientation);
-						}
-						else
-						{
-							logFail("Unsupported camera type!");
-							return false;
-						}
-					}
-					else
-					{
-						logFail("Expected \"type\" keyword for camera definition!");
-						return false;
-					}
-				}
-
-				std::vector<IPlanarProjection::CProjection> projections;
-				for (const auto& jProjection : j["projections"])
-				{
-					if (jProjection.contains("type"))
-					{
-						float zNear, zFar;
-
-						if (!jProjection.contains("zNear"))
-						{
-							logFail("Expected \"zNear\" keyword for planar projection definition!");
-							return false;
-						}
-
-						if (!jProjection.contains("zFar"))
-						{
-							logFail("Expected \"zFar\" keyword for planar projection definition!");
-							return false;
-						}
-
-						zNear = jProjection["zNear"].get<float>();
-						zFar = jProjection["zFar"].get<float>();
-
-						if (jProjection["type"] == "perspective")
-						{
-							if (!jProjection.contains("fov"))
-							{
-								logFail("Expected \"fov\" keyword for planar perspective projection definition!");
-								return false;
-							}
-
-							float fov = jProjection["fov"].get<float>();
-							projections.emplace_back(IPlanarProjection::CProjection::create<IPlanarProjection::CProjection::Perspective>(zNear, zFar, fov));
-
-						}
-						else if (jProjection["type"] == "orthographic")
-						{
-							if (!jProjection.contains("orthoWidth"))
-							{
-								logFail("Expected \"orthoWidth\" keyword for planar orthographic projection definition!");
-								return false;
-							}
-
-							float orthoWidth = jProjection["orthoWidth"].get<float>();
-							projections.emplace_back(IPlanarProjection::CProjection::create<IPlanarProjection::CProjection::Orthographic>(zNear, zFar, orthoWidth));
-						}
-						else
-						{
-							logFail("Unsupported projection!");
-							return false;
-						}
-					}
-				}
-
-				struct
-				{
-					std::vector<IGimbalManipulateEncoder::keyboard_to_virtual_events_t> keyboard;
-					std::vector<IGimbalManipulateEncoder::mouse_to_virtual_events_t> mouse;
-				} controllers;
-
-				if (j.contains("controllers")) 
-				{
-					const auto& jControllers = j["controllers"];
-
-					if (jControllers.contains("keyboard")) 
-					{
-						for (const auto& jKeyboard : jControllers["keyboard"]) 
-						{
-							if (jKeyboard.contains("mappings")) 
-							{
-								auto& controller = controllers.keyboard.emplace_back();
-								for (const auto& [key, value] : jKeyboard["mappings"].items()) 
-								{
-									const auto nativeCode = stringToKeyCode(key.c_str());
-
-									if (nativeCode == EKC_NONE)
-									{
-										logFail("Invalid native key \"%s\" code mapping for keyboard controller", key.c_str());
-										return false;
-									}
-
-									controller[nativeCode] = CVirtualGimbalEvent::stringToVirtualEvent(value.get<std::string>());
-								}
-							}
-							else 
-							{
-								logFail("Expected \"mappings\" keyword for keyboard controller definition!");
-								return false;
-							}
-						}
-					}
-					else 
-					{
-						logFail("Expected \"keyboard\" keyword in controllers definition!");
-						return false;
-					}
-
-					if (jControllers.contains("mouse")) 
-					{
-						for (const auto& jMouse : jControllers["mouse"]) 
-						{
-							if (jMouse.contains("mappings")) 
-							{
-								auto& controller = controllers.mouse.emplace_back();
-								for (const auto& [key, value] : jMouse["mappings"].items()) 
-								{
-									const auto nativeCode = stringToMouseCode(key.c_str());
-
-									if (nativeCode == EMC_NONE)
-									{
-										logFail("Invalid native key \"%s\" code mapping for mouse controller", key.c_str());
-										return false;
-									}
-
-									controller[nativeCode] = CVirtualGimbalEvent::stringToVirtualEvent(value.get<std::string>());
-								}
-							}
-							else 
-							{
-								logFail("Expected \"mappings\" keyword for mouse controller definition!");
-								return false;
-							}
-						}
-					}
-					else 
-					{
-						logFail("Expected \"mouse\" keyword in controllers definition");
-						return false;
-					}
-				}
-				else 
-				{
-					logFail("Expected \"controllers\" keyword in controllers JSON");
-					return false;
-				}
-
-				if (j.contains("viewports") && j.contains("planars"))
-				{
-					for (const auto& jPlanar : j["planars"])
-					{
-						if (!jPlanar.contains("camera"))
-						{
-							logFail("Expected \"camera\" value in planar object");
-							return false;
-						}
-
-						if (!jPlanar.contains("viewports"))
-						{
-							logFail("Expected \"viewports\" list in planar object");
-							return false;
-						}
-
-						const auto cameraIx = jPlanar["camera"].get<uint32_t>();
-						auto boundViewports = jPlanar["viewports"].get<std::vector<uint32_t>>();
-
-						auto& planars = m_planarProjections.emplace_back() = planar_projection_t::create(smart_refctd_ptr(cameras[cameraIx]));
-						for (const auto viewportIx : boundViewports)
-						{
-							auto& viewport = j["viewports"][viewportIx];
-							if (!viewport.contains("projection") || !viewport.contains("controllers"))
-							{
-								logFail("\"projection\" or \"controllers\" missing in viewport object index %d", viewportIx);
-								return false;
-							}
-
-							if (!viewport["controllers"].contains("keyboard"))
-							{
-								logFail("\"keyboard\" value missing in controllers in viewport object index %d", viewportIx);
-								return false;
-							}
-
-							if (!viewport["controllers"].contains("mouse"))
-							{
-								logFail("\"mouse\" value missing in controllers in viewport object index %d", viewportIx);
-								return false;
-							}
-
-							auto keyboardIx = viewport["controllers"]["keyboard"].get<uint32_t>();
-							auto mouseIx = viewport["controllers"]["mouse"].get<uint32_t>();
-
-							auto projectionIx = viewport["projection"].get<uint32_t>();
-							auto keyboardControllerIx = viewport["controllers"]["keyboard"].get<uint32_t>();
-							auto mouseControllerIx = viewport["controllers"]["mouse"].get<uint32_t>();
-
-							auto& projection = planars->getPlanarProjections().emplace_back(projections[projectionIx]);
-							projection.updateKeyboardMapping([&](auto& map) { map = controllers.keyboard[keyboardControllerIx]; });
-							projection.updateMouseMapping([&](auto& map) { map = controllers.mouse[mouseControllerIx]; });
-						}
-					}
-				}
-				else
-				{
-					logFail("Expected \"viewports\" and \"planars\" lists in JSON");
-					return false;
-				}
-
-				if (m_planarProjections.size() < windowControlBinding.size())
-				{
-					// TODO, temporary assuming it, I'm not going to implement each possible case now
-					logFail("Expected at least %d planars", windowControlBinding.size());
-					return false;
-				}
-
-				// init render window planar references - we make all render windows start with focus on first
-				// planar but in a way that first window has the planar's perspective preset bound & second orthographic
-				for (uint32_t i = 0u; i < windowControlBinding.size(); ++i)
-				{
-					auto& binding = windowControlBinding[i];
-					
-					auto& planar = m_planarProjections[binding.activePlanarIx = 0];
-					binding.pickDefaultProjections(planar->getPlanarProjections());
-
-					if (i)
-						binding.boundProjectionIx = binding.lastBoundOrthoPresetProjectionIx.value();
-					else
-						binding.boundProjectionIx = binding.lastBoundPerspectivePresetProjectionIx.value();
-				}
-			}
 
 			if (base_t::argv.size() >= 3 && argv[1] == "-timeout_seconds")
 				timeout = std::chrono::seconds(std::atoi(argv[2].c_str()));
