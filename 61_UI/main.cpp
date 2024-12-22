@@ -15,6 +15,17 @@ using json = nlohmann::json;
 using planar_projections_range_t = std::vector<IPlanarProjection::CProjection>;
 using planar_projection_t = CPlanarProjection<planar_projections_range_t>;
 
+// the only reason for those is to remind we must go with transpose & 4x4 matrices
+struct ImGuizmoPlanarM16InOut
+{
+	float32_t4x4 view, projection;
+};
+
+struct ImGuizmoModelM16InOut
+{
+	float32_t4x4 inTRS, outTRS, outDeltaTRS;
+};
+
 constexpr IGPUImage::SSubresourceRange TripleBufferUsedSubresourceRange = 
 {
 	.aspectMask = IGPUImage::EAF_COLOR_BIT,
@@ -454,9 +465,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 				const auto dpyInfo = m_winMgr->getPrimaryDisplayInfo();
 
-				for (uint32_t i = 0u; i < sceneControlBinding.size(); ++i)
+				for (uint32_t i = 0u; i < windowControlBinding.size(); ++i)
 				{
-					auto& scene = sceneControlBinding[i].scene;
+					auto& scene = windowControlBinding[i].scene;
 					scene = CScene::create(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), getGraphicsQueue(), smart_refctd_ptr(resources), dpyInfo.resX, dpyInfo.resY);
 
 					if (!scene)
@@ -728,18 +739,18 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					return false;
 				}
 
-				if (m_planarProjections.size() < sceneControlBinding.size())
+				if (m_planarProjections.size() < windowControlBinding.size())
 				{
 					// TODO, temporary assuming it, I'm not going to implement each possible case now
-					std::cerr << "Expected at least " << std::to_string(sceneControlBinding.size()) << " planars!" << std::endl;
+					std::cerr << "Expected at least " << std::to_string(windowControlBinding.size()) << " planars!" << std::endl;
 					return false;
 				}
 
 				// init render window planar references - we make all render windows start with focus on first
 				// planar but in a way that first window has the planar's perspective preset bound & second orthographic
-				for (uint32_t i = 0u; i < sceneControlBinding.size(); ++i)
+				for (uint32_t i = 0u; i < windowControlBinding.size(); ++i)
 				{
-					auto& binding = sceneControlBinding[i];
+					auto& binding = windowControlBinding[i];
 					
 					auto& planar = m_planarProjections[binding.activePlanarIx = 0];
 					binding.pickDefaultProjections(planar->getPlanarProjections());
@@ -767,12 +778,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			descriptorInfo[nbl::ext::imgui::UI::FontAtlasTexId].desc = core::smart_refctd_ptr<nbl::video::IGPUImageView>(m_ui.manager->getFontAtlasView());
 			writes[nbl::ext::imgui::UI::FontAtlasTexId].info = descriptorInfo.data() + nbl::ext::imgui::UI::FontAtlasTexId;
 
-			for (uint32_t i = 0; i < sceneControlBinding.size(); ++i)
+			for (uint32_t i = 0; i < windowControlBinding.size(); ++i)
 			{
 				const auto textureIx = i + 1u;
 
 				descriptorInfo[textureIx].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				descriptorInfo[textureIx].desc = sceneControlBinding[i].scene->getColorAttachment();
+				descriptorInfo[textureIx].desc = windowControlBinding[i].scene->getColorAttachment();
 
 				writes[textureIx].info = descriptorInfo.data() + textureIx;
 				writes[textureIx].info = descriptorInfo.data() + textureIx;
@@ -847,10 +858,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				};
 
 				if (useWindow)
-					for (auto binding : sceneControlBinding)
+					for (auto binding : windowControlBinding)
 						renderOfflineScene(binding.scene);
 				else
-					renderOfflineScene(sceneControlBinding.front().scene.get()); // just to not render to all at once
+					renderOfflineScene(windowControlBinding.front().scene.get()); // just to not render to all at once
 				
 				const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
 				const IGPUCommandBuffer::SRenderpassBeginInfo info = {
@@ -981,13 +992,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							{
 								// wait for first planar scene view fb
 								{
-									.semaphore = sceneControlBinding[0].scene->semaphore.progress.get(),
-									.value = sceneControlBinding[0].scene->semaphore.finishedValue
+									.semaphore = windowControlBinding[0].scene->semaphore.progress.get(),
+									.value = windowControlBinding[0].scene->semaphore.finishedValue
 								},
 								// and second one too
 								{
-									.semaphore = sceneControlBinding[1].scene->semaphore.progress.get(),
-									.value = sceneControlBinding[1].scene->semaphore.finishedValue
+									.semaphore = windowControlBinding[1].scene->semaphore.progress.get(),
+									.value = windowControlBinding[1].scene->semaphore.finishedValue
 								}
 							}
 						));
@@ -999,8 +1010,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							{
 								// wait for picked planar only
 								{
-									.semaphore = sceneControlBinding[activeRenderWindowIx].scene->semaphore.progress.get(),
-									.value = sceneControlBinding[activeRenderWindowIx].scene->semaphore.finishedValue
+									.semaphore = windowControlBinding[activeRenderWindowIx].scene->semaphore.progress.get(),
+									.value = windowControlBinding[activeRenderWindowIx].scene->semaphore.finishedValue
 								}
 							}
 						));
@@ -1092,7 +1103,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			if (enableActiveCameraMovement)
 			{
-				auto& binding = sceneControlBinding[activeRenderWindowIx];
+				auto& binding = windowControlBinding[activeRenderWindowIx];
 				auto& planar = m_planarProjections[binding.activePlanarIx];
 				auto* camera = planar->getCamera();
 				
@@ -1126,109 +1137,15 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			ImGuiIO& io = ImGui::GetIO();
 			
 			ImGuizmo::BeginFrame();
-
-			// TODO: need to inspect where I'm wrong, workaround
-			auto gimbalToImguizmoTRS = [&](const float32_t3x4& nblGimbalTrs) -> float32_t4x4
-			{
-				// *do not transpose whole matrix*, only the translate part
-				float32_t4x4 trs = getMatrix3x4As4x4(nblGimbalTrs);
-				trs[3] = float32_t4(nblGimbalTrs[0][3], nblGimbalTrs[1][3], nblGimbalTrs[2][3], 1.f);
-				trs[0][3] = 0.f;
-				trs[1][3] = 0.f;
-				trs[2][3] = 0.f;
-
-				return trs;
-			};
-
 			{
 				SImResourceInfo info;
 				info.samplerIx = (uint16_t)nbl::ext::imgui::UI::DefaultSamplerIx::USER;
 
-				// render camera views onto GUIs
+				// render bound planar camera views onto GUI windows
 				if (useWindow)
 				{
-					// the only reason for those is to remind we must go with transpose & 4x4 matrices
-					struct ImGuizmoPlanarM16InOut
-					{
-						float32_t4x4 view, projection;
-					};
-
-					struct ImGuizmoModelM16InOut
-					{
-						float32_t4x4 inTRS, outTRS, outDeltaTRS;
-					};
-
-					////////////////////////////////////////////////////////////////////////////
-					// ABS TRS control with editor, only single object can be manipulated at time
-					{
-						ImGuizmoModelM16InOut imguizmoModel;
-
-						if (boundCameraToManipulate)
-							imguizmoModel.inTRS = gimbalToImguizmoTRS(getCastedMatrix<float32_t>(boundCameraToManipulate->getGimbal()()));
-						else
-							imguizmoModel.inTRS = transpose(getMatrix3x4As4x4(m_model));
-
-						imguizmoModel.outTRS = imguizmoModel.inTRS;
-
-						// TODO! DELTA TRS IS ONLY TRANSLATE TEMPORARY
-						TransformEditor(&imguizmoModel.outTRS[0][0], &imguizmoModel.outDeltaTRS);
-
-						// generate virtual events given delta TRS matrix
-						if (boundCameraToManipulate)
-						{
-							{
-								static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
-
-								uint32_t vCount = {};
-
-								boundCameraToManipulate->beginInputProcessing(m_nextPresentationTimestamp);
-								{
-									boundCameraToManipulate->process(nullptr, vCount);
-
-									if (virtualEvents.size() < vCount)
-										virtualEvents.resize(vCount);
-
-									IGimbalController::SUpdateParameters params;
-									params.imguizmoEvents = { { imguizmoModel.outDeltaTRS } };
-									boundCameraToManipulate->process(virtualEvents.data(), vCount, params);
-								}
-								boundCameraToManipulate->endInputProcessing();
-
-								// I start to think controller should be able to set sensitivity to scale magnitudes of generated events
-								// in order for camera to not keep any magnitude scalars like move or rotation speed scales
-
-								auto* fps = dynamic_cast<CFPSCamera*>(boundCameraToManipulate.get());
-
-								float pmSpeed = 1.f;
-								float prSpeed = 1.f;
-
-								if (fps)
-								{
-									float pmSpeed = fps->getMoveSpeedScale();
-									float prSpeed = fps->getRotationSpeedScale();
-
-									fps->setMoveSpeedScale(1);
-									fps->setRotationSpeedScale(1);
-								}
-
-								// NOTE: generated events from ImGuizmo controller are always in world space!
-								if (vCount)
-									boundCameraToManipulate->manipulate({ virtualEvents.data(), vCount }, ICamera::World);
-
-								if (fps)
-								{
-									fps->setMoveSpeedScale(pmSpeed);
-									fps->setRotationSpeedScale(prSpeed);
-								}
-							}
-						}
-						else
-						{
-							// for scene demo model full affine transformation without limits is assumed 
-							m_model = float32_t3x4(transpose(imguizmoModel.outTRS));
-						}
-					}
-					////////////////////////////////////////////////////////////////////////////
+					// ABS TRS editor to manipulate bound object
+					TransformEditor();
 
 					if(enableActiveCameraMovement)
 						ImGuizmo::Enable(false);
@@ -1237,7 +1154,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					size_t gizmoIx = {};
 					size_t manipulationCounter = {};
-					for (uint32_t windowIx = 0; windowIx < sceneControlBinding.size(); ++windowIx)
+					for (uint32_t windowIx = 0; windowIx < windowControlBinding.size(); ++windowIx)
 					{
 						// setup imgui window
 						ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Appearing);
@@ -1250,7 +1167,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						const ImVec2 contentRegionSize = ImGui::GetContentRegionAvail(), windowPos = ImGui::GetWindowPos(), cursorPos = ImGui::GetCursorScreenPos();
 
 						// setup bound entities for the window like camera & projections
-						auto& binding = sceneControlBinding[windowIx];
+						auto& binding = windowControlBinding[windowIx];
 						auto& planarBound = m_planarProjections[binding.activePlanarIx];
 						assert(planarBound);
 
@@ -1347,6 +1264,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 										if (targetGimbalManipulationCamera)
 										{
 											boundCameraToManipulate = smart_refctd_ptr<ICamera>(targetGimbalManipulationCamera);
+											boundPlanarCameraIxToManipulate = modelIx - 1u;
 
 											/*
 												testing imguizmo controller for target camera, we use delta world imguizmo TRS matrix to generate virtual events
@@ -1369,30 +1287,33 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 												}
 												targetGimbalManipulationCamera->endInputProcessing();
 
-												auto* fps = dynamic_cast<CFPSCamera*>(targetGimbalManipulationCamera);
 
-												float pMoveSpeed = 1.f, pRotationSpeed = 1.f;
-
-												if (fps)
-												{
-													pMoveSpeed = fps->getMoveSpeedScale();
-													pRotationSpeed = fps->getRotationSpeedScale();
-
-													// I start to think controller should be able to set sensitivity to scale magnitudes of generated events
-													// in order for camera to not keep any magnitude scalars like move or rotation speed scales
-
-													fps->setMoveSpeedScale(1);
-													fps->setRotationSpeedScale(1);
-												}
-
-												// NOTE: generated events from ImGuizmo controller are always in world space!
 												if (vCount)
+												{
+													auto* fps = dynamic_cast<CFPSCamera*>(targetGimbalManipulationCamera);
+
+													float pMoveSpeed = 1.f, pRotationSpeed = 1.f;
+
+													if (fps)
+													{
+														pMoveSpeed = fps->getMoveSpeedScale();
+														pRotationSpeed = fps->getRotationSpeedScale();
+
+														// I start to think controller should be able to set sensitivity to scale magnitudes of generated events
+														// in order for camera to not keep any magnitude scalars like move or rotation speed scales
+
+														fps->setMoveSpeedScale(1);
+														fps->setRotationSpeedScale(1);
+													}
+
+													// NOTE: generated events from ImGuizmo controller are always in world space!
 													targetGimbalManipulationCamera->manipulate({ virtualEvents.data(), vCount }, ICamera::World);
 
-												if (fps)
-												{
-													fps->setMoveSpeedScale(pMoveSpeed);
-													fps->setRotationSpeedScale(pRotationSpeed);
+													if (fps)
+													{
+														fps->setMoveSpeedScale(pMoveSpeed);
+														fps->setRotationSpeedScale(pRotationSpeed);
+													}
 												}
 											}
 										}
@@ -1401,11 +1322,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 											// again, for scene demo model full affine transformation without limits is assumed 
 											m_model = float32_t3x4(transpose(imguizmoModel.outTRS));
 											boundCameraToManipulate = nullptr;
+											boundPlanarCameraIxToManipulate = std::nullopt;
 										}
 									}
 								}
 
-								if (ImGuizmo::IsOver())
+								if (ImGuizmo::IsOver() and not ImGuizmo::IsUsingAny() && not enableActiveCameraMovement)
 								{
 									ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.2f, 0.2f, 0.2f, 0.8f));
 									ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
@@ -1469,9 +1391,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				const auto type = static_cast<ObjectType>(gcIndex);
 				const auto& [gpu, meta] = references[type];
 
-				for (uint32_t i = 0u; i < sceneControlBinding.size(); ++i)
+				for (uint32_t i = 0u; i < windowControlBinding.size(); ++i)
 				{
-					auto& binding = sceneControlBinding[i];
+					auto& binding = windowControlBinding[i];
 					auto& hook = binding.scene->object;
 
 					auto& planarBound = m_planarProjections[binding.activePlanarIx];
@@ -1506,7 +1428,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				ImGui::Checkbox("Window mode##useWindow", &useWindow);
 				ImGui::Separator();
 
-				auto& active = sceneControlBinding[activeRenderWindowIx];
+				auto& active = windowControlBinding[activeRenderWindowIx];
 				const auto activeRenderWindowIxString = std::to_string(activeRenderWindowIx);
 
 				ImGui::Text("Active Render Window: %s", activeRenderWindowIxString.c_str());
@@ -1521,7 +1443,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					std::vector<const char*> labels(planarsCount);
 					for (size_t i = 0; i < planarsCount; ++i)
 						labels[i] = sbels[i].c_str();
-
 
 					int currentPlanarIx = static_cast<int>(active.activePlanarIx);
 					if (ImGui::Combo("Active Planar", &currentPlanarIx, labels.data(), static_cast<int>(labels.size())))
@@ -1691,6 +1612,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					const auto flags = ImGuiTreeNodeFlags_DefaultOpen;
 					if (ImGui::TreeNodeEx("Bound Camera", flags))
 					{
+						ImGui::Text("Type: %s", boundCamera->getIdentifier().data());
+						ImGui::Text("Object Ix: %s", std::to_string(active.activePlanarIx + 1u).c_str());
+						ImGui::Separator();
 						{
 							auto* fps = dynamic_cast<CFPSCamera*>(boundCamera);
 
@@ -1714,8 +1638,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							const auto& orientation = gimbal.getOrientation();
 							const auto viewMatrix = getCastedMatrix<float32_t>(gimbal.getViewMatrix());
 
-							ImGui::Text("Type: %s", boundCamera->getIdentifier().data());
-							ImGui::Separator();
 							addMatrixTable("Position", ("PositionTable_" + activePlanarIxString).c_str(), 1, 3, &position[0], false);
 							addMatrixTable("Orientation (Quaternion)", ("OrientationTable_" + activePlanarIxString).c_str(), 1, 4, &orientation[0], false);
 							addMatrixTable("View Matrix", ("ViewMatrixTable_" + activePlanarIxString).c_str(), 3, 4, &viewMatrix[0][0], false);
@@ -1736,7 +1658,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			}
 		}
 
-		inline void TransformEditor(float* m16TRSmatrix, IGimbalController::input_imguizmo_event_t* deltaTRS = nullptr)
+		inline void TransformEditor()
 		{
 			static float bounds[] = { -0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f };
 			static float boundsSnap[] = { 0.1f, 0.1f, 0.1f };
@@ -1746,13 +1668,48 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Appearing);
 			ImGui::SetNextWindowSize(ImVec2(320, 340), ImGuiCond_Appearing);
 			ImGui::Begin("TRS Editor");
-			ImGui::SameLine();
 
 			ImGuiIO& io = ImGui::GetIO();
-			ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
-			if (ImGuizmo::IsUsing())
-				ImGui::Text("Using gizmo");
-			ImGui::Separator();
+			{
+				const size_t objectsCount = m_planarProjections.size() + 1u;
+				assert(objectsCount);
+
+				std::vector<std::string> sbels(objectsCount);
+				for (size_t i = 0; i < objectsCount; ++i)
+					sbels[i] = "Object " + std::to_string(i);
+
+				std::vector<const char*> labels(objectsCount);
+				for (size_t i = 0; i < objectsCount; ++i)
+					labels[i] = sbels[i].c_str();
+
+				int activeObject = boundCameraToManipulate ? static_cast<int>(boundPlanarCameraIxToManipulate.value() + 1u) : 0;
+				if (ImGui::Combo("Active Object", &activeObject, labels.data(), static_cast<int>(labels.size())))
+				{
+					const auto newActiveObject = static_cast<uint32_t>(activeObject);
+
+					if (newActiveObject) // camera
+					{
+						boundPlanarCameraIxToManipulate = newActiveObject - 1u;
+						ICamera* const targetGimbalManipulationCamera = m_planarProjections[boundPlanarCameraIxToManipulate.value()]->getCamera();
+						boundCameraToManipulate = smart_refctd_ptr<ICamera>(targetGimbalManipulationCamera);
+					}
+					else // gc model
+					{
+						boundPlanarCameraIxToManipulate = std::nullopt;
+						boundCameraToManipulate = nullptr;
+					}
+				}
+			}
+
+			ImGuizmoModelM16InOut imguizmoModel;
+
+			if (boundCameraToManipulate)
+				imguizmoModel.inTRS = gimbalToImguizmoTRS(getCastedMatrix<float32_t>(boundCameraToManipulate->getGimbal()()));
+			else
+				imguizmoModel.inTRS = transpose(getMatrix3x4As4x4(m_model));
+
+			imguizmoModel.outTRS = imguizmoModel.inTRS;
+			float* m16TRSmatrix = &imguizmoModel.outTRS[0][0];
 
 			std::string indent; 
 			if (boundCameraToManipulate)
@@ -1761,6 +1718,35 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				indent = "Geometry Creator Object";
 
 			ImGui::Text("Identifier: \"%s\"", indent.c_str());
+			{
+				if (ImGuizmo::IsUsingAny())
+					ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Gizmo: In Use");
+				else
+					ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Gizmo: Idle");
+
+				if (ImGui::IsItemHovered())
+				{
+					ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.2f, 0.2f, 0.2f, 0.8f));
+					ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+					ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.5f);
+
+					ImVec2 mousePos = ImGui::GetMousePos();
+					ImGui::SetNextWindowPos(ImVec2(mousePos.x + 10, mousePos.y + 10), ImGuiCond_Always);
+
+					ImGui::Begin("HoverOverlay", nullptr,
+						ImGuiWindowFlags_NoDecoration |
+						ImGuiWindowFlags_AlwaysAutoResize |
+						ImGuiWindowFlags_NoSavedSettings);
+
+					ImGui::Text("Right-click and drag on the gizmo to manipulate the object.");
+
+					ImGui::End();
+
+					ImGui::PopStyleVar();
+					ImGui::PopStyleColor(2);
+				}
+			}
+
 			ImGui::Separator();
 
 			if (!boundCameraToManipulate)
@@ -1805,9 +1791,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			float32_t3 matrixTranslation, matrixRotation, matrixScale;
 			IGimbalController::input_imguizmo_event_t decomposed, recomposed;
-
-			if (deltaTRS)
-				*deltaTRS = IGimbalController::input_imguizmo_event_t(1);
+			imguizmoModel.outDeltaTRS = IGimbalController::input_imguizmo_event_t(1);
 
 			ImGuizmo::DecomposeMatrixToComponents(m16TRSmatrix, &matrixTranslation[0], &matrixRotation[0], &matrixScale[0]);
 			decomposed = *reinterpret_cast<float32_t4x4*>(m16TRSmatrix);
@@ -1832,8 +1816,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			recomposed = *reinterpret_cast<float32_t4x4*>(m16TRSmatrix);
 
 			// TODO AND NOTE: I only take care of translate part temporary!
-			if(deltaTRS)
-				deltaTRS->operator[](3) = recomposed[3] - decomposed[3];
+			imguizmoModel.outDeltaTRS[3] = recomposed[3] - decomposed[3];
 
 			if (mCurrentGizmoOperation != ImGuizmo::SCALE)
 			{
@@ -1860,6 +1843,68 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			}
 
 			ImGui::End();
+
+			{
+				// generate virtual events given delta TRS matrix
+				if (boundCameraToManipulate)
+				{
+					{
+						static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
+
+						if (not enableActiveCameraMovement)
+						{
+							uint32_t vCount = {};
+
+							boundCameraToManipulate->beginInputProcessing(m_nextPresentationTimestamp);
+							{
+								boundCameraToManipulate->process(nullptr, vCount);
+
+								if (virtualEvents.size() < vCount)
+									virtualEvents.resize(vCount);
+
+								IGimbalController::SUpdateParameters params;
+								params.imguizmoEvents = { { imguizmoModel.outDeltaTRS } };
+								boundCameraToManipulate->process(virtualEvents.data(), vCount, params);
+							}
+							boundCameraToManipulate->endInputProcessing();
+
+							// I start to think controller should be able to set sensitivity to scale magnitudes of generated events
+							// in order for camera to not keep any magnitude scalars like move or rotation speed scales
+
+							if (vCount)
+							{
+								auto* fps = dynamic_cast<CFPSCamera*>(boundCameraToManipulate.get());
+
+								float pmSpeed = 1.f;
+								float prSpeed = 1.f;
+
+								if (fps)
+								{
+									pmSpeed = fps->getMoveSpeedScale();
+									prSpeed = fps->getRotationSpeedScale();
+
+									fps->setMoveSpeedScale(1);
+									fps->setRotationSpeedScale(1);
+								}
+
+								// NOTE: generated events from ImGuizmo controller are always in world space!
+								boundCameraToManipulate->manipulate({ virtualEvents.data(), vCount }, ICamera::World);
+
+								if (fps)
+								{
+									fps->setMoveSpeedScale(pmSpeed);
+									fps->setRotationSpeedScale(prSpeed);
+								}
+							}
+						}
+					}
+				}
+				else
+				{
+					// for scene demo model full affine transformation without limits is assumed 
+					m_model = float32_t3x4(transpose(imguizmoModel.outTRS));
+				}
+			}
 		}
 
 		inline void addMatrixTable(const char* topText, const char* tableName, int rows, int columns, const float* pointer, bool withSeparator = true)
@@ -1887,6 +1932,19 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			if (withSeparator)
 				ImGui::Separator();
 		}
+
+		// TODO: need to inspect where I'm wrong, workaround
+		inline float32_t4x4 gimbalToImguizmoTRS(const float32_t3x4& nblGimbalTrs)
+		{
+			// *do not transpose whole matrix*, only the translate part
+			float32_t4x4 trs = getMatrix3x4As4x4(nblGimbalTrs);
+			trs[3] = float32_t4(nblGimbalTrs[0][3], nblGimbalTrs[1][3], nblGimbalTrs[2][3], 1.f);
+			trs[0][3] = 0.f;
+			trs[1][3] = 0.f;
+			trs[2][3] = 0.f;
+
+			return trs;
+		};
 
 		std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
 		clock_t::time_point start;
@@ -1940,13 +1998,15 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		nbl::hlsl::float32_t3x4 m_model = nbl::hlsl::float32_t3x4(1.f);
 
 		// if we had working IObjectTransform or something similar then it would be it instead, it is "last manipulated object" I need for TRS editor
-		nbl::core::smart_refctd_ptr<ICamera> boundCameraToManipulate;
+		// in reality we should store range of those IObjectTransforem interface range & index to object representing last manipulated one
+		nbl::core::smart_refctd_ptr<ICamera> boundCameraToManipulate = nullptr;
+		std::optional<uint32_t> boundPlanarCameraIxToManipulate = std::nullopt;
 
 		std::vector<nbl::core::smart_refctd_ptr<planar_projection_t>> m_planarProjections;
 
 		bool enableActiveCameraMovement = false;
 
-		struct SceneControlBinding
+		struct windowControlBinding
 		{
 			nbl::core::smart_refctd_ptr<CScene> scene;
 
@@ -1982,7 +2042,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		};
 
 		static constexpr inline auto MaxSceneFBOs = 2u;
-		std::array<SceneControlBinding, MaxSceneFBOs> sceneControlBinding;
+		std::array<windowControlBinding, MaxSceneFBOs> windowControlBinding;
 		uint32_t activeRenderWindowIx = 0u;
 
 		// UI font atlas + viewport FBO color attachment textures
