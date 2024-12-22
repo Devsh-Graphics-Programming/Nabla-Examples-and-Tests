@@ -20,7 +20,7 @@ using namespace system
 struct Traits
 {
 	static constexpr auto DefaultFramebufferW = 1280u, DefaultFramebufferH = 720u;
-	static constexpr auto ColorFboAttachmentFormat = nbl::asset::EF_R8G8B8A8_SRGB, DepthFboAttachmentFormat = nbl::asset::EF_D16_UNORM;
+	static constexpr auto ColorFboAttachmentFormat = nbl::asset::EF_R8G8B8A8_SRGB, DepthFboAttachmentFormat = nbl::asset::EF_D32_SFLOAT;
 	static constexpr auto Samples = nbl::video::IGPUImage::ESCF_1_BIT;
 	static constexpr nbl::video::IGPUCommandBuffer::SClearColorValue clearColor = { .float32 = {0.f,0.f,0.f,1.f} };
 	static constexpr nbl::video::IGPUCommandBuffer::SClearDepthStencilValue clearDepth = { .depth = 0.f };
