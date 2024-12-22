@@ -10,6 +10,7 @@ using json = nlohmann::json;
 #include "keysmapping.hpp"
 #include "camera/CCubeProjection.hpp"
 #include "glm/glm/ext/matrix_clip_space.hpp" // TODO: TESTING
+#include "nbl/builtin/CArchive.h"
 
 using planar_projections_range_t = std::vector<IPlanarProjection::CProjection>;
 using planar_projection_t = CPlanarProjection<planar_projections_range_t>;
@@ -473,15 +474,17 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			{
 				const auto cameraJsonFile = program.get<std::string>("--file");
 
+				json j;
 				std::ifstream file(cameraJsonFile.c_str());
 				if (!file.is_open()) 
 				{
-					std::cerr << "Error: Cannot open input \"" << cameraJsonFile.c_str() << "\" json file.";
+					m_logger->log("Cannot open input \"%s\" json file. Switching to default config.");
 					return false;
 				}
-
-				json j;
-				file >> j;
+				else
+				{
+					file >> j;
+				}
 
 				std::vector<smart_refctd_ptr<ICamera>> cameras;
 				for (const auto& jCamera : j["cameras"]) 
