@@ -32,61 +32,32 @@
     ],
     "viewports": [
       {
+        "projection": 0,
+        "controllers": {
+          "keyboard": 0,
+          "mouse": 0
+        }
+      },
+      {
+        "projection": 1,
+        "controllers": {
+          "keyboard": 1,
+          "mouse": 0
+        }
+      }
+    ],
+    "planars": [
+      {
         "camera": 0,
-        "planarControllerSet": [
-          {
-            "projection": 0,
-            "controllers": {
-              "keyboard": 0,
-              "mouse": 0
-            }
-          },
-          {
-            "projection": 1,
-            "controllers": {
-              "keyboard": 1,
-              "mouse": 0
-            }
-          }
-        ]
+        "viewports": [0, 1]
       },
       {
         "camera": 1,
-        "planarControllerSet": [
-          {
-            "projection": 0,
-            "controllers": {
-              "keyboard": 0,
-              "mouse": 0
-            }
-          },
-          {
-            "projection": 1,
-            "controllers": {
-              "keyboard": 1,
-              "mouse": 0
-            }
-          }
-        ]
+        "viewports": [0, 1]
       },
       {
         "camera": 2,
-        "planarControllerSet": [
-          {
-            "projection": 0,
-            "controllers": {
-              "keyboard": 0,
-              "mouse": 0
-            }
-          },
-          {
-            "projection": 1,
-            "controllers": {
-              "keyboard": 1,
-              "mouse": 0
-            }
-          }
-        ]
+        "viewports": [0, 1]
       }
     ],
     "controllers": {
