@@ -7,6 +7,7 @@
 
 // common api
 #include "camera/CFPSCamera.hpp"
+#include "camera/CFreeLockCamera.hpp"
 #include "SimpleWindowedApplication.hpp"
 #include "InputSystem.hpp"
 

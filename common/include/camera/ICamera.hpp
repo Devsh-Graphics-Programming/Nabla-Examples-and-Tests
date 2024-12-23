@@ -71,7 +71,7 @@ public:
     };
 
     ICamera() {}
-	~ICamera() = default;
+	virtual ~ICamera() = default;
 
 	// Returns a gimbal which *models the camera view*
 	virtual const CGimbal& getGimbal() = 0u;
@@ -85,6 +85,26 @@ public:
 
     // Identifier of a camera type
     virtual const std::string_view getIdentifier() = 0u;
+
+    // (***)
+    inline void setMoveSpeedScale(double scalar)
+    {
+        m_moveSpeedScale = scalar;
+    }
+
+    // (***)
+    inline void setRotationSpeedScale(double scalar)
+    {
+        m_rotationSpeedScale = scalar;
+    }
+
+    inline double getMoveSpeedScale() const { return m_moveSpeedScale; }
+    inline double getRotationSpeedScale() const { return m_rotationSpeedScale; }
+
+protected:
+    // (***) TODO: I need to think whether a camera should own this or controllers should be able 
+    // to set sensitivity to scale magnitudes of generated events we put into manipulate method
+    double m_moveSpeedScale = 0.01, m_rotationSpeedScale = 0.003;
 };
 
 }
