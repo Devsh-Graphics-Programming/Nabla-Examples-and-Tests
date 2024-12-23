@@ -1705,7 +1705,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					if (mousePos.x < 0.0f || mousePos.y < 0.0f || mousePos.x > viewportSize.x || mousePos.y > viewportSize.y)
 					{
-						cc->setVisible(true);
+						if (not enableActiveCameraMovement)
+							cc->setVisible(true);
 					}
 					else
 					{
