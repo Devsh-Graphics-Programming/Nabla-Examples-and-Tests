@@ -255,7 +255,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			argparse::ArgumentParser program("Virtual camera event system demo");
 
 			program.add_argument<std::string>("--file")
-				.required()
 				.help("Path to json file with camera inputs");
 
 			try
@@ -276,13 +275,17 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				return false;
 
 			{
-				const auto cameraJsonFile = program.get<std::string>("--file");
+				const std::optional<std::string> cameraJsonFile = program.is_used("--file") ? program.get<std::string>("--file") : std::optional<std::string>(std::nullopt);
 
 				json j;
-				std::ifstream file(cameraJsonFile.c_str());
+				auto file = cameraJsonFile.has_value() ? std::ifstream(cameraJsonFile.value()) : std::ifstream();
 				if (!file.is_open())
 				{
-					m_logger->log("Cannot open input \"%s\" json file. Switching to default config.", ILogger::ELL_WARNING, cameraJsonFile.c_str());
+					if (cameraJsonFile.has_value())
+						m_logger->log("Cannot open input \"%s\" json file. Switching to default config.", ILogger::ELL_WARNING, cameraJsonFile.value().c_str());
+					else
+						m_logger->log("No input json file provided. Switching to default config.", ILogger::ELL_WARNING);
+
 					auto assets = make_smart_refctd_ptr<this_example::builtin::CArchive>(smart_refctd_ptr(m_logger));
 					auto pFile = assets->getFile("cameras.json", IFile::ECF_READ, "");
 
