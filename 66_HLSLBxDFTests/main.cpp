@@ -9,11 +9,19 @@ using namespace nbl::hlsl;
 
 int main(int argc, char** argv)
 {
-    float32_t3 result = testLambertianBRDF();
+    float32_t4 result = testLambertianBRDF();
 
     std::cout << result.x << " "
             << result.y << " "
-            << result.z << "\n";
+            << result.z << " "
+            << result.w << "\n";
+
+    result = testLambertianBSDF();
+
+    std::cout << result.x << " "
+        << result.y << " "
+        << result.z << " "
+        << result.w << "\n";
 
     return 0;
 }
