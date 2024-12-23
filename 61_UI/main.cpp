@@ -1143,6 +1143,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					size_t gizmoIx = {};
 					size_t manipulationCounter = {};
+					const std::optional<uint32_t> modelInUseIx = ImGuizmo::IsUsingAny() ? std::optional<uint32_t>(boundPlanarCameraIxToManipulate.has_value() ? 1u + boundPlanarCameraIxToManipulate.value() : 0u) : std::optional<uint32_t>(std::nullopt);
+
 					for (uint32_t windowIx = 0; windowIx < windowControlBinding.size(); ++windowIx)
 					{
 						// setup imgui window
@@ -1214,11 +1216,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						{
 							ImGuizmo::PushID(gizmoIx); ++gizmoIx;
 
-							const bool isCameraGimbalTarget = modelIx; // I assume scene demo model is 0th ix, left are cameras
+							const bool isCameraGimbalTarget = modelIx; // I assume scene demo model is 0th ix, left are planar cameras
 							ICamera* const targetGimbalManipulationCamera = isCameraGimbalTarget ? m_planarProjections[modelIx - 1u]->getCamera() : nullptr;
 							bool discard = isCameraGimbalTarget && mCurrentGizmoOperation != ImGuizmo::TRANSLATE; // discard WiP stuff
 
 							// if we try to manipulate a camera which appears to be the same camera we see scene from then obvsly it doesn't make sense to manipulate its gizmo so we skip it
+							// EDIT: it actually makes some sense if you assume render planar view is rendered with ortho projection, but we would need to add imguizmo controller virtual map
+							// to ban forward/backward in this mode if this condition is true
 							if (targetGimbalManipulationCamera == planarViewCameraBound)
 							{
 								ImGuizmo::PopID();
@@ -1242,11 +1246,38 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 								if (success)
 								{
 									++manipulationCounter;
-									discard &= manipulationCounter > 1;
+									discard |= manipulationCounter > 1;
 
-									// TMP WIP, our imguizmo controller doesnt support rotation & scale yet and its because
-									// - there are numerical issues with imguizmo decompose/recompose TRS (and the author also says it)
-									// - in rotate mode delta TRS matrix contains translate part (how? no idea, maybe imguizmo bug) and it glitches everything
+									/*
+									
+									NOTE to self & TODO: I must be killing ImGuizmo last invocation cache or something with my delta events (or at least I dont 
+									see now where I'm *maybe* using its API incorrectly, the problem is I get translation parts in delta matrix when doing 
+									rotations hence it glitches my cameras -> on the other hand I can see it kinda correctly outputs the delta matrix when
+									gc model is bound
+
+									auto postprocessDeltaManipulation = [](const float32_t4x4& inDeltaMatrix, float32_t4x4& outDeltaMatrix, ImGuizmo::OPERATION operation) -> void
+									{
+										struct
+										{
+											float32_t3 dTranslation, dRotation, dScale;
+										} world;
+
+										ImGuizmo::DecomposeMatrixToComponents(&inDeltaMatrix[0][0], &world.dTranslation[0], &world.dRotation[0], &world.dScale[0]);
+
+										if (operation == ImGuizmo::TRANSLATE)
+										{
+											world.dRotation = float32_t3(0, 0, 0);
+										}
+										else if (operation == ImGuizmo::ROTATE)
+										{
+											world.dTranslation = float32_t3(0, 0, 0);
+										}
+
+										ImGuizmo::RecomposeMatrixFromComponents(&world.dTranslation[0], &world.dRotation[0], &world.dScale[0], &outDeltaMatrix[0][0]);
+									};
+
+									postprocessDeltaManipulation(imguizmoModel.outDeltaTRS, imguizmoModel.outDeltaTRS, mCurrentGizmoOperation); 
+									*/
 
 									if (!discard)
 									{
@@ -1832,7 +1863,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			}
 
 			ImGui::End();
-
 			{
 				// generate virtual events given delta TRS matrix
 				if (boundCameraToManipulate)

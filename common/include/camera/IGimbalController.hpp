@@ -387,9 +387,7 @@ private:
                     float32_t3 dTranslation, dRotation, dScale;
                 } world;
 
-                // TODO: since I assume the delta matrix is from imguizmo I must follow its API (but this one I could actually steal & rewrite to Nabla to not call imguizmo stuff here <- its TEMP!!!!!!!)
-                // - there are numerical issues with imguizmo decompose/recompose TRS (and the author also says it, we should have this util in Nabla and work with doubles not floats)
-                // - in rotate mode delta TRS matrix contains translate part (how? no idea, maybe imguizmo bug) and it glitches everything, I get translations e-07 or something
+                // TODO: write it in Nabla, this is temp
                 ImGuizmo::DecomposeMatrixToComponents(&deltaWorldTRS[0][0], &world.dTranslation[0], &world.dRotation[0], &world.dScale[0]);
 
                 // Delta translation impulse
@@ -398,14 +396,14 @@ private:
                 requestMagnitudeUpdateWithScalar(0.f, world.dTranslation[2], std::abs(world.dTranslation[2]), gimbal_event_t::MoveForward, gimbal_event_t::MoveBackward, m_imguizmoVirtualEventMap);
 
                 // Delta rotation impulse
-                //requestMagnitudeUpdateWithScalar(0.f, world.dRotation[0], std::abs(world.dRotation[0]), gimbal_event_t::TiltUp , gimbal_event_t::TiltDown, m_imguizmoVirtualEventMap);
-                //requestMagnitudeUpdateWithScalar(0.f, world.dRotation[1], std::abs(world.dRotation[1]), gimbal_event_t::PanRight, gimbal_event_t::PanLeft, m_imguizmoVirtualEventMap);
-                //requestMagnitudeUpdateWithScalar(0.f, world.dRotation[2], std::abs(world.dRotation[2]), gimbal_event_t::RollRight, gimbal_event_t::RollLeft, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(0.f, world.dRotation[0], std::abs(world.dRotation[0]), gimbal_event_t::TiltUp , gimbal_event_t::TiltDown, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(0.f, world.dRotation[1], std::abs(world.dRotation[1]), gimbal_event_t::PanRight, gimbal_event_t::PanLeft, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(0.f, world.dRotation[2], std::abs(world.dRotation[2]), gimbal_event_t::RollRight, gimbal_event_t::RollLeft, m_imguizmoVirtualEventMap);
 
                 // Delta scale impulse
-                //requestMagnitudeUpdateWithScalar(1.f, world.dScale[0], std::abs(world.dScale[0]), gimbal_event_t::ScaleXInc, gimbal_event_t::ScaleXDec, m_imguizmoVirtualEventMap);
-                //requestMagnitudeUpdateWithScalar(1.f, world.dScale[1], std::abs(world.dScale[1]), gimbal_event_t::ScaleYInc, gimbal_event_t::ScaleYDec, m_imguizmoVirtualEventMap);
-                //requestMagnitudeUpdateWithScalar(1.f, world.dScale[2], std::abs(world.dScale[2]), gimbal_event_t::ScaleZInc, gimbal_event_t::ScaleZDec, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(1.f, world.dScale[0], std::abs(world.dScale[0]), gimbal_event_t::ScaleXInc, gimbal_event_t::ScaleXDec, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(1.f, world.dScale[1], std::abs(world.dScale[1]), gimbal_event_t::ScaleYInc, gimbal_event_t::ScaleYDec, m_imguizmoVirtualEventMap);
+                requestMagnitudeUpdateWithScalar(1.f, world.dScale[2], std::abs(world.dScale[2]), gimbal_event_t::ScaleZInc, gimbal_event_t::ScaleZDec, m_imguizmoVirtualEventMap);
             }
 
             postprocess(m_imguizmoVirtualEventMap, output, count);
