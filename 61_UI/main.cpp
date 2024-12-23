@@ -752,6 +752,28 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				assert(m_ui.descriptorSet);
 
 				m_ui.manager->registerListener([this]() -> void { imguiListen(); });
+				{
+					const auto ds = float32_t2{ m_window->getWidth(), m_window->getHeight() };
+
+					wInit.trsEditor.iPos = iPaddingOffset;
+					wInit.trsEditor.iSize = { ds.x * 0.1, ds.y - wInit.trsEditor.iPos.y * 2 };
+
+					wInit.planars.iSize = { ds.x * 0.2, ds.y - iPaddingOffset.y * 2 };
+					wInit.planars.iPos = { ds.x - wInit.planars.iSize.x - iPaddingOffset.x, 0 + iPaddingOffset.y };
+
+					{
+						float leftX = wInit.trsEditor.iPos.x + wInit.trsEditor.iSize.x + iPaddingOffset.x;
+						float eachXSize = wInit.planars.iPos.x - (wInit.trsEditor.iPos.x + wInit.trsEditor.iSize.x) - 2*iPaddingOffset.x;
+						float eachYSize = (ds.y - 2 * iPaddingOffset.y - (wInit.renderWindows.size() - 1) * iPaddingOffset.y) / wInit.renderWindows.size();
+						
+						for (size_t i = 0; i < wInit.renderWindows.size(); ++i)
+						{
+							auto& rw = wInit.renderWindows[i];
+							rw.iPos = { leftX, (1+i) * iPaddingOffset.y + i * eachYSize };
+							rw.iSize = { eachXSize, eachYSize };
+						}
+					}
+				}
 			}
 
 			// Geometry Creator Render Scene FBOs
@@ -1177,15 +1199,29 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					for (uint32_t windowIx = 0; windowIx < windowControlBinding.size(); ++windowIx)
 					{
-						// setup imgui window
-						ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Appearing);
-						ImGui::SetNextWindowPos(ImVec2(400, 20 + windowIx * 420), ImGuiCond_Appearing);
+						// setup
+						{
+							const auto& rw = wInit.renderWindows[windowIx];
+							ImGui::SetNextWindowPos({ rw.iPos.x, rw.iPos.y }, ImGuiCond_Appearing);
+							ImGui::SetNextWindowSize({ rw.iSize.x, rw.iSize.y }, ImGuiCond_Appearing);
+						}
 						ImGui::SetNextWindowSizeConstraints(ImVec2(0x45, 0x45), ImVec2(7680, 4320));
 
 						ImGui::PushStyleColor(ImGuiCol_WindowBg, (ImVec4)ImColor(0.35f, 0.3f, 0.3f));
 						const std::string ident = "Render Window \"" + std::to_string(windowIx) + "\"";
-						ImGui::Begin(ident.data(), 0, ImGuiWindowFlags_NoMove);
+
+						ImGui::Begin(ident.data(), 0);
 						const ImVec2 contentRegionSize = ImGui::GetContentRegionAvail(), windowPos = ImGui::GetWindowPos(), cursorPos = ImGui::GetCursorScreenPos();
+
+						ImGuiWindow* window = ImGui::GetCurrentWindow();
+						{
+							const auto mPos = ImGui::GetMousePos();
+
+							if (mPos.x < cursorPos.x || mPos.y < cursorPos.y || mPos.x > cursorPos.x + contentRegionSize.x || mPos.y > cursorPos.y + contentRegionSize.y)
+								window->Flags = ImGuiWindowFlags_None;
+							else
+								window->Flags = ImGuiWindowFlags_NoMove;
+						}
 
 						// setup bound entities for the window like camera & projections
 						auto& binding = windowControlBinding[windowIx];
@@ -1200,6 +1236,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						
 						auto& projection = planarBound->getPlanarProjections()[binding.boundProjectionIx.value()];
 						projection.update(binding.leftHandedProjection, binding.aspectRatio);
+
+						// TODO: 
+						// would be nice to normalize imguizmo visual vectors (possible with styles)
 
 						// first 0th texture is for UI texture atlas, then there are our window textures
 						auto fboImguiTextureID = windowIx + 1u;
@@ -1466,6 +1505,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						assert(binding.boundProjectionIx.has_value());
 						auto& projection = planarBound->getPlanarProjections()[binding.boundProjectionIx.value()];
+						projection.update(binding.leftHandedProjection, binding.aspectRatio);
 
 						auto concatMatrix = mul(getCastedMatrix<float32_t>(projection.getProjectionMatrix()), getMatrix3x4As4x4(viewMatrix));
 						modelViewProjectionMatrix = mul(concatMatrix, getMatrix3x4As4x4(m_model));
@@ -1479,7 +1519,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			// Planars
 			{
-				ImGui::Begin("Projection");
+				// setup
+				{					
+					ImGui::SetNextWindowPos({ wInit.planars.iPos.x, wInit.planars.iPos.y }, ImGuiCond_Appearing);
+					ImGui::SetNextWindowSize({ wInit.planars.iSize.x, wInit.planars.iSize.y }, ImGuiCond_Appearing);
+				}
+
+				ImGui::Begin("Planar projection");
 				ImGui::Checkbox("Window mode##useWindow", &useWindow);
 				ImGui::Separator();
 
@@ -1613,7 +1659,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					case IPlanarProjection::CProjection::Orthographic:
 					{
-						ImGui::SliderFloat("Ortho width", &updateParameters.m_planar.orthographic.orthoWidth, 1.f, 20.f, "%.1f", ImGuiSliderFlags_Logarithmic);
+						ImGui::SliderFloat("Ortho width", &updateParameters.m_planar.orthographic.orthoWidth, 1.f, 30.f, "%.1f", ImGuiSliderFlags_Logarithmic);
 						boundProjection.setOrthographic(updateParameters.m_zNear, updateParameters.m_zFar, updateParameters.m_planar.orthographic.orthoWidth);
 					} break;
 
@@ -1736,11 +1782,15 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			static bool boundSizing = false;
 			static bool boundSizingSnap = false;
 
-			ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Appearing);
-			ImGui::SetNextWindowSize(ImVec2(320, 340), ImGuiCond_Appearing);
-			ImGui::Begin("TRS Editor");
-
 			ImGuiIO& io = ImGui::GetIO();
+
+			// setup
+			{
+				ImGui::SetNextWindowPos({ wInit.trsEditor.iPos.x, wInit.trsEditor.iPos.y }, ImGuiCond_Appearing);
+				ImGui::SetNextWindowSize({ wInit.trsEditor.iSize.x, wInit.trsEditor.iSize.y }, ImGuiCond_Appearing);
+			}
+
+			ImGui::Begin("TRS Editor");
 			{
 				const size_t objectsCount = m_planarProjections.size() + 1u;
 				assert(objectsCount);
@@ -2124,6 +2174,19 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		float snap[3] = { 1.f, 1.f, 1.f };
 
 		bool firstFrame = true;
+		const float32_t2 iPaddingOffset = float32_t2(10, 10);
+
+		struct ImWindowInit
+		{
+			float32_t2 iPos, iSize;
+		};
+
+		struct
+		{
+			ImWindowInit trsEditor;
+			ImWindowInit planars;
+			std::array<ImWindowInit, MaxSceneFBOs> renderWindows;
+		} wInit;
 };
 
 NBL_MAIN_FUNC(UISampleApp)

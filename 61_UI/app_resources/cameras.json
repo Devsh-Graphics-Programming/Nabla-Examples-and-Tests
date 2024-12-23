@@ -2,8 +2,8 @@
     "cameras": [
       {
         "type": "FPS",
-        "position": [-2.238, 1.438, -1.558],
-        "orientation": [0.204, 0.385, -0.088, 0.896]
+        "position": [-2.438, 1.995, -3.130],
+        "orientation": [0.195, 0.311, -0.065, 0.928]
       },
       {
         "type": "FPS",
@@ -19,13 +19,13 @@
     "projections": [
       {
         "type": "perspective",
-        "fov": 60.0,
+        "fov": 40.0,
         "zNear": 0.1,
         "zFar": 110.0
       },
       {
         "type": "orthographic",
-        "orthoWidth": 10.0,
+        "orthoWidth": 16.0,
         "zNear": 0.1,
         "zFar": 110.0
       }
