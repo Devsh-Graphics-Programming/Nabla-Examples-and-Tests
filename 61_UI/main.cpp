@@ -306,38 +306,38 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				{
 					if (jCamera.contains("type"))
 					{
-						if (jCamera["type"] == "FPS")
+						if (!jCamera.contains("position"))
 						{
-							if (!jCamera.contains("position"))
-							{
-								logFail("Expected \"position\" keyword for camera definition!");
-								return false;
-							}
-
-							if (!jCamera.contains("orientation"))
-							{
-								logFail("Expected \"orientation\" keyword for camera definition!");
-								return false;
-							}
-
-							auto position = [&]()
-								{
-									auto jret = jCamera["position"].get<std::array<float, 3>>();
-									return float32_t3(jret[0], jret[1], jret[2]);
-								}();
-
-							auto orientation = [&]()
-								{
-									auto jret = jCamera["orientation"].get<std::array<float, 4>>();
-
-									// order important for glm::quat,
-									// the ctor is GLM_FUNC_QUALIFIER GLM_CONSTEXPR qua<T, Q>::qua(T _w, T _x, T _y, T _z)
-									// but memory layout (and json) is x,y,z,w
-									return glm::quat(jret[3], jret[0], jret[1], jret[2]);
-								}();
-
-							cameras.emplace_back() = make_smart_refctd_ptr<CFPSCamera>(position, orientation);
+							logFail("Expected \"position\" keyword for camera definition!");
+							return false;
 						}
+
+						if (!jCamera.contains("orientation"))
+						{
+							logFail("Expected \"orientation\" keyword for camera definition!");
+							return false;
+						}
+
+						auto position = [&]()
+							{
+								auto jret = jCamera["position"].get<std::array<float, 3>>();
+								return float32_t3(jret[0], jret[1], jret[2]);
+							}();
+
+						auto orientation = [&]()
+							{
+								auto jret = jCamera["orientation"].get<std::array<float, 4>>();
+
+								// order important for glm::quat,
+								// the ctor is GLM_FUNC_QUALIFIER GLM_CONSTEXPR qua<T, Q>::qua(T _w, T _x, T _y, T _z)
+								// but memory layout (and json) is x,y,z,w
+								return glm::quat(jret[3], jret[0], jret[1], jret[2]);
+							}();
+
+						if (jCamera["type"] == "FPS")
+							cameras.emplace_back() = make_smart_refctd_ptr<CFPSCamera>(position, orientation);
+						else if (jCamera["type"] == "Free")
+							cameras.emplace_back() = make_smart_refctd_ptr<CFreeCamera>(position, orientation);
 						else
 						{
 							logFail("Unsupported camera type!");
@@ -383,7 +383,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 							float fov = jProjection["fov"].get<float>();
 							projections.emplace_back(IPlanarProjection::CProjection::create<IPlanarProjection::CProjection::Perspective>(zNear, zFar, fov));
-
 						}
 						else if (jProjection["type"] == "orthographic")
 						{
@@ -505,7 +504,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						const auto cameraIx = jPlanar["camera"].get<uint32_t>();
 						auto boundViewports = jPlanar["viewports"].get<std::vector<uint32_t>>();
 
-						auto& planars = m_planarProjections.emplace_back() = planar_projection_t::create(smart_refctd_ptr(cameras[cameraIx]));
+						auto& planar = m_planarProjections.emplace_back() = planar_projection_t::create(smart_refctd_ptr(cameras[cameraIx]));
 						for (const auto viewportIx : boundViewports)
 						{
 							auto& viewport = j["viewports"][viewportIx];
@@ -515,28 +514,36 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 								return false;
 							}
 
-							if (!viewport["controllers"].contains("keyboard"))
+							const auto projectionIx = viewport["projection"].get<uint32_t>();
+							auto& projection = planar->getPlanarProjections().emplace_back(projections[projectionIx]);
+
+							const bool hasKeyboardBound = viewport["controllers"].contains("keyboard");
+							const bool hasMouseBound = viewport["controllers"].contains("mouse");
+
+							if (hasKeyboardBound)
 							{
-								logFail("\"keyboard\" value missing in controllers in viewport object index %d", viewportIx);
-								return false;
+								auto keyboardControllerIx = viewport["controllers"]["keyboard"].get<uint32_t>();
+								projection.updateKeyboardMapping([&](auto& map) { map = controllers.keyboard[keyboardControllerIx]; });
 							}
+							else
+								projection.updateKeyboardMapping([&](auto& map) { map = {}; }); // clean the map if not bound
 
-							if (!viewport["controllers"].contains("mouse"))
+							if (hasMouseBound)
 							{
-								logFail("\"mouse\" value missing in controllers in viewport object index %d", viewportIx);
-								return false;
+								auto mouseControllerIx = viewport["controllers"]["mouse"].get<uint32_t>();
+								projection.updateMouseMapping([&](auto& map) { map = controllers.mouse[mouseControllerIx]; });
 							}
+							else
+								projection.updateMouseMapping([&](auto& map) { map = {}; }); // clean the map if not bound
+						}
 
-							auto keyboardIx = viewport["controllers"]["keyboard"].get<uint32_t>();
-							auto mouseIx = viewport["controllers"]["mouse"].get<uint32_t>();
-
-							auto projectionIx = viewport["projection"].get<uint32_t>();
-							auto keyboardControllerIx = viewport["controllers"]["keyboard"].get<uint32_t>();
-							auto mouseControllerIx = viewport["controllers"]["mouse"].get<uint32_t>();
-
-							auto& projection = planars->getPlanarProjections().emplace_back(projections[projectionIx]);
-							projection.updateKeyboardMapping([&](auto& map) { map = controllers.keyboard[keyboardControllerIx]; });
-							projection.updateMouseMapping([&](auto& map) { map = controllers.mouse[mouseControllerIx]; });
+						{
+							auto* camera = planar->getCamera();
+							{
+								camera->updateKeyboardMapping([&](auto& map) { map = camera->getKeyboardMappingPreset(); });
+								camera->updateMouseMapping([&](auto& map) { map = camera->getMouseMappingPreset(); });
+								camera->updateImguizmoMapping([&](auto& map) { map = camera->getImguizmoMappingPreset(); });
+							}
 						}
 					}
 				}
@@ -873,7 +880,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					for (auto binding : windowControlBinding)
 						renderOfflineScene(binding.scene);
 				else
-					renderOfflineScene(windowControlBinding.front().scene.get()); // just to not render to all at once
+					renderOfflineScene(windowControlBinding[activeRenderWindowIx].scene.get());
 				
 				const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
 				const IGPUCommandBuffer::SRenderpassBeginInfo info = {
@@ -1213,7 +1220,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
 
 						// I will assume we need to focus a window to start manipulating objects from it
-						if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+						if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows))
 							activeRenderWindowIx = windowIx;
 
 						// we render a scene from view of a camera bound to planar window
@@ -1330,33 +1337,22 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 												}
 												targetGimbalManipulationCamera->endInputProcessing();
 
-
 												if (vCount)
 												{
-													auto* fps = dynamic_cast<CFPSCamera*>(targetGimbalManipulationCamera);
+													const float pMoveSpeed = targetGimbalManipulationCamera->getMoveSpeedScale();
+													const float pRotationSpeed = targetGimbalManipulationCamera->getRotationSpeedScale();
 
-													float pMoveSpeed = 1.f, pRotationSpeed = 1.f;
+													// I start to think controller should be able to set sensitivity to scale magnitudes of generated events
+													// in order for camera to not keep any magnitude scalars like move or rotation speed scales
 
-													if (fps)
-													{
-														pMoveSpeed = fps->getMoveSpeedScale();
-														pRotationSpeed = fps->getRotationSpeedScale();
-
-														// I start to think controller should be able to set sensitivity to scale magnitudes of generated events
-														// in order for camera to not keep any magnitude scalars like move or rotation speed scales
-
-														fps->setMoveSpeedScale(1);
-														fps->setRotationSpeedScale(1);
-													}
+													targetGimbalManipulationCamera->setMoveSpeedScale(1);
+													targetGimbalManipulationCamera->setRotationSpeedScale(1);
 
 													// NOTE: generated events from ImGuizmo controller are always in world space!
 													targetGimbalManipulationCamera->manipulate({ virtualEvents.data(), vCount }, ICamera::World);
 
-													if (fps)
-													{
-														fps->setMoveSpeedScale(pMoveSpeed);
-														fps->setRotationSpeedScale(pRotationSpeed);
-													}
+													targetGimbalManipulationCamera->setMoveSpeedScale(pMoveSpeed);
+													targetGimbalManipulationCamera->setRotationSpeedScale(pRotationSpeed);
 												}
 											}
 										}
@@ -1419,9 +1415,25 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0)); // fully transparent fake window
 					ImGui::Begin("FullScreenWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
 					const ImVec2 contentRegionSize = ImGui::GetContentRegionAvail(), windowPos = ImGui::GetWindowPos(), cursorPos = ImGui::GetCursorScreenPos();
+					{
+						auto& binding = windowControlBinding[activeRenderWindowIx];
+						auto& planarBound = m_planarProjections[binding.activePlanarIx];
+						assert(planarBound);
+
+						binding.aspectRatio = contentRegionSize.x / contentRegionSize.y;
+						auto* planarViewCameraBound = planarBound->getCamera();
+
+						assert(planarViewCameraBound);
+						assert(binding.boundProjectionIx.has_value());
+
+						auto& projection = planarBound->getPlanarProjections()[binding.boundProjectionIx.value()];
+						projection.update(binding.leftHandedProjection, binding.aspectRatio);
+					}
 
 					ImGui::Image(info, contentRegionSize);
 					ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
+
+					
 
 					ImGui::End();
 					ImGui::PopStyleColor(1);
@@ -1574,7 +1586,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				if (useWindow)
 					ImGui::Checkbox("Allow axes to flip##allowAxesToFlip", &active.allowGizmoAxesToFlip);
 
-				ImGui::Checkbox("Draw debug grid##drawDebugGrid", &active.enableDebugGridDraw);
+				if(useWindow)
+					ImGui::Checkbox("Draw debug grid##drawDebugGrid", &active.enableDebugGridDraw);
 
 				if (ImGui::RadioButton("LH", active.leftHandedProjection))
 					active.leftHandedProjection = true;
@@ -1583,6 +1596,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 				if (ImGui::RadioButton("RH", not active.leftHandedProjection))
 					active.leftHandedProjection = false;
+
+				updateParameters.m_zNear = std::clamp(updateParameters.m_zNear, 0.1f, 100.f);
+				updateParameters.m_zFar = std::clamp(updateParameters.m_zFar, 110.f, 10000.f);
 
 				ImGui::SliderFloat("zNear", &updateParameters.m_zNear, 0.1f, 100.f, "%.2f", ImGuiSliderFlags_Logarithmic);
 				ImGui::SliderFloat("zFar", &updateParameters.m_zFar, 110.f, 10000.f, "%.1f", ImGuiSliderFlags_Logarithmic);
@@ -1659,22 +1675,17 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						ImGui::Text("Object Ix: %s", std::to_string(active.activePlanarIx + 1u).c_str());
 						ImGui::Separator();
 						{
-							auto* fps = dynamic_cast<CFPSCamera*>(boundCamera);
+							float moveSpeed = boundCamera->getMoveSpeedScale();
+							float rotationSpeed = boundCamera->getRotationSpeedScale();
 
-							if (fps)
-							{
-								float moveSpeed = fps->getMoveSpeedScale();
-								float rotationSpeed = fps->getRotationSpeedScale();
+							ImGui::SliderFloat("Move speed factor", &moveSpeed, 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
+							ImGui::SliderFloat("Rotate speed factor", &rotationSpeed, 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
 
-								ImGui::SliderFloat("Move speed factor", &moveSpeed, 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
-								ImGui::SliderFloat("Rotate speed factor", &rotationSpeed, 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
-
-								fps->setMoveSpeedScale(moveSpeed);
-								fps->setRotationSpeedScale(rotationSpeed);
-							}
+							boundCamera->setMoveSpeedScale(moveSpeed);
+							boundCamera->setRotationSpeedScale(rotationSpeed);
 						}
 
-						if (ImGui::TreeNodeEx("World Data", ImGuiTreeNodeFlags_None))
+						if (ImGui::TreeNodeEx("World Data", flags))
 						{
 							auto& gimbal = boundCamera->getGimbal();
 							const auto position = getCastedVector<float32_t>(gimbal.getPosition());
@@ -1932,28 +1943,17 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 							if (vCount)
 							{
-								auto* fps = dynamic_cast<CFPSCamera*>(boundCameraToManipulate.get());
+								const float pmSpeed = boundCameraToManipulate->getMoveSpeedScale();
+								const float prSpeed = boundCameraToManipulate->getRotationSpeedScale();
 
-								float pmSpeed = 1.f;
-								float prSpeed = 1.f;
-
-								if (fps)
-								{
-									pmSpeed = fps->getMoveSpeedScale();
-									prSpeed = fps->getRotationSpeedScale();
-
-									fps->setMoveSpeedScale(1);
-									fps->setRotationSpeedScale(1);
-								}
+								boundCameraToManipulate->setMoveSpeedScale(1);
+								boundCameraToManipulate->setRotationSpeedScale(1);
 
 								// NOTE: generated events from ImGuizmo controller are always in world space!
 								boundCameraToManipulate->manipulate({ virtualEvents.data(), vCount }, ICamera::World);
 
-								if (fps)
-								{
-									fps->setMoveSpeedScale(pmSpeed);
-									fps->setRotationSpeedScale(prSpeed);
-								}
+								boundCameraToManipulate->setMoveSpeedScale(pmSpeed);
+								boundCameraToManipulate->setRotationSpeedScale(prSpeed);
 							}
 						}
 					}

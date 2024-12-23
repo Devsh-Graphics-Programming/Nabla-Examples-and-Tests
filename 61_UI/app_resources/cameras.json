@@ -11,7 +11,7 @@
         "orientation": [0.047, 0.830, -0.072, 0.55]
       },
       {
-        "type": "FPS",
+        "type": "Free",
         "position": [2.116, 0.826, 1.152],
         "orientation": [0.095, -0.835, 0.152, 0.521]
       }
@@ -21,13 +21,13 @@
         "type": "perspective",
         "fov": 60.0,
         "zNear": 0.1,
-        "zFar": 100.0
+        "zFar": 110.0
       },
       {
         "type": "orthographic",
         "orthoWidth": 10.0,
         "zNear": 0.1,
-        "zFar": 100.0
+        "zFar": 110.0
       }
     ],
     "viewports": [
@@ -44,6 +44,18 @@
           "keyboard": 1,
           "mouse": 0
         }
+      },
+      {
+        "projection": 0,
+        "controllers": {
+          "keyboard": 2
+        }
+      },
+      {
+        "projection": 1,
+        "controllers": {
+          "keyboard": 1
+        }
       }
     ],
     "planars": [
@@ -57,7 +69,7 @@
       },
       {
         "camera": 2,
-        "viewports": [0, 1]
+        "viewports": [2, 3]
       }
     ],
     "controllers": {
@@ -80,6 +92,22 @@
             "S": "MoveDown",
             "A": "MoveLeft",
             "D": "MoveRight"
+          }
+        },
+        {
+          "mappings": {
+            "W": "MoveForward",
+            "S": "MoveBackward",
+            "A": "MoveLeft",
+            "D": "MoveRight",
+            "E": "MoveUp",
+            "Q": "MoveDown",
+            "I": "TiltDown",
+            "K": "TiltUp",
+            "J": "PanLeft",
+            "L": "PanRight",
+            "U": "RollRight",
+            "O": "RollLeft"
           }
         }
       ],

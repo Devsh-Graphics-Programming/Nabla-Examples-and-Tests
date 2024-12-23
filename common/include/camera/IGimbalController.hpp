@@ -76,13 +76,8 @@ struct IGimbalManipulateEncoder
     using mouse_to_virtual_events_t = std::unordered_map<encode_mouse_code_t, CHashInfo>;
     using imguizmo_to_virtual_events_t = std::unordered_map<encode_imguizmo_code_t, CHashInfo>;
 
-    //! default preset with encode_keyboard_code_t to gimbal_virtual_event_t map
     virtual const keyboard_to_virtual_events_t getKeyboardMappingPreset() const { return {}; }
-
-    //! default preset with encode_keyboard_code_t to gimbal_virtual_event_t map
     virtual const mouse_to_virtual_events_t getMouseMappingPreset() const { return {}; }
-
-    //! default preset with encode_keyboard_code_t to gimbal_virtual_event_t map
     virtual const imguizmo_to_virtual_events_t getImguizmoMappingPreset() const { return {}; }
 
     virtual const keyboard_to_virtual_events_t& getKeyboardVirtualEventMap() const = 0;

@@ -1,24 +1,25 @@
-// Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#ifndef _C_FPS_CAMERA_HPP_
-#define _C_FPS_CAMERA_HPP_
+#ifndef _C_FREE_CAMERA_HPP_
+#define _C_FREE_CAMERA_HPP_
 
 #include "ICamera.hpp"
+#include <glm/gtx/euler_angles.hpp>
 
 namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
 {
 
-// FPS Camera
-class CFPSCamera final : public ICamera
-{ 
+// Free Lock Camera
+class CFreeCamera final : public ICamera
+{
 public:
     using base_t = ICamera;
 
-    CFPSCamera(const float64_t3& position, const glm::quat& orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f))
+    CFreeCamera(const float64_t3& position, const glm::quat& orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f))
         : base_t(), m_gimbal({ .position = position, .orientation = orientation }) {}
-	~CFPSCamera() = default;
+    ~CFreeCamera() = default;
 
     const base_t::keyboard_to_virtual_events_t getKeyboardMappingPreset() const override { return m_keyboard_to_virtual_events_preset; }
     const base_t::mouse_to_virtual_events_t getMouseMappingPreset() const override { return m_mouse_to_virtual_events_preset; }
@@ -31,23 +32,22 @@ public:
 
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, base_t::ManipulationMode mode) override
     {
-        constexpr double MaxVerticalAngle = glm::radians(88.0f), MinVerticalAngle = -MaxVerticalAngle;
-
-        if (!virtualEvents.size())
+        if (virtualEvents.empty())
             return false;
 
-        const auto& gForward = m_gimbal.getZAxis();
-        const float gPitch = atan2(glm::length(glm::vec2(gForward.x, gForward.z)), gForward.y) - glm::half_pi<float>(), gYaw = atan2(gForward.x, gForward.z);
-
-        glm::quat newOrientation; float64_t3 newPosition;
-
+        const auto gOrientation = m_gimbal.getOrientation();
+        
         // TODO: I make assumption what world base is now (at least temporary), I need to think of this but maybe each ITransformObject should know what its world is
         // in ideal scenario we would define this crazy enum with all possible standard bases
         const auto impulse = mode == base_t::Local ? m_gimbal.accumulate<AllowedLocalVirtualEvents>(virtualEvents)
             : m_gimbal.accumulate<AllowedWorldVirtualEvents>(virtualEvents, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 });
 
-        const auto newPitch = std::clamp(gPitch + impulse.dVirtualRotation.x * m_rotationSpeedScale, MinVerticalAngle, MaxVerticalAngle), newYaw = gYaw + impulse.dVirtualRotation.y * m_rotationSpeedScale;
-        newOrientation = glm::quat(glm::vec3(newPitch, newYaw, 0.0f)); newPosition = m_gimbal.getPosition() + impulse.dVirtualTranslate * m_moveSpeedScale;
+        const auto pitchQuat = glm::angleAxis<float>(impulse.dVirtualRotation.x * m_rotationSpeedScale, glm::vec3(1.0f, 0.0f, 0.0f));
+        const auto yawQuat = glm::angleAxis<float>(impulse.dVirtualRotation.y * m_rotationSpeedScale, glm::vec3(0.0f, 1.0f, 0.0f));
+        const auto rollQuat = glm::angleAxis<float>(impulse.dVirtualRotation.z * m_rotationSpeedScale, glm::vec3(0.0f, 0.0f, 1.0f));
+
+        const auto newOrientation = glm::normalize(gOrientation * yawQuat * pitchQuat * rollQuat);
+        const float64_t3 newPosition = m_gimbal.getPosition() + impulse.dVirtualTranslate * m_moveSpeedScale;
 
         bool manipulated = true;
 
@@ -60,7 +60,7 @@ public:
 
         manipulated &= bool(m_gimbal.getManipulationCounter());
 
-        if(manipulated)
+        if (manipulated)
             m_gimbal.updateView();
 
         return manipulated;
@@ -78,13 +78,13 @@ public:
 
     virtual const std::string_view getIdentifier() override
     {
-        return "FPS Camera";
+        return "Free-Look Camera";
     }
 
 private:
     typename base_t::CGimbal m_gimbal;
 
-    static inline constexpr auto AllowedLocalVirtualEvents = CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::TiltUp | CVirtualGimbalEvent::TiltDown | CVirtualGimbalEvent::PanRight | CVirtualGimbalEvent::PanLeft;
+    static inline constexpr auto AllowedLocalVirtualEvents = CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::Rotate;
     static inline constexpr auto AllowedWorldVirtualEvents = AllowedLocalVirtualEvents;
 
     static inline const auto m_keyboard_to_virtual_events_preset = []()
@@ -99,6 +99,8 @@ private:
         preset[ui::E_KEY_CODE::EKC_K] = CVirtualGimbalEvent::TiltUp;
         preset[ui::E_KEY_CODE::EKC_J] = CVirtualGimbalEvent::PanLeft;
         preset[ui::E_KEY_CODE::EKC_L] = CVirtualGimbalEvent::PanRight;
+        preset[ui::E_KEY_CODE::EKC_Q] = CVirtualGimbalEvent::RollLeft;
+        preset[ui::E_KEY_CODE::EKC_E] = CVirtualGimbalEvent::RollRight;
 
         return preset;
     }();
@@ -129,6 +131,8 @@ private:
         preset[CVirtualGimbalEvent::TiltUp] = CVirtualGimbalEvent::TiltUp;
         preset[CVirtualGimbalEvent::PanLeft] = CVirtualGimbalEvent::PanLeft;
         preset[CVirtualGimbalEvent::PanRight] = CVirtualGimbalEvent::PanRight;
+        preset[CVirtualGimbalEvent::RollLeft] = CVirtualGimbalEvent::RollLeft;
+        preset[CVirtualGimbalEvent::RollRight] = CVirtualGimbalEvent::RollRight;
 
         return preset;
     }();
@@ -136,4 +140,4 @@ private:
 
 }
 
-#endif // _C_FPS_CAMERA_HPP_
+#endif // _C_FREE_CAMERA_HPP_
