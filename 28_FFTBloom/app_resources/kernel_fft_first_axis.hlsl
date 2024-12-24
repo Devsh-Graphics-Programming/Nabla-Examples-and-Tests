@@ -1,9 +1,5 @@
 #include "fft_common.hlsl"
 
-// TODOS:
-//        - You can get away with saving only half of the kernel (didn't do it here), especially if FFT of the image is always done in the same order (in that case you can just
-//          store the same half of the kernel spectrum as you do the image's).
-
 [[vk::binding(0, 0)]] Texture2D<float32_t4> texture;
 
 // -------------------------------------------- FIRST AXIS FFT ------------------------------------------------------------------
