@@ -50,9 +50,10 @@ struct SBxDFTestResources
 
         retval.alpha.x = rngFloat01(retval.rng);
         retval.alpha.y = rngFloat01(retval.rng);
+        retval.eta = rngFloat01(retval.rng) + 1.0;
         retval.ior = float32_t3x2(1.02, 1.0,      // randomize at some point?
-                                        1.3, 2.0,
-                                        1.02, 1.0);
+                                1.3, 2.0,
+                                1.02, 1.0);
         return retval;
     }
 
@@ -66,6 +67,8 @@ struct SBxDFTestResources
 
     float32_t3 u;
     float32_t2 alpha;
+    float eta;
+    float eta2; // what is this?
     float32_t3x2 ior;
 };
 
@@ -131,6 +134,32 @@ inline float32_t4 testLambertianBSDF()
     sy = lambertian.generate(anisointer, rc.u + float32_t3(0,rc.h,0));
     quotient_pdf_t pdf = lambertian.quotient_and_pdf(s, isointer);
     float32_t3 brdf = float32_t3(lambertian.eval(s, isointer));
+
+    // get jacobian
+    float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
+    float det = nbl::hlsl::determinant<float, 2>(m);
+
+    return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
+}
+
+inline float32_t4 testBeckmannBSDF()
+{
+    const uint32_t2 state = uint32_t2(12u, 69u);
+    SBxDFTestResources rc = SBxDFTestResources::create(state);
+
+    iso_interaction isointer = iso_interaction::create(rc.V, rc.N);
+    aniso_interaction anisointer = aniso_interaction::create(isointer, rc.T, rc.B);
+    aniso_cache cache;
+    
+    sample_t s, sx, sy;
+    bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache> beckmann = bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>::create(rc.eta,rc.alpha.x,rc.alpha.y);
+    s = beckmann.generate(anisointer, rc.u, cache);
+    float32_t3 ux = rc.u + float32_t3(rc.h,0,0);
+    sx = beckmann.generate(anisointer, ux, cache);
+    float32_t3 uy = rc.u + float32_t3(0,rc.h,0);
+    sy = beckmann.generate(anisointer, uy, cache);
+    quotient_pdf_t pdf = beckmann.quotient_and_pdf(s, anisointer, cache);
+    float32_t3 brdf = float32_t3(beckmann.eval(s, anisointer, cache));
 
     // get jacobian
     float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
