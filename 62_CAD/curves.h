@@ -8,11 +8,11 @@
 #include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
 using namespace nbl::hlsl;
 
-#include "shaders/main_pipeline/common.hlsl"
 #include <nbl/builtin/hlsl/math/quadrature/gauss_legendre/gauss_legendre.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 
 
+#include "shaders/globals.hlsl"
 namespace curves
 {
 // Base class for all our curves

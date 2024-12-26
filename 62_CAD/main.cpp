@@ -663,8 +663,6 @@ public:
 		if (!m_surface->init(getGraphicsQueue(),std::move(scResources),{}))
 			return logFail("Could not initialize the Surface!");
 
-		m_framesInFlight = min(m_surface->getMaxFramesInFlight(), MaxFramesInFlight);
-
 		allocateResources(1024 * 1024u);
 
 		const bitflag<IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS> bindlessTextureFlags =
@@ -1163,13 +1161,17 @@ public:
 	
 	bool beginFrameRender()
 	{
-		// Can't reset a cmdbuffer before the previous use of commandbuffer is finished!
-		if (m_realFrameIx>=m_framesInFlight)
+		// framesInFlight: ensuring safe execution of command buffers and acquires, `framesInFlight` only affect semaphore waits, don't use this to index your resources because it can change with swapchain recreation.
+		const uint32_t framesInFlight = core::min(MaxFramesInFlight, m_surface->getMaxAcquiresInFlight());
+		// We block for semaphores for 2 reasons here:
+			// A) Resource: Can't use resource like a command buffer BEFORE previous use is finished! [MaxFramesInFlight]
+			// B) Acquire: Can't have more acquires in flight than a certain threshold returned by swapchain or your surface helper class. [MaxAcquiresInFlight]
+		if (m_realFrameIx>=framesInFlight)
 		{
 			const ISemaphore::SWaitInfo cmdbufDonePending[] = {
 				{ 
 					.semaphore = m_renderSemaphore.get(),
-					.value = m_realFrameIx+1-m_framesInFlight
+					.value = m_realFrameIx+1-framesInFlight
 				}
 			};
 			if (m_device->blockForSemaphores(cmdbufDonePending)!=ISemaphore::WAIT_RESULT::SUCCESS)
@@ -3255,9 +3257,7 @@ protected:
 	
 	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 
-	uint64_t m_realFrameIx : 59 = 0;
-	// Maximum frames which can be simultaneously rendered
-	uint64_t m_framesInFlight : 5;
+	uint64_t m_realFrameIx = 0u;
 
 	smart_refctd_ptr<IGPUGraphicsPipeline>		debugGraphicsPipeline;
 	smart_refctd_ptr<IGPUDescriptorSetLayout>	descriptorSetLayout0;

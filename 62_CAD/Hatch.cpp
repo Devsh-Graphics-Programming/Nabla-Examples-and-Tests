@@ -1259,7 +1259,7 @@ core::smart_refctd_ptr<asset::ICPUImage> Hatch::generateHatchFillPatternMSDF(nbl
 	float scaleY = (1.0 / float(FillPatternShapeExtent)) * float(msdfExtents.y);
 
 	auto bufferSize = msdfExtents.x * msdfExtents.y * sizeof(uint8_t) * 4;
-	auto buffer = core::make_smart_refctd_ptr<ICPUBuffer>(bufferSize);
+	auto buffer = ICPUBuffer::create({ bufferSize });
 	size_t bufferOffset = 0ull;
 	textRenderer->generateShapeMSDF(buffer.get(), &bufferOffset, glyph, MSDFPixelRange, msdfExtents, float32_t2(scaleX, scaleY), float32_t2(0, 0));
 	assert(bufferOffset == bufferSize);

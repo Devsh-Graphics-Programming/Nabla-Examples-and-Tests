@@ -113,8 +113,8 @@ public:
 			{
 				const auto maxGeometryBufferImageObjects = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(ImageObjectInfo);
 				uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
-				uploadableObjects = min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
-				uploadableObjects = min(uploadableObjects, maxGeometryBufferImageObjects);
+				uploadableObjects = std::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+				uploadableObjects = std::min(static_cast<uint64_t>(uploadableObjects), maxGeometryBufferImageObjects);
 
 				if (uploadableObjects >= 1u)
 				{
@@ -153,7 +153,7 @@ public:
 		}
 	}
 
-	void finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
+	bool finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
 	inline uint32_t getLineStyleCount() const { return currentLineStylesCount; }
 
@@ -215,7 +215,7 @@ public:
 
 protected:
 	
-	struct TextureCopy
+	struct MSDFTextureCopy
 	{
 		core::smart_refctd_ptr<ICPUImage> image;
 		uint32_t index;
@@ -223,15 +223,15 @@ protected:
 
 	SubmitFunc submitDraws;
 	
-	void finalizeMainObjectCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
+	bool finalizeMainObjectCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
-	void finalizeGeometryCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
+	bool finalizeGeometryCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
-	void finalizeLineStyleCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
+	bool finalizeLineStyleCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 	
-	void finalizeCustomClipProjectionCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
+	bool finalizeCustomClipProjectionCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 	
-	void finalizeTextureCopies(SIntendedSubmitInfo& intendedNextSubmit);
+	bool finalizeTextureCopies(SIntendedSubmitInfo& intendedNextSubmit);
 
 	// Internal Function to call whenever we overflow while filling our buffers with geometry (potential limiters: indexBuffer, drawObjectsBuffer or geometryBuffer)
 	// ! mainObjIdx: is the mainObject the "overflowed" drawObjects belong to.
@@ -432,7 +432,7 @@ protected:
 	smart_refctd_ptr<IGPUImageView>		msdfTextureArray; // view to the resource holding all the msdfs in it's layers
 	smart_refctd_ptr<IndexAllocator>	msdfTextureArrayIndexAllocator;
 	std::set<uint32_t>					msdfTextureArrayIndicesUsed = {}; // indices in the msdf texture array allocator that have been used in the current frame // TODO: make this a dynamic bitset
-	std::vector<TextureCopy>			textureCopies = {}; // queued up texture copies, @Lucas change to deque if possible
+	std::vector<MSDFTextureCopy>		msdfTextureCopies = {}; // queued up texture copies
 	std::unique_ptr<MSDFsLRUCache>		msdfLRUCache; // LRU Cache to evict Least Recently Used in case of overflow
 	static constexpr asset::E_FORMAT	MSDFTextureFormat = asset::E_FORMAT::EF_R8G8B8_SNORM;
 

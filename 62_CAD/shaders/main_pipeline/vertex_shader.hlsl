@@ -502,7 +502,7 @@ PSInput main(uint vertexID : SV_VertexID)
         float2 coord = screenTopLeft + corner.x * screenDirU + corner.y * screenDirV + offsetVec;
 
         if (corner.y == 0 && italicTiltSlope > 0.0f)
-            coord += normalize(screenDirU) * length(screenDirV) * italicTiltSlope;
+            coord += normalize(screenDirU) * length(screenDirV) * italicTiltSlope * float(globals.resolution.y) / float(globals.resolution.x);
         
         // If aspect ratio of the dimensions and glyph inside the texture are the same then screenPxRangeX === screenPxRangeY
         // but if the glyph box is stretched in any way then we won't get correct msdf

@@ -693,7 +693,7 @@ private:
 
 				if constexpr (withAssetConverter)
 				{
-					auto dummyBuffer = make_smart_refctd_ptr<ICPUBuffer>(FramebufferW * FramebufferH * getTexelOrBlockBytesize<format>());
+					auto dummyBuffer = ICPUBuffer::create({ FramebufferW * FramebufferH * getTexelOrBlockBytesize<format>() });
 					dummyBuffer->setContentHash(dummyBuffer->computeContentHash());
 
 					auto regions = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1u);
@@ -769,7 +769,7 @@ private:
 			// TODO: use SPIRV loader & our ::system ns to get those cpu shaders, do not create myself (shit I forgot it exists)
 
 			const SBuiltinFile& in = ::geometry::creator::spirv::builtin::get_resource<virtualPath>();
-			const auto buffer = make_smart_refctd_ptr<CCustomAllocatorCPUBuffer<null_allocator<uint8_t>, true> >(in.size, (void*)in.contents, adopt_memory);
+			const auto buffer = ICPUBuffer::create({ { in.size }, (void*)in.contents, core::getNullMemoryResource() }, adopt_memory);
 			auto shader = make_smart_refctd_ptr<ICPUShader>(smart_refctd_ptr(buffer), stage, IShader::E_CONTENT_TYPE::ECT_SPIRV, ""); // must create cpu instance regardless underlying type
 
 			if constexpr (withAssetConverter)
@@ -993,7 +993,7 @@ private:
 
 		if constexpr (withAssetConverter)
 		{
-			auto uboBuffer = make_smart_refctd_ptr<ICPUBuffer>(sizeof(SBasicViewParameters));
+			auto uboBuffer = ICPUBuffer::create({ sizeof(SBasicViewParameters) });
 			uboBuffer->addUsageFlags(UboUsage);
 			uboBuffer->setContentHash(uboBuffer->computeContentHash());
 			scratch.ubo = { .offset = 0u, .buffer = std::move(uboBuffer) };
