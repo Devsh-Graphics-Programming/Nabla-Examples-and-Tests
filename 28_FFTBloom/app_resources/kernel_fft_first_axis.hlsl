@@ -12,9 +12,9 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 {
 	// ---------------------------------------------------- Utils ---------------------------------------------------------
 
-	uint32_t colMajorOffset(uint32_t x, uint32_t y)
+	uint32_t rowMajorOffset(uint32_t x, uint32_t y)
 	{
-		return x * TotalSize | y;
+		return y * TotalSize | x;
 	}
 
 	// Each channel after first FFT will be stored as half the image (every two columns have been packed into one column of complex numbers) in col-major order, and the whole size of the image is N^2, 
@@ -31,11 +31,11 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 		uint32_t globalElementIndex = workgroup::SubgroupContiguousIndex();
 		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 		{
-			const float32_t4 firstLineTexValue = texture[uint32_t2(2 * glsl::gl_WorkGroupID().x, globalElementIndex)];
+			const float32_t4 firstLineTexValue = texture[uint32_t2(globalElementIndex, 2 * glsl::gl_WorkGroupID().x)];
 			for (uint16_t channel = 0; channel < Channels; channel++)
 				preloaded[channel][localElementIndex].real(scalar_t(firstLineTexValue[channel]));
 
-			const float32_t4 secondLineTexValue = texture[uint32_t2(2 * glsl::gl_WorkGroupID().x + 1, globalElementIndex)];
+			const float32_t4 secondLineTexValue = texture[uint32_t2(globalElementIndex, 2 * glsl::gl_WorkGroupID().x + 1)];
 			for (uint16_t channel = 0; channel < Channels; channel++)
 				preloaded[channel][localElementIndex].imag(scalar_t(secondLineTexValue[channel]));
 
@@ -50,12 +50,12 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 		for (uint16_t channel = 0; channel < Channels; channel++)
 		{
 			const uint64_t channelStartOffsetBytes = getChannelStartOffsetBytes(channel);
-			const LegacyBdaAccessor<complex_t<scalar_t> > colMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.colMajorBufferAddress + channelStartOffsetBytes);
+			const LegacyBdaAccessor<complex_t<scalar_t> > rowMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.rowMajorBufferAddress + channelStartOffsetBytes);
 
 			uint32_t globalElementIndex = workgroup::SubgroupContiguousIndex();
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 			{
-				colMajorAccessor.set(colMajorOffset(glsl::gl_WorkGroupID().x, globalElementIndex), preloaded[channel][localElementIndex]);
+				rowMajorAccessor.set(rowMajorOffset(globalElementIndex, glsl::gl_WorkGroupID().x), preloaded[channel][localElementIndex]);
 				globalElementIndex += WorkgroupSize;
 			}
 		}

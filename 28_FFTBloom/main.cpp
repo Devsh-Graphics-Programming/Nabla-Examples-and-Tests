@@ -273,7 +273,7 @@ public:
 			lp.logger = m_logger.get();
 			lp.workingDirectory = ""; // virtual root
 			auto srcImageBundle = m_assetMgr->getAsset("../../media/colorexr.exr", lp);
-			auto kerImageBundle = m_assetMgr->getAsset("../../media/kernels/physical_flare_256.exr", lp);
+			auto kerImageBundle = m_assetMgr->getAsset("../../media/kernels/physical_flare_512.exr", lp);
 			const auto srcImages = srcImageBundle.getContents();
 			const auto kerImages = kerImageBundle.getContents();
 			if (srcImages.empty() or kerImages.empty())
@@ -550,11 +550,11 @@ public:
 			deviceLocalBufferParams.queueFamilyIndexCount = 1;
 			deviceLocalBufferParams.queueFamilyIndices = &queueFamilyIndex;
 			// Axis on which we perform first FFT is the only one that needs to be padded in memory - in this case it's the y-axis
-			hlsl::vector <uint16_t, 1> firstAxis(uint16_t(1));
+			hlsl::vector <uint16_t, 1> firstAxis(uint16_t(0));
 			// We only need enough memory to hold (half, since it's real) of the original-sized image with padding for the kernel (and the padding up to PoT) only on the first axis.
 			// That's because (in this case, since it's a 2D convolution) the "middle" step (that which does the last FFT -> convolves -> first IFFT) doesn't store
 			// anything and the "padding" can be seen as virtual.
-			hlsl::vector <uint32_t, 3> paddedSrcDimensions(srcDim.width, m_marginSrcDim.height, srcDim.depth);
+			hlsl::vector <uint32_t, 3> paddedSrcDimensions(m_marginSrcDim.width, srcDim.height, srcDim.depth);
 			deviceLocalBufferParams.size = fft::getOutputBufferSize<3, 1>(paddedSrcDimensions, 3, firstAxis, true, m_useHalfFloats);
 			deviceLocalBufferParams.usage = asset::IBuffer::E_USAGE_FLAGS::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
@@ -624,7 +624,7 @@ public:
 					imageParams.flags = static_cast<video::IGPUImage::E_CREATE_FLAGS>(0u);
 					imageParams.type = asset::IImage::ET_2D;
 					imageParams.format = m_useHalfFloats ? EF_R16G16_SFLOAT : EF_R32G32_SFLOAT;
-					imageParams.extent = { kerDim.width,kerDim.height / 2 + 1, 1u };
+					imageParams.extent = { kerDim.width / 2 + 1,kerDim.height, 1u };
 					imageParams.mipLevels = 1u;
 					imageParams.arrayLayers = Channels;
 					imageParams.samples = asset::IImage::ESCF_1_BIT;
@@ -710,7 +710,7 @@ public:
 			kernelPrecompCmdBuf->bindDescriptorSets(asset::EPBP_COMPUTE, pipelines[0]->getLayout(), 0, 1, &m_descriptorSet.get());
 			kernelPrecompCmdBuf->pushConstants(pipelines[0]->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(pushConstants), &pushConstants);
 			// One workgroup per 2 columns
-			kernelPrecompCmdBuf->dispatch(kerDim.width / 2, 1, 1);
+			kernelPrecompCmdBuf->dispatch(kerDim.height / 2, 1, 1);
 
 			// Pipeline barrier: wait for first axis FFT before second axis can begin
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo pipelineBarrierInfo = {};
@@ -718,7 +718,7 @@ public:
 			pipelineBarrierInfo.bufBarriers = { &bufBarrier, 1u };
 
 			// First axis FFT writes to colMajorBuffer
-			bufBarrier.range.buffer = m_colMajorBuffer;
+			bufBarrier.range.buffer = m_rowMajorBuffer;
 
 			// Wait for first compute write (first axis FFT) before next compute read (second axis FFT)
 			bufBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
@@ -750,7 +750,7 @@ public:
 
 			// Wait on second axis FFT to write the kernel image before running normalization step
 			// Normalization needs to access the power value stored in the rowmajorbuffer
-			bufBarrier.range.buffer = m_rowMajorBuffer;
+			bufBarrier.range.buffer = m_colMajorBuffer;
 
 			// No layout transition now
 			imgBarrier.oldLayout = IImage::LAYOUT::UNDEFINED;
@@ -770,7 +770,7 @@ public:
 			// Hardcoded 8x8 workgroup seems to be optimal for tex access
 			const auto& kernelSpectraExtent = m_kernelNormalizedSpectrums->getCreationParameters().image->getCreationParameters().extent;
 			// Assumed PoT. +1 in Y dispatch to account for Nyquist row
-			kernelPrecompCmdBuf->dispatch(kernelSpectraExtent.width / 8, kernelSpectraExtent.height / 8 + 1, 1);
+			kernelPrecompCmdBuf->dispatch(kernelSpectraExtent.width / 8 + 1, kernelSpectraExtent.height / 8, 1);
 
 			// Pipeline barrier: transition kernel spectrum images into read only, and outImage into general
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo imagePipelineBarrierInfo = {};
@@ -843,7 +843,7 @@ public:
 		uint16_t firstAxisFFTWorkgroupSizeLog2;
 		smart_refctd_ptr<IGPUShader> shaders[3];
 		{
-			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device->getPhysicalDevice()->getLimits().maxWorkgroupSize[0], m_marginSrcDim.height);
+			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device->getPhysicalDevice()->getLimits().maxWorkgroupSize[0], m_marginSrcDim.width);
 			SShaderConstevalParameters::SShaderConstevalParametersCreateInfo shaderConstevalInfo = { .useHalfFloats = m_useHalfFloats, .elementsPerInvocationLog2 = elementsPerInvocationLog2, .workgroupSizeLog2 = workgroupSizeLog2 };
 			SShaderConstevalParameters shaderConstevalParameters(shaderConstevalInfo);
 			shaders[0] = createShader("app_resources/image_fft_first_axis.hlsl", shaderConstevalParameters);
@@ -857,7 +857,7 @@ public:
 
 		// Second axis FFT might have different dimensions
 		{
-			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device->getPhysicalDevice()->getLimits().maxWorkgroupSize[0], m_marginSrcDim.width);
+			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device->getPhysicalDevice()->getLimits().maxWorkgroupSize[0], m_marginSrcDim.height);
 			// Compute kernel half pixel size
 			const auto& kernelSpectraExtent = m_kernelNormalizedSpectrums->getCreationParameters().image->getCreationParameters().extent;
 			float32_t2 kernelHalfPixelSize{ 0.5f,0.5f };
@@ -992,16 +992,16 @@ public:
 		// Prepare for first axis FFT
 		// Push Constants - only need to specify BDAs here
 		const auto& imageExtent = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
-		const int32_t paddingAlongColumns = int32_t(core::roundUpToPoT(m_marginSrcDim.height) - imageExtent.height) / 2;
-		const int32_t paddingAlongRows = int32_t(core::roundUpToPoT(m_marginSrcDim.width) - imageExtent.width) / 2;
+		const int32_t paddingAlongColumns = int32_t(core::roundUpToPoT(m_marginSrcDim.width) - imageExtent.width) / 2;
+		const int32_t paddingAlongRows = int32_t(core::roundUpToPoT(m_marginSrcDim.height) - imageExtent.height) / 2;
 		const int32_t halfPaddingAlongRows = paddingAlongRows / 2;
 
 		PushConstantData pushConstants;
 		pushConstants.colMajorBufferAddress = m_colMajorBufferAddress;
 		pushConstants.rowMajorBufferAddress = m_rowMajorBufferAddress;
-		pushConstants.imageRowLength = int32_t(imageExtent.width);
-		pushConstants.imageHalfRowLength = int32_t(imageExtent.width) / 2;
-		pushConstants.imageColumnLength = int32_t(imageExtent.height);
+		pushConstants.imageRowLength = int32_t(imageExtent.height);
+		pushConstants.imageHalfRowLength = int32_t(imageExtent.height) / 2;
+		pushConstants.imageColumnLength = int32_t(imageExtent.width);
 		pushConstants.padding = paddingAlongColumns;
 		pushConstants.halfPadding = halfPaddingAlongRows;
 
@@ -1010,8 +1010,8 @@ public:
 		imageHalfPixelSize.y /= imageExtent.height;
 		pushConstants.imageHalfPixelSize = imageHalfPixelSize;
 		pushConstants.imagePixelSize = 2.f * imageHalfPixelSize;
-		pushConstants.imageTwoPixelSize_x = 4.f * imageHalfPixelSize.x;
-		pushConstants.imageWorkgroupSizePixelSize_y = m_imageFirstAxisFFTWorkgroupSize * pushConstants.imagePixelSize.y;
+		pushConstants.imageTwoPixelSize_x = 4.f * imageHalfPixelSize.y;
+		pushConstants.imageWorkgroupSizePixelSize_y = m_imageFirstAxisFFTWorkgroupSize * pushConstants.imagePixelSize.x;
 
 		// Interpolate between dirac delta and kernel based on current time
 		auto epochNanoseconds = clock_t::now().time_since_epoch().count();
@@ -1022,7 +1022,7 @@ public:
 		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(pushConstants), &pushConstants);
 		// One workgroup per 2 columns
 		auto srcDim = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
-		cmdBuf->dispatch(srcDim.width / 2, 1, 1);
+		cmdBuf->dispatch(srcDim.height / 2, 1, 1);
 
 		// Pipeline Barrier: Wait for colMajorBuffer to be written to before reading it from next shader
 		IGPUCommandBuffer::SPipelineBarrierDependencyInfo bufferPipelineBarrierInfo = {};
@@ -1030,7 +1030,7 @@ public:
 		bufferPipelineBarrierInfo.bufBarriers = { &bufBarrier, 1u };
 
 		// First axis FFT writes to colMajorBuffer
-		bufBarrier.range.buffer = m_colMajorBuffer;
+		bufBarrier.range.buffer = m_rowMajorBuffer;
 
 		// Wait for first compute write (first axis FFT) before next compute read (second axis FFT)
 		bufBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
@@ -1044,10 +1044,10 @@ public:
 		// Update padding for run along rows
 		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, padding), sizeof(paddingAlongRows), &paddingAlongRows);
 		// One workgroup per row in the lower half of the DFT
-		cmdBuf->dispatch(core::roundUpToPoT(m_marginSrcDim.height) / 2, 1, 1);
+		cmdBuf->dispatch(core::roundUpToPoT(m_marginSrcDim.width) / 2, 1, 1);
 
 		// Recycle pipeline barrier, only have to change which buffer we need to wait to be written to
-		bufBarrier.range.buffer = m_rowMajorBuffer;
+		bufBarrier.range.buffer = m_colMajorBuffer;
 		cmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), bufferPipelineBarrierInfo);
 
 		// Finally run the IFFT on the first axis
@@ -1055,7 +1055,7 @@ public:
 		// Update padding for run along columns
 		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, padding), sizeof(paddingAlongColumns), &paddingAlongColumns);
 		// One workgroup per 2 columns
-		cmdBuf->dispatch(srcDim.width / 2, 1, 1);
+		cmdBuf->dispatch(srcDim.height / 2, 1, 1);
 
 		// -------------------------------------- DRAW END ----------------------------------------
 
