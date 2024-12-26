@@ -169,12 +169,10 @@ class FLIPFluidsApp final : public examples::SimpleWindowedApplication, public a
     using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
     using clock_t = std::chrono::steady_clock;
 
-    _NBL_STATIC_INLINE_CONSTEXPR uint32_t WIN_WIDTH = 1280, WIN_HEIGHT = 720, SC_IMG_COUNT = 3u, FRAMES_IN_FLIGHT = 5u;
-    static_assert(FRAMES_IN_FLIGHT > SC_IMG_COUNT);
+    constexpr static inline uint32_t WIN_WIDTH = 1280, WIN_HEIGHT = 720;
+    constexpr static inline uint32_t MaxFramesInFlight = 3u;
 
     constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
-
-    using IGPUDescriptorSetLayoutArray = std::array<core::smart_refctd_ptr<IGPUDescriptorSetLayout>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT>;
 
 public:
     inline FLIPFluidsApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
@@ -827,20 +825,22 @@ public:
 
     inline void workLoopBody() override
     {
-        const auto resourceIx = m_realFrameIx % m_maxFramesInFlight;
+        const uint32_t framesInFlight = core::min(MaxFramesInFlight, m_surface->getMaxAcquiresInFlight());
 
-        if (m_realFrameIx >= m_maxFramesInFlight)
+        if (m_realFrameIx >= framesInFlight)
         {
             const ISemaphore::SWaitInfo cbDonePending[] =
             {
                 {
                     .semaphore = m_renderSemaphore.get(),
-                    .value = m_realFrameIx + 1 - m_maxFramesInFlight
+                    .value = m_realFrameIx + 1 - framesInFlight
                 }
             };
             if (m_device->blockForSemaphores(cbDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
                 return;
         }
+
+        const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
 
         m_inputSystem->getDefaultMouse(&mouse);
         m_inputSystem->getDefaultKeyboard(&keyboard);
@@ -1056,38 +1056,56 @@ public:
         cmdbuf->end();
 
         // submit
-        const IQueue::SSubmitInfo::SSemaphoreInfo rendered[1] = {{
-            .semaphore = m_renderSemaphore.get(),
-            .value = ++m_submitIx,
-            .stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
-        }};
-
         {
+            const IQueue::SSubmitInfo::SSemaphoreInfo rendered[] =
             {
-                const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[1] = {{
-                        .cmdbuf = cmdbuf
-                    }};
-                const IQueue::SSubmitInfo::SSemaphoreInfo acquired[1] = {{
-                        .semaphore = m_currentImageAcquire.semaphore,
-                        .value = m_currentImageAcquire.acquireCount,
-                        .stageMask = PIPELINE_STAGE_FLAGS::NONE
-                    }};
-                const IQueue::SSubmitInfo infos[1] = {{
-                    .waitSemaphores = acquired,
-                    .commandBuffers = commandBuffers,
-                    .signalSemaphores = rendered
-                }};
-                if (bCaptureTestInitParticles)
-                    m_api->startCapture();
-                if (queue->submit(infos)!=IQueue::RESULT::SUCCESS)
-                    m_submitIx--;
-                if (bCaptureTestInitParticles)
-                    m_api->endCapture();
-            }
-        }
+                {
+                    .semaphore = m_renderSemaphore.get(),
+                    .value = ++m_realFrameIx,
+                    .stageMask = PIPELINE_STAGE_FLAGS::ALL_GRAPHICS_BITS
+                }
+            };
+            {
+                {
+                    const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[] =
+                    {
+                        { .cmdbuf = cmdbuf }
+                    };
 
-        m_surface->present(m_currentImageAcquire.imageIndex, rendered);
-        m_realFrameIx++;
+                    const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] =
+                    {
+                        {
+                            .semaphore = m_currentImageAcquire.semaphore,
+                            .value = m_currentImageAcquire.acquireCount,
+                            .stageMask = PIPELINE_STAGE_FLAGS::NONE
+                        }
+                    };
+                    const IQueue::SSubmitInfo infos[] =
+                    {
+                        {
+                            .waitSemaphores = acquired,
+                            .commandBuffers = commandBuffers,
+                            .signalSemaphores = rendered
+                        }
+                    };
+
+                    if (queue->submit(infos) == IQueue::RESULT::SUCCESS)
+                    {
+                        const nbl::video::ISemaphore::SWaitInfo waitInfos[] =
+                        { {
+                            .semaphore = m_renderSemaphore.get(),
+                            .value = m_realFrameIx
+                        } };
+
+                        m_device->blockForSemaphores(waitInfos); // this is not solution, quick wa to not throw validation errors
+                    }
+                    else
+                        --m_realFrameIx;
+                }
+            }
+
+            m_surface->present(m_currentImageAcquire.imageIndex, rendered);
+        }
     }
 
     inline bool keepRunning() override
@@ -1468,7 +1486,7 @@ private:
 
     bool initGraphicsPipeline()
     {
-        m_renderSemaphore = m_device->createSemaphore(m_submitIx);
+        m_renderSemaphore = m_device->createSemaphore(m_realFrameIx);
         if (!m_renderSemaphore)
             return logFail("Failed to create render semaphore!\n");
             
@@ -1510,15 +1528,8 @@ private:
         if (!m_surface || !m_surface->init(queue, std::move(scResources), swapchainParams.sharedParams))
             return logFail("Could not create window & surface or initialize surface\n");
 
-        m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
-        if (FRAMES_IN_FLIGHT < m_maxFramesInFlight)
-        {
-            m_logger->log("Lowering frames in flight!\n", ILogger::ELL_WARNING);
-            m_maxFramesInFlight = FRAMES_IN_FLIGHT;
-        }
-
         m_cmdPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-        for (auto i = 0u; i < m_maxFramesInFlight; i++)
+        for (auto i = 0u; i < MaxFramesInFlight; i++)
         {
             if (!m_cmdPool)
                 return logFail("Couldn't create command pool\n");
@@ -1729,10 +1740,8 @@ private:
     smart_refctd_ptr<IGPUGraphicsPipeline> m_graphicsPipeline;
     smart_refctd_ptr<ISemaphore> m_renderSemaphore;
     smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
-    std::array<smart_refctd_ptr<IGPUCommandBuffer>, ISwapchain::MaxImages> m_cmdBufs;
+    std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
     uint64_t m_realFrameIx : 59 = 0;
-    uint64_t m_submitIx : 59 = 0;
-    uint64_t m_maxFramesInFlight : 5;
     ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 
     smart_refctd_ptr<video::IDescriptorPool> m_renderDsPool;
