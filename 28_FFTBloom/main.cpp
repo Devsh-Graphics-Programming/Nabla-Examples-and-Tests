@@ -1032,7 +1032,7 @@ public:
 
 		// Interpolate between dirac delta and kernel based on current time
 		auto epochNanoseconds = clock_t::now().time_since_epoch().count();
-		pushConstants.interpolatingFactor = 0.f;//cos(epochNanoseconds / 1000000000.f) * cos(epochNanoseconds / 1000000000.f);
+		pushConstants.interpolatingFactor = cos(epochNanoseconds / 1000000000.f) * cos(epochNanoseconds / 1000000000.f);
 
 		cmdBuf->bindComputePipeline(m_firstAxisFFTPipeline.get());
 		cmdBuf->bindDescriptorSets(asset::EPBP_COMPUTE, m_firstAxisFFTPipeline->getLayout(), 0, 1, &m_descriptorSet.get());
