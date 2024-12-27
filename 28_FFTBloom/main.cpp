@@ -309,7 +309,7 @@ public:
 			const auto kerImageViewCPU = ICPUImageView::create(std::move(viewParams[1]));
 
 			// Create a CPU Descriptor Set
-			ICPUDescriptorSetLayout::SBinding bnd[4] =
+			ICPUDescriptorSetLayout::SBinding bnd[5] =
 			{
 				// Kernel FFT and Image FFT read from a single Image
 				{
@@ -321,7 +321,7 @@ public:
 					1u,
 					nullptr
 				},
-				// Sampler: First Axis FFT (image) and convolution use a mirror-sampler
+				// Sampler: First Axis FFT (kernel) and convolution use a mirror-sampler
 				// Could be static for each pipeline but since it's shared it implies no descriptor changes between pipelines
 				{
 					IDescriptorSetLayoutBase::SBindingBase(),
@@ -351,6 +351,17 @@ public:
 					IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					1,
 					nullptr
+				},
+				// Sampler: First Axis FFT (Image) uses a clamp to border sampler
+				// Could be static for each pipeline but since it's shared it implies no descriptor changes between pipelines
+				{
+					IDescriptorSetLayoutBase::SBindingBase(),
+					4u,
+					IDescriptor::E_TYPE::ET_SAMPLER,
+					IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					1u,
+					nullptr
 				}
 			};
 			auto descriptorSetLayoutCPU = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(bnd);
@@ -363,7 +374,7 @@ public:
 			descriptorSetLayoutCPU = smart_refctd_ptr<ICPUDescriptorSetLayout>(pipelineLayoutCPU->getDescriptorSetLayout(0));
 			auto descriptorSetCPU = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(descriptorSetLayoutCPU));
 
-			// Create a sampler
+			// Create samplers
 			ICPUSampler::SParams samplerCreationParams =
 			{
 				ISampler::ETC_MIRROR,
@@ -378,6 +389,14 @@ public:
 				ISampler::ECO_ALWAYS
 			};
 
+			auto mirrorSamplerCPU = make_smart_refctd_ptr<ICPUSampler>(samplerCreationParams);
+
+			samplerCreationParams.TextureWrapU = ISampler::ETC_CLAMP_TO_BORDER;
+			samplerCreationParams.TextureWrapV = ISampler::ETC_CLAMP_TO_BORDER;
+			samplerCreationParams.TextureWrapW = ISampler::ETC_CLAMP_TO_BORDER;
+
+			auto borderSamplerCPU = make_smart_refctd_ptr<ICPUSampler>(samplerCreationParams);
+
 			// Set descriptor set values for automatic upload
 			
 			auto& firstSampledImageDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(0u), IDescriptor::E_TYPE::ET_SAMPLED_IMAGE).front();
@@ -388,14 +407,12 @@ public:
 			
 			secondSampledImageDescriptorInfo.desc = srcImageViewCPU;
 			secondSampledImageDescriptorInfo.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			
 
-			auto samplerCPU = make_smart_refctd_ptr<ICPUSampler>(samplerCreationParams);
+			auto& mirrorSamplerDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(1u), IDescriptor::E_TYPE::ET_SAMPLER).front();
+			mirrorSamplerDescriptorInfo.desc = mirrorSamplerCPU;
 
-			auto& samplerDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(1u), IDescriptor::E_TYPE::ET_SAMPLER).front();
-			samplerDescriptorInfo.desc = samplerCPU;
-
-
+			auto& borderSamplerDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(4u), IDescriptor::E_TYPE::ET_SAMPLER).front();
+			borderSamplerDescriptorInfo.desc = borderSamplerCPU;
 
 			// Using asset converter
 			smart_refctd_ptr<video::CAssetConverter> converter = video::CAssetConverter::create({ .device = m_device.get(),.optimizer = {} });
@@ -1015,7 +1032,7 @@ public:
 
 		// Interpolate between dirac delta and kernel based on current time
 		auto epochNanoseconds = clock_t::now().time_since_epoch().count();
-		pushConstants.interpolatingFactor = cos(epochNanoseconds / 1000000000.f) * cos(epochNanoseconds / 1000000000.f);
+		pushConstants.interpolatingFactor = 0.f;//cos(epochNanoseconds / 1000000000.f) * cos(epochNanoseconds / 1000000000.f);
 
 		cmdBuf->bindComputePipeline(m_firstAxisFFTPipeline.get());
 		cmdBuf->bindDescriptorSets(asset::EPBP_COMPUTE, m_firstAxisFFTPipeline->getLayout(), 0, 1, &m_descriptorSet.get());

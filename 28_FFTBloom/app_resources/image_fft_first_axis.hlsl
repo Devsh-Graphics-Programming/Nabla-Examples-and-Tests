@@ -1,7 +1,7 @@
 #include "fft_common.hlsl"
 
 [[vk::binding(0, 0)]] Texture2D<float32_t4> texture;
-[[vk::binding(1, 0)]] SamplerState samplerState;
+[[vk::binding(4, 0)]] SamplerState samplerState;
 // -------------------------------------------- FIRST AXIS FFT ------------------------------------------------------------------
 
 // Each Workgroup computes the FFT along two consecutive vertical scanlines (fixed x for the whole Workgroup) so we use `2 * gl_WorkGroupID().x, 2 * gl_WorkGroupID().x + 1` 
