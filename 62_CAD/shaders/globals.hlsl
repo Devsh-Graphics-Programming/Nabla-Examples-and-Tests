@@ -1,6 +1,8 @@
 #ifndef _CAD_EXAMPLE_GLOBALS_HLSL_INCLUDED_
 #define _CAD_EXAMPLE_GLOBALS_HLSL_INCLUDED_
 
+#define NBL_FORCE_EMULATED_FLOAT_64
+
 #include <nbl/builtin/hlsl/portable/float64_t.hlsl>
 #include <nbl/builtin/hlsl/portable/vector_t.hlsl>
 #include <nbl/builtin/hlsl/portable/matrix_t.hlsl>
