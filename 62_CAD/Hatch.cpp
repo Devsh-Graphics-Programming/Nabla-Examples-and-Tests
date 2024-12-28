@@ -16,7 +16,7 @@ bool Hatch::Segment::isStraightLineConstantMajor() const
 		p1 = originalBezier->P1[major], 
 		p2 = originalBezier->P2[major];
 	//assert(p0 <= p1 && p1 <= p2); (PRECISION ISSUES ARISE ONCE MORE)
-	return abs(p1 - p0) <= core::exp2(-24.0) && abs(p2 - p0) <= hlsl::exp(-24);
+	return abs(p1 - p0) <= core::exp2(-24.0) && abs(p2 - p0) <= hlsl::exp(-24.0f);
 }
 
 std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
