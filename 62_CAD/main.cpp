@@ -66,7 +66,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0,	// CASE_8
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_8;
+constexpr ExampleMode mode = ExampleMode::CASE_5;
 
 class Camera2D
 {
@@ -2539,7 +2539,7 @@ protected:
 				linePoints.push_back({ -50.0, 50.0 });
 				linePoints.push_back({ -50.0 + linesLength, 50.0 });
 				polyline.addLinePoints(linePoints);
-				polyline.preprocessPolylineWithStyle(style, addShapesFunction);
+				polyline.preprocessPolylineWithStyle(style, 1e-5, addShapesFunction);
 				drawResourcesFiller.drawPolyline(polyline, style, intendedNextSubmit);
 			}
 			
@@ -2550,7 +2550,7 @@ protected:
 				linePoints.push_back({ -50.0, 48.0 });
 				linePoints.push_back({ -50.0 + linesLength, 48.0 });
 				polyline.addLinePoints(linePoints);
-				polyline.preprocessPolylineWithStyle(style, addShapesFunction);
+				polyline.preprocessPolylineWithStyle(style, 1e-5, addShapesFunction);
 				drawResourcesFiller.drawPolyline(polyline, style, intendedNextSubmit);
 			}
 			
@@ -2562,7 +2562,7 @@ protected:
 				linePoints.push_back({ -50.0, 46.0 });
 				linePoints.push_back({ -50.0 + linesLength, 46.0 });
 				polyline.addLinePoints(linePoints);
-				polyline.preprocessPolylineWithStyle(style, addShapesFunction);
+				polyline.preprocessPolylineWithStyle(style, 1e-5, addShapesFunction);
 				drawResourcesFiller.drawPolyline(polyline, style, intendedNextSubmit);
 			}
 			
@@ -2589,7 +2589,7 @@ protected:
 
 				curves::Subdivision::adaptive(myCurve, 1e-3, addToBezier, 10u);
 				polyline.addQuadBeziers(quadBeziers);
-				polyline.preprocessPolylineWithStyle(style, addShapesFunction);
+				polyline.preprocessPolylineWithStyle(style, 1e-5, addShapesFunction);
 				drawResourcesFiller.drawPolyline(polyline, style, intendedNextSubmit);
 			}
 			
@@ -2617,7 +2617,7 @@ protected:
 
 				curves::Subdivision::adaptive(myCurve, 1e-3, addToBezier, 10u);
 				polyline.addQuadBeziers(quadBeziers);
-				polyline.preprocessPolylineWithStyle(style, addShapesFunction);
+				polyline.preprocessPolylineWithStyle(style, 1e-5, addShapesFunction);
 				drawResourcesFiller.drawPolyline(polyline, style, intendedNextSubmit);
 			}
 

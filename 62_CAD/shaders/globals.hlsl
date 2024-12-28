@@ -76,7 +76,7 @@ enum class MajorAxis : uint32_t
 struct MainObject
 {
     uint32_t styleIdx;
-    uint32_t pad; // do I even need this? it's stored in structured buffer not bda
+    uint32_t pad; // do I even need this on the gpu side? it's stored in structured buffer not bda
     uint64_t clipProjectionAddress;
 };
 
