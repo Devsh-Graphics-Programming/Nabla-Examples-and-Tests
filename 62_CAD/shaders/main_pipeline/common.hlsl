@@ -3,26 +3,26 @@
 
 #include "../globals.hlsl"
 
-// TODO: Use these in C++ as well once nbl::hlsl::numeric_limits<uint32_t> compiles on C++
+// TODO: Use these in C++ as well once numeric_limits<uint32_t> compiles on C++
 float32_t2 unpackCurveBoxUnorm(uint32_t2 value)
 {
-    return float32_t2(value) / float32_t(nbl::hlsl::numeric_limits<uint32_t>::max);
+    return float32_t2(value) / float32_t(numeric_limits<uint32_t>::max);
 }
 
 float32_t2 unpackCurveBoxSnorm(int32_t2 value)
 {
-    return float32_t2(value) / float32_t(nbl::hlsl::numeric_limits<int32_t>::max);
+    return float32_t2(value) / float32_t(numeric_limits<int32_t>::max);
 }
 
 
 uint32_t2 packCurveBoxUnorm(float32_t2 value)
 {
-    return value * float32_t(nbl::hlsl::numeric_limits<uint32_t>::max);
+    return value * float32_t(numeric_limits<uint32_t>::max);
 }
 
 int32_t2 packCurveBoxSnorm(float32_t2 value)
 {
-    return value * float32_t(nbl::hlsl::numeric_limits<int32_t>::max);
+    return value * float32_t(numeric_limits<int32_t>::max);
 }
 
 // The root we're always looking for:
@@ -52,7 +52,7 @@ struct PrecomputedRootFinder
         return result;
     }
 
-    static PrecomputedRootFinder construct(nbl::hlsl::math::equations::Quadratic<float_t> quadratic)
+    static PrecomputedRootFinder construct(math::equations::Quadratic<float_t> quadratic)
     {
         PrecomputedRootFinder result;
         result.C2 = quadratic.c * 2.0;
@@ -104,25 +104,25 @@ struct PSInput
     void setLineEnd(float2 lineEnd) { data2.zw = lineEnd; }
     
     /* QUAD_BEZIER */
-    nbl::hlsl::shapes::Quadratic<float> getQuadratic()
+    shapes::Quadratic<float> getQuadratic()
     {
-        return nbl::hlsl::shapes::Quadratic<float>::construct(data2.xy, data2.zw, data3.xy);
+        return shapes::Quadratic<float>::construct(data2.xy, data2.zw, data3.xy);
     }
-    void setQuadratic(nbl::hlsl::shapes::Quadratic<float> quadratic)
+    void setQuadratic(shapes::Quadratic<float> quadratic)
     {
         data2.xy = quadratic.A;
         data2.zw = quadratic.B;
         data3.xy = quadratic.C;
     }
     
-    void setQuadraticPrecomputedArcLenData(nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator preCompData) 
+    void setQuadraticPrecomputedArcLenData(shapes::Quadratic<float>::ArcLengthCalculator preCompData) 
     {
         data3.zw = float2(preCompData.lenA2, preCompData.AdotB);
         data4 = float4(preCompData.a, preCompData.b, preCompData.c, preCompData.b_over_4a);
     }
-    nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator getQuadraticArcLengthCalculator()
+    shapes::Quadratic<float>::ArcLengthCalculator getQuadraticArcLengthCalculator()
     {
-        return nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
+        return shapes::Quadratic<float>::ArcLengthCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
     }
     
     /* CURVE_BOX */
@@ -132,38 +132,38 @@ struct PSInput
     // TODO: possible optimization: passing precomputed values for solving the quadratic equation instead
 
     // data2, data3, data4
-    nbl::hlsl::math::equations::Quadratic<float> getCurveMinMinor() {
-        return nbl::hlsl::math::equations::Quadratic<float>::construct(data2.x, data2.y, data2.z);
+    math::equations::Quadratic<float> getCurveMinMinor() {
+        return math::equations::Quadratic<float>::construct(data2.x, data2.y, data2.z);
     }
-    nbl::hlsl::math::equations::Quadratic<float> getCurveMaxMinor() {
-        return nbl::hlsl::math::equations::Quadratic<float>::construct(data2.w, data3.x, data3.y);
+    math::equations::Quadratic<float> getCurveMaxMinor() {
+        return math::equations::Quadratic<float>::construct(data2.w, data3.x, data3.y);
     }
 
-    void setCurveMinMinor(nbl::hlsl::math::equations::Quadratic<float> bezier) {
+    void setCurveMinMinor(math::equations::Quadratic<float> bezier) {
         data2.x = bezier.a;
         data2.y = bezier.b;
         data2.z = bezier.c;
     }
-    void setCurveMaxMinor(nbl::hlsl::math::equations::Quadratic<float> bezier) {
+    void setCurveMaxMinor(math::equations::Quadratic<float> bezier) {
         data2.w = bezier.a;
         data3.x = bezier.b;
         data3.y = bezier.c;
     }
 
     // data4
-    nbl::hlsl::math::equations::Quadratic<float> getCurveMinMajor() {
-        return nbl::hlsl::math::equations::Quadratic<float>::construct(data4.x, data4.y, data3.z);
+    math::equations::Quadratic<float> getCurveMinMajor() {
+        return math::equations::Quadratic<float>::construct(data4.x, data4.y, data3.z);
     }
-    nbl::hlsl::math::equations::Quadratic<float> getCurveMaxMajor() {
-        return nbl::hlsl::math::equations::Quadratic<float>::construct(data4.z, data4.w, data3.w);
+    math::equations::Quadratic<float> getCurveMaxMajor() {
+        return math::equations::Quadratic<float>::construct(data4.z, data4.w, data3.w);
     }
 
-    void setCurveMinMajor(nbl::hlsl::math::equations::Quadratic<float> bezier) {
+    void setCurveMinMajor(math::equations::Quadratic<float> bezier) {
         data4.x = bezier.a;
         data4.y = bezier.b;
         data3.z = bezier.c;
     }
-    void setCurveMaxMajor(nbl::hlsl::math::equations::Quadratic<float> bezier) {
+    void setCurveMaxMajor(math::equations::Quadratic<float> bezier) {
         data4.z = bezier.a;
         data4.w = bezier.b;
         data3.w = bezier.c;
