@@ -317,7 +317,7 @@ namespace nbl::hlsl
             move(getZAxis() * distance);
         }
 
-        void end()
+        inline void end()
         {
             m_isManipulating = false;
         }

@@ -182,7 +182,6 @@ public:
     virtual const mouse_to_virtual_events_t& getMouseVirtualEventMap() const override { return m_mouseVirtualEventMap; }
     virtual const imguizmo_to_virtual_events_t& getImguizmoVirtualEventMap() const override { return m_imguizmoVirtualEventMap; }
 
-private:
     /**
     * @brief Processes keyboard events to generate virtual manipulation events.
     *
@@ -404,6 +403,8 @@ private:
             postprocess(m_imguizmoVirtualEventMap, output, count);
         }
     }
+
+private:
 
     //! helper utility, for any controller this should be called before any update of hash map
     void preprocess(auto& map)
