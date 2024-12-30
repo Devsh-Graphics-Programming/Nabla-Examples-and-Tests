@@ -1050,6 +1050,7 @@ public:
         cmdbuf->pushConstants(m_graphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX, 0, sizeof(uint64_t), &bufferAddr);
         cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, m_graphicsPipeline->getLayout(), 1, 1, &m_renderDs.get());
 
+        // TODO: INDEXED and INSTANCED DRAWS!
         cmdbuf->draw(numParticles * 6, 1, 0, 0);
 
         cmdbuf->endRenderPass();
@@ -1445,6 +1446,7 @@ private:
         return m_device->createShader(shader.get());
     }
 
+    // TODO: there's a method in IUtilities for this
     bool createBuffer(smart_refctd_ptr<IGPUBuffer>& buffer, video::IGPUBuffer::SCreationParams& params,
         core::bitflag<IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS> allocFlags = IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE)
     {
@@ -1624,12 +1626,6 @@ private:
 
         SBlendParams blendParams = {};
         blendParams.logicOp = ELO_NO_OP;
-        blendParams.blendParams[0u].srcColorFactor = asset::EBF_SRC_ALPHA;
-        blendParams.blendParams[0u].dstColorFactor = asset::EBF_ONE_MINUS_SRC_ALPHA;
-        blendParams.blendParams[0u].colorBlendOp = asset::EBO_ADD;
-        blendParams.blendParams[0u].srcAlphaFactor = asset::EBF_ONE_MINUS_SRC_ALPHA;
-        blendParams.blendParams[0u].dstAlphaFactor = asset::EBF_ZERO;
-        blendParams.blendParams[0u].alphaBlendOp = asset::EBO_ADD;
         blendParams.blendParams[0u].colorWriteMask = (1u << 0u) | (1u << 1u) | (1u << 2u) | (1u << 3u);
 
         {
