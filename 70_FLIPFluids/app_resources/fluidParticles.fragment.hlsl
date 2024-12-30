@@ -4,7 +4,7 @@
 #include "render_common.hlsl"
 
 [[vk::binding(0, 1)]]
-cbuffer CameraData
+cbuffer CameraData // TODO: BDA instead of UBO, one less thing in DSLayout
 {
     SMVPParams camParams;
 };

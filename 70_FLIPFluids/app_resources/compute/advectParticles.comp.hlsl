@@ -20,7 +20,7 @@ cbuffer GridData
 [[vk::binding(b_apPrevVelField, s_ap)]] Texture3D<float> prevVelocityField[3];
 [[vk::binding(b_apVelSampler, s_ap)]] SamplerState velocityFieldSampler;
 
-// delta time push constant?
+// TODO: delta time push constant? (but then for CI need a commandline `-fixed-timestep=MS` and `-frames=N` option too)
 
 [numthreads(WorkgroupSize, 1, 1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)

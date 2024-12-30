@@ -21,7 +21,7 @@ cbuffer GridData
 [[vk::binding(b_ufcVel, s_ufc)]]      RWTexture3D<float> velocityField[3];
 [[vk::binding(b_ufcPrevVel, s_ufc)]]  RWTexture3D<float> prevVelocityField[3];
 
-// TODO: f 0 is AIR, and >=2 is SOLID, we can perform Atomic OR 0b01 to have a particle set the cell to FLUID, and looping over all grid cells is not needed!
+// TODO: f 0 is AIR, and >=2 is SOLID, we can perform Atomic OR 0b01 to have a particle set the cell to FLUID, and this dispatch looping over all grid cells is not needed!
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
 void updateFluidCells(uint32_t3 ID : SV_DispatchThreadID)
 {

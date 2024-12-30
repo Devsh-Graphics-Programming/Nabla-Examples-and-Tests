@@ -5,9 +5,10 @@
 
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 
-struct SPushConstants
+struct SPushConstants // TODO: each Push Constant struct should be HLSL/C++ shared and called `S[DispatchName]PushConstants`
 {
-    float4 diffusionParameters;
+    // DOCS DOCS and SEMANTICALLY USEFUL NAMES
+    float32_t4 diffusionParameters;
 };
 
 [[vk::push_constant]] SPushConstants pc;
@@ -27,7 +28,9 @@ cbuffer GridData
 [[vk::binding(b_dAxisOut, s_d)]] RWTexture3D<uint4> axisCellMaterialOut;
 [[vk::binding(b_dDiff, s_d)]] RWTexture3D<float4> gridDiffusion;
 
-groupshared uint16_t3 sAxisCellMat[14][14][14];
+// TODO: THOU SHALT NOT USE INTEGER DIVISION AND MODULO IN SHADERS! To stop using `flatIdxToLocalGridID`, the shared arrays need to be flat.
+// TODO: `vector<>` types should not be used in `groupshared` because they cause bank conflicts, they should be laid out `SoA` instead (component has largest stride)
+groupshared uint16_t3 sAxisCellMat[14][14][14]; // TODO: `uint16_t` per axis is too much
 groupshared float16_t3 sDiffusion[14][14][14];
 
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
@@ -139,6 +142,7 @@ void iterateDiffusion(uint32_t3 ID : SV_DispatchThreadID)
     for (uint virtualIdx = nbl::hlsl::glsl::gl_LocalInvocationIndex();
         virtualIdx < 14 * 14 * 14; virtualIdx += 8 * 8 * 8)
     {
+        // TODO: THOU SHALT NOT USE INTEGER DIVISION AND MODULO IN SHADERS! STOP USING `flatIdxToLocalGridID`
         int3 lid = flatIdxToLocalGridID(virtualIdx, 14);
         
         int3 cellIdx = clampToGrid(lid + int3(-3, -3, -3) + gid * WorkgroupGridDim, gridData.gridSize);
@@ -147,12 +151,15 @@ void iterateDiffusion(uint32_t3 ID : SV_DispatchThreadID)
     }
     GroupMemoryBarrierWithGroupSync();
 
+    // TODO: undo the unroll, use two nested for loops
+
     // do 12x12x12 iteration
     float3 tmp[6];
     uint i = 0;
     for (uint virtualIdx = nbl::hlsl::glsl::gl_LocalInvocationIndex();
         virtualIdx < 12 * 12 * 12; virtualIdx += 8 * 8 * 8)
     {
+        // TODO: THOU SHALT NOT USE INTEGER DIVISION AND MODULO IN SHADERS! STOP USING `flatIdxToLocalGridID`
         int3 lid = flatIdxToLocalGridID(virtualIdx, 12);
         lid += int3(1, 1, 1);
         
@@ -202,6 +209,7 @@ void iterateDiffusion(uint32_t3 ID : SV_DispatchThreadID)
     gridDiffusion[cellIdx].xyz = velocity;
 }
 
+// TODO: same as the pressure solver, this kernel/dispatch should be fused onto `iterateDiffusion` guarded by `isLastIteration` push constant
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
 void applyDiffusion(uint32_t3 ID : SV_DispatchThreadID)
 {

@@ -1,6 +1,5 @@
 #include "../common.hlsl"
 #include "../gridUtils.hlsl"
-#include "../kernel.hlsl"
 #include "../descriptor_bindings.hlsl"
 
 struct SPushConstants
@@ -33,6 +32,13 @@ void casAdd(RWTexture3D<uint> grid, int3 idx, float value)
         uint newValue = asuint(asfloat(actualValue) + value);
         InterlockedCompareExchange(grid[idx], expectedValue, newValue, actualValue);
     } while (actualValue != expectedValue);
+}
+
+float getWeight(float3 pPos, float3 cPos, float invSpacing)
+{
+    float3 dist = abs((pPos - cPos) * invSpacing);
+    float3 weight = saturate(1.0f - dist);
+    return weight.x * weight.y * weight.z;
 }
 
 [numthreads(WorkgroupSize, 1, 1)]

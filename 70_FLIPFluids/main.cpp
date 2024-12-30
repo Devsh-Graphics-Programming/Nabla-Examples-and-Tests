@@ -76,6 +76,8 @@ public:
         };
         subpasses[0].depthStencilAttachment.render = { .attachmentIndex = 0,.layout = IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL };
         m_params.subpasses = subpasses;
+
+        // TODO: Two subpass external dependencies SRC and DST needed!
     }
 
 protected:
@@ -874,6 +876,8 @@ public:
             camera.endInputProcessing(nextPresentationTimestamp);
         }
 
+        // TODO: also need to protect from previous frame still reading while we overwrite UBO
+
         SMVPParams camData;
         SBufferRange<IGPUBuffer> camDataRange;
         {
@@ -910,7 +914,7 @@ public:
         SBufferRange<IGPUBuffer> gridDataRange;
         SBufferRange<IGPUBuffer> pParamsRange;
         SBufferRange<IGPUBuffer> pressureParamsRange;
-        if (m_shouldInitParticles)
+        if (m_shouldInitParticles) // TODO: why on earth is this in `workLoopBody()` and not `onAppInitialized` ?
         {
             bCaptureTestInitParticles = true;
 
@@ -940,12 +944,15 @@ public:
             initializeParticles(cmdbuf);
 
             transitionGridImageLayouts(cmdbuf);
+
+            // TODO: fat pipeline barrier! The bottom one only ever protected the UBO write.
         }
 
         {
             SMemoryBarrier memBarrier;
             memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
             memBarrier.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS;
+            //memBarrier.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT; // after the initialization with compute shaders is moved out
             memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
             memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
             cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
@@ -961,6 +968,8 @@ public:
             dispatchAdvection(cmdbuf);				// update/advect fluid
         }
 
+    // TODO: remove the compute shader generating vertices, collapse the two barriers around it into one. Need to think about next frame compute/transfer stepping on our toes.
+    // The pipeline barrier shouldn't really be here and should be expressed through a subpass external dependency
         {
             SMemoryBarrier memBarrier;
             memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
@@ -1045,12 +1054,13 @@ public:
 
         cmdbuf->endRenderPass();
 
+        // turn into a subpass external dst dependency
         {
             SMemoryBarrier memBarrier;
             memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_GRAPHICS_BITS;
             memBarrier.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS;
             memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-            memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+            memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS; // TODO: also write bits
             cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
         }
 

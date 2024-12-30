@@ -7,8 +7,9 @@
 
 struct SPressureSolverParams
 {
+    // TODO: DOCS and Semantically sound names!
     float4 coeff1;
-    float4 coeff2;
+    float4 coeff2; // W component is unused
 };
 
 [[vk::binding(b_psGridData, s_ps)]]
@@ -28,6 +29,8 @@ cbuffer PressureSolverParams
 [[vk::binding(b_psDiv, s_ps)]] RWTexture3D<float> divergenceGrid;
 [[vk::binding(b_psPres, s_ps)]] RWTexture3D<float> pressureGrid;
 
+// TODO: make the shared memory arrays, flat arrays so you don't need to call `flatIdxToLocalGridID` !!!!! INTEGER DIVISION!
+// TODO: full 32 bits are not needed to store the cell materials, could be stored in the LSB bits of the pressure and divergence
 groupshared uint sCellMat[14][14][14];
 groupshared float sDivergence[14][14][14];
 groupshared float sPressure[14][14][14];
@@ -93,6 +96,7 @@ void iteratePressureSystem(uint32_t3 ID : SV_DispatchThreadID)
     for (uint virtualIdx = nbl::hlsl::glsl::gl_LocalInvocationIndex();
         virtualIdx < 14 * 14 * 14; virtualIdx += 8 * 8 * 8)
     {
+        // TODO: DO NOT USE THE `flatIdxToLocalGridID` FUNCTION!
         int3 lid = flatIdxToLocalGridID(virtualIdx, 14);
         
         int3 cellIdx = clampToGrid(lid + int3(-3, -3, -3) + gid * WorkgroupGridDim, gridData.gridSize);
@@ -101,6 +105,8 @@ void iteratePressureSystem(uint32_t3 ID : SV_DispatchThreadID)
         sPressure[lid.x][lid.y][lid.z] = pressureGrid[cellIdx];
     }
     GroupMemoryBarrierWithGroupSync();
+
+    // TODO: Undo the unroll, write as two nested `for` (compiler will unroll them anyway)
 
     // do 12x12x12 iteration
     float tmp[6];
@@ -159,6 +165,7 @@ void iteratePressureSystem(uint32_t3 ID : SV_DispatchThreadID)
     pressureGrid[ID] = pressure;
 }
 
+// TODO: why doesn't the last invocation of `iteratePressureSystem` have this step fused into it!? It would be just a simple push constant `isLastIteration` that would decide whether to run this dispatch
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
 void updateVelocities(uint32_t3 ID : SV_DispatchThreadID)
 {

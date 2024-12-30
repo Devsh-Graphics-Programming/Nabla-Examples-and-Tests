@@ -12,6 +12,7 @@ cbuffer GridData
 [[vk::binding(b_abfVelField, s_abf)]] RWTexture3D<float> velocityField[3];
 [[vk::binding(b_abfCM, s_abf)]] RWTexture3D<uint> cellMaterialGrid;
 
+// TODO: can this kernel be fused with any preceeding/succeeding it?
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {

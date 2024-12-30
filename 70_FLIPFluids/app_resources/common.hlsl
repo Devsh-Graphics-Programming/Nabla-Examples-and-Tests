@@ -3,13 +3,16 @@
 
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 
+// TODO: Increase the `WorkgroupSize` to 512
 NBL_CONSTEXPR uint32_t WorkgroupSize = 128;
+// TODO: Use "virtual workgroups" and Morton Code to map the 512 linear above to 8x8x8
 NBL_CONSTEXPR uint32_t WorkgroupGridDim = 8;
 NBL_CONSTEXPR float ratioFLIPPIC = 0.95;
 NBL_CONSTEXPR float deltaTime = 1.0f / 90.0f;
 NBL_CONSTEXPR float gravity = 15.0f;
 
 #ifdef __HLSL_VERSION
+// TODO: don't share this struct with C++
 struct Particle
 {
     float32_t3 position;
