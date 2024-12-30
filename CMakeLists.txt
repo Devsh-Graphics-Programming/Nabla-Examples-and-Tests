@@ -92,7 +92,7 @@ if(NBL_BUILD_EXAMPLES)
 
 	add_subdirectory(67_RayQueryGeometry EXCLUDE_FROM_ALL)
 
-
+  add_subdirectory(70_FLIPFluids EXCLUDE_FROM_ALL)
 
 	NBL_HOOK_COMMON_API("${NBL_COMMON_API_TARGETS}")
 endif()
