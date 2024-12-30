@@ -29,7 +29,6 @@ float4 main(PSInput input, out float depthTest : SV_DEPTHGREATEREQUAL) : SV_TARG
     const float3 lightDir = float3(1, 0.5, 0.5);
     float diffuse = max(0.0, dot(N, lightDir));
     outColor += float4(1, 1, 1, 1) * diffuse;
-    outColor = saturate(outColor);
 
     return outColor;
 }

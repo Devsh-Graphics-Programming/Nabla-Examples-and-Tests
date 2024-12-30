@@ -1414,6 +1414,11 @@ private:
                 options.stage = IShader::E_SHADER_STAGE::ESS_VERTEX;
             options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
             options.spirvOptimizer = nullptr;
+		#ifndef _NBL_DEBUG
+		    ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
+		    auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
+            options.spirvOptimizer = opt.get();
+        #endif
             options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
             options.preprocessorOptions.sourceIdentifier = shaderSrc->getFilepathHint();
             options.preprocessorOptions.logger = m_logger.get();

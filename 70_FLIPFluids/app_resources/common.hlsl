@@ -10,15 +10,12 @@ NBL_CONSTEXPR float deltaTime = 1.0f / 90.0f;
 NBL_CONSTEXPR float gravity = 15.0f;
 
 #ifdef __HLSL_VERSION
-
-static const float FLT_MIN = 1.175494351e-38;
-static const float FLT_MAX = 3.402823466e+38;
-
 struct Particle
 {
     float32_t3 position;
     float32_t3 velocity;
 };
+
 struct SMVPParams
 {
     float4 camPos;

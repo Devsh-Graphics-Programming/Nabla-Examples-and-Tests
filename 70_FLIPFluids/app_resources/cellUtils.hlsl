@@ -1,10 +1,35 @@
 #ifndef _FLIP_EXAMPLE_CELL_UTILS_HLSL
 #define _FLIP_EXAMPLE_CELL_UTILS_HLSL
 
+// Use when the "enum gets accidentally bitcasted to float" DXC bug is gone
+#if 0
+enum/* class*/ CellMaterial : uint16_t
+{
+    CM_SOLID = 0,
+    CM_FLUID = 1,
+    CM_AIR = 2
+};
+#endif
+
 #ifdef __HLSL_VERSION
 static const uint CM_SOLID = 0;
 static const uint CM_FLUID = 1;
 static const uint CM_AIR = 2;
+
+// TODO: Optimize
+// 1) Use a struct with bitfields and initialize (create/static_cast) from uint16_t
+struct SCell
+{
+    uint16_t self : 2;
+    uint16_t xPrev : 2;
+    uint16_t xNext : 2;
+    uint16_t yPrev : 2;
+    uint16_t yNext : 2;
+    uint16_t zPrev : 2;
+    uint16_t zNext : 2;
+};
+// 2) Use r16_uint format for the cell materials
+// 3) move all functions below into methods of struct above
 
 static const uint CellMatMask       = 0x00000003u;
 static const uint CellMatMaskShift  = 0;
