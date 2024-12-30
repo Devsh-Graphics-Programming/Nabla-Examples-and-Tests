@@ -16,20 +16,15 @@ static const uint CM_SOLID = 0;
 static const uint CM_FLUID = 1;
 static const uint CM_AIR = 2;
 
-// TODO: Optimize
-// 1) Use a struct with bitfields and initialize (create/static_cast) from uint16_t
+// TODO: Optimize,the cell material should probably stored in R8_UINT, in a 2x2 pattern, then preloaded into shared memory this way you don't store the x,y,z neighbours and just check in smem
+/*
 struct SCell
 {
-    uint16_t self : 2;
-    uint16_t xPrev : 2;
-    uint16_t xNext : 2;
-    uint16_t yPrev : 2;
-    uint16_t yNext : 2;
-    uint16_t zPrev : 2;
-    uint16_t zNext : 2;
+    CellMaterial data;
 };
-// 2) Use r16_uint format for the cell materials
-// 3) move all functions below into methods of struct above
+*/
+// 1) move all functions below into methods of struct above
+// 2) make a special accessor or something over some provided shared memory that handles accessing neighbours from a larger texture
 
 static const uint CellMatMask       = 0x00000003u;
 static const uint CellMatMaskShift  = 0;

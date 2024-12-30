@@ -6,7 +6,6 @@ struct SParticleRenderParams
     float radius;
     float zNear;
     float zFar;
-    float pad;
 };
 
 struct VertexInfo

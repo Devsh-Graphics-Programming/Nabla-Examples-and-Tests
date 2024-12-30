@@ -264,9 +264,10 @@ public:
         asset::VkExtent3D gridExtent = { m_gridData.gridSize.x, m_gridData.gridSize.y, m_gridData.gridSize.z };
 
         // cell materials
-        createGridTexture(gridCellMaterialImageView, asset::EF_R32_UINT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "cell material0");
-        createGridTexture(tempCellMaterialImageView, asset::EF_R32_UINT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "cell material1");
+        createGridTexture(gridCellMaterialImageView, asset::EF_R16_UINT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "cell material0");
+        createGridTexture(tempCellMaterialImageView, asset::EF_R16_UINT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "cell material1");
 
+        // TODO: What is this texture used for, and why is it 128 bits!?>
         createGridTexture(gridAxisCellMaterialImageView, asset::EF_R32G32B32A32_UINT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "axis cell material0");
         createGridTexture(tempAxisCellMaterialImageView, asset::EF_R32G32B32A32_UINT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "axis cell material1");
 
@@ -389,6 +390,7 @@ public:
                 m_device->updateDescriptorSets(std::span(writes, 1), {});
             }
         }
+        // TODO: get rid of this pipeline!
         {
             // generate particle vertex pipeline
             const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0, .size = 3 * sizeof(uint64_t) };

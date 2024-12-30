@@ -20,6 +20,9 @@ cbuffer GridData
 
 [[vk::binding(b_dCMBuffer, s_d)]] RWTexture3D<uint> cellMaterialBuffer;
 [[vk::binding(b_dVelBuffer, s_d)]] RWTexture3D<float> velocityFieldBuffer[3];
+// THESE ARE HORRIBLY INEFFICIENT DATA STORAGE (each axis cell is 14 bits, gives 42 for 3 axes, not 128)
+// TODO: there's no need for these to be stored at all, can be worked out from `cellMaterialBuffer` entirely in shared memory! Data is only needed during diffusion step!
+// TODO: investigate using a staggered grid, there's something fishy about each axis needing a full XYZ cell!
 [[vk::binding(b_dAxisInBuffer, s_d)]] RWTexture3D<uint4> axisCellMaterialInBuffer;
 [[vk::binding(b_dAxisOutBuffer, s_d)]] RWTexture3D<uint4> axisCellMaterialOutBuffer;
 [[vk::binding(b_dDiffBuffer, s_d)]] RWTexture3D<float4> gridDiffusionBuffer;
