@@ -17,11 +17,12 @@ cbuffer GridData
     SGridData gridData;
 };
 
-[[vk::binding(b_ufcGridPCountBuffer, s_ufc)]]   RWTexture3D<uint> gridParticleCountBuffer;
+[[vk::binding(b_ufcGridPCount, s_ufc)]]   RWTexture3D<uint> gridParticleCount;
 
-[[vk::binding(b_ufcVelBuffer, s_ufc)]]      RWTexture3D<uint> velocityFieldBuffer[3];
-[[vk::binding(b_ufcPrevVelBuffer, s_ufc)]]  RWTexture3D<uint> prevVelocityFieldBuffer[3];
+[[vk::binding(b_ufcVel, s_ufc)]]      RWTexture3D<uint> velocityField[3];
+[[vk::binding(b_ufcPrevVel, s_ufc)]]  RWTexture3D<uint> prevVelocityField[3];
 
+// TODO: use Atomic floats if JIT Device Traits say they exist
 void casAdd(RWTexture3D<uint> grid, int3 idx, float value)
 {
     uint actualValue = 0;
@@ -66,17 +67,18 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
                 float3 velocity = weight * p.velocity;
 
                 // store weighted velocity in velocity buffer
-                casAdd(velocityFieldBuffer[0], cellIdx, velocity.x);
-                casAdd(velocityFieldBuffer[1], cellIdx, velocity.y);
-                casAdd(velocityFieldBuffer[2], cellIdx, velocity.z);
+                casAdd(velocityField[0], cellIdx, velocity.x);
+                casAdd(velocityField[1], cellIdx, velocity.y);
+                casAdd(velocityField[2], cellIdx, velocity.z);
 
                 // store total weight in prev velocity buffer
-                casAdd(prevVelocityFieldBuffer[0], cellIdx, weight.x);
-                casAdd(prevVelocityFieldBuffer[1], cellIdx, weight.y);
-                casAdd(prevVelocityFieldBuffer[2], cellIdx, weight.z);
+                casAdd(prevVelocityField[0], cellIdx, weight.x);
+                casAdd(prevVelocityField[1], cellIdx, weight.y);
+                casAdd(prevVelocityField[2], cellIdx, weight.z);
             }
         }
     }
 
-    InterlockedAdd(gridParticleCountBuffer[cIdx], 1);
+    // TODO: no sorting anymore, can just move to performing atomic OR on the cellMaterial image directly
+    InterlockedAdd(gridParticleCount[cIdx], 1);
 }

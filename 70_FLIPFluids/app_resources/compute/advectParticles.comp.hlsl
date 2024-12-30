@@ -16,8 +16,8 @@ cbuffer GridData
     SGridData gridData;
 };
 
-[[vk::binding(b_apVelFieldBuffer, s_ap)]] Texture3D<float> velocityFieldBuffer[3];
-[[vk::binding(b_apPrevVelFieldBuffer, s_ap)]] Texture3D<float> prevVelocityFieldBuffer[3];
+[[vk::binding(b_apVelField, s_ap)]] Texture3D<float> velocityField[3];
+[[vk::binding(b_apPrevVelField, s_ap)]] Texture3D<float> prevVelocityField[3];
 [[vk::binding(b_apVelSampler, s_ap)]] SamplerState velocityFieldSampler;
 
 // delta time push constant?
@@ -33,8 +33,8 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     p.velocity = vk::RawBufferLoad<float32_t3>(pc.particleVelAddress + offset);
 
     // advect velocity
-    float3 gridPrevVel = sampleVelocityAt(p.position, prevVelocityFieldBuffer, velocityFieldSampler, gridData);
-    float3 gridVel = sampleVelocityAt(p.position, velocityFieldBuffer, velocityFieldSampler, gridData);
+    float3 gridPrevVel = sampleVelocityAt(p.position, prevVelocityField, velocityFieldSampler, gridData);
+    float3 gridVel = sampleVelocityAt(p.position, velocityField, velocityFieldSampler, gridData);
 
     float3 picVel = gridVel;
     float3 flipVel = p.velocity + gridVel - gridPrevVel;
@@ -43,9 +43,9 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
     // move particle, use RK4
     float3 k1 = gridVel;
-    float3 k2 = sampleVelocityAt(p.position + k1 * 0.5f * deltaTime, velocityFieldBuffer, velocityFieldSampler, gridData);
-    float3 k3 = sampleVelocityAt(p.position + k2 * 0.5f * deltaTime, velocityFieldBuffer, velocityFieldSampler, gridData);
-    float3 k4 = sampleVelocityAt(p.position + k3 * deltaTime, velocityFieldBuffer, velocityFieldSampler, gridData);
+    float3 k2 = sampleVelocityAt(p.position + k1 * 0.5f * deltaTime, velocityField, velocityFieldSampler, gridData);
+    float3 k3 = sampleVelocityAt(p.position + k2 * 0.5f * deltaTime, velocityField, velocityFieldSampler, gridData);
+    float3 k4 = sampleVelocityAt(p.position + k3 * deltaTime, velocityField, velocityFieldSampler, gridData);
     float3 velocity = (k1 + 2.0f * k2 + 2.0f * k3 + k4) / 6.0f;
 
     p.position += velocity * deltaTime;

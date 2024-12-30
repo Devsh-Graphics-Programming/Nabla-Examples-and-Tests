@@ -18,14 +18,14 @@ cbuffer GridData
     SGridData gridData;
 };
 
-[[vk::binding(b_dCMBuffer, s_d)]] RWTexture3D<uint> cellMaterialBuffer;
-[[vk::binding(b_dVelBuffer, s_d)]] RWTexture3D<float> velocityFieldBuffer[3];
+[[vk::binding(b_dCM, s_d)]] RWTexture3D<uint> cellMaterialGrid;
+[[vk::binding(b_dVel, s_d)]] RWTexture3D<float> velocityField[3];
 // THESE ARE HORRIBLY INEFFICIENT DATA STORAGE (each axis cell is 14 bits, gives 42 for 3 axes, not 128)
-// TODO: there's no need for these to be stored at all, can be worked out from `cellMaterialBuffer` entirely in shared memory! Data is only needed during diffusion step!
+// TODO: there's no need for these to be stored at all, can be worked out from `cellMaterial` entirely in shared memory! Data is only needed during diffusion step!
 // TODO: investigate using a staggered grid, there's something fishy about each axis needing a full XYZ cell!
-[[vk::binding(b_dAxisInBuffer, s_d)]] RWTexture3D<uint4> axisCellMaterialInBuffer;
-[[vk::binding(b_dAxisOutBuffer, s_d)]] RWTexture3D<uint4> axisCellMaterialOutBuffer;
-[[vk::binding(b_dDiffBuffer, s_d)]] RWTexture3D<float4> gridDiffusionBuffer;
+[[vk::binding(b_dAxisIn, s_d)]] RWTexture3D<uint4> axisCellMaterialIn;
+[[vk::binding(b_dAxisOut, s_d)]] RWTexture3D<uint4> axisCellMaterialOut;
+[[vk::binding(b_dDiff, s_d)]] RWTexture3D<float4> gridDiffusion;
 
 groupshared uint16_t3 sAxisCellMat[14][14][14];
 groupshared float16_t3 sDiffusion[14][14][14];
@@ -35,7 +35,7 @@ void setAxisCellMaterial(uint32_t3 ID : SV_DispatchThreadID)
 {
     int3 cellIdx = ID;
 
-    uint cellMaterial = cellMaterialBuffer[cellIdx];
+    uint cellMaterial = cellMaterialGrid[cellIdx];
 
     uint this_cm = getCellMaterial(cellMaterial);
     uint xp_cm = getXPrevMaterial(cellMaterial);
@@ -59,7 +59,7 @@ void setAxisCellMaterial(uint32_t3 ID : SV_DispatchThreadID)
     uint3 cmAxisTypes = 0;
     setCellMaterial(cmAxisTypes, cellAxisType);
 
-    axisCellMaterialOutBuffer[cellIdx].xyz = cmAxisTypes;
+    axisCellMaterialOut[cellIdx].xyz = cmAxisTypes;
 }
 
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
@@ -68,28 +68,28 @@ void setNeighborAxisCellMaterial(uint32_t3 ID : SV_DispatchThreadID)
     int3 cellIdx = ID;
 
     uint3 axisCm = (uint3)0;
-    uint3 this_axiscm = getCellMaterial(axisCellMaterialInBuffer[cellIdx].xyz);
+    uint3 this_axiscm = getCellMaterial(axisCellMaterialIn[cellIdx].xyz);
     setCellMaterial(axisCm, this_axiscm);
 
-    uint3 xp_axiscm = cellIdx.x == 0 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialInBuffer[clampToGrid(cellIdx + int3(-1, 0, 0), gridData.gridSize)].xyz);
+    uint3 xp_axiscm = cellIdx.x == 0 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialIn[clampToGrid(cellIdx + int3(-1, 0, 0), gridData.gridSize)].xyz);
     setXPrevMaterial(axisCm, xp_axiscm);
 
-    uint3 xn_axiscm = cellIdx.x == gridData.gridSize.x - 1 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialInBuffer[clampToGrid(cellIdx + int3(1, 0, 0), gridData.gridSize)].xyz);
+    uint3 xn_axiscm = cellIdx.x == gridData.gridSize.x - 1 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialIn[clampToGrid(cellIdx + int3(1, 0, 0), gridData.gridSize)].xyz);
     setXNextMaterial(axisCm, xn_axiscm);
 
-    uint3 yp_axiscm = cellIdx.y == 0 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialInBuffer[clampToGrid(cellIdx + int3(0, -1, 0), gridData.gridSize)].xyz);
+    uint3 yp_axiscm = cellIdx.y == 0 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialIn[clampToGrid(cellIdx + int3(0, -1, 0), gridData.gridSize)].xyz);
     setYPrevMaterial(axisCm, yp_axiscm);
 
-    uint3 yn_axiscm = cellIdx.y == gridData.gridSize.y - 1 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialInBuffer[clampToGrid(cellIdx + int3(0, 1, 0), gridData.gridSize)].xyz);
+    uint3 yn_axiscm = cellIdx.y == gridData.gridSize.y - 1 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialIn[clampToGrid(cellIdx + int3(0, 1, 0), gridData.gridSize)].xyz);
     setYNextMaterial(axisCm, yn_axiscm);
 
-    uint3 zp_axiscm = cellIdx.z == 0 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialInBuffer[clampToGrid(cellIdx + int3(0, 0, -1), gridData.gridSize)].xyz);
+    uint3 zp_axiscm = cellIdx.z == 0 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialIn[clampToGrid(cellIdx + int3(0, 0, -1), gridData.gridSize)].xyz);
     setZPrevMaterial(axisCm, zp_axiscm);
 
-    uint3 zn_axiscm = cellIdx.z == gridData.gridSize.z - 1 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialInBuffer[clampToGrid(cellIdx + int3(0, 0, 1), gridData.gridSize)].xyz);
+    uint3 zn_axiscm = cellIdx.z == gridData.gridSize.z - 1 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialIn[clampToGrid(cellIdx + int3(0, 0, 1), gridData.gridSize)].xyz);
     setZNextMaterial(axisCm, zn_axiscm);
 
-    axisCellMaterialOutBuffer[cellIdx].xyz = axisCm;
+    axisCellMaterialOut[cellIdx].xyz = axisCm;
 }
 
 float3 calculateDiffusionVelStep(int3 idx, float3 sampledVelocity, uint cellMaterial)
@@ -129,11 +129,11 @@ void iterateDiffusion(uint32_t3 ID : SV_DispatchThreadID)
     int3 cellIdx = ID;
 
     float3 sampledVel;
-    sampledVel.x = velocityFieldBuffer[0][cellIdx];
-    sampledVel.y = velocityFieldBuffer[1][cellIdx];
-    sampledVel.z = velocityFieldBuffer[2][cellIdx];
+    sampledVel.x = velocityField[0][cellIdx];
+    sampledVel.y = velocityField[1][cellIdx];
+    sampledVel.z = velocityField[2][cellIdx];
 
-    uint cellMaterial = cellMaterialBuffer[cellIdx];
+    uint cellMaterial = cellMaterialGrid[cellIdx];
 
     // load shared mem
     for (uint virtualIdx = nbl::hlsl::glsl::gl_LocalInvocationIndex();
@@ -142,8 +142,8 @@ void iterateDiffusion(uint32_t3 ID : SV_DispatchThreadID)
         int3 lid = flatIdxToLocalGridID(virtualIdx, 14);
         
         int3 cellIdx = clampToGrid(lid + int3(-3, -3, -3) + gid * WorkgroupGridDim, gridData.gridSize);
-        sAxisCellMat[lid.x][lid.y][lid.z] = uint16_t3(axisCellMaterialInBuffer[cellIdx].xyz);
-        sDiffusion[lid.x][lid.y][lid.z] = float16_t3(gridDiffusionBuffer[cellIdx].xyz);
+        sAxisCellMat[lid.x][lid.y][lid.z] = uint16_t3(axisCellMaterialIn[cellIdx].xyz);
+        sDiffusion[lid.x][lid.y][lid.z] = float16_t3(gridDiffusion[cellIdx].xyz);
     }
     GroupMemoryBarrierWithGroupSync();
 
@@ -199,7 +199,7 @@ void iterateDiffusion(uint32_t3 ID : SV_DispatchThreadID)
     lid += int3(3, 3, 3);
 
     float3 velocity = calculateDiffusionVelStep(lid, sampledVel, cellMaterial);
-    gridDiffusionBuffer[cellIdx].xyz = velocity;
+    gridDiffusion[cellIdx].xyz = velocity;
 }
 
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
@@ -207,43 +207,43 @@ void applyDiffusion(uint32_t3 ID : SV_DispatchThreadID)
 {
     int3 cellIdx = ID;
 
-    uint3 axisCm = axisCellMaterialInBuffer[cellIdx].xyz;
+    uint3 axisCm = axisCellMaterialIn[cellIdx].xyz;
     float3 velocity = (float3)0;
 
-    float3 diff = gridDiffusionBuffer[cellIdx].xyz;
+    float3 diff = gridDiffusion[cellIdx].xyz;
     float3 xp_diff = select(isFluidCell(getXPrevMaterial(axisCm)),
-        gridDiffusionBuffer[clampToGrid(cellIdx + int3(-1, 0, 0), gridData.gridSize)].xyz, diff);
+        gridDiffusion[clampToGrid(cellIdx + int3(-1, 0, 0), gridData.gridSize)].xyz, diff);
     velocity += pc.diffusionParameters.x * xp_diff;
 
     float3 xn_diff = select(isFluidCell(getXNextMaterial(axisCm)),
-        gridDiffusionBuffer[clampToGrid(cellIdx + int3(1, 0, 0), gridData.gridSize)].xyz, diff);
+        gridDiffusion[clampToGrid(cellIdx + int3(1, 0, 0), gridData.gridSize)].xyz, diff);
     velocity += pc.diffusionParameters.x * xn_diff;
 
     float3 yp_diff = select(isFluidCell(getYPrevMaterial(axisCm)),
-        gridDiffusionBuffer[clampToGrid(cellIdx + int3(0, -1, 0), gridData.gridSize)].xyz, diff);
+        gridDiffusion[clampToGrid(cellIdx + int3(0, -1, 0), gridData.gridSize)].xyz, diff);
     velocity += pc.diffusionParameters.y * yp_diff;
 
     float3 yn_diff = select(isFluidCell(getYNextMaterial(axisCm)),
-        gridDiffusionBuffer[clampToGrid(cellIdx + int3(0, 1, 0), gridData.gridSize)].xyz, diff);
+        gridDiffusion[clampToGrid(cellIdx + int3(0, 1, 0), gridData.gridSize)].xyz, diff);
     velocity += pc.diffusionParameters.y * yn_diff;
 
     float3 zp_diff = select(isFluidCell(getZPrevMaterial(axisCm)),
-        gridDiffusionBuffer[clampToGrid(cellIdx + int3(0, 0, -1), gridData.gridSize)].xyz, diff);
+        gridDiffusion[clampToGrid(cellIdx + int3(0, 0, -1), gridData.gridSize)].xyz, diff);
     velocity += pc.diffusionParameters.z * zp_diff;
 
     float3 zn_diff = select(isFluidCell(getZNextMaterial(axisCm)),
-        gridDiffusionBuffer[clampToGrid(cellIdx + int3(0, 0, 1), gridData.gridSize)].xyz, diff);
+        gridDiffusion[clampToGrid(cellIdx + int3(0, 0, 1), gridData.gridSize)].xyz, diff);
     velocity += pc.diffusionParameters.z * zn_diff;
 
     float3 sampledVel;
-    sampledVel.x = velocityFieldBuffer[0][cellIdx];
-    sampledVel.y = velocityFieldBuffer[1][cellIdx];
-    sampledVel.z = velocityFieldBuffer[2][cellIdx];
+    sampledVel.x = velocityField[0][cellIdx];
+    sampledVel.y = velocityField[1][cellIdx];
+    sampledVel.z = velocityField[2][cellIdx];
     velocity += pc.diffusionParameters.w * sampledVel;
 
-    enforceBoundaryCondition(velocity, cellMaterialBuffer[cellIdx]);
+    enforceBoundaryCondition(velocity, cellMaterialGrid[cellIdx]);
 
-    velocityFieldBuffer[0][cellIdx] = velocity.x;
-    velocityFieldBuffer[1][cellIdx] = velocity.y;
-    velocityFieldBuffer[2][cellIdx] = velocity.z;
+    velocityField[0][cellIdx] = velocity.x;
+    velocityField[1][cellIdx] = velocity.y;
+    velocityField[2][cellIdx] = velocity.z;
 }

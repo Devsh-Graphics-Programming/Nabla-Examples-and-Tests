@@ -4,6 +4,10 @@
 #include "../render_common.hlsl"
 #include "../descriptor_bindings.hlsl"
 
+
+// TODO: this whole shader needs to disappear!
+// One can just compute `offset` on line 61 from `gl_InstanceIndex` and `i` from `gl_VertexIndex&0b11u`
+// Sure it leads to redundant computation of everything before the `for` loop but no bandwidth consumed and no extra compute dispatch
 struct SPushConstants
 {
     uint64_t particlePosAddress;
@@ -24,6 +28,7 @@ cbuffer ParticleParams
 {
     SParticleRenderParams pParams;
 };
+
 
 static const uint vertexOrder[6] = {0, 1, 2, 2, 1, 3};
 

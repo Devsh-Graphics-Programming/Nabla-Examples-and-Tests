@@ -1,6 +1,8 @@
 #include "common.hlsl"
 #include "render_common.hlsl"
 
+// TODO: move the Compute Shader that generates vertices into this!
+// Also do an indexed draw
 struct SPushConstants
 {
     uint64_t particleVerticesAddress;

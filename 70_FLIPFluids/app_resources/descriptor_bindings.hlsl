@@ -51,11 +51,11 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding gpvGenVertices_bs1[] = {
 // updateFluidCells
 NBL_CONSTEXPR uint32_t s_ufc = 1;
 NBL_CONSTEXPR uint32_t b_ufcGridData = 0;
-NBL_CONSTEXPR uint32_t b_ufcGridPCountBuffer = 1;
-NBL_CONSTEXPR uint32_t b_ufcCMInBuffer = 2;
-NBL_CONSTEXPR uint32_t b_ufcCMOutBuffer = 3;
-NBL_CONSTEXPR uint32_t b_ufcVelBuffer = 4;
-NBL_CONSTEXPR uint32_t b_ufcPrevVelBuffer = 5;
+NBL_CONSTEXPR uint32_t b_ufcGridPCount = 1;
+NBL_CONSTEXPR uint32_t b_ufcCMIn = 2;
+NBL_CONSTEXPR uint32_t b_ufcCMOut = 3;
+NBL_CONSTEXPR uint32_t b_ufcVel = 4;
+NBL_CONSTEXPR uint32_t b_ufcPrevVel = 5;
 
 #ifndef __HLSL_VERSION
 NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding ufcAccWeights_bs1[] = {
@@ -67,21 +67,21 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding ufcAccWeights_bs1[] = {
         .count = 1,
     },
     {
-        .binding = b_ufcGridPCountBuffer,
+        .binding = b_ufcGridPCount,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,
     },
     {
-        .binding = b_ufcVelBuffer,
+        .binding = b_ufcVel,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 3,
     },
     {
-        .binding = b_ufcPrevVelBuffer,
+        .binding = b_ufcPrevVel,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
@@ -97,14 +97,14 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding ufcFluidCell_bs1[] = {
         .count = 1,
     },
     {
-        .binding = b_ufcGridPCountBuffer,
+        .binding = b_ufcGridPCount,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,
     },
     {
-        .binding = b_ufcCMOutBuffer,
+        .binding = b_ufcCMOut,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
@@ -120,28 +120,28 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding ufcNeighborCell_bs1[] = {
         .count = 1,
     },
     {
-        .binding = b_ufcCMInBuffer,
+        .binding = b_ufcCMIn,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,
     },
     {
-        .binding = b_ufcCMOutBuffer,
+        .binding = b_ufcCMOut,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,
     },
     {
-        .binding = b_ufcVelBuffer,
+        .binding = b_ufcVel,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 3,
     },
     {
-        .binding = b_ufcPrevVelBuffer,
+        .binding = b_ufcPrevVel,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
@@ -153,8 +153,8 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding ufcNeighborCell_bs1[] = {
 // applyBodyForces
 NBL_CONSTEXPR uint32_t s_abf = 1;
 NBL_CONSTEXPR uint32_t b_abfGridData = 0;
-NBL_CONSTEXPR uint32_t b_abfVelFieldBuffer = 1;
-NBL_CONSTEXPR uint32_t b_abfCMBuffer = 2;
+NBL_CONSTEXPR uint32_t b_abfVelField = 1;
+NBL_CONSTEXPR uint32_t b_abfCM = 2;
 
 #ifndef __HLSL_VERSION
 NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding abfApplyForces_bs1[] = {
@@ -166,14 +166,14 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding abfApplyForces_bs1[] = {
         .count = 1,
     },
     {
-        .binding = b_abfVelFieldBuffer,
+        .binding = b_abfVelField,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 3,
     },
     {
-        .binding = b_abfCMBuffer,
+        .binding = b_abfCM,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
@@ -185,11 +185,11 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding abfApplyForces_bs1[] = {
 // diffusion
 NBL_CONSTEXPR uint32_t s_d = 1;
 NBL_CONSTEXPR uint32_t b_dGridData = 0;
-NBL_CONSTEXPR uint32_t b_dCMBuffer = 1;
-NBL_CONSTEXPR uint32_t b_dVelBuffer = 2;
-NBL_CONSTEXPR uint32_t b_dAxisInBuffer = 3;
-NBL_CONSTEXPR uint32_t b_dAxisOutBuffer = 4;
-NBL_CONSTEXPR uint32_t b_dDiffBuffer = 5;
+NBL_CONSTEXPR uint32_t b_dCM = 1;
+NBL_CONSTEXPR uint32_t b_dVel = 2;
+NBL_CONSTEXPR uint32_t b_dAxisIn = 3;
+NBL_CONSTEXPR uint32_t b_dAxisOut = 4;
+NBL_CONSTEXPR uint32_t b_dDiff = 5;
 
 #ifndef __HLSL_VERSION
 NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding dAxisCM_bs1[] = {
@@ -201,14 +201,14 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding dAxisCM_bs1[] = {
         .count = 1,
     },
     {
-        .binding = b_dCMBuffer,
+        .binding = b_dCM,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,
     },
     {
-        .binding = b_dAxisOutBuffer,
+        .binding = b_dAxisOut,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
@@ -224,14 +224,14 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding dNeighborAxisCM_bs1[] = {
         .count = 1,
     },
     {
-        .binding = b_dAxisInBuffer,
+        .binding = b_dAxisIn,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,
     },
     {
-        .binding = b_dAxisOutBuffer,
+        .binding = b_dAxisOut,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
@@ -247,28 +247,28 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding dDiffuse_bs1[] = {
         .count = 1,
     },
     {
-        .binding = b_dCMBuffer,
+        .binding = b_dCM,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,
     },
     {
-        .binding = b_dVelBuffer,
+        .binding = b_dVel,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 3,
     },
     {
-        .binding = b_dAxisInBuffer,
+        .binding = b_dAxisIn,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,
     },
     {
-        .binding = b_dDiffBuffer,
+        .binding = b_dDiff,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
@@ -281,10 +281,10 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding dDiffuse_bs1[] = {
 NBL_CONSTEXPR uint32_t s_ps = 1;
 NBL_CONSTEXPR uint32_t b_psGridData = 0;
 NBL_CONSTEXPR uint32_t b_psParams = 1;
-NBL_CONSTEXPR uint32_t b_psCMBuffer = 2;
-NBL_CONSTEXPR uint32_t b_psVelBuffer = 3;
-NBL_CONSTEXPR uint32_t b_psDivBuffer = 4;
-NBL_CONSTEXPR uint32_t b_psPresBuffer = 5;
+NBL_CONSTEXPR uint32_t b_psCM = 2;
+NBL_CONSTEXPR uint32_t b_psVel = 3;
+NBL_CONSTEXPR uint32_t b_psDiv = 4;
+NBL_CONSTEXPR uint32_t b_psPres = 5;
 
 #ifndef __HLSL_VERSION
 NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding psDivergence_bs1[] = {
@@ -296,21 +296,21 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding psDivergence_bs1[] = {
         .count = 1,
     },
     {
-        .binding = b_psCMBuffer,
+        .binding = b_psCM,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,
     },
     {
-        .binding = b_psVelBuffer,
+        .binding = b_psVel,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 3,
     },
     {
-        .binding = b_psDivBuffer,
+        .binding = b_psDiv,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
@@ -333,21 +333,21 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding psIteratePressure_bs1[] = {
         .count = 1,
     },
     {
-        .binding = b_psCMBuffer,
+        .binding = b_psCM,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,
     },
     {
-        .binding = b_psDivBuffer,
+        .binding = b_psDiv,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,
     },
     {
-        .binding = b_psPresBuffer,
+        .binding = b_psPres,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
@@ -370,21 +370,21 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding psUpdateVelPs_bs1[] = {
         .count = 1,
     },
     {
-        .binding = b_psCMBuffer,
+        .binding = b_psCM,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 1,
     },
     {
-        .binding = b_psVelBuffer,
+        .binding = b_psVel,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 3,
     },
     {
-        .binding = b_psPresBuffer,
+        .binding = b_psPres,
         .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
@@ -396,8 +396,8 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding psUpdateVelPs_bs1[] = {
 // advectParticles
 NBL_CONSTEXPR uint32_t s_ap = 1;
 NBL_CONSTEXPR uint32_t b_apGridData = 0;
-NBL_CONSTEXPR uint32_t b_apVelFieldBuffer = 1;
-NBL_CONSTEXPR uint32_t b_apPrevVelFieldBuffer = 2;
+NBL_CONSTEXPR uint32_t b_apVelField = 1;
+NBL_CONSTEXPR uint32_t b_apPrevVelField = 2;
 NBL_CONSTEXPR uint32_t b_apVelSampler = 3;
 
 #ifndef __HLSL_VERSION
@@ -410,14 +410,14 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding apAdvectParticles_bs1[] = {
         .count = 1,
     },
     {
-        .binding = b_apVelFieldBuffer,
+        .binding = b_apVelField,
         .type = asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
         .count = 3,
     },
     {
-        .binding = b_apPrevVelFieldBuffer,
+        .binding = b_apPrevVelField,
         .type = asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
         .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
         .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,

@@ -9,8 +9,8 @@ cbuffer GridData
     SGridData gridData;
 };
 
-[[vk::binding(b_abfVelFieldBuffer, s_abf)]] RWTexture3D<float> velocityFieldBuffer[3];
-[[vk::binding(b_abfCMBuffer, s_abf)]] RWTexture3D<uint> cellMaterialBuffer;
+[[vk::binding(b_abfVelField, s_abf)]] RWTexture3D<float> velocityField[3];
+[[vk::binding(b_abfCM, s_abf)]] RWTexture3D<uint> cellMaterialGrid;
 
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
 void main(uint32_t3 ID : SV_DispatchThreadID)
@@ -19,15 +19,15 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     int3 cIdx = ID;
 
     float3 velocity;
-    velocity.x = velocityFieldBuffer[0][cIdx];
-    velocity.y = velocityFieldBuffer[1][cIdx];
-    velocity.z = velocityFieldBuffer[2][cIdx];
+    velocity.x = velocityField[0][cIdx];
+    velocity.y = velocityField[1][cIdx];
+    velocity.z = velocityField[2][cIdx];
 
     velocity += float3(0, -1, 0) * gravity * deltaTime;
 
-    enforceBoundaryCondition(velocity, cellMaterialBuffer[cIdx]);
+    enforceBoundaryCondition(velocity, cellMaterialGrid[cIdx]);
 
-    velocityFieldBuffer[0][cIdx] = velocity.x;
-    velocityFieldBuffer[1][cIdx] = velocity.y;
-    velocityFieldBuffer[2][cIdx] = velocity.z;
+    velocityField[0][cIdx] = velocity.x;
+    velocityField[1][cIdx] = velocity.y;
+    velocityField[2][cIdx] = velocity.z;
 }

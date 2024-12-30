@@ -448,9 +448,9 @@ public:
 
                 IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
                     {.dstSet = m_accumulateWeightsDs.get(), .binding = b_ufcGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-                    {.dstSet = m_accumulateWeightsDs.get(), .binding = b_ufcGridPCountBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
-                    {.dstSet = m_accumulateWeightsDs.get(), .binding = b_ufcVelBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
-                    {.dstSet = m_accumulateWeightsDs.get(), .binding = b_ufcPrevVelBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel1},
+                    {.dstSet = m_accumulateWeightsDs.get(), .binding = b_ufcGridPCount, .arrayElement = 0, .count = 1, .info = &infos[1]},
+                    {.dstSet = m_accumulateWeightsDs.get(), .binding = b_ufcVel, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
+                    {.dstSet = m_accumulateWeightsDs.get(), .binding = b_ufcPrevVel, .arrayElement = 0, .count = 3, .info = imgInfosVel1},
                 };
                 m_device->updateDescriptorSets(std::span(writes, 4), {});
             }
@@ -471,8 +471,8 @@ public:
                 infos[2].info.combinedImageSampler.sampler = nullptr;
                 IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
                     {.dstSet = m_updateFluidCellsDs.get(), .binding = b_ufcGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-                    {.dstSet = m_updateFluidCellsDs.get(), .binding = b_ufcGridPCountBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
-                    {.dstSet = m_updateFluidCellsDs.get(), .binding = b_ufcCMOutBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
+                    {.dstSet = m_updateFluidCellsDs.get(), .binding = b_ufcGridPCount, .arrayElement = 0, .count = 1, .info = &infos[1]},
+                    {.dstSet = m_updateFluidCellsDs.get(), .binding = b_ufcCMOut, .arrayElement = 0, .count = 1, .info = &infos[2]},
                 };
                 m_device->updateDescriptorSets(std::span(writes, 3), {});
             }
@@ -516,10 +516,10 @@ public:
 
                 IGPUDescriptorSet::SWriteDescriptorSet writes[5] = {
                     {.dstSet = m_updateNeighborCellsDs.get(), .binding = b_ufcGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-                    {.dstSet = m_updateNeighborCellsDs.get(), .binding = b_ufcCMInBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
-                    {.dstSet = m_updateNeighborCellsDs.get(), .binding = b_ufcCMOutBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
-                    {.dstSet = m_updateNeighborCellsDs.get(), .binding = b_ufcVelBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
-                    {.dstSet = m_updateNeighborCellsDs.get(), .binding = b_ufcPrevVelBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel1},
+                    {.dstSet = m_updateNeighborCellsDs.get(), .binding = b_ufcCMIn, .arrayElement = 0, .count = 1, .info = &infos[1]},
+                    {.dstSet = m_updateNeighborCellsDs.get(), .binding = b_ufcCMOut, .arrayElement = 0, .count = 1, .info = &infos[2]},
+                    {.dstSet = m_updateNeighborCellsDs.get(), .binding = b_ufcVel, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
+                    {.dstSet = m_updateNeighborCellsDs.get(), .binding = b_ufcPrevVel, .arrayElement = 0, .count = 3, .info = imgInfosVel1},
                 };
                 m_device->updateDescriptorSets(std::span(writes, 5), {});
             }
@@ -550,8 +550,8 @@ public:
 
                 IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
                     {.dstSet = m_applyForcesDs.get(), .binding = b_abfGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-                    {.dstSet = m_applyForcesDs.get(), .binding = b_abfVelFieldBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
-                    {.dstSet = m_applyForcesDs.get(), .binding = b_abfCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
+                    {.dstSet = m_applyForcesDs.get(), .binding = b_abfVelField, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
+                    {.dstSet = m_applyForcesDs.get(), .binding = b_abfCM, .arrayElement = 0, .count = 1, .info = &infos[1]},
                 };
                 m_device->updateDescriptorSets(std::span(writes, 3), {});
             }
@@ -573,8 +573,8 @@ public:
                 infos[2].info.combinedImageSampler.sampler = nullptr;
                 IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
                     {.dstSet = m_axisCellsDs.get(), .binding = b_dGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-                    {.dstSet = m_axisCellsDs.get(), .binding = b_dCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
-                    {.dstSet = m_axisCellsDs.get(), .binding = b_dAxisOutBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
+                    {.dstSet = m_axisCellsDs.get(), .binding = b_dCM, .arrayElement = 0, .count = 1, .info = &infos[1]},
+                    {.dstSet = m_axisCellsDs.get(), .binding = b_dAxisOut, .arrayElement = 0, .count = 1, .info = &infos[2]},
                 };
                 m_device->updateDescriptorSets(std::span(writes, 3), {});
             }
@@ -595,8 +595,8 @@ public:
                 infos[2].info.combinedImageSampler.sampler = nullptr;
                 IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
                     {.dstSet = m_neighborAxisCellsDs.get(), .binding = b_dGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-                    {.dstSet = m_neighborAxisCellsDs.get(), .binding = b_dAxisInBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
-                    {.dstSet = m_neighborAxisCellsDs.get(), .binding = b_dAxisOutBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
+                    {.dstSet = m_neighborAxisCellsDs.get(), .binding = b_dAxisIn, .arrayElement = 0, .count = 1, .info = &infos[1]},
+                    {.dstSet = m_neighborAxisCellsDs.get(), .binding = b_dAxisOut, .arrayElement = 0, .count = 1, .info = &infos[2]},
                 };
                 m_device->updateDescriptorSets(std::span(writes, 3), {});
             }
@@ -665,10 +665,10 @@ public:
 
                 IGPUDescriptorSet::SWriteDescriptorSet writes[5] = {
                     {.dstSet = m_diffusionDs.get(), .binding = b_dGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-                    {.dstSet = m_diffusionDs.get(), .binding = b_dCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
-                    {.dstSet = m_diffusionDs.get(), .binding = b_dVelBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
-                    {.dstSet = m_diffusionDs.get(), .binding = b_dAxisInBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
-                    {.dstSet = m_diffusionDs.get(), .binding = b_dDiffBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]}
+                    {.dstSet = m_diffusionDs.get(), .binding = b_dCM, .arrayElement = 0, .count = 1, .info = &infos[1]},
+                    {.dstSet = m_diffusionDs.get(), .binding = b_dVel, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
+                    {.dstSet = m_diffusionDs.get(), .binding = b_dAxisIn, .arrayElement = 0, .count = 1, .info = &infos[2]},
+                    {.dstSet = m_diffusionDs.get(), .binding = b_dDiff, .arrayElement = 0, .count = 1, .info = &infos[3]}
                 };
                 m_device->updateDescriptorSets(std::span(writes, 5), {});
             }
@@ -702,9 +702,9 @@ public:
 
                 IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
                     {.dstSet = m_calcDivergenceDs.get(), .binding = b_psGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-                    {.dstSet = m_calcDivergenceDs.get(), .binding = b_psCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
-                    {.dstSet = m_calcDivergenceDs.get(), .binding = b_psVelBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
-                    {.dstSet = m_calcDivergenceDs.get(), .binding = b_psDivBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
+                    {.dstSet = m_calcDivergenceDs.get(), .binding = b_psCM, .arrayElement = 0, .count = 1, .info = &infos[1]},
+                    {.dstSet = m_calcDivergenceDs.get(), .binding = b_psVel, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
+                    {.dstSet = m_calcDivergenceDs.get(), .binding = b_psDiv, .arrayElement = 0, .count = 1, .info = &infos[2]},
                 };
                 m_device->updateDescriptorSets(std::span(writes, 4), {});
             }
@@ -731,9 +731,9 @@ public:
                 IGPUDescriptorSet::SWriteDescriptorSet writes[5] = {
                     {.dstSet = m_iteratePressureDs.get(), .binding = b_psGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
                     {.dstSet = m_iteratePressureDs.get(), .binding = b_psParams, .arrayElement = 0, .count = 1, .info = &infos[1]},
-                    {.dstSet = m_iteratePressureDs.get(), .binding = b_psCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
-                    {.dstSet = m_iteratePressureDs.get(), .binding = b_psDivBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
-                    {.dstSet = m_iteratePressureDs.get(), .binding = b_psPresBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
+                    {.dstSet = m_iteratePressureDs.get(), .binding = b_psCM, .arrayElement = 0, .count = 1, .info = &infos[2]},
+                    {.dstSet = m_iteratePressureDs.get(), .binding = b_psDiv, .arrayElement = 0, .count = 1, .info = &infos[3]},
+                    {.dstSet = m_iteratePressureDs.get(), .binding = b_psPres, .arrayElement = 0, .count = 1, .info = &infos[4]},
                 };
                 m_device->updateDescriptorSets(std::span(writes, 5), {});
             }
@@ -769,9 +769,9 @@ public:
                 IGPUDescriptorSet::SWriteDescriptorSet writes[5] = {
                     {.dstSet = m_updateVelPsDs.get(), .binding = b_psGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
                     {.dstSet = m_updateVelPsDs.get(), .binding = b_psParams, .arrayElement = 0, .count = 1, .info = &infos[1]},
-                    {.dstSet = m_updateVelPsDs.get(), .binding = b_psCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
-                    {.dstSet = m_updateVelPsDs.get(), .binding = b_psVelBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
-                    {.dstSet = m_updateVelPsDs.get(), .binding = b_psPresBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
+                    {.dstSet = m_updateVelPsDs.get(), .binding = b_psCM, .arrayElement = 0, .count = 1, .info = &infos[2]},
+                    {.dstSet = m_updateVelPsDs.get(), .binding = b_psVel, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
+                    {.dstSet = m_updateVelPsDs.get(), .binding = b_psPres, .arrayElement = 0, .count = 1, .info = &infos[3]},
                 };
                 m_device->updateDescriptorSets(std::span(writes, 5), {});
             }
@@ -812,8 +812,8 @@ public:
 
                 IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
                     {.dstSet = m_advectParticlesDs.get(), .binding = b_apGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-                    {.dstSet = m_advectParticlesDs.get(), .binding = b_apVelFieldBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
-                    {.dstSet = m_advectParticlesDs.get(), .binding = b_apPrevVelFieldBuffer, .arrayElement = 0, .count = 3, .info = imgInfosVel1},
+                    {.dstSet = m_advectParticlesDs.get(), .binding = b_apVelField, .arrayElement = 0, .count = 3, .info = imgInfosVel0},
+                    {.dstSet = m_advectParticlesDs.get(), .binding = b_apPrevVelField, .arrayElement = 0, .count = 3, .info = imgInfosVel1},
                     {.dstSet = m_advectParticlesDs.get(), .binding = b_apVelSampler, .arrayElement = 0, .count = 1, .info = &infos[1]}
                 };
                 m_device->updateDescriptorSets(std::span(writes, 4), {});
@@ -1755,6 +1755,7 @@ private:
     smart_refctd_ptr<IGPUDescriptorSet> m_renderDs;
 
     // simulation compute shaders
+    // TODO: unsure many of the axis-cell material pipelines need to exist
     smart_refctd_ptr<IGPUComputePipeline> m_initParticlePipeline;
 
     smart_refctd_ptr<IGPUComputePipeline> m_accumulateWeightsPipeline;
@@ -1776,6 +1777,7 @@ private:
     smart_refctd_ptr<IGPUComputePipeline> m_genParticleVerticesPipeline;
 
     // descriptors
+    // TODO: why does every single descriptor set have its own pool!?
     smart_refctd_ptr<video::IDescriptorPool> m_initParticlePool;
     smart_refctd_ptr<IGPUDescriptorSet> m_initParticleDs;
 
@@ -1843,6 +1845,7 @@ private:
     ParticleData particleData;
 
     smart_refctd_ptr<IGPUBuffer> pParamsBuffer;			            // SParticleRenderParams
+    // TODO: remove!
     smart_refctd_ptr<IGPUBuffer> particleVertexBuffer;	            // VertexInfo * 6 vertices
 
     smart_refctd_ptr<IGPUBuffer> gridDataBuffer;		            // SGridData

@@ -16,14 +16,15 @@ struct Particle
     float32_t3 velocity;
 };
 
+// TODO: after trimming this should fit in push constants
 struct SMVPParams
 {
-    float4 camPos;
+    float4 camPos; // TODO: make it a `float32_t3`
 
 	float4x4 MVP;
-	float4x4 M;
-	float4x4 V;
-    float4x4 P;
+	float4x4 M; // TODO: remove
+	float4x4 V; // TODO: only one `float32_t3` is needed out of the view matrix
+    float4x4 P; // TODO: remove
 };
 #endif
 
