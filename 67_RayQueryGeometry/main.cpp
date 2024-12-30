@@ -131,7 +131,12 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				return logFail("Could not create geometries from geometry creator");
 
 			// create blas/tlas
+#if 0
+			// Nsight is special and can't capture anything not on the queue that performs the swapchain acquire/release
+			if (!createAccelerationStructures(gQueue))
+#else
 			if (!createAccelerationStructures(cQueue))
+#endif
 				return logFail("Could not create acceleration structures");
 
 			// create pipelines
@@ -740,7 +745,20 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			auto pool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT | IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
 			if (!pool)
 				return logFail("Couldn't create Command Pool for blas/tlas creation!");
-
+			
+			m_api->startCapture();
+#if 0 // NSight is "debugger-challenged" it can't capture anything not happenning "during a frame", so we need to trick it
+			m_currentImageAcquire = m_surface->acquireNextImage();
+			{
+				const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] = { {
+					.semaphore = m_currentImageAcquire.semaphore,
+					.value = m_currentImageAcquire.acquireCount,
+					.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+				} };
+				m_surface->present(m_currentImageAcquire.imageIndex,acquired);
+			}
+			m_currentImageAcquire = m_surface->acquireNextImage();
+#endif
 			size_t totalScratchSize = 0;
 
 			// build bottom level ASes
@@ -858,7 +876,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					return logFail("Failed to write acceleration structure properties!");
 
 				cmdbufBlas->endDebugMarker();
-				cmdbufSubmitAndWait(cmdbufBlas, getComputeQueue(), 39);
+				cmdbufSubmitAndWait(cmdbufBlas, queue, 39);
 			}
 
 			auto cmdbufCompact = getSingleUseCommandBufferAndBegin(pool);
@@ -900,7 +918,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			}
 
 			cmdbufCompact->endDebugMarker();
-			cmdbufSubmitAndWait(cmdbufCompact, getComputeQueue(), 40);
+			cmdbufSubmitAndWait(cmdbufCompact, queue, 40);
 
 			auto cmdbufTlas = getSingleUseCommandBufferAndBegin(pool);
 			cmdbufTlas->beginDebugMarker("Build TLAS");
@@ -996,7 +1014,19 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			}
 
 			cmdbufTlas->endDebugMarker();
-			cmdbufSubmitAndWait(cmdbufTlas, getComputeQueue(), 45);
+			cmdbufSubmitAndWait(cmdbufTlas, queue, 45);
+
+#if 0
+			{
+				const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] = { {
+					.semaphore = m_currentImageAcquire.semaphore,
+					.value = m_currentImageAcquire.acquireCount,
+					.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+				} };
+				m_surface->present(m_currentImageAcquire.imageIndex,acquired);
+			}
+#endif
+			m_api->endCapture();
 
 			return true;
 		}
