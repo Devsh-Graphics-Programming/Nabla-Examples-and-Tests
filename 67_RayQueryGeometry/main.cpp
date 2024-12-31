@@ -80,14 +80,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 
-			// Renderdoc-like Debugger Delay for NSight so that one may CPU debug applications launched from NSight
-			if (m_api->runningInGraphicsDebugger()==IAPIConnection::EDebuggerType::NSight)
-			{
-				static volatile bool debugger_not_attached = true;
-				while (debugger_not_attached)
-					std::this_thread::yield();
-			}
-
 			m_semaphore = m_device->createSemaphore(m_realFrameIx);
 			if (!m_semaphore)
 				return logFail("Failed to Create a Semaphore!");
@@ -139,7 +131,16 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				return logFail("Could not create geometries from geometry creator");
 
 			// create blas/tlas
-#if NBL_BUILD_WITH_NGFX
+//#define TRY_BUILD_FOR_NGFX // Validation errors on the fake Acquire-Presents, TODO fix
+#ifdef TRY_BUILD_FOR_NGFX
+			// Nsight is special and can't do debugger delay so you can debug your CPU stuff during a capture
+			// Renderdoc-like Debugger Delay for NSight so that one may CPU debug applications launched from NSight
+			if (m_api->runningInGraphicsDebugger()==IAPIConnection::EDebuggerType::NSight)
+			{
+				static volatile bool debugger_not_attached = true;
+				while (debugger_not_attached)
+					std::this_thread::yield();
+			}
 			// Nsight is special and can't capture anything not on the queue that performs the swapchain acquire/release
 			if (!createAccelerationStructures(gQueue))
 #else
@@ -276,6 +277,13 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 			if (!m_currentImageAcquire)
 				return;
+
+			static bool first = true;
+			if (first)
+			{
+				m_api->startCapture();
+				first = false;
+			}
 
 			auto* const cmdbuf = m_cmdBufs.data()[resourceIx].get();
 			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
@@ -755,7 +763,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				return logFail("Couldn't create Command Pool for blas/tlas creation!");
 			
 			m_api->startCapture();
-#if NBL_BUILD_WITH_NGFX // NSight is "debugger-challenged" it can't capture anything not happenning "during a frame", so we need to trick it
+#ifdef TRY_BUILD_FOR_NGFX // NSight is "debugger-challenged" it can't capture anything not happenning "during a frame", so we need to trick it
 			m_currentImageAcquire = m_surface->acquireNextImage();
 			{
 				const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] = { {
@@ -1024,7 +1032,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			cmdbufTlas->endDebugMarker();
 			cmdbufSubmitAndWait(cmdbufTlas, queue, 45);
 
-#ifdef NBL_BUILD_WITH_NGFX
+#ifdef TRY_BUILD_FOR_NGFX
 			{
 				const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] = { {
 					.semaphore = m_currentImageAcquire.semaphore,
