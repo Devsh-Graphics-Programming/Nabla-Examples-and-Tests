@@ -80,6 +80,14 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 
+			// Renderdoc-like Debugger Delay for NSight so that one may CPU debug applications launched from NSight
+			if (m_api->runningInGraphicsDebugger()==IAPIConnection::EDebuggerType::NSight)
+			{
+				static volatile bool debugger_not_attached = true;
+				while (debugger_not_attached)
+					std::this_thread::yield();
+			}
+
 			m_semaphore = m_device->createSemaphore(m_realFrameIx);
 			if (!m_semaphore)
 				return logFail("Failed to Create a Semaphore!");
@@ -131,7 +139,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				return logFail("Could not create geometries from geometry creator");
 
 			// create blas/tlas
-#if 0
+#if NBL_BUILD_WITH_NGFX
 			// Nsight is special and can't capture anything not on the queue that performs the swapchain acquire/release
 			if (!createAccelerationStructures(gQueue))
 #else
@@ -747,7 +755,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				return logFail("Couldn't create Command Pool for blas/tlas creation!");
 			
 			m_api->startCapture();
-#if 0 // NSight is "debugger-challenged" it can't capture anything not happenning "during a frame", so we need to trick it
+#if NBL_BUILD_WITH_NGFX // NSight is "debugger-challenged" it can't capture anything not happenning "during a frame", so we need to trick it
 			m_currentImageAcquire = m_surface->acquireNextImage();
 			{
 				const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] = { {
@@ -1016,7 +1024,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			cmdbufTlas->endDebugMarker();
 			cmdbufSubmitAndWait(cmdbufTlas, queue, 45);
 
-#if 0
+#ifdef NBL_BUILD_WITH_NGFX
 			{
 				const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] = { {
 					.semaphore = m_currentImageAcquire.semaphore,
