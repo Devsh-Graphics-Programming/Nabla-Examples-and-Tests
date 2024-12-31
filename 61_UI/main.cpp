@@ -1677,6 +1677,15 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
 						io.MouseDrawCursor = false;
 						io.WantCaptureMouse = false;
+
+						ImVec2 cursorPos = ImGui::GetMousePos();
+						ImVec2 viewportSize = io.DisplaySize;
+						auto* cc = m_window->getCursorControl();
+						int32_t posX = m_window->getX();
+						int32_t posY = m_window->getY();
+
+						const ICursorControl::SPosition middle{ static_cast<int32_t>(viewportSize.x/2 + posX), static_cast<int32_t>(viewportSize.y/2 + posY) };
+						cc->setPosition(middle);
 					}
 					else
 					{
