@@ -29,5 +29,8 @@ int main(int argc, char** argv)
     result = testLambertianBSDF();
     printFloat4(result);
 
+    result = testBeckmannBSDF();
+    printFloat4(result);
+
     return 0;
 }

@@ -90,7 +90,7 @@ inline float32_t4 testLambertianBRDF()
 
     // get jacobian
     float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
-    float det = nbl::hlsl::determinant<float, 2>(m);
+    float det = nbl::hlsl::determinant<float32_t2x2>(m);
 
     return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
 }
@@ -114,7 +114,7 @@ inline float32_t4 testBeckmannBRDF()
 
     // get jacobian
     float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
-    float det = nbl::hlsl::determinant<float, 2>(m);
+    float det = nbl::hlsl::determinant<float32_t2x2>(m);
 
     return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
 }
@@ -133,13 +133,13 @@ inline float32_t4 testLambertianBSDF()
     sx = lambertian.generate(anisointer, rc.u + float32_t3(rc.h,0,0));
     sy = lambertian.generate(anisointer, rc.u + float32_t3(0,rc.h,0));
     quotient_pdf_t pdf = lambertian.quotient_and_pdf(s, isointer);
-    float32_t3 brdf = float32_t3(lambertian.eval(s, isointer));
+    float32_t3 bsdf = float32_t3(lambertian.eval(s, isointer));
 
     // get jacobian
     float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
-    float det = nbl::hlsl::determinant<float, 2>(m);
+    float det = nbl::hlsl::determinant<float32_t2x2>(m);
 
-    return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
+    return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - bsdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
 }
 
 inline float32_t4 testBeckmannBSDF()
@@ -159,13 +159,13 @@ inline float32_t4 testBeckmannBSDF()
     float32_t3 uy = rc.u + float32_t3(0,rc.h,0);
     sy = beckmann.generate(anisointer, uy, cache);
     quotient_pdf_t pdf = beckmann.quotient_and_pdf(s, anisointer, cache);
-    float32_t3 brdf = float32_t3(beckmann.eval(s, anisointer, cache));
+    float32_t3 bsdf = float32_t3(beckmann.eval(s, anisointer, cache));
 
     // get jacobian
     float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
-    float det = nbl::hlsl::determinant<float, 2>(m);
+    float det = nbl::hlsl::determinant<float32_t2x2>(m);
 
-    return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
+    return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - bsdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
 }
 
 }
