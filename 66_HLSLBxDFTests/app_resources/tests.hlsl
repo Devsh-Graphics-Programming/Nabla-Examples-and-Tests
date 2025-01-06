@@ -57,6 +57,15 @@ struct SBxDFTestResources
         return retval;
     }
 
+    ray_dir_info_t dV(int axis)
+    {
+        float32_t3 d = (float32_t3)0.0;
+        d[axis] += h;
+        ray_dir_info_t retval;
+        retval.direction = V.direction + d;
+        return retval;
+    }
+
     float h = 0.001;
 
     nbl::hlsl::Xoroshiro64Star rng;
@@ -95,6 +104,84 @@ inline float32_t4 testLambertianBRDF()
     return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
 }
 
+inline float32_t4 testLambertianBRDF2()
+{
+    const uint32_t2 state = uint32_t2(10u, 42u);
+    SBxDFTestResources rc = SBxDFTestResources::create(state);
+
+    iso_interaction isointer = iso_interaction::create(rc.V, rc.N);
+    aniso_interaction anisointer = aniso_interaction::create(isointer, rc.T, rc.B);
+
+    iso_interaction isointerx = iso_interaction::create(rc.dV(0), rc.N);
+    aniso_interaction anisointerx = aniso_interaction::create(isointerx, rc.T, rc.B);
+    iso_interaction isointery = iso_interaction::create(rc.dV(1), rc.N);
+    aniso_interaction anisointery = aniso_interaction::create(isointery, rc.T, rc.B);
+    iso_interaction isointerz = iso_interaction::create(rc.dV(2), rc.N);
+    aniso_interaction anisointerz = aniso_interaction::create(isointerz, rc.T, rc.B);
+    
+    sample_t s, sx, sy, sz;
+    bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction> lambertian = bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction>::create();
+    s = lambertian.generate(anisointer, rc.u.xy);
+    sx = lambertian.generate(anisointerx, rc.u.xy);
+    sy = lambertian.generate(anisointery, rc.u.xy);
+    sz = lambertian.generate(anisointerz, rc.u.xy);
+    quotient_pdf_t pdf = lambertian.quotient_and_pdf(s, isointer);
+    float32_t3 brdf = float32_t3(lambertian.eval(s, isointer));
+
+    // get jacobian
+    float32_t3x3 m = float32_t3x3(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL, sz.BdotL - s.BdotL, sx.NdotL - s.NdotL, sy.NdotL - s.NdotL, sz.NdotL - s.NdotL);
+    float det = nbl::hlsl::determinant<float32_t3x3>(m);
+
+    return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
+}
+
+inline float32_t4 testOrenNayarBRDF()
+{
+    const uint32_t2 state = uint32_t2(10u, 42u);
+    SBxDFTestResources rc = SBxDFTestResources::create(state);
+
+    iso_interaction isointer = iso_interaction::create(rc.V, rc.N);
+    aniso_interaction anisointer = aniso_interaction::create(isointer, rc.T, rc.B);
+    
+    sample_t s, sx, sy;
+    bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction> orennayar = bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction>::create(rc.alpha.x);
+    s = orennayar.generate(anisointer, rc.u.xy);
+    sx = orennayar.generate(anisointer, rc.u.xy + float32_t2(rc.h,0));
+    sy = orennayar.generate(anisointer, rc.u.xy + float32_t2(0,rc.h));
+    quotient_pdf_t pdf = orennayar.quotient_and_pdf(s, isointer);
+    float32_t3 brdf = float32_t3(orennayar.eval(s, isointer));
+
+    // get jacobian
+    float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
+    float det = nbl::hlsl::determinant<float32_t2x2>(m);
+
+    return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
+}
+
+// inline float32_t4 testBlinnPhongBRDF()
+// {
+//     const uint32_t2 state = uint32_t2(10u, 42u);
+//     SBxDFTestResources rc = SBxDFTestResources::create(state);
+
+//     iso_interaction isointer = iso_interaction::create(rc.V, rc.N);
+//     aniso_interaction anisointer = aniso_interaction::create(isointer, rc.T, rc.B);
+//     aniso_cache cache;
+    
+//     sample_t s, sx, sy;
+//     bxdf::reflection::SBlinnPhongBxDF<sample_t, iso_cache, aniso_cache> blinnphong = bxdf::reflection::SBlinnPhongBxDF<sample_t, iso_cache, aniso_cache>::create(rc.alpha,rc.ior);
+//     s = blinnphong.generate(anisointer, rc.u.xy, cache);
+//     sx = blinnphong.generate(anisointer, rc.u.xy + float32_t2(rc.h,0), cache);
+//     sy = blinnphong.generate(anisointer, rc.u.xy + float32_t2(0,rc.h), cache);
+//     quotient_pdf_t pdf = blinnphong.quotient_and_pdf(s, anisointer, cache);
+//     float32_t3 brdf = float32_t3(blinnphong.eval(s, anisointer, cache));
+
+//     // get jacobian
+//     float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
+//     float det = nbl::hlsl::determinant<float32_t2x2>(m);
+
+//     return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
+// }
+
 inline float32_t4 testBeckmannBRDF()
 {
     const uint32_t2 state = uint32_t2(10u, 42u);
@@ -111,6 +198,54 @@ inline float32_t4 testBeckmannBRDF()
     sy = beckmann.generate(anisointer, rc.u.xy + float32_t2(0,rc.h), cache);
     quotient_pdf_t pdf = beckmann.quotient_and_pdf(s, anisointer, cache);
     float32_t3 brdf = float32_t3(beckmann.eval(s, anisointer, cache));
+
+    // get jacobian
+    float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
+    float det = nbl::hlsl::determinant<float32_t2x2>(m);
+
+    return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
+}
+
+inline float32_t4 testGGXBRDF() // iso ggx
+{
+    const uint32_t2 state = uint32_t2(10u, 42u);
+    SBxDFTestResources rc = SBxDFTestResources::create(state);
+
+    iso_interaction isointer = iso_interaction::create(rc.V, rc.N);
+    aniso_interaction anisointer = aniso_interaction::create(isointer, rc.T, rc.B);
+    aniso_cache cache;
+    
+    sample_t s, sx, sy;
+    bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache> ggx = bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>::create(rc.alpha.x,rc.ior);
+    s = ggx.generate(anisointer, rc.u.xy, cache);
+    sx = ggx.generate(anisointer, rc.u.xy + float32_t2(rc.h,0), cache);
+    sy = ggx.generate(anisointer, rc.u.xy + float32_t2(0,rc.h), cache);
+    quotient_pdf_t pdf = ggx.quotient_and_pdf(s, anisointer, cache);
+    float32_t3 brdf = float32_t3(ggx.eval(s, anisointer, cache));
+
+    // get jacobian
+    float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
+    float det = nbl::hlsl::determinant<float32_t2x2>(m);
+
+    return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
+}
+
+inline float32_t4 testGGXAnisoBRDF() // aniso ggx
+{
+    const uint32_t2 state = uint32_t2(10u, 42u);
+    SBxDFTestResources rc = SBxDFTestResources::create(state);
+
+    iso_interaction isointer = iso_interaction::create(rc.V, rc.N);
+    aniso_interaction anisointer = aniso_interaction::create(isointer, rc.T, rc.B);
+    aniso_cache cache;
+    
+    sample_t s, sx, sy;
+    bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache> ggx = bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>::create(rc.alpha.x,rc.alpha.y,rc.ior);
+    s = ggx.generate(anisointer, rc.u.xy, cache);
+    sx = ggx.generate(anisointer, rc.u.xy + float32_t2(rc.h,0), cache);
+    sy = ggx.generate(anisointer, rc.u.xy + float32_t2(0,rc.h), cache);
+    quotient_pdf_t pdf = ggx.quotient_and_pdf(s, anisointer, cache);
+    float32_t3 brdf = float32_t3(ggx.eval(s, anisointer, cache));
 
     // get jacobian
     float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
