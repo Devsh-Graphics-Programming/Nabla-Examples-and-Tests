@@ -131,7 +131,21 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				return logFail("Could not create geometries from geometry creator");
 
 			// create blas/tlas
+//#define TRY_BUILD_FOR_NGFX // Validation errors on the fake Acquire-Presents, TODO fix
+#ifdef TRY_BUILD_FOR_NGFX
+			// Nsight is special and can't do debugger delay so you can debug your CPU stuff during a capture
+			// Renderdoc-like Debugger Delay for NSight so that one may CPU debug applications launched from NSight
+			if (m_api->runningInGraphicsDebugger()==IAPIConnection::EDebuggerType::NSight)
+			{
+				static volatile bool debugger_not_attached = true;
+				while (debugger_not_attached)
+					std::this_thread::yield();
+			}
+			// Nsight is special and can't capture anything not on the queue that performs the swapchain acquire/release
+			if (!createAccelerationStructures(gQueue))
+#else
 			if (!createAccelerationStructures(cQueue))
+#endif
 				return logFail("Could not create acceleration structures");
 
 			// create pipelines
@@ -263,6 +277,13 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 			if (!m_currentImageAcquire)
 				return;
+
+			static bool first = true;
+			if (first)
+			{
+				m_api->startCapture();
+				first = false;
+			}
 
 			auto* const cmdbuf = m_cmdBufs.data()[resourceIx].get();
 			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
@@ -740,7 +761,20 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			auto pool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT | IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
 			if (!pool)
 				return logFail("Couldn't create Command Pool for blas/tlas creation!");
-
+			
+			m_api->startCapture();
+#ifdef TRY_BUILD_FOR_NGFX // NSight is "debugger-challenged" it can't capture anything not happenning "during a frame", so we need to trick it
+			m_currentImageAcquire = m_surface->acquireNextImage();
+			{
+				const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] = { {
+					.semaphore = m_currentImageAcquire.semaphore,
+					.value = m_currentImageAcquire.acquireCount,
+					.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+				} };
+				m_surface->present(m_currentImageAcquire.imageIndex,acquired);
+			}
+			m_currentImageAcquire = m_surface->acquireNextImage();
+#endif
 			size_t totalScratchSize = 0;
 
 			// build bottom level ASes
@@ -858,7 +892,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					return logFail("Failed to write acceleration structure properties!");
 
 				cmdbufBlas->endDebugMarker();
-				cmdbufSubmitAndWait(cmdbufBlas, getComputeQueue(), 39);
+				cmdbufSubmitAndWait(cmdbufBlas, queue, 39);
 			}
 
 			auto cmdbufCompact = getSingleUseCommandBufferAndBegin(pool);
@@ -900,7 +934,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			}
 
 			cmdbufCompact->endDebugMarker();
-			cmdbufSubmitAndWait(cmdbufCompact, getComputeQueue(), 40);
+			cmdbufSubmitAndWait(cmdbufCompact, queue, 40);
 
 			auto cmdbufTlas = getSingleUseCommandBufferAndBegin(pool);
 			cmdbufTlas->beginDebugMarker("Build TLAS");
@@ -996,7 +1030,19 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			}
 
 			cmdbufTlas->endDebugMarker();
-			cmdbufSubmitAndWait(cmdbufTlas, getComputeQueue(), 45);
+			cmdbufSubmitAndWait(cmdbufTlas, queue, 45);
+
+#ifdef TRY_BUILD_FOR_NGFX
+			{
+				const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] = { {
+					.semaphore = m_currentImageAcquire.semaphore,
+					.value = m_currentImageAcquire.acquireCount,
+					.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+				} };
+				m_surface->present(m_currentImageAcquire.imageIndex,acquired);
+			}
+#endif
+			m_api->endCapture();
 
 			return true;
 		}
