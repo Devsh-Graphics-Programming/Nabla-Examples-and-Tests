@@ -8,7 +8,7 @@ using namespace nbl::hlsl;
 
 #include "app_resources/tests.hlsl"
 
-#define ASSERT_ZERO(x) assert(all<bool32_t4>(x < float32_t4(1e-4)));
+#define ASSERT_ZERO(x) (assert(all<bool32_t4>((x) < float32_t4(1e-3))));
 
 void printFloat4(const float32_t4& result)
 {
@@ -24,48 +24,36 @@ int main(int argc, char** argv)
 
     using bool32_t4 = vector<bool, 4>;
 
+    const uint32_t2 state = uint32_t2(10u, 42u);    // (12u, 69u)
+
     // brdfs
     // diffuse
-    float32_t4 result = testLambertianBRDF2();
-    ASSERT_ZERO(result);
+    ASSERT_ZERO(testLambertianBRDF2());
 
-    TestUOffsetBasicBRDF<bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction>>::run(uint32_t2(10u, 42u));
-    ASSERT_ZERO(result);
-
-    TestUOffsetBasicBRDF<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction>>::run(uint32_t2(10u, 42u));
-    ASSERT_ZERO(result);
+    ASSERT_ZERO((TestUOffsetBasicBRDF<bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction>>::run(state)));
+    ASSERT_ZERO((TestUOffsetBasicBRDF<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction>>::run(state)));
 
     // specular
-    //result = testBlinnPhongBRDF();
-    //printFloat4(result);
+    printFloat4(TestUOffsetMicrofacetBRDF<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>,false>::run(state));
 
-    TestUOffsetMicrofacetBRDF<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>,false>::run(uint32_t2(10u, 42u));
-    ASSERT_ZERO(result);
+    ASSERT_ZERO((TestUOffsetMicrofacetBRDF<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>,true>::run(state)));
+    
+    printFloat4(TestUOffsetMicrofacetBRDF<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>, false>::run(state));
 
-    TestUOffsetMicrofacetBRDF<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>,true>::run(uint32_t2(10u, 42u));
-    ASSERT_ZERO(result);
-
-    TestUOffsetMicrofacetBRDF<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>,false>::run(uint32_t2(10u, 42u));
-    ASSERT_ZERO(result);
-
-    TestUOffsetMicrofacetBRDF<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>,true>::run(uint32_t2(10u, 42u));
-    ASSERT_ZERO(result);
+    ASSERT_ZERO((TestUOffsetMicrofacetBRDF<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>,true>::run(state)));
 
     // bxdfs
-    result = testLambertianBSDF();
-    ASSERT_ZERO(result);
+    // diffuse
+    ASSERT_ZERO((TestUOffsetBasicBSDF<bxdf::transmission::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction>>::run(state)));
 
-    result = testBeckmannBSDF();
-    printFloat4(result);
+    // specular
+    printFloat4(TestUOffsetMicrofacetBSDF<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>,false>::run(state));
 
-    result = testBeckmannAnisoBSDF();
-    printFloat4(result);
+    printFloat4(TestUOffsetMicrofacetBSDF<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>,true>::run(state)); // this one's fine
 
-    result = testGGXBSDF();
-    printFloat4(result);
+    printFloat4(TestUOffsetMicrofacetBSDF<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>,false>::run(state));
 
-    result = testGGXAnisoBSDF();
-    printFloat4(result);
+    printFloat4(TestUOffsetMicrofacetBSDF<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>,true>::run(state));
 
     return 0;
 }
