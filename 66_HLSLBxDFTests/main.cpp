@@ -26,34 +26,46 @@ int main(int argc, char** argv)
 
     // brdfs
     // diffuse
-    float32_t4 result = testLambertianBRDF();
+    float32_t4 result = testLambertianBRDF2();
     ASSERT_ZERO(result);
 
-    result = testLambertianBRDF2();
-    assert(all<bool32_t4>(result < float32_t4(1e-4)));
+    TestUOffsetBasicBRDF<bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction>>::run(uint32_t2(10u, 42u));
+    ASSERT_ZERO(result);
 
-    result = testOrenNayarBRDF();
-    assert(all<bool32_t4>(result < float32_t4(1e-4)));
+    TestUOffsetBasicBRDF<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction>>::run(uint32_t2(10u, 42u));
+    ASSERT_ZERO(result);
 
     // specular
     //result = testBlinnPhongBRDF();
     //printFloat4(result);
 
-    result = testBeckmannBRDF();
-    assert(all<bool32_t4>(result < float32_t4(1e-4)));
+    TestUOffsetMicrofacetBRDF<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>,false>::run(uint32_t2(10u, 42u));
+    ASSERT_ZERO(result);
 
-    result = testGGXBRDF();
-    printFloat4(result);
+    TestUOffsetMicrofacetBRDF<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>,true>::run(uint32_t2(10u, 42u));
+    ASSERT_ZERO(result);
 
-    result = testGGXAnisoBRDF();
-    printFloat4(result);
+    TestUOffsetMicrofacetBRDF<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>,false>::run(uint32_t2(10u, 42u));
+    ASSERT_ZERO(result);
+
+    TestUOffsetMicrofacetBRDF<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>,true>::run(uint32_t2(10u, 42u));
+    ASSERT_ZERO(result);
 
     // bxdfs
     result = testLambertianBSDF();
-    assert(all<bool32_t4>(result < float32_t4(1e-4)));
+    ASSERT_ZERO(result);
 
     result = testBeckmannBSDF();
-    assert(all<bool32_t4>(result < float32_t4(1e-4)));
+    printFloat4(result);
+
+    result = testBeckmannAnisoBSDF();
+    printFloat4(result);
+
+    result = testGGXBSDF();
+    printFloat4(result);
+
+    result = testGGXAnisoBSDF();
+    printFloat4(result);
 
     return 0;
 }
