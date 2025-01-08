@@ -101,18 +101,18 @@ struct TestBase
 
 
 template<class BxDF>
-struct TestBRDF : TestBase<BxDF>
+struct TestBxDF : TestBase<BxDF>
 {
     using base_t = TestBase<BxDF>;
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf = BxDF::create();  // default to lambertian brdf
+        base_t::bxdf = BxDF::create();  // default to lambertian bxdf
     }
 };
 
 template<>
-struct TestBRDF<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction>> : TestBase<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction>>
+struct TestBxDF<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction>> : TestBase<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction>>
 {
     using base_t = TestBase<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction>>;
 
@@ -123,7 +123,7 @@ struct TestBRDF<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, anis
 };
 
 template<>
-struct TestBRDF<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>> : TestBase<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>>
+struct TestBxDF<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>> : TestBase<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>>
 {
     using base_t = TestBase<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>>;
 
@@ -138,7 +138,7 @@ struct TestBRDF<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache
 };
 
 template<>
-struct TestBRDF<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>> : TestBase<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>>
+struct TestBxDF<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>> : TestBase<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>>
 {
     using base_t = TestBase<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>>;
 
@@ -152,20 +152,8 @@ struct TestBRDF<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>> : 
     }
 };
 
-
-template<class BxDF>
-struct TestBSDF : TestBase<BxDF>
-{
-    using base_t = TestBase<BxDF>;
-
-    void initBxDF(SBxDFTestResources _rc)
-    {
-        base_t::bxdf = BxDF::create();  // default to lambertian bsdf
-    }
-};
-
 template<>
-struct TestBSDF<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>> : TestBase<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>>
+struct TestBxDF<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>> : TestBase<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>>
 {
     using base_t = TestBase<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>>;
 
@@ -180,7 +168,7 @@ struct TestBSDF<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache,
 };
 
 template<>
-struct TestBSDF<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>> : TestBase<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>>
+struct TestBxDF<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>> : TestBase<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>>
 {
     using base_t = TestBase<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>>;
 
@@ -221,147 +209,71 @@ struct is_microfacet_bsdf : bool_constant<
 template<class T>
 NBL_CONSTEXPR bool is_basic_brdf_v = is_basic_brdf<T>::value;
 template<class T>
-NBL_CONSTEXPR bool is_microfacet_brdf_v = is_microfacet_bsdf<T>::value;
+NBL_CONSTEXPR bool is_microfacet_brdf_v = is_microfacet_brdf<T>::value;
 template<class T>
-NBL_CONSTEXPR bool is_basic_bsdf_v = is_basic_brdf<T>::value;
+NBL_CONSTEXPR bool is_basic_bsdf_v = is_basic_bsdf<T>::value;
 template<class T>
 NBL_CONSTEXPR bool is_microfacet_bsdf_v = is_microfacet_bsdf<T>::value;
 
-template<class BxDF>
-struct TestUOffsetBasicBRDF : TestBRDF<BxDF>
+
+template<class BxDF, bool aniso = false>
+struct TestUOffset : TestBxDF<BxDF>
 {
     using base_t = TestBase<BxDF>;
-    using test_t = TestBRDF<BxDF>;
-    using this_t = TestUOffsetBasicBRDF<BxDF>;
+    using this_t = TestUOffset<BxDF, aniso>;
 
     float32_t4 test()
     {
-        sample_t s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy);
-        sample_t sx = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy + float32_t2(base_t::rc.h,0));
-        sample_t sy = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy + float32_t2(0,base_t::rc.h));
-        quotient_pdf_t pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer);
-        float32_t3 brdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer));
-
-        // get jacobian
-        float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
-        float det = nbl::hlsl::determinant<float32_t2x2>(m);
-
-        return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
-    }
-
-    static float32_t4 run(uint32_t2 seed)
-    {
-        this_t t;
-        t.init(seed);
-        t.initBxDF(t.rc);
-        return t.test();
-    }
-};
-
-template<class BxDF, bool aniso>
-struct TestUOffsetMicrofacetBRDF : TestBRDF<BxDF>
-{
-    using base_t = TestBase<BxDF>;
-    using test_t = TestBRDF<BxDF>;
-    using this_t = TestUOffsetMicrofacetBRDF<BxDF, aniso>;
-
-    float32_t4 test()
-    {
-        aniso_cache cache, dummy;
-
-        sample_t s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy, cache);
-        sample_t sx = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy + float32_t2(base_t::rc.h,0), dummy);
-        sample_t sy = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy + float32_t2(0,base_t::rc.h), dummy);
+        sample_t s, sx, sy;
         quotient_pdf_t pdf;
         float32_t3 brdf;
-        if (aniso)
-        {
-            pdf = base_t::bxdf.quotient_and_pdf(s, base_t::anisointer, cache);
-            brdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
-        }
-        else
-        {
-            iso_cache isocache = (iso_cache)cache;
-            pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer, isocache);
-            brdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
-        }
-
-        // get jacobian
-        float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
-        float det = nbl::hlsl::determinant<float32_t2x2>(m);
-
-        return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
-    }
-
-    static float32_t4 run(uint32_t2 seed)
-    {
-        this_t t;
-        t.init(seed);
-        t.template initBxDF<aniso>(t.rc);
-        return t.test();
-    }
-};
-
-template<class BxDF>
-struct TestUOffsetBasicBSDF : TestBSDF<BxDF>
-{
-    using base_t = TestBase<BxDF>;
-    using test_t = TestBSDF<BxDF>;
-    using this_t = TestUOffsetBasicBSDF<BxDF>;
-
-    float32_t4 test()
-    {
-        sample_t s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u);
-        sample_t sx = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u + float32_t3(base_t::rc.h,0,0));
-        sample_t sy = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u + float32_t3(0,base_t::rc.h,0));
-        quotient_pdf_t pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer);
-        float32_t3 brdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer));
-
-        // get jacobian
-        float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
-        float det = nbl::hlsl::determinant<float32_t2x2>(m);
-
-        return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
-    }
-
-    static float32_t4 run(uint32_t2 seed)
-    {
-        this_t t;
-        t.init(seed);
-        t.initBxDF(t.rc);
-        return t.test();
-    }
-};
-
-template<class BxDF, bool aniso>
-struct TestUOffsetMicrofacetBSDF : TestBSDF<BxDF>
-{
-    using base_t = TestBase<BxDF>;
-    using test_t = TestBSDF<BxDF>;
-    using this_t = TestUOffsetMicrofacetBSDF<BxDF, aniso>;
-
-    float32_t4 test()
-    {
         aniso_cache cache, dummy;
 
-        sample_t s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u, cache);
-        float32_t3 ux = base_t::rc.u + float32_t3(base_t::rc.h,0,0);
-        sample_t sx = base_t::bxdf.generate(base_t::anisointer, ux, dummy);
-        float32_t3 uy = base_t::rc.u + float32_t3(0,base_t::rc.h,0);
-        sample_t sy = base_t::bxdf.generate(base_t::anisointer, uy, dummy);
-        quotient_pdf_t pdf;
-        float32_t3 brdf;
-
-        if (aniso)
+        if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
         {
-            pdf = base_t::bxdf.quotient_and_pdf(s, base_t::anisointer, cache);
-            brdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
+            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy);
+            sx = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy + float32_t2(base_t::rc.h,0));
+            sy = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy + float32_t2(0,base_t::rc.h));
         }
-        else
+        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF>)
         {
-            iso_cache isocache = (iso_cache)cache;
-            pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer, isocache);
-            brdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
+            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy, cache);
+            sx = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy + float32_t2(base_t::rc.h,0), dummy);
+            sy = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy + float32_t2(0,base_t::rc.h), dummy);
+        }
+        if NBL_CONSTEXPR_FUNC (is_basic_bsdf_v<BxDF>)
+        {
+            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u);
+            sx = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u + float32_t3(base_t::rc.h,0,0));
+            sy = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u + float32_t3(0,base_t::rc.h,0));
+        }
+        if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
+        {
+            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u, cache);
+            float32_t3 ux = base_t::rc.u + float32_t3(base_t::rc.h,0,0);
+            sx = base_t::bxdf.generate(base_t::anisointer, ux, dummy);
+            float32_t3 uy = base_t::rc.u + float32_t3(0,base_t::rc.h,0);
+            sy = base_t::bxdf.generate(base_t::anisointer, uy, dummy);
+        }
+        
+        if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF> || is_basic_bsdf_v<BxDF>)
+        {
+            pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer);
+            brdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer));
+        }
+        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
+        {
+            if NBL_CONSTEXPR_FUNC (aniso)
+            {
+                pdf = base_t::bxdf.quotient_and_pdf(s, base_t::anisointer, cache);
+                brdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
+            }
+            else
+            {
+                iso_cache isocache = (iso_cache)cache;
+                pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer, isocache);
+                brdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
+            }
         }
 
         // get jacobian
@@ -375,10 +287,14 @@ struct TestUOffsetMicrofacetBSDF : TestBSDF<BxDF>
     {
         this_t t;
         t.init(seed);
-        t.template initBxDF<aniso>(t.rc);
+        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
+            t.template initBxDF<aniso>(t.rc);
+        else
+            t.initBxDF(t.rc);
         return t.test();
     }
 };
+
 
 inline float32_t4 testLambertianBRDF2()
 {

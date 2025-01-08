@@ -26,34 +26,22 @@ int main(int argc, char** argv)
 
     const uint32_t2 state = uint32_t2(10u, 42u);    // (12u, 69u)
 
-    // brdfs
-    // diffuse
+    // test u offset, 2 axis
+    ASSERT_ZERO((TestUOffset<bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction>>::run(state)));
+    ASSERT_ZERO((TestUOffset<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction>>::run(state)));
+    printFloat4(TestUOffset<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>,false>::run(state));
+    ASSERT_ZERO((TestUOffset<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>,true>::run(state)));
+    printFloat4(TestUOffset<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>,false>::run(state));
+    ASSERT_ZERO((TestUOffset<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>,true>::run(state)));
+
+    ASSERT_ZERO((TestUOffset<bxdf::transmission::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction>>::run(state)));
+    printFloat4(TestUOffset<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>,false>::run(state));
+    ASSERT_ZERO((TestUOffset<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>,true>::run(state)));
+    printFloat4(TestUOffset<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>,false>::run(state));
+    printFloat4(TestUOffset<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>,true>::run(state));
+
+    // test v offset, 3 axis
     ASSERT_ZERO(testLambertianBRDF2());
-
-    ASSERT_ZERO((TestUOffsetBasicBRDF<bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction>>::run(state)));
-    ASSERT_ZERO((TestUOffsetBasicBRDF<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction>>::run(state)));
-
-    // specular
-    printFloat4(TestUOffsetMicrofacetBRDF<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>,false>::run(state));
-
-    ASSERT_ZERO((TestUOffsetMicrofacetBRDF<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>,true>::run(state)));
-    
-    printFloat4(TestUOffsetMicrofacetBRDF<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>, false>::run(state));
-
-    ASSERT_ZERO((TestUOffsetMicrofacetBRDF<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>,true>::run(state)));
-
-    // bxdfs
-    // diffuse
-    ASSERT_ZERO((TestUOffsetBasicBSDF<bxdf::transmission::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction>>::run(state)));
-
-    // specular
-    printFloat4(TestUOffsetMicrofacetBSDF<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>,false>::run(state));
-
-    printFloat4(TestUOffsetMicrofacetBSDF<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>,true>::run(state)); // this one's fine
-
-    printFloat4(TestUOffsetMicrofacetBSDF<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>,false>::run(state));
-
-    printFloat4(TestUOffsetMicrofacetBSDF<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>,true>::run(state));
 
     return 0;
 }
