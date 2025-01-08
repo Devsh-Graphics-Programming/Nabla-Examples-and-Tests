@@ -50,7 +50,7 @@ struct SBxDFTestResources
 
         retval.alpha.x = rngFloat01(retval.rng);
         retval.alpha.y = rngFloat01(retval.rng);
-        retval.eta = rngFloat01(retval.rng) + 1.0;
+        retval.eta = 1.3;// rngFloat01(retval.rng) + 1.0;
         retval.ior = float32_t3x2(1.02, 1.0,      // randomize at some point?
                                 1.3, 2.0,
                                 1.02, 1.0);
@@ -77,7 +77,6 @@ struct SBxDFTestResources
     float32_t3 u;
     float32_t2 alpha;
     float eta;
-    float eta2; // what is this?
     float32_t3x2 ior;
 };
 
@@ -296,36 +295,96 @@ struct TestUOffset : TestBxDF<BxDF>
 };
 
 
-inline float32_t4 testLambertianBRDF2()
+template<class BxDF, bool aniso = false>
+struct TestVOffset : TestBxDF<BxDF>
 {
-    const uint32_t2 state = uint32_t2(10u, 42u);
-    SBxDFTestResources rc = SBxDFTestResources::create(state);
+    using base_t = TestBase<BxDF>;
+    using this_t = TestVOffset<BxDF, aniso>;
 
-    iso_interaction isointer = iso_interaction::create(rc.V, rc.N);
-    aniso_interaction anisointer = aniso_interaction::create(isointer, rc.T, rc.B);
+    float32_t4 test()
+    {
+        sample_t s, sx, sy, sz;
+        quotient_pdf_t pdf;
+        float32_t3 brdf;
+        aniso_cache cache, dummy;
 
-    iso_interaction isointerx = iso_interaction::create(rc.dV(0), rc.N);
-    aniso_interaction anisointerx = aniso_interaction::create(isointerx, rc.T, rc.B);
-    iso_interaction isointery = iso_interaction::create(rc.dV(1), rc.N);
-    aniso_interaction anisointery = aniso_interaction::create(isointery, rc.T, rc.B);
-    iso_interaction isointerz = iso_interaction::create(rc.dV(2), rc.N);
-    aniso_interaction anisointerz = aniso_interaction::create(isointerz, rc.T, rc.B);
-    
-    sample_t s, sx, sy, sz;
-    bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction> lambertian = bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction>::create();
-    s = lambertian.generate(anisointer, rc.u.xy);
-    sx = lambertian.generate(anisointerx, rc.u.xy);
-    sy = lambertian.generate(anisointery, rc.u.xy);
-    sz = lambertian.generate(anisointerz, rc.u.xy);
-    quotient_pdf_t pdf = lambertian.quotient_and_pdf(s, isointer);
-    float32_t3 brdf = float32_t3(lambertian.eval(s, isointer));
+        iso_interaction isointerx = iso_interaction::create(base_t::rc.dV(0), base_t::rc.N);
+        aniso_interaction anisointerx = aniso_interaction::create(isointerx, base_t::rc.T, base_t::rc.B);
+        iso_interaction isointery = iso_interaction::create(base_t::rc.dV(1), base_t::rc.N);
+        aniso_interaction anisointery = aniso_interaction::create(isointery, base_t::rc.T, base_t::rc.B);
+        iso_interaction isointerz = iso_interaction::create(base_t::rc.dV(2), base_t::rc.N);
+        aniso_interaction anisointerz = aniso_interaction::create(isointerz, base_t::rc.T, base_t::rc.B);
 
-    // get jacobian
-    float32_t3x3 m = float32_t3x3(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL, sz.BdotL - s.BdotL, sx.NdotL - s.NdotL, sy.NdotL - s.NdotL, sz.NdotL - s.NdotL);
-    float det = nbl::hlsl::determinant<float32_t3x3>(m);
+        if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
+        {
+            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy);
+            sx = base_t::bxdf.generate(anisointerx, base_t::rc.u.xy);
+            sy = base_t::bxdf.generate(anisointery, base_t::rc.u.xy);
+            sz = base_t::bxdf.generate(anisointerz, base_t::rc.u.xy);
+        }
+        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF>)
+        {
+            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy, cache);
+            sx = base_t::bxdf.generate(anisointerx, base_t::rc.u.xy, dummy);
+            sy = base_t::bxdf.generate(anisointery, base_t::rc.u.xy, dummy);
+            sz = base_t::bxdf.generate(anisointerz, base_t::rc.u.xy, dummy);
+        }
+        if NBL_CONSTEXPR_FUNC (is_basic_bsdf_v<BxDF>)
+        {
+            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u);
+            sx = base_t::bxdf.generate(anisointerx, base_t::rc.u);
+            sy = base_t::bxdf.generate(anisointery, base_t::rc.u);
+            sz = base_t::bxdf.generate(anisointerz, base_t::rc.u);
+        }
+        if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
+        {
+            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u, cache);
+            float32_t3 ux = base_t::rc.u + float32_t3(base_t::rc.h,0,0);
+            sx = base_t::bxdf.generate(anisointerx, ux, dummy);
+            float32_t3 uy = base_t::rc.u + float32_t3(0,base_t::rc.h,0);
+            sy = base_t::bxdf.generate(anisointery, uy, dummy);
+            float32_t3 uz = base_t::rc.u + float32_t3(0,0,base_t::rc.h);
+            sz = base_t::bxdf.generate(anisointerz, uz, dummy);
+        }
+        
+        if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF> || is_basic_bsdf_v<BxDF>)
+        {
+            pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer);
+            brdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer));
+        }
+        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
+        {
+            if NBL_CONSTEXPR_FUNC (aniso)
+            {
+                pdf = base_t::bxdf.quotient_and_pdf(s, base_t::anisointer, cache);
+                brdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
+            }
+            else
+            {
+                iso_cache isocache = (iso_cache)cache;
+                pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer, isocache);
+                brdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
+            }
+        }
 
-    return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
-}
+        // get jacobian
+        float32_t3x3 m = float32_t3x3(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL, sz.BdotL - s.BdotL, sx.NdotL - s.NdotL, sy.NdotL - s.NdotL, sz.NdotL - s.NdotL);
+        float det = nbl::hlsl::determinant<float32_t3x3>(m);
+
+        return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
+    }
+
+    static float32_t4 run(uint32_t2 seed)
+    {
+        this_t t;
+        t.init(seed);
+        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
+            t.template initBxDF<aniso>(t.rc);
+        else
+            t.initBxDF(t.rc);
+        return t.test();
+    }
+};
 
 }
 }

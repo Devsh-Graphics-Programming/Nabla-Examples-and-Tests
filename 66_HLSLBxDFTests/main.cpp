@@ -24,7 +24,7 @@ int main(int argc, char** argv)
 
     using bool32_t4 = vector<bool, 4>;
 
-    const uint32_t2 state = uint32_t2(10u, 42u);    // (12u, 69u)
+    const uint32_t2 state = uint32_t2(12u, 69u);    // (12u, 69u)
 
     // test u offset, 2 axis
     ASSERT_ZERO((TestUOffset<bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction>>::run(state)));
@@ -41,7 +41,18 @@ int main(int argc, char** argv)
     printFloat4(TestUOffset<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>,true>::run(state));
 
     // test v offset, 3 axis
-    ASSERT_ZERO(testLambertianBRDF2());
+    ASSERT_ZERO((TestVOffset<bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction>>::run(state)));
+    ASSERT_ZERO((TestVOffset<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction>>::run(state)));
+    printFloat4(TestVOffset<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>, false>::run(state));
+    ASSERT_ZERO((TestVOffset<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>, true>::run(state)));
+    printFloat4(TestVOffset<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>, false>::run(state));
+    ASSERT_ZERO((TestVOffset<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>, true>::run(state)));
+
+    ASSERT_ZERO((TestVOffset<bxdf::transmission::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction>>::run(state)));
+    printFloat4(TestVOffset<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>, false>::run(state));
+    ASSERT_ZERO((TestVOffset<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>, true>::run(state)));
+    printFloat4(TestVOffset<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>, false>::run(state));
+    printFloat4(TestVOffset<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>, true>::run(state));
 
     return 0;
 }
