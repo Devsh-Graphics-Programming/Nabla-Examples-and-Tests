@@ -54,6 +54,8 @@ struct SBxDFTestResources
         retval.ior = float32_t3x2(1.02, 1.0,      // randomize at some point?
                                 1.3, 2.0,
                                 1.02, 1.0);
+        retval.eta2 = float32_t3(1.02, 1.3, 1.02);  // TODO: check correctness?
+        retval.luma_coeff = float32_t3(0.2126, 0.7152, 0.0722); // luma coefficients for Rec. 709
         return retval;
     }
 
@@ -78,6 +80,9 @@ struct SBxDFTestResources
     float32_t2 alpha;
     float eta;
     float32_t3x2 ior;
+
+    float32_t3 eta2;    // what is this?
+    float32_t3 luma_coeff;
 };
 
 struct STestMeta
@@ -189,6 +194,34 @@ struct TestBxDF<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>> : 
 };
 
 template<>
+struct TestBxDF<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache>> : TestBase<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache>>
+{
+    using base_t = TestBase<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache>>;
+
+    void initBxDF(SBxDFTestResources _rc)
+    {
+        base_t::bxdf = bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache>::create(rc.eta);
+#ifndef __HLSL_VERSION
+        base_t::meta.bxdfName = "SmoothDielectricBSDF";
+#endif
+    }
+};
+
+template<>
+struct TestBxDF<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, true>> : TestBase<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, true>>
+{
+    using base_t = TestBase<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, true>>;
+
+    void initBxDF(SBxDFTestResources _rc)
+    {
+        base_t::bxdf = bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, true>::create(rc.eta2,rc.luma_coeff);
+#ifndef __HLSL_VERSION
+        base_t::meta.bxdfName = "ThinSmoothDielectricBSDF";
+#endif
+    }
+};
+
+template<>
 struct TestBxDF<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>> : TestBase<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>>
 {
     using base_t = TestBase<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>>;
@@ -253,7 +286,9 @@ struct is_microfacet_brdf : bool_constant<
 
 template<class T>
 struct is_basic_bsdf : bool_constant<
-    is_same<T, bxdf::transmission::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction>>::value
+    is_same<T, bxdf::transmission::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction>>::value ||
+    is_same<T, bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache>>::value ||
+    is_same<T, bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, true>>::value
 > {};
 
 template<class T>
@@ -300,8 +335,10 @@ struct TestUOffset : TestBxDF<BxDF>
         if NBL_CONSTEXPR_FUNC (is_basic_bsdf_v<BxDF>)
         {
             s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u);
-            sx = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u + float32_t3(base_t::rc.h,0,0));
-            sy = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u + float32_t3(0,base_t::rc.h,0));
+            float32_t3 ux = base_t::rc.u + float32_t3(base_t::rc.h,0,0);
+            sx = base_t::bxdf.generate(base_t::anisointer, ux);
+            float32_t3 uy = base_t::rc.u + float32_t3(0,base_t::rc.h,0);
+            sy = base_t::bxdf.generate(base_t::anisointer, uy);
         }
         if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
         {
@@ -392,9 +429,12 @@ struct TestVOffset : TestBxDF<BxDF>
         if NBL_CONSTEXPR_FUNC (is_basic_bsdf_v<BxDF>)
         {
             s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u);
-            sx = base_t::bxdf.generate(anisointerx, base_t::rc.u);
-            sy = base_t::bxdf.generate(anisointery, base_t::rc.u);
-            sz = base_t::bxdf.generate(anisointerz, base_t::rc.u);
+            float32_t3 ux = base_t::rc.u + float32_t3(base_t::rc.h,0,0);
+            sx = base_t::bxdf.generate(anisointerx, ux);
+            float32_t3 uy = base_t::rc.u + float32_t3(0,base_t::rc.h,0);
+            sy = base_t::bxdf.generate(anisointery, uy);
+            float32_t3 uz = base_t::rc.u + float32_t3(0,0,base_t::rc.h);
+            sz = base_t::bxdf.generate(anisointerz, uz);
         }
         if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
         {
