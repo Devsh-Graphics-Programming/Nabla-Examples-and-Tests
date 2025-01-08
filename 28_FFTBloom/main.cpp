@@ -566,13 +566,10 @@ public:
 
 			deviceLocalBufferParams.queueFamilyIndexCount = 1;
 			deviceLocalBufferParams.queueFamilyIndices = &queueFamilyIndex;
-			// Axis on which we perform first FFT is the only one that needs to be padded in memory - in this case it's the y-axis
-			hlsl::vector <uint16_t, 1> firstAxis(uint16_t(0));
-			// We only need enough memory to hold (half, since it's real) of the original-sized image with padding for the kernel (and the padding up to PoT) only on the first axis.
-			// That's because (in this case, since it's a 2D convolution) the "middle" step (that which does the last FFT -> convolves -> first IFFT) doesn't store
-			// anything and the "padding" can be seen as virtual.
-			hlsl::vector <uint32_t, 3> paddedSrcDimensions(m_marginSrcDim.width, srcDim.height, srcDim.depth);
-			deviceLocalBufferParams.size = fft::getOutputBufferSize<3, 1>(paddedSrcDimensions, 3, firstAxis, true, m_useHalfFloats);
+			uint32_t2 sourceDimensions = { srcDim.width, srcDim.height };
+			// X-axis goes first in the FFT
+			hlsl::vector <uint16_t, 2> axisPassOrder = { 0, 1 };
+			deviceLocalBufferParams.size = fft::getOutputBufferSize<2>(3, sourceDimensions, 0, axisPassOrder, true, m_useHalfFloats);
 			deviceLocalBufferParams.usage = asset::IBuffer::E_USAGE_FLAGS::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
 			m_rowMajorBuffer = m_device->createBuffer(std::move(deviceLocalBufferParams));
