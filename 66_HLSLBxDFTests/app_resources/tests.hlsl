@@ -80,6 +80,15 @@ struct SBxDFTestResources
     float32_t3x2 ior;
 };
 
+struct STestMeta
+{
+    float32_t4 result;
+#ifndef __HLSL_VERSION
+    std::string bxdfName;
+    std::string testName;
+#endif
+};
+
 template<class BxDF>
 struct TestBase
 {
@@ -96,6 +105,8 @@ struct TestBase
 
     iso_interaction isointer;
     aniso_interaction anisointer;
+
+    STestMeta meta;
 };
 
 
@@ -107,6 +118,9 @@ struct TestBxDF : TestBase<BxDF>
     void initBxDF(SBxDFTestResources _rc)
     {
         base_t::bxdf = BxDF::create();  // default to lambertian bxdf
+#ifndef __HLSL_VERSION
+        base_t::meta.bxdfName = "LambertianBxDF";
+#endif
     }
 };
 
@@ -118,6 +132,9 @@ struct TestBxDF<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, anis
     void initBxDF(SBxDFTestResources _rc)
     {
         base_t::bxdf = bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction>::create(_rc.alpha.x);
+#ifndef __HLSL_VERSION
+        base_t::meta.bxdfName = "OrenNayarBRDF";
+#endif
     }
 };
 
@@ -130,9 +147,19 @@ struct TestBxDF<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache
     void initBxDF(SBxDFTestResources _rc)
     {
         if (aniso)
+        {
             base_t::bxdf = bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>::create(rc.alpha.x,rc.alpha.y,rc.ior);
+#ifndef __HLSL_VERSION
+            base_t::meta.bxdfName = "BeckmannBRDF Aniso";
+#endif
+        }
         else
+        {
             base_t::bxdf = bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>::create(rc.alpha.x,rc.ior);
+#ifndef __HLSL_VERSION
+            base_t::meta.bxdfName = "BeckmannBRDF";
+#endif
+        }
     }
 };
 
@@ -145,9 +172,19 @@ struct TestBxDF<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>> : 
     void initBxDF(SBxDFTestResources _rc)
     {
         if (aniso)
+        {
             base_t::bxdf = bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>::create(rc.alpha.x,rc.alpha.y,rc.ior);
+#ifndef __HLSL_VERSION
+            base_t::meta.bxdfName = "GGXBRDF Aniso";
+#endif
+        }
         else
+        {
             base_t::bxdf = bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>::create(rc.alpha.x,rc.ior);
+#ifndef __HLSL_VERSION
+            base_t::meta.bxdfName = "GGXBRDF";
+#endif
+        }
     }
 };
 
@@ -160,9 +197,19 @@ struct TestBxDF<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache,
     void initBxDF(SBxDFTestResources _rc)
     {
         if (aniso)
+        {
             base_t::bxdf = bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>::create(rc.eta,rc.alpha.x,rc.alpha.y);
+#ifndef __HLSL_VERSION
+            base_t::meta.bxdfName = "BeckmannBSDF Aniso";
+#endif
+        }
         else
+        {
             base_t::bxdf = bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>::create(rc.eta,rc.alpha.x);
+#ifndef __HLSL_VERSION
+            base_t::meta.bxdfName = "BeckmannBSDF";
+#endif
+        }
     }
 };
 
@@ -175,9 +222,19 @@ struct TestBxDF<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, anis
     void initBxDF(SBxDFTestResources _rc)
     {
         if (aniso)
+        {
             base_t::bxdf = bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>::create(rc.eta,rc.alpha.x,rc.alpha.y);
+#ifndef __HLSL_VERSION
+            base_t::meta.bxdfName = "GGXBSDF Aniso";
+#endif
+        }
         else
+        {
             base_t::bxdf = bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>::create(rc.eta,rc.alpha.x);
+#ifndef __HLSL_VERSION
+            base_t::meta.bxdfName = "GGXBSDF";
+#endif
+        }
     }
 };
 
@@ -282,7 +339,7 @@ struct TestUOffset : TestBxDF<BxDF>
         return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
     }
 
-    static float32_t4 run(uint32_t2 seed)
+    static STestMeta run(uint32_t2 seed)
     {
         this_t t;
         t.init(seed);
@@ -290,7 +347,10 @@ struct TestUOffset : TestBxDF<BxDF>
             t.template initBxDF<aniso>(t.rc);
         else
             t.initBxDF(t.rc);
-        return t.test();
+
+        t.meta.result = t.test();
+        t.meta.testName = "u offset";
+        return t.meta;
     }
 };
 
@@ -374,7 +434,7 @@ struct TestVOffset : TestBxDF<BxDF>
         return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
     }
 
-    static float32_t4 run(uint32_t2 seed)
+    static STestMeta run(uint32_t2 seed)
     {
         this_t t;
         t.init(seed);
@@ -382,7 +442,10 @@ struct TestVOffset : TestBxDF<BxDF>
             t.template initBxDF<aniso>(t.rc);
         else
             t.initBxDF(t.rc);
-        return t.test();
+
+        t.meta.result = t.test();
+        t.meta.testName = "V offset";
+        return t.meta;
     }
 };
 
