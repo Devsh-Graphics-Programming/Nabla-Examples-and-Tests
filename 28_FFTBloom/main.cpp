@@ -51,6 +51,11 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 	uint64_t m_colMajorBufferAddress;
 
 	bool m_useHalfFloats = false;
+	// Controls whether source image gets sampled with mirror padding or zero padding and along which axis
+	// First controls the first axis of the FFT, so sampling done in `image_fft_first_axis.hlsl`
+	// Second controls the second axis of the FFT, so sampling done in `fft_convolve_ifft.hlsl`
+	bool m_useMirrorPadding_first = false;
+	bool m_useMirrorPadding_second = false;
 	
 	// Other parameter-dependent variables
 	asset::VkExtent3D m_marginSrcDim;
@@ -190,6 +195,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 				std::ostringstream tmp;
 				tmp << R"===(
 				#include "nbl/builtin/hlsl/workgroup/fft.hlsl"
+				)===" << (m_useMirrorPadding_second ? "#define MIRROR_PADDING\n" : "") << R"===(
 				struct ShaderConstevalParameters
 				{
 					using scalar_t = )===" << shaderConstants.scalar_t << R"===(;
@@ -391,11 +397,19 @@ public:
 
 			auto mirrorSamplerCPU = make_smart_refctd_ptr<ICPUSampler>(samplerCreationParams);
 
-			samplerCreationParams.TextureWrapU = ISampler::ETC_CLAMP_TO_BORDER;
-			samplerCreationParams.TextureWrapV = ISampler::ETC_CLAMP_TO_BORDER;
-			samplerCreationParams.TextureWrapW = ISampler::ETC_CLAMP_TO_BORDER;
-
-			auto borderSamplerCPU = make_smart_refctd_ptr<ICPUSampler>(samplerCreationParams);
+			smart_refctd_ptr<ICPUSampler> imageSamplerCPU;
+			if (!m_useMirrorPadding_first)
+			{
+				samplerCreationParams.TextureWrapU = ISampler::ETC_CLAMP_TO_BORDER;
+				samplerCreationParams.TextureWrapV = ISampler::ETC_CLAMP_TO_BORDER;
+				samplerCreationParams.TextureWrapW = ISampler::ETC_CLAMP_TO_BORDER;
+				imageSamplerCPU = make_smart_refctd_ptr<ICPUSampler>(samplerCreationParams);
+			}
+			else
+			{
+				imageSamplerCPU = mirrorSamplerCPU;
+			}
+			
 
 			// Set descriptor set values for automatic upload
 			
@@ -411,8 +425,8 @@ public:
 			auto& mirrorSamplerDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(1u), IDescriptor::E_TYPE::ET_SAMPLER).front();
 			mirrorSamplerDescriptorInfo.desc = mirrorSamplerCPU;
 
-			auto& borderSamplerDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(4u), IDescriptor::E_TYPE::ET_SAMPLER).front();
-			borderSamplerDescriptorInfo.desc = borderSamplerCPU;
+			auto& imageSamplerDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(4u), IDescriptor::E_TYPE::ET_SAMPLER).front();
+			imageSamplerDescriptorInfo.desc = imageSamplerCPU;
 
 			// Using asset converter
 			smart_refctd_ptr<video::CAssetConverter> converter = video::CAssetConverter::create({ .device = m_device.get(),.optimizer = {} });
