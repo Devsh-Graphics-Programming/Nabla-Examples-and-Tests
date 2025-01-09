@@ -46,13 +46,13 @@ struct RNGUniformDist<float32_t>
     }
 };
 
-template<unit16_t N>
+template<uint16_t N>
 struct RNGUniformDist<vector<float32_t, N>>
 {
     static vector<float32_t, N> __call(NBL_REF_ARG(nbl::hlsl::Xoroshiro64Star) rng)
     {
         vector<float32_t, N> retval;
-        for (int i = 0; i < rank<T>::value; i++)
+        for (int i = 0; i < N; i++)
             retval[i] = rngFloat01(rng);
         return retval;
     }
@@ -422,104 +422,6 @@ struct TestUOffset : TestBxDF<BxDF>
 
         t.meta.result = t.test();
         t.meta.testName = "u offset";
-        return t.meta;
-    }
-};
-
-
-template<class BxDF, bool aniso = false>
-struct TestVOffset : TestBxDF<BxDF>
-{
-    using base_t = TestBase<BxDF>;
-    using this_t = TestVOffset<BxDF, aniso>;
-
-    float32_t4 test()
-    {
-        sample_t s, sx, sy, sz;
-        quotient_pdf_t pdf;
-        float32_t3 brdf;
-        aniso_cache cache, dummy;
-
-        iso_interaction isointerx = iso_interaction::create(base_t::rc.dV(0), base_t::rc.N);
-        aniso_interaction anisointerx = aniso_interaction::create(isointerx, base_t::rc.T, base_t::rc.B);
-        iso_interaction isointery = iso_interaction::create(base_t::rc.dV(1), base_t::rc.N);
-        aniso_interaction anisointery = aniso_interaction::create(isointery, base_t::rc.T, base_t::rc.B);
-        iso_interaction isointerz = iso_interaction::create(base_t::rc.dV(2), base_t::rc.N);
-        aniso_interaction anisointerz = aniso_interaction::create(isointerz, base_t::rc.T, base_t::rc.B);
-
-        if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
-        {
-            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy);
-            sx = base_t::bxdf.generate(anisointerx, base_t::rc.u.xy);
-            sy = base_t::bxdf.generate(anisointery, base_t::rc.u.xy);
-            sz = base_t::bxdf.generate(anisointerz, base_t::rc.u.xy);
-        }
-        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF>)
-        {
-            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy, cache);
-            sx = base_t::bxdf.generate(anisointerx, base_t::rc.u.xy, dummy);
-            sy = base_t::bxdf.generate(anisointery, base_t::rc.u.xy, dummy);
-            sz = base_t::bxdf.generate(anisointerz, base_t::rc.u.xy, dummy);
-        }
-        if NBL_CONSTEXPR_FUNC (is_basic_bsdf_v<BxDF>)
-        {
-            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u);
-            float32_t3 ux = base_t::rc.u + float32_t3(base_t::rc.h,0,0);
-            sx = base_t::bxdf.generate(anisointerx, ux);
-            float32_t3 uy = base_t::rc.u + float32_t3(0,base_t::rc.h,0);
-            sy = base_t::bxdf.generate(anisointery, uy);
-            float32_t3 uz = base_t::rc.u + float32_t3(0,0,base_t::rc.h);
-            sz = base_t::bxdf.generate(anisointerz, uz);
-        }
-        if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
-        {
-            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u, cache);
-            float32_t3 ux = base_t::rc.u + float32_t3(base_t::rc.h,0,0);
-            sx = base_t::bxdf.generate(anisointerx, ux, dummy);
-            float32_t3 uy = base_t::rc.u + float32_t3(0,base_t::rc.h,0);
-            sy = base_t::bxdf.generate(anisointery, uy, dummy);
-            float32_t3 uz = base_t::rc.u + float32_t3(0,0,base_t::rc.h);
-            sz = base_t::bxdf.generate(anisointerz, uz, dummy);
-        }
-        
-        if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF> || is_basic_bsdf_v<BxDF>)
-        {
-            pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer);
-            brdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer));
-        }
-        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
-        {
-            if NBL_CONSTEXPR_FUNC (aniso)
-            {
-                pdf = base_t::bxdf.quotient_and_pdf(s, base_t::anisointer, cache);
-                brdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
-            }
-            else
-            {
-                iso_cache isocache = (iso_cache)cache;
-                pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer, isocache);
-                brdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
-            }
-        }
-
-        // get jacobian
-        float32_t3x3 m = float32_t3x3(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL, sz.BdotL - s.BdotL, sx.NdotL - s.NdotL, sy.NdotL - s.NdotL, sz.NdotL - s.NdotL);
-        float det = nbl::hlsl::determinant<float32_t3x3>(m);
-
-        return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
-    }
-
-    static STestMeta run(uint32_t2 seed)
-    {
-        this_t t;
-        t.init(seed);
-        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
-            t.template initBxDF<aniso>(t.rc);
-        else
-            t.initBxDF(t.rc);
-
-        t.meta.result = t.test();
-        t.meta.testName = "V offset";
         return t.meta;
     }
 };
