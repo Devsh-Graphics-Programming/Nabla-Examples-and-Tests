@@ -25,6 +25,15 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 	using clock_t = std::chrono::steady_clock;
 
+	// Windowed App members
+	constexpr static inline uint32_t MaxFramesInFlight = 3u;
+	smart_refctd_ptr<IWindow> m_window;
+	smart_refctd_ptr<CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>> m_surface;
+	smart_refctd_ptr<ISemaphore> m_timeline;
+	uint64_t m_realFrameIx = 0;
+	std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
+	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
+
 	// Persistent compute Pipelines
 	smart_refctd_ptr<IGPUComputePipeline> m_firstAxisFFTPipeline;
 	smart_refctd_ptr<IGPUComputePipeline> m_lastAxisFFT_convolution_lastAxisIFFTPipeline;
@@ -43,12 +52,12 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 	smart_refctd_ptr<IGPUImageView> m_kernelNormalizedSpectrums;
 
 	// Used to store intermediate results
-	smart_refctd_ptr<IGPUBuffer> m_rowMajorBuffer;
-	smart_refctd_ptr<IGPUBuffer> m_colMajorBuffer;
+	smart_refctd_ptr<IGPUBuffer> m_rowMajorBuffer[MaxFramesInFlight];
+	smart_refctd_ptr<IGPUBuffer> m_colMajorBuffer[MaxFramesInFlight];
 
 	// These are Buffer Device Addresses
-	uint64_t m_rowMajorBufferAddress;
-	uint64_t m_colMajorBufferAddress;
+	uint64_t m_rowMajorBufferAddress[MaxFramesInFlight];
+	uint64_t m_colMajorBufferAddress[MaxFramesInFlight];
 
 	bool m_useHalfFloats = false;
 	// Controls whether source image gets sampled with mirror padding or zero padding and along which axis
@@ -67,15 +76,6 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 
 	// Only use one queue
 	IQueue* m_queue;
-
-	// Windowed App members
-	constexpr static inline uint32_t MaxFramesInFlight = 3u;
-	smart_refctd_ptr<IWindow> m_window;
-	smart_refctd_ptr<CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>> m_surface;
-	smart_refctd_ptr<ISemaphore> m_timeline;
-	uint64_t m_realFrameIx = 0;
-	std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
-	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 
 	// -------------------------------- WINDOWED APP OVERRIDES ---------------------------------------------------
 	inline bool isComputeOnly() const override { return false; }
@@ -586,19 +586,23 @@ public:
 			deviceLocalBufferParams.size = fft::getOutputBufferSize<2>(3, sourceDimensions, 0, axisPassOrder, true, m_useHalfFloats);
 			deviceLocalBufferParams.usage = asset::IBuffer::E_USAGE_FLAGS::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
-			m_rowMajorBuffer = m_device->createBuffer(std::move(deviceLocalBufferParams));
-			deviceLocalBufferParams = m_rowMajorBuffer->getCreationParams();
-			m_colMajorBuffer = m_device->createBuffer(std::move(deviceLocalBufferParams));
+			for (auto i = 0u; i < MaxFramesInFlight; i++) 
+			{
+				m_rowMajorBuffer[i] = m_device->createBuffer(std::move(deviceLocalBufferParams));
+				deviceLocalBufferParams = m_rowMajorBuffer[i]->getCreationParams();
+				m_colMajorBuffer[i] = m_device->createBuffer(std::move(deviceLocalBufferParams));
+				deviceLocalBufferParams = m_rowMajorBuffer[i]->getCreationParams();
 
-			auto rowMemReqs = m_rowMajorBuffer->getMemoryReqs();
-			auto colMemReqs = m_colMajorBuffer->getMemoryReqs();
-			rowMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			colMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			auto gpuRowMem = m_device->allocate(rowMemReqs, m_rowMajorBuffer.get(), IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT);
-			auto gpuColMem = m_device->allocate(colMemReqs, m_colMajorBuffer.get(), IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT);
+				auto rowMemReqs = m_rowMajorBuffer[i]->getMemoryReqs();
+				auto colMemReqs = m_colMajorBuffer[i]->getMemoryReqs();
+				rowMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+				colMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+				auto gpuRowMem = m_device->allocate(rowMemReqs, m_rowMajorBuffer[i].get(), IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT);
+				auto gpuColMem = m_device->allocate(colMemReqs, m_colMajorBuffer[i].get(), IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT);
 
-			m_rowMajorBufferAddress = m_rowMajorBuffer.get()->getDeviceAddress();
-			m_colMajorBufferAddress = m_colMajorBuffer.get()->getDeviceAddress();
+				m_rowMajorBufferAddress[i] = m_rowMajorBuffer[i].get()->getDeviceAddress();
+				m_colMajorBufferAddress[i] = m_colMajorBuffer[i].get()->getDeviceAddress();
+			}
 		}
 		// Create cache for shader compilation
 
@@ -720,8 +724,8 @@ public:
 
 			// Push Constants - only need to specify BDAs here
 			PushConstantData pushConstants;
-			pushConstants.colMajorBufferAddress = m_colMajorBufferAddress;
-			pushConstants.rowMajorBufferAddress = m_rowMajorBufferAddress;
+			pushConstants.colMajorBufferAddress = m_colMajorBufferAddress[0];
+			pushConstants.rowMajorBufferAddress = m_rowMajorBufferAddress[0];
 
 			// Create a command buffer for this submit only
 			smart_refctd_ptr<IGPUCommandBuffer> kernelPrecompCmdBuf;
@@ -746,7 +750,7 @@ public:
 			pipelineBarrierInfo.bufBarriers = { &bufBarrier, 1u };
 
 			// First axis FFT writes to colMajorBuffer
-			bufBarrier.range.buffer = m_colMajorBuffer;
+			bufBarrier.range.buffer = m_colMajorBuffer[0];
 
 			// Wait for first compute write (first axis FFT) before next compute read (second axis FFT)
 			bufBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
@@ -778,7 +782,7 @@ public:
 
 			// Wait on second axis FFT to write the kernel image before running normalization step
 			// Normalization needs to access the power value stored in the rowmajorbuffer
-			bufBarrier.range.buffer = m_rowMajorBuffer;
+			bufBarrier.range.buffer = m_rowMajorBuffer[0];
 
 			// No layout transition now
 			imgBarrier.oldLayout = IImage::LAYOUT::UNDEFINED;
@@ -1025,8 +1029,8 @@ public:
 		const int32_t halfPaddingAlongRows = paddingAlongRows / 2;
 
 		PushConstantData pushConstants;
-		pushConstants.colMajorBufferAddress = m_colMajorBufferAddress;
-		pushConstants.rowMajorBufferAddress = m_rowMajorBufferAddress;
+		pushConstants.colMajorBufferAddress = m_colMajorBufferAddress[resourceIx];
+		pushConstants.rowMajorBufferAddress = m_rowMajorBufferAddress[resourceIx];
 		pushConstants.imageRowLength = int32_t(imageExtent.width);
 		pushConstants.imageHalfRowLength = int32_t(imageExtent.width) / 2;
 		pushConstants.imageColumnLength = int32_t(imageExtent.height);
@@ -1058,7 +1062,7 @@ public:
 		bufferPipelineBarrierInfo.bufBarriers = { &bufBarrier, 1u };
 
 		// First axis FFT writes to colMajorBuffer
-		bufBarrier.range.buffer = m_colMajorBuffer;
+		bufBarrier.range.buffer = m_colMajorBuffer[resourceIx];
 
 		// Wait for first compute write (first axis FFT) before next compute read (second axis FFT)
 		bufBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
@@ -1075,7 +1079,7 @@ public:
 		cmdBuf->dispatch(core::roundUpToPoT(m_marginSrcDim.height) / 2, 1, 1);
 
 		// Recycle pipeline barrier, only have to change which buffer we need to wait to be written to
-		bufBarrier.range.buffer = m_rowMajorBuffer;
+		bufBarrier.range.buffer = m_rowMajorBuffer[resourceIx];
 		cmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), bufferPipelineBarrierInfo);
 
 		// Finally run the IFFT on the first axis
