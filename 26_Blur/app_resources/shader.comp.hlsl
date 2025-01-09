@@ -5,50 +5,82 @@
 #include "nbl/builtin/hlsl/numbers.hlsl"
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 #include "nbl/builtin/hlsl/workgroup/scratch_size.hlsl"
-// #include "nbl/builtin/hlsl/workgroup/arithmetic.hlsl"
-// #include "nbl/builtin/hlsl/workgroup/shared_scan.hlsl"
-// #include "nbl/builtin/hlsl/colorspace/OETF.hlsl"
 
 using namespace nbl::hlsl;
 
+enum EdgeWrapMode {
+	WRAP_MODE_CLAMP_TO_EDGE,
+	WRAP_MODE_CLAMP_TO_BORDER,
+	WRAP_MODE_REPEAT,
+	WRAP_MODE_MIRROR,
+};
+
 template<typename TextureAccessor, typename SharedAccessor>
-void boxBlur(TextureAccessor texAccessor, SharedAccessor smemAccessor, float32_t radius, bool flip) {
-    uint16_t2 pixel_pos = uint16_t2(spirv::GlobalInvocationId.xy);
-    if (flip) pixel_pos = pixel_pos.yx;
+void boxBlur(TextureAccessor texAccessor, SharedAccessor smemAccessor, EdgeWrapMode wrapMode, float32_t4 borderColor, float32_t radius, bool flip) {
+    uint16_t2 pixelPos = uint16_t2(spirv::GlobalInvocationId.xy);
+    if (flip) pixelPos = pixelPos.yx;
     float32_t scale = 1.0 / (2.0 * radius + 1.0);
-    uint16_t radius_f = (uint16_t)floor(radius);
-    float32_t alpha = radius - radius_f;
+    uint16_t radiusFl = (uint16_t)floor(radius);
+    float32_t alpha = radius - radiusFl;
 
     float32_t4 color = 0;
     for (uint16_t ch = 0; ch < 4; ch++)
     {
         if (spirv::LocalInvocationId.x == 0)
         {
-            for (uint16_t i = 0; i < glsl::gl_WorkGroupSize().x + (radius_f + 1) * 2; i++)
+            for (uint16_t i = 0; i < glsl::gl_WorkGroupSize().x + (radiusFl + 1) * 2; i++)
             {
-                uint16_t2 pos = pixel_pos;
-                pos[flip] = max((uint16_t)0, pos[flip] + i - radius_f - 1);
+                uint16_t2 pos = pixelPos;
+                pos[flip] = max((uint16_t)0, pos[flip] + i - radiusFl - 1);
                 smemAccessor.set(i, texAccessor.get(pos, ch));
             }
         }
 
         glsl::barrier();
 
-        uint16_t scanline_idx = radius_f + 1 + spirv::LocalInvocationId.x;
-        float32_t sum = smemAccessor.get(scanline_idx);
-        for (uint16_t j = 1; j <= radius_f; j++)
+        uint16_t scanlineIdx = spirv::LocalInvocationId.x + radiusFl + 1;
+        float32_t sum = smemAccessor.get(scanlineIdx);
+        for (uint16_t j = 1; j <= radiusFl; j++)
         {
-            sum += smemAccessor.get(scanline_idx - j) + smemAccessor.get(scanline_idx + j);
+            sum += smemAccessor.get(scanlineIdx - j) + smemAccessor.get(scanlineIdx + j);
         }
-        sum += alpha * (smemAccessor.get(scanline_idx - radius_f - 1) + smemAccessor.get(scanline_idx + radius_f + 1));
 
-        sum += lerp(smemAccessor.get(scanline_idx + radius_f + 1), smemAccessor.get(scanline_idx + radius_f + 2), alpha);
-        sum -= lerp(smemAccessor.get(scanline_idx - radius_f), smemAccessor.get(scanline_idx - radius_f - 1), alpha);
+        uint16_t last = texAccessor.size()[flip];
+        float32_t left = spirv::WorkgroupId.x * glsl::gl_WorkGroupSize().x + float32_t(spirv::LocalInvocationId.x) - radiusFl - 1;
+        float32_t right = spirv::WorkgroupId.x * glsl::gl_WorkGroupSize().x + float32_t(spirv::LocalInvocationId.x) + radiusFl;
+
+        if (right < last)
+        {
+            sum += lerp(smemAccessor.get(scanlineIdx + radiusFl + 1), smemAccessor.get(scanlineIdx + radiusFl + 2), alpha);
+        }
+        else switch (wrapMode)
+        {
+            case WRAP_MODE_CLAMP_TO_EDGE:
+                sum += (right - float32_t(last)) * (smemAccessor.get(glsl::gl_WorkGroupSize().x) - smemAccessor.get(glsl::gl_WorkGroupSize().x - 1));
+            break;
+            case WRAP_MODE_CLAMP_TO_BORDER:
+                sum += (right - float32_t(last)) * borderColor[ch];
+            break;
+        }
+
+        if (left > 0)
+        {
+            sum -= lerp(smemAccessor.get(scanlineIdx - radiusFl), smemAccessor.get(scanlineIdx - radiusFl - 1), alpha);
+        }
+        else switch (wrapMode)
+        {
+            case WRAP_MODE_CLAMP_TO_EDGE:
+                sum -= (1 - abs(left)) * smemAccessor.get(0);
+            break;
+            case WRAP_MODE_CLAMP_TO_BORDER:
+                sum -= (left + 1) * borderColor[ch];
+            break;
+        }
 
         color[ch] = sum;
     }
 
-    texAccessor.set(pixel_pos, color * scale);
+    texAccessor.set(pixelPos, color * scale);
 }
 
 static const uint32_t arithmeticSz = workgroup::scratch_size_arithmetic<WORKGROUP_SIZE>::value;
@@ -75,6 +107,12 @@ struct TextureProxy
 	{
         output[pos] = value;
 	}
+
+    uint16_t2 size() {
+        uint32_t3 dims;
+        input.GetDimensions(0, dims.x, dims.y, dims.z);
+        return uint32_t2(dims.xy);
+    }
 };
 
 struct SharedMemoryProxy
@@ -91,8 +129,8 @@ struct SharedMemoryProxy
 };
 
 [numthreads(WORKGROUP_SIZE, 1, 1)]
-void main(uint3 group_thread_id: SV_GroupThreadID, uint3 dispatch_thread_id: SV_DispatchThreadID) {
+void main() {
     TextureProxy texAccessor;
     SharedMemoryProxy smemAccessor;
-    boxBlur(texAccessor, smemAccessor, 6, pc.flip);
+    boxBlur(texAccessor, smemAccessor, WRAP_MODE_CLAMP_TO_EDGE, float32_t4(1, 0, 1, 1), 6, pc.flip);
 }
