@@ -279,7 +279,7 @@ public:
 			lp.logger = m_logger.get();
 			lp.workingDirectory = ""; // virtual root
 			auto srcImageBundle = m_assetMgr->getAsset("../../media/colorexr.exr", lp);
-			auto kerImageBundle = m_assetMgr->getAsset("../../media/kernels/physical_flare_512.exr", lp);
+			auto kerImageBundle = m_assetMgr->getAsset("../../media/kernels/physical_flare_256.exr", lp);
 			const auto srcImages = srcImageBundle.getContents();
 			const auto kerImages = kerImageBundle.getContents();
 			if (srcImages.empty() or kerImages.empty())
