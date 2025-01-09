@@ -4,18 +4,56 @@
 #include "nbl/builtin/hlsl/limits.hlsl"
 #include "nbl/builtin/hlsl/numbers.hlsl"
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
-#include "nbl/builtin/hlsl/workgroup/arithmetic.hlsl"
-#include "nbl/builtin/hlsl/workgroup/shared_scan.hlsl"
 #include "nbl/builtin/hlsl/workgroup/scratch_size.hlsl"
-#include "nbl/builtin/hlsl/colorspace/OETF.hlsl"
+// #include "nbl/builtin/hlsl/workgroup/arithmetic.hlsl"
+// #include "nbl/builtin/hlsl/workgroup/shared_scan.hlsl"
+// #include "nbl/builtin/hlsl/colorspace/OETF.hlsl"
 
 using namespace nbl::hlsl;
 
-static const uint16_t WORKGROUP_SIZE = 256;
-static const uint16_t PASSES_PER_AXIS = 2;
-static const uint16_t arithmeticSz = workgroup::scratch_size_arithmetic<WORKGROUP_SIZE>::value;
-static const uint16_t smemSize = WORKGROUP_SIZE + arithmeticSz;
-uint32_t3 glsl::gl_WorkGroupSize() { return uint32_t3(WORKGROUP_SIZE, 1, 1); }
+template<typename TextureAccessor, typename SharedAccessor>
+void boxBlur(TextureAccessor texAccessor, SharedAccessor smemAccessor, float32_t radius, bool flip) {
+    uint16_t2 pixel_pos = uint16_t2(spirv::GlobalInvocationId.xy);
+    if (flip) pixel_pos = pixel_pos.yx;
+    float32_t scale = 1.0 / (2.0 * radius + 1.0);
+    uint16_t radius_f = (uint16_t)floor(radius);
+    float32_t alpha = radius - radius_f;
+
+    float32_t4 color = 0;
+    for (uint16_t ch = 0; ch < 4; ch++)
+    {
+        if (spirv::LocalInvocationId.x == 0)
+        {
+            for (uint16_t i = 0; i < glsl::gl_WorkGroupSize().x + (radius_f + 1) * 2; i++)
+            {
+                uint16_t2 pos = pixel_pos;
+                pos[flip] = max((uint16_t)0, pos[flip] + i - radius_f - 1);
+                smemAccessor.set(i, texAccessor.get(pos, ch));
+            }
+        }
+
+        glsl::barrier();
+
+        uint16_t scanline_idx = radius_f + 1 + spirv::LocalInvocationId.x;
+        float32_t sum = smemAccessor.get(scanline_idx);
+        for (uint16_t j = 1; j <= radius_f; j++)
+        {
+            sum += smemAccessor.get(scanline_idx - j) + smemAccessor.get(scanline_idx + j);
+        }
+        sum += alpha * (smemAccessor.get(scanline_idx - radius_f - 1) + smemAccessor.get(scanline_idx + radius_f + 1));
+
+        sum += lerp(smemAccessor.get(scanline_idx + radius_f + 1), smemAccessor.get(scanline_idx + radius_f + 2), alpha);
+        sum -= lerp(smemAccessor.get(scanline_idx - radius_f), smemAccessor.get(scanline_idx - radius_f - 1), alpha);
+
+        color[ch] = sum;
+    }
+
+    texAccessor.set(pixel_pos, color * scale);
+}
+
+static const uint32_t arithmeticSz = workgroup::scratch_size_arithmetic<WORKGROUP_SIZE>::value;
+static const uint32_t smemSize = WORKGROUP_SIZE + arithmeticSz;
+uint32_t3 glsl::gl_WorkGroupSize() { return uint32_t3( WORKGROUP_SIZE, 1, 1 ); }
 
 [[vk::binding(0)]]
 Texture2D<float32_t4> input;
@@ -24,112 +62,37 @@ RWTexture2D<float32_t4> output;
 
 [[vk::push_constant]] PushConstants pc;
 
-[[vk::ext_builtin_input(spv::BuiltInGlobalInvocationId)]]
-static const uint32_t3 GlobalInvocationId;
+groupshared float32_t smem[smemSize];
 
-[[vk::ext_builtin_input(spv::BuiltInLocalInvocationIndex)]]
-static const uint32_t LocalInvocationIndex;
-
-uint16_t2 byAxis(uint16_t axisIdx, uint16_t val) {
-    uint16_t2 r = 0;
-    r[axisIdx] = val;
-    return r;
-}
-
-groupshared float32_t cache[WORKGROUP_SIZE * 2];
-
-struct SharedMemoryAccessor
+struct TextureProxy
 {
-    void get(const uint32_t index, NBL_REF_ARG(float32_t) value)
-    {
-        value = cache[index];
-    }
+	float32_t get(const uint16_t2 pos, const uint16_t ch)
+	{
+		return input[pos][ch];
+	}
 
-    void set(const uint32_t index, const float32_t value)
-    {
-        cache[index] = value;
-    }
-
-    void workgroupExecutionAndMemoryBarrier()
-    {
-        glsl::barrier();
-        // GroupMemoryBarrierWithGroupSync();
-    }
+	void set(const uint16_t2 pos, float32_t4 value)
+	{
+        output[pos] = value;
+	}
 };
 
+struct SharedMemoryProxy
+{
+	float32_t get(const uint16_t idx)
+	{
+		return smem[idx];
+	}
 
-    // float32_t4 color = 0;
-    // for (int ch = 0; ch < 4; ch++)
-    // {
-    //     // if (group_thread_id.x == 0)
-    //     // {
-    //     //     for (int i = 0; i < WORKGROUP_SIZE; i++)
-    //     //     {
-    //     //         cache[i] = input[pixel_pos + byAxis(axisIdx, i)][ch];
-    //     //     }
-    //     // }
-        
-    //     glsl::barrier();
-
-    //     float sum = input[pixel_pos + byAxis(axisIdx, group_thread_id.x)][ch];
-    //     // SharedMemoryAccessor accessor;
-    //     // workgroup::inclusive_scan<plus<float32_t>, WORKGROUP_SIZE>::template __call<SharedMemoryAccessor>(sum, accessor);
-    //     for (int j = 1; j <= m; j++)
-    //     {
-    //         sum += input[pixel_pos + byAxis(axisIdx, group_thread_id.x - j)][ch] + input[pixel_pos + byAxis(axisIdx, group_thread_id.x + j)][ch];
-    //     }
-    //     sum += alpha * (input[pixel_pos + byAxis(axisIdx, group_thread_id.x - m - 1)][ch] + input[pixel_pos + byAxis(axisIdx, group_thread_id.x + m + 1)][ch]);
-    //     sum += lerp(input[pixel_pos + byAxis(axisIdx, group_thread_id.x + m+1)][ch], input[pixel_pos + byAxis(axisIdx, group_thread_id.x + m+2)][ch], alpha);
-    //     sum -= lerp(input[pixel_pos + byAxis(axisIdx, group_thread_id.x + -m)][ch], input[pixel_pos + byAxis(axisIdx, group_thread_id.x + m-1)][ch], alpha);
-
-    //     color[ch] = sum * scale;
-    //     glsl::barrier();
-    // }
-
-    // output[pixel_pos] = color;
+	void set(const uint16_t idx, float32_t value)
+	{
+        smem[idx] = value;
+	}
+};
 
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void main(uint3 group_thread_id: SV_GroupThreadID, uint3 dispatch_thread_id: SV_DispatchThreadID) {
-    uint16_t2 pixel_pos = dispatch_thread_id.xy;
-    uint16_t axisIdx = pc.flip;
-    if (pc.flip) pixel_pos = pixel_pos.yx;
-    float r = 5.0;
-    float scale = 1.0f / (2.0f * r + 1.0f);
-    int m = (int)r;
-    float alpha = r - m;
-    SharedMemoryAccessor accessor;
-
-    float32_t4 color = 0;
-    for (int ch = 0; ch < 4; ch++)
-    {
-        if (group_thread_id.x == 0)
-        {
-            // SharedMemoryAccessor accessor;
-            for (int i = 0; i < WORKGROUP_SIZE + m * 2 + 2; i++)
-            {
-                int2 pos = pixel_pos + byAxis(axisIdx,  i);
-                pos[axisIdx] = max(0, pos[axisIdx] - m - 1);
-                cache[i] = input[pos][ch];
-            }
-        }
-        
-        glsl::barrier();
-
-        float sum = cache[m + 1 + group_thread_id.x];
-        // float sum = workgroup::inclusive_scan<plus<float32_t>, WORKGROUP_SIZE>::template __call<SharedMemoryAccessor>(cache[group_thread_id.x], accessor);
-        // glsl::barrier();
-        // accessor.set(group_thread_id.x, sum);
-        // glsl::barrier();
-        for (int j = 1; j <= m; j++)
-        {
-            sum += cache[m + 1 + group_thread_id.x - j] + cache[m + 1 + group_thread_id.x + j];
-        }
-        sum += alpha * (cache[m + 1 + group_thread_id.x - m - 1] + cache[m + 1 + group_thread_id.x + m + 1]);
-        sum += lerp(cache[m + 1 + group_thread_id.x + m+1], cache[m + 1 + group_thread_id.x + m+2], alpha);
-        sum -= lerp(cache[m + 1 + group_thread_id.x + -m], cache[m + 1 + group_thread_id.x + m-1], alpha);
-        glsl::barrier();
-        color[ch] = sum * scale;
-    }
-
-    output[pixel_pos] = color;
+    TextureProxy texAccessor;
+    SharedMemoryProxy smemAccessor;
+    boxBlur(texAccessor, smemAccessor, 6, pc.flip);
 }

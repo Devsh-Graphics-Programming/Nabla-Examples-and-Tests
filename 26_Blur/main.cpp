@@ -169,7 +169,7 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 			params.utilities = m_utils.get();
 
 			IAssetLoader::SAssetLoadParams lp;
-			SAssetBundle bundle = m_assetMgr->getAsset("../app_resources/image.png", lp);
+			SAssetBundle bundle = m_assetMgr->getAsset("../app_resources/eldenring.jpg", lp);
 			if (bundle.getContents().empty())
 				logFail("Couldn't load an asset.", ILogger::ELL_ERROR);
 
