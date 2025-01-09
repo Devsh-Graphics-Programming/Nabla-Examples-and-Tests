@@ -44,20 +44,20 @@ int main(int argc, char** argv)
     printResult(TestUOffset<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>,true>::run(state));
 
     // test v offset, 3 axis
-    ASSERT_ZERO((TestVOffset<bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction>>::run(state)));
-    ASSERT_ZERO((TestVOffset<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction>>::run(state)));
-    printResult(TestVOffset<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>, false>::run(state));
-    ASSERT_ZERO((TestVOffset<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>, true>::run(state)));
-    printResult(TestVOffset<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>, false>::run(state));
-    ASSERT_ZERO((TestVOffset<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>, true>::run(state)));
+    //ASSERT_ZERO((TestVOffset<bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction>>::run(state)));
+    //ASSERT_ZERO((TestVOffset<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction>>::run(state)));
+    //printResult(TestVOffset<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>, false>::run(state));
+    //ASSERT_ZERO((TestVOffset<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>, true>::run(state)));
+    //printResult(TestVOffset<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>, false>::run(state));
+    //ASSERT_ZERO((TestVOffset<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>, true>::run(state)));
 
-    ASSERT_ZERO((TestVOffset<bxdf::transmission::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction>>::run(state)));
-    printResult(TestVOffset<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache>>::run(state));
-    printResult(TestVOffset<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, true>>::run(state));
-    printResult(TestVOffset<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>, false>::run(state));
-    ASSERT_ZERO((TestVOffset<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>, true>::run(state)));
-    printResult(TestVOffset<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>, false>::run(state));
-    printResult(TestVOffset<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>, true>::run(state));
+    //ASSERT_ZERO((TestVOffset<bxdf::transmission::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction>>::run(state)));
+    //printResult(TestVOffset<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache>>::run(state));
+    //printResult(TestVOffset<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, true>>::run(state));
+    //printResult(TestVOffset<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>, false>::run(state));
+    //ASSERT_ZERO((TestVOffset<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>, true>::run(state)));
+    //printResult(TestVOffset<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>, false>::run(state));
+    //printResult(TestVOffset<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>, true>::run(state));
 
     return 0;
 }

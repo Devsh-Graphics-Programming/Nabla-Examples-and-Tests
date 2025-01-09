@@ -21,6 +21,9 @@ using iso_cache = bxdf::SIsotropicMicrofacetCache<float>;
 using aniso_cache = bxdf::SAnisotropicMicrofacetCache<float>;
 using quotient_pdf_t = bxdf::quotient_and_pdf<float32_t3, float>;
 
+namespace impl
+{
+
 inline float rngFloat01(NBL_REF_ARG(nbl::hlsl::Xoroshiro64Star) rng)
 {
     return (float)rng() / numeric_limits<uint32_t>::max;
@@ -31,6 +34,38 @@ inline float32_t3 rngFloat301(NBL_REF_ARG(nbl::hlsl::Xoroshiro64Star) rng)
     return float32_t3(rngFloat01(rng), rngFloat01(rng), rngFloat01(rng));
 }
 
+template<typename T>
+struct RNGUniformDist;
+
+template<>
+struct RNGUniformDist<float32_t>
+{
+    static float32_t __call(NBL_REF_ARG(nbl::hlsl::Xoroshiro64Star) rng)
+    {
+        return rngFloat01(rng);
+    }
+};
+
+template<unit16_t N>
+struct RNGUniformDist<vector<float32_t, N>>
+{
+    static vector<float32_t, N> __call(NBL_REF_ARG(nbl::hlsl::Xoroshiro64Star) rng)
+    {
+        vector<float32_t, N> retval;
+        for (int i = 0; i < rank<T>::value; i++)
+            retval[i] = rngFloat01(rng);
+        return retval;
+    }
+};
+
+}
+
+template<typename T>
+T rngUniformDist(NBL_REF_ARG(nbl::hlsl::Xoroshiro64Star) rng)
+{
+    return impl::RNGUniformDist<T>::__call(rng);
+}
+
 
 struct SBxDFTestResources
 {
@@ -39,17 +74,17 @@ struct SBxDFTestResources
         SBxDFTestResources retval;
 
         retval.rng = nbl::hlsl::Xoroshiro64Star::construct(seed);
-        retval.u = float32_t3(rngFloat01(retval.rng), rngFloat01(retval.rng), 0.0);
+        retval.u = float32_t3(rngUniformDist<float32_t2>(retval.rng), 0.0);
 
-        retval.V.direction = nbl::hlsl::normalize<float32_t3>(rngFloat301(retval.rng));
-        retval.N = nbl::hlsl::normalize<float32_t3>(rngFloat301(retval.rng));
-        retval.T = nbl::hlsl::normalize<float32_t3>(rngFloat301(retval.rng));
+        retval.V.direction = nbl::hlsl::normalize<float32_t3>(projected_hemisphere_generate<float>(rngUniformDist<float32_t2>(retval.rng)));
+        retval.N = nbl::hlsl::normalize<float32_t3>(projected_hemisphere_generate<float>(rngUniformDist<float32_t2>(retval.rng)));
+        
+        float32_t2x3 tb = math::frisvad<float>(retval.N);
+        retval.T = tb[0];
+        retval.B = tb[1];
 
-        retval.T = nbl::hlsl::normalize<float32_t3>(retval.T - nbl::hlsl::dot<float32_t3>(retval.T, retval.N) * retval.N); // gram schmidt
-        retval.B = nbl::hlsl::cross<float32_t3>(retval.N, retval.T);
-
-        retval.alpha.x = rngFloat01(retval.rng);
-        retval.alpha.y = rngFloat01(retval.rng);
+        retval.alpha.x = rngUniformDist<float>(retval.rng);
+        retval.alpha.y = rngUniformDist<float>(retval.rng);
         retval.eta = 1.3;// rngFloat01(retval.rng) + 1.0;
         retval.ior = float32_t3x2(1.02, 1.0,      // randomize at some point?
                                 1.3, 2.0,
