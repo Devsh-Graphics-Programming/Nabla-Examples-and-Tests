@@ -9,6 +9,10 @@
 #include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
 #include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
 
+#ifndef __HLSL_VERSION
+#include <glm/gtc/quaternion.hpp>
+#endif
+
 namespace nbl
 {
 namespace hlsl
@@ -88,14 +92,10 @@ struct SBxDFTestResources
         
         float32_t2x3 tb = math::frisvad<float>(retval.N);
 #ifndef __HLSL_VERSION
-        core::quaternion rot;
-        float angle = 2 * numbers::pi<float> * rngUniformDist<float>(retval.rng);
-        core::vectorSIMDf N = core::vectorSIMDf(retval.N.x, retval.N.y, retval.N.z);
-        rot.toAngleAxis(angle, N);
-        core::vectorSIMDf tmp = rot.transformVect(core::vectorSIMDf(tb[0].x, tb[0].y, tb[0].z));
-        retval.T = float32_t3(tmp[0],tmp[1],tmp[2]);
-        tmp = rot.transformVect(core::vectorSIMDf(tb[1].x, tb[1].y, tb[1].z));
-        retval.B = float32_t3(tmp[0],tmp[1],tmp[2]);
+        const float angle = 2 * numbers::pi<float> * rngUniformDist<float>(retval.rng);
+        glm::quat rot = glm::angleAxis(angle, retval.N);
+        retval.T = rot * tb[0];
+        retval.B = rot * tb[1];
 #else
         retval.T = tb[0];
         retval.B = tb[1];
