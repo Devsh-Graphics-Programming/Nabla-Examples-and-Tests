@@ -22,6 +22,18 @@ using iso_cache = bxdf::SIsotropicMicrofacetCache<float>;
 using aniso_cache = bxdf::SAnisotropicMicrofacetCache<float>;
 using quotient_pdf_t = bxdf::quotient_and_pdf<float32_t3, float>;
 
+uint32_t pcg_hash(uint32_t v)
+{
+    uint32_t state = v * 747796405u + 2891336453u;
+	uint32_t word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+	return (word >> 22u) ^ word;
+}
+
+uint32_t2 pcg2d_hash(uint32_t v)
+{
+    return uint32_t2(pcg_hash(v), pcg_hash(v+1));
+}
+
 namespace impl
 {
 
@@ -68,7 +80,6 @@ struct SBxDFTestResources
     static SBxDFTestResources create(uint32_t2 seed)
     {
         SBxDFTestResources retval;
-
         retval.rng = nbl::hlsl::Xoroshiro64Star::construct(seed);
         retval.u = float32_t3(rngUniformDist<float32_t2>(retval.rng), 0.0);
 
@@ -92,21 +103,9 @@ struct SBxDFTestResources
 
         retval.alpha.x = rngUniformDist<float>(retval.rng);
         retval.alpha.y = rngUniformDist<float>(retval.rng);
-        retval.eta = 1.3;// rngFloat01(retval.rng) + 1.0;
-        retval.ior = float32_t3x2(1.02, 1.0,      // randomize at some point?
-                                1.3, 2.0,
-                                1.02, 1.0);
-        retval.eta2 = float32_t3(1.02, 1.3, 1.02);  // TODO: check correctness?
+        retval.eta = 1.3;
+        retval.ior = float32_t2(1.3, 2.0);
         retval.luma_coeff = float32_t3(0.2126, 0.7152, 0.0722); // luma coefficients for Rec. 709
-        return retval;
-    }
-
-    ray_dir_info_t dV(int axis)
-    {
-        float32_t3 d = (float32_t3)0.0;
-        d[axis] += h;
-        ray_dir_info_t retval;
-        retval.direction = V.direction + d;
         return retval;
     }
 
@@ -121,9 +120,7 @@ struct SBxDFTestResources
     float32_t3 u;
     float32_t2 alpha;
     float eta;
-    float32_t3x2 ior;
-
-    float32_t3 eta2;    // what is this?
+    float32_t2 ior;
     float32_t3 luma_coeff;
 };
 
@@ -195,14 +192,14 @@ struct TestBxDF<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache
     {
         if (aniso)
         {
-            base_t::bxdf = bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>::create(rc.alpha.x,rc.alpha.y,rc.ior);
+            base_t::bxdf = bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>::create(rc.alpha.x,rc.alpha.y,float32_t3x2(rc.ior,rc.ior,rc.ior));
 #ifndef __HLSL_VERSION
             base_t::meta.bxdfName = "BeckmannBRDF Aniso";
 #endif
         }
         else
         {
-            base_t::bxdf = bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>::create(rc.alpha.x,rc.ior);
+            base_t::bxdf = bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>::create(rc.alpha.x,float32_t3x2(rc.ior,rc.ior,rc.ior));
 #ifndef __HLSL_VERSION
             base_t::meta.bxdfName = "BeckmannBRDF";
 #endif
@@ -220,14 +217,14 @@ struct TestBxDF<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>> : 
     {
         if (aniso)
         {
-            base_t::bxdf = bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>::create(rc.alpha.x,rc.alpha.y,rc.ior);
+            base_t::bxdf = bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>::create(rc.alpha.x,rc.alpha.y,float32_t3x2(rc.ior,rc.ior,rc.ior));
 #ifndef __HLSL_VERSION
             base_t::meta.bxdfName = "GGXBRDF Aniso";
 #endif
         }
         else
         {
-            base_t::bxdf = bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>::create(rc.alpha.x,rc.ior);
+            base_t::bxdf = bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>::create(rc.alpha.x,float32_t3x2(rc.ior,rc.ior,rc.ior));
 #ifndef __HLSL_VERSION
             base_t::meta.bxdfName = "GGXBRDF";
 #endif
@@ -256,7 +253,7 @@ struct TestBxDF<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, a
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf = bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, true>::create(rc.eta2,rc.luma_coeff);
+        base_t::bxdf = bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, true>::create(float32_t3(rc.eta * rc.eta),rc.luma_coeff);
 #ifndef __HLSL_VERSION
         base_t::meta.bxdfName = "ThinSmoothDielectricBSDF";
 #endif
@@ -415,13 +412,15 @@ struct TestUOffset : TestBxDF<BxDF>
         float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
         float det = nbl::hlsl::determinant<float32_t2x2>(m);
 
-        return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) * 0.5);
+        return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL));
     }
 
-    static STestMeta run(uint32_t2 seed)
+    static STestMeta run(uint32_t seed)
     {
+        uint32_t2 state = pcg2d_hash(seed);
+
         this_t t;
-        t.init(seed);
+        t.init(state);
         if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
             t.template initBxDF<aniso>(t.rc);
         else

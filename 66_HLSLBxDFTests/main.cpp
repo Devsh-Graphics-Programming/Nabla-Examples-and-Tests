@@ -25,7 +25,7 @@ int main(int argc, char** argv)
 
     using bool32_t4 = vector<bool, 4>;
 
-    const uint32_t2 state = uint32_t2(10u, 42u);    // (12u, 69u)
+    const uint32_t state = 69u;
 
     // test u offset, 2 axis
     printResult((TestUOffset<bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction>>::run(state)));
