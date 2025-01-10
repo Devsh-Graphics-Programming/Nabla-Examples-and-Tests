@@ -4,6 +4,7 @@
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
+#include "nbl/builtin/hlsl/sampling/uniform.hlsl"
 #include "nbl/builtin/hlsl/bxdf/common.hlsl"
 #include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
 #include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
@@ -27,11 +28,6 @@ namespace impl
 inline float rngFloat01(NBL_REF_ARG(nbl::hlsl::Xoroshiro64Star) rng)
 {
     return (float)rng() / numeric_limits<uint32_t>::max;
-}
-
-inline float32_t3 rngFloat301(NBL_REF_ARG(nbl::hlsl::Xoroshiro64Star) rng)
-{
-    return float32_t3(rngFloat01(rng), rngFloat01(rng), rngFloat01(rng));
 }
 
 template<typename T>
@@ -80,8 +76,19 @@ struct SBxDFTestResources
         retval.N = nbl::hlsl::normalize<float32_t3>(projected_hemisphere_generate<float>(rngUniformDist<float32_t2>(retval.rng)));
         
         float32_t2x3 tb = math::frisvad<float>(retval.N);
+#ifndef __HLSL_VERSION
+        core::quaternion rot;
+        float angle = 2 * numbers::pi<float> * rngUniformDist<float>(retval.rng);
+        core::vectorSIMDf N = core::vectorSIMDf(retval.N.x, retval.N.y, retval.N.z);
+        rot.toAngleAxis(angle, N);
+        core::vectorSIMDf tmp = rot.transformVect(core::vectorSIMDf(tb[0].x, tb[0].y, tb[0].z));
+        retval.T = float32_t3(tmp[0],tmp[1],tmp[2]);
+        tmp = rot.transformVect(core::vectorSIMDf(tb[1].x, tb[1].y, tb[1].z));
+        retval.B = float32_t3(tmp[0],tmp[1],tmp[2]);
+#else
         retval.T = tb[0];
         retval.B = tb[1];
+#endif
 
         retval.alpha.x = rngUniformDist<float>(retval.rng);
         retval.alpha.y = rngUniformDist<float>(retval.rng);
