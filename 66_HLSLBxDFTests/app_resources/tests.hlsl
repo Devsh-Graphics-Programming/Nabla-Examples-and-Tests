@@ -72,8 +72,8 @@ struct SBxDFTestResources
         retval.rng = nbl::hlsl::Xoroshiro64Star::construct(seed);
         retval.u = float32_t3(rngUniformDist<float32_t2>(retval.rng), 0.0);
 
-        retval.V.direction = nbl::hlsl::normalize<float32_t3>(projected_hemisphere_generate<float>(rngUniformDist<float32_t2>(retval.rng)));
-        retval.N = nbl::hlsl::normalize<float32_t3>(projected_hemisphere_generate<float>(rngUniformDist<float32_t2>(retval.rng)));
+        retval.V.direction = nbl::hlsl::normalize<float32_t3>(uniform_sphere_generate<float>(rngUniformDist<float32_t2>(retval.rng)));
+        retval.N = nbl::hlsl::normalize<float32_t3>(uniform_sphere_generate<float>(rngUniformDist<float32_t2>(retval.rng)));
         
         float32_t2x3 tb = math::frisvad<float>(retval.N);
 #ifndef __HLSL_VERSION
