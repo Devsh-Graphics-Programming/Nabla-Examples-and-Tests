@@ -1,8 +1,6 @@
 #include "common.hlsl"
 
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
-#include "nbl/builtin/hlsl/limits.hlsl"
-#include "nbl/builtin/hlsl/numbers.hlsl"
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 #include "nbl/builtin/hlsl/workgroup/basic.hlsl"
 #include "nbl/builtin/hlsl/workgroup/arithmetic.hlsl"
@@ -10,120 +8,13 @@
 
 using namespace nbl::hlsl;
 
-            // case WRAP_MODE_REPEAT:
-            // {
-            //     float32_t scanline_last = smemAccessor.get(glsl::gl_WorkGroupSize().x - 1);
-            //     float32_t v_floored = ceil((floor(right) - last) / n) * scanline_last + smemAccessor.get(fmod(scanlineIdx + radiusFl - n, n));
-            //     float32_t v_ceiled = ceil((ceil(right) - last) / n) * scanline_last + smemAccessor.get(fmod(scanlineIdx + radiusCl - n, n));
-            //     sum += lerp(v_floored, v_ceiled, alpha);
-            // } break;
-            // case WRAP_MODE_MIRROR:
-            // {
-            //     float32_t scanline_last = smemAccessor.get(glsl::gl_WorkGroupSize().x - 1);
-            //     float32_t v_floored;
-            //     const uint16_t floored = uint16_t(floor(right));
-            //     int16_t d = floored - last;
-
-            //     if (fmod(d, 2 * n) == n)
-            //     {
-            //         v_floored = ((d + n) / n) * scanline_last;
-            //     }
-            //     else
-            //     {
-            //         const uint period = uint(ceil(float(d)/n));
-
-            //         if ((period & 0x1u) == 1)
-            //             v_floored = period * scanline_last + scanline_last - smemAccessor.get(glsl::gl_WorkGroupSize().x - uint(fmod(d, n)) - 1);
-            //         else
-            //             v_floored = period * scanline_last + smemAccessor.get(zeroIdx + fmod(d - 1, n));
-            //     }
-
-            //     float32_t v_ceiled;
-            //     const uint16_t ceiled = uint16_t(ceil(right));
-            //     d = ceiled - last;
-
-            //     if (fmod(d, 2 * n) == n)
-            //     {
-            //         v_ceiled = ((d + n) / n) * scanline_last;
-            //     }
-            //     else
-            //     {
-            //         const uint period = uint(ceil(float(d)/n));
-
-            //         if ((period & 0x1u) == 1)
-            //             v_ceiled = period * scanline_last + scanline_last - smemAccessor.get(glsl::gl_WorkGroupSize().x - uint(fmod(d, n)) - 1);
-            //         else
-            //             v_ceiled = period * scanline_last + smemAccessor.get(zeroIdx + fmod(d - 1, n));
-            //     }
-
-            //     sum += lerp(v_floored, v_ceiled, alpha);
-            // } break;
-
-            // case WRAP_MODE_REPEAT:
-            // {
-            //     float32_t scanline_last = smemAccessor.get(glsl::gl_WorkGroupSize().x - 1);
-            //     float32_t v_floored = ceil(floor(left) / n) * scanline_last + smemAccessor.get(fmod(scanlineIdx - radiusFl, n));
-            //     float32_t v_ceiled = ceil(ceil(left) / n) * scanline_last + smemAccessor.get(fmod(scanlineIdx - radiusCl, n));
-            //     sum -= lerp(v_floored, v_ceiled, alpha);
-            // } break;
-            // case WRAP_MODE_MIRROR:
-            // {
-            //     float32_t scanline_last = smemAccessor.get(glsl::gl_WorkGroupSize().x - 1);
-            //     float32_t v_floored;
-            //     const uint16_t floored = uint16_t(floor(left));
-
-            //     if (fmod(abs(floored + 1), 2 * n) == 0)
-            //     {
-            //         v_floored = -(abs(floored + 1) / n) * scanline_last;
-            //     }
-            //     else
-            //     {
-            //         const uint period = uint(ceil(float(abs(floored + 1)) / n));
-
-            //         if ((period & 0x1u) == 1)
-            //             v_floored = -1 * (period - 1) * scanline_last - smemAccessor.get(zeroIdx + fmod(abs(floored + 1) - 1, n));
-            //         else
-            //             v_floored = -1 * (period - 1) * scanline_last - (scanline_last - smemAccessor.get(zeroIdx + fmod(floored + 1, n) - 1));
-            //     }
-
-            //     float32_t v_ceiled;
-            //     const uint16_t ceiled = uint16_t(ceil(left));
-
-            //     if (ceiled == 0) 
-            //     {
-            //         v_ceiled = 0;
-            //     }
-            //     else if (fmod(abs(ceiled + 1), 2 * n) == 0)
-            //     {
-            //         v_ceiled = -(abs(ceiled + 1) / n) * scanline_last;
-            //     }
-            //     else
-            //     {
-            //         const uint period = uint(ceil(float(abs(ceiled + 1)) / n));
-
-            //         if ((period & 0x1u) == 1)
-            //             v_ceiled = -1 * (period - 1) * scanline_last - smemAccessor.get(zeroIdx + fmod(abs(ceiled + 1) - 1, n));
-            //         else
-            //             v_ceiled = -1 * (period - 1) * scanline_last - (scanline_last - smemAccessor.get(zeroIdx + fmod(ceiled + 1, n) - 1));
-            //     }
-
-            //     sum -= lerp(v_floored, v_ceiled, alpha);
-            // } break;
-
-enum EdgeWrapMode {
-	WRAP_MODE_CLAMP_TO_EDGE,
-	WRAP_MODE_CLAMP_TO_BORDER,
-	WRAP_MODE_REPEAT,
-	WRAP_MODE_MIRROR,
-};
-
-template<class TextureAccessor, class SharedAccessor, class ScratchAccessor>
+template<class TextureAccessor, class SharedAccessor>
 void boxBlur(
     NBL_REF_ARG(TextureAccessor) texAccessor,
     NBL_REF_ARG(SharedAccessor) smemAccessor,
-    NBL_REF_ARG(ScratchAccessor) scratchAccessor,
-    EdgeWrapMode wrapMode,
+    uint32_t wrapMode,
     float32_t4 borderColor,
+    uint16_t channels,
     float32_t radius,
     bool flip
 ) {
@@ -148,80 +39,87 @@ void boxBlur(
 
         float32_t4 color = 0;
 
-        for (uint16_t ch = 0; ch < 4; ch++)
+        for (uint16_t ch = 0; ch < channels; ch++)
         {
-            if (spirv::LocalInvocationId.x == 0)
-            {
-                uint16_t2 pos = pixelPos;
-                pos[flip] = 0;
-                for (;pos[flip] < n; pos[flip]++)
-                    smemAccessor.set(pos[flip], texAccessor.get(pos, ch));
-            }
-
+            float32_t blurred = texAccessor.get(pixelPos, ch);
+            blurred = workgroup::inclusive_scan<plus<float32_t>, WORKGROUP_SIZE>::template __call<SharedAccessor>(blurred, smemAccessor);
+            glsl::barrier();
+            smemAccessor.set(scanIdx, blurred);
             glsl::barrier();
 
-            // float32_t blurred = 0;
-            // smemAccessor.get(scanIdx, blurred);
-	        // float32_t sum = 0;
-            // sum = workgroup::inclusive_scan<plus<float32_t>, WORKGROUP_SIZE>::template __call<ScratchAccessor>(blurred, scratchAccessor);
-            // glsl::barrier();
-            // smemAccessor.set(scanIdx, previous_block_sum);
-            // glsl::barrier();
-
-            float32_t sum = 0;
-            smemAccessor.get(scanIdx, sum);
-            for (uint16_t j = 1; j <= radiusFl && scanIdx + j < n; j++)
-            {
-                float32_t left, right;
-                smemAccessor.get(scanIdx - j, left);
-                smemAccessor.get(scanIdx + j, right);
-                sum += left + right;
-            }
-
+            float32_t result = 0;
             if (rightIdx <= lastIdx)
             {
                 float32_t rightFloor, rightCeil;
                 smemAccessor.get(scanIdx + radiusFl, rightFloor);
                 smemAccessor.get(scanIdx + radiusCl, rightCeil);
-                sum += lerp(rightFloor, rightCeil, alpha);
+                result += lerp(rightFloor, rightCeil, alpha);
             }
             else switch (wrapMode)
             {
+                case WRAP_MODE_CLAMP_TO_BORDER:
+                {
+                    result += (rightIdx - lastIdx) * borderColor[ch];
+                } break;
                 case WRAP_MODE_CLAMP_TO_EDGE:
                 {
                     float32_t last, lastMinus1;
                     smemAccessor.get(lastIdx, last);
                     smemAccessor.get(lastIdx - 1, lastMinus1);
-                    sum += (rightIdx - lastIdx) * (last - lastMinus1);
+                    result += (rightIdx - lastIdx) * (last - lastMinus1);
                 } break;
-                case WRAP_MODE_CLAMP_TO_BORDER:
+                case WRAP_MODE_REPEAT:
                 {
-                    sum += (rightIdx - lastIdx) * borderColor[ch];
+                    uint16_t repeatedIdx = (uint16_t)(rightIdx % n);
+                    float32_t repeatedValue;
+                    smemAccessor.get(repeatedIdx, repeatedValue);
+                    result += repeatedValue;
+                } break;
+                case WRAP_MODE_MIRROR:
+                {        
+                    uint16_t mirroredIdx = (uint16_t)((rightIdx / n) % 2 == 0 ? rightIdx % n : lastIdx - (rightIdx % n));
+                    float32_t mirrored;
+                    smemAccessor.get(mirroredIdx, mirrored);
+                    result += mirrored;
                 } break;
             }
 
-            if (leftIdx > 0)
+            if (leftIdx >= 0)
             {
                 float32_t leftFloor, leftCeil;
                 smemAccessor.get(scanIdx - radiusFl, leftFloor);
                 smemAccessor.get(scanIdx - radiusCl, leftCeil);
-                sum -= lerp(leftFloor, leftCeil, alpha);
+                result -= lerp(leftFloor, leftCeil, alpha);
             }
             else switch (wrapMode)
             {
+                case WRAP_MODE_CLAMP_TO_BORDER:
+                {
+                    result -= leftIdx * borderColor[ch];
+                } break;
                 case WRAP_MODE_CLAMP_TO_EDGE:
                 {
                     float32_t first;
                     smemAccessor.get(0, first);
-                    sum -= abs(leftIdx) * first;
+                    result -= abs(leftIdx) * first;
                 } break;
-                case WRAP_MODE_CLAMP_TO_BORDER:
+                case WRAP_MODE_REPEAT:
                 {
-                    sum -= leftIdx * borderColor[ch];
+                    uint16_t repeatedIdx = (uint16_t)((leftIdx % n + n) % n);
+                    float32_t repeatedValue;
+                    smemAccessor.get(repeatedIdx, repeatedValue);
+                    result -= repeatedValue;
+                } break;
+                case WRAP_MODE_MIRROR:
+                {
+                    uint16_t mirroredIdx = (uint16_t)((-leftIdx / n) % 2 == 0 ? (-leftIdx) % n : lastIdx - ((-leftIdx) % n));
+                    float32_t mirrored;
+                    smemAccessor.get(mirroredIdx, mirrored);
+                    result -= mirrored;
                 } break;
             }
 
-            color[ch] = sum;
+            color[ch] = result;
         }
         
         texAccessor.set(pixelPos, color * scale);
@@ -240,7 +138,6 @@ RWTexture2D<float32_t4> output;
 [[vk::push_constant]] PushConstants pc;
 
 groupshared float32_t smem[2048];
-groupshared uint32_t scratch[scratchSize];
 
 struct TextureProxy
 {
@@ -279,28 +176,9 @@ struct SharedMemoryProxy
     }
 };
 
-struct ScratchProxy
-{
-	void get(const uint16_t idx, NBL_REF_ARG(float32_t) value)
-	{
-		value = scratch[idx];
-	}
-
-	void set(const uint16_t idx, float32_t value)
-	{
-        scratch[idx] = value;
-	}
-
-    void workgroupExecutionAndMemoryBarrier()
-    {
-        glsl::barrier();
-    }
-};
-
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void main() {
     TextureProxy texAccessor;
     SharedMemoryProxy smemAccessor;
-    ScratchProxy scratchAccessor;
-    boxBlur(texAccessor, smemAccessor, scratchAccessor, WRAP_MODE_CLAMP_TO_EDGE, float32_t4(0, 1, 0, 1), 20, pc.flip);
+    boxBlur(texAccessor, smemAccessor, pc.edgeWrapMode, float32_t4(0, 1, 0, 1), 4, pc.radius, pc.flip);
 }

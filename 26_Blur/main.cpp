@@ -4,6 +4,8 @@
 #include "nabla.h"
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "SimpleWindowedApplication.hpp"
+#include "InputSystem.hpp"
+#include "CEventCallback.hpp"
 
 using namespace nbl;
 using namespace nbl::core;
@@ -41,7 +43,7 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 			{
 				{
 					IWindow::SCreationParams params = {};
-					params.callback = core::make_smart_refctd_ptr<ISimpleManagedSurface::ICallback>();
+					params.callback = core::make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
 					// We resize the window later
 					params.width = 0;
 					params.height = 0;
@@ -63,6 +65,8 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 
 		inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
+			m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
+
 			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 			if (!asset_base_t::onAppInitialized(std::move(system)))
@@ -169,7 +173,7 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 			params.utilities = m_utils.get();
 
 			IAssetLoader::SAssetLoadParams lp;
-			SAssetBundle bundle = m_assetMgr->getAsset("../../media/color_space_test/R8G8B8_1.jpg", lp);
+			SAssetBundle bundle = m_assetMgr->getAsset("../../media/color_space_test/R8G8B8_2.jpg", lp);
 			if (bundle.getContents().empty())
 				logFail("Couldn't load an asset.", ILogger::ELL_ERROR);
 
@@ -494,6 +498,19 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 			}
 
 			const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
+			
+			m_inputSystem->getDefaultMouse(&mouse);
+			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void {
+				for (auto eventIt = events.begin(); eventIt != events.end(); eventIt++)
+				{
+					auto ev = *eventIt;
+					if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
+						blurRadius = (uint16_t)std::clamp<int16_t>(int16_t(blurRadius) + 5 * core::sign(ev.scrollEvent.verticalScroll), 0, WORKGROUP_SIZE - 1);
+					if (ev.type == nbl::ui::SMouseEvent::EET_CLICK && ev.clickEvent.mouseButton == nbl::ui::EMB_LEFT_BUTTON)
+						if (ev.clickEvent.action == nbl::ui::SMouseEvent::SClickEvent::EA_RELEASED)
+							blurEdgeWrapMode = (blurEdgeWrapMode + 1) % WRAP_MODE_MAX;
+				}
+			}, m_logger.get());
 
 			m_currentImageAcquire = m_surface->acquireNextImage();
 			if (!m_currentImageAcquire)
@@ -585,7 +602,7 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 				};
 				cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {}, .bufBarriers = {},.imgBarriers = {&imgBarrier,1} });
 				cb->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_COMPUTE, layout, 0, 1, &m_ds0.get());
-				PushConstants pc = { .flip = 0 };
+				PushConstants pc = { .flip = 0, .radius = blurRadius, .edgeWrapMode = blurEdgeWrapMode };
 				cb->pushConstants(layout, IGPUShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(pc), &pc);
 				cb->dispatch(image_params.extent.height, 1, 1);
 
@@ -728,6 +745,13 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 		constexpr static inline uint32_t MaxFramesInFlight = 3u;
 		smart_refctd_ptr<IWindow> m_window;
 		smart_refctd_ptr<CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>> m_surface;
+		
+		core::smart_refctd_ptr<InputSystem> m_inputSystem;
+		InputSystem::ChannelReader<IMouseEventChannel> mouse;
+
+		uint16_t blurRadius = 6;
+		uint16_t blurEdgeWrapMode = WRAP_MODE_CLAMP_TO_EDGE;
+
 		smart_refctd_ptr<IGPUComputePipeline> m_ppln;
 		smart_refctd_ptr<IGPUDescriptorSet> m_ds0;
 		smart_refctd_ptr<IGPUDescriptorSet> m_ds1;
@@ -735,6 +759,7 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 		smart_refctd_ptr<IGPUImage> m_hblur;
 		smart_refctd_ptr<IGPUImage> m_vblur;
 		smart_refctd_ptr<ISemaphore> m_semaphore;
+
 		uint64_t m_realFrameIx = 0;
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>,MaxFramesInFlight> m_cmdBufs;
 		ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
