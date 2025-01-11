@@ -78,10 +78,11 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 			const uint32_t y = oddThread ? PreviousPassFFTIndexingUtils::getNablaMirrorIndex(evenRow) : evenRow;
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 			{
+				// If mirrored, we need to invert which thread is loading lo and which is loading hi
+				// If using zero-padding, useful to find out if we're outside of [0,1) bounds
+				bool invert = paddedIndex < 0 || paddedIndex >= pushConstants.imageHalfRowLength;
 				int32_t wrappedIndex = paddedIndex < 0 ? ~paddedIndex : paddedIndex; // ~x = - x - 1 in two's complement (except maybe at the borders of representable range) 
 				wrappedIndex = paddedIndex < pushConstants.imageHalfRowLength ? wrappedIndex : pushConstants.imageRowLength + ~paddedIndex;
-				// If mirrored, we need to invert which thread is loading lo and which is loading hi
-				bool invert = paddedIndex < 0 || paddedIndex >= pushConstants.imageHalfRowLength;
 				const complex_t<scalar_t> loOrHi = colMajorAccessor.get(colMajorOffset(wrappedIndex, y));
 				// Make it a vector so it can be subgroup-shuffled
 				const vector <scalar_t, 2> loOrHiVector = vector <scalar_t, 2>(loOrHi.real(), loOrHi.imag());
@@ -90,7 +91,16 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				complex_t<scalar_t> lo = ternaryOp(oddThread, otherThreadLoOrHi, loOrHi);
 				complex_t<scalar_t> hi = ternaryOp(oddThread, loOrHi, otherThreadLoOrHi);
 				fft::unpack<scalar_t>(lo, hi);
+				
+				// --------------------------------------------------- MIRROR PADDING -------------------------------------------------------------------------------------------
+				#ifdef MIRROR_PADDING
 				preloaded[localElementIndex] = ternaryOp(oddThread ^ invert, hi, lo);
+				// ----------------------------------------------------- ZERO PADDING -------------------------------------------------------------------------------------------
+				#else
+				const complex_t<scalar_t> Zero = { scalar_t(0), scalar_t(0) };
+				preloaded[localElementIndex] = ternaryOp(invert, Zero, ternaryOp(oddThread, hi, lo));
+				#endif
+				// ------------------------------------------------ END PADDING DIVERGENCE ----------------------------------------------------------------------------------------
 
 				paddedIndex += WorkgroupSize / 2;
 			}
