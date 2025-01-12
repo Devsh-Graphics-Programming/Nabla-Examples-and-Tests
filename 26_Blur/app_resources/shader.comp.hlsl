@@ -18,33 +18,41 @@ void boxBlur(
     float32_t radius,
     bool flip
 ) {
+    const uint16_t n = texAccessor.size()[flip];
+    const uint16_t lastIdx = n - 1;
+    const uint16_t itemsPerThread = (uint16_t)ceil((float32_t)n / (float32_t)WORKGROUP_SIZE);
+
+    const float32_t scale = 1.0 / (2.0 * radius + 1.0);
+    const uint16_t radiusFl = (uint16_t)floor(radius);
+    const uint16_t radiusCl = (uint16_t)ceil(radius);
+    const float32_t alpha = radius - radiusFl;
+    
     uint16_t2 pixelPos = 0;
     pixelPos[(flip + 1) % 2] = spirv::WorkgroupId.x;
-
-    float32_t scale = 1.0 / (2.0 * radius + 1.0);
-    uint16_t radiusFl = (uint16_t)floor(radius);
-    uint16_t radiusCl = (uint16_t)ceil(radius);
-    float32_t alpha = radius - radiusFl;
-    uint16_t n = texAccessor.size()[flip];
-    uint16_t lastIdx = n - 1;
-    uint16_t itemsPerThread = (uint16_t)ceil((float32_t)n / (float32_t)WORKGROUP_SIZE);
 
     for (uint16_t i = 0; i < itemsPerThread; i++)
     {
         uint16_t scanIdx = (i * glsl::gl_WorkGroupSize().x) + workgroup::SubgroupContiguousIndex();
-        float32_t leftIdx = scanIdx - radius;
-        float32_t rightIdx = scanIdx + radius;
+        if (scanIdx > lastIdx) break;
         pixelPos[flip] = scanIdx;
-        if (pixelPos[flip] > lastIdx) break;
-
+        
+        const float32_t leftIdx = scanIdx - radius;
+        const float32_t rightIdx = scanIdx + radius;
         float32_t4 color = 0;
 
         for (uint16_t ch = 0; ch < channels; ch++)
         {
-            float32_t blurred = texAccessor.get(pixelPos, ch);
-            blurred = workgroup::inclusive_scan<plus<float32_t>, WORKGROUP_SIZE>::template __call<SharedAccessor>(blurred, smemAccessor);
-            glsl::barrier();
-            smemAccessor.set(scanIdx, blurred);
+            float32_t sum = texAccessor.get(pixelPos, ch);
+            if (i != 0) {
+                glsl::barrier();
+                if (workgroup::SubgroupContiguousIndex() == 0) {
+                    float32_t previusSum = 0;
+                    smemAccessor.get(scanIdx - 1, previusSum);
+                    sum += previusSum;
+                }
+            }
+            sum = workgroup::inclusive_scan<plus<float32_t>, WORKGROUP_SIZE>::template __call<SharedAccessor>(sum, smemAccessor);
+            smemAccessor.set(scanIdx, sum);
             glsl::barrier();
 
             float32_t result = 0;
@@ -70,14 +78,14 @@ void boxBlur(
                 } break;
                 case WRAP_MODE_REPEAT:
                 {
-                    uint16_t repeatedIdx = (uint16_t)(rightIdx % n);
+                    const uint16_t repeatedIdx = (uint16_t)(rightIdx % n);
                     float32_t repeatedValue;
                     smemAccessor.get(repeatedIdx, repeatedValue);
                     result += repeatedValue;
                 } break;
                 case WRAP_MODE_MIRROR:
                 {        
-                    uint16_t mirroredIdx = (uint16_t)((rightIdx / n) % 2 == 0 ? rightIdx % n : lastIdx - (rightIdx % n));
+                    const uint16_t mirroredIdx = (uint16_t)((rightIdx / n) % 2 == 0 ? rightIdx % n : lastIdx - (rightIdx % n));
                     float32_t mirrored;
                     smemAccessor.get(mirroredIdx, mirrored);
                     result += mirrored;
@@ -105,14 +113,14 @@ void boxBlur(
                 } break;
                 case WRAP_MODE_REPEAT:
                 {
-                    uint16_t repeatedIdx = (uint16_t)((leftIdx % n + n) % n);
+                    const uint16_t repeatedIdx = (uint16_t)((leftIdx % n + n) % n);
                     float32_t repeatedValue;
                     smemAccessor.get(repeatedIdx, repeatedValue);
                     result -= repeatedValue;
                 } break;
                 case WRAP_MODE_MIRROR:
                 {
-                    uint16_t mirroredIdx = (uint16_t)((-leftIdx / n) % 2 == 0 ? (-leftIdx) % n : lastIdx - ((-leftIdx) % n));
+                    const uint16_t mirroredIdx = (uint16_t)((-leftIdx / n) % 2 == 0 ? (-leftIdx) % n : lastIdx - ((-leftIdx) % n));
                     float32_t mirrored;
                     smemAccessor.get(mirroredIdx, mirrored);
                     result -= mirrored;

@@ -505,7 +505,7 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 				{
 					auto ev = *eventIt;
 					if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
-						blurRadius = (uint16_t)std::clamp<int16_t>(int16_t(blurRadius) + 5 * core::sign(ev.scrollEvent.verticalScroll), 0, WORKGROUP_SIZE - 1);
+						blurRadius = (uint16_t)std::clamp<int16_t>(int16_t(blurRadius) + 5 * core::sign(ev.scrollEvent.verticalScroll), 1, WORKGROUP_SIZE - 1);
 					if (ev.type == nbl::ui::SMouseEvent::EET_CLICK && ev.clickEvent.mouseButton == nbl::ui::EMB_LEFT_BUTTON)
 						if (ev.clickEvent.action == nbl::ui::SMouseEvent::SClickEvent::EA_RELEASED)
 							blurEdgeWrapMode = (blurEdgeWrapMode + 1) % WRAP_MODE_MAX;
