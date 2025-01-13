@@ -44,6 +44,7 @@ using scalar_t = ShaderConstevalParameters::scalar_t;
 using FFTParameters = workgroup::fft::ConstevalParameters<ShaderConstevalParameters::ElementsPerInvocationLog2, ShaderConstevalParameters::WorkgroupSizeLog2, scalar_t>;
 
 using FFTIndexingUtils = workgroup::fft::FFTIndexingUtils<FFTParameters::ElementsPerInvocationLog2, FFTParameters::WorkgroupSizeLog2>;
+using FFTMirrorTradeUtils = workgroup::fft::FFTMirrorTradeUtils<FFTParameters::ElementsPerInvocationLog2, FFTParameters::WorkgroupSizeLog2>;
 
 // Users MUST define this method for FFT to work - workgroup::SubgroupContiguousIndex also needs it defined
 uint32_t3 glsl::gl_WorkGroupSize() { return uint32_t3(uint32_t(FFTParameters::WorkgroupSize), 1, 1); }

@@ -1,4 +1,5 @@
 #include "fft_mirror_common.hlsl"
+#include "nbl/builtin/hlsl/bitreverse.hlsl"
 
 [[vk::binding(3, 0)]] Texture2DArray<float32_t2> kernelChannels;
 [[vk::binding(1, 0)]] SamplerState samplerState;
@@ -146,7 +147,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 	{
 		if (glsl::gl_WorkGroupID().x)
 		{
-			const uint32_t y = fft::bitReverseAs<uint32_t, NumWorkgroupsLog2>(glsl::gl_WorkGroupID().x);
+			const uint32_t y = bitReverseAs<uint32_t, NumWorkgroupsLog2>(glsl::gl_WorkGroupID().x);
 			uint32_t globalElementIndex = workgroup::SubgroupContiguousIndex();
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 			{
@@ -200,7 +201,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				// Unlike `getDFTMirror` however, the logic is inverted, in the sense that we don't send `preloaded[mirrorLocalIndex]` but rather we receive a value to store there
 				const complex_t<scalar_t> mirrored = conj(zero) + rotateLeft<scalar_t>(conj(nyquist));
 				vector<scalar_t, 2> mirroredVector = { mirrored.real(), mirrored.imag() };
-				const FFTIndexingUtils::NablaMirrorLocalInfo info = FFTIndexingUtils::getNablaMirrorLocalInfo(globalElementIndex);
+				const FFTMirrorTradeUtils::NablaMirrorLocalInfo info = FFTMirrorTradeUtils::getNablaMirrorLocalInfo(globalElementIndex);
 				const uint32_t mirrorLocalIndex = info.mirrorLocalIndex;
 				const uint32_t otherThreadID = info.otherThreadID;
 				// Make sure the `getDFTMirror` at the top is done
