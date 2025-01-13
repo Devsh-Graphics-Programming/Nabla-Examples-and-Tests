@@ -874,7 +874,9 @@ int main(int argc, char** argv)
 				staticCamera->setTarget(target.getAsVector3df());
 			}
 
-			if (core::dot(core::normalize(core::cross(staticCamera->getUpVector(),mainCamView)),core::cross(mainCamUp,mainCamView)).x<0.99f)
+			auto reconstructedRight = core::cross(staticCamera->getUpVector(),core::normalize(mainCamView));
+			auto actualRight = core::cross(core::normalize(mainCamUp),core::normalize(mainCamView));
+			if (core::dot(reconstructedRight,actualRight).x<0.99f)
 				staticCamera->setUpVector(mainCamUp);
 
 			//
