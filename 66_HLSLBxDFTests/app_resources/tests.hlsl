@@ -26,6 +26,8 @@ using iso_cache = bxdf::SIsotropicMicrofacetCache<float>;
 using aniso_cache = bxdf::SAnisotropicMicrofacetCache<float>;
 using quotient_pdf_t = bxdf::quotient_and_pdf<float32_t3, float>;
 
+using bool32_t3 = vector<bool, 3>;
+
 uint32_t pcg_hash(uint32_t v)
 {
     uint32_t state = v * 747796405u + 2891336453u;
@@ -124,13 +126,19 @@ struct SBxDFTestResources
     float32_t3 luma_coeff;
 };
 
-struct STestMeta
+enum ErrorType : uint32_t
 {
-    float32_t4 result;
-#ifndef __HLSL_VERSION
-    std::string bxdfName;
-    std::string testName;
-#endif
+    NEGATIVE_VAL = 0,   // pdf/quotient/eval < 0
+    PDF_ZERO,           // pdf = 0
+    QUOTIENT_INF,       // quotient -> inf
+    JACOBIAN,
+    PDF_EVAL_DIFF,
+    RECIPROCITY
+};
+
+struct FailureCallback
+{
+    void __call(ErrorType error, NBL_CONST_REF_ARG(SBxDFTestResources) failedFor, NBL_CONST_REF_ARG(sample_t) failedAt) {}
 };
 
 template<class BxDF>
@@ -149,8 +157,6 @@ struct TestBase
 
     iso_interaction isointer;
     aniso_interaction anisointer;
-
-    STestMeta meta;
 };
 
 
@@ -162,9 +168,6 @@ struct TestBxDF : TestBase<BxDF>
     void initBxDF(SBxDFTestResources _rc)
     {
         base_t::bxdf = BxDF::create();  // default to lambertian bxdf
-#ifndef __HLSL_VERSION
-        base_t::meta.bxdfName = "LambertianBxDF";
-#endif
     }
 };
 
@@ -176,9 +179,6 @@ struct TestBxDF<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, anis
     void initBxDF(SBxDFTestResources _rc)
     {
         base_t::bxdf = bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction>::create(_rc.alpha.x);
-#ifndef __HLSL_VERSION
-        base_t::meta.bxdfName = "OrenNayarBRDF";
-#endif
     }
 };
 
@@ -193,16 +193,10 @@ struct TestBxDF<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache
         if (aniso)
         {
             base_t::bxdf = bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>::create(rc.alpha.x,rc.alpha.y,float32_t3x2(rc.ior,rc.ior,rc.ior));
-#ifndef __HLSL_VERSION
-            base_t::meta.bxdfName = "BeckmannBRDF Aniso";
-#endif
         }
         else
         {
             base_t::bxdf = bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache>::create(rc.alpha.x,float32_t3x2(rc.ior,rc.ior,rc.ior));
-#ifndef __HLSL_VERSION
-            base_t::meta.bxdfName = "BeckmannBRDF";
-#endif
         }
     }
 };
@@ -218,16 +212,10 @@ struct TestBxDF<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>> : 
         if (aniso)
         {
             base_t::bxdf = bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>::create(rc.alpha.x,rc.alpha.y,float32_t3x2(rc.ior,rc.ior,rc.ior));
-#ifndef __HLSL_VERSION
-            base_t::meta.bxdfName = "GGXBRDF Aniso";
-#endif
         }
         else
         {
             base_t::bxdf = bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache>::create(rc.alpha.x,float32_t3x2(rc.ior,rc.ior,rc.ior));
-#ifndef __HLSL_VERSION
-            base_t::meta.bxdfName = "GGXBRDF";
-#endif
         }
     }
 };
@@ -240,9 +228,6 @@ struct TestBxDF<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, a
     void initBxDF(SBxDFTestResources _rc)
     {
         base_t::bxdf = bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache>::create(rc.eta);
-#ifndef __HLSL_VERSION
-        base_t::meta.bxdfName = "SmoothDielectricBSDF";
-#endif
     }
 };
 
@@ -254,9 +239,6 @@ struct TestBxDF<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, a
     void initBxDF(SBxDFTestResources _rc)
     {
         base_t::bxdf = bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, true>::create(float32_t3(rc.eta * rc.eta),rc.luma_coeff);
-#ifndef __HLSL_VERSION
-        base_t::meta.bxdfName = "ThinSmoothDielectricBSDF";
-#endif
     }
 };
 
@@ -271,16 +253,10 @@ struct TestBxDF<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache,
         if (aniso)
         {
             base_t::bxdf = bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>::create(rc.eta,rc.alpha.x,rc.alpha.y);
-#ifndef __HLSL_VERSION
-            base_t::meta.bxdfName = "BeckmannBSDF Aniso";
-#endif
         }
         else
         {
             base_t::bxdf = bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache>::create(rc.eta,rc.alpha.x);
-#ifndef __HLSL_VERSION
-            base_t::meta.bxdfName = "BeckmannBSDF";
-#endif
         }
     }
 };
@@ -296,16 +272,10 @@ struct TestBxDF<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, anis
         if (aniso)
         {
             base_t::bxdf = bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>::create(rc.eta,rc.alpha.x,rc.alpha.y);
-#ifndef __HLSL_VERSION
-            base_t::meta.bxdfName = "GGXBSDF Aniso";
-#endif
         }
         else
         {
             base_t::bxdf = bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache>::create(rc.eta,rc.alpha.x);
-#ifndef __HLSL_VERSION
-            base_t::meta.bxdfName = "GGXBSDF";
-#endif
         }
     }
 };
@@ -352,70 +322,83 @@ struct TestUOffset : TestBxDF<BxDF>
     using base_t = TestBase<BxDF>;
     using this_t = TestUOffset<BxDF, aniso>;
 
-    float32_t4 test()
+    bool test(NBL_CONST_REF_ARG(FailureCallback) cb)
     {
         sample_t s, sx, sy;
         quotient_pdf_t pdf;
-        float32_t3 brdf;
+        float32_t3 bsdf;
         aniso_cache cache, dummy;
+
+        float32_t3 ux = base_t::rc.u + float32_t3(base_t::rc.h,0,0);
+        float32_t3 uy = base_t::rc.u + float32_t3(0,base_t::rc.h,0);
 
         if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
         {
             s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy);
-            sx = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy + float32_t2(base_t::rc.h,0));
-            sy = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy + float32_t2(0,base_t::rc.h));
+            sx = base_t::bxdf.generate(base_t::anisointer, ux.xy);
+            sy = base_t::bxdf.generate(base_t::anisointer, uy.xy);
         }
         if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF>)
         {
             s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy, cache);
-            sx = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy + float32_t2(base_t::rc.h,0), dummy);
-            sy = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy + float32_t2(0,base_t::rc.h), dummy);
+            sx = base_t::bxdf.generate(base_t::anisointer, ux.xy, dummy);
+            sy = base_t::bxdf.generate(base_t::anisointer, uy.xy, dummy);
         }
         if NBL_CONSTEXPR_FUNC (is_basic_bsdf_v<BxDF>)
         {
             s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u);
-            float32_t3 ux = base_t::rc.u + float32_t3(base_t::rc.h,0,0);
             sx = base_t::bxdf.generate(base_t::anisointer, ux);
-            float32_t3 uy = base_t::rc.u + float32_t3(0,base_t::rc.h,0);
             sy = base_t::bxdf.generate(base_t::anisointer, uy);
         }
         if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
         {
             s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u, cache);
-            float32_t3 ux = base_t::rc.u + float32_t3(base_t::rc.h,0,0);
             sx = base_t::bxdf.generate(base_t::anisointer, ux, dummy);
-            float32_t3 uy = base_t::rc.u + float32_t3(0,base_t::rc.h,0);
             sy = base_t::bxdf.generate(base_t::anisointer, uy, dummy);
         }
         
         if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF> || is_basic_bsdf_v<BxDF>)
         {
             pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer);
-            brdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer));
+            bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer));
         }
         if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
         {
             if NBL_CONSTEXPR_FUNC (aniso)
             {
                 pdf = base_t::bxdf.quotient_and_pdf(s, base_t::anisointer, cache);
-                brdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
+                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
             }
             else
             {
                 iso_cache isocache = (iso_cache)cache;
                 pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer, isocache);
-                brdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
+                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
             }
+        }
+
+        if (nbl::hlsl::abs<float>(pdf.pdf) < 1e-3)
+        {
+            cb::__call(PDF_ZERO, base_t::rc, s);
+            return false;
         }
 
         // get jacobian
         float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
         float det = nbl::hlsl::determinant<float32_t2x2>(m);
 
-        return float32_t4(nbl::hlsl::abs<float32_t3>(pdf.value() - brdf), nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL));
+        bool jacobian_test = nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) < 1e-3;
+        if (!jacobian_test)
+            cb::__call(JACOBIAN, base_t::rc, s);
+
+        bool diff_test = nbl::hlsl::abs<float32_t3>(pdf.value() - bsdf) < 1e-3;
+        if (!diff_test)
+            cb::__call(PDF_EVAL_DIFF, base_t::rc, s);
+
+        return true;
     }
 
-    static STestMeta run(uint32_t seed)
+    static void run(uint32_t seed, NBL_CONST_REF_ARG(FailureCallback) cb)
     {
         uint32_t2 state = pcg2d_hash(seed);
 
@@ -425,10 +408,7 @@ struct TestUOffset : TestBxDF<BxDF>
             t.template initBxDF<aniso>(t.rc);
         else
             t.initBxDF(t.rc);
-
-        t.meta.result = t.test();
-        t.meta.testName = "u offset";
-        return t.meta;
+        t.test(cb);
     }
 };
 
