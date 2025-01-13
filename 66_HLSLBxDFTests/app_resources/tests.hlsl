@@ -138,7 +138,7 @@ enum ErrorType : uint32_t
 
 struct FailureCallback
 {
-    void __call(ErrorType error, NBL_CONST_REF_ARG(SBxDFTestResources) failedFor, NBL_CONST_REF_ARG(sample_t) failedAt) {}
+    virtual void __call(ErrorType error, NBL_CONST_REF_ARG(SBxDFTestResources) failedFor, NBL_CONST_REF_ARG(sample_t) failedAt) NBL_CONST_MEMBER_FUNC {}
 };
 
 template<class BxDF>
@@ -377,11 +377,20 @@ struct TestUOffset : TestBxDF<BxDF>
             }
         }
 
-        if (nbl::hlsl::abs<float>(pdf.pdf) < 1e-3)
+        if (nbl::hlsl::abs<float>(pdf.pdf) < 1e-3)  // something generated cannot have 0 probability of getting generated
         {
-            cb::__call(PDF_ZERO, base_t::rc, s);
+            cb.__call(PDF_ZERO, base_t::rc, s);
             return false;
         }
+
+        if (!all<bool32_t3>(pdf.quotient < (float32_t3)numeric_limits<float>::infinity))    // importance sampler's job to prevent inf
+        {
+            cb.__call(QUOTIENT_INF, base_t::rc, s);
+            return false;
+        }
+
+        if (all<bool32_t3>(nbl::hlsl::abs<float32_t3>(bsdf) < (float32_t3)1e-3) || all<bool32_t3>(pdf.quotient < (float32_t3)1e-3))
+            return true;    // produces an "impossible" sample
 
         // get jacobian
         float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
@@ -389,11 +398,11 @@ struct TestUOffset : TestBxDF<BxDF>
 
         bool jacobian_test = nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) < 1e-3;
         if (!jacobian_test)
-            cb::__call(JACOBIAN, base_t::rc, s);
+            cb.__call(JACOBIAN, base_t::rc, s);
 
-        bool diff_test = nbl::hlsl::abs<float32_t3>(pdf.value() - bsdf) < 1e-3;
-        if (!diff_test)
-            cb::__call(PDF_EVAL_DIFF, base_t::rc, s);
+        bool32_t3 diff_test = nbl::hlsl::abs<float32_t3>(pdf.value() - bsdf) < (float32_t3)1e-3;
+        if (!all<bool32_t3>(diff_test))
+            cb.__call(PDF_EVAL_DIFF, base_t::rc, s);
 
         return true;
     }

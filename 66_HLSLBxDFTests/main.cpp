@@ -8,20 +8,9 @@ using namespace nbl::hlsl;
 
 #include "app_resources/tests.hlsl"
 
-#define ASSERT_ZERO(x) (assert(all<bool32_t4>((x.result) < float32_t4(1e-3))));
-
-//void printResult(const STestMeta& m)
-//{
-//    std::cout << m.testName << " " << m.bxdfName << "\t"
-//        << m.result.x << " "
-//        << m.result.y << " "
-//        << m.result.z << " "
-//        << m.result.w << "\n";
-//}
-
 struct PrintFailureCallback : FailureCallback
 {
-    void __call(ErrorType error, NBL_CONST_REF_ARG(SBxDFTestResources) failedFor, NBL_CONST_REF_ARG(sample_t) failedAt)
+    void __call(ErrorType error, NBL_CONST_REF_ARG(SBxDFTestResources) failedFor, NBL_CONST_REF_ARG(sample_t) failedAt) NBL_CONST_MEMBER_FUNC override
     {
         switch (error)
         {
@@ -51,7 +40,7 @@ struct PrintFailureCallback : FailureCallback
         {
             repeat = false;
             __debugbreak();
-            //failedFor.test(failedAt);
+            //failedFor.test(failedAt); // TODO: repeat test case
         }
     }
 };
