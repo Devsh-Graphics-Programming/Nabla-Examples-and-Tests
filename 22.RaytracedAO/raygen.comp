@@ -41,7 +41,6 @@ void main()
 		if (hit)
 		{
 			// vis buffer decode
-			const bool frontfacing = !bool(visBuffer[0]&0x80000000u);
 			const int triangleIDBitcount = findMSB(MAX_TRIANGLES_IN_BATCH-1)+1;
 			const uint triangleID = bitfieldExtract(visBuffer[0],31-triangleIDBitcount,triangleIDBitcount);
 			const uint batchInstanceGUID = bitfieldExtract(visBuffer[0],0,31-triangleIDBitcount);
@@ -57,6 +56,9 @@ void main()
 						
 			// load vertex data
 			const vec3 lastVxPos = load_positions(batchInstanceData,indices);
+			if (!bool(batchInstanceData.determinantSignBit&0x80000000u))
+				normalizedG = -normalizedG;
+			const bool frontfacing = dot(normalizedV,normalizedG)>=0.f;
 
 			// get material while waiting for indices
 			const nbl_glsl_MC_oriented_material_t material = nbl_glsl_MC_material_data_t_getOriented(batchInstanceData.material,frontfacing);

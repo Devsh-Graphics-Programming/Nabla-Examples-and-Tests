@@ -303,6 +303,10 @@ vec3 load_normal_and_prefetch_textures(
 
 		dUVdBary = mat2(uvs[0]-uvs[2],uvs[1]-uvs[2]);
 		const vec2 UV = dUVdBary*compactBary+uvs[2];
+		// flip the tangent frame if mesh got flipped to undo Left Handed tangent frame
+		if (!bool(batchInstanceData.determinantSignBit&0x80000000u))
+			dUVdBary = -dUVdBary;
+		// the direction/winding of the UV-space parallelogram doesn't matter for texture filtering
 		const mat2 dUVdScreen = nbl_glsl_applyChainRule2D(dUVdBary,dBarydScreen);
 		nbl_glsl_MC_runTexPrefetchStream(tps,UV,dUVdScreen*pc.cummon.textureFootprintFactor);
 	}

@@ -71,9 +71,10 @@ void main()
 			
 			// positions
 			const vec3 lastVxPos = load_positions(batchInstanceData,indices);
+			if (!bool(batchInstanceData.determinantSignBit&0x80000000u))
+				normalizedG = -normalizedG;
+			const bool frontfacing = dot(normalizedV,normalizedG)>=0.f;
 
-			const bool frontfacing = bool((batchInstanceData.determinantSignBit^floatBitsToUint(dot(normalizedV,normalizedG)))&0x80000000u);
-							
 			// get material
 			const nbl_glsl_MC_oriented_material_t material = nbl_glsl_MC_material_data_t_getOriented(batchInstanceData.material,frontfacing);
 			contrib.color = contrib.albedo = nbl_glsl_MC_oriented_material_t_getEmissive(material, normalizedV);
