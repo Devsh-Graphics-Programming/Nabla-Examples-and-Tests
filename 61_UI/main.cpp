@@ -312,32 +312,55 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							return false;
 						}
 
-						if (!jCamera.contains("orientation"))
-						{
-							logFail("Expected \"orientation\" keyword for camera definition!");
-							return false;
-						}
+						const bool withOrientation = jCamera.contains("orientation");
 
 						auto position = [&]()
-							{
-								auto jret = jCamera["position"].get<std::array<float, 3>>();
-								return float32_t3(jret[0], jret[1], jret[2]);
-							}();
+						{
+							auto jret = jCamera["position"].get<std::array<float, 3>>();
+							return float32_t3(jret[0], jret[1], jret[2]);
+						}();
 
-						auto orientation = [&]()
-							{
-								auto jret = jCamera["orientation"].get<std::array<float, 4>>();
+						auto getOrientation = [&]()
+						{
+							auto jret = jCamera["orientation"].get<std::array<float, 4>>();
 
-								// order important for glm::quat,
-								// the ctor is GLM_FUNC_QUALIFIER GLM_CONSTEXPR qua<T, Q>::qua(T _w, T _x, T _y, T _z)
-								// but memory layout (and json) is x,y,z,w
-								return glm::quat(jret[3], jret[0], jret[1], jret[2]);
-							}();
+							// order important for glm::quat,
+							// the ctor is GLM_FUNC_QUALIFIER GLM_CONSTEXPR qua<T, Q>::qua(T _w, T _x, T _y, T _z)
+							// but memory layout (and json) is x,y,z,w
+							return glm::quat(jret[3], jret[0], jret[1], jret[2]);
+						};
+
+						auto getTarget = [&]()
+						{
+							auto jret = jCamera["target"].get<std::array<float, 3>>();
+							return float32_t3(jret[0], jret[1], jret[2]);
+						};
 
 						if (jCamera["type"] == "FPS")
-							cameras.emplace_back() = make_smart_refctd_ptr<CFPSCamera>(position, orientation);
+						{
+							if (!withOrientation)
+							{
+								logFail("Expected \"orientation\" keyword for FPS camera definition!");
+								return false;
+							}
+
+							cameras.emplace_back() = make_smart_refctd_ptr<CFPSCamera>(position, getOrientation());
+						}
 						else if (jCamera["type"] == "Free")
-							cameras.emplace_back() = make_smart_refctd_ptr<CFreeCamera>(position, orientation);
+						{
+							if (!withOrientation)
+							{
+								logFail("Expected \"orientation\" keyword for Free camera definition!");
+								return false;
+							}
+
+							cameras.emplace_back() = make_smart_refctd_ptr<CFreeCamera>(position, getOrientation());
+						}
+						else if (jCamera["type"] == "Orbit")
+						{
+							auto& camera = cameras.emplace_back() = make_smart_refctd_ptr<COrbitCamera>(position, getTarget());
+							camera->setMoveSpeedScale(0.2);
+						}
 						else
 						{
 							logFail("Unsupported camera type!");
@@ -1152,7 +1175,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				auto& projection = planar->getPlanarProjections()[binding.boundProjectionIx.value()];
 
 				static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
-				uint32_t vCount;
+				uint32_t vCount = {};
 
 				projection.beginInputProcessing(m_nextPresentationTimestamp);
 				{
@@ -1161,11 +1184,33 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					if (virtualEvents.size() < vCount)
 						virtualEvents.resize(vCount);
 
-					projection.process(virtualEvents.data(), vCount, { params.keyboardEvents, params.mouseEvents });
+					auto* orbit = dynamic_cast<COrbitCamera*>(camera);
+
+					if (orbit)
+					{
+						uint32_t vKeyboardEventsCount = {}, vMouseEventsCount = {};
+
+						projection.processKeyboard(nullptr, vKeyboardEventsCount, {});
+						projection.processMouse(nullptr, vMouseEventsCount, {});
+
+						auto* output = virtualEvents.data();
+
+						projection.processKeyboard(output, vKeyboardEventsCount, params.keyboardEvents); 
+						output += vKeyboardEventsCount;
+
+						if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+							projection.processMouse(output, vMouseEventsCount, params.mouseEvents);
+						else
+							vMouseEventsCount = 0;
+
+						vCount = vKeyboardEventsCount + vMouseEventsCount;
+					}
+					else
+						projection.process(virtualEvents.data(), vCount, { params.keyboardEvents, params.mouseEvents });
 				}
 				projection.endInputProcessing();
 
-				if(vCount)
+				if (vCount)
 					camera->manipulate({ virtualEvents.data(), vCount }, ICamera::Local);
 			}
 
@@ -1181,6 +1226,24 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			{
 				SImResourceInfo info;
 				info.samplerIx = (uint16_t)nbl::ext::imgui::UI::DefaultSamplerIx::USER;
+
+
+				// ORBIT CAMERA TEST
+				{
+					for (auto& planar : m_planarProjections)
+					{
+						auto* camera = planar->getCamera();
+
+						auto* orbit = dynamic_cast<COrbitCamera*>(camera);
+
+						if (orbit)
+						{
+							auto targetPostion = transpose(getMatrix3x4As4x4(m_model))[3];
+							orbit->target(targetPostion);
+							orbit->manipulate({}, {});
+						}
+					}
+				}
 
 				// render bound planar camera views onto GUI windows
 				if (useWindow)
@@ -1472,8 +1535,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					ImGui::Image(info, contentRegionSize);
 					ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
 
-					
-
 					ImGui::End();
 					ImGui::PopStyleColor(1);
 				}
@@ -1730,14 +1791,27 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						ImGui::Text("Object Ix: %s", std::to_string(active.activePlanarIx + 1u).c_str());
 						ImGui::Separator();
 						{
+							auto* orbit = dynamic_cast<COrbitCamera*>(boundCamera);
+
 							float moveSpeed = boundCamera->getMoveSpeedScale();
 							float rotationSpeed = boundCamera->getRotationSpeedScale();
 
 							ImGui::SliderFloat("Move speed factor", &moveSpeed, 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
-							ImGui::SliderFloat("Rotate speed factor", &rotationSpeed, 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
+
+							if(not orbit)
+								ImGui::SliderFloat("Rotate speed factor", &rotationSpeed, 0.0001f, 10.f, "%.4f", ImGuiSliderFlags_Logarithmic);
 
 							boundCamera->setMoveSpeedScale(moveSpeed);
 							boundCamera->setRotationSpeedScale(rotationSpeed);
+
+							{
+								if (orbit)
+								{
+									float distance = orbit->getDistance();
+									ImGui::SliderFloat("Distance", &distance, COrbitCamera::MinDistance, COrbitCamera::MaxDistance, "%.4f", ImGuiSliderFlags_Logarithmic);
+									orbit->setDistance(distance);
+								}
+							}
 						}
 
 						if (ImGui::TreeNodeEx("World Data", flags))
