@@ -1674,6 +1674,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					if (enableActiveCameraMovement)
 					{
+						ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Bound Camera Movement: Enabled");
 						io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
 						io.MouseDrawCursor = false;
 						io.WantCaptureMouse = false;
@@ -1689,15 +1690,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					}
 					else
 					{
+						ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Bound Camera Movement: Disabled");
 						io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
 						io.MouseDrawCursor = true;
 						io.WantCaptureMouse = true;
-					}
-
-					if (enableActiveCameraMovement)
-						ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Bound Camera Movement: Enabled");
-					else
-						ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Bound Camera Movement: Disabled");
+					}	
 
 					if (ImGui::IsItemHovered())
 					{
