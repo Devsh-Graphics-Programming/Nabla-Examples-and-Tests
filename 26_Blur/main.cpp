@@ -87,7 +87,17 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 				if (!source)
 					return logFail("Failed to load shader from disk");
 
-				shader = m_device->createShader(source.get());
+				const ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses[] = {
+					ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO,
+					ISPIRVOptimizer::EOP_INLINE,
+					ISPIRVOptimizer::EOP_DEAD_BRANCH_ELIM,
+					ISPIRVOptimizer::EOP_DEAD_INSERT_ELIM,
+					ISPIRVOptimizer::EOP_IF_CONVERSION,
+					ISPIRVOptimizer::EOP_LOOP_INVARIANT_CODE_MOTION,
+					ISPIRVOptimizer::EOP_LOCAL_MULTI_STORE_ELIM
+				};
+				auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(optPasses);
+				shader = m_device->createShader(source.get(), opt.get());
 				if (!shader)
 					return false;
 			}

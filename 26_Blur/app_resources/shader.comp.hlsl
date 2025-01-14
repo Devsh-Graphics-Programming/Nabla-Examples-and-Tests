@@ -6,7 +6,190 @@
 
 using namespace nbl::hlsl;
 
+//! this part of code will move to `nbl/builtin/hlsl/prefix_sum_blur.hlsl` with its own namespace, and needs to be wholly independent of any `#define` or global variable
 
+template<typename DataAccessor, typename SharedAccessor, uint16_t WorkgroupSize, class device_capabilities=void> // TODO: define concepts for the BoxBlur and apply constraints
+struct BoxBlur // TODO: rename to `Blur1D`, take an extra `typename Sampler`
+{
+    // TODO: Generalize later on when Francesco enforces accessor-concepts in `workgroup` and adds a `SharedMemoryAccessor` concept
+    struct OffsetSharedAccessor
+    {
+        void get(const uint16_t ix, NBL_REF_ARG(float32_t) val)
+        {
+            val = base.template get<float32_t,uint16_t>(ix+offset);
+        }
+        void set(const uint16_t ix, const float32_t val)
+        {
+            base.template set<float32_t,uint16_t>(ix+offset,val);
+        }
+
+        void workgroupExecutionAndMemoryBarrier()
+        {
+            base.workgroupExecutionAndMemoryBarrier();
+        }
+
+        SharedAccessor base;
+        uint16_t offset;
+    };
+
+    void operator()(NBL_REF_ARG(DataAccessor) data, NBL_REF_ARG(SharedAccessor) scratch, const uint16_t channel)
+    {
+        const uint16_t end = data.linearSize();
+        const uint16_t localInvocationIndex = workgroup::SubgroupContiguousIndex();
+
+        // prefix sum
+        // note the dynamically uniform loop condition 
+        for (uint16_t baseIx=0; baseIx<end; )
+        {
+            const uint16_t ix = localInvocationIndex+baseIx;
+            float32_t input = data.template get<float32_t>(channel,ix);
+            // dynamically uniform condition
+            if (baseIx!=0)
+            {
+                // take result of previous prefix sum and add it to first element here
+                if (localInvocationIndex==0)
+                    input += scratch.template get<float32_t>(baseIx-1);
+            }
+            // need to copy-in / copy-out the accessor cause no references in HLSL - yay!
+            OffsetSharedAccessor offsetScratch;
+            offsetScratch.base = scratch;
+            offsetScratch.offset = end-workgroup::scratch_size_arithmetic<WorkgroupSize>::value;
+            const float32_t sum = workgroup::inclusive_scan<plus<float32_t>,WorkgroupSize>::template __call(input,offsetScratch);
+            scratch = offsetScratch.base;
+            // loop increment
+            baseIx += WorkgroupSize;
+            // if doing the last prefix sum, we need to barrier to stop aliasing of temporary scratch for `inclusive_scan` and our scanline
+            if (baseIx>=end)
+                scratch.workgroupExecutionAndMemoryBarrier();
+            // save prefix sum results
+            scratch.template set<float32_t>(ix,sum);
+            // previous prefix sum must have finished before we ask for results
+            scratch.workgroupExecutionAndMemoryBarrier();
+        }
+
+        const float32_t last = end-1;
+        for (uint16_t ix=localInvocationIndex; ix<end; ix+=WorkgroupSize)
+        {
+            const float u = ix;
+            // identity transform
+            const float32_t normalizationFactor = 1.f;
+            const float right = scratch.template get<float32_t,int32_t>(u);
+            const float left = u!=0 ? scratch.template get<float32_t,int32_t>(u-1):0.f;
+            // Exercercise for reader do the start-end taps with bilinear interpolation
+            // TODO: pass as push constant
+//            const float32_t normalizationFactor = 1.f/(2.f*radius+1.f);
+//            const float right = scratch.template get<float32_t,int32_t>(clamp(u+radius,0.f,last));
+//            const float left = scratch.template get<float32_t,int32_t>(clamp(u-radius,0.f,last));
+            data.template set<float32_t>(channel,ix,(right-left)*normalizationFactor);
+        }
+    }
+
+    vector<float32_t,DataAccessor::Channels> borderColor; // TODO: move to the Box Blur Edge Wrapping functor
+    float32_t radius;
+    uint16_t wrapMode;
+};
+
+// TODO: put the sampling in another struct `BoxSampler` with `template<typename PrefixSumAccessor, typename T> T operator()(NBL_REF_ARG(PrefixSumAccessor))`
+// and header inside `nbl/builtin/hlsl/prefix_sum_blur` directory (take a `PrefixSumAccessor` at most -> SharedAccessor is the prefix sum accessor)
+// TODO: `PrefixSumAccessor` as a `ReadOnlyAccessor` concept, no barrier and no set required (DO NOT USE THEM HERE)
+/*
+void boxBlur(
+    NBL_REF_ARG(TextureAccessor) texAccessor,
+    NBL_REF_ARG(SharedAccessor) smemAccessor,
+    uint16_t itemsPerThread,
+    uint16_t width
+) {
+    const uint16_t lastIdx = width - 1;
+    const float32_t scale = 1.0 / (2.0 * radius + 1.0);
+    const uint16_t radiusFl = (uint16_t)floor(radius);
+    const uint16_t radiusCl = (uint16_t)ceil(radius);
+    const float32_t alpha = radius - radiusFl;
+
+
+    for (uint16_t i = 0; i < itemsPerThread; i++)
+    {
+        uint16_t scanIdx = (i * glsl::gl_WorkGroupSize().x) + workgroup::SubgroupContiguousIndex();
+        if (scanIdx > lastIdx) break;
+
+        const float32_t leftIdx = scanIdx - radius;
+        const float32_t rightIdx = scanIdx + radius;
+
+        float32_t result = 0;
+        if (rightIdx <= lastIdx)
+        {
+            float32_t rightFloor, rightCeil;
+            smemAccessor.get(scanIdx + radiusFl, rightFloor);
+            smemAccessor.get(scanIdx + radiusCl, rightCeil);
+            result += lerp(rightFloor, rightCeil, alpha);
+        }
+        else switch (wrapMode)
+        {
+            case WRAP_MODE_CLAMP_TO_BORDER:
+            {
+                result += (rightIdx - lastIdx) * borderColor[channel];
+            } break;
+            case WRAP_MODE_CLAMP_TO_EDGE:
+            {
+                float32_t last, lastMinus1;
+                smemAccessor.get(lastIdx, last);
+                smemAccessor.get(lastIdx - 1, lastMinus1);
+                result += (rightIdx - lastIdx) * (last - lastMinus1);
+            } break;
+            case WRAP_MODE_REPEAT:
+            {
+                const uint16_t repeatedIdx = (uint16_t)(rightIdx % width);
+                float32_t repeatedValue;
+                smemAccessor.get(repeatedIdx, repeatedValue);
+                result += repeatedValue;
+            } break;
+            case WRAP_MODE_MIRROR:
+            {
+                const uint16_t mirroredIdx = (uint16_t)((rightIdx / width) % 2 == 0 ? rightIdx % width : lastIdx - (rightIdx % width));
+                float32_t mirrored;
+                smemAccessor.get(mirroredIdx, mirrored);
+                result += mirrored;
+            } break;
+        }
+
+        if (leftIdx >= 0)
+        {
+            float32_t leftFloor, leftCeil;
+            smemAccessor.get(scanIdx - radiusFl, leftFloor);
+            smemAccessor.get(scanIdx - radiusCl, leftCeil);
+            result -= lerp(leftFloor, leftCeil, alpha);
+        }
+        else switch (wrapMode)
+        {
+            case WRAP_MODE_CLAMP_TO_BORDER:
+            {
+                result -= leftIdx * borderColor[channel];
+            } break;
+            case WRAP_MODE_CLAMP_TO_EDGE:
+            {
+                float32_t first;
+                smemAccessor.get(0, first);
+                result -= abs(leftIdx) * first;
+            } break;
+            case WRAP_MODE_REPEAT:
+            {
+                const uint16_t repeatedIdx = (uint16_t)((leftIdx % width + width) % width);
+                float32_t repeatedValue;
+                smemAccessor.get(repeatedIdx, repeatedValue);
+                result -= repeatedValue;
+            } break;
+            case WRAP_MODE_MIRROR:
+            {
+                const uint16_t mirroredIdx = (uint16_t)((-leftIdx / width) % 2 == 0 ? (-leftIdx) % width : lastIdx - ((-leftIdx) % width));
+                float32_t mirrored;
+                smemAccessor.get(mirroredIdx, mirrored);
+                result -= mirrored;
+            } break;
+        }
+
+        texAccessor.set(i, channel, result * scale);
+    }
+}
+*/
 
 
 //! Everything below this line is userspace
@@ -108,161 +291,11 @@ struct SharedMemoryProxy
         smem[idx] = bit_cast<uint32_t>(value);
 	}
 
-    // and these get used by Prefix Sum
-
     void workgroupExecutionAndMemoryBarrier()
     {
         glsl::barrier();
     }
 };
-
-template<typename DataAccessor, typename SharedAccessor, uint16_t WorkgroupSize> // TODO: define concepts for the BoxBlur and apply constraints
-struct BoxBlur
-{
-    void operator()(NBL_REF_ARG(DataAccessor) data, NBL_REF_ARG(SharedAccessor) scratch, const uint16_t channel)
-    {
-        const uint16_t end = data.linearSize();
-        const uint16_t localInvocationIndex = workgroup::SubgroupContiguousIndex();
-
-        // prefix sum
-        // note the dynamically uniform loop condition 
-        for (uint16_t baseIx=0; baseIx<end; )
-        {
-            const uint16_t ix = localInvocationIndex+baseIx;
-            float32_t input = data.template get<float32_t>(channel,ix);
-            // dynamically uniform condition
-            if (baseIx!=0)
-            {
-                // take result of previous prefix sum and add it to first element here
-                if (localInvocationIndex==0)
-                    input += scratch.template get<float32_t>(baseIx-1);
-            }
-            const float32_t sum = input;//workgroup::inclusive_scan<plus<float32_t>,WorkgroupSize>::template __call<SharedAccessor>(input,shared);
-            baseIx += WorkgroupSize;
-            // if doing the last prefix sum, we need to barrier to stop aliasing of temporary scratch for `inclusive_scan` and our scanline
-            if (baseIx>=end)
-                scratch.workgroupExecutionAndMemoryBarrier();
-            // save prefix sum results
-            scratch.template set<float32_t>(ix,sum);
-            // previous prefix sum must have finished before we ask for results
-            scratch.workgroupExecutionAndMemoryBarrier();
-        }
-
-        const float32_t last = end-1;
-        for (uint16_t ix=localInvocationIndex; ix<end; ix+=WorkgroupSize)
-        {
-            const float u = ix;
-            // Exercercise for reader do the start-end taps with bilinear interpolation
-            const float right = scratch.template get<float32_t,int32_t>(clamp(u+radius,0.f,last));
-            const float left = scratch.template get<float32_t,int32_t>(clamp(u-radius,0.f,last));
-            data.template set<float32_t>(channel,ix,right-left);
-        }
-    }
-
-    vector<float32_t,DataAccessor::Channels> borderColor;
-    float32_t radius;
-    uint16_t wrapMode;
-};
-
-/*
-void boxBlur(
-    NBL_REF_ARG(TextureAccessor) texAccessor,
-    NBL_REF_ARG(SharedAccessor) smemAccessor,
-    uint16_t itemsPerThread,
-    uint16_t width,
-    bool flip // <-------------------------------------- YOUR BOX BLUR SHOULD BE AGNOSTIC TO THIS!
-) {
-    const uint16_t lastIdx = width - 1;
-    const float32_t scale = 1.0 / (2.0 * radius + 1.0);
-    const uint16_t radiusFl = (uint16_t)floor(radius);
-    const uint16_t radiusCl = (uint16_t)ceil(radius);
-    const float32_t alpha = radius - radiusFl;
-
-
-    for (uint16_t i = 0; i < itemsPerThread; i++)
-    {
-        uint16_t scanIdx = (i * glsl::gl_WorkGroupSize().x) + workgroup::SubgroupContiguousIndex();
-        if (scanIdx > lastIdx) break;
-
-        const float32_t leftIdx = scanIdx - radius;
-        const float32_t rightIdx = scanIdx + radius;
-
-        float32_t result = 0;
-        if (rightIdx <= lastIdx)
-        {
-            float32_t rightFloor, rightCeil;
-            smemAccessor.get(scanIdx + radiusFl, rightFloor);
-            smemAccessor.get(scanIdx + radiusCl, rightCeil);
-            result += lerp(rightFloor, rightCeil, alpha);
-        }
-        else switch (wrapMode)
-        {
-            case WRAP_MODE_CLAMP_TO_BORDER:
-            {
-                result += (rightIdx - lastIdx) * borderColor[channel];
-            } break;
-            case WRAP_MODE_CLAMP_TO_EDGE:
-            {
-                float32_t last, lastMinus1;
-                smemAccessor.get(lastIdx, last);
-                smemAccessor.get(lastIdx - 1, lastMinus1);
-                result += (rightIdx - lastIdx) * (last - lastMinus1);
-            } break;
-            case WRAP_MODE_REPEAT:
-            {
-                const uint16_t repeatedIdx = (uint16_t)(rightIdx % width);
-                float32_t repeatedValue;
-                smemAccessor.get(repeatedIdx, repeatedValue);
-                result += repeatedValue;
-            } break;
-            case WRAP_MODE_MIRROR:
-            {
-                const uint16_t mirroredIdx = (uint16_t)((rightIdx / width) % 2 == 0 ? rightIdx % width : lastIdx - (rightIdx % width));
-                float32_t mirrored;
-                smemAccessor.get(mirroredIdx, mirrored);
-                result += mirrored;
-            } break;
-        }
-
-        if (leftIdx >= 0)
-        {
-            float32_t leftFloor, leftCeil;
-            smemAccessor.get(scanIdx - radiusFl, leftFloor);
-            smemAccessor.get(scanIdx - radiusCl, leftCeil);
-            result -= lerp(leftFloor, leftCeil, alpha);
-        }
-        else switch (wrapMode)
-        {
-            case WRAP_MODE_CLAMP_TO_BORDER:
-            {
-                result -= leftIdx * borderColor[channel];
-            } break;
-            case WRAP_MODE_CLAMP_TO_EDGE:
-            {
-                float32_t first;
-                smemAccessor.get(0, first);
-                result -= abs(leftIdx) * first;
-            } break;
-            case WRAP_MODE_REPEAT:
-            {
-                const uint16_t repeatedIdx = (uint16_t)((leftIdx % width + width) % width);
-                float32_t repeatedValue;
-                smemAccessor.get(repeatedIdx, repeatedValue);
-                result -= repeatedValue;
-            } break;
-            case WRAP_MODE_MIRROR:
-            {
-                const uint16_t mirroredIdx = (uint16_t)((-leftIdx / width) % 2 == 0 ? (-leftIdx) % width : lastIdx - ((-leftIdx) % width));
-                float32_t mirrored;
-                smemAccessor.get(mirroredIdx, mirrored);
-                result -= mirrored;
-            } break;
-        }
-
-        texAccessor.set(i, channel, result * scale);
-    }
-}
-*/
 
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void main()
