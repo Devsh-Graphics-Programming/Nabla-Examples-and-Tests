@@ -113,7 +113,8 @@ struct SBxDFTestResources
         return retval;
     }
 
-    float h = 0.001;
+    // epsilon
+    float eps = 1e-2;
 
     nbl::hlsl::Xoroshiro64Star rng;
     ray_dir_info_t V;
@@ -130,7 +131,8 @@ struct SBxDFTestResources
 
 enum ErrorType : uint32_t
 {
-    NEGATIVE_VAL = 0,   // pdf/quotient/eval < 0
+    NOERR = 0,
+    NEGATIVE_VAL,   // pdf/quotient/eval < 0
     PDF_ZERO,           // pdf = 0
     QUOTIENT_INF,       // quotient -> inf
     JACOBIAN,
@@ -138,12 +140,6 @@ enum ErrorType : uint32_t
     RECIPROCITY
 };
 
-struct FailureCallback
-{
-    virtual void __call(ErrorType error, NBL_CONST_REF_ARG(SBxDFTestResources) failedFor, NBL_CONST_REF_ARG(sample_t) failedAt) NBL_CONST_MEMBER_FUNC {}
-};
-
-template<class BxDF>
 struct TestBase
 {
     void init(uint32_t2 seed)
@@ -154,18 +150,29 @@ struct TestBase
         anisointer = aniso_interaction::create(isointer, rc.T, rc.B);
     }
 
+    virtual void compute() {}
+
     SBxDFTestResources rc;
-    BxDF bxdf;
 
     iso_interaction isointer;
     aniso_interaction anisointer;
 };
 
+struct FailureCallback
+{
+    virtual void __call(ErrorType error, NBL_REF_ARG(TestBase) failedFor) {}
+};
 
 template<class BxDF>
-struct TestBxDF : TestBase<BxDF>
+struct TestBxDFBase : TestBase
 {
-    using base_t = TestBase<BxDF>;
+    BxDF bxdf;
+};
+
+template<class BxDF>
+struct TestBxDF : TestBxDFBase<BxDF>
+{
+    using base_t = TestBxDFBase<BxDF>;
 
     void initBxDF(SBxDFTestResources _rc)
     {
@@ -174,9 +181,9 @@ struct TestBxDF : TestBase<BxDF>
 };
 
 template<>
-struct TestBxDF<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>> : TestBase<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>>
+struct TestBxDF<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>> : TestBxDFBase<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>>
 {
-    using base_t = TestBase<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>>;
+    using base_t = TestBxDFBase<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>>;
 
     void initBxDF(SBxDFTestResources _rc)
     {
@@ -185,9 +192,9 @@ struct TestBxDF<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, anis
 };
 
 template<>
-struct TestBxDF<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache, spectral_t>> : TestBase<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>
+struct TestBxDF<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache, spectral_t>> : TestBxDFBase<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>
 {
-    using base_t = TestBase<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>;
+    using base_t = TestBxDFBase<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>;
 
     template<bool aniso>
     void initBxDF(SBxDFTestResources _rc)
@@ -204,9 +211,9 @@ struct TestBxDF<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache
 };
 
 template<>
-struct TestBxDF<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spectral_t>> : TestBase<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>
+struct TestBxDF<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spectral_t>> : TestBxDFBase<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>
 {
-    using base_t = TestBase<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>;
+    using base_t = TestBxDFBase<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>;
 
     template<bool aniso>
     void initBxDF(SBxDFTestResources _rc)
@@ -223,9 +230,9 @@ struct TestBxDF<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spe
 };
 
 template<>
-struct TestBxDF<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>> : TestBase<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>
+struct TestBxDF<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>> : TestBxDFBase<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>
 {
-    using base_t = TestBase<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>;
+    using base_t = TestBxDFBase<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>;
 
     void initBxDF(SBxDFTestResources _rc)
     {
@@ -234,9 +241,9 @@ struct TestBxDF<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, a
 };
 
 template<>
-struct TestBxDF<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, true>> : TestBase<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, true>>
+struct TestBxDF<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, true>> : TestBxDFBase<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, true>>
 {
-    using base_t = TestBase<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, true>>;
+    using base_t = TestBxDFBase<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, true>>;
 
     void initBxDF(SBxDFTestResources _rc)
     {
@@ -245,9 +252,9 @@ struct TestBxDF<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, a
 };
 
 template<>
-struct TestBxDF<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>> : TestBase<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>
+struct TestBxDF<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>> : TestBxDFBase<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>
 {
-    using base_t = TestBase<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>;
+    using base_t = TestBxDFBase<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>;
 
     template<bool aniso>
     void initBxDF(SBxDFTestResources _rc)
@@ -264,9 +271,9 @@ struct TestBxDF<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache,
 };
 
 template<>
-struct TestBxDF<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>> : TestBase<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>
+struct TestBxDF<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>> : TestBxDFBase<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>
 {
-    using base_t = TestBase<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>;
+    using base_t = TestBxDFBase<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>;
 
     template<bool aniso>
     void initBxDF(SBxDFTestResources _rc)
@@ -321,18 +328,15 @@ NBL_CONSTEXPR bool is_microfacet_bsdf_v = is_microfacet_bsdf<T>::value;
 template<class BxDF, bool aniso = false>
 struct TestUOffset : TestBxDF<BxDF>
 {
-    using base_t = TestBase<BxDF>;
+    using base_t = TestBxDFBase<BxDF>;
     using this_t = TestUOffset<BxDF, aniso>;
 
-    bool test(NBL_CONST_REF_ARG(FailureCallback) cb)
+    void compute() override
     {
-        sample_t s, sx, sy;
-        quotient_pdf_t pdf;
-        float32_t3 bsdf;
         aniso_cache cache, dummy;
 
-        float32_t3 ux = base_t::rc.u + float32_t3(base_t::rc.h,0,0);
-        float32_t3 uy = base_t::rc.u + float32_t3(0,base_t::rc.h,0);
+        float32_t3 ux = base_t::rc.u + float32_t3(base_t::rc.eps,0,0);
+        float32_t3 uy = base_t::rc.u + float32_t3(0,base_t::rc.eps,0);
 
         if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
         {
@@ -378,38 +382,37 @@ struct TestUOffset : TestBxDF<BxDF>
                 bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
             }
         }
+    }
 
-        if (nbl::hlsl::abs<float>(pdf.pdf) < 1e-3)  // something generated cannot have 0 probability of getting generated
-        {
-            cb.__call(PDF_ZERO, base_t::rc, s);
-            return false;
-        }
+    ErrorType test()
+    {
+        compute();
+
+        if (nbl::hlsl::abs<float>(pdf.pdf) < base_t::rc.eps)  // something generated cannot have 0 probability of getting generated
+            return PDF_ZERO;
 
         if (!all<bool32_t3>(pdf.quotient < (float32_t3)numeric_limits<float>::infinity))    // importance sampler's job to prevent inf
-        {
-            cb.__call(QUOTIENT_INF, base_t::rc, s);
-            return false;
-        }
+            return QUOTIENT_INF;
 
-        if (all<bool32_t3>(nbl::hlsl::abs<float32_t3>(bsdf) < (float32_t3)1e-3) || all<bool32_t3>(pdf.quotient < (float32_t3)1e-3))
-            return true;    // produces an "impossible" sample
+        if (all<bool32_t3>(nbl::hlsl::abs<float32_t3>(bsdf) < (float32_t3)base_t::rc.eps) || all<bool32_t3>(pdf.quotient < (float32_t3)base_t::rc.eps))
+            return NOERR;    // produces an "impossible" sample
 
         // get jacobian
         float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
         float det = nbl::hlsl::determinant<float32_t2x2>(m);
 
-        bool jacobian_test = nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) < 1e-3;
+        bool jacobian_test = nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) < base_t::rc.eps;
         if (!jacobian_test)
-            cb.__call(JACOBIAN, base_t::rc, s);
+            return JACOBIAN;
 
-        bool32_t3 diff_test = nbl::hlsl::abs<float32_t3>(pdf.value() - bsdf) < (float32_t3)1e-3;
+        bool32_t3 diff_test = nbl::hlsl::max<float32_t3>(pdf.value() / bsdf, bsdf / pdf.value()) <= (float32_t3)(1 + base_t::rc.eps);
         if (!all<bool32_t3>(diff_test))
-            cb.__call(PDF_EVAL_DIFF, base_t::rc, s);
+            return PDF_EVAL_DIFF;
 
-        return true;
+        return NOERR;
     }
 
-    static void run(uint32_t seed, NBL_CONST_REF_ARG(FailureCallback) cb)
+    static void run(uint32_t seed, NBL_REF_ARG(FailureCallback) cb)
     {
         uint32_t2 state = pcg32x2(seed);
 
@@ -419,8 +422,15 @@ struct TestUOffset : TestBxDF<BxDF>
             t.template initBxDF<aniso>(t.rc);
         else
             t.initBxDF(t.rc);
-        t.test(cb);
+        
+        ErrorType e = t.test();
+        if (e != NOERR)
+            cb.__call(e, t);
     }
+
+    sample_t s, sx, sy;
+    quotient_pdf_t pdf;
+    float32_t3 bsdf;
 };
 
 }

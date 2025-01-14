@@ -10,7 +10,7 @@ using namespace nbl::hlsl;
 
 struct PrintFailureCallback : FailureCallback
 {
-    void __call(ErrorType error, NBL_CONST_REF_ARG(SBxDFTestResources) failedFor, NBL_CONST_REF_ARG(sample_t) failedAt) NBL_CONST_MEMBER_FUNC override
+    void __call(ErrorType error, NBL_REF_ARG(TestBase) failedFor) override
     {
         switch (error)
         {
@@ -40,7 +40,7 @@ struct PrintFailureCallback : FailureCallback
         {
             repeat = false;
             __debugbreak();
-            //failedFor.test(failedAt); // TODO: repeat test case
+            failedFor.compute();
         }
     }
 };
