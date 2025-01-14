@@ -505,7 +505,7 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 				{
 					auto ev = *eventIt;
 					if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
-						blurRadius = (uint16_t)std::clamp<int16_t>(int16_t(blurRadius) + 5 * core::sign(ev.scrollEvent.verticalScroll), 1, WORKGROUP_SIZE - 1);
+						blurRadius = (uint16_t)std::clamp<int16_t>(int16_t(blurRadius) + 5 * core::sign(ev.scrollEvent.verticalScroll), 1, WORKGROUP_SIZE - 1); // TODO: not workgroup size, max(Image.width,Image.height)
 					if (ev.type == nbl::ui::SMouseEvent::EET_CLICK && ev.clickEvent.mouseButton == nbl::ui::EMB_LEFT_BUTTON)
 						if (ev.clickEvent.action == nbl::ui::SMouseEvent::SClickEvent::EA_RELEASED)
 							blurEdgeWrapMode = (blurEdgeWrapMode + 1) % WRAP_MODE_MAX;
@@ -602,7 +602,7 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 				};
 				cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {}, .bufBarriers = {},.imgBarriers = {&imgBarrier,1} });
 				cb->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_COMPUTE, layout, 0, 1, &m_ds0.get());
-				PushConstants pc = { .flip = 0, .radius = blurRadius, .edgeWrapMode = blurEdgeWrapMode };
+				PushConstants pc = { .radius = blurRadius, .flip = 0, .edgeWrapMode = blurEdgeWrapMode };
 				cb->pushConstants(layout, IGPUShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(pc), &pc);
 				cb->dispatch(image_params.extent.height, 1, 1);
 
