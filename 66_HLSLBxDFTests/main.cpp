@@ -15,25 +15,25 @@ struct PrintFailureCallback : FailureCallback
         switch (error)
         {
         case NEGATIVE_VAL:
-            fprintf(stderr, "pdf/quotient/eval < 0\n");
+            fprintf(stderr, "%s pdf/quotient/eval < 0\n", failedFor.name.c_str());
             break;
         case PDF_ZERO:
-            fprintf(stderr, "pdf = 0\n");
+            fprintf(stderr, "%s pdf = 0\n", failedFor.name.c_str());
             break;
         case QUOTIENT_INF:
-            fprintf(stderr, "quotient -> inf\n");
+            fprintf(stderr, "%s quotient -> inf\n", failedFor.name.c_str());
             break;
         case JACOBIAN:
-            fprintf(stderr, "failed the jacobian * pdf test\n");
+            fprintf(stderr, "%s failed the jacobian * pdf test\n", failedFor.name.c_str());
             break;
         case PDF_EVAL_DIFF:
-            fprintf(stderr, "quotient * pdf - eval not 0\n");
+            fprintf(stderr, "%s quotient * pdf - eval not 0\n", failedFor.name.c_str());
             break;
         case RECIPROCITY:
-            fprintf(stderr, "failed the reprocity test\n");
+            fprintf(stderr, "%s failed the reprocity test\n", failedFor.name.c_str());
             break;
         default:
-            fprintf(stderr, "unknown error\n");
+            fprintf(stderr, "%s unknown error\n", failedFor.name.c_str());
         }
 
         for (volatile bool repeat = true; IsDebuggerPresent() && repeat; )

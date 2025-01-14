@@ -114,7 +114,7 @@ struct SBxDFTestResources
     }
 
     // epsilon
-    float eps = 1e-2;
+    float eps = 1e-3;
 
     nbl::hlsl::Xoroshiro64Star rng;
     ray_dir_info_t V;
@@ -156,6 +156,10 @@ struct TestBase
 
     iso_interaction isointer;
     aniso_interaction anisointer;
+
+#ifndef __HLSL_VERSION
+    std::string name = "base";
+#endif
 };
 
 struct FailureCallback
@@ -177,6 +181,9 @@ struct TestBxDF : TestBxDFBase<BxDF>
     void initBxDF(SBxDFTestResources _rc)
     {
         base_t::bxdf = BxDF::create();  // default to lambertian bxdf
+#ifndef __HLSL_VERSION
+        base_t::name = "Lambertian BxDF";
+#endif
     }
 };
 
@@ -188,6 +195,9 @@ struct TestBxDF<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, anis
     void initBxDF(SBxDFTestResources _rc)
     {
         base_t::bxdf = bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>::create(_rc.alpha.x);
+#ifndef __HLSL_VERSION
+        base_t::name = "OrenNayar BRDF";
+#endif
     }
 };
 
@@ -202,10 +212,16 @@ struct TestBxDF<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache
         if (aniso)
         {
             base_t::bxdf = bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache, spectral_t>::create(rc.alpha.x,rc.alpha.y,(float32_t3)(rc.ior.x),(float32_t3)(rc.ior.y));
+#ifndef __HLSL_VERSION
+            base_t::name = "Beckmann Aniso BRDF";
+#endif
         }
         else
         {
             base_t::bxdf = bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache, spectral_t>::create(rc.alpha.x,(float32_t3)(rc.ior.x),(float32_t3)(rc.ior.y));
+#ifndef __HLSL_VERSION
+            base_t::name = "Beckmann BRDF";
+#endif
         }
     }
 };
@@ -221,10 +237,16 @@ struct TestBxDF<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spe
         if (aniso)
         {
             base_t::bxdf = bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spectral_t>::create(rc.alpha.x,rc.alpha.y,(float32_t3)(rc.ior.x),(float32_t3)(rc.ior.y));
+#ifndef __HLSL_VERSION
+            base_t::name = "GGX Aniso BRDF";
+#endif
         }
         else
         {
             base_t::bxdf = bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spectral_t>::create(rc.alpha.x,(float32_t3)(rc.ior.x),(float32_t3)(rc.ior.y));
+#ifndef __HLSL_VERSION
+            base_t::name = "GGX BRDF";
+#endif
         }
     }
 };
@@ -237,6 +259,9 @@ struct TestBxDF<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, a
     void initBxDF(SBxDFTestResources _rc)
     {
         base_t::bxdf = bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>::create(rc.eta);
+#ifndef __HLSL_VERSION
+        base_t::name = "Smooth dielectric BSDF";
+#endif
     }
 };
 
@@ -248,6 +273,9 @@ struct TestBxDF<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, a
     void initBxDF(SBxDFTestResources _rc)
     {
         base_t::bxdf = bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, true>::create(float32_t3(rc.eta * rc.eta),rc.luma_coeff);
+#ifndef __HLSL_VERSION
+        base_t::name = "Thin smooth dielectric BSDF";
+#endif
     }
 };
 
@@ -262,10 +290,16 @@ struct TestBxDF<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache,
         if (aniso)
         {
             base_t::bxdf = bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>::create(rc.eta,rc.alpha.x,rc.alpha.y);
+#ifndef __HLSL_VERSION
+            base_t::name = "Beckmann Dielectric Aniso BSDF";
+#endif
         }
         else
         {
             base_t::bxdf = bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>::create(rc.eta,rc.alpha.x);
+#ifndef __HLSL_VERSION
+            base_t::name = "Beckmann Dielectric BSDF";
+#endif
         }
     }
 };
@@ -281,10 +315,16 @@ struct TestBxDF<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, anis
         if (aniso)
         {
             base_t::bxdf = bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>::create(rc.eta,rc.alpha.x,rc.alpha.y);
+#ifndef __HLSL_VERSION
+            base_t::name = "GGX Dielectric Aniso BSDF";
+#endif
         }
         else
         {
             base_t::bxdf = bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>::create(rc.eta,rc.alpha.x);
+#ifndef __HLSL_VERSION
+            base_t::name = "GGX Dielectric BSDF";
+#endif
         }
     }
 };
