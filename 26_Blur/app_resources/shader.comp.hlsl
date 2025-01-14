@@ -54,11 +54,12 @@ struct BoxBlur // TODO: rename to `Blur1D`, take an extra `typename Sampler`
             OffsetSharedAccessor offsetScratch;
             offsetScratch.base = scratch;
             offsetScratch.offset = end-workgroup::scratch_size_arithmetic<WorkgroupSize>::value;
-            const float32_t sum = workgroup::inclusive_scan<plus<float32_t>,WorkgroupSize>::template __call(input,offsetScratch);
+            const float32_t sum = workgroup::inclusive_scan<plus<float32_t>,WorkgroupSize,device_capabilities>::template __call(input,offsetScratch);
             scratch = offsetScratch.base;
             // loop increment
             baseIx += WorkgroupSize;
             // if doing the last prefix sum, we need to barrier to stop aliasing of temporary scratch for `inclusive_scan` and our scanline
+            // TODO: might be worth adding a non-aliased mode as NSight says nr 1 hotspot is barrier waiting in this code
             if (baseIx>=end)
                 scratch.workgroupExecutionAndMemoryBarrier();
             // save prefix sum results
@@ -297,6 +298,8 @@ struct SharedMemoryProxy
     }
 };
 
+#include "nbl/builtin/hlsl/jit/device_capabilities.hlsl"
+
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void main()
 {
@@ -307,7 +310,7 @@ void main()
     texAccessor.load();
 
     // set us up
-    BoxBlur<decltype(texAccessor),decltype(smemAccessor),WORKGROUP_SIZE> blur;
+    BoxBlur<decltype(texAccessor),decltype(smemAccessor),WORKGROUP_SIZE,jit::device_capabilities> blur;
     blur.borderColor = float32_t3(0,1,0);
     blur.radius = pc.radius;
     blur.wrapMode = pc.edgeWrapMode;
