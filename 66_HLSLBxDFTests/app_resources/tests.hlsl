@@ -4,6 +4,7 @@
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
+#include "nbl/builtin/hlsl/random/pcg.hlsl"
 #include "nbl/builtin/hlsl/sampling/uniform.hlsl"
 #include "nbl/builtin/hlsl/bxdf/common.hlsl"
 #include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
@@ -29,17 +30,17 @@ using spectral_t = vector<float, 3>;
 
 using bool32_t3 = vector<bool, 3>;
 
-uint32_t pcg_hash(uint32_t v)
-{
-    uint32_t state = v * 747796405u + 2891336453u;
-	uint32_t word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
-	return (word >> 22u) ^ word;
-}
+// uint32_t pcg_hash(uint32_t v)
+// {
+//     uint32_t state = v * 747796405u + 2891336453u;
+//     uint32_t word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+//     return (word >> 22u) ^ word;
+// }
 
-uint32_t2 pcg2d_hash(uint32_t v)
-{
-    return uint32_t2(pcg_hash(v), pcg_hash(v+1));
-}
+// uint32_t2 pcg2d_hash(uint32_t v)
+// {
+//     return uint32_t2(pcg_hash(v), pcg_hash(v+1));
+// }
 
 namespace impl
 {
@@ -410,7 +411,7 @@ struct TestUOffset : TestBxDF<BxDF>
 
     static void run(uint32_t seed, NBL_CONST_REF_ARG(FailureCallback) cb)
     {
-        uint32_t2 state = pcg2d_hash(seed);
+        uint32_t2 state = pcg32x2(seed);
 
         this_t t;
         t.init(state);
