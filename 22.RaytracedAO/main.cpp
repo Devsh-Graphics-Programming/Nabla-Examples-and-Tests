@@ -876,7 +876,7 @@ int main(int argc, char** argv)
 
 			auto reconstructedRight = core::cross(staticCamera->getUpVector(),core::normalize(mainCamView));
 			auto actualRight = core::cross(core::normalize(mainCamUp),core::normalize(mainCamView));
-			if (core::dot(reconstructedRight,actualRight).x<0.99f)
+			if (core::dot(reconstructedRight,actualRight).x<0.97f)
 				staticCamera->setUpVector(mainCamUp);
 
 			//
