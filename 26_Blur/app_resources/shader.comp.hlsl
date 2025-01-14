@@ -53,7 +53,7 @@ struct BoxBlur // TODO: rename to `Blur1D`, take an extra `typename Sampler`
             // need to copy-in / copy-out the accessor cause no references in HLSL - yay!
             OffsetSharedAccessor offsetScratch;
             offsetScratch.base = scratch;
-            offsetScratch.offset = end-workgroup::scratch_size_arithmetic<WorkgroupSize>::value;
+            offsetScratch.offset = end-_static_cast<uint16_t>(workgroup::scratch_size_arithmetic<WorkgroupSize>::value);
             const float32_t sum = workgroup::inclusive_scan<plus<float32_t>,WorkgroupSize,device_capabilities>::template __call(input,offsetScratch);
             scratch = offsetScratch.base;
             // loop increment

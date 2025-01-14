@@ -257,7 +257,10 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 					.usage = IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT | IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT | IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT | IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT
 				}
 				});
-			if (!m_hblur || !m_device->allocate(m_hblur->getMemoryReqs(), m_hblur.get()).isValid())
+			// make sure we're always allocating from VRAM
+			auto reqs = m_hblur->getMemoryReqs();
+			reqs.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
+			if (!m_hblur || !m_device->allocate(reqs, m_hblur.get()).isValid())
 				return logFail("Could not create HDR Image");
 
 			m_vblur = m_device->createImage({
@@ -271,7 +274,9 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 					.usage = IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT | IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT | IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT
 				}
 				});
-			if (!m_vblur || !m_device->allocate(m_vblur->getMemoryReqs(), m_vblur.get()).isValid())
+			reqs = m_hblur->getMemoryReqs();
+			reqs.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
+			if (!m_vblur || !m_device->allocate(reqs, m_vblur.get()).isValid())
 				return logFail("Could not create HDR Image");
 
 			smart_refctd_ptr<ISemaphore> progress = m_device->createSemaphore(0);
