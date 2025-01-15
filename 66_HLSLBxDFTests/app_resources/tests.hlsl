@@ -30,18 +30,6 @@ using spectral_t = vector<float, 3>;
 
 using bool32_t3 = vector<bool, 3>;
 
-// uint32_t pcg_hash(uint32_t v)
-// {
-//     uint32_t state = v * 747796405u + 2891336453u;
-//     uint32_t word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
-//     return (word >> 22u) ^ word;
-// }
-
-// uint32_t2 pcg2d_hash(uint32_t v)
-// {
-//     return uint32_t2(pcg_hash(v), pcg_hash(v+1));
-// }
-
 namespace impl
 {
 
@@ -156,7 +144,7 @@ struct SBxDFTestResources
 enum ErrorType : uint32_t
 {
     NOERR = 0,
-    NEGATIVE_VAL,   // pdf/quotient/eval < 0
+    NEGATIVE_VAL,       // pdf/quotient/eval < 0
     PDF_ZERO,           // pdf = 0
     QUOTIENT_INF,       // quotient -> inf
     JACOBIAN,
@@ -452,6 +440,9 @@ struct TestUOffset : TestBxDF<BxDF>
     {
         compute();
 
+        if (checkLt<float32_t3>(bsdf, (float32_t3)0.0) || checkLt<float32_t3>(pdf.quotient, (float32_t3)0.0) || pdf.pdf < 0.0)
+            return NEGATIVE_VAL;
+
         if (checkZero<float>(pdf.pdf, base_t::rc.eps))  // something generated cannot have 0 probability of getting generated
             return PDF_ZERO;
 
@@ -549,6 +540,9 @@ struct TestReciprocity : TestBxDF<BxDF>
     ErrorType test()
     {
         compute();
+
+        if (checkLt<float32_t3>(bsdf, (float32_t3)0.0))
+            return NEGATIVE_VAL;
 
         if (checkZero<float32_t3>(bsdf, base_t::rc.eps))
             return NOERR;    // produces an "impossible" sample
