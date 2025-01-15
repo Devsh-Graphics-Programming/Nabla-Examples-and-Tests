@@ -31,6 +31,8 @@ using namespace video;
 #include "HatchGlyphBuilder.h"
 #include "GeoTexture.h"
 
+#include <nbl/builtin/hlsl/tgmath.hlsl>
+
 #include <chrono>
 #define BENCHMARK_TILL_FIRST_FRAME
 
@@ -66,7 +68,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0,	// CASE_8
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_5;
+constexpr ExampleMode mode = ExampleMode::CASE_4;
 
 class Camera2D
 {
