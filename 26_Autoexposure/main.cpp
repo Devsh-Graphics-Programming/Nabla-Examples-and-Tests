@@ -203,11 +203,10 @@ public:
 			};
 			auto defaultSampler = make_smart_refctd_ptr<ICPUSampler>(samplerParams);
 
-			std::array<ICPUDescriptorSetLayout::SBinding, 1> meterBindings = {};
-			std::array<ICPUDescriptorSetLayout::SBinding, 1> tonemapBindings = {};
-			std::array<ICPUDescriptorSetLayout::SBinding, 1> presentBindings = {};
+			std::array<ICPUDescriptorSetLayout::SBinding, 1> imgSamplerbindings = {};
+			std::array<ICPUDescriptorSetLayout::SBinding, 1> rwImgbindings = {};
 
-			meterBindings[0] = {
+			imgSamplerbindings[0] = {
 				.binding = 0u,
 				.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 				.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
@@ -215,49 +214,36 @@ public:
 				.count = 1u,
 				.immutableSamplers = &defaultSampler
 			};
-			tonemapBindings[0] = {
+			rwImgbindings[0] = {
 				.binding = 0u,
 				.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
 				.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+				.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE | IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 				.count = 1u,
 				.immutableSamplers = nullptr
 			};
-			presentBindings[0] = {
-				.binding = 0u,
-				.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
-				.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-				.count = 1u,
-				.immutableSamplers = &defaultSampler
-			};
 
-			auto cpuMeterLayout = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(meterBindings);
-			auto cpuTonemapLayout = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(tonemapBindings);
-			auto cpuPresentLayout = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(presentBindings);
+			auto cpuImgSamplerLayout = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(imgSamplerbindings);
+			auto cpuRWImgLayout = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(rwImgbindings);
 
-			std::array<ICPUDescriptorSetLayout*, 3> cpuLayouts = {
-				cpuMeterLayout.get(),
-				cpuTonemapLayout.get(),
-				cpuPresentLayout.get()
+			std::array<ICPUDescriptorSetLayout*, 2> cpuLayouts = {
+				cpuImgSamplerLayout.get(),
+				cpuRWImgLayout.get()
 			};
 
 			auto gpuLayouts = convertDSLayoutCPU2GPU(cpuLayouts);
 
-			auto cpuMeterDS = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuMeterLayout));
-			auto cpuTonemapDS = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuTonemapLayout));
-			auto cpuPresentDS = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuPresentLayout));
+			auto cpuImgSamplerDS = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuImgSamplerLayout));
+			auto cpuRWImgDS = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuRWImgLayout));
 
-			std::array<ICPUDescriptorSet*, 3> cpuDS = {
-				cpuMeterDS.get(),
-				cpuTonemapDS.get(),
-				cpuPresentDS.get()
+			std::array<ICPUDescriptorSet*, 2> cpuDS = {
+				cpuImgSamplerDS.get(),
+				cpuRWImgDS.get()
 			};
 
 			auto gpuDS = convertDSCPU2GPU(cpuDS);
-			m_meterDS = gpuDS[0];
-			m_tonemapDS = gpuDS[1];
-			m_presentDS = gpuDS[2];
+			m_imgSamplerDS = gpuDS[0];
+			m_rwImgDS = gpuDS[1];
 
 			// Create Shaders
 			auto loadAndCompileShader = [&](std::string pathToShader) {
@@ -299,31 +285,57 @@ public:
 				std::array<smart_refctd_ptr<IGPUShader>, 2> shaders;
 				std::array<smart_refctd_ptr<IGPUPipelineLayout>, 2> pipelineLayouts;
 				std::array<smart_refctd_ptr<IGPUComputePipeline>, 2> pipelines;
-				for (int index = 0; index < 2; index++) {
-					shaders[index] = loadAndCompileShader(ShaderPaths[index]);
+				{
+					shaders[0] = loadAndCompileShader(ShaderPaths[0]);
 					const nbl::asset::SPushConstantRange pcRange = {
 							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 							.offset = 0,
 							.size = sizeof(AutoexposurePushData)
 					};
-					pipelineLayouts[index] = m_device->createPipelineLayout(
+					pipelineLayouts[0] = m_device->createPipelineLayout(
 						{ &pcRange, 1 },
+						smart_refctd_ptr(gpuLayouts[0]),
 						nullptr,
 						nullptr,
-						smart_refctd_ptr(gpuLayouts[index]),
 						nullptr
 					);
-					if (!pipelineLayouts[index]) {
+					if (!pipelineLayouts[0]) {
 						return logFail("Failed to create pipeline layout");
 					}
 
-					params[index] = {};
-					params[index].layout = pipelineLayouts[index].get();
-					params[index].shader.shader = shaders[index].get();
-					params[index].shader.entryPoint = "main";
-					params[index].shader.entries = nullptr;
-					params[index].shader.requireFullSubgroups = true;
-					params[index].shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+					params[0] = {};
+					params[0].layout = pipelineLayouts[0].get();
+					params[0].shader.shader = shaders[0].get();
+					params[0].shader.entryPoint = "main";
+					params[0].shader.entries = nullptr;
+					params[0].shader.requireFullSubgroups = true;
+					params[0].shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+				}
+				{
+					shaders[1] = loadAndCompileShader(ShaderPaths[1]);
+					const nbl::asset::SPushConstantRange pcRange = {
+							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+							.offset = 0,
+							.size = sizeof(AutoexposurePushData)
+					};
+					pipelineLayouts[1] = m_device->createPipelineLayout(
+						{ &pcRange, 1 },
+						smart_refctd_ptr(gpuLayouts[0]),
+						nullptr,
+						nullptr,
+						smart_refctd_ptr(gpuLayouts[1])
+					);
+					if (!pipelineLayouts[1]) {
+						return logFail("Failed to create pipeline layout");
+					}
+
+					params[1] = {};
+					params[1].layout = pipelineLayouts[1].get();
+					params[1].shader.shader = shaders[1].get();
+					params[1].shader.entryPoint = "main";
+					params[1].shader.entries = nullptr;
+					params[1].shader.requireFullSubgroups = true;
+					params[1].shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
 				}
 				
 				if (!m_device->createComputePipelines(nullptr, params, pipelines.data())) {
@@ -355,8 +367,8 @@ public:
 					{},
 					nullptr,
 					nullptr,
-					std::move(gpuLayouts[2]),
-					nullptr
+					nullptr,
+					std::move(gpuLayouts[1])
 				);
 				m_presentPipeline = fsTriProtoPPln.createPipeline(fragSpec, presentLayout.get(), scRes->getRenderpass());
 				if (!m_presentPipeline)
@@ -563,39 +575,30 @@ public:
 
 		// Update Descriptors
 		{
-			IGPUDescriptorSet::SDescriptorInfo infos[3];
+			IGPUDescriptorSet::SDescriptorInfo infos[2];
 			infos[0].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 			infos[0].desc = m_gpuImgView;
 			infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
 			infos[1].desc = m_tonemappedImgView;
-			infos[2].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			infos[2].desc = m_tonemappedImgView;
 
 			IGPUDescriptorSet::SWriteDescriptorSet writeDescriptors[] = {
 				{
-					.dstSet = m_meterDS.get(),
+					.dstSet = m_imgSamplerDS.get(),
 					.binding = 0,
 					.arrayElement = 0,
 					.count = 1,
 					.info = infos
 				},
 				{
-					.dstSet = m_tonemapDS.get(),
+					.dstSet = m_rwImgDS.get(),
 					.binding = 0,
 					.arrayElement = 0,
 					.count = 1,
 					.info = infos + 1
-				},
-				{
-					.dstSet = m_presentDS.get(),
-					.binding = 0,
-					.arrayElement = 0,
-					.count = 1,
-					.info = infos + 2
 				}
 			};
 
-			m_device->updateDescriptorSets(3, writeDescriptors, 0, nullptr);
+			m_device->updateDescriptorSets(2, writeDescriptors, 0, nullptr);
 		}
 
 		m_winMgr->setWindowSize(m_window.get(), Dimensions.x, Dimensions.y);
@@ -608,9 +611,7 @@ public:
 	// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
 	inline void workLoopBody() override
 	{
-#if 0
 		const uint32_t SubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
-
 		auto gpuImgExtent = m_gpuImgView->getCreationParameters().image->getCreationParameters().extent;
 		uint32_t2 viewportSize = { gpuImgExtent.width, gpuImgExtent.height };
 		float32_t sampleCount = (viewportSize.x * viewportSize.y) / 4;
@@ -619,10 +620,10 @@ public:
 
 		// Luma Meter
 		{
-			auto queue = getComputeQueue();
-			auto cmdbuf = m_computeCmdBufs[0].get();
+			auto queue = getGraphicsQueue();
+			auto cmdbuf = m_cmdBufs[0].get();
 			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
-			auto ds = m_ds[0].get();
+			auto ds = m_imgSamplerDS.get();
 
 			auto pc = AutoexposurePushData
 			{
@@ -647,6 +648,8 @@ public:
 			cmdbuf->dispatch(dispatchSize.x, dispatchSize.y);
 			cmdbuf->end();
 
+			m_api->endCapture();
+
 			{
 				IQueue::SSubmitInfo submit_infos[1];
 				IQueue::SSubmitInfo::SCommandBufferInfo cmdBufs[] = {
@@ -665,7 +668,6 @@ public:
 				submit_infos[0].signalSemaphores = signals;
 
 				queue->submit(submit_infos);
-				m_api->endCapture();
 			}
 
 			const ISemaphore::SWaitInfo wait_infos[] = {
@@ -677,13 +679,14 @@ public:
 			m_device->blockForSemaphores(wait_infos);
 		}
 
+#if 0
 		// Luma Gather and Tonemapping
 		{
-			auto queue = getComputeQueue();
-			auto cmdbuf = m_computeCmdBufs[1].get();
+			auto queue = getGraphicsQueue();
+			auto cmdbuf = m_cmdBufs[0].get();
 			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
-			auto ds1 = m_ds[0].get();
-			auto ds2 = m_ds[1].get();
+			auto ds1 = m_imgSamplerDS.get();
+			auto ds2 = m_rwImgDS.get();
 
 			auto pc = AutoexposurePushData
 			{
@@ -702,10 +705,10 @@ public:
 			m_api->startCapture();
 
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-			cmdbuf->bindComputePipeline(m_gatherPipeline.get());
-			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_gatherPipeline->getLayout(), 0, 1, &ds1); // also if you created DS Set with 3th index you need to respect it here - firstSet tells you the index of set and count tells you what range from this index it should update, useful if you had 2 DS with lets say set index 2,3, then you can bind both with single call setting firstSet to 2, count to 2 and last argument would be pointet to your DS pointers
-			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_gatherPipeline->getLayout(), 3, 1, &ds2);
-			cmdbuf->pushConstants(m_gatherPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(pc), &pc);
+			cmdbuf->bindComputePipeline(m_tonemapPipeline.get());
+			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_tonemapPipeline->getLayout(), 0, 1, &ds1); // also if you created DS Set with 3th index you need to respect it here - firstSet tells you the index of set and count tells you what range from this index it should update, useful if you had 2 DS with lets say set index 2,3, then you can bind both with single call setting firstSet to 2, count to 2 and last argument would be pointet to your DS pointers
+			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_tonemapPipeline->getLayout(), 3, 1, &ds2);
+			cmdbuf->pushConstants(m_tonemapPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(pc), &pc);
 			cmdbuf->dispatch(dispatchSize.x, dispatchSize.y);
 			cmdbuf->end();
 
@@ -719,7 +722,7 @@ public:
 				submit_infos[0].commandBuffers = cmdBufs;
 				IQueue::SSubmitInfo::SSemaphoreInfo signals[] = {
 					{
-						.semaphore = m_gatherSemaphore.get(),
+						.semaphore = m_tonemapSemaphore.get(),
 						.value = m_submitIx + 1,
 						.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
 					}
@@ -732,7 +735,7 @@ public:
 
 			const ISemaphore::SWaitInfo wait_infos[] = {
 				{
-					.semaphore = m_gatherSemaphore.get(),
+					.semaphore = m_tonemapSemaphore.get(),
 					.value = m_submitIx + 1
 				}
 			};
@@ -747,9 +750,9 @@ public:
 				return;
 
 			auto queue = getGraphicsQueue();
-			auto cmdbuf = m_graphicsCmdBufs[0].get();
+			auto cmdbuf = m_cmdBufs[0].get();
 			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
-			auto ds = m_ds[2].get();
+			auto ds = m_rwImgDS.get();
 
 			auto pc = AutoexposurePushData
 			{
@@ -842,9 +845,7 @@ public:
 					return;
 			}
 		}
-
 #endif
-
 		m_submitIx++;
 	}
 
@@ -872,7 +873,7 @@ protected:
 	smart_refctd_ptr<IGPUGraphicsPipeline> m_presentPipeline;
 
 	// Descriptor Sets
-	smart_refctd_ptr<IGPUDescriptorSet> m_meterDS, m_tonemapDS, m_presentDS;
+	smart_refctd_ptr<IGPUDescriptorSet> m_imgSamplerDS, m_rwImgDS;
 
 	// Command Buffers
 	smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
