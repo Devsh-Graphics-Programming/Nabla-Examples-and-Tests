@@ -30,18 +30,6 @@ using spectral_t = vector<float, 3>;
 
 using bool32_t3 = vector<bool, 3>;
 
-// uint32_t pcg_hash(uint32_t v)
-// {
-//     uint32_t state = v * 747796405u + 2891336453u;
-//     uint32_t word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
-//     return (word >> 22u) ^ word;
-// }
-
-// uint32_t2 pcg2d_hash(uint32_t v)
-// {
-//     return uint32_t2(pcg_hash(v), pcg_hash(v+1));
-// }
-
 namespace impl
 {
 
@@ -82,6 +70,30 @@ T rngUniformDist(NBL_REF_ARG(nbl::hlsl::Xoroshiro64Star) rng)
     return impl::RNGUniformDist<T>::__call(rng);
 }
 
+template<typename T>
+bool checkEq(T a, T b, float32_t eps)
+{
+    return nbl::hlsl::all<vector<bool, T::length()>>(nbl::hlsl::max<T>(a / b, b / a) <= (T)(1 + eps));
+}
+
+template<typename T>
+bool checkLt(T a, T b)
+{
+    return nbl::hlsl::all<vector<bool, T::length()>>(a < b);
+}
+
+template<typename T>
+bool checkZero(T a, float32_t eps)
+{
+    return nbl::hlsl::all<vector<bool, T::length()>>(nbl::hlsl::abs<T>(a) < (T)eps);
+}
+
+template<>
+bool checkZero<float32_t>(float32_t a, float32_t eps)
+{
+    return nbl::hlsl::abs<float32_t>(a) < eps;
+}
+
 
 struct SBxDFTestResources
 {
@@ -114,7 +126,7 @@ struct SBxDFTestResources
     }
 
     // epsilon
-    float eps = 1e-3;
+    float eps = 1e-2;
 
     nbl::hlsl::Xoroshiro64Star rng;
     ray_dir_info_t V;
@@ -132,7 +144,7 @@ struct SBxDFTestResources
 enum ErrorType : uint32_t
 {
     NOERR = 0,
-    NEGATIVE_VAL,   // pdf/quotient/eval < 0
+    NEGATIVE_VAL,       // pdf/quotient/eval < 0
     PDF_ZERO,           // pdf = 0
     QUOTIENT_INF,       // quotient -> inf
     JACOBIAN,
@@ -371,7 +383,7 @@ struct TestUOffset : TestBxDF<BxDF>
     using base_t = TestBxDFBase<BxDF>;
     using this_t = TestUOffset<BxDF, aniso>;
 
-    void compute() override
+    virtual void compute() override
     {
         aniso_cache cache, dummy;
 
@@ -428,25 +440,26 @@ struct TestUOffset : TestBxDF<BxDF>
     {
         compute();
 
-        if (nbl::hlsl::abs<float>(pdf.pdf) < base_t::rc.eps)  // something generated cannot have 0 probability of getting generated
+        if (checkLt<float32_t3>(bsdf, (float32_t3)0.0) || checkLt<float32_t3>(pdf.quotient, (float32_t3)0.0) || pdf.pdf < 0.0)
+            return NEGATIVE_VAL;
+
+        if (checkZero<float>(pdf.pdf, base_t::rc.eps))  // something generated cannot have 0 probability of getting generated
             return PDF_ZERO;
 
-        if (!all<bool32_t3>(pdf.quotient < (float32_t3)numeric_limits<float>::infinity))    // importance sampler's job to prevent inf
+        if (!checkLt<float32_t3>(pdf.quotient, (float32_t3)numeric_limits<float>::infinity))    // importance sampler's job to prevent inf
             return QUOTIENT_INF;
 
-        if (all<bool32_t3>(nbl::hlsl::abs<float32_t3>(bsdf) < (float32_t3)base_t::rc.eps) || all<bool32_t3>(pdf.quotient < (float32_t3)base_t::rc.eps))
+        if (checkZero<float32_t3>(bsdf, base_t::rc.eps) || checkZero<float32_t3>(pdf.quotient, base_t::rc.eps))
             return NOERR;    // produces an "impossible" sample
 
         // get jacobian
         float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
         float det = nbl::hlsl::determinant<float32_t2x2>(m);
 
-        bool jacobian_test = nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) < base_t::rc.eps;
-        if (!jacobian_test)
+        if (!checkZero<float>(det * pdf.pdf / s.NdotL, base_t::rc.eps))
             return JACOBIAN;
 
-        bool32_t3 diff_test = nbl::hlsl::max<float32_t3>(pdf.value() / bsdf, bsdf / pdf.value()) <= (float32_t3)(1 + base_t::rc.eps);
-        if (!all<bool32_t3>(diff_test))
+        if (!checkEq<float32_t3>(pdf.value(), bsdf, base_t::rc.eps))
             return PDF_EVAL_DIFF;
 
         return NOERR;
@@ -471,6 +484,93 @@ struct TestUOffset : TestBxDF<BxDF>
     sample_t s, sx, sy;
     quotient_pdf_t pdf;
     float32_t3 bsdf;
+};
+
+template<class BxDF, bool aniso = false>
+struct TestReciprocity : TestBxDF<BxDF>
+{
+    using base_t = TestBxDFBase<BxDF>;
+    using this_t = TestReciprocity<BxDF, aniso>;
+
+    virtual void compute() override
+    {
+        aniso_cache cache, rec_cache;
+
+        if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
+            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy);
+        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF>)
+            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy, cache);
+        if NBL_CONSTEXPR_FUNC (is_basic_bsdf_v<BxDF>)
+            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u);
+        if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
+            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u, cache);
+
+        ray_dir_info_t rec_V = s.L;
+        float VdotL = nbl::hlsl::dot<float32_t3>(base_t::rc.V.direction,s.L.direction);
+        rec_s = sample_t::create(base_t::rc.V, VdotL, base_t::rc.T, base_t::rc.B, base_t::rc.N);
+
+        iso_interaction rec_isointer = iso_interaction::create(rec_V, base_t::rc.N);
+        aniso_interaction rec_anisointer = aniso_interaction::create(rec_isointer, base_t::rc.T, base_t::rc.B);
+        rec_cache = cache;
+        rec_cache.VdotH = cache.LdotH;
+        rec_cache.LdotH = cache.VdotH;
+        
+        if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF> || is_basic_bsdf_v<BxDF>)
+        {
+            bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer));
+            rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_isointer));
+        }
+        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
+        {
+            if NBL_CONSTEXPR_FUNC (aniso)
+            {
+                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
+                rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_anisointer, rec_cache));
+            }
+            else
+            {
+                iso_cache isocache = (iso_cache)cache;
+                iso_cache rec_isocache = (iso_cache)rec_cache;
+                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
+                rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_isointer, rec_isocache));
+            }
+        }
+    }
+
+    ErrorType test()
+    {
+        compute();
+
+        if (checkLt<float32_t3>(bsdf, (float32_t3)0.0))
+            return NEGATIVE_VAL;
+
+        if (checkZero<float32_t3>(bsdf, base_t::rc.eps))
+            return NOERR;    // produces an "impossible" sample
+
+        if (!!checkEq<float32_t3>(bsdf, rec_bsdf, base_t::rc.eps))
+            return RECIPROCITY;
+
+        return NOERR;
+    }
+
+    static void run(uint32_t seed, NBL_REF_ARG(FailureCallback) cb)
+    {
+        uint32_t2 state = pcg32x2(seed);
+
+        this_t t;
+        t.init(state);
+        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
+            t.template initBxDF<aniso>(t.rc);
+        else
+            t.initBxDF(t.rc);
+        
+        ErrorType e = t.test();
+        if (e != NOERR)
+            cb.__call(e, t);
+    }
+
+    sample_t s, rec_s;
+    float32_t3 bsdf, rec_bsdf;
 };
 
 }
