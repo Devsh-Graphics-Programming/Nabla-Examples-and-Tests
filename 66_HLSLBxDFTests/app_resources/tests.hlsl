@@ -82,6 +82,30 @@ T rngUniformDist(NBL_REF_ARG(nbl::hlsl::Xoroshiro64Star) rng)
     return impl::RNGUniformDist<T>::__call(rng);
 }
 
+template<typename T>
+bool checkEq(T a, T b, float32_t eps)
+{
+    return nbl::hlsl::all<vector<bool, T::length()>>(nbl::hlsl::max<T>(a / b, b / a) <= (T)(1 + eps));
+}
+
+template<typename T>
+bool checkLt(T a, T b)
+{
+    return nbl::hlsl::all<vector<bool, T::length()>>(a < b);
+}
+
+template<typename T>
+bool checkZero(T a, float32_t eps)
+{
+    return nbl::hlsl::all<vector<bool, T::length()>>(nbl::hlsl::abs<T>(a) < (T)eps);
+}
+
+template<>
+bool checkZero<float32_t>(float32_t a, float32_t eps)
+{
+    return nbl::hlsl::abs<float32_t>(a) < eps;
+}
+
 
 struct SBxDFTestResources
 {
@@ -371,7 +395,7 @@ struct TestUOffset : TestBxDF<BxDF>
     using base_t = TestBxDFBase<BxDF>;
     using this_t = TestUOffset<BxDF, aniso>;
 
-    void compute() override
+    virtual void compute() override
     {
         aniso_cache cache, dummy;
 
@@ -428,25 +452,23 @@ struct TestUOffset : TestBxDF<BxDF>
     {
         compute();
 
-        if (nbl::hlsl::abs<float>(pdf.pdf) < base_t::rc.eps)  // something generated cannot have 0 probability of getting generated
+        if (checkZero<float>(pdf.pdf, base_t::rc.eps))  // something generated cannot have 0 probability of getting generated
             return PDF_ZERO;
 
-        if (!all<bool32_t3>(pdf.quotient < (float32_t3)numeric_limits<float>::infinity))    // importance sampler's job to prevent inf
+        if (!checkLt<float32_t3>(pdf.quotient, (float32_t3)numeric_limits<float>::infinity))    // importance sampler's job to prevent inf
             return QUOTIENT_INF;
 
-        if (all<bool32_t3>(nbl::hlsl::abs<float32_t3>(bsdf) < (float32_t3)base_t::rc.eps) || all<bool32_t3>(pdf.quotient < (float32_t3)base_t::rc.eps))
+        if (checkZero<float32_t3>(bsdf, base_t::rc.eps) || checkZero<float32_t3>(pdf.quotient, base_t::rc.eps))
             return NOERR;    // produces an "impossible" sample
 
         // get jacobian
         float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
         float det = nbl::hlsl::determinant<float32_t2x2>(m);
 
-        bool jacobian_test = nbl::hlsl::abs<float>(det*pdf.pdf/s.NdotL) < base_t::rc.eps;
-        if (!jacobian_test)
+        if (!checkZero<float>(det * pdf.pdf / s.NdotL, base_t::rc.eps))
             return JACOBIAN;
 
-        bool32_t3 diff_test = nbl::hlsl::max<float32_t3>(pdf.value() / bsdf, bsdf / pdf.value()) <= (float32_t3)(1 + base_t::rc.eps);
-        if (!all<bool32_t3>(diff_test))
+        if (!checkEq<float32_t3>(pdf.value(), bsdf, base_t::rc.eps))
             return PDF_EVAL_DIFF;
 
         return NOERR;
