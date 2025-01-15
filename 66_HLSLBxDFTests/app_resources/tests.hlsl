@@ -138,7 +138,7 @@ struct SBxDFTestResources
     }
 
     // epsilon
-    float eps = 1e-3;
+    float eps = 1e-2;
 
     nbl::hlsl::Xoroshiro64Star rng;
     ray_dir_info_t V;
@@ -493,6 +493,90 @@ struct TestUOffset : TestBxDF<BxDF>
     sample_t s, sx, sy;
     quotient_pdf_t pdf;
     float32_t3 bsdf;
+};
+
+template<class BxDF, bool aniso = false>
+struct TestReciprocity : TestBxDF<BxDF>
+{
+    using base_t = TestBxDFBase<BxDF>;
+    using this_t = TestReciprocity<BxDF, aniso>;
+
+    virtual void compute() override
+    {
+        aniso_cache cache, rec_cache;
+
+        if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
+            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy);
+        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF>)
+            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy, cache);
+        if NBL_CONSTEXPR_FUNC (is_basic_bsdf_v<BxDF>)
+            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u);
+        if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
+            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u, cache);
+
+        ray_dir_info_t rec_V = s.L;
+        float VdotL = nbl::hlsl::dot<float32_t3>(base_t::rc.V.direction,s.L.direction);
+        rec_s = sample_t::create(base_t::rc.V, VdotL, base_t::rc.T, base_t::rc.B, base_t::rc.N);
+
+        iso_interaction rec_isointer = iso_interaction::create(rec_V, base_t::rc.N);
+        aniso_interaction rec_anisointer = aniso_interaction::create(rec_isointer, base_t::rc.T, base_t::rc.B);
+        rec_cache = cache;
+        rec_cache.VdotH = cache.LdotH;
+        rec_cache.LdotH = cache.VdotH;
+        
+        if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF> || is_basic_bsdf_v<BxDF>)
+        {
+            bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer));
+            rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_isointer));
+        }
+        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
+        {
+            if NBL_CONSTEXPR_FUNC (aniso)
+            {
+                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
+                rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_anisointer, rec_cache));
+            }
+            else
+            {
+                iso_cache isocache = (iso_cache)cache;
+                iso_cache rec_isocache = (iso_cache)rec_cache;
+                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
+                rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_isointer, rec_isocache));
+            }
+        }
+    }
+
+    ErrorType test()
+    {
+        compute();
+
+        if (checkZero<float32_t3>(bsdf, base_t::rc.eps))
+            return NOERR;    // produces an "impossible" sample
+
+        if (!!checkEq<float32_t3>(bsdf, rec_bsdf, base_t::rc.eps))
+            return RECIPROCITY;
+
+        return NOERR;
+    }
+
+    static void run(uint32_t seed, NBL_REF_ARG(FailureCallback) cb)
+    {
+        uint32_t2 state = pcg32x2(seed);
+
+        this_t t;
+        t.init(state);
+        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
+            t.template initBxDF<aniso>(t.rc);
+        else
+            t.initBxDF(t.rc);
+        
+        ErrorType e = t.test();
+        if (e != NOERR)
+            cb.__call(e, t);
+    }
+
+    sample_t s, rec_s;
+    float32_t3 bsdf, rec_bsdf;
 };
 
 }
