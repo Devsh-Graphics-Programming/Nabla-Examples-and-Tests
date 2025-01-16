@@ -33,6 +33,11 @@ using namespace video;
 
 #include <nbl/builtin/hlsl/tgmath.hlsl>
 
+//TODO: remove
+#include <nbl/builtin/hlsl/concepts/core.hlsl>
+#include <nbl/builtin/hlsl/concepts/vector.hlsl>
+#include <nbl/builtin/hlsl/concepts/matrix.hlsl>
+
 #include <chrono>
 #define BENCHMARK_TILL_FIRST_FRAME
 
@@ -639,6 +644,107 @@ public:
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
+		{
+			using ef64 = hlsl::emulated_float64_t<true, true>;
+			using NormalVec = hlsl::vector<float, 3>;
+			using EmulatedVec = hlsl::emulated_vector_t3<ef64>;
+			using NormalMatrix = hlsl::matrix<float, 3, 3>;
+			using EmulatedMatrix = hlsl::emulated_matrix_t3x3<ef64>;
+
+			auto createNormalVec = [](float x, float y, float z) -> NormalVec
+				{
+					NormalVec output;
+					output.x = x;
+					output.y = y;
+					output.z = z;
+
+					return output;
+				};
+			auto createEmulatedVec = [](float x, float y, float z) -> EmulatedVec
+				{
+					EmulatedVec output;
+					output.x = hlsl::emulated_float64_t<true, true>::create(x);
+					output.y = hlsl::emulated_float64_t<true, true>::create(y);
+					output.z = hlsl::emulated_float64_t<true, true>::create(z);
+
+					return output;
+				};
+
+			auto createNormalMat = [](float a0, float a1, float a2, float b0, float b1, float b2, float c0, float c1, float c2) -> NormalMatrix
+				{
+					NormalMatrix output;
+					output[0][0] = a0;
+					output[0][1] = a1;
+					output[0][2] = a2;
+
+					output[1][0] = b0;
+					output[1][1] = b1;
+					output[1][2] = b2;
+
+					output[2][0] = c0;
+					output[2][1] = c1;
+					output[2][2] = c2;
+
+					return output;
+				};
+
+			auto createEmulatedMat = [](float a0, float a1, float a2, float b0, float b1, float b2, float c0, float c1, float c2) -> EmulatedMatrix
+				{
+					EmulatedMatrix output;
+					output.rows[0].x = ef64::create(a0);
+					output.rows[0].y = ef64::create(a1);
+					output.rows[0].z = ef64::create(a2);
+
+					output.rows[1].x = ef64::create(b0);
+					output.rows[1].y = ef64::create(b1);
+					output.rows[1].z = ef64::create(b2);
+
+					output.rows[2].x = ef64::create(c0);
+					output.rows[2].y = ef64::create(c1);
+					output.rows[2].z = ef64::create(c2);
+
+					return output;
+				};
+
+			{
+				/*NormalVec a = createNormalVec(1, 2, 3);
+				NormalVec b = createNormalVec(4, 5, 6);
+
+				auto c = hlsl::findMSB(a);
+				__debugbreak();*/
+			}
+
+			{
+				/*EmulatedVec a = createEmulatedVec(1, 2, 3);
+				EmulatedVec b = createEmulatedVec(4, 5, 6);
+
+				auto c = hlsl::findMSB(a);
+				__debugbreak();*/
+			}
+
+			{
+				/*NormalMatrix a = createNormalMat(1, 2, 3, 4, 5, 6, 7, 8, 9);
+
+				hlsl::matrix_traits<NormalMatrix> asdf;
+
+				auto c = hlsl::determinant(a);
+				__debugbreak();*/
+			}
+
+			{
+				/*auto a = createEmulatedMat(1, 2, 3, 4, 5, 6, 7, 8, 9);
+				auto b = createEmulatedMat(10, 11, 12, 13, 14, 15, 16, 17, 18);
+
+				auto c = nbl::hlsl::mul(a, b);
+				
+				NormalVec r0 = nbl::hlsl::_static_cast<NormalVec>(c.rows[0]);
+				NormalVec r1 = nbl::hlsl::_static_cast<NormalVec>(c.rows[1]);
+				NormalVec r2 = nbl::hlsl::_static_cast<NormalVec>(c.rows[2]);
+
+				__debugbreak();*/
+			}
+		}
+
 		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
 		// Remember to call the base class initialization!

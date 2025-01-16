@@ -87,8 +87,11 @@ void dilateHatch<false>(out float2 outOffsetVec, out float2 outUV, const float2 
 
 PSInput main(uint vertexID : SV_VertexID)
 {
+    float a = 0.0f;
+    float b = hlsl::cos(a);
+
     const uint vertexIdx = vertexID & 0x3u;
-    const uint objectID = vertexID >> 2;
+    const uint objectID = (vertexID >> 2) * a;
 
     DrawObject drawObj = drawObjects[objectID];
 
