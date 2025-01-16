@@ -89,23 +89,6 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 
 	inline core::vector<SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 	{
-		if (!m_surface)
-		{
-			{
-				IWindow::SCreationParams params = {};
-				params.callback = core::make_smart_refctd_ptr<ISimpleManagedSurface::ICallback>();
-				params.width = WIN_W;
-				params.height = WIN_H;
-				params.x = 32;
-				params.y = 32;
-				params.flags = IWindow::ECF_BORDERLESS | IWindow::ECF_HIDDEN;
-				params.windowCaption = "FFT Bloom Demo";
-				const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
-			}
-			auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
-			const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>::create(std::move(surface));
-		}
-
 		if (m_surface)
 			return { {m_surface->getSurface()/*,EQF_NONE*/} };
 
@@ -509,22 +492,42 @@ public:
 				return false;
 		}
 
-		// Create a swapchain
-		ISwapchain::SCreationParams swapchainParams = { .surface = m_surface->getSurface(),.sharedParams = {.presentMode = ISurface::EPM_IMMEDIATE}};
-		if (!swapchainParams.deduceFormat(m_physicalDevice))
-			return logFail("Could not choose a Surface Format for the Swapchain!");
+		// Create and initialize surface and swapchain
+		{
+			// First create the surface, sized the same as the input image
+			auto srcImgExtent = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
+			{
+				IWindow::SCreationParams params = {};
+				params.callback = core::make_smart_refctd_ptr<ISimpleManagedSurface::ICallback>();
+				params.width = srcImgExtent.width;
+				params.height = srcImgExtent.height;
+				params.x = 32;
+				params.y = 32;
+				params.flags = IWindow::ECF_BORDERLESS | IWindow::ECF_HIDDEN;
+				params.windowCaption = "FFT Bloom Demo";
+				const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
+			}
+			auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
+			const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>::create(std::move(surface));
 
-		// Initialize surface
-		auto graphicsQueue = getGraphicsQueue();
-		if (!m_surface || !m_surface->init(graphicsQueue, std::make_unique<ISimpleManagedSurface::ISwapchainResources>(), swapchainParams.sharedParams))
-			return logFail("Could not create Window & Surface or initialize the Surface!");
+			// Set up swapchain creation parameters
+			ISwapchain::SCreationParams swapchainParams = { .surface = m_surface->getSurface(),.sharedParams = {.presentMode = ISurface::EPM_IMMEDIATE} };
+			if (!swapchainParams.deduceFormat(m_physicalDevice))
+				return logFail("Could not choose a Surface Format for the Swapchain!");
 
-		// Set window size to match input image
-		auto srcImgExtent = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
-		m_winMgr->setWindowSize(m_window.get(), srcImgExtent.width, srcImgExtent.height);
-		m_surface->recreateSwapchain();
+			// Initialize the surface
+			auto graphicsQueue = getGraphicsQueue();
+			if (!m_surface || !m_surface->init(graphicsQueue, std::make_unique<ISimpleManagedSurface::ISwapchainResources>(), swapchainParams.sharedParams))
+				return logFail("Could not create Window & Surface or initialize the Surface!");
 
-		m_winMgr->show(m_window.get());
+			// Set window size to match input image
+			m_winMgr->setWindowSize(m_window.get(), srcImgExtent.width, srcImgExtent.height);
+			
+			// Create the swapchain
+			m_surface->recreateSwapchain();
+
+			m_winMgr->show(m_window.get());
+		}
 
 		// Create Out Image
 		{
