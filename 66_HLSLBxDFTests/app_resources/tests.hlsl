@@ -143,13 +143,13 @@ struct SBxDFTestResources
 
 enum ErrorType : uint32_t
 {
-    NOERR = 0,
-    NEGATIVE_VAL,       // pdf/quotient/eval < 0
-    PDF_ZERO,           // pdf = 0
-    QUOTIENT_INF,       // quotient -> inf
-    JACOBIAN,
-    PDF_EVAL_DIFF,
-    RECIPROCITY
+    BET_NONE = 0,
+    BET_NEGATIVE_VAL,       // pdf/quotient/eval < 0
+    BET_PDF_ZERO,           // pdf = 0
+    BET_QUOTIENT_INF,       // quotient -> inf
+    BET_JACOBIAN,
+    BET_PDF_EVAL_DIFF,
+    BET_RECIPROCITY
 };
 
 struct TestBase
@@ -440,29 +440,29 @@ struct TestUOffset : TestBxDF<BxDF>
     {
         compute();
 
-        if (checkLt<float32_t3>(bsdf, (float32_t3)0.0) || checkLt<float32_t3>(pdf.quotient, (float32_t3)0.0) || pdf.pdf < 0.0)
-            return NEGATIVE_VAL;
-
         if (checkZero<float>(pdf.pdf, base_t::rc.eps))  // something generated cannot have 0 probability of getting generated
-            return PDF_ZERO;
+            return BET_PDF_ZERO;
 
         if (!checkLt<float32_t3>(pdf.quotient, (float32_t3)numeric_limits<float>::infinity))    // importance sampler's job to prevent inf
-            return QUOTIENT_INF;
+            return BET_QUOTIENT_INF;
 
         if (checkZero<float32_t3>(bsdf, base_t::rc.eps) || checkZero<float32_t3>(pdf.quotient, base_t::rc.eps))
-            return NOERR;    // produces an "impossible" sample
+            return BET_NONE;    // produces an "impossible" sample
 
-        // get jacobian
+        if (checkLt<float32_t3>(bsdf, (float32_t3)0.0) || checkLt<float32_t3>(pdf.quotient, (float32_t3)0.0) || pdf.pdf < 0.0)
+            return BET_NEGATIVE_VAL;
+
+        // get BET_jacobian
         float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
         float det = nbl::hlsl::determinant<float32_t2x2>(m);
 
         if (!checkZero<float>(det * pdf.pdf / s.NdotL, base_t::rc.eps))
-            return JACOBIAN;
+            return BET_JACOBIAN;
 
         if (!checkEq<float32_t3>(pdf.value(), bsdf, base_t::rc.eps))
-            return PDF_EVAL_DIFF;
+            return BET_PDF_EVAL_DIFF;
 
-        return NOERR;
+        return BET_NONE;
     }
 
     static void run(uint32_t seed, NBL_REF_ARG(FailureCallback) cb)
@@ -477,7 +477,7 @@ struct TestUOffset : TestBxDF<BxDF>
             t.initBxDF(t.rc);
         
         ErrorType e = t.test();
-        if (e != NOERR)
+        if (e != BET_NONE)
             cb.__call(e, t);
     }
 
@@ -541,16 +541,16 @@ struct TestReciprocity : TestBxDF<BxDF>
     {
         compute();
 
-        if (checkLt<float32_t3>(bsdf, (float32_t3)0.0))
-            return NEGATIVE_VAL;
-
         if (checkZero<float32_t3>(bsdf, base_t::rc.eps))
-            return NOERR;    // produces an "impossible" sample
+            return BET_NONE;    // produces an "impossible" sample
+
+        if (checkLt<float32_t3>(bsdf, (float32_t3)0.0))
+            return BET_NEGATIVE_VAL;
 
         if (!!checkEq<float32_t3>(bsdf, rec_bsdf, base_t::rc.eps))
-            return RECIPROCITY;
+            return BET_RECIPROCITY;
 
-        return NOERR;
+        return BET_NONE;
     }
 
     static void run(uint32_t seed, NBL_REF_ARG(FailureCallback) cb)
@@ -565,7 +565,7 @@ struct TestReciprocity : TestBxDF<BxDF>
             t.initBxDF(t.rc);
         
         ErrorType e = t.test();
-        if (e != NOERR)
+        if (e != BET_NONE)
             cb.__call(e, t);
     }
 
