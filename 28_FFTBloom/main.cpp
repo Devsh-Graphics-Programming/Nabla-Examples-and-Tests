@@ -69,6 +69,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 	// Other parameter-dependent variables
 	asset::VkExtent3D m_marginSrcDim;
 	uint16_t m_imageFirstAxisFFTWorkgroupSize;
+	uint32_t m_imageSecondAxisFFTNumWorkgroups;
 
 	// Shader Cache
 	smart_refctd_ptr<IShaderCompiler::CCache> m_readCache;
@@ -889,6 +890,7 @@ public:
 			firstAxisFFTElementsPerInvocationLog2 = elementsPerInvocationLog2;
 			firstAxisFFTWorkgroupSizeLog2 = workgroupSizeLog2;
 			m_imageFirstAxisFFTWorkgroupSize = uint16_t(1) << workgroupSizeLog2;
+			m_imageSecondAxisFFTNumWorkgroups = uint32_t(1) << firstAxisFFTHalfLengthLog2;
 		}
 
 		// Second axis FFT might have different dimensions
@@ -1079,8 +1081,21 @@ public:
 		cmdBuf->bindComputePipeline(m_lastAxisFFT_convolution_lastAxisIFFTPipeline.get());
 		// Update padding for run along rows
 		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, padding), sizeof(paddingAlongRows), &paddingAlongRows);
-		// One workgroup per row in the lower half of the DFT
-		cmdBuf->dispatch(core::roundUpToPoT(m_marginSrcDim.height) / 2, 1, 1);
+		// One dispatch per channel
+		for (uint32_t channel = 0u; channel < Channels; channel++)
+		{
+			// Update push contants for run
+			uint64_t channelOffsetBytes = uint64_t(channel) * m_imageSecondAxisFFTNumWorkgroups * imageExtent.width * (m_useHalfFloats ? sizeof(complex_t<float16_t>) : sizeof(complex_t<float32_t>));
+
+			pushConstants.currentChannel = channel;
+			pushConstants.channelStartOffsetBytes = channelOffsetBytes;
+			NBL_CONSTEXPR_STATIC uint32_t updateSize = sizeof(pushConstants.currentChannel) + sizeof(pushConstants.channelStartOffsetBytes);
+
+			cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, currentChannel), updateSize, &pushConstants.currentChannel);
+
+			// One workgroup per row in the lower half of the DFT
+			cmdBuf->dispatch(core::roundUpToPoT(m_marginSrcDim.height) / 2, 1, 1);
+		}
 
 		// Recycle pipeline barrier, only have to change which buffer we need to wait to be written to
 		bufBarrier.range.buffer = m_rowMajorBuffer[resourceIx];

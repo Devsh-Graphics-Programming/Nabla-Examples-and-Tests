@@ -35,14 +35,17 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 		normalizedCoordsSecondLine.x = normalizedCoordsFirstLine.x + pushConstants.imagePixelSize.x;
 		normalizedCoordsFirstLine.y = (int32_t(workgroup::SubgroupContiguousIndex()) - pushConstants.padding) * pushConstants.imagePixelSize.y + pushConstants.imageHalfPixelSize.y;
 
+		[unroll]
 		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 		{
 			const float32_t4 firstLineTexValue = texture.SampleLevel(samplerState, normalizedCoordsFirstLine, 0);
+			[unroll]
 			for (uint16_t channel = 0; channel < Channels; channel++)
 				preloaded[channel][localElementIndex].real(scalar_t(firstLineTexValue[channel]));
 
 			normalizedCoordsSecondLine.y = normalizedCoordsFirstLine.y;
 			const float32_t4 secondLineTexValue = texture.SampleLevel(samplerState, normalizedCoordsSecondLine, 0);
+			[unroll]
 			for (uint16_t channel = 0; channel < Channels; channel++)
 				preloaded[channel][localElementIndex].imag(scalar_t(secondLineTexValue[channel]));
 
@@ -54,12 +57,14 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 	// Channels will be contiguous in buffer memory. 
 	void unload()
 	{	
+		[unroll]
 		for (uint16_t channel = 0; channel < Channels; channel++)
 		{
 			const uint64_t channelStartOffsetBytes = getChannelStartOffsetBytes(channel);
 			const LegacyBdaAccessor<complex_t<scalar_t> > colMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.colMajorBufferAddress + channelStartOffsetBytes);
 
 			uint32_t globalElementIndex = workgroup::SubgroupContiguousIndex();
+			[unroll]
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 			{
 				colMajorAccessor.set(colMajorOffset(glsl::gl_WorkGroupID().x, globalElementIndex), preloaded[channel][localElementIndex]);
@@ -76,6 +81,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	PreloadedFirstAxisAccessor preloadedAccessor;
 
 	preloadedAccessor.preload();
+	[unroll]
 	for (uint16_t channel = 0; channel < Channels; channel++)
 	{
 		preloadedAccessor.currentChannel = channel;

@@ -11,6 +11,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	// Kernel spectrum image conserves the original width but height is half + 1 (we don't need the other half since it's redundant)
 	if (all(texCoord < uint32_t2(FFTParameters::TotalSize, FFTParameters::TotalSize / 2 + 1)))
 	{
+		[unroll]
 		for (uint32_t channel = 0; channel < Channels; channel++)
 		{
 			kernelChannels[uint32_t3(texCoord, channel)] *= shiftOverPower;
