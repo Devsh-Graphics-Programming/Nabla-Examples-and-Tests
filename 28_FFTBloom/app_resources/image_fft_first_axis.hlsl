@@ -13,9 +13,9 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 	// ---------------------------------------------------- Utils ---------------------------------------------------------
 
 	// After first FFT we only store half of a column, so the offset per column is half the image side length
-	uint32_t colMajorOffset(uint32_t x, uint32_t y)
+	uint32_t rowMajorOffset(uint32_t x, uint32_t y)
 	{
-		return x * TotalSize | y;
+		return y * TotalSize | x;
 	}
 
 	// Each channel after first FFT will be stored as half the image (every two columns have been packed into one column of complex numbers) in col-major order.
@@ -31,9 +31,9 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 	void preload()
 	{
 		float32_t2 normalizedCoordsFirstLine, normalizedCoordsSecondLine;
-		normalizedCoordsFirstLine.x = float32_t(glsl::gl_WorkGroupID().x) * pushConstants.imageTwoPixelSize_x + pushConstants.imageHalfPixelSize.x;
-		normalizedCoordsSecondLine.x = normalizedCoordsFirstLine.x + pushConstants.imagePixelSize.x;
-		normalizedCoordsFirstLine.y = (int32_t(workgroup::SubgroupContiguousIndex()) - pushConstants.padding) * pushConstants.imagePixelSize.y + pushConstants.imageHalfPixelSize.y;
+		normalizedCoordsFirstLine.y = float32_t(glsl::gl_WorkGroupID().x) * pushConstants.imageTwoPixelSize_x + pushConstants.imageHalfPixelSize.y;
+		normalizedCoordsSecondLine.y = normalizedCoordsFirstLine.y + pushConstants.imagePixelSize.y;
+		normalizedCoordsFirstLine.x = (int32_t(workgroup::SubgroupContiguousIndex()) - pushConstants.padding) * pushConstants.imagePixelSize.x + pushConstants.imageHalfPixelSize.x;
 
 		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 		{
@@ -41,12 +41,12 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 			for (uint16_t channel = 0; channel < Channels; channel++)
 				preloaded[channel][localElementIndex].real(scalar_t(firstLineTexValue[channel]));
 
-			normalizedCoordsSecondLine.y = normalizedCoordsFirstLine.y;
+			normalizedCoordsSecondLine.x = normalizedCoordsFirstLine.x;
 			const float32_t4 secondLineTexValue = texture.SampleLevel(samplerState, normalizedCoordsSecondLine, 0);
 			for (uint16_t channel = 0; channel < Channels; channel++)
 				preloaded[channel][localElementIndex].imag(scalar_t(secondLineTexValue[channel]));
 
-			normalizedCoordsFirstLine.y += pushConstants.imageWorkgroupSizePixelSize_y;
+			normalizedCoordsFirstLine.x += pushConstants.imageWorkgroupSizePixelSize_y;
 		}	
 	}
 
@@ -57,12 +57,12 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 		for (uint16_t channel = 0; channel < Channels; channel++)
 		{
 			const uint64_t channelStartOffsetBytes = getChannelStartOffsetBytes(channel);
-			const LegacyBdaAccessor<complex_t<scalar_t> > colMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.colMajorBufferAddress + channelStartOffsetBytes);
+			const LegacyBdaAccessor<complex_t<scalar_t> > rowMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.rowMajorBufferAddress + channelStartOffsetBytes);
 
 			uint32_t globalElementIndex = workgroup::SubgroupContiguousIndex();
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 			{
-				colMajorAccessor.set(colMajorOffset(glsl::gl_WorkGroupID().x, globalElementIndex), preloaded[channel][localElementIndex]);
+				rowMajorAccessor.set(rowMajorOffset(globalElementIndex, glsl::gl_WorkGroupID().x), preloaded[channel][localElementIndex]);
 				globalElementIndex += WorkgroupSize;
 			}
 		}

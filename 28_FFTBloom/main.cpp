@@ -89,23 +89,6 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 
 	inline core::vector<SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 	{
-		if (!m_surface)
-		{
-			{
-				IWindow::SCreationParams params = {};
-				params.callback = core::make_smart_refctd_ptr<ISimpleManagedSurface::ICallback>();
-				params.width = WIN_W;
-				params.height = WIN_H;
-				params.x = 32;
-				params.y = 32;
-				params.flags = IWindow::ECF_BORDERLESS | IWindow::ECF_HIDDEN;
-				params.windowCaption = "FFT Bloom Demo";
-				const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
-			}
-			auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
-			const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>::create(std::move(surface));
-		}
-
 		if (m_surface)
 			return { {m_surface->getSurface()/*,EQF_NONE*/} };
 
@@ -509,22 +492,42 @@ public:
 				return false;
 		}
 
-		// Create a swapchain
-		ISwapchain::SCreationParams swapchainParams = { .surface = m_surface->getSurface(),.sharedParams = {.presentMode = ISurface::EPM_IMMEDIATE}};
-		if (!swapchainParams.deduceFormat(m_physicalDevice))
-			return logFail("Could not choose a Surface Format for the Swapchain!");
+		// Create and initialize surface and swapchain
+		{
+			// First create the surface, sized the same as the input image
+			auto srcImgExtent = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
+			{
+				IWindow::SCreationParams params = {};
+				params.callback = core::make_smart_refctd_ptr<ISimpleManagedSurface::ICallback>();
+				params.width = srcImgExtent.width;
+				params.height = srcImgExtent.height;
+				params.x = 32;
+				params.y = 32;
+				params.flags = IWindow::ECF_BORDERLESS | IWindow::ECF_HIDDEN;
+				params.windowCaption = "FFT Bloom Demo";
+				const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
+			}
+			auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
+			const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>::create(std::move(surface));
 
-		// Initialize surface
-		auto graphicsQueue = getGraphicsQueue();
-		if (!m_surface || !m_surface->init(graphicsQueue, std::make_unique<ISimpleManagedSurface::ISwapchainResources>(), swapchainParams.sharedParams))
-			return logFail("Could not create Window & Surface or initialize the Surface!");
+			// Set up swapchain creation parameters
+			ISwapchain::SCreationParams swapchainParams = { .surface = m_surface->getSurface(),.sharedParams = {.presentMode = ISurface::EPM_IMMEDIATE} };
+			if (!swapchainParams.deduceFormat(m_physicalDevice))
+				return logFail("Could not choose a Surface Format for the Swapchain!");
 
-		// Set window size to match input image
-		auto srcImgExtent = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
-		m_winMgr->setWindowSize(m_window.get(), srcImgExtent.width, srcImgExtent.height);
-		m_surface->recreateSwapchain();
+			// Initialize the surface
+			auto graphicsQueue = getGraphicsQueue();
+			if (!m_surface || !m_surface->init(graphicsQueue, std::make_unique<ISimpleManagedSurface::ISwapchainResources>(), swapchainParams.sharedParams))
+				return logFail("Could not create Window & Surface or initialize the Surface!");
 
-		m_winMgr->show(m_window.get());
+			// Set window size to match input image
+			m_winMgr->setWindowSize(m_window.get(), srcImgExtent.width, srcImgExtent.height);
+			
+			// Create the swapchain
+			m_surface->recreateSwapchain();
+
+			m_winMgr->show(m_window.get());
+		}
 
 		// Create Out Image
 		{
@@ -580,10 +583,11 @@ public:
 
 			deviceLocalBufferParams.queueFamilyIndexCount = 1;
 			deviceLocalBufferParams.queueFamilyIndices = &queueFamilyIndex;
-			uint32_t2 sourceDimensions = { m_marginSrcDim.width, m_marginSrcDim.height };
-			// Y-axis goes first in the FFT
-			hlsl::vector <uint16_t, 2> axisPassOrder = { 1, 0 };
-			deviceLocalBufferParams.size = fft::getOutputBufferSize<2>(3, sourceDimensions, 0, axisPassOrder, true, m_useHalfFloats);
+			uint32_t2 imageDimensions = { srcDim.width, srcDim.height };
+			uint32_t2 kernelDimensions = { kerDim.width, kerDim.height };
+			// X-axis goes first in the FFT
+			hlsl::vector <uint16_t, 2> axisPassOrder = { 0, 1 };
+			deviceLocalBufferParams.size = fft::getOutputBufferSizeConvolution<2>(Channels, imageDimensions, kernelDimensions, 0, axisPassOrder, true, m_useHalfFloats);
 			deviceLocalBufferParams.usage = asset::IBuffer::E_USAGE_FLAGS::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
 			for (auto i = 0u; i < MaxFramesInFlight; i++) 
@@ -656,7 +660,7 @@ public:
 					imageParams.flags = static_cast<video::IGPUImage::E_CREATE_FLAGS>(0u);
 					imageParams.type = asset::IImage::ET_2D;
 					imageParams.format = m_useHalfFloats ? EF_R16G16_SFLOAT : EF_R32G32_SFLOAT;
-					imageParams.extent = { kerDim.width,kerDim.height / 2 + 1, 1u };
+					imageParams.extent = { kerDim.width / 2 + 1,kerDim.height, 1u };
 					imageParams.mipLevels = 1u;
 					imageParams.arrayLayers = Channels;
 					imageParams.samples = asset::IImage::ESCF_1_BIT;
@@ -742,7 +746,7 @@ public:
 			kernelPrecompCmdBuf->bindDescriptorSets(asset::EPBP_COMPUTE, pipelines[0]->getLayout(), 0, 1, &m_descriptorSet.get());
 			kernelPrecompCmdBuf->pushConstants(pipelines[0]->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(pushConstants), &pushConstants);
 			// One workgroup per 2 columns
-			kernelPrecompCmdBuf->dispatch(kerDim.width / 2, 1, 1);
+			kernelPrecompCmdBuf->dispatch(kerDim.height / 2, 1, 1);
 
 			// Pipeline barrier: wait for first axis FFT before second axis can begin
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo pipelineBarrierInfo = {};
@@ -750,7 +754,7 @@ public:
 			pipelineBarrierInfo.bufBarriers = { &bufBarrier, 1u };
 
 			// First axis FFT writes to colMajorBuffer
-			bufBarrier.range.buffer = m_colMajorBuffer[0];
+			bufBarrier.range.buffer = m_rowMajorBuffer[0];
 
 			// Wait for first compute write (first axis FFT) before next compute read (second axis FFT)
 			bufBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
@@ -782,7 +786,7 @@ public:
 
 			// Wait on second axis FFT to write the kernel image before running normalization step
 			// Normalization needs to access the power value stored in the rowmajorbuffer
-			bufBarrier.range.buffer = m_rowMajorBuffer[0];
+			bufBarrier.range.buffer = m_colMajorBuffer[0];
 
 			// No layout transition now
 			imgBarrier.oldLayout = IImage::LAYOUT::UNDEFINED;
@@ -802,7 +806,7 @@ public:
 			// Hardcoded 8x8 workgroup seems to be optimal for tex access
 			const auto& kernelSpectraExtent = m_kernelNormalizedSpectrums->getCreationParameters().image->getCreationParameters().extent;
 			// Assumed PoT. +1 in Y dispatch to account for Nyquist row
-			kernelPrecompCmdBuf->dispatch(kernelSpectraExtent.width / 8, kernelSpectraExtent.height / 8 + 1, 1);
+			kernelPrecompCmdBuf->dispatch(kernelSpectraExtent.width / 8 + 1, kernelSpectraExtent.height / 8, 1);
 
 			// Pipeline barrier: transition kernel spectrum images into read only, and outImage into general
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo imagePipelineBarrierInfo = {};
@@ -875,7 +879,7 @@ public:
 		uint16_t firstAxisFFTWorkgroupSizeLog2;
 		smart_refctd_ptr<IGPUShader> shaders[3];
 		{
-			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device->getPhysicalDevice()->getLimits().maxOptimallyResidentWorkgroupInvocations, m_marginSrcDim.height);
+			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device->getPhysicalDevice()->getLimits().maxOptimallyResidentWorkgroupInvocations, m_marginSrcDim.width);
 			SShaderConstevalParameters::SShaderConstevalParametersCreateInfo shaderConstevalInfo = { .useHalfFloats = m_useHalfFloats, .elementsPerInvocationLog2 = elementsPerInvocationLog2, .workgroupSizeLog2 = workgroupSizeLog2 };
 			SShaderConstevalParameters shaderConstevalParameters(shaderConstevalInfo);
 			shaders[0] = createShader("app_resources/image_fft_first_axis.hlsl", shaderConstevalParameters);
@@ -889,7 +893,7 @@ public:
 
 		// Second axis FFT might have different dimensions
 		{
-			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device->getPhysicalDevice()->getLimits().maxOptimallyResidentWorkgroupInvocations, m_marginSrcDim.width);
+			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device->getPhysicalDevice()->getLimits().maxOptimallyResidentWorkgroupInvocations, m_marginSrcDim.height);
 			// Compute kernel half pixel size
 			const auto& kernelSpectraExtent = m_kernelNormalizedSpectrums->getCreationParameters().image->getCreationParameters().extent;
 			float32_t2 kernelHalfPixelSize{ 0.5f,0.5f };
@@ -1024,16 +1028,16 @@ public:
 		// Prepare for first axis FFT
 		// Push Constants - only need to specify BDAs here
 		const auto& imageExtent = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
-		const int32_t paddingAlongColumns = int32_t(core::roundUpToPoT(m_marginSrcDim.height) - imageExtent.height) / 2;
-		const int32_t paddingAlongRows = int32_t(core::roundUpToPoT(m_marginSrcDim.width) - imageExtent.width) / 2;
+		const int32_t paddingAlongColumns = int32_t(core::roundUpToPoT(m_marginSrcDim.width) - imageExtent.width) / 2;
+		const int32_t paddingAlongRows = int32_t(core::roundUpToPoT(m_marginSrcDim.height) - imageExtent.height) / 2;
 		const int32_t halfPaddingAlongRows = paddingAlongRows / 2;
 
 		PushConstantData pushConstants;
 		pushConstants.colMajorBufferAddress = m_colMajorBufferAddress[resourceIx];
 		pushConstants.rowMajorBufferAddress = m_rowMajorBufferAddress[resourceIx];
-		pushConstants.imageRowLength = int32_t(imageExtent.width);
-		pushConstants.imageHalfRowLength = int32_t(imageExtent.width) / 2;
-		pushConstants.imageColumnLength = int32_t(imageExtent.height);
+		pushConstants.imageRowLength = int32_t(imageExtent.height);
+		pushConstants.imageHalfRowLength = int32_t(imageExtent.height) / 2;
+		pushConstants.imageColumnLength = int32_t(imageExtent.width);
 		pushConstants.padding = paddingAlongColumns;
 		pushConstants.halfPadding = halfPaddingAlongRows;
 
@@ -1042,8 +1046,8 @@ public:
 		imageHalfPixelSize.y /= imageExtent.height;
 		pushConstants.imageHalfPixelSize = imageHalfPixelSize;
 		pushConstants.imagePixelSize = 2.f * imageHalfPixelSize;
-		pushConstants.imageTwoPixelSize_x = 4.f * imageHalfPixelSize.x;
-		pushConstants.imageWorkgroupSizePixelSize_y = m_imageFirstAxisFFTWorkgroupSize * pushConstants.imagePixelSize.y;
+		pushConstants.imageTwoPixelSize_x = 4.f * imageHalfPixelSize.y;
+		pushConstants.imageWorkgroupSizePixelSize_y = m_imageFirstAxisFFTWorkgroupSize * pushConstants.imagePixelSize.x;
 
 		// Interpolate between dirac delta and kernel based on current time
 		auto epochNanoseconds = clock_t::now().time_since_epoch().count();
@@ -1054,7 +1058,7 @@ public:
 		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(pushConstants), &pushConstants);
 		// One workgroup per 2 columns
 		auto srcDim = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
-		cmdBuf->dispatch(srcDim.width / 2, 1, 1);
+		cmdBuf->dispatch(srcDim.height / 2, 1, 1);
 
 		// Pipeline Barrier: Wait for colMajorBuffer to be written to before reading it from next shader
 		IGPUCommandBuffer::SPipelineBarrierDependencyInfo bufferPipelineBarrierInfo = {};
@@ -1062,7 +1066,7 @@ public:
 		bufferPipelineBarrierInfo.bufBarriers = { &bufBarrier, 1u };
 
 		// First axis FFT writes to colMajorBuffer
-		bufBarrier.range.buffer = m_colMajorBuffer[resourceIx];
+		bufBarrier.range.buffer = m_rowMajorBuffer[resourceIx];
 
 		// Wait for first compute write (first axis FFT) before next compute read (second axis FFT)
 		bufBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
@@ -1076,10 +1080,10 @@ public:
 		// Update padding for run along rows
 		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, padding), sizeof(paddingAlongRows), &paddingAlongRows);
 		// One workgroup per row in the lower half of the DFT
-		cmdBuf->dispatch(core::roundUpToPoT(m_marginSrcDim.height) / 2, 1, 1);
+		cmdBuf->dispatch(core::roundUpToPoT(m_marginSrcDim.width) / 2, 1, 1);
 
 		// Recycle pipeline barrier, only have to change which buffer we need to wait to be written to
-		bufBarrier.range.buffer = m_rowMajorBuffer[resourceIx];
+		bufBarrier.range.buffer = m_colMajorBuffer[resourceIx];
 		cmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), bufferPipelineBarrierInfo);
 
 		// Finally run the IFFT on the first axis
@@ -1087,7 +1091,7 @@ public:
 		// Update padding for run along columns
 		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, padding), sizeof(paddingAlongColumns), &paddingAlongColumns);
 		// One workgroup per 2 columns
-		cmdBuf->dispatch(srcDim.width / 2, 1, 1);
+		cmdBuf->dispatch(srcDim.height / 2, 1, 1);
 
 		// -------------------------------------- DRAW END ----------------------------------------
 

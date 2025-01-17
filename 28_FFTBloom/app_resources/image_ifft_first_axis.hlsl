@@ -13,9 +13,9 @@
 struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 {
 	// ---------------------------------------------------- Utils ---------------------------------------------------------
-	uint32_t rowMajorOffset(uint32_t x, uint32_t y)
+	uint32_t colMajorOffset(uint32_t x, uint32_t y)
 	{
-		return y * pushConstants.imageRowLength + x; // can no longer sum with | since there's no guarantees on row length
+		return x * pushConstants.imageRowLength + y; // can no longer sum with | since there's no guarantees on row length
 	}
 
 	// Same numbers as forward FFT
@@ -40,13 +40,13 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 		{
 			const uint64_t channelStartOffsetBytes = getChannelStartOffsetBytes(channel);
 			// Set LegacyBdaAccessor for reading
-			const LegacyBdaAccessor<complex_t<scalar_t> > rowMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.rowMajorBufferAddress + channelStartOffsetBytes);
+			const LegacyBdaAccessor<complex_t<scalar_t> > colMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.colMajorBufferAddress + channelStartOffsetBytes);
 
 			uint32_t globalElementIndex = workgroup::SubgroupContiguousIndex();
 			// Load all even elements of first column
 			for (uint32_t localElementIndex = 0; localElementIndex < (ElementsPerInvocation / 2); localElementIndex++)
 			{
-				preloaded[channel][localElementIndex << 1] = rowMajorAccessor.get(rowMajorOffset(2 * glsl::gl_WorkGroupID().x, globalElementIndex));
+				preloaded[channel][localElementIndex << 1] = colMajorAccessor.get(colMajorOffset(globalElementIndex, 2 * glsl::gl_WorkGroupID().x));
 				globalElementIndex += WorkgroupSize;
 			}
 			// Get all odd elements by trading
@@ -65,7 +65,7 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 			globalElementIndex = workgroup::SubgroupContiguousIndex();
 			for (uint32_t localElementIndex = 0; localElementIndex < (ElementsPerInvocation / 2); localElementIndex++)
 			{
-				preloaded[channel][localElementIndex << 1] = preloaded[channel][localElementIndex << 1] + rotateLeft<scalar_t>(rowMajorAccessor.get(rowMajorOffset(2 * glsl::gl_WorkGroupID().x + 1, globalElementIndex)));
+				preloaded[channel][localElementIndex << 1] = preloaded[channel][localElementIndex << 1] + rotateLeft<scalar_t>(colMajorAccessor.get(colMajorOffset(globalElementIndex, 2 * glsl::gl_WorkGroupID().x + 1)));
 				globalElementIndex += WorkgroupSize;
 			}
 			// Finally, trade to get odd elements of second column. Note that by trading we receive an element of the form C1 + iC2 for an even position. The current odd position holds conj(C1) and we
@@ -89,7 +89,7 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 					// preloaded[channel][0] currently holds (C1(Z) - C2(N)) + i * (C1(N) + C2(Z)). This is because of how we loaded the even elements of both columns.
 					// We want preloaded[channel][0] to hold C1(Z) + i * C2(Z) and preloaded[channel][1] to hold C1(N) + i * C2(N).
 					// We can re-load C2(Z) + i * C2(N) and use it to unpack the values
-					complex_t<scalar_t> c2 = rowMajorAccessor.get(rowMajorOffset(2 * glsl::gl_WorkGroupID().x + 1, 0));
+					complex_t<scalar_t> c2 = colMajorAccessor.get(colMajorOffset(0, 2 * glsl::gl_WorkGroupID().x + 1));
 					complex_t<scalar_t> p1 = { preloaded[channel][0].imag() - c2.real(), c2.imag() };
 					preloaded[channel][1] = p1;
 					complex_t<scalar_t> p0 = { preloaded[channel][0].real() + c2.imag() , c2.real() };
@@ -120,8 +120,8 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 					firstLineTexValue[channel] = scalar_t(preloaded[channel][localElementIndex].real());
 					secondLineTexValue[channel] = scalar_t(preloaded[channel][localElementIndex].imag());
 				}
-				convolvedImage[uint32_t2(2 * glsl::gl_WorkGroupID().x, paddedIndex)] = firstLineTexValue;
-				convolvedImage[uint32_t2(2 * glsl::gl_WorkGroupID().x + 1, paddedIndex)] = secondLineTexValue;
+				convolvedImage[uint32_t2(paddedIndex, 2 * glsl::gl_WorkGroupID().x)] = firstLineTexValue;
+				convolvedImage[uint32_t2(paddedIndex, 2 * glsl::gl_WorkGroupID().x + 1)] = secondLineTexValue;
 			}
 			paddedIndex += WorkgroupSize;
 		}
