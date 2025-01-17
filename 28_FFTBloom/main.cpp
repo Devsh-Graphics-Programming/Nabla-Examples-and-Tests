@@ -587,7 +587,7 @@ public:
 			uint32_t2 kernelDimensions = { kerDim.width, kerDim.height };
 			// Y-axis goes first in the FFT
 			hlsl::vector <uint16_t, 2> axisPassOrder = { 1, 0 };
-			deviceLocalBufferParams.size = fft::getOutputBufferSizeConvolution<2>(3, imageDimensions, kernelDimensions, 0, axisPassOrder, true, m_useHalfFloats);
+			deviceLocalBufferParams.size = fft::getOutputBufferSizeConvolution<2>(Channels, imageDimensions, kernelDimensions, 0, axisPassOrder, true, m_useHalfFloats);
 			deviceLocalBufferParams.usage = asset::IBuffer::E_USAGE_FLAGS::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
 			for (auto i = 0u; i < MaxFramesInFlight; i++) 
