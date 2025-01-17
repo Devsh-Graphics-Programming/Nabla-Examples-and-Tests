@@ -36,7 +36,6 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBase
 	template<typename sharedmem_adaptor_t>
 	void preload(NBL_REF_ARG(sharedmem_adaptor_t) adaptorForSharedMemory)
 	{
-		[unroll]
 		for (uint16_t channel = 0; channel < Channels; channel++)
 		{
 			const uint64_t channelStartOffsetBytes = getChannelStartOffsetBytes(channel);
@@ -150,7 +149,6 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	// Update state after preload
 	sharedmemAccessor = adaptorForSharedMemory.accessor;
 
-	[unroll]
 	for (uint16_t channel = 0; channel < Channels; channel++)
 	{
 		preloadedAccessor.currentChannel = channel;
