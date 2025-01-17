@@ -14,22 +14,22 @@ struct PrintFailureCallback : FailureCallback
     {
         switch (error)
         {
-        case NEGATIVE_VAL:
+        case BET_NEGATIVE_VAL:
             fprintf(stderr, "%s pdf/quotient/eval < 0\n", failedFor.name.c_str());
             break;
-        case PDF_ZERO:
+        case BET_PDF_ZERO:
             fprintf(stderr, "%s pdf = 0\n", failedFor.name.c_str());
             break;
-        case QUOTIENT_INF:
+        case BET_QUOTIENT_INF:
             fprintf(stderr, "%s quotient -> inf\n", failedFor.name.c_str());
             break;
-        case JACOBIAN:
+        case BET_JACOBIAN:
             fprintf(stderr, "%s failed the jacobian * pdf test\n", failedFor.name.c_str());
             break;
-        case PDF_EVAL_DIFF:
-            fprintf(stderr, "%s quotient * pdf - eval not 0\n", failedFor.name.c_str());
+        case BET_PDF_EVAL_DIFF:
+            fprintf(stderr, "%s quotient * pdf != eval\n", failedFor.name.c_str());
             break;
-        case RECIPROCITY:
+        case BET_RECIPROCITY:
             fprintf(stderr, "%s failed the reprocity test\n", failedFor.name.c_str());
             break;
         default:
@@ -49,7 +49,7 @@ int main(int argc, char** argv)
 {
     std::cout << std::fixed << std::setprecision(4);
 
-    const uint32_t state = 69u;
+    const uint32_t state = 1u;
 
     PrintFailureCallback cb;
 

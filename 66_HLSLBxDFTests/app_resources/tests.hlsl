@@ -27,6 +27,7 @@ using iso_cache = bxdf::SIsotropicMicrofacetCache<float>;
 using aniso_cache = bxdf::SAnisotropicMicrofacetCache<float>;
 using quotient_pdf_t = bxdf::quotient_and_pdf<float32_t3, float>;
 using spectral_t = vector<float, 3>;
+using params_t = bxdf::SBxDFParams<float>;
 
 using bool32_t3 = vector<bool, 3>;
 
@@ -126,7 +127,7 @@ struct SBxDFTestResources
     }
 
     // epsilon
-    float eps = 1e-2;
+    float eps = 1e-3;
 
     nbl::hlsl::Xoroshiro64Star rng;
     ray_dir_info_t V;
@@ -386,6 +387,8 @@ struct TestUOffset : TestBxDF<BxDF>
     virtual void compute() override
     {
         aniso_cache cache, dummy;
+        iso_cache isocache;
+        params_t params;
 
         float32_t3 ux = base_t::rc.u + float32_t3(base_t::rc.eps,0,0);
         float32_t3 uy = base_t::rc.u + float32_t3(0,base_t::rc.eps,0);
@@ -395,43 +398,60 @@ struct TestUOffset : TestBxDF<BxDF>
             s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy);
             sx = base_t::bxdf.generate(base_t::anisointer, ux.xy);
             sy = base_t::bxdf.generate(base_t::anisointer, uy.xy);
+            params = params_t::template create<sample_t, iso_interaction>(s, base_t::isointer, bxdf::BCM_MAX);
         }
         if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF>)
         {
             s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy, cache);
             sx = base_t::bxdf.generate(base_t::anisointer, ux.xy, dummy);
             sy = base_t::bxdf.generate(base_t::anisointer, uy.xy, dummy);
+
+            if NBL_CONSTEXPR_FUNC (aniso)
+                params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_MAX);
+            else
+            {
+                isocache = (iso_cache)cache;
+                params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_MAX);
+            }
         }
         if NBL_CONSTEXPR_FUNC (is_basic_bsdf_v<BxDF>)
         {
             s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u);
             sx = base_t::bxdf.generate(base_t::anisointer, ux);
             sy = base_t::bxdf.generate(base_t::anisointer, uy);
+            params = params_t::template create<sample_t, iso_interaction>(s, base_t::isointer, bxdf::BCM_ABS);
         }
         if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
         {
             s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u, cache);
             sx = base_t::bxdf.generate(base_t::anisointer, ux, dummy);
             sy = base_t::bxdf.generate(base_t::anisointer, uy, dummy);
+
+            if NBL_CONSTEXPR_FUNC (aniso)
+                params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_ABS);
+            else
+            {
+                isocache = (iso_cache)cache;
+                params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_ABS);
+            }
         }
         
         if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF> || is_basic_bsdf_v<BxDF>)
         {
-            pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer);
-            bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer));
+            pdf = base_t::bxdf.quotient_and_pdf(params);
+            bsdf = float32_t3(base_t::bxdf.eval(params));
         }
         if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
         {
             if NBL_CONSTEXPR_FUNC (aniso)
             {
-                pdf = base_t::bxdf.quotient_and_pdf(s, base_t::anisointer, cache);
-                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
+                pdf = base_t::bxdf.quotient_and_pdf(params);
+                bsdf = float32_t3(base_t::bxdf.eval(params));
             }
             else
             {
-                iso_cache isocache = (iso_cache)cache;
-                pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer, isocache);
-                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
+                pdf = base_t::bxdf.quotient_and_pdf(params);
+                bsdf = float32_t3(base_t::bxdf.eval(params));
             }
         }
     }
@@ -495,15 +515,43 @@ struct TestReciprocity : TestBxDF<BxDF>
     virtual void compute() override
     {
         aniso_cache cache, rec_cache;
+        iso_cache isocache, rec_isocache;
+        params_t params, rec_params;
 
         if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
+        {
             s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy);
+            params = params_t::template create<sample_t, iso_interaction>(s, base_t::isointer, bxdf::BCM_MAX);
+        }
         if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF>)
+        {
             s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy, cache);
+
+            if NBL_CONSTEXPR_FUNC (aniso)
+                params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_MAX);
+            else
+            {
+                isocache = (iso_cache)cache;
+                params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_MAX);
+            }
+        }
         if NBL_CONSTEXPR_FUNC (is_basic_bsdf_v<BxDF>)
+        {
             s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u);
+            params = params_t::template create<sample_t, iso_interaction>(s, base_t::isointer, bxdf::BCM_ABS);
+        }
         if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
+        {
             s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u, cache);
+
+            if NBL_CONSTEXPR_FUNC (aniso)
+                params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_ABS);
+            else
+            {
+                isocache = (iso_cache)cache;
+                params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_ABS);
+            }
+        }
 
         ray_dir_info_t rec_V = s.L;
         float VdotL = nbl::hlsl::dot<float32_t3>(base_t::rc.V.direction,s.L.direction);
@@ -514,25 +562,50 @@ struct TestReciprocity : TestBxDF<BxDF>
         rec_cache = cache;
         rec_cache.VdotH = cache.LdotH;
         rec_cache.LdotH = cache.VdotH;
+
+        rec_isocache = (iso_cache)rec_cache;
+
+        if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
+            rec_params = params_t::template create<sample_t, iso_interaction>(rec_s, rec_isointer, bxdf::BCM_MAX);
+        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF>)
+        {
+            if NBL_CONSTEXPR_FUNC (aniso)
+                rec_params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(rec_s, rec_anisointer, cache, bxdf::BCM_MAX);
+            else
+            {
+                rec_isocache = (iso_cache)rec_cache;
+                rec_params = params_t::template create<sample_t, iso_interaction, iso_cache>(rec_s, rec_isointer, rec_isocache, bxdf::BCM_MAX);
+            }
+        }
+        if NBL_CONSTEXPR_FUNC (is_basic_bsdf_v<BxDF>)
+            rec_params = params_t::template create<sample_t, iso_interaction>(rec_s, rec_isointer, bxdf::BCM_ABS);
+        if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
+        {
+            if NBL_CONSTEXPR_FUNC (aniso)
+                rec_params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(rec_s, rec_anisointer, cache, bxdf::BCM_ABS);
+            else
+            {
+                rec_isocache = (iso_cache)rec_cache;
+                rec_params = params_t::template create<sample_t, iso_interaction, iso_cache>(rec_s, rec_isointer, rec_isocache, bxdf::BCM_ABS);
+            }
+        }
         
         if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF> || is_basic_bsdf_v<BxDF>)
         {
-            bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer));
-            rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_isointer));
+            bsdf = float32_t3(base_t::bxdf.eval(params));
+            rec_bsdf = float32_t3(base_t::bxdf.eval(rec_params));
         }
         if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
         {
             if NBL_CONSTEXPR_FUNC (aniso)
             {
-                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
-                rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_anisointer, rec_cache));
+                bsdf = float32_t3(base_t::bxdf.eval(params));
+                rec_bsdf = float32_t3(base_t::bxdf.eval(rec_params));
             }
             else
             {
-                iso_cache isocache = (iso_cache)cache;
-                iso_cache rec_isocache = (iso_cache)rec_cache;
-                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
-                rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_isointer, rec_isocache));
+                bsdf = float32_t3(base_t::bxdf.eval(params));
+                rec_bsdf = float32_t3(base_t::bxdf.eval(rec_params));
             }
         }
     }
