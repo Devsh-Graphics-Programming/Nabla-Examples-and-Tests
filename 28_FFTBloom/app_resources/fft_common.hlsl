@@ -41,14 +41,14 @@ struct PreloadedAccessorCommonBase
 
 struct PreloadedAccessorBase : PreloadedAccessorCommonBase
 {
-	template <typename IndexType, typename AccessType>
-	void set(IndexType idx, AccessType value)
+	template <typename AccessType>
+	void set(uint32_t idx, AccessType value)
 	{
 		preloaded[idx >> WorkgroupSizeLog2] = value;
 	}
 
-	template <typename IndexType, typename AccessType>
-	void get(IndexType idx, NBL_REF_ARG(AccessType) value)
+	template <typename AccessType>
+	void get(uint32_t idx, NBL_REF_ARG(AccessType) value)
 	{
 		value = preloaded[idx >> WorkgroupSizeLog2];
 	}
@@ -59,14 +59,14 @@ struct PreloadedAccessorBase : PreloadedAccessorCommonBase
 // In the case for preloading all channels at once we make it stateful so we track which channel we're running FFT on
 struct MultiChannelPreloadedAccessorBase : PreloadedAccessorCommonBase
 {
-	template <typename IndexType, typename AccessType>
-	void set(IndexType idx, AccessType value)
+	template <typename AccessType>
+	void set(uint32_t idx, AccessType value)
 	{
 		preloaded[currentChannel][idx >> WorkgroupSizeLog2] = value;
 	}
 
-	template <typename IndexType, typename AccessType>
-	void get(IndexType idx, NBL_REF_ARG(AccessType) value)
+	template <typename AccessType>
+	void get(uint32_t idx, NBL_REF_ARG(AccessType) value)
 	{
 		value = preloaded[currentChannel][idx >> WorkgroupSizeLog2];
 	}
