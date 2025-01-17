@@ -6,6 +6,8 @@
 
 // ------------------------------------------ SECOND AXIS FFT + CONVOLUTION + IFFT -------------------------------------------------------------
 
+// This is done for the channel specified in pushConstants.
+
 // This time each Workgroup will compute the FFT along a horizontal line (fixed y for the whole Workgroup). We get the y coordinate for the
 // row a workgroup is working on via `gl_WorkGroupID().x`. We have to keep this in mind: What's stored as the first row is actually `Z + iN`, 
 // where `Z` is the actual 0th row and `N` is the Nyquist row (the one with index TotalSize / 2). Those are packed together
@@ -34,14 +36,6 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 	{
 		return x * pushConstants.imageRowLength + y; // can no longer sum with | since there's no guarantees on row length
 	}
-
-	// Same as what was used to store in col-major after first axis FFT. This time we launch one workgroup per row so the height of the channel's (half) image is NumWorkgroups,
-	// and the width (number of columns) is passed as a push constant
-	uint64_t getChannelStartOffsetBytes(uint16_t channel)
-	{
-		return uint64_t(channel) * NumWorkgroups * pushConstants.imageRowLength * sizeof(complex_t<scalar_t>);
-	}
-
 	// ---------------------------------------------------- End Utils ---------------------------------------------------------
 
 	// Unpacking on load: Has no workgroup shuffles (which become execution barriers) which would be necessary for unpacking on store
@@ -56,11 +50,10 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 	// corresponding to the column they correspond to. 
 	// The `gl_WorkGroupID().x = 0` case is special because instead of getting the mirror we need to get both zero and nyquist frequencies for the columns, which doesn't happen just by mirror
 	// indexing. 
-	void preload(uint16_t channel)
+	void preload()
 	{
 		// Set up accessor to read in data
-		const uint64_t channelStartOffsetBytes = getChannelStartOffsetBytes(channel);
-		const LegacyBdaAccessor<complex_t<scalar_t> > rowMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.rowMajorBufferAddress + channelStartOffsetBytes);
+		const LegacyBdaAccessor<complex_t<scalar_t> > rowMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.rowMajorBufferAddress + pushConstants.channelStartOffsetBytes);
 
 		// This one shows up a lot so we give it a name
 		const bool oddThread = glsl::gl_SubgroupInvocationID() & 1u;
@@ -77,6 +70,8 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 			// the previous pass' threads), then `PreviousWorkgroupSize` odd elements (`preloaded[1]`) and so on
 			const uint32_t evenRow = glsl::gl_WorkGroupID().x + ((glsl::gl_WorkGroupID().x / PreviousWorkgroupSize) * PreviousWorkgroupSize);
 			const uint32_t x = oddThread ? PreviousPassFFTIndexingUtils::getNablaMirrorIndex(evenRow) : evenRow;
+
+			[unroll]
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 			{
 				// If mirrored, we need to invert which thread is loading lo and which is loading hi
@@ -115,6 +110,8 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 			// Even thread retrieves Zero, odd thread retrieves Nyquist. Zero is always `preloaded[0]` of the previous FFT's 0th thread, while Nyquist is always `preloaded[1]` of that same thread.
 			// Therefore we know Nyquist ends up exactly at y = PreviousWorkgroupSize
 			const uint32_t x = oddThread ? PreviousWorkgroupSize : 0;
+
+			[unroll]
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 			{
 				int32_t wrappedIndex = paddedIndex < 0 ? ~paddedIndex : paddedIndex; // ~x = - x - 1 in two's complement (except maybe at the borders of representable range) 
@@ -143,18 +140,19 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 	// Each element on this row is Nabla-ordered. So the element at `x' = index, y' = gl_WorkGroupID().x` that we're operating on is actually the element at
 	// `x = F(index), y = bitreverse(gl_WorkGroupID().x)` (with the bitreversal done as an N-1 bit number, for `N = log2(TotalSize)` *of the first axist FFT*)
 	template<typename sharedmem_adaptor_t>
-	void convolve(uint32_t channel, NBL_REF_ARG(sharedmem_adaptor_t) adaptorForSharedMemory)
+	void convolve(NBL_REF_ARG(sharedmem_adaptor_t) adaptorForSharedMemory)
 	{
 		if (glsl::gl_WorkGroupID().x)
 		{
 			const uint32_t x = bitReverseAs<uint32_t, NumWorkgroupsLog2>(glsl::gl_WorkGroupID().x);
 			uint32_t globalElementIndex = workgroup::SubgroupContiguousIndex();
+			[unroll]
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 			{
 				const uint32_t indexDFT = FFTIndexingUtils::getDFTIndex(globalElementIndex);
 				const uint32_t2 texCoords = uint32_t2(x, indexDFT);
 				const float32_t2 uv = texCoords * float32_t2(1.f / NumWorkgroups, TotalSizeReciprocal) + KernelHalfPixelSize;
-				const vector<scalar_t, 2> sampledKernelVector = vector<scalar_t, 2>(kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0));
+				const vector<scalar_t, 2> sampledKernelVector = vector<scalar_t, 2>(kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(pushConstants.currentChannel)), 0));
 				const vector<scalar_t, 2> sampledKernelInterpolatedVector = lerp(sampledKernelVector, One, promote<vector<scalar_t, 2>, float32_t>(pushConstants.interpolatingFactor));
 				const complex_t<scalar_t> sampledKernelInterpolated = { sampledKernelInterpolatedVector.x, sampledKernelInterpolatedVector.y };
 				preloaded[localElementIndex] = preloaded[localElementIndex] * sampledKernelInterpolated;
@@ -166,6 +164,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 		else
 		{
 			uint32_t globalElementIndex = workgroup::SubgroupContiguousIndex();
+			[unroll]
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex += 2)
 			{
 				complex_t<scalar_t> zero = preloaded[localElementIndex];
@@ -179,14 +178,14 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				const float32_t indexDFT = float32_t(FFTIndexingUtils::getDFTIndex(globalElementIndex));
 
 				float32_t2 uv = float32_t2(float32_t(0), indexDFT * TotalSizeReciprocal) + KernelHalfPixelSize;
-				const vector<scalar_t, 2> zeroKernelVector = vector<scalar_t, 2>(kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0));
+				const vector<scalar_t, 2> zeroKernelVector = vector<scalar_t, 2>(kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(pushConstants.currentChannel)), 0));
 				const vector<scalar_t, 2> zeroKernelInterpolatedVector = lerp(zeroKernelVector, One, promote<vector<scalar_t, 2>, float32_t>(pushConstants.interpolatingFactor));
 				const complex_t<scalar_t> zeroKernelInterpolated = { zeroKernelInterpolatedVector.x, zeroKernelInterpolatedVector.y };
 				zero = zero * zeroKernelInterpolated;
 
 				// Do the same for the nyquist coord
 				uv.x = 1.f - KernelHalfPixelSize.x;
-				const vector<scalar_t, 2> nyquistKernelVector = vector<scalar_t, 2>(kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(channel)), 0));
+				const vector<scalar_t, 2> nyquistKernelVector = vector<scalar_t, 2>(kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(pushConstants.currentChannel)), 0));
 				const vector<scalar_t, 2> nyquistKernelInterpolatedVector = lerp(nyquistKernelVector, One, promote<vector<scalar_t, 2>, float32_t>(pushConstants.interpolatingFactor));
 				const complex_t<scalar_t> nyquistKernelInterpolated = { nyquistKernelInterpolatedVector.x, nyquistKernelInterpolatedVector.y };
 				nyquist = nyquist * nyquistKernelInterpolated;
@@ -216,14 +215,14 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 	}
 
 	// Save a row back in row major order. Remember that the first row (one with `gl_WorkGroupID().x == 0`) will actually hold the packed IFFT of Zero and Nyquist rows.
-	void unload(uint16_t channel)
+	void unload()
 	{
 		// Set up accessor to write out data
-		const uint64_t channelStartOffsetBytes = getChannelStartOffsetBytes(channel);
-		const LegacyBdaAccessor<complex_t<scalar_t> > colMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.colMajorBufferAddress + channelStartOffsetBytes);
+		const LegacyBdaAccessor<complex_t<scalar_t> > colMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.colMajorBufferAddress + pushConstants.channelStartOffsetBytes);
 
 		const uint32_t firstIndex = workgroup::SubgroupContiguousIndex();
 		int32_t paddedIndex = int32_t(firstIndex) - pushConstants.padding;
+		[unroll]
 		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 		{
 			if (paddedIndex >= 0 && paddedIndex < pushConstants.imageRowLength)
@@ -245,21 +244,16 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	sharedmem_adaptor_t adaptorForSharedMemory;
 
 	PreloadedSecondAxisAccessor preloadedAccessor;
-	for (uint16_t channel = 0; channel < Channels; channel++)
-	{
-		preloadedAccessor.preload(channel);
-		// Wait on previous pass FFT
-		if(channel)
-			sharedmemAccessor.workgroupExecutionAndMemoryBarrier();
-		workgroup::FFT<false, FFTParameters>::template __call(preloadedAccessor, sharedmemAccessor);
-		// Update state after FFT run
-		adaptorForSharedMemory.accessor = sharedmemAccessor;
-		preloadedAccessor.convolve(channel, adaptorForSharedMemory);
-		// Remember to update the accessor's state
-		sharedmemAccessor = adaptorForSharedMemory.accessor;
-		// Either wait on FFT (most workgroups but 0) or convolution (only 0th workgroup actually uses sharedmem for convolution)
-		sharedmemAccessor.workgroupExecutionAndMemoryBarrier();
-		workgroup::FFT<true, FFTParameters>::template __call(preloadedAccessor, sharedmemAccessor);
-		preloadedAccessor.unload(channel);
-	}
+
+	preloadedAccessor.preload();
+	workgroup::FFT<false, FFTParameters>::template __call(preloadedAccessor, sharedmemAccessor);
+	// Update state after FFT run
+	adaptorForSharedMemory.accessor = sharedmemAccessor;
+	preloadedAccessor.convolve(adaptorForSharedMemory);
+	// Remember to update the accessor's state
+	sharedmemAccessor = adaptorForSharedMemory.accessor;
+	// Either wait on first FFT (all workgroups but 0) or convolution (only 0th workgroup actually uses sharedmem for convolution)
+	sharedmemAccessor.workgroupExecutionAndMemoryBarrier();
+	workgroup::FFT<true, FFTParameters>::template __call(preloadedAccessor, sharedmemAccessor);
+	preloadedAccessor.unload();
 }
