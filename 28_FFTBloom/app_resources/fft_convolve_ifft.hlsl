@@ -60,34 +60,33 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 
 		ternary_operator<complex_t<scalar_t> > ternaryOp;
 
-		if (glsl::gl_WorkGroupID().x)
-		{
-			// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
-			const uint32_t firstIndex = workgroup::SubgroupContiguousIndex() / 2;
-			int32_t paddedIndex = int32_t(firstIndex) - pushConstants.halfPadding;
-			// Even thread must index a y corresponding to an even element of the previous FFT pass, and the odd thread must index its DFT Mirror
-			// The math here essentially ensues we enumerate all even elements in order: we alternate `PreviousWorkgroupSize` even elements (all `preloaded[0]` elements of
-			// the previous pass' threads), then `PreviousWorkgroupSize` odd elements (`preloaded[1]`) and so on
-			const uint32_t evenRow = glsl::gl_WorkGroupID().x + ((glsl::gl_WorkGroupID().x / PreviousWorkgroupSize) * PreviousWorkgroupSize);
-			const uint32_t x = oddThread ? PreviousPassFFTIndexingUtils::getNablaMirrorIndex(evenRow) : evenRow;
+		// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
+		const uint32_t firstIndex = workgroup::SubgroupContiguousIndex() / 2;
+		int32_t paddedIndex = int32_t(firstIndex) - pushConstants.halfPadding;
+		const uint32_t evenRow = glsl::gl_WorkGroupID().x + ((glsl::gl_WorkGroupID().x / PreviousWorkgroupSize) * PreviousWorkgroupSize);
+		const uint32_t x = glsl::gl_WorkGroupID().x ? (oddThread ? PreviousPassFFTIndexingUtils::getNablaMirrorIndex(evenRow) : evenRow)
+													: (oddThread ? PreviousWorkgroupSize : 0);
 
-			[unroll]
-			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
+		[unroll]
+		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
+		{
+			// If mirrored, we need to invert which thread is loading lo and which is loading hi
+			// If using zero-padding, useful to find out if we're outside of [0,1) bounds
+			bool invert = paddedIndex < 0 || paddedIndex >= pushConstants.imageHalfRowLength;
+			int32_t wrappedIndex = paddedIndex < 0 ? ~paddedIndex : paddedIndex; // ~x = - x - 1 in two's complement (except maybe at the borders of representable range) 
+			wrappedIndex = paddedIndex < pushConstants.imageHalfRowLength ? wrappedIndex : pushConstants.imageRowLength + ~paddedIndex;
+			const complex_t<scalar_t> loOrHi = rowMajorAccessor.get(rowMajorOffset(x, wrappedIndex));
+			// Make it a vector so it can be subgroup-shuffled
+			const vector <scalar_t, 2> loOrHiVector = vector <scalar_t, 2>(loOrHi.real(), loOrHi.imag());
+			const vector <scalar_t, 2> otherThreadloOrHiVector = glsl::subgroupShuffleXor< vector <scalar_t, 2> >(loOrHiVector, 1u);
+			const complex_t<scalar_t> otherThreadLoOrHi = { otherThreadloOrHiVector.x, otherThreadloOrHiVector.y };
+
+			if (glsl::gl_WorkGroupID().x)
 			{
-				// If mirrored, we need to invert which thread is loading lo and which is loading hi
-				// If using zero-padding, useful to find out if we're outside of [0,1) bounds
-				bool invert = paddedIndex < 0 || paddedIndex >= pushConstants.imageHalfRowLength;
-				int32_t wrappedIndex = paddedIndex < 0 ? ~paddedIndex : paddedIndex; // ~x = - x - 1 in two's complement (except maybe at the borders of representable range) 
-				wrappedIndex = paddedIndex < pushConstants.imageHalfRowLength ? wrappedIndex : pushConstants.imageRowLength + ~paddedIndex;
-				const complex_t<scalar_t> loOrHi = rowMajorAccessor.get(rowMajorOffset(x, wrappedIndex));
-				// Make it a vector so it can be subgroup-shuffled
-				const vector <scalar_t, 2> loOrHiVector = vector <scalar_t, 2>(loOrHi.real(), loOrHi.imag());
-				const vector <scalar_t, 2> otherThreadloOrHiVector = glsl::subgroupShuffleXor< vector <scalar_t, 2> >(loOrHiVector, 1u);
-				const complex_t<scalar_t> otherThreadLoOrHi = { otherThreadloOrHiVector.x, otherThreadloOrHiVector.y };
 				complex_t<scalar_t> lo = ternaryOp(oddThread, otherThreadLoOrHi, loOrHi);
 				complex_t<scalar_t> hi = ternaryOp(oddThread, loOrHi, otherThreadLoOrHi);
 				fft::unpack<scalar_t>(lo, hi);
-				
+
 				// --------------------------------------------------- MIRROR PADDING -------------------------------------------------------------------------------------------
 				#ifdef MIRROR_PADDING
 				preloaded[localElementIndex] = ternaryOp(oddThread ^ invert, hi, lo);
@@ -97,32 +96,9 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				preloaded[localElementIndex] = ternaryOp(invert, Zero, ternaryOp(oddThread, hi, lo));
 				#endif
 				// ------------------------------------------------ END PADDING DIVERGENCE ----------------------------------------------------------------------------------------
-
-				paddedIndex += WorkgroupSize / 2;
 			}
-		}
-		// Special case where we retrieve 0 and Nyquist
-		else
-		{
-			// Since every two consecutive columns are stored as one packed column, we divide the index by 2 to get the index of that packed column
-			const uint32_t firstIndex = workgroup::SubgroupContiguousIndex() / 2;
-			int32_t paddedIndex = int32_t(firstIndex) - pushConstants.halfPadding;
-			// Even thread retrieves Zero, odd thread retrieves Nyquist. Zero is always `preloaded[0]` of the previous FFT's 0th thread, while Nyquist is always `preloaded[1]` of that same thread.
-			// Therefore we know Nyquist ends up exactly at y = PreviousWorkgroupSize
-			const uint32_t x = oddThread ? PreviousWorkgroupSize : 0;
-
-			[unroll]
-			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
+			else
 			{
-				int32_t wrappedIndex = paddedIndex < 0 ? ~paddedIndex : paddedIndex; // ~x = - x - 1 in two's complement (except maybe at the borders of representable range) 
-				wrappedIndex = paddedIndex < pushConstants.imageHalfRowLength ? wrappedIndex : pushConstants.imageRowLength + ~paddedIndex;
-				// If mirrored, we need to invert which thread is loading lo and which is loading hi
-				bool invert = paddedIndex < 0 || paddedIndex >= pushConstants.imageHalfRowLength;
-				const complex_t<scalar_t> loOrHi = rowMajorAccessor.get(rowMajorOffset(x, wrappedIndex));
-				// Make it a vector so it can be subgroup-shuffled
-				const vector <scalar_t, 2> loOrHiVector = vector <scalar_t, 2>(loOrHi.real(), loOrHi.imag());
-				const vector <scalar_t, 2> otherThreadloOrHiVector = glsl::subgroupShuffleXor< vector <scalar_t, 2> >(loOrHiVector, 1u);
-				const complex_t<scalar_t> otherThreadLoOrHi = { otherThreadloOrHiVector.x, otherThreadloOrHiVector.y };
 				// `lo` holds `Z0 + iZ1` and `hi` holds `N0 + iN1`. We want at the end for `lo` to hold the packed `Z0 + iN0` and `hi` to hold `Z1 + iN1`
 				// For the even thread (`oddThread == false`) `lo = loOrHi` and `hi = otherThreadLoOrHi`. For the odd thread the opposite is true
 
@@ -131,10 +107,10 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				// Odd thread writes `hi = Z1 + iN1`
 				const complex_t<scalar_t> oddThreadHi = { otherThreadLoOrHi.imag(), loOrHi.imag() };
 				preloaded[localElementIndex] = ternaryOp(oddThread ^ invert, oddThreadHi, evenThreadLo);
-
-				paddedIndex += WorkgroupSize / 2;
 			}
+			paddedIndex += WorkgroupSize / 2;
 		}
+
 	}
 
 	// Each element on this row is Nabla-ordered. So the element at `x' = index, y' = gl_WorkGroupID().x` that we're operating on is actually the element at

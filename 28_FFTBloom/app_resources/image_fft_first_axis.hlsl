@@ -39,12 +39,14 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 		for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 		{
 			const float32_t4 firstLineTexValue = texture.SampleLevel(samplerState, normalizedCoordsFirstLine, 0);
+			
 			[unroll]
 			for (uint16_t channel = 0; channel < Channels; channel++)
 				preloaded[channel][localElementIndex].real(scalar_t(firstLineTexValue[channel]));
 
 			normalizedCoordsSecondLine.x = normalizedCoordsFirstLine.x;
 			const float32_t4 secondLineTexValue = texture.SampleLevel(samplerState, normalizedCoordsSecondLine, 0);
+			
 			[unroll]
 			for (uint16_t channel = 0; channel < Channels; channel++)
 				preloaded[channel][localElementIndex].imag(scalar_t(secondLineTexValue[channel]));
@@ -57,7 +59,6 @@ struct PreloadedFirstAxisAccessor : MultiChannelPreloadedAccessorBase
 	// Channels will be contiguous in buffer memory. 
 	void unload()
 	{	
-		[unroll]
 		for (uint16_t channel = 0; channel < Channels; channel++)
 		{
 			const uint64_t channelStartOffsetBytes = getChannelStartOffsetBytes(channel);
@@ -81,7 +82,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	PreloadedFirstAxisAccessor preloadedAccessor;
 
 	preloadedAccessor.preload();
-	[unroll]
+	
 	for (uint16_t channel = 0; channel < Channels; channel++)
 	{
 		preloadedAccessor.currentChannel = channel;
