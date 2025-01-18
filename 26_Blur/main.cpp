@@ -2,10 +2,10 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 #include "nabla.h"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "SimpleWindowedApplication.hpp"
 #include "InputSystem.hpp"
 #include "CEventCallback.hpp"
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 using namespace nbl;
 using namespace nbl::core;
@@ -71,40 +71,6 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 				return false;
 			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
-
-			smart_refctd_ptr<IGPUShader> shader;
-			{
-				IAssetLoader::SAssetLoadParams lp = {};
-				lp.logger = m_logger.get();
-				lp.workingDirectory = ""; // virtual root
-				auto assetBundle = m_assetMgr->getAsset("app_resources/shader.comp.hlsl", lp);
-				const auto assets = assetBundle.getContents();
-				if (assets.empty())
-					return logFail("Failed to load shader from disk");
-
-				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-				auto source = IAsset::castDown<ICPUShader>(assets[0]);
-				if (!source)
-					return logFail("Failed to load shader from disk");
-
-#ifndef _NBL_DEBUG
-				const ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses[] = {
-					ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO,
-					ISPIRVOptimizer::EOP_INLINE,
-					ISPIRVOptimizer::EOP_DEAD_BRANCH_ELIM,
-					ISPIRVOptimizer::EOP_DEAD_INSERT_ELIM,
-					ISPIRVOptimizer::EOP_IF_CONVERSION,
-					ISPIRVOptimizer::EOP_LOOP_INVARIANT_CODE_MOTION,
-					ISPIRVOptimizer::EOP_LOCAL_MULTI_STORE_ELIM
-				};
-				auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(optPasses);
-				shader = m_device->createShader(source.get(), opt.get());
-#else
-				shader = m_device->createShader(source.get());
-#endif
-				if (!shader)
-					return false;
-			}
 			
 			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
 			{
@@ -127,29 +93,6 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 				dsLayout = m_device->createDescriptorSetLayout(bindings);
 				if (!dsLayout)
 					return logFail("Failed to Create Descriptor Layout");
-			}
-
-			{
-				const asset::SPushConstantRange ranges[] = { {
-					.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
-					.offset = 0,
-					.size = sizeof(PushConstants)
-				} };
-				auto layout = m_device->createPipelineLayout(ranges, smart_refctd_ptr(dsLayout));
-				const IGPUComputePipeline::SCreationParams params[] = { {
-					{
-						.layout = layout.get()
-					},
-					{},
-					IGPUComputePipeline::SCreationParams::FLAGS::NONE,
-					{
-						.entryPoint = "main",
-						.shader = shader.get(),
-						.entries = nullptr,
-					}
-				}};
-				if (!m_device->createComputePipelines(nullptr,params,&m_ppln))
-					return logFail("Failed to create Pipeline");
 			}
 
 			core::smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
@@ -230,8 +173,8 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 			assert(cpu_image->getImageUsageFlags().hasFlags(ICPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT));
 			auto reservation = converter->reserve(inputs);
 			// the `.value` is just a funny way to make the `smart_refctd_ptr` copyable
-			m_image = reservation.getGPUObjects<ICPUImage>().front().value;
-			if (!m_image)
+			m_inputImg = reservation.getGPUObjects<ICPUImage>().front().value;
+			if (!m_inputImg)
 				logFail("Failed to convert image into an IGPUImage handle", ILogger::ELL_ERROR);
 
 			// debug log about overflows
@@ -244,9 +187,9 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 			if (!result.blocking() && result.copy() != IQueue::RESULT::SUCCESS)
 				logFail("Failed to record or submit conversions");
 
-			auto image_params = m_image->getCreationParameters();
+			auto image_params = m_inputImg->getCreationParameters();
 
-			m_hblur = m_device->createImage({
+			m_horzImg = m_device->createImage({
 				{
 					.type = IGPUImage::E_TYPE::ET_2D,
 					.samples = IGPUImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT,
@@ -258,12 +201,12 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 				}
 				});
 			// make sure we're always allocating from VRAM
-			auto reqs = m_hblur->getMemoryReqs();
+			auto reqs = m_horzImg->getMemoryReqs();
 			reqs.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
-			if (!m_hblur || !m_device->allocate(reqs, m_hblur.get()).isValid())
+			if (!m_horzImg || !m_device->allocate(reqs, m_horzImg.get()).isValid())
 				return logFail("Could not create HDR Image");
 
-			m_vblur = m_device->createImage({
+			m_vertImg = m_device->createImage({
 				{
 					.type = IGPUImage::E_TYPE::ET_2D,
 					.samples = IGPUImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT,
@@ -274,10 +217,80 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 					.usage = IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT | IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT | IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT
 				}
 				});
-			reqs = m_hblur->getMemoryReqs();
+			reqs = m_horzImg->getMemoryReqs();
 			reqs.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
-			if (!m_vblur || !m_device->allocate(reqs, m_vblur.get()).isValid())
+			if (!m_vertImg || !m_device->allocate(reqs, m_vertImg.get()).isValid())
 				return logFail("Could not create HDR Image");
+
+			smart_refctd_ptr<IGPUShader> shader;
+			{
+				IAssetLoader::SAssetLoadParams lp = {};
+				lp.logger = m_logger.get();
+				lp.workingDirectory = ""; // virtual root
+				auto assetBundle = m_assetMgr->getAsset("app_resources/shader.comp.hlsl", lp);
+				const auto assets = assetBundle.getContents();
+				if (assets.empty())
+					return logFail("Failed to load shader from disk");
+
+				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+				auto sourceRaw = IAsset::castDown<ICPUShader>(assets[0]);
+				if (!sourceRaw)
+					return logFail("Failed to load shader from disk");
+				smart_refctd_ptr<ICPUShader> source = CHLSLCompiler::createOverridenCopy(
+					sourceRaw.get(),
+					"static const uint16_t WORKGROUP_SIZE = %d;\n"
+					"static const uint16_t MAX_SCANLINE_SIZE = %d;\n"
+					"static const uint16_t MAX_SUBGROUP_SIZE = %d;\n"
+					"static const uint16_t CHANNELS = %d;\n",
+					m_physicalDevice->getLimits().maxOptimallyResidentWorkgroupInvocations,
+					max(image_params.extent.width, image_params.extent.height),
+					m_physicalDevice->getLimits().maxSubgroupSize,
+					asset::getFormatChannelCount(image_params.format)
+				);
+
+#ifndef _NBL_DEBUG
+				const ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses[] = {
+					ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO,
+					ISPIRVOptimizer::EOP_INLINE,
+					ISPIRVOptimizer::EOP_DEAD_BRANCH_ELIM,
+					ISPIRVOptimizer::EOP_DEAD_INSERT_ELIM,
+					ISPIRVOptimizer::EOP_IF_CONVERSION,
+					ISPIRVOptimizer::EOP_LOOP_INVARIANT_CODE_MOTION,
+					ISPIRVOptimizer::EOP_LOCAL_MULTI_STORE_ELIM
+				};
+				auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(optPasses);
+				shader = m_device->createShader(source.get(), opt.get());
+#else
+				shader = m_device->createShader(source.get());
+#endif
+				if (!shader)
+					return false;
+			}
+
+			{
+				const asset::SPushConstantRange ranges[] = { {
+					.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.offset = 0,
+					.size = sizeof(PushConstants)
+				} };
+				auto layout = m_device->createPipelineLayout(ranges, smart_refctd_ptr(dsLayout));
+				const IGPUComputePipeline::SCreationParams params[] = { {
+					{
+						.layout = layout.get()
+					},
+					{},
+					IGPUComputePipeline::SCreationParams::FLAGS::NONE,
+					{
+						.entryPoint = "main",
+						.shader = shader.get(),
+						.entries = nullptr,
+						.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(hlsl::findMSB(m_physicalDevice->getLimits().maxSubgroupSize)),
+						.requireFullSubgroups = true
+					}
+				}};
+				if (!m_device->createComputePipelines(nullptr, params, &m_ppln))
+					return logFail("Failed to create Pipeline");
+			}
 
 			smart_refctd_ptr<ISemaphore> progress = m_device->createSemaphore(0);
 			const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {
@@ -311,11 +324,10 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 							.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
 							.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS
 						}
-						// no ownership transfer and don't care about contents
 					},
-					.image = m_hblur.get(),
+					.image = m_horzImg.get(),
 					.subresourceRange = whole2DColorImage,
-					.oldLayout = IImage::LAYOUT::UNDEFINED, // don't care about old contents
+					.oldLayout = IImage::LAYOUT::UNDEFINED,
 					.newLayout = IImage::LAYOUT::GENERAL
 				},
 				{
@@ -326,11 +338,10 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 							.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
 							.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS
 						}
-						// no ownership transfer and don't care about contents
 					},
-					.image = m_vblur.get(),
+					.image = m_vertImg.get(),
 					.subresourceRange = whole2DColorImage,
-					.oldLayout = IImage::LAYOUT::UNDEFINED, // don't care about old contents
+					.oldLayout = IImage::LAYOUT::UNDEFINED,
 					.newLayout = IImage::LAYOUT::GENERAL
 				},
 				{
@@ -341,11 +352,10 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 							.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
 							.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS
 						}
-						// no ownership transfer and don't care about contents
 					},
-					.image = m_image.get(),
+					.image = m_inputImg.get(),
 					.subresourceRange = whole2DColorImage,
-					.oldLayout = IImage::LAYOUT::UNDEFINED, // don't care about old contents
+					.oldLayout = IImage::LAYOUT::UNDEFINED,
 					.newLayout = IImage::LAYOUT::GENERAL
 				}
 			};
@@ -375,60 +385,60 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 				if (!m_ds1)
 					return logFail("Could not create Descriptor Set");
 
-				auto image_params = m_image->getCreationParameters();
-				IGPUDescriptorSet::SDescriptorInfo imagesampled_info = {};
+				auto image_params = m_inputImg->getCreationParameters();
+				IGPUDescriptorSet::SDescriptorInfo inputImgSampledInfo = {};
 				{
-					imagesampled_info.desc = m_device->createImageView({
+					inputImgSampledInfo.desc = m_device->createImageView({
 						.flags = IGPUImageView::ECF_NONE,
 						.subUsages = IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT,
-						.image = m_image,
+						.image = m_inputImg,
 						.viewType = IGPUImageView::E_TYPE::ET_2D,
 						.format = image_params.format,
 						});
-					if (!imagesampled_info.desc)
+					if (!inputImgSampledInfo.desc)
 						return logFail("Failed to create image view");
-					imagesampled_info.info.combinedImageSampler.imageLayout = IGPUImage::LAYOUT::GENERAL;
-					imagesampled_info.info.combinedImageSampler.sampler = m_device->createSampler({});
+					inputImgSampledInfo.info.combinedImageSampler.imageLayout = IGPUImage::LAYOUT::GENERAL;
+					inputImgSampledInfo.info.combinedImageSampler.sampler = m_device->createSampler({});
 				}
-				IGPUDescriptorSet::SDescriptorInfo hstorage_info = {};
+				IGPUDescriptorSet::SDescriptorInfo horzImgStorageInfo = {};
 				{
-					hstorage_info.desc = m_device->createImageView({
+					horzImgStorageInfo.desc = m_device->createImageView({
 						.flags = IGPUImageView::ECF_NONE,
 						.subUsages = IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT,
-						.image = m_hblur,
+						.image = m_horzImg,
 						.viewType = IGPUImageView::E_TYPE::ET_2D,
 						.format = E_FORMAT::EF_R8G8B8A8_UNORM
 						});
-					if (!hstorage_info.desc)
+					if (!horzImgStorageInfo.desc)
 						return logFail("Failed to create image view");
-					hstorage_info.info.image.imageLayout = IGPUImage::LAYOUT::GENERAL;
+					horzImgStorageInfo.info.image.imageLayout = IGPUImage::LAYOUT::GENERAL;
 				}
-				IGPUDescriptorSet::SDescriptorInfo hsampled_info = {};
+				IGPUDescriptorSet::SDescriptorInfo horzImgSampledInfo = {};
 				{
-					hsampled_info.desc = m_device->createImageView({
+					horzImgSampledInfo.desc = m_device->createImageView({
 						.flags = IGPUImageView::ECF_NONE,
 						.subUsages = IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT,
-						.image = m_hblur,
+						.image = m_horzImg,
 						.viewType = IGPUImageView::E_TYPE::ET_2D,
 						.format = E_FORMAT::EF_R8G8B8A8_UNORM
 						});
-					if (!hsampled_info.desc)
+					if (!horzImgSampledInfo.desc)
 						return logFail("Failed to create image view");
-					hsampled_info.info.combinedImageSampler.imageLayout = IGPUImage::LAYOUT::GENERAL;
-					hsampled_info.info.combinedImageSampler.sampler = m_device->createSampler({});
+					horzImgSampledInfo.info.combinedImageSampler.imageLayout = IGPUImage::LAYOUT::GENERAL;
+					horzImgSampledInfo.info.combinedImageSampler.sampler = m_device->createSampler({});
 				}
-				IGPUDescriptorSet::SDescriptorInfo vstorage_info = {};
+				IGPUDescriptorSet::SDescriptorInfo vertImgStorageInfo = {};
 				{
-					vstorage_info.desc = m_device->createImageView({
+					vertImgStorageInfo.desc = m_device->createImageView({
 						.flags = IGPUImageView::ECF_NONE,
 						.subUsages = IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT,
-						.image = m_vblur,
+						.image = m_vertImg,
 						.viewType = IGPUImageView::E_TYPE::ET_2D,
 						.format = E_FORMAT::EF_R8G8B8A8_UNORM
 						});
-					if (!vstorage_info.desc)
+					if (!vertImgStorageInfo.desc)
 						return logFail("Failed to create image view");
-					vstorage_info.info.image.imageLayout = IGPUImage::LAYOUT::GENERAL;
+					vertImgStorageInfo.info.image.imageLayout = IGPUImage::LAYOUT::GENERAL;
 				}
 
 				const IGPUDescriptorSet::SWriteDescriptorSet writes[] = {
@@ -437,28 +447,28 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 						.binding = 0,
 						.arrayElement = 0,
 						.count = 1,
-						.info = &imagesampled_info
+						.info = &inputImgSampledInfo
 					},
 					{
 						.dstSet = m_ds0.get(),
 						.binding = 1,
 						.arrayElement = 0,
 						.count = 1,
-						.info = &hstorage_info
+						.info = &horzImgStorageInfo
 					},
 					{
 						.dstSet = m_ds1.get(),
 						.binding = 0,
 						.arrayElement = 0,
 						.count = 1,
-						.info = &hsampled_info
+						.info = &horzImgSampledInfo
 					},
 					{
 						.dstSet = m_ds1.get(),
 						.binding = 1,
 						.arrayElement = 0,
 						.count = 1,
-						.info = &vstorage_info
+						.info = &vertImgStorageInfo
 					}
 				};
 				if (!m_device->updateDescriptorSets(writes,{}))
@@ -517,17 +527,26 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 			}
 
 			const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
-			
+
+			auto image_params = m_inputImg->getCreationParameters();
 			m_inputSystem->getDefaultMouse(&mouse);
 			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void {
 				for (auto eventIt = events.begin(); eventIt != events.end(); eventIt++)
 				{
 					auto ev = *eventIt;
 					if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
-						blurRadius = (uint16_t)std::clamp<int16_t>(int16_t(blurRadius) + 5 * core::sign(ev.scrollEvent.verticalScroll), 1, WORKGROUP_SIZE - 1); // TODO: not workgroup size, max(Image.width,Image.height)
+					{
+						blurRadius = std::clamp<hlsl::float32_t>(blurRadius + 5 * core::sign(ev.scrollEvent.verticalScroll), 1, max(image_params.extent.width, image_params.extent.height));
+						m_logger->log("Radius changed: %f", ILogger::ELL_DEBUG, blurRadius);
+					}
 					if (ev.type == nbl::ui::SMouseEvent::EET_CLICK && ev.clickEvent.mouseButton == nbl::ui::EMB_LEFT_BUTTON)
+					{
 						if (ev.clickEvent.action == nbl::ui::SMouseEvent::SClickEvent::EA_RELEASED)
-							blurEdgeWrapMode = (blurEdgeWrapMode + 1) % WRAP_MODE_MAX;
+						{
+							blurEdgeWrapMode = (blurEdgeWrapMode + 1) % ISampler::E_TEXTURE_CLAMP::ETC_COUNT;
+							m_logger->log("Edge wrapping mode changed: %d", ILogger::ELL_DEBUG, blurEdgeWrapMode);
+						}
+					}
 				}
 			}, m_logger.get());
 
@@ -549,7 +568,7 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 			};
 
 			using image_memory_barrier_t = IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>;
-			image_memory_barrier_t imgBarrier = {
+			image_memory_barrier_t vertImgBarrier = {
 				.barrier = {
 					.dep = {
 						.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
@@ -557,16 +576,15 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 						.dstStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT,
 						.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
 					}
-					// no ownership transfer and don't care about contents
 				},
-				.image = m_vblur.get(),
+				.image = m_vertImg.get(),
 				.subresourceRange = whole2DColorImage,
-				.oldLayout = IImage::LAYOUT::UNDEFINED, // don't care about old contents
+				.oldLayout = IImage::LAYOUT::GENERAL,
 				.newLayout = IImage::LAYOUT::GENERAL
 			};
 
 			// clear the image
-			cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers={&imgBarrier,1}});
+			cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers={&vertImgBarrier,1}});
 			{
 				const IGPUCommandBuffer::SClearColorValue color = {
 					.float32 = {0,0,0,1}
@@ -578,13 +596,9 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 					.baseArrayLayer = 0,
 					.layerCount = 1
 				};
-				cb->clearColorImage(m_vblur.get(),IGPUImage::LAYOUT::GENERAL,&color,1,&range);
+				cb->clearColorImage(m_vertImg.get(),IGPUImage::LAYOUT::GENERAL,&color,1,&range);
 				// now we stay in same layout for remainder of the frame
-				imgBarrier.oldLayout = IImage::LAYOUT::GENERAL;
-			}
-
-			// clear the allocator and debug buffer
-			{
+				vertImgBarrier.oldLayout = IImage::LAYOUT::GENERAL;
 			}
 
 			const SMemoryBarrier computeToBlit = {
@@ -594,38 +608,23 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 				.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
 			};
 
-			auto& imgDep = imgBarrier.barrier.dep;
+			auto& imgDep = vertImgBarrier.barrier.dep;
 			// use the "generate a barrier between the one before and after" API
 			imgDep = imgDep.nextBarrier(computeToBlit);
-			cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers={&imgBarrier,1}});
+			cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers={&vertImgBarrier,1}});
 
 			// write the image
-			auto image_params = m_image->getCreationParameters();
 			{
 				cb->bindComputePipeline(m_ppln.get());
 				auto* layout = m_ppln->getLayout();
 
-				imgBarrier = {
-					.barrier = {
-						.dep = {
-							.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-							.srcAccessMask = ACCESS_FLAGS::STORAGE_READ_BIT | ACCESS_FLAGS::STORAGE_WRITE_BIT,
-							.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-							.dstAccessMask = ACCESS_FLAGS::STORAGE_READ_BIT | ACCESS_FLAGS::STORAGE_WRITE_BIT,
-						}
-					},
-					.image = m_hblur.get(),
-					.subresourceRange = whole2DColorImage,
-					.oldLayout = IImage::LAYOUT::UNDEFINED,
-					.newLayout = IImage::LAYOUT::GENERAL
-				};
-				cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {}, .bufBarriers = {},.imgBarriers = {&imgBarrier,1} });
+				cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {}, .bufBarriers = {},.imgBarriers = {&vertImgBarrier,1} });
 				cb->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_COMPUTE, layout, 0, 1, &m_ds0.get());
-				PushConstants pc = { .radius = blurRadius, .flip = 0, .edgeWrapMode = blurEdgeWrapMode };
+				PushConstants pc = { .radius = blurRadius, .activeAxis = 0, .edgeWrapMode = blurEdgeWrapMode };
 				cb->pushConstants(layout, IGPUShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(pc), &pc);
 				cb->dispatch(image_params.extent.height, 1, 1);
 
-				imgBarrier = {
+				image_memory_barrier_t horzImgBarrier = {
 					.barrier = {
 						.dep = {
 							.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
@@ -634,14 +633,14 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 							.dstAccessMask = ACCESS_FLAGS::STORAGE_READ_BIT | ACCESS_FLAGS::STORAGE_WRITE_BIT,
 						}
 					},
-					.image = m_vblur.get(),
+					.image = m_horzImg.get(),
 					.subresourceRange = whole2DColorImage,
-					.oldLayout = IImage::LAYOUT::UNDEFINED,
+					.oldLayout = IImage::LAYOUT::GENERAL,
 					.newLayout = IImage::LAYOUT::GENERAL
 				};
-				cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {}, .bufBarriers = {},.imgBarriers = {&imgBarrier,1} });
+				cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {}, .bufBarriers = {},.imgBarriers = {&horzImgBarrier,1} });
 				cb->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_COMPUTE, layout, 0, 1, &m_ds1.get());
-				pc.flip = 1;
+				pc.activeAxis = 1;
 				cb->pushConstants(layout, IGPUShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(pc), &pc);
 				cb->dispatch(image_params.extent.width, 1, 1);
 			}
@@ -652,7 +651,7 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 				imgDep = computeToBlit;
 				// special case, the swapchain is a NONE stage with NONE accesses
 				image_memory_barrier_t imgBarriers[] = {
-					imgBarrier,
+					vertImgBarrier,
 					{
 						.barrier = {
 							.dep = {
@@ -661,7 +660,6 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 								.dstStageMask = PIPELINE_STAGE_FLAGS::BLIT_BIT,
 								.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
 							}
-							// no ownership transfer and don't care about contents
 						},
 						.image = swapImg,
 						.subresourceRange = whole2DColorImage,
@@ -683,7 +681,7 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 					.dstMipLevel = 0,
 					.aspectMask = IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT
 				}};
-				cb->blitImage(m_vblur.get(),IGPUImage::LAYOUT::GENERAL,swapImg,IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,regions,IGPUSampler::ETF_NEAREST);
+				cb->blitImage(m_vertImg.get(),IGPUImage::LAYOUT::GENERAL,swapImg,IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,regions,IGPUSampler::ETF_NEAREST);
 
 				auto& swapImageBarrier = imgBarriers[1];
 				swapImageBarrier.barrier.dep = swapImageBarrier.barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::NONE,ACCESS_FLAGS::NONE);
@@ -705,10 +703,7 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 				};
 				{
 					{
-						const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[] =
-						{
-							{.cmdbuf = cb }
-						};
+						const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[] = {{.cmdbuf = cb }};
 
 						const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] =
 						{
@@ -729,12 +724,7 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 
 						if (getGraphicsQueue()->submit(infos) == IQueue::RESULT::SUCCESS)
 						{
-							const ISemaphore::SWaitInfo waitInfos[] =
-							{ {
-								.semaphore = m_semaphore.get(),
-								.value = m_realFrameIx
-							} };
-
+							const ISemaphore::SWaitInfo waitInfos[] = {{ .semaphore = m_semaphore.get(), .value = m_realFrameIx }};
 							m_device->blockForSemaphores(waitInfos); // this is not solution, quick wa to not throw validation errors
 						}
 						else
@@ -768,15 +758,15 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 		core::smart_refctd_ptr<InputSystem> m_inputSystem;
 		InputSystem::ChannelReader<IMouseEventChannel> mouse;
 
-		uint16_t blurRadius = 6;
-		uint16_t blurEdgeWrapMode = WRAP_MODE_CLAMP_TO_EDGE;
+		hlsl::float32_t blurRadius = 6;
+		uint16_t blurEdgeWrapMode = ISampler::E_TEXTURE_CLAMP::ETC_REPEAT;
 
 		smart_refctd_ptr<IGPUComputePipeline> m_ppln;
 		smart_refctd_ptr<IGPUDescriptorSet> m_ds0;
 		smart_refctd_ptr<IGPUDescriptorSet> m_ds1;
-		smart_refctd_ptr<IGPUImage> m_image;
-		smart_refctd_ptr<IGPUImage> m_hblur;
-		smart_refctd_ptr<IGPUImage> m_vblur;
+		smart_refctd_ptr<IGPUImage> m_inputImg;
+		smart_refctd_ptr<IGPUImage> m_horzImg;
+		smart_refctd_ptr<IGPUImage> m_vertImg;
 		smart_refctd_ptr<ISemaphore> m_semaphore;
 
 		uint64_t m_realFrameIx = 0;
