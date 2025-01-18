@@ -264,7 +264,7 @@ NBL_CONSTEXPR float InvalidStyleStretchValue = nbl::hlsl::numeric_limits<float>:
 // The color parameter is also used for styling non-curve objects such as text glyphs and hatches with solid color
 struct LineStyle
 {
-    const static uint32_t StipplePatternMaxSize = 14u;
+    const static uint32_t StipplePatternMaxSize = 12u;
 
     // common data
     float32_t4 color;
