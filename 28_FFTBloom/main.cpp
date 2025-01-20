@@ -1087,11 +1087,10 @@ public:
 			// Update push contants for run
 			uint64_t channelOffsetBytes = uint64_t(channel) * m_imageSecondAxisFFTNumWorkgroups * imageExtent.width * (m_useHalfFloats ? sizeof(complex_t<float16_t>) : sizeof(complex_t<float32_t>));
 
-			pushConstants.currentChannel = channel;
-			pushConstants.channelStartOffsetBytes = channelOffsetBytes;
-			NBL_CONSTEXPR_STATIC uint32_t updateSize = sizeof(pushConstants.currentChannel) + sizeof(pushConstants.channelStartOffsetBytes);
+			pushConstants.channelInfo.currentChannel = channel;
+			pushConstants.channelInfo.channelStartOffsetBytes = channelOffsetBytes;
 
-			cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, currentChannel), updateSize, &pushConstants.currentChannel);
+			cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, channelInfo), sizeof(pushConstants.channelInfo), &pushConstants.channelInfo);
 
 			// One workgroup per row in the lower half of the DFT
 			cmdBuf->dispatch(core::roundUpToPoT(m_marginSrcDim.height) / 2, 1, 1);

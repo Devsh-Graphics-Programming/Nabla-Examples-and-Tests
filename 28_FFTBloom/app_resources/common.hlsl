@@ -20,8 +20,12 @@ struct PushConstantData
 	int32_t imageRowLength : 16; 
 	int32_t imageHalfRowLength : 16;
 	// Only middle pass uses these
-	uint32_t currentChannel;
-	uint64_t channelStartOffsetBytes;
+	struct
+	{
+		uint64_t currentChannel : 2;
+		uint64_t channelStartOffsetBytes : 62;
+	} channelInfo;
+	
 	// We don't pack it into a bitfield so we can use offsetof and update only this field from CPP side
 	// Alternatively, we could do the packing/unpacking manually to save 32 bits
 	int32_t padding;
