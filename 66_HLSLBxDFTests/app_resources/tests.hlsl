@@ -126,8 +126,8 @@ struct SBxDFTestResources
         return retval;
     }
 
-    // epsilon
-    float eps = 1e-3;
+    float eps = 1e-3;   // epsilon
+    uint32_t state;     // init state seed, for debugging
 
     nbl::hlsl::Xoroshiro64Star rng;
     ray_dir_info_t V;
@@ -491,6 +491,7 @@ struct TestUOffset : TestBxDF<BxDF>
 
         this_t t;
         t.init(state);
+        t.rc.state = seed;
         if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
             t.template initBxDF<aniso>(t.rc);
         else
@@ -632,6 +633,7 @@ struct TestReciprocity : TestBxDF<BxDF>
 
         this_t t;
         t.init(state);
+        t.rc.state = seed;
         if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
             t.template initBxDF<aniso>(t.rc);
         else
