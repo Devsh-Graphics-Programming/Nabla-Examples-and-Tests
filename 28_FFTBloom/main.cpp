@@ -25,6 +25,15 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 	using clock_t = std::chrono::steady_clock;
 
+	// Windowed App members
+	constexpr static inline uint32_t MaxFramesInFlight = 3u;
+	smart_refctd_ptr<IWindow> m_window;
+	smart_refctd_ptr<CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>> m_surface;
+	smart_refctd_ptr<ISemaphore> m_timeline;
+	uint64_t m_realFrameIx = 0;
+	std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
+	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
+
 	// Persistent compute Pipelines
 	smart_refctd_ptr<IGPUComputePipeline> m_firstAxisFFTPipeline;
 	smart_refctd_ptr<IGPUComputePipeline> m_lastAxisFFT_convolution_lastAxisIFFTPipeline;
@@ -43,14 +52,19 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 	smart_refctd_ptr<IGPUImageView> m_kernelNormalizedSpectrums;
 
 	// Used to store intermediate results
-	smart_refctd_ptr<IGPUBuffer> m_rowMajorBuffer;
-	smart_refctd_ptr<IGPUBuffer> m_colMajorBuffer;
+	smart_refctd_ptr<IGPUBuffer> m_rowMajorBuffer[MaxFramesInFlight];
+	smart_refctd_ptr<IGPUBuffer> m_colMajorBuffer[MaxFramesInFlight];
 
 	// These are Buffer Device Addresses
-	uint64_t m_rowMajorBufferAddress;
-	uint64_t m_colMajorBufferAddress;
+	uint64_t m_rowMajorBufferAddress[MaxFramesInFlight];
+	uint64_t m_colMajorBufferAddress[MaxFramesInFlight];
 
 	bool m_useHalfFloats = false;
+	// Controls whether source image gets sampled with mirror padding or zero padding and along which axis
+	// First controls the first axis of the FFT, so sampling done in `image_fft_first_axis.hlsl`
+	// Second controls the second axis of the FFT, so sampling done in `fft_convolve_ifft.hlsl`
+	bool m_useMirrorPadding_first = false;
+	bool m_useMirrorPadding_second = false;
 	
 	// Other parameter-dependent variables
 	asset::VkExtent3D m_marginSrcDim;
@@ -62,15 +76,6 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 
 	// Only use one queue
 	IQueue* m_queue;
-
-	// Windowed App members
-	constexpr static inline uint32_t MaxFramesInFlight = 3u;
-	smart_refctd_ptr<IWindow> m_window;
-	smart_refctd_ptr<CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>> m_surface;
-	smart_refctd_ptr<ISemaphore> m_timeline;
-	uint64_t m_realFrameIx = 0;
-	std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
-	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 
 	// -------------------------------- WINDOWED APP OVERRIDES ---------------------------------------------------
 	inline bool isComputeOnly() const override { return false; }
@@ -190,6 +195,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 				std::ostringstream tmp;
 				tmp << R"===(
 				#include "nbl/builtin/hlsl/workgroup/fft.hlsl"
+				)===" << (m_useMirrorPadding_second ? "#define MIRROR_PADDING\n" : "") << R"===(
 				struct ShaderConstevalParameters
 				{
 					using scalar_t = )===" << shaderConstants.scalar_t << R"===(;
@@ -391,11 +397,19 @@ public:
 
 			auto mirrorSamplerCPU = make_smart_refctd_ptr<ICPUSampler>(samplerCreationParams);
 
-			samplerCreationParams.TextureWrapU = ISampler::ETC_CLAMP_TO_BORDER;
-			samplerCreationParams.TextureWrapV = ISampler::ETC_CLAMP_TO_BORDER;
-			samplerCreationParams.TextureWrapW = ISampler::ETC_CLAMP_TO_BORDER;
-
-			auto borderSamplerCPU = make_smart_refctd_ptr<ICPUSampler>(samplerCreationParams);
+			smart_refctd_ptr<ICPUSampler> imageSamplerCPU;
+			if (!m_useMirrorPadding_first)
+			{
+				samplerCreationParams.TextureWrapU = ISampler::ETC_CLAMP_TO_BORDER;
+				samplerCreationParams.TextureWrapV = ISampler::ETC_CLAMP_TO_BORDER;
+				samplerCreationParams.TextureWrapW = ISampler::ETC_CLAMP_TO_BORDER;
+				imageSamplerCPU = make_smart_refctd_ptr<ICPUSampler>(samplerCreationParams);
+			}
+			else
+			{
+				imageSamplerCPU = mirrorSamplerCPU;
+			}
+			
 
 			// Set descriptor set values for automatic upload
 			
@@ -411,8 +425,8 @@ public:
 			auto& mirrorSamplerDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(1u), IDescriptor::E_TYPE::ET_SAMPLER).front();
 			mirrorSamplerDescriptorInfo.desc = mirrorSamplerCPU;
 
-			auto& borderSamplerDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(4u), IDescriptor::E_TYPE::ET_SAMPLER).front();
-			borderSamplerDescriptorInfo.desc = borderSamplerCPU;
+			auto& imageSamplerDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(4u), IDescriptor::E_TYPE::ET_SAMPLER).front();
+			imageSamplerDescriptorInfo.desc = imageSamplerCPU;
 
 			// Using asset converter
 			smart_refctd_ptr<video::CAssetConverter> converter = video::CAssetConverter::create({ .device = m_device.get(),.optimizer = {} });
@@ -566,28 +580,29 @@ public:
 
 			deviceLocalBufferParams.queueFamilyIndexCount = 1;
 			deviceLocalBufferParams.queueFamilyIndices = &queueFamilyIndex;
-			// Axis on which we perform first FFT is the only one that needs to be padded in memory - in this case it's the y-axis
-			hlsl::vector <uint16_t, 1> firstAxis(uint16_t(1));
-			// We only need enough memory to hold (half, since it's real) of the original-sized image with padding for the kernel (and the padding up to PoT) only on the first axis.
-			// That's because (in this case, since it's a 2D convolution) the "middle" step (that which does the last FFT -> convolves -> first IFFT) doesn't store
-			// anything and the "padding" can be seen as virtual.
-			hlsl::vector <uint32_t, 3> paddedSrcDimensions(srcDim.width, m_marginSrcDim.height, srcDim.depth);
-			deviceLocalBufferParams.size = fft::getOutputBufferSize<3, 1>(paddedSrcDimensions, 3, firstAxis, true, m_useHalfFloats);
+			uint32_t2 sourceDimensions = { m_marginSrcDim.width, m_marginSrcDim.height };
+			// Y-axis goes first in the FFT
+			hlsl::vector <uint16_t, 2> axisPassOrder = { 1, 0 };
+			deviceLocalBufferParams.size = fft::getOutputBufferSize<2>(3, sourceDimensions, 0, axisPassOrder, true, m_useHalfFloats);
 			deviceLocalBufferParams.usage = asset::IBuffer::E_USAGE_FLAGS::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
-			m_rowMajorBuffer = m_device->createBuffer(std::move(deviceLocalBufferParams));
-			deviceLocalBufferParams = m_rowMajorBuffer->getCreationParams();
-			m_colMajorBuffer = m_device->createBuffer(std::move(deviceLocalBufferParams));
+			for (auto i = 0u; i < MaxFramesInFlight; i++) 
+			{
+				m_rowMajorBuffer[i] = m_device->createBuffer(std::move(deviceLocalBufferParams));
+				deviceLocalBufferParams = m_rowMajorBuffer[i]->getCreationParams();
+				m_colMajorBuffer[i] = m_device->createBuffer(std::move(deviceLocalBufferParams));
+				deviceLocalBufferParams = m_rowMajorBuffer[i]->getCreationParams();
 
-			auto rowMemReqs = m_rowMajorBuffer->getMemoryReqs();
-			auto colMemReqs = m_colMajorBuffer->getMemoryReqs();
-			rowMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			colMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			auto gpuRowMem = m_device->allocate(rowMemReqs, m_rowMajorBuffer.get(), IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT);
-			auto gpuColMem = m_device->allocate(colMemReqs, m_colMajorBuffer.get(), IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT);
+				auto rowMemReqs = m_rowMajorBuffer[i]->getMemoryReqs();
+				auto colMemReqs = m_colMajorBuffer[i]->getMemoryReqs();
+				rowMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+				colMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+				auto gpuRowMem = m_device->allocate(rowMemReqs, m_rowMajorBuffer[i].get(), IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT);
+				auto gpuColMem = m_device->allocate(colMemReqs, m_colMajorBuffer[i].get(), IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT);
 
-			m_rowMajorBufferAddress = m_rowMajorBuffer.get()->getDeviceAddress();
-			m_colMajorBufferAddress = m_colMajorBuffer.get()->getDeviceAddress();
+				m_rowMajorBufferAddress[i] = m_rowMajorBuffer[i].get()->getDeviceAddress();
+				m_colMajorBufferAddress[i] = m_colMajorBuffer[i].get()->getDeviceAddress();
+			}
 		}
 		// Create cache for shader compilation
 
@@ -680,7 +695,7 @@ public:
 			// Compute required WorkgroupSize and ElementsPerThread for FFT
 			// Remember we assume kernel is square!
 
-			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device->getPhysicalDevice()->getLimits().maxWorkgroupSize[0], kerDim.width);
+			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device->getPhysicalDevice()->getLimits().maxOptimallyResidentWorkgroupInvocations, kerDim.width);
 			// Normalization shader needs this info
 			uint16_t secondAxisFFTHalfLengthLog2 = elementsPerInvocationLog2 + workgroupSizeLog2 - 1;
 			// Create shaders
@@ -709,8 +724,8 @@ public:
 
 			// Push Constants - only need to specify BDAs here
 			PushConstantData pushConstants;
-			pushConstants.colMajorBufferAddress = m_colMajorBufferAddress;
-			pushConstants.rowMajorBufferAddress = m_rowMajorBufferAddress;
+			pushConstants.colMajorBufferAddress = m_colMajorBufferAddress[0];
+			pushConstants.rowMajorBufferAddress = m_rowMajorBufferAddress[0];
 
 			// Create a command buffer for this submit only
 			smart_refctd_ptr<IGPUCommandBuffer> kernelPrecompCmdBuf;
@@ -735,7 +750,7 @@ public:
 			pipelineBarrierInfo.bufBarriers = { &bufBarrier, 1u };
 
 			// First axis FFT writes to colMajorBuffer
-			bufBarrier.range.buffer = m_colMajorBuffer;
+			bufBarrier.range.buffer = m_colMajorBuffer[0];
 
 			// Wait for first compute write (first axis FFT) before next compute read (second axis FFT)
 			bufBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
@@ -767,7 +782,7 @@ public:
 
 			// Wait on second axis FFT to write the kernel image before running normalization step
 			// Normalization needs to access the power value stored in the rowmajorbuffer
-			bufBarrier.range.buffer = m_rowMajorBuffer;
+			bufBarrier.range.buffer = m_rowMajorBuffer[0];
 
 			// No layout transition now
 			imgBarrier.oldLayout = IImage::LAYOUT::UNDEFINED;
@@ -860,7 +875,7 @@ public:
 		uint16_t firstAxisFFTWorkgroupSizeLog2;
 		smart_refctd_ptr<IGPUShader> shaders[3];
 		{
-			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device->getPhysicalDevice()->getLimits().maxWorkgroupSize[0], m_marginSrcDim.height);
+			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device->getPhysicalDevice()->getLimits().maxOptimallyResidentWorkgroupInvocations, m_marginSrcDim.height);
 			SShaderConstevalParameters::SShaderConstevalParametersCreateInfo shaderConstevalInfo = { .useHalfFloats = m_useHalfFloats, .elementsPerInvocationLog2 = elementsPerInvocationLog2, .workgroupSizeLog2 = workgroupSizeLog2 };
 			SShaderConstevalParameters shaderConstevalParameters(shaderConstevalInfo);
 			shaders[0] = createShader("app_resources/image_fft_first_axis.hlsl", shaderConstevalParameters);
@@ -874,7 +889,7 @@ public:
 
 		// Second axis FFT might have different dimensions
 		{
-			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device->getPhysicalDevice()->getLimits().maxWorkgroupSize[0], m_marginSrcDim.width);
+			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device->getPhysicalDevice()->getLimits().maxOptimallyResidentWorkgroupInvocations, m_marginSrcDim.width);
 			// Compute kernel half pixel size
 			const auto& kernelSpectraExtent = m_kernelNormalizedSpectrums->getCreationParameters().image->getCreationParameters().extent;
 			float32_t2 kernelHalfPixelSize{ 0.5f,0.5f };
@@ -1014,8 +1029,8 @@ public:
 		const int32_t halfPaddingAlongRows = paddingAlongRows / 2;
 
 		PushConstantData pushConstants;
-		pushConstants.colMajorBufferAddress = m_colMajorBufferAddress;
-		pushConstants.rowMajorBufferAddress = m_rowMajorBufferAddress;
+		pushConstants.colMajorBufferAddress = m_colMajorBufferAddress[resourceIx];
+		pushConstants.rowMajorBufferAddress = m_rowMajorBufferAddress[resourceIx];
 		pushConstants.imageRowLength = int32_t(imageExtent.width);
 		pushConstants.imageHalfRowLength = int32_t(imageExtent.width) / 2;
 		pushConstants.imageColumnLength = int32_t(imageExtent.height);
@@ -1047,7 +1062,7 @@ public:
 		bufferPipelineBarrierInfo.bufBarriers = { &bufBarrier, 1u };
 
 		// First axis FFT writes to colMajorBuffer
-		bufBarrier.range.buffer = m_colMajorBuffer;
+		bufBarrier.range.buffer = m_colMajorBuffer[resourceIx];
 
 		// Wait for first compute write (first axis FFT) before next compute read (second axis FFT)
 		bufBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
@@ -1064,7 +1079,7 @@ public:
 		cmdBuf->dispatch(core::roundUpToPoT(m_marginSrcDim.height) / 2, 1, 1);
 
 		// Recycle pipeline barrier, only have to change which buffer we need to wait to be written to
-		bufBarrier.range.buffer = m_rowMajorBuffer;
+		bufBarrier.range.buffer = m_rowMajorBuffer[resourceIx];
 		cmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), bufferPipelineBarrierInfo);
 
 		// Finally run the IFFT on the first axis
