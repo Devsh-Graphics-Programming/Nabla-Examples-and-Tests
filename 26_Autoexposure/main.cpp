@@ -140,20 +140,27 @@ public:
 				return logFail("Could not create Window & Surface or initialize the Surface!");
 		}
 
+		// One asset converter to make the cache persist
+		auto converter = CAssetConverter::create({ .device = m_device.get() });
+
 		// Create descriptors and pipelines
 		{
-			auto convertDSLayoutCPU2GPU = [&](std::span<ICPUDescriptorSetLayout *> cpuLayouts) {
-				auto converter = CAssetConverter::create({ .device = m_device.get() });
+			// need to hoist
+			CAssetConverter::SConvertParams params = {};
+			params.utilities = m_utils.get();
+
+			auto convertDSLayoutCPU2GPU = [&](std::span<ICPUDescriptorSetLayout *> cpuLayouts)
+			{
 				CAssetConverter::SInputs inputs = {};
 				inputs.readCache = converter.get();
 				inputs.logger = m_logger.get();
-				CAssetConverter::SConvertParams params = {};
-				params.utilities = m_utils.get();
 
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUDescriptorSetLayout>>(inputs.assets) = cpuLayouts;
 				// don't need to assert that we don't need to provide patches since layouts are not patchable
 				//assert(true);
 				auto reservation = converter->reserve(inputs);
+				// even though it does nothing when none assets refer in any way (direct or indirect) to memory or need any device operations performed, still need to call to write the cache
+				reservation.convert(params);
 				// the `.value` is just a funny way to make the `smart_refctd_ptr` copyable
 				auto gpuLayouts = reservation.getGPUObjects<ICPUDescriptorSetLayout>();
 				std::vector<smart_refctd_ptr<IGPUDescriptorSetLayout>> result;
@@ -170,18 +177,18 @@ public:
 
 				return result;
 			};
-			auto convertDSCPU2GPU = [&](std::span<ICPUDescriptorSet *> cpuDS) {
-				auto converter = CAssetConverter::create({ .device = m_device.get() });
+			auto convertDSCPU2GPU = [&](std::span<ICPUDescriptorSet *> cpuDS)
+			{
 				CAssetConverter::SInputs inputs = {};
 				inputs.readCache = converter.get();
 				inputs.logger = m_logger.get();
-				CAssetConverter::SConvertParams params = {};
-				params.utilities = m_utils.get();
 
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUDescriptorSet>>(inputs.assets) = cpuDS;
 				// don't need to assert that we don't need to provide patches since layouts are not patchable
 				//assert(true);
 				auto reservation = converter->reserve(inputs);
+				// even though it does nothing when none assets refer in any way (direct or indirect) to memory or need any device operations performed, still need to call to write the cache
+				reservation.convert(params);
 				// the `.value` is just a funny way to make the `smart_refctd_ptr` copyable
 				auto gpuDS = reservation.getGPUObjects<ICPUDescriptorSet>();
 				std::vector<smart_refctd_ptr<IGPUDescriptorSet>> result;
@@ -421,7 +428,8 @@ public:
 		// Load exr file into gpu
 		smart_refctd_ptr<IGPUImage> gpuImg;
 		{
-			auto convertImgCPU2GPU = [&](ICPUImage* cpuImg) {
+			auto convertImgCPU2GPU = [&](ICPUImage* cpuImg)
+			{
 				auto queue = getGraphicsQueue();
 				auto cmdbuf = m_cmdBufs[0].get();
 				cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
@@ -429,7 +437,6 @@ public:
 				core::smart_refctd_ptr<ISemaphore> imgFillSemaphore = m_device->createSemaphore(0);
 				imgFillSemaphore->setObjectDebugName("Image Fill Semaphore");
 
-				auto converter = CAssetConverter::create({ .device = m_device.get() });
 				// We don't want to generate mip-maps for these images, to ensure that we must override the default callbacks.
 				struct SInputs final : CAssetConverter::SInputs
 				{
