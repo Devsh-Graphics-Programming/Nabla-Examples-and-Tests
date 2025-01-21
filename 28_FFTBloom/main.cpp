@@ -1056,6 +1056,10 @@ public:
 		auto epochNanoseconds = clock_t::now().time_since_epoch().count();
 		pushConstants.interpolatingFactor = cos(epochNanoseconds / 1000000000.f) * cos(epochNanoseconds / 1000000000.f);
 
+		// Get size required to store FFT of a single channel
+		uint64_t channelStrideBytes = m_imageSecondAxisFFTNumWorkgroups * imageExtent.width * (m_useHalfFloats ? sizeof(complex_t<float16_t>) : sizeof(complex_t<float32_t>));
+		pushConstants.channelStrideBytes = channelStrideBytes;
+
 		cmdBuf->bindComputePipeline(m_firstAxisFFTPipeline.get());
 		cmdBuf->bindDescriptorSets(asset::EPBP_COMPUTE, m_firstAxisFFTPipeline->getLayout(), 0, 1, &m_descriptorSet.get());
 		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(pushConstants), &pushConstants);
@@ -1080,15 +1084,10 @@ public:
 		cmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), bufferPipelineBarrierInfo);
 		// Now comes Second axis FFT + Conv + IFFT
 		cmdBuf->bindComputePipeline(m_lastAxisFFT_convolution_lastAxisIFFTPipeline.get());
-		// Update padding for run along rows
-		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, padding), sizeof(paddingAlongRows), &paddingAlongRows);
 		
-		// Update push contants for run
-		uint64_t channelStrideBytes = m_imageSecondAxisFFTNumWorkgroups * imageExtent.width * (m_useHalfFloats ? sizeof(complex_t<float16_t>) : sizeof(complex_t<float32_t>));
-
-		pushConstants.channelStrideBytes = channelStrideBytes;
-
-		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, channelStrideBytes), sizeof(pushConstants.channelStrideBytes), &pushConstants.channelStrideBytes);
+		// Update padding for run along rows
+		pushConstants.padding = paddingAlongRows;
+		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, padding), sizeof(pushConstants.padding), &pushConstants.padding);
 
 		// One workgroup on X per row in the lower half of the DFT
 		// One workgroup on Y per channel
@@ -1101,7 +1100,8 @@ public:
 		// Finally run the IFFT on the first axis
 		cmdBuf->bindComputePipeline(m_firstAxisIFFTPipeline.get());
 		// Update padding for run along columns
-		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, padding), sizeof(paddingAlongColumns), &paddingAlongColumns);
+		pushConstants.padding = paddingAlongColumns;
+		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, padding), sizeof(pushConstants.padding), &pushConstants.padding);
 		// One workgroup per 2 columns
 		cmdBuf->dispatch(srcDim.width / 2, 1, 1);
 
