@@ -14,18 +14,12 @@ struct PushConstantData
 	// possibility of writing over data that still hasn't been read by some workgroups.
 	uint64_t colMajorBufferAddress;
 	uint64_t rowMajorBufferAddress;
+	uint64_t channelStrideBytes;
 	// To save some work, we don't mirror the image along both directions when doing the FFT. This means that when doing the FFT along the second axis, we do an FFT of length
 	// `RoundUpToPoT(imageRowLength + kernelPadding)` where `imageRowLength` is the actual length of the image along the second axis. We need it to keep track of the image's original dimension.
 	// The following three fields being push constants allow dynamic resizing of the image without recompiling shaders (limited by the FFT length)
 	int32_t imageRowLength : 16; 
 	int32_t imageHalfRowLength : 16;
-	// Only middle pass uses these
-	struct
-	{
-		uint64_t currentChannel : 2;
-		uint64_t channelStartOffsetBytes : 62;
-	} channelInfo;
-	
 	// We don't pack it into a bitfield so we can use offsetof and update only this field from CPP side
 	// Alternatively, we could do the packing/unpacking manually to save 32 bits
 	int32_t padding;

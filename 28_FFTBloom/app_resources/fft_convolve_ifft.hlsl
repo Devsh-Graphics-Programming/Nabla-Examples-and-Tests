@@ -36,6 +36,12 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 	{
 		return x * pushConstants.imageRowLength + y; // can no longer sum with | since there's no guarantees on row length
 	}
+
+	// No channel as parameter since workgroup runs on a single channel
+	uint64_t getChannelStartOffsetBytes()
+	{
+		return uint64_t(glsl::gl_WorkGroupID().y) * pushConstants.channelStrideBytes;
+	}
 	// ---------------------------------------------------- End Utils ---------------------------------------------------------
 
 	// Unpacking on load: Has no workgroup shuffles (which become execution barriers) which would be necessary for unpacking on store
@@ -53,7 +59,8 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 	void preload()
 	{
 		// Set up accessor to read in data
-		const LegacyBdaAccessor<complex_t<scalar_t> > rowMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.rowMajorBufferAddress + pushConstants.channelInfo.channelStartOffsetBytes);
+		const uint64_t channelStartOffsetBytes = getChannelStartOffsetBytes();
+		const LegacyBdaAccessor<complex_t<scalar_t> > rowMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.rowMajorBufferAddress + channelStartOffsetBytes);
 
 		// This one shows up a lot so we give it a name
 		const bool oddThread = glsl::gl_SubgroupInvocationID() & 1u;
@@ -128,7 +135,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				const uint32_t indexDFT = FFTIndexingUtils::getDFTIndex(globalElementIndex);
 				const uint32_t2 texCoords = uint32_t2(x, indexDFT);
 				const float32_t2 uv = texCoords * float32_t2(1.f / NumWorkgroups, TotalSizeReciprocal) + KernelHalfPixelSize;
-				const vector<scalar_t, 2> sampledKernelVector = vector<scalar_t, 2>(kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(pushConstants.channelInfo.currentChannel)), 0));
+				const vector<scalar_t, 2> sampledKernelVector = vector<scalar_t, 2>(kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(glsl::gl_WorkGroupID().y)), 0));
 				const vector<scalar_t, 2> sampledKernelInterpolatedVector = lerp(sampledKernelVector, One, promote<vector<scalar_t, 2>, float32_t>(pushConstants.interpolatingFactor));
 				const complex_t<scalar_t> sampledKernelInterpolated = { sampledKernelInterpolatedVector.x, sampledKernelInterpolatedVector.y };
 				preloaded[localElementIndex] = preloaded[localElementIndex] * sampledKernelInterpolated;
@@ -154,14 +161,14 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 				const float32_t indexDFT = float32_t(FFTIndexingUtils::getDFTIndex(globalElementIndex));
 
 				float32_t2 uv = float32_t2(float32_t(0), indexDFT * TotalSizeReciprocal) + KernelHalfPixelSize;
-				const vector<scalar_t, 2> zeroKernelVector = vector<scalar_t, 2>(kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(pushConstants.channelInfo.currentChannel)), 0));
+				const vector<scalar_t, 2> zeroKernelVector = vector<scalar_t, 2>(kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(glsl::gl_WorkGroupID().y)), 0));
 				const vector<scalar_t, 2> zeroKernelInterpolatedVector = lerp(zeroKernelVector, One, promote<vector<scalar_t, 2>, float32_t>(pushConstants.interpolatingFactor));
 				const complex_t<scalar_t> zeroKernelInterpolated = { zeroKernelInterpolatedVector.x, zeroKernelInterpolatedVector.y };
 				zero = zero * zeroKernelInterpolated;
 
 				// Do the same for the nyquist coord
 				uv.x = 1.f - KernelHalfPixelSize.x;
-				const vector<scalar_t, 2> nyquistKernelVector = vector<scalar_t, 2>(kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(pushConstants.channelInfo.currentChannel)), 0));
+				const vector<scalar_t, 2> nyquistKernelVector = vector<scalar_t, 2>(kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(glsl::gl_WorkGroupID().y)), 0));
 				const vector<scalar_t, 2> nyquistKernelInterpolatedVector = lerp(nyquistKernelVector, One, promote<vector<scalar_t, 2>, float32_t>(pushConstants.interpolatingFactor));
 				const complex_t<scalar_t> nyquistKernelInterpolated = { nyquistKernelInterpolatedVector.x, nyquistKernelInterpolatedVector.y };
 				nyquist = nyquist * nyquistKernelInterpolated;
@@ -194,7 +201,8 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 	void unload()
 	{
 		// Set up accessor to write out data
-		const LegacyBdaAccessor<complex_t<scalar_t> > colMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.colMajorBufferAddress + pushConstants.channelInfo.channelStartOffsetBytes);
+		const uint64_t channelStartOffsetBytes = getChannelStartOffsetBytes();
+		const LegacyBdaAccessor<complex_t<scalar_t> > colMajorAccessor = LegacyBdaAccessor<complex_t<scalar_t> >::create(pushConstants.colMajorBufferAddress + channelStartOffsetBytes);
 
 		const uint32_t firstIndex = workgroup::SubgroupContiguousIndex();
 		int32_t paddedIndex = int32_t(firstIndex) - pushConstants.padding;

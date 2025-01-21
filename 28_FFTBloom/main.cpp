@@ -653,6 +653,7 @@ public:
 		//       and setting stuff via shader push constants (such as which axis to perform FFT on and the size of output image).
 
 		// -------------------------------------- KERNEL FFT PRECOMP ----------------------------------------------------------------
+		const auto& deviceLimits = m_device->getPhysicalDevice()->getLimits();
 		{
 			// create kernel spectrums
 			auto createKernelSpectrum = [&]() -> auto
@@ -700,7 +701,7 @@ public:
 			// Compute required WorkgroupSize and ElementsPerThread for FFT
 			// Remember we assume kernel is square!
 
-			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device->getPhysicalDevice()->getLimits().maxOptimallyResidentWorkgroupInvocations, kerDim.width, m_device->getPhysicalDevice()->getLimits().minSubgroupSize);
+			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(deviceLimits.maxOptimallyResidentWorkgroupInvocations, kerDim.width, deviceLimits.maxSubgroupSize);
 			// Normalization shader needs this info
 			uint16_t secondAxisFFTHalfLengthLog2 = elementsPerInvocationLog2 + workgroupSizeLog2 - 1;
 			// Create shaders
@@ -880,7 +881,7 @@ public:
 		uint16_t firstAxisFFTWorkgroupSizeLog2;
 		smart_refctd_ptr<IGPUShader> shaders[3];
 		{
-			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device->getPhysicalDevice()->getLimits().maxOptimallyResidentWorkgroupInvocations, m_marginSrcDim.width, m_device->getPhysicalDevice()->getLimits().minSubgroupSize);
+			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(deviceLimits.maxOptimallyResidentWorkgroupInvocations, m_marginSrcDim.width, deviceLimits.maxSubgroupSize);
 			SShaderConstevalParameters::SShaderConstevalParametersCreateInfo shaderConstevalInfo = { .useHalfFloats = m_useHalfFloats, .elementsPerInvocationLog2 = elementsPerInvocationLog2, .workgroupSizeLog2 = workgroupSizeLog2 };
 			SShaderConstevalParameters shaderConstevalParameters(shaderConstevalInfo);
 			shaders[0] = createShader("app_resources/image_fft_first_axis.hlsl", shaderConstevalParameters);
@@ -895,7 +896,8 @@ public:
 
 		// Second axis FFT might have different dimensions
 		{
-			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device->getPhysicalDevice()->getLimits().maxOptimallyResidentWorkgroupInvocations, m_marginSrcDim.height, m_device->getPhysicalDevice()->getLimits().minSubgroupSize);
+			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(deviceLimits.maxOptimallyResidentWorkgroupInvocations, m_marginSrcDim.height, deviceLimits.maxSubgroupSize);
+
 			// Compute kernel half pixel size
 			const auto& kernelSpectraExtent = m_kernelNormalizedSpectrums->getCreationParameters().image->getCreationParameters().extent;
 			float32_t2 kernelHalfPixelSize{ 0.5f,0.5f };
@@ -1082,20 +1084,16 @@ public:
 		// Update padding for run along rows
 		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, padding), sizeof(paddingAlongRows), &paddingAlongRows);
 
-		// One dispatch per channel
-		for (uint32_t channel = 0u; channel < Channels; channel++)
-		{
-			// Update push contants for run
-			uint64_t channelOffsetBytes = uint64_t(channel) * m_imageSecondAxisFFTNumWorkgroups * imageExtent.height * (m_useHalfFloats ? sizeof(complex_t<float16_t>) : sizeof(complex_t<float32_t>));
+		// Update push contants for run
+		uint64_t channelStrideBytes = m_imageSecondAxisFFTNumWorkgroups * imageExtent.height * (m_useHalfFloats ? sizeof(complex_t<float16_t>) : sizeof(complex_t<float32_t>));
 
-			pushConstants.channelInfo.currentChannel = channel;
-			pushConstants.channelInfo.channelStartOffsetBytes = channelOffsetBytes;
+		pushConstants.channelStrideBytes = channelStrideBytes;
 
-			cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, channelInfo), sizeof(pushConstants.channelInfo), &pushConstants.channelInfo);
+		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, channelStrideBytes), sizeof(pushConstants.channelStrideBytes), &pushConstants.channelStrideBytes);
 
-			// One workgroup per row in the lower half of the DFT
-			cmdBuf->dispatch(core::roundUpToPoT(m_marginSrcDim.width) / 2, 1, 1);
-		}
+		// One workgroup on X per row in the lower half of the DFT
+		// One workgroup on Y per channel
+		cmdBuf->dispatch(core::roundUpToPoT(m_marginSrcDim.width) / 2, Channels, 1);
 
 		// Recycle pipeline barrier, only have to change which buffer we need to wait to be written to
 		bufBarrier.range.buffer = m_colMajorBuffer[resourceIx];
