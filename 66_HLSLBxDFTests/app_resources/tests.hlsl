@@ -460,13 +460,13 @@ struct TestUOffset : TestBxDF<BxDF>
     {
         compute();
 
-        if (checkZero<float>(pdf.pdf, base_t::rc.eps))  // something generated cannot have 0 probability of getting generated
+        if (checkZero<float>(pdf.pdf, 1e-5))  // something generated cannot have 0 probability of getting generated
             return BET_PDF_ZERO;
 
         if (!checkLt<float32_t3>(pdf.quotient, (float32_t3)numeric_limits<float>::infinity))    // importance sampler's job to prevent inf
             return BET_QUOTIENT_INF;
 
-        if (checkZero<float32_t3>(bsdf, base_t::rc.eps) || checkZero<float32_t3>(pdf.quotient, base_t::rc.eps))
+        if (checkZero<float32_t3>(bsdf, 1e-5) || checkZero<float32_t3>(pdf.quotient, 1e-5))
             return BET_NONE;    // produces an "impossible" sample
 
         if (checkLt<float32_t3>(bsdf, (float32_t3)0.0) || checkLt<float32_t3>(pdf.quotient, (float32_t3)0.0) || pdf.pdf < 0.0)
@@ -476,10 +476,10 @@ struct TestUOffset : TestBxDF<BxDF>
         float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
         float det = nbl::hlsl::determinant<float32_t2x2>(m);
 
-        if (!checkZero<float>(det * pdf.pdf / s.NdotL, base_t::rc.eps))
+        if (!checkZero<float>(det * pdf.pdf / s.NdotL, 1e-5))
             return BET_JACOBIAN;
 
-        if (!checkEq<float32_t3>(pdf.value(), bsdf, base_t::rc.eps))
+        if (!checkEq<float32_t3>(pdf.value(), bsdf, 1e-2))
             return BET_PDF_EVAL_DIFF;
 
         return BET_NONE;
@@ -556,7 +556,7 @@ struct TestReciprocity : TestBxDF<BxDF>
 
         ray_dir_info_t rec_V = s.L;
         float VdotL = nbl::hlsl::dot<float32_t3>(base_t::rc.V.direction,s.L.direction);
-        rec_s = sample_t::create(base_t::rc.V, VdotL, base_t::rc.T, base_t::rc.B, base_t::rc.N);
+        rec_s = sample_t::create(base_t::rc.V, s.VdotL, base_t::rc.T, base_t::rc.B, base_t::rc.N);
 
         iso_interaction rec_isointer = iso_interaction::create(rec_V, base_t::rc.N);
         aniso_interaction rec_anisointer = aniso_interaction::create(rec_isointer, base_t::rc.T, base_t::rc.B);
@@ -571,7 +571,7 @@ struct TestReciprocity : TestBxDF<BxDF>
         if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF>)
         {
             if NBL_CONSTEXPR_FUNC (aniso)
-                rec_params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(rec_s, rec_anisointer, cache, bxdf::BCM_MAX);
+                rec_params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(rec_s, rec_anisointer, rec_cache, bxdf::BCM_MAX);
             else
             {
                 rec_isocache = (iso_cache)rec_cache;
@@ -583,7 +583,7 @@ struct TestReciprocity : TestBxDF<BxDF>
         if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
         {
             if NBL_CONSTEXPR_FUNC (aniso)
-                rec_params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(rec_s, rec_anisointer, cache, bxdf::BCM_ABS);
+                rec_params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(rec_s, rec_anisointer, rec_cache, bxdf::BCM_ABS);
             else
             {
                 rec_isocache = (iso_cache)rec_cache;
@@ -615,13 +615,13 @@ struct TestReciprocity : TestBxDF<BxDF>
     {
         compute();
 
-        if (checkZero<float32_t3>(bsdf, base_t::rc.eps))
+        if (checkZero<float32_t3>(bsdf, 1e-5))
             return BET_NONE;    // produces an "impossible" sample
 
         if (checkLt<float32_t3>(bsdf, (float32_t3)0.0))
             return BET_NEGATIVE_VAL;
 
-        if (!!checkEq<float32_t3>(bsdf, rec_bsdf, base_t::rc.eps))
+        if (!checkEq<float32_t3>(bsdf, rec_bsdf, 1e-2))
             return BET_RECIPROCITY;
 
         return BET_NONE;
