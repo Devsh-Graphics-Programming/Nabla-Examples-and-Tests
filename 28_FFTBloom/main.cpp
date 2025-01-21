@@ -722,6 +722,7 @@ public:
 				params[i].shader.shader = shaders[i].get();
 				// Normalization doesn't require full subgroups
 				params[i].shader.requireFullSubgroups = bool(2-i);
+				params[i].shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(hlsl::findMSB(deviceLimits.maxSubgroupSize));
 			}
 			
 			smart_refctd_ptr<IGPUComputePipeline> pipelines[3];
@@ -923,6 +924,7 @@ public:
 			params[i].layout = pipelineLayout.get();
 			params[i].shader.entryPoint = "main";
 			params[i].shader.shader = shaders[i].get();
+			params[i].shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(hlsl::findMSB(deviceLimits.maxSubgroupSize));
 			params[i].shader.requireFullSubgroups = true;
 		}
 
