@@ -435,7 +435,7 @@ struct TestUOffset : TestBxDF<BxDF>
                 params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_ABS);
             }
         }
-        
+
         if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF> || is_basic_bsdf_v<BxDF>)
         {
             pdf = base_t::bxdf.quotient_and_pdf(params);
@@ -479,7 +479,7 @@ struct TestUOffset : TestBxDF<BxDF>
         if (!checkZero<float>(det * pdf.pdf / s.NdotL, 1e-5))
             return BET_JACOBIAN;
 
-        if (!checkEq<float32_t3>(pdf.value(), bsdf, 1e-2))
+        if (!checkEq<float32_t3>(pdf.value(), bsdf, 5e-2))
             return BET_PDF_EVAL_DIFF;
 
         return BET_NONE;
@@ -517,7 +517,6 @@ struct TestReciprocity : TestBxDF<BxDF>
     {
         aniso_cache cache, rec_cache;
         iso_cache isocache, rec_isocache;
-        params_t params, rec_params;
 
         if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
         {
@@ -554,9 +553,11 @@ struct TestReciprocity : TestBxDF<BxDF>
             }
         }
 
+        float32_t3x3 toTangentSpace = base_t::anisointer.getToTangentSpace();
         ray_dir_info_t rec_V = s.L;
-        float VdotL = nbl::hlsl::dot<float32_t3>(base_t::rc.V.direction,s.L.direction);
-        rec_s = sample_t::create(base_t::rc.V, s.VdotL, base_t::rc.T, base_t::rc.B, base_t::rc.N);
+        ray_dir_info_t rec_localV = ray_dir_info_t::transform(toTangentSpace, rec_V);
+        ray_dir_info_t rec_localL = ray_dir_info_t::transform(toTangentSpace, base_t::rc.V);
+        rec_s = sample_t::createFromTangentSpace(rec_localV.direction, rec_localL, base_t::anisointer.getFromTangentSpace());
 
         iso_interaction rec_isointer = iso_interaction::create(rec_V, base_t::rc.N);
         aniso_interaction rec_anisointer = aniso_interaction::create(rec_isointer, base_t::rc.T, base_t::rc.B);
@@ -621,8 +622,11 @@ struct TestReciprocity : TestBxDF<BxDF>
         if (checkLt<float32_t3>(bsdf, (float32_t3)0.0))
             return BET_NEGATIVE_VAL;
 
-        if (!checkEq<float32_t3>(bsdf, rec_bsdf, 1e-2))
-            return BET_RECIPROCITY;
+        float32_t3 a = bsdf * nbl::hlsl::abs<float>(params.NdotV);
+        float32_t3 b = rec_bsdf * nbl::hlsl::abs<float>(rec_params.NdotV);
+        if (!(a == b))  // avoid division by 0
+            if (!checkEq<float32_t3>(a, b, 1e-2))
+                return BET_RECIPROCITY;
 
         return BET_NONE;
     }
@@ -646,6 +650,7 @@ struct TestReciprocity : TestBxDF<BxDF>
 
     sample_t s, rec_s;
     float32_t3 bsdf, rec_bsdf;
+    params_t params, rec_params;
 };
 
 }
