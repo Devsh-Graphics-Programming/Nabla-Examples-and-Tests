@@ -1,5 +1,4 @@
 #include "fft_mirror_common.hlsl"
-#include "nbl/builtin/hlsl/bitreverse.hlsl"
 
 [[vk::binding(3, 0)]] Texture2DArray<float32_t2> kernelChannels;
 [[vk::binding(1, 0)]] SamplerState samplerState;

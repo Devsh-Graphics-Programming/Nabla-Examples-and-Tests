@@ -1,6 +1,5 @@
 #include "fft_mirror_common.hlsl"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
-#include "nbl/builtin/hlsl/bitreverse.hlsl"
 
 [[vk::binding(2, 0)]] RWTexture2DArray<float32_t2> kernelChannels;
 
