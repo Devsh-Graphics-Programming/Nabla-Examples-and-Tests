@@ -16,6 +16,10 @@
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 #include <nbl/asset/IRayTracingPipeline.h>
 
+#include "nbl/ui/ICursorControl.h"
+#include "nbl/ext/ImGui/ImGui.h"
+#include "imgui/imgui_internal.h"
+
 using namespace nbl;
 using namespace core;
 using namespace hlsl;
