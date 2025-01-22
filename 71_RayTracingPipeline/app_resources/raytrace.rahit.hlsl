@@ -20,8 +20,9 @@ void main(inout AnyHitPayload p, in BuiltInTriangleIntersectionAttributes attrib
     if (geom.material.illum != 4)
         return;
 
+    uint32_t seed = p.seed;
     if (geom.material.dissolve == 0.0)
         IgnoreHit();
-    else if (rnd(p.seed) > geom.material.dissolve)
+    else if (rnd(seed) > geom.material.dissolve)
         IgnoreHit();
 }

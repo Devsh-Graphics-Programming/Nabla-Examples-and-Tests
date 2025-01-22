@@ -134,6 +134,9 @@ public:
     const auto anyHitShaderShadowPayload = compileShader("app_resources/raytrace.rahit.hlsl", "#define USE_SHADOW_PAYLOAD\n");
     const auto missShader = compileShader("app_resources/raytrace.rmiss.hlsl");
     const auto shadowMissShader = compileShader("app_resources/raytraceShadow.rmiss.hlsl");
+    const auto directionalLightCallShader = compileShader("app_resources/light_directional.rcall.hlsl");
+    const auto pointLightCallShader = compileShader("app_resources/light_point.rcall.hlsl");
+    const auto spotLightCallShader = compileShader("app_resources/light_spot.rcall.hlsl");
 
     m_semaphore = m_device->createSemaphore(m_realFrameIx);
     if (!m_semaphore)
@@ -275,11 +278,14 @@ public:
 
       const IGPUShader::SSpecInfo shaders[] = {
           {.shader = raygenShader.get()},
+          {.shader = missShader.get()},
+          {.shader = shadowMissShader.get()},
           {.shader = closestHitShader.get()},
           {.shader = anyHitShaderColorPayload.get()},
           {.shader = anyHitShaderShadowPayload.get()},
-          {.shader = missShader.get()},
-          {.shader = shadowMissShader.get()},
+          {.shader = directionalLightCallShader.get()},
+          {.shader = pointLightCallShader.get()},
+          {.shader = spotLightCallShader.get()},
       };
 
       params.layout = pipelineLayout.get();
@@ -287,10 +293,13 @@ public:
       params.cached.shaderGroups.raygenGroup = {
         .shaderIndex = 0,
       };
-      params.cached.shaderGroups.hitGroups.push_back({ .closestHitShaderIndex = 1, .anyHitShaderIndex = 2 });
-      params.cached.shaderGroups.hitGroups.push_back({ .closestHitShaderIndex = 1, .anyHitShaderIndex = 3 });
-      params.cached.shaderGroups.missGroups.push_back({ .shaderIndex = 4 });
-      params.cached.shaderGroups.missGroups.push_back({ .shaderIndex = 5 });
+      params.cached.shaderGroups.missGroups.push_back({ .shaderIndex = 1 });
+      params.cached.shaderGroups.missGroups.push_back({ .shaderIndex = 2 });
+      params.cached.shaderGroups.hitGroups.push_back({ .closestHitShaderIndex = 3, .anyHitShaderIndex = 4 });
+      params.cached.shaderGroups.hitGroups.push_back({ .closestHitShaderIndex = 3, .anyHitShaderIndex = 5 });
+      params.cached.shaderGroups.callableGroups.push_back({.shaderIndex = 6});
+      params.cached.shaderGroups.callableGroups.push_back({.shaderIndex = 7});
+      params.cached.shaderGroups.callableGroups.push_back({.shaderIndex = 8});
       params.cached.maxRecursionDepth = 2;
       if (!m_device->createRayTracingPipelines(nullptr, { &params, 1 }, &m_rayTracingPipeline))
         return logFail("Failed to create ray tracing pipeline");

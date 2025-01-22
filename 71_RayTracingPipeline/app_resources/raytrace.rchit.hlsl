@@ -123,31 +123,7 @@ void main(inout ColorPayload p, in BuiltInTriangleIntersectionAttributes attribs
 
     RayLight cLight;
     cLight.inHitPosition = worldPosition;
-    if (pc.light.type == 0)
-    {
-        cLight.outLightDir = normalize(-pc.light.direction);
-        cLight.outIntensity = 1.0;
-        cLight.outLightDistance = 10000000;
-    }
-    if (pc.light.type == 1)
-    {
-        float32_t3 lDir = pc.light.position - cLight.inHitPosition;
-        float lightDistance = length(lDir);
-        cLight.outIntensity = pc.light.intensity / (lightDistance * lightDistance);
-        cLight.outLightDir = normalize(lDir);
-        cLight.outLightDistance = lightDistance;
-    }
-    else if (pc.light.type == 2)
-    {
-        float32_t3 lDir = pc.light.position - cLight.inHitPosition;
-        cLight.outLightDistance = length(lDir);
-        cLight.outIntensity = pc.light.intensity / (cLight.outLightDistance * cLight.outLightDistance);
-        cLight.outLightDir = normalize(lDir);
-        float theta = dot(cLight.outLightDir, normalize(-pc.light.direction));
-        float epsilon = pc.light.innerCutoff - pc.light.outerCutoff;
-        float spotIntensity = clamp((theta - pc.light.outerCutoff) / epsilon, 0.0, 1.0);
-        cLight.outIntensity *= spotIntensity;
-    }
+    CallShader(pc.light.type, cLight);
 
     float32_t3 diffuse = computeDiffuse(geom.material, cLight.outLightDir, worldNormal);
     float32_t3 specular = float32_t3(0, 0, 0);
@@ -166,9 +142,9 @@ void main(inout ColorPayload p, in BuiltInTriangleIntersectionAttributes attribs
         shadowPayload.isShadowed = true;
         shadowPayload.seed = p.seed;
         TraceRay(topLevelAS, flags, 0xFF, 1, 0, 1, rayDesc, shadowPayload);
-        p.seed = shadowPayload.seed;
 
-        if (shadowPayload.isShadowed)
+        bool isShadowed = shadowPayload.isShadowed;
+        if (isShadowed)
         {
             attenuation = 0.3;
         }

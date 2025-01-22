@@ -66,9 +66,9 @@ struct SPushConstants
 
 struct RayLight
 {
-    float32_t3  inHitPosition;
+    float32_t3 inHitPosition;
     float32_t outLightDistance;
-    float32_t3  outLightDir;
+    float32_t3 outLightDir;
     float32_t outIntensity;
 };
 
@@ -76,14 +76,14 @@ struct RayLight
 
 struct [raypayload] ColorPayload
 {
-	float32_t3 hitValue;
-    uint32_t seed;
+	float32_t3 hitValue : read(caller) : write(closesthit,miss);
+    uint32_t seed : read(closesthit,anyhit) : write(caller);
 };
 
 struct [raypayload] ShadowPayload
 {
-	bool isShadowed;
-    uint32_t seed;
+	bool isShadowed : read(caller) : write(caller,miss);
+    uint32_t seed : read(anyhit) : write(caller);
 };
 
 enum ObjectType : uint32_t  // matches c++

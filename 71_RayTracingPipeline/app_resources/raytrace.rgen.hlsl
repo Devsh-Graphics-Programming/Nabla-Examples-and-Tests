@@ -51,7 +51,6 @@ void main()
         
         ColorPayload payload;
         payload.seed = seed;
-        payload.hitValue = float32_t3(0, 0, 0);
         TraceRay(topLevelAS, RAY_FLAG_NONE, 0xff, 0, 0, 0, rayDesc, payload);
 
         hitValues += payload.hitValue;
