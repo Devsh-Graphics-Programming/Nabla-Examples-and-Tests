@@ -536,7 +536,7 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 					auto ev = *eventIt;
 					if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
 					{
-						blurRadius = std::clamp<hlsl::float32_t>(blurRadius + 5 * core::sign(ev.scrollEvent.verticalScroll), 1, max(image_params.extent.width, image_params.extent.height));
+						blurRadius = std::clamp<hlsl::float32_t>(blurRadius + 5 * core::sign(ev.scrollEvent.verticalScroll), 0, max(image_params.extent.width, image_params.extent.height));
 						m_logger->log("Radius changed: %f", ILogger::ELL_DEBUG, blurRadius);
 					}
 					if (ev.type == nbl::ui::SMouseEvent::EET_CLICK && ev.clickEvent.mouseButton == nbl::ui::EMB_LEFT_BUTTON)

@@ -1,4 +1,6 @@
-#include "nbl/builtin/hlsl/prefix_sum_blur.hlsl"
+#include "nbl/builtin/hlsl/prefix_sum_blur/blur.hlsl"
+#include "nbl/builtin/hlsl/prefix_sum_blur/box_sampler.hlsl"
+#include "nbl/builtin/hlsl/workgroup/scratch_size.hlsl"
 #include "nbl/builtin/hlsl/jit/device_capabilities.hlsl"
 #include "nbl/builtin/hlsl/colorspace/OETF.hlsl"
 #include "common.hlsl"
@@ -132,27 +134,28 @@ struct ScanSharedMemoryProxy
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void main()
 {
-    SharedMemoryProxy smemAccessor;
     ScanSharedMemoryProxy scanSmemAccessor;
 
     TextureProxy<CHANNELS> texAccessor;
     texAccessor.activeAxis = (uint16_t)pc.activeAxis;
     texAccessor.load();
     
-    box_blur::BoxSampler<SharedMemoryProxy, float32_t> boxSampler;
+    prefix_sum_blur::BoxSampler<SharedMemoryProxy, float32_t> boxSampler;
     boxSampler.wrapMode = uint16_t(pc.edgeWrapMode);
     boxSampler.linearSize = texAccessor.linearSize();
+    boxSampler.normalizationFactor = 1 / (2 * pc.radius + 1);
 
-    box_blur::Box1D<decltype(texAccessor), decltype(smemAccessor), decltype(scanSmemAccessor), decltype(boxSampler), WORKGROUP_SIZE, jit::device_capabilities> blur;
+    prefix_sum_blur::Blur1D<decltype(texAccessor), decltype(scanSmemAccessor), decltype(boxSampler), WORKGROUP_SIZE, jit::device_capabilities> blur;
     blur.radius = pc.radius;
     blur.borderColor = float32_t4(0, 1, 0, 1);
+
     for (uint16_t ch=0; ch < CHANNELS; ch++)
     for (uint16_t pass=0; pass < PASSES; pass++)
     {
-        // its the `smemAccessor` that gets aliased and reused so we need to barrier on its memory
+        // its the `SharedMemoryProxy` that gets aliased and reused so we need to barrier on its memory
         if (ch != 0 && pass != 0)
-            smemAccessor.workgroupExecutionAndMemoryBarrier();
-        blur(texAccessor, smemAccessor, scanSmemAccessor, boxSampler, ch);
+            boxSampler.prefixSumAccessor.workgroupExecutionAndMemoryBarrier();
+        blur(texAccessor, scanSmemAccessor, boxSampler, ch);
     }
 
     texAccessor.store();
