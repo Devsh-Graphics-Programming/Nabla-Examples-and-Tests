@@ -132,8 +132,10 @@ public:
 
 public:
 
-	void mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
+	// return whether camera is moved by mouse
+	bool mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
 	{
+		bool cameraMoved = false;
 		for (auto eventIt=events.begin(); eventIt!=events.end(); eventIt++)
 		{
 			auto ev = *eventIt;
@@ -179,11 +181,15 @@ public:
 				mat.transformVect(localTarget);
 				
 				setTarget(localTarget + pos);
+
+				cameraMoved = true;
 			}
 		}
+		return cameraMoved;
 	}
 
-	void keyboardProcess(const nbl::ui::IKeyboardEventChannel::range_t& events)
+	// return whether camera is moved by keyboard
+	bool keyboardProcess(const nbl::ui::IKeyboardEventChannel::range_t& events)
 	{
 		for(uint32_t k = 0; k < E_CAMERA_MOVE_KEYS::ECMK_COUNT; ++k)
 			perActionDt[k] = 0.0;
@@ -194,12 +200,14 @@ public:
 		* And If an UP event was sent It will get subtracted it from this value. (Currently Disabled Because we Need better Oracle)
 		*/
 
+		bool cameraMoved = false;
 		for(uint32_t k = 0; k < E_CAMERA_MOVE_KEYS::ECMK_COUNT; ++k) 
 			if(keysDown[k]) 
 			{
 				auto timeDiff = std::chrono::duration_cast<std::chrono::milliseconds>(nextPresentationTimeStamp - lastVirtualUpTimeStamp).count();
 				assert(timeDiff >= 0);
 				perActionDt[k] += timeDiff;
+				cameraMoved = true;
 			}
 
 		for (auto eventIt=events.begin(); eventIt!=events.end(); eventIt++)
@@ -237,8 +245,11 @@ public:
 					position = initialPosition;
 					target = initialTarget;
 					recomputeViewMatrix();
+					cameraMoved = true;
 				}
 		}
+
+		return cameraMoved;
 	}
 
 	void beginInputProcessing(std::chrono::microseconds _nextPresentationTimeStamp)
