@@ -43,20 +43,16 @@ struct Accessor
         return accessor;
     }
 
-	void get(const uint32_t index, NBL_REF_ARG(complex_t<scalar_t>) value)
+	template <typename AccessType>
+	void get(const uint32_t index, NBL_REF_ARG(AccessType) value)
 	{
-		value = vk::RawBufferLoad<complex_t<scalar_t> >(address + index * sizeof(complex_t<scalar_t>));
+		value = vk::RawBufferLoad<AccessType>(address + index * sizeof(AccessType));
 	}
 
-	void set(const uint32_t index, const complex_t<scalar_t> value)
+	template <typename AccessType>
+	void set(const uint32_t index, const AccessType value)
 	{
-		vk::RawBufferStore<complex_t<scalar_t> >(address + index * sizeof(complex_t<scalar_t>), value);
-	}
-
-	void memoryBarrier() 
-	{
-		// only one workgroup is touching any memory it wishes to trade
-		spirv::memoryBarrier(spv::ScopeWorkgroup, spv::MemorySemanticsAcquireReleaseMask | spv::MemorySemanticsUniformMemoryMask);
+		vk::RawBufferStore<AccessType>(address + index * sizeof(AccessType), value);
 	}
 
 	uint64_t address;
