@@ -5,7 +5,6 @@ using scalar_t = nbl::hlsl::float32_t;
 struct PushConstantData
 {
 	uint64_t deviceBufferAddress;
-	uint32_t dataElementCount;
 };
 
 NBL_CONSTEXPR uint32_t WorkgroupSizeLog2 = 6;

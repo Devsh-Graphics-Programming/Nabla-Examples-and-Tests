@@ -32,11 +32,6 @@ struct PreloadedAccessorCommonBase
 	NBL_CONSTEXPR_STATIC_INLINE uint16_t ElementsPerInvocation = FFTParameters::ElementsPerInvocation;
 	NBL_CONSTEXPR_STATIC_INLINE uint16_t WorkgroupSize = FFTParameters::WorkgroupSize;
 	NBL_CONSTEXPR_STATIC_INLINE uint16_t TotalSize = FFTParameters::TotalSize;
-
-	void memoryBarrier()
-	{
-		// Preloaded Accessors don't access any memory in this stage, so we don't need to do anything here
-	}
 };
 
 struct PreloadedAccessorBase : PreloadedAccessorCommonBase
