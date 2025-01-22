@@ -15,12 +15,10 @@ class RaytracingPipelineApp final : public examples::SimpleWindowedApplication, 
   constexpr static inline uint32_t MaxFramesInFlight = 3u;
   constexpr static inline uint8_t MaxUITextureCount = 1u;
 
-  enum E_LIGHT_TYPE : uint8_t
-  {
-    ELT_SPHERE,
-    ELT_TRIANGLE,
-    ELT_RECTANGLE,
-    ELT_COUNT
+  static constexpr const char* s_lightTypeNames[E_LIGHT_TYPE::ELT_COUNT] = {
+    "Directional",
+    "Point",
+    "Spot"
   };
 
   constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
@@ -36,7 +34,8 @@ class RaytracingPipelineApp final : public examples::SimpleWindowedApplication, 
 
 public:
   inline RaytracingPipelineApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
-    : IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {
+    : IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD)
+  {
   }
 
   inline SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
@@ -229,13 +228,11 @@ public:
     auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
     auto* geometryCreator = assetManager->getGeometryCreator();
 
-    auto cQueue = getComputeQueue();
-
     // create geometry objects
     if (!createGeometries(gQueue, geometryCreator))
       return logFail("Could not create geometries from geometry creator");
 
-    if (!createAccelerationStructures(cQueue))
+    if (!createAccelerationStructures(getComputeQueue()))
       return logFail("Could not create acceleration structures");
 
     ISampler::SParams samplerParams = {
@@ -449,6 +446,37 @@ public:
         ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
         ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
         ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
+        Light m_oldLight = m_light;
+        ImGui::ListBox("LightType", &m_light.type, s_lightTypeNames, ELT_COUNT);
+        if (m_light.type == ELT_DIRECTIONAL)
+        {
+          ImGui::SliderFloat3("Light Direction", &m_light.direction.x, -1.f, 1.f);
+        } else if (m_light.type == ELT_POINT)
+        {
+          ImGui::SliderFloat3("Light Position", &m_light.position.x, -20.f, 20.f);
+          ImGui::SliderFloat("Light Intensity", &m_light.intensity, 0.0f, 500.f);
+        } else if (m_light.type == ELT_SPOT)
+        {
+          ImGui::SliderFloat3("Light Direction", &m_light.direction.x, -1.f, 1.f);
+          ImGui::SliderFloat3("Light Position", &m_light.position.x, -20.f, 20.f);
+          ImGui::SliderFloat("Light Intensity", &m_light.intensity, 0.0f, 500.f);
+
+          float32_t dInnerCutoff = degrees(acos(m_light.innerCutoff));
+          float32_t dOuterCutoff = degrees(acos(m_light.outerCutoff));
+          if (ImGui::SliderFloat("Light Inner Cutoff", &dInnerCutoff, 0.0f, 45.0f))
+          {
+            dInnerCutoff = dInnerCutoff > dOuterCutoff ? dOuterCutoff : dInnerCutoff;
+            m_light.innerCutoff = cos(radians(dInnerCutoff));
+          }
+          if (ImGui::SliderFloat("Light Outer Cutoff", &dOuterCutoff, 0.0f, 45.0f))
+          {
+            m_light.outerCutoff = cos(radians(dOuterCutoff));
+          }
+        }
+        if (m_light != m_oldLight)
+        {
+          m_frameAccumulationCounter = 0;
+        }
 
         ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
 
@@ -571,6 +599,7 @@ public:
     // Trace Rays Pass
     {
       SPushConstants pc;
+      pc.light = m_light;
       pc.geometryInfoBuffer = m_geometryInfoBuffer->getDeviceAddress();
       pc.frameCounter = m_frameAccumulationCounter;
       const core::vector3df camPos = m_camera.getPosition().getAsVector3df();
@@ -1494,6 +1523,16 @@ private:
   float camYAngle = 165.f / 180.f * 3.14159f;
   float camXAngle = 32.f / 180.f * 3.14159f;
   Camera m_camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
+
+  Light m_light = {
+    .direction = {-1.0f, -1.0f, -0.4f},
+    .position = {10.0f, 15.0f, 8.0f},
+    .intensity = 100.0f,
+    .innerCutoff = 0.939692621f, // {cos(radians(20.0f))},
+    .outerCutoff = 0.866025404f, // {cos(radians(30.0f))}, 
+    .type = ELT_DIRECTIONAL
+  };
+
   video::CDumbPresentationOracle m_oracle;
 
   struct C_UI
@@ -1531,5 +1570,4 @@ private:
   smart_refctd_ptr<CAssetConverter> m_converter;
 
 };
-
 NBL_MAIN_FUNC(RaytracingPipelineApp)

@@ -29,14 +29,47 @@ struct SGeomInfo
     Material material;
 };
 
+enum E_LIGHT_TYPE : int32_t
+{
+    ELT_DIRECTIONAL,
+    ELT_POINT,
+    ELT_SPOT,
+    ELT_COUNT
+};
+
+struct Light
+{
+    float32_t3 direction;
+    float32_t3 position;
+    float32_t intensity;
+    float32_t innerCutoff;
+    float32_t outerCutoff;
+    int32_t type;
+
+#ifndef __HLSL_VERSION
+    bool operator==(const Light&) const = default;
+#endif
+
+};
+
 struct SPushConstants
 {
-    uint64_t geometryInfoBuffer;
-    uint32_t frameCounter;
+    Light light;
 
     float32_t3 camPos;
     float32_t4x4 invMVP;
 
+    uint64_t geometryInfoBuffer;
+    uint32_t frameCounter;
+};
+
+
+struct RayLight
+{
+    float32_t3  inHitPosition;
+    float32_t outLightDistance;
+    float32_t3  outLightDir;
+    float32_t outIntensity;
 };
 
 #ifdef __HLSL_VERSION
