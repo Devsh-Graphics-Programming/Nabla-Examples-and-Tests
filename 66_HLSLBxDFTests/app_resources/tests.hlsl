@@ -99,6 +99,22 @@ bool checkZero<float32_t>(float32_t a, float32_t eps)
     return nbl::hlsl::abs<float32_t>(a) < eps;
 }
 
+#ifndef __HLSL_VERSION
+// because atan2 is not in tgmath.hlsl yet
+
+// takes in normalized vectors
+inline float32_t3 polarToCartesian(float32_t2 theta_phi)
+{
+    return float32_t3(std::cos(theta_phi.x) * std::cos(theta_phi.y),
+                        std::sin(theta_phi.x) * std::cos(theta_phi.y),
+                        std::sin(theta_phi.y));
+}
+
+inline float32_t2 cartesianToPolar(float32_t3 coords)
+{
+    return float32_t2(std::atan2(coords.y, coords.x), std::acos(coords.z));
+}
+#endif
 
 struct SBxDFTestResources
 {
@@ -668,14 +684,11 @@ struct TestBucket : TestBxDF<BxDF>
 
     void clearBuckets()
     {
-        for (float z = -1.0f; z < 1.0f; z += stride)
+        for (float y = -1.0f; y < 1.0f; y += stride)
         {
-            for (float y = -1.0f; y < 1.0f; y += stride)
+            for (float x = -1.0f; x < 1.0f; x += stride)
             {
-                for (float x = -1.0f; x < 1.0f; x += stride)
-                {
-                    buckets[float32_t3(x, y, z)] = 0;
-                }
+                buckets[float32_t2(x, y)] = 0;
             }
         }
     }
@@ -683,7 +696,7 @@ struct TestBucket : TestBxDF<BxDF>
     float bin(float a)
     {
         float diff = std::fmod(a, stride);
-        float b = (a < 0) ? -0.2f : 0.0f;
+        float b = (a < 0) ? -stride : 0.0f;
         return a - diff + b;
     }
 
@@ -739,11 +752,6 @@ struct TestBucket : TestBxDF<BxDF>
                 }
             }
 
-            // put s into bucket
-            // TODO: probably change to bucket with polar coords
-            const float32_t3 L = s.L.direction;
-            float32_t3 bucket = float32_t3(bin(L.x), bin(L.y), bin(L.z));
-
             if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF> || is_basic_bsdf_v<BxDF>)
             {
                 pdf = base_t::bxdf.quotient_and_pdf(params);
@@ -763,17 +771,21 @@ struct TestBucket : TestBxDF<BxDF>
                 }
             }
 
-            // check pdf == INF
+            // put s into bucket
+            const float32_t2 coords = cartesianToPolar(s.L.direction);
+            float32_t2 bucket = float32_t2(bin(coords.x * 0.5f * numbers::inv_pi<float>), bin(coords.y * numbers::inv_pi<float>));
+
             if (pdf.pdf == numeric_limits<float>::infinity)
                 buckets[bucket] += 1;
         }
 
 #ifndef __HLSL_VERSION
+        // double check this conversion makes sense
         for (auto const& b : buckets) {
             if (!selective || b.second > 0)
             {
-                const float32_t3 v = b.first;
-                base_t::errMsg += std::format("({:.1f},{:.1f},{:.1f}): {}\n", v.x, v.y, v.z, b.second);
+                const float32_t3 v = polarToCartesian(b.first * float32_t2(2, 1) * numbers::pi<float>);
+                base_t::errMsg += std::format("({:.3f},{:.3f},{:.3f}): {}\n", v.x, v.y, v.z, b.second);
             }
         }
 #endif
@@ -805,7 +817,7 @@ struct TestBucket : TestBxDF<BxDF>
 
     bool selective = true;  // print only buckets with count > 0
     float stride = 0.2f;
-    std::unordered_map<float32_t3, uint32_t, std::hash<float32_t3>> buckets;
+    std::unordered_map<float32_t2, uint32_t, std::hash<float32_t2>> buckets;
 };
 #endif
 
