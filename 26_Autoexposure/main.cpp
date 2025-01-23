@@ -580,6 +580,74 @@ public:
 			m_tonemappedImgView->setObjectDebugName("Tonemapped Image View");
 		}
 
+		// transition m_tonemappedImgView to GENERAL
+		{
+			auto transitionSemaphore = m_device->createSemaphore(0);
+			auto queue = getGraphicsQueue();
+			auto cmdbuf = m_cmdBufs[0].get();
+			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
+
+			m_api->startCapture();
+
+			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+
+			// TRANSITION m_outImgView to GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
+			{
+				const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = {
+					{
+						.barrier = {
+							.dep = {
+								.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+								.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+							}
+						},
+						.image = m_tonemappedImgView->getCreationParameters().image.get(),
+						.subresourceRange = {
+							.aspectMask = IImage::EAF_COLOR_BIT,
+							.baseMipLevel = 0u,
+							.levelCount = 1u,
+							.baseArrayLayer = 0u,
+							.layerCount = 1u
+						},
+						.oldLayout = IImage::LAYOUT::UNDEFINED,
+						.newLayout = IImage::LAYOUT::GENERAL
+					}
+				};
+				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
+			}
+			cmdbuf->end();
+
+			const IQueue::SSubmitInfo::SSemaphoreInfo rendered[] =
+			{
+				{
+					.semaphore = transitionSemaphore.get(),
+					.value = 1,
+					.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+				}
+			};
+			const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[] =
+			{
+				{.cmdbuf = cmdbuf }
+			};
+			const IQueue::SSubmitInfo infos[] =
+			{
+				{
+					.waitSemaphores = {},
+					.commandBuffers = commandBuffers,
+					.signalSemaphores = rendered
+				}
+			};
+			queue->submit(infos);
+			const ISemaphore::SWaitInfo waits[] = {
+				{
+					.semaphore = transitionSemaphore.get(),
+					.value = 1
+				}
+			};
+			m_device->blockForSemaphores(waits);
+			m_api->endCapture();
+		}
+
 		// Update Descriptors
 		{
 			IGPUDescriptorSet::SDescriptorInfo infos[2];
