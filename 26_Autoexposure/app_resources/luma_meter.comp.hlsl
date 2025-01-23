@@ -43,7 +43,7 @@ struct TexAccessor
     }
 
     float32_t3 get(float32_t2 uv) {
-        return texture.Sample(samplerState, uv).rgb;
+        return texture.SampleLevel(samplerState, uv, 0.f).rgb;
     }
 };
 
