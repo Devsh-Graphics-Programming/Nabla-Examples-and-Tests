@@ -12,6 +12,10 @@
 
 #ifndef __HLSL_VERSION
 #include <glm/gtc/quaternion.hpp>
+#include <glm/gtx/hash.hpp>
+#include <unordered_map>
+#include <cmath>
+#include <format>
 #endif
 
 namespace nbl
@@ -150,7 +154,8 @@ enum ErrorType : uint32_t
     BET_QUOTIENT_INF,       // quotient -> inf
     BET_JACOBIAN,
     BET_PDF_EVAL_DIFF,
-    BET_RECIPROCITY
+    BET_RECIPROCITY,
+    BET_PRINT_MSG
 };
 
 struct TestBase
@@ -172,6 +177,7 @@ struct TestBase
 
 #ifndef __HLSL_VERSION
     std::string name = "base";
+    std::string errMsg = "";
 #endif
 };
 
@@ -379,10 +385,10 @@ NBL_CONSTEXPR bool is_microfacet_bsdf_v = is_microfacet_bsdf<T>::value;
 
 
 template<class BxDF, bool aniso = false>
-struct TestUOffset : TestBxDF<BxDF>
+struct TestJacobian : TestBxDF<BxDF>
 {
     using base_t = TestBxDFBase<BxDF>;
-    using this_t = TestUOffset<BxDF, aniso>;
+    using this_t = TestJacobian<BxDF, aniso>;
 
     virtual void compute() override
     {
@@ -652,6 +658,156 @@ struct TestReciprocity : TestBxDF<BxDF>
     float32_t3 bsdf, rec_bsdf;
     params_t params, rec_params;
 };
+
+#ifndef __HLSL_VERSION  // because unordered_map
+template<class BxDF, bool aniso = false>
+struct TestBucket : TestBxDF<BxDF>
+{
+    using base_t = TestBxDFBase<BxDF>;
+    using this_t = TestBucket<BxDF, aniso>;
+
+    void clearBuckets()
+    {
+        for (float z = -1.0f; z < 1.0f; z += stride)
+        {
+            for (float y = -1.0f; y < 1.0f; y += stride)
+            {
+                for (float x = -1.0f; x < 1.0f; x += stride)
+                {
+                    buckets[float32_t3(x, y, z)] = 0;
+                }
+            }
+        }
+    }
+
+    float bin(float a)
+    {
+        float diff = std::fmod(a, stride);
+        float b = (a < 0) ? -0.2f : 0.0f;
+        return a - diff + b;
+    }
+
+    virtual void compute() override
+    {
+        clearBuckets();
+
+        aniso_cache cache, dummy;
+        iso_cache isocache;
+        params_t params;
+
+        sample_t s;
+        quotient_pdf_t pdf;
+        float32_t3 bsdf;
+
+        NBL_CONSTEXPR uint32_t samples = 500;
+        for (uint32_t i = 0; i < samples; i++)
+        {
+            float32_t3 u = float32_t3(rngUniformDist<float32_t2>(base_t::rc.rng), 0.0);
+
+            if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
+            {
+                s = base_t::bxdf.generate(base_t::anisointer, u.xy);
+                params = params_t::template create<sample_t, iso_interaction>(s, base_t::isointer, bxdf::BCM_MAX);
+            }
+            if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF>)
+            {
+                s = base_t::bxdf.generate(base_t::anisointer, u.xy, cache);
+
+                if NBL_CONSTEXPR_FUNC (aniso)
+                    params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_MAX);
+                else
+                {
+                    isocache = (iso_cache)cache;
+                    params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_MAX);
+                }
+            }
+            if NBL_CONSTEXPR_FUNC (is_basic_bsdf_v<BxDF>)
+            {
+                s = base_t::bxdf.generate(base_t::anisointer, u);
+                params = params_t::template create<sample_t, iso_interaction>(s, base_t::isointer, bxdf::BCM_ABS);
+            }
+            if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
+            {
+                s = base_t::bxdf.generate(base_t::anisointer, u, cache);
+
+                if NBL_CONSTEXPR_FUNC (aniso)
+                    params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_ABS);
+                else
+                {
+                    isocache = (iso_cache)cache;
+                    params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_ABS);
+                }
+            }
+
+            // put s into bucket
+            // TODO: probably change to bucket with polar coords
+            const float32_t3 L = s.L.direction;
+            float32_t3 bucket = float32_t3(bin(L.x), bin(L.y), bin(L.z));
+
+            if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF> || is_basic_bsdf_v<BxDF>)
+            {
+                pdf = base_t::bxdf.quotient_and_pdf(params);
+                bsdf = float32_t3(base_t::bxdf.eval(params));
+            }
+            if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
+            {
+                if NBL_CONSTEXPR_FUNC (aniso)
+                {
+                    pdf = base_t::bxdf.quotient_and_pdf(params);
+                    bsdf = float32_t3(base_t::bxdf.eval(params));
+                }
+                else
+                {
+                    pdf = base_t::bxdf.quotient_and_pdf(params);
+                    bsdf = float32_t3(base_t::bxdf.eval(params));
+                }
+            }
+
+            // check pdf == INF
+            if (pdf.pdf == numeric_limits<float>::infinity)
+                buckets[bucket] += 1;
+        }
+
+#ifndef __HLSL_VERSION
+        for (auto const& b : buckets) {
+            if (!selective || b.second > 0)
+            {
+                const float32_t3 v = b.first;
+                base_t::errMsg += std::format("({:.1f},{:.1f},{:.1f}): {}\n", v.x, v.y, v.z, b.second);
+            }
+        }
+#endif
+    }
+
+    ErrorType test()
+    {
+        compute();
+
+        return (base_t::errMsg.length() == 0) ? BET_NONE : BET_PRINT_MSG;
+    }
+
+    static void run(uint32_t seed, NBL_REF_ARG(FailureCallback) cb)
+    {
+        uint32_t2 state = pcg32x2(seed);
+
+        this_t t;
+        t.init(state);
+        t.rc.state = seed;
+        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
+            t.template initBxDF<aniso>(t.rc);
+        else
+            t.initBxDF(t.rc);
+        
+        ErrorType e = t.test();
+        if (e != BET_NONE)
+            cb.__call(e, t);
+    }
+
+    bool selective = true;  // print only buckets with count > 0
+    float stride = 0.2f;
+    std::unordered_map<float32_t3, uint32_t, std::hash<float32_t3>> buckets;
+};
+#endif
 
 }
 }

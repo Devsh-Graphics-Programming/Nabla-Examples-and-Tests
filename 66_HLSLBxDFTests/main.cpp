@@ -34,11 +34,15 @@ struct PrintFailureCallback : FailureCallback
         case BET_RECIPROCITY:
             fprintf(stderr, "seed %u: %s failed the reciprocity test\n", failedFor.rc.state, failedFor.name.c_str());
             break;
+        case BET_PRINT_MSG:
+            fprintf(stderr, "seed %u: %s error message\n%s\n", failedFor.rc.state, failedFor.name.c_str(), failedFor.errMsg.c_str());
+            break;
         default:
             fprintf(stderr, "seed %u: %s unknown error\n", failedFor.rc.state, failedFor.name.c_str());
         }
 
-        for (volatile bool repeat = true; IsDebuggerPresent() && repeat; )
+        // TODO: #ifdef NBL_ENABLE_DEBUGBREAK
+        for (volatile bool repeat = true; IsDebuggerPresent() && repeat && (error != BET_PRINT_MSG); )
         {
             repeat = false;
             __debugbreak();
@@ -54,30 +58,30 @@ int main(int argc, char** argv)
 {
     std::cout << std::fixed << std::setprecision(4);
 
-    auto r = std::ranges::views::iota(0u, 10u);
+    auto r10 = std::ranges::views::iota(0u, 10u);
     PrintFailureCallback cb;
 
     // test u offset, 2 axis
-    FOR_EACH_BEGIN(r)
-    TestUOffset<bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>>::run(i, cb);
-    TestUOffset<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>>::run(i, cb);
-    TestUOffset<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache, spectral_t>,false>::run(i, cb);
-    TestUOffset<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache, spectral_t>,true>::run(i, cb);
-    TestUOffset<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spectral_t>,false>::run(i, cb);
-    TestUOffset<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spectral_t>,true>::run(i, cb);
+    FOR_EACH_BEGIN(r10)
+    TestJacobian<bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>>::run(i, cb);
+    TestJacobian<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>>::run(i, cb);
+    TestJacobian<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, false>::run(i, cb);
+    TestJacobian<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, true>::run(i, cb);
+    TestJacobian<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, false>::run(i, cb);
+    TestJacobian<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spectral_t>,true>::run(i, cb);
 
-    TestUOffset<bxdf::transmission::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>>::run(i, cb);
-    //TestUOffset<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>::run(i, cb);
-    //TestUOffset<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, true>>::run(i, cb);
-    TestUOffset<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>,false>::run(i, cb);
-    TestUOffset<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>,true>::run(i, cb);
-    TestUOffset<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>,false>::run(i, cb);
-    TestUOffset<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>,true>::run(i, cb);
+    TestJacobian<bxdf::transmission::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>>::run(i, cb);
+    //TestJacobian<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>::run(i, cb);
+    //TestJacobian<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, true>>::run(i, cb);
+    TestJacobian<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, false>::run(i, cb);
+    TestJacobian<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, true>::run(i, cb);
+    TestJacobian<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, false>::run(i, cb);
+    TestJacobian<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>,true>::run(i, cb);
     FOR_EACH_END
 
 
     // test reciprocity
-    FOR_EACH_BEGIN(r)
+    FOR_EACH_BEGIN(r10)
     TestReciprocity<bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>>::run(i, cb);
     TestReciprocity<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>>::run(i, cb);
     TestReciprocity<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, false>::run(i, cb);
@@ -92,6 +96,25 @@ int main(int argc, char** argv)
     TestReciprocity<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, true>::run(i, cb);
     TestReciprocity<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, false>::run(i, cb);
     TestReciprocity<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, true>::run(i, cb);
+    FOR_EACH_END
+
+
+    // test buckets of inf
+    FOR_EACH_BEGIN(r10)
+    TestBucket<bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>>::run(i, cb);
+    TestBucket<bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>>::run(i, cb);
+    TestBucket<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, false>::run(i, cb);
+    TestBucket<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, true>::run(i, cb);
+    TestBucket<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, false>::run(i, cb);
+    TestBucket<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, true>::run(i, cb);
+
+    TestBucket<bxdf::transmission::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>>::run(i, cb);
+    //TestBucket<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>::run(i, cb);
+    //TestBucket<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, true>>::run(i, cb);
+    TestBucket<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, false>::run(i, cb);
+    TestBucket<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, true>::run(i, cb);
+    TestBucket<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, false>::run(i, cb);
+    TestBucket<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, true>::run(i, cb);
     FOR_EACH_END
     
 
