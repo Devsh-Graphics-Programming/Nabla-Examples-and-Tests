@@ -250,7 +250,9 @@ public:
 
 			auto gpuDS = convertDSCPU2GPU(cpuDS);
 			m_imgSamplerDS = gpuDS[0];
+			m_imgSamplerDS->setObjectDebugName("m_imgSamplerDS");
 			m_rwImgDS = gpuDS[1];
+			m_rwImgDS->setObjectDebugName("m_rwImgDS");
 
 			// Create Shaders
 			auto loadAndCompileShader = [&](std::string pathToShader) {
@@ -387,7 +389,6 @@ public:
 		{
 			// Allocate memory
 			m_gatherAllocation = {};
-			smart_refctd_ptr<IGPUBuffer> buffer;
 			{
 				auto build_buffer = [this](
 					smart_refctd_ptr<ILogicalDevice> m_device,
@@ -416,9 +417,9 @@ public:
 					return true;
 				};
 
-				build_buffer(m_device, &m_gatherAllocation, buffer, m_physicalDevice->getLimits().maxSubgroupSize, "Luma Gather Buffer");
+				build_buffer(m_device, &m_gatherAllocation, m_gatherBuffer, m_physicalDevice->getLimits().maxSubgroupSize, "Luma Gather Buffer");
 			}
-			m_gatherBDA = buffer->getDeviceAddress();
+			m_gatherBDA = m_gatherBuffer->getDeviceAddress();
 
 			auto mapped_memory = m_gatherAllocation.memory->map({ 0ull, m_gatherAllocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ);
 			if (!mapped_memory)
@@ -551,23 +552,22 @@ public:
 				m_device->allocate(imageMemReqs, image.get());
 
 				return image;
-				};
-			auto createHDRIImageView = [this](smart_refctd_ptr<IGPUImage> img) -> smart_refctd_ptr<IGPUImageView>
-				{
-					auto format = img->getCreationParameters().format;
-					IGPUImageView::SCreationParams imgViewInfo;
-					imgViewInfo.image = std::move(img);
-					imgViewInfo.format = format;
-					imgViewInfo.viewType = IGPUImageView::ET_2D;
-					imgViewInfo.flags = static_cast<IGPUImageView::E_CREATE_FLAGS>(0u);
-					imgViewInfo.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-					imgViewInfo.subresourceRange.baseArrayLayer = 0u;
-					imgViewInfo.subresourceRange.baseMipLevel = 0u;
-					imgViewInfo.subresourceRange.layerCount = 1u;
-					imgViewInfo.subresourceRange.levelCount = 1u;
+			};
+			auto createHDRIImageView = [this](smart_refctd_ptr<IGPUImage> img) -> smart_refctd_ptr<IGPUImageView> {
+				auto format = img->getCreationParameters().format;
+				IGPUImageView::SCreationParams imgViewInfo;
+				imgViewInfo.image = std::move(img);
+				imgViewInfo.format = format;
+				imgViewInfo.viewType = IGPUImageView::ET_2D;
+				imgViewInfo.flags = static_cast<IGPUImageView::E_CREATE_FLAGS>(0u);
+				imgViewInfo.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+				imgViewInfo.subresourceRange.baseArrayLayer = 0u;
+				imgViewInfo.subresourceRange.baseMipLevel = 0u;
+				imgViewInfo.subresourceRange.layerCount = 1u;
+				imgViewInfo.subresourceRange.levelCount = 1u;
 
-					return m_device->createImageView(std::move(imgViewInfo));
-				};
+				return m_device->createImageView(std::move(imgViewInfo));
+			};
 
 			auto params = gpuImg->getCreationParameters();
 			auto extent = params.extent;
@@ -651,7 +651,7 @@ public:
 		// Update Descriptors
 		{
 			IGPUDescriptorSet::SDescriptorInfo infos[2];
-			infos[0].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			infos[0].info.combinedImageSampler.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 			infos[0].desc = m_gpuImgView;
 			infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
 			infos[1].desc = m_tonemappedImgView;
@@ -723,8 +723,6 @@ public:
 			cmdbuf->dispatch(dispatchSize.x, dispatchSize.y);
 			cmdbuf->end();
 
-			m_api->endCapture();
-
 			{
 				IQueue::SSubmitInfo submit_infos[1];
 				IQueue::SSubmitInfo::SCommandBufferInfo cmdBufs[] = {
@@ -743,6 +741,7 @@ public:
 				submit_infos[0].signalSemaphores = signals;
 
 				queue->submit(submit_infos);
+				m_api->endCapture();
 			}
 
 			const ISemaphore::SWaitInfo wait_infos[] = {
@@ -754,7 +753,6 @@ public:
 			m_device->blockForSemaphores(wait_infos);
 		}
 
-#if 0
 		// Luma Gather and Tonemapping
 		{
 			auto queue = getGraphicsQueue();
@@ -781,7 +779,7 @@ public:
 
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			cmdbuf->bindComputePipeline(m_tonemapPipeline.get());
-			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_tonemapPipeline->getLayout(), 0, 1, &ds1); // also if you created DS Set with 3th index you need to respect it here - firstSet tells you the index of set and count tells you what range from this index it should update, useful if you had 2 DS with lets say set index 2,3, then you can bind both with single call setting firstSet to 2, count to 2 and last argument would be pointet to your DS pointers
+			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_tonemapPipeline->getLayout(), 0, 1, &ds1);
 			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_tonemapPipeline->getLayout(), 3, 1, &ds2);
 			cmdbuf->pushConstants(m_tonemapPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(pc), &pc);
 			cmdbuf->dispatch(dispatchSize.x, dispatchSize.y);
@@ -920,7 +918,6 @@ public:
 					return;
 			}
 		}
-#endif
 		m_submitIx++;
 	}
 
@@ -959,6 +956,7 @@ protected:
 	uint64_t m_submitIx = 0;
 
 	// example resources
+	smart_refctd_ptr<IGPUBuffer> m_gatherBuffer;
 	nbl::video::IDeviceMemoryAllocator::SAllocation m_gatherAllocation;
 	uint64_t m_gatherBDA;
 	smart_refctd_ptr<IGPUImageView> m_gpuImgView, m_tonemappedImgView;
