@@ -15,7 +15,7 @@ using namespace nbl::ext::TextRendering;
 static_assert(sizeof(DrawObject) == 16u);
 static_assert(sizeof(MainObject) == 16u);
 static_assert(sizeof(Globals) == 128u);
-static_assert(sizeof(LineStyle) == 96u);
+static_assert(sizeof(LineStyle) == 88u);
 static_assert(sizeof(ClipProjectionData) == 88u);
 
 template <typename BufferType>
@@ -111,10 +111,10 @@ public:
 	{
 		auto addImageObject_Internal = [&](const ImageObjectInfo& imageObjectInfo, uint32_t mainObjIdx) -> bool
 			{
-				const auto maxGeometryBufferImageObjects = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(ImageObjectInfo);
+				const uint32_t maxGeometryBufferImageObjects = static_cast<uint32_t>((maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(ImageObjectInfo));
 				uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
-				uploadableObjects = min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
-				uploadableObjects = min(uploadableObjects, maxGeometryBufferImageObjects);
+				uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+				uploadableObjects = core::min(uploadableObjects, maxGeometryBufferImageObjects);
 
 				if (uploadableObjects >= 1u)
 				{

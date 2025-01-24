@@ -283,9 +283,9 @@ class HelloGraphicsQueueApp final : public application_templates::MonoDeviceAppl
 				// which also means it can be sparsely(with gaps) specified.
 				params.image = ICPUImage::create(ouputImageCreationParams);
 				{
-					// CDummyCPUBuffer is used for creating ICPUBuffer over an already existing memory, without any memcopy operations 
-					// or taking over the memory ownership. CDummyCPUBuffer cannot free its memory.
-					auto cpuOutputImageBuffer = core::make_smart_refctd_ptr<CDummyCPUBuffer>(smallImgByteSize, imageBufferMemPtr, core::adopt_memory_t());
+					// null_memory_resource is used for creating ICPUBuffer over an already existing memory, without any memcopy operations 
+					// or taking over the memory ownership. null_memory_resource cannot free its memory.
+					auto cpuOutputImageBuffer = ICPUBuffer::create({ { smallImgByteSize }, imageBufferMemPtr, core::getNullMemoryResource() }, core::adopt_memory_t());
 					ICPUImage::SBufferCopy region = {};
 					region.imageSubresource.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
 					region.imageSubresource.layerCount = 1;

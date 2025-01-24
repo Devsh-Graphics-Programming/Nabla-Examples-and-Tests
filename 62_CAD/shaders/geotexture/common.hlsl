@@ -9,7 +9,7 @@ NBL_CONSTEXPR uint32_t MaxGeoTextures = 256;
 // GeoTexture Oriented Bounding Box
 struct GeoTextureOBB
 {
-    float64_t2 topLeft; // 2 * 8 = 16 bytes
+    pfloat64_t2 topLeft; // 2 * 8 = 16 bytes
     float32_t2 dirU; // 2 * 4 = 8 bytes (24)
     float32_t aspectRatio; // 4 bytes (32)
 };

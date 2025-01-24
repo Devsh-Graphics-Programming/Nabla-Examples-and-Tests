@@ -240,7 +240,7 @@ public:
 			assert(particleDataArrayIntro.countIsSpecConstant);
 			const uint32_t particle_count_specID = particleDataArrayIntro.count_specID;
 
-			auto backbuf = core::make_smart_refctd_ptr<asset::ICPUBuffer>(sizeof(swapchain));
+			auto backbuf = asset::ICPUBuffer::create({ sizeof(swapchain) });
 			memcpy(backbuf->getPointer(), &swapchain, sizeof(swapchain));
 			auto entries = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<asset::ISpecializedShader::SInfo::SMapEntry>>(5u);
 			(*entries)[0] = { 0u,offsetof(SpecConstants,wg_size),sizeof(int32_t) };//currently local_size_{x|y|z}_id is not queryable via introspection API

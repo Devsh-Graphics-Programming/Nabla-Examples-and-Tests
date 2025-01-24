@@ -198,7 +198,7 @@ int main()
 		auto cpuComputeSpecializedShader = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*spec.begin());
 
 		ISpecializedShader::SInfo info = cpuComputeSpecializedShader->getSpecializationInfo();
-		info.m_backingBuffer = core::make_smart_refctd_ptr<ICPUBuffer>(sizeof(ShaderParameters));
+		info.m_backingBuffer = ICPUBuffer::create({ sizeof(ShaderParameters) });
 		memcpy(info.m_backingBuffer->getPointer(),&kShaderParameters,sizeof(ShaderParameters));
 		info.m_entries = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ISpecializedShader::SInfo::SMapEntry>>(2u);
 		for (uint32_t i=0; i<2; i++)
@@ -263,7 +263,7 @@ int main()
 		const uint32_t MaxDimensions = 3u<<kShaderParameters.MaxDepthLog2;
 		const uint32_t MaxSamples = 1u<<kShaderParameters.MaxSamplesLog2;
 
-		auto sampleSequence = core::make_smart_refctd_ptr<asset::ICPUBuffer>(sizeof(uint32_t)*MaxDimensions*MaxSamples);
+		auto sampleSequence = core::make_smart_refctd_ptr<asset::({ sizeof(uint32_t)*MaxDimensions*MaxSamples });
 		
 		core::OwenSampler sampler(MaxDimensions, 0xdeadbeefu);
 		//core::SobolSampler sampler(MaxDimensions);

@@ -346,7 +346,7 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 								uint32_t nml;
 								uint16_t u,v;
 							};
-							auto newBuff = core::make_smart_refctd_ptr<ICPUBuffer>(sizeof(CombinedNormalUV)*approxVxCount);
+							auto newBuff = ICPUBuffer::create({ sizeof(CombinedNormalUV)*approxVxCount });
 							auto* dst = reinterpret_cast<CombinedNormalUV*>(newBuff->getPointer())+meshBuffer->getBaseVertex();
 							meshBuffer->setVertexBufferBinding({0u,newBuff},freeBinding);
 							// copy and pack data
@@ -380,7 +380,7 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 					pmbd.resize(meshBuffersToProcess.size());
 					cullData.reserve(batchInstanceBoundTotal);
 
-					newInstanceDataBuffer = core::make_smart_refctd_ptr<ICPUBuffer>(sizeof(ext::MitsubaLoader::instance_data_t)*batchInstanceBoundTotal);
+					newInstanceDataBuffer = ICPUBuffer::create({ sizeof(ext::MitsubaLoader::instance_data_t)*batchInstanceBoundTotal });
 				}
 				// actually commit the physical memory, compute batches and set up instance data
 				{
@@ -857,7 +857,7 @@ core::smart_refctd_ptr<asset::ICPUBuffer> Renderer::SampleSequence::createCPUBuf
 {
 	const size_t bytesize = SampleSequence::QuantizedDimensionsBytesize*quantizedDimensions*sampleCount;
 	if (bytesize)
-		return core::make_smart_refctd_ptr<asset::ICPUBuffer>(bytesize);
+		return asset::ICPUBuffer::create({ bytesize });
 	else
 		return nullptr;
 }

@@ -51,19 +51,12 @@ void SingleLineText::Draw(
 	const float32_t boldInPixels) const
 {
 	float32_t2 vec(cos(rotateAngle), sin(rotateAngle));
-	float64_t3x3 rotationMulScaleMat =
+	float64_t3x3 transformation =
 	{
-		vec.x  * scale.x,	vec.y * scale.y,	0.0,
-		-vec.y * scale.x,	vec.x * scale.y,	0.0,
+		vec.x  * scale.x,	vec.y * scale.y,	baselineStart.x,
+		-vec.y * scale.x,	vec.x * scale.y,	baselineStart.y,
 		0.0,				0.0,				1.0,
 	};
-	float64_t3x3 translationMat =
-	{
-		1.0,	0.0,	baselineStart.x,
-		0.0,	1.0,	baselineStart.y,
-		0.0,	0.0,	1.0,
-	};
-	float64_t3x3 transformation = mul(translationMat, rotationMulScaleMat);
 
 	// TODO: Use Separate TextStyleInfo or something, and somehow alias with line style for improved readability
 	LineStyleInfo lineStyle = {};

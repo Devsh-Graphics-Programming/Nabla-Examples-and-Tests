@@ -372,7 +372,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					const auto* inImage = outViewParams.image.get();
 
 					const auto inImageParams = inImage->getCreationParameters();
-					smart_refctd_ptr<ICPUBuffer> inBuffer = core::make_smart_refctd_ptr<asset::CCustomAllocatorCPUBuffer<core::null_allocator<uint8_t>, true> >(inImage->getBuffer()->getSize(), (uint8_t*)inImage->getBuffer()->getPointer(), core::adopt_memory); // adopt memory & don't free it on exit
+					smart_refctd_ptr<ICPUBuffer> inBuffer = asset::ICPUBuffer::create({ { inImage->getBuffer()->getSize() }, const_cast<void*>(inImage->getBuffer()->getPointer()), core::getNullMemoryResource() }, core::adopt_memory); // adopt memory & don't free it on exit
 					const auto inRegions = inImage->getRegionArray();
 					const auto inAmountOfRegions = inRegions->size();
 

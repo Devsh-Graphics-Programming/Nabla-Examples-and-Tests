@@ -8,6 +8,7 @@ set(EXAMPLE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/Curves.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/Hatch.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/Hatch.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/Polyline.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/Polyline.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/DrawResourcesFiller.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/DrawResourcesFiller.h"
