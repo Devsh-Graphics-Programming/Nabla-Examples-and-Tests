@@ -1344,7 +1344,7 @@ private:
     m_currentImageAcquire = m_surface->acquireNextImage();
 #endif
     size_t totalScratchSize = 0;
-    const auto scratchOffsetAlignment = getRequiredDeviceLimits().minAccelerationStructureScratchOffsetAlignment;
+    const auto scratchOffsetAlignment = m_device->getPhysicalDevice()->getLimits().minAccelerationStructureScratchOffsetAlignment;
 
     // build bottom level ASes
     {
