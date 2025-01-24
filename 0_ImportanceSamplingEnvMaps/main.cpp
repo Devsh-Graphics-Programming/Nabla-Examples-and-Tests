@@ -25,7 +25,7 @@ static core::smart_refctd_ptr<ICPUBuffer> computeLuminancePdf(smart_refctd_ptr<I
 	const core::vector2d<uint32_t> pdfDomainExtent = { envmapExtent.X, envmapExtent.Y };
 
 	const size_t outBufferSize = pdfDomainExtent.X * pdfDomainExtent.Y * sizeof(double);
-	core::smart_refctd_ptr<ICPUBuffer> outBuffer = core::make_smart_refctd_ptr<ICPUBuffer>(outBufferSize);
+	core::smart_refctd_ptr<ICPUBuffer> outBuffer = ICPUBuffer::create({ outBufferSize });
 
 	const double luminanceScales[4] = { 0.2126729 , 0.7151522, 0.0721750, 0.0 };
 
@@ -364,7 +364,7 @@ public:
 
 				// Create out image
 				const size_t conditionalCdfBufferSize = pdfDomainExtent.X * pdfDomainExtent.Y * sizeof(double);
-				core::smart_refctd_ptr<ICPUBuffer> conditionalCdfBuffer = core::make_smart_refctd_ptr<ICPUBuffer>(conditionalCdfBufferSize);
+				core::smart_refctd_ptr<ICPUBuffer> conditionalCdfBuffer = ICPUBuffer::create({ conditionalCdfBufferSize });
 				memset(conditionalCdfBuffer->getPointer(), 0, conditionalCdfBufferSize);
 
 				auto conditionalCdfImageParams = luminanceImage->getCreationParameters();
@@ -400,7 +400,7 @@ public:
 				// From the outImage you gotta extract integrals and normalize
 				double* conditionalCdfPixel = (double*)conditionalCdfImage->getBuffer()->getPointer();
 
-				conditionalIntegrals = core::make_smart_refctd_ptr<ICPUBuffer>(pdfDomainExtent.Y * sizeof(double));
+				conditionalIntegrals = ICPUBuffer::create({ pdfDomainExtent.Y * sizeof(double) });
 				double* conditionalIntegralsPixel = (double*)conditionalIntegrals->getPointer();
 				for (uint32_t y = 0; y < pdfDomainExtent.Y; ++y)
 				{
@@ -449,7 +449,7 @@ public:
 
 				// Ouput: 1d cdf of conditionalIntegrals
 				// Create out image
-				core::smart_refctd_ptr<ICPUBuffer> marginalCdfBuffer = core::make_smart_refctd_ptr<ICPUBuffer>(conditionalIntegrals->getSize());
+				core::smart_refctd_ptr<ICPUBuffer> marginalCdfBuffer = ICPUBuffer::create({ conditionalIntegrals->getSize() });
 				memset(marginalCdfBuffer->getPointer(), 0, marginalCdfBuffer->getSize());
 
 				auto marginalCdfImageParams = inImage->getCreationParameters();
@@ -502,12 +502,12 @@ public:
 
 			const uint32_t phiPdfLUTChannelCount = 2u; // phi and pdf
 			const size_t phiPdfLUTBufferSize = pdfDomainExtent.X * pdfDomainExtent.Y * phiPdfLUTChannelCount * sizeof(float);
-			core::smart_refctd_ptr<ICPUBuffer> phiPdfLUTBuffer = core::make_smart_refctd_ptr<ICPUBuffer>(phiPdfLUTBufferSize);
+			core::smart_refctd_ptr<ICPUBuffer> phiPdfLUTBuffer = ICPUBuffer::create({ phiPdfLUTBufferSize });
 			memset(phiPdfLUTBuffer->getPointer(), 0, phiPdfLUTBufferSize);
 
 			const uint32_t thetaLUTChannelCount = 1u; // theta
 			const size_t thetaLUTBufferSize = pdfDomainExtent.Y * thetaLUTChannelCount * sizeof(float);
-			core::smart_refctd_ptr<ICPUBuffer> thetaLUTBuffer = core::make_smart_refctd_ptr<ICPUBuffer>(thetaLUTBufferSize);
+			core::smart_refctd_ptr<ICPUBuffer> thetaLUTBuffer = ICPUBuffer::create({ thetaLUTBufferSize });
 			memset(thetaLUTBuffer->getPointer(), 0, thetaLUTBufferSize);
 
 			float* phiPdfLUTPixel = (float*)phiPdfLUTBuffer->getPointer();
@@ -553,7 +553,7 @@ public:
 			const uint32_t MaxDimensions = 3u << kShaderParameters.MaxDepthLog2;
 			const uint32_t MaxSamples = 1u << kShaderParameters.MaxSamplesLog2;
 
-			auto sampleSequence = core::make_smart_refctd_ptr<asset::ICPUBuffer>(sizeof(uint32_t) * MaxDimensions * MaxSamples);
+			auto sampleSequence = core::make_smart_refctd_ptr<asset::({ sizeof(uint32_t) * MaxDimensions * MaxSamples });
 
 			core::OwenSampler sampler(MaxDimensions, 0xdeadbeefu);
 			//core::SobolSampler sampler(MaxDimensions);
@@ -640,7 +640,7 @@ public:
 		{
 			auto cpuFragmentSpecializedShader = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(assetManager->getAsset(pathToShader, {}).getContents().begin()[0]);
 			ISpecializedShader::SInfo info = cpuFragmentSpecializedShader->getSpecializationInfo();
-			info.m_backingBuffer = core::make_smart_refctd_ptr<ICPUBuffer>(sizeof(ShaderParameters));
+			info.m_backingBuffer = ICPUBuffer::create({ sizeof(ShaderParameters) });
 			memcpy(info.m_backingBuffer->getPointer(), &kShaderParameters, sizeof(ShaderParameters));
 			info.m_entries = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ISpecializedShader::SInfo::SMapEntry>>(2u);
 			for (uint32_t i = 0; i < 2; i++)

@@ -148,8 +148,8 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 						.binding=0,
 						.type=nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
 						.createFlags=IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, // not is not the time for descriptor indexing
-						.stageFlags=IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
-						.count=1,
+						.stageFlags=nbl::hlsl::ShaderStage::ESS_COMPUTE,
+						.count=1
 					}
 				};
 				smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = device->createDescriptorSetLayout(bindings);
