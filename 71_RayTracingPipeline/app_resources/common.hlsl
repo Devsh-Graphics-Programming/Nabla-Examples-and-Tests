@@ -42,33 +42,33 @@ struct STriangleGeomInfo
     Material material;
 };
 
-enum E_GEOM_TYPE : int32_t
+enum E_GEOM_TYPE : uint16_t
 {
     EGT_TRIANGLES,
     EGT_PROCEDURAL,
     EGT_COUNT
 };
 
-enum E_LIGHT_TYPE : int32_t
-{
-    ELT_DIRECTIONAL,
-    ELT_POINT,
-    ELT_SPOT,
-    ELT_COUNT
-};
-
-enum E_RAY_TYPE : int32_t
+enum E_RAY_TYPE : uint16_t
 {
     ERT_PRIMARY, // Ray shoot from camera
     ERT_OCCLUSION,
     ERT_COUNT
 };
 
-enum E_MISS_TYPE : int32_t
+enum E_MISS_TYPE : uint16_t
 {
     EMT_PRIMARY,
     EMT_OCCLUSION,
     EMT_COUNT
+};
+
+enum E_LIGHT_TYPE : uint16_t
+{
+    ELT_DIRECTIONAL,
+    ELT_POINT,
+    ELT_SPOT,
+    ELT_COUNT
 };
 
 struct Light
@@ -78,7 +78,7 @@ struct Light
     float32_t intensity;
     float32_t innerCutoff;
     float32_t outerCutoff;
-    int32_t type;
+    int type;
 
 #ifndef __HLSL_VERSION
     bool operator==(const Light&) const = default;

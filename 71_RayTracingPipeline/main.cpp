@@ -1188,9 +1188,10 @@ private:
 
     // intersection geometries setup
     {
-      auto spheresInfoBuffer = ICPUBuffer::create({ NumberOfProceduralGeometries * sizeof(SProceduralGeomInfo) });
-      SProceduralGeomInfo* sphereInfos = reinterpret_cast<SProceduralGeomInfo*>(spheresInfoBuffer->getPointer());
+      core::vector<SProceduralGeomInfo> proceduralGeoms;
+      proceduralGeoms.reserve(NumberOfProceduralGeometries);
       core::vector<Aabb> aabbs;
+      aabbs.reserve(NumberOfProceduralGeometries);
       for (int32_t i = 0; i < NumberOfProceduralGeometries; i++)
       {
         const auto middle_i = NumberOfProceduralGeometries / 2.0;
@@ -1206,7 +1207,7 @@ private:
           },
         };
 
-        sphereInfos[i] = sphere;
+        proceduralGeoms.push_back(sphere);
         aabbs.push_back({
           .minimum = sphere.center - sphere.radius,
           .maximum = sphere.center + sphere.radius,
@@ -1216,8 +1217,8 @@ private:
       {
         IGPUBuffer::SCreationParams params;
         params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-        params.size = spheresInfoBuffer->getSize();
-        m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = queue }, std::move(params), sphereInfos).move_into(m_proceduralGeomInfoBuffer);
+        params.size = proceduralGeoms.size() * sizeof(SProceduralGeomInfo);
+        m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = queue }, std::move(params), proceduralGeoms.data()).move_into(m_proceduralGeomInfoBuffer);
         m_logger->log("Device address : %d", ILogger::ELL_INFO, m_proceduralGeomInfoBuffer->getDeviceAddress());
       }
 
