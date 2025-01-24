@@ -1417,7 +1417,7 @@ private:
 
         scratchSizes[i] = buildSizes.buildScratchSize;
         totalScratchSize = core::alignUp(totalScratchSize, scratchOffsetAlignment);
-        totalScratchSize += buildSizes.buildScratchSize, scratchOffsetAlignment;
+        totalScratchSize += buildSizes.buildScratchSize;
 
         {
           IGPUBuffer::SCreationParams params;
