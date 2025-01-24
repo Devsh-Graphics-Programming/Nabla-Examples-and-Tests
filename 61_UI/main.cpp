@@ -1238,7 +1238,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						if (orbit)
 						{
-							auto targetPostion = transpose(getMatrix3x4As4x4(m_model))[3];
+							auto targetPostion = core::transpose(getMatrix3x4As4x4(m_model))[3];
 							orbit->target(targetPostion);
 							orbit->manipulate({}, {});
 						}
@@ -1327,8 +1327,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						// we render a scene from view of a camera bound to planar window
 						ImGuizmoPlanarM16InOut imguizmoPlanar;
-						imguizmoPlanar.view = getCastedMatrix<float32_t>(transpose(getMatrix3x4As4x4(planarViewCameraBound->getGimbal().getViewMatrix())));
-						imguizmoPlanar.projection = getCastedMatrix<float32_t>(transpose(projection.getProjectionMatrix()));
+						imguizmoPlanar.view = getCastedMatrix<float32_t>(core::transpose(getMatrix3x4As4x4(planarViewCameraBound->getGimbal().getViewMatrix())));
+						imguizmoPlanar.projection = getCastedMatrix<float32_t>(core::transpose(projection.getProjectionMatrix()));
 
 						if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
 							imguizmoPlanar.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
@@ -1369,7 +1369,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 								imguizmoModel.inTRS = gimbalToImguizmoTRS(getCastedMatrix<float32_t>(targetGimbalManipulationCamera->getGimbal()()));
 							}
 							else
-								imguizmoModel.inTRS = transpose(getMatrix3x4As4x4(m_model));
+								imguizmoModel.inTRS = core::transpose(getMatrix3x4As4x4(m_model));
 
 							imguizmoModel.outTRS = imguizmoModel.inTRS;
 							{
@@ -1461,7 +1461,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 										else
 										{
 											// again, for scene demo model full affine transformation without limits is assumed 
-											m_model = float32_t3x4(transpose(imguizmoModel.outTRS));
+											m_model = float32_t3x4(core::transpose(imguizmoModel.outTRS));
 											boundCameraToManipulate = nullptr;
 											boundPlanarCameraIxToManipulate = std::nullopt;
 										}
@@ -1930,7 +1930,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			if (boundCameraToManipulate)
 				imguizmoModel.inTRS = gimbalToImguizmoTRS(getCastedMatrix<float32_t>(boundCameraToManipulate->getGimbal()()));
 			else
-				imguizmoModel.inTRS = transpose(getMatrix3x4As4x4(m_model));
+				imguizmoModel.inTRS = core::transpose(getMatrix3x4As4x4(m_model));
 
 			imguizmoModel.outTRS = imguizmoModel.inTRS;
 			float* m16TRSmatrix = &imguizmoModel.outTRS[0][0];
@@ -2114,7 +2114,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				else
 				{
 					// for scene demo model full affine transformation without limits is assumed 
-					m_model = float32_t3x4(transpose(imguizmoModel.outTRS));
+					m_model = float32_t3x4(core::transpose(imguizmoModel.outTRS));
 				}
 			}
 		}
