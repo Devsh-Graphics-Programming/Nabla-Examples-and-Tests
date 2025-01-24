@@ -101,45 +101,101 @@ public:
     if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
       return false;
 
+    smart_refctd_ptr<IShaderCompiler::CCache> shaderReadCache = nullptr;
+    smart_refctd_ptr<IShaderCompiler::CCache> shaderWriteCache = core::make_smart_refctd_ptr<IShaderCompiler::CCache>();
+    auto shaderCachePath = localOutputCWD / "main_pipeline_shader_cache.bin";
 
-    const auto compileShader = [&](const std::string & filePath, const std::string & header = "") -> smart_refctd_ptr<IGPUShader>
     {
-      IAssetLoader::SAssetLoadParams lparams = {};
-      lparams.logger = m_logger.get();
-      lparams.workingDirectory = "";
-      auto bundle = m_assetMgr->getAsset(filePath, lparams);
-      if (bundle.getContents().empty() || bundle.getAssetType() != IAsset::ET_SHADER)
-      {
-        m_logger->log("Shader %s not found!", ILogger::ELL_ERROR, filePath);
-        exit(-1);
-      }
+        core::smart_refctd_ptr<system::IFile> shaderReadCacheFile;
+        {
+            system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
+            m_system->createFile(future, shaderCachePath.c_str(), system::IFile::ECF_READ);
+            if (future.wait())
+            {
+                future.acquire().move_into(shaderReadCacheFile);
+                if (shaderReadCacheFile)
+                {
+                    const size_t size = shaderReadCacheFile->getSize();
+                    if (size > 0ull)
+                    {
+                        std::vector<uint8_t> contents(size);
+                        system::IFile::success_t succ;
+                        shaderReadCacheFile->read(succ, contents.data(), 0, size);
+                        if (succ)
+                            shaderReadCache = IShaderCompiler::CCache::deserialize(contents);
+                    }
+                }
+            }
+            else
+                m_logger->log("Failed Openning Shader Cache File.", ILogger::ELL_ERROR);
+        }
 
-      const auto assets = bundle.getContents();
-      assert(assets.size() == 1);
-      smart_refctd_ptr<ICPUShader> sourceRaw = IAsset::castDown<ICPUShader>(assets[0]);
-      if (!sourceRaw)
-        m_logger->log("Fail to load shader source", ILogger::ELL_ERROR, filePath);
-      smart_refctd_ptr<ICPUShader> source = CHLSLCompiler::createOverridenCopy(
-        sourceRaw.get(),
-        "%s\n",
-        header.c_str()
-      );
+    }
 
-      return m_device->createShader(source.get());
-    };
+    // Load Custom Shader
+    auto loadCompileAndCreateShader = [&](const std::string& relPath, const std::string& header = "") -> smart_refctd_ptr<IGPUShader>
+        {
+            IAssetLoader::SAssetLoadParams lp = {};
+            lp.logger = m_logger.get();
+            lp.workingDirectory = ""; // virtual root
+            auto assetBundle = m_assetMgr->getAsset(relPath, lp);
+            const auto assets = assetBundle.getContents();
+            if (assets.empty())
+                return nullptr;
 
-    // shader
-    const auto raygenShader = compileShader("app_resources/raytrace.rgen.hlsl");
-    const auto closestHitShader = compileShader("app_resources/raytrace.rchit.hlsl");
-    const auto proceduralClosestHitShader = compileShader("app_resources/raytrace_procedural.rchit.hlsl");
-    const auto intersectionHitShader = compileShader("app_resources/raytrace.rint.hlsl");
-    const auto anyHitShaderColorPayload = compileShader("app_resources/raytrace.rahit.hlsl", "#define USE_COLOR_PAYLOAD\n");
-    const auto anyHitShaderShadowPayload = compileShader("app_resources/raytrace.rahit.hlsl", "#define USE_SHADOW_PAYLOAD\n");
-    const auto missShader = compileShader("app_resources/raytrace.rmiss.hlsl");
-    const auto shadowMissShader = compileShader("app_resources/raytraceShadow.rmiss.hlsl");
-    const auto directionalLightCallShader = compileShader("app_resources/light_directional.rcall.hlsl");
-    const auto pointLightCallShader = compileShader("app_resources/light_point.rcall.hlsl");
-    const auto spotLightCallShader = compileShader("app_resources/light_spot.rcall.hlsl");
+            // lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+            auto sourceRaw = IAsset::castDown<ICPUShader>(assets[0]);
+            if (!sourceRaw)
+                return nullptr;
+
+            smart_refctd_ptr<ICPUShader> source = CHLSLCompiler::createOverridenCopy(
+                sourceRaw.get(),
+                "%s\n",
+                header.c_str()
+            );
+
+            return m_device->createShader({ source.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
+        };
+
+    // load shaders
+    const auto raygenShader = loadCompileAndCreateShader("app_resources/raytrace.rgen.hlsl");
+    const auto closestHitShader = loadCompileAndCreateShader("app_resources/raytrace.rchit.hlsl");
+    const auto proceduralClosestHitShader = loadCompileAndCreateShader("app_resources/raytrace_procedural.rchit.hlsl");
+    const auto intersectionHitShader = loadCompileAndCreateShader("app_resources/raytrace.rint.hlsl");
+    const auto anyHitShaderColorPayload = loadCompileAndCreateShader("app_resources/raytrace.rahit.hlsl", "#define USE_COLOR_PAYLOAD\n");
+    const auto anyHitShaderShadowPayload = loadCompileAndCreateShader("app_resources/raytrace.rahit.hlsl", "#define USE_SHADOW_PAYLOAD\n");
+    const auto missShader = loadCompileAndCreateShader("app_resources/raytrace.rmiss.hlsl");
+    const auto shadowMissShader = loadCompileAndCreateShader("app_resources/raytraceShadow.rmiss.hlsl");
+    const auto directionalLightCallShader = loadCompileAndCreateShader("app_resources/light_directional.rcall.hlsl");
+    const auto pointLightCallShader = loadCompileAndCreateShader("app_resources/light_point.rcall.hlsl");
+    const auto spotLightCallShader = loadCompileAndCreateShader("app_resources/light_spot.rcall.hlsl");
+    const auto fragmentShader = loadCompileAndCreateShader("app_resources/present.frag.hlsl");
+
+    core::smart_refctd_ptr<system::IFile> shaderWriteCacheFile;
+    {
+        system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
+        m_system->deleteFile(shaderCachePath); // temp solution instead of trimming, to make sure we won't have corrupted json
+        m_system->createFile(future, shaderCachePath.c_str(), system::IFile::ECF_WRITE);
+        if (future.wait())
+        {
+            future.acquire().move_into(shaderWriteCacheFile);
+            if (shaderWriteCacheFile)
+            {
+                auto serializedCache = shaderWriteCache->serialize();
+                if (shaderWriteCacheFile)
+                {
+                    system::IFile::success_t succ;
+                    shaderWriteCacheFile->write(succ, serializedCache->getPointer(), 0, serializedCache->getSize());
+                    if (!succ)
+                        m_logger->log("Failed Writing To Shader Cache File.", ILogger::ELL_ERROR);
+                }
+            }
+            else
+                m_logger->log("Failed Creating Shader Cache File.", ILogger::ELL_ERROR);
+        }
+        else
+            m_logger->log("Failed Creating Shader Cache File.", ILogger::ELL_ERROR);
+    }
 
     m_semaphore = m_device->createSemaphore(m_realFrameIx);
     if (!m_semaphore)
@@ -381,11 +437,6 @@ public:
       ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(m_assetMgr.get(), m_device.get(), m_logger.get());
       if (!fsTriProtoPPln)
         return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
-
-      // Load Fragment Shader
-      auto fragmentShader = compileShader("app_resources/present.frag.hlsl");
-      if (!fragmentShader)
-        return logFail("Failed to Load and Compile Fragment Shader: lumaMeterShader!");
 
       const IGPUShader::SSpecInfo fragSpec = {
         .entryPoint = "main",
