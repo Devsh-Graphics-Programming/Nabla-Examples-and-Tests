@@ -14,6 +14,7 @@ class RaytracingPipelineApp final : public examples::SimpleWindowedApplication, 
   constexpr static inline uint32_t WIN_W = 1280, WIN_H = 720;
   constexpr static inline uint32_t MaxFramesInFlight = 3u;
   constexpr static inline uint8_t MaxUITextureCount = 1u;
+  constexpr static inline uint32_t NumberOfProceduralGeometries = 5;
 
   static constexpr const char* s_lightTypeNames[E_LIGHT_TYPE::ELT_COUNT] = {
     "Directional",
@@ -130,6 +131,8 @@ public:
     // shader
     const auto raygenShader = compileShader("app_resources/raytrace.rgen.hlsl");
     const auto closestHitShader = compileShader("app_resources/raytrace.rchit.hlsl");
+    const auto proceduralClosestHitShader = compileShader("app_resources/raytrace_procedural.rchit.hlsl");
+    const auto intersectionHitShader = compileShader("app_resources/raytrace.rint.hlsl");
     const auto anyHitShaderColorPayload = compileShader("app_resources/raytrace.rahit.hlsl", "#define USE_COLOR_PAYLOAD\n");
     const auto anyHitShaderShadowPayload = compileShader("app_resources/raytrace.rahit.hlsl", "#define USE_SHADOW_PAYLOAD\n");
     const auto missShader = compileShader("app_resources/raytrace.rmiss.hlsl");
@@ -276,37 +279,85 @@ public:
 
       IGPURayTracingPipeline::SCreationParams params = {};
 
-      const IGPUShader::SSpecInfo shaders[] = {
-          {.shader = raygenShader.get()},
-          {.shader = missShader.get()},
-          {.shader = shadowMissShader.get()},
-          {.shader = closestHitShader.get()},
-          {.shader = anyHitShaderColorPayload.get()},
-          {.shader = anyHitShaderShadowPayload.get()},
-          {.shader = directionalLightCallShader.get()},
-          {.shader = pointLightCallShader.get()},
-          {.shader = spotLightCallShader.get()},
+      enum RtDemoShader
+      {
+        RTDS_RAYGEN,
+        RTDS_MISS,
+        RTDS_SHADOW_MISS,
+        RTDS_CLOSEST_HIT,
+        RTDS_SPHERE_CLOSEST_HIT,
+        RTDS_ANYHIT_COLOR,
+        RTDS_ANYHIT_SHADOW,
+        RTDS_INTERSECTION,
+        RTDS_DIRECTIONAL_CALL,
+        RTDS_POINT_CALL,
+        RTDS_SPOT_CALL,
+        RTDS_COUNT
       };
+
+      IGPUShader::SSpecInfo shaders[RTDS_COUNT];
+      shaders[RTDS_RAYGEN] = {.shader = raygenShader.get()};
+      shaders[RTDS_MISS] = {.shader = missShader.get()};
+      shaders[RTDS_SHADOW_MISS] = {.shader = shadowMissShader.get()};
+      shaders[RTDS_CLOSEST_HIT] = {.shader = closestHitShader.get()};
+      shaders[RTDS_SPHERE_CLOSEST_HIT] = {.shader = proceduralClosestHitShader.get()};
+      shaders[RTDS_ANYHIT_COLOR] = {.shader = anyHitShaderColorPayload.get()};
+      shaders[RTDS_ANYHIT_SHADOW] = {.shader = anyHitShaderShadowPayload.get()};
+      shaders[RTDS_INTERSECTION] = {.shader = intersectionHitShader.get() };
+      shaders[RTDS_DIRECTIONAL_CALL] = {.shader = directionalLightCallShader.get()};
+      shaders[RTDS_POINT_CALL] = {.shader = pointLightCallShader.get()};
+      shaders[RTDS_SPOT_CALL] = {.shader = spotLightCallShader.get()};
 
       params.layout = pipelineLayout.get();
       params.shaders = std::span(shaders, std::size(shaders));
-      params.cached.shaderGroups.raygenGroup = {
-        .shaderIndex = 0,
+
+      auto& shaderGroups = params.cached.shaderGroups;
+
+      shaderGroups.raygenGroup = { .shaderIndex = RTDS_RAYGEN };
+
+      shaderGroups.missGroups.resize(E_MISS_TYPE::EMT_COUNT, {});
+      shaderGroups.missGroups[EMT_PRIMARY] = { .shaderIndex = RTDS_MISS };
+      shaderGroups.missGroups[EMT_OCCLUSION] = { .shaderIndex = RTDS_SHADOW_MISS };
+
+      auto getHitGroupIndex = [](E_GEOM_TYPE geomType, E_RAY_TYPE rayType)
+        {
+          return geomType * ERT_COUNT + rayType;
+        };
+      shaderGroups.hitGroups.resize(E_RAY_TYPE::ERT_COUNT * E_GEOM_TYPE::EGT_COUNT);
+      shaderGroups.hitGroups[getHitGroupIndex(EGT_TRIANGLES, ERT_PRIMARY)] = {
+        .closestHitShaderIndex = RTDS_CLOSEST_HIT,
+        .anyHitShaderIndex = RTDS_ANYHIT_COLOR,
       };
-      params.cached.shaderGroups.missGroups.push_back({ .shaderIndex = 1 });
-      params.cached.shaderGroups.missGroups.push_back({ .shaderIndex = 2 });
-      params.cached.shaderGroups.hitGroups.push_back({ .closestHitShaderIndex = 3, .anyHitShaderIndex = 4 });
-      params.cached.shaderGroups.hitGroups.push_back({ .closestHitShaderIndex = 3, .anyHitShaderIndex = 5 });
-      params.cached.shaderGroups.callableGroups.push_back({.shaderIndex = 6});
-      params.cached.shaderGroups.callableGroups.push_back({.shaderIndex = 7});
-      params.cached.shaderGroups.callableGroups.push_back({.shaderIndex = 8});
+      shaderGroups.hitGroups[getHitGroupIndex(EGT_TRIANGLES, ERT_OCCLUSION)] = {
+        .closestHitShaderIndex = RTDS_CLOSEST_HIT,
+        .anyHitShaderIndex = RTDS_ANYHIT_SHADOW,
+      };
+      shaderGroups.hitGroups[getHitGroupIndex(EGT_PROCEDURAL, ERT_PRIMARY)] = {
+        .closestHitShaderIndex = RTDS_SPHERE_CLOSEST_HIT,
+        .anyHitShaderIndex = RTDS_ANYHIT_COLOR,
+        .intersectionShaderIndex = RTDS_INTERSECTION,
+      };
+      shaderGroups.hitGroups[getHitGroupIndex(EGT_PROCEDURAL, ERT_OCCLUSION)] = {
+        .closestHitShaderIndex = RTDS_CLOSEST_HIT,
+        .anyHitShaderIndex = RTDS_ANYHIT_SHADOW,
+        .intersectionShaderIndex = RTDS_INTERSECTION,
+      };
+
+      shaderGroups.callableGroups.resize(ELT_COUNT);
+      shaderGroups.callableGroups[ELT_DIRECTIONAL] = { .shaderIndex = RTDS_DIRECTIONAL_CALL };
+      shaderGroups.callableGroups[ELT_POINT] = { .shaderIndex = RTDS_POINT_CALL };
+      shaderGroups.callableGroups[ELT_SPOT] = { .shaderIndex = RTDS_SPOT_CALL };
+
       params.cached.maxRecursionDepth = 2;
+
       if (!m_device->createRayTracingPipelines(nullptr, { &params, 1 }, &m_rayTracingPipeline))
         return logFail("Failed to create ray tracing pipeline");
       m_logger->log("Ray Tracing Pipeline Created!", system::ILogger::ELL_INFO);
 
       if (!createShaderBindingTable(gQueue, m_rayTracingPipeline))
         return logFail("Could not create shader binding table");
+
+      m_logger->log("Shader binding table created", system::ILogger::ELL_INFO);
     }
 
     {
@@ -609,7 +660,8 @@ public:
     {
       SPushConstants pc;
       pc.light = m_light;
-      pc.geometryInfoBuffer = m_geometryInfoBuffer->getDeviceAddress();
+      pc.proceduralGeomInfoBuffer = m_proceduralGeomInfoBuffer->getDeviceAddress();
+      pc.triangleGeomInfoBuffer = m_triangleGeomInfoBuffer->getDeviceAddress();
       pc.frameCounter = m_frameAccumulationCounter;
       const core::vector3df camPos = m_camera.getPosition().getAsVector3df();
       pc.camPos = { camPos.X, camPos.Y, camPos.Z };
@@ -957,8 +1009,8 @@ private:
         .transform = getTranslationMatrix(0, 0.5f, 0),
       },
       ReferenceObjectCpu {
-        .meta = {.type = OT_SPHERE, .name = "Sphere Mesh"},
-        .data = gc->createSphereMesh(2, 16, 16),
+        .meta = {.type = OT_CUBE, .name = "Cube Mesh 2"},
+        .data = gc->createCubeMesh(nbl::core::vector3df(1.5, 1.5, 1.5)),
         .material = {
           .ambient = {0.1, 0.1, 0.1},
           .diffuse = {0.2, 0.2, 0.8},
@@ -969,8 +1021,8 @@ private:
         .transform = getTranslationMatrix(-5.0f, 1.0f, 0),
       },
       ReferenceObjectCpu {
-        .meta = {.type = OT_SPHERE, .name = "Transparent Sphere Mesh"},
-        .data = gc->createSphereMesh(2, 16, 16),
+        .meta = {.type = OT_CUBE, .name = "Transparent Cube Mesh"},
+        .data = gc->createCubeMesh(nbl::core::vector3df(1.5, 1.5, 1.5)),
         .material = {
           .ambient = {0.1, 0.1, 0.1},
           .diffuse = {0.2, 0.8, 0.2},
@@ -1060,10 +1112,10 @@ private:
       prepass.template operator() < ICPUBuffer > (tmpBuffers);
     }
 
-    auto geomInfoBuffer = ICPUBuffer::create({ std::size(cpuObjects) * sizeof(SGeomInfo) });
-    SGeomInfo* geomInfos = reinterpret_cast<SGeomInfo*>(geomInfoBuffer->getPointer());
+    auto geomInfoBuffer = ICPUBuffer::create({ std::size(cpuObjects) * sizeof(STriangleGeomInfo) });
+    STriangleGeomInfo* geomInfos = reinterpret_cast<STriangleGeomInfo*>(geomInfoBuffer->getPointer());
 
-    m_gpuObjects.reserve(std::size(cpuObjects));
+    m_gpuTriangleGeometries.reserve(std::size(cpuObjects));
     // convert
     {
       // not sure if need this (probably not, originally for transition img view)
@@ -1097,7 +1149,7 @@ private:
       {
         auto& cpuObject = cpuObjects[i];
 
-        m_gpuObjects.push_back(ReferenceObjectGpu{
+        m_gpuTriangleGeometries.push_back(ReferenceObjectGpu{
           .meta = cpuObject.meta,
           .bindings = {
             .vertex = {.offset = 0, .buffer = buffers[2 * i + 0].value },
@@ -1111,9 +1163,9 @@ private:
           });
       }
 
-      for (uint32_t i = 0; i < m_gpuObjects.size(); i++)
+      for (uint32_t i = 0; i < m_gpuTriangleGeometries.size(); i++)
       {
-        const auto& gpuObject = m_gpuObjects[i];
+        const auto& gpuObject = m_gpuTriangleGeometries[i];
         const uint64_t vertexBufferAddress = gpuObject.bindings.vertex.buffer->getDeviceAddress();
         geomInfos[i] = {
           .vertexBufferAddress = vertexBufferAddress,
@@ -1131,7 +1183,50 @@ private:
       IGPUBuffer::SCreationParams params;
       params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
       params.size = geomInfoBuffer->getSize();
-      m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = queue }, std::move(params), geomInfos).move_into(m_geometryInfoBuffer);
+      m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = queue }, std::move(params), geomInfos).move_into(m_triangleGeomInfoBuffer);
+    }
+
+    // intersection geometries setup
+    {
+      auto spheresInfoBuffer = ICPUBuffer::create({ NumberOfProceduralGeometries * sizeof(SProceduralGeomInfo) });
+      SProceduralGeomInfo* sphereInfos = reinterpret_cast<SProceduralGeomInfo*>(spheresInfoBuffer->getPointer());
+      core::vector<Aabb> aabbs;
+      for (int32_t i = 0; i < NumberOfProceduralGeometries; i++)
+      {
+        const auto middle_i = NumberOfProceduralGeometries / 2.0;
+        SProceduralGeomInfo sphere = {
+          .center = float32_t3((i - middle_i) * 4.0, 2, 5.0),
+          .radius = 1,
+          .material = {
+            .ambient = {0.1, 0.1, 0.1},
+            .diffuse = {0.3, 0.2 * i, 0.3},
+            .specular = {0.8, 0.8, 0.8},
+            .shininess = 1.0f,
+            .illum = 2
+          },
+        };
+
+        sphereInfos[i] = sphere;
+        aabbs.push_back({
+          .minimum = sphere.center - sphere.radius,
+          .maximum = sphere.center + sphere.radius,
+        });
+      }
+
+      {
+        IGPUBuffer::SCreationParams params;
+        params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+        params.size = spheresInfoBuffer->getSize();
+        m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = queue }, std::move(params), sphereInfos).move_into(m_proceduralGeomInfoBuffer);
+        m_logger->log("Device address : %d", ILogger::ELL_INFO, m_proceduralGeomInfoBuffer->getDeviceAddress());
+      }
+
+      {
+        IGPUBuffer::SCreationParams params;
+        params.usage = IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT;
+        params.size = aabbs.size() * sizeof(Aabb);
+        m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = queue }, std::move(params), aabbs.data()).move_into(m_proceduralAabbBuffer);
+      }
     }
 
     return true;
@@ -1157,19 +1252,19 @@ private:
     missRegion = {
       .offset = raygenRegion.size,
       .stride = handleSizeAligned,
-      .size = core::alignUp(pipeline->getMissGroupCount(), limits.shaderGroupBaseAlignment),
+      .size = core::alignUp(pipeline->getMissGroupCount() * handleSizeAligned, limits.shaderGroupBaseAlignment),
     };
 
     hitRegion = {
       .offset = missRegion.offset + missRegion.size,
       .stride = handleSizeAligned,
-      .size = core::alignUp(pipeline->getHitGroupCount(), limits.shaderGroupBaseAlignment),
+      .size = core::alignUp(pipeline->getHitGroupCount() * handleSizeAligned, limits.shaderGroupBaseAlignment),
     };
 
     callableRegion = {
       .offset = hitRegion.offset + hitRegion.size,
       .stride = handleSizeAligned,
-      .size = core::alignUp(pipeline->getCallableGroupCount(), limits.shaderGroupBaseAlignment),
+      .size = core::alignUp(pipeline->getCallableGroupCount() * handleSizeAligned, limits.shaderGroupBaseAlignment),
     };
 
     const auto bufferSize = raygenRegion.size + missRegion.size + hitRegion.size + callableRegion.size;
@@ -1222,7 +1317,12 @@ private:
 
   bool createAccelerationStructures(video::CThreadSafeQueueAdapter* queue)
   {
-    IQueryPool::SCreationParams qParams{ .queryCount = static_cast<uint32_t>(m_gpuObjects.size()), .queryType = IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE };
+    // plus 1 blas for procedural geometry contains {{var::NumberOfProcedural}}
+    // spheres. Each sphere is a primitive instead one instance or geometry
+    const auto blasCount = m_gpuTriangleGeometries.size() + 1;
+    const auto proceduralBlasIdx = blasCount - 1;
+
+    IQueryPool::SCreationParams qParams{ .queryCount = static_cast<uint32_t>(blasCount), .queryType = IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE };
     smart_refctd_ptr<IQueryPool> queryPool = m_device->createQueryPool(std::move(qParams));
 
     auto pool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT | IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
@@ -1244,48 +1344,72 @@ private:
 #endif
     size_t totalScratchSize = 0;
 
+
     // build bottom level ASes
     {
-      core::vector<IGPUBottomLevelAccelerationStructure::DeviceBuildInfo> blasBuildInfos(m_gpuObjects.size());
-      core::vector<uint32_t> primitiveCounts(m_gpuObjects.size());
-      core::vector<IGPUBottomLevelAccelerationStructure::Triangles<const IGPUBuffer>> triangles(m_gpuObjects.size());
-      core::vector<uint32_t> scratchSizes(m_gpuObjects.size());
-      m_gpuBlasList.resize(m_gpuObjects.size());
+      core::vector<uint32_t> primitiveCounts(blasCount);
+      core::vector<IGPUBottomLevelAccelerationStructure::Triangles<const IGPUBuffer>> triangles(m_gpuTriangleGeometries.size());
+      core::vector<uint32_t> scratchSizes(blasCount);
+      IGPUBottomLevelAccelerationStructure::AABBs<const IGPUBuffer> aabbs;
 
-      for (uint32_t i = 0; i < m_gpuObjects.size(); i++)
+      auto blasFlags = bitflag(IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT) | IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_COMPACTION_BIT;
+      if (m_physicalDevice->getProperties().limits.rayTracingPositionFetch)
+        blasFlags |= IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_DATA_ACCESS_KHR;
+
+      IGPUBottomLevelAccelerationStructure::DeviceBuildInfo initBuildInfo;
+      initBuildInfo.buildFlags = blasFlags;
+      initBuildInfo.geometryCount = 1;	// only 1 geometry object per blas
+      initBuildInfo.srcAS = nullptr;
+      initBuildInfo.dstAS = nullptr;
+      initBuildInfo.scratch = {};
+
+      auto blasBuildInfos = core::vector(blasCount, initBuildInfo);
+
+      m_gpuBlasList.resize(blasCount);
+      // setup blas info for triangle geometries
+      for (uint32_t i = 0; i < blasCount; i++)
       {
-        const auto& gpuObject = m_gpuObjects[i];
+        bool isProcedural = i == proceduralBlasIdx;
+        if (isProcedural)
+        {
+          aabbs.data.buffer = smart_refctd_ptr<IGPUBuffer>(m_proceduralAabbBuffer);
+          aabbs.stride = sizeof(Aabb);
+          aabbs.geometryFlags = IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::OPAQUE_BIT; // only allow opaque for now
 
-        const uint32_t vertexStride = gpuObject.vertexStride;
-        const uint32_t numVertices = gpuObject.bindings.vertex.buffer->getSize() / vertexStride;
-        if (gpuObject.useIndex())
-          primitiveCounts[i] = gpuObject.indexCount / 3;
-        else
-          primitiveCounts[i] = numVertices / 3;
+          primitiveCounts[proceduralBlasIdx] = NumberOfProceduralGeometries;
+          blasBuildInfos[proceduralBlasIdx].aabbs = &aabbs;
+          blasBuildInfos[proceduralBlasIdx].buildFlags |= IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::GEOMETRY_TYPE_IS_AABB_BIT;
+        } else
+        {
+          const auto& gpuObject = m_gpuTriangleGeometries[i];
 
-        triangles[i].vertexData[0] = gpuObject.bindings.vertex;
-        triangles[i].indexData = gpuObject.useIndex() ? gpuObject.bindings.index : gpuObject.bindings.vertex;
-        triangles[i].maxVertex = numVertices - 1;
-        triangles[i].vertexStride = vertexStride;
-        triangles[i].vertexFormat = EF_R32G32B32_SFLOAT;
-        triangles[i].indexType = gpuObject.indexType;
-        triangles[i].geometryFlags = IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::NO_DUPLICATE_ANY_HIT_INVOCATION_BIT;
+          const uint32_t vertexStride = gpuObject.vertexStride;
+          const uint32_t numVertices = gpuObject.bindings.vertex.buffer->getSize() / vertexStride;
+          if (gpuObject.useIndex())
+            primitiveCounts[i] = gpuObject.indexCount / 3;
+          else
+            primitiveCounts[i] = numVertices / 3;
 
-        auto blasFlags = bitflag(IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT) | IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_COMPACTION_BIT;
-        if (m_physicalDevice->getProperties().limits.rayTracingPositionFetch)
-          blasFlags |= IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_DATA_ACCESS_KHR;
+          triangles[i].vertexData[0] = gpuObject.bindings.vertex;
+          triangles[i].indexData = gpuObject.useIndex() ? gpuObject.bindings.index : gpuObject.bindings.vertex;
+          triangles[i].maxVertex = numVertices - 1;
+          triangles[i].vertexStride = vertexStride;
+          triangles[i].vertexFormat = EF_R32G32B32_SFLOAT;
+          triangles[i].indexType = gpuObject.indexType;
+          triangles[i].geometryFlags = IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::NO_DUPLICATE_ANY_HIT_INVOCATION_BIT;
 
-        blasBuildInfos[i].buildFlags = blasFlags;
-        blasBuildInfos[i].geometryCount = 1;	// only 1 geometry object per blas
-        blasBuildInfos[i].srcAS = nullptr;
-        blasBuildInfos[i].dstAS = nullptr;
-        blasBuildInfos[i].triangles = &triangles[i];
-        blasBuildInfos[i].scratch = {};
-
+          blasBuildInfos[i].triangles = &triangles[i];
+        }
         ILogicalDevice::AccelerationStructureBuildSizes buildSizes;
         {
           const uint32_t maxPrimCount[1] = { primitiveCounts[i] };
-          buildSizes = m_device->getAccelerationStructureBuildSizes(blasFlags, false, std::span{ &triangles[i], 1 }, maxPrimCount);
+          if (isProcedural)
+          {
+            buildSizes = m_device->getAccelerationStructureBuildSizes(blasBuildInfos[i].buildFlags, false, std::span{&aabbs, 1}, maxPrimCount);
+          } else
+          {
+            buildSizes = m_device->getAccelerationStructureBuildSizes(blasBuildInfos[i].buildFlags, false, std::span{&triangles[i], 1}, maxPrimCount);
+          }
           if (!buildSizes)
             return logFail("Failed to get BLAS build sizes");
         }
@@ -1310,10 +1434,11 @@ private:
         }
       }
 
+
       auto cmdbufBlas = getSingleUseCommandBufferAndBegin(pool);
       cmdbufBlas->beginDebugMarker("Build BLAS");
 
-      cmdbufBlas->resetQueryPool(queryPool.get(), 0, m_gpuObjects.size());
+      cmdbufBlas->resetQueryPool(queryPool.get(), 0, blasCount);
 
       smart_refctd_ptr<IGPUBuffer> scratchBuffer;
       {
@@ -1324,9 +1449,9 @@ private:
       }
 
       uint32_t queryCount = 0;
-      core::vector<IGPUBottomLevelAccelerationStructure::BuildRangeInfo> buildRangeInfos(m_gpuObjects.size());
-      core::vector<IGPUBottomLevelAccelerationStructure::BuildRangeInfo*> pRangeInfos(m_gpuObjects.size());
-      for (uint32_t i = 0; i < m_gpuObjects.size(); i++)
+      core::vector<IGPUBottomLevelAccelerationStructure::BuildRangeInfo> buildRangeInfos(blasCount);
+      core::vector<IGPUBottomLevelAccelerationStructure::BuildRangeInfo*> pRangeInfos(blasCount);
+      for (uint32_t i = 0; i < blasCount; i++)
       {
         blasBuildInfos[i].dstAS = m_gpuBlasList[i].get();
         blasBuildInfos[i].scratch.buffer = scratchBuffer;
@@ -1353,8 +1478,8 @@ private:
       }
 
 
-      core::vector<const IGPUAccelerationStructure*> ases(m_gpuObjects.size());
-      for (uint32_t i = 0; i < m_gpuObjects.size(); i++)
+      core::vector<const IGPUAccelerationStructure*> ases(blasCount);
+      for (uint32_t i = 0; i < blasCount; i++)
         ases[i] = m_gpuBlasList[i].get();
       if (!cmdbufBlas->writeAccelerationStructureProperties(std::span(ases), IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE,
         queryPool.get(), queryCount++))
@@ -1369,12 +1494,12 @@ private:
 
     // compact blas
     {
-      core::vector<size_t> asSizes(m_gpuObjects.size(), 0);
-      if (!m_device->getQueryPoolResults(queryPool.get(), 0, m_gpuObjects.size(), asSizes.data(), sizeof(size_t), IQueryPool::WAIT_BIT))
+      core::vector<size_t> asSizes(blasCount);
+      if (!m_device->getQueryPoolResults(queryPool.get(), 0, blasCount, asSizes.data(), sizeof(size_t), IQueryPool::WAIT_BIT))
         return logFail("Could not get query pool results for AS sizes");
 
-      core::vector<smart_refctd_ptr<IGPUBottomLevelAccelerationStructure>> cleanupBlas(m_gpuObjects.size());
-      for (uint32_t i = 0; i < m_gpuObjects.size(); i++)
+      core::vector<smart_refctd_ptr<IGPUBottomLevelAccelerationStructure>> cleanupBlas(blasCount);
+      for (uint32_t i = 0; i < blasCount; i++)
       {
         cleanupBlas[i] = m_gpuBlasList[i];
         {
@@ -1410,16 +1535,17 @@ private:
 
     // build top level AS
     {
-      const uint32_t instancesCount = m_gpuObjects.size();
-      core::vector<IGPUTopLevelAccelerationStructure::DeviceStaticInstance> instances(m_gpuObjects.size());
+      const uint32_t instancesCount = m_gpuBlasList.size();
+      core::vector<IGPUTopLevelAccelerationStructure::DeviceStaticInstance> instances(instancesCount);
       for (uint32_t i = 0; i < instancesCount; i++)
       {
+        const auto isProceduralInstance = i == proceduralBlasIdx;
         instances[i].base.blas.deviceAddress = m_gpuBlasList[i]->getReferenceForDeviceOperations().deviceAddress;
         instances[i].base.mask = 0xFF;
         instances[i].base.instanceCustomIndex = i;
-        instances[i].base.instanceShaderBindingTableRecordOffset = 0;
+        instances[i].base.instanceShaderBindingTableRecordOffset = isProceduralInstance ? 2 : 0;
         instances[i].base.flags = static_cast<uint32_t>(IGPUTopLevelAccelerationStructure::INSTANCE_FLAGS::TRIANGLE_FACING_CULL_DISABLE_BIT);
-        instances[i].transform = m_gpuObjects[i].transform;
+        instances[i].transform = isProceduralInstance ? matrix3x4SIMD() : m_gpuTriangleGeometries[i].transform;
       }
 
       {
@@ -1557,13 +1683,17 @@ private:
   } m_ui;
   core::smart_refctd_ptr<IDescriptorPool> m_guiDescriptorSetPool;
 
-  std::vector<ReferenceObjectGpu> m_gpuObjects;
+  core::vector<ReferenceObjectGpu> m_gpuTriangleGeometries;
+  core::vector<SProceduralGeomInfo> m_gpuIntersectionSpheres;
+  uint32_t m_intersectionHitGroupIdx;
 
   std::vector<smart_refctd_ptr<IGPUBottomLevelAccelerationStructure>> m_gpuBlasList;
   smart_refctd_ptr<IGPUTopLevelAccelerationStructure> m_gpuTlas;
   smart_refctd_ptr<IGPUBuffer> m_instanceBuffer;
 
-  smart_refctd_ptr<IGPUBuffer> m_geometryInfoBuffer;
+  smart_refctd_ptr<IGPUBuffer> m_triangleGeomInfoBuffer;
+  smart_refctd_ptr<IGPUBuffer> m_proceduralGeomInfoBuffer;
+  smart_refctd_ptr<IGPUBuffer> m_proceduralAabbBuffer;
   smart_refctd_ptr<IGPUImage> m_hdrImage;
   smart_refctd_ptr<IGPUImageView> m_hdrImageView;
 

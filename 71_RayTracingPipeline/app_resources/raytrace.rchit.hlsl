@@ -19,7 +19,7 @@ struct VertexData
     float32_t3 normal;
 };
 
-VertexData fetchVertexData(int instID, int primID, SGeomInfo geom, float2 bary)
+VertexData fetchVertexData(int instID, int primID, STriangleGeomInfo geom, float2 bary)
 {
     uint idxOffset = primID * 3;
 
@@ -116,7 +116,7 @@ void main(inout ColorPayload p, in BuiltInTriangleIntersectionAttributes attribs
 {
     const int instID = InstanceID();
     const int primID = PrimitiveIndex();
-    const SGeomInfo geom = vk::RawBufferLoad < SGeomInfo > (pc.geometryInfoBuffer + instID * sizeof(SGeomInfo));
+    const STriangleGeomInfo geom = vk::RawBufferLoad < STriangleGeomInfo > (pc.triangleGeomInfoBuffer + instID * sizeof(STriangleGeomInfo));
     const VertexData vertexData = fetchVertexData(instID, primID, geom, attribs.barycentrics);
     const float32_t3 worldPosition = mul(ObjectToWorld3x4(), float32_t4(vertexData.position, 1));
     const float32_t3 worldNormal = mul(vertexData.normal, WorldToObject3x4()).xyz;
@@ -132,16 +132,16 @@ void main(inout ColorPayload p, in BuiltInTriangleIntersectionAttributes attribs
     if (dot(worldNormal, cLight.outLightDir) > 0)
     {
         RayDesc rayDesc;
-        rayDesc.Origin = WorldRayOrigin() + WorldRayDirection() * RayTCurrent() + worldNormal * 0.02f;
+        rayDesc.Origin = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
         rayDesc.Direction = cLight.outLightDir;
-        rayDesc.TMin = 0.001;
+        rayDesc.TMin = 0.01;
         rayDesc.TMax = cLight.outLightDistance;
 
         uint flags = RAY_FLAG_SKIP_CLOSEST_HIT_SHADER;
         ShadowPayload shadowPayload;
         shadowPayload.isShadowed = true;
         shadowPayload.seed = p.seed;
-        TraceRay(topLevelAS, flags, 0xFF, 1, 0, 1, rayDesc, shadowPayload);
+        TraceRay(topLevelAS, flags, 0xFF, ERT_OCCLUSION, 0, EMT_OCCLUSION, rayDesc, shadowPayload);
 
         bool isShadowed = shadowPayload.isShadowed;
         if (isShadowed)

@@ -15,7 +15,7 @@ using AnyHitPayload = ShadowPayload;
 void main(inout AnyHitPayload p, in BuiltInTriangleIntersectionAttributes attribs)
 {
     const int instID = InstanceID();
-    const SGeomInfo geom = vk::RawBufferLoad < SGeomInfo > (pc.geometryInfoBuffer + instID * sizeof(SGeomInfo));
+    const STriangleGeomInfo geom = vk::RawBufferLoad < STriangleGeomInfo > (pc.triangleGeomInfoBuffer + instID * sizeof(STriangleGeomInfo));
     
     if (geom.material.illum != 4)
         return;

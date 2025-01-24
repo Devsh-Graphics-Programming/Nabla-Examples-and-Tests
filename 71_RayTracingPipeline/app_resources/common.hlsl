@@ -15,7 +15,20 @@ struct Material
     uint32_t illum; // illumination model (see http://www.fileformat.info/format/material/)
 };
 
-struct SGeomInfo
+struct SProceduralGeomInfo
+{
+    float32_t3 center;
+    float32_t radius;
+    Material material;
+};
+
+struct Aabb
+{
+    float32_t3 minimum;
+    float32_t3 maximum;
+};
+
+struct STriangleGeomInfo
 {
     uint64_t vertexBufferAddress;
     uint64_t indexBufferAddress;
@@ -29,12 +42,33 @@ struct SGeomInfo
     Material material;
 };
 
+enum E_GEOM_TYPE : int32_t
+{
+    EGT_TRIANGLES,
+    EGT_PROCEDURAL,
+    EGT_COUNT
+};
+
 enum E_LIGHT_TYPE : int32_t
 {
     ELT_DIRECTIONAL,
     ELT_POINT,
     ELT_SPOT,
     ELT_COUNT
+};
+
+enum E_RAY_TYPE : int32_t
+{
+    ERT_PRIMARY, // Ray shoot from camera
+    ERT_OCCLUSION,
+    ERT_COUNT
+};
+
+enum E_MISS_TYPE : int32_t
+{
+    EMT_PRIMARY,
+    EMT_OCCLUSION,
+    EMT_COUNT
 };
 
 struct Light
@@ -59,7 +93,8 @@ struct SPushConstants
     float32_t3 camPos;
     float32_t4x4 invMVP;
 
-    uint64_t geometryInfoBuffer;
+    uint64_t proceduralGeomInfoBuffer;
+    uint64_t triangleGeomInfoBuffer;
     uint32_t frameCounter;
 };
 

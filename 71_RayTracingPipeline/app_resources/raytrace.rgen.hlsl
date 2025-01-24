@@ -46,12 +46,12 @@ void main()
         RayDesc rayDesc;
         rayDesc.Origin = pc.camPos;
         rayDesc.Direction = direction;
-        rayDesc.TMin = 0.01;
-        rayDesc.TMax = 1000.0;
+        rayDesc.TMin = 0.001;
+        rayDesc.TMax = 10000.0;
         
         ColorPayload payload;
         payload.seed = seed;
-        TraceRay(topLevelAS, RAY_FLAG_NONE, 0xff, 0, 0, 0, rayDesc, payload);
+        TraceRay(topLevelAS, RAY_FLAG_NONE, 0xff, ERT_PRIMARY, 0, EMT_PRIMARY, rayDesc, payload);
 
         hitValues += payload.hitValue;
     }
