@@ -413,7 +413,6 @@ public:
       if (!createShaderBindingTable(gQueue, m_rayTracingPipeline))
         return logFail("Could not create shader binding table");
 
-      m_logger->log("Shader binding table created", system::ILogger::ELL_INFO);
     }
 
     {
@@ -1023,7 +1022,7 @@ private:
       return logFail("Couldn't create Command Pool for geometry creation!");
 
     const auto defaultMaterial = Material{
-      .ambient = {0.1, 0.1, 0.1},
+      .ambient = {},
       .diffuse = {0.8, 0.3, 0.3},
       .specular = {0.8, 0.8, 0.8},
       .shininess = 1.0f,
@@ -1057,7 +1056,7 @@ private:
         .meta = {.type = OT_CUBE, .name = "Cube Mesh 2"},
         .data = gc->createCubeMesh(nbl::core::vector3df(1.5, 1.5, 1.5)),
         .material = {
-          .ambient = {0.1, 0.1, 0.1},
+          .ambient = {},
           .diffuse = {0.2, 0.2, 0.8},
           .specular = {0.8, 0.8, 0.8},
           .shininess = 1.0f,
@@ -1069,7 +1068,7 @@ private:
         .meta = {.type = OT_CUBE, .name = "Transparent Cube Mesh"},
         .data = gc->createCubeMesh(nbl::core::vector3df(1.5, 1.5, 1.5)),
         .material = {
-          .ambient = {0.1, 0.1, 0.1},
+          .ambient = {},
           .diffuse = {0.2, 0.8, 0.2},
           .specular = {0.8, 0.8, 0.8},
           .shininess = 1.0f,
@@ -1244,7 +1243,7 @@ private:
           .center = float32_t3((i - middle_i) * 4.0, 2, 5.0),
           .radius = 1,
           .material = {
-            .ambient = {0.1, 0.1, 0.1},
+            .ambient = {},
             .diffuse = {0.3, 0.2 * i, 0.3},
             .specular = {0.8, 0.8, 0.8},
             .shininess = 1.0f,
