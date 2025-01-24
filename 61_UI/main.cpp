@@ -1728,6 +1728,17 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				}
 
 				{
+					if (ImGui::TreeNodeEx("Cursor Behaviour"))
+					{
+						if (ImGui::RadioButton("Clamp to the window", !resetCursorToCenter))
+							resetCursorToCenter = false;
+						if (ImGui::RadioButton("Reset to the window center", resetCursorToCenter))
+							resetCursorToCenter = true;
+						ImGui::TreePop();
+					}
+				}
+
+				{
 					ImGuiIO& io = ImGui::GetIO();
 
 					if (ImGui::IsKeyPressed(ImGuiKey_Space))
@@ -1735,21 +1746,39 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					if (enableActiveCameraMovement)
 					{
+						ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Bound Camera Movement: Enabled");
 						io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
 						io.MouseDrawCursor = false;
 						io.WantCaptureMouse = false;
+
+						ImVec2 cursorPos = ImGui::GetMousePos();
+						ImVec2 viewportSize = io.DisplaySize;
+						auto* cc = m_window->getCursorControl();
+						int32_t posX = m_window->getX();
+						int32_t posY = m_window->getY();
+
+						if (resetCursorToCenter)
+						{
+							const ICursorControl::SPosition middle{ static_cast<int32_t>(viewportSize.x / 2 + posX), static_cast<int32_t>(viewportSize.y / 2 + posY) };
+							cc->setPosition(middle);
+						}
+						else 
+						{
+							auto currentCursorPos = cc->getPosition();
+							ICursorControl::SPosition newPos{};
+							newPos.x = std::clamp<int32_t>(currentCursorPos.x, posX, viewportSize.x + posX);
+							newPos.y = std::clamp<int32_t>(currentCursorPos.y, posY, viewportSize.y + posY);
+							cc->setPosition(newPos);
+						}
 					}
 					else
 					{
+						ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Bound Camera Movement: Disabled");
 						io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
 						io.MouseDrawCursor = true;
 						io.WantCaptureMouse = true;
 					}
-
-					if (enableActiveCameraMovement)
-						ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Bound Camera Movement: Enabled");
-					else
-						ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Bound Camera Movement: Disabled");
+		
 
 					if (ImGui::IsItemHovered())
 					{
@@ -2188,6 +2217,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		std::vector<nbl::core::smart_refctd_ptr<planar_projection_t>> m_planarProjections;
 
 		bool enableActiveCameraMovement = false;
+
+		bool resetCursorToCenter = false;
 
 		struct windowControlBinding
 		{
