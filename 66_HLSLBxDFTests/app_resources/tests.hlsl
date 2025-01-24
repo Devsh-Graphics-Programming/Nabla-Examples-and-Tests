@@ -14,8 +14,10 @@
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/hash.hpp>
 #include <unordered_map>
+#include <vector>
 #include <cmath>
 #include <format>
+#include <functional>
 #endif
 
 namespace nbl
@@ -105,14 +107,14 @@ bool checkZero<float32_t>(float32_t a, float32_t eps)
 // takes in normalized vectors
 inline float32_t3 polarToCartesian(float32_t2 theta_phi)
 {
-    return float32_t3(std::cos(theta_phi.x) * std::cos(theta_phi.y),
-                        std::sin(theta_phi.x) * std::cos(theta_phi.y),
-                        std::sin(theta_phi.y));
+    return float32_t3(std::cos(theta_phi.y) * std::cos(theta_phi.x),
+                        std::sin(theta_phi.y) * std::cos(theta_phi.x),
+                        std::sin(theta_phi.x));
 }
 
 inline float32_t2 cartesianToPolar(float32_t3 coords)
 {
-    return float32_t2(std::atan2(coords.y, coords.x), std::acos(coords.z));
+    return float32_t2(std::acos(coords.z), std::atan2(coords.y, coords.x));
 }
 #endif
 
@@ -704,7 +706,7 @@ struct TestBucket : TestBxDF<BxDF>
     {
         clearBuckets();
 
-        aniso_cache cache, dummy;
+        aniso_cache cache;
         iso_cache isocache;
         params_t params;
 
@@ -772,8 +774,10 @@ struct TestBucket : TestBxDF<BxDF>
             }
 
             // put s into bucket
-            const float32_t2 coords = cartesianToPolar(s.L.direction);
-            float32_t2 bucket = float32_t2(bin(coords.x * 0.5f * numbers::inv_pi<float>), bin(coords.y * numbers::inv_pi<float>));
+            float32_t3x3 toTangentSpace = base_t::anisointer.getToTangentSpace();
+            const ray_dir_info_t localL = ray_dir_info_t::transform(toTangentSpace, s.L);
+            const float32_t2 coords = cartesianToPolar(localL.direction);
+            float32_t2 bucket = float32_t2(bin(coords.x * numbers::inv_pi<float>), bin(coords.y * 0.5f * numbers::inv_pi<float>));
 
             if (pdf.pdf == numeric_limits<float>::infinity)
                 buckets[bucket] += 1;
@@ -784,7 +788,7 @@ struct TestBucket : TestBxDF<BxDF>
         for (auto const& b : buckets) {
             if (!selective || b.second > 0)
             {
-                const float32_t3 v = polarToCartesian(b.first * float32_t2(2, 1) * numbers::pi<float>);
+                const float32_t3 v = polarToCartesian(b.first * float32_t2(1, 2) * numbers::pi<float>);
                 base_t::errMsg += std::format("({:.3f},{:.3f},{:.3f}): {}\n", v.x, v.y, v.z, b.second);
             }
         }
@@ -818,6 +822,384 @@ struct TestBucket : TestBxDF<BxDF>
     bool selective = true;  // print only buckets with count > 0
     float stride = 0.2f;
     std::unordered_map<float32_t2, uint32_t, std::hash<float32_t2>> buckets;
+};
+
+inline float adaptiveSimpson(const std::function<float(float)>& f, float x0, float x1, float eps = 1e-6, int depth = 6)
+{
+    int count = 0;
+    std::function<float(float, float, float, float, float, float, float, float, int)> integrate = 
+    [&](float a, float b, float c, float fa, float fb, float fc, float I, float eps, int depth)
+    {
+        float d = 0.5f * (a + b);
+        float e = 0.5f * (b + c);
+        float fd = f(d);
+        float fe = f(e);
+
+        float h = c - a;
+        float I0 = (1.0f / 12.0f) * h * (fa + 4 * fd + fb);
+        float I1 = (1.0f / 12.0f) * h * (fb + 4 * fe + fc);
+        float Ip = I0 + I1;
+        count++;
+
+        if (depth <= 0 || std::abs(Ip - I) < 15 * eps)
+            return Ip + (1.0f / 15.0f) * (Ip - I);
+
+        return integrate(a, d, b, fa, fd, fb, I0, .5f * eps, depth - 1) +
+                integrate(b, e, c, fb, fe, fc, I1, .5f * eps, depth - 1);
+    };
+    
+    float a = x0;
+    float b = 0.5f * (x0 + x1);
+    float c = x1;
+    float fa = f(a);
+    float fb = f(b);
+    float fc = f(c);
+    float I = (c - a) * (1.0f / 6.0f) * (fa + 4.f * fb + fc);
+    return integrate(a, b, c, fa, fb, fc, I, eps, depth);
+}
+
+inline float adaptiveSimpson2D(const std::function<float(float, float)>& f, float32_t2 x0, float32_t2 x1, float eps = 1e-6, int depth = 6)
+{
+    const auto integrate = [&](float y) -> float
+    {
+        return adaptiveSimpson(std::bind(f, std::placeholders::_1, y), x0.x, x1.x, eps, depth);
+    };
+    return adaptiveSimpson(integrate, x0.y, x1.y, eps, depth);
+}
+
+// adapted from pbrt chi2 test: https://github.com/mmp/pbrt-v4/blob/792aaaa08d97dbedf11a3bb23e246b6443d847b4/src/pbrt/bsdfs_test.cpp#L280
+template<class BxDF, bool aniso = false>
+struct TestChi2 : TestBxDF<BxDF>
+{
+    using base_t = TestBxDFBase<BxDF>;
+    using this_t = TestChi2<BxDF, aniso>;
+
+    void clearBuckets()
+    {
+        const uint32_t freqSize = thetaSplits * phiSplits;
+        countFreq.resize(freqSize);
+        std::fill(countFreq.begin(), countFreq.end(), 0);
+        integrateFreq.resize(freqSize);
+        std::fill(integrateFreq.begin(), integrateFreq.end(), 0);
+    }
+
+    double RLGamma(double a, double x) {
+        const double epsilon = 0.000000000000001;
+        const double big = 4503599627370496.0;
+        const double bigInv = 2.22044604925031308085e-16;
+        assert(a < 0 || x < 0);
+
+        if (x == 0)
+            return 0.0f;
+
+        double ax = (a * std::log(x)) - x - std::lgamma(a);
+        if (ax < -709.78271289338399)
+            return a < x ? 1.0 : 0.0;
+
+        if (x <= 1 || x <= a)
+        {
+            double r2 = a;
+            double c2 = 1;
+            double ans2 = 1;
+
+            do {
+                r2 = r2 + 1;
+                c2 = c2 * x / r2;
+                ans2 += c2;
+            } while ((c2 / ans2) > epsilon);
+
+            return std::exp(ax) * ans2 / a;
+        }
+
+        int c = 0;
+        double y = 1 - a;
+        double z = x + y + 1;
+        double p3 = 1;
+        double q3 = x;
+        double p2 = x + 1;
+        double q2 = z * x;
+        double ans = p2 / q2;
+        double error;
+
+        do {
+            c++;
+            y += 1;
+            z += 2;
+            double yc = y * c;
+            double p = (p2 * z) - (p3 * yc);
+            double q = (q2 * z) - (q3 * yc);
+
+            if (q != 0)
+            {
+                double nextans = p / q;
+                error = std::abs((ans - nextans) / nextans);
+                ans = nextans;
+            }
+            else
+            {
+                error = 1;
+            }
+
+            p3 = p2;
+            p2 = p;
+            q3 = q2;
+            q2 = q;
+
+            if (std::abs(p) > big)
+            {
+                p3 *= bigInv;
+                p2 *= bigInv;
+                q3 *= bigInv;
+                q2 *= bigInv;
+            }
+        } while (error > epsilon);
+
+        return 1.0 - (std::exp(ax) * ans);
+    }
+
+    double chi2CDF(double x, int dof)
+    {
+        if (dof < 1 || x < 0)
+        {
+            return 0.0;
+        }
+        else if (dof == 2)
+        {
+            return 1.0 - std::exp(-0.5 * x);
+        }
+        else
+        {
+            return RLGamma(0.5 * dof, 0.5 * x);
+        }
+    }
+
+    virtual void compute() override
+    {
+        clearBuckets();
+
+        float thetaFactor = thetaSplits * numbers::inv_pi<float>;
+        float phiFactor = phiSplits * 0.5f * numbers::inv_pi<float>;
+
+        sample_t s;
+        aniso_cache cache;
+        for (uint32_t i = 0; i < numSamples; i++)
+        {
+            float32_t3 u = float32_t3(rngUniformDist<float32_t2>(base_t::rc.rng), 0.0);
+
+            if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
+            {
+                s = base_t::bxdf.generate(base_t::anisointer, u.xy);
+            }
+            if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF>)
+            {
+                s = base_t::bxdf.generate(base_t::anisointer, u.xy, cache);
+            }
+            if NBL_CONSTEXPR_FUNC (is_basic_bsdf_v<BxDF>)
+            {
+                s = base_t::bxdf.generate(base_t::anisointer, u);
+            }
+            if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
+            {
+                s = base_t::bxdf.generate(base_t::anisointer, u, cache);
+            }
+
+            // put s into bucket
+            float32_t3x3 toTangentSpace = base_t::anisointer.getToTangentSpace();
+            const ray_dir_info_t localL = ray_dir_info_t::transform(toTangentSpace, s.L);
+            float32_t2 coords = cartesianToPolar(localL.direction) * float32_t2(thetaFactor, phiFactor);
+            if (coords.y < 0)
+                coords.y += 2.f * numbers::pi<float> * thetaFactor;
+
+            int thetaBin = clamp<int>((int)std::floor(coords.x), 0, thetaSplits - 1);
+            int phiBin = clamp<int>((int)std::floor(coords.y), 0, phiSplits - 1);
+
+            countFreq[thetaBin * phiSplits + phiBin] += 1;
+        }
+
+        thetaFactor = 1.f / thetaFactor;
+        phiFactor = 1.f / phiFactor;
+
+        int idx = 0;
+        for (int i = 0; i < thetaSplits; i++)
+        {
+            for (int j = 0; j < phiSplits; j++)
+            {
+                integrateFreq[idx++] = numSamples * adaptiveSimpson2D([&](float theta, float phi) -> float
+                    {
+                        float cosTheta = std::cos(theta), sinTheta = std::sin(theta);
+                        float cosPhi = std::cos(phi), sinPhi = std::sin(phi);
+
+                        float32_t3x3 toTangentSpace = base_t::anisointer.getToTangentSpace();
+                        ray_dir_info_t localV = ray_dir_info_t::transform(toTangentSpace, base_t::rc.V);
+                        ray_dir_info_t L;
+                        L.direction = float32_t3(sinTheta * cosPhi, sinTheta * sinPhi, cosTheta);
+                        ray_dir_info_t localL = ray_dir_info_t::transform(toTangentSpace, L);
+                        sample_t s = sample_t::createFromTangentSpace(localV.direction, localL, base_t::anisointer.getFromTangentSpace());
+
+                        params_t params;
+                        if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
+                        {
+                            params = params_t::template create<sample_t, iso_interaction>(s, base_t::isointer, bxdf::BCM_MAX);
+                        }
+                        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF>)
+                        {
+                            aniso_cache cache = aniso_cache::template createForReflection<ray_dir_info_t,ray_dir_info_t>(base_t::anisointer, s);
+
+                            if NBL_CONSTEXPR_FUNC (aniso)
+                                params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_MAX);
+                            else
+                            {
+                                iso_cache isocache = (iso_cache)cache;
+                                params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_MAX);
+                            }
+                        }
+                        if NBL_CONSTEXPR_FUNC (is_basic_bsdf_v<BxDF>)
+                        {
+                            params = params_t::template create<sample_t, iso_interaction>(s, base_t::isointer, bxdf::BCM_ABS);
+                        }
+                        if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
+                        {
+                            aniso_cache cache = aniso_cache::template createForReflection<ray_dir_info_t,ray_dir_info_t>(base_t::anisointer, s);
+
+                            if NBL_CONSTEXPR_FUNC (aniso)
+                                params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_ABS);
+                            else
+                            {
+                                iso_cache isocache = (iso_cache)cache;
+                                params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_ABS);
+                            }
+                        }
+
+                        quotient_pdf_t pdf;
+                        if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF> || is_basic_bsdf_v<BxDF>)
+                        {
+                            pdf = base_t::bxdf.quotient_and_pdf(params);
+                        }
+                        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
+                        {
+                            if NBL_CONSTEXPR_FUNC (aniso)
+                            {
+                                pdf = base_t::bxdf.quotient_and_pdf(params);
+                            }
+                            else
+                            {
+                                pdf = base_t::bxdf.quotient_and_pdf(params);
+                            }
+                        }
+                        return pdf.pdf * sinTheta;
+                    },
+                    float32_t2(i * thetaFactor, j * phiFactor), float32_t2((i + 1) * thetaFactor, (j + 1) * phiFactor));
+            }
+        }
+    }
+
+    ErrorType test()
+    {
+        compute();
+
+        // chi2
+        std::vector<Cell> cells(thetaSplits * phiSplits);
+        for (uint32_t i = 0; i < cells.size(); i++)
+        {
+            cells[i].expFreq = integrateFreq[i];
+            cells[i].index = i;
+        }
+        std::sort(cells.begin(), cells.end(), [](const Cell& a, const Cell& b)
+        {
+            return a.expFreq < b.expFreq;
+        });
+
+        float pooledFreqs = 0, pooledExpFreqs = 0, chsq = 0;
+        int pooledCells = 0, dof = 0;
+
+        for (const Cell& c : cells)
+        {
+            if (integrateFreq[c.index] == 0)
+            {
+                if (countFreq[c.index] > numSamples * 1e-5)
+                {
+                    base_t::errMsg = std::format("expected frequency of 0 for c but found {} samples", countFreq[c.index]);
+                    return BET_PRINT_MSG;
+                }
+            }
+            else if (integrateFreq[c.index] < minFreq)
+            {
+                pooledFreqs += countFreq[c.index];
+                pooledExpFreqs += integrateFreq[c.index];
+                pooledCells++;
+            }
+            else if (pooledExpFreqs > 0 && pooledExpFreqs < minFreq)
+            {
+                pooledFreqs += countFreq[c.index];
+                pooledExpFreqs += integrateFreq[c.index];
+                pooledCells++;
+            }
+            else
+            {
+                float diff = countFreq[c.index] - integrateFreq[c.index];
+                chsq += (diff * diff) / integrateFreq[c.index];
+                ++dof;
+            }
+        }
+
+        if (pooledExpFreqs > 0 || pooledFreqs > 0)
+        {
+            float diff = pooledFreqs - pooledExpFreqs;
+            chsq += (diff * diff) / pooledExpFreqs;
+            dof++;
+        }
+        dof--;
+
+        if (dof <= 0)
+        {
+            base_t::errMsg = std::format("degrees of freedom {} too low", dof);
+            return BET_PRINT_MSG;
+        }
+
+        float pval = 1.0f - static_cast<float>(chi2CDF(chsq, dof));
+        float alpha = 1.0f - std::pow(1.0f - threshold, 1.0f / numTests);
+
+        if (pval < alpha || !std::isfinite(pval))
+        {
+            base_t::errMsg = std::format("chi2 test: rejected the null hypothesis (p-value = {:.3f}, significance level = {:.3f}", pval, alpha);
+            return BET_PRINT_MSG;
+        }
+
+        return BET_NONE;
+    }
+
+    static void run(uint32_t seed, NBL_REF_ARG(FailureCallback) cb)
+    {
+        uint32_t2 state = pcg32x2(seed);
+
+        this_t t;
+        t.init(state);
+        t.rc.state = seed;
+        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
+            t.template initBxDF<aniso>(t.rc);
+        else
+            t.initBxDF(t.rc);
+        
+        ErrorType e = t.test();
+        if (e != BET_NONE)
+            cb.__call(e, t);
+    }
+
+    struct Cell {
+        float expFreq;
+        uint32_t index;
+    };
+
+    uint32_t thetaSplits = 80;
+    uint32_t phiSplits = 160;
+    uint32_t numSamples = 1000;
+
+    uint32_t threshold = 1e-2;
+    uint32_t minFreq = 5;
+    uint32_t numTests = 5;
+
+    std::vector<float> countFreq;
+    std::vector<float> integrateFreq;
 };
 #endif
 
