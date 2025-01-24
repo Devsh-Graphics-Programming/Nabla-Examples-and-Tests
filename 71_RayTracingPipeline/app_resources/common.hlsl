@@ -75,10 +75,9 @@ struct Light
 {
     float32_t3 direction;
     float32_t3 position;
-    float32_t intensity;
-    float32_t innerCutoff;
     float32_t outerCutoff;
-    int type;
+    uint16_t type;
+
 
 #ifndef __HLSL_VERSION
     bool operator==(const Light&) const = default;
@@ -86,16 +85,19 @@ struct Light
 
 };
 
+static const float LightIntensity = 100.0f;
+
 struct SPushConstants
 {
-    Light light;
-
-    float32_t3 camPos;
-    float32_t4x4 invMVP;
-
     uint64_t proceduralGeomInfoBuffer;
     uint64_t triangleGeomInfoBuffer;
+
+    float32_t3 camPos;
     uint32_t frameCounter;
+    float32_t4x4 invMVP;
+
+
+    Light light;
 };
 
 

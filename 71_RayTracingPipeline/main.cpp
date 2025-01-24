@@ -507,27 +507,21 @@ public:
         ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
         ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
         Light m_oldLight = m_light;
-        ImGui::ListBox("LightType", &m_light.type, s_lightTypeNames, ELT_COUNT);
+        int light_type = m_light.type;
+        ImGui::ListBox("LightType", &light_type, s_lightTypeNames, ELT_COUNT);
+        m_light.type = static_cast<E_LIGHT_TYPE>(light_type);
         if (m_light.type == ELT_DIRECTIONAL)
         {
           ImGui::SliderFloat3("Light Direction", &m_light.direction.x, -1.f, 1.f);
         } else if (m_light.type == ELT_POINT)
         {
           ImGui::SliderFloat3("Light Position", &m_light.position.x, -20.f, 20.f);
-          ImGui::SliderFloat("Light Intensity", &m_light.intensity, 0.0f, 500.f);
         } else if (m_light.type == ELT_SPOT)
         {
           ImGui::SliderFloat3("Light Direction", &m_light.direction.x, -1.f, 1.f);
           ImGui::SliderFloat3("Light Position", &m_light.position.x, -20.f, 20.f);
-          ImGui::SliderFloat("Light Intensity", &m_light.intensity, 0.0f, 500.f);
 
-          float32_t dInnerCutoff = degrees(acos(m_light.innerCutoff));
           float32_t dOuterCutoff = degrees(acos(m_light.outerCutoff));
-          if (ImGui::SliderFloat("Light Inner Cutoff", &dInnerCutoff, 0.0f, 45.0f))
-          {
-            dInnerCutoff = dInnerCutoff > dOuterCutoff ? dOuterCutoff : dInnerCutoff;
-            m_light.innerCutoff = cos(radians(dInnerCutoff));
-          }
           if (ImGui::SliderFloat("Light Outer Cutoff", &dOuterCutoff, 0.0f, 45.0f))
           {
             m_light.outerCutoff = cos(radians(dOuterCutoff));
@@ -1219,7 +1213,6 @@ private:
         params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
         params.size = proceduralGeoms.size() * sizeof(SProceduralGeomInfo);
         m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = queue }, std::move(params), proceduralGeoms.data()).move_into(m_proceduralGeomInfoBuffer);
-        m_logger->log("Device address : %d", ILogger::ELL_INFO, m_proceduralGeomInfoBuffer->getDeviceAddress());
       }
 
       {
@@ -1307,7 +1300,6 @@ private:
       params.usage = IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | IGPUBuffer::EUF_SHADER_BINDING_TABLE_BIT;
       params.size = bufferSize;
       m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = queue }, std::move(params), pData).move_into(raygenRegion.buffer);
-      m_logger->log("Device address : %d", ILogger::ELL_INFO, raygenRegion.buffer->getDeviceAddress());
       missRegion.buffer = core::smart_refctd_ptr(raygenRegion.buffer);
       hitRegion.buffer = core::smart_refctd_ptr(raygenRegion.buffer);
       callableRegion.buffer = core::smart_refctd_ptr(raygenRegion.buffer);
@@ -1510,6 +1502,7 @@ private:
       core::vector<smart_refctd_ptr<IGPUBottomLevelAccelerationStructure>> cleanupBlas(blasCount);
       for (uint32_t i = 0; i < blasCount; i++)
       {
+        if (asSizes[i] == 0) continue;
         cleanupBlas[i] = m_gpuBlasList[i];
         {
           IGPUBuffer::SCreationParams params;
@@ -1671,8 +1664,6 @@ private:
   Light m_light = {
     .direction = {-1.0f, -1.0f, -0.4f},
     .position = {10.0f, 15.0f, 8.0f},
-    .intensity = 100.0f,
-    .innerCutoff = 0.939692621f, // {cos(radians(20.0f))},
     .outerCutoff = 0.866025404f, // {cos(radians(30.0f))}, 
     .type = ELT_DIRECTIONAL
   };

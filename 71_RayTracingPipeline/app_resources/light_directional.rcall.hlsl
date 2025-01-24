@@ -6,6 +6,6 @@
 void main(inout RayLight cLight)
 {
     cLight.outLightDir = normalize(-pc.light.direction);
-    cLight.outIntensity = 1.0;
+    cLight.outIntensity = 1;
     cLight.outLightDistance = 10000000;
 }
