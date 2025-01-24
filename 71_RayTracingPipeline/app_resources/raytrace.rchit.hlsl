@@ -119,7 +119,7 @@ void main(inout ColorPayload p, in BuiltInTriangleIntersectionAttributes attribs
     const STriangleGeomInfo geom = vk::RawBufferLoad < STriangleGeomInfo > (pc.triangleGeomInfoBuffer + instID * sizeof(STriangleGeomInfo));
     const VertexData vertexData = fetchVertexData(instID, primID, geom, attribs.barycentrics);
     const float32_t3 worldPosition = mul(ObjectToWorld3x4(), float32_t4(vertexData.position, 1));
-    const float32_t3 worldNormal = mul(vertexData.normal, WorldToObject3x4()).xyz;
+    const float32_t3 worldNormal = normalize(mul(vertexData.normal, WorldToObject3x4()).xyz);
 
     RayLight cLight;
     cLight.inHitPosition = worldPosition;

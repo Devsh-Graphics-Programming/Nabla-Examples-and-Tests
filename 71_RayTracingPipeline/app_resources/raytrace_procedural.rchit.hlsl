@@ -44,7 +44,7 @@ void main(inout ColorPayload p, in BuiltInTriangleIntersectionAttributes attribs
         ShadowPayload shadowPayload;
         shadowPayload.isShadowed = true;
         shadowPayload.seed = p.seed;
-        TraceRay(topLevelAS, flags, 0xFF, ERT_OCCLUSION, 0, EMT_PRIMARY, rayDesc, shadowPayload);
+        TraceRay(topLevelAS, flags, 0xFF, ERT_OCCLUSION, 0, EMT_OCCLUSION, rayDesc, shadowPayload);
 
         bool isShadowed = shadowPayload.isShadowed;
         if (isShadowed)
