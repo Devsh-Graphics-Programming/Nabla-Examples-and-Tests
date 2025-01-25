@@ -22,7 +22,11 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t NumWorkgroups = ShaderConstevalParameters::NumWorkgroups;
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t PreviousWorkgroupSize = uint32_t(ShaderConstevalParameters::PreviousWorkgroupSize);
 	NBL_CONSTEXPR_STATIC_INLINE float32_t TotalSizeReciprocal = ShaderConstevalParameters::TotalSizeReciprocal;
+	NBL_CONSTEXPR_STATIC_INLINE uint16_t KernelSideLength = ShaderConstevalParameters::KernelSideLength;
 	NBL_CONSTEXPR_STATIC_INLINE float32_t2 KernelHalfPixelSize;
+
+	// When sampling u/v coordinates along the first axis we did an FFT on, workgroup `w` samples at normalized position `SampleSlope * w + KernelHalfPixelSize`
+	NBL_CONSTEXPR_STATIC_INLINE float32_t SampleSlope = float32_t(KernelSideLength) / float32_t(NumWorkgroups * uint32_t(KernelSideLength + 2));
 
 	NBL_CONSTEXPR_STATIC_INLINE vector<scalar_t, 2> One;
 
@@ -134,7 +138,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 			{
 				const uint32_t indexDFT = FFTIndexingUtils::getDFTIndex(globalElementIndex);
 				const uint32_t2 texCoords = uint32_t2(x, indexDFT);
-				const float32_t2 uv = texCoords * float32_t2(1.f / NumWorkgroups, TotalSizeReciprocal) + KernelHalfPixelSize;
+				const float32_t2 uv = texCoords * float32_t2(SampleSlope, TotalSizeReciprocal) + KernelHalfPixelSize;
 				const vector<scalar_t, 2> sampledKernelVector = vector<scalar_t, 2>(kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(glsl::gl_WorkGroupID().y)), 0));
 				const vector<scalar_t, 2> sampledKernelInterpolatedVector = lerp(sampledKernelVector, One, promote<vector<scalar_t, 2>, float32_t>(pushConstants.interpolatingFactor));
 				const complex_t<scalar_t> sampledKernelInterpolated = { sampledKernelInterpolatedVector.x, sampledKernelInterpolatedVector.y };
