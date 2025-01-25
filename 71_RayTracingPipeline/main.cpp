@@ -404,7 +404,7 @@ public:
       shaderGroups.callableGroups[ELT_POINT] = { .shaderIndex = RTDS_POINT_CALL };
       shaderGroups.callableGroups[ELT_SPOT] = { .shaderIndex = RTDS_SPOT_CALL };
 
-      params.cached.maxRecursionDepth = 2;
+      params.cached.maxRecursionDepth = 1;
 
       if (!m_device->createRayTracingPipelines(nullptr, { &params, 1 }, &m_rayTracingPipeline))
         return logFail("Failed to create ray tracing pipeline");
