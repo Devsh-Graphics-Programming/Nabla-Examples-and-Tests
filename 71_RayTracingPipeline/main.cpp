@@ -1362,8 +1362,8 @@ private:
   {
     // plus 1 blas for procedural geometry contains {{var::NumberOfProcedural}}
     // spheres. Each sphere is a primitive instead one instance or geometry
-    const auto blasCount = m_gpuTriangleGeometries.size() + 1;
-    const auto proceduralBlasIdx = blasCount - 1;
+    const auto blasCount = m_gpuTriangleGeometries.size();
+    const auto proceduralBlasIdx = m_gpuTriangleGeometries.size();
 
     IQueryPool::SCreationParams qParams{ .queryCount = static_cast<uint32_t>(blasCount), .queryType = IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE };
     smart_refctd_ptr<IQueryPool> queryPool = m_device->createQueryPool(std::move(qParams));
@@ -1587,7 +1587,7 @@ private:
 
     // build top level AS
     {
-      const uint32_t instancesCount = m_gpuBlasList.size();
+      const uint32_t instancesCount = blasCount;
       core::vector<IGPUTopLevelAccelerationStructure::DeviceStaticInstance> instances(instancesCount);
       for (uint32_t i = 0; i < instancesCount; i++)
       {
