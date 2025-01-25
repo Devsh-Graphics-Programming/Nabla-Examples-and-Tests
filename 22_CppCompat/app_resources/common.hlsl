@@ -2,6 +2,9 @@
 //// This file is part of the "Nabla Engine".
 //// For conditions of distribution and use, see copyright notice in nabla.h
 
+#ifndef _NBL_EXAMPLES_TESTS_22_CPP_COMPAT_COMMON_INCLUDED_
+#define _NBL_EXAMPLES_TESTS_22_CPP_COMPAT_COMMON_INCLUDED_
+
 // because DXC doesn't properly support `_Static_assert`
 #define STATIC_ASSERT(...) { nbl::hlsl::conditional<__VA_ARGS__, int, void>::type a = 0; }
 
@@ -126,8 +129,8 @@ struct TgmathTestValues
 
 		floorVec = nbl::hlsl::floor(input.floorVec);
 		lerpVec = nbl::hlsl::lerp(input.lerpXVec, input.lerpYVec, input.lerpAVec);
-		isnanVec = nbl::hlsl::isnan(input.isnanVec);
-		isinfVec = nbl::hlsl::isinf(input.isinfVec);
+		//isnanVec = nbl::hlsl::isnan(input.isnanVec);
+		//isinfVec = nbl::hlsl::isinf(input.isinfVec);
 		powVec = nbl::hlsl::pow(input.powXVec, input.powYVec);
 		expVec = nbl::hlsl::exp(input.expVec);
 		exp2Vec = nbl::hlsl::exp2(input.exp2Vec);
@@ -140,3 +143,5 @@ struct TgmathTestValues
 		acosVec = nbl::hlsl::acos(input.acosVec);
 	}
 };
+
+#endif

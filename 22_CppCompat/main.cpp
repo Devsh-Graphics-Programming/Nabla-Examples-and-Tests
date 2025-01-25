@@ -10,6 +10,7 @@
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 #include "app_resources/common.hlsl"
+#include "Testers.h"
 
 
 using namespace nbl::core;
@@ -51,16 +52,26 @@ public:
 
     bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
     {
-        TgmathTester tgmathTester;
-        tgmathTester.performTest();
-        std::cout << "tgmath.hlsl tests done.\n\n";
-
         // Remember to call the base class initialization!
         if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
             return false;
         if (!asset_base_t::onAppInitialized(std::move(system)))
             return false;
-    
+        
+        CTgmathTester tgmathTester;
+
+        ITester::PipelineSetupData pplnSetupData;
+        pplnSetupData.device = m_device;
+        pplnSetupData.api = m_api;
+        pplnSetupData.assetMgr = m_assetMgr;
+        pplnSetupData.logger = m_logger;
+        pplnSetupData.physicalDevice = m_physicalDevice;
+        pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
+
+        tgmathTester.setupPipeline<TgmathIntputTestValues, TgmathTestValues>(pplnSetupData);
+        tgmathTester.performTests();
+        std::cout << "tgmath.hlsl tests done.\n\n";
+
         m_queue = m_device->getQueue(0, 0);
         m_commandPool = m_device->createCommandPool(m_queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
         m_commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &m_cmdbuf,1 }, smart_refctd_ptr(m_logger));
@@ -368,157 +379,6 @@ private:
     constexpr static inline uint64_t MaxIterations = 200;
 
     bool m_keepRunning = true;
-
-#define VERIFY_TEST_VALUE(MEMBER_NAME)\
-if (expectedTestValues.MEMBER_NAME != testValues.MEMBER_NAME)\
-{\
-    std::cout << "nbl::hlsl::" #MEMBER_NAME << " produced incorrect output! test value: " << testValues.MEMBER_NAME << " expected value: " << expectedTestValues.MEMBER_NAME << std::endl;\
-    _NBL_DEBUG_BREAK_IF(true);\
-}
-
-#define VERIFY_TEST_VECTOR_VALUE(MEMBER_NAME)\
-if (memcmp(&expectedTestValues.MEMBER_NAME, &testValues.MEMBER_NAME, sizeof(decltype(testValues.MEMBER_NAME))) != 0)\
-{\
-    std::cout << "nbl::hlsl::" #MEMBER_NAME << " produced incorrect output! test value: " <<\
-    testValues.MEMBER_NAME.x << ' ' << testValues.MEMBER_NAME.y << ' ' << testValues.MEMBER_NAME.z <<\
-    " expected value: " << expectedTestValues.MEMBER_NAME.x << ' ' << expectedTestValues.MEMBER_NAME.y << ' ' << expectedTestValues.MEMBER_NAME.z << std::endl;\
-    _NBL_DEBUG_BREAK_IF(true);\
-}
-
-    class TgmathTester
-    {
-    public:
-        void performTest()
-        {
-            std::random_device rd;
-            std::mt19937 mt(rd());
-
-            std::uniform_real_distribution<float> realDistributionNeg(-50.0f, -1.0f);
-            std::uniform_real_distribution<float> realDistributionPos(1.0f, 50.0f);
-            std::uniform_real_distribution<float> realDistributionZeroToOne(0.0f, 1.0f);
-            std::uniform_real_distribution<float> realDistribution(-100.0f, 100.0f);
-            std::uniform_int_distribution<int> intDistribution(-100, 100);
-            std::uniform_int_distribution<int> coinFlipDistribution(0, 1);
-
-            // Set input thest values that will be used in both CPU and GPU tests
-            TgmathIntputTestValues commonTestValues;
-            commonTestValues.floor = realDistribution(mt);
-            commonTestValues.lerpX = realDistributionNeg(mt);
-            commonTestValues.lerpY = realDistributionPos(mt);
-            commonTestValues.lerpA = realDistributionZeroToOne(mt);
-            commonTestValues.isnan = coinFlipDistribution(mt) ? realDistribution(mt) : std::numeric_limits<float>::quiet_NaN();
-            commonTestValues.isinf = coinFlipDistribution(mt) ? realDistribution(mt) : std::numeric_limits<float>::infinity();
-            commonTestValues.powX = realDistribution(mt);
-            commonTestValues.powY = realDistribution(mt);
-            commonTestValues.exp = realDistribution(mt);
-            commonTestValues.exp2 = realDistribution(mt);
-            commonTestValues.log = realDistribution(mt);
-            commonTestValues.absF = realDistribution(mt);
-            commonTestValues.absI = intDistribution(mt);
-            commonTestValues.sqrt = realDistribution(mt);
-            commonTestValues.sin = realDistribution(mt);
-            commonTestValues.cos = realDistribution(mt);
-            commonTestValues.acos = realDistribution(mt);
-
-            commonTestValues.floorVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestValues.lerpXVec = float32_t3(realDistributionNeg(mt), realDistributionNeg(mt), realDistributionNeg(mt));
-            commonTestValues.lerpYVec = float32_t3(realDistributionPos(mt), realDistributionPos(mt), realDistributionPos(mt));
-            commonTestValues.lerpAVec = float32_t3(realDistributionZeroToOne(mt), realDistributionZeroToOne(mt), realDistributionZeroToOne(mt));
-            commonTestValues.isnanVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestValues.isinfVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestValues.powXVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestValues.powYVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestValues.expVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestValues.exp2Vec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestValues.logVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestValues.absFVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestValues.absIVec = int32_t3(intDistribution(mt), intDistribution(mt), intDistribution(mt));
-            commonTestValues.sqrtVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestValues.sinVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestValues.cosVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestValues.acosVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-
-            // use std library functions to determine expected test values, the output of functions from tgmath.hlsl will be verified against these values
-            TgmathTestValues expectedTestValues;
-            expectedTestValues.floor = std::floor(commonTestValues.floor);
-            expectedTestValues.lerp = std::lerp(commonTestValues.lerpX, commonTestValues.lerpY, commonTestValues.lerpA);
-            expectedTestValues.isnan = std::isnan(commonTestValues.isnan);
-            expectedTestValues.isinf = std::isinf(commonTestValues.isinf);
-            expectedTestValues.pow = std::pow(commonTestValues.powX, commonTestValues.powY);
-            expectedTestValues.exp = std::exp(commonTestValues.exp);
-            expectedTestValues.exp2 = std::exp2(commonTestValues.exp2);
-            expectedTestValues.log = std::log(commonTestValues.log);
-            expectedTestValues.absF = std::abs(commonTestValues.absF);
-            expectedTestValues.absI = std::abs(commonTestValues.absI);
-            expectedTestValues.sqrt = std::sqrt(commonTestValues.sqrt);
-            expectedTestValues.sin = std::sin(commonTestValues.sin);
-            expectedTestValues.cos = std::cos(commonTestValues.cos);
-            expectedTestValues.acos = std::acos(commonTestValues.acos);
-
-            expectedTestValues.floorVec = float32_t3(std::floor(commonTestValues.floorVec.x), std::floor(commonTestValues.floorVec.y), std::floor(commonTestValues.floorVec.z));
-
-            expectedTestValues.lerpVec.x = std::lerp(commonTestValues.lerpXVec.x, commonTestValues.lerpYVec.x, commonTestValues.lerpAVec.x);
-            expectedTestValues.lerpVec.y = std::lerp(commonTestValues.lerpXVec.y, commonTestValues.lerpYVec.y, commonTestValues.lerpAVec.y);
-            expectedTestValues.lerpVec.z = std::lerp(commonTestValues.lerpXVec.z, commonTestValues.lerpYVec.z, commonTestValues.lerpAVec.z);
-
-            expectedTestValues.isnanVec = float32_t3(std::isnan(commonTestValues.isnanVec.x), std::isnan(commonTestValues.isnanVec.y), std::isnan(commonTestValues.isnanVec.z));
-            expectedTestValues.isinfVec = float32_t3(std::isinf(commonTestValues.isinfVec.x), std::isinf(commonTestValues.isinfVec.y), std::isinf(commonTestValues.isinfVec.z));
-
-            expectedTestValues.powVec.x = std::pow(commonTestValues.powXVec.x, commonTestValues.powYVec.x);
-            expectedTestValues.powVec.y = std::pow(commonTestValues.powXVec.y, commonTestValues.powYVec.y);
-            expectedTestValues.powVec.z = std::pow(commonTestValues.powXVec.z, commonTestValues.powYVec.z);
-
-            expectedTestValues.expVec = float32_t3(std::exp(commonTestValues.expVec.x), std::exp(commonTestValues.expVec.y), std::exp(commonTestValues.expVec.z));
-            expectedTestValues.exp2Vec = float32_t3(std::exp2(commonTestValues.exp2Vec.x), std::exp2(commonTestValues.exp2Vec.y), std::exp2(commonTestValues.exp2Vec.z));
-            expectedTestValues.logVec = float32_t3(std::log(commonTestValues.logVec.x), std::log(commonTestValues.logVec.y), std::log(commonTestValues.logVec.z));
-            expectedTestValues.absFVec = float32_t3(std::abs(commonTestValues.absFVec.x), std::abs(commonTestValues.absFVec.y), std::abs(commonTestValues.absFVec.z));
-            expectedTestValues.absIVec = float32_t3(std::abs(commonTestValues.absIVec.x), std::abs(commonTestValues.absIVec.y), std::abs(commonTestValues.absIVec.z));
-            expectedTestValues.sqrtVec = float32_t3(std::sqrt(commonTestValues.sqrtVec.x), std::sqrt(commonTestValues.sqrtVec.y), std::sqrt(commonTestValues.sqrtVec.z));
-            expectedTestValues.cosVec = float32_t3(std::cos(commonTestValues.cosVec.x), std::cos(commonTestValues.cosVec.y), std::cos(commonTestValues.cosVec.z));
-            expectedTestValues.sinVec = float32_t3(std::sin(commonTestValues.sinVec.x), std::sin(commonTestValues.sinVec.y), std::sin(commonTestValues.sinVec.z));
-            expectedTestValues.acosVec = float32_t3(std::acos(commonTestValues.acosVec.x), std::acos(commonTestValues.acosVec.y), std::acos(commonTestValues.acosVec.z));
-
-            // perform C++ test of functions from tgmath.hlsl
-            TgmathTestValues cpuTestValues;
-            cpuTestValues.fillTestValues(commonTestValues);
-
-            verifyTestValues(expectedTestValues, cpuTestValues);
-        }
-
-    private:
-        void verifyTestValues(NBL_CONST_REF_ARG(TgmathTestValues) expectedTestValues, NBL_CONST_REF_ARG(TgmathTestValues) testValues)
-        {
-            VERIFY_TEST_VALUE(floor);
-            VERIFY_TEST_VALUE(lerp);
-            VERIFY_TEST_VALUE(isnan);
-            VERIFY_TEST_VALUE(isinf);
-            VERIFY_TEST_VALUE(pow);
-            VERIFY_TEST_VALUE(exp);
-            VERIFY_TEST_VALUE(exp2);
-            VERIFY_TEST_VALUE(log);
-            VERIFY_TEST_VALUE(absF);
-            VERIFY_TEST_VALUE(absI);
-            VERIFY_TEST_VALUE(sqrt);
-            VERIFY_TEST_VALUE(sin);
-            VERIFY_TEST_VALUE(cos);
-            VERIFY_TEST_VALUE(acos);
-
-            VERIFY_TEST_VECTOR_VALUE(floorVec);
-            VERIFY_TEST_VECTOR_VALUE(lerpVec);
-            VERIFY_TEST_VECTOR_VALUE(isnanVec);
-            VERIFY_TEST_VECTOR_VALUE(isinfVec);
-            VERIFY_TEST_VECTOR_VALUE(powVec);
-            VERIFY_TEST_VECTOR_VALUE(expVec);
-            VERIFY_TEST_VECTOR_VALUE(exp2Vec);
-            VERIFY_TEST_VECTOR_VALUE(logVec);
-            VERIFY_TEST_VECTOR_VALUE(absFVec);
-            VERIFY_TEST_VECTOR_VALUE(absIVec);
-            VERIFY_TEST_VECTOR_VALUE(sqrtVec);
-            VERIFY_TEST_VECTOR_VALUE(cosVec);
-            VERIFY_TEST_VECTOR_VALUE(sinVec);
-            VERIFY_TEST_VECTOR_VALUE(acosVec);
-        }
-    };
 };
 
 template<class T>
