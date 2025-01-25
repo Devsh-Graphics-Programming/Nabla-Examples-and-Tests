@@ -22,12 +22,6 @@ struct SProceduralGeomInfo
     Material material;
 };
 
-struct Aabb
-{
-    float32_t3 minimum;
-    float32_t3 maximum;
-};
-
 struct STriangleGeomInfo
 {
     uint64_t vertexBufferAddress;

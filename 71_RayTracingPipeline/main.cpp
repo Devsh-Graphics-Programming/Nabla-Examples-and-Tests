@@ -365,7 +365,7 @@ public:
       shaders[RTDS_SPOT_CALL] = {.shader = spotLightCallShader.get()};
 
       params.layout = pipelineLayout.get();
-      params.shaders = std::span(shaders, std::size(shaders));
+      params.shaders = std::span(shaders);
 
       auto& shaderGroups = params.cached.shaderGroups;
 
@@ -1234,6 +1234,7 @@ private:
     {
       core::vector<SProceduralGeomInfo> proceduralGeoms;
       proceduralGeoms.reserve(NumberOfProceduralGeometries);
+      using Aabb = IGPUBottomLevelAccelerationStructure::AABB_t;
       core::vector<Aabb> aabbs;
       aabbs.reserve(NumberOfProceduralGeometries);
       for (int32_t i = 0; i < NumberOfProceduralGeometries; i++)
@@ -1252,10 +1253,11 @@ private:
         };
 
         proceduralGeoms.push_back(sphere);
-        aabbs.push_back({
-          .minimum = sphere.center - sphere.radius,
-          .maximum = sphere.center + sphere.radius,
-        });
+        const auto sphereMin = sphere.center - sphere.radius;
+        const auto sphereMax = sphere.center + sphere.radius;
+        aabbs.emplace_back(
+          vector3d(sphereMin.x, sphereMin.y, sphereMin.z), 
+          vector3d(sphereMax.x, sphereMax.y, sphereMax.z));
       }
 
       {
@@ -1362,7 +1364,7 @@ private:
   {
     // plus 1 blas for procedural geometry contains {{var::NumberOfProcedural}}
     // spheres. Each sphere is a primitive instead one instance or geometry
-    const auto blasCount = m_gpuTriangleGeometries.size();
+    const auto blasCount = m_gpuTriangleGeometries.size() + 1;
     const auto proceduralBlasIdx = m_gpuTriangleGeometries.size();
 
     IQueryPool::SCreationParams qParams{ .queryCount = static_cast<uint32_t>(blasCount), .queryType = IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE };
@@ -1415,8 +1417,9 @@ private:
         bool isProcedural = i == proceduralBlasIdx;
         if (isProcedural)
         {
-          aabbs.data.buffer = smart_refctd_ptr<IGPUBuffer>(m_proceduralAabbBuffer);
-          aabbs.stride = sizeof(Aabb);
+          aabbs.data.buffer = smart_refctd_ptr(m_proceduralAabbBuffer);
+          aabbs.data.offset = 0;
+          aabbs.stride = sizeof(IGPUBottomLevelAccelerationStructure::AABB_t);
           aabbs.geometryFlags = IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::OPAQUE_BIT; // only allow opaque for now
 
           primitiveCounts[proceduralBlasIdx] = NumberOfProceduralGeometries;
