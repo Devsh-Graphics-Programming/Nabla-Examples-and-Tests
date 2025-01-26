@@ -287,20 +287,6 @@ public:
     });
 
 
-    auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
-    auto* geometryCreator = assetManager->getGeometryCreator();
-
-    // create geometry objects
-    if (!createGeometries(gQueue, geometryCreator))
-      return logFail("Could not create geometries from geometry creator");
-
-    if (!createAccelerationStructures(getComputeQueue()))
-      return logFail("Could not create acceleration structures");
-
-    ISampler::SParams samplerParams = {
-      .AnisotropicFilter = 0
-    };
-    auto defaultSampler = m_device->createSampler(samplerParams);
 
     // ray trace pipeline and descriptor set layout setup
     {
@@ -414,6 +400,21 @@ public:
         return logFail("Could not create shader binding table");
 
     }
+
+    auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
+    auto* geometryCreator = assetManager->getGeometryCreator();
+
+    // create geometry objects
+    if (!createGeometries(gQueue, geometryCreator))
+      return logFail("Could not create geometries from geometry creator");
+
+    if (!createAccelerationStructures(getComputeQueue()))
+      return logFail("Could not create acceleration structures");
+
+    ISampler::SParams samplerParams = {
+      .AnisotropicFilter = 0
+    };
+    auto defaultSampler = m_device->createSampler(samplerParams);
 
     {
       const IGPUDescriptorSetLayout::SBinding bindings[] = {
@@ -1495,7 +1496,6 @@ private:
         scratchBuffer = createBuffer(params);
       }
 
-      uint32_t queryCount = 0;
       core::vector<IGPUBottomLevelAccelerationStructure::BuildRangeInfo> buildRangeInfos(blasCount);
       core::vector<IGPUBottomLevelAccelerationStructure::BuildRangeInfo*> pRangeInfos(blasCount);
       for (uint32_t i = 0; i < blasCount; i++)
@@ -1536,7 +1536,7 @@ private:
       for (uint32_t i = 0; i < blasCount; i++)
         ases[i] = m_gpuBlasList[i].get();
       if (!cmdbufBlas->writeAccelerationStructureProperties(std::span(ases), IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE,
-        queryPool.get(), queryCount++))
+        queryPool.get(), 0))
         return logFail("Failed to write acceleration structure properties!");
 
       cmdbufBlas->endDebugMarker();
@@ -1549,7 +1549,7 @@ private:
     // compact blas
     {
       core::vector<size_t> asSizes(blasCount);
-      if (!m_device->getQueryPoolResults(queryPool.get(), 0, blasCount, asSizes.data(), sizeof(size_t), IQueryPool::WAIT_BIT))
+      if (!m_device->getQueryPoolResults(queryPool.get(), 0, blasCount, asSizes.data(), sizeof(size_t), bitflag(IQueryPool::WAIT_BIT) | IQueryPool::_64_BIT))
         return logFail("Could not get query pool results for AS sizes");
 
       core::vector<smart_refctd_ptr<IGPUBottomLevelAccelerationStructure>> cleanupBlas(blasCount);
