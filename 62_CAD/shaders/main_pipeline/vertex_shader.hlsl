@@ -85,7 +85,8 @@ void dilateHatch<false>(out float2 outOffsetVec, out float2 outUV, const float2 
     // Or optionally we could dilate and stuff when we know this hatch is opaque (alpha = 1.0)
 }
 
-PSInput main(uint vertexID : SV_VertexID)
+[shader("vertex")]
+PSInput vertMain(uint vertexID : SV_VertexID)
 {
     const uint vertexIdx = vertexID & 0x3u;
     const uint objectID = vertexID >> 2;

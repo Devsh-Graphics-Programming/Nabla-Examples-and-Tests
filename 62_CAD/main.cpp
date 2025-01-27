@@ -36,8 +36,8 @@ using namespace video;
 
 static constexpr bool DebugModeWireframe = false;
 static constexpr bool DebugRotatingViewProj = false;
-static constexpr bool FragmentShaderPixelInterlock = true;
-static constexpr bool LargeGeoTextureStreaming = true;
+static constexpr bool FragmentShaderPixelInterlock = false;
+static constexpr bool LargeGeoTextureStreaming = false;
 
 enum class ExampleMode
 {
@@ -393,9 +393,9 @@ public:
 		}
 
 		IGPUSampler::SParams samplerParams = {};
-		samplerParams.TextureWrapU = IGPUSampler::ETC_CLAMP_TO_BORDER;
-		samplerParams.TextureWrapV = IGPUSampler::ETC_CLAMP_TO_BORDER;
-		samplerParams.TextureWrapW = IGPUSampler::ETC_CLAMP_TO_BORDER;
+		samplerParams.TextureWrapU = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+		samplerParams.TextureWrapV = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+		samplerParams.TextureWrapW = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
 		samplerParams.BorderColor  = IGPUSampler::ETBC_FLOAT_OPAQUE_WHITE; // positive means outside shape
 		samplerParams.MinFilter		= IGPUSampler::ETF_LINEAR;
 		samplerParams.MaxFilter		= IGPUSampler::ETF_LINEAR;
@@ -860,14 +860,8 @@ public:
 
 			pipelineLayout = m_device->createPipelineLayout({}, core::smart_refctd_ptr(descriptorSetLayout0), core::smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
 		}
-		
-		// Main Pipeline Shaders
-		std::array<smart_refctd_ptr<IGPUShader>, 4u> mainPipelineShaders = {};
-		constexpr auto vertexShaderPath = "../shaders/main_pipeline/vertex_shader.hlsl";
-		constexpr auto fragmentShaderPath = "../shaders/main_pipeline/fragment_shader.hlsl";
-		constexpr auto debugfragmentShaderPath = "../shaders/main_pipeline/fragment_shader_debug.hlsl";
-		constexpr auto resolveAlphasShaderPath = "../shaders/main_pipeline/resolve_alphas.hlsl";
-		// GeoTexture Pipeline Shaders
+
+		smart_refctd_ptr<IGPUShader> mainPipelineShader = {};
 		std::array<smart_refctd_ptr<IGPUShader>, 2u> geoTexturePipelineShaders = {};
 		{
 			smart_refctd_ptr<IShaderCompiler::CCache> shaderReadCache = nullptr;
@@ -918,13 +912,10 @@ public:
 					if (!cpuShader)
 						return nullptr;
 
-					return m_device->createShader({ cpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get()});
+					return m_device->createShader({ cpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
 				};
-			mainPipelineShaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::E_SHADER_STAGE::ESS_VERTEX);
-			mainPipelineShaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			mainPipelineShaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			mainPipelineShaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			
+
+			mainPipelineShader = loadCompileAndCreateShader("../shaders/main_pipeline/all.hlsl", IShader::E_SHADER_STAGE::ESS_ALL_OR_LIBRARY);
 			geoTexturePipelineShaders[0] = loadCompileAndCreateShader(GeoTextureRenderer::VertexShaderRelativePath, IShader::E_SHADER_STAGE::ESS_VERTEX);
 			geoTexturePipelineShaders[1] = loadCompileAndCreateShader(GeoTextureRenderer::FragmentShaderRelativePath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 			
@@ -971,8 +962,8 @@ public:
 			ext::FullScreenTriangle::ProtoPipeline fsTriangleProtoPipe(m_assetMgr.get(),m_device.get(),m_logger.get());
 			
 			const IGPUShader::SSpecInfo fragSpec = {
-				.entryPoint = "main",
-				.shader = mainPipelineShaders[3u].get()
+				.entryPoint = "resolveAlphasMain",
+				.shader = mainPipelineShader.get()
 			};
 
 			resolveAlphaGraphicsPipeline = fsTriangleProtoPipe.createPipeline(fragSpec, pipelineLayout.get(), compatibleRenderPass.get(), 0u, blendParams);
@@ -985,8 +976,14 @@ public:
 		{
 			
 			IGPUShader::SSpecInfo specInfo[2] = {
-				{.shader=mainPipelineShaders[0u].get() },
-				{.shader=mainPipelineShaders[1u].get() },
+				{
+					.entryPoint = "vertMain",
+					.shader = mainPipelineShader.get()
+				},
+				{
+					.entryPoint = "fragMain",
+					.shader = mainPipelineShader.get()
+				},
 			};
 
 			IGPUGraphicsPipeline::SCreationParams params[1] = {};
@@ -1011,7 +1008,7 @@ public:
 
 			if constexpr (DebugModeWireframe)
 			{
-				specInfo[1u].shader = mainPipelineShaders[2u].get(); // change only fragment shader to fragment_shader_debug.hlsl
+				specInfo[1u].entryPoint = "fragDebugMain"; // change only fragment shader entrypoint
 				params[0].cached.rasterization.polygonMode = asset::EPM_LINE;
 				
 				if (!m_device->createGraphicsPipelines(nullptr,params,&debugGraphicsPipeline))

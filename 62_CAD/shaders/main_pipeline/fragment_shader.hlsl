@@ -399,8 +399,8 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     return color;
 }
 
-
-float4 main(PSInput input) : SV_TARGET
+[shader("pixel")]
+float4 fragmentMain(PSInput input) : SV_TARGET
 {
     float localAlpha = 0.0f;
     ObjectType objType = input.getObjType();
