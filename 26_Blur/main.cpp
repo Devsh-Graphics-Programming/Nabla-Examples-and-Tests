@@ -1,6 +1,9 @@
 // Copyright (C) 2024-2025 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
+#include <bit>
+#include <limits>
+
 #include "nabla.h"
 #include "SimpleWindowedApplication.hpp"
 #include "InputSystem.hpp"
@@ -536,7 +539,9 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 					auto ev = *eventIt;
 					if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
 					{
-						blurRadius = std::clamp<hlsl::float32_t>(blurRadius + 5 * core::sign(ev.scrollEvent.verticalScroll), 0, max(image_params.extent.width, image_params.extent.height));
+						blurRadius = std::clamp<hlsl::float32_t>(blurRadius + 5 * core::sign(ev.scrollEvent.verticalScroll),
+																std::numeric_limits<hlsl::float32_t>::min(),
+																max(image_params.extent.width, image_params.extent.height));
 						m_logger->log("Radius changed: %f", ILogger::ELL_DEBUG, blurRadius);
 					}
 					if (ev.type == nbl::ui::SMouseEvent::EET_CLICK && ev.clickEvent.mouseButton == nbl::ui::EMB_LEFT_BUTTON)
