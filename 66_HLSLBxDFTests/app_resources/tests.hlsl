@@ -114,7 +114,7 @@ inline float32_t3 polarToCartesian(float32_t2 theta_phi)
 
 inline float32_t2 cartesianToPolar(float32_t3 coords)
 {
-    return float32_t2(std::acos(coords.z), std::atan2(coords.y, coords.x));
+    return float32_t2(std::acos(clamp<float>(coords.z, -1, 1)), std::atan2(coords.y, coords.x));
 }
 #endif
 
@@ -887,7 +887,7 @@ struct TestChi2 : TestBxDF<BxDF>
         const double epsilon = 0.000000000000001;
         const double big = 4503599627370496.0;
         const double bigInv = 2.22044604925031308085e-16;
-        assert(a < 0 || x < 0);
+        assert(a >= 0 && x >= 0);
 
         if (x == 0)
             return 0.0f;
@@ -982,7 +982,8 @@ struct TestChi2 : TestBxDF<BxDF>
 
         sample_t s;
         aniso_cache cache;
-        for (uint32_t i = 0; i < numSamples; i++)
+        uint32_t i = 0;
+        for (; i < numSamples; i++)
         {
             float32_t3 u = float32_t3(rngUniformDist<float32_t2>(base_t::rc.rng), 0.0);
 
@@ -1004,16 +1005,17 @@ struct TestChi2 : TestBxDF<BxDF>
             }
 
             // put s into bucket
-            float32_t3x3 toTangentSpace = base_t::anisointer.getToTangentSpace();
-            const ray_dir_info_t localL = ray_dir_info_t::transform(toTangentSpace, s.L);
-            float32_t2 coords = cartesianToPolar(localL.direction) * float32_t2(thetaFactor, phiFactor);
+            // float32_t3x3 toTangentSpace = base_t::anisointer.getToTangentSpace();
+            // const ray_dir_info_t localL = ray_dir_info_t::transform(toTangentSpace, s.L);
+            float32_t2 coords = cartesianToPolar(s.L.direction) * float32_t2(thetaFactor, phiFactor);
             if (coords.y < 0)
-                coords.y += 2.f * numbers::pi<float> * thetaFactor;
+                coords.y += 2.f * numbers::pi<float> * phiFactor;
 
             int thetaBin = clamp<int>((int)std::floor(coords.x), 0, thetaSplits - 1);
             int phiBin = clamp<int>((int)std::floor(coords.y), 0, phiSplits - 1);
 
-            countFreq[thetaBin * phiSplits + phiBin] += 1;
+            uint32_t idx = thetaBin * phiSplits + phiBin;
+            countFreq[idx] += 1;
         }
 
         thetaFactor = 1.f / thetaFactor;
@@ -1138,7 +1140,7 @@ struct TestChi2 : TestBxDF<BxDF>
             {
                 float diff = countFreq[c.index] - integrateFreq[c.index];
                 chsq += (diff * diff) / integrateFreq[c.index];
-                ++dof;
+                dof++;
             }
         }
 
@@ -1148,7 +1150,7 @@ struct TestChi2 : TestBxDF<BxDF>
             chsq += (diff * diff) / pooledExpFreqs;
             dof++;
         }
-        dof--;
+        dof -= 1;
 
         if (dof <= 0)
         {
@@ -1192,7 +1194,7 @@ struct TestChi2 : TestBxDF<BxDF>
 
     uint32_t thetaSplits = 80;
     uint32_t phiSplits = 160;
-    uint32_t numSamples = 1000;
+    uint32_t numSamples = 1000000;
 
     uint32_t threshold = 1e-2;
     uint32_t minFreq = 5;
