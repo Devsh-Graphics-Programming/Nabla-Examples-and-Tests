@@ -36,8 +36,8 @@ using namespace video;
 
 static constexpr bool DebugModeWireframe = false;
 static constexpr bool DebugRotatingViewProj = false;
-static constexpr bool FragmentShaderPixelInterlock = false;
-static constexpr bool LargeGeoTextureStreaming = false;
+static constexpr bool FragmentShaderPixelInterlock = true;
+static constexpr bool LargeGeoTextureStreaming = true;
 
 enum class ExampleMode
 {
