@@ -40,7 +40,7 @@ public:
         m_semaphore = m_device->createSemaphore(0);
         m_cmdpool = m_device->createCommandPool(m_queueFamily, video::IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
         if (!m_cmdpool->createCommandBuffers(video::IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &m_cmdbuf))
-            ;//TODO: app.logFail("Failed to create Command Buffers!\n");
+            logFail("Failed to create Command Buffers!\n");
 
         // Load shaders, set up pipeline
         core::smart_refctd_ptr<video::IGPUShader> shader;
@@ -48,12 +48,11 @@ public:
             asset::IAssetLoader::SAssetLoadParams lp = {};
             lp.logger = m_logger.get();
             lp.workingDirectory = ""; // virtual root
-            // this time we load a shader directly from a file
             auto assetBundle = m_assetMgr->getAsset("app_resources/tgmathTest.comp.hlsl", lp);
             const auto assets = assetBundle.getContents();
             if (assets.empty())
             {
-                ;//TODO: app.logFail("Could not load shader!");
+                logFail("Could not load shader!");
                 assert(0);
             }
 
@@ -80,7 +79,7 @@ public:
         }
 
         if (!shader)
-            ;//TODO: app.logFail("Failed to create a GPU Shader, seems the Driver doesn't like the SPIR-V we're feeding it!\n");
+            logFail("Failed to create a GPU Shader, seems the Driver doesn't like the SPIR-V we're feeding it!\n");
 
         video::IGPUDescriptorSetLayout::SBinding bindings[2] = {
             {
@@ -101,11 +100,11 @@ public:
 
         core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> dsLayout = m_device->createDescriptorSetLayout(bindings);
         if (!dsLayout)
-            ;//TODO: app.logFail("Failed to create a Descriptor Layout!\n");
+            logFail("Failed to create a Descriptor Layout!\n");
 
         m_pplnLayout = m_device->createPipelineLayout({}, core::smart_refctd_ptr(dsLayout));
         if (!m_pplnLayout)
-            ;//TODO: app.logFail("Failed to create a Pipeline Layout!\n");
+            logFail("Failed to create a Pipeline Layout!\n");
 
         {
             video::IGPUComputePipeline::SCreationParams params = {};
@@ -113,7 +112,7 @@ public:
             params.shader.entryPoint = "main";
             params.shader.shader = shader.get();
             if (!m_device->createComputePipelines(nullptr, { &params,1 }, &m_pipeline))
-                ;//TODO: app.logFail("Failed to create pipelines (compile & link shaders)!\n");
+                logFail("Failed to create pipelines (compile & link shaders)!\n");
         }
 
         // Allocate memory of the input buffer
@@ -125,7 +124,7 @@ public:
             params.usage = video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
             core::smart_refctd_ptr<video::IGPUBuffer> inputBuff = m_device->createBuffer(std::move(params));
             if (!inputBuff)
-                ;//TODO: app.logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
+                logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
 
             inputBuff->setObjectDebugName("emulated_float64_t output buffer");
 
@@ -134,7 +133,7 @@ public:
 
             m_inputBufferAllocation = m_device->allocate(reqs, inputBuff.get(), video::IDeviceMemoryAllocation::EMAF_NONE);
             if (!m_inputBufferAllocation.isValid())
-                ;//TODO: app.logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
+                logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 
             assert(inputBuff->getBoundMemory().memory == m_inputBufferAllocation.memory.get());
             core::smart_refctd_ptr<video::IDescriptorPool> pool = m_device->createDescriptorPoolForDSLayouts(video::IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 });
@@ -160,7 +159,7 @@ public:
             params.usage = video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
             core::smart_refctd_ptr<video::IGPUBuffer> outputBuff = m_device->createBuffer(std::move(params));
             if (!outputBuff)
-                ;//TODO: app.logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
+                logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
 
             outputBuff->setObjectDebugName("emulated_float64_t output buffer");
 
@@ -169,7 +168,7 @@ public:
 
             m_outputBufferAllocation = m_device->allocate(reqs, outputBuff.get(), video::IDeviceMemoryAllocation::EMAF_NONE);
             if (!m_outputBufferAllocation.isValid())
-                ;//TODO: app.logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
+                logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 
             assert(outputBuff->getBoundMemory().memory == m_outputBufferAllocation.memory.get());
             core::smart_refctd_ptr<video::IDescriptorPool> pool = m_device->createDescriptorPoolForDSLayouts(video::IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 });
@@ -186,7 +185,7 @@ public:
         }
 
         if (!m_outputBufferAllocation.memory->map({ 0ull,m_outputBufferAllocation.memory->getAllocationSize() }, video::IDeviceMemoryAllocation::EMCAF_READ))
-            ;//TODO: app.logFail("Failed to map the Device Memory!\n");
+            logFail("Failed to map the Device Memory!\n");
 
         // if the mapping is not coherent the range needs to be invalidated to pull in new data for the CPU's caches
         const video::ILogicalDevice::MappedMemoryRange memoryRange(m_outputBufferAllocation.memory.get(), 0ull, m_outputBufferAllocation.memory->getAllocationSize());
@@ -291,7 +290,7 @@ protected:
     {
         // Update input buffer
         if (!m_inputBufferAllocation.memory->map({ 0ull,m_inputBufferAllocation.memory->getAllocationSize() }, video::IDeviceMemoryAllocation::EMCAF_READ))
-            __debugbreak();//TODO: app.logFail("Failed to map the Device Memory!\n");
+            logFail("Failed to map the Device Memory!\n");
 
         const video::ILogicalDevice::MappedMemoryRange memoryRange(m_inputBufferAllocation.memory.get(), 0ull, m_inputBufferAllocation.memory->getAllocationSize());
         if (!m_inputBufferAllocation.memory->getMemoryPropertyFlags().hasFlags(video::IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
@@ -331,6 +330,13 @@ protected:
 
 private:
     static constexpr float MaxAllowedError = 0.001f;
+
+    template<typename... Args>
+    inline void logFail(const char* msg, Args&&... args)
+    {
+        m_logger->log(msg, system::ILogger::ELL_ERROR, std::forward<Args>(args)...);
+        exit(-1);
+    }
 };
 
 class CTgmathTester final : public ITester
