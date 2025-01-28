@@ -41,8 +41,7 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord)
     return color;
 }
 
-[shader("pixel")]
-float4 resolveAlphasMain(float4 position : SV_Position) : SV_TARGET
+float4 main(float4 position : SV_Position) : SV_TARGET
 {
     return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(position.xy);
 }

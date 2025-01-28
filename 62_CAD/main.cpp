@@ -862,6 +862,7 @@ public:
 		}
 
 		smart_refctd_ptr<IGPUShader> mainPipelineShader = {};
+		smart_refctd_ptr<IGPUShader> mainPipelineResolveAlphasShader = {};
 		std::array<smart_refctd_ptr<IGPUShader>, 2u> geoTexturePipelineShaders = {};
 		{
 			smart_refctd_ptr<IShaderCompiler::CCache> shaderReadCache = nullptr;
@@ -915,7 +916,8 @@ public:
 					return m_device->createShader({ cpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
 				};
 
-			mainPipelineShader = loadCompileAndCreateShader("../shaders/main_pipeline/all.hlsl", IShader::E_SHADER_STAGE::ESS_ALL_OR_LIBRARY);
+			mainPipelineShader = loadCompileAndCreateShader("../shaders/main_pipeline/vs_fs.hlsl", IShader::E_SHADER_STAGE::ESS_ALL_OR_LIBRARY);
+			mainPipelineResolveAlphasShader = loadCompileAndCreateShader("../shaders/main_pipeline/resolve_alphas.hlsl", IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 			geoTexturePipelineShaders[0] = loadCompileAndCreateShader(GeoTextureRenderer::VertexShaderRelativePath, IShader::E_SHADER_STAGE::ESS_VERTEX);
 			geoTexturePipelineShaders[1] = loadCompileAndCreateShader(GeoTextureRenderer::FragmentShaderRelativePath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 			
@@ -961,10 +963,7 @@ public:
 			// Load FSTri Shader
 			ext::FullScreenTriangle::ProtoPipeline fsTriangleProtoPipe(m_assetMgr.get(),m_device.get(),m_logger.get());
 			
-			const IGPUShader::SSpecInfo fragSpec = {
-				.entryPoint = "resolveAlphasMain",
-				.shader = mainPipelineShader.get()
-			};
+			const IGPUShader::SSpecInfo fragSpec = { .shader = mainPipelineResolveAlphasShader.get() };
 
 			resolveAlphaGraphicsPipeline = fsTriangleProtoPipe.createPipeline(fragSpec, pipelineLayout.get(), compatibleRenderPass.get(), 0u, blendParams);
 			if (!resolveAlphaGraphicsPipeline)
