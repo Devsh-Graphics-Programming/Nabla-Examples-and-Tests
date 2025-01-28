@@ -58,8 +58,6 @@ public:
         if (!asset_base_t::onAppInitialized(std::move(system)))
             return false;
         
-        CTgmathTester tgmathTester;
-
         ITester::PipelineSetupData pplnSetupData;
         pplnSetupData.device = m_device;
         pplnSetupData.api = m_api;
@@ -68,9 +66,16 @@ public:
         pplnSetupData.physicalDevice = m_physicalDevice;
         pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
 
-        tgmathTester.setupPipeline<TgmathIntputTestValues, TgmathTestValues>(pplnSetupData);
-        tgmathTester.performTests();
-        std::cout << "tgmath.hlsl tests done.\n\n";
+        {
+            CTgmathTester tgmathTester;
+            tgmathTester.setupPipeline<TgmathIntputTestValues, TgmathTestValues>(pplnSetupData);
+            tgmathTester.performTests();
+        }
+        {
+            CIntrinsicsTester intrinsicsTester;
+            intrinsicsTester.setupPipeline<TgmathIntputTestValues, TgmathTestValues>(pplnSetupData);
+            intrinsicsTester.performTests();
+        }
 
         m_queue = m_device->getQueue(0, 0);
         m_commandPool = m_device->createCommandPool(m_queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);

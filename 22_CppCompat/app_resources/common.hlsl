@@ -58,6 +58,7 @@ struct TgmathIntputTestValues
 	float sin;
 	float cos;
 	float acos;
+	float modf;
 
 	float32_t3 floorVec;
 	float32_t3 lerpXVec;
@@ -76,6 +77,7 @@ struct TgmathIntputTestValues
 	float32_t3 sinVec;
 	float32_t3 cosVec;
 	float32_t3 acosVec;
+	float32_t3 modfVec;
 };
 
 struct TgmathTestValues
@@ -94,11 +96,18 @@ struct TgmathTestValues
 	float sin;
 	float cos;
 	float acos;
+	float modf;
 
 	float32_t3 floorVec;
 	float32_t3 lerpVec;
-	int32_t3 isnanVec;
-	int32_t3 isinfVec;
+#ifndef __HLSL_VERSION
+	nbl::hlsl::vector<int, 3> isnanVec;
+	nbl::hlsl::vector<int, 3> isinfVec;
+#else
+	vector<int, 3> isnanVec;
+	vector<int, 3> isinfVec;
+#endif
+	
 	float32_t3 powVec;
 	float32_t3 expVec;
 	float32_t3 exp2Vec;
@@ -109,6 +118,7 @@ struct TgmathTestValues
 	float32_t3 cosVec;
 	float32_t3 sinVec;
 	float32_t3 acosVec;
+	float32_t3 modfVec;
 
 	void fillTestValues(NBL_CONST_REF_ARG(TgmathIntputTestValues) input)
 	{
@@ -126,11 +136,12 @@ struct TgmathTestValues
 		sin = nbl::hlsl::sin(input.sin);
 		cos = nbl::hlsl::cos(input.cos);
 		acos = nbl::hlsl::acos(input.acos);
+		modf = nbl::hlsl::modf(input.modf);
 
 		floorVec = nbl::hlsl::floor(input.floorVec);
 		lerpVec = nbl::hlsl::lerp(input.lerpXVec, input.lerpYVec, input.lerpAVec);
-		//isnanVec = nbl::hlsl::isnan(input.isnanVec);
-		//isinfVec = nbl::hlsl::isinf(input.isinfVec);
+		isnanVec = nbl::hlsl::isnan(input.isnanVec);
+		isinfVec = nbl::hlsl::isinf(input.isinfVec);
 		powVec = nbl::hlsl::pow(input.powXVec, input.powYVec);
 		expVec = nbl::hlsl::exp(input.expVec);
 		exp2Vec = nbl::hlsl::exp2(input.exp2Vec);
@@ -141,6 +152,114 @@ struct TgmathTestValues
 		sinVec = nbl::hlsl::sin(input.sinVec);
 		cosVec = nbl::hlsl::cos(input.cosVec);
 		acosVec = nbl::hlsl::acos(input.acosVec);
+		modfVec = nbl::hlsl::modf(input.modfVec);
+	}
+};
+
+struct IntrinsicsIntputTestValues
+{
+	int bitCount;
+	float32_t3 crossLhs;
+	float32_t3 crossRhs;
+	float clampVal;
+	float clampMin;
+	float clampMax;
+	float32_t3 length;
+	float32_t3 normalize;
+	float32_t3 dotLhs;
+	float32_t3 dotRhs;
+	float32_t3x3 determinant;
+	uint32_t findMSB;
+	uint32_t findLSB;
+	float32_t3x3 inverse;
+	float32_t3x3 transpose;
+	float32_t3x3 mulLhs;
+	float32_t3x3 mulRhs;
+	float minA;
+	float minB;
+	float maxA;
+	float maxB;
+	float rsqrt;
+	uint32_t bitReverse;
+	float frac;
+
+	int32_t3 bitCountVec;
+	float32_t3 clampValVec;
+	float32_t3 clampMinVec;
+	float32_t3 clampMaxVec;
+	uint32_t3 findMSBVec;
+	uint32_t3 findLSBVec;
+	float32_t3 minAVec;
+	float32_t3 minBVec;
+	float32_t3 maxAVec;
+	float32_t3 maxBVec;
+	float32_t3 rsqrtVec;
+	uint32_t3 bitReverseVec;
+	float32_t3 fracVec;
+};
+
+struct IntrinsicsTestValues
+{
+	int bitCount;
+	float clamp;
+	float length;
+	float dot;
+	float determinant;
+	int findMSB;
+	int findLSB;
+	float min;
+	float max;
+	float rsqrt;
+	float frac;
+	uint32_t bitReverse;
+
+	float32_t3 normalize;
+	float32_t3 cross;
+	int32_t3 bitCountVec;
+	float32_t3 clampVec;
+	uint32_t3 findMSBVec;
+	uint32_t3 findLSBVec;
+	float32_t3 minVec;
+	float32_t3 maxVec;
+	float32_t3 rsqrtVec;
+	uint32_t3 bitReverseVec;
+	float32_t3 fracVec;
+
+	float32_t3x3 mul;
+	float32_t3x3 transpose;
+	float32_t3x3 inverse;
+
+	void fillTestValues(NBL_CONST_REF_ARG(IntrinsicsIntputTestValues) input)
+	{
+		bitCount = nbl::hlsl::bitCount(input.bitCount);
+		cross = nbl::hlsl::cross(input.crossLhs, input.crossRhs);
+		clamp = nbl::hlsl::clamp(input.clampVal, input.clampMin, input.clampMax);
+		length = nbl::hlsl::length(input.length);
+		normalize = nbl::hlsl::normalize(input.normalize);
+		dot = nbl::hlsl::dot(input.dotLhs, input.dotRhs);
+		determinant = nbl::hlsl::determinant(input.determinant);
+		findMSB = nbl::hlsl::findMSB(input.findMSB);
+		findLSB = nbl::hlsl::findLSB(input.findLSB);
+		inverse = nbl::hlsl::inverse(input.inverse);
+		transpose = nbl::hlsl::transpose(input.transpose);
+		mul = nbl::hlsl::mul(input.mulLhs, input.mulRhs);
+		// TODO: fix min and max
+		//min = nbl::hlsl::min(input.minA, input.minB);
+		//max = nbl::hlsl::max(input.maxA, input.maxB);
+		rsqrt = nbl::hlsl::rsqrt(input.rsqrt);
+		bitReverse = nbl::hlsl::bitReverse(input.bitReverse);
+		frac = nbl::hlsl::frac(input.frac);
+
+		bitCountVec = nbl::hlsl::bitCount(input.bitCountVec);
+		clampVec = nbl::hlsl::clamp(input.clampValVec, input.clampMinVec, input.clampMaxVec);
+		findMSBVec = nbl::hlsl::findMSB(input.findMSBVec);
+		findLSBVec = nbl::hlsl::findLSB(input.findLSBVec);
+		// TODO: fix min and max
+		//minVec = nbl::hlsl::min(input.minAVec, input.minBVec);
+		//maxVec = nbl::hlsl::max(input.maxAVec, input.maxBVec);
+		rsqrtVec = nbl::hlsl::rsqrt(input.rsqrtVec);
+		bitReverseVec = nbl::hlsl::bitReverse(input.bitReverseVec);
+		fracVec = nbl::hlsl::frac(input.fracVec);
 	}
 };
 
