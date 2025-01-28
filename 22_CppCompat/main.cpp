@@ -75,7 +75,7 @@ public:
         {
             CIntrinsicsTester intrinsicsTester;
             pplnSetupData.testShaderPath = "app_resources/intrinsicsTest.comp.hlsl";
-            intrinsicsTester.setupPipeline<TgmathIntputTestValues, TgmathTestValues>(pplnSetupData);
+            intrinsicsTester.setupPipeline<IntrinsicsIntputTestValues, IntrinsicsTestValues>(pplnSetupData);
             intrinsicsTester.performTests();
         }
 

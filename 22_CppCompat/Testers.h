@@ -119,7 +119,7 @@ public:
 
         // Allocate memory of the input buffer
         {
-            constexpr size_t BufferSize = sizeof(TgmathIntputTestValues);
+            constexpr size_t BufferSize = sizeof(InputStruct);
 
             video::IGPUBuffer::SCreationParams params = {};
             params.size = BufferSize;
@@ -519,6 +519,7 @@ public:
         std::uniform_real_distribution<float> realDistributionNeg(-50.0f, -1.0f);
         std::uniform_real_distribution<float> realDistributionPos(1.0f, 50.0f);
         std::uniform_real_distribution<float> realDistribution(-100.0f, 100.0f);
+        std::uniform_real_distribution<float> realDistributionSmall(1.0f, 4.0f);
         std::uniform_int_distribution<int> intDistribution(-100, 100);
         std::uniform_int_distribution<uint32_t> uintDistribution(0, 100);
 
@@ -538,9 +539,9 @@ public:
             commonTestInputValues.dotLhs = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
             commonTestInputValues.dotRhs = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
             commonTestInputValues.determinant = float32_t3x3(
-                realDistribution(mt), realDistribution(mt), realDistribution(mt),
-                realDistribution(mt), realDistribution(mt), realDistribution(mt),
-                realDistribution(mt), realDistribution(mt), realDistribution(mt)
+                realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt),
+                realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt),
+                realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt)
             );
             commonTestInputValues.findMSB = realDistribution(mt);
             commonTestInputValues.findLSB = realDistribution(mt);
@@ -586,7 +587,7 @@ public:
             commonTestInputValues.bitReverseVec = uint32_t3(uintDistribution(mt), uintDistribution(mt), uintDistribution(mt));
             commonTestInputValues.fracVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
 
-            // use std library or glm functions to determine expected test values, the output of functions from tgmath.hlsl will be verified against these values
+            // use std library or glm functions to determine expected test values, the output of functions from intrinsics.hlsl will be verified against these values
             IntrinsicsTestValues expectedTestValues;
             expectedTestValues.bitCount = glm::bitCount(commonTestInputValues.bitCount);
             expectedTestValues.clamp = glm::clamp(commonTestInputValues.clampVal, commonTestInputValues.clampMin, commonTestInputValues.clampMax);
@@ -637,7 +638,7 @@ public:
             expectedTestValues.inverse = reinterpret_cast<float32_t3x3&>(inverseGlm);
 
             performCpuTests(commonTestInputValues, expectedTestValues);
-            //performGpuTests(commonTestInputValues, expectedTestValues);
+            performGpuTests(commonTestInputValues, expectedTestValues);
         }
         m_logger->log("intrinsics.hlsl TESTS DONE.", system::ILogger::ELL_PERFORMANCE);
     }
