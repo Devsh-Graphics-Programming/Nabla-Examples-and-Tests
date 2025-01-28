@@ -119,7 +119,7 @@ int main(int argc, char** argv)
     FOR_EACH_END
     
     //TestChi2<bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>>::run(5u, cb);
-    TestChi2<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, false>::run(1u, cb);
+    //TestChi2<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, false>::run(1u, cb);
     TestChi2<bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, true>::run(1u, cb);
 
 

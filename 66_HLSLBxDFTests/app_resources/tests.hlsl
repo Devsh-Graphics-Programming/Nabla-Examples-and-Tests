@@ -18,6 +18,10 @@
 #include <cmath>
 #include <format>
 #include <functional>
+
+#include "ImfRgbaFile.h"
+#include "ImfArray.h"
+#include <iostream>
 #endif
 
 namespace nbl
@@ -973,6 +977,101 @@ struct TestChi2 : TestBxDF<BxDF>
         }
     }
 
+    Imf::Rgba mapColor(float v, float vmin, float vmax)
+    {
+        Imf::Rgba c(1, 1, 1);
+        float diff = vmax - vmin;
+        v = clamp<float>(v, vmin, vmax);
+
+        if (v < (vmin + 0.25f * diff))
+        {
+            c.r = 0;
+            c.g = 4.f * (v - vmin) / diff;
+        }
+        else if (v < (vmin + 0.5f * diff))
+        {
+            c.r = 0;
+            c.b = 1.f + 4.f * (vmin + 0.25f * diff - v) / diff;
+        }
+        else if (v < (vmin + 0.75f * diff))
+        {
+            c.r = 4.f * (v - vmin - 0.5f * diff) / diff;
+            c.b = 0;
+        }
+        else
+        {
+            c.g = 1.f + 4.f * (vmin + 0.75f * diff - v) / diff;
+            c.b = 0;
+        }
+
+        return(c);
+    }
+
+    void writeToEXR()
+    {
+        std::string filename = std::format("chi2test_{}.exr", base_t::name);
+        // std::ofstream f(filename.c_str());
+
+        // f << "countFreq = [ ";
+        // for (int i = 0; i < thetaSplits; ++i)
+        // {
+        //     for (int j = 0; j < phiSplits; ++j)
+        //     {
+        //         f << countFreq[i * phiSplits + j];
+        //         if (j + 1 < phiSplits)
+        //             f << ", ";
+        //     }
+        //     if (i + 1 < thetaSplits)
+        //         f << "; ";
+        // }
+        // f << " ];" << std::endl << "integrateFreq = [ ";
+        // for (int i = 0; i < thetaSplits; ++i)
+        // {
+        //     for (int j = 0; j < phiSplits; ++j)
+        //     {
+        //         f << integrateFreq[i * phiSplits + j];
+        //         if (j + 1 < phiSplits)
+        //             f << ", ";
+        //     }
+        //     if (i + 1 < thetaSplits)
+        //         f << "; ";
+        // }
+        // f << " ];" << std::endl
+        // << "colormap(jet);" << std::endl
+        // << "clf; subplot(2,1,1);" << std::endl
+        // << "imagesc(countFreq);" << std::endl
+        // << "title('Observed frequencies');" << std::endl
+        // << "axis equal;" << std::endl
+        // << "subplot(2,1,2);" << std::endl
+        // << "imagesc(integrateFreq);" << std::endl
+        // << "axis equal;" << std::endl
+        // << "title('Expected frequencies');" << std::endl;
+        // f.close();
+
+        // int width =  10;
+        // int height = 10;
+
+        int totalWidth = phiSplits;
+        int totalHeight = 2 * thetaSplits + 1;
+        
+        Imf::Array2D<Imf::Rgba> pixels(totalWidth, totalHeight);
+        for (int y = 0; y < thetaSplits; y++)
+            for (int x = 0; x < phiSplits; x++)
+                pixels[y][x] = mapColor(countFreq[y * phiSplits + x], 0, 255);
+
+        for (int x = 0; x < phiSplits; x++)
+            pixels[thetaSplits][x] = Imf::Rgba(1, 1, 1);
+
+        for (int y = 0; y < thetaSplits; y++)
+            for (int x = 0; x < phiSplits; x++)
+                pixels[thetaSplits + 1 + y][x] = mapColor(integrateFreq[y * phiSplits + x], 0, 255);
+    
+        Imf::Header header(totalWidth, totalHeight);
+        Imf::RgbaOutputFile file(filename.c_str(), header, Imf::WRITE_RGBA);
+        file.setFrameBuffer(&pixels[0][0], 1, totalWidth);
+        file.writePixels(totalHeight);
+    }
+
     virtual void compute() override
     {
         clearBuckets();
@@ -982,8 +1081,7 @@ struct TestChi2 : TestBxDF<BxDF>
 
         sample_t s;
         aniso_cache cache;
-        uint32_t i = 0;
-        for (; i < numSamples; i++)
+        for (uint32_t i = 0; i < numSamples; i++)
         {
             float32_t3 u = float32_t3(rngUniformDist<float32_t2>(base_t::rc.rng), 0.0);
 
@@ -1014,19 +1112,19 @@ struct TestChi2 : TestBxDF<BxDF>
             int thetaBin = clamp<int>((int)std::floor(coords.x), 0, thetaSplits - 1);
             int phiBin = clamp<int>((int)std::floor(coords.y), 0, phiSplits - 1);
 
-            uint32_t idx = thetaBin * phiSplits + phiBin;
-            countFreq[idx] += 1;
+            uint32_t freqidx = thetaBin * phiSplits + phiBin;
+            countFreq[freqidx] += 1;
         }
 
         thetaFactor = 1.f / thetaFactor;
         phiFactor = 1.f / phiFactor;
 
-        int idx = 0;
+        uint32_t intidx = 0;
         for (int i = 0; i < thetaSplits; i++)
         {
             for (int j = 0; j < phiSplits; j++)
             {
-                integrateFreq[idx++] = numSamples * adaptiveSimpson2D([&](float theta, float phi) -> float
+                integrateFreq[intidx++] = numSamples * adaptiveSimpson2D([&](float theta, float phi) -> float
                     {
                         float cosTheta = std::cos(theta), sinTheta = std::sin(theta);
                         float cosPhi = std::cos(phi), sinPhi = std::sin(phi);
@@ -1098,6 +1196,9 @@ struct TestChi2 : TestBxDF<BxDF>
     ErrorType test()
     {
         compute();
+
+        if (write_frequencies)
+            writeToEXR();
 
         // chi2
         std::vector<Cell> cells(thetaSplits * phiSplits);
@@ -1199,6 +1300,8 @@ struct TestChi2 : TestBxDF<BxDF>
     uint32_t threshold = 1e-2;
     uint32_t minFreq = 5;
     uint32_t numTests = 5;
+    
+    bool write_frequencies = true;
 
     std::vector<float> countFreq;
     std::vector<float> integrateFreq;
