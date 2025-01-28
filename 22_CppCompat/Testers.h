@@ -18,6 +18,8 @@ public:
 
     struct PipelineSetupData
     {
+        std::string testShaderPath;
+
         core::smart_refctd_ptr<video::ILogicalDevice> device;
         core::smart_refctd_ptr<video::CVulkanConnection> api;
         core::smart_refctd_ptr<asset::IAssetManager> assetMgr;
@@ -48,7 +50,7 @@ public:
             asset::IAssetLoader::SAssetLoadParams lp = {};
             lp.logger = m_logger.get();
             lp.workingDirectory = ""; // virtual root
-            auto assetBundle = m_assetMgr->getAsset("app_resources/tgmathTest.comp.hlsl", lp);
+            auto assetBundle = m_assetMgr->getAsset(pipleineSetupData.testShaderPath, lp);
             const auto assets = assetBundle.getContents();
             if (assets.empty())
             {

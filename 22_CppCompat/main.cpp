@@ -68,11 +68,13 @@ public:
 
         {
             CTgmathTester tgmathTester;
+            pplnSetupData.testShaderPath = "app_resources/tgmathTest.comp.hlsl";
             tgmathTester.setupPipeline<TgmathIntputTestValues, TgmathTestValues>(pplnSetupData);
             tgmathTester.performTests();
         }
         {
             CIntrinsicsTester intrinsicsTester;
+            pplnSetupData.testShaderPath = "app_resources/intrinsicsTest.comp.hlsl";
             intrinsicsTester.setupPipeline<TgmathIntputTestValues, TgmathTestValues>(pplnSetupData);
             intrinsicsTester.performTests();
         }
