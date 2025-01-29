@@ -1,5 +1,3 @@
-#pragma shader_stage(fragment)
-
 #include "common.hlsl"
 #include <nbl/builtin/hlsl/spirv_intrinsics/fragment_shader_pixel_interlock.hlsl>
 #include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
@@ -19,7 +17,6 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord)
 {
     float32_t4 color;
     
-    nbl::hlsl::spirv::execution_mode::PixelInterlockOrderedEXT();
     nbl::hlsl::spirv::beginInvocationInterlockEXT();
 
     const uint32_t packedData = pseudoStencil[fragCoord];
@@ -41,7 +38,9 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord)
     return color;
 }
 
-float4 main(float4 position : SV_Position) : SV_TARGET
+[[vk::spvexecutionmode(spv::ExecutionModePixelInterlockOrderedEXT)]]
+[shader("pixel")]
+float4 resolveAlphaMain(float4 position : SV_Position) : SV_TARGET
 {
     return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(position.xy);
 }

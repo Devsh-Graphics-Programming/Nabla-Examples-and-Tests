@@ -398,7 +398,7 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
 
 [[vk::spvexecutionmode(spv::ExecutionModePixelInterlockOrderedEXT)]]
 [shader("pixel")]
-float4 fragmentMain(PSInput input) : SV_TARGET
+float4 fragMain(PSInput input) : SV_TARGET
 {
     float localAlpha = 0.0f;
     ObjectType objType = input.getObjType();

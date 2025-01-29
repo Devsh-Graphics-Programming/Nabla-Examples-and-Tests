@@ -7,7 +7,7 @@ struct PSInputDebug
 };
 
 [shader("pixel")]
-float4 fragmentDebugMain(PSInputDebug input) : SV_TARGET
+float4 fragDebugMain(PSInputDebug input) : SV_TARGET
 {
     return float4(1.0, 1.0, 1.0, 1.0);
 // return input.color;
