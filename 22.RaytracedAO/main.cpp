@@ -753,6 +753,8 @@ int main(int argc, char** argv)
 			auto tpose = core::transpose(core::matrix4SIMD(relativeTransform));
 			mainCamUp = tpose.rows[1];
 			mainCamView = tpose.rows[2];
+
+			std::cout << "\t Camera Reconstructed UpVector = <" << mainCamView.x << "," << mainCamView.y << "," << mainCamView.z << ">" << std::endl;
 		}
 		
 		float realFoVDegrees;
@@ -874,10 +876,14 @@ int main(int argc, char** argv)
 				staticCamera->setTarget(target.getAsVector3df());
 			}
 
-			auto reconstructedRight = core::cross(staticCamera->getUpVector(),core::normalize(mainCamView));
-			auto actualRight = core::cross(core::normalize(mainCamUp),core::normalize(mainCamView));
-			if (core::dot(reconstructedRight,actualRight).x<0.97f)
-				staticCamera->setUpVector(mainCamUp);
+			{
+				auto reconstructedRight = core::normalize(core::cross(staticCamera->getUpVector(),mainCamView));
+				auto actualRight = core::normalize(core::cross(mainCamUp,mainCamView));
+				const float dp = core::dot(reconstructedRight,actualRight).x;
+				std::cout << "\t Camera Reconstructed UpVector match score = "<< dp << std::endl;
+				if (dp<0.96f)
+					staticCamera->setUpVector(mainCamUp);
+			}
 
 			//
 			if (ortho)
