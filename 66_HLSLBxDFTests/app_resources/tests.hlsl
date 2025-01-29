@@ -9,6 +9,7 @@
 #include "nbl/builtin/hlsl/bxdf/common.hlsl"
 #include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
 #include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
+#include "nbl/builtin/hlsl/bxdf/bxdf_traits.hlsl"
 
 #ifndef __HLSL_VERSION
 #include <glm/gtc/quaternion.hpp>
@@ -193,6 +194,9 @@ enum ErrorType : uint32_t
     BET_JACOBIAN,
     BET_PDF_EVAL_DIFF,
     BET_RECIPROCITY,
+
+    BET_NOBREAK,    // not an error code, ones after this don't break
+    BET_INVALID,
     BET_PRINT_MSG
 };
 
@@ -206,7 +210,7 @@ struct TestBase
         anisointer = aniso_interaction::create(isointer, rc.T, rc.B);
     }
 
-    virtual void compute() {}
+    virtual ErrorType compute() { return BET_NONE; }
 
     SBxDFTestResources rc;
 
@@ -428,7 +432,7 @@ struct TestJacobian : TestBxDF<BxDF>
     using base_t = TestBxDFBase<BxDF>;
     using this_t = TestJacobian<BxDF, aniso>;
 
-    virtual void compute() override
+    virtual ErrorType compute() override
     {
         aniso_cache cache, dummy;
         iso_cache isocache;
@@ -480,6 +484,18 @@ struct TestJacobian : TestBxDF<BxDF>
             }
         }
 
+        // TODO: add checks with need clamp trait
+        if (bxdf_traits<BxDF>::type == BT_BRDF)
+        {
+            if (s.NdotL <= bit_cast<float>(numeric_limits<float>::min))
+                return BET_INVALID;
+        }
+        else if (bxdf_traits<BxDF>::type == BT_BSDF)
+        {
+            if (abs<float>(s.NdotL) <= bit_cast<float>(numeric_limits<float>::min))
+                return BET_INVALID;
+        }
+
         if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF> || is_basic_bsdf_v<BxDF>)
         {
             pdf = base_t::bxdf.quotient_and_pdf(params);
@@ -498,11 +514,26 @@ struct TestJacobian : TestBxDF<BxDF>
                 bsdf = float32_t3(base_t::bxdf.eval(params));
             }
         }
+
+        return BET_NONE;
     }
 
     ErrorType test()
     {
-        compute();
+        if (bxdf_traits<BxDF>::type == BT_BRDF)
+        {    
+            if (base_t::isointer.NdotV <= bit_cast<float>(numeric_limits<float>::min))
+                return BET_INVALID;
+        }        
+        else if (bxdf_traits<BxDF>::type == BT_BSDF)
+        {
+            if (abs<float>(base_t::isointer.NdotV) <= bit_cast<float>(numeric_limits<float>::min))
+                return BET_INVALID;
+        }
+
+        ErrorType res = compute();
+        if (res != BET_NONE)
+            return res;
 
         if (checkZero<float>(pdf.pdf, 1e-5))  // something generated cannot have 0 probability of getting generated
             return BET_PDF_ZERO;
@@ -557,7 +588,7 @@ struct TestReciprocity : TestBxDF<BxDF>
     using base_t = TestBxDFBase<BxDF>;
     using this_t = TestReciprocity<BxDF, aniso>;
 
-    virtual void compute() override
+    virtual ErrorType compute() override
     {
         aniso_cache cache, rec_cache;
         iso_cache isocache, rec_isocache;
@@ -595,6 +626,18 @@ struct TestReciprocity : TestBxDF<BxDF>
                 isocache = (iso_cache)cache;
                 params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_ABS);
             }
+        }
+
+        // TODO: add checks with need clamp trait
+        if (bxdf_traits<BxDF>::type == BT_BRDF)
+        {
+            if (s.NdotL <= bit_cast<float>(numeric_limits<float>::min))
+                return BET_INVALID;
+        }
+        else if (bxdf_traits<BxDF>::type == BT_BSDF)
+        {
+            if (abs<float>(s.NdotL) <= bit_cast<float>(numeric_limits<float>::min))
+                return BET_INVALID;
         }
 
         float32_t3x3 toTangentSpace = base_t::anisointer.getToTangentSpace();
@@ -654,11 +697,26 @@ struct TestReciprocity : TestBxDF<BxDF>
                 rec_bsdf = float32_t3(base_t::bxdf.eval(rec_params));
             }
         }
+
+        return BET_NONE;
     }
 
     ErrorType test()
     {
-        compute();
+        if (bxdf_traits<BxDF>::type == BT_BRDF)
+        {    
+            if (base_t::isointer.NdotV <= bit_cast<float>(numeric_limits<float>::min))
+                return BET_INVALID;
+        }        
+        else if (bxdf_traits<BxDF>::type == BT_BSDF)
+        {
+            if (abs<float>(base_t::isointer.NdotV) <= bit_cast<float>(numeric_limits<float>::min))
+                return BET_INVALID;
+        }
+
+        ErrorType res = compute();
+        if (res != BET_NONE)
+            return res;
 
         if (checkZero<float32_t3>(bsdf, 1e-5))
             return BET_NONE;    // produces an "impossible" sample
@@ -722,7 +780,7 @@ struct TestBucket : TestBxDF<BxDF>
         return a - diff + b;
     }
 
-    virtual void compute() override
+    virtual ErrorType compute() override
     {
         clearBuckets();
 
@@ -813,11 +871,25 @@ struct TestBucket : TestBxDF<BxDF>
             }
         }
 #endif
+        return BET_NONE;
     }
 
     ErrorType test()
     {
-        compute();
+        if (bxdf_traits<BxDF>::type == BT_BRDF)
+        {    
+            if (base_t::isointer.NdotV <= bit_cast<float>(numeric_limits<float>::min))
+                return BET_INVALID;
+        }        
+        else if (bxdf_traits<BxDF>::type == BT_BSDF)
+        {
+            if (abs<float>(base_t::isointer.NdotV) <= bit_cast<float>(numeric_limits<float>::min))
+                return BET_INVALID;
+        }
+
+        ErrorType res = compute();
+        if (res != BET_NONE)
+            return res;
 
         return (base_t::errMsg.length() == 0) ? BET_NONE : BET_PRINT_MSG;
     }
@@ -1025,22 +1097,23 @@ struct TestChi2 : TestBxDF<BxDF>
 
     void writeToEXR()
     {
-        std::string filename = std::format("chi2test_{}.exr", base_t::name);
+        std::string filename = std::format("chi2test_{}_{}.exr", base_t::rc.state, base_t::name);
 
         int totalWidth = phiSplits;
         int totalHeight = 2 * thetaSplits + 1;
+        float maxFreq = max<float>(maxCountFreq, maxIntFreq);
         
         Array2D<Rgba> pixels(totalWidth, totalHeight);
         for (int y = 0; y < thetaSplits; y++)
             for (int x = 0; x < phiSplits; x++)
-                pixels[y][x] = mapColor(countFreq[y * phiSplits + x], -512.f, 511.f);   // TODO: shouldn't map to negative numbers
+                pixels[y][x] = mapColor(countFreq[y * phiSplits + x], 0.f, maxFreq);
 
         // for (int x = 0; x < phiSplits; x++)
         //     pixels[thetaSplits][x] = Rgba(1, 1, 1);
 
         for (int y = 0; y < thetaSplits; y++)
             for (int x = 0; x < phiSplits; x++)
-                pixels[thetaSplits + y][x] = mapColor(integrateFreq[y * phiSplits + x], -512.f, 511.f);
+                pixels[thetaSplits + y][x] = mapColor(integrateFreq[y * phiSplits + x], 0.f, maxFreq);
     
         Header header(totalWidth, totalHeight);
         RgbaOutputFile file(filename.c_str(), header, WRITE_RGBA);
@@ -1048,7 +1121,7 @@ struct TestChi2 : TestBxDF<BxDF>
         file.writePixels(totalHeight);
     }
 
-    virtual void compute() override
+    virtual ErrorType compute() override
     {
         clearBuckets();
 
@@ -1090,6 +1163,9 @@ struct TestChi2 : TestBxDF<BxDF>
 
             uint32_t freqidx = thetaBin * phiSplits + phiBin;
             countFreq[freqidx] += 1;
+
+            if (write_frequencies && maxCountFreq < countFreq[freqidx])
+                maxCountFreq = countFreq[freqidx];
         }
 
         thetaFactor = 1.f / thetaFactor;
@@ -1100,6 +1176,7 @@ struct TestChi2 : TestBxDF<BxDF>
         {
             for (int j = 0; j < phiSplits; j++)
             {
+                uint32_t lastidx = intidx;
                 integrateFreq[intidx++] = numSamples * adaptiveSimpson2D([&](float theta, float phi) -> float
                     {
                         float cosTheta = std::cos(theta), sinTheta = std::sin(theta);
@@ -1165,13 +1242,27 @@ struct TestChi2 : TestBxDF<BxDF>
                         return pdf.pdf * sinTheta;
                     },
                     float32_t2(i * thetaFactor, j * phiFactor), float32_t2((i + 1) * thetaFactor, (j + 1) * phiFactor));
+
+                if (write_frequencies && maxIntFreq < integrateFreq[lastidx])
+                    maxIntFreq = integrateFreq[lastidx];
             }
         }
+
+        return BET_NONE;
     }
 
     ErrorType test()
     {
-        compute();
+        if (bxdf_traits<BxDF>::type == BT_BRDF)
+            if (base_t::isointer.NdotV <= bit_cast<float>(numeric_limits<float>::min))
+                return BET_INVALID;
+        else if (bxdf_traits<BxDF>::type == BT_BSDF)
+            if (abs<float>(base_t::isointer.NdotV) <= bit_cast<float>(numeric_limits<float>::min))
+                return BET_INVALID;
+
+        ErrorType res = compute();
+        if (res != BET_NONE)
+            return res;
 
         if (write_frequencies)
             writeToEXR();
@@ -1278,6 +1369,8 @@ struct TestChi2 : TestBxDF<BxDF>
     uint32_t numTests = 5;
     
     bool write_frequencies = true;
+    float maxCountFreq;
+    float maxIntFreq;
 
     std::vector<float> countFreq;
     std::vector<float> integrateFreq;
