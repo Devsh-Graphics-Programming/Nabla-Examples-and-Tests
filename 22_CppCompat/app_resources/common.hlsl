@@ -36,7 +36,7 @@
 #include <nbl/builtin/hlsl/tgmath.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/intrinsics.hlsl>
 
-// tmath.hlsl and intrinsics.hlsl tests
+// tgmath.hlsl and intrinsics.hlsl tests
 
 using namespace nbl::hlsl;
 struct TgmathIntputTestValues
@@ -52,6 +52,7 @@ struct TgmathIntputTestValues
 	float exp;
 	float exp2;
 	float log;
+	float log2;
 	float absF;
 	int absI;
 	float sqrt;
@@ -71,6 +72,7 @@ struct TgmathIntputTestValues
 	float32_t3 expVec;
 	float32_t3 exp2Vec;
 	float32_t3 logVec;
+	float32_t3 log2Vec;
 	float32_t3 absFVec;
 	int32_t3 absIVec;
 	float32_t3 sqrtVec;
@@ -90,6 +92,7 @@ struct TgmathTestValues
 	float exp;
 	float exp2;
 	float log;
+	float log2;
 	float absF;
 	int absI;
 	float sqrt;
@@ -112,6 +115,7 @@ struct TgmathTestValues
 	float32_t3 expVec;
 	float32_t3 exp2Vec;
 	float32_t3 logVec;
+	float32_t3 log2Vec;
 	float32_t3 absFVec;
 	int32_t3 absIVec;
 	float32_t3 sqrtVec;
@@ -130,6 +134,7 @@ struct TgmathTestValues
 		exp = nbl::hlsl::exp(input.exp);
 		exp2 = nbl::hlsl::exp2(input.exp2);
 		log = nbl::hlsl::log(input.log);
+		log2 = nbl::hlsl::log2(input.log2);
 		absF = nbl::hlsl::abs(input.absF);
 		absI = nbl::hlsl::abs(input.absI);
 		sqrt = nbl::hlsl::sqrt(input.sqrt);
@@ -146,6 +151,7 @@ struct TgmathTestValues
 		expVec = nbl::hlsl::exp(input.expVec);
 		exp2Vec = nbl::hlsl::exp2(input.exp2Vec);
 		logVec = nbl::hlsl::log(input.logVec);
+		log2Vec = nbl::hlsl::log2(input.log2Vec);
 		absFVec = nbl::hlsl::abs(input.absFVec);
 		absIVec = nbl::hlsl::abs(input.absIVec);
 		sqrtVec = nbl::hlsl::sqrt(input.sqrtVec);

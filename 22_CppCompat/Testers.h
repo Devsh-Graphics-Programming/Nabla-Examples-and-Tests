@@ -373,6 +373,7 @@ public:
             commonTestInputValues.exp = realDistributionSmall(mt);
             commonTestInputValues.exp2 = realDistributionSmall(mt);
             commonTestInputValues.log = realDistribution(mt);
+            commonTestInputValues.log2 = realDistribution(mt);
             commonTestInputValues.absF = realDistribution(mt);
             commonTestInputValues.absI = intDistribution(mt);
             commonTestInputValues.sqrt = realDistribution(mt);
@@ -392,6 +393,7 @@ public:
             commonTestInputValues.expVec = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
             commonTestInputValues.exp2Vec = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
             commonTestInputValues.logVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            commonTestInputValues.log2Vec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
             commonTestInputValues.absFVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
             commonTestInputValues.absIVec = int32_t3(intDistribution(mt), intDistribution(mt), intDistribution(mt));
             commonTestInputValues.sqrtVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
@@ -410,6 +412,7 @@ public:
             expectedTestValues.exp = std::exp(commonTestInputValues.exp);
             expectedTestValues.exp2 = std::exp2(commonTestInputValues.exp2);
             expectedTestValues.log = std::log(commonTestInputValues.log);
+            expectedTestValues.log2 = std::log2(commonTestInputValues.log2);
             expectedTestValues.absF = std::abs(commonTestInputValues.absF);
             expectedTestValues.absI = std::abs(commonTestInputValues.absI);
             expectedTestValues.sqrt = std::sqrt(commonTestInputValues.sqrt);
@@ -437,6 +440,7 @@ public:
             expectedTestValues.expVec = float32_t3(std::exp(commonTestInputValues.expVec.x), std::exp(commonTestInputValues.expVec.y), std::exp(commonTestInputValues.expVec.z));
             expectedTestValues.exp2Vec = float32_t3(std::exp2(commonTestInputValues.exp2Vec.x), std::exp2(commonTestInputValues.exp2Vec.y), std::exp2(commonTestInputValues.exp2Vec.z));
             expectedTestValues.logVec = float32_t3(std::log(commonTestInputValues.logVec.x), std::log(commonTestInputValues.logVec.y), std::log(commonTestInputValues.logVec.z));
+            expectedTestValues.log2Vec = float32_t3(std::log2(commonTestInputValues.log2Vec.x), std::log2(commonTestInputValues.log2Vec.y), std::log2(commonTestInputValues.log2Vec.z));
             expectedTestValues.absFVec = float32_t3(std::abs(commonTestInputValues.absFVec.x), std::abs(commonTestInputValues.absFVec.y), std::abs(commonTestInputValues.absFVec.z));
             expectedTestValues.absIVec = float32_t3(std::abs(commonTestInputValues.absIVec.x), std::abs(commonTestInputValues.absIVec.y), std::abs(commonTestInputValues.absIVec.z));
             expectedTestValues.sqrtVec = float32_t3(std::sqrt(commonTestInputValues.sqrtVec.x), std::sqrt(commonTestInputValues.sqrtVec.y), std::sqrt(commonTestInputValues.sqrtVec.z));
@@ -482,6 +486,7 @@ private:
         verifyTestValue("exp", expectedTestValues.exp, testValues.exp, testType);
         verifyTestValue("exp2", expectedTestValues.exp2, testValues.exp2, testType);
         verifyTestValue("log", expectedTestValues.log, testValues.log, testType);
+        verifyTestValue("log2", expectedTestValues.log2, testValues.log2, testType);
         verifyTestValue("absF", expectedTestValues.absF, testValues.absF, testType);
         verifyTestValue("absI", expectedTestValues.absI, testValues.absI, testType);
         verifyTestValue("sqrt", expectedTestValues.sqrt, testValues.sqrt, testType);
@@ -498,6 +503,7 @@ private:
         verifyTestVector3dValue("expVec", expectedTestValues.expVec, testValues.expVec, testType);
         verifyTestVector3dValue("exp2Vec", expectedTestValues.exp2Vec, testValues.exp2Vec, testType);
         verifyTestVector3dValue("logVec", expectedTestValues.logVec, testValues.logVec, testType);
+        verifyTestVector3dValue("log2Vec", expectedTestValues.log2Vec, testValues.log2Vec, testType);
         verifyTestVector3dValue("absFVec", expectedTestValues.absFVec, testValues.absFVec, testType);
         verifyTestVector3dValue("absIVec", expectedTestValues.absIVec, testValues.absIVec, testType);
         verifyTestVector3dValue("sqrtVec", expectedTestValues.sqrtVec, testValues.sqrtVec, testType);
