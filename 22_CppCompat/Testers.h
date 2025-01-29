@@ -363,9 +363,9 @@ public:
             // Set input thest values that will be used in both CPU and GPU tests
             TgmathIntputTestValues commonTestInputValues;
             commonTestInputValues.floor = realDistribution(mt);
-            commonTestInputValues.lerpX = realDistributionNeg(mt);
-            commonTestInputValues.lerpY = realDistributionPos(mt);
-            commonTestInputValues.lerpA = realDistributionZeroToOne(mt);
+            commonTestInputValues.mixX = realDistributionNeg(mt);
+            commonTestInputValues.mixY = realDistributionPos(mt);
+            commonTestInputValues.mixA = realDistributionZeroToOne(mt);
             commonTestInputValues.isnan = coinFlipDistribution(mt) ? realDistribution(mt) : std::numeric_limits<float>::quiet_NaN();
             commonTestInputValues.isinf = coinFlipDistribution(mt) ? realDistribution(mt) : std::numeric_limits<float>::infinity();
             commonTestInputValues.powX = realDistributionSmall(mt);
@@ -382,9 +382,9 @@ public:
             commonTestInputValues.modf = realDistribution(mt);
 
             commonTestInputValues.floorVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.lerpXVec = float32_t3(realDistributionNeg(mt), realDistributionNeg(mt), realDistributionNeg(mt));
-            commonTestInputValues.lerpYVec = float32_t3(realDistributionPos(mt), realDistributionPos(mt), realDistributionPos(mt));
-            commonTestInputValues.lerpAVec = float32_t3(realDistributionZeroToOne(mt), realDistributionZeroToOne(mt), realDistributionZeroToOne(mt));
+            commonTestInputValues.mixXVec = float32_t3(realDistributionNeg(mt), realDistributionNeg(mt), realDistributionNeg(mt));
+            commonTestInputValues.mixYVec = float32_t3(realDistributionPos(mt), realDistributionPos(mt), realDistributionPos(mt));
+            commonTestInputValues.mixAVec = float32_t3(realDistributionZeroToOne(mt), realDistributionZeroToOne(mt), realDistributionZeroToOne(mt));
             commonTestInputValues.isnanVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
             commonTestInputValues.isinfVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
             commonTestInputValues.powXVec = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
@@ -403,7 +403,7 @@ public:
             // use std library functions to determine expected test values, the output of functions from tgmath.hlsl will be verified against these values
             TgmathTestValues expectedTestValues;
             expectedTestValues.floor = std::floor(commonTestInputValues.floor);
-            expectedTestValues.lerp = std::lerp(commonTestInputValues.lerpX, commonTestInputValues.lerpY, commonTestInputValues.lerpA);
+            expectedTestValues.mix = std::lerp(commonTestInputValues.mixX, commonTestInputValues.mixY, commonTestInputValues.mixA);
             expectedTestValues.isnan = std::isnan(commonTestInputValues.isnan);
             expectedTestValues.isinf = std::isinf(commonTestInputValues.isinf);
             expectedTestValues.pow = std::pow(commonTestInputValues.powX, commonTestInputValues.powY);
@@ -423,9 +423,9 @@ public:
 
             expectedTestValues.floorVec = float32_t3(std::floor(commonTestInputValues.floorVec.x), std::floor(commonTestInputValues.floorVec.y), std::floor(commonTestInputValues.floorVec.z));
 
-            expectedTestValues.lerpVec.x = std::lerp(commonTestInputValues.lerpXVec.x, commonTestInputValues.lerpYVec.x, commonTestInputValues.lerpAVec.x);
-            expectedTestValues.lerpVec.y = std::lerp(commonTestInputValues.lerpXVec.y, commonTestInputValues.lerpYVec.y, commonTestInputValues.lerpAVec.y);
-            expectedTestValues.lerpVec.z = std::lerp(commonTestInputValues.lerpXVec.z, commonTestInputValues.lerpYVec.z, commonTestInputValues.lerpAVec.z);
+            expectedTestValues.mixVec.x = std::lerp(commonTestInputValues.mixXVec.x, commonTestInputValues.mixYVec.x, commonTestInputValues.mixAVec.x);
+            expectedTestValues.mixVec.y = std::lerp(commonTestInputValues.mixXVec.y, commonTestInputValues.mixYVec.y, commonTestInputValues.mixAVec.y);
+            expectedTestValues.mixVec.z = std::lerp(commonTestInputValues.mixXVec.z, commonTestInputValues.mixYVec.z, commonTestInputValues.mixAVec.z);
 
             expectedTestValues.isnanVec = float32_t3(std::isnan(commonTestInputValues.isnanVec.x), std::isnan(commonTestInputValues.isnanVec.y), std::isnan(commonTestInputValues.isnanVec.z));
             expectedTestValues.isinfVec = float32_t3(std::isinf(commonTestInputValues.isinfVec.x), std::isinf(commonTestInputValues.isinfVec.y), std::isinf(commonTestInputValues.isinfVec.z));
@@ -475,7 +475,7 @@ private:
     void verifyTestValues(const TgmathTestValues& expectedTestValues, const TgmathTestValues& testValues, ITester::TestType testType)
     {
         verifyTestValue("floor", expectedTestValues.floor, testValues.floor, testType);
-        verifyTestValue("lerp", expectedTestValues.lerp, testValues.lerp, testType);
+        verifyTestValue("mix", expectedTestValues.mix, testValues.mix, testType);
         verifyTestValue("isnan", expectedTestValues.isnan, testValues.isnan, testType);
         verifyTestValue("isinf", expectedTestValues.isinf, testValues.isinf, testType);
         verifyTestValue("pow", expectedTestValues.pow, testValues.pow, testType);
@@ -491,7 +491,7 @@ private:
         verifyTestValue("modf", expectedTestValues.modf, testValues.modf, testType);
 
         verifyTestVector3dValue("floorVec", expectedTestValues.floorVec, testValues.floorVec, testType);
-        verifyTestVector3dValue("lerpVec", expectedTestValues.lerpVec, testValues.lerpVec, testType);
+        verifyTestVector3dValue("mixVec", expectedTestValues.mixVec, testValues.mixVec, testType);
         verifyTestVector3dValue("isnanVec", expectedTestValues.isnanVec, testValues.isnanVec, testType);
         verifyTestVector3dValue("isinfVec", expectedTestValues.isinfVec, testValues.isinfVec, testType);
         verifyTestVector3dValue("powVec", expectedTestValues.powVec, testValues.powVec, testType);

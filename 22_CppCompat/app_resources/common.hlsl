@@ -42,9 +42,9 @@ using namespace nbl::hlsl;
 struct TgmathIntputTestValues
 {
 	float floor;
-	float lerpX;
-	float lerpY;
-	float lerpA;
+	float mixX;
+	float mixY;
+	float mixA;
 	float isnan;
 	float isinf;
 	float powX;
@@ -61,9 +61,9 @@ struct TgmathIntputTestValues
 	float modf;
 
 	float32_t3 floorVec;
-	float32_t3 lerpXVec;
-	float32_t3 lerpYVec;
-	float32_t3 lerpAVec;
+	float32_t3 mixXVec;
+	float32_t3 mixYVec;
+	float32_t3 mixAVec;
 	float32_t3 isnanVec;
 	float32_t3 isinfVec;
 	float32_t3 powXVec;
@@ -83,7 +83,7 @@ struct TgmathIntputTestValues
 struct TgmathTestValues
 {
 	float floor;
-	float lerp;
+	float mix;
 	int isnan;
 	int isinf;
 	float pow;
@@ -99,7 +99,7 @@ struct TgmathTestValues
 	float modf;
 
 	float32_t3 floorVec;
-	float32_t3 lerpVec;
+	float32_t3 mixVec;
 #ifndef __HLSL_VERSION
 	nbl::hlsl::vector<int, 3> isnanVec;
 	nbl::hlsl::vector<int, 3> isinfVec;
@@ -123,7 +123,7 @@ struct TgmathTestValues
 	void fillTestValues(NBL_CONST_REF_ARG(TgmathIntputTestValues) input)
 	{
 		floor = nbl::hlsl::floor(input.floor);
-		lerp = nbl::hlsl::lerp(input.lerpX, input.lerpY, input.lerpA);
+		mix = nbl::hlsl::mix(input.mixX, input.mixY, input.mixA);
 		isnan = nbl::hlsl::isnan(input.isnan);
 		isinf = nbl::hlsl::isinf(input.isinf);
 		pow = nbl::hlsl::pow(input.powX, input.powY);
@@ -139,7 +139,7 @@ struct TgmathTestValues
 		modf = nbl::hlsl::modf(input.modf);
 
 		floorVec = nbl::hlsl::floor(input.floorVec);
-		lerpVec = nbl::hlsl::lerp(input.lerpXVec, input.lerpYVec, input.lerpAVec);
+		mixVec = nbl::hlsl::mix(input.mixXVec, input.mixYVec, input.mixAVec);
 		isnanVec = nbl::hlsl::isnan(input.isnanVec);
 		isinfVec = nbl::hlsl::isinf(input.isinfVec);
 		powVec = nbl::hlsl::pow(input.powXVec, input.powYVec);
