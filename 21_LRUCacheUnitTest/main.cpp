@@ -48,8 +48,14 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 			hugeCache.insert(0, '0');
 			hugeCache.print(m_logger);
 
-
-			ResizableLRUCache<int, char> cache(5u);
+			// Use this to ensure the disposal function is properly called on every element of the first cache
+			ResizableLRUCache<int, char>::disposal_func_t df([&](std::pair<int, char> a) 
+				{ 
+					std::ostringstream tmp;
+					tmp << "Disposal function called on element (" << a.first << ", " << a.second << ")";
+					m_logger->log(tmp.str()); 
+				});
+			ResizableLRUCache<int, char> cache(5u, std::move(df));
 
 			m_logger->log("Testing insert with const key, const val...");
 			//const, const
@@ -77,16 +83,22 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 
 			cache.print(m_logger);
 
+			// Previous gets left the cahce with LRU order 13 11 10 12
+
 			//non const, const
 			int i = 0;
+			// This insert makes LRU order 1 13 11 10 12
 			cache.insert(++i, '1');
+			// This insert evicts 12 -> 2 1 13 11 10
 			cache.insert(++i, '2');
+			// This insert evicts 10 -> 3 2 1 13 11 
 			cache.insert(++i, '3');
 			returned = *(cache.get(1));
 			assert(returned == '1');
 
 			//const, non const
 			char ch = 'N';
+			// This insert evicts 11 -> 4 3 2 1 13 
 			cache.insert(4, ch);
 
 			returned = *(cache.peek(4));
@@ -95,6 +107,7 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 			//non const, non const
 			i = 6;
 			ch = 'Y';
+			// This insert evicts 13 -> 6 4 3 2 1
 			cache.insert(i, ch);
 
 			returned = *(cache.get(6));
@@ -110,6 +123,15 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 			assert(returnedNullptr == nullptr);
 			auto peekedNullptr = cache.peek(5);
 			assert(peekedNullptr == nullptr);
+
+			// Try clearing the cache
+			m_logger->log("Clearing test");
+			m_logger->log("Print contents before clearing");
+			cache.print(m_logger);
+			// Clearing is done in LRU order, so for current state 6 4 3 2 1 (6 being last recently used) you should see evictions in that order
+			cache.clear();
+			m_logger->log("Print contents after clearing");
+			cache.print(m_logger);
 
 			ResizableLRUCache<int, std::string> cache2(5u);
 
