@@ -33,7 +33,7 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 			inline TextureReference& operator=(uint64_t semamphoreVal) { lastUsedSemaphoreValue = semamphoreVal; return *this;  }
 		};
 
-		using TextureLRUCache = core::LRUCache<uint32_t, TextureReference>;
+		using TextureLRUCache = core::ResizableLRUCache<uint32_t, TextureReference>;
 
 		// we stuff all our work here because its a "single shot" app
 		bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
@@ -44,12 +44,12 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 
 			m_logger->log("LRU cache unit test");
 			m_logger->log("Testing large cache...");
-			LRUCache<int, char> hugeCache(50000000u);
+			ResizableLRUCache<int, char> hugeCache(50000000u);
 			hugeCache.insert(0, '0');
 			hugeCache.print(m_logger);
 
 
-			LRUCache<int, char> cache(5u);
+			ResizableLRUCache<int, char> cache(5u);
 
 			m_logger->log("Testing insert with const key, const val...");
 			//const, const
@@ -111,7 +111,7 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 			auto peekedNullptr = cache.peek(5);
 			assert(peekedNullptr == nullptr);
 
-			core::LRUCache<int, std::string> cache2(5u);
+			ResizableLRUCache<int, std::string> cache2(5u);
 
 			cache2.insert(500, "five hundred");			//inserts at addr = 0
 			cache2.insert(510, "five hundred and ten");	//inserts at addr = 472
@@ -168,7 +168,7 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 				// In LRU Cache `insert` function, in case of cache hit, we need to assign semaphore value to TextureReference without changing `alloc_idx`
 				inline TextureReference& operator=(uint64_t semamphoreVal) { lastUsedSemaphoreValue = semamphoreVal; return *this;  }
 			};
-			using TextureLRUCache = LRUCache<uint32_t, TextureReference>;
+			using TextureLRUCache = ResizableLRUCache<uint32_t, TextureReference>;
 
 			TextureLRUCache textureCache = TextureLRUCache(3u);
 
