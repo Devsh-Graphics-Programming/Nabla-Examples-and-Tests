@@ -20,8 +20,24 @@
 #include <functional>
 
 #include "ImfRgbaFile.h"
+#include "ImfOutputFile.h"
+#include "ImfChannelList.h"
+#include "ImfChannelListAttribute.h"
+#include "ImfStringAttribute.h"
+#include "ImfMatrixAttribute.h"
 #include "ImfArray.h"
+
+#include "ImfFrameBuffer.h"
+#include "ImfHeader.h"
+
+#include "ImfNamespace.h"
 #include <iostream>
+
+namespace IMF = Imf;
+namespace IMATH = Imath;
+
+using namespace IMF;
+using namespace IMATH;
 #endif
 
 namespace nbl
@@ -1004,71 +1020,31 @@ struct TestChi2 : TestBxDF<BxDF>
             c.b = 0;
         }
 
-        return(c);
+        return c;
     }
 
     void writeToEXR()
     {
         std::string filename = std::format("chi2test_{}.exr", base_t::name);
-        // std::ofstream f(filename.c_str());
-
-        // f << "countFreq = [ ";
-        // for (int i = 0; i < thetaSplits; ++i)
-        // {
-        //     for (int j = 0; j < phiSplits; ++j)
-        //     {
-        //         f << countFreq[i * phiSplits + j];
-        //         if (j + 1 < phiSplits)
-        //             f << ", ";
-        //     }
-        //     if (i + 1 < thetaSplits)
-        //         f << "; ";
-        // }
-        // f << " ];" << std::endl << "integrateFreq = [ ";
-        // for (int i = 0; i < thetaSplits; ++i)
-        // {
-        //     for (int j = 0; j < phiSplits; ++j)
-        //     {
-        //         f << integrateFreq[i * phiSplits + j];
-        //         if (j + 1 < phiSplits)
-        //             f << ", ";
-        //     }
-        //     if (i + 1 < thetaSplits)
-        //         f << "; ";
-        // }
-        // f << " ];" << std::endl
-        // << "colormap(jet);" << std::endl
-        // << "clf; subplot(2,1,1);" << std::endl
-        // << "imagesc(countFreq);" << std::endl
-        // << "title('Observed frequencies');" << std::endl
-        // << "axis equal;" << std::endl
-        // << "subplot(2,1,2);" << std::endl
-        // << "imagesc(integrateFreq);" << std::endl
-        // << "axis equal;" << std::endl
-        // << "title('Expected frequencies');" << std::endl;
-        // f.close();
-
-        // int width =  10;
-        // int height = 10;
 
         int totalWidth = phiSplits;
         int totalHeight = 2 * thetaSplits + 1;
         
-        Imf::Array2D<Imf::Rgba> pixels(totalWidth, totalHeight);
+        Array2D<Rgba> pixels(totalWidth, totalHeight);
         for (int y = 0; y < thetaSplits; y++)
             for (int x = 0; x < phiSplits; x++)
-                pixels[y][x] = mapColor(countFreq[y * phiSplits + x], 0, 255);
+                pixels[y][x] = mapColor(countFreq[y * phiSplits + x], -512.f, 511.f);   // TODO: shouldn't map to negative numbers
 
-        for (int x = 0; x < phiSplits; x++)
-            pixels[thetaSplits][x] = Imf::Rgba(1, 1, 1);
+        // for (int x = 0; x < phiSplits; x++)
+        //     pixels[thetaSplits][x] = Rgba(1, 1, 1);
 
         for (int y = 0; y < thetaSplits; y++)
             for (int x = 0; x < phiSplits; x++)
-                pixels[thetaSplits + 1 + y][x] = mapColor(integrateFreq[y * phiSplits + x], 0, 255);
+                pixels[thetaSplits + y][x] = mapColor(integrateFreq[y * phiSplits + x], -512.f, 511.f);
     
-        Imf::Header header(totalWidth, totalHeight);
-        Imf::RgbaOutputFile file(filename.c_str(), header, Imf::WRITE_RGBA);
-        file.setFrameBuffer(&pixels[0][0], 1, totalWidth);
+        Header header(totalWidth, totalHeight);
+        RgbaOutputFile file(filename.c_str(), header, WRITE_RGBA);
+        file.setFrameBuffer(&pixels[0][0], 1, totalWidth+1);
         file.writePixels(totalHeight);
     }
 
