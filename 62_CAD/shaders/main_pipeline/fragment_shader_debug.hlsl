@@ -1,6 +1,3 @@
-
-#pragma shader_stage(fragment)
-
 struct PSInputDebug
 {
     float4 position : SV_Position;

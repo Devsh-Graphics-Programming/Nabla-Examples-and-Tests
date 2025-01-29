@@ -1,5 +1,3 @@
-#pragma shader_stage(fragment)
-
 #include "common.hlsl"
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #include <nbl/builtin/hlsl/shapes/line.hlsl>
@@ -361,7 +359,6 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
 {
     float32_t4 color;
     
-    nbl::hlsl::spirv::execution_mode::PixelInterlockOrderedEXT();
     nbl::hlsl::spirv::beginInvocationInterlockEXT();
 
     const uint32_t packedData = pseudoStencil[fragCoord];
@@ -399,6 +396,7 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     return color;
 }
 
+[[vk::spvexecutionmode(spv::ExecutionModePixelInterlockOrderedEXT)]]
 [shader("pixel")]
 float4 fragmentMain(PSInput input) : SV_TARGET
 {
