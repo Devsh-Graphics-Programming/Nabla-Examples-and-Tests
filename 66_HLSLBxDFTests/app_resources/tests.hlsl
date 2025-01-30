@@ -21,24 +21,20 @@
 #include <functional>
 
 #include "ImfRgbaFile.h"
-#include "ImfOutputFile.h"
-#include "ImfChannelList.h"
-#include "ImfChannelListAttribute.h"
-#include "ImfStringAttribute.h"
-#include "ImfMatrixAttribute.h"
 #include "ImfArray.h"
-
-#include "ImfFrameBuffer.h"
 #include "ImfHeader.h"
 
 #include "ImfNamespace.h"
 #include <iostream>
+
+#include "nlohmann/json.hpp"
 
 namespace IMF = Imf;
 namespace IMATH = Imath;
 
 using namespace IMF;
 using namespace IMATH;
+using json = nlohmann::json;
 #endif
 
 namespace nbl
@@ -185,6 +181,16 @@ struct SBxDFTestResources
     float32_t3 luma_coeff;
 };
 
+struct STestInitParams
+{
+    bool logInfo;
+    uint32_t state;
+    uint32_t samples;
+    uint32_t thetaSplits;
+    uint32_t phiSplits;
+    bool writeFrequencies;
+}
+
 enum ErrorType : uint32_t
 {
     BET_NONE = 0,
@@ -225,7 +231,7 @@ struct TestBase
 
 struct FailureCallback
 {
-    virtual void __call(ErrorType error, NBL_REF_ARG(TestBase) failedFor) {}
+    virtual void __call(ErrorType error, NBL_REF_ARG(TestBase) failedFor, bool logInfo) {}
 };
 
 template<class BxDF>
@@ -560,13 +566,13 @@ struct TestJacobian : TestBxDF<BxDF>
         return BET_NONE;
     }
 
-    static void run(uint32_t seed, NBL_REF_ARG(FailureCallback) cb)
+    static void run(NBL_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        uint32_t2 state = pcg32x2(seed);
+        uint32_t2 state = pcg32x2(initparams.state);
 
         this_t t;
         t.init(state);
-        t.rc.state = seed;
+        t.rc.state = initparams.state;
         if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
             t.template initBxDF<aniso>(t.rc);
         else
@@ -574,7 +580,7 @@ struct TestJacobian : TestBxDF<BxDF>
         
         ErrorType e = t.test();
         if (e != BET_NONE)
-            cb.__call(e, t);
+            cb.__call(e, t, initparams.logInfo);
     }
 
     sample_t s, sx, sy;
@@ -733,13 +739,13 @@ struct TestReciprocity : TestBxDF<BxDF>
         return BET_NONE;
     }
 
-    static void run(uint32_t seed, NBL_REF_ARG(FailureCallback) cb)
+    static void run(NBL_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        uint32_t2 state = pcg32x2(seed);
+        uint32_t2 state = pcg32x2(initparams.state);
 
         this_t t;
         t.init(state);
-        t.rc.state = seed;
+        t.rc.state = initparams.state;
         if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
             t.template initBxDF<aniso>(t.rc);
         else
@@ -747,7 +753,7 @@ struct TestReciprocity : TestBxDF<BxDF>
         
         ErrorType e = t.test();
         if (e != BET_NONE)
-            cb.__call(e, t);
+            cb.__call(e, t, initparams.logInfo);
     }
 
     sample_t s, rec_s;
@@ -792,7 +798,6 @@ struct TestBucket : TestBxDF<BxDF>
         quotient_pdf_t pdf;
         float32_t3 bsdf;
 
-        NBL_CONSTEXPR uint32_t samples = 500;
         for (uint32_t i = 0; i < samples; i++)
         {
             float32_t3 u = float32_t3(rngUniformDist<float32_t2>(base_t::rc.rng), 0.0);
@@ -894,13 +899,14 @@ struct TestBucket : TestBxDF<BxDF>
         return (base_t::errMsg.length() == 0) ? BET_NONE : BET_PRINT_MSG;
     }
 
-    static void run(uint32_t seed, NBL_REF_ARG(FailureCallback) cb)
+    static void run(NBL_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        uint32_t2 state = pcg32x2(seed);
+        uint32_t2 state = pcg32x2(initparams.state);
 
         this_t t;
         t.init(state);
-        t.rc.state = seed;
+        t.rc.state = initparams.state;
+        t.samples = initparams.samples;
         if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
             t.template initBxDF<aniso>(t.rc);
         else
@@ -908,11 +914,12 @@ struct TestBucket : TestBxDF<BxDF>
         
         ErrorType e = t.test();
         if (e != BET_NONE)
-            cb.__call(e, t);
+            cb.__call(e, t, initparams.logInfo);
     }
 
     bool selective = true;  // print only buckets with count > 0
     float stride = 0.2f;
+    uint32_t samples = 500;
     std::unordered_map<float32_t2, uint32_t, std::hash<float32_t2>> buckets;
 };
 
@@ -1338,13 +1345,17 @@ struct TestChi2 : TestBxDF<BxDF>
         return BET_NONE;
     }
 
-    static void run(uint32_t seed, NBL_REF_ARG(FailureCallback) cb)
+    static void run(NBL_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        uint32_t2 state = pcg32x2(seed);
+        uint32_t2 state = pcg32x2(initparams.state);
 
         this_t t;
         t.init(state);
-        t.rc.state = seed;
+        t.rc.state = initparams.state;
+        t.samples = initparams.samples;
+        t.thetaSplits = initparams.thetaSplits;
+        t.phiSplits = initparams.phiSplits;
+        t.write_frequencies = initparams.writeFrequencies;
         if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
             t.template initBxDF<aniso>(t.rc);
         else
@@ -1352,7 +1363,7 @@ struct TestChi2 : TestBxDF<BxDF>
         
         ErrorType e = t.test();
         if (e != BET_NONE)
-            cb.__call(e, t);
+            cb.__call(e, t, initparams.logInfo);
     }
 
     struct Cell {
