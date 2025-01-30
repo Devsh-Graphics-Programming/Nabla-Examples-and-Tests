@@ -754,7 +754,8 @@ int main(int argc, char** argv)
 			mainCamUp = tpose.rows[1];
 			mainCamView = tpose.rows[2];
 
-			std::cout << "\t Camera Reconstructed UpVector = <" << mainCamView.x << "," << mainCamView.y << "," << mainCamView.z << ">" << std::endl;
+			std::cout << "\t Camera Reconstructed UpVector = <" << mainCamUp.x << "," << mainCamUp.y << "," << mainCamUp.z << ">" << std::endl;
+			std::cout << "\t Camera Reconstructed Forward = <" << mainCamView.x << "," << mainCamView.y << "," << mainCamView.z << ">" << std::endl;
 		}
 		
 		float realFoVDegrees;
@@ -877,11 +878,14 @@ int main(int argc, char** argv)
 			}
 
 			{
-				auto reconstructedRight = core::normalize(core::cross(staticCamera->getUpVector(),mainCamView));
-				auto actualRight = core::normalize(core::cross(mainCamUp,mainCamView));
-				const float dp = core::dot(reconstructedRight,actualRight).x;
+				auto defaultUp = staticCamera->getUpVector();
+				auto reconstructedRight = core::cross(defaultUp,mainCamView);
+				auto actualRight = core::cross(mainCamUp,mainCamView);
+				// special formulation avoiding multiple sqrt and inversesqrt to preserve precision
+				const float dp = core::dot(reconstructedRight,actualRight).x/core::sqrt((core::dot(reconstructedRight,reconstructedRight)*core::dot(actualRight,actualRight)).x);
+				const float pb = core::dot(defaultUp,mainCamView).x/core::sqrt((core::dot(defaultUp,defaultUp)*core::dot(mainCamView,mainCamView)).x);
 				std::cout << "\t Camera Reconstructed UpVector match score = "<< dp << std::endl;
-				if (dp<0.96f)
+				if (dp<0.97f || dp>1.03f || abs(pb)>0.999f)
 					staticCamera->setUpVector(mainCamUp);
 			}
 
