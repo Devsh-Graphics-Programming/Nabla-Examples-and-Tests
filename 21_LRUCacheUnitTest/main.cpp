@@ -167,6 +167,21 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 		#ifdef _NBL_DEBUG
 			cache2.print(m_logger);
 		#endif
+
+			// Grow test - try growing the cache
+			m_logger->log("Growing test");
+			cache2.grow(10);
+			cache2.print(m_logger);
+			cache2.insert(++i, "key is 113");
+			cache2.insert(++i, "key is 114");
+			cache2.insert(++i, "key is 115");
+			cache2.insert(++i, "key is 116");
+			cache2.insert(++i, "key is 117");
+			cache2.print(m_logger);
+			// Should evict key 52
+			cache2.insert(++i, "key is 118");
+			m_logger->log("Key 52 should have been evicted:");
+			cache2.print(m_logger);
 			m_logger->log("all good");
 
 			constexpr uint32_t InvalidIdx = ~0u;
