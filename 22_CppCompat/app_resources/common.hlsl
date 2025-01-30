@@ -223,6 +223,14 @@ struct IntrinsicsIntputTestValues
 	float mixX;
 	float mixY;
 	float mixA;
+	float sign;
+	float radians;
+	float degrees;
+	float stepEdge;
+	float stepX;
+	float smoothStepEdge0;
+	float smoothStepEdge1;
+	float smoothStepX;
 
 	int32_t3 bitCountVec;
 	float32_t3 clampValVec;
@@ -240,6 +248,22 @@ struct IntrinsicsIntputTestValues
 	float32_t3 mixXVec;
 	float32_t3 mixYVec;
 	float32_t3 mixAVec;
+	float32_t3 signVec;
+	float32_t3 radiansVec;
+	float32_t3 degreesVec;
+	float32_t3 stepEdgeVec;
+	float32_t3 stepXVec;
+	float32_t3 smoothStepEdge0Vec;
+	float32_t3 smoothStepEdge1Vec;
+	float32_t3 smoothStepXVec;
+	float32_t3 faceForwardN;
+	float32_t3 faceForwardI;
+	float32_t3 faceForwardNref;
+	float32_t3 reflectI;
+	float32_t3 reflectN;
+	float32_t3 refractI;
+	float32_t3 refractN;
+	float refractEta;
 };
 
 struct IntrinsicsTestValues
@@ -257,6 +281,11 @@ struct IntrinsicsTestValues
 	float frac;
 	uint32_t bitReverse;
 	float mix;
+	float sign;
+	float radians;
+	float degrees;
+	float step;
+	float smoothStep;
 
 	float32_t3 normalize;
 	float32_t3 cross;
@@ -270,6 +299,14 @@ struct IntrinsicsTestValues
 	uint32_t3 bitReverseVec;
 	float32_t3 fracVec;
 	float32_t3 mixVec;
+	float32_t3 signVec;
+	float32_t3 radiansVec;
+	float32_t3 degreesVec;
+	float32_t3 stepVec;
+	float32_t3 smoothStepVec;
+	float32_t3 faceForward;
+	float32_t3 reflect;
+	float32_t3 refract;
 
 	float32_t3x3 mul;
 	float32_t3x3 transpose;
@@ -296,6 +333,11 @@ struct IntrinsicsTestValues
 		bitReverse = nbl::hlsl::bitReverse(input.bitReverse);
 		frac = nbl::hlsl::frac(input.frac);
 		mix = nbl::hlsl::mix(input.mixX, input.mixY, input.mixA);
+		sign = nbl::hlsl::sign(input.sign);
+		radians = nbl::hlsl::radians(input.radians);
+		degrees = nbl::hlsl::degrees(input.degrees);
+		step = nbl::hlsl::step(input.stepEdge, input.stepX);
+		smoothStep = nbl::hlsl::smoothStep(input.smoothStepEdge0, input.smoothStepEdge1, input.smoothStepX);
 
 		bitCountVec = nbl::hlsl::bitCount(input.bitCountVec);
 		clampVec = nbl::hlsl::clamp(input.clampValVec, input.clampMinVec, input.clampMaxVec);
@@ -308,6 +350,15 @@ struct IntrinsicsTestValues
 		bitReverseVec = nbl::hlsl::bitReverse(input.bitReverseVec);
 		fracVec = nbl::hlsl::frac(input.fracVec);
 		mixVec = nbl::hlsl::mix(input.mixXVec, input.mixYVec, input.mixAVec);
+		
+		signVec = nbl::hlsl::sign(input.signVec);
+		radiansVec = nbl::hlsl::radians(input.radiansVec);
+		degreesVec = nbl::hlsl::degrees(input.degreesVec);
+		stepVec = nbl::hlsl::step(input.stepEdgeVec, input.stepXVec);
+		smoothStepVec = nbl::hlsl::smoothStep(input.smoothStepEdge0Vec, input.smoothStepEdge1Vec, input.smoothStepXVec);
+		faceForward = nbl::hlsl::faceForward(input.faceForwardN, input.faceForwardI, input.faceForwardNref);
+		reflect = nbl::hlsl::reflect(input.reflectI, input.reflectN);
+		refract = nbl::hlsl::refract(input.refractI, input.refractN, input.refractEta);
 	}
 };
 

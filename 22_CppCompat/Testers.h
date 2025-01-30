@@ -634,6 +634,14 @@ public:
             commonTestInputValues.mixX = realDistributionNeg(mt);
             commonTestInputValues.mixY = realDistributionPos(mt);
             commonTestInputValues.mixA = realDistributionZeroToOne(mt);
+            commonTestInputValues.sign = realDistribution(mt);
+            commonTestInputValues.radians = realDistribution(mt);
+            commonTestInputValues.degrees = realDistribution(mt);
+            commonTestInputValues.stepEdge = realDistribution(mt);
+            commonTestInputValues.stepX = realDistribution(mt);
+            commonTestInputValues.smoothStepEdge0 = realDistributionNeg(mt);
+            commonTestInputValues.smoothStepEdge1 = realDistributionPos(mt);
+            commonTestInputValues.smoothStepX = realDistribution(mt);
 
             commonTestInputValues.bitCountVec = int32_t3(intDistribution(mt), intDistribution(mt), intDistribution(mt));
             commonTestInputValues.clampValVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
@@ -652,6 +660,23 @@ public:
             commonTestInputValues.mixYVec = float32_t3(realDistributionPos(mt), realDistributionPos(mt), realDistributionPos(mt));
             commonTestInputValues.mixAVec = float32_t3(realDistributionZeroToOne(mt), realDistributionZeroToOne(mt), realDistributionZeroToOne(mt));
 
+            commonTestInputValues.signVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            commonTestInputValues.radiansVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            commonTestInputValues.degreesVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            commonTestInputValues.stepEdgeVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            commonTestInputValues.stepXVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            commonTestInputValues.smoothStepEdge0Vec = float32_t3(realDistributionNeg(mt), realDistributionNeg(mt), realDistributionNeg(mt));
+            commonTestInputValues.smoothStepEdge1Vec = float32_t3(realDistributionPos(mt), realDistributionPos(mt), realDistributionPos(mt));
+            commonTestInputValues.smoothStepXVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            commonTestInputValues.faceForwardN = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            commonTestInputValues.faceForwardI = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            commonTestInputValues.faceForwardNref = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            commonTestInputValues.reflectI = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            commonTestInputValues.reflectN = glm::normalize(float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt)));
+            commonTestInputValues.refractI = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            commonTestInputValues.refractN = glm::normalize(float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt)));
+            commonTestInputValues.refractEta = realDistribution(mt);
+
             // use std library or glm functions to determine expected test values, the output of functions from intrinsics.hlsl will be verified against these values
             IntrinsicsTestValues expectedTestValues;
             expectedTestValues.bitCount = glm::bitCount(commonTestInputValues.bitCount);
@@ -665,6 +690,11 @@ public:
             expectedTestValues.max = glm::max(commonTestInputValues.maxA, commonTestInputValues.maxB);
             expectedTestValues.rsqrt = (1.0f / std::sqrt(commonTestInputValues.rsqrt));
             expectedTestValues.mix = std::lerp(commonTestInputValues.mixX, commonTestInputValues.mixY, commonTestInputValues.mixA);
+            expectedTestValues.sign = glm::sign(commonTestInputValues.sign);
+            expectedTestValues.radians = glm::radians(commonTestInputValues.radians);
+            expectedTestValues.degrees = glm::degrees(commonTestInputValues.degrees);
+            expectedTestValues.step = glm::step(commonTestInputValues.stepEdge, commonTestInputValues.stepX);
+            expectedTestValues.smoothStep = glm::smoothstep(commonTestInputValues.smoothStepEdge0, commonTestInputValues.smoothStepEdge1, commonTestInputValues.smoothStepX);
 
             expectedTestValues.frac = commonTestInputValues.frac - std::floor(commonTestInputValues.frac);
             expectedTestValues.bitReverse = glm::bitfieldReverse(commonTestInputValues.bitReverse);
@@ -698,6 +728,15 @@ public:
             expectedTestValues.mixVec.x = std::lerp(commonTestInputValues.mixXVec.x, commonTestInputValues.mixYVec.x, commonTestInputValues.mixAVec.x);
             expectedTestValues.mixVec.y = std::lerp(commonTestInputValues.mixXVec.y, commonTestInputValues.mixYVec.y, commonTestInputValues.mixAVec.y);
             expectedTestValues.mixVec.z = std::lerp(commonTestInputValues.mixXVec.z, commonTestInputValues.mixYVec.z, commonTestInputValues.mixAVec.z);
+
+            expectedTestValues.signVec = glm::sign(commonTestInputValues.signVec);
+            expectedTestValues.radiansVec = glm::radians(commonTestInputValues.radiansVec);
+            expectedTestValues.degreesVec = glm::degrees(commonTestInputValues.degreesVec);
+            expectedTestValues.stepVec = glm::step(commonTestInputValues.stepEdgeVec, commonTestInputValues.stepXVec);
+            expectedTestValues.smoothStepVec = glm::smoothstep(commonTestInputValues.smoothStepEdge0Vec, commonTestInputValues.smoothStepEdge1Vec, commonTestInputValues.smoothStepXVec);
+            expectedTestValues.faceForward = glm::faceforward(commonTestInputValues.faceForwardN, commonTestInputValues.faceForwardI, commonTestInputValues.faceForwardNref);
+            expectedTestValues.reflect = glm::reflect(commonTestInputValues.reflectI, commonTestInputValues.reflectN);
+            expectedTestValues.refract = glm::refract(commonTestInputValues.refractI, commonTestInputValues.refractN, commonTestInputValues.refractEta);
 
             auto mulGlm = nbl::hlsl::mul(commonTestInputValues.mulLhs, commonTestInputValues.mulRhs);
             expectedTestValues.mul = reinterpret_cast<float32_t3x3&>(mulGlm);
@@ -745,6 +784,11 @@ private:
         verifyTestValue("frac", expectedTestValues.frac, testValues.frac, testType);
         verifyTestValue("bitReverse", expectedTestValues.bitReverse, testValues.bitReverse, testType);
         verifyTestValue("mix", expectedTestValues.mix, testValues.mix, testType);
+        verifyTestValue("sign", expectedTestValues.sign, testValues.sign, testType);
+        verifyTestValue("radians", expectedTestValues.radians, testValues.radians, testType);
+        verifyTestValue("degrees", expectedTestValues.degrees, testValues.degrees, testType);
+        verifyTestValue("step", expectedTestValues.step, testValues.step, testType);
+        verifyTestValue("smoothStep", expectedTestValues.smoothStep, testValues.smoothStep, testType);
 
         verifyTestVector3dValue("normalize", expectedTestValues.normalize, testValues.normalize, testType);
         verifyTestVector3dValue("cross", expectedTestValues.cross, testValues.cross, testType);
@@ -758,6 +802,15 @@ private:
         verifyTestVector3dValue("bitReverseVec", expectedTestValues.bitReverseVec, testValues.bitReverseVec, testType);
         verifyTestVector3dValue("fracVec", expectedTestValues.fracVec, testValues.fracVec, testType);
         verifyTestVector3dValue("mixVec", expectedTestValues.mixVec, testValues.mixVec, testType);
+
+        verifyTestVector3dValue("signVec", expectedTestValues.signVec, testValues.signVec, testType);
+        verifyTestVector3dValue("radiansVec", expectedTestValues.radiansVec, testValues.radiansVec, testType);
+        verifyTestVector3dValue("degreesVec", expectedTestValues.degreesVec, testValues.degreesVec, testType);
+        verifyTestVector3dValue("stepVec", expectedTestValues.stepVec, testValues.stepVec, testType);
+        verifyTestVector3dValue("smoothStepVec", expectedTestValues.smoothStepVec, testValues.smoothStepVec, testType);
+        verifyTestVector3dValue("faceForward", expectedTestValues.faceForward, testValues.faceForward, testType);
+        verifyTestVector3dValue("reflect", expectedTestValues.reflect, testValues.reflect, testType);
+        verifyTestVector3dValue("refract", expectedTestValues.refract, testValues.refract, testType);
 
         verifyTestMatrix3x3Value("mul", expectedTestValues.mul, testValues.mul, testType);
         verifyTestMatrix3x3Value("transpose", expectedTestValues.transpose, testValues.transpose, testType);
