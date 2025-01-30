@@ -62,11 +62,12 @@ Note that we don't support Mitsuba's `hideEmitters`
 
 ### Properties added to \<sensor\>:
 
-| Property Name | Description           | Type  | Default Value                            |
-|---------------|-----------------------|-------|------------------------------------------|
-|   moveSpeed   | Camera Movement Speed | float | NaN -> Will be deduced from scene bounds |
-|   zoomSpeed   | Camera Zoom Speed     | float | NaN -> Will be deduced from scene bounds |
-|  rotateSpeed  | Camera Rotation Speed | float | 300.0                                    |
+| Property Name | Description                         | Type    | Default Value                            |
+|---------------|-------------------------------------|---------|------------------------------------------|
+|       up      | Up Vector for roll around view axis |  vector | 0.0, 1.0, 0.0                            |
+|   moveSpeed   | Camera Movement Speed               |  float  | NaN -> Will be deduced from scene bounds |
+|   zoomSpeed   | Camera Zoom Speed                   |  float  | NaN -> Will be deduced from scene bounds |
+|  rotateSpeed  | Camera Rotation Speed               |  float  | 300.0                                    |
 
 #### Properties added to \<sensor type="perspective"\>:
 
@@ -101,6 +102,7 @@ Note that we don't support Mitsuba's `hideEmitters`
 ```xml
 <sensor type="perspective" >
 	<float name="fov" value="60" />
+	<vector name="up" x="0" y="-0.351123" z="0.936329" />
 	<float name="moveSpeed" value="100.0" />
 	<float name="zoomSpeed" value="1.0" />
 	<float name="rotateSpeed" value="300.0" />

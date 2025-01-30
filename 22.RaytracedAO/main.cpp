@@ -878,14 +878,16 @@ int main(int argc, char** argv)
 			}
 
 			{
-				auto defaultUp = staticCamera->getUpVector();
-				auto reconstructedRight = core::cross(defaultUp,mainCamView);
+				auto declaredUp = cameraBase->up;
+				auto reconstructedRight = core::cross(declaredUp,mainCamView);
 				auto actualRight = core::cross(mainCamUp,mainCamView);
 				// special formulation avoiding multiple sqrt and inversesqrt to preserve precision
 				const float dp = core::dot(reconstructedRight,actualRight).x/core::sqrt((core::dot(reconstructedRight,reconstructedRight)*core::dot(actualRight,actualRight)).x);
-				const float pb = core::dot(defaultUp,mainCamView).x/core::sqrt((core::dot(defaultUp,defaultUp)*core::dot(mainCamView,mainCamView)).x);
+				const float pb = core::dot(declaredUp,mainCamView).x/core::sqrt((core::dot(declaredUp,declaredUp)*core::dot(mainCamView,mainCamView)).x);
 				std::cout << "\t Camera Reconstructed UpVector match score = "<< dp << std::endl;
-				if (dp<0.97f || dp>1.03f || abs(pb)>0.999f)
+				if (dp>0.97f && dp<1.03f && abs(pb)<0.9996f)
+					staticCamera->setUpVector(declaredUp);
+				else
 					staticCamera->setUpVector(mainCamUp);
 			}
 
