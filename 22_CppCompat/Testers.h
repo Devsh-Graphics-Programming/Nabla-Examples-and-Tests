@@ -222,14 +222,6 @@ public:
 
         ss << "nbl::hlsl::" << memberName << " produced incorrect output! test value: " << testVal << " expected value: " << expectedVal << '\n';
 
-        if (memberName == "pow")
-        {
-            auto a = expectedVal;
-            auto b = testVal;
-            std::cout << std::bitset<32>(reinterpret_cast<uint32_t&>(a)) << std::endl;
-            std::cout << std::bitset<32>(reinterpret_cast<uint32_t&>(b)) << std::endl;
-        }
-
         m_logger->log(ss.str().c_str(), system::ILogger::ELL_ERROR);
     }
 
@@ -351,7 +343,6 @@ public:
 
         std::uniform_real_distribution<float> realDistributionNeg(-50.0f, -1.0f);
         std::uniform_real_distribution<float> realDistributionPos(1.0f, 50.0f);
-        std::uniform_real_distribution<float> realDistributionZeroToOne(0.0f, 1.0f);
         std::uniform_real_distribution<float> realDistribution(-100.0f, 100.0f);
         std::uniform_real_distribution<float> realDistributionSmall(1.0f, 4.0f);
         std::uniform_int_distribution<int> intDistribution(-100, 100);
@@ -363,9 +354,6 @@ public:
             // Set input thest values that will be used in both CPU and GPU tests
             TgmathIntputTestValues commonTestInputValues;
             commonTestInputValues.floor = realDistribution(mt);
-            commonTestInputValues.mixX = realDistributionNeg(mt);
-            commonTestInputValues.mixY = realDistributionPos(mt);
-            commonTestInputValues.mixA = realDistributionZeroToOne(mt);
             commonTestInputValues.isnan = coinFlipDistribution(mt) ? realDistribution(mt) : std::numeric_limits<float>::quiet_NaN();
             commonTestInputValues.isinf = coinFlipDistribution(mt) ? realDistribution(mt) : std::numeric_limits<float>::infinity();
             commonTestInputValues.powX = realDistributionSmall(mt);
@@ -381,11 +369,17 @@ public:
             commonTestInputValues.cos = realDistribution(mt);
             commonTestInputValues.acos = realDistribution(mt);
             commonTestInputValues.modf = realDistribution(mt);
+            commonTestInputValues.round = realDistribution(mt);
+            commonTestInputValues.roundEven = coinFlipDistribution(mt) ? realDistributionSmall(mt) : (static_cast<float32_t>(intDistribution(mt) / 2) + 0.5f);
+            commonTestInputValues.trunc = realDistribution(mt);
+            commonTestInputValues.ceil = realDistribution(mt);
+            commonTestInputValues.fmaX = realDistribution(mt);
+            commonTestInputValues.fmaY = realDistribution(mt);
+            commonTestInputValues.fmaZ = realDistribution(mt);
+            commonTestInputValues.ldexpArg = realDistributionSmall(mt);
+            commonTestInputValues.ldexpExp = intDistribution(mt);
 
             commonTestInputValues.floorVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.mixXVec = float32_t3(realDistributionNeg(mt), realDistributionNeg(mt), realDistributionNeg(mt));
-            commonTestInputValues.mixYVec = float32_t3(realDistributionPos(mt), realDistributionPos(mt), realDistributionPos(mt));
-            commonTestInputValues.mixAVec = float32_t3(realDistributionZeroToOne(mt), realDistributionZeroToOne(mt), realDistributionZeroToOne(mt));
             commonTestInputValues.isnanVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
             commonTestInputValues.isinfVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
             commonTestInputValues.powXVec = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
@@ -405,7 +399,6 @@ public:
             // use std library functions to determine expected test values, the output of functions from tgmath.hlsl will be verified against these values
             TgmathTestValues expectedTestValues;
             expectedTestValues.floor = std::floor(commonTestInputValues.floor);
-            expectedTestValues.mix = std::lerp(commonTestInputValues.mixX, commonTestInputValues.mixY, commonTestInputValues.mixA);
             expectedTestValues.isnan = std::isnan(commonTestInputValues.isnan);
             expectedTestValues.isinf = std::isinf(commonTestInputValues.isinf);
             expectedTestValues.pow = std::pow(commonTestInputValues.powX, commonTestInputValues.powY);
@@ -423,12 +416,31 @@ public:
                 float tmp;
                 expectedTestValues.modf = std::modf(commonTestInputValues.modf, &tmp);
             }
+            expectedTestValues.round = std::round(commonTestInputValues.round);
+            // TODO: uncomment when C++23
+            //expectedTestValues.roundEven = std::roundeven(commonTestInputValues.roundEven);
+            // TODO: remove when C++23
+            auto roundeven = [](const float& val) -> float
+                {
+                    float tmp;
+                    if (std::abs(std::modf(val, &tmp)) == 0.5f)
+                    {
+                        int32_t result = static_cast<int32_t>(val);
+                        if (result % 2 != 0)
+                            result >= 0 ? ++result : --result;
+                        return result;
+                    }
+
+                    return std::round(val);
+                };
+            expectedTestValues.roundEven = roundeven(commonTestInputValues.roundEven);
+
+            expectedTestValues.trunc = std::trunc(commonTestInputValues.trunc);
+            expectedTestValues.ceil = std::ceil(commonTestInputValues.ceil);
+            expectedTestValues.fma = std::fma(commonTestInputValues.fmaX, commonTestInputValues.fmaY, commonTestInputValues.fmaZ);
+            expectedTestValues.ldexp = std::ldexp(commonTestInputValues.ldexpArg, commonTestInputValues.ldexpExp);
 
             expectedTestValues.floorVec = float32_t3(std::floor(commonTestInputValues.floorVec.x), std::floor(commonTestInputValues.floorVec.y), std::floor(commonTestInputValues.floorVec.z));
-
-            expectedTestValues.mixVec.x = std::lerp(commonTestInputValues.mixXVec.x, commonTestInputValues.mixYVec.x, commonTestInputValues.mixAVec.x);
-            expectedTestValues.mixVec.y = std::lerp(commonTestInputValues.mixXVec.y, commonTestInputValues.mixYVec.y, commonTestInputValues.mixAVec.y);
-            expectedTestValues.mixVec.z = std::lerp(commonTestInputValues.mixXVec.z, commonTestInputValues.mixYVec.z, commonTestInputValues.mixAVec.z);
 
             expectedTestValues.isnanVec = float32_t3(std::isnan(commonTestInputValues.isnanVec.x), std::isnan(commonTestInputValues.isnanVec.y), std::isnan(commonTestInputValues.isnanVec.z));
             expectedTestValues.isinfVec = float32_t3(std::isinf(commonTestInputValues.isinfVec.x), std::isinf(commonTestInputValues.isinfVec.y), std::isinf(commonTestInputValues.isinfVec.z));
@@ -451,6 +463,36 @@ public:
                 float tmp;
                 expectedTestValues.modfVec = float32_t3(std::modf(commonTestInputValues.modfVec.x, &tmp), std::modf(commonTestInputValues.modfVec.y, &tmp), std::modf(commonTestInputValues.modfVec.z, &tmp));
             }
+            expectedTestValues.roundVec = float32_t3(
+                std::round(commonTestInputValues.roundVec.x),
+                std::round(commonTestInputValues.roundVec.y),
+                std::round(commonTestInputValues.roundVec.z)
+            );
+            // TODO: uncomment when C++23
+            //expectedTestValues.roundEven = float32_t(
+            //    std::roundeven(commonTestInputValues.roundEvenVec.x),
+            //    std::roundeven(commonTestInputValues.roundEvenVec.y),
+            //    std::roundeven(commonTestInputValues.roundEvenVec.z)
+            //    );
+            // TODO: remove when C++23
+            expectedTestValues.roundEvenVec = float32_t3(
+                roundeven(commonTestInputValues.roundEvenVec.x),
+                roundeven(commonTestInputValues.roundEvenVec.y),
+                roundeven(commonTestInputValues.roundEvenVec.z)
+            );
+
+            expectedTestValues.truncVec = float32_t3(std::trunc(commonTestInputValues.truncVec.x), std::trunc(commonTestInputValues.truncVec.y), std::trunc(commonTestInputValues.truncVec.z));
+            expectedTestValues.ceilVec = float32_t3(std::ceil(commonTestInputValues.ceilVec.x), std::ceil(commonTestInputValues.ceilVec.y), std::ceil(commonTestInputValues.ceilVec.z));
+            expectedTestValues.fmaVec = float32_t3(
+                std::fma(commonTestInputValues.fmaXVec.x, commonTestInputValues.fmaYVec.x, commonTestInputValues.fmaZVec.x),
+                std::fma(commonTestInputValues.fmaXVec.y, commonTestInputValues.fmaYVec.y, commonTestInputValues.fmaZVec.y),
+                std::fma(commonTestInputValues.fmaXVec.z, commonTestInputValues.fmaYVec.z, commonTestInputValues.fmaZVec.z)
+            );
+            expectedTestValues.ldexpVec = float32_t3(
+                std::ldexp(commonTestInputValues.ldexpArgVec.x, commonTestInputValues.ldexpExpVec.x),
+                std::ldexp(commonTestInputValues.ldexpArgVec.y, commonTestInputValues.ldexpExpVec.y),
+                std::ldexp(commonTestInputValues.ldexpArgVec.z, commonTestInputValues.ldexpExpVec.z)
+            );
 
             performCpuTests(commonTestInputValues, expectedTestValues);
             performGpuTests(commonTestInputValues, expectedTestValues);
@@ -479,7 +521,6 @@ private:
     void verifyTestValues(const TgmathTestValues& expectedTestValues, const TgmathTestValues& testValues, ITester::TestType testType)
     {
         verifyTestValue("floor", expectedTestValues.floor, testValues.floor, testType);
-        verifyTestValue("mix", expectedTestValues.mix, testValues.mix, testType);
         verifyTestValue("isnan", expectedTestValues.isnan, testValues.isnan, testType);
         verifyTestValue("isinf", expectedTestValues.isinf, testValues.isinf, testType);
         verifyTestValue("pow", expectedTestValues.pow, testValues.pow, testType);
@@ -494,9 +535,14 @@ private:
         verifyTestValue("cos", expectedTestValues.cos, testValues.cos, testType);
         verifyTestValue("acos", expectedTestValues.acos, testValues.acos, testType);
         verifyTestValue("modf", expectedTestValues.modf, testValues.modf, testType);
+        verifyTestValue("round", expectedTestValues.round, testValues.round, testType);
+        verifyTestValue("roundEven", expectedTestValues.roundEven, testValues.roundEven, testType);
+        verifyTestValue("trunc", expectedTestValues.trunc, testValues.trunc, testType);
+        verifyTestValue("ceil", expectedTestValues.ceil, testValues.ceil, testType);
+        verifyTestValue("fma", expectedTestValues.fma, testValues.fma, testType);
+        verifyTestValue("ldexp", expectedTestValues.ldexp, testValues.ldexp, testType);
 
         verifyTestVector3dValue("floorVec", expectedTestValues.floorVec, testValues.floorVec, testType);
-        verifyTestVector3dValue("mixVec", expectedTestValues.mixVec, testValues.mixVec, testType);
         verifyTestVector3dValue("isnanVec", expectedTestValues.isnanVec, testValues.isnanVec, testType);
         verifyTestVector3dValue("isinfVec", expectedTestValues.isinfVec, testValues.isinfVec, testType);
         verifyTestVector3dValue("powVec", expectedTestValues.powVec, testValues.powVec, testType);
@@ -511,6 +557,12 @@ private:
         verifyTestVector3dValue("cosVec", expectedTestValues.cosVec, testValues.cosVec, testType);
         verifyTestVector3dValue("acosVec", expectedTestValues.acosVec, testValues.acosVec, testType);
         verifyTestVector3dValue("modfVec", expectedTestValues.modfVec, testValues.modfVec, testType);
+        verifyTestVector3dValue("roundVec", expectedTestValues.roundVec, testValues.roundVec, testType);
+        verifyTestVector3dValue("roundEvenVec", expectedTestValues.roundEvenVec, testValues.roundEvenVec, testType);
+        verifyTestVector3dValue("truncVec", expectedTestValues.truncVec, testValues.truncVec, testType);
+        verifyTestVector3dValue("ceilVec", expectedTestValues.ceilVec, testValues.ceilVec, testType);
+        verifyTestVector3dValue("fmaVec", expectedTestValues.fmaVec, testValues.fmaVec, testType);
+        verifyTestVector3dValue("ldexp", expectedTestValues.ldexpVec, testValues.ldexpVec, testType);
     }
 };
 
@@ -524,6 +576,7 @@ public:
 
         std::uniform_real_distribution<float> realDistributionNeg(-50.0f, -1.0f);
         std::uniform_real_distribution<float> realDistributionPos(1.0f, 50.0f);
+        std::uniform_real_distribution<float> realDistributionZeroToOne(0.0f, 1.0f);
         std::uniform_real_distribution<float> realDistribution(-100.0f, 100.0f);
         std::uniform_real_distribution<float> realDistributionSmall(1.0f, 4.0f);
         std::uniform_int_distribution<int> intDistribution(-100, 100);
@@ -542,8 +595,8 @@ public:
             commonTestInputValues.clampMax = realDistributionPos(mt);
             commonTestInputValues.length = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
             commonTestInputValues.normalize = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.dotLhs = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.dotRhs = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            commonTestInputValues.dotLhs = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
+            commonTestInputValues.dotRhs = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
             commonTestInputValues.determinant = float32_t3x3(
                 realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt),
                 realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt),
@@ -578,6 +631,9 @@ public:
             commonTestInputValues.rsqrt = realDistributionPos(mt);
             commonTestInputValues.bitReverse = realDistribution(mt);
             commonTestInputValues.frac = realDistribution(mt);
+            commonTestInputValues.mixX = realDistributionNeg(mt);
+            commonTestInputValues.mixY = realDistributionPos(mt);
+            commonTestInputValues.mixA = realDistributionZeroToOne(mt);
 
             commonTestInputValues.bitCountVec = int32_t3(intDistribution(mt), intDistribution(mt), intDistribution(mt));
             commonTestInputValues.clampValVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
@@ -592,6 +648,9 @@ public:
             commonTestInputValues.rsqrtVec = float32_t3(realDistributionPos(mt), realDistributionPos(mt), realDistributionPos(mt));
             commonTestInputValues.bitReverseVec = uint32_t3(uintDistribution(mt), uintDistribution(mt), uintDistribution(mt));
             commonTestInputValues.fracVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            commonTestInputValues.mixXVec = float32_t3(realDistributionNeg(mt), realDistributionNeg(mt), realDistributionNeg(mt));
+            commonTestInputValues.mixYVec = float32_t3(realDistributionPos(mt), realDistributionPos(mt), realDistributionPos(mt));
+            commonTestInputValues.mixAVec = float32_t3(realDistributionZeroToOne(mt), realDistributionZeroToOne(mt), realDistributionZeroToOne(mt));
 
             // use std library or glm functions to determine expected test values, the output of functions from intrinsics.hlsl will be verified against these values
             IntrinsicsTestValues expectedTestValues;
@@ -605,6 +664,7 @@ public:
             expectedTestValues.min = glm::min(commonTestInputValues.minA, commonTestInputValues.minB);
             expectedTestValues.max = glm::max(commonTestInputValues.maxA, commonTestInputValues.maxB);
             expectedTestValues.rsqrt = (1.0f / std::sqrt(commonTestInputValues.rsqrt));
+            expectedTestValues.mix = std::lerp(commonTestInputValues.mixX, commonTestInputValues.mixY, commonTestInputValues.mixA);
 
             expectedTestValues.frac = commonTestInputValues.frac - std::floor(commonTestInputValues.frac);
             expectedTestValues.bitReverse = glm::bitfieldReverse(commonTestInputValues.bitReverse);
@@ -635,6 +695,9 @@ public:
                 commonTestInputValues.fracVec.x - std::floor(commonTestInputValues.fracVec.x),
                 commonTestInputValues.fracVec.y - std::floor(commonTestInputValues.fracVec.y),
                 commonTestInputValues.fracVec.z - std::floor(commonTestInputValues.fracVec.z));
+            expectedTestValues.mixVec.x = std::lerp(commonTestInputValues.mixXVec.x, commonTestInputValues.mixYVec.x, commonTestInputValues.mixAVec.x);
+            expectedTestValues.mixVec.y = std::lerp(commonTestInputValues.mixXVec.y, commonTestInputValues.mixYVec.y, commonTestInputValues.mixAVec.y);
+            expectedTestValues.mixVec.z = std::lerp(commonTestInputValues.mixXVec.z, commonTestInputValues.mixYVec.z, commonTestInputValues.mixAVec.z);
 
             auto mulGlm = nbl::hlsl::mul(commonTestInputValues.mulLhs, commonTestInputValues.mulRhs);
             expectedTestValues.mul = reinterpret_cast<float32_t3x3&>(mulGlm);
@@ -681,6 +744,7 @@ private:
         verifyTestValue("rsqrt", expectedTestValues.rsqrt, testValues.rsqrt, testType);
         verifyTestValue("frac", expectedTestValues.frac, testValues.frac, testType);
         verifyTestValue("bitReverse", expectedTestValues.bitReverse, testValues.bitReverse, testType);
+        verifyTestValue("mix", expectedTestValues.mix, testValues.mix, testType);
 
         verifyTestVector3dValue("normalize", expectedTestValues.normalize, testValues.normalize, testType);
         verifyTestVector3dValue("cross", expectedTestValues.cross, testValues.cross, testType);
@@ -693,6 +757,7 @@ private:
         verifyTestVector3dValue("rsqrtVec", expectedTestValues.rsqrtVec, testValues.rsqrtVec, testType);
         verifyTestVector3dValue("bitReverseVec", expectedTestValues.bitReverseVec, testValues.bitReverseVec, testType);
         verifyTestVector3dValue("fracVec", expectedTestValues.fracVec, testValues.fracVec, testType);
+        verifyTestVector3dValue("mixVec", expectedTestValues.mixVec, testValues.mixVec, testType);
 
         verifyTestMatrix3x3Value("mul", expectedTestValues.mul, testValues.mul, testType);
         verifyTestMatrix3x3Value("transpose", expectedTestValues.transpose, testValues.transpose, testType);

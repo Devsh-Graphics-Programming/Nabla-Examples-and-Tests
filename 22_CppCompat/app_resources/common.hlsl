@@ -42,9 +42,6 @@ using namespace nbl::hlsl;
 struct TgmathIntputTestValues
 {
 	float floor;
-	float mixX;
-	float mixY;
-	float mixA;
 	float isnan;
 	float isinf;
 	float powX;
@@ -60,11 +57,17 @@ struct TgmathIntputTestValues
 	float cos;
 	float acos;
 	float modf;
+	float round;
+	float roundEven;
+	float trunc;
+	float ceil;
+	float fmaX;
+	float fmaY;
+	float fmaZ;
+	float ldexpArg;
+	int ldexpExp;
 
 	float32_t3 floorVec;
-	float32_t3 mixXVec;
-	float32_t3 mixYVec;
-	float32_t3 mixAVec;
 	float32_t3 isnanVec;
 	float32_t3 isinfVec;
 	float32_t3 powXVec;
@@ -80,12 +83,20 @@ struct TgmathIntputTestValues
 	float32_t3 cosVec;
 	float32_t3 acosVec;
 	float32_t3 modfVec;
+	float32_t3 roundVec;
+	float32_t3 roundEvenVec;
+	float32_t3 truncVec;
+	float32_t3 ceilVec;
+	float32_t3 fmaXVec;
+	float32_t3 fmaYVec;
+	float32_t3 fmaZVec;
+	float32_t3 ldexpArgVec;
+	int32_t3 ldexpExpVec;
 };
 
 struct TgmathTestValues
 {
 	float floor;
-	float mix;
 	int isnan;
 	int isinf;
 	float pow;
@@ -100,9 +111,14 @@ struct TgmathTestValues
 	float cos;
 	float acos;
 	float modf;
+	float round;
+	float roundEven;
+	float trunc;
+	float ceil;
+	float fma;
+	float ldexp;
 
 	float32_t3 floorVec;
-	float32_t3 mixVec;
 #ifndef __HLSL_VERSION
 	nbl::hlsl::vector<int, 3> isnanVec;
 	nbl::hlsl::vector<int, 3> isinfVec;
@@ -123,11 +139,16 @@ struct TgmathTestValues
 	float32_t3 sinVec;
 	float32_t3 acosVec;
 	float32_t3 modfVec;
+	float32_t3 roundVec;
+	float32_t3 roundEvenVec;
+	float32_t3 truncVec;
+	float32_t3 ceilVec;
+	float32_t3 fmaVec;
+	float32_t3 ldexpVec;
 
 	void fillTestValues(NBL_CONST_REF_ARG(TgmathIntputTestValues) input)
 	{
 		floor = nbl::hlsl::floor(input.floor);
-		mix = nbl::hlsl::mix(input.mixX, input.mixY, input.mixA);
 		isnan = nbl::hlsl::isnan(input.isnan);
 		isinf = nbl::hlsl::isinf(input.isinf);
 		pow = nbl::hlsl::pow(input.powX, input.powY);
@@ -142,9 +163,14 @@ struct TgmathTestValues
 		cos = nbl::hlsl::cos(input.cos);
 		acos = nbl::hlsl::acos(input.acos);
 		modf = nbl::hlsl::modf(input.modf);
+		round = nbl::hlsl::round(input.round);
+		roundEven = nbl::hlsl::roundEven(input.roundEven);
+		trunc = nbl::hlsl::trunc(input.trunc);
+		ceil = nbl::hlsl::ceil(input.ceil);
+		fma = nbl::hlsl::fma(input.fmaX, input.fmaY, input.fmaZ);
+		ldexp = nbl::hlsl::ldexp(input.ldexpArg, input.ldexpExp);
 
 		floorVec = nbl::hlsl::floor(input.floorVec);
-		mixVec = nbl::hlsl::mix(input.mixXVec, input.mixYVec, input.mixAVec);
 		isnanVec = nbl::hlsl::isnan(input.isnanVec);
 		isinfVec = nbl::hlsl::isinf(input.isinfVec);
 		powVec = nbl::hlsl::pow(input.powXVec, input.powYVec);
@@ -159,6 +185,12 @@ struct TgmathTestValues
 		cosVec = nbl::hlsl::cos(input.cosVec);
 		acosVec = nbl::hlsl::acos(input.acosVec);
 		modfVec = nbl::hlsl::modf(input.modfVec);
+		roundVec = nbl::hlsl::round(input.roundVec);
+		roundEvenVec = nbl::hlsl::roundEven(input.roundEvenVec);
+		truncVec = nbl::hlsl::trunc(input.truncVec);
+		ceilVec = nbl::hlsl::ceil(input.ceilVec);
+		fmaVec = nbl::hlsl::fma(input.fmaXVec, input.fmaYVec, input.fmaZVec);
+		ldexpVec = nbl::hlsl::ldexp(input.ldexpArgVec, input.ldexpExpVec);
 	}
 };
 
@@ -188,6 +220,9 @@ struct IntrinsicsIntputTestValues
 	float rsqrt;
 	uint32_t bitReverse;
 	float frac;
+	float mixX;
+	float mixY;
+	float mixA;
 
 	int32_t3 bitCountVec;
 	float32_t3 clampValVec;
@@ -202,6 +237,9 @@ struct IntrinsicsIntputTestValues
 	float32_t3 rsqrtVec;
 	uint32_t3 bitReverseVec;
 	float32_t3 fracVec;
+	float32_t3 mixXVec;
+	float32_t3 mixYVec;
+	float32_t3 mixAVec;
 };
 
 struct IntrinsicsTestValues
@@ -218,6 +256,7 @@ struct IntrinsicsTestValues
 	float rsqrt;
 	float frac;
 	uint32_t bitReverse;
+	float mix;
 
 	float32_t3 normalize;
 	float32_t3 cross;
@@ -230,6 +269,7 @@ struct IntrinsicsTestValues
 	float32_t3 rsqrtVec;
 	uint32_t3 bitReverseVec;
 	float32_t3 fracVec;
+	float32_t3 mixVec;
 
 	float32_t3x3 mul;
 	float32_t3x3 transpose;
@@ -255,6 +295,7 @@ struct IntrinsicsTestValues
 		rsqrt = nbl::hlsl::rsqrt(input.rsqrt);
 		bitReverse = nbl::hlsl::bitReverse(input.bitReverse);
 		frac = nbl::hlsl::frac(input.frac);
+		mix = nbl::hlsl::mix(input.mixX, input.mixY, input.mixA);
 
 		bitCountVec = nbl::hlsl::bitCount(input.bitCountVec);
 		clampVec = nbl::hlsl::clamp(input.clampValVec, input.clampMinVec, input.clampMaxVec);
@@ -266,6 +307,7 @@ struct IntrinsicsTestValues
 		rsqrtVec = nbl::hlsl::rsqrt(input.rsqrtVec);
 		bitReverseVec = nbl::hlsl::bitReverse(input.bitReverseVec);
 		fracVec = nbl::hlsl::frac(input.fracVec);
+		mixVec = nbl::hlsl::mix(input.mixXVec, input.mixYVec, input.mixAVec);
 	}
 };
 

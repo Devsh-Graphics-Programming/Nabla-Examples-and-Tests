@@ -57,7 +57,7 @@ public:
             return false;
         if (!asset_base_t::onAppInitialized(std::move(system)))
             return false;
-        
+
         ITester::PipelineSetupData pplnSetupData;
         pplnSetupData.device = m_device;
         pplnSetupData.api = m_api;
