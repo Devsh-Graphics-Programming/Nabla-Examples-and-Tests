@@ -1,5 +1,5 @@
 #include <nabla.h>
-#include <iostream>
+#include <fstream>
 #include <iomanip>
 #include <ranges>
 #include <execution>
@@ -62,18 +62,31 @@ int main(int argc, char** argv)
 {
     std::cout << std::fixed << std::setprecision(4);
 
-    std::ifstream f("app_resources/config.json");
-    json testconfigs = json::parse(f);
+    std::ifstream f("../app_resources/config.json");
+    if (f.fail())
+    {
+        fprintf(stderr, "[ERROR] could not open config file\n");
+        return -1;
+    }
+    json testconfigs;
+    try
+    {
+        testconfigs = json::parse(f);
+    }
+    catch (json::parse_error& ex)
+    {
+        fprintf(stderr, "[ERROR] parse_error.%d failed to parse config file at byte %u: %s\n", ex.id, ex.byte, ex.what());
+        return -1;
+    }
 
-    //auto r5 = std::ranges::views::iota(0u, 5u);
-    //auto r10 = std::ranges::views::iota(0u, 10u);
+    const bool logInfo = testconfigs["logInfo"];
     PrintFailureCallback cb;
 
     // test jacobian * pdf
     uint32_t runs = testconfigs["TestJacobian"]["runs"];
     auto rJacobian = std::ranges::views::iota(0u, runs);
     FOR_EACH_BEGIN(rJacobian)
-    STestInitParams initparams;
+    STestInitParams initparams{ .logInfo = logInfo };
     initparams.state = i;
 
     TestJacobian<bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>>::run(initparams, cb);
@@ -97,7 +110,7 @@ int main(int argc, char** argv)
     runs = testconfigs["TestReciprocity"]["runs"];
     auto rReciprocity = std::ranges::views::iota(0u, runs);
     FOR_EACH_BEGIN(rReciprocity)
-    STestInitParams initparams;
+    STestInitParams initparams{ .logInfo = logInfo };
     initparams.state = i;
 
     TestReciprocity<bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>>::run(initparams, cb);
@@ -121,7 +134,7 @@ int main(int argc, char** argv)
     runs = testconfigs["TestBucket"]["runs"];
     auto rBucket = std::ranges::views::iota(0u, runs);
     FOR_EACH_BEGIN(rBucket)
-    STestInitParams initparams;
+    STestInitParams initparams{ .logInfo = logInfo };
     initparams.state = i;
     initparams.samples = testconfigs["TestBucket"]["samples"];
 
@@ -146,7 +159,7 @@ int main(int argc, char** argv)
     runs = testconfigs["TestChi2"]["runs"];
     auto rChi2 = std::ranges::views::iota(0u, runs);
     FOR_EACH_BEGIN(rChi2)
-    STestInitParams initparams;
+    STestInitParams initparams{ .logInfo = logInfo };
     initparams.state = i;
     initparams.samples = testconfigs["TestChi2"]["samples"];
     initparams.thetaSplits = testconfigs["TestChi2"]["thetaSplits"];

@@ -189,7 +189,7 @@ struct STestInitParams
     uint32_t thetaSplits;
     uint32_t phiSplits;
     bool writeFrequencies;
-}
+};
 
 enum ErrorType : uint32_t
 {
@@ -566,7 +566,7 @@ struct TestJacobian : TestBxDF<BxDF>
         return BET_NONE;
     }
 
-    static void run(NBL_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
+    static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
         uint32_t2 state = pcg32x2(initparams.state);
 
@@ -739,7 +739,7 @@ struct TestReciprocity : TestBxDF<BxDF>
         return BET_NONE;
     }
 
-    static void run(NBL_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
+    static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
         uint32_t2 state = pcg32x2(initparams.state);
 
@@ -798,7 +798,7 @@ struct TestBucket : TestBxDF<BxDF>
         quotient_pdf_t pdf;
         float32_t3 bsdf;
 
-        for (uint32_t i = 0; i < samples; i++)
+        for (uint32_t i = 0; i < numSamples; i++)
         {
             float32_t3 u = float32_t3(rngUniformDist<float32_t2>(base_t::rc.rng), 0.0);
 
@@ -899,14 +899,14 @@ struct TestBucket : TestBxDF<BxDF>
         return (base_t::errMsg.length() == 0) ? BET_NONE : BET_PRINT_MSG;
     }
 
-    static void run(NBL_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
+    static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
         uint32_t2 state = pcg32x2(initparams.state);
 
         this_t t;
         t.init(state);
         t.rc.state = initparams.state;
-        t.samples = initparams.samples;
+        t.numSamples = initparams.samples;
         if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
             t.template initBxDF<aniso>(t.rc);
         else
@@ -919,7 +919,7 @@ struct TestBucket : TestBxDF<BxDF>
 
     bool selective = true;  // print only buckets with count > 0
     float stride = 0.2f;
-    uint32_t samples = 500;
+    uint32_t numSamples = 500;
     std::unordered_map<float32_t2, uint32_t, std::hash<float32_t2>> buckets;
 };
 
@@ -1345,14 +1345,14 @@ struct TestChi2 : TestBxDF<BxDF>
         return BET_NONE;
     }
 
-    static void run(NBL_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
+    static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
         uint32_t2 state = pcg32x2(initparams.state);
 
         this_t t;
         t.init(state);
         t.rc.state = initparams.state;
-        t.samples = initparams.samples;
+        t.numSamples = initparams.samples;
         t.thetaSplits = initparams.thetaSplits;
         t.phiSplits = initparams.phiSplits;
         t.write_frequencies = initparams.writeFrequencies;
