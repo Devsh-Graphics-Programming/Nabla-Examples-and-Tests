@@ -694,9 +694,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			// Update Descriptors
 			{
 				ISampler::SParams samplerParams0 = {
-					ISampler::ETC_CLAMP_TO_EDGE,
-					ISampler::ETC_CLAMP_TO_EDGE,
-					ISampler::ETC_CLAMP_TO_EDGE,
+					ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE,
+					ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE,
+					ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE,
 					ISampler::ETBC_FLOAT_OPAQUE_BLACK,
 					ISampler::ETF_LINEAR,
 					ISampler::ETF_LINEAR,
@@ -707,9 +707,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				};
 				auto sampler0 = m_device->createSampler(samplerParams0);
 				ISampler::SParams samplerParams1 = {
-					ISampler::ETC_CLAMP_TO_EDGE,
-					ISampler::ETC_CLAMP_TO_EDGE,
-					ISampler::ETC_CLAMP_TO_EDGE,
+					ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE,
+					ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE,
+					ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE,
 					ISampler::ETBC_INT_OPAQUE_BLACK,
 					ISampler::ETF_NEAREST,
 					ISampler::ETF_NEAREST,
@@ -781,9 +781,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				{
 					IGPUSampler::SParams params;
 					params.AnisotropicFilter = 1u;
-					params.TextureWrapU = ISampler::ETC_REPEAT;
-					params.TextureWrapV = ISampler::ETC_REPEAT;
-					params.TextureWrapW = ISampler::ETC_REPEAT;
+					params.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_REPEAT;
+					params.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_REPEAT;
+					params.TextureWrapW = ISampler::E_TEXTURE_CLAMP::ETC_REPEAT;
 
 					m_ui.samplers.gui = m_device->createSampler(params);
 					m_ui.samplers.gui->setObjectDebugName("Nabla IMGUI UI Sampler");
