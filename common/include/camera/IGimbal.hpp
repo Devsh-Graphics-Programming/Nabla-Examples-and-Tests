@@ -117,6 +117,12 @@ namespace nbl::hlsl
         }();
     };
 
+    struct CReferenceTransform
+    {
+        float64_t4x4 frame;
+        glm::quat orientation;
+    };
+
     template<typename T>
     requires is_any_of_v<T, float32_t, float64_t>
     class IGimbal
@@ -128,43 +134,43 @@ namespace nbl::hlsl
 
         struct VirtualImpulse
         {
-            vector<precision_t, 3u> dVirtualTranslate { 0.0f }, dVirtualRotation { 0.0f }, dVirtualScale { 0.0f };
+            vector<precision_t, 3u> dVirtualTranslate { 0.0f }, dVirtualRotation { 0.0f }, dVirtualScale { 1.0f };
         };
 
-        // TODO: document it
+        //! Accumulates virtual impulse given allowed virtual event bitmap. Input virtual events are already deltas with respect to some base frame, the utility filters the events & outputs the impulse
         template <uint32_t AllowedEvents>
         VirtualImpulse accumulate(std::span<const CVirtualGimbalEvent> virtualEvents, const vector<precision_t, 3u>& gRightOverride, const vector<precision_t, 3u>& gUpOverride, const vector<precision_t, 3u>& gForwardOverride)
         {
             VirtualImpulse impulse;
 
-            const auto& gRight = gRightOverride, gUp = gUpOverride, gForward = gForwardOverride;
-
             for (const auto& event : virtualEvents)
             {
+                assert(event.magnitude >= 0);
+
                 // translation events
-                if constexpr (AllowedEvents & CVirtualGimbalEvent::MoveForward)
-                    if (event.type == CVirtualGimbalEvent::MoveForward)
-                        impulse.dVirtualTranslate += gForward * static_cast<precision_t>(event.magnitude);
-
-                if constexpr (AllowedEvents & CVirtualGimbalEvent::MoveBackward)
-                    if (event.type == CVirtualGimbalEvent::MoveBackward)
-                        impulse.dVirtualTranslate -= gForward * static_cast<precision_t>(event.magnitude);
-
                 if constexpr (AllowedEvents & CVirtualGimbalEvent::MoveRight)
                     if (event.type == CVirtualGimbalEvent::MoveRight)
-                        impulse.dVirtualTranslate += gRight * static_cast<precision_t>(event.magnitude);
+                        impulse.dVirtualTranslate.x += static_cast<precision_t>(event.magnitude);
 
                 if constexpr (AllowedEvents & CVirtualGimbalEvent::MoveLeft)
                     if (event.type == CVirtualGimbalEvent::MoveLeft)
-                        impulse.dVirtualTranslate -= gRight * static_cast<precision_t>(event.magnitude);
+                        impulse.dVirtualTranslate.x -= static_cast<precision_t>(event.magnitude);
 
                 if constexpr (AllowedEvents & CVirtualGimbalEvent::MoveUp)
                     if (event.type == CVirtualGimbalEvent::MoveUp)
-                        impulse.dVirtualTranslate += gUp * static_cast<precision_t>(event.magnitude);
+                        impulse.dVirtualTranslate.y += static_cast<precision_t>(event.magnitude);
 
                 if constexpr (AllowedEvents & CVirtualGimbalEvent::MoveDown)
                     if (event.type == CVirtualGimbalEvent::MoveDown)
-                        impulse.dVirtualTranslate -= gUp * static_cast<precision_t>(event.magnitude);
+                        impulse.dVirtualTranslate.y -= static_cast<precision_t>(event.magnitude);
+
+                if constexpr (AllowedEvents & CVirtualGimbalEvent::MoveForward)
+                    if (event.type == CVirtualGimbalEvent::MoveForward)
+                        impulse.dVirtualTranslate.z += static_cast<precision_t>(event.magnitude);
+
+                if constexpr (AllowedEvents & CVirtualGimbalEvent::MoveBackward)
+                    if (event.type == CVirtualGimbalEvent::MoveBackward)
+                        impulse.dVirtualTranslate.z -= static_cast<precision_t>(event.magnitude);
 
                 // rotation events
                 if constexpr (AllowedEvents & CVirtualGimbalEvent::TiltUp)
@@ -194,27 +200,27 @@ namespace nbl::hlsl
                 // scaling events
                 if constexpr (AllowedEvents & CVirtualGimbalEvent::ScaleXInc)
                     if (event.type == CVirtualGimbalEvent::ScaleXInc)
-                        impulse.dVirtualScale.x += static_cast<precision_t>(event.magnitude);
+                        impulse.dVirtualScale.x *= static_cast<precision_t>(event.magnitude);
 
                 if constexpr (AllowedEvents & CVirtualGimbalEvent::ScaleXDec)
                     if (event.type == CVirtualGimbalEvent::ScaleXDec)
-                        impulse.dVirtualScale.x -= static_cast<precision_t>(event.magnitude);
+                        impulse.dVirtualScale.x *= static_cast<precision_t>(event.magnitude);
 
                 if constexpr (AllowedEvents & CVirtualGimbalEvent::ScaleYInc)
                     if (event.type == CVirtualGimbalEvent::ScaleYInc)
-                        impulse.dVirtualScale.y += static_cast<precision_t>(event.magnitude);
+                        impulse.dVirtualScale.y *= static_cast<precision_t>(event.magnitude);
 
                 if constexpr (AllowedEvents & CVirtualGimbalEvent::ScaleYDec)
                     if (event.type == CVirtualGimbalEvent::ScaleYDec)
-                        impulse.dVirtualScale.y -= static_cast<precision_t>(event.magnitude);
+                        impulse.dVirtualScale.y *= static_cast<precision_t>(event.magnitude);
 
                 if constexpr (AllowedEvents & CVirtualGimbalEvent::ScaleZInc)
                     if (event.type == CVirtualGimbalEvent::ScaleZInc)
-                        impulse.dVirtualScale.z += static_cast<precision_t>(event.magnitude);
+                        impulse.dVirtualScale.z *= static_cast<precision_t>(event.magnitude);
 
                 if constexpr (AllowedEvents & CVirtualGimbalEvent::ScaleZDec)
                     if (event.type == CVirtualGimbalEvent::ScaleZDec)
-                        impulse.dVirtualScale.z -= static_cast<precision_t>(event.magnitude);
+                        impulse.dVirtualScale.z *= static_cast<precision_t>(event.magnitude);
             }
 
             return impulse;
@@ -263,7 +269,6 @@ namespace nbl::hlsl
 
         inline void setScale(const vector<precision_t, 3u>& scale)
         {
-            // we are not consider it a manipulation because it only impacts TRS world matrix we do not store
             m_scale = scale;
         }
 
@@ -276,6 +281,12 @@ namespace nbl::hlsl
 
             m_orientation = glm::normalize(orientation);
             updateOrthonormalOrientationBase();
+        }
+
+        inline void transform(const CReferenceTransform& reference, const VirtualImpulse& impulse)
+        {
+            setOrientation(reference.orientation * glm::quat(glm::radians(impulse.dVirtualRotation)));
+            setPosition(mul(float64_t4(impulse.dVirtualTranslate, 1), reference.frame).xyz);
         }
 
         inline void rotate(const vector<precision_t, 3u>& axis, float dRadians)
@@ -369,6 +380,28 @@ namespace nbl::hlsl
 
         //! Returns true if gimbal records a manipulation 
         inline bool isManipulating() const { return m_isManipulating; }
+
+        bool extractReferenceTransform(CReferenceTransform* out, const float64_t4x4 const* referenceFrame = nullptr)
+        {
+            if (not out)
+                return false;
+
+            if (referenceFrame)
+            {
+                out->frame = *referenceFrame;
+                if (not isOrthoBase(float64_t3(out->frame[0]), float64_t3(out->frame[1]), float64_t3(out->frame[2])))
+                    return false;
+            }
+            else
+            {
+                out->frame = getMatrix3x3As4x4(getOrthonornalMatrix());
+                out->frame[3] = float64_t4(getPosition(), 1);
+            }
+
+            out->orientation = glm::quat_cast(glm::dmat3{ out->frame[0], out->frame[1], out->frame[2] });
+
+            return true;
+        }
 
     private:
         inline void updateOrthonormalOrientationBase()

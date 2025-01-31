@@ -15,17 +15,6 @@ class ICamera : public IGimbalController, virtual public core::IReferenceCounted
 public:
     using IGimbalController::IGimbalController;
 
-    //! Manipulation mode for virtual events
-    //! TODO: this should belong to IObjectTransform or something
-    enum ManipulationMode
-    {
-        // Interpret virtual events as accumulated impulse representing relative manipulation with respect to view gimbal base 
-        Local,
-
-        // Interpret virtual events as accumulated impulse representing relative manipulation with respect to world base
-        World
-    };
-
     // Gimbal with view parameters representing a camera in world space
     class CGimbal : public IGimbal<float64_t>
     {
@@ -38,22 +27,6 @@ public:
         inline void updateView()
         {            
             const auto& gRight = base_t::getXAxis(), gUp = base_t::getYAxis(), gForward = base_t::getZAxis();
-
-            auto isNormalized = [](const auto& v, precision_t epsilon) -> bool
-            {
-                return glm::epsilonEqual(glm::length(v), 1.0, epsilon);
-            };
-
-            auto isOrthogonal = [](const auto& a, const auto& b, precision_t epsilon) -> bool
-            {
-                return glm::epsilonEqual(glm::dot(a, b), 0.0, epsilon);
-            };
-
-            auto isOrthoBase = [&](const auto& x, const auto& y, const auto& z, precision_t epsilon = 1e-6) -> bool
-            {
-                return isNormalized(x, epsilon) && isNormalized(y, epsilon) && isNormalized(z, epsilon) &&
-                    isOrthogonal(x, y, epsilon) && isOrthogonal(x, z, epsilon) && isOrthogonal(y, z, epsilon);
-            };
 
             assert(isOrthoBase(gRight, gUp, gForward));
 
@@ -78,10 +51,10 @@ public:
 
     // Manipulates camera with virtual events, returns true if *any* manipulation happens, it may fail partially or fully because each camera type has certain constraints which determine how it actually works
     // TODO: this really needs to be moved to more abstract interface, eg. IObjectTransform or something and ICamera should inherit it (its also an object!)
-    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, ManipulationMode mode) = 0; 
+    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4 const* referenceFrame = nullptr) = 0;
 
 	// VirtualEventType bitmask for a camera view gimbal manipulation requests filtering
-	virtual const uint32_t getAllowedVirtualEvents(ManipulationMode mode) = 0u;
+	virtual const uint32_t getAllowedVirtualEvents() = 0u;
 
     // Identifier of a camera type
     virtual const std::string_view getIdentifier() = 0u;
@@ -102,6 +75,7 @@ public:
     inline double getRotationSpeedScale() const { return m_rotationSpeedScale; }
 
 protected:
+    
     // (***) TODO: I need to think whether a camera should own this or controllers should be able 
     // to set sensitivity to scale magnitudes of generated events we put into manipulate method
     double m_moveSpeedScale = 0.01, m_rotationSpeedScale = 0.003;

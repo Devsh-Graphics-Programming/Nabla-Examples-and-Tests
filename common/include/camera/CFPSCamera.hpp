@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
+﻿// Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
@@ -17,7 +17,24 @@ public:
     using base_t = ICamera;
 
     CFPSCamera(const float64_t3& position, const glm::quat& orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f))
-        : base_t(), m_gimbal({ .position = position, .orientation = orientation }) {}
+        : base_t(), m_gimbal({ .position = position, .orientation = orientation }) 
+    {
+        m_gimbal.begin();
+        {
+            const auto& gForward = m_gimbal.getZAxis();
+            const float gPitch = atan2(glm::length(glm::vec2(gForward.x, gForward.z)), gForward.y) - glm::half_pi<float>(), gYaw = atan2(gForward.x, gForward.z);
+
+
+
+
+            auto test = glm::quat(glm::vec3(gPitch, gYaw, 0.0f));
+
+            glm::vec3 euler = glm::eulerAngles(test);
+
+            m_gimbal.setOrientation(test);
+        }
+        m_gimbal.end();
+    }
 	~CFPSCamera() = default;
 
     const base_t::keyboard_to_virtual_events_t getKeyboardMappingPreset() const override { return m_keyboard_to_virtual_events_preset; }
@@ -29,51 +46,55 @@ public:
         return m_gimbal;
     }
 
-    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, base_t::ManipulationMode mode) override
+    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4 const* referenceFrame = nullptr) override
     {
-        constexpr double MaxVerticalAngle = glm::radians(88.0f), MinVerticalAngle = -MaxVerticalAngle;
-
         if (!virtualEvents.size())
             return false;
 
-        const auto& gForward = m_gimbal.getZAxis();
-        const float gPitch = atan2(glm::length(glm::vec2(gForward.x, gForward.z)), gForward.y) - glm::half_pi<float>(), gYaw = atan2(gForward.x, gForward.z);
+        //! true if virtual events are with respect to the moving gimbal frame, otherwise it is assumed deltas are generated for fixed reference frame
+        const bool isMovingReference = not referenceFrame;
 
-        glm::quat newOrientation; float64_t3 newPosition;
+        CReferenceTransform reference;
+        if (not m_gimbal.extractReferenceTransform(&reference, referenceFrame))
+            return false;
 
-        // TODO: I make assumption what world base is now (at least temporary), I need to think of this but maybe each ITransformObject should know what its world is
-        // in ideal scenario we would define this crazy enum with all possible standard bases
-        const auto impulse = mode == base_t::Local ? m_gimbal.accumulate<AllowedLocalVirtualEvents>(virtualEvents)
-            : m_gimbal.accumulate<AllowedWorldVirtualEvents>(virtualEvents, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 });
-
-        const auto newPitch = std::clamp(gPitch + impulse.dVirtualRotation.x * m_rotationSpeedScale, MinVerticalAngle, MaxVerticalAngle), newYaw = gYaw + impulse.dVirtualRotation.y * m_rotationSpeedScale;
-        newOrientation = glm::quat(glm::vec3(newPitch, newYaw, 0.0f)); newPosition = m_gimbal.getPosition() + impulse.dVirtualTranslate * m_moveSpeedScale;
+        auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
 
         bool manipulated = true;
 
         m_gimbal.begin();
         {
-            m_gimbal.setOrientation(newOrientation);
-            m_gimbal.setPosition(newPosition);
+            if (isMovingReference)
+            {
+                const auto& gForward = m_gimbal.getZAxis();
+                const float gPitch = atan2(glm::length(glm::vec2(gForward.x, gForward.z)), gForward.y) - glm::half_pi<float>(), gYaw = atan2(gForward.x, gForward.z);
+                const float newPitch = std::clamp<float>(gPitch + impulse.dVirtualRotation.x * m_rotationSpeedScale, MinVerticalAngle, MaxVerticalAngle), newYaw = gYaw + impulse.dVirtualRotation.y * m_rotationSpeedScale;
+                
+                m_gimbal.setOrientation(glm::quat(glm::vec3(newPitch, newYaw, 0.0f)));
+                m_gimbal.setPosition(m_gimbal.getPosition() + mul(impulse.dVirtualTranslate * m_moveSpeedScale, m_gimbal.getOrthonornalMatrix()));
+            }
+            else
+            {
+                // TODO: I need to think of this, the problem is that since reference frame may not be aligned with world nicely it means events must be transformed
+                // what FPS camera really does is:
+                // tilt around FIXED world (0,1,0) vector
+                // pitch around REFERENCE right vector
+                m_gimbal.transform(reference, impulse);                
+            }
         }
         m_gimbal.end();
 
         manipulated &= bool(m_gimbal.getManipulationCounter());
 
-        if(manipulated)
+        if (manipulated)
             m_gimbal.updateView();
 
         return manipulated;
     }
 
-    virtual const uint32_t getAllowedVirtualEvents(base_t::ManipulationMode mode) override
+    virtual const uint32_t getAllowedVirtualEvents() override
     {
-        switch (mode)
-        {
-            case base_t::Local: return AllowedLocalVirtualEvents;
-            case base_t::World: return AllowedWorldVirtualEvents;
-            default: return CVirtualGimbalEvent::None;
-        }
+        return AllowedVirtualEvents;
     }
 
     virtual const std::string_view getIdentifier() override
@@ -82,10 +103,11 @@ public:
     }
 
 private:
+
     typename base_t::CGimbal m_gimbal;
 
-    static inline constexpr auto AllowedLocalVirtualEvents = CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::TiltUp | CVirtualGimbalEvent::TiltDown | CVirtualGimbalEvent::PanRight | CVirtualGimbalEvent::PanLeft;
-    static inline constexpr auto AllowedWorldVirtualEvents = AllowedLocalVirtualEvents;
+    static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::Rotate;
+    static inline constexpr float MaxVerticalAngle = glm::radians(88.0f), MinVerticalAngle = -MaxVerticalAngle;
 
     static inline const auto m_keyboard_to_virtual_events_preset = []()
     {

@@ -30,31 +30,22 @@ public:
         return m_gimbal;
     }
 
-    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, base_t::ManipulationMode mode) override
+    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4 const* referenceFrame = nullptr) override
     {
-        if (virtualEvents.empty())
+        if (!virtualEvents.size())
             return false;
 
-        const auto gOrientation = m_gimbal.getOrientation();
-        
-        // TODO: I make assumption what world base is now (at least temporary), I need to think of this but maybe each ITransformObject should know what its world is
-        // in ideal scenario we would define this crazy enum with all possible standard bases
-        const auto impulse = mode == base_t::Local ? m_gimbal.accumulate<AllowedLocalVirtualEvents>(virtualEvents)
-            : m_gimbal.accumulate<AllowedWorldVirtualEvents>(virtualEvents, { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 });
+        CReferenceTransform reference;
+        if (not m_gimbal.extractReferenceTransform(&reference, referenceFrame))
+            return false;
 
-        const auto pitchQuat = glm::angleAxis<float>(impulse.dVirtualRotation.x * m_rotationSpeedScale, glm::vec3(1.0f, 0.0f, 0.0f));
-        const auto yawQuat = glm::angleAxis<float>(impulse.dVirtualRotation.y * m_rotationSpeedScale, glm::vec3(0.0f, 1.0f, 0.0f));
-        const auto rollQuat = glm::angleAxis<float>(impulse.dVirtualRotation.z * m_rotationSpeedScale, glm::vec3(0.0f, 0.0f, 1.0f));
-
-        const auto newOrientation = glm::normalize(gOrientation * yawQuat * pitchQuat * rollQuat);
-        const float64_t3 newPosition = m_gimbal.getPosition() + impulse.dVirtualTranslate * m_moveSpeedScale;
+        auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
 
         bool manipulated = true;
 
         m_gimbal.begin();
         {
-            m_gimbal.setOrientation(newOrientation);
-            m_gimbal.setPosition(newPosition);
+            m_gimbal.transform(reference, impulse);
         }
         m_gimbal.end();
 
@@ -66,14 +57,9 @@ public:
         return manipulated;
     }
 
-    virtual const uint32_t getAllowedVirtualEvents(base_t::ManipulationMode mode) override
+    virtual const uint32_t getAllowedVirtualEvents() override
     {
-        switch (mode)
-        {
-            case base_t::Local: return AllowedLocalVirtualEvents;
-            case base_t::World: return AllowedWorldVirtualEvents;
-            default: return CVirtualGimbalEvent::None;
-        }
+        return AllowedVirtualEvents;
     }
 
     virtual const std::string_view getIdentifier() override
@@ -84,8 +70,7 @@ public:
 private:
     typename base_t::CGimbal m_gimbal;
 
-    static inline constexpr auto AllowedLocalVirtualEvents = CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::Rotate;
-    static inline constexpr auto AllowedWorldVirtualEvents = AllowedLocalVirtualEvents;
+    static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate | CVirtualGimbalEvent::Rotate;
 
     static inline const auto m_keyboard_to_virtual_events_preset = []()
     {

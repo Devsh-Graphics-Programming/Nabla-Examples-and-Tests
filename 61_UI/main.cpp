@@ -1211,7 +1211,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				projection.endInputProcessing();
 
 				if (vCount)
-					camera->manipulate({ virtualEvents.data(), vCount }, ICamera::Local);
+					camera->manipulate({ virtualEvents.data(), vCount });
 			}
 
 			m_ui.manager->update(params);
@@ -1350,7 +1350,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 							const bool isCameraGimbalTarget = modelIx; // I assume scene demo model is 0th ix, left are planar cameras
 							ICamera* const targetGimbalManipulationCamera = isCameraGimbalTarget ? m_planarProjections[modelIx - 1u]->getCamera() : nullptr;
-							bool discard = isCameraGimbalTarget && mCurrentGizmoOperation != ImGuizmo::TRANSLATE; // discard WiP stuff
 
 							// if we try to manipulate a camera which appears to be the same camera we see scene from then obvsly it doesn't make sense to manipulate its gizmo so we skip it
 							// EDIT: it actually makes some sense if you assume render planar view is rendered with ortho projection, but we would need to add imguizmo controller virtual map
@@ -1373,98 +1372,94 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 							imguizmoModel.outTRS = imguizmoModel.inTRS;
 							{
-								const bool success = ImGuizmo::Manipulate(&imguizmoPlanar.view[0][0], &imguizmoPlanar.projection[0][0], mCurrentGizmoOperation, mCurrentGizmoMode, &imguizmoModel.outTRS[0][0], &imguizmoModel.outDeltaTRS[0][0], useSnap ? &snap[0] : nullptr);
+								const bool success = ImGuizmo::Manipulate(&imguizmoPlanar.view[0][0], &imguizmoPlanar.projection[0][0], ImGuizmo::OPERATION::UNIVERSAL, mCurrentGizmoMode, &imguizmoModel.outTRS[0][0], &imguizmoModel.outDeltaTRS[0][0], useSnap ? &snap[0] : nullptr);
 
 								if (success)
 								{
-									++manipulationCounter;
-									discard |= manipulationCounter > 1;
-
-									/*
-									
-									NOTE to self & TODO: I must be killing ImGuizmo last invocation cache or something with my delta events (or at least I dont 
-									see now where I'm *maybe* using its API incorrectly, the problem is I get translation parts in delta matrix when doing 
-									rotations hence it glitches my cameras -> on the other hand I can see it kinda correctly outputs the delta matrix when
-									gc model is bound
-
-									auto postprocessDeltaManipulation = [](const float32_t4x4& inDeltaMatrix, float32_t4x4& outDeltaMatrix, ImGuizmo::OPERATION operation) -> void
+									if (targetGimbalManipulationCamera)
 									{
+										boundCameraToManipulate = smart_refctd_ptr<ICamera>(targetGimbalManipulationCamera);
+										boundPlanarCameraIxToManipulate = modelIx - 1u;
+
+										auto& gimbal = (ICamera::CGimbal&)targetGimbalManipulationCamera->getGimbal();
+
 										struct
 										{
-											float32_t3 dTranslation, dRotation, dScale;
-										} world;
+											float32_t3 t, r, s;
+										} out, delta;
 
-										ImGuizmo::DecomposeMatrixToComponents(&inDeltaMatrix[0][0], &world.dTranslation[0], &world.dRotation[0], &world.dScale[0]);
-
-										if (operation == ImGuizmo::TRANSLATE)
+										ImGuizmo::DecomposeMatrixToComponents(&imguizmoModel.outTRS[0][0], &out.t[0], &out.r[0], &out.s[0]);
+										ImGuizmo::DecomposeMatrixToComponents(&imguizmoModel.outDeltaTRS[0][0], &delta.t[0], &delta.r[0], &delta.s[0]);
 										{
-											world.dRotation = float32_t3(0, 0, 0);
-										}
-										else if (operation == ImGuizmo::ROTATE)
-										{
-											world.dTranslation = float32_t3(0, 0, 0);
-										}
-
-										ImGuizmo::RecomposeMatrixFromComponents(&world.dTranslation[0], &world.dRotation[0], &world.dScale[0], &outDeltaMatrix[0][0]);
-									};
-
-									postprocessDeltaManipulation(imguizmoModel.outDeltaTRS, imguizmoModel.outDeltaTRS, mCurrentGizmoOperation); 
-									*/
-
-									if (!discard)
-									{
-										if (targetGimbalManipulationCamera)
-										{
-											boundCameraToManipulate = smart_refctd_ptr<ICamera>(targetGimbalManipulationCamera);
-											boundPlanarCameraIxToManipulate = modelIx - 1u;
-
-											/*
-												testing imguizmo controller for target camera, we use delta world imguizmo TRS matrix to generate virtual events
-											*/
-
+											std::vector<CVirtualGimbalEvent> virtualEvents;
+	
+											auto requestMagnitudeUpdateWithScalar = [&](float signPivot, float dScalar, float dMagnitude, auto positive, auto negative)
 											{
-												static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
-												uint32_t vCount = {};
-
-												targetGimbalManipulationCamera->beginInputProcessing(m_nextPresentationTimestamp);
+												if (dScalar != signPivot)
 												{
-													targetGimbalManipulationCamera->process(nullptr, vCount);
+													auto& ev = virtualEvents.emplace_back();
+													auto code = (dScalar > signPivot) ? positive : negative;
 
-													if (virtualEvents.size() < vCount)
-														virtualEvents.resize(vCount);
-
-													IGimbalController::SUpdateParameters params;
-													params.imguizmoEvents = { { imguizmoModel.outDeltaTRS } };
-													targetGimbalManipulationCamera->process(virtualEvents.data(), vCount, params);
+													ev.type = code;
+													ev.magnitude += dMagnitude;
 												}
-												targetGimbalManipulationCamera->endInputProcessing();
+											};
 
-												if (vCount)
-												{
-													const float pMoveSpeed = targetGimbalManipulationCamera->getMoveSpeedScale();
-													const float pRotationSpeed = targetGimbalManipulationCamera->getRotationSpeedScale();
+											// Delta translation impulse
+											requestMagnitudeUpdateWithScalar(0.f, delta.t[0], std::abs(delta.t[0]), CVirtualGimbalEvent::VirtualEventType::MoveRight, CVirtualGimbalEvent::VirtualEventType::MoveLeft);
+											requestMagnitudeUpdateWithScalar(0.f, delta.t[1], std::abs(delta.t[1]), CVirtualGimbalEvent::VirtualEventType::MoveUp, CVirtualGimbalEvent::VirtualEventType::MoveDown);
+											requestMagnitudeUpdateWithScalar(0.f, delta.t[2], std::abs(delta.t[2]), CVirtualGimbalEvent::VirtualEventType::MoveForward, CVirtualGimbalEvent::VirtualEventType::MoveBackward);
 
-													// I start to think controller should be able to set sensitivity to scale magnitudes of generated events
-													// in order for camera to not keep any magnitude scalars like move or rotation speed scales
+											// Delta rotation impulse
+											requestMagnitudeUpdateWithScalar(0.f, delta.r[0], std::abs(delta.r[0]), CVirtualGimbalEvent::VirtualEventType::TiltUp, CVirtualGimbalEvent::VirtualEventType::TiltDown);
+											requestMagnitudeUpdateWithScalar(0.f, delta.r[1], std::abs(delta.r[1]), CVirtualGimbalEvent::VirtualEventType::PanRight, CVirtualGimbalEvent::VirtualEventType::PanLeft);
+											requestMagnitudeUpdateWithScalar(0.f, delta.r[2], std::abs(delta.r[2]), CVirtualGimbalEvent::VirtualEventType::RollRight, CVirtualGimbalEvent::VirtualEventType::RollLeft);
 
-													targetGimbalManipulationCamera->setMoveSpeedScale(1);
-													targetGimbalManipulationCamera->setRotationSpeedScale(1);
+											// Delta scale impulse
+											requestMagnitudeUpdateWithScalar(1.f, delta.s[0], std::abs(delta.s[0]), CVirtualGimbalEvent::VirtualEventType::ScaleXInc, CVirtualGimbalEvent::VirtualEventType::ScaleXDec);
+											requestMagnitudeUpdateWithScalar(1.f, delta.s[1], std::abs(delta.s[1]), CVirtualGimbalEvent::VirtualEventType::ScaleYInc, CVirtualGimbalEvent::VirtualEventType::ScaleYDec);
+											requestMagnitudeUpdateWithScalar(1.f, delta.s[2], std::abs(delta.s[2]), CVirtualGimbalEvent::VirtualEventType::ScaleZInc, CVirtualGimbalEvent::VirtualEventType::ScaleZDec);
+		
+											constexpr auto TESSTTSS = CVirtualGimbalEvent::All;
+											const auto impulse = gimbal.accumulate<TESSTTSS>(virtualEvents);
+					
+											assert(impulse.dVirtualTranslate == float64_t3(delta.t));
+											assert(impulse.dVirtualRotation == float64_t3(delta.r));
+											assert(impulse.dVirtualScale == float64_t3(delta.s));
 
-													// NOTE: generated events from ImGuizmo controller are always in world space!
-													targetGimbalManipulationCamera->manipulate({ virtualEvents.data(), vCount }, ICamera::World);
+											const auto vCount = virtualEvents.size();
 
-													targetGimbalManipulationCamera->setMoveSpeedScale(pMoveSpeed);
-													targetGimbalManipulationCamera->setRotationSpeedScale(pRotationSpeed);
-												}
+											if (vCount)
+											{
+												const float pMoveSpeed = targetGimbalManipulationCamera->getMoveSpeedScale();
+												const float pRotationSpeed = targetGimbalManipulationCamera->getRotationSpeedScale();
+
+												// I start to think controller should be able to set sensitivity to scale magnitudes of generated events
+												// in order for camera to not keep any magnitude scalars like move or rotation speed scales
+
+												targetGimbalManipulationCamera->setMoveSpeedScale(1);
+												targetGimbalManipulationCamera->setRotationSpeedScale(1);
+
+												/*
+													new = old * delta
+													delta^(-1) * new = old
+												*/
+
+												const auto referenceFrame = getCastedMatrix<float64_t>(mul(inverse(imguizmoModel.outDeltaTRS), imguizmoModel.outTRS));
+												targetGimbalManipulationCamera->manipulate({ virtualEvents.data(), vCount }, &referenceFrame);
+
+												targetGimbalManipulationCamera->setMoveSpeedScale(pMoveSpeed);
+												targetGimbalManipulationCamera->setRotationSpeedScale(pRotationSpeed);
 											}
+
 										}
-										else
-										{
-											// again, for scene demo model full affine transformation without limits is assumed 
-											m_model = float32_t3x4(hlsl::transpose(imguizmoModel.outTRS));
-											boundCameraToManipulate = nullptr;
-											boundPlanarCameraIxToManipulate = std::nullopt;
-										}
+									}
+									else
+									{
+										// again, for scene demo model full affine transformation without limits is assumed 
+										m_model = float32_t3x4(hlsl::transpose(imguizmoModel.outTRS));
+										boundCameraToManipulate = nullptr;
+										boundPlanarCameraIxToManipulate = std::nullopt;
 									}
 								}
 
@@ -2102,8 +2097,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 								boundCameraToManipulate->setMoveSpeedScale(1);
 								boundCameraToManipulate->setRotationSpeedScale(1);
 
-								// NOTE: generated events from ImGuizmo controller are always in world space!
-								boundCameraToManipulate->manipulate({ virtualEvents.data(), vCount }, ICamera::World);
+								boundCameraToManipulate->manipulate({ virtualEvents.data(), vCount });
 
 								boundCameraToManipulate->setMoveSpeedScale(pmSpeed);
 								boundCameraToManipulate->setRotationSpeedScale(prSpeed);
