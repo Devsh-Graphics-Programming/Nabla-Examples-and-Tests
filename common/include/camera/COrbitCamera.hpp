@@ -37,7 +37,7 @@ public:
         m_targetPosition = p;
     }
 
-    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, base_t::ManipulationMode mode) override
+    virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4 const* referenceFrame = nullptr) override
     {
         // position on the sphere
         auto S = [&](double u, double v) -> float64_t3
@@ -139,14 +139,9 @@ public:
         return manipulated;
     }
 
-    virtual const uint32_t getAllowedVirtualEvents(base_t::ManipulationMode mode) override
+    virtual const uint32_t getAllowedVirtualEvents() override
     {
-        switch (mode)
-        {
-            case base_t::Local: return AllowedLocalVirtualEvents;
-            case base_t::World: return AllowedWorldVirtualEvents;
-            default: return CVirtualGimbalEvent::None;
-        }
+        return AllowedVirtualEvents;
     }
 
     virtual const std::string_view getIdentifier() override
@@ -168,8 +163,7 @@ private:
 
     double u = {}, v = {};
 
-    static inline constexpr auto AllowedLocalVirtualEvents = CVirtualGimbalEvent::Translate;
-    static inline constexpr auto AllowedWorldVirtualEvents = CVirtualGimbalEvent::None;
+    static inline constexpr auto AllowedVirtualEvents = CVirtualGimbalEvent::Translate;
 
     static inline const auto m_keyboard_to_virtual_events_preset = []()
     {
