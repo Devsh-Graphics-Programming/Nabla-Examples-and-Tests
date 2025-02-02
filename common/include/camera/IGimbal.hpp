@@ -343,18 +343,33 @@ namespace nbl::hlsl
         inline const auto& getScale() const { return m_scale; }
 
         //! World matrix (TRS)
-        inline const model_matrix_t operator()() const
+        template<typename TRS = model_matrix_t>
+        requires is_any_of_v<TRS, model_matrix_t, matrix<T, 4u, 4u>>
+        const TRS operator()() const
         { 
             const auto& position = getPosition();
             const auto& rotation = getOrthonornalMatrix();
             const auto& scale = getScale();
 
-            return
+            if constexpr (is_same_v<TRS, model_matrix_t>)
             {
-                vector<precision_t, 4>(rotation[0] * scale.x, position.x),
-                vector<precision_t, 4>(rotation[1] * scale.y, position.y),
-                vector<precision_t, 4>(rotation[2] * scale.z, position.z)
-            };
+                return
+                {
+                    vector<precision_t, 4>(rotation[0] * scale.x, position.x),
+                    vector<precision_t, 4>(rotation[1] * scale.y, position.y),
+                    vector<precision_t, 4>(rotation[2] * scale.z, position.z)
+                };
+            }
+            else
+            {
+                return
+                {
+                    vector<precision_t, 4>(rotation[0] * scale.x, T(0)),
+                    vector<precision_t, 4>(rotation[1] * scale.y, T(0)),
+                    vector<precision_t, 4>(rotation[2] * scale.z, T(0)),
+                    vector<precision_t, 4>(position, T(1))
+                };
+            }
         }
 
         //! Orthonormal [getXAxis(), getYAxis(), getZAxis()] orientation matrix

@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
+﻿// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
@@ -8,8 +8,62 @@
 #include "ICamera.hpp"
 #include <glm/gtx/euler_angles.hpp>
 
+#include "nbl/ext/ImGui/ImGui.h"
+#include "imgui/imgui_internal.h"
+
 namespace nbl::hlsl // TODO: DIFFERENT NAMESPACE
 {
+    static inline IGimbal<float64_t>::VirtualImpulse sVirtualImpulse = {};
+    static inline glm::mat4 sReferenceFrame = glm::mat4(1.0f);
+    static inline glm::quat sReferenceOrientation = {};
+
+    // TODO: DEBUG AND TEMPORARY
+    void ShowDebugWindow()
+    {
+        ImGui::Begin("Debug Window");
+
+        ImGui::Text("Translate deltas:");
+        ImGui::Text("  x: %.3f", sVirtualImpulse.dVirtualTranslate.x);
+        ImGui::Text("  y: %.3f", sVirtualImpulse.dVirtualTranslate.y);
+        ImGui::Text("  z: %.3f", sVirtualImpulse.dVirtualTranslate.z);
+
+        ImGui::Separator();
+
+        ImGui::Text("Rotation deltas:");
+        ImGui::Text("  x: %.3f", sVirtualImpulse.dVirtualRotation.x);
+        ImGui::Text("  y: %.3f", sVirtualImpulse.dVirtualRotation.y);
+        ImGui::Text("  z: %.3f", sVirtualImpulse.dVirtualRotation.z);
+
+        ImGui::Separator();
+
+        ImGui::Text("Scale deltas:");
+        ImGui::Text("  x: %.3f", sVirtualImpulse.dVirtualScale.x);
+        ImGui::Text("  y: %.3f", sVirtualImpulse.dVirtualScale.y);
+        ImGui::Text("  z: %.3f", sVirtualImpulse.dVirtualScale.z);
+
+        ImGui::Separator();
+
+        ImGui::Text("Reference frame:");
+
+        for (int row = 0; row < 4; ++row)
+        {
+            ImGui::Text("%.3f  %.3f  %.3f  %.3f",
+                sReferenceFrame[0][row],
+                sReferenceFrame[1][row],
+                sReferenceFrame[2][row],
+                sReferenceFrame[3][row]);
+        }
+
+        ImGui::Text("Reference orientation:");
+
+        ImGui::Text("%.3f  %.3f  %.3f  %.3f",
+            sReferenceOrientation.x,
+            sReferenceOrientation.y,
+            sReferenceOrientation.z,
+            sReferenceOrientation.w);
+
+        ImGui::End();
+    }
 
 // Free Lock Camera
 class CFreeCamera final : public ICamera
@@ -43,9 +97,27 @@ public:
 
         bool manipulated = true;
 
+        // TODO: DEBUG AND TEMPORARY
+        {
+            sVirtualImpulse = impulse;
+            auto cast = getCastedMatrix<float32_t>(reference.frame);;
+            memcpy(&sReferenceFrame, &cast, sizeof(sReferenceFrame));
+            sReferenceOrientation = reference.orientation;
+        }
+
         m_gimbal.begin();
         {
-            m_gimbal.transform(reference, impulse);
+            if (impulse.dVirtualRotation.x or impulse.dVirtualRotation.y or impulse.dVirtualRotation.z)
+            {
+                glm::quat pitch = glm::angleAxis<float>(impulse.dVirtualRotation.x, glm::vec3(reference.frame[0]));
+                glm::quat yaw = glm::angleAxis<float>(impulse.dVirtualRotation.y, glm::vec3(reference.frame[1]));
+                glm::quat roll = glm::angleAxis<float>(impulse.dVirtualRotation.z, glm::vec3(reference.frame[2]));
+
+                m_gimbal.setOrientation(yaw * pitch * roll * reference.orientation);
+            }
+
+            if(impulse.dVirtualTranslate.x or impulse.dVirtualTranslate.y or impulse.dVirtualTranslate.z)
+                m_gimbal.setPosition(glm::vec3(reference.frame[3]) + reference.orientation * glm::vec3(impulse.dVirtualTranslate));
         }
         m_gimbal.end();
 

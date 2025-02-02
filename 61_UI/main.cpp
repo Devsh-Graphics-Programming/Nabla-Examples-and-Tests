@@ -1224,9 +1224,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			
 			ImGuizmo::BeginFrame();
 			{
+				nbl::hlsl::ShowDebugWindow();
+
+				ImGuizmo::ShowDebugImguizmoWindow();
+
 				SImResourceInfo info;
 				info.samplerIx = (uint16_t)nbl::ext::imgui::UI::DefaultSamplerIx::USER;
-
 
 				// ORBIT CAMERA TEST
 				{
@@ -1365,7 +1368,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							if (isCameraGimbalTarget)
 							{
 								assert(targetGimbalManipulationCamera);
-								imguizmoModel.inTRS = gimbalToImguizmoTRS(getCastedMatrix<float32_t>(targetGimbalManipulationCamera->getGimbal()()));
+								imguizmoModel.inTRS = getCastedMatrix<float32_t>(targetGimbalManipulationCamera->getGimbal().template operator() < float64_t4x4 > ());
 							}
 							else
 								imguizmoModel.inTRS = hlsl::transpose(getMatrix3x4As4x4(m_model));
@@ -1378,10 +1381,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 								{
 									if (targetGimbalManipulationCamera)
 									{
+										const auto referenceFrame = getCastedMatrix<float64_t>(*reinterpret_cast<float32_t4x4*>(ImGuizmo::GetReferenceFrame()));
+
 										boundCameraToManipulate = smart_refctd_ptr<ICamera>(targetGimbalManipulationCamera);
 										boundPlanarCameraIxToManipulate = modelIx - 1u;
 
-										auto& gimbal = (ICamera::CGimbal&)targetGimbalManipulationCamera->getGimbal();
+										// TODO: TO BE REMOVED, ONLY FOR TESTING ITS INCOMPLETE TYPE!
+										const auto& imguizmoCtx = ImGuizmo::GetContext();
 
 										struct
 										{
@@ -1404,28 +1410,72 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 													ev.magnitude += dMagnitude;
 												}
 											};
-
-											// Delta translation impulse
-											requestMagnitudeUpdateWithScalar(0.f, delta.t[0], std::abs(delta.t[0]), CVirtualGimbalEvent::VirtualEventType::MoveRight, CVirtualGimbalEvent::VirtualEventType::MoveLeft);
-											requestMagnitudeUpdateWithScalar(0.f, delta.t[1], std::abs(delta.t[1]), CVirtualGimbalEvent::VirtualEventType::MoveUp, CVirtualGimbalEvent::VirtualEventType::MoveDown);
-											requestMagnitudeUpdateWithScalar(0.f, delta.t[2], std::abs(delta.t[2]), CVirtualGimbalEvent::VirtualEventType::MoveForward, CVirtualGimbalEvent::VirtualEventType::MoveBackward);
-
-											// Delta rotation impulse
-											requestMagnitudeUpdateWithScalar(0.f, delta.r[0], std::abs(delta.r[0]), CVirtualGimbalEvent::VirtualEventType::TiltUp, CVirtualGimbalEvent::VirtualEventType::TiltDown);
-											requestMagnitudeUpdateWithScalar(0.f, delta.r[1], std::abs(delta.r[1]), CVirtualGimbalEvent::VirtualEventType::PanRight, CVirtualGimbalEvent::VirtualEventType::PanLeft);
-											requestMagnitudeUpdateWithScalar(0.f, delta.r[2], std::abs(delta.r[2]), CVirtualGimbalEvent::VirtualEventType::RollRight, CVirtualGimbalEvent::VirtualEventType::RollLeft);
-
-											// Delta scale impulse
-											requestMagnitudeUpdateWithScalar(1.f, delta.s[0], std::abs(delta.s[0]), CVirtualGimbalEvent::VirtualEventType::ScaleXInc, CVirtualGimbalEvent::VirtualEventType::ScaleXDec);
-											requestMagnitudeUpdateWithScalar(1.f, delta.s[1], std::abs(delta.s[1]), CVirtualGimbalEvent::VirtualEventType::ScaleYInc, CVirtualGimbalEvent::VirtualEventType::ScaleYDec);
-											requestMagnitudeUpdateWithScalar(1.f, delta.s[2], std::abs(delta.s[2]), CVirtualGimbalEvent::VirtualEventType::ScaleZInc, CVirtualGimbalEvent::VirtualEventType::ScaleZDec);
 		
-											constexpr auto TESSTTSS = CVirtualGimbalEvent::All;
-											const auto impulse = gimbal.accumulate<TESSTTSS>(virtualEvents);
-					
-											assert(impulse.dVirtualTranslate == float64_t3(delta.t));
-											assert(impulse.dVirtualRotation == float64_t3(delta.r));
-											assert(impulse.dVirtualScale == float64_t3(delta.s));
+											// TODO TESTING STUFF WITH MY IMGUIZMO UPDATES
+											// IT WILL BE REMOVED ONCE ALL TESTS ARE DONE 
+											// AND CONTROLLER API WILL BE USED INSTEAD
+
+											// translations
+											{
+												ImGuizmo::OPERATION ioType;
+												const auto dScalar = ImGuizmo::GetTranslationDeltaScalar(&ioType);
+
+												if (dScalar)
+												{
+													switch (ioType)
+													{
+													case ImGuizmo::OPERATION::TRANSLATE_X:
+													{
+														requestMagnitudeUpdateWithScalar(0.f, dScalar, std::abs(dScalar), CVirtualGimbalEvent::VirtualEventType::MoveRight, CVirtualGimbalEvent::VirtualEventType::MoveLeft);
+													} break;
+
+													case ImGuizmo::OPERATION::TRANSLATE_Y:
+													{
+														requestMagnitudeUpdateWithScalar(0.f, dScalar, std::abs(dScalar), CVirtualGimbalEvent::VirtualEventType::MoveUp, CVirtualGimbalEvent::VirtualEventType::MoveDown);
+													} break;
+
+													case ImGuizmo::OPERATION::TRANSLATE_Z:
+													{
+														requestMagnitudeUpdateWithScalar(0.f, dScalar, std::abs(dScalar), CVirtualGimbalEvent::VirtualEventType::MoveForward, CVirtualGimbalEvent::VirtualEventType::MoveBackward);
+													} break;
+
+													default: break;
+													}
+												}
+											}
+
+											// TODO: ok becuase I have only one reference from imguizmo I must do it differently when 
+											// I have local base && want to do rotation with respect to world instead; we almost there
+												
+											// rotations
+											{
+												ImGuizmo::OPERATION ioType;
+												float dRadians = ImGuizmo::GetRotationDeltaRadians(&ioType);
+
+												if (dRadians)
+												{
+													switch (ioType)
+													{
+													case ImGuizmo::OPERATION::ROTATE_X:
+													{
+														requestMagnitudeUpdateWithScalar(0.f, dRadians, std::abs(dRadians), CVirtualGimbalEvent::VirtualEventType::TiltUp, CVirtualGimbalEvent::VirtualEventType::TiltDown);
+													} break;
+
+													case ImGuizmo::OPERATION::ROTATE_Y:
+													{
+														requestMagnitudeUpdateWithScalar(0.f, dRadians, std::abs(dRadians), CVirtualGimbalEvent::VirtualEventType::PanRight, CVirtualGimbalEvent::VirtualEventType::PanLeft);
+													} break;
+
+													case ImGuizmo::OPERATION::ROTATE_Z:
+													{
+														requestMagnitudeUpdateWithScalar(0.f, dRadians, std::abs(dRadians), CVirtualGimbalEvent::VirtualEventType::RollRight, CVirtualGimbalEvent::VirtualEventType::RollLeft);
+													} break;
+
+													default:
+														assert(false); break; // should never be hit
+													}
+												}
+											}
 
 											const auto vCount = virtualEvents.size();
 
@@ -1440,12 +1490,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 												targetGimbalManipulationCamera->setMoveSpeedScale(1);
 												targetGimbalManipulationCamera->setRotationSpeedScale(1);
 
-												/*
-													new = old * delta
-													delta^(-1) * new = old
-												*/
-
-												const auto referenceFrame = getCastedMatrix<float64_t>(mul(inverse(imguizmoModel.outDeltaTRS), imguizmoModel.outTRS));
 												targetGimbalManipulationCamera->manipulate({ virtualEvents.data(), vCount }, &referenceFrame);
 
 												targetGimbalManipulationCamera->setMoveSpeedScale(pMoveSpeed);
@@ -1923,7 +1967,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			ImGuizmoModelM16InOut imguizmoModel;
 
 			if (boundCameraToManipulate)
-				imguizmoModel.inTRS = gimbalToImguizmoTRS(getCastedMatrix<float32_t>(boundCameraToManipulate->getGimbal()()));
+				imguizmoModel.inTRS = getCastedMatrix<float32_t>(boundCameraToManipulate->getGimbal().template operator() < float64_t4x4 > ());
 			else
 				imguizmoModel.inTRS = hlsl::transpose(getMatrix3x4As4x4(m_model));
 
@@ -2138,19 +2182,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			if (withSeparator)
 				ImGui::Separator();
 		}
-
-		// TODO: need to inspect where I'm wrong, workaround
-		inline float32_t4x4 gimbalToImguizmoTRS(const float32_t3x4& nblGimbalTrs)
-		{
-			// *do not transpose whole matrix*, only the translate part
-			float32_t4x4 trs = getMatrix3x4As4x4(nblGimbalTrs);
-			trs[3] = float32_t4(nblGimbalTrs[0][3], nblGimbalTrs[1][3], nblGimbalTrs[2][3], 1.f);
-			trs[0][3] = 0.f;
-			trs[1][3] = 0.f;
-			trs[2][3] = 0.f;
-
-			return trs;
-		};
 
 		std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
 		clock_t::time_point start;

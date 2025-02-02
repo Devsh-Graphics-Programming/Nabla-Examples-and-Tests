@@ -46,13 +46,12 @@ public:
         return m_gimbal;
     }
 
+    // rotation events IN RADIANS
+
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4 const* referenceFrame = nullptr) override
     {
         if (!virtualEvents.size())
             return false;
-
-        //! true if virtual events are with respect to the moving gimbal frame, otherwise it is assumed deltas are generated for fixed reference frame
-        const bool isMovingReference = not referenceFrame;
 
         CReferenceTransform reference;
         if (not m_gimbal.extractReferenceTransform(&reference, referenceFrame))
@@ -64,23 +63,17 @@ public:
 
         m_gimbal.begin();
         {
-            if (isMovingReference)
+            if (impulse.dVirtualRotation.x or impulse.dVirtualRotation.y or impulse.dVirtualRotation.z)
             {
-                const auto& gForward = m_gimbal.getZAxis();
-                const float gPitch = atan2(glm::length(glm::vec2(gForward.x, gForward.z)), gForward.y) - glm::half_pi<float>(), gYaw = atan2(gForward.x, gForward.z);
-                const float newPitch = std::clamp<float>(gPitch + impulse.dVirtualRotation.x * m_rotationSpeedScale, MinVerticalAngle, MaxVerticalAngle), newYaw = gYaw + impulse.dVirtualRotation.y * m_rotationSpeedScale;
-                
+                const auto rForward = glm::vec3(reference.frame[2]);
+                const float rPitch = atan2(glm::length(glm::vec2(rForward.x, rForward.z)), rForward.y) - glm::half_pi<float>(), gYaw = atan2(rForward.x, rForward.z);
+                const float newPitch = std::clamp<float>(rPitch + impulse.dVirtualRotation.x * m_rotationSpeedScale, MinVerticalAngle, MaxVerticalAngle), newYaw = gYaw + impulse.dVirtualRotation.y * m_rotationSpeedScale;
+
                 m_gimbal.setOrientation(glm::quat(glm::vec3(newPitch, newYaw, 0.0f)));
-                m_gimbal.setPosition(m_gimbal.getPosition() + mul(impulse.dVirtualTranslate * m_moveSpeedScale, m_gimbal.getOrthonornalMatrix()));
             }
-            else
-            {
-                // TODO: I need to think of this, the problem is that since reference frame may not be aligned with world nicely it means events must be transformed
-                // what FPS camera really does is:
-                // tilt around FIXED world (0,1,0) vector
-                // pitch around REFERENCE right vector
-                m_gimbal.transform(reference, impulse);                
-            }
+
+            if (impulse.dVirtualTranslate.x or impulse.dVirtualTranslate.y or impulse.dVirtualTranslate.z)
+                m_gimbal.setPosition(glm::vec3(reference.frame[3]) + reference.orientation * glm::vec3(impulse.dVirtualTranslate));
         }
         m_gimbal.end();
 
