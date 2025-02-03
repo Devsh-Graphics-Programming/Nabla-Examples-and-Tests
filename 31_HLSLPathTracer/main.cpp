@@ -1112,7 +1112,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					}
 				}
 
-				m_window->setCaption("[Nabla Engine] Computer Path Tracer");
+				m_window->setCaption("[Nabla Engine] HLSL Compute Path Tracer");
 				m_surface->present(m_currentImageAcquire.imageIndex, rendered);
 			}
 			m_api->endCapture();
@@ -1162,36 +1162,39 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 			m_camera.beginInputProcessing(nextPresentationTimestamp);
 			{
+				const auto& io = ImGui::GetIO();
 				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
-				{
-					m_camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
-
-					for (const auto& e : events) // here capture
 					{
-						if (e.timeStamp < previousEventTimestamp)
-							continue;
+						if (!io.WantCaptureMouse)
+							m_camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
 
-						previousEventTimestamp = e.timeStamp;
-						capturedEvents.mouse.emplace_back(e);
+						for (const auto& e : events) // here capture
+						{
+							if (e.timeStamp < previousEventTimestamp)
+								continue;
 
-						if (e.type == nbl::ui::SMouseEvent::EET_SCROLL)
-							gcIndex = std::clamp<uint16_t>(int16_t(gcIndex) + int16_t(core::sign(e.scrollEvent.verticalScroll)), int64_t(0), int64_t(ELG_COUNT - (uint8_t)1u));
-					}
-				}, m_logger.get());
+							previousEventTimestamp = e.timeStamp;
+							capturedEvents.mouse.emplace_back(e);
 
+							if (e.type == nbl::ui::SMouseEvent::EET_SCROLL)
+								gcIndex = std::clamp<uint16_t>(int16_t(gcIndex) + int16_t(core::sign(e.scrollEvent.verticalScroll)), int64_t(0), int64_t(ELG_COUNT - (uint8_t)1u));
+						}
+					}, m_logger.get());
+				
 				keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
-				{
-					m_camera.keyboardProcess(events); // don't capture the events, only let camera handle them with its impl
-
-					for (const auto& e : events) // here capture
 					{
-						if (e.timeStamp < previousEventTimestamp)
-							continue;
+						if (!io.WantCaptureKeyboard)
+							m_camera.keyboardProcess(events); // don't capture the events, only let camera handle them with its impl
 
-						previousEventTimestamp = e.timeStamp;
-						capturedEvents.keyboard.emplace_back(e);
-					}
-				}, m_logger.get());
+						for (const auto& e : events) // here capture
+						{
+							if (e.timeStamp < previousEventTimestamp)
+								continue;
+
+							previousEventTimestamp = e.timeStamp;
+							capturedEvents.keyboard.emplace_back(e);
+						}
+					}, m_logger.get());
 			}
 			m_camera.endInputProcessing(nextPresentationTimestamp);
 
