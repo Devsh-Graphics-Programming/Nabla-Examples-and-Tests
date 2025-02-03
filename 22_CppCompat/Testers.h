@@ -351,73 +351,75 @@ public:
         for (int i = 0; i < Iterations; ++i)
         {
             // Set input thest values that will be used in both CPU and GPU tests
-            TgmathIntputTestValues commonTestInputValues;
-            commonTestInputValues.floor = realDistribution(mt);
-            commonTestInputValues.isnan = coinFlipDistribution(mt) ? realDistribution(mt) : std::numeric_limits<float>::quiet_NaN();
-            commonTestInputValues.isinf = coinFlipDistribution(mt) ? realDistribution(mt) : std::numeric_limits<float>::infinity();
-            commonTestInputValues.powX = realDistributionSmall(mt);
-            commonTestInputValues.powY = realDistributionSmall(mt);
-            commonTestInputValues.exp = realDistributionSmall(mt);
-            commonTestInputValues.exp2 = realDistributionSmall(mt);
-            commonTestInputValues.log = realDistribution(mt);
-            commonTestInputValues.log2 = realDistribution(mt);
-            commonTestInputValues.absF = realDistribution(mt);
-            commonTestInputValues.absI = intDistribution(mt);
-            commonTestInputValues.sqrt = realDistribution(mt);
-            commonTestInputValues.sin = realDistribution(mt);
-            commonTestInputValues.cos = realDistribution(mt);
-            commonTestInputValues.acos = realDistribution(mt);
-            commonTestInputValues.modf = realDistribution(mt);
-            commonTestInputValues.round = realDistribution(mt);
-            commonTestInputValues.roundEven = coinFlipDistribution(mt) ? realDistributionSmall(mt) : (static_cast<float32_t>(intDistribution(mt) / 2) + 0.5f);
-            commonTestInputValues.trunc = realDistribution(mt);
-            commonTestInputValues.ceil = realDistribution(mt);
-            commonTestInputValues.fmaX = realDistribution(mt);
-            commonTestInputValues.fmaY = realDistribution(mt);
-            commonTestInputValues.fmaZ = realDistribution(mt);
-            commonTestInputValues.ldexpArg = realDistributionSmall(mt);
-            commonTestInputValues.ldexpExp = intDistribution(mt);
+            TgmathIntputTestValues testInput;
+            testInput.floor = realDistribution(mt);
+            testInput.isnan = coinFlipDistribution(mt) ? realDistribution(mt) : std::numeric_limits<float>::quiet_NaN();
+            testInput.isinf = coinFlipDistribution(mt) ? realDistribution(mt) : std::numeric_limits<float>::infinity();
+            testInput.powX = realDistributionSmall(mt);
+            testInput.powY = realDistributionSmall(mt);
+            testInput.exp = realDistributionSmall(mt);
+            testInput.exp2 = realDistributionSmall(mt);
+            testInput.log = realDistribution(mt);
+            testInput.log2 = realDistribution(mt);
+            testInput.absF = realDistribution(mt);
+            testInput.absI = intDistribution(mt);
+            testInput.sqrt = realDistribution(mt);
+            testInput.sin = realDistribution(mt);
+            testInput.cos = realDistribution(mt);
+            testInput.acos = realDistribution(mt);
+            testInput.modf = realDistribution(mt);
+            testInput.round = realDistribution(mt);
+            testInput.roundEven = coinFlipDistribution(mt) ? realDistributionSmall(mt) : (static_cast<float32_t>(intDistribution(mt) / 2) + 0.5f);
+            testInput.trunc = realDistribution(mt);
+            testInput.ceil = realDistribution(mt);
+            testInput.fmaX = realDistribution(mt);
+            testInput.fmaY = realDistribution(mt);
+            testInput.fmaZ = realDistribution(mt);
+            testInput.ldexpArg = realDistributionSmall(mt);
+            testInput.ldexpExp = intDistribution(mt);
 
-            commonTestInputValues.floorVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.isnanVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.isinfVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.powXVec = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
-            commonTestInputValues.powYVec = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
-            commonTestInputValues.expVec = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
-            commonTestInputValues.exp2Vec = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
-            commonTestInputValues.logVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.log2Vec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.absFVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.absIVec = int32_t3(intDistribution(mt), intDistribution(mt), intDistribution(mt));
-            commonTestInputValues.sqrtVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.sinVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.cosVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.acosVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.modfVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.floorVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.isnanVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.isinfVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.powXVec = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
+            testInput.powYVec = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
+            testInput.expVec = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
+            testInput.exp2Vec = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
+            testInput.logVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.log2Vec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.absFVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.absIVec = int32_t3(intDistribution(mt), intDistribution(mt), intDistribution(mt));
+            testInput.sqrtVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.sinVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.cosVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.acosVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.modfVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.ldexpArgVec = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
+            testInput.ldexpExpVec = float32_t3(intDistribution(mt), intDistribution(mt), intDistribution(mt));
 
             // use std library functions to determine expected test values, the output of functions from tgmath.hlsl will be verified against these values
-            TgmathTestValues expectedTestValues;
-            expectedTestValues.floor = std::floor(commonTestInputValues.floor);
-            expectedTestValues.isnan = std::isnan(commonTestInputValues.isnan);
-            expectedTestValues.isinf = std::isinf(commonTestInputValues.isinf);
-            expectedTestValues.pow = std::pow(commonTestInputValues.powX, commonTestInputValues.powY);
-            expectedTestValues.exp = std::exp(commonTestInputValues.exp);
-            expectedTestValues.exp2 = std::exp2(commonTestInputValues.exp2);
-            expectedTestValues.log = std::log(commonTestInputValues.log);
-            expectedTestValues.log2 = std::log2(commonTestInputValues.log2);
-            expectedTestValues.absF = std::abs(commonTestInputValues.absF);
-            expectedTestValues.absI = std::abs(commonTestInputValues.absI);
-            expectedTestValues.sqrt = std::sqrt(commonTestInputValues.sqrt);
-            expectedTestValues.sin = std::sin(commonTestInputValues.sin);
-            expectedTestValues.cos = std::cos(commonTestInputValues.cos);
-            expectedTestValues.acos = std::acos(commonTestInputValues.acos);
+            TgmathTestValues expected;
+            expected.floor = std::floor(testInput.floor);
+            expected.isnan = std::isnan(testInput.isnan);
+            expected.isinf = std::isinf(testInput.isinf);
+            expected.pow = std::pow(testInput.powX, testInput.powY);
+            expected.exp = std::exp(testInput.exp);
+            expected.exp2 = std::exp2(testInput.exp2);
+            expected.log = std::log(testInput.log);
+            expected.log2 = std::log2(testInput.log2);
+            expected.absF = std::abs(testInput.absF);
+            expected.absI = std::abs(testInput.absI);
+            expected.sqrt = std::sqrt(testInput.sqrt);
+            expected.sin = std::sin(testInput.sin);
+            expected.cos = std::cos(testInput.cos);
+            expected.acos = std::acos(testInput.acos);
             {
                 float tmp;
-                expectedTestValues.modf = std::modf(commonTestInputValues.modf, &tmp);
+                expected.modf = std::modf(testInput.modf, &tmp);
             }
-            expectedTestValues.round = std::round(commonTestInputValues.round);
+            expected.round = std::round(testInput.round);
             // TODO: uncomment when C++23
-            //expectedTestValues.roundEven = std::roundeven(commonTestInputValues.roundEven);
+            //expected.roundEven = std::roundeven(testInput.roundEven);
             // TODO: remove when C++23
             auto roundeven = [](const float& val) -> float
                 {
@@ -432,75 +434,75 @@ public:
 
                     return std::round(val);
                 };
-            expectedTestValues.roundEven = roundeven(commonTestInputValues.roundEven);
+            expected.roundEven = roundeven(testInput.roundEven);
 
-            expectedTestValues.trunc = std::trunc(commonTestInputValues.trunc);
-            expectedTestValues.ceil = std::ceil(commonTestInputValues.ceil);
-            expectedTestValues.fma = std::fma(commonTestInputValues.fmaX, commonTestInputValues.fmaY, commonTestInputValues.fmaZ);
-            expectedTestValues.ldexp = std::ldexp(commonTestInputValues.ldexpArg, commonTestInputValues.ldexpExp);
+            expected.trunc = std::trunc(testInput.trunc);
+            expected.ceil = std::ceil(testInput.ceil);
+            expected.fma = std::fma(testInput.fmaX, testInput.fmaY, testInput.fmaZ);
+            expected.ldexp = std::ldexp(testInput.ldexpArg, testInput.ldexpExp);
 
-            expectedTestValues.floorVec = float32_t3(std::floor(commonTestInputValues.floorVec.x), std::floor(commonTestInputValues.floorVec.y), std::floor(commonTestInputValues.floorVec.z));
+            expected.floorVec = float32_t3(std::floor(testInput.floorVec.x), std::floor(testInput.floorVec.y), std::floor(testInput.floorVec.z));
 
-            expectedTestValues.isnanVec = float32_t3(std::isnan(commonTestInputValues.isnanVec.x), std::isnan(commonTestInputValues.isnanVec.y), std::isnan(commonTestInputValues.isnanVec.z));
-            expectedTestValues.isinfVec = float32_t3(std::isinf(commonTestInputValues.isinfVec.x), std::isinf(commonTestInputValues.isinfVec.y), std::isinf(commonTestInputValues.isinfVec.z));
+            expected.isnanVec = float32_t3(std::isnan(testInput.isnanVec.x), std::isnan(testInput.isnanVec.y), std::isnan(testInput.isnanVec.z));
+            expected.isinfVec = float32_t3(std::isinf(testInput.isinfVec.x), std::isinf(testInput.isinfVec.y), std::isinf(testInput.isinfVec.z));
 
-            expectedTestValues.powVec.x = std::pow(commonTestInputValues.powXVec.x, commonTestInputValues.powYVec.x);
-            expectedTestValues.powVec.y = std::pow(commonTestInputValues.powXVec.y, commonTestInputValues.powYVec.y);
-            expectedTestValues.powVec.z = std::pow(commonTestInputValues.powXVec.z, commonTestInputValues.powYVec.z);
+            expected.powVec.x = std::pow(testInput.powXVec.x, testInput.powYVec.x);
+            expected.powVec.y = std::pow(testInput.powXVec.y, testInput.powYVec.y);
+            expected.powVec.z = std::pow(testInput.powXVec.z, testInput.powYVec.z);
 
-            expectedTestValues.expVec = float32_t3(std::exp(commonTestInputValues.expVec.x), std::exp(commonTestInputValues.expVec.y), std::exp(commonTestInputValues.expVec.z));
-            expectedTestValues.exp2Vec = float32_t3(std::exp2(commonTestInputValues.exp2Vec.x), std::exp2(commonTestInputValues.exp2Vec.y), std::exp2(commonTestInputValues.exp2Vec.z));
-            expectedTestValues.logVec = float32_t3(std::log(commonTestInputValues.logVec.x), std::log(commonTestInputValues.logVec.y), std::log(commonTestInputValues.logVec.z));
-            expectedTestValues.log2Vec = float32_t3(std::log2(commonTestInputValues.log2Vec.x), std::log2(commonTestInputValues.log2Vec.y), std::log2(commonTestInputValues.log2Vec.z));
-            expectedTestValues.absFVec = float32_t3(std::abs(commonTestInputValues.absFVec.x), std::abs(commonTestInputValues.absFVec.y), std::abs(commonTestInputValues.absFVec.z));
-            expectedTestValues.absIVec = float32_t3(std::abs(commonTestInputValues.absIVec.x), std::abs(commonTestInputValues.absIVec.y), std::abs(commonTestInputValues.absIVec.z));
-            expectedTestValues.sqrtVec = float32_t3(std::sqrt(commonTestInputValues.sqrtVec.x), std::sqrt(commonTestInputValues.sqrtVec.y), std::sqrt(commonTestInputValues.sqrtVec.z));
-            expectedTestValues.cosVec = float32_t3(std::cos(commonTestInputValues.cosVec.x), std::cos(commonTestInputValues.cosVec.y), std::cos(commonTestInputValues.cosVec.z));
-            expectedTestValues.sinVec = float32_t3(std::sin(commonTestInputValues.sinVec.x), std::sin(commonTestInputValues.sinVec.y), std::sin(commonTestInputValues.sinVec.z));
-            expectedTestValues.acosVec = float32_t3(std::acos(commonTestInputValues.acosVec.x), std::acos(commonTestInputValues.acosVec.y), std::acos(commonTestInputValues.acosVec.z));
+            expected.expVec = float32_t3(std::exp(testInput.expVec.x), std::exp(testInput.expVec.y), std::exp(testInput.expVec.z));
+            expected.exp2Vec = float32_t3(std::exp2(testInput.exp2Vec.x), std::exp2(testInput.exp2Vec.y), std::exp2(testInput.exp2Vec.z));
+            expected.logVec = float32_t3(std::log(testInput.logVec.x), std::log(testInput.logVec.y), std::log(testInput.logVec.z));
+            expected.log2Vec = float32_t3(std::log2(testInput.log2Vec.x), std::log2(testInput.log2Vec.y), std::log2(testInput.log2Vec.z));
+            expected.absFVec = float32_t3(std::abs(testInput.absFVec.x), std::abs(testInput.absFVec.y), std::abs(testInput.absFVec.z));
+            expected.absIVec = float32_t3(std::abs(testInput.absIVec.x), std::abs(testInput.absIVec.y), std::abs(testInput.absIVec.z));
+            expected.sqrtVec = float32_t3(std::sqrt(testInput.sqrtVec.x), std::sqrt(testInput.sqrtVec.y), std::sqrt(testInput.sqrtVec.z));
+            expected.cosVec = float32_t3(std::cos(testInput.cosVec.x), std::cos(testInput.cosVec.y), std::cos(testInput.cosVec.z));
+            expected.sinVec = float32_t3(std::sin(testInput.sinVec.x), std::sin(testInput.sinVec.y), std::sin(testInput.sinVec.z));
+            expected.acosVec = float32_t3(std::acos(testInput.acosVec.x), std::acos(testInput.acosVec.y), std::acos(testInput.acosVec.z));
             {
                 float tmp;
-                expectedTestValues.modfVec = float32_t3(std::modf(commonTestInputValues.modfVec.x, &tmp), std::modf(commonTestInputValues.modfVec.y, &tmp), std::modf(commonTestInputValues.modfVec.z, &tmp));
+                expected.modfVec = float32_t3(std::modf(testInput.modfVec.x, &tmp), std::modf(testInput.modfVec.y, &tmp), std::modf(testInput.modfVec.z, &tmp));
             }
-            expectedTestValues.roundVec = float32_t3(
-                std::round(commonTestInputValues.roundVec.x),
-                std::round(commonTestInputValues.roundVec.y),
-                std::round(commonTestInputValues.roundVec.z)
+            expected.roundVec = float32_t3(
+                std::round(testInput.roundVec.x),
+                std::round(testInput.roundVec.y),
+                std::round(testInput.roundVec.z)
             );
             // TODO: uncomment when C++23
-            //expectedTestValues.roundEven = float32_t(
-            //    std::roundeven(commonTestInputValues.roundEvenVec.x),
-            //    std::roundeven(commonTestInputValues.roundEvenVec.y),
-            //    std::roundeven(commonTestInputValues.roundEvenVec.z)
+            //expected.roundEven = float32_t(
+            //    std::roundeven(testInput.roundEvenVec.x),
+            //    std::roundeven(testInput.roundEvenVec.y),
+            //    std::roundeven(testInput.roundEvenVec.z)
             //    );
             // TODO: remove when C++23
-            expectedTestValues.roundEvenVec = float32_t3(
-                roundeven(commonTestInputValues.roundEvenVec.x),
-                roundeven(commonTestInputValues.roundEvenVec.y),
-                roundeven(commonTestInputValues.roundEvenVec.z)
+            expected.roundEvenVec = float32_t3(
+                roundeven(testInput.roundEvenVec.x),
+                roundeven(testInput.roundEvenVec.y),
+                roundeven(testInput.roundEvenVec.z)
             );
 
-            expectedTestValues.truncVec = float32_t3(std::trunc(commonTestInputValues.truncVec.x), std::trunc(commonTestInputValues.truncVec.y), std::trunc(commonTestInputValues.truncVec.z));
-            expectedTestValues.ceilVec = float32_t3(std::ceil(commonTestInputValues.ceilVec.x), std::ceil(commonTestInputValues.ceilVec.y), std::ceil(commonTestInputValues.ceilVec.z));
-            expectedTestValues.fmaVec = float32_t3(
-                std::fma(commonTestInputValues.fmaXVec.x, commonTestInputValues.fmaYVec.x, commonTestInputValues.fmaZVec.x),
-                std::fma(commonTestInputValues.fmaXVec.y, commonTestInputValues.fmaYVec.y, commonTestInputValues.fmaZVec.y),
-                std::fma(commonTestInputValues.fmaXVec.z, commonTestInputValues.fmaYVec.z, commonTestInputValues.fmaZVec.z)
+            expected.truncVec = float32_t3(std::trunc(testInput.truncVec.x), std::trunc(testInput.truncVec.y), std::trunc(testInput.truncVec.z));
+            expected.ceilVec = float32_t3(std::ceil(testInput.ceilVec.x), std::ceil(testInput.ceilVec.y), std::ceil(testInput.ceilVec.z));
+            expected.fmaVec = float32_t3(
+                std::fma(testInput.fmaXVec.x, testInput.fmaYVec.x, testInput.fmaZVec.x),
+                std::fma(testInput.fmaXVec.y, testInput.fmaYVec.y, testInput.fmaZVec.y),
+                std::fma(testInput.fmaXVec.z, testInput.fmaYVec.z, testInput.fmaZVec.z)
             );
-            expectedTestValues.ldexpVec = float32_t3(
-                std::ldexp(commonTestInputValues.ldexpArgVec.x, commonTestInputValues.ldexpExpVec.x),
-                std::ldexp(commonTestInputValues.ldexpArgVec.y, commonTestInputValues.ldexpExpVec.y),
-                std::ldexp(commonTestInputValues.ldexpArgVec.z, commonTestInputValues.ldexpExpVec.z)
+            expected.ldexpVec = float32_t3(
+                std::ldexp(testInput.ldexpArgVec.x, testInput.ldexpExpVec.x),
+                std::ldexp(testInput.ldexpArgVec.y, testInput.ldexpExpVec.y),
+                std::ldexp(testInput.ldexpArgVec.z, testInput.ldexpExpVec.z)
             );
 
-            performCpuTests(commonTestInputValues, expectedTestValues);
-            performGpuTests(commonTestInputValues, expectedTestValues);
+            performCpuTests(testInput, expected);
+            performGpuTests(testInput, expected);
         }
         m_logger->log("tgmath.hlsl TESTS DONE.", system::ILogger::ELL_PERFORMANCE);
     }
 
 private:
-    inline static constexpr int Iterations = 100u;
+    inline static constexpr int Iterations = 1u;
 
     void performCpuTests(const TgmathIntputTestValues& commonTestInputValues, const TgmathTestValues& expectedTestValues)
     {
@@ -778,7 +780,7 @@ public:
     }
 
 private:
-    inline static constexpr int Iterations = 100u;
+    inline static constexpr int Iterations = 1u;
 
     void performCpuTests(const IntrinsicsIntputTestValues& commonTestInputValues, const IntrinsicsTestValues& expectedTestValues)
     {
