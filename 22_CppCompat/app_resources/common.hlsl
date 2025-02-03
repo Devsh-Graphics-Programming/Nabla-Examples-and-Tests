@@ -231,6 +231,8 @@ struct IntrinsicsIntputTestValues
 	float smoothStepEdge0;
 	float smoothStepEdge1;
 	float smoothStepX;
+	float modfStruct;
+	float frexpStruct;
 
 	int32_t3 bitCountVec;
 	float32_t3 clampValVec;
@@ -264,6 +266,8 @@ struct IntrinsicsIntputTestValues
 	float32_t3 refractI;
 	float32_t3 refractN;
 	float refractEta;
+	float32_t3 modfStructVec;
+	float32_t3 frexpStructVec;
 };
 
 struct IntrinsicsTestValues
@@ -312,6 +316,12 @@ struct IntrinsicsTestValues
 	float32_t3x3 transpose;
 	float32_t3x3 inverse;
 
+	ModfOutput<float> modfStruct;
+	ModfOutput<float32_t3> modfStructVec;
+
+	FrexpOutput<float> frexpStruct;
+	FrexpOutput<float32_t3> frexpStructVec;
+
 	void fillTestValues(NBL_CONST_REF_ARG(IntrinsicsIntputTestValues) input)
 	{
 		bitCount = nbl::hlsl::bitCount(input.bitCount);
@@ -359,6 +369,12 @@ struct IntrinsicsTestValues
 		faceForward = nbl::hlsl::faceForward(input.faceForwardN, input.faceForwardI, input.faceForwardNref);
 		reflect = nbl::hlsl::reflect(input.reflectI, input.reflectN);
 		refract = nbl::hlsl::refract(input.refractI, input.refractN, input.refractEta);
+
+		modfStruct = nbl::hlsl::modfStruct(input.modfStruct);
+		modfStructVec = nbl::hlsl::modfStruct(input.modfStructVec);
+
+		frexpStruct = nbl::hlsl::frexpStruct(input.frexpStruct);
+		frexpStructVec = nbl::hlsl::frexpStruct(input.frexpStructVec);
 	}
 };
 

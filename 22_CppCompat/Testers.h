@@ -208,6 +208,7 @@ public:
     template<typename T>
     void verifyTestValue(const std::string& memberName, const T& expectedVal, const T& testVal, const TestType testType)
     {
+        static constexpr float MaxAllowedError = 0.1f;
         if (std::abs(double(expectedVal) - double(testVal)) <= MaxAllowedError)
             return;
 
@@ -229,8 +230,8 @@ public:
     void verifyTestVector3dValue(const std::string& memberName, const nbl::hlsl::vector<T, 3>& expectedVal, const nbl::hlsl::vector<T, 3>& testVal, const TestType testType)
     {
         static constexpr float MaxAllowedError = 0.1f;
-        if (std::abs(double(expectedVal.x) - double(testVal.x)) <= MaxAllowedError ||
-            std::abs(double(expectedVal.y) - double(testVal.y)) <= MaxAllowedError ||
+        if (std::abs(double(expectedVal.x) - double(testVal.x)) <= MaxAllowedError &&
+            std::abs(double(expectedVal.y) - double(testVal.y)) <= MaxAllowedError &&
             std::abs(double(expectedVal.z) - double(testVal.z)) <= MaxAllowedError)
             return;
 
@@ -323,8 +324,6 @@ protected:
     }
 
 private:
-    static constexpr float MaxAllowedError = 0.001f;
-
     template<typename... Args>
     inline void logFail(const char* msg, Args&&... args)
     {
@@ -586,167 +585,194 @@ public:
         for (int i = 0; i < Iterations; ++i)
         {
             // Set input thest values that will be used in both CPU and GPU tests
-            IntrinsicsIntputTestValues commonTestInputValues;
-            commonTestInputValues.bitCount = intDistribution(mt);
-            commonTestInputValues.crossLhs = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.crossRhs = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.clampVal = realDistribution(mt);
-            commonTestInputValues.clampMin = realDistributionNeg(mt);
-            commonTestInputValues.clampMax = realDistributionPos(mt);
-            commonTestInputValues.length = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.normalize = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.dotLhs = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
-            commonTestInputValues.dotRhs = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
-            commonTestInputValues.determinant = float32_t3x3(
+            IntrinsicsIntputTestValues testInput;
+            testInput.bitCount = intDistribution(mt);
+            testInput.crossLhs = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.crossRhs = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.clampVal = realDistribution(mt);
+            testInput.clampMin = realDistributionNeg(mt);
+            testInput.clampMax = realDistributionPos(mt);
+            testInput.length = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.normalize = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.dotLhs = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
+            testInput.dotRhs = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
+            testInput.determinant = float32_t3x3(
                 realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt),
                 realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt),
                 realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt)
             );
-            commonTestInputValues.findMSB = realDistribution(mt);
-            commonTestInputValues.findLSB = realDistribution(mt);
-            commonTestInputValues.inverse = float32_t3x3(
+            testInput.findMSB = realDistribution(mt);
+            testInput.findLSB = realDistribution(mt);
+            testInput.inverse = float32_t3x3(
                 realDistribution(mt), realDistribution(mt), realDistribution(mt),
                 realDistribution(mt), realDistribution(mt), realDistribution(mt),
                 realDistribution(mt), realDistribution(mt), realDistribution(mt)
             );
-            commonTestInputValues.transpose = float32_t3x3(
+            testInput.transpose = float32_t3x3(
                 realDistribution(mt), realDistribution(mt), realDistribution(mt),
                 realDistribution(mt), realDistribution(mt), realDistribution(mt),
                 realDistribution(mt), realDistribution(mt), realDistribution(mt)
             );
-            commonTestInputValues.mulLhs = float32_t3x3(
+            testInput.mulLhs = float32_t3x3(
                 realDistribution(mt), realDistribution(mt), realDistribution(mt),
                 realDistribution(mt), realDistribution(mt), realDistribution(mt),
                 realDistribution(mt), realDistribution(mt), realDistribution(mt)
             );
-            commonTestInputValues.mulRhs = float32_t3x3(
+            testInput.mulRhs = float32_t3x3(
                 realDistribution(mt), realDistribution(mt), realDistribution(mt),
                 realDistribution(mt), realDistribution(mt), realDistribution(mt),
                 realDistribution(mt), realDistribution(mt), realDistribution(mt)
             );
-            commonTestInputValues.minA = realDistribution(mt);
-            commonTestInputValues.minB = realDistribution(mt);
-            commonTestInputValues.maxA = realDistribution(mt);
-            commonTestInputValues.maxB = realDistribution(mt);
-            commonTestInputValues.rsqrt = realDistributionPos(mt);
-            commonTestInputValues.bitReverse = realDistribution(mt);
-            commonTestInputValues.frac = realDistribution(mt);
-            commonTestInputValues.mixX = realDistributionNeg(mt);
-            commonTestInputValues.mixY = realDistributionPos(mt);
-            commonTestInputValues.mixA = realDistributionZeroToOne(mt);
-            commonTestInputValues.sign = realDistribution(mt);
-            commonTestInputValues.radians = realDistribution(mt);
-            commonTestInputValues.degrees = realDistribution(mt);
-            commonTestInputValues.stepEdge = realDistribution(mt);
-            commonTestInputValues.stepX = realDistribution(mt);
-            commonTestInputValues.smoothStepEdge0 = realDistributionNeg(mt);
-            commonTestInputValues.smoothStepEdge1 = realDistributionPos(mt);
-            commonTestInputValues.smoothStepX = realDistribution(mt);
+            testInput.minA = realDistribution(mt);
+            testInput.minB = realDistribution(mt);
+            testInput.maxA = realDistribution(mt);
+            testInput.maxB = realDistribution(mt);
+            testInput.rsqrt = realDistributionPos(mt);
+            testInput.bitReverse = realDistribution(mt);
+            testInput.frac = realDistribution(mt);
+            testInput.mixX = realDistributionNeg(mt);
+            testInput.mixY = realDistributionPos(mt);
+            testInput.mixA = realDistributionZeroToOne(mt);
+            testInput.sign = realDistribution(mt);
+            testInput.radians = realDistribution(mt);
+            testInput.degrees = realDistribution(mt);
+            testInput.stepEdge = realDistribution(mt);
+            testInput.stepX = realDistribution(mt);
+            testInput.smoothStepEdge0 = realDistributionNeg(mt);
+            testInput.smoothStepEdge1 = realDistributionPos(mt);
+            testInput.smoothStepX = realDistribution(mt);
 
-            commonTestInputValues.bitCountVec = int32_t3(intDistribution(mt), intDistribution(mt), intDistribution(mt));
-            commonTestInputValues.clampValVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.clampMinVec = float32_t3(realDistributionNeg(mt), realDistributionNeg(mt), realDistributionNeg(mt));
-            commonTestInputValues.clampMaxVec = float32_t3(realDistributionPos(mt), realDistributionPos(mt), realDistributionPos(mt));
-            commonTestInputValues.findMSBVec = uint32_t3(uintDistribution(mt), uintDistribution(mt), uintDistribution(mt));
-            commonTestInputValues.findLSBVec = uint32_t3(uintDistribution(mt), uintDistribution(mt), uintDistribution(mt));
-            commonTestInputValues.minAVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.minBVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.maxAVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.maxBVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.rsqrtVec = float32_t3(realDistributionPos(mt), realDistributionPos(mt), realDistributionPos(mt));
-            commonTestInputValues.bitReverseVec = uint32_t3(uintDistribution(mt), uintDistribution(mt), uintDistribution(mt));
-            commonTestInputValues.fracVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.mixXVec = float32_t3(realDistributionNeg(mt), realDistributionNeg(mt), realDistributionNeg(mt));
-            commonTestInputValues.mixYVec = float32_t3(realDistributionPos(mt), realDistributionPos(mt), realDistributionPos(mt));
-            commonTestInputValues.mixAVec = float32_t3(realDistributionZeroToOne(mt), realDistributionZeroToOne(mt), realDistributionZeroToOne(mt));
+            testInput.bitCountVec = int32_t3(intDistribution(mt), intDistribution(mt), intDistribution(mt));
+            testInput.clampValVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.clampMinVec = float32_t3(realDistributionNeg(mt), realDistributionNeg(mt), realDistributionNeg(mt));
+            testInput.clampMaxVec = float32_t3(realDistributionPos(mt), realDistributionPos(mt), realDistributionPos(mt));
+            testInput.findMSBVec = uint32_t3(uintDistribution(mt), uintDistribution(mt), uintDistribution(mt));
+            testInput.findLSBVec = uint32_t3(uintDistribution(mt), uintDistribution(mt), uintDistribution(mt));
+            testInput.minAVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.minBVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.maxAVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.maxBVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.rsqrtVec = float32_t3(realDistributionPos(mt), realDistributionPos(mt), realDistributionPos(mt));
+            testInput.bitReverseVec = uint32_t3(uintDistribution(mt), uintDistribution(mt), uintDistribution(mt));
+            testInput.fracVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.mixXVec = float32_t3(realDistributionNeg(mt), realDistributionNeg(mt), realDistributionNeg(mt));
+            testInput.mixYVec = float32_t3(realDistributionPos(mt), realDistributionPos(mt), realDistributionPos(mt));
+            testInput.mixAVec = float32_t3(realDistributionZeroToOne(mt), realDistributionZeroToOne(mt), realDistributionZeroToOne(mt));
 
-            commonTestInputValues.signVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.radiansVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.degreesVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.stepEdgeVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.stepXVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.smoothStepEdge0Vec = float32_t3(realDistributionNeg(mt), realDistributionNeg(mt), realDistributionNeg(mt));
-            commonTestInputValues.smoothStepEdge1Vec = float32_t3(realDistributionPos(mt), realDistributionPos(mt), realDistributionPos(mt));
-            commonTestInputValues.smoothStepXVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.faceForwardN = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.faceForwardI = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.faceForwardNref = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.reflectI = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.reflectN = glm::normalize(float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt)));
-            commonTestInputValues.refractI = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            commonTestInputValues.refractN = glm::normalize(float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt)));
-            commonTestInputValues.refractEta = realDistribution(mt);
+            testInput.signVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.radiansVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.degreesVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.stepEdgeVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.stepXVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.smoothStepEdge0Vec = float32_t3(realDistributionNeg(mt), realDistributionNeg(mt), realDistributionNeg(mt));
+            testInput.smoothStepEdge1Vec = float32_t3(realDistributionPos(mt), realDistributionPos(mt), realDistributionPos(mt));
+            testInput.smoothStepXVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.faceForwardN = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.faceForwardI = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.faceForwardNref = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.reflectI = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.reflectN = glm::normalize(float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt)));
+            testInput.refractI = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.refractN = glm::normalize(float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt)));
+            testInput.refractEta = realDistribution(mt);
+
+            testInput.modfStruct = realDistribution(mt);
+            testInput.modfStructVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.frexpStruct = realDistribution(mt);
+            testInput.frexpStructVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
 
             // use std library or glm functions to determine expected test values, the output of functions from intrinsics.hlsl will be verified against these values
-            IntrinsicsTestValues expectedTestValues;
-            expectedTestValues.bitCount = glm::bitCount(commonTestInputValues.bitCount);
-            expectedTestValues.clamp = glm::clamp(commonTestInputValues.clampVal, commonTestInputValues.clampMin, commonTestInputValues.clampMax);
-            expectedTestValues.length = glm::length(commonTestInputValues.length);
-            expectedTestValues.dot = glm::dot(commonTestInputValues.dotLhs, commonTestInputValues.dotRhs);
-            expectedTestValues.determinant = glm::determinant(reinterpret_cast<typename float32_t3x3::Base const&>(commonTestInputValues.determinant));
-            expectedTestValues.findMSB = glm::findMSB(commonTestInputValues.findMSB);
-            expectedTestValues.findLSB = glm::findLSB(commonTestInputValues.findLSB);
-            expectedTestValues.min = glm::min(commonTestInputValues.minA, commonTestInputValues.minB);
-            expectedTestValues.max = glm::max(commonTestInputValues.maxA, commonTestInputValues.maxB);
-            expectedTestValues.rsqrt = (1.0f / std::sqrt(commonTestInputValues.rsqrt));
-            expectedTestValues.mix = std::lerp(commonTestInputValues.mixX, commonTestInputValues.mixY, commonTestInputValues.mixA);
-            expectedTestValues.sign = glm::sign(commonTestInputValues.sign);
-            expectedTestValues.radians = glm::radians(commonTestInputValues.radians);
-            expectedTestValues.degrees = glm::degrees(commonTestInputValues.degrees);
-            expectedTestValues.step = glm::step(commonTestInputValues.stepEdge, commonTestInputValues.stepX);
-            expectedTestValues.smoothStep = glm::smoothstep(commonTestInputValues.smoothStepEdge0, commonTestInputValues.smoothStepEdge1, commonTestInputValues.smoothStepX);
+            IntrinsicsTestValues expected;
+            expected.bitCount = glm::bitCount(testInput.bitCount);
+            expected.clamp = glm::clamp(testInput.clampVal, testInput.clampMin, testInput.clampMax);
+            expected.length = glm::length(testInput.length);
+            expected.dot = glm::dot(testInput.dotLhs, testInput.dotRhs);
+            expected.determinant = glm::determinant(reinterpret_cast<typename float32_t3x3::Base const&>(testInput.determinant));
+            expected.findMSB = glm::findMSB(testInput.findMSB);
+            expected.findLSB = glm::findLSB(testInput.findLSB);
+            expected.min = glm::min(testInput.minA, testInput.minB);
+            expected.max = glm::max(testInput.maxA, testInput.maxB);
+            expected.rsqrt = (1.0f / std::sqrt(testInput.rsqrt));
+            expected.mix = std::lerp(testInput.mixX, testInput.mixY, testInput.mixA);
+            expected.sign = glm::sign(testInput.sign);
+            expected.radians = glm::radians(testInput.radians);
+            expected.degrees = glm::degrees(testInput.degrees);
+            expected.step = glm::step(testInput.stepEdge, testInput.stepX);
+            expected.smoothStep = glm::smoothstep(testInput.smoothStepEdge0, testInput.smoothStepEdge1, testInput.smoothStepX);
 
-            expectedTestValues.frac = commonTestInputValues.frac - std::floor(commonTestInputValues.frac);
-            expectedTestValues.bitReverse = glm::bitfieldReverse(commonTestInputValues.bitReverse);
+            expected.frac = testInput.frac - std::floor(testInput.frac);
+            expected.bitReverse = glm::bitfieldReverse(testInput.bitReverse);
 
-            expectedTestValues.normalize = glm::normalize(commonTestInputValues.normalize);
-            expectedTestValues.cross = glm::cross(commonTestInputValues.crossLhs, commonTestInputValues.crossRhs);
-            expectedTestValues.bitCountVec = int32_t3(glm::bitCount(commonTestInputValues.bitCountVec.x), glm::bitCount(commonTestInputValues.bitCountVec.y), glm::bitCount(commonTestInputValues.bitCountVec.z));
-            expectedTestValues.clampVec = float32_t3(
-                glm::clamp(commonTestInputValues.clampValVec.x, commonTestInputValues.clampMinVec.x, commonTestInputValues.clampMaxVec.x),
-                glm::clamp(commonTestInputValues.clampValVec.y, commonTestInputValues.clampMinVec.y, commonTestInputValues.clampMaxVec.y),
-                glm::clamp(commonTestInputValues.clampValVec.z, commonTestInputValues.clampMinVec.z, commonTestInputValues.clampMaxVec.z)
+            expected.normalize = glm::normalize(testInput.normalize);
+            expected.cross = glm::cross(testInput.crossLhs, testInput.crossRhs);
+            expected.bitCountVec = int32_t3(glm::bitCount(testInput.bitCountVec.x), glm::bitCount(testInput.bitCountVec.y), glm::bitCount(testInput.bitCountVec.z));
+            expected.clampVec = float32_t3(
+                glm::clamp(testInput.clampValVec.x, testInput.clampMinVec.x, testInput.clampMaxVec.x),
+                glm::clamp(testInput.clampValVec.y, testInput.clampMinVec.y, testInput.clampMaxVec.y),
+                glm::clamp(testInput.clampValVec.z, testInput.clampMinVec.z, testInput.clampMaxVec.z)
             );
-            expectedTestValues.findMSBVec = glm::findMSB(commonTestInputValues.findMSBVec);
-            expectedTestValues.findLSBVec = glm::findLSB(commonTestInputValues.findLSBVec);
-            expectedTestValues.minVec = float32_t3(
-                glm::min(commonTestInputValues.minAVec.x, commonTestInputValues.minBVec.x),
-                glm::min(commonTestInputValues.minAVec.y, commonTestInputValues.minBVec.y),
-                glm::min(commonTestInputValues.minAVec.z, commonTestInputValues.minBVec.z)
+            expected.findMSBVec = glm::findMSB(testInput.findMSBVec);
+            expected.findLSBVec = glm::findLSB(testInput.findLSBVec);
+            expected.minVec = float32_t3(
+                glm::min(testInput.minAVec.x, testInput.minBVec.x),
+                glm::min(testInput.minAVec.y, testInput.minBVec.y),
+                glm::min(testInput.minAVec.z, testInput.minBVec.z)
             );
-            expectedTestValues.maxVec = float32_t3(
-                glm::max(commonTestInputValues.maxAVec.x, commonTestInputValues.maxBVec.x),
-                glm::max(commonTestInputValues.maxAVec.y, commonTestInputValues.maxBVec.y),
-                glm::max(commonTestInputValues.maxAVec.z, commonTestInputValues.maxBVec.z)
+            expected.maxVec = float32_t3(
+                glm::max(testInput.maxAVec.x, testInput.maxBVec.x),
+                glm::max(testInput.maxAVec.y, testInput.maxBVec.y),
+                glm::max(testInput.maxAVec.z, testInput.maxBVec.z)
             );
-            expectedTestValues.rsqrtVec = float32_t3(1.0f / std::sqrt(commonTestInputValues.rsqrtVec.x), 1.0f / std::sqrt(commonTestInputValues.rsqrtVec.y), 1.0f / std::sqrt(commonTestInputValues.rsqrtVec.z));
-            expectedTestValues.bitReverseVec = glm::bitfieldReverse(commonTestInputValues.bitReverseVec);
-            expectedTestValues.fracVec = float32_t3(
-                commonTestInputValues.fracVec.x - std::floor(commonTestInputValues.fracVec.x),
-                commonTestInputValues.fracVec.y - std::floor(commonTestInputValues.fracVec.y),
-                commonTestInputValues.fracVec.z - std::floor(commonTestInputValues.fracVec.z));
-            expectedTestValues.mixVec.x = std::lerp(commonTestInputValues.mixXVec.x, commonTestInputValues.mixYVec.x, commonTestInputValues.mixAVec.x);
-            expectedTestValues.mixVec.y = std::lerp(commonTestInputValues.mixXVec.y, commonTestInputValues.mixYVec.y, commonTestInputValues.mixAVec.y);
-            expectedTestValues.mixVec.z = std::lerp(commonTestInputValues.mixXVec.z, commonTestInputValues.mixYVec.z, commonTestInputValues.mixAVec.z);
+            expected.rsqrtVec = float32_t3(1.0f / std::sqrt(testInput.rsqrtVec.x), 1.0f / std::sqrt(testInput.rsqrtVec.y), 1.0f / std::sqrt(testInput.rsqrtVec.z));
+            expected.bitReverseVec = glm::bitfieldReverse(testInput.bitReverseVec);
+            expected.fracVec = float32_t3(
+                testInput.fracVec.x - std::floor(testInput.fracVec.x),
+                testInput.fracVec.y - std::floor(testInput.fracVec.y),
+                testInput.fracVec.z - std::floor(testInput.fracVec.z));
+            expected.mixVec.x = std::lerp(testInput.mixXVec.x, testInput.mixYVec.x, testInput.mixAVec.x);
+            expected.mixVec.y = std::lerp(testInput.mixXVec.y, testInput.mixYVec.y, testInput.mixAVec.y);
+            expected.mixVec.z = std::lerp(testInput.mixXVec.z, testInput.mixYVec.z, testInput.mixAVec.z);
 
-            expectedTestValues.signVec = glm::sign(commonTestInputValues.signVec);
-            expectedTestValues.radiansVec = glm::radians(commonTestInputValues.radiansVec);
-            expectedTestValues.degreesVec = glm::degrees(commonTestInputValues.degreesVec);
-            expectedTestValues.stepVec = glm::step(commonTestInputValues.stepEdgeVec, commonTestInputValues.stepXVec);
-            expectedTestValues.smoothStepVec = glm::smoothstep(commonTestInputValues.smoothStepEdge0Vec, commonTestInputValues.smoothStepEdge1Vec, commonTestInputValues.smoothStepXVec);
-            expectedTestValues.faceForward = glm::faceforward(commonTestInputValues.faceForwardN, commonTestInputValues.faceForwardI, commonTestInputValues.faceForwardNref);
-            expectedTestValues.reflect = glm::reflect(commonTestInputValues.reflectI, commonTestInputValues.reflectN);
-            expectedTestValues.refract = glm::refract(commonTestInputValues.refractI, commonTestInputValues.refractN, commonTestInputValues.refractEta);
+            expected.signVec = glm::sign(testInput.signVec);
+            expected.radiansVec = glm::radians(testInput.radiansVec);
+            expected.degreesVec = glm::degrees(testInput.degreesVec);
+            expected.stepVec = glm::step(testInput.stepEdgeVec, testInput.stepXVec);
+            expected.smoothStepVec = glm::smoothstep(testInput.smoothStepEdge0Vec, testInput.smoothStepEdge1Vec, testInput.smoothStepXVec);
+            expected.faceForward = glm::faceforward(testInput.faceForwardN, testInput.faceForwardI, testInput.faceForwardNref);
+            expected.reflect = glm::reflect(testInput.reflectI, testInput.reflectN);
+            expected.refract = glm::refract(testInput.refractI, testInput.refractN, testInput.refractEta);
 
-            auto mulGlm = nbl::hlsl::mul(commonTestInputValues.mulLhs, commonTestInputValues.mulRhs);
-            expectedTestValues.mul = reinterpret_cast<float32_t3x3&>(mulGlm);
-            auto transposeGlm = glm::transpose(reinterpret_cast<typename float32_t3x3::Base const&>(commonTestInputValues.transpose));
-            expectedTestValues.transpose = reinterpret_cast<float32_t3x3&>(transposeGlm);
-            auto inverseGlm = glm::inverse(reinterpret_cast<typename float32_t3x3::Base const&>(commonTestInputValues.inverse));
-            expectedTestValues.inverse = reinterpret_cast<float32_t3x3&>(inverseGlm);
+            auto mulGlm = nbl::hlsl::mul(testInput.mulLhs, testInput.mulRhs);
+            expected.mul = reinterpret_cast<float32_t3x3&>(mulGlm);
+            auto transposeGlm = glm::transpose(reinterpret_cast<typename float32_t3x3::Base const&>(testInput.transpose));
+            expected.transpose = reinterpret_cast<float32_t3x3&>(transposeGlm);
+            auto inverseGlm = glm::inverse(reinterpret_cast<typename float32_t3x3::Base const&>(testInput.inverse));
+            expected.inverse = reinterpret_cast<float32_t3x3&>(inverseGlm);
 
-            performCpuTests(commonTestInputValues, expectedTestValues);
-            performGpuTests(commonTestInputValues, expectedTestValues);
+            {
+                ModfOutput<float> expectedModfStructOutput;
+                expectedModfStructOutput.fractionalPart = std::modf(testInput.modfStruct, &expectedModfStructOutput.wholeNumberPart);
+                expected.modfStruct = expectedModfStructOutput;
+
+                ModfOutput<float32_t3> expectedModfStructOutputVec;
+                for (int i = 0; i < 3; ++i)
+                    expectedModfStructOutputVec.fractionalPart[i] = std::modf(testInput.modfStructVec[i], &expectedModfStructOutputVec.wholeNumberPart[i]);
+                expected.modfStructVec = expectedModfStructOutputVec;
+            }
+
+            {
+                FrexpOutput<float> expectedFrexpStructOutput;
+                expectedFrexpStructOutput.significand = std::frexp(testInput.frexpStruct, &expectedFrexpStructOutput.exponent);
+                expected.frexpStruct = expectedFrexpStructOutput;
+
+                FrexpOutput<float32_t3> expectedFrexpStructOutputVec;
+                for (int i = 0; i < 3; ++i)
+                    expectedFrexpStructOutputVec.significand[i] = std::frexp(testInput.frexpStructVec[i], &expectedFrexpStructOutputVec.exponent[i]);
+                expected.frexpStructVec = expectedFrexpStructOutputVec;
+            }
+
+            performCpuTests(testInput, expected);
+            performGpuTests(testInput, expected);
         }
         m_logger->log("intrinsics.hlsl TESTS DONE.", system::ILogger::ELL_PERFORMANCE);
     }
@@ -815,6 +841,17 @@ private:
         verifyTestMatrix3x3Value("mul", expectedTestValues.mul, testValues.mul, testType);
         verifyTestMatrix3x3Value("transpose", expectedTestValues.transpose, testValues.transpose, testType);
         verifyTestMatrix3x3Value("inverse", expectedTestValues.inverse, testValues.inverse, testType);
+
+        // verify output of struct producing functions
+        verifyTestValue("modfStruct", expectedTestValues.modfStruct.fractionalPart, testValues.modfStruct.fractionalPart, testType);
+        verifyTestValue("modfStruct", expectedTestValues.modfStruct.wholeNumberPart, testValues.modfStruct.wholeNumberPart, testType);
+        verifyTestVector3dValue("modfStructVec", expectedTestValues.modfStructVec.fractionalPart, testValues.modfStructVec.fractionalPart, testType);
+        verifyTestVector3dValue("modfStructVec", expectedTestValues.modfStructVec.wholeNumberPart, testValues.modfStructVec.wholeNumberPart, testType);
+
+        verifyTestValue("frexpStruct", expectedTestValues.frexpStruct.significand, testValues.frexpStruct.significand, testType);
+        verifyTestValue("frexpStruct", expectedTestValues.frexpStruct.exponent, testValues.frexpStruct.exponent, testType);
+        verifyTestVector3dValue("frexpStructVec", expectedTestValues.frexpStructVec.significand, testValues.frexpStructVec.significand, testType);
+        verifyTestVector3dValue("frexpStructVec", expectedTestValues.frexpStructVec.exponent, testValues.frexpStructVec.exponent, testType);
     }
 };
 
