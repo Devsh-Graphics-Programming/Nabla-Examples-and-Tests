@@ -69,6 +69,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 	// Other parameter-dependent variables
 	asset::VkExtent3D m_marginSrcDim;
 	uint16_t m_imageFirstAxisFFTWorkgroupSize;
+	uint32_t m_imageSecondAxisFFTNumWorkgroups;
 
 	// Shader Cache
 	smart_refctd_ptr<IShaderCompiler::CCache> m_readCache;
@@ -89,23 +90,6 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 
 	inline core::vector<SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 	{
-		if (!m_surface)
-		{
-			{
-				IWindow::SCreationParams params = {};
-				params.callback = core::make_smart_refctd_ptr<ISimpleManagedSurface::ICallback>();
-				params.width = WIN_W;
-				params.height = WIN_H;
-				params.x = 32;
-				params.y = 32;
-				params.flags = IWindow::ECF_BORDERLESS | IWindow::ECF_HIDDEN;
-				params.windowCaption = "FFT Bloom Demo";
-				const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
-			}
-			auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
-			const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>::create(std::move(surface));
-		}
-
 		if (m_surface)
 			return { {m_surface->getSurface()/*,EQF_NONE*/} };
 
@@ -158,6 +142,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 			uint16_t numWorkgroupsLog2 = 0;
 			uint16_t previousElementsPerInvocationLog2 = 0;
 			uint16_t previousWorkgroupSizeLog2 = 0;
+			uint16_t kernelSideLength = 0;
 			float32_t2 kernelHalfPixelSize = { 0.5f, 0.5f };
 		};
 
@@ -165,7 +150,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 			scalar_t(info.useHalfFloats ? "float16_t" : "float32_t"), elementsPerInvocationLog2(info.elementsPerInvocationLog2), 
 			workgroupSizeLog2(info.workgroupSizeLog2), numWorkgroupsLog2(info.numWorkgroupsLog2), numWorkgroups(uint32_t(1) << info.numWorkgroupsLog2), 
 			previousElementsPerInvocationLog2(info.previousElementsPerInvocationLog2), previousWorkgroupSizeLog2(info.previousWorkgroupSizeLog2), 
-			previousWorkgroupSize(uint16_t(1) << info.previousWorkgroupSizeLog2), kernelHalfPixelSize(info.kernelHalfPixelSize)
+			previousWorkgroupSize(uint16_t(1) << info.previousWorkgroupSizeLog2), kernelSideLength(info.kernelSideLength), kernelHalfPixelSize(info.kernelHalfPixelSize)
 		{
 			const uint32_t totalSize = uint32_t(1) << (elementsPerInvocationLog2 + workgroupSizeLog2);
 			totalSizeReciprocal = 1.f / float32_t(totalSize);
@@ -179,6 +164,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 		uint16_t previousElementsPerInvocationLog2;
 		uint16_t previousWorkgroupSizeLog2;
 		uint16_t previousWorkgroupSize;
+		uint16_t kernelSideLength;
 		float32_t2 kernelHalfPixelSize;
 		float32_t totalSizeReciprocal;
 	};
@@ -207,6 +193,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 					NBL_CONSTEXPR_STATIC_INLINE uint16_t PreviousElementsPerInvocationLog2 = )===" << shaderConstants.previousElementsPerInvocationLog2 << R"===(;
 					NBL_CONSTEXPR_STATIC_INLINE uint16_t PreviousWorkgroupSizeLog2 = )===" << shaderConstants.previousWorkgroupSizeLog2 << R"===(;
 					NBL_CONSTEXPR_STATIC_INLINE uint16_t PreviousWorkgroupSize = )===" << shaderConstants.previousWorkgroupSize << R"===(;
+					NBL_CONSTEXPR_STATIC_INLINE uint16_t KernelSideLength = )===" << shaderConstants.kernelSideLength << R"===(;
 					NBL_CONSTEXPR_STATIC_INLINE float32_t2 KernelHalfPixelSize;
 					NBL_CONSTEXPR_STATIC_INLINE float32_t TotalSizeReciprocal = )===" << shaderConstants.totalSizeReciprocal << R"===(;
 				};
@@ -383,9 +370,9 @@ public:
 			// Create samplers
 			ICPUSampler::SParams samplerCreationParams =
 			{
-				ISampler::ETC_MIRROR,
-				ISampler::ETC_MIRROR,
-				ISampler::ETC_MIRROR,
+				ISampler::E_TEXTURE_CLAMP::ETC_REPEAT,
+				ISampler::E_TEXTURE_CLAMP::ETC_REPEAT,
+				ISampler::E_TEXTURE_CLAMP::ETC_REPEAT,
 				ISampler::ETBC_FLOAT_OPAQUE_BLACK,
 				ISampler::ETF_LINEAR,
 				ISampler::ETF_LINEAR,
@@ -395,21 +382,22 @@ public:
 				ISampler::ECO_ALWAYS
 			};
 
-			auto mirrorSamplerCPU = make_smart_refctd_ptr<ICPUSampler>(samplerCreationParams);
+			auto repeatSamplerCPU = make_smart_refctd_ptr<ICPUSampler>(samplerCreationParams);
 
 			smart_refctd_ptr<ICPUSampler> imageSamplerCPU;
 			if (!m_useMirrorPadding_first)
 			{
-				samplerCreationParams.TextureWrapU = ISampler::ETC_CLAMP_TO_BORDER;
-				samplerCreationParams.TextureWrapV = ISampler::ETC_CLAMP_TO_BORDER;
-				samplerCreationParams.TextureWrapW = ISampler::ETC_CLAMP_TO_BORDER;
-				imageSamplerCPU = make_smart_refctd_ptr<ICPUSampler>(samplerCreationParams);
+				samplerCreationParams.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+				samplerCreationParams.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+				samplerCreationParams.TextureWrapW = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
 			}
 			else
 			{
-				imageSamplerCPU = mirrorSamplerCPU;
+				samplerCreationParams.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_MIRROR;
+				samplerCreationParams.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_MIRROR;
+				samplerCreationParams.TextureWrapW = ISampler::E_TEXTURE_CLAMP::ETC_MIRROR;
 			}
-			
+			imageSamplerCPU = make_smart_refctd_ptr<ICPUSampler>(samplerCreationParams);
 
 			// Set descriptor set values for automatic upload
 			
@@ -423,7 +411,7 @@ public:
 			secondSampledImageDescriptorInfo.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 
 			auto& mirrorSamplerDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(1u), IDescriptor::E_TYPE::ET_SAMPLER).front();
-			mirrorSamplerDescriptorInfo.desc = mirrorSamplerCPU;
+			mirrorSamplerDescriptorInfo.desc = repeatSamplerCPU;
 
 			auto& imageSamplerDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(4u), IDescriptor::E_TYPE::ET_SAMPLER).front();
 			imageSamplerDescriptorInfo.desc = imageSamplerCPU;
@@ -509,22 +497,42 @@ public:
 				return false;
 		}
 
-		// Create a swapchain
-		ISwapchain::SCreationParams swapchainParams = { .surface = m_surface->getSurface(),.sharedParams = {.presentMode = ISurface::EPM_IMMEDIATE}};
-		if (!swapchainParams.deduceFormat(m_physicalDevice))
-			return logFail("Could not choose a Surface Format for the Swapchain!");
+		// Create and initialize surface and swapchain
+		{
+			// First create the surface, sized the same as the input image
+			auto srcImgExtent = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
+			{
+				IWindow::SCreationParams params = {};
+				params.callback = core::make_smart_refctd_ptr<ISimpleManagedSurface::ICallback>();
+				params.width = srcImgExtent.width;
+				params.height = srcImgExtent.height;
+				params.x = 32;
+				params.y = 32;
+				params.flags = IWindow::ECF_BORDERLESS | IWindow::ECF_HIDDEN;
+				params.windowCaption = "FFT Bloom Demo";
+				const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
+			}
+			auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
+			const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>::create(std::move(surface));
 
-		// Initialize surface
-		auto graphicsQueue = getGraphicsQueue();
-		if (!m_surface || !m_surface->init(graphicsQueue, std::make_unique<ISimpleManagedSurface::ISwapchainResources>(), swapchainParams.sharedParams))
-			return logFail("Could not create Window & Surface or initialize the Surface!");
+			// Set up swapchain creation parameters
+			ISwapchain::SCreationParams swapchainParams = { .surface = m_surface->getSurface(),.sharedParams = {.presentMode = ISurface::EPM_IMMEDIATE} };
+			if (!swapchainParams.deduceFormat(m_physicalDevice))
+				return logFail("Could not choose a Surface Format for the Swapchain!");
 
-		// Set window size to match input image
-		auto srcImgExtent = m_srcImageView->getCreationParameters().image->getCreationParameters().extent;
-		m_winMgr->setWindowSize(m_window.get(), srcImgExtent.width, srcImgExtent.height);
-		m_surface->recreateSwapchain();
+			// Initialize the surface
+			auto graphicsQueue = getGraphicsQueue();
+			if (!m_surface || !m_surface->init(graphicsQueue, std::make_unique<ISimpleManagedSurface::ISwapchainResources>(), swapchainParams.sharedParams))
+				return logFail("Could not create Window & Surface or initialize the Surface!");
 
-		m_winMgr->show(m_window.get());
+			// Set window size to match input image
+			m_winMgr->setWindowSize(m_window.get(), srcImgExtent.width, srcImgExtent.height);
+			
+			// Create the swapchain
+			m_surface->recreateSwapchain();
+
+			m_winMgr->show(m_window.get());
+		}
 
 		// Create Out Image
 		{
@@ -580,10 +588,11 @@ public:
 
 			deviceLocalBufferParams.queueFamilyIndexCount = 1;
 			deviceLocalBufferParams.queueFamilyIndices = &queueFamilyIndex;
-			uint32_t2 sourceDimensions = { m_marginSrcDim.width, m_marginSrcDim.height };
+			uint32_t2 imageDimensions = { srcDim.width, srcDim.height };
+			uint32_t2 kernelDimensions = { kerDim.width, kerDim.height };
 			// Y-axis goes first in the FFT
 			hlsl::vector <uint16_t, 2> axisPassOrder = { 1, 0 };
-			deviceLocalBufferParams.size = fft::getOutputBufferSize<2>(3, sourceDimensions, 0, axisPassOrder, true, m_useHalfFloats);
+			deviceLocalBufferParams.size = fft::getOutputBufferSizeConvolution<2>(Channels, imageDimensions, kernelDimensions, 0, axisPassOrder, true, m_useHalfFloats);
 			deviceLocalBufferParams.usage = asset::IBuffer::E_USAGE_FLAGS::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
 			for (auto i = 0u; i < MaxFramesInFlight; i++) 
@@ -648,6 +657,7 @@ public:
 		//       and setting stuff via shader push constants (such as which axis to perform FFT on and the size of output image).
 
 		// -------------------------------------- KERNEL FFT PRECOMP ----------------------------------------------------------------
+		const auto& deviceLimits = m_device->getPhysicalDevice()->getLimits();
 		{
 			// create kernel spectrums
 			auto createKernelSpectrum = [&]() -> auto
@@ -695,7 +705,7 @@ public:
 			// Compute required WorkgroupSize and ElementsPerThread for FFT
 			// Remember we assume kernel is square!
 
-			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device->getPhysicalDevice()->getLimits().maxOptimallyResidentWorkgroupInvocations, kerDim.width);
+			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(deviceLimits.maxOptimallyResidentWorkgroupInvocations, kerDim.width, deviceLimits.maxSubgroupSize);
 			// Normalization shader needs this info
 			uint16_t secondAxisFFTHalfLengthLog2 = elementsPerInvocationLog2 + workgroupSizeLog2 - 1;
 			// Create shaders
@@ -716,6 +726,7 @@ public:
 				params[i].shader.shader = shaders[i].get();
 				// Normalization doesn't require full subgroups
 				params[i].shader.requireFullSubgroups = bool(2-i);
+				params[i].shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(hlsl::findMSB(deviceLimits.maxSubgroupSize));
 			}
 			
 			smart_refctd_ptr<IGPUComputePipeline> pipelines[3];
@@ -875,7 +886,7 @@ public:
 		uint16_t firstAxisFFTWorkgroupSizeLog2;
 		smart_refctd_ptr<IGPUShader> shaders[3];
 		{
-			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device->getPhysicalDevice()->getLimits().maxOptimallyResidentWorkgroupInvocations, m_marginSrcDim.height);
+			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(deviceLimits.maxOptimallyResidentWorkgroupInvocations, m_marginSrcDim.height, deviceLimits.maxSubgroupSize);
 			SShaderConstevalParameters::SShaderConstevalParametersCreateInfo shaderConstevalInfo = { .useHalfFloats = m_useHalfFloats, .elementsPerInvocationLog2 = elementsPerInvocationLog2, .workgroupSizeLog2 = workgroupSizeLog2 };
 			SShaderConstevalParameters shaderConstevalParameters(shaderConstevalInfo);
 			shaders[0] = createShader("app_resources/image_fft_first_axis.hlsl", shaderConstevalParameters);
@@ -885,11 +896,12 @@ public:
 			firstAxisFFTElementsPerInvocationLog2 = elementsPerInvocationLog2;
 			firstAxisFFTWorkgroupSizeLog2 = workgroupSizeLog2;
 			m_imageFirstAxisFFTWorkgroupSize = uint16_t(1) << workgroupSizeLog2;
+			m_imageSecondAxisFFTNumWorkgroups = uint32_t(1) << firstAxisFFTHalfLengthLog2;
 		}
 
 		// Second axis FFT might have different dimensions
 		{
-			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(m_device->getPhysicalDevice()->getLimits().maxOptimallyResidentWorkgroupInvocations, m_marginSrcDim.width);
+			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(deviceLimits.maxOptimallyResidentWorkgroupInvocations, m_marginSrcDim.width, deviceLimits.maxSubgroupSize);
 			// Compute kernel half pixel size
 			const auto& kernelSpectraExtent = m_kernelNormalizedSpectrums->getCreationParameters().image->getCreationParameters().extent;
 			float32_t2 kernelHalfPixelSize{ 0.5f,0.5f };
@@ -898,11 +910,12 @@ public:
 			SShaderConstevalParameters::SShaderConstevalParametersCreateInfo shaderConstevalInfo =
 			{
 				.useHalfFloats = m_useHalfFloats,
-				.elementsPerInvocationLog2 = elementsPerInvocationLog2, 
-				.workgroupSizeLog2 = workgroupSizeLog2, 
-				.numWorkgroupsLog2 = firstAxisFFTHalfLengthLog2, 
+				.elementsPerInvocationLog2 = elementsPerInvocationLog2,
+				.workgroupSizeLog2 = workgroupSizeLog2,
+				.numWorkgroupsLog2 = firstAxisFFTHalfLengthLog2,
 				.previousElementsPerInvocationLog2 = firstAxisFFTElementsPerInvocationLog2,
-				.previousWorkgroupSizeLog2 = firstAxisFFTWorkgroupSizeLog2, 
+				.previousWorkgroupSizeLog2 = firstAxisFFTWorkgroupSizeLog2,
+				.kernelSideLength = uint16_t(kerDim.height),
 				.kernelHalfPixelSize = kernelHalfPixelSize
 			};
 			SShaderConstevalParameters shaderConstevalParameters(shaderConstevalInfo);
@@ -915,6 +928,7 @@ public:
 			params[i].layout = pipelineLayout.get();
 			params[i].shader.entryPoint = "main";
 			params[i].shader.shader = shaders[i].get();
+			params[i].shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(hlsl::findMSB(deviceLimits.maxSubgroupSize));
 			params[i].shader.requireFullSubgroups = true;
 		}
 
@@ -1049,6 +1063,10 @@ public:
 		auto epochNanoseconds = clock_t::now().time_since_epoch().count();
 		pushConstants.interpolatingFactor = cos(epochNanoseconds / 1000000000.f) * cos(epochNanoseconds / 1000000000.f);
 
+		// Get size required to store FFT of a single channel
+		uint64_t channelStrideBytes = m_imageSecondAxisFFTNumWorkgroups * imageExtent.width * (m_useHalfFloats ? sizeof(complex_t<float16_t>) : sizeof(complex_t<float32_t>));
+		pushConstants.channelStrideBytes = channelStrideBytes;
+
 		cmdBuf->bindComputePipeline(m_firstAxisFFTPipeline.get());
 		cmdBuf->bindDescriptorSets(asset::EPBP_COMPUTE, m_firstAxisFFTPipeline->getLayout(), 0, 1, &m_descriptorSet.get());
 		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(pushConstants), &pushConstants);
@@ -1073,10 +1091,14 @@ public:
 		cmdBuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), bufferPipelineBarrierInfo);
 		// Now comes Second axis FFT + Conv + IFFT
 		cmdBuf->bindComputePipeline(m_lastAxisFFT_convolution_lastAxisIFFTPipeline.get());
+		
 		// Update padding for run along rows
-		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, padding), sizeof(paddingAlongRows), &paddingAlongRows);
-		// One workgroup per row in the lower half of the DFT
-		cmdBuf->dispatch(core::roundUpToPoT(m_marginSrcDim.height) / 2, 1, 1);
+		pushConstants.padding = paddingAlongRows;
+		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, padding), sizeof(pushConstants.padding), &pushConstants.padding);
+
+		// One workgroup on X per row in the lower half of the DFT
+		// One workgroup on Y per channel
+		cmdBuf->dispatch(core::roundUpToPoT(m_marginSrcDim.height) / 2, Channels, 1);
 
 		// Recycle pipeline barrier, only have to change which buffer we need to wait to be written to
 		bufBarrier.range.buffer = m_rowMajorBuffer[resourceIx];
@@ -1085,7 +1107,8 @@ public:
 		// Finally run the IFFT on the first axis
 		cmdBuf->bindComputePipeline(m_firstAxisIFFTPipeline.get());
 		// Update padding for run along columns
-		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, padding), sizeof(paddingAlongColumns), &paddingAlongColumns);
+		pushConstants.padding = paddingAlongColumns;
+		cmdBuf->pushConstants(m_firstAxisFFTPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, offsetof(PushConstantData, padding), sizeof(pushConstants.padding), &pushConstants.padding);
 		// One workgroup per 2 columns
 		cmdBuf->dispatch(srcDim.width / 2, 1, 1);
 
