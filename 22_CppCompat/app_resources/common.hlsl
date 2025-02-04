@@ -66,6 +66,8 @@ struct TgmathIntputTestValues
 	float fmaZ;
 	float ldexpArg;
 	int ldexpExp;
+	float modfStruct;
+	float frexpStruct;
 
 	float32_t3 floorVec;
 	float32_t3 isnanVec;
@@ -92,6 +94,8 @@ struct TgmathIntputTestValues
 	float32_t3 fmaZVec;
 	float32_t3 ldexpArgVec;
 	int32_t3 ldexpExpVec;
+	float32_t3 modfStructVec;
+	float32_t3 frexpStructVec;
 };
 
 struct TgmathTestValues
@@ -146,6 +150,11 @@ struct TgmathTestValues
 	float32_t3 fmaVec;
 	float32_t3 ldexpVec;
 
+	ModfOutput<float> modfStruct;
+	ModfOutput<float32_t3> modfStructVec;
+	FrexpOutput<float> frexpStruct;
+	FrexpOutput<float32_t3> frexpStructVec;
+
 	void fillTestValues(NBL_CONST_REF_ARG(TgmathIntputTestValues) input)
 	{
 		floor = nbl::hlsl::floor(input.floor);
@@ -191,6 +200,11 @@ struct TgmathTestValues
 		ceilVec = nbl::hlsl::ceil(input.ceilVec);
 		fmaVec = nbl::hlsl::fma(input.fmaXVec, input.fmaYVec, input.fmaZVec);
 		ldexpVec = nbl::hlsl::ldexp(input.ldexpArgVec, input.ldexpExpVec);
+
+		modfStruct = nbl::hlsl::modfStruct(input.modfStruct);
+		modfStructVec = nbl::hlsl::modfStruct(input.modfStructVec);
+		frexpStruct = nbl::hlsl::frexpStruct(input.frexpStruct);
+		frexpStructVec = nbl::hlsl::frexpStruct(input.frexpStructVec);
 	}
 };
 
@@ -231,8 +245,6 @@ struct IntrinsicsIntputTestValues
 	float smoothStepEdge0;
 	float smoothStepEdge1;
 	float smoothStepX;
-	float modfStruct;
-	float frexpStruct;
 
 	int32_t3 bitCountVec;
 	float32_t3 clampValVec;
@@ -266,8 +278,6 @@ struct IntrinsicsIntputTestValues
 	float32_t3 refractI;
 	float32_t3 refractN;
 	float refractEta;
-	float32_t3 modfStructVec;
-	float32_t3 frexpStructVec;
 };
 
 struct IntrinsicsTestValues
@@ -316,12 +326,6 @@ struct IntrinsicsTestValues
 	float32_t3x3 transpose;
 	float32_t3x3 inverse;
 
-	ModfOutput<float> modfStruct;
-	ModfOutput<float32_t3> modfStructVec;
-
-	FrexpOutput<float> frexpStruct;
-	FrexpOutput<float32_t3> frexpStructVec;
-
 	void fillTestValues(NBL_CONST_REF_ARG(IntrinsicsIntputTestValues) input)
 	{
 		bitCount = nbl::hlsl::bitCount(input.bitCount);
@@ -369,12 +373,6 @@ struct IntrinsicsTestValues
 		faceForward = nbl::hlsl::faceForward(input.faceForwardN, input.faceForwardI, input.faceForwardNref);
 		reflect = nbl::hlsl::reflect(input.reflectI, input.reflectN);
 		refract = nbl::hlsl::refract(input.refractI, input.refractN, input.refractEta);
-
-		modfStruct = nbl::hlsl::modfStruct(input.modfStruct);
-		modfStructVec = nbl::hlsl::modfStruct(input.modfStructVec);
-
-		frexpStruct = nbl::hlsl::frexpStruct(input.frexpStruct);
-		frexpStructVec = nbl::hlsl::frexpStruct(input.frexpStructVec);
 	}
 };
 

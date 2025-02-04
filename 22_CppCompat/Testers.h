@@ -397,6 +397,11 @@ public:
             testInput.ldexpArgVec = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
             testInput.ldexpExpVec = float32_t3(intDistribution(mt), intDistribution(mt), intDistribution(mt));
 
+            testInput.modfStruct = realDistribution(mt);
+            testInput.modfStructVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.frexpStruct = realDistribution(mt);
+            testInput.frexpStructVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+
             // use std library functions to determine expected test values, the output of functions from tgmath.hlsl will be verified against these values
             TgmathTestValues expected;
             expected.floor = std::floor(testInput.floor);
@@ -495,6 +500,28 @@ public:
                 std::ldexp(testInput.ldexpArgVec.z, testInput.ldexpExpVec.z)
             );
 
+            {
+                ModfOutput<float> expectedModfStructOutput;
+                expectedModfStructOutput.fractionalPart = std::modf(testInput.modfStruct, &expectedModfStructOutput.wholeNumberPart);
+                expected.modfStruct = expectedModfStructOutput;
+
+                ModfOutput<float32_t3> expectedModfStructOutputVec;
+                for (int i = 0; i < 3; ++i)
+                    expectedModfStructOutputVec.fractionalPart[i] = std::modf(testInput.modfStructVec[i], &expectedModfStructOutputVec.wholeNumberPart[i]);
+                expected.modfStructVec = expectedModfStructOutputVec;
+            }
+
+            {
+                FrexpOutput<float> expectedFrexpStructOutput;
+                expectedFrexpStructOutput.significand = std::frexp(testInput.frexpStruct, &expectedFrexpStructOutput.exponent);
+                expected.frexpStruct = expectedFrexpStructOutput;
+
+                FrexpOutput<float32_t3> expectedFrexpStructOutputVec;
+                for (int i = 0; i < 3; ++i)
+                    expectedFrexpStructOutputVec.significand[i] = std::frexp(testInput.frexpStructVec[i], &expectedFrexpStructOutputVec.exponent[i]);
+                expected.frexpStructVec = expectedFrexpStructOutputVec;
+            }
+
             performCpuTests(testInput, expected);
             performGpuTests(testInput, expected);
         }
@@ -564,6 +591,17 @@ private:
         verifyTestVector3dValue("ceilVec", expectedTestValues.ceilVec, testValues.ceilVec, testType);
         verifyTestVector3dValue("fmaVec", expectedTestValues.fmaVec, testValues.fmaVec, testType);
         verifyTestVector3dValue("ldexp", expectedTestValues.ldexpVec, testValues.ldexpVec, testType);
+
+        // verify output of struct producing functions
+        verifyTestValue("modfStruct", expectedTestValues.modfStruct.fractionalPart, testValues.modfStruct.fractionalPart, testType);
+        verifyTestValue("modfStruct", expectedTestValues.modfStruct.wholeNumberPart, testValues.modfStruct.wholeNumberPart, testType);
+        verifyTestVector3dValue("modfStructVec", expectedTestValues.modfStructVec.fractionalPart, testValues.modfStructVec.fractionalPart, testType);
+        verifyTestVector3dValue("modfStructVec", expectedTestValues.modfStructVec.wholeNumberPart, testValues.modfStructVec.wholeNumberPart, testType);
+
+        verifyTestValue("frexpStruct", expectedTestValues.frexpStruct.significand, testValues.frexpStruct.significand, testType);
+        verifyTestValue("frexpStruct", expectedTestValues.frexpStruct.exponent, testValues.frexpStruct.exponent, testType);
+        verifyTestVector3dValue("frexpStructVec", expectedTestValues.frexpStructVec.significand, testValues.frexpStructVec.significand, testType);
+        verifyTestVector3dValue("frexpStructVec", expectedTestValues.frexpStructVec.exponent, testValues.frexpStructVec.exponent, testType);
     }
 };
 
@@ -678,11 +716,6 @@ public:
             testInput.refractN = glm::normalize(float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt)));
             testInput.refractEta = realDistribution(mt);
 
-            testInput.modfStruct = realDistribution(mt);
-            testInput.modfStructVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-            testInput.frexpStruct = realDistribution(mt);
-            testInput.frexpStructVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
-
             // use std library or glm functions to determine expected test values, the output of functions from intrinsics.hlsl will be verified against these values
             IntrinsicsTestValues expected;
             expected.bitCount = glm::bitCount(testInput.bitCount);
@@ -750,28 +783,6 @@ public:
             expected.transpose = reinterpret_cast<float32_t3x3&>(transposeGlm);
             auto inverseGlm = glm::inverse(reinterpret_cast<typename float32_t3x3::Base const&>(testInput.inverse));
             expected.inverse = reinterpret_cast<float32_t3x3&>(inverseGlm);
-
-            {
-                ModfOutput<float> expectedModfStructOutput;
-                expectedModfStructOutput.fractionalPart = std::modf(testInput.modfStruct, &expectedModfStructOutput.wholeNumberPart);
-                expected.modfStruct = expectedModfStructOutput;
-
-                ModfOutput<float32_t3> expectedModfStructOutputVec;
-                for (int i = 0; i < 3; ++i)
-                    expectedModfStructOutputVec.fractionalPart[i] = std::modf(testInput.modfStructVec[i], &expectedModfStructOutputVec.wholeNumberPart[i]);
-                expected.modfStructVec = expectedModfStructOutputVec;
-            }
-
-            {
-                FrexpOutput<float> expectedFrexpStructOutput;
-                expectedFrexpStructOutput.significand = std::frexp(testInput.frexpStruct, &expectedFrexpStructOutput.exponent);
-                expected.frexpStruct = expectedFrexpStructOutput;
-
-                FrexpOutput<float32_t3> expectedFrexpStructOutputVec;
-                for (int i = 0; i < 3; ++i)
-                    expectedFrexpStructOutputVec.significand[i] = std::frexp(testInput.frexpStructVec[i], &expectedFrexpStructOutputVec.exponent[i]);
-                expected.frexpStructVec = expectedFrexpStructOutputVec;
-            }
 
             performCpuTests(testInput, expected);
             performGpuTests(testInput, expected);
@@ -843,17 +854,6 @@ private:
         verifyTestMatrix3x3Value("mul", expectedTestValues.mul, testValues.mul, testType);
         verifyTestMatrix3x3Value("transpose", expectedTestValues.transpose, testValues.transpose, testType);
         verifyTestMatrix3x3Value("inverse", expectedTestValues.inverse, testValues.inverse, testType);
-
-        // verify output of struct producing functions
-        verifyTestValue("modfStruct", expectedTestValues.modfStruct.fractionalPart, testValues.modfStruct.fractionalPart, testType);
-        verifyTestValue("modfStruct", expectedTestValues.modfStruct.wholeNumberPart, testValues.modfStruct.wholeNumberPart, testType);
-        verifyTestVector3dValue("modfStructVec", expectedTestValues.modfStructVec.fractionalPart, testValues.modfStructVec.fractionalPart, testType);
-        verifyTestVector3dValue("modfStructVec", expectedTestValues.modfStructVec.wholeNumberPart, testValues.modfStructVec.wholeNumberPart, testType);
-
-        verifyTestValue("frexpStruct", expectedTestValues.frexpStruct.significand, testValues.frexpStruct.significand, testType);
-        verifyTestValue("frexpStruct", expectedTestValues.frexpStruct.exponent, testValues.frexpStruct.exponent, testType);
-        verifyTestVector3dValue("frexpStructVec", expectedTestValues.frexpStructVec.significand, testValues.frexpStructVec.significand, testType);
-        verifyTestVector3dValue("frexpStructVec", expectedTestValues.frexpStructVec.exponent, testValues.frexpStructVec.exponent, testType);
     }
 };
 
