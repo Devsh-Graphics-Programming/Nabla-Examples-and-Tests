@@ -22,6 +22,15 @@ struct Unidirectional
                         /* PathGuider pathGuider, */
                         NextEventEstimator nee)
     {}
+
+    // closest hit
+
+    // Li
+    MaterialSystem::measure_t getMeasure()
+    {
+        // loop through bounces, do closest hit
+        // return ray.payload.accumulation --> color
+    }
 };
 
 }
