@@ -17,23 +17,22 @@ struct Material
 
 struct SProceduralGeomInfo
 {
+    Material material;
     float32_t3 center;
     float32_t radius;
-    Material material;
 };
 
 struct STriangleGeomInfo
 {
+    Material material;
     uint64_t vertexBufferAddress;
     uint64_t indexBufferAddress;
 
-    uint32_t vertexStride : 29;
+    uint32_t vertexStride : 26;
+    uint32_t objType: 3;
     uint32_t indexType : 2; // 16 bit, 32 bit or none
     uint32_t smoothNormals : 1;	// flat for cube, rectangle, disk
 
-    uint32_t objType;
-
-    Material material;
 };
 
 enum E_GEOM_TYPE : uint16_t

@@ -1242,8 +1242,6 @@ private:
       {
         const auto middle_i = NumberOfProceduralGeometries / 2.0;
         SProceduralGeomInfo sphere = {
-          .center = float32_t3((i - middle_i) * 4.0, 2, 5.0),
-          .radius = 1,
           .material = {
             .ambient = {},
             .diffuse = {0.3, 0.2 * i, 0.3},
@@ -1251,6 +1249,8 @@ private:
             .shininess = 1.0f,
             .illum = 2
           },
+          .center = float32_t3((i - middle_i) * 4.0, 2, 5.0),
+          .radius = 1,
         };
 
         proceduralGeoms.push_back(sphere);
@@ -1415,7 +1415,7 @@ private:
       // setup blas info for triangle geometries
       for (uint32_t i = 0; i < blasCount; i++)
       {
-        bool isProcedural = i == proceduralBlasIdx;
+        const auto isProcedural = i == proceduralBlasIdx;
         if (isProcedural)
         {
           aabbs.data.buffer = smart_refctd_ptr(m_proceduralAabbBuffer);
