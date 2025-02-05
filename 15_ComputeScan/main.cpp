@@ -29,8 +29,8 @@ public:
 		computeQueue = getComputeQueue();
 
 		// Create (an almost) 128MB input buffer
-		constexpr auto in_size = 128u << 5u;
-		constexpr auto in_count = in_size / sizeof(uint32_t) - 23u;
+		constexpr auto in_size = 128u << 20u;
+		constexpr auto in_count = in_size / sizeof(uint32_t) - 24u;
 
 		m_logger->log("Input element count: %d", ILogger::ELL_PERFORMANCE, in_count);
 
@@ -40,7 +40,7 @@ public:
 			std::mt19937 generator(random_device());
 			std::uniform_int_distribution<uint32_t> distribution(0u, ~0u);
 			for (auto i = 0u; i < in_count; i++)
-				inputData[i] = distribution(generator) % 100000;
+				inputData[i] = 1u;//distribution(generator) % 128;
 		}
 		auto minSSBOAlign = m_physicalDevice->getLimits().minSSBOAlignment;
 		constexpr auto begin = in_count / 4 + 118;
@@ -82,26 +82,61 @@ public:
 		SBufferRange<IGPUBuffer> in_gpu_range = { begin * sizeof(uint32_t), elementCount * sizeof(uint32_t), gpuinputDataBuffer };
 
 		const auto scanType = video::CScanner::EST_EXCLUSIVE;
-		auto scanner = m_utils->getDefaultScanner();
+		video::CReduce* reducer = m_utils->getDefaultReducer();
+		video::CScanner* scanner = m_utils->getDefaultScanner();
 
-		CScanner::DefaultPushConstants scan_push_constants;
-		CScanner::DispatchInfo scan_dispatch_info;
-		scanner->buildParameters(elementCount, scan_push_constants, scan_dispatch_info);
+		CArithmeticOps::DefaultPushConstants push_constants;
+		CArithmeticOps::DispatchInfo dispatch_info;
+		scanner->buildParameters(elementCount, push_constants, dispatch_info); // common for reducer and scanner
 
-		IGPUBuffer::SCreationParams params = { scan_push_constants.scanParams.getScratchSize(), bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT };
+		IGPUBuffer::SCreationParams params = { push_constants.scanParams.getScratchSize(), bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT };
+
+		auto reduce_pipeline = reducer->getDefaultPipeline(CArithmeticOps::EDT_UINT, CArithmeticOps::EO_ADD, params.size); // TODO: Update to test all operations
+		auto scan_pipeline = scanner->getDefaultPipeline(scanType, CArithmeticOps::EDT_UINT, CArithmeticOps::EO_ADD, params.size); // TODO: Update to test all operations
+
+		auto reduceDSLayout = reducer->getDefaultDescriptorSetLayout();
+		auto scanDSLayout = scanner->getDefaultDescriptorSetLayout();
+		IGPUDescriptorSetLayout const* dsLayouts[2] = { reduceDSLayout, scanDSLayout };
+		auto dsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, dsLayouts);
+		auto reduceDS = dsPool->createDescriptorSet(core::smart_refctd_ptr<IGPUDescriptorSetLayout>(reduceDSLayout));
+		auto scanDS = dsPool->createDescriptorSet(core::smart_refctd_ptr<IGPUDescriptorSetLayout>(scanDSLayout));
+
 		SBufferRange<IGPUBuffer> scratch_gpu_range = {0u, params.size, m_device->createBuffer(std::move(params)) };
 		{
 			auto memReqs = scratch_gpu_range.buffer->getMemoryReqs();
 			memReqs.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
 			auto scratchMem = m_device->allocate(memReqs, scratch_gpu_range.buffer.get());
 		}
-
-		auto scan_pipeline = scanner->getDefaultPipeline(scanType, CScanner::EDT_UINT, CScanner::EO_ADD, params.size);
-		auto dsLayout = scanner->getDefaultDescriptorSetLayout();
-		auto dsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout, 1 });
-		auto ds = dsPool->createDescriptorSet(core::smart_refctd_ptr<IGPUDescriptorSetLayout>(dsLayout));
-		scanner->updateDescriptorSet(m_device.get(), ds.get(), in_gpu_range, scratch_gpu_range);
+		reducer->updateDescriptorSet(m_device.get(), reduceDS.get(), in_gpu_range, scratch_gpu_range);
+		scanner->updateDescriptorSet(m_device.get(), scanDS.get(), in_gpu_range, scratch_gpu_range);
 		
+		// Prepare Buffer Barriers
+		IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t reduceBarrier = {
+			.barrier = {
+				.dep = {
+					.srcStageMask = PIPELINE_STAGE_FLAGS::HOST_BIT,
+					.srcAccessMask = ACCESS_FLAGS::HOST_WRITE_BIT,
+					.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+					.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+				}
+			},
+			.range = in_gpu_range
+		};
+		const IGPUCommandBuffer::SPipelineBarrierDependencyInfo reduceInfo[1] = { {.bufBarriers = {&reduceBarrier, 1u}} };
+
+		IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t scanBarrier = {
+			.barrier = {
+				.dep = {
+					.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+					.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
+					.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+					.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
+				}
+			},
+			.range = scratch_gpu_range // the scratch is the one that contains the intermediary Reduce values that we want for the scan
+		};
+		const IGPUCommandBuffer::SPipelineBarrierDependencyInfo scanInfo[1] = { {.bufBarriers = {&scanBarrier, 1u}} };
+
 		{
 			smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(computeQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 			if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &cmdbuf,1 }))
@@ -111,12 +146,27 @@ public:
 			}
 		}
 
+		video::IGPUPipelineLayout const* pipeline_layouts[2] = { reduce_pipeline->getLayout(), scan_pipeline->getLayout() };
+
 		cmdbuf->begin(IGPUCommandBuffer::USAGE::SIMULTANEOUS_USE_BIT); // (REVIEW): not sure about this
-		cmdbuf->fillBuffer(scratch_gpu_range, 0u);
+		cmdbuf->fillBuffer(scratch_gpu_range, 0u); // Host side only?
+
+		cmdbuf->bindComputePipeline(reduce_pipeline);
+		cmdbuf->bindDescriptorSets(asset::EPBP_COMPUTE, reduce_pipeline->getLayout(), 0u, 1u, &reduceDS.get());
+		reducer->dispatchHelper(cmdbuf.get(), reduce_pipeline->getLayout(), push_constants, dispatch_info, reduceInfo);
+		
+		// Reset the workgroup enumerator buffer
+		SBufferRange<IGPUBuffer> scratch_workgroupenum_range = scratch_gpu_range;
+		scratch_workgroupenum_range.offset = sizeof(uint32_t);
+		scratch_workgroupenum_range.size = push_constants.scanParams.getWorkgroupEnumeratorSize();
+		cmdbuf->fillBuffer(scratch_workgroupenum_range, 0u);
+
 		cmdbuf->bindComputePipeline(scan_pipeline);
-		auto pipeline_layout = scan_pipeline->getLayout();
-		cmdbuf->bindDescriptorSets(asset::EPBP_COMPUTE, pipeline_layout, 0u, 1u, &ds.get());
-		scanner->dispatchHelper(cmdbuf.get(), pipeline_layout, scan_push_constants, scan_dispatch_info, 0u, nullptr, 0u, nullptr);
+		cmdbuf->bindDescriptorSets(asset::EPBP_COMPUTE, scan_pipeline->getLayout(), 0u, 1u, &scanDS.get());
+		scanner->dispatchHelper(cmdbuf.get(), scan_pipeline->getLayout(), push_constants, dispatch_info, scanInfo);
+
+		// REVIEW: Maybe collapse descriptor sets since they're the same? But this way we are prepared for potential future pipeline discrepancies between Reduce and Scan ops
+
 		cmdbuf->end();
 
 		{
@@ -125,7 +175,7 @@ public:
 			const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[1] = { {
 				.cmdbuf = cmdbuf.get()
 			} };
-				
+			
 			const IQueue::SSubmitInfo infos[1] = { {
 				.commandBuffers = commandBuffers,
 				.signalSemaphores = semInfo
@@ -138,6 +188,7 @@ public:
 			computeQueue->endCapture();
 		}
 
+		// TODO: Update to support all operations
 		// cpu counterpart
 		auto cpu_begin = inputData + begin;
 		m_logger->log("CPU scan begin", system::ILogger::ELL_PERFORMANCE);
@@ -159,7 +210,6 @@ public:
 		auto stop = std::chrono::high_resolution_clock::now();
 
 		m_logger->log("CPU scan end. Time taken: %d us", system::ILogger::ELL_PERFORMANCE, std::chrono::duration_cast<std::chrono::microseconds>(stop - start).count());
-
 		// wait for the gpu impl to complete
 		const ISemaphore::SWaitInfo cmdbufDonePending[] = {{
 			.semaphore = semaphore.get(),
@@ -184,7 +234,7 @@ public:
 				core::smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 				{
 					auto cmdPool = m_device->createCommandPool(computeQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::NONE);
-					cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &cmdbuf , 1}, core::smart_refctd_ptr(m_logger));
+					cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &cmdbuf, 1}, core::smart_refctd_ptr(m_logger));
 				}
 				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 				IGPUCommandBuffer::SBufferCopy region;
@@ -222,13 +272,7 @@ public:
 
 			auto mem = const_cast<video::IDeviceMemoryAllocation*>(downloaded_buffer->getBoundMemory().memory);
 			{
-				ILogicalDevice::MappedMemoryRange range;
-				{
-					range.memory = mem;
-					range.offset = 0u;
-					range.length = in_gpu_range.size;
-				}
-				mem->map({ .offset = range.offset, .length = range.length }, video::IDeviceMemoryAllocation::EMCAF_READ);
+				mem->map({ .offset = 0u, .length = params.size }, video::IDeviceMemoryAllocation::EMCAF_READ);
 			}
 			auto gpu_begin = reinterpret_cast<uint32_t*>(mem->getMappedPointer());
 			for (auto i = 0u; i < elementCount; i++)
@@ -237,7 +281,7 @@ public:
 					_NBL_DEBUG_BREAK_IF(true);
 			}
 			m_logger->log("Result Comparison Test Passed", system::ILogger::ELL_PERFORMANCE);
-			scanSuccess = true;
+			operationSuccess = true;
 		}
 
 		delete[] inputData;
@@ -262,7 +306,7 @@ public:
 	virtual bool onAppTerminated() override
 	{
 		m_logger->log("==========Result==========", ILogger::ELL_INFO);
-		m_logger->log("Scan Success: %s", ILogger::ELL_INFO, scanSuccess?"true":"false");
+		m_logger->log("Operation Success: %s", ILogger::ELL_INFO, operationSuccess ?"true":"false");
 		delete[] inputData;
 		return true;
 	}
@@ -290,7 +334,7 @@ private:
 	smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 	smart_refctd_ptr<ICPUBuffer> resultsBuffer;
 
-	bool scanSuccess = false;
+	bool operationSuccess = false;
 };
 
 NBL_MAIN_FUNC(ComputeScanApp)
