@@ -76,7 +76,7 @@ public:
             auto source = IAsset::castDown<ICPUShader>(assets[0]);
             // The down-cast should not fail!
             assert(source);
-            assert(source->getStage() == IShader::ESS_COMPUTE);
+            assert(source->getStage() == IShader::E_SHADER_STAGE::ESS_COMPUTE);
 
             // this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
             shader = m_device->createShader(source.get());
@@ -93,14 +93,14 @@ public:
         
         for(int i = 0; i < bindingCount; ++i)
         {
-            bindings[i].stageFlags = IShader::ESS_COMPUTE;
+            bindings[i].stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE;
             bindings[i].count = 1;
             bindings[i].binding = i;
         }
 		m_descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
         {
 		    SPushConstantRange pcRange = {};
-		    pcRange.stageFlags = IShader::ESS_COMPUTE;
+		    pcRange.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE;
 		    pcRange.offset = 0u;
 		    pcRange.size = 2 * sizeof(uint32_t);
             auto layout = m_device->createPipelineLayout({ &pcRange,1 }, smart_refctd_ptr(m_descriptorSetLayout));
@@ -264,9 +264,9 @@ public:
         //    submitInfos[0].commandBuffers = cmdbufs;
         //    const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = progress.get(),.value = FinishedValue1,.stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
         //    submitInfos[0].signalSemaphores = signals;
-        //    m_queue->startCapture();
+        //    m_api->startCapture();
         //    m_queue->submit(submitInfos);  //Command buffer is NOT IN THE EXECUTABLE STATE
-        //    m_queue->endCapture();
+        //    m_api->endCapture();
         //    const ISemaphore::SWaitInfo waitInfos[] = { {
         //            .semaphore = progress.get(),
         //            .value = FinishedValue1
@@ -296,9 +296,9 @@ public:
             submitInfos[0].commandBuffers = cmdbufs;
             const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = progress.get(),.value = FinishedValue,.stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
             submitInfos[0].signalSemaphores = signals;
-            m_queue->startCapture();
+            m_api->startCapture();
             m_queue->submit(submitInfos);
-            m_queue->endCapture();
+            m_api->endCapture();
             const ISemaphore::SWaitInfo waitInfos[] = { {
                     .semaphore = progress.get(),
                     .value = FinishedValue

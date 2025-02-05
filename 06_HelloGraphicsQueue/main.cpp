@@ -247,9 +247,9 @@ class HelloGraphicsQueueApp final : public application_templates::MonoDeviceAppl
 
 			cmdbuf->end();
 
-			queue->startCapture();
+			m_api->startCapture();
 			queue->submit(submitInfos);
-			queue->endCapture();
+			m_api->endCapture();
 		
 			// The signalling and waiting on the semaphore make all writes from the Semaphore Signal Stages visible and available to the Host
 			const ISemaphore::SWaitInfo waitInfos[1] = { {
@@ -263,13 +263,13 @@ class HelloGraphicsQueueApp final : public application_templates::MonoDeviceAppl
 
 			// Map memory, so contents of `outputImageBuffer` will be host visible.
 			const ILogicalDevice::MappedMemoryRange memoryRange(outputBufferAllocation.memory.get(), 0ull, outputBufferAllocation.memory->getAllocationSize());
-			auto imageBufferMemPtr = outputBufferAllocation.memory->map({ 0ull,outputBufferAllocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ);
+			auto imageBufferMemPtr = outputBufferAllocation.memory->map({0ull,outputBufferAllocation.memory->getAllocationSize()},IDeviceMemoryAllocation::EMCAF_READ);
 			if (!imageBufferMemPtr)
 				return logFail("Failed to map the Device Memory!\n");
 
 			// If the mapping is not coherent the range needs to be invalidated to pull in new data for the CPU's caches.
 			if (!outputBufferAllocation.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
-				m_device->invalidateMappedMemoryRanges(1, &memoryRange);
+				m_device->invalidateMappedMemoryRanges(1,&memoryRange);
 
 			const auto ouputImageCreationParams = smallImg->getCreationParameters();
 			// While JPG/PNG/BMP/EXR Loaders create ICPUImages because they cannot disambiguate colorspaces,
@@ -283,9 +283,9 @@ class HelloGraphicsQueueApp final : public application_templates::MonoDeviceAppl
 				// which also means it can be sparsely(with gaps) specified.
 				params.image = ICPUImage::create(ouputImageCreationParams);
 				{
-					// CDummyCPUBuffer is used for creating ICPUBuffer over an already existing memory, without any memcopy operations 
-					// or taking over the memory ownership. CDummyCPUBuffer cannot free its memory.
-					auto cpuOutputImageBuffer = core::make_smart_refctd_ptr<CDummyCPUBuffer>(smallImgByteSize, imageBufferMemPtr, core::adopt_memory_t());
+					// null_memory_resource is used for creating ICPUBuffer over an already existing memory, without any memcopy operations 
+					// or taking over the memory ownership. null_memory_resource cannot free its memory.
+					auto cpuOutputImageBuffer = ICPUBuffer::create({ { smallImgByteSize }, imageBufferMemPtr, core::getNullMemoryResource() }, core::adopt_memory_t());
 					ICPUImage::SBufferCopy region = {};
 					region.imageSubresource.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
 					region.imageSubresource.layerCount = 1;

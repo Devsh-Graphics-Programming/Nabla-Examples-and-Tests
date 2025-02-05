@@ -127,7 +127,7 @@ class StreamingAndBufferDeviceAddressApp final : public application_templates::M
 			m_downStreamingBufferAddress = m_downStreamingBuffer->getBuffer()->getDeviceAddress();
 
 			// People love Reflection but I prefer Shader Sources instead!
-			const nbl::asset::SPushConstantRange pcRange = {.stageFlags=IShader::ESS_COMPUTE,.offset=0,.size=sizeof(PushConstantData)};
+			const nbl::asset::SPushConstantRange pcRange = {.stageFlags=IShader::E_SHADER_STAGE::ESS_COMPUTE,.offset=0,.size=sizeof(PushConstantData)};
 
 			// This time we'll have no Descriptor Sets or Layouts because our workload has a widely varying size
 			// and using traditional SSBO bindings would force us to update the Descriptor Set every frame.
@@ -236,7 +236,7 @@ class StreamingAndBufferDeviceAddressApp final : public application_templates::M
 					.outputAddress=m_downStreamingBufferAddress+outputOffset,
 					.dataElementCount=elementCount
 				};
-				cmdbuf->pushConstants(m_pipeline->getLayout(),IShader::ESS_COMPUTE,0u,sizeof(pc),&pc);
+				cmdbuf->pushConstants(m_pipeline->getLayout(),IShader::E_SHADER_STAGE::ESS_COMPUTE,0u,sizeof(pc),&pc);
 				// Good old trick to get rounded up divisions, in case you're not familiar
 				cmdbuf->dispatch((elementCount-1)/WorkgroupSize+1,1,1);
 				cmdbuf->end();
@@ -265,9 +265,9 @@ class StreamingAndBufferDeviceAddressApp final : public application_templates::M
 					.signalSemaphores = {&signalInfo,1}
 				};
 
-				queue->startCapture();
+				m_api->startCapture();
 				queue->submit({&submitInfo,1});
-				queue->endCapture();
+				m_api->endCapture();
 			}
 				
 			// We let all latches know what semaphore and counter value has to be passed for the functors to execute

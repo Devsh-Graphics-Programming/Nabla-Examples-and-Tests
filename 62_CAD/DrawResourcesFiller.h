@@ -1,17 +1,21 @@
+#pragma once
 #include "Polyline.h"
 #include "Hatch.h"
+#include "IndexAllocator.h"
 #include <nbl/video/utilities/SIntendedSubmitInfo.h>
-#include <nbl/core/containers/LRUCache.h>
+#include <nbl/core/containers/LRUCache.h>  
+#include <nbl/ext/TextRendering/TextRendering.h>
 
 using namespace nbl;
 using namespace nbl::video;
 using namespace nbl::core;
 using namespace nbl::asset;
+using namespace nbl::ext::TextRendering;
 
 static_assert(sizeof(DrawObject) == 16u);
 static_assert(sizeof(MainObject) == 16u);
 static_assert(sizeof(Globals) == 128u);
-static_assert(sizeof(LineStyle) == 96u);
+static_assert(sizeof(LineStyle) == 88u);
 static_assert(sizeof(ClipProjectionData) == 88u);
 
 template <typename BufferType>
@@ -41,9 +45,7 @@ public:
 	DrawResourcesFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue);
 
 	typedef std::function<void(SIntendedSubmitInfo&)> SubmitFunc;
-
-	// function is called when buffer is filled and we should submit draws and clear the buffers and continue filling
-	void setSubmitDrawsFunction(SubmitFunc func);
+	void setSubmitDrawsFunction(const SubmitFunc& func);
 
 	void allocateIndexBuffer(ILogicalDevice* logicalDevice, uint32_t indices);
 
@@ -55,13 +57,14 @@ public:
 
 	void allocateStylesBuffer(ILogicalDevice* logicalDevice, uint32_t lineStylesCount);
 	
-	void allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs);
-	
-	using texture_hash = uint64_t;
-	static constexpr uint64_t InvalidTextureHash = std::numeric_limits<uint64_t>::max();
-	
-	// ! return index to be used later in hatch fill style or text glyph object
-	void addMSDFTexture(ICPUBuffer const* srcBuffer, const asset::IImage::SBufferCopy& region, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
+	void allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent);
+
+	// functions that user should set to get MSDF texture if it's not available in cache.
+	// it's up to user to return cached or generate on the fly.
+	typedef std::function<core::smart_refctd_ptr<ICPUImage>(nbl::ext::TextRendering::FontFace* /*face*/, uint32_t /*glyphIdx*/)> GetGlyphMSDFTextureFunc;
+	typedef std::function<core::smart_refctd_ptr<ICPUImage>(HatchFillPattern/*pattern*/)> GetHatchFillPatternMSDFTextureFunc;
+	void setGlyphMSDFTextureFunction(const GetGlyphMSDFTextureFunc& func);
+	void setHatchFillMSDFTextureFunction(const GetHatchFillPatternMSDFTextureFunc& func);
 
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	void drawPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, SIntendedSubmitInfo& intendedNextSubmit);
@@ -73,14 +76,14 @@ public:
 		const Hatch& hatch,
 		const float32_t4& foregroundColor, 
 		const float32_t4& backgroundColor,
-		const texture_hash msdfTexture,
+		const HatchFillPattern fillPattern,
 		SIntendedSubmitInfo& intendedNextSubmit);
 	
 	// ! Hatch with MSDF Pattern
 	void drawHatch(
 		const Hatch& hatch,
 		const float32_t4& color,
-		const texture_hash msdfTexture,
+		const HatchFillPattern fillPattern,
 		SIntendedSubmitInfo& intendedNextSubmit);
 
 	// ! Solid Fill Hacth
@@ -88,8 +91,69 @@ public:
 		const Hatch& hatch,
 		const float32_t4& color,
 		SIntendedSubmitInfo& intendedNextSubmit);
+
+	// ! Draw Font Glyph, will auto submit if there is no space
+	void drawFontGlyph(
+		nbl::ext::TextRendering::FontFace* fontFace,
+		uint32_t glyphIdx,
+		float64_t2 topLeft,
+		float32_t2 dirU,
+		float32_t  aspectRatio,
+		float32_t2 minUV,
+		uint32_t mainObjIdx,
+		SIntendedSubmitInfo& intendedNextSubmit);
 	
-	void finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
+	void _test_addImageObject(
+		float64_t2 topLeftPos,
+		float32_t2 size,
+		float32_t rotation,
+		SIntendedSubmitInfo& intendedNextSubmit)
+	{
+		auto addImageObject_Internal = [&](const ImageObjectInfo& imageObjectInfo, uint32_t mainObjIdx) -> bool
+			{
+				const uint32_t maxGeometryBufferImageObjects = static_cast<uint32_t>((maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(ImageObjectInfo));
+				uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
+				uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+				uploadableObjects = core::min(uploadableObjects, maxGeometryBufferImageObjects);
+
+				if (uploadableObjects >= 1u)
+				{
+					void* dstGeom = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
+					memcpy(dstGeom, &imageObjectInfo, sizeof(ImageObjectInfo));
+					uint64_t geomBufferAddr = geometryBufferAddress + currentGeometryBufferSize;
+					currentGeometryBufferSize += sizeof(ImageObjectInfo);
+
+					DrawObject drawObj = {};
+					drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::IMAGE) | (0 << 16)); // TODO: use custom pack/unpack function
+					drawObj.mainObjIndex = mainObjIdx;
+					drawObj.geometryAddress = geomBufferAddr;
+					void* dstDrawObj = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
+					memcpy(dstDrawObj, &drawObj, sizeof(DrawObject));
+					currentDrawObjectCount += 1u;
+
+					return true;
+				}
+				else
+					return false;
+			};
+		
+		uint32_t mainObjIdx = addMainObject_SubmitIfNeeded(InvalidStyleIdx, intendedNextSubmit);
+
+		ImageObjectInfo info = {};
+		info.topLeft = topLeftPos;
+		info.dirU = float32_t2(size.x * cos(rotation), size.x * sin(rotation)); // 
+		info.aspectRatio = size.y / size.x;
+		info.textureID = 0u;
+		if (!addImageObject_Internal(info, mainObjIdx))
+		{
+			// single image object couldn't fit into memory to push to gpu, so we submit rendering current objects and reset geometry buffer and draw objects
+			submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjIdx);
+			bool success = addImageObject_Internal(info, mainObjIdx);
+			assert(success); // this should always be true, otherwise it's either bug in code or not enough memory allocated to hold a single image object 
+		}
+	}
+
+	bool finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
 	inline uint32_t getLineStyleCount() const { return currentLineStylesCount; }
 
@@ -129,6 +193,10 @@ public:
 
 	uint32_t addLineStyle_SubmitIfNeeded(const LineStyleInfo& lineStyle, SIntendedSubmitInfo& intendedNextSubmit);
 	
+	// [ADVANCED] Do not use this function unless you know what you're doing (It may cause auto submit)
+	// Never call this function multiple times in a row before indexing it in a drawable, because future auto-submits may invalidate mainObjects, so do them one by one, for example:
+	// Valid: addMainObject1 --> addXXX(mainObj1) ---> addMainObject2 ---> addXXX(mainObj2) ....
+	// Invalid: addMainObject1 ---> addMainObject2 ---> addXXX(mainObj1) ---> addXXX(mainObj2) ....
 	uint32_t addMainObject_SubmitIfNeeded(uint32_t styleIdx, SIntendedSubmitInfo& intendedNextSubmit);
 
 	// we need to store the clip projection stack to make sure the front is always available in memory
@@ -137,31 +205,40 @@ public:
 
 	smart_refctd_ptr<IGPUImageView> getMSDFsTextureArray() { return msdfTextureArray; }
 
+	uint32_t2 getMSDFResolution() {
+		auto extents = msdfTextureArray->getCreationParameters().image->getCreationParameters().extent;
+		return uint32_t2(extents.width, extents.height);
+	}
+	uint32_t getMSDFMips() {
+		return msdfTextureArray->getCreationParameters().image->getCreationParameters().mipLevels;
+	}
+
 protected:
 	
-	struct TextureCopy
+	struct MSDFTextureCopy
 	{
-		ICPUBuffer const* srcBuffer;
-		const asset::IImage::SBufferCopy& region;
+		core::smart_refctd_ptr<ICPUImage> image;
 		uint32_t index;
 	};
 
 	SubmitFunc submitDraws;
-	static constexpr uint32_t InvalidStyleIdx = ~0u;
-
-	void finalizeMainObjectCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
-
-	void finalizeGeometryCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
-
-	void finalizeLineStyleCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 	
-	void finalizeCustomClipProjectionCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
-	
-	void finalizeTextureCopies(SIntendedSubmitInfo& intendedNextSubmit);
+	bool finalizeMainObjectCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
-	// A hatch and a polyline are considered a "Main Object" which consists of smaller geometries such as beziers, lines, connectors, hatchBoxes
-	// If the whole polyline can't fit into memory for draw, then we submit the render of smaller geometries midway and continue
-	void submitCurrentObjectsAndReset(SIntendedSubmitInfo& intendedNextSubmit, uint32_t mainObjectIndex);
+	bool finalizeGeometryCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
+
+	bool finalizeLineStyleCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
+	
+	bool finalizeCustomClipProjectionCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
+	
+	bool finalizeTextureCopies(SIntendedSubmitInfo& intendedNextSubmit);
+
+	// Internal Function to call whenever we overflow while filling our buffers with geometry (potential limiters: indexBuffer, drawObjectsBuffer or geometryBuffer)
+	// ! mainObjIdx: is the mainObject the "overflowed" drawObjects belong to.
+	//		mainObjIdx is required to ensure that valid data, especially the `clipProjectionData`, remains linked to the main object.
+	//		This is important because, while other data may change during overflow handling, the main object must persist to maintain consistency throughout rendering all parts of it. (for example all lines and beziers of a single polyline)
+	//		[ADVANCED] If you have not created your mainObject yet, pass `InvalidMainObjectIdx` (See drawHatch)
+	void submitCurrentDrawObjectsAndReset(SIntendedSubmitInfo& intendedNextSubmit, uint32_t mainObjectIndex);
 
 	uint32_t addMainObject_Internal(const MainObject& mainObject);
 
@@ -193,13 +270,18 @@ protected:
 	void addQuadBeziers_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx);
 
 	void addHatch_Internal(const Hatch& hatch, uint32_t& currentObjectInSection, uint32_t mainObjIndex);
-
+	
+	bool addFontGlyph_Internal(const GlyphInfo& glyphInfo, uint32_t mainObjIdx);
+	
 	void resetMainObjectCounters()
 	{
 		inMemMainObjectCount = 0u;
 		currentMainObjectCount = 0u;
 	}
 
+	// WARN: If you plan to use this, make sure you either reset the mainObjectCounters as well
+	//			Or if you want to keep your  mainObject around, make sure you're using the `submitCurrentObjectsAndReset` function instead of calling this directly
+	//			So that it makes your mainObject point to the correct clipProjectionData (which exists in the geometry buffer)
 	void resetGeometryCounters()
 	{
 		inMemDrawObjectCount = 0u;
@@ -225,6 +307,97 @@ protected:
 		return &mainObjsArray[idx];
 	}
 
+	// MSDF Hashing and Caching Internal Functions 
+	enum class MSDFType : uint8_t
+	{
+		HATCH_FILL_PATTERN,
+		FONT_GLYPH,
+	};
+
+	struct MSDFInputInfo
+	{
+		// It's a font glyph
+		MSDFInputInfo(core::blake3_hash_t fontFaceHash, uint32_t glyphIdx)
+			: type(MSDFType::FONT_GLYPH)
+			, faceHash(fontFaceHash)
+			, glyphIndex(glyphIdx)
+		{
+			computeBlake3Hash();
+		}
+
+		// It's a hatch fill pattern
+		MSDFInputInfo(HatchFillPattern fillPattern)
+			: type(MSDFType::HATCH_FILL_PATTERN)
+			, faceHash({})
+			, fillPattern(fillPattern)
+		{
+			computeBlake3Hash();
+		}
+		
+		bool operator==(const MSDFInputInfo& rhs) const
+		{ return hash == rhs.hash && glyphIndex == rhs.glyphIndex && type == rhs.type;
+		}
+
+		MSDFType type;
+		uint8_t pad[3u]; // 3 bytes pad
+		union
+		{
+			uint32_t glyphIndex;
+			HatchFillPattern fillPattern;
+		};
+		static_assert(sizeof(uint32_t) == sizeof(HatchFillPattern));
+		
+		core::blake3_hash_t faceHash = {};
+		core::blake3_hash_t hash = {}; // actual hash, we will check in == operator
+		size_t lookupHash = 0ull; // for containers expecting size_t hash
+
+
+	private:
+		
+		void computeBlake3Hash()
+		{
+			core::blake3_hasher hasher;
+			hasher.update(&type, sizeof(MSDFType));
+			hasher.update(&glyphIndex, sizeof(uint32_t));
+			hasher.update(&faceHash, sizeof(core::blake3_hash_t));
+			hash = static_cast<core::blake3_hash_t>(hasher);
+			lookupHash = std::hash<core::blake3_hash_t>{}(hash); // hashing the hash :D
+		}
+
+	};
+
+	struct MSDFInputInfoHash { std::size_t operator()(const MSDFInputInfo& info) const { return info.lookupHash; } };
+
+	struct MSDFReference
+	{
+		uint32_t alloc_idx;
+		uint64_t lastUsedSemaphoreValue;
+
+		MSDFReference(uint32_t alloc_idx, uint64_t semaphoreVal) : alloc_idx(alloc_idx), lastUsedSemaphoreValue(semaphoreVal) {}
+		MSDFReference(uint64_t semaphoreVal) : MSDFReference(InvalidTextureIdx, semaphoreVal) {}
+		MSDFReference() : MSDFReference(InvalidTextureIdx, ~0ull) {}
+
+		// In LRU Cache `insert` function, in case of cache hit, we need to assign semaphore value to MSDFReference without changing `alloc_idx`
+		inline MSDFReference& operator=(uint64_t semamphoreVal) { lastUsedSemaphoreValue = semamphoreVal; return *this;  }
+	};
+	
+	uint32_t getMSDFIndexFromInputInfo(const MSDFInputInfo& msdfInfo, SIntendedSubmitInfo& intendedNextSubmit)
+	{
+		uint32_t textureIdx = InvalidTextureIdx;
+		MSDFReference* tRef = msdfLRUCache->get(msdfInfo);
+		if (tRef)
+		{
+			textureIdx = tRef->alloc_idx;
+			tRef->lastUsedSemaphoreValue = intendedNextSubmit.getFutureScratchSemaphore().value; // update this because the texture will get used on the next submit
+		}
+		return textureIdx;
+	}
+	
+	// ! mainObjIdx: make sure to pass your mainObjIdx to it if you want it to stay synced/updated if some overflow submit occured which would potentially erase what your mainObject points at.
+	// If you haven't created a mainObject yet, then pass InvalidMainObjectIdx
+	uint32_t addMSDFTexture(const MSDFInputInfo& msdfInput, core::smart_refctd_ptr<ICPUImage>&& cpuImage, uint32_t mainObjIdx, SIntendedSubmitInfo& intendedNextSubmit);
+	
+	// Members
 	smart_refctd_ptr<IUtilities> m_utilities;
 	IQueue* m_copyQueue;
 
@@ -248,25 +421,21 @@ protected:
 
 	uint64_t geometryBufferAddress = 0u; // Actual BDA offset 0 of the gpu buffer
 
-	std::stack<ClipProjectionData> clipProjections; // stack of clip projectios stored so we can resubmit them if geometry buffer got reset.
+	std::deque<ClipProjectionData> clipProjections; // stack of clip projectios stored so we can resubmit them if geometry buffer got reset.
 	std::deque<uint64_t> clipProjectionAddresses; // stack of clip projection gpu addresses in geometry buffer. to keep track of them in push/pops
-	
-	struct TextureReference
-	{
-		uint32_t alloc_idx;
-		uint64_t lastUsedSemaphoreValue;
 
-		TextureReference(uint32_t alloc_idx, uint64_t semaphoreVal) : alloc_idx(alloc_idx), lastUsedSemaphoreValue(semaphoreVal) {}
-		TextureReference(uint64_t semaphoreVal) : TextureReference(InvalidTextureIdx, semaphoreVal) {}
-		TextureReference() : TextureReference(InvalidTextureIdx, ~0ull) {}
+	// MSDF
+	GetGlyphMSDFTextureFunc getGlyphMSDF;
+	GetHatchFillPatternMSDFTextureFunc getHatchFillPatternMSDF;
 
-		// In LRU Cache `insert` function, in case of cache hit, we need to assign semaphore value to TextureReference without changing `alloc_idx`
-		inline TextureReference& operator=(uint64_t semamphoreVal) { lastUsedSemaphoreValue = semamphoreVal; return *this;  }
-	};
-
-	using TextureLRUCache = core::LRUCache<texture_hash, TextureReference>;
-
+	using MSDFsLRUCache = core::LRUCache<MSDFInputInfo, MSDFReference, MSDFInputInfoHash>;
 	smart_refctd_ptr<IGPUImageView>		msdfTextureArray; // view to the resource holding all the msdfs in it's layers
-	std::vector<TextureCopy>			textureCopies; // queued up texture copies, @Lucas change to deque if possible
-	TextureLRUCache						textureLRUCache; // LRU Cache to evict Least Recently Used in case of overflow
+	smart_refctd_ptr<IndexAllocator>	msdfTextureArrayIndexAllocator;
+	std::set<uint32_t>					msdfTextureArrayIndicesUsed = {}; // indices in the msdf texture array allocator that have been used in the current frame // TODO: make this a dynamic bitset
+	std::vector<MSDFTextureCopy>		msdfTextureCopies = {}; // queued up texture copies
+	std::unique_ptr<MSDFsLRUCache>		msdfLRUCache; // LRU Cache to evict Least Recently Used in case of overflow
+	static constexpr asset::E_FORMAT	MSDFTextureFormat = asset::E_FORMAT::EF_R8G8B8_SNORM;
+
+	bool m_hasInitializedMSDFTextureArrays = false;
 };
+
