@@ -1282,7 +1282,7 @@ private:
   bool createShaderBindingTable(video::CThreadSafeQueueAdapter* queue, const smart_refctd_ptr<video::IGPURayTracingPipeline>& pipeline)
   {
     const auto& limits = m_device->getPhysicalDevice()->getLimits();
-    const auto handleSize = limits.shaderGroupHandleSize;
+    const auto handleSize = SPhysicalDeviceLimits::ShaderGroupHandleSize;
     const auto handleSizeAligned = nbl::core::alignUp(handleSize, limits.shaderGroupHandleAlignment);
 
     auto& raygenRegion = m_shaderBindingTable.raygenGroupRegion;
