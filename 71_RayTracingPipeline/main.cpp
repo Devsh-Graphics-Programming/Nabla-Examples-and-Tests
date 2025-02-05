@@ -353,42 +353,45 @@ public:
       params.layout = pipelineLayout.get();
       params.shaders = std::span(shaders);
 
-      auto& shaderGroups = params.cached.shaderGroups;
+      auto& shaderGroups = params.shaderGroups;
 
       shaderGroups.raygenGroup = { .shaderIndex = RTDS_RAYGEN };
 
-      shaderGroups.missGroups.resize(E_MISS_TYPE::EMT_COUNT, {});
-      shaderGroups.missGroups[EMT_PRIMARY] = { .shaderIndex = RTDS_MISS };
-      shaderGroups.missGroups[EMT_OCCLUSION] = { .shaderIndex = RTDS_SHADOW_MISS };
+      SGeneralShaderGroup missGroups[EMT_COUNT];
+      missGroups[EMT_PRIMARY] = { .shaderIndex = RTDS_MISS };
+      missGroups[EMT_OCCLUSION] = { .shaderIndex = RTDS_SHADOW_MISS };
+      shaderGroups.missGroups = missGroups;
 
       auto getHitGroupIndex = [](E_GEOM_TYPE geomType, E_RAY_TYPE rayType)
         {
           return geomType * ERT_COUNT + rayType;
         };
-      shaderGroups.hitGroups.resize(E_RAY_TYPE::ERT_COUNT * E_GEOM_TYPE::EGT_COUNT);
-      shaderGroups.hitGroups[getHitGroupIndex(EGT_TRIANGLES, ERT_PRIMARY)] = {
+      SHitShaderGroup hitGroups[E_RAY_TYPE::ERT_COUNT * E_GEOM_TYPE::EGT_COUNT];
+      hitGroups[getHitGroupIndex(EGT_TRIANGLES, ERT_PRIMARY)] = {
         .closestHitShaderIndex = RTDS_CLOSEST_HIT,
         .anyHitShaderIndex = RTDS_ANYHIT_COLOR,
       };
-      shaderGroups.hitGroups[getHitGroupIndex(EGT_TRIANGLES, ERT_OCCLUSION)] = {
+      hitGroups[getHitGroupIndex(EGT_TRIANGLES, ERT_OCCLUSION)] = {
         .closestHitShaderIndex = RTDS_CLOSEST_HIT,
         .anyHitShaderIndex = RTDS_ANYHIT_SHADOW,
       };
-      shaderGroups.hitGroups[getHitGroupIndex(EGT_PROCEDURAL, ERT_PRIMARY)] = {
+      hitGroups[getHitGroupIndex(EGT_PROCEDURAL, ERT_PRIMARY)] = {
         .closestHitShaderIndex = RTDS_SPHERE_CLOSEST_HIT,
         .anyHitShaderIndex = RTDS_ANYHIT_COLOR,
         .intersectionShaderIndex = RTDS_INTERSECTION,
       };
-      shaderGroups.hitGroups[getHitGroupIndex(EGT_PROCEDURAL, ERT_OCCLUSION)] = {
+      hitGroups[getHitGroupIndex(EGT_PROCEDURAL, ERT_OCCLUSION)] = {
         .closestHitShaderIndex = RTDS_CLOSEST_HIT,
         .anyHitShaderIndex = RTDS_ANYHIT_SHADOW,
         .intersectionShaderIndex = RTDS_INTERSECTION,
       };
+      shaderGroups.hitGroups = hitGroups;
 
-      shaderGroups.callableGroups.resize(ELT_COUNT);
-      shaderGroups.callableGroups[ELT_DIRECTIONAL] = { .shaderIndex = RTDS_DIRECTIONAL_CALL };
-      shaderGroups.callableGroups[ELT_POINT] = { .shaderIndex = RTDS_POINT_CALL };
-      shaderGroups.callableGroups[ELT_SPOT] = { .shaderIndex = RTDS_SPOT_CALL };
+      SGeneralShaderGroup callableGroups[ELT_COUNT];
+      callableGroups[ELT_DIRECTIONAL] = { .shaderIndex = RTDS_DIRECTIONAL_CALL };
+      callableGroups[ELT_POINT] = { .shaderIndex = RTDS_POINT_CALL };
+      callableGroups[ELT_SPOT] = { .shaderIndex = RTDS_SPOT_CALL };
+      shaderGroups.callableGroups = callableGroups;
 
       params.cached.maxRecursionDepth = 1;
 
@@ -1213,13 +1216,13 @@ private:
         const auto& gpuObject = m_gpuTriangleGeometries[i];
         const uint64_t vertexBufferAddress = gpuObject.bindings.vertex.buffer->getDeviceAddress();
         geomInfos[i] = {
+          .material = gpuObject.material,
           .vertexBufferAddress = vertexBufferAddress,
           .indexBufferAddress = gpuObject.useIndex() ? gpuObject.bindings.index.buffer->getDeviceAddress() : vertexBufferAddress,
           .vertexStride = gpuObject.vertexStride,
+          .objType = gpuObject.meta.type,
           .indexType = gpuObject.indexType,
           .smoothNormals = s_smoothNormals[gpuObject.meta.type],
-          .objType = gpuObject.meta.type,
-          .material = gpuObject.material,
         };
       }
     }
