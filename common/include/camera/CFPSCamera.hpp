@@ -50,12 +50,31 @@ public:
 
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4 const* referenceFrame = nullptr) override
     {
-        if (!virtualEvents.size())
+        // TODO: note, for FPS camera its assumed tilt is performed with respect to "world" up vector which is (0,1,0)
+        // but in reality its all about where -(gravity force) vector is, we can just add it and construct yaw quat with respect to this new custom vector instead
+
+        if (not virtualEvents.size() and not referenceFrame)
             return false;
 
         CReferenceTransform reference;
         if (not m_gimbal.extractReferenceTransform(&reference, referenceFrame))
             return false;
+
+        auto validateReference = [&]()
+        {
+            if (referenceFrame)
+            {
+                // invalidate roll
+                auto euler = glm::eulerAngles(reference.orientation) * 180.f / core::PI<float>();
+                auto roll = std::abs(euler.z);
+                constexpr float epsilon = 1.e-4f;
+
+                if (not (glm::epsilonEqual(roll, 0.f, epsilon) || glm::epsilonEqual(roll, 180.f, epsilon)))
+                    return false;
+            }
+
+            return true;
+        };
 
         auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
 
@@ -63,17 +82,12 @@ public:
 
         m_gimbal.begin();
         {
-            if (impulse.dVirtualRotation.x or impulse.dVirtualRotation.y or impulse.dVirtualRotation.z)
-            {
-                const auto rForward = glm::vec3(reference.frame[2]);
-                const float rPitch = atan2(glm::length(glm::vec2(rForward.x, rForward.z)), rForward.y) - glm::half_pi<float>(), gYaw = atan2(rForward.x, rForward.z);
-                const float newPitch = std::clamp<float>(rPitch + impulse.dVirtualRotation.x * m_rotationSpeedScale, MinVerticalAngle, MaxVerticalAngle), newYaw = gYaw + impulse.dVirtualRotation.y * m_rotationSpeedScale;
+            const auto rForward = glm::vec3(reference.frame[2]);
+            const float rPitch = atan2(glm::length(glm::vec2(rForward.x, rForward.z)), rForward.y) - glm::half_pi<float>(), gYaw = atan2(rForward.x, rForward.z);
+            const float newPitch = std::clamp<float>(rPitch + impulse.dVirtualRotation.x * m_rotationSpeedScale, MinVerticalAngle, MaxVerticalAngle), newYaw = gYaw + impulse.dVirtualRotation.y * m_rotationSpeedScale;
 
-                m_gimbal.setOrientation(glm::quat(glm::vec3(newPitch, newYaw, 0.0f)));
-            }
-
-            if (impulse.dVirtualTranslate.x or impulse.dVirtualTranslate.y or impulse.dVirtualTranslate.z)
-                m_gimbal.setPosition(glm::vec3(reference.frame[3]) + reference.orientation * glm::vec3(impulse.dVirtualTranslate));
+            if(validateReference()) m_gimbal.setOrientation(glm::quat(glm::vec3(newPitch, newYaw, 0.0f)));
+            m_gimbal.setPosition(glm::vec3(reference.frame[3]) + reference.orientation * glm::vec3(impulse.dVirtualTranslate));
         }
         m_gimbal.end();
 

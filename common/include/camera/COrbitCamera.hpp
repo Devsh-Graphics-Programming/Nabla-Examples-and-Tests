@@ -39,6 +39,8 @@ public:
 
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4 const* referenceFrame = nullptr) override
     {
+        // TODO: it must work differently, we should take another gimbal to control target
+
         // position on the sphere
         auto S = [&](double u, double v) -> float64_t3
         {
@@ -63,23 +65,19 @@ public:
         };
         */
 
-        double deltaU = {}, deltaV = {}, deltaDistance = {};
-
-        for (const auto& it : virtualEvents)
+        // partial derivative of S with respect to v
+        auto Sdv = [&](double u, double v) -> float64_t3
         {
-            if (it.type == it.MoveForward)
-                deltaDistance += it.magnitude;
-            else if (it.type == it.MoveBackward)
-                deltaDistance -= it.magnitude;
-            else if (it.type == it.MoveUp)
-                deltaU += it.magnitude;
-            else if (it.type == it.MoveDown)
-                deltaU -= it.magnitude;
-            else if (it.type == it.MoveRight)
-                deltaV += it.magnitude;
-            else if (it.type == it.MoveLeft)
-                deltaV -= it.magnitude;
-        }
+            return float64_t3
+            {
+                -std::sin(v) * std::cos(u),
+                -std::sin(v) * std::sin(u),
+                std::cos(v)
+            } *(double)m_distance;
+        };
+
+        auto impulse = m_gimbal.accumulate<AllowedVirtualEvents>(virtualEvents);
+        double deltaU = impulse.dVirtualTranslate.y, deltaV = impulse.dVirtualTranslate.x, deltaDistance = impulse.dVirtualTranslate.z;
 
         // TODO!
         constexpr auto nastyScalar = 0.01;
@@ -90,17 +88,6 @@ public:
         v += deltaV;
    
         m_distance = std::clamp<float>(m_distance += deltaDistance * nastyScalar, MinDistance, MaxDistance);
-
-        // partial derivative of S with respect to v
-        auto Sdv = [&](double u, double v) -> float64_t3
-        {
-            return float64_t3
-            {
-                -std::sin(v) * std::cos(u),
-                -std::sin(v) * std::sin(u),
-                std::cos(v)
-            } * (double) m_distance;
-        };
 
         const auto localSpherePostion = S(u, v);
         const auto newPosition = localSpherePostion + m_targetPosition;
