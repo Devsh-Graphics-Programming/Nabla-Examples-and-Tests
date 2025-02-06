@@ -46,34 +46,22 @@ struct Ray
     Payload<T> payload;
 };
 
-enum PTIntersectionType : uint16_t
+enum ProceduralIntersectionType : uint16_t
 {
-    PIT_NONE = 0,
     PIT_SPHERE,
     PIT_TRIANGLE,
     PIT_RECTANGLE
 };
 
-// TODO: check if this works for ambiguous arrays of Intersection
-// unsure if calling correct method
-struct IIntersection
-{
-    PTIntersectionType type = PIT_NONE;
-};
-
-template<PTIntersectionType shape>
-struct Intersection : IIntersection
-{
-    PTIntersectionType type = PIT_NONE;
-};
+template<ProceduralIntersectionType type>
+struct Intersection;
 
 template<>
-struct Intersection<PIT_SPHERE> : IIntersection
+struct Intersection<PIT_SPHERE>
 {
     static Intersection<PIT_SPHERE> create(NBL_CONST_REF_ARG(float32_t3) position, float32_t radius, uint32_t bsdfID, uint32_t lightID)
     {
         Intersection<PIT_SPHERE> retval;
-        retval.type = PIT_SPHERE;
         retval.position = position;
         retval.radius2 = radius * radius;
         retval.bsdfLightIDs = spirv::bitFieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
@@ -118,7 +106,7 @@ struct Intersection<PIT_SPHERE> : IIntersection
         // TODO
     }
 
-    float32_t3 generate_and
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t ObjSize = 5;
 
     float32_t3 position;
     float32_t radius2;
@@ -126,15 +114,104 @@ struct Intersection<PIT_SPHERE> : IIntersection
 };
 
 template<>
-struct Intersection<PIT_RECTANGLE> : IIntersection
+struct Intersection<PIT_TRIANGLE>
 {
+    static Intersection<PIT_TRIANGLE> create(NBL_CONST_REF_ARG(float32_t3) vertex0, NBL_CONST_REF_ARG(float32_t3) vertex1, NBL_CONST_REF_ARG(float32_t3) vertex2, uint32_t bsdfID, uint32_t lightID)
+    {
+        Intersection<PIT_TRIANGLE> retval;
+        retval.vertex0 = vertex0;
+        retval.vertex1 = vertex1;
+        retval.vertex2 = vertex2;
+        retval.bsdfLightIDs = spirv::bitFieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
+        return retval;
+    }
 
+    float intersect(NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(float32_t3) direction)
+    {
+        const float32_t3 edges[2] = { vertex1 - vertex0, vertex2 - vertex0 };
+
+        const float32_t3 h = nbl::hlsl::cross(direction, edges[1]);
+        const float a = nbl::hlsl::dot(edges[0], h);
+
+        const float32_t3 relOrigin = origin - vertex0;
+
+        const float u = nbl::hlsl::dot(relOrigin, h) / a;
+
+        const float32_t3 q = nbl::hlsl::cross(relOrigin, edges[0]);
+        const float v = nbl::hlsl::dot(direction, q) / a;
+
+        const float t = nbl::hlsl::dot(edges[1], q) / a;
+
+        const bool intersection = t > 0.f && u >= 0.f && v >= 0.f && (u + v) <= 1.f;
+        return intersection ? t : numeric_limits<float>::infinity;
+    }
+
+    float32_t3 getNormalTimesArea()
+    {
+        const float32_t3 edges[2] = { vertex1 - vertex0, vertex2 - vertex0 };
+        return nbl::hlsl::cross(edges[0], edges[1]) * 0.5f;
+    }
+
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t ObjSize = 10;
+
+    float32_t3 vertex0;
+    float32_t3 vertex1;
+    float32_t3 vertex2;
+    uint32_t bsdfLightIDs;
 };
 
 template<>
-struct Intersection<PIT_TRIANGLE> : IIntersection
+struct Intersection<PIT_RECTANGLE>
 {
+    static Intersection<PIT_TRIANGLE> create(NBL_CONST_REF_ARG(float32_t3) offset, NBL_CONST_REF_ARG(float32_t3) edge0, NBL_CONST_REF_ARG(float32_t3) edge1, uint32_t bsdfID, uint32_t lightID)
+    {
+        Intersection<PIT_TRIANGLE> retval;
+        retval.offset = offset;
+        retval.edge0 = edge0;
+        retval.edge1 = edge1;
+        retval.bsdfLightIDs = spirv::bitFieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
+        return retval;
+    }
 
+    float intersect(NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(float32_t3) direction)
+    {
+        const float32_t3 h = nbl::hlsl::cross(direction, edge1);
+        const float a = nbl::hlsl::dot(edge0, h);
+
+        const float32_t3 relOrigin = origin - offset;
+
+        const float u = nbl::hlsl::dot(relOrigin,h)/a;
+
+        const float32_t3 q = nbl::hlsl::cross(relOrigin, edge0);
+        const float v = nbl::hlsl::dot(direction, q) / a;
+
+        const float t = nbl::hlsl::dot(edge1, q) / a;
+
+        const bool intersection = t > 0.f && u >= 0.f && v >= 0.f && u <= 1.f && v <= 1.f;
+        return intersection ? t : numeric_limits<float>::infinity;
+    }
+
+    float32_t3 getNormalTimesArea()
+    {
+        return nbl::hlsl::cross(edge0, edge1);
+    }
+
+    void getNormalBasis(NBL_REF_ARG(float32_t3x3) basis, NBL_REF_ARG(float32_t2) extents)
+    {
+        extents = float32_t2(nbl::hlsl::length(edge0), nbl::hlsl::length(edge1));
+        basis[0] = edge0 / extents[0];
+        basis[1] = edge1 / extents[1];
+        basis[2] = normalize(cross(basis[0],basis[1]));
+
+        basis = nbl::hlsl::transpose<matrix3x3_type>(basis);    // TODO: double check transpose
+    }
+
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t ObjSize = 10;
+
+    float32_t3 offset;
+    float32_t3 edge0;
+    float32_t3 edge1;
+    uint32_t bsdfLightIDs;
 };
 
 }
