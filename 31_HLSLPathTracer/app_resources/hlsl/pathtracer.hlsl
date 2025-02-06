@@ -26,7 +26,7 @@ struct Unidirectional
     // closest hit
 
     // Li
-    MaterialSystem::measure_t getMeasure()
+    MaterialSystem::measure_type getMeasure()
     {
         // loop through bounces, do closest hit
         // return ray.payload.accumulation --> color
