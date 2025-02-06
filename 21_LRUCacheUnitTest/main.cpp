@@ -83,22 +83,19 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 
 			cache.print(m_logger);
 
-			// Previous gets left the cahce with LRU order 13 11 10 12
-
 			//non const, const
 			int i = 0;
-			// This insert makes LRU order 1 13 11 10 12
 			cache.insert(++i, '1');
-			// This insert evicts 12 -> 2 1 13 11 10
+			assert(cache.getState() == "{12, e}, {10, c}, {11, d}, {13, f}, {1, 1}");
 			cache.insert(++i, '2');
-			// This insert evicts 10 -> 3 2 1 13 11 
+			assert(cache.getState() == "{10, c}, {11, d}, {13, f}, {1, 1}, {2, 2}");
 			cache.insert(++i, '3');
+			assert(cache.getState() == "{11, d}, {13, f}, {1, 1}, {2, 2}, {3, 3}");
 			returned = *(cache.get(1));
 			assert(returned == '1');
 
 			//const, non const
 			char ch = 'N';
-			// This insert evicts 11 -> 4 3 2 1 13 
 			cache.insert(4, ch);
 
 			returned = *(cache.peek(4));
@@ -107,7 +104,6 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 			//non const, non const
 			i = 6;
 			ch = 'Y';
-			// This insert evicts 13 -> 6 4 3 2 1
 			cache.insert(i, ch);
 
 			returned = *(cache.get(6));
@@ -128,10 +124,11 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 			m_logger->log("Clearing test");
 			m_logger->log("Print contents before clearing");
 			cache.print(m_logger);
-			// Clearing is done in LRU order, so for current state 6 4 3 2 1 (6 being last recently used) you should see evictions in that order
+			assert(cache.getState() == "{2, 2}, {3, 3}, {1, 1}, {4, N}, {6, Y}");
 			cache.clear();
 			m_logger->log("Print contents after clearing");
 			cache.print(m_logger);
+			assert(cache.getState() == "");
 
 			ResizableLRUCache<int, std::string> cache2(5u);
 
@@ -145,6 +142,45 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 			i = 111;
 			cache2.print(m_logger);
 			cache2.insert(++i, "key is 112");
+
+			// Grow test - try growing the cache
+			m_logger->log("Growing test");
+			auto previousState = cache2.getState();
+			// Grow cache
+			assert(cache2.grow(10));
+			// Cache state should be the same
+			assert(cache2.getState() == previousState);
+			cache2.print(m_logger);
+			cache2.insert(++i, "key is 113");
+			cache2.insert(++i, "key is 114");
+			cache2.insert(++i, "key is 115");
+			cache2.insert(++i, "key is 116");
+			cache2.insert(++i, "key is 117");
+			cache2.print(m_logger);
+			// Should evict key 52
+			cache2.insert(++i, "key is 118");
+			cache2.print(m_logger);
+			const auto latestState = cache2.getState();
+			assert(latestState == "{21, key is 21}, {22, key is 22}, {23, key is 23}, {112, key is 112}, {113, key is 113}, {114, key is 114}, {115, key is 115}, {116, key is 116}, {117, key is 117}, {118, key is 118}");
+			// Invalid grow should fail
+			assert(!cache2.grow(5));
+			assert(!cache2.grow(10));
+			// Call a bunch of grows that shouldn't fail and some others that should
+			for (auto i = 1u; i < 50; i++)
+			{
+				assert(cache2.grow(50 * i));
+				assert(!cache2.grow(25 * i));
+				assert(!cache2.grow(50 * i));
+				assert(cache2.getState() == latestState);
+			}
+			
+			// Single element cache test - checking for edge cases
+			ResizableLRUCache<int, std::string> cache3(1u);
+			cache3.insert(0, "foo");
+			cache3.insert(1, "bar");
+			cache3.clear();
+
+			m_logger->log("all good");
 
 			m_textureLRUCache = std::unique_ptr<TextureLRUCache>(new TextureLRUCache(1024u));
 			{
@@ -163,26 +199,6 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 				const auto nextSemaSignal = intendedNextSubmit.getFutureScratchSemaphore();
 				TextureReference* inserted = m_textureLRUCache->insert(69420, nextSemaSignal.value, evictionCallback);
 			}
-
-		#ifdef _NBL_DEBUG
-			cache2.print(m_logger);
-		#endif
-
-			// Grow test - try growing the cache
-			m_logger->log("Growing test");
-			cache2.grow(10);
-			cache2.print(m_logger);
-			cache2.insert(++i, "key is 113");
-			cache2.insert(++i, "key is 114");
-			cache2.insert(++i, "key is 115");
-			cache2.insert(++i, "key is 116");
-			cache2.insert(++i, "key is 117");
-			cache2.print(m_logger);
-			// Should evict key 52
-			cache2.insert(++i, "key is 118");
-			m_logger->log("Key 52 should have been evicted:");
-			cache2.print(m_logger);
-			m_logger->log("all good");
 
 			constexpr uint32_t InvalidIdx = ~0u;
 			struct TextureReference
