@@ -26,10 +26,14 @@ class RaytracingPipelineApp final : public examples::SimpleWindowedApplication, 
 
   struct ShaderBindingTable
   {
-    SStridedBufferRegion<IGPUBuffer> raygenGroupRegion;
-    SStridedBufferRegion<IGPUBuffer> hitGroupsRegion;
-    SStridedBufferRegion<IGPUBuffer> missGroupsRegion;
-    SStridedBufferRegion<IGPUBuffer> callableGroupsRegion;
+    SBufferRange<IGPUBuffer> raygenGroupRange;
+    uint32_t raygenGroupStride;
+    SBufferRange<IGPUBuffer> hitGroupsRange;
+    uint32_t hitGroupsStride;
+    SBufferRange<IGPUBuffer> missGroupsRange;
+    uint32_t missGroupsStride;
+    SBufferRange<IGPUBuffer> callableGroupsRange;
+    uint32_t callableGroupsStride;
   };
 
 
@@ -718,10 +722,11 @@ public:
       cmdbuf->bindRayTracingPipeline(m_rayTracingPipeline.get());
       cmdbuf->pushConstants(m_rayTracingPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_ALL_RAY_TRACING, 0, sizeof(SPushConstants), &pc);
       cmdbuf->bindDescriptorSets(EPBP_RAY_TRACING, m_rayTracingPipeline->getLayout(), 0, 1, &m_rayTracingDs.get());
-      cmdbuf->traceRays(m_shaderBindingTable.raygenGroupRegion,
-        m_shaderBindingTable.missGroupsRegion,
-        m_shaderBindingTable.hitGroupsRegion,
-        m_shaderBindingTable.callableGroupsRegion,
+      cmdbuf->traceRays(
+        m_shaderBindingTable.raygenGroupRange, m_shaderBindingTable.raygenGroupStride,
+        m_shaderBindingTable.missGroupsRange, m_shaderBindingTable.missGroupsStride,
+        m_shaderBindingTable.hitGroupsRange, m_shaderBindingTable.hitGroupsStride,
+        m_shaderBindingTable.callableGroupsRange, m_shaderBindingTable.callableGroupsStride,
         WIN_W, WIN_H, 1);
     }
 
@@ -1288,36 +1293,36 @@ private:
     const auto handleSize = SPhysicalDeviceLimits::ShaderGroupHandleSize;
     const auto handleSizeAligned = nbl::core::alignUp(handleSize, limits.shaderGroupHandleAlignment);
 
-    auto& raygenRegion = m_shaderBindingTable.raygenGroupRegion;
-    auto& hitRegion = m_shaderBindingTable.hitGroupsRegion;
-    auto& missRegion = m_shaderBindingTable.missGroupsRegion;
-    auto& callableRegion = m_shaderBindingTable.callableGroupsRegion;
+    auto& raygenRange = m_shaderBindingTable.raygenGroupRange;
+    auto& hitRange = m_shaderBindingTable.hitGroupsRange;
+    auto& missRange = m_shaderBindingTable.missGroupsRange;
+    auto& callableRange = m_shaderBindingTable.callableGroupsRange;
 
-    raygenRegion = {
+    raygenRange = {
       .offset = 0,
-      .stride = core::alignUp(handleSizeAligned, limits.shaderGroupBaseAlignment),
       .size = core::alignUp(handleSizeAligned, limits.shaderGroupBaseAlignment)
     };
+    m_shaderBindingTable.raygenGroupStride = core::alignUp(handleSizeAligned, limits.shaderGroupBaseAlignment);
 
-    missRegion = {
-      .offset = raygenRegion.size,
-      .stride = handleSizeAligned,
+    missRange = {
+      .offset = raygenRange.size,
       .size = core::alignUp(pipeline->getMissGroupCount() * handleSizeAligned, limits.shaderGroupBaseAlignment),
     };
+    m_shaderBindingTable.missGroupsStride = handleSizeAligned;
 
-    hitRegion = {
-      .offset = missRegion.offset + missRegion.size,
-      .stride = handleSizeAligned,
+    hitRange = {
+      .offset = missRange.offset + missRange.size,
       .size = core::alignUp(pipeline->getHitGroupCount() * handleSizeAligned, limits.shaderGroupBaseAlignment),
     };
+    m_shaderBindingTable.hitGroupsStride = handleSizeAligned;
 
-    callableRegion = {
-      .offset = hitRegion.offset + hitRegion.size,
-      .stride = handleSizeAligned,
+    callableRange = {
+      .offset = hitRange.offset + hitRange.size,
       .size = core::alignUp(pipeline->getCallableGroupCount() * handleSizeAligned, limits.shaderGroupBaseAlignment),
     };
+    m_shaderBindingTable.callableGroupsStride = handleSizeAligned;
 
-    const auto bufferSize = raygenRegion.size + missRegion.size + hitRegion.size + callableRegion.size;
+    const auto bufferSize = raygenRange.size + missRange.size + hitRange.size + callableRange.size;
 
     ICPUBuffer::SCreationParams cpuBufferParams;
     cpuBufferParams.size = bufferSize;
@@ -1328,37 +1333,37 @@ private:
     memcpy(pData, pipeline->getRaygenGroupShaderHandle().data(), handleSize);
 
     // copy miss region
-    uint8_t* pMissData = pData + missRegion.offset;
+    uint8_t* pMissData = pData + missRange.offset;
     for (int32_t missIx = 0; missIx < pipeline->getMissGroupCount(); missIx++)
     {
       memcpy(pMissData, pipeline->getMissGroupShaderHandle(missIx).data(), handleSize);
-      pMissData += missRegion.stride;
+      pMissData += m_shaderBindingTable.missGroupsStride;
     }
 
     // copy hit region
-    uint8_t* pHitData = pData + hitRegion.offset;
+    uint8_t* pHitData = pData + hitRange.offset;
     for (int32_t hitIx = 0; hitIx < pipeline->getHitGroupCount(); hitIx++)
     {
       memcpy(pHitData, pipeline->getHitGroupShaderHandle(hitIx).data(), handleSize);
-      pHitData += hitRegion.stride;
+      pHitData += m_shaderBindingTable.hitGroupsStride;
     }
 
     // copy callable region
-    uint8_t* pCallableData = pData + callableRegion.offset;
+    uint8_t* pCallableData = pData + callableRange.offset;
     for (int32_t callableIx = 0; callableIx < pipeline->getCallableGroupCount(); callableIx++)
     {
       memcpy(pCallableData, pipeline->getCallableGroupShaderHandle(callableIx).data(), handleSize);
-      pCallableData += callableRegion.stride;
+      pCallableData += m_shaderBindingTable.callableGroupsStride;
     }
 
     {
       IGPUBuffer::SCreationParams params;
       params.usage = IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | IGPUBuffer::EUF_SHADER_BINDING_TABLE_BIT;
       params.size = bufferSize;
-      m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = queue }, std::move(params), pData).move_into(raygenRegion.buffer);
-      missRegion.buffer = core::smart_refctd_ptr(raygenRegion.buffer);
-      hitRegion.buffer = core::smart_refctd_ptr(raygenRegion.buffer);
-      callableRegion.buffer = core::smart_refctd_ptr(raygenRegion.buffer);
+      m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = queue }, std::move(params), pData).move_into(raygenRange.buffer);
+      missRange.buffer = core::smart_refctd_ptr(raygenRange.buffer);
+      hitRange.buffer = core::smart_refctd_ptr(raygenRange.buffer);
+      callableRange.buffer = core::smart_refctd_ptr(raygenRange.buffer);
     }
 
     return true;
