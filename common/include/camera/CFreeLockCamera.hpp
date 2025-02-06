@@ -86,7 +86,7 @@ public:
 
     virtual bool manipulate(std::span<const CVirtualGimbalEvent> virtualEvents, const float64_t4x4 const* referenceFrame = nullptr) override
     {
-        if (!virtualEvents.size())
+        if (not virtualEvents.size() and not referenceFrame)
             return false;
 
         CReferenceTransform reference;
@@ -107,17 +107,12 @@ public:
 
         m_gimbal.begin();
         {
-            if (impulse.dVirtualRotation.x or impulse.dVirtualRotation.y or impulse.dVirtualRotation.z)
-            {
-                glm::quat pitch = glm::angleAxis<float>(impulse.dVirtualRotation.x, glm::vec3(reference.frame[0]));
-                glm::quat yaw = glm::angleAxis<float>(impulse.dVirtualRotation.y, glm::vec3(reference.frame[1]));
-                glm::quat roll = glm::angleAxis<float>(impulse.dVirtualRotation.z, glm::vec3(reference.frame[2]));
+            glm::quat pitch = glm::angleAxis<float>(impulse.dVirtualRotation.x, glm::vec3(reference.frame[0]));
+            glm::quat yaw = glm::angleAxis<float>(impulse.dVirtualRotation.y, glm::vec3(reference.frame[1]));
+            glm::quat roll = glm::angleAxis<float>(impulse.dVirtualRotation.z, glm::vec3(reference.frame[2]));
 
-                m_gimbal.setOrientation(yaw * pitch * roll * reference.orientation);
-            }
-
-            if(impulse.dVirtualTranslate.x or impulse.dVirtualTranslate.y or impulse.dVirtualTranslate.z)
-                m_gimbal.setPosition(glm::vec3(reference.frame[3]) + reference.orientation * glm::vec3(impulse.dVirtualTranslate));
+            m_gimbal.setOrientation(yaw * pitch * roll * reference.orientation);
+            m_gimbal.setPosition(glm::vec3(reference.frame[3]) + reference.orientation * glm::vec3(impulse.dVirtualTranslate));
         }
         m_gimbal.end();
 

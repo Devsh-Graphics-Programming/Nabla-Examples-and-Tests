@@ -2062,24 +2062,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				ImGuiInputTextFlags flags = 0;
 
 				ImGui::InputFloat3("Tr", &matrixTranslation[0], "%.3f", flags);
-
-				if (boundCameraToManipulate) // TODO: cameras are WiP here, imguizmo controller only works with translate manipulation + abs are banned currently
-				{
-					ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(1.0f, 0.0f, 0.0f, 0.5f));
-					flags |= ImGuiInputTextFlags_ReadOnly;
-				}
-
 				ImGui::InputFloat3("Rt", &matrixRotation[0], "%.3f", flags);
 				ImGui::InputFloat3("Sc", &matrixScale[0], "%.3f", flags);
-
-				if(boundCameraToManipulate)
-					ImGui::PopStyleColor();
 			}
 			ImGuizmo::RecomposeMatrixFromComponents(&matrixTranslation[0], &matrixRotation[0], &matrixScale[0], m16TRSmatrix);
 			recomposed = *reinterpret_cast<float32_t4x4*>(m16TRSmatrix);
-
-			// TODO AND NOTE: I only take care of translate part temporary!
-			imguizmoModel.outDeltaTRS[3] = recomposed[3] - decomposed[3];
 
 			if (mCurrentGizmoOperation != ImGuizmo::SCALE)
 			{
@@ -2110,6 +2097,19 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				// generate virtual events given delta TRS matrix
 				if (boundCameraToManipulate)
 				{
+					const float pmSpeed = boundCameraToManipulate->getMoveSpeedScale();
+					const float prSpeed = boundCameraToManipulate->getRotationSpeedScale();
+
+					boundCameraToManipulate->setMoveSpeedScale(1);
+					boundCameraToManipulate->setRotationSpeedScale(1);
+
+					auto referenceFrame = getCastedMatrix<float64_t>(imguizmoModel.outTRS);
+					boundCameraToManipulate->manipulate({}, &referenceFrame);
+
+					boundCameraToManipulate->setMoveSpeedScale(pmSpeed);
+					boundCameraToManipulate->setRotationSpeedScale(prSpeed);
+
+					/*
 					{
 						static std::vector<CVirtualGimbalEvent> virtualEvents(0x45);
 
@@ -2141,13 +2141,15 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 								boundCameraToManipulate->setMoveSpeedScale(1);
 								boundCameraToManipulate->setRotationSpeedScale(1);
 
-								boundCameraToManipulate->manipulate({ virtualEvents.data(), vCount });
+								auto referenceFrame = getCastedMatrix<float64_t>(imguizmoModel.outTRS);
+								boundCameraToManipulate->manipulate({ virtualEvents.data(), vCount }, &referenceFrame);
 
 								boundCameraToManipulate->setMoveSpeedScale(pmSpeed);
 								boundCameraToManipulate->setRotationSpeedScale(prSpeed);
 							}
 						}
 					}
+					*/
 				}
 				else
 				{
