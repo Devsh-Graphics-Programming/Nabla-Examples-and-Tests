@@ -21,10 +21,10 @@ void main(inout ColorPayload p, in BuiltInTriangleIntersectionAttributes attribs
     CallShader(pc.light.type, cLight);
 
     // Material of the object
-    Material mat = sphere.material;
+    Material material = unpackMaterial(sphere.material);
 
     // Diffuse
-    float3 diffuse = computeDiffuse(sphere.material, cLight.outLightDir, worldNormal);
+    float3 diffuse = computeDiffuse(material, cLight.outLightDir, worldNormal);
     float3 specular = float3(0, 0, 0);
     float attenuation = 1;
 
@@ -53,7 +53,7 @@ void main(inout ColorPayload p, in BuiltInTriangleIntersectionAttributes attribs
         }
         else
         {
-            specular = computeSpecular(sphere.material, WorldRayDirection(), cLight.outLightDir, worldNormal);
+            specular = computeSpecular(material, WorldRayDirection(), cLight.outLightDir, worldNormal);
         }
     }
 

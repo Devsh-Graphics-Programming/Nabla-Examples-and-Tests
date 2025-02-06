@@ -5,6 +5,38 @@
 
 NBL_CONSTEXPR uint32_t WorkgroupSize = 16;
 
+inline uint32_t packUnorm10(float32_t v)
+{
+    return trunc(v * 1023.0f + 0.5f);
+}
+
+inline float32_t unpackUnorm10(uint32_t packed)
+{
+    return float32_t(packed & 0x3ff) * (1.0f / 1023.0f);
+}
+
+inline uint32_t packUnorm18(float32_t v)
+{
+    const float maxValue = 262143;
+    return trunc(v * maxValue + 0.5f);
+}
+
+inline float32_t unpackUnorm18(uint32_t packed)
+{
+    const float maxValue = 262143;
+    return float32_t(packed & 0x3ffff) * (1.0f / maxValue);
+}
+
+inline uint32_t packUnorm3x10(float32_t3 v)
+{
+    return (packUnorm10(v.z) << 20 | (packUnorm10(v.y) << 10 | packUnorm10(v.x)));
+}
+
+inline float32_t3 unpackUnorm3x10(uint32_t packed)
+{
+    return float32_t3(unpackUnorm10(packed), unpackUnorm10(packed >> 10), unpackUnorm10(packed >> 20));
+}
+
 struct Material
 {
 	float32_t3 ambient;
@@ -15,16 +47,50 @@ struct Material
     uint32_t illum; // illumination model (see http://www.fileformat.info/format/material/)
 };
 
-struct SProceduralGeomInfo
+struct MaterialPacked
+{
+	uint32_t ambient;
+    uint32_t diffuse;
+    uint32_t specular;
+    uint32_t shininess: 18;
+    uint32_t dissolve : 10; // 1 == opaque; 0 == fully transparent
+    uint32_t illum : 4; // illumination model (see http://www.fileformat.info/format/material/)
+};
+
+inline MaterialPacked packMaterial(Material material)
+{
+    MaterialPacked packed;
+    packed.ambient = packUnorm3x10(material.ambient);      
+    packed.diffuse = packUnorm3x10(material.diffuse);
+    packed.specular = packUnorm3x10(material.specular);      
+    packed.shininess = packUnorm18(material.shininess);
+    packed.dissolve = packUnorm10(material.dissolve);
+    packed.illum = material.illum;
+    return packed;
+}
+
+inline Material unpackMaterial(MaterialPacked packed)
 {
     Material material;
+    material.ambient = unpackUnorm3x10(packed.ambient);
+    material.diffuse = unpackUnorm3x10(packed.diffuse);
+    material.specular = unpackUnorm3x10(packed.specular);
+    material.shininess = unpackUnorm18(packed.shininess);
+    material.dissolve = unpackUnorm10(packed.dissolve);
+    material.illum = packed.illum;
+    return material;
+}
+
+struct SProceduralGeomInfo
+{
+    MaterialPacked material;
     float32_t3 center;
     float32_t radius;
 };
 
 struct STriangleGeomInfo
 {
-    Material material;
+    MaterialPacked material;
     uint64_t vertexBufferAddress;
     uint64_t indexBufferAddress;
 
@@ -89,7 +155,6 @@ struct SPushConstants
     uint32_t frameCounter;
     float32_t4x4 invMVP;
 
-
     Light light;
 };
 
@@ -101,6 +166,7 @@ struct RayLight
     float32_t3 outLightDir;
     float32_t outIntensity;
 };
+
 
 #ifdef __HLSL_VERSION
 

@@ -120,12 +120,13 @@ void main(inout ColorPayload p, in BuiltInTriangleIntersectionAttributes attribs
     const VertexData vertexData = fetchVertexData(instID, primID, geom, attribs.barycentrics);
     const float32_t3 worldPosition = mul(ObjectToWorld3x4(), float32_t4(vertexData.position, 1));
     const float32_t3 worldNormal = normalize(mul(vertexData.normal, WorldToObject3x4()).xyz);
+    const Material material = unpackMaterial(geom.material);
 
     RayLight cLight;
     cLight.inHitPosition = worldPosition;
     CallShader(pc.light.type, cLight);
 
-    float32_t3 diffuse = computeDiffuse(geom.material, cLight.outLightDir, worldNormal);
+    float32_t3 diffuse = computeDiffuse(material, cLight.outLightDir, worldNormal);
     float32_t3 specular = float32_t3(0, 0, 0);
     float32_t attenuation = 1;
 
@@ -150,7 +151,7 @@ void main(inout ColorPayload p, in BuiltInTriangleIntersectionAttributes attribs
         }
         else
         {
-            specular = computeSpecular(geom.material, WorldRayDirection(), cLight.outLightDir, worldNormal);
+            specular = computeSpecular(material, WorldRayDirection(), cLight.outLightDir, worldNormal);
         }
     }
     p.hitValue = (cLight.outIntensity * attenuation * (diffuse + specular));

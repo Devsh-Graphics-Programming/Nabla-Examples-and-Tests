@@ -16,13 +16,14 @@ void main(inout AnyHitPayload p, in BuiltInTriangleIntersectionAttributes attrib
 {
     const int instID = InstanceID();
     const STriangleGeomInfo geom = vk::RawBufferLoad < STriangleGeomInfo > (pc.triangleGeomInfoBuffer + instID * sizeof(STriangleGeomInfo));
+    const Material material = unpackMaterial(geom.material);
     
-    if (geom.material.illum != 4)
+    if (material.illum != 4)
         return;
 
     uint32_t seed = p.seed;
-    if (geom.material.dissolve == 0.0)
+    if (material.dissolve == 0.0)
         IgnoreHit();
-    else if (rnd(seed) > geom.material.dissolve)
+    else if (rnd(seed) > material.dissolve)
         IgnoreHit();
 }
