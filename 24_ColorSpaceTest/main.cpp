@@ -273,16 +273,15 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 				// Let's just use the same queue since there's no need for async present
 				if (!m_surface || !m_surface->init(queue, std::move(scResources), swapchainParams.sharedParams))
 					return logFail("Could not create Window & Surface or initialize the Surface!");
-				m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
 
 				// create the descriptor sets, 1 per FIF and with enough room for one image sampler
 				{
-					const uint32_t setCount = m_maxFramesInFlight;
+					const uint32_t setCount = MaxFramesInFlight;
 					auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, { &dsLayout.get(),1 }, &setCount);
 					if (!pool)
 						return logFail("Failed to Create Descriptor Pool");
 
-					for (auto i = 0u; i < m_maxFramesInFlight; i++)
+					for (auto i = 0u; i < MaxFramesInFlight; i++)
 					{
 						m_descriptorSets[i] = pool->createDescriptorSet(core::smart_refctd_ptr(dsLayout));
 						if (!m_descriptorSets[i])
@@ -293,7 +292,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 				// need resetttable commandbuffers for the upload utility
 				m_cmdPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 				// create the commandbuffers
-				for (auto i = 0u; i < m_maxFramesInFlight; i++)
+				for (auto i = 0u; i < MaxFramesInFlight; i++)
 				{
 					if (!m_cmdPool)
 						return logFail("Couldn't create Command Pool!");
@@ -373,7 +372,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					const auto* inImage = outViewParams.image.get();
 
 					const auto inImageParams = inImage->getCreationParameters();
-					smart_refctd_ptr<ICPUBuffer> inBuffer = core::make_smart_refctd_ptr<asset::CCustomAllocatorCPUBuffer<core::null_allocator<uint8_t>, true> >(inImage->getBuffer()->getSize(), (uint8_t*)inImage->getBuffer()->getPointer(), core::adopt_memory); // adopt memory & don't free it on exit
+					smart_refctd_ptr<ICPUBuffer> inBuffer = asset::ICPUBuffer::create({ { inImage->getBuffer()->getSize() }, const_cast<void*>(inImage->getBuffer()->getPointer()), core::getNullMemoryResource() }, core::adopt_memory); // adopt memory & don't free it on exit
 					const auto inRegions = inImage->getRegionArray();
 					const auto inAmountOfRegions = inRegions->size();
 
@@ -632,19 +631,25 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 				}
 				else
 				{
-					// Can't reset a cmdbuffer before the previous use of commandbuffer is finished!
-					if (m_submitIx>=m_maxFramesInFlight)
+					// framesInFlight: ensuring safe execution of command buffers and acquires, `framesInFlight` only affect semaphore waits, don't use this to index your resources because it can change with swapchain recreation.
+					const uint32_t framesInFlight = core::min(MaxFramesInFlight, m_surface->getMaxAcquiresInFlight());
+					// We block for semaphores for 2 reasons here:
+						// A) Resource: Can't use resource like a command buffer BEFORE previous use is finished! [MaxFramesInFlight]
+						// B) Acquire: Can't have more acquires in flight than a certain threshold returned by swapchain or your surface helper class. [MaxAcquiresInFlight]
+					if (m_submitIx >= framesInFlight)
 					{
-						const ISemaphore::SWaitInfo cmdbufDonePending[] = {
-							{ 
+						const ISemaphore::SWaitInfo cbDonePending[] =
+						{
+							{
 								.semaphore = m_semaphore.get(),
-								.value = m_submitIx+1-m_maxFramesInFlight
+								.value = m_submitIx + 1 - framesInFlight
 							}
 						};
-						if (m_device->blockForSemaphores(cmdbufDonePending)!=ISemaphore::WAIT_RESULT::SUCCESS)
+						if (m_device->blockForSemaphores(cbDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
 							return false;
 					}
-					const auto resourceIx = m_submitIx%m_maxFramesInFlight;
+
+					const auto resourceIx = m_submitIx%MaxFramesInFlight;
 
 					// we don't want to overcomplicate the example with multi-queue
 					auto queue = getGraphicsQueue();
@@ -964,12 +969,12 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 		smart_refctd_ptr<ISemaphore> m_scratchSemaphore;
 		SIntendedSubmitInfo m_intendedSubmit;
 		// Use a separate counter to cycle through our resources for clarity
-		uint64_t m_submitIx : 59 = 0;
-		// Maximum frames which can be simultaneously rendered
-		uint64_t m_maxFramesInFlight : 5;
+		uint64_t m_submitIx = 0;
+		// Maximum frames which can be simultaneously submitted,used to cycle through our per-frame resources like command buffers
+		constexpr static inline uint32_t MaxFramesInFlight = 3u;
 		// Enough Command Buffers and other resources for all frames in flight!
-		std::array<smart_refctd_ptr<IGPUDescriptorSet>,ISwapchain::MaxImages> m_descriptorSets;
-		std::array<smart_refctd_ptr<IGPUCommandBuffer>,ISwapchain::MaxImages> m_cmdBufs;
+		std::array<smart_refctd_ptr<IGPUDescriptorSet>,MaxFramesInFlight> m_descriptorSets;
+		std::array<smart_refctd_ptr<IGPUCommandBuffer>,MaxFramesInFlight> m_cmdBufs;
 
 	private:
 

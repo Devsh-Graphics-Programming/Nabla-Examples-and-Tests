@@ -247,14 +247,10 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
  			if (!m_surface || !m_surface->init(m_surface->pickQueue(m_device.get()),std::make_unique<CSwapchainResources>(),{}))
 				return logFail("Failed to Create a Swapchain!");
 
-			// When a swapchain gets recreated (resize or mode change) the number of images might change.
-			// So we need the maximum possible number of in-flight resources so we never have too little.
-			m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
-
 			// Normally you'd want to recreate these images whenever the swapchain is resized in some increment, like 64 pixels or something.
 			// But I'm super lazy here and will just create "worst case sized images" and waste all the VRAM I can get.
 			const auto dpyInfo = m_winMgr->getPrimaryDisplayInfo();
-			for (auto i=0; i<m_maxFramesInFlight; i++)
+			for (auto i=0; i<MaxFramesInFlight; i++)
 			{
 				auto& image = m_tripleBuffers[i];
 				{
@@ -308,7 +304,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 			// This time we'll creaate all CommandBuffers from one CommandPool, to keep life simple. However the Pool must support individually resettable CommandBuffers
 			// because they cannot be pre-recorded because the fraembuffers/swapchain images they use will change when a swapchain recreates.
 			auto pool = m_device->createCommandPool(getGraphicsQueue()->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-			if (!pool || !pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{m_cmdBufs.data(),m_maxFramesInFlight},core::smart_refctd_ptr(m_logger)))
+			if (!pool || !pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{m_cmdBufs.data(),MaxFramesInFlight},core::smart_refctd_ptr(m_logger)))
 				return logFail("Failed to Create CommandBuffers!");
 
 			// Help the CI a bit by providing a timeout option
@@ -322,13 +318,17 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 		// We do a very simple thing, and just keep on clearing the swapchain image to red and present
 		void workLoopBody() override
 		{
-			// Can't reset a cmdbuffer before the previous use of commandbuffer is finished!
-			if (m_realFrameIx>=m_maxFramesInFlight)
+			// framesInFlight: ensuring safe execution of command buffers and acquires, `framesInFlight` only affect semaphore waits, don't use this to index your resources because it can change with swapchain recreation.
+			const uint32_t framesInFlight = core::min(MaxFramesInFlight, m_surface->getMaxAcquiresInFlight());
+			// We block for semaphores for 2 reasons here:
+				// A) Resource: Can't use resource like a command buffer BEFORE previous use is finished! [MaxFramesInFlight]
+				// B) Acquire: Can't have more acquires in flight than a certain threshold returned by swapchain or your surface helper class. [MaxAcquiresInFlight]
+			if (m_realFrameIx>=framesInFlight)
 			{
 				const ISemaphore::SWaitInfo cmdbufDonePending[] = {
 					{ 
 						.semaphore = m_semaphore.get(),
-						.value = m_realFrameIx+1-m_maxFramesInFlight
+						.value = m_realFrameIx+1-framesInFlight
 					}
 				};
 				if (m_device->blockForSemaphores(cmdbufDonePending)!=ISemaphore::WAIT_RESULT::SUCCESS)
@@ -343,7 +343,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 			const VkRect2D currentRenderArea = {.offset={0,0},.extent=currentSwapchainExtent};
 			
 			// You explicitly should not use `getAcquireCount()` see the comment on `m_realFrameIx`
-			const auto resourceIx = m_realFrameIx%m_maxFramesInFlight;
+			const auto resourceIx = m_realFrameIx%MaxFramesInFlight;
 
 			// We will be using this command buffer to produce the frame
 			auto frame = m_tripleBuffers[resourceIx].get();
@@ -475,20 +475,20 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 		// We can't use the same semaphore for acquire and present, because that would disable "Frames in Flight" by syncing previous present against next acquire.
 		// At least two timelines must be used.
 		smart_refctd_ptr<ISemaphore> m_semaphore;
+		// Maximum frames which can be simultaneously submitted,used to cycle through our per-frame resources like command buffers
+		constexpr static inline uint32_t MaxFramesInFlight = 3u;
 		// Use a separate counter to cycle through our resources because `getAcquireCount()` increases upon spontaneous resizes with immediate blit-presents 
-		uint64_t m_realFrameIx : 59 = 0;
-		// Maximum frames which can be simultaneously rendered
-		uint64_t m_maxFramesInFlight : 5;
+		uint64_t m_realFrameIx = 0;
 		// We'll write to the Triple Buffer with a Renderpass
 		core::smart_refctd_ptr<IGPURenderpass> m_renderpass = {};
 		// These are atomic counters where the Surface lets us know what's the latest Blit timeline semaphore value which will be signalled on the resource
-		std::array<std::atomic_uint64_t,ISwapchain::MaxImages> m_blitWaitValues;
+		std::array<std::atomic_uint64_t,MaxFramesInFlight> m_blitWaitValues;
 		// Enough Command Buffers and other resources for all frames in flight!
-		std::array<smart_refctd_ptr<IGPUCommandBuffer>,ISwapchain::MaxImages> m_cmdBufs;
+		std::array<smart_refctd_ptr<IGPUCommandBuffer>,MaxFramesInFlight> m_cmdBufs;
 		// Our own persistent images that don't get recreated with the swapchain
-		std::array<smart_refctd_ptr<IGPUImage>,ISwapchain::MaxImages> m_tripleBuffers;
+		std::array<smart_refctd_ptr<IGPUImage>,MaxFramesInFlight> m_tripleBuffers;
 		// Resources derived from the images
-		std::array<core::smart_refctd_ptr<IGPUFramebuffer>,ISwapchain::MaxImages> m_framebuffers = {};
+		std::array<core::smart_refctd_ptr<IGPUFramebuffer>,MaxFramesInFlight> m_framebuffers = {};
 };
 
 // define an entry point as always!
