@@ -55,28 +55,28 @@ struct Comprehensive
             float t;
             switch (type)
             {
-                case PIT_SPHERE:
+                case PST_SPHERE:
                 {
-                    float32_t3 position = float32_t3(asfloat(intersect.data[2 + i * Intersection<PIT_SPHERE>::ObjSize]), asfloat(intersect.data[2 + i * Intersection<PIT_SPHERE>::ObjSize + 1]), asfloat(intersect.data[2 + i * Intersection<PIT_SPHERE>::ObjSize + 2]));
-                    Intersection<PIT_SPHERE> sphere = Intersection<PIT_SPHERE>::create(position, asfloat(intersect.data[2 + i * Intersection<PIT_SPHERE>::ObjSize + 3]), intersect.data[2 + i * Intersection<PIT_SPHERE>::ObjSize + 4]);
+                    float32_t3 position = float32_t3(asfloat(intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize]), asfloat(intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize + 1]), asfloat(intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize + 2]));
+                    Shape<PST_SPHERE> sphere = Shape<PST_SPHERE>::create(position, asfloat(intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize + 3]), intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize + 4]);
                     t = sphere.intersect(ray.origin, ray.direction);
                 }
                 break;
-                case PIT_TRIANGLE:
+                case PST_TRIANGLE:
                 {
-                    float32_t3 vertex0 = float32_t3(asfloat(intersect.data[2 + i * Intersection<PIT_TRIANGLE>::ObjSize]), asfloat(intersect.data[2 + i * Intersection<PIT_SPHERE>::ObjSize + 1]), asfloat(intersect.data[2 + i * Intersection<PIT_TRIANGLE>::ObjSize + 2]));
-                    float32_t3 vertex1 = float32_t3(asfloat(intersect.data[2 + i * Intersection<PIT_TRIANGLE>::ObjSize + 3]), asfloat(intersect.data[2 + i * Intersection<PIT_SPHERE>::ObjSize + 4]), asfloat(intersect.data[2 + i * Intersection<PIT_TRIANGLE>::ObjSize + 5]));
-                    float32_t3 vertex2 = float32_t3(asfloat(intersect.data[2 + i * Intersection<PIT_TRIANGLE>::ObjSize + 6]), asfloat(intersect.data[2 + i * Intersection<PIT_SPHERE>::ObjSize + 7]), asfloat(intersect.data[2 + i * Intersection<PIT_TRIANGLE>::ObjSize + 8]));
-                    Intersection<PIT_TRIANGLE> tri = Intersection<PIT_TRIANGLE>::create(vertex0, vertex1, vertex2, intersect.data[2 + i * Intersection<PIT_TRIANGLE>::ObjSize + 9]);
+                    float32_t3 vertex0 = float32_t3(asfloat(intersect.data[2 + i * Shape<PST_TRIANGLE>::ObjSize]), asfloat(intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize + 1]), asfloat(intersect.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 2]));
+                    float32_t3 vertex1 = float32_t3(asfloat(intersect.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 3]), asfloat(intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize + 4]), asfloat(intersect.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 5]));
+                    float32_t3 vertex2 = float32_t3(asfloat(intersect.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 6]), asfloat(intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize + 7]), asfloat(intersect.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 8]));
+                    Shape<PST_TRIANGLE> tri = Shape<PST_TRIANGLE>::create(vertex0, vertex1, vertex2, intersect.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 9]);
                     t = tri.intersect(ray.origin, ray.direction);
                 }
                 break;
-                case PIT_RECTANGLE:
+                case PST_RECTANGLE:
                 {
-                    float32_t3 offset = float32_t3(asfloat(intersect.data[2 + i * Intersection<PIT_RECTANGLE>::ObjSize]), asfloat(intersect.data[2 + i * Intersection<PIT_RECTANGLE>::ObjSize + 1]), asfloat(intersect.data[2 + i * Intersection<PIT_RECTANGLE>::ObjSize + 2]));
-                    float32_t3 edge0 = float32_t3(asfloat(intersect.data[2 + i * Intersection<PIT_RECTANGLE>::ObjSize + 3]), asfloat(intersect.data[2 + i * Intersection<PIT_RECTANGLE>::ObjSize + 4]), asfloat(intersect.data[2 + i * Intersection<PIT_RECTANGLE>::ObjSize + 5]));
-                    float32_t3 edge1 = float32_t3(asfloat(intersect.data[2 + i * Intersection<PIT_RECTANGLE>::ObjSize + 6]), asfloat(intersect.data[2 + i * Intersection<PIT_RECTANGLE>::ObjSize + 7]), asfloat(intersect.data[2 + i * Intersection<PIT_RECTANGLE>::ObjSize + 8]));
-                    Intersection<PIT_RECTANGLE> rect = Intersection<PIT_RECTANGLE>::create(offset, edge0, edge1, intersect.data[2 + i * Intersection<PIT_RECTANGLE>::ObjSize + 9]);
+                    float32_t3 offset = float32_t3(asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize]), asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 1]), asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 2]));
+                    float32_t3 edge0 = float32_t3(asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 3]), asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 4]), asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 5]));
+                    float32_t3 edge1 = float32_t3(asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 6]), asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 7]), asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 8]));
+                    Shape<PST_RECTANGLE> rect = Shape<PST_RECTANGLE>::create(offset, edge0, edge1, intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 9]);
                     t = rect.intersect(ray.origin, ray.direction);
                 }
                 break;
@@ -138,9 +138,9 @@ struct Comprehensive
 //         for (int i = 0; i < objCount; i++)
 //         {
 //             float t;
-//             if (objects[i].type == PIT_SPHERE)  // we don't know what type of intersection it is so cast, there has to be a better way to do this
+//             if (objects[i].type == PST_SPHERE)  // we don't know what type of intersection it is so cast, there has to be a better way to do this
 //             {
-//                 Intersection<PIT_SPHERE> sphere = (Intersection<PIT_SPHERE>)objects[i];
+//                 Shape<PST_SPHERE> sphere = (Shape<PST_SPHERE>)objects[i];
 //                 t = sphere.intersect(ray.origin, ray.direction);
 //             }
 //             // TODO: other types

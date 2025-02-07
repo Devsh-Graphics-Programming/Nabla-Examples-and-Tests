@@ -46,22 +46,22 @@ struct Ray
     Payload<T> payload;
 };
 
-enum ProceduralIntersectionType : uint16_t
+enum ProceduralShapeType : uint16_t
 {
-    PIT_SPHERE,
-    PIT_TRIANGLE,
-    PIT_RECTANGLE
+    PST_SPHERE,
+    PST_TRIANGLE,
+    PST_RECTANGLE
 };
 
-template<ProceduralIntersectionType type>
-struct Intersection;
+template<ProceduralShapeType type>
+struct Shape;
 
 template<>
-struct Intersection<PIT_SPHERE>
+struct Shape<PST_SPHERE>
 {
-    static Intersection<PIT_SPHERE> create(NBL_CONST_REF_ARG(float32_t3) position, float32_t radius, uint32_t bsdfID, uint32_t lightID)
+    static Shape<PST_SPHERE> create(NBL_CONST_REF_ARG(float32_t3) position, float32_t radius, uint32_t bsdfID, uint32_t lightID)
     {
-        Intersection<PIT_SPHERE> retval;
+        Shape<PST_SPHERE> retval;
         retval.position = position;
         retval.radius2 = radius * radius;
         retval.bsdfLightIDs = spirv::bitFieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
@@ -95,15 +95,41 @@ struct Intersection<PIT_SPHERE>
         return 2.0 * numbers::pi<float> * (1.0 - cosThetaMax);
     }
 
-    // should this be in material system?
     float deferredPdf(Light light, Ray ray)
     {
         return 1.0 / getSolidAngle(ray.origin);
     }
 
-    float generate_and_pdf()
+    template<class Aniso>
+    float generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, float32_t3 xi, uint32_t objectID)
     {
-        // TODO
+        float32_t3 Z = position - origin;
+        const float distanceSQ = nbl::hlsl::dot(Z,Z);
+        const float cosThetaMax2 = 1.0 - radius2 / distanceSQ;
+        if (cosThetaMax2 > 0.0)
+        {
+            const float rcpDistance = 1.0 / nbl::hlsl::sqrt(distanceSQ);
+            Z *= rcpDistance;
+        
+            const float cosThetaMax = nbl::hlsl::sqrt(cosThetaMax2);
+            const float cosTheta = nbl::hlsl::mix(1.0, cosThetaMax, xi.x);
+
+            vec3 L = Z * cosTheta;
+
+            const float cosTheta2 = cosTheta * cosTheta;
+            const float sinTheta = nbl::hlsl::sqrt(1.0 - cosTheta2);
+            float sinPhi, cosPhi;
+            math::sincos(2.0 * numbers::pi<float> * xi.y - numbers::pi<float>, sinPhi, cosPhi);
+            float32_t2x3 XY = math::frisvad<float>(Z);
+        
+            L += (XY[0] * cosPhi + XY[1] * sinPhi) * sinTheta;
+        
+            newRayMaxT = (cosTheta - nbl::hlsl::sqrt(cosTheta2 - cosThetaMax2)) / rcpDistance;
+            pdf = 1.0 / (2.0 * numbers::pi<float> * (1.0 - cosThetaMax));
+            return L;
+        }
+        pdf = 0.0;
+        return float32_t3(0.0,0.0,0.0);
     }
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t ObjSize = 5;
@@ -114,11 +140,11 @@ struct Intersection<PIT_SPHERE>
 };
 
 template<>
-struct Intersection<PIT_TRIANGLE>
+struct Shape<PST_TRIANGLE>
 {
-    static Intersection<PIT_TRIANGLE> create(NBL_CONST_REF_ARG(float32_t3) vertex0, NBL_CONST_REF_ARG(float32_t3) vertex1, NBL_CONST_REF_ARG(float32_t3) vertex2, uint32_t bsdfID, uint32_t lightID)
+    static Shape<PST_TRIANGLE> create(NBL_CONST_REF_ARG(float32_t3) vertex0, NBL_CONST_REF_ARG(float32_t3) vertex1, NBL_CONST_REF_ARG(float32_t3) vertex2, uint32_t bsdfID, uint32_t lightID)
     {
-        Intersection<PIT_TRIANGLE> retval;
+        Shape<PST_TRIANGLE> retval;
         retval.vertex0 = vertex0;
         retval.vertex1 = vertex1;
         retval.vertex2 = vertex2;
@@ -161,11 +187,11 @@ struct Intersection<PIT_TRIANGLE>
 };
 
 template<>
-struct Intersection<PIT_RECTANGLE>
+struct Shape<PST_RECTANGLE>
 {
-    static Intersection<PIT_TRIANGLE> create(NBL_CONST_REF_ARG(float32_t3) offset, NBL_CONST_REF_ARG(float32_t3) edge0, NBL_CONST_REF_ARG(float32_t3) edge1, uint32_t bsdfID, uint32_t lightID)
+    static Shape<PST_TRIANGLE> create(NBL_CONST_REF_ARG(float32_t3) offset, NBL_CONST_REF_ARG(float32_t3) edge0, NBL_CONST_REF_ARG(float32_t3) edge1, uint32_t bsdfID, uint32_t lightID)
     {
-        Intersection<PIT_TRIANGLE> retval;
+        Shape<PST_TRIANGLE> retval;
         retval.offset = offset;
         retval.edge0 = edge0;
         retval.edge1 = edge1;
