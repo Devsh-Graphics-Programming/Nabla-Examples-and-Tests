@@ -75,6 +75,9 @@ Renderer::Renderer(IVideoDriver* _driver, IAssetManager* _assetManager, scene::I
 		m_littleDownloadBuffer->getBoundMemory()->mapMemoryRange(IDriverMemoryAllocation::EMCAF_READ,{0,sizeof(uint32_t)});
 	}
 
+	// no deferral for now
+	m_fragGPUShader = gpuSpecializedShaderFromFile(m_assetManager,m_driver,"../fillVisBuffer.frag");
+
 	// set up Visibility Buffer pipeline
 	{
 		IGPUDescriptorSetLayout::SBinding binding;
@@ -98,23 +101,6 @@ Renderer::Renderer(IVideoDriver* _driver, IAssetManager* _assetManager, scene::I
 		m_cullDSLayout = m_driver->createGPUDescriptorSetLayout(bindings,bindings+cullingDescriptorCount);
 	}
 	m_perCameraRasterDSLayout = core::smart_refctd_ptr<const IGPUDescriptorSetLayout>(m_cullDSLayout);
-	{
-		core::smart_refctd_ptr<IGPUSpecializedShader> shaders[] = {gpuSpecializedShaderFromFile(m_assetManager,m_driver,"../fillVisBuffer.vert"),gpuSpecializedShaderFromFile(m_assetManager,m_driver,"../fillVisBuffer.frag")};
-		SPrimitiveAssemblyParams primitiveAssembly;
-		primitiveAssembly.primitiveType = EPT_TRIANGLE_LIST;
-		SRasterizationParams raster;
-		raster.faceCullingMode = EFCM_NONE;
-		auto _visibilityBufferFillPipelineLayout = m_driver->createGPUPipelineLayout(
-			nullptr,nullptr,
-			core::smart_refctd_ptr(m_rasterInstanceDataDSLayout),
-			core::smart_refctd_ptr(m_additionalGlobalDSLayout),
-			core::smart_refctd_ptr(m_cullDSLayout)
-		);
-		m_visibilityBufferFillPipeline = m_driver->createGPURenderpassIndependentPipeline(
-			nullptr,std::move(_visibilityBufferFillPipelineLayout),&shaders->get(),&shaders->get()+2u,
-			SVertexInputParams{},SBlendParams{},primitiveAssembly,raster
-		);
-	}
 	
 	{
 		constexpr auto raytracingCommonDescriptorCount = 11u;
@@ -1316,8 +1302,16 @@ void Renderer::initScreenSizedResources(
 	m_staticViewData.sampleSequenceStride = SampleSequence::computeQuantizedDimensions(maxPathDepth);
 	auto stream = std::ofstream("runtime_defines.glsl");
 
-	for (auto i=0; i<clipPlanes.size(); i++)
-		stream << "#define CLIP_PLANE_" << i << " vec4(" << clipPlanes[i].x << "," << clipPlanes[i].y << "," << clipPlanes[i].z << "," << clipPlanes[i].w << ")\n";
+	for (auto i=0; i<ext::MitsubaLoader::CElementSensor::MaxClipPlanes; i++)
+	{
+		if (i<clipPlanes.size())
+		{
+			glEnable(GL_CLIP_DISTANCE0+i);
+			stream << "#define CLIP_PLANE_" << i << " vec4(" << clipPlanes[i].x << "," << clipPlanes[i].y << "," << clipPlanes[i].z << "," << clipPlanes[i].w << ")\n";
+		}
+		else
+			glDisable(GL_CLIP_DISTANCE0+i);
+	}
 
 	stream << "#define _NBL_EXT_MITSUBA_LOADER_VT_STORAGE_VIEW_COUNT " << m_globalMeta->m_global.getVTStorageViewCount() << "\n"
 		<< m_globalMeta->m_global.m_materialCompilerGLSL_declarations
@@ -1334,6 +1328,9 @@ void Renderer::initScreenSizedResources(
 	{
 		// cull
 		m_cullGPUShader = gpuSpecializedShaderFromFile(m_assetManager,m_driver,"../cull.comp");
+
+		// visbuffer
+		m_vertGPUShader = gpuSpecializedShaderFromFile(m_assetManager, m_driver, "../fillVisBuffer.vert");
 
 		// raygen
 		m_raygenGPUShader = gpuSpecializedShaderFromFile(m_assetManager,m_driver,"../raygen.comp");
@@ -1877,7 +1874,24 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 		bool compiledShaders = compileShadersFuture.get();
 		if(compiledShaders)
 		{
-			m_cullPipeline = m_driver->createGPUComputePipeline(nullptr,core::smart_refctd_ptr(m_cullPipelineLayout), core::smart_refctd_ptr(m_cullGPUShader));
+			m_cullPipeline = m_driver->createGPUComputePipeline(nullptr,core::smart_refctd_ptr(m_cullPipelineLayout), core::smart_refctd_ptr(m_cullGPUShader));	
+			{
+				IGPUSpecializedShader* shaders[] = {m_vertGPUShader.get(),m_fragGPUShader.get()};
+				SPrimitiveAssemblyParams primitiveAssembly;
+				primitiveAssembly.primitiveType = EPT_TRIANGLE_LIST;
+				SRasterizationParams raster;
+				raster.faceCullingMode = EFCM_NONE;
+				auto _visibilityBufferFillPipelineLayout = m_driver->createGPUPipelineLayout(
+					nullptr,nullptr,
+					core::smart_refctd_ptr(m_rasterInstanceDataDSLayout),
+					core::smart_refctd_ptr(m_additionalGlobalDSLayout),
+					core::smart_refctd_ptr(m_cullDSLayout)
+				);
+				m_visibilityBufferFillPipeline = m_driver->createGPURenderpassIndependentPipeline(
+					nullptr,std::move(_visibilityBufferFillPipelineLayout),shaders,shaders+2u,
+					SVertexInputParams{},SBlendParams{},primitiveAssembly,raster
+				);
+			}
 			m_raygenPipeline = m_driver->createGPUComputePipeline(nullptr,core::smart_refctd_ptr(m_raygenPipelineLayout), core::smart_refctd_ptr(m_raygenGPUShader));
 			m_closestHitPipeline = m_driver->createGPUComputePipeline(nullptr,core::smart_refctd_ptr(m_closestHitPipelineLayout), core::smart_refctd_ptr(m_closestHitGPUShader));
 			m_resolvePipeline = m_driver->createGPUComputePipeline(nullptr,core::smart_refctd_ptr(m_resolvePipelineLayout), core::smart_refctd_ptr(m_resolveGPUShader));

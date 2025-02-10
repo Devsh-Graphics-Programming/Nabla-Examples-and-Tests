@@ -182,6 +182,7 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUPipelineLayout> m_resolvePipelineLayout;
 		
 		nbl::core::smart_refctd_ptr<IGPUSpecializedShader> m_cullGPUShader;
+		nbl::core::smart_refctd_ptr<IGPUSpecializedShader> m_vertGPUShader,m_fragGPUShader;
 		nbl::core::smart_refctd_ptr<IGPUSpecializedShader> m_raygenGPUShader;
 		nbl::core::smart_refctd_ptr<IGPUSpecializedShader> m_closestHitGPUShader;
 		nbl::core::smart_refctd_ptr<IGPUSpecializedShader> m_resolveGPUShader;
