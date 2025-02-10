@@ -68,6 +68,17 @@ struct TgmathIntputTestValues
 	int ldexpExp;
 	float modfStruct;
 	float frexpStruct;
+	float tan;
+	float asin;
+	float atan;
+	float sinh;
+	float cosh;
+	float tanh;
+	float asinh;
+	float acosh;
+	float atanh;
+	float atan2X;
+	float atan2Y;
 
 	float32_t3 floorVec;
 	float32_t3 isnanVec;
@@ -96,6 +107,17 @@ struct TgmathIntputTestValues
 	int32_t3 ldexpExpVec;
 	float32_t3 modfStructVec;
 	float32_t3 frexpStructVec;
+	float32_t3 tanVec;
+	float32_t3 asinVec;
+	float32_t3 atanVec;
+	float32_t3 sinhVec;
+	float32_t3 coshVec;
+	float32_t3 tanhVec;
+	float32_t3 asinhVec;
+	float32_t3 acoshVec;
+	float32_t3 atanhVec;
+	float32_t3 atan2XVec;
+	float32_t3 atan2YVec;
 };
 
 struct TgmathTestValues
@@ -121,6 +143,16 @@ struct TgmathTestValues
 	float ceil;
 	float fma;
 	float ldexp;
+	float tan;
+	float asin;
+	float atan;
+	float sinh;
+	float cosh;
+	float tanh;
+	float asinh;
+	float acosh;
+	float atanh;
+	float atan2;
 
 	float32_t3 floorVec;
 #ifndef __HLSL_VERSION
@@ -149,6 +181,16 @@ struct TgmathTestValues
 	float32_t3 ceilVec;
 	float32_t3 fmaVec;
 	float32_t3 ldexpVec;
+	float32_t3 tanVec;
+	float32_t3 asinVec;
+	float32_t3 atanVec;
+	float32_t3 sinhVec;
+	float32_t3 coshVec;
+	float32_t3 tanhVec;
+	float32_t3 asinhVec;
+	float32_t3 acoshVec;
+	float32_t3 atanhVec;
+	float32_t3 atan2Vec;
 
 	ModfOutput<float> modfStruct;
 	ModfOutput<float32_t3> modfStructVec;
@@ -170,6 +212,17 @@ struct TgmathTestValues
 		sqrt = nbl::hlsl::sqrt(input.sqrt);
 		sin = nbl::hlsl::sin(input.sin);
 		cos = nbl::hlsl::cos(input.cos);
+		tan = nbl::hlsl::tan(input.tan);
+		asin = nbl::hlsl::asin(input.asin);
+		atan = nbl::hlsl::atan(input.atan);
+		sinh = nbl::hlsl::sinh(input.sinh);
+		cosh = nbl::hlsl::cosh(input.cosh);
+		tanh = nbl::hlsl::tanh(input.tanh);
+		asinh = nbl::hlsl::asinh(input.asinh);
+		acosh = nbl::hlsl::acosh(input.acosh);
+		atanh = nbl::hlsl::atanh(input.atanh);
+		atan2 = nbl::hlsl::atan2(input.atan2Y, input.atan2X);
+
 		acos = nbl::hlsl::acos(input.acos);
 		modf = nbl::hlsl::modf(input.modf);
 		round = nbl::hlsl::round(input.round);
@@ -192,6 +245,17 @@ struct TgmathTestValues
 		sqrtVec = nbl::hlsl::sqrt(input.sqrtVec);
 		sinVec = nbl::hlsl::sin(input.sinVec);
 		cosVec = nbl::hlsl::cos(input.cosVec);
+		tanVec = nbl::hlsl::tan(input.tanVec);
+		asinVec = nbl::hlsl::asin(input.asinVec);
+		atanVec = nbl::hlsl::atan(input.atanVec);
+		sinhVec = nbl::hlsl::sinh(input.sinhVec);
+		coshVec = nbl::hlsl::cosh(input.coshVec);
+		tanhVec = nbl::hlsl::tanh(input.tanhVec);
+		asinhVec = nbl::hlsl::asinh(input.asinhVec);
+		acoshVec = nbl::hlsl::acosh(input.acoshVec);
+		atanhVec = nbl::hlsl::atanh(input.atanhVec);
+		atan2Vec = nbl::hlsl::atan2(input.atan2YVec, input.atan2XVec);
+
 		acosVec = nbl::hlsl::acos(input.acosVec);
 		modfVec = nbl::hlsl::modf(input.modfVec);
 		roundVec = nbl::hlsl::round(input.roundVec);

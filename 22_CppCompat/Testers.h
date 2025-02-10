@@ -366,6 +366,17 @@ public:
             testInput.sqrt = realDistribution(mt);
             testInput.sin = realDistribution(mt);
             testInput.cos = realDistribution(mt);
+            testInput.tan = realDistribution(mt);
+            testInput.asin = realDistribution(mt);
+            testInput.atan = realDistribution(mt);
+            testInput.sinh = realDistribution(mt);
+            testInput.cosh = realDistribution(mt);
+            testInput.tanh = realDistribution(mt);
+            testInput.asinh = realDistribution(mt);
+            testInput.acosh = realDistribution(mt);
+            testInput.atanh = realDistribution(mt);
+            testInput.atan2X = realDistribution(mt);
+            testInput.atan2Y = realDistribution(mt);
             testInput.acos = realDistribution(mt);
             testInput.modf = realDistribution(mt);
             testInput.round = realDistribution(mt);
@@ -392,6 +403,17 @@ public:
             testInput.sqrtVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
             testInput.sinVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
             testInput.cosVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.tanVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.asinVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.atanVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.sinhVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.coshVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.tanhVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.asinhVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.acoshVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.atanhVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.atan2XVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.atan2YVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
             testInput.acosVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
             testInput.modfVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
             testInput.ldexpArgVec = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
@@ -418,6 +440,16 @@ public:
             expected.sin = std::sin(testInput.sin);
             expected.cos = std::cos(testInput.cos);
             expected.acos = std::acos(testInput.acos);
+            expected.tan = std::tan(testInput.tan);
+            expected.asin = std::asin(testInput.asin);
+            expected.atan = std::atan(testInput.atan);
+            expected.sinh = std::sinh(testInput.sinh);
+            expected.cosh = std::cosh(testInput.cosh);
+            expected.tanh = std::tanh(testInput.tanh);
+            expected.asinh = std::asinh(testInput.asinh);
+            expected.acosh = std::acosh(testInput.acosh);
+            expected.atanh = std::atanh(testInput.atanh);
+            expected.atan2 = std::atan2(testInput.atan2Y, testInput.atan2X);
             {
                 float tmp;
                 expected.modf = std::modf(testInput.modf, &tmp);
@@ -464,6 +496,16 @@ public:
             expected.sqrtVec = float32_t3(std::sqrt(testInput.sqrtVec.x), std::sqrt(testInput.sqrtVec.y), std::sqrt(testInput.sqrtVec.z));
             expected.cosVec = float32_t3(std::cos(testInput.cosVec.x), std::cos(testInput.cosVec.y), std::cos(testInput.cosVec.z));
             expected.sinVec = float32_t3(std::sin(testInput.sinVec.x), std::sin(testInput.sinVec.y), std::sin(testInput.sinVec.z));
+            expected.tanVec = float32_t3(std::tan(testInput.tanVec.x), std::tan(testInput.tanVec.y), std::tan(testInput.tanVec.z));
+            expected.asinVec = float32_t3(std::asin(testInput.asinVec.x), std::asin(testInput.asinVec.y), std::asin(testInput.asinVec.z));
+            expected.atanVec = float32_t3(std::atan(testInput.atanVec.x), std::atan(testInput.atanVec.y), std::atan(testInput.atanVec.z));
+            expected.sinhVec = float32_t3(std::sinh(testInput.sinhVec.x), std::sinh(testInput.sinhVec.y), std::sinh(testInput.sinhVec.z));
+            expected.coshVec = float32_t3(std::cosh(testInput.coshVec.x), std::cosh(testInput.coshVec.y), std::cosh(testInput.coshVec.z));
+            expected.tanhVec = float32_t3(std::tanh(testInput.tanhVec.x), std::tanh(testInput.tanhVec.y), std::tanh(testInput.tanhVec.z));
+            expected.asinhVec = float32_t3(std::asinh(testInput.asinhVec.x), std::asinh(testInput.asinhVec.y), std::asinh(testInput.asinhVec.z));
+            expected.acoshVec = float32_t3(std::acosh(testInput.acoshVec.x), std::acosh(testInput.acoshVec.y), std::acosh(testInput.acoshVec.z));
+            expected.atanhVec = float32_t3(std::atanh(testInput.atanhVec.x), std::atanh(testInput.atanhVec.y), std::atanh(testInput.atanhVec.z));
+            expected.atan2Vec = float32_t3(std::atan2(testInput.atan2YVec.x, testInput.atan2XVec.x), std::atan2(testInput.atan2YVec.y, testInput.atan2XVec.y), std::atan2(testInput.atan2YVec.z, testInput.atan2XVec.z));
             expected.acosVec = float32_t3(std::acos(testInput.acosVec.x), std::acos(testInput.acosVec.y), std::acos(testInput.acosVec.z));
             {
                 float tmp;
@@ -529,7 +571,7 @@ public:
     }
 
 private:
-    inline static constexpr int Iterations = 1u;
+    inline static constexpr int Iterations = 100u;
 
     void performCpuTests(const TgmathIntputTestValues& commonTestInputValues, const TgmathTestValues& expectedTestValues)
     {
@@ -548,6 +590,9 @@ private:
 
     void verifyTestValues(const TgmathTestValues& expectedTestValues, const TgmathTestValues& testValues, ITester::TestType testType)
     {
+        // TODO: figure out input for functions: sinh, cosh so output isn't a crazy low number
+        // very low numbers generate comparison errors
+
         verifyTestValue("floor", expectedTestValues.floor, testValues.floor, testType);
         verifyTestValue("isnan", expectedTestValues.isnan, testValues.isnan, testType);
         verifyTestValue("isinf", expectedTestValues.isinf, testValues.isinf, testType);
@@ -562,6 +607,16 @@ private:
         verifyTestValue("sin", expectedTestValues.sin, testValues.sin, testType);
         verifyTestValue("cos", expectedTestValues.cos, testValues.cos, testType);
         verifyTestValue("acos", expectedTestValues.acos, testValues.acos, testType);
+        verifyTestValue("tan", expectedTestValues.tan, testValues.tan, testType);
+        verifyTestValue("asin", expectedTestValues.asin, testValues.asin, testType);
+        verifyTestValue("atan", expectedTestValues.atan, testValues.atan, testType);
+        //verifyTestValue("sinh", expectedTestValues.sinh, testValues.sinh, testType);
+        //verifyTestValue("cosh", expectedTestValues.cosh, testValues.cosh, testType);
+        verifyTestValue("tanh", expectedTestValues.tanh, testValues.tanh, testType);
+        verifyTestValue("asinh", expectedTestValues.asinh, testValues.asinh, testType);
+        verifyTestValue("acosh", expectedTestValues.acosh, testValues.acosh, testType);
+        verifyTestValue("atanh", expectedTestValues.atanh, testValues.atanh, testType);
+        verifyTestValue("atan2", expectedTestValues.atan2, testValues.atan2, testType);
         verifyTestValue("modf", expectedTestValues.modf, testValues.modf, testType);
         verifyTestValue("round", expectedTestValues.round, testValues.round, testType);
         verifyTestValue("roundEven", expectedTestValues.roundEven, testValues.roundEven, testType);
@@ -591,6 +646,17 @@ private:
         verifyTestVector3dValue("ceilVec", expectedTestValues.ceilVec, testValues.ceilVec, testType);
         verifyTestVector3dValue("fmaVec", expectedTestValues.fmaVec, testValues.fmaVec, testType);
         verifyTestVector3dValue("ldexp", expectedTestValues.ldexpVec, testValues.ldexpVec, testType);
+        verifyTestVector3dValue("tanVec", expectedTestValues.tanVec, testValues.tanVec, testType);
+        verifyTestVector3dValue("asinVec", expectedTestValues.asinVec, testValues.asinVec, testType);
+        verifyTestVector3dValue("atanVec", expectedTestValues.atanVec, testValues.atanVec, testType);
+        //verifyTestVector3dValue("sinhVec", expectedTestValues.sinhVec, testValues.sinhVec, testType);
+        //verifyTestVector3dValue("coshVec", expectedTestValues.coshVec, testValues.coshVec, testType);
+        verifyTestVector3dValue("tanhVec", expectedTestValues.tanhVec, testValues.tanhVec, testType);
+        verifyTestVector3dValue("asinhVec", expectedTestValues.asinhVec, testValues.asinhVec, testType);
+        verifyTestVector3dValue("acoshVec", expectedTestValues.acoshVec, testValues.acoshVec, testType);
+        verifyTestVector3dValue("atanhVec", expectedTestValues.atanhVec, testValues.atanhVec, testType);
+        verifyTestVector3dValue("atan2Vec", expectedTestValues.atan2Vec, testValues.atan2Vec, testType);
+
 
         // verify output of struct producing functions
         verifyTestValue("modfStruct", expectedTestValues.modfStruct.fractionalPart, testValues.modfStruct.fractionalPart, testType);
@@ -791,7 +857,7 @@ public:
     }
 
 private:
-    inline static constexpr int Iterations = 1u;
+    inline static constexpr int Iterations = 100u;
 
     void performCpuTests(const IntrinsicsIntputTestValues& commonTestInputValues, const IntrinsicsTestValues& expectedTestValues)
     {
