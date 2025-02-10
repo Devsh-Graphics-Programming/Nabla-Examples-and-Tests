@@ -18,7 +18,6 @@
 #include <thread>
 #include <future>
 #include <filesystem>
-#include <span>
 
 class Renderer : public nbl::core::IReferenceCounted, public nbl::core::InterfaceUnmovable
 {

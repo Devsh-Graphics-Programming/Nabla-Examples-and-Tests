@@ -68,7 +68,7 @@ Note that we don't support Mitsuba's `hideEmitters`
 |   moveSpeed   | Camera Movement Speed                                                               |  float  | NaN -> Will be deduced from scene bounds |
 |   zoomSpeed   | Camera Zoom Speed                                                                   |  float  | NaN -> Will be deduced from scene bounds |
 |  rotateSpeed  | Camera Rotation Speed                                                               |  float  | 300.0                                    |
-| clipPlaneN\*  | Worldspace coefficients for a plane equation of the form `a*x + b*y + c*z + w >= 0` |  vector | NaN, NaN, NaN, NaN                       |
+| clipPlaneN\*  | Worldspace coefficients for a plane equation of the form `a*x + b*y + c*z + w >= 0` |  vector | 0.0, 0.0, 0.0, 0.0     (disabled)        |
 
 \* N ranges from 0 to 5
 
