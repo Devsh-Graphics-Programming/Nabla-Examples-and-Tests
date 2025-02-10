@@ -536,6 +536,7 @@ int main(int argc, char** argv)
 		float Emin = 0.05f;
 		bool envmap = false;
 		float envmapRegFactor = 0.0f;
+		core::vector<core::vectorSIMDf> clipPlanes;
 
 		scene::CSceneNodeAnimatorCameraModifiedMaya* getInteractiveCameraAnimator()
 		{
@@ -614,8 +615,8 @@ int main(int argc, char** argv)
 	};
 	
 	const bool shouldHaveSensorIdxInFileName = globalMeta->m_global.m_sensors.size() > 1;
-	std::vector<SensorData> sensors = std::vector<SensorData>();
-	std::vector<CubemapRender> cubemapRenders = std::vector<CubemapRender>();
+	std::vector<SensorData> sensors;
+	std::vector<CubemapRender> cubemapRenders;
 
 	auto extractAndAddToSensorData = [&](const ext::MitsubaLoader::CElementSensor& sensor, uint32_t idx) -> bool
 	{
@@ -683,6 +684,17 @@ int main(int argc, char** argv)
 				return false;
 		}
 		mainSensorData.type = sensor.type;
+		
+		for (auto i=0; i<sensor.MaxClipPlanes; i++)
+		{
+			const auto& plane = cameraBase->clipPlanes[i];
+			if ((plane!=core::vectorSIMDf()).any())
+			{
+				mainSensorData.clipPlanes.push_back(plane);
+				printf("Found Clip Plane %f,%f,%f,%f\n",plane);
+			}
+		}
+
 		mainSensorData.rotateSpeed = cameraBase->rotateSpeed;
 		mainSensorData.stepZoomSpeed = cameraBase->zoomSpeed;
 		mainSensorData.moveSpeed = cameraBase->moveSpeed;
@@ -1073,7 +1085,7 @@ int main(int argc, char** argv)
 			if(needsReinit) 
 			{
 				renderer->deinitScreenSizedResources();
-				renderer->initScreenSizedResources(sensor.width,sensor.height,sensor.envmapRegFactor,sensor.cascadeCount,sensor.cascadeLuminanceBase,sensor.cascadeLuminanceStart,sensor.Emin);
+				renderer->initScreenSizedResources(sensor.width,sensor.height,sensor.envmapRegFactor,sensor.cascadeCount,sensor.cascadeLuminanceBase,sensor.cascadeLuminanceStart,sensor.Emin,sensor.clipPlanes);
 			}
 		
 			smgr->setActiveCamera(sensor.staticCamera);
@@ -1208,7 +1220,7 @@ int main(int argc, char** argv)
 				{
 					renderer->deinitScreenSizedResources();
 					const auto& sensorData = sensors[activeSensor];
-					renderer->initScreenSizedResources(sensorData.width,sensorData.height,sensorData.envmapRegFactor,sensorData.cascadeCount,sensorData.cascadeLuminanceBase,sensorData.cascadeLuminanceStart,sensorData.Emin);
+					renderer->initScreenSizedResources(sensorData.width,sensorData.height,sensorData.envmapRegFactor,sensorData.cascadeCount,sensorData.cascadeLuminanceBase,sensorData.cascadeLuminanceStart,sensorData.Emin,sensorData.clipPlanes);
 				}
 
 				smgr->setActiveCamera(sensors[activeSensor].interactiveCamera);

@@ -62,12 +62,15 @@ Note that we don't support Mitsuba's `hideEmitters`
 
 ### Properties added to \<sensor\>:
 
-| Property Name | Description                         | Type    | Default Value                            |
-|---------------|-------------------------------------|---------|------------------------------------------|
-|       up      | Up Vector for roll around view axis |  vector | 0.0, 1.0, 0.0                            |
-|   moveSpeed   | Camera Movement Speed               |  float  | NaN -> Will be deduced from scene bounds |
-|   zoomSpeed   | Camera Zoom Speed                   |  float  | NaN -> Will be deduced from scene bounds |
-|  rotateSpeed  | Camera Rotation Speed               |  float  | 300.0                                    |
+| Property Name | Description                                                                         | Type    | Default Value                            |
+|---------------|-------------------------------------------------------------------------------------|---------|------------------------------------------|
+|       up      | Up Vector to determine roll around view axis and the north pole to rotate around    |  vector | 0.0, 1.0, 0.0                            |
+|   moveSpeed   | Camera Movement Speed                                                               |  float  | NaN -> Will be deduced from scene bounds |
+|   zoomSpeed   | Camera Zoom Speed                                                                   |  float  | NaN -> Will be deduced from scene bounds |
+|  rotateSpeed  | Camera Rotation Speed                                                               |  float  | 300.0                                    |
+| clipPlaneN\*  | Worldspace coefficients for a plane equation of the form `a*x + b*y + c*z + w >= 0` |  vector | NaN, NaN, NaN, NaN                       |
+
+\* N ranges from 0 to 5
 
 #### Properties added to \<sensor type="perspective"\>:
 

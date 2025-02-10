@@ -1238,7 +1238,8 @@ void Renderer::initScreenSizedResources(
 	int32_t cascadeCount,
 	float cascadeLuminanceBase,
 	float cascadeLuminanceStart,
-	const float Emin
+	const float Emin,
+	const nbl::core::vector<nbl::core::vectorSIMDf>& clipPlanes
 )
 {
 	float maxEmitterRadianceLuma;
@@ -1314,6 +1315,9 @@ void Renderer::initScreenSizedResources(
 	}
 	m_staticViewData.sampleSequenceStride = SampleSequence::computeQuantizedDimensions(maxPathDepth);
 	auto stream = std::ofstream("runtime_defines.glsl");
+
+	for (auto i=0; i<clipPlanes.size(); i++)
+		stream << "#define CLIP_PLANE_" << i << " vec4(" << clipPlanes[i].x << "," << clipPlanes[i].y << "," << clipPlanes[i].z << "," << clipPlanes[i].w << ")\n";
 
 	stream << "#define _NBL_EXT_MITSUBA_LOADER_VT_STORAGE_VIEW_COUNT " << m_globalMeta->m_global.getVTStorageViewCount() << "\n"
 		<< m_globalMeta->m_global.m_materialCompilerGLSL_declarations

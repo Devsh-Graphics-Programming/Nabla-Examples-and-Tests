@@ -18,6 +18,7 @@
 #include <thread>
 #include <future>
 #include <filesystem>
+#include <span>
 
 class Renderer : public nbl::core::IReferenceCounted, public nbl::core::InterfaceUnmovable
 {
@@ -55,7 +56,8 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 			int32_t cascadeCount,
 			float cascadeLuminanceBase,
 			float cascadeLuminanceStart,
-			const float Emin
+			const float Emin,
+			const nbl::core::vector<nbl::core::vectorSIMDf>& clipPlanes={}
 		);
 
 		void deinitScreenSizedResources();
