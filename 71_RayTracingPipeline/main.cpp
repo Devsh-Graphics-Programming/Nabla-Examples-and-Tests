@@ -4,6 +4,7 @@
 
 #include "common.hpp"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+#include "nbl/builtin/hlsl/indirect_commands.hlsl"
 
 class RaytracingPipelineApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
@@ -411,6 +412,9 @@ public:
     auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
     auto* geometryCreator = assetManager->getGeometryCreator();
 
+    if (!createIndirectBuffer(gQueue))
+      return logFail("Could not create indirect buffer");
+
     // create geometry objects
     if (!createGeometries(gQueue, geometryCreator))
       return logFail("Could not create geometries from geometry creator");
@@ -585,6 +589,7 @@ public:
             m_light.outerCutoff = cos(radians(dOuterCutoff));
           }
         }
+        ImGui::Checkbox("Use Indirect Command", &m_useIndirectCommand);
         if (m_light != m_oldLight)
         {
           m_frameAccumulationCounter = 0;
@@ -722,12 +727,26 @@ public:
       cmdbuf->bindRayTracingPipeline(m_rayTracingPipeline.get());
       cmdbuf->pushConstants(m_rayTracingPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_ALL_RAY_TRACING, 0, sizeof(SPushConstants), &pc);
       cmdbuf->bindDescriptorSets(EPBP_RAY_TRACING, m_rayTracingPipeline->getLayout(), 0, 1, &m_rayTracingDs.get());
-      cmdbuf->traceRays(
-        m_shaderBindingTable.raygenGroupRange, m_shaderBindingTable.raygenGroupStride,
-        m_shaderBindingTable.missGroupsRange, m_shaderBindingTable.missGroupsStride,
-        m_shaderBindingTable.hitGroupsRange, m_shaderBindingTable.hitGroupsStride,
-        m_shaderBindingTable.callableGroupsRange, m_shaderBindingTable.callableGroupsStride,
-        WIN_W, WIN_H, 1);
+      if (m_useIndirectCommand)
+      {
+        cmdbuf->traceRaysIndirect(
+          m_shaderBindingTable.raygenGroupRange, m_shaderBindingTable.raygenGroupStride,
+          m_shaderBindingTable.missGroupsRange, m_shaderBindingTable.missGroupsStride,
+          m_shaderBindingTable.hitGroupsRange, m_shaderBindingTable.hitGroupsStride,
+          m_shaderBindingTable.callableGroupsRange, m_shaderBindingTable.callableGroupsStride,
+          SBufferBinding<const IGPUBuffer>{
+            .offset = 0,
+            .buffer = m_indirectBuffer,
+          });
+      }else
+      {
+        cmdbuf->traceRays(
+          m_shaderBindingTable.raygenGroupRange, m_shaderBindingTable.raygenGroupStride,
+          m_shaderBindingTable.missGroupsRange, m_shaderBindingTable.missGroupsStride,
+          m_shaderBindingTable.hitGroupsRange, m_shaderBindingTable.hitGroupsStride,
+          m_shaderBindingTable.callableGroupsRange, m_shaderBindingTable.callableGroupsStride,
+          WIN_W, WIN_H, 1);
+      }
     }
 
     // pipeline barrier
@@ -1022,6 +1041,16 @@ private:
 
       m_device->blockForSemaphores(info);
     }
+  }
+
+  bool createIndirectBuffer(video::CThreadSafeQueueAdapter* queue)
+  {
+    const auto command = TraceRaysIndirectCommand_t{ WIN_W, WIN_H, 1 };
+    IGPUBuffer::SCreationParams params;
+    params.usage = IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INDIRECT_BUFFER_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+    params.size = sizeof(TraceRaysIndirectCommand_t);
+    m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = queue }, std::move(params), &command).move_into(m_indirectBuffer);
+    return true;
   }
 
   bool createGeometries(video::CThreadSafeQueueAdapter* queue, const IGeometryCreator* gc)
@@ -1757,6 +1786,8 @@ private:
   smart_refctd_ptr<IGPUBuffer> m_triangleGeomInfoBuffer;
   smart_refctd_ptr<IGPUBuffer> m_proceduralGeomInfoBuffer;
   smart_refctd_ptr<IGPUBuffer> m_proceduralAabbBuffer;
+  smart_refctd_ptr<IGPUBuffer> m_indirectBuffer;
+
   smart_refctd_ptr<IGPUImage> m_hdrImage;
   smart_refctd_ptr<IGPUImageView> m_hdrImageView;
 
@@ -1770,6 +1801,8 @@ private:
   smart_refctd_ptr<IGPUGraphicsPipeline> m_presentPipeline;
 
   smart_refctd_ptr<CAssetConverter> m_converter;
+
+  bool m_useIndirectCommand = false;
 
 };
 NBL_MAIN_FUNC(RaytracingPipelineApp)
