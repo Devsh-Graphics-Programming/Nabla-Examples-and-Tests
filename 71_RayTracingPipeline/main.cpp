@@ -687,6 +687,11 @@ public:
     modelMatrix.setRotation(quaternion(0, 0, 0));
 
     core::matrix4SIMD modelViewProjectionMatrix = core::concatenateBFollowedByA(viewProjectionMatrix, modelMatrix);
+    if (m_cachedModelViewProjectionMatrix != modelViewProjectionMatrix)
+    {
+      m_frameAccumulationCounter = 0;
+      m_cachedModelViewProjectionMatrix = modelViewProjectionMatrix;
+    }
     core::matrix4SIMD invModelViewProjectionMatrix;
     modelViewProjectionMatrix.getInverseTransform(invModelViewProjectionMatrix);
 
@@ -903,10 +908,9 @@ public:
 
     m_camera.beginInputProcessing(nextPresentationTimestamp);
     {
-      bool camera_moved = false;
       m_mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
         {
-          camera_moved |= m_camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
+          m_camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
 
           for (const auto& e : events) // here capture
           {
@@ -921,7 +925,7 @@ public:
 
       m_keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
         {
-          camera_moved |= m_camera.keyboardProcess(events); // don't capture the events, only let camera handle them with its impl
+          m_camera.keyboardProcess(events); // don't capture the events, only let camera handle them with its impl
 
           for (const auto& e : events) // here capture
           {
@@ -933,8 +937,6 @@ public:
           }
         }, m_logger.get());
 
-      if (camera_moved)
-        m_frameAccumulationCounter = 0;
     }
     m_camera.endInputProcessing(nextPresentationTimestamp);
 
@@ -1802,6 +1804,8 @@ private:
 
   smart_refctd_ptr<CAssetConverter> m_converter;
 
+
+  core::matrix4SIMD m_cachedModelViewProjectionMatrix;
   bool m_useIndirectCommand = false;
 
 };
