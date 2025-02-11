@@ -8,11 +8,6 @@ struct Ray
     float32_t3 direction;
 };
 
-struct Attrib
-{
-    float3 HitAttribute;
-};
-
 // Ray-Sphere intersection
 // http://viclw17.github.io/2018/07/16/raytracing-ray-sphere-intersection/
 float32_t hitSphere(SProceduralGeomInfo s, Ray r)
@@ -45,10 +40,14 @@ void main()
     // Sphere data
     SProceduralGeomInfo sphere = vk::RawBufferLoad < SProceduralGeomInfo > (pc.proceduralGeomInfoBuffer + primID * sizeof(SProceduralGeomInfo));
 
-    float32_t tHit = hitSphere(sphere, ray);
+    const float32_t tHit = hitSphere(sphere, ray);
     
-    Attrib attrib;
+    ProceduralHitAttribute hitAttrib;
     // Report hit point
     if (tHit > 0)
-        ReportHit(tHit, 0, attrib);
+    {
+        hitAttrib.center = sphere.center;
+        hitAttrib.material = sphere.material;
+        ReportHit(tHit, 0, hitAttrib);
+    }
 }

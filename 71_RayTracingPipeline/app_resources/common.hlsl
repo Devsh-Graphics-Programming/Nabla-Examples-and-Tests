@@ -167,6 +167,12 @@ struct RayLight
     float32_t outIntensity;
 };
 
+struct ProceduralHitAttribute
+{
+    MaterialPacked material;
+    float32_t3 center;
+};
+
 
 #ifdef __HLSL_VERSION
 
