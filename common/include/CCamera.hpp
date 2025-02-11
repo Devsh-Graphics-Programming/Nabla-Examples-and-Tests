@@ -132,7 +132,6 @@ public:
 
 public:
 
-	// return whether camera is moved by mouse
 	void mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
 	{
 		for (auto eventIt=events.begin(); eventIt!=events.end(); eventIt++)
