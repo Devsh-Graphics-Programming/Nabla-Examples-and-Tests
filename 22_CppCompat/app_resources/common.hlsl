@@ -161,6 +161,9 @@ struct TgmathTestValues
 	float erfInv;
 
 	float32_t3 floorVec;
+
+	// we can't fix this because using namespace nbl::hlsl would cause ambiguous math functions below 
+	// and we can't add a nbl::hlsl alias for the builtin hLSL vector type because of https://github.com/microsoft/DirectXShaderCompiler/issues/7035
 #ifndef __HLSL_VERSION
 	nbl::hlsl::vector<int, 3> isnanVec;
 	nbl::hlsl::vector<int, 3> isinfVec;

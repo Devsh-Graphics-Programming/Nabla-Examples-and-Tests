@@ -8,7 +8,7 @@
 [[vk::binding(0, 0)]] RWStructuredBuffer<TgmathIntputTestValues> inputTestValues;
 [[vk::binding(1, 0)]] RWStructuredBuffer<TgmathTestValues> outputTestValues;
 
-[numthreads(16, 1, 1)]
+[numthreads(256, 1, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
     if(invocationID.x == 0)

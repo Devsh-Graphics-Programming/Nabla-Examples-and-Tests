@@ -10,8 +10,9 @@
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 #include "app_resources/common.hlsl"
-#include "Testers.h"
 
+#include "CTgmathTester.h"
+#include "CIntrinsicsTester.h"
 
 using namespace nbl::core;
 using namespace nbl::hlsl;

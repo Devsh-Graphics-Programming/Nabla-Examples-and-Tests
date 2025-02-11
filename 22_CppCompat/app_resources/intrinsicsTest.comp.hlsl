@@ -8,7 +8,7 @@
 [[vk::binding(0, 0)]] RWStructuredBuffer<IntrinsicsIntputTestValues> inputTestValues;
 [[vk::binding(1, 0)]] RWStructuredBuffer<IntrinsicsTestValues> outputTestValues;
 
-[numthreads(16, 1, 1)]
+[numthreads(256, 1, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
     if(invocationID.x == 0)
