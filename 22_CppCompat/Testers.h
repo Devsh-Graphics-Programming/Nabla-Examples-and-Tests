@@ -388,6 +388,8 @@ public:
             testInput.fmaZ = realDistribution(mt);
             testInput.ldexpArg = realDistributionSmall(mt);
             testInput.ldexpExp = intDistribution(mt);
+            testInput.erf = realDistribution(mt);
+            testInput.erfInv = realDistribution(mt);
 
             testInput.floorVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
             testInput.isnanVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
@@ -418,6 +420,8 @@ public:
             testInput.modfVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
             testInput.ldexpArgVec = float32_t3(realDistributionSmall(mt), realDistributionSmall(mt), realDistributionSmall(mt));
             testInput.ldexpExpVec = float32_t3(intDistribution(mt), intDistribution(mt), intDistribution(mt));
+            testInput.erfVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
+            testInput.erfInvVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
 
             testInput.modfStruct = realDistribution(mt);
             testInput.modfStructVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
@@ -450,6 +454,7 @@ public:
             expected.acosh = std::acosh(testInput.acosh);
             expected.atanh = std::atanh(testInput.atanh);
             expected.atan2 = std::atan2(testInput.atan2Y, testInput.atan2X);
+            expected.erf = std::erf(testInput.erf);
             {
                 float tmp;
                 expected.modf = std::modf(testInput.modf, &tmp);
@@ -507,6 +512,7 @@ public:
             expected.atanhVec = float32_t3(std::atanh(testInput.atanhVec.x), std::atanh(testInput.atanhVec.y), std::atanh(testInput.atanhVec.z));
             expected.atan2Vec = float32_t3(std::atan2(testInput.atan2YVec.x, testInput.atan2XVec.x), std::atan2(testInput.atan2YVec.y, testInput.atan2XVec.y), std::atan2(testInput.atan2YVec.z, testInput.atan2XVec.z));
             expected.acosVec = float32_t3(std::acos(testInput.acosVec.x), std::acos(testInput.acosVec.y), std::acos(testInput.acosVec.z));
+            expected.erfVec = float32_t3(std::erf(testInput.erfVec.x), std::erf(testInput.erfVec.y), std::erf(testInput.erfVec.z));
             {
                 float tmp;
                 expected.modfVec = float32_t3(std::modf(testInput.modfVec.x, &tmp), std::modf(testInput.modfVec.y, &tmp), std::modf(testInput.modfVec.z, &tmp));
@@ -624,6 +630,8 @@ private:
         verifyTestValue("ceil", expectedTestValues.ceil, testValues.ceil, testType);
         verifyTestValue("fma", expectedTestValues.fma, testValues.fma, testType);
         verifyTestValue("ldexp", expectedTestValues.ldexp, testValues.ldexp, testType);
+        verifyTestValue("erf", expectedTestValues.erf, testValues.erf, testType);
+        //verifyTestValue("erfInv", expectedTestValues.erfInv, testValues.erfInv, testType);
 
         verifyTestVector3dValue("floorVec", expectedTestValues.floorVec, testValues.floorVec, testType);
         verifyTestVector3dValue("isnanVec", expectedTestValues.isnanVec, testValues.isnanVec, testType);
@@ -656,7 +664,8 @@ private:
         verifyTestVector3dValue("acoshVec", expectedTestValues.acoshVec, testValues.acoshVec, testType);
         verifyTestVector3dValue("atanhVec", expectedTestValues.atanhVec, testValues.atanhVec, testType);
         verifyTestVector3dValue("atan2Vec", expectedTestValues.atan2Vec, testValues.atan2Vec, testType);
-
+        verifyTestVector3dValue("erfVec", expectedTestValues.erfVec, testValues.erfVec, testType);
+        //verifyTestVector3dValue("erfInvVec", expectedTestValues.erfInvVec, testValues.erfInvVec, testType);
 
         // verify output of struct producing functions
         verifyTestValue("modfStruct", expectedTestValues.modfStruct.fractionalPart, testValues.modfStruct.fractionalPart, testType);
@@ -883,8 +892,8 @@ private:
         verifyTestValue("determinant", expectedTestValues.determinant, testValues.determinant, testType);
         verifyTestValue("findMSB", expectedTestValues.findMSB, testValues.findMSB, testType);
         verifyTestValue("findLSB", expectedTestValues.findLSB, testValues.findLSB, testType);
-        //verifyTestValue("min", expectedTestValues.min, testValues.min, testType);
-        //verifyTestValue("max", expectedTestValues.max, testValues.max, testType);
+        verifyTestValue("min", expectedTestValues.min, testValues.min, testType);
+        verifyTestValue("max", expectedTestValues.max, testValues.max, testType);
         verifyTestValue("rsqrt", expectedTestValues.rsqrt, testValues.rsqrt, testType);
         verifyTestValue("frac", expectedTestValues.frac, testValues.frac, testType);
         verifyTestValue("bitReverse", expectedTestValues.bitReverse, testValues.bitReverse, testType);
@@ -901,8 +910,8 @@ private:
         verifyTestVector3dValue("clampVec", expectedTestValues.clampVec, testValues.clampVec, testType);
         verifyTestVector3dValue("findMSBVec", expectedTestValues.findMSBVec, testValues.findMSBVec, testType);
         verifyTestVector3dValue("findLSBVec", expectedTestValues.findLSBVec, testValues.findLSBVec, testType);
-        //verifyTestVector3dValue("minVec", expectedTestValues.minVec, testValues.minVec, testType);
-        //verifyTestVector3dValue("maxVec", expectedTestValues.maxVec, testValues.maxVec, testType);
+        verifyTestVector3dValue("minVec", expectedTestValues.minVec, testValues.minVec, testType);
+        verifyTestVector3dValue("maxVec", expectedTestValues.maxVec, testValues.maxVec, testType);
         verifyTestVector3dValue("rsqrtVec", expectedTestValues.rsqrtVec, testValues.rsqrtVec, testType);
         verifyTestVector3dValue("bitReverseVec", expectedTestValues.bitReverseVec, testValues.bitReverseVec, testType);
         verifyTestVector3dValue("fracVec", expectedTestValues.fracVec, testValues.fracVec, testType);

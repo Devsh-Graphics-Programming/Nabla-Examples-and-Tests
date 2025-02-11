@@ -79,6 +79,8 @@ struct TgmathIntputTestValues
 	float atanh;
 	float atan2X;
 	float atan2Y;
+	float erf;
+	float erfInv;
 
 	float32_t3 floorVec;
 	float32_t3 isnanVec;
@@ -118,6 +120,8 @@ struct TgmathIntputTestValues
 	float32_t3 atanhVec;
 	float32_t3 atan2XVec;
 	float32_t3 atan2YVec;
+	float32_t3 erfVec;
+	float32_t3 erfInvVec;
 };
 
 struct TgmathTestValues
@@ -153,6 +157,8 @@ struct TgmathTestValues
 	float acosh;
 	float atanh;
 	float atan2;
+	float erf;
+	float erfInv;
 
 	float32_t3 floorVec;
 #ifndef __HLSL_VERSION
@@ -191,6 +197,8 @@ struct TgmathTestValues
 	float32_t3 acoshVec;
 	float32_t3 atanhVec;
 	float32_t3 atan2Vec;
+	float32_t3 erfVec;
+	float32_t3 erfInvVec;
 
 	ModfOutput<float> modfStruct;
 	ModfOutput<float32_t3> modfStructVec;
@@ -222,7 +230,8 @@ struct TgmathTestValues
 		acosh = nbl::hlsl::acosh(input.acosh);
 		atanh = nbl::hlsl::atanh(input.atanh);
 		atan2 = nbl::hlsl::atan2(input.atan2Y, input.atan2X);
-
+		erf = nbl::hlsl::erf(input.erf);
+		erfInv = nbl::hlsl::erfInv(input.erfInv);
 		acos = nbl::hlsl::acos(input.acos);
 		modf = nbl::hlsl::modf(input.modf);
 		round = nbl::hlsl::round(input.round);
@@ -255,7 +264,6 @@ struct TgmathTestValues
 		acoshVec = nbl::hlsl::acosh(input.acoshVec);
 		atanhVec = nbl::hlsl::atanh(input.atanhVec);
 		atan2Vec = nbl::hlsl::atan2(input.atan2YVec, input.atan2XVec);
-
 		acosVec = nbl::hlsl::acos(input.acosVec);
 		modfVec = nbl::hlsl::modf(input.modfVec);
 		roundVec = nbl::hlsl::round(input.roundVec);
@@ -264,6 +272,8 @@ struct TgmathTestValues
 		ceilVec = nbl::hlsl::ceil(input.ceilVec);
 		fmaVec = nbl::hlsl::fma(input.fmaXVec, input.fmaYVec, input.fmaZVec);
 		ldexpVec = nbl::hlsl::ldexp(input.ldexpArgVec, input.ldexpExpVec);
+		erfVec = nbl::hlsl::erf(input.erfVec);
+		erfInvVec = nbl::hlsl::erfInv(input.erfInvVec);
 
 		modfStruct = nbl::hlsl::modfStruct(input.modfStruct);
 		modfStructVec = nbl::hlsl::modfStruct(input.modfStructVec);
@@ -405,8 +415,8 @@ struct IntrinsicsTestValues
 		transpose = nbl::hlsl::transpose(input.transpose);
 		mul = nbl::hlsl::mul(input.mulLhs, input.mulRhs);
 		// TODO: fix min and max
-		//min = nbl::hlsl::min(input.minA, input.minB);
-		//max = nbl::hlsl::max(input.maxA, input.maxB);
+		min = nbl::hlsl::min(input.minA, input.minB);
+		max = nbl::hlsl::max(input.maxA, input.maxB);
 		rsqrt = nbl::hlsl::rsqrt(input.rsqrt);
 		bitReverse = nbl::hlsl::bitReverse(input.bitReverse);
 		frac = nbl::hlsl::frac(input.frac);
@@ -422,8 +432,8 @@ struct IntrinsicsTestValues
 		findMSBVec = nbl::hlsl::findMSB(input.findMSBVec);
 		findLSBVec = nbl::hlsl::findLSB(input.findLSBVec);
 		// TODO: fix min and max
-		//minVec = nbl::hlsl::min(input.minAVec, input.minBVec);
-		//maxVec = nbl::hlsl::max(input.maxAVec, input.maxBVec);
+		minVec = nbl::hlsl::min(input.minAVec, input.minBVec);
+		maxVec = nbl::hlsl::max(input.maxAVec, input.maxBVec);
 		rsqrtVec = nbl::hlsl::rsqrt(input.rsqrtVec);
 		bitReverseVec = nbl::hlsl::bitReverse(input.bitReverseVec);
 		fracVec = nbl::hlsl::frac(input.fracVec);
