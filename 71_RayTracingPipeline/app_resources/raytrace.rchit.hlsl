@@ -112,47 +112,16 @@ VertexData fetchVertexData(int instID, int primID, STriangleGeomInfo geom, float
 }
 
 [shader("closesthit")]
-void main(inout ColorPayload p, in BuiltInTriangleIntersectionAttributes attribs)
+void main(inout HitPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
 {
     const int instID = InstanceID();
     const int primID = PrimitiveIndex();
     const STriangleGeomInfo geom = vk::RawBufferLoad < STriangleGeomInfo > (pc.triangleGeomInfoBuffer + instID * sizeof(STriangleGeomInfo));
     const VertexData vertexData = fetchVertexData(instID, primID, geom, attribs.barycentrics);
-    const float32_t3 worldPosition = mul(ObjectToWorld3x4(), float32_t4(vertexData.position, 1));
     const float32_t3 worldNormal = normalize(mul(vertexData.normal, WorldToObject3x4()).xyz);
-    const Material material = unpackMaterial(geom.material);
 
-    RayLight cLight;
-    cLight.inHitPosition = worldPosition;
-    CallShader(pc.light.type, cLight);
+    payload.material = geom.material;
+    payload.worldNormal = worldNormal;
+    payload.rayDistance = RayTCurrent();
 
-    float32_t3 diffuse = computeDiffuse(material, cLight.outLightDir, worldNormal);
-    float32_t3 specular = float32_t3(0, 0, 0);
-    float32_t attenuation = 1;
-
-    if (dot(worldNormal, cLight.outLightDir) > 0)
-    {
-        RayDesc rayDesc;
-        rayDesc.Origin = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
-        rayDesc.Direction = cLight.outLightDir;
-        rayDesc.TMin = 0.01;
-        rayDesc.TMax = cLight.outLightDistance;
-
-        uint flags = RAY_FLAG_SKIP_CLOSEST_HIT_SHADER;
-        ShadowPayload shadowPayload;
-        shadowPayload.isShadowed = true;
-        shadowPayload.seed = p.seed;
-        TraceRay(topLevelAS, flags, 0xFF, ERT_OCCLUSION, 0, EMT_OCCLUSION, rayDesc, shadowPayload);
-
-        bool isShadowed = shadowPayload.isShadowed;
-        if (isShadowed)
-        {
-            attenuation = 0.3;
-        }
-        else
-        {
-            specular = computeSpecular(material, WorldRayDirection(), cLight.outLightDir, worldNormal);
-        }
-    }
-    p.hitValue = (cLight.outIntensity * attenuation * (diffuse + specular));
 }

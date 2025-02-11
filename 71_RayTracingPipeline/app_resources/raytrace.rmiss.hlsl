@@ -1,8 +1,7 @@
 #include "common.hlsl"
 
 [shader("miss")]
-void main(inout ColorPayload p)
+void main(inout HitPayload payload)
 {
-    p.hitValue = float32_t3(0.3, 0.3, 0.6);
-
+    payload.rayDistance = -1;
 }

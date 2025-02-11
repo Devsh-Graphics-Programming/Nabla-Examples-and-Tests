@@ -1,7 +1,7 @@
 #include "common.hlsl"
 
 [shader("miss")]
-void main(inout ShadowPayload p)
+void main(inout ShadowPayload payload)
 {
-	p.isShadowed = false;
+	payload.isShadowed = false;
 }

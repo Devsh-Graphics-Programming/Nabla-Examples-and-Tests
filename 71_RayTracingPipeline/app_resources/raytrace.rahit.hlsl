@@ -6,7 +6,7 @@
 [[vk::binding(0, 0)]] RaytracingAccelerationStructure topLevelAS;
 
 #if defined(USE_COLOR_PAYLOAD)
-using AnyHitPayload = ColorPayload;
+using AnyHitPayload = HitPayload;
 #elif defined(USE_SHADOW_PAYLOAD)
 using AnyHitPayload = ShadowPayload;
 #endif

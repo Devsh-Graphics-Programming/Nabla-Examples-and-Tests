@@ -170,16 +170,18 @@ struct RayLight
 
 #ifdef __HLSL_VERSION
 
-struct [raypayload] ColorPayload
-{
-	float32_t3 hitValue : read(caller) : write(closesthit,miss);
-    uint32_t seed : read(closesthit,anyhit) : write(caller);
-};
-
 struct [raypayload] ShadowPayload
 {
 	bool isShadowed : read(caller) : write(caller,miss);
     uint32_t seed : read(anyhit) : write(caller);
+};
+
+struct [raypayload] HitPayload
+{
+    MaterialPacked material : read(caller) : write(closesthit);
+    float32_t3 worldNormal : read(caller) : write(closesthit);
+    float32_t rayDistance : read(caller) : write(closesthit, miss);
+    uint32_t seed : read(closesthit, anyhit) : write(caller);
 };
 
 enum ObjectType : uint32_t  // matches c++
@@ -197,6 +199,7 @@ enum ObjectType : uint32_t  // matches c++
 };
 
 static uint32_t s_offsetsToNormalBytes[OT_COUNT] = { 18, 24, 24, 20, 20, 24, 16, 12 };	// based on normals data position
+
 float32_t3 computeDiffuse(Material mat, float32_t3 light_dir, float32_t3 normal)
 {
 	// Lambertian
@@ -213,7 +216,6 @@ float32_t3 computeSpecular(Material mat, float32_t3 view_dir,
 	if (mat.illum < 2)
 		return float32_t3(0, 0, 0);
 
-	// Compute specular only if not in shadow
 	const float32_t kPi = 3.14159265;
 	const float32_t kShininess = max(mat.shininess, 4.0);
 

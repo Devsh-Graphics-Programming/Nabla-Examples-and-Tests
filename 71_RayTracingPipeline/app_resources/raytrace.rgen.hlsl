@@ -41,19 +41,59 @@ void main()
         const float32_t4 tmp = mul(pc.invMVP, float32_t4(d.x, d.y, 1, 1));
         const float32_t3 targetPos = tmp.xyz / tmp.w;
 
-        float32_t3 direction = normalize(targetPos - pc.camPos);
+        const float32_t3 camDirection = normalize(targetPos - pc.camPos);
 
         RayDesc rayDesc;
         rayDesc.Origin = pc.camPos;
-        rayDesc.Direction = direction;
+        rayDesc.Direction = camDirection;
         rayDesc.TMin = 0.001;
         rayDesc.TMax = 10000.0;
         
-        ColorPayload payload;
+        HitPayload payload;
         payload.seed = seed;
         TraceRay(topLevelAS, RAY_FLAG_NONE, 0xff, ERT_PRIMARY, 0, EMT_PRIMARY, rayDesc, payload);
 
-        hitValues += payload.hitValue;
+        if (payload.rayDistance < 0)
+        {
+            hitValues += float32_t3(0.3, 0.3, 0.3);
+            continue;
+        }
+
+        const float32_t3 worldPosition = pc.camPos + (camDirection * payload.rayDistance);
+        const float32_t3 worldNormal = payload.worldNormal;
+        const Material material = unpackMaterial(payload.material);
+        RayLight cLight;
+        cLight.inHitPosition = worldPosition;
+        CallShader(pc.light.type, cLight);
+
+        const float32_t3 diffuse = computeDiffuse(material, cLight.outLightDir, worldNormal);
+        float32_t3 specular = float32_t3(0, 0, 0);
+        float32_t attenuation = 1;
+
+        if (dot(worldNormal, cLight.outLightDir) > 0)
+        {
+            RayDesc rayDesc;
+            rayDesc.Origin = worldPosition;
+            rayDesc.Direction = cLight.outLightDir;
+            rayDesc.TMin = 0.01;
+            rayDesc.TMax = 100000;
+
+            ShadowPayload shadowPayload;
+            shadowPayload.isShadowed = true;
+            shadowPayload.seed = seed;
+            TraceRay(topLevelAS, RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, 0xFF, ERT_PRIMARY, 0, EMT_OCCLUSION, rayDesc, shadowPayload);
+
+            bool isShadowed = shadowPayload.isShadowed;
+            if (isShadowed)
+            {
+                attenuation = 0.3;
+            }
+            else
+            {
+                specular = computeSpecular(material, camDirection, cLight.outLightDir, worldNormal);
+            }
+        }
+        hitValues += (cLight.outIntensity * attenuation * (diffuse + specular));
     }
 
     float32_t3 hitValue = hitValues / s_sampleCount;
