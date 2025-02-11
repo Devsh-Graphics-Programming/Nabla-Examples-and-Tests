@@ -1451,7 +1451,9 @@ private:
           triangles[i].vertexStride = vertexStride;
           triangles[i].vertexFormat = EF_R32G32B32_SFLOAT;
           triangles[i].indexType = gpuObject.indexType;
-          triangles[i].geometryFlags = IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::NO_DUPLICATE_ANY_HIT_INVOCATION_BIT;
+          triangles[i].geometryFlags = gpuObject.material.illum == 4 ? 
+            IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::NO_DUPLICATE_ANY_HIT_INVOCATION_BIT :
+            IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::OPAQUE_BIT;
 
           blasBuildInfos[i].triangles = &triangles[i];
         }

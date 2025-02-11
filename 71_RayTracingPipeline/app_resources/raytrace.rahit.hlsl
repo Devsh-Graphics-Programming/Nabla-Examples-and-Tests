@@ -18,8 +18,6 @@ void main(inout AnyHitPayload p, in BuiltInTriangleIntersectionAttributes attrib
     const STriangleGeomInfo geom = vk::RawBufferLoad < STriangleGeomInfo > (pc.triangleGeomInfoBuffer + instID * sizeof(STriangleGeomInfo));
     const Material material = unpackMaterial(geom.material);
     
-    if (material.illum != 4)
-        return;
 
     uint32_t seed = p.seed;
     if (material.dissolve == 0.0)
