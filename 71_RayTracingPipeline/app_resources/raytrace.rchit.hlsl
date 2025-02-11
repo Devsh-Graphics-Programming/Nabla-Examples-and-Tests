@@ -11,13 +11,7 @@ float3 unpackNormals3x10(uint32_t v)
     return clamp(float3(pn) / 511.0, -1.0, 1.0);
 }
 
-struct VertexData
-{
-    float32_t3 position;
-    float32_t3 normal;
-};
-
-VertexData fetchVertexData(int instID, int primID, STriangleGeomInfo geom, float2 bary)
+float32_t3 fetchVertexNormal(int instID, int primID, STriangleGeomInfo geom, float2 bary)
 {
     uint idxOffset = primID * 3;
 
@@ -52,12 +46,7 @@ VertexData fetchVertexData(int instID, int primID, STriangleGeomInfo geom, float
             }
     }
 
-    const uint64_t vertexBufferAddress = geom.vertexBufferAddress;
-    float32_t3 p0 = vk::RawBufferLoad < float32_t3 > (vertexBufferAddress + i0 * vertexStride);
-    float32_t3 p1 = vk::RawBufferLoad < float32_t3 > (vertexBufferAddress + i1 * vertexStride);
-    float32_t3 p2 = vk::RawBufferLoad < float32_t3 > (vertexBufferAddress + i2 * vertexStride);
-
-    const uint64_t normalVertexBufferAddress = vertexBufferAddress + s_offsetsToNormalBytes[objType];
+    const uint64_t normalVertexBufferAddress = geom.vertexBufferAddress + s_offsetsToNormalBytes[objType];
     float3 n0, n1, n2;
     switch (objType)
     {
@@ -102,11 +91,7 @@ VertexData fetchVertexData(int instID, int primID, STriangleGeomInfo geom, float
 
     float3 barycentrics = float3(0.0, bary);
     barycentrics.x = 1.0 - barycentrics.y - barycentrics.z;
-
-    VertexData data;
-    data.position = barycentrics.x * p0 + barycentrics.y * p1 + barycentrics.z * p2;
-    data.normal = normalize(barycentrics.x * n0 + barycentrics.y * n1 + barycentrics.z * n2);
-    return data;
+    return normalize(barycentrics.x * n0 + barycentrics.y * n1 + barycentrics.z * n2);
 }
 
 [shader("closesthit")]
@@ -115,8 +100,8 @@ void main(inout HitPayload payload, in BuiltInTriangleIntersectionAttributes att
     const int instID = InstanceID();
     const int primID = PrimitiveIndex();
     const STriangleGeomInfo geom = vk::RawBufferLoad < STriangleGeomInfo > (pc.triangleGeomInfoBuffer + instID * sizeof(STriangleGeomInfo));
-    const VertexData vertexData = fetchVertexData(instID, primID, geom, attribs.barycentrics);
-    const float32_t3 worldNormal = normalize(mul(vertexData.normal, WorldToObject3x4()).xyz);
+    const float32_t3 vertexNormal = fetchVertexNormal(instID, primID, geom, attribs.barycentrics);
+    const float32_t3 worldNormal = normalize(mul(vertexNormal, WorldToObject3x4()).xyz);
 
     payload.material = geom.material;
     payload.worldNormal = worldNormal;
