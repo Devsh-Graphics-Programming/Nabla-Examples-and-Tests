@@ -186,7 +186,7 @@ struct [raypayload] HitPayload
     MaterialPacked material : read(caller) : write(closesthit);
     float32_t3 worldNormal : read(caller) : write(closesthit);
     float32_t rayDistance : read(caller) : write(closesthit, miss);
-    uint32_t seed : read(closesthit, anyhit) : write(caller);
+    float32_t dissolveThreshold : read(closesthit, anyhit) : write(caller);
 };
 
 enum ObjectType : uint32_t  // matches c++

@@ -1,5 +1,4 @@
 #include "common.hlsl"
-#include "random.hlsl"
 
 [[vk::push_constant]] SPushConstants pc;
 
@@ -10,7 +9,15 @@ void main(inout ShadowPayload payload, in BuiltInTriangleIntersectionAttributes 
     const STriangleGeomInfo geom = vk::RawBufferLoad < STriangleGeomInfo > (pc.triangleGeomInfoBuffer + instID * sizeof(STriangleGeomInfo));
     const Material material = unpackMaterial(geom.material);
     
-    payload.attenuation = (1 - material.dissolve) * payload.attenuation;
-    IgnoreHit();
+    if (material.illum != 4)
+    {
+        payload.attenuation = 0;
+        AcceptHitAndEndSearch();
+    }
+    else
+    {
+        payload.attenuation = (1 - material.dissolve) * payload.attenuation;
+        IgnoreHit();
+    }
 
 }

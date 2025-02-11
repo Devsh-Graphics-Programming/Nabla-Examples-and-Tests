@@ -1,12 +1,13 @@
 #include "common.hlsl"
-#include "random.hlsl"
 
 #include "nbl/builtin/hlsl/jit/device_capabilities.hlsl"
+#include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
 
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 #include "nbl/builtin/hlsl/spirv_intrinsics/raytracing.hlsl"
 
 static const int32_t s_sampleCount = 10;
+static const float32_t3 s_clearColor = float32_t3(0.3, 0.3, 0.8);
 
 [[vk::push_constant]] SPushConstants pc;
 
@@ -14,9 +15,16 @@ static const int32_t s_sampleCount = 10;
 
 [[vk::binding(1, 0)]] RWTexture2D<float32_t4> colorImage;
 
-float32_t3 reinhardTonemap(float32_t3 v)
+uint32_t pcgHash(uint32_t v)
 {
-    return v / (1.0f + v);
+    uint32_t state = v * 747796405u + 2891336453u;
+    uint32_t word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+float32_t nextRandomUnorm(inout nbl::hlsl::Xoroshiro64StarStar rnd)
+{
+    return float32_t(rnd()) / float32_t(0xFFFFFFFF);
 }
 
 [shader("raygeneration")]
@@ -25,13 +33,16 @@ void main()
     uint32_t3 launchID = DispatchRaysIndex();
     uint32_t3 launchSize = DispatchRaysDimensions();
     uint32_t2 coords = launchID.xy;
-    uint32_t seed = tea(launchID.y * launchSize.x + launchID.x, pc.frameCounter);
+
+    uint32_t seed1 = pcgHash(pc.frameCounter);
+    uint32_t seed2 = pcgHash(launchID.y * launchSize.x + launchID.x);
+    nbl::hlsl::Xoroshiro64StarStar rnd = nbl::hlsl::Xoroshiro64StarStar::construct(uint32_t2(seed1, seed2));
 
     float32_t3 hitValues = float32_t3(0, 0, 0);
     for (uint32_t sample_i = 0; sample_i < s_sampleCount; sample_i++)
     {
-        const float32_t r1 = rnd(seed);
-        const float32_t r2 = rnd(seed);
+        const float32_t r1 = nextRandomUnorm(rnd);
+        const float32_t r2 = nextRandomUnorm(rnd);
         const float32_t2 subpixelJitter = pc.frameCounter == 0 ? float32_t2(0.5f, 0.5f) : float32_t2(r1, r2);
 
         const float32_t2 pixelCenter = float32_t2(coords) + subpixelJitter;
@@ -50,12 +61,12 @@ void main()
         rayDesc.TMax = 10000.0;
         
         HitPayload payload;
-        payload.seed = seed;
+        payload.dissolveThreshold = nextRandomUnorm(rnd);
         TraceRay(topLevelAS, RAY_FLAG_NONE, 0xff, ERT_PRIMARY, 0, EMT_PRIMARY, rayDesc, payload);
 
         if (payload.rayDistance < 0)
         {
-            hitValues += float32_t3(0.3, 0.3, 0.3);
+            hitValues += s_clearColor;
             continue;
         }
 
@@ -68,7 +79,7 @@ void main()
 
         const float32_t3 diffuse = computeDiffuse(material, cLight.outLightDir, worldNormal);
         float32_t3 specular = float32_t3(0, 0, 0);
-        float32_t attenuation = 0;
+        float32_t attenuation = 1;
 
         if (dot(worldNormal, cLight.outLightDir) > 0)
         {
@@ -78,14 +89,15 @@ void main()
             rayDesc.TMin = 0.01;
             rayDesc.TMax = cLight.outLightDistance;
 
+            uint32_t shadowRayFlags = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER;
             ShadowPayload shadowPayload;
-            shadowPayload.attenuation = -1; // negative attenuation indicate occlusion happening. will be multiplied by -1 in miss shader.
-            TraceRay(topLevelAS, RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, 0xFF, ERT_OCCLUSION, 0, EMT_OCCLUSION, rayDesc, shadowPayload);
+            shadowPayload.attenuation = 1; // negative attenuation indicate occlusion happening. will be multiplied by -1 in miss shader.
+            TraceRay(topLevelAS, shadowRayFlags, 0xFF, ERT_OCCLUSION, 0, EMT_OCCLUSION, rayDesc, shadowPayload);
 
+            attenuation = shadowPayload.attenuation;
             if (shadowPayload.attenuation > 0)
             {
                 specular = computeSpecular(material, camDirection, cLight.outLightDir, worldNormal);
-                attenuation = shadowPayload.attenuation;
             }
         }
         hitValues += (cLight.outIntensity * attenuation * (diffuse + specular));
