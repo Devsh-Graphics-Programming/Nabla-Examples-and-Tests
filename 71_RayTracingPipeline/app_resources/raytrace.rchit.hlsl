@@ -2,8 +2,6 @@
 
 [[vk::push_constant]] SPushConstants pc;
 
-[[vk::binding(0, 0)]] RaytracingAccelerationStructure topLevelAS;
-
 float3 unpackNormals3x10(uint32_t v)
 {
     // host side changes float32_t3 to EF_A2B10G10R10_SNORM_PACK32

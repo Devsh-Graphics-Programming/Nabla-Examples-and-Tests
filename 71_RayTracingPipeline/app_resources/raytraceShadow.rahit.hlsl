@@ -3,8 +3,6 @@
 
 [[vk::push_constant]] SPushConstants pc;
 
-[[vk::binding(0, 0)]] RaytracingAccelerationStructure topLevelAS;
-
 [shader("anyhit")]
 void main(inout ShadowPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
 {
