@@ -51,6 +51,13 @@ struct Ray
     Payload<T> payload;
 };
 
+template<class Spectrum>
+struct Light
+{
+    Spectrum radiance;
+    uint32_t objectID;
+};
+
 enum ProceduralShapeType : uint16_t
 {
     PST_SPHERE,
@@ -191,7 +198,7 @@ struct Shape<PST_TRIANGLE>
         return nbl::hlsl::cross(edges[0], edges[1]) * 0.5f;
     }
 
-    float deferredPdf(NBL_CONST_REF_ARG(Light light), NBL_CONST_REF_ARG(Ray) ray)
+    float deferredPdf(NBL_CONST_REF_ARG(Light light), NBL_CONST_REF_ARG(Ray<float>) ray)
     {
         const float32_t3 L = ray.direction;
         switch (polygonMethod)
@@ -336,6 +343,99 @@ struct Shape<PST_RECTANGLE>
         basis[2] = normalize(cross(basis[0],basis[1]));
 
         basis = nbl::hlsl::transpose<matrix3x3_type>(basis);    // TODO: double check transpose
+    }
+
+    float deferredPdf(NBL_CONST_REF_ARG(Light light), NBL_CONST_REF_ARG(Ray<float>) ray)
+    {
+        switch (polygonMethod)
+        {
+            case PPM_AREA:
+            {
+                const float dist = ray.intersectionT;
+                return dist * dist / nbl::hlsl::abs(nbl::hlsl::dot(getNormalTimesArea(), L));
+            }
+            break;
+            // #ifdef TRIANGLE_REFERENCE ?
+            case PPM_SOLID_ANGLE:
+            {
+                float pdf;
+                float32_t3x3 rectNormalBasis;
+                float32_t2 rectExtents;
+                getNormalBasis(rectNormalBasis, rectExtents);
+                shapes::SphericalRectangle<float> sphR0 = shapes::SphericalRectangle<float>::create(ray.origin, offset, rectNormalBasis);
+                float solidAngle = sphR0.solidAngleOfRectangle(rectExtents);
+                if (solidAngle > numeric_limits<float>::min)
+                    pdf = 1.f / solidAngle;
+                else
+                    pdf = numeric_limits<float>::infinity;
+                return pdf;
+            }
+            break;
+            case PPM_APPROX_PROJECTED_SOLID_ANGLE:
+            {
+                return numeric_limits<float>::infinity;
+            }
+            break;
+            default:
+                return numeric_limits<float>::infinity;
+        }
+    }
+
+    template<class Aniso>
+    float32_t3 generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, float32_t3 xi, uint32_t objectID)
+    {
+        const float32_t3 N = getNormalTimesArea();
+        const float32_t3 origin2origin = offset - origin;
+
+        switch (polygonMethod)
+        {
+            case PPM_AREA:
+            {
+                float32_t3 L = origin2origin + edge0 * xi.x + edge1 * xi.y;
+                const float distSq = nbl::hlsl::dot(L, L);
+                const float rcpDist = 1.0 / nbl::hlsl::sqrt(distSq);
+                L *= rcpDist;
+                pdf = distSq / nbl::hlsl::abs(nbl::hlsl::dot(N, L));
+                newRayMaxT = 1.0 / rcpDist;
+                return L;
+            }
+            break;
+            // #ifdef TRIANGLE_REFERENCE ?
+            case PPM_SOLID_ANGLE:
+            {
+                float pdf;
+                float32_t3x3 rectNormalBasis;
+                float32_t2 rectExtents;
+                getNormalBasis(rectNormalBasis, rectExtents);
+                shapes::SphericalRectangle<float> sphR0 = shapes::SphericalRectangle<float>::create(origin, offset, rectNormalBasis);
+                float32_t3 L = (float32_t3)0.0;
+                float solidAngle = sphR0.solidAngleOfRectangle(rectExtents);
+
+                sampling::SphericalRectangle<float> ssph = sampling::SphericalRectangle<float>::create(sphR0);
+                float32_t2 sphUv = ssph.generate(rectExtents, xi.xy, solidAngle);
+                if (solidAngle > numeric_limits<float>::min)
+                {
+                    float32_t3 sph_sample = sphUv[0] * edge0 + sphUv[1] * edge1 + offset;
+                    L = nbl::hlsl::normalize(sph_sample - origin);
+                    pdf = 1.f / solidAngle;
+                }
+                else
+                    pdf = numeric_limits<float>::infinity;
+
+                newRayMaxT = nbl::hlsl::dot(N, origin2origin) / nbl::hlsl::dot(N, L);
+                return L;
+            }
+            break;
+            case PPM_APPROX_PROJECTED_SOLID_ANGLE:
+            {
+                pdf = numeric_limits<float>::infinity;
+                return (float32_t3)0.0;
+            }
+            break;
+            default:
+                pdf = numeric_limits<float>::infinity;
+                return (float32_t3)0.0;
+        }
     }
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t ObjSize = 10;
