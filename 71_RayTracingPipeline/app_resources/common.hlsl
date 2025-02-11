@@ -178,7 +178,7 @@ struct ProceduralHitAttribute
 
 struct [raypayload] ShadowPayload
 {
-    float32_t attenuation : read(caller) : write(caller, miss, anyhit);
+    float32_t attenuation : read(caller) : write(caller, anyhit);
 };
 
 struct [raypayload] HitPayload
