@@ -166,8 +166,8 @@ public:
     const auto closestHitShader = loadCompileAndCreateShader("app_resources/raytrace.rchit.hlsl");
     const auto proceduralClosestHitShader = loadCompileAndCreateShader("app_resources/raytrace_procedural.rchit.hlsl");
     const auto intersectionHitShader = loadCompileAndCreateShader("app_resources/raytrace.rint.hlsl");
-    const auto anyHitShaderColorPayload = loadCompileAndCreateShader("app_resources/raytrace.rahit.hlsl", "#define USE_COLOR_PAYLOAD\n");
-    const auto anyHitShaderShadowPayload = loadCompileAndCreateShader("app_resources/raytrace.rahit.hlsl", "#define USE_SHADOW_PAYLOAD\n");
+    const auto anyHitShaderColorPayload = loadCompileAndCreateShader("app_resources/raytrace.rahit.hlsl");
+    const auto anyHitShaderShadowPayload = loadCompileAndCreateShader("app_resources/raytraceShadow.rahit.hlsl");
     const auto missShader = loadCompileAndCreateShader("app_resources/raytrace.rmiss.hlsl");
     const auto shadowMissShader = loadCompileAndCreateShader("app_resources/raytraceShadow.rmiss.hlsl");
     const auto directionalLightCallShader = loadCompileAndCreateShader("app_resources/light_directional.rcall.hlsl");

@@ -3,5 +3,5 @@
 [shader("miss")]
 void main(inout ShadowPayload payload)
 {
-	payload.isShadowed = false;
+	payload.attenuation = payload.attenuation * -1;
 }

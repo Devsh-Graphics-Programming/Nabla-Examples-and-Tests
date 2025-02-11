@@ -6,19 +6,13 @@
 [[vk::binding(0, 0)]] RaytracingAccelerationStructure topLevelAS;
 
 [shader("anyhit")]
-void main(inout HitPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
+void main(inout ShadowPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
 {
     const int instID = InstanceID();
     const STriangleGeomInfo geom = vk::RawBufferLoad < STriangleGeomInfo > (pc.triangleGeomInfoBuffer + instID * sizeof(STriangleGeomInfo));
     const Material material = unpackMaterial(geom.material);
     
-    uint32_t seed = payload.seed;
-    if (material.dissolve == 0.0)
-    {
-        IgnoreHit();
-    }
-    else if (rnd(seed) > material.dissolve)
-    {
-        IgnoreHit();
-    }
+    payload.attenuation = (1 - material.dissolve) * payload.attenuation;
+    IgnoreHit();
+
 }

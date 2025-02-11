@@ -178,8 +178,7 @@ struct ProceduralHitAttribute
 
 struct [raypayload] ShadowPayload
 {
-	bool isShadowed : read(caller) : write(caller,miss);
-    uint32_t seed : read(anyhit) : write(caller);
+    float32_t attenuation : read(caller) : write(caller, miss, anyhit);
 };
 
 struct [raypayload] HitPayload

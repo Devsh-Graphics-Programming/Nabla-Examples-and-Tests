@@ -68,7 +68,7 @@ void main()
 
         const float32_t3 diffuse = computeDiffuse(material, cLight.outLightDir, worldNormal);
         float32_t3 specular = float32_t3(0, 0, 0);
-        float32_t attenuation = 1;
+        float32_t attenuation = 0;
 
         if (dot(worldNormal, cLight.outLightDir) > 0)
         {
@@ -76,21 +76,16 @@ void main()
             rayDesc.Origin = worldPosition;
             rayDesc.Direction = cLight.outLightDir;
             rayDesc.TMin = 0.01;
-            rayDesc.TMax = 100000;
+            rayDesc.TMax = cLight.outLightDistance;
 
             ShadowPayload shadowPayload;
-            shadowPayload.isShadowed = true;
-            shadowPayload.seed = seed;
-            TraceRay(topLevelAS, RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, 0xFF, ERT_PRIMARY, 0, EMT_OCCLUSION, rayDesc, shadowPayload);
+            shadowPayload.attenuation = -1; // negative attenuation indicate occlusion happening. will be multiplied by -1 in miss shader.
+            TraceRay(topLevelAS, RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, 0xFF, ERT_OCCLUSION, 0, EMT_OCCLUSION, rayDesc, shadowPayload);
 
-            bool isShadowed = shadowPayload.isShadowed;
-            if (isShadowed)
-            {
-                attenuation = 0.3;
-            }
-            else
+            if (shadowPayload.attenuation > 0)
             {
                 specular = computeSpecular(material, camDirection, cLight.outLightDir, worldNormal);
+                attenuation = shadowPayload.attenuation;
             }
         }
         hitValues += (cLight.outIntensity * attenuation * (diffuse + specular));
