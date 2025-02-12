@@ -1378,8 +1378,17 @@ public:
 		const uint32_t currentIndexCount = drawResourcesFiller.getDrawObjectCount() * 6u;
 		IGPUDescriptorSet* descriptorSets[] = { descriptorSet0.get(), descriptorSet1.get() };
 		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, pipelineLayout.get(), 0u, 2u, descriptorSets);
+
+		// TODO[Przemek]: based on our call bind index buffer you uploaded to part of the `drawResourcesFiller.gpuDrawBuffers.geometryBuffer`
+		// Vertices will be pulled based on baseBDAPointer of where you uploaded the vertex + the VertexID in the vertex shader.
 		cb->bindIndexBuffer({ .offset = 0u, .buffer = drawResourcesFiller.gpuDrawBuffers.indexBuffer.get() }, asset::EIT_32BIT);
+
+		// TODO[Przemek]: binding the same pipelie, no need to change.
 		cb->bindGraphicsPipeline(graphicsPipeline.get());
+		
+		// TODO[Przemek]: contour settings, height shading settings, base bda pointers will need to be pushed via pushConstants before the draw currently as it's the easiest thing to do.
+
+		// TODO[Przemek]: draw parameters needs to reflect the mesh involved
 		cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 		if (fragmentShaderInterlockEnabled)
 		{
@@ -1477,6 +1486,9 @@ protected:
 	
 	void addObjects(SIntendedSubmitInfo& intendedNextSubmit)
 	{
+		
+		// TODO[Przemek]: add your own case, you won't call any other drawResourcesFiller function, only drawMesh with your custom made Mesh (for start it can be a single triangle)
+
 		// we record upload of our objects and if we failed to allocate we submit everything
 		if (!intendedNextSubmit.valid())
 		{
