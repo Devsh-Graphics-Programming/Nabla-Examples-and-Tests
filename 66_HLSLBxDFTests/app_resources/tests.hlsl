@@ -568,7 +568,8 @@ struct TestJacobian : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        uint32_t2 state = pcg32x2(initparams.state);
+        PCG32x2 pcg = PCG32x2::construct(initparams.state);
+        uint32_t2 state = pcg();
 
         this_t t;
         t.init(state);
@@ -741,7 +742,8 @@ struct TestReciprocity : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        uint32_t2 state = pcg32x2(initparams.state);
+        PCG32x2 pcg = PCG32x2::construct(initparams.state);
+        uint32_t2 state = pcg();
 
         this_t t;
         t.init(state);
@@ -901,7 +903,8 @@ struct TestBucket : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        uint32_t2 state = pcg32x2(initparams.state);
+        PCG32x2 pcg = PCG32x2::construct(initparams.state);
+        uint32_t2 state = pcg();
 
         this_t t;
         t.init(state);
@@ -1347,7 +1350,8 @@ struct TestChi2 : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        uint32_t2 state = pcg32x2(initparams.state);
+        PCG32x2 pcg = PCG32x2::construct(initparams.state);
+        uint32_t2 state = pcg();
 
         this_t t;
         t.init(state);
