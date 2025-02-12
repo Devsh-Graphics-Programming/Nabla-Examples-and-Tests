@@ -400,9 +400,9 @@ public:
 		}
 
 		IGPUSampler::SParams samplerParams = {};
-		samplerParams.TextureWrapU = IGPUSampler::ETC_CLAMP_TO_BORDER;
-		samplerParams.TextureWrapV = IGPUSampler::ETC_CLAMP_TO_BORDER;
-		samplerParams.TextureWrapW = IGPUSampler::ETC_CLAMP_TO_BORDER;
+		samplerParams.TextureWrapU = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+		samplerParams.TextureWrapV = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+		samplerParams.TextureWrapW = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
 		samplerParams.BorderColor  = IGPUSampler::ETBC_FLOAT_OPAQUE_WHITE; // positive means outside shape
 		samplerParams.MinFilter		= IGPUSampler::ETF_LINEAR;
 		samplerParams.MaxFilter		= IGPUSampler::ETF_LINEAR;
