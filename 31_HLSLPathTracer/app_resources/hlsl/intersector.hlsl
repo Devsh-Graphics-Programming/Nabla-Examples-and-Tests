@@ -47,7 +47,7 @@ struct Comprehensive
     {
         const bool anyHit = ray.intersectionT != numeric_limits<scalar_type>::max;
         const uint32_t objCount = intersect.data[0];
-        const ProceduralIntersectionType type = intersect.data[1];
+        const ProceduralShapeType type = intersect.data[1];
 
         int objectID = -1;
         for (int i = 0; i < objCount; i++)
