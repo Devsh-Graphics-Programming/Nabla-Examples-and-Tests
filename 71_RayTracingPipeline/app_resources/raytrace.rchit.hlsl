@@ -95,7 +95,7 @@ float32_t3 fetchVertexNormal(int instID, int primID, STriangleGeomInfo geom, flo
 }
 
 [shader("closesthit")]
-void main(inout HitPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
+void main(inout PrimaryPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
 {
     const int instID = InstanceID();
     const int primID = PrimitiveIndex();

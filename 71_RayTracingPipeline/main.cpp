@@ -138,7 +138,7 @@ public:
     }
 
     // Load Custom Shader
-    auto loadCompileAndCreateShader = [&](const std::string& relPath, const std::string& header = "") -> smart_refctd_ptr<IGPUShader>
+    auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IGPUShader>
         {
             IAssetLoader::SAssetLoadParams lp = {};
             lp.logger = m_logger.get();
@@ -153,13 +153,7 @@ public:
             if (!sourceRaw)
                 return nullptr;
 
-            smart_refctd_ptr<ICPUShader> source = CHLSLCompiler::createOverridenCopy(
-                sourceRaw.get(),
-                "%s\n",
-                header.c_str()
-            );
-
-            return m_device->createShader({ source.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
+            return m_device->createShader({ sourceRaw.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
         };
 
     // load shaders
@@ -168,9 +162,9 @@ public:
     const auto proceduralClosestHitShader = loadCompileAndCreateShader("app_resources/raytrace_procedural.rchit.hlsl");
     const auto intersectionHitShader = loadCompileAndCreateShader("app_resources/raytrace.rint.hlsl");
     const auto anyHitShaderColorPayload = loadCompileAndCreateShader("app_resources/raytrace.rahit.hlsl");
-    const auto anyHitShaderShadowPayload = loadCompileAndCreateShader("app_resources/raytraceShadow.rahit.hlsl");
+    const auto anyHitShaderShadowPayload = loadCompileAndCreateShader("app_resources/raytrace_shadow.rahit.hlsl");
     const auto missShader = loadCompileAndCreateShader("app_resources/raytrace.rmiss.hlsl");
-    const auto shadowMissShader = loadCompileAndCreateShader("app_resources/raytraceShadow.rmiss.hlsl");
+    const auto shadowMissShader = loadCompileAndCreateShader("app_resources/raytrace_shadow.rmiss.hlsl");
     const auto directionalLightCallShader = loadCompileAndCreateShader("app_resources/light_directional.rcall.hlsl");
     const auto pointLightCallShader = loadCompileAndCreateShader("app_resources/light_point.rcall.hlsl");
     const auto spotLightCallShader = loadCompileAndCreateShader("app_resources/light_spot.rcall.hlsl");
@@ -300,14 +294,14 @@ public:
           .binding = 0,
           .type = asset::IDescriptor::E_TYPE::ET_ACCELERATION_STRUCTURE,
           .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-          .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_ALL_RAY_TRACING,
+          .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_RAYGEN,
           .count = 1,
         },
         {
           .binding = 1,
           .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
           .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-          .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_ALL_RAY_TRACING,
+          .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_RAYGEN,
           .count = 1,
         }
       };
@@ -333,7 +327,7 @@ public:
         RTDS_SHADOW_MISS,
         RTDS_CLOSEST_HIT,
         RTDS_SPHERE_CLOSEST_HIT,
-        RTDS_ANYHIT_COLOR,
+        RTDS_ANYHIT_PRIMARY,
         RTDS_ANYHIT_SHADOW,
         RTDS_INTERSECTION,
         RTDS_DIRECTIONAL_CALL,
@@ -348,7 +342,7 @@ public:
       shaders[RTDS_SHADOW_MISS] = {.shader = shadowMissShader.get()};
       shaders[RTDS_CLOSEST_HIT] = {.shader = closestHitShader.get()};
       shaders[RTDS_SPHERE_CLOSEST_HIT] = {.shader = proceduralClosestHitShader.get()};
-      shaders[RTDS_ANYHIT_COLOR] = {.shader = anyHitShaderColorPayload.get()};
+      shaders[RTDS_ANYHIT_PRIMARY] = {.shader = anyHitShaderColorPayload.get()};
       shaders[RTDS_ANYHIT_SHADOW] = {.shader = anyHitShaderShadowPayload.get()};
       shaders[RTDS_INTERSECTION] = {.shader = intersectionHitShader.get() };
       shaders[RTDS_DIRECTIONAL_CALL] = {.shader = directionalLightCallShader.get()};
@@ -374,19 +368,17 @@ public:
       SHitShaderGroup hitGroups[E_RAY_TYPE::ERT_COUNT * E_GEOM_TYPE::EGT_COUNT];
       hitGroups[getHitGroupIndex(EGT_TRIANGLES, ERT_PRIMARY)] = {
         .closestHitShaderIndex = RTDS_CLOSEST_HIT,
-        .anyHitShaderIndex = RTDS_ANYHIT_COLOR,
+        .anyHitShaderIndex = RTDS_ANYHIT_PRIMARY,
       };
       hitGroups[getHitGroupIndex(EGT_TRIANGLES, ERT_OCCLUSION)] = {
-        .closestHitShaderIndex = RTDS_CLOSEST_HIT,
         .anyHitShaderIndex = RTDS_ANYHIT_SHADOW,
       };
       hitGroups[getHitGroupIndex(EGT_PROCEDURAL, ERT_PRIMARY)] = {
         .closestHitShaderIndex = RTDS_SPHERE_CLOSEST_HIT,
-        .anyHitShaderIndex = RTDS_ANYHIT_COLOR,
+        .anyHitShaderIndex = RTDS_ANYHIT_PRIMARY,
         .intersectionShaderIndex = RTDS_INTERSECTION,
       };
       hitGroups[getHitGroupIndex(EGT_PROCEDURAL, ERT_OCCLUSION)] = {
-        .closestHitShaderIndex = RTDS_CLOSEST_HIT,
         .anyHitShaderIndex = RTDS_ANYHIT_SHADOW,
         .intersectionShaderIndex = RTDS_INTERSECTION,
       };
@@ -546,7 +538,11 @@ public:
         {
           static matrix4SIMD projection;
 
-          projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+          projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(
+            core::radians(m_cameraSetting.fov), 
+            io.DisplaySize.x / io.DisplaySize.y, 
+            m_cameraSetting.zNear, 
+            m_cameraSetting.zFar);
 
           return projection;
         }());
@@ -563,11 +559,11 @@ public:
 
         ImGui::Text("Camera");
 
-        ImGui::SliderFloat("Move speed", &moveSpeed, 0.1f, 10.f);
-        ImGui::SliderFloat("Rotate speed", &rotateSpeed, 0.1f, 10.f);
-        ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
-        ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
-        ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
+        ImGui::SliderFloat("Move speed", &m_cameraSetting.moveSpeed, 0.1f, 10.f);
+        ImGui::SliderFloat("Rotate speed", &m_cameraSetting.rotateSpeed, 0.1f, 10.f);
+        ImGui::SliderFloat("Fov", &m_cameraSetting.fov, 20.f, 150.f);
+        ImGui::SliderFloat("zNear", &m_cameraSetting.zNear, 0.1f, 100.f);
+        ImGui::SliderFloat("zFar", &m_cameraSetting.zFar, 110.f, 10000.f);
         Light m_oldLight = m_light;
         int light_type = m_light.type;
         ImGui::ListBox("LightType", &light_type, s_lightTypeNames, ELT_COUNT);
@@ -879,8 +875,8 @@ public:
 
   inline void update()
   {
-    m_camera.setMoveSpeed(moveSpeed);
-    m_camera.setRotateSpeed(rotateSpeed);
+    m_camera.setMoveSpeed(m_cameraSetting.moveSpeed);
+    m_camera.setRotateSpeed(m_cameraSetting.rotateSpeed);
 
     static std::chrono::microseconds previousEventTimestamp{};
 
@@ -1062,11 +1058,11 @@ private:
       return logFail("Couldn't create Command Pool for geometry creation!");
 
     const auto defaultMaterial = Material{
-      .ambient = {},
+      .ambient = {0.2, 0.1, 0.1},
       .diffuse = {0.8, 0.3, 0.3},
       .specular = {0.8, 0.8, 0.8},
       .shininess = 1.0f,
-      .illum = 2
+      .alpha = 1.0f,
     };
 
     auto getTranslationMatrix = [](float32_t x, float32_t y, float32_t z)
@@ -1096,11 +1092,10 @@ private:
         .meta = {.type = OT_CUBE, .name = "Cube Mesh 2"},
         .data = gc->createCubeMesh(nbl::core::vector3df(1.5, 1.5, 1.5)),
         .material = Material{
-          .ambient = {},
+          .ambient = {0.1, 0.1, 0.2},
           .diffuse = {0.2, 0.2, 0.8},
           .specular = {0.8, 0.8, 0.8},
           .shininess = 1.0f,
-          .illum = 2
         },
         .transform = getTranslationMatrix(-5.0f, 1.0f, 0),
       },
@@ -1108,12 +1103,11 @@ private:
         .meta = {.type = OT_CUBE, .name = "Transparent Cube Mesh"},
         .data = gc->createCubeMesh(nbl::core::vector3df(1.5, 1.5, 1.5)),
         .material = Material{
-          .ambient = {},
+          .ambient = {0.1, 0.2, 0.1},
           .diffuse = {0.2, 0.8, 0.2},
           .specular = {0.8, 0.8, 0.8},
           .shininess = 1.0f,
-          .dissolve = 0.2,
-          .illum = 4
+          .alpha = 0.8,
         },
         .transform = getTranslationMatrix(5.0f, 1.0f, 0),
       },
@@ -1282,11 +1276,10 @@ private:
         const auto middle_i = NumberOfProceduralGeometries / 2.0;
         SProceduralGeomInfo sphere = {
           .material = packMaterial({
-            .ambient = {},
+            .ambient = {0.1, 0.05 * i, 0.1},
             .diffuse = {0.3, 0.2 * i, 0.3},
             .specular = {0.8, 0.8, 0.8},
             .shininess = 1.0f,
-            .illum = 2
           }),
           .center = float32_t3((i - middle_i) * 4.0, 2, 5.0),
           .radius = 1,
@@ -1482,7 +1475,7 @@ private:
           triangles[i].vertexStride = vertexStride;
           triangles[i].vertexFormat = EF_R32G32B32_SFLOAT;
           triangles[i].indexType = gpuObject.indexType;
-          triangles[i].geometryFlags = gpuObject.material.illum == 4 ? 
+          triangles[i].geometryFlags = gpuObject.material.isTransparent() ?
             IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::NO_DUPLICATE_ANY_HIT_INVOCATION_BIT :
             IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::OPAQUE_BIT;
 
@@ -1749,10 +1742,18 @@ private:
   InputSystem::ChannelReader<IMouseEventChannel> m_mouse;
   InputSystem::ChannelReader<IKeyboardEventChannel> m_keyboard;
 
-  float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
-  float viewWidth = 10.f;
-  float camYAngle = 165.f / 180.f * 3.14159f;
-  float camXAngle = 32.f / 180.f * 3.14159f;
+  struct CameraSetting
+  {
+    float fov = 60.f;
+    float zNear = 0.1f;
+    float zFar = 10000.f;
+    float moveSpeed = 1.f;
+    float rotateSpeed = 1.f;
+    float viewWidth = 10.f;
+    float camYAngle = 165.f / 180.f * 3.14159f;
+    float camXAngle = 32.f / 180.f * 3.14159f;
+    
+  } m_cameraSetting;
   Camera m_camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
 
   Light m_light = {

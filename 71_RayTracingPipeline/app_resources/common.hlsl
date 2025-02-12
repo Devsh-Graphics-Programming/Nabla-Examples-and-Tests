@@ -4,27 +4,29 @@
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 
 NBL_CONSTEXPR uint32_t WorkgroupSize = 16;
+NBL_CONSTEXPR uint32_t MAX_UNORM_10 = 1023;
+NBL_CONSTEXPR uint32_t MAX_UNORM_22 = 4194303;
 
 inline uint32_t packUnorm10(float32_t v)
 {
-    return trunc(v * 1023.0f + 0.5f);
+    return trunc(v * float32_t(MAX_UNORM_10) + 0.5f);
 }
 
 inline float32_t unpackUnorm10(uint32_t packed)
 {
-    return float32_t(packed & 0x3ff) * (1.0f / 1023.0f);
+    return float32_t(packed & 0x3ff) * (1.0f / float32_t(MAX_UNORM_10));
 }
 
-inline uint32_t packUnorm18(float32_t v)
+inline uint32_t packUnorm22(float32_t v)
 {
-    const float maxValue = 262143;
+    const float maxValue = float32_t(MAX_UNORM_22);
     return trunc(v * maxValue + 0.5f);
 }
 
-inline float32_t unpackUnorm18(uint32_t packed)
+inline float32_t unpackUnorm22(uint32_t packed)
 {
-    const float maxValue = 262143;
-    return float32_t(packed & 0x3ffff) * (1.0f / maxValue);
+    const float maxValue = float32_t(MAX_UNORM_22);
+    return float32_t(packed & 0x3fffff) * (1.0f / maxValue);
 }
 
 inline uint32_t packUnorm3x10(float32_t3 v)
@@ -43,8 +45,12 @@ struct Material
     float32_t3 diffuse;
     float32_t3 specular;
     float32_t shininess;
-    float32_t dissolve; // 1 == opaque; 0 == fully transparent
-    uint32_t illum; // illumination model (see http://www.fileformat.info/format/material/)
+    float32_t alpha;
+
+    bool isTransparent() NBL_CONST_MEMBER_FUNC
+    {
+        return alpha < 1.0;
+    }
 };
 
 struct MaterialPacked
@@ -52,9 +58,13 @@ struct MaterialPacked
 	uint32_t ambient;
     uint32_t diffuse;
     uint32_t specular;
-    uint32_t shininess: 18;
-    uint32_t dissolve : 10; // 1 == opaque; 0 == fully transparent
-    uint32_t illum : 4; // illumination model (see http://www.fileformat.info/format/material/)
+    uint32_t shininess: 22;
+    uint32_t alpha : 10;
+
+    bool isTransparent() NBL_CONST_MEMBER_FUNC
+    {
+        return alpha != MAX_UNORM_10;
+}
 };
 
 inline MaterialPacked packMaterial(Material material)
@@ -63,9 +73,8 @@ inline MaterialPacked packMaterial(Material material)
     packed.ambient = packUnorm3x10(material.ambient);      
     packed.diffuse = packUnorm3x10(material.diffuse);
     packed.specular = packUnorm3x10(material.specular);      
-    packed.shininess = packUnorm18(material.shininess);
-    packed.dissolve = packUnorm10(material.dissolve);
-    packed.illum = material.illum;
+    packed.shininess = packUnorm22(material.shininess);
+    packed.alpha = packUnorm10(material.alpha);
     return packed;
 }
 
@@ -75,9 +84,8 @@ inline Material unpackMaterial(MaterialPacked packed)
     material.ambient = unpackUnorm3x10(packed.ambient);
     material.diffuse = unpackUnorm3x10(packed.diffuse);
     material.specular = unpackUnorm3x10(packed.specular);
-    material.shininess = unpackUnorm18(packed.shininess);
-    material.dissolve = unpackUnorm10(packed.dissolve);
-    material.illum = packed.illum;
+    material.shininess = unpackUnorm22(packed.shininess);
+    material.alpha = unpackUnorm10(packed.alpha);
     return material;
 }
 
@@ -176,17 +184,17 @@ struct ProceduralHitAttribute
 
 #ifdef __HLSL_VERSION
 
-struct [raypayload] ShadowPayload
+struct [raypayload] OcclusionPayload
 {
     float32_t attenuation : read(caller) : write(caller, anyhit);
 };
 
-struct [raypayload] HitPayload
+struct [raypayload] PrimaryPayload
 {
     MaterialPacked material : read(caller) : write(closesthit);
     float32_t3 worldNormal : read(caller) : write(closesthit);
     float32_t rayDistance : read(caller) : write(closesthit, miss);
-    float32_t dissolveThreshold : read(closesthit, anyhit) : write(caller);
+    float32_t alphaThreshold : read(closesthit, anyhit) : write(caller);
 };
 
 enum ObjectType : uint32_t  // matches c++
@@ -207,20 +215,14 @@ static uint32_t s_offsetsToNormalBytes[OT_COUNT] = { 18, 24, 24, 20, 20, 24, 16,
 
 float32_t3 computeDiffuse(Material mat, float32_t3 light_dir, float32_t3 normal)
 {
-	// Lambertian
 	float32_t dotNL = max(dot(normal, light_dir), 0.0);
 	float32_t3 c = mat.diffuse * dotNL;
-	if (mat.illum >= 1)
-		c += mat.ambient;
 	return c;
 }
 
 float32_t3 computeSpecular(Material mat, float32_t3 view_dir, 
 	float32_t3 light_dir, float32_t3 normal)
 {
-	if (mat.illum < 2)
-		return float32_t3(0, 0, 0);
-
 	const float32_t kPi = 3.14159265;
 	const float32_t kShininess = max(mat.shininess, 4.0);
 

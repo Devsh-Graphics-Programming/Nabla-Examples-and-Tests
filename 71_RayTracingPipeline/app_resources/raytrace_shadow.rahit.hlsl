@@ -3,21 +3,21 @@
 [[vk::push_constant]] SPushConstants pc;
 
 [shader("anyhit")]
-void main(inout ShadowPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
+void main(inout OcclusionPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
 {
     const int instID = InstanceID();
     const STriangleGeomInfo geom = vk::RawBufferLoad < STriangleGeomInfo > (pc.triangleGeomInfoBuffer + instID * sizeof(STriangleGeomInfo));
     const Material material = unpackMaterial(geom.material);
     
-    if (material.illum != 4)
+    if (material.isTransparent())
     {
-        payload.attenuation = 0;
-        AcceptHitAndEndSearch();
+        payload.attenuation = material.alpha * payload.attenuation;
+        IgnoreHit();
     }
     else
     {
-        payload.attenuation = (1 - material.dissolve) * payload.attenuation;
-        IgnoreHit();
+        payload.attenuation = 0;
+        AcceptHitAndEndSearch();
     }
 
 }

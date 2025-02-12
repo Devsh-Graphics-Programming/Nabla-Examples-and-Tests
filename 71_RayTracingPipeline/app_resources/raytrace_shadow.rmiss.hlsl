@@ -1,6 +1,6 @@
 #include "common.hlsl"
 
 [shader("miss")]
-void main(inout ShadowPayload payload)
+void main(inout OcclusionPayload payload)
 {
 }
