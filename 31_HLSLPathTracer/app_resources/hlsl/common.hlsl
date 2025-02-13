@@ -474,6 +474,27 @@ struct Shape<PST_RECTANGLE>
     PTPolygonMethod polygonMethod;
 };
 
+struct Scene
+{
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t maxSphereCount = 25;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t maxTriangleCount = 12;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t maxRectangleCount = 12;
+
+    Shape<PST_SPHERE> spheres[maxSphereCount];
+    Shape<PST_TRIANGLE> triangles[maxTriangleCount];
+    Shape<PST_RECTANGLE> rectangles[maxRectangleCount];
+
+    uint32_t sphereCount;
+    uint32_t triangleCount;
+    uint32_t rectangleCount;
+
+    Light lights[];
+    // Material materials[];
+    // + obj count for each
+
+    // AS ases;
+};
+
 }
 }
 }

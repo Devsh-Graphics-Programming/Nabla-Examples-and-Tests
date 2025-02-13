@@ -23,6 +23,76 @@ namespace Intersector
 
 struct IntersectData
 {
+    static IntersectData encode(uint32_t mode, ProceduralShapeType type, NBL_CONST_REF_ARG(Scene) scene)
+    {
+        IntersectData retval;
+        retval.mode = mode;
+
+        uint32_t objCount = (type == PST_SPHERE) ? scene.sphereCount :
+                            (type == PST_TRIANGLE) ? scene.triangleCount :
+                            (type == PST_RECTANGLE) ? scene.rectangleCount :
+                            -1;
+        retval.data[0] = objCount;
+        retval.data[1] = type;
+        
+        switch (type)
+        {
+            case PST_SPHERE:
+            {
+                for (int i = 0; i < objCount; i++)
+                {
+                    Shape<PST_SPHERE> sphere = scene.spheres[i];
+                    retval.data[2 + i * Shape<PST_SPHERE>::ObjSize] = asuint(sphere.position.x);
+                    retval.data[2 + i * Shape<PST_SPHERE>::ObjSize + 1] = asuint(sphere.position.y);
+                    retval.data[2 + i * Shape<PST_SPHERE>::ObjSize + 2] = asuint(sphere.position.z);
+                    retval.data[2 + i * Shape<PST_SPHERE>::ObjSize + 3] = asuint(sphere.radius);
+                    retval.data[2 + i * Shape<PST_SPHERE>::ObjSize + 4] = sphere.bsdfLightIDs;
+                }
+            }
+            break;
+            case PST_TRIANGLE:
+            {
+                for (int i = 0; i < objCount; i++)
+                {
+                    Shape<PST_TRIANGLE> tri = scene.triangles[i];
+                    retval.data[2 + i * Shape<PST_TRIANGLE>::ObjSize] = asuint(tri.vertex0.x);
+                    retval.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 1] = asuint(tri.vertex0.y);
+                    retval.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 2] = asuint(tri.vertex0.z);
+                    retval.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 3] = asuint(tri.vertex1.x);
+                    retval.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 4] = asuint(tri.vertex1.y);
+                    retval.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 5] = asuint(tri.vertex1.z);
+                    retval.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 6] = asuint(tri.vertex2.x);
+                    retval.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 7] = asuint(tri.vertex2.y);
+                    retval.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 8] = asuint(tri.vertex2.z);
+                    retval.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 9] = tri.bsdfLightIDs;
+                }
+            }
+            break;
+            case PST_RECTANGLE:
+            {
+                for (int i = 0; i < objCount; i++)
+                {
+                    Shape<PST_RECTANGLE> rect = scene.rectangles[i];
+                    retval.data[2 + i * Shape<PST_RECTANGLE>::ObjSize] = asuint(rect.offset.x);
+                    retval.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 1] = asuint(rect.offset.y);
+                    retval.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 2] = asuint(rect.offset.z);
+                    retval.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 3] = asuint(rect.edge0.x);
+                    retval.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 4] = asuint(rect.edge0.y);
+                    retval.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 5] = asuint(rect.edge0.z);
+                    retval.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 6] = asuint(rect.edge1.x);
+                    retval.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 7] = asuint(rect.edge1.y);
+                    retval.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 8] = asuint(rect.edge1.z);
+                    retval.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 9] = rect.bsdfLightIDs;
+                }
+            }
+            break;
+            default:
+                // for ASes
+                break;
+        }
+        return retval;        
+    }
+
     enum class Mode : uint32_t
     {
         RAY_QUERY,
@@ -49,7 +119,7 @@ struct Comprehensive
         const uint32_t objCount = intersect.data[0];
         const ProceduralShapeType type = intersect.data[1];
 
-        int objectID = -1;
+        int objectID = ray.objectID;
         for (int i = 0; i < objCount; i++)
         {
             float t;
