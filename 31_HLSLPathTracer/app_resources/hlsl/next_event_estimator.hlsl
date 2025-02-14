@@ -23,7 +23,7 @@ struct Event
         PROCEDURAL
     };
 
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t DataSize = 128;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t DataSize = 16;
 
     uint32_t mode : 1;
     unit32_t unused : 31;   // possible space for flags
@@ -120,7 +120,7 @@ struct Estimator
             {
                 float32_t3 position = float32_t3(asfloat(intersect.data[2 + Shape<PST_SPHERE>::ObjSize]), asfloat(intersect.data[2 + Shape<PST_SPHERE>::ObjSize + 1]), asfloat(intersect.data[2 + Shape<PST_SPHERE>::ObjSize + 2]));
                 Shape<PST_SPHERE> sphere = Shape<PST_SPHERE>::create(position, asfloat(intersect.data[2 + Shape<PST_SPHERE>::ObjSize + 3]), intersect.data[2 + Shape<PST_SPHERE>::ObjSize + 4]);
-                L = sphere.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi, objectID);
+                L = sphere.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
             }
             break;
             case PST_TRIANGLE:
@@ -129,7 +129,7 @@ struct Estimator
                 float32_t3 vertex1 = float32_t3(asfloat(intersect.data[2 + Shape<PST_TRIANGLE>::ObjSize + 3]), asfloat(intersect.data[2 + Shape<PST_SPHERE>::ObjSize + 4]), asfloat(intersect.data[2 + Shape<PST_TRIANGLE>::ObjSize + 5]));
                 float32_t3 vertex2 = float32_t3(asfloat(intersect.data[2 + Shape<PST_TRIANGLE>::ObjSize + 6]), asfloat(intersect.data[2 + Shape<PST_SPHERE>::ObjSize + 7]), asfloat(intersect.data[2 + Shape<PST_TRIANGLE>::ObjSize + 8]));
                 Shape<PST_TRIANGLE> tri = Shape<PST_TRIANGLE>::create(vertex0, vertex1, vertex2, intersect.data[2 + Shape<PST_TRIANGLE>::ObjSize + 9]);
-                L = tri.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi, objectID);
+                L = tri.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
             }
             break;
             case PST_RECTANGLE:
@@ -138,7 +138,7 @@ struct Estimator
                 float32_t3 edge0 = float32_t3(asfloat(intersect.data[2 + Shape<PST_RECTANGLE>::ObjSize + 3]), asfloat(intersect.data[2 + Shape<PST_RECTANGLE>::ObjSize + 4]), asfloat(intersect.data[2 + Shape<PST_RECTANGLE>::ObjSize + 5]));
                 float32_t3 edge1 = float32_t3(asfloat(intersect.data[2 + Shape<PST_RECTANGLE>::ObjSize + 6]), asfloat(intersect.data[2 + Shape<PST_RECTANGLE>::ObjSize + 7]), asfloat(intersect.data[2 + Shape<PST_RECTANGLE>::ObjSize + 8]));
                 Shape<PST_RECTANGLE> rect = Shape<PST_RECTANGLE>::create(offset, edge0, edge1, intersect.data[2 + Shape<PST_RECTANGLE>::ObjSize + 9]);
-                L = rect.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi, objectID);
+                L = rect.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
             }
             break;
             default:

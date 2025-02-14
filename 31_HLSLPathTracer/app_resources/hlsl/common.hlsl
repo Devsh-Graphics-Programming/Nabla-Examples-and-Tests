@@ -8,7 +8,7 @@
 #include <nbl/builtin/hlsl/shapes/rectangle.hlsl>
 #include <nbl/builtin/hlsl/sampling/spherical_triangle.hlsl>
 #include <nbl/builtin/hlsl/sampling/projected_spherical_triangle.hlsl>
-//#include <nbl/builtin/hlsl/shapes/rectangle.hlsl>
+#include <nbl/builtin/hlsl/sampling/spherical_rectangle.hlsl>
 
 namespace nbl
 {
@@ -32,6 +32,20 @@ struct Payload
     // #endif
 };
 
+enum ProceduralShapeType : uint16_t
+{
+    PST_SPHERE,
+    PST_TRIANGLE,
+    PST_RECTANGLE
+};
+
+struct ObjectID
+{
+    uint32_t id;
+    uint32_t mode;
+    ProceduralShapeType shapeType;
+};
+
 template<typename T>
 struct Ray
 {
@@ -46,7 +60,7 @@ struct Ray
 
     // mutable
     scalar_type intersectionT;
-    uint32_t objectID;
+    ObjectID objectID;
 
     Payload<T> payload;
 };
@@ -56,9 +70,23 @@ struct Light
 {
     using spectral_type = Spectrum;
 
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t INVALID_ID = 0xffffu;
+
     spectral_type radiance;
-    uint32_t objectID;
+    ObjectID objectID;
 };
+
+template<class Spectrum>
+struct BxDFNode
+{
+    using spectral_type = Spectrum;
+    using params_type = bxdf::SBxDFCreationParams<float, spectral_type>;
+
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t INVALID_ID = 0xffffu;
+
+    params_type params;
+    ObjectID objectID;
+}
 
 template<typename T>
 struct Tolerance
@@ -81,13 +109,6 @@ struct Tolerance
         return 1.0 - nbl::hlsl::exp2(__common(depth) + 1.0);
     }
 }
-
-enum ProceduralShapeType : uint16_t
-{
-    PST_SPHERE,
-    PST_TRIANGLE,
-    PST_RECTANGLE
-};
 
 enum PTPolygonMethod : uint16_t
 {
@@ -145,7 +166,7 @@ struct Shape<PST_SPHERE>
     }
 
     template<class Aniso>
-    float generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, float32_t3 xi, uint32_t objectID)
+    float generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, float32_t3 xi)
     {
         float32_t3 Z = position - origin;
         const float distanceSQ = nbl::hlsl::dot(Z,Z);
@@ -257,7 +278,7 @@ struct Shape<PST_TRIANGLE>
     }
 
     template<class Aniso>
-    float32_t3 generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, float32_t3 xi, uint32_t objectID)
+    float32_t3 generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, float32_t3 xi)
     {
         switch(polygonMethod)
         {
@@ -409,7 +430,7 @@ struct Shape<PST_RECTANGLE>
     }
 
     template<class Aniso>
-    float32_t3 generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, float32_t3 xi, uint32_t objectID)
+    float32_t3 generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, float32_t3 xi)
     {
         const float32_t3 N = getNormalTimesArea();
         const float32_t3 origin2origin = offset - origin;
@@ -472,27 +493,6 @@ struct Shape<PST_RECTANGLE>
     float32_t3 edge1;
     uint32_t bsdfLightIDs;
     PTPolygonMethod polygonMethod;
-};
-
-struct Scene
-{
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t maxSphereCount = 25;
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t maxTriangleCount = 12;
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t maxRectangleCount = 12;
-
-    Shape<PST_SPHERE> spheres[maxSphereCount];
-    Shape<PST_TRIANGLE> triangles[maxTriangleCount];
-    Shape<PST_RECTANGLE> rectangles[maxRectangleCount];
-
-    uint32_t sphereCount;
-    uint32_t triangleCount;
-    uint32_t rectangleCount;
-
-    Light lights[];
-    // Material materials[];
-    // + obj count for each
-
-    // AS ases;
 };
 
 }

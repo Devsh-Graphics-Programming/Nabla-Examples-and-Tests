@@ -42,6 +42,10 @@ struct Unidirectional
     using vector3_type = vector<scalar_type, 3>;
     using measure_type = typename MaterialSystem::measure_type;
     using ray_type = typename RayGen::ray_type;
+    using light_type = Light<measure_type>;
+    using bxdfnode_type = BxDFNode<measure_type>;
+    using anisotropic_type = typename MaterialSystem::anisotropic_type;
+    using isotropic_type = typename anisotropic_type::isotropic_type;
 
     // static this_t create(RandGen randGen,
     //                     RayGen rayGen,
@@ -69,12 +73,54 @@ struct Unidirectional
         return vector3_type(seqVal) * asfloat(0x2f800004u);
     }
 
-    bool closestHitProgram(unit32_t depth, uint32_t _sample, NBL_REF_ARG(ray_type) ray)
+    // TODO: probably will only work with procedural shapes, do the other ones
+    bool closestHitProgram(unit32_t depth, uint32_t _sample, NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(Scene) scene)
     {
         const uint32_t objectID = ray.objectID;
         const vector3_type intersection = ray.origin + ray.direction * ray.intersectionT;
 
         uint32_t bsdfLightIDs;
+        anisotropic_type interaction;
+        switch (objectID.mode)
+        {
+            // TODO
+            case Intersector::IntersectData::Mode::RAY_QUERY:
+            case Intersector::IntersectData::Mode::RAY_TRACING:
+                break;
+            case Intersector::IntersectData::Mode::PROCEDURAL:
+            {
+                bsdfLightIDs = scene.getBsdfLightIDs(objectID.id);
+                vector3_type N = scene.getNormal(objectID.id)
+                N = nbl::hlsl::normalize(N);
+                typename isotropic_type::ray_dir_info_type V;
+                V.direction = nbl::hlsl::normalize(-ray.direction);
+                isotropic_type iso = isotropic_type::create(V, N);
+                interaction = anisotropic_type::create(iso);
+            }
+            break;
+            default:
+                break;
+        }
+
+        vector3_type throughput = ray.payload.throughput;
+
+        // emissive
+        const uint32_t lightID = spirv::bitfieldExtract(bsdfLightIDs, 16, 16);
+        if (lightID != light_type::INVALID_ID)
+        {
+            float pdf;
+            ray.payload.accumulation += nee.deferredEvalAndPdf(pdf, lights[lightID], ray, scene.toNextEvent(lightID)) * throughput / (1.0 + pdf * pdf * ray.payload.otherTechniqueHeuristic);
+        }
+
+        const uint32_t bsdfID = spirv::bitfieldExtract(bsdfLightIDs, 0, 16);
+        if (bsdfID == bxdfnode_type::INVALID_ID)
+            return false;
+
+        // TODO: ifdef kill diffuse specular paths
+
+        // sample lights
+
+        // sample BSDF
     }
 
     void missProgram(NBL_REF_ARG(ray_type) ray)
@@ -112,32 +158,32 @@ struct Unidirectional
             for (int d = 1; d <= depth && hit && rayAlive; d += 2)
             {
                 ray.intersectionT = numeric_limits<scalar_type>::max;
-                ray.objectID = -1;  // start with no intersect
+                ray.objectID.id = -1;  // start with no intersect
                 
                 // prodedural shapes
                 if (scene.sphereCount > 0)
                 {
-                    data = Intersector::IntersectData::encode(Intersector::IntersectData::Mode::PROCEDURAL, PST_SPHERE, scene);
+                    data = scene.toIntersectData(Intersector::IntersectData::Mode::PROCEDURAL, PST_SPHERE);
                     ray.objectID = intersector.traceRay(ray, data);
                 }
 
                 if (scene.triangleCount > 0)
                 {
-                    data = Intersector::IntersectData::encode(Intersector::IntersectData::Mode::PROCEDURAL, PST_TRIANGLE, scene);
+                    data = scene.toIntersectData(Intersector::IntersectData::Mode::PROCEDURAL, PST_TRIANGLE);
                     ray.objectID = intersector.traceRay(ray, data);
                 }
 
                 if (scene.rectangleCount > 0)
                 {
-                    data = Intersector::IntersectData::encode(Intersector::IntersectData::Mode::PROCEDURAL, PST_RECTANGLE, scene);
+                    data = scene.toIntersectData(Intersector::IntersectData::Mode::PROCEDURAL, PST_RECTANGLE);
                     ray.objectID = intersector.traceRay(ray, data);
                 }
 
                 // TODO: trace AS
 
-                hit = ray.objectID != -1;
+                hit = ray.objectID.id != -1;
                 if (hit)
-                    rayAlive = closestHitProgram(d, i, ray);
+                    rayAlive = closestHitProgram(d, i, ray, scene);
             }
             if (!hit)
                 missProgram(ray);
