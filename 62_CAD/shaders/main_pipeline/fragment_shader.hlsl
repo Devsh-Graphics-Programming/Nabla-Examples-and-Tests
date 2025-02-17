@@ -372,6 +372,8 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     // if geomID has changed, we resolve the SDF alpha (draw using blend), else accumulate
     const bool resolve = currentMainObjectIdx != storedMainObjectIdx;
     uint32_t resolveStyleIdx = mainObjects[storedMainObjectIdx].styleIdx;
+    
+    // TODO[Przemek]: REMOVE when READ --> if linestyle value in mainObject is invalid then we're using localTextureColor instead of the linestyle color, this should be true for DTM meshes to resolve color with what's stored in colorStorage and not from the lineStyle color
     const bool resolveColorFromStyle = resolveStyleIdx != InvalidStyleIdx;
     
     // load from colorStorage only if we want to resolve color from texture instead of style
@@ -403,10 +405,13 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
 float4 main(PSInput input) : SV_TARGET
 {
     float localAlpha = 0.0f;
+    float3 textureColor = float3(0, 0, 0); // color sampled from a texture
+
+
+    // TODO[Przemek]: Disable All the object rendering paths if you want.
     ObjectType objType = input.getObjType();
     const uint32_t currentMainObjectIdx = input.getMainObjectIdx();
     const MainObject mainObj = mainObjects[currentMainObjectIdx];
-    float3 textureColor = float3(0, 0, 0); // color sampled from a texture
     
     // figure out local alpha with sdf
     if (objType == ObjectType::LINE || objType == ObjectType::QUAD_BEZIER || objType == ObjectType::POLYLINE_CONNECTOR)
@@ -641,5 +646,9 @@ float4 main(PSInput input) : SV_TARGET
     if (localAlpha <= 0)
         discard;
     
+    
+    // TODO[Przemek]: But make sure you're still calling this, correctly calculating alpha and texture color.
+    // you can add 1 main object and push via DrawResourcesFiller like we already do for other objects (this go in the mainObjects StorageBuffer) and then set the currentMainObjectIdx to 0 here
+    // having 1 main object temporarily means that all triangle meshes will be treated as a unified object in blending operations. 
     return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx, textureColor);
 }

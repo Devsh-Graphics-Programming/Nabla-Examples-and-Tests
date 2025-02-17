@@ -388,9 +388,9 @@ class BlitFilterTestApp final : public virtual application_templates::BasicMulti
 						blitFilterState.outOffsetBaseLayer = hlsl::uint32_t4();
 						blitFilterState.outExtentLayerCount = hlsl::uint32_t4(m_outImageDim[0],m_outImageDim[1],m_outImageDim[2],layerCount);
 
-						blitFilterState.axisWraps[0] = asset::ISampler::ETC_CLAMP_TO_EDGE;
-						blitFilterState.axisWraps[1] = asset::ISampler::ETC_CLAMP_TO_EDGE;
-						blitFilterState.axisWraps[2] = asset::ISampler::ETC_CLAMP_TO_EDGE;
+						blitFilterState.axisWraps[0] = asset::ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+						blitFilterState.axisWraps[1] = asset::ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+						blitFilterState.axisWraps[2] = asset::ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
 						blitFilterState.borderColor = asset::ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_OPAQUE_WHITE;
 
 						blitFilterState.alphaSemantic = m_alphaSemantic;

@@ -112,11 +112,10 @@ struct ScanSharedMemoryProxy
 {
     NBL_CONSTEXPR uint16_t Size = MAX_SCAN_SCRATCH_SIZE;
 
-    // these get used by Box1D
     template<typename T, typename I = uint16_t>
-	enable_if_t<sizeof(T) == sizeof(uint32_t), T> get(const I idx)
+	enable_if_t<sizeof(T) == sizeof(uint32_t), void> get(const uint16_t idx, NBL_REF_ARG(T) val)
 	{
-		return bit_cast<T>(prefix_smem[idx]);
+		val = bit_cast<T>(prefix_smem[idx]);
 	}
 
 	template<typename T, typename I = uint16_t>
@@ -143,7 +142,6 @@ void main()
     prefix_sum_blur::BoxSampler<SharedMemoryProxy, float32_t> boxSampler;
     boxSampler.wrapMode = uint16_t(pc.edgeWrapMode);
     boxSampler.linearSize = texAccessor.linearSize();
-    boxSampler.normalizationFactor = 1 / (2 * pc.radius + 1);
 
     prefix_sum_blur::Blur1D<decltype(texAccessor), decltype(scanSmemAccessor), decltype(boxSampler), WORKGROUP_SIZE, jit::device_capabilities> blur;
     blur.radius = pc.radius;

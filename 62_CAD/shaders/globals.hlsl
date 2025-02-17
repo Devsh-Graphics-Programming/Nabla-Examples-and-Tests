@@ -260,6 +260,10 @@ static_assert(sizeof(CurveBox) == 80u);
 NBL_CONSTEXPR uint32_t InvalidRigidSegmentIndex = 0xffffffff;
 NBL_CONSTEXPR float InvalidStyleStretchValue = nbl::hlsl::numeric_limits<float>::infinity;
 
+
+// TODO[Przemek]: we will need something similar to LineStyles but related to heigh shading settings which is user customizable (like LineStyle stipple patterns) and requires upper_bound to figure out the color based on height value.
+// We'll discuss that later or what it will be looking like and how it's gonna get passed to our shaders.
+
 // The color parameter is also used for styling non-curve objects such as text glyphs and hatches with solid color
 struct LineStyle
 {

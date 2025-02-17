@@ -776,6 +776,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			m_currentImageAcquire = m_surface->acquireNextImage();
 #endif
 			size_t totalScratchSize = 0;
+			const auto scratchOffsetAlignment = m_device->getPhysicalDevice()->getLimits().minAccelerationStructureScratchOffsetAlignment;
 
 			// build bottom level ASes
 			{
@@ -823,6 +824,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					}
 
 					scratchSizes[i] = buildSizes.buildScratchSize;
+					totalScratchSize = core::alignUp(totalScratchSize, scratchOffsetAlignment);
 					totalScratchSize += buildSizes.buildScratchSize;
 
 					{
@@ -862,7 +864,15 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				{
 					blasBuildInfos[i].dstAS = gpuBlas[i].get();
 					blasBuildInfos[i].scratch.buffer = scratchBuffer;
-					blasBuildInfos[i].scratch.offset = (i == 0) ? 0u : blasBuildInfos[i - 1].scratch.offset + scratchSizes[i - 1];
+					if (i == 0)
+					{
+						blasBuildInfos[i].scratch.offset = 0u;
+					}
+					else
+					{
+						const auto unalignedOffset = blasBuildInfos[i - 1].scratch.offset + scratchSizes[i - 1];
+						blasBuildInfos[i].scratch.offset = core::alignUp(unalignedOffset, scratchOffsetAlignment);
+					}
 
 					buildRangeInfos[i].primitiveCount = primitiveCounts[i];
 					buildRangeInfos[i].primitiveByteOffset = 0u;

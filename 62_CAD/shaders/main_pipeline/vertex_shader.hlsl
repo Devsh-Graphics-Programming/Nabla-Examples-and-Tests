@@ -87,6 +87,11 @@ void dilateHatch<false>(out float2 outOffsetVec, out float2 outUV, const float2 
 
 PSInput main(uint vertexID : SV_VertexID)
 {
+    // TODO[Przemek]: Disable Everything here and do your own thing as we already discussed, but let's have the same PSInput data passed to fragment.
+    // your programmable pulling will use the baseVertexBufferAddress BDA address and `vertexID` to RawBufferLoad it's vertex. 
+    // ~~Later, most likely We will require pulling all 3 vertices of the triangle, that's where you need to know which triangle you're currently on, and instead of objectID = vertexID/4 which we currently do, you will do vertexID/3 and pull all 3 of it's vertices.~~
+    // Ok, brainfart, a vertex can belong to multiple triangles, I was thinking of AA but triangles share vertices, nevermind my comment above.
+
     const uint vertexIdx = vertexID & 0x3u;
     const uint objectID = vertexID >> 2;
 

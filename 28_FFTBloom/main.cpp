@@ -142,6 +142,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 			uint16_t numWorkgroupsLog2 = 0;
 			uint16_t previousElementsPerInvocationLog2 = 0;
 			uint16_t previousWorkgroupSizeLog2 = 0;
+			uint16_t kernelSideLength = 0;
 			float32_t2 kernelHalfPixelSize = { 0.5f, 0.5f };
 		};
 
@@ -149,7 +150,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 			scalar_t(info.useHalfFloats ? "float16_t" : "float32_t"), elementsPerInvocationLog2(info.elementsPerInvocationLog2), 
 			workgroupSizeLog2(info.workgroupSizeLog2), numWorkgroupsLog2(info.numWorkgroupsLog2), numWorkgroups(uint32_t(1) << info.numWorkgroupsLog2), 
 			previousElementsPerInvocationLog2(info.previousElementsPerInvocationLog2), previousWorkgroupSizeLog2(info.previousWorkgroupSizeLog2), 
-			previousWorkgroupSize(uint16_t(1) << info.previousWorkgroupSizeLog2), kernelHalfPixelSize(info.kernelHalfPixelSize)
+			previousWorkgroupSize(uint16_t(1) << info.previousWorkgroupSizeLog2), kernelSideLength(info.kernelSideLength), kernelHalfPixelSize(info.kernelHalfPixelSize)
 		{
 			const uint32_t totalSize = uint32_t(1) << (elementsPerInvocationLog2 + workgroupSizeLog2);
 			totalSizeReciprocal = 1.f / float32_t(totalSize);
@@ -163,6 +164,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 		uint16_t previousElementsPerInvocationLog2;
 		uint16_t previousWorkgroupSizeLog2;
 		uint16_t previousWorkgroupSize;
+		uint16_t kernelSideLength;
 		float32_t2 kernelHalfPixelSize;
 		float32_t totalSizeReciprocal;
 	};
@@ -191,6 +193,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 					NBL_CONSTEXPR_STATIC_INLINE uint16_t PreviousElementsPerInvocationLog2 = )===" << shaderConstants.previousElementsPerInvocationLog2 << R"===(;
 					NBL_CONSTEXPR_STATIC_INLINE uint16_t PreviousWorkgroupSizeLog2 = )===" << shaderConstants.previousWorkgroupSizeLog2 << R"===(;
 					NBL_CONSTEXPR_STATIC_INLINE uint16_t PreviousWorkgroupSize = )===" << shaderConstants.previousWorkgroupSize << R"===(;
+					NBL_CONSTEXPR_STATIC_INLINE uint16_t KernelSideLength = )===" << shaderConstants.kernelSideLength << R"===(;
 					NBL_CONSTEXPR_STATIC_INLINE float32_t2 KernelHalfPixelSize;
 					NBL_CONSTEXPR_STATIC_INLINE float32_t TotalSizeReciprocal = )===" << shaderConstants.totalSizeReciprocal << R"===(;
 				};
@@ -367,9 +370,9 @@ public:
 			// Create samplers
 			ICPUSampler::SParams samplerCreationParams =
 			{
-				ISampler::ETC_MIRROR,
-				ISampler::ETC_MIRROR,
-				ISampler::ETC_MIRROR,
+				ISampler::E_TEXTURE_CLAMP::ETC_REPEAT,
+				ISampler::E_TEXTURE_CLAMP::ETC_REPEAT,
+				ISampler::E_TEXTURE_CLAMP::ETC_REPEAT,
 				ISampler::ETBC_FLOAT_OPAQUE_BLACK,
 				ISampler::ETF_LINEAR,
 				ISampler::ETF_LINEAR,
@@ -379,21 +382,22 @@ public:
 				ISampler::ECO_ALWAYS
 			};
 
-			auto mirrorSamplerCPU = make_smart_refctd_ptr<ICPUSampler>(samplerCreationParams);
+			auto repeatSamplerCPU = make_smart_refctd_ptr<ICPUSampler>(samplerCreationParams);
 
 			smart_refctd_ptr<ICPUSampler> imageSamplerCPU;
 			if (!m_useMirrorPadding_first)
 			{
-				samplerCreationParams.TextureWrapU = ISampler::ETC_CLAMP_TO_BORDER;
-				samplerCreationParams.TextureWrapV = ISampler::ETC_CLAMP_TO_BORDER;
-				samplerCreationParams.TextureWrapW = ISampler::ETC_CLAMP_TO_BORDER;
-				imageSamplerCPU = make_smart_refctd_ptr<ICPUSampler>(samplerCreationParams);
+				samplerCreationParams.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+				samplerCreationParams.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+				samplerCreationParams.TextureWrapW = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
 			}
 			else
 			{
-				imageSamplerCPU = mirrorSamplerCPU;
+				samplerCreationParams.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_MIRROR;
+				samplerCreationParams.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_MIRROR;
+				samplerCreationParams.TextureWrapW = ISampler::E_TEXTURE_CLAMP::ETC_MIRROR;
 			}
-			
+			imageSamplerCPU = make_smart_refctd_ptr<ICPUSampler>(samplerCreationParams);
 
 			// Set descriptor set values for automatic upload
 			
@@ -407,7 +411,7 @@ public:
 			secondSampledImageDescriptorInfo.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 
 			auto& mirrorSamplerDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(1u), IDescriptor::E_TYPE::ET_SAMPLER).front();
-			mirrorSamplerDescriptorInfo.desc = mirrorSamplerCPU;
+			mirrorSamplerDescriptorInfo.desc = repeatSamplerCPU;
 
 			auto& imageSamplerDescriptorInfo = descriptorSetCPU->getDescriptorInfos(ICPUDescriptorSetLayout::CBindingRedirect::binding_number_t(4u), IDescriptor::E_TYPE::ET_SAMPLER).front();
 			imageSamplerDescriptorInfo.desc = imageSamplerCPU;
@@ -906,11 +910,12 @@ public:
 			SShaderConstevalParameters::SShaderConstevalParametersCreateInfo shaderConstevalInfo =
 			{
 				.useHalfFloats = m_useHalfFloats,
-				.elementsPerInvocationLog2 = elementsPerInvocationLog2, 
-				.workgroupSizeLog2 = workgroupSizeLog2, 
-				.numWorkgroupsLog2 = firstAxisFFTHalfLengthLog2, 
+				.elementsPerInvocationLog2 = elementsPerInvocationLog2,
+				.workgroupSizeLog2 = workgroupSizeLog2,
+				.numWorkgroupsLog2 = firstAxisFFTHalfLengthLog2,
 				.previousElementsPerInvocationLog2 = firstAxisFFTElementsPerInvocationLog2,
-				.previousWorkgroupSizeLog2 = firstAxisFFTWorkgroupSizeLog2, 
+				.previousWorkgroupSizeLog2 = firstAxisFFTWorkgroupSizeLog2,
+				.kernelSideLength = uint16_t(kerDim.height),
 				.kernelHalfPixelSize = kernelHalfPixelSize
 			};
 			SShaderConstevalParameters shaderConstevalParameters(shaderConstevalInfo);
