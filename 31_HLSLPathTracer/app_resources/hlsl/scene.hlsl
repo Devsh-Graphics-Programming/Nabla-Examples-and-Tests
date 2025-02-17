@@ -31,8 +31,11 @@ struct Scene
 
     Light lights[maxLightCount];
     uint32_t lightCount;
-    // Material materials[];
-    // + obj count for each
+    
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t maxBxdfCount = 16; // TODO: limit change?
+
+    BxDFNode bxdfs[maxBxdfCount];
+    uint32_t bxdfCount;
 
     // AS ases;
 

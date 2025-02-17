@@ -23,7 +23,7 @@ namespace Intersector
 
 struct IntersectData
 {
-    enum class Mode : uint32_t
+    enum Mode : uint32_t    // enum class?
     {
         RAY_QUERY,
         RAY_TRACING,

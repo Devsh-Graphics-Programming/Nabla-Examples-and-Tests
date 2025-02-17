@@ -84,6 +84,7 @@ struct BxDFNode
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t INVALID_ID = 0xffffu;
 
+    uint32_t materialType;
     params_type params;
     ObjectID objectID;
 }

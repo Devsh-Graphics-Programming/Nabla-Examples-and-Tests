@@ -1,6 +1,16 @@
 #ifndef _NBL_HLSL_EXT_PATHTRACER_INCLUDED_
 #define _NBL_HLSL_EXT_PATHTRACER_INCLUDED_
 
+#include <nbl/builtin/hlsl/colorspace/EOTF.hlsl>
+#include <nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl>
+#include <nbl/builtin/hlsl/math/functions.hlsl>
+
+#include "rand_gen.hlsl"
+#include "ray_gen.hlsl"
+#include "intersector.hlsl"
+#include "material_system.hlsl"
+#include "next_event_estimator.hlsl"
+
 namespace nbl
 {
 namespace hlsl
@@ -41,11 +51,20 @@ struct Unidirectional
     using scalar_type = typename MaterialSystem::scalar_type;
     using vector3_type = vector<scalar_type, 3>;
     using measure_type = typename MaterialSystem::measure_type;
+    using sample_type = typename NextEventEstimator::sample_type;
     using ray_type = typename RayGen::ray_type;
     using light_type = Light<measure_type>;
     using bxdfnode_type = BxDFNode<measure_type>;
     using anisotropic_type = typename MaterialSystem::anisotropic_type;
     using isotropic_type = typename anisotropic_type::isotropic_type;
+    using anisocache_type = typename MaterialSystem::anisocache_type;
+    using isocache_type = typename anisocache_type::isocache_type;
+    using quotient_pdf_type = typename NextEventEstimator::quotient_pdf_type;
+    using params_type = typename MaterialSystem::params_t;
+
+    using diffuse_op_type = typename MaterialSystem::diffuse_op_type;
+    using conductor_op_type = typename MaterialSystem::conductor_op_type;
+    using dielectric_op_type = typename MaterialSystem::dielectric_op_type;
 
     // static this_t create(RandGen randGen,
     //                     RayGen rayGen,
@@ -73,6 +92,11 @@ struct Unidirectional
         return vector3_type(seqVal) * asfloat(0x2f800004u);
     }
 
+    scalar_type getLuma(NBL_CONST_REF_ARG(vector3_type) col)
+    {
+        return nbl::hlsl::dot(nbl::hlsl::transpose(colorspace::scRGBtoXYZ)[1], col);
+    }
+
     // TODO: probably will only work with procedural shapes, do the other ones
     bool closestHitProgram(unit32_t depth, uint32_t _sample, NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(Scene) scene)
     {
@@ -81,21 +105,22 @@ struct Unidirectional
 
         uint32_t bsdfLightIDs;
         anisotropic_type interaction;
+        isotropic_type iso_interaction;
         switch (objectID.mode)
         {
             // TODO
-            case Intersector::IntersectData::Mode::RAY_QUERY:
-            case Intersector::IntersectData::Mode::RAY_TRACING:
+            case ext::Intersector::IntersectData::Mode::RAY_QUERY:
+            case ext::Intersector::IntersectData::Mode::RAY_TRACING:
                 break;
-            case Intersector::IntersectData::Mode::PROCEDURAL:
+            case ext::Intersector::IntersectData::Mode::PROCEDURAL:
             {
                 bsdfLightIDs = scene.getBsdfLightIDs(objectID.id);
                 vector3_type N = scene.getNormal(objectID.id)
                 N = nbl::hlsl::normalize(N);
                 typename isotropic_type::ray_dir_info_type V;
                 V.direction = nbl::hlsl::normalize(-ray.direction);
-                isotropic_type iso = isotropic_type::create(V, N);
-                interaction = anisotropic_type::create(iso);
+                isotropic_type iso_interaction = isotropic_type::create(V, N);
+                interaction = anisotropic_type::create(iso_interaction);
             }
             break;
             default:
@@ -116,9 +141,98 @@ struct Unidirectional
         if (bsdfID == bxdfnode_type::INVALID_ID)
             return false;
 
+        BxDFNode bxdf = scene.bxdfs[bsdfID];
+
         // TODO: ifdef kill diffuse specular paths
 
+        const bool isBSDF = (bxdf.materialType == ext::MaterialSystem::Material::DIFFUSE) ? bxdf_traits<diffuse_op_type>::type == BT_BSDF :
+                            (bxdf.materialType == ext::MaterialSystem::Material::CONDUCTOR) ? bxdf_traits<conductor_op_type>::type == BT_BSDF :
+                            bxdf_traits<dielectric_op_type>::type == BT_BSDF;
+
+        vector3_type eps0 = rand3d(depth, _sample);
+        vector3_type eps1 = rand3d(depth, _sample);
+        vector3_type eps2 = rand3d(depth, _sample);
+
+        // thresholds
+        const scalar_type bsdfPdfThreshold = 0.0001;
+        const scalar_type lumaContributionThreshold = getLuma(colorspace::eotf::sRGB<vector3_type>((vector3_type)1.0 / 255.0)); // OETF smallest perceptible value
+        const vector3_type throughputCIE_Y = nbl::hlsl::transpose(colorspace::sRGBtoXYZ)[1] * throughput;   // TODO: this only works if spectral_type is dim 3
+        const scalar_type monochromeEta = nbl::hlsl::dot(throughputCIE_Y, BSDFNode_getEta(bsdf)[0]) / (throughputCIE_Y.r + throughputCIE_Y.g + throughputCIE_Y.b);  // TODO: fix getEta, what is real eta
+
         // sample lights
+        const scalar_type neeProbability = 1.0;// BSDFNode_getNEEProb(bsdf);
+        scalar_type rcpChoiceProb;
+        if (!math::partitionRandVariable(neeProbability, eps0.z, rcpChoiceProb) && depth < 2u)
+        {
+            quotient_pdf_type neeContrib_pdf;
+            scalar_type t;
+            sample_type nee_sample = nee.generate_and_quotient_and_pdf(
+                neeContrib_pdf, t,
+                intersection, interaction,
+                isBSDF, eps0, depth
+            );
+
+            // We don't allow non watertight transmitters in this renderer
+            bool validPath = nee_sample.NdotL > numeric_limits<scalar_type>::min;
+            // but if we allowed non-watertight transmitters (single water surface), it would make sense just to apply this line by itself
+            anisocache_type _cache;
+            validPath = validPath && anisocache_type::compute(_cache, interaction, nee_sample, monochromeEta);
+
+            if (neeContrib_pdf.pdf < numeric_limits<scalar_type>::max)
+            {
+                if (nbl::hlsl::any(isnan(nee_sample.L)))
+                    ray.payload.accumulation += vector3_type(1000.f, 0.f, 0.f);
+                else if (nbl::hlsl::all((vector3_type)69.f == nee_sample.L))
+                    ray.payload.accumulation += vector3_type(0.f, 1000.f, 0.f);
+                else if (validPath)
+                {
+                    ext::MaterialSystem::Material material;
+                    material.type = bxdf.materialType;
+                    params_type params;
+
+                    // TODO: does not yet account for smooth dielectric
+                    if (!isBSDF && bxdf.materialType == ext::MaterialSystem::Material::DIFFUSE)
+                    {
+                        params = params_type::template create<sample_type, isotropic_type>(nee_sample, iso_interaction, bxdf::BCM_MAX);
+                    }
+                    else if (!isBSDF && bxdf.materialType != ext::MaterialSystem::Material::DIFFUSE)
+                    {
+                        if (bxdf.params.is_aniso)
+                            params = params_type::template create<sample_type, anisotropic_type, anisocache_type>(nee_sample, interaction, _cache, bxdf::BCM_MAX);
+                        else
+                        {
+                            isocache = (iso_cache)_cache;
+                            params = params_type::template create<sample_type, isotropic_type, isocache_type>(nee_sample, iso_interaction, isocache, bxdf::BCM_MAX);
+                        }
+                    }
+                    else if (isBSDF && bxdf.materialType == ext::MaterialSystem::Material::DIFFUSE)
+                    {
+                        params = params_type::template create<sample_type, isotropic_type>(nee_sample, iso_interaction, bxdf::BCM_ABS);
+                    }
+                    else if (isBSDF && bxdf.materialType != ext::MaterialSystem::Material::DIFFUSE)
+                    {
+                        if (bxdf.params.is_aniso)
+                            params = params_type::template create<sample_type, anisotropic_type, anisocache_type>(nee_sample, interaction, _cache, bxdf::BCM_ABS);
+                        else
+                        {
+                            isocache = (iso_cache)_cache;
+                            params = params_type::template create<sample_type, isotropic_type, isocache_type>(nee_sample, iso_interaction, isocache, bxdf::BCM_ABS);
+                        }
+                    }
+
+                    quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(material, params) * throughput;
+                    neeContrib_pdf.quotient *= bsdf_quotient_pdf.quotient;
+                    const scalar_type otherGenOverChoice = bsdf_quotient_pdf.pdf * rcpChoiceProb;
+                    const scalar_type otherGenOverLightAndChoice = otherGenOverChoice / bsdf_quotient_pdf.pdf;
+                    neeContrib_pdf.quotient *= otherGenOverChoice/(1.f + otherGenOverLightAndChoice * otherGenOverLightAndChoice);   // balance heuristic
+
+                    // TODO: ifdef NEE only
+
+                    if (bsdf_quotient_pdf.pdf < numeric_limits<scalar_type>::max && getLuma(neeContrib_pdf.quotient) > lumaContributionThreshold && traceRay(t,intersection+nee_sample.L*t*getStartTolerance(depth),nee_sample.L)==-1)
+                        ray._payload.accumulation += neeContrib_pdf.quotient;
+                }
+            }
+        }
 
         // sample BSDF
     }
@@ -143,7 +257,7 @@ struct Unidirectional
         // return ray.payload.accumulation --> color
 
         // TODO: not hardcode this, pass value from somewhere?, where to get objects?
-        Intersector::IntersectData data;
+        ext::Intersector::IntersectData data;
 
         measure_type Li = (measure_type)0.0;
         scalar_type meanLumaSq = 0.0;
@@ -163,19 +277,19 @@ struct Unidirectional
                 // prodedural shapes
                 if (scene.sphereCount > 0)
                 {
-                    data = scene.toIntersectData(Intersector::IntersectData::Mode::PROCEDURAL, PST_SPHERE);
+                    data = scene.toIntersectData(ext::Intersector::IntersectData::Mode::PROCEDURAL, PST_SPHERE);
                     ray.objectID = intersector.traceRay(ray, data);
                 }
 
                 if (scene.triangleCount > 0)
                 {
-                    data = scene.toIntersectData(Intersector::IntersectData::Mode::PROCEDURAL, PST_TRIANGLE);
+                    data = scene.toIntersectData(ext::Intersector::IntersectData::Mode::PROCEDURAL, PST_TRIANGLE);
                     ray.objectID = intersector.traceRay(ray, data);
                 }
 
                 if (scene.rectangleCount > 0)
                 {
-                    data = scene.toIntersectData(Intersector::IntersectData::Mode::PROCEDURAL, PST_RECTANGLE);
+                    data = scene.toIntersectData(ext::Intersector::IntersectData::Mode::PROCEDURAL, PST_RECTANGLE);
                     ray.objectID = intersector.traceRay(ray, data);
                 }
 

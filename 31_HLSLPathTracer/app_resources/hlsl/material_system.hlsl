@@ -15,7 +15,7 @@ namespace MaterialSystem
 
 struct Material
 {
-    enum class Type : uint32_t
+    enum Type : uint32_t    // enum class?
     {
         DIFFUSE,
         CONDUCTOR,
@@ -29,7 +29,7 @@ struct Material
     uint32_t data[DataSize];
 };
 
-template<class DiffuseBxDF, class ConductorBxDF, class DielectricBxDF>
+template<class DiffuseBxDF, class ConductorBxDF, class DielectricBxDF>  // NOTE: these bxdfs should match the ones in Scene BxDFNode
 struct System
 {
     using this_t = System<DiffuseBxDF, ConductorBxDF, DielectricBxDF>;
@@ -41,6 +41,10 @@ struct System
     using anisotropic_type = typename DiffuseBxDF::anisotropic_type;
     using anisocache_type = typename ConductorBxDF::anisocache_type;
     using params_t = SBxDFParams<scalar_type>;
+
+    using diffuse_op_type = DiffuseBxDF;
+    using conductor_op_type = ConductorBxDF;
+    using dielectric_op_type = DielectricBxDF;
 
     static this_t create(NBL_CONST_REF_ARG(SBxDFCreationParams<scalar_type, measure_type>) diffuseParams, NBL_CONST_REF_ARG(SBxDFCreationParams<scalar_type, measure_type>) conductorParams, NBL_CONST_REF_ARG(SBxDFCreationParams<scalar_type, measure_type>) dielectricParams)
     {
