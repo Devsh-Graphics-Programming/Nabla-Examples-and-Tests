@@ -81,20 +81,20 @@ struct System
         }
     }
 
-    static vector3_type generate(NBL_CONST_REF_ARG(Material) material, NBL_CONST_REF_ARG(create_params_t) cparams, anisotropic_type interaction, vector2_type u, NBL_REF_ARG(anisocache_type) cache)
+    static vector3_type generate(NBL_CONST_REF_ARG(Material) material, NBL_CONST_REF_ARG(create_params_t) cparams, anisotropic_type interaction, NBL_CONST_REF_ARG(vector3_type) u, NBL_REF_ARG(anisocache_type) cache)
     {
         switch(material.type)
         {
             case DIFFUSE:
             {
                 diffuseBxDF.init(cparams);
-                return diffuseBxDF.generate(interaction, u);
+                return diffuseBxDF.generate(interaction, u.xy);
             }
             break;
             case CONDUCTOR:
             {
                 conductorBxDF.init(cparams);
-                return conductorBxDF.generate(interaction, u, cache);
+                return conductorBxDF.generate(interaction, u.xy, cache);
             }
             break;
             case DIELECTRIC:

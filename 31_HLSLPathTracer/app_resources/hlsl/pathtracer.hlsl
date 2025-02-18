@@ -61,6 +61,7 @@ struct Unidirectional
     using isocache_type = typename anisocache_type::isocache_type;
     using quotient_pdf_type = typename NextEventEstimator::quotient_pdf_type;
     using params_type = typename MaterialSystem::params_t;
+    using create_params_type = typename MaterialSystem::create_params_t;
     using scene_type = Scene<light_type, bxdfnode_type>;
 
     using diffuse_op_type = typename MaterialSystem::diffuse_op_type;
@@ -75,17 +76,17 @@ struct Unidirectional
     //                     NextEventEstimator nee)
     // {}
 
-    static this_t create(NBL_CONST_REF_ARG(PathTracerCreationParams) params)
+    static this_t create(NBL_CONST_REF_ARG(PathTracerCreationParams<create_params_type, scalar_type>) params, Buffer samplerSequence)
     {
         this_t retval;
         retval.randGen = randgen_type::create(params.rngState);
         retval.rayGen = raygen_type::create(params.pixOffsetParam, params.camPos, params.NDC, params.invMVP);
         retval.materialSystem = material_system_type::create(diffuseParams, conductorParams, dielectricParams);
+        retval.samplerSequence = samplerSequence;
         return retval;
     }
 
-    // TODO: get working, what is sampleSequence stuff
-    vector3_type rand3d(uint32_t protoDimension, uint32_t _sample)
+    vector3_type rand3d(uint32_t protoDimension, uint32_t _sample, uint32_t i)
     {
         uint32_t address = spirv::bitfieldInsert(protoDimension, _sample, MAX_DEPTH_LOG2, MAX_SAMPLES_LOG2);
 	    unit32_t3 seqVal = texelFetch(sampleSequence, int(address) + i).xyz;
@@ -150,19 +151,18 @@ struct Unidirectional
                             (bxdf.materialType == ext::MaterialSystem::Material::CONDUCTOR) ? bxdf_traits<conductor_op_type>::type == BT_BSDF :
                             bxdf_traits<dielectric_op_type>::type == BT_BSDF;
 
-        vector3_type eps0 = rand3d(depth, _sample);
-        vector3_type eps1 = rand3d(depth, _sample);
-        vector3_type eps2 = rand3d(depth, _sample);
+        vector3_type eps0 = rand3d(depth, _sample, 0u);
+        vector3_type eps1 = rand3d(depth, _sample, 1u);
 
         // thresholds
-        const scalar_type bsdfPdfThreshold = 0.0001;
+        const scalar_type bxdfPdfThreshold = 0.0001;
         const scalar_type lumaContributionThreshold = getLuma(colorspace::eotf::sRGB<vector3_type>((vector3_type)1.0 / 255.0)); // OETF smallest perceptible value
         const vector3_type throughputCIE_Y = nbl::hlsl::transpose(colorspace::sRGBtoXYZ)[1] * throughput;   // TODO: this only works if spectral_type is dim 3
         const measure_type eta = bxdf.params.ior0 / bxdf.params.ior1;   // assume it's real, not imaginary?
         const scalar_type monochromeEta = nbl::hlsl::dot(throughputCIE_Y, eta) / (throughputCIE_Y.r + throughputCIE_Y.g + throughputCIE_Y.b);  // TODO: imaginary eta?
 
         // sample lights
-        const scalar_type neeProbability = 1.0;// BSDFNode_getNEEProb(bsdf);
+        const scalar_type neeProbability = 1.0; // BSDFNode_getNEEProb(bsdf);
         scalar_type rcpChoiceProb;
         if (!math::partitionRandVariable(neeProbability, eps0.z, rcpChoiceProb) && depth < 2u)
         {
@@ -184,9 +184,9 @@ struct Unidirectional
 
             if (neeContrib_pdf.pdf < numeric_limits<scalar_type>::max)
             {
-                if (nbl::hlsl::any(isnan(nee_sample.L)))
+                if (nbl::hlsl::any(isnan(nee_sample.L.direction)))
                     ray.payload.accumulation += vector3_type(1000.f, 0.f, 0.f);
-                else if (nbl::hlsl::all((vector3_type)69.f == nee_sample.L))
+                else if (nbl::hlsl::all((vector3_type)69.f == nee_sample.L.direction))
                     ray.payload.accumulation += vector3_type(0.f, 1000.f, 0.f);
                 else if (validPath)
                 {
@@ -233,8 +233,8 @@ struct Unidirectional
                     // TODO: ifdef NEE only
 
                     ray_type nee_ray;
-                    nee_ray.origin = intersection + nee_sample.L * t * Tolerance<scalar_type>::getStart(depth);
-                    nee_ray.direction = nee_sample.L;
+                    nee_ray.origin = intersection + nee_sample.L.direction * t * Tolerance<scalar_type>::getStart(depth);
+                    nee_ray.direction = nee_sample.L.direction;
                     nee_ray.intersectionT = t;
                     if (bsdf_quotient_pdf.pdf < numeric_limits<scalar_type>::max && getLuma(neeContrib_pdf.quotient) > lumaContributionThreshold && intersector.traceRay(nee_ray, scene).id == -1)
                         ray._payload.accumulation += neeContrib_pdf.quotient;
@@ -243,6 +243,70 @@ struct Unidirectional
         }
 
         // sample BSDF
+        scalar_type bxdfPdf;
+        vector3_type bxdfSample;
+        {
+            ext::MaterialSystem::Material material;
+            material.type = bxdf.materialType;
+
+            anisocache_type _cache;
+            sample_type bsdf_sample = materialSystem.generate(material, bxdf.params, interaction, eps1, _cache);
+
+            // TODO: does not yet account for smooth dielectric
+            params_type params;            
+            if (!isBSDF && bxdf.materialType == ext::MaterialSystem::Material::DIFFUSE)
+            {
+                params = params_type::template create<sample_type, isotropic_type>(bsdf_sample, iso_interaction, bxdf::BCM_MAX);
+            }
+            else if (!isBSDF && bxdf.materialType != ext::MaterialSystem::Material::DIFFUSE)
+            {
+                if (bxdf.params.is_aniso)
+                    params = params_type::template create<sample_type, anisotropic_type, anisocache_type>(bsdf_sample, interaction, _cache, bxdf::BCM_MAX);
+                else
+                {
+                    isocache = (iso_cache)_cache;
+                    params = params_type::template create<sample_type, isotropic_type, isocache_type>(bsdf_sample, iso_interaction, isocache, bxdf::BCM_MAX);
+                }
+            }
+            else if (isBSDF && bxdf.materialType == ext::MaterialSystem::Material::DIFFUSE)
+            {
+                params = params_type::template create<sample_type, isotropic_type>(bsdf_sample, iso_interaction, bxdf::BCM_ABS);
+            }
+            else if (isBSDF && bxdf.materialType != ext::MaterialSystem::Material::DIFFUSE)
+            {
+                if (bxdf.params.is_aniso)
+                    params = params_type::template create<sample_type, anisotropic_type, anisocache_type>(bsdf_sample, interaction, _cache, bxdf::BCM_ABS);
+                else
+                {
+                    isocache = (iso_cache)_cache;
+                    params = params_type::template create<sample_type, isotropic_type, isocache_type>(bsdf_sample, iso_interaction, isocache, bxdf::BCM_ABS);
+                }
+            }
+
+            // the value of the bsdf divided by the probability of the sample being generated
+            throughput *= materialSystem.quotient_and_pdf(material, bxdf.params, params);
+            bxdfSample = bsdf_sample.L.direction;
+        }
+
+        // additional threshold
+        const float lumaThroughputThreshold = lumaContributionThreshold;
+        if (bxdfPdf > bxdfPdfThreshold && getLuma(throughput) > lumaThroughputThreshold)
+        {
+            ray.payload.throughput = throughput;
+            ray.payload.otherTechniqueHeuristic = neeProbability / bxdfPdf; // numerically stable, don't touch
+            ray.payload.otherTechniqueHeuristic *= ray.payload.otherTechniqueHeuristic;
+                    
+            // trace new ray
+            ray.origin = intersection + bsdfSampleL * (1.0/*kSceneSize*/) * Tolerance<scalar_type>::getStart(depth);
+            ray.direction = bxdfSample;
+            // #if POLYGON_METHOD==2
+            // ray._immutable.normalAtOrigin = interaction.isotropic.N;
+            // ray._immutable.wasBSDFAtOrigin = isBSDF;
+            // #endif
+            return true;
+        }
+
+        return false;
     }
 
     void missProgram(NBL_REF_ARG(ray_type) ray)
@@ -288,16 +352,23 @@ struct Unidirectional
             Li += (accumulation - Li) * rcpSampleSize;
 
             // TODO: visualize high variance
+
+            // TODO: russian roulette early exit?
         }
 
         return Li;
     }
+
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t MAX_DEPTH_LOG2 = 4u;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t MAX_SAMPLES_LOG2 = 10u;
 
     randgen_type randGen;
     raygen_type rayGen;
     intersector_type intersector;
     material_system_type materialSystem;
     nee_type nee;
+
+    Buffer samplerSequence;
 };
 
 }
