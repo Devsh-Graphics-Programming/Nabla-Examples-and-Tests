@@ -123,6 +123,38 @@ struct Comprehensive
                 return ObjectID(-1, IntersectData::Mode::PROCEDURAL, PST_SPHERE);
         }
     }
+
+    template<typename Scene>
+    static ObjectID traceRay(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(Scene) scene)
+    {
+        IntersectData data;
+
+        ObjectID objectID;
+        objectID.id = -1;  // start with no intersect
+                
+        // prodedural shapes
+        if (scene.sphereCount > 0)
+        {
+            data = scene.toIntersectData(ext::Intersector::IntersectData::Mode::PROCEDURAL, PST_SPHERE);
+            objectID = intersector.traceRay(ray, data);
+        }
+
+        if (scene.triangleCount > 0)
+        {
+            data = scene.toIntersectData(ext::Intersector::IntersectData::Mode::PROCEDURAL, PST_TRIANGLE);
+            objectID = intersector.traceRay(ray, data);
+        }
+
+        if (scene.rectangleCount > 0)
+        {
+            data = scene.toIntersectData(ext::Intersector::IntersectData::Mode::PROCEDURAL, PST_RECTANGLE);
+            objectID = intersector.traceRay(ray, data);
+        }
+
+        // TODO: trace AS
+
+        return objectID;
+    }
 };
 
 // does everything in traceray in ex 30

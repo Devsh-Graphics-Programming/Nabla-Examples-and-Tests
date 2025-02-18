@@ -41,6 +41,7 @@ struct System
     using anisotropic_type = typename DiffuseBxDF::anisotropic_type;
     using anisocache_type = typename ConductorBxDF::anisocache_type;
     using params_t = SBxDFParams<scalar_type>;
+    using create_params_t = SBxDFCreationParams<scalar_type, measure_type>;
 
     using diffuse_op_type = DiffuseBxDF;
     using conductor_op_type = ConductorBxDF;
@@ -53,22 +54,25 @@ struct System
         dielectricBxDF = DiffuseBxDF::create(dielectricParams);
     }
 
-    static measure_type eval(NBL_CONST_REF_ARG(Material) material, NBL_CONST_REF_ARG(params_t) params)
+    static measure_type eval(NBL_CONST_REF_ARG(Material) material, NBL_CONST_REF_ARG(create_params_t) cparams, NBL_CONST_REF_ARG(params_t) params)
     {
         switch(material.type)
         {
             case DIFFUSE:
             {
+                diffuseBxDF.init(cparams);
                 return (measure_type)diffuseBxDF.eval(params);
             }
             break;
             case CONDUCTOR:
             {
+                conductorBxDF.init(cparams);
                 return conductorBxDF.eval(params);
             }
             break;
             case DIELECTRIC:
             {
+                dielectricBxDF.init(cparams);
                 return dielectricBxDF.eval(params);
             }
             break;
@@ -77,22 +81,25 @@ struct System
         }
     }
 
-    static vector3_type generate(NBL_CONST_REF_ARG(Material) material, anisotropic_type interaction, vector2_type u, NBL_REF_ARG(anisocache_type) cache)
+    static vector3_type generate(NBL_CONST_REF_ARG(Material) material, NBL_CONST_REF_ARG(create_params_t) cparams, anisotropic_type interaction, vector2_type u, NBL_REF_ARG(anisocache_type) cache)
     {
         switch(material.type)
         {
             case DIFFUSE:
             {
+                diffuseBxDF.init(cparams);
                 return diffuseBxDF.generate(interaction, u);
             }
             break;
             case CONDUCTOR:
             {
+                conductorBxDF.init(cparams);
                 return conductorBxDF.generate(interaction, u, cache);
             }
             break;
             case DIELECTRIC:
             {
+                dielectricBxDF.init(cparams);
                 return dielectricBxDF.generate(interaction, u, cache);
             }
             break;
@@ -101,7 +108,7 @@ struct System
         }
     }
 
-    static quotient_pdf_type quotient_and_pdf(NBL_CONST_REF_ARG(Material) material, NBL_CONST_REF_ARG(params_t) params)
+    static quotient_pdf_type quotient_and_pdf(NBL_CONST_REF_ARG(Material) material, NBL_CONST_REF_ARG(create_params_t) cparams, NBL_CONST_REF_ARG(params_t) params)
     {
         const float minimumProjVectorLen = 0.00000001;
         if (params.NdotV > minimumProjVectorLen && params.NdotL > minimumProjVectorLen)
@@ -110,16 +117,19 @@ struct System
             {
                 case DIFFUSE:
                 {
+                    diffuseBxDF.init(cparams);
                     return diffuseBxDF.quotient_and_pdf(params);
                 }
                 break;
                 case CONDUCTOR:
                 {
+                    conductorBxDF.init(cparams);
                     return conductorBxDF.quotient_and_pdf(params);
                 }
                 break;
                 case DIELECTRIC:
                 {
+                    dielectricBxDF.init(cparams);
                     return dielectricBxDF.quotient_and_pdf(params);
                 }
                 break;

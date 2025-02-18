@@ -13,8 +13,12 @@ namespace hlsl
 namespace ext
 {
 
+template<typename Light, typename BxdfNode>
 struct Scene
 {
+    using light_type = Light;
+    using bxdfnode_type = BxdfNode;
+
     NBL_CONSTEXPR_STATIC_INLINE uint32_t maxSphereCount = 25;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t maxTriangleCount = 12;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t maxRectangleCount = 12;
@@ -29,12 +33,12 @@ struct Scene
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t maxLightCount = 4;
 
-    Light lights[maxLightCount];
+    light_type lights[maxLightCount];
     uint32_t lightCount;
     
     NBL_CONSTEXPR_STATIC_INLINE uint32_t maxBxdfCount = 16; // TODO: limit change?
 
-    BxDFNode bxdfs[maxBxdfCount];
+    bxdfnode_type bxdfs[maxBxdfCount];
     uint32_t bxdfCount;
 
     // AS ases;

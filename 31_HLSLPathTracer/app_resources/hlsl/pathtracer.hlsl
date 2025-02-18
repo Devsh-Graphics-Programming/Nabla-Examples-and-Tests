@@ -61,6 +61,7 @@ struct Unidirectional
     using isocache_type = typename anisocache_type::isocache_type;
     using quotient_pdf_type = typename NextEventEstimator::quotient_pdf_type;
     using params_type = typename MaterialSystem::params_t;
+    using scene_type = Scene<light_type, bxdfnode_type>;
 
     using diffuse_op_type = typename MaterialSystem::diffuse_op_type;
     using conductor_op_type = typename MaterialSystem::conductor_op_type;
@@ -98,7 +99,7 @@ struct Unidirectional
     }
 
     // TODO: probably will only work with procedural shapes, do the other ones
-    bool closestHitProgram(unit32_t depth, uint32_t _sample, NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(Scene) scene)
+    bool closestHitProgram(unit32_t depth, uint32_t _sample, NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
     {
         const uint32_t objectID = ray.objectID;
         const vector3_type intersection = ray.origin + ray.direction * ray.intersectionT;
@@ -157,7 +158,8 @@ struct Unidirectional
         const scalar_type bsdfPdfThreshold = 0.0001;
         const scalar_type lumaContributionThreshold = getLuma(colorspace::eotf::sRGB<vector3_type>((vector3_type)1.0 / 255.0)); // OETF smallest perceptible value
         const vector3_type throughputCIE_Y = nbl::hlsl::transpose(colorspace::sRGBtoXYZ)[1] * throughput;   // TODO: this only works if spectral_type is dim 3
-        const scalar_type monochromeEta = nbl::hlsl::dot(throughputCIE_Y, BSDFNode_getEta(bsdf)[0]) / (throughputCIE_Y.r + throughputCIE_Y.g + throughputCIE_Y.b);  // TODO: fix getEta, what is real eta
+        const measure_type eta = bxdf.params.ior0 / bxdf.params.ior1;   // assume it's real, not imaginary?
+        const scalar_type monochromeEta = nbl::hlsl::dot(throughputCIE_Y, eta) / (throughputCIE_Y.r + throughputCIE_Y.g + throughputCIE_Y.b);  // TODO: imaginary eta?
 
         // sample lights
         const scalar_type neeProbability = 1.0;// BSDFNode_getNEEProb(bsdf);
@@ -177,6 +179,8 @@ struct Unidirectional
             // but if we allowed non-watertight transmitters (single water surface), it would make sense just to apply this line by itself
             anisocache_type _cache;
             validPath = validPath && anisocache_type::compute(_cache, interaction, nee_sample, monochromeEta);
+            bxdf.params.A = nbl::hlsl::max(bxdf.params.A, vector<scalar_type, 2>(0,0));
+            bxdf.params.eta = monochromeEta;
 
             if (neeContrib_pdf.pdf < numeric_limits<scalar_type>::max)
             {
@@ -220,7 +224,7 @@ struct Unidirectional
                         }
                     }
 
-                    quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(material, params) * throughput;
+                    quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(material, bxdf.params, params) * throughput;
                     neeContrib_pdf.quotient *= bsdf_quotient_pdf.quotient;
                     const scalar_type otherGenOverChoice = bsdf_quotient_pdf.pdf * rcpChoiceProb;
                     const scalar_type otherGenOverLightAndChoice = otherGenOverChoice / bsdf_quotient_pdf.pdf;
@@ -228,7 +232,11 @@ struct Unidirectional
 
                     // TODO: ifdef NEE only
 
-                    if (bsdf_quotient_pdf.pdf < numeric_limits<scalar_type>::max && getLuma(neeContrib_pdf.quotient) > lumaContributionThreshold && traceRay(t,intersection+nee_sample.L*t*getStartTolerance(depth),nee_sample.L)==-1)
+                    ray_type nee_ray;
+                    nee_ray.origin = intersection + nee_sample.L * t * Tolerance<scalar_type>::getStart(depth);
+                    nee_ray.direction = nee_sample.L;
+                    nee_ray.intersectionT = t;
+                    if (bsdf_quotient_pdf.pdf < numeric_limits<scalar_type>::max && getLuma(neeContrib_pdf.quotient) > lumaContributionThreshold && intersector.traceRay(nee_ray, scene).id == -1)
                         ray._payload.accumulation += neeContrib_pdf.quotient;
                 }
             }
@@ -251,14 +259,8 @@ struct Unidirectional
     }
 
     // Li
-    measure_type getMeasure(uint32_t numSamples, uint32_t depth, NBL_CONST_REF_ARG(Scene) scene)
+    measure_type getMeasure(uint32_t numSamples, uint32_t depth, NBL_CONST_REF_ARG(scene_type) scene)
     {
-        // loop through bounces, do closest hit
-        // return ray.payload.accumulation --> color
-
-        // TODO: not hardcode this, pass value from somewhere?, where to get objects?
-        ext::Intersector::IntersectData data;
-
         measure_type Li = (measure_type)0.0;
         scalar_type meanLumaSq = 0.0;
         for (uint32_t i = 0; i < numSamples; i++)
@@ -272,28 +274,7 @@ struct Unidirectional
             for (int d = 1; d <= depth && hit && rayAlive; d += 2)
             {
                 ray.intersectionT = numeric_limits<scalar_type>::max;
-                ray.objectID.id = -1;  // start with no intersect
-                
-                // prodedural shapes
-                if (scene.sphereCount > 0)
-                {
-                    data = scene.toIntersectData(ext::Intersector::IntersectData::Mode::PROCEDURAL, PST_SPHERE);
-                    ray.objectID = intersector.traceRay(ray, data);
-                }
-
-                if (scene.triangleCount > 0)
-                {
-                    data = scene.toIntersectData(ext::Intersector::IntersectData::Mode::PROCEDURAL, PST_TRIANGLE);
-                    ray.objectID = intersector.traceRay(ray, data);
-                }
-
-                if (scene.rectangleCount > 0)
-                {
-                    data = scene.toIntersectData(ext::Intersector::IntersectData::Mode::PROCEDURAL, PST_RECTANGLE);
-                    ray.objectID = intersector.traceRay(ray, data);
-                }
-
-                // TODO: trace AS
+                ray.objectID = intersector.traceRay(ray, scene);
 
                 hit = ray.objectID.id != -1;
                 if (hit)
