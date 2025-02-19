@@ -53,7 +53,7 @@ struct Estimator
             {
                 float32_t3 position = float32_t3(asfloat(intersect.data[2 + Shape<PST_SPHERE>::ObjSize]), asfloat(intersect.data[2 + Shape<PST_SPHERE>::ObjSize + 1]), asfloat(intersect.data[2 + Shape<PST_SPHERE>::ObjSize + 2]));
                 Shape<PST_SPHERE> sphere = Shape<PST_SPHERE>::create(position, asfloat(intersect.data[2 + Shape<PST_SPHERE>::ObjSize + 3]), intersect.data[2 + Shape<PST_SPHERE>::ObjSize + 4]);
-                pdf *= sphere.template deferredPdf<light_type, ray_type>(light, ray);
+                pdf *= sphere.template deferredPdf<ray_type>(ray);
             }
             break;
             case PST_TRIANGLE:
@@ -62,7 +62,7 @@ struct Estimator
                 float32_t3 vertex1 = float32_t3(asfloat(intersect.data[2 + Shape<PST_TRIANGLE>::ObjSize + 3]), asfloat(intersect.data[2 + Shape<PST_SPHERE>::ObjSize + 4]), asfloat(intersect.data[2 + Shape<PST_TRIANGLE>::ObjSize + 5]));
                 float32_t3 vertex2 = float32_t3(asfloat(intersect.data[2 + Shape<PST_TRIANGLE>::ObjSize + 6]), asfloat(intersect.data[2 + Shape<PST_SPHERE>::ObjSize + 7]), asfloat(intersect.data[2 + Shape<PST_TRIANGLE>::ObjSize + 8]));
                 Shape<PST_TRIANGLE> tri = Shape<PST_TRIANGLE>::create(vertex0, vertex1, vertex2, intersect.data[2 + Shape<PST_TRIANGLE>::ObjSize + 9]);
-                pdf *= tri.template deferredPdf<light_type, ray_type>(light, ray);
+                pdf *= tri.template deferredPdf<ray_type>(ray);
             }
             break;
             case PST_RECTANGLE:
@@ -71,7 +71,7 @@ struct Estimator
                 float32_t3 edge0 = float32_t3(asfloat(intersect.data[2 + Shape<PST_RECTANGLE>::ObjSize + 3]), asfloat(intersect.data[2 + Shape<PST_RECTANGLE>::ObjSize + 4]), asfloat(intersect.data[2 + Shape<PST_RECTANGLE>::ObjSize + 5]));
                 float32_t3 edge1 = float32_t3(asfloat(intersect.data[2 + Shape<PST_RECTANGLE>::ObjSize + 6]), asfloat(intersect.data[2 + Shape<PST_RECTANGLE>::ObjSize + 7]), asfloat(intersect.data[2 + Shape<PST_RECTANGLE>::ObjSize + 8]));
                 Shape<PST_RECTANGLE> rect = Shape<PST_RECTANGLE>::create(offset, edge0, edge1, intersect.data[2 + Shape<PST_RECTANGLE>::ObjSize + 9]);
-                pdf *= rect.template deferredPdf<light_type, ray_type>(light, ray);
+                pdf *= rect.template deferredPdf<ray_type>(ray);
             }
             break;
             default:

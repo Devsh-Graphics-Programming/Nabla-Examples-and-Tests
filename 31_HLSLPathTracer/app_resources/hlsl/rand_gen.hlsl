@@ -22,9 +22,9 @@ struct Uniform3D
         return retval;
     }
 
-    float32_t3 operator()()
+    uint32_t3 operator()()
     {
-        return float32_t3(uint32_t3(rng(), rng(), rng()));
+        return uint32_t3(rng(), rng(), rng());
     }
 
     rng_type rng;

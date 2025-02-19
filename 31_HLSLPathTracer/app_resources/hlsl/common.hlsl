@@ -86,7 +86,6 @@ struct BxDFNode
 
     uint32_t materialType;
     params_type params;
-    ObjectID objectID;
 }
 
 template<typename T>
@@ -160,8 +159,8 @@ struct Shape<PST_SPHERE>
         return 2.0 * numbers::pi<float> * (1.0 - cosThetaMax);
     }
 
-    template<typename Light, typename Ray>
-    float deferredPdf(NBL_CONST_REF_ARG(Light) light, NBL_CONST_REF_ARG(Ray) ray)
+    template<typename Ray>
+    float deferredPdf(NBL_CONST_REF_ARG(Ray) ray)
     {
         return 1.0 / getSolidAngle(ray.origin);
     }
@@ -245,8 +244,8 @@ struct Shape<PST_TRIANGLE>
         return nbl::hlsl::cross(edges[0], edges[1]) * 0.5f;
     }
 
-    template<typename Light, typename Ray>
-    float deferredPdf(NBL_CONST_REF_ARG(Light) light, NBL_CONST_REF_ARG(Ray) ray)
+    template<typename Ray>
+    float deferredPdf(NBL_CONST_REF_ARG(Ray) ray)
     {
         const float32_t3 L = ray.direction;
         switch (polygonMethod)
@@ -393,8 +392,8 @@ struct Shape<PST_RECTANGLE>
         basis = nbl::hlsl::transpose<matrix3x3_type>(basis);    // TODO: double check transpose
     }
 
-    template<typename Light, typename Ray>
-    float deferredPdf(NBL_CONST_REF_ARG(Light light), NBL_CONST_REF_ARG(Ray) ray)
+    template<typename Ray>
+    float deferredPdf(NBL_CONST_REF_ARG(Ray) ray)
     {
         switch (polygonMethod)
         {

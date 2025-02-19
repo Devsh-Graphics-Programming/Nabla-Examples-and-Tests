@@ -90,7 +90,7 @@ struct Unidirectional
     {
         uint32_t address = spirv::bitfieldInsert(protoDimension, _sample, MAX_DEPTH_LOG2, MAX_SAMPLES_LOG2);
 	    unit32_t3 seqVal = texelFetch(sampleSequence, int(address) + i).xyz;
-	    seqVal ^= unit32_t3(randGen(), randGen(), randGen());
+	    seqVal ^= randGen();
         return vector3_type(seqVal) * asfloat(0x2f800004u);
     }
 
@@ -147,8 +147,8 @@ struct Unidirectional
 
         // TODO: ifdef kill diffuse specular paths
 
-        const bool isBSDF = (bxdf.materialType == ext::MaterialSystem::Material::DIFFUSE) ? bxdf_traits<diffuse_op_type>::type == BT_BSDF :
-                            (bxdf.materialType == ext::MaterialSystem::Material::CONDUCTOR) ? bxdf_traits<conductor_op_type>::type == BT_BSDF :
+        const bool isBSDF = (bxdf.materialType == ext::MaterialSystem::Material::Type::DIFFUSE) ? bxdf_traits<diffuse_op_type>::type == BT_BSDF :
+                            (bxdf.materialType == ext::MaterialSystem::Material::Type::CONDUCTOR) ? bxdf_traits<conductor_op_type>::type == BT_BSDF :
                             bxdf_traits<dielectric_op_type>::type == BT_BSDF;
 
         vector3_type eps0 = rand3d(depth, _sample, 0u);
