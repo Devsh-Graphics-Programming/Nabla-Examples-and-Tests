@@ -23,16 +23,29 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord)
     const uint32_t storedQuantizedAlpha = nbl::hlsl::glsl::bitfieldExtract<uint32_t>(packedData,0,AlphaBits);
     const uint32_t storedMainObjectIdx = nbl::hlsl::glsl::bitfieldExtract<uint32_t>(packedData,AlphaBits,MainObjectIdxBits);
     pseudoStencil[fragCoord] = nbl::hlsl::glsl::bitfieldInsert<uint32_t>(0, InvalidMainObjectIdx, AlphaBits, MainObjectIdxBits);
+
+    // if geomID has changed, we resolve the SDF alpha (draw using blend), else accumulate
+    const bool resolve = storedMainObjectIdx != InvalidMainObjectIdx;
+    uint32_t toResolveStyleIdx = InvalidStyleIdx;
     
-    uint32_t resolveStyleIdx = mainObjects[storedMainObjectIdx].styleIdx;
-    const bool resolveColorFromStyle = resolveStyleIdx != InvalidStyleIdx;
-    if (!resolveColorFromStyle)
-        color = float32_t4(unpackR11G11B10_UNORM(colorStorage[fragCoord]), 1.0f);
+    // load from colorStorage only if we want to resolve color from texture instead of style
+    // sampling from colorStorage needs to happen in critical section because another fragment may also want to store into it at the same time + need to happen before store
+    if (resolve)
+    {
+        toResolveStyleIdx = mainObjects[storedMainObjectIdx].styleIdx;
+        if (toResolveStyleIdx == InvalidStyleIdx) // if style idx to resolve is invalid, then it means we should resolve from color
+            color = float32_t4(unpackR11G11B10_UNORM(colorStorage[fragCoord]), 1.0f);
+    }
 
     nbl::hlsl::spirv::endInvocationInterlockEXT();
 
-    if (resolveColorFromStyle)
-        color = lineStyles[resolveStyleIdx].color;
+    if (!resolve)
+        discard;
+
+    // draw with previous geometry's style's color or stored in texture buffer :kek:
+    // we don't need to load the style's color in critical section because we've already retrieved the style index from the stored main obj
+    if (toResolveStyleIdx != InvalidStyleIdx) // if toResolveStyleIdx is valid then that means our resolved color should come from line style
+        color = lineStyles[toResolveStyleIdx].color;
     color.a *= float(storedQuantizedAlpha) / 255.f;
     
     return color;
