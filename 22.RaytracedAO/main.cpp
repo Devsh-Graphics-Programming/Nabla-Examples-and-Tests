@@ -691,7 +691,7 @@ int main(int argc, char** argv)
 			if ((plane!=core::vectorSIMDf()).any())
 			{
 				mainSensorData.clipPlanes.push_back(plane);
-				printf("Found Clip Plane %f,%f,%f,%f\n",plane);
+				printf("Found Clip Plane %f,%f,%f,%f\n",plane[0],plane[1],plane[2],plane[3]);
 			}
 		}
 
