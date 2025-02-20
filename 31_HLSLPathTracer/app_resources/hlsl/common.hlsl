@@ -86,7 +86,7 @@ struct BxDFNode
 
     uint32_t materialType;
     params_type params;
-}
+};
 
 template<typename T>
 struct Tolerance
@@ -108,7 +108,7 @@ struct Tolerance
     {
         return 1.0 - nbl::hlsl::exp2(__common(depth) + 1.0);
     }
-}
+};
 
 enum PTPolygonMethod : uint16_t
 {
@@ -166,7 +166,7 @@ struct Shape<PST_SPHERE>
     }
 
     template<class Aniso>
-    float generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, float32_t3 xi)
+    float32_t3 generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, float32_t3 xi)
     {
         float32_t3 Z = position - origin;
         const float distanceSQ = nbl::hlsl::dot(Z,Z);
@@ -179,7 +179,7 @@ struct Shape<PST_SPHERE>
             const float cosThetaMax = nbl::hlsl::sqrt(cosThetaMax2);
             const float cosTheta = nbl::hlsl::mix(1.0, cosThetaMax, xi.x);
 
-            vec3 L = Z * cosTheta;
+            float32_t3 L = Z * cosTheta;
 
             const float cosTheta2 = cosTheta * cosTheta;
             const float sinTheta = nbl::hlsl::sqrt(1.0 - cosTheta2);
@@ -253,7 +253,8 @@ struct Shape<PST_TRIANGLE>
             case PPM_AREA:
             {
                 const float dist = ray.intersectionT;
-                return dist * dist / nbl::hlsl::abs(nbl::hlsl::dot(getNormalTimesArea()), L);
+                const float32_t3 L = ray.direction;
+                return dist * dist / nbl::hlsl::abs(nbl::hlsl::dot(getNormalTimesArea(), L));
             }
             break;
             case PPM_SOLID_ANGLE:
@@ -303,7 +304,7 @@ struct Shape<PST_TRIANGLE>
             {
                 float rcpPdf;
 
-                shapes::SphericalTriangle<float> st = shapes::SphericalTriangle<float>::create(vertex0, vertex1, vertex2, ray.origin);
+                shapes::SphericalTriangle<float> st = shapes::SphericalTriangle<float>::create(vertex0, vertex1, vertex2, origin);
                 sampling::SphericalTriangle<float> sst = sampling::SphericalTriangle<float>::create(st);
 
                 const float32_t3 L = sst.generate(rcpPdf, xi.xy);
@@ -319,7 +320,7 @@ struct Shape<PST_TRIANGLE>
             {
                 float rcpPdf;
 
-                shapes::SphericalTriangle<float> st = shapes::SphericalTriangle<float>::create(vertex0, vertex1, vertex2, ray.origin);
+                shapes::SphericalTriangle<float> st = shapes::SphericalTriangle<float>::create(vertex0, vertex1, vertex2, origin);
                 sampling::ProjectedSphericalTriangle<float> sst = sampling::ProjectedSphericalTriangle<float>::create(st);
             
                 const float32_t3 L = sst.generate(rcpPdf, interaction.N, isBSDF, xi.xy);
@@ -348,9 +349,9 @@ struct Shape<PST_TRIANGLE>
 template<>
 struct Shape<PST_RECTANGLE>
 {
-    static Shape<PST_TRIANGLE> create(NBL_CONST_REF_ARG(float32_t3) offset, NBL_CONST_REF_ARG(float32_t3) edge0, NBL_CONST_REF_ARG(float32_t3) edge1, uint32_t bsdfID, uint32_t lightID)
+    static Shape<PST_RECTANGLE> create(NBL_CONST_REF_ARG(float32_t3) offset, NBL_CONST_REF_ARG(float32_t3) edge0, NBL_CONST_REF_ARG(float32_t3) edge1, uint32_t bsdfID, uint32_t lightID)
     {
-        Shape<PST_TRIANGLE> retval;
+        Shape<PST_RECTANGLE> retval;
         retval.offset = offset;
         retval.edge0 = edge0;
         retval.edge1 = edge1;
@@ -389,7 +390,7 @@ struct Shape<PST_RECTANGLE>
         basis[1] = edge1 / extents[1];
         basis[2] = normalize(cross(basis[0],basis[1]));
 
-        basis = nbl::hlsl::transpose<matrix3x3_type>(basis);    // TODO: double check transpose
+        basis = nbl::hlsl::transpose<float32_t3x3>(basis);    // TODO: double check transpose
     }
 
     template<typename Ray>
@@ -400,6 +401,7 @@ struct Shape<PST_RECTANGLE>
             case PPM_AREA:
             {
                 const float dist = ray.intersectionT;
+                const float32_t3 L = ray.direction;
                 return dist * dist / nbl::hlsl::abs(nbl::hlsl::dot(getNormalTimesArea(), L));
             }
             break;

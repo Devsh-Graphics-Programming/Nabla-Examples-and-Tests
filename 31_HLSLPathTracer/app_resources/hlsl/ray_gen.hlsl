@@ -1,6 +1,8 @@
 #ifndef _NBL_HLSL_EXT_RAYGEN_INCLUDED_
 #define _NBL_HLSL_EXT_RAYGEN_INCLUDED_
 
+#include <nbl/builtin/hlsl/sampling/box_muller_transform.hlsl>
+
 #include "common.hlsl"
 
 namespace nbl
@@ -43,7 +45,7 @@ struct Basic
         // apply stochastic reconstruction filter
         const float gaussianFilterCutoff = 2.5;
         const float truncation = nbl::hlsl::exp(-0.5 * gaussianFilterCutoff * gaussianFilterCutoff);
-        vec2 remappedRand = randVec.xy;
+        vector2_type remappedRand = randVec.xy;
         remappedRand.x *= 1.0 - truncation;
         remappedRand.x += truncation;
         tmp.xy += pixOffsetParam * nbl::hlsl::boxMullerTransform<scalar_type>(remappedRand, 1.5);

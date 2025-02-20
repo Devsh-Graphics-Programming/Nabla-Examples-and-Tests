@@ -3,6 +3,7 @@
 
 #include <nbl/builtin/hlsl/limits.hlsl>
 #include <nbl/builtin/hlsl/math/functions.hlsl>
+#include <nbl/builtin/hlsl/bxdf/common.hlsl>
 
 namespace nbl
 {

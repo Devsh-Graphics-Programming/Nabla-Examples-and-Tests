@@ -33,7 +33,7 @@ struct IntersectData
     NBL_CONSTEXPR_STATIC_INLINE uint32_t DataSize = 128;
 
     uint32_t mode : 1;
-    unit32_t unused : 31;   // possible space for flags
+    uint32_t unused : 31;   // possible space for flags
     uint32_t data[DataSize];
 };
 

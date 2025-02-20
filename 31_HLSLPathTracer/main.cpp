@@ -37,6 +37,14 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			ELG_COUNT
 		};
 
+		enum E_RENDER_MODE : uint8_t
+		{
+			ERM_GLSL,
+			ERM_HLSL,
+			ERM_CHECKERED,
+			ERM_COUNT
+		};
+
 		constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
 		constexpr static inline uint32_t MaxFramesInFlight = 5;
 		constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
@@ -49,7 +57,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		constexpr static inline uint8_t MaxUITextureCount = 1u;
 		static inline std::string DefaultImagePathsFile = "envmap/envmap_0.exr";
 		static inline std::string OwenSamplerFilePath = "owen_sampler_buffer.bin";
-		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTShaderPaths = { "app_resources/glsl/litBySphere.comp", "app_resources/glsl/litByTriangle.comp", "app_resources/glsl/litByRectangle.comp" };
+		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTGLSLShaderPaths = { "app_resources/glsl/litBySphere.comp", "app_resources/glsl/litByTriangle.comp", "app_resources/glsl/litByRectangle.comp" };
+		static inline std::string PTHLSLShaderPath = "app_resources/hlsl/render.comp.hlsl";
+		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTHLSLShaderVariants = { "SPHERE_LIGHT", "TRIANGLE_LIGHT", "RECTANGLE_LIGHT" };
 		static inline std::string PresentShaderPath = "app_resources/hlsl/present.frag.hlsl";
 
 		const char* shaderNames[E_LIGHT_GEOMETRY::ELG_COUNT] = {
@@ -301,7 +311,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				m_presentDescriptorSet = presentDSPool->createDescriptorSet(gpuPresentDescriptorSetLayout);
 
 				// Create Shaders
-				auto loadAndCompileShader = [&](std::string pathToShader)
+				auto loadAndCompileGLSLShader = [&](const std::string& pathToShader) -> smart_refctd_ptr<IGPUShader>
 				{
 					IAssetLoader::SAssetLoadParams lp = {};
 					lp.workingDirectory = localInputCWD;
@@ -328,10 +338,46 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					return shader;
 				};
 
+				auto loadAndCompileHLSLShader = [&](const std::string& pathToShader, const std::string& defineMacro) -> smart_refctd_ptr<IGPUShader>
+				{
+					IAssetLoader::SAssetLoadParams lp = {};
+					lp.workingDirectory = localInputCWD;
+					auto assetBundle = m_assetMgr->getAsset(pathToShader, lp);
+					const auto assets = assetBundle.getContents();
+					if (assets.empty())
+					{
+						m_logger->log("Could not load shader: ", ILogger::ELL_ERROR, pathToShader);
+						std::exit(-1);
+					}
+
+					auto source = IAsset::castDown<ICPUShader>(assets[0]);
+					// The down-cast should not fail!
+					assert(source);
+
+					auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
+					CHLSLCompiler::SOptions options = {};
+					options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;	// should be compute
+					options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+					options.spirvOptimizer = nullptr;
+#ifndef _NBL_DEBUG
+					ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
+					auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
+					options.spirvOptimizer = opt.get();
+#endif
+					options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
+					options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
+					options.preprocessorOptions.logger = m_logger.get();
+					options.preprocessorOptions.includeFinder = compiler->getDefaultIncludeFinder();
+
+					//std::string dxcOptionStr[] = { "-D" + defineMacro };
+					//options.dxcOptions = std::span(dxcOptionStr);
+
+					source = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
+				};
+
 				// Create compute pipelines
 				{
 					for (int index = 0; index < E_LIGHT_GEOMETRY::ELG_COUNT; index++) {
-						auto ptShader = loadAndCompileShader(PTShaderPaths[index]);
 						const nbl::asset::SPushConstantRange pcRange = {
 							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 							.offset = 0,
@@ -348,15 +394,31 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 							return logFail("Failed to create Pathtracing pipeline layout");
 						}
 
-						IGPUComputePipeline::SCreationParams params = {};
-						params.layout = ptPipelineLayout.get();
-						params.shader.shader = ptShader.get();
-						params.shader.entryPoint = "main";
-						params.shader.entries = nullptr;
-						params.shader.requireFullSubgroups = true;
-						params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
-						if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTPipelines.data() + index)) {
-							return logFail("Failed to create compute pipeline!\n");
+						{
+							auto ptShader = loadAndCompileGLSLShader(PTGLSLShaderPaths[index]);
+
+							IGPUComputePipeline::SCreationParams params = {};
+							params.layout = ptPipelineLayout.get();
+							params.shader.shader = ptShader.get();
+							params.shader.entryPoint = "main";
+							params.shader.entries = nullptr;
+							params.shader.requireFullSubgroups = true;
+							params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTGLSLPipelines.data() + index))
+								return logFail("Failed to create GLSL compute pipeline!\n");
+						}
+						{
+							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index]);
+
+							IGPUComputePipeline::SCreationParams params = {};
+							params.layout = ptPipelineLayout.get();
+							params.shader.shader = ptShader.get();
+							params.shader.entryPoint = "main";
+							params.shader.entries = nullptr;
+							params.shader.requireFullSubgroups = true;
+							params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPipelines.data() + index))
+								return logFail("Failed to create HLSL compute pipeline!\n");
 						}
 					}
 				}
@@ -369,7 +431,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
 
 					// Load Fragment Shader
-					auto fragmentShader = loadAndCompileShader(PresentShaderPath);
+					auto fragmentShader = loadAndCompileGLSLShader(PresentShaderPath);
 					if (!fragmentShader)
 						return logFail("Failed to Load and Compile Fragment Shader: lumaMeterShader!");
 
@@ -985,7 +1047,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 				// cube envmap handle
 				{
-					auto pipeline = m_PTPipelines[PTPipline].get();
+					auto pipeline = renderMode == E_RENDER_MODE::ERM_HLSL ? m_PTHLSLPipelines[PTPipline].get() : m_PTGLSLPipelines[PTPipline].get();
 					cmdbuf->bindComputePipeline(pipeline);
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
@@ -1220,7 +1282,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 		// gpu resources
 		smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
-		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTPipelines;
+		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTGLSLPipelines;
+		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTHLSLPipelines;
 		smart_refctd_ptr<IGPUGraphicsPipeline> m_presentPipeline;
 		uint64_t m_realFrameIx = 0;
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
@@ -1269,6 +1332,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		float camYAngle = 165.f / 180.f * 3.14159f;
 		float camXAngle = 32.f / 180.f * 3.14159f;
 		int PTPipline = E_LIGHT_GEOMETRY::ELG_SPHERE;
+		int renderMode = E_RENDER_MODE::ERM_GLSL;
 		int spp = 32;
 		int depth = 3;
 

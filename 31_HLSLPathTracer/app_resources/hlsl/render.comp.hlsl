@@ -2,6 +2,9 @@
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 #include "nbl/builtin/hlsl/random/pcg.hlsl"
 
+#include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
+#include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
+
 #include "pathtracer.hlsl"
 
 // add these defines (one at a time) using -D argument to dxc
@@ -30,7 +33,7 @@ struct SPushConstants
 [[vk::push_constant]] SPushConstants pc;
 
 [[vk::combinedImageSampler]][[vk::binding(0, 2)]] Texture2D<float3> envMap;      // unused
-[[vk::combinedImageSampler]][[vk::binding(0, 2)]] SamplerState envSampler
+[[vk::combinedImageSampler]][[vk::binding(0, 2)]] SamplerState envSampler;
 
 [[vk::binding(1, 2)]] Buffer sampleSequence;
 
@@ -41,7 +44,7 @@ struct SPushConstants
 
 int32_t2 getCoordinates()
 {
-    return int32_t2(glsl::gl_GlobalInvocationID.xy);
+    return int32_t2(glsl::gl_GlobalInvocationID().xy);
 }
 
 float32_t2 getTexCoords()
@@ -143,7 +146,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
         return;
     }
 
-    int flatIdx = glsl::gl_GlobalInvocationID.y * glsl::gl_NumWorkGroups.x * WorkgroupSize + glsl::gl_GlobalInvocationID.x;
+    int flatIdx = glsl::gl_GlobalInvocationID().y * glsl::gl_NumWorkGroups().x * WorkgroupSize + glsl::gl_GlobalInvocationID().x;
     PCG32x2 pcg = PCG32x2::construct(flatIdx);  // replaces scramblebuf?
 
     // set up path tracer
