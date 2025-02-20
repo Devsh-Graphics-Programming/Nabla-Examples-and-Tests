@@ -112,8 +112,8 @@ light_type lights[LIGHT_COUNT] = {
     light_type(spectral_t(30.0,25.0,15.0), ext::ObjectID(8u, ext::NextEventEstimator::Event::Mode::PROCEDURAL, LIGHT_TYPE))
 };
 
-#define BSDF_COUNT 7
-bxdfnode_type bsdfs[BSDF_COUNT] = {
+#define BXDF_COUNT 7
+bxdfnode_type bxdfs[BXDF_COUNT] = {
     bxdfnode_type(ext::MaterialSystem::Material::Type::DIFFUSE, create_params_t(false, float2(0,0), spectral_t(1,1,1), spectral_t(1.25,1.25,1.25))),
     bxdfnode_type(ext::MaterialSystem::Material::Type::DIFFUSE, create_params_t(false, float2(0,0), spectral_t(1,1,1), spectral_t(1.25,2.5,2.5))),
     bxdfnode_type(ext::MaterialSystem::Material::Type::DIFFUSE, create_params_t(false, float2(0,0), spectral_t(1,1,1), spectral_t(2.5,1.25,2.5))),
@@ -168,4 +168,31 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 
     // set up scene (can do as global var?)
     Scene<light_type, bxdfnode_type> scene;
+    scene.sphereCount = SPHERE_COUNT;
+    for (uint32_t i = 0; i < SPHERE_COUNT; i++)
+        scene.spheres[i] = spheres[i];
+#ifdef TRIANGLE_LIGHT
+    scene.triangleCount = TRIANGLE_COUNT;
+    for (uint32_t i = 0; i < TRIANGLE_COUNT; i++)
+        scene.triangles[i] = triangles[i];
+#else
+    scene.triangleCount = 0;
+#endif
+#ifdef RECTANGLE_LIGHT
+    scene.rectangleCount = RECTANGLE_COUNT;
+    for (uint32_t i = 0; i < RECTANGLE_COUNT; i++)
+        scene.rectangles[i] = rectangles[i];
+#else
+    scene.rectangleCount = 0;
+#endif
+    scene.lightCount = LIGHT_COUNT;
+    for (uint32_t i = 0; i < LIGHT_COUNT; i++)
+        scene.lights[i] = lights[i];
+    scene.bxdfCount = BXDF_COUNT;
+    for (uint32_t i = 0; i < BXDF_COUNT; i++)
+        scene.bxdfs[i] = bxdfs[i];
+
+    float32_t3 color = pathtracer.getMeasure(pc.sampleCount, pc.depth, scene);
+    float32_t4 pixCol = float32_t4(color, 1.0);
+    outImage[coords] = pixCol;
 }
