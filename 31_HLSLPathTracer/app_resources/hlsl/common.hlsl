@@ -123,13 +123,19 @@ struct Shape;
 template<>
 struct Shape<PST_SPHERE>
 {
-    static Shape<PST_SPHERE> create(NBL_CONST_REF_ARG(float32_t3) position, float32_t radius, uint32_t bsdfID, uint32_t lightID)
+    static Shape<PST_SPHERE> create(NBL_CONST_REF_ARG(float32_t3) position, float32_t radius, uint32_t bsdfLightIDs)
     {
         Shape<PST_SPHERE> retval;
         retval.position = position;
         retval.radius2 = radius * radius;
-        retval.bsdfLightIDs = spirv::bitFieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
+        retval.bsdfLightIDs = bsdfLightIDs;
         return retval;
+    }
+
+    static Shape<PST_SPHERE> create(NBL_CONST_REF_ARG(float32_t3) position, float32_t radius, uint32_t bsdfID, uint32_t lightID)
+    {
+        uint32_t bsdfLightIDs = spirv::bitFieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
+        return create(position, radius, bsdfLightIDs);
     }
 
     // return intersection distance if found, nan otherwise
@@ -207,15 +213,21 @@ struct Shape<PST_SPHERE>
 template<>
 struct Shape<PST_TRIANGLE>
 {
-    static Shape<PST_TRIANGLE> create(NBL_CONST_REF_ARG(float32_t3) vertex0, NBL_CONST_REF_ARG(float32_t3) vertex1, NBL_CONST_REF_ARG(float32_t3) vertex2, uint32_t bsdfID, uint32_t lightID)
+    static Shape<PST_TRIANGLE> create(NBL_CONST_REF_ARG(float32_t3) vertex0, NBL_CONST_REF_ARG(float32_t3) vertex1, NBL_CONST_REF_ARG(float32_t3) vertex2, uint32_t bsdfLightIDs)
     {
         Shape<PST_TRIANGLE> retval;
         retval.vertex0 = vertex0;
         retval.vertex1 = vertex1;
         retval.vertex2 = vertex2;
-        retval.bsdfLightIDs = spirv::bitFieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
+        retval.bsdfLightIDs = bsdfLightIDs;
         retval.polygonMethod = PPM_SOLID_ANGLE;
         return retval;
+    }
+
+    static Shape<PST_TRIANGLE> create(NBL_CONST_REF_ARG(float32_t3) vertex0, NBL_CONST_REF_ARG(float32_t3) vertex1, NBL_CONST_REF_ARG(float32_t3) vertex2, uint32_t bsdfID, uint32_t lightID)
+    {
+        uint32_t bsdfLightIDs = spirv::bitFieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
+        return create(vertex0, vertex1, vertex2, bsdfLightIDs);
     }
 
     float intersect(NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(float32_t3) direction)
@@ -349,15 +361,21 @@ struct Shape<PST_TRIANGLE>
 template<>
 struct Shape<PST_RECTANGLE>
 {
-    static Shape<PST_RECTANGLE> create(NBL_CONST_REF_ARG(float32_t3) offset, NBL_CONST_REF_ARG(float32_t3) edge0, NBL_CONST_REF_ARG(float32_t3) edge1, uint32_t bsdfID, uint32_t lightID)
+    static Shape<PST_RECTANGLE> create(NBL_CONST_REF_ARG(float32_t3) offset, NBL_CONST_REF_ARG(float32_t3) edge0, NBL_CONST_REF_ARG(float32_t3) edge1, uint32_t bsdfLightIDs)
     {
         Shape<PST_RECTANGLE> retval;
         retval.offset = offset;
         retval.edge0 = edge0;
         retval.edge1 = edge1;
-        retval.bsdfLightIDs = spirv::bitFieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
+        retval.bsdfLightIDs = bsdfLightIDs;
         retval.polygonMethod = PPM_SOLID_ANGLE;
         return retval;
+    }
+
+    static Shape<PST_RECTANGLE> create(NBL_CONST_REF_ARG(float32_t3) offset, NBL_CONST_REF_ARG(float32_t3) edge0, NBL_CONST_REF_ARG(float32_t3) edge1, uint32_t bsdfID, uint32_t lightID)
+    {
+        uint32_t bsdfLightIDs = spirv::bitFieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
+        return create(offset, edge0, edge1, bsdfLightIDs);
     }
 
     float intersect(NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(float32_t3) direction)

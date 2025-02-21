@@ -10,6 +10,7 @@
 #include "intersector.hlsl"
 #include "material_system.hlsl"
 #include "next_event_estimator.hlsl"
+#include "scene.hlsl"
 
 namespace nbl
 {
@@ -170,8 +171,8 @@ struct Unidirectional
             scalar_type t;
             sample_type nee_sample = nee.generate_and_quotient_and_pdf(
                 neeContrib_pdf, t,
-                intersection, interaction,
-                isBSDF, eps0, depth
+                lights[lightID], intersection, interaction,
+                isBSDF, eps0, depth, scene.toNextEvent(lightID)
             );
 
             // We don't allow non watertight transmitters in this renderer
@@ -236,7 +237,7 @@ struct Unidirectional
                     nee_ray.origin = intersection + nee_sample.L.direction * t * Tolerance<scalar_type>::getStart(depth);
                     nee_ray.direction = nee_sample.L.direction;
                     nee_ray.intersectionT = t;
-                    if (bsdf_quotient_pdf.pdf < numeric_limits<scalar_type>::max && getLuma(neeContrib_pdf.quotient) > lumaContributionThreshold && intersector.traceRay(nee_ray, scene).id == -1)
+                    if (bsdf_quotient_pdf.pdf < numeric_limits<scalar_type>::max && getLuma(neeContrib_pdf.quotient) > lumaContributionThreshold && intersector::traceRay(nee_ray, scene).id == -1)
                         ray._payload.accumulation += neeContrib_pdf.quotient;
                 }
             }
@@ -338,7 +339,7 @@ struct Unidirectional
             for (int d = 1; d <= depth && hit && rayAlive; d += 2)
             {
                 ray.intersectionT = numeric_limits<scalar_type>::max;
-                ray.objectID = intersector.traceRay(ray, scene);
+                ray.objectID = intersector::traceRay(ray, scene);
 
                 hit = ray.objectID.id != -1;
                 if (hit)

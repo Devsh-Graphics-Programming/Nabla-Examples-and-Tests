@@ -167,6 +167,10 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     ptCreateParams.NDC = NDC;
     ptCreateParams.invMVP = pc.invMVP;
 
+    ptCreateParams.diffuseParams = bxdfs[0].params;
+    ptCreateParams.conductorParams = bxdfs[3].params;
+    ptCreateParams.dielectricParams = bxdfs[6].params;
+
     pathtracer_type pathtracer = pathtracer_type::create(ptCreateParams, samplerSequence);
 
     // set up scene (can do as global var?)

@@ -41,17 +41,18 @@ template<class Ray>
 struct Comprehensive
 {
     using scalar_type = typename Ray::scalar_type;
+    using vector3_type = vector<scalar_type, 3>;
     using ray_type = Ray;
 
     static ObjectID traceProcedural(NBL_REF_ARG(ray_type) ray, NBL_REF_ARG(IntersectData) intersect)
     {
         const bool anyHit = ray.intersectionT != numeric_limits<scalar_type>::max;
         const uint32_t objCount = intersect.data[0];
-        const ProceduralShapeType type = intersect.data[1];
+        const ProceduralShapeType type = (ProceduralShapeType)intersect.data[1];
 
         ObjectID objectID = ray.objectID;
         objectID.mode = IntersectData::Mode::PROCEDURAL;
-        objectID.type = type;
+        objectID.shapeType = type;
         for (int i = 0; i < objCount; i++)
         {
             float t;
@@ -59,25 +60,25 @@ struct Comprehensive
             {
                 case PST_SPHERE:
                 {
-                    float32_t3 position = float32_t3(asfloat(intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize]), asfloat(intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize + 1]), asfloat(intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize + 2]));
+                    vector3_type position = vector3_type(asfloat(intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize]), asfloat(intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize + 1]), asfloat(intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize + 2]));
                     Shape<PST_SPHERE> sphere = Shape<PST_SPHERE>::create(position, asfloat(intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize + 3]), intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize + 4]);
                     t = sphere.intersect(ray.origin, ray.direction);
                 }
                 break;
                 case PST_TRIANGLE:
                 {
-                    float32_t3 vertex0 = float32_t3(asfloat(intersect.data[2 + i * Shape<PST_TRIANGLE>::ObjSize]), asfloat(intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize + 1]), asfloat(intersect.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 2]));
-                    float32_t3 vertex1 = float32_t3(asfloat(intersect.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 3]), asfloat(intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize + 4]), asfloat(intersect.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 5]));
-                    float32_t3 vertex2 = float32_t3(asfloat(intersect.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 6]), asfloat(intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize + 7]), asfloat(intersect.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 8]));
+                    vector3_type vertex0 = vector3_type(asfloat(intersect.data[2 + i * Shape<PST_TRIANGLE>::ObjSize]), asfloat(intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize + 1]), asfloat(intersect.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 2]));
+                    vector3_type vertex1 = vector3_type(asfloat(intersect.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 3]), asfloat(intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize + 4]), asfloat(intersect.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 5]));
+                    vector3_type vertex2 = vector3_type(asfloat(intersect.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 6]), asfloat(intersect.data[2 + i * Shape<PST_SPHERE>::ObjSize + 7]), asfloat(intersect.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 8]));
                     Shape<PST_TRIANGLE> tri = Shape<PST_TRIANGLE>::create(vertex0, vertex1, vertex2, intersect.data[2 + i * Shape<PST_TRIANGLE>::ObjSize + 9]);
                     t = tri.intersect(ray.origin, ray.direction);
                 }
                 break;
                 case PST_RECTANGLE:
                 {
-                    float32_t3 offset = float32_t3(asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize]), asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 1]), asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 2]));
-                    float32_t3 edge0 = float32_t3(asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 3]), asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 4]), asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 5]));
-                    float32_t3 edge1 = float32_t3(asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 6]), asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 7]), asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 8]));
+                    vector3_type offset = vector3_type(asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize]), asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 1]), asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 2]));
+                    vector3_type edge0 = vector3_type(asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 3]), asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 4]), asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 5]));
+                    vector3_type edge1 = vector3_type(asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 6]), asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 7]), asfloat(intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 8]));
                     Shape<PST_RECTANGLE> rect = Shape<PST_RECTANGLE>::create(offset, edge0, edge1, intersect.data[2 + i * Shape<PST_RECTANGLE>::ObjSize + 9]);
                     t = rect.intersect(ray.origin, ray.direction);
                 }
@@ -101,7 +102,7 @@ struct Comprehensive
 
     static ObjectID traceRay(NBL_REF_ARG(ray_type) ray, NBL_REF_ARG(IntersectData) intersect)
     {
-        const IntersectData::Mode mode = intersect.mode;
+        const IntersectData::Mode mode = (IntersectData::Mode)intersect.mode;
         switch (mode)
         {
             case IntersectData::Mode::RAY_QUERY:
@@ -120,7 +121,11 @@ struct Comprehensive
             }
             break;
             default:
-                return ObjectID(-1, IntersectData::Mode::PROCEDURAL, PST_SPHERE);
+            {
+                ObjectID objID;
+                objID.id = -1;
+                return objID;
+            }
         }
     }
 
@@ -136,19 +141,19 @@ struct Comprehensive
         if (scene.sphereCount > 0)
         {
             data = scene.toIntersectData(ext::Intersector::IntersectData::Mode::PROCEDURAL, PST_SPHERE);
-            objectID = intersector.traceRay(ray, data);
+            objectID = traceRay(ray, data);
         }
 
         if (scene.triangleCount > 0)
         {
             data = scene.toIntersectData(ext::Intersector::IntersectData::Mode::PROCEDURAL, PST_TRIANGLE);
-            objectID = intersector.traceRay(ray, data);
+            objectID = traceRay(ray, data);
         }
 
         if (scene.rectangleCount > 0)
         {
             data = scene.toIntersectData(ext::Intersector::IntersectData::Mode::PROCEDURAL, PST_RECTANGLE);
-            objectID = intersector.traceRay(ray, data);
+            objectID = traceRay(ray, data);
         }
 
         // TODO: trace AS

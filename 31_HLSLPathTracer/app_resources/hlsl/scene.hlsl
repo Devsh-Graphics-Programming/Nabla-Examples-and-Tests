@@ -129,41 +129,41 @@ struct Scene
             case PST_SPHERE:
             {
                 Shape<PST_SPHERE> sphere = spheres[id];
-                retval.data[2 + Shape<PST_SPHERE>::ObjSize] = asuint(sphere.position.x);
-                retval.data[2 + Shape<PST_SPHERE>::ObjSize + 1] = asuint(sphere.position.y);
-                retval.data[2 + Shape<PST_SPHERE>::ObjSize + 2] = asuint(sphere.position.z);
-                retval.data[2 + Shape<PST_SPHERE>::ObjSize + 3] = asuint(sphere.radius);
-                retval.data[2 + Shape<PST_SPHERE>::ObjSize + 4] = sphere.bsdfLightIDs;
+                retval.data[2] = asuint(sphere.position.x);
+                retval.data[3] = asuint(sphere.position.y);
+                retval.data[4] = asuint(sphere.position.z);
+                retval.data[5] = asuint(sphere.radius);
+                retval.data[6] = sphere.bsdfLightIDs;
             }
             break;
             case PST_TRIANGLE:
             {
                 Shape<PST_TRIANGLE> tri = triangles[id];
-                retval.data[2 + Shape<PST_TRIANGLE>::ObjSize] = asuint(tri.vertex0.x);
-                retval.data[2 + Shape<PST_TRIANGLE>::ObjSize + 1] = asuint(tri.vertex0.y);
-                retval.data[2 + Shape<PST_TRIANGLE>::ObjSize + 2] = asuint(tri.vertex0.z);
-                retval.data[2 + Shape<PST_TRIANGLE>::ObjSize + 3] = asuint(tri.vertex1.x);
-                retval.data[2 + Shape<PST_TRIANGLE>::ObjSize + 4] = asuint(tri.vertex1.y);
-                retval.data[2 + Shape<PST_TRIANGLE>::ObjSize + 5] = asuint(tri.vertex1.z);
-                retval.data[2 + Shape<PST_TRIANGLE>::ObjSize + 6] = asuint(tri.vertex2.x);
-                retval.data[2 + Shape<PST_TRIANGLE>::ObjSize + 7] = asuint(tri.vertex2.y);
-                retval.data[2 + Shape<PST_TRIANGLE>::ObjSize + 8] = asuint(tri.vertex2.z);
-                retval.data[2 + Shape<PST_TRIANGLE>::ObjSize + 9] = tri.bsdfLightIDs;
+                retval.data[2] = asuint(tri.vertex0.x);
+                retval.data[3] = asuint(tri.vertex0.y);
+                retval.data[4] = asuint(tri.vertex0.z);
+                retval.data[5] = asuint(tri.vertex1.x);
+                retval.data[6] = asuint(tri.vertex1.y);
+                retval.data[7] = asuint(tri.vertex1.z);
+                retval.data[8] = asuint(tri.vertex2.x);
+                retval.data[9] = asuint(tri.vertex2.y);
+                retval.data[10] = asuint(tri.vertex2.z);
+                retval.data[11] = tri.bsdfLightIDs;
             }
             break;
             case PST_RECTANGLE:
             {
                 Shape<PST_RECTANGLE> rect = rectangles[id];
-                retval.data[2 + Shape<PST_RECTANGLE>::ObjSize] = asuint(rect.offset.x);
-                retval.data[2 + Shape<PST_RECTANGLE>::ObjSize + 1] = asuint(rect.offset.y);
-                retval.data[2 + Shape<PST_RECTANGLE>::ObjSize + 2] = asuint(rect.offset.z);
-                retval.data[2 + Shape<PST_RECTANGLE>::ObjSize + 3] = asuint(rect.edge0.x);
-                retval.data[2 + Shape<PST_RECTANGLE>::ObjSize + 4] = asuint(rect.edge0.y);
-                retval.data[2 + Shape<PST_RECTANGLE>::ObjSize + 5] = asuint(rect.edge0.z);
-                retval.data[2 + Shape<PST_RECTANGLE>::ObjSize + 6] = asuint(rect.edge1.x);
-                retval.data[2 + Shape<PST_RECTANGLE>::ObjSize + 7] = asuint(rect.edge1.y);
-                retval.data[2 + Shape<PST_RECTANGLE>::ObjSize + 8] = asuint(rect.edge1.z);
-                retval.data[2 + Shape<PST_RECTANGLE>::ObjSize + 9] = rect.bsdfLightIDs;
+                retval.data[2] = asuint(rect.offset.x);
+                retval.data[3] = asuint(rect.offset.y);
+                retval.data[4] = asuint(rect.offset.z);
+                retval.data[5] = asuint(rect.edge0.x);
+                retval.data[6] = asuint(rect.edge0.y);
+                retval.data[7] = asuint(rect.edge0.z);
+                retval.data[8] = asuint(rect.edge1.x);
+                retval.data[9] = asuint(rect.edge1.y);
+                retval.data[10] = asuint(rect.edge1.z);
+                retval.data[11] = rect.bsdfLightIDs;
             }
             break;
             default:
