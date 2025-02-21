@@ -80,7 +80,7 @@ using material_system_type = ext::MaterialSystem::System<diffuse_bxdf_type, cond
 using nee_type = ext::NextEventEstimator::Estimator<light_type, ray_type, sample_t, aniso_interaction>;
 using pathtracer_type = ext::PathTracer::Unidirectional<randgen_type, raygen_type, intersector_type, material_system_type, nee_type>;
 
-Shape<PST_SPHERE> spheres[SPHERE_COUNT] = {
+static const Shape<PST_SPHERE> spheres[SPHERE_COUNT] = {
     Shape<PST_SPHERE>::create(float3(0.0, -100.5, -1.0), 100.0, 0u, light_type::INVALID_ID),
     Shape<PST_SPHERE>::create(float3(2.0, 0.0, -1.0), 0.5, 1u, light_type::INVALID_ID),
     Shape<PST_SPHERE>::create(float3(0.0, 0.0, -1.0), 0.5, 2u, light_type::INVALID_ID),
@@ -97,7 +97,7 @@ Shape<PST_SPHERE> spheres[SPHERE_COUNT] = {
 #ifdef TRIANGLE_LIGHT
 #define LIGHT_TYPE PST_TRIANGLE
 #define TRIANGLE_COUNT 1
-Shape<PST_TRIANGLE> triangles[TRIANGLE_COUNT] = {
+static const Shape<PST_TRIANGLE> triangles[TRIANGLE_COUNT] = {
     Shape<PST_TRIANGLE>::create(float3(-1.8,0.35,0.3) * 10.0, float3(-1.2,0.35,0.0) * 10.0, float3(-1.5,0.8,-0.3) * 10.0, bxdfnode_type::INVALID_ID, 0u)
 };
 #endif
@@ -105,18 +105,18 @@ Shape<PST_TRIANGLE> triangles[TRIANGLE_COUNT] = {
 #ifdef RECTANGLE_LIGHT
 #define LIGHT_TYPE PST_RECTANGLE
 #define RECTANGLE_COUNT 1
-Shape<PST_RECTANGLE> rectangles[RECTANGLE_COUNT] = {
+static const Shape<PST_RECTANGLE> rectangles[RECTANGLE_COUNT] = {
     Shape<PST_RECTANGLE>::create(float3(-3.8,0.35,1.3), normalize(float3(2,0,-1))*7.0, normalize(float3(2,-5,4))*0.1, bxdfnode_type::INVALID_ID, 0u)
 };
 #endif
 
 #define LIGHT_COUNT 1
-light_type lights[LIGHT_COUNT] = {
+static const light_type lights[LIGHT_COUNT] = {
     light_type(spectral_t(30.0,25.0,15.0), ext::ObjectID(8u, ext::NextEventEstimator::Event::Mode::PROCEDURAL, LIGHT_TYPE))
 };
 
 #define BXDF_COUNT 7
-bxdfnode_type bxdfs[BXDF_COUNT] = {
+static const bxdfnode_type bxdfs[BXDF_COUNT] = {
     bxdfnode_type(ext::MaterialSystem::Material::Type::DIFFUSE, create_params_t(false, float2(0,0), spectral_t(1,1,1), spectral_t(1.25,1.25,1.25))),
     bxdfnode_type(ext::MaterialSystem::Material::Type::DIFFUSE, create_params_t(false, float2(0,0), spectral_t(1,1,1), spectral_t(1.25,2.5,2.5))),
     bxdfnode_type(ext::MaterialSystem::Material::Type::DIFFUSE, create_params_t(false, float2(0,0), spectral_t(1,1,1), spectral_t(2.5,1.25,2.5))),

@@ -82,15 +82,15 @@ struct Unidirectional
         this_t retval;
         retval.randGen = randgen_type::create(params.rngState);
         retval.rayGen = raygen_type::create(params.pixOffsetParam, params.camPos, params.NDC, params.invMVP);
-        retval.materialSystem = material_system_type::create(diffuseParams, conductorParams, dielectricParams);
+        retval.materialSystem = material_system_type::create(params.diffuseParams, params.conductorParams, params.dielectricParams);
         retval.samplerSequence = samplerSequence;
         return retval;
     }
 
     vector3_type rand3d(uint32_t protoDimension, uint32_t _sample, uint32_t i)
     {
-        uint32_t address = spirv::bitfieldInsert(protoDimension, _sample, MAX_DEPTH_LOG2, MAX_SAMPLES_LOG2);
-	    unit32_t3 seqVal = texelFetch(sampleSequence, int(address) + i).xyz;
+        uint32_t address = glsl::bitfieldInsert<uint32_t>(protoDimension, _sample, MAX_DEPTH_LOG2, MAX_SAMPLES_LOG2);
+	    uint32_t3 seqVal = texelFetch(sampleSequence, int(address) + i).xyz;
 	    seqVal ^= randGen();
         return vector3_type(seqVal) * asfloat(0x2f800004u);
     }
@@ -101,7 +101,7 @@ struct Unidirectional
     }
 
     // TODO: probably will only work with procedural shapes, do the other ones
-    bool closestHitProgram(unit32_t depth, uint32_t _sample, NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
+    bool closestHitProgram(uint32_t depth, uint32_t _sample, NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
     {
         const uint32_t objectID = ray.objectID;
         const vector3_type intersection = ray.origin + ray.direction * ray.intersectionT;
@@ -117,8 +117,8 @@ struct Unidirectional
                 break;
             case ext::Intersector::IntersectData::Mode::PROCEDURAL:
             {
-                bsdfLightIDs = scene.getBsdfLightIDs(objectID.id);
-                vector3_type N = scene.getNormal(objectID.id)
+                bsdfLightIDs = scene.getBsdfLightIDs(objectID);
+                vector3_type N = scene.getNormal(objectID);
                 N = nbl::hlsl::normalize(N);
                 typename isotropic_type::ray_dir_info_type V;
                 V.direction = nbl::hlsl::normalize(-ray.direction);
@@ -133,14 +133,14 @@ struct Unidirectional
         vector3_type throughput = ray.payload.throughput;
 
         // emissive
-        const uint32_t lightID = spirv::bitfieldExtract(bsdfLightIDs, 16, 16);
+        const uint32_t lightID = glsl::bitfieldExtract(bsdfLightIDs, 16, 16);
         if (lightID != light_type::INVALID_ID)
         {
             float pdf;
             ray.payload.accumulation += nee.deferredEvalAndPdf(pdf, lights[lightID], ray, scene.toNextEvent(lightID)) * throughput / (1.0 + pdf * pdf * ray.payload.otherTechniqueHeuristic);
         }
 
-        const uint32_t bsdfID = spirv::bitfieldExtract(bsdfLightIDs, 0, 16);
+        const uint32_t bsdfID = glsl::bitfieldExtract(bsdfLightIDs, 0, 16);
         if (bsdfID == bxdfnode_type::INVALID_ID)
             return false;
 

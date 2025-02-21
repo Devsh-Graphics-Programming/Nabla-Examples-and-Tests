@@ -119,26 +119,26 @@ struct Estimator
         {
             case PST_SPHERE:
             {
-                vector3_type position = vector3_type(asfloat(event.data[2 + Shape<PST_SPHERE>::ObjSize]), asfloat(event.data[2 + Shape<PST_SPHERE>::ObjSize + 1]), asfloat(event.data[2 + Shape<PST_SPHERE>::ObjSize + 2]));
-                Shape<PST_SPHERE> sphere = Shape<PST_SPHERE>::create(position, asfloat(event.data[2 + Shape<PST_SPHERE>::ObjSize + 3]), event.data[2 + Shape<PST_SPHERE>::ObjSize + 4]);
+                vector3_type position = vector3_type(asfloat(event.data[2]), asfloat(event.data[3]), asfloat(event.data[4]));
+                Shape<PST_SPHERE> sphere = Shape<PST_SPHERE>::create(position, asfloat(event.data[5]), event.data[6]);
                 L = sphere.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
             }
             break;
             case PST_TRIANGLE:
             {
-                vector3_type vertex0 = vector3_type(asfloat(event.data[2 + Shape<PST_TRIANGLE>::ObjSize]), asfloat(event.data[2 + Shape<PST_SPHERE>::ObjSize + 1]), asfloat(event.data[2 + Shape<PST_TRIANGLE>::ObjSize + 2]));
-                vector3_type vertex1 = vector3_type(asfloat(event.data[2 + Shape<PST_TRIANGLE>::ObjSize + 3]), asfloat(event.data[2 + Shape<PST_SPHERE>::ObjSize + 4]), asfloat(event.data[2 + Shape<PST_TRIANGLE>::ObjSize + 5]));
-                vector3_type vertex2 = vector3_type(asfloat(event.data[2 + Shape<PST_TRIANGLE>::ObjSize + 6]), asfloat(event.data[2 + Shape<PST_SPHERE>::ObjSize + 7]), asfloat(event.data[2 + Shape<PST_TRIANGLE>::ObjSize + 8]));
-                Shape<PST_TRIANGLE> tri = Shape<PST_TRIANGLE>::create(vertex0, vertex1, vertex2, event.data[2 + Shape<PST_TRIANGLE>::ObjSize + 9]);
+                vector3_type vertex0 = vector3_type(asfloat(event.data[2]), asfloat(event.data[3]), asfloat(event.data[4]));
+                vector3_type vertex1 = vector3_type(asfloat(event.data[5]), asfloat(event.data[6]), asfloat(event.data[7]));
+                vector3_type vertex2 = vector3_type(asfloat(event.data[8]), asfloat(event.data[9]), asfloat(event.data[10]));
+                Shape<PST_TRIANGLE> tri = Shape<PST_TRIANGLE>::create(vertex0, vertex1, vertex2, event.data[11]);
                 L = tri.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
             }
             break;
             case PST_RECTANGLE:
             {
-                vector3_type offset = vector3_type(asfloat(event.data[2 + Shape<PST_RECTANGLE>::ObjSize]), asfloat(event.data[2 + Shape<PST_RECTANGLE>::ObjSize + 1]), asfloat(event.data[2 + Shape<PST_RECTANGLE>::ObjSize + 2]));
-                vector3_type edge0 = vector3_type(asfloat(event.data[2 + Shape<PST_RECTANGLE>::ObjSize + 3]), asfloat(event.data[2 + Shape<PST_RECTANGLE>::ObjSize + 4]), asfloat(event.data[2 + Shape<PST_RECTANGLE>::ObjSize + 5]));
-                vector3_type edge1 = vector3_type(asfloat(event.data[2 + Shape<PST_RECTANGLE>::ObjSize + 6]), asfloat(event.data[2 + Shape<PST_RECTANGLE>::ObjSize + 7]), asfloat(event.data[2 + Shape<PST_RECTANGLE>::ObjSize + 8]));
-                Shape<PST_RECTANGLE> rect = Shape<PST_RECTANGLE>::create(offset, edge0, edge1, event.data[2 + Shape<PST_RECTANGLE>::ObjSize + 9]);
+                vector3_type offset = vector3_type(asfloat(event.data[2]), asfloat(event.data[3]), asfloat(event.data[4]));
+                vector3_type edge0 = vector3_type(asfloat(event.data[5]), asfloat(event.data[6]), asfloat(event.data[7]));
+                vector3_type edge1 = vector3_type(asfloat(event.data[8]), asfloat(event.data[9]), asfloat(event.data[10]));
+                Shape<PST_RECTANGLE> rect = Shape<PST_RECTANGLE>::create(offset, edge0, edge1, event.data[11]);
                 L = rect.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
             }
             break;

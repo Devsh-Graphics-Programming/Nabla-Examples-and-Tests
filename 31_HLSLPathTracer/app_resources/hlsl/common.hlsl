@@ -3,6 +3,7 @@
 
 #include <nbl/builtin/hlsl/spirv_intrinsics/core.hlsl>
 #include <nbl/builtin/hlsl/spirv_intrinsics/glsl.std.450.hlsl>
+#include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
 #include <nbl/builtin/hlsl/numbers.hlsl>
 #include <nbl/builtin/hlsl/shapes/triangle.hlsl>
 #include <nbl/builtin/hlsl/shapes/rectangle.hlsl>
@@ -134,7 +135,7 @@ struct Shape<PST_SPHERE>
 
     static Shape<PST_SPHERE> create(NBL_CONST_REF_ARG(float32_t3) position, float32_t radius, uint32_t bsdfID, uint32_t lightID)
     {
-        uint32_t bsdfLightIDs = spirv::bitFieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
+        uint32_t bsdfLightIDs = glsl::bitfieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
         return create(position, radius, bsdfLightIDs);
     }
 
@@ -226,7 +227,7 @@ struct Shape<PST_TRIANGLE>
 
     static Shape<PST_TRIANGLE> create(NBL_CONST_REF_ARG(float32_t3) vertex0, NBL_CONST_REF_ARG(float32_t3) vertex1, NBL_CONST_REF_ARG(float32_t3) vertex2, uint32_t bsdfID, uint32_t lightID)
     {
-        uint32_t bsdfLightIDs = spirv::bitFieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
+        uint32_t bsdfLightIDs = glsl::bitfieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
         return create(vertex0, vertex1, vertex2, bsdfLightIDs);
     }
 
@@ -374,7 +375,7 @@ struct Shape<PST_RECTANGLE>
 
     static Shape<PST_RECTANGLE> create(NBL_CONST_REF_ARG(float32_t3) offset, NBL_CONST_REF_ARG(float32_t3) edge0, NBL_CONST_REF_ARG(float32_t3) edge1, uint32_t bsdfID, uint32_t lightID)
     {
-        uint32_t bsdfLightIDs = spirv::bitFieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
+        uint32_t bsdfLightIDs = glsl::bitfieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
         return create(offset, edge0, edge1, bsdfLightIDs);
     }
 
