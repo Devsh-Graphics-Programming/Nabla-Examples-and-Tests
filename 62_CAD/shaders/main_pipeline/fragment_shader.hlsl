@@ -340,14 +340,13 @@ typedef StyleClipper< nbl::hlsl::shapes::Line<float> > LineStyleClipper;
 // textureColor: color sampled from a texture
 // useStyleColor: instead of writing and reading from colorStorage, use main object Idx to find the style color for the object.
 template<bool FragmentShaderPixelInterlock>
-float32_t4 calculateFinalColor(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 textureColor);
+float32_t4 calculateFinalColor(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 textureColor, bool colorFromTexture);
 
 template<>
-float32_t4 calculateFinalColor<false>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 localTextureColor)
+float32_t4 calculateFinalColor<false>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 localTextureColor, bool colorFromTexture)
 {
     uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
-    const bool colorFromStyle = styleIdx != InvalidStyleIdx;
-    if (colorFromStyle)
+    if (!colorFromTexture)
     {
         float32_t4 col = lineStyles[styleIdx].color;
         col.w *= localAlpha;
@@ -357,10 +356,10 @@ float32_t4 calculateFinalColor<false>(const uint2 fragCoord, const float localAl
         return float4(localTextureColor, localAlpha);
 }
 template<>
-float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 localTextureColor)
+float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 localTextureColor, bool colorFromTexture)
 {
     float32_t4 color;
-    
+
     nbl::hlsl::spirv::execution_mode::PixelInterlockOrderedEXT();
     nbl::hlsl::spirv::beginInvocationInterlockEXT();
 
@@ -370,19 +369,26 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     const uint32_t storedQuantizedAlpha = nbl::hlsl::glsl::bitfieldExtract<uint32_t>(packedData,0,AlphaBits);
     const uint32_t storedMainObjectIdx = nbl::hlsl::glsl::bitfieldExtract<uint32_t>(packedData,AlphaBits,MainObjectIdxBits);
     // if geomID has changed, we resolve the SDF alpha (draw using blend), else accumulate
-    const bool resolve = currentMainObjectIdx != storedMainObjectIdx;
-    uint32_t resolveStyleIdx = mainObjects[storedMainObjectIdx].styleIdx;
-    const bool resolveColorFromStyle = resolveStyleIdx != InvalidStyleIdx;
+    const bool differentMainObject = currentMainObjectIdx != storedMainObjectIdx; // meaning current pixel's main object is different than what is already stored
+    const bool resolve = differentMainObject && storedMainObjectIdx != InvalidMainObjectIdx;
+    uint32_t toResolveStyleIdx = InvalidStyleIdx;
     
     // load from colorStorage only if we want to resolve color from texture instead of style
     // sampling from colorStorage needs to happen in critical section because another fragment may also want to store into it at the same time + need to happen before store
-    if (resolve && !resolveColorFromStyle)
-        color = float32_t4(unpackR11G11B10_UNORM(colorStorage[fragCoord]), 1.0f);
-
-    if (resolve || localQuantizedAlpha > storedQuantizedAlpha)
+    if (resolve)
+    {
+        toResolveStyleIdx = mainObjects[storedMainObjectIdx].styleIdx;
+        if (toResolveStyleIdx == InvalidStyleIdx) // if style idx to resolve is invalid, then it means we should resolve from color
+            color = float32_t4(unpackR11G11B10_UNORM(colorStorage[fragCoord]), 1.0f);
+    }
+    
+    // If current localAlpha is higher than what is already stored in pseudoStencil we will update the value in pseudoStencil or the color in colorStorage, this is equivalent to programmable blending MAX operation.
+    // OR If previous pixel has a different ID than current's  (i.e. previous either empty/invalid or a differnet mainObject), we should update our alpha and color storages.
+    if (differentMainObject || localQuantizedAlpha > storedQuantizedAlpha)
     {
         pseudoStencil[fragCoord] = nbl::hlsl::glsl::bitfieldInsert<uint32_t>(localQuantizedAlpha,currentMainObjectIdx,AlphaBits,MainObjectIdxBits);
-        colorStorage[fragCoord] = packR11G11B10_UNORM(localTextureColor);
+        if (colorFromTexture) // writing color from texture
+            colorStorage[fragCoord] = packR11G11B10_UNORM(localTextureColor);
     }
     
     nbl::hlsl::spirv::endInvocationInterlockEXT();
@@ -392,8 +398,8 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
 
     // draw with previous geometry's style's color or stored in texture buffer :kek:
     // we don't need to load the style's color in critical section because we've already retrieved the style index from the stored main obj
-    if (resolveColorFromStyle)
-        color = lineStyles[resolveStyleIdx].color;
+    if (toResolveStyleIdx != InvalidStyleIdx) // if toResolveStyleIdx is valid then that means our resolved color should come from line style
+        color = lineStyles[toResolveStyleIdx].color;
     color.a *= float(storedQuantizedAlpha) / 255.f;
     
     return color;
@@ -403,10 +409,12 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
 float4 main(PSInput input) : SV_TARGET
 {
     float localAlpha = 0.0f;
+    float3 textureColor = float3(0, 0, 0); // color sampled from a texture
+
+    // TODO[Przemek]: Disable All the object rendering paths if you want.
     ObjectType objType = input.getObjType();
     const uint32_t currentMainObjectIdx = input.getMainObjectIdx();
     const MainObject mainObj = mainObjects[currentMainObjectIdx];
-    float3 textureColor = float3(0, 0, 0); // color sampled from a texture
     
     // figure out local alpha with sdf
     if (objType == ObjectType::LINE || objType == ObjectType::QUAD_BEZIER || objType == ObjectType::POLYLINE_CONNECTOR)
@@ -641,5 +649,10 @@ float4 main(PSInput input) : SV_TARGET
     if (localAlpha <= 0)
         discard;
     
-    return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx, textureColor);
+    const bool colorFromTexture = objType == ObjectType::IMAGE;
+    
+    // TODO[Przemek]: But make sure you're still calling this, correctly calculating alpha and texture color.
+    // you can add 1 main object and push via DrawResourcesFiller like we already do for other objects (this go in the mainObjects StorageBuffer) and then set the currentMainObjectIdx to 0 here
+    // having 1 main object temporarily means that all triangle meshes will be treated as a unified object in blending operations. 
+    return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx, textureColor, colorFromTexture);
 }
