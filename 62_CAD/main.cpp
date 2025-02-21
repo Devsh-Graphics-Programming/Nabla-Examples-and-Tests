@@ -393,9 +393,9 @@ public:
 		}
 
 		IGPUSampler::SParams samplerParams = {};
-		samplerParams.TextureWrapU = IGPUSampler::ETC_CLAMP_TO_BORDER;
-		samplerParams.TextureWrapV = IGPUSampler::ETC_CLAMP_TO_BORDER;
-		samplerParams.TextureWrapW = IGPUSampler::ETC_CLAMP_TO_BORDER;
+		samplerParams.TextureWrapU = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+		samplerParams.TextureWrapV = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+		samplerParams.TextureWrapW = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
 		samplerParams.BorderColor  = IGPUSampler::ETBC_FLOAT_OPAQUE_WHITE; // positive means outside shape
 		samplerParams.MinFilter		= IGPUSampler::ETF_LINEAR;
 		samplerParams.MaxFilter		= IGPUSampler::ETF_LINEAR;
@@ -1042,7 +1042,7 @@ public:
 		
 		const auto str = "MSDF: ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnoprstuvwxyz '1234567890-=\"!@#$%&*()_+";
 		singleLineText = std::unique_ptr<SingleLineText>(new SingleLineText(
-			core::smart_refctd_ptr<FontFace>(m_font), 
+			m_font.get(),
 			std::string(str)));
 
 		drawResourcesFiller.setGlyphMSDFTextureFunction(
@@ -1378,8 +1378,17 @@ public:
 		const uint32_t currentIndexCount = drawResourcesFiller.getDrawObjectCount() * 6u;
 		IGPUDescriptorSet* descriptorSets[] = { descriptorSet0.get(), descriptorSet1.get() };
 		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, pipelineLayout.get(), 0u, 2u, descriptorSets);
+
+		// TODO[Przemek]: based on our call bind index buffer you uploaded to part of the `drawResourcesFiller.gpuDrawBuffers.geometryBuffer`
+		// Vertices will be pulled based on baseBDAPointer of where you uploaded the vertex + the VertexID in the vertex shader.
 		cb->bindIndexBuffer({ .offset = 0u, .buffer = drawResourcesFiller.gpuDrawBuffers.indexBuffer.get() }, asset::EIT_32BIT);
+
+		// TODO[Przemek]: binding the same pipelie, no need to change.
 		cb->bindGraphicsPipeline(graphicsPipeline.get());
+		
+		// TODO[Przemek]: contour settings, height shading settings, base bda pointers will need to be pushed via pushConstants before the draw currently as it's the easiest thing to do.
+
+		// TODO[Przemek]: draw parameters needs to reflect the mesh involved
 		cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 		if (fragmentShaderInterlockEnabled)
 		{
@@ -1471,12 +1480,16 @@ public:
 		// We only support one swapchain mode, surface, the other one is Display which we have not implemented yet.
 		retval.swapchainMode = video::E_SWAPCHAIN_MODE::ESM_SURFACE;
 		retval.validations = true;
+		retval.synchronizationValidation = true;
 		return retval;
 	}
 protected:
 	
 	void addObjects(SIntendedSubmitInfo& intendedNextSubmit)
 	{
+		
+		// TODO[Przemek]: add your own case, you won't call any other drawResourcesFiller function, only drawMesh with your custom made Mesh (for start it can be a single triangle)
+
 		// we record upload of our objects and if we failed to allocate we submit everything
 		if (!intendedNextSubmit.valid())
 		{
@@ -3049,10 +3062,10 @@ protected:
 			{
 				float32_t rotation = 0.0; // nbl::core::PI<float>()* abs(cos(m_timeElapsed * 0.00005));
 				float32_t italicTiltAngle = nbl::core::PI<float>() / 9.0f;
-				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-100.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), 0.0f, 0.0f);
-				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-150.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), 0.0f, 0.5f);
-				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-200.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), italicTiltAngle, 0.0f);
-				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-250.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), italicTiltAngle, 0.5f);
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, m_font.get(), float64_t2(0.0,-100.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), 0.0f, 0.0f);
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, m_font.get(), float64_t2(0.0,-150.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), 0.0f, 0.5f);
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, m_font.get(), float64_t2(0.0,-200.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), italicTiltAngle, 0.0f);
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, m_font.get(), float64_t2(0.0,-250.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), italicTiltAngle, 0.5f);
 				// singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-200.0), float32_t2(1.0, 1.0), nbl::core::PI<float>() * abs(cos(m_timeElapsed * 0.00005)));
 				// Smaller text to test mip maps
 				//singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-130.0), float32_t2(0.4, 0.4), rotation);
