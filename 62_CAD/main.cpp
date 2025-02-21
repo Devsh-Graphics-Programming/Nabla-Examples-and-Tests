@@ -1042,7 +1042,7 @@ public:
 		
 		const auto str = "MSDF: ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnoprstuvwxyz '1234567890-=\"!@#$%&*()_+";
 		singleLineText = std::unique_ptr<SingleLineText>(new SingleLineText(
-			core::smart_refctd_ptr<FontFace>(m_font), 
+			m_font.get(),
 			std::string(str)));
 
 		drawResourcesFiller.setGlyphMSDFTextureFunction(
@@ -1480,6 +1480,7 @@ public:
 		// We only support one swapchain mode, surface, the other one is Display which we have not implemented yet.
 		retval.swapchainMode = video::E_SWAPCHAIN_MODE::ESM_SURFACE;
 		retval.validations = true;
+		retval.synchronizationValidation = true;
 		return retval;
 	}
 protected:
@@ -3061,10 +3062,10 @@ protected:
 			{
 				float32_t rotation = 0.0; // nbl::core::PI<float>()* abs(cos(m_timeElapsed * 0.00005));
 				float32_t italicTiltAngle = nbl::core::PI<float>() / 9.0f;
-				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-100.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), 0.0f, 0.0f);
-				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-150.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), 0.0f, 0.5f);
-				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-200.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), italicTiltAngle, 0.0f);
-				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-250.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), italicTiltAngle, 0.5f);
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, m_font.get(), float64_t2(0.0,-100.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), 0.0f, 0.0f);
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, m_font.get(), float64_t2(0.0,-150.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), 0.0f, 0.5f);
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, m_font.get(), float64_t2(0.0,-200.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), italicTiltAngle, 0.0f);
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, m_font.get(), float64_t2(0.0,-250.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), italicTiltAngle, 0.5f);
 				// singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-200.0), float32_t2(1.0, 1.0), nbl::core::PI<float>() * abs(cos(m_timeElapsed * 0.00005)));
 				// Smaller text to test mip maps
 				//singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-130.0), float32_t2(0.4, 0.4), rotation);

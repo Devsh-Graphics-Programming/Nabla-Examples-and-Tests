@@ -211,6 +211,7 @@ public:
 	// we need to store the clip projection stack to make sure the front is always available in memory
 	void pushClipProjectionData(const ClipProjectionData& clipProjectionData);
 	void popClipProjectionData();
+	const std::deque<ClipProjectionData>& getClipProjectionStack() const { return clipProjections; }
 
 	smart_refctd_ptr<IGPUImageView> getMSDFsTextureArray() { return msdfTextureArray; }
 
@@ -443,7 +444,7 @@ protected:
 	std::set<uint32_t>					msdfTextureArrayIndicesUsed = {}; // indices in the msdf texture array allocator that have been used in the current frame // TODO: make this a dynamic bitset
 	std::vector<MSDFTextureCopy>		msdfTextureCopies = {}; // queued up texture copies
 	std::unique_ptr<MSDFsLRUCache>		msdfLRUCache; // LRU Cache to evict Least Recently Used in case of overflow
-	static constexpr asset::E_FORMAT	MSDFTextureFormat = asset::E_FORMAT::EF_R8G8B8_SNORM;
+	static constexpr asset::E_FORMAT	MSDFTextureFormat = asset::E_FORMAT::EF_R8G8B8A8_SNORM;
 
 	bool m_hasInitializedMSDFTextureArrays = false;
 };

@@ -218,6 +218,7 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, uint32_t p
 	}
 }
 
+// TODO[Erfan]: Makes more sense if parameters are: solidColor + fillPattern + patternColor
 void DrawResourcesFiller::drawHatch(
 		const Hatch& hatch,
 		const float32_t4& foregroundColor, 
@@ -241,6 +242,9 @@ void DrawResourcesFiller::drawHatch(
 		const HatchFillPattern fillPattern,
 		SIntendedSubmitInfo& intendedNextSubmit)
 {
+	if (color.a == 0.0f) // not visible
+		return;
+
 	uint32_t textureIdx = InvalidTextureIdx;
 	if (fillPattern != HatchFillPattern::SOLID_FILL)
 	{
