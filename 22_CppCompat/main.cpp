@@ -583,7 +583,7 @@ void cpu_tests()
     auto zero = cross(x,x);
     auto lenX2 = dot(x,x);
     //auto z_inv = inverse(z); //busted return type conversion
-    auto mid = nbl::hlsl::mix(x,x,0.5f);
+    auto mid = nbl::hlsl::mix(x,x,float32_t3(0.5f));
     //auto w = transpose(y); //also busted
     
 

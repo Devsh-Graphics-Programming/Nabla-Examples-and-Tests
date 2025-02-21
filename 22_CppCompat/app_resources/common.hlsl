@@ -422,7 +422,7 @@ struct IntrinsicsTestValues
 		max = nbl::hlsl::max(input.maxA, input.maxB);
 		rsqrt = nbl::hlsl::rsqrt(input.rsqrt);
 		bitReverse = nbl::hlsl::bitReverse(input.bitReverse);
-		frac = nbl::hlsl::frac(input.frac);
+		frac = nbl::hlsl::fract(input.frac);
 		mix = nbl::hlsl::mix(input.mixX, input.mixY, input.mixA);
 		sign = nbl::hlsl::sign(input.sign);
 		radians = nbl::hlsl::radians(input.radians);
@@ -439,7 +439,7 @@ struct IntrinsicsTestValues
 		maxVec = nbl::hlsl::max(input.maxAVec, input.maxBVec);
 		rsqrtVec = nbl::hlsl::rsqrt(input.rsqrtVec);
 		bitReverseVec = nbl::hlsl::bitReverse(input.bitReverseVec);
-		fracVec = nbl::hlsl::frac(input.fracVec);
+		fracVec = nbl::hlsl::fract(input.fracVec);
 		mixVec = nbl::hlsl::mix(input.mixXVec, input.mixYVec, input.mixAVec);
 		
 		signVec = nbl::hlsl::sign(input.signVec);
