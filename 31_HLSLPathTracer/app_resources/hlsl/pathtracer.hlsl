@@ -4,6 +4,7 @@
 #include <nbl/builtin/hlsl/colorspace/EOTF.hlsl>
 #include <nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl>
 #include <nbl/builtin/hlsl/math/functions.hlsl>
+#include <nbl/builtin/hlsl/bxdf/bxdf_traits.hlsl>
 
 #include "rand_gen.hlsl"
 #include "ray_gen.hlsl"
@@ -77,13 +78,13 @@ struct Unidirectional
     //                     NextEventEstimator nee)
     // {}
 
-    static this_t create(NBL_CONST_REF_ARG(PathTracerCreationParams<create_params_type, scalar_type>) params, Buffer samplerSequence)
+    static this_t create(NBL_CONST_REF_ARG(PathTracerCreationParams<create_params_type, scalar_type>) params, Buffer sampleSequence)
     {
         this_t retval;
         retval.randGen = randgen_type::create(params.rngState);
         retval.rayGen = raygen_type::create(params.pixOffsetParam, params.camPos, params.NDC, params.invMVP);
         retval.materialSystem = material_system_type::create(params.diffuseParams, params.conductorParams, params.dielectricParams);
-        retval.samplerSequence = samplerSequence;
+        retval.sampleSequence = sampleSequence;
         return retval;
     }
 
@@ -103,13 +104,14 @@ struct Unidirectional
     // TODO: probably will only work with procedural shapes, do the other ones
     bool closestHitProgram(uint32_t depth, uint32_t _sample, NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
     {
-        const uint32_t objectID = ray.objectID;
+        const ObjectID objectID = ray.objectID;
         const vector3_type intersection = ray.origin + ray.direction * ray.intersectionT;
 
         uint32_t bsdfLightIDs;
         anisotropic_type interaction;
         isotropic_type iso_interaction;
-        switch (objectID.mode)
+        ext::Intersector::IntersectData::Mode mode = (ext::Intersector::IntersectData::Mode)objectID.mode;
+        switch (mode)
         {
             // TODO
             case ext::Intersector::IntersectData::Mode::RAY_QUERY:
@@ -137,14 +139,14 @@ struct Unidirectional
         if (lightID != light_type::INVALID_ID)
         {
             float pdf;
-            ray.payload.accumulation += nee.deferredEvalAndPdf(pdf, lights[lightID], ray, scene.toNextEvent(lightID)) * throughput / (1.0 + pdf * pdf * ray.payload.otherTechniqueHeuristic);
+            ray.payload.accumulation += nee.deferredEvalAndPdf(pdf, scene.lights[lightID], ray, scene.toNextEvent(lightID)) * throughput / (1.0 + pdf * pdf * ray.payload.otherTechniqueHeuristic);
         }
 
         const uint32_t bsdfID = glsl::bitfieldExtract(bsdfLightIDs, 0, 16);
         if (bsdfID == bxdfnode_type::INVALID_ID)
             return false;
 
-        BxDFNode bxdf = scene.bxdfs[bsdfID];
+        bxdfnode_type bxdf = scene.bxdfs[bsdfID];
 
         // TODO: ifdef kill diffuse specular paths
 
@@ -171,7 +173,7 @@ struct Unidirectional
             scalar_type t;
             sample_type nee_sample = nee.generate_and_quotient_and_pdf(
                 neeContrib_pdf, t,
-                lights[lightID], intersection, interaction,
+                scene.lights[lightID], intersection, interaction,
                 isBSDF, eps0, depth, scene.toNextEvent(lightID)
             );
 
@@ -206,7 +208,7 @@ struct Unidirectional
                             params = params_type::template create<sample_type, anisotropic_type, anisocache_type>(nee_sample, interaction, _cache, bxdf::BCM_MAX);
                         else
                         {
-                            isocache = (iso_cache)_cache;
+                            isocache_type isocache = (isocache_type)_cache;
                             params = params_type::template create<sample_type, isotropic_type, isocache_type>(nee_sample, iso_interaction, isocache, bxdf::BCM_MAX);
                         }
                     }
@@ -220,7 +222,7 @@ struct Unidirectional
                             params = params_type::template create<sample_type, anisotropic_type, anisocache_type>(nee_sample, interaction, _cache, bxdf::BCM_ABS);
                         else
                         {
-                            isocache = (iso_cache)_cache;
+                            isocache_type isocache = (isocache_type)_cache;
                             params = params_type::template create<sample_type, isotropic_type, isocache_type>(nee_sample, iso_interaction, isocache, bxdf::BCM_ABS);
                         }
                     }
@@ -237,7 +239,7 @@ struct Unidirectional
                     nee_ray.origin = intersection + nee_sample.L.direction * t * Tolerance<scalar_type>::getStart(depth);
                     nee_ray.direction = nee_sample.L.direction;
                     nee_ray.intersectionT = t;
-                    if (bsdf_quotient_pdf.pdf < numeric_limits<scalar_type>::max && getLuma(neeContrib_pdf.quotient) > lumaContributionThreshold && intersector::traceRay(nee_ray, scene).id == -1)
+                    if (bsdf_quotient_pdf.pdf < numeric_limits<scalar_type>::max && getLuma(neeContrib_pdf.quotient) > lumaContributionThreshold && intersector_type::traceRay(nee_ray, scene).id == -1)
                         ray._payload.accumulation += neeContrib_pdf.quotient;
                 }
             }
@@ -265,7 +267,7 @@ struct Unidirectional
                     params = params_type::template create<sample_type, anisotropic_type, anisocache_type>(bsdf_sample, interaction, _cache, bxdf::BCM_MAX);
                 else
                 {
-                    isocache = (iso_cache)_cache;
+                    isocache_type isocache = (isocache_type)_cache;
                     params = params_type::template create<sample_type, isotropic_type, isocache_type>(bsdf_sample, iso_interaction, isocache, bxdf::BCM_MAX);
                 }
             }
@@ -279,7 +281,7 @@ struct Unidirectional
                     params = params_type::template create<sample_type, anisotropic_type, anisocache_type>(bsdf_sample, interaction, _cache, bxdf::BCM_ABS);
                 else
                 {
-                    isocache = (iso_cache)_cache;
+                    isocache_type isocache = (isocache_type)_cache;
                     params = params_type::template create<sample_type, isotropic_type, isocache_type>(bsdf_sample, iso_interaction, isocache, bxdf::BCM_ABS);
                 }
             }
@@ -298,7 +300,7 @@ struct Unidirectional
             ray.payload.otherTechniqueHeuristic *= ray.payload.otherTechniqueHeuristic;
                     
             // trace new ray
-            ray.origin = intersection + bsdfSampleL * (1.0/*kSceneSize*/) * Tolerance<scalar_type>::getStart(depth);
+            ray.origin = intersection + bxdfSample * (1.0/*kSceneSize*/) * Tolerance<scalar_type>::getStart(depth);
             ray.direction = bxdfSample;
             // #if POLYGON_METHOD==2
             // ray._immutable.normalAtOrigin = interaction.isotropic.N;
@@ -339,7 +341,7 @@ struct Unidirectional
             for (int d = 1; d <= depth && hit && rayAlive; d += 2)
             {
                 ray.intersectionT = numeric_limits<scalar_type>::max;
-                ray.objectID = intersector::traceRay(ray, scene);
+                ray.objectID = intersector_type::traceRay(ray, scene);
 
                 hit = ray.objectID.id != -1;
                 if (hit)
@@ -348,7 +350,7 @@ struct Unidirectional
             if (!hit)
                 missProgram(ray);
 
-            spectral_type accumulation = ray.payload.accumulation;
+            measure_type accumulation = ray.payload.accumulation;
             scalar_type rcpSampleSize = 1.0 / (i + 1);
             Li += (accumulation - Li) * rcpSampleSize;
 
@@ -365,11 +367,10 @@ struct Unidirectional
 
     randgen_type randGen;
     raygen_type rayGen;
-    intersector_type intersector;
     material_system_type materialSystem;
     nee_type nee;
 
-    Buffer samplerSequence;
+    Buffer sampleSequence;
 };
 
 }

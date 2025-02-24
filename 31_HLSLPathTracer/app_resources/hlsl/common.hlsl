@@ -184,7 +184,7 @@ struct Shape<PST_SPHERE>
             Z *= rcpDistance;
         
             const float cosThetaMax = nbl::hlsl::sqrt(cosThetaMax2);
-            const float cosTheta = nbl::hlsl::mix(1.0, cosThetaMax, xi.x);
+            const float cosTheta = nbl::hlsl::mix<float>(1.0, cosThetaMax, xi.x);
 
             float32_t3 L = Z * cosTheta;
 

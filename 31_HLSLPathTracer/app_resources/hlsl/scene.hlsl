@@ -121,10 +121,10 @@ struct Scene
         retval.mode = objectID.mode;
 
         retval.data[0] = lightCount;
-        retval.data[1] = objectID.type;
+        retval.data[1] = objectID.shapeType;
 
         uint32_t id = objectID.id;
-        switch (type)
+        switch (objectID.shapeType)
         {
             case PST_SPHERE:
             {
@@ -132,7 +132,7 @@ struct Scene
                 retval.data[2] = asuint(sphere.position.x);
                 retval.data[3] = asuint(sphere.position.y);
                 retval.data[4] = asuint(sphere.position.z);
-                retval.data[5] = asuint(sphere.radius);
+                retval.data[5] = asuint(sphere.radius2);
                 retval.data[6] = sphere.bsdfLightIDs;
             }
             break;
@@ -176,16 +176,16 @@ struct Scene
     // TODO: get these to work with AS types as well
     uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(ObjectID) objectID)
     {
-        return (objectID.type == PST_SPHERE) ? spheres[objectID.id].bsdfLightIDs :
-                (objectID.type == PST_TRIANGLE) ? triangles[objectID.id].bsdfLightIDs :
-                (objectID.type == PST_RECTANGLE) ? rectangles[objectID.id].bsdfLightIDs : -1;
+        return (objectID.shapeType == PST_SPHERE) ? spheres[objectID.id].bsdfLightIDs :
+                (objectID.shapeType == PST_TRIANGLE) ? triangles[objectID.id].bsdfLightIDs :
+                (objectID.shapeType == PST_RECTANGLE) ? rectangles[objectID.id].bsdfLightIDs : -1;
     }
 
     float32_t3 getNormal(NBL_CONST_REF_ARG(ObjectID) objectID, NBL_CONST_REF_ARG(float32_t3) intersection)
     {
-        return (objectID.type == PST_SPHERE) ? scene.spheres[objectID.id].getNormal(intersection) :
-                (objectID.type == PST_TRIANGLE) ? scene.triangles[objectID.id].getNormalTimesArea() :
-                (objectID.type == PST_RECTANGLE) ? scene.rectangles[objectID.id].getNormalTimesArea() :
+        return (objectID.shapeType == PST_SPHERE) ? spheres[objectID.id].getNormal(intersection) :
+                (objectID.shapeType == PST_TRIANGLE) ? triangles[objectID.id].getNormalTimesArea() :
+                (objectID.shapeType == PST_RECTANGLE) ? rectangles[objectID.id].getNormalTimesArea() :
                 (float32_t3)0.0;
     }
 };
