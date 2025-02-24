@@ -93,7 +93,7 @@ PSInput main(uint vertexID : SV_VertexID)
     // Ok, brainfart, a vertex can belong to multiple triangles, I was thinking of AA but triangles share vertices, nevermind my comment above.
 
     const uint vertexIdx = vertexID & 0x3u;
-    const uint objectID = vertexID >> 2;
+    const uint objectID = (vertexID >> 2) * a;
 
     DrawObject drawObj = drawObjects[objectID];
 
