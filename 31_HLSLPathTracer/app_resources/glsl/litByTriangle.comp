@@ -7,7 +7,7 @@
 
 #define SPHERE_COUNT 8
 #define POLYGON_METHOD 1 // 0 area sampling, 1 solid angle sampling, 2 approximate projected solid angle sampling
-#include "common.glsl"
+#include "app_resources/glsl/common.glsl"
 
 #define TRIANGLE_COUNT 1
 Triangle triangles[TRIANGLE_COUNT] = {
