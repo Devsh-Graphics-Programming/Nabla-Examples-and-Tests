@@ -62,6 +62,8 @@ struct PrecomputedRootFinder
     }
 };
 
+ // TODO[Przemek]: your triangle mesh passed parameters from vtx to fragment will need to be here (e.g. height).
+ //     As always try to reuse parameters and try not to introduce new ones
 struct PSInput
 {
     float4 position : SV_Position;
