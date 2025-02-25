@@ -10,7 +10,7 @@ void main(inout RayLight cLight)
     cLight.outIntensity = LightIntensity / (cLight.outLightDistance * cLight.outLightDistance);
     cLight.outLightDir = normalize(lDir);
     float theta = dot(cLight.outLightDir, normalize(-pc.light.direction));
-    float epsilon = - pc.light.outerCutoff;
+    float epsilon = 1 - pc.light.outerCutoff;
     float spotIntensity = clamp((theta - pc.light.outerCutoff) / epsilon, 0.0, 1.0);
     cLight.outIntensity *= spotIntensity;
 }
