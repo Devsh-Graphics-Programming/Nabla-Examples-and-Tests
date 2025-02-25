@@ -798,7 +798,7 @@ nbl_glsl_complex nbl_glsl_ext_FFT_getPaddedData(ivec3 coordinate, in uint channe
 			uint32_t enumEII_NORMAL = EII_NORMAL;
 			uint32_t enumEII_COUNT = EII_COUNT;
 		} specData;
-		auto specConstantBuffer = core::make_smart_refctd_ptr<CCustomAllocatorCPUBuffer<core::null_allocator<uint8_t> > >(sizeof(SpecializationConstants), &specData, core::adopt_memory);
+		auto specConstantBuffer = core::make_smart_refctd_ptr<ICPUBuffer({ .size = sizeof(SpecializationConstants), .data = &specData, .memoryResource = core::getNullMemoryResource() }, core::adopt_memory);
 		IGPUSpecializedShader::SInfo specInfo = {	core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<IGPUSpecializedShader::SInfo::SMapEntry> >
 													(
 														std::initializer_list<IGPUSpecializedShader::SInfo::SMapEntry>
@@ -1672,7 +1672,7 @@ nbl_glsl_complex nbl_glsl_ext_FFT_getPaddedData(ivec3 coordinate, in uint channe
 					}
 					// the cpu is not touching the data yet because the custom CPUBuffer is adopting the memory (no copy)
 					auto* data = reinterpret_cast<uint8_t*>(downloadStagingArea->getBufferPointer())+address;
-					auto cpubufferalias = core::make_smart_refctd_ptr<asset::CCustomAllocatorCPUBuffer<core::null_allocator<uint8_t> > >(colorBufferBytesize, data, core::adopt_memory);
+					auto cpubufferalias = asset::ICPUBuffer::create({ { colorBufferBytesize }, data, core::getNullMemoryResource() }, core::adopt_memory);
 					image->setBufferAndRegions(std::move(cpubufferalias),regions);
 
 					// wait for download fence and then invalidate the CPU cache
@@ -1718,7 +1718,7 @@ nbl_glsl_complex nbl_glsl_ext_FFT_getPaddedData(ivec3 coordinate, in uint channe
 					const auto newTexelOrBlockByteSize = asset::getTexelOrBlockBytesize(outFormat);
 
 					auto newImageParams = referenceImageParams;
-					auto newCpuBuffer = core::make_smart_refctd_ptr<ICPUBuffer>(referenceRegion->getExtent().width * referenceRegion->getExtent().height * referenceRegion->getExtent().depth * newTexelOrBlockByteSize);
+					auto newCpuBuffer = ICPUBuffer::create({ referenceRegion->getExtent().width * referenceRegion->getExtent().height * referenceRegion->getExtent().depth * newTexelOrBlockByteSize });
 					auto newRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1);
 
 					*newRegions->begin() = *referenceRegion;

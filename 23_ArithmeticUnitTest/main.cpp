@@ -191,7 +191,7 @@ public:
 		auto workgroupTestSource = getShaderSource("app_resources/testWorkgroup.comp.hlsl");
 		// now create or retrieve final resources to run our tests
 		sema = m_device->createSemaphore(timelineValue);
-		resultsBuffer = make_smart_refctd_ptr<ICPUBuffer>(outputBuffers[0]->getSize());
+		resultsBuffer = ICPUBuffer::create({ outputBuffers[0]->getSize() });
 		{
 			smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(computeQueue->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 			if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{&cmdbuf,1}))
@@ -210,7 +210,7 @@ public:
 			for (uint32_t workgroupSize = subgroupSize; workgroupSize <= MaxWorkgroupSize; workgroupSize += subgroupSize)
 			{
 				// make sure renderdoc captures everything for debugging
-				computeQueue->startCapture();
+				m_api->startCapture();
 				m_logger->log("Testing Workgroup Size %u with Subgroup Size %u", ILogger::ELL_INFO, workgroupSize, subgroupSize);
 
 				bool passed = true;
@@ -231,7 +231,7 @@ public:
 					passed = runTest<emulatedScanExclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
 					logTestOutcome(passed, itemsPerWG);
 				}
-				computeQueue->endCapture();
+				m_api->endCapture();
 
 				// save cache every now and then	
 				{
