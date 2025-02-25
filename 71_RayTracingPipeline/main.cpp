@@ -356,7 +356,7 @@ public:
 
       shaderGroups.raygenGroup = { .shaderIndex = RTDS_RAYGEN };
 
-      SGeneralShaderGroup missGroups[EMT_COUNT];
+      IRayTracingPipelineBase::SGeneralShaderGroup missGroups[EMT_COUNT];
       missGroups[EMT_PRIMARY] = { .shaderIndex = RTDS_MISS };
       missGroups[EMT_OCCLUSION] = { .shaderIndex = RTDS_SHADOW_MISS };
       shaderGroups.missGroups = missGroups;
@@ -365,7 +365,7 @@ public:
         {
           return geomType * ERT_COUNT + rayType;
         };
-      SHitShaderGroup hitGroups[E_RAY_TYPE::ERT_COUNT * E_GEOM_TYPE::EGT_COUNT];
+      IRayTracingPipelineBase::SHitShaderGroup hitGroups[E_RAY_TYPE::ERT_COUNT * E_GEOM_TYPE::EGT_COUNT];
       hitGroups[getHitGroupIndex(EGT_TRIANGLES, ERT_PRIMARY)] = {
         .closestHitShaderIndex = RTDS_CLOSEST_HIT,
         .anyHitShaderIndex = RTDS_ANYHIT_PRIMARY,
@@ -384,7 +384,7 @@ public:
       };
       shaderGroups.hitGroups = hitGroups;
 
-      SGeneralShaderGroup callableGroups[ELT_COUNT];
+      IRayTracingPipelineBase::SGeneralShaderGroup callableGroups[ELT_COUNT];
       callableGroups[ELT_DIRECTIONAL] = { .shaderIndex = RTDS_DIRECTIONAL_CALL };
       callableGroups[ELT_POINT] = { .shaderIndex = RTDS_POINT_CALL };
       callableGroups[ELT_SPOT] = { .shaderIndex = RTDS_SPOT_CALL };
@@ -1354,13 +1354,13 @@ private:
     uint8_t* pData = reinterpret_cast<uint8_t*>(cpuBuffer->getPointer());
 
     // copy raygen region
-    memcpy(pData, pipeline->getRaygenGroupShaderHandle().data(), handleSize);
+    memcpy(pData, &pipeline->getRaygen(), handleSize);
 
     // copy miss region
     uint8_t* pMissData = pData + missRange.offset;
     for (int32_t missIx = 0; missIx < pipeline->getMissGroupCount(); missIx++)
     {
-      memcpy(pMissData, pipeline->getMissGroupShaderHandle(missIx).data(), handleSize);
+      memcpy(pMissData, &pipeline->getMiss(missIx), handleSize);
       pMissData += m_shaderBindingTable.missGroupsStride;
     }
 
@@ -1368,7 +1368,7 @@ private:
     uint8_t* pHitData = pData + hitRange.offset;
     for (int32_t hitIx = 0; hitIx < pipeline->getHitGroupCount(); hitIx++)
     {
-      memcpy(pHitData, pipeline->getHitGroupShaderHandle(hitIx).data(), handleSize);
+      memcpy(pHitData, &pipeline->getHit(hitIx), handleSize);
       pHitData += m_shaderBindingTable.hitGroupsStride;
     }
 
@@ -1376,7 +1376,7 @@ private:
     uint8_t* pCallableData = pData + callableRange.offset;
     for (int32_t callableIx = 0; callableIx < pipeline->getCallableGroupCount(); callableIx++)
     {
-      memcpy(pCallableData, pipeline->getCallableGroupShaderHandle(callableIx).data(), handleSize);
+      memcpy(pCallableData, &pipeline->getCallable(callableIx), handleSize);
       pCallableData += m_shaderBindingTable.callableGroupsStride;
     }
 
