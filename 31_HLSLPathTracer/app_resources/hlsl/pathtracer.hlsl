@@ -91,7 +91,7 @@ struct Unidirectional
     vector3_type rand3d(uint32_t protoDimension, uint32_t _sample, uint32_t i)
     {
         uint32_t address = glsl::bitfieldInsert<uint32_t>(protoDimension, _sample, MAX_DEPTH_LOG2, MAX_SAMPLES_LOG2);
-	    uint32_t3 seqVal = texelFetch(sampleSequence, int(address) + i).xyz;
+	    uint32_t3 seqVal = sampleSequence[address + i].xyz;
 	    seqVal ^= randGen();
         return vector3_type(seqVal) * asfloat(0x2f800004u);
     }
@@ -120,7 +120,7 @@ struct Unidirectional
             case ext::Intersector::IntersectData::Mode::PROCEDURAL:
             {
                 bsdfLightIDs = scene.getBsdfLightIDs(objectID);
-                vector3_type N = scene.getNormal(objectID);
+                vector3_type N = scene.getNormal(objectID, intersection);
                 N = nbl::hlsl::normalize(N);
                 typename isotropic_type::ray_dir_info_type V;
                 V.direction = nbl::hlsl::normalize(-ray.direction);
@@ -332,7 +332,7 @@ struct Unidirectional
         scalar_type meanLumaSq = 0.0;
         for (uint32_t i = 0; i < numSamples; i++)
         {
-            vector3_type uvw = rand3d(0u, i);
+            vector3_type uvw = rand3d(0u, i, randGen.rng());    // TODO: take from scramblebuf?
             ray_type ray = rayGen.generate(uvw);
 
             // bounces

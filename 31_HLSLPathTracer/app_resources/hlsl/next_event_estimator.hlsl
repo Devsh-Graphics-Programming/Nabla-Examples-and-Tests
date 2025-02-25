@@ -12,24 +12,6 @@ namespace ext
 namespace NextEventEstimator
 {
 
-// procedural data store: [light count] [event type] [obj]
-
-struct Event
-{
-    enum Mode : uint32_t    // enum class?
-    {
-        RAY_QUERY,
-        RAY_TRACING,
-        PROCEDURAL
-    };
-
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t DataSize = 16;
-
-    uint32_t mode : 1;
-    uint32_t unused : 31;   // possible space for flags
-    uint32_t data[DataSize];
-};
-
 template<typename Light, typename Ray, class LightSample, class Aniso>
 struct Estimator
 {

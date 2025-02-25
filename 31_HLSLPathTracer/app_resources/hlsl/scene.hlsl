@@ -2,9 +2,6 @@
 #define _NBL_HLSL_EXT_PATHTRACING_SCENE_INCLUDED_
 
 #include "common.hlsl"
-#include "material_system.hlsl"
-#include "next_event_estimator.hlsl"
-#include "intersector.hlsl"
 
 namespace nbl
 {

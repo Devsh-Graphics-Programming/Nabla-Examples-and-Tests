@@ -2,6 +2,7 @@
 #define _NBL_HLSL_EXT_INTERSECTOR_INCLUDED_
 
 #include "common.hlsl"
+#include "scene.hlsl"
 #include <nbl/builtin/hlsl/limits.hlsl>
 
 namespace nbl
@@ -13,38 +14,18 @@ namespace ext
 namespace Intersector
 {
 
-// ray query method
-// ray query struct holds AS info
-// pass in address to vertex/index buffers?
-
-// ray tracing pipeline method
-
-// procedural data store: [obj count] [intersect type] [obj1] [obj2] [...]
-
-struct IntersectData
-{
-    enum Mode : uint32_t    // enum class?
-    {
-        RAY_QUERY,
-        RAY_TRACING,
-        PROCEDURAL
-    };
-
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t DataSize = 128;
-
-    uint32_t mode : 1;
-    uint32_t unused : 31;   // possible space for flags
-    uint32_t data[DataSize];
-};
-
-template<class Ray>
+template<class Ray, typename Light, typename BxdfNode>
 struct Comprehensive
 {
     using scalar_type = typename Ray::scalar_type;
     using vector3_type = vector<scalar_type, 3>;
     using ray_type = Ray;
 
-    static ObjectID traceProcedural(NBL_REF_ARG(ray_type) ray, NBL_REF_ARG(IntersectData) intersect)
+    using light_type = Light;
+    using bxdfnode_type = BxdfNode;
+    using scene_type = Scene<light_type, bxdfnode_type>;
+
+    static ObjectID traceProcedural(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(IntersectData) intersect)
     {
         const bool anyHit = ray.intersectionT != numeric_limits<scalar_type>::max;
         const uint32_t objCount = intersect.data[0];
@@ -100,7 +81,7 @@ struct Comprehensive
         return objectID;
     }
 
-    static ObjectID traceRay(NBL_REF_ARG(ray_type) ray, NBL_REF_ARG(IntersectData) intersect)
+    static ObjectID traceRay(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(IntersectData) intersect)
     {
         const IntersectData::Mode mode = (IntersectData::Mode)intersect.mode;
         switch (mode)
@@ -122,15 +103,12 @@ struct Comprehensive
             break;
             default:
             {
-                ObjectID objID;
-                objID.id = -1;
-                return objID;
+                return ObjectID::create(-1, 0, PST_SPHERE);
             }
         }
     }
 
-    template<typename Scene>
-    static ObjectID traceRay(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(Scene) scene)
+    static ObjectID traceRay(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
     {
         IntersectData data;
 

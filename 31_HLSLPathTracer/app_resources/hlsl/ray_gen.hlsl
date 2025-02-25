@@ -50,7 +50,7 @@ struct Basic
         remappedRand.x += truncation;
         tmp.xy += pixOffsetParam * nbl::hlsl::boxMullerTransform<scalar_type>(remappedRand, 1.5);
         // for depth of field we could do another stochastic point-pick
-        tmp = invMVP * tmp;
+        tmp = nbl::hlsl::mul(invMVP, tmp);
         ray.direction = nbl::hlsl::normalize(tmp.xyz / tmp.w - camPos);
 
         // #if POLYGON_METHOD==2

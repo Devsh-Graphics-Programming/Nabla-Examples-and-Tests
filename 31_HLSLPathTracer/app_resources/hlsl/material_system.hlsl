@@ -51,9 +51,9 @@ struct System
     static this_t create(NBL_CONST_REF_ARG(create_params_t) diffuseParams, NBL_CONST_REF_ARG(create_params_t) conductorParams, NBL_CONST_REF_ARG(create_params_t) dielectricParams)
     {
         this_t retval;
-        retval.diffuseBxDF = DiffuseBxDF::create(diffuseParams);
-        retval.conductorBxDF = DiffuseBxDF::create(conductorParams);
-        retval.dielectricBxDF = DiffuseBxDF::create(dielectricParams);
+        retval.diffuseBxDF = diffuse_op_type::create(diffuseParams);
+        retval.conductorBxDF = conductor_op_type::create(conductorParams);
+        retval.dielectricBxDF = dielectric_op_type::create(dielectricParams);
         return retval;
     }
 

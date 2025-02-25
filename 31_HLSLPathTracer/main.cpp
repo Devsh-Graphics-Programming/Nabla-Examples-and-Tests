@@ -368,9 +368,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
 					options.preprocessorOptions.logger = m_logger.get();
 					options.preprocessorOptions.includeFinder = compiler->getDefaultIncludeFinder();
-
-					std::string dxcOptionStr[] = { "-D" + defineMacro };
-					options.dxcOptions = std::span(dxcOptionStr);
+					
+					const IShaderCompiler::SMacroDefinition variantDefine = { defineMacro, "" };
+					options.preprocessorOptions.extraDefines = { &variantDefine, &variantDefine + 1 };
 
 					source = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
 					

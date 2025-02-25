@@ -42,6 +42,15 @@ enum ProceduralShapeType : uint16_t
 
 struct ObjectID
 {
+    static ObjectID create(uint32_t id, uint32_t mode, ProceduralShapeType shapeType)
+    {
+        ObjectID retval;
+        retval.id = id;
+        retval.mode = mode;
+        retval.shapeType = shapeType;
+        return retval;
+    }
+
     uint32_t id;
     uint32_t mode;
     ProceduralShapeType shapeType;
@@ -85,6 +94,17 @@ struct BxDFNode
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t INVALID_ID = 0xffffu;
 
+    static BxDFNode<Spectrum> create(uint32_t materialType, bool isAniso, NBL_CONST_REF_ARG(float32_t2) A, NBL_CONST_REF_ARG(spectral_type) ior0, NBL_CONST_REF_ARG(spectral_type) ior1)
+    {
+        BxDFNode<Spectrum> retval;
+        retval.materialType = materialType;
+        retval.params.is_aniso = isAniso;
+        retval.params.A = A;
+        retval.params.ior0 = ior0;
+        retval.params.ior1 = ior1;
+        return retval;
+    }
+
     uint32_t materialType;
     params_type params;
 };
@@ -117,6 +137,54 @@ enum PTPolygonMethod : uint16_t
     PPM_SOLID_ANGLE,
     PPM_APPROX_PROJECTED_SOLID_ANGLE
 };
+
+namespace Intersector
+{
+// ray query method
+// ray query struct holds AS info
+// pass in address to vertex/index buffers?
+
+// ray tracing pipeline method
+
+// procedural data store: [obj count] [intersect type] [obj1] [obj2] [...]
+
+struct IntersectData
+{
+    enum Mode : uint32_t    // enum class?
+    {
+        RAY_QUERY,
+        RAY_TRACING,
+        PROCEDURAL
+    };
+
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t DataSize = 128;
+
+    uint32_t mode : 1;
+    uint32_t unused : 31;   // possible space for flags
+    uint32_t data[DataSize];
+};
+}
+
+namespace NextEventEstimator
+{
+// procedural data store: [light count] [event type] [obj]
+
+struct Event
+{
+    enum Mode : uint32_t    // enum class?
+    {
+        RAY_QUERY,
+        RAY_TRACING,
+        PROCEDURAL
+    };
+
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t DataSize = 16;
+
+    uint32_t mode : 1;
+    uint32_t unused : 31;   // possible space for flags
+    uint32_t data[DataSize];
+};
+}
 
 template<ProceduralShapeType type>
 struct Shape;
