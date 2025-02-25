@@ -331,7 +331,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					auto shader = m_device->createShader(source.get());
 					if (!shader)
 					{
-						m_logger->log("Shader creationed failed: %s!", ILogger::ELL_ERROR, pathToShader);
+						m_logger->log("GLSL shader creationed failed: %s!", ILogger::ELL_ERROR, pathToShader);
 						std::exit(-1);
 					}
 
@@ -373,6 +373,15 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					options.dxcOptions = std::span(dxcOptionStr);
 
 					source = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
+					
+					auto shader = m_device->createShader(source.get());
+					if (!shader)
+					{
+						m_logger->log("HLSL shader creationed failed: %s!", ILogger::ELL_ERROR, pathToShader);
+						std::exit(-1);
+					}
+
+					return shader;
 				};
 
 				// Create compute pipelines
