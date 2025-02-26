@@ -218,6 +218,26 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, uint32_t p
 	}
 }
 
+void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, core::unordered_map<float32_t, float32_t3> heightColorMap, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	ICPUBuffer::SCreationParams geometryBuffParams;
+	
+	// concatenate the index and vertex buffer into the geometry buffer
+	const size_t indexBuffSize = mesh.getIdxBuffByteSize();
+	const size_t vtxBuffSize = mesh.getVtxBuffByteSize();
+	const size_t geometryBufferSizeDataSize = indexBuffSize + vtxBuffSize;
+
+	core::vector<uint8_t> geometryBufferData(geometryBufferSizeDataSize);
+	std::memcpy(geometryBufferData.data(), mesh.getIndices().data(), indexBuffSize);
+	std::memcpy(geometryBufferData.data() + indexBuffSize, mesh.getVertices().data(), vtxBuffSize);
+
+	SBufferRange<IGPUBuffer> geometryBuffRange;
+	geometryBuffRange.offset = 0;
+	geometryBuffRange.size = geometryBufferSizeDataSize;
+	geometryBuffRange.buffer = gpuDrawBuffers.drawObjectsBuffer;
+	m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, geometryBuffRange, geometryBufferData.data());
+}
+
 // TODO[Erfan]: Makes more sense if parameters are: solidColor + fillPattern + patternColor
 void DrawResourcesFiller::drawHatch(
 		const Hatch& hatch,

@@ -18,7 +18,6 @@
 
 using namespace nbl::hlsl;
 
-
 // because we can't use jit/device_capabilities.hlsl in c++ code
 #ifdef __HLSL_VERSION
 using pfloat64_t = portable_float64_t<jit::device_capabilities>;
@@ -31,6 +30,11 @@ using pfloat64_t3 = nbl::hlsl::vector<float64_t, 3>;
 #endif
 
 using pfloat64_t3x3 = portable_matrix_t3x3<pfloat64_t>;
+
+struct PushConstants
+{
+    uint64_t verticesBaseAddress;
+};
 
 // TODO: Compute this in a compute shader from the world counterparts
 //      because this struct includes NDC coordinates, the values will change based camera zoom and move
@@ -264,6 +268,12 @@ NBL_CONSTEXPR float InvalidStyleStretchValue = nbl::hlsl::numeric_limits<float>:
 
 // TODO[Przemek]: we will need something similar to LineStyles but related to heigh shading settings which is user customizable (like LineStyle stipple patterns) and requires upper_bound to figure out the color based on height value.
 // We'll discuss that later or what it will be looking like and how it's gonna get passed to our shaders.
+
+struct TriangleMeshVertex
+{
+    float32_t2 pos;
+    float32_t height;
+};
 
 // The color parameter is also used for styling non-curve objects such as text glyphs and hatches with solid color
 struct LineStyle

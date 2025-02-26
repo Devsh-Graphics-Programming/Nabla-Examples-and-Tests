@@ -7,6 +7,8 @@
 #include <nbl/builtin/hlsl/algorithm.hlsl>
 #include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
 
+[[vk::push_constant]] PushConstants pc;
+
 // TODO[Lucas]: Move these functions to builtin hlsl functions (Even the shadertoy obb and aabb ones)
 float cross2D(float2 a, float2 b)
 {
@@ -91,6 +93,28 @@ PSInput main(uint vertexID : SV_VertexID)
     // your programmable pulling will use the baseVertexBufferAddress BDA address and `vertexID` to RawBufferLoad it's vertex. 
     // ~~Later, most likely We will require pulling all 3 vertices of the triangle, that's where you need to know which triangle you're currently on, and instead of objectID = vertexID/4 which we currently do, you will do vertexID/3 and pull all 3 of it's vertices.~~
     // Ok, brainfart, a vertex can belong to multiple triangles, I was thinking of AA but triangles share vertices, nevermind my comment above.
+
+    TriangleMeshVertex vtx = vk::RawBufferLoad<TriangleMeshVertex>(pc.verticesBaseAddress + sizeof(TriangleMeshVertex) * vertexID, 8u);
+
+    PSInput outV;
+
+    pfloat64_t2 vtxPos;
+    vtxPos.x = _static_cast<pfloat64_t>(vtx.pos.x);
+    vtxPos.y = _static_cast<pfloat64_t>(vtx.pos.y);
+
+    DrawObject drawObj = drawObjects[0];
+    MainObject mainObj = mainObjects[drawObj.mainObjIndex];
+    ClipProjectionData clipProjectionData = getClipProjectionData(mainObj);
+
+    float2 transformedPos = transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, vtxPos);
+
+    outV.position.xy = transformedPos;
+    outV.position.zw = float2(0.0, 1.0);
+    outV.setHeightAtMeshVertex(vtx.height);
+
+    return outV;
+
+#if 0
 
     const uint vertexIdx = vertexID & 0x3u;
     const uint objectID = vertexID >> 2;
@@ -589,4 +613,5 @@ PSInput main(uint vertexID : SV_VertexID)
 
     outV.clip = float4(outV.position.x - clipProjectionData.minClipNDC.x, outV.position.y - clipProjectionData.minClipNDC.y, clipProjectionData.maxClipNDC.x - outV.position.x, clipProjectionData.maxClipNDC.y - outV.position.y);
     return outV;
+#endif
 }

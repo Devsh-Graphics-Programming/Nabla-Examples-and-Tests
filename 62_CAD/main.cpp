@@ -57,6 +57,7 @@ enum class ExampleMode
 	CASE_6, // Custom Clip Projections
 	CASE_7, // Images
 	CASE_8, // MSDF and Text
+	CASE_9, // DTM
 	CASE_COUNT
 };
 
@@ -73,7 +74,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0,	// CASE_8
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_4;
+constexpr ExampleMode mode = ExampleMode::CASE_9;
 
 class Camera2D
 {
@@ -865,7 +866,13 @@ public:
 				m_device->updateDescriptorSets(DescriptorUpdatesCount, descriptorUpdates, 0u, nullptr);
 			}
 
-			pipelineLayout = m_device->createPipelineLayout({}, core::smart_refctd_ptr(descriptorSetLayout0), core::smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
+			const asset::SPushConstantRange range = {
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX,
+						.offset = 0,
+						.size = sizeof(PushConstants)
+			};
+
+			pipelineLayout = m_device->createPipelineLayout({ &range,1 }, core::smart_refctd_ptr(descriptorSetLayout0), core::smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
 		}
 
 		smart_refctd_ptr<IGPUShader> mainPipelineFragmentShaders = {};
@@ -1387,18 +1394,30 @@ public:
 		const uint32_t currentIndexCount = drawResourcesFiller.getDrawObjectCount() * 6u;
 		IGPUDescriptorSet* descriptorSets[] = { descriptorSet0.get(), descriptorSet1.get() };
 		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, pipelineLayout.get(), 0u, 2u, descriptorSets);
+		if (mode == ExampleMode::CASE_9)
+		{
 
-		// TODO[Przemek]: based on our call bind index buffer you uploaded to part of the `drawResourcesFiller.gpuDrawBuffers.geometryBuffer`
-		// Vertices will be pulled based on baseBDAPointer of where you uploaded the vertex + the VertexID in the vertex shader.
-		cb->bindIndexBuffer({ .offset = 0u, .buffer = drawResourcesFiller.gpuDrawBuffers.indexBuffer.get() }, asset::EIT_32BIT);
+			// TODO[Przemek]: based on our call bind index buffer you uploaded to part of the `drawResourcesFiller.gpuDrawBuffers.geometryBuffer`
+			// Vertices will be pulled based on baseBDAPointer of where you uploaded the vertex + the VertexID in the vertex shader.
+			cb->bindIndexBuffer({ .offset = 0u, .buffer = drawResourcesFiller.gpuDrawBuffers.geometryBuffer.get() }, asset::EIT_32BIT);
 
-		// TODO[Przemek]: binding the same pipelie, no need to change.
-		cb->bindGraphicsPipeline(graphicsPipeline.get());
+			// TODO[Przemek]: binding the same pipelie, no need to change.
+			cb->bindGraphicsPipeline(graphicsPipeline.get());
+
+			// TODO[Przemek]: contour settings, height shading settings, base bda pointers will need to be pushed via pushConstants before the draw currently as it's the easiest thing to do.
+			cb->pushConstants(graphicsPipeline->getLayout(), IGPUShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &m_pushConstants);
+
+			// TODO[Przemek]: draw parameters needs to reflect the mesh involved
+			cb->drawIndexed(m_triangleMeshIndexCount, 1u, 0u, 0u, 0u);
+		}
+		else
+		{
+			cb->bindDescriptorSets(asset::EPBP_GRAPHICS, pipelineLayout.get(), 0u, 2u, descriptorSets);
+			cb->bindIndexBuffer({ .offset = 0u, .buffer = drawResourcesFiller.gpuDrawBuffers.indexBuffer.get() }, asset::EIT_32BIT);
+			cb->bindGraphicsPipeline(graphicsPipeline.get());
+			cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
+		}
 		
-		// TODO[Przemek]: contour settings, height shading settings, base bda pointers will need to be pushed via pushConstants before the draw currently as it's the easiest thing to do.
-
-		// TODO[Przemek]: draw parameters needs to reflect the mesh involved
-		cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 		if (fragmentShaderInterlockEnabled)
 		{
 			cb->bindGraphicsPipeline(resolveAlphaGraphicsPipeline.get());
@@ -3231,6 +3250,31 @@ protected:
 			}
 
 		}
+		else if (mode == ExampleMode::CASE_9)
+		{
+			core::vector<TriangleMeshVertex> vertices = {
+				{ float32_t2(0.0f, 10.0f), 0.0f },
+				{ float32_t2(-10.0f, -10.0f), 50.0f },
+				{ float32_t2(10.0f, -10.0f), 100.0f }
+			};
+
+			core::vector<uint32_t> indices = {
+				0, 1, 2
+			};
+
+			core::unordered_map<float32_t, float32_t3> heightColorMap;
+			heightColorMap.insert({ 0.0f, {0.0f, 1.0f, 0.0f} });
+			heightColorMap.insert({ 100.0f, {0.0f, 1.0f, 0.0f} });
+
+			m_triangleMeshIndexCount = indices.size();
+			m_pushConstants.verticesBaseAddress = sizeof(uint32_t) * m_triangleMeshIndexCount;
+
+			CTriangleMesh mesh;
+			mesh.setVertices(std::move(vertices));
+			mesh.setIndices(std::move(indices));
+
+			drawResourcesFiller.drawTriangleMesh(mesh, heightColorMap, intendedNextSubmit);
+		}
 		drawResourcesFiller.finalizeAllCopiesToGPU(intendedNextSubmit);
 	}
 
@@ -3311,6 +3355,9 @@ protected:
 	#endif
 	
 	std::unique_ptr<GeoTextureRenderer> m_geoTextureRenderer;
+
+	PushConstants m_pushConstants;
+	size_t m_triangleMeshIndexCount;
 };
 
 NBL_MAIN_FUNC(ComputerAidedDesign)

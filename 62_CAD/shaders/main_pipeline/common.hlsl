@@ -98,7 +98,10 @@ struct PSInput
 
     void setCurrentWorldToScreenRatio(float worldToScreen) { interp_data5.y = worldToScreen; }
     float getCurrentWorldToScreenRatio() { return interp_data5.y; }
-    
+
+    void setHeightAtMeshVertex(float height) { interp_data5.x = height; }
+    float getHeightAtMeshVertex() { return interp_data5.x; }
+
     /* LINE */
     float2 getLineStart() { return data2.xy; }
     float2 getLineEnd() { return data2.zw; }
