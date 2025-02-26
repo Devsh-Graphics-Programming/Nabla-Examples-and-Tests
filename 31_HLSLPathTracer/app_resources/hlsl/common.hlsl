@@ -66,7 +66,10 @@ struct Ray
     // immutable
     vector3_type origin;
     vector3_type direction;
+    
     // TODO: polygon method == 2 stuff
+    vector3_type normalAtOrigin;
+    bool wasBSDFAtOrigin;
 
     // mutable
     scalar_type intersectionT;
@@ -81,6 +84,14 @@ struct Light
     using spectral_type = Spectrum;
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t INVALID_ID = 0xffffu;
+
+    static Light<spectral_type> create(NBL_CONST_REF_ARG(spectral_type) radiance, NBL_CONST_REF_ARG(ObjectID) objectID)
+    {
+        Light<spectral_type> retval;
+        retval.radiance = radiance;
+        retval.objectID = objectID;
+        return retval;
+    }
 
     spectral_type radiance;
     ObjectID objectID;
@@ -250,7 +261,7 @@ struct Shape<PST_SPHERE>
         {
             const float rcpDistance = 1.0 / nbl::hlsl::sqrt(distanceSQ);
             Z *= rcpDistance;
-        
+
             const float cosThetaMax = nbl::hlsl::sqrt(cosThetaMax2);
             const float cosTheta = nbl::hlsl::mix<float>(1.0, cosThetaMax, xi.x);
 
@@ -261,9 +272,9 @@ struct Shape<PST_SPHERE>
             float sinPhi, cosPhi;
             math::sincos(2.0 * numbers::pi<float> * xi.y - numbers::pi<float>, sinPhi, cosPhi);
             float32_t2x3 XY = math::frisvad<float>(Z);
-        
+
             L += (XY[0] * cosPhi + XY[1] * sinPhi) * sinTheta;
-        
+
             newRayMaxT = (cosTheta - nbl::hlsl::sqrt(cosTheta2 - cosThetaMax2)) / rcpDistance;
             pdf = 1.0 / (2.0 * numbers::pi<float> * (1.0 - cosThetaMax));
             return L;
@@ -342,14 +353,15 @@ struct Shape<PST_TRIANGLE>
             {
                 shapes::SphericalTriangle<float> st = shapes::SphericalTriangle<float>::create(vertex0, vertex1, vertex2, ray.origin);
                 const float rcpProb = st.solidAngleOfTriangle();
-                // if `rcpProb` is NAN then the triangle's solid angle was close to 0.0 
+                // if `rcpProb` is NAN then the triangle's solid angle was close to 0.0
                 return rcpProb > numeric_limits<float>::min ? (1.0 / rcpProb) : numeric_limits<float>::max;
             }
             break;
             case PPM_APPROX_PROJECTED_SOLID_ANGLE:
             {
                 shapes::SphericalTriangle<float> st = shapes::SphericalTriangle<float>::create(vertex0, vertex1, vertex2, ray.origin);
-                const float pdf = st.projectedSolidAngleOfTriangle(ray.normalAtOrigin, ray.wasBSDFAtOrigin, L);
+                sampling::ProjectedSphericalTriangle<float> pst = sampling::ProjectedSphericalTriangle<float>::create(st);
+                const float pdf = pst.pdf(ray.normalAtOrigin, ray.wasBSDFAtOrigin, L);
                 // if `pdf` is NAN then the triangle's projected solid angle was close to 0.0, if its close to INF then the triangle was very small
                 return pdf < numeric_limits<float>::max ? pdf : 0.0;
             }
@@ -371,11 +383,11 @@ struct Shape<PST_TRIANGLE>
                 const float sqrtU = nbl::hlsl::sqrt(xi.x);
                 float32_t3 pnt = vertex0 + edge0 * (1.0 - sqrtU) + edge1 * sqrtU * xi.y;
                 float32_t3 L = pnt - origin;
-                
+
                 const float distanceSq = nbl::hlsl::dot(L,L);
                 const float rcpDistance = 1.0 / nbl::hlsl::sqrt(distanceSq);
                 L *= rcpDistance;
-                
+
                 pdf = distanceSq / nbl::hlsl::abs(nbl::hlsl::dot(nbl::hlsl::cross(edge0, edge1) * 0.5f, L));
                 newRayMaxT = 1.0 / rcpDistance;
                 return L;
@@ -403,7 +415,7 @@ struct Shape<PST_TRIANGLE>
 
                 shapes::SphericalTriangle<float> st = shapes::SphericalTriangle<float>::create(vertex0, vertex1, vertex2, origin);
                 sampling::ProjectedSphericalTriangle<float> sst = sampling::ProjectedSphericalTriangle<float>::create(st);
-            
+
                 const float32_t3 L = sst.generate(rcpPdf, interaction.N, isBSDF, xi.xy);
 
                 pdf = rcpPdf > numeric_limits<float>::min ? (1.0 / rcpPdf) : 0.0;

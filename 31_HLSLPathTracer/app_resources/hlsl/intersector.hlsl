@@ -68,12 +68,12 @@ struct Comprehensive
                     t = numeric_limits<float>::infinity;
                 break;
             }
-            
+
             bool closerIntersection = t > 0.0 && t < ray.intersectionT;
 
             ray.intersectionT = closerIntersection ? t : ray.intersectionT;
             objectID.id = closerIntersection ? i : objectID.id;
-            
+
             // allowing early out results in a performance regression, WTF!?
             //if (anyHit && closerIntersection)
             //break;
@@ -106,6 +106,7 @@ struct Comprehensive
                 return ObjectID::create(-1, 0, PST_SPHERE);
             }
         }
+        return ObjectID::create(-1, 0, PST_SPHERE);
     }
 
     static ObjectID traceRay(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
@@ -114,7 +115,7 @@ struct Comprehensive
 
         ObjectID objectID;
         objectID.id = -1;  // start with no intersect
-                
+
         // prodedural shapes
         if (scene.sphereCount > 0)
         {
@@ -161,12 +162,12 @@ struct Comprehensive
 //                 t = sphere.intersect(ray.origin, ray.direction);
 //             }
 //             // TODO: other types
-            
+
 //             bool closerIntersection = t > 0.0 && t < ray.intersectionT;
 
 //             ray.intersectionT = closerIntersection ? t : ray.intersectionT;
 //             objectID = closerIntersection ? i : objectID;
-            
+
 //             // allowing early out results in a performance regression, WTF!?
 //             //if (anyHit && closerIntersection)
 //             //break;

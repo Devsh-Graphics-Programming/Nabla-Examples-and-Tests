@@ -227,11 +227,12 @@ struct Unidirectional
                         }
                     }
 
-                    quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(material, bxdf.params, params) * throughput;
+                    quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(material, bxdf.params, params);
+                    bsdf_quotient_pdf.quotient *= throughput;
                     neeContrib_pdf.quotient *= bsdf_quotient_pdf.quotient;
                     const scalar_type otherGenOverChoice = bsdf_quotient_pdf.pdf * rcpChoiceProb;
                     const scalar_type otherGenOverLightAndChoice = otherGenOverChoice / bsdf_quotient_pdf.pdf;
-                    neeContrib_pdf.quotient *= otherGenOverChoice/(1.f + otherGenOverLightAndChoice * otherGenOverLightAndChoice);   // balance heuristic
+                    neeContrib_pdf.quotient *= otherGenOverChoice / (1.f + otherGenOverLightAndChoice * otherGenOverLightAndChoice);   // balance heuristic
 
                     // TODO: ifdef NEE only
 
@@ -240,7 +241,7 @@ struct Unidirectional
                     nee_ray.direction = nee_sample.L.direction;
                     nee_ray.intersectionT = t;
                     if (bsdf_quotient_pdf.pdf < numeric_limits<scalar_type>::max && getLuma(neeContrib_pdf.quotient) > lumaContributionThreshold && intersector_type::traceRay(nee_ray, scene).id == -1)
-                        ray._payload.accumulation += neeContrib_pdf.quotient;
+                        ray.payload.accumulation += neeContrib_pdf.quotient;
                 }
             }
         }
@@ -256,7 +257,7 @@ struct Unidirectional
             sample_type bsdf_sample = materialSystem.generate(material, bxdf.params, interaction, eps1, _cache);
 
             // TODO: does not yet account for smooth dielectric
-            params_type params;            
+            params_type params;
             if (!isBSDF && bxdf.materialType == ext::MaterialSystem::Material::DIFFUSE)
             {
                 params = params_type::template create<sample_type, isotropic_type>(bsdf_sample, iso_interaction, bxdf::BCM_MAX);
@@ -287,7 +288,8 @@ struct Unidirectional
             }
 
             // the value of the bsdf divided by the probability of the sample being generated
-            throughput *= materialSystem.quotient_and_pdf(material, bxdf.params, params);
+            quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(material, bxdf.params, params);
+            throughput *= bsdf_quotient_pdf.quotient;
             bxdfSample = bsdf_sample.L.direction;
         }
 
@@ -298,7 +300,7 @@ struct Unidirectional
             ray.payload.throughput = throughput;
             ray.payload.otherTechniqueHeuristic = neeProbability / bxdfPdf; // numerically stable, don't touch
             ray.payload.otherTechniqueHeuristic *= ray.payload.otherTechniqueHeuristic;
-                    
+
             // trace new ray
             ray.origin = intersection + bxdfSample * (1.0/*kSceneSize*/) * Tolerance<scalar_type>::getStart(depth);
             ray.direction = bxdfSample;
@@ -314,7 +316,7 @@ struct Unidirectional
 
     void missProgram(NBL_REF_ARG(ray_type) ray)
     {
-        vector3_type finalContribution = ray.payload.throughput; 
+        vector3_type finalContribution = ray.payload.throughput;
         // #ifdef USE_ENVMAP
         //     vec2 uv = SampleSphericalMap(_immutable.direction);
         //     finalContribution *= textureLod(envMap, uv, 0.0).rgb;

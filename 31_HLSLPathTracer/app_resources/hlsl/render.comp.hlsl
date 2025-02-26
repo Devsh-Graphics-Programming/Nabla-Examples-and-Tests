@@ -115,7 +115,7 @@ static const ext::Shape<ext::PST_RECTANGLE> rectangles[RECTANGLE_COUNT] = {
 
 #define LIGHT_COUNT 1
 static const light_type lights[LIGHT_COUNT] = {
-    light_type(spectral_t(30.0,25.0,15.0), ext::ObjectID(8u, ext::NextEventEstimator::Event::Mode::PROCEDURAL, LIGHT_TYPE))
+    light_type::create(spectral_t(30.0,25.0,15.0), ext::ObjectID::create(8u, ext::NextEventEstimator::Event::Mode::PROCEDURAL, LIGHT_TYPE))
 };
 
 #define BXDF_COUNT 7
@@ -166,7 +166,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
         ptCreateParams.camPos = tmp.xyz / tmp.w;
         NDC.z = 1.0;
     }
- 
+
     ptCreateParams.NDC = NDC;
     ptCreateParams.invMVP = pc.invMVP;
 

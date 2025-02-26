@@ -32,7 +32,7 @@ struct Scene
 
     light_type lights[maxLightCount];
     uint32_t lightCount;
-    
+
     NBL_CONSTEXPR_STATIC_INLINE uint32_t maxBxdfCount = 16; // TODO: limit change?
 
     bxdfnode_type bxdfs[maxBxdfCount];
@@ -51,7 +51,7 @@ struct Scene
                             -1;
         retval.data[0] = objCount;
         retval.data[1] = type;
-        
+
         switch (type)
         {
             case PST_SPHERE:

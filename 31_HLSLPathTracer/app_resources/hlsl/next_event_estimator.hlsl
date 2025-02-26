@@ -103,7 +103,10 @@ struct Estimator
             {
                 vector3_type position = vector3_type(asfloat(event.data[2]), asfloat(event.data[3]), asfloat(event.data[4]));
                 Shape<PST_SPHERE> sphere = Shape<PST_SPHERE>::create(position, asfloat(event.data[5]), event.data[6]);
-                L = sphere.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
+                const vector3_type sampleL = sphere.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
+                const vector3_type V = interaction.V.getDirection();
+                const scalar_type VdotL = nbl::hlsl::dot<vector3_type>(V, sampleL);
+                L = sample_type::create(sampleL,VdotL,interaction.T,interaction.B,interaction.N);
             }
             break;
             case PST_TRIANGLE:
@@ -112,7 +115,10 @@ struct Estimator
                 vector3_type vertex1 = vector3_type(asfloat(event.data[5]), asfloat(event.data[6]), asfloat(event.data[7]));
                 vector3_type vertex2 = vector3_type(asfloat(event.data[8]), asfloat(event.data[9]), asfloat(event.data[10]));
                 Shape<PST_TRIANGLE> tri = Shape<PST_TRIANGLE>::create(vertex0, vertex1, vertex2, event.data[11]);
-                L = tri.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
+                const vector3_type sampleL = tri.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
+                const vector3_type V = interaction.V.getDirection();
+                const scalar_type VdotL = nbl::hlsl::dot<vector3_type>(V, sampleL);
+                L = sample_type::create(sampleL,VdotL,interaction.T,interaction.B,interaction.N);
             }
             break;
             case PST_RECTANGLE:
@@ -121,7 +127,10 @@ struct Estimator
                 vector3_type edge0 = vector3_type(asfloat(event.data[5]), asfloat(event.data[6]), asfloat(event.data[7]));
                 vector3_type edge1 = vector3_type(asfloat(event.data[8]), asfloat(event.data[9]), asfloat(event.data[10]));
                 Shape<PST_RECTANGLE> rect = Shape<PST_RECTANGLE>::create(offset, edge0, edge1, event.data[11]);
-                L = rect.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
+                const vector3_type sampleL = rect.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
+                const vector3_type V = interaction.V.getDirection();
+                const scalar_type VdotL = nbl::hlsl::dot<vector3_type>(V, sampleL);
+                L = sample_type::create(sampleL,VdotL,interaction.T,interaction.B,interaction.N);
             }
             break;
             default:

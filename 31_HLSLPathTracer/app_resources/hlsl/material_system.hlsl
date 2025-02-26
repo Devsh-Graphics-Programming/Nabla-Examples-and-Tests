@@ -38,6 +38,7 @@ struct System
     using vector2_type = vector<scalar_type, 2>;
     using vector3_type = vector<scalar_type, 3>;
     using measure_type = typename DiffuseBxDF::spectral_type;
+    using sample_type = typename DiffuseBxDF::sample_type;
     using quotient_pdf_type = typename DiffuseBxDF::quotient_pdf_type;
     using anisotropic_type = typename DiffuseBxDF::anisotropic_type;
     using anisocache_type = typename ConductorBxDF::anisocache_type;
@@ -84,7 +85,7 @@ struct System
         }
     }
 
-    vector3_type generate(NBL_CONST_REF_ARG(Material) material, NBL_CONST_REF_ARG(create_params_t) cparams, anisotropic_type interaction, NBL_CONST_REF_ARG(vector3_type) u, NBL_REF_ARG(anisocache_type) cache)
+    sample_type generate(NBL_CONST_REF_ARG(Material) material, NBL_CONST_REF_ARG(create_params_t) cparams, anisotropic_type interaction, NBL_CONST_REF_ARG(vector3_type) u, NBL_REF_ARG(anisocache_type) cache)
     {
         switch(material.type)
         {
@@ -107,7 +108,7 @@ struct System
             }
             break;
             default:
-                return (vector3_type)numeric_limits<float>::infinity;
+                return (sample_type)numeric_limits<float>::infinity;
         }
     }
 
