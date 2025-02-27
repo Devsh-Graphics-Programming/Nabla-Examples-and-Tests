@@ -146,15 +146,18 @@ struct SBxDFTestResources
         retval.V.direction = nbl::hlsl::normalize<float32_t3>(uniform_sphere_generate<float>(rngUniformDist<float32_t2>(retval.rng)));
         retval.N = nbl::hlsl::normalize<float32_t3>(uniform_sphere_generate<float>(rngUniformDist<float32_t2>(retval.rng)));
         
-        float32_t2x3 tb = math::frisvad<float>(retval.N);
+        float32_t3 tangent, bitangent;
+        math::frisvad<float32_t3>(retval.N, tangent, bitangent);
+        tangent = nbl::hlsl::normalize<float32_t3>(tangent);
+        bitangent = nbl::hlsl::normalize<float32_t3>(bitangent);
 #ifndef __HLSL_VERSION
         const float angle = 2 * numbers::pi<float> * rngUniformDist<float>(retval.rng);
         glm::quat rot = glm::angleAxis(angle, retval.N);
-        retval.T = rot * tb[0];
-        retval.B = rot * tb[1];
+        retval.T = rot * tangent;
+        retval.B = rot * bitangent;
 #else
-        retval.T = tb[0];
-        retval.B = tb[1];
+        retval.T = tangent;
+        retval.B = bitangent;
 #endif
 
         retval.alpha.x = rngUniformDist<float>(retval.rng);
@@ -464,7 +467,7 @@ struct TestJacobian : TestBxDF<BxDF>
                 params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_MAX);
             else
             {
-                isocache = (iso_cache)cache;
+                isocache = cache.iso_cache;
                 params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_MAX);
             }
         }
@@ -485,7 +488,7 @@ struct TestJacobian : TestBxDF<BxDF>
                 params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_ABS);
             else
             {
-                isocache = (iso_cache)cache;
+                isocache = cache.iso_cache;
                 params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_ABS);
             }
         }
@@ -613,7 +616,7 @@ struct TestReciprocity : TestBxDF<BxDF>
                 params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_MAX);
             else
             {
-                isocache = (iso_cache)cache;
+                isocache = cache.iso_cache;
                 params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_MAX);
             }
         }
@@ -630,7 +633,7 @@ struct TestReciprocity : TestBxDF<BxDF>
                 params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_ABS);
             else
             {
-                isocache = (iso_cache)cache;
+                isocache = cache.iso_cache;
                 params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_ABS);
             }
         }
@@ -656,10 +659,10 @@ struct TestReciprocity : TestBxDF<BxDF>
         iso_interaction rec_isointer = iso_interaction::create(rec_V, base_t::rc.N);
         aniso_interaction rec_anisointer = aniso_interaction::create(rec_isointer, base_t::rc.T, base_t::rc.B);
         rec_cache = cache;
-        rec_cache.VdotH = cache.LdotH;
-        rec_cache.LdotH = cache.VdotH;
+        rec_cache.iso_cache.VdotH = cache.iso_cache.LdotH;
+        rec_cache.iso_cache.LdotH = cache.iso_cache.VdotH;
 
-        rec_isocache = (iso_cache)rec_cache;
+        rec_isocache = rec_cache.iso_cache;
 
         if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
             rec_params = params_t::template create<sample_t, iso_interaction>(rec_s, rec_isointer, bxdf::BCM_MAX);
@@ -669,7 +672,7 @@ struct TestReciprocity : TestBxDF<BxDF>
                 rec_params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(rec_s, rec_anisointer, rec_cache, bxdf::BCM_MAX);
             else
             {
-                rec_isocache = (iso_cache)rec_cache;
+                rec_isocache = rec_cache.iso_cache;
                 rec_params = params_t::template create<sample_t, iso_interaction, iso_cache>(rec_s, rec_isointer, rec_isocache, bxdf::BCM_MAX);
             }
         }
@@ -681,7 +684,7 @@ struct TestReciprocity : TestBxDF<BxDF>
                 rec_params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(rec_s, rec_anisointer, rec_cache, bxdf::BCM_ABS);
             else
             {
-                rec_isocache = (iso_cache)rec_cache;
+                rec_isocache = rec_cache.iso_cache;
                 rec_params = params_t::template create<sample_t, iso_interaction, iso_cache>(rec_s, rec_isointer, rec_isocache, bxdf::BCM_ABS);
             }
         }
@@ -817,7 +820,7 @@ struct TestBucket : TestBxDF<BxDF>
                     params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_MAX);
                 else
                 {
-                    isocache = (iso_cache)cache;
+                    isocache = cache.iso_cache;
                     params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_MAX);
                 }
             }
@@ -834,7 +837,7 @@ struct TestBucket : TestBxDF<BxDF>
                     params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_ABS);
                 else
                 {
-                    isocache = (iso_cache)cache;
+                    isocache = cache.iso_cache;
                     params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_ABS);
                 }
             }
@@ -1212,7 +1215,7 @@ struct TestChi2 : TestBxDF<BxDF>
                                 params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_MAX);
                             else
                             {
-                                iso_cache isocache = (iso_cache)cache;
+                                iso_cache isocache = cache.iso_cache;
                                 params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_MAX);
                             }
                         }
@@ -1228,7 +1231,7 @@ struct TestChi2 : TestBxDF<BxDF>
                                 params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_ABS);
                             else
                             {
-                                iso_cache isocache = (iso_cache)cache;
+                                iso_cache isocache = cache.iso_cache;
                                 params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_ABS);
                             }
                         }
