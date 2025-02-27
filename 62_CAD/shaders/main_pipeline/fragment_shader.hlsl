@@ -405,6 +405,8 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
 [shader("pixel")]
 float4 fragMain(PSInput input) : SV_TARGET
 {
+    return float4(1.0f, 0.0f, 0.0f, 1.0f);
+
     float localAlpha = 0.0f;
     float3 textureColor = float3(0, 0, 0); // color sampled from a texture
 

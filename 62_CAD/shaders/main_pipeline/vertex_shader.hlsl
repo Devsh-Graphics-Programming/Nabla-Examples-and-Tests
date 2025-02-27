@@ -94,27 +94,37 @@ PSInput main(uint vertexID : SV_VertexID)
     // ~~Later, most likely We will require pulling all 3 vertices of the triangle, that's where you need to know which triangle you're currently on, and instead of objectID = vertexID/4 which we currently do, you will do vertexID/3 and pull all 3 of it's vertices.~~
     // Ok, brainfart, a vertex can belong to multiple triangles, I was thinking of AA but triangles share vertices, nevermind my comment above.
 
-    TriangleMeshVertex vtx = vk::RawBufferLoad<TriangleMeshVertex>(pc.verticesBaseAddress + sizeof(TriangleMeshVertex) * vertexID, 8u);
-
+#define DTM
+#ifdef DTM
     PSInput outV;
 
+    // Default Initialize PS Input
+    outV.position.zw = float2(0.0, 1.0);
+    outV.data1 = uint4(0, 0, 0, 0);
+    outV.data2 = float4(0, 0, 0, 0);
+    outV.data3 = float4(0, 0, 0, 0);
+    outV.data4 = float4(0, 0, 0, 0);
+    outV.interp_data5 = float2(0, 0);
+    outV.setObjType(ObjectType::TRIANGLE_MESH);
+    outV.setMainObjectIdx(pc.triangleMeshMainObjectIndex);
+
+    TriangleMeshVertex vtx = vk::RawBufferLoad<TriangleMeshVertex>(pc.triangleMeshVerticesBaseAddress + sizeof(TriangleMeshVertex) * vertexID, 4u);
     pfloat64_t2 vtxPos;
     vtxPos.x = _static_cast<pfloat64_t>(vtx.pos.x);
     vtxPos.y = _static_cast<pfloat64_t>(vtx.pos.y);
 
-    DrawObject drawObj = drawObjects[0];
-    MainObject mainObj = mainObjects[drawObj.mainObjIndex];
+    MainObject mainObj = mainObjects[pc.triangleMeshMainObjectIndex];
     ClipProjectionData clipProjectionData = getClipProjectionData(mainObj);
 
     float2 transformedPos = transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, vtxPos);
 
     outV.position.xy = transformedPos;
-    outV.position.zw = float2(0.0, 1.0);
+    outV.position = transformFromSreenSpaceToNdc(outV.position.xy, globals.resolution);
     outV.setHeightAtMeshVertex(vtx.height);
 
     return outV;
 
-#if 0
+#else
 
     const uint vertexIdx = vertexID & 0x3u;
     const uint objectID = vertexID >> 2;

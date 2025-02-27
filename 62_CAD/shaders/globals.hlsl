@@ -33,7 +33,8 @@ using pfloat64_t3x3 = portable_matrix_t3x3<pfloat64_t>;
 
 struct PushConstants
 {
-    uint64_t verticesBaseAddress;
+    uint64_t triangleMeshVerticesBaseAddress;
+    uint32_t triangleMeshMainObjectIndex;
 };
 
 // TODO: Compute this in a compute shader from the world counterparts
@@ -111,7 +112,8 @@ enum class ObjectType : uint32_t
     CURVE_BOX = 2u,
     POLYLINE_CONNECTOR = 3u,
     FONT_GLYPH = 4u,
-    IMAGE = 5u
+    IMAGE = 5u,
+    TRIANGLE_MESH = 6u
 };
 
 enum class MajorAxis : uint32_t

@@ -84,7 +84,7 @@ void DrawResourcesFiller::allocateGeometryBuffer(ILogicalDevice* logicalDevice, 
 
 	IGPUBuffer::SCreationParams geometryCreationParams = {};
 	geometryCreationParams.size = size;
-	geometryCreationParams.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
+	geometryCreationParams.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INDEX_BUFFER_BIT;
 	gpuDrawBuffers.geometryBuffer = logicalDevice->createBuffer(std::move(geometryCreationParams));
 	gpuDrawBuffers.geometryBuffer->setObjectDebugName("geometryBuffer");
 
@@ -218,24 +218,48 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, uint32_t p
 	}
 }
 
-void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, core::unordered_map<float32_t, float32_t3> heightColorMap, SIntendedSubmitInfo& intendedNextSubmit)
+void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, CTriangleMesh::DrawData& drawData, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	ICPUBuffer::SCreationParams geometryBuffParams;
 	
 	// concatenate the index and vertex buffer into the geometry buffer
-	const size_t indexBuffSize = mesh.getIdxBuffByteSize();
-	const size_t vtxBuffSize = mesh.getVtxBuffByteSize();
-	const size_t geometryBufferSizeDataSize = indexBuffSize + vtxBuffSize;
+	const size_t indexBuffByteSize = mesh.getIdxBuffByteSize();
+	const size_t vtxBuffByteSize = mesh.getVtxBuffByteSize();
+	const size_t geometryBufferDataToAddByteSize = indexBuffByteSize + vtxBuffByteSize;
 
-	core::vector<uint8_t> geometryBufferData(geometryBufferSizeDataSize);
-	std::memcpy(geometryBufferData.data(), mesh.getIndices().data(), indexBuffSize);
-	std::memcpy(geometryBufferData.data() + indexBuffSize, mesh.getVertices().data(), vtxBuffSize);
+	// copy into gemoetry cpu buffer insteaed
 
-	SBufferRange<IGPUBuffer> geometryBuffRange;
-	geometryBuffRange.offset = 0;
-	geometryBuffRange.size = geometryBufferSizeDataSize;
-	geometryBuffRange.buffer = gpuDrawBuffers.drawObjectsBuffer;
-	m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, geometryBuffRange, geometryBufferData.data());
+	// TODO: rename, its not just points
+	const uint32_t maxGeometryBufferPoints = static_cast<uint32_t>(maxGeometryBufferSize - currentGeometryBufferSize);
+
+	// TODO: assert of geometry buffer size, do i need to check if size of objects to be added <= maxGeometryBufferPoints?
+	// TODO: auto submit instead of assert
+	assert(geometryBufferDataToAddByteSize <= maxGeometryBufferPoints);
+
+	// TODO: vertices need to be aligned to 8?
+	uint64_t vtxBufferAddress;
+	{
+		void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
+		void* dst1 = dst;
+
+		drawData.indexBufferOffset = currentGeometryBufferSize;
+		memcpy(dst, mesh.getIndices().data(), indexBuffByteSize);
+		currentGeometryBufferSize += indexBuffByteSize;
+
+		dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
+		drawData.pushConstants.triangleMeshVerticesBaseAddress = geometryBufferAddress + currentGeometryBufferSize;
+		memcpy(dst, mesh.getVertices().data(), vtxBuffByteSize);
+		currentGeometryBufferSize += vtxBuffByteSize;
+	}
+
+	drawData.indexCount = mesh.getIdxCnt();
+
+	// call addMainObject_SubmitIfNeeded, use its index in push constants
+
+	drawData.pushConstants.triangleMeshMainObjectIndex = addMainObject_SubmitIfNeeded(0, intendedNextSubmit);
+
+	// TODO: use this function later for auto submit
+	//submitCurrentDrawObjectsAndReset(intendedNextSubmit, 0);
 }
 
 // TODO[Erfan]: Makes more sense if parameters are: solidColor + fillPattern + patternColor

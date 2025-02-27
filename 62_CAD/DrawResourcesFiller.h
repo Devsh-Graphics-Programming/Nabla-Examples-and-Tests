@@ -77,7 +77,7 @@ public:
 
 	void drawPolyline(const CPolylineBase& polyline, uint32_t polylineMainObjIdx, SIntendedSubmitInfo& intendedNextSubmit);
 	
-	void drawTriangleMesh(const CTriangleMesh& mesh, core::unordered_map<float32_t, float32_t3> heightColorMap, SIntendedSubmitInfo& intendedNextSubmit);
+	void drawTriangleMesh(const CTriangleMesh& mesh, CTriangleMesh::DrawData& pushConstants, SIntendedSubmitInfo& intendedNextSubmit);
 
 	// ! Convinience function for Hatch with MSDF Pattern and a solid background
 	void drawHatch(
