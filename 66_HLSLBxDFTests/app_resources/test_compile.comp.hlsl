@@ -24,18 +24,19 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 {
     bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t> lambertianBRDF;
     bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t> orenNayarBRDF;
-    bxdf::reflection::SBeckmannBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t> beckmannBRDF;
-    bxdf::reflection::SGGXBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t> ggxBRDF;
+    bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache, spectral_t> beckmannBRDF;
+    bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spectral_t> ggxBRDF;
 
     bxdf::transmission::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t> lambertianBSDF;
-    bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t> smoothDielectricBSDF;
-    bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t, true> thinSmoothDielectricBSDF;
-    bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t> beckmannBSDF;
-    bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t> ggxBSDF;
+    bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, false> smoothDielectricBSDF;
+    bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, true> thinSmoothDielectricBSDF;
+    bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t> beckmannBSDF;
+    bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t> ggxBSDF;
 
 
     // do some nonsense calculations, but call all the relevant functions
-    const float3 V = nbl::hlsl::normalize<float3>(float3(1, 1, 1));
+    ray_dir_info_t V;
+    V.direction = nbl::hlsl::normalize<float3>(float3(1, 1, 1));
     const float3 N = float3(0, 1, 0);
     float3 T, B;
     math::frisvad<float32_t3>(N, T, B);
@@ -45,5 +46,5 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     aniso_interaction anisointer = aniso_interaction::create(isointer, T, B);
 
     sample_t s = lambertianBRDF.generate(anisointer, u.xy);
-    buff[ID.x] = s.xyz;
+    buff[ID.x] = s.L.direction;
 }

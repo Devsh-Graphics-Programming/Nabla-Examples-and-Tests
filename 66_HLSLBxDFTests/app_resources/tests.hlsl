@@ -322,13 +322,13 @@ struct TestBxDF<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spe
 };
 
 template<>
-struct TestBxDF<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>> : TestBxDFBase<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>
+struct TestBxDF<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, false>> : TestBxDFBase<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, false>>
 {
-    using base_t = TestBxDFBase<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>;
+    using base_t = TestBxDFBase<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, false>>;
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf = bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>::create(rc.eta);
+        base_t::bxdf = bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, false>::create(rc.eta);
 #ifndef __HLSL_VERSION
         base_t::name = "Smooth dielectric BSDF";
 #endif
@@ -415,7 +415,7 @@ struct is_microfacet_brdf : bool_constant<
 template<class T>
 struct is_basic_bsdf : bool_constant<
     is_same<T, bxdf::transmission::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>>::value ||
-    is_same<T, bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>>::value ||
+    is_same<T, bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, false>>::value ||
     is_same<T, bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, true>>::value
 > {};
 
