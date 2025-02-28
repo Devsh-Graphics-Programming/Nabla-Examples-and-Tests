@@ -44,7 +44,20 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
     iso_interaction isointer = iso_interaction::create(V, N);
     aniso_interaction anisointer = aniso_interaction::create(isointer, T, B);
+    aniso_cache cache;
 
+    float3 L;
     sample_t s = lambertianBRDF.generate(anisointer, u.xy);
-    buff[ID.x] = s.L.direction;
+    L += s.L.direction;
+
+    sample_t s = orenNayarBRDF.generate(anisointer, u.xy);
+    L += s.L.direction;
+    
+    sample_t s = beckmannBRDF.generate(anisointer, u.xy, cache);
+    L += s.L.direction;
+    
+    sample_t s = ggxBRDF.generate(anisointer, u.xy, cache);
+    L += s.L.direction;
+    
+    buff[ID.x] = L;
 }
