@@ -354,12 +354,12 @@ public:
 
       auto& shaderGroups = params.shaderGroups;
 
-      shaderGroups.raygenGroup = { .shaderIndex = RTDS_RAYGEN };
+      shaderGroups.raygen = { .index = RTDS_RAYGEN };
 
       IRayTracingPipelineBase::SGeneralShaderGroup missGroups[EMT_COUNT];
-      missGroups[EMT_PRIMARY] = { .shaderIndex = RTDS_MISS };
-      missGroups[EMT_OCCLUSION] = { .shaderIndex = RTDS_SHADOW_MISS };
-      shaderGroups.missGroups = missGroups;
+      missGroups[EMT_PRIMARY] = { .index = RTDS_MISS };
+      missGroups[EMT_OCCLUSION] = { .index = RTDS_SHADOW_MISS };
+      shaderGroups.misses = missGroups;
 
       auto getHitGroupIndex = [](E_GEOM_TYPE geomType, E_RAY_TYPE rayType)
         {
@@ -367,28 +367,28 @@ public:
         };
       IRayTracingPipelineBase::SHitShaderGroup hitGroups[E_RAY_TYPE::ERT_COUNT * E_GEOM_TYPE::EGT_COUNT];
       hitGroups[getHitGroupIndex(EGT_TRIANGLES, ERT_PRIMARY)] = {
-        .closestHitShaderIndex = RTDS_CLOSEST_HIT,
-        .anyHitShaderIndex = RTDS_ANYHIT_PRIMARY,
+        .closestHit = RTDS_CLOSEST_HIT,
+        .anyHit = RTDS_ANYHIT_PRIMARY,
       };
       hitGroups[getHitGroupIndex(EGT_TRIANGLES, ERT_OCCLUSION)] = {
-        .anyHitShaderIndex = RTDS_ANYHIT_SHADOW,
+        .anyHit = RTDS_ANYHIT_SHADOW,
       };
       hitGroups[getHitGroupIndex(EGT_PROCEDURAL, ERT_PRIMARY)] = {
-        .closestHitShaderIndex = RTDS_SPHERE_CLOSEST_HIT,
-        .anyHitShaderIndex = RTDS_ANYHIT_PRIMARY,
-        .intersectionShaderIndex = RTDS_INTERSECTION,
+        .closestHit = RTDS_SPHERE_CLOSEST_HIT,
+        .anyHit = RTDS_ANYHIT_PRIMARY,
+        .intersectionShader = RTDS_INTERSECTION,
       };
       hitGroups[getHitGroupIndex(EGT_PROCEDURAL, ERT_OCCLUSION)] = {
-        .anyHitShaderIndex = RTDS_ANYHIT_SHADOW,
-        .intersectionShaderIndex = RTDS_INTERSECTION,
+        .anyHit = RTDS_ANYHIT_SHADOW,
+        .intersectionShader = RTDS_INTERSECTION,
       };
-      shaderGroups.hitGroups = hitGroups;
+      shaderGroups.hits = hitGroups;
 
       IRayTracingPipelineBase::SGeneralShaderGroup callableGroups[ELT_COUNT];
-      callableGroups[ELT_DIRECTIONAL] = { .shaderIndex = RTDS_DIRECTIONAL_CALL };
-      callableGroups[ELT_POINT] = { .shaderIndex = RTDS_POINT_CALL };
-      callableGroups[ELT_SPOT] = { .shaderIndex = RTDS_SPOT_CALL };
-      shaderGroups.callableGroups = callableGroups;
+      callableGroups[ELT_DIRECTIONAL] = { .index = RTDS_DIRECTIONAL_CALL };
+      callableGroups[ELT_POINT] = { .index = RTDS_POINT_CALL };
+      callableGroups[ELT_SPOT] = { .index = RTDS_SPOT_CALL };
+      shaderGroups.callables = callableGroups;
 
       params.cached.maxRecursionDepth = 1;
 
