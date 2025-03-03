@@ -50,13 +50,13 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     sample_t s = lambertianBRDF.generate(anisointer, u.xy);
     L += s.L.direction;
 
-    sample_t s = orenNayarBRDF.generate(anisointer, u.xy);
+    s = orenNayarBRDF.generate(anisointer, u.xy);
     L += s.L.direction;
     
-    sample_t s = beckmannBRDF.generate(anisointer, u.xy, cache);
+    s = beckmannBRDF.generate(anisointer, u.xy, cache);
     L += s.L.direction;
     
-    sample_t s = ggxBRDF.generate(anisointer, u.xy, cache);
+    s = ggxBRDF.generate(anisointer, u.xy, cache);
     L += s.L.direction;
     
     buff[ID.x] = L;
