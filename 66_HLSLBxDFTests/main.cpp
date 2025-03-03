@@ -137,9 +137,9 @@ int main(int argc, char** argv)
             fprintf(stderr, "[ERROR] compile shader test failed!\n");
     }
 
+
     const bool logInfo = testconfigs["logInfo"];
     PrintFailureCallback cb;
-
 
     // test jacobian * pdf
     uint32_t runs = testconfigs["TestJacobian"]["runs"];
@@ -241,6 +241,28 @@ int main(int argc, char** argv)
     TestChi2<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, false>::run(initparams, cb);
     TestChi2<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, true>::run(initparams, cb);
     FOR_EACH_END
+
+        // test arccos angle sums
+    {
+        Xoroshiro64Star rng = Xoroshiro64Star::construct(uint32_t2(4, 2));
+        for (uint32_t i = 0; i < 10; i++)
+        {
+            const float a = rng() * numbers::pi<float>;
+            const float b = rng() * numbers::pi<float>;
+            const float c = rng() * numbers::pi<float>;
+            const float d = rng() * numbers::pi<float>;
+
+            const float exAB = acos(a) + acos(b);
+            float res = math::getSumofArccosAB(a, b);
+            if (res != exAB)
+                fprintf(stderr, "[ERROR] math::getSumofArccosAB failed! expected %f, got %f\n", exAB, res);
+
+            const float exABCD = exAB + acos(c) + acos(d);
+            res = math::getSumofArccosABCD(a, b, c, d);
+            if (res != exABCD)
+                fprintf(stderr, "[ERROR] math::getSumofArccosABCD failed! expected %f, got %f\n", exABCD, res);
+        }
+    }
 
     return 0;
 }

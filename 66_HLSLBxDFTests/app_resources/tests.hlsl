@@ -97,19 +97,19 @@ T rngUniformDist(NBL_REF_ARG(nbl::hlsl::Xoroshiro64Star) rng)
 template<typename T>
 bool checkEq(T a, T b, float32_t eps)
 {
-    return nbl::hlsl::all<vector<bool, T::length()>>(nbl::hlsl::max<T>(a / b, b / a) <= (T)(1 + eps));
+    return nbl::hlsl::all<vector<bool, vector_traits<T>::Dimension> >(nbl::hlsl::max<T>(a / b, b / a) <= (T)(1 + eps));
 }
 
 template<typename T>
 bool checkLt(T a, T b)
 {
-    return nbl::hlsl::all<vector<bool, T::length()>>(a < b);
+    return nbl::hlsl::all<vector<bool, vector_traits<T>::Dimension> >(a < b);
 }
 
 template<typename T>
 bool checkZero(T a, float32_t eps)
 {
-    return nbl::hlsl::all<vector<bool, T::length()>>(nbl::hlsl::abs<T>(a) < (T)eps);
+    return nbl::hlsl::all<vector<bool, vector_traits<T>::Dimension> >(nbl::hlsl::abs<T>(a) < (T)eps);
 }
 
 template<>
