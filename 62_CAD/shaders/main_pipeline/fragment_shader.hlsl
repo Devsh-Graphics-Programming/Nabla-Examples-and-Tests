@@ -1,5 +1,3 @@
-#pragma shader_stage(fragment)
-
 #include "common.hlsl"
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #include <nbl/builtin/hlsl/shapes/line.hlsl>
@@ -359,8 +357,6 @@ template<>
 float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 localTextureColor, bool colorFromTexture)
 {
     float32_t4 color;
-
-    nbl::hlsl::spirv::execution_mode::PixelInterlockOrderedEXT();
     nbl::hlsl::spirv::beginInvocationInterlockEXT();
 
     const uint32_t packedData = pseudoStencil[fragCoord];
@@ -405,8 +401,9 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     return color;
 }
 
-
-float4 main(PSInput input) : SV_TARGET
+[[vk::spvexecutionmode(spv::ExecutionModePixelInterlockOrderedEXT)]]
+[shader("pixel")]
+float4 fragMain(PSInput input) : SV_TARGET
 {
     float localAlpha = 0.0f;
     float3 textureColor = float3(0, 0, 0); // color sampled from a texture

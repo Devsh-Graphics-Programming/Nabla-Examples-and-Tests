@@ -644,107 +644,6 @@ public:
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
-		{
-			using ef64 = hlsl::emulated_float64_t<true, true>;
-			using NormalVec = hlsl::vector<float, 3>;
-			using EmulatedVec = hlsl::emulated_vector_t3<ef64>;
-			using NormalMatrix = hlsl::matrix<float, 3, 3>;
-			using EmulatedMatrix = hlsl::emulated_matrix_t3x3<ef64>;
-
-			auto createNormalVec = [](float x, float y, float z) -> NormalVec
-				{
-					NormalVec output;
-					output.x = x;
-					output.y = y;
-					output.z = z;
-
-					return output;
-				};
-			auto createEmulatedVec = [](float x, float y, float z) -> EmulatedVec
-				{
-					EmulatedVec output;
-					output.x = hlsl::emulated_float64_t<true, true>::create(x);
-					output.y = hlsl::emulated_float64_t<true, true>::create(y);
-					output.z = hlsl::emulated_float64_t<true, true>::create(z);
-
-					return output;
-				};
-
-			auto createNormalMat = [](float a0, float a1, float a2, float b0, float b1, float b2, float c0, float c1, float c2) -> NormalMatrix
-				{
-					NormalMatrix output;
-					output[0][0] = a0;
-					output[0][1] = a1;
-					output[0][2] = a2;
-
-					output[1][0] = b0;
-					output[1][1] = b1;
-					output[1][2] = b2;
-
-					output[2][0] = c0;
-					output[2][1] = c1;
-					output[2][2] = c2;
-
-					return output;
-				};
-
-			auto createEmulatedMat = [](float a0, float a1, float a2, float b0, float b1, float b2, float c0, float c1, float c2) -> EmulatedMatrix
-				{
-					EmulatedMatrix output;
-					output.rows[0].x = ef64::create(a0);
-					output.rows[0].y = ef64::create(a1);
-					output.rows[0].z = ef64::create(a2);
-
-					output.rows[1].x = ef64::create(b0);
-					output.rows[1].y = ef64::create(b1);
-					output.rows[1].z = ef64::create(b2);
-
-					output.rows[2].x = ef64::create(c0);
-					output.rows[2].y = ef64::create(c1);
-					output.rows[2].z = ef64::create(c2);
-
-					return output;
-				};
-
-			{
-				/*NormalVec a = createNormalVec(1, 2, 3);
-				NormalVec b = createNormalVec(4, 5, 6);
-
-				auto c = hlsl::findMSB(a);
-				__debugbreak();*/
-			}
-
-			{
-				/*EmulatedVec a = createEmulatedVec(1, 2, 3);
-				EmulatedVec b = createEmulatedVec(4, 5, 6);
-
-				auto c = hlsl::findMSB(a);
-				__debugbreak();*/
-			}
-
-			{
-				/*NormalMatrix a = createNormalMat(1, 2, 3, 4, 5, 6, 7, 8, 9);
-
-				hlsl::matrix_traits<NormalMatrix> asdf;
-
-				auto c = hlsl::determinant(a);
-				__debugbreak();*/
-			}
-
-			{
-				/*auto a = createEmulatedMat(1, 2, 3, 4, 5, 6, 7, 8, 9);
-				auto b = createEmulatedMat(10, 11, 12, 13, 14, 15, 16, 17, 18);
-
-				auto c = nbl::hlsl::mul(a, b);
-				
-				NormalVec r0 = nbl::hlsl::_static_cast<NormalVec>(c.rows[0]);
-				NormalVec r1 = nbl::hlsl::_static_cast<NormalVec>(c.rows[1]);
-				NormalVec r2 = nbl::hlsl::_static_cast<NormalVec>(c.rows[2]);
-
-				__debugbreak();*/
-			}
-		}
-
 		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
 		// Remember to call the base class initialization!
@@ -968,14 +867,9 @@ public:
 
 			pipelineLayout = m_device->createPipelineLayout({}, core::smart_refctd_ptr(descriptorSetLayout0), core::smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
 		}
-		
-		// Main Pipeline Shaders
-		std::array<smart_refctd_ptr<IGPUShader>, 4u> mainPipelineShaders = {};
-		constexpr auto vertexShaderPath = "../shaders/main_pipeline/vertex_shader.hlsl";
-		constexpr auto fragmentShaderPath = "../shaders/main_pipeline/fragment_shader.hlsl";
-		constexpr auto debugfragmentShaderPath = "../shaders/main_pipeline/fragment_shader_debug.hlsl";
-		constexpr auto resolveAlphasShaderPath = "../shaders/main_pipeline/resolve_alphas.hlsl";
-		// GeoTexture Pipeline Shaders
+
+		smart_refctd_ptr<IGPUShader> mainPipelineFragmentShaders = {};
+		smart_refctd_ptr<IGPUShader> mainPipelineVertexShader = {};
 		std::array<smart_refctd_ptr<IGPUShader>, 2u> geoTexturePipelineShaders = {};
 		{
 			smart_refctd_ptr<IShaderCompiler::CCache> shaderReadCache = nullptr;
@@ -1010,7 +904,7 @@ public:
 			}
 
 			// Load Custom Shader
-			auto loadCompileAndCreateShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<IGPUShader>
+			auto loadCompileShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<ICPUShader>
 				{
 					IAssetLoader::SAssetLoadParams lp = {};
 					lp.logger = m_logger.get();
@@ -1022,19 +916,23 @@ public:
 
 					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
 					auto cpuShader = IAsset::castDown<ICPUShader>(assets[0]);
-					cpuShader->setShaderStage(stage);
 					if (!cpuShader)
 						return nullptr;
 
-					return m_device->createShader({ cpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get()});
+					cpuShader->setShaderStage(stage);
+					return m_device->compileShader({ cpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
 				};
-			mainPipelineShaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::E_SHADER_STAGE::ESS_VERTEX);
-			mainPipelineShaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			mainPipelineShaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			mainPipelineShaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			
-			geoTexturePipelineShaders[0] = loadCompileAndCreateShader(GeoTextureRenderer::VertexShaderRelativePath, IShader::E_SHADER_STAGE::ESS_VERTEX);
-			geoTexturePipelineShaders[1] = loadCompileAndCreateShader(GeoTextureRenderer::FragmentShaderRelativePath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+
+			auto mainPipelineFragmentCpuShader = loadCompileShader("../shaders/main_pipeline/fragment.hlsl", IShader::E_SHADER_STAGE::ESS_ALL_OR_LIBRARY);
+			auto mainPipelineVertexCpuShader = loadCompileShader("../shaders/main_pipeline/vertex_shader.hlsl", IShader::E_SHADER_STAGE::ESS_VERTEX);
+			auto geoTexturePipelineVertCpuShader = loadCompileShader(GeoTextureRenderer::VertexShaderRelativePath, IShader::E_SHADER_STAGE::ESS_VERTEX);
+			auto geoTexturePipelineFragCpuShader = loadCompileShader(GeoTextureRenderer::FragmentShaderRelativePath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			mainPipelineFragmentCpuShader->setShaderStage(IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+
+			mainPipelineFragmentShaders = m_device->createShader({ mainPipelineFragmentCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
+			mainPipelineVertexShader = m_device->createShader({ mainPipelineVertexCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
+			geoTexturePipelineShaders[0] = m_device->createShader({ geoTexturePipelineVertCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
+			geoTexturePipelineShaders[1] = m_device->createShader({ geoTexturePipelineFragCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
 			
 			core::smart_refctd_ptr<system::IFile> shaderWriteCacheFile;
 			{
@@ -1078,10 +976,7 @@ public:
 			// Load FSTri Shader
 			ext::FullScreenTriangle::ProtoPipeline fsTriangleProtoPipe(m_assetMgr.get(),m_device.get(),m_logger.get());
 			
-			const IGPUShader::SSpecInfo fragSpec = {
-				.entryPoint = "main",
-				.shader = mainPipelineShaders[3u].get()
-			};
+			const IGPUShader::SSpecInfo fragSpec = { .entryPoint = "resolveAlphaMain", .shader = mainPipelineFragmentShaders.get() };
 
 			resolveAlphaGraphicsPipeline = fsTriangleProtoPipe.createPipeline(fragSpec, pipelineLayout.get(), compatibleRenderPass.get(), 0u, blendParams);
 			if (!resolveAlphaGraphicsPipeline)
@@ -1093,8 +988,14 @@ public:
 		{
 			
 			IGPUShader::SSpecInfo specInfo[2] = {
-				{.shader=mainPipelineShaders[0u].get() },
-				{.shader=mainPipelineShaders[1u].get() },
+				{
+					.entryPoint = "main",
+					.shader = mainPipelineVertexShader.get()
+				},
+				{
+					.entryPoint = "fragMain",
+					.shader = mainPipelineFragmentShaders.get()
+				},
 			};
 
 			IGPUGraphicsPipeline::SCreationParams params[1] = {};
@@ -1119,7 +1020,7 @@ public:
 
 			if constexpr (DebugModeWireframe)
 			{
-				specInfo[1u].shader = mainPipelineShaders[2u].get(); // change only fragment shader to fragment_shader_debug.hlsl
+				specInfo[1u].entryPoint = "fragDebugMain"; // change only fragment shader entrypoint
 				params[0].cached.rasterization.polygonMode = asset::EPM_LINE;
 				
 				if (!m_device->createGraphicsPipelines(nullptr,params,&debugGraphicsPipeline))

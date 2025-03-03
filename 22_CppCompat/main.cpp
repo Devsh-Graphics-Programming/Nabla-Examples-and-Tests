@@ -11,6 +11,8 @@
 
 #include "app_resources/common.hlsl"
 
+#include "CTgmathTester.h"
+#include "CIntrinsicsTester.h"
 
 using namespace nbl::core;
 using namespace nbl::hlsl;
@@ -56,11 +58,31 @@ public:
             return false;
         if (!asset_base_t::onAppInitialized(std::move(system)))
             return false;
-    
+
+        ITester::PipelineSetupData pplnSetupData;
+        pplnSetupData.device = m_device;
+        pplnSetupData.api = m_api;
+        pplnSetupData.assetMgr = m_assetMgr;
+        pplnSetupData.logger = m_logger;
+        pplnSetupData.physicalDevice = m_physicalDevice;
+        pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
+
+        {
+            CTgmathTester tgmathTester;
+            pplnSetupData.testShaderPath = "app_resources/tgmathTest.comp.hlsl";
+            tgmathTester.setupPipeline<TgmathIntputTestValues, TgmathTestValues>(pplnSetupData);
+            tgmathTester.performTests();
+        }
+        {
+            CIntrinsicsTester intrinsicsTester;
+            pplnSetupData.testShaderPath = "app_resources/intrinsicsTest.comp.hlsl";
+            intrinsicsTester.setupPipeline<IntrinsicsIntputTestValues, IntrinsicsTestValues>(pplnSetupData);
+            intrinsicsTester.performTests();
+        }
+
         m_queue = m_device->getQueue(0, 0);
         m_commandPool = m_device->createCommandPool(m_queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
         m_commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &m_cmdbuf,1 }, smart_refctd_ptr(m_logger));
-        
 
         smart_refctd_ptr<IGPUShader> shader;
         {
@@ -211,7 +233,6 @@ public:
         constexpr auto StartedValue = 0;
 
         smart_refctd_ptr<ISemaphore> progress = m_device->createSemaphore(StartedValue);
-        
 
         m_cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
         m_cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
@@ -562,7 +583,7 @@ void cpu_tests()
     auto zero = cross(x,x);
     auto lenX2 = dot(x,x);
     //auto z_inv = inverse(z); //busted return type conversion
-    auto mid = lerp(x,x,0.5f);
+    auto mid = nbl::hlsl::mix(x,x,float32_t3(0.5f));
     //auto w = transpose(y); //also busted
     
 
@@ -761,8 +782,8 @@ void cpu_tests()
     TEST_CMATH(fdim, 2, type) \
 
 
-    TEST_CMATH_FOR_TYPE(float32_t)
-    TEST_CMATH_FOR_TYPE(float64_t)
+    //TEST_CMATH_FOR_TYPE(float32_t)
+    //TEST_CMATH_FOR_TYPE(float64_t)
 #endif
     std::cout << "cpu tests done\n";
 }
