@@ -130,7 +130,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 	{
 		if (glsl::gl_WorkGroupID().x)
 		{
-			const uint32_t y = bitReverseAs<uint32_t, NumWorkgroupsLog2>(glsl::gl_WorkGroupID().x);
+			const uint32_t y = bitReverseAs<uint32_t>(glsl::gl_WorkGroupID().x, NumWorkgroupsLog2);
 			uint32_t globalElementIndex = workgroup::SubgroupContiguousIndex();
 			[unroll]
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
