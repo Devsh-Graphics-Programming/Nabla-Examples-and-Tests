@@ -271,9 +271,10 @@ struct Shape<PST_SPHERE>
             const float sinTheta = nbl::hlsl::sqrt(1.0 - cosTheta2);
             float sinPhi, cosPhi;
             math::sincos(2.0 * numbers::pi<float> * xi.y - numbers::pi<float>, sinPhi, cosPhi);
-            float32_t2x3 XY = math::frisvad<float>(Z);
+            float32_t3 X, Y;
+            math::frisvad<float32_t3>(Z, X, Y);
 
-            L += (XY[0] * cosPhi + XY[1] * sinPhi) * sinTheta;
+            L += (X * cosPhi + Y * sinPhi) * sinTheta;
 
             newRayMaxT = (cosTheta - nbl::hlsl::sqrt(cosTheta2 - cosThetaMax2)) / rcpDistance;
             pdf = 1.0 / (2.0 * numbers::pi<float> * (1.0 - cosThetaMax));
