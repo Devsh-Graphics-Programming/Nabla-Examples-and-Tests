@@ -46,18 +46,48 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     aniso_interaction anisointer = aniso_interaction::create(isointer, T, B);
     aniso_cache cache;
 
-    float3 L;
+    float3 L = float3(0,0,0);
+    float3 q = float3(0,0,0);
     sample_t s = lambertianBRDF.generate(anisointer, u.xy);
     L += s.L.direction;
 
     s = orenNayarBRDF.generate(anisointer, u.xy);
     L += s.L.direction;
-    
+
+    params_t params = params_t::template create<sample_t, iso_interaction>(s, isointer, bxdf::BxDFClampMode::BCM_MAX);
+    quotient_pdf_t qp = orenNayarBRDF.quotient_and_pdf(params);
+    L -= qp.quotient;
+
     s = beckmannBRDF.generate(anisointer, u.xy, cache);
     L += s.L.direction;
-    
+
+    params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, anisointer, cache, bxdf::BxDFClampMode::BCM_MAX);
+    qp = beckmannBRDF.quotient_and_pdf(params);
+    L -= qp.quotient;
+
     s = ggxBRDF.generate(anisointer, u.xy, cache);
     L += s.L.direction;
-    
+
+    params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, anisointer, cache, bxdf::BxDFClampMode::BCM_MAX);
+    qp = ggxBRDF.quotient_and_pdf(params);
+    L -= qp.quotient;
+
+    s = lambertianBSDF.generate(anisointer, u);
+    L += s.L.direction;
+
+    s = thinSmoothDielectricBSDF.generate(anisointer, u);
+    L += s.L.direction;
+
+    params = params_t::template create<sample_t, iso_interaction>(s, isointer, bxdf::BxDFClampMode::BCM_ABS);
+    qp = thinSmoothDielectricBSDF.quotient_and_pdf(params);
+    L -= qp.quotient;
+
+    s = ggxBSDF.generate(anisointer, u, cache);
+    L += s.L.direction;
+
+    params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, anisointer, cache, bxdf::BxDFClampMode::BCM_ABS);
+    qp = ggxBSDF.quotient_and_pdf(params);
+    L -= qp.quotient;
+
     buff[ID.x] = L;
 }
