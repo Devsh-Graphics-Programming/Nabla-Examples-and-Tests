@@ -185,7 +185,7 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 			{
 				int* destroyCounter;
 
-				Foo(int* _destroyCounter) : destroyCounter(_destroyCounter) {}
+				Foo(int* _destroyCounter) : destroyCounter(_destroyCounter){}
 
 				void operator=(Foo&& other)
 				{
@@ -200,6 +200,7 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 
 				~Foo()
 				{
+					// Only count destructions of objects resident in Cache and not ones that happen right after moving out of
 					if (destroyCounter)
 						(*destroyCounter)++;
 				}
@@ -207,7 +208,7 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 
 			int destroyCounter = 0;
 			{
-				LRUCache<int, Foo> cache4(10u);
+				ResizableLRUCache<int, Foo> cache4(10u);
 				for (int i = 0; i < 10; i++)
 					cache4.insert(i, Foo(&destroyCounter));
 				int x = 0;
