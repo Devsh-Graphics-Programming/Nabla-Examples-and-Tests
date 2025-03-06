@@ -180,6 +180,42 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 			cache3.insert(1, "bar");
 			cache3.clear();
 
+			// Besides the disposal function that gets called when evicting, we need to check that the Cache properly destroys all resident `Key,Value` pairs when destroyed
+			struct Foo
+			{
+				int* destroyCounter;
+
+				Foo(int* _destroyCounter) : destroyCounter(_destroyCounter) {}
+
+				void operator=(Foo&& other)
+				{
+					destroyCounter = other.destroyCounter;
+					other.destroyCounter = nullptr;
+				}
+
+				Foo(Foo&& other)
+				{
+					operator=(std::move(other));
+				}
+
+				~Foo()
+				{
+					if (destroyCounter)
+						(*destroyCounter)++;
+				}
+			};
+
+			int destroyCounter = 0;
+			{
+				LRUCache<int, Foo> cache4(10u);
+				for (int i = 0; i < 10; i++)
+					cache4.insert(i, Foo(&destroyCounter));
+				int x = 0;
+			}
+			
+			assert(destroyCounter == 10);
+
+
 			m_logger->log("all good");
 
 			m_textureLRUCache = std::unique_ptr<TextureLRUCache>(new TextureLRUCache(1024u));
