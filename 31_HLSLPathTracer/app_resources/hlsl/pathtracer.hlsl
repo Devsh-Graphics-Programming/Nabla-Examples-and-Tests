@@ -79,7 +79,7 @@ struct Unidirectional
     //                     NextEventEstimator nee)
     // {}
 
-    static this_t create(NBL_CONST_REF_ARG(PathTracerCreationParams<create_params_type, scalar_type>) params, Buffer sampleSequence)
+    static this_t create(NBL_CONST_REF_ARG(PathTracerCreationParams<create_params_type, scalar_type>) params, Buffer<uint3> sampleSequence)
     {
         this_t retval;
         retval.randGen = randgen_type::create(params.rngState);
@@ -341,15 +341,21 @@ struct Unidirectional
             // bounces
             bool hit = true;
             bool rayAlive = true;
-            for (int d = 1; d <= depth && hit && rayAlive; d += 2)
-            {
+            // TODO for (int d = 1; d <= depth && hit && rayAlive; d += 2)
+            // TODO {
                 ray.intersectionT = numeric_limits<scalar_type>::max;
+                ray.objectID.id = -1;
                 ray.objectID = intersector_type::traceRay(ray, scene);
 
                 hit = ray.objectID.id != -1;
                 if (hit)
-                    rayAlive = closestHitProgram(d, i, ray, scene);
-            }
+                {
+                    float pp = float(ray.objectID.id) / 10.0;
+                    ray.payload.accumulation = measure_type(pp, 1.0-pp, 0.3);
+                    // TODO rayAlive = closestHitProgram(1, i, ray, scene);
+                }
+
+            // TODO }
             if (!hit)
                 missProgram(ray);
 
@@ -373,7 +379,7 @@ struct Unidirectional
     material_system_type materialSystem;
     nee_type nee;
 
-    Buffer sampleSequence;
+    Buffer<uint3> sampleSequence;
 };
 
 }

@@ -25,6 +25,62 @@ struct Comprehensive
     using bxdfnode_type = BxdfNode;
     using scene_type = Scene<light_type, bxdfnode_type>;
 
+    static ObjectID traceRay(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
+    {
+        ObjectID objectID;
+        objectID.id = -1;
+
+        // prodedural shapes
+        for (int i = 0; i < scene.sphereCount; i++)
+        {
+            float t = scene.spheres[i].intersect(ray.origin, ray.direction);
+
+            bool closerIntersection = t > 0.0 && t < ray.intersectionT;
+
+            if (closerIntersection)
+            {
+                ray.intersectionT = t;
+                objectID.id = i;
+                objectID.mode = IntersectData::Mode::PROCEDURAL;
+                objectID.shapeType = PST_SPHERE;
+            }
+        }
+        for (int i = 0; i < scene.triangleCount; i++)
+        {
+            float t = scene.triangles[i].intersect(ray.origin, ray.direction);
+
+            bool closerIntersection = t > 0.0 && t < ray.intersectionT;
+
+            if (closerIntersection)
+            {
+                ray.intersectionT = t;
+                objectID.id = i;
+                objectID.mode = IntersectData::Mode::PROCEDURAL;
+                objectID.shapeType = PST_TRIANGLE;
+            }
+        }
+        for (int i = 0; i < scene.rectangleCount; i++)
+        {
+            float t = scene.rectangles[i].intersect(ray.origin, ray.direction);
+
+            bool closerIntersection = t > 0.0 && t < ray.intersectionT;
+
+            if (closerIntersection)
+            {
+                ray.intersectionT = t;
+                objectID.id = i;
+                objectID.mode = IntersectData::Mode::PROCEDURAL;
+                objectID.shapeType = PST_TRIANGLE;
+            }
+        }
+
+        // TODO: trace AS
+
+        return objectID;
+    }
+
+    // note for future consideration: still need to encode to IntersectData?
+    // obsolete?
     static ObjectID traceProcedural(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(IntersectData) intersect)
     {
         const bool anyHit = ray.intersectionT != numeric_limits<scalar_type>::max;
@@ -81,6 +137,7 @@ struct Comprehensive
         return objectID;
     }
 
+    // obsolete?
     static ObjectID traceRay(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(IntersectData) intersect)
     {
         const IntersectData::Mode mode = (IntersectData::Mode)intersect.mode;
@@ -109,36 +166,36 @@ struct Comprehensive
         return ObjectID::create(-1, 0, PST_SPHERE);
     }
 
-    static ObjectID traceRay(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
-    {
-        IntersectData data;
+    // static ObjectID traceRay(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
+    // {
+    //     IntersectData data;
 
-        ObjectID objectID;
-        objectID.id = -1;  // start with no intersect
+    //     ObjectID objectID;
+    //     objectID.id = -1;  // start with no intersect
 
-        // prodedural shapes
-        if (scene.sphereCount > 0)
-        {
-            data = scene.toIntersectData(ext::Intersector::IntersectData::Mode::PROCEDURAL, PST_SPHERE);
-            objectID = traceRay(ray, data);
-        }
+    //     // prodedural shapes
+    //     if (scene.sphereCount > 0)
+    //     {
+    //         data = scene.toIntersectData(ext::Intersector::IntersectData::Mode::PROCEDURAL, PST_SPHERE);
+    //         objectID = traceRay(ray, data);
+    //     }
 
-        if (scene.triangleCount > 0)
-        {
-            data = scene.toIntersectData(ext::Intersector::IntersectData::Mode::PROCEDURAL, PST_TRIANGLE);
-            objectID = traceRay(ray, data);
-        }
+    //     if (scene.triangleCount > 0)
+    //     {
+    //         data = scene.toIntersectData(ext::Intersector::IntersectData::Mode::PROCEDURAL, PST_TRIANGLE);
+    //         objectID = traceRay(ray, data);
+    //     }
 
-        if (scene.rectangleCount > 0)
-        {
-            data = scene.toIntersectData(ext::Intersector::IntersectData::Mode::PROCEDURAL, PST_RECTANGLE);
-            objectID = traceRay(ray, data);
-        }
+    //     if (scene.rectangleCount > 0)
+    //     {
+    //         data = scene.toIntersectData(ext::Intersector::IntersectData::Mode::PROCEDURAL, PST_RECTANGLE);
+    //         objectID = traceRay(ray, data);
+    //     }
 
-        // TODO: trace AS
+    //     // TODO: trace AS
 
-        return objectID;
-    }
+    //     return objectID;
+    // }
 };
 
 // does everything in traceray in ex 30

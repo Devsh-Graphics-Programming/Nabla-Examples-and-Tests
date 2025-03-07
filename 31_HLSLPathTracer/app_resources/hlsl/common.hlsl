@@ -203,11 +203,11 @@ struct Shape;
 template<>
 struct Shape<PST_SPHERE>
 {
-    static Shape<PST_SPHERE> create(NBL_CONST_REF_ARG(float32_t3) position, float32_t radius, uint32_t bsdfLightIDs)
+    static Shape<PST_SPHERE> create(NBL_CONST_REF_ARG(float32_t3) position, float32_t radius2, uint32_t bsdfLightIDs)
     {
         Shape<PST_SPHERE> retval;
         retval.position = position;
-        retval.radius2 = radius * radius;
+        retval.radius2 = radius2;
         retval.bsdfLightIDs = bsdfLightIDs;
         return retval;
     }
@@ -215,20 +215,20 @@ struct Shape<PST_SPHERE>
     static Shape<PST_SPHERE> create(NBL_CONST_REF_ARG(float32_t3) position, float32_t radius, uint32_t bsdfID, uint32_t lightID)
     {
         uint32_t bsdfLightIDs = glsl::bitfieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
-        return create(position, radius, bsdfLightIDs);
+        return create(position, radius * radius, bsdfLightIDs);
     }
 
     // return intersection distance if found, nan otherwise
     float intersect(NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(float32_t3) direction)
     {
         float32_t3 relOrigin = origin - position;
-        float relOriginLen2 = nbl::hlsl::dot(relOrigin, relOrigin);
+        float relOriginLen2 = hlsl::dot<float32_t3>(relOrigin, relOrigin);
 
-        float dirDotRelOrigin = nbl::hlsl::dot(direction, relOrigin);
+        float dirDotRelOrigin = hlsl::dot<float32_t3>(direction, relOrigin);
         float det = radius2 - relOriginLen2 + dirDotRelOrigin * dirDotRelOrigin;
 
         // do some speculative math here
-        float detsqrt = nbl::hlsl::sqrt(det);
+        float detsqrt = hlsl::sqrt<float32_t>(det);
         return -dirDotRelOrigin + (relOriginLen2 > radius2 ? (-detsqrt) : detsqrt);
     }
 
@@ -241,7 +241,7 @@ struct Shape<PST_SPHERE>
     float getSolidAngle(NBL_CONST_REF_ARG(float32_t3) origin)
     {
         float32_t3 dist = position - origin;
-        float cosThetaMax = nbl::hlsl::sqrt(1.0 - radius2 / nbl::hlsl::dot(dist, dist));
+        float cosThetaMax = hlsl::sqrt<float32_t>(1.0 - radius2 / hlsl::dot<float32_t3>(dist, dist));
         return 2.0 * numbers::pi<float> * (1.0 - cosThetaMax);
     }
 
@@ -255,28 +255,28 @@ struct Shape<PST_SPHERE>
     float32_t3 generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, float32_t3 xi)
     {
         float32_t3 Z = position - origin;
-        const float distanceSQ = nbl::hlsl::dot(Z,Z);
+        const float distanceSQ = hlsl::dot<float32_t3>(Z,Z);
         const float cosThetaMax2 = 1.0 - radius2 / distanceSQ;
         if (cosThetaMax2 > 0.0)
         {
-            const float rcpDistance = 1.0 / nbl::hlsl::sqrt(distanceSQ);
+            const float rcpDistance = 1.0 / hlsl::sqrt<float32_t>(distanceSQ);
             Z *= rcpDistance;
 
-            const float cosThetaMax = nbl::hlsl::sqrt(cosThetaMax2);
+            const float cosThetaMax = hlsl::sqrt<float32_t>(cosThetaMax2);
             const float cosTheta = nbl::hlsl::mix<float>(1.0, cosThetaMax, xi.x);
 
             float32_t3 L = Z * cosTheta;
 
             const float cosTheta2 = cosTheta * cosTheta;
-            const float sinTheta = nbl::hlsl::sqrt(1.0 - cosTheta2);
+            const float sinTheta = hlsl::sqrt<float32_t>(1.0 - cosTheta2);
             float sinPhi, cosPhi;
-            math::sincos(2.0 * numbers::pi<float> * xi.y - numbers::pi<float>, sinPhi, cosPhi);
+            math::sincos<float>(2.0 * numbers::pi<float> * xi.y - numbers::pi<float>, sinPhi, cosPhi);
             float32_t3 X, Y;
             math::frisvad<float32_t3>(Z, X, Y);
 
             L += (X * cosPhi + Y * sinPhi) * sinTheta;
 
-            newRayMaxT = (cosTheta - nbl::hlsl::sqrt(cosTheta2 - cosThetaMax2)) / rcpDistance;
+            newRayMaxT = (cosTheta - hlsl::sqrt<float32_t>(cosTheta2 - cosThetaMax2)) / rcpDistance;
             pdf = 1.0 / (2.0 * numbers::pi<float> * (1.0 - cosThetaMax));
             return L;
         }
@@ -315,26 +315,26 @@ struct Shape<PST_TRIANGLE>
     {
         const float32_t3 edges[2] = { vertex1 - vertex0, vertex2 - vertex0 };
 
-        const float32_t3 h = nbl::hlsl::cross(direction, edges[1]);
-        const float a = nbl::hlsl::dot(edges[0], h);
+        const float32_t3 h = hlsl::cross<float32_t3>(direction, edges[1]);
+        const float a = hlsl::dot<float32_t3>(edges[0], h);
 
         const float32_t3 relOrigin = origin - vertex0;
 
-        const float u = nbl::hlsl::dot(relOrigin, h) / a;
+        const float u = hlsl::dot<float32_t3>(relOrigin, h) / a;
 
-        const float32_t3 q = nbl::hlsl::cross(relOrigin, edges[0]);
-        const float v = nbl::hlsl::dot(direction, q) / a;
+        const float32_t3 q = hlsl::cross<float32_t3>(relOrigin, edges[0]);
+        const float v = hlsl::dot<float32_t3>(direction, q) / a;
 
-        const float t = nbl::hlsl::dot(edges[1], q) / a;
+        const float t = hlsl::dot<float32_t3>(edges[1], q) / a;
 
         const bool intersection = t > 0.f && u >= 0.f && v >= 0.f && (u + v) <= 1.f;
-        return intersection ? t : numeric_limits<float>::infinity;
+        return intersection ? t : bit_cast<float, uint32_t>(numeric_limits<float>::infinity);
     }
 
     float32_t3 getNormalTimesArea()
     {
         const float32_t3 edges[2] = { vertex1 - vertex0, vertex2 - vertex0 };
-        return nbl::hlsl::cross(edges[0], edges[1]) * 0.5f;
+        return hlsl::cross<float32_t3>(edges[0], edges[1]) * 0.5f;
     }
 
     template<typename Ray>
@@ -347,7 +347,7 @@ struct Shape<PST_TRIANGLE>
             {
                 const float dist = ray.intersectionT;
                 const float32_t3 L = ray.direction;
-                return dist * dist / nbl::hlsl::abs(nbl::hlsl::dot(getNormalTimesArea(), L));
+                return dist * dist / hlsl::abs<float32_t>(hlsl::dot<float32_t3>(getNormalTimesArea(), L));
             }
             break;
             case PPM_SOLID_ANGLE:
@@ -381,15 +381,15 @@ struct Shape<PST_TRIANGLE>
             {
                 const float32_t3 edge0 = vertex1 - vertex0;
                 const float32_t3 edge1 = vertex2 - vertex0;
-                const float sqrtU = nbl::hlsl::sqrt(xi.x);
+                const float sqrtU = hlsl::sqrt<float32_t>(xi.x);
                 float32_t3 pnt = vertex0 + edge0 * (1.0 - sqrtU) + edge1 * sqrtU * xi.y;
                 float32_t3 L = pnt - origin;
 
-                const float distanceSq = nbl::hlsl::dot(L,L);
-                const float rcpDistance = 1.0 / nbl::hlsl::sqrt(distanceSq);
+                const float distanceSq = hlsl::dot<float32_t3>(L,L);
+                const float rcpDistance = 1.0 / hlsl::sqrt<float32_t>(distanceSq);
                 L *= rcpDistance;
 
-                pdf = distanceSq / nbl::hlsl::abs(nbl::hlsl::dot(nbl::hlsl::cross(edge0, edge1) * 0.5f, L));
+                pdf = distanceSq / hlsl::abs<float32_t>(hlsl::dot<float32_t3>(hlsl::cross<float32_t3>(edge0, edge1) * 0.5f, L));
                 newRayMaxT = 1.0 / rcpDistance;
                 return L;
             }
@@ -406,7 +406,7 @@ struct Shape<PST_TRIANGLE>
                 pdf = rcpPdf > numeric_limits<float>::min ? (1.0 / rcpPdf) : 0.0;
 
                 const float32_t3 N = getNormalTimesArea();
-                newRayMaxT = nbl::hlsl::dot(N, vertex0 - origin) / nbl::hlsl::dot(N, L);
+                newRayMaxT = hlsl::dot<float32_t3>(N, vertex0 - origin) / hlsl::dot<float32_t3>(N, L);
                 return L;
             }
             break;
@@ -422,7 +422,7 @@ struct Shape<PST_TRIANGLE>
                 pdf = rcpPdf > numeric_limits<float>::min ? (1.0 / rcpPdf) : 0.0;
 
                 const float32_t3 N = getNormalTimesArea();
-                newRayMaxT = nbl::hlsl::dot(N, vertex0 - origin) / nbl::hlsl::dot(N, L);
+                newRayMaxT = hlsl::dot<float32_t3>(N, vertex0 - origin) / hlsl::dot<float32_t3>(N, L);
                 return L;
             }
             break;
@@ -462,25 +462,25 @@ struct Shape<PST_RECTANGLE>
 
     float intersect(NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(float32_t3) direction)
     {
-        const float32_t3 h = nbl::hlsl::cross(direction, edge1);
-        const float a = nbl::hlsl::dot(edge0, h);
+        const float32_t3 h = hlsl::cross<float32_t3>(direction, edge1);
+        const float a = hlsl::dot<float32_t3>(edge0, h);
 
         const float32_t3 relOrigin = origin - offset;
 
-        const float u = nbl::hlsl::dot(relOrigin,h)/a;
+        const float u = hlsl::dot<float32_t3>(relOrigin,h)/a;
 
-        const float32_t3 q = nbl::hlsl::cross(relOrigin, edge0);
-        const float v = nbl::hlsl::dot(direction, q) / a;
+        const float32_t3 q = hlsl::cross<float32_t3>(relOrigin, edge0);
+        const float v = hlsl::dot<float32_t3>(direction, q) / a;
 
-        const float t = nbl::hlsl::dot(edge1, q) / a;
+        const float t = hlsl::dot<float32_t3>(edge1, q) / a;
 
         const bool intersection = t > 0.f && u >= 0.f && v >= 0.f && u <= 1.f && v <= 1.f;
-        return intersection ? t : numeric_limits<float>::infinity;
+        return intersection ? t : bit_cast<float, uint32_t>(numeric_limits<float>::infinity);
     }
 
     float32_t3 getNormalTimesArea()
     {
-        return nbl::hlsl::cross(edge0, edge1);
+        return hlsl::cross<float32_t3>(edge0, edge1);
     }
 
     void getNormalBasis(NBL_REF_ARG(float32_t3x3) basis, NBL_REF_ARG(float32_t2) extents)
@@ -502,7 +502,7 @@ struct Shape<PST_RECTANGLE>
             {
                 const float dist = ray.intersectionT;
                 const float32_t3 L = ray.direction;
-                return dist * dist / nbl::hlsl::abs(nbl::hlsl::dot(getNormalTimesArea(), L));
+                return dist * dist / hlsl::abs<float32_t>(hlsl::dot<float32_t3>(getNormalTimesArea(), L));
             }
             break;
             // #ifdef TRIANGLE_REFERENCE ?
@@ -542,10 +542,10 @@ struct Shape<PST_RECTANGLE>
             case PPM_AREA:
             {
                 float32_t3 L = origin2origin + edge0 * xi.x + edge1 * xi.y;
-                const float distSq = nbl::hlsl::dot(L, L);
-                const float rcpDist = 1.0 / nbl::hlsl::sqrt(distSq);
+                const float distSq = hlsl::dot<float32_t3>(L, L);
+                const float rcpDist = 1.0 / hlsl::sqrt<float32_t>(distSq);
                 L *= rcpDist;
-                pdf = distSq / nbl::hlsl::abs(nbl::hlsl::dot(N, L));
+                pdf = distSq / hlsl::abs<float32_t>(hlsl::dot<float32_t3>(N, L));
                 newRayMaxT = 1.0 / rcpDist;
                 return L;
             }
@@ -572,7 +572,7 @@ struct Shape<PST_RECTANGLE>
                 else
                     pdf = numeric_limits<float>::infinity;
 
-                newRayMaxT = nbl::hlsl::dot(N, origin2origin) / nbl::hlsl::dot(N, L);
+                newRayMaxT = hlsl::dot<float32_t3>(N, origin2origin) / hlsl::dot<float32_t3>(N, L);
                 return L;
             }
             break;
