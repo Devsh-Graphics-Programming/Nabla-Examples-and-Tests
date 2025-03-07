@@ -5,6 +5,7 @@
 
 NBL_CONSTEXPR uint32_t WorkgroupSize = 16;
 
+// we need bitfield support in NBL_HLSL_DECLARE_STRUCT it seems
 struct SGeomInfo
 {
     uint64_t vertexBufferAddress;
