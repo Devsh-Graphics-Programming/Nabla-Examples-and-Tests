@@ -39,6 +39,7 @@ struct System
     using vector3_type = vector<scalar_type, 3>;
     using measure_type = typename DiffuseBxDF::spectral_type;
     using sample_type = typename DiffuseBxDF::sample_type;
+    using ray_dir_info_type = typename sample_type::ray_dir_info_type;
     using quotient_pdf_type = typename DiffuseBxDF::quotient_pdf_type;
     using anisotropic_type = typename DiffuseBxDF::anisotropic_type;
     using anisocache_type = typename ConductorBxDF::anisocache_type;
@@ -85,7 +86,7 @@ struct System
         }
     }
 
-    sample_type generate(NBL_CONST_REF_ARG(Material) material, NBL_CONST_REF_ARG(create_params_t) cparams, anisotropic_type interaction, NBL_CONST_REF_ARG(vector3_type) u, NBL_REF_ARG(anisocache_type) cache)
+    sample_type generate(NBL_CONST_REF_ARG(Material) material, NBL_CONST_REF_ARG(create_params_t) cparams, NBL_CONST_REF_ARG(anisotropic_type) interaction, NBL_CONST_REF_ARG(vector3_type) u, NBL_REF_ARG(anisocache_type) _cache)
     {
         switch(material.type)
         {
@@ -98,18 +99,26 @@ struct System
             case Material::Type::CONDUCTOR:
             {
                 conductorBxDF.init(cparams);
-                return conductorBxDF.generate(interaction, u.xy, cache);
+                return conductorBxDF.generate(interaction, u.xy, _cache);
             }
             break;
             case Material::Type::DIELECTRIC:
             {
                 dielectricBxDF.init(cparams);
-                return dielectricBxDF.generate(interaction, u, cache);
+                return dielectricBxDF.generate(interaction, u, _cache);
             }
             break;
             default:
-                return (sample_type)numeric_limits<float>::infinity;
+            {
+                ray_dir_info_type L;
+                L.direction = (vector3_type)0;
+                return sample_type::create(L, 0, (vector3_type)0);
+            }
         }
+
+        ray_dir_info_type L;
+        L.direction = (vector3_type)0;
+        return sample_type::create(L, 0, (vector3_type)0);
     }
 
     quotient_pdf_type quotient_and_pdf(NBL_CONST_REF_ARG(Material) material, NBL_CONST_REF_ARG(create_params_t) cparams, NBL_CONST_REF_ARG(params_t) params)

@@ -23,7 +23,7 @@ struct PTPushConstant {
 
 // TODO: Add a QueryPool for timestamping once its ready
 // TODO: Do buffer creation using assConv
-class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 		using device_base_t = examples::SimpleWindowedApplication;
 		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
@@ -69,7 +69,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		};
 
 	public:
-		inline ComputeShaderPathtracer(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
+		inline HLSLComputePathtracer(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
 			: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
 		inline bool isComputeOnly() const override { return false; }
@@ -1349,4 +1349,4 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		IGPUCommandBuffer::SClearColorValue clearColor = { .float32 = {0.f,0.f,0.f,1.f} };
 };
 
-NBL_MAIN_FUNC(ComputeShaderPathtracer)
+NBL_MAIN_FUNC(HLSLComputePathtracer)

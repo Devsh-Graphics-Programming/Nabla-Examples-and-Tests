@@ -66,7 +66,7 @@ struct Ray
     // immutable
     vector3_type origin;
     vector3_type direction;
-    
+
     // TODO: polygon method == 2 stuff
     vector3_type normalAtOrigin;
     bool wasBSDFAtOrigin;
@@ -417,7 +417,7 @@ struct Shape<PST_TRIANGLE>
                 shapes::SphericalTriangle<float> st = shapes::SphericalTriangle<float>::create(vertex0, vertex1, vertex2, origin);
                 sampling::ProjectedSphericalTriangle<float> sst = sampling::ProjectedSphericalTriangle<float>::create(st);
 
-                const float32_t3 L = sst.generate(rcpPdf, interaction.N, isBSDF, xi.xy);
+                const float32_t3 L = sst.generate(rcpPdf, interaction.isotropic.N, isBSDF, xi.xy);
 
                 pdf = rcpPdf > numeric_limits<float>::min ? (1.0 / rcpPdf) : 0.0;
 

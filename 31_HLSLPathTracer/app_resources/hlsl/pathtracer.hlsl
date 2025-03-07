@@ -54,6 +54,7 @@ struct Unidirectional
     using vector3_type = vector<scalar_type, 3>;
     using measure_type = typename MaterialSystem::measure_type;
     using sample_type = typename NextEventEstimator::sample_type;
+    using ray_dir_info_type = typename sample_type::ray_dir_info_type;
     using ray_type = typename RayGen::ray_type;
     using light_type = Light<measure_type>;
     using bxdfnode_type = BxDFNode<measure_type>;
@@ -181,7 +182,7 @@ struct Unidirectional
             bool validPath = nee_sample.NdotL > numeric_limits<scalar_type>::min;
             // but if we allowed non-watertight transmitters (single water surface), it would make sense just to apply this line by itself
             anisocache_type _cache;
-            validPath = validPath && anisocache_type::compute(_cache, interaction, nee_sample, monochromeEta);
+            validPath = validPath && anisocache_type::template compute<ray_dir_info_type, ray_dir_info_type>(_cache, interaction, nee_sample, monochromeEta);
             bxdf.params.A = nbl::hlsl::max(bxdf.params.A, vector<scalar_type, 2>(0,0));
             bxdf.params.eta = monochromeEta;
 
@@ -268,7 +269,7 @@ struct Unidirectional
                     params = params_type::template create<sample_type, anisotropic_type, anisocache_type>(bsdf_sample, interaction, _cache, bxdf::BCM_MAX);
                 else
                 {
-                    isocache_type isocache = (isocache_type)_cache;
+                    isocache_type isocache = _cache.iso_cache;
                     params = params_type::template create<sample_type, isotropic_type, isocache_type>(bsdf_sample, iso_interaction, isocache, bxdf::BCM_MAX);
                 }
             }
@@ -282,7 +283,7 @@ struct Unidirectional
                     params = params_type::template create<sample_type, anisotropic_type, anisocache_type>(bsdf_sample, interaction, _cache, bxdf::BCM_ABS);
                 else
                 {
-                    isocache_type isocache = (isocache_type)_cache;
+                    isocache_type isocache = _cache.iso_cache;
                     params = params_type::template create<sample_type, isotropic_type, isocache_type>(bsdf_sample, iso_interaction, isocache, bxdf::BCM_ABS);
                 }
             }
