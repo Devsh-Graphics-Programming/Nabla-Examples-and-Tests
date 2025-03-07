@@ -547,7 +547,7 @@ struct TestJacobian : TestBxDF<BxDF>
         if (checkZero<float>(pdf.pdf, 1e-5))  // something generated cannot have 0 probability of getting generated
             return BET_PDF_ZERO;
 
-        if (!checkLt<float32_t3>(pdf.quotient, (float32_t3)numeric_limits<float>::infinity))    // importance sampler's job to prevent inf
+        if (!checkLt<float32_t3>(pdf.quotient, bit_cast<float, uint32_t>(numeric_limits<float>::infinity)))    // importance sampler's job to prevent inf
             return BET_QUOTIENT_INF;
 
         if (checkZero<float32_t3>(bsdf, 1e-5) || checkZero<float32_t3>(pdf.quotient, 1e-5))
@@ -867,7 +867,7 @@ struct TestBucket : TestBxDF<BxDF>
             const float32_t2 coords = cartesianToPolar(localL.direction);
             float32_t2 bucket = float32_t2(bin(coords.x * numbers::inv_pi<float>), bin(coords.y * 0.5f * numbers::inv_pi<float>));
 
-            if (pdf.pdf == numeric_limits<float>::infinity)
+            if (pdf.pdf == bit_cast<float>(numeric_limits<float>::infinity))
                 buckets[bucket] += 1;
         }
 
