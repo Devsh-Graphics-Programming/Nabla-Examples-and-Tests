@@ -121,6 +121,7 @@ PSInput main(uint vertexID : SV_VertexID)
     outV.position.xy = transformedPos;
     outV.position = transformFromSreenSpaceToNdc(outV.position.xy, globals.resolution);
     outV.setHeightAtMeshVertex(vtx.height);
+    outV.setScreenSpaceVertexPos(float3(transformedPos, 1));
 
     return outV;
 

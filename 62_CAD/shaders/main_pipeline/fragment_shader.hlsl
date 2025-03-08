@@ -1,3 +1,4 @@
+#define FRAGMENT_SHADER_INPUT
 #include "common.hlsl"
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #include <nbl/builtin/hlsl/shapes/line.hlsl>
@@ -7,6 +8,7 @@
 #include <nbl/builtin/hlsl/spirv_intrinsics/fragment_shader_pixel_interlock.hlsl>
 #include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
 #include <nbl/builtin/hlsl/text_rendering/msdf.hlsl>
+#include <nbl/builtin/hlsl/spirv_intrinsics/fragment_shader_barycentric.hlsl>
 
 template<typename float_t>
 struct DefaultClipper
@@ -405,6 +407,12 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
 [shader("pixel")]
 float4 fragMain(PSInput input) : SV_TARGET
 {
+    float3 v0 = input.getScreenSpaceVertexPos(0);
+    float3 v1 = input.getScreenSpaceVertexPos(1);
+    float3 v2 = input.getScreenSpaceVertexPos(2);
+
+    printf("v0 = { %f, %f, %f }\nv1 = { %f, %f, %f }\nv2 = { %f, %f, %f }", v0.x, v0.y, v0.z, v1.x, v1.y, v1.z, v2.x, v2.y, v2.z);
+
     return float4(1.0f, 0.0f, 0.0f, 1.0f);
 
     float localAlpha = 0.0f;

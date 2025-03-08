@@ -74,6 +74,11 @@ struct PSInput
     [[vk::location(3)]] nointerpolation float4 data4 : COLOR4;
     // Data segments that need interpolation, mostly for hatches
     [[vk::location(5)]] float2 interp_data5 : COLOR5;
+#ifdef FRAGMENT_SHADER_INPUT
+    [[vk::location(6)]] [[vk::ext_decorate(/*spv::DecoratePerVertexKHR*/5285)]] nointerpolation float3 vertexScreenSpacePos[3] : COLOR6;
+#else
+    [[vk::location(6)]] nointerpolation float3 vertexScreenSpacePos : COLOR6;
+#endif 
     // ArcLenCalculator<float>
 
     // Set functions used in vshader, get functions used in fshader
@@ -211,6 +216,14 @@ struct PSInput
     
     void setImageUV(float2 uv) { interp_data5.xy = uv; }
     void setImageTextureId(uint32_t textureId) { data2.x = asfloat(textureId); }
+
+    /* TRIANGLE MESH */
+
+#ifndef FRAGMENT_SHADER_INPUT // vertex shader
+    void setScreenSpaceVertexPos(float3 pos) { vertexScreenSpacePos = pos; }
+#else // fragment shader
+    float3 getScreenSpaceVertexPos(uint32_t vertexIndex) { return vertexScreenSpacePos[vertexIndex]; }
+#endif 
 };
 
 // Set 0 - Scene Data and Globals, buffer bindings don't change the buffers only get updated
