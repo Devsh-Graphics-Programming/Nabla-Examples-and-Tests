@@ -105,17 +105,33 @@ struct BxDFNode
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t INVALID_ID = 0xffffu;
 
+    // for diffuse bxdfs
+    static BxDFNode<Spectrum> create(uint32_t materialType, bool isAniso, NBL_CONST_REF_ARG(float32_t2) A, NBL_CONST_REF_ARG(spectral_type) albedo)
+    {
+        BxDFNode<Spectrum> retval;
+        retval.albedo = albedo;
+        retval.materialType = materialType;
+        retval.params.is_aniso = isAniso;
+        retval.params.A = hlsl::max<float32_t2>(A, 1e-4);
+        retval.params.ior0 = (spectral_type)1.0;
+        retval.params.ior1 = (spectral_type)1.0;
+        return retval;
+    }
+
+    // for conductor + dielectric
     static BxDFNode<Spectrum> create(uint32_t materialType, bool isAniso, NBL_CONST_REF_ARG(float32_t2) A, NBL_CONST_REF_ARG(spectral_type) ior0, NBL_CONST_REF_ARG(spectral_type) ior1)
     {
         BxDFNode<Spectrum> retval;
+        retval.albedo = (spectral_type)1.0;
         retval.materialType = materialType;
         retval.params.is_aniso = isAniso;
-        retval.params.A = A;
+        retval.params.A = hlsl::max<float32_t2>(A, 1e-4);
         retval.params.ior0 = ior0;
         retval.params.ior1 = ior1;
         return retval;
     }
 
+    spectral_type albedo;
     uint32_t materialType;
     params_type params;
 };
@@ -149,32 +165,39 @@ enum PTPolygonMethod : uint16_t
     PPM_APPROX_PROJECTED_SOLID_ANGLE
 };
 
-namespace Intersector
+// namespace Intersector
+// {
+// // ray query method
+// // ray query struct holds AS info
+// // pass in address to vertex/index buffers?
+
+// // ray tracing pipeline method
+
+// // procedural data store: [obj count] [intersect type] [obj1] [obj2] [...]
+
+// struct IntersectData
+// {
+//     enum Mode : uint32_t    // enum class?
+//     {
+//         RAY_QUERY,
+//         RAY_TRACING,
+//         PROCEDURAL
+//     };
+
+//     NBL_CONSTEXPR_STATIC_INLINE uint32_t DataSize = 128;
+
+//     uint32_t mode : 2;
+//     uint32_t unused : 30;   // possible space for flags
+//     uint32_t data[DataSize];
+// };
+// }
+
+enum IntersectMode : uint32_t
 {
-// ray query method
-// ray query struct holds AS info
-// pass in address to vertex/index buffers?
-
-// ray tracing pipeline method
-
-// procedural data store: [obj count] [intersect type] [obj1] [obj2] [...]
-
-struct IntersectData
-{
-    enum Mode : uint32_t    // enum class?
-    {
-        RAY_QUERY,
-        RAY_TRACING,
-        PROCEDURAL
-    };
-
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t DataSize = 128;
-
-    uint32_t mode : 1;
-    uint32_t unused : 31;   // possible space for flags
-    uint32_t data[DataSize];
+    IM_RAY_QUERY,
+    IM_RAY_TRACING,
+    IM_PROCEDURAL
 };
-}
 
 namespace NextEventEstimator
 {
@@ -182,17 +205,10 @@ namespace NextEventEstimator
 
 struct Event
 {
-    enum Mode : uint32_t    // enum class?
-    {
-        RAY_QUERY,
-        RAY_TRACING,
-        PROCEDURAL
-    };
-
     NBL_CONSTEXPR_STATIC_INLINE uint32_t DataSize = 16;
 
-    uint32_t mode : 1;
-    uint32_t unused : 31;   // possible space for flags
+    uint32_t mode : 2;
+    uint32_t unused : 30;   // possible space for flags
     uint32_t data[DataSize];
 };
 }

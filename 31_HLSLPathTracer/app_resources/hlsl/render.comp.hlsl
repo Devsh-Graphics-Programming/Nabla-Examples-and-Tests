@@ -115,14 +115,14 @@ static const ext::Shape<ext::PST_RECTANGLE> rectangles[RECTANGLE_COUNT] = {
 
 #define LIGHT_COUNT 1
 static const light_type lights[LIGHT_COUNT] = {
-    light_type::create(spectral_t(30.0,25.0,15.0), ext::ObjectID::create(8u, ext::NextEventEstimator::Event::Mode::PROCEDURAL, LIGHT_TYPE))
+    light_type::create(spectral_t(30.0,25.0,15.0), ext::ObjectID::create(8u, ext::IntersectMode::IM_PROCEDURAL, LIGHT_TYPE))
 };
 
 #define BXDF_COUNT 7
 static const bxdfnode_type bxdfs[BXDF_COUNT] = {
-    bxdfnode_type::create(ext::MaterialSystem::Material::Type::DIFFUSE, false, float2(0,0), spectral_t(1,1,1), spectral_t(1.25,1.25,1.25)),
-    bxdfnode_type::create(ext::MaterialSystem::Material::Type::DIFFUSE, false, float2(0,0), spectral_t(1,1,1), spectral_t(1.25,2.5,2.5)),
-    bxdfnode_type::create(ext::MaterialSystem::Material::Type::DIFFUSE, false, float2(0,0), spectral_t(1,1,1), spectral_t(2.5,1.25,2.5)),
+    bxdfnode_type::create(ext::MaterialSystem::Material::Type::DIFFUSE, false, float2(0,0), spectral_t(0.8,0.8,0.8)),
+    bxdfnode_type::create(ext::MaterialSystem::Material::Type::DIFFUSE, false, float2(0,0), spectral_t(0.8,0.4,0.4)),
+    bxdfnode_type::create(ext::MaterialSystem::Material::Type::DIFFUSE, false, float2(0,0), spectral_t(0.4,0.8,0.4)),
     bxdfnode_type::create(ext::MaterialSystem::Material::Type::CONDUCTOR, false, float2(0,0), spectral_t(1,1,1), spectral_t(0.98,0.98,0.77)),
     bxdfnode_type::create(ext::MaterialSystem::Material::Type::CONDUCTOR, false, float2(0,0), spectral_t(1,1,1), spectral_t(0.98,0.77,0.98)),
     bxdfnode_type::create(ext::MaterialSystem::Material::Type::CONDUCTOR, false, float2(0.15,0.15), spectral_t(1,1,1), spectral_t(0.98,0.77,0.98)),

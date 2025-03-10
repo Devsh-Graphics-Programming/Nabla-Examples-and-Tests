@@ -111,14 +111,14 @@ struct Unidirectional
         uint32_t bsdfLightIDs;
         anisotropic_type interaction;
         isotropic_type iso_interaction;
-        ext::Intersector::IntersectData::Mode mode = (ext::Intersector::IntersectData::Mode)objectID.mode;
+        uint32_t mode = objectID.mode;
         switch (mode)
         {
             // TODO
-            case ext::Intersector::IntersectData::Mode::RAY_QUERY:
-            case ext::Intersector::IntersectData::Mode::RAY_TRACING:
+            case IM_RAY_QUERY:
+            case IM_RAY_TRACING:
                 break;
-            case ext::Intersector::IntersectData::Mode::PROCEDURAL:
+            case IM_PROCEDURAL:
             {
                 bsdfLightIDs = scene.getBsdfLightIDs(objectID);
                 vector3_type N = scene.getNormal(objectID, intersection);
@@ -139,9 +139,11 @@ struct Unidirectional
         const uint32_t lightID = glsl::bitfieldExtract(bsdfLightIDs, 16, 16);
         if (lightID != light_type::INVALID_ID)
         {
-            float pdf;
-            ray.payload.accumulation += nee.deferredEvalAndPdf(pdf, scene.lights[lightID], ray, scene.toNextEvent(lightID)) * throughput / (1.0 + pdf * pdf * ray.payload.otherTechniqueHeuristic);
+            float _pdf;
+            ray.payload.accumulation += nee.deferredEvalAndPdf(_pdf, scene.lights[lightID], ray, scene.toNextEvent(lightID)) * throughput / (1.0 + _pdf * _pdf * ray.payload.otherTechniqueHeuristic);
         }
+
+        return false;   // emissive only
 
         const uint32_t bsdfID = glsl::bitfieldExtract(bsdfLightIDs, 0, 16);
         if (bsdfID == bxdfnode_type::INVALID_ID)
@@ -209,7 +211,7 @@ struct Unidirectional
                             params = params_type::template create<sample_type, anisotropic_type, anisocache_type>(nee_sample, interaction, _cache, bxdf::BCM_MAX);
                         else
                         {
-                            isocache_type isocache = (isocache_type)_cache;
+                            isocache_type isocache = _cache.iso_cache;
                             params = params_type::template create<sample_type, isotropic_type, isocache_type>(nee_sample, iso_interaction, isocache, bxdf::BCM_MAX);
                         }
                     }
@@ -223,7 +225,7 @@ struct Unidirectional
                             params = params_type::template create<sample_type, anisotropic_type, anisocache_type>(nee_sample, interaction, _cache, bxdf::BCM_ABS);
                         else
                         {
-                            isocache_type isocache = (isocache_type)_cache;
+                            isocache_type isocache = _cache.iso_cache;
                             params = params_type::template create<sample_type, isotropic_type, isocache_type>(nee_sample, iso_interaction, isocache, bxdf::BCM_ABS);
                         }
                     }
@@ -232,10 +234,11 @@ struct Unidirectional
                     bsdf_quotient_pdf.quotient *= throughput;
                     neeContrib_pdf.quotient *= bsdf_quotient_pdf.quotient;
                     const scalar_type otherGenOverChoice = bsdf_quotient_pdf.pdf * rcpChoiceProb;
-                    const scalar_type otherGenOverLightAndChoice = otherGenOverChoice / bsdf_quotient_pdf.pdf;
-                    neeContrib_pdf.quotient *= otherGenOverChoice / (1.f + otherGenOverLightAndChoice * otherGenOverLightAndChoice);   // balance heuristic
+                    // const scalar_type otherGenOverLightAndChoice = otherGenOverChoice / bsdf_quotient_pdf.pdf;
+                    // neeContrib_pdf.quotient *= otherGenOverChoice / (1.f + otherGenOverLightAndChoice * otherGenOverLightAndChoice);   // balance heuristic
 
                     // TODO: ifdef NEE only
+                    neeContrib_pdf.quotient *= otherGenOverChoice;
 
                     ray_type nee_ray;
                     nee_ray.origin = intersection + nee_sample.L.direction * t * Tolerance<scalar_type>::getStart(depth);
@@ -246,6 +249,8 @@ struct Unidirectional
                 }
             }
         }
+
+        return false;   // NEE only
 
         // sample BSDF
         scalar_type bxdfPdf;
@@ -341,21 +346,20 @@ struct Unidirectional
             // bounces
             bool hit = true;
             bool rayAlive = true;
-            // TODO for (int d = 1; d <= depth && hit && rayAlive; d += 2)
-            // TODO {
+            for (int d = 1; d <= depth && hit && rayAlive; d += 2)
+            {
                 ray.intersectionT = numeric_limits<scalar_type>::max;
-                ray.objectID.id = -1;
                 ray.objectID = intersector_type::traceRay(ray, scene);
 
                 hit = ray.objectID.id != -1;
                 if (hit)
                 {
-                    float pp = float(ray.objectID.id) / 10.0;
-                    ray.payload.accumulation = measure_type(pp, 1.0-pp, 0.3);
-                    // TODO rayAlive = closestHitProgram(1, i, ray, scene);
+                    // float pp = float(ray.objectID.id) / 10.0;
+                    // ray.payload.accumulation = measure_type(pp, 1.0-pp, 0.3);
+                    rayAlive = closestHitProgram(1, i, ray, scene);
                 }
 
-            // TODO }
+            }
             if (!hit)
                 missProgram(ray);
 

@@ -25,8 +25,8 @@ struct Material
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t DataSize = 32;
 
-    uint32_t type : 1;
-    uint32_t unused : 31;   // possible space for flags
+    uint32_t type : 2;
+    uint32_t unused : 30;   // possible space for flags
     uint32_t data[DataSize];
 };
 
@@ -66,7 +66,7 @@ struct System
             case Material::Type::DIFFUSE:
             {
                 diffuseBxDF.init(cparams);
-                return (measure_type)diffuseBxDF.eval(params);
+                return cparams.albedo * (measure_type)diffuseBxDF.eval(params);
             }
             break;
             case Material::Type::CONDUCTOR:
