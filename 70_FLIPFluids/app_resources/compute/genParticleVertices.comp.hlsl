@@ -53,6 +53,9 @@ static const float2 quadUVs[4] = {
     float2(1, 1)
 };
 
+#include "nbl/builtin/hlsl/bda/__ptr.hlsl"
+using namespace nbl::hlsl;
+
 [numthreads(WorkgroupSize, 1, 1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
@@ -112,6 +115,6 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
         vertex.uv = quadUVs[vertexOrder[i]];
 
-        vk::RawBufferStore<VertexInfo>(pc.particleVerticesAddress + sizeof(VertexInfo) * (quadBeginIdx + i), vertex);
+        (bda::__ptr<VertexInfo>::create(pc.particleVerticesAddress)+(quadBeginIdx+i)).deref_restrict().store(vertex);
     }
 }
