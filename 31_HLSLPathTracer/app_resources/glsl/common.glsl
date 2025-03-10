@@ -7,7 +7,7 @@
 //#define VISUALIZE_HIGH_VARIANCE
 
 // debug
-//#define NEE_ONLY
+#define NEE_ONLY 1
 
 layout(set = 2, binding = 0) uniform sampler2D envMap; 
 layout(set = 2, binding = 1) uniform usamplerBuffer sampleSequence;

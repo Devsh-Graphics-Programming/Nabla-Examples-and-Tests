@@ -63,9 +63,18 @@ struct Estimator
             break;
             case PST_RECTANGLE:
             {
-                vector3_type offset = vector3_type(asfloat(event.data[2]), asfloat(event.data[3]), asfloat(event.data[4]));
-                vector3_type edge0 = vector3_type(asfloat(event.data[5]), asfloat(event.data[6]), asfloat(event.data[7]));
-                vector3_type edge1 = vector3_type(asfloat(event.data[8]), asfloat(event.data[9]), asfloat(event.data[10]));
+                const vector3_type offset = vector3_type(
+                    bit_cast<float32_t>(event.data[2]),
+                    bit_cast<float32_t>(event.data[3]),
+                    bit_cast<float32_t>(event.data[4]));
+                const vector3_type edge0 = vector3_type(
+                    bit_cast<float32_t>(event.data[5]),
+                    bit_cast<float32_t>(event.data[6]),
+                    bit_cast<float32_t>(event.data[7]));
+                const vector3_type edge1 = vector3_type(
+                    bit_cast<float32_t>(event.data[8]),
+                    bit_cast<float32_t>(event.data[9]),
+                    bit_cast<float32_t>(event.data[10]));
                 Shape<PST_RECTANGLE> rect = Shape<PST_RECTANGLE>::create(offset, edge0, edge1, event.data[11]);
                 pdf *= rect.template deferredPdf<ray_type>(ray);
             }
@@ -115,8 +124,12 @@ struct Estimator
         {
             case PST_SPHERE:
             {
-                vector3_type position = vector3_type(asfloat(event.data[2]), asfloat(event.data[3]), asfloat(event.data[4]));
-                Shape<PST_SPHERE> sphere = Shape<PST_SPHERE>::create(position, asfloat(event.data[5]), event.data[6]);
+                const vector3_type position = vector3_type(
+                    bit_cast<float32_t>(event.data[2]),
+                    bit_cast<float32_t>(event.data[3]),
+                    bit_cast<float32_t>(event.data[4]));
+                Shape<PST_SPHERE> sphere = Shape<PST_SPHERE>::create(position, bit_cast<float32_t>(event.data[5]), event.data[6]);
+
                 const vector3_type sampleL = sphere.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
                 const vector3_type V = interaction.isotropic.V.getDirection();
                 const scalar_type VdotL = nbl::hlsl::dot<vector3_type>(V, sampleL);
@@ -127,10 +140,20 @@ struct Estimator
             break;
             case PST_TRIANGLE:
             {
-                vector3_type vertex0 = vector3_type(asfloat(event.data[2]), asfloat(event.data[3]), asfloat(event.data[4]));
-                vector3_type vertex1 = vector3_type(asfloat(event.data[5]), asfloat(event.data[6]), asfloat(event.data[7]));
-                vector3_type vertex2 = vector3_type(asfloat(event.data[8]), asfloat(event.data[9]), asfloat(event.data[10]));
+                const vector3_type vertex0 = vector3_type(
+                    bit_cast<float32_t>(event.data[2]),
+                    bit_cast<float32_t>(event.data[3]),
+                    bit_cast<float32_t>(event.data[4]));
+                const vector3_type vertex1 = vector3_type(
+                    bit_cast<float32_t>(event.data[5]), 
+                    bit_cast<float32_t>(event.data[6]),
+                    bit_cast<float32_t>(event.data[7]));
+                const vector3_type vertex2 = vector3_type(
+                    bit_cast<float32_t>(event.data[8]),
+                    bit_cast<float32_t>(event.data[9]),
+                    bit_cast<float32_t>(event.data[10]));
                 Shape<PST_TRIANGLE> tri = Shape<PST_TRIANGLE>::create(vertex0, vertex1, vertex2, event.data[11]);
+
                 const vector3_type sampleL = tri.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
                 const vector3_type V = interaction.isotropic.V.getDirection();
                 const scalar_type VdotL = nbl::hlsl::dot<vector3_type>(V, sampleL);
@@ -141,10 +164,20 @@ struct Estimator
             break;
             case PST_RECTANGLE:
             {
-                vector3_type offset = vector3_type(asfloat(event.data[2]), asfloat(event.data[3]), asfloat(event.data[4]));
-                vector3_type edge0 = vector3_type(asfloat(event.data[5]), asfloat(event.data[6]), asfloat(event.data[7]));
-                vector3_type edge1 = vector3_type(asfloat(event.data[8]), asfloat(event.data[9]), asfloat(event.data[10]));
+                const vector3_type offset = vector3_type(
+                    bit_cast<float32_t>(event.data[2]),
+                    bit_cast<float32_t>(event.data[3]),
+                    bit_cast<float32_t>(event.data[4]));
+                const vector3_type edge0 = vector3_type(
+                    bit_cast<float32_t>(event.data[5]),
+                    bit_cast<float32_t>(event.data[6]),
+                    bit_cast<float32_t>(event.data[7]));
+                const vector3_type edge1 = vector3_type(
+                    bit_cast<float32_t>(event.data[8]),
+                    bit_cast<float32_t>(event.data[9]),
+                    bit_cast<float32_t>(event.data[10]));
                 Shape<PST_RECTANGLE> rect = Shape<PST_RECTANGLE>::create(offset, edge0, edge1, event.data[11]);
+
                 const vector3_type sampleL = rect.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
                 const vector3_type V = interaction.isotropic.V.getDirection();
                 const scalar_type VdotL = nbl::hlsl::dot<vector3_type>(V, sampleL);
@@ -154,7 +187,7 @@ struct Estimator
             }
             break;
             default:
-                pdf = numeric_limits<float>::infinity;
+                pdf = bit_cast<float>(numeric_limits<float>::infinity);
                 break;
         }
 

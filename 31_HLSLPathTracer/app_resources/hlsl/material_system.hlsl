@@ -23,7 +23,7 @@ struct Material
         DIELECTRIC
     };
 
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t DataSize = 32;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t DataSize = 1;
 
     uint32_t type : 2;
     uint32_t unused : 30;   // possible space for flags
@@ -66,7 +66,7 @@ struct System
             case Material::Type::DIFFUSE:
             {
                 diffuseBxDF.init(cparams);
-                return cparams.albedo * (measure_type)diffuseBxDF.eval(params);
+                return (measure_type)diffuseBxDF.eval(params);
             }
             break;
             case Material::Type::CONDUCTOR:
@@ -123,8 +123,13 @@ struct System
 
     quotient_pdf_type quotient_and_pdf(NBL_CONST_REF_ARG(Material) material, NBL_CONST_REF_ARG(create_params_t) cparams, NBL_CONST_REF_ARG(params_t) params)
     {
+        
+        const bool transmissive = material.type == Material::Type::DIELECTRIC;
+        const float clampedNdotV = math::conditionalAbsOrMax<float>(transmissive, params.uNdotV, 0.0);
+        const float clampedNdotL = math::conditionalAbsOrMax<float>(transmissive, params.uNdotL, 0.0);
+
         const float minimumProjVectorLen = 0.00000001;
-        if (params.NdotV > minimumProjVectorLen && params.NdotL > minimumProjVectorLen)
+        if (clampedNdotV > minimumProjVectorLen && clampedNdotL > minimumProjVectorLen)
         {
             switch(material.type)
             {
@@ -147,10 +152,10 @@ struct System
                 }
                 break;
                 default:
-                    return quotient_pdf_type::create((measure_type)0.0, numeric_limits<float>::infinity);
+                    return quotient_pdf_type::create((measure_type)0.0, 0.0);
             }
         }
-        return quotient_pdf_type::create((measure_type)0.0, numeric_limits<float>::infinity);
+        return quotient_pdf_type::create((measure_type)0.0, 0.0);
     }
 
     DiffuseBxDF diffuseBxDF;

@@ -99,7 +99,7 @@ struct Unidirectional
 
     scalar_type getLuma(NBL_CONST_REF_ARG(vector3_type) col)
     {
-        return nbl::hlsl::dot(nbl::hlsl::transpose(colorspace::scRGBtoXYZ)[1], col);
+        return hlsl::dot<vector3_type>(hlsl::transpose(colorspace::scRGBtoXYZ)[1], col);
     }
 
     // TODO: probably will only work with procedural shapes, do the other ones
@@ -123,8 +123,8 @@ struct Unidirectional
                 bsdfLightIDs = scene.getBsdfLightIDs(objectID);
                 vector3_type N = scene.getNormal(objectID, intersection);
                 N = nbl::hlsl::normalize(N);
-                typename isotropic_type::ray_dir_info_type V;
-                V.direction = nbl::hlsl::normalize(-ray.direction);
+                ray_dir_info_type V;
+                V.direction = -ray.direction;
                 isotropic_type iso_interaction = isotropic_type::create(V, N);
                 interaction = anisotropic_type::create(iso_interaction);
             }
@@ -142,8 +142,6 @@ struct Unidirectional
             float _pdf;
             ray.payload.accumulation += nee.deferredEvalAndPdf(_pdf, scene.lights[lightID], ray, scene.toNextEvent(lightID)) * throughput / (1.0 + _pdf * _pdf * ray.payload.otherTechniqueHeuristic);
         }
-
-        return false;   // emissive only
 
         const uint32_t bsdfID = glsl::bitfieldExtract(bsdfLightIDs, 0, 16);
         if (bsdfID == bxdfnode_type::INVALID_ID)
@@ -163,9 +161,9 @@ struct Unidirectional
         // thresholds
         const scalar_type bxdfPdfThreshold = 0.0001;
         const scalar_type lumaContributionThreshold = getLuma(colorspace::eotf::sRGB<vector3_type>((vector3_type)1.0 / 255.0)); // OETF smallest perceptible value
-        const vector3_type throughputCIE_Y = nbl::hlsl::transpose(colorspace::sRGBtoXYZ)[1] * throughput;   // TODO: this only works if spectral_type is dim 3
+        const vector3_type throughputCIE_Y = hlsl::transpose(colorspace::sRGBtoXYZ)[1] * throughput;    // TODO: this only works if spectral_type is dim 3
         const measure_type eta = bxdf.params.ior0 / bxdf.params.ior1;   // assume it's real, not imaginary?
-        const scalar_type monochromeEta = nbl::hlsl::dot(throughputCIE_Y, eta) / (throughputCIE_Y.r + throughputCIE_Y.g + throughputCIE_Y.b);  // TODO: imaginary eta?
+        const scalar_type monochromeEta = hlsl::dot<vector3_type>(throughputCIE_Y, eta) / (throughputCIE_Y.r + throughputCIE_Y.g + throughputCIE_Y.b);  // TODO: imaginary eta?
 
         // sample lights
         const scalar_type neeProbability = 1.0; // BSDFNode_getNEEProb(bsdf);
@@ -185,7 +183,6 @@ struct Unidirectional
             // but if we allowed non-watertight transmitters (single water surface), it would make sense just to apply this line by itself
             anisocache_type _cache;
             validPath = validPath && anisocache_type::template compute<ray_dir_info_type, ray_dir_info_type>(_cache, interaction, nee_sample, monochromeEta);
-            bxdf.params.A = nbl::hlsl::max(bxdf.params.A, vector<scalar_type, 2>(0,0));
             bxdf.params.eta = monochromeEta;
 
             if (neeContrib_pdf.pdf < numeric_limits<scalar_type>::max)
@@ -231,7 +228,7 @@ struct Unidirectional
                     }
 
                     quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(material, bxdf.params, params);
-                    bsdf_quotient_pdf.quotient *= throughput;
+                    bsdf_quotient_pdf.quotient *= bxdf.albedo * throughput;
                     neeContrib_pdf.quotient *= bsdf_quotient_pdf.quotient;
                     const scalar_type otherGenOverChoice = bsdf_quotient_pdf.pdf * rcpChoiceProb;
                     // const scalar_type otherGenOverLightAndChoice = otherGenOverChoice / bsdf_quotient_pdf.pdf;
@@ -268,30 +265,30 @@ struct Unidirectional
             {
                 params = params_type::template create<sample_type, isotropic_type>(bsdf_sample, iso_interaction, bxdf::BCM_MAX);
             }
-            else if (!isBSDF && bxdf.materialType != ext::MaterialSystem::Material::DIFFUSE)
-            {
-                if (bxdf.params.is_aniso)
-                    params = params_type::template create<sample_type, anisotropic_type, anisocache_type>(bsdf_sample, interaction, _cache, bxdf::BCM_MAX);
-                else
-                {
-                    isocache_type isocache = _cache.iso_cache;
-                    params = params_type::template create<sample_type, isotropic_type, isocache_type>(bsdf_sample, iso_interaction, isocache, bxdf::BCM_MAX);
-                }
-            }
-            else if (isBSDF && bxdf.materialType == ext::MaterialSystem::Material::DIFFUSE)
-            {
-                params = params_type::template create<sample_type, isotropic_type>(bsdf_sample, iso_interaction, bxdf::BCM_ABS);
-            }
-            else if (isBSDF && bxdf.materialType != ext::MaterialSystem::Material::DIFFUSE)
-            {
-                if (bxdf.params.is_aniso)
-                    params = params_type::template create<sample_type, anisotropic_type, anisocache_type>(bsdf_sample, interaction, _cache, bxdf::BCM_ABS);
-                else
-                {
-                    isocache_type isocache = _cache.iso_cache;
-                    params = params_type::template create<sample_type, isotropic_type, isocache_type>(bsdf_sample, iso_interaction, isocache, bxdf::BCM_ABS);
-                }
-            }
+            // else if (!isBSDF && bxdf.materialType != ext::MaterialSystem::Material::DIFFUSE)
+            // {
+            //     if (bxdf.params.is_aniso)
+            //         params = params_type::template create<sample_type, anisotropic_type, anisocache_type>(bsdf_sample, interaction, _cache, bxdf::BCM_MAX);
+            //     else
+            //     {
+            //         isocache_type isocache = _cache.iso_cache;
+            //         params = params_type::template create<sample_type, isotropic_type, isocache_type>(bsdf_sample, iso_interaction, isocache, bxdf::BCM_MAX);
+            //     }
+            // }
+            // else if (isBSDF && bxdf.materialType == ext::MaterialSystem::Material::DIFFUSE)
+            // {
+            //     params = params_type::template create<sample_type, isotropic_type>(bsdf_sample, iso_interaction, bxdf::BCM_ABS);
+            // }
+            // else if (isBSDF && bxdf.materialType != ext::MaterialSystem::Material::DIFFUSE)
+            // {
+            //     if (bxdf.params.is_aniso)
+            //         params = params_type::template create<sample_type, anisotropic_type, anisocache_type>(bsdf_sample, interaction, _cache, bxdf::BCM_ABS);
+            //     else
+            //     {
+            //         isocache_type isocache = _cache.iso_cache;
+            //         params = params_type::template create<sample_type, isotropic_type, isocache_type>(bsdf_sample, iso_interaction, isocache, bxdf::BCM_ABS);
+            //     }
+            // }
 
             // the value of the bsdf divided by the probability of the sample being generated
             quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(material, bxdf.params, params);
@@ -353,11 +350,7 @@ struct Unidirectional
 
                 hit = ray.objectID.id != -1;
                 if (hit)
-                {
-                    // float pp = float(ray.objectID.id) / 10.0;
-                    // ray.payload.accumulation = measure_type(pp, 1.0-pp, 0.3);
                     rayAlive = closestHitProgram(1, i, ray, scene);
-                }
 
             }
             if (!hit)
