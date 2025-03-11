@@ -268,7 +268,7 @@ struct Shape<PST_SPHERE>
     }
 
     template<class Aniso>
-    float32_t3 generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, float32_t3 xi)
+    float32_t3 generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, NBL_CONST_REF_ARG(float32_t3) xi)
     {
         float32_t3 Z = position - origin;
         const float distanceSQ = hlsl::dot<float32_t3>(Z,Z);
@@ -279,7 +279,7 @@ struct Shape<PST_SPHERE>
             Z *= rcpDistance;
 
             const float cosThetaMax = hlsl::sqrt<float32_t>(cosThetaMax2);
-            const float cosTheta = nbl::hlsl::mix<float>(1.0, cosThetaMax, xi.x);
+            const float cosTheta = hlsl::mix<float>(1.0, cosThetaMax, xi.x);
 
             float32_t3 L = Z * cosTheta;
 

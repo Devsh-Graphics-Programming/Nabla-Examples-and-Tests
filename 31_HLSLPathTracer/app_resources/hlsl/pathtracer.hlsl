@@ -94,7 +94,7 @@ struct Unidirectional
         uint32_t address = glsl::bitfieldInsert<uint32_t>(protoDimension, _sample, MAX_DEPTH_LOG2, MAX_SAMPLES_LOG2);
 	    uint32_t3 seqVal = sampleSequence[address + i].xyz;
 	    seqVal ^= randGen();
-        return vector3_type(seqVal) * asfloat(0x2f800004u);
+        return vector3_type(seqVal) * bit_cast<scalar_type>(0x2f800004u);
     }
 
     scalar_type getLuma(NBL_CONST_REF_ARG(vector3_type) col)
@@ -177,6 +177,7 @@ struct Unidirectional
                 scene.lights[lightID], intersection, interaction,
                 isBSDF, eps0, depth, scene.toNextEvent(lightID)
             );
+            //printf("%f %f %f\n", nee_sample.L.direction.x, nee_sample.L.direction.y, nee_sample.L.direction.z);
 
             // We don't allow non watertight transmitters in this renderer
             bool validPath = nee_sample.NdotL > numeric_limits<scalar_type>::min;
@@ -195,47 +196,51 @@ struct Unidirectional
                 {
                     ext::MaterialSystem::Material material;
                     material.type = bxdf.materialType;
-                    params_type params;
+
+                    bxdf::BxDFClampMode _clamp;
+                    _clamp = (bxdf.materialType == ext::MaterialSystem::Material::Type::DIELECTRIC) ? bxdf::BxDFClampMode::BCM_ABS : bxdf::BxDFClampMode::BCM_MAX;
+                    // example only uses isotropic bxdfs
+                    params_type params = params_type::template create<sample_type, isotropic_type, isocache_type>(nee_sample, interaction.isotropic, _cache.iso_cache, _clamp);
 
                     // TODO: does not yet account for smooth dielectric
-                    if (!isBSDF && bxdf.materialType == ext::MaterialSystem::Material::DIFFUSE)
-                    {
-                        params = params_type::template create<sample_type, isotropic_type>(nee_sample, iso_interaction, bxdf::BCM_MAX);
-                    }
-                    else if (!isBSDF && bxdf.materialType != ext::MaterialSystem::Material::DIFFUSE)
-                    {
-                        if (bxdf.params.is_aniso)
-                            params = params_type::template create<sample_type, anisotropic_type, anisocache_type>(nee_sample, interaction, _cache, bxdf::BCM_MAX);
-                        else
-                        {
-                            isocache_type isocache = _cache.iso_cache;
-                            params = params_type::template create<sample_type, isotropic_type, isocache_type>(nee_sample, iso_interaction, isocache, bxdf::BCM_MAX);
-                        }
-                    }
-                    else if (isBSDF && bxdf.materialType == ext::MaterialSystem::Material::DIFFUSE)
-                    {
-                        params = params_type::template create<sample_type, isotropic_type>(nee_sample, iso_interaction, bxdf::BCM_ABS);
-                    }
-                    else if (isBSDF && bxdf.materialType != ext::MaterialSystem::Material::DIFFUSE)
-                    {
-                        if (bxdf.params.is_aniso)
-                            params = params_type::template create<sample_type, anisotropic_type, anisocache_type>(nee_sample, interaction, _cache, bxdf::BCM_ABS);
-                        else
-                        {
-                            isocache_type isocache = _cache.iso_cache;
-                            params = params_type::template create<sample_type, isotropic_type, isocache_type>(nee_sample, iso_interaction, isocache, bxdf::BCM_ABS);
-                        }
-                    }
+                    // if (!isBSDF && bxdf.materialType == ext::MaterialSystem::Material::DIFFUSE)
+                    // {
+                    //     params = params_type::template create<sample_type, isotropic_type>(nee_sample, interaction.isotropic, bxdf::BCM_MAX);
+                    // }
+                    // else if (!isBSDF && bxdf.materialType != ext::MaterialSystem::Material::DIFFUSE)
+                    // {
+                    //     if (bxdf.params.is_aniso)
+                    //         params = params_type::template create<sample_type, anisotropic_type, anisocache_type>(nee_sample, interaction, _cache, bxdf::BCM_MAX);
+                    //     else
+                    //     {
+                    //         isocache_type isocache = _cache.iso_cache;
+                    //         params = params_type::template create<sample_type, isotropic_type, isocache_type>(nee_sample, interaction.isotropic, _cache.iso_cache, bxdf::BCM_MAX);
+                    //     }
+                    // }
+                    // else if (isBSDF && bxdf.materialType == ext::MaterialSystem::Material::DIFFUSE)
+                    // {
+                    //     params = params_type::template create<sample_type, isotropic_type>(nee_sample, interaction.isotropic, bxdf::BCM_ABS);
+                    // }
+                    // else if (isBSDF && bxdf.materialType != ext::MaterialSystem::Material::DIFFUSE)
+                    // {
+                    //     if (bxdf.params.is_aniso)
+                    //         params = params_type::template create<sample_type, anisotropic_type, anisocache_type>(nee_sample, interaction, _cache, bxdf::BCM_ABS);
+                    //     else
+                    //     {
+                    //         isocache_type isocache = _cache.iso_cache;
+                    //         params = params_type::template create<sample_type, isotropic_type, isocache_type>(nee_sample, interaction.isotropic, _cache.iso_cache, bxdf::BCM_ABS);
+                    //     }
+                    // }
 
                     quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(material, bxdf.params, params);
                     bsdf_quotient_pdf.quotient *= bxdf.albedo * throughput;
                     neeContrib_pdf.quotient *= bsdf_quotient_pdf.quotient;
                     const scalar_type otherGenOverChoice = bsdf_quotient_pdf.pdf * rcpChoiceProb;
-                    // const scalar_type otherGenOverLightAndChoice = otherGenOverChoice / bsdf_quotient_pdf.pdf;
-                    // neeContrib_pdf.quotient *= otherGenOverChoice / (1.f + otherGenOverLightAndChoice * otherGenOverLightAndChoice);   // balance heuristic
+                    const scalar_type otherGenOverLightAndChoice = otherGenOverChoice / bsdf_quotient_pdf.pdf;
+                    neeContrib_pdf.quotient *= otherGenOverChoice / (1.f + otherGenOverLightAndChoice * otherGenOverLightAndChoice);   // balance heuristic
 
                     // TODO: ifdef NEE only
-                    neeContrib_pdf.quotient *= otherGenOverChoice;
+                    // neeContrib_pdf.quotient *= otherGenOverChoice;
 
                     ray_type nee_ray;
                     nee_ray.origin = intersection + nee_sample.L.direction * t * Tolerance<scalar_type>::getStart(depth);
@@ -247,7 +252,7 @@ struct Unidirectional
             }
         }
 
-        return false;   // NEE only
+        //return false;   // NEE only
 
         // sample BSDF
         scalar_type bxdfPdf;
@@ -259,12 +264,17 @@ struct Unidirectional
             anisocache_type _cache;
             sample_type bsdf_sample = materialSystem.generate(material, bxdf.params, interaction, eps1, _cache);
 
+            bxdf::BxDFClampMode _clamp;
+            _clamp = (bxdf.materialType == ext::MaterialSystem::Material::Type::DIELECTRIC) ? bxdf::BxDFClampMode::BCM_ABS : bxdf::BxDFClampMode::BCM_MAX;
+            // example only uses isotropic bxdfs
+            params_type params = params_type::template create<sample_type, isotropic_type, isocache_type>(bsdf_sample, interaction.isotropic, _cache.iso_cache, _clamp);
+
             // TODO: does not yet account for smooth dielectric
-            params_type params;
-            if (!isBSDF && bxdf.materialType == ext::MaterialSystem::Material::DIFFUSE)
-            {
-                params = params_type::template create<sample_type, isotropic_type>(bsdf_sample, iso_interaction, bxdf::BCM_MAX);
-            }
+            // params_type params;
+            // if (!isBSDF && bxdf.materialType == ext::MaterialSystem::Material::DIFFUSE)
+            // {
+            //     params = params_type::template create<sample_type, isotropic_type>(bsdf_sample, iso_interaction, bxdf::BCM_MAX);
+            // }
             // else if (!isBSDF && bxdf.materialType != ext::MaterialSystem::Material::DIFFUSE)
             // {
             //     if (bxdf.params.is_aniso)
@@ -292,7 +302,8 @@ struct Unidirectional
 
             // the value of the bsdf divided by the probability of the sample being generated
             quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(material, bxdf.params, params);
-            throughput *= bsdf_quotient_pdf.quotient;
+            throughput *= bxdf.albedo * bsdf_quotient_pdf.quotient;
+            bxdfPdf = bsdf_quotient_pdf.pdf;
             bxdfSample = bsdf_sample.L.direction;
         }
 
@@ -351,7 +362,6 @@ struct Unidirectional
                 hit = ray.objectID.id != -1;
                 if (hit)
                     rayAlive = closestHitProgram(1, i, ray, scene);
-
             }
             if (!hit)
                 missProgram(ray);

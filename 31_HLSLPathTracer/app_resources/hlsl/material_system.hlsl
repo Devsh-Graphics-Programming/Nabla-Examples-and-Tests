@@ -123,13 +123,8 @@ struct System
 
     quotient_pdf_type quotient_and_pdf(NBL_CONST_REF_ARG(Material) material, NBL_CONST_REF_ARG(create_params_t) cparams, NBL_CONST_REF_ARG(params_t) params)
     {
-        
-        const bool transmissive = material.type == Material::Type::DIELECTRIC;
-        const float clampedNdotV = math::conditionalAbsOrMax<float>(transmissive, params.uNdotV, 0.0);
-        const float clampedNdotL = math::conditionalAbsOrMax<float>(transmissive, params.uNdotL, 0.0);
-
         const float minimumProjVectorLen = 0.00000001;
-        if (clampedNdotV > minimumProjVectorLen && clampedNdotL > minimumProjVectorLen)
+        if (params.NdotV > minimumProjVectorLen && params.NdotL > minimumProjVectorLen)
         {
             switch(material.type)
             {
