@@ -547,7 +547,7 @@ struct TestJacobian : TestBxDF<BxDF>
         if (checkZero<float>(pdf.pdf, 1e-5))  // something generated cannot have 0 probability of getting generated
             return BET_PDF_ZERO;
 
-        if (!checkLt<float32_t3>(pdf.quotient, bit_cast<float, uint32_t>(numeric_limits<float>::infinity)))    // importance sampler's job to prevent inf
+        if (!checkLt<float32_t3>(pdf.quotient, (float32_t3)bit_cast<float, uint32_t>(numeric_limits<float>::infinity)))    // importance sampler's job to prevent inf
             return BET_QUOTIENT_INF;
 
         if (checkZero<float32_t3>(bsdf, 1e-5) || checkZero<float32_t3>(pdf.quotient, 1e-5))
@@ -1252,7 +1252,7 @@ struct TestChi2 : TestBxDF<BxDF>
                                 pdf = base_t::bxdf.quotient_and_pdf(params);
                             }
                         }
-                        return pdf.pdf * sinTheta;
+                        return pdf.pdf == bit_cast<float>(numeric_limits<float>::infinity) ? 0.0 : pdf.pdf * sinTheta;
                     },
                     float32_t2(i * thetaFactor, j * phiFactor), float32_t2((i + 1) * thetaFactor, (j + 1) * phiFactor));
 
@@ -1267,10 +1267,10 @@ struct TestChi2 : TestBxDF<BxDF>
     ErrorType test()
     {
         if (bxdf_traits<BxDF>::type == BT_BRDF)
-            if (base_t::isointer.NdotV <= bit_cast<float>(numeric_limits<float>::min))
+            if (base_t::isointer.NdotV <= numeric_limits<float>::min)
                 return BET_INVALID;
         else if (bxdf_traits<BxDF>::type == BT_BSDF)
-            if (abs<float>(base_t::isointer.NdotV) <= bit_cast<float>(numeric_limits<float>::min))
+            if (abs<float>(base_t::isointer.NdotV) <= numeric_limits<float>::min)
                 return BET_INVALID;
 
         ErrorType res = compute();

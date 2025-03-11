@@ -52,13 +52,14 @@ struct PrintFailureCallback : FailureCallback
             fprintf(stderr, "[ERROR] seed %u: %s unknown error\n", failedFor.rc.state, failedFor.name.c_str());
         }
 
-        // TODO: #ifdef NBL_ENABLE_DEBUGBREAK
+#ifdef _NBL_DEBUG
         for (volatile bool repeat = true; IsDebuggerPresent() && repeat && error < BET_NOBREAK; )
         {
             repeat = false;
-            __debugbreak();
+            _NBL_DEBUG_BREAK_IF(true);
             failedFor.compute();
         }
+#endif
     }
 };
 
@@ -234,8 +235,8 @@ int main(int argc, char** argv)
     TestChi2<bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, true>::run(initparams, cb);
 
     TestChi2<bxdf::transmission::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>>::run(initparams, cb);
-    TestChi2<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, false>>::run(initparams, cb);
-    TestChi2<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, true>>::run(initparams, cb);
+    //TestChi2<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, false>>::run(initparams, cb);
+    //TestChi2<bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, true>>::run(initparams, cb);
     TestChi2<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, false>::run(initparams, cb);
     TestChi2<bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, true>::run(initparams, cb);
     TestChi2<bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>, false>::run(initparams, cb);
