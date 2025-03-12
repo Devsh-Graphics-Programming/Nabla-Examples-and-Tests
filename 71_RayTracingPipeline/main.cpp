@@ -28,7 +28,6 @@ class RaytracingPipelineApp final : public examples::SimpleWindowedApplication, 
   struct ShaderBindingTable
   {
     SBufferRange<IGPUBuffer> raygenGroupRange;
-    uint32_t raygenGroupStride;
     SBufferRange<IGPUBuffer> hitGroupsRange;
     uint32_t hitGroupsStride;
     SBufferRange<IGPUBuffer> missGroupsRange;
@@ -742,7 +741,7 @@ public:
       }else
       {
         cmdbuf->traceRays(
-          m_shaderBindingTable.raygenGroupRange, m_shaderBindingTable.raygenGroupStride,
+          m_shaderBindingTable.raygenGroupRange,
           m_shaderBindingTable.missGroupsRange, m_shaderBindingTable.missGroupsStride,
           m_shaderBindingTable.hitGroupsRange, m_shaderBindingTable.hitGroupsStride,
           m_shaderBindingTable.callableGroupsRange, m_shaderBindingTable.callableGroupsStride,
@@ -1326,7 +1325,6 @@ private:
       .offset = 0,
       .size = core::alignUp(handleSizeAligned, limits.shaderGroupBaseAlignment)
     };
-    m_shaderBindingTable.raygenGroupStride = core::alignUp(handleSizeAligned, limits.shaderGroupBaseAlignment);
 
     missRange = {
       .offset = raygenRange.size,
