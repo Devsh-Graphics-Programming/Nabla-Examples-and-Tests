@@ -482,9 +482,9 @@ public:
       {
         IGPUSampler::SParams params;
         params.AnisotropicFilter = 1u;
-        params.TextureWrapU = ISampler::ETC_REPEAT;
-        params.TextureWrapV = ISampler::ETC_REPEAT;
-        params.TextureWrapW = ISampler::ETC_REPEAT;
+        params.TextureWrapU = ETC_REPEAT;
+        params.TextureWrapV = ETC_REPEAT;
+        params.TextureWrapW = ETC_REPEAT;
 
         m_ui.samplers.gui = m_device->createSampler(params);
         m_ui.samplers.gui->setObjectDebugName("Nabla IMGUI UI Sampler");
@@ -578,10 +578,10 @@ public:
           ImGui::SliderFloat3("Light Direction", &m_light.direction.x, -1.f, 1.f);
           ImGui::SliderFloat3("Light Position", &m_light.position.x, -20.f, 20.f);
 
-          float32_t dOuterCutoff = degrees(acos(m_light.outerCutoff));
+          float32_t dOuterCutoff = hlsl::degrees(acos(m_light.outerCutoff));
           if (ImGui::SliderFloat("Light Outer Cutoff", &dOuterCutoff, 0.0f, 45.0f))
           {
-            m_light.outerCutoff = cos(radians(dOuterCutoff));
+            m_light.outerCutoff = cos(hlsl::radians(dOuterCutoff));
           }
         }
         ImGui::Checkbox("Use Indirect Command", &m_useIndirectCommand);
