@@ -1,5 +1,4 @@
 #include "fft_mirror_common.hlsl"
-#include "nbl/builtin/hlsl/bitreverse.hlsl"
 
 [[vk::binding(3, 0)]] Texture2DArray<float32_t2> kernelChannels;
 [[vk::binding(1, 0)]] SamplerState samplerState;
@@ -22,7 +21,11 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t NumWorkgroups = ShaderConstevalParameters::NumWorkgroups;
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t PreviousWorkgroupSize = uint32_t(ShaderConstevalParameters::PreviousWorkgroupSize);
 	NBL_CONSTEXPR_STATIC_INLINE float32_t TotalSizeReciprocal = ShaderConstevalParameters::TotalSizeReciprocal;
+	NBL_CONSTEXPR_STATIC_INLINE uint16_t KernelSideLength = ShaderConstevalParameters::KernelSideLength;
 	NBL_CONSTEXPR_STATIC_INLINE float32_t2 KernelHalfPixelSize;
+
+	// When sampling u/v coordinates along the first axis we did an FFT on, workgroup `w` samples at normalized position `SampleSlope * w + KernelHalfPixelSize`
+	NBL_CONSTEXPR_STATIC_INLINE float32_t SampleSlope = float32_t(KernelSideLength) / float32_t(NumWorkgroups * uint32_t(KernelSideLength + 2));
 
 	NBL_CONSTEXPR_STATIC_INLINE vector<scalar_t, 2> One;
 
@@ -127,14 +130,14 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 	{
 		if (glsl::gl_WorkGroupID().x)
 		{
-			const uint32_t y = bitReverseAs<uint32_t, NumWorkgroupsLog2>(glsl::gl_WorkGroupID().x);
+			const uint32_t y = bitReverseAs<uint32_t>(glsl::gl_WorkGroupID().x, NumWorkgroupsLog2);
 			uint32_t globalElementIndex = workgroup::SubgroupContiguousIndex();
 			[unroll]
 			for (uint32_t localElementIndex = 0; localElementIndex < ElementsPerInvocation; localElementIndex++)
 			{
 				const uint32_t indexDFT = FFTIndexingUtils::getDFTIndex(globalElementIndex);
 				const uint32_t2 texCoords = uint32_t2(indexDFT, y);
-				const float32_t2 uv = texCoords * float32_t2(TotalSizeReciprocal, 1.f / NumWorkgroups) + KernelHalfPixelSize;
+				const float32_t2 uv = texCoords * float32_t2(TotalSizeReciprocal, SampleSlope) + KernelHalfPixelSize;
 				const vector<scalar_t, 2> sampledKernelVector = vector<scalar_t, 2>(kernelChannels.SampleLevel(samplerState, float32_t3(uv, float32_t(glsl::gl_WorkGroupID().y)), 0));
 				const vector<scalar_t, 2> sampledKernelInterpolatedVector = lerp(sampledKernelVector, One, promote<vector<scalar_t, 2>, float32_t>(pushConstants.interpolatingFactor));
 				const complex_t<scalar_t> sampledKernelInterpolated = { sampledKernelInterpolatedVector.x, sampledKernelInterpolatedVector.y };

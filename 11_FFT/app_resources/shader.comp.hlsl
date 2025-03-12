@@ -43,6 +43,7 @@ struct Accessor
         return accessor;
     }
 
+	// TODO: can't use our own BDA yet, because it doesn't support the types `workgroup::FFT` will invoke these templates with
 	template <typename AccessType>
 	void get(const uint32_t index, NBL_REF_ARG(AccessType) value)
 	{

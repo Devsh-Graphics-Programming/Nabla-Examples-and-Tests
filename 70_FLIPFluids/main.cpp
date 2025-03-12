@@ -330,13 +330,13 @@ public:
         }
 
         IGPUSampler::SParams samplerParams = {};
-        samplerParams.TextureWrapU = IGPUSampler::ETC_CLAMP_TO_BORDER;
-        samplerParams.TextureWrapV = IGPUSampler::ETC_CLAMP_TO_BORDER;
-        samplerParams.TextureWrapW = IGPUSampler::ETC_CLAMP_TO_BORDER;
-        samplerParams.BorderColor  = IGPUSampler::ETBC_FLOAT_TRANSPARENT_BLACK;
-        samplerParams.MinFilter		= IGPUSampler::ETF_LINEAR;
-        samplerParams.MaxFilter		= IGPUSampler::ETF_LINEAR;
-        samplerParams.MipmapMode	= IGPUSampler::ESMM_LINEAR;
+        samplerParams.TextureWrapU = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+        samplerParams.TextureWrapV = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+        samplerParams.TextureWrapW = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+        samplerParams.BorderColor  = IGPUSampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_TRANSPARENT_BLACK;
+        samplerParams.MinFilter		= IGPUSampler::E_TEXTURE_FILTER::ETF_LINEAR;
+        samplerParams.MaxFilter		= IGPUSampler::E_TEXTURE_FILTER::ETF_LINEAR;
+        samplerParams.MipmapMode	= IGPUSampler::E_SAMPLER_MIPMAP_MODE::ESMM_LINEAR;
         samplerParams.AnisotropicFilter = 3;
         samplerParams.CompareEnable = false;
         velocityFieldSampler = m_device->createSampler(samplerParams);
@@ -1427,9 +1427,9 @@ private:
                 options.stage = IShader::E_SHADER_STAGE::ESS_VERTEX;
             options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
             options.spirvOptimizer = nullptr;
-		#ifndef _NBL_DEBUG
-		    ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
-		    auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
+        #ifndef _NBL_DEBUG
+            ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
+            auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
             options.spirvOptimizer = opt.get();
         #endif
             options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
