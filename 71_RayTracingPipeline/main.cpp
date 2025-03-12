@@ -730,10 +730,6 @@ public:
       if (m_useIndirectCommand)
       {
         cmdbuf->traceRaysIndirect(
-          m_shaderBindingTable.raygenGroupRange, m_shaderBindingTable.raygenGroupStride,
-          m_shaderBindingTable.missGroupsRange, m_shaderBindingTable.missGroupsStride,
-          m_shaderBindingTable.hitGroupsRange, m_shaderBindingTable.hitGroupsStride,
-          m_shaderBindingTable.callableGroupsRange, m_shaderBindingTable.callableGroupsStride,
           SBufferBinding<const IGPUBuffer>{
             .offset = 0,
             .buffer = m_indirectBuffer,
@@ -1042,7 +1038,26 @@ private:
 
   bool createIndirectBuffer(video::CThreadSafeQueueAdapter* queue)
   {
-    const auto command = TraceRaysIndirectCommand_t{ WIN_W, WIN_H, 1 };
+    const auto getBufferRangeAddress = [](const SBufferRange<IGPUBuffer>& range)
+      {
+        return range.buffer->getDeviceAddress() + range.offset;
+      };
+    const auto command = TraceRaysIndirectCommand_t{
+      .raygenShaderRecordAddress = getBufferRangeAddress(m_shaderBindingTable.raygenGroupRange),
+      .raygenShaderRecordSize = m_shaderBindingTable.raygenGroupRange.size,
+      .missShaderBindingTableAddress = getBufferRangeAddress(m_shaderBindingTable.missGroupsRange),
+      .missShaderBindingTableSize = m_shaderBindingTable.missGroupsRange.size,
+      .missShaderBindingTableStride = m_shaderBindingTable.missGroupsStride,
+      .hitShaderBindingTableAddress = getBufferRangeAddress(m_shaderBindingTable.hitGroupsRange),
+      .hitShaderBindingTableSize = m_shaderBindingTable.hitGroupsRange.size,
+      .hitShaderBindingTableStride = m_shaderBindingTable.hitGroupsStride,
+      .callableShaderBindingTableAddress = getBufferRangeAddress(m_shaderBindingTable.callableGroupsRange),
+      .callableShaderBindingTableSize = m_shaderBindingTable.callableGroupsRange.size,
+      .callableShaderBindingTableStride = m_shaderBindingTable.callableGroupsStride,
+      .width = WIN_W,
+      .height = WIN_H,
+      .depth = 1,
+    };
     IGPUBuffer::SCreationParams params;
     params.usage = IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INDIRECT_BUFFER_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
     params.size = sizeof(TraceRaysIndirectCommand_t);
