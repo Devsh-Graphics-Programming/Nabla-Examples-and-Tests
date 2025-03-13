@@ -91,7 +91,7 @@ void main()
 
             uint32_t shadowRayFlags = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER;
             OcclusionPayload occlusionPayload;
-            occlusionPayload.attenuation = 1; // negative attenuation indicate occlusion happening. will be multiplied by -1 in miss shader.
+            occlusionPayload.attenuation = 1;
             TraceRay(topLevelAS, shadowRayFlags, 0xFF, ERT_OCCLUSION, 0, EMT_OCCLUSION, rayDesc, occlusionPayload);
 
             attenuation = occlusionPayload.attenuation;

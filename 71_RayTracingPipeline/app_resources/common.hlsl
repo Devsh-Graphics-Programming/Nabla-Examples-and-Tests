@@ -64,7 +64,7 @@ struct MaterialPacked
     bool isTransparent() NBL_CONST_MEMBER_FUNC
     {
         return alpha != MAX_UNORM_10;
-}
+    }
 };
 
 inline MaterialPacked packMaterial(Material material)
