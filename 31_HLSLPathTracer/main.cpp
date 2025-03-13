@@ -1350,7 +1350,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		int PTPipline = E_LIGHT_GEOMETRY::ELG_SPHERE;
 		int renderMode = E_RENDER_MODE::ERM_HLSL;
 		int spp = 32;
-		int depth = 1;
+		int depth = 3;
 
 		bool m_firstFrame = true;
 		IGPUCommandBuffer::SClearColorValue clearColor = { .float32 = {0.f,0.f,0.f,1.f} };

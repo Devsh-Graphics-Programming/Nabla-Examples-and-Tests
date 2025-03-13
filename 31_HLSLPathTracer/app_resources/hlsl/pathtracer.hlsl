@@ -150,8 +150,8 @@ struct Unidirectional
 
         // TODO: ifdef kill diffuse specular paths
 
-        const bool isBSDF = (bxdf.materialType == ext::MaterialSystem::Material::Type::DIFFUSE) ? bxdf_traits<diffuse_op_type>::type == BT_BSDF :
-                            (bxdf.materialType == ext::MaterialSystem::Material::Type::CONDUCTOR) ? bxdf_traits<conductor_op_type>::type == BT_BSDF :
+        const bool isBSDF = (bxdf.materialType == ext::MaterialSystem::MaterialType::DIFFUSE) ? bxdf_traits<diffuse_op_type>::type == BT_BSDF :
+                            (bxdf.materialType == ext::MaterialSystem::MaterialType::CONDUCTOR) ? bxdf_traits<conductor_op_type>::type == BT_BSDF :
                             bxdf_traits<dielectric_op_type>::type == BT_BSDF;
 
         vector3_type eps0 = rand3d(depth, _sample, 0u);
@@ -193,11 +193,8 @@ struct Unidirectional
                     ray.payload.accumulation += vector3_type(0.f, 1000.f, 0.f);
                 else if (validPath)
                 {
-                    ext::MaterialSystem::Material material;
-                    material.type = bxdf.materialType;
-
                     bxdf::BxDFClampMode _clamp;
-                    _clamp = (bxdf.materialType == ext::MaterialSystem::Material::Type::DIELECTRIC) ? bxdf::BxDFClampMode::BCM_ABS : bxdf::BxDFClampMode::BCM_MAX;
+                    _clamp = (bxdf.materialType == ext::MaterialSystem::MaterialType::DIELECTRIC) ? bxdf::BxDFClampMode::BCM_ABS : bxdf::BxDFClampMode::BCM_MAX;
                     // example only uses isotropic bxdfs
                     params_type params = params_type::template create<sample_type, isotropic_type, isocache_type>(nee_sample, interaction.isotropic, _cache.iso_cache, _clamp);
 
@@ -231,7 +228,7 @@ struct Unidirectional
                     //     }
                     // }
 
-                    quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(material, bxdf.params, params);
+                    quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(bxdf.materialType, bxdf.params, params);
                     neeContrib_pdf.quotient *= bxdf.albedo * throughput * bsdf_quotient_pdf.quotient;
                     const scalar_type otherGenOverChoice = bsdf_quotient_pdf.pdf * rcpChoiceProb;
                     const scalar_type otherGenOverLightAndChoice = otherGenOverChoice / bsdf_quotient_pdf.pdf;
@@ -256,14 +253,11 @@ struct Unidirectional
         scalar_type bxdfPdf;
         vector3_type bxdfSample;
         {
-            ext::MaterialSystem::Material material;
-            material.type = bxdf.materialType;
-
             anisocache_type _cache;
-            sample_type bsdf_sample = materialSystem.generate(material, bxdf.params, interaction, eps1, _cache);
+            sample_type bsdf_sample = materialSystem.generate(bxdf.materialType, bxdf.params, interaction, eps1, _cache);
 
             bxdf::BxDFClampMode _clamp;
-            _clamp = (bxdf.materialType == ext::MaterialSystem::Material::Type::DIELECTRIC) ? bxdf::BxDFClampMode::BCM_ABS : bxdf::BxDFClampMode::BCM_MAX;
+            _clamp = (bxdf.materialType == ext::MaterialSystem::MaterialType::DIELECTRIC) ? bxdf::BxDFClampMode::BCM_ABS : bxdf::BxDFClampMode::BCM_MAX;
             // example only uses isotropic bxdfs
             params_type params = params_type::template create<sample_type, isotropic_type, isocache_type>(bsdf_sample, interaction.isotropic, _cache.iso_cache, _clamp);
 
@@ -299,7 +293,7 @@ struct Unidirectional
             // }
 
             // the value of the bsdf divided by the probability of the sample being generated
-            quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(material, bxdf.params, params);
+            quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(bxdf.materialType, bxdf.params, params);
             throughput *= bxdf.albedo * bsdf_quotient_pdf.quotient;
             bxdfPdf = bsdf_quotient_pdf.pdf;
             bxdfSample = bsdf_sample.L.direction;

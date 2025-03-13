@@ -108,13 +108,13 @@ static const light_type lights[LIGHT_COUNT] = {
 
 #define BXDF_COUNT 7
 static const bxdfnode_type bxdfs[BXDF_COUNT] = {
-    bxdfnode_type::create(ext::MaterialSystem::Material::Type::DIFFUSE, false, float2(0,0), spectral_t(0.8,0.8,0.8)),
-    bxdfnode_type::create(ext::MaterialSystem::Material::Type::DIFFUSE, false, float2(0,0), spectral_t(0.8,0.4,0.4)),
-    bxdfnode_type::create(ext::MaterialSystem::Material::Type::DIFFUSE, false, float2(0,0), spectral_t(0.4,0.8,0.4)),
-    bxdfnode_type::create(ext::MaterialSystem::Material::Type::CONDUCTOR, false, float2(0,0), spectral_t(1,1,1), spectral_t(0.98,0.98,0.77)),
-    bxdfnode_type::create(ext::MaterialSystem::Material::Type::CONDUCTOR, false, float2(0,0), spectral_t(1,1,1), spectral_t(0.98,0.77,0.98)),
-    bxdfnode_type::create(ext::MaterialSystem::Material::Type::CONDUCTOR, false, float2(0.15,0.15), spectral_t(1,1,1), spectral_t(0.98,0.77,0.98)),
-    bxdfnode_type::create(ext::MaterialSystem::Material::Type::DIELECTRIC, false, float2(0.0625,0.0625), spectral_t(1,1,1), spectral_t(0.71,0.69,0.67))
+    bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.8,0.8,0.8)),
+    bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.8,0.4,0.4)),
+    bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.4,0.8,0.4)),
+    bxdfnode_type::create(ext::MaterialSystem::MaterialType::CONDUCTOR, false, float2(0,0), spectral_t(1,1,1), spectral_t(0.98,0.98,0.77)),
+    bxdfnode_type::create(ext::MaterialSystem::MaterialType::CONDUCTOR, false, float2(0,0), spectral_t(1,1,1), spectral_t(0.98,0.77,0.98)),
+    bxdfnode_type::create(ext::MaterialSystem::MaterialType::CONDUCTOR, false, float2(0.15,0.15), spectral_t(1,1,1), spectral_t(0.98,0.77,0.98)),
+    bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIELECTRIC, false, float2(0.0625,0.0625), spectral_t(1,1,1), spectral_t(0.71,0.69,0.67))
 };
 
 [numthreads(WorkgroupSize, WorkgroupSize, 1)]
