@@ -1501,6 +1501,14 @@ public:
 		retval.fragmentShaderPixelInterlock = FragmentShaderPixelInterlock;
 		return retval;
 	}
+
+	virtual video::SPhysicalDeviceLimits getRequiredDeviceLimits() const override
+	{
+		video::SPhysicalDeviceLimits retval = base_t::getRequiredDeviceLimits();
+		retval.fragmentShaderBarycentric = true;
+
+		return retval;
+	}
 		
 	virtual video::IAPIConnection::SFeatures getAPIFeaturesToEnable() override
 	{

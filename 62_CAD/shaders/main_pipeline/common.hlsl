@@ -75,10 +75,10 @@ struct PSInput
     // Data segments that need interpolation, mostly for hatches
     [[vk::location(5)]] float2 interp_data5 : COLOR5;
 #ifdef FRAGMENT_SHADER_INPUT
-    [[vk::location(6)]] [[vk::ext_decorate(/*spv::DecoratePerVertexKHR*/5285)]] nointerpolation float3 vertexScreenSpacePos[3] : COLOR6;
+    [[vk::location(6)]] [[vk::ext_decorate(/*spv::DecoratePerVertexKHR*/5285)]] float3 vertexScreenSpacePos[3] : COLOR6;
 #else
-    [[vk::location(6)]] nointerpolation float3 vertexScreenSpacePos : COLOR6;
-#endif 
+    [[vk::location(6)]] float3 vertexScreenSpacePos : COLOR6;
+#endif
     // ArcLenCalculator<float>
 
     // Set functions used in vshader, get functions used in fshader

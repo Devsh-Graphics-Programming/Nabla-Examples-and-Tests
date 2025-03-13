@@ -256,7 +256,7 @@ void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, CTriangleM
 
 	// call addMainObject_SubmitIfNeeded, use its index in push constants
 
-	drawData.pushConstants.triangleMeshMainObjectIndex = addMainObject_SubmitIfNeeded(0, intendedNextSubmit);
+	drawData.pushConstants.triangleMeshMainObjectIndex = addMainObject_SubmitIfNeeded(InvalidStyleIdx, intendedNextSubmit);
 
 	// TODO: use this function later for auto submit
 	//submitCurrentDrawObjectsAndReset(intendedNextSubmit, 0);

@@ -407,22 +407,71 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
 [shader("pixel")]
 float4 fragMain(PSInput input) : SV_TARGET
 {
-    float3 v0 = input.getScreenSpaceVertexPos(0);
-    float3 v1 = input.getScreenSpaceVertexPos(1);
-    float3 v2 = input.getScreenSpaceVertexPos(2);
-
-    printf("v0 = { %f, %f, %f }\nv1 = { %f, %f, %f }\nv2 = { %f, %f, %f }", v0.x, v0.y, v0.z, v1.x, v1.y, v1.z, v2.x, v2.y, v2.z);
-
-    return float4(1.0f, 0.0f, 0.0f, 1.0f);
-
     float localAlpha = 0.0f;
     float3 textureColor = float3(0, 0, 0); // color sampled from a texture
 
-    // TODO[Przemek]: Disable All the object rendering paths if you want.
     ObjectType objType = input.getObjType();
     const uint32_t currentMainObjectIdx = input.getMainObjectIdx();
     const MainObject mainObj = mainObjects[currentMainObjectIdx];
-    
+
+    // TRIANGLE RENDERING
+    {
+        float3 v0 = input.getScreenSpaceVertexPos(0);
+        float3 v1 = input.getScreenSpaceVertexPos(1);
+        float3 v2 = input.getScreenSpaceVertexPos(2);
+
+        float2 start;
+        float2 end;
+        const float3 baryCoord = nbl::hlsl::spirv::BaryCoordKHR;
+
+        // TODO: figure out if branching can be reduced
+        if (baryCoord.x < baryCoord.y && baryCoord.x < baryCoord.z)
+        {
+            start = v1;
+            end = v2;
+        }
+        else if (baryCoord.y < baryCoord.x && baryCoord.y < baryCoord.z)
+        {
+            start = v0;
+            end = v2;
+        }
+        else if (baryCoord.z < baryCoord.x && baryCoord.z < baryCoord.y)
+        {
+            start = v0;
+            end = v1;
+        }
+
+        float distance = nbl::hlsl::numeric_limits<float>::max;
+        const uint32_t styleIdx = mainObj.styleIdx;
+        const float thickness = 2.0f;
+        const float phaseShift = 0.0f;
+        const float stretch = 0.0f;
+        const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
+
+        nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(start, end);
+        nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
+
+        LineStyle style = lineStyles[styleIdx];
+
+        // TODO: stipples
+        //if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
+        //{
+            //distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag);
+        //}
+        //else
+        //{
+        //    LineStyleClipper clipper = LineStyleClipper::construct(lineStyles[styleIdx], lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
+        //    distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
+        //}
+
+        distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness, true);
+
+        localAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, distance);
+    }
+
+    textureColor = float3(1.0f, 1.0f, 1.0f);
+    return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(uint2(input.position.xy), localAlpha, currentMainObjectIdx, textureColor, true);
+
     // figure out local alpha with sdf
     if (objType == ObjectType::LINE || objType == ObjectType::QUAD_BEZIER || objType == ObjectType::POLYLINE_CONNECTOR)
     {
