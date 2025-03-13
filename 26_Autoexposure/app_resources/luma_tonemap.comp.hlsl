@@ -54,7 +54,7 @@ struct TexAccessor
 
 uint32_t3 glsl::gl_WorkGroupSize()
 {
-    return uint32_t3(WorkgroupSize, 1, 1);
+    return uint32_t3(DeviceSubgroupSize, DeviceSubgroupSize, 1);
 }
 
 [numthreads(DeviceSubgroupSize, DeviceSubgroupSize, 1)]
@@ -77,13 +77,12 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
         morton2d_decode_y(tid)
     };
 
-    uint32_t2 pos = glsl::gl_WorkGroupID() * glsl::gl_WorkGroupSize() + coord;
-
+    uint32_t2 pos = (glsl::gl_WorkGroupID() * glsl::gl_WorkGroupSize()).xy + coord;
     float32_t2 uv = (float32_t2)(pos) / pushData.viewportSize;
     float32_t3 color = colorspace::oetf::sRGB(tex.get(uv).rgb);
     float32_t3 CIEColor = mul(colorspace::sRGBtoXYZ, color);
     tonemapper::Reinhard<float32_t> reinhard = tonemapper::Reinhard<float32_t>::create(EV);
     float32_t3 tonemappedColor = mul(colorspace::decode::XYZtoscRGB, reinhard(CIEColor));
 
-    textureOut[pos] = float32_t4(colorspace::eotf::sRGB(tonemappedColor), 1.0f);
+    textureOut[pos] = float32_t4(tonemappedColor, 1.0f);
 }

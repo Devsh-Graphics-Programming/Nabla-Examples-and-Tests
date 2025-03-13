@@ -49,7 +49,7 @@ struct TexAccessor
 
 uint32_t3 glsl::gl_WorkGroupSize()
 {
-    return uint32_t3(WorkgroupSize, 1, 1);
+    return uint32_t3(DeviceSubgroupSize, DeviceSubgroupSize, 1);
 }
 
 [numthreads(DeviceSubgroupSize, DeviceSubgroupSize, 1)]

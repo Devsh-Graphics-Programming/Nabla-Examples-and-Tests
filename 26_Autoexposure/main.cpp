@@ -205,15 +205,15 @@ public:
 				return result;
 			};
 
-			ISampler::SParams samplerParams = {
-				.AnisotropicFilter = 0
-			};
+			ISampler::SParams samplerParams;
+			samplerParams.AnisotropicFilter = 0;
 			auto defaultSampler = make_smart_refctd_ptr<ICPUSampler>(samplerParams);
 
-			std::array<ICPUDescriptorSetLayout::SBinding, 1> imgSamplerbindings = {};
-			std::array<ICPUDescriptorSetLayout::SBinding, 1> rwImgbindings = {};
+			std::array<ICPUDescriptorSetLayout::SBinding, 1> gpuImgbindings = {};
+			std::array<ICPUDescriptorSetLayout::SBinding, 1> tonemappedImgRWbindings = {};
+			std::array<ICPUDescriptorSetLayout::SBinding, 1> tonemappedImgSamplerbindings = {};
 
-			imgSamplerbindings[0] = {
+			gpuImgbindings[0] = {
 				.binding = 0u,
 				.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 				.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
@@ -221,38 +221,52 @@ public:
 				.count = 1u,
 				.immutableSamplers = &defaultSampler
 			};
-			rwImgbindings[0] = {
+			tonemappedImgRWbindings[0] = {
 				.binding = 0u,
 				.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
 				.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE | IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+				.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 				.count = 1u,
 				.immutableSamplers = nullptr
 			};
+			tonemappedImgSamplerbindings[0] = {
+				.binding = 0u,
+				.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+				.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+				.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+				.count = 1u,
+				.immutableSamplers = &defaultSampler
+			};
 
-			auto cpuImgSamplerLayout = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(imgSamplerbindings);
-			auto cpuRWImgLayout = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(rwImgbindings);
+			auto cpuGpuImgLayout = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(gpuImgbindings);
+			auto cpuTonemappedImgRWLayout = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(tonemappedImgRWbindings);
+			auto cpuTonemappedImgSamplerLayout = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(tonemappedImgSamplerbindings);
 
-			std::array<ICPUDescriptorSetLayout*, 2> cpuLayouts = {
-				cpuImgSamplerLayout.get(),
-				cpuRWImgLayout.get()
+			std::array<ICPUDescriptorSetLayout*, 3> cpuLayouts = {
+				cpuGpuImgLayout.get(),
+				cpuTonemappedImgRWLayout.get(),
+				cpuTonemappedImgSamplerLayout.get()
 			};
 
 			auto gpuLayouts = convertDSLayoutCPU2GPU(cpuLayouts);
 
-			auto cpuImgSamplerDS = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuImgSamplerLayout));
-			auto cpuRWImgDS = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuRWImgLayout));
+			auto cpuGpuImgDS = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuGpuImgLayout));
+			auto cpuTonemappedImgRWDS = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuTonemappedImgRWLayout));
+			auto cpuTonemappedImgSamplerDS = make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(cpuTonemappedImgSamplerLayout));
 
-			std::array<ICPUDescriptorSet*, 2> cpuDS = {
-				cpuImgSamplerDS.get(),
-				cpuRWImgDS.get()
+			std::array<ICPUDescriptorSet*, 3> cpuDS = {
+				cpuGpuImgDS.get(),
+				cpuTonemappedImgRWDS.get(),
+				cpuTonemappedImgSamplerDS.get()
 			};
 
 			auto gpuDS = convertDSCPU2GPU(cpuDS);
-			m_imgSamplerDS = gpuDS[0];
-			m_imgSamplerDS->setObjectDebugName("m_imgSamplerDS");
-			m_rwImgDS = gpuDS[1];
-			m_rwImgDS->setObjectDebugName("m_rwImgDS");
+			m_gpuImgDS = gpuDS[0];
+			m_gpuImgDS->setObjectDebugName("m_gpuImgDS");
+			m_tonemappedImgRWDS = gpuDS[1];
+			m_tonemappedImgRWDS->setObjectDebugName("m_tonemappedImgRWDS");
+			m_tonemappedImgSamplerDS = gpuDS[2];
+			m_tonemappedImgSamplerDS->setObjectDebugName("m_tonemappedImgSamplerDS");
 
 			// Create Shaders
 			auto loadAndCompileShader = [&](std::string pathToShader) {
@@ -377,53 +391,12 @@ public:
 					nullptr,
 					nullptr,
 					nullptr,
-					std::move(gpuLayouts[1])
+					smart_refctd_ptr(gpuLayouts[2])
 				);
 				m_presentPipeline = fsTriProtoPPln.createPipeline(fragSpec, presentLayout.get(), scRes->getRenderpass());
 				if (!m_presentPipeline)
 					return logFail("Could not create Graphics Pipeline!");
 			}
-		}
-
-		// Allocate and create buffer for Luma Gather
-		{
-			// Allocate memory
-			m_gatherAllocation = {};
-			{
-				auto build_buffer = [this](
-					smart_refctd_ptr<ILogicalDevice> m_device,
-					nbl::video::IDeviceMemoryAllocator::SAllocation* allocation,
-					smart_refctd_ptr<IGPUBuffer>& buffer,
-					size_t buffer_size,
-					const char* label)
-				{
-					IGPUBuffer::SCreationParams params;
-					params.size = buffer_size;
-					params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-					buffer = m_device->createBuffer(std::move(params));
-					if (!buffer)
-						return logFail("Failed to create GPU buffer of size %d!\n", buffer_size);
-
-					buffer->setObjectDebugName(label);
-
-					auto reqs = buffer->getMemoryReqs();
-					reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
-
-					*allocation = m_device->allocate(reqs, buffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
-					if (!allocation->isValid())
-						return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
-
-					assert(allocation->memory.get() == buffer->getBoundMemory().memory);
-					return true;
-				};
-
-				build_buffer(m_device, &m_gatherAllocation, m_gatherBuffer, m_physicalDevice->getLimits().maxSubgroupSize, "Luma Gather Buffer");
-			}
-			m_gatherBDA = m_gatherBuffer->getDeviceAddress();
-
-			auto mapped_memory = m_gatherAllocation.memory->map({ 0ull, m_gatherAllocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ);
-			if (!mapped_memory)
-				return logFail("Failed to map the Device Memory!\n");
 		}
 
 		// Load exr file into gpu
@@ -580,6 +553,52 @@ public:
 			m_tonemappedImgView->setObjectDebugName("Tonemapped Image View");
 		}
 
+		// Allocate and create buffer for Luma Gather
+		{
+			// Allocate memory
+			m_gatherAllocation = {};
+			{
+				auto build_buffer = [this](
+					smart_refctd_ptr<ILogicalDevice> m_device,
+					nbl::video::IDeviceMemoryAllocator::SAllocation *allocation,
+					smart_refctd_ptr<IGPUBuffer> &buffer,
+					size_t buffer_size,
+					const char *label) {
+					IGPUBuffer::SCreationParams params;
+					params.size = buffer_size;
+					params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+					buffer = m_device->createBuffer(std::move(params));
+					if (!buffer)
+						return logFail("Failed to create GPU buffer of size %d!\n", buffer_size);
+
+					buffer->setObjectDebugName(label);
+
+					auto reqs = buffer->getMemoryReqs();
+					reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
+
+					*allocation = m_device->allocate(reqs, buffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+					if (!allocation->isValid())
+						return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
+
+					assert(allocation->memory.get() == buffer->getBoundMemory().memory);
+					return true;
+				};
+
+				build_buffer(
+					m_device,
+					&m_gatherAllocation,
+					m_gatherBuffer,
+					m_physicalDevice->getLimits().maxSubgroupSize * sizeof(uint32_t),
+ 					"Luma Gather Buffer"
+				);
+			}
+			m_gatherBDA = m_gatherBuffer->getDeviceAddress();
+
+			auto mapped_memory = m_gatherAllocation.memory->map({ 0ull, m_gatherAllocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ);
+			if (!mapped_memory)
+				return logFail("Failed to map the Device Memory!\n");
+		}
+
 		// transition m_tonemappedImgView to GENERAL
 		{
 			auto transitionSemaphore = m_device->createSemaphore(0);
@@ -650,30 +669,39 @@ public:
 
 		// Update Descriptors
 		{
-			IGPUDescriptorSet::SDescriptorInfo infos[2];
+			IGPUDescriptorSet::SDescriptorInfo infos[3];
 			infos[0].info.combinedImageSampler.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 			infos[0].desc = m_gpuImgView;
 			infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
 			infos[1].desc = m_tonemappedImgView;
+			infos[2].info.combinedImageSampler.imageLayout = IImage::LAYOUT::GENERAL;
+			infos[2].desc = m_tonemappedImgView;
 
 			IGPUDescriptorSet::SWriteDescriptorSet writeDescriptors[] = {
 				{
-					.dstSet = m_imgSamplerDS.get(),
+					.dstSet = m_gpuImgDS.get(),
 					.binding = 0,
 					.arrayElement = 0,
 					.count = 1,
 					.info = infos
 				},
 				{
-					.dstSet = m_rwImgDS.get(),
+					.dstSet = m_tonemappedImgRWDS.get(),
 					.binding = 0,
 					.arrayElement = 0,
 					.count = 1,
 					.info = infos + 1
+				},
+				{
+					.dstSet = m_tonemappedImgSamplerDS.get(),
+					.binding = 0,
+					.arrayElement = 0,
+					.count = 1,
+					.info = infos + 2
 				}
 			};
 
-			m_device->updateDescriptorSets(2, writeDescriptors, 0, nullptr);
+			m_device->updateDescriptorSets(3, writeDescriptors, 0, nullptr);
 		}
 
 		m_winMgr->setWindowSize(m_window.get(), Dimensions.x, Dimensions.y);
@@ -686,32 +714,31 @@ public:
 	// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
 	inline void workLoopBody() override
 	{
-		const uint32_t SubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
+		const uint32_t SubgroupSize = m_physicalDevice->getLimits().subgroupSize;
 		auto gpuImgExtent = m_gpuImgView->getCreationParameters().image->getCreationParameters().extent;
-		uint32_t2 viewportSize = { gpuImgExtent.width, gpuImgExtent.height };
-		float32_t sampleCount = (viewportSize.x * viewportSize.y) / 4;
+		float32_t sampleCount = (gpuImgExtent.width * gpuImgExtent.height) / 4;
 		uint32_t workgroupSize = SubgroupSize * SubgroupSize;
 		sampleCount = workgroupSize * (1 + (sampleCount - 1) / workgroupSize);
+
+		auto pc = AutoexposurePushData
+		{
+			.window = nbl::hlsl::luma_meter::MeteringWindow::create(MeteringWindowScale, MeteringWindowOffset),
+			.lumaMinMax = LumaMinMax,
+			.sampleCount = sampleCount,
+			.viewportSize = Dimensions,
+			.lumaMeterBDA = m_gatherBDA
+		};
 
 		// Luma Meter
 		{
 			auto queue = getGraphicsQueue();
 			auto cmdbuf = m_cmdBufs[0].get();
 			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
-			auto ds = m_imgSamplerDS.get();
-
-			auto pc = AutoexposurePushData
-			{
-				.window = nbl::hlsl::luma_meter::MeteringWindow::create(MeteringWindowScale, MeteringWindowOffset),
-				.lumaMinMax = LumaMinMax,
-				.sampleCount = sampleCount,
-				.viewportSize = viewportSize,
-				.lumaMeterBDA = m_gatherBDA
-			};
+			auto ds = m_gpuImgDS.get();
 
 			const uint32_t2 dispatchSize = {
-				1 + ((viewportSize.x / 2) - 1) / SubgroupSize,
-				1 + ((viewportSize.y / 2) - 1) / SubgroupSize
+				1 + ((gpuImgExtent.width / 2) - 1) / SubgroupSize,
+				1 + ((gpuImgExtent.height / 2) - 1) / SubgroupSize
 			};
 
 			m_api->startCapture();
@@ -758,21 +785,12 @@ public:
 			auto queue = getGraphicsQueue();
 			auto cmdbuf = m_cmdBufs[0].get();
 			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
-			auto ds1 = m_imgSamplerDS.get();
-			auto ds2 = m_rwImgDS.get();
-
-			auto pc = AutoexposurePushData
-			{
-				.window = nbl::hlsl::luma_meter::MeteringWindow::create(MeteringWindowScale, MeteringWindowOffset),
-				.lumaMinMax = LumaMinMax,
-				.sampleCount = sampleCount,
-				.viewportSize = viewportSize,
-				.lumaMeterBDA = m_gatherBDA
-			};
+			auto ds1 = m_gpuImgDS.get();
+			auto ds2 = m_tonemappedImgRWDS.get();
 
 			const uint32_t2 dispatchSize = {
-				1 + ((viewportSize.x) - 1) / SubgroupSize,
-				1 + ((viewportSize.y) - 1) / SubgroupSize
+				1 + ((Dimensions.x) - 1) / SubgroupSize,
+				1 + ((Dimensions.y) - 1) / SubgroupSize
 			};
 
 			m_api->startCapture();
@@ -825,16 +843,7 @@ public:
 			auto queue = getGraphicsQueue();
 			auto cmdbuf = m_cmdBufs[0].get();
 			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
-			auto ds = m_rwImgDS.get();
-
-			auto pc = AutoexposurePushData
-			{
-				.window = nbl::hlsl::luma_meter::MeteringWindow::create(MeteringWindowScale, MeteringWindowOffset),
-				.lumaMinMax = LumaMinMax,
-				.sampleCount = sampleCount,
-				.viewportSize = viewportSize,
-				.lumaMeterBDA = m_gatherBDA
-			};
+			auto ds = m_tonemappedImgSamplerDS.get();
 
 			m_api->startCapture();
 
@@ -945,7 +954,7 @@ protected:
 	smart_refctd_ptr<IGPUGraphicsPipeline> m_presentPipeline;
 
 	// Descriptor Sets
-	smart_refctd_ptr<IGPUDescriptorSet> m_imgSamplerDS, m_rwImgDS;
+	smart_refctd_ptr<IGPUDescriptorSet> m_gpuImgDS, m_tonemappedImgRWDS, m_tonemappedImgSamplerDS;
 
 	// Command Buffers
 	smart_refctd_ptr<IGPUCommandPool> m_cmdPool;

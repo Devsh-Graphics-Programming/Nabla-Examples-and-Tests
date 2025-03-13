@@ -11,9 +11,10 @@
 using namespace nbl::hlsl;
 using namespace ext::FullScreenTriangle;
 
-[[vk::binding(0, 3)]] RWTexture2D<float32_t4> texture;
+[[vk::combinedImageSampler]] [[vk::binding(0, 3)]] Texture2D texture;
+[[vk::combinedImageSampler]] [[vk::binding(0, 3)]] SamplerState samplerState;
 
 [[vk::location(0)]] float32_t4 main(SVertexAttributes vxAttr) : SV_Target0
 {
-    return texture[vxAttr.uv];
+    return texture.SampleLevel(samplerState, vxAttr.uv, 0.f);
 }
