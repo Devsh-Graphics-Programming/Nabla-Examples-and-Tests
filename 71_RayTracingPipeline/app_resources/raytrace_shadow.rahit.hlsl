@@ -9,15 +9,6 @@ void main(inout OcclusionPayload payload, in BuiltInTriangleIntersectionAttribut
     const STriangleGeomInfo geom = vk::RawBufferLoad < STriangleGeomInfo > (pc.triangleGeomInfoBuffer + instID * sizeof(STriangleGeomInfo));
     const Material material = unpackMaterial(geom.material);
     
-    if (material.isTransparent())
-    {
-        payload.attenuation = material.alpha * payload.attenuation;
-        IgnoreHit();
-    }
-    else
-    {
-        payload.attenuation = 0;
-        AcceptHitAndEndSearch();
-    }
-
+    payload.attenuation = material.alpha * payload.attenuation;
+    IgnoreHit();
 }

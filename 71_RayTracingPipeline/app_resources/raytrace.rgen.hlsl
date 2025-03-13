@@ -89,7 +89,7 @@ void main()
             rayDesc.TMin = 0.01;
             rayDesc.TMax = cLight.outLightDistance;
 
-            uint32_t shadowRayFlags = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER;
+            uint32_t shadowRayFlags = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH;
             OcclusionPayload occlusionPayload;
             occlusionPayload.attenuation = 1;
             TraceRay(topLevelAS, shadowRayFlags, 0xFF, ERT_OCCLUSION, 0, EMT_OCCLUSION, rayDesc, occlusionPayload);
