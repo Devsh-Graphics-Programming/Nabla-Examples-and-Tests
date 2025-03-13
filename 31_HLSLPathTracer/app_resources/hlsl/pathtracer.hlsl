@@ -79,13 +79,12 @@ struct Unidirectional
     //                     NextEventEstimator nee)
     // {}
 
-    static this_t create(NBL_CONST_REF_ARG(PathTracerCreationParams<create_params_type, scalar_type>) params, Buffer<uint3> sampleSequence)
+    static this_t create(NBL_CONST_REF_ARG(PathTracerCreationParams<create_params_type, scalar_type>) params)
     {
         this_t retval;
         retval.randGen = randgen_type::create(params.rngState);
         retval.rayGen = raygen_type::create(params.pixOffsetParam, params.camPos, params.NDC, params.invMVP);
         retval.materialSystem = material_system_type::create(params.diffuseParams, params.conductorParams, params.dielectricParams);
-        retval.sampleSequence = sampleSequence;
         return retval;
     }
 
@@ -170,14 +169,14 @@ struct Unidirectional
         scalar_type rcpChoiceProb;
         if (!math::partitionRandVariable(neeProbability, eps0.z, rcpChoiceProb) && depth < 2u)
         {
+            uint32_t randLightID = uint32_t(float32_t(randGen().x) / numeric_limits<uint32_t>::max) * scene.lightCount;
             quotient_pdf_type neeContrib_pdf;
             scalar_type t;
             sample_type nee_sample = nee.generate_and_quotient_and_pdf(
                 neeContrib_pdf, t,
-                scene.lights[lightID], intersection, interaction,
-                isBSDF, eps0, depth, scene.toNextEvent(lightID)
+                scene.lights[randLightID], intersection, interaction,
+                isBSDF, eps0, depth, scene.toNextEvent(randLightID)
             );
-            //printf("%f %f %f\n", nee_sample.L.direction.x, nee_sample.L.direction.y, nee_sample.L.direction.z);
 
             // We don't allow non watertight transmitters in this renderer
             bool validPath = nee_sample.NdotL > numeric_limits<scalar_type>::min;
@@ -233,8 +232,7 @@ struct Unidirectional
                     // }
 
                     quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(material, bxdf.params, params);
-                    bsdf_quotient_pdf.quotient *= bxdf.albedo * throughput;
-                    neeContrib_pdf.quotient *= bsdf_quotient_pdf.quotient;
+                    neeContrib_pdf.quotient *= bxdf.albedo * throughput * bsdf_quotient_pdf.quotient;
                     const scalar_type otherGenOverChoice = bsdf_quotient_pdf.pdf * rcpChoiceProb;
                     const scalar_type otherGenOverLightAndChoice = otherGenOverChoice / bsdf_quotient_pdf.pdf;
                     neeContrib_pdf.quotient *= otherGenOverChoice / (1.f + otherGenOverLightAndChoice * otherGenOverLightAndChoice);   // balance heuristic
@@ -252,7 +250,7 @@ struct Unidirectional
             }
         }
 
-        //return false;   // NEE only
+        // return false;   // NEE only
 
         // sample BSDF
         scalar_type bxdfPdf;
@@ -312,8 +310,8 @@ struct Unidirectional
         if (bxdfPdf > bxdfPdfThreshold && getLuma(throughput) > lumaThroughputThreshold)
         {
             ray.payload.throughput = throughput;
-            ray.payload.otherTechniqueHeuristic = neeProbability / bxdfPdf; // numerically stable, don't touch
-            ray.payload.otherTechniqueHeuristic *= ray.payload.otherTechniqueHeuristic;
+            scalar_type otherTechniqueHeuristic = neeProbability / bxdfPdf; // numerically stable, don't touch
+            ray.payload.otherTechniqueHeuristic = otherTechniqueHeuristic * otherTechniqueHeuristic;
 
             // trace new ray
             ray.origin = intersection + bxdfSample * (1.0/*kSceneSize*/) * Tolerance<scalar_type>::getStart(depth);
@@ -354,7 +352,7 @@ struct Unidirectional
             // bounces
             bool hit = true;
             bool rayAlive = true;
-            for (int d = 1; d <= depth && hit && rayAlive; d += 2)
+            for (int d = 1; (d <= depth) && hit && rayAlive; d += 2)
             {
                 ray.intersectionT = numeric_limits<scalar_type>::max;
                 ray.objectID = intersector_type::traceRay(ray, scene);
@@ -385,8 +383,6 @@ struct Unidirectional
     raygen_type rayGen;
     material_system_type materialSystem;
     nee_type nee;
-
-    Buffer<uint3> sampleSequence;
 };
 
 }

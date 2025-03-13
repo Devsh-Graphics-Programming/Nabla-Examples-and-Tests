@@ -18,7 +18,7 @@ namespace hlsl
 namespace ext
 {
 
-template<typename T>
+template<typename T>    // TODO make type T Spectrum
 struct Payload
 {
     using this_t = Payload<T>;
@@ -84,6 +84,14 @@ struct Light
     using spectral_type = Spectrum;
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t INVALID_ID = 0xffffu;
+
+    static Light<spectral_type> create(NBL_CONST_REF_ARG(spectral_type) radiance, uint32_t objId, uint32_t mode, ProceduralShapeType shapeType)
+    {
+        Light<spectral_type> retval;
+        retval.radiance = radiance;
+        retval.objectID = ObjectID::create(objId, mode, shapeType);
+        return retval;
+    }
 
     static Light<spectral_type> create(NBL_CONST_REF_ARG(spectral_type) radiance, NBL_CONST_REF_ARG(ObjectID) objectID)
     {

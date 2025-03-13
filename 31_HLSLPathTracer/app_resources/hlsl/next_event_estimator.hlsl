@@ -89,7 +89,7 @@ struct Estimator
 
     static spectral_type deferredEvalAndPdf(NBL_REF_ARG(scalar_type) pdf, NBL_CONST_REF_ARG(light_type) light, NBL_CONST_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(Event) event)
     {
-        const uint32_t mode = event.mode;
+        const IntersectMode mode = (IntersectMode)event.mode;
         switch (mode)
         {
             case IM_RAY_QUERY:
@@ -192,7 +192,7 @@ struct Estimator
         }
 
         newRayMaxT *= Tolerance<scalar_type>::getEnd(depth);
-        pdf *= 1.0 / lightCount;
+        pdf *= 1.0 / scalar_type(lightCount);
         spectral_type quo = light.radiance / pdf;
         quotient_pdf = quotient_pdf_type::create(quo, pdf);
 
@@ -201,7 +201,7 @@ struct Estimator
 
     static sample_type generate_and_quotient_and_pdf(NBL_REF_ARG(quotient_pdf_type) quotient_pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(light_type) light, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, NBL_CONST_REF_ARG(vector3_type) xi, uint32_t depth, NBL_CONST_REF_ARG(Event) event)
     {
-        const uint32_t mode = event.mode;
+        const IntersectMode mode = (IntersectMode)event.mode;
         sample_type L;
         switch (mode)
         {

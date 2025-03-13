@@ -6,6 +6,7 @@
 #include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
 #include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
 
+#include "render_common.hlsl"
 #include "pathtracer.hlsl"
 
 // add these defines (one at a time) using -D argument to dxc
@@ -25,25 +26,6 @@ using namespace nbl::hlsl;
 NBL_CONSTEXPR uint32_t WorkgroupSize = 32;
 NBL_CONSTEXPR uint32_t MAX_DEPTH_LOG2 = 4;
 NBL_CONSTEXPR uint32_t MAX_SAMPLES_LOG2 = 10;
-
-struct SPushConstants
-{
-    float32_t4x4 invMVP;
-    int sampleCount;
-    int depth;
-};
-
-[[vk::push_constant]] SPushConstants pc;
-
-[[vk::combinedImageSampler]][[vk::binding(0, 2)]] Texture2D<float3> envMap;      // unused
-[[vk::combinedImageSampler]][[vk::binding(0, 2)]] SamplerState envSampler;
-
-[[vk::binding(1, 2)]] Buffer<uint3> sampleSequence;
-
-[[vk::combinedImageSampler]][[vk::binding(2, 2)]] Texture2D<uint2> scramblebuf; // unused
-[[vk::combinedImageSampler]][[vk::binding(2, 2)]] SamplerState scrambleSampler;
-
-[[vk::image_format("rgba16f")]][[vk::binding(0, 0)]] RWTexture2D<float32_t4> outImage;
 
 int32_t2 getCoordinates()
 {
@@ -115,7 +97,7 @@ static const ext::Shape<ext::PST_RECTANGLE> rectangles[RECTANGLE_COUNT] = {
 
 #define LIGHT_COUNT 1
 static const light_type lights[LIGHT_COUNT] = {
-    light_type::create(spectral_t(30.0,25.0,15.0), ext::ObjectID::create(8u, ext::IntersectMode::IM_PROCEDURAL, LIGHT_TYPE))
+    light_type::create(spectral_t(30.0,25.0,15.0), 8u, ext::IntersectMode::IM_PROCEDURAL, LIGHT_TYPE)
 };
 
 #define BXDF_COUNT 7
@@ -154,7 +136,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 
     // set up path tracer
     ext::PathTracer::PathTracerCreationParams<create_params_t, float> ptCreateParams;
-    ptCreateParams.rngState = pcg();
+    ptCreateParams.rngState = scramblebuf[coords].rg;
 
     uint2 scrambleDim;
     scramblebuf.GetDimensions(scrambleDim.x, scrambleDim.y);
@@ -174,7 +156,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     ptCreateParams.conductorParams = bxdfs[3].params;
     ptCreateParams.dielectricParams = bxdfs[6].params;
 
-    pathtracer_type pathtracer = pathtracer_type::create(ptCreateParams, sampleSequence);
+    pathtracer_type pathtracer = pathtracer_type::create(ptCreateParams);
 
     // set up scene (can do as global var?)
     ext::Scene<light_type, bxdfnode_type> scene;

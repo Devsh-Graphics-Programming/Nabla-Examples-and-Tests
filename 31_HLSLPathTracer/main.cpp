@@ -74,6 +74,13 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 
 		inline bool isComputeOnly() const override { return false; }
 
+		//inline video::IAPIConnection::SFeatures getAPIFeaturesToEnable() override
+		//{
+		//	auto retval = device_base_t::getAPIFeaturesToEnable();
+		//	retval.synchronizationValidation = true;
+		//	return retval;
+		//}
+
 		inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 		{
 			if (!m_surface)
@@ -359,11 +366,11 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;	// should be compute
 					options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
 					options.spirvOptimizer = nullptr;
-#ifndef _NBL_DEBUG
-					ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
-					auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
-					options.spirvOptimizer = opt.get();
-#endif
+//#ifndef _NBL_DEBUG
+//					ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
+//					auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
+//					options.spirvOptimizer = opt.get();
+//#endif
 					options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
 					options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
 					options.preprocessorOptions.logger = m_logger.get();
@@ -1343,7 +1350,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		int PTPipline = E_LIGHT_GEOMETRY::ELG_SPHERE;
 		int renderMode = E_RENDER_MODE::ERM_HLSL;
 		int spp = 32;
-		int depth = 3;
+		int depth = 1;
 
 		bool m_firstFrame = true;
 		IGPUCommandBuffer::SClearColorValue clearColor = { .float32 = {0.f,0.f,0.f,1.f} };
