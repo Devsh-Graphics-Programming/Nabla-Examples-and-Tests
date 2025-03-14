@@ -379,6 +379,7 @@ bool DrawResourcesFiller::finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNe
 	success &= finalizeMainObjectCopiesToGPU(intendedNextSubmit);
 	success &= finalizeGeometryCopiesToGPU(intendedNextSubmit);
 	success &= finalizeLineStyleCopiesToGPU(intendedNextSubmit);
+	success &= finalizeDTMSettingsCopiesToGPU(intendedNextSubmit);
 	success &= finalizeTextureCopies(intendedNextSubmit);
 	return success;
 }
@@ -524,6 +525,26 @@ bool DrawResourcesFiller::finalizeLineStyleCopiesToGPU(SIntendedSubmitInfo& inte
 		const LineStyle* srcLineStylesData = reinterpret_cast<LineStyle*>(cpuDrawBuffers.lineStylesBuffer->getPointer()) + inMemLineStylesCount;
 		if (m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, stylesRange, srcLineStylesData))
 			inMemLineStylesCount = currentLineStylesCount;
+		else
+		{
+			// TODO: Log
+			success = false;
+		}
+	}
+	return success;
+}
+
+bool DrawResourcesFiller::finalizeDTMSettingsCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
+{
+	bool success = true;
+	// Copy LineStyles
+	uint32_t remainingLineStyles = currentDTMSettingsCount - inMemDTMSettingsCount;
+	SBufferRange<IGPUBuffer> dtmSettingsRange = { sizeof(DTMSettings) * inMemDTMSettingsCount, sizeof(DTMSettings) * remainingLineStyles, gpuDrawBuffers.dtmSettingsBuffer };
+	if (dtmSettingsRange.size > 0u)
+	{
+		const DTMSettings* srcDTMSettingsData = reinterpret_cast<DTMSettings*>(cpuDrawBuffers.dtmSettingsBuffer->getPointer()) + inMemDTMSettingsCount;
+		if (m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, dtmSettingsRange, srcDTMSettingsData))
+			inMemDTMSettingsCount = currentDTMSettingsCount;
 		else
 		{
 			// TODO: Log

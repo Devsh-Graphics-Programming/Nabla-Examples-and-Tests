@@ -441,7 +441,6 @@ float4 fragMain(PSInput input) : SV_TARGET
             end = float2(v1.x, v1.y);
         }
 
-        const uint32_t styleIdx = mainObj.styleIdx;
         const float thickness = input.getLineThickness();
         const float phaseShift = 0.0f; // input.getCurrentPhaseShift();
         const float stretch = 0.0f; // input.getPatternStretch();
@@ -450,17 +449,19 @@ float4 fragMain(PSInput input) : SV_TARGET
         nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(start, end);
         nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
 
-        LineStyle style = lineStyles[styleIdx];
+        DTMSettings dtmSettings = dtmSettingsBuff[mainObj.dtmSettingsIdx];
+        LineStyle outlineStyle = lineStyles[dtmSettings.outlineLineStyleIdx];
+        LineStyle contourStyle = lineStyles[dtmSettings.contourLineStyleIdx];
 
         float distance = nbl::hlsl::numeric_limits<float>::max;
-        if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
+        if (!outlineStyle.hasStipples() || stretch == InvalidStyleStretchValue)
         {
-            distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag);
+            distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness, outlineStyle.isRoadStyleFlag);
         }
         else
         {
-            LineStyleClipper clipper = LineStyleClipper::construct(lineStyles[styleIdx], lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
-            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
+            LineStyleClipper clipper = LineStyleClipper::construct(outlineStyle, lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
+            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, outlineStyle.isRoadStyleFlag, clipper);
         }
 
         localAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, distance);

@@ -247,6 +247,8 @@ protected:
 	bool finalizeGeometryCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
 	bool finalizeLineStyleCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
+
+	bool finalizeDTMSettingsCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 	
 	bool finalizeCustomClipProjectionCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 	
