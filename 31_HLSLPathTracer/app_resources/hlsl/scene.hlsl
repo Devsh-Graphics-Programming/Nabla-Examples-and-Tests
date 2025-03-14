@@ -15,30 +15,77 @@ struct Scene
 {
     using light_type = Light;
     using bxdfnode_type = BxdfNode;
+    using this_t = Scene<Light, BxdfNode>;
 
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t maxSphereCount = 25;
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t maxTriangleCount = 12;
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t maxRectangleCount = 12;
+    // NBL_CONSTEXPR_STATIC_INLINE uint32_t maxSphereCount = 25;
+    // NBL_CONSTEXPR_STATIC_INLINE uint32_t maxTriangleCount = 12;
+    // NBL_CONSTEXPR_STATIC_INLINE uint32_t maxRectangleCount = 12;
 
-    Shape<PST_SPHERE> spheres[maxSphereCount];
-    Shape<PST_TRIANGLE> triangles[maxTriangleCount];
-    Shape<PST_RECTANGLE> rectangles[maxRectangleCount];
+#if SPHERE_COUNT < 1
+#define SCENE_SPHERE_COUNT 1
+#else
+#define SCENE_SPHERE_COUNT SPHERE_COUNT
+#endif
+
+#if TRIANGLE_COUNT < 1
+#define SCENE_TRIANGLE_COUNT 1
+#else
+#define SCENE_TRIANGLE_COUNT TRIANGLE_COUNT
+#endif
+
+#if RECTANGLE_COUNT < 1
+#define SCENE_RECTANGLE_COUNT 1
+#else
+#define SCENE_RECTANGLE_COUNT RECTANGLE_COUNT
+#endif
+
+    Shape<PST_SPHERE> spheres[SCENE_SPHERE_COUNT];
+    Shape<PST_TRIANGLE> triangles[SCENE_TRIANGLE_COUNT];
+    Shape<PST_RECTANGLE> rectangles[SCENE_RECTANGLE_COUNT];
 
     uint32_t sphereCount;
     uint32_t triangleCount;
     uint32_t rectangleCount;
 
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t maxLightCount = 4;
+    // NBL_CONSTEXPR_STATIC_INLINE uint32_t maxLightCount = 4;
 
-    light_type lights[maxLightCount];
+    light_type lights[LIGHT_COUNT];
     uint32_t lightCount;
 
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t maxBxdfCount = 16; // TODO: limit change?
+    // NBL_CONSTEXPR_STATIC_INLINE uint32_t maxBxdfCount = 16;
 
-    bxdfnode_type bxdfs[maxBxdfCount];
+    bxdfnode_type bxdfs[BXDF_COUNT];
     uint32_t bxdfCount;
 
     // AS ases;
+
+    static this_t create(
+        NBL_CONST_REF_ARG(Shape<PST_SPHERE>) spheres[SCENE_SPHERE_COUNT],
+        NBL_CONST_REF_ARG(Shape<PST_TRIANGLE>) triangles[SCENE_TRIANGLE_COUNT],
+        NBL_CONST_REF_ARG(Shape<PST_RECTANGLE>) rectangles[SCENE_RECTANGLE_COUNT],
+        uint32_t sphereCount, uint32_t triangleCount, uint32_t rectangleCount,
+        NBL_CONST_REF_ARG(light_type) lights[LIGHT_COUNT], uint32_t lightCount,
+        NBL_CONST_REF_ARG(bxdfnode_type) bxdfs[BXDF_COUNT], uint32_t bxdfCount)
+    {
+        this_t retval;
+        retval.spheres = spheres;
+        retval.triangles = triangles;
+        retval.rectangles = rectangles;
+        retval.sphereCount = sphereCount;
+        retval.triangleCount = triangleCount;
+        retval.rectangleCount = rectangleCount;
+
+        retval.lights = lights;
+        retval.lightCount = lightCount;
+
+        retval.bxdfs = bxdfs;
+        retval.bxdfCount = bxdfCount;
+        return retval;
+    }
+
+#undef SCENE_SPHERE_COUNT
+#undef SCENE_TRIANGLE_COUNT
+#undef SCENE_RECTANGLE_COUNT
 
     // obsolete?
     // Intersector::IntersectData toIntersectData(uint32_t mode, ProceduralShapeType type)

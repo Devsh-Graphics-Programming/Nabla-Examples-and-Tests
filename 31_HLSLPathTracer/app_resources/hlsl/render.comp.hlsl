@@ -6,9 +6,6 @@
 #include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
 #include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
 
-#include "render_common.hlsl"
-#include "pathtracer.hlsl"
-
 // add these defines (one at a time) using -D argument to dxc
 // #define SPHERE_LIGHT
 // #define TRIANGLE_LIGHT
@@ -17,9 +14,32 @@
 #ifdef SPHERE_LIGHT
 #define SPHERE_COUNT 9
 #define LIGHT_TYPE ext::PST_SPHERE
-#else
-#define SPHERE_COUNT 8
+
+#define TRIANGLE_COUNT 0
+#define RECTANGLE_COUNT 0
 #endif
+
+#ifdef TRIANGLE_LIGHT
+#define TRIANGLE_COUNT 1
+#define LIGHT_TYPE ext::PST_TRIANGLE
+
+#define SPHERE_COUNT 8
+#define RECTANGLE_COUNT 0
+#endif
+
+#ifdef RECTANGLE_LIGHT
+#define RECTANGLE_COUNT 1
+#define LIGHT_TYPE ext::PST_RECTANGLE
+
+#define SPHERE_COUNT 8
+#define TRIANGLE_COUNT 0
+#endif
+
+#define LIGHT_COUNT 1
+#define BXDF_COUNT 7
+
+#include "render_common.hlsl"
+#include "pathtracer.hlsl"
 
 using namespace nbl::hlsl;
 
@@ -80,22 +100,21 @@ static const ext::Shape<ext::PST_SPHERE> spheres[SPHERE_COUNT] = {
 };
 
 #ifdef TRIANGLE_LIGHT
-#define LIGHT_TYPE ext::PST_TRIANGLE
-#define TRIANGLE_COUNT 1
 static const ext::Shape<ext::PST_TRIANGLE> triangles[TRIANGLE_COUNT] = {
     ext::Shape<ext::PST_TRIANGLE>::create(float3(-1.8,0.35,0.3) * 10.0, float3(-1.2,0.35,0.0) * 10.0, float3(-1.5,0.8,-0.3) * 10.0, bxdfnode_type::INVALID_ID, 0u)
 };
+#else
+static const ext::Shape<ext::PST_TRIANGLE> triangles[1];
 #endif
 
 #ifdef RECTANGLE_LIGHT
-#define LIGHT_TYPE ext::PST_RECTANGLE
-#define RECTANGLE_COUNT 1
 static const ext::Shape<ext::PST_RECTANGLE> rectangles[RECTANGLE_COUNT] = {
     ext::Shape<ext::PST_RECTANGLE>::create(float3(-3.8,0.35,1.3), normalize(float3(2,0,-1))*7.0, normalize(float3(2,-5,4))*0.1, bxdfnode_type::INVALID_ID, 0u)
 };
+#else
+static const ext::Shape<ext::PST_RECTANGLE> rectangles[1];
 #endif
 
-#define LIGHT_COUNT 1
 static const light_type lights[LIGHT_COUNT] = {
     light_type::create(spectral_t(30.0,25.0,15.0),
 #ifdef SPHERE_LIGHT
@@ -106,7 +125,6 @@ static const light_type lights[LIGHT_COUNT] = {
         ext::IntersectMode::IM_PROCEDURAL, LIGHT_TYPE)
 };
 
-#define BXDF_COUNT 7
 static const bxdfnode_type bxdfs[BXDF_COUNT] = {
     bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.8,0.8,0.8)),
     bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.8,0.4,0.4)),
@@ -116,6 +134,12 @@ static const bxdfnode_type bxdfs[BXDF_COUNT] = {
     bxdfnode_type::create(ext::MaterialSystem::MaterialType::CONDUCTOR, false, float2(0.15,0.15), spectral_t(1,1,1), spectral_t(0.98,0.77,0.98)),
     bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIELECTRIC, false, float2(0.0625,0.0625), spectral_t(1,1,1), spectral_t(0.71,0.69,0.67))
 };
+
+static const ext::Scene<light_type, bxdfnode_type> scene = ext::Scene<light_type, bxdfnode_type>::create(
+    spheres, triangles, rectangles,
+    SPHERE_COUNT, TRIANGLE_COUNT, RECTANGLE_COUNT,
+    lights, LIGHT_COUNT, bxdfs, BXDF_COUNT
+);
 
 [numthreads(WorkgroupSize, WorkgroupSize, 1)]
 void main(uint32_t3 threadID : SV_DispatchThreadID)
@@ -163,32 +187,6 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     ptCreateParams.dielectricParams = bxdfs[6].params;
 
     pathtracer_type pathtracer = pathtracer_type::create(ptCreateParams);
-
-    // set up scene (can do as global var?)
-    ext::Scene<light_type, bxdfnode_type> scene;
-    scene.sphereCount = SPHERE_COUNT;
-    for (uint32_t i = 0; i < SPHERE_COUNT; i++)
-        scene.spheres[i] = spheres[i];
-#ifdef TRIANGLE_LIGHT
-    scene.triangleCount = TRIANGLE_COUNT;
-    for (uint32_t i = 0; i < TRIANGLE_COUNT; i++)
-        scene.triangles[i] = triangles[i];
-#else
-    scene.triangleCount = 0;
-#endif
-#ifdef RECTANGLE_LIGHT
-    scene.rectangleCount = RECTANGLE_COUNT;
-    for (uint32_t i = 0; i < RECTANGLE_COUNT; i++)
-        scene.rectangles[i] = rectangles[i];
-#else
-    scene.rectangleCount = 0;
-#endif
-    scene.lightCount = LIGHT_COUNT;
-    for (uint32_t i = 0; i < LIGHT_COUNT; i++)
-        scene.lights[i] = lights[i];
-    scene.bxdfCount = BXDF_COUNT;
-    for (uint32_t i = 0; i < BXDF_COUNT; i++)
-        scene.bxdfs[i] = bxdfs[i];
 
     float32_t3 color = pathtracer.getMeasure(pc.sampleCount, pc.depth, scene);
     float32_t4 pixCol = float32_t4(color, 1.0);
