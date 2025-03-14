@@ -163,7 +163,6 @@ public:
     const auto anyHitShaderColorPayload = loadCompileAndCreateShader("app_resources/raytrace.rahit.hlsl");
     const auto anyHitShaderShadowPayload = loadCompileAndCreateShader("app_resources/raytrace_shadow.rahit.hlsl");
     const auto missShader = loadCompileAndCreateShader("app_resources/raytrace.rmiss.hlsl");
-    const auto shadowMissShader = loadCompileAndCreateShader("app_resources/raytrace_shadow.rmiss.hlsl");
     const auto shadowClosestHitShader = loadCompileAndCreateShader("app_resources/raytrace_shadow_triangle.rchit.hlsl");
     const auto directionalLightCallShader = loadCompileAndCreateShader("app_resources/light_directional.rcall.hlsl");
     const auto pointLightCallShader = loadCompileAndCreateShader("app_resources/light_point.rcall.hlsl");
@@ -324,7 +323,6 @@ public:
       {
         RTDS_RAYGEN,
         RTDS_MISS,
-        RTDS_SHADOW_MISS,
         RTDS_CLOSEST_HIT_SHADOW,
         RTDS_CLOSEST_HIT,
         RTDS_SPHERE_CLOSEST_HIT,
@@ -340,7 +338,6 @@ public:
       IGPUShader::SSpecInfo shaders[RTDS_COUNT];
       shaders[RTDS_RAYGEN] = {.shader = raygenShader.get()};
       shaders[RTDS_MISS] = {.shader = missShader.get()};
-      shaders[RTDS_SHADOW_MISS] = {.shader = shadowMissShader.get()};
       shaders[RTDS_CLOSEST_HIT_SHADOW] = { .shader = shadowClosestHitShader.get() };
       shaders[RTDS_CLOSEST_HIT] = {.shader = closestHitShader.get()};
       shaders[RTDS_SPHERE_CLOSEST_HIT] = {.shader = proceduralClosestHitShader.get()};
