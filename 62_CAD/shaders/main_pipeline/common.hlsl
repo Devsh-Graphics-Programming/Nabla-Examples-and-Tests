@@ -231,12 +231,13 @@ struct PSInput
 [[vk::binding(1, 0)]] StructuredBuffer<DrawObject> drawObjects : register(t0);
 [[vk::binding(2, 0)]] StructuredBuffer<MainObject> mainObjects : register(t1);
 [[vk::binding(3, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t2);
+[[vk::binding(4, 0)]] StructuredBuffer<DTMSettings> dtmSettingsBuff : register(t3);
 
-[[vk::combinedImageSampler]][[vk::binding(4, 0)]] Texture2DArray<float3> msdfTextures : register(t3);
-[[vk::combinedImageSampler]][[vk::binding(4, 0)]] SamplerState msdfSampler : register(s3);
+[[vk::combinedImageSampler]][[vk::binding(5, 0)]] Texture2DArray<float3> msdfTextures : register(t4);
+[[vk::combinedImageSampler]][[vk::binding(5, 0)]] SamplerState msdfSampler : register(s4);
 
-[[vk::binding(5, 0)]] SamplerState textureSampler : register(s4);
-[[vk::binding(6, 0)]] Texture2D textures[128] : register(t4);
+[[vk::binding(6, 0)]] SamplerState textureSampler : register(s5);
+[[vk::binding(7, 0)]] Texture2D textures[128] : register(t5);
 
 // Set 1 - Window dependant data which has higher update frequency due to multiple windows and resize need image recreation and descriptor writes
 [[vk::binding(0, 1)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);

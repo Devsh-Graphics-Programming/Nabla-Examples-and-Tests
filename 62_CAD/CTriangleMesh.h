@@ -6,6 +6,15 @@
 
 using namespace nbl;
 
+struct DTMSettingsInfo
+{
+	LineStyleInfo outlineLineStyleInfo;
+	LineStyleInfo contourLineStyleInfo;
+	// TODO: heights
+
+
+};
+
 class CTriangleMesh final
 {
 public:

@@ -27,6 +27,7 @@ struct DrawBuffers
 	smart_refctd_ptr<BufferType> drawObjectsBuffer;
 	smart_refctd_ptr<BufferType> geometryBuffer;
 	smart_refctd_ptr<BufferType> lineStylesBuffer;
+	smart_refctd_ptr<BufferType> dtmSettingsBuffer;
 };
 
 // ! DrawResourcesFiller
@@ -57,6 +58,8 @@ public:
 	void allocateGeometryBuffer(ILogicalDevice* logicalDevice, size_t size);
 
 	void allocateStylesBuffer(ILogicalDevice* logicalDevice, uint32_t lineStylesCount);
+
+	void allocateDTMSettingsBuffer(ILogicalDevice* logicalDevice, uint32_t dtmSettingsCount);
 	
 	void allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent);
 
@@ -77,7 +80,7 @@ public:
 
 	void drawPolyline(const CPolylineBase& polyline, uint32_t polylineMainObjIdx, SIntendedSubmitInfo& intendedNextSubmit);
 	
-	void drawTriangleMesh(const CTriangleMesh& mesh, CTriangleMesh::DrawData& pushConstants, SIntendedSubmitInfo& intendedNextSubmit);
+	void drawTriangleMesh(const CTriangleMesh& mesh, CTriangleMesh::DrawData& drawData, const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit);
 
 	// ! Convinience function for Hatch with MSDF Pattern and a solid background
 	void drawHatch(
@@ -145,7 +148,7 @@ public:
 					return false;
 			};
 		
-		uint32_t mainObjIdx = addMainObject_SubmitIfNeeded(InvalidStyleIdx, intendedNextSubmit);
+		uint32_t mainObjIdx = addMainObject_SubmitIfNeeded(InvalidStyleIdx, InvalidDTMSettingsIdx, intendedNextSubmit);
 
 		ImageObjectInfo info = {};
 		info.topLeft = topLeftPos;
@@ -194,12 +197,15 @@ public:
 		resetGeometryCounters();
 		resetMainObjectCounters();
 		resetLineStyleCounters();
+		resetDTMSettingsCounters();
 	}
 
 	DrawBuffers<ICPUBuffer> cpuDrawBuffers;
 	DrawBuffers<IGPUBuffer> gpuDrawBuffers;
 
 	uint32_t addLineStyle_SubmitIfNeeded(const LineStyleInfo& lineStyle, SIntendedSubmitInfo& intendedNextSubmit);
+
+	uint32_t addDTMSettings_SubmitIfNeeded(const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit);
 	
 	// TODO[Przemek]: Read after reading the fragment shader comments and having a basic understanding of the relationship between "mainObject" and our programmable blending resolve:
 	// Use `addMainObject_SubmitIfNeeded` to push your single mainObject you'll be using for the enitre triangle mesh (this will ensure overlaps between triangles of the same mesh is resolved correctly)
@@ -209,7 +215,7 @@ public:
 	// Never call this function multiple times in a row before indexing it in a drawable, because future auto-submits may invalidate mainObjects, so do them one by one, for example:
 	// Valid: addMainObject1 --> addXXX(mainObj1) ---> addMainObject2 ---> addXXX(mainObj2) ....
 	// Invalid: addMainObject1 ---> addMainObject2 ---> addXXX(mainObj1) ---> addXXX(mainObj2) ....
-	uint32_t addMainObject_SubmitIfNeeded(uint32_t styleIdx, SIntendedSubmitInfo& intendedNextSubmit);
+	uint32_t addMainObject_SubmitIfNeeded(uint32_t styleIdx, uint32_t dtmSettingsIdx, SIntendedSubmitInfo& intendedNextSubmit);
 
 	// we need to store the clip projection stack to make sure the front is always available in memory
 	void pushClipProjectionData(const ClipProjectionData& clipProjectionData);
@@ -256,6 +262,8 @@ protected:
 	uint32_t addMainObject_Internal(const MainObject& mainObject);
 
 	uint32_t addLineStyle_Internal(const LineStyleInfo& lineStyleInfo);
+
+	uint32_t addDTMSettings_Internal(const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit);
 
 	// Gets the current clip projection data (the top of stack) gpu addreess inside the geometryBuffer
 	// If it's been invalidated then it will request to upload again with a possible auto-submit on low geometry buffer memory.
@@ -312,6 +320,12 @@ protected:
 	{
 		currentLineStylesCount = 0u;
 		inMemLineStylesCount = 0u;
+	}
+
+	void resetDTMSettingsCounters()
+	{
+		currentDTMSettingsCount = 0u;
+		inMemDTMSettingsCount = 0u;
 	}
 
 	MainObject* getMainObject(uint32_t idx)
@@ -431,6 +445,10 @@ protected:
 	uint32_t inMemLineStylesCount = 0u;
 	uint32_t currentLineStylesCount = 0u;
 	uint32_t maxLineStyles = 0u;
+
+	uint32_t inMemDTMSettingsCount = 0u;
+	uint32_t currentDTMSettingsCount = 0u;
+	uint32_t maxDtmSettings = 0u;
 
 	uint64_t geometryBufferAddress = 0u; // Actual BDA offset 0 of the gpu buffer
 

@@ -427,25 +427,24 @@ float4 fragMain(PSInput input) : SV_TARGET
         // TODO: figure out if branching can be reduced
         if (baryCoord.x < baryCoord.y && baryCoord.x < baryCoord.z)
         {
-            start = v1;
-            end = v2;
+            start = float2(v1.x, v1.y);
+            end = float2(v2.x, v2.y);
         }
         else if (baryCoord.y < baryCoord.x && baryCoord.y < baryCoord.z)
         {
-            start = v0;
-            end = v2;
+            start = float2(v1.x, v1.y);
+            end = float2(v2.x, v2.y);
         }
         else if (baryCoord.z < baryCoord.x && baryCoord.z < baryCoord.y)
         {
-            start = v0;
-            end = v1;
+            start = float2(v0.x, v0.y);
+            end = float2(v1.x, v1.y);
         }
 
-        float distance = nbl::hlsl::numeric_limits<float>::max;
         const uint32_t styleIdx = mainObj.styleIdx;
-        const float thickness = 2.0f;
-        const float phaseShift = 0.0f;
-        const float stretch = 0.0f;
+        const float thickness = input.getLineThickness();
+        const float phaseShift = 0.0f; // input.getCurrentPhaseShift();
+        const float stretch = 0.0f; // input.getPatternStretch();
         const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
 
         nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(start, end);
@@ -453,18 +452,16 @@ float4 fragMain(PSInput input) : SV_TARGET
 
         LineStyle style = lineStyles[styleIdx];
 
-        // TODO: stipples
-        //if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
-        //{
-            //distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag);
-        //}
-        //else
-        //{
-        //    LineStyleClipper clipper = LineStyleClipper::construct(lineStyles[styleIdx], lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
-        //    distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
-        //}
-
-        distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness, true);
+        float distance = nbl::hlsl::numeric_limits<float>::max;
+        if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
+        {
+            distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag);
+        }
+        else
+        {
+            LineStyleClipper clipper = LineStyleClipper::construct(lineStyles[styleIdx], lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
+            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
+        }
 
         localAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, distance);
     }

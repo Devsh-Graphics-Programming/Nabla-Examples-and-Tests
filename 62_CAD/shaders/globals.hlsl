@@ -126,7 +126,7 @@ enum class MajorAxis : uint32_t
 struct MainObject
 {
     uint32_t styleIdx;
-    uint32_t pad; // do I even need this on the gpu side? it's stored in structured buffer not bda
+    uint32_t dtmSettingsIdx; // do I even need this on the gpu side? it's stored in structured buffer not bda
     uint64_t clipProjectionAddress;
 };
 
@@ -328,6 +328,13 @@ struct LineStyle
     }
 };
 
+struct DTMSettings
+{
+    uint32_t outlineLineStyleIdx; // index into line styles
+    uint32_t contourLineStyleIdx; // index into line styles
+    // TODO:
+    // ContourSettings -> min, max, interval
+};
 #ifndef __HLSL_VERSION
 inline bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 {
@@ -350,12 +357,20 @@ inline bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 
     return isStipplePatternArrayEqual;
 }
+
+inline bool operator==(const DTMSettings& lhs, const DTMSettings& rhs)
+{
+    return lhs.outlineLineStyleIdx == rhs.outlineLineStyleIdx &&
+        lhs.contourLineStyleIdx == rhs.contourLineStyleIdx;
+}
+
 #endif
 
 NBL_CONSTEXPR uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
 NBL_CONSTEXPR uint32_t AlphaBits = 32u - MainObjectIdxBits;
 NBL_CONSTEXPR uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
 NBL_CONSTEXPR uint32_t InvalidStyleIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
+NBL_CONSTEXPR uint32_t InvalidDTMSettingsIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
 NBL_CONSTEXPR uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
 NBL_CONSTEXPR uint64_t InvalidClipProjectionAddress = nbl::hlsl::numeric_limits<uint64_t>::max;
 NBL_CONSTEXPR uint32_t InvalidTextureIdx = nbl::hlsl::numeric_limits<uint32_t>::max;

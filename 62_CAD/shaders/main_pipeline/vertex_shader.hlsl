@@ -123,6 +123,14 @@ PSInput main(uint vertexID : SV_VertexID)
     outV.setHeightAtMeshVertex(vtx.height);
     outV.setScreenSpaceVertexPos(float3(transformedPos, 1));
 
+    // TODO: line style of contour line has to be set too!
+    DTMSettings dtmSettings = dtmSettingsBuff[mainObj.dtmSettingsIdx];
+    LineStyle outlineStyle = lineStyles[dtmSettings.outlineLineStyleIdx];
+    LineStyle contourStyle = lineStyles[dtmSettings.contourLineStyleIdx];
+    const float screenSpaceLineWidth = outlineStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(outlineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
+    const float sdfLineThickness = screenSpaceLineWidth * 0.5f;
+    outV.setLineThickness(sdfLineThickness);
+
     return outV;
 
 #else

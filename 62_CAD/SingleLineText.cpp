@@ -64,7 +64,7 @@ void SingleLineText::Draw(
 	lineStyle.screenSpaceLineWidth = tan(tiltTiltAngle);
 	lineStyle.worldSpaceLineWidth = boldInPixels;
 	const uint32_t styleIdx = drawResourcesFiller.addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
-	auto glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
+	auto glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, InvalidDTMSettingsIdx, intendedNextSubmit);
 
 	for (const auto& glyphBox : m_glyphBoxes)
 	{

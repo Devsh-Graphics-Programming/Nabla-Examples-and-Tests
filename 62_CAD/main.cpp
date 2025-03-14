@@ -294,6 +294,7 @@ public:
 		drawResourcesFiller.allocateMainObjectsBuffer(m_device.get(), maxObjects);
 		drawResourcesFiller.allocateDrawObjectsBuffer(m_device.get(), maxObjects * 5u);
 		drawResourcesFiller.allocateStylesBuffer(m_device.get(), 512u);
+		drawResourcesFiller.allocateDTMSettingsBuffer(m_device.get(), 512u);
 
 		// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)
 		// + 128 ClipProjData
@@ -711,20 +712,27 @@ public:
 				},
 				{
 					.binding = 4u,
+					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_VERTEX | asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+					.count = 1u,
+				},
+				{
+					.binding = 5u,
 					.type = asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 					.count = 1u,
 				},
 				{
-					.binding = 5u,
+					.binding = 6u,
 					.type = asset::IDescriptor::E_TYPE::ET_SAMPLER,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 					.count = 1u,
 				},
 				{
-					.binding = 6u,
+					.binding = 7u,
 					.type = asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
 					.createFlags = bindlessTextureFlags,
 					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
@@ -768,7 +776,7 @@ public:
 			{
 				descriptorSet0 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout0));
 				descriptorSet1 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout1));
-				constexpr uint32_t DescriptorCountSet0 = 6u;
+				constexpr uint32_t DescriptorCountSet0 = 7u;
 				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfosSet0[DescriptorCountSet0] = {};
 
 				// Descriptors For Set 0:
@@ -788,11 +796,15 @@ public:
 				descriptorInfosSet0[3u].info.buffer.size = drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer->getCreationParams().size;
 				descriptorInfosSet0[3u].desc = drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer;
 				
-				descriptorInfosSet0[4u].info.combinedImageSampler.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				descriptorInfosSet0[4u].info.combinedImageSampler.sampler = msdfTextureSampler;
-				descriptorInfosSet0[4u].desc = drawResourcesFiller.getMSDFsTextureArray();
+				descriptorInfosSet0[4u].info.buffer.offset = 0u;
+				descriptorInfosSet0[4u].info.buffer.size = drawResourcesFiller.gpuDrawBuffers.dtmSettingsBuffer->getCreationParams().size;
+				descriptorInfosSet0[4u].desc = drawResourcesFiller.gpuDrawBuffers.dtmSettingsBuffer;
+
+				descriptorInfosSet0[5u].info.combinedImageSampler.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				descriptorInfosSet0[5u].info.combinedImageSampler.sampler = msdfTextureSampler;
+				descriptorInfosSet0[5u].desc = drawResourcesFiller.getMSDFsTextureArray();
 				
-				descriptorInfosSet0[5u].desc = msdfTextureSampler; // TODO[Erfan]: different sampler and make immutable?
+				descriptorInfosSet0[6u].desc = msdfTextureSampler; // TODO[Erfan]: different sampler and make immutable?
 				
 				// This is bindless to we write to it later.
 				// descriptorInfosSet0[6u].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
@@ -813,55 +825,67 @@ public:
 				video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[DescriptorUpdatesCount] = {};
 				
 				// Set 0 Updates:
+					// globals
 				descriptorUpdates[0u].dstSet = descriptorSet0.get();
 				descriptorUpdates[0u].binding = 0u;
 				descriptorUpdates[0u].arrayElement = 0u;
 				descriptorUpdates[0u].count = 1u;
 				descriptorUpdates[0u].info = &descriptorInfosSet0[0u];
 
+					// drawObjectsBuffer
 				descriptorUpdates[1u].dstSet = descriptorSet0.get();
 				descriptorUpdates[1u].binding = 1u;
 				descriptorUpdates[1u].arrayElement = 0u;
 				descriptorUpdates[1u].count = 1u;
 				descriptorUpdates[1u].info = &descriptorInfosSet0[1u];
 
+					// mainObjectsBuffer
 				descriptorUpdates[2u].dstSet = descriptorSet0.get();
 				descriptorUpdates[2u].binding = 2u;
 				descriptorUpdates[2u].arrayElement = 0u;
 				descriptorUpdates[2u].count = 1u;
 				descriptorUpdates[2u].info = &descriptorInfosSet0[2u];
 
+					// lineStylesBuffer
 				descriptorUpdates[3u].dstSet = descriptorSet0.get();
 				descriptorUpdates[3u].binding = 3u;
 				descriptorUpdates[3u].arrayElement = 0u;
 				descriptorUpdates[3u].count = 1u;
 				descriptorUpdates[3u].info = &descriptorInfosSet0[3u];
 				
+					// dtmSettingsBuffer
 				descriptorUpdates[4u].dstSet = descriptorSet0.get();
 				descriptorUpdates[4u].binding = 4u;
 				descriptorUpdates[4u].arrayElement = 0u;
 				descriptorUpdates[4u].count = 1u;
 				descriptorUpdates[4u].info = &descriptorInfosSet0[4u];
-				
+
+					// mdfs textures
 				descriptorUpdates[5u].dstSet = descriptorSet0.get();
 				descriptorUpdates[5u].binding = 5u;
 				descriptorUpdates[5u].arrayElement = 0u;
 				descriptorUpdates[5u].count = 1u;
 				descriptorUpdates[5u].info = &descriptorInfosSet0[5u];
-
-				// Set 1 Updates:
-				descriptorUpdates[6u].dstSet = descriptorSet1.get();
-				descriptorUpdates[6u].binding = 0u;
+				
+					// mdfs samplers	
+				descriptorUpdates[6u].dstSet = descriptorSet0.get();
+				descriptorUpdates[6u].binding = 6u;
 				descriptorUpdates[6u].arrayElement = 0u;
 				descriptorUpdates[6u].count = 1u;
-				descriptorUpdates[6u].info = &descriptorInfosSet1[0u];
+				descriptorUpdates[6u].info = &descriptorInfosSet0[6u];
 
+				// Set 1 Updates:
 				descriptorUpdates[7u].dstSet = descriptorSet1.get();
-				descriptorUpdates[7u].binding = 1u;
+				descriptorUpdates[7u].binding = 0u;
 				descriptorUpdates[7u].arrayElement = 0u;
 				descriptorUpdates[7u].count = 1u;
-				descriptorUpdates[7u].info = &descriptorInfosSet1[1u];
+				descriptorUpdates[7u].info = &descriptorInfosSet1[0u];
 
+				descriptorUpdates[8u].dstSet = descriptorSet1.get();
+				descriptorUpdates[8u].binding = 1u;
+				descriptorUpdates[8u].arrayElement = 0u;
+				descriptorUpdates[8u].count = 1u;
+				descriptorUpdates[8u].info = &descriptorInfosSet1[1u];
 
 				m_device->updateDescriptorSets(DescriptorUpdatesCount, descriptorUpdates, 0u, nullptr);
 			}
@@ -3123,7 +3147,7 @@ protected:
 					lineStyle.color = float32_t4(1.0, 1.0, 1.0, 1.0);
 					const uint32_t styleIdx = drawResourcesFiller.addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
 
-					glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
+					glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, InvalidDTMSettingsIdx, intendedNextSubmit);
 				}
 
 				float64_t2 currentBaselineStart = float64_t2(0.0, 0.0);
@@ -3261,13 +3285,33 @@ protected:
 		else if (mode == ExampleMode::CASE_9)
 		{
 			core::vector<TriangleMeshVertex> vertices = {
-				{ float32_t2(0.0f, 0.0f), 0.0f },
-				{ float32_t2(0.0f, 100.0f), 50.0f },
-				{ float32_t2(200.0f, 50.0f), 100.0f }
+				{ float32_t2(-200.0f, -200.0f), 0.0f },
+				{ float32_t2(-50.0f, -200.0f), 0.0f },
+				{ float32_t2(100.0f, -200.0f), 0.0f },
+				{ float32_t2(-125.0f, -70.1f), 0.0f },
+				{ float32_t2(25.0f, -70.1f), 0.0f },
+				{ float32_t2(175.0f, -70.1f), 0.0f },
+				{ float32_t2(-200.0f, 59.8f), 0.0f },
+				{ float32_t2(-50.0f, 59.8f), 0.0f },
+				{ float32_t2(100.0f, 59.8f), 0.0f },
+				{ float32_t2(-125.0f, 189.7f), 0.0f },
+				{ float32_t2(25.0f, 189.7f), 0.0f },
+				{ float32_t2(175.0f, 189.7f), 0.0f }
 			};
 
 			core::vector<uint32_t> indices = {
-				0, 1, 2
+				0, 1, 3,
+				1, 3, 4,
+				1, 2, 4,
+				2, 4, 5,
+				3, 4, 6,
+				4, 6, 7,
+				4, 5, 7,
+				5, 7, 8,
+				6, 7, 9,
+				7, 9, 10,
+				7, 8, 10,
+				8, 10, 11
 			};
 
 			// TODO: height color map
@@ -3279,7 +3323,19 @@ protected:
 			mesh.setVertices(std::move(vertices));
 			mesh.setIndices(std::move(indices));
 
-			drawResourcesFiller.drawTriangleMesh(mesh, m_triangleMeshDrawData, intendedNextSubmit);
+			DTMSettingsInfo dtmSettingsInfo;
+
+			LineStyleInfo outlineStyle = {};
+			dtmSettingsInfo.outlineLineStyleInfo.screenSpaceLineWidth = 0.0f;
+			dtmSettingsInfo.outlineLineStyleInfo.worldSpaceLineWidth = 5.0f;
+			dtmSettingsInfo.outlineLineStyleInfo.color = float32_t4(0.0f, 0.5f, 0.5f, 1.0f);
+
+			LineStyleInfo contourStyle = {};
+			dtmSettingsInfo.contourLineStyleInfo.screenSpaceLineWidth = 0.0f;
+			dtmSettingsInfo.contourLineStyleInfo.worldSpaceLineWidth = 5.0f;
+			dtmSettingsInfo.contourLineStyleInfo.color = float32_t4(1.0f, 0.5f, 0.31f, 1.0f);
+
+			drawResourcesFiller.drawTriangleMesh(mesh, m_triangleMeshDrawData, dtmSettingsInfo, intendedNextSubmit);
 		}
 		drawResourcesFiller.finalizeAllCopiesToGPU(intendedNextSubmit);
 	}

@@ -116,6 +116,24 @@ void DrawResourcesFiller::allocateStylesBuffer(ILogicalDevice* logicalDevice, ui
 	}
 }
 
+void DrawResourcesFiller::allocateDTMSettingsBuffer(ILogicalDevice* logicalDevice, uint32_t dtmSettingsCount)
+{
+	maxDtmSettings = dtmSettingsCount;
+	size_t dtmSettingsBufferSize = dtmSettingsCount * sizeof(DTMSettings);
+	
+	IGPUBuffer::SCreationParams dtmSettingsCreationParams = {};
+	dtmSettingsCreationParams.size = dtmSettingsBufferSize;
+	dtmSettingsCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
+	gpuDrawBuffers.dtmSettingsBuffer = logicalDevice->createBuffer(std::move(dtmSettingsCreationParams));
+	gpuDrawBuffers.dtmSettingsBuffer->setObjectDebugName("dtmSettingsBuffer");
+	
+	IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.dtmSettingsBuffer->getMemoryReqs();
+	memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+	auto stylesBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.dtmSettingsBuffer.get());
+	
+	cpuDrawBuffers.dtmSettingsBuffer = ICPUBuffer::create({ dtmSettingsBufferSize });
+}
+
 void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent)
 {
 	msdfLRUCache = std::unique_ptr<MSDFsLRUCache>(new MSDFsLRUCache(maxMSDFs));
@@ -172,7 +190,7 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, const Line
 
 	uint32_t styleIdx = addLineStyle_SubmitIfNeeded(lineStyleInfo, intendedNextSubmit);
 
-	uint32_t mainObjIdx = addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
+	uint32_t mainObjIdx = addMainObject_SubmitIfNeeded(styleIdx, InvalidDTMSettingsIdx, intendedNextSubmit);
 
 	drawPolyline(polyline, mainObjIdx, intendedNextSubmit);
 }
@@ -218,7 +236,7 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, uint32_t p
 	}
 }
 
-void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, CTriangleMesh::DrawData& drawData, SIntendedSubmitInfo& intendedNextSubmit)
+void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, CTriangleMesh::DrawData& drawData, const DTMSettingsInfo& dtmSettingsInfo, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	ICPUBuffer::SCreationParams geometryBuffParams;
 	
@@ -256,7 +274,9 @@ void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, CTriangleM
 
 	// call addMainObject_SubmitIfNeeded, use its index in push constants
 
-	drawData.pushConstants.triangleMeshMainObjectIndex = addMainObject_SubmitIfNeeded(InvalidStyleIdx, intendedNextSubmit);
+	uint32_t dtmSettingsIndex = addDTMSettings_SubmitIfNeeded(dtmSettingsInfo, intendedNextSubmit);
+
+	drawData.pushConstants.triangleMeshMainObjectIndex = addMainObject_SubmitIfNeeded(InvalidStyleIdx, InvalidDTMSettingsIdx, intendedNextSubmit);
 
 	// TODO: use this function later for auto submit
 	//submitCurrentDrawObjectsAndReset(intendedNextSubmit, 0);
@@ -304,7 +324,7 @@ void DrawResourcesFiller::drawHatch(
 	lineStyle.screenSpaceLineWidth = nbl::hlsl::bit_cast<float, uint32_t>(textureIdx);
 	const uint32_t styleIdx = addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
 
-	uint32_t mainObjIdx = addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
+	uint32_t mainObjIdx = addMainObject_SubmitIfNeeded(styleIdx, InvalidDTMSettingsIdx, intendedNextSubmit);
 	uint32_t currentObjectInSection = 0u; // Object here refers to DrawObject used in vertex shader. You can think of it as a Cage.
 	while (currentObjectInSection < hatch.getHatchBoxCount())
 	{
@@ -379,10 +399,27 @@ uint32_t DrawResourcesFiller::addLineStyle_SubmitIfNeeded(const LineStyleInfo& l
 	return outLineStyleIdx;
 }
 
-uint32_t DrawResourcesFiller::addMainObject_SubmitIfNeeded(uint32_t styleIdx, SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawResourcesFiller::addDTMSettings_SubmitIfNeeded(const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	uint32_t outDTMSettingIdx = addDTMSettings_Internal(dtmSettings, intendedNextSubmit);
+	if (outDTMSettingIdx == InvalidStyleIdx)
+	{
+		finalizeAllCopiesToGPU(intendedNextSubmit);
+		submitDraws(intendedNextSubmit);
+		resetGeometryCounters();
+		resetMainObjectCounters();
+		resetLineStyleCounters();
+		outDTMSettingIdx = addDTMSettings_Internal(dtmSettings, intendedNextSubmit);
+		assert(outDTMSettingIdx != InvalidDTMSettingsIdx);
+	}
+	return outDTMSettingIdx;
+}
+
+uint32_t DrawResourcesFiller::addMainObject_SubmitIfNeeded(uint32_t styleIdx, uint32_t dtmSettingsIdx, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	MainObject mainObject = {};
 	mainObject.styleIdx = styleIdx;
+	mainObject.dtmSettingsIdx = dtmSettingsIdx;
 	mainObject.clipProjectionAddress = acquireCurrentClipProjectionAddress(intendedNextSubmit);
 	uint32_t outMainObjectIdx = addMainObject_Internal(mainObject);
 	if (outMainObjectIdx == InvalidMainObjectIdx)
@@ -726,6 +763,33 @@ uint32_t DrawResourcesFiller::addLineStyle_Internal(const LineStyleInfo& lineSty
 	void* dst = stylesArray + currentLineStylesCount;
 	memcpy(dst, &gpuLineStyle, sizeof(LineStyle));
 	return currentLineStylesCount++;
+}
+
+uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtmSettingsInfo, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	DTMSettings dtmSettings;
+
+	// TODO: this needs to be redone.. what if submit happens after that line?
+	// we need to make sure somehow that function below will not submit, we need both outline and contour styles in GPU memory
+	dtmSettings.outlineLineStyleIdx = addLineStyle_SubmitIfNeeded(dtmSettingsInfo.outlineLineStyleInfo, intendedNextSubmit);
+	dtmSettings.contourLineStyleIdx = addLineStyle_SubmitIfNeeded(dtmSettingsInfo.contourLineStyleInfo, intendedNextSubmit);
+
+	DTMSettings* settingsArray = reinterpret_cast<DTMSettings*>(cpuDrawBuffers.dtmSettingsBuffer->getPointer());
+	for (uint32_t i = 0u; i < currentDTMSettingsCount; ++i)
+	{
+		const DTMSettings& itr = settingsArray[i];
+		if (itr == dtmSettings)
+			return i;
+	}
+
+	if (currentDTMSettingsCount >= maxDtmSettings)
+		return InvalidDTMSettingsIdx;
+
+	void* dst = settingsArray + currentDTMSettingsCount;
+	memcpy(dst, &dtmSettings, sizeof(DTMSettings));
+	return currentDTMSettingsCount++;
+
+	return InvalidDTMSettingsIdx;
 }
 
 uint64_t DrawResourcesFiller::acquireCurrentClipProjectionAddress(SIntendedSubmitInfo& intendedNextSubmit)
