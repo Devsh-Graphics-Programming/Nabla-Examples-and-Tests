@@ -1347,10 +1347,10 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		float viewWidth = 10.f;
 		float camYAngle = 165.f / 180.f * 3.14159f;
 		float camXAngle = 32.f / 180.f * 3.14159f;
-		int PTPipline = E_LIGHT_GEOMETRY::ELG_SPHERE;
+		int PTPipline = E_LIGHT_GEOMETRY::ELG_RECTANGLE;
 		int renderMode = E_RENDER_MODE::ERM_HLSL;
 		int spp = 32;
-		int depth = 3;
+		int depth = 1;
 
 		bool m_firstFrame = true;
 		IGPUCommandBuffer::SClearColorValue clearColor = { .float32 = {0.f,0.f,0.f,1.f} };

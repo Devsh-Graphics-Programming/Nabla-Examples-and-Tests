@@ -388,7 +388,7 @@ struct Shape<PST_TRIANGLE>
                 sampling::ProjectedSphericalTriangle<float> pst = sampling::ProjectedSphericalTriangle<float>::create(st);
                 const float pdf = pst.pdf(ray.normalAtOrigin, ray.wasBSDFAtOrigin, L);
                 // if `pdf` is NAN then the triangle's projected solid angle was close to 0.0, if its close to INF then the triangle was very small
-                return pdf < numeric_limits<float>::max ? pdf : 0.0;
+                return pdf < numeric_limits<float>::max ? pdf : numeric_limits<float>::max;
             }
             break;
             default:
@@ -427,7 +427,7 @@ struct Shape<PST_TRIANGLE>
 
                 const float32_t3 L = sst.generate(rcpPdf, xi.xy);
 
-                pdf = rcpPdf > numeric_limits<float>::min ? (1.0 / rcpPdf) : 0.0;
+                pdf = rcpPdf > numeric_limits<float>::min ? (1.0 / rcpPdf) : numeric_limits<float>::max;
 
                 const float32_t3 N = getNormalTimesArea();
                 newRayMaxT = hlsl::dot<float32_t3>(N, vertex0 - origin) / hlsl::dot<float32_t3>(N, L);
@@ -443,7 +443,7 @@ struct Shape<PST_TRIANGLE>
 
                 const float32_t3 L = sst.generate(rcpPdf, interaction.isotropic.N, isBSDF, xi.xy);
 
-                pdf = rcpPdf > numeric_limits<float>::min ? (1.0 / rcpPdf) : 0.0;
+                pdf = rcpPdf > numeric_limits<float>::min ? (1.0 / rcpPdf) : numeric_limits<float>::max;
 
                 const float32_t3 N = getNormalTimesArea();
                 newRayMaxT = hlsl::dot<float32_t3>(N, vertex0 - origin) / hlsl::dot<float32_t3>(N, L);
@@ -513,8 +513,6 @@ struct Shape<PST_RECTANGLE>
         basis[0] = edge0 / extents[0];
         basis[1] = edge1 / extents[1];
         basis[2] = normalize(cross(basis[0],basis[1]));
-
-        basis = nbl::hlsl::transpose<float32_t3x3>(basis);    // TODO: double check transpose
     }
 
     template<typename Ray>
@@ -541,17 +539,18 @@ struct Shape<PST_RECTANGLE>
                 if (solidAngle > numeric_limits<float>::min)
                     pdf = 1.f / solidAngle;
                 else
-                    pdf = numeric_limits<float>::infinity;
+                    pdf = bit_cast<float>(numeric_limits<float>::infinity);
                 return pdf;
             }
             break;
             case PPM_APPROX_PROJECTED_SOLID_ANGLE:
             {
-                return numeric_limits<float>::infinity;
+                // currently broken
+                return bit_cast<float>(numeric_limits<float>::infinity);
             }
             break;
             default:
-                return numeric_limits<float>::infinity;
+                return bit_cast<float>(numeric_limits<float>::infinity);
         }
     }
 
@@ -577,7 +576,6 @@ struct Shape<PST_RECTANGLE>
             // #ifdef TRIANGLE_REFERENCE ?
             case PPM_SOLID_ANGLE:
             {
-                float pdf;
                 float32_t3x3 rectNormalBasis;
                 float32_t2 rectExtents;
                 getNormalBasis(rectNormalBasis, rectExtents);
@@ -594,7 +592,7 @@ struct Shape<PST_RECTANGLE>
                     pdf = 1.f / solidAngle;
                 }
                 else
-                    pdf = numeric_limits<float>::infinity;
+                    pdf = bit_cast<float>(numeric_limits<float>::infinity);
 
                 newRayMaxT = hlsl::dot<float32_t3>(N, origin2origin) / hlsl::dot<float32_t3>(N, L);
                 return L;
@@ -602,12 +600,13 @@ struct Shape<PST_RECTANGLE>
             break;
             case PPM_APPROX_PROJECTED_SOLID_ANGLE:
             {
-                pdf = numeric_limits<float>::infinity;
+                // currently broken
+                pdf = bit_cast<float>(numeric_limits<float>::infinity);
                 return (float32_t3)0.0;
             }
             break;
             default:
-                pdf = numeric_limits<float>::infinity;
+                pdf = bit_cast<float>(numeric_limits<float>::infinity);
                 return (float32_t3)0.0;
         }
     }

@@ -89,28 +89,28 @@ struct Estimator
 
     static spectral_type deferredEvalAndPdf(NBL_REF_ARG(scalar_type) pdf, NBL_CONST_REF_ARG(light_type) light, NBL_CONST_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(Event) event)
     {
-        const IntersectMode mode = (IntersectMode)event.mode;
-        switch (mode)
-        {
-            case IM_RAY_QUERY:
-            {
-                // TODO: do ray query stuff
-            }
-            break;
-            case IM_RAY_TRACING:
-            {
-                // TODO: do ray tracing stuff
-            }
-            break;
-            case IM_PROCEDURAL:
-            {
+        // const IntersectMode mode = (IntersectMode)event.mode;
+        // switch (mode)
+        // {
+        //     case IM_RAY_QUERY:
+        //     {
+        //         // TODO: do ray query stuff
+        //     }
+        //     break;
+        //     case IM_RAY_TRACING:
+        //     {
+        //         // TODO: do ray tracing stuff
+        //     }
+        //     break;
+        //     case IM_PROCEDURAL:
+        //     {
                 return proceduralDeferredEvalAndPdf(pdf, light, ray, event);
-            }
-            break;
-            default:
-                return (spectral_type)0.0;
-        }
-        return (spectral_type)0.0;
+        //     }
+        //     break;
+        //     default:
+        //         return (spectral_type)0.0;
+        // }
+        // return (spectral_type)0.0;
     }
 
     static sample_type procedural_generate_and_quotient_and_pdf(NBL_REF_ARG(quotient_pdf_type) quotient_pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(light_type) light, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, NBL_CONST_REF_ARG(vector3_type) xi, uint32_t depth, NBL_CONST_REF_ARG(Event) event)
@@ -203,29 +203,29 @@ struct Estimator
     {
         const IntersectMode mode = (IntersectMode)event.mode;
         sample_type L;
-        switch (mode)
-        {
-            case IM_RAY_QUERY:
-            {
-                // TODO: do ray query stuff
-            }
-            break;
-            case IM_RAY_TRACING:
-            {
-                // TODO: do ray tracing stuff
-            }
-            break;
-            case IM_PROCEDURAL:
-            {
+        // switch (mode)
+        // {
+        //     case IM_RAY_QUERY:
+        //     {
+        //         // TODO: do ray query stuff
+        //     }
+        //     break;
+        //     case IM_RAY_TRACING:
+        //     {
+        //         // TODO: do ray tracing stuff
+        //     }
+        //     break;
+        //     case IM_PROCEDURAL:
+        //     {
                 return procedural_generate_and_quotient_and_pdf(quotient_pdf, newRayMaxT, light, origin, interaction, isBSDF, xi, depth, event);
-            }
-            break;
-            default:
-            {
-                return L;
-            }
-        }
-        return L;
+        //     }
+        //     break;
+        //     default:
+        //     {
+        //         return L;
+        //     }
+        // }
+        // return L;
     }
 };
 
