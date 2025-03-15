@@ -20,16 +20,25 @@ using namespace video;
 
 class AutoexposureApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
+	enum class MeteringMode {
+		AVERAGE,
+		MEDIAN
+	};
+
 	using device_base_t = examples::SimpleWindowedApplication;
 	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 	using clock_t = std::chrono::steady_clock;
 
 	static inline std::string DefaultImagePathsFile = "../../media/noises/spp_benchmark_4k_512.exr";
-	static inline std::array<std::string, 3> ShaderPaths = {
-		"app_resources/luma_meter.comp.hlsl",
-		"app_resources/luma_tonemap.comp.hlsl" ,
+	static inline std::array<std::string, 5> ShaderPaths = {
+		"app_resources/avg_luma_meter.comp.hlsl",
+		"app_resources/avg_luma_tonemap.comp.hlsl",
+		"app_resources/median_luma_meter.comp.hlsl",
+		"app_resources/median_luma_tonemap.comp.hlsl",
 		"app_resources/present.frag.hlsl"
 	};
+	constexpr static inline MeteringMode MeterMode = MeteringMode::MEDIAN;
+	constexpr static inline uint32_t BinCount = 8000;
 	constexpr static inline uint32_t2 Dimensions = { 1280, 720 };
 	constexpr static inline float32_t2 MeteringWindowScale = { 0.5f, 0.5f };
 	constexpr static inline float32_t2 MeteringWindowOffset = { 0.25f, 0.25f };
@@ -309,7 +318,7 @@ public:
 				std::array<smart_refctd_ptr<IGPUPipelineLayout>, 2> pipelineLayouts;
 				std::array<smart_refctd_ptr<IGPUComputePipeline>, 2> pipelines;
 				{
-					shaders[0] = loadAndCompileShader(ShaderPaths[0]);
+					shaders[0] = loadAndCompileShader((MeterMode == MeteringMode::AVERAGE) ? ShaderPaths[0] : ShaderPaths[2]);
 					const nbl::asset::SPushConstantRange pcRange = {
 							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 							.offset = 0,
@@ -335,7 +344,7 @@ public:
 					params[0].shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
 				}
 				{
-					shaders[1] = loadAndCompileShader(ShaderPaths[1]);
+					shaders[1] = loadAndCompileShader((MeterMode == MeteringMode::AVERAGE) ? ShaderPaths[1] : ShaderPaths[3]);
 					const nbl::asset::SPushConstantRange pcRange = {
 							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 							.offset = 0,
@@ -377,7 +386,7 @@ public:
 					return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
 
 				// Load Fragment Shader
-				auto fragmentShader = loadAndCompileShader(ShaderPaths[2]);
+				auto fragmentShader = loadAndCompileShader(ShaderPaths[4]);
 				if (!fragmentShader)
 					return logFail("Failed to Load and Compile Fragment Shader: lumaMeterShader!");
 
@@ -557,6 +566,7 @@ public:
 		{
 			// Allocate memory
 			m_gatherAllocation = {};
+			m_histoAllocation = {};
 			{
 				auto build_buffer = [this](
 					smart_refctd_ptr<ILogicalDevice> m_device,
@@ -591,12 +601,17 @@ public:
 					m_physicalDevice->getLimits().maxSubgroupSize * sizeof(uint32_t),
  					"Luma Gather Buffer"
 				);
+				build_buffer(
+					m_device,
+					&m_histoAllocation,
+					m_histoBuffer,
+					BinCount * sizeof(float_t),
+					"Luma Histogram Buffer"
+				);
+
 			}
 			m_gatherBDA = m_gatherBuffer->getDeviceAddress();
-
-			auto mapped_memory = m_gatherAllocation.memory->map({ 0ull, m_gatherAllocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ);
-			if (!mapped_memory)
-				return logFail("Failed to map the Device Memory!\n");
+			m_histoBDA = m_histoBuffer->getDeviceAddress();
 		}
 
 		// transition m_tonemappedImgView to GENERAL
@@ -726,7 +741,7 @@ public:
 			.lumaMinMax = LumaMinMax,
 			.sampleCount = sampleCount,
 			.viewportSize = Dimensions,
-			.lumaMeterBDA = m_gatherBDA
+			.lumaMeterBDA = (MeterMode == MeteringMode::AVERAGE) ? m_gatherBDA : m_histoBDA
 		};
 
 		// Luma Meter
@@ -965,9 +980,9 @@ protected:
 	uint64_t m_submitIx = 0;
 
 	// example resources
-	smart_refctd_ptr<IGPUBuffer> m_gatherBuffer;
-	nbl::video::IDeviceMemoryAllocator::SAllocation m_gatherAllocation;
-	uint64_t m_gatherBDA;
+	smart_refctd_ptr<IGPUBuffer> m_gatherBuffer, m_histoBuffer;
+	nbl::video::IDeviceMemoryAllocator::SAllocation m_gatherAllocation, m_histoAllocation;
+	uint64_t m_gatherBDA, m_histoBDA;
 	smart_refctd_ptr<IGPUImageView> m_gpuImgView, m_tonemappedImgView;
 };
 
