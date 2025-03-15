@@ -6,6 +6,7 @@
 #define _NBL_EXAMPLES_TESTS_22_CPP_COMPAT_COMMON_INCLUDED_
 
 // because DXC doesn't properly support `_Static_assert`
+// TODO: add a message, and move to macros.h or cpp_compat
 #define STATIC_ASSERT(...) { nbl::hlsl::conditional<__VA_ARGS__, int, void>::type a = 0; }
 
 #include <boost/preprocessor.hpp>

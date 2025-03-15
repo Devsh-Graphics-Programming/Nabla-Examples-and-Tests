@@ -3,15 +3,6 @@
 //// For conditions of distribution and use, see copyright notice in nabla.h
 #include "app_resources/common.hlsl"
 
-#define SHADER_CRASHING_ASSERT(expr) \
-{ \
-    bool con = (expr); \
-    do { \
-        [branch] if (!con) \
-          vk::RawBufferStore<uint32_t>(0xdeadbeefBADC0FFbull,0x45u,4u); \
-    } while(!con); \
-} 
-
 template<typename L, typename R>
 const static bool is_same_v = nbl::hlsl::is_same_v<L,R>;
 
@@ -155,10 +146,10 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     // uint32_t rotrResult0 = nbl::hlsl::mpl::rotr<uint32_t, 2u, 1>::value;
     // uint32_t rotrResult1 = nbl::hlsl::mpl::rotr<uint32_t, 2u, -1>::value;
     
-    // SHADER_CRASHING_ASSERT(rotlResult0 == mplRotlResult0);
-    // SHADER_CRASHING_ASSERT(rotlResult1 == mplRotlResult1);
-    // SHADER_CRASHING_ASSERT(rotrResult0 == mplRotrResult0);
-    // SHADER_CRASHING_ASSERT(rotrResult1 == mplRotrResult1);
+    // assert(rotlResult0 == mplRotlResult0);
+    // assert(rotlResult1 == mplRotlResult1);
+    // assert(rotrResult0 == mplRotrResult0);
+    // assert(rotrResult1 == mplRotrResult1);
 
     // TODO: more tests and compare with cpp version as well
     fill(invocationID, 5);
@@ -175,27 +166,27 @@ void main(uint3 invocationID : SV_DispatchThreadID)
         uint16_t compileTimeCountLZero = nbl::hlsl::mpl::countl_zero<uint16_t, TEST_VALUE_0>::value;
         uint16_t runTimeCountLZero = nbl::hlsl::countl_zero(TEST_VALUE_0);
         fill(invocationID, float4(5.1, compileTimeCountLZero, runTimeCountLZero, 0));
-        SHADER_CRASHING_ASSERT(compileTimeCountLZero == runTimeCountLZero);
+        assert(compileTimeCountLZero == runTimeCountLZero);
 
         compileTimeCountLZero = nbl::hlsl::mpl::countl_zero<uint32_t, TEST_VALUE_1>::value;
         runTimeCountLZero = nbl::hlsl::countl_zero(TEST_VALUE_1);
         fill(invocationID, float4(5.2, compileTimeCountLZero, runTimeCountLZero, 0));
-        SHADER_CRASHING_ASSERT(compileTimeCountLZero == runTimeCountLZero);
+        assert(compileTimeCountLZero == runTimeCountLZero);
 
         compileTimeCountLZero = nbl::hlsl::mpl::countl_zero<uint32_t, TEST_VALUE_2>::value;
         runTimeCountLZero = nbl::hlsl::countl_zero(TEST_VALUE_2);
         fill(invocationID, float4(5.3, compileTimeCountLZero, runTimeCountLZero, 0));
-        SHADER_CRASHING_ASSERT(compileTimeCountLZero == runTimeCountLZero);
+        assert(compileTimeCountLZero == runTimeCountLZero);
 
         compileTimeCountLZero = nbl::hlsl::mpl::countl_zero<uint32_t, TEST_VALUE_3>::value;
         runTimeCountLZero = nbl::hlsl::countl_zero(TEST_VALUE_3);
         fill(invocationID, float4(5.4, compileTimeCountLZero, runTimeCountLZero, 0));
-        SHADER_CRASHING_ASSERT(compileTimeCountLZero == runTimeCountLZero);
+        assert(compileTimeCountLZero == runTimeCountLZero);
 
         compileTimeCountLZero = nbl::hlsl::mpl::countl_zero<uint32_t, TEST_VALUE_4>::value;
         runTimeCountLZero = nbl::hlsl::countl_zero(TEST_VALUE_4);
         fill(invocationID, float4(5.5, compileTimeCountLZero, runTimeCountLZero, 0));
-        SHADER_CRASHING_ASSERT(compileTimeCountLZero == runTimeCountLZero);
+        assert(compileTimeCountLZero == runTimeCountLZero);
     }
 
     {
@@ -211,7 +202,7 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     {
         float4 v;
         fill(invocationID, float4(alignof(v.x), alignof(v), 0, 0));
-        SHADER_CRASHING_ASSERT(alignof(v.x) == alignof(v));
+        assert(alignof(v.x) == alignof(v));
     }
     
     {
