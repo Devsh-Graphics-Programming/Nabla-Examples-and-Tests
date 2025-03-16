@@ -37,12 +37,12 @@ class AutoexposureApp final : public examples::SimpleWindowedApplication, public
 		"app_resources/median_luma_tonemap.comp.hlsl",
 		"app_resources/present.frag.hlsl"
 	};
-	constexpr static inline MeteringMode MeterMode = MeteringMode::MEDIAN;
+	constexpr static inline MeteringMode MeterMode = MeteringMode::AVERAGE;
 	constexpr static inline uint32_t BinCount = 8000;
 	constexpr static inline uint32_t2 Dimensions = { 1280, 720 };
-	constexpr static inline float32_t2 MeteringWindowScale = { 0.5f, 0.5f };
-	constexpr static inline float32_t2 MeteringWindowOffset = { 0.25f, 0.25f };
-	constexpr static inline float32_t2 LumaMinMax = { 1.0f / 4096.0f, 32768.0f };
+	constexpr static inline float32_t2 MeteringWindowScale = { 0.8f, 0.8f };
+	constexpr static inline float32_t2 MeteringWindowOffset = { 0.1f, 0.1f };
+	constexpr static inline float32_t2 LumaMinMax = { 1.0f / 2048.0f, 65536.f };
 
 public:
 	// Yay thanks to multiple inheritance we cannot forward ctors anymore
@@ -612,6 +612,11 @@ public:
 			}
 			m_gatherBDA = m_gatherBuffer->getDeviceAddress();
 			m_histoBDA = m_histoBuffer->getDeviceAddress();
+			m_gatherMemory = m_gatherAllocation.memory->map({ 0ull, m_gatherAllocation.memory->getAllocationSize() });
+			m_histoMemory = m_histoAllocation.memory->map({ 0ull, m_histoAllocation.memory->getAllocationSize() });
+
+			if (!m_gatherMemory || !m_histoMemory)
+				return logFail("Failed to map the Device Memory!\n");
 		}
 
 		// transition m_tonemappedImgView to GENERAL
@@ -729,6 +734,9 @@ public:
 	// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
 	inline void workLoopBody() override
 	{
+		memset(m_gatherMemory, 0, m_gatherBuffer->getSize());
+		memset(m_histoMemory, 0, m_gatherBuffer->getSize());
+
 		const uint32_t SubgroupSize = m_physicalDevice->getLimits().subgroupSize;
 		auto gpuImgExtent = m_gpuImgView->getCreationParameters().image->getCreationParameters().extent;
 		float32_t sampleCount = (gpuImgExtent.width * gpuImgExtent.height) / 4;
@@ -983,6 +991,7 @@ protected:
 	smart_refctd_ptr<IGPUBuffer> m_gatherBuffer, m_histoBuffer;
 	nbl::video::IDeviceMemoryAllocator::SAllocation m_gatherAllocation, m_histoAllocation;
 	uint64_t m_gatherBDA, m_histoBDA;
+	void *m_gatherMemory, *m_histoMemory;
 	smart_refctd_ptr<IGPUImageView> m_gpuImgView, m_tonemappedImgView;
 };
 
@@ -1060,8 +1069,8 @@ int main()
 
 	auto parameterBuffer = driver->createDeviceLocalGPUBufferOnDedMem(ToneMapperClass::getParameterBufferSize<TMO,MeterMode>());
 	constexpr float Exposure = 0.f;
-	constexpr float Key = 0.18;
-	auto params = ToneMapperClass::Params_t<TMO>(Exposure, Key, 0.85f);
+	constexpr float Key = ;
+	auto params = ToneMapperClass::Params_t<TMO>(Exposure, Key, );
 	{
 		params.setAdaptationFactorFromFrameDelta(0.f);
 		driver->updateBufferRangeViaStagingBuffer(parameterBuffer.get(),0u,sizeof(params),&params);
