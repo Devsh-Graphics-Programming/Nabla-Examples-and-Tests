@@ -43,23 +43,18 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(07_StagingAndMultipleQueues EXCLUDE_FROM_ALL)
 	# showcase the set-up of a swapchain and picking of a matching device
 	add_subdirectory(08_HelloSwapchain EXCLUDE_FROM_ALL)
-	# showcase the use of a depth buffer and rudimentary camera
-	add_subdirectory(09_DepthBufferAndCamera EXCLUDE_FROM_ALL)
+	add_subdirectory(09_GeometryCreator EXCLUDE_FROM_ALL)
   # demonstrate the counting sort utility
 	add_subdirectory(10_CountingSort EXCLUDE_FROM_ALL)
 	# showcase use of FFT for post-FX Bloom  effect
 	add_subdirectory(11_FFT EXCLUDE_FROM_ALL)
+    add_subdirectory(14_ComputeReduce EXCLUDE_FROM_ALL)
+    add_subdirectory(15_ComputeScan EXCLUDE_FROM_ALL)
 
-
-    # global reduce
-	add_subdirectory(14_ComputeReduce EXCLUDE_FROM_ALL)
-    # global scan
-	add_subdirectory(15_ComputeScan EXCLUDE_FROM_ALL)
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo EXCLUDE_FROM_ALL)
 	#add_subdirectory(29_SpecializationConstants EXCLUDE_FROM_ALL)
 	#add_subdirectory(33_Draw3DLine EXCLUDE_FROM_ALL)
-	add_subdirectory(35_GeometryCreator EXCLUDE_FROM_ALL)
 
 	# Unit Test Examples
 	add_subdirectory(20_AllocatorTest EXCLUDE_FROM_ALL)
@@ -69,7 +64,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(24_ColorSpaceTest EXCLUDE_FROM_ALL)
 	add_subdirectory(25_FilterTest EXCLUDE_FROM_ALL)
 	add_subdirectory(26_Blur EXCLUDE_FROM_ALL)
-	add_subdirectory(27_MPMCScheduler EXCLUDE_FROM_ALL)
+	add_subdirectory(27_MPMCScheduler EXCLUDE_FROM_ALL)	
 	add_subdirectory(28_FFTBloom EXCLUDE_FROM_ALL)
 	# add_subdirectory(36_CUDAInterop EXCLUDE_FROM_ALL)
 
