@@ -3,6 +3,7 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "common.hpp"
+#include "nbl/builtin/builtinResources.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/builtin/hlsl/indirect_commands.hlsl"
 
@@ -377,12 +378,12 @@ public:
       hitGroups[getHitGroupIndex(EGT_PROCEDURAL, ERT_PRIMARY)] = {
         .closestHit = RTDS_SPHERE_CLOSEST_HIT,
         .anyHit = RTDS_ANYHIT_PRIMARY,
-        .intersectionShader = RTDS_INTERSECTION,
+        .intersection = RTDS_INTERSECTION,
       };
       hitGroups[getHitGroupIndex(EGT_PROCEDURAL, ERT_OCCLUSION)] = {
         .closestHit = RTDS_CLOSEST_HIT_SHADOW,
         .anyHit = RTDS_ANYHIT_SHADOW,
-        .intersectionShader = RTDS_INTERSECTION,
+        .intersection = RTDS_INTERSECTION,
       };
       shaderGroups.hits = hitGroups;
 
@@ -1335,9 +1336,15 @@ private:
     const auto handleSizeAligned = nbl::core::alignUp(handleSize, limits.shaderGroupHandleAlignment);
 
     auto& raygenRange = m_shaderBindingTable.raygenGroupRange;
+
     auto& hitRange = m_shaderBindingTable.hitGroupsRange;
+    const auto hitHandles = pipeline->getHitHandles();
+
     auto& missRange = m_shaderBindingTable.missGroupsRange;
+    const auto missHandles = pipeline->getMissHandles();
+
     auto& callableRange = m_shaderBindingTable.callableGroupsRange;
+    const auto callableHandles = pipeline->getCallableHandles();
 
     raygenRange = {
       .offset = 0,
@@ -1346,19 +1353,19 @@ private:
 
     missRange = {
       .offset = raygenRange.size,
-      .size = core::alignUp(pipeline->getMissGroupCount() * handleSizeAligned, limits.shaderGroupBaseAlignment),
+      .size = core::alignUp(missHandles.size() * handleSizeAligned, limits.shaderGroupBaseAlignment),
     };
     m_shaderBindingTable.missGroupsStride = handleSizeAligned;
 
     hitRange = {
       .offset = missRange.offset + missRange.size,
-      .size = core::alignUp(pipeline->getHitGroupCount() * handleSizeAligned, limits.shaderGroupBaseAlignment),
+      .size = core::alignUp(hitHandles.size() * handleSizeAligned, limits.shaderGroupBaseAlignment),
     };
     m_shaderBindingTable.hitGroupsStride = handleSizeAligned;
 
     callableRange = {
       .offset = hitRange.offset + hitRange.size,
-      .size = core::alignUp(pipeline->getCallableGroupCount() * handleSizeAligned, limits.shaderGroupBaseAlignment),
+      .size = core::alignUp(callableHandles.size() * handleSizeAligned, limits.shaderGroupBaseAlignment),
     };
     m_shaderBindingTable.callableGroupsStride = handleSizeAligned;
 
@@ -1374,25 +1381,25 @@ private:
 
     // copy miss region
     uint8_t* pMissData = pData + missRange.offset;
-    for (int32_t missIx = 0; missIx < pipeline->getMissGroupCount(); missIx++)
+    for (const auto& handle : missHandles)
     {
-      memcpy(pMissData, &pipeline->getMiss(missIx), handleSize);
+      memcpy(pMissData, &handle, handleSize);
       pMissData += m_shaderBindingTable.missGroupsStride;
     }
 
     // copy hit region
     uint8_t* pHitData = pData + hitRange.offset;
-    for (int32_t hitIx = 0; hitIx < pipeline->getHitGroupCount(); hitIx++)
+    for (const auto& handle : hitHandles)
     {
-      memcpy(pHitData, &pipeline->getHit(hitIx), handleSize);
+      memcpy(pHitData, &handle, handleSize);
       pHitData += m_shaderBindingTable.hitGroupsStride;
     }
 
     // copy callable region
     uint8_t* pCallableData = pData + callableRange.offset;
-    for (int32_t callableIx = 0; callableIx < pipeline->getCallableGroupCount(); callableIx++)
+    for (const auto& handle : callableHandles)
     {
-      memcpy(pCallableData, &pipeline->getCallable(callableIx), handleSize);
+      memcpy(pCallableData, &handle, handleSize);
       pCallableData += m_shaderBindingTable.callableGroupsStride;
     }
 
