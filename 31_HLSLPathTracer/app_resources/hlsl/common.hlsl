@@ -588,7 +588,8 @@ struct Shape<PST_RECTANGLE>
                 if (solidAngle > numeric_limits<float>::min)
                 {
                     float32_t3 sph_sample = sphUv[0] * edge0 + sphUv[1] * edge1 + offset;
-                    L = nbl::hlsl::normalize(sph_sample - origin);
+                    L = sph_sample - origin;
+                    L = hlsl::mix<float32_t3>(nbl::hlsl::normalize(L), (float32_t3)0.0, hlsl::abs<float32_t3>(L) > (float32_t3)numeric_limits<float>::min); // TODO? sometimes L is vec3(0), find cause
                     pdf = 1.f / solidAngle;
                 }
                 else
