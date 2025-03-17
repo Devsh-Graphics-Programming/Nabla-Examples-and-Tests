@@ -686,6 +686,7 @@ void cpu_tests()
 
     // countl_zero test
     mpl::countl_zero<uint32_t, 5>::value;
+    // TODO: fix warning about nodiscard
     std::countl_zero(5u);
     nbl::hlsl::countl_zero(5u);
 
