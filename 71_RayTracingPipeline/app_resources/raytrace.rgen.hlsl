@@ -72,7 +72,7 @@ void main()
 
         const float32_t3 worldPosition = pc.camPos + (camDirection * payload.rayDistance);
         const float32_t3 worldNormal = payload.worldNormal;
-        const Material material = unpackMaterial(payload.material);
+        const Material material = nbl::hlsl::_static_cast<Material>(payload.material);
         RayLight cLight;
         cLight.inHitPosition = worldPosition;
         CallShader(pc.light.type, cLight);

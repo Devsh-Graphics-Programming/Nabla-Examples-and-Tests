@@ -1253,7 +1253,7 @@ private:
           .vertexStride = cpuObject.data.inputParams.bindings[0].stride,
           .indexType = cpuObject.data.indexType,
           .indexCount = cpuObject.data.indexCount,
-          .material = packMaterial(cpuObject.material),
+          .material = hlsl::_static_cast<MaterialPacked>(cpuObject.material),
           .transform = cpuObject.transform,
           });
       }
@@ -1292,7 +1292,7 @@ private:
       {
         const auto middle_i = NumberOfProceduralGeometries / 2.0;
         SProceduralGeomInfo sphere = {
-          .material = packMaterial({
+          .material = hlsl::_static_cast<MaterialPacked>(Material{
             .ambient = {0.1, 0.05 * i, 0.1},
             .diffuse = {0.3, 0.2 * i, 0.3},
             .specular = {0.8, 0.8, 0.8},

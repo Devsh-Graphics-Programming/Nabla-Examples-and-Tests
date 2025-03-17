@@ -2,6 +2,7 @@
 #define RQG_COMMON_HLSL
 
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
+#include "nbl/builtin/hlsl/cpp_compat/basic.h"
 
 NBL_CONSTEXPR uint32_t WorkgroupSize = 16;
 NBL_CONSTEXPR uint32_t MAX_UNORM_10 = 1023;
@@ -66,28 +67,6 @@ struct MaterialPacked
         return alpha != MAX_UNORM_10;
     }
 };
-
-inline MaterialPacked packMaterial(Material material)
-{
-    MaterialPacked packed;
-    packed.ambient = packUnorm3x10(material.ambient);      
-    packed.diffuse = packUnorm3x10(material.diffuse);
-    packed.specular = packUnorm3x10(material.specular);      
-    packed.shininess = packUnorm22(material.shininess);
-    packed.alpha = packUnorm10(material.alpha);
-    return packed;
-}
-
-inline Material unpackMaterial(MaterialPacked packed)
-{
-    Material material;
-    material.ambient = unpackUnorm3x10(packed.ambient);
-    material.diffuse = unpackUnorm3x10(packed.diffuse);
-    material.specular = unpackUnorm3x10(packed.specular);
-    material.shininess = unpackUnorm22(packed.shininess);
-    material.alpha = unpackUnorm10(packed.alpha);
-    return material;
-}
 
 struct SProceduralGeomInfo
 {
@@ -235,5 +214,46 @@ float32_t3 computeSpecular(Material mat, float32_t3 view_dir,
 	return float32_t3(mat.specular * specular);
 }
 #endif
+
+namespace nbl
+{
+namespace hlsl
+{
+namespace impl
+{
+
+template<>
+struct static_cast_helper<Material, MaterialPacked>
+{
+    static inline Material cast(MaterialPacked packed)
+    {
+        Material material;
+        material.ambient = unpackUnorm3x10(packed.ambient);
+        material.diffuse = unpackUnorm3x10(packed.diffuse);
+        material.specular = unpackUnorm3x10(packed.specular);
+        material.shininess = unpackUnorm22(packed.shininess);
+        material.alpha = unpackUnorm10(packed.alpha);
+        return material;
+    }
+};
+
+template<>
+struct static_cast_helper<MaterialPacked, Material>
+{
+    static inline MaterialPacked cast(Material material)
+    {
+        MaterialPacked packed;
+        packed.ambient = packUnorm3x10(material.ambient);
+        packed.diffuse = packUnorm3x10(material.diffuse);
+        packed.specular = packUnorm3x10(material.specular);
+        packed.shininess = packUnorm22(material.shininess);
+        packed.alpha = packUnorm10(material.alpha);
+        return packed;
+    }
+};
+
+}
+}
+}
 
 #endif  // RQG_COMMON_HLSL

@@ -7,7 +7,7 @@ void main(inout OcclusionPayload payload, in BuiltInTriangleIntersectionAttribut
 {
     const int instID = InstanceID();
     const STriangleGeomInfo geom = vk::RawBufferLoad < STriangleGeomInfo > (pc.triangleGeomInfoBuffer + instID * sizeof(STriangleGeomInfo));
-    const Material material = unpackMaterial(geom.material);
+    const Material material = nbl::hlsl::_static_cast<Material>(geom.material);
     
     payload.attenuation = material.alpha * payload.attenuation;
     IgnoreHit();
