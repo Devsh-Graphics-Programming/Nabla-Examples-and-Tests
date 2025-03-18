@@ -2,6 +2,7 @@
 
 #include "nbl/builtin/hlsl/jit/device_capabilities.hlsl"
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
+#include "nbl/builtin/hlsl/random/pcg.hlsl"
 
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 #include "nbl/builtin/hlsl/spirv_intrinsics/raytracing.hlsl"
@@ -15,13 +16,6 @@ static const float32_t3 s_clearColor = float32_t3(0.3, 0.3, 0.8);
 
 [[vk::binding(1, 0)]] RWTexture2D<float32_t4> colorImage;
 
-uint32_t pcgHash(uint32_t v)
-{
-    const uint32_t state = v * 747796405u + 2891336453u;
-    const uint32_t word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
-    return (word >> 22u) ^ word;
-}
-
 float32_t nextRandomUnorm(inout nbl::hlsl::Xoroshiro64StarStar rnd)
 {
     return float32_t(rnd()) / float32_t(0xFFFFFFFF);
@@ -34,8 +28,8 @@ void main()
     const uint32_t3 launchSize = DispatchRaysDimensions();
     const uint32_t2 coords = launchID.xy;
 
-    const uint32_t seed1 = pcgHash(pc.frameCounter);
-    const uint32_t seed2 = pcgHash(launchID.y * launchSize.x + launchID.x);
+    const uint32_t seed1 = nbl::hlsl::Pcg::construct(pc.frameCounter)();
+    const uint32_t seed2 = nbl::hlsl::Pcg::construct(launchID.y * launchSize.x + launchID.x)();
     nbl::hlsl::Xoroshiro64StarStar rnd = nbl::hlsl::Xoroshiro64StarStar::construct(uint32_t2(seed1, seed2));
 
     float32_t3 hitValues = float32_t3(0, 0, 0);
@@ -77,8 +71,6 @@ void main()
         cLight.inHitPosition = worldPosition;
         CallShader(pc.light.type, cLight);
 
-        const float32_t3 diffuse = computeDiffuse(material, cLight.outLightDir, worldNormal);
-        float32_t3 specular = float32_t3(0, 0, 0);
         float32_t attenuation = 1;
 
         if (dot(worldNormal, cLight.outLightDir) > 0)
@@ -95,12 +87,14 @@ void main()
             TraceRay(topLevelAS, shadowRayFlags, 0xFF, ERT_OCCLUSION, 0, EMT_OCCLUSION, rayDesc, occlusionPayload);
 
             attenuation = occlusionPayload.attenuation;
-            if (occlusionPayload.attenuation > 0)
+            if (occlusionPayload.attenuation > 0.0001)
             {
-                specular = computeSpecular(material, camDirection, cLight.outLightDir, worldNormal);
+                const float32_t3 diffuse = computeDiffuse(material, cLight.outLightDir, worldNormal);
+                const float32_t3 specular = computeSpecular(material, camDirection, cLight.outLightDir, worldNormal);
+                hitValues += (cLight.outIntensity * attenuation * (diffuse + specular));
             }
         }
-        hitValues += ((cLight.outIntensity * attenuation * (diffuse + specular)) + material.ambient);
+        hitValues += material.ambient;
     }
 
     const float32_t3 hitValue = hitValues / s_sampleCount;
