@@ -13,24 +13,18 @@
 
 #ifdef SPHERE_LIGHT
 #define SPHERE_COUNT 9
-#define LIGHT_TYPE ext::PST_SPHERE
-
 #define TRIANGLE_COUNT 0
 #define RECTANGLE_COUNT 0
 #endif
 
 #ifdef TRIANGLE_LIGHT
 #define TRIANGLE_COUNT 1
-#define LIGHT_TYPE ext::PST_TRIANGLE
-
 #define SPHERE_COUNT 8
 #define RECTANGLE_COUNT 0
 #endif
 
 #ifdef RECTANGLE_LIGHT
 #define RECTANGLE_COUNT 1
-#define LIGHT_TYPE ext::PST_RECTANGLE
-
 #define SPHERE_COUNT 8
 #define TRIANGLE_COUNT 0
 #endif
@@ -46,6 +40,18 @@ using namespace nbl::hlsl;
 NBL_CONSTEXPR uint32_t WorkgroupSize = 256;
 NBL_CONSTEXPR uint32_t MAX_DEPTH_LOG2 = 4;
 NBL_CONSTEXPR uint32_t MAX_SAMPLES_LOG2 = 10;
+
+#ifdef SPHERE_LIGHT
+NBL_CONSTEXPR ext::ProceduralShapeType LIGHT_TYPE = ext::PST_SPHERE;
+#endif
+#ifdef TRIANGLE_LIGHT
+NBL_CONSTEXPR ext::ProceduralShapeType LIGHT_TYPE = ext::PST_TRIANGLE;
+#endif
+#ifdef RECTANGLE_LIGHT
+NBL_CONSTEXPR ext::ProceduralShapeType LIGHT_TYPE = ext::PST_RECTANGLE;
+#endif
+
+NBL_CONSTEXPR ext::PTPolygonMethod POLYGON_METHOD = ext::PPM_SOLID_ANGLE;
 
 int32_t2 getCoordinates()
 {
@@ -80,11 +86,12 @@ using dielectric_bxdf_type = bxdf::transmission::SGGXDielectricBxDF<sample_t, is
 using ray_type = ext::Ray<float>;
 using light_type = ext::Light<spectral_t>;
 using bxdfnode_type = ext::BxDFNode<spectral_t>;
+using scene_type = ext::Scene<light_type, bxdfnode_type>;
 using randgen_type = ext::RandGen::Uniform3D<Xoroshiro64Star>;
 using raygen_type = ext::RayGen::Basic<ray_type>;
 using intersector_type = ext::Intersector::Comprehensive<ray_type, light_type, bxdfnode_type>;
 using material_system_type = ext::MaterialSystem::System<diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type>;
-using nee_type = ext::NextEventEstimator::Estimator<light_type, ray_type, sample_t, aniso_interaction>;
+using nee_type = ext::NextEventEstimator::Estimator<scene_type, ray_type, sample_t, aniso_interaction, ext::IntersectMode::IM_PROCEDURAL, LIGHT_TYPE, POLYGON_METHOD>;
 using pathtracer_type = ext::PathTracer::Unidirectional<randgen_type, raygen_type, intersector_type, material_system_type, nee_type>;
 
 static const ext::Shape<ext::PST_SPHERE> spheres[SPHERE_COUNT] = {
@@ -164,7 +171,6 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     }
 
     int flatIdx = glsl::gl_GlobalInvocationID().y * glsl::gl_NumWorkGroups().x * WorkgroupSize + glsl::gl_GlobalInvocationID().x;
-    PCG32x2 pcg = PCG32x2::construct(flatIdx);  // replaces scramblebuf?
 
     // set up path tracer
     ext::PathTracer::PathTracerCreationParams<create_params_t, float> ptCreateParams;

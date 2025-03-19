@@ -48,7 +48,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
 		constexpr static inline uint32_t MaxFramesInFlight = 5;
 		constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
-		constexpr static inline uint32_t DefaultWorkGroupSize = 16u;
+		constexpr static inline uint32_t DefaultWorkGroupSize = 256u;
 		constexpr static inline uint32_t MaxDescriptorCount = 256u;
 		constexpr static inline uint32_t MaxDepthLog2 = 4u; // 5
 		constexpr static inline uint32_t MaxSamplesLog2 = 10u; // 18
@@ -1068,10 +1068,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
 					cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(PTPushConstant), &pc);
-					if (renderMode == E_RENDER_MODE::ERM_HLSL)
-						cmdbuf->dispatch(1 + (WindowDimensions.x * WindowDimensions.y - 1) / 256u, 1u, 1u);
-					else
-						cmdbuf->dispatch(1 + (WindowDimensions.x - 1) / DefaultWorkGroupSize, 1 + (WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u);
+					cmdbuf->dispatch(1 + (WindowDimensions.x * WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u, 1u);
 				}
 
 				// TRANSITION m_outImgView to READ (because of descriptorSets0 -> ComputeShader Writes into the image)
@@ -1351,7 +1348,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		float camYAngle = 165.f / 180.f * 3.14159f;
 		float camXAngle = 32.f / 180.f * 3.14159f;
 		int PTPipline = E_LIGHT_GEOMETRY::ELG_SPHERE;
-		int renderMode = E_RENDER_MODE::ERM_HLSL;
+		int renderMode = E_RENDER_MODE::ERM_GLSL;
 		int spp = 32;
 		int depth = 3;
 

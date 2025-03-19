@@ -12,220 +12,425 @@ namespace ext
 namespace NextEventEstimator
 {
 
-template<typename Light, typename Ray, class LightSample, class Aniso>
-struct Estimator
+template<ProceduralShapeType PST, PTPolygonMethod PPM>
+struct ShapeSampling;
+
+template<PTPolygonMethod PPM>
+struct ShapeSampling<PST_SPHERE, PPM>
+{
+    static ShapeSampling<PST_SPHERE, PPM> create(NBL_CONST_REF_ARG(Shape<PST_SPHERE>) sphere)
+    {
+        ShapeSampling<PST_SPHERE, PPM> retval;
+        retval.sphere = sphere;
+        return retval;
+    }
+
+    template<typename Ray>
+    float deferredPdf(NBL_CONST_REF_ARG(Ray) ray)
+    {
+        return 1.0 / sphere.getSolidAngle(ray.origin);
+    }
+
+    template<class Aniso>
+    float32_t3 generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, NBL_CONST_REF_ARG(float32_t3) xi)
+    {
+        float32_t3 Z = sphere.position - origin;
+        const float distanceSQ = hlsl::dot<float32_t3>(Z,Z);
+        const float cosThetaMax2 = 1.0 - sphere.radius2 / distanceSQ;
+        if (cosThetaMax2 > 0.0)
+        {
+            const float rcpDistance = 1.0 / hlsl::sqrt<float32_t>(distanceSQ);
+            Z *= rcpDistance;
+
+            const float cosThetaMax = hlsl::sqrt<float32_t>(cosThetaMax2);
+            const float cosTheta = hlsl::mix<float>(1.0, cosThetaMax, xi.x);
+
+            float32_t3 L = Z * cosTheta;
+
+            const float cosTheta2 = cosTheta * cosTheta;
+            const float sinTheta = hlsl::sqrt<float32_t>(1.0 - cosTheta2);
+            float sinPhi, cosPhi;
+            math::sincos<float>(2.0 * numbers::pi<float> * xi.y - numbers::pi<float>, sinPhi, cosPhi);
+            float32_t3 X, Y;
+            math::frisvad<float32_t3>(Z, X, Y);
+
+            L += (X * cosPhi + Y * sinPhi) * sinTheta;
+
+            newRayMaxT = (cosTheta - hlsl::sqrt<float32_t>(cosTheta2 - cosThetaMax2)) / rcpDistance;
+            pdf = 1.0 / (2.0 * numbers::pi<float> * (1.0 - cosThetaMax));
+            return L;
+        }
+        pdf = 0.0;
+        return float32_t3(0.0,0.0,0.0);
+    }
+
+    Shape<PST_SPHERE> sphere;
+};
+
+template<>
+struct ShapeSampling<PST_TRIANGLE, PPM_AREA>
+{
+    static ShapeSampling<PST_TRIANGLE, PPM_AREA> create(NBL_CONST_REF_ARG(Shape<PST_TRIANGLE>) tri)
+    {
+        ShapeSampling<PST_TRIANGLE, PPM_AREA> retval;
+        retval.tri = tri;
+        return retval;
+    }
+
+    template<typename Ray>
+    float deferredPdf(NBL_CONST_REF_ARG(Ray) ray)
+    {
+        const float dist = ray.intersectionT;
+        const float32_t3 L = ray.direction;
+        return dist * dist / hlsl::abs<float32_t>(hlsl::dot<float32_t3>(tri.getNormalTimesArea(), L));
+    }
+
+    template<class Aniso>
+    float32_t3 generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, NBL_CONST_REF_ARG(float32_t3) xi)
+    {
+        const float32_t3 edge0 = tri.vertex1 - tri.vertex0;
+        const float32_t3 edge1 = tri.vertex2 - tri.vertex0;
+        const float sqrtU = hlsl::sqrt<float32_t>(xi.x);
+        float32_t3 pnt = tri.vertex0 + edge0 * (1.0 - sqrtU) + edge1 * sqrtU * xi.y;
+        float32_t3 L = pnt - origin;
+
+        const float distanceSq = hlsl::dot<float32_t3>(L,L);
+        const float rcpDistance = 1.0 / hlsl::sqrt<float32_t>(distanceSq);
+        L *= rcpDistance;
+
+        pdf = distanceSq / hlsl::abs<float32_t>(hlsl::dot<float32_t3>(hlsl::cross<float32_t3>(edge0, edge1) * 0.5f, L));
+        newRayMaxT = 1.0 / rcpDistance;
+        return L;
+    }
+
+    Shape<PST_TRIANGLE> tri;
+};
+
+template<>
+struct ShapeSampling<PST_TRIANGLE, PPM_SOLID_ANGLE>
+{
+    static ShapeSampling<PST_TRIANGLE, PPM_SOLID_ANGLE> create(NBL_CONST_REF_ARG(Shape<PST_TRIANGLE>) tri)
+    {
+        ShapeSampling<PST_TRIANGLE, PPM_SOLID_ANGLE> retval;
+        retval.tri = tri;
+        return retval;
+    }
+
+    template<typename Ray>
+    float deferredPdf(NBL_CONST_REF_ARG(Ray) ray)
+    {
+        shapes::SphericalTriangle<float> st = shapes::SphericalTriangle<float>::create(tri.vertex0, tri.vertex1, tri.vertex2, ray.origin);
+        const float rcpProb = st.solidAngleOfTriangle();
+        // if `rcpProb` is NAN then the triangle's solid angle was close to 0.0
+        return rcpProb > numeric_limits<float>::min ? (1.0 / rcpProb) : numeric_limits<float>::max;
+    }
+
+    template<class Aniso>
+    float32_t3 generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, NBL_CONST_REF_ARG(float32_t3) xi)
+    {
+        float rcpPdf;
+        shapes::SphericalTriangle<float> st = shapes::SphericalTriangle<float>::create(tri.vertex0, tri.vertex1, tri.vertex2, origin);
+        sampling::SphericalTriangle<float> sst = sampling::SphericalTriangle<float>::create(st);
+
+        const float32_t3 L = sst.generate(rcpPdf, xi.xy);
+
+        pdf = rcpPdf > numeric_limits<float>::min ? (1.0 / rcpPdf) : numeric_limits<float>::max;
+
+        const float32_t3 N = tri.getNormalTimesArea();
+        newRayMaxT = hlsl::dot<float32_t3>(N, tri.vertex0 - origin) / hlsl::dot<float32_t3>(N, L);
+        return L;
+    }
+
+    Shape<PST_TRIANGLE> tri;
+};
+
+template<>
+struct ShapeSampling<PST_TRIANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
+{
+    static ShapeSampling<PST_TRIANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE> create(NBL_CONST_REF_ARG(Shape<PST_TRIANGLE>) tri)
+    {
+        ShapeSampling<PST_TRIANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE> retval;
+        retval.tri = tri;
+        return retval;
+    }
+
+    template<typename Ray>
+    float deferredPdf(NBL_CONST_REF_ARG(Ray) ray)
+    {
+        const float32_t3 L = ray.direction;
+        shapes::SphericalTriangle<float> st = shapes::SphericalTriangle<float>::create(tri.vertex0, tri.vertex1, tri.vertex2, ray.origin);
+        sampling::ProjectedSphericalTriangle<float> pst = sampling::ProjectedSphericalTriangle<float>::create(st);
+        const float pdf = pst.pdf(ray.normalAtOrigin, ray.wasBSDFAtOrigin, L);
+        // if `pdf` is NAN then the triangle's projected solid angle was close to 0.0, if its close to INF then the triangle was very small
+        return pdf < numeric_limits<float>::max ? pdf : numeric_limits<float>::max;
+    }
+
+    template<class Aniso>
+    float32_t3 generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, NBL_CONST_REF_ARG(float32_t3) xi)
+    {
+        float rcpPdf;
+        shapes::SphericalTriangle<float> st = shapes::SphericalTriangle<float>::create(tri.vertex0, tri.vertex1, tri.vertex2, origin);
+        sampling::ProjectedSphericalTriangle<float> sst = sampling::ProjectedSphericalTriangle<float>::create(st);
+
+        const float32_t3 L = sst.generate(rcpPdf, interaction.isotropic.N, isBSDF, xi.xy);
+
+        pdf = rcpPdf > numeric_limits<float>::min ? (1.0 / rcpPdf) : numeric_limits<float>::max;
+
+        const float32_t3 N = tri.getNormalTimesArea();
+        newRayMaxT = hlsl::dot<float32_t3>(N, tri.vertex0 - origin) / hlsl::dot<float32_t3>(N, L);
+        return L;
+    }
+
+    Shape<PST_TRIANGLE> tri;
+};
+
+template<>
+struct ShapeSampling<PST_RECTANGLE, PPM_AREA>
+{
+    static ShapeSampling<PST_RECTANGLE, PPM_AREA> create(NBL_CONST_REF_ARG(Shape<PST_RECTANGLE>) rect)
+    {
+        ShapeSampling<PST_RECTANGLE, PPM_AREA> retval;
+        retval.rect = rect;
+        return retval;
+    }
+
+    template<typename Ray>
+    float deferredPdf(NBL_CONST_REF_ARG(Ray) ray)
+    {
+        const float dist = ray.intersectionT;
+        const float32_t3 L = ray.direction;
+        return dist * dist / hlsl::abs<float32_t>(hlsl::dot<float32_t3>(rect.getNormalTimesArea(), L));
+    }
+
+    template<class Aniso>
+    float32_t3 generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, NBL_CONST_REF_ARG(float32_t3) xi)
+    {
+        const float32_t3 N = rect.getNormalTimesArea();
+        const float32_t3 origin2origin = rect.offset - origin;
+
+        float32_t3 L = origin2origin + rect.edge0 * xi.x + rect.edge1 * xi.y;
+        const float distSq = hlsl::dot<float32_t3>(L, L);
+        const float rcpDist = 1.0 / hlsl::sqrt<float32_t>(distSq);
+        L *= rcpDist;
+        pdf = distSq / hlsl::abs<float32_t>(hlsl::dot<float32_t3>(N, L));
+        newRayMaxT = 1.0 / rcpDist;
+        return L;
+    }
+
+    Shape<PST_RECTANGLE> rect;
+};
+
+template<>
+struct ShapeSampling<PST_RECTANGLE, PPM_SOLID_ANGLE>
+{
+    static ShapeSampling<PST_RECTANGLE, PPM_SOLID_ANGLE> create(NBL_CONST_REF_ARG(Shape<PST_RECTANGLE>) rect)
+    {
+        ShapeSampling<PST_RECTANGLE, PPM_SOLID_ANGLE> retval;
+        retval.rect = rect;
+        return retval;
+    }
+
+    template<typename Ray>
+    float deferredPdf(NBL_CONST_REF_ARG(Ray) ray)
+    {
+        float pdf;
+        float32_t3x3 rectNormalBasis;
+        float32_t2 rectExtents;
+        rect.getNormalBasis(rectNormalBasis, rectExtents);
+        shapes::SphericalRectangle<float> sphR0 = shapes::SphericalRectangle<float>::create(ray.origin, rect.offset, rectNormalBasis);
+        float solidAngle = sphR0.solidAngleOfRectangle(rectExtents);
+        if (solidAngle > numeric_limits<float>::min)
+            pdf = 1.f / solidAngle;
+        else
+            pdf = bit_cast<float>(numeric_limits<float>::infinity);
+        return pdf;
+    }
+
+    template<class Aniso>
+    float32_t3 generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, NBL_CONST_REF_ARG(float32_t3) xi)
+    {
+        const float32_t3 N = rect.getNormalTimesArea();
+        const float32_t3 origin2origin = rect.offset - origin;
+
+        float32_t3x3 rectNormalBasis;
+        float32_t2 rectExtents;
+        rect.getNormalBasis(rectNormalBasis, rectExtents);
+        shapes::SphericalRectangle<float> sphR0 = shapes::SphericalRectangle<float>::create(origin, rect.offset, rectNormalBasis);
+        float32_t3 L = (float32_t3)0.0;
+        float solidAngle = sphR0.solidAngleOfRectangle(rectExtents);
+
+        sampling::SphericalRectangle<float> ssph = sampling::SphericalRectangle<float>::create(sphR0);
+        float32_t2 sphUv = ssph.generate(rectExtents, xi.xy, solidAngle);
+        if (solidAngle > numeric_limits<float>::min)
+        {
+            float32_t3 sph_sample = sphUv[0] * rect.edge0 + sphUv[1] * rect.edge1 + rect.offset;
+            L = sph_sample - origin;
+            L = hlsl::mix<float32_t3>(nbl::hlsl::normalize(L), (float32_t3)0.0, hlsl::abs<float32_t3>(L) > (float32_t3)numeric_limits<float>::min); // TODO? sometimes L is vec3(0), find cause
+            pdf = 1.f / solidAngle;
+        }
+        else
+            pdf = bit_cast<float>(numeric_limits<float>::infinity);
+
+        newRayMaxT = hlsl::dot<float32_t3>(N, origin2origin) / hlsl::dot<float32_t3>(N, L);
+        return L;
+    }
+
+    Shape<PST_RECTANGLE> rect;
+};
+
+// PPM_APPROX_PROJECTED_SOLID_ANGLE not available for PST_TRIANGLE
+
+
+template<class Scene, typename Ray, class LightSample, class Aniso, IntersectMode Mode, ProceduralShapeType PST, PTPolygonMethod PPM>
+struct Estimator;
+
+template<class Scene, typename Ray, class LightSample, class Aniso, PTPolygonMethod PPM>
+struct Estimator<Scene, Ray, LightSample, Aniso, IM_PROCEDURAL, PST_SPHERE, PPM>
 {
     using scalar_type = typename Ray::scalar_type;
     using vector3_type = vector<scalar_type, 3>;
     using ray_type = Ray;
-    using light_type = Light;
-    using spectral_type = typename Light::spectral_type;
+    using scene_type = Scene;
+    using light_type = typename Scene::light_type;
+    using spectral_type = typename light_type::spectral_type;
     using interaction_type = Aniso;
     using quotient_pdf_type = bxdf::quotient_and_pdf<spectral_type, scalar_type>;
     using sample_type = LightSample;
     using ray_dir_info_type = typename sample_type::ray_dir_info_type;
 
-    static spectral_type proceduralDeferredEvalAndPdf(NBL_REF_ARG(scalar_type) pdf, NBL_CONST_REF_ARG(light_type) light, NBL_CONST_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(Event) event)
+    static spectral_type deferredEvalAndPdf(NBL_REF_ARG(scalar_type) pdf, NBL_CONST_REF_ARG(scene_type) scene, uint32_t lightID, NBL_CONST_REF_ARG(ray_type) ray)
     {
-        const uint32_t lightCount = event.data[0];
-        const ProceduralShapeType type = (ProceduralShapeType)event.data[1];
-
-        pdf = 1.0 / lightCount;
-        switch (type)
-        {
-            case PST_SPHERE:
-            {
-                const vector3_type position = vector3_type(
-                    bit_cast<float32_t>(event.data[2]),
-                    bit_cast<float32_t>(event.data[3]),
-                    bit_cast<float32_t>(event.data[4]));
-                Shape<PST_SPHERE> sphere = Shape<PST_SPHERE>::create(position, bit_cast<float32_t>(event.data[5]), event.data[6]);
-                pdf *= sphere.template deferredPdf<ray_type>(ray);
-            }
-            break;
-            case PST_TRIANGLE:
-            {
-                const vector3_type vertex0 = vector3_type(
-                    bit_cast<float32_t>(event.data[2]),
-                    bit_cast<float32_t>(event.data[3]),
-                    bit_cast<float32_t>(event.data[4]));
-                const vector3_type vertex1 = vector3_type(
-                    bit_cast<float32_t>(event.data[5]), 
-                    bit_cast<float32_t>(event.data[6]),
-                    bit_cast<float32_t>(event.data[7]));
-                const vector3_type vertex2 = vector3_type(
-                    bit_cast<float32_t>(event.data[8]),
-                    bit_cast<float32_t>(event.data[9]),
-                    bit_cast<float32_t>(event.data[10]));
-                Shape<PST_TRIANGLE> tri = Shape<PST_TRIANGLE>::create(vertex0, vertex1, vertex2, event.data[11]);
-                pdf *= tri.template deferredPdf<ray_type>(ray);
-            }
-            break;
-            case PST_RECTANGLE:
-            {
-                const vector3_type offset = vector3_type(
-                    bit_cast<float32_t>(event.data[2]),
-                    bit_cast<float32_t>(event.data[3]),
-                    bit_cast<float32_t>(event.data[4]));
-                const vector3_type edge0 = vector3_type(
-                    bit_cast<float32_t>(event.data[5]),
-                    bit_cast<float32_t>(event.data[6]),
-                    bit_cast<float32_t>(event.data[7]));
-                const vector3_type edge1 = vector3_type(
-                    bit_cast<float32_t>(event.data[8]),
-                    bit_cast<float32_t>(event.data[9]),
-                    bit_cast<float32_t>(event.data[10]));
-                Shape<PST_RECTANGLE> rect = Shape<PST_RECTANGLE>::create(offset, edge0, edge1, event.data[11]);
-                pdf *= rect.template deferredPdf<ray_type>(ray);
-            }
-            break;
-            default:
-                pdf = bit_cast<float>(numeric_limits<float>::infinity);
-                break;
-        }
+        pdf = 1.0 / scene.lightCount;
+        const light_type light = scene.lights[lightID];
+        const Shape<PST_SPHERE> sphere = scene.spheres[light.objectID.id];
+        const ShapeSampling<PST_SPHERE, PPM> sampling = ShapeSampling<PST_SPHERE, PPM>::create(sphere);
+        pdf *= sampling.template deferredPdf<ray_type>(ray);
 
         return light.radiance;
     }
 
-    static spectral_type deferredEvalAndPdf(NBL_REF_ARG(scalar_type) pdf, NBL_CONST_REF_ARG(light_type) light, NBL_CONST_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(Event) event)
+    static sample_type generate_and_quotient_and_pdf(NBL_REF_ARG(quotient_pdf_type) quotient_pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(scene_type) scene, uint32_t lightID, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, NBL_CONST_REF_ARG(vector3_type) xi, uint32_t depth)
     {
-        // const IntersectMode mode = (IntersectMode)event.mode;
-        // switch (mode)
-        // {
-        //     case IM_RAY_QUERY:
-        //     {
-        //         // TODO: do ray query stuff
-        //     }
-        //     break;
-        //     case IM_RAY_TRACING:
-        //     {
-        //         // TODO: do ray tracing stuff
-        //     }
-        //     break;
-        //     case IM_PROCEDURAL:
-        //     {
-                return proceduralDeferredEvalAndPdf(pdf, light, ray, event);
-        //     }
-        //     break;
-        //     default:
-        //         return (spectral_type)0.0;
-        // }
-        // return (spectral_type)0.0;
-    }
-
-    static sample_type procedural_generate_and_quotient_and_pdf(NBL_REF_ARG(quotient_pdf_type) quotient_pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(light_type) light, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, NBL_CONST_REF_ARG(vector3_type) xi, uint32_t depth, NBL_CONST_REF_ARG(Event) event)
-    {
-        const uint32_t lightCount = event.data[0];
-        const ProceduralShapeType type = (ProceduralShapeType)event.data[1];
-
         sample_type L;
         scalar_type pdf;
-        switch (type)
-        {
-            case PST_SPHERE:
-            {
-                const vector3_type position = vector3_type(
-                    bit_cast<float32_t>(event.data[2]),
-                    bit_cast<float32_t>(event.data[3]),
-                    bit_cast<float32_t>(event.data[4]));
-                Shape<PST_SPHERE> sphere = Shape<PST_SPHERE>::create(position, bit_cast<float32_t>(event.data[5]), event.data[6]);
 
-                const vector3_type sampleL = sphere.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
-                const vector3_type V = interaction.isotropic.V.getDirection();
-                const scalar_type VdotL = nbl::hlsl::dot<vector3_type>(V, sampleL);
-                ray_dir_info_type rayL;
-                rayL.direction = sampleL;
-                L = sample_type::create(rayL,VdotL,interaction.T,interaction.B,interaction.isotropic.N);
-            }
-            break;
-            case PST_TRIANGLE:
-            {
-                const vector3_type vertex0 = vector3_type(
-                    bit_cast<float32_t>(event.data[2]),
-                    bit_cast<float32_t>(event.data[3]),
-                    bit_cast<float32_t>(event.data[4]));
-                const vector3_type vertex1 = vector3_type(
-                    bit_cast<float32_t>(event.data[5]), 
-                    bit_cast<float32_t>(event.data[6]),
-                    bit_cast<float32_t>(event.data[7]));
-                const vector3_type vertex2 = vector3_type(
-                    bit_cast<float32_t>(event.data[8]),
-                    bit_cast<float32_t>(event.data[9]),
-                    bit_cast<float32_t>(event.data[10]));
-                Shape<PST_TRIANGLE> tri = Shape<PST_TRIANGLE>::create(vertex0, vertex1, vertex2, event.data[11]);
+        const light_type light = scene.lights[lightID];
+        const Shape<PST_SPHERE> sphere = scene.spheres[light.objectID.id];
+        const ShapeSampling<PST_SPHERE, PPM> sampling = ShapeSampling<PST_SPHERE, PPM>::create(sphere);
 
-                const vector3_type sampleL = tri.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
-                const vector3_type V = interaction.isotropic.V.getDirection();
-                const scalar_type VdotL = nbl::hlsl::dot<vector3_type>(V, sampleL);
-                ray_dir_info_type rayL;
-                rayL.direction = sampleL;
-                L = sample_type::create(rayL,VdotL,interaction.T,interaction.B,interaction.isotropic.N);
-            }
-            break;
-            case PST_RECTANGLE:
-            {
-                const vector3_type offset = vector3_type(
-                    bit_cast<float32_t>(event.data[2]),
-                    bit_cast<float32_t>(event.data[3]),
-                    bit_cast<float32_t>(event.data[4]));
-                const vector3_type edge0 = vector3_type(
-                    bit_cast<float32_t>(event.data[5]),
-                    bit_cast<float32_t>(event.data[6]),
-                    bit_cast<float32_t>(event.data[7]));
-                const vector3_type edge1 = vector3_type(
-                    bit_cast<float32_t>(event.data[8]),
-                    bit_cast<float32_t>(event.data[9]),
-                    bit_cast<float32_t>(event.data[10]));
-                Shape<PST_RECTANGLE> rect = Shape<PST_RECTANGLE>::create(offset, edge0, edge1, event.data[11]);
-
-                const vector3_type sampleL = rect.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
-                const vector3_type V = interaction.isotropic.V.getDirection();
-                const scalar_type VdotL = nbl::hlsl::dot<vector3_type>(V, sampleL);
-                ray_dir_info_type rayL;
-                rayL.direction = sampleL;
-                L = sample_type::create(rayL,VdotL,interaction.T,interaction.B,interaction.isotropic.N);
-            }
-            break;
-            default:
-                pdf = bit_cast<float>(numeric_limits<float>::infinity);
-                break;
-        }
+        const vector3_type sampleL = sampling.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
+        const vector3_type V = interaction.isotropic.V.getDirection();
+        const scalar_type VdotL = nbl::hlsl::dot<vector3_type>(V, sampleL);
+        ray_dir_info_type rayL;
+        rayL.direction = sampleL;
+        L = sample_type::create(rayL,VdotL,interaction.T,interaction.B,interaction.isotropic.N);
 
         newRayMaxT *= Tolerance<scalar_type>::getEnd(depth);
-        pdf *= 1.0 / scalar_type(lightCount);
+        pdf *= 1.0 / scalar_type(scene.lightCount);
         spectral_type quo = light.radiance / pdf;
         quotient_pdf = quotient_pdf_type::create(quo, pdf);
 
         return L;
     }
+};
 
-    static sample_type generate_and_quotient_and_pdf(NBL_REF_ARG(quotient_pdf_type) quotient_pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(light_type) light, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, NBL_CONST_REF_ARG(vector3_type) xi, uint32_t depth, NBL_CONST_REF_ARG(Event) event)
+template<class Scene, typename Ray, class LightSample, class Aniso, PTPolygonMethod PPM>
+struct Estimator<Scene, Ray, LightSample, Aniso, IM_PROCEDURAL, PST_TRIANGLE, PPM>
+{
+    using scalar_type = typename Ray::scalar_type;
+    using vector3_type = vector<scalar_type, 3>;
+    using ray_type = Ray;
+    using scene_type = Scene;
+    using light_type = typename Scene::light_type;
+    using spectral_type = typename light_type::spectral_type;
+    using interaction_type = Aniso;
+    using quotient_pdf_type = bxdf::quotient_and_pdf<spectral_type, scalar_type>;
+    using sample_type = LightSample;
+    using ray_dir_info_type = typename sample_type::ray_dir_info_type;
+
+    static spectral_type deferredEvalAndPdf(NBL_REF_ARG(scalar_type) pdf, NBL_CONST_REF_ARG(scene_type) scene, uint32_t lightID, NBL_CONST_REF_ARG(ray_type) ray)
     {
-        const IntersectMode mode = (IntersectMode)event.mode;
+        pdf = 1.0 / scene.lightCount;
+        const light_type light = scene.lights[lightID];
+        const Shape<PST_TRIANGLE> tri = scene.triangles[light.objectID.id];
+        const ShapeSampling<PST_TRIANGLE, PPM> sampling = ShapeSampling<PST_TRIANGLE, PPM>::create(tri);
+        pdf *= sampling.template deferredPdf<ray_type>(ray);
+
+        return light.radiance;
+    }
+
+    static sample_type generate_and_quotient_and_pdf(NBL_REF_ARG(quotient_pdf_type) quotient_pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(scene_type) scene, uint32_t lightID, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, NBL_CONST_REF_ARG(vector3_type) xi, uint32_t depth)
+    {
         sample_type L;
-        // switch (mode)
-        // {
-        //     case IM_RAY_QUERY:
-        //     {
-        //         // TODO: do ray query stuff
-        //     }
-        //     break;
-        //     case IM_RAY_TRACING:
-        //     {
-        //         // TODO: do ray tracing stuff
-        //     }
-        //     break;
-        //     case IM_PROCEDURAL:
-        //     {
-                return procedural_generate_and_quotient_and_pdf(quotient_pdf, newRayMaxT, light, origin, interaction, isBSDF, xi, depth, event);
-        //     }
-        //     break;
-        //     default:
-        //     {
-        //         return L;
-        //     }
-        // }
-        // return L;
+        scalar_type pdf;
+
+        const light_type light = scene.lights[lightID];
+        const Shape<PST_TRIANGLE> tri = scene.triangles[light.objectID.id];
+        const ShapeSampling<PST_TRIANGLE, PPM> sampling = ShapeSampling<PST_TRIANGLE, PPM>::create(tri);
+
+        const vector3_type sampleL = sampling.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
+        const vector3_type V = interaction.isotropic.V.getDirection();
+        const scalar_type VdotL = nbl::hlsl::dot<vector3_type>(V, sampleL);
+        ray_dir_info_type rayL;
+        rayL.direction = sampleL;
+        L = sample_type::create(rayL,VdotL,interaction.T,interaction.B,interaction.isotropic.N);
+
+        newRayMaxT *= Tolerance<scalar_type>::getEnd(depth);
+        pdf *= 1.0 / scalar_type(scene.lightCount);
+        spectral_type quo = light.radiance / pdf;
+        quotient_pdf = quotient_pdf_type::create(quo, pdf);
+
+        return L;
+    }
+};
+
+template<typename Scene, typename Ray, class LightSample, class Aniso, PTPolygonMethod PPM>
+struct Estimator<Scene, Ray, LightSample, Aniso, IM_PROCEDURAL, PST_RECTANGLE, PPM>
+{
+    using scalar_type = typename Ray::scalar_type;
+    using vector3_type = vector<scalar_type, 3>;
+    using ray_type = Ray;
+    using scene_type = Scene;
+    using light_type = typename Scene::light_type;
+    using spectral_type = typename light_type::spectral_type;
+    using interaction_type = Aniso;
+    using quotient_pdf_type = bxdf::quotient_and_pdf<spectral_type, scalar_type>;
+    using sample_type = LightSample;
+    using ray_dir_info_type = typename sample_type::ray_dir_info_type;
+
+    static spectral_type deferredEvalAndPdf(NBL_REF_ARG(scalar_type) pdf, NBL_CONST_REF_ARG(scene_type) scene, uint32_t lightID, NBL_CONST_REF_ARG(ray_type) ray)
+    {
+        pdf = 1.0 / scene.lightCount;
+        const light_type light = scene.lights[lightID];
+        const Shape<PST_RECTANGLE> rect = scene.rectangles[light.objectID.id];
+        const ShapeSampling<PST_RECTANGLE, PPM> sampling = ShapeSampling<PST_RECTANGLE, PPM>::create(rect);
+        pdf *= sampling.template deferredPdf<ray_type>(ray);
+
+        return light.radiance;
+    }
+
+    static sample_type generate_and_quotient_and_pdf(NBL_REF_ARG(quotient_pdf_type) quotient_pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(scene_type) scene, uint32_t lightID, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, NBL_CONST_REF_ARG(vector3_type) xi, uint32_t depth)
+    {
+        sample_type L;
+        scalar_type pdf;
+
+        const light_type light = scene.lights[lightID];
+        const Shape<PST_RECTANGLE> rect = scene.rectangles[light.objectID.id];
+        const ShapeSampling<PST_RECTANGLE, PPM> sampling = ShapeSampling<PST_RECTANGLE, PPM>::create(rect);
+
+        const vector3_type sampleL = sampling.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
+        const vector3_type V = interaction.isotropic.V.getDirection();
+        const scalar_type VdotL = nbl::hlsl::dot<vector3_type>(V, sampleL);
+        ray_dir_info_type rayL;
+        rayL.direction = sampleL;
+        L = sample_type::create(rayL,VdotL,interaction.T,interaction.B,interaction.isotropic.N);
+
+        newRayMaxT *= Tolerance<scalar_type>::getEnd(depth);
+        pdf *= 1.0 / scalar_type(scene.lightCount);
+        spectral_type quo = light.radiance / pdf;
+        quotient_pdf = quotient_pdf_type::create(quo, pdf);
+
+        return L;
     }
 };
 

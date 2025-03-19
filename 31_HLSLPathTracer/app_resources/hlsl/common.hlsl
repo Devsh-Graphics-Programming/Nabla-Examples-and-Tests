@@ -35,6 +35,7 @@ struct Payload
 
 enum ProceduralShapeType : uint16_t
 {
+    PST_NONE = 0,
     PST_SPHERE,
     PST_TRIANGLE,
     PST_RECTANGLE
@@ -173,53 +174,12 @@ enum PTPolygonMethod : uint16_t
     PPM_APPROX_PROJECTED_SOLID_ANGLE
 };
 
-// namespace Intersector
-// {
-// // ray query method
-// // ray query struct holds AS info
-// // pass in address to vertex/index buffers?
-
-// // ray tracing pipeline method
-
-// // procedural data store: [obj count] [intersect type] [obj1] [obj2] [...]
-
-// struct IntersectData
-// {
-//     enum Mode : uint32_t    // enum class?
-//     {
-//         RAY_QUERY,
-//         RAY_TRACING,
-//         PROCEDURAL
-//     };
-
-//     NBL_CONSTEXPR_STATIC_INLINE uint32_t DataSize = 128;
-
-//     uint32_t mode : 2;
-//     uint32_t unused : 30;   // possible space for flags
-//     uint32_t data[DataSize];
-// };
-// }
-
 enum IntersectMode : uint32_t
 {
     IM_RAY_QUERY,
     IM_RAY_TRACING,
     IM_PROCEDURAL
 };
-
-namespace NextEventEstimator
-{
-// procedural data store: [light count] [event type] [obj]
-
-struct Event
-{
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t DataSize = 16;
-
-    uint32_t mode : 2;
-    uint32_t unused : 30;   // possible space for flags
-    uint32_t data[DataSize];
-};
-}
 
 template<ProceduralShapeType type>
 struct Shape;
@@ -267,45 +227,6 @@ struct Shape<PST_SPHERE>
         float32_t3 dist = position - origin;
         float cosThetaMax = hlsl::sqrt<float32_t>(1.0 - radius2 / hlsl::dot<float32_t3>(dist, dist));
         return 2.0 * numbers::pi<float> * (1.0 - cosThetaMax);
-    }
-
-    template<typename Ray>
-    float deferredPdf(NBL_CONST_REF_ARG(Ray) ray)
-    {
-        return 1.0 / getSolidAngle(ray.origin);
-    }
-
-    template<class Aniso>
-    float32_t3 generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, NBL_CONST_REF_ARG(float32_t3) xi)
-    {
-        float32_t3 Z = position - origin;
-        const float distanceSQ = hlsl::dot<float32_t3>(Z,Z);
-        const float cosThetaMax2 = 1.0 - radius2 / distanceSQ;
-        if (cosThetaMax2 > 0.0)
-        {
-            const float rcpDistance = 1.0 / hlsl::sqrt<float32_t>(distanceSQ);
-            Z *= rcpDistance;
-
-            const float cosThetaMax = hlsl::sqrt<float32_t>(cosThetaMax2);
-            const float cosTheta = hlsl::mix<float>(1.0, cosThetaMax, xi.x);
-
-            float32_t3 L = Z * cosTheta;
-
-            const float cosTheta2 = cosTheta * cosTheta;
-            const float sinTheta = hlsl::sqrt<float32_t>(1.0 - cosTheta2);
-            float sinPhi, cosPhi;
-            math::sincos<float>(2.0 * numbers::pi<float> * xi.y - numbers::pi<float>, sinPhi, cosPhi);
-            float32_t3 X, Y;
-            math::frisvad<float32_t3>(Z, X, Y);
-
-            L += (X * cosPhi + Y * sinPhi) * sinTheta;
-
-            newRayMaxT = (cosTheta - hlsl::sqrt<float32_t>(cosTheta2 - cosThetaMax2)) / rcpDistance;
-            pdf = 1.0 / (2.0 * numbers::pi<float> * (1.0 - cosThetaMax));
-            return L;
-        }
-        pdf = 0.0;
-        return float32_t3(0.0,0.0,0.0);
     }
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t ObjSize = 5;
@@ -359,100 +280,6 @@ struct Shape<PST_TRIANGLE>
     {
         const float32_t3 edges[2] = { vertex1 - vertex0, vertex2 - vertex0 };
         return hlsl::cross<float32_t3>(edges[0], edges[1]) * 0.5f;
-    }
-
-    template<typename Ray>
-    float deferredPdf(NBL_CONST_REF_ARG(Ray) ray)
-    {
-        const float32_t3 L = ray.direction;
-        switch (polygonMethod)
-        {
-            case PPM_AREA:
-            {
-                const float dist = ray.intersectionT;
-                const float32_t3 L = ray.direction;
-                return dist * dist / hlsl::abs<float32_t>(hlsl::dot<float32_t3>(getNormalTimesArea(), L));
-            }
-            break;
-            case PPM_SOLID_ANGLE:
-            {
-                shapes::SphericalTriangle<float> st = shapes::SphericalTriangle<float>::create(vertex0, vertex1, vertex2, ray.origin);
-                const float rcpProb = st.solidAngleOfTriangle();
-                // if `rcpProb` is NAN then the triangle's solid angle was close to 0.0
-                return rcpProb > numeric_limits<float>::min ? (1.0 / rcpProb) : numeric_limits<float>::max;
-            }
-            break;
-            case PPM_APPROX_PROJECTED_SOLID_ANGLE:
-            {
-                shapes::SphericalTriangle<float> st = shapes::SphericalTriangle<float>::create(vertex0, vertex1, vertex2, ray.origin);
-                sampling::ProjectedSphericalTriangle<float> pst = sampling::ProjectedSphericalTriangle<float>::create(st);
-                const float pdf = pst.pdf(ray.normalAtOrigin, ray.wasBSDFAtOrigin, L);
-                // if `pdf` is NAN then the triangle's projected solid angle was close to 0.0, if its close to INF then the triangle was very small
-                return pdf < numeric_limits<float>::max ? pdf : numeric_limits<float>::max;
-            }
-            break;
-            default:
-                return 0.0;
-        }
-    }
-
-    template<class Aniso>
-    float32_t3 generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, float32_t3 xi)
-    {
-        switch(polygonMethod)
-        {
-            case PPM_AREA:
-            {
-                const float32_t3 edge0 = vertex1 - vertex0;
-                const float32_t3 edge1 = vertex2 - vertex0;
-                const float sqrtU = hlsl::sqrt<float32_t>(xi.x);
-                float32_t3 pnt = vertex0 + edge0 * (1.0 - sqrtU) + edge1 * sqrtU * xi.y;
-                float32_t3 L = pnt - origin;
-
-                const float distanceSq = hlsl::dot<float32_t3>(L,L);
-                const float rcpDistance = 1.0 / hlsl::sqrt<float32_t>(distanceSq);
-                L *= rcpDistance;
-
-                pdf = distanceSq / hlsl::abs<float32_t>(hlsl::dot<float32_t3>(hlsl::cross<float32_t3>(edge0, edge1) * 0.5f, L));
-                newRayMaxT = 1.0 / rcpDistance;
-                return L;
-            }
-            break;
-            case PPM_SOLID_ANGLE:
-            {
-                float rcpPdf;
-
-                shapes::SphericalTriangle<float> st = shapes::SphericalTriangle<float>::create(vertex0, vertex1, vertex2, origin);
-                sampling::SphericalTriangle<float> sst = sampling::SphericalTriangle<float>::create(st);
-
-                const float32_t3 L = sst.generate(rcpPdf, xi.xy);
-
-                pdf = rcpPdf > numeric_limits<float>::min ? (1.0 / rcpPdf) : numeric_limits<float>::max;
-
-                const float32_t3 N = getNormalTimesArea();
-                newRayMaxT = hlsl::dot<float32_t3>(N, vertex0 - origin) / hlsl::dot<float32_t3>(N, L);
-                return L;
-            }
-            break;
-            case PPM_APPROX_PROJECTED_SOLID_ANGLE:
-            {
-                float rcpPdf;
-
-                shapes::SphericalTriangle<float> st = shapes::SphericalTriangle<float>::create(vertex0, vertex1, vertex2, origin);
-                sampling::ProjectedSphericalTriangle<float> sst = sampling::ProjectedSphericalTriangle<float>::create(st);
-
-                const float32_t3 L = sst.generate(rcpPdf, interaction.isotropic.N, isBSDF, xi.xy);
-
-                pdf = rcpPdf > numeric_limits<float>::min ? (1.0 / rcpPdf) : numeric_limits<float>::max;
-
-                const float32_t3 N = getNormalTimesArea();
-                newRayMaxT = hlsl::dot<float32_t3>(N, vertex0 - origin) / hlsl::dot<float32_t3>(N, L);
-                return L;
-            }
-            break;
-            default:
-                return (float32_t3)0.0;
-        }
     }
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t ObjSize = 10;
@@ -513,103 +340,6 @@ struct Shape<PST_RECTANGLE>
         basis[0] = edge0 / extents[0];
         basis[1] = edge1 / extents[1];
         basis[2] = normalize(cross(basis[0],basis[1]));
-    }
-
-    template<typename Ray>
-    float deferredPdf(NBL_CONST_REF_ARG(Ray) ray)
-    {
-        switch (polygonMethod)
-        {
-            case PPM_AREA:
-            {
-                const float dist = ray.intersectionT;
-                const float32_t3 L = ray.direction;
-                return dist * dist / hlsl::abs<float32_t>(hlsl::dot<float32_t3>(getNormalTimesArea(), L));
-            }
-            break;
-            // #ifdef TRIANGLE_REFERENCE ?
-            case PPM_SOLID_ANGLE:
-            {
-                float pdf;
-                float32_t3x3 rectNormalBasis;
-                float32_t2 rectExtents;
-                getNormalBasis(rectNormalBasis, rectExtents);
-                shapes::SphericalRectangle<float> sphR0 = shapes::SphericalRectangle<float>::create(ray.origin, offset, rectNormalBasis);
-                float solidAngle = sphR0.solidAngleOfRectangle(rectExtents);
-                if (solidAngle > numeric_limits<float>::min)
-                    pdf = 1.f / solidAngle;
-                else
-                    pdf = bit_cast<float>(numeric_limits<float>::infinity);
-                return pdf;
-            }
-            break;
-            case PPM_APPROX_PROJECTED_SOLID_ANGLE:
-            {
-                // currently broken
-                return bit_cast<float>(numeric_limits<float>::infinity);
-            }
-            break;
-            default:
-                return bit_cast<float>(numeric_limits<float>::infinity);
-        }
-    }
-
-    template<class Aniso>
-    float32_t3 generate_and_pdf(NBL_REF_ARG(float32_t) pdf, NBL_REF_ARG(float32_t) newRayMaxT, NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(Aniso) interaction, bool isBSDF, float32_t3 xi)
-    {
-        const float32_t3 N = getNormalTimesArea();
-        const float32_t3 origin2origin = offset - origin;
-
-        switch (polygonMethod)
-        {
-            case PPM_AREA:
-            {
-                float32_t3 L = origin2origin + edge0 * xi.x + edge1 * xi.y;
-                const float distSq = hlsl::dot<float32_t3>(L, L);
-                const float rcpDist = 1.0 / hlsl::sqrt<float32_t>(distSq);
-                L *= rcpDist;
-                pdf = distSq / hlsl::abs<float32_t>(hlsl::dot<float32_t3>(N, L));
-                newRayMaxT = 1.0 / rcpDist;
-                return L;
-            }
-            break;
-            // #ifdef TRIANGLE_REFERENCE ?
-            case PPM_SOLID_ANGLE:
-            {
-                float32_t3x3 rectNormalBasis;
-                float32_t2 rectExtents;
-                getNormalBasis(rectNormalBasis, rectExtents);
-                shapes::SphericalRectangle<float> sphR0 = shapes::SphericalRectangle<float>::create(origin, offset, rectNormalBasis);
-                float32_t3 L = (float32_t3)0.0;
-                float solidAngle = sphR0.solidAngleOfRectangle(rectExtents);
-
-                sampling::SphericalRectangle<float> ssph = sampling::SphericalRectangle<float>::create(sphR0);
-                float32_t2 sphUv = ssph.generate(rectExtents, xi.xy, solidAngle);
-                if (solidAngle > numeric_limits<float>::min)
-                {
-                    float32_t3 sph_sample = sphUv[0] * edge0 + sphUv[1] * edge1 + offset;
-                    L = sph_sample - origin;
-                    L = hlsl::mix<float32_t3>(nbl::hlsl::normalize(L), (float32_t3)0.0, hlsl::abs<float32_t3>(L) > (float32_t3)numeric_limits<float>::min); // TODO? sometimes L is vec3(0), find cause
-                    pdf = 1.f / solidAngle;
-                }
-                else
-                    pdf = bit_cast<float>(numeric_limits<float>::infinity);
-
-                newRayMaxT = hlsl::dot<float32_t3>(N, origin2origin) / hlsl::dot<float32_t3>(N, L);
-                return L;
-            }
-            break;
-            case PPM_APPROX_PROJECTED_SOLID_ANGLE:
-            {
-                // currently broken
-                pdf = bit_cast<float>(numeric_limits<float>::infinity);
-                return (float32_t3)0.0;
-            }
-            break;
-            default:
-                pdf = bit_cast<float>(numeric_limits<float>::infinity);
-                return (float32_t3)0.0;
-        }
     }
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t ObjSize = 10;
