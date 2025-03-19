@@ -16,12 +16,13 @@ layout(set = 2, binding = 2) uniform usampler2D scramblebuf;
 layout(set=0, binding=0, rgba16f) uniform image2D outImage;
 
 #ifndef _NBL_GLSL_WORKGROUP_SIZE_
-#define _NBL_GLSL_WORKGROUP_SIZE_ 32
-layout(local_size_x=_NBL_GLSL_WORKGROUP_SIZE_, local_size_y=_NBL_GLSL_WORKGROUP_SIZE_, local_size_z=1) in;
+#define _NBL_GLSL_WORKGROUP_SIZE_ 256
+layout(local_size_x=_NBL_GLSL_WORKGROUP_SIZE_, local_size_y=1, local_size_z=1) in;
 #endif
 
 ivec2 getCoordinates() {
-    return ivec2(gl_GlobalInvocationID.xy);
+    ivec2 imageSize = imageSize(outImage);
+    return ivec2(gl_GlobalInvocationID.x % imageSize.x, gl_GlobalInvocationID.x / imageSize.x);
 }
 
 vec2 getTexCoords() {
