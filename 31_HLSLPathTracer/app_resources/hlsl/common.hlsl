@@ -68,7 +68,7 @@ struct Ray
     vector3_type origin;
     vector3_type direction;
 
-    // TODO: polygon method == 2 stuff
+    // polygon method == PPM_APPROX_PROJECTED_SOLID_ANGLE
     vector3_type normalAtOrigin;
     bool wasBSDFAtOrigin;
 
@@ -246,7 +246,6 @@ struct Shape<PST_TRIANGLE>
         retval.vertex1 = vertex1;
         retval.vertex2 = vertex2;
         retval.bsdfLightIDs = bsdfLightIDs;
-        retval.polygonMethod = PPM_SOLID_ANGLE;
         return retval;
     }
 
@@ -288,7 +287,6 @@ struct Shape<PST_TRIANGLE>
     float32_t3 vertex1;
     float32_t3 vertex2;
     uint32_t bsdfLightIDs;
-    PTPolygonMethod polygonMethod;
 };
 
 template<>
@@ -301,7 +299,6 @@ struct Shape<PST_RECTANGLE>
         retval.edge0 = edge0;
         retval.edge1 = edge1;
         retval.bsdfLightIDs = bsdfLightIDs;
-        retval.polygonMethod = PPM_SOLID_ANGLE;
         return retval;
     }
 
@@ -348,7 +345,6 @@ struct Shape<PST_RECTANGLE>
     float32_t3 edge0;
     float32_t3 edge1;
     uint32_t bsdfLightIDs;
-    PTPolygonMethod polygonMethod;
 };
 
 }

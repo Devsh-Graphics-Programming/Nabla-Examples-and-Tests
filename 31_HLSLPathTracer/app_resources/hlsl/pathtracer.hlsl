@@ -241,10 +241,11 @@ struct Unidirectional
             // trace new ray
             ray.origin = intersection + bxdfSample * (1.0/*kSceneSize*/) * Tolerance<scalar_type>::getStart(depth);
             ray.direction = bxdfSample;
-            // #if POLYGON_METHOD==2
-            // ray._immutable.normalAtOrigin = interaction.isotropic.N;
-            // ray._immutable.wasBSDFAtOrigin = isBSDF;
-            // #endif
+            if ((PTPolygonMethod)nee_type::PolygonMethod == PPM_APPROX_PROJECTED_SOLID_ANGLE)
+            {
+                ray.normalAtOrigin = interaction.isotropic.N;
+                ray.wasBSDFAtOrigin = isBSDF;
+            }
             return true;
         }
 

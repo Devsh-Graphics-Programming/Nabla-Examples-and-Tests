@@ -1348,7 +1348,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		float camYAngle = 165.f / 180.f * 3.14159f;
 		float camXAngle = 32.f / 180.f * 3.14159f;
 		int PTPipline = E_LIGHT_GEOMETRY::ELG_SPHERE;
-		int renderMode = E_RENDER_MODE::ERM_GLSL;
+		int renderMode = E_RENDER_MODE::ERM_HLSL;
 		int spp = 32;
 		int depth = 3;
 

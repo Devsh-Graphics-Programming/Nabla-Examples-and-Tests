@@ -298,6 +298,10 @@ struct Estimator<Scene, Ray, LightSample, Aniso, IM_PROCEDURAL, PST_SPHERE, PPM>
     using sample_type = LightSample;
     using ray_dir_info_type = typename sample_type::ray_dir_info_type;
 
+    // affected by https://github.com/microsoft/DirectXShaderCompiler/issues/7007
+    // NBL_CONSTEXPR_STATIC_INLINE PTPolygonMethod PolygonMethod = PPM;
+    enum : uint16_t { PolygonMethod = PPM };
+
     static spectral_type deferredEvalAndPdf(NBL_REF_ARG(scalar_type) pdf, NBL_CONST_REF_ARG(scene_type) scene, uint32_t lightID, NBL_CONST_REF_ARG(ray_type) ray)
     {
         pdf = 1.0 / scene.lightCount;
@@ -311,19 +315,17 @@ struct Estimator<Scene, Ray, LightSample, Aniso, IM_PROCEDURAL, PST_SPHERE, PPM>
 
     static sample_type generate_and_quotient_and_pdf(NBL_REF_ARG(quotient_pdf_type) quotient_pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(scene_type) scene, uint32_t lightID, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, NBL_CONST_REF_ARG(vector3_type) xi, uint32_t depth)
     {
-        sample_type L;
-        scalar_type pdf;
-
         const light_type light = scene.lights[lightID];
         const Shape<PST_SPHERE> sphere = scene.spheres[light.objectID.id];
         const ShapeSampling<PST_SPHERE, PPM> sampling = ShapeSampling<PST_SPHERE, PPM>::create(sphere);
 
+        scalar_type pdf;
         const vector3_type sampleL = sampling.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
         const vector3_type V = interaction.isotropic.V.getDirection();
         const scalar_type VdotL = nbl::hlsl::dot<vector3_type>(V, sampleL);
         ray_dir_info_type rayL;
         rayL.direction = sampleL;
-        L = sample_type::create(rayL,VdotL,interaction.T,interaction.B,interaction.isotropic.N);
+        sample_type L = sample_type::create(rayL,VdotL,interaction.T,interaction.B,interaction.isotropic.N);
 
         newRayMaxT *= Tolerance<scalar_type>::getEnd(depth);
         pdf *= 1.0 / scalar_type(scene.lightCount);
@@ -348,6 +350,9 @@ struct Estimator<Scene, Ray, LightSample, Aniso, IM_PROCEDURAL, PST_TRIANGLE, PP
     using sample_type = LightSample;
     using ray_dir_info_type = typename sample_type::ray_dir_info_type;
 
+    // NBL_CONSTEXPR_STATIC_INLINE PTPolygonMethod PolygonMethod = PPM;
+    enum : uint16_t { PolygonMethod = PPM };
+
     static spectral_type deferredEvalAndPdf(NBL_REF_ARG(scalar_type) pdf, NBL_CONST_REF_ARG(scene_type) scene, uint32_t lightID, NBL_CONST_REF_ARG(ray_type) ray)
     {
         pdf = 1.0 / scene.lightCount;
@@ -361,19 +366,17 @@ struct Estimator<Scene, Ray, LightSample, Aniso, IM_PROCEDURAL, PST_TRIANGLE, PP
 
     static sample_type generate_and_quotient_and_pdf(NBL_REF_ARG(quotient_pdf_type) quotient_pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(scene_type) scene, uint32_t lightID, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, NBL_CONST_REF_ARG(vector3_type) xi, uint32_t depth)
     {
-        sample_type L;
-        scalar_type pdf;
-
         const light_type light = scene.lights[lightID];
         const Shape<PST_TRIANGLE> tri = scene.triangles[light.objectID.id];
         const ShapeSampling<PST_TRIANGLE, PPM> sampling = ShapeSampling<PST_TRIANGLE, PPM>::create(tri);
 
+        scalar_type pdf;
         const vector3_type sampleL = sampling.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
         const vector3_type V = interaction.isotropic.V.getDirection();
         const scalar_type VdotL = nbl::hlsl::dot<vector3_type>(V, sampleL);
         ray_dir_info_type rayL;
         rayL.direction = sampleL;
-        L = sample_type::create(rayL,VdotL,interaction.T,interaction.B,interaction.isotropic.N);
+        sample_type L = sample_type::create(rayL,VdotL,interaction.T,interaction.B,interaction.isotropic.N);
 
         newRayMaxT *= Tolerance<scalar_type>::getEnd(depth);
         pdf *= 1.0 / scalar_type(scene.lightCount);
@@ -398,6 +401,9 @@ struct Estimator<Scene, Ray, LightSample, Aniso, IM_PROCEDURAL, PST_RECTANGLE, P
     using sample_type = LightSample;
     using ray_dir_info_type = typename sample_type::ray_dir_info_type;
 
+    // NBL_CONSTEXPR_STATIC_INLINE PTPolygonMethod PolygonMethod = PPM;
+    enum : uint16_t { PolygonMethod = PPM };
+
     static spectral_type deferredEvalAndPdf(NBL_REF_ARG(scalar_type) pdf, NBL_CONST_REF_ARG(scene_type) scene, uint32_t lightID, NBL_CONST_REF_ARG(ray_type) ray)
     {
         pdf = 1.0 / scene.lightCount;
@@ -411,19 +417,17 @@ struct Estimator<Scene, Ray, LightSample, Aniso, IM_PROCEDURAL, PST_RECTANGLE, P
 
     static sample_type generate_and_quotient_and_pdf(NBL_REF_ARG(quotient_pdf_type) quotient_pdf, NBL_REF_ARG(scalar_type) newRayMaxT, NBL_CONST_REF_ARG(scene_type) scene, uint32_t lightID, NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(interaction_type) interaction, bool isBSDF, NBL_CONST_REF_ARG(vector3_type) xi, uint32_t depth)
     {
-        sample_type L;
-        scalar_type pdf;
-
         const light_type light = scene.lights[lightID];
         const Shape<PST_RECTANGLE> rect = scene.rectangles[light.objectID.id];
         const ShapeSampling<PST_RECTANGLE, PPM> sampling = ShapeSampling<PST_RECTANGLE, PPM>::create(rect);
 
+        scalar_type pdf;
         const vector3_type sampleL = sampling.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
         const vector3_type V = interaction.isotropic.V.getDirection();
         const scalar_type VdotL = nbl::hlsl::dot<vector3_type>(V, sampleL);
         ray_dir_info_type rayL;
         rayL.direction = sampleL;
-        L = sample_type::create(rayL,VdotL,interaction.T,interaction.B,interaction.isotropic.N);
+        sample_type L = sample_type::create(rayL,VdotL,interaction.T,interaction.B,interaction.isotropic.N);
 
         newRayMaxT *= Tolerance<scalar_type>::getEnd(depth);
         pdf *= 1.0 / scalar_type(scene.lightCount);
