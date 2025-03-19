@@ -3300,7 +3300,7 @@ protected:
 			};
 
 			core::vector<uint32_t> indices = {
-				0, 1, 3,
+				0, 3, 1,
 				1, 3, 4,
 				1, 2, 4,
 				2, 4, 5,
@@ -3327,8 +3327,10 @@ protected:
 
 			LineStyleInfo outlineStyle = {};
 			dtmSettingsInfo.outlineLineStyleInfo.screenSpaceLineWidth = 0.0f;
-			dtmSettingsInfo.outlineLineStyleInfo.worldSpaceLineWidth = 5.0f;
+			dtmSettingsInfo.outlineLineStyleInfo.worldSpaceLineWidth = 2.0f;
 			dtmSettingsInfo.outlineLineStyleInfo.color = float32_t4(0.0f, 0.5f, 0.5f, 1.0f);
+			std::array<double, 4> outlineStipplePattern = { 0.0f, -5.0f, 2.0f, -5.0f };
+			dtmSettingsInfo.outlineLineStyleInfo.setStipplePatternData(outlineStipplePattern);
 
 			LineStyleInfo contourStyle = {};
 			dtmSettingsInfo.contourLineStyleInfo.screenSpaceLineWidth = 0.0f;
@@ -3337,6 +3339,7 @@ protected:
 
 			drawResourcesFiller.drawTriangleMesh(mesh, m_triangleMeshDrawData, dtmSettingsInfo, intendedNextSubmit);
 		}
+
 		drawResourcesFiller.finalizeAllCopiesToGPU(intendedNextSubmit);
 	}
 

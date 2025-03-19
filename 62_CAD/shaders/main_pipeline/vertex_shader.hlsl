@@ -122,6 +122,10 @@ PSInput main(uint vertexID : SV_VertexID)
     outV.position = transformFromSreenSpaceToNdc(outV.position.xy, globals.resolution);
     outV.setHeightAtMeshVertex(vtx.height);
     outV.setScreenSpaceVertexPos(float3(transformedPos, 1));
+    outV.setCurrentWorldToScreenRatio(
+        _static_cast<float>((_static_cast<pfloat64_t>(2.0f) /
+            (clipProjectionData.projectionToNDC[0].x * _static_cast<pfloat64_t>(globals.resolution.x))))
+    );
 
     // TODO: line style of contour line has to be set too!
     DTMSettings dtmSettings = dtmSettingsBuff[mainObj.dtmSettingsIdx];

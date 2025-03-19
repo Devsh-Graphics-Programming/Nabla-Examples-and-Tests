@@ -425,6 +425,7 @@ float4 fragMain(PSInput input) : SV_TARGET
         const float3 baryCoord = nbl::hlsl::spirv::BaryCoordKHR;
 
         // TODO: figure out if branching can be reduced
+        // finding line start and end points by excluding vertex with the lowest barycentric coordinate value
         if (baryCoord.x < baryCoord.y && baryCoord.x < baryCoord.z)
         {
             start = float2(v1.x, v1.y);
@@ -432,7 +433,7 @@ float4 fragMain(PSInput input) : SV_TARGET
         }
         else if (baryCoord.y < baryCoord.x && baryCoord.y < baryCoord.z)
         {
-            start = float2(v1.x, v1.y);
+            start = float2(v0.x, v0.y);
             end = float2(v2.x, v2.y);
         }
         else if (baryCoord.z < baryCoord.x && baryCoord.z < baryCoord.y)
@@ -441,13 +442,20 @@ float4 fragMain(PSInput input) : SV_TARGET
             end = float2(v1.x, v1.y);
         }
 
+        // long story short, in order for stipple patterns to be consistent:
+        // - point with lesser x coord should be starting point
+        // - if x coord of both points are equal then point with lesser y value should be starting point
+        if (end.x < start.x)
+            nbl::hlsl::swap(start, end);
+        else if (end.x == start.x && end.y < start.y)
+            nbl::hlsl::swap(start, end);
+
         const float thickness = input.getLineThickness();
         const float phaseShift = 0.0f; // input.getCurrentPhaseShift();
-        const float stretch = 0.0f; // input.getPatternStretch();
+        const float stretch =  1.0f;
         const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
 
         nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(start, end);
-        nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
 
         DTMSettings dtmSettings = dtmSettingsBuff[mainObj.dtmSettingsIdx];
         LineStyle outlineStyle = lineStyles[dtmSettings.outlineLineStyleIdx];
@@ -460,14 +468,16 @@ float4 fragMain(PSInput input) : SV_TARGET
         }
         else
         {
+            nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
+            printf("stretch = %f, worldToScreenRatio = %f", stretch, worldToScreenRatio);
             LineStyleClipper clipper = LineStyleClipper::construct(outlineStyle, lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
             distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, outlineStyle.isRoadStyleFlag, clipper);
         }
 
         localAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, distance);
+        textureColor = float3(outlineStyle.color.x, outlineStyle.color.y, outlineStyle.color.z);
     }
 
-    textureColor = float3(1.0f, 1.0f, 1.0f);
     return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(uint2(input.position.xy), localAlpha, currentMainObjectIdx, textureColor, true);
 
     // figure out local alpha with sdf
@@ -485,7 +495,6 @@ float4 fragMain(PSInput input) : SV_TARGET
             const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
 
             nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(start, end);
-            nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
 
             LineStyle style = lineStyles[styleIdx];
 
@@ -495,6 +504,7 @@ float4 fragMain(PSInput input) : SV_TARGET
             }
             else
             {
+                nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
                 LineStyleClipper clipper = LineStyleClipper::construct(lineStyles[styleIdx], lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
                 distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
             }

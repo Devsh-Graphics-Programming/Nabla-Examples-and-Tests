@@ -276,7 +276,7 @@ void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, CTriangleM
 
 	uint32_t dtmSettingsIndex = addDTMSettings_SubmitIfNeeded(dtmSettingsInfo, intendedNextSubmit);
 
-	drawData.pushConstants.triangleMeshMainObjectIndex = addMainObject_SubmitIfNeeded(InvalidStyleIdx, InvalidDTMSettingsIdx, intendedNextSubmit);
+	drawData.pushConstants.triangleMeshMainObjectIndex = addMainObject_SubmitIfNeeded(InvalidStyleIdx, dtmSettingsIndex, intendedNextSubmit);
 
 	// TODO: use this function later for auto submit
 	//submitCurrentDrawObjectsAndReset(intendedNextSubmit, 0);
@@ -522,7 +522,8 @@ bool DrawResourcesFiller::finalizeLineStyleCopiesToGPU(SIntendedSubmitInfo& inte
 	SBufferRange<IGPUBuffer> stylesRange = { sizeof(LineStyle) * inMemLineStylesCount, sizeof(LineStyle) * remainingLineStyles, gpuDrawBuffers.lineStylesBuffer };
 	if (stylesRange.size > 0u)
 	{
-		const LineStyle* srcLineStylesData = reinterpret_cast<LineStyle*>(cpuDrawBuffers.lineStylesBuffer->getPointer()) + inMemLineStylesCount;
+		LineStyle* srcLineStylesData = reinterpret_cast<LineStyle*>(cpuDrawBuffers.lineStylesBuffer->getPointer()) + inMemLineStylesCount;
+
 		if (m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, stylesRange, srcLineStylesData))
 			inMemLineStylesCount = currentLineStylesCount;
 		else
