@@ -43,13 +43,15 @@
 
 using namespace nbl::hlsl;
 
-NBL_CONSTEXPR uint32_t WorkgroupSize = 32;
+NBL_CONSTEXPR uint32_t WorkgroupSize = 256;
 NBL_CONSTEXPR uint32_t MAX_DEPTH_LOG2 = 4;
 NBL_CONSTEXPR uint32_t MAX_SAMPLES_LOG2 = 10;
 
 int32_t2 getCoordinates()
 {
-    return int32_t2(glsl::gl_GlobalInvocationID().xy);
+    uint32_t width, height;
+    outImage.GetDimensions(width, height);
+    return int32_t2(glsl::gl_GlobalInvocationID().x % width, glsl::gl_GlobalInvocationID().x / width);
 }
 
 float32_t2 getTexCoords()
@@ -141,7 +143,7 @@ static const ext::Scene<light_type, bxdfnode_type> scene = ext::Scene<light_type
     lights, LIGHT_COUNT, bxdfs, BXDF_COUNT
 );
 
-[numthreads(WorkgroupSize, WorkgroupSize, 1)]
+[numthreads(WorkgroupSize, 1, 1)]
 void main(uint32_t3 threadID : SV_DispatchThreadID)
 {
     uint32_t width, height;

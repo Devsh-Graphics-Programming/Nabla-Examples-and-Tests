@@ -366,12 +366,12 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;	// should be compute
 					options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
 					options.spirvOptimizer = nullptr;
-//#ifndef _NBL_DEBUG
-//					ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
-//					auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
-//					options.spirvOptimizer = opt.get();
-//#endif
-					options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
+#ifndef _NBL_DEBUG
+					ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
+					auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
+					options.spirvOptimizer = opt.get();
+#endif
+					options.debugInfoFlags = IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_NONE;
 					options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
 					options.preprocessorOptions.logger = m_logger.get();
 					options.preprocessorOptions.includeFinder = compiler->getDefaultIncludeFinder();
@@ -418,8 +418,8 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 							params.shader.shader = ptShader.get();
 							params.shader.entryPoint = "main";
 							params.shader.entries = nullptr;
-							params.shader.requireFullSubgroups = true;
-							params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+							 params.shader.requireFullSubgroups = true;
+							 params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
 							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTGLSLPipelines.data() + index))
 								return logFail("Failed to create GLSL compute pipeline!\n");
 						}
@@ -1068,7 +1068,10 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
 					cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(PTPushConstant), &pc);
-					cmdbuf->dispatch(1 + (WindowDimensions.x - 1) / DefaultWorkGroupSize, 1 + (WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u);
+					if (renderMode == E_RENDER_MODE::ERM_HLSL)
+						cmdbuf->dispatch(1 + (WindowDimensions.x * WindowDimensions.y - 1) / 256u, 1u, 1u);
+					else
+						cmdbuf->dispatch(1 + (WindowDimensions.x - 1) / DefaultWorkGroupSize, 1 + (WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u);
 				}
 
 				// TRANSITION m_outImgView to READ (because of descriptorSets0 -> ComputeShader Writes into the image)
