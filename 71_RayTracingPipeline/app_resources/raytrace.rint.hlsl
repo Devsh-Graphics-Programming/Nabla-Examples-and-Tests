@@ -38,16 +38,16 @@ void main()
     const int primID = PrimitiveIndex();
 
     // Sphere data
-    SProceduralGeomInfo sphere = vk::RawBufferLoad < SProceduralGeomInfo > (pc.proceduralGeomInfoBuffer + primID * sizeof(SProceduralGeomInfo));
+    SProceduralGeomInfo sphere = vk::RawBufferLoad<SProceduralGeomInfo>(pc.proceduralGeomInfoBuffer + primID * sizeof(SProceduralGeomInfo));
 
     const float32_t tHit = hitSphere(sphere, ray);
     
     ProceduralHitAttribute hitAttrib;
+
     // Report hit point
     if (tHit > 0)
     {
         hitAttrib.center = sphere.center;
-        hitAttrib.material = sphere.material;
         ReportHit(tHit, 0, hitAttrib);
     }
 }

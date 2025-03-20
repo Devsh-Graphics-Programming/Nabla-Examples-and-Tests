@@ -58,15 +58,29 @@ void main()
         payload.alphaThreshold = nextRandomUnorm(rnd);
         TraceRay(topLevelAS, RAY_FLAG_NONE, 0xff, ERT_PRIMARY, 0, EMT_PRIMARY, rayDesc, payload);
 
-        if (payload.rayDistance < 0)
+        const float32_t rayDistance = payload.rayDistance;
+        if (rayDistance < 0)
         {
             hitValues += s_clearColor;
             continue;
         }
 
-        const float32_t3 worldPosition = pc.camPos + (camDirection * payload.rayDistance);
+        const float32_t3 worldPosition = pc.camPos + (camDirection * rayDistance);
         const float32_t3 worldNormal = payload.worldNormal;
-        const Material material = nbl::hlsl::_static_cast<Material>(payload.material);
+
+        Material material;
+        MaterialId materialId = payload.materialId;
+        // we use negative index to indicate that this is a procedural geometry
+        if (materialId.isHitProceduralGeom())
+        {
+            const MaterialPacked materialPacked = vk::RawBufferLoad<MaterialPacked>(pc.proceduralGeomInfoBuffer + materialId.getMaterialIndex() * sizeof(SProceduralGeomInfo));
+            material = nbl::hlsl::_static_cast<Material>(materialPacked);
+        }
+        else
+        {
+            const MaterialPacked materialPacked = vk::RawBufferLoad<MaterialPacked>(pc.triangleGeomInfoBuffer + materialId.getMaterialIndex() * sizeof(STriangleGeomInfo));
+            material = nbl::hlsl::_static_cast<Material>(materialPacked);
+        }
         RayLight cLight;
         cLight.inHitPosition = worldPosition;
         CallShader(pc.light.type, cLight);
