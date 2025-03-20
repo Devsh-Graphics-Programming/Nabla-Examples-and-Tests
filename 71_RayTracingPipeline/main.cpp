@@ -351,7 +351,10 @@ public:
 
       params.layout = pipelineLayout.get();
       params.shaders = std::span(shaders);
-      params.flags = IGPURayTracingPipeline::SCreationParams::FLAGS::NO_NULL_INTERSECTION_SHADERS;
+      using RayTracingFlags = IGPURayTracingPipeline::SCreationParams::FLAGS;
+      params.flags = core::bitflag(RayTracingFlags::NO_NULL_INTERSECTION_SHADERS) | 
+        RayTracingFlags::NO_NULL_ANY_HIT_SHADERS |
+        RayTracingFlags::NO_NULL_CLOSEST_HIT_SHADERS;
 
       auto& shaderGroups = params.shaderGroups;
 
