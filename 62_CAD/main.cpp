@@ -3285,18 +3285,18 @@ protected:
 		else if (mode == ExampleMode::CASE_9)
 		{
 			core::vector<TriangleMeshVertex> vertices = {
-				{ float32_t2(-200.0f, -200.0f), 0.0f },
-				{ float32_t2(-50.0f, -200.0f), 0.0f },
-				{ float32_t2(100.0f, -200.0f), 0.0f },
-				{ float32_t2(-125.0f, -70.1f), 0.0f },
-				{ float32_t2(25.0f, -70.1f), 0.0f },
-				{ float32_t2(175.0f, -70.1f), 0.0f },
-				{ float32_t2(-200.0f, 59.8f), 0.0f },
-				{ float32_t2(-50.0f, 59.8f), 0.0f },
-				{ float32_t2(100.0f, 59.8f), 0.0f },
-				{ float32_t2(-125.0f, 189.7f), 0.0f },
-				{ float32_t2(25.0f, 189.7f), 0.0f },
-				{ float32_t2(175.0f, 189.7f), 0.0f }
+				{ float32_t2(-200.0f, -200.0f), 10.0f },
+				{ float32_t2(-50.0f, -200.0f), 50.0f },
+				{ float32_t2(100.0f, -200.0f), 90.0f },
+				{ float32_t2(-125.0f, -70.1f), 10.0f },
+				{ float32_t2(25.0f, -70.1f), 50.0f },
+				{ float32_t2(175.0f, -70.1f), 90.0f },
+				{ float32_t2(-200.0f, 59.8f), 10.0f },
+				{ float32_t2(-50.0f, 59.8f), 50.0f },
+				{ float32_t2(100.0f, 59.8f), 90.0f },
+				{ float32_t2(-125.0f, 189.7f), 10.0f },
+				{ float32_t2(25.0f, 189.7f), 50.0f },
+				{ float32_t2(175.0f, 189.7f), 90.0f }
 			};
 
 			core::vector<uint32_t> indices = {

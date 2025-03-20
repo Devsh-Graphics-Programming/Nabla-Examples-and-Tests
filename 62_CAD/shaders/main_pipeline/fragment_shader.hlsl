@@ -414,11 +414,30 @@ float4 fragMain(PSInput input) : SV_TARGET
     const uint32_t currentMainObjectIdx = input.getMainObjectIdx();
     const MainObject mainObj = mainObjects[currentMainObjectIdx];
 
+    
+
     // TRIANGLE RENDERING
     {
         float3 v0 = input.getScreenSpaceVertexPos(0);
         float3 v1 = input.getScreenSpaceVertexPos(1);
         float3 v2 = input.getScreenSpaceVertexPos(2);
+
+        // CONTOUR
+
+        // TODO: move to ubo or push constants
+        const float startHeight = 10.0f;
+        const float endHeight = 100.0f;
+        const float interval = 10.0f;
+        float height = input.getHeight();
+
+        // TODO: it actually can output a negative number, fix
+        int contourLineIdx = nbl::hlsl::_static_cast<int>((height - startHeight + (interval * 0.5f)) / interval);
+
+        float backgroundColor = contourLineIdx;
+        backgroundColor *= 0.1f;
+        textureColor = float3(backgroundColor, backgroundColor, backgroundColor);
+
+        // OUTLINE
 
         float2 start;
         float2 end;
@@ -469,13 +488,17 @@ float4 fragMain(PSInput input) : SV_TARGET
         else
         {
             nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
-            printf("stretch = %f, worldToScreenRatio = %f", stretch, worldToScreenRatio);
             LineStyleClipper clipper = LineStyleClipper::construct(outlineStyle, lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
             distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, outlineStyle.isRoadStyleFlag, clipper);
         }
 
         localAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, distance);
-        textureColor = float3(outlineStyle.color.x, outlineStyle.color.y, outlineStyle.color.z);
+
+        // TODO: remove, this is just a hack to draw background
+        if (localAlpha < 0.00001)
+            localAlpha = 1.0f;
+        else
+            textureColor = float3(outlineStyle.color.x, outlineStyle.color.y, outlineStyle.color.z);
     }
 
     return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(uint2(input.position.xy), localAlpha, currentMainObjectIdx, textureColor, true);
