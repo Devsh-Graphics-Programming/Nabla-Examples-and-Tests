@@ -397,11 +397,13 @@ public:
       shaderGroups.callables = callableGroups;
 
       params.cached.maxRecursionDepth = 1;
+      params.cached.dynamicStackSize = true;
 
       if (!m_device->createRayTracingPipelines(nullptr, { &params, 1 }, &m_rayTracingPipeline))
         return logFail("Failed to create ray tracing pipeline");
-      m_logger->log("Ray Tracing Pipeline Created!", system::ILogger::ELL_INFO);
 
+      calculateRayTracingStackSize(m_rayTracingPipeline);
+      
       if (!createShaderBindingTable(gQueue, m_rayTracingPipeline))
         return logFail("Could not create shader binding table");
 
@@ -732,6 +734,7 @@ public:
       memcpy(&pc.invMVP, invModelViewProjectionMatrix.pointer(), sizeof(pc.invMVP));
 
       cmdbuf->bindRayTracingPipeline(m_rayTracingPipeline.get());
+      cmdbuf->setRayTracingPipelineStackSize(m_rayTracingStackSize);
       cmdbuf->pushConstants(m_rayTracingPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_ALL_RAY_TRACING, 0, sizeof(SPushConstants), &pc);
       cmdbuf->bindDescriptorSets(EPBP_RAY_TRACING, m_rayTracingPipeline->getLayout(), 0, 1, &m_rayTracingDs.get());
       if (m_useIndirectCommand)
@@ -1332,6 +1335,29 @@ private:
     return true;
   }
 
+  void calculateRayTracingStackSize(const smart_refctd_ptr<video::IGPURayTracingPipeline>& pipeline)
+  {
+    const auto raygenStackSize = pipeline->getRaygenStackSize();
+    auto getMaxSize = [&](auto ranges, auto valProj) -> uint16_t
+      {
+        auto maxValue = 0;
+        for (const auto& val : ranges)
+        {
+          maxValue = std::max<uint16_t>(maxValue, std::invoke(valProj, val));
+        }
+        return maxValue;
+      };
+
+    const auto closestHitStackMax = getMaxSize(pipeline->getHitStackSizes(), &IGPURayTracingPipeline::SHitGroupStackSize::closestHit);
+    const auto anyHitStackMax = getMaxSize(pipeline->getHitStackSizes(), &IGPURayTracingPipeline::SHitGroupStackSize::anyHit);
+    const auto intersectionStackMax = getMaxSize(pipeline->getHitStackSizes(), &IGPURayTracingPipeline::SHitGroupStackSize::intersection);
+    const auto missStackMax = getMaxSize(pipeline->getMissStackSizes(), std::identity{});
+    const auto callableStackMax = getMaxSize(pipeline->getCallableStackSizes(), std::identity{});
+    auto firstDepthStackSizeMax = std::max(closestHitStackMax, missStackMax);
+    firstDepthStackSizeMax = std::max<uint16_t>(firstDepthStackSizeMax, intersectionStackMax + anyHitStackMax);
+    m_rayTracingStackSize = raygenStackSize + std::max(firstDepthStackSizeMax, callableStackMax);
+  }
+
   bool createShaderBindingTable(video::CThreadSafeQueueAdapter* queue, const smart_refctd_ptr<video::IGPURayTracingPipeline>& pipeline)
   {
     const auto& limits = m_device->getPhysicalDevice()->getLimits();
@@ -1823,6 +1849,7 @@ private:
   smart_refctd_ptr<IDescriptorPool> m_rayTracingDsPool;
   smart_refctd_ptr<IGPUDescriptorSet> m_rayTracingDs;
   smart_refctd_ptr<IGPURayTracingPipeline> m_rayTracingPipeline;
+  uint64_t m_rayTracingStackSize;
   ShaderBindingTable m_shaderBindingTable;
 
   smart_refctd_ptr<IGPUDescriptorSet> m_presentDs;
