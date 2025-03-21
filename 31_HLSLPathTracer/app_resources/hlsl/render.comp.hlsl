@@ -37,7 +37,7 @@
 
 using namespace nbl::hlsl;
 
-NBL_CONSTEXPR uint32_t WorkgroupSize = 256;
+NBL_CONSTEXPR uint32_t WorkgroupSize = 1024;
 NBL_CONSTEXPR uint32_t MAX_DEPTH_LOG2 = 4;
 NBL_CONSTEXPR uint32_t MAX_SAMPLES_LOG2 = 10;
 

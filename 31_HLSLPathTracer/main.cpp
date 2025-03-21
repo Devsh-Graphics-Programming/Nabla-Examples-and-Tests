@@ -48,7 +48,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
 		constexpr static inline uint32_t MaxFramesInFlight = 5;
 		constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
-		constexpr static inline uint32_t DefaultWorkGroupSize = 256u;
+		constexpr static inline uint32_t DefaultWorkGroupSize = 1024u;
 		constexpr static inline uint32_t MaxDescriptorCount = 256u;
 		constexpr static inline uint32_t MaxDepthLog2 = 4u; // 5
 		constexpr static inline uint32_t MaxSamplesLog2 = 10u; // 18
@@ -366,12 +366,12 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;	// should be compute
 					options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
 					options.spirvOptimizer = nullptr;
-#ifndef _NBL_DEBUG
-					ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
-					auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
-					options.spirvOptimizer = opt.get();
-#endif
-					options.debugInfoFlags = IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_NONE;
+//#ifndef _NBL_DEBUG
+//					ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
+//					auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
+//					options.spirvOptimizer = opt.get();
+//#endif
+					options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
 					options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
 					options.preprocessorOptions.logger = m_logger.get();
 					options.preprocessorOptions.includeFinder = compiler->getDefaultIncludeFinder();
@@ -1348,7 +1348,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		float camYAngle = 165.f / 180.f * 3.14159f;
 		float camXAngle = 32.f / 180.f * 3.14159f;
 		int PTPipline = E_LIGHT_GEOMETRY::ELG_SPHERE;
-		int renderMode = E_RENDER_MODE::ERM_HLSL;
+		int renderMode = E_RENDER_MODE::ERM_GLSL;
 		int spp = 32;
 		int depth = 3;
 
