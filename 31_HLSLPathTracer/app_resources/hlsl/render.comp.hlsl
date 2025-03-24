@@ -2,7 +2,6 @@
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 #include "nbl/builtin/hlsl/random/pcg.hlsl"
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
-#include "nbl/builtin/hlsl/math/morton.hlsl"
 
 #include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
 #include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
@@ -140,9 +139,9 @@ static const bxdfnode_type bxdfs[BXDF_COUNT] = {
     bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.8,0.8,0.8)),
     bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.8,0.4,0.4)),
     bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.4,0.8,0.4)),
-    bxdfnode_type::create(ext::MaterialSystem::MaterialType::CONDUCTOR, false, float2(0,0), spectral_t(1,1,1), spectral_t(0.98,0.98,0.77)),
-    bxdfnode_type::create(ext::MaterialSystem::MaterialType::CONDUCTOR, false, float2(0,0), spectral_t(1,1,1), spectral_t(0.98,0.77,0.98)),
-    bxdfnode_type::create(ext::MaterialSystem::MaterialType::CONDUCTOR, false, float2(0.15,0.15), spectral_t(1,1,1), spectral_t(0.98,0.77,0.98)),
+    bxdfnode_type::create(ext::MaterialSystem::MaterialType::CONDUCTOR, false, float2(0,0), spectral_t(1.02,1.02,1.3), spectral_t(1.0,1.0,2.0)),
+    bxdfnode_type::create(ext::MaterialSystem::MaterialType::CONDUCTOR, false, float2(0,0), spectral_t(1.02,1.3,1.02), spectral_t(1.0,2.0,1.0)),
+    bxdfnode_type::create(ext::MaterialSystem::MaterialType::CONDUCTOR, false, float2(0.15,0.15), spectral_t(1.02,1.3,1.02), spectral_t(1.0,2.0,1.0)),
     bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIELECTRIC, false, float2(0.0625,0.0625), spectral_t(1,1,1), spectral_t(0.71,0.69,0.67))
 };
 
@@ -157,55 +156,48 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 {
     uint32_t width, height;
     outImage.GetDimensions(width, height);
+    const int32_t2 coords = getCoordinates();
+    float32_t2 texCoord = float32_t2(coords) / float32_t2(width, height);
+    texCoord.y = 1.0 - texCoord.y;
 
-    uint32_t virtualThreadIndex;
-    [loop]
-    for (uint32_t virtualThreadBase = glsl::gl_WorkGroupID().x * WorkgroupSize; virtualThreadBase < 1920*1080; virtualThreadBase += glsl::gl_NumWorkGroups().x * WorkgroupSize) // not sure why 1280*720 doesn't cover entire window
-    {
-        virtualThreadIndex = virtualThreadBase + glsl::gl_LocalInvocationIndex().x;
-        const int32_t2 coords = (int32_t2)math::Morton<uint32_t>::decode2d(virtualThreadIndex);   // getCoordinates();
-        float32_t2 texCoord = float32_t2(coords) / float32_t2(width, height);
-        texCoord.y = 1.0 - texCoord.y;
-
-        if (false == (hlsl::all((int32_t2)0 < coords)) && hlsl::all(int32_t2(width, height) < coords)) {
-            continue;
-        }
-
-        if (((pc.depth - 1) >> MAX_DEPTH_LOG2) > 0 || ((pc.sampleCount - 1) >> MAX_SAMPLES_LOG2) > 0)
-        {
-            float32_t4 pixelCol = float32_t4(1.0,0.0,0.0,1.0);
-            outImage[coords] = pixelCol;
-            continue;
-        }
-
-        int flatIdx = glsl::gl_GlobalInvocationID().y * glsl::gl_NumWorkGroups().x * WorkgroupSize + glsl::gl_GlobalInvocationID().x;
-
-        // set up path tracer
-        ext::PathTracer::PathTracerCreationParams<create_params_t, float> ptCreateParams;
-        ptCreateParams.rngState = scramblebuf[coords].rg;
-
-        uint2 scrambleDim;
-        scramblebuf.GetDimensions(scrambleDim.x, scrambleDim.y);
-        ptCreateParams.pixOffsetParam = (float2)1.0 / float2(scrambleDim);
-
-        float4 NDC = float4(texCoord * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
-        {
-            float4 tmp = hlsl::mul(pc.invMVP, NDC);
-            ptCreateParams.camPos = tmp.xyz / tmp.w;
-            NDC.z = 1.0;
-        }
-
-        ptCreateParams.NDC = NDC;
-        ptCreateParams.invMVP = pc.invMVP;
-
-        ptCreateParams.diffuseParams = bxdfs[0].params;
-        ptCreateParams.conductorParams = bxdfs[3].params;
-        ptCreateParams.dielectricParams = bxdfs[6].params;
-
-        pathtracer_type pathtracer = pathtracer_type::create(ptCreateParams);
-
-        float32_t3 color = pathtracer.getMeasure(pc.sampleCount, pc.depth, scene);
-        float32_t4 pixCol = float32_t4(color, 1.0);
-        outImage[coords] = pixCol;
+    if (false == (all((int32_t2)0 < coords)) && all(int32_t2(width, height) < coords)) {
+        return;
     }
+
+    if (((pc.depth - 1) >> MAX_DEPTH_LOG2) > 0 || ((pc.sampleCount - 1) >> MAX_SAMPLES_LOG2) > 0)
+    {
+        float32_t4 pixelCol = float32_t4(1.0,0.0,0.0,1.0);
+        outImage[coords] = pixelCol;
+        return;
+    }
+
+    int flatIdx = glsl::gl_GlobalInvocationID().y * glsl::gl_NumWorkGroups().x * WorkgroupSize + glsl::gl_GlobalInvocationID().x;
+
+    // set up path tracer
+    ext::PathTracer::PathTracerCreationParams<create_params_t, float> ptCreateParams;
+    ptCreateParams.rngState = scramblebuf[coords].rg;
+
+    uint2 scrambleDim;
+    scramblebuf.GetDimensions(scrambleDim.x, scrambleDim.y);
+    ptCreateParams.pixOffsetParam = (float2)1.0 / float2(scrambleDim);
+
+    float4 NDC = float4(texCoord * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
+    {
+        float4 tmp = mul(pc.invMVP, NDC);
+        ptCreateParams.camPos = tmp.xyz / tmp.w;
+        NDC.z = 1.0;
+    }
+
+    ptCreateParams.NDC = NDC;
+    ptCreateParams.invMVP = pc.invMVP;
+
+    ptCreateParams.diffuseParams = bxdfs[0].params;
+    ptCreateParams.conductorParams = bxdfs[3].params;
+    ptCreateParams.dielectricParams = bxdfs[6].params;
+
+    pathtracer_type pathtracer = pathtracer_type::create(ptCreateParams);
+
+    float32_t3 color = pathtracer.getMeasure(pc.sampleCount, pc.depth, scene);
+    float32_t4 pixCol = float32_t4(color, 1.0);
+    outImage[coords] = pixCol;
 }
