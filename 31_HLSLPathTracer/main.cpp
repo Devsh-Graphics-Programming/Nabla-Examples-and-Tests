@@ -1068,7 +1068,8 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
 					cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(PTPushConstant), &pc);
-					cmdbuf->dispatch(1 + (WindowDimensions.x * WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u, 1u);
+					uint32_t dispatchSize = m_physicalDevice->getLimits().computeOptimalPersistentWorkgroupDispatchSize(WindowDimensions.x * WindowDimensions.y, DefaultWorkGroupSize);
+					cmdbuf->dispatch(dispatchSize, 1u, 1u);
 				}
 
 				// TRANSITION m_outImgView to READ (because of descriptorSets0 -> ComputeShader Writes into the image)

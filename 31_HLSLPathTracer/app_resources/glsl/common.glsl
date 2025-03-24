@@ -9,7 +9,7 @@
 // debug
 //#define NEE_ONLY
 
-layout(set = 2, binding = 0) uniform sampler2D envMap; 
+layout(set = 2, binding = 0) uniform sampler2D envMap;
 layout(set = 2, binding = 1) uniform usamplerBuffer sampleSequence;
 layout(set = 2, binding = 2) uniform usampler2D scramblebuf;
 
@@ -35,6 +35,7 @@ vec2 getTexCoords() {
 #include <nbl/builtin/glsl/limits/numeric.glsl>
 #include <nbl/builtin/glsl/math/constants.glsl>
 #include <nbl/builtin/glsl/utils/common.glsl>
+#include <nbl/builtin/glsl/utils/morton.glsl>
 
 #include <nbl/builtin/glsl/sampling/box_muller_transform.glsl>
 
@@ -51,7 +52,7 @@ struct Sphere
     vec3 position;
     float radius2;
     uint bsdfLightIDs;
-}; 
+};
 
 Sphere Sphere_Sphere(in vec3 position, in float radius, in uint bsdfID, in uint lightID)
 {
@@ -188,7 +189,7 @@ void Rectangle_getNormalBasis(in Rectangle rect, out mat3 basis, out vec2 extent
     basis[0] = rect.edge0/extents[0];
     basis[1] = rect.edge1/extents[1];
     basis[2] = normalize(cross(basis[0],basis[1]));
-}        
+}
 
 // return intersection distance if found, nbl_glsl_FLT_NAN otherwise
 float Rectangle_intersect(in Rectangle rect, in vec3 origin, in vec3 direction)
@@ -222,7 +223,7 @@ vec3 Rectangle_getNormalTimesArea(in Rectangle rect)
 #define OP_BITS_OFFSET 0
 #define OP_BITS_SIZE 2
 struct BSDFNode
-{ 
+{
     uvec4 data[2];
 };
 
@@ -386,13 +387,13 @@ vec2 SampleSphericalMap(vec3 v)
 {
     vec2 uv = vec2(atan(v.z, v.x), asin(v.y));
     uv *= nbl_glsl_RECIPROCAL_PI*0.5;
-    uv += 0.5; 
+    uv += 0.5;
     return uv;
 }
 
 void missProgram(in ImmutableRay_t _immutable, inout Payload_t _payload)
 {
-    vec3 finalContribution = _payload.throughput; 
+    vec3 finalContribution = _payload.throughput;
     // #define USE_ENVMAP
 #ifdef USE_ENVMAP
 	vec2 uv = SampleSphericalMap(_immutable.direction);
@@ -415,7 +416,7 @@ nbl_glsl_LightSample nbl_glsl_bsdf_cos_generate(in nbl_glsl_AnisotropicViewSurfa
 {
     const float a = BSDFNode_getRoughness(bsdf);
     const mat2x3 ior = BSDFNode_getEta(bsdf);
-    
+
     // fresnel stuff for dielectrics
     float orientedEta, rcpOrientedEta;
     const bool viewerInsideMedium = nbl_glsl_getOrientedEtas(orientedEta,rcpOrientedEta,interaction.isotropic.NdotV,monochromeEta);
@@ -519,7 +520,7 @@ int traceRay(inout float intersectionT, in vec3 origin, in vec3 direction)
 
         intersectionT = closerIntersection ? t : intersectionT;
 		objectID = closerIntersection ? i:objectID;
-        
+
         // allowing early out results in a performance regression, WTF!?
         //if (anyHit && closerIntersection)
            //break;
@@ -543,7 +544,7 @@ nbl_glsl_LightSample nbl_glsl_light_generate_and_remainder_and_pdf(out vec3 rema
 {
     // normally we'd pick from set of lights, using `xi.z`
     const Light light = lights[0];
-    
+
     vec3 L = nbl_glsl_light_generate_and_pdf(pdf,newRayMaxT,origin,interaction,isBSDF,xi,Light_getObjectID(light));
 
     newRayMaxT *= getEndTolerance(depth);
@@ -663,7 +664,7 @@ bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nb
             //
             bsdfSampleL = bsdf_sample.L;
         }
-        
+
         // additional threshold
         const float lumaThroughputThreshold = lumaContributionThreshold;
         if (bsdfPdf>bsdfPdfThreshold && getLuma(throughput)>lumaThroughputThreshold)
@@ -671,7 +672,7 @@ bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nb
             ray._payload.throughput = throughput;
             ray._payload.otherTechniqueHeuristic = neeProbability/bsdfPdf; // numerically stable, don't touch
             ray._payload.otherTechniqueHeuristic *= ray._payload.otherTechniqueHeuristic;
-                    
+
             // trace new ray
             ray._immutable.origin = intersection+bsdfSampleL*(1.0/*kSceneSize*/)*getStartTolerance(depth);
             ray._immutable.direction = bsdfSampleL;
@@ -688,109 +689,115 @@ bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nb
 void main()
 {
     const ivec2 imageExtents = imageSize(outImage);
-    const ivec2 coords = getCoordinates();
-    vec2 texCoord = vec2(coords) / vec2(imageExtents);
-    texCoord.y = 1.0 - texCoord.y;
 
-    if (false == (all(lessThanEqual(ivec2(0),coords)) && all(greaterThan(imageExtents,coords)))) {
-        return;
-    }
-
-    if (((PTPushConstant.depth-1)>>MAX_DEPTH_LOG2)>0 || ((PTPushConstant.sampleCount-1)>>MAX_SAMPLES_LOG2)>0)
+    uint virtualThreadIndex;
+    for (uint virtualThreadBase = gl_WorkGroupID.x * _NBL_GLSL_WORKGROUP_SIZE_; virtualThreadBase < 1920*1080; virtualThreadBase += gl_NumWorkGroups.x * _NBL_GLSL_WORKGROUP_SIZE_) // not sure why 1280*720 doesn't cover entire window
     {
-        vec4 pixelCol = vec4(1.0,0.0,0.0,1.0);
-        imageStore(outImage, coords, pixelCol);
-        return;
-    }
+        virtualThreadIndex = virtualThreadBase + gl_LocalInvocationIndex.x;
+        const ivec2 coords = ivec2(nbl_glsl_morton_decode2d32b(virtualThreadIndex));    // getCoordinates();
+        vec2 texCoord = vec2(coords) / vec2(imageExtents);
+        texCoord.y = 1.0 - texCoord.y;
 
-	nbl_glsl_xoroshiro64star_state_t scramble_start_state = texelFetch(scramblebuf,coords,0).rg;
-    const vec2 pixOffsetParam = vec2(1.0)/vec2(textureSize(scramblebuf,0));
-
-
-    const mat4 invMVP = PTPushConstant.invMVP;
-    
-    vec4 NDC = vec4(texCoord*vec2(2.0,-2.0)+vec2(-1.0,1.0),0.0,1.0);
-    vec3 camPos;
-    {
-        vec4 tmp = invMVP*NDC;
-        camPos = tmp.xyz/tmp.w;
-        NDC.z = 1.0;
-    }
-
-    vec3 color = vec3(0.0);
-    float meanLumaSquared = 0.0;
-    // TODO: if we collapse the nested for loop, then all GPUs will get `PTPushConstant.depth` factor speedup, not just NV with separate PC
-    for (int i=0; i<PTPushConstant.sampleCount; i++)
-    {
-        nbl_glsl_xoroshiro64star_state_t scramble_state = scramble_start_state;
-
-        Ray_t ray;
-        // raygen
-        {
-            ray._immutable.origin = camPos;
-
-            vec4 tmp = NDC;
-            // apply stochastic reconstruction filter
-            const float gaussianFilterCutoff = 2.5;
-            const float truncation = exp(-0.5*gaussianFilterCutoff*gaussianFilterCutoff);
-            vec2 remappedRand = rand3d(0u,i,scramble_state)[0].xy;
-            remappedRand.x *= 1.0-truncation;
-            remappedRand.x += truncation;
-            tmp.xy += pixOffsetParam*nbl_glsl_BoxMullerTransform(remappedRand,1.5);
-            // for depth of field we could do another stochastic point-pick
-            tmp = invMVP*tmp;
-            ray._immutable.direction = normalize(tmp.xyz/tmp.w-camPos);
-
-            #if POLYGON_METHOD==2
-                ray._immutable.normalAtOrigin = vec3(0.0,0.0,0.0);
-                ray._immutable.wasBSDFAtOrigin = false;
-            #endif
-
-            ray._payload.accumulation = vec3(0.0);
-            ray._payload.otherTechniqueHeuristic = 0.0; // needed for direct eye-light paths
-            ray._payload.throughput = vec3(1.0);
-            #ifdef KILL_DIFFUSE_SPECULAR_PATHS
-            ray._payload.hasDiffuse = false;
-            #endif
+        if (false == (all(lessThanEqual(ivec2(0),coords)) && all(greaterThan(imageExtents,coords)))) {
+            continue;
         }
 
-        // bounces
+        if (((PTPushConstant.depth-1)>>MAX_DEPTH_LOG2)>0 || ((PTPushConstant.sampleCount-1)>>MAX_SAMPLES_LOG2)>0)
         {
-            bool hit = true; bool rayAlive = true;
-            for (int d=1; d<=PTPushConstant.depth && hit && rayAlive; d+=2)
+            vec4 pixelCol = vec4(1.0,0.0,0.0,1.0);
+            imageStore(outImage, coords, pixelCol);
+            continue;
+        }
+
+        nbl_glsl_xoroshiro64star_state_t scramble_start_state = texelFetch(scramblebuf,coords,0).rg;
+        const vec2 pixOffsetParam = vec2(1.0)/vec2(textureSize(scramblebuf,0));
+
+
+        const mat4 invMVP = PTPushConstant.invMVP;
+
+        vec4 NDC = vec4(texCoord*vec2(2.0,-2.0)+vec2(-1.0,1.0),0.0,1.0);
+        vec3 camPos;
+        {
+            vec4 tmp = invMVP*NDC;
+            camPos = tmp.xyz/tmp.w;
+            NDC.z = 1.0;
+        }
+
+        vec3 color = vec3(0.0);
+        float meanLumaSquared = 0.0;
+        // TODO: if we collapse the nested for loop, then all GPUs will get `PTPushConstant.depth` factor speedup, not just NV with separate PC
+        for (int i=0; i<PTPushConstant.sampleCount; i++)
+        {
+            nbl_glsl_xoroshiro64star_state_t scramble_state = scramble_start_state;
+
+            Ray_t ray;
+            // raygen
             {
-                ray._mutable.intersectionT = nbl_glsl_FLT_MAX;
-                ray._mutable.objectID = traceRay(ray._mutable.intersectionT,ray._immutable.origin,ray._immutable.direction);
-                hit = ray._mutable.objectID!=-1;
-                if (hit)
-                    rayAlive = closestHitProgram(d, i, ray, scramble_state);
+                ray._immutable.origin = camPos;
+
+                vec4 tmp = NDC;
+                // apply stochastic reconstruction filter
+                const float gaussianFilterCutoff = 2.5;
+                const float truncation = exp(-0.5*gaussianFilterCutoff*gaussianFilterCutoff);
+                vec2 remappedRand = rand3d(0u,i,scramble_state)[0].xy;
+                remappedRand.x *= 1.0-truncation;
+                remappedRand.x += truncation;
+                tmp.xy += pixOffsetParam*nbl_glsl_BoxMullerTransform(remappedRand,1.5);
+                // for depth of field we could do another stochastic point-pick
+                tmp = invMVP*tmp;
+                ray._immutable.direction = normalize(tmp.xyz/tmp.w-camPos);
+
+                #if POLYGON_METHOD==2
+                    ray._immutable.normalAtOrigin = vec3(0.0,0.0,0.0);
+                    ray._immutable.wasBSDFAtOrigin = false;
+                #endif
+
+                ray._payload.accumulation = vec3(0.0);
+                ray._payload.otherTechniqueHeuristic = 0.0; // needed for direct eye-light paths
+                ray._payload.throughput = vec3(1.0);
+                #ifdef KILL_DIFFUSE_SPECULAR_PATHS
+                ray._payload.hasDiffuse = false;
+                #endif
             }
-            // was last trace a miss?
-            if (!hit)
-                missProgram(ray._immutable,ray._payload);
+
+            // bounces
+            {
+                bool hit = true; bool rayAlive = true;
+                for (int d=1; d<=PTPushConstant.depth && hit && rayAlive; d+=2)
+                {
+                    ray._mutable.intersectionT = nbl_glsl_FLT_MAX;
+                    ray._mutable.objectID = traceRay(ray._mutable.intersectionT,ray._immutable.origin,ray._immutable.direction);
+                    hit = ray._mutable.objectID!=-1;
+                    if (hit)
+                        rayAlive = closestHitProgram(d, i, ray, scramble_state);
+                }
+                // was last trace a miss?
+                if (!hit)
+                    missProgram(ray._immutable,ray._payload);
+            }
+
+            vec3 accumulation = ray._payload.accumulation;
+
+            float rcpSampleSize = 1.0/float(i+1);
+            color += (accumulation-color)*rcpSampleSize;
+
+            #ifdef VISUALIZE_HIGH_VARIANCE
+                float luma = getLuma(accumulation);
+                meanLumaSquared += (luma*luma-meanLumaSquared)*rcpSampleSize;
+            #endif
         }
 
-        vec3 accumulation = ray._payload.accumulation;
-
-        float rcpSampleSize = 1.0/float(i+1);
-        color += (accumulation-color)*rcpSampleSize;
-        
         #ifdef VISUALIZE_HIGH_VARIANCE
-            float luma = getLuma(accumulation);
-            meanLumaSquared += (luma*luma-meanLumaSquared)*rcpSampleSize;
+            float variance = getLuma(color);
+            variance *= variance;
+            variance = meanLumaSquared-variance;
+            if (variance>5.0)
+                color = vec3(1.0,0.0,0.0);
         #endif
+
+        vec4 pixelCol = vec4(color, 1.0);
+        imageStore(outImage, coords, pixelCol);
     }
-
-    #ifdef VISUALIZE_HIGH_VARIANCE
-        float variance = getLuma(color);
-        variance *= variance;
-        variance = meanLumaSquared-variance;
-        if (variance>5.0)
-            color = vec3(1.0,0.0,0.0);
-    #endif
-
-    vec4 pixelCol = vec4(color, 1.0);
-    imageStore(outImage, coords, pixelCol);
 }
 /** TODO: Improving Rendering
 
