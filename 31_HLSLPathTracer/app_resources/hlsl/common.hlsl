@@ -10,6 +10,8 @@
 #include <nbl/builtin/hlsl/sampling/spherical_triangle.hlsl>
 #include <nbl/builtin/hlsl/sampling/projected_spherical_triangle.hlsl>
 #include <nbl/builtin/hlsl/sampling/spherical_rectangle.hlsl>
+#include <nbl/builtin/hlsl/bxdf/common.hlsl>
+#include <nbl/builtin/hlsl/spirv_intrinsics/glsl.std.450.hlsl>
 
 namespace nbl
 {
@@ -121,7 +123,7 @@ struct BxDFNode
         retval.albedo = albedo;
         retval.materialType = materialType;
         retval.params.is_aniso = isAniso;
-        retval.params.A = hlsl::max<float32_t2>(A, 1e-4);
+        retval.params.A = hlsl::max<float32_t2>(A, (float32_t2)1e-4);
         retval.params.ior0 = (spectral_type)1.0;
         retval.params.ior1 = (spectral_type)1.0;
         return retval;
@@ -134,7 +136,7 @@ struct BxDFNode
         retval.albedo = (spectral_type)1.0;
         retval.materialType = materialType;
         retval.params.is_aniso = isAniso;
-        retval.params.A = hlsl::max<float32_t2>(A, 1e-4);
+        retval.params.A = hlsl::max<float32_t2>(A, (float32_t2)1e-4);
         retval.params.ior0 = ior0;
         retval.params.ior1 = ior1;
         return retval;
@@ -218,7 +220,7 @@ struct Shape<PST_SPHERE>
 
     float32_t3 getNormal(NBL_CONST_REF_ARG(float32_t3) hitPosition)
     {
-        const float radiusRcp = spirv::inverseSqrt<float32_t>(radius2);
+        const float radiusRcp = hlsl::rsqrt<float32_t>(radius2);
         return (hitPosition - position) * radiusRcp;
     }
 

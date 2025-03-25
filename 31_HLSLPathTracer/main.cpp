@@ -7,6 +7,10 @@
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/builtin/hlsl/surface_transform.h"
 
+#include "app_resources/hlsl/common.hlsl"
+#include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
+#include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
+
 using namespace nbl;
 using namespace core;
 using namespace hlsl;
@@ -19,7 +23,38 @@ struct PTPushConstant {
 	matrix4SIMD invMVP;
 	int sampleCount;
 	int depth;
+
+	uint64_t spheresAddress;
+	uint64_t trianglesAddress;
+	uint64_t rectanglesAddress;
+	uint64_t lightsAddress;
+	uint64_t bxdfsAddress;
+
+	uint32_t sphereCount;
+	uint32_t triangleCount;
+	uint32_t rectangleCount;
+	uint32_t lightCount;
+	uint32_t bxdfCount;
 };
+
+using ray_dir_info_t = bxdf::ray_dir_info::SBasic<float>;
+using iso_interaction = bxdf::surface_interactions::SIsotropic<ray_dir_info_t>;
+using aniso_interaction = bxdf::surface_interactions::SAnisotropic<ray_dir_info_t>;
+using sample_t = bxdf::SLightSample<ray_dir_info_t>;
+using iso_cache = bxdf::SIsotropicMicrofacetCache<float>;
+using aniso_cache = bxdf::SAnisotropicMicrofacetCache<float>;
+using quotient_pdf_t = bxdf::quotient_and_pdf<float32_t3, float>;
+using spectral_t = hlsl::vector<float, 3>;
+using params_t = bxdf::SBxDFParams<float>;
+using create_params_t = bxdf::SBxDFCreationParams<float, spectral_t>;
+
+using diffuse_bxdf_type = bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>;
+using conductor_bxdf_type = bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spectral_t>;
+using dielectric_bxdf_type = bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>;
+
+using ray_type = hlsl::ext::Ray<float>;
+using light_type = hlsl::ext::Light<spectral_t>;
+using bxdfnode_type = hlsl::ext::BxDFNode<spectral_t>;
 
 // TODO: Add a QueryPool for timestamping once its ready
 // TODO: Do buffer creation using assConv
@@ -48,7 +83,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
 		constexpr static inline uint32_t MaxFramesInFlight = 5;
 		constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
-		constexpr static inline uint32_t DefaultWorkGroupSize = 512u;
+		constexpr static inline uint32_t DefaultWorkGroupSize = 128u;
 		constexpr static inline uint32_t MaxDescriptorCount = 256u;
 		constexpr static inline uint32_t MaxDepthLog2 = 4u; // 5
 		constexpr static inline uint32_t MaxSamplesLog2 = 10u; // 18
@@ -366,11 +401,11 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;	// should be compute
 					options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
 					options.spirvOptimizer = nullptr;
-#ifndef _NBL_DEBUG
-					ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
-					auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
-					options.spirvOptimizer = opt.get();
-#endif
+//#ifndef _NBL_DEBUG
+//					ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
+//					auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
+//					options.spirvOptimizer = opt.get();
+//#endif
 					options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
 					options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
 					options.preprocessorOptions.logger = m_logger.get();
@@ -442,7 +477,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 				// Create graphics pipeline
 				{
 					auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-					ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(m_assetMgr.get(), m_device.get(), m_logger.get());
+					nbl::ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(m_assetMgr.get(), m_device.get(), m_logger.get());
 					if (!fsTriProtoPPln)
 						return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
 
@@ -720,6 +755,8 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 						owenSamplerFileWriteFuture.acquire().move_into(owenSamplerFileBytesWritten);
 				};
 
+				uint32_t li = sizeof(bxdfnode_type);
+
 				constexpr size_t bufferSize = MaxBufferDimensions * MaxBufferSamples;
 				std::array<uint32_t, bufferSize> data = {};
 				smart_refctd_ptr<ICPUBuffer> sampleSeq;
@@ -767,6 +804,72 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 
 				m_sequenceBufferView = m_device->createBufferView({ 0u, buffer->get()->getSize(), *buffer }, asset::E_FORMAT::EF_R32G32B32_UINT);
 				m_sequenceBufferView->setObjectDebugName("Sequence Buffer");
+			}
+			// render data buffers
+			{
+				nbl::video::IDeviceMemoryAllocator::SAllocation allocation[7] = {};
+
+				auto createBuffer = [&](
+					nbl::video::IDeviceMemoryAllocator::SAllocation* allocation,
+					smart_refctd_ptr<IGPUBuffer>& buffer,
+					size_t buffer_size,
+					const char* label) -> void
+					{
+						IGPUBuffer::SCreationParams params;
+						params.size = buffer_size;
+						params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+						buffer = m_device->createBuffer(std::move(params));
+						if (!buffer)
+							logFail("Failed to create GPU buffer of size %d!\n", buffer_size);
+
+						buffer->setObjectDebugName(label);
+
+						auto bufReqs = buffer->getMemoryReqs();
+						bufReqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
+						*allocation = m_device->allocate(bufReqs, buffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+						if (!allocation->isValid())
+							logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
+
+						assert(allocation->memory.get() == buffer->getBoundMemory().memory);
+					};
+
+				createBuffer(allocation, spheresBuffer, sizeof(hlsl::ext::Shape<hlsl::ext::PST_SPHERE>) * sphereCount, "Spheres Buffer");
+				createBuffer(allocation + 1, trianglesBuffer, sizeof(hlsl::ext::Shape<hlsl::ext::PST_TRIANGLE>) * triangleCount, "Triangles Buffer");
+				createBuffer(allocation + 2, rectanglesBuffer, sizeof(hlsl::ext::Shape<hlsl::ext::PST_RECTANGLE>) * rectangleCount, "Rectangles Buffer");
+				createBuffer(allocation + 3, lightsBuffer[0], sizeof(light_type), "Light 0 Buffer");
+				createBuffer(allocation + 4, lightsBuffer[1], sizeof(light_type), "Light 1 Buffer");
+				createBuffer(allocation + 5, lightsBuffer[2], sizeof(light_type), "Light 2 Buffer");
+				createBuffer(allocation + 6, bxdfsBuffer, sizeof(bxdfnode_type) * bxdfCount, "BxDFs Buffer");
+
+				uint64_t buffer_device_addresses[] = {
+					spheresBuffer->getDeviceAddress(),
+					trianglesBuffer->getDeviceAddress(),
+					rectanglesBuffer->getDeviceAddress(),
+					lightsBuffer[0]->getDeviceAddress(),
+					lightsBuffer[1]->getDeviceAddress(),
+					lightsBuffer[2]->getDeviceAddress(),
+					bxdfsBuffer->getDeviceAddress()
+				};
+
+				void* mapped_memory[] = {
+					allocation[0].memory->map({0ull,allocation[0].memory->getAllocationSize()}, IDeviceMemoryAllocation::EMCAF_READ),
+					allocation[1].memory->map({0ull,allocation[1].memory->getAllocationSize()}, IDeviceMemoryAllocation::EMCAF_READ),
+					allocation[2].memory->map({0ull,allocation[2].memory->getAllocationSize()}, IDeviceMemoryAllocation::EMCAF_READ),
+					allocation[3].memory->map({0ull,allocation[3].memory->getAllocationSize()}, IDeviceMemoryAllocation::EMCAF_READ),
+					allocation[4].memory->map({0ull,allocation[4].memory->getAllocationSize()}, IDeviceMemoryAllocation::EMCAF_READ),
+					allocation[5].memory->map({0ull,allocation[5].memory->getAllocationSize()}, IDeviceMemoryAllocation::EMCAF_READ),
+					allocation[6].memory->map({0ull,allocation[6].memory->getAllocationSize()}, IDeviceMemoryAllocation::EMCAF_READ),
+				};
+				if (!mapped_memory[0] || !mapped_memory[1] || !mapped_memory[2] || !mapped_memory[3] || !mapped_memory[4] || !mapped_memory[5] || !mapped_memory[6])
+					return logFail("Failed to map the Device Memory!\n");
+
+				memcpy(mapped_memory[0], spheres, sizeof(hlsl::ext::Shape<hlsl::ext::PST_SPHERE>) * sphereCount);
+				memcpy(mapped_memory[1], triangles, sizeof(hlsl::ext::Shape<hlsl::ext::PST_TRIANGLE>) * triangleCount);
+				memcpy(mapped_memory[2], rectangles, sizeof(hlsl::ext::Shape<hlsl::ext::PST_RECTANGLE>) * rectangleCount);
+				memcpy(mapped_memory[3], lights_sphere, sizeof(light_type) * lightCount);
+				memcpy(mapped_memory[4], lights_tri, sizeof(light_type) * lightCount);
+				memcpy(mapped_memory[5], lights_rect, sizeof(light_type) * lightCount);
+				memcpy(mapped_memory[6], bxdfs, sizeof(bxdfnode_type) * bxdfCount);
 			}
 
 			// Update Descriptors
@@ -886,7 +989,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 				params.transfer = getTransferUpQueue();
 				params.utilities = m_utils;
 				{
-					m_ui.manager = ext::imgui::UI::create(std::move(params));
+					m_ui.manager = nbl::ext::imgui::UI::create(std::move(params));
 
 					// note that we use default layout provided by our extension, but you are free to create your own by filling nbl::ext::imgui::UI::S_CREATION_PARAMETERS::resources
 					const auto* descriptorSetLayout = m_ui.manager->getPipeline()->getLayout()->getDescriptorSetLayout(0u);
@@ -935,7 +1038,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
 					ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
 					ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
-					ImGui::ListBox("Shader", &PTPipline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
+					ImGui::ListBox("Shader", &PTPipeline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
 					ImGui::SliderInt("SPP", &spp, 1, MaxBufferSamples);
 					ImGui::SliderInt("Depth", &depth, 1, MaxBufferDimensions / 3);
 
@@ -1029,6 +1132,18 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 				pc.sampleCount = spp;
 				pc.depth = depth;
 
+				pc.spheresAddress = spheresBuffer->getDeviceAddress();
+				pc.sphereCount = PTPipeline == E_LIGHT_GEOMETRY::ELG_SPHERE ? sphereCount : sphereCount - 1;	// should probably subtract light count
+				pc.trianglesAddress = trianglesBuffer->getDeviceAddress();
+				pc.triangleCount = PTPipeline == E_LIGHT_GEOMETRY::ELG_TRIANGLE ? triangleCount : triangleCount - 1;
+				pc.rectanglesAddress = rectanglesBuffer->getDeviceAddress();
+				pc.rectangleCount = PTPipeline == E_LIGHT_GEOMETRY::ELG_RECTANGLE ? rectangleCount : rectangleCount - 1;
+
+				pc.lightsAddress = lightsBuffer[PTPipeline]->getDeviceAddress();
+				pc.lightCount = lightCount;
+				pc.bxdfsAddress = bxdfsBuffer->getDeviceAddress();
+				pc.bxdfCount = bxdfCount;
+
 				// safe to proceed
 				// upload buffer data
 				cmdbuf->beginDebugMarker("ComputeShaderPathtracer IMGUI Frame");
@@ -1063,7 +1178,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 
 				// cube envmap handle
 				{
-					auto pipeline = renderMode == E_RENDER_MODE::ERM_HLSL ? m_PTHLSLPipelines[PTPipline].get() : m_PTGLSLPipelines[PTPipline].get();
+					auto pipeline = renderMode == E_RENDER_MODE::ERM_HLSL ? m_PTHLSLPipelines[PTPipeline].get() : m_PTGLSLPipelines[PTPipeline].get();
 					cmdbuf->bindComputePipeline(pipeline);
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
@@ -1138,7 +1253,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 
 				cmdbuf->bindGraphicsPipeline(m_presentPipeline.get());
 				cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, m_presentPipeline->getLayout(), 0, 1u, &m_presentDescriptorSet.get());
-				ext::FullScreenTriangle::recordDrawCall(cmdbuf);
+				nbl::ext::FullScreenTriangle::recordDrawCall(cmdbuf);
 
 				const auto uiParams = m_ui.manager->getCreationParameters();
 				auto* uiPipeline = m_ui.manager->getPipeline();
@@ -1281,7 +1396,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 			const auto cursorPosition = m_window->getCursorControl()->getPosition();
 			const auto mousePosition = float32_t2(cursorPosition.x, cursorPosition.y) - float32_t2(m_window->getX(), m_window->getY());
 
-			const ext::imgui::UI::SUpdateParameters params =
+			const nbl::ext::imgui::UI::SUpdateParameters params =
 			{
 				.mousePosition = mousePosition,
 				.displaySize = { m_window->getWidth(), m_window->getHeight() },
@@ -1347,13 +1462,64 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		float viewWidth = 10.f;
 		float camYAngle = 165.f / 180.f * 3.14159f;
 		float camXAngle = 32.f / 180.f * 3.14159f;
-		int PTPipline = E_LIGHT_GEOMETRY::ELG_SPHERE;
+		int PTPipeline = E_LIGHT_GEOMETRY::ELG_SPHERE;
 		int renderMode = E_RENDER_MODE::ERM_HLSL;
 		int spp = 32;
 		int depth = 3;
 
 		bool m_firstFrame = true;
 		IGPUCommandBuffer::SClearColorValue clearColor = { .float32 = {0.f,0.f,0.f,1.f} };
+
+		// data as bda
+		constexpr static inline uint32_t sphereCount = 9;
+		constexpr static inline uint32_t triangleCount = 1;
+		constexpr static inline uint32_t rectangleCount = 1;
+
+		hlsl::ext::Shape<hlsl::ext::PST_SPHERE> spheres[sphereCount] = {
+			hlsl::ext::Shape<hlsl::ext::PST_SPHERE>::create(float32_t3(0.0, -100.5, -1.0), 100.0, 0u, light_type::INVALID_ID),
+			hlsl::ext::Shape<hlsl::ext::PST_SPHERE>::create(float32_t3(2.0, 0.0, -1.0), 0.5, 1u, light_type::INVALID_ID),
+			hlsl::ext::Shape<hlsl::ext::PST_SPHERE>::create(float32_t3(0.0, 0.0, -1.0), 0.5, 2u, light_type::INVALID_ID),
+			hlsl::ext::Shape<hlsl::ext::PST_SPHERE>::create(float32_t3(-2.0, 0.0, -1.0), 0.5, 3u, light_type::INVALID_ID),
+			hlsl::ext::Shape<hlsl::ext::PST_SPHERE>::create(float32_t3(2.0, 0.0, 1.0), 0.5, 4u, light_type::INVALID_ID),
+			hlsl::ext::Shape<hlsl::ext::PST_SPHERE>::create(float32_t3(0.0, 0.0, 1.0), 0.5, 4u, light_type::INVALID_ID),
+			hlsl::ext::Shape<hlsl::ext::PST_SPHERE>::create(float32_t3(-2.0, 0.0, 1.0), 0.5, 5u, light_type::INVALID_ID),
+			hlsl::ext::Shape<hlsl::ext::PST_SPHERE>::create(float32_t3(0.5, 1.0, 0.5), 0.5, 6u, light_type::INVALID_ID),
+			hlsl::ext::Shape<hlsl::ext::PST_SPHERE>::create(float32_t3(-1.5, 1.5, 0.0), 0.3, bxdfnode_type::INVALID_ID, 0u)
+		};
+		hlsl::ext::Shape<hlsl::ext::PST_TRIANGLE> triangles[triangleCount] = {
+			hlsl::ext::Shape<hlsl::ext::PST_TRIANGLE>::create(float32_t3(-1.8,0.35,0.3) * 10.0f, float32_t3(-1.2,0.35,0.0) * 10.0f, float32_t3(-1.5,0.8,-0.3) * 10.0f, bxdfnode_type::INVALID_ID, 0u)
+		};
+		hlsl::ext::Shape<hlsl::ext::PST_RECTANGLE> rectangles[rectangleCount] = {
+			hlsl::ext::Shape<hlsl::ext::PST_RECTANGLE>::create(float32_t3(-3.8,0.35,1.3), normalize(float32_t3(2,0,-1)) * 7.0f, normalize(float32_t3(2,-5,4)) * 0.1f, bxdfnode_type::INVALID_ID, 0u)
+		};
+
+		constexpr static inline uint32_t lightCount = 1;
+		constexpr static inline uint32_t bxdfCount = 7;
+		light_type lights_sphere[lightCount] = {
+			light_type::create(spectral_t(30.0,25.0,15.0), 8u, hlsl::ext::IntersectMode::IM_PROCEDURAL, hlsl::ext::PST_SPHERE)
+		};
+		light_type lights_tri[lightCount] = {
+			light_type::create(spectral_t(30.0,25.0,15.0), 0u, hlsl::ext::IntersectMode::IM_PROCEDURAL, hlsl::ext::PST_TRIANGLE)
+		};
+		light_type lights_rect[lightCount] = {
+			light_type::create(spectral_t(30.0,25.0,15.0), 0u, hlsl::ext::IntersectMode::IM_PROCEDURAL, hlsl::ext::PST_RECTANGLE)
+		};
+
+		bxdfnode_type bxdfs[bxdfCount] = {
+			bxdfnode_type::create(0u, false, float32_t2(0,0), spectral_t(0.8,0.8,0.8)),
+			bxdfnode_type::create(0u, false, float32_t2(0,0), spectral_t(0.8,0.4,0.4)),
+			bxdfnode_type::create(0u, false, float32_t2(0,0), spectral_t(0.4,0.8,0.4)),
+			bxdfnode_type::create(1u, false, float32_t2(0,0), spectral_t(1.02,1.02,1.3), spectral_t(1.0,1.0,2.0)),
+			bxdfnode_type::create(1u, false, float32_t2(0,0), spectral_t(1.02,1.3,1.02), spectral_t(1.0,2.0,1.0)),
+			bxdfnode_type::create(1u, false, float32_t2(0.15,0.15), spectral_t(1.02,1.3,1.02), spectral_t(1.0,2.0,1.0)),
+			bxdfnode_type::create(2u, false, float32_t2(0.0625,0.0625), spectral_t(1,1,1), spectral_t(0.71,0.69,0.67))
+		};
+
+		smart_refctd_ptr<IGPUBuffer> spheresBuffer;
+		smart_refctd_ptr<IGPUBuffer> trianglesBuffer;
+		smart_refctd_ptr<IGPUBuffer> rectanglesBuffer;
+		std::array<smart_refctd_ptr<IGPUBuffer>, E_LIGHT_GEOMETRY::ELG_COUNT> lightsBuffer;
+		smart_refctd_ptr<IGPUBuffer> bxdfsBuffer;
 };
 
 NBL_MAIN_FUNC(HLSLComputePathtracer)

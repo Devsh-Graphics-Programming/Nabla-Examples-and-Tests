@@ -6,6 +6,18 @@ struct SPushConstants
     float32_t4x4 invMVP;
     int sampleCount;
     int depth;
+
+    uint64_t spheresAddress;
+    uint64_t trianglesAddress;
+    uint64_t rectanglesAddress;
+    uint64_t lightsAddress;
+    uint64_t bxdfsAddress;
+
+    uint32_t sphereCount;
+    uint32_t triangleCount;
+    uint32_t rectangleCount;
+    uint32_t lightCount;
+    uint32_t bxdfCount;
 };
 
 [[vk::push_constant]] SPushConstants pc;
