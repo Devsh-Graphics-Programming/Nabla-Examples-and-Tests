@@ -95,61 +95,104 @@ using material_system_type = ext::MaterialSystem::System<diffuse_bxdf_type, cond
 using nee_type = ext::NextEventEstimator::Estimator<scene_type, ray_type, sample_t, aniso_interaction, ext::IntersectMode::IM_PROCEDURAL, LIGHT_TYPE, POLYGON_METHOD>;
 using pathtracer_type = ext::PathTracer::Unidirectional<randgen_type, raygen_type, intersector_type, material_system_type, nee_type>;
 
-static const ext::Shape<ext::PST_SPHERE> spheres[SPHERE_COUNT] = {
-    ext::Shape<ext::PST_SPHERE>::create(float3(0.0, -100.5, -1.0), 100.0, 0u, light_type::INVALID_ID),
-    ext::Shape<ext::PST_SPHERE>::create(float3(2.0, 0.0, -1.0), 0.5, 1u, light_type::INVALID_ID),
-    ext::Shape<ext::PST_SPHERE>::create(float3(0.0, 0.0, -1.0), 0.5, 2u, light_type::INVALID_ID),
-    ext::Shape<ext::PST_SPHERE>::create(float3(-2.0, 0.0, -1.0), 0.5, 3u, light_type::INVALID_ID),
-    ext::Shape<ext::PST_SPHERE>::create(float3(2.0, 0.0, 1.0), 0.5, 4u, light_type::INVALID_ID),
-    ext::Shape<ext::PST_SPHERE>::create(float3(0.0, 0.0, 1.0), 0.5, 4u, light_type::INVALID_ID),
-    ext::Shape<ext::PST_SPHERE>::create(float3(-2.0, 0.0, 1.0), 0.5, 5u, light_type::INVALID_ID),
-    ext::Shape<ext::PST_SPHERE>::create(float3(0.5, 1.0, 0.5), 0.5, 6u, light_type::INVALID_ID)
+#include "aliased_scene.hlsl"
+
+// static const ext::Shape<ext::PST_SPHERE> spheres[SPHERE_COUNT] = {
+//     ext::Shape<ext::PST_SPHERE>::create(float3(0.0, -100.5, -1.0), 100.0, 0u, light_type::INVALID_ID),
+//     ext::Shape<ext::PST_SPHERE>::create(float3(2.0, 0.0, -1.0), 0.5, 1u, light_type::INVALID_ID),
+//     ext::Shape<ext::PST_SPHERE>::create(float3(0.0, 0.0, -1.0), 0.5, 2u, light_type::INVALID_ID),
+//     ext::Shape<ext::PST_SPHERE>::create(float3(-2.0, 0.0, -1.0), 0.5, 3u, light_type::INVALID_ID),
+//     ext::Shape<ext::PST_SPHERE>::create(float3(2.0, 0.0, 1.0), 0.5, 4u, light_type::INVALID_ID),
+//     ext::Shape<ext::PST_SPHERE>::create(float3(0.0, 0.0, 1.0), 0.5, 4u, light_type::INVALID_ID),
+//     ext::Shape<ext::PST_SPHERE>::create(float3(-2.0, 0.0, 1.0), 0.5, 5u, light_type::INVALID_ID),
+//     ext::Shape<ext::PST_SPHERE>::create(float3(0.5, 1.0, 0.5), 0.5, 6u, light_type::INVALID_ID)
+// #ifdef SPHERE_LIGHT
+//     ,ext::Shape<ext::PST_SPHERE>::create(float3(-1.5, 1.5, 0.0), 0.3, bxdfnode_type::INVALID_ID, 0u)
+// #endif
+// };
+
+// #ifdef TRIANGLE_LIGHT
+// static const ext::Shape<ext::PST_TRIANGLE> triangles[TRIANGLE_COUNT] = {
+//     ext::Shape<ext::PST_TRIANGLE>::create(float3(-1.8,0.35,0.3) * 10.0, float3(-1.2,0.35,0.0) * 10.0, float3(-1.5,0.8,-0.3) * 10.0, bxdfnode_type::INVALID_ID, 0u)
+// };
+// #else
+// static const ext::Shape<ext::PST_TRIANGLE> triangles[1];
+// #endif
+
+// #ifdef RECTANGLE_LIGHT
+// static const ext::Shape<ext::PST_RECTANGLE> rectangles[RECTANGLE_COUNT] = {
+//     ext::Shape<ext::PST_RECTANGLE>::create(float3(-3.8,0.35,1.3), normalize(float3(2,0,-1))*7.0, normalize(float3(2,-5,4))*0.1, bxdfnode_type::INVALID_ID, 0u)
+// };
+// #else
+// static const ext::Shape<ext::PST_RECTANGLE> rectangles[1];
+// #endif
+
+// static const light_type lights[LIGHT_COUNT] = {
+//     light_type::create(spectral_t(30.0,25.0,15.0),
+// #ifdef SPHERE_LIGHT
+//         8u,
+// #else
+//         0u,
+// #endif
+//         ext::IntersectMode::IM_PROCEDURAL, LIGHT_TYPE)
+// };
+
+// static const bxdfnode_type bxdfs[BXDF_COUNT] = {
+//     bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.8,0.8,0.8)),
+//     bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.8,0.4,0.4)),
+//     bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.4,0.8,0.4)),
+//     bxdfnode_type::create(ext::MaterialSystem::MaterialType::CONDUCTOR, false, float2(0,0), spectral_t(1.02,1.02,1.3), spectral_t(1.0,1.0,2.0)),
+//     bxdfnode_type::create(ext::MaterialSystem::MaterialType::CONDUCTOR, false, float2(0,0), spectral_t(1.02,1.3,1.02), spectral_t(1.0,2.0,1.0)),
+//     bxdfnode_type::create(ext::MaterialSystem::MaterialType::CONDUCTOR, false, float2(0.15,0.15), spectral_t(1.02,1.3,1.02), spectral_t(1.0,2.0,1.0)),
+//     bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIELECTRIC, false, float2(0.0625,0.0625), spectral_t(1,1,1), spectral_t(0.71,0.69,0.67))
+// };
+
+// static const scene_type scene = scene_type::create(
+//     spheres, triangles, rectangles,
+//     SPHERE_COUNT, TRIANGLE_COUNT, RECTANGLE_COUNT,
+//     lights, LIGHT_COUNT, bxdfs, BXDF_COUNT
+// );
+
+// hardcode scene type size because dxc won't accept sizeof(scene_type)
+// 20*8(9) + 40*1 + 40*1 + 24*1 + 80*7 + 20
 #ifdef SPHERE_LIGHT
-    ,ext::Shape<ext::PST_SPHERE>::create(float3(-1.5, 1.5, 0.0), 0.3, bxdfnode_type::INVALID_ID, 0u)
-#endif
-};
-
-#ifdef TRIANGLE_LIGHT
-static const ext::Shape<ext::PST_TRIANGLE> triangles[TRIANGLE_COUNT] = {
-    ext::Shape<ext::PST_TRIANGLE>::create(float3(-1.8,0.35,0.3) * 10.0, float3(-1.2,0.35,0.0) * 10.0, float3(-1.5,0.8,-0.3) * 10.0, bxdfnode_type::INVALID_ID, 0u)
-};
+static const uint32_t sizeof_scene_type = 864;
 #else
-static const ext::Shape<ext::PST_TRIANGLE> triangles[1];
+static const uint32_t sizeof_scene_type = 844;
 #endif
+static const uint32_t sizeof_light_type = 24;
+static const uint32_t sizeof_bxdf_type = 80;
+static const uint32_t smem_size = sizeof_scene_type / sizeof(uint32_t);
 
-#ifdef RECTANGLE_LIGHT
-static const ext::Shape<ext::PST_RECTANGLE> rectangles[RECTANGLE_COUNT] = {
-    ext::Shape<ext::PST_RECTANGLE>::create(float3(-3.8,0.35,1.3), normalize(float3(2,0,-1))*7.0, normalize(float3(2,-5,4))*0.1, bxdfnode_type::INVALID_ID, 0u)
-};
-#else
-static const ext::Shape<ext::PST_RECTANGLE> rectangles[1];
-#endif
+// [[vk::ext_decorate(/* Aliased */ 20)]] [[vk::ext_decorate(/* Offset */ 35,0)]]
+// [[vk::ext_decorate(/* ArrayStride */ 6,sizeof_scene_type)]] groupshared scene_type scene_shared[1];
 
-static const light_type lights[LIGHT_COUNT] = {
-    light_type::create(spectral_t(30.0,25.0,15.0),
-#ifdef SPHERE_LIGHT
-        8u,
-#else
-        0u,
-#endif
-        ext::IntersectMode::IM_PROCEDURAL, LIGHT_TYPE)
-};
+static const uint32_t spheres_offset = 0u;
+[[vk::ext_decorate(/* Aliased */ 20)]] [[vk::ext_decorate(/* Offset */ 35,spheres_offset)]]
+[[vk::ext_decorate(/* ArrayStride */ 6,sizeof(ext::Shape<ext::PST_SPHERE>))]] groupshared ext::Shape<ext::PST_SPHERE> spheres_shared[SPHERE_COUNT];
 
-static const bxdfnode_type bxdfs[BXDF_COUNT] = {
-    bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.8,0.8,0.8)),
-    bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.8,0.4,0.4)),
-    bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.4,0.8,0.4)),
-    bxdfnode_type::create(ext::MaterialSystem::MaterialType::CONDUCTOR, false, float2(0,0), spectral_t(1.02,1.02,1.3), spectral_t(1.0,1.0,2.0)),
-    bxdfnode_type::create(ext::MaterialSystem::MaterialType::CONDUCTOR, false, float2(0,0), spectral_t(1.02,1.3,1.02), spectral_t(1.0,2.0,1.0)),
-    bxdfnode_type::create(ext::MaterialSystem::MaterialType::CONDUCTOR, false, float2(0.15,0.15), spectral_t(1.02,1.3,1.02), spectral_t(1.0,2.0,1.0)),
-    bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIELECTRIC, false, float2(0.0625,0.0625), spectral_t(1,1,1), spectral_t(0.71,0.69,0.67))
-};
+static const uint32_t triangles_byte_offset = spheres_offset + sizeof(spheres_shared);
+static const uint32_t triangles_offset = triangles_byte_offset / sizeof(uint32_t);
+[[vk::ext_decorate(/* Aliased */ 20)]] [[vk::ext_decorate(/* Offset */ 35,triangles_byte_offset)]]
+[[vk::ext_decorate(/* ArrayStride */ 6,sizeof(ext::Shape<ext::PST_TRIANGLE>))]] groupshared ext::Shape<ext::PST_TRIANGLE> triangles_shared[1];
 
-static const ext::Scene<light_type, bxdfnode_type> scene = ext::Scene<light_type, bxdfnode_type>::create(
-    spheres, triangles, rectangles,
-    SPHERE_COUNT, TRIANGLE_COUNT, RECTANGLE_COUNT,
-    lights, LIGHT_COUNT, bxdfs, BXDF_COUNT
-);
+static const uint32_t rectangles_byte_offset = triangles_byte_offset + sizeof(triangles_shared);
+static const uint32_t rectangles_offset = rectangles_byte_offset / sizeof(uint32_t);
+[[vk::ext_decorate(/* Aliased */ 20)]] [[vk::ext_decorate(/* Offset */ 35,rectangles_byte_offset)]]
+[[vk::ext_decorate(/* ArrayStride */ 6,sizeof(ext::Shape<ext::PST_RECTANGLE>))]] groupshared ext::Shape<ext::PST_RECTANGLE> rectangles_shared[1];
+
+static const uint32_t lights_byte_offset = rectangles_byte_offset + sizeof(rectangles_shared);
+static const uint32_t lights_offset = lights_byte_offset / sizeof(uint32_t);
+[[vk::ext_decorate(/* Aliased */ 20)]] [[vk::ext_decorate(/* Offset */ 35,lights_byte_offset)]]
+[[vk::ext_decorate(/* ArrayStride */ 6,sizeof_light_type)]] groupshared light_type lights_shared[LIGHT_COUNT];
+
+static const uint32_t bxdfs_byte_offset = lights_byte_offset + sizeof_light_type;
+static const uint32_t bxdfs_offset = bxdfs_byte_offset / sizeof(uint32_t);
+[[vk::ext_decorate(/* Aliased */ 20)]] [[vk::ext_decorate(/* Offset */ 35,bxdfs_byte_offset)]]
+[[vk::ext_decorate(/* ArrayStride */ 6,sizeof_bxdf_type)]] groupshared bxdfnode_type bxdfs_shared[BXDF_COUNT];
+
+[[vk::ext_decorate(/* Aliased */ 20)]] [[vk::ext_decorate(/* Offset */ 35,0)]]
+[[vk::ext_decorate(/* ArrayStride */ 6,4)]] groupshared uint32_t __smem[smem_size];
 
 [numthreads(WorkgroupSize, 1, 1)]
 void main(uint32_t3 threadID : SV_DispatchThreadID)
@@ -191,9 +234,60 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     ptCreateParams.NDC = NDC;
     ptCreateParams.invMVP = pc.invMVP;
 
-    ptCreateParams.diffuseParams = bxdfs[0].params;
-    ptCreateParams.conductorParams = bxdfs[3].params;
-    ptCreateParams.dielectricParams = bxdfs[6].params;
+    // [unroll]
+    // for (uint32_t base = 0; base < smem_size; base += WorkgroupSize)
+    // {
+    //     uint32_t i = base + glsl::gl_LocalInvocationIndex();
+    //     __smem[i] = aliased_scene[i];
+    // }
+    [unroll]
+    for (uint32_t base = 0; base < triangles_offset; base += WorkgroupSize)
+    {
+        uint32_t i = base + glsl::gl_LocalInvocationIndex();
+        __smem[spheres_offset+i] = aliased_spheres[i];
+    }
+    [unroll]
+    for (uint32_t base = 0; base < rectangles_offset; base += WorkgroupSize)
+    {
+        uint32_t i = base + glsl::gl_LocalInvocationIndex();
+        __smem[triangles_offset+i] = aliased_triangles[i];
+    }
+    [unroll]
+    for (uint32_t base = 0; base < lights_offset; base += WorkgroupSize)
+    {
+        uint32_t i = base + glsl::gl_LocalInvocationIndex();
+        __smem[rectangles_offset+i] = aliased_rectangles[i];
+    }
+    [unroll]
+    for (uint32_t base = 0; base < bxdfs_offset; base += WorkgroupSize)
+    {
+        uint32_t i = base + glsl::gl_LocalInvocationIndex();
+        __smem[lights_offset+i] = aliased_lights[i];
+    }
+    [unroll]
+    for (uint32_t base = 0; base < smem_size; base += WorkgroupSize)
+    {
+        uint32_t i = base + glsl::gl_LocalInvocationIndex();
+        __smem[bxdfs_offset+i] = aliased_bxdfs[i];
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    scene_type scene;
+    scene.spheres = spheres_shared;
+    scene.triangles = triangles_shared;
+    scene.rectangles = rectangles_shared;
+    scene.lights = lights_shared;
+    scene.bxdfs = bxdfs_shared;
+
+    scene.sphereCount = SPHERE_COUNT;
+    scene.triangleCount = TRIANGLE_COUNT;
+    scene.rectangleCount = RECTANGLE_COUNT;
+    scene.lightCount = LIGHT_COUNT;
+    scene.bxdfCount = BXDF_COUNT;
+
+    ptCreateParams.diffuseParams = scene.bxdfs[0].params;
+    ptCreateParams.conductorParams = scene.bxdfs[3].params;
+    ptCreateParams.dielectricParams = scene.bxdfs[6].params;
 
     pathtracer_type pathtracer = pathtracer_type::create(ptCreateParams);
 
