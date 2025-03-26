@@ -343,7 +343,7 @@ struct DTMSettings
     float intervalWidth;
     uint32_t heightColorEntryCount;
     float heightColorMapHeights[HeightColorMapMaxEntries];
-    float32_t3 heightColorMapColors[HeightColorMapMaxEntries];
+    float32_t4 heightColorMapColors[HeightColorMapMaxEntries];
 
     enum E_HEIGHT_SHADING_MODE
     {

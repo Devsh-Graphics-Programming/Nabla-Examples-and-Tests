@@ -25,7 +25,7 @@ struct DTMSettingsInfo
 	float intervalWidth;
 	E_HEIGHT_SHADING_MODE heightShadingMode;
 
-	void addHeightColorMapEntry(float height, float32_t3 color)
+	void addHeightColorMapEntry(float height, float32_t4 color)
 	{
 		heightColorSet.emplace(height, color);
 	}
@@ -52,7 +52,7 @@ private:
 	struct HeightColor
 	{
 		float height;
-		float32_t3 color;
+		float32_t4 color;
 
 		bool operator<(const HeightColor& other) const
 		{

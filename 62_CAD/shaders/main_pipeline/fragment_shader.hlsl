@@ -452,8 +452,6 @@ float4 fragMain(PSInput input) : SV_TARGET
         float minShadingHeight = dtmSettings.heightColorMapHeights[0];
         float maxShadingHeight = dtmSettings.heightColorMapHeights[heightMapSize - 1];
 
-        printf("min = %f, max = %f", minShadingHeight, maxShadingHeight);
-
         const bool isHeightBetweenMinAndMax = height >= minShadingHeight && height <= maxShadingHeight;
         const bool isHeightColorMapNotEmpty = heightMapSize > 0;
         if (isHeightColorMapNotEmpty && isHeightBetweenMinAndMax)
@@ -462,16 +460,24 @@ float4 fragMain(PSInput input) : SV_TARGET
 
             if(mode == DTMSettings::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS)
             {
+                uint32_t upperBoundHeightIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
+                uint32_t lowerBoundHeightIndex;
+                // TODO: binary search
                 for (int i = 0; i < heightMapSize; ++i)
                 {
                     if (dtmSettings.heightColorMapHeights[i] > height)
                     {
-                        textureColor = dtmSettings.heightColorMapColors[i];
+                        upperBoundHeightIndex = i;
+                        lowerBoundHeightIndex = i;
+                        if (i != 0)
+                            --lowerBoundHeightIndex;
+
                         break;
                     }
                 }
 
-                localAlpha = 1.0f;
+                textureColor = dtmSettings.heightColorMapColors[upperBoundHeightIndex].rgb;
+                localAlpha = dtmSettings.heightColorMapColors[upperBoundHeightIndex].a;
             }
             else
             {
@@ -487,8 +493,6 @@ float4 fragMain(PSInput input) : SV_TARGET
                     heightTmp = height;
                 }
 
-
-                const uint32_t heightMapSize = dtmSettings.heightColorEntryCount;
                 uint32_t upperBoundHeightIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
                 uint32_t lowerBoundHeightIndex;
                 // TODO: binary search
@@ -504,19 +508,12 @@ float4 fragMain(PSInput input) : SV_TARGET
                         break;
                     }
                 }
-                if (upperBoundHeightIndex == nbl::hlsl::numeric_limits<uint32_t>::max)
-                {
-                    upperBoundHeightIndex = heightMapSize - 1;
-                    lowerBoundHeightIndex = upperBoundHeightIndex;
-                    if (upperBoundHeightIndex != 0)
-                        --lowerBoundHeightIndex;
-                }
 
                 float upperBoundHeight = dtmSettings.heightColorMapHeights[upperBoundHeightIndex];
                 float lowerBoundHeight = dtmSettings.heightColorMapHeights[lowerBoundHeightIndex];
                 
-                float3 upperBoundColor = dtmSettings.heightColorMapColors[upperBoundHeightIndex];
-                float3 lowerBoundColor = dtmSettings.heightColorMapColors[lowerBoundHeightIndex];
+                float4 upperBoundColor = dtmSettings.heightColorMapColors[upperBoundHeightIndex];
+                float4 lowerBoundColor = dtmSettings.heightColorMapColors[lowerBoundHeightIndex];
                 
                 float interpolationVal;
                 if (upperBoundHeightIndex == 0)
@@ -524,8 +521,8 @@ float4 fragMain(PSInput input) : SV_TARGET
                 else
                     interpolationVal = (heightTmp - lowerBoundHeight) / (upperBoundHeight - lowerBoundHeight);
                 
-                textureColor = lerp(lowerBoundColor, upperBoundColor, interpolationVal);
-                localAlpha = 1.0f;
+                textureColor = lerp(lowerBoundColor.rgb, upperBoundColor.rgb, interpolationVal);
+                localAlpha = lerp(lowerBoundColor.a, upperBoundColor.a, interpolationVal);;
             }
         }
 
@@ -587,7 +584,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                 distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, contourThickness, contourStyle.isRoadStyleFlag, clipper);
             }
 
-            float contourLocalAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, distance);
+            float contourLocalAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, distance) * contourStyle.color.a;
             textureColor = lerp(textureColor, contourStyle.color.rgb, contourLocalAlpha);
             localAlpha = max(localAlpha, contourLocalAlpha);
         }
@@ -657,7 +654,7 @@ float4 fragMain(PSInput input) : SV_TARGET
 
         }
 
-        float outlineLocalAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, minDistance);
+        float outlineLocalAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, minDistance) * outlineStyle.color.a;
         textureColor = lerp(textureColor, outlineStyle.color.rgb, outlineLocalAlpha);
         localAlpha = max(localAlpha, outlineLocalAlpha);
     }

@@ -3356,14 +3356,14 @@ protected:
 			LineStyleInfo outlineStyle = {};
 			dtmSettingsInfo.outlineLineStyleInfo.screenSpaceLineWidth = 0.0f;
 			dtmSettingsInfo.outlineLineStyleInfo.worldSpaceLineWidth = 3.0f;
-			dtmSettingsInfo.outlineLineStyleInfo.color = float32_t4(0.0f, 0.39f, 0.0f, 1.0f);
+			dtmSettingsInfo.outlineLineStyleInfo.color = float32_t4(0.0f, 0.39f, 0.0f, 0.5f);
 			std::array<double, 4> outlineStipplePattern = { 0.0f, -5.0f, 2.0f, -5.0f };
 			dtmSettingsInfo.outlineLineStyleInfo.setStipplePatternData(outlineStipplePattern);
 
 			LineStyleInfo contourStyle = {};
 			dtmSettingsInfo.contourLineStyleInfo.screenSpaceLineWidth = 0.0f;
 			dtmSettingsInfo.contourLineStyleInfo.worldSpaceLineWidth = 1.0f;
-			dtmSettingsInfo.contourLineStyleInfo.color = float32_t4(0.0f, 0.0f, 1.0f, 1.0f);
+			dtmSettingsInfo.contourLineStyleInfo.color = float32_t4(0.0f, 0.0f, 1.0f, 0.7f);
 			std::array<double, 4> contourStipplePattern = { 0.0f, -5.0f, 10.0f, -5.0f };
 			dtmSettingsInfo.contourLineStyleInfo.setStipplePatternData(contourStipplePattern);
 
@@ -3376,27 +3376,28 @@ protected:
 				case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
 				{
 					dtmSettingsInfo.heightShadingMode = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
-					dtmSettingsInfo.addHeightColorMapEntry(20.0f, float32_t3(0.5f, 1.0f, 1.0f));
-					dtmSettingsInfo.addHeightColorMapEntry(25.0f, float32_t3(0.0f, 1.0f, 0.0f));
-					dtmSettingsInfo.addHeightColorMapEntry(70.0f, float32_t3(1.0f, 1.0f, 0.0f));
-					dtmSettingsInfo.addHeightColorMapEntry(80.0f, float32_t3(1.0f, 0.0f, 0.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(20.0f, float32_t4(0.5f, 1.0f, 1.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(25.0f, float32_t4(0.0f, 1.0f, 0.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(70.0f, float32_t4(1.0f, 1.0f, 0.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(80.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
 					break;
 				}
 				case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS:
 				{
 					dtmSettingsInfo.intervalWidth = 8.0f;
 					dtmSettingsInfo.heightShadingMode = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
-					dtmSettingsInfo.addHeightColorMapEntry(0.0f, float32_t3(0.0f, 1.0f, 0.0f));
-					dtmSettingsInfo.addHeightColorMapEntry(50.0f, float32_t3(1.0f, 1.0f, 0.0f));
-					dtmSettingsInfo.addHeightColorMapEntry(100.0f, float32_t3(1.0f, 0.0f, 0.0f));
+					float animatedAlpha = (std::cos(m_timeElapsed * 0.0003) + 1.0) * 0.5;
+					dtmSettingsInfo.addHeightColorMapEntry(0.0f, float32_t4(0.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmSettingsInfo.addHeightColorMapEntry(50.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmSettingsInfo.addHeightColorMapEntry(100.0f, float32_t4(1.0f, 0.0f, 0.0f, animatedAlpha));
 					break;
 				}
 				case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS:
 				{
 					dtmSettingsInfo.heightShadingMode = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
-					dtmSettingsInfo.addHeightColorMapEntry(-10.0f, float32_t3(0.0f, 1.0f, 0.0f));
-					dtmSettingsInfo.addHeightColorMapEntry(30.0f, float32_t3(1.0f, 1.0f, 0.0f));
-					dtmSettingsInfo.addHeightColorMapEntry(90.0f, float32_t3(1.0f, 0.0f, 0.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(-10.0f, float32_t4(0.0f, 1.0f, 0.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(30.0f, float32_t4(1.0f, 1.0f, 0.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(90.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
 					break;
 				}
 			}
