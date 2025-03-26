@@ -798,9 +798,6 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 	// we need to make sure somehow that function below will not submit, we need both outline and contour styles in GPU memory
 	dtmSettings.outlineLineStyleIdx = addLineStyle_SubmitIfNeeded(dtmSettingsInfo.outlineLineStyleInfo, intendedNextSubmit);
 	dtmSettings.contourLineStyleIdx = addLineStyle_SubmitIfNeeded(dtmSettingsInfo.contourLineStyleInfo, intendedNextSubmit);
-
-	dtmSettings.minShadingHeight = dtmSettingsInfo.minShadingHeight;
-	dtmSettings.maxShadingHeight = dtmSettingsInfo.maxShadingHeight;
 	switch (dtmSettingsInfo.heightShadingMode)
 	{
 	case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:

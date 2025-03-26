@@ -340,8 +340,6 @@ struct DTMSettings
     float contourLinesHeightInterval;
 
     // height-color map
-    float minShadingHeight;
-    float maxShadingHeight;
     float intervalWidth;
     uint32_t heightColorEntryCount;
     float heightColorMapHeights[HeightColorMapMaxEntries];

@@ -22,12 +22,10 @@ struct DTMSettingsInfo
 	float contourLinesEndHeight;
 	float contourLinesHeightInterval;
 
-	float minShadingHeight;
-	float maxShadingHeight;
 	float intervalWidth;
 	E_HEIGHT_SHADING_MODE heightShadingMode;
 
-	void addHeightColorMapEntry(uint32_t height, float32_t3 color)
+	void addHeightColorMapEntry(float height, float32_t3 color)
 	{
 		heightColorSet.emplace(height, color);
 	}
@@ -53,7 +51,7 @@ struct DTMSettingsInfo
 private:
 	struct HeightColor
 	{
-		uint32_t height;
+		float height;
 		float32_t3 color;
 
 		bool operator<(const HeightColor& other) const

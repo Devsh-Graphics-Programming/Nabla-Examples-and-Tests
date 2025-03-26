@@ -644,6 +644,8 @@ public:
 	double m_timeElapsed = 0.0;
 	std::chrono::steady_clock::time_point lastTime;
 	uint32_t m_hatchDebugStep = 0u;
+	DTMSettingsInfo::E_HEIGHT_SHADING_MODE m_shadingModeExample = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
+
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
@@ -1160,6 +1162,18 @@ public:
 					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_Q)
 					{
 						m_hatchDebugStep--;
+					}
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_1)
+					{
+						m_shadingModeExample = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
+					}
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_2)
+					{
+						m_shadingModeExample = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
+					}
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_3)
+					{
+						m_shadingModeExample = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
 					}
 				}
 			}
@@ -3353,37 +3367,36 @@ protected:
 			std::array<double, 4> contourStipplePattern = { 0.0f, -5.0f, 10.0f, -5.0f };
 			dtmSettingsInfo.contourLineStyleInfo.setStipplePatternData(contourStipplePattern);
 
-			//DTMSettingsInfo::E_HEIGHT_SHADING_MODE shadingModeExample = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
-			//DTMSettingsInfo::E_HEIGHT_SHADING_MODE shadingModeExample = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
-			DTMSettingsInfo::E_HEIGHT_SHADING_MODE shadingModeExample = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
-
-			// DISCRETE_VARIABLE_LENGTH_INTERVALS
-
-			switch (shadingModeExample)
+			// PRESS 1, 2, 3 TO SWITCH HEIGHT SHADING MODE
+			// 1 - DISCRETE_VARIABLE_LENGTH_INTERVALS
+			// 2 - DISCRETE_FIXED_LENGTH_INTERVALS
+			// 3 - CONTINOUS_INTERVALS
+			switch (m_shadingModeExample)
 			{
 				case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
 				{
-					dtmSettingsInfo.minShadingHeight = 20.0f;
-					dtmSettingsInfo.maxShadingHeight = 70.0f;
 					dtmSettingsInfo.heightShadingMode = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
-					dtmSettingsInfo.addHeightColorMapEntry(30, float32_t3(0.5f, 1.0f, 1.0f));
-					dtmSettingsInfo.addHeightColorMapEntry(45, float32_t3(0.0f, 1.0f, 0.0f));
-					dtmSettingsInfo.addHeightColorMapEntry(60, float32_t3(1.0f, 1.0f, 0.0f));
-					dtmSettingsInfo.addHeightColorMapEntry(80, float32_t3(1.0f, 0.0f, 0.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(20.0f, float32_t3(0.5f, 1.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(25.0f, float32_t3(0.0f, 1.0f, 0.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(70.0f, float32_t3(1.0f, 1.0f, 0.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(80.0f, float32_t3(1.0f, 0.0f, 0.0f));
 					break;
 				}
 				case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS:
 				{
+					dtmSettingsInfo.intervalWidth = 8.0f;
+					dtmSettingsInfo.heightShadingMode = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
+					dtmSettingsInfo.addHeightColorMapEntry(0.0f, float32_t3(0.0f, 1.0f, 0.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(50.0f, float32_t3(1.0f, 1.0f, 0.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(100.0f, float32_t3(1.0f, 0.0f, 0.0f));
 					break;
 				}
 				case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS:
 				{
-					dtmSettingsInfo.minShadingHeight = -10.0f;
-					dtmSettingsInfo.maxShadingHeight = 100.0f;
 					dtmSettingsInfo.heightShadingMode = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
-					dtmSettingsInfo.addHeightColorMapEntry(20, float32_t3(0.0f, 1.0f, 0.0f));
-					dtmSettingsInfo.addHeightColorMapEntry(50, float32_t3(1.0f, 1.0f, 0.0f));
-					dtmSettingsInfo.addHeightColorMapEntry(80, float32_t3(1.0f, 0.0f, 0.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(-10.0f, float32_t3(0.0f, 1.0f, 0.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(30.0f, float32_t3(1.0f, 1.0f, 0.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(90.0f, float32_t3(1.0f, 0.0f, 0.0f));
 					break;
 				}
 			}

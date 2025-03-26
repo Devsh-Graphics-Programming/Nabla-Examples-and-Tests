@@ -444,112 +444,88 @@ float4 fragMain(PSInput input) : SV_TARGET
         opposingVertexIdx[0] = 2;
         opposingVertexIdx[1] = 0;
         opposingVertexIdx[2] = 1;
-
+        
         float height = input.getHeight();
 
         // HEIGHT SHADING
-        const bool isHeightBetweenMinAndMax = height >= dtmSettings.minShadingHeight && height <= dtmSettings.maxShadingHeight;
-        const bool isHeightColorMapNotEmpty = dtmSettings.heightColorEntryCount;
+        const uint32_t heightMapSize = dtmSettings.heightColorEntryCount;
+        float minShadingHeight = dtmSettings.heightColorMapHeights[0];
+        float maxShadingHeight = dtmSettings.heightColorMapHeights[heightMapSize - 1];
+
+        printf("min = %f, max = %f", minShadingHeight, maxShadingHeight);
+
+        const bool isHeightBetweenMinAndMax = height >= minShadingHeight && height <= maxShadingHeight;
+        const bool isHeightColorMapNotEmpty = heightMapSize > 0;
         if (isHeightColorMapNotEmpty && isHeightBetweenMinAndMax)
         {
             DTMSettings::E_HEIGHT_SHADING_MODE mode = dtmSettings.determineHeightShadingMode();
-            switch (mode)
+
+            if(mode == DTMSettings::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS)
             {
-                case DTMSettings::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
+                for (int i = 0; i < heightMapSize; ++i)
                 {
-                    const uint32_t heightMapSize = dtmSettings.heightColorEntryCount;
-                    for (int i = 0; i < heightMapSize; ++i)
+                    if (dtmSettings.heightColorMapHeights[i] > height)
                     {
-                        if (dtmSettings.heightColorMapHeights[i] > height)
-                        {
-                            textureColor = dtmSettings.heightColorMapColors[i];
-                            break;
-                        }
+                        textureColor = dtmSettings.heightColorMapColors[i];
+                        break;
                     }
-
-                    localAlpha = 1.0f;
-                    break;
                 }
-                case DTMSettings::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS:
+
+                localAlpha = 1.0f;
+            }
+            else
+            {
+                float heightTmp;
+                if (mode == DTMSettings::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS)
                 {
-                    /*const uint32_t heightMapSize = dtmSettings.heightColorEntryCount;
-                    uint32_t upperBoundHeightIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
-                    uint32_t lowerBoundHeightIndex;
-                    // TODO: binary search
-                    for (int i = 0; i < heightMapSize; ++i)
-                    {
-                        if (dtmSettings.heightColorMapHeights[i] > height)
-                        {
-                            upperBoundHeightIndex = i;
-                            lowerBoundHeightIndex = i == 0 ? 0 : i - 1;
-                            break;
-                        }
-                    }
-
-                    if (upperBoundHeightIndex != nbl::hlsl::numeric_limits<uint32_t>::max)
-                    {
-                        float upperBoundHeight = dtmSettings.heightColorMapColors[upperBoundHeightIndex];
-                        float lowerBoundHeight = dtmSettings.heightColorMapColors[upperBoundHeightIndex];
-
-
-                        float3 upperBoundColor = dtmSettings.heightColorMapColors[upperBoundHeightIndex];
-                        float3 lowerBoundColor = dtmSettings.heightColorMapColors[lowerBoundHeightIndex];
-
-                        localAlpha = 1.0f;
-                    }*/
-
-                    break;
+                    float interval = dtmSettings.intervalWidth;
+                    int sectionIndex = int((height - minShadingHeight) / interval);
+                    heightTmp = minShadingHeight + float(sectionIndex) * interval;
                 }
-                case DTMSettings::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS:
+                else if (mode == DTMSettings::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS)
                 {
+                    heightTmp = height;
+                }
 
-                    const uint32_t heightMapSize = dtmSettings.heightColorEntryCount;
-                    uint32_t upperBoundHeightIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
-                    uint32_t lowerBoundHeightIndex;
-                    // TODO: binary search
-                    for (int i = 0; i < heightMapSize; ++i)
-                    {
-                        if (dtmSettings.heightColorMapHeights[i] > height)
-                        {
-                            upperBoundHeightIndex = i;
-                            lowerBoundHeightIndex = i;
-                            if (i != 0)
-                                --lowerBoundHeightIndex;
 
-                            break;
-                        }
-                    }
-                    if (upperBoundHeightIndex == nbl::hlsl::numeric_limits<uint32_t>::max)
+                const uint32_t heightMapSize = dtmSettings.heightColorEntryCount;
+                uint32_t upperBoundHeightIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
+                uint32_t lowerBoundHeightIndex;
+                // TODO: binary search
+                for (int i = 0; i < heightMapSize; ++i)
+                {
+                    if (dtmSettings.heightColorMapHeights[i] > heightTmp)
                     {
-                        upperBoundHeightIndex = heightMapSize - 1;
-                        lowerBoundHeightIndex = upperBoundHeightIndex;
-                        if (upperBoundHeightIndex != 0)
+                        upperBoundHeightIndex = i;
+                        lowerBoundHeightIndex = i;
+                        if (i != 0)
                             --lowerBoundHeightIndex;
+
+                        break;
                     }
-
-                    if (upperBoundHeightIndex != nbl::hlsl::numeric_limits<uint32_t>::max)
-                    {
-                        float upperBoundHeight = dtmSettings.heightColorMapHeights[upperBoundHeightIndex];
-                        float lowerBoundHeight = dtmSettings.heightColorMapHeights[lowerBoundHeightIndex];
-
-                        float3 upperBoundColor = dtmSettings.heightColorMapColors[upperBoundHeightIndex];
-                        float3 lowerBoundColor = dtmSettings.heightColorMapColors[lowerBoundHeightIndex];
-
-                        float interpolationVal;
-                        if (upperBoundHeightIndex == 0)
-                            interpolationVal = 1.0f;
-                        else
-                            interpolationVal = (height - lowerBoundHeight) / (upperBoundHeight - lowerBoundHeight);
-
-                        printf("idx = %i, t = %f, up = %f, lo = %f", upperBoundHeightIndex, interpolationVal, upperBoundHeight, lowerBoundHeight);
-
-                        textureColor = lerp(lowerBoundColor, upperBoundColor, interpolationVal);
-
-                        localAlpha = 1.0f;
-                    }
-
-                    break;
                 }
+                if (upperBoundHeightIndex == nbl::hlsl::numeric_limits<uint32_t>::max)
+                {
+                    upperBoundHeightIndex = heightMapSize - 1;
+                    lowerBoundHeightIndex = upperBoundHeightIndex;
+                    if (upperBoundHeightIndex != 0)
+                        --lowerBoundHeightIndex;
+                }
+
+                float upperBoundHeight = dtmSettings.heightColorMapHeights[upperBoundHeightIndex];
+                float lowerBoundHeight = dtmSettings.heightColorMapHeights[lowerBoundHeightIndex];
+                
+                float3 upperBoundColor = dtmSettings.heightColorMapColors[upperBoundHeightIndex];
+                float3 lowerBoundColor = dtmSettings.heightColorMapColors[lowerBoundHeightIndex];
+                
+                float interpolationVal;
+                if (upperBoundHeightIndex == 0)
+                    interpolationVal = 1.0f;
+                else
+                    interpolationVal = (heightTmp - lowerBoundHeight) / (upperBoundHeight - lowerBoundHeight);
+                
+                textureColor = lerp(lowerBoundColor, upperBoundColor, interpolationVal);
+                localAlpha = 1.0f;
             }
         }
 
