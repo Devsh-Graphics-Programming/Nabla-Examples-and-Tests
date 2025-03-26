@@ -121,7 +121,7 @@ PSInput main(uint vertexID : SV_VertexID)
     outV.position.xy = transformedPos;
     outV.position = transformFromSreenSpaceToNdc(outV.position.xy, globals.resolution);
     outV.setHeight(vtx.height);
-    outV.setScreenSpaceVertexPos(float3(transformedPos, 1));
+    outV.setScreenSpaceVertexPos(float3(transformedPos, vtx.height));
     outV.setCurrentWorldToScreenRatio(
         _static_cast<float>((_static_cast<pfloat64_t>(2.0f) /
             (clipProjectionData.projectionToNDC[0].x * _static_cast<pfloat64_t>(globals.resolution.x))))
@@ -131,9 +131,12 @@ PSInput main(uint vertexID : SV_VertexID)
     DTMSettings dtmSettings = dtmSettingsBuff[mainObj.dtmSettingsIdx];
     LineStyle outlineStyle = lineStyles[dtmSettings.outlineLineStyleIdx];
     LineStyle contourStyle = lineStyles[dtmSettings.contourLineStyleIdx];
-    const float screenSpaceLineWidth = outlineStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(outlineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
-    const float sdfLineThickness = screenSpaceLineWidth * 0.5f;
-    outV.setLineThickness(sdfLineThickness);
+    const float screenSpaceOutlineWidth = outlineStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(outlineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
+    const float sdfOutlineThickness = screenSpaceOutlineWidth * 0.5f;
+    const float screenSpaceContourLineWidth = contourStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(contourStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
+    const float sdfContourLineThickness = screenSpaceContourLineWidth * 0.5f;
+    outV.setOutlineThickness(sdfOutlineThickness);
+    outV.setContourLineThickness(sdfContourLineThickness);
 
     return outV;
 

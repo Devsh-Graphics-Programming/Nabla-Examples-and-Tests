@@ -414,91 +414,276 @@ float4 fragMain(PSInput input) : SV_TARGET
     const uint32_t currentMainObjectIdx = input.getMainObjectIdx();
     const MainObject mainObj = mainObjects[currentMainObjectIdx];
 
-    
-
     // TRIANGLE RENDERING
     {
-        float3 v0 = input.getScreenSpaceVertexPos(0);
-        float3 v1 = input.getScreenSpaceVertexPos(1);
-        float3 v2 = input.getScreenSpaceVertexPos(2);
-
-        // CONTOUR
-
-        // TODO: move to ubo or push constants
-        const float startHeight = 10.0f;
-        const float endHeight = 100.0f;
-        const float interval = 10.0f;
-        float height = input.getHeight();
-
-        // TODO: it actually can output a negative number, fix
-        int contourLineIdx = nbl::hlsl::_static_cast<int>((height - startHeight + (interval * 0.5f)) / interval);
-
-        float backgroundColor = contourLineIdx;
-        backgroundColor *= 0.1f;
-        textureColor = float3(backgroundColor, backgroundColor, backgroundColor);
-
-        // OUTLINE
-
-        float2 start;
-        float2 end;
-        const float3 baryCoord = nbl::hlsl::spirv::BaryCoordKHR;
-
-        // TODO: figure out if branching can be reduced
-        // finding line start and end points by excluding vertex with the lowest barycentric coordinate value
-        if (baryCoord.x < baryCoord.y && baryCoord.x < baryCoord.z)
-        {
-            start = float2(v1.x, v1.y);
-            end = float2(v2.x, v2.y);
-        }
-        else if (baryCoord.y < baryCoord.x && baryCoord.y < baryCoord.z)
-        {
-            start = float2(v0.x, v0.y);
-            end = float2(v2.x, v2.y);
-        }
-        else if (baryCoord.z < baryCoord.x && baryCoord.z < baryCoord.y)
-        {
-            start = float2(v0.x, v0.y);
-            end = float2(v1.x, v1.y);
-        }
-
-        // long story short, in order for stipple patterns to be consistent:
-        // - point with lesser x coord should be starting point
-        // - if x coord of both points are equal then point with lesser y value should be starting point
-        if (end.x < start.x)
-            nbl::hlsl::swap(start, end);
-        else if (end.x == start.x && end.y < start.y)
-            nbl::hlsl::swap(start, end);
-
-        const float thickness = input.getLineThickness();
+        const float outlineThickness = input.getOutlineThickness();
+        const float contourThickness = input.getContourLineThickness();
         const float phaseShift = 0.0f; // input.getCurrentPhaseShift();
-        const float stretch =  1.0f;
+        const float stretch = 1.0f; // TODO: figure out what is it for
         const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
-
-        nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(start, end);
 
         DTMSettings dtmSettings = dtmSettingsBuff[mainObj.dtmSettingsIdx];
         LineStyle outlineStyle = lineStyles[dtmSettings.outlineLineStyleIdx];
         LineStyle contourStyle = lineStyles[dtmSettings.contourLineStyleIdx];
 
-        float distance = nbl::hlsl::numeric_limits<float>::max;
+        float3 v[3];
+        v[0] = input.getScreenSpaceVertexPos(0);
+        v[1] = input.getScreenSpaceVertexPos(1);
+        v[2] = input.getScreenSpaceVertexPos(2);
+
+        const float3 baryCoord = nbl::hlsl::spirv::BaryCoordKHR;
+
+        // indices of points constructing every edge
+        uint2 edgePoints[3];
+        edgePoints[0] = uint2(0, 1);
+        edgePoints[1] = uint2(1, 2);
+        edgePoints[2] = uint2(2, 0);
+
+        // index of vertex opposing an edge, needed for calculation of triangle heights
+        uint opposingVertexIdx[3];
+        opposingVertexIdx[0] = 2;
+        opposingVertexIdx[1] = 0;
+        opposingVertexIdx[2] = 1;
+
+        float height = input.getHeight();
+
+        // HEIGHT SHADING
+        const bool isHeightBetweenMinAndMax = height >= dtmSettings.minShadingHeight && height <= dtmSettings.maxShadingHeight;
+        const bool isHeightColorMapNotEmpty = dtmSettings.heightColorEntryCount;
+        if (isHeightColorMapNotEmpty && isHeightBetweenMinAndMax)
+        {
+            DTMSettings::E_HEIGHT_SHADING_MODE mode = dtmSettings.determineHeightShadingMode();
+            switch (mode)
+            {
+                case DTMSettings::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
+                {
+                    const uint32_t heightMapSize = dtmSettings.heightColorEntryCount;
+                    for (int i = 0; i < heightMapSize; ++i)
+                    {
+                        if (dtmSettings.heightColorMapHeights[i] > height)
+                        {
+                            textureColor = dtmSettings.heightColorMapColors[i];
+                            break;
+                        }
+                    }
+
+                    localAlpha = 1.0f;
+                    break;
+                }
+                case DTMSettings::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS:
+                {
+                    /*const uint32_t heightMapSize = dtmSettings.heightColorEntryCount;
+                    uint32_t upperBoundHeightIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
+                    uint32_t lowerBoundHeightIndex;
+                    // TODO: binary search
+                    for (int i = 0; i < heightMapSize; ++i)
+                    {
+                        if (dtmSettings.heightColorMapHeights[i] > height)
+                        {
+                            upperBoundHeightIndex = i;
+                            lowerBoundHeightIndex = i == 0 ? 0 : i - 1;
+                            break;
+                        }
+                    }
+
+                    if (upperBoundHeightIndex != nbl::hlsl::numeric_limits<uint32_t>::max)
+                    {
+                        float upperBoundHeight = dtmSettings.heightColorMapColors[upperBoundHeightIndex];
+                        float lowerBoundHeight = dtmSettings.heightColorMapColors[upperBoundHeightIndex];
+
+
+                        float3 upperBoundColor = dtmSettings.heightColorMapColors[upperBoundHeightIndex];
+                        float3 lowerBoundColor = dtmSettings.heightColorMapColors[lowerBoundHeightIndex];
+
+                        localAlpha = 1.0f;
+                    }*/
+
+                    break;
+                }
+                case DTMSettings::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS:
+                {
+
+                    const uint32_t heightMapSize = dtmSettings.heightColorEntryCount;
+                    uint32_t upperBoundHeightIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
+                    uint32_t lowerBoundHeightIndex;
+                    // TODO: binary search
+                    for (int i = 0; i < heightMapSize; ++i)
+                    {
+                        if (dtmSettings.heightColorMapHeights[i] > height)
+                        {
+                            upperBoundHeightIndex = i;
+                            lowerBoundHeightIndex = i;
+                            if (i != 0)
+                                --lowerBoundHeightIndex;
+
+                            break;
+                        }
+                    }
+                    if (upperBoundHeightIndex == nbl::hlsl::numeric_limits<uint32_t>::max)
+                    {
+                        upperBoundHeightIndex = heightMapSize - 1;
+                        lowerBoundHeightIndex = upperBoundHeightIndex;
+                        if (upperBoundHeightIndex != 0)
+                            --lowerBoundHeightIndex;
+                    }
+
+                    if (upperBoundHeightIndex != nbl::hlsl::numeric_limits<uint32_t>::max)
+                    {
+                        float upperBoundHeight = dtmSettings.heightColorMapHeights[upperBoundHeightIndex];
+                        float lowerBoundHeight = dtmSettings.heightColorMapHeights[lowerBoundHeightIndex];
+
+                        float3 upperBoundColor = dtmSettings.heightColorMapColors[upperBoundHeightIndex];
+                        float3 lowerBoundColor = dtmSettings.heightColorMapColors[lowerBoundHeightIndex];
+
+                        float interpolationVal;
+                        if (upperBoundHeightIndex == 0)
+                            interpolationVal = 1.0f;
+                        else
+                            interpolationVal = (height - lowerBoundHeight) / (upperBoundHeight - lowerBoundHeight);
+
+                        printf("idx = %i, t = %f, up = %f, lo = %f", upperBoundHeightIndex, interpolationVal, upperBoundHeight, lowerBoundHeight);
+
+                        textureColor = lerp(lowerBoundColor, upperBoundColor, interpolationVal);
+
+                        localAlpha = 1.0f;
+                    }
+
+                    break;
+                }
+            }
+        }
+
+        // CONTOUR
+
+        // TODO: move to ubo or push constants
+        const float startHeight = dtmSettings.contourLinesStartHeight;
+        const float endHeight = dtmSettings.contourLinesEndHeight;
+        const float interval = dtmSettings.contourLinesHeightInterval;
+
+        // TODO: can be precomputed
+        const int maxContourLineIdx = (endHeight - startHeight + 1) / interval;
+
+        // TODO: it actually can output a negative number, fix
+        int contourLineIdx = nbl::hlsl::_static_cast<int>((height - startHeight + (interval * 0.5f)) / interval);
+        contourLineIdx = clamp(contourLineIdx, 0, maxContourLineIdx);
+        float contourLineHeight = startHeight + interval * contourLineIdx;
+
+        int contourLinePointsIdx = 0;
+        float2 contourLinePoints[2];
+        // TODO: case where heights we are looking for are on all three vertices
+        for (int i = 0; i < 3; ++i)
+        {
+            if (contourLinePointsIdx == 3)
+                break;
+
+            const uint2 currentEdgePoints = edgePoints[i];
+            float3 p0 = v[currentEdgePoints[0]];
+            float3 p1 = v[currentEdgePoints[1]];
+
+            if (p1.z < p0.z)
+                nbl::hlsl::swap(p0, p1);
+
+            float minHeight = p0.z;
+            float maxHeight = p1.z;
+
+            if (height >= minHeight && height <= maxHeight)
+            {
+                float2 edge = float2(p1.x, p1.y) - float2(p0.x, p0.y);
+                float scale = (contourLineHeight - minHeight) / (maxHeight - minHeight);
+
+                contourLinePoints[contourLinePointsIdx] = scale * edge + float2(p0.x, p0.y);
+                ++contourLinePointsIdx;
+            }
+        }
+
+        {
+            nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(contourLinePoints[0], contourLinePoints[1]);
+
+            float distance = nbl::hlsl::numeric_limits<float>::max;
+            if (!contourStyle.hasStipples() || stretch == InvalidStyleStretchValue)
+            {
+                distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, contourThickness, contourStyle.isRoadStyleFlag);
+            }
+            else
+            {
+                nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
+                LineStyleClipper clipper = LineStyleClipper::construct(contourStyle, lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
+                distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, contourThickness, contourStyle.isRoadStyleFlag, clipper);
+            }
+
+            float contourLocalAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, distance);
+            textureColor = lerp(textureColor, contourStyle.color.rgb, contourLocalAlpha);
+            localAlpha = max(localAlpha, contourLocalAlpha);
+        }
+
+        
+
+        // OUTLINE
+
+        // find sdf of every edge
+        float triangleAreaTimesTwo;
+        {
+            float3 AB = v[0] - v[1];
+            float3 AC = v[0] - v[2];
+            AB.z = 0.0f;
+            AC.z = 0.0f;
+
+            // TODO: figure out if there is a faster solution
+            triangleAreaTimesTwo = length(cross(AB, AC));
+        }
+
+        // calculate sdf of every edge as it wasn't stippled
+        float distances[3];
+        for (int i = 0; i < 3; ++i)
+        {
+            const uint2 currentEdgePoints = edgePoints[i];
+            float3 A = v[currentEdgePoints[0]];
+            float3 B = v[currentEdgePoints[1]];
+            float3 AB = B - A;
+            float ABLen = length(AB);
+
+            distances[i] = (triangleAreaTimesTwo / ABLen) * baryCoord[opposingVertexIdx[i]];
+        }
+
+        float minDistance = nbl::hlsl::numeric_limits<float>::max;
         if (!outlineStyle.hasStipples() || stretch == InvalidStyleStretchValue)
         {
-            distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness, outlineStyle.isRoadStyleFlag);
+            for (uint i = 0; i < 3; ++i)
+                distances[i] -= outlineThickness;
+
+            minDistance = min(distances[0], min(distances[1], distances[2]));
         }
         else
         {
-            nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
-            LineStyleClipper clipper = LineStyleClipper::construct(outlineStyle, lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
-            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, outlineStyle.isRoadStyleFlag, clipper);
+            for (int i = 0; i < 3; ++i)
+            {
+                if (distances[i] > outlineThickness)
+                    continue;
+
+                const uint2 currentEdgePoints = edgePoints[i];
+                float3 p0 = v[currentEdgePoints[0]];
+                float3 p1 = v[currentEdgePoints[1]];
+
+                if (p1.x < p0.x)
+                    nbl::hlsl::swap(p0, p1);
+                else if (p1.x == p0.x && p1.y < p0.y)
+                    nbl::hlsl::swap(p0, p1);
+
+                nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(float2(p0.x, p0.y), float2(p1.x, p1.y));
+
+                float distance = nbl::hlsl::numeric_limits<float>::max;
+                nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
+                LineStyleClipper clipper = LineStyleClipper::construct(outlineStyle, lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
+                distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, outlineThickness, outlineStyle.isRoadStyleFlag, clipper);
+
+                minDistance = min(minDistance, distance);
+            }
+
         }
 
-        localAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, distance);
-
-        // TODO: remove, this is just a hack to draw background
-        if (localAlpha < 0.00001)
-            localAlpha = 1.0f;
-        else
-            textureColor = float3(outlineStyle.color.x, outlineStyle.color.y, outlineStyle.color.z);
+        float outlineLocalAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, minDistance);
+        textureColor = lerp(textureColor, outlineStyle.color.rgb, outlineLocalAlpha);
+        localAlpha = max(localAlpha, outlineLocalAlpha);
     }
 
     return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(uint2(input.position.xy), localAlpha, currentMainObjectIdx, textureColor, true);

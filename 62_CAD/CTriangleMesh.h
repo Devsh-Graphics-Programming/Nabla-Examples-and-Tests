@@ -8,11 +8,61 @@ using namespace nbl;
 
 struct DTMSettingsInfo
 {
+	enum E_HEIGHT_SHADING_MODE
+	{
+		DISCRETE_VARIABLE_LENGTH_INTERVALS,
+		DISCRETE_FIXED_LENGTH_INTERVALS,
+		CONTINOUS_INTERVALS
+	};
+
 	LineStyleInfo outlineLineStyleInfo;
 	LineStyleInfo contourLineStyleInfo;
-	// TODO: heights
+	
+	float contourLinesStartHeight;
+	float contourLinesEndHeight;
+	float contourLinesHeightInterval;
 
+	float minShadingHeight;
+	float maxShadingHeight;
+	float intervalWidth;
+	E_HEIGHT_SHADING_MODE heightShadingMode;
 
+	void addHeightColorMapEntry(uint32_t height, float32_t3 color)
+	{
+		heightColorSet.emplace(height, color);
+	}
+
+	bool fillShaderDTMSettingsHeightColorMap(DTMSettings& dtmSettings) const
+	{
+		const uint32_t mapSize = heightColorSet.size();
+		if (mapSize > DTMSettings::HeightColorMapMaxEntries)
+			return false;
+		dtmSettings.heightColorEntryCount = mapSize;
+
+		int index = 0;
+		for (auto it = heightColorSet.begin(); it != heightColorSet.end(); ++it)
+		{
+			dtmSettings.heightColorMapHeights[index] = it->height;
+			dtmSettings.heightColorMapColors[index] = it->color;
+			++index;
+		}
+
+		return true;
+	}
+
+private:
+	struct HeightColor
+	{
+		uint32_t height;
+		float32_t3 color;
+
+		bool operator<(const HeightColor& other) const
+		{
+			return height < other.height;
+		}
+	};
+
+	std::set<HeightColor> heightColorSet;
 };
 
 class CTriangleMesh final

@@ -104,9 +104,6 @@ struct PSInput
     void setCurrentWorldToScreenRatio(float worldToScreen) { interp_data5.y = worldToScreen; }
     float getCurrentWorldToScreenRatio() { return interp_data5.y; }
 
-    void setHeight(float height) { interp_data5.x = height; }
-    float getHeight() { return interp_data5.x; }
-
     /* LINE */
     float2 getLineStart() { return data2.xy; }
     float2 getLineEnd() { return data2.zw; }
@@ -218,6 +215,15 @@ struct PSInput
     void setImageTextureId(uint32_t textureId) { data2.x = asfloat(textureId); }
 
     /* TRIANGLE MESH */
+
+    float getOutlineThickness() { return asfloat(data1.z); }
+    float getContourLineThickness() { return asfloat(data1.w); }
+
+    void setOutlineThickness(float lineThickness) { data1.z = asuint(lineThickness); }
+    void setContourLineThickness(float stretch) { data1.w = asuint(stretch); }
+
+    void setHeight(float height) { interp_data5.x = height; }
+    float getHeight() { return interp_data5.x; }
 
 #ifndef FRAGMENT_SHADER_INPUT // vertex shader
     void setScreenSpaceVertexPos(float3 pos) { vertexScreenSpacePos = pos; }

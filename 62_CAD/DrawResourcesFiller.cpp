@@ -790,11 +790,33 @@ uint32_t DrawResourcesFiller::addLineStyle_Internal(const LineStyleInfo& lineSty
 uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtmSettingsInfo, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	DTMSettings dtmSettings;
+	dtmSettings.contourLinesStartHeight = dtmSettingsInfo.contourLinesStartHeight;
+	dtmSettings.contourLinesEndHeight = dtmSettingsInfo.contourLinesEndHeight;
+	dtmSettings.contourLinesHeightInterval = dtmSettingsInfo.contourLinesHeightInterval;
 
 	// TODO: this needs to be redone.. what if submit happens after that line?
 	// we need to make sure somehow that function below will not submit, we need both outline and contour styles in GPU memory
 	dtmSettings.outlineLineStyleIdx = addLineStyle_SubmitIfNeeded(dtmSettingsInfo.outlineLineStyleInfo, intendedNextSubmit);
 	dtmSettings.contourLineStyleIdx = addLineStyle_SubmitIfNeeded(dtmSettingsInfo.contourLineStyleInfo, intendedNextSubmit);
+
+	dtmSettings.minShadingHeight = dtmSettingsInfo.minShadingHeight;
+	dtmSettings.maxShadingHeight = dtmSettingsInfo.maxShadingHeight;
+	switch (dtmSettingsInfo.heightShadingMode)
+	{
+	case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
+		dtmSettings.intervalWidth = std::numeric_limits<float>::infinity();
+		break;
+	case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS:
+		dtmSettings.intervalWidth = dtmSettingsInfo.intervalWidth;
+		break;
+	case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS:
+		dtmSettings.intervalWidth = 0.0f;
+		break;
+	}
+	_NBL_DEBUG_BREAK_IF(!dtmSettingsInfo.fillShaderDTMSettingsHeightColorMap(dtmSettings));
+
+	if (currentDTMSettingsCount >= maxDtmSettings)
+		return InvalidDTMSettingsIdx;
 
 	DTMSettings* settingsArray = reinterpret_cast<DTMSettings*>(cpuDrawBuffers.dtmSettingsBuffer->getPointer());
 	for (uint32_t i = 0u; i < currentDTMSettingsCount; ++i)
@@ -803,9 +825,6 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 		if (itr == dtmSettings)
 			return i;
 	}
-
-	if (currentDTMSettingsCount >= maxDtmSettings)
-		return InvalidDTMSettingsIdx;
 
 	void* dst = settingsArray + currentDTMSettingsCount;
 	memcpy(dst, &dtmSettings, sizeof(DTMSettings));

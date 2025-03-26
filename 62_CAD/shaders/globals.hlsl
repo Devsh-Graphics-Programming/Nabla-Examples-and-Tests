@@ -330,10 +330,39 @@ struct LineStyle
 
 struct DTMSettings
 {
+    const static uint32_t HeightColorMapMaxEntries = 16u;
     uint32_t outlineLineStyleIdx; // index into line styles
     uint32_t contourLineStyleIdx; // index into line styles
-    // TODO:
-    // ContourSettings -> min, max, interval
+    
+    // contour lines
+    float contourLinesStartHeight;
+    float contourLinesEndHeight;
+    float contourLinesHeightInterval;
+
+    // height-color map
+    float minShadingHeight;
+    float maxShadingHeight;
+    float intervalWidth;
+    uint32_t heightColorEntryCount;
+    float heightColorMapHeights[HeightColorMapMaxEntries];
+    float32_t3 heightColorMapColors[HeightColorMapMaxEntries];
+
+    enum E_HEIGHT_SHADING_MODE
+    {
+        DISCRETE_VARIABLE_LENGTH_INTERVALS,
+        DISCRETE_FIXED_LENGTH_INTERVALS,
+        CONTINOUS_INTERVALS
+    };
+
+    E_HEIGHT_SHADING_MODE determineHeightShadingMode()
+    {
+        if (nbl::hlsl::isinf(intervalWidth))
+            return DISCRETE_VARIABLE_LENGTH_INTERVALS;
+        if (intervalWidth == 0.0f)
+            return CONTINOUS_INTERVALS;
+
+        return DISCRETE_FIXED_LENGTH_INTERVALS;
+    }
 };
 #ifndef __HLSL_VERSION
 inline bool operator==(const LineStyle& lhs, const LineStyle& rhs)

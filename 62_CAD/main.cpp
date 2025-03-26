@@ -72,6 +72,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	10.0,	// CASE_6
 	10.0,	// CASE_7
 	600.0,	// CASE_8
+	600.0	// CASE_9
 };
 
 constexpr ExampleMode mode = ExampleMode::CASE_9;
@@ -3284,7 +3285,7 @@ protected:
 		}
 		else if (mode == ExampleMode::CASE_9)
 		{
-			core::vector<TriangleMeshVertex> vertices = {
+			/*core::vector<TriangleMeshVertex> vertices = {
 				{ float32_t2(-200.0f, -200.0f), 10.0f },
 				{ float32_t2(-50.0f, -200.0f), 50.0f },
 				{ float32_t2(100.0f, -200.0f), 90.0f },
@@ -3312,30 +3313,80 @@ protected:
 				7, 9, 10,
 				7, 8, 10,
 				8, 10, 11
+			};*/
+
+			core::vector<TriangleMeshVertex> vertices = {
+				{ float32_t2(0.0f, 0.0f), 100.0f },
+				{ float32_t2(-200.0f, -200.0f), 10.0f },
+				{ float32_t2(200.0f, -200.0f), 10.0f },
+				{ float32_t2(200.0f, 200.0f), -20.0f },
+				{ float32_t2(-200.0f, 200.0f), 10.0f },
 			};
 
-			// TODO: height color map
-			//core::unordered_map<float32_t, float32_t3> heightColorMap;
-			//heightColorMap.insert({ 0.0f, {0.0f, 1.0f, 0.0f} });
-			//heightColorMap.insert({ 100.0f, {0.0f, 1.0f, 0.0f} });
+			core::vector<uint32_t> indices = {
+				0, 1, 2,
+				0, 2, 3,
+				0, 3, 4,
+				0, 4, 1
+			};
 
 			CTriangleMesh mesh;
 			mesh.setVertices(std::move(vertices));
 			mesh.setIndices(std::move(indices));
 
 			DTMSettingsInfo dtmSettingsInfo;
+			dtmSettingsInfo.contourLinesStartHeight = 20;
+			dtmSettingsInfo.contourLinesEndHeight = 90;
+			dtmSettingsInfo.contourLinesHeightInterval = 10;
 
 			LineStyleInfo outlineStyle = {};
 			dtmSettingsInfo.outlineLineStyleInfo.screenSpaceLineWidth = 0.0f;
-			dtmSettingsInfo.outlineLineStyleInfo.worldSpaceLineWidth = 2.0f;
-			dtmSettingsInfo.outlineLineStyleInfo.color = float32_t4(0.0f, 0.5f, 0.5f, 1.0f);
+			dtmSettingsInfo.outlineLineStyleInfo.worldSpaceLineWidth = 3.0f;
+			dtmSettingsInfo.outlineLineStyleInfo.color = float32_t4(0.0f, 0.39f, 0.0f, 1.0f);
 			std::array<double, 4> outlineStipplePattern = { 0.0f, -5.0f, 2.0f, -5.0f };
 			dtmSettingsInfo.outlineLineStyleInfo.setStipplePatternData(outlineStipplePattern);
 
 			LineStyleInfo contourStyle = {};
 			dtmSettingsInfo.contourLineStyleInfo.screenSpaceLineWidth = 0.0f;
-			dtmSettingsInfo.contourLineStyleInfo.worldSpaceLineWidth = 5.0f;
-			dtmSettingsInfo.contourLineStyleInfo.color = float32_t4(1.0f, 0.5f, 0.31f, 1.0f);
+			dtmSettingsInfo.contourLineStyleInfo.worldSpaceLineWidth = 1.0f;
+			dtmSettingsInfo.contourLineStyleInfo.color = float32_t4(0.0f, 0.0f, 1.0f, 1.0f);
+			std::array<double, 4> contourStipplePattern = { 0.0f, -5.0f, 10.0f, -5.0f };
+			dtmSettingsInfo.contourLineStyleInfo.setStipplePatternData(contourStipplePattern);
+
+			//DTMSettingsInfo::E_HEIGHT_SHADING_MODE shadingModeExample = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
+			//DTMSettingsInfo::E_HEIGHT_SHADING_MODE shadingModeExample = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
+			DTMSettingsInfo::E_HEIGHT_SHADING_MODE shadingModeExample = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
+
+			// DISCRETE_VARIABLE_LENGTH_INTERVALS
+
+			switch (shadingModeExample)
+			{
+				case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
+				{
+					dtmSettingsInfo.minShadingHeight = 20.0f;
+					dtmSettingsInfo.maxShadingHeight = 70.0f;
+					dtmSettingsInfo.heightShadingMode = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
+					dtmSettingsInfo.addHeightColorMapEntry(30, float32_t3(0.5f, 1.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(45, float32_t3(0.0f, 1.0f, 0.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(60, float32_t3(1.0f, 1.0f, 0.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(80, float32_t3(1.0f, 0.0f, 0.0f));
+					break;
+				}
+				case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS:
+				{
+					break;
+				}
+				case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS:
+				{
+					dtmSettingsInfo.minShadingHeight = -10.0f;
+					dtmSettingsInfo.maxShadingHeight = 100.0f;
+					dtmSettingsInfo.heightShadingMode = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
+					dtmSettingsInfo.addHeightColorMapEntry(20, float32_t3(0.0f, 1.0f, 0.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(50, float32_t3(1.0f, 1.0f, 0.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(80, float32_t3(1.0f, 0.0f, 0.0f));
+					break;
+				}
+			}
 
 			drawResourcesFiller.drawTriangleMesh(mesh, m_triangleMeshDrawData, dtmSettingsInfo, intendedNextSubmit);
 		}
