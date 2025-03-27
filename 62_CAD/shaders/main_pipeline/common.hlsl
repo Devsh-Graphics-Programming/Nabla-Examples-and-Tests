@@ -226,9 +226,9 @@ struct PSInput
     float getHeight() { return interp_data5.x; }
 
 #ifndef FRAGMENT_SHADER_INPUT // vertex shader
-    void setScreenSpaceVertexPos(float3 pos) { vertexScreenSpacePos = pos; }
+    void setScreenSpaceVertexAttribs(float3 pos) { vertexScreenSpacePos = pos; }
 #else // fragment shader
-    float3 getScreenSpaceVertexPos(uint32_t vertexIndex) { return vertexScreenSpacePos[vertexIndex]; }
+    float3 getScreenSpaceVertexAttribs(uint32_t vertexIndex) { return vertexScreenSpacePos[vertexIndex]; }
 #endif 
 };
 
@@ -237,7 +237,7 @@ struct PSInput
 [[vk::binding(1, 0)]] StructuredBuffer<DrawObject> drawObjects : register(t0);
 [[vk::binding(2, 0)]] StructuredBuffer<MainObject> mainObjects : register(t1);
 [[vk::binding(3, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t2);
-[[vk::binding(4, 0)]] StructuredBuffer<DTMSettings> dtmSettingsBuff : register(t3);
+[[vk::binding(4, 0)]] StructuredBuffer<DTMSettings> dtmSettings : register(t3);
 
 [[vk::combinedImageSampler]][[vk::binding(5, 0)]] Texture2DArray<float3> msdfTextures : register(t4);
 [[vk::combinedImageSampler]][[vk::binding(5, 0)]] SamplerState msdfSampler : register(s4);

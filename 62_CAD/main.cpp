@@ -646,7 +646,6 @@ public:
 	uint32_t m_hatchDebugStep = 0u;
 	DTMSettingsInfo::E_HEIGHT_SHADING_MODE m_shadingModeExample = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
 
-
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
 		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
@@ -3330,11 +3329,11 @@ protected:
 			};*/
 
 			core::vector<TriangleMeshVertex> vertices = {
-				{ float32_t2(0.0f, 0.0f), 100.0f },
-				{ float32_t2(-200.0f, -200.0f), 10.0f },
-				{ float32_t2(200.0f, -200.0f), 10.0f },
-				{ float32_t2(200.0f, 200.0f), -20.0f },
-				{ float32_t2(-200.0f, 200.0f), 10.0f },
+				{ float32_t2(0.0, 0.0), 100.0 },
+				{ float32_t2(-200.0, -200.0), 10.0 },
+				{ float32_t2(200.0, -200.0), 10.0 },
+				{ float32_t2(200.0, 200.0), -20.0 },
+				{ float32_t2(-200.0, 200.0), 10.0 },
 			};
 
 			core::vector<uint32_t> indices = {
@@ -3376,20 +3375,22 @@ protected:
 				case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
 				{
 					dtmSettingsInfo.heightShadingMode = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
+					
+					float animatedAlpha = (std::cos(m_timeElapsed * 0.0005) + 1.0) * 0.5;
+					dtmSettingsInfo.addHeightColorMapEntry(-10.0f, float32_t4(1.0f, 1.0f, 1.0f, 1.0f));
 					dtmSettingsInfo.addHeightColorMapEntry(20.0f, float32_t4(0.5f, 1.0f, 1.0f, 1.0f));
 					dtmSettingsInfo.addHeightColorMapEntry(25.0f, float32_t4(0.0f, 1.0f, 0.0f, 1.0f));
-					dtmSettingsInfo.addHeightColorMapEntry(70.0f, float32_t4(1.0f, 1.0f, 0.0f, 1.0f));
-					dtmSettingsInfo.addHeightColorMapEntry(80.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(70.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmSettingsInfo.addHeightColorMapEntry(100.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
 					break;
 				}
 				case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS:
 				{
 					dtmSettingsInfo.intervalWidth = 8.0f;
 					dtmSettingsInfo.heightShadingMode = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
-					float animatedAlpha = (std::cos(m_timeElapsed * 0.0003) + 1.0) * 0.5;
-					dtmSettingsInfo.addHeightColorMapEntry(0.0f, float32_t4(0.0f, 1.0f, 0.0f, animatedAlpha));
-					dtmSettingsInfo.addHeightColorMapEntry(50.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
-					dtmSettingsInfo.addHeightColorMapEntry(100.0f, float32_t4(1.0f, 0.0f, 0.0f, animatedAlpha));
+					dtmSettingsInfo.addHeightColorMapEntry(0.0f, float32_t4(0.0f, 1.0f, 0.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(50.0f, float32_t4(1.0f, 1.0f, 0.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(100.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
 					break;
 				}
 				case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS:

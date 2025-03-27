@@ -94,15 +94,15 @@ public:
 		return m_indices;
 	}
 
-	inline size_t getVtxBuffByteSize() const
+	inline size_t getVertexBuffByteSize() const
 	{
 		return sizeof(vertex_t) * m_vertices.size();
 	}
-	inline size_t getIdxBuffByteSize() const
+	inline size_t getIndexBuffByteSize() const
 	{
 		return sizeof(index_t) * m_indices.size();
 	}
-	inline size_t getIdxCnt() const
+	inline size_t getIndexCount() const
 	{
 		return m_indices.size();
 	}

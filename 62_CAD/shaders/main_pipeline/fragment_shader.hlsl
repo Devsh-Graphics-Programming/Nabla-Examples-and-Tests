@@ -334,6 +334,18 @@ float miterSDF(float2 p, float thickness, float2 a, float2 b, float ra, float rb
 typedef StyleClipper< nbl::hlsl::shapes::Quadratic<float> > BezierStyleClipper;
 typedef StyleClipper< nbl::hlsl::shapes::Line<float> > LineStyleClipper;
 
+// for usage in upper_bound function
+struct DTMSettingsHeightsAccessor
+{
+    DTMSettings dtmSettings;
+    using value_type = float;
+
+    float operator[](const uint32_t ix)
+    {
+        return dtmSettings.heightColorMapHeights[ix];
+    }
+};
+
 // We need to specialize color calculation based on FragmentShaderInterlock feature availability for our transparency algorithm
 // because there is no `if constexpr` in hlsl
 // @params
@@ -422,14 +434,14 @@ float4 fragMain(PSInput input) : SV_TARGET
         const float stretch = 1.0f; // TODO: figure out what is it for
         const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
 
-        DTMSettings dtmSettings = dtmSettingsBuff[mainObj.dtmSettingsIdx];
-        LineStyle outlineStyle = lineStyles[dtmSettings.outlineLineStyleIdx];
-        LineStyle contourStyle = lineStyles[dtmSettings.contourLineStyleIdx];
+        DTMSettings dtm = dtmSettings[mainObj.dtmSettingsIdx];
+        LineStyle outlineStyle = lineStyles[dtm.outlineLineStyleIdx];
+        LineStyle contourStyle = lineStyles[dtm.contourLineStyleIdx];
 
         float3 v[3];
-        v[0] = input.getScreenSpaceVertexPos(0);
-        v[1] = input.getScreenSpaceVertexPos(1);
-        v[2] = input.getScreenSpaceVertexPos(2);
+        v[0] = input.getScreenSpaceVertexAttribs(0);
+        v[1] = input.getScreenSpaceVertexAttribs(1);
+        v[2] = input.getScreenSpaceVertexAttribs(2);
 
         const float3 baryCoord = nbl::hlsl::spirv::BaryCoordKHR;
 
@@ -448,43 +460,31 @@ float4 fragMain(PSInput input) : SV_TARGET
         float height = input.getHeight();
 
         // HEIGHT SHADING
-        const uint32_t heightMapSize = dtmSettings.heightColorEntryCount;
-        float minShadingHeight = dtmSettings.heightColorMapHeights[0];
-        float maxShadingHeight = dtmSettings.heightColorMapHeights[heightMapSize - 1];
+        const uint32_t heightMapSize = dtm.heightColorEntryCount;
+        float minShadingHeight = dtm.heightColorMapHeights[0];
+        float maxShadingHeight = dtm.heightColorMapHeights[heightMapSize - 1];
 
         const bool isHeightBetweenMinAndMax = height >= minShadingHeight && height <= maxShadingHeight;
         const bool isHeightColorMapNotEmpty = heightMapSize > 0;
         if (isHeightColorMapNotEmpty && isHeightBetweenMinAndMax)
         {
-            DTMSettings::E_HEIGHT_SHADING_MODE mode = dtmSettings.determineHeightShadingMode();
+            DTMSettings::E_HEIGHT_SHADING_MODE mode = dtm.determineHeightShadingMode();
 
             if(mode == DTMSettings::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS)
             {
-                uint32_t upperBoundHeightIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
-                uint32_t lowerBoundHeightIndex;
-                // TODO: binary search
-                for (int i = 0; i < heightMapSize; ++i)
-                {
-                    if (dtmSettings.heightColorMapHeights[i] > height)
-                    {
-                        upperBoundHeightIndex = i;
-                        lowerBoundHeightIndex = i;
-                        if (i != 0)
-                            --lowerBoundHeightIndex;
+                DTMSettingsHeightsAccessor dtmHeightsAccessor = { dtm };
+                uint32_t upperBoundHeightIndex = nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, heightMapSize, height);
+                uint32_t lowerBoundHeightIndex = upperBoundHeightIndex == 0 ? upperBoundHeightIndex : upperBoundHeightIndex - 1;
 
-                        break;
-                    }
-                }
-
-                textureColor = dtmSettings.heightColorMapColors[upperBoundHeightIndex].rgb;
-                localAlpha = dtmSettings.heightColorMapColors[upperBoundHeightIndex].a;
+                textureColor = dtm.heightColorMapColors[upperBoundHeightIndex].rgb;
+                localAlpha = dtm.heightColorMapColors[upperBoundHeightIndex].a;
             }
             else
             {
                 float heightTmp;
                 if (mode == DTMSettings::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS)
                 {
-                    float interval = dtmSettings.intervalWidth;
+                    float interval = dtm.intervalWidth;
                     int sectionIndex = int((height - minShadingHeight) / interval);
                     heightTmp = minShadingHeight + float(sectionIndex) * interval;
                 }
@@ -493,27 +493,15 @@ float4 fragMain(PSInput input) : SV_TARGET
                     heightTmp = height;
                 }
 
-                uint32_t upperBoundHeightIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
-                uint32_t lowerBoundHeightIndex;
-                // TODO: binary search
-                for (int i = 0; i < heightMapSize; ++i)
-                {
-                    if (dtmSettings.heightColorMapHeights[i] > heightTmp)
-                    {
-                        upperBoundHeightIndex = i;
-                        lowerBoundHeightIndex = i;
-                        if (i != 0)
-                            --lowerBoundHeightIndex;
+                DTMSettingsHeightsAccessor dtmHeightsAccessor = { dtm };
+                uint32_t upperBoundHeightIndex = nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, heightMapSize, height);
+                uint32_t lowerBoundHeightIndex = upperBoundHeightIndex == 0 ? upperBoundHeightIndex : upperBoundHeightIndex - 1;
 
-                        break;
-                    }
-                }
-
-                float upperBoundHeight = dtmSettings.heightColorMapHeights[upperBoundHeightIndex];
-                float lowerBoundHeight = dtmSettings.heightColorMapHeights[lowerBoundHeightIndex];
+                float upperBoundHeight = dtm.heightColorMapHeights[upperBoundHeightIndex];
+                float lowerBoundHeight = dtm.heightColorMapHeights[lowerBoundHeightIndex];
                 
-                float4 upperBoundColor = dtmSettings.heightColorMapColors[upperBoundHeightIndex];
-                float4 lowerBoundColor = dtmSettings.heightColorMapColors[lowerBoundHeightIndex];
+                float4 upperBoundColor = dtm.heightColorMapColors[upperBoundHeightIndex];
+                float4 lowerBoundColor = dtm.heightColorMapColors[lowerBoundHeightIndex];
                 
                 float interpolationVal;
                 if (upperBoundHeightIndex == 0)
@@ -529,9 +517,9 @@ float4 fragMain(PSInput input) : SV_TARGET
         // CONTOUR
 
         // TODO: move to ubo or push constants
-        const float startHeight = dtmSettings.contourLinesStartHeight;
-        const float endHeight = dtmSettings.contourLinesEndHeight;
-        const float interval = dtmSettings.contourLinesHeightInterval;
+        const float startHeight = dtm.contourLinesStartHeight;
+        const float endHeight = dtm.contourLinesEndHeight;
+        const float interval = dtm.contourLinesHeightInterval;
 
         // TODO: can be precomputed
         const int maxContourLineIdx = (endHeight - startHeight + 1) / interval;
@@ -637,6 +625,9 @@ float4 fragMain(PSInput input) : SV_TARGET
                 float3 p0 = v[currentEdgePoints[0]];
                 float3 p1 = v[currentEdgePoints[1]];
 
+                // long story short, in order for stipple patterns to be consistent:
+                // - point with lesser x coord should be starting point
+                // - if x coord of both points are equal then point with lesser y value should be starting point
                 if (p1.x < p0.x)
                     nbl::hlsl::swap(p0, p1);
                 else if (p1.x == p0.x && p1.y < p0.y)

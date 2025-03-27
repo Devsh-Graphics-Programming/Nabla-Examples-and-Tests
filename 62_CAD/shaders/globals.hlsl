@@ -126,7 +126,7 @@ enum class MajorAxis : uint32_t
 struct MainObject
 {
     uint32_t styleIdx;
-    uint32_t dtmSettingsIdx; // do I even need this on the gpu side? it's stored in structured buffer not bda
+    uint32_t dtmSettingsIdx;
     uint64_t clipProjectionAddress;
 };
 
@@ -273,8 +273,8 @@ NBL_CONSTEXPR float InvalidStyleStretchValue = nbl::hlsl::numeric_limits<float>:
 
 struct TriangleMeshVertex
 {
-    float32_t2 pos;
-    float32_t height;
+    pfloat64_t2 pos;
+    pfloat64_t height;
 };
 
 // The color parameter is also used for styling non-curve objects such as text glyphs and hatches with solid color

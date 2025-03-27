@@ -84,7 +84,7 @@ void DrawResourcesFiller::allocateGeometryBuffer(ILogicalDevice* logicalDevice, 
 
 	IGPUBuffer::SCreationParams geometryCreationParams = {};
 	geometryCreationParams.size = size;
-	geometryCreationParams.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INDEX_BUFFER_BIT;
+	geometryCreationParams.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INDEX_BUFFER_BIT; // INDEX_BUFFER USAGE for DTMs
 	gpuDrawBuffers.geometryBuffer = logicalDevice->createBuffer(std::move(geometryCreationParams));
 	gpuDrawBuffers.geometryBuffer->setObjectDebugName("geometryBuffer");
 
@@ -241,18 +241,18 @@ void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, CTriangleM
 	ICPUBuffer::SCreationParams geometryBuffParams;
 	
 	// concatenate the index and vertex buffer into the geometry buffer
-	const size_t indexBuffByteSize = mesh.getIdxBuffByteSize();
-	const size_t vtxBuffByteSize = mesh.getVtxBuffByteSize();
+	const size_t indexBuffByteSize = mesh.getIndexBuffByteSize();
+	const size_t vtxBuffByteSize = mesh.getVertexBuffByteSize();
 	const size_t geometryBufferDataToAddByteSize = indexBuffByteSize + vtxBuffByteSize;
 
 	// copy into gemoetry cpu buffer insteaed
 
 	// TODO: rename, its not just points
-	const uint32_t maxGeometryBufferPoints = static_cast<uint32_t>(maxGeometryBufferSize - currentGeometryBufferSize);
+	const uint32_t remainingGeometryBufferSize = static_cast<uint32_t>(maxGeometryBufferSize - currentGeometryBufferSize);
 
-	// TODO: assert of geometry buffer size, do i need to check if size of objects to be added <= maxGeometryBufferPoints?
+	// TODO: assert of geometry buffer size, do i need to check if size of objects to be added <= remainingGeometryBufferSize?
 	// TODO: auto submit instead of assert
-	assert(geometryBufferDataToAddByteSize <= maxGeometryBufferPoints);
+	assert(geometryBufferDataToAddByteSize <= remainingGeometryBufferSize);
 
 	// TODO: vertices need to be aligned to 8?
 	uint64_t vtxBufferAddress;
@@ -270,7 +270,7 @@ void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, CTriangleM
 		currentGeometryBufferSize += vtxBuffByteSize;
 	}
 
-	drawData.indexCount = mesh.getIdxCnt();
+	drawData.indexCount = mesh.getIndexCount();
 
 	// call addMainObject_SubmitIfNeeded, use its index in push constants
 
@@ -394,6 +394,7 @@ uint32_t DrawResourcesFiller::addLineStyle_SubmitIfNeeded(const LineStyleInfo& l
 		resetGeometryCounters();
 		resetMainObjectCounters();
 		resetLineStyleCounters();
+		resetDTMSettingsCounters();
 		outLineStyleIdx = addLineStyle_Internal(lineStyle);
 		assert(outLineStyleIdx != InvalidStyleIdx);
 	}
@@ -410,6 +411,7 @@ uint32_t DrawResourcesFiller::addDTMSettings_SubmitIfNeeded(const DTMSettingsInf
 		resetGeometryCounters();
 		resetMainObjectCounters();
 		resetLineStyleCounters();
+		resetDTMSettingsCounters();
 		outDTMSettingIdx = addDTMSettings_Internal(dtmSettings, intendedNextSubmit);
 		assert(outDTMSettingIdx != InvalidDTMSettingsIdx);
 	}
@@ -538,9 +540,9 @@ bool DrawResourcesFiller::finalizeLineStyleCopiesToGPU(SIntendedSubmitInfo& inte
 bool DrawResourcesFiller::finalizeDTMSettingsCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
 {
 	bool success = true;
-	// Copy LineStyles
-	uint32_t remainingLineStyles = currentDTMSettingsCount - inMemDTMSettingsCount;
-	SBufferRange<IGPUBuffer> dtmSettingsRange = { sizeof(DTMSettings) * inMemDTMSettingsCount, sizeof(DTMSettings) * remainingLineStyles, gpuDrawBuffers.dtmSettingsBuffer };
+	// Copy DTM settings
+	uint32_t remainingDTMSettings = currentDTMSettingsCount - inMemDTMSettingsCount;
+	SBufferRange<IGPUBuffer> dtmSettingsRange = { sizeof(DTMSettings) * inMemDTMSettingsCount, sizeof(DTMSettings) * remainingDTMSettings, gpuDrawBuffers.dtmSettingsBuffer };
 	if (dtmSettingsRange.size > 0u)
 	{
 		const DTMSettings* srcDTMSettingsData = reinterpret_cast<DTMSettings*>(cpuDrawBuffers.dtmSettingsBuffer->getPointer()) + inMemDTMSettingsCount;
@@ -794,10 +796,13 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 	dtmSettings.contourLinesEndHeight = dtmSettingsInfo.contourLinesEndHeight;
 	dtmSettings.contourLinesHeightInterval = dtmSettingsInfo.contourLinesHeightInterval;
 
-	// TODO: this needs to be redone.. what if submit happens after that line?
-	// we need to make sure somehow that function below will not submit, we need both outline and contour styles in GPU memory
+	if (currentLineStylesCount + 2 > maxLineStyles)
+		return InvalidDTMSettingsIdx;
+
+	assert(currentLineStylesCount + 2 <= maxLineStyles);
 	dtmSettings.outlineLineStyleIdx = addLineStyle_SubmitIfNeeded(dtmSettingsInfo.outlineLineStyleInfo, intendedNextSubmit);
 	dtmSettings.contourLineStyleIdx = addLineStyle_SubmitIfNeeded(dtmSettingsInfo.contourLineStyleInfo, intendedNextSubmit);
+
 	switch (dtmSettingsInfo.heightShadingMode)
 	{
 	case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
@@ -864,7 +869,7 @@ uint64_t DrawResourcesFiller::addClipProjectionData_Internal(const ClipProjectio
 	if (maxGeometryBufferClipProjData <= 0)
 		return InvalidClipProjectionAddress;
 	
-	void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
+	uint8_t* dst = reinterpret_cast<uint8_t*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
 	memcpy(dst, &clipProjectionData, sizeof(ClipProjectionData));
 
 	const uint64_t ret = currentGeometryBufferSize + geometryBufferAddress;
