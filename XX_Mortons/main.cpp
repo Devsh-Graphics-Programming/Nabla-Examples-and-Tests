@@ -10,6 +10,9 @@
 #include "app_resources/common.hlsl"
 #include <bitset>
 
+// Right now the test only checks that HLSL compiles the file
+constexpr bool TestHLSL = true;
+
 using namespace nbl;
 using namespace core;
 using namespace system;
@@ -21,6 +24,12 @@ class MortonTestApp final : public application_templates::MonoDeviceApplication,
 {
 		using device_base_t = application_templates::MonoDeviceApplication;
 		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+
+		using morton_t = nbl::hlsl::morton::code<int32_t, 3>;
+		using vector_t = nbl::hlsl::vector<int32_t, 3>;
+		using unsigned_morton_t = nbl::hlsl::morton::code<uint32_t, 3>;
+		using unsigned_vector_t = nbl::hlsl::vector<uint32_t, 3>;
+		using bool_vector_t = nbl::hlsl::vector<bool, 3>;
 
 		inline core::smart_refctd_ptr<video::IGPUShader> createShader(
 			const char* includeMainName)
@@ -43,18 +52,173 @@ class MortonTestApp final : public application_templates::MonoDeviceApplication,
 			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
 
+			// ----------------------------------------------- CPP TESTS ----------------------------------------------------------------------
+			
+			// Coordinate extraction and whole vector decode tests
+			{
+				morton_t morton(vector_t(-1011, 765, 248));
+				unsigned_morton_t unsignedMorton(unsigned_vector_t(154, 789, 1011));
+
+				assert(morton.getCoordinate(0) == -1011 && morton.getCoordinate(1) == 765 && morton.getCoordinate(2) == 248);
+				assert(unsignedMorton.getCoordinate(0) == 154u && unsignedMorton.getCoordinate(1) == 789u && unsignedMorton.getCoordinate(2) == 1011u);
+
+				assert(static_cast<vector_t>(morton) == vector_t(-1011, 765, 248) && static_cast<unsigned_vector_t>(unsignedMorton) == unsigned_vector_t(154, 789, 1011));
+			}
+
+			// ***********************************************************************************************************************************
+			// ************************************************* Arithmetic operator tests *******************************************************
+			// ***********************************************************************************************************************************
+			
+			//  ----------------------------------------------------------------------------------------------------
+			//  --------------------------------------- ADDITION ---------------------------------------------------
+			//  ----------------------------------------------------------------------------------------------------
+
+			// ---------------------------------------- Signed -----------------------------------------------------
+			
+			// No overflow
+			assert(static_cast<vector_t>(morton_t(vector_t(-1011, 765, 248)) + morton_t(vector_t(1000, -985, 200))) == vector_t(-11, -220, 448));
+			
+			// Type 1 overflow: Addition of representable coordinates goes out of range
+			assert(static_cast<vector_t>(morton_t(vector_t(-900, 70, 500)) + morton_t(vector_t(-578, -50, 20))) == vector_t(570, 20, -504));
+
+			// Type 2 overflow: Addition of irrepresentable range gives correct result
+			assert(static_cast<vector_t>(morton_t(vector_t(54, 900, -475)) + morton_t(vector_t(46, -1437, 699))) == vector_t(100, -537, 224));
+
+			// ---------------------------------------- Unsigned -----------------------------------------------------
+
+			// No overflow
+			assert(static_cast<unsigned_vector_t>(unsigned_morton_t(unsigned_vector_t(382, 910, 543)) + unsigned_morton_t(unsigned_vector_t(1563, 754, 220))) == unsigned_vector_t(1945, 1664, 763));
+
+			// Type 1 overflow: Addition of representable coordinates goes out of range
+			assert(static_cast<unsigned_vector_t>(unsigned_morton_t(unsigned_vector_t(382, 910, 543)) + unsigned_morton_t(unsigned_vector_t(2000, 2000, 1000))) == unsigned_vector_t(334, 862, 519));
+
+			// Type 2 overflow: Addition of irrepresentable range gives correct result
+			assert(static_cast<unsigned_vector_t>(unsigned_morton_t(unsigned_vector_t(382, 910, 543)) + unsigned_morton_t(unsigned_vector_t(-143, -345, -233))) == unsigned_vector_t(239, 565, 310));
+
+			//  ----------------------------------------------------------------------------------------------------
+			//  -------------------------------------- SUBTRACTION -------------------------------------------------
+			//  ----------------------------------------------------------------------------------------------------
+
+			// ---------------------------------------- Signed -----------------------------------------------------
+
+			// No overflow
+			assert(static_cast<vector_t>(morton_t(vector_t(1000, 764, -365)) - morton_t(vector_t(834, -243, 100))) == vector_t(166, 1007, -465));
+
+			// Type 1 overflow: Subtraction of representable coordinates goes out of range
+			assert(static_cast<vector_t>(morton_t(vector_t(-900, 70, 500)) - morton_t(vector_t(578, -50, -20))) == vector_t(570, 120, -504));
+
+			// Type 2 overflow: Subtraction of irrepresentable range gives correct result
+			assert(static_cast<vector_t>(morton_t(vector_t(54, 900, -475)) - morton_t(vector_t(-46, 1437, -699))) == vector_t(100, -537, 224));
+
+			// ---------------------------------------- Unsigned -----------------------------------------------------
+
+			// No overflow
+			assert(static_cast<unsigned_vector_t>(unsigned_morton_t(unsigned_vector_t(382, 910, 543)) - unsigned_morton_t(unsigned_vector_t(322, 564, 299))) == unsigned_vector_t(60, 346, 244));
+
+			// Type 1 overflow: Subtraction of representable coordinates goes out of range
+			assert(static_cast<unsigned_vector_t>(unsigned_morton_t(unsigned_vector_t(382, 910, 543)) - unsigned_morton_t(unsigned_vector_t(2000, 2000, 1000))) == unsigned_vector_t(430, 958, 567));
+
+			// Type 2 overflow: Subtraction of irrepresentable range gives correct result
+			assert(static_cast<unsigned_vector_t>(unsigned_morton_t(unsigned_vector_t(54, 900, 475)) - unsigned_morton_t(unsigned_vector_t(-865, -100, -10))) == unsigned_vector_t(919, 1000, 485));
+
+
+			//  ----------------------------------------------------------------------------------------------------
+			//  -------------------------------------- UNARY NEGATION ----------------------------------------------
+			//  ----------------------------------------------------------------------------------------------------
+
+			// Only makes sense for signed
+			assert(static_cast<vector_t>(- morton_t(vector_t(-1024, 543, -475))) == vector_t(-1024, -543, 475));
+
+			// ***********************************************************************************************************************************
+			// ************************************************* Comparison operator tests *******************************************************
+			// ***********************************************************************************************************************************
+
+			//  ----------------------------------------------------------------------------------------------------
+			//  -------------------------------------- OPERATOR< ---------------------------------------------------
+			//  ----------------------------------------------------------------------------------------------------
+
+			// Signed
+			
+			// Same sign, negative
+			assert(morton_t(vector_t(-954, -455, -333)) < morton_t(vector_t(-433, -455, -433)) == bool_vector_t(true, false, false));
+			// Same sign, positive
+			assert(morton_t(vector_t(954, 455, 333)) < morton_t(vector_t(433, 455, 433)) == bool_vector_t(false, false, true));
+			// Differing signs
+			assert(morton_t(vector_t(954, -32, 0)) < morton_t(vector_t(-44, 0, -1)) == bool_vector_t(false, true, false));
+
+			// Unsigned
+			assert(unsigned_morton_t(unsigned_vector_t(239, 435, 66)) < unsigned_morton_t(unsigned_vector_t(240, 435, 50)) == bool_vector_t(true, false, false));
+
+			//  ----------------------------------------------------------------------------------------------------
+			//  -------------------------------------- OPERATOR<= --------------------------------------------------
+			//  ----------------------------------------------------------------------------------------------------
+
+			// Signed
+
+			// Same sign, negative
+			assert(morton_t(vector_t(-954, -455, -333)) <= morton_t(vector_t(-433, -455, -433)) == bool_vector_t(true, true, false));
+			// Same sign, positive
+			assert(morton_t(vector_t(954, 455, 333)) <= morton_t(vector_t(433, 455, 433)) == bool_vector_t(false, true, true));
+			// Differing signs
+			assert(morton_t(vector_t(954, -32, 0)) <= morton_t(vector_t(-44, 0, -1)) == bool_vector_t(false, true, false));
+
+			// Unsigned
+			assert(unsigned_morton_t(unsigned_vector_t(239, 435, 66)) <= unsigned_morton_t(unsigned_vector_t(240, 435, 50)) == bool_vector_t(true, true, false));
+
+			//  ----------------------------------------------------------------------------------------------------
+			//  -------------------------------------- OPERATOR> ---------------------------------------------------
+			//  ----------------------------------------------------------------------------------------------------
+
+			// Signed
+
+			// Same sign, negative
+			assert(morton_t(vector_t(-954, -455, -333)) > morton_t(vector_t(-433, -455, -433)) == bool_vector_t(false, false, true));
+			// Same sign, positive
+			assert(morton_t(vector_t(954, 455, 333)) > morton_t(vector_t(433, 455, 433)) == bool_vector_t(true, false, false));
+			// Differing signs
+			assert(morton_t(vector_t(954, -32, 0)) > morton_t(vector_t(-44, 0, -1)) == bool_vector_t(true, false, true));
+
+			// Unsigned
+			assert(unsigned_morton_t(unsigned_vector_t(239, 435, 66)) > unsigned_morton_t(unsigned_vector_t(240, 435, 50)) == bool_vector_t(false, false, true));
+
+			//  ----------------------------------------------------------------------------------------------------
+			//  -------------------------------------- OPERATOR>= --------------------------------------------------
+			//  ----------------------------------------------------------------------------------------------------
+
+			// Signed
+
+			// Same sign, negative
+			assert(morton_t(vector_t(-954, -455, -333)) >= morton_t(vector_t(-433, -455, -433)) == bool_vector_t(false, true, true));
+			// Same sign, positive
+			assert(morton_t(vector_t(954, 455, 333)) >= morton_t(vector_t(433, 455, 433)) == bool_vector_t(true, true, false));
+			// Differing signs
+			assert(morton_t(vector_t(954, -32, 0)) >= morton_t(vector_t(-44, 0, -1)) == bool_vector_t(true, false, true));
+
+			// Unsigned
+			assert(unsigned_morton_t(unsigned_vector_t(239, 435, 66)) >= unsigned_morton_t(unsigned_vector_t(240, 435, 50)) == bool_vector_t(false, true, true));
+
+
+			if(!TestHLSL)
+				return true;
+
+
+
+
+
+
+
+
+
+			// ----------------------------------------------- HLSL COMPILATION + OPTIONAL TESTS ----------------------------------------------
 			auto shader = createShader("app_resources/shader.hlsl");
 
 			// Create massive upload/download buffers
 			constexpr uint32_t DownstreamBufferSize = sizeof(unsigned_scalar_t) << 23;
-			constexpr uint32_t UpstreamBufferSize = sizeof(unsigned_scalar_t) << 23;
 
-			m_utils = make_smart_refctd_ptr<IUtilities>(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), DownstreamBufferSize, UpstreamBufferSize);
+			m_utils = make_smart_refctd_ptr<IUtilities>(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), DownstreamBufferSize);
 			if (!m_utils)
 				return logFail("Failed to create Utilities!");
-			m_upStreamingBuffer = m_utils->getDefaultUpStreamingBuffer();
 			m_downStreamingBuffer = m_utils->getDefaultDownStreamingBuffer();
-			m_upStreamingBufferAddress = m_upStreamingBuffer->getBuffer()->getDeviceAddress();
 			m_downStreamingBufferAddress = m_downStreamingBuffer->getBuffer()->getDeviceAddress();
 
 			// Create device-local buffer
@@ -109,40 +273,9 @@ class MortonTestApp final : public application_templates::MonoDeviceApplication,
 			// Just need a single suballocation in this example
 			const uint32_t AllocationCount = 1;
 
-			// It comes with a certain drawback that you need to remember to initialize your "yet unallocated" offsets to the Invalid value
-			// this is to allow a set of allocations to fail, and you to re-try after doing something to free up space without repacking args.
-			auto inputOffset = m_upStreamingBuffer->invalid_value;
-
 			// We always just wait till an allocation becomes possible (during allocation previous "latched" frees get their latch conditions polled)
 			// Freeing of Streaming Buffer Allocations can and should be deferred until an associated polled event signals done (more on that later).
 			std::chrono::steady_clock::time_point waitTill(std::chrono::years(45));
-			// note that the API takes a time-point not a duration, because there are multiple waits and preemptions possible, so the durations wouldn't add up properly
-			m_upStreamingBuffer->multi_allocate(waitTill, AllocationCount, &inputOffset, &inputSize, &m_alignment);
-
-			// Generate our data in-place on the allocated staging buffer. Packing is interleaved in this example!
-			{
-				auto* const inputPtr = reinterpret_cast<unsigned_scalar_t*>(reinterpret_cast<uint8_t*>(m_upStreamingBuffer->getBufferPointer()) + inputOffset);
-				for (auto j = 0; j < bufferSize; j++)
-				{
-					unsigned_scalar_t x = j > 0 ? 0.f : 2.f;
-					unsigned_scalar_t y = 0;
-
-					/*
-					unsigned_scalar_t x = 1.f;
-					unsigned_scalar_t y = 0.f;
-					*/
-
-					inputPtr[2 * j] = x;
-					inputPtr[2 * j + 1] = y;
-				}
-				// Always remember to flush!
-				if (m_upStreamingBuffer->needsManualFlushOrInvalidate())
-				{
-					const auto bound = m_upStreamingBuffer->getBuffer()->getBoundMemory();
-					const ILogicalDevice::MappedMemoryRange range(bound.memory, bound.offset + inputOffset, inputSize);
-					m_device->flushMappedMemoryRanges(1, &range);
-				}
-			}
 
 			// finally allocate our output range
 			const uint32_t outputSize = inputSize;
@@ -161,11 +294,6 @@ class MortonTestApp final : public application_templates::MonoDeviceApplication,
 				cmdbuf->bindComputePipeline(m_pipeline.get());
 				// This is the new fun part, pushing constants
 				const PushConstantData pc = { .deviceBufferAddress = m_deviceLocalBufferAddress };
-				IGPUCommandBuffer::SBufferCopy copyInfo = {};
-				copyInfo.srcOffset = 0;
-				copyInfo.dstOffset = 0;
-				copyInfo.size = m_deviceLocalBuffer->getSize();
-				cmdbuf->copyBuffer(m_upStreamingBuffer->getBuffer(), m_deviceLocalBuffer.get(), 1, &copyInfo);
 				cmdbuf->pushConstants(m_pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(pc), &pc);
 				// Remember we do a single workgroup per 1D array in these parts
 				cmdbuf->dispatch(1, 1, 1);
@@ -184,6 +312,11 @@ class MortonTestApp final : public application_templates::MonoDeviceApplication,
 				barrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS;
 
 				cmdbuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
+
+				IGPUCommandBuffer::SBufferCopy copyInfo = {};
+				copyInfo.srcOffset = 0;
+				copyInfo.dstOffset = 0;
+				copyInfo.size = m_deviceLocalBuffer->getSize();
 				cmdbuf->copyBuffer(m_deviceLocalBuffer.get(), m_downStreamingBuffer->getBuffer(), 1, &copyInfo);
 				cmdbuf->end();
 			}
@@ -215,10 +348,6 @@ class MortonTestApp final : public application_templates::MonoDeviceApplication,
 			// We let all latches know what semaphore and counter value has to be passed for the functors to execute
 			const ISemaphore::SWaitInfo futureWait = { m_timeline.get(),semaphorValue };
 
-			// As promised, we can defer an upstreaming buffer deallocation until a fence is signalled
-			// You can also attach an additional optional IReferenceCounted derived object to hold onto until deallocation.
-			m_upStreamingBuffer->multi_deallocate(AllocationCount, &inputOffset, &inputSize, futureWait);
-
 			// Now a new and even more advanced usage of the latched events, we make our own refcounted object with a custom destructor and latch that like we did the commandbuffer.
 			// Instead of making our own and duplicating logic, we'll use one from IUtilities meant for down-staging memory.
 			// Its nice because it will also remember to invalidate our memory mapping if its not coherent.
@@ -249,15 +378,6 @@ class MortonTestApp final : public application_templates::MonoDeviceApplication,
 			// We put a function we want to execute 
 			m_downStreamingBuffer->multi_deallocate(AllocationCount, &outputOffset, &outputSize, futureWait, &latchedConsumer.get());
 
-			// ------------------------------------------- CPP ------------------------------------------------------------------------------------------------------
-			const auto masksArray = hlsl::morton::impl::decode_masks_array<uint32_t, 3>::Masks;
-			for (auto i = 0u; i < 3; i++)
-			{
-				std::cout << std::bitset<32>(masksArray[i]) << std::endl;
-			}
-
-			const auto someCode = hlsl::morton::code<uint32_t, 4>::create(hlsl::vector<uint32_t, 4>(1, 1, 1, 1));
-
 			return true;
 		}
 
@@ -272,7 +392,10 @@ class MortonTestApp final : public application_templates::MonoDeviceApplication,
 		{
 			// Need to make sure that there are no events outstanding if we want all lambdas to eventually execute before `onAppTerminated`
 			// (the destructors of the Command Pool Cache and Streaming buffers will still wait for all lambda events to drain)
-			while (m_downStreamingBuffer->cull_frees()) {}
+			if (TestHLSL)
+			{
+				while (m_downStreamingBuffer->cull_frees()) {}
+			}
 			return device_base_t::onAppTerminated();
 		}
 
@@ -281,19 +404,15 @@ class MortonTestApp final : public application_templates::MonoDeviceApplication,
 
 		smart_refctd_ptr<nbl::video::IUtilities> m_utils;
 
-		nbl::video::StreamingTransientDataBufferMT<>* m_upStreamingBuffer;
 		StreamingTransientDataBufferMT<>* m_downStreamingBuffer;
 		smart_refctd_ptr<nbl::video::IGPUBuffer> m_deviceLocalBuffer;
 
 		// These are Buffer Device Addresses
-		uint64_t m_upStreamingBufferAddress;
 		uint64_t m_downStreamingBufferAddress;
 		uint64_t m_deviceLocalBufferAddress;
 
-		// You can ask the `nbl::core::GeneralpurposeAddressAllocator` used internally by the Streaming Buffers give out offsets aligned to a certain multiple (not only Power of Two!)
 		uint32_t m_alignment;
 
-		// This example really lets the advantages of a timeline semaphore shine through!
 		smart_refctd_ptr<ISemaphore> m_timeline;
 		uint64_t semaphorValue = 0;
 };
