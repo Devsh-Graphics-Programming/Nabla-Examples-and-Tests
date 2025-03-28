@@ -41,7 +41,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		{
 			ERM_GLSL,
 			ERM_HLSL,
-			ERM_CHECKERED,
+			// ERM_CHECKERED,
 			ERM_COUNT
 		};
 
@@ -66,6 +66,11 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 			"ELG_SPHERE",
 			"ELG_TRIANGLE",
 			"ELG_RECTANGLE"
+		};
+
+		const char* shaderTypes[E_RENDER_MODE::ERM_COUNT] = {
+			"ERM_GLSL",
+			"ERM_HLSL"
 		};
 
 	public:
@@ -935,7 +940,8 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
 					ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
 					ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
-					ImGui::ListBox("Shader", &PTPipline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
+					ImGui::Combo("Shader", &PTPipeline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
+					ImGui::Combo("Render Mode", &renderMode, shaderTypes, E_RENDER_MODE::ERM_COUNT);
 					ImGui::SliderInt("SPP", &spp, 1, MaxBufferSamples);
 					ImGui::SliderInt("Depth", &depth, 1, MaxBufferDimensions / 3);
 
@@ -1063,7 +1069,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 
 				// cube envmap handle
 				{
-					auto pipeline = renderMode == E_RENDER_MODE::ERM_HLSL ? m_PTHLSLPipelines[PTPipline].get() : m_PTGLSLPipelines[PTPipline].get();
+					auto pipeline = renderMode == E_RENDER_MODE::ERM_HLSL ? m_PTHLSLPipelines[PTPipeline].get() : m_PTGLSLPipelines[PTPipeline].get();
 					cmdbuf->bindComputePipeline(pipeline);
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
@@ -1347,7 +1353,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		float viewWidth = 10.f;
 		float camYAngle = 165.f / 180.f * 3.14159f;
 		float camXAngle = 32.f / 180.f * 3.14159f;
-		int PTPipline = E_LIGHT_GEOMETRY::ELG_SPHERE;
+		int PTPipeline = E_LIGHT_GEOMETRY::ELG_SPHERE;
 		int renderMode = E_RENDER_MODE::ERM_HLSL;
 		int spp = 32;
 		int depth = 3;
