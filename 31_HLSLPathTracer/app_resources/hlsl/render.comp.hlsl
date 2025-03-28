@@ -2,6 +2,9 @@
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 #include "nbl/builtin/hlsl/random/pcg.hlsl"
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
+#ifdef PERSISTENT_WORKGROUPS
+#include "nbl/builtin/hlsl/math/morton.hlsl"
+#endif
 
 #include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
 #include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
@@ -156,19 +159,36 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 {
     uint32_t width, height;
     outImage.GetDimensions(width, height);
+#ifdef PERSISTENT_WORKGROUPS
+    uint32_t virtualThreadIndex;
+    [loop]
+    for (uint32_t virtualThreadBase = glsl::gl_WorkGroupID().x * WorkgroupSize; virtualThreadBase < 1920*1080; virtualThreadBase += glsl::gl_NumWorkGroups().x * WorkgroupSize) // not sure why 1280*720 doesn't cover draw surface
+    {
+        virtualThreadIndex = virtualThreadBase + glsl::gl_LocalInvocationIndex().x;
+        const int32_t2 coords = (int32_t2)math::Morton<uint32_t>::decode2d(virtualThreadIndex);
+#else
     const int32_t2 coords = getCoordinates();
+#endif
     float32_t2 texCoord = float32_t2(coords) / float32_t2(width, height);
     texCoord.y = 1.0 - texCoord.y;
 
     if (false == (all((int32_t2)0 < coords)) && all(int32_t2(width, height) < coords)) {
+#ifdef PERSISTENT_WORKGROUPS
+        continue;
+#else
         return;
+#endif
     }
 
     if (((pc.depth - 1) >> MAX_DEPTH_LOG2) > 0 || ((pc.sampleCount - 1) >> MAX_SAMPLES_LOG2) > 0)
     {
         float32_t4 pixelCol = float32_t4(1.0,0.0,0.0,1.0);
         outImage[coords] = pixelCol;
+#ifdef PERSISTENT_WORKGROUPS
+        continue;
+#else
         return;
+#endif
     }
 
     int flatIdx = glsl::gl_GlobalInvocationID().y * glsl::gl_NumWorkGroups().x * WorkgroupSize + glsl::gl_GlobalInvocationID().x;
@@ -200,4 +220,8 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     float32_t3 color = pathtracer.getMeasure(pc.sampleCount, pc.depth, scene);
     float32_t4 pixCol = float32_t4(color, 1.0);
     outImage[coords] = pixCol;
+
+#ifdef PERSISTENT_WORKGROUPS
+    }
+#endif
 }

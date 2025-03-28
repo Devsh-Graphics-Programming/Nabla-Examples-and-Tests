@@ -35,6 +35,9 @@ vec2 getTexCoords() {
 #include <nbl/builtin/glsl/limits/numeric.glsl>
 #include <nbl/builtin/glsl/math/constants.glsl>
 #include <nbl/builtin/glsl/utils/common.glsl>
+#ifdef PERSISTENT_WORKGROUPS
+#include <nbl/builtin/glsl/utils/morton.glsl>
+#endif
 
 #include <nbl/builtin/glsl/sampling/box_muller_transform.glsl>
 
@@ -688,19 +691,37 @@ bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nb
 void main()
 {
     const ivec2 imageExtents = imageSize(outImage);
+
+#ifdef PERSISTENT_WORKGROUPS
+    uint virtualThreadIndex;
+    for (uint virtualThreadBase = gl_WorkGroupID.x * _NBL_GLSL_WORKGROUP_SIZE_; virtualThreadBase < 1920*1080; virtualThreadBase += gl_NumWorkGroups.x * _NBL_GLSL_WORKGROUP_SIZE_) // not sure why 1280*720 doesn't cover draw surface
+    {
+        virtualThreadIndex = virtualThreadBase + gl_LocalInvocationIndex.x;
+        const ivec2 coords = ivec2(nbl_glsl_morton_decode2d32b(virtualThreadIndex));
+#else
     const ivec2 coords = getCoordinates();
+#endif
+
     vec2 texCoord = vec2(coords) / vec2(imageExtents);
     texCoord.y = 1.0 - texCoord.y;
 
     if (false == (all(lessThanEqual(ivec2(0),coords)) && all(greaterThan(imageExtents,coords)))) {
+#ifdef PERSISTENT_WORKGROUPS
+        continue;
+#else
         return;
+#endif
     }
 
     if (((PTPushConstant.depth-1)>>MAX_DEPTH_LOG2)>0 || ((PTPushConstant.sampleCount-1)>>MAX_SAMPLES_LOG2)>0)
     {
         vec4 pixelCol = vec4(1.0,0.0,0.0,1.0);
         imageStore(outImage, coords, pixelCol);
+#ifdef PERSISTENT_WORKGROUPS
+        continue;
+#else
         return;
+#endif
     }
 
     nbl_glsl_xoroshiro64star_state_t scramble_start_state = texelFetch(scramblebuf,coords,0).rg;
@@ -791,6 +812,10 @@ void main()
 
     vec4 pixelCol = vec4(color, 1.0);
     imageStore(outImage, coords, pixelCol);
+
+#ifdef PERSISTENT_WORKGROUPS
+    }
+#endif
 }
 /** TODO: Improving Rendering
 

@@ -323,7 +323,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 				m_presentDescriptorSet = presentDSPool->createDescriptorSet(gpuPresentDescriptorSetLayout);
 
 				// Create Shaders
-				auto loadAndCompileGLSLShader = [&](const std::string& pathToShader) -> smart_refctd_ptr<IGPUShader>
+				auto loadAndCompileGLSLShader = [&](const std::string& pathToShader, bool persistentWorkGroups = false) -> smart_refctd_ptr<IGPUShader>
 				{
 					IAssetLoader::SAssetLoadParams lp = {};
 					lp.workingDirectory = localInputCWD;
@@ -339,6 +339,27 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					// The down-cast should not fail!
 					assert(source);
 
+					auto compiler = make_smart_refctd_ptr<asset::CGLSLCompiler>(smart_refctd_ptr(m_system));
+					CGLSLCompiler::SOptions options = {};
+					options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;	// should be compute
+					options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+					options.spirvOptimizer = nullptr;
+#ifndef _NBL_DEBUG
+					ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
+					auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
+					options.spirvOptimizer = opt.get();
+#endif
+					options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
+					options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
+					options.preprocessorOptions.logger = m_logger.get();
+					options.preprocessorOptions.includeFinder = compiler->getDefaultIncludeFinder();
+
+					const IShaderCompiler::SMacroDefinition persistentDefine = { "PERSISTENT_WORKGROUPS", "1" };
+					if (persistentWorkGroups)
+						options.preprocessorOptions.extraDefines = { &persistentDefine, &persistentDefine + 1 };
+
+					source = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
+
 					// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
 					auto shader = m_device->createShader(source.get());
 					if (!shader)
@@ -350,7 +371,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					return shader;
 				};
 
-				auto loadAndCompileHLSLShader = [&](const std::string& pathToShader, const std::string& defineMacro) -> smart_refctd_ptr<IGPUShader>
+				auto loadAndCompileHLSLShader = [&](const std::string& pathToShader, const std::string& defineMacro = "", bool persistentWorkGroups = false) -> smart_refctd_ptr<IGPUShader>
 				{
 					IAssetLoader::SAssetLoadParams lp = {};
 					lp.workingDirectory = localInputCWD;
@@ -368,7 +389,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 
 					auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
 					CHLSLCompiler::SOptions options = {};
-					options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;	// should be compute
+					options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;
 					options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
 					options.spirvOptimizer = nullptr;
 #ifndef _NBL_DEBUG
@@ -381,8 +402,11 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					options.preprocessorOptions.logger = m_logger.get();
 					options.preprocessorOptions.includeFinder = compiler->getDefaultIncludeFinder();
 					
-					const IShaderCompiler::SMacroDefinition variantDefine = { defineMacro, "" };
-					options.preprocessorOptions.extraDefines = { &variantDefine, &variantDefine + 1 };
+					const IShaderCompiler::SMacroDefinition defines[2] = { {defineMacro, ""}, { "PERSISTENT_WORKGROUPS", "1" } };
+					if (!defineMacro.empty() && persistentWorkGroups)
+						options.preprocessorOptions.extraDefines = { defines, defines + 2 };
+					else if (!defineMacro.empty() && !persistentWorkGroups)
+						options.preprocessorOptions.extraDefines = { defines, defines + 1 };
 
 					source = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
 					
@@ -441,6 +465,34 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPipelines.data() + index))
 								return logFail("Failed to create HLSL compute pipeline!\n");
 						}
+
+						// persistent wg pipelines
+						{
+							auto ptShader = loadAndCompileGLSLShader(PTGLSLShaderPaths[index], true);
+
+							IGPUComputePipeline::SCreationParams params = {};
+							params.layout = ptPipelineLayout.get();
+							params.shader.shader = ptShader.get();
+							params.shader.entryPoint = "main";
+							params.shader.entries = nullptr;
+							params.shader.requireFullSubgroups = true;
+							params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTGLSLPersistentWGPipelines.data() + index))
+								return logFail("Failed to create GLSL PersistentWG compute pipeline!\n");
+						}
+						{
+							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], true);
+
+							IGPUComputePipeline::SCreationParams params = {};
+							params.layout = ptPipelineLayout.get();
+							params.shader.shader = ptShader.get();
+							params.shader.entryPoint = "main";
+							params.shader.entries = nullptr;
+							params.shader.requireFullSubgroups = true;
+							params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPersistentWGPipelines.data() + index))
+								return logFail("Failed to create HLSL PersistentWG compute pipeline!\n");
+						}
 					}
 				}
 
@@ -452,7 +504,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 						return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
 
 					// Load Fragment Shader
-					auto fragmentShader = loadAndCompileGLSLShader(PresentShaderPath);
+					auto fragmentShader = loadAndCompileHLSLShader(PresentShaderPath);
 					if (!fragmentShader)
 						return logFail("Failed to Load and Compile Fragment Shader: lumaMeterShader!");
 
@@ -944,6 +996,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					ImGui::Combo("Render Mode", &renderMode, shaderTypes, E_RENDER_MODE::ERM_COUNT);
 					ImGui::SliderInt("SPP", &spp, 1, MaxBufferSamples);
 					ImGui::SliderInt("Depth", &depth, 1, MaxBufferDimensions / 3);
+					ImGui::Checkbox("Persistent WorkGroups", &usePersistentWorkGroups);
 
 					ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
 
@@ -1069,12 +1122,22 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 
 				// cube envmap handle
 				{
-					auto pipeline = renderMode == E_RENDER_MODE::ERM_HLSL ? m_PTHLSLPipelines[PTPipeline].get() : m_PTGLSLPipelines[PTPipeline].get();
+					IGPUComputePipeline* pipeline;
+					if (usePersistentWorkGroups)
+						pipeline = renderMode == E_RENDER_MODE::ERM_HLSL ? m_PTHLSLPersistentWGPipelines[PTPipeline].get() : m_PTGLSLPersistentWGPipelines[PTPipeline].get();
+					else
+						pipeline = renderMode == E_RENDER_MODE::ERM_HLSL ? m_PTHLSLPipelines[PTPipeline].get() : m_PTGLSLPipelines[PTPipeline].get();
 					cmdbuf->bindComputePipeline(pipeline);
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
 					cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(PTPushConstant), &pc);
-					cmdbuf->dispatch(1 + (WindowDimensions.x * WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u, 1u);
+					if (usePersistentWorkGroups)
+					{
+						uint32_t dispatchSize = m_physicalDevice->getLimits().computeOptimalPersistentWorkgroupDispatchSize(WindowDimensions.x * WindowDimensions.y, DefaultWorkGroupSize);
+						cmdbuf->dispatch(dispatchSize, 1u, 1u);
+					}
+					else
+						cmdbuf->dispatch(1 + (WindowDimensions.x * WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u, 1u);
 				}
 
 				// TRANSITION m_outImgView to READ (because of descriptorSets0 -> ComputeShader Writes into the image)
@@ -1306,6 +1369,8 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
 		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTGLSLPipelines;
 		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTHLSLPipelines;
+		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTGLSLPersistentWGPipelines;
+		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTHLSLPersistentWGPipelines;
 		smart_refctd_ptr<IGPUGraphicsPipeline> m_presentPipeline;
 		uint64_t m_realFrameIx = 0;
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
@@ -1357,6 +1422,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		int renderMode = E_RENDER_MODE::ERM_HLSL;
 		int spp = 32;
 		int depth = 3;
+		bool usePersistentWorkGroups = false;
 
 		bool m_firstFrame = true;
 		IGPUCommandBuffer::SClearColorValue clearColor = { .float32 = {0.f,0.f,0.f,1.f} };
