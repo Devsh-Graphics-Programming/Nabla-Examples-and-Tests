@@ -473,11 +473,29 @@ float4 fragMain(PSInput input) : SV_TARGET
             if(mode == DTMSettings::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS)
             {
                 DTMSettingsHeightsAccessor dtmHeightsAccessor = { dtm };
-                uint32_t upperBoundHeightIndex = nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, heightMapSize, height);
-                uint32_t lowerBoundHeightIndex = upperBoundHeightIndex == 0 ? upperBoundHeightIndex : upperBoundHeightIndex - 1;
+                uint32_t mapIndexPlus1 = nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, heightMapSize, height);
+                uint32_t mapIndex = mapIndexPlus1 == 0 ? mapIndexPlus1 : mapIndexPlus1 - 1;
 
-                textureColor = dtm.heightColorMapColors[upperBoundHeightIndex].rgb;
-                localAlpha = dtm.heightColorMapColors[upperBoundHeightIndex].a;
+                // logic explainer: if colorIdx is 0.0 then it means blend with next
+                // if color idx is >= length of the colours array then it means it's also > 0.0 and this blend with prev is true
+                // if color idx is > 0 and < len - 1, then it depends on the current pixel's height value and two closest height values
+                bool blendWithPrev = (mapIndex > 0) 
+                    && (mapIndex >= heightMapSize - 1 || (height * 2.0 < dtm.heightColorMapHeights[mapIndexPlus1] + dtm.heightColorMapHeights[mapIndex]));
+                float heightDeriv = fwidth(height);
+                if (blendWithPrev)
+                {
+                    float pxDistanceToPrevHeight = (height - dtm.heightColorMapHeights[mapIndex]) / heightDeriv;
+                    float prevColorCoverage = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, pxDistanceToPrevHeight);
+                    textureColor = lerp(dtm.heightColorMapColors[mapIndex - 1].rgb, dtm.heightColorMapColors[mapIndex].rgb, prevColorCoverage);
+                }
+                else
+                {
+                    float pxDistanceToNextHeight = (height - dtm.heightColorMapHeights[mapIndexPlus1]) / heightDeriv;
+                    float nextColorCoverage = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, pxDistanceToNextHeight);
+                    textureColor = lerp(dtm.heightColorMapColors[mapIndex].rgb, dtm.heightColorMapColors[mapIndexPlus1].rgb, nextColorCoverage);
+                }
+
+                localAlpha = dtm.heightColorMapColors[mapIndex].a;
             }
             else
             {
@@ -567,6 +585,9 @@ float4 fragMain(PSInput input) : SV_TARGET
             }
             else
             {
+                // TODO:
+                // It might be beneficial to calculate distance between pixel and contour line to early out some pixels and save yourself from stipple sdf computations!
+                // where you only compute the complex sdf if abs((height - contourVal) / heightDeriv) <= aaFactor
                 nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
                 LineStyleClipper clipper = LineStyleClipper::construct(contourStyle, lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
                 distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, contourThickness, contourStyle.isRoadStyleFlag, clipper);
@@ -634,7 +655,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                     nbl::hlsl::swap(p0, p1);
 
                 nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(float2(p0.x, p0.y), float2(p1.x, p1.y));
-
+                
                 float distance = nbl::hlsl::numeric_limits<float>::max;
                 nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
                 LineStyleClipper clipper = LineStyleClipper::construct(outlineStyle, lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
