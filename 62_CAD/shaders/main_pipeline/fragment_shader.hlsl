@@ -426,6 +426,7 @@ float4 fragMain(PSInput input) : SV_TARGET
     const uint32_t currentMainObjectIdx = input.getMainObjectIdx();
     const MainObject mainObj = mainObjects[currentMainObjectIdx];
 
+#ifdef DTM
     // TRIANGLE RENDERING
     {
         const float outlineThickness = input.getOutlineThickness();
@@ -672,7 +673,7 @@ float4 fragMain(PSInput input) : SV_TARGET
     }
 
     return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(uint2(input.position.xy), localAlpha, currentMainObjectIdx, textureColor, true);
-
+#endif
     // figure out local alpha with sdf
     if (objType == ObjectType::LINE || objType == ObjectType::QUAD_BEZIER || objType == ObjectType::POLYLINE_CONNECTOR)
     {
