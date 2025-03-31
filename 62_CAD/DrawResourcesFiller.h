@@ -14,21 +14,9 @@ using namespace nbl::asset;
 using namespace nbl::ext::TextRendering;
 
 static_assert(sizeof(DrawObject) == 16u);
-static_assert(sizeof(MainObject) == 16u);
-static_assert(sizeof(Globals) == 128u);
+static_assert(sizeof(MainObject) == 12u);
 static_assert(sizeof(LineStyle) == 88u);
 static_assert(sizeof(ClipProjectionData) == 88u);
-
-template <typename BufferType>
-struct DrawBuffers
-{
-	smart_refctd_ptr<BufferType> indexBuffer; // only is valid for IGPUBuffer because it's filled at allocation time and never touched again
-	smart_refctd_ptr<BufferType> mainObjectsBuffer;
-	smart_refctd_ptr<BufferType> drawObjectsBuffer;
-	smart_refctd_ptr<BufferType> geometryBuffer;
-	smart_refctd_ptr<BufferType> lineStylesBuffer;
-	smart_refctd_ptr<BufferType> dtmSettingsBuffer;
-};
 
 // ! DrawResourcesFiller
 // ! This class provides important functionality to manage resources needed for a draw.
@@ -39,9 +27,67 @@ struct DrawBuffers
 struct DrawResourcesFiller
 {
 public:
+	
+	/// @brief general parent struct for 1.ComputeReserved and 2.CPUFilled DrawBuffers
+	struct DrawBuffer
+	{
+		static constexpr size_t Alignment = 8u;
+		static constexpr size_t InvalidBufferOffset = ~0u;
+		size_t bufferOffset = InvalidBufferOffset; // set when copy to gpu buffer is issued
+		virtual size_t getCount() const = 0;
+		virtual size_t getStorageSize() const = 0;
+		virtual size_t getAlignedStorageSize() const { core::alignUp(getStorageSize(), Alignment); }
+	};
 
-	typedef uint32_t index_buffer_type;
+	/// @brief DrawBuffer reserved for compute shader stages input/output
+	template <typename T>
+	struct ComputeReservedDrawBuffer : DrawBuffer
+	{
+		size_t count = 0ull;
+		size_t getCount() const override { return count; }
+		size_t getStorageSize() const override  { return count * sizeof(T); }
+	};
 
+	/// @brief DrawBuffer which is filled by CPU, packed and sent to GPU
+	template <typename T>
+	struct CPUFilledDrawBuffer : DrawBuffer
+	{
+		core::vector<T> vector;
+		size_t getCount() const { return vector.size(); }
+		size_t getStorageSize() const { return vector.size() * sizeof(T); }
+	};
+
+	/// @brief struct to hold all draw buffers
+	struct DrawBuffers
+	{
+		// auto-submission level 0 buffers (settings that mainObj references)
+		CPUFilledDrawBuffer<LineStyle> lineStyles;
+		CPUFilledDrawBuffer<DTMSettings> dtmSettings;
+		CPUFilledDrawBuffer<ClipProjectionData> clipProjections;
+	
+		// auto-submission level 1 buffers (mainObj that drawObjs references, if all drawObjs+idxBuffer+geometryInfo doesn't fit into mem this will be broken down into many)
+		CPUFilledDrawBuffer<MainObject> mainObjects;
+
+		// auto-submission level 2 buffers
+		CPUFilledDrawBuffer<DrawObject> drawObjects;
+		CPUFilledDrawBuffer<uint32_t> indexBuffer;
+		CPUFilledDrawBuffer<uint8_t> geometryInfo; // general purpose byte buffer for custom geometries, etc
+
+		// Get Total memory consumption, If all DrawBuffers get packed together with DrawBuffer::Alignment
+		// Useful to know when to know when to overflow
+		size_t calculateTotalConsumption() const
+		{
+			return
+				lineStyles.getAlignedStorageSize() +
+				dtmSettings.getAlignedStorageSize() +
+				clipProjections.getAlignedStorageSize() +
+				mainObjects.getAlignedStorageSize() +
+				drawObjects.getAlignedStorageSize() +
+				indexBuffer.getAlignedStorageSize() +
+				geometryInfo.getAlignedStorageSize();
+		}
+	};
+	
 	DrawResourcesFiller();
 
 	DrawResourcesFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue);
@@ -49,18 +95,8 @@ public:
 	typedef std::function<void(SIntendedSubmitInfo&)> SubmitFunc;
 	void setSubmitDrawsFunction(const SubmitFunc& func);
 
-	void allocateIndexBuffer(ILogicalDevice* logicalDevice, uint32_t indices);
+	void allocateDrawResourcesBuffer(ILogicalDevice* logicalDevice, size_t size);
 
-	void allocateMainObjectsBuffer(ILogicalDevice* logicalDevice, uint32_t mainObjects);
-
-	void allocateDrawObjectsBuffer(ILogicalDevice* logicalDevice, uint32_t drawObjects);
-
-	void allocateGeometryBuffer(ILogicalDevice* logicalDevice, size_t size);
-
-	void allocateStylesBuffer(ILogicalDevice* logicalDevice, uint32_t lineStylesCount);
-
-	void allocateDTMSettingsBuffer(ILogicalDevice* logicalDevice, uint32_t dtmSettingsCount);
-	
 	void allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent);
 
 	// functions that user should set to get MSDF texture if it's not available in cache.
@@ -118,79 +154,9 @@ public:
 		float64_t2 topLeftPos,
 		float32_t2 size,
 		float32_t rotation,
-		SIntendedSubmitInfo& intendedNextSubmit)
-	{
-		auto addImageObject_Internal = [&](const ImageObjectInfo& imageObjectInfo, uint32_t mainObjIdx) -> bool
-			{
-				const uint32_t maxGeometryBufferImageObjects = static_cast<uint32_t>((maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(ImageObjectInfo));
-				uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
-				uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
-				uploadableObjects = core::min(uploadableObjects, maxGeometryBufferImageObjects);
-
-				if (uploadableObjects >= 1u)
-				{
-					void* dstGeom = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
-					memcpy(dstGeom, &imageObjectInfo, sizeof(ImageObjectInfo));
-					uint64_t geomBufferAddr = geometryBufferAddress + currentGeometryBufferSize;
-					currentGeometryBufferSize += sizeof(ImageObjectInfo);
-
-					DrawObject drawObj = {};
-					drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::IMAGE) | (0 << 16)); // TODO: use custom pack/unpack function
-					drawObj.mainObjIndex = mainObjIdx;
-					drawObj.geometryAddress = geomBufferAddr;
-					void* dstDrawObj = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
-					memcpy(dstDrawObj, &drawObj, sizeof(DrawObject));
-					currentDrawObjectCount += 1u;
-
-					return true;
-				}
-				else
-					return false;
-			};
-		
-		uint32_t mainObjIdx = addMainObject_SubmitIfNeeded(InvalidStyleIdx, InvalidDTMSettingsIdx, intendedNextSubmit);
-
-		ImageObjectInfo info = {};
-		info.topLeft = topLeftPos;
-		info.dirU = float32_t2(size.x * cos(rotation), size.x * sin(rotation)); // 
-		info.aspectRatio = size.y / size.x;
-		info.textureID = 0u;
-		if (!addImageObject_Internal(info, mainObjIdx))
-		{
-			// single image object couldn't fit into memory to push to gpu, so we submit rendering current objects and reset geometry buffer and draw objects
-			submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjIdx);
-			bool success = addImageObject_Internal(info, mainObjIdx);
-			assert(success); // this should always be true, otherwise it's either bug in code or not enough memory allocated to hold a single image object 
-		}
-	}
+		SIntendedSubmitInfo& intendedNextSubmit);
 
 	bool finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
-
-	inline uint32_t getLineStyleCount() const { return currentLineStylesCount; }
-
-	inline uint32_t getDrawObjectCount() const { return currentDrawObjectCount; } 
-
-	inline uint32_t getMainObjectCount() const { return currentMainObjectCount; }
-
-	inline size_t getCurrentMainObjectsBufferSize() const
-	{
-		return sizeof(MainObject) * currentMainObjectCount;
-	}
-
-	inline size_t getCurrentDrawObjectsBufferSize() const
-	{
-		return sizeof(DrawObject) * currentDrawObjectCount;
-	}
-
-	inline size_t getCurrentGeometryBufferSize() const
-	{
-		return currentGeometryBufferSize;
-	}
-
-	inline size_t getCurrentLineStylesBufferSize() const
-	{
-		return sizeof(LineStyle) * currentLineStylesCount;
-	}
 
 	void reset()
 	{
@@ -200,8 +166,8 @@ public:
 		resetDTMSettingsCounters();
 	}
 
-	DrawBuffers<ICPUBuffer> cpuDrawBuffers;
-	DrawBuffers<IGPUBuffer> gpuDrawBuffers;
+	DrawBuffers drawBuffers; // will be compacted and copied into gpu draw resources
+	nbl::core::smart_refctd_ptr<IGPUBuffer> drawResourcesGPUBuffer;
 
 	uint32_t addLineStyle_SubmitIfNeeded(const LineStyleInfo& lineStyle, SIntendedSubmitInfo& intendedNextSubmit);
 
@@ -242,16 +208,8 @@ protected:
 
 	SubmitFunc submitDraws;
 	
-	bool finalizeMainObjectCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
+	bool finalizeBufferCopies(SIntendedSubmitInfo& intendedNextSubmit);
 
-	bool finalizeGeometryCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
-
-	bool finalizeLineStyleCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
-
-	bool finalizeDTMSettingsCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
-	
-	bool finalizeCustomClipProjectionCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
-	
 	bool finalizeTextureCopies(SIntendedSubmitInfo& intendedNextSubmit);
 
 	// Internal Function to call whenever we overflow while filling our buffers with geometry (potential limiters: indexBuffer, drawObjectsBuffer or geometryBuffer)
@@ -430,29 +388,7 @@ protected:
 	smart_refctd_ptr<IUtilities> m_utilities;
 	IQueue* m_copyQueue;
 
-	uint32_t maxIndexCount;
-
-	uint32_t inMemMainObjectCount = 0u;
-	uint32_t currentMainObjectCount = 0u;
-	uint32_t maxMainObjects = 0u;
-
-	uint32_t inMemDrawObjectCount = 0u;
-	uint32_t currentDrawObjectCount = 0u;
-	uint32_t maxDrawObjects = 0u;
-
-	uint64_t inMemGeometryBufferSize = 0u;
-	uint64_t currentGeometryBufferSize = 0u;
-	uint64_t maxGeometryBufferSize = 0u;
-
-	uint32_t inMemLineStylesCount = 0u;
-	uint32_t currentLineStylesCount = 0u;
-	uint32_t maxLineStyles = 0u;
-
-	uint32_t inMemDTMSettingsCount = 0u;
-	uint32_t currentDTMSettingsCount = 0u;
-	uint32_t maxDtmSettings = 0u;
-
-	uint64_t geometryBufferAddress = 0u; // Actual BDA offset 0 of the gpu buffer
+	uint64_t drawResourcesBDA = 0u; // Actual BDA offset 0 of the gpu buffer
 
 	std::deque<ClipProjectionData> clipProjections; // stack of clip projectios stored so we can resubmit them if geometry buffer got reset.
 	std::deque<uint64_t> clipProjectionAddresses; // stack of clip projection gpu addresses in geometry buffer. to keep track of them in push/pops

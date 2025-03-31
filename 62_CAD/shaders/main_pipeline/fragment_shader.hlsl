@@ -357,10 +357,10 @@ float32_t4 calculateFinalColor(const uint2 fragCoord, const float localAlpha, co
 template<>
 float32_t4 calculateFinalColor<false>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 localTextureColor, bool colorFromTexture)
 {
-    uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
+    uint32_t styleIdx = loadMainObject(currentMainObjectIdx).styleIdx;
     if (!colorFromTexture)
     {
-        float32_t4 col = lineStyles[styleIdx].color;
+        float32_t4 col = loadLineStyle(styleIdx).color;
         col.w *= localAlpha;
         return float4(col);
     }
@@ -387,7 +387,7 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     // sampling from colorStorage needs to happen in critical section because another fragment may also want to store into it at the same time + need to happen before store
     if (resolve)
     {
-        toResolveStyleIdx = mainObjects[storedMainObjectIdx].styleIdx;
+        toResolveStyleIdx = loadMainObject(storedMainObjectIdx).styleIdx;
         if (toResolveStyleIdx == InvalidStyleIdx) // if style idx to resolve is invalid, then it means we should resolve from color
             color = float32_t4(unpackR11G11B10_UNORM(colorStorage[fragCoord]), 1.0f);
     }
@@ -409,7 +409,7 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     // draw with previous geometry's style's color or stored in texture buffer :kek:
     // we don't need to load the style's color in critical section because we've already retrieved the style index from the stored main obj
     if (toResolveStyleIdx != InvalidStyleIdx) // if toResolveStyleIdx is valid then that means our resolved color should come from line style
-        color = lineStyles[toResolveStyleIdx].color;
+        color = loadLineStyle(toResolveStyleIdx).color;
     color.a *= float(storedQuantizedAlpha) / 255.f;
     
     return color;
@@ -424,7 +424,7 @@ float4 fragMain(PSInput input) : SV_TARGET
 
     ObjectType objType = input.getObjType();
     const uint32_t currentMainObjectIdx = input.getMainObjectIdx();
-    const MainObject mainObj = mainObjects[currentMainObjectIdx];
+    const MainObject mainObj = loadMainObject(currentMainObjectIdx);
 
 #ifdef DTM
     // TRIANGLE RENDERING
@@ -435,9 +435,9 @@ float4 fragMain(PSInput input) : SV_TARGET
         const float stretch = 1.0f; // TODO: figure out what is it for
         const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
 
-        DTMSettings dtm = dtmSettings[mainObj.dtmSettingsIdx];
-        LineStyle outlineStyle = lineStyles[dtm.outlineLineStyleIdx];
-        LineStyle contourStyle = lineStyles[dtm.contourLineStyleIdx];
+        DTMSettings dtm = loadDTMSettings(mainObj.dtmSettingsIdx);
+        LineStyle outlineStyle = loadLineStyle(dtm.outlineLineStyleIdx);
+        LineStyle contourStyle = loadLineStyle(dtm.contourLineStyleIdx);
 
         float3 v[3];
         v[0] = input.getScreenSpaceVertexAttribs(0);
@@ -690,7 +690,7 @@ float4 fragMain(PSInput input) : SV_TARGET
 
             nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(start, end);
 
-            LineStyle style = lineStyles[styleIdx];
+            LineStyle style = loadLineStyle(styleIdx);
 
             if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
             {
@@ -699,7 +699,7 @@ float4 fragMain(PSInput input) : SV_TARGET
             else
             {
                 nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
-                LineStyleClipper clipper = LineStyleClipper::construct(lineStyles[styleIdx], lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
+                LineStyleClipper clipper = LineStyleClipper::construct(loadLineStyle(styleIdx), lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
                 distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
             }
         }
@@ -714,14 +714,14 @@ float4 fragMain(PSInput input) : SV_TARGET
             const float stretch = input.getPatternStretch();
             const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
 
-            LineStyle style = lineStyles[styleIdx];
+            LineStyle style = loadLineStyle(styleIdx);
             if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
             {
                 distance = ClippedSignedDistance< nbl::hlsl::shapes::Quadratic<float> >::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag);
             }
             else
             {
-                BezierStyleClipper clipper = BezierStyleClipper::construct(lineStyles[styleIdx], quadratic, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
+                BezierStyleClipper clipper = BezierStyleClipper::construct(loadLineStyle(styleIdx), quadratic, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
                 distance = ClippedSignedDistance<nbl::hlsl::shapes::Quadratic<float>, BezierStyleClipper>::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
             }
         }
@@ -847,7 +847,7 @@ float4 fragMain(PSInput input) : SV_TARGET
             localAlpha = 1.0f - smoothstep(0.0, globals.antiAliasingFactor, dist);
         }
 
-        LineStyle style = lineStyles[mainObj.styleIdx];
+        LineStyle style = loadLineStyle(mainObj.styleIdx);
         uint32_t textureId = asuint(style.screenSpaceLineWidth);
         if (textureId != InvalidTextureIdx)
         {
@@ -883,7 +883,7 @@ float4 fragMain(PSInput input) : SV_TARGET
             */
             msdf *= exp2(max(mipLevel,0.0));
             
-            LineStyle style = lineStyles[mainObj.styleIdx];
+            LineStyle style = loadLineStyle(mainObj.styleIdx);
             const float screenPxRange = input.getFontGlyphPxRange() / MSDFPixelRangeHalf;
             const float bolden = style.worldSpaceLineWidth * screenPxRange; // worldSpaceLineWidth is actually boldenInPixels, aliased TextStyle with LineStyle
             localAlpha = smoothstep(+globals.antiAliasingFactor / 2.0f + bolden, -globals.antiAliasingFactor / 2.0f + bolden, msdf);

@@ -288,19 +288,8 @@ public:
 	{
 		drawResourcesFiller = DrawResourcesFiller(core::smart_refctd_ptr(m_utils), getGraphicsQueue());
 
-		// TODO: move individual allocations to DrawResourcesFiller::allocateResources(memory)
-		// Issue warning error, if we can't store our largest geomm struct + clip proj data inside geometry buffer along linestyle and mainObject 
-		uint32_t maxIndices = maxObjects * 6u * 2u;
-		drawResourcesFiller.allocateIndexBuffer(m_device.get(), maxIndices);
-		drawResourcesFiller.allocateMainObjectsBuffer(m_device.get(), maxObjects);
-		drawResourcesFiller.allocateDrawObjectsBuffer(m_device.get(), maxObjects * 5u);
-		drawResourcesFiller.allocateStylesBuffer(m_device.get(), 512u);
-		drawResourcesFiller.allocateDTMSettingsBuffer(m_device.get(), 512u);
-
-		// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)
-		// + 128 ClipProjData
-		size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3 + 128 * sizeof(ClipProjectionData);
-		drawResourcesFiller.allocateGeometryBuffer(m_device.get(), geometryBufferSize);
+		size_t bufferSize = 512u * 1024u * 1024u; // 512 MB
+		drawResourcesFiller.allocateDrawResourcesBuffer(m_device.get(), bufferSize);
 		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 256u, uint32_t2(MSDFSize, MSDFSize));
 
 		{
@@ -314,14 +303,6 @@ public:
 			auto globalsBufferMem = m_device->allocate(memReq, m_globalsBuffer.get());
 		}
 		
-		size_t sumBufferSizes =
-			drawResourcesFiller.gpuDrawBuffers.drawObjectsBuffer->getSize() +
-			drawResourcesFiller.gpuDrawBuffers.geometryBuffer->getSize() +
-			drawResourcesFiller.gpuDrawBuffers.indexBuffer->getSize() +
-			drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer->getSize() +
-			drawResourcesFiller.gpuDrawBuffers.mainObjectsBuffer->getSize();
-		m_logger->log("Buffers Size = %.2fKB", ILogger::E_LOG_LEVEL::ELL_INFO, sumBufferSizes / 1024.0f);
-
 		// pseudoStencil
 		{
 			asset::E_FORMAT pseudoStencilFormat = asset::EF_R32_UINT;
@@ -778,7 +759,7 @@ public:
 			{
 				descriptorSet0 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout0));
 				descriptorSet1 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout1));
-				constexpr uint32_t DescriptorCountSet0 = 7u;
+				constexpr uint32_t DescriptorCountSet0 = 3u;
 				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfosSet0[DescriptorCountSet0] = {};
 
 				// Descriptors For Set 0:
@@ -786,31 +767,15 @@ public:
 				descriptorInfosSet0[0u].info.buffer.size = m_globalsBuffer->getCreationParams().size;
 				descriptorInfosSet0[0u].desc = m_globalsBuffer;
 
-				descriptorInfosSet0[1u].info.buffer.offset = 0u;
-				descriptorInfosSet0[1u].info.buffer.size = drawResourcesFiller.gpuDrawBuffers.drawObjectsBuffer->getCreationParams().size;
-				descriptorInfosSet0[1u].desc = drawResourcesFiller.gpuDrawBuffers.drawObjectsBuffer;
+				descriptorInfosSet0[1u].info.combinedImageSampler.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				descriptorInfosSet0[1u].info.combinedImageSampler.sampler = msdfTextureSampler;
+				descriptorInfosSet0[1u].desc = drawResourcesFiller.getMSDFsTextureArray();
 				
-				descriptorInfosSet0[2u].info.buffer.offset = 0u;
-				descriptorInfosSet0[2u].info.buffer.size = drawResourcesFiller.gpuDrawBuffers.mainObjectsBuffer->getCreationParams().size;
-				descriptorInfosSet0[2u].desc = drawResourcesFiller.gpuDrawBuffers.mainObjectsBuffer;
-
-				descriptorInfosSet0[3u].info.buffer.offset = 0u;
-				descriptorInfosSet0[3u].info.buffer.size = drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer->getCreationParams().size;
-				descriptorInfosSet0[3u].desc = drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer;
-				
-				descriptorInfosSet0[4u].info.buffer.offset = 0u;
-				descriptorInfosSet0[4u].info.buffer.size = drawResourcesFiller.gpuDrawBuffers.dtmSettingsBuffer->getCreationParams().size;
-				descriptorInfosSet0[4u].desc = drawResourcesFiller.gpuDrawBuffers.dtmSettingsBuffer;
-
-				descriptorInfosSet0[5u].info.combinedImageSampler.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				descriptorInfosSet0[5u].info.combinedImageSampler.sampler = msdfTextureSampler;
-				descriptorInfosSet0[5u].desc = drawResourcesFiller.getMSDFsTextureArray();
-				
-				descriptorInfosSet0[6u].desc = msdfTextureSampler; // TODO[Erfan]: different sampler and make immutable?
+				descriptorInfosSet0[2u].desc = msdfTextureSampler; // TODO[Erfan]: different sampler and make immutable?
 				
 				// This is bindless to we write to it later.
-				// descriptorInfosSet0[6u].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				// descriptorInfosSet0[6u].desc = drawResourcesFiller.getMSDFsTextureArray();
+				// descriptorInfosSet0[3u].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				// descriptorInfosSet0[3u].desc = drawResourcesFiller.getMSDFsTextureArray();
 
 				// Descriptors For Set 1:
 				constexpr uint32_t DescriptorCountSet1 = 2u;
@@ -834,60 +799,32 @@ public:
 				descriptorUpdates[0u].count = 1u;
 				descriptorUpdates[0u].info = &descriptorInfosSet0[0u];
 
-					// drawObjectsBuffer
+					// mdfs textures
 				descriptorUpdates[1u].dstSet = descriptorSet0.get();
 				descriptorUpdates[1u].binding = 1u;
 				descriptorUpdates[1u].arrayElement = 0u;
 				descriptorUpdates[1u].count = 1u;
 				descriptorUpdates[1u].info = &descriptorInfosSet0[1u];
-
-					// mainObjectsBuffer
+				
+					// general texture sampler	
 				descriptorUpdates[2u].dstSet = descriptorSet0.get();
 				descriptorUpdates[2u].binding = 2u;
 				descriptorUpdates[2u].arrayElement = 0u;
 				descriptorUpdates[2u].count = 1u;
 				descriptorUpdates[2u].info = &descriptorInfosSet0[2u];
 
-					// lineStylesBuffer
-				descriptorUpdates[3u].dstSet = descriptorSet0.get();
-				descriptorUpdates[3u].binding = 3u;
+				// Set 1 Updates:
+				descriptorUpdates[3u].dstSet = descriptorSet1.get();
+				descriptorUpdates[3u].binding = 0u;
 				descriptorUpdates[3u].arrayElement = 0u;
 				descriptorUpdates[3u].count = 1u;
-				descriptorUpdates[3u].info = &descriptorInfosSet0[3u];
-				
-					// dtmSettingsBuffer
-				descriptorUpdates[4u].dstSet = descriptorSet0.get();
-				descriptorUpdates[4u].binding = 4u;
+				descriptorUpdates[3u].info = &descriptorInfosSet1[0u];
+
+				descriptorUpdates[4u].dstSet = descriptorSet1.get();
+				descriptorUpdates[4u].binding = 1u;
 				descriptorUpdates[4u].arrayElement = 0u;
 				descriptorUpdates[4u].count = 1u;
-				descriptorUpdates[4u].info = &descriptorInfosSet0[4u];
-
-					// mdfs textures
-				descriptorUpdates[5u].dstSet = descriptorSet0.get();
-				descriptorUpdates[5u].binding = 5u;
-				descriptorUpdates[5u].arrayElement = 0u;
-				descriptorUpdates[5u].count = 1u;
-				descriptorUpdates[5u].info = &descriptorInfosSet0[5u];
-				
-					// mdfs samplers	
-				descriptorUpdates[6u].dstSet = descriptorSet0.get();
-				descriptorUpdates[6u].binding = 6u;
-				descriptorUpdates[6u].arrayElement = 0u;
-				descriptorUpdates[6u].count = 1u;
-				descriptorUpdates[6u].info = &descriptorInfosSet0[6u];
-
-				// Set 1 Updates:
-				descriptorUpdates[7u].dstSet = descriptorSet1.get();
-				descriptorUpdates[7u].binding = 0u;
-				descriptorUpdates[7u].arrayElement = 0u;
-				descriptorUpdates[7u].count = 1u;
-				descriptorUpdates[7u].info = &descriptorInfosSet1[0u];
-
-				descriptorUpdates[8u].dstSet = descriptorSet1.get();
-				descriptorUpdates[8u].binding = 1u;
-				descriptorUpdates[8u].arrayElement = 0u;
-				descriptorUpdates[8u].count = 1u;
-				descriptorUpdates[8u].info = &descriptorInfosSet1[1u];
+				descriptorUpdates[4u].info = &descriptorInfosSet1[1u];
 
 				m_device->updateDescriptorSets(DescriptorUpdatesCount, descriptorUpdates, 0u, nullptr);
 			}
@@ -2977,7 +2914,6 @@ protected:
 					default:
 						m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type, skipping!",ILogger::ELL_ERROR);
 				}
-			
 
 				// create matching size gpu image
 				smart_refctd_ptr<IGPUImage> gpuImg;
@@ -3015,7 +2951,7 @@ protected:
 				{
 					{
 						.dstSet = descriptorSet0.get(),
-						.binding = 6u,
+						.binding = 3u,
 						.arrayElement = 0u,
 						.count = 1u,
 						.info = &dsInfo,

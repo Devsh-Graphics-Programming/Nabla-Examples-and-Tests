@@ -32,7 +32,7 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord)
     // sampling from colorStorage needs to happen in critical section because another fragment may also want to store into it at the same time + need to happen before store
     if (resolve)
     {
-        toResolveStyleIdx = mainObjects[storedMainObjectIdx].styleIdx;
+        toResolveStyleIdx = loadMainObject(storedMainObjectIdx).styleIdx;
         if (toResolveStyleIdx == InvalidStyleIdx) // if style idx to resolve is invalid, then it means we should resolve from color
             color = float32_t4(unpackR11G11B10_UNORM(colorStorage[fragCoord]), 1.0f);
     }
@@ -45,7 +45,7 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord)
     // draw with previous geometry's style's color or stored in texture buffer :kek:
     // we don't need to load the style's color in critical section because we've already retrieved the style index from the stored main obj
     if (toResolveStyleIdx != InvalidStyleIdx) // if toResolveStyleIdx is valid then that means our resolved color should come from line style
-        color = lineStyles[toResolveStyleIdx].color;
+        color = loadLineStyle(toResolveStyleIdx).color;
     color.a *= float(storedQuantizedAlpha) / 255.f;
     
     return color;

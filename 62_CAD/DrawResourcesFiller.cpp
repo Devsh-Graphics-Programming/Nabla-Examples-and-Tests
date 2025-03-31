@@ -15,70 +15,35 @@ void DrawResourcesFiller::setSubmitDrawsFunction(const SubmitFunc& func)
 	submitDraws = func;
 }
 
-void DrawResourcesFiller::allocateIndexBuffer(ILogicalDevice* logicalDevice, uint32_t maxIndices)
-{
-	maxIndexCount = maxIndices;
-	const size_t indexBufferSize = maxIndices * sizeof(index_buffer_type);
-	auto indexBuffer = ICPUBuffer::create({ indexBufferSize });
+//void DrawResourcesFiller::allocateIndexBuffer(ILogicalDevice* logicalDevice, uint32_t maxIndices)
+//{
+//	maxIndexCount = maxIndices;
+//	const size_t indexBufferSize = maxIndices * sizeof(index_buffer_type);
+//	auto indexBuffer = ICPUBuffer::create({ indexBufferSize });
+//
+//	index_buffer_type* indices = reinterpret_cast<index_buffer_type*>(indexBuffer->getPointer());
+//	for (uint32_t i = 0u; i < maxIndices / 6u; ++i)
+//	{
+//		index_buffer_type objIndex = i;
+//		indices[i * 6] = objIndex * 4u + 1u;
+//		indices[i * 6 + 1u] = objIndex * 4u + 0u;
+//		indices[i * 6 + 2u] = objIndex * 4u + 2u;
+//
+//		indices[i * 6 + 3u] = objIndex * 4u + 1u;
+//		indices[i * 6 + 4u] = objIndex * 4u + 2u;
+//		indices[i * 6 + 5u] = objIndex * 4u + 3u;
+//	}
+//
+//	IGPUBuffer::SCreationParams indexBufferCreationParams = {};
+//	indexBufferCreationParams.size = indexBufferSize;
+//	indexBufferCreationParams.usage = IGPUBuffer::EUF_INDEX_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
+//
+//	m_utilities->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{.queue=m_copyQueue}, std::move(indexBufferCreationParams), indices).move_into(gpuDrawBuffers.indexBuffer);
+//	gpuDrawBuffers.indexBuffer->setObjectDebugName("indexBuffer");
+//}
 
-	index_buffer_type* indices = reinterpret_cast<index_buffer_type*>(indexBuffer->getPointer());
-	for (uint32_t i = 0u; i < maxIndices / 6u; ++i)
-	{
-		index_buffer_type objIndex = i;
-		indices[i * 6] = objIndex * 4u + 1u;
-		indices[i * 6 + 1u] = objIndex * 4u + 0u;
-		indices[i * 6 + 2u] = objIndex * 4u + 2u;
 
-		indices[i * 6 + 3u] = objIndex * 4u + 1u;
-		indices[i * 6 + 4u] = objIndex * 4u + 2u;
-		indices[i * 6 + 5u] = objIndex * 4u + 3u;
-	}
-
-	IGPUBuffer::SCreationParams indexBufferCreationParams = {};
-	indexBufferCreationParams.size = indexBufferSize;
-	indexBufferCreationParams.usage = IGPUBuffer::EUF_INDEX_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
-
-	m_utilities->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{.queue=m_copyQueue}, std::move(indexBufferCreationParams), indices).move_into(gpuDrawBuffers.indexBuffer);
-	gpuDrawBuffers.indexBuffer->setObjectDebugName("indexBuffer");
-}
-
-void DrawResourcesFiller::allocateMainObjectsBuffer(ILogicalDevice* logicalDevice, uint32_t mainObjects)
-{
-	maxMainObjects = mainObjects;
-	size_t mainObjectsBufferSize = maxMainObjects * sizeof(MainObject);
-
-	IGPUBuffer::SCreationParams mainObjectsCreationParams = {};
-	mainObjectsCreationParams.size = mainObjectsBufferSize;
-	mainObjectsCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
-	gpuDrawBuffers.mainObjectsBuffer = logicalDevice->createBuffer(std::move(mainObjectsCreationParams));
-	gpuDrawBuffers.mainObjectsBuffer->setObjectDebugName("mainObjectsBuffer");
-
-	IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.mainObjectsBuffer->getMemoryReqs();
-	memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-	auto mainObjectsBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.mainObjectsBuffer.get());
-
-	cpuDrawBuffers.mainObjectsBuffer = ICPUBuffer::create({ mainObjectsBufferSize });
-}
-
-void DrawResourcesFiller::allocateDrawObjectsBuffer(ILogicalDevice* logicalDevice, uint32_t drawObjects)
-{
-	maxDrawObjects = drawObjects;
-	size_t drawObjectsBufferSize = maxDrawObjects * sizeof(DrawObject);
-
-	IGPUBuffer::SCreationParams drawObjectsCreationParams = {};
-	drawObjectsCreationParams.size = drawObjectsBufferSize;
-	drawObjectsCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
-	gpuDrawBuffers.drawObjectsBuffer = logicalDevice->createBuffer(std::move(drawObjectsCreationParams));
-	gpuDrawBuffers.drawObjectsBuffer->setObjectDebugName("drawObjectsBuffer");
-
-	IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.drawObjectsBuffer->getMemoryReqs();
-	memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-	auto drawObjectsBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.drawObjectsBuffer.get());
-
-	cpuDrawBuffers.drawObjectsBuffer = ICPUBuffer::create({ drawObjectsBufferSize });
-}
-
-void DrawResourcesFiller::allocateGeometryBuffer(ILogicalDevice* logicalDevice, size_t size)
+void DrawResourcesFiller::allocateDrawResourcesBuffer(ILogicalDevice* logicalDevice, size_t size)
 {
 	maxGeometryBufferSize = size;
 
@@ -91,47 +56,9 @@ void DrawResourcesFiller::allocateGeometryBuffer(ILogicalDevice* logicalDevice, 
 	IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.geometryBuffer->getMemoryReqs();
 	memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 	auto geometryBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.geometryBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
-	geometryBufferAddress = gpuDrawBuffers.geometryBuffer->getDeviceAddress();
+	drawResourcesBDA = gpuDrawBuffers.geometryBuffer->getDeviceAddress();
 
 	cpuDrawBuffers.geometryBuffer = ICPUBuffer::create({ size });
-}
-
-void DrawResourcesFiller::allocateStylesBuffer(ILogicalDevice* logicalDevice, uint32_t lineStylesCount)
-{
-	{
-		maxLineStyles = lineStylesCount;
-		size_t lineStylesBufferSize = lineStylesCount * sizeof(LineStyle);
-
-		IGPUBuffer::SCreationParams lineStylesCreationParams = {};
-		lineStylesCreationParams.size = lineStylesBufferSize;
-		lineStylesCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
-		gpuDrawBuffers.lineStylesBuffer = logicalDevice->createBuffer(std::move(lineStylesCreationParams));
-		gpuDrawBuffers.lineStylesBuffer->setObjectDebugName("lineStylesBuffer");
-
-		IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.lineStylesBuffer->getMemoryReqs();
-		memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-		auto stylesBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.lineStylesBuffer.get());
-
-		cpuDrawBuffers.lineStylesBuffer = ICPUBuffer::create({ lineStylesBufferSize });
-	}
-}
-
-void DrawResourcesFiller::allocateDTMSettingsBuffer(ILogicalDevice* logicalDevice, uint32_t dtmSettingsCount)
-{
-	maxDtmSettings = dtmSettingsCount;
-	size_t dtmSettingsBufferSize = dtmSettingsCount * sizeof(DTMSettings);
-	
-	IGPUBuffer::SCreationParams dtmSettingsCreationParams = {};
-	dtmSettingsCreationParams.size = dtmSettingsBufferSize;
-	dtmSettingsCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
-	gpuDrawBuffers.dtmSettingsBuffer = logicalDevice->createBuffer(std::move(dtmSettingsCreationParams));
-	gpuDrawBuffers.dtmSettingsBuffer->setObjectDebugName("dtmSettingsBuffer");
-	
-	IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.dtmSettingsBuffer->getMemoryReqs();
-	memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-	auto stylesBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.dtmSettingsBuffer.get());
-	
-	cpuDrawBuffers.dtmSettingsBuffer = ICPUBuffer::create({ dtmSettingsBufferSize });
 }
 
 void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent)
@@ -265,7 +192,7 @@ void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, CTriangleM
 		currentGeometryBufferSize += indexBuffByteSize;
 
 		dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
-		drawData.pushConstants.triangleMeshVerticesBaseAddress = geometryBufferAddress + currentGeometryBufferSize;
+		drawData.pushConstants.triangleMeshVerticesBaseAddress = drawResourcesBDA + currentGeometryBufferSize;
 		memcpy(dst, mesh.getVertices().data(), vtxBuffByteSize);
 		currentGeometryBufferSize += vtxBuffByteSize;
 	}
@@ -373,13 +300,56 @@ void DrawResourcesFiller::drawFontGlyph(
 	}
 }
 
+void DrawResourcesFiller::_test_addImageObject(float64_t2 topLeftPos, float32_t2 size, float32_t rotation, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	auto addImageObject_Internal = [&](const ImageObjectInfo& imageObjectInfo, uint32_t mainObjIdx) -> bool
+		{
+			const uint32_t maxGeometryBufferImageObjects = static_cast<uint32_t>((maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(ImageObjectInfo));
+			uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
+			uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+			uploadableObjects = core::min(uploadableObjects, maxGeometryBufferImageObjects);
+
+			if (uploadableObjects >= 1u)
+			{
+				void* dstGeom = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
+				memcpy(dstGeom, &imageObjectInfo, sizeof(ImageObjectInfo));
+				uint64_t geomBufferAddr = drawResourcesBDA + currentGeometryBufferSize;
+				currentGeometryBufferSize += sizeof(ImageObjectInfo);
+
+				DrawObject drawObj = {};
+				drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::IMAGE) | (0 << 16)); // TODO: use custom pack/unpack function
+				drawObj.mainObjIndex = mainObjIdx;
+				drawObj.geometryAddress = geomBufferAddr;
+				void* dstDrawObj = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
+				memcpy(dstDrawObj, &drawObj, sizeof(DrawObject));
+				currentDrawObjectCount += 1u;
+
+				return true;
+			}
+			else
+				return false;
+		};
+
+	uint32_t mainObjIdx = addMainObject_SubmitIfNeeded(InvalidStyleIdx, InvalidDTMSettingsIdx, intendedNextSubmit);
+
+	ImageObjectInfo info = {};
+	info.topLeft = topLeftPos;
+	info.dirU = float32_t2(size.x * cos(rotation), size.x * sin(rotation)); // 
+	info.aspectRatio = size.y / size.x;
+	info.textureID = 0u;
+	if (!addImageObject_Internal(info, mainObjIdx))
+	{
+		// single image object couldn't fit into memory to push to gpu, so we submit rendering current objects and reset geometry buffer and draw objects
+		submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjIdx);
+		bool success = addImageObject_Internal(info, mainObjIdx);
+		assert(success); // this should always be true, otherwise it's either bug in code or not enough memory allocated to hold a single image object 
+	}
+}
+
 bool DrawResourcesFiller::finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
 {
 	bool success = true;
-	success &= finalizeMainObjectCopiesToGPU(intendedNextSubmit);
-	success &= finalizeGeometryCopiesToGPU(intendedNextSubmit);
-	success &= finalizeLineStyleCopiesToGPU(intendedNextSubmit);
-	success &= finalizeDTMSettingsCopiesToGPU(intendedNextSubmit);
+	success &= finalizeBufferCopies(intendedNextSubmit);
 	success &= finalizeTextureCopies(intendedNextSubmit);
 	return success;
 }
@@ -461,100 +431,59 @@ void DrawResourcesFiller::popClipProjectionData()
 	clipProjectionAddresses.pop_back();
 }
 
-bool DrawResourcesFiller::finalizeMainObjectCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
+bool DrawResourcesFiller::finalizeBufferCopies(SIntendedSubmitInfo& intendedNextSubmit)
 {
-	bool success = true;
-	// Copy MainObjects
-	uint32_t remainingMainObjects = currentMainObjectCount - inMemMainObjectCount;
-	SBufferRange<IGPUBuffer> mainObjectsRange = { sizeof(MainObject) * inMemMainObjectCount, sizeof(MainObject) * remainingMainObjects, gpuDrawBuffers.mainObjectsBuffer };
-	if (mainObjectsRange.size > 0u)
-	{
-		const MainObject* srcMainObjData = reinterpret_cast<MainObject*>(cpuDrawBuffers.mainObjectsBuffer->getPointer()) + inMemMainObjectCount;
-		if (m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, mainObjectsRange, srcMainObjData))
-			inMemMainObjectCount = currentMainObjectCount;
-		else
-		{
-			// TODO: Log
-			success = false;
-		}
-	}
-	return success;
-}
+	size_t offset = 0ull;
 
-bool DrawResourcesFiller::finalizeGeometryCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
-{
-	bool success = true;
-	// Copy DrawObjects
-	uint32_t remainingDrawObjects = currentDrawObjectCount - inMemDrawObjectCount;
-	SBufferRange<IGPUBuffer> drawObjectsRange = { sizeof(DrawObject) * inMemDrawObjectCount, sizeof(DrawObject) * remainingDrawObjects, gpuDrawBuffers.drawObjectsBuffer };
-	if (drawObjectsRange.size > 0u)
-	{
-		const DrawObject* srcDrawObjData = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + inMemDrawObjectCount;
-		if (m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, drawObjectsRange, srcDrawObjData))
-			inMemDrawObjectCount = currentDrawObjectCount;
-		else
-		{
-			// TODO: Log
-			success = false;
-		}
-	}
+	assert(drawBuffers.calculateTotalConsumption() <= drawResourcesGPUBuffer->getSize());
 
-	// Copy GeometryBuffer
-	uint64_t remainingGeometrySize = currentGeometryBufferSize - inMemGeometryBufferSize;
-	SBufferRange<IGPUBuffer> geomRange = { inMemGeometryBufferSize, remainingGeometrySize, gpuDrawBuffers.geometryBuffer };
-	if (geomRange.size > 0u)
-	{
-		const uint8_t* srcGeomData = reinterpret_cast<uint8_t*>(cpuDrawBuffers.geometryBuffer->getPointer()) + inMemGeometryBufferSize;
-		if (m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, geomRange, srcGeomData))
-			inMemGeometryBufferSize = currentGeometryBufferSize;
-		else
+	auto copyCPUFilledDrawBuffer = [&](auto& drawBuffer) -> bool
 		{
-			// TODO: Log
-			success = false;
-		}
-	}
-	return success;
-}
+			// drawBuffer must be of type CPUFilledDrawBuffer<T>
+			SBufferRange<IGPUBuffer> copyRange = { offset, drawBuffer.getStorageSize(), drawResourcesGPUBuffer};
 
-bool DrawResourcesFiller::finalizeLineStyleCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
-{
-	bool success = true;
-	// Copy LineStyles
-	uint32_t remainingLineStyles = currentLineStylesCount - inMemLineStylesCount;
-	SBufferRange<IGPUBuffer> stylesRange = { sizeof(LineStyle) * inMemLineStylesCount, sizeof(LineStyle) * remainingLineStyles, gpuDrawBuffers.lineStylesBuffer };
-	if (stylesRange.size > 0u)
-	{
-		LineStyle* srcLineStylesData = reinterpret_cast<LineStyle*>(cpuDrawBuffers.lineStylesBuffer->getPointer()) + inMemLineStylesCount;
+			if (copyRange.offset + copyRange.size > drawResourcesGPUBuffer->getSize())
+			{
+				// TODO: LOG ERROR, this shouldn't happen with correct auto-submission mechanism
+				assert(false);
+				return false;
+			}
 
-		if (m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, stylesRange, srcLineStylesData))
-			inMemLineStylesCount = currentLineStylesCount;
-		else
+			if (copyRange.size > 0ull)
+			{
+				drawBuffer.bufferOffset = copyRange.offset;
+				if (!m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, copyRange, drawBuffer.vector.data()))
+					return false;
+				offset += drawBuffer.getAlignedStorageSize();
+			}
+			return true;
+		};
+	
+	auto addComputeReservedFilledDrawBuffer = [&](auto& drawBuffer) -> bool
 		{
-			// TODO: Log
-			success = false;
-		}
-	}
-	return success;
-}
+			// drawBuffer must be of type ComputeReservedDrawBuffer<T>
+			SBufferRange<IGPUBuffer> copyRange = { offset, drawBuffer.getStorageSize(), drawResourcesGPUBuffer};
 
-bool DrawResourcesFiller::finalizeDTMSettingsCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
-{
-	bool success = true;
-	// Copy DTM settings
-	uint32_t remainingDTMSettings = currentDTMSettingsCount - inMemDTMSettingsCount;
-	SBufferRange<IGPUBuffer> dtmSettingsRange = { sizeof(DTMSettings) * inMemDTMSettingsCount, sizeof(DTMSettings) * remainingDTMSettings, gpuDrawBuffers.dtmSettingsBuffer };
-	if (dtmSettingsRange.size > 0u)
-	{
-		const DTMSettings* srcDTMSettingsData = reinterpret_cast<DTMSettings*>(cpuDrawBuffers.dtmSettingsBuffer->getPointer()) + inMemDTMSettingsCount;
-		if (m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, dtmSettingsRange, srcDTMSettingsData))
-			inMemDTMSettingsCount = currentDTMSettingsCount;
-		else
-		{
-			// TODO: Log
-			success = false;
-		}
-	}
-	return success;
+			if (copyRange.offset + copyRange.size > drawResourcesGPUBuffer->getSize())
+			{
+				// TODO: LOG ERROR, this shouldn't happen with correct auto-submission mechanism
+				assert(false);
+				return false;
+			}
+
+			drawBuffer.bufferOffset = copyRange.offset;
+			offset += drawBuffer.getAlignedStorageSize();
+		};
+
+	copyCPUFilledDrawBuffer(drawBuffers.lineStyles);
+	copyCPUFilledDrawBuffer(drawBuffers.dtmSettings);
+	copyCPUFilledDrawBuffer(drawBuffers.clipProjections);
+	copyCPUFilledDrawBuffer(drawBuffers.mainObjects);
+	copyCPUFilledDrawBuffer(drawBuffers.drawObjects);
+	copyCPUFilledDrawBuffer(drawBuffers.indexBuffer);
+	copyCPUFilledDrawBuffer(drawBuffers.geometryInfo);
+
+	return true;
 }
 
 bool DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNextSubmit)
@@ -872,7 +801,7 @@ uint64_t DrawResourcesFiller::addClipProjectionData_Internal(const ClipProjectio
 	uint8_t* dst = reinterpret_cast<uint8_t*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
 	memcpy(dst, &clipProjectionData, sizeof(ClipProjectionData));
 
-	const uint64_t ret = currentGeometryBufferSize + geometryBufferAddress;
+	const uint64_t ret = currentGeometryBufferSize + drawResourcesBDA;
 	currentGeometryBufferSize += sizeof(ClipProjectionData);
 	return ret;
 }
@@ -904,7 +833,7 @@ void DrawResourcesFiller::addPolylineConnectors_Internal(const CPolylineBase& po
 	DrawObject drawObj = {};
 	drawObj.mainObjIndex = mainObjIdx;
 	drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::POLYLINE_CONNECTOR) | 0 << 16);
-	drawObj.geometryAddress = geometryBufferAddress + currentGeometryBufferSize;
+	drawObj.geometryAddress = drawResourcesBDA + currentGeometryBufferSize;
 	for (uint32_t i = 0u; i < objectsToUpload; ++i)
 	{
 		void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
@@ -946,7 +875,7 @@ void DrawResourcesFiller::addLines_Internal(const CPolylineBase& polyline, const
 	DrawObject drawObj = {};
 	drawObj.mainObjIndex = mainObjIdx;
 	drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::LINE) | 0 << 16);
-	drawObj.geometryAddress = geometryBufferAddress + currentGeometryBufferSize;
+	drawObj.geometryAddress = drawResourcesBDA + currentGeometryBufferSize;
 	for (uint32_t i = 0u; i < objectsToUpload; ++i)
 	{
 		void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
@@ -987,7 +916,7 @@ void DrawResourcesFiller::addQuadBeziers_Internal(const CPolylineBase& polyline,
 	// Add DrawObjs
 	DrawObject drawObj = {};
 	drawObj.mainObjIndex = mainObjIdx;
-	drawObj.geometryAddress = geometryBufferAddress + currentGeometryBufferSize;
+	drawObj.geometryAddress = drawResourcesBDA + currentGeometryBufferSize;
 	for (uint32_t i = 0u; i < objectsToUpload; ++i)
 	{
 		for (uint16_t subObject = 0; subObject < CagesPerQuadBezier; subObject++)
@@ -1033,7 +962,7 @@ void DrawResourcesFiller::addHatch_Internal(const Hatch& hatch, uint32_t& curren
 			static_assert(sizeof(CurveBox) == sizeof(Hatch::CurveHatchBox));
 			void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
 			memcpy(dst, &hatchBox, sizeof(CurveBox));
-			hatchBoxAddress = geometryBufferAddress + currentGeometryBufferSize;
+			hatchBoxAddress = drawResourcesBDA + currentGeometryBufferSize;
 			currentGeometryBufferSize += sizeof(CurveBox);
 		}
 
@@ -1062,7 +991,7 @@ bool DrawResourcesFiller::addFontGlyph_Internal(const GlyphInfo& glyphInfo, uint
 	{
 		void* geomDst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
 		memcpy(geomDst, &glyphInfo, sizeof(GlyphInfo));
-		uint64_t fontGlyphAddr = geometryBufferAddress + currentGeometryBufferSize;
+		uint64_t fontGlyphAddr = drawResourcesBDA + currentGeometryBufferSize;
 		currentGeometryBufferSize += sizeof(GlyphInfo);
 
 		DrawObject drawObj = {};

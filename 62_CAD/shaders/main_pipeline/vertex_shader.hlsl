@@ -27,19 +27,10 @@ float2 QuadraticBezier(float2 p0, float2 p1, float2 p2, float t)
 
 ClipProjectionData getClipProjectionData(in MainObject mainObj)
 {
-    if (mainObj.clipProjectionAddress != InvalidClipProjectionAddress)
-    {
-        ClipProjectionData ret;
-        ret.projectionToNDC = vk::RawBufferLoad<pfloat64_t3x3>(mainObj.clipProjectionAddress, 8u);
-        ret.minClipNDC      = vk::RawBufferLoad<float32_t2>(mainObj.clipProjectionAddress + sizeof(pfloat64_t3x3), 8u);
-        ret.maxClipNDC      = vk::RawBufferLoad<float32_t2>(mainObj.clipProjectionAddress + sizeof(pfloat64_t3x3) + sizeof(float32_t2), 8u);
-
-        return ret;
-    }
+    if (mainObj.clipProjectionIndex != InvalidClipProjectionIndex)
+        return loadCustomClipProjection(mainObj.clipProjectionIndex);
     else
-    {
         return globals.defaultClipProjection;
-    }
 }
 
 float2 transformPointScreenSpace(pfloat64_t3x3 transformation, uint32_t2 resolution, pfloat64_t2 point2d)
@@ -112,7 +103,7 @@ PSInput main(uint vertexID : SV_VertexID)
     vtxPos.x = _static_cast<pfloat64_t>(vtx.pos.x);
     vtxPos.y = _static_cast<pfloat64_t>(vtx.pos.y);
 
-    MainObject mainObj = mainObjects[pc.triangleMeshMainObjectIndex];
+    MainObject mainObj = loadMainObject(pc.triangleMeshMainObjectIndex);
     ClipProjectionData clipProjectionData = getClipProjectionData(mainObj);
 
     float2 transformedPos = transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, vtxPos);
@@ -129,8 +120,8 @@ PSInput main(uint vertexID : SV_VertexID)
 
     // TODO: line style of contour line has to be set too!
     DTMSettings dtm = dtmSettings[mainObj.dtmSettingsIdx];
-    LineStyle outlineStyle = lineStyles[dtm.outlineLineStyleIdx];
-    LineStyle contourStyle = lineStyles[dtm.contourLineStyleIdx];
+    LineStyle outlineStyle = loadLineStyle(dtm.outlineLineStyleIdx);
+    LineStyle contourStyle = loadLineStyle(dtm.contourLineStyleIdx);
     const float screenSpaceOutlineWidth = outlineStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(outlineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
     const float sdfOutlineThickness = screenSpaceOutlineWidth * 0.5f;
     const float screenSpaceContourLineWidth = contourStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(contourStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
@@ -145,7 +136,7 @@ PSInput main(uint vertexID : SV_VertexID)
     const uint vertexIdx = vertexID & 0x3u;
     const uint objectID = vertexID >> 2;
 
-    DrawObject drawObj = drawObjects[objectID];
+    DrawObject drawObj = loadDrawObject(objectID);
 
     ObjectType objType = (ObjectType)(drawObj.type_subsectionIdx & 0x0000FFFF);
     uint32_t subsectionIdx = drawObj.type_subsectionIdx >> 16;
@@ -161,13 +152,13 @@ PSInput main(uint vertexID : SV_VertexID)
     outV.setObjType(objType);
     outV.setMainObjectIdx(drawObj.mainObjIndex);
     
-    MainObject mainObj = mainObjects[drawObj.mainObjIndex];
+    MainObject mainObj = loadMainObject(drawObj.mainObjIndex);
     ClipProjectionData clipProjectionData = getClipProjectionData(mainObj);
     
     // We only need these for Outline type objects like lines and bezier curves
     if (objType == ObjectType::LINE || objType == ObjectType::QUAD_BEZIER || objType == ObjectType::POLYLINE_CONNECTOR)
     {
-        LineStyle lineStyle = lineStyles[mainObj.styleIdx];
+        LineStyle lineStyle = loadLineStyle(mainObj.styleIdx);
 
         // Width is on both sides, thickness is one one side of the curve (div by 2.0f)
         const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(lineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
@@ -545,7 +536,7 @@ PSInput main(uint vertexID : SV_VertexID)
     }
     else if (objType == ObjectType::FONT_GLYPH)
     {
-        LineStyle lineStyle = lineStyles[mainObj.styleIdx];
+        LineStyle lineStyle = loadLineStyle(mainObj.styleIdx);
         const float italicTiltSlope = lineStyle.screenSpaceLineWidth; // aliased text style member with line style
         
         GlyphInfo glyphInfo;
