@@ -200,14 +200,17 @@ public:
 				return false;
 			}
 		}
-
-		const auto MaxWorkgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
+		
+		// TODO variable items per invocation?
+		const uint32_t ItemsPerInvocation = 4u;
+		const std::array<uint32_t, 5> workgroupSizes = { 64, 128, 256, 512, 1024 };
+		// const auto MaxWorkgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
 		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
 		for (auto subgroupSize=MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 		{
 			const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
-			for (uint32_t workgroupSize = subgroupSize; workgroupSize <= MaxWorkgroupSize; workgroupSize += subgroupSize)
+			for (const auto& workgroupSize : workgroupSizes)
 			{
 				// make sure renderdoc captures everything for debugging
 				m_api->startCapture();
@@ -221,16 +224,16 @@ public:
 				logTestOutcome(passed, workgroupSize);
 				passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize) && passed;
 				logTestOutcome(passed, workgroupSize);
-				for (uint32_t itemsPerWG = workgroupSize; itemsPerWG > workgroupSize - subgroupSize; itemsPerWG--)
-				{
-					m_logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
-					passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
-					logTestOutcome(passed, itemsPerWG);
-					passed = runTest<emulatedScanInclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
-					logTestOutcome(passed, itemsPerWG);
-					passed = runTest<emulatedScanExclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
-					logTestOutcome(passed, itemsPerWG);
-				}
+				//for (uint32_t itemsPerWG = workgroupSize; itemsPerWG > workgroupSize - subgroupSize; itemsPerWG--)
+				//{
+				//	m_logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
+				//	passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
+				//	logTestOutcome(passed, itemsPerWG);
+				//	passed = runTest<emulatedScanInclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
+				//	logTestOutcome(passed, itemsPerWG);
+				//	passed = runTest<emulatedScanExclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
+				//	logTestOutcome(passed, itemsPerWG);
+				//}
 				m_api->endCapture();
 
 				// save cache every now and then	
@@ -301,30 +304,30 @@ private:
 	}*/
 
 	template<template<class> class Arithmetic, bool WorkgroupTest>
-	bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerWG = ~0u)
+	bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerWG = ~0u, uint32_t itemsPerInvoc = 1u)
 	{
 		std::string arith_name = Arithmetic<bit_xor<float>>::name;
 
 		smart_refctd_ptr<ICPUShader> overridenUnspecialized;
-		if constexpr (WorkgroupTest)
-		{
-			overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
-				source.get(), "#define OPERATION %s\n#define WORKGROUP_SIZE %d\n#define ITEMS_PER_WG %d\n",
-				(("workgroup::") + arith_name).c_str(), workgroupSize, itemsPerWG
-			);
-		}
-		else
-		{
+		//if constexpr (WorkgroupTest)
+		//{
+		//	overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
+		//		source.get(), "#define OPERATION %s\n#define WORKGROUP_SIZE %d\n#define ITEMS_PER_WG %d\n",
+		//		(("workgroup::") + arith_name).c_str(), workgroupSize, itemsPerWG
+		//	);
+		//}
+		//else
+		//{
 			itemsPerWG = workgroupSize;
 			overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
-				source.get(), "#define OPERATION %s\n#define WORKGROUP_SIZE %d\n",
-				(("subgroup::") + arith_name).c_str(), workgroupSize
+				source.get(), "#define OPERATION %s\n#define WORKGROUP_SIZE %d\n#define ITEMS_PER_INVOCATION %d\n#define SUBGROUP_SIZE_LOG2 %d\n",
+				(("subgroup2::") + arith_name).c_str(), workgroupSize, itemsPerInvoc, subgroupSizeLog2
 			);
-		}
+		//}
 		auto pipeline = createPipeline(overridenUnspecialized.get(),subgroupSizeLog2);
 
 		// TODO: overlap dispatches with memory readbacks (requires multiple copies of `buffers`)
-		const uint32_t workgroupCount = elementCount / itemsPerWG;
+		const uint32_t workgroupCount = elementCount / (itemsPerWG * itemsPerInvoc);
 		cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
 		cmdbuf->bindComputePipeline(pipeline.get());
 		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &descriptorSet.get());

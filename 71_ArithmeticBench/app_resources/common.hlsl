@@ -10,7 +10,6 @@ struct Output
 	uint32_t data[ScanElementCount];
 };
 
-// Thanks to our unified HLSL/C++ STD lib we're able to remove a whole load of code
 template<typename T>
 struct bit_and : nbl::hlsl::bit_and<T>
 {
