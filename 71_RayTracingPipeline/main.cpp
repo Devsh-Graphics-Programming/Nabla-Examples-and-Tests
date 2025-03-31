@@ -163,7 +163,7 @@ public:
     const auto anyHitShaderColorPayload = loadCompileAndCreateShader("app_resources/raytrace.rahit.hlsl");
     const auto anyHitShaderShadowPayload = loadCompileAndCreateShader("app_resources/raytrace_shadow.rahit.hlsl");
     const auto missShader = loadCompileAndCreateShader("app_resources/raytrace.rmiss.hlsl");
-    const auto shadowClosestHitShader = loadCompileAndCreateShader("app_resources/raytrace_shadow_triangle.rchit.hlsl");
+    const auto missShadowShader = loadCompileAndCreateShader("app_resources/raytrace_shadow.rmiss.hlsl");
     const auto directionalLightCallShader = loadCompileAndCreateShader("app_resources/light_directional.rcall.hlsl");
     const auto pointLightCallShader = loadCompileAndCreateShader("app_resources/light_point.rcall.hlsl");
     const auto spotLightCallShader = loadCompileAndCreateShader("app_resources/light_spot.rcall.hlsl");
@@ -323,7 +323,7 @@ public:
       {
         RTDS_RAYGEN,
         RTDS_MISS,
-        RTDS_CLOSEST_HIT_SHADOW,
+        RTDS_MISS_SHADOW,
         RTDS_CLOSEST_HIT,
         RTDS_SPHERE_CLOSEST_HIT,
         RTDS_ANYHIT_PRIMARY,
@@ -338,7 +338,7 @@ public:
       IGPUShader::SSpecInfo shaders[RTDS_COUNT];
       shaders[RTDS_RAYGEN] = {.shader = raygenShader.get()};
       shaders[RTDS_MISS] = {.shader = missShader.get()};
-      shaders[RTDS_CLOSEST_HIT_SHADOW] = { .shader = shadowClosestHitShader.get() };
+      shaders[RTDS_MISS_SHADOW] = { .shader = missShadowShader.get() };
       shaders[RTDS_CLOSEST_HIT] = {.shader = closestHitShader.get()};
       shaders[RTDS_SPHERE_CLOSEST_HIT] = {.shader = proceduralClosestHitShader.get()};
       shaders[RTDS_ANYHIT_PRIMARY] = {.shader = anyHitShaderColorPayload.get()};
@@ -351,9 +351,9 @@ public:
       params.layout = pipelineLayout.get();
       params.shaders = std::span(shaders);
       using RayTracingFlags = IGPURayTracingPipeline::SCreationParams::FLAGS;
-      params.flags = core::bitflag(RayTracingFlags::NO_NULL_INTERSECTION_SHADERS) | 
-        RayTracingFlags::NO_NULL_ANY_HIT_SHADERS |
-        RayTracingFlags::NO_NULL_CLOSEST_HIT_SHADERS;
+      params.flags = core::bitflag(RayTracingFlags::NO_NULL_MISS_SHADERS) |
+        RayTracingFlags::NO_NULL_INTERSECTION_SHADERS | 
+        RayTracingFlags::NO_NULL_ANY_HIT_SHADERS;
 
       auto& shaderGroups = params.shaderGroups;
 
@@ -361,7 +361,7 @@ public:
 
       IRayTracingPipelineBase::SGeneralShaderGroup missGroups[EMT_COUNT];
       missGroups[EMT_PRIMARY] = { .index = RTDS_MISS };
-      missGroups[EMT_OCCLUSION] = { .index = IGPURayTracingPipeline::SGeneralShaderGroup::Unused };
+      missGroups[EMT_OCCLUSION] = { .index = RTDS_MISS_SHADOW };
       shaderGroups.misses = missGroups;
 
       auto getHitGroupIndex = [](E_GEOM_TYPE geomType, E_RAY_TYPE rayType)
@@ -374,7 +374,7 @@ public:
         .anyHit = RTDS_ANYHIT_PRIMARY,
       };
       hitGroups[getHitGroupIndex(EGT_TRIANGLES, ERT_OCCLUSION)] = {
-        .closestHit = RTDS_CLOSEST_HIT_SHADOW,
+        .closestHit = IGPURayTracingPipeline::SGeneralShaderGroup::Unused,
         .anyHit = RTDS_ANYHIT_SHADOW,
       };
       hitGroups[getHitGroupIndex(EGT_PROCEDURAL, ERT_PRIMARY)] = {
@@ -383,7 +383,7 @@ public:
         .intersection = RTDS_INTERSECTION,
       };
       hitGroups[getHitGroupIndex(EGT_PROCEDURAL, ERT_OCCLUSION)] = {
-        .closestHit = RTDS_CLOSEST_HIT_SHADOW,
+        .closestHit = IGPURayTracingPipeline::SGeneralShaderGroup::Unused,
         .anyHit = RTDS_ANYHIT_SHADOW,
         .intersection = RTDS_INTERSECTION,
       };

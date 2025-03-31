@@ -170,7 +170,10 @@ struct RayLight
 
 struct [raypayload] OcclusionPayload
 {
-    float32_t attenuation : read(caller) : write(caller, anyhit);
+    // TODO: will this break DXC? Tbh should come from push constant or some autoexposure feedback
+    // NBL_CONSTEXPR_STATIC_INLINE float32_t MinAttenuation = 1.f/1024.f;
+
+    float32_t attenuation : read(caller,anyhit,miss) : write(caller,anyhit,miss);
 };
 
 struct MaterialId
@@ -210,7 +213,7 @@ struct [raypayload] PrimaryPayload
     using generator_t = nbl::hlsl::random::Pcg;
 
     float32_t3  worldNormal : read(caller) : write(closesthit);
-    float32_t   rayDistance : read(caller) : write(closesthit, miss);
+    float32_t   rayDistance : read(caller) : write(closesthit,miss);
     generator_t pcg         : read(anyhit) : write(caller,anyhit);
     MaterialId  materialId  : read(caller) : write(closesthit);
 
