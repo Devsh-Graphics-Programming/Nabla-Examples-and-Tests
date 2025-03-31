@@ -18,14 +18,8 @@ float32_t hitSphere(SProceduralGeomInfo s, Ray r)
     float32_t c = dot(oc, oc) - s.radius * s.radius;
     float32_t discriminant = b * b - 4 * a * c;
 
-    if (discriminant < 0)
-    {
-        return -1.0;
-    }
-    else
-    {
-        return (-b - sqrt(discriminant)) / (2.0 * a);
-    }
+    // return whatever, if the discriminant is negative, it will produce a NaN, and NaN will compare false
+    return (-b - sqrt(discriminant)) / (2.0 * a);
 }
 
 [shader("intersection")]

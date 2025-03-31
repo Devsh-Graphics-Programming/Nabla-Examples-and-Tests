@@ -53,6 +53,11 @@ struct Material
     {
         return alpha < 1.0;
     }
+
+    bool alphaTest(const float32_t xi) NBL_CONST_MEMBER_FUNC
+    {
+        return xi > alpha;
+    }
 };
 
 struct MaterialPacked
@@ -66,6 +71,11 @@ struct MaterialPacked
     bool isTransparent() NBL_CONST_MEMBER_FUNC
     {
         return alpha != MAX_UNORM_10;
+    }
+
+    bool alphaTest(const uint32_t xi) NBL_CONST_MEMBER_FUNC
+    {
+        return (xi>>22) > alpha;
     }
 };
 
@@ -198,14 +208,6 @@ struct MaterialId
 struct [raypayload] PrimaryPayload
 {
     using generator_t = nbl::hlsl::random::Pcg;
-/* bugged out by https://github.com/microsoft/DirectXShaderCompiler/issues/6464
-    bool nextDiscard(const float32_t alpha)
-    {
-        const uint32_t bitpattern = pcg();
-        const float32_t xi = (float32_t(bitpattern)+0.5f)/float32_t(0xFFFFFFFF);
-        return xi > alpha;
-    }
-*/
 
     float32_t3  worldNormal : read(caller) : write(closesthit);
     float32_t   rayDistance : read(caller) : write(closesthit, miss);
@@ -335,12 +337,9 @@ float32_t3 fetchVertexNormal(int instID, int primID, STriangleGeomInfo geom, flo
         case OT_ICOSPHERE:
         default:
         {
-                n0 = normalize(vk::RawBufferLoad <
-                float3 > (normalVertexBufferAddress + i0 * vertexStride));
-                n1 = normalize(vk::RawBufferLoad <
-                float3 > (normalVertexBufferAddress + i1 * vertexStride));
-                n2 = normalize(vk::RawBufferLoad <
-                float3 > (normalVertexBufferAddress + i2 * vertexStride));
+                n0 = vk::RawBufferLoad < float3 > (normalVertexBufferAddress + i0 * vertexStride);
+                n1 = vk::RawBufferLoad < float3 > (normalVertexBufferAddress + i1 * vertexStride);
+                n2 = vk::RawBufferLoad < float3 > (normalVertexBufferAddress + i2 * vertexStride);
             }
     }
 

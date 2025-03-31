@@ -65,6 +65,12 @@ void main()
         }
 
         const float32_t3 worldPosition = pc.camPos + (camDirection * rayDistance);
+
+        // make sure to call with least live state
+        RayLight cLight;
+        cLight.inHitPosition = worldPosition;
+        CallShader(pc.light.type, cLight);
+
         const float32_t3 worldNormal = payload.worldNormal;
 
         Material material;
@@ -80,9 +86,6 @@ void main()
             const MaterialPacked materialPacked = vk::RawBufferLoad<MaterialPacked>(pc.triangleGeomInfoBuffer + materialId.getMaterialIndex() * sizeof(STriangleGeomInfo));
             material = nbl::hlsl::_static_cast<Material>(materialPacked);
         }
-        RayLight cLight;
-        cLight.inHitPosition = worldPosition;
-        CallShader(pc.light.type, cLight);
 
         float32_t attenuation = 1;
 
