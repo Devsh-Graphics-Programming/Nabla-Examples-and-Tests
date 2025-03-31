@@ -42,10 +42,11 @@ void DrawResourcesFiller::setSubmitDrawsFunction(const SubmitFunc& func)
 //	gpuDrawBuffers.indexBuffer->setObjectDebugName("indexBuffer");
 //}
 
-
-void DrawResourcesFiller::allocateDrawResourcesBuffer(ILogicalDevice* logicalDevice, size_t size)
+void DrawResourcesFiller::allocateResourcesBuffer(ILogicalDevice* logicalDevice, size_t size)
 {
+
 	size = core::alignUp(size, BDALoadAlignment);
+	size = core::max(size, getMinimumRequiredResourcesBufferSize());
 	IGPUBuffer::SCreationParams geometryCreationParams = {};
 	geometryCreationParams.size = size;
 	geometryCreationParams.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INDEX_BUFFER_BIT;
@@ -221,8 +222,8 @@ void DrawResourcesFiller::drawHatch(
 {
 	// TODO[Optimization Idea]: don't draw hatch twice if both colors are visible: instead do the msdf inside the alpha resolve by detecting mainObj being a hatch
 	// https://discord.com/channels/593902898015109131/856835291712716820/1228337893366300743
-	// TODO: Come back to this idea when doing color resolve for ecws (they don't have mainObj/style Index, instead they have uv into a texture
-	
+	// TODO: Come back to this idea when doing color resolve for ecws (they don't have mainObj/style Index, instead they have uv into a texture	
+
 	// if backgroundColor is visible
 	drawHatch(hatch, backgroundColor, intendedNextSubmit);
 	// if foregroundColor is visible
@@ -268,6 +269,7 @@ void DrawResourcesFiller::drawHatch(const Hatch& hatch, const float32_t4& color,
 	drawHatch(hatch, color, HatchFillPattern::SOLID_FILL, intendedNextSubmit);
 }
 
+// TODO: FIX
 void DrawResourcesFiller::drawFontGlyph(
 		nbl::ext::TextRendering::FontFace* fontFace,
 		uint32_t glyphIdx,
@@ -302,6 +304,7 @@ void DrawResourcesFiller::drawFontGlyph(
 	}
 }
 
+// TODO: FIX
 void DrawResourcesFiller::_test_addImageObject(float64_t2 topLeftPos, float32_t2 size, float32_t rotation, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	auto addImageObject_Internal = [&](const ImageObjectInfo& imageObjectInfo, uint32_t mainObjIdx) -> bool

@@ -95,8 +95,16 @@ public:
 
 	typedef std::function<void(SIntendedSubmitInfo&)> SubmitFunc;
 	void setSubmitDrawsFunction(const SubmitFunc& func);
+	
+	/// @brief Get minimum required size for resources buffer (containing objects and geometry info and their settings)
+	consteval size_t getMinimumRequiredResourcesBufferSize() const
+	{
+		// for auto-submission to work correctly, memory needs to serve at least 2 linestyle, 1 dtm settings, 1 clip proj, 1 main obj, 1 draw obj and 512 bytes of additional mem for geometries and index buffer
+		// this is the ABSOLUTE MINIMUM (if this value is used rendering will probably be as slow as CPU drawing :D)
+		return core::alignUp(sizeof(LineStyle) * 2u + sizeof(DTMSettings) + sizeof(ClipProjectionData) + sizeof(MainObject) + sizeof(DrawObject) + 512ull, BDALoadAlignment);
+	}
 
-	void allocateDrawResourcesBuffer(ILogicalDevice* logicalDevice, size_t size);
+	void allocateResourcesBuffer(ILogicalDevice* logicalDevice, size_t size);
 
 	void allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent);
 
