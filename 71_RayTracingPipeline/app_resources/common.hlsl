@@ -3,6 +3,7 @@
 
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 #include "nbl/builtin/hlsl/cpp_compat/basic.h"
+#include "nbl/builtin/hlsl/random/pcg.hlsl"
 
 NBL_CONSTEXPR uint32_t WorkgroupSize = 16;
 NBL_CONSTEXPR uint32_t MAX_UNORM_10 = 1023;
@@ -196,10 +197,20 @@ struct MaterialId
 
 struct [raypayload] PrimaryPayload
 {
-    float32_t3 worldNormal : read(caller) : write(closesthit);
-    float32_t rayDistance : read(caller) : write(closesthit, miss);
-    float32_t alphaThreshold : read(closesthit, anyhit) : write(caller);
-    MaterialId materialId : read(caller) : write(closesthit);
+    using generator_t = nbl::hlsl::random::Pcg;
+/* bugged out by https://github.com/microsoft/DirectXShaderCompiler/issues/6464
+    bool nextDiscard(const float32_t alpha)
+    {
+        const uint32_t bitpattern = pcg();
+        const float32_t xi = (float32_t(bitpattern)+0.5f)/float32_t(0xFFFFFFFF);
+        return xi > alpha;
+    }
+*/
+
+    float32_t3  worldNormal : read(caller) : write(closesthit);
+    float32_t   rayDistance : read(caller) : write(closesthit, miss);
+    generator_t pcg         : read(anyhit) : write(caller,anyhit);
+    MaterialId  materialId  : read(caller) : write(closesthit);
 
 };
 

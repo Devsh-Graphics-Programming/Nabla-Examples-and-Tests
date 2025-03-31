@@ -2,7 +2,6 @@
 
 #include "nbl/builtin/hlsl/jit/device_capabilities.hlsl"
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
-#include "nbl/builtin/hlsl/random/pcg.hlsl"
 
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 #include "nbl/builtin/hlsl/spirv_intrinsics/raytracing.hlsl"
@@ -28,8 +27,8 @@ void main()
     const uint32_t3 launchSize = DispatchRaysDimensions();
     const uint32_t2 coords = launchID.xy;
 
-    const uint32_t seed1 = nbl::hlsl::Pcg::construct(pc.frameCounter)();
-    const uint32_t seed2 = nbl::hlsl::Pcg::construct(launchID.y * launchSize.x + launchID.x)();
+    const uint32_t seed1 = nbl::hlsl::random::Pcg::create(pc.frameCounter)();
+    const uint32_t seed2 = nbl::hlsl::random::Pcg::create(launchID.y * launchSize.x + launchID.x)();
     nbl::hlsl::Xoroshiro64StarStar rnd = nbl::hlsl::Xoroshiro64StarStar::construct(uint32_t2(seed1, seed2));
 
     float32_t3 hitValues = float32_t3(0, 0, 0);
@@ -55,7 +54,7 @@ void main()
         rayDesc.TMax = 10000.0;
         
         PrimaryPayload payload;
-        payload.alphaThreshold = nextRandomUnorm(rnd);
+        payload.pcg = PrimaryPayload::generator_t::create(rnd());
         TraceRay(topLevelAS, RAY_FLAG_NONE, 0xff, ERT_PRIMARY, 0, EMT_PRIMARY, rayDesc, payload);
 
         const float32_t rayDistance = payload.rayDistance;
