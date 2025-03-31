@@ -45,20 +45,16 @@ void DrawResourcesFiller::setSubmitDrawsFunction(const SubmitFunc& func)
 
 void DrawResourcesFiller::allocateDrawResourcesBuffer(ILogicalDevice* logicalDevice, size_t size)
 {
-	maxGeometryBufferSize = size;
-
+	size = core::alignUp(size, BDALoadAlignment);
 	IGPUBuffer::SCreationParams geometryCreationParams = {};
 	geometryCreationParams.size = size;
-	geometryCreationParams.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INDEX_BUFFER_BIT; // INDEX_BUFFER USAGE for DTMs
-	gpuDrawBuffers.geometryBuffer = logicalDevice->createBuffer(std::move(geometryCreationParams));
-	gpuDrawBuffers.geometryBuffer->setObjectDebugName("geometryBuffer");
+	geometryCreationParams.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INDEX_BUFFER_BIT;
+	resourcesGPUBuffer = logicalDevice->createBuffer(std::move(geometryCreationParams));
+	resourcesGPUBuffer->setObjectDebugName("drawResourcesBuffer");
 
-	IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.geometryBuffer->getMemoryReqs();
+	IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = resourcesGPUBuffer->getMemoryReqs();
 	memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-	auto geometryBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.geometryBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
-	drawResourcesBDA = gpuDrawBuffers.geometryBuffer->getDeviceAddress();
-
-	cpuDrawBuffers.geometryBuffer = ICPUBuffer::create({ size });
+	auto mem = logicalDevice->allocate(memReq, resourcesGPUBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
 }
 
 void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent)
@@ -170,31 +166,37 @@ void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, CTriangleM
 	// concatenate the index and vertex buffer into the geometry buffer
 	const size_t indexBuffByteSize = mesh.getIndexBuffByteSize();
 	const size_t vtxBuffByteSize = mesh.getVertexBuffByteSize();
-	const size_t geometryBufferDataToAddByteSize = indexBuffByteSize + vtxBuffByteSize;
+	const size_t dataToAddByteSize = vtxBuffByteSize + indexBuffByteSize;
 
 	// copy into gemoetry cpu buffer insteaed
 
+	const size_t totalResourcesConsumption = resourcesCollection.calculateTotalConsumption();
+
 	// TODO: rename, its not just points
-	const uint32_t remainingGeometryBufferSize = static_cast<uint32_t>(maxGeometryBufferSize - currentGeometryBufferSize);
+	const uint32_t remainingResourcesSize = static_cast<uint32_t>(resourcesGPUBuffer->getSize() - totalResourcesConsumption);
 
-	// TODO: assert of geometry buffer size, do i need to check if size of objects to be added <= remainingGeometryBufferSize?
+	// TODO: assert of geometry buffer size, do i need to check if size of objects to be added <= remainingResourcesSize?
 	// TODO: auto submit instead of assert
-	assert(geometryBufferDataToAddByteSize <= remainingGeometryBufferSize);
+	assert(dataToAddByteSize <= remainingResourcesSize);
 
-	// TODO: vertices need to be aligned to 8?
-	uint64_t vtxBufferAddress;
 	{
-		void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
-		void* dst1 = dst;
+		// NOTE[ERFAN]: these push contants will be removed, everything will be accessed by dtmSettings, including where the vertex buffer data resides
+		auto& geometryBytesVector = resourcesCollection.geometryInfo.vector;
+		size_t geometryBufferOffset = core::alignUp(geometryBytesVector.size(), BDALoadAlignment);
+		geometryBytesVector.resize(geometryBufferOffset + dataToAddByteSize);
 
-		drawData.indexBufferOffset = currentGeometryBufferSize;
-		memcpy(dst, mesh.getIndices().data(), indexBuffByteSize);
-		currentGeometryBufferSize += indexBuffByteSize;
-
-		dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
-		drawData.pushConstants.triangleMeshVerticesBaseAddress = drawResourcesBDA + currentGeometryBufferSize;
+		// Copy VertexBuffer
+		void* dst = geometryBytesVector.data() + geometryBufferOffset;
+		// the actual bda address will be determined only after all copies are finalized, later we will do += `baseBDAAddress + geometryInfo.bufferOffset`
+		drawData.pushConstants.triangleMeshVerticesBaseAddress = geometryBufferOffset;
 		memcpy(dst, mesh.getVertices().data(), vtxBuffByteSize);
-		currentGeometryBufferSize += vtxBuffByteSize;
+		geometryBufferOffset += vtxBuffByteSize; 
+
+		// Copy IndexBuffer
+		dst = geometryBytesVector.data() + geometryBufferOffset;
+		drawData.indexBufferOffset = geometryBufferOffset;
+		memcpy(dst, mesh.getIndices().data(), indexBuffByteSize);
+		geometryBufferOffset += indexBuffByteSize;
 	}
 
 	drawData.indexCount = mesh.getIndexCount();
@@ -433,16 +435,16 @@ void DrawResourcesFiller::popClipProjectionData()
 
 bool DrawResourcesFiller::finalizeBufferCopies(SIntendedSubmitInfo& intendedNextSubmit)
 {
-	size_t offset = 0ull;
+	copiedResourcesSize = 0ull;
 
-	assert(drawBuffers.calculateTotalConsumption() <= drawResourcesGPUBuffer->getSize());
+	assert(resourcesCollection.calculateTotalConsumption() <= resourcesGPUBuffer->getSize());
 
 	auto copyCPUFilledDrawBuffer = [&](auto& drawBuffer) -> bool
 		{
-			// drawBuffer must be of type CPUFilledDrawBuffer<T>
-			SBufferRange<IGPUBuffer> copyRange = { offset, drawBuffer.getStorageSize(), drawResourcesGPUBuffer};
+			// drawBuffer must be of type CPUGeneratedResource<T>
+			SBufferRange<IGPUBuffer> copyRange = { copiedResourcesSize, drawBuffer.getStorageSize(), resourcesGPUBuffer};
 
-			if (copyRange.offset + copyRange.size > drawResourcesGPUBuffer->getSize())
+			if (copyRange.offset + copyRange.size > resourcesGPUBuffer->getSize())
 			{
 				// TODO: LOG ERROR, this shouldn't happen with correct auto-submission mechanism
 				assert(false);
@@ -454,17 +456,17 @@ bool DrawResourcesFiller::finalizeBufferCopies(SIntendedSubmitInfo& intendedNext
 				drawBuffer.bufferOffset = copyRange.offset;
 				if (!m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, copyRange, drawBuffer.vector.data()))
 					return false;
-				offset += drawBuffer.getAlignedStorageSize();
+				copiedResourcesSize += drawBuffer.getAlignedStorageSize();
 			}
 			return true;
 		};
 	
 	auto addComputeReservedFilledDrawBuffer = [&](auto& drawBuffer) -> bool
 		{
-			// drawBuffer must be of type ComputeReservedDrawBuffer<T>
-			SBufferRange<IGPUBuffer> copyRange = { offset, drawBuffer.getStorageSize(), drawResourcesGPUBuffer};
+			// drawBuffer must be of type ReservedComputeResource<T>
+			SBufferRange<IGPUBuffer> copyRange = { copiedResourcesSize, drawBuffer.getStorageSize(), resourcesGPUBuffer};
 
-			if (copyRange.offset + copyRange.size > drawResourcesGPUBuffer->getSize())
+			if (copyRange.offset + copyRange.size > resourcesGPUBuffer->getSize())
 			{
 				// TODO: LOG ERROR, this shouldn't happen with correct auto-submission mechanism
 				assert(false);
@@ -472,17 +474,17 @@ bool DrawResourcesFiller::finalizeBufferCopies(SIntendedSubmitInfo& intendedNext
 			}
 
 			drawBuffer.bufferOffset = copyRange.offset;
-			offset += drawBuffer.getAlignedStorageSize();
+			copiedResourcesSize += drawBuffer.getAlignedStorageSize();
 		};
 
-	copyCPUFilledDrawBuffer(drawBuffers.lineStyles);
-	copyCPUFilledDrawBuffer(drawBuffers.dtmSettings);
-	copyCPUFilledDrawBuffer(drawBuffers.clipProjections);
-	copyCPUFilledDrawBuffer(drawBuffers.mainObjects);
-	copyCPUFilledDrawBuffer(drawBuffers.drawObjects);
-	copyCPUFilledDrawBuffer(drawBuffers.indexBuffer);
-	copyCPUFilledDrawBuffer(drawBuffers.geometryInfo);
-
+	copyCPUFilledDrawBuffer(resourcesCollection.lineStyles);
+	copyCPUFilledDrawBuffer(resourcesCollection.dtmSettings);
+	copyCPUFilledDrawBuffer(resourcesCollection.clipProjections);
+	copyCPUFilledDrawBuffer(resourcesCollection.mainObjects);
+	copyCPUFilledDrawBuffer(resourcesCollection.drawObjects);
+	copyCPUFilledDrawBuffer(resourcesCollection.indexBuffer);
+	copyCPUFilledDrawBuffer(resourcesCollection.geometryInfo);
+	
 	return true;
 }
 

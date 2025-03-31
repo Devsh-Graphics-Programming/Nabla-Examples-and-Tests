@@ -28,53 +28,54 @@ struct DrawResourcesFiller
 {
 public:
 	
-	/// @brief general parent struct for 1.ComputeReserved and 2.CPUFilled DrawBuffers
-	struct DrawBuffer
+	static constexpr size_t BDALoadAlignment = 8u;
+
+	/// @brief general parent struct for 1.ReservedCompute and 2.CPUGenerated Resources
+	struct ResourceBase
 	{
-		static constexpr size_t Alignment = 8u;
 		static constexpr size_t InvalidBufferOffset = ~0u;
 		size_t bufferOffset = InvalidBufferOffset; // set when copy to gpu buffer is issued
 		virtual size_t getCount() const = 0;
 		virtual size_t getStorageSize() const = 0;
-		virtual size_t getAlignedStorageSize() const { core::alignUp(getStorageSize(), Alignment); }
+		virtual size_t getAlignedStorageSize() const { core::alignUp(getStorageSize(), BDALoadAlignment); }
 	};
 
-	/// @brief DrawBuffer reserved for compute shader stages input/output
+	/// @brief ResourceBase reserved for compute shader stages input/output
 	template <typename T>
-	struct ComputeReservedDrawBuffer : DrawBuffer
+	struct ReservedComputeResource : ResourceBase
 	{
 		size_t count = 0ull;
 		size_t getCount() const override { return count; }
 		size_t getStorageSize() const override  { return count * sizeof(T); }
 	};
 
-	/// @brief DrawBuffer which is filled by CPU, packed and sent to GPU
+	/// @brief ResourceBase which is filled by CPU, packed and sent to GPU
 	template <typename T>
-	struct CPUFilledDrawBuffer : DrawBuffer
+	struct CPUGeneratedResource : ResourceBase
 	{
 		core::vector<T> vector;
 		size_t getCount() const { return vector.size(); }
 		size_t getStorageSize() const { return vector.size() * sizeof(T); }
 	};
 
-	/// @brief struct to hold all draw buffers
-	struct DrawBuffers
+	/// @brief struct to hold all resources
+	struct ResourcesCollection
 	{
 		// auto-submission level 0 buffers (settings that mainObj references)
-		CPUFilledDrawBuffer<LineStyle> lineStyles;
-		CPUFilledDrawBuffer<DTMSettings> dtmSettings;
-		CPUFilledDrawBuffer<ClipProjectionData> clipProjections;
+		CPUGeneratedResource<LineStyle> lineStyles;
+		CPUGeneratedResource<DTMSettings> dtmSettings;
+		CPUGeneratedResource<ClipProjectionData> clipProjections;
 	
 		// auto-submission level 1 buffers (mainObj that drawObjs references, if all drawObjs+idxBuffer+geometryInfo doesn't fit into mem this will be broken down into many)
-		CPUFilledDrawBuffer<MainObject> mainObjects;
+		CPUGeneratedResource<MainObject> mainObjects;
 
 		// auto-submission level 2 buffers
-		CPUFilledDrawBuffer<DrawObject> drawObjects;
-		CPUFilledDrawBuffer<uint32_t> indexBuffer;
-		CPUFilledDrawBuffer<uint8_t> geometryInfo; // general purpose byte buffer for custom geometries, etc
+		CPUGeneratedResource<DrawObject> drawObjects;
+		CPUGeneratedResource<uint32_t> indexBuffer;
+		CPUGeneratedResource<uint8_t> geometryInfo; // general purpose byte buffer for custom geometries, etc
 
-		// Get Total memory consumption, If all DrawBuffers get packed together with DrawBuffer::Alignment
-		// Useful to know when to know when to overflow
+		// Get Total memory consumption, If all ResourcesCollection get packed together with BDALoadAlignment
+		// used to decide when to overflow
 		size_t calculateTotalConsumption() const
 		{
 			return
@@ -166,8 +167,14 @@ public:
 		resetDTMSettingsCounters();
 	}
 
-	DrawBuffers drawBuffers; // will be compacted and copied into gpu draw resources
-	nbl::core::smart_refctd_ptr<IGPUBuffer> drawResourcesGPUBuffer;
+	/// @brief collection of all the resources that will eventually be reserved or copied to in the resourcesGPUBuffer, will be accessed via individual BDA pointers in shaders
+	const ResourcesCollection& getResourcesCollection() const { return &resourcesCollection; }
+
+	/// @brief buffer containing all non-texture type resources
+	nbl::core::smart_refctd_ptr<IGPUBuffer> getResourcesGPUBuffer() const { return resourcesGPUBuffer; }
+
+	/// @return how far resourcesGPUBuffer was copied to by `finalizeAllCopiesToGPU` in `resourcesCollection` 
+	const size_t getCopiedResourcesSize() { return copiedResourcesSize; }
 
 	uint32_t addLineStyle_SubmitIfNeeded(const LineStyleInfo& lineStyle, SIntendedSubmitInfo& intendedNextSubmit);
 
@@ -384,11 +391,14 @@ protected:
 	// If you haven't created a mainObject yet, then pass InvalidMainObjectIdx
 	uint32_t addMSDFTexture(const MSDFInputInfo& msdfInput, core::smart_refctd_ptr<ICPUImage>&& cpuImage, uint32_t mainObjIdx, SIntendedSubmitInfo& intendedNextSubmit);
 	
+	// ResourcesCollection and packed into GPUBuffer
+	ResourcesCollection resourcesCollection;
+	nbl::core::smart_refctd_ptr<IGPUBuffer> resourcesGPUBuffer;
+	size_t copiedResourcesSize;
+
 	// Members
 	smart_refctd_ptr<IUtilities> m_utilities;
 	IQueue* m_copyQueue;
-
-	uint64_t drawResourcesBDA = 0u; // Actual BDA offset 0 of the gpu buffer
 
 	std::deque<ClipProjectionData> clipProjections; // stack of clip projectios stored so we can resubmit them if geometry buffer got reset.
 	std::deque<uint64_t> clipProjectionAddresses; // stack of clip projection gpu addresses in geometry buffer. to keep track of them in push/pops

@@ -1188,6 +1188,16 @@ public:
 		projectionToNDC = m_Camera.constructViewProjection();
 		
 		Globals globalData = {};
+		uint64_t baseAddress = drawResourcesFiller.getResourcesGPUBuffer()->getDeviceAddress();
+		const auto& resources = drawResourcesFiller.getResourcesCollection();
+		globalData.pointers = {
+			.lineStyles				= baseAddress + resources.lineStyles.bufferOffset,
+			.dtmSettings			= baseAddress + resources.dtmSettings.bufferOffset,
+			.customClipProjections	= baseAddress + resources.customClipProjections.bufferOffset,
+			.mainObjects			= baseAddress + resources.mainObjects.bufferOffset,
+			.drawObjects			= baseAddress + resources.drawObjects.bufferOffset,
+			.geometryBuffer			= baseAddress + resources.geometryBuffer.bufferOffset,
+		};
 		globalData.antiAliasingFactor = 1.0;// +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
 		globalData.resolution = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
 		globalData.defaultClipProjection.projectionToNDC = projectionToNDC;
@@ -1254,25 +1264,12 @@ public:
 
 		// pipelineBarriersBeforeDraw
 		{	
-			constexpr uint32_t MaxBufferBarriersCount = 6u;
+			constexpr uint32_t MaxBufferBarriersCount = 2u;
 			uint32_t bufferBarriersCount = 0u;
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t bufferBarriers[MaxBufferBarriersCount];
+			
+			const auto& resources = drawResourcesFiller.getResourcesCollection();
 
-			// Index Buffer Copy Barrier -> Only do once at the beginning of the frames
-			if (m_realFrameIx == 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_INPUT_BITS;
-				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::INDEX_READ_BIT;
-				bufferBarrier.range =
-				{
-					.offset = 0u,
-					.size = drawResourcesFiller.gpuDrawBuffers.indexBuffer->getSize(),
-					.buffer = drawResourcesFiller.gpuDrawBuffers.indexBuffer,
-				};
-			}
 			if (m_globalsBuffer->getSize() > 0u)
 			{
 				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
@@ -1287,35 +1284,7 @@ public:
 					.buffer = m_globalsBuffer,
 				};
 			}
-			if (drawResourcesFiller.getCurrentDrawObjectsBufferSize() > 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
-				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
-				bufferBarrier.range =
-				{
-					.offset = 0u,
-					.size = drawResourcesFiller.getCurrentDrawObjectsBufferSize(),
-					.buffer = drawResourcesFiller.gpuDrawBuffers.drawObjectsBuffer,
-				};
-			}
-			if (drawResourcesFiller.getCurrentGeometryBufferSize() > 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
-				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
-				bufferBarrier.range =
-				{
-					.offset = 0u,
-					.size = drawResourcesFiller.getCurrentGeometryBufferSize(),
-					.buffer = drawResourcesFiller.gpuDrawBuffers.geometryBuffer,
-				};
-			}
-			if (drawResourcesFiller.getCurrentMainObjectsBufferSize() > 0u)
+			if (drawResourcesFiller.getCopiedResourcesSize() > 0u)
 			{
 				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
 				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
@@ -1325,22 +1294,8 @@ public:
 				bufferBarrier.range =
 				{
 					.offset = 0u,
-					.size = drawResourcesFiller.getCurrentMainObjectsBufferSize(),
-					.buffer = drawResourcesFiller.gpuDrawBuffers.mainObjectsBuffer,
-				};
-			}
-			if (drawResourcesFiller.getCurrentLineStylesBufferSize() > 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT | PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
-				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
-				bufferBarrier.range =
-				{
-					.offset = 0u,
-					.size = drawResourcesFiller.getCurrentLineStylesBufferSize(),
-					.buffer = drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer,
+					.size = drawResourcesFiller.getCopiedResourcesSize(),
+					.buffer = drawResourcesFiller.getResourcesGPUBuffer(),
 				};
 			}
 			cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .bufBarriers = {bufferBarriers, bufferBarriersCount}, .imgBarriers = {} });
@@ -1365,22 +1320,27 @@ public:
 			};
 		}
 		cb->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+		
+		const auto& resources = drawResourcesFiller.getResourcesCollection();
+		const auto& resourcesGPUBuffer = drawResourcesFiller.getResourcesGPUBuffer();
 
-		const uint32_t currentIndexCount = drawResourcesFiller.getDrawObjectCount() * 6u;
+		const uint32_t currentIndexCount = resources.drawObjects.getCount() * 6u;
+
 		IGPUDescriptorSet* descriptorSets[] = { descriptorSet0.get(), descriptorSet1.get() };
 		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, pipelineLayout.get(), 0u, 2u, descriptorSets);
+
 		if (mode == ExampleMode::CASE_9)
 		{
 
 			// TODO[Przemek]: based on our call bind index buffer you uploaded to part of the `drawResourcesFiller.gpuDrawBuffers.geometryBuffer`
 			// Vertices will be pulled based on baseBDAPointer of where you uploaded the vertex + the VertexID in the vertex shader.
-			cb->bindIndexBuffer({ .offset = m_triangleMeshDrawData.indexBufferOffset, .buffer = drawResourcesFiller.gpuDrawBuffers.geometryBuffer.get() }, asset::EIT_32BIT);
+			cb->bindIndexBuffer({ .offset = resources.geometryInfo.bufferOffset + m_triangleMeshDrawData.indexBufferOffset, .buffer = drawResourcesFiller.getResourcesGPUBuffer().get()}, asset::EIT_32BIT);
 
 			// TODO[Przemek]: binding the same pipelie, no need to change.
 			cb->bindGraphicsPipeline(graphicsPipeline.get());
 
 			// TODO[Przemek]: contour settings, height shading settings, base bda pointers will need to be pushed via pushConstants before the draw currently as it's the easiest thing to do.
-
+			m_triangleMeshDrawData.pushConstants.triangleMeshVerticesBaseAddress += resourcesGPUBuffer->getDeviceAddress() + resources.geometryInfo.bufferOffset;
 			cb->pushConstants(graphicsPipeline->getLayout(), IGPUShader::E_SHADER_STAGE::ESS_VERTEX, 0, sizeof(PushConstants), &m_triangleMeshDrawData.pushConstants);
 
 			// TODO[Przemek]: draw parameters needs to reflect the mesh involved
@@ -1388,7 +1348,8 @@ public:
 		}
 		else
 		{
-			cb->bindIndexBuffer({ .offset = 0u, .buffer = drawResourcesFiller.gpuDrawBuffers.indexBuffer.get() }, asset::EIT_32BIT);
+			assert(currentIndexCount == resources.indexBuffer.getCount());
+			cb->bindIndexBuffer({ .offset = resources.indexBuffer.bufferOffset, .buffer = resourcesGPUBuffer.get() }, asset::EIT_32BIT);
 			cb->bindGraphicsPipeline(graphicsPipeline.get());
 			cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 		}
