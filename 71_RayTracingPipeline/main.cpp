@@ -3,7 +3,6 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "common.hpp"
-#include "nbl/builtin/builtinResources.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/builtin/hlsl/indirect_commands.hlsl"
 
