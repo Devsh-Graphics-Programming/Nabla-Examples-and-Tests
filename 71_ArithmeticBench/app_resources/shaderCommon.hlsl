@@ -31,16 +31,6 @@ typedef vector<uint32_t, ITEMS_PER_INVOCATION> type_t;
 #ifndef OPERATION
 #error "Define OPERATION!"
 #endif
-// template<template<class> class binop>
-// static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
-// {
-// 	if (globalIndex()==0u)
-// 		output[binop::BindingIndex].template Store<uint32_t>(0,nbl::hlsl::glsl::gl_SubgroupSize());
-		
-// 	operation_t<typename binop<type_t>::base_t,nbl::hlsl::jit::device_capabilities> func;
-// 	if (canStore())
-// 		output[binop::BindingIndex].template Store<type_t>(sizeof(uint32_t)+sizeof(type_t)*globalIndex(),func(sourceVal));
-// }
 
 #ifndef SUBGROUP_SIZE_LOG2
 #error "Define SUBGROUP_SIZE_LOG2!"
@@ -48,38 +38,38 @@ typedef vector<uint32_t, ITEMS_PER_INVOCATION> type_t;
 template<template<class> class binop, typename T, uint32_t N>
 static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
 {
-	// TODO static assert vector<T, N> == type_t
-	//using type_t = vector<T, N>;
-	using config_t = nbl::hlsl::subgroup::Configuration<SUBGROUP_SIZE_LOG2>;
-	using params_t = nbl::hlsl::subgroup2::ArithmeticParams<config_t, typename binop<T>::base_t, N, nbl::hlsl::jit::device_capabilities>;
+    // TODO static assert vector<T, N> == type_t
+    //using type_t = vector<T, N>;
+    using config_t = nbl::hlsl::subgroup::Configuration<SUBGROUP_SIZE_LOG2>;
+    using params_t = nbl::hlsl::subgroup2::ArithmeticParams<config_t, typename binop<T>::base_t, N, nbl::hlsl::jit::device_capabilities>;
 
-	if (globalIndex()==0u)
-		output[binop<T>::BindingIndex].template Store<uint32_t>(0,nbl::hlsl::glsl::gl_SubgroupSize());
-		
-	operation_t<params_t> func;
-	if (canStore())
-		output[binop<T>::BindingIndex].template Store<type_t>(sizeof(uint32_t)+sizeof(type_t)*globalIndex(),func(sourceVal));
+    if (globalIndex()==0u)
+        output[binop<T>::BindingIndex].template Store<uint32_t>(0,nbl::hlsl::glsl::gl_SubgroupSize());
+        
+    operation_t<params_t> func;
+    if (canStore())
+        output[binop<T>::BindingIndex].template Store<type_t>(sizeof(uint32_t)+sizeof(type_t)*globalIndex(),func(sourceVal));
 }
 
 
 type_t test()
 {
-	const uint32_t idx = globalIndex() * ITEMS_PER_INVOCATION;
-	type_t sourceVal;
-	[unroll]
-	for (uint32_t i = 0; i < ITEMS_PER_INVOCATION; i++)
-	{
-		sourceVal[i] = inputValue[idx + i];
-	}
+    const uint32_t idx = globalIndex() * ITEMS_PER_INVOCATION;
+    type_t sourceVal;
+    [unroll]
+    for (uint32_t i = 0; i < ITEMS_PER_INVOCATION; i++)
+    {
+        sourceVal[i] = inputValue[idx + i];
+    }
 
-	subtest<bit_and, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-	subtest<bit_xor, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-	subtest<bit_or, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-	subtest<plus, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-	subtest<multiplies, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-	subtest<minimum, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-	subtest<maximum, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-	return sourceVal;
+    subtest<bit_and, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
+    subtest<bit_xor, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
+    subtest<bit_or, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
+    subtest<plus, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
+    subtest<multiplies, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
+    subtest<minimum, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
+    subtest<maximum, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
+    return sourceVal;
 }
 
 #include "nbl/builtin/hlsl/workgroup/basic.hlsl"

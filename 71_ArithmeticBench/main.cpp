@@ -2,6 +2,8 @@
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "app_resources/common.hlsl"
 
+#include <chrono>
+
 using namespace nbl;
 using namespace core;
 using namespace asset;
@@ -188,7 +190,7 @@ public:
 		};
 
 		auto subgroupTestSource = getShaderSource("app_resources/testSubgroup.comp.hlsl");
-		auto workgroupTestSource = getShaderSource("app_resources/testWorkgroup.comp.hlsl");
+		//auto workgroupTestSource = getShaderSource("app_resources/testWorkgroup.comp.hlsl");
 		// now create or retrieve final resources to run our tests
 		sema = m_device->createSemaphore(timelineValue);
 		resultsBuffer = ICPUBuffer::create({ outputBuffers[0]->getSize() });
@@ -203,11 +205,75 @@ public:
 		
 		// TODO variable items per invocation?
 		const uint32_t ItemsPerInvocation = 4u;
+		const uint32_t NumLoops = 100000u;
 		const std::array<uint32_t, 3> workgroupSizes = { 256, 512, 1024 };
 		// const auto MaxWorkgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
 		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
-		for (auto subgroupSize=MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
+		
+		if (b_runTests)
+			runTests(subgroupTestSource, elementCount, ItemsPerInvocation, MinSubgroupSize, MaxSubgroupSize, workgroupSizes);
+
+		double time = runBenchmark<emulatedReduction>(subgroupTestSource, elementCount, 5, 256, ItemsPerInvocation, NumLoops);
+		m_logger->log("Ran for %.3fms (disregard these numbers, profile in Nsight)", ILogger::ELL_INFO, time * 1000.0);
+
+		//for (auto subgroupSize = MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
+		//{
+		//	const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
+		//	for (const auto& workgroupSize : workgroupSizes)
+		//	{
+		//		passed = runBenchmark<emulatedReduction>(subgroupTestSource, queryPool, elementCount, subgroupSizeLog2, workgroupSize, ItemsPerInvocation, NumLoops) && passed;
+		//		logTestOutcome(passed, workgroupSize);
+		//		passed = runBenchmark<emulatedScanInclusive>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ItemsPerInvocation, NumLoops) && passed;
+		//		logTestOutcome(passed, workgroupSize);
+		//		passed = runBenchmark<emulatedScanExclusive>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ItemsPerInvocation, NumLoops) && passed;
+		//		logTestOutcome(passed, workgroupSize);
+
+		//		// save cache every now and then	
+		//		{
+		//			auto cpu = m_spirv_isa_cache->convertToCPUCache();
+		//			// Normally we'd beautifully JSON serialize the thing, allow multiple devices & drivers + metadata
+		//			auto bin = cpu->getEntries().begin()->second.bin;
+		//			IFile::success_t success;
+		//			m_spirv_isa_cache_output->write(success, bin->data(), 0ull, bin->size());
+		//			if (!success)
+		//				logFail("Could not write Create SPIR-V to ISA cache to disk!");
+		//		}
+		//	}
+		//}
+
+		return true;
+	}
+
+	virtual bool onAppTerminated() override
+	{
+		m_logger->log("==========Result==========", ILogger::ELL_INFO);
+		m_logger->log("Fail Count: %u", ILogger::ELL_INFO, totalFailCount);
+		delete[] inputData;
+		return true;
+	}
+
+	// the unit test is carried out on init
+	void workLoopBody() override {}
+
+	//
+	bool keepRunning() override { return true; }
+
+private:
+	void logTestOutcome(bool passed, uint32_t workgroupSize)
+	{
+		if (passed)
+			m_logger->log("Passed test #%u", ILogger::ELL_INFO, workgroupSize);
+		else
+		{
+			totalFailCount++;
+			m_logger->log("Failed test #%u", ILogger::ELL_ERROR, workgroupSize);
+		}
+	}
+
+	void runTests(smart_refctd_ptr<ICPUShader> subgroupTestSource, uint32_t elementCount, uint32_t ItemsPerInvocation, uint32_t MinSubgroupSize, uint32_t MaxSubgroupSize, const std::array<uint32_t, 3>& workgroupSizes)
+	{
+		for (auto subgroupSize = MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 		{
 			const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
 			for (const auto& workgroupSize : workgroupSizes)
@@ -242,39 +308,11 @@ public:
 					// Normally we'd beautifully JSON serialize the thing, allow multiple devices & drivers + metadata
 					auto bin = cpu->getEntries().begin()->second.bin;
 					IFile::success_t success;
-					m_spirv_isa_cache_output->write(success,bin->data(),0ull,bin->size());
+					m_spirv_isa_cache_output->write(success, bin->data(), 0ull, bin->size());
 					if (!success)
 						logFail("Could not write Create SPIR-V to ISA cache to disk!");
 				}
 			}
-		}
-
-		return true;
-	}
-
-	virtual bool onAppTerminated() override
-	{
-		m_logger->log("==========Result==========", ILogger::ELL_INFO);
-		m_logger->log("Fail Count: %u", ILogger::ELL_INFO, totalFailCount);
-		delete[] inputData;
-		return true;
-	}
-
-	// the unit test is carried out on init
-	void workLoopBody() override {}
-
-	//
-	bool keepRunning() override { return false; }
-
-private:
-	void logTestOutcome(bool passed, uint32_t workgroupSize)
-	{
-		if (passed)
-			m_logger->log("Passed test #%u", ILogger::ELL_INFO, workgroupSize);
-		else
-		{
-			totalFailCount++;
-			m_logger->log("Failed test #%u", ILogger::ELL_ERROR, workgroupSize);
 		}
 	}
 
@@ -296,12 +334,6 @@ private:
 			return nullptr;
 		return pipeline;
 	}
-
-	/*template<template<class> class Arithmetic, bool WorkgroupTest>
-	bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint32_t workgroupSize, uint32_t itemsPerWG = ~0u)
-	{
-		return true;
-	}*/
 
 	template<template<class> class Arithmetic, bool WorkgroupTest>
 	bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerWG = ~0u, uint32_t itemsPerInvoc = 1u)
@@ -448,11 +480,66 @@ private:
 		return success;
 	}
 
+
+	template<template<class> class Arithmetic>
+	double runBenchmark(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerInvoc = 1u, uint32_t numLoops = 8u)
+	{
+		std::string arith_name = Arithmetic<bit_xor<float>>::name;
+
+		smart_refctd_ptr<ICPUShader> overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
+			source.get(), "#define OPERATION %s\n#define WORKGROUP_SIZE %d\n#define ITEMS_PER_INVOCATION %d\n#define SUBGROUP_SIZE_LOG2 %d\n",
+			(("subgroup2::") + arith_name).c_str(), workgroupSize, itemsPerInvoc, subgroupSizeLog2
+		);
+		auto pipeline = createPipeline(overridenUnspecialized.get(), subgroupSizeLog2);
+
+		const uint32_t workgroupCount = elementCount / (workgroupSize * itemsPerInvoc);
+		cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
+
+		cmdbuf->bindComputePipeline(pipeline.get());
+		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &descriptorSet.get());
+		cmdbuf->dispatch(workgroupCount, 1, 1);
+		{
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t memoryBarrier[OutputBufferCount];
+			for (auto i = 0u; i < OutputBufferCount; i++)
+			{
+				memoryBarrier[i] = {
+					.barrier = {
+						.dep = {
+							.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+							.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
+							// in theory we don't need the HOST BITS cause we block on a semaphore but might as well add them
+							.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT | PIPELINE_STAGE_FLAGS::HOST_BIT,
+							.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS | ACCESS_FLAGS::HOST_READ_BIT
+						}
+					},
+					.range = {0ull,outputBuffers[i]->getSize(),outputBuffers[i]}
+				};
+			}
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo info = { .memBarriers = {},.bufBarriers = memoryBarrier };
+			cmdbuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS::EDF_NONE, info);
+		}
+		cmdbuf->end();
+
+		auto startTime = std::chrono::high_resolution_clock::now();
+
+		const IQueue::SSubmitInfo::SSemaphoreInfo signal[1] = { {.semaphore = sema.get(),.value = ++timelineValue} };
+		const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1] = { {.cmdbuf = cmdbuf.get()} };
+		const IQueue::SSubmitInfo submits[1] = { {.commandBuffers = cmdbufs,.signalSemaphores = signal} };
+		computeQueue->submit(submits);
+		const ISemaphore::SWaitInfo wait[1] = { {.semaphore = sema.get(),.value = timelineValue} };
+		m_device->blockForSemaphores(wait);
+
+		auto endTime = std::chrono::high_resolution_clock::now();
+
+		return std::chrono::duration<double>(endTime - startTime).count();
+	}
+
 	IQueue* transferDownQueue;
 	IQueue* computeQueue;
 	smart_refctd_ptr<IGPUPipelineCache> m_spirv_isa_cache;
 	smart_refctd_ptr<IFile> m_spirv_isa_cache_output;
 
+	bool b_runTests = false;
 	uint32_t* inputData = nullptr;
 	constexpr static inline uint32_t OutputBufferCount = 8u;
 	smart_refctd_ptr<IGPUBuffer> outputBuffers[OutputBufferCount];
