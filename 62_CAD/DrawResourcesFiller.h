@@ -38,7 +38,7 @@ public:
 		size_t bufferOffset = InvalidBufferOffset; // set when copy to gpu buffer is issued
 		virtual size_t getCount() const = 0;
 		virtual size_t getStorageSize() const = 0;
-		virtual size_t getAlignedStorageSize() const { core::alignUp(getStorageSize(), ResourcesMaxNaturalAlignment); }
+		virtual size_t getAlignedStorageSize() const { return core::alignUp(getStorageSize(), ResourcesMaxNaturalAlignment); }
 	};
 
 	/// @brief ResourceBase reserved for compute shader stages input/output
