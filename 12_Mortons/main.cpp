@@ -25,12 +25,6 @@ class MortonTestApp final : public application_templates::MonoDeviceApplication,
 		using device_base_t = application_templates::MonoDeviceApplication;
 		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 
-		using morton_t = nbl::hlsl::morton::code<int32_t, 3>;
-		using vector_t = nbl::hlsl::vector<int32_t, 3>;
-		using unsigned_morton_t = nbl::hlsl::morton::code<uint32_t, 3>;
-		using unsigned_vector_t = nbl::hlsl::vector<uint32_t, 3>;
-		using bool_vector_t = nbl::hlsl::vector<bool, 3>;
-
 		inline core::smart_refctd_ptr<video::IGPUShader> createShader(
 			const char* includeMainName)
 		{
@@ -51,6 +45,8 @@ class MortonTestApp final : public application_templates::MonoDeviceApplication,
 				return false;
 			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
+
+			/*
 
 			// ----------------------------------------------- CPP TESTS ----------------------------------------------------------------------
 			
@@ -201,7 +197,7 @@ class MortonTestApp final : public application_templates::MonoDeviceApplication,
 			if(!TestHLSL)
 				return true;
 
-
+			*/
 
 
 
@@ -213,7 +209,7 @@ class MortonTestApp final : public application_templates::MonoDeviceApplication,
 			auto shader = createShader("app_resources/shader.hlsl");
 
 			// Create massive upload/download buffers
-			constexpr uint32_t DownstreamBufferSize = sizeof(unsigned_scalar_t) << 23;
+			constexpr uint32_t DownstreamBufferSize = sizeof(uint32_t) << 23;
 
 			m_utils = make_smart_refctd_ptr<IUtilities>(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), DownstreamBufferSize);
 			if (!m_utils)
@@ -230,7 +226,7 @@ class MortonTestApp final : public application_templates::MonoDeviceApplication,
 
 				deviceLocalBufferParams.queueFamilyIndexCount = 1;
 				deviceLocalBufferParams.queueFamilyIndices = &queueFamilyIndex;
-				deviceLocalBufferParams.size = sizeof(unsigned_scalar_t) * bufferSize;
+				deviceLocalBufferParams.size = sizeof(uint32_t) * bufferSize;
 				deviceLocalBufferParams.usage = nbl::asset::IBuffer::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT | nbl::asset::IBuffer::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT | nbl::asset::IBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
 				m_deviceLocalBuffer = m_device->createBuffer(std::move(deviceLocalBufferParams));
@@ -268,7 +264,7 @@ class MortonTestApp final : public application_templates::MonoDeviceApplication,
 
 			IQueue* const queue = getComputeQueue();
 
-			const uint32_t inputSize = sizeof(unsigned_scalar_t) * bufferSize;
+			const uint32_t inputSize = sizeof(uint32_t) * bufferSize;
 
 			// Just need a single suballocation in this example
 			const uint32_t AllocationCount = 1;
@@ -361,8 +357,9 @@ class MortonTestApp final : public application_templates::MonoDeviceApplication,
 					assert(dstOffset == 0 && size == outputSize);
 
 					std::cout << "Begin array GPU\n";
-					unsigned_scalar_t* const data = reinterpret_cast<unsigned_scalar_t*>(const_cast<void*>(bufSrc));
-					std::cout << std::bitset<32>(data[0]) << "\n";
+					uint32_t* const data = reinterpret_cast<uint32_t*>(const_cast<void*>(bufSrc));
+					//std::cout << std::bitset<32>(data[0]) << "\n";
+					std::cout << data[0] << "\n";
 					/*
 					for (auto i = 0u; i < bufferSize; i++) {
 						std::cout << std::bitset<32>(data[i]) << "\n";
