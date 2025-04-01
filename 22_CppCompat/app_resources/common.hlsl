@@ -323,6 +323,10 @@ struct IntrinsicsIntputTestValues
 	float smoothStepEdge0;
 	float smoothStepEdge1;
 	float smoothStepX;
+	uint32_t addCarryA;
+	uint32_t addCarryB;
+	uint32_t subBorrowA;
+	uint32_t subBorrowB;
 
 	int32_t3 bitCountVec;
 	float32_t3 clampValVec;
@@ -356,6 +360,10 @@ struct IntrinsicsIntputTestValues
 	float32_t3 refractI;
 	float32_t3 refractN;
 	float refractEta;
+	uint32_t3 addCarryAVec;
+	uint32_t3 addCarryBVec;
+	uint32_t3 subBorrowAVec;
+	uint32_t3 subBorrowBVec;
 };
 
 struct IntrinsicsTestValues
@@ -404,6 +412,11 @@ struct IntrinsicsTestValues
 	float32_t3x3 transpose;
 	float32_t3x3 inverse;
 
+	spirv::AddCarryOutput<uint32_t> addCarry;
+	spirv::SubBorrowOutput<uint32_t> subBorrow;
+	spirv::AddCarryOutput<uint32_t3> addCarryVec;
+	spirv::SubBorrowOutput<uint32_t3> subBorrowVec;
+
 	void fillTestValues(NBL_CONST_REF_ARG(IntrinsicsIntputTestValues) input)
 	{
 		bitCount = nbl::hlsl::bitCount(input.bitCount);
@@ -451,6 +464,10 @@ struct IntrinsicsTestValues
 		faceForward = nbl::hlsl::faceForward(input.faceForwardN, input.faceForwardI, input.faceForwardNref);
 		reflect = nbl::hlsl::reflect(input.reflectI, input.reflectN);
 		refract = nbl::hlsl::refract(input.refractI, input.refractN, input.refractEta);
+		addCarry = nbl::hlsl::addCarry(input.addCarryA, input.addCarryB);
+		subBorrow = nbl::hlsl::subBorrow(input.subBorrowA, input.subBorrowB);
+		addCarryVec = nbl::hlsl::addCarry(input.addCarryAVec, input.addCarryBVec);
+		subBorrowVec = nbl::hlsl::subBorrow(input.subBorrowAVec, input.subBorrowBVec);
 	}
 };
 

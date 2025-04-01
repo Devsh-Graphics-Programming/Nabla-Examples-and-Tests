@@ -85,6 +85,10 @@ public:
             testInput.smoothStepEdge0 = realDistributionNeg(mt);
             testInput.smoothStepEdge1 = realDistributionPos(mt);
             testInput.smoothStepX = realDistribution(mt);
+            testInput.addCarryA = std::numeric_limits<uint32_t>::max() - uintDistribution(mt);
+            testInput.addCarryB = uintDistribution(mt);
+            testInput.subBorrowA = uintDistribution(mt);
+            testInput.subBorrowB = uintDistribution(mt);
 
             testInput.bitCountVec = int32_t3(intDistribution(mt), intDistribution(mt), intDistribution(mt));
             testInput.clampValVec = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
@@ -119,6 +123,10 @@ public:
             testInput.refractI = float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt));
             testInput.refractN = glm::normalize(float32_t3(realDistribution(mt), realDistribution(mt), realDistribution(mt)));
             testInput.refractEta = realDistribution(mt);
+            testInput.addCarryAVec = uint32_t3(std::numeric_limits<uint32_t>::max() - uintDistribution(mt), std::numeric_limits<uint32_t>::max() - uintDistribution(mt), std::numeric_limits<uint32_t>::max() - uintDistribution(mt));
+            testInput.addCarryBVec = uint32_t3(uintDistribution(mt), uintDistribution(mt), uintDistribution(mt));
+            testInput.subBorrowAVec = uint32_t3(uintDistribution(mt), uintDistribution(mt), uintDistribution(mt));
+            testInput.subBorrowBVec = uint32_t3(uintDistribution(mt), uintDistribution(mt), uintDistribution(mt));
 
             // use std library or glm functions to determine expected test values, the output of functions from intrinsics.hlsl will be verified against these values
             IntrinsicsTestValues expected;
@@ -187,6 +195,11 @@ public:
             expected.transpose = reinterpret_cast<float32_t3x3&>(transposeGlm);
             auto inverseGlm = glm::inverse(reinterpret_cast<typename float32_t3x3::Base const&>(testInput.inverse));
             expected.inverse = reinterpret_cast<float32_t3x3&>(inverseGlm);
+
+            expected.addCarry.result = glm::uaddCarry(testInput.addCarryA, testInput.addCarryB, expected.addCarry.carry);
+            expected.subBorrow.result = glm::usubBorrow(testInput.subBorrowA, testInput.subBorrowB, expected.subBorrow.borrow);
+            expected.addCarryVec.result = glm::uaddCarry(testInput.addCarryAVec, testInput.addCarryBVec, expected.addCarryVec.carry);
+            expected.subBorrowVec.result = glm::usubBorrow(testInput.subBorrowAVec, testInput.subBorrowBVec, expected.subBorrowVec.borrow);
 
             performCpuTests(testInput, expected);
             performGpuTests(testInput, expected);
