@@ -436,7 +436,7 @@ LineStyle loadLineStyle(const uint32_t index)
 }
 DTMSettings loadDTMSettings(const uint32_t index)
 {
-    return vk::RawBufferLoad<DTMSetting>(globals.pointers.dtmSettings + index * sizeof(DTMSetting), 8u);
+    return vk::RawBufferLoad<DTMSettings>(globals.pointers.dtmSettings + index * sizeof(DTMSettings), 8u);
 }
 ClipProjectionData loadCustomClipProjection(const uint32_t index)
 {
@@ -444,11 +444,11 @@ ClipProjectionData loadCustomClipProjection(const uint32_t index)
 }
 MainObject loadMainObject(const uint32_t index)
 {
-    return vk::RawBufferLoad<MainObject>(globals.pointers.mainObjs + index * sizeof(MainObject), 8u);
+    return vk::RawBufferLoad<MainObject>(globals.pointers.mainObjects + index * sizeof(MainObject), 8u);
 }
 DrawObject loadDrawObject(const uint32_t index)
 {
-    return vk::RawBufferLoad<DrawObject>(globals.pointers.drawObjs + index * sizeof(DrawObject), 8u);
+    return vk::RawBufferLoad<DrawObject>(globals.pointers.drawObjects + index * sizeof(DrawObject), 8u);
 }
 #endif
 
