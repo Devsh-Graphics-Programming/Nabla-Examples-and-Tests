@@ -289,7 +289,7 @@ public:
 		drawResourcesFiller = DrawResourcesFiller(core::smart_refctd_ptr(m_utils), getGraphicsQueue());
 
 		size_t bufferSize = 512u * 1024u * 1024u; // 512 MB
-		drawResourcesFiller.allocateDrawResourcesBuffer(m_device.get(), bufferSize);
+		drawResourcesFiller.allocateResourcesBuffer(m_device.get(), bufferSize);
 		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 256u, uint32_t2(MSDFSize, MSDFSize));
 
 		{

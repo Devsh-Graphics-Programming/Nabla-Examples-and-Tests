@@ -44,8 +44,7 @@ void DrawResourcesFiller::setSubmitDrawsFunction(const SubmitFunc& func)
 
 void DrawResourcesFiller::allocateResourcesBuffer(ILogicalDevice* logicalDevice, size_t size)
 {
-
-	size = core::alignUp(size, BDALoadAlignment);
+	size = core::alignUp(size, ResourcesMaxNaturalAlignment);
 	size = core::max(size, getMinimumRequiredResourcesBufferSize());
 	IGPUBuffer::SCreationParams geometryCreationParams = {};
 	geometryCreationParams.size = size;
@@ -169,12 +168,7 @@ void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, CTriangleM
 	const size_t vtxBuffByteSize = mesh.getVertexBuffByteSize();
 	const size_t dataToAddByteSize = vtxBuffByteSize + indexBuffByteSize;
 
-	// copy into gemoetry cpu buffer insteaed
-
-	const size_t totalResourcesConsumption = resourcesCollection.calculateTotalConsumption();
-
-	// TODO: rename, its not just points
-	const uint32_t remainingResourcesSize = static_cast<uint32_t>(resourcesGPUBuffer->getSize() - totalResourcesConsumption);
+	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
 
 	// TODO: assert of geometry buffer size, do i need to check if size of objects to be added <= remainingResourcesSize?
 	// TODO: auto submit instead of assert
@@ -183,8 +177,8 @@ void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, CTriangleM
 	{
 		// NOTE[ERFAN]: these push contants will be removed, everything will be accessed by dtmSettings, including where the vertex buffer data resides
 		auto& geometryBytesVector = resourcesCollection.geometryInfo.vector;
-		size_t geometryBufferOffset = core::alignUp(geometryBytesVector.size(), BDALoadAlignment);
-		geometryBytesVector.resize(geometryBufferOffset + dataToAddByteSize);
+		size_t geometryBufferOffset = core::alignUp(geometryBytesVector.size(), ResourcesMaxNaturalAlignment);
+		geometryBytesVector.resize(geometryBufferOffset + dataToAddByteSize); // this will increase total resources consumption and reduce remainingResourcesSize --> no need to update any size trackers
 
 		// Copy VertexBuffer
 		void* dst = geometryBytesVector.data() + geometryBufferOffset;
@@ -207,9 +201,6 @@ void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, CTriangleM
 	uint32_t dtmSettingsIndex = addDTMSettings_SubmitIfNeeded(dtmSettingsInfo, intendedNextSubmit);
 
 	drawData.pushConstants.triangleMeshMainObjectIndex = addMainObject_SubmitIfNeeded(InvalidStyleIdx, dtmSettingsIndex, intendedNextSubmit);
-
-	// TODO: use this function later for auto submit
-	//submitCurrentDrawObjectsAndReset(intendedNextSubmit, 0);
 }
 
 // TODO[Erfan]: Makes more sense if parameters are: solidColor + fillPattern + patternColor
@@ -361,32 +352,46 @@ bool DrawResourcesFiller::finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNe
 
 uint32_t DrawResourcesFiller::addLineStyle_SubmitIfNeeded(const LineStyleInfo& lineStyle, SIntendedSubmitInfo& intendedNextSubmit)
 {
+	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
+	const bool enoughMem = remainingResourcesSize >= sizeof(LineStyle); // enough remaining memory for 1 more linestyle?
+	
 	uint32_t outLineStyleIdx = addLineStyle_Internal(lineStyle);
 	if (outLineStyleIdx == InvalidStyleIdx)
 	{
+		// There wasn't enough resource memory remaining to fit a single LineStyle
 		finalizeAllCopiesToGPU(intendedNextSubmit);
 		submitDraws(intendedNextSubmit);
-		resetGeometryCounters();
-		resetMainObjectCounters();
-		resetLineStyleCounters();
-		resetDTMSettingsCounters();
+		
+		// resets itself
+		resetLineStyles();
+		// resets higher level resources
+		resetMainObjects();
+		resetDrawObjects();
+
 		outLineStyleIdx = addLineStyle_Internal(lineStyle);
 		assert(outLineStyleIdx != InvalidStyleIdx);
 	}
+
 	return outLineStyleIdx;
 }
 
 uint32_t DrawResourcesFiller::addDTMSettings_SubmitIfNeeded(const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit)
 {
+	// before calling `addDTMSettings_Internal` we have made sute we have enough mem for 
 	uint32_t outDTMSettingIdx = addDTMSettings_Internal(dtmSettings, intendedNextSubmit);
-	if (outDTMSettingIdx == InvalidStyleIdx)
+	if (outDTMSettingIdx == InvalidDTMSettingsIdx)
 	{
+		// There wasn't enough resource memory remaining to fit dtmsettings struct + 2 linestyles structs.
 		finalizeAllCopiesToGPU(intendedNextSubmit);
 		submitDraws(intendedNextSubmit);
-		resetGeometryCounters();
-		resetMainObjectCounters();
-		resetLineStyleCounters();
-		resetDTMSettingsCounters();
+		
+		// resets itself
+		resetDTMSettings();
+		resetLineStyles(); // additionally resets linestyles as well, just to be safe
+		// resets higher level resources
+		resetMainObjects();
+		resetDrawObjects();
+
 		outDTMSettingIdx = addDTMSettings_Internal(dtmSettings, intendedNextSubmit);
 		assert(outDTMSettingIdx != InvalidDTMSettingsIdx);
 	}
@@ -402,18 +407,17 @@ uint32_t DrawResourcesFiller::addMainObject_SubmitIfNeeded(uint32_t styleIdx, ui
 	uint32_t outMainObjectIdx = addMainObject_Internal(mainObject);
 	if (outMainObjectIdx == InvalidMainObjectIdx)
 	{
+		// failed to fit into remaining resources mem or exceeded max indexable mainobj
 		finalizeAllCopiesToGPU(intendedNextSubmit);
 		submitDraws(intendedNextSubmit);
-
-		// geometries needs to be reset because they reference draw objects and draw objects reference main objects that are now unavailable and reset
-		resetGeometryCounters();
-		// mainObjects needs to be reset because we submitted every previous main object
-		resetMainObjectCounters();
-		// we shouldn't reset linestyles and clip projections here because it was possibly requested to push to mem before addMainObjects
-		// but clip projections are reset due to geometry/bda buffer being reset so we need to push again
 		
-		// acquireCurrentClipProjectionAddress again here because clip projection should exist in the geometry buffer, and reseting geometry counters will invalidate the current clip proj and requires repush
-		mainObject.clipProjectionAddress = acquireCurrentClipProjectionAddress(intendedNextSubmit);
+		// resets itself
+		resetMainObjects();
+		// resets higher level resources
+		resetDrawObjects();
+		// we shouldn't reset lower level resources like linestyles and clip projections here because it was possibly requested to push to mem before addMainObjects
+
+		// try to add again
 		outMainObjectIdx = addMainObject_Internal(mainObject);
 		assert(outMainObjectIdx != InvalidMainObjectIdx);
 	}
@@ -638,6 +642,12 @@ bool DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 	}
 }
 
+const size_t DrawResourcesFiller::calculateRemainingResourcesSize() const
+{
+	assert(resourcesGPUBuffer->getSize() >= resourcesCollection.calculateTotalConsumption());
+	return resourcesGPUBuffer->getSize() - resourcesCollection.calculateTotalConsumption();
+}
+
 void DrawResourcesFiller::submitCurrentDrawObjectsAndReset(SIntendedSubmitInfo& intendedNextSubmit, uint32_t mainObjectIndex)
 {
 	finalizeAllCopiesToGPU(intendedNextSubmit);
@@ -645,97 +655,61 @@ void DrawResourcesFiller::submitCurrentDrawObjectsAndReset(SIntendedSubmitInfo& 
 
 	// We reset Geometry Counters (drawObj+geometryInfos) because we're done rendering previous geometry
 	// We don't reset counters for styles because we will be reusing them
-	resetGeometryCounters();
-	
-#if 1
-	if (mainObjectIndex < maxMainObjects)
-	{
-		// Check if user is following proper usage, mainObjectIndex should be the last mainObj added before an autosubmit, because this is the only mainObj we want to maintain.
-		// See comments on`addMainObject_SubmitIfNeeded` function
-		// TODO: consider forcing this by not expose mainObjectIndex to user and keep track of a "currentMainObj" (?)
-		_NBL_DEBUG_BREAK_IF(mainObjectIndex != (currentMainObjectCount - 1u)); 
-
-		// If the clip projection stack is non-empty, then it means we need to re-push the clipProjectionData (because it existed in geometry data and it was erased)
-		uint64_t newClipProjectionAddress = acquireCurrentClipProjectionAddress(intendedNextSubmit);
-		// only re-upload mainObjData if it's clipProjectionAddress was changed
-		if (newClipProjectionAddress != getMainObject(mainObjectIndex)->clipProjectionAddress)
-		{
-			// then modify the mainObject data
-			getMainObject(mainObjectIndex)->clipProjectionAddress = newClipProjectionAddress;
-			// we need to rewind back inMemMainObjectCount to this mainObjIndex so it re-uploads the current mainObject (because we modified it)
-			inMemMainObjectCount = core::min(inMemMainObjectCount, mainObjectIndex);
-		}
-	}
-
-	// TODO: Consider resetting MainObjects here as well and addMainObject for the new data again, but account for the fact that mainObjectIndex now changed (either change through uint32_t& or keeping track of "currentMainObj" in drawResourcesFiller
-#else
-	resetMainObjectCounters();
-
-	// If there is a mainObject data we need to maintain and keep it's clipProjectionAddr valid
-	if (mainObjectIndex < maxMainObjects)
-	{
-		MainObject mainObjToMaintain = *getMainObject(mainObjectIndex);
-
-		// If the clip projection stack is non-empty, then it means we need to re-push the clipProjectionData (because it exists in geometry data and it was reset)
-		// `acquireCurrentClipProjectionAddress` shouldn't/won't trigger auto-submit because geometry buffer counters were reset and our geometry buffer is supposed to be larger than a single clipProjectionData
-		mainObjToMaintain->clipProjectionAddress = acquireCurrentClipProjectionAddress(intendedNextSubmit);
-		
-		// We're calling `addMainObject_Internal` instead of safer `addMainObject_SubmitIfNeeded` because we've reset our mainObject and we're sure this won't need an autoSubmit.
-		addMainObject_Internal(mainObjToMaintain);
-	}
-#endif
+	resetDrawObjects();
 }
 
 uint32_t DrawResourcesFiller::addMainObject_Internal(const MainObject& mainObject)
 {
-	MainObject* mainObjsArray = reinterpret_cast<MainObject*>(cpuDrawBuffers.mainObjectsBuffer->getPointer());
-	
-	if (currentMainObjectCount >= MaxIndexableMainObjects)
+	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
+	const size_t memRequired = sizeof(MainObject);
+	const bool enoughMem = remainingResourcesSize >= memRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
+	if (!enoughMem)
 		return InvalidMainObjectIdx;
-	if (currentMainObjectCount >= maxMainObjects)
+	if (resourcesCollection.mainObjects.vector.size() >= MaxIndexableMainObjects)
 		return InvalidMainObjectIdx;
-
-	void* dst = mainObjsArray + currentMainObjectCount;
-	memcpy(dst, &mainObject, sizeof(MainObject));
-	uint32_t ret = currentMainObjectCount;
-	currentMainObjectCount++;
-	return ret;
+	resourcesCollection.mainObjects.vector.push_back(mainObject); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
+	return resourcesCollection.mainObjects.vector.size() - 1u;
 }
 
 uint32_t DrawResourcesFiller::addLineStyle_Internal(const LineStyleInfo& lineStyleInfo)
 {
+	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
+	const bool enoughMem = remainingResourcesSize >= sizeof(LineStyle); // enough remaining memory for 1 more linestyle?
+	if (!enoughMem)
+		return InvalidStyleIdx;
+	// TODO: Additionally constraint by a max size? and return InvalidIdx if it would exceed
+
+
 	LineStyle gpuLineStyle = lineStyleInfo.getAsGPUData();
 	_NBL_DEBUG_BREAK_IF(gpuLineStyle.stipplePatternSize > LineStyle::StipplePatternMaxSize); // Oops, even after style normalization the style is too long to be in gpu mem :(
-	LineStyle* stylesArray = reinterpret_cast<LineStyle*>(cpuDrawBuffers.lineStylesBuffer->getPointer());
-	for (uint32_t i = 0u; i < currentLineStylesCount; ++i)
+	for (uint32_t i = 0u; i < resourcesCollection.lineStyles.vector.size(); ++i)
 	{
-		const LineStyle& itr = stylesArray[i];
-
+		const LineStyle& itr = resourcesCollection.lineStyles.vector[i];
 		if (itr == gpuLineStyle)
 			return i;
 	}
 
-	if (currentLineStylesCount >= maxLineStyles)
-		return InvalidStyleIdx;
-
-	void* dst = stylesArray + currentLineStylesCount;
-	memcpy(dst, &gpuLineStyle, sizeof(LineStyle));
-	return currentLineStylesCount++;
+	resourcesCollection.lineStyles.vector.push_back(gpuLineStyle); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
+	return resourcesCollection.lineStyles.vector.size() - 1u;
 }
 
 uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtmSettingsInfo, SIntendedSubmitInfo& intendedNextSubmit)
 {
+	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
+	const size_t maxMemRequired = sizeof(DTMSettings) + 2 * sizeof(LineStyle);
+	const bool enoughMem = remainingResourcesSize >= maxMemRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
+
+	if (!enoughMem)
+		return InvalidDTMSettingsIdx;
+	// TODO: Additionally constraint by a max size? and return InvalidIdx if it would exceed
+
 	DTMSettings dtmSettings;
 	dtmSettings.contourLinesStartHeight = dtmSettingsInfo.contourLinesStartHeight;
 	dtmSettings.contourLinesEndHeight = dtmSettingsInfo.contourLinesEndHeight;
 	dtmSettings.contourLinesHeightInterval = dtmSettingsInfo.contourLinesHeightInterval;
 
-	if (currentLineStylesCount + 2 > maxLineStyles)
-		return InvalidDTMSettingsIdx;
-
-	assert(currentLineStylesCount + 2 <= maxLineStyles);
-	dtmSettings.outlineLineStyleIdx = addLineStyle_SubmitIfNeeded(dtmSettingsInfo.outlineLineStyleInfo, intendedNextSubmit);
-	dtmSettings.contourLineStyleIdx = addLineStyle_SubmitIfNeeded(dtmSettingsInfo.contourLineStyleInfo, intendedNextSubmit);
+	dtmSettings.outlineLineStyleIdx = addLineStyle_Internal(dtmSettingsInfo.outlineLineStyleInfo);
+	dtmSettings.contourLineStyleIdx = addLineStyle_Internal(dtmSettingsInfo.contourLineStyleInfo);
 
 	switch (dtmSettingsInfo.heightShadingMode)
 	{
@@ -751,25 +725,18 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 	}
 	_NBL_DEBUG_BREAK_IF(!dtmSettingsInfo.fillShaderDTMSettingsHeightColorMap(dtmSettings));
 
-	if (currentDTMSettingsCount >= maxDtmSettings)
-		return InvalidDTMSettingsIdx;
-
-	DTMSettings* settingsArray = reinterpret_cast<DTMSettings*>(cpuDrawBuffers.dtmSettingsBuffer->getPointer());
-	for (uint32_t i = 0u; i < currentDTMSettingsCount; ++i)
+	for (uint32_t i = 0u; i < resourcesCollection.dtmSettings.vector.size(); ++i)
 	{
-		const DTMSettings& itr = settingsArray[i];
+		const DTMSettings& itr = resourcesCollection.dtmSettings.vector[i];
 		if (itr == dtmSettings)
 			return i;
 	}
-
-	void* dst = settingsArray + currentDTMSettingsCount;
-	memcpy(dst, &dtmSettings, sizeof(DTMSettings));
-	return currentDTMSettingsCount++;
-
-	return InvalidDTMSettingsIdx;
+	
+	resourcesCollection.dtmSettings.vector.push_back(dtmSettings); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
+	return resourcesCollection.dtmSettings.vector.size() - 1u;
 }
 
-uint64_t DrawResourcesFiller::acquireCurrentClipProjectionAddress(SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawResourcesFiller::acquireCurrentClipProjectionAddress(SIntendedSubmitInfo& intendedNextSubmit)
 {
 	if (clipProjectionAddresses.empty())
 		return InvalidClipProjectionAddress;
@@ -780,35 +747,26 @@ uint64_t DrawResourcesFiller::acquireCurrentClipProjectionAddress(SIntendedSubmi
 	return clipProjectionAddresses.back();
 }
 
-uint64_t DrawResourcesFiller::addClipProjectionData_SubmitIfNeeded(const ClipProjectionData& clipProjectionData, SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawResourcesFiller::addClipProjectionData_SubmitIfNeeded(const ClipProjectionData& clipProjectionData, SIntendedSubmitInfo& intendedNextSubmit)
 {
-	uint64_t outClipProjectionAddress = addClipProjectionData_Internal(clipProjectionData);
-	if (outClipProjectionAddress == InvalidClipProjectionAddress)
+	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
+	const size_t memRequired = sizeof(ClipProjectionData);
+	const bool enoughMem = remainingResourcesSize >= memRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
+
+	if (!enoughMem)
 	{
 		finalizeAllCopiesToGPU(intendedNextSubmit);
 		submitDraws(intendedNextSubmit);
-
-		resetGeometryCounters();
-		resetMainObjectCounters();
-
-		outClipProjectionAddress = addClipProjectionData_Internal(clipProjectionData);
-		assert(outClipProjectionAddress != InvalidClipProjectionAddress);
+		
+		// resets itself
+		resetCustomClipProjections();
+		// resets higher level resources
+		resetMainObjects();
+		resetDrawObjects();
 	}
-	return outClipProjectionAddress;
-}
-
-uint64_t DrawResourcesFiller::addClipProjectionData_Internal(const ClipProjectionData& clipProjectionData)
-{
-	const uint64_t maxGeometryBufferClipProjData = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(ClipProjectionData);
-	if (maxGeometryBufferClipProjData <= 0)
-		return InvalidClipProjectionAddress;
 	
-	uint8_t* dst = reinterpret_cast<uint8_t*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
-	memcpy(dst, &clipProjectionData, sizeof(ClipProjectionData));
-
-	const uint64_t ret = currentGeometryBufferSize + drawResourcesBDA;
-	currentGeometryBufferSize += sizeof(ClipProjectionData);
-	return ret;
+	resourcesCollection.clipProjections.vector.push_back(clipProjectionData); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
+	return resourcesCollection.clipProjections.vector.size() - 1u;
 }
 
 void DrawResourcesFiller::addPolylineObjects_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
@@ -865,6 +823,10 @@ void DrawResourcesFiller::addLines_Internal(const CPolylineBase& polyline, const
 	assert(section.count >= 1u);
 	assert(section.type == ObjectType::LINE);
 
+
+	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
+	// how many lines? --> memRequired = sizeof(LinePointInfo) + sizeof(LinePointInfo)*lineCount + sizeof(DrawObject)*lineCount + sizeof(uint32_t) * 6u * lineCount
+
 	const uint32_t maxGeometryBufferPoints = static_cast<uint32_t>((maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(LinePointInfo));
 	const uint32_t maxGeometryBufferLines = (maxGeometryBufferPoints <= 1u) ? 0u : maxGeometryBufferPoints - 1u;
 
@@ -888,6 +850,8 @@ void DrawResourcesFiller::addLines_Internal(const CPolylineBase& polyline, const
 		currentDrawObjectCount += 1u;
 		drawObj.geometryAddress += sizeof(LinePointInfo);
 	}
+
+	// TODO: Add index buffer, 
 
 	// Add Geometry
 	if (objectsToUpload > 0u)
@@ -1049,7 +1013,6 @@ uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, cor
 
 			// If we reset main objects will cause an auto submission bug, where adding an msdf texture while constructing glyphs will have wrong main object references (See how SingleLineTexts add Glyphs with a single mainObject)
 			// for the same reason we don't reset line styles
-			// `submitCurrentObjectsAndReset` function handles the above + updating clipProjectionData and making sure the mainObjectIdx references to the correct clipProj data after reseting geometry buffer
 			submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjIdx);
 		} 
 		else

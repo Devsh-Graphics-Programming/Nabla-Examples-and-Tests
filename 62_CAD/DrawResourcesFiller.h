@@ -28,7 +28,8 @@ struct DrawResourcesFiller
 {
 public:
 	
-	static constexpr size_t BDALoadAlignment = 8u;
+	// We pack multiple data types in a single buffer, we need to makes sure each offset starts aligned to avoid mis-aligned accesses
+	static constexpr size_t ResourcesMaxNaturalAlignment = 8u;
 
 	/// @brief general parent struct for 1.ReservedCompute and 2.CPUGenerated Resources
 	struct ResourceBase
@@ -37,7 +38,7 @@ public:
 		size_t bufferOffset = InvalidBufferOffset; // set when copy to gpu buffer is issued
 		virtual size_t getCount() const = 0;
 		virtual size_t getStorageSize() const = 0;
-		virtual size_t getAlignedStorageSize() const { core::alignUp(getStorageSize(), BDALoadAlignment); }
+		virtual size_t getAlignedStorageSize() const { core::alignUp(getStorageSize(), ResourcesMaxNaturalAlignment); }
 	};
 
 	/// @brief ResourceBase reserved for compute shader stages input/output
@@ -61,7 +62,8 @@ public:
 	/// @brief struct to hold all resources
 	struct ResourcesCollection
 	{
-		// auto-submission level 0 buffers (settings that mainObj references)
+		// auto-submission level 0 resources (settings that mainObj references)
+		// Not enough VRAM available to serve adding one of the level 0 resources: they clear themselves and everything from higher levels after doing submission
 		CPUGeneratedResource<LineStyle> lineStyles;
 		CPUGeneratedResource<DTMSettings> dtmSettings;
 		CPUGeneratedResource<ClipProjectionData> clipProjections;
@@ -71,10 +73,10 @@ public:
 
 		// auto-submission level 2 buffers
 		CPUGeneratedResource<DrawObject> drawObjects;
-		CPUGeneratedResource<uint32_t> indexBuffer;
+		CPUGeneratedResource<uint32_t> indexBuffer; // this is going to change to ReservedComputeResource where index buffer gets filled by compute shaders
 		CPUGeneratedResource<uint8_t> geometryInfo; // general purpose byte buffer for custom geometries, etc
 
-		// Get Total memory consumption, If all ResourcesCollection get packed together with BDALoadAlignment
+		// Get Total memory consumption, If all ResourcesCollection get packed together with ResourcesMaxNaturalAlignment
 		// used to decide when to overflow
 		size_t calculateTotalConsumption() const
 		{
@@ -101,7 +103,7 @@ public:
 	{
 		// for auto-submission to work correctly, memory needs to serve at least 2 linestyle, 1 dtm settings, 1 clip proj, 1 main obj, 1 draw obj and 512 bytes of additional mem for geometries and index buffer
 		// this is the ABSOLUTE MINIMUM (if this value is used rendering will probably be as slow as CPU drawing :D)
-		return core::alignUp(sizeof(LineStyle) * 2u + sizeof(DTMSettings) + sizeof(ClipProjectionData) + sizeof(MainObject) + sizeof(DrawObject) + 512ull, BDALoadAlignment);
+		return core::alignUp(sizeof(LineStyle) * 2u + sizeof(DTMSettings) + sizeof(ClipProjectionData) + sizeof(MainObject) + sizeof(DrawObject) + 512ull, ResourcesMaxNaturalAlignment);
 	}
 
 	void allocateResourcesBuffer(ILogicalDevice* logicalDevice, size_t size);
@@ -169,10 +171,10 @@ public:
 
 	void reset()
 	{
-		resetGeometryCounters();
-		resetMainObjectCounters();
-		resetLineStyleCounters();
-		resetDTMSettingsCounters();
+		resetDrawObjects();
+		resetMainObjects();
+		resetLineStyles();
+		resetDTMSettings();
 	}
 
 	/// @brief collection of all the resources that will eventually be reserved or copied to in the resourcesGPUBuffer, will be accessed via individual BDA pointers in shaders
@@ -227,13 +229,13 @@ protected:
 
 	bool finalizeTextureCopies(SIntendedSubmitInfo& intendedNextSubmit);
 
-	// Internal Function to call whenever we overflow while filling our buffers with geometry (potential limiters: indexBuffer, drawObjectsBuffer or geometryBuffer)
-	// ! mainObjIdx: is the mainObject the "overflowed" drawObjects belong to.
-	//		mainObjIdx is required to ensure that valid data, especially the `clipProjectionData`, remains linked to the main object.
-	//		This is important because, while other data may change during overflow handling, the main object must persist to maintain consistency throughout rendering all parts of it. (for example all lines and beziers of a single polyline)
-	//		[ADVANCED] If you have not created your mainObject yet, pass `InvalidMainObjectIdx` (See drawHatch)
+	const size_t calculateRemainingResourcesSize() const;
+
+	// Internal Function to call whenever we overflow when we can't fill all of mainObject's drawObjects
 	void submitCurrentDrawObjectsAndReset(SIntendedSubmitInfo& intendedNextSubmit, uint32_t mainObjectIndex);
 
+	/// @return index to added main object.
+	///		It will return `InvalidMainObjectIndex` if it there isn't enough remaining resources memory OR the index would exceed MaxIndexableMainObjects
 	uint32_t addMainObject_Internal(const MainObject& mainObject);
 
 	uint32_t addLineStyle_Internal(const LineStyleInfo& lineStyleInfo);
@@ -242,11 +244,9 @@ protected:
 
 	// Gets the current clip projection data (the top of stack) gpu addreess inside the geometryBuffer
 	// If it's been invalidated then it will request to upload again with a possible auto-submit on low geometry buffer memory.
-	uint64_t acquireCurrentClipProjectionAddress(SIntendedSubmitInfo& intendedNextSubmit);
+	uint32_t acquireCurrentClipProjectionAddress(SIntendedSubmitInfo& intendedNextSubmit);
 	
-	uint64_t addClipProjectionData_SubmitIfNeeded(const ClipProjectionData& clipProjectionData, SIntendedSubmitInfo& intendedNextSubmit);
-
-	uint64_t addClipProjectionData_Internal(const ClipProjectionData& clipProjectionData);
+	uint32_t addClipProjectionData_SubmitIfNeeded(const ClipProjectionData& clipProjectionData, SIntendedSubmitInfo& intendedNextSubmit);
 
 	static constexpr uint32_t getCageCountPerPolylineObject(ObjectType type)
 	{
@@ -269,44 +269,32 @@ protected:
 	
 	bool addFontGlyph_Internal(const GlyphInfo& glyphInfo, uint32_t mainObjIdx);
 	
-	void resetMainObjectCounters()
+	void resetMainObjects()
 	{
-		inMemMainObjectCount = 0u;
-		currentMainObjectCount = 0u;
+		resourcesCollection.mainObjects.vector.clear();
 	}
 
-	// WARN: If you plan to use this, make sure you either reset the mainObjectCounters as well
-	//			Or if you want to keep your  mainObject around, make sure you're using the `submitCurrentObjectsAndReset` function instead of calling this directly
-	//			So that it makes your mainObject point to the correct clipProjectionData (which exists in the geometry buffer)
-	void resetGeometryCounters()
+	// these resources are data related to chunks of a whole mainObject
+	void resetDrawObjects()
 	{
-		inMemDrawObjectCount = 0u;
-		currentDrawObjectCount = 0u;
-
-		inMemGeometryBufferSize = 0u;
-		currentGeometryBufferSize = 0u;
-
-		// Invalidate all the clip projection addresses because geometry buffer got reset
-		for (auto& clipProjAddr : clipProjectionAddresses)
-			clipProjAddr = InvalidClipProjectionAddress;
+		resourcesCollection.drawObjects.vector.clear();
+		resourcesCollection.indexBuffer.vector.clear();
+		resourcesCollection.geometryInfo.vector.clear();
 	}
 
-	void resetLineStyleCounters()
+	void resetCustomClipProjections()
 	{
-		currentLineStylesCount = 0u;
-		inMemLineStylesCount = 0u;
+		resourcesCollection.clipProjections.vector.clear();
 	}
 
-	void resetDTMSettingsCounters()
+	void resetLineStyles()
 	{
-		currentDTMSettingsCount = 0u;
-		inMemDTMSettingsCount = 0u;
+		resourcesCollection.lineStyles.vector.clear();
 	}
 
-	MainObject* getMainObject(uint32_t idx)
+	void resetDTMSettings()
 	{
-		MainObject* mainObjsArray = reinterpret_cast<MainObject*>(cpuDrawBuffers.mainObjectsBuffer->getPointer());
-		return &mainObjsArray[idx];
+		resourcesCollection.dtmSettings.vector.clear();
 	}
 
 	// MSDF Hashing and Caching Internal Functions 
