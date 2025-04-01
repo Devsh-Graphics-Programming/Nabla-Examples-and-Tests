@@ -57,6 +57,29 @@ public:
 		core::vector<T> vector;
 		size_t getCount() const { return vector.size(); }
 		size_t getStorageSize() const { return vector.size() * sizeof(T); }
+		
+		/// @return pointer to start of the data to be filled, up to additionalCount
+		T* increaseCountAndGetPtr(size_t additionalCount) 
+		{
+			size_t offset = vector.size();
+			vector.resize(offset + additionalCount);
+			return &vector[offset];
+		}
+
+		/// @brief increases size of general-purpose resources that hold bytes
+		/// @param additionalSize
+		/// @param alignment: Alignment of the pointer returned to be filled, should be PoT and <= ResourcesMaxNaturalAlignment, only use this if storing raw bytes in vector
+		/// @return pointer to start of the data to be filled, up to additional size
+		// TODO: make sure t is 1 byte with templates.
+		size_t increaseSizeAndGetOffset(size_t additionalSize, size_t alignment) 
+		{
+			assert(core::isPoT(alignment) && alignment <= ResourcesMaxNaturalAlignment);
+			size_t offset = core::alignUp(vector.size(), alignment);
+			vector.resize(offset + additionalSize);
+			return offset;
+		}
+
+		T* data() { return vector.data(); }
 	};
 
 	/// @brief struct to hold all resources
@@ -99,7 +122,7 @@ public:
 	void setSubmitDrawsFunction(const SubmitFunc& func);
 	
 	/// @brief Get minimum required size for resources buffer (containing objects and geometry info and their settings)
-	consteval size_t getMinimumRequiredResourcesBufferSize() const
+	static constexpr size_t getMinimumRequiredResourcesBufferSize()
 	{
 		// for auto-submission to work correctly, memory needs to serve at least 2 linestyle, 1 dtm settings, 1 clip proj, 1 main obj, 1 draw obj and 512 bytes of additional mem for geometries and index buffer
 		// this is the ABSOLUTE MINIMUM (if this value is used rendering will probably be as slow as CPU drawing :D)
@@ -178,7 +201,7 @@ public:
 	}
 
 	/// @brief collection of all the resources that will eventually be reserved or copied to in the resourcesGPUBuffer, will be accessed via individual BDA pointers in shaders
-	const ResourcesCollection& getResourcesCollection() const { return &resourcesCollection; }
+	const ResourcesCollection& getResourcesCollection() const { return resourcesCollection; }
 
 	/// @brief buffer containing all non-texture type resources
 	nbl::core::smart_refctd_ptr<IGPUBuffer> getResourcesGPUBuffer() const { return resourcesGPUBuffer; }
@@ -244,18 +267,9 @@ protected:
 
 	// Gets the current clip projection data (the top of stack) gpu addreess inside the geometryBuffer
 	// If it's been invalidated then it will request to upload again with a possible auto-submit on low geometry buffer memory.
-	uint32_t acquireCurrentClipProjectionAddress(SIntendedSubmitInfo& intendedNextSubmit);
+	uint32_t acquireCurrentClipProjectionIndex(SIntendedSubmitInfo& intendedNextSubmit);
 	
 	uint32_t addClipProjectionData_SubmitIfNeeded(const ClipProjectionData& clipProjectionData, SIntendedSubmitInfo& intendedNextSubmit);
-
-	static constexpr uint32_t getCageCountPerPolylineObject(ObjectType type)
-	{
-		if (type == ObjectType::LINE)
-			return 1u;
-		else if (type == ObjectType::QUAD_BEZIER)
-			return 3u;
-		return 0u;
-	};
 
 	void addPolylineObjects_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx);
 
@@ -397,7 +411,7 @@ protected:
 	IQueue* m_copyQueue;
 
 	std::deque<ClipProjectionData> clipProjections; // stack of clip projectios stored so we can resubmit them if geometry buffer got reset.
-	std::deque<uint64_t> clipProjectionAddresses; // stack of clip projection gpu addresses in geometry buffer. to keep track of them in push/pops
+	std::deque<uint32_t> clipProjectionIndices; // stack of clip projection gpu addresses in geometry buffer. to keep track of them in push/pops
 
 	// MSDF
 	GetGlyphMSDFTextureFunc getGlyphMSDF;

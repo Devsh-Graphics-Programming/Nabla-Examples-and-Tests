@@ -1193,10 +1193,10 @@ public:
 		globalData.pointers = {
 			.lineStyles				= baseAddress + resources.lineStyles.bufferOffset,
 			.dtmSettings			= baseAddress + resources.dtmSettings.bufferOffset,
-			.customClipProjections	= baseAddress + resources.customClipProjections.bufferOffset,
+			.customClipProjections	= baseAddress + resources.clipProjections.bufferOffset,
 			.mainObjects			= baseAddress + resources.mainObjects.bufferOffset,
 			.drawObjects			= baseAddress + resources.drawObjects.bufferOffset,
-			.geometryBuffer			= baseAddress + resources.geometryBuffer.bufferOffset,
+			.geometryBuffer			= baseAddress + resources.geometryInfo.bufferOffset,
 		};
 		globalData.antiAliasingFactor = 1.0;// +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
 		globalData.resolution = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
