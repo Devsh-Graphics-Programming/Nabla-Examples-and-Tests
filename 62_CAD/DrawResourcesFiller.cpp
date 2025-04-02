@@ -711,7 +711,7 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 	MainObject mainObject = {};
 	// These 3 calls below shouldn't need to Submit because we made sure there is enough memory for all of them.
 	// if something here triggers a auto-submit it's a possible bug, TODO: assert that somehow?
-	mainObject.styleIdx = (activeMainObjectType == MainObjectType::DTM) ? InvalidStyleIdx : acquireActiveDTMSettingsIndex_SubmitIfNeeded(intendedNextSubmit); // only call if it requirees dtm
+	mainObject.styleIdx = (activeMainObjectType == MainObjectType::DTM) ? InvalidStyleIdx : acquireActiveLineStyleIndex_SubmitIfNeeded(intendedNextSubmit); // only call if it requirees dtm
 	mainObject.dtmSettingsIdx = (activeMainObjectType == MainObjectType::DTM) ? acquireActiveDTMSettingsIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidDTMSettingsIdx; // only call if it requirees dtm
 	mainObject.clipProjectionIndex = acquireActiveClipProjectionIndex_SubmitIfNeeded(intendedNextSubmit);
 	activeMainObjectIndex = resourcesCollection.mainObjects.addAndGetOffset(mainObject);
