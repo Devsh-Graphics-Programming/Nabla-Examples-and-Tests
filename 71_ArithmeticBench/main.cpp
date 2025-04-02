@@ -1,13 +1,14 @@
-#include "nbl/application_templates/BasicMultiQueueApplication.hpp"
+#include "SimpleWindowedApplication.hpp"
+#include "CEventCallback.hpp"
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "app_resources/common.hlsl"
 
-#include <chrono>
-
 using namespace nbl;
 using namespace core;
-using namespace asset;
+using namespace hlsl;
 using namespace system;
+using namespace asset;
+using namespace ui;
 using namespace video;
 
 // method emulations on the CPU, to verify the results of the GPU methods
@@ -47,14 +48,45 @@ struct emulatedScanExclusive
 	static inline constexpr const char* name = "exclusive_scan";
 };
 
-class ArithmeticBenchApp final : public application_templates::BasicMultiQueueApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class ArithmeticBenchApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-	using device_base_t = application_templates::BasicMultiQueueApplication;
+	using device_base_t = examples::SimpleWindowedApplication;
 	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+
+	constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
+	constexpr static inline uint32_t MaxFramesInFlight = 5;
 
 public:
 	ArithmeticBenchApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
 		system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
+
+	inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
+	{
+		if (!m_surface)
+		{
+			{
+				auto windowCallback = core::make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
+				IWindow::SCreationParams params = {};
+				params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
+				params.width = WindowDimensions.x;
+				params.height = WindowDimensions.y;
+				params.x = 32;
+				params.y = 32;
+				params.flags = ui::IWindow::ECF_HIDDEN | IWindow::ECF_BORDERLESS | IWindow::ECF_RESIZABLE;
+				params.windowCaption = "ComputeShaderPathtracer";
+				params.callback = windowCallback;
+				const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
+			}
+
+			auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
+			const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = nbl::video::CSimpleResizeSurface<nbl::video::CDefaultSwapchainFramebuffers>::create(std::move(surface));
+		}
+
+		if (m_surface)
+			return { {m_surface->getSurface()/*,EQF_NONE*/} };
+
+		return {};
+	}
 
 	bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
@@ -538,6 +570,10 @@ private:
 	IQueue* computeQueue;
 	smart_refctd_ptr<IGPUPipelineCache> m_spirv_isa_cache;
 	smart_refctd_ptr<IFile> m_spirv_isa_cache_output;
+
+	smart_refctd_ptr<IWindow> m_window;
+	smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
+	smart_refctd_ptr<InputSystem> m_inputSystem;
 
 	bool b_runTests = false;
 	uint32_t* inputData = nullptr;
