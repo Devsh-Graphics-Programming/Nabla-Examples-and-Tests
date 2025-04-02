@@ -436,9 +436,9 @@ bool DrawResourcesFiller::finalizeBufferCopies(SIntendedSubmitInfo& intendedNext
 				return false;
 			}
 
+			drawBuffer.bufferOffset = copyRange.offset;
 			if (copyRange.size > 0ull)
 			{
-				drawBuffer.bufferOffset = copyRange.offset;
 				if (!m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, copyRange, drawBuffer.vector.data()))
 					return false;
 				copiedResourcesSize += drawBuffer.getAlignedStorageSize();
@@ -757,10 +757,8 @@ void DrawResourcesFiller::addPolylineObjects_Internal(const CPolylineBase& polyl
 		assert(false); // we don't handle other object types
 }
 
-// TODO: FIX
 void DrawResourcesFiller::addPolylineConnectors_Internal(const CPolylineBase& polyline, uint32_t& currentPolylineConnectorObj, uint32_t mainObjIdx)
 {
-#if 0
 	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
 
 	const uint32_t uploadableObjects = (remainingResourcesSize) / (sizeof(PolylineConnector) + sizeof(DrawObject) + sizeof(uint32_t) * 6u);
@@ -773,41 +771,39 @@ void DrawResourcesFiller::addPolylineConnectors_Internal(const CPolylineBase& po
 	if (objectsToUpload <= 0u)
 		return;
 
+	// Add Geometry
+	const auto connectorsByteSize = sizeof(PolylineConnector) * objectsToUpload;
+	size_t geometryBufferOffset = resourcesCollection.geometryInfo.increaseSizeAndGetOffset(connectorsByteSize, alignof(PolylineConnector));
+	void* dst = resourcesCollection.geometryInfo.data() + geometryBufferOffset;
+	const PolylineConnector& connector = polyline.getConnectors()[currentPolylineConnectorObj];
+	memcpy(dst, &connector, connectorsByteSize);
 
-
-
-
-	// TODO: 
-
-
-
-
+	// Push Indices, remove later when compute fills this
+	uint32_t* indexBufferToBeFilled = resourcesCollection.indexBuffer.increaseCountAndGetPtr(6u * objectsToUpload);
+	const uint32_t startObj = resourcesCollection.drawObjects.getCount();
+	for (uint32_t i = 0u; i < objectsToUpload; ++i)
+	{
+		indexBufferToBeFilled[i*6]		= (startObj+i)*4u + 1u;
+		indexBufferToBeFilled[i*6 + 1u]	= (startObj+i)*4u + 0u;
+		indexBufferToBeFilled[i*6 + 2u]	= (startObj+i)*4u + 2u;
+		indexBufferToBeFilled[i*6 + 3u]	= (startObj+i)*4u + 1u;
+		indexBufferToBeFilled[i*6 + 4u]	= (startObj+i)*4u + 2u;
+		indexBufferToBeFilled[i*6 + 5u]	= (startObj+i)*4u + 3u;
+	}
 
 	// Add DrawObjs
+	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(objectsToUpload);
 	DrawObject drawObj = {};
 	drawObj.mainObjIndex = mainObjIdx;
 	drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::POLYLINE_CONNECTOR) | 0 << 16);
-	drawObj.geometryAddress = drawResourcesBDA + currentGeometryBufferSize;
+	drawObj.geometryAddress = geometryBufferOffset;
 	for (uint32_t i = 0u; i < objectsToUpload; ++i)
 	{
-		void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
-		memcpy(dst, &drawObj, sizeof(DrawObject));
-		currentDrawObjectCount += 1u;
+		drawObjectsToBeFilled[i] = drawObj;
 		drawObj.geometryAddress += sizeof(PolylineConnector);
-	}
-
-	// Add Geometry
-	if (objectsToUpload > 0u)
-	{
-		const auto connectorsByteSize = sizeof(PolylineConnector) * objectsToUpload;
-		void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
-		auto& connector = polyline.getConnectors()[currentPolylineConnectorObj];
-		memcpy(dst, &connector, connectorsByteSize);
-		currentGeometryBufferSize += connectorsByteSize;
-	}
+	} 
 
 	currentPolylineConnectorObj += objectsToUpload;
-#endif
 }
 
 void DrawResourcesFiller::addLines_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
@@ -833,8 +829,6 @@ void DrawResourcesFiller::addLines_Internal(const CPolylineBase& polyline, const
 
 	// Add Geometry
 	const auto pointsByteSize = sizeof(LinePointInfo) * (objectsToUpload + 1u);
-
-	
 	size_t geometryBufferOffset = resourcesCollection.geometryInfo.increaseSizeAndGetOffset(pointsByteSize, alignof(LinePointInfo));
 	void* dst = resourcesCollection.geometryInfo.data() + geometryBufferOffset;
 	const LinePointInfo& linePoint = polyline.getLinePointAt(section.index + currentObjectInSection);
@@ -842,14 +836,15 @@ void DrawResourcesFiller::addLines_Internal(const CPolylineBase& polyline, const
 
 	// Push Indices, remove later when compute fills this
 	uint32_t* indexBufferToBeFilled = resourcesCollection.indexBuffer.increaseCountAndGetPtr(6u * objectsToUpload);
+	const uint32_t startObj = resourcesCollection.drawObjects.getCount();
 	for (uint32_t i = 0u; i < objectsToUpload; ++i)
 	{
-		indexBufferToBeFilled[i*6]		= i*4u + 1u;
-		indexBufferToBeFilled[i*6 + 1u]	= i*4u + 0u;
-		indexBufferToBeFilled[i*6 + 2u]	= i*4u + 2u;
-		indexBufferToBeFilled[i*6 + 3u]	= i*4u + 1u;
-		indexBufferToBeFilled[i*6 + 4u]	= i*4u + 2u;
-		indexBufferToBeFilled[i*6 + 5u]	= i*4u + 3u;
+		indexBufferToBeFilled[i*6]		= (startObj+i)*4u + 1u;
+		indexBufferToBeFilled[i*6 + 1u]	= (startObj+i)*4u + 0u;
+		indexBufferToBeFilled[i*6 + 2u]	= (startObj+i)*4u + 2u;
+		indexBufferToBeFilled[i*6 + 3u]	= (startObj+i)*4u + 1u;
+		indexBufferToBeFilled[i*6 + 4u]	= (startObj+i)*4u + 2u;
+		indexBufferToBeFilled[i*6 + 5u]	= (startObj+i)*4u + 3u;
 	}
 
 	// Add DrawObjs
@@ -898,14 +893,15 @@ void DrawResourcesFiller::addQuadBeziers_Internal(const CPolylineBase& polyline,
 
 	// Push Indices, remove later when compute fills this
 	uint32_t* indexBufferToBeFilled = resourcesCollection.indexBuffer.increaseCountAndGetPtr(6u*cagesCount);
+	const uint32_t startObj = resourcesCollection.drawObjects.getCount();
 	for (uint32_t i = 0u; i < cagesCount; ++i)
 	{
-		indexBufferToBeFilled[i*6]		= i*4u + 1u;
-		indexBufferToBeFilled[i*6 + 1u]	= i*4u + 0u;
-		indexBufferToBeFilled[i*6 + 2u]	= i*4u + 2u;
-		indexBufferToBeFilled[i*6 + 3u]	= i*4u + 1u;
-		indexBufferToBeFilled[i*6 + 4u]	= i*4u + 2u;
-		indexBufferToBeFilled[i*6 + 5u]	= i*4u + 3u;
+		indexBufferToBeFilled[i*6]		= (startObj+i)*4u + 1u;
+		indexBufferToBeFilled[i*6 + 1u]	= (startObj+i)*4u + 0u;
+		indexBufferToBeFilled[i*6 + 2u]	= (startObj+i)*4u + 2u;
+		indexBufferToBeFilled[i*6 + 3u]	= (startObj+i)*4u + 1u;
+		indexBufferToBeFilled[i*6 + 4u]	= (startObj+i)*4u + 2u;
+		indexBufferToBeFilled[i*6 + 5u]	= (startObj+i)*4u + 3u;
 	}
 	
 	// Add DrawObjs
@@ -927,50 +923,58 @@ void DrawResourcesFiller::addQuadBeziers_Internal(const CPolylineBase& polyline,
 	currentObjectInSection += objectsToUpload;
 }
 
-// TODO: FIX
 void DrawResourcesFiller::addHatch_Internal(const Hatch& hatch, uint32_t& currentObjectInSection, uint32_t mainObjIndex)
 {
-#if 0
-	const uint32_t maxGeometryBufferHatchBoxes = static_cast<uint32_t>((maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(Hatch::CurveHatchBox));
+	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
+
+	const uint32_t uploadableObjects = (remainingResourcesSize) / (sizeof(Hatch::CurveHatchBox) + sizeof(DrawObject) + sizeof(uint32_t) * 6u);
+	// TODO[ERFAN]: later take into account, our limit of max index buffer and vettex buffer size or constrainst other than mem
 	
-	uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
-	uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
-	uploadableObjects = core::min(uploadableObjects, maxGeometryBufferHatchBoxes);
-
 	uint32_t remainingObjects = hatch.getHatchBoxCount() - currentObjectInSection;
-	uploadableObjects = core::min(uploadableObjects, remainingObjects);
+	const uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
 
-	for (uint32_t i = 0; i < uploadableObjects; i++)
+	if (objectsToUpload <= 0u)
+		return;
+
+	// Add Geometry
+	static_assert(sizeof(CurveBox) == sizeof(Hatch::CurveHatchBox));
+	const auto curveBoxesByteSize = sizeof(Hatch::CurveHatchBox) * objectsToUpload;
+	size_t geometryBufferOffset = resourcesCollection.geometryInfo.increaseSizeAndGetOffset(curveBoxesByteSize, alignof(Hatch::CurveHatchBox));
+	void* dst = resourcesCollection.geometryInfo.data() + geometryBufferOffset;
+	const Hatch::CurveHatchBox& hatchBox = hatch.getHatchBox(currentObjectInSection); // WARNING: This is assuming hatch boxes are contigous in memory, TODO: maybe make that more obvious through Hatch interface
+	memcpy(dst, &hatchBox, curveBoxesByteSize);
+	
+	// Push Indices, remove later when compute fills this
+	uint32_t* indexBufferToBeFilled = resourcesCollection.indexBuffer.increaseCountAndGetPtr(6u * objectsToUpload);
+	const uint32_t startObj = resourcesCollection.drawObjects.getCount();
+	for (uint32_t i = 0u; i < objectsToUpload; ++i)
 	{
-		const Hatch::CurveHatchBox& hatchBox = hatch.getHatchBox(i + currentObjectInSection);
-
-		uint64_t hatchBoxAddress;
-		{			
-			static_assert(sizeof(CurveBox) == sizeof(Hatch::CurveHatchBox));
-			void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
-			memcpy(dst, &hatchBox, sizeof(CurveBox));
-			hatchBoxAddress = drawResourcesBDA + currentGeometryBufferSize;
-			currentGeometryBufferSize += sizeof(CurveBox);
-		}
-
-		DrawObject drawObj = {};
-		drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::CURVE_BOX) | (0 << 16));
-		drawObj.mainObjIndex = mainObjIndex;
-		drawObj.geometryAddress = hatchBoxAddress;
-		void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount + i;
-		memcpy(dst, &drawObj, sizeof(DrawObject));
+		indexBufferToBeFilled[i*6]		= (startObj+i)*4u + 1u;
+		indexBufferToBeFilled[i*6 + 1u]	= (startObj+i)*4u + 0u;
+		indexBufferToBeFilled[i*6 + 2u]	= (startObj+i)*4u + 2u;
+		indexBufferToBeFilled[i*6 + 3u]	= (startObj+i)*4u + 1u;
+		indexBufferToBeFilled[i*6 + 4u]	= (startObj+i)*4u + 2u;
+		indexBufferToBeFilled[i*6 + 5u]	= (startObj+i)*4u + 3u;
+	}
+	
+	// Add DrawObjs
+	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(objectsToUpload);
+	DrawObject drawObj = {};
+	drawObj.mainObjIndex = mainObjIndex;
+	drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::CURVE_BOX) | (0 << 16));
+	drawObj.geometryAddress = geometryBufferOffset;
+	for (uint32_t i = 0u; i < objectsToUpload; ++i)
+	{
+		drawObjectsToBeFilled[i] = drawObj;
+		drawObj.geometryAddress += sizeof(Hatch::CurveHatchBox);
 	}
 
 	// Add Indices
-	currentDrawObjectCount += uploadableObjects;
 	currentObjectInSection += uploadableObjects;
-#endif
 }
 
-// TODO: FIX
 bool DrawResourcesFiller::addFontGlyph_Internal(const GlyphInfo& glyphInfo, uint32_t mainObjIdx)
 {
-#if 0
 	const uint32_t maxGeometryBufferFontGlyphs = static_cast<uint32_t>((maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(GlyphInfo));
 	
 	uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
@@ -994,11 +998,8 @@ bool DrawResourcesFiller::addFontGlyph_Internal(const GlyphInfo& glyphInfo, uint
 
 		return true;
 	}
-	else
-	{
-		return false;
-	}
-#endif
+
+	return false;
 }
 
 void DrawResourcesFiller::setGlyphMSDFTextureFunction(const GetGlyphMSDFTextureFunc& func)

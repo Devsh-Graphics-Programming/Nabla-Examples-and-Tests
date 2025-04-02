@@ -196,6 +196,7 @@ public:
 	{
 		resetDrawObjects();
 		resetMainObjects();
+		resetCustomClipProjections();
 		resetLineStyles();
 		resetDTMSettings();
 	}
