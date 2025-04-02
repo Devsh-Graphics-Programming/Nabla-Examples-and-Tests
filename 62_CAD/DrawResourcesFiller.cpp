@@ -119,8 +119,6 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, uint32_t p
 			submitCurrentDrawObjectsAndReset(intendedNextSubmit, polylineMainObjIdx);
 	}
 
-	return; // TODO: Remove
-
 	if (!polyline.getConnectors().empty())
 	{
 		uint32_t currentConnectorPolylineObject = 0u;
@@ -200,7 +198,6 @@ void DrawResourcesFiller::drawHatch(
 		const HatchFillPattern fillPattern,
 		SIntendedSubmitInfo& intendedNextSubmit)
 {
-	return; // TODO: Remove
 	if (color.a == 0.0f) // not visible
 		return;
 
@@ -234,7 +231,6 @@ void DrawResourcesFiller::drawHatch(const Hatch& hatch, const float32_t4& color,
 	drawHatch(hatch, color, HatchFillPattern::SOLID_FILL, intendedNextSubmit);
 }
 
-// TODO: FIX
 void DrawResourcesFiller::drawFontGlyph(
 		nbl::ext::TextRendering::FontFace* fontFace,
 		uint32_t glyphIdx,
@@ -245,7 +241,6 @@ void DrawResourcesFiller::drawFontGlyph(
 		uint32_t mainObjIdx,
 		SIntendedSubmitInfo& intendedNextSubmit)
 {
-#if 0
 	uint32_t textureIdx = InvalidTextureIdx;
 	const MSDFInputInfo msdfInput = MSDFInputInfo(fontFace->getHash(), glyphIdx);
 	textureIdx = getMSDFIndexFromInputInfo(msdfInput, intendedNextSubmit);
@@ -268,39 +263,45 @@ void DrawResourcesFiller::drawFontGlyph(
 		// TODO: Log, probably getGlyphMSDF(face,glyphIdx) returned nullptr ICPUImage ptr
 		_NBL_DEBUG_BREAK_IF(true);
 	}
-#endif
 }
 
-// TODO: FIX
 void DrawResourcesFiller::_test_addImageObject(float64_t2 topLeftPos, float32_t2 size, float32_t rotation, SIntendedSubmitInfo& intendedNextSubmit)
 {
-#if 0
 	auto addImageObject_Internal = [&](const ImageObjectInfo& imageObjectInfo, uint32_t mainObjIdx) -> bool
 		{
-			const uint32_t maxGeometryBufferImageObjects = static_cast<uint32_t>((maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(ImageObjectInfo));
-			uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
-			uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
-			uploadableObjects = core::min(uploadableObjects, maxGeometryBufferImageObjects);
-
-			if (uploadableObjects >= 1u)
-			{
-				void* dstGeom = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
-				memcpy(dstGeom, &imageObjectInfo, sizeof(ImageObjectInfo));
-				uint64_t geomBufferAddr = drawResourcesBDA + currentGeometryBufferSize;
-				currentGeometryBufferSize += sizeof(ImageObjectInfo);
-
-				DrawObject drawObj = {};
-				drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::IMAGE) | (0 << 16)); // TODO: use custom pack/unpack function
-				drawObj.mainObjIndex = mainObjIdx;
-				drawObj.geometryAddress = geomBufferAddr;
-				void* dstDrawObj = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
-				memcpy(dstDrawObj, &drawObj, sizeof(DrawObject));
-				currentDrawObjectCount += 1u;
-
-				return true;
-			}
-			else
+			const size_t remainingResourcesSize = calculateRemainingResourcesSize();
+			
+			const uint32_t uploadableObjects = (remainingResourcesSize) / (sizeof(ImageObjectInfo) + sizeof(DrawObject) + sizeof(uint32_t) * 6u);
+			// TODO[ERFAN]: later take into account, our limit of max index buffer and vettex buffer size or constrainst other than mem
+	
+			if (uploadableObjects <= 0u)
 				return false;
+
+			// Add Geometry
+			size_t geometryBufferOffset = resourcesCollection.geometryInfo.increaseSizeAndGetOffset(sizeof(ImageObjectInfo), alignof(ImageObjectInfo));
+			void* dst = resourcesCollection.geometryInfo.data() + geometryBufferOffset;
+			memcpy(dst, &imageObjectInfo, sizeof(ImageObjectInfo));
+
+			// Push Indices, remove later when compute fills this
+			uint32_t* indexBufferToBeFilled = resourcesCollection.indexBuffer.increaseCountAndGetPtr(6u * 1u);
+			const uint32_t startObj = resourcesCollection.drawObjects.getCount();
+			uint32_t i = 0u;
+			indexBufferToBeFilled[i*6]		= (startObj+i)*4u + 1u;
+			indexBufferToBeFilled[i*6 + 1u]	= (startObj+i)*4u + 0u;
+			indexBufferToBeFilled[i*6 + 2u]	= (startObj+i)*4u + 2u;
+			indexBufferToBeFilled[i*6 + 3u]	= (startObj+i)*4u + 1u;
+			indexBufferToBeFilled[i*6 + 4u]	= (startObj+i)*4u + 2u;
+			indexBufferToBeFilled[i*6 + 5u]	= (startObj+i)*4u + 3u;
+
+			// Add DrawObjs
+			DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(1u);
+			DrawObject drawObj = {};
+			drawObj.mainObjIndex = mainObjIdx;
+			drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::IMAGE) | (0 << 16)); // TODO: use custom pack/unpack function
+			drawObj.geometryAddress = geometryBufferOffset;
+			drawObjectsToBeFilled[0u] = drawObj;
+
+			return true;
 		};
 
 	uint32_t mainObjIdx = addMainObject_SubmitIfNeeded(InvalidStyleIdx, InvalidDTMSettingsIdx, intendedNextSubmit);
@@ -317,7 +318,6 @@ void DrawResourcesFiller::_test_addImageObject(float64_t2 topLeftPos, float32_t2
 		bool success = addImageObject_Internal(info, mainObjIdx);
 		assert(success); // this should always be true, otherwise it's either bug in code or not enough memory allocated to hold a single image object 
 	}
-#endif
 }
 
 bool DrawResourcesFiller::finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
@@ -975,31 +975,39 @@ void DrawResourcesFiller::addHatch_Internal(const Hatch& hatch, uint32_t& curren
 
 bool DrawResourcesFiller::addFontGlyph_Internal(const GlyphInfo& glyphInfo, uint32_t mainObjIdx)
 {
-	const uint32_t maxGeometryBufferFontGlyphs = static_cast<uint32_t>((maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(GlyphInfo));
+	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
+
+	const uint32_t uploadableObjects = (remainingResourcesSize) / (sizeof(GlyphInfo) + sizeof(DrawObject) + sizeof(uint32_t) * 6u);
+	// TODO[ERFAN]: later take into account, our limit of max index buffer and vettex buffer size or constrainst other than mem
 	
-	uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
-	uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
-	uploadableObjects = core::min(uploadableObjects, maxGeometryBufferFontGlyphs);
+	if (uploadableObjects <= 0u)
+		return false;
 
-	if (uploadableObjects >= 1u)
-	{
-		void* geomDst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
-		memcpy(geomDst, &glyphInfo, sizeof(GlyphInfo));
-		uint64_t fontGlyphAddr = drawResourcesBDA + currentGeometryBufferSize;
-		currentGeometryBufferSize += sizeof(GlyphInfo);
+	// Add Geometry
+	size_t geometryBufferOffset = resourcesCollection.geometryInfo.increaseSizeAndGetOffset(sizeof(GlyphInfo), alignof(GlyphInfo));
+	void* dst = resourcesCollection.geometryInfo.data() + geometryBufferOffset;
+	memcpy(dst, &glyphInfo, sizeof(GlyphInfo));
 
-		DrawObject drawObj = {};
-		drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::FONT_GLYPH) | (0 << 16));
-		drawObj.mainObjIndex = mainObjIdx;
-		drawObj.geometryAddress = fontGlyphAddr;
-		void* drawObjDst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
-		memcpy(drawObjDst, &drawObj, sizeof(DrawObject));
-		currentDrawObjectCount += 1u;
+	// Push Indices, remove later when compute fills this
+	uint32_t* indexBufferToBeFilled = resourcesCollection.indexBuffer.increaseCountAndGetPtr(6u * 1u);
+	const uint32_t startObj = resourcesCollection.drawObjects.getCount();
+	uint32_t i = 0u;
+	indexBufferToBeFilled[i*6]		= (startObj+i)*4u + 1u;
+	indexBufferToBeFilled[i*6 + 1u]	= (startObj+i)*4u + 0u;
+	indexBufferToBeFilled[i*6 + 2u]	= (startObj+i)*4u + 2u;
+	indexBufferToBeFilled[i*6 + 3u]	= (startObj+i)*4u + 1u;
+	indexBufferToBeFilled[i*6 + 4u]	= (startObj+i)*4u + 2u;
+	indexBufferToBeFilled[i*6 + 5u]	= (startObj+i)*4u + 3u;
 
-		return true;
-	}
+	// Add DrawObjs
+	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(1u);
+	DrawObject drawObj = {};
+	drawObj.mainObjIndex = mainObjIdx;
+	drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::FONT_GLYPH) | (0 << 16));
+	drawObj.geometryAddress = geometryBufferOffset;
+	drawObjectsToBeFilled[0u] = drawObj;
 
-	return false;
+	return true;
 }
 
 void DrawResourcesFiller::setGlyphMSDFTextureFunction(const GetGlyphMSDFTextureFunc& func)
