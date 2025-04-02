@@ -867,14 +867,14 @@ public:
 
 			auto mainPipelineFragmentCpuShader = loadCompileShader("../shaders/main_pipeline/fragment.hlsl", IShader::E_SHADER_STAGE::ESS_ALL_OR_LIBRARY);
 			auto mainPipelineVertexCpuShader = loadCompileShader("../shaders/main_pipeline/vertex_shader.hlsl", IShader::E_SHADER_STAGE::ESS_VERTEX);
-			auto geoTexturePipelineVertCpuShader = loadCompileShader(GeoTextureRenderer::VertexShaderRelativePath, IShader::E_SHADER_STAGE::ESS_VERTEX);
-			auto geoTexturePipelineFragCpuShader = loadCompileShader(GeoTextureRenderer::FragmentShaderRelativePath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			// auto geoTexturePipelineVertCpuShader = loadCompileShader(GeoTextureRenderer::VertexShaderRelativePath, IShader::E_SHADER_STAGE::ESS_VERTEX);
+			// auto geoTexturePipelineFragCpuShader = loadCompileShader(GeoTextureRenderer::FragmentShaderRelativePath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 			mainPipelineFragmentCpuShader->setShaderStage(IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 
 			mainPipelineFragmentShaders = m_device->createShader({ mainPipelineFragmentCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
 			mainPipelineVertexShader = m_device->createShader({ mainPipelineVertexCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
-			geoTexturePipelineShaders[0] = m_device->createShader({ geoTexturePipelineVertCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
-			geoTexturePipelineShaders[1] = m_device->createShader({ geoTexturePipelineFragCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
+			// geoTexturePipelineShaders[0] = m_device->createShader({ geoTexturePipelineVertCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
+			// geoTexturePipelineShaders[1] = m_device->createShader({ geoTexturePipelineFragCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
 			
 			core::smart_refctd_ptr<system::IFile> shaderWriteCacheFile;
 			{
@@ -1011,7 +1011,7 @@ public:
 		);
 		
 		m_geoTextureRenderer = std::unique_ptr<GeoTextureRenderer>(new GeoTextureRenderer(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger)));
-		m_geoTextureRenderer->initialize(geoTexturePipelineShaders[0].get(), geoTexturePipelineShaders[1].get(), compatibleRenderPass.get(), m_globalsBuffer);
+		// m_geoTextureRenderer->initialize(geoTexturePipelineShaders[0].get(), geoTexturePipelineShaders[1].get(), compatibleRenderPass.get(), m_globalsBuffer);
 		
 		// Create the Semaphores
 		m_renderSemaphore = m_device->createSemaphore(0ull);
@@ -1155,33 +1155,6 @@ public:
 		// cb->reset(video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
 		// cb->begin(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		cb->beginDebugMarker("Frame");
-
-		float64_t3x3 projectionToNDC;
-		projectionToNDC = m_Camera.constructViewProjection();
-		
-		Globals globalData = {};
-		uint64_t baseAddress = drawResourcesFiller.getResourcesGPUBuffer()->getDeviceAddress();
-		const auto& resources = drawResourcesFiller.getResourcesCollection();
-		globalData.pointers = {
-			.lineStyles				= baseAddress + resources.lineStyles.bufferOffset,
-			.dtmSettings			= baseAddress + resources.dtmSettings.bufferOffset,
-			.customClipProjections	= baseAddress + resources.clipProjections.bufferOffset,
-			.mainObjects			= baseAddress + resources.mainObjects.bufferOffset,
-			.drawObjects			= baseAddress + resources.drawObjects.bufferOffset,
-			.geometryBuffer			= baseAddress + resources.geometryInfo.bufferOffset,
-		};
-		globalData.antiAliasingFactor = 1.0;// +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
-		globalData.resolution = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
-		globalData.defaultClipProjection.projectionToNDC = projectionToNDC;
-		globalData.defaultClipProjection.minClipNDC = float32_t2(-1.0, -1.0);
-		globalData.defaultClipProjection.maxClipNDC = float32_t2(+1.0, +1.0);
-		auto screenToWorld = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
-		globalData.screenToWorldRatio = screenToWorld;
-		globalData.worldToScreenRatio = (1.0/screenToWorld);
-		globalData.miterLimit = 10.0f;
-		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = m_globalsBuffer.get() };
-		bool updateSuccess = cb->updateBuffer(globalBufferUpdateRange, &globalData);
-		assert(updateSuccess);
 		
 		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
 		auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
@@ -1214,8 +1187,36 @@ public:
 	{
 		// Use the current recording command buffer of the intendedSubmitInfos scratchCommandBuffers, it should be in recording state
 		auto* cb = m_currentRecordingCommandBufferInfo->cmdbuf;
-		auto&r = drawResourcesFiller;
 		
+		const auto& resources = drawResourcesFiller.getResourcesCollection();
+		const auto& resourcesGPUBuffer = drawResourcesFiller.getResourcesGPUBuffer();
+
+		float64_t3x3 projectionToNDC;
+		projectionToNDC = m_Camera.constructViewProjection();
+		
+		Globals globalData = {};
+		uint64_t baseAddress = resourcesGPUBuffer->getDeviceAddress();
+		globalData.pointers = {
+			.lineStyles				= baseAddress + resources.lineStyles.bufferOffset,
+			.dtmSettings			= baseAddress + resources.dtmSettings.bufferOffset,
+			.customClipProjections	= baseAddress + resources.clipProjections.bufferOffset,
+			.mainObjects			= baseAddress + resources.mainObjects.bufferOffset,
+			.drawObjects			= baseAddress + resources.drawObjects.bufferOffset,
+			.geometryBuffer			= baseAddress + resources.geometryInfo.bufferOffset,
+		};
+		globalData.antiAliasingFactor = 1.0;// +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
+		globalData.resolution = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
+		globalData.defaultClipProjection.projectionToNDC = projectionToNDC;
+		globalData.defaultClipProjection.minClipNDC = float32_t2(-1.0, -1.0);
+		globalData.defaultClipProjection.maxClipNDC = float32_t2(+1.0, +1.0);
+		auto screenToWorld = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
+		globalData.screenToWorldRatio = screenToWorld;
+		globalData.worldToScreenRatio = (1.0/screenToWorld);
+		globalData.miterLimit = 10.0f;
+		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = m_globalsBuffer.get() };
+		bool updateSuccess = cb->updateBuffer(globalBufferUpdateRange, &globalData);
+		assert(updateSuccess);
+
 		asset::SViewport vp =
 		{
 			.x = 0u,
@@ -1261,8 +1262,8 @@ public:
 				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
 				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
 				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT | PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
-				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_INPUT_BITS | PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT | PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
 				bufferBarrier.range =
 				{
 					.offset = 0u,
@@ -1293,9 +1294,6 @@ public:
 		}
 		cb->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 		
-		const auto& resources = drawResourcesFiller.getResourcesCollection();
-		const auto& resourcesGPUBuffer = drawResourcesFiller.getResourcesGPUBuffer();
-
 		const uint32_t currentIndexCount = resources.drawObjects.getCount() * 6u;
 
 		IGPUDescriptorSet* descriptorSets[] = { descriptorSet0.get(), descriptorSet1.get() };
@@ -1424,7 +1422,7 @@ public:
 		// We only support one swapchain mode, surface, the other one is Display which we have not implemented yet.
 		retval.swapchainMode = video::E_SWAPCHAIN_MODE::ESM_SURFACE;
 		retval.validations = true;
-		retval.synchronizationValidation = true;
+		retval.synchronizationValidation = false;
 		return retval;
 	}
 protected:

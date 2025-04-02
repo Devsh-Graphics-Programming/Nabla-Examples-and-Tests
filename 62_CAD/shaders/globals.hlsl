@@ -444,7 +444,7 @@ ClipProjectionData loadCustomClipProjection(const uint32_t index)
 }
 MainObject loadMainObject(const uint32_t index)
 {
-    return vk::RawBufferLoad<MainObject>(globals.pointers.mainObjects + index * sizeof(MainObject), 8u);
+    return vk::RawBufferLoad<MainObject>(globals.pointers.mainObjects + index * sizeof(MainObject), 4u);
 }
 DrawObject loadDrawObject(const uint32_t index)
 {

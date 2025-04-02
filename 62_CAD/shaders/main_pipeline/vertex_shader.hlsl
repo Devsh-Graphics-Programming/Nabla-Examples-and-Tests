@@ -152,6 +152,7 @@ PSInput main(uint vertexID : SV_VertexID)
     outV.setObjType(objType);
     outV.setMainObjectIdx(drawObj.mainObjIndex);
     
+
     MainObject mainObj = loadMainObject(drawObj.mainObjIndex);
     ClipProjectionData clipProjectionData = getClipProjectionData(mainObj);
     
