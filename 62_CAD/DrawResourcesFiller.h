@@ -300,6 +300,10 @@ protected:
 	void resetCustomClipProjections()
 	{
 		resourcesCollection.clipProjections.vector.clear();
+		
+		// Invalidate all the clip projection addresses because clipProjections buffer got reset
+		for (auto& clipProjAddr : clipProjectionIndices)
+			clipProjAddr = InvalidClipProjectionIndex;
 	}
 
 	void resetLineStyles()
