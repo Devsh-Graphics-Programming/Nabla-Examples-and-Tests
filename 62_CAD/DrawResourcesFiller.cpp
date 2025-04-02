@@ -19,7 +19,7 @@ void DrawResourcesFiller::allocateResourcesBuffer(ILogicalDevice* logicalDevice,
 {
 	size = core::alignUp(size, ResourcesMaxNaturalAlignment);
 	size = core::max(size, getMinimumRequiredResourcesBufferSize());
-	size = 368u;
+	// size = 368u;
 	IGPUBuffer::SCreationParams geometryCreationParams = {};
 	geometryCreationParams.size = size;
 	geometryCreationParams.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INDEX_BUFFER_BIT;
@@ -693,11 +693,19 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 		return InvalidMainObjectIdx;
 	}
 
+	const bool needsLineStyle =
+		(activeMainObjectType == MainObjectType::POLYLINE) ||
+		(activeMainObjectType == MainObjectType::HATCH) ||
+		(activeMainObjectType == MainObjectType::TEXT);
+	const bool needsDTMSettings = (activeMainObjectType == MainObjectType::DTM);
+	const bool needsCustomClipProjection = (!activeClipProjectionIndices.empty());
+
 	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
 	// making sure MainObject and everything it references fits into remaining resources mem
 	size_t memRequired = sizeof(MainObject);
-	memRequired += ((activeMainObjectType == MainObjectType::DTM) ? sizeof(DTMSettings) : sizeof(LineStyle)); // needing LineStyle or DTMSettings depends on mainObject type
-	memRequired += (activeClipProjectionIndices.empty()) ? 0u : sizeof(ClipProjectionData); // if there is custom clip projections, account for it
+	if (needsLineStyle) memRequired += sizeof(LineStyle);
+	if (needsDTMSettings) memRequired += sizeof(DTMSettings);
+	if (needsCustomClipProjection) memRequired += sizeof(ClipProjectionData);
 
 	const bool enoughMem = remainingResourcesSize >= memRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
 	const bool needToOverflowSubmit = (!enoughMem) || (resourcesCollection.mainObjects.vector.size() >= MaxIndexableMainObjects);
@@ -713,9 +721,9 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 	MainObject mainObject = {};
 	// These 3 calls below shouldn't need to Submit because we made sure there is enough memory for all of them.
 	// if something here triggers a auto-submit it's a possible bug, TODO: assert that somehow?
-	mainObject.styleIdx = (activeMainObjectType == MainObjectType::DTM) ? InvalidStyleIdx : acquireActiveLineStyleIndex_SubmitIfNeeded(intendedNextSubmit); // only call if it requirees dtm
-	mainObject.dtmSettingsIdx = (activeMainObjectType == MainObjectType::DTM) ? acquireActiveDTMSettingsIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidDTMSettingsIdx; // only call if it requirees dtm
-	mainObject.clipProjectionIndex = acquireActiveClipProjectionIndex_SubmitIfNeeded(intendedNextSubmit);
+	mainObject.styleIdx = (needsLineStyle) ? acquireActiveLineStyleIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidStyleIdx;
+	mainObject.dtmSettingsIdx = (needsDTMSettings) ? acquireActiveDTMSettingsIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidDTMSettingsIdx;
+	mainObject.clipProjectionIndex = (needsCustomClipProjection) ? acquireActiveClipProjectionIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidClipProjectionIndex;
 	activeMainObjectIndex = resourcesCollection.mainObjects.addAndGetOffset(mainObject);
 	return activeMainObjectIndex;
 }
