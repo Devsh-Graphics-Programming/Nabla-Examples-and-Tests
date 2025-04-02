@@ -19,6 +19,7 @@ void DrawResourcesFiller::allocateResourcesBuffer(ILogicalDevice* logicalDevice,
 {
 	size = core::alignUp(size, ResourcesMaxNaturalAlignment);
 	size = core::max(size, getMinimumRequiredResourcesBufferSize());
+	size = 512u;
 	IGPUBuffer::SCreationParams geometryCreationParams = {};
 	geometryCreationParams.size = size;
 	geometryCreationParams.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INDEX_BUFFER_BIT;
@@ -84,16 +85,17 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, const Line
 	if (!lineStyleInfo.isVisible())
 		return;
 
-	uint32_t styleIdx = addLineStyle_SubmitIfNeeded(lineStyleInfo, intendedNextSubmit);
-
-	uint32_t mainObjIdx = addMainObject_SubmitIfNeeded(styleIdx, InvalidDTMSettingsIdx, intendedNextSubmit);
-
-	drawPolyline(polyline, mainObjIdx, intendedNextSubmit);
+	setActiveLineStyle(lineStyleInfo);
+	
+	beginMainObject(MainObjectType::POLYLINE);
+	drawPolyline(polyline, intendedNextSubmit);
+	endMainObject();
 }
 
-void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, uint32_t polylineMainObjIdx, SIntendedSubmitInfo& intendedNextSubmit)
+void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, SIntendedSubmitInfo& intendedNextSubmit)
 {
-	if (polylineMainObjIdx == InvalidMainObjectIdx)
+	uint32_t mainObjectIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
+	if (mainObjectIdx == InvalidMainObjectIdx)
 	{
 		// TODO: assert or log error here
 		assert(false);
@@ -108,7 +110,7 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, uint32_t p
 	while (currentSectionIdx < sectionsCount)
 	{
 		const auto& currentSection = polyline.getSectionInfoAt(currentSectionIdx);
-		addPolylineObjects_Internal(polyline, currentSection, currentObjectInSection, polylineMainObjIdx);
+		addPolylineObjects_Internal(polyline, currentSection, currentObjectInSection, mainObjectIdx);
 
 		if (currentObjectInSection >= currentSection.count)
 		{
@@ -116,7 +118,7 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, uint32_t p
 			currentObjectInSection = 0u;
 		}
 		else
-			submitCurrentDrawObjectsAndReset(intendedNextSubmit, polylineMainObjIdx);
+			submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjectIdx);
 	}
 
 	if (!polyline.getConnectors().empty())
@@ -124,16 +126,20 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, uint32_t p
 		uint32_t currentConnectorPolylineObject = 0u;
 		while (currentConnectorPolylineObject < polyline.getConnectors().size())
 		{
-			addPolylineConnectors_Internal(polyline, currentConnectorPolylineObject, polylineMainObjIdx);
+			addPolylineConnectors_Internal(polyline, currentConnectorPolylineObject, mainObjectIdx);
 
 			if (currentConnectorPolylineObject < polyline.getConnectors().size())
-				submitCurrentDrawObjectsAndReset(intendedNextSubmit, polylineMainObjIdx);
+				submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjectIdx);
 		}
 	}
 }
 
 void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, CTriangleMesh::DrawData& drawData, const DTMSettingsInfo& dtmSettingsInfo, SIntendedSubmitInfo& intendedNextSubmit)
 {
+	setActiveDTMSettings(dtmSettingsInfo);
+	uint32_t mainObjectIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
+	drawData.pushConstants.triangleMeshMainObjectIndex = mainObjectIdx;
+
 	ICPUBuffer::SCreationParams geometryBuffParams;
 	
 	// concatenate the index and vertex buffer into the geometry buffer
@@ -166,12 +172,6 @@ void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, CTriangleM
 	}
 
 	drawData.indexCount = mesh.getIndexCount();
-
-	// call addMainObject_SubmitIfNeeded, use its index in push constants
-
-	uint32_t dtmSettingsIndex = addDTMSettings_SubmitIfNeeded(dtmSettingsInfo, intendedNextSubmit);
-
-	drawData.pushConstants.triangleMeshMainObjectIndex = addMainObject_SubmitIfNeeded(InvalidStyleIdx, dtmSettingsIndex, intendedNextSubmit);
 }
 
 // TODO[Erfan]: Makes more sense if parameters are: solidColor + fillPattern + patternColor
@@ -207,23 +207,27 @@ void DrawResourcesFiller::drawHatch(
 		MSDFInputInfo msdfInfo = MSDFInputInfo(fillPattern);
 		textureIdx = getMSDFIndexFromInputInfo(msdfInfo, intendedNextSubmit);
 		if (textureIdx == InvalidTextureIdx)
-			textureIdx = addMSDFTexture(msdfInfo, getHatchFillPatternMSDF(fillPattern), InvalidMainObjectIdx, intendedNextSubmit);
+			textureIdx = addMSDFTexture(msdfInfo, getHatchFillPatternMSDF(fillPattern), intendedNextSubmit);
 		_NBL_DEBUG_BREAK_IF(textureIdx == InvalidTextureIdx); // probably getHatchFillPatternMSDF returned nullptr
 	}
 
 	LineStyleInfo lineStyle = {};
 	lineStyle.color = color;
 	lineStyle.screenSpaceLineWidth = nbl::hlsl::bit_cast<float, uint32_t>(textureIdx);
-	const uint32_t styleIdx = addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
-
-	uint32_t mainObjIdx = addMainObject_SubmitIfNeeded(styleIdx, InvalidDTMSettingsIdx, intendedNextSubmit);
-	uint32_t currentObjectInSection = 0u; // Object here refers to DrawObject used in vertex shader. You can think of it as a Cage.
+	
+	setActiveLineStyle(lineStyle);
+	beginMainObject(MainObjectType::HATCH);
+	
+	uint32_t mainObjectIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
+	uint32_t currentObjectInSection = 0u; // Object here refers to DrawObject. You can think of it as a Cage.
 	while (currentObjectInSection < hatch.getHatchBoxCount())
 	{
-		addHatch_Internal(hatch, currentObjectInSection, mainObjIdx);
+		addHatch_Internal(hatch, currentObjectInSection, mainObjectIdx);
 		if (currentObjectInSection < hatch.getHatchBoxCount())
-			submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjIdx);
+			submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjectIdx);
 	}
+
+	endMainObject();
 }
 
 void DrawResourcesFiller::drawHatch(const Hatch& hatch, const float32_t4& color, SIntendedSubmitInfo& intendedNextSubmit)
@@ -238,14 +242,16 @@ void DrawResourcesFiller::drawFontGlyph(
 		float32_t2 dirU,
 		float32_t  aspectRatio,
 		float32_t2 minUV,
-		uint32_t mainObjIdx,
 		SIntendedSubmitInfo& intendedNextSubmit)
 {
 	uint32_t textureIdx = InvalidTextureIdx;
 	const MSDFInputInfo msdfInput = MSDFInputInfo(fontFace->getHash(), glyphIdx);
 	textureIdx = getMSDFIndexFromInputInfo(msdfInput, intendedNextSubmit);
 	if (textureIdx == InvalidTextureIdx)
-		textureIdx = addMSDFTexture(msdfInput, getGlyphMSDF(fontFace, glyphIdx), mainObjIdx, intendedNextSubmit);
+		textureIdx = addMSDFTexture(msdfInput, getGlyphMSDF(fontFace, glyphIdx), intendedNextSubmit);
+
+	uint32_t mainObjIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
+	assert(mainObjIdx != InvalidMainObjectIdx);
 
 	if (textureIdx != InvalidTextureIdx)
 	{
@@ -304,7 +310,9 @@ void DrawResourcesFiller::_test_addImageObject(float64_t2 topLeftPos, float32_t2
 			return true;
 		};
 
-	uint32_t mainObjIdx = addMainObject_SubmitIfNeeded(InvalidStyleIdx, InvalidDTMSettingsIdx, intendedNextSubmit);
+	beginMainObject(MainObjectType::IMAGE);
+
+	uint32_t mainObjIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
 
 	ImageObjectInfo info = {};
 	info.topLeft = topLeftPos;
@@ -318,6 +326,8 @@ void DrawResourcesFiller::_test_addImageObject(float64_t2 topLeftPos, float32_t2
 		bool success = addImageObject_Internal(info, mainObjIdx);
 		assert(success); // this should always be true, otherwise it's either bug in code or not enough memory allocated to hold a single image object 
 	}
+
+	endMainObject();
 }
 
 bool DrawResourcesFiller::finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
@@ -328,94 +338,41 @@ bool DrawResourcesFiller::finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNe
 	return success;
 }
 
-uint32_t DrawResourcesFiller::addLineStyle_SubmitIfNeeded(const LineStyleInfo& lineStyle, SIntendedSubmitInfo& intendedNextSubmit)
+void DrawResourcesFiller::setActiveLineStyle(const LineStyleInfo& lineStyle)
 {
-	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
-	const bool enoughMem = remainingResourcesSize >= sizeof(LineStyle); // enough remaining memory for 1 more linestyle?
-	
-	uint32_t outLineStyleIdx = addLineStyle_Internal(lineStyle);
-	if (outLineStyleIdx == InvalidStyleIdx)
-	{
-		// There wasn't enough resource memory remaining to fit a single LineStyle
-		finalizeAllCopiesToGPU(intendedNextSubmit);
-		submitDraws(intendedNextSubmit);
-		
-		// resets itself
-		resetLineStyles();
-		// resets higher level resources
-		resetMainObjects();
-		resetDrawObjects();
-
-		outLineStyleIdx = addLineStyle_Internal(lineStyle);
-		assert(outLineStyleIdx != InvalidStyleIdx);
-	}
-
-	return outLineStyleIdx;
+	activeLineStyle = lineStyle;
 }
 
-uint32_t DrawResourcesFiller::addDTMSettings_SubmitIfNeeded(const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit)
+void DrawResourcesFiller::setActiveDTMSettings(const DTMSettingsInfo& dtmSettings)
 {
-	// before calling `addDTMSettings_Internal` we have made sute we have enough mem for 
-	uint32_t outDTMSettingIdx = addDTMSettings_Internal(dtmSettings, intendedNextSubmit);
-	if (outDTMSettingIdx == InvalidDTMSettingsIdx)
-	{
-		// There wasn't enough resource memory remaining to fit dtmsettings struct + 2 linestyles structs.
-		finalizeAllCopiesToGPU(intendedNextSubmit);
-		submitDraws(intendedNextSubmit);
-		
-		// resets itself
-		resetDTMSettings();
-		resetLineStyles(); // additionally resets linestyles as well, just to be safe
-		// resets higher level resources
-		resetMainObjects();
-		resetDrawObjects();
-
-		outDTMSettingIdx = addDTMSettings_Internal(dtmSettings, intendedNextSubmit);
-		assert(outDTMSettingIdx != InvalidDTMSettingsIdx);
-	}
-	return outDTMSettingIdx;
+	activeDTMSettings = dtmSettings;
 }
 
-uint32_t DrawResourcesFiller::addMainObject_SubmitIfNeeded(uint32_t styleIdx, uint32_t dtmSettingsIdx, SIntendedSubmitInfo& intendedNextSubmit)
+void DrawResourcesFiller::beginMainObject(MainObjectType type)
 {
-	MainObject mainObject = {};
-	mainObject.styleIdx = styleIdx;
-	mainObject.dtmSettingsIdx = dtmSettingsIdx;
-	mainObject.clipProjectionIndex = acquireCurrentClipProjectionIndex(intendedNextSubmit);
-	uint32_t outMainObjectIdx = addMainObject_Internal(mainObject);
-	if (outMainObjectIdx == InvalidMainObjectIdx)
-	{
-		// failed to fit into remaining resources mem or exceeded max indexable mainobj
-		finalizeAllCopiesToGPU(intendedNextSubmit);
-		submitDraws(intendedNextSubmit);
-		
-		// resets itself
-		resetMainObjects();
-		// resets higher level resources
-		resetDrawObjects();
-		// we shouldn't reset lower level resources like linestyles and clip projections here because it was possibly requested to push to mem before addMainObjects
+	activeMainObjectType = type;
+	activeMainObjectIndex = InvalidMainObjectIdx;
+}
 
-		// try to add again
-		outMainObjectIdx = addMainObject_Internal(mainObject);
-		assert(outMainObjectIdx != InvalidMainObjectIdx);
-	}
-	
-	return outMainObjectIdx;
+void DrawResourcesFiller::endMainObject()
+{
+	activeMainObjectType = MainObjectType::NONE;
+	activeMainObjectIndex = InvalidMainObjectIdx;
 }
 
 void DrawResourcesFiller::pushClipProjectionData(const ClipProjectionData& clipProjectionData)
 {
-	clipProjections.push_back(clipProjectionData);
-	clipProjectionIndices.push_back(InvalidClipProjectionIndex);
+	activeClipProjections.push_back(clipProjectionData);
+	activeClipProjectionIndices.push_back(InvalidClipProjectionIndex);
 }
 
 void DrawResourcesFiller::popClipProjectionData()
 {
-	if (clipProjections.empty())
+	if (activeClipProjections.empty())
 		return;
 
-	clipProjections.pop_back();
-	clipProjectionIndices.pop_back();
+	activeClipProjections.pop_back();
+	activeClipProjectionIndices.pop_back();
 }
 
 bool DrawResourcesFiller::finalizeBufferCopies(SIntendedSubmitInfo& intendedNextSubmit)
@@ -626,27 +583,12 @@ const size_t DrawResourcesFiller::calculateRemainingResourcesSize() const
 	return resourcesGPUBuffer->getSize() - resourcesCollection.calculateTotalConsumption();
 }
 
-void DrawResourcesFiller::submitCurrentDrawObjectsAndReset(SIntendedSubmitInfo& intendedNextSubmit, uint32_t mainObjectIndex)
+void DrawResourcesFiller::submitCurrentDrawObjectsAndReset(SIntendedSubmitInfo& intendedNextSubmit, uint32_t& mainObjectIndex)
 {
 	finalizeAllCopiesToGPU(intendedNextSubmit);
 	submitDraws(intendedNextSubmit);
-
-	// We reset Geometry Counters (drawObj+geometryInfos) because we're done rendering previous geometry
-	// We don't reset counters for styles because we will be reusing them
-	resetDrawObjects();
-}
-
-uint32_t DrawResourcesFiller::addMainObject_Internal(const MainObject& mainObject)
-{
-	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
-	const size_t memRequired = sizeof(MainObject);
-	const bool enoughMem = remainingResourcesSize >= memRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
-	if (!enoughMem)
-		return InvalidMainObjectIdx;
-	if (resourcesCollection.mainObjects.vector.size() >= MaxIndexableMainObjects)
-		return InvalidMainObjectIdx;
-	resourcesCollection.mainObjects.vector.push_back(mainObject); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
-	return resourcesCollection.mainObjects.vector.size() - 1u;
+	reset(); // resets everything, things referenced through mainObj and other shit will be pushed again through acquireXXX_SubmitIfNeeded
+	mainObjectIndex = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
 }
 
 uint32_t DrawResourcesFiller::addLineStyle_Internal(const LineStyleInfo& lineStyleInfo)
@@ -667,8 +609,7 @@ uint32_t DrawResourcesFiller::addLineStyle_Internal(const LineStyleInfo& lineSty
 			return i;
 	}
 
-	resourcesCollection.lineStyles.vector.push_back(gpuLineStyle); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
-	return resourcesCollection.lineStyles.vector.size() - 1u;
+	return resourcesCollection.lineStyles.addAndGetOffset(gpuLineStyle); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
 }
 
 uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtmSettingsInfo, SIntendedSubmitInfo& intendedNextSubmit)
@@ -710,19 +651,111 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 			return i;
 	}
 	
-	resourcesCollection.dtmSettings.vector.push_back(dtmSettings); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
-	return resourcesCollection.dtmSettings.vector.size() - 1u;
+	resourcesCollection.dtmSettings.addAndGetOffset(dtmSettings); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
 }
 
-uint32_t DrawResourcesFiller::acquireCurrentClipProjectionIndex(SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawResourcesFiller::acquireActiveLineStyleIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
 {
-	if (clipProjectionIndices.empty())
+	if (activeLineStyleIndex == InvalidStyleIdx)
+		activeLineStyleIndex = addLineStyle_SubmitIfNeeded(activeLineStyle, intendedNextSubmit);
+	
+	return activeLineStyleIndex;
+}
+
+uint32_t DrawResourcesFiller::acquireActiveDTMSettingsIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
+{
+	if (activeDTMSettingsIndex == InvalidDTMSettingsIdx)
+		activeDTMSettingsIndex = addDTMSettings_SubmitIfNeeded(activeDTMSettings, intendedNextSubmit);
+	
+	return activeDTMSettingsIndex;
+}
+
+uint32_t DrawResourcesFiller::acquireActiveClipProjectionIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
+{
+	if (activeClipProjectionIndices.empty())
 		return InvalidClipProjectionIndex;
 
-	if (clipProjectionIndices.back() == InvalidClipProjectionIndex)
-		clipProjectionIndices.back() = addClipProjectionData_SubmitIfNeeded(clipProjections.back(), intendedNextSubmit);
+	if (activeClipProjectionIndices.back() == InvalidClipProjectionIndex)
+		activeClipProjectionIndices.back() = addClipProjectionData_SubmitIfNeeded(activeClipProjections.back(), intendedNextSubmit);
 	
-	return clipProjectionIndices.back();
+	return activeClipProjectionIndices.back();
+}
+
+uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
+{
+	if (activeMainObjectIndex != InvalidMainObjectIdx)
+		return activeMainObjectIndex;
+	if (activeMainObjectType == MainObjectType::NONE)
+	{
+		assert(false); // You're probably trying to acquire mainObjectIndex outside of startMainObject, endMainObject scope
+		return InvalidMainObjectIdx;
+	}
+
+	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
+	// making sure MainObject and everything it references fits into remaining resources mem
+	size_t memRequired = sizeof(MainObject);
+	memRequired += ((activeMainObjectType == MainObjectType::DTM) ? sizeof(DTMSettings) : sizeof(LineStyle)); // needing LineStyle or DTMSettings depends on mainObject type
+	memRequired += (activeClipProjectionIndices.empty()) ? 0u : sizeof(ClipProjectionData); // if there is custom clip projections, account for it
+
+	const bool enoughMem = remainingResourcesSize >= memRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
+	const bool needToOverflowSubmit = (!enoughMem) || (resourcesCollection.mainObjects.vector.size() >= MaxIndexableMainObjects);
+	
+	if (needToOverflowSubmit)
+	{
+		// failed to fit into remaining resources mem or exceeded max indexable mainobj
+		finalizeAllCopiesToGPU(intendedNextSubmit);
+		submitDraws(intendedNextSubmit);
+		reset(); // resets everything! be careful!
+	}
+	
+	MainObject mainObject = {};
+	// These 3 calls below shouldn't need to Submit because we made sure there is enough memory for all of them.
+	// if something here triggers a auto-submit it's a possible bug, TODO: assert that somehow?
+	mainObject.styleIdx = (activeMainObjectType == MainObjectType::DTM) ? InvalidStyleIdx : acquireActiveDTMSettingsIndex_SubmitIfNeeded(intendedNextSubmit); // only call if it requirees dtm
+	mainObject.dtmSettingsIdx = (activeMainObjectType == MainObjectType::DTM) ? acquireActiveDTMSettingsIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidDTMSettingsIdx; // only call if it requirees dtm
+	mainObject.clipProjectionIndex = acquireActiveClipProjectionIndex_SubmitIfNeeded(intendedNextSubmit);
+	activeMainObjectIndex = resourcesCollection.mainObjects.addAndGetOffset(mainObject);
+	return activeMainObjectIndex;
+}
+
+uint32_t DrawResourcesFiller::addLineStyle_SubmitIfNeeded(const LineStyleInfo& lineStyle, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	uint32_t outLineStyleIdx = addLineStyle_Internal(lineStyle);
+	if (outLineStyleIdx == InvalidStyleIdx)
+	{
+		// There wasn't enough resource memory remaining to fit a single LineStyle
+		finalizeAllCopiesToGPU(intendedNextSubmit);
+		submitDraws(intendedNextSubmit);
+		
+		// resets itself
+		resetLineStyles();
+		// resets higher level resources
+		resetMainObjects();
+		resetDrawObjects();
+
+		outLineStyleIdx = addLineStyle_Internal(lineStyle);
+		assert(outLineStyleIdx != InvalidStyleIdx);
+	}
+
+	return outLineStyleIdx;
+}
+
+uint32_t DrawResourcesFiller::addDTMSettings_SubmitIfNeeded(const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	// before calling `addDTMSettings_Internal` we have made sute we have enough mem for 
+	uint32_t outDTMSettingIdx = addDTMSettings_Internal(dtmSettings, intendedNextSubmit);
+	if (outDTMSettingIdx == InvalidDTMSettingsIdx)
+	{
+		// There wasn't enough resource memory remaining to fit dtmsettings struct + 2 linestyles structs.
+		finalizeAllCopiesToGPU(intendedNextSubmit);
+		submitDraws(intendedNextSubmit);
+		// resets everything! be careful!
+		reset();
+
+		outDTMSettingIdx = addDTMSettings_Internal(dtmSettings, intendedNextSubmit);
+		assert(outDTMSettingIdx != InvalidDTMSettingsIdx);
+	}
+	return outDTMSettingIdx;
 }
 
 uint32_t DrawResourcesFiller::addClipProjectionData_SubmitIfNeeded(const ClipProjectionData& clipProjectionData, SIntendedSubmitInfo& intendedNextSubmit)
@@ -735,12 +768,8 @@ uint32_t DrawResourcesFiller::addClipProjectionData_SubmitIfNeeded(const ClipPro
 	{
 		finalizeAllCopiesToGPU(intendedNextSubmit);
 		submitDraws(intendedNextSubmit);
-		
-		// resets itself
-		resetCustomClipProjections();
-		// resets higher level resources
-		resetMainObjects();
-		resetDrawObjects();
+		// resets everything! be careful!
+		reset();
 	}
 	
 	resourcesCollection.clipProjections.vector.push_back(clipProjectionData); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
@@ -1020,7 +1049,7 @@ void DrawResourcesFiller::setHatchFillMSDFTextureFunction(const GetHatchFillPatt
 	getHatchFillPatternMSDF = func;
 }
 
-uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, core::smart_refctd_ptr<ICPUImage>&& cpuImage, uint32_t mainObjIdx, SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, core::smart_refctd_ptr<ICPUImage>&& cpuImage, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	if (!cpuImage)
 		return InvalidTextureIdx; // TODO: Log
@@ -1041,10 +1070,9 @@ uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, cor
 		{
 			// Dealloc once submission is finished
 			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx, nextSemaSignal);
-
-			// If we reset main objects will cause an auto submission bug, where adding an msdf texture while constructing glyphs will have wrong main object references (See how SingleLineTexts add Glyphs with a single mainObject)
-			// for the same reason we don't reset line styles
-			submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjIdx);
+			finalizeAllCopiesToGPU(intendedNextSubmit);
+			submitDraws(intendedNextSubmit);
+			reset(); // resets everything, things referenced through mainObj and other shit will be pushed again through acquireXXX_SubmitIfNeeded
 		} 
 		else
 		{

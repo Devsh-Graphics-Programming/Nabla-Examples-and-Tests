@@ -113,6 +113,16 @@ pfloat64_t2 transformVectorNdc(NBL_CONST_REF_ARG(pfloat64_t3x3) transformation, 
 }
 #endif
 
+enum class MainObjectType : uint32_t
+{
+    NONE = 0u,
+    POLYLINE,
+    HATCH,
+    TEXT,
+    IMAGE,
+    DTM,
+};
+
 enum class ObjectType : uint32_t
 {
     LINE = 0u,
@@ -282,7 +292,7 @@ NBL_CONSTEXPR uint32_t InvalidRigidSegmentIndex = 0xffffffff;
 NBL_CONSTEXPR float InvalidStyleStretchValue = nbl::hlsl::numeric_limits<float>::infinity;
 
 
-// TODO[Przemek]: we will need something similar to LineStyles but related to heigh shading settings which is user customizable (like LineStyle stipple patterns) and requires upper_bound to figure out the color based on height value.
+// TODO[Przemek]: we will need something similar to LineStyles but related to heigh shading settings which is user customizable (like  stipple patterns) and requires upper_bound to figure out the color based on height value.
 // We'll discuss that later or what it will be looking like and how it's gonna get passed to our shaders.
 
 struct TriangleMeshVertex

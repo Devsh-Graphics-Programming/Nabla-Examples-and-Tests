@@ -78,6 +78,12 @@ public:
 			vector.resize(offset + additionalSize);
 			return offset;
 		}
+		
+		uint32_t addAndGetOffset(const T& val)
+		{
+			vector.push_back(val);
+			return vector.size() - 1u;
+		}
 
 		T* data() { return vector.data(); }
 	};
@@ -148,7 +154,8 @@ public:
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	void drawPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, SIntendedSubmitInfo& intendedNextSubmit);
 
-	void drawPolyline(const CPolylineBase& polyline, uint32_t polylineMainObjIdx, SIntendedSubmitInfo& intendedNextSubmit);
+	/// WARNING: make sure this function  is called within begin/endMainObject scope
+	void drawPolyline(const CPolylineBase& polyline, SIntendedSubmitInfo& intendedNextSubmit);
 	
 	void drawTriangleMesh(const CTriangleMesh& mesh, CTriangleMesh::DrawData& drawData, const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit);
 
@@ -172,8 +179,8 @@ public:
 		const Hatch& hatch,
 		const float32_t4& color,
 		SIntendedSubmitInfo& intendedNextSubmit);
-
-	// ! Draw Font Glyph, will auto submit if there is no space
+	
+	/// WARNING: make sure this function  is called within begin/endMainObject scope
 	void drawFontGlyph(
 		nbl::ext::TextRendering::FontFace* fontFace,
 		uint32_t glyphIdx,
@@ -181,7 +188,6 @@ public:
 		float32_t2 dirU,
 		float32_t  aspectRatio,
 		float32_t2 minUV,
-		uint32_t mainObjIdx,
 		SIntendedSubmitInfo& intendedNextSubmit);
 	
 	void _test_addImageObject(
@@ -210,24 +216,17 @@ public:
 	/// @return how far resourcesGPUBuffer was copied to by `finalizeAllCopiesToGPU` in `resourcesCollection` 
 	const size_t getCopiedResourcesSize() { return copiedResourcesSize; }
 
-	uint32_t addLineStyle_SubmitIfNeeded(const LineStyleInfo& lineStyle, SIntendedSubmitInfo& intendedNextSubmit);
+	// Setting Active Resources:
+	void setActiveLineStyle(const LineStyleInfo& lineStyle);
+	void setActiveDTMSettings(const DTMSettingsInfo& dtmSettings);
 
-	uint32_t addDTMSettings_SubmitIfNeeded(const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit);
-	
-	// TODO[Przemek]: Read after reading the fragment shader comments and having a basic understanding of the relationship between "mainObject" and our programmable blending resolve:
-	// Use `addMainObject_SubmitIfNeeded` to push your single mainObject you'll be using for the enitre triangle mesh (this will ensure overlaps between triangles of the same mesh is resolved correctly)
-	// Delete comment when you understand this
+	void beginMainObject(MainObjectType type);
+	void endMainObject();
 
-	// [ADVANCED] Do not use this function unless you know what you're doing (It may cause auto submit)
-	// Never call this function multiple times in a row before indexing it in a drawable, because future auto-submits may invalidate mainObjects, so do them one by one, for example:
-	// Valid: addMainObject1 --> addXXX(mainObj1) ---> addMainObject2 ---> addXXX(mainObj2) ....
-	// Invalid: addMainObject1 ---> addMainObject2 ---> addXXX(mainObj1) ---> addXXX(mainObj2) ....
-	uint32_t addMainObject_SubmitIfNeeded(uint32_t styleIdx, uint32_t dtmSettingsIdx, SIntendedSubmitInfo& intendedNextSubmit);
-
-	// we need to store the clip projection stack to make sure the front is always available in memory
 	void pushClipProjectionData(const ClipProjectionData& clipProjectionData);
 	void popClipProjectionData();
-	const std::deque<ClipProjectionData>& getClipProjectionStack() const { return clipProjections; }
+
+	const std::deque<ClipProjectionData>& getClipProjectionStack() const { return activeClipProjections; }
 
 	smart_refctd_ptr<IGPUImageView> getMSDFsTextureArray() { return msdfTextureArray; }
 
@@ -255,33 +254,59 @@ protected:
 
 	const size_t calculateRemainingResourcesSize() const;
 
-	// Internal Function to call whenever we overflow when we can't fill all of mainObject's drawObjects
-	void submitCurrentDrawObjectsAndReset(SIntendedSubmitInfo& intendedNextSubmit, uint32_t mainObjectIndex);
+	// TODO: Find better name for function
+	/// @brief Internal Function to call whenever we overflow when we can't fill all of mainObject's drawObjects
+	/// @param intendedNextSubmit 
+	/// @param mainObjectIndex: function updates mainObjectIndex after submitting, clearing everything and acquiring  mainObjectIndex again.
+	void submitCurrentDrawObjectsAndReset(SIntendedSubmitInfo& intendedNextSubmit, uint32_t& mainObjectIndex);
 
-	/// @return index to added main object.
-	///		It will return `InvalidMainObjectIndex` if it there isn't enough remaining resources memory OR the index would exceed MaxIndexableMainObjects
-	uint32_t addMainObject_Internal(const MainObject& mainObject);
-
-	uint32_t addLineStyle_Internal(const LineStyleInfo& lineStyleInfo);
-
-	uint32_t addDTMSettings_Internal(const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit);
-
-	// Gets the current clip projection data (the top of stack) gpu addreess inside the geometryBuffer
-	// If it's been invalidated then it will request to upload again with a possible auto-submit on low geometry buffer memory.
-	uint32_t acquireCurrentClipProjectionIndex(SIntendedSubmitInfo& intendedNextSubmit);
+	// Gets resource index to the active linestyle data from the top of stack 
+	// If it's been invalidated then it will request to add to resources again ( auto-submission happens If there is not enough memory to add again)
+	uint32_t acquireActiveLineStyleIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit);
 	
+	// Gets resource index to the active linestyle data from the top of stack 
+	// If it's been invalidated then it will request to add to resources again ( auto-submission happens If there is not enough memory to add again)
+	uint32_t acquireActiveDTMSettingsIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit);
+
+	// Gets resource index to the active clip projection data from the top of stack 
+	// If it's been invalidated then it will request to add to resources again ( auto-submission happens If there is not enough memory to add again)
+	uint32_t acquireActiveClipProjectionIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit);
+	
+	// Gets resource index to the active main object data
+	// If it's been invalidated then it will request to add to resources again ( auto-submission happens If there is not enough memory to add again)
+	uint32_t acquireActiveMainObjectIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit);
+
+	/// Attempts to add lineStyle to resources. If it fails to do, due to resource limitations, auto-submits and tries again. 
+	uint32_t addLineStyle_SubmitIfNeeded(const LineStyleInfo& lineStyle, SIntendedSubmitInfo& intendedNextSubmit);
+	
+	/// Attempts to add dtmSettings to resources. If it fails to do, due to resource limitations, auto-submits and tries again. 
+	uint32_t addDTMSettings_SubmitIfNeeded(const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit);
+	
+	/// Attempts to add clipProjection to resources. If it fails to do, due to resource limitations, auto-submits and tries again. 
 	uint32_t addClipProjectionData_SubmitIfNeeded(const ClipProjectionData& clipProjectionData, SIntendedSubmitInfo& intendedNextSubmit);
-
+	
+	/// returns index to added LineStyleInfo, returns Invalid index if it exceeds resource limitations
+	uint32_t addLineStyle_Internal(const LineStyleInfo& lineStyleInfo);
+	
+	/// returns index to added DTMSettingsInfo, returns Invalid index if it exceeds resource limitations
+	uint32_t addDTMSettings_Internal(const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit);
+	
+	/// Attempts to upload as many draw objects as possible within the given polyline section considering resource limitations
 	void addPolylineObjects_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx);
-
+	
+	/// Attempts to upload as many draw objects as possible within the given polyline connectors considering resource limitations
 	void addPolylineConnectors_Internal(const CPolylineBase& polyline, uint32_t& currentPolylineConnectorObj, uint32_t mainObjIdx);
-
+	
+	/// Attempts to upload as many draw objects as possible within the given polyline section considering resource limitations
 	void addLines_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx);
-
+	
+	/// Attempts to upload as many draw objects as possible within the given polyline section considering resource limitations
 	void addQuadBeziers_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx);
-
+	
+	/// Attempts to upload as many draw objects as possible within the given hatch considering resource limitations
 	void addHatch_Internal(const Hatch& hatch, uint32_t& currentObjectInSection, uint32_t mainObjIndex);
 	
+	/// Attempts to upload a single GlyphInfo considering resource limitations
 	bool addFontGlyph_Internal(const GlyphInfo& glyphInfo, uint32_t mainObjIdx);
 	
 	void resetMainObjects()
@@ -301,19 +326,21 @@ protected:
 	{
 		resourcesCollection.clipProjections.vector.clear();
 		
-		// Invalidate all the clip projection addresses because clipProjections buffer got reset
-		for (auto& clipProjAddr : clipProjectionIndices)
+		// Invalidate all the clip projection addresses because activeClipProjections buffer got reset
+		for (auto& clipProjAddr : activeClipProjectionIndices)
 			clipProjAddr = InvalidClipProjectionIndex;
 	}
 
 	void resetLineStyles()
 	{
 		resourcesCollection.lineStyles.vector.clear();
+		activeLineStyleIndex = InvalidStyleIdx;
 	}
 
 	void resetDTMSettings()
 	{
 		resourcesCollection.dtmSettings.vector.clear();
+		activeDTMSettingsIndex = InvalidDTMSettingsIdx;
 	}
 
 	// MSDF Hashing and Caching Internal Functions 
@@ -404,7 +431,7 @@ protected:
 	
 	// ! mainObjIdx: make sure to pass your mainObjIdx to it if you want it to stay synced/updated if some overflow submit occured which would potentially erase what your mainObject points at.
 	// If you haven't created a mainObject yet, then pass InvalidMainObjectIdx
-	uint32_t addMSDFTexture(const MSDFInputInfo& msdfInput, core::smart_refctd_ptr<ICPUImage>&& cpuImage, uint32_t mainObjIdx, SIntendedSubmitInfo& intendedNextSubmit);
+	uint32_t addMSDFTexture(const MSDFInputInfo& msdfInput, core::smart_refctd_ptr<ICPUImage>&& cpuImage, SIntendedSubmitInfo& intendedNextSubmit);
 	
 	// ResourcesCollection and packed into GPUBuffer
 	ResourcesCollection resourcesCollection;
@@ -415,8 +442,19 @@ protected:
 	smart_refctd_ptr<IUtilities> m_utilities;
 	IQueue* m_copyQueue;
 
-	std::deque<ClipProjectionData> clipProjections; // stack of clip projectios stored so we can resubmit them if geometry buffer got reset.
-	std::deque<uint32_t> clipProjectionIndices; // stack of clip projection gpu addresses in geometry buffer. to keep track of them in push/pops
+	// Active Resources we need to keep track of and push to resources buffer if needed.
+	LineStyleInfo activeLineStyle;
+	uint32_t activeLineStyleIndex = InvalidStyleIdx;
+
+	DTMSettingsInfo activeDTMSettings;
+	uint32_t activeDTMSettingsIndex = InvalidDTMSettingsIdx;
+
+	MainObjectType activeMainObjectType;
+	uint32_t activeMainObjectIndex = InvalidMainObjectIdx;
+
+	// The ClipProjections are stack, because user can push/pop ClipProjections in any order
+	std::deque<ClipProjectionData> activeClipProjections; // stack of clip projections stored so we can resubmit them if geometry buffer got reset.
+	std::deque<uint32_t> activeClipProjectionIndices; // stack of clip projection gpu addresses in geometry buffer. to keep track of them in push/pops
 
 	// MSDF
 	GetGlyphMSDFTextureFunc getGlyphMSDF;

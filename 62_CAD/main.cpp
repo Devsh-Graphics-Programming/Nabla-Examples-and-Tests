@@ -75,7 +75,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0	// CASE_9
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_4;
+constexpr ExampleMode mode = ExampleMode::CASE_6;
 
 class Camera2D
 {
@@ -3021,15 +3021,6 @@ protected:
 				auto penX = -100.0;
 				auto penY = -500.0;
 				auto previous = 0;
-
-				uint32_t glyphObjectIdx;
-				{
-					LineStyleInfo lineStyle = {};
-					lineStyle.color = float32_t4(1.0, 1.0, 1.0, 1.0);
-					const uint32_t styleIdx = drawResourcesFiller.addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
-
-					glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, InvalidDTMSettingsIdx, intendedNextSubmit);
-				}
 
 				float64_t2 currentBaselineStart = float64_t2(0.0, 0.0);
 				float64_t scale = 1.0 / 64.0;
