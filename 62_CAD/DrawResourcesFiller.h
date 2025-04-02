@@ -312,6 +312,7 @@ protected:
 	void resetMainObjects()
 	{
 		resourcesCollection.mainObjects.vector.clear();
+		activeMainObjectIndex = InvalidMainObjectIdx;
 	}
 
 	// these resources are data related to chunks of a whole mainObject
