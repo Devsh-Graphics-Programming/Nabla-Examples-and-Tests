@@ -137,6 +137,8 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, SIntendedS
 void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, CTriangleMesh::DrawData& drawData, const DTMSettingsInfo& dtmSettingsInfo, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	setActiveDTMSettings(dtmSettingsInfo);
+	beginMainObject(MainObjectType::DTM);
+
 	uint32_t mainObjectIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
 	drawData.pushConstants.triangleMeshMainObjectIndex = mainObjectIdx;
 
@@ -172,6 +174,7 @@ void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, CTriangleM
 	}
 
 	drawData.indexCount = mesh.getIndexCount();
+	endMainObject();
 }
 
 // TODO[Erfan]: Makes more sense if parameters are: solidColor + fillPattern + patternColor
@@ -653,7 +656,7 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 			return i;
 	}
 	
-	resourcesCollection.dtmSettings.addAndGetOffset(dtmSettings); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
+	return resourcesCollection.dtmSettings.addAndGetOffset(dtmSettings); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
 }
 
 uint32_t DrawResourcesFiller::acquireActiveLineStyleIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)

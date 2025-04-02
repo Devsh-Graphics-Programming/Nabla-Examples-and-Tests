@@ -75,7 +75,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0	// CASE_9
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_8;
+constexpr ExampleMode mode = ExampleMode::CASE_9;
 
 class Camera2D
 {
@@ -1429,7 +1429,6 @@ protected:
 	
 	void addObjects(SIntendedSubmitInfo& intendedNextSubmit)
 	{
-		
 		// TODO[Przemek]: add your own case, you won't call any other drawResourcesFiller function, only drawMesh with your custom made Mesh (for start it can be a single triangle)
 
 		// we record upload of our objects and if we failed to allocate we submit everything

@@ -84,7 +84,8 @@ PSInput main(uint vertexID : SV_VertexID)
     // your programmable pulling will use the baseVertexBufferAddress BDA address and `vertexID` to RawBufferLoad it's vertex. 
     // ~~Later, most likely We will require pulling all 3 vertices of the triangle, that's where you need to know which triangle you're currently on, and instead of objectID = vertexID/4 which we currently do, you will do vertexID/3 and pull all 3 of it's vertices.~~
     // Ok, brainfart, a vertex can belong to multiple triangles, I was thinking of AA but triangles share vertices, nevermind my comment above.
-
+    
+#define DTM
 #ifdef DTM
     PSInput outV;
 
@@ -119,7 +120,7 @@ PSInput main(uint vertexID : SV_VertexID)
     );
 
     // TODO: line style of contour line has to be set too!
-    DTMSettings dtm = dtmSettings[mainObj.dtmSettingsIdx];
+    DTMSettings dtm = loadDTMSettings(mainObj.dtmSettingsIdx);
     LineStyle outlineStyle = loadLineStyle(dtm.outlineLineStyleIdx);
     LineStyle contourStyle = loadLineStyle(dtm.contourLineStyleIdx);
     const float screenSpaceOutlineWidth = outlineStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(outlineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);

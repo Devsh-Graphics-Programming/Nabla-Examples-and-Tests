@@ -425,14 +425,15 @@ float4 fragMain(PSInput input) : SV_TARGET
     ObjectType objType = input.getObjType();
     const uint32_t currentMainObjectIdx = input.getMainObjectIdx();
     const MainObject mainObj = loadMainObject(currentMainObjectIdx);
-
+    
+#define DTM
 #ifdef DTM
     // TRIANGLE RENDERING
     {
         const float outlineThickness = input.getOutlineThickness();
         const float contourThickness = input.getContourLineThickness();
         const float phaseShift = 0.0f; // input.getCurrentPhaseShift();
-        const float stretch = 1.0f; // TODO: figure out what is it for
+        const float stretch = 1.0f; // TODO: figure out what is it for ---> [ERFAN's REPLY: no need to give shit about this in dtms, it's for special shape styles] 
         const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
 
         DTMSettings dtm = loadDTMSettings(mainObj.dtmSettingsIdx);
