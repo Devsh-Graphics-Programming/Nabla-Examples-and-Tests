@@ -198,6 +198,7 @@ public:
 
 	bool finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
+	/// @brief  resets resources buffers
 	void reset()
 	{
 		resetDrawObjects();

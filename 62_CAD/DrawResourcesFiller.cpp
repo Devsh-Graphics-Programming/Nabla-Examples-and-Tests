@@ -341,11 +341,13 @@ bool DrawResourcesFiller::finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNe
 void DrawResourcesFiller::setActiveLineStyle(const LineStyleInfo& lineStyle)
 {
 	activeLineStyle = lineStyle;
+	activeLineStyleIndex = InvalidStyleIdx;
 }
 
 void DrawResourcesFiller::setActiveDTMSettings(const DTMSettingsInfo& dtmSettings)
 {
 	activeDTMSettings = dtmSettings;
+	activeDTMSettingsIndex = InvalidDTMSettingsIdx;
 }
 
 void DrawResourcesFiller::beginMainObject(MainObjectType type)
