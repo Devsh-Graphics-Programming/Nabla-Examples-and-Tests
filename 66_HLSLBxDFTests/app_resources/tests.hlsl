@@ -143,8 +143,8 @@ struct SBxDFTestResources
         retval.rng = nbl::hlsl::Xoroshiro64Star::construct(seed);
         retval.u = float32_t3(rngUniformDist<float32_t2>(retval.rng), 0.0);
 
-        retval.V.direction = nbl::hlsl::normalize<float32_t3>(uniform_sphere_generate<float>(rngUniformDist<float32_t2>(retval.rng)));
-        retval.N = nbl::hlsl::normalize<float32_t3>(uniform_sphere_generate<float>(rngUniformDist<float32_t2>(retval.rng)));
+        retval.V.direction = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(rngUniformDist<float32_t2>(retval.rng)));
+        retval.N = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(rngUniformDist<float32_t2>(retval.rng)));
         
         float32_t3 tangent, bitangent;
         math::frisvad<float32_t3>(retval.N, tangent, bitangent);
@@ -494,12 +494,12 @@ struct TestJacobian : TestBxDF<BxDF>
         }
 
         // TODO: add checks with need clamp trait
-        if (bxdf_traits<BxDF>::type == BT_BRDF)
+        if (bxdf::traits<BxDF>::type == bxdf::BT_BRDF)
         {
             if (s.NdotL <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }
-        else if (bxdf_traits<BxDF>::type == BT_BSDF)
+        else if (bxdf::traits<BxDF>::type == bxdf::BT_BSDF)
         {
             if (abs<float>(s.NdotL) <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
@@ -529,12 +529,12 @@ struct TestJacobian : TestBxDF<BxDF>
 
     ErrorType test()
     {
-        if (bxdf_traits<BxDF>::type == BT_BRDF)
+        if (bxdf::traits<BxDF>::type == bxdf::BT_BRDF)
         {    
             if (base_t::isointer.NdotV <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }        
-        else if (bxdf_traits<BxDF>::type == BT_BSDF)
+        else if (bxdf::traits<BxDF>::type == bxdf::BT_BSDF)
         {
             if (abs<float>(base_t::isointer.NdotV) <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
@@ -571,7 +571,7 @@ struct TestJacobian : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        PCG32x2 pcg = PCG32x2::construct(initparams.state);
+        random::PCG32x2 pcg = random::PCG32x2::construct(initparams.state);
         uint32_t2 state = pcg();
 
         this_t t;
@@ -639,12 +639,12 @@ struct TestReciprocity : TestBxDF<BxDF>
         }
 
         // TODO: add checks with need clamp trait
-        if (bxdf_traits<BxDF>::type == BT_BRDF)
+        if (bxdf::traits<BxDF>::type == bxdf::BT_BRDF)
         {
             if (s.NdotL <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }
-        else if (bxdf_traits<BxDF>::type == BT_BSDF)
+        else if (bxdf::traits<BxDF>::type == bxdf::BT_BSDF)
         {
             if (abs<float>(s.NdotL) <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
@@ -713,12 +713,12 @@ struct TestReciprocity : TestBxDF<BxDF>
 
     ErrorType test()
     {
-        if (bxdf_traits<BxDF>::type == BT_BRDF)
+        if (bxdf::traits<BxDF>::type == bxdf::BT_BRDF)
         {    
             if (base_t::isointer.NdotV <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }        
-        else if (bxdf_traits<BxDF>::type == BT_BSDF)
+        else if (bxdf::traits<BxDF>::type == bxdf::BT_BSDF)
         {
             if (abs<float>(base_t::isointer.NdotV) <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
@@ -745,7 +745,7 @@ struct TestReciprocity : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        PCG32x2 pcg = PCG32x2::construct(initparams.state);
+        random::PCG32x2 pcg = random::PCG32x2::construct(initparams.state);
         uint32_t2 state = pcg();
 
         this_t t;
@@ -886,12 +886,12 @@ struct TestBucket : TestBxDF<BxDF>
 
     ErrorType test()
     {
-        if (bxdf_traits<BxDF>::type == BT_BRDF)
+        if (bxdf::traits<BxDF>::type == bxdf::BT_BRDF)
         {    
             if (base_t::isointer.NdotV <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }        
-        else if (bxdf_traits<BxDF>::type == BT_BSDF)
+        else if (bxdf::traits<BxDF>::type == bxdf::BT_BSDF)
         {
             if (abs<float>(base_t::isointer.NdotV) <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
@@ -906,7 +906,7 @@ struct TestBucket : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        PCG32x2 pcg = PCG32x2::construct(initparams.state);
+        random::PCG32x2 pcg = random::PCG32x2::construct(initparams.state);
         uint32_t2 state = pcg();
 
         this_t t;
@@ -1266,10 +1266,10 @@ struct TestChi2 : TestBxDF<BxDF>
 
     ErrorType test()
     {
-        if (bxdf_traits<BxDF>::type == BT_BRDF)
+        if (bxdf::traits<BxDF>::type == bxdf::BT_BRDF)
             if (base_t::isointer.NdotV <= numeric_limits<float>::min)
                 return BET_INVALID;
-        else if (bxdf_traits<BxDF>::type == BT_BSDF)
+        else if (bxdf::traits<BxDF>::type == bxdf::BT_BSDF)
             if (abs<float>(base_t::isointer.NdotV) <= numeric_limits<float>::min)
                 return BET_INVALID;
 
@@ -1353,7 +1353,7 @@ struct TestChi2 : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        PCG32x2 pcg = PCG32x2::construct(initparams.state);
+        random::PCG32x2 pcg = random::PCG32x2::construct(initparams.state);
         uint32_t2 state = pcg();
 
         this_t t;
