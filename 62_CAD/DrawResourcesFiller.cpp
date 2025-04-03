@@ -19,7 +19,7 @@ void DrawResourcesFiller::allocateResourcesBuffer(ILogicalDevice* logicalDevice,
 {
 	size = core::alignUp(size, ResourcesMaxNaturalAlignment);
 	size = core::max(size, getMinimumRequiredResourcesBufferSize());
-	size = 368u;
+	// size = 368u; STRESS TEST
 	IGPUBuffer::SCreationParams geometryCreationParams = {};
 	geometryCreationParams.size = size;
 	geometryCreationParams.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INDEX_BUFFER_BIT;
@@ -185,9 +185,7 @@ void DrawResourcesFiller::drawHatch(
 		const HatchFillPattern fillPattern,
 		SIntendedSubmitInfo& intendedNextSubmit)
 {
-	// TODO[Optimization Idea]: don't draw hatch twice if both colors are visible: instead do the msdf inside the alpha resolve by detecting mainObj being a hatch
-	// https://discord.com/channels/593902898015109131/856835291712716820/1228337893366300743
-	// TODO: Come back to this idea when doing color resolve for ecws (they don't have mainObj/style Index, instead they have uv into a texture	
+	// TODO[Optimization Idea]: don't draw hatch twice, we now have color storage buffer and we can treat rendering hatches like a procedural texture (requires 2 colors so no more abusing of linestyle for hatches)
 
 	// if backgroundColor is visible
 	drawHatch(hatch, backgroundColor, intendedNextSubmit);
@@ -602,8 +600,7 @@ uint32_t DrawResourcesFiller::addLineStyle_Internal(const LineStyleInfo& lineSty
 	const bool enoughMem = remainingResourcesSize >= sizeof(LineStyle); // enough remaining memory for 1 more linestyle?
 	if (!enoughMem)
 		return InvalidStyleIdx;
-	// TODO: Additionally constraint by a max size? and return InvalidIdx if it would exceed
-
+	// TODO: Maybe constraint by a max size? and return InvalidIdx if it would exceed
 
 	LineStyle gpuLineStyle = lineStyleInfo.getAsGPUData();
 	_NBL_DEBUG_BREAK_IF(gpuLineStyle.stipplePatternSize > LineStyle::StipplePatternMaxSize); // Oops, even after style normalization the style is too long to be in gpu mem :(
@@ -625,7 +622,7 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 
 	if (!enoughMem)
 		return InvalidDTMSettingsIdx;
-	// TODO: Additionally constraint by a max size? and return InvalidIdx if it would exceed
+	// TODO: Maybe constraint by a max size? and return InvalidIdx if it would exceed
 
 	DTMSettings dtmSettings;
 	dtmSettings.contourLinesStartHeight = dtmSettingsInfo.contourLinesStartHeight;
@@ -723,7 +720,7 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 	
 	MainObject mainObject = {};
 	// These 3 calls below shouldn't need to Submit because we made sure there is enough memory for all of them.
-	// if something here triggers a auto-submit it's a possible bug, TODO: assert that somehow?
+	// if something here triggers a auto-submit it's a possible bug with calculating `memRequired` above, TODO: assert that somehow?
 	mainObject.styleIdx = (needsLineStyle) ? acquireActiveLineStyleIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidStyleIdx;
 	mainObject.dtmSettingsIdx = (needsDTMSettings) ? acquireActiveDTMSettingsIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidDTMSettingsIdx;
 	mainObject.clipProjectionIndex = (needsCustomClipProjection) ? acquireActiveClipProjectionIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidClipProjectionIndex;
@@ -739,12 +736,7 @@ uint32_t DrawResourcesFiller::addLineStyle_SubmitIfNeeded(const LineStyleInfo& l
 		// There wasn't enough resource memory remaining to fit a single LineStyle
 		finalizeAllCopiesToGPU(intendedNextSubmit);
 		submitDraws(intendedNextSubmit);
-		
-		// resets itself
-		resetLineStyles();
-		// resets higher level resources
-		resetMainObjects();
-		resetDrawObjects();
+		reset(); // resets everything! be careful!
 
 		outLineStyleIdx = addLineStyle_Internal(lineStyle);
 		assert(outLineStyleIdx != InvalidStyleIdx);
@@ -762,8 +754,7 @@ uint32_t DrawResourcesFiller::addDTMSettings_SubmitIfNeeded(const DTMSettingsInf
 		// There wasn't enough resource memory remaining to fit dtmsettings struct + 2 linestyles structs.
 		finalizeAllCopiesToGPU(intendedNextSubmit);
 		submitDraws(intendedNextSubmit);
-		// resets everything! be careful!
-		reset();
+		reset(); // resets everything! be careful!
 
 		outDTMSettingIdx = addDTMSettings_Internal(dtmSettings, intendedNextSubmit);
 		assert(outDTMSettingIdx != InvalidDTMSettingsIdx);
@@ -781,8 +772,7 @@ uint32_t DrawResourcesFiller::addClipProjectionData_SubmitIfNeeded(const ClipPro
 	{
 		finalizeAllCopiesToGPU(intendedNextSubmit);
 		submitDraws(intendedNextSubmit);
-		// resets everything! be careful!
-		reset();
+		reset(); // resets everything! be careful!
 	}
 	
 	resourcesCollection.clipProjections.vector.push_back(clipProjectionData); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers

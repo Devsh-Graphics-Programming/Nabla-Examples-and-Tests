@@ -67,10 +67,8 @@ public:
 		}
 
 		/// @brief increases size of general-purpose resources that hold bytes
-		/// @param additionalSize
 		/// @param alignment: Alignment of the pointer returned to be filled, should be PoT and <= ResourcesMaxNaturalAlignment, only use this if storing raw bytes in vector
 		/// @return pointer to start of the data to be filled, up to additional size
-		// TODO: make sure t is 1 byte with templates.
 		size_t increaseSizeAndGetOffset(size_t additionalSize, size_t alignment) 
 		{
 			assert(core::isPoT(alignment) && alignment <= ResourcesMaxNaturalAlignment);
@@ -92,7 +90,6 @@ public:
 	struct ResourcesCollection
 	{
 		// auto-submission level 0 resources (settings that mainObj references)
-		// Not enough VRAM available to serve adding one of the level 0 resources: they clear themselves and everything from higher levels after doing submission
 		CPUGeneratedResource<LineStyle> lineStyles;
 		CPUGeneratedResource<DTMSettings> dtmSettings;
 		CPUGeneratedResource<ClipProjectionData> clipProjections;
@@ -102,11 +99,11 @@ public:
 
 		// auto-submission level 2 buffers
 		CPUGeneratedResource<DrawObject> drawObjects;
-		CPUGeneratedResource<uint32_t> indexBuffer; // this is going to change to ReservedComputeResource where index buffer gets filled by compute shaders
-		CPUGeneratedResource<uint8_t> geometryInfo; // general purpose byte buffer for custom geometries, etc
+		CPUGeneratedResource<uint32_t> indexBuffer; // TODO: this is going to change to ReservedComputeResource where index buffer gets filled by compute shaders
+		CPUGeneratedResource<uint8_t> geometryInfo; // general purpose byte buffer for custom data for geometries (eg. line points, bezier definitions, aabbs)
 
 		// Get Total memory consumption, If all ResourcesCollection get packed together with ResourcesMaxNaturalAlignment
-		// used to decide when to overflow
+		// used to decide the remaining memory and when to overflow
 		size_t calculateTotalConsumption() const
 		{
 			return
@@ -154,6 +151,7 @@ public:
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	void drawPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, SIntendedSubmitInfo& intendedNextSubmit);
 
+	/// Use this in a begin/endMainObject scope when you want to draw different polylines that should essentially be a single main object (no self-blending between components of a single main object)
 	/// WARNING: make sure this function  is called within begin/endMainObject scope
 	void drawPolyline(const CPolylineBase& polyline, SIntendedSubmitInfo& intendedNextSubmit);
 	
@@ -180,6 +178,7 @@ public:
 		const float32_t4& color,
 		SIntendedSubmitInfo& intendedNextSubmit);
 	
+	/// Used by SingleLineText, Issue drawing a font glyph
 	/// WARNING: make sure this function  is called within begin/endMainObject scope
 	void drawFontGlyph(
 		nbl::ext::TextRendering::FontFace* fontFace,
@@ -196,6 +195,8 @@ public:
 		float32_t rotation,
 		SIntendedSubmitInfo& intendedNextSubmit);
 
+	/// @brief call this function before submitting to ensure all resources are copied
+	/// records copy command into intendedNextSubmit's active command buffer and might possibly submits if fails allocation on staging upload memory.
 	bool finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
 	/// @brief  resets resources buffers
