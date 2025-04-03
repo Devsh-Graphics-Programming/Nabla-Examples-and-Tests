@@ -279,7 +279,7 @@ void DrawResourcesFiller::_test_addImageObject(float64_t2 topLeftPos, float32_t2
 			const size_t remainingResourcesSize = calculateRemainingResourcesSize();
 			
 			const uint32_t uploadableObjects = (remainingResourcesSize) / (sizeof(ImageObjectInfo) + sizeof(DrawObject) + sizeof(uint32_t) * 6u);
-			// TODO[ERFAN]: later take into account, our limit of max index buffer and vettex buffer size or constrainst other than mem
+			// TODO[ERFAN]: later take into account: our maximum indexable vertex 
 	
 			if (uploadableObjects <= 0u)
 				return false;
@@ -794,7 +794,7 @@ void DrawResourcesFiller::addPolylineConnectors_Internal(const CPolylineBase& po
 	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
 
 	const uint32_t uploadableObjects = (remainingResourcesSize) / (sizeof(PolylineConnector) + sizeof(DrawObject) + sizeof(uint32_t) * 6u);
-	// TODO[ERFAN]: later take into account, our limit of max index buffer and vettex buffer size or constrainst other than mem
+	// TODO[ERFAN]: later take into account: our maximum indexable vertex 
 	
 	const uint32_t connectorCount = static_cast<uint32_t>(polyline.getConnectors().size());
 	const uint32_t remainingObjects = connectorCount - currentPolylineConnectorObj;
@@ -850,7 +850,7 @@ void DrawResourcesFiller::addLines_Internal(const CPolylineBase& polyline, const
 
 	// how many lines fit into mem? --> memConsumption = sizeof(LinePointInfo) + sizeof(LinePointInfo)*lineCount + sizeof(DrawObject)*lineCount + sizeof(uint32_t) * 6u * lineCount
 	const uint32_t uploadableObjects = (remainingResourcesSize - sizeof(LinePointInfo)) / (sizeof(LinePointInfo) + sizeof(DrawObject) + sizeof(uint32_t) * 6u);
-	// TODO[ERFAN]: later take into account, our limit of max index buffer and vettex buffer size or constrainst other than mem
+	// TODO[ERFAN]: later take into account: our maximum indexable vertex 
 
 	const uint32_t lineCount = section.count;
 	const uint32_t remainingObjects = lineCount - currentObjectInSection;
@@ -904,7 +904,7 @@ void DrawResourcesFiller::addQuadBeziers_Internal(const CPolylineBase& polyline,
 	// how many quad bezier objects fit into mem?
 	// memConsumption = quadBezCount * (sizeof(QuadraticBezierInfo) + 3*(sizeof(DrawObject)+6u*sizeof(uint32_t))
 	const uint32_t uploadableObjects = (remainingResourcesSize) / (sizeof(QuadraticBezierInfo) + (sizeof(DrawObject) + 6u * sizeof(uint32_t)) * CagesPerQuadBezier);
-	// TODO[ERFAN]: later take into account, our limit of max index buffer and vettex buffer size or constrainst other than mem
+	// TODO[ERFAN]: later take into account: our maximum indexable vertex 
 	
 	const uint32_t beziersCount = section.count;
 	const uint32_t remainingObjects = beziersCount - currentObjectInSection;
@@ -960,7 +960,7 @@ void DrawResourcesFiller::addHatch_Internal(const Hatch& hatch, uint32_t& curren
 	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
 
 	const uint32_t uploadableObjects = (remainingResourcesSize) / (sizeof(Hatch::CurveHatchBox) + sizeof(DrawObject) + sizeof(uint32_t) * 6u);
-	// TODO[ERFAN]: later take into account, our limit of max index buffer and vettex buffer size or constrainst other than mem
+	// TODO[ERFAN]: later take into account: our maximum indexable vertex 
 	
 	uint32_t remainingObjects = hatch.getHatchBoxCount() - currentObjectInSection;
 	const uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
@@ -1010,7 +1010,7 @@ bool DrawResourcesFiller::addFontGlyph_Internal(const GlyphInfo& glyphInfo, uint
 	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
 
 	const uint32_t uploadableObjects = (remainingResourcesSize) / (sizeof(GlyphInfo) + sizeof(DrawObject) + sizeof(uint32_t) * 6u);
-	// TODO[ERFAN]: later take into account, our limit of max index buffer and vettex buffer size or constrainst other than mem
+	// TODO[ERFAN]: later take into account: our maximum indexable vertex 
 	
 	if (uploadableObjects <= 0u)
 		return false;
