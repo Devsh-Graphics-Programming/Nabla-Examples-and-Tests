@@ -75,7 +75,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0	// CASE_9
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_9;
+constexpr ExampleMode mode = ExampleMode::CASE_4;
 
 class Camera2D
 {
@@ -1213,6 +1213,7 @@ public:
 		globalData.screenToWorldRatio = screenToWorld;
 		globalData.worldToScreenRatio = (1.0/screenToWorld);
 		globalData.miterLimit = 10.0f;
+		globalData.currentlyActiveMainObjectIndex = drawResourcesFiller.getActiveMainObjectIndex();
 		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = m_globalsBuffer.get() };
 		bool updateSuccess = cb->updateBuffer(globalBufferUpdateRange, &globalData);
 		assert(updateSuccess);
@@ -1883,8 +1884,8 @@ protected:
 
 			LineStyleInfo style = {};
 			style.screenSpaceLineWidth = 4.0f;
-			style.worldSpaceLineWidth = 0.0f;
-			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
+			style.worldSpaceLineWidth = 2.0f;
+			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.1f);
 
 			LineStyleInfo style2 = {};
 			style2.screenSpaceLineWidth = 2.0f;
@@ -1957,7 +1958,7 @@ protected:
 						myCurve.majorAxis = { -10.0, 5.0 };
 						myCurve.center = { 0, -5.0 };
 						myCurve.angleBounds = {
-							nbl::core::PI<double>() * 2.0,
+							nbl::core::PI<double>() * 1.0,
 							nbl::core::PI<double>() * 0.0
 							};
 						myCurve.eccentricity = 1.0;
@@ -1985,10 +1986,10 @@ protected:
 			}
 
 			drawResourcesFiller.drawPolyline(originalPolyline, style, intendedNextSubmit);
-			//CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+0.0 - 3.0 * abs(cos(m_timeElapsed * 0.0009)));
-			//CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(+0.0 + 3.0 * abs(cos(m_timeElapsed * 0.0009)));
-			//drawResourcesFiller.drawPolyline(offsettedPolyline, style2, intendedNextSubmit);
-			//drawResourcesFiller.drawPolyline(offsettedPolyline2, style2, intendedNextSubmit);
+			CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+0.0 - 3.0 * abs(cos(10.0 * 0.0009)));
+			CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(+0.0 + 3.0 * abs(cos(10.0 * 0.0009)));
+			drawResourcesFiller.drawPolyline(offsettedPolyline, style2, intendedNextSubmit);
+			drawResourcesFiller.drawPolyline(offsettedPolyline2, style2, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_4)
 		{

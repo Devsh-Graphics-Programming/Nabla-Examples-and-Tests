@@ -85,7 +85,7 @@ PSInput main(uint vertexID : SV_VertexID)
     // ~~Later, most likely We will require pulling all 3 vertices of the triangle, that's where you need to know which triangle you're currently on, and instead of objectID = vertexID/4 which we currently do, you will do vertexID/3 and pull all 3 of it's vertices.~~
     // Ok, brainfart, a vertex can belong to multiple triangles, I was thinking of AA but triangles share vertices, nevermind my comment above.
     
-#define DTM
+//#define DTM
 #ifdef DTM
     PSInput outV;
 

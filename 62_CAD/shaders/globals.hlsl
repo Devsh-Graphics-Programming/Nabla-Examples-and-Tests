@@ -74,8 +74,9 @@ struct Globals
     pfloat64_t worldToScreenRatio;
     uint32_t2 resolution;
     float antiAliasingFactor;
-    float miterLimit;
-    float32_t2 _padding;
+    uint32_t miterLimit;
+    uint32_t currentlyActiveMainObjectIndex; // for alpha resolve to skip resolving activeMainObjectIdx and prep it for next submit
+    float32_t _padding;
 };
 #ifndef __HLSL_VERSION
 static_assert(sizeof(Globals) == 176u);

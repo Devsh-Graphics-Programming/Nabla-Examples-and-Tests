@@ -239,6 +239,9 @@ public:
 		return msdfTextureArray->getCreationParameters().image->getCreationParameters().mipLevels;
 	}
 
+	/// For advanced use only, (passed to shaders for them to know if we overflow-submitted in the middle if a main obj
+	uint32_t getActiveMainObjectIndex() const { return activeMainObjectIndex; }
+
 protected:
 	
 	struct MSDFTextureCopy
@@ -255,7 +258,6 @@ protected:
 
 	const size_t calculateRemainingResourcesSize() const;
 
-	// TODO: Find better name for function
 	/// @brief Internal Function to call whenever we overflow when we can't fill all of mainObject's drawObjects
 	/// @param intendedNextSubmit 
 	/// @param mainObjectIndex: function updates mainObjectIndex after submitting, clearing everything and acquiring  mainObjectIndex again.

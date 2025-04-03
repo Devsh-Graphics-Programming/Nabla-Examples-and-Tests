@@ -426,7 +426,7 @@ float4 fragMain(PSInput input) : SV_TARGET
     const uint32_t currentMainObjectIdx = input.getMainObjectIdx();
     const MainObject mainObj = loadMainObject(currentMainObjectIdx);
     
-#define DTM
+//#define DTM
 #ifdef DTM
     // TRIANGLE RENDERING
     {
