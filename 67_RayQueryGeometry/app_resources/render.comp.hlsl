@@ -95,6 +95,7 @@ float3 calculateSmoothNormals(int instID, int primID, SGeomInfo geom, float2 bar
 }
 
 [numthreads(WorkgroupSize, WorkgroupSize, 1)]
+[shader("compute")]
 void main(uint32_t3 threadID : SV_DispatchThreadID)
 {
     uint2 coords = threadID.xy;
