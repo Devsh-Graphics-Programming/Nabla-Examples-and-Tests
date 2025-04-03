@@ -98,6 +98,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(68_JpegLoading EXCLUDE_FROM_ALL)
 
   add_subdirectory(70_FLIPFluids EXCLUDE_FROM_ALL)
+	add_subdirectory(71_RayTracingPipeline EXCLUDE_FROM_ALL)
 
 	NBL_HOOK_COMMON_API("${NBL_COMMON_API_TARGETS}")
 endif()
