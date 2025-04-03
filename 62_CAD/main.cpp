@@ -57,6 +57,7 @@ enum class ExampleMode
 	CASE_6, // Custom Clip Projections
 	CASE_7, // Images
 	CASE_8, // MSDF and Text
+	CASE_9, // DTM
 	CASE_COUNT
 };
 
@@ -71,9 +72,10 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	10.0,	// CASE_6
 	10.0,	// CASE_7
 	600.0,	// CASE_8
+	600.0	// CASE_9
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_4;
+constexpr ExampleMode mode = ExampleMode::CASE_9;
 
 class Camera2D
 {
@@ -293,6 +295,7 @@ public:
 		drawResourcesFiller.allocateMainObjectsBuffer(m_device.get(), maxObjects);
 		drawResourcesFiller.allocateDrawObjectsBuffer(m_device.get(), maxObjects * 5u);
 		drawResourcesFiller.allocateStylesBuffer(m_device.get(), 512u);
+		drawResourcesFiller.allocateDTMSettingsBuffer(m_device.get(), 512u);
 
 		// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)
 		// + 128 ClipProjData
@@ -641,6 +644,7 @@ public:
 	double m_timeElapsed = 0.0;
 	std::chrono::steady_clock::time_point lastTime;
 	uint32_t m_hatchDebugStep = 0u;
+	DTMSettingsInfo::E_HEIGHT_SHADING_MODE m_shadingModeExample = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
@@ -710,20 +714,27 @@ public:
 				},
 				{
 					.binding = 4u,
+					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_VERTEX | asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+					.count = 1u,
+				},
+				{
+					.binding = 5u,
 					.type = asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 					.count = 1u,
 				},
 				{
-					.binding = 5u,
+					.binding = 6u,
 					.type = asset::IDescriptor::E_TYPE::ET_SAMPLER,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 					.count = 1u,
 				},
 				{
-					.binding = 6u,
+					.binding = 7u,
 					.type = asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
 					.createFlags = bindlessTextureFlags,
 					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
@@ -767,7 +778,7 @@ public:
 			{
 				descriptorSet0 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout0));
 				descriptorSet1 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout1));
-				constexpr uint32_t DescriptorCountSet0 = 6u;
+				constexpr uint32_t DescriptorCountSet0 = 7u;
 				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfosSet0[DescriptorCountSet0] = {};
 
 				// Descriptors For Set 0:
@@ -787,11 +798,15 @@ public:
 				descriptorInfosSet0[3u].info.buffer.size = drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer->getCreationParams().size;
 				descriptorInfosSet0[3u].desc = drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer;
 				
-				descriptorInfosSet0[4u].info.combinedImageSampler.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				descriptorInfosSet0[4u].info.combinedImageSampler.sampler = msdfTextureSampler;
-				descriptorInfosSet0[4u].desc = drawResourcesFiller.getMSDFsTextureArray();
+				descriptorInfosSet0[4u].info.buffer.offset = 0u;
+				descriptorInfosSet0[4u].info.buffer.size = drawResourcesFiller.gpuDrawBuffers.dtmSettingsBuffer->getCreationParams().size;
+				descriptorInfosSet0[4u].desc = drawResourcesFiller.gpuDrawBuffers.dtmSettingsBuffer;
+
+				descriptorInfosSet0[5u].info.combinedImageSampler.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				descriptorInfosSet0[5u].info.combinedImageSampler.sampler = msdfTextureSampler;
+				descriptorInfosSet0[5u].desc = drawResourcesFiller.getMSDFsTextureArray();
 				
-				descriptorInfosSet0[5u].desc = msdfTextureSampler; // TODO[Erfan]: different sampler and make immutable?
+				descriptorInfosSet0[6u].desc = msdfTextureSampler; // TODO[Erfan]: different sampler and make immutable?
 				
 				// This is bindless to we write to it later.
 				// descriptorInfosSet0[6u].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
@@ -812,60 +827,78 @@ public:
 				video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[DescriptorUpdatesCount] = {};
 				
 				// Set 0 Updates:
+					// globals
 				descriptorUpdates[0u].dstSet = descriptorSet0.get();
 				descriptorUpdates[0u].binding = 0u;
 				descriptorUpdates[0u].arrayElement = 0u;
 				descriptorUpdates[0u].count = 1u;
 				descriptorUpdates[0u].info = &descriptorInfosSet0[0u];
 
+					// drawObjectsBuffer
 				descriptorUpdates[1u].dstSet = descriptorSet0.get();
 				descriptorUpdates[1u].binding = 1u;
 				descriptorUpdates[1u].arrayElement = 0u;
 				descriptorUpdates[1u].count = 1u;
 				descriptorUpdates[1u].info = &descriptorInfosSet0[1u];
 
+					// mainObjectsBuffer
 				descriptorUpdates[2u].dstSet = descriptorSet0.get();
 				descriptorUpdates[2u].binding = 2u;
 				descriptorUpdates[2u].arrayElement = 0u;
 				descriptorUpdates[2u].count = 1u;
 				descriptorUpdates[2u].info = &descriptorInfosSet0[2u];
 
+					// lineStylesBuffer
 				descriptorUpdates[3u].dstSet = descriptorSet0.get();
 				descriptorUpdates[3u].binding = 3u;
 				descriptorUpdates[3u].arrayElement = 0u;
 				descriptorUpdates[3u].count = 1u;
 				descriptorUpdates[3u].info = &descriptorInfosSet0[3u];
 				
+					// dtmSettingsBuffer
 				descriptorUpdates[4u].dstSet = descriptorSet0.get();
 				descriptorUpdates[4u].binding = 4u;
 				descriptorUpdates[4u].arrayElement = 0u;
 				descriptorUpdates[4u].count = 1u;
 				descriptorUpdates[4u].info = &descriptorInfosSet0[4u];
-				
+
+					// mdfs textures
 				descriptorUpdates[5u].dstSet = descriptorSet0.get();
 				descriptorUpdates[5u].binding = 5u;
 				descriptorUpdates[5u].arrayElement = 0u;
 				descriptorUpdates[5u].count = 1u;
 				descriptorUpdates[5u].info = &descriptorInfosSet0[5u];
-
-				// Set 1 Updates:
-				descriptorUpdates[6u].dstSet = descriptorSet1.get();
-				descriptorUpdates[6u].binding = 0u;
+				
+					// mdfs samplers	
+				descriptorUpdates[6u].dstSet = descriptorSet0.get();
+				descriptorUpdates[6u].binding = 6u;
 				descriptorUpdates[6u].arrayElement = 0u;
 				descriptorUpdates[6u].count = 1u;
-				descriptorUpdates[6u].info = &descriptorInfosSet1[0u];
+				descriptorUpdates[6u].info = &descriptorInfosSet0[6u];
 
+				// Set 1 Updates:
 				descriptorUpdates[7u].dstSet = descriptorSet1.get();
-				descriptorUpdates[7u].binding = 1u;
+				descriptorUpdates[7u].binding = 0u;
 				descriptorUpdates[7u].arrayElement = 0u;
 				descriptorUpdates[7u].count = 1u;
-				descriptorUpdates[7u].info = &descriptorInfosSet1[1u];
+				descriptorUpdates[7u].info = &descriptorInfosSet1[0u];
 
+				descriptorUpdates[8u].dstSet = descriptorSet1.get();
+				descriptorUpdates[8u].binding = 1u;
+				descriptorUpdates[8u].arrayElement = 0u;
+				descriptorUpdates[8u].count = 1u;
+				descriptorUpdates[8u].info = &descriptorInfosSet1[1u];
 
 				m_device->updateDescriptorSets(DescriptorUpdatesCount, descriptorUpdates, 0u, nullptr);
 			}
 
-			pipelineLayout = m_device->createPipelineLayout({}, core::smart_refctd_ptr(descriptorSetLayout0), core::smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
+			const asset::SPushConstantRange range = {
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX,
+						.offset = 0,
+						.size = sizeof(PushConstants)
+			};
+
+			pipelineLayout = m_device->createPipelineLayout({ &range,1 }, core::smart_refctd_ptr(descriptorSetLayout0), core::smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
 		}
 
 		smart_refctd_ptr<IGPUShader> mainPipelineFragmentShaders = {};
@@ -1129,6 +1162,18 @@ public:
 					{
 						m_hatchDebugStep--;
 					}
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_1)
+					{
+						m_shadingModeExample = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
+					}
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_2)
+					{
+						m_shadingModeExample = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
+					}
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_3)
+					{
+						m_shadingModeExample = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
+					}
 				}
 			}
 		, m_logger.get());
@@ -1387,18 +1432,30 @@ public:
 		const uint32_t currentIndexCount = drawResourcesFiller.getDrawObjectCount() * 6u;
 		IGPUDescriptorSet* descriptorSets[] = { descriptorSet0.get(), descriptorSet1.get() };
 		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, pipelineLayout.get(), 0u, 2u, descriptorSets);
+		if (mode == ExampleMode::CASE_9)
+		{
 
-		// TODO[Przemek]: based on our call bind index buffer you uploaded to part of the `drawResourcesFiller.gpuDrawBuffers.geometryBuffer`
-		// Vertices will be pulled based on baseBDAPointer of where you uploaded the vertex + the VertexID in the vertex shader.
-		cb->bindIndexBuffer({ .offset = 0u, .buffer = drawResourcesFiller.gpuDrawBuffers.indexBuffer.get() }, asset::EIT_32BIT);
+			// TODO[Przemek]: based on our call bind index buffer you uploaded to part of the `drawResourcesFiller.gpuDrawBuffers.geometryBuffer`
+			// Vertices will be pulled based on baseBDAPointer of where you uploaded the vertex + the VertexID in the vertex shader.
+			cb->bindIndexBuffer({ .offset = m_triangleMeshDrawData.indexBufferOffset, .buffer = drawResourcesFiller.gpuDrawBuffers.geometryBuffer.get() }, asset::EIT_32BIT);
 
-		// TODO[Przemek]: binding the same pipelie, no need to change.
-		cb->bindGraphicsPipeline(graphicsPipeline.get());
+			// TODO[Przemek]: binding the same pipelie, no need to change.
+			cb->bindGraphicsPipeline(graphicsPipeline.get());
+
+			// TODO[Przemek]: contour settings, height shading settings, base bda pointers will need to be pushed via pushConstants before the draw currently as it's the easiest thing to do.
+
+			cb->pushConstants(graphicsPipeline->getLayout(), IGPUShader::E_SHADER_STAGE::ESS_VERTEX, 0, sizeof(PushConstants), &m_triangleMeshDrawData.pushConstants);
+
+			// TODO[Przemek]: draw parameters needs to reflect the mesh involved
+			cb->drawIndexed(m_triangleMeshDrawData.indexCount, 1u, 0u, 0u, 0u);
+		}
+		else
+		{
+			cb->bindIndexBuffer({ .offset = 0u, .buffer = drawResourcesFiller.gpuDrawBuffers.indexBuffer.get() }, asset::EIT_32BIT);
+			cb->bindGraphicsPipeline(graphicsPipeline.get());
+			cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
+		}
 		
-		// TODO[Przemek]: contour settings, height shading settings, base bda pointers will need to be pushed via pushConstants before the draw currently as it's the easiest thing to do.
-
-		// TODO[Przemek]: draw parameters needs to reflect the mesh involved
-		cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 		if (fragmentShaderInterlockEnabled)
 		{
 			cb->bindGraphicsPipeline(resolveAlphaGraphicsPipeline.get());
@@ -1480,6 +1537,14 @@ public:
 	{
 		auto retval = device_base_t::getRequiredDeviceFeatures();
 		retval.fragmentShaderPixelInterlock = FragmentShaderPixelInterlock;
+		return retval;
+	}
+
+	virtual video::SPhysicalDeviceLimits getRequiredDeviceLimits() const override
+	{
+		video::SPhysicalDeviceLimits retval = base_t::getRequiredDeviceLimits();
+		retval.fragmentShaderBarycentric = true;
+
 		return retval;
 	}
 		
@@ -3096,7 +3161,7 @@ protected:
 					lineStyle.color = float32_t4(1.0, 1.0, 1.0, 1.0);
 					const uint32_t styleIdx = drawResourcesFiller.addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
 
-					glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
+					glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, InvalidDTMSettingsIdx, intendedNextSubmit);
 				}
 
 				float64_t2 currentBaselineStart = float64_t2(0.0, 0.0);
@@ -3231,6 +3296,117 @@ protected:
 			}
 
 		}
+		else if (mode == ExampleMode::CASE_9)
+		{
+			/*core::vector<TriangleMeshVertex> vertices = {
+				{ float32_t2(-200.0f, -200.0f), 10.0f },
+				{ float32_t2(-50.0f, -200.0f), 50.0f },
+				{ float32_t2(100.0f, -200.0f), 90.0f },
+				{ float32_t2(-125.0f, -70.1f), 10.0f },
+				{ float32_t2(25.0f, -70.1f), 50.0f },
+				{ float32_t2(175.0f, -70.1f), 90.0f },
+				{ float32_t2(-200.0f, 59.8f), 10.0f },
+				{ float32_t2(-50.0f, 59.8f), 50.0f },
+				{ float32_t2(100.0f, 59.8f), 90.0f },
+				{ float32_t2(-125.0f, 189.7f), 10.0f },
+				{ float32_t2(25.0f, 189.7f), 50.0f },
+				{ float32_t2(175.0f, 189.7f), 90.0f }
+			};
+
+			core::vector<uint32_t> indices = {
+				0, 3, 1,
+				1, 3, 4,
+				1, 2, 4,
+				2, 4, 5,
+				3, 4, 6,
+				4, 6, 7,
+				4, 5, 7,
+				5, 7, 8,
+				6, 7, 9,
+				7, 9, 10,
+				7, 8, 10,
+				8, 10, 11
+			};*/
+
+			core::vector<TriangleMeshVertex> vertices = {
+				{ float32_t2(0.0, 0.0), 100.0 },
+				{ float32_t2(-200.0, -200.0), 10.0 },
+				{ float32_t2(200.0, -200.0), 10.0 },
+				{ float32_t2(200.0, 200.0), -20.0 },
+				{ float32_t2(-200.0, 200.0), 10.0 },
+			};
+
+			core::vector<uint32_t> indices = {
+				0, 1, 2,
+				0, 2, 3,
+				0, 3, 4,
+				0, 4, 1
+			};
+
+			CTriangleMesh mesh;
+			mesh.setVertices(std::move(vertices));
+			mesh.setIndices(std::move(indices));
+
+			DTMSettingsInfo dtmSettingsInfo;
+			dtmSettingsInfo.contourLinesStartHeight = 20;
+			dtmSettingsInfo.contourLinesEndHeight = 90;
+			dtmSettingsInfo.contourLinesHeightInterval = 10;
+
+			LineStyleInfo outlineStyle = {};
+			dtmSettingsInfo.outlineLineStyleInfo.screenSpaceLineWidth = 0.0f;
+			dtmSettingsInfo.outlineLineStyleInfo.worldSpaceLineWidth = 3.0f;
+			dtmSettingsInfo.outlineLineStyleInfo.color = float32_t4(0.0f, 0.39f, 0.0f, 0.5f);
+			std::array<double, 4> outlineStipplePattern = { 0.0f, -5.0f, 2.0f, -5.0f };
+			dtmSettingsInfo.outlineLineStyleInfo.setStipplePatternData(outlineStipplePattern);
+
+			LineStyleInfo contourStyle = {};
+			dtmSettingsInfo.contourLineStyleInfo.screenSpaceLineWidth = 0.0f;
+			dtmSettingsInfo.contourLineStyleInfo.worldSpaceLineWidth = 1.0f;
+			dtmSettingsInfo.contourLineStyleInfo.color = float32_t4(0.0f, 0.0f, 1.0f, 0.7f);
+			std::array<double, 4> contourStipplePattern = { 0.0f, -5.0f, 10.0f, -5.0f };
+			dtmSettingsInfo.contourLineStyleInfo.setStipplePatternData(contourStipplePattern);
+
+			// PRESS 1, 2, 3 TO SWITCH HEIGHT SHADING MODE
+			// 1 - DISCRETE_VARIABLE_LENGTH_INTERVALS
+			// 2 - DISCRETE_FIXED_LENGTH_INTERVALS
+			// 3 - CONTINOUS_INTERVALS
+			switch (m_shadingModeExample)
+			{
+				case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
+				{
+					dtmSettingsInfo.heightShadingMode = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
+					
+					float animatedAlpha = (std::cos(m_timeElapsed * 0.0005) + 1.0) * 0.5;
+					dtmSettingsInfo.addHeightColorMapEntry(-10.0f, float32_t4(0.5f, 1.0f, 1.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(20.0f, float32_t4(0.0f, 1.0f, 0.0f, 1.0f));
+					//dtmSettingsInfo.addHeightColorMapEntry(25.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmSettingsInfo.addHeightColorMapEntry(25.0f, float32_t4(1.0f, 1.0f, 0.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(70.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(90.0f, float32_t4(1.0f, 1.0f, 1.0f, 1.0f));
+					break;
+				}
+				case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS:
+				{
+					dtmSettingsInfo.intervalWidth = 8.0f;
+					dtmSettingsInfo.heightShadingMode = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
+					dtmSettingsInfo.addHeightColorMapEntry(0.0f, float32_t4(0.0f, 1.0f, 0.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(50.0f, float32_t4(1.0f, 1.0f, 0.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(100.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
+					break;
+				}
+				case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS:
+				{
+					dtmSettingsInfo.heightShadingMode = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
+					dtmSettingsInfo.addHeightColorMapEntry(-10.0f, float32_t4(0.0f, 1.0f, 0.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(30.0f, float32_t4(1.0f, 1.0f, 0.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(90.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
+					break;
+				}
+			}
+
+			drawResourcesFiller.drawTriangleMesh(mesh, m_triangleMeshDrawData, dtmSettingsInfo, intendedNextSubmit);
+		}
+
 		drawResourcesFiller.finalizeAllCopiesToGPU(intendedNextSubmit);
 	}
 
@@ -3311,6 +3487,8 @@ protected:
 	#endif
 	
 	std::unique_ptr<GeoTextureRenderer> m_geoTextureRenderer;
+
+	CTriangleMesh::DrawData m_triangleMeshDrawData;
 };
 
 NBL_MAIN_FUNC(ComputerAidedDesign)

@@ -7,6 +7,8 @@
 #include <nbl/builtin/hlsl/algorithm.hlsl>
 #include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
 
+[[vk::push_constant]] PushConstants pc;
+
 // TODO[Lucas]: Move these functions to builtin hlsl functions (Even the shadertoy obb and aabb ones)
 float cross2D(float2 a, float2 b)
 {
@@ -91,6 +93,55 @@ PSInput main(uint vertexID : SV_VertexID)
     // your programmable pulling will use the baseVertexBufferAddress BDA address and `vertexID` to RawBufferLoad it's vertex. 
     // ~~Later, most likely We will require pulling all 3 vertices of the triangle, that's where you need to know which triangle you're currently on, and instead of objectID = vertexID/4 which we currently do, you will do vertexID/3 and pull all 3 of it's vertices.~~
     // Ok, brainfart, a vertex can belong to multiple triangles, I was thinking of AA but triangles share vertices, nevermind my comment above.
+
+#define DTM
+#ifdef DTM
+    PSInput outV;
+
+    // Default Initialize PS Input
+    outV.position.zw = float2(0.0, 1.0);
+    outV.data1 = uint4(0, 0, 0, 0);
+    outV.data2 = float4(0, 0, 0, 0);
+    outV.data3 = float4(0, 0, 0, 0);
+    outV.data4 = float4(0, 0, 0, 0);
+    outV.interp_data5 = float2(0, 0);
+    outV.setObjType(ObjectType::TRIANGLE_MESH);
+    outV.setMainObjectIdx(pc.triangleMeshMainObjectIndex);
+
+    TriangleMeshVertex vtx = vk::RawBufferLoad<TriangleMeshVertex>(pc.triangleMeshVerticesBaseAddress + sizeof(TriangleMeshVertex) * vertexID, 8u);
+    pfloat64_t2 vtxPos;
+    vtxPos.x = _static_cast<pfloat64_t>(vtx.pos.x);
+    vtxPos.y = _static_cast<pfloat64_t>(vtx.pos.y);
+
+    MainObject mainObj = mainObjects[pc.triangleMeshMainObjectIndex];
+    ClipProjectionData clipProjectionData = getClipProjectionData(mainObj);
+
+    float2 transformedPos = transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, vtxPos);
+
+    outV.position.xy = transformedPos;
+    outV.position = transformFromSreenSpaceToNdc(outV.position.xy, globals.resolution);
+    const float heightAsFloat = nbl::hlsl::_static_cast<float>(vtx.height);
+    outV.setHeight(heightAsFloat);
+    outV.setScreenSpaceVertexAttribs(float3(transformedPos, heightAsFloat));
+    outV.setCurrentWorldToScreenRatio(
+        _static_cast<float>((_static_cast<pfloat64_t>(2.0f) /
+            (clipProjectionData.projectionToNDC[0].x * _static_cast<pfloat64_t>(globals.resolution.x))))
+    );
+
+    // TODO: line style of contour line has to be set too!
+    DTMSettings dtm = dtmSettings[mainObj.dtmSettingsIdx];
+    LineStyle outlineStyle = lineStyles[dtm.outlineLineStyleIdx];
+    LineStyle contourStyle = lineStyles[dtm.contourLineStyleIdx];
+    const float screenSpaceOutlineWidth = outlineStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(outlineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
+    const float sdfOutlineThickness = screenSpaceOutlineWidth * 0.5f;
+    const float screenSpaceContourLineWidth = contourStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(contourStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
+    const float sdfContourLineThickness = screenSpaceContourLineWidth * 0.5f;
+    outV.setOutlineThickness(sdfOutlineThickness);
+    outV.setContourLineThickness(sdfContourLineThickness);
+
+    return outV;
+
+#else
 
     const uint vertexIdx = vertexID & 0x3u;
     const uint objectID = vertexID >> 2;
@@ -589,4 +640,5 @@ PSInput main(uint vertexID : SV_VertexID)
 
     outV.clip = float4(outV.position.x - clipProjectionData.minClipNDC.x, outV.position.y - clipProjectionData.minClipNDC.y, clipProjectionData.maxClipNDC.x - outV.position.x, clipProjectionData.maxClipNDC.y - outV.position.y);
     return outV;
+#endif
 }

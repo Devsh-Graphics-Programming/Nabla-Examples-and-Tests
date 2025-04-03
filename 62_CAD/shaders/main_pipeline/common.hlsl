@@ -74,6 +74,11 @@ struct PSInput
     [[vk::location(3)]] nointerpolation float4 data4 : COLOR4;
     // Data segments that need interpolation, mostly for hatches
     [[vk::location(5)]] float2 interp_data5 : COLOR5;
+#ifdef FRAGMENT_SHADER_INPUT
+    [[vk::location(6)]] [[vk::ext_decorate(/*spv::DecoratePerVertexKHR*/5285)]] float3 vertexScreenSpacePos[3] : COLOR6;
+#else
+    [[vk::location(6)]] float3 vertexScreenSpacePos : COLOR6;
+#endif
     // ArcLenCalculator<float>
 
     // Set functions used in vshader, get functions used in fshader
@@ -98,7 +103,7 @@ struct PSInput
 
     void setCurrentWorldToScreenRatio(float worldToScreen) { interp_data5.y = worldToScreen; }
     float getCurrentWorldToScreenRatio() { return interp_data5.y; }
-    
+
     /* LINE */
     float2 getLineStart() { return data2.xy; }
     float2 getLineEnd() { return data2.zw; }
@@ -208,6 +213,23 @@ struct PSInput
     
     void setImageUV(float2 uv) { interp_data5.xy = uv; }
     void setImageTextureId(uint32_t textureId) { data2.x = asfloat(textureId); }
+
+    /* TRIANGLE MESH */
+
+    float getOutlineThickness() { return asfloat(data1.z); }
+    float getContourLineThickness() { return asfloat(data1.w); }
+
+    void setOutlineThickness(float lineThickness) { data1.z = asuint(lineThickness); }
+    void setContourLineThickness(float stretch) { data1.w = asuint(stretch); }
+
+    void setHeight(float height) { interp_data5.x = height; }
+    float getHeight() { return interp_data5.x; }
+
+#ifndef FRAGMENT_SHADER_INPUT // vertex shader
+    void setScreenSpaceVertexAttribs(float3 pos) { vertexScreenSpacePos = pos; }
+#else // fragment shader
+    float3 getScreenSpaceVertexAttribs(uint32_t vertexIndex) { return vertexScreenSpacePos[vertexIndex]; }
+#endif 
 };
 
 // Set 0 - Scene Data and Globals, buffer bindings don't change the buffers only get updated
@@ -215,12 +237,13 @@ struct PSInput
 [[vk::binding(1, 0)]] StructuredBuffer<DrawObject> drawObjects : register(t0);
 [[vk::binding(2, 0)]] StructuredBuffer<MainObject> mainObjects : register(t1);
 [[vk::binding(3, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t2);
+[[vk::binding(4, 0)]] StructuredBuffer<DTMSettings> dtmSettings : register(t3);
 
-[[vk::combinedImageSampler]][[vk::binding(4, 0)]] Texture2DArray<float3> msdfTextures : register(t3);
-[[vk::combinedImageSampler]][[vk::binding(4, 0)]] SamplerState msdfSampler : register(s3);
+[[vk::combinedImageSampler]][[vk::binding(5, 0)]] Texture2DArray<float3> msdfTextures : register(t4);
+[[vk::combinedImageSampler]][[vk::binding(5, 0)]] SamplerState msdfSampler : register(s4);
 
-[[vk::binding(5, 0)]] SamplerState textureSampler : register(s4);
-[[vk::binding(6, 0)]] Texture2D textures[128] : register(t4);
+[[vk::binding(6, 0)]] SamplerState textureSampler : register(s5);
+[[vk::binding(7, 0)]] Texture2D textures[128] : register(t5);
 
 // Set 1 - Window dependant data which has higher update frequency due to multiple windows and resize need image recreation and descriptor writes
 [[vk::binding(0, 1)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);

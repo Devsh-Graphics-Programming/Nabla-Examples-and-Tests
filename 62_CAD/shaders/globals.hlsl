@@ -18,7 +18,6 @@
 
 using namespace nbl::hlsl;
 
-
 // because we can't use jit/device_capabilities.hlsl in c++ code
 #ifdef __HLSL_VERSION
 using pfloat64_t = portable_float64_t<jit::device_capabilities>;
@@ -31,6 +30,12 @@ using pfloat64_t3 = nbl::hlsl::vector<float64_t, 3>;
 #endif
 
 using pfloat64_t3x3 = portable_matrix_t3x3<pfloat64_t>;
+
+struct PushConstants
+{
+    uint64_t triangleMeshVerticesBaseAddress;
+    uint32_t triangleMeshMainObjectIndex;
+};
 
 // TODO: Compute this in a compute shader from the world counterparts
 //      because this struct includes NDC coordinates, the values will change based camera zoom and move
@@ -107,7 +112,8 @@ enum class ObjectType : uint32_t
     CURVE_BOX = 2u,
     POLYLINE_CONNECTOR = 3u,
     FONT_GLYPH = 4u,
-    IMAGE = 5u
+    IMAGE = 5u,
+    TRIANGLE_MESH = 6u
 };
 
 enum class MajorAxis : uint32_t
@@ -120,7 +126,7 @@ enum class MajorAxis : uint32_t
 struct MainObject
 {
     uint32_t styleIdx;
-    uint32_t pad; // do I even need this on the gpu side? it's stored in structured buffer not bda
+    uint32_t dtmSettingsIdx;
     uint64_t clipProjectionAddress;
 };
 
@@ -265,6 +271,12 @@ NBL_CONSTEXPR float InvalidStyleStretchValue = nbl::hlsl::numeric_limits<float>:
 // TODO[Przemek]: we will need something similar to LineStyles but related to heigh shading settings which is user customizable (like LineStyle stipple patterns) and requires upper_bound to figure out the color based on height value.
 // We'll discuss that later or what it will be looking like and how it's gonna get passed to our shaders.
 
+struct TriangleMeshVertex
+{
+    pfloat64_t2 pos;
+    pfloat64_t height;
+};
+
 // The color parameter is also used for styling non-curve objects such as text glyphs and hatches with solid color
 struct LineStyle
 {
@@ -316,6 +328,40 @@ struct LineStyle
     }
 };
 
+struct DTMSettings
+{
+    const static uint32_t HeightColorMapMaxEntries = 16u;
+    uint32_t outlineLineStyleIdx; // index into line styles
+    uint32_t contourLineStyleIdx; // index into line styles
+    
+    // contour lines
+    float contourLinesStartHeight;
+    float contourLinesEndHeight;
+    float contourLinesHeightInterval;
+
+    // height-color map
+    float intervalWidth;
+    uint32_t heightColorEntryCount;
+    float heightColorMapHeights[HeightColorMapMaxEntries];
+    float32_t4 heightColorMapColors[HeightColorMapMaxEntries];
+
+    enum E_HEIGHT_SHADING_MODE
+    {
+        DISCRETE_VARIABLE_LENGTH_INTERVALS,
+        DISCRETE_FIXED_LENGTH_INTERVALS,
+        CONTINOUS_INTERVALS
+    };
+
+    E_HEIGHT_SHADING_MODE determineHeightShadingMode()
+    {
+        if (nbl::hlsl::isinf(intervalWidth))
+            return DISCRETE_VARIABLE_LENGTH_INTERVALS;
+        if (intervalWidth == 0.0f)
+            return CONTINOUS_INTERVALS;
+
+        return DISCRETE_FIXED_LENGTH_INTERVALS;
+    }
+};
 #ifndef __HLSL_VERSION
 inline bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 {
@@ -338,12 +384,20 @@ inline bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 
     return isStipplePatternArrayEqual;
 }
+
+inline bool operator==(const DTMSettings& lhs, const DTMSettings& rhs)
+{
+    return lhs.outlineLineStyleIdx == rhs.outlineLineStyleIdx &&
+        lhs.contourLineStyleIdx == rhs.contourLineStyleIdx;
+}
+
 #endif
 
 NBL_CONSTEXPR uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
 NBL_CONSTEXPR uint32_t AlphaBits = 32u - MainObjectIdxBits;
 NBL_CONSTEXPR uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
 NBL_CONSTEXPR uint32_t InvalidStyleIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
+NBL_CONSTEXPR uint32_t InvalidDTMSettingsIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
 NBL_CONSTEXPR uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
 NBL_CONSTEXPR uint64_t InvalidClipProjectionAddress = nbl::hlsl::numeric_limits<uint64_t>::max;
 NBL_CONSTEXPR uint32_t InvalidTextureIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
