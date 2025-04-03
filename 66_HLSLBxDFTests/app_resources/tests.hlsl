@@ -496,12 +496,12 @@ struct TestJacobian : TestBxDF<BxDF>
         // TODO: add checks with need clamp trait
         if (bxdf::traits<BxDF>::type == bxdf::BT_BRDF)
         {
-            if (s.NdotL <= bit_cast<float>(numeric_limits<float>::min))
+            if (s.getNdotL() <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }
         else if (bxdf::traits<BxDF>::type == bxdf::BT_BSDF)
         {
-            if (abs<float>(s.NdotL) <= bit_cast<float>(numeric_limits<float>::min))
+            if (abs<float>(s.getNdotL()) <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }
 
@@ -531,12 +531,12 @@ struct TestJacobian : TestBxDF<BxDF>
     {
         if (bxdf::traits<BxDF>::type == bxdf::BT_BRDF)
         {    
-            if (base_t::isointer.NdotV <= bit_cast<float>(numeric_limits<float>::min))
+            if (base_t::isointer.getNdotV() <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }        
         else if (bxdf::traits<BxDF>::type == bxdf::BT_BSDF)
         {
-            if (abs<float>(base_t::isointer.NdotV) <= bit_cast<float>(numeric_limits<float>::min))
+            if (abs<float>(base_t::isointer.getNdotV()) <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }
 
@@ -557,10 +557,10 @@ struct TestJacobian : TestBxDF<BxDF>
             return BET_NEGATIVE_VAL;
 
         // get BET_jacobian
-        float32_t2x2 m = float32_t2x2(sx.TdotL - s.TdotL, sy.TdotL - s.TdotL, sx.BdotL - s.BdotL, sy.BdotL - s.BdotL);
+        float32_t2x2 m = float32_t2x2(sx.getTdotL() - s.getTdotL(), sy.getTdotL() - s.getTdotL(), sx.getBdotL() - s.getBdotL(), sy.getBdotL() - s.getBdotL());
         float det = nbl::hlsl::determinant<float32_t2x2>(m);
 
-        if (!checkZero<float>(det * pdf.pdf / s.NdotL, 1e-5))
+        if (!checkZero<float>(det * pdf.pdf / s.getNdotL(), 1e-5))
             return BET_JACOBIAN;
 
         if (!checkEq<float32_t3>(pdf.value(), bsdf, 5e-2))
@@ -641,19 +641,19 @@ struct TestReciprocity : TestBxDF<BxDF>
         // TODO: add checks with need clamp trait
         if (bxdf::traits<BxDF>::type == bxdf::BT_BRDF)
         {
-            if (s.NdotL <= bit_cast<float>(numeric_limits<float>::min))
+            if (s.getNdotL() <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }
         else if (bxdf::traits<BxDF>::type == bxdf::BT_BSDF)
         {
-            if (abs<float>(s.NdotL) <= bit_cast<float>(numeric_limits<float>::min))
+            if (abs<float>(s.getNdotL()) <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }
 
         float32_t3x3 toTangentSpace = base_t::anisointer.getToTangentSpace();
-        ray_dir_info_t rec_V = s.L;
-        ray_dir_info_t rec_localV = ray_dir_info_t::transform(toTangentSpace, rec_V);
-        ray_dir_info_t rec_localL = ray_dir_info_t::transform(toTangentSpace, base_t::rc.V);
+        ray_dir_info_t rec_V = s.getL();
+        ray_dir_info_t rec_localV = rec_V.transform(toTangentSpace);
+        ray_dir_info_t rec_localL = base_t::rc.V.transform(toTangentSpace);
         rec_s = sample_t::createFromTangentSpace(rec_localV.direction, rec_localL, base_t::anisointer.getFromTangentSpace());
 
         iso_interaction rec_isointer = iso_interaction::create(rec_V, base_t::rc.N);
@@ -715,12 +715,12 @@ struct TestReciprocity : TestBxDF<BxDF>
     {
         if (bxdf::traits<BxDF>::type == bxdf::BT_BRDF)
         {    
-            if (base_t::isointer.NdotV <= bit_cast<float>(numeric_limits<float>::min))
+            if (base_t::isointer.getNdotV() <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }        
         else if (bxdf::traits<BxDF>::type == bxdf::BT_BSDF)
         {
-            if (abs<float>(base_t::isointer.NdotV) <= bit_cast<float>(numeric_limits<float>::min))
+            if (abs<float>(base_t::isointer.getNdotV()) <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }
 
@@ -863,7 +863,7 @@ struct TestBucket : TestBxDF<BxDF>
 
             // put s into bucket
             float32_t3x3 toTangentSpace = base_t::anisointer.getToTangentSpace();
-            const ray_dir_info_t localL = ray_dir_info_t::transform(toTangentSpace, s.L);
+            const ray_dir_info_t localL = s.getL().transform(toTangentSpace);
             const float32_t2 coords = cartesianToPolar(localL.direction);
             float32_t2 bucket = float32_t2(bin(coords.x * numbers::inv_pi<float>), bin(coords.y * 0.5f * numbers::inv_pi<float>));
 
@@ -888,12 +888,12 @@ struct TestBucket : TestBxDF<BxDF>
     {
         if (bxdf::traits<BxDF>::type == bxdf::BT_BRDF)
         {    
-            if (base_t::isointer.NdotV <= bit_cast<float>(numeric_limits<float>::min))
+            if (base_t::isointer.getNdotV() <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }        
         else if (bxdf::traits<BxDF>::type == bxdf::BT_BSDF)
         {
-            if (abs<float>(base_t::isointer.NdotV) <= bit_cast<float>(numeric_limits<float>::min))
+            if (abs<float>(base_t::isointer.getNdotV()) <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }
 
@@ -1165,9 +1165,7 @@ struct TestChi2 : TestBxDF<BxDF>
             }
 
             // put s into bucket
-            // float32_t3x3 toTangentSpace = base_t::anisointer.getToTangentSpace();
-            // const ray_dir_info_t localL = ray_dir_info_t::transform(toTangentSpace, s.L);
-            float32_t2 coords = cartesianToPolar(s.L.direction) * float32_t2(thetaFactor, phiFactor);
+            float32_t2 coords = cartesianToPolar(s.getL().getDirection()) * float32_t2(thetaFactor, phiFactor);
             if (coords.y < 0)
                 coords.y += 2.f * numbers::pi<float> * phiFactor;
 
@@ -1196,10 +1194,10 @@ struct TestChi2 : TestBxDF<BxDF>
                         float cosPhi = std::cos(phi), sinPhi = std::sin(phi);
 
                         float32_t3x3 toTangentSpace = base_t::anisointer.getToTangentSpace();
-                        ray_dir_info_t localV = ray_dir_info_t::transform(toTangentSpace, base_t::rc.V);
+                        ray_dir_info_t localV = base_t::rc.V.transform(toTangentSpace);
                         ray_dir_info_t L;
                         L.direction = float32_t3(sinTheta * cosPhi, sinTheta * sinPhi, cosTheta);
-                        ray_dir_info_t localL = ray_dir_info_t::transform(toTangentSpace, L);
+                        ray_dir_info_t localL = L.transform(toTangentSpace);
                         sample_t s = sample_t::createFromTangentSpace(localV.direction, localL, base_t::anisointer.getFromTangentSpace());
 
                         params_t params;
@@ -1267,10 +1265,10 @@ struct TestChi2 : TestBxDF<BxDF>
     ErrorType test()
     {
         if (bxdf::traits<BxDF>::type == bxdf::BT_BRDF)
-            if (base_t::isointer.NdotV <= numeric_limits<float>::min)
+            if (base_t::isointer.getNdotV() <= numeric_limits<float>::min)
                 return BET_INVALID;
         else if (bxdf::traits<BxDF>::type == bxdf::BT_BSDF)
-            if (abs<float>(base_t::isointer.NdotV) <= numeric_limits<float>::min)
+            if (abs<float>(base_t::isointer.getNdotV()) <= numeric_limits<float>::min)
                 return BET_INVALID;
 
         ErrorType res = compute();
