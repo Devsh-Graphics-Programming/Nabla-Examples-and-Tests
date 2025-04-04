@@ -5,6 +5,7 @@
 
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
 #include "nbl/builtin/hlsl/random/pcg.hlsl"
+#include "nbl/builtin/hlsl/random/rand_gen.hlsl"
 #include "nbl/builtin/hlsl/sampling/uniform.hlsl"
 #include "nbl/builtin/hlsl/bxdf/common.hlsl"
 #include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
@@ -571,7 +572,7 @@ struct TestJacobian : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        random::PCG32x2 pcg = random::PCG32x2::construct(initparams.state);
+        random::Uniform2D<random::PCG32> pcg = random::Uniform2D<random::PCG32>::construct(initparams.state);
         uint32_t2 state = pcg();
 
         this_t t;
@@ -745,7 +746,7 @@ struct TestReciprocity : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        random::PCG32x2 pcg = random::PCG32x2::construct(initparams.state);
+        random::Uniform2D<random::PCG32> pcg = random::Uniform2D<random::PCG32>::construct(initparams.state);
         uint32_t2 state = pcg();
 
         this_t t;
@@ -906,7 +907,7 @@ struct TestBucket : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        random::PCG32x2 pcg = random::PCG32x2::construct(initparams.state);
+        random::Uniform2D<random::PCG32> pcg = random::Uniform2D<random::PCG32>::construct(initparams.state);
         uint32_t2 state = pcg();
 
         this_t t;
@@ -1351,7 +1352,7 @@ struct TestChi2 : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        random::PCG32x2 pcg = random::PCG32x2::construct(initparams.state);
+        random::Uniform2D<random::PCG32> pcg = random::Uniform2D<random::PCG32>::construct(initparams.state);
         uint32_t2 state = pcg();
 
         this_t t;
