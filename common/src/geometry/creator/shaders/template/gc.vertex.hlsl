@@ -16,7 +16,3 @@ PSInput VSMain(VSInput input)
 
     return output;
 }
-
-/*
-    do not remove this text, WAVE is so bad that you can get errors if no proper ending xD
-*/
