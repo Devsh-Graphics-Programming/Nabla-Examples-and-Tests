@@ -75,7 +75,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0	// CASE_9
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_9;
+constexpr ExampleMode mode = ExampleMode::CASE_6;
 
 class Camera2D
 {
@@ -288,19 +288,8 @@ public:
 	{
 		drawResourcesFiller = DrawResourcesFiller(core::smart_refctd_ptr(m_utils), getGraphicsQueue());
 
-		// TODO: move individual allocations to DrawResourcesFiller::allocateResources(memory)
-		// Issue warning error, if we can't store our largest geomm struct + clip proj data inside geometry buffer along linestyle and mainObject 
-		uint32_t maxIndices = maxObjects * 6u * 2u;
-		drawResourcesFiller.allocateIndexBuffer(m_device.get(), maxIndices);
-		drawResourcesFiller.allocateMainObjectsBuffer(m_device.get(), maxObjects);
-		drawResourcesFiller.allocateDrawObjectsBuffer(m_device.get(), maxObjects * 5u);
-		drawResourcesFiller.allocateStylesBuffer(m_device.get(), 512u);
-		drawResourcesFiller.allocateDTMSettingsBuffer(m_device.get(), 512u);
-
-		// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)
-		// + 128 ClipProjData
-		size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3 + 128 * sizeof(ClipProjectionData);
-		drawResourcesFiller.allocateGeometryBuffer(m_device.get(), geometryBufferSize);
+		size_t bufferSize = 512u * 1024u * 1024u; // 512 MB
+		drawResourcesFiller.allocateResourcesBuffer(m_device.get(), bufferSize);
 		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 256u, uint32_t2(MSDFSize, MSDFSize));
 
 		{
@@ -314,14 +303,6 @@ public:
 			auto globalsBufferMem = m_device->allocate(memReq, m_globalsBuffer.get());
 		}
 		
-		size_t sumBufferSizes =
-			drawResourcesFiller.gpuDrawBuffers.drawObjectsBuffer->getSize() +
-			drawResourcesFiller.gpuDrawBuffers.geometryBuffer->getSize() +
-			drawResourcesFiller.gpuDrawBuffers.indexBuffer->getSize() +
-			drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer->getSize() +
-			drawResourcesFiller.gpuDrawBuffers.mainObjectsBuffer->getSize();
-		m_logger->log("Buffers Size = %.2fKB", ILogger::E_LOG_LEVEL::ELL_INFO, sumBufferSizes / 1024.0f);
-
 		// pseudoStencil
 		{
 			asset::E_FORMAT pseudoStencilFormat = asset::EF_R32_UINT;
@@ -693,48 +674,20 @@ public:
 				},
 				{
 					.binding = 1u,
-					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_VERTEX | asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-					.count = 1u,
-				},
-				{
-					.binding = 2u,
-					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_VERTEX | asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-					.count = 1u,
-				},
-				{
-					.binding = 3u,
-					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_VERTEX | asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-					.count = 1u,
-				},
-				{
-					.binding = 4u,
-					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_VERTEX | asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-					.count = 1u,
-				},
-				{
-					.binding = 5u,
 					.type = asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 					.count = 1u,
 				},
 				{
-					.binding = 6u,
+					.binding = 2u,
 					.type = asset::IDescriptor::E_TYPE::ET_SAMPLER,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 					.count = 1u,
 				},
 				{
-					.binding = 7u,
+					.binding = 3u,
 					.type = asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
 					.createFlags = bindlessTextureFlags,
 					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
@@ -778,7 +731,7 @@ public:
 			{
 				descriptorSet0 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout0));
 				descriptorSet1 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout1));
-				constexpr uint32_t DescriptorCountSet0 = 7u;
+				constexpr uint32_t DescriptorCountSet0 = 3u;
 				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfosSet0[DescriptorCountSet0] = {};
 
 				// Descriptors For Set 0:
@@ -786,31 +739,15 @@ public:
 				descriptorInfosSet0[0u].info.buffer.size = m_globalsBuffer->getCreationParams().size;
 				descriptorInfosSet0[0u].desc = m_globalsBuffer;
 
-				descriptorInfosSet0[1u].info.buffer.offset = 0u;
-				descriptorInfosSet0[1u].info.buffer.size = drawResourcesFiller.gpuDrawBuffers.drawObjectsBuffer->getCreationParams().size;
-				descriptorInfosSet0[1u].desc = drawResourcesFiller.gpuDrawBuffers.drawObjectsBuffer;
+				descriptorInfosSet0[1u].info.combinedImageSampler.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				descriptorInfosSet0[1u].info.combinedImageSampler.sampler = msdfTextureSampler;
+				descriptorInfosSet0[1u].desc = drawResourcesFiller.getMSDFsTextureArray();
 				
-				descriptorInfosSet0[2u].info.buffer.offset = 0u;
-				descriptorInfosSet0[2u].info.buffer.size = drawResourcesFiller.gpuDrawBuffers.mainObjectsBuffer->getCreationParams().size;
-				descriptorInfosSet0[2u].desc = drawResourcesFiller.gpuDrawBuffers.mainObjectsBuffer;
-
-				descriptorInfosSet0[3u].info.buffer.offset = 0u;
-				descriptorInfosSet0[3u].info.buffer.size = drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer->getCreationParams().size;
-				descriptorInfosSet0[3u].desc = drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer;
-				
-				descriptorInfosSet0[4u].info.buffer.offset = 0u;
-				descriptorInfosSet0[4u].info.buffer.size = drawResourcesFiller.gpuDrawBuffers.dtmSettingsBuffer->getCreationParams().size;
-				descriptorInfosSet0[4u].desc = drawResourcesFiller.gpuDrawBuffers.dtmSettingsBuffer;
-
-				descriptorInfosSet0[5u].info.combinedImageSampler.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				descriptorInfosSet0[5u].info.combinedImageSampler.sampler = msdfTextureSampler;
-				descriptorInfosSet0[5u].desc = drawResourcesFiller.getMSDFsTextureArray();
-				
-				descriptorInfosSet0[6u].desc = msdfTextureSampler; // TODO[Erfan]: different sampler and make immutable?
+				descriptorInfosSet0[2u].desc = msdfTextureSampler; // TODO[Erfan]: different sampler and make immutable?
 				
 				// This is bindless to we write to it later.
-				// descriptorInfosSet0[6u].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				// descriptorInfosSet0[6u].desc = drawResourcesFiller.getMSDFsTextureArray();
+				// descriptorInfosSet0[3u].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				// descriptorInfosSet0[3u].desc = drawResourcesFiller.getMSDFsTextureArray();
 
 				// Descriptors For Set 1:
 				constexpr uint32_t DescriptorCountSet1 = 2u;
@@ -834,60 +771,32 @@ public:
 				descriptorUpdates[0u].count = 1u;
 				descriptorUpdates[0u].info = &descriptorInfosSet0[0u];
 
-					// drawObjectsBuffer
+					// mdfs textures
 				descriptorUpdates[1u].dstSet = descriptorSet0.get();
 				descriptorUpdates[1u].binding = 1u;
 				descriptorUpdates[1u].arrayElement = 0u;
 				descriptorUpdates[1u].count = 1u;
 				descriptorUpdates[1u].info = &descriptorInfosSet0[1u];
-
-					// mainObjectsBuffer
+				
+					// general texture sampler	
 				descriptorUpdates[2u].dstSet = descriptorSet0.get();
 				descriptorUpdates[2u].binding = 2u;
 				descriptorUpdates[2u].arrayElement = 0u;
 				descriptorUpdates[2u].count = 1u;
 				descriptorUpdates[2u].info = &descriptorInfosSet0[2u];
 
-					// lineStylesBuffer
-				descriptorUpdates[3u].dstSet = descriptorSet0.get();
-				descriptorUpdates[3u].binding = 3u;
+				// Set 1 Updates:
+				descriptorUpdates[3u].dstSet = descriptorSet1.get();
+				descriptorUpdates[3u].binding = 0u;
 				descriptorUpdates[3u].arrayElement = 0u;
 				descriptorUpdates[3u].count = 1u;
-				descriptorUpdates[3u].info = &descriptorInfosSet0[3u];
-				
-					// dtmSettingsBuffer
-				descriptorUpdates[4u].dstSet = descriptorSet0.get();
-				descriptorUpdates[4u].binding = 4u;
+				descriptorUpdates[3u].info = &descriptorInfosSet1[0u];
+
+				descriptorUpdates[4u].dstSet = descriptorSet1.get();
+				descriptorUpdates[4u].binding = 1u;
 				descriptorUpdates[4u].arrayElement = 0u;
 				descriptorUpdates[4u].count = 1u;
-				descriptorUpdates[4u].info = &descriptorInfosSet0[4u];
-
-					// mdfs textures
-				descriptorUpdates[5u].dstSet = descriptorSet0.get();
-				descriptorUpdates[5u].binding = 5u;
-				descriptorUpdates[5u].arrayElement = 0u;
-				descriptorUpdates[5u].count = 1u;
-				descriptorUpdates[5u].info = &descriptorInfosSet0[5u];
-				
-					// mdfs samplers	
-				descriptorUpdates[6u].dstSet = descriptorSet0.get();
-				descriptorUpdates[6u].binding = 6u;
-				descriptorUpdates[6u].arrayElement = 0u;
-				descriptorUpdates[6u].count = 1u;
-				descriptorUpdates[6u].info = &descriptorInfosSet0[6u];
-
-				// Set 1 Updates:
-				descriptorUpdates[7u].dstSet = descriptorSet1.get();
-				descriptorUpdates[7u].binding = 0u;
-				descriptorUpdates[7u].arrayElement = 0u;
-				descriptorUpdates[7u].count = 1u;
-				descriptorUpdates[7u].info = &descriptorInfosSet1[0u];
-
-				descriptorUpdates[8u].dstSet = descriptorSet1.get();
-				descriptorUpdates[8u].binding = 1u;
-				descriptorUpdates[8u].arrayElement = 0u;
-				descriptorUpdates[8u].count = 1u;
-				descriptorUpdates[8u].info = &descriptorInfosSet1[1u];
+				descriptorUpdates[4u].info = &descriptorInfosSet1[1u];
 
 				m_device->updateDescriptorSets(DescriptorUpdatesCount, descriptorUpdates, 0u, nullptr);
 			}
@@ -958,14 +867,14 @@ public:
 
 			auto mainPipelineFragmentCpuShader = loadCompileShader("../shaders/main_pipeline/fragment.hlsl", IShader::E_SHADER_STAGE::ESS_ALL_OR_LIBRARY);
 			auto mainPipelineVertexCpuShader = loadCompileShader("../shaders/main_pipeline/vertex_shader.hlsl", IShader::E_SHADER_STAGE::ESS_VERTEX);
-			auto geoTexturePipelineVertCpuShader = loadCompileShader(GeoTextureRenderer::VertexShaderRelativePath, IShader::E_SHADER_STAGE::ESS_VERTEX);
-			auto geoTexturePipelineFragCpuShader = loadCompileShader(GeoTextureRenderer::FragmentShaderRelativePath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			// auto geoTexturePipelineVertCpuShader = loadCompileShader(GeoTextureRenderer::VertexShaderRelativePath, IShader::E_SHADER_STAGE::ESS_VERTEX);
+			// auto geoTexturePipelineFragCpuShader = loadCompileShader(GeoTextureRenderer::FragmentShaderRelativePath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 			mainPipelineFragmentCpuShader->setShaderStage(IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 
 			mainPipelineFragmentShaders = m_device->createShader({ mainPipelineFragmentCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
 			mainPipelineVertexShader = m_device->createShader({ mainPipelineVertexCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
-			geoTexturePipelineShaders[0] = m_device->createShader({ geoTexturePipelineVertCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
-			geoTexturePipelineShaders[1] = m_device->createShader({ geoTexturePipelineFragCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
+			// geoTexturePipelineShaders[0] = m_device->createShader({ geoTexturePipelineVertCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
+			// geoTexturePipelineShaders[1] = m_device->createShader({ geoTexturePipelineFragCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
 			
 			core::smart_refctd_ptr<system::IFile> shaderWriteCacheFile;
 			{
@@ -1102,7 +1011,7 @@ public:
 		);
 		
 		m_geoTextureRenderer = std::unique_ptr<GeoTextureRenderer>(new GeoTextureRenderer(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger)));
-		m_geoTextureRenderer->initialize(geoTexturePipelineShaders[0].get(), geoTexturePipelineShaders[1].get(), compatibleRenderPass.get(), m_globalsBuffer);
+		// m_geoTextureRenderer->initialize(geoTexturePipelineShaders[0].get(), geoTexturePipelineShaders[1].get(), compatibleRenderPass.get(), m_globalsBuffer);
 		
 		// Create the Semaphores
 		m_renderSemaphore = m_device->createSemaphore(0ull);
@@ -1246,23 +1155,6 @@ public:
 		// cb->reset(video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
 		// cb->begin(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		cb->beginDebugMarker("Frame");
-
-		float64_t3x3 projectionToNDC;
-		projectionToNDC = m_Camera.constructViewProjection();
-		
-		Globals globalData = {};
-		globalData.antiAliasingFactor = 1.0;// +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
-		globalData.resolution = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
-		globalData.defaultClipProjection.projectionToNDC = projectionToNDC;
-		globalData.defaultClipProjection.minClipNDC = float32_t2(-1.0, -1.0);
-		globalData.defaultClipProjection.maxClipNDC = float32_t2(+1.0, +1.0);
-		auto screenToWorld = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
-		globalData.screenToWorldRatio = screenToWorld;
-		globalData.worldToScreenRatio = (1.0/screenToWorld);
-		globalData.miterLimit = 10.0f;
-		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = m_globalsBuffer.get() };
-		bool updateSuccess = cb->updateBuffer(globalBufferUpdateRange, &globalData);
-		assert(updateSuccess);
 		
 		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
 		auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
@@ -1295,8 +1187,37 @@ public:
 	{
 		// Use the current recording command buffer of the intendedSubmitInfos scratchCommandBuffers, it should be in recording state
 		auto* cb = m_currentRecordingCommandBufferInfo->cmdbuf;
-		auto&r = drawResourcesFiller;
 		
+		const auto& resources = drawResourcesFiller.getResourcesCollection();
+		const auto& resourcesGPUBuffer = drawResourcesFiller.getResourcesGPUBuffer();
+
+		float64_t3x3 projectionToNDC;
+		projectionToNDC = m_Camera.constructViewProjection();
+		
+		Globals globalData = {};
+		uint64_t baseAddress = resourcesGPUBuffer->getDeviceAddress();
+		globalData.pointers = {
+			.lineStyles				= baseAddress + resources.lineStyles.bufferOffset,
+			.dtmSettings			= baseAddress + resources.dtmSettings.bufferOffset,
+			.customClipProjections	= baseAddress + resources.clipProjections.bufferOffset,
+			.mainObjects			= baseAddress + resources.mainObjects.bufferOffset,
+			.drawObjects			= baseAddress + resources.drawObjects.bufferOffset,
+			.geometryBuffer			= baseAddress + resources.geometryInfo.bufferOffset,
+		};
+		globalData.antiAliasingFactor = 1.0;// +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
+		globalData.resolution = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
+		globalData.defaultClipProjection.projectionToNDC = projectionToNDC;
+		globalData.defaultClipProjection.minClipNDC = float32_t2(-1.0, -1.0);
+		globalData.defaultClipProjection.maxClipNDC = float32_t2(+1.0, +1.0);
+		auto screenToWorld = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
+		globalData.screenToWorldRatio = screenToWorld;
+		globalData.worldToScreenRatio = (1.0/screenToWorld);
+		globalData.miterLimit = 10.0f;
+		globalData.currentlyActiveMainObjectIndex = drawResourcesFiller.getActiveMainObjectIndex();
+		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = m_globalsBuffer.get() };
+		bool updateSuccess = cb->updateBuffer(globalBufferUpdateRange, &globalData);
+		assert(updateSuccess);
+
 		asset::SViewport vp =
 		{
 			.x = 0u,
@@ -1317,25 +1238,12 @@ public:
 
 		// pipelineBarriersBeforeDraw
 		{	
-			constexpr uint32_t MaxBufferBarriersCount = 6u;
+			constexpr uint32_t MaxBufferBarriersCount = 2u;
 			uint32_t bufferBarriersCount = 0u;
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t bufferBarriers[MaxBufferBarriersCount];
+			
+			const auto& resources = drawResourcesFiller.getResourcesCollection();
 
-			// Index Buffer Copy Barrier -> Only do once at the beginning of the frames
-			if (m_realFrameIx == 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_INPUT_BITS;
-				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::INDEX_READ_BIT;
-				bufferBarrier.range =
-				{
-					.offset = 0u,
-					.size = drawResourcesFiller.gpuDrawBuffers.indexBuffer->getSize(),
-					.buffer = drawResourcesFiller.gpuDrawBuffers.indexBuffer,
-				};
-			}
 			if (m_globalsBuffer->getSize() > 0u)
 			{
 				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
@@ -1350,60 +1258,18 @@ public:
 					.buffer = m_globalsBuffer,
 				};
 			}
-			if (drawResourcesFiller.getCurrentDrawObjectsBufferSize() > 0u)
+			if (drawResourcesFiller.getCopiedResourcesSize() > 0u)
 			{
 				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
 				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
 				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
-				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_INPUT_BITS | PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT | PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
 				bufferBarrier.range =
 				{
 					.offset = 0u,
-					.size = drawResourcesFiller.getCurrentDrawObjectsBufferSize(),
-					.buffer = drawResourcesFiller.gpuDrawBuffers.drawObjectsBuffer,
-				};
-			}
-			if (drawResourcesFiller.getCurrentGeometryBufferSize() > 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
-				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
-				bufferBarrier.range =
-				{
-					.offset = 0u,
-					.size = drawResourcesFiller.getCurrentGeometryBufferSize(),
-					.buffer = drawResourcesFiller.gpuDrawBuffers.geometryBuffer,
-				};
-			}
-			if (drawResourcesFiller.getCurrentMainObjectsBufferSize() > 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT | PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
-				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
-				bufferBarrier.range =
-				{
-					.offset = 0u,
-					.size = drawResourcesFiller.getCurrentMainObjectsBufferSize(),
-					.buffer = drawResourcesFiller.gpuDrawBuffers.mainObjectsBuffer,
-				};
-			}
-			if (drawResourcesFiller.getCurrentLineStylesBufferSize() > 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT | PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
-				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
-				bufferBarrier.range =
-				{
-					.offset = 0u,
-					.size = drawResourcesFiller.getCurrentLineStylesBufferSize(),
-					.buffer = drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer,
+					.size = drawResourcesFiller.getCopiedResourcesSize(),
+					.buffer = drawResourcesFiller.getResourcesGPUBuffer(),
 				};
 			}
 			cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .bufBarriers = {bufferBarriers, bufferBarriersCount}, .imgBarriers = {} });
@@ -1428,22 +1294,24 @@ public:
 			};
 		}
 		cb->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+		
+		const uint32_t currentIndexCount = resources.drawObjects.getCount() * 6u;
 
-		const uint32_t currentIndexCount = drawResourcesFiller.getDrawObjectCount() * 6u;
 		IGPUDescriptorSet* descriptorSets[] = { descriptorSet0.get(), descriptorSet1.get() };
 		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, pipelineLayout.get(), 0u, 2u, descriptorSets);
+
 		if (mode == ExampleMode::CASE_9)
 		{
 
 			// TODO[Przemek]: based on our call bind index buffer you uploaded to part of the `drawResourcesFiller.gpuDrawBuffers.geometryBuffer`
 			// Vertices will be pulled based on baseBDAPointer of where you uploaded the vertex + the VertexID in the vertex shader.
-			cb->bindIndexBuffer({ .offset = m_triangleMeshDrawData.indexBufferOffset, .buffer = drawResourcesFiller.gpuDrawBuffers.geometryBuffer.get() }, asset::EIT_32BIT);
+			cb->bindIndexBuffer({ .offset = resources.geometryInfo.bufferOffset + m_triangleMeshDrawData.indexBufferOffset, .buffer = drawResourcesFiller.getResourcesGPUBuffer().get()}, asset::EIT_32BIT);
 
 			// TODO[Przemek]: binding the same pipelie, no need to change.
 			cb->bindGraphicsPipeline(graphicsPipeline.get());
 
 			// TODO[Przemek]: contour settings, height shading settings, base bda pointers will need to be pushed via pushConstants before the draw currently as it's the easiest thing to do.
-
+			m_triangleMeshDrawData.pushConstants.triangleMeshVerticesBaseAddress += resourcesGPUBuffer->getDeviceAddress() + resources.geometryInfo.bufferOffset;
 			cb->pushConstants(graphicsPipeline->getLayout(), IGPUShader::E_SHADER_STAGE::ESS_VERTEX, 0, sizeof(PushConstants), &m_triangleMeshDrawData.pushConstants);
 
 			// TODO[Przemek]: draw parameters needs to reflect the mesh involved
@@ -1451,7 +1319,8 @@ public:
 		}
 		else
 		{
-			cb->bindIndexBuffer({ .offset = 0u, .buffer = drawResourcesFiller.gpuDrawBuffers.indexBuffer.get() }, asset::EIT_32BIT);
+			assert(currentIndexCount == resources.indexBuffer.getCount());
+			cb->bindIndexBuffer({ .offset = resources.indexBuffer.bufferOffset, .buffer = resourcesGPUBuffer.get() }, asset::EIT_32BIT);
 			cb->bindGraphicsPipeline(graphicsPipeline.get());
 			cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 		}
@@ -1554,14 +1423,13 @@ public:
 		// We only support one swapchain mode, surface, the other one is Display which we have not implemented yet.
 		retval.swapchainMode = video::E_SWAPCHAIN_MODE::ESM_SURFACE;
 		retval.validations = true;
-		retval.synchronizationValidation = true;
+		retval.synchronizationValidation = false;
 		return retval;
 	}
 protected:
 	
 	void addObjects(SIntendedSubmitInfo& intendedNextSubmit)
 	{
-		
 		// TODO[Przemek]: add your own case, you won't call any other drawResourcesFiller function, only drawMesh with your custom made Mesh (for start it can be a single triangle)
 
 		// we record upload of our objects and if we failed to allocate we submit everything
@@ -2016,8 +1884,8 @@ protected:
 
 			LineStyleInfo style = {};
 			style.screenSpaceLineWidth = 4.0f;
-			style.worldSpaceLineWidth = 0.0f;
-			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
+			style.worldSpaceLineWidth = 2.0f;
+			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.1f);
 
 			LineStyleInfo style2 = {};
 			style2.screenSpaceLineWidth = 2.0f;
@@ -2090,7 +1958,7 @@ protected:
 						myCurve.majorAxis = { -10.0, 5.0 };
 						myCurve.center = { 0, -5.0 };
 						myCurve.angleBounds = {
-							nbl::core::PI<double>() * 2.0,
+							nbl::core::PI<double>() * 1.0,
 							nbl::core::PI<double>() * 0.0
 							};
 						myCurve.eccentricity = 1.0;
@@ -2118,10 +1986,10 @@ protected:
 			}
 
 			drawResourcesFiller.drawPolyline(originalPolyline, style, intendedNextSubmit);
-			//CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+0.0 - 3.0 * abs(cos(m_timeElapsed * 0.0009)));
-			//CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(+0.0 + 3.0 * abs(cos(m_timeElapsed * 0.0009)));
-			//drawResourcesFiller.drawPolyline(offsettedPolyline, style2, intendedNextSubmit);
-			//drawResourcesFiller.drawPolyline(offsettedPolyline2, style2, intendedNextSubmit);
+			CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+0.0 - 3.0 * abs(cos(10.0 * 0.0009)));
+			CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(+0.0 + 3.0 * abs(cos(10.0 * 0.0009)));
+			drawResourcesFiller.drawPolyline(offsettedPolyline, style2, intendedNextSubmit);
+			drawResourcesFiller.drawPolyline(offsettedPolyline2, style2, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_4)
 		{
@@ -2977,7 +2845,6 @@ protected:
 					default:
 						m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type, skipping!",ILogger::ELL_ERROR);
 				}
-			
 
 				// create matching size gpu image
 				smart_refctd_ptr<IGPUImage> gpuImg;
@@ -3015,7 +2882,7 @@ protected:
 				{
 					{
 						.dstSet = descriptorSet0.get(),
-						.binding = 6u,
+						.binding = 3u,
 						.arrayElement = 0u,
 						.count = 1u,
 						.info = &dsInfo,
@@ -3154,15 +3021,6 @@ protected:
 				auto penX = -100.0;
 				auto penY = -500.0;
 				auto previous = 0;
-
-				uint32_t glyphObjectIdx;
-				{
-					LineStyleInfo lineStyle = {};
-					lineStyle.color = float32_t4(1.0, 1.0, 1.0, 1.0);
-					const uint32_t styleIdx = drawResourcesFiller.addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
-
-					glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, InvalidDTMSettingsIdx, intendedNextSubmit);
-				}
 
 				float64_t2 currentBaselineStart = float64_t2(0.0, 0.0);
 				float64_t scale = 1.0 / 64.0;

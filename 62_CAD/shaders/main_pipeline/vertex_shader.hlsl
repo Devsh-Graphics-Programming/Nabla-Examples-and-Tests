@@ -27,19 +27,10 @@ float2 QuadraticBezier(float2 p0, float2 p1, float2 p2, float t)
 
 ClipProjectionData getClipProjectionData(in MainObject mainObj)
 {
-    if (mainObj.clipProjectionAddress != InvalidClipProjectionAddress)
-    {
-        ClipProjectionData ret;
-        ret.projectionToNDC = vk::RawBufferLoad<pfloat64_t3x3>(mainObj.clipProjectionAddress, 8u);
-        ret.minClipNDC      = vk::RawBufferLoad<float32_t2>(mainObj.clipProjectionAddress + sizeof(pfloat64_t3x3), 8u);
-        ret.maxClipNDC      = vk::RawBufferLoad<float32_t2>(mainObj.clipProjectionAddress + sizeof(pfloat64_t3x3) + sizeof(float32_t2), 8u);
-
-        return ret;
-    }
+    if (mainObj.clipProjectionIndex != InvalidClipProjectionIndex)
+        return loadCustomClipProjection(mainObj.clipProjectionIndex);
     else
-    {
         return globals.defaultClipProjection;
-    }
 }
 
 float2 transformPointScreenSpace(pfloat64_t3x3 transformation, uint32_t2 resolution, pfloat64_t2 point2d)
@@ -93,8 +84,8 @@ PSInput main(uint vertexID : SV_VertexID)
     // your programmable pulling will use the baseVertexBufferAddress BDA address and `vertexID` to RawBufferLoad it's vertex. 
     // ~~Later, most likely We will require pulling all 3 vertices of the triangle, that's where you need to know which triangle you're currently on, and instead of objectID = vertexID/4 which we currently do, you will do vertexID/3 and pull all 3 of it's vertices.~~
     // Ok, brainfart, a vertex can belong to multiple triangles, I was thinking of AA but triangles share vertices, nevermind my comment above.
-
-#define DTM
+    
+//#define DTM
 #ifdef DTM
     PSInput outV;
 
@@ -113,7 +104,7 @@ PSInput main(uint vertexID : SV_VertexID)
     vtxPos.x = _static_cast<pfloat64_t>(vtx.pos.x);
     vtxPos.y = _static_cast<pfloat64_t>(vtx.pos.y);
 
-    MainObject mainObj = mainObjects[pc.triangleMeshMainObjectIndex];
+    MainObject mainObj = loadMainObject(pc.triangleMeshMainObjectIndex);
     ClipProjectionData clipProjectionData = getClipProjectionData(mainObj);
 
     float2 transformedPos = transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, vtxPos);
@@ -129,9 +120,9 @@ PSInput main(uint vertexID : SV_VertexID)
     );
 
     // TODO: line style of contour line has to be set too!
-    DTMSettings dtm = dtmSettings[mainObj.dtmSettingsIdx];
-    LineStyle outlineStyle = lineStyles[dtm.outlineLineStyleIdx];
-    LineStyle contourStyle = lineStyles[dtm.contourLineStyleIdx];
+    DTMSettings dtm = loadDTMSettings(mainObj.dtmSettingsIdx);
+    LineStyle outlineStyle = loadLineStyle(dtm.outlineLineStyleIdx);
+    LineStyle contourStyle = loadLineStyle(dtm.contourLineStyleIdx);
     const float screenSpaceOutlineWidth = outlineStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(outlineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
     const float sdfOutlineThickness = screenSpaceOutlineWidth * 0.5f;
     const float screenSpaceContourLineWidth = contourStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(contourStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
@@ -146,7 +137,7 @@ PSInput main(uint vertexID : SV_VertexID)
     const uint vertexIdx = vertexID & 0x3u;
     const uint objectID = vertexID >> 2;
 
-    DrawObject drawObj = drawObjects[objectID];
+    DrawObject drawObj = loadDrawObject(objectID);
 
     ObjectType objType = (ObjectType)(drawObj.type_subsectionIdx & 0x0000FFFF);
     uint32_t subsectionIdx = drawObj.type_subsectionIdx >> 16;
@@ -162,13 +153,14 @@ PSInput main(uint vertexID : SV_VertexID)
     outV.setObjType(objType);
     outV.setMainObjectIdx(drawObj.mainObjIndex);
     
-    MainObject mainObj = mainObjects[drawObj.mainObjIndex];
+
+    MainObject mainObj = loadMainObject(drawObj.mainObjIndex);
     ClipProjectionData clipProjectionData = getClipProjectionData(mainObj);
     
     // We only need these for Outline type objects like lines and bezier curves
     if (objType == ObjectType::LINE || objType == ObjectType::QUAD_BEZIER || objType == ObjectType::POLYLINE_CONNECTOR)
     {
-        LineStyle lineStyle = lineStyles[mainObj.styleIdx];
+        LineStyle lineStyle = loadLineStyle(mainObj.styleIdx);
 
         // Width is on both sides, thickness is one one side of the curve (div by 2.0f)
         const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(lineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
@@ -183,11 +175,11 @@ PSInput main(uint vertexID : SV_VertexID)
         if (objType == ObjectType::LINE)
         {
             pfloat64_t2 points[2u];
-            points[0u] = vk::RawBufferLoad<pfloat64_t2>(drawObj.geometryAddress, 8u);
-            points[1u] = vk::RawBufferLoad<pfloat64_t2>(drawObj.geometryAddress + sizeof(LinePointInfo), 8u);
+            points[0u] = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
+            points[1u] = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(LinePointInfo), 8u);
 
-            const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
-            const float patternStretch = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float), 8u);
+            const float phaseShift = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
+            const float patternStretch = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float), 8u);
             outV.setCurrentPhaseShift(phaseShift);
             outV.setPatternStretch(patternStretch);
 
@@ -223,12 +215,12 @@ PSInput main(uint vertexID : SV_VertexID)
         else if (objType == ObjectType::QUAD_BEZIER)
         {
             pfloat64_t2 points[3u];
-            points[0u] = vk::RawBufferLoad<pfloat64_t2>(drawObj.geometryAddress, 8u);
-            points[1u] = vk::RawBufferLoad<pfloat64_t2>(drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
-            points[2u] = vk::RawBufferLoad<pfloat64_t2>(drawObj.geometryAddress + sizeof(pfloat64_t2) * 2u, 8u);
+            points[0u] = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
+            points[1u] = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
+            points[2u] = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) * 2u, 8u);
 
-            const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(pfloat64_t2) * 3u, 8u);
-            const float patternStretch = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(pfloat64_t2) * 3u + sizeof(float), 8u);
+            const float phaseShift = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) * 3u, 8u);
+            const float patternStretch = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) * 3u + sizeof(float), 8u);
             outV.setCurrentPhaseShift(phaseShift);
             outV.setPatternStretch(patternStretch);
 
@@ -397,9 +389,9 @@ PSInput main(uint vertexID : SV_VertexID)
 
             if (lineStyle.isRoadStyleFlag)
             {
-                const pfloat64_t2 circleCenter = vk::RawBufferLoad<pfloat64_t2>(drawObj.geometryAddress, 8u);
-                const float2 v = vk::RawBufferLoad<float2>(drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
-                const float cosHalfAngleBetweenNormals = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2), 8u);
+                const pfloat64_t2 circleCenter = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
+                const float2 v = vk::RawBufferLoad<float2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
+                const float cosHalfAngleBetweenNormals = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2), 8u);
 
                 const float2 circleCenterScreenSpace = transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, circleCenter);
                 outV.setPolylineConnectorCircleCenter(circleCenterScreenSpace);
@@ -459,13 +451,13 @@ PSInput main(uint vertexID : SV_VertexID)
     else if (objType == ObjectType::CURVE_BOX)
     {
         CurveBox curveBox;
-        curveBox.aabbMin = vk::RawBufferLoad<pfloat64_t2>(drawObj.geometryAddress, 8u);
-        curveBox.aabbMax = vk::RawBufferLoad<pfloat64_t2>(drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
+        curveBox.aabbMin = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
+        curveBox.aabbMax = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
 
         for (uint32_t i = 0; i < 3; i ++)
         {
-            curveBox.curveMin[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(pfloat64_t2) * 2 + sizeof(float32_t2) * i, 4u);
-            curveBox.curveMax[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(pfloat64_t2) * 2 + sizeof(float32_t2) * (3 + i), 4u);
+            curveBox.curveMin[i] = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) * 2 + sizeof(float32_t2) * i, 4u);
+            curveBox.curveMax[i] = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) * 2 + sizeof(float32_t2) * (3 + i), 4u);
         }
 
         pfloat64_t2 aabbMaxXMinY;
@@ -546,14 +538,14 @@ PSInput main(uint vertexID : SV_VertexID)
     }
     else if (objType == ObjectType::FONT_GLYPH)
     {
-        LineStyle lineStyle = lineStyles[mainObj.styleIdx];
+        LineStyle lineStyle = loadLineStyle(mainObj.styleIdx);
         const float italicTiltSlope = lineStyle.screenSpaceLineWidth; // aliased text style member with line style
         
         GlyphInfo glyphInfo;
-        glyphInfo.topLeft = vk::RawBufferLoad<pfloat64_t2>(drawObj.geometryAddress, 8u);
-        glyphInfo.dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(pfloat64_t2), 4u);
-        glyphInfo.aspectRatio = vk::RawBufferLoad<float32_t>(drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2), 4u);
-        glyphInfo.minUV_textureID_packed = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2) + sizeof(float), 4u);
+        glyphInfo.topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
+        glyphInfo.dirU = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 4u);
+        glyphInfo.aspectRatio = vk::RawBufferLoad<float32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2), 4u);
+        glyphInfo.minUV_textureID_packed = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2) + sizeof(float), 4u);
 
         float32_t2 minUV = glyphInfo.getMinUV();
         uint16_t textureID = glyphInfo.getTextureID();
@@ -601,10 +593,10 @@ PSInput main(uint vertexID : SV_VertexID)
     }
     else if (objType == ObjectType::IMAGE)
     {
-        pfloat64_t2 topLeft = vk::RawBufferLoad<pfloat64_t2>(drawObj.geometryAddress, 8u);
-        float32_t2 dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(pfloat64_t2), 4u);
-        float32_t aspectRatio = vk::RawBufferLoad<float32_t>(drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2), 4u);
-        uint32_t textureID = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2) + sizeof(float), 4u);
+        pfloat64_t2 topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
+        float32_t2 dirU = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 4u);
+        float32_t aspectRatio = vk::RawBufferLoad<float32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2), 4u);
+        uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2) + sizeof(float), 4u);
 
         const float32_t2 dirV = float32_t2(dirU.y, -dirU.x) * aspectRatio;
         const float2 ndcTopLeft = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, topLeft));

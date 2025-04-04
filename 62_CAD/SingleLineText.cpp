@@ -63,8 +63,8 @@ void SingleLineText::Draw(
 	lineStyle.color = color;
 	lineStyle.screenSpaceLineWidth = tan(tiltTiltAngle);
 	lineStyle.worldSpaceLineWidth = boldInPixels;
-	const uint32_t styleIdx = drawResourcesFiller.addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
-	auto glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, InvalidDTMSettingsIdx, intendedNextSubmit);
+	drawResourcesFiller.setActiveLineStyle(lineStyle);
+	drawResourcesFiller.beginMainObject(MainObjectType::TEXT);
 
 	for (const auto& glyphBox : m_glyphBoxes)
 	{
@@ -75,7 +75,8 @@ void SingleLineText::Draw(
 		// float32_t3 xx = float64_t3(0.0, -glyphBox.size.y, 0.0);
 		const float32_t aspectRatio = static_cast<float32_t>(glm::length(dirV) / glm::length(dirU)); // check if you can just do: (glyphBox.size.y * scale.y) / glyphBox.size.x * scale.x)
 		const float32_t2 minUV = face->getUV(float32_t2(0.0f,0.0f), glyphBox.size, drawResourcesFiller.getMSDFResolution(), MSDFPixelRange);
-		drawResourcesFiller.drawFontGlyph(face, glyphBox.glyphIdx, topLeft, dirU, aspectRatio, minUV, glyphObjectIdx, intendedNextSubmit);
+		drawResourcesFiller.drawFontGlyph(face, glyphBox.glyphIdx, topLeft, dirU, aspectRatio, minUV, intendedNextSubmit);
 	}
 
+	drawResourcesFiller.endMainObject();
 }

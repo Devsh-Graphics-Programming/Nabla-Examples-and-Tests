@@ -53,24 +53,33 @@ static_assert(offsetof(ClipProjectionData, minClipNDC) == 72u);
 static_assert(offsetof(ClipProjectionData, maxClipNDC) == 80u);
 #endif
 
+struct Pointers
+{
+    uint64_t lineStyles;
+    uint64_t dtmSettings;
+    uint64_t customClipProjections;
+    uint64_t mainObjects;
+    uint64_t drawObjects;
+    uint64_t geometryBuffer;
+};
+#ifndef __HLSL_VERSION
+static_assert(sizeof(Pointers) == 48u);
+#endif
+
 struct Globals
 {
-    ClipProjectionData defaultClipProjection; // 88
-    pfloat64_t screenToWorldRatio; // 96
-    pfloat64_t worldToScreenRatio; // 100
-    uint32_t2 resolution; // 108
-    float antiAliasingFactor; // 112
-    float miterLimit; // 116
-    float32_t2 _padding; // 128
+    Pointers pointers;
+    ClipProjectionData defaultClipProjection;
+    pfloat64_t screenToWorldRatio;
+    pfloat64_t worldToScreenRatio;
+    uint32_t2 resolution;
+    float antiAliasingFactor;
+    uint32_t miterLimit;
+    uint32_t currentlyActiveMainObjectIndex; // for alpha resolve to skip resolving activeMainObjectIdx and prep it for next submit
+    float32_t _padding;
 };
-
 #ifndef __HLSL_VERSION
-static_assert(offsetof(Globals, defaultClipProjection) == 0u);
-static_assert(offsetof(Globals, screenToWorldRatio) == 88u);
-static_assert(offsetof(Globals, worldToScreenRatio) == 96u);
-static_assert(offsetof(Globals, resolution) == 104u);
-static_assert(offsetof(Globals, antiAliasingFactor) == 112u);
-static_assert(offsetof(Globals, miterLimit) == 116u);
+static_assert(sizeof(Globals) == 176u);
 #endif
 
 #ifdef __HLSL_VERSION
@@ -105,6 +114,16 @@ pfloat64_t2 transformVectorNdc(NBL_CONST_REF_ARG(pfloat64_t3x3) transformation, 
 }
 #endif
 
+enum class MainObjectType : uint32_t
+{
+    NONE = 0u,
+    POLYLINE,
+    HATCH,
+    TEXT,
+    IMAGE,
+    DTM,
+};
+
 enum class ObjectType : uint32_t
 {
     LINE = 0u,
@@ -127,7 +146,7 @@ struct MainObject
 {
     uint32_t styleIdx;
     uint32_t dtmSettingsIdx;
-    uint64_t clipProjectionAddress;
+    uint32_t clipProjectionIndex;
 };
 
 struct DrawObject
@@ -137,6 +156,8 @@ struct DrawObject
     uint64_t geometryAddress;
 };
 
+
+// Goes into geometry buffer, needs to be aligned by 8
 struct LinePointInfo
 {
     pfloat64_t2 p;
@@ -144,6 +165,7 @@ struct LinePointInfo
     float32_t stretchValue;
 };
 
+// Goes into geometry buffer, needs to be aligned by 8
 struct QuadraticBezierInfo
 {
     nbl::hlsl::shapes::QuadraticBezier<pfloat64_t> shape; // 48bytes = 3 (control points) x 16 (float64_t2)
@@ -154,6 +176,7 @@ struct QuadraticBezierInfo
 static_assert(offsetof(QuadraticBezierInfo, phaseShift) == 48u);
 #endif
 
+// Goes into geometry buffer, needs to be aligned by 8
 struct GlyphInfo
 {
     pfloat64_t2 topLeft; // 2 * 8 = 16 bytes
@@ -198,6 +221,7 @@ struct GlyphInfo
     }
 };
 
+// Goes into geometry buffer, needs to be aligned by 8
 struct ImageObjectInfo
 {
     pfloat64_t2  topLeft; // 2 * 8 = 16 bytes (16)
@@ -247,6 +271,7 @@ struct PolylineConnector
 };
 
 // NOTE: Don't attempt to pack curveMin/Max to uints because of limited range of values, we need the logarithmic precision of floats (more precision near 0)
+// Goes into geometry buffer, needs to be aligned by 8
 struct CurveBox
 {
     // will get transformed in the vertex shader, and will be calculated on the cpu when generating these boxes
@@ -268,7 +293,7 @@ NBL_CONSTEXPR uint32_t InvalidRigidSegmentIndex = 0xffffffff;
 NBL_CONSTEXPR float InvalidStyleStretchValue = nbl::hlsl::numeric_limits<float>::infinity;
 
 
-// TODO[Przemek]: we will need something similar to LineStyles but related to heigh shading settings which is user customizable (like LineStyle stipple patterns) and requires upper_bound to figure out the color based on height value.
+// TODO[Przemek]: we will need something similar to LineStyles but related to heigh shading settings which is user customizable (like  stipple patterns) and requires upper_bound to figure out the color based on height value.
 // We'll discuss that later or what it will be looking like and how it's gonna get passed to our shaders.
 
 struct TriangleMeshVertex
@@ -362,6 +387,7 @@ struct DTMSettings
         return DISCRETE_FIXED_LENGTH_INTERVALS;
     }
 };
+
 #ifndef __HLSL_VERSION
 inline bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 {
@@ -390,7 +416,6 @@ inline bool operator==(const DTMSettings& lhs, const DTMSettings& rhs)
     return lhs.outlineLineStyleIdx == rhs.outlineLineStyleIdx &&
         lhs.contourLineStyleIdx == rhs.contourLineStyleIdx;
 }
-
 #endif
 
 NBL_CONSTEXPR uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
@@ -399,15 +424,44 @@ NBL_CONSTEXPR uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
 NBL_CONSTEXPR uint32_t InvalidStyleIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
 NBL_CONSTEXPR uint32_t InvalidDTMSettingsIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
 NBL_CONSTEXPR uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
-NBL_CONSTEXPR uint64_t InvalidClipProjectionAddress = nbl::hlsl::numeric_limits<uint64_t>::max;
+NBL_CONSTEXPR uint32_t InvalidClipProjectionIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
 NBL_CONSTEXPR uint32_t InvalidTextureIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
+
+// Hatches
 NBL_CONSTEXPR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
-// TODO: get automatic version working on HLSL
 NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1 - (uint32_t) SelectedMajorAxis);
+
+// Text or MSDF Hatches
 NBL_CONSTEXPR float MSDFPixelRange = 4.0f;
 NBL_CONSTEXPR float MSDFPixelRangeHalf = MSDFPixelRange / 2.0f;
 NBL_CONSTEXPR float MSDFSize = 32.0f; 
 NBL_CONSTEXPR uint32_t MSDFMips = 4; 
 NBL_CONSTEXPR float HatchFillMSDFSceenSpaceSize = 8.0; 
+
+#ifdef __HLSL_VERSION
+[[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);
+
+LineStyle loadLineStyle(const uint32_t index)
+{
+    return vk::RawBufferLoad<LineStyle>(globals.pointers.lineStyles + index * sizeof(LineStyle), 8u);
+}
+DTMSettings loadDTMSettings(const uint32_t index)
+{
+    return vk::RawBufferLoad<DTMSettings>(globals.pointers.dtmSettings + index * sizeof(DTMSettings), 8u);
+}
+ClipProjectionData loadCustomClipProjection(const uint32_t index)
+{
+    return vk::RawBufferLoad<ClipProjectionData>(globals.pointers.customClipProjections + index * sizeof(ClipProjectionData), 8u);
+}
+MainObject loadMainObject(const uint32_t index)
+{
+    return vk::RawBufferLoad<MainObject>(globals.pointers.mainObjects + index * sizeof(MainObject), 4u);
+}
+DrawObject loadDrawObject(const uint32_t index)
+{
+    return vk::RawBufferLoad<DrawObject>(globals.pointers.drawObjects + index * sizeof(DrawObject), 8u);
+}
+#endif
+
 
 #endif
