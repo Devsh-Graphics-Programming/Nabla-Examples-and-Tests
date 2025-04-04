@@ -659,8 +659,8 @@ struct TestReciprocity : TestBxDF<BxDF>
         iso_interaction rec_isointer = iso_interaction::create(rec_V, base_t::rc.N);
         aniso_interaction rec_anisointer = aniso_interaction::create(rec_isointer, base_t::rc.T, base_t::rc.B);
         rec_cache = cache;
-        rec_cache.iso_cache.VdotH = cache.iso_cache.LdotH;
-        rec_cache.iso_cache.LdotH = cache.iso_cache.VdotH;
+        rec_cache.iso_cache.VdotH = cache.iso_cache.getLdotH();
+        rec_cache.iso_cache.LdotH = cache.iso_cache.getVdotH();
 
         rec_isocache = rec_cache.iso_cache;
 
