@@ -53,7 +53,7 @@ float64_t ParametricCurve::inverseArcLen(float64_t targetLen, float64_t min, flo
 
 float64_t ParametricCurve::differentialArcLen(float64_t t) const
 {
-    return length(computeTangent(t));
+    return hlsl::length(computeTangent(t));
 }
 
 float64_t ExplicitCurve::differentialArcLen(float64_t x) const

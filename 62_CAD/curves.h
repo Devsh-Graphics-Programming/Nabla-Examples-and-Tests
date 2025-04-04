@@ -6,6 +6,7 @@
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
+using namespace nbl;
 using namespace nbl::hlsl;
 
 #include <nbl/builtin/hlsl/math/quadrature/gauss_legendre/gauss_legendre.hlsl>
@@ -127,7 +128,7 @@ struct CircularArc final : public ParametricCurve
     CircularArc(float64_t2 v, float64_t sweepAngle)
         : originY(-v.y), sweepAngle(sweepAngle)
     {
-        r = length(v);
+        r = hlsl::length(v);
         startAngle = getSign(v.y) * acos(v.x / r);
     }
 
@@ -135,7 +136,7 @@ struct CircularArc final : public ParametricCurve
     CircularArc(float64_t2 v)
         : originY(-v.y)
     {
-        r = length(v);
+        r = hlsl::length(v);
         startAngle = getSign(v.y) * acos(v.x / r);
         sweepAngle = -2.0 * getSign(v.y) * acos(abs(originY) / r);
     }
