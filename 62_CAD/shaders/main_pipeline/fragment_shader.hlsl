@@ -464,9 +464,7 @@ float4 fragMain(PSInput input) : SV_TARGET
         float minShadingHeight = dtm.heightColorMapHeights[0];
         float maxShadingHeight = dtm.heightColorMapHeights[heightMapSize - 1];
 
-        const bool isHeightBetweenMinAndMax = height >= minShadingHeight && height <= maxShadingHeight;
-        const bool isHeightColorMapNotEmpty = heightMapSize > 0;
-        if (isHeightColorMapNotEmpty && isHeightBetweenMinAndMax)
+        if (heightMapSize > 0)
         {
             DTMSettings::E_HEIGHT_SHADING_MODE mode = dtm.determineHeightShadingMode();
 
@@ -476,23 +474,38 @@ float4 fragMain(PSInput input) : SV_TARGET
                 uint32_t mapIndexPlus1 = nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, heightMapSize, height);
                 uint32_t mapIndex = mapIndexPlus1 == 0 ? mapIndexPlus1 : mapIndexPlus1 - 1;
 
+                float heightDeriv = fwidth(height);
+                bool blendWithPrev = true
+                    && (mapIndex >= heightMapSize - 1 || (height * 2.0 < dtm.heightColorMapHeights[mapIndexPlus1] + dtm.heightColorMapHeights[mapIndex]));
+                
                 // logic explainer: if colorIdx is 0.0 then it means blend with next
                 // if color idx is >= length of the colours array then it means it's also > 0.0 and this blend with prev is true
                 // if color idx is > 0 and < len - 1, then it depends on the current pixel's height value and two closest height values
-                bool blendWithPrev = (mapIndex > 0) 
-                    && (mapIndex >= heightMapSize - 1 || (height * 2.0 < dtm.heightColorMapHeights[mapIndexPlus1] + dtm.heightColorMapHeights[mapIndex]));
-                float heightDeriv = fwidth(height);
                 if (blendWithPrev)
                 {
-                    float pxDistanceToPrevHeight = (height - dtm.heightColorMapHeights[mapIndex]) / heightDeriv;
-                    float prevColorCoverage = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, pxDistanceToPrevHeight);
-                    textureColor = lerp(dtm.heightColorMapColors[mapIndex - 1].rgb, dtm.heightColorMapColors[mapIndex].rgb, prevColorCoverage);
+                    if (mapIndex > 0)
+                    {
+                        float pxDistanceToPrevHeight = (height - dtm.heightColorMapHeights[mapIndex]) / heightDeriv;
+                        float prevColorCoverage = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, pxDistanceToPrevHeight);
+                        textureColor = lerp(dtm.heightColorMapColors[mapIndex - 1].rgb, dtm.heightColorMapColors[mapIndex].rgb, prevColorCoverage);
+                    }
+                    else
+                    {
+                        textureColor = dtm.heightColorMapColors[mapIndex].rgb;
+                    }
                 }
                 else
                 {
-                    float pxDistanceToNextHeight = (height - dtm.heightColorMapHeights[mapIndexPlus1]) / heightDeriv;
-                    float nextColorCoverage = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, pxDistanceToNextHeight);
-                    textureColor = lerp(dtm.heightColorMapColors[mapIndex].rgb, dtm.heightColorMapColors[mapIndexPlus1].rgb, nextColorCoverage);
+                    if (mapIndex < heightMapSize - 1)
+                    {
+                        float pxDistanceToNextHeight = (height - dtm.heightColorMapHeights[mapIndexPlus1]) / heightDeriv;
+                        float nextColorCoverage = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, pxDistanceToNextHeight);
+                        textureColor = lerp(dtm.heightColorMapColors[mapIndex].rgb, dtm.heightColorMapColors[mapIndexPlus1].rgb, nextColorCoverage);
+                    }
+                    else
+                    {
+                        textureColor = dtm.heightColorMapColors[mapIndex].rgb;
+                    }
                 }
 
                 localAlpha = dtm.heightColorMapColors[mapIndex].a;
