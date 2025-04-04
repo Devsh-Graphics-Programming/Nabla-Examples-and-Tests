@@ -1,0 +1,20 @@
+{
+    "logInfo": false,
+    "TestJacobian": {
+        "runs": 10
+    },
+    "TestReciprocity": {
+        "runs": 10
+    },
+    "TestBucket": {
+        "runs": 10,
+        "samples": 500
+    },
+    "TestChi2": {
+        "runs": 5,
+        "samples": 1000000,
+        "thetaSplits": 80,
+        "phiSplits": 160,
+        "writeFrequencies": false
+    }
+}
