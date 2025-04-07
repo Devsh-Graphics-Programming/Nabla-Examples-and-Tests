@@ -49,6 +49,9 @@ if(NBL_BUILD_EXAMPLES)
 	# showcase use of FFT for post-FX Bloom  effect
 	add_subdirectory(11_FFT EXCLUDE_FROM_ALL)
 
+	# showcase use of Nabla Chad Scan Append
+	add_subdirectory(13_ScanAppend EXCLUDE_FROM_ALL)
+
 
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo EXCLUDE_FROM_ALL)
