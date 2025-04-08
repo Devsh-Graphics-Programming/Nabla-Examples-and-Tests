@@ -297,6 +297,7 @@ public:
 		};
 
 		auto subgroupTestSource = getShaderSource("app_resources/testSubgroup.comp.hlsl");
+		auto subgroupBenchSource = getShaderSource("app_resources/benchmarkSubgroup.comp.hlsl");
 		//auto workgroupTestSource = getShaderSource("app_resources/testWorkgroup.comp.hlsl");
 		// now create or retrieve final resources to run our tests
 		sema = m_device->createSemaphore(timelineValue);
@@ -313,7 +314,7 @@ public:
 		
 		// TODO variable items per invocation?
 		const uint32_t ItemsPerInvocation = 4u;
-		const uint32_t NumLoops = 100000u;
+		const uint32_t NumLoops = 1000u;
 		const std::array<uint32_t, 3> workgroupSizes = { 256, 512, 1024 };
 		// const auto MaxWorkgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
 		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
@@ -328,7 +329,7 @@ public:
 		}
 
 		// for each variant, workgroup size etc.
-		benchPipeline = createBenchmarkPipelines<emulatedReduction>(subgroupTestSource, elementCount, hlsl::findMSB(MinSubgroupSize), workgroupSizes[0], ItemsPerInvocation);
+		benchPipeline = createBenchmarkPipelines<emulatedReduction>(subgroupBenchSource, elementCount, hlsl::findMSB(MinSubgroupSize), workgroupSizes[0], ItemsPerInvocation, NumLoops);
 
 		//for (auto subgroupSize = MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 		//{
@@ -703,14 +704,52 @@ private:
 	}
 
 	template<template<class> class Arithmetic>
-	smart_refctd_ptr<IGPUComputePipeline> createBenchmarkPipelines(const smart_refctd_ptr<const ICPUShader>&source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerInvoc = 1u)
+	smart_refctd_ptr<IGPUComputePipeline> createBenchmarkPipelines(const smart_refctd_ptr<const ICPUShader>&source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerInvoc = 1u, uint32_t numLoops = 8u)
 	{
 		std::string arith_name = Arithmetic<bit_xor<uint32_t>>::name;	// TODO all operations
 
-		smart_refctd_ptr<ICPUShader> overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
-			source.get(), "#define OPERATION %s\n#define WORKGROUP_SIZE %d\n#define ITEMS_PER_INVOCATION %d\n#define SUBGROUP_SIZE_LOG2 %d\n",
-			(("subgroup2::") + arith_name).c_str(), workgroupSize, itemsPerInvoc, subgroupSizeLog2
-		);
+		//smart_refctd_ptr<ICPUShader> overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
+		//	source.get(), "#define OPERATION %s\n#define WORKGROUP_SIZE %d\n#define ITEMS_PER_INVOCATION %d\n#define SUBGROUP_SIZE_LOG2 %d\n",
+		//	(("subgroup2::") + arith_name).c_str(), workgroupSize, itemsPerInvoc, subgroupSizeLog2
+		//);
+
+		auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
+		CHLSLCompiler::SOptions options = {};
+		options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;
+		options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+		options.spirvOptimizer = nullptr;
+//#ifndef _NBL_DEBUG
+//		ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
+//		auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
+//		options.spirvOptimizer = opt.get();
+//#endif
+		options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
+		options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
+		options.preprocessorOptions.logger = m_logger.get();
+
+		auto* includeFinder = compiler->getDefaultIncludeFinder();
+		includeFinder->addSearchPath("nbl/builtin/hlsl/jit", core::make_smart_refctd_ptr<CJITIncludeLoader>(m_physicalDevice->getLimits(), m_device->getEnabledFeatures()));
+		options.preprocessorOptions.includeFinder = includeFinder;
+
+		const std::string definitions[5] = { 
+			"subgroup2::" + arith_name,
+			std::to_string(workgroupSize),
+			std::to_string(itemsPerInvoc),
+			std::to_string(subgroupSizeLog2),
+			std::to_string(numLoops)
+		};
+
+		const IShaderCompiler::SMacroDefinition defines[5] = {
+			{ "OPERATION", definitions[0] },
+			{ "WORKGROUP_SIZE", definitions[1] },
+			{ "ITEMS_PER_INVOCATION", definitions[2] },
+			{ "SUBGROUP_SIZE_LOG2", definitions[3] },
+			{ "NUM_LOOPS", definitions[4] },
+		};
+		options.preprocessorOptions.extraDefines = { defines, defines + 5 };
+
+		smart_refctd_ptr<ICPUShader> overridenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
+
 		return createPipeline(overridenUnspecialized.get(), subgroupSizeLog2);
 	};
 
