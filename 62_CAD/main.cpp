@@ -75,7 +75,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0	// CASE_9
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_6;
+constexpr ExampleMode mode = ExampleMode::CASE_9;
 
 class Camera2D
 {
@@ -3156,6 +3156,8 @@ protected:
 		}
 		else if (mode == ExampleMode::CASE_9)
 		{
+			// GRID
+
 			/*core::vector<TriangleMeshVertex> vertices = {
 				{ float32_t2(-200.0f, -200.0f), 10.0f },
 				{ float32_t2(-50.0f, -200.0f), 50.0f },
@@ -3186,6 +3188,8 @@ protected:
 				8, 10, 11
 			};*/
 
+			// PYRAMID
+
 			core::vector<TriangleMeshVertex> vertices = {
 				{ float32_t2(0.0, 0.0), 100.0 },
 				{ float32_t2(-200.0, -200.0), 10.0 },
@@ -3200,6 +3204,17 @@ protected:
 				0, 3, 4,
 				0, 4, 1
 			};
+
+			// SINGLE TRIANGLE
+			/*core::vector<TriangleMeshVertex> vertices = {
+				{ float32_t2(0.0, 0.0), -20.0 },
+				{ float32_t2(200.0, 200.0), 100.0 },
+				{ float32_t2(200.0, -200.0), 80.0 }
+			};
+
+			core::vector<uint32_t> indices = {
+				0, 1, 2
+			};*/
 
 			CTriangleMesh mesh;
 			mesh.setVertices(std::move(vertices));
@@ -3240,7 +3255,7 @@ protected:
 					//dtmSettingsInfo.addHeightColorMapEntry(25.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
 					dtmSettingsInfo.addHeightColorMapEntry(25.0f, float32_t4(1.0f, 1.0f, 0.0f, 1.0f));
 					dtmSettingsInfo.addHeightColorMapEntry(70.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
-					dtmSettingsInfo.addHeightColorMapEntry(90.0f, float32_t4(1.0f, 1.0f, 1.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(90.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
 					break;
 				}
 				case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS:

@@ -415,6 +415,11 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     return color;
 }
 
+float dot2(in float2 vec)
+{
+    return dot(vec, vec);
+}
+
 [[vk::spvexecutionmode(spv::ExecutionModePixelInterlockOrderedEXT)]]
 [shader("pixel")]
 float4 fragMain(PSInput input) : SV_TARGET
@@ -426,7 +431,7 @@ float4 fragMain(PSInput input) : SV_TARGET
     const uint32_t currentMainObjectIdx = input.getMainObjectIdx();
     const MainObject mainObj = loadMainObject(currentMainObjectIdx);
     
-//#define DTM
+#define DTM
 #ifdef DTM
     // TRIANGLE RENDERING
     {
@@ -468,6 +473,35 @@ float4 fragMain(PSInput input) : SV_TARGET
 
         if (heightMapSize > 0)
         {
+            // partially based on https://www.shadertoy.com/view/XsXSz4 by Inigo Quilez
+            float2 e0 = v[1] - v[0];
+            float2 e1 = v[2] - v[1];
+            float2 e2 = v[0] - v[2];
+            
+            float triangleAreaSign = -sign(e0.x * e2.y - e0.y * e2.x);
+            float2 v0 = input.position.xy - v[0];
+            float2 v1 = input.position.xy - v[1];
+            float2 v2 = input.position.xy - v[2];
+
+            float distanceToLine0 = sqrt(dot2(v0 - e0 * dot(v0, e0) / dot(e0, e0)));
+            float distanceToLine1 = sqrt(dot2(v1 - e1 * dot(v1, e1) / dot(e1, e1)));
+            float distanceToLine2 = sqrt(dot2(v2 - e2 * dot(v2, e2) / dot(e2, e2)));
+
+            float line0Sdf = distanceToLine0 * triangleAreaSign * (v0.x * e0.y - v0.y * e0.x);
+            float line1Sdf = distanceToLine1 * triangleAreaSign * (v1.x * e1.y - v1.y * e1.x);
+            float line2Sdf = distanceToLine2 * triangleAreaSign * (v2.x * e2.y - v2.y * e2.x);
+            float heightDeriv = fwidth(height);
+            float line3Sdf = (minShadingHeight - height) / heightDeriv;
+            float line4Sdf = (height - maxShadingHeight) / heightDeriv;
+
+            float convexPolygonSdf = max(line0Sdf, line1Sdf);
+            convexPolygonSdf = max(convexPolygonSdf, line2Sdf);
+            convexPolygonSdf = max(convexPolygonSdf, line3Sdf);
+            convexPolygonSdf = max(convexPolygonSdf, line4Sdf);
+
+            localAlpha = 1.0f - smoothstep(0.0f, globals.antiAliasingFactor * 2.0f, convexPolygonSdf);
+
+            // calculate height color
             DTMSettings::E_HEIGHT_SHADING_MODE mode = dtm.determineHeightShadingMode();
 
             if(mode == DTMSettings::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS)
@@ -510,7 +544,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                     }
                 }
 
-                localAlpha = dtm.heightColorMapColors[mapIndex].a;
+                //localAlpha = dtm.heightColorMapColors[mapIndex].a;
             }
             else
             {
@@ -546,6 +580,11 @@ float4 fragMain(PSInput input) : SV_TARGET
                 localAlpha = lerp(lowerBoundColor.a, upperBoundColor.a, interpolationVal);;
             }
         }
+        //else // TODO: remove!!
+        //{
+        //    printf("WTF");
+        //    return float4(0.0f, 0.0f, 0.0f, 1.0f);
+        //}
 
         // CONTOUR
 
