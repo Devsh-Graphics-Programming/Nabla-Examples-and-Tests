@@ -5,7 +5,6 @@
 
 using namespace nbl;
 using namespace core;
-using namespace hlsl;
 using namespace system;
 using namespace asset;
 using namespace ui;
@@ -53,7 +52,8 @@ class ArithmeticBenchApp final : public examples::SimpleWindowedApplication, pub
 	using device_base_t = examples::SimpleWindowedApplication;
 	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 
-	constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
+	constexpr static inline uint32_t WIN_W = 1280;
+	constexpr static inline uint32_t WIN_H = 720;
 	constexpr static inline uint32_t MaxFramesInFlight = 5;
 
 public:
@@ -67,19 +67,19 @@ public:
 			{
 				auto windowCallback = core::make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
 				IWindow::SCreationParams params = {};
-				params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
-				params.width = WindowDimensions.x;
-				params.height = WindowDimensions.y;
+				params.callback = core::make_smart_refctd_ptr<ISimpleManagedSurface::ICallback>();
+				params.width = WIN_W;
+				params.height = WIN_H;
 				params.x = 32;
 				params.y = 32;
 				params.flags = ui::IWindow::ECF_HIDDEN | IWindow::ECF_BORDERLESS | IWindow::ECF_RESIZABLE;
-				params.windowCaption = "ComputeShaderPathtracer";
+				params.windowCaption = "ArithmeticBenchApp";
 				params.callback = windowCallback;
 				const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
 			}
 
 			auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
-			const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = nbl::video::CSimpleResizeSurface<nbl::video::CDefaultSwapchainFramebuffers>::create(std::move(surface));
+			const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>::create(std::move(surface));
 		}
 
 		if (m_surface)
@@ -90,10 +90,37 @@ public:
 
 	bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
+		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
+
 		if (!device_base_t::onAppInitialized(std::move(system)))
 			return false;
 		if (!asset_base_t::onAppInitialized(std::move(system)))
 			return false;
+
+		m_semaphore = m_device->createSemaphore(m_realFrameIx);
+		if (!m_semaphore)
+			return logFail("Failed to Create a Semaphore!");
+
+		ISwapchain::SCreationParams swapchainParams = { .surface = m_surface->getSurface() };
+		if (!swapchainParams.deduceFormat(m_physicalDevice))
+			return logFail("Could not choose a Surface Format for the Swapchain!");
+
+		auto graphicsQueue = getGraphicsQueue();
+		if (!m_surface || !m_surface->init(graphicsQueue, std::make_unique<ISimpleManagedSurface::ISwapchainResources>(), swapchainParams.sharedParams))
+			return logFail("Could not create Window & Surface or initialize the Surface!");
+
+		auto pool = m_device->createCommandPool(graphicsQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+
+		for (auto i = 0u; i < MaxFramesInFlight; i++)
+		{
+			if (!pool)
+				return logFail("Couldn't create Command Pool!");
+			if (!pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data() + i, 1 }))
+				return logFail("Couldn't create Command Buffer!");
+		}
+
+		m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
+		m_surface->recreateSwapchain();
 
 		transferDownQueue = getTransferDownQueue();
 		computeQueue = getComputeQueue();
@@ -134,7 +161,24 @@ public:
 			assert(bufferMem.isValid());
 		}
 
-		// create Descriptor Set and Pipeline Layout
+		// create dummy image
+		dummyImg = m_device->createImage({
+				{
+					.type = IGPUImage::ET_2D,
+					.samples = asset::ICPUImage::ESCF_1_BIT,
+					.format = asset::EF_R16G16B16A16_SFLOAT,
+					.extent = {WIN_W, WIN_H, 1},
+					.mipLevels = 1,
+					.arrayLayers = 1,
+					.flags = IImage::ECF_NONE,
+					.usage = core::bitflag(asset::IImage::EUF_STORAGE_BIT) | asset::IImage::EUF_TRANSFER_SRC_BIT
+				}
+			});
+		if (!dummyImg || !m_device->allocate(dummyImg->getMemoryReqs(), dummyImg.get()).isValid())
+			return logFail("Could not create HDR Image");
+
+		// create Descriptor Sets and Pipeline Layouts
+		smart_refctd_ptr<IGPUPipelineLayout> benchPplnLayout;
 		{
 			// create Descriptor Set Layout
 			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
@@ -148,7 +192,7 @@ public:
 
 			// set and transient pool
 			auto descPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE,{&dsLayout.get(),1});
-			descriptorSet = descPool->createDescriptorSet(smart_refctd_ptr(dsLayout));
+			testDs = descPool->createDescriptorSet(smart_refctd_ptr(dsLayout));
 			{
 				IGPUDescriptorSet::SDescriptorInfo infos[1+OutputBufferCount];
 				infos[0].desc = gpuinputDataBuffer;
@@ -158,18 +202,49 @@ public:
 					auto buff = outputBuffers[i - 1];
 					infos[i].info.buffer = { 0u,buff->getSize() };
 					infos[i].desc = std::move(buff); // save an atomic in the refcount
-
 				}
 
 				IGPUDescriptorSet::SWriteDescriptorSet writes[2];
 				for (uint32_t i=0u; i<2; i++)
-					writes[i] = {descriptorSet.get(),i,0u,1u,infos+i};
+					writes[i] = {testDs.get(),i,0u,1u,infos+i};
 				writes[1].count = OutputBufferCount;
 
 				m_device->updateDescriptorSets(2, writes, 0u, nullptr);
 			}
+			testPplnLayout = m_device->createPipelineLayout({}, std::move(dsLayout));
 
-			pipelineLayout = m_device->createPipelineLayout({},std::move(dsLayout));
+
+			{
+				IGPUDescriptorSetLayout::SBinding binding[3];
+				for (uint32_t i = 0u; i < 2; i++)
+					binding[i] = { {},i,IDescriptor::E_TYPE::ET_STORAGE_BUFFER,IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,IShader::E_SHADER_STAGE::ESS_COMPUTE,1u,nullptr };
+				binding[1].count = OutputBufferCount;
+				binding[2] = { {},2,IDescriptor::E_TYPE::ET_STORAGE_IMAGE,IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT,IShader::E_SHADER_STAGE::ESS_COMPUTE,1u,nullptr };
+				dsLayout = m_device->createDescriptorSetLayout(binding);
+			}
+
+			benchPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, { &dsLayout.get(),1 });
+			benchDs = benchPool->createDescriptorSet(smart_refctd_ptr(dsLayout));
+			{
+				IGPUDescriptorSet::SDescriptorInfo infos[1 + OutputBufferCount];
+				infos[0].desc = gpuinputDataBuffer;
+				infos[0].info.buffer = { 0u,gpuinputDataBuffer->getSize() };
+				for (uint32_t i = 1u; i <= OutputBufferCount; i++)
+				{
+					auto buff = outputBuffers[i - 1];
+					infos[i].info.buffer = { 0u,buff->getSize() };
+					infos[i].desc = std::move(buff); // save an atomic in the refcount
+				}
+				// write swapchain image descriptor in loop
+
+				IGPUDescriptorSet::SWriteDescriptorSet writes[2];
+				for (uint32_t i = 0u; i < 2; i++)
+					writes[i] = { testDs.get(),i,0u,1u,infos + i };
+				writes[1].count = OutputBufferCount;
+
+				m_device->updateDescriptorSets(2, writes, 0u, nullptr);
+			}
+			benchPplnLayout = m_device->createPipelineLayout({}, std::move(dsLayout));
 		}
 
 		const auto spirv_isa_cache_path = localOutputCWD/"spirv_isa_cache.bin";
@@ -226,6 +301,7 @@ public:
 		// now create or retrieve final resources to run our tests
 		sema = m_device->createSemaphore(timelineValue);
 		resultsBuffer = ICPUBuffer::create({ outputBuffers[0]->getSize() });
+		smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 		{
 			smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(computeQueue->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 			if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{&cmdbuf,1}))
@@ -244,10 +320,15 @@ public:
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
 		
 		if (b_runTests)
-			runTests(subgroupTestSource, elementCount, ItemsPerInvocation, MinSubgroupSize, MaxSubgroupSize, workgroupSizes);
+		{
+			runTests(cmdbuf.get(), subgroupTestSource, elementCount, ItemsPerInvocation, MinSubgroupSize, MaxSubgroupSize, workgroupSizes);
 
-		double time = runBenchmark<emulatedReduction>(subgroupTestSource, elementCount, 5, 256, ItemsPerInvocation, NumLoops);
-		m_logger->log("Ran for %.3fms (disregard these numbers, profile in Nsight)", ILogger::ELL_INFO, time * 1000.0);
+			m_logger->log("==========Result==========", ILogger::ELL_INFO);
+			m_logger->log("Fail Count: %u", ILogger::ELL_INFO, totalFailCount);
+		}
+
+		// for each variant, workgroup size etc.
+		benchPipeline = createBenchmarkPipelines<emulatedReduction>(subgroupTestSource, elementCount, hlsl::findMSB(MinSubgroupSize), workgroupSizes[0], ItemsPerInvocation);
 
 		//for (auto subgroupSize = MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 		//{
@@ -274,22 +355,276 @@ public:
 		//	}
 		//}
 
+		m_winMgr->show(m_window.get());
+
 		return true;
 	}
 
 	virtual bool onAppTerminated() override
 	{
-		m_logger->log("==========Result==========", ILogger::ELL_INFO);
-		m_logger->log("Fail Count: %u", ILogger::ELL_INFO, totalFailCount);
 		delete[] inputData;
 		return true;
 	}
 
 	// the unit test is carried out on init
-	void workLoopBody() override {}
+	void workLoopBody() override
+	{
+		const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
+
+		const uint32_t framesInFlight = core::min(MaxFramesInFlight, m_surface->getMaxAcquiresInFlight());
+
+		if (m_realFrameIx >= framesInFlight)
+		{
+			const ISemaphore::SWaitInfo cbDonePending[] =
+			{
+				{
+					.semaphore = m_semaphore.get(),
+					.value = m_realFrameIx + 1 - framesInFlight
+				}
+			};
+			if (m_device->blockForSemaphores(cbDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
+				return;
+		}
+
+		m_currentImageAcquire = m_surface->acquireNextImage();
+		if (!m_currentImageAcquire)
+			return;
+
+		auto* const cmdbuf = m_cmdBufs.data()[resourceIx].get();
+		cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+		cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+
+		// barrier transition to GENERAL
+		{
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[1];
+			imageBarriers[0].barrier = {
+				   .dep = {
+					   .srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+					   .srcAccessMask = ACCESS_FLAGS::NONE,
+					   .dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+					   .dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+					}
+			};
+			imageBarriers[0].image = dummyImg.get();
+			imageBarriers[0].subresourceRange = {
+				.aspectMask = IImage::EAF_COLOR_BIT,
+				.baseMipLevel = 0u,
+				.levelCount = 1u,
+				.baseArrayLayer = 0u,
+				.layerCount = 1u
+			};
+			imageBarriers[0].oldLayout = IImage::LAYOUT::UNDEFINED;
+			imageBarriers[0].newLayout = IImage::LAYOUT::GENERAL;
+
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imageBarriers });
+		}
+
+		// bind dummy image
+		IGPUImageView::SCreationParams viewParams = {
+			.flags = IGPUImageView::ECF_NONE,
+			.subUsages = IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT,
+			.image = dummyImg,
+			.viewType = IGPUImageView::ET_2D,
+			.format = dummyImg->getCreationParameters().format
+		};
+		auto dummyImgView = m_device->createImageView(std::move(viewParams));
+
+		video::IGPUDescriptorSet::SDescriptorInfo dsInfo;
+		dsInfo.info.image.imageLayout = IImage::LAYOUT::GENERAL;
+		dsInfo.desc = dummyImgView;
+
+		IGPUDescriptorSet::SWriteDescriptorSet dsWrites[1u] =
+		{
+			{
+				.dstSet = benchDs.get(),
+				.binding = 2u,
+				.arrayElement = 0u,
+				.count = 1u,
+				.info = &dsInfo,
+			}
+		};
+		m_device->updateDescriptorSets(1u, dsWrites, 0u, nullptr);
+
+		const uint32_t elementCount = Output<>::ScanElementCount;
+		const uint32_t ItemsPerInvocation = 4u;
+		const uint32_t NumLoops = 100000u;
+		const std::array<uint32_t, 3> workgroupSizes = { 256, 512, 1024 };
+		// const auto MaxWorkgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
+		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
+		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
+
+		//{
+		//	auto startTime = std::chrono::high_resolution_clock::now();
+
+		//	const IQueue::SSubmitInfo::SSemaphoreInfo signal[1] = { {.semaphore = sema.get(),.value = ++timelineValue} };
+		//	const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1] = { {.cmdbuf = cmdbuf.get()} };
+		//	const IQueue::SSubmitInfo submits[1] = { {.commandBuffers = cmdbufs,.signalSemaphores = signal} };
+		//	computeQueue->submit(submits);
+		//	const ISemaphore::SWaitInfo wait[1] = { {.semaphore = sema.get(),.value = timelineValue} };
+		//	m_device->blockForSemaphores(wait);
+
+		//	auto endTime = std::chrono::high_resolution_clock::now();
+		//}
+
+		double time = runBenchmark<emulatedReduction>(cmdbuf, benchPipeline, elementCount, 5, 256, ItemsPerInvocation, NumLoops);
+		m_logger->log("Ran for %.3fms (disregard these numbers, profile in Nsight)", ILogger::ELL_INFO, time * 1000.0);
+
+
+		// blit
+		{
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[2];
+			imageBarriers[0].barrier = {
+			   .dep = {
+				   .srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+				   .srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
+				   .dstStageMask = PIPELINE_STAGE_FLAGS::BLIT_BIT,
+				   .dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
+				}
+			};
+			imageBarriers[0].image = dummyImg.get();
+			imageBarriers[0].subresourceRange = {
+				.aspectMask = IImage::EAF_COLOR_BIT,
+				.baseMipLevel = 0u,
+				.levelCount = 1u,
+				.baseArrayLayer = 0u,
+				.layerCount = 1u
+			};
+			imageBarriers[0].oldLayout = IImage::LAYOUT::UNDEFINED;
+			imageBarriers[0].newLayout = IImage::LAYOUT::TRANSFER_SRC_OPTIMAL;
+
+			imageBarriers[1].barrier = {
+			   .dep = {
+				   .srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+				   .srcAccessMask = ACCESS_FLAGS::NONE,
+				   .dstStageMask = PIPELINE_STAGE_FLAGS::BLIT_BIT,
+				   .dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
+				}
+			};
+			imageBarriers[1].image = m_surface->getSwapchainResources()->getImage(m_currentImageAcquire.imageIndex);
+			imageBarriers[1].subresourceRange = {
+				.aspectMask = IImage::EAF_COLOR_BIT,
+				.baseMipLevel = 0u,
+				.levelCount = 1u,
+				.baseArrayLayer = 0u,
+				.layerCount = 1u
+			};
+			imageBarriers[1].oldLayout = IImage::LAYOUT::UNDEFINED;
+			imageBarriers[1].newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL;
+
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imageBarriers });
+		}
+
+		{
+			IGPUCommandBuffer::SImageBlit regions[] = { {
+				.srcMinCoord = {0,0,0},
+				.srcMaxCoord = {WIN_W,WIN_H,1},
+				.dstMinCoord = {0,0,0},
+				.dstMaxCoord = {WIN_W,WIN_H,1},
+				.layerCount = 1,
+				.srcBaseLayer = 0,
+				.dstBaseLayer = 0,
+				.srcMipLevel = 0,
+				.dstMipLevel = 0,
+				.aspectMask = IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT
+			} };
+
+			auto srcImg = dummyImg.get();
+			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+			auto dstImg = scRes->getImage(m_currentImageAcquire.imageIndex);
+
+			cmdbuf->blitImage(srcImg, IImage::LAYOUT::TRANSFER_SRC_OPTIMAL, dstImg, IImage::LAYOUT::TRANSFER_DST_OPTIMAL, regions, ISampler::ETF_NEAREST);
+		}
+
+		// barrier transition to PRESENT
+		{
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[1];
+			imageBarriers[0].barrier = {
+				   .dep = {
+					   .srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+					   .srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
+					   .dstStageMask = PIPELINE_STAGE_FLAGS::NONE,
+					   .dstAccessMask = ACCESS_FLAGS::NONE
+					}
+			};
+			imageBarriers[0].image = m_surface->getSwapchainResources()->getImage(m_currentImageAcquire.imageIndex);
+			imageBarriers[0].subresourceRange = {
+				.aspectMask = IImage::EAF_COLOR_BIT,
+				.baseMipLevel = 0u,
+				.levelCount = 1u,
+				.baseArrayLayer = 0u,
+				.layerCount = 1u
+			};
+			imageBarriers[0].oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL;
+			imageBarriers[0].newLayout = IImage::LAYOUT::PRESENT_SRC;
+
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imageBarriers });
+		}
+
+		cmdbuf->end();
+
+		// submit
+		{
+			auto* queue = getGraphicsQueue();
+			const IQueue::SSubmitInfo::SSemaphoreInfo rendered[] =
+			{
+				{
+					.semaphore = m_semaphore.get(),
+					.value = ++m_realFrameIx,
+					.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+				}
+			};
+			{
+				{
+					const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[] =
+					{
+						{.cmdbuf = cmdbuf }
+					};
+
+					const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] =
+					{
+						{
+							.semaphore = m_currentImageAcquire.semaphore,
+							.value = m_currentImageAcquire.acquireCount,
+							.stageMask = PIPELINE_STAGE_FLAGS::NONE
+						}
+					};
+					const IQueue::SSubmitInfo infos[] =
+					{
+						{
+							.waitSemaphores = acquired,
+							.commandBuffers = commandBuffers,
+							.signalSemaphores = rendered
+						}
+					};
+
+					if (queue->submit(infos) == IQueue::RESULT::SUCCESS)
+					{
+						const nbl::video::ISemaphore::SWaitInfo waitInfos[] =
+						{ {
+							.semaphore = m_semaphore.get(),
+							.value = m_realFrameIx
+						} };
+
+						m_device->blockForSemaphores(waitInfos); // this is not solution, quick wa to not throw validation errors
+					}
+					else
+						--m_realFrameIx;
+				}
+			}
+
+			std::string caption = "[Nabla Engine] Geometry Creator";
+			{
+				caption += ", displaying [all objects]";
+				m_window->setCaption(caption);
+			}
+			m_surface->present(m_currentImageAcquire.imageIndex, rendered);
+		}
+
+		numSubmits++;
+	}
 
 	//
-	bool keepRunning() override { return true; }
+	bool keepRunning() override { return numSubmits < MaxNumSubmits; }
 
 private:
 	void logTestOutcome(bool passed, uint32_t workgroupSize)
@@ -303,7 +638,7 @@ private:
 		}
 	}
 
-	void runTests(smart_refctd_ptr<ICPUShader> subgroupTestSource, uint32_t elementCount, uint32_t ItemsPerInvocation, uint32_t MinSubgroupSize, uint32_t MaxSubgroupSize, const std::array<uint32_t, 3>& workgroupSizes)
+	void runTests(IGPUCommandBuffer* cmdbuf, smart_refctd_ptr<ICPUShader> subgroupTestSource, uint32_t elementCount, uint32_t ItemsPerInvocation, uint32_t MinSubgroupSize, uint32_t MaxSubgroupSize, const std::array<uint32_t, 3>& workgroupSizes)
 	{
 		for (auto subgroupSize = MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 		{
@@ -316,11 +651,11 @@ private:
 
 				bool passed = true;
 				// TODO async the testing
-				passed = runTest<emulatedReduction, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, ItemsPerInvocation) && passed;
+				passed = runTest<emulatedReduction, false>(cmdbuf, subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, ItemsPerInvocation) && passed;
 				logTestOutcome(passed, workgroupSize);
-				passed = runTest<emulatedScanInclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, ItemsPerInvocation) && passed;
+				passed = runTest<emulatedScanInclusive, false>(cmdbuf, subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, ItemsPerInvocation) && passed;
 				logTestOutcome(passed, workgroupSize);
-				passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, ItemsPerInvocation) && passed;
+				passed = runTest<emulatedScanExclusive, false>(cmdbuf, subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, ItemsPerInvocation) && passed;
 				logTestOutcome(passed, workgroupSize);
 				//for (uint32_t itemsPerWG = workgroupSize; itemsPerWG > workgroupSize - subgroupSize; itemsPerWG--)
 				//{
@@ -353,7 +688,7 @@ private:
 	{
 		auto shader = m_device->createShader(overridenUnspecialized);
 		IGPUComputePipeline::SCreationParams params = {};
-		params.layout = pipelineLayout.get();
+		params.layout = testPplnLayout.get();
 		params.shader = {
 			.entryPoint = "main",
 			.shader = shader.get(),
@@ -367,10 +702,22 @@ private:
 		return pipeline;
 	}
 
-	template<template<class> class Arithmetic, bool WorkgroupTest>
-	bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerWG = ~0u, uint32_t itemsPerInvoc = 1u)
+	template<template<class> class Arithmetic>
+	smart_refctd_ptr<IGPUComputePipeline> createBenchmarkPipelines(const smart_refctd_ptr<const ICPUShader>&source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerInvoc = 1u)
 	{
-		std::string arith_name = Arithmetic<bit_xor<float>>::name;
+		std::string arith_name = Arithmetic<bit_xor<uint32_t>>::name;	// TODO all operations
+
+		smart_refctd_ptr<ICPUShader> overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
+			source.get(), "#define OPERATION %s\n#define WORKGROUP_SIZE %d\n#define ITEMS_PER_INVOCATION %d\n#define SUBGROUP_SIZE_LOG2 %d\n",
+			(("subgroup2::") + arith_name).c_str(), workgroupSize, itemsPerInvoc, subgroupSizeLog2
+		);
+		return createPipeline(overridenUnspecialized.get(), subgroupSizeLog2);
+	};
+
+	template<template<class> class Arithmetic, bool WorkgroupTest>
+	bool runTest(IGPUCommandBuffer* cmdbuf, const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerWG = ~0u, uint32_t itemsPerInvoc = 1u)
+	{
+		std::string arith_name = Arithmetic<bit_xor<uint32_t>>::name;
 
 		smart_refctd_ptr<ICPUShader> overridenUnspecialized;
 		//if constexpr (WorkgroupTest)
@@ -394,7 +741,7 @@ private:
 		const uint32_t workgroupCount = elementCount / (itemsPerWG * itemsPerInvoc);
 		cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
 		cmdbuf->bindComputePipeline(pipeline.get());
-		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &descriptorSet.get());
+		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &testDs.get());
 		cmdbuf->dispatch(workgroupCount, 1, 1);
 		{
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t memoryBarrier[OutputBufferCount];
@@ -419,7 +766,7 @@ private:
 		cmdbuf->end();
 
 		const IQueue::SSubmitInfo::SSemaphoreInfo signal[1] = {{.semaphore=sema.get(),.value=++timelineValue}};
-		const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1] = {{.cmdbuf=cmdbuf.get()}};
+		const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1] = {{.cmdbuf=cmdbuf}};
 		const IQueue::SSubmitInfo submits[1] = {{.commandBuffers=cmdbufs,.signalSemaphores=signal}};
 		computeQueue->submit(submits);
 		const ISemaphore::SWaitInfo wait[1] = {{.semaphore=sema.get(),.value=timelineValue}};
@@ -514,21 +861,12 @@ private:
 
 
 	template<template<class> class Arithmetic>
-	double runBenchmark(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerInvoc = 1u, uint32_t numLoops = 8u)
+	bool runBenchmark(IGPUCommandBuffer* cmdbuf, const smart_refctd_ptr<IGPUComputePipeline>& pipeline, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerInvoc = 1u, uint32_t numLoops = 8u)
 	{
-		std::string arith_name = Arithmetic<bit_xor<float>>::name;
-
-		smart_refctd_ptr<ICPUShader> overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
-			source.get(), "#define OPERATION %s\n#define WORKGROUP_SIZE %d\n#define ITEMS_PER_INVOCATION %d\n#define SUBGROUP_SIZE_LOG2 %d\n",
-			(("subgroup2::") + arith_name).c_str(), workgroupSize, itemsPerInvoc, subgroupSizeLog2
-		);
-		auto pipeline = createPipeline(overridenUnspecialized.get(), subgroupSizeLog2);
-
 		const uint32_t workgroupCount = elementCount / (workgroupSize * itemsPerInvoc);
-		cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
 
 		cmdbuf->bindComputePipeline(pipeline.get());
-		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &descriptorSet.get());
+		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &testDs.get());
 		cmdbuf->dispatch(workgroupCount, 1, 1);
 		{
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t memoryBarrier[OutputBufferCount];
@@ -550,20 +888,8 @@ private:
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo info = { .memBarriers = {},.bufBarriers = memoryBarrier };
 			cmdbuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS::EDF_NONE, info);
 		}
-		cmdbuf->end();
 
-		auto startTime = std::chrono::high_resolution_clock::now();
-
-		const IQueue::SSubmitInfo::SSemaphoreInfo signal[1] = { {.semaphore = sema.get(),.value = ++timelineValue} };
-		const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1] = { {.cmdbuf = cmdbuf.get()} };
-		const IQueue::SSubmitInfo submits[1] = { {.commandBuffers = cmdbufs,.signalSemaphores = signal} };
-		computeQueue->submit(submits);
-		const ISemaphore::SWaitInfo wait[1] = { {.semaphore = sema.get(),.value = timelineValue} };
-		m_device->blockForSemaphores(wait);
-
-		auto endTime = std::chrono::high_resolution_clock::now();
-
-		return std::chrono::duration<double>(endTime - startTime).count();
+		return true;
 	}
 
 	IQueue* transferDownQueue;
@@ -572,19 +898,33 @@ private:
 	smart_refctd_ptr<IFile> m_spirv_isa_cache_output;
 
 	smart_refctd_ptr<IWindow> m_window;
-	smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
+	smart_refctd_ptr<CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>> m_surface;
+	smart_refctd_ptr<ISemaphore> m_semaphore;
+	uint64_t m_realFrameIx = 0;
+	std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
+	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
+
 	smart_refctd_ptr<InputSystem> m_inputSystem;
+
+	smart_refctd_ptr<IGPUImage> dummyImg;
+
+	smart_refctd_ptr<IGPUComputePipeline> benchPipeline;	// TODO array
+	smart_refctd_ptr<IDescriptorPool> benchPool;
+	smart_refctd_ptr<IGPUDescriptorSet> benchDs;
+
+	smart_refctd_ptr<IGPUDescriptorSet> testDs;
+	smart_refctd_ptr<IGPUPipelineLayout> testPplnLayout;
+
+	constexpr static inline uint32_t MaxNumSubmits = 30;
+	uint32_t numSubmits = 0;
 
 	bool b_runTests = false;
 	uint32_t* inputData = nullptr;
 	constexpr static inline uint32_t OutputBufferCount = 8u;
 	smart_refctd_ptr<IGPUBuffer> outputBuffers[OutputBufferCount];
-	smart_refctd_ptr<IGPUDescriptorSet> descriptorSet;
-	smart_refctd_ptr<IGPUPipelineLayout> pipelineLayout;
 
 	smart_refctd_ptr<ISemaphore> sema;
 	uint64_t timelineValue = 0;
-	smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 	smart_refctd_ptr<ICPUBuffer> resultsBuffer;
 
 	uint32_t totalFailCount = 0;

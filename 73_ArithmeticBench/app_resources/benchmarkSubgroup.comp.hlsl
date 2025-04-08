@@ -4,6 +4,8 @@
 
 #include "shaderCommon.hlsl"
 
+[[vk::binding(2, 0)]] RWTexture2D<float32_t4> outImage; // dummy
+
 uint32_t globalIndex()
 {
     return nbl::hlsl::glsl::gl_WorkGroupID().x*WORKGROUP_SIZE+nbl::hlsl::workgroup::SubgroupContiguousIndex();
