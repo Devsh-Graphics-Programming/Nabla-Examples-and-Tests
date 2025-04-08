@@ -214,17 +214,18 @@ public:
 			testPplnLayout = m_device->createPipelineLayout({}, std::move(dsLayout));
 
 
+			smart_refctd_ptr<IGPUDescriptorSetLayout> benchLayout;
 			{
 				IGPUDescriptorSetLayout::SBinding binding[3];
 				for (uint32_t i = 0u; i < 2; i++)
 					binding[i] = { {},i,IDescriptor::E_TYPE::ET_STORAGE_BUFFER,IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,IShader::E_SHADER_STAGE::ESS_COMPUTE,1u,nullptr };
 				binding[1].count = OutputBufferCount;
 				binding[2] = { {},2,IDescriptor::E_TYPE::ET_STORAGE_IMAGE,IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT,IShader::E_SHADER_STAGE::ESS_COMPUTE,1u,nullptr };
-				dsLayout = m_device->createDescriptorSetLayout(binding);
+				benchLayout = m_device->createDescriptorSetLayout(binding);
 			}
 
-			benchPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, { &dsLayout.get(),1 });
-			benchDs = benchPool->createDescriptorSet(smart_refctd_ptr(dsLayout));
+			benchPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, { &benchLayout.get(),1 });
+			benchDs = benchPool->createDescriptorSet(smart_refctd_ptr(benchLayout));
 			{
 				IGPUDescriptorSet::SDescriptorInfo infos[1 + OutputBufferCount];
 				infos[0].desc = gpuinputDataBuffer;
@@ -239,12 +240,12 @@ public:
 
 				IGPUDescriptorSet::SWriteDescriptorSet writes[2];
 				for (uint32_t i = 0u; i < 2; i++)
-					writes[i] = { testDs.get(),i,0u,1u,infos + i };
+					writes[i] = { benchDs.get(),i,0u,1u,infos + i };
 				writes[1].count = OutputBufferCount;
 
 				m_device->updateDescriptorSets(2, writes, 0u, nullptr);
 			}
-			benchPplnLayout = m_device->createPipelineLayout({}, std::move(dsLayout));
+			benchPplnLayout = m_device->createPipelineLayout({}, std::move(benchLayout));
 		}
 
 		const auto spirv_isa_cache_path = localOutputCWD/"spirv_isa_cache.bin";
@@ -313,7 +314,6 @@ public:
 		}
 		
 		// TODO variable items per invocation?
-		const uint32_t ItemsPerInvocation = 4u;
 		const uint32_t NumLoops = 1000u;
 		const std::array<uint32_t, 3> workgroupSizes = { 256, 512, 1024 };
 		// const auto MaxWorkgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
@@ -328,33 +328,9 @@ public:
 			m_logger->log("Fail Count: %u", ILogger::ELL_INFO, totalFailCount);
 		}
 
-		// for each variant, workgroup size etc.
-		benchPipeline = createBenchmarkPipelines<emulatedReduction>(subgroupBenchSource, elementCount, hlsl::findMSB(MinSubgroupSize), workgroupSizes[0], ItemsPerInvocation, NumLoops);
-
-		//for (auto subgroupSize = MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
-		//{
-		//	const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
-		//	for (const auto& workgroupSize : workgroupSizes)
-		//	{
-		//		passed = runBenchmark<emulatedReduction>(subgroupTestSource, queryPool, elementCount, subgroupSizeLog2, workgroupSize, ItemsPerInvocation, NumLoops) && passed;
-		//		logTestOutcome(passed, workgroupSize);
-		//		passed = runBenchmark<emulatedScanInclusive>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ItemsPerInvocation, NumLoops) && passed;
-		//		logTestOutcome(passed, workgroupSize);
-		//		passed = runBenchmark<emulatedScanExclusive>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ItemsPerInvocation, NumLoops) && passed;
-		//		logTestOutcome(passed, workgroupSize);
-
-		//		// save cache every now and then	
-		//		{
-		//			auto cpu = m_spirv_isa_cache->convertToCPUCache();
-		//			// Normally we'd beautifully JSON serialize the thing, allow multiple devices & drivers + metadata
-		//			auto bin = cpu->getEntries().begin()->second.bin;
-		//			IFile::success_t success;
-		//			m_spirv_isa_cache_output->write(success, bin->data(), 0ull, bin->size());
-		//			if (!success)
-		//				logFail("Could not write Create SPIR-V to ISA cache to disk!");
-		//		}
-		//	}
-		//}
+		// for each workgroup size (manually adjust items per invoc, operation else uses up a lot of ram)
+		for (uint32_t i = 0; i < workgroupSizes.size(); i++)
+			benchSets[i] = createBenchmarkPipelines<emulatedReduction>(subgroupBenchSource, benchPplnLayout.get(), elementCount, hlsl::findMSB(MinSubgroupSize), workgroupSizes[i], ItemsPerInvocation, NumLoops);
 
 		m_winMgr->show(m_window.get());
 
@@ -447,9 +423,6 @@ public:
 		m_device->updateDescriptorSets(1u, dsWrites, 0u, nullptr);
 
 		const uint32_t elementCount = Output<>::ScanElementCount;
-		const uint32_t ItemsPerInvocation = 4u;
-		const uint32_t NumLoops = 100000u;
-		const std::array<uint32_t, 3> workgroupSizes = { 256, 512, 1024 };
 		// const auto MaxWorkgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
 		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
@@ -467,8 +440,10 @@ public:
 		//	auto endTime = std::chrono::high_resolution_clock::now();
 		//}
 
-		double time = runBenchmark<emulatedReduction>(cmdbuf, benchPipeline, elementCount, 5, 256, ItemsPerInvocation, NumLoops);
-		m_logger->log("Ran for %.3fms (disregard these numbers, profile in Nsight)", ILogger::ELL_INFO, time * 1000.0);
+		double t0 = runBenchmark<emulatedReduction>(cmdbuf, benchSets[0], elementCount, 5);
+		double t1 = runBenchmark<emulatedReduction>(cmdbuf, benchSets[1], elementCount, 5);
+		double t2 = runBenchmark<emulatedReduction>(cmdbuf, benchSets[2], elementCount, 5);
+		m_logger->log("Ran for %.3fms (disregard these numbers, profile in Nsight)", ILogger::ELL_INFO, t0 * 1000.0);
 
 
 		// blit
@@ -639,7 +614,7 @@ private:
 		}
 	}
 
-	void runTests(IGPUCommandBuffer* cmdbuf, smart_refctd_ptr<ICPUShader> subgroupTestSource, uint32_t elementCount, uint32_t ItemsPerInvocation, uint32_t MinSubgroupSize, uint32_t MaxSubgroupSize, const std::array<uint32_t, 3>& workgroupSizes)
+	void runTests(IGPUCommandBuffer* cmdbuf, smart_refctd_ptr<ICPUShader> subgroupTestSource, uint32_t elementCount, uint32_t itemsPerInvocation, uint32_t MinSubgroupSize, uint32_t MaxSubgroupSize, const std::array<uint32_t, 3>& workgroupSizes)
 	{
 		for (auto subgroupSize = MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 		{
@@ -652,11 +627,11 @@ private:
 
 				bool passed = true;
 				// TODO async the testing
-				passed = runTest<emulatedReduction, false>(cmdbuf, subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, ItemsPerInvocation) && passed;
+				passed = runTest<emulatedReduction, false>(cmdbuf, subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, itemsPerInvocation) && passed;
 				logTestOutcome(passed, workgroupSize);
-				passed = runTest<emulatedScanInclusive, false>(cmdbuf, subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, ItemsPerInvocation) && passed;
+				passed = runTest<emulatedScanInclusive, false>(cmdbuf, subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, itemsPerInvocation) && passed;
 				logTestOutcome(passed, workgroupSize);
-				passed = runTest<emulatedScanExclusive, false>(cmdbuf, subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, ItemsPerInvocation) && passed;
+				passed = runTest<emulatedScanExclusive, false>(cmdbuf, subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, itemsPerInvocation) && passed;
 				logTestOutcome(passed, workgroupSize);
 				//for (uint32_t itemsPerWG = workgroupSize; itemsPerWG > workgroupSize - subgroupSize; itemsPerWG--)
 				//{
@@ -685,11 +660,11 @@ private:
 	}
 
 	// create pipeline (specialized every test) [TODO: turn into a future/async]
-	smart_refctd_ptr<IGPUComputePipeline> createPipeline(const ICPUShader* overridenUnspecialized, const uint8_t subgroupSizeLog2)
+	smart_refctd_ptr<IGPUComputePipeline> createPipeline(const ICPUShader* overridenUnspecialized, const IGPUPipelineLayout* layout, const uint8_t subgroupSizeLog2)
 	{
 		auto shader = m_device->createShader(overridenUnspecialized);
 		IGPUComputePipeline::SCreationParams params = {};
-		params.layout = testPplnLayout.get();
+		params.layout = layout;
 		params.shader = {
 			.entryPoint = "main",
 			.shader = shader.get(),
@@ -703,8 +678,15 @@ private:
 		return pipeline;
 	}
 
+	struct BenchmarkSet
+	{
+		smart_refctd_ptr<IGPUComputePipeline> pipeline;
+		uint32_t workgroupSize;
+		uint32_t itemsPerInvocation;
+	};
+
 	template<template<class> class Arithmetic>
-	smart_refctd_ptr<IGPUComputePipeline> createBenchmarkPipelines(const smart_refctd_ptr<const ICPUShader>&source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerInvoc = 1u, uint32_t numLoops = 8u)
+	BenchmarkSet createBenchmarkPipelines(const smart_refctd_ptr<const ICPUShader>&source, const IGPUPipelineLayout* layout, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerInvoc = 1u, uint32_t numLoops = 8u)
 	{
 		std::string arith_name = Arithmetic<bit_xor<uint32_t>>::name;	// TODO all operations
 
@@ -731,26 +713,35 @@ private:
 		includeFinder->addSearchPath("nbl/builtin/hlsl/jit", core::make_smart_refctd_ptr<CJITIncludeLoader>(m_physicalDevice->getLimits(), m_device->getEnabledFeatures()));
 		options.preprocessorOptions.includeFinder = includeFinder;
 
-		const std::string definitions[5] = { 
+		const std::string definitions[6] = { 
 			"subgroup2::" + arith_name,
+			"subgroup::" + arith_name,
 			std::to_string(workgroupSize),
 			std::to_string(itemsPerInvoc),
 			std::to_string(subgroupSizeLog2),
 			std::to_string(numLoops)
 		};
 
-		const IShaderCompiler::SMacroDefinition defines[5] = {
-			{ "OPERATION", definitions[0] },
-			{ "WORKGROUP_SIZE", definitions[1] },
-			{ "ITEMS_PER_INVOCATION", definitions[2] },
-			{ "SUBGROUP_SIZE_LOG2", definitions[3] },
-			{ "NUM_LOOPS", definitions[4] },
+		const IShaderCompiler::SMacroDefinition defines[6] = {
+			{ "OPERATION", ItemsPerInvocation > 1 ? definitions[0] : definitions[1] },
+			{ "WORKGROUP_SIZE", definitions[2] },
+			{ "ITEMS_PER_INVOCATION", definitions[3] },
+			{ "SUBGROUP_SIZE_LOG2", definitions[4] },
+			{ "NUM_LOOPS", definitions[5] },
 		};
-		options.preprocessorOptions.extraDefines = { defines, defines + 5 };
+		//if (b_useOldSubgroups)
+		//	options.preprocessorOptions.extraDefines = { defines, defines + 6 };
+		//else
+			options.preprocessorOptions.extraDefines = { defines, defines + 5 };
 
 		smart_refctd_ptr<ICPUShader> overridenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
 
-		return createPipeline(overridenUnspecialized.get(), subgroupSizeLog2);
+		BenchmarkSet set;
+		set.pipeline = createPipeline(overridenUnspecialized.get(), layout, subgroupSizeLog2);
+		set.workgroupSize = workgroupSize;
+		set.itemsPerInvocation = itemsPerInvoc;
+
+		return set;
 	};
 
 	template<template<class> class Arithmetic, bool WorkgroupTest>
@@ -774,7 +765,7 @@ private:
 				(("subgroup2::") + arith_name).c_str(), workgroupSize, itemsPerInvoc, subgroupSizeLog2
 			);
 		//}
-		auto pipeline = createPipeline(overridenUnspecialized.get(),subgroupSizeLog2);
+		auto pipeline = createPipeline(overridenUnspecialized.get(),testPplnLayout.get(), subgroupSizeLog2);
 
 		// TODO: overlap dispatches with memory readbacks (requires multiple copies of `buffers`)
 		const uint32_t workgroupCount = elementCount / (itemsPerWG * itemsPerInvoc);
@@ -900,12 +891,12 @@ private:
 
 
 	template<template<class> class Arithmetic>
-	bool runBenchmark(IGPUCommandBuffer* cmdbuf, const smart_refctd_ptr<IGPUComputePipeline>& pipeline, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerInvoc = 1u, uint32_t numLoops = 8u)
+	bool runBenchmark(IGPUCommandBuffer* cmdbuf, const BenchmarkSet& set, const uint32_t elementCount, const uint8_t subgroupSizeLog2)
 	{
-		const uint32_t workgroupCount = elementCount / (workgroupSize * itemsPerInvoc);
+		const uint32_t workgroupCount = elementCount / (set.workgroupSize * set.itemsPerInvocation);
 
-		cmdbuf->bindComputePipeline(pipeline.get());
-		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &testDs.get());
+		cmdbuf->bindComputePipeline(set.pipeline.get());
+		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, set.pipeline->getLayout(), 0u, 1u, &benchDs.get());
 		cmdbuf->dispatch(workgroupCount, 1, 1);
 		{
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t memoryBarrier[OutputBufferCount];
@@ -947,6 +938,7 @@ private:
 
 	smart_refctd_ptr<IGPUImage> dummyImg;
 
+	std::array<BenchmarkSet, 3> benchSets;
 	smart_refctd_ptr<IGPUComputePipeline> benchPipeline;	// TODO array
 	smart_refctd_ptr<IDescriptorPool> benchPool;
 	smart_refctd_ptr<IGPUDescriptorSet> benchDs;
@@ -959,6 +951,7 @@ private:
 
 	bool b_runTests = false;
 	uint32_t* inputData = nullptr;
+	uint32_t ItemsPerInvocation = 4u;
 	constexpr static inline uint32_t OutputBufferCount = 8u;
 	smart_refctd_ptr<IGPUBuffer> outputBuffers[OutputBufferCount];
 

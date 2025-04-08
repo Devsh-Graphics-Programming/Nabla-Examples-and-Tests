@@ -2,6 +2,7 @@
 
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 #include "nbl/builtin/hlsl/subgroup/basic.hlsl"
+#include "nbl/builtin/hlsl/subgroup/arithmetic_portability.hlsl"
 #include "nbl/builtin/hlsl/subgroup2/arithmetic_portability.hlsl"
 
 #include "nbl/builtin/hlsl/jit/device_capabilities.hlsl"
@@ -25,7 +26,12 @@ bool canStore();
 //typedef decltype(inputValue[0]) type_t;
 //typedef uint32_t type_t;
 //typedef uint32_t4 type_t;
+
+#if ITEMS_PER_INVOCATION > 1
 typedef vector<uint32_t, ITEMS_PER_INVOCATION> type_t;
+#else
+typedef uint32_t type_t;
+#endif
 
 
 #ifndef OPERATION
