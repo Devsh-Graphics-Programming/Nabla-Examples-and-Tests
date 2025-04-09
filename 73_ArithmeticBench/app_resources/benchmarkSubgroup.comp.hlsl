@@ -42,7 +42,7 @@ static void subbench(NBL_CONST_REF_ARG(type_t) sourceVal)
     type_t value = sourceVal;
 
     operation_t<params_t> func;
-    [unroll]
+    // [unroll]
     for (uint32_t i = 0; i < NUM_LOOPS; i++)
         value = func(value);
 
@@ -53,11 +53,15 @@ void benchmark()
 {
     const uint32_t idx = globalIndex() * ITEMS_PER_INVOCATION;
     type_t sourceVal;
+#if ITEMS_PER_INVOCATION > 1
     [unroll]
     for (uint32_t i = 0; i < ITEMS_PER_INVOCATION; i++)
     {
         sourceVal[i] = inputValue[idx + i];
     }
+#else
+    sourceVal = inputValue[idx];
+#endif
 
     subbench<bit_and, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
     subbench<bit_xor, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);

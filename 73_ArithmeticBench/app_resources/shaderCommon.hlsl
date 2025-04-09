@@ -62,11 +62,15 @@ type_t test()
 {
     const uint32_t idx = globalIndex() * ITEMS_PER_INVOCATION;
     type_t sourceVal;
+#if ITEMS_PER_INVOCATION > 1
     [unroll]
     for (uint32_t i = 0; i < ITEMS_PER_INVOCATION; i++)
     {
         sourceVal[i] = inputValue[idx + i];
     }
+#else
+    sourceVal = inputValue[idx];
+#endif
 
     subtest<bit_and, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
     subtest<bit_xor, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);

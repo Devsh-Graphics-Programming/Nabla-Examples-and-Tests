@@ -330,7 +330,7 @@ public:
 
 		// for each workgroup size (manually adjust items per invoc, operation else uses up a lot of ram)
 		for (uint32_t i = 0; i < workgroupSizes.size(); i++)
-			benchSets[i] = createBenchmarkPipelines<emulatedReduction>(subgroupBenchSource, benchPplnLayout.get(), elementCount, hlsl::findMSB(MinSubgroupSize), workgroupSizes[i], ItemsPerInvocation, NumLoops);
+			benchSets[i] = createBenchmarkPipelines<emulatedScanInclusive>(subgroupBenchSource, benchPplnLayout.get(), elementCount, hlsl::findMSB(MinSubgroupSize), workgroupSizes[i], ItemsPerInvocation, NumLoops);
 
 		m_winMgr->show(m_window.get());
 
@@ -423,27 +423,15 @@ public:
 		m_device->updateDescriptorSets(1u, dsWrites, 0u, nullptr);
 
 		const uint32_t elementCount = Output<>::ScanElementCount;
-		// const auto MaxWorkgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
 		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
 
-		//{
-		//	auto startTime = std::chrono::high_resolution_clock::now();
+		const auto SubgroupSizeLog2 = hlsl::findMSB(MinSubgroupSize);
 
-		//	const IQueue::SSubmitInfo::SSemaphoreInfo signal[1] = { {.semaphore = sema.get(),.value = ++timelineValue} };
-		//	const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1] = { {.cmdbuf = cmdbuf.get()} };
-		//	const IQueue::SSubmitInfo submits[1] = { {.commandBuffers = cmdbufs,.signalSemaphores = signal} };
-		//	computeQueue->submit(submits);
-		//	const ISemaphore::SWaitInfo wait[1] = { {.semaphore = sema.get(),.value = timelineValue} };
-		//	m_device->blockForSemaphores(wait);
-
-		//	auto endTime = std::chrono::high_resolution_clock::now();
-		//}
-
-		double t0 = runBenchmark<emulatedReduction>(cmdbuf, benchSets[0], elementCount, 5);
-		double t1 = runBenchmark<emulatedReduction>(cmdbuf, benchSets[1], elementCount, 5);
-		double t2 = runBenchmark<emulatedReduction>(cmdbuf, benchSets[2], elementCount, 5);
-		m_logger->log("Ran for %.3fms (disregard these numbers, profile in Nsight)", ILogger::ELL_INFO, t0 * 1000.0);
+		bool passed = true;
+		passed = runBenchmark<emulatedScanInclusive>(cmdbuf, benchSets[0], elementCount, SubgroupSizeLog2);
+		passed = runBenchmark<emulatedScanInclusive>(cmdbuf, benchSets[1], elementCount, SubgroupSizeLog2);
+		passed = runBenchmark<emulatedScanInclusive>(cmdbuf, benchSets[2], elementCount, SubgroupSizeLog2);
 
 
 		// blit
@@ -713,26 +701,22 @@ private:
 		includeFinder->addSearchPath("nbl/builtin/hlsl/jit", core::make_smart_refctd_ptr<CJITIncludeLoader>(m_physicalDevice->getLimits(), m_device->getEnabledFeatures()));
 		options.preprocessorOptions.includeFinder = includeFinder;
 
-		const std::string definitions[6] = { 
+		const std::string definitions[5] = { 
 			"subgroup2::" + arith_name,
-			"subgroup::" + arith_name,
 			std::to_string(workgroupSize),
 			std::to_string(itemsPerInvoc),
 			std::to_string(subgroupSizeLog2),
 			std::to_string(numLoops)
 		};
 
-		const IShaderCompiler::SMacroDefinition defines[6] = {
-			{ "OPERATION", ItemsPerInvocation > 1 ? definitions[0] : definitions[1] },
-			{ "WORKGROUP_SIZE", definitions[2] },
-			{ "ITEMS_PER_INVOCATION", definitions[3] },
-			{ "SUBGROUP_SIZE_LOG2", definitions[4] },
-			{ "NUM_LOOPS", definitions[5] },
+		const IShaderCompiler::SMacroDefinition defines[5] = {
+			{ "OPERATION", definitions[0] },
+			{ "WORKGROUP_SIZE", definitions[1] },
+			{ "ITEMS_PER_INVOCATION", definitions[2] },
+			{ "SUBGROUP_SIZE_LOG2", definitions[3] },
+			{ "NUM_LOOPS", definitions[4] },
 		};
-		//if (b_useOldSubgroups)
-		//	options.preprocessorOptions.extraDefines = { defines, defines + 6 };
-		//else
-			options.preprocessorOptions.extraDefines = { defines, defines + 5 };
+		options.preprocessorOptions.extraDefines = { defines, defines + 5 };
 
 		smart_refctd_ptr<ICPUShader> overridenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
 
