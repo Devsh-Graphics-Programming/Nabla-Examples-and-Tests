@@ -16,8 +16,8 @@ using namespace video;
 
 
 #include "app_resources/common.hlsl"
-#include "nbl/builtin/hlsl/bit.hlsl"
 
+#include "nbl/builtin/hlsl/bit.hlsl"
 
 // In this application we'll cover buffer streaming, Buffer Device Address (BDA) and push constants 
 class ScanAppendUnitTestApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
@@ -28,36 +28,13 @@ class ScanAppendUnitTestApp final : public application_templates::MonoDeviceAppl
 
 		smart_refctd_ptr<IGPUComputePipeline> m_pipeline;
 
-		// The Utility class has lots of methods to handle staging without relying on ReBAR or EXT_host_image_copy as well as more complex methods we'll cover later.
-		// Until EXT_host_image_copy becomes ubiquitous across all Nabla Core Profile devices, you need to stage image copies from an IGPUBuffer to an IGPUImage.
-		// Why use Staging for buffers in the age of ReBAR? While GPU workloads overlap the CPU, individual GPU workloads's execution might not overlap each other
-		// but their data might. In this case you want to "precisely" time the data update on the GPU timeline between the end and start of a workload.
-		// For very small updates you could use the commandbuffer updateBuffer method, but it has a size limit and the data enqueued takes up space in the commandpool.
-		// Sometimes it might be unfeasible to either have multiple copies or update references to those copies without a cascade update.
-		// One example is the transformation graph of nodes in a scene, where a copy-on-write of a node would require the update the offset/pointer held by
-		// any other node that refers to it. This quickly turns into a cascade that would force you to basically create a full copy of the entire data structure
-		// after most updates. Whereas with staging you'd "queue up" the much smaller set of updates to apply between each computation step which uses the graph.
-		// Another example are UBO and SSBO bindings, where once you run out of dynamic bindings, you can no longer easily change offsets without introducting extra indirection in shaders.
-		// Actually staging can help you re-use a commandbuffer because you don't need to re-record it if you don't need to change the offsets at which you bind!
-		// Finally ReBAR is a precious resource, my 8GB RTX 3070 only reports a 214MB Heap backing HOST_VISIBLE and DEVICE_LOCAL device local memory type.
-		smart_refctd_ptr<nbl::video::IUtilities> m_utils;
+		smart_refctd_ptr<IGPUBuffer> m_inputBuffer;
+		smart_refctd_ptr<IGPUBuffer> m_outputBuffer;
 
-		// We call them downstreaming and upstreaming, simply by how we used them so far.
-		// Meaning that upstreaming is uncached and usually ReBAR (DEVICE_LOCAL), for simple memcpy like sequential writes.
-		// While the downstreaming is CACHED and not DEVICE_LOCAL for fast random acess by the CPU.
-		// However there are cases when you'd want to use a buffer with flags identical to the default downstreaming buffer for uploads,
-		// such cases is when a CPU needs to build a data-structure in-place (due to memory constraints) before GPU accesses it,
-		// one example are Host Acceleration Structure builds (BVH building requires lots of repeated memory accesses).
-		// When choosing the memory properties of a mapped buffer consider which processor (CPU or GPU) needs faster access in event of a cache-miss.
-		nbl::video::StreamingTransientDataBufferMT<>* m_upStreamingBuffer;
-		StreamingTransientDataBufferMT<>* m_downStreamingBuffer;
+		input_t* m_inputPtr;
+		output_t* m_outputPtr;
 
-		// These are Buffer Device Addresses
-		uint64_t m_upStreamingBufferAddress;
-		uint64_t m_downStreamingBufferAddress;
-
-		// You can ask the `nbl::core::GeneralpurposeAddressAllocator` used internally by the Streaming Buffers give out offsets aligned to a certain multiple (not only Power of Two!)
-		uint32_t m_alignment;
+		bool m_testFailed = false;
 
 		// The pool cache is just a formalized way of round-robining command pools and resetting + reusing them after their most recent submit signals finished.
 		// Its a little more ergonomic to use if you don't have a 1:1 mapping between frames and pools.
@@ -104,28 +81,32 @@ class ScanAppendUnitTestApp final : public application_templates::MonoDeviceAppl
 					return logFail("Creation of a GPU Shader to from CPU Shader source failed!");
 			}
 
-			// The StreamingTransientDataBuffers are actually composed on top of another useful utility called `CAsyncSingleBufferSubAllocator`
-			// The difference is that the streaming ones are made on top of ranges of `IGPUBuffer`s backed by mappable memory, whereas the
-			// `CAsyncSingleBufferSubAllocator` just allows you suballocate subranges of any `IGPUBuffer` range with deferred/latched frees.
-			constexpr uint32_t DownstreamBufferSize = sizeof(output_t)<<23;
-			constexpr uint32_t UpstreamBufferSize = sizeof(input_t)<<23;
+			IGPUBuffer::SCreationParams inputBufferCreationParams = {};
+			inputBufferCreationParams.size = ElementCount * sizeof(input_t);
+			inputBufferCreationParams.usage = IGPUBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
+			m_inputBuffer = m_device->createBuffer(std::move(inputBufferCreationParams));
+			auto inputBufferMemoryReqs = m_inputBuffer->getMemoryReqs();
+			inputBufferMemoryReqs.memoryTypeBits &= m_physicalDevice->getUpStreamingMemoryTypeBits();
+			auto inputBufferAllocation = m_device->allocate(inputBufferMemoryReqs, m_inputBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+			
+			IGPUBuffer::SCreationParams outputBufferCreationParams = {};
+			outputBufferCreationParams.size = (ElementCount+1u) * sizeof(output_t);
+			outputBufferCreationParams.usage = IGPUBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
+			m_outputBuffer = m_device->createBuffer(std::move(outputBufferCreationParams));
+			auto outputBufferMemoryReqs = m_outputBuffer->getMemoryReqs();
+			outputBufferMemoryReqs.memoryTypeBits &= m_physicalDevice->getDownStreamingMemoryTypeBits();
+			auto outputBufferAllocation = m_device->allocate(outputBufferMemoryReqs, m_outputBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
 
-			m_utils = make_smart_refctd_ptr<IUtilities>(smart_refctd_ptr(m_device),smart_refctd_ptr(m_logger),DownstreamBufferSize,UpstreamBufferSize);
-			if (!m_utils)
-				return logFail("Failed to create Utilities!");
-			m_upStreamingBuffer = m_utils->getDefaultUpStreamingBuffer();
-			m_downStreamingBuffer = m_utils->getDefaultDownStreamingBuffer();
-			m_upStreamingBufferAddress = m_upStreamingBuffer->getBuffer()->getDeviceAddress();
-			m_downStreamingBufferAddress = m_downStreamingBuffer->getBuffer()->getDeviceAddress();
+			
+			const auto inputBoundMem = m_inputBuffer->getBoundMemory();
+			const auto outputBoundMem = m_outputBuffer->getBoundMemory();
+			const ILogicalDevice::MappedMemoryRange inputMappedRange(inputBoundMem.memory,inputBoundMem.offset,sizeof(input_t)*ElementCount);
+			const ILogicalDevice::MappedMemoryRange outputMappedRange(inputBoundMem.memory,inputBoundMem.offset,sizeof(input_t)*ElementCount);
+			m_inputPtr = reinterpret_cast<input_t*>(inputBoundMem.memory->map(inputMappedRange.range, IDeviceMemoryAllocation::EMCAF_READ_AND_WRITE));
+			m_outputPtr = reinterpret_cast<output_t*>(outputBoundMem.memory->map(outputMappedRange.range, IDeviceMemoryAllocation::EMCAF_READ_AND_WRITE));
 
-			// People love Reflection but I prefer Shader Sources instead!
 			const nbl::asset::SPushConstantRange pcRange = {.stageFlags=IShader::E_SHADER_STAGE::ESS_COMPUTE,.offset=0,.size=sizeof(PushConstantData)};
 
-			// This time we'll have no Descriptor Sets or Layouts because our workload has a widely varying size
-			// and using traditional SSBO bindings would force us to update the Descriptor Set every frame.
-			// I even started writing this sample with the use of Dynamic SSBOs, however the length of the buffer range is not dynamic
-			// only the offset. This means that we'd have to write the "worst case" length into the descriptor set binding.
-			// Then this has a knock-on effect that we couldn't allocate closer to the end of the streaming buffer than the "worst case" size.
 			{
 				auto layout = m_device->createPipelineLayout({&pcRange,1});
 				IGPUComputePipeline::SCreationParams params = {};
@@ -134,15 +115,6 @@ class ScanAppendUnitTestApp final : public application_templates::MonoDeviceAppl
 				if (!m_device->createComputePipelines(nullptr,{&params,1},&m_pipeline))
 					return logFail("Failed to create compute pipeline!\n");
 			}
-
-			const auto& deviceLimits = m_device->getPhysicalDevice()->getLimits();
-			// The ranges of non-coherent mapped memory you flush or invalidate need to be aligned. You'll often see a value of 64 reported by devices
-			// which just happens to coincide with a CPU cache line size. So we ask our streaming buffers during allocation to give us properly aligned offsets.
-			// Sidenote: For SSBOs, UBOs, BufferViews, Vertex Buffer Bindings, Acceleration Structure BDAs, Shader Binding Tables, Descriptor Buffers, etc.
-			// there is also a requirement to bind buffers at offsets which have a certain alignment. Memory binding to Buffers and Images also has those.
-			// We'll align to max of coherent atom size even if the memory is coherent,
-			// and we also need to take into account BDA shader loads need to be aligned to the type being loaded.
-			m_alignment = core::max(deviceLimits.nonCoherentAtomSize,alignof(float));
 
 			// We'll allow subsequent iterations to overlap each other on the GPU, the only limiting factors are
 			// the amount of memory in the streaming buffers and the number of commandpools we can use simultaenously.
@@ -158,7 +130,7 @@ class ScanAppendUnitTestApp final : public application_templates::MonoDeviceAppl
 		}
 
 		// Ok this time we'll actually have a work loop (maybe just for the sake of future WASM so we don't timeout a Browser Tab with an unresponsive script)
-		bool keepRunning() override { return m_iteration<MaxIterations; }
+		bool keepRunning() override { return m_iteration<MaxIterations && !m_testFailed; }
 
 		// Finally the first actual work-loop
 		void workLoopBody() override
@@ -167,40 +139,21 @@ class ScanAppendUnitTestApp final : public application_templates::MonoDeviceAppl
 
 			// Note that I'm using the sample struct with methods that have identical code which compiles as both C++ and HLSL
 			auto rng = nbl::hlsl::Xoroshiro64StarStar::construct({m_iteration^0xdeadbeefu,std::hash<string>()(_NBL_APP_NAME_)});
-
+			
 			// we dynamically choose the number of elements for each iteration
-			const auto elementCount = rng()%MaxPossibleElementCount;
-			const uint32_t inputSize = sizeof(input_t)*elementCount;
+			const size_t inputSize = sizeof(input_t)*ElementCount;
+			const size_t outputSize = sizeof(output_t)*(ElementCount+1u);
 
-			// The allocators can do multiple allocations at once for efficiency
-			const uint32_t AllocationCount = 1;
-
-			// It comes with a certain drawback that you need to remember to initialize your "yet unallocated" offsets to the Invalid value
-			// this is to allow a set of allocations to fail, and you to re-try after doing something to free up space without repacking args.
-			auto inputOffset = m_upStreamingBuffer->invalid_value;
-
-			// We always just wait till an allocation becomes possible (during allocation previous "latched" frees get their latch conditions polled)
-			// Freeing of Streaming Buffer Allocations can and should be deferred until an associated polled event signals done (more on that later).
-			std::chrono::steady_clock::time_point waitTill(std::chrono::years(45));
-			// note that the API takes a time-point not a duration, because there are multiple waits and preemptions possible, so the durations wouldn't add up properly
-			m_upStreamingBuffer->multi_allocate(waitTill,AllocationCount,&inputOffset,&inputSize,&m_alignment);
-
-			// Generate our data in-place on the allocated staging buffer
+			// Map and Copy to our input memory
 			{
-				auto* const inputPtr = reinterpret_cast<input_t*>(reinterpret_cast<uint8_t*>(m_upStreamingBuffer->getBufferPointer())+inputOffset);
-				for (auto j=0; j<elementCount; j++)
-				{
-					const nbl::hlsl::float32_t3 generated(rng(),rng(),rng());
-					// make sure our bitpatterns are in [0,1]^2 as a float
-					inputPtr[j] = generated/float(nbl::hlsl::numeric_limits<decltype(rng())>::max);
-				}
-				// Always remember to flush!
-				if (m_upStreamingBuffer->needsManualFlushOrInvalidate())
-				{
-					const auto bound = m_upStreamingBuffer->getBuffer()->getBoundMemory();
-					const ILogicalDevice::MappedMemoryRange range(bound.memory,bound.offset+inputOffset,inputSize);
-					m_device->flushMappedMemoryRanges(1,&range);
-				}
+				const auto inputBoundMem = m_inputBuffer->getBoundMemory();
+				const ILogicalDevice::MappedMemoryRange inputMappedRange(inputBoundMem.memory,inputBoundMem.offset,sizeof(input_t)*ElementCount);
+
+				for (uint32_t i = 0; i < ElementCount; ++i)
+					m_inputPtr[i] = rng() % 1024u;
+
+				if (inputBoundMem.memory->haveToMakeVisible())
+					m_device->flushMappedMemoryRanges(1,&inputMappedRange);
 			}
 
 			// Obtain our command pool once one gets recycled
@@ -210,27 +163,30 @@ class ScanAppendUnitTestApp final : public application_templates::MonoDeviceAppl
 				poolIx = m_poolCache->acquirePool();
 			} while (poolIx==ICommandPoolCache::invalid_index);
 
-			// finally allocate our output range
-			const uint32_t outputSize = sizeof(output_t)*elementCount;
-
-			auto outputOffset = m_downStreamingBuffer->invalid_value;
-			m_downStreamingBuffer->multi_allocate(waitTill,AllocationCount,&outputOffset,&outputSize,&m_alignment);
-
 			smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 			{
 				m_poolCache->getPool(poolIx)->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{&cmdbuf,1},core::smart_refctd_ptr(m_logger));
 				// lets record, its still a one time submit because we have to re-record with different push constants each time
 				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 				cmdbuf->bindComputePipeline(m_pipeline.get());
-				// This is the new fun part, pushing constants
-				const PushConstantData pc = {
-					.inputAddress=m_upStreamingBufferAddress+inputOffset,
-					.outputAddress=m_downStreamingBufferAddress+outputOffset,
-					.dataElementCount=elementCount
+				static_assert(sizeof(output_t) == sizeof(uint64_t));
+				PushConstantData pc = {
+					.inputAddress=m_inputBuffer->getDeviceAddress(),
+					.outputAddress=m_outputBuffer->getDeviceAddress(),
+					.atomicBDA=m_outputBuffer->getDeviceAddress() + sizeof(uint64_t) * ElementCount,
+					.dataElementCount=ElementCount,
+					.isAtomicClearDispatch=true
 				};
 				cmdbuf->pushConstants(m_pipeline->getLayout(),IShader::E_SHADER_STAGE::ESS_COMPUTE,0u,sizeof(pc),&pc);
+				
+				cmdbuf->dispatch(1,1,1);
+
+				// TODO[Erfan]: need a memory barrier between the two dispatches.
+
+				pc.isAtomicClearDispatch = false;
+				cmdbuf->pushConstants(m_pipeline->getLayout(),IShader::E_SHADER_STAGE::ESS_COMPUTE,0u,sizeof(pc),&pc);
 				// Good old trick to get rounded up divisions, in case you're not familiar
-				cmdbuf->dispatch((elementCount-1)/WorkgroupSize+1,1,1);
+				cmdbuf->dispatch((ElementCount-1)/WorkgroupSize+1,1,1);
 				cmdbuf->end();
 			}
 
@@ -268,43 +224,55 @@ class ScanAppendUnitTestApp final : public application_templates::MonoDeviceAppl
 			// We can also actually latch our Command Pool reset and its return to the pool of free pools!
 			m_poolCache->releasePool(futureWait,poolIx);
 
-			// As promised, we can defer an upstreaming buffer deallocation until a fence is signalled
-			// You can also attach an additional optional IReferenceCounted derived object to hold onto until deallocation.
-			m_upStreamingBuffer->multi_deallocate(AllocationCount,&inputOffset,&inputSize,futureWait);
+			ISemaphore::SWaitInfo semaphoreWait = { .semaphore = m_timeline.get(), .value = m_iteration };
+			m_device->blockForSemaphores({&semaphoreWait, 1u}, true);
 
-			// Now a new and even more advanced usage of the latched events, we make our own refcounted object with a custom destructor and latch that like we did the commandbuffer.
-			// Instead of making our own and duplicating logic, we'll use one from IUtilities meant for down-staging memory.
-			// Its nice because it will also remember to invalidate our memory mapping if its not coherent.
-			auto latchedConsumer = make_smart_refctd_ptr<IUtilities::CDownstreamingDataConsumer>(
-				IDeviceMemoryAllocation::MemoryRange(outputOffset,outputSize),
-				// Note the use of capture by-value [=] and not by-reference [&] because this lambda will be called asynchronously whenever the event signals
-				[=](const size_t dstOffset, const void* bufSrc, const size_t size)->void
+			// Map and read and output memory
+			{
+				const auto inputBoundMem = m_inputBuffer->getBoundMemory();
+				const ILogicalDevice::MappedMemoryRange inputMappedRange(inputBoundMem.memory,inputBoundMem.offset, inputSize);
+
+				if (inputBoundMem.memory->haveToMakeVisible())
+					m_device->invalidateMappedMemoryRanges(1,&inputMappedRange);
+
+				const auto outputBoundMem = m_outputBuffer->getBoundMemory();
+				const ILogicalDevice::MappedMemoryRange outputMappedRange(outputBoundMem.memory,outputBoundMem.offset, outputSize);
+
+				if (outputBoundMem.memory->haveToMakeVisible())
+					m_device->invalidateMappedMemoryRanges(1,&outputMappedRange);
+
+				output_t* sortedOutputs = reinterpret_cast<output_t*>(::malloc(outputSize));
+
+				for (auto j = 0; j < ElementCount; j++)
+					sortedOutputs[j] = m_outputPtr[j];
+
+				std::sort(sortedOutputs, sortedOutputs + ElementCount, [](output_t lhs, output_t rhs)
+					{
+						return lhs.getSecond() < rhs.getSecond();
+					});
+
+				uint64_t exclusivePrefixSum = 0ull;
+				for (auto j=0; j<ElementCount; j++)
 				{
-					// The unused variable is used for letting the consumer know the subsection of the output we've managed to download
-					// But here we're sure we can get the whole thing in one go because we allocated the whole range ourselves.
-					assert(dstOffset==0 && size==outputSize);
+					if (sortedOutputs[j].getFirst() != exclusivePrefixSum)
+					{
+						m_logger->log("PrefixSum Calculation Failed. sortedOutputs[%d].second != actualPrefixSum",ILogger::ELL_ERROR,j);
+						m_testFailed = true;
+						break;
+					}
+					exclusivePrefixSum += m_inputPtr[j];
+				}
 
-					// I can const cast, we know the mapping is just a pointer
-					output_t* const data = reinterpret_cast<output_t*>(const_cast<void*>(bufSrc));
-					auto median = data+elementCount/2;
-					std::nth_element(data,median,data+elementCount);
-
-					m_logger->log("Iteration %d Median of Minimum Distances is %f",ILogger::ELL_PERFORMANCE,savedIterNum,*median);
-				},
-				// Its also necessary to hold onto the commandbuffer, even though we take care to not reset the parent pool, because if it
-				// hits its destructor, our automated reference counting will drop all references to objects used in the recorded commands.
-				// It could also be latched in the upstreaming deallocate, because its the same fence.
-				std::move(cmdbuf),m_downStreamingBuffer
-			);
-			// We put a function we want to execute 
-			m_downStreamingBuffer->multi_deallocate(AllocationCount,&outputOffset,&outputSize,futureWait,&latchedConsumer.get());
+				::free(sortedOutputs);
+			}
 		}
 
 		bool onAppTerminated() override
 		{
-			// Need to make sure that there are no events outstanding if we want all lambdas to eventually execute before `onAppTerminated`
-			// (the destructors of the Command Pool Cache and Streaming buffers will still wait for all lambda events to drain)
-			while (m_downStreamingBuffer->cull_frees()) {}
+			m_inputBuffer->getBoundMemory().memory->unmap();
+			m_outputBuffer->getBoundMemory().memory->unmap();
+			m_inputPtr = nullptr;
+			m_outputPtr = nullptr;
 			return device_base_t::onAppTerminated();
 		}
 };
