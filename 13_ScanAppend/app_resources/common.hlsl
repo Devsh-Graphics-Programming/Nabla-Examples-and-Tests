@@ -35,14 +35,14 @@ struct packed_uint_pair
 
     first_t getFirst() NBL_CONST_MEMBER_FUNC
     {
-        return nbl::hlsl::_static_cast<first_t>(value_packed);
+        return nbl::hlsl::_static_cast<first_t>(value_packed & ((1u << FirstPartBits) - 1u));
         // TODO: DXC Bug?
         // return nbl::hlsl::_static_cast<first_t>(nbl::hlsl::glsl::bitfieldExtract<T>(value_packed, 0ull, FirstPartBits));
     }
 
     second_t getSecond() NBL_CONST_MEMBER_FUNC
     {
-        return nbl::hlsl::_static_cast<first_t>(value_packed >> FirstPartBits);
+        return nbl::hlsl::_static_cast<second_t>(value_packed >> FirstPartBits);
         // TODO: DXC Bug?
         // return nbl::hlsl::_static_cast<second_t>(nbl::hlsl::glsl::bitfieldExtract<T>(value_packed, FirstPartBits, SecondPartBits));
     }
@@ -54,7 +54,7 @@ struct packed_uint_pair
     //T exclusivePrefixSum : (32-OutputBits);
 };
 
-NBL_CONSTEXPR_STATIC uint32_t PrefixSumBits = 32u;
+NBL_CONSTEXPR_STATIC uint32_t PrefixSumBits = 16u;
 using packed_uints = packed_uint_pair<uint64_t, PrefixSumBits>;
 
 //
