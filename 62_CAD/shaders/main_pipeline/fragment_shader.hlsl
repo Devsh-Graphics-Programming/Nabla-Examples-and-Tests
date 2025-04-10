@@ -431,304 +431,306 @@ float4 fragMain(PSInput input) : SV_TARGET
     const uint32_t currentMainObjectIdx = input.getMainObjectIdx();
     const MainObject mainObj = loadMainObject(currentMainObjectIdx);
     
-#define DTM
-#ifdef DTM
-    // TRIANGLE RENDERING
-    {
-        const float outlineThickness = input.getOutlineThickness();
-        const float contourThickness = input.getContourLineThickness();
-        const float phaseShift = 0.0f; // input.getCurrentPhaseShift();
-        const float stretch = 1.0f; // TODO: figure out what is it for ---> [ERFAN's REPLY: no need to give shit about this in dtms, it's for special shape styles] 
-        const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
-
-        DTMSettings dtm = loadDTMSettings(mainObj.dtmSettingsIdx);
-        LineStyle outlineStyle = loadLineStyle(dtm.outlineLineStyleIdx);
-        LineStyle contourStyle = loadLineStyle(dtm.contourLineStyleIdx);
-
-        float3 v[3];
-        v[0] = input.getScreenSpaceVertexAttribs(0);
-        v[1] = input.getScreenSpaceVertexAttribs(1);
-        v[2] = input.getScreenSpaceVertexAttribs(2);
-
-        const float3 baryCoord = nbl::hlsl::spirv::BaryCoordKHR;
-
-        // indices of points constructing every edge
-        uint2 edgePoints[3];
-        edgePoints[0] = uint2(0, 1);
-        edgePoints[1] = uint2(1, 2);
-        edgePoints[2] = uint2(2, 0);
-
-        // index of vertex opposing an edge, needed for calculation of triangle heights
-        uint opposingVertexIdx[3];
-        opposingVertexIdx[0] = 2;
-        opposingVertexIdx[1] = 0;
-        opposingVertexIdx[2] = 1;
-        
-        float height = input.getHeight();
-
-        // HEIGHT SHADING
-        const uint32_t heightMapSize = dtm.heightColorEntryCount;
-        float minShadingHeight = dtm.heightColorMapHeights[0];
-        float maxShadingHeight = dtm.heightColorMapHeights[heightMapSize - 1];
-
-        if (heightMapSize > 0)
+    if (pc.isDTMRendering)
+    {   
+        // TRIANGLE RENDERING
         {
-            // partially based on https://www.shadertoy.com/view/XsXSz4 by Inigo Quilez
-            float2 e0 = v[1] - v[0];
-            float2 e1 = v[2] - v[1];
-            float2 e2 = v[0] - v[2];
+            const float outlineThickness = input.getOutlineThickness();
+            const float contourThickness = input.getContourLineThickness();
+            const float phaseShift = 0.0f; // input.getCurrentPhaseShift();
+            const float stretch = 1.0f; // TODO: figure out what is it for ---> [ERFAN's REPLY: no need to give shit about this in dtms, it's for special shape styles] 
+            const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
+
+            DTMSettings dtm = loadDTMSettings(mainObj.dtmSettingsIdx);
+            LineStyle outlineStyle = loadLineStyle(dtm.outlineLineStyleIdx);
+            LineStyle contourStyle = loadLineStyle(dtm.contourLineStyleIdx);
+
+            float3 v[3];
+            v[0] = input.getScreenSpaceVertexAttribs(0);
+            v[1] = input.getScreenSpaceVertexAttribs(1);
+            v[2] = input.getScreenSpaceVertexAttribs(2);
+
+            const float3 baryCoord = nbl::hlsl::spirv::BaryCoordKHR;
+
+            // indices of points constructing every edge
+            uint2 edgePoints[3];
+            edgePoints[0] = uint2(0, 1);
+            edgePoints[1] = uint2(1, 2);
+            edgePoints[2] = uint2(2, 0);
+
+            // index of vertex opposing an edge, needed for calculation of triangle heights
+            uint opposingVertexIdx[3];
+            opposingVertexIdx[0] = 2;
+            opposingVertexIdx[1] = 0;
+            opposingVertexIdx[2] = 1;
+        
+            float height = input.getHeight();
+
+            // HEIGHT SHADING
+            const uint32_t heightMapSize = dtm.heightColorEntryCount;
+            float minShadingHeight = dtm.heightColorMapHeights[0];
+            float maxShadingHeight = dtm.heightColorMapHeights[heightMapSize - 1];
+
+            if (heightMapSize > 0)
+            {
+                // partially based on https://www.shadertoy.com/view/XsXSz4 by Inigo Quilez
+                float2 e0 = v[1] - v[0];
+                float2 e1 = v[2] - v[1];
+                float2 e2 = v[0] - v[2];
             
-            float triangleAreaSign = -sign(e0.x * e2.y - e0.y * e2.x);
-            float2 v0 = input.position.xy - v[0];
-            float2 v1 = input.position.xy - v[1];
-            float2 v2 = input.position.xy - v[2];
+                float triangleAreaSign = -sign(e0.x * e2.y - e0.y * e2.x);
+                float2 v0 = input.position.xy - v[0];
+                float2 v1 = input.position.xy - v[1];
+                float2 v2 = input.position.xy - v[2];
 
-            float distanceToLine0 = sqrt(dot2(v0 - e0 * dot(v0, e0) / dot(e0, e0)));
-            float distanceToLine1 = sqrt(dot2(v1 - e1 * dot(v1, e1) / dot(e1, e1)));
-            float distanceToLine2 = sqrt(dot2(v2 - e2 * dot(v2, e2) / dot(e2, e2)));
+                float distanceToLine0 = sqrt(dot2(v0 - e0 * dot(v0, e0) / dot(e0, e0)));
+                float distanceToLine1 = sqrt(dot2(v1 - e1 * dot(v1, e1) / dot(e1, e1)));
+                float distanceToLine2 = sqrt(dot2(v2 - e2 * dot(v2, e2) / dot(e2, e2)));
 
-            float line0Sdf = distanceToLine0 * triangleAreaSign * (v0.x * e0.y - v0.y * e0.x);
-            float line1Sdf = distanceToLine1 * triangleAreaSign * (v1.x * e1.y - v1.y * e1.x);
-            float line2Sdf = distanceToLine2 * triangleAreaSign * (v2.x * e2.y - v2.y * e2.x);
-            float heightDeriv = fwidth(height);
-            float line3Sdf = (minShadingHeight - height) / heightDeriv;
-            float line4Sdf = (height - maxShadingHeight) / heightDeriv;
-
-            float convexPolygonSdf = max(line0Sdf, line1Sdf);
-            convexPolygonSdf = max(convexPolygonSdf, line2Sdf);
-            convexPolygonSdf = max(convexPolygonSdf, line3Sdf);
-            convexPolygonSdf = max(convexPolygonSdf, line4Sdf);
-
-            localAlpha = 1.0f - smoothstep(0.0f, globals.antiAliasingFactor * 2.0f, convexPolygonSdf);
-
-            // calculate height color
-            DTMSettings::E_HEIGHT_SHADING_MODE mode = dtm.determineHeightShadingMode();
-
-            if(mode == DTMSettings::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS)
-            {
-                DTMSettingsHeightsAccessor dtmHeightsAccessor = { dtm };
-                uint32_t mapIndexPlus1 = nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, heightMapSize, height);
-                uint32_t mapIndex = mapIndexPlus1 == 0 ? mapIndexPlus1 : mapIndexPlus1 - 1;
-
+                float line0Sdf = distanceToLine0 * triangleAreaSign * (v0.x * e0.y - v0.y * e0.x);
+                float line1Sdf = distanceToLine1 * triangleAreaSign * (v1.x * e1.y - v1.y * e1.x);
+                float line2Sdf = distanceToLine2 * triangleAreaSign * (v2.x * e2.y - v2.y * e2.x);
                 float heightDeriv = fwidth(height);
-                bool blendWithPrev = true
-                    && (mapIndex >= heightMapSize - 1 || (height * 2.0 < dtm.heightColorMapHeights[mapIndexPlus1] + dtm.heightColorMapHeights[mapIndex]));
-                
-                // logic explainer: if colorIdx is 0.0 then it means blend with next
-                // if color idx is >= length of the colours array then it means it's also > 0.0 and this blend with prev is true
-                // if color idx is > 0 and < len - 1, then it depends on the current pixel's height value and two closest height values
-                if (blendWithPrev)
+                float line3Sdf = (minShadingHeight - height) / heightDeriv;
+                float line4Sdf = (height - maxShadingHeight) / heightDeriv;
+
+                float convexPolygonSdf = max(line0Sdf, line1Sdf);
+                convexPolygonSdf = max(convexPolygonSdf, line2Sdf);
+                convexPolygonSdf = max(convexPolygonSdf, line3Sdf);
+                convexPolygonSdf = max(convexPolygonSdf, line4Sdf);
+
+                localAlpha = 1.0f - smoothstep(0.0f, globals.antiAliasingFactor * 2.0f, convexPolygonSdf);
+
+                // calculate height color
+                DTMSettings::E_HEIGHT_SHADING_MODE mode = dtm.determineHeightShadingMode();
+
+                if(mode == DTMSettings::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS)
                 {
-                    if (mapIndex > 0)
+                    DTMSettingsHeightsAccessor dtmHeightsAccessor = { dtm };
+                    uint32_t mapIndexPlus1 = nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, heightMapSize, height);
+                    uint32_t mapIndex = mapIndexPlus1 == 0 ? mapIndexPlus1 : mapIndexPlus1 - 1;
+
+                    float heightDeriv = fwidth(height);
+                    bool blendWithPrev = true
+                        && (mapIndex >= heightMapSize - 1 || (height * 2.0 < dtm.heightColorMapHeights[mapIndexPlus1] + dtm.heightColorMapHeights[mapIndex]));
+                
+                    // logic explainer: if colorIdx is 0.0 then it means blend with next
+                    // if color idx is >= length of the colours array then it means it's also > 0.0 and this blend with prev is true
+                    // if color idx is > 0 and < len - 1, then it depends on the current pixel's height value and two closest height values
+                    if (blendWithPrev)
                     {
-                        float pxDistanceToPrevHeight = (height - dtm.heightColorMapHeights[mapIndex]) / heightDeriv;
-                        float prevColorCoverage = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, pxDistanceToPrevHeight);
-                        textureColor = lerp(dtm.heightColorMapColors[mapIndex - 1].rgb, dtm.heightColorMapColors[mapIndex].rgb, prevColorCoverage);
+                        if (mapIndex > 0)
+                        {
+                            float pxDistanceToPrevHeight = (height - dtm.heightColorMapHeights[mapIndex]) / heightDeriv;
+                            float prevColorCoverage = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, pxDistanceToPrevHeight);
+                            textureColor = lerp(dtm.heightColorMapColors[mapIndex - 1].rgb, dtm.heightColorMapColors[mapIndex].rgb, prevColorCoverage);
+                        }
+                        else
+                        {
+                            textureColor = dtm.heightColorMapColors[mapIndex].rgb;
+                        }
                     }
                     else
                     {
-                        textureColor = dtm.heightColorMapColors[mapIndex].rgb;
+                        if (mapIndex < heightMapSize - 1)
+                        {
+                            float pxDistanceToNextHeight = (height - dtm.heightColorMapHeights[mapIndexPlus1]) / heightDeriv;
+                            float nextColorCoverage = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, pxDistanceToNextHeight);
+                            textureColor = lerp(dtm.heightColorMapColors[mapIndex].rgb, dtm.heightColorMapColors[mapIndexPlus1].rgb, nextColorCoverage);
+                        }
+                        else
+                        {
+                            textureColor = dtm.heightColorMapColors[mapIndex].rgb;
+                        }
                     }
+
+                    //localAlpha = dtm.heightColorMapColors[mapIndex].a;
                 }
                 else
                 {
-                    if (mapIndex < heightMapSize - 1)
+                    float heightTmp;
+                    if (mode == DTMSettings::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS)
                     {
-                        float pxDistanceToNextHeight = (height - dtm.heightColorMapHeights[mapIndexPlus1]) / heightDeriv;
-                        float nextColorCoverage = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, pxDistanceToNextHeight);
-                        textureColor = lerp(dtm.heightColorMapColors[mapIndex].rgb, dtm.heightColorMapColors[mapIndexPlus1].rgb, nextColorCoverage);
+                        float interval = dtm.intervalWidth;
+                        int sectionIndex = int((height - minShadingHeight) / interval);
+                        heightTmp = minShadingHeight + float(sectionIndex) * interval;
                     }
+                    else if (mode == DTMSettings::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS)
+                    {
+                        heightTmp = height;
+                    }
+
+                    DTMSettingsHeightsAccessor dtmHeightsAccessor = { dtm };
+                    uint32_t upperBoundHeightIndex = nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, heightMapSize, height);
+                    uint32_t lowerBoundHeightIndex = upperBoundHeightIndex == 0 ? upperBoundHeightIndex : upperBoundHeightIndex - 1;
+
+                    float upperBoundHeight = dtm.heightColorMapHeights[upperBoundHeightIndex];
+                    float lowerBoundHeight = dtm.heightColorMapHeights[lowerBoundHeightIndex];
+                
+                    float4 upperBoundColor = dtm.heightColorMapColors[upperBoundHeightIndex];
+                    float4 lowerBoundColor = dtm.heightColorMapColors[lowerBoundHeightIndex];
+                
+                    float interpolationVal;
+                    if (upperBoundHeightIndex == 0)
+                        interpolationVal = 1.0f;
                     else
-                    {
-                        textureColor = dtm.heightColorMapColors[mapIndex].rgb;
-                    }
-                }
-
-                //localAlpha = dtm.heightColorMapColors[mapIndex].a;
-            }
-            else
-            {
-                float heightTmp;
-                if (mode == DTMSettings::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS)
-                {
-                    float interval = dtm.intervalWidth;
-                    int sectionIndex = int((height - minShadingHeight) / interval);
-                    heightTmp = minShadingHeight + float(sectionIndex) * interval;
-                }
-                else if (mode == DTMSettings::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS)
-                {
-                    heightTmp = height;
-                }
-
-                DTMSettingsHeightsAccessor dtmHeightsAccessor = { dtm };
-                uint32_t upperBoundHeightIndex = nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, heightMapSize, height);
-                uint32_t lowerBoundHeightIndex = upperBoundHeightIndex == 0 ? upperBoundHeightIndex : upperBoundHeightIndex - 1;
-
-                float upperBoundHeight = dtm.heightColorMapHeights[upperBoundHeightIndex];
-                float lowerBoundHeight = dtm.heightColorMapHeights[lowerBoundHeightIndex];
+                        interpolationVal = (heightTmp - lowerBoundHeight) / (upperBoundHeight - lowerBoundHeight);
                 
-                float4 upperBoundColor = dtm.heightColorMapColors[upperBoundHeightIndex];
-                float4 lowerBoundColor = dtm.heightColorMapColors[lowerBoundHeightIndex];
-                
-                float interpolationVal;
-                if (upperBoundHeightIndex == 0)
-                    interpolationVal = 1.0f;
-                else
-                    interpolationVal = (heightTmp - lowerBoundHeight) / (upperBoundHeight - lowerBoundHeight);
-                
-                textureColor = lerp(lowerBoundColor.rgb, upperBoundColor.rgb, interpolationVal);
-                localAlpha = lerp(lowerBoundColor.a, upperBoundColor.a, interpolationVal);;
+                    textureColor = lerp(lowerBoundColor.rgb, upperBoundColor.rgb, interpolationVal);
+                    localAlpha = lerp(lowerBoundColor.a, upperBoundColor.a, interpolationVal);;
+                }
             }
-        }
-        //else // TODO: remove!!
-        //{
-        //    printf("WTF");
-        //    return float4(0.0f, 0.0f, 0.0f, 1.0f);
-        //}
+            //else // TODO: remove!!
+            //{
+            //    printf("WTF");
+            //    return float4(0.0f, 0.0f, 0.0f, 1.0f);
+            //}
 
-        // CONTOUR
+            // CONTOUR
 
-        // TODO: move to ubo or push constants
-        const float startHeight = dtm.contourLinesStartHeight;
-        const float endHeight = dtm.contourLinesEndHeight;
-        const float interval = dtm.contourLinesHeightInterval;
+            // TODO: move to ubo or push constants
+            const float startHeight = dtm.contourLinesStartHeight;
+            const float endHeight = dtm.contourLinesEndHeight;
+            const float interval = dtm.contourLinesHeightInterval;
 
-        // TODO: can be precomputed
-        const int maxContourLineIdx = (endHeight - startHeight + 1) / interval;
+            // TODO: can be precomputed
+            const int maxContourLineIdx = (endHeight - startHeight + 1) / interval;
 
-        // TODO: it actually can output a negative number, fix
-        int contourLineIdx = nbl::hlsl::_static_cast<int>((height - startHeight + (interval * 0.5f)) / interval);
-        contourLineIdx = clamp(contourLineIdx, 0, maxContourLineIdx);
-        float contourLineHeight = startHeight + interval * contourLineIdx;
+            // TODO: it actually can output a negative number, fix
+            int contourLineIdx = nbl::hlsl::_static_cast<int>((height - startHeight + (interval * 0.5f)) / interval);
+            contourLineIdx = clamp(contourLineIdx, 0, maxContourLineIdx);
+            float contourLineHeight = startHeight + interval * contourLineIdx;
 
-        int contourLinePointsIdx = 0;
-        float2 contourLinePoints[2];
-        // TODO: case where heights we are looking for are on all three vertices
-        for (int i = 0; i < 3; ++i)
-        {
-            if (contourLinePointsIdx == 3)
-                break;
-
-            const uint2 currentEdgePoints = edgePoints[i];
-            float3 p0 = v[currentEdgePoints[0]];
-            float3 p1 = v[currentEdgePoints[1]];
-
-            if (p1.z < p0.z)
-                nbl::hlsl::swap(p0, p1);
-
-            float minHeight = p0.z;
-            float maxHeight = p1.z;
-
-            if (height >= minHeight && height <= maxHeight)
-            {
-                float2 edge = float2(p1.x, p1.y) - float2(p0.x, p0.y);
-                float scale = (contourLineHeight - minHeight) / (maxHeight - minHeight);
-
-                contourLinePoints[contourLinePointsIdx] = scale * edge + float2(p0.x, p0.y);
-                ++contourLinePointsIdx;
-            }
-        }
-
-        {
-            nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(contourLinePoints[0], contourLinePoints[1]);
-
-            float distance = nbl::hlsl::numeric_limits<float>::max;
-            if (!contourStyle.hasStipples() || stretch == InvalidStyleStretchValue)
-            {
-                distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, contourThickness, contourStyle.isRoadStyleFlag);
-            }
-            else
-            {
-                // TODO:
-                // It might be beneficial to calculate distance between pixel and contour line to early out some pixels and save yourself from stipple sdf computations!
-                // where you only compute the complex sdf if abs((height - contourVal) / heightDeriv) <= aaFactor
-                nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
-                LineStyleClipper clipper = LineStyleClipper::construct(contourStyle, lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
-                distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, contourThickness, contourStyle.isRoadStyleFlag, clipper);
-            }
-
-            float contourLocalAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, distance) * contourStyle.color.a;
-            textureColor = lerp(textureColor, contourStyle.color.rgb, contourLocalAlpha);
-            localAlpha = max(localAlpha, contourLocalAlpha);
-        }
-
-        
-
-        // OUTLINE
-
-        // find sdf of every edge
-        float triangleAreaTimesTwo;
-        {
-            float3 AB = v[0] - v[1];
-            float3 AC = v[0] - v[2];
-            AB.z = 0.0f;
-            AC.z = 0.0f;
-
-            // TODO: figure out if there is a faster solution
-            triangleAreaTimesTwo = length(cross(AB, AC));
-        }
-
-        // calculate sdf of every edge as it wasn't stippled
-        float distances[3];
-        for (int i = 0; i < 3; ++i)
-        {
-            const uint2 currentEdgePoints = edgePoints[i];
-            float3 A = v[currentEdgePoints[0]];
-            float3 B = v[currentEdgePoints[1]];
-            float3 AB = B - A;
-            float ABLen = length(AB);
-
-            distances[i] = (triangleAreaTimesTwo / ABLen) * baryCoord[opposingVertexIdx[i]];
-        }
-
-        float minDistance = nbl::hlsl::numeric_limits<float>::max;
-        if (!outlineStyle.hasStipples() || stretch == InvalidStyleStretchValue)
-        {
-            for (uint i = 0; i < 3; ++i)
-                distances[i] -= outlineThickness;
-
-            minDistance = min(distances[0], min(distances[1], distances[2]));
-        }
-        else
-        {
+            int contourLinePointsIdx = 0;
+            float2 contourLinePoints[2];
+            // TODO: case where heights we are looking for are on all three vertices
             for (int i = 0; i < 3; ++i)
             {
-                if (distances[i] > outlineThickness)
-                    continue;
+                if (contourLinePointsIdx == 3)
+                    break;
 
                 const uint2 currentEdgePoints = edgePoints[i];
                 float3 p0 = v[currentEdgePoints[0]];
                 float3 p1 = v[currentEdgePoints[1]];
 
-                // long story short, in order for stipple patterns to be consistent:
-                // - point with lesser x coord should be starting point
-                // - if x coord of both points are equal then point with lesser y value should be starting point
-                if (p1.x < p0.x)
-                    nbl::hlsl::swap(p0, p1);
-                else if (p1.x == p0.x && p1.y < p0.y)
+                if (p1.z < p0.z)
                     nbl::hlsl::swap(p0, p1);
 
-                nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(float2(p0.x, p0.y), float2(p1.x, p1.y));
-                
-                float distance = nbl::hlsl::numeric_limits<float>::max;
-                nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
-                LineStyleClipper clipper = LineStyleClipper::construct(outlineStyle, lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
-                distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, outlineThickness, outlineStyle.isRoadStyleFlag, clipper);
+                float minHeight = p0.z;
+                float maxHeight = p1.z;
 
-                minDistance = min(minDistance, distance);
+                if (height >= minHeight && height <= maxHeight)
+                {
+                    float2 edge = float2(p1.x, p1.y) - float2(p0.x, p0.y);
+                    float scale = (contourLineHeight - minHeight) / (maxHeight - minHeight);
+
+                    contourLinePoints[contourLinePointsIdx] = scale * edge + float2(p0.x, p0.y);
+                    ++contourLinePointsIdx;
+                }
             }
 
+            {
+                nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(contourLinePoints[0], contourLinePoints[1]);
+
+                float distance = nbl::hlsl::numeric_limits<float>::max;
+                if (!contourStyle.hasStipples() || stretch == InvalidStyleStretchValue)
+                {
+                    distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, contourThickness, contourStyle.isRoadStyleFlag);
+                }
+                else
+                {
+                    // TODO:
+                    // It might be beneficial to calculate distance between pixel and contour line to early out some pixels and save yourself from stipple sdf computations!
+                    // where you only compute the complex sdf if abs((height - contourVal) / heightDeriv) <= aaFactor
+                    nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
+                    LineStyleClipper clipper = LineStyleClipper::construct(contourStyle, lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
+                    distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, contourThickness, contourStyle.isRoadStyleFlag, clipper);
+                }
+
+                float contourLocalAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, distance) * contourStyle.color.a;
+                textureColor = lerp(textureColor, contourStyle.color.rgb, contourLocalAlpha);
+                localAlpha = max(localAlpha, contourLocalAlpha);
+            }
+
+        
+
+            // OUTLINE
+
+            // find sdf of every edge
+            float triangleAreaTimesTwo;
+            {
+                float3 AB = v[0] - v[1];
+                float3 AC = v[0] - v[2];
+                AB.z = 0.0f;
+                AC.z = 0.0f;
+
+                // TODO: figure out if there is a faster solution
+                triangleAreaTimesTwo = length(cross(AB, AC));
+            }
+
+            // calculate sdf of every edge as it wasn't stippled
+            float distances[3];
+            for (int i = 0; i < 3; ++i)
+            {
+                const uint2 currentEdgePoints = edgePoints[i];
+                float3 A = v[currentEdgePoints[0]];
+                float3 B = v[currentEdgePoints[1]];
+                float3 AB = B - A;
+                float ABLen = length(AB);
+
+                distances[i] = (triangleAreaTimesTwo / ABLen) * baryCoord[opposingVertexIdx[i]];
+            }
+
+            float minDistance = nbl::hlsl::numeric_limits<float>::max;
+            if (!outlineStyle.hasStipples() || stretch == InvalidStyleStretchValue)
+            {
+                for (uint i = 0; i < 3; ++i)
+                    distances[i] -= outlineThickness;
+
+                minDistance = min(distances[0], min(distances[1], distances[2]));
+            }
+            else
+            {
+                for (int i = 0; i < 3; ++i)
+                {
+                    if (distances[i] > outlineThickness)
+                        continue;
+
+                    const uint2 currentEdgePoints = edgePoints[i];
+                    float3 p0 = v[currentEdgePoints[0]];
+                    float3 p1 = v[currentEdgePoints[1]];
+
+                    // long story short, in order for stipple patterns to be consistent:
+                    // - point with lesser x coord should be starting point
+                    // - if x coord of both points are equal then point with lesser y value should be starting point
+                    if (p1.x < p0.x)
+                        nbl::hlsl::swap(p0, p1);
+                    else if (p1.x == p0.x && p1.y < p0.y)
+                        nbl::hlsl::swap(p0, p1);
+
+                    nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(float2(p0.x, p0.y), float2(p1.x, p1.y));
+                
+                    float distance = nbl::hlsl::numeric_limits<float>::max;
+                    nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
+                    LineStyleClipper clipper = LineStyleClipper::construct(outlineStyle, lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
+                    distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, outlineThickness, outlineStyle.isRoadStyleFlag, clipper);
+
+                    minDistance = min(minDistance, distance);
+                }
+
+            }
+
+            float outlineLocalAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, minDistance) * outlineStyle.color.a;
+            textureColor = lerp(textureColor, outlineStyle.color.rgb, outlineLocalAlpha);
+            localAlpha = max(localAlpha, outlineLocalAlpha);
         }
 
-        float outlineLocalAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, minDistance) * outlineStyle.color.a;
-        textureColor = lerp(textureColor, outlineStyle.color.rgb, outlineLocalAlpha);
-        localAlpha = max(localAlpha, outlineLocalAlpha);
+        return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(uint2(input.position.xy), localAlpha, currentMainObjectIdx, textureColor, true);
     }
-
-    return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(uint2(input.position.xy), localAlpha, currentMainObjectIdx, textureColor, true);
-#endif
-    // figure out local alpha with sdf
-    if (objType == ObjectType::LINE || objType == ObjectType::QUAD_BEZIER || objType == ObjectType::POLYLINE_CONNECTOR)
+    else
+    {
+        // figure out local alpha with sdf
+        if (objType == ObjectType::LINE || objType == ObjectType::QUAD_BEZIER || objType == ObjectType::POLYLINE_CONNECTOR)
     {
         float distance = nbl::hlsl::numeric_limits<float>::max;
         if (objType == ObjectType::LINE)
@@ -792,7 +794,7 @@ float4 fragMain(PSInput input) : SV_TARGET
         }
         localAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, distance);
     }
-    else if (objType == ObjectType::CURVE_BOX) 
+        else if (objType == ObjectType::CURVE_BOX) 
     {
         const float minorBBoxUV = input.getMinorBBoxUV();
         const float majorBBoxUV = input.getMajorBBoxUV();
@@ -911,7 +913,7 @@ float4 fragMain(PSInput input) : SV_TARGET
             localAlpha *= smoothstep(+globals.antiAliasingFactor / 2.0, -globals.antiAliasingFactor / 2.0f, msdf);
         }
     }
-    else if (objType == ObjectType::FONT_GLYPH) 
+        else if (objType == ObjectType::FONT_GLYPH) 
     {
         const float2 uv = input.getFontGlyphUV();
         const uint32_t textureId = input.getFontGlyphTextureId();
@@ -942,7 +944,7 @@ float4 fragMain(PSInput input) : SV_TARGET
             localAlpha = smoothstep(+globals.antiAliasingFactor / 2.0f + bolden, -globals.antiAliasingFactor / 2.0f + bolden, msdf);
         }
     }
-    else if (objType == ObjectType::IMAGE) 
+        else if (objType == ObjectType::IMAGE) 
     {
         const float2 uv = input.getImageUV();
         const uint32_t textureId = input.getImageTextureId();
@@ -955,15 +957,16 @@ float4 fragMain(PSInput input) : SV_TARGET
         }
     }
 
-    uint2 fragCoord = uint2(input.position.xy);
-    
-    if (localAlpha <= 0)
-        discard;
-    
-    const bool colorFromTexture = objType == ObjectType::IMAGE;
-    
-    // TODO[Przemek]: But make sure you're still calling this, correctly calculating alpha and texture color.
-    // you can add 1 main object and push via DrawResourcesFiller like we already do for other objects (this go in the mainObjects StorageBuffer) and then set the currentMainObjectIdx to 0 here
-    // having 1 main object temporarily means that all triangle meshes will be treated as a unified object in blending operations. 
-    return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx, textureColor, colorFromTexture);
+        uint2 fragCoord = uint2(input.position.xy);
+        
+        if (localAlpha <= 0)
+            discard;
+        
+        const bool colorFromTexture = objType == ObjectType::IMAGE;
+        
+        // TODO[Przemek]: But make sure you're still calling this, correctly calculating alpha and texture color.
+        // you can add 1 main object and push via DrawResourcesFiller like we already do for other objects (this go in the mainObjects StorageBuffer) and then set the currentMainObjectIdx to 0 here
+        // having 1 main object temporarily means that all triangle meshes will be treated as a unified object in blending operations. 
+        return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx, textureColor, colorFromTexture);
+    }
 }

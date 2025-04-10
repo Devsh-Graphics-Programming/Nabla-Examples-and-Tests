@@ -155,7 +155,7 @@ public:
 	/// WARNING: make sure this function  is called within begin/endMainObject scope
 	void drawPolyline(const CPolylineBase& polyline, SIntendedSubmitInfo& intendedNextSubmit);
 	
-	void drawTriangleMesh(const CTriangleMesh& mesh, CTriangleMesh::DrawData& drawData, const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit);
+	void drawTriangleMesh(const CTriangleMesh& mesh, const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit);
 
 	// ! Convinience function for Hatch with MSDF Pattern and a solid background
 	void drawHatch(
@@ -207,6 +207,9 @@ public:
 		resetCustomClipProjections();
 		resetLineStyles();
 		resetDTMSettings();
+
+		drawObjectsFlushedToDrawCalls = 0ull;
+		drawCalls.clear();
 	}
 
 	/// @brief collection of all the resources that will eventually be reserved or copied to in the resourcesGPUBuffer, will be accessed via individual BDA pointers in shaders
@@ -242,6 +245,45 @@ public:
 
 	/// For advanced use only, (passed to shaders for them to know if we overflow-submitted in the middle if a main obj
 	uint32_t getActiveMainObjectIndex() const { return activeMainObjectIndex; }
+
+	// TODO: Remove these later, these are for multiple draw calls instead of a single one.
+	struct DrawCallData
+	{
+		union
+		{
+			struct Dtm
+			{
+				uint64_t indexBufferOffset;
+				uint64_t indexCount;
+				uint64_t triangleMeshVerticesBaseAddress;
+				uint32_t triangleMeshMainObjectIndex;
+			} dtm;
+			struct DrawObj
+			{
+				uint64_t drawObjectStart = 0ull;
+				uint64_t drawObjectCount = 0ull;
+			} drawObj;
+		};
+		bool isDTMRendering;
+	};
+
+	uint64_t drawObjectsFlushedToDrawCalls = 0ull;
+
+	void flushDrawObjects()
+	{
+		if (resourcesCollection.drawObjects.getCount() > drawObjectsFlushedToDrawCalls)
+		{
+			DrawCallData drawCall = {};
+			drawCall.isDTMRendering = false;
+			drawCall.drawObj.drawObjectStart = drawObjectsFlushedToDrawCalls;
+			drawCall.drawObj.drawObjectCount = resourcesCollection.drawObjects.getCount() - drawObjectsFlushedToDrawCalls;
+			drawCalls.push_back(drawCall);
+			drawObjectsFlushedToDrawCalls = resourcesCollection.drawObjects.getCount();
+		}
+	}
+
+	std::vector<DrawCallData> drawCalls; // either dtms or objects
+
 
 protected:
 	

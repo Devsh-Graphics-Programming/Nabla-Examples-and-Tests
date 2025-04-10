@@ -134,13 +134,18 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, SIntendedS
 	}
 }
 
-void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, CTriangleMesh::DrawData& drawData, const DTMSettingsInfo& dtmSettingsInfo, SIntendedSubmitInfo& intendedNextSubmit)
+void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, const DTMSettingsInfo& dtmSettingsInfo, SIntendedSubmitInfo& intendedNextSubmit)
 {
+	flushDrawObjects(); // flushes draw call construction of any possible draw objects before dtm, because currently we're sepaerating dtm draw calls from drawObj draw calls
+
 	setActiveDTMSettings(dtmSettingsInfo);
 	beginMainObject(MainObjectType::DTM);
 
+	DrawCallData drawCallData = {}; 
+	drawCallData.isDTMRendering = true;
+
 	uint32_t mainObjectIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
-	drawData.pushConstants.triangleMeshMainObjectIndex = mainObjectIdx;
+	drawCallData.dtm.triangleMeshMainObjectIndex = mainObjectIdx;
 
 	ICPUBuffer::SCreationParams geometryBuffParams;
 	
@@ -162,18 +167,19 @@ void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, CTriangleM
 		size_t geometryBufferOffset = resourcesCollection.geometryInfo.increaseSizeAndGetOffset(dataToAddByteSize, alignof(CTriangleMesh::vertex_t));
 		void* dst = resourcesCollection.geometryInfo.data() + geometryBufferOffset;
 		// the actual bda address will be determined only after all copies are finalized, later we will do += `baseBDAAddress + geometryInfo.bufferOffset`
-		drawData.pushConstants.triangleMeshVerticesBaseAddress = geometryBufferOffset;
+		drawCallData.dtm.triangleMeshVerticesBaseAddress = geometryBufferOffset;
 		memcpy(dst, mesh.getVertices().data(), vtxBuffByteSize);
 		geometryBufferOffset += vtxBuffByteSize; 
 
 		// Copy IndexBuffer
 		dst = resourcesCollection.geometryInfo.data() + geometryBufferOffset;
-		drawData.indexBufferOffset = geometryBufferOffset;
+		drawCallData.dtm.indexBufferOffset = geometryBufferOffset;
 		memcpy(dst, mesh.getIndices().data(), indexBuffByteSize);
 		geometryBufferOffset += indexBuffByteSize;
 	}
 
-	drawData.indexCount = mesh.getIndexCount();
+	drawCallData.dtm.indexCount = mesh.getIndexCount();
+	drawCalls.push_back(drawCallData);
 	endMainObject();
 }
 
@@ -334,6 +340,7 @@ void DrawResourcesFiller::_test_addImageObject(float64_t2 topLeftPos, float32_t2
 bool DrawResourcesFiller::finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
 {
 	bool success = true;
+	flushDrawObjects();
 	success &= finalizeBufferCopies(intendedNextSubmit);
 	success &= finalizeTextureCopies(intendedNextSubmit);
 	return success;

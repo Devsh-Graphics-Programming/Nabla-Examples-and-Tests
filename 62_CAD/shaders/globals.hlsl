@@ -35,6 +35,7 @@ struct PushConstants
 {
     uint64_t triangleMeshVerticesBaseAddress;
     uint32_t triangleMeshMainObjectIndex;
+    uint32_t isDTMRendering;
 };
 
 // TODO: Compute this in a compute shader from the world counterparts

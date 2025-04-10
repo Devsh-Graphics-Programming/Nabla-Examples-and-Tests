@@ -236,6 +236,8 @@ struct PSInput
 
 // [[vk::binding(0, 0)]] ConstantBuffer<Globals> globals; ---> moved to globals.hlsl
 
+[[vk::push_constant]] PushConstants pc;
+
 [[vk::combinedImageSampler]][[vk::binding(1, 0)]] Texture2DArray<float3> msdfTextures : register(t4);
 [[vk::combinedImageSampler]][[vk::binding(1, 0)]] SamplerState msdfSampler : register(s4);
 

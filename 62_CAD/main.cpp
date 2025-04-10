@@ -802,7 +802,7 @@ public:
 			}
 
 			const asset::SPushConstantRange range = {
-						.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX,
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 						.offset = 0,
 						.size = sizeof(PushConstants)
 			};
@@ -1185,6 +1185,13 @@ public:
 	
 	void submitDraws(SIntendedSubmitInfo& intendedSubmitInfo, bool inBetweenSubmit)
 	{
+		// TODO: Remove this check later
+		if (inBetweenSubmit)
+		{
+			m_logger->log("Temporarily Disabled. Auto-Submission shouldn't happen (for Demo)", ILogger::ELL_ERROR);
+			assert(!inBetweenSubmit);
+		}
+
 		// Use the current recording command buffer of the intendedSubmitInfos scratchCommandBuffers, it should be in recording state
 		auto* cb = m_currentRecordingCommandBufferInfo->cmdbuf;
 		
@@ -1295,36 +1302,42 @@ public:
 		}
 		cb->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 		
-		const uint32_t currentIndexCount = resources.drawObjects.getCount() * 6u;
-
 		IGPUDescriptorSet* descriptorSets[] = { descriptorSet0.get(), descriptorSet1.get() };
 		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, pipelineLayout.get(), 0u, 2u, descriptorSets);
-
-		if (mode == ExampleMode::CASE_9)
-		{
-
-			// TODO[Przemek]: based on our call bind index buffer you uploaded to part of the `drawResourcesFiller.gpuDrawBuffers.geometryBuffer`
-			// Vertices will be pulled based on baseBDAPointer of where you uploaded the vertex + the VertexID in the vertex shader.
-			cb->bindIndexBuffer({ .offset = resources.geometryInfo.bufferOffset + m_triangleMeshDrawData.indexBufferOffset, .buffer = drawResourcesFiller.getResourcesGPUBuffer().get()}, asset::EIT_32BIT);
-
-			// TODO[Przemek]: binding the same pipelie, no need to change.
-			cb->bindGraphicsPipeline(graphicsPipeline.get());
-
-			// TODO[Przemek]: contour settings, height shading settings, base bda pointers will need to be pushed via pushConstants before the draw currently as it's the easiest thing to do.
-			m_triangleMeshDrawData.pushConstants.triangleMeshVerticesBaseAddress += resourcesGPUBuffer->getDeviceAddress() + resources.geometryInfo.bufferOffset;
-			cb->pushConstants(graphicsPipeline->getLayout(), IGPUShader::E_SHADER_STAGE::ESS_VERTEX, 0, sizeof(PushConstants), &m_triangleMeshDrawData.pushConstants);
-
-			// TODO[Przemek]: draw parameters needs to reflect the mesh involved
-			cb->drawIndexed(m_triangleMeshDrawData.indexCount, 1u, 0u, 0u, 0u);
-		}
-		else
-		{
-			assert(currentIndexCount == resources.indexBuffer.getCount());
-			cb->bindIndexBuffer({ .offset = resources.indexBuffer.bufferOffset, .buffer = resourcesGPUBuffer.get() }, asset::EIT_32BIT);
-			cb->bindGraphicsPipeline(graphicsPipeline.get());
-			cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
-		}
 		
+		cb->bindGraphicsPipeline(graphicsPipeline.get());
+
+		for (auto& drawCall : drawResourcesFiller.drawCalls)
+		{
+			if (drawCall.isDTMRendering)
+			{
+				cb->bindIndexBuffer({ .offset = resources.geometryInfo.bufferOffset + drawCall.dtm.indexBufferOffset, .buffer = drawResourcesFiller.getResourcesGPUBuffer().get()}, asset::EIT_32BIT);
+
+				PushConstants pc = {
+					.triangleMeshVerticesBaseAddress = drawCall.dtm.triangleMeshVerticesBaseAddress + resourcesGPUBuffer->getDeviceAddress() + resources.geometryInfo.bufferOffset,
+					.triangleMeshMainObjectIndex = drawCall.dtm.triangleMeshMainObjectIndex,
+					.isDTMRendering = true
+				};
+				cb->pushConstants(graphicsPipeline->getLayout(), IGPUShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
+
+				cb->drawIndexed(drawCall.dtm.indexCount, 1u, 0u, 0u, 0u);
+			}
+			else
+			{
+				PushConstants pc = {
+					.isDTMRendering = false
+				};
+				cb->pushConstants(graphicsPipeline->getLayout(), IGPUShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
+
+				const uint64_t indexOffset = drawCall.drawObj.drawObjectStart * 6u;
+				const uint64_t indexCount = drawCall.drawObj.drawObjectCount * 6u;
+
+				// assert(currentIndexCount == resources.indexBuffer.getCount());
+				cb->bindIndexBuffer({ .offset = resources.indexBuffer.bufferOffset + indexOffset * sizeof(uint32_t), .buffer = resourcesGPUBuffer.get()}, asset::EIT_32BIT);
+				cb->drawIndexed(indexCount, 1u, 0u, 0u, 0u);
+			}
+		}
+
 		if (fragmentShaderInterlockEnabled)
 		{
 			cb->bindGraphicsPipeline(resolveAlphaGraphicsPipeline.get());
@@ -1333,10 +1346,11 @@ public:
 
 		if constexpr (DebugModeWireframe)
 		{
+			const uint32_t indexCount = resources.drawObjects.getCount() * 6u;
 			cb->bindGraphicsPipeline(debugGraphicsPipeline.get());
-			cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
+			cb->drawIndexed(indexCount, 1u, 0u, 0u, 0u);
 		}
-		
+
 		cb->endRenderPass();
 
 		if (!inBetweenSubmit)
@@ -3191,11 +3205,11 @@ protected:
 			// PYRAMID
 
 			core::vector<TriangleMeshVertex> vertices = {
-				{ float32_t2(0.0, 0.0), 100.0 },
-				{ float32_t2(-200.0, -200.0), 10.0 },
-				{ float32_t2(200.0, -200.0), 10.0 },
-				{ float32_t2(200.0, 200.0), -20.0 },
-				{ float32_t2(-200.0, 200.0), 10.0 },
+				{ float64_t2(0.0, 0.0), 100.0 },
+				{ float64_t2(-200.0, -200.0), 10.0 },
+				{ float64_t2(200.0, -200.0), 10.0 },
+				{ float64_t2(200.0, 200.0), -20.0 },
+				{ float64_t2(-200.0, 200.0), 10.0 },
 			};
 
 			core::vector<uint32_t> indices = {
@@ -3277,7 +3291,17 @@ protected:
 				}
 			}
 
-			drawResourcesFiller.drawTriangleMesh(mesh, m_triangleMeshDrawData, dtmSettingsInfo, intendedNextSubmit);
+			drawResourcesFiller.drawTriangleMesh(mesh, dtmSettingsInfo, intendedNextSubmit);
+
+			dtmSettingsInfo.contourLineStyleInfo.color = float32_t4(1.0f, 0.39f, 0.0f, 1.0f);
+			dtmSettingsInfo.outlineLineStyleInfo.color = float32_t4(0.0f, 0.39f, 1.0f, 1.0f);
+			for (auto& v : mesh.m_vertices)
+			{
+				v.pos += float64_t2(400.0, 200.0);
+				v.height -= 10.0;
+			}
+
+			drawResourcesFiller.drawTriangleMesh(mesh, dtmSettingsInfo, intendedNextSubmit);
 		}
 
 		drawResourcesFiller.finalizeAllCopiesToGPU(intendedNextSubmit);
@@ -3360,8 +3384,6 @@ protected:
 	#endif
 	
 	std::unique_ptr<GeoTextureRenderer> m_geoTextureRenderer;
-
-	CTriangleMesh::DrawData m_triangleMeshDrawData;
 };
 
 NBL_MAIN_FUNC(ComputerAidedDesign)

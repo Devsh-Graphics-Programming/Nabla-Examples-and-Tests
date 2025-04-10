@@ -69,13 +69,6 @@ public:
 	using index_t = uint32_t;
 	using vertex_t = TriangleMeshVertex;
 
-	struct DrawData
-	{
-		PushConstants pushConstants;
-		uint64_t indexBufferOffset;
-		uint64_t indexCount;
-	};
-
 	inline void setVertices(core::vector<vertex_t>&& vertices)
 	{
 		m_vertices = std::move(vertices);
@@ -107,8 +100,6 @@ public:
 		return m_indices.size();
 	}
 
-
-private:
 	core::vector<vertex_t> m_vertices;
 	core::vector<index_t> m_indices;
 };
