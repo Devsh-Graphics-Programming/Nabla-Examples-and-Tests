@@ -249,39 +249,6 @@ public:
 			benchPplnLayout = m_device->createPipelineLayout({}, std::move(benchLayout));
 		}
 
-		const auto spirv_isa_cache_path = localOutputCWD/"spirv_isa_cache.bin";
-		// enclose to make sure file goes out of scope and we can reopen it
-		{
-			smart_refctd_ptr<const IFile> spirv_isa_cache_input;
-			// try to load SPIR-V to ISA cache
-			{
-				ISystem::future_t<smart_refctd_ptr<IFile>> fileCreate;
-				m_system->createFile(fileCreate,spirv_isa_cache_path,IFile::ECF_READ|IFile::ECF_MAPPABLE|IFile::ECF_COHERENT);
-				if (auto lock=fileCreate.acquire())
-					spirv_isa_cache_input = *lock;
-			}
-			// create the cache
-			{
-				std::span<const uint8_t> spirv_isa_cache_data = {};
-				if (spirv_isa_cache_input)
-					spirv_isa_cache_data = {reinterpret_cast<const uint8_t*>(spirv_isa_cache_input->getMappedPointer()),spirv_isa_cache_input->getSize()};
-				else
-					m_logger->log("Failed to load SPIR-V 2 ISA cache!",ILogger::ELL_PERFORMANCE);
-				// Normally we'd deserialize a `ICPUPipelineCache` properly and pass that instead
-				m_spirv_isa_cache = m_device->createPipelineCache(spirv_isa_cache_data);
-			}
-		}
-		{
-			// TODO: rename `deleteDirectory` to just `delete`? and a `IFile::setSize()` ?
-			m_system->deleteDirectory(spirv_isa_cache_path);
-			ISystem::future_t<smart_refctd_ptr<IFile>> fileCreate;
-			m_system->createFile(fileCreate,spirv_isa_cache_path,IFile::ECF_WRITE);
-			// I can be relatively sure I'll succeed to acquire the future, the pointer to created file might be null though.
-			m_spirv_isa_cache_output=*fileCreate.acquire();
-			if (!m_spirv_isa_cache_output)
-				logFail("Failed to Create SPIR-V to ISA cache file.");
-		}
-
 		// load shader source from file
 		auto getShaderSource = [&](const char* filePath) -> auto
 		{
@@ -429,10 +396,10 @@ public:
 
 		const auto SubgroupSizeLog2 = hlsl::findMSB(MinSubgroupSize);
 
-		bool passed = true;
-		passed = runBenchmark(cmdbuf, benchSets[0], elementCount, SubgroupSizeLog2);
-		passed = runBenchmark(cmdbuf, benchSets[1], elementCount, SubgroupSizeLog2);
-		passed = runBenchmark(cmdbuf, benchSets[2], elementCount, SubgroupSizeLog2);
+		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, benchSets[0].pipeline->getLayout(), 0u, 1u, &benchDs.get());
+
+		for (uint32_t i = 0; i < benchSets.size(); i++)
+			runBenchmark(cmdbuf, benchSets[i], elementCount, SubgroupSizeLog2);
 
 
 		// blit
@@ -633,17 +600,6 @@ private:
 				//	logTestOutcome(passed, itemsPerWG);
 				//}
 				m_api->endCapture();
-
-				// save cache every now and then	
-				{
-					auto cpu = m_spirv_isa_cache->convertToCPUCache();
-					// Normally we'd beautifully JSON serialize the thing, allow multiple devices & drivers + metadata
-					auto bin = cpu->getEntries().begin()->second.bin;
-					IFile::success_t success;
-					m_spirv_isa_cache_output->write(success, bin->data(), 0ull, bin->size());
-					if (!success)
-						logFail("Could not write Create SPIR-V to ISA cache to disk!");
-				}
 			}
 		}
 	}
@@ -662,7 +618,7 @@ private:
 			.requireFullSubgroups = true
 		};
 		core::smart_refctd_ptr<IGPUComputePipeline> pipeline;
-		if (!m_device->createComputePipelines(m_spirv_isa_cache.get(),{&params,1},&pipeline))
+		if (!m_device->createComputePipelines(nullptr,{&params,1},&pipeline))
 			return nullptr;
 		return pipeline;
 	}
@@ -689,12 +645,13 @@ private:
 		options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;
 		options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
 		options.spirvOptimizer = nullptr;
-//#ifndef _NBL_DEBUG
-//		ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
-//		auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
-//		options.spirvOptimizer = opt.get();
-//#endif
+#ifndef _NBL_DEBUG
+		ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
+		auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
+		options.spirvOptimizer = opt.get();
+#else
 		options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
+#endif
 		options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
 		options.preprocessorOptions.logger = m_logger.get();
 
@@ -875,12 +832,11 @@ private:
 	}
 
 
-	bool runBenchmark(IGPUCommandBuffer* cmdbuf, const BenchmarkSet& set, const uint32_t elementCount, const uint8_t subgroupSizeLog2)
+	void runBenchmark(IGPUCommandBuffer* cmdbuf, const BenchmarkSet& set, const uint32_t elementCount, const uint8_t subgroupSizeLog2)
 	{
 		const uint32_t workgroupCount = elementCount / (set.workgroupSize * set.itemsPerInvocation);
 
 		cmdbuf->bindComputePipeline(set.pipeline.get());
-		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, set.pipeline->getLayout(), 0u, 1u, &benchDs.get());
 		cmdbuf->dispatch(workgroupCount, 1, 1);
 		{
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t memoryBarrier[OutputBufferCount];
@@ -902,14 +858,10 @@ private:
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo info = { .memBarriers = {},.bufBarriers = memoryBarrier };
 			cmdbuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS::EDF_NONE, info);
 		}
-
-		return true;
 	}
 
 	IQueue* transferDownQueue;
 	IQueue* computeQueue;
-	smart_refctd_ptr<IGPUPipelineCache> m_spirv_isa_cache;
-	smart_refctd_ptr<IFile> m_spirv_isa_cache_output;
 
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>> m_surface;
@@ -923,7 +875,6 @@ private:
 	smart_refctd_ptr<IGPUImage> dummyImg;
 
 	std::array<BenchmarkSet, 3> benchSets;
-	smart_refctd_ptr<IGPUComputePipeline> benchPipeline;	// TODO array
 	smart_refctd_ptr<IDescriptorPool> benchPool;
 	smart_refctd_ptr<IGPUDescriptorSet> benchDs;
 
@@ -938,7 +889,7 @@ private:
 
 	bool b_runTests = false;
 	uint32_t* inputData = nullptr;
-	uint32_t ItemsPerInvocation = 1u;
+	uint32_t ItemsPerInvocation = 4u;
 	constexpr static inline uint32_t OutputBufferCount = 8u;
 	smart_refctd_ptr<IGPUBuffer> outputBuffers[OutputBufferCount];
 

@@ -27,11 +27,11 @@ bool canStore();
 //typedef uint32_t type_t;
 //typedef uint32_t4 type_t;
 
-#if ITEMS_PER_INVOCATION > 1
+// #if ITEMS_PER_INVOCATION > 1
 typedef vector<uint32_t, ITEMS_PER_INVOCATION> type_t;
-#else
-typedef uint32_t type_t;
-#endif
+// #else
+// typedef uint32_t type_t;
+// #endif
 
 
 #ifndef OPERATION
@@ -46,7 +46,7 @@ static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
 {
     // TODO static assert vector<T, N> == type_t
     //using type_t = vector<T, N>;
-    using config_t = nbl::hlsl::subgroup::Configuration<SUBGROUP_SIZE_LOG2>;
+    using config_t = nbl::hlsl::subgroup2::Configuration<SUBGROUP_SIZE_LOG2>;
     using params_t = nbl::hlsl::subgroup2::ArithmeticParams<config_t, typename binop<T>::base_t, N, nbl::hlsl::jit::device_capabilities>;
 
     if (globalIndex()==0u)
@@ -62,15 +62,15 @@ type_t test()
 {
     const uint32_t idx = globalIndex() * ITEMS_PER_INVOCATION;
     type_t sourceVal;
-#if ITEMS_PER_INVOCATION > 1
+// #if ITEMS_PER_INVOCATION > 1
     [unroll]
     for (uint32_t i = 0; i < ITEMS_PER_INVOCATION; i++)
     {
         sourceVal[i] = inputValue[idx + i];
     }
-#else
-    sourceVal = inputValue[idx];
-#endif
+// #else
+//     sourceVal = inputValue[idx];
+// #endif
 
     subtest<bit_and, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
     subtest<bit_xor, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);

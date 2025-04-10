@@ -38,7 +38,7 @@ bool canStore() {return true;}
 template<template<class> class binop, typename T, uint32_t N>
 static void subbench(NBL_CONST_REF_ARG(type_t) sourceVal)
 {
-    using config_t = nbl::hlsl::subgroup::Configuration<SUBGROUP_SIZE_LOG2>;
+    using config_t = nbl::hlsl::subgroup2::Configuration<SUBGROUP_SIZE_LOG2>;
     using params_t = nbl::hlsl::subgroup2::ArithmeticParams<config_t, typename binop<T>::base_t, N, nbl::hlsl::jit::device_capabilities>;
     type_t value = sourceVal;
 
@@ -54,15 +54,15 @@ void benchmark()
 {
     const uint32_t idx = globalIndex() * ITEMS_PER_INVOCATION;
     type_t sourceVal;
-#if ITEMS_PER_INVOCATION > 1
+// #if ITEMS_PER_INVOCATION > 1
     [unroll]
     for (uint32_t i = 0; i < ITEMS_PER_INVOCATION; i++)
     {
         sourceVal[i] = inputValue[idx + i];
     }
-#else
-    sourceVal = inputValue[idx];
-#endif
+// #else
+//     sourceVal = inputValue[idx];
+// #endif
 
     subbench<bit_and, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
     subbench<bit_xor, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
