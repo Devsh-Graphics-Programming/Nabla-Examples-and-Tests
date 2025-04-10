@@ -4,6 +4,7 @@
 
 #include "shaderCommon.hlsl"
 
+// NOTE added dummy output image to be able to profile with Nsight, which still doesn't support profiling headless compute shaders
 [[vk::binding(2, 0)]] RWTexture2D<float32_t4> outImage; // dummy
 
 uint32_t globalIndex()

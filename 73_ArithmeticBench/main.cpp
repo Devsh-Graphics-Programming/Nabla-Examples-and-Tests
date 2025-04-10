@@ -47,6 +47,7 @@ struct emulatedScanExclusive
 	static inline constexpr const char* name = "exclusive_scan";
 };
 
+// NOTE added swapchain + drawing frames to be able to profile with Nsight, which still doesn't support profiling headless compute shaders
 class ArithmeticBenchApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 	using device_base_t = examples::SimpleWindowedApplication;
@@ -330,7 +331,7 @@ public:
 
 		// for each workgroup size (manually adjust items per invoc, operation else uses up a lot of ram)
 		for (uint32_t i = 0; i < workgroupSizes.size(); i++)
-			benchSets[i] = createBenchmarkPipelines<emulatedScanInclusive>(subgroupBenchSource, benchPplnLayout.get(), elementCount, hlsl::findMSB(MinSubgroupSize), workgroupSizes[i], ItemsPerInvocation, NumLoops);
+			benchSets[i] = createBenchmarkPipelines<ArithmeticOp>(subgroupBenchSource, benchPplnLayout.get(), elementCount, hlsl::findMSB(MinSubgroupSize), workgroupSizes[i], ItemsPerInvocation, NumLoops);
 
 		m_winMgr->show(m_window.get());
 
@@ -429,9 +430,9 @@ public:
 		const auto SubgroupSizeLog2 = hlsl::findMSB(MinSubgroupSize);
 
 		bool passed = true;
-		passed = runBenchmark<emulatedScanInclusive>(cmdbuf, benchSets[0], elementCount, SubgroupSizeLog2);
-		passed = runBenchmark<emulatedScanInclusive>(cmdbuf, benchSets[1], elementCount, SubgroupSizeLog2);
-		passed = runBenchmark<emulatedScanInclusive>(cmdbuf, benchSets[2], elementCount, SubgroupSizeLog2);
+		passed = runBenchmark(cmdbuf, benchSets[0], elementCount, SubgroupSizeLog2);
+		passed = runBenchmark(cmdbuf, benchSets[1], elementCount, SubgroupSizeLog2);
+		passed = runBenchmark(cmdbuf, benchSets[2], elementCount, SubgroupSizeLog2);
 
 
 		// blit
@@ -676,7 +677,7 @@ private:
 	template<template<class> class Arithmetic>
 	BenchmarkSet createBenchmarkPipelines(const smart_refctd_ptr<const ICPUShader>&source, const IGPUPipelineLayout* layout, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerInvoc = 1u, uint32_t numLoops = 8u)
 	{
-		std::string arith_name = Arithmetic<bit_xor<uint32_t>>::name;	// TODO all operations
+		std::string arith_name = Arithmetic<plus<uint32_t>>::name;	// TODO all operations
 
 		//smart_refctd_ptr<ICPUShader> overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
 		//	source.get(), "#define OPERATION %s\n#define WORKGROUP_SIZE %d\n#define ITEMS_PER_INVOCATION %d\n#define SUBGROUP_SIZE_LOG2 %d\n",
@@ -874,7 +875,6 @@ private:
 	}
 
 
-	template<template<class> class Arithmetic>
 	bool runBenchmark(IGPUCommandBuffer* cmdbuf, const BenchmarkSet& set, const uint32_t elementCount, const uint8_t subgroupSizeLog2)
 	{
 		const uint32_t workgroupCount = elementCount / (set.workgroupSize * set.itemsPerInvocation);
@@ -933,9 +933,12 @@ private:
 	constexpr static inline uint32_t MaxNumSubmits = 30;
 	uint32_t numSubmits = 0;
 
+	template<class BinOp>
+	using ArithmeticOp = emulatedReduction<BinOp>;	// change this to test other arithmetic ops
+
 	bool b_runTests = false;
 	uint32_t* inputData = nullptr;
-	uint32_t ItemsPerInvocation = 4u;
+	uint32_t ItemsPerInvocation = 1u;
 	constexpr static inline uint32_t OutputBufferCount = 8u;
 	smart_refctd_ptr<IGPUBuffer> outputBuffers[OutputBufferCount];
 
