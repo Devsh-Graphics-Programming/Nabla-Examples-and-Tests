@@ -420,6 +420,26 @@ float dot2(in float2 vec)
     return dot(vec, vec);
 }
 
+struct DTMHeightShadingAAInfo
+{
+    float currentHeight;
+    float4 currentSegmentColor;
+    float nearestSegmentHeight;
+    float4 nearestSegmentColor;
+};
+
+void calculateBetweenHeightShadingRegionsAntiAliasing(in DTMSettings dtm, in DTMHeightShadingAAInfo aaInfo, out float3 textureColor, out float localAlpha)
+{
+    float heightDeriv = fwidth(aaInfo.currentHeight);
+
+    float pxDistanceToNearestSegment = abs(aaInfo.currentHeight - aaInfo.nearestSegmentHeight) / heightDeriv;
+    float nearestSegmentColorCoverage = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, pxDistanceToNearestSegment);
+    float4 localHeightColor = lerp(aaInfo.nearestSegmentColor, aaInfo.currentSegmentColor, nearestSegmentColorCoverage);
+
+    localAlpha *= localHeightColor.a;
+    textureColor = localHeightColor.rgb * localAlpha + textureColor * (1.0f - localAlpha);
+}
+
 [[vk::spvexecutionmode(spv::ExecutionModePixelInterlockOrderedEXT)]]
 [shader("pixel")]
 float4 fragMain(PSInput input) : SV_TARGET
@@ -438,7 +458,7 @@ float4 fragMain(PSInput input) : SV_TARGET
             const float outlineThickness = input.getOutlineThickness();
             const float contourThickness = input.getContourLineThickness();
             const float phaseShift = 0.0f; // input.getCurrentPhaseShift();
-            const float stretch = 1.0f; // TODO: figure out what is it for ---> [ERFAN's REPLY: no need to give shit about this in dtms, it's for special shape styles] 
+            const float stretch = 1.0f;
             const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
 
             DTMSettings dtm = loadDTMSettings(mainObj.dtmSettingsIdx);
@@ -507,58 +527,73 @@ float4 fragMain(PSInput input) : SV_TARGET
                 if(mode == DTMSettings::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS)
                 {
                     DTMSettingsHeightsAccessor dtmHeightsAccessor = { dtm };
-                    uint32_t mapIndexPlus1 = nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, heightMapSize, height);
-                    uint32_t mapIndex = mapIndexPlus1 == 0 ? mapIndexPlus1 : mapIndexPlus1 - 1;
+                    int upperBoundIndex = nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, heightMapSize, height);
+                    int mapIndex = max(upperBoundIndex - 1, 0);
+                    int mapIndexPrev = max(mapIndex - 1, 0);
+                    int mapIndexNext = min(mapIndex + 1, heightMapSize - 1);
 
-                    float heightDeriv = fwidth(height);
-                    bool blendWithPrev = true
-                        && (mapIndex >= heightMapSize - 1 || (height * 2.0 < dtm.heightColorMapHeights[mapIndexPlus1] + dtm.heightColorMapHeights[mapIndex]));
-                
                     // logic explainer: if colorIdx is 0.0 then it means blend with next
                     // if color idx is >= length of the colours array then it means it's also > 0.0 and this blend with prev is true
                     // if color idx is > 0 and < len - 1, then it depends on the current pixel's height value and two closest height values
-                    if (blendWithPrev)
+                    bool blendWithPrev = (mapIndex > 0)
+                        && (mapIndex >= heightMapSize - 1 || (height * 2.0 < dtm.heightColorMapHeights[upperBoundIndex] + dtm.heightColorMapHeights[mapIndex]));
+
+                    DTMHeightShadingAAInfo aaInfo;
+                    aaInfo.currentHeight = height;
+                    aaInfo.currentSegmentColor = dtm.heightColorMapColors[mapIndex];
+                    aaInfo.nearestSegmentHeight = blendWithPrev ? dtm.heightColorMapHeights[mapIndex] : dtm.heightColorMapHeights[mapIndexNext];
+                    aaInfo.nearestSegmentColor = blendWithPrev ? dtm.heightColorMapColors[mapIndexPrev] : dtm.heightColorMapColors[mapIndexNext];
+
+                    calculateBetweenHeightShadingRegionsAntiAliasing(dtm, aaInfo, textureColor, localAlpha);
+                }
+                else if (mode == DTMSettings::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS)
+                {
+                    float interval = dtm.intervalWidth;
+                    float heightMinShadingHeightDiff = (height - minShadingHeight);
+                    int sectionIndex = int(heightMinShadingHeightDiff / interval);
+                    float heightTmp = minShadingHeight + float(sectionIndex) * interval;
+
+                    DTMSettingsHeightsAccessor dtmHeightsAccessor = { dtm };
+                    uint32_t upperBoundHeightIndex = nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, heightMapSize, height);
+                    uint32_t lowerBoundHeightIndex = max(upperBoundHeightIndex - 1, 0);
+
+                    float upperBoundHeight = dtm.heightColorMapHeights[upperBoundHeightIndex];
+                    float lowerBoundHeight = dtm.heightColorMapHeights[lowerBoundHeightIndex];
+
+                    float4 upperBoundColor = dtm.heightColorMapColors[upperBoundHeightIndex];
+                    float4 lowerBoundColor = dtm.heightColorMapColors[lowerBoundHeightIndex];
+
+                    float interpolationVal;
+                    bool blendWithPrev;
+                    if (upperBoundHeightIndex == 0)
                     {
-                        if (mapIndex > 0)
-                        {
-                            float pxDistanceToPrevHeight = (height - dtm.heightColorMapHeights[mapIndex]) / heightDeriv;
-                            float prevColorCoverage = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, pxDistanceToPrevHeight);
-                            textureColor = lerp(dtm.heightColorMapColors[mapIndex - 1].rgb, dtm.heightColorMapColors[mapIndex].rgb, prevColorCoverage);
-                        }
-                        else
-                        {
-                            textureColor = dtm.heightColorMapColors[mapIndex].rgb;
-                        }
+                        interpolationVal = 1.0f;
+                        blendWithPrev = false;
                     }
                     else
                     {
-                        if (mapIndex < heightMapSize - 1)
-                        {
-                            float pxDistanceToNextHeight = (height - dtm.heightColorMapHeights[mapIndexPlus1]) / heightDeriv;
-                            float nextColorCoverage = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, pxDistanceToNextHeight);
-                            textureColor = lerp(dtm.heightColorMapColors[mapIndex].rgb, dtm.heightColorMapColors[mapIndexPlus1].rgb, nextColorCoverage);
-                        }
-                        else
-                        {
-                            textureColor = dtm.heightColorMapColors[mapIndex].rgb;
-                        }
+                        interpolationVal = (heightTmp - lowerBoundHeight) / (upperBoundHeight - lowerBoundHeight);
+                        blendWithPrev = height - interval * sectionIndex < 0.5f;
                     }
 
-                    //localAlpha = dtm.heightColorMapColors[mapIndex].a;
+                    DTMHeightShadingAAInfo aaInfo;
+                    aaInfo.currentHeight = height;
+                    aaInfo.currentSegmentColor = lerp(lowerBoundColor, upperBoundColor, interpolationVal);
+                    if (blendWithPrev)
+                    {
+                        aaInfo.nearestSegmentHeight = heightTmp;
+                        aaInfo.nearestSegmentColor = lerp(lowerBoundColor, upperBoundColor, interpolationVal - 1.0f / interval);
+                    }
+                    else
+                    {
+                        aaInfo.nearestSegmentHeight = heightTmp + interval;
+                        aaInfo.nearestSegmentColor = lerp(lowerBoundColor, upperBoundColor, interpolationVal + 1.0f / interval);
+                    }
+                    calculateBetweenHeightShadingRegionsAntiAliasing(dtm, aaInfo, textureColor, localAlpha);
                 }
-                else
+                else if (mode == DTMSettings::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS)
                 {
-                    float heightTmp;
-                    if (mode == DTMSettings::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS)
-                    {
-                        float interval = dtm.intervalWidth;
-                        int sectionIndex = int((height - minShadingHeight) / interval);
-                        heightTmp = minShadingHeight + float(sectionIndex) * interval;
-                    }
-                    else if (mode == DTMSettings::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS)
-                    {
-                        heightTmp = height;
-                    }
+                    float heightTmp = height;
 
                     DTMSettingsHeightsAccessor dtmHeightsAccessor = { dtm };
                     uint32_t upperBoundHeightIndex = nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, heightMapSize, height);
@@ -575,16 +610,13 @@ float4 fragMain(PSInput input) : SV_TARGET
                         interpolationVal = 1.0f;
                     else
                         interpolationVal = (heightTmp - lowerBoundHeight) / (upperBoundHeight - lowerBoundHeight);
-                
-                    textureColor = lerp(lowerBoundColor.rgb, upperBoundColor.rgb, interpolationVal);
-                    localAlpha = lerp(lowerBoundColor.a, upperBoundColor.a, interpolationVal);;
+
+                    float4 localHeightColor = lerp(lowerBoundColor, upperBoundColor, interpolationVal);
+
+                    localAlpha *= localHeightColor.a;
+                    textureColor = localHeightColor.rgb * localAlpha + textureColor * (1.0f - localAlpha);
                 }
             }
-            //else // TODO: remove!!
-            //{
-            //    printf("WTF");
-            //    return float4(0.0f, 0.0f, 0.0f, 1.0f);
-            //}
 
             // CONTOUR
 
