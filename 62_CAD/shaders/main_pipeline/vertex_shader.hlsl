@@ -102,20 +102,46 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setMainObjectIdx(pc.triangleMeshMainObjectIndex);
     
         TriangleMeshVertex vtx = vk::RawBufferLoad<TriangleMeshVertex>(pc.triangleMeshVerticesBaseAddress + sizeof(TriangleMeshVertex) * vertexID, 8u);
-        pfloat64_t2 vtxPos;
-        vtxPos.x = _static_cast<pfloat64_t>(vtx.pos.x);
-        vtxPos.y = _static_cast<pfloat64_t>(vtx.pos.y);
 
         MainObject mainObj = loadMainObject(pc.triangleMeshMainObjectIndex);
         clipProjectionData = getClipProjectionData(mainObj);
 
-        float2 transformedPos = transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, vtxPos);
+        // assuming there are 3 * N vertices, number of vertices is equal to number of indices and indices are sequential starting from 0
+        float2 transformedOriginalPos;
+        float2 transformedDilatedPos;
+        {
+            uint32_t firstVertexOfCurrentTriangleIndex = vertexID - vertexID % 3;
+            uint32_t currentVertexWithinTriangleIndex = vertexID - firstVertexOfCurrentTriangleIndex;
 
-        outV.position.xy = transformedPos;
+            TriangleMeshVertex triangleVertices[3];
+            triangleVertices[0] = vk::RawBufferLoad<TriangleMeshVertex>(pc.triangleMeshVerticesBaseAddress + sizeof(TriangleMeshVertex) * firstVertexOfCurrentTriangleIndex, 8u);
+            triangleVertices[1] = vk::RawBufferLoad<TriangleMeshVertex>(pc.triangleMeshVerticesBaseAddress + sizeof(TriangleMeshVertex) * (firstVertexOfCurrentTriangleIndex + 1), 8u);
+            triangleVertices[2] = vk::RawBufferLoad<TriangleMeshVertex>(pc.triangleMeshVerticesBaseAddress + sizeof(TriangleMeshVertex) * (firstVertexOfCurrentTriangleIndex + 2), 8u);
+            transformedOriginalPos = transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, triangleVertices[currentVertexWithinTriangleIndex].pos);
+
+            pfloat64_t2 triangleCentroid;
+            triangleCentroid.x = (triangleVertices[0].pos.x + triangleVertices[1].pos.x + triangleVertices[2].pos.x) / _static_cast<pfloat64_t>(3.0f);
+            triangleCentroid.y = (triangleVertices[0].pos.y + triangleVertices[1].pos.y + triangleVertices[2].pos.y) / _static_cast<pfloat64_t>(3.0f);
+
+            // move triangles to local space, with centroid at (0, 0)
+            triangleVertices[0].pos = triangleVertices[0].pos - triangleCentroid;
+            triangleVertices[1].pos = triangleVertices[1].pos - triangleCentroid;
+            triangleVertices[2].pos = triangleVertices[2].pos - triangleCentroid;
+
+            // TODO: calculate dialation factor
+            pfloat64_t dialationFactor = _static_cast<pfloat64_t>(2.0f);
+            pfloat64_t2 dialatedVertex = triangleVertices[currentVertexWithinTriangleIndex].pos * dialationFactor;
+
+            dialatedVertex = dialatedVertex + triangleCentroid;
+
+            transformedDilatedPos = transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, dialatedVertex);
+        }
+
+        outV.position.xy = transformedDilatedPos;
         outV.position = transformFromSreenSpaceToNdc(outV.position.xy, globals.resolution);
         const float heightAsFloat = nbl::hlsl::_static_cast<float>(vtx.height);
         outV.setHeight(heightAsFloat);
-        outV.setScreenSpaceVertexAttribs(float3(transformedPos, heightAsFloat));
+        outV.setScreenSpaceVertexAttribs(float3(transformedOriginalPos, heightAsFloat));
         outV.setCurrentWorldToScreenRatio(
             _static_cast<float>((_static_cast<pfloat64_t>(2.0f) /
                 (clipProjectionData.projectionToNDC[0].x * _static_cast<pfloat64_t>(globals.resolution.x))))

@@ -440,6 +440,15 @@ void calculateBetweenHeightShadingRegionsAntiAliasing(in DTMSettings dtm, in DTM
     textureColor = localHeightColor.rgb * localAlpha + textureColor * (1.0f - localAlpha);
 }
 
+float3 calculateDTMTriangleBarycentrics(in float2 v1, in float2 v2, in float2 v3, in float2 p)
+{
+    float denom = (v2.x - v1.x) * (v3.y - v1.y) - (v3.x - v1.x) * (v2.y - v1.y);
+    float u = ((v2.y - v3.y) * (p.x - v3.x) + (v3.x - v2.x) * (p.y - v3.y)) / denom;
+    float v = ((v3.y - v1.y) * (p.x - v3.x) + (v1.x - v3.x) * (p.y - v3.y)) / denom;
+    float w = 1.0 - u - v;
+    return float3(u, v, w);
+}
+
 [[vk::spvexecutionmode(spv::ExecutionModePixelInterlockOrderedEXT)]]
 [shader("pixel")]
 float4 fragMain(PSInput input) : SV_TARGET
@@ -470,7 +479,8 @@ float4 fragMain(PSInput input) : SV_TARGET
             v[1] = input.getScreenSpaceVertexAttribs(1);
             v[2] = input.getScreenSpaceVertexAttribs(2);
 
-            const float3 baryCoord = nbl::hlsl::spirv::BaryCoordKHR;
+            //const float3 baryCoord = nbl::hlsl::spirv::BaryCoordKHR;
+            const float3 baryCoord = calculateDTMTriangleBarycentrics(v[0], v[1], v[2], input.position.xy);
 
             // indices of points constructing every edge
             uint2 edgePoints[3];
@@ -483,8 +493,8 @@ float4 fragMain(PSInput input) : SV_TARGET
             opposingVertexIdx[0] = 2;
             opposingVertexIdx[1] = 0;
             opposingVertexIdx[2] = 1;
-        
-            float height = input.getHeight();
+
+            float height = baryCoord.x * v[0].z + baryCoord.y * v[1].z + baryCoord.z * v[2].z;
 
             // HEIGHT SHADING
             const uint32_t heightMapSize = dtm.heightColorEntryCount;
