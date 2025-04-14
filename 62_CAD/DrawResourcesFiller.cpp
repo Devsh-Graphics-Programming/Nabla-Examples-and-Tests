@@ -653,6 +653,10 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 	}
 	_NBL_DEBUG_BREAK_IF(!dtmSettingsInfo.fillShaderDTMSettingsHeightColorMap(dtmSettings));
 
+	dtmSettings.drawHeightsFlag = static_cast<int>(dtmSettingsInfo.drawHeightsFlag);
+	dtmSettings.drawContoursFlag = static_cast<int>(dtmSettingsInfo.drawContoursFlag);
+	dtmSettings.drawOutlineFlag = static_cast<int>(dtmSettingsInfo.drawOutlineFlag);
+
 	for (uint32_t i = 0u; i < resourcesCollection.dtmSettings.vector.size(); ++i)
 	{
 		const DTMSettings& itr = resourcesCollection.dtmSettings.vector[i];

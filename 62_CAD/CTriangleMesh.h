@@ -25,6 +25,10 @@ struct DTMSettingsInfo
 	float intervalWidth;
 	E_HEIGHT_SHADING_MODE heightShadingMode;
 
+	bool drawHeightsFlag;
+	bool drawContoursFlag;
+	bool drawOutlineFlag;
+
 	void addHeightColorMapEntry(float height, float32_t4 color)
 	{
 		heightColorSet.emplace(height, color);

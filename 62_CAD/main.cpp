@@ -3264,6 +3264,10 @@ protected:
 			std::array<double, 4> contourStipplePattern = { 0.0f, -5.0f, 10.0f, -5.0f };
 			dtmSettingsInfo.contourLineStyleInfo.setStipplePatternData(contourStipplePattern);
 
+			dtmSettingsInfo.drawHeightsFlag = true;
+			dtmSettingsInfo.drawContoursFlag = true;
+			dtmSettingsInfo.drawOutlineFlag = true;
+
 			// PRESS 1, 2, 3 TO SWITCH HEIGHT SHADING MODE
 			// 1 - DISCRETE_VARIABLE_LENGTH_INTERVALS
 			// 2 - DISCRETE_FIXED_LENGTH_INTERVALS

@@ -359,7 +359,11 @@ struct DTMSettings
     const static uint32_t HeightColorMapMaxEntries = 16u;
     uint32_t outlineLineStyleIdx; // index into line styles
     uint32_t contourLineStyleIdx; // index into line styles
-    
+
+    int drawHeightsFlag;
+    int drawContoursFlag;
+    int drawOutlineFlag;
+
     // contour lines
     float contourLinesStartHeight;
     float contourLinesEndHeight;
