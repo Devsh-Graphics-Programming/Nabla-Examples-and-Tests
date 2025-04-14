@@ -430,6 +430,7 @@ struct DTMHeightShadingAAInfo
 
 void calculateBetweenHeightShadingRegionsAntiAliasing(in DTMSettings dtm, in DTMHeightShadingAAInfo aaInfo, out float3 textureColor, out float localAlpha)
 {
+    //TODO: move outside
     float heightDeriv = fwidth(aaInfo.currentHeight);
 
     float pxDistanceToNearestSegment = abs(aaInfo.currentHeight - aaInfo.nearestSegmentHeight) / heightDeriv;
@@ -437,7 +438,7 @@ void calculateBetweenHeightShadingRegionsAntiAliasing(in DTMSettings dtm, in DTM
     float4 localHeightColor = lerp(aaInfo.nearestSegmentColor, aaInfo.currentSegmentColor, nearestSegmentColorCoverage);
 
     localAlpha *= localHeightColor.a;
-    textureColor = localHeightColor.rgb * localAlpha + textureColor * (1.0f - localAlpha);
+    textureColor = localHeightColor.rgb;
 }
 
 float3 calculateDTMTriangleBarycentrics(in float2 v1, in float2 v2, in float2 v3, in float2 p)
@@ -529,6 +530,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                 convexPolygonSdf = max(convexPolygonSdf, line3Sdf);
                 convexPolygonSdf = max(convexPolygonSdf, line4Sdf);
 
+                // TODO: separate
                 localAlpha = 1.0f - smoothstep(0.0f, globals.antiAliasingFactor * 2.0f, convexPolygonSdf);
 
                 // calculate height color
@@ -577,13 +579,13 @@ float4 fragMain(PSInput input) : SV_TARGET
                     bool blendWithPrev;
                     if (upperBoundHeightIndex == 0)
                     {
-                        interpolationVal = 1.0f;
+                        interpolationVal = 1.0f; // TODO: investigate if it is correct
                         blendWithPrev = false;
                     }
                     else
                     {
                         interpolationVal = (heightTmp - lowerBoundHeight) / (upperBoundHeight - lowerBoundHeight);
-                        blendWithPrev = height - interval * sectionIndex < 0.5f;
+                        blendWithPrev = height - interval * sectionIndex < 0.5f; // TODO: investigate if it is correct
                     }
 
                     DTMHeightShadingAAInfo aaInfo;
@@ -603,8 +605,6 @@ float4 fragMain(PSInput input) : SV_TARGET
                 }
                 else if (mode == DTMSettings::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS)
                 {
-                    float heightTmp = height;
-
                     DTMSettingsHeightsAccessor dtmHeightsAccessor = { dtm };
                     uint32_t upperBoundHeightIndex = nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, heightMapSize, height);
                     uint32_t lowerBoundHeightIndex = upperBoundHeightIndex == 0 ? upperBoundHeightIndex : upperBoundHeightIndex - 1;
@@ -619,7 +619,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                     if (upperBoundHeightIndex == 0)
                         interpolationVal = 1.0f;
                     else
-                        interpolationVal = (heightTmp - lowerBoundHeight) / (upperBoundHeight - lowerBoundHeight);
+                        interpolationVal = (height - lowerBoundHeight) / (upperBoundHeight - lowerBoundHeight);
 
                     float4 localHeightColor = lerp(lowerBoundColor, upperBoundColor, interpolationVal);
 
@@ -648,7 +648,7 @@ float4 fragMain(PSInput input) : SV_TARGET
             // TODO: case where heights we are looking for are on all three vertices
             for (int i = 0; i < 3; ++i)
             {
-                if (contourLinePointsIdx == 3)
+                if (contourLinePointsIdx == 2)
                     break;
 
                 const uint2 currentEdgePoints = edgePoints[i];
@@ -694,8 +694,6 @@ float4 fragMain(PSInput input) : SV_TARGET
                 localAlpha = max(localAlpha, contourLocalAlpha);
             }
 
-        
-
             // OUTLINE
 
             // find sdf of every edge
@@ -719,8 +717,8 @@ float4 fragMain(PSInput input) : SV_TARGET
                 float3 B = v[currentEdgePoints[1]];
                 float3 AB = B - A;
                 float ABLen = length(AB);
-
-                distances[i] = (triangleAreaTimesTwo / ABLen) * baryCoord[opposingVertexIdx[i]];
+                float triangleHeightToOpositeVertex = triangleAreaTimesTwo / ABLen;
+                distances[i] = triangleHeightToOpositeVertex * baryCoord[opposingVertexIdx[i]];
             }
 
             float minDistance = nbl::hlsl::numeric_limits<float>::max;

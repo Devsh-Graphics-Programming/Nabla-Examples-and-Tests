@@ -137,8 +137,7 @@ PSInput main(uint vertexID : SV_VertexID)
             transformedDilatedPos = transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, dialatedVertex);
         }
 
-        outV.position.xy = transformedDilatedPos;
-        outV.position = transformFromSreenSpaceToNdc(outV.position.xy, globals.resolution);
+        outV.position = transformFromSreenSpaceToNdc(transformedDilatedPos, globals.resolution);
         const float heightAsFloat = nbl::hlsl::_static_cast<float>(vtx.height);
         outV.setHeight(heightAsFloat);
         outV.setScreenSpaceVertexAttribs(float3(transformedOriginalPos, heightAsFloat));
@@ -151,6 +150,7 @@ PSInput main(uint vertexID : SV_VertexID)
         DTMSettings dtm = loadDTMSettings(mainObj.dtmSettingsIdx);
         LineStyle outlineStyle = loadLineStyle(dtm.outlineLineStyleIdx);
         LineStyle contourStyle = loadLineStyle(dtm.contourLineStyleIdx);
+        // TODO: maybe move to fragment shader since we may have multiple contour styles later
         const float screenSpaceOutlineWidth = outlineStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(outlineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
         const float sdfOutlineThickness = screenSpaceOutlineWidth * 0.5f;
         const float screenSpaceContourLineWidth = contourStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(contourStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
