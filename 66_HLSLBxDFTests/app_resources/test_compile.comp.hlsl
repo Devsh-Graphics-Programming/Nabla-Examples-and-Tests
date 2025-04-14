@@ -15,7 +15,7 @@ using aniso_interaction = bxdf::surface_interactions::SAnisotropic<ray_dir_info_
 using sample_t = bxdf::SLightSample<ray_dir_info_t>;
 using iso_cache = bxdf::SIsotropicMicrofacetCache<float>;
 using aniso_cache = bxdf::SAnisotropicMicrofacetCache<float>;
-using quotient_pdf_t = bxdf::quotient_and_pdf<float32_t3, float>;
+using quotient_pdf_t = sampling::quotient_and_pdf<float32_t3, float>;
 using spectral_t = vector<float, 3>;
 using params_t = bxdf::SBxDFParams<float>;
 
