@@ -469,10 +469,15 @@ float getIntervalPosition(in float height, in float minHeight, in float interval
 void getIntervalHeightAndColor(in int intervalIndex, in DTMSettings dtmSettings, out float4 outIntervalColor, out float outIntervalHeight)
 {
     float minShadingHeight = dtmSettings.heightColorMapHeights[0];
-    outIntervalHeight = minShadingHeight + float(intervalIndex) * dtmSettings.intervalIndexToHeightMultiplier;
+    float heightForColor = minShadingHeight + float(intervalIndex) * dtmSettings.intervalIndexToHeightMultiplier;
+    
+    if (dtmSettings.isCenteredShading)
+        outIntervalHeight = minShadingHeight + (float(intervalIndex) - 0.5) * dtmSettings.intervalLength;
+    else
+        outIntervalHeight = minShadingHeight + (float(intervalIndex)) * dtmSettings.intervalLength;
 
     DTMSettingsHeightsAccessor dtmHeightsAccessor = { dtmSettings };
-    uint32_t upperBoundHeightIndex = min(nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, dtmSettings.heightColorEntryCount, outIntervalHeight), dtmSettings.heightColorEntryCount-1u);
+    uint32_t upperBoundHeightIndex = min(nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, dtmSettings.heightColorEntryCount, heightForColor), dtmSettings.heightColorEntryCount-1u);
     uint32_t lowerBoundHeightIndex = max(upperBoundHeightIndex - 1, 0);
 
     float upperBoundHeight = dtmSettings.heightColorMapHeights[upperBoundHeightIndex];
@@ -487,7 +492,7 @@ void getIntervalHeightAndColor(in int intervalIndex, in DTMSettings dtmSettings,
     }
     else
     {
-        float interpolationVal = (outIntervalHeight - lowerBoundHeight) / (upperBoundHeight - lowerBoundHeight);
+        float interpolationVal = (heightForColor - lowerBoundHeight) / (upperBoundHeight - lowerBoundHeight);
         outIntervalColor = lerp(lowerBoundColor, upperBoundColor, interpolationVal);
     }
 }
