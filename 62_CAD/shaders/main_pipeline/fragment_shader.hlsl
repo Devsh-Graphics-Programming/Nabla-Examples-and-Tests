@@ -420,22 +420,80 @@ float dot2(in float2 vec)
     return dot(vec, vec);
 }
 
-struct DTMHeightShadingAAInfo
+
+// TODO: Later move these functions and structs to dtmSettings.hlsl and a namespace like dtmSettings::height_shading or dtmSettings::contours, etc..
+
+struct HeightSegmentTransitionData
 {
     float currentHeight;
     float4 currentSegmentColor;
-    float nearestSegmentHeight;
-    float4 nearestSegmentColor;
+    float boundaryHeight;
+    float4 otherSegmentColor;
 };
 
-void calculateBetweenHeightShadingRegionsAntiAliasing(in DTMSettings dtm, in DTMHeightShadingAAInfo aaInfo, in float heightDeriv, out float4 outputColor)
-{
-    float pxDistanceToNearestSegment = abs(aaInfo.currentHeight - aaInfo.nearestSegmentHeight) / heightDeriv;
-    float nearestSegmentColorCoverage = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, pxDistanceToNearestSegment);
-    float4 localHeightColor = lerp(aaInfo.nearestSegmentColor, aaInfo.currentSegmentColor, nearestSegmentColorCoverage);
+// NOTE[Erfan to Przemek][REMOVE WHEN READ]: I renamed to `smoothHeightSegmentTransition` and made it return value instead of take `out` param + removed applying it to final output color (it's responsibility of the caller now)
+// Now the resposibility of this  function is just to "Figure out what the interpolated color at the transition is." and doesn't assume how it's gonna be applied to the final color
+// that's more predictible and atomic. Additionally I think `out` functions make the code a little bit more unreadable as well
 
-    outputColor.a *= localHeightColor.a;
-    outputColor.rgb = localHeightColor.rgb;
+// This function interpolates between the current and nearest segment colors based on the
+// screen-space distance to the segment boundary. The result is a smoothly blended color
+// useful for visualizing discrete height levels without harsh edges.
+float4 smoothHeightSegmentTransition(in HeightSegmentTransitionData transitionInfo, in float heightDeriv)
+{
+    float pxDistanceToNearestSegment = abs((transitionInfo.currentHeight - transitionInfo.boundaryHeight) / heightDeriv);
+    float nearestSegmentColorCoverage = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, pxDistanceToNearestSegment);
+    float4 localHeightColor = lerp(transitionInfo.otherSegmentColor, transitionInfo.currentSegmentColor, nearestSegmentColorCoverage);
+    return localHeightColor;
+}
+
+// Computes the continuous position of a height value within uniform intervals.
+// flooring this value will give the interval index
+//
+// If `isCenteredShading` is true, the intervals are centered around `minHeight`, meaning the
+// first interval spans [minHeight - intervalLength / 2.0, minHeight + intervalLength / 2.0].
+// Otherwise, intervals are aligned from `minHeight` upward, so the first interval spans
+// [minHeight, minHeight + intervalLength].
+//
+// Parameters:
+// - height: The height value to classify.
+// - minHeight: The reference starting height for interval calculation.
+// - intervalLength: The length of each interval segment.
+// - isCenteredShading: Whether to center the shading intervals around minHeight.
+//
+// Returns:
+// - A float representing the continuous position within the interval grid.
+float getIntervalPosition(in float height, in float minHeight, in float intervalLength, in bool isCenteredShading)
+{
+    if (isCenteredShading)
+        return ( (height - minHeight) / intervalLength + 0.5f);
+    else
+        return ( (height - minHeight) / intervalLength );
+}
+
+void getIntervalHeightAndColor(in int intervalIndex, in DTMSettings dtmSettings, out float4 outIntervalColor, out float outIntervalHeight)
+{
+    float minShadingHeight = dtmSettings.heightColorMapHeights[0];
+    outIntervalHeight = minShadingHeight + float(intervalIndex) * dtmSettings.intervalIndexToHeightMultiplier;
+
+    DTMSettingsHeightsAccessor dtmHeightsAccessor = { dtmSettings };
+    uint32_t upperBoundHeightIndex = min(nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, dtmSettings.heightColorEntryCount, outIntervalHeight), dtmSettings.heightColorEntryCount-1u);
+    uint32_t lowerBoundHeightIndex = max(upperBoundHeightIndex - 1, 0);
+
+    float upperBoundHeight = dtmSettings.heightColorMapHeights[upperBoundHeightIndex];
+    float lowerBoundHeight = dtmSettings.heightColorMapHeights[lowerBoundHeightIndex];
+
+    float4 upperBoundColor = dtmSettings.heightColorMapColors[upperBoundHeightIndex];
+    float4 lowerBoundColor = dtmSettings.heightColorMapColors[lowerBoundHeightIndex];
+    
+    if (upperBoundHeight == lowerBoundHeight)
+    {
+        outIntervalColor = upperBoundColor;
+    }
+    else
+    {
+        float interpolationVal = (outIntervalHeight - lowerBoundHeight) / (upperBoundHeight - lowerBoundHeight);
+        outIntervalColor = lerp(lowerBoundColor, upperBoundColor, interpolationVal);
+    }
 }
 
 float3 calculateDTMTriangleBarycentrics(in float2 v1, in float2 v2, in float2 v3, in float2 p)
@@ -447,14 +505,14 @@ float3 calculateDTMTriangleBarycentrics(in float2 v1, in float2 v2, in float2 v3
     return float3(u, v, w);
 }
 
-float4 calculateDTMHeightColor(in DTMSettings dtm, in float3 v[3], in float heightDeriv, in float2 fragPos, in float height)
+float4 calculateDTMHeightColor(in DTMSettings dtmSettings, in float3 v[3], in float heightDeriv, in float2 fragPos, in float height)
 {
     float4 outputColor = float4(0.0f, 0.0f, 0.0f, 1.0f);
 
     // HEIGHT SHADING
-    const uint32_t heightMapSize = dtm.heightColorEntryCount;
-    float minShadingHeight = dtm.heightColorMapHeights[0];
-    float maxShadingHeight = dtm.heightColorMapHeights[heightMapSize - 1];
+    const uint32_t heightMapSize = dtmSettings.heightColorEntryCount;
+    float minShadingHeight = dtmSettings.heightColorMapHeights[0];
+    float maxShadingHeight = dtmSettings.heightColorMapHeights[heightMapSize - 1];
 
     if (heightMapSize > 0)
     {
@@ -487,11 +545,11 @@ float4 calculateDTMHeightColor(in DTMSettings dtm, in float3 v[3], in float heig
         outputColor.a = 1.0f - smoothstep(0.0f, globals.antiAliasingFactor * 2.0f, convexPolygonSdf);
 
         // calculate height color
-        DTMSettings::E_HEIGHT_SHADING_MODE mode = dtm.determineHeightShadingMode();
+        E_HEIGHT_SHADING_MODE mode = dtmSettings.determineHeightShadingMode();
 
-        if (mode == DTMSettings::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS)
+        if (mode == E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS)
         {
-            DTMSettingsHeightsAccessor dtmHeightsAccessor = { dtm };
+            DTMSettingsHeightsAccessor dtmHeightsAccessor = { dtmSettings };
             int upperBoundIndex = nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, heightMapSize, height);
             int mapIndex = max(upperBoundIndex - 1, 0);
             int mapIndexPrev = max(mapIndex - 1, 0);
@@ -501,72 +559,61 @@ float4 calculateDTMHeightColor(in DTMSettings dtm, in float3 v[3], in float heig
             // if color idx is >= length of the colours array then it means it's also > 0.0 and this blend with prev is true
             // if color idx is > 0 and < len - 1, then it depends on the current pixel's height value and two closest height values
             bool blendWithPrev = (mapIndex > 0)
-                && (mapIndex >= heightMapSize - 1 || (height * 2.0 < dtm.heightColorMapHeights[upperBoundIndex] + dtm.heightColorMapHeights[mapIndex]));
+                && (mapIndex >= heightMapSize - 1 || (height * 2.0 < dtmSettings.heightColorMapHeights[upperBoundIndex] + dtmSettings.heightColorMapHeights[mapIndex]));
 
-            DTMHeightShadingAAInfo aaInfo;
-            aaInfo.currentHeight = height;
-            aaInfo.currentSegmentColor = dtm.heightColorMapColors[mapIndex];
-            aaInfo.nearestSegmentHeight = blendWithPrev ? dtm.heightColorMapHeights[mapIndex] : dtm.heightColorMapHeights[mapIndexNext];
-            aaInfo.nearestSegmentColor = blendWithPrev ? dtm.heightColorMapColors[mapIndexPrev] : dtm.heightColorMapColors[mapIndexNext];
+            HeightSegmentTransitionData transitionInfo;
+            transitionInfo.currentHeight = height;
+            transitionInfo.currentSegmentColor = dtmSettings.heightColorMapColors[mapIndex];
+            transitionInfo.boundaryHeight = blendWithPrev ? dtmSettings.heightColorMapHeights[mapIndex] : dtmSettings.heightColorMapHeights[mapIndexNext];
+            transitionInfo.otherSegmentColor = blendWithPrev ? dtmSettings.heightColorMapColors[mapIndexPrev] : dtmSettings.heightColorMapColors[mapIndexNext];
 
-            calculateBetweenHeightShadingRegionsAntiAliasing(dtm, aaInfo, heightDeriv, outputColor);
+            float4 localHeightColor = smoothHeightSegmentTransition(transitionInfo, heightDeriv);
+            outputColor.rgb = localHeightColor.rgb;
+            outputColor.a *= localHeightColor.a;
         }
-        else if (mode == DTMSettings::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS)
+        else if (mode == E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS)
         {
-            float interval = dtm.intervalWidth;
-            float heightMinShadingHeightDiff = (height - minShadingHeight);
-            int sectionIndex = int(heightMinShadingHeightDiff / interval);
-            float heightTmp = minShadingHeight + float(sectionIndex) * interval;
+            float intervalPosition = getIntervalPosition(height, minShadingHeight, dtmSettings.intervalLength, dtmSettings.isCenteredShading);
+            float positionWithinInterval = frac(intervalPosition);
+            int intervalIndex = nbl::hlsl::_static_cast<int>(intervalPosition);
 
-            DTMSettingsHeightsAccessor dtmHeightsAccessor = { dtm };
-            uint32_t upperBoundHeightIndex = nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, heightMapSize, height);
-            uint32_t lowerBoundHeightIndex = max(upperBoundHeightIndex - 1, 0);
-
-            float upperBoundHeight = dtm.heightColorMapHeights[upperBoundHeightIndex];
-            float lowerBoundHeight = dtm.heightColorMapHeights[lowerBoundHeightIndex];
-
-            float4 upperBoundColor = dtm.heightColorMapColors[upperBoundHeightIndex];
-            float4 lowerBoundColor = dtm.heightColorMapColors[lowerBoundHeightIndex];
-
-            float interpolationVal;
-            bool blendWithPrev;
-            if (upperBoundHeightIndex == 0)
-            {
-                interpolationVal = 1.0f; // TODO: investigate if it is correct
-                blendWithPrev = false;
-            }
-            else
-            {
-                interpolationVal = (heightTmp - lowerBoundHeight) / (upperBoundHeight - lowerBoundHeight);
-                blendWithPrev = height - interval * sectionIndex < 0.5f; // TODO: investigate if it is correct
-            }
-
-            DTMHeightShadingAAInfo aaInfo;
-            aaInfo.currentHeight = height;
-            aaInfo.currentSegmentColor = lerp(lowerBoundColor, upperBoundColor, interpolationVal);
+            float4 currentIntervalColor;
+            float currentIntervalHeight;
+            getIntervalHeightAndColor(intervalIndex, dtmSettings, currentIntervalColor, currentIntervalHeight);
+            
+            bool blendWithPrev = (positionWithinInterval < 0.5f);
+            
+            HeightSegmentTransitionData transitionInfo;
+            transitionInfo.currentHeight = height;
+            transitionInfo.currentSegmentColor = currentIntervalColor;
             if (blendWithPrev)
             {
-                aaInfo.nearestSegmentHeight = heightTmp;
-                aaInfo.nearestSegmentColor = lerp(lowerBoundColor, upperBoundColor, interpolationVal - 1.0f / interval);
+                int prevIntervalIdx = max(intervalIndex - 1, 0);
+                float prevIntervalHeight; // unused, the currentIntervalHeight is the boundary height between current and prev
+                getIntervalHeightAndColor(prevIntervalIdx, dtmSettings, transitionInfo.otherSegmentColor, prevIntervalHeight);
+                transitionInfo.boundaryHeight = currentIntervalHeight;
             }
             else
             {
-                aaInfo.nearestSegmentHeight = heightTmp + interval;
-                aaInfo.nearestSegmentColor = lerp(lowerBoundColor, upperBoundColor, interpolationVal + 1.0f / interval);
+                int nextIntervalIdx = intervalIndex + 1;
+                getIntervalHeightAndColor(nextIntervalIdx, dtmSettings, transitionInfo.otherSegmentColor, transitionInfo.boundaryHeight);
             }
-            calculateBetweenHeightShadingRegionsAntiAliasing(dtm, aaInfo, heightDeriv, outputColor);
+            
+            float4 localHeightColor = smoothHeightSegmentTransition(transitionInfo, heightDeriv);
+            outputColor.rgb = localHeightColor.rgb;
+            outputColor.a *= localHeightColor.a;
         }
-        else if (mode == DTMSettings::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS)
+        else if (mode == E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS)
         {
-            DTMSettingsHeightsAccessor dtmHeightsAccessor = { dtm };
+            DTMSettingsHeightsAccessor dtmHeightsAccessor = { dtmSettings };
             uint32_t upperBoundHeightIndex = nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, heightMapSize, height);
             uint32_t lowerBoundHeightIndex = upperBoundHeightIndex == 0 ? upperBoundHeightIndex : upperBoundHeightIndex - 1;
 
-            float upperBoundHeight = dtm.heightColorMapHeights[upperBoundHeightIndex];
-            float lowerBoundHeight = dtm.heightColorMapHeights[lowerBoundHeightIndex];
+            float upperBoundHeight = dtmSettings.heightColorMapHeights[upperBoundHeightIndex];
+            float lowerBoundHeight = dtmSettings.heightColorMapHeights[lowerBoundHeightIndex];
 
-            float4 upperBoundColor = dtm.heightColorMapColors[upperBoundHeightIndex];
-            float4 lowerBoundColor = dtm.heightColorMapColors[lowerBoundHeightIndex];
+            float4 upperBoundColor = dtmSettings.heightColorMapColors[upperBoundHeightIndex];
+            float4 lowerBoundColor = dtmSettings.heightColorMapColors[lowerBoundHeightIndex];
 
             float interpolationVal;
             if (upperBoundHeightIndex == 0)
@@ -584,20 +631,20 @@ float4 calculateDTMHeightColor(in DTMSettings dtm, in float3 v[3], in float heig
     return outputColor; 
 }
 
-float4 calculateDTMContourColor(in DTMSettings dtm, in float3 v[3], in uint2 edgePoints[3], in PSInput psInput, in float height)
+float4 calculateDTMContourColor(in DTMSettings dtmSettings, in float3 v[3], in uint2 edgePoints[3], in PSInput psInput, in float height)
 {
     float4 outputColor;
 
-    LineStyle contourStyle = loadLineStyle(dtm.contourLineStyleIdx);
+    LineStyle contourStyle = loadLineStyle(dtmSettings.contourLineStyleIdx);
     const float contourThickness = psInput.getContourLineThickness();
     float stretch = 1.0f;
     float phaseShift = 0.0f;
     const float worldToScreenRatio = psInput.getCurrentWorldToScreenRatio();
 
     // TODO: move to ubo or push constants
-    const float startHeight = dtm.contourLinesStartHeight;
-    const float endHeight = dtm.contourLinesEndHeight;
-    const float interval = dtm.contourLinesHeightInterval;
+    const float startHeight = dtmSettings.contourLinesStartHeight;
+    const float endHeight = dtmSettings.contourLinesEndHeight;
+    const float interval = dtmSettings.contourLinesHeightInterval;
 
     // TODO: can be precomputed
     const int maxContourLineIdx = (endHeight - startHeight + 1) / interval;
@@ -660,11 +707,11 @@ float4 calculateDTMContourColor(in DTMSettings dtm, in float3 v[3], in uint2 edg
     return outputColor;
 }
 
-float4 calculateDTMOutlineColor(in DTMSettings dtm, in float3 v[3], in uint2 edgePoints[3], in PSInput psInput, in float3 baryCoord, in float height)
+float4 calculateDTMOutlineColor(in DTMSettings dtmSettings, in float3 v[3], in uint2 edgePoints[3], in PSInput psInput, in float3 baryCoord, in float height)
 {
     float4 outputColor;
 
-    LineStyle outlineStyle = loadLineStyle(dtm.outlineLineStyleIdx);
+    LineStyle outlineStyle = loadLineStyle(dtmSettings.outlineLineStyleIdx);
     const float outlineThickness = psInput.getOutlineThickness();
     const float phaseShift = 0.0f; // input.getCurrentPhaseShift();
     const float worldToScreenRatio = psInput.getCurrentWorldToScreenRatio();
@@ -792,270 +839,267 @@ float4 fragMain(PSInput input) : SV_TARGET
     
     if (pc.isDTMRendering)
     {   
-        // TRIANGLE RENDERING
-        {
-            DTMSettings dtm = loadDTMSettings(mainObj.dtmSettingsIdx);
+        DTMSettings dtmSettings = loadDTMSettings(mainObj.dtmSettingsIdx);
 
-            float3 v[3];
-            v[0] = input.getScreenSpaceVertexAttribs(0);
-            v[1] = input.getScreenSpaceVertexAttribs(1);
-            v[2] = input.getScreenSpaceVertexAttribs(2);
+        float3 v[3];
+        v[0] = input.getScreenSpaceVertexAttribs(0);
+        v[1] = input.getScreenSpaceVertexAttribs(1);
+        v[2] = input.getScreenSpaceVertexAttribs(2);
 
-            // indices of points constructing every edge
-            uint2 edgePoints[3];
-            edgePoints[0] = uint2(0, 1);
-            edgePoints[1] = uint2(1, 2);
-            edgePoints[2] = uint2(2, 0);
+        // indices of points constructing every edge
+        uint2 edgePoints[3];
+        edgePoints[0] = uint2(0, 1);
+        edgePoints[1] = uint2(1, 2);
+        edgePoints[2] = uint2(2, 0);
 
-            const float3 baryCoord = calculateDTMTriangleBarycentrics(v[0], v[1], v[2], input.position.xy);
-            float height = baryCoord.x * v[0].z + baryCoord.y * v[1].z + baryCoord.z * v[2].z;
-            float heightDeriv = fwidth(height);
+        const float3 baryCoord = calculateDTMTriangleBarycentrics(v[0], v[1], v[2], input.position.xy);
+        float height = baryCoord.x * v[0].z + baryCoord.y * v[1].z + baryCoord.z * v[2].z;
+        float heightDeriv = fwidth(height);
 
-            DTMColorBlender blender;
-            blender.init();
-            if(dtm.drawHeightsFlag)
-                blender.addColorOnTop(calculateDTMHeightColor(dtm, v, heightDeriv, input.position.xy, height));
-            if (dtm.drawContoursFlag)
-                blender.addColorOnTop(calculateDTMContourColor(dtm, v, edgePoints, input, height));
-            if (dtm.drawOutlineFlag)
-                blender.addColorOnTop(calculateDTMOutlineColor(dtm, v, edgePoints, input, baryCoord, height));
-            float4 dtmColor = blender.blend();
+        DTMColorBlender blender;
+        blender.init();
+        if(dtmSettings.drawHeightShadingEnabled())
+            blender.addColorOnTop(calculateDTMHeightColor(dtmSettings, v, heightDeriv, input.position.xy, height));
+        if (dtmSettings.drawContourEnabled())
+            blender.addColorOnTop(calculateDTMContourColor(dtmSettings, v, edgePoints, input, height));
+        if (dtmSettings.drawOutlineEnabled())
+            blender.addColorOnTop(calculateDTMOutlineColor(dtmSettings, v, edgePoints, input, baryCoord, height));
+        float4 dtmColor = blender.blend();
 
-            textureColor = dtmColor.rgb;
-            localAlpha = dtmColor.a;
+        textureColor = dtmColor.rgb;
+        localAlpha = dtmColor.a;
 
-            return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(uint2(input.position.xy), localAlpha, currentMainObjectIdx, textureColor, true);
-        }
+        return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(uint2(input.position.xy), localAlpha, currentMainObjectIdx, textureColor, true);
     }
     else
     {
         // figure out local alpha with sdf
         if (objType == ObjectType::LINE || objType == ObjectType::QUAD_BEZIER || objType == ObjectType::POLYLINE_CONNECTOR)
-    {
-        float distance = nbl::hlsl::numeric_limits<float>::max;
-        if (objType == ObjectType::LINE)
         {
-            const float2 start = input.getLineStart();
-            const float2 end = input.getLineEnd();
-            const uint32_t styleIdx = mainObj.styleIdx;
-            const float thickness = input.getLineThickness();
-            const float phaseShift = input.getCurrentPhaseShift();
-            const float stretch = input.getPatternStretch();
-            const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
-
-            nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(start, end);
-
-            LineStyle style = loadLineStyle(styleIdx);
-
-            if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
+            float distance = nbl::hlsl::numeric_limits<float>::max;
+            if (objType == ObjectType::LINE)
             {
-                distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag);
-            }
-            else
-            {
-                nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
-                LineStyleClipper clipper = LineStyleClipper::construct(loadLineStyle(styleIdx), lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
-                distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
-            }
-        }
-        else if (objType == ObjectType::QUAD_BEZIER)
-        {
-            nbl::hlsl::shapes::Quadratic<float> quadratic = input.getQuadratic();
-            nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator arcLenCalc = input.getQuadraticArcLengthCalculator();
+                const float2 start = input.getLineStart();
+                const float2 end = input.getLineEnd();
+                const uint32_t styleIdx = mainObj.styleIdx;
+                const float thickness = input.getLineThickness();
+                const float phaseShift = input.getCurrentPhaseShift();
+                const float stretch = input.getPatternStretch();
+                const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
 
-            const uint32_t styleIdx = mainObj.styleIdx;
-            const float thickness = input.getLineThickness();
-            const float phaseShift = input.getCurrentPhaseShift();
-            const float stretch = input.getPatternStretch();
-            const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
+                nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(start, end);
 
-            LineStyle style = loadLineStyle(styleIdx);
-            if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
-            {
-                distance = ClippedSignedDistance< nbl::hlsl::shapes::Quadratic<float> >::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag);
-            }
-            else
-            {
-                BezierStyleClipper clipper = BezierStyleClipper::construct(loadLineStyle(styleIdx), quadratic, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
-                distance = ClippedSignedDistance<nbl::hlsl::shapes::Quadratic<float>, BezierStyleClipper>::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
-            }
-        }
-        else if (objType == ObjectType::POLYLINE_CONNECTOR)
-        {
-            const float2 P = input.position.xy - input.getPolylineConnectorCircleCenter();
-            distance = miterSDF(
-                P,
-                input.getLineThickness(),
-                input.getPolylineConnectorTrapezoidStart(),
-                input.getPolylineConnectorTrapezoidEnd(),
-                input.getPolylineConnectorTrapezoidLongBase(),
-                input.getPolylineConnectorTrapezoidShortBase());
+                LineStyle style = loadLineStyle(styleIdx);
 
-        }
-        localAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, distance);
-    }
-        else if (objType == ObjectType::CURVE_BOX) 
-    {
-        const float minorBBoxUV = input.getMinorBBoxUV();
-        const float majorBBoxUV = input.getMajorBBoxUV();
-
-        nbl::hlsl::math::equations::Quadratic<float> curveMinMinor = input.getCurveMinMinor();
-        nbl::hlsl::math::equations::Quadratic<float> curveMinMajor = input.getCurveMinMajor();
-        nbl::hlsl::math::equations::Quadratic<float> curveMaxMinor = input.getCurveMaxMinor();
-        nbl::hlsl::math::equations::Quadratic<float> curveMaxMajor = input.getCurveMaxMajor();
-
-        //  TODO(Optimization): Can we ignore this majorBBoxUV clamp and rely on the t clamp that happens next? then we can pass `PrecomputedRootFinder`s instead of computing the values per pixel.
-        nbl::hlsl::math::equations::Quadratic<float> minCurveEquation = nbl::hlsl::math::equations::Quadratic<float>::construct(curveMinMajor.a, curveMinMajor.b, curveMinMajor.c - clamp(majorBBoxUV, 0.0, 1.0));
-        nbl::hlsl::math::equations::Quadratic<float> maxCurveEquation = nbl::hlsl::math::equations::Quadratic<float>::construct(curveMaxMajor.a, curveMaxMajor.b, curveMaxMajor.c - clamp(majorBBoxUV, 0.0, 1.0));
-
-        const float minT = clamp(PrecomputedRootFinder<float>::construct(minCurveEquation).computeRoots(), 0.0, 1.0);
-        const float minEv = curveMinMinor.evaluate(minT);
-
-        const float maxT = clamp(PrecomputedRootFinder<float>::construct(maxCurveEquation).computeRoots(), 0.0, 1.0);
-        const float maxEv = curveMaxMinor.evaluate(maxT);
-
-        const bool insideMajor = majorBBoxUV >= 0.0 && majorBBoxUV <= 1.0;
-        const bool insideMinor = minorBBoxUV >= minEv && minorBBoxUV <= maxEv;
-
-        if (insideMinor && insideMajor)
-        {
-            localAlpha = 1.0;
-        }
-        else
-        {
-            // Find the true SDF of a hatch box boundary which is bounded by two curves, It requires knowing the distance from the current UV to the closest point on bounding curves and the limiting lines (in major direction)
-            // We also keep track of distance vector (minor, major) to convert to screenspace distance for anti-aliasing with screenspace aaFactor
-            const float InvalidT = nbl::hlsl::numeric_limits<float32_t>::max;
-            const float MAX_DISTANCE_SQUARED = nbl::hlsl::numeric_limits<float32_t>::max;
-
-            const float2 boxScreenSpaceSize = input.getCurveBoxScreenSpaceSize();
-
-
-            float closestDistanceSquared = MAX_DISTANCE_SQUARED;
-            const float2 pos = float2(minorBBoxUV, majorBBoxUV) * boxScreenSpaceSize;
-
-            if (minorBBoxUV < minEv)
-            {
-                // DO SDF of Min Curve
-                nbl::hlsl::shapes::Quadratic<float> minCurve = nbl::hlsl::shapes::Quadratic<float>::construct(
-                    float2(curveMinMinor.a, curveMinMajor.a) * boxScreenSpaceSize,
-                    float2(curveMinMinor.b, curveMinMajor.b) * boxScreenSpaceSize,
-                    float2(curveMinMinor.c, curveMinMajor.c) * boxScreenSpaceSize);
-
-                nbl::hlsl::shapes::Quadratic<float>::Candidates candidates = minCurve.getClosestCandidates(pos);
-                [[unroll(nbl::hlsl::shapes::Quadratic<float>::MaxCandidates)]]
-                for (uint32_t i = 0; i < nbl::hlsl::shapes::Quadratic<float>::MaxCandidates; i++)
+                if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
                 {
-                    candidates[i] = clamp(candidates[i], 0.0, 1.0);
-                    const float2 distVector = minCurve.evaluate(candidates[i]) - pos;
-                    const float candidateDistanceSquared = dot(distVector, distVector);
-                    if (candidateDistanceSquared < closestDistanceSquared)
-                        closestDistanceSquared = candidateDistanceSquared;
-                }
-            }
-            else if (minorBBoxUV > maxEv)
-            {
-                // Do SDF of Max Curve
-                nbl::hlsl::shapes::Quadratic<float> maxCurve = nbl::hlsl::shapes::Quadratic<float>::construct(
-                    float2(curveMaxMinor.a, curveMaxMajor.a) * boxScreenSpaceSize,
-                    float2(curveMaxMinor.b, curveMaxMajor.b) * boxScreenSpaceSize,
-                    float2(curveMaxMinor.c, curveMaxMajor.c) * boxScreenSpaceSize);
-                nbl::hlsl::shapes::Quadratic<float>::Candidates candidates = maxCurve.getClosestCandidates(pos);
-                [[unroll(nbl::hlsl::shapes::Quadratic<float>::MaxCandidates)]]
-                for (uint32_t i = 0; i < nbl::hlsl::shapes::Quadratic<float>::MaxCandidates; i++)
-                {
-                    candidates[i] = clamp(candidates[i], 0.0, 1.0);
-                    const float2 distVector = maxCurve.evaluate(candidates[i]) - pos;
-                    const float candidateDistanceSquared = dot(distVector, distVector);
-                    if (candidateDistanceSquared < closestDistanceSquared)
-                        closestDistanceSquared = candidateDistanceSquared;
-                }
-            }
-
-            if (!insideMajor)
-            {
-                const bool minLessThanMax = minEv < maxEv;
-                float2 majorDistVector = float2(MAX_DISTANCE_SQUARED, MAX_DISTANCE_SQUARED);
-                if (majorBBoxUV > 1.0)
-                {
-                    const float2 minCurveEnd = float2(minEv, 1.0) * boxScreenSpaceSize;
-                    if (minLessThanMax)
-                        majorDistVector = sdLineDstVec(pos, minCurveEnd, float2(maxEv, 1.0) * boxScreenSpaceSize);
-                    else
-                        majorDistVector = pos - minCurveEnd;
+                    distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag);
                 }
                 else
                 {
-                    const float2 minCurveStart = float2(minEv, 0.0) * boxScreenSpaceSize;
-                    if (minLessThanMax)
-                        majorDistVector = sdLineDstVec(pos, minCurveStart, float2(maxEv, 0.0) * boxScreenSpaceSize);
-                    else
-                        majorDistVector = pos - minCurveStart;
+                    nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
+                    LineStyleClipper clipper = LineStyleClipper::construct(loadLineStyle(styleIdx), lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
+                    distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
+                }
+            }
+            else if (objType == ObjectType::QUAD_BEZIER)
+            {
+                nbl::hlsl::shapes::Quadratic<float> quadratic = input.getQuadratic();
+                nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator arcLenCalc = input.getQuadraticArcLengthCalculator();
+
+                const uint32_t styleIdx = mainObj.styleIdx;
+                const float thickness = input.getLineThickness();
+                const float phaseShift = input.getCurrentPhaseShift();
+                const float stretch = input.getPatternStretch();
+                const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
+
+                LineStyle style = loadLineStyle(styleIdx);
+                if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
+                {
+                    distance = ClippedSignedDistance< nbl::hlsl::shapes::Quadratic<float> >::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag);
+                }
+                else
+                {
+                    BezierStyleClipper clipper = BezierStyleClipper::construct(loadLineStyle(styleIdx), quadratic, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
+                    distance = ClippedSignedDistance<nbl::hlsl::shapes::Quadratic<float>, BezierStyleClipper>::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
+                }
+            }
+            else if (objType == ObjectType::POLYLINE_CONNECTOR)
+            {
+                const float2 P = input.position.xy - input.getPolylineConnectorCircleCenter();
+                distance = miterSDF(
+                    P,
+                    input.getLineThickness(),
+                    input.getPolylineConnectorTrapezoidStart(),
+                    input.getPolylineConnectorTrapezoidEnd(),
+                    input.getPolylineConnectorTrapezoidLongBase(),
+                    input.getPolylineConnectorTrapezoidShortBase());
+
+            }
+            localAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, distance);
+        }
+        else if (objType == ObjectType::CURVE_BOX) 
+        {
+            const float minorBBoxUV = input.getMinorBBoxUV();
+            const float majorBBoxUV = input.getMajorBBoxUV();
+
+            nbl::hlsl::math::equations::Quadratic<float> curveMinMinor = input.getCurveMinMinor();
+            nbl::hlsl::math::equations::Quadratic<float> curveMinMajor = input.getCurveMinMajor();
+            nbl::hlsl::math::equations::Quadratic<float> curveMaxMinor = input.getCurveMaxMinor();
+            nbl::hlsl::math::equations::Quadratic<float> curveMaxMajor = input.getCurveMaxMajor();
+
+            //  TODO(Optimization): Can we ignore this majorBBoxUV clamp and rely on the t clamp that happens next? then we can pass `PrecomputedRootFinder`s instead of computing the values per pixel.
+            nbl::hlsl::math::equations::Quadratic<float> minCurveEquation = nbl::hlsl::math::equations::Quadratic<float>::construct(curveMinMajor.a, curveMinMajor.b, curveMinMajor.c - clamp(majorBBoxUV, 0.0, 1.0));
+            nbl::hlsl::math::equations::Quadratic<float> maxCurveEquation = nbl::hlsl::math::equations::Quadratic<float>::construct(curveMaxMajor.a, curveMaxMajor.b, curveMaxMajor.c - clamp(majorBBoxUV, 0.0, 1.0));
+
+            const float minT = clamp(PrecomputedRootFinder<float>::construct(minCurveEquation).computeRoots(), 0.0, 1.0);
+            const float minEv = curveMinMinor.evaluate(minT);
+
+            const float maxT = clamp(PrecomputedRootFinder<float>::construct(maxCurveEquation).computeRoots(), 0.0, 1.0);
+            const float maxEv = curveMaxMinor.evaluate(maxT);
+
+            const bool insideMajor = majorBBoxUV >= 0.0 && majorBBoxUV <= 1.0;
+            const bool insideMinor = minorBBoxUV >= minEv && minorBBoxUV <= maxEv;
+
+            if (insideMinor && insideMajor)
+            {
+                localAlpha = 1.0;
+            }
+            else
+            {
+                // Find the true SDF of a hatch box boundary which is bounded by two curves, It requires knowing the distance from the current UV to the closest point on bounding curves and the limiting lines (in major direction)
+                // We also keep track of distance vector (minor, major) to convert to screenspace distance for anti-aliasing with screenspace aaFactor
+                const float InvalidT = nbl::hlsl::numeric_limits<float32_t>::max;
+                const float MAX_DISTANCE_SQUARED = nbl::hlsl::numeric_limits<float32_t>::max;
+
+                const float2 boxScreenSpaceSize = input.getCurveBoxScreenSpaceSize();
+
+
+                float closestDistanceSquared = MAX_DISTANCE_SQUARED;
+                const float2 pos = float2(minorBBoxUV, majorBBoxUV) * boxScreenSpaceSize;
+
+                if (minorBBoxUV < minEv)
+                {
+                    // DO SDF of Min Curve
+                    nbl::hlsl::shapes::Quadratic<float> minCurve = nbl::hlsl::shapes::Quadratic<float>::construct(
+                        float2(curveMinMinor.a, curveMinMajor.a) * boxScreenSpaceSize,
+                        float2(curveMinMinor.b, curveMinMajor.b) * boxScreenSpaceSize,
+                        float2(curveMinMinor.c, curveMinMajor.c) * boxScreenSpaceSize);
+
+                    nbl::hlsl::shapes::Quadratic<float>::Candidates candidates = minCurve.getClosestCandidates(pos);
+                    [[unroll(nbl::hlsl::shapes::Quadratic<float>::MaxCandidates)]]
+                    for (uint32_t i = 0; i < nbl::hlsl::shapes::Quadratic<float>::MaxCandidates; i++)
+                    {
+                        candidates[i] = clamp(candidates[i], 0.0, 1.0);
+                        const float2 distVector = minCurve.evaluate(candidates[i]) - pos;
+                        const float candidateDistanceSquared = dot(distVector, distVector);
+                        if (candidateDistanceSquared < closestDistanceSquared)
+                            closestDistanceSquared = candidateDistanceSquared;
+                    }
+                }
+                else if (minorBBoxUV > maxEv)
+                {
+                    // Do SDF of Max Curve
+                    nbl::hlsl::shapes::Quadratic<float> maxCurve = nbl::hlsl::shapes::Quadratic<float>::construct(
+                        float2(curveMaxMinor.a, curveMaxMajor.a) * boxScreenSpaceSize,
+                        float2(curveMaxMinor.b, curveMaxMajor.b) * boxScreenSpaceSize,
+                        float2(curveMaxMinor.c, curveMaxMajor.c) * boxScreenSpaceSize);
+                    nbl::hlsl::shapes::Quadratic<float>::Candidates candidates = maxCurve.getClosestCandidates(pos);
+                    [[unroll(nbl::hlsl::shapes::Quadratic<float>::MaxCandidates)]]
+                    for (uint32_t i = 0; i < nbl::hlsl::shapes::Quadratic<float>::MaxCandidates; i++)
+                    {
+                        candidates[i] = clamp(candidates[i], 0.0, 1.0);
+                        const float2 distVector = maxCurve.evaluate(candidates[i]) - pos;
+                        const float candidateDistanceSquared = dot(distVector, distVector);
+                        if (candidateDistanceSquared < closestDistanceSquared)
+                            closestDistanceSquared = candidateDistanceSquared;
+                    }
                 }
 
-                const float majorDistSq = dot(majorDistVector, majorDistVector);
-                if (majorDistSq < closestDistanceSquared)
-                    closestDistanceSquared = majorDistSq;
+                if (!insideMajor)
+                {
+                    const bool minLessThanMax = minEv < maxEv;
+                    float2 majorDistVector = float2(MAX_DISTANCE_SQUARED, MAX_DISTANCE_SQUARED);
+                    if (majorBBoxUV > 1.0)
+                    {
+                        const float2 minCurveEnd = float2(minEv, 1.0) * boxScreenSpaceSize;
+                        if (minLessThanMax)
+                            majorDistVector = sdLineDstVec(pos, minCurveEnd, float2(maxEv, 1.0) * boxScreenSpaceSize);
+                        else
+                            majorDistVector = pos - minCurveEnd;
+                    }
+                    else
+                    {
+                        const float2 minCurveStart = float2(minEv, 0.0) * boxScreenSpaceSize;
+                        if (minLessThanMax)
+                            majorDistVector = sdLineDstVec(pos, minCurveStart, float2(maxEv, 0.0) * boxScreenSpaceSize);
+                        else
+                            majorDistVector = pos - minCurveStart;
+                    }
+
+                    const float majorDistSq = dot(majorDistVector, majorDistVector);
+                    if (majorDistSq < closestDistanceSquared)
+                        closestDistanceSquared = majorDistSq;
+                }
+
+                const float dist = sqrt(closestDistanceSquared);
+                localAlpha = 1.0f - smoothstep(0.0, globals.antiAliasingFactor, dist);
             }
 
-            const float dist = sqrt(closestDistanceSquared);
-            localAlpha = 1.0f - smoothstep(0.0, globals.antiAliasingFactor, dist);
-        }
-
-        LineStyle style = loadLineStyle(mainObj.styleIdx);
-        uint32_t textureId = asuint(style.screenSpaceLineWidth);
-        if (textureId != InvalidTextureIdx)
-        {
-            // For Hatch fiils we sample the first mip as we don't fill the others, because they are constant in screenspace and render as expected
-            // If later on we decided that we can have different sizes here, we should do computations similar to FONT_GLYPH
-            float3 msdfSample = msdfTextures.SampleLevel(msdfSampler, float3(frac(input.position.xy / HatchFillMSDFSceenSpaceSize), float(textureId)), 0.0).xyz;
-            float msdf = nbl::hlsl::text::msdfDistance(msdfSample, MSDFPixelRange * HatchFillMSDFSceenSpaceSize / MSDFSize);
-            localAlpha *= smoothstep(+globals.antiAliasingFactor / 2.0, -globals.antiAliasingFactor / 2.0f, msdf);
-        }
-    }
-        else if (objType == ObjectType::FONT_GLYPH) 
-    {
-        const float2 uv = input.getFontGlyphUV();
-        const uint32_t textureId = input.getFontGlyphTextureId();
-
-        if (textureId != InvalidTextureIdx)
-        {
-            float mipLevel = msdfTextures.CalculateLevelOfDetail(msdfSampler, uv);
-            float3 msdfSample = msdfTextures.SampleLevel(msdfSampler, float3(uv, float(textureId)), mipLevel);
-            float msdf = nbl::hlsl::text::msdfDistance(msdfSample, input.getFontGlyphPxRange());
-            /*
-                explaining "*= exp2(max(mipLevel,0.0))"
-                Each mip level has constant MSDFPixelRange
-                Which essentially makes the msdfSamples here (Harware Sampled) have different scales per mip
-                As we go up 1 mip level, the msdf distance should be multiplied by 2.0
-                While this makes total sense for NEAREST mip sampling when mipLevel is an integer and only one mip is being sampled.
-                It's a bit complex when it comes to trilinear filtering (LINEAR mip sampling), but it works in practice!
-                
-                Alternatively you can think of it as doing this instead:
-                localAlpha = smoothstep(+globals.antiAliasingFactor / exp2(max(mipLevel,0.0)), 0.0, msdf);
-                Which is reducing the aa feathering as we go up the mip levels. 
-                to avoid aa feathering of the MAX_MSDF_DISTANCE_VALUE to be less than aa factor and eventually color it and cause greyed out area around the main glyph
-            */
-            msdf *= exp2(max(mipLevel,0.0));
-            
             LineStyle style = loadLineStyle(mainObj.styleIdx);
-            const float screenPxRange = input.getFontGlyphPxRange() / MSDFPixelRangeHalf;
-            const float bolden = style.worldSpaceLineWidth * screenPxRange; // worldSpaceLineWidth is actually boldenInPixels, aliased TextStyle with LineStyle
-            localAlpha = smoothstep(+globals.antiAliasingFactor / 2.0f + bolden, -globals.antiAliasingFactor / 2.0f + bolden, msdf);
+            uint32_t textureId = asuint(style.screenSpaceLineWidth);
+            if (textureId != InvalidTextureIdx)
+            {
+                // For Hatch fiils we sample the first mip as we don't fill the others, because they are constant in screenspace and render as expected
+                // If later on we decided that we can have different sizes here, we should do computations similar to FONT_GLYPH
+                float3 msdfSample = msdfTextures.SampleLevel(msdfSampler, float3(frac(input.position.xy / HatchFillMSDFSceenSpaceSize), float(textureId)), 0.0).xyz;
+                float msdf = nbl::hlsl::text::msdfDistance(msdfSample, MSDFPixelRange * HatchFillMSDFSceenSpaceSize / MSDFSize);
+                localAlpha *= smoothstep(+globals.antiAliasingFactor / 2.0, -globals.antiAliasingFactor / 2.0f, msdf);
+            }
         }
-    }
-        else if (objType == ObjectType::IMAGE) 
-    {
-        const float2 uv = input.getImageUV();
-        const uint32_t textureId = input.getImageTextureId();
-
-        if (textureId != InvalidTextureIdx)
+        else if (objType == ObjectType::FONT_GLYPH) 
         {
-            float4 colorSample = textures[NonUniformResourceIndex(textureId)].Sample(textureSampler, float2(uv.x, uv.y));
-            textureColor = colorSample.rgb;
-            localAlpha = colorSample.a;
+            const float2 uv = input.getFontGlyphUV();
+            const uint32_t textureId = input.getFontGlyphTextureId();
+
+            if (textureId != InvalidTextureIdx)
+            {
+                float mipLevel = msdfTextures.CalculateLevelOfDetail(msdfSampler, uv);
+                float3 msdfSample = msdfTextures.SampleLevel(msdfSampler, float3(uv, float(textureId)), mipLevel);
+                float msdf = nbl::hlsl::text::msdfDistance(msdfSample, input.getFontGlyphPxRange());
+                /*
+                    explaining "*= exp2(max(mipLevel,0.0))"
+                    Each mip level has constant MSDFPixelRange
+                    Which essentially makes the msdfSamples here (Harware Sampled) have different scales per mip
+                    As we go up 1 mip level, the msdf distance should be multiplied by 2.0
+                    While this makes total sense for NEAREST mip sampling when mipLevel is an integer and only one mip is being sampled.
+                    It's a bit complex when it comes to trilinear filtering (LINEAR mip sampling), but it works in practice!
+                
+                    Alternatively you can think of it as doing this instead:
+                    localAlpha = smoothstep(+globals.antiAliasingFactor / exp2(max(mipLevel,0.0)), 0.0, msdf);
+                    Which is reducing the aa feathering as we go up the mip levels. 
+                    to avoid aa feathering of the MAX_MSDF_DISTANCE_VALUE to be less than aa factor and eventually color it and cause greyed out area around the main glyph
+                */
+                msdf *= exp2(max(mipLevel,0.0));
+            
+                LineStyle style = loadLineStyle(mainObj.styleIdx);
+                const float screenPxRange = input.getFontGlyphPxRange() / MSDFPixelRangeHalf;
+                const float bolden = style.worldSpaceLineWidth * screenPxRange; // worldSpaceLineWidth is actually boldenInPixels, aliased TextStyle with LineStyle
+                localAlpha = smoothstep(+globals.antiAliasingFactor / 2.0f + bolden, -globals.antiAliasingFactor / 2.0f + bolden, msdf);
+            }
         }
-    }
+        else if (objType == ObjectType::IMAGE) 
+        {
+            const float2 uv = input.getImageUV();
+            const uint32_t textureId = input.getImageTextureId();
+
+            if (textureId != InvalidTextureIdx)
+            {
+                float4 colorSample = textures[NonUniformResourceIndex(textureId)].Sample(textureSampler, float2(uv.x, uv.y));
+                textureColor = colorSample.rgb;
+                localAlpha = colorSample.a;
+            }
+        }
 
         uint2 fragCoord = uint2(input.position.xy);
         

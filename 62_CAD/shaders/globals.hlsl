@@ -354,15 +354,28 @@ struct LineStyle
     }
 };
 
+enum E_DTM_MODE
+{
+    OUTLINE         = 1 << 0,
+    CONTOUR         = 1 << 1,
+    HEIGHT_SHADING  = 1 << 2,
+};
+
+enum class E_HEIGHT_SHADING_MODE : uint32_t
+{
+    DISCRETE_VARIABLE_LENGTH_INTERVALS,
+    DISCRETE_FIXED_LENGTH_INTERVALS,
+    CONTINOUS_INTERVALS
+};
+    
+// Documentation and explanation of variables in DTMSettingsInfo
 struct DTMSettings
 {
     const static uint32_t HeightColorMapMaxEntries = 16u;
     uint32_t outlineLineStyleIdx; // index into line styles
     uint32_t contourLineStyleIdx; // index into line styles
 
-    int drawHeightsFlag;
-    int drawContoursFlag;
-    int drawOutlineFlag;
+    uint32_t mode; // E_DTM_MODE
 
     // contour lines
     float contourLinesStartHeight;
@@ -370,27 +383,26 @@ struct DTMSettings
     float contourLinesHeightInterval;
 
     // height-color map
-    float intervalWidth;
+    float intervalLength;
+	float intervalIndexToHeightMultiplier;
+    int isCenteredShading;
+    
     uint32_t heightColorEntryCount;
     float heightColorMapHeights[HeightColorMapMaxEntries];
     float32_t4 heightColorMapColors[HeightColorMapMaxEntries];
-
-    enum E_HEIGHT_SHADING_MODE
-    {
-        DISCRETE_VARIABLE_LENGTH_INTERVALS,
-        DISCRETE_FIXED_LENGTH_INTERVALS,
-        CONTINOUS_INTERVALS
-    };
-
+    
     E_HEIGHT_SHADING_MODE determineHeightShadingMode()
     {
-        if (nbl::hlsl::isinf(intervalWidth))
-            return DISCRETE_VARIABLE_LENGTH_INTERVALS;
-        if (intervalWidth == 0.0f)
-            return CONTINOUS_INTERVALS;
-
-        return DISCRETE_FIXED_LENGTH_INTERVALS;
+        if (nbl::hlsl::isinf(intervalLength))
+            return E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
+        if (intervalLength == 0.0f)
+            return E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
+        return E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
     }
+    
+    bool drawOutlineEnabled() { return  (mode & E_DTM_MODE::OUTLINE) != 0u; } 
+    bool drawContourEnabled() { return (mode & E_DTM_MODE::CONTOUR) != 0u; } 
+    bool drawHeightShadingEnabled() { return (mode & E_DTM_MODE::HEIGHT_SHADING) != 0u; } 
 };
 
 #ifndef __HLSL_VERSION

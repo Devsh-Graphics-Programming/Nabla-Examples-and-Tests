@@ -632,6 +632,9 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 	// TODO: Maybe constraint by a max size? and return InvalidIdx if it would exceed
 
 	DTMSettings dtmSettings;
+
+	dtmSettings.mode = dtmSettingsInfo.mode;
+
 	dtmSettings.contourLinesStartHeight = dtmSettingsInfo.contourLinesStartHeight;
 	dtmSettings.contourLinesEndHeight = dtmSettingsInfo.contourLinesEndHeight;
 	dtmSettings.contourLinesHeightInterval = dtmSettingsInfo.contourLinesHeightInterval;
@@ -639,23 +642,22 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 	dtmSettings.outlineLineStyleIdx = addLineStyle_Internal(dtmSettingsInfo.outlineLineStyleInfo);
 	dtmSettings.contourLineStyleIdx = addLineStyle_Internal(dtmSettingsInfo.contourLineStyleInfo);
 
+
 	switch (dtmSettingsInfo.heightShadingMode)
 	{
-	case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
-		dtmSettings.intervalWidth = std::numeric_limits<float>::infinity();
+	case E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
+		dtmSettings.intervalLength = std::numeric_limits<float>::infinity();
 		break;
-	case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS:
-		dtmSettings.intervalWidth = dtmSettingsInfo.intervalWidth;
+	case E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS:
+		dtmSettings.intervalLength = dtmSettingsInfo.intervalLength;
 		break;
-	case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS:
-		dtmSettings.intervalWidth = 0.0f;
+	case E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS:
+		dtmSettings.intervalLength = 0.0f;
 		break;
 	}
+	dtmSettings.intervalIndexToHeightMultiplier = dtmSettingsInfo.intervalIndexToHeightMultiplier;
+	dtmSettings.isCenteredShading = static_cast<int>(dtmSettingsInfo.isCenteredShading);
 	_NBL_DEBUG_BREAK_IF(!dtmSettingsInfo.fillShaderDTMSettingsHeightColorMap(dtmSettings));
-
-	dtmSettings.drawHeightsFlag = static_cast<int>(dtmSettingsInfo.drawHeightsFlag);
-	dtmSettings.drawContoursFlag = static_cast<int>(dtmSettingsInfo.drawContoursFlag);
-	dtmSettings.drawOutlineFlag = static_cast<int>(dtmSettingsInfo.drawOutlineFlag);
 
 	for (uint32_t i = 0u; i < resourcesCollection.dtmSettings.vector.size(); ++i)
 	{

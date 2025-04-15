@@ -625,7 +625,7 @@ public:
 	double m_timeElapsed = 0.0;
 	std::chrono::steady_clock::time_point lastTime;
 	uint32_t m_hatchDebugStep = 0u;
-	DTMSettingsInfo::E_HEIGHT_SHADING_MODE m_shadingModeExample = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
+	E_HEIGHT_SHADING_MODE m_shadingModeExample = E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
@@ -1073,15 +1073,15 @@ public:
 					}
 					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_1)
 					{
-						m_shadingModeExample = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
+						m_shadingModeExample = E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
 					}
 					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_2)
 					{
-						m_shadingModeExample = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
+						m_shadingModeExample = E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
 					}
 					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_3)
 					{
-						m_shadingModeExample = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
+						m_shadingModeExample = E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
 					}
 				}
 			}
@@ -3246,6 +3246,9 @@ protected:
 			mesh.setIndices(std::move(indices));
 
 			DTMSettingsInfo dtmSettingsInfo;
+			
+			dtmSettingsInfo.mode = E_DTM_MODE::HEIGHT_SHADING;
+
 			dtmSettingsInfo.contourLinesStartHeight = 20;
 			dtmSettingsInfo.contourLinesEndHeight = 90;
 			dtmSettingsInfo.contourLinesHeightInterval = 10;
@@ -3264,9 +3267,6 @@ protected:
 			std::array<double, 4> contourStipplePattern = { 0.0f, -5.0f, 10.0f, -5.0f };
 			dtmSettingsInfo.contourLineStyleInfo.setStipplePatternData(contourStipplePattern);
 
-			dtmSettingsInfo.drawHeightsFlag = true;
-			dtmSettingsInfo.drawContoursFlag = true;
-			dtmSettingsInfo.drawOutlineFlag = true;
 
 			// PRESS 1, 2, 3 TO SWITCH HEIGHT SHADING MODE
 			// 1 - DISCRETE_VARIABLE_LENGTH_INTERVALS
@@ -3275,9 +3275,9 @@ protected:
 			float animatedAlpha = (std::cos(m_timeElapsed * 0.0005) + 1.0) * 0.5;
 			switch (m_shadingModeExample)
 			{
-				case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
+				case E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
 				{
-					dtmSettingsInfo.heightShadingMode = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
+					dtmSettingsInfo.heightShadingMode = E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
 					
 					dtmSettingsInfo.addHeightColorMapEntry(-10.0f, float32_t4(0.5f, 1.0f, 1.0f, animatedAlpha));
 					dtmSettingsInfo.addHeightColorMapEntry(20.0f, float32_t4(0.0f, 1.0f, 0.0f, 1.0f));
@@ -3286,21 +3286,27 @@ protected:
 					dtmSettingsInfo.addHeightColorMapEntry(90.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
 					break;
 				}
-				case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS:
+				case E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS:
 				{
-					dtmSettingsInfo.intervalWidth = 8.0f;
-					dtmSettingsInfo.heightShadingMode = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
-					dtmSettingsInfo.addHeightColorMapEntry(0.0f, float32_t4(0.0f, 1.0f, 0.0f, 1.0f));
-					dtmSettingsInfo.addHeightColorMapEntry(50.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmSettingsInfo.intervalLength = 10.0f;
+					dtmSettingsInfo.intervalIndexToHeightMultiplier = dtmSettingsInfo.intervalLength;
+					dtmSettingsInfo.isCenteredShading = false;
+					dtmSettingsInfo.heightShadingMode = E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
+					dtmSettingsInfo.addHeightColorMapEntry(0.0f,   float32_t4(0.0f, 0.0f, 1.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(25.0f,  float32_t4(0.0f, 1.0f, 1.0f, 1.0));
+					dtmSettingsInfo.addHeightColorMapEntry(50.0f,  float32_t4(0.0f, 1.0f, 0.0f, 1.0));
+					dtmSettingsInfo.addHeightColorMapEntry(75.0f,  float32_t4(1.0f, 1.0f, 0.0f, 1.0));
 					dtmSettingsInfo.addHeightColorMapEntry(100.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
 					break;
 				}
-				case DTMSettingsInfo::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS:
+				case E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS:
 				{
-					dtmSettingsInfo.heightShadingMode = DTMSettingsInfo::E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
-					dtmSettingsInfo.addHeightColorMapEntry(-10.0f, float32_t4(0.0f, 1.0f, 0.0f, animatedAlpha));
-					dtmSettingsInfo.addHeightColorMapEntry(30.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
-					dtmSettingsInfo.addHeightColorMapEntry(90.0f, float32_t4(1.0f, 0.0f, 0.0f, animatedAlpha));
+					dtmSettingsInfo.heightShadingMode = E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
+					dtmSettingsInfo.addHeightColorMapEntry(0.0f,   float32_t4(0.0f, 0.0f, 1.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(25.0f,  float32_t4(0.0f, 1.0f, 1.0f, 1.0));
+					dtmSettingsInfo.addHeightColorMapEntry(50.0f,  float32_t4(0.0f, 1.0f, 0.0f, 1.0));
+					dtmSettingsInfo.addHeightColorMapEntry(75.0f,  float32_t4(1.0f, 1.0f, 0.0f, 1.0));
+					dtmSettingsInfo.addHeightColorMapEntry(100.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
 					break;
 				}
 			}
@@ -3311,7 +3317,7 @@ protected:
 			dtmSettingsInfo.outlineLineStyleInfo.color = float32_t4(0.0f, 0.39f, 1.0f, 1.0f);
 			for (auto& v : mesh.m_vertices)
 			{
-				v.pos += float64_t2(400.0, 200.0);
+				v.pos += float64_t2(450.0, 200.0);
 				v.height -= 10.0;
 			}
 

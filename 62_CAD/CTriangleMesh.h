@@ -8,26 +8,33 @@ using namespace nbl;
 
 struct DTMSettingsInfo
 {
-	enum E_HEIGHT_SHADING_MODE
-	{
-		DISCRETE_VARIABLE_LENGTH_INTERVALS,
-		DISCRETE_FIXED_LENGTH_INTERVALS,
-		CONTINOUS_INTERVALS
-	};
-
 	LineStyleInfo outlineLineStyleInfo;
 	LineStyleInfo contourLineStyleInfo;
 	
+	uint32_t mode; // E_DTM_MODE
+
 	float contourLinesStartHeight;
 	float contourLinesEndHeight;
 	float contourLinesHeightInterval;
-
-	float intervalWidth;
+	
+	// Height Shading Mode
 	E_HEIGHT_SHADING_MODE heightShadingMode;
 
-	bool drawHeightsFlag;
-	bool drawContoursFlag;
-	bool drawOutlineFlag;
+	// Used as fixed interval length for "DISCRETE_FIXED_LENGTH_INTERVALS" shading mode
+	float intervalLength;
+
+	// Converts an interval index to its corresponding height value
+	// For example, if this value is 10.0, then an interval index of 2 corresponds to a height of 20.0.
+	// This computed height is later used to determine the interpolated color for shading.
+	// It makes sense for this variable to be always equal to `intervalLength` but sometimes it's a different scaling so that last index corresponds to largestHeight
+	float intervalIndexToHeightMultiplier;
+	
+	// Used for "DISCRETE_FIXED_LENGTH_INTERVALS" shading mode
+	// If `isCenteredShading` is true, the intervals are centered around `minHeight`, meaning the
+	// first interval spans [minHeight - intervalLength / 2.0, minHeight + intervalLength / 2.0].
+	// Otherwise, intervals are aligned from `minHeight` upward, so the first interval spans
+	// [minHeight, minHeight + intervalLength].
+	bool isCenteredShading;
 
 	void addHeightColorMapEntry(float height, float32_t4 color)
 	{
