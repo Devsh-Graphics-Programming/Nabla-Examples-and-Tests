@@ -134,11 +134,16 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, SIntendedS
 	}
 }
 
-void DrawResourcesFiller::drawTriangleMesh(const CTriangleMesh& mesh, const DTMSettingsInfo& dtmSettingsInfo, SIntendedSubmitInfo& intendedNextSubmit)
+void DrawResourcesFiller::drawTriangleMesh(
+	const CTriangleMesh& mesh,
+	const DTMHeightShadingInfo& dtmHeightShadingInfo,
+	const DTMContourInfo& dtmContourInfo,
+	const DTMOutlineInfo& dtmOutlineInfo,
+	SIntendedSubmitInfo& intendedNextSubmit)
 {
 	flushDrawObjects(); // flushes draw call construction of any possible draw objects before dtm, because currently we're sepaerating dtm draw calls from drawObj draw calls
 
-	setActiveDTMSettings(dtmSettingsInfo);
+	setActiveDTMSettings(dtmHeightShadingInfo, dtmContourInfo, dtmOutlineInfo); // TODO !!!!
 	beginMainObject(MainObjectType::DTM);
 
 	DrawCallData drawCallData = {}; 
@@ -352,9 +357,14 @@ void DrawResourcesFiller::setActiveLineStyle(const LineStyleInfo& lineStyle)
 	activeLineStyleIndex = InvalidStyleIdx;
 }
 
-void DrawResourcesFiller::setActiveDTMSettings(const DTMSettingsInfo& dtmSettings)
+void DrawResourcesFiller::setActiveDTMSettings(const DTMHeightShadingInfo& heightShadingInfo, const DTMContourInfo& contourInfo, const DTMOutlineInfo& outlineInfo)
 {
-	activeDTMSettings = dtmSettings;
+	DTMSettingsInfo dtmSettingsInfo;
+	dtmSettingsInfo.heightShadingInfo = heightShadingInfo;
+	dtmSettingsInfo.contourInfo = contourInfo;
+	dtmSettingsInfo.outlineInfo = outlineInfo;
+
+	activeDTMSettings = dtmSettingsInfo;
 	activeDTMSettingsIndex = InvalidDTMSettingsIdx;
 }
 
@@ -633,31 +643,42 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 
 	DTMSettings dtmSettings;
 
-	dtmSettings.mode = dtmSettingsInfo.mode;
+	////dtmSettingsInfo.mode = E_DTM_MODE::HEIGHT_SHADING | E_DTM_MODE::CONTOUR | E_DTM_MODE::OUTLINE;
 
-	dtmSettings.contourLinesStartHeight = dtmSettingsInfo.contourLinesStartHeight;
-	dtmSettings.contourLinesEndHeight = dtmSettingsInfo.contourLinesEndHeight;
-	dtmSettings.contourLinesHeightInterval = dtmSettingsInfo.contourLinesHeightInterval;
-
-	dtmSettings.outlineLineStyleIdx = addLineStyle_Internal(dtmSettingsInfo.outlineLineStyleInfo);
-	dtmSettings.contourLineStyleIdx = addLineStyle_Internal(dtmSettingsInfo.contourLineStyleInfo);
-
-
-	switch (dtmSettingsInfo.heightShadingMode)
+	dtmSettings.mode = 0u;
+	if (dtmSettingsInfo.heightShadingInfo.enabled)
 	{
-	case E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
-		dtmSettings.intervalLength = std::numeric_limits<float>::infinity();
-		break;
-	case E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS:
-		dtmSettings.intervalLength = dtmSettingsInfo.intervalLength;
-		break;
-	case E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS:
-		dtmSettings.intervalLength = 0.0f;
-		break;
+		dtmSettings.mode |= E_DTM_MODE::HEIGHT_SHADING;
+
+		switch (dtmSettingsInfo.heightShadingInfo.heightShadingMode)
+		{
+		case E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
+			dtmSettings.intervalLength = std::numeric_limits<float>::infinity();
+			break;
+		case E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS:
+			dtmSettings.intervalLength = dtmSettingsInfo.heightShadingInfo.intervalLength;
+			break;
+		case E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS:
+			dtmSettings.intervalLength = 0.0f;
+			break;
+		}
+		dtmSettings.intervalIndexToHeightMultiplier = dtmSettingsInfo.heightShadingInfo.intervalIndexToHeightMultiplier;
+		dtmSettings.isCenteredShading = static_cast<int>(dtmSettingsInfo.heightShadingInfo.isCenteredShading);
+		_NBL_DEBUG_BREAK_IF(!dtmSettingsInfo.heightShadingInfo.fillShaderDTMSettingsHeightColorMap(dtmSettings));
 	}
-	dtmSettings.intervalIndexToHeightMultiplier = dtmSettingsInfo.intervalIndexToHeightMultiplier;
-	dtmSettings.isCenteredShading = static_cast<int>(dtmSettingsInfo.isCenteredShading);
-	_NBL_DEBUG_BREAK_IF(!dtmSettingsInfo.fillShaderDTMSettingsHeightColorMap(dtmSettings));
+	if (dtmSettingsInfo.contourInfo.enabled)
+	{
+		dtmSettings.mode |= E_DTM_MODE::CONTOUR;
+		dtmSettings.contourLinesStartHeight = dtmSettingsInfo.contourInfo.startHeight;
+		dtmSettings.contourLinesEndHeight = dtmSettingsInfo.contourInfo.endHeight;
+		dtmSettings.contourLinesHeightInterval = dtmSettingsInfo.contourInfo.heightInterval;
+		dtmSettings.contourLineStyleIdx = addLineStyle_Internal(dtmSettingsInfo.contourInfo.lineStyleInfo);
+	}
+	if (dtmSettingsInfo.outlineInfo.enabled)
+	{
+		dtmSettings.mode |= E_DTM_MODE::OUTLINE;
+		dtmSettings.outlineLineStyleIdx = addLineStyle_Internal(dtmSettingsInfo.outlineInfo.lineStyleInfo);
+	}
 
 	for (uint32_t i = 0u; i < resourcesCollection.dtmSettings.vector.size(); ++i)
 	{

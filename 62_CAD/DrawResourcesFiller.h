@@ -155,7 +155,12 @@ public:
 	/// WARNING: make sure this function  is called within begin/endMainObject scope
 	void drawPolyline(const CPolylineBase& polyline, SIntendedSubmitInfo& intendedNextSubmit);
 	
-	void drawTriangleMesh(const CTriangleMesh& mesh, const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit);
+	void drawTriangleMesh(
+		const CTriangleMesh& mesh,
+		const DTMHeightShadingInfo& dtmHeightShadingInfo,
+		const DTMContourInfo& dtmContourInfo,
+		const DTMOutlineInfo& dtmOutlineInfo,
+		SIntendedSubmitInfo& intendedNextSubmit);
 
 	// ! Convinience function for Hatch with MSDF Pattern and a solid background
 	void drawHatch(
@@ -223,7 +228,7 @@ public:
 
 	// Setting Active Resources:
 	void setActiveLineStyle(const LineStyleInfo& lineStyle);
-	void setActiveDTMSettings(const DTMSettingsInfo& dtmSettings);
+	void setActiveDTMSettings(const DTMHeightShadingInfo& heightShadingInfo, const DTMContourInfo& contourInfo, const DTMOutlineInfo& outlineInfo);
 
 	void beginMainObject(MainObjectType type);
 	void endMainObject();

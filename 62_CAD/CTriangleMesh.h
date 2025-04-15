@@ -6,17 +6,9 @@
 
 using namespace nbl;
 
-struct DTMSettingsInfo
+struct DTMHeightShadingInfo
 {
-	LineStyleInfo outlineLineStyleInfo;
-	LineStyleInfo contourLineStyleInfo;
-	
-	uint32_t mode; // E_DTM_MODE
-
-	float contourLinesStartHeight;
-	float contourLinesEndHeight;
-	float contourLinesHeightInterval;
-	
+	bool enabled;
 	// Height Shading Mode
 	E_HEIGHT_SHADING_MODE heightShadingMode;
 
@@ -28,7 +20,7 @@ struct DTMSettingsInfo
 	// This computed height is later used to determine the interpolated color for shading.
 	// It makes sense for this variable to be always equal to `intervalLength` but sometimes it's a different scaling so that last index corresponds to largestHeight
 	float intervalIndexToHeightMultiplier;
-	
+
 	// Used for "DISCRETE_FIXED_LENGTH_INTERVALS" shading mode
 	// If `isCenteredShading` is true, the intervals are centered around `minHeight`, meaning the
 	// first interval spans [minHeight - intervalLength / 2.0, minHeight + intervalLength / 2.0].
@@ -58,7 +50,7 @@ struct DTMSettingsInfo
 
 		return true;
 	}
-
+	
 private:
 	struct HeightColor
 	{
@@ -72,6 +64,29 @@ private:
 	};
 
 	std::set<HeightColor> heightColorSet;
+};
+
+struct DTMContourInfo
+{
+	bool enabled;
+	LineStyleInfo lineStyleInfo;
+
+	float startHeight;
+	float endHeight;
+	float heightInterval;
+};
+
+struct DTMOutlineInfo
+{
+	bool enabled;
+	LineStyleInfo lineStyleInfo;
+};
+
+struct DTMSettingsInfo
+{
+	DTMHeightShadingInfo heightShadingInfo;
+	DTMContourInfo contourInfo;
+	DTMOutlineInfo outlineInfo;
 };
 
 class CTriangleMesh final

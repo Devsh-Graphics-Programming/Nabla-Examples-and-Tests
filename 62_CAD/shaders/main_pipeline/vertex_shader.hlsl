@@ -146,7 +146,6 @@ PSInput main(uint vertexID : SV_VertexID)
                 (clipProjectionData.projectionToNDC[0].x * _static_cast<pfloat64_t>(globals.resolution.x))))
         );
 
-        // TODO: line style of contour line has to be set too!
         DTMSettings dtm = loadDTMSettings(mainObj.dtmSettingsIdx);
         LineStyle outlineStyle = loadLineStyle(dtm.outlineLineStyleIdx);
         LineStyle contourStyle = loadLineStyle(dtm.contourLineStyleIdx);
