@@ -431,10 +431,6 @@ struct HeightSegmentTransitionData
     float4 otherSegmentColor;
 };
 
-// NOTE[Erfan to Przemek][REMOVE WHEN READ]: I renamed to `smoothHeightSegmentTransition` and made it return value instead of take `out` param + removed applying it to final output color (it's responsibility of the caller now)
-// Now the resposibility of this  function is just to "Figure out what the interpolated color at the transition is." and doesn't assume how it's gonna be applied to the final color
-// that's more predictible and atomic. Additionally I think `out` functions make the code a little bit more unreadable as well
-
 // This function interpolates between the current and nearest segment colors based on the
 // screen-space distance to the segment boundary. The result is a smoothly blended color
 // useful for visualizing discrete height levels without harsh edges.
@@ -682,6 +678,7 @@ float4 calculateDTMContourColor(in DTMSettings dtmSettings, in float3 v[3], in u
         }
     }
 
+    if(contourLinePointsIdx == 2)
     {
         nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(contourLinePoints[0], contourLinePoints[1]);
 
@@ -746,16 +743,27 @@ float4 calculateDTMOutlineColor(in DTMSettings dtmSettings, in float3 v[3], in u
         float ABLen = length(AB);
         float triangleHeightToOpositeVertex = triangleAreaTimesTwo / ABLen;
 
-        distances[i] = triangleHeightToOpositeVertex * baryCoord[opposingVertexIdx[i]];
+        distances[i] = abs(triangleHeightToOpositeVertex * baryCoord[opposingVertexIdx[i]]);
     }
 
     float minDistance = nbl::hlsl::numeric_limits<float>::max;
     if (!outlineStyle.hasStipples() || stretch == InvalidStyleStretchValue)
     {
-        for (uint i = 0; i < 3; ++i)
-            distances[i] -= outlineThickness;
+        for (int i = 0; i < 3; ++i)
+        {
+            if (distances[i] > outlineThickness)
+                continue;
 
-        minDistance = min(distances[0], min(distances[1], distances[2]));
+            const uint2 currentEdgePoints = edgePoints[i];
+            float3 p0 = v[currentEdgePoints[0]];
+            float3 p1 = v[currentEdgePoints[1]];
+
+            float distance = nbl::hlsl::numeric_limits<float>::max;
+            nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(float2(p0.x, p0.y), float2(p1.x, p1.y));
+            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, psInput.position.xy, outlineThickness, outlineStyle.isRoadStyleFlag);
+
+            minDistance = min(minDistance, distance);
+        }
     }
     else
     {
@@ -794,37 +802,14 @@ float4 calculateDTMOutlineColor(in DTMSettings dtmSettings, in float3 v[3], in u
     return outputColor;
 }
 
-struct DTMColorBlender
+float4 blendColorOnTop(in float4 colorBelow, in float4 colorAbove)
 {
-    void init()
-    {
-        colorCount = 0;
-    }
+    float4 outputColor = colorBelow;
+    outputColor.rgb = colorAbove.rgb * colorAbove.a + outputColor.rgb * outputColor.a * (1.0f - colorAbove.a);
+    outputColor.a = colorAbove.a + outputColor.a * (1.0f - colorAbove.a);
 
-    void addColorOnTop(in float4 color)
-    {
-        colors[colorCount] = color;
-        colorCount++;
-    }
-
-    float4 blend()
-    {
-        if (colorCount == 0)
-            return float4(0.0f, 0.0f, 0.0f, 1.0f);
-
-        float4 outputColor = colors[0];
-        for (int i = 1; i < colorCount; ++i)
-        {
-            outputColor.rgb = colors[i].rgb * colors[i].a + outputColor.rgb * outputColor.a * (1.0f - colors[i].a);
-            outputColor.a = colors[i].a + outputColor.a * (1.0f - colors[i].a);
-        }
-
-        return outputColor;
-    }
-
-    int colorCount;
-    float4 colors[3];
-};
+    return outputColor;
+}
 
 [[vk::spvexecutionmode(spv::ExecutionModePixelInterlockOrderedEXT)]]
 [shader("pixel")]
@@ -856,15 +841,13 @@ float4 fragMain(PSInput input) : SV_TARGET
         float height = baryCoord.x * v[0].z + baryCoord.y * v[1].z + baryCoord.z * v[2].z;
         float heightDeriv = fwidth(height);
 
-        DTMColorBlender blender;
-        blender.init();
-        if(dtmSettings.drawHeightShadingEnabled())
-            blender.addColorOnTop(calculateDTMHeightColor(dtmSettings, v, heightDeriv, input.position.xy, height));
+        float4 dtmColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
+        if (dtmSettings.drawHeightShadingEnabled())
+            dtmColor = blendColorOnTop(dtmColor, calculateDTMHeightColor(dtmSettings, v, heightDeriv, input.position.xy, height));
         if (dtmSettings.drawContourEnabled())
-            blender.addColorOnTop(calculateDTMContourColor(dtmSettings, v, edgePoints, input, height));
+            dtmColor = blendColorOnTop(dtmColor, calculateDTMContourColor(dtmSettings, v, edgePoints, input, height));
         if (dtmSettings.drawOutlineEnabled())
-            blender.addColorOnTop(calculateDTMOutlineColor(dtmSettings, v, edgePoints, input, baryCoord, height));
-        float4 dtmColor = blender.blend();
+            dtmColor = blendColorOnTop(dtmColor, calculateDTMOutlineColor(dtmSettings, v, edgePoints, input, baryCoord, height));
 
         textureColor = dtmColor.rgb;
         localAlpha = dtmColor.a;

@@ -3247,7 +3247,7 @@ protected:
 
 			DTMSettingsInfo dtmSettingsInfo;
 			
-			dtmSettingsInfo.mode = E_DTM_MODE::HEIGHT_SHADING;
+			dtmSettingsInfo.mode = E_DTM_MODE::HEIGHT_SHADING | E_DTM_MODE::CONTOUR | E_DTM_MODE::OUTLINE;
 
 			dtmSettingsInfo.contourLinesStartHeight = 20;
 			dtmSettingsInfo.contourLinesEndHeight = 90;
@@ -3256,9 +3256,9 @@ protected:
 			LineStyleInfo outlineStyle = {};
 			dtmSettingsInfo.outlineLineStyleInfo.screenSpaceLineWidth = 0.0f;
 			dtmSettingsInfo.outlineLineStyleInfo.worldSpaceLineWidth = 3.0f;
-			dtmSettingsInfo.outlineLineStyleInfo.color = float32_t4(0.0f, 0.39f, 0.0f, 0.5f);
-			std::array<double, 4> outlineStipplePattern = { 0.0f, -5.0f, 2.0f, -5.0f };
-			dtmSettingsInfo.outlineLineStyleInfo.setStipplePatternData(outlineStipplePattern);
+			dtmSettingsInfo.outlineLineStyleInfo.color = float32_t4(0.0f, 0.39f, 0.0f, 1.0f);
+			//std::array<double, 4> outlineStipplePattern = { 0.0f, -5.0f, 2.0f, -5.0f };
+			//dtmSettingsInfo.outlineLineStyleInfo.setStipplePatternData(outlineStipplePattern);
 
 			LineStyleInfo contourStyle = {};
 			dtmSettingsInfo.contourLineStyleInfo.screenSpaceLineWidth = 0.0f;
@@ -3292,21 +3292,21 @@ protected:
 					dtmSettingsInfo.intervalIndexToHeightMultiplier = dtmSettingsInfo.intervalLength;
 					dtmSettingsInfo.isCenteredShading = false;
 					dtmSettingsInfo.heightShadingMode = E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
-					dtmSettingsInfo.addHeightColorMapEntry(0.0f,   float32_t4(0.0f, 0.0f, 1.0f, 1.0f));
-					dtmSettingsInfo.addHeightColorMapEntry(25.0f,  float32_t4(0.0f, 1.0f, 1.0f, 1.0));
-					dtmSettingsInfo.addHeightColorMapEntry(50.0f,  float32_t4(0.0f, 1.0f, 0.0f, 1.0));
-					dtmSettingsInfo.addHeightColorMapEntry(75.0f,  float32_t4(1.0f, 1.0f, 0.0f, 1.0));
-					dtmSettingsInfo.addHeightColorMapEntry(100.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(0.0f,   float32_t4(0.0f, 0.0f, 1.0f, animatedAlpha));
+					dtmSettingsInfo.addHeightColorMapEntry(25.0f,  float32_t4(0.0f, 1.0f, 1.0f, animatedAlpha));
+					dtmSettingsInfo.addHeightColorMapEntry(50.0f,  float32_t4(0.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmSettingsInfo.addHeightColorMapEntry(75.0f,  float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmSettingsInfo.addHeightColorMapEntry(100.0f, float32_t4(1.0f, 0.0f, 0.0f, animatedAlpha));
 					break;
 				}
 				case E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS:
 				{
 					dtmSettingsInfo.heightShadingMode = E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
-					dtmSettingsInfo.addHeightColorMapEntry(0.0f,   float32_t4(0.0f, 0.0f, 1.0f, 1.0f));
-					dtmSettingsInfo.addHeightColorMapEntry(25.0f,  float32_t4(0.0f, 1.0f, 1.0f, 1.0));
-					dtmSettingsInfo.addHeightColorMapEntry(50.0f,  float32_t4(0.0f, 1.0f, 0.0f, 1.0));
-					dtmSettingsInfo.addHeightColorMapEntry(75.0f,  float32_t4(1.0f, 1.0f, 0.0f, 1.0));
-					dtmSettingsInfo.addHeightColorMapEntry(100.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
+					dtmSettingsInfo.addHeightColorMapEntry(0.0f,   float32_t4(0.0f, 0.0f, 1.0f, animatedAlpha));
+					dtmSettingsInfo.addHeightColorMapEntry(25.0f,  float32_t4(0.0f, 1.0f, 1.0f, animatedAlpha));
+					dtmSettingsInfo.addHeightColorMapEntry(50.0f, float32_t4(0.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmSettingsInfo.addHeightColorMapEntry(75.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmSettingsInfo.addHeightColorMapEntry(90.0f, float32_t4(1.0f, 0.0f, 0.0f, animatedAlpha));
 					break;
 				}
 			}
