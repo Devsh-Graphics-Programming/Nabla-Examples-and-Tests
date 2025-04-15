@@ -110,6 +110,12 @@ public:
 	{
 		return m_indices.size();
 	}
+	
+	inline void clear()
+	{
+		m_vertices.clear();
+		m_indices.clear();
+	}
 
 	core::vector<vertex_t> m_vertices;
 	core::vector<index_t> m_indices;
