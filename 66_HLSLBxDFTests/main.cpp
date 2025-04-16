@@ -88,55 +88,55 @@ int main(int argc, char** argv)
     }
 
     // test compile with dxc
-//    {
-//        smart_refctd_ptr<system::ISystem> m_system = system::IApplicationFramework::createSystem();
-//        smart_refctd_ptr<system::ILogger> m_logger = core::make_smart_refctd_ptr<system::CColoredStdoutLoggerANSI>(system::ILogger::DefaultLogMask());
-//        m_logger->log("Logger Created!", system::ILogger::ELL_INFO);
-//        smart_refctd_ptr<asset::IAssetManager> m_assetMgr = make_smart_refctd_ptr<asset::IAssetManager>(smart_refctd_ptr(m_system));
-//
-//        path CWD = system::path(argv[0]).parent_path().generic_string() + "/";
-//        path localInputCWD = CWD / "../";
-//        auto resourceArchive =
-//#ifdef NBL_EMBED_BUILTIN_RESOURCES
-//            make_smart_refctd_ptr<nbl::this_example::builtin::CArchive>(smart_refctd_ptr(m_logger));
-//#else
-//            make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"app_resources", smart_refctd_ptr(m_logger), m_system.get());
-//#endif
-//        m_system->mount(std::move(resourceArchive), "app_resources");
-//
-//        constexpr uint32_t WorkgroupSize = 256;
-//        const std::string WorkgroupSizeAsStr = std::to_string(WorkgroupSize);
-//        const std::string filePath = "app_resources/test_compile.comp.hlsl";
-//
-//        IAssetLoader::SAssetLoadParams lparams = {};
-//        lparams.logger = m_logger.get();
-//        lparams.workingDirectory = "";
-//        auto bundle = m_assetMgr->getAsset(filePath, lparams);
-//        if (bundle.getContents().empty() || bundle.getAssetType() != IAsset::ET_SHADER)
-//        {
-//            m_logger->log("Shader %s not found!", ILogger::ELL_ERROR, filePath);
-//            exit(-1);
-//        }
-//
-//        const auto assets = bundle.getContents();
-//        assert(assets.size() == 1);
-//        smart_refctd_ptr<ICPUShader> shaderSrc = IAsset::castDown<ICPUShader>(assets[0]);
-//
-//        smart_refctd_ptr<ICPUShader> shader = shaderSrc;
-//        auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
-//        CHLSLCompiler::SOptions options = {};
-//        options.stage = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE;
-//        options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
-//        options.spirvOptimizer = nullptr;
-//        // if you don't set the logger and source identifier you'll have no meaningful errors
-//        options.preprocessorOptions.sourceIdentifier = shaderSrc->getFilepathHint();
-//        options.preprocessorOptions.logger = m_logger.get();
-//        options.preprocessorOptions.includeFinder = compiler->getDefaultIncludeFinder();
-//        const IShaderCompiler::SMacroDefinition WorkgroupSizeDefine = { "WORKGROUP_SIZE", WorkgroupSizeAsStr };
-//        options.preprocessorOptions.extraDefines = { &WorkgroupSizeDefine,&WorkgroupSizeDefine + 1 };
-//        if (!(shader = compiler->compileToSPIRV((const char*)shaderSrc->getContent()->getPointer(), options)))
-//            fprintf(stderr, "[ERROR] compile shader test failed!\n");
-//    }
+    {
+        smart_refctd_ptr<system::ISystem> m_system = system::IApplicationFramework::createSystem();
+        smart_refctd_ptr<system::ILogger> m_logger = core::make_smart_refctd_ptr<system::CColoredStdoutLoggerANSI>(system::ILogger::DefaultLogMask());
+        m_logger->log("Logger Created!", system::ILogger::ELL_INFO);
+        smart_refctd_ptr<asset::IAssetManager> m_assetMgr = make_smart_refctd_ptr<asset::IAssetManager>(smart_refctd_ptr(m_system));
+
+        path CWD = system::path(argv[0]).parent_path().generic_string() + "/";
+        path localInputCWD = CWD / "../";
+        auto resourceArchive =
+#ifdef NBL_EMBED_BUILTIN_RESOURCES
+            make_smart_refctd_ptr<nbl::this_example::builtin::CArchive>(smart_refctd_ptr(m_logger));
+#else
+            make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"app_resources", smart_refctd_ptr(m_logger), m_system.get());
+#endif
+        m_system->mount(std::move(resourceArchive), "app_resources");
+
+        constexpr uint32_t WorkgroupSize = 256;
+        const std::string WorkgroupSizeAsStr = std::to_string(WorkgroupSize);
+        const std::string filePath = "app_resources/test_compile.comp.hlsl";
+
+        IAssetLoader::SAssetLoadParams lparams = {};
+        lparams.logger = m_logger.get();
+        lparams.workingDirectory = "";
+        auto bundle = m_assetMgr->getAsset(filePath, lparams);
+        if (bundle.getContents().empty() || bundle.getAssetType() != IAsset::ET_SHADER)
+        {
+            m_logger->log("Shader %s not found!", ILogger::ELL_ERROR, filePath);
+            exit(-1);
+        }
+
+        const auto assets = bundle.getContents();
+        assert(assets.size() == 1);
+        smart_refctd_ptr<ICPUShader> shaderSrc = IAsset::castDown<ICPUShader>(assets[0]);
+
+        smart_refctd_ptr<ICPUShader> shader = shaderSrc;
+        auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
+        CHLSLCompiler::SOptions options = {};
+        options.stage = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE;
+        options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
+        options.spirvOptimizer = nullptr;
+        // if you don't set the logger and source identifier you'll have no meaningful errors
+        options.preprocessorOptions.sourceIdentifier = shaderSrc->getFilepathHint();
+        options.preprocessorOptions.logger = m_logger.get();
+        options.preprocessorOptions.includeFinder = compiler->getDefaultIncludeFinder();
+        const IShaderCompiler::SMacroDefinition WorkgroupSizeDefine = { "WORKGROUP_SIZE", WorkgroupSizeAsStr };
+        options.preprocessorOptions.extraDefines = { &WorkgroupSizeDefine,&WorkgroupSizeDefine + 1 };
+        if (!(shader = compiler->compileToSPIRV((const char*)shaderSrc->getContent()->getPointer(), options)))
+            fprintf(stderr, "[ERROR] compile shader test failed!\n");
+    }
 
     assert(bxdf::surface_interactions::Isotropic<iso_interaction>);
     assert(bxdf::surface_interactions::Isotropic<aniso_interaction>);
