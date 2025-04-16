@@ -453,9 +453,9 @@ struct TestJacobian : TestBxDF<BxDF>
 
         if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
         {
-            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy);
-            sx = base_t::bxdf.generate(base_t::anisointer, ux.xy);
-            sy = base_t::bxdf.generate(base_t::anisointer, uy.xy);
+            s = base_t::bxdf.generate(base_t::isointer, base_t::rc.u.xy);
+            sx = base_t::bxdf.generate(base_t::isointer, ux.xy);
+            sy = base_t::bxdf.generate(base_t::isointer, uy.xy);
             params = params_t::template create<sample_t, iso_interaction>(s, base_t::isointer, bxdf::BCM_MAX);
         }
         if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF>)
@@ -1211,7 +1211,7 @@ struct TestChi2 : TestBxDF<BxDF>
                         }
                         if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF>)
                         {
-                            aniso_cache cache = aniso_cache::template createForReflection<ray_dir_info_t,ray_dir_info_t>(base_t::anisointer, s);
+                            aniso_cache cache = aniso_cache::template createForReflection<aniso_interaction,sample_t>(base_t::anisointer, s);
 
                             if NBL_CONSTEXPR_FUNC (aniso)
                                 params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_MAX);
@@ -1227,7 +1227,7 @@ struct TestChi2 : TestBxDF<BxDF>
                         }
                         if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
                         {
-                            aniso_cache cache = aniso_cache::template createForReflection<ray_dir_info_t,ray_dir_info_t>(base_t::anisointer, s);
+                            aniso_cache cache = aniso_cache::template createForReflection<aniso_interaction,sample_t>(base_t::anisointer, s);
 
                             if NBL_CONSTEXPR_FUNC (aniso)
                                 params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_ABS);
