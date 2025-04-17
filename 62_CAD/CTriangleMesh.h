@@ -8,7 +8,6 @@ using namespace nbl;
 
 struct DTMHeightShadingInfo
 {
-	bool enabled;
 	// Height Shading Mode
 	E_HEIGHT_SHADING_MODE heightShadingMode;
 
@@ -68,7 +67,6 @@ private:
 
 struct DTMContourInfo
 {
-	bool enabled;
 	LineStyleInfo lineStyleInfo;
 
 	float startHeight;
@@ -76,17 +74,13 @@ struct DTMContourInfo
 	float heightInterval;
 };
 
-struct DTMOutlineInfo
-{
-	bool enabled;
-	LineStyleInfo lineStyleInfo;
-};
-
 struct DTMSettingsInfo
 {
+	uint32_t mode = 0u;
+
 	DTMHeightShadingInfo heightShadingInfo;
 	DTMContourInfo contourInfo;
-	DTMOutlineInfo outlineInfo;
+	LineStyleInfo outlineStyleInfo;
 };
 
 class CTriangleMesh final

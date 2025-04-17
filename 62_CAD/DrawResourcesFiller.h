@@ -157,9 +157,7 @@ public:
 	
 	void drawTriangleMesh(
 		const CTriangleMesh& mesh,
-		const DTMHeightShadingInfo& dtmHeightShadingInfo,
-		const DTMContourInfo& dtmContourInfo,
-		const DTMOutlineInfo& dtmOutlineInfo,
+		const DTMSettingsInfo& dtmSettingsInfo,
 		SIntendedSubmitInfo& intendedNextSubmit);
 
 	// ! Convinience function for Hatch with MSDF Pattern and a solid background
@@ -228,7 +226,7 @@ public:
 
 	// Setting Active Resources:
 	void setActiveLineStyle(const LineStyleInfo& lineStyle);
-	void setActiveDTMSettings(const DTMHeightShadingInfo& heightShadingInfo, const DTMContourInfo& contourInfo, const DTMOutlineInfo& outlineInfo);
+	void setActiveDTMSettings(const DTMSettingsInfo& dtmSettingsInfo);
 
 	void beginMainObject(MainObjectType type);
 	void endMainObject();

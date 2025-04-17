@@ -136,14 +136,12 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, SIntendedS
 
 void DrawResourcesFiller::drawTriangleMesh(
 	const CTriangleMesh& mesh,
-	const DTMHeightShadingInfo& dtmHeightShadingInfo,
-	const DTMContourInfo& dtmContourInfo,
-	const DTMOutlineInfo& dtmOutlineInfo,
+	const DTMSettingsInfo& dtmSettingsInfo,
 	SIntendedSubmitInfo& intendedNextSubmit)
 {
 	flushDrawObjects(); // flushes draw call construction of any possible draw objects before dtm, because currently we're sepaerating dtm draw calls from drawObj draw calls
 
-	setActiveDTMSettings(dtmHeightShadingInfo, dtmContourInfo, dtmOutlineInfo); // TODO !!!!
+	setActiveDTMSettings(dtmSettingsInfo); // TODO !!!!
 	beginMainObject(MainObjectType::DTM);
 
 	DrawCallData drawCallData = {}; 
@@ -357,13 +355,8 @@ void DrawResourcesFiller::setActiveLineStyle(const LineStyleInfo& lineStyle)
 	activeLineStyleIndex = InvalidStyleIdx;
 }
 
-void DrawResourcesFiller::setActiveDTMSettings(const DTMHeightShadingInfo& heightShadingInfo, const DTMContourInfo& contourInfo, const DTMOutlineInfo& outlineInfo)
+void DrawResourcesFiller::setActiveDTMSettings(const DTMSettingsInfo& dtmSettingsInfo)
 {
-	DTMSettingsInfo dtmSettingsInfo;
-	dtmSettingsInfo.heightShadingInfo = heightShadingInfo;
-	dtmSettingsInfo.contourInfo = contourInfo;
-	dtmSettingsInfo.outlineInfo = outlineInfo;
-
 	activeDTMSettings = dtmSettingsInfo;
 	activeDTMSettingsIndex = InvalidDTMSettingsIdx;
 }
@@ -645,11 +638,9 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 
 	////dtmSettingsInfo.mode = E_DTM_MODE::HEIGHT_SHADING | E_DTM_MODE::CONTOUR | E_DTM_MODE::OUTLINE;
 
-	dtmSettings.mode = 0u;
-	if (dtmSettingsInfo.heightShadingInfo.enabled)
+	dtmSettings.mode = dtmSettingsInfo.mode;
+	if (dtmSettings.mode & E_DTM_MODE::HEIGHT_SHADING)
 	{
-		dtmSettings.mode |= E_DTM_MODE::HEIGHT_SHADING;
-
 		switch (dtmSettingsInfo.heightShadingInfo.heightShadingMode)
 		{
 		case E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
@@ -666,18 +657,16 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 		dtmSettings.isCenteredShading = static_cast<int>(dtmSettingsInfo.heightShadingInfo.isCenteredShading);
 		_NBL_DEBUG_BREAK_IF(!dtmSettingsInfo.heightShadingInfo.fillShaderDTMSettingsHeightColorMap(dtmSettings));
 	}
-	if (dtmSettingsInfo.contourInfo.enabled)
+	if (dtmSettings.mode & E_DTM_MODE::CONTOUR)
 	{
-		dtmSettings.mode |= E_DTM_MODE::CONTOUR;
 		dtmSettings.contourLinesStartHeight = dtmSettingsInfo.contourInfo.startHeight;
 		dtmSettings.contourLinesEndHeight = dtmSettingsInfo.contourInfo.endHeight;
 		dtmSettings.contourLinesHeightInterval = dtmSettingsInfo.contourInfo.heightInterval;
 		dtmSettings.contourLineStyleIdx = addLineStyle_Internal(dtmSettingsInfo.contourInfo.lineStyleInfo);
 	}
-	if (dtmSettingsInfo.outlineInfo.enabled)
+	if (dtmSettings.mode & E_DTM_MODE::OUTLINE)
 	{
-		dtmSettings.mode |= E_DTM_MODE::OUTLINE;
-		dtmSettings.outlineLineStyleIdx = addLineStyle_Internal(dtmSettingsInfo.outlineInfo.lineStyleInfo);
+		dtmSettings.outlineLineStyleIdx = addLineStyle_Internal(dtmSettingsInfo.outlineStyleInfo);
 	}
 
 	for (uint32_t i = 0u; i < resourcesCollection.dtmSettings.vector.size(); ++i)
