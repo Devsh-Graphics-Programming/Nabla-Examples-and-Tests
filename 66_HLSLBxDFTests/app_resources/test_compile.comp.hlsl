@@ -11,10 +11,10 @@ using namespace nbl::hlsl;
 
 using ray_dir_info_t = bxdf::ray_dir_info::SBasic<float>;
 using iso_interaction = bxdf::surface_interactions::SIsotropic<ray_dir_info_t>;
-using aniso_interaction = bxdf::surface_interactions::SAnisotropic<ray_dir_info_t>;
+using aniso_interaction = bxdf::surface_interactions::SAnisotropic<iso_interaction>;
 using sample_t = bxdf::SLightSample<ray_dir_info_t>;
 using iso_cache = bxdf::SIsotropicMicrofacetCache<float>;
-using aniso_cache = bxdf::SAnisotropicMicrofacetCache<float>;
+using aniso_cache = bxdf::SAnisotropicMicrofacetCache<iso_cache>;
 using quotient_pdf_t = sampling::quotient_and_pdf<float32_t3, float>;
 using spectral_t = vector<float, 3>;
 using params_t = bxdf::SBxDFParams<float>;
@@ -24,14 +24,14 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 {
     bxdf::reflection::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t> lambertianBRDF;
     bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t> orenNayarBRDF;
-    bxdf::reflection::SBeckmannBxDF<sample_t, iso_cache, aniso_cache, spectral_t> beckmannBRDF;
-    bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spectral_t> ggxBRDF;
+    bxdf::reflection::SBeckmannBxDF<sample_t, iso_interaction, aniso_interaction, iso_cache, aniso_cache, spectral_t> beckmannBRDF;
+    bxdf::reflection::SGGXBxDF<sample_t, iso_interaction, aniso_interaction, iso_cache, aniso_cache, spectral_t> ggxBRDF;
 
     bxdf::transmission::SLambertianBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t> lambertianBSDF;
-    bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, false> smoothDielectricBSDF;
-    bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t, true> thinSmoothDielectricBSDF;
-    bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t> beckmannBSDF;
-    bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t> ggxBSDF;
+    bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_interaction, aniso_interaction, iso_cache, aniso_cache, spectral_t, false> smoothDielectricBSDF;
+    bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_interaction, aniso_interaction, iso_cache, aniso_cache, spectral_t, true> thinSmoothDielectricBSDF;
+    bxdf::transmission::SBeckmannDielectricBxDF<sample_t, iso_interaction, aniso_interaction, iso_cache, aniso_cache, spectral_t> beckmannBSDF;
+    bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_interaction, aniso_interaction, iso_cache, aniso_cache, spectral_t> ggxBSDF;
 
 
     // do some nonsense calculations, but call all the relevant functions
