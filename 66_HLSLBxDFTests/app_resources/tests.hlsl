@@ -5,7 +5,7 @@
 
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
 #include "nbl/builtin/hlsl/random/pcg.hlsl"
-#include "nbl/builtin/hlsl/random/rand_gen.hlsl"
+#include "nbl/builtin/hlsl/random/dim_adaptor_recursive.hlsl"
 #include "nbl/builtin/hlsl/sampling/uniform.hlsl"
 #include "nbl/builtin/hlsl/bxdf/common.hlsl"
 #include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
@@ -573,7 +573,7 @@ struct TestJacobian : TestBxDF<BxDF>
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
         random::PCG32 pcg = random::PCG32::construct(initparams.state);
-        random::Uniform<random::PCG32, 2> rand2d = random::Uniform<random::PCG32, 2>::construct(pcg);
+        random::DimAdaptorRecursive<random::PCG32, 2> rand2d = random::DimAdaptorRecursive<random::PCG32, 2>::construct(pcg);
         uint32_t2 state = rand2d();
 
         this_t t;
@@ -748,7 +748,7 @@ struct TestReciprocity : TestBxDF<BxDF>
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
         random::PCG32 pcg = random::PCG32::construct(initparams.state);
-        random::Uniform<random::PCG32, 2> rand2d = random::Uniform<random::PCG32, 2>::construct(pcg);
+        random::DimAdaptorRecursive<random::PCG32, 2> rand2d = random::DimAdaptorRecursive<random::PCG32, 2>::construct(pcg);
         uint32_t2 state = rand2d();
 
         this_t t;
@@ -910,7 +910,7 @@ struct TestBucket : TestBxDF<BxDF>
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
         random::PCG32 pcg = random::PCG32::construct(initparams.state);
-        random::Uniform<random::PCG32, 2> rand2d = random::Uniform<random::PCG32, 2>::construct(pcg);
+        random::DimAdaptorRecursive<random::PCG32, 2> rand2d = random::DimAdaptorRecursive<random::PCG32, 2>::construct(pcg);
         uint32_t2 state = rand2d();
 
         this_t t;
@@ -1356,7 +1356,7 @@ struct TestChi2 : TestBxDF<BxDF>
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
         random::PCG32 pcg = random::PCG32::construct(initparams.state);
-        random::Uniform<random::PCG32, 2> rand2d = random::Uniform<random::PCG32, 2>::construct(pcg);
+        random::DimAdaptorRecursive<random::PCG32, 2> rand2d = random::DimAdaptorRecursive<random::PCG32, 2>::construct(pcg);
         uint32_t2 state = rand2d();
 
         this_t t;
