@@ -51,7 +51,6 @@ using iso_cache = bxdf::SIsotropicMicrofacetCache<float>;
 using aniso_cache = bxdf::SAnisotropicMicrofacetCache<iso_cache>;
 using quotient_pdf_t = sampling::quotient_and_pdf<float32_t3, float>;
 using spectral_t = vector<float, 3>;
-using params_t = bxdf::SBxDFParams<float>;
 
 using bool32_t3 = vector<bool, 3>;
 
@@ -441,6 +440,7 @@ struct TestJacobian : TestBxDF<BxDF>
 {
     using base_t = TestBxDFBase<BxDF>;
     using this_t = TestJacobian<BxDF, aniso>;
+    using params_t = conditional_t<aniso, typename BxDF::params_anisotropic_t, typename BxDF::params_isotropic_t>;
 
     virtual ErrorType compute() override
     {
@@ -456,7 +456,7 @@ struct TestJacobian : TestBxDF<BxDF>
             s = base_t::bxdf.generate(base_t::isointer, base_t::rc.u.xy);
             sx = base_t::bxdf.generate(base_t::isointer, ux.xy);
             sy = base_t::bxdf.generate(base_t::isointer, uy.xy);
-            params = params_t::template create<sample_t, iso_interaction>(s, base_t::isointer, bxdf::BCM_MAX);
+            params = params_t::create(s, base_t::isointer, bxdf::BCM_MAX);
         }
         if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF>)
         {
@@ -465,11 +465,11 @@ struct TestJacobian : TestBxDF<BxDF>
             sy = base_t::bxdf.generate(base_t::anisointer, uy.xy, dummy);
 
             if NBL_CONSTEXPR_FUNC (aniso)
-                params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_MAX);
+                params = params_t::create(s, base_t::anisointer, cache, bxdf::BCM_MAX);
             else
             {
                 isocache = cache.iso_cache;
-                params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_MAX);
+                params = params_t::create(s, base_t::isointer, isocache, bxdf::BCM_MAX);
             }
         }
         if NBL_CONSTEXPR_FUNC (is_basic_bsdf_v<BxDF>)
@@ -477,7 +477,7 @@ struct TestJacobian : TestBxDF<BxDF>
             s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u);
             sx = base_t::bxdf.generate(base_t::anisointer, ux);
             sy = base_t::bxdf.generate(base_t::anisointer, uy);
-            params = params_t::template create<sample_t, iso_interaction>(s, base_t::isointer, bxdf::BCM_ABS);
+            params = params_t::create(s, base_t::isointer, bxdf::BCM_ABS);
         }
         if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
         {
@@ -486,11 +486,11 @@ struct TestJacobian : TestBxDF<BxDF>
             sy = base_t::bxdf.generate(base_t::anisointer, uy, dummy);
 
             if NBL_CONSTEXPR_FUNC (aniso)
-                params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_ABS);
+                params = params_t::create(s, base_t::anisointer, cache, bxdf::BCM_ABS);
             else
             {
                 isocache = cache.iso_cache;
-                params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_ABS);
+                params = params_t::create(s, base_t::isointer, isocache, bxdf::BCM_ABS);
             }
         }
 
@@ -599,6 +599,7 @@ struct TestReciprocity : TestBxDF<BxDF>
 {
     using base_t = TestBxDFBase<BxDF>;
     using this_t = TestReciprocity<BxDF, aniso>;
+    using params_t = conditional_t<aniso, typename BxDF::params_anisotropic_t, typename BxDF::params_isotropic_t>;
 
     virtual ErrorType compute() override
     {
@@ -608,35 +609,35 @@ struct TestReciprocity : TestBxDF<BxDF>
         if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
         {
             s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy);
-            params = params_t::template create<sample_t, iso_interaction>(s, base_t::isointer, bxdf::BCM_MAX);
+            params = params_t::create(s, base_t::isointer, bxdf::BCM_MAX);
         }
         if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF>)
         {
             s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy, cache);
 
             if NBL_CONSTEXPR_FUNC (aniso)
-                params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_MAX);
+                params = params_t::create(s, base_t::anisointer, cache, bxdf::BCM_MAX);
             else
             {
                 isocache = cache.iso_cache;
-                params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_MAX);
+                params = params_t::create(s, base_t::isointer, isocache, bxdf::BCM_MAX);
             }
         }
         if NBL_CONSTEXPR_FUNC (is_basic_bsdf_v<BxDF>)
         {
             s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u);
-            params = params_t::template create<sample_t, iso_interaction>(s, base_t::isointer, bxdf::BCM_ABS);
+            params = params_t::create(s, base_t::isointer, bxdf::BCM_ABS);
         }
         if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
         {
             s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u, cache);
 
             if NBL_CONSTEXPR_FUNC (aniso)
-                params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_ABS);
+                params = params_t::create(s, base_t::anisointer, cache, bxdf::BCM_ABS);
             else
             {
                 isocache = cache.iso_cache;
-                params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_ABS);
+                params = params_t::create(s, base_t::isointer, isocache, bxdf::BCM_ABS);
             }
         }
 
@@ -667,27 +668,27 @@ struct TestReciprocity : TestBxDF<BxDF>
         rec_isocache = rec_cache.iso_cache;
 
         if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
-            rec_params = params_t::template create<sample_t, iso_interaction>(rec_s, rec_isointer, bxdf::BCM_MAX);
+            rec_params = params_t::create(rec_s, rec_isointer, bxdf::BCM_MAX);
         if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF>)
         {
             if NBL_CONSTEXPR_FUNC (aniso)
-                rec_params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(rec_s, rec_anisointer, rec_cache, bxdf::BCM_MAX);
+                rec_params = params_t::create(rec_s, rec_anisointer, rec_cache, bxdf::BCM_MAX);
             else
             {
                 rec_isocache = rec_cache.iso_cache;
-                rec_params = params_t::template create<sample_t, iso_interaction, iso_cache>(rec_s, rec_isointer, rec_isocache, bxdf::BCM_MAX);
+                rec_params = params_t::create(rec_s, rec_isointer, rec_isocache, bxdf::BCM_MAX);
             }
         }
         if NBL_CONSTEXPR_FUNC (is_basic_bsdf_v<BxDF>)
-            rec_params = params_t::template create<sample_t, iso_interaction>(rec_s, rec_isointer, bxdf::BCM_ABS);
+            rec_params = params_t::create(rec_s, rec_isointer, bxdf::BCM_ABS);
         if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
         {
             if NBL_CONSTEXPR_FUNC (aniso)
-                rec_params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(rec_s, rec_anisointer, rec_cache, bxdf::BCM_ABS);
+                rec_params = params_t::create(rec_s, rec_anisointer, rec_cache, bxdf::BCM_ABS);
             else
             {
                 rec_isocache = rec_cache.iso_cache;
-                rec_params = params_t::template create<sample_t, iso_interaction, iso_cache>(rec_s, rec_isointer, rec_isocache, bxdf::BCM_ABS);
+                rec_params = params_t::create(rec_s, rec_isointer, rec_isocache, bxdf::BCM_ABS);
             }
         }
         
@@ -736,8 +737,8 @@ struct TestReciprocity : TestBxDF<BxDF>
         if (checkLt<float32_t3>(bsdf, (float32_t3)0.0))
             return BET_NEGATIVE_VAL;
 
-        float32_t3 a = bsdf * nbl::hlsl::abs<float>(params.NdotV);
-        float32_t3 b = rec_bsdf * nbl::hlsl::abs<float>(rec_params.NdotV);
+        float32_t3 a = bsdf * nbl::hlsl::abs<float>(params.getNdotV());
+        float32_t3 b = rec_bsdf * nbl::hlsl::abs<float>(rec_params.getNdotV());
         if (!(a == b))  // avoid division by 0
             if (!checkEq<float32_t3>(a, b, 1e-2))
                 return BET_RECIPROCITY;
@@ -775,6 +776,7 @@ struct TestBucket : TestBxDF<BxDF>
 {
     using base_t = TestBxDFBase<BxDF>;
     using this_t = TestBucket<BxDF, aniso>;
+    using params_t = conditional_t<aniso, typename BxDF::params_anisotropic_t, typename BxDF::params_isotropic_t>;
 
     void clearBuckets()
     {
@@ -813,35 +815,35 @@ struct TestBucket : TestBxDF<BxDF>
             if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
             {
                 s = base_t::bxdf.generate(base_t::anisointer, u.xy);
-                params = params_t::template create<sample_t, iso_interaction>(s, base_t::isointer, bxdf::BCM_MAX);
+                params = params_t::create(s, base_t::isointer, bxdf::BCM_MAX);
             }
             if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF>)
             {
                 s = base_t::bxdf.generate(base_t::anisointer, u.xy, cache);
 
                 if NBL_CONSTEXPR_FUNC (aniso)
-                    params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_MAX);
+                    params = params_t::create(s, base_t::anisointer, cache, bxdf::BCM_MAX);
                 else
                 {
                     isocache = cache.iso_cache;
-                    params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_MAX);
+                    params = params_t::create(s, base_t::isointer, isocache, bxdf::BCM_MAX);
                 }
             }
             if NBL_CONSTEXPR_FUNC (is_basic_bsdf_v<BxDF>)
             {
                 s = base_t::bxdf.generate(base_t::anisointer, u);
-                params = params_t::template create<sample_t, iso_interaction>(s, base_t::isointer, bxdf::BCM_ABS);
+                params = params_t::create(s, base_t::isointer, bxdf::BCM_ABS);
             }
             if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
             {
                 s = base_t::bxdf.generate(base_t::anisointer, u, cache);
 
                 if NBL_CONSTEXPR_FUNC (aniso)
-                    params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_ABS);
+                    params = params_t::create(s, base_t::anisointer, cache, bxdf::BCM_ABS);
                 else
                 {
                     isocache = cache.iso_cache;
-                    params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_ABS);
+                    params = params_t::create(s, base_t::isointer, isocache, bxdf::BCM_ABS);
                 }
             }
 
@@ -982,6 +984,7 @@ struct TestChi2 : TestBxDF<BxDF>
 {
     using base_t = TestBxDFBase<BxDF>;
     using this_t = TestChi2<BxDF, aniso>;
+    using params_t = conditional_t<aniso, typename BxDF::params_anisotropic_t, typename BxDF::params_isotropic_t>;
 
     void clearBuckets()
     {
@@ -1207,34 +1210,34 @@ struct TestChi2 : TestBxDF<BxDF>
                         params_t params;
                         if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
                         {
-                            params = params_t::template create<sample_t, iso_interaction>(s, base_t::isointer, bxdf::BCM_MAX);
+                            params = params_t::create(s, base_t::isointer, bxdf::BCM_MAX);
                         }
                         if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF>)
                         {
                             aniso_cache cache = aniso_cache::template createForReflection<aniso_interaction,sample_t>(base_t::anisointer, s);
 
                             if NBL_CONSTEXPR_FUNC (aniso)
-                                params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_MAX);
+                                params = params_t::create(s, base_t::anisointer, cache, bxdf::BCM_MAX);
                             else
                             {
                                 iso_cache isocache = cache.iso_cache;
-                                params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_MAX);
+                                params = params_t::create(s, base_t::isointer, isocache, bxdf::BCM_MAX);
                             }
                         }
                         if NBL_CONSTEXPR_FUNC (is_basic_bsdf_v<BxDF>)
                         {
-                            params = params_t::template create<sample_t, iso_interaction>(s, base_t::isointer, bxdf::BCM_ABS);
+                            params = params_t::create(s, base_t::isointer, bxdf::BCM_ABS);
                         }
                         if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
                         {
                             aniso_cache cache = aniso_cache::template createForReflection<aniso_interaction,sample_t>(base_t::anisointer, s);
 
                             if NBL_CONSTEXPR_FUNC (aniso)
-                                params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, base_t::anisointer, cache, bxdf::BCM_ABS);
+                                params = params_t::create(s, base_t::anisointer, cache, bxdf::BCM_ABS);
                             else
                             {
                                 iso_cache isocache = cache.iso_cache;
-                                params = params_t::template create<sample_t, iso_interaction, iso_cache>(s, base_t::isointer, isocache, bxdf::BCM_ABS);
+                                params = params_t::create(s, base_t::isointer, isocache, bxdf::BCM_ABS);
                             }
                         }
 

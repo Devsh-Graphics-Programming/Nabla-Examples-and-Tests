@@ -17,7 +17,6 @@ using iso_cache = bxdf::SIsotropicMicrofacetCache<float>;
 using aniso_cache = bxdf::SAnisotropicMicrofacetCache<iso_cache>;
 using quotient_pdf_t = sampling::quotient_and_pdf<float32_t3, float>;
 using spectral_t = vector<float, 3>;
-using params_t = bxdf::SBxDFParams<float>;
 
 [numthreads(WORKGROUP_SIZE,1,1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)
@@ -54,22 +53,22 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     s = orenNayarBRDF.generate(anisointer, u.xy);
     L += s.L.direction;
 
-    params_t params = params_t::template create<sample_t, iso_interaction>(s, isointer, bxdf::BxDFClampMode::BCM_MAX);
-    quotient_pdf_t qp = orenNayarBRDF.quotient_and_pdf(params);
+    bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>::params_isotropic_t params0 = bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>::params_isotropic_t::create(s, isointer, bxdf::BxDFClampMode::BCM_MAX);
+    quotient_pdf_t qp = orenNayarBRDF.quotient_and_pdf(params0);
     L -= qp.quotient;
 
     s = beckmannBRDF.generate(anisointer, u.xy, cache);
     L += s.L.direction;
 
-    params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, anisointer, cache, bxdf::BxDFClampMode::BCM_MAX);
-    qp = beckmannBRDF.quotient_and_pdf(params);
+    bxdf::reflection::SBeckmannBxDF<sample_t, iso_interaction, aniso_interaction, iso_cache, aniso_cache, spectral_t>::params_anisotropic_t params1 = bxdf::reflection::SBeckmannBxDF<sample_t, iso_interaction, aniso_interaction, iso_cache, aniso_cache, spectral_t>::params_anisotropic_t::create(s, anisointer, cache, bxdf::BxDFClampMode::BCM_MAX);
+    qp = beckmannBRDF.quotient_and_pdf(params1);
     L -= qp.quotient;
 
     s = ggxBRDF.generate(anisointer, u.xy, cache);
     L += s.L.direction;
 
-    params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, anisointer, cache, bxdf::BxDFClampMode::BCM_MAX);
-    qp = ggxBRDF.quotient_and_pdf(params);
+    bxdf::reflection::SGGXBxDF<sample_t, iso_interaction, aniso_interaction, iso_cache, aniso_cache, spectral_t>::params_anisotropic_t params2 = bxdf::reflection::SGGXBxDF<sample_t, iso_interaction, aniso_interaction, iso_cache, aniso_cache, spectral_t>::params_anisotropic_t::create(s, anisointer, cache, bxdf::BxDFClampMode::BCM_MAX);
+    qp = ggxBRDF.quotient_and_pdf(params2);
     L -= qp.quotient;
 
     s = lambertianBSDF.generate(anisointer, u);
@@ -78,15 +77,15 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     s = thinSmoothDielectricBSDF.generate(anisointer, u);
     L += s.L.direction;
 
-    params = params_t::template create<sample_t, iso_interaction>(s, isointer, bxdf::BxDFClampMode::BCM_ABS);
-    qp = thinSmoothDielectricBSDF.quotient_and_pdf(params);
+    bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_interaction, aniso_interaction, iso_cache, aniso_cache, spectral_t, true>::params_isotropic_t params3 = bxdf::transmission::SSmoothDielectricBxDF<sample_t, iso_interaction, aniso_interaction, iso_cache, aniso_cache, spectral_t, true>::params_isotropic_t::create(s, isointer, bxdf::BxDFClampMode::BCM_ABS);
+    qp = thinSmoothDielectricBSDF.quotient_and_pdf(params3);
     L -= qp.quotient;
 
     s = ggxBSDF.generate(anisointer, u, cache);
     L += s.L.direction;
 
-    params = params_t::template create<sample_t, aniso_interaction, aniso_cache>(s, anisointer, cache, bxdf::BxDFClampMode::BCM_ABS);
-    qp = ggxBSDF.quotient_and_pdf(params);
+    bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_interaction, aniso_interaction, iso_cache, aniso_cache, spectral_t>::params_anisotropic_t params4 = bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_interaction, aniso_interaction, iso_cache, aniso_cache, spectral_t>::params_anisotropic_t::create(s, anisointer, cache, bxdf::BxDFClampMode::BCM_ABS);
+    qp = ggxBSDF.quotient_and_pdf(params4);
     L -= qp.quotient;
 
     buff[ID.x] = L;
