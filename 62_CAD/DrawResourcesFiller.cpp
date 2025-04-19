@@ -141,7 +141,7 @@ void DrawResourcesFiller::drawTriangleMesh(
 {
 	flushDrawObjects(); // flushes draw call construction of any possible draw objects before dtm, because currently we're sepaerating dtm draw calls from drawObj draw calls
 
-	setActiveDTMSettings(dtmSettingsInfo); // TODO !!!!
+	setActiveDTMSettings(dtmSettingsInfo);
 	beginMainObject(MainObjectType::DTM);
 
 	DrawCallData drawCallData = {}; 
@@ -675,7 +675,7 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 		if (itr == dtmSettings)
 			return i;
 	}
-	
+
 	return resourcesCollection.dtmSettings.addAndGetOffset(dtmSettings); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
 }
 

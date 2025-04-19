@@ -3246,10 +3246,10 @@ protected:
 			mesh.setIndices(std::move(indices));
 
 			DTMSettingsInfo dtmInfo;
-			dtmInfo.mode = E_DTM_MODE::HEIGHT_SHADING | E_DTM_MODE::CONTOUR | E_DTM_MODE::OUTLINE;
-
-			dtmInfo.outlineStyleInfo.screenSpaceLineWidth = 3.0f;
-			dtmInfo.outlineStyleInfo.worldSpaceLineWidth = 0.0f;
+			//dtmInfo.mode = E_DTM_MODE::HEIGHT_SHADING | E_DTM_MODE::CONTOUR | E_DTM_MODE::OUTLINE;
+			dtmInfo.mode = E_DTM_MODE::HEIGHT_SHADING;
+			dtmInfo.outlineStyleInfo.screenSpaceLineWidth = 0.0f;
+			dtmInfo.outlineStyleInfo.worldSpaceLineWidth = 3.0f;
 			dtmInfo.outlineStyleInfo.color = float32_t4(0.0f, 0.39f, 0.0f, 1.0f);
 			std::array<double, 4> outlineStipplePattern = { 0.0f, -5.0f, 20.0f, -5.0f };
 			dtmInfo.outlineStyleInfo.setStipplePatternData(outlineStipplePattern);
@@ -3274,7 +3274,7 @@ protected:
 				{
 					dtmInfo.heightShadingInfo.heightShadingMode = E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
 
-					dtmInfo.heightShadingInfo.addHeightColorMapEntry(-10.0f, float32_t4(0.5f, 1.0f, 1.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(-10.0f, float32_t4(0.5f, 1.0f, 1.0f, 1.0f));
 					dtmInfo.heightShadingInfo.addHeightColorMapEntry(20.0f, float32_t4(0.0f, 1.0f, 0.0f, 1.0f));
 					dtmInfo.heightShadingInfo.addHeightColorMapEntry(25.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
 					dtmInfo.heightShadingInfo.addHeightColorMapEntry(70.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));

@@ -400,9 +400,9 @@ struct DTMSettings
         return E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
     }
     
-    bool drawOutlineEnabled() { return  (mode & E_DTM_MODE::OUTLINE) != 0u; } 
-    bool drawContourEnabled() { return (mode & E_DTM_MODE::CONTOUR) != 0u; } 
-    bool drawHeightShadingEnabled() { return (mode & E_DTM_MODE::HEIGHT_SHADING) != 0u; } 
+    bool drawOutlineEnabled() NBL_CONST_MEMBER_FUNC { return  (mode & E_DTM_MODE::OUTLINE) != 0u; } 
+    bool drawContourEnabled() NBL_CONST_MEMBER_FUNC { return (mode & E_DTM_MODE::CONTOUR) != 0u; }
+    bool drawHeightShadingEnabled() NBL_CONST_MEMBER_FUNC { return (mode & E_DTM_MODE::HEIGHT_SHADING) != 0u; }
 };
 
 #ifndef __HLSL_VERSION
@@ -430,8 +430,44 @@ inline bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 
 inline bool operator==(const DTMSettings& lhs, const DTMSettings& rhs)
 {
-    return lhs.outlineLineStyleIdx == rhs.outlineLineStyleIdx &&
-        lhs.contourLineStyleIdx == rhs.contourLineStyleIdx;
+    if (lhs.mode != rhs.mode)
+        return false;
+
+    bool equal = true;
+    if (lhs.drawOutlineEnabled())
+    {
+        equal = lhs.outlineLineStyleIdx == rhs.outlineLineStyleIdx;
+    }
+
+    if (!equal)
+        return false;
+
+    if (lhs.drawContourEnabled())
+    {
+        float contourLinesStartHeight;
+        float contourLinesEndHeight;
+        float contourLinesHeightInterval;
+
+        equal = lhs.contourLinesStartHeight == rhs.contourLinesStartHeight &&
+            lhs.contourLinesStartHeight == rhs.contourLinesStartHeight &&
+            lhs.contourLinesStartHeight == rhs.contourLinesStartHeight;
+    }
+
+    if (!equal)
+        return false;
+
+    if (lhs.drawHeightShadingEnabled())
+    {
+        equal = lhs.intervalLength == rhs.intervalLength &&
+            lhs.intervalIndexToHeightMultiplier == rhs.intervalIndexToHeightMultiplier &&
+            lhs.isCenteredShading == rhs.isCenteredShading &&
+            lhs.heightColorEntryCount == rhs.heightColorEntryCount;
+
+        equal == equal && (memcmp(lhs.heightColorMapHeights, rhs.heightColorMapHeights, lhs.heightColorEntryCount * sizeof(float)));
+        equal == equal && (memcmp(lhs.heightColorMapColors, rhs.heightColorMapColors, lhs.heightColorEntryCount * sizeof(float32_t4)));
+    }
+
+    return equal;
 }
 #endif
 

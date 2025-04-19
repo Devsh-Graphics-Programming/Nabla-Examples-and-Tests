@@ -78,12 +78,6 @@ void dilateHatch<false>(out float2 outOffsetVec, out float2 outUV, const float2 
 
 PSInput main(uint vertexID : SV_VertexID)
 {
-    // TODO[Przemek]: Disable Everything here and do your own thing as we already discussed, but let's have the same PSInput data passed to fragment.
-    // your programmable pulling will use the baseVertexBufferAddress BDA address and `vertexID` to RawBufferLoad it's vertex. 
-    // ~~Later, most likely We will require pulling all 3 vertices of the triangle, that's where you need to know which triangle you're currently on, and instead of objectID = vertexID/4 which we currently do, you will do vertexID/3 and pull all 3 of it's vertices.~~
-    // Ok, brainfart, a vertex can belong to multiple triangles, I was thinking of AA but triangles share vertices, nevermind my comment above.
-    
-
     ClipProjectionData clipProjectionData;
     
     PSInput outV;
@@ -147,15 +141,22 @@ PSInput main(uint vertexID : SV_VertexID)
         );
 
         DTMSettings dtm = loadDTMSettings(mainObj.dtmSettingsIdx);
-        LineStyle outlineStyle = loadLineStyle(dtm.outlineLineStyleIdx);
-        LineStyle contourStyle = loadLineStyle(dtm.contourLineStyleIdx);
+
         // TODO: maybe move to fragment shader since we may have multiple contour styles later
-        const float screenSpaceOutlineWidth = outlineStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(outlineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
-        const float sdfOutlineThickness = screenSpaceOutlineWidth * 0.5f;
-        const float screenSpaceContourLineWidth = contourStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(contourStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
-        const float sdfContourLineThickness = screenSpaceContourLineWidth * 0.5f;
-        outV.setOutlineThickness(sdfOutlineThickness);
-        outV.setContourLineThickness(sdfContourLineThickness);
+        if (dtm.drawOutlineEnabled())
+        {
+            LineStyle outlineStyle = loadLineStyle(dtm.outlineLineStyleIdx);
+            const float screenSpaceOutlineWidth = outlineStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(outlineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
+            const float sdfOutlineThickness = screenSpaceOutlineWidth * 0.5f;
+            outV.setOutlineThickness(sdfOutlineThickness);
+        }
+        if (dtm.drawContourEnabled())
+        {
+            LineStyle contourStyle = loadLineStyle(dtm.contourLineStyleIdx);
+            const float screenSpaceContourLineWidth = contourStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(contourStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
+            const float sdfContourLineThickness = screenSpaceContourLineWidth * 0.5f;
+            outV.setContourLineThickness(sdfContourLineThickness);
+        }
 
         // full screen triangle (this will destroy outline, contour line and height drawing)
 #if 0

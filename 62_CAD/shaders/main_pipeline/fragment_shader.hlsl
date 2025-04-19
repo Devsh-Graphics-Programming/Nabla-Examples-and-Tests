@@ -508,7 +508,7 @@ float3 calculateDTMTriangleBarycentrics(in float2 v1, in float2 v2, in float2 v3
 
 float4 calculateDTMHeightColor(in DTMSettings dtmSettings, in float3 v[3], in float heightDeriv, in float2 fragPos, in float height)
 {
-    float4 outputColor = float4(0.0f, 0.0f, 0.0f, 1.0f);
+    float4 outputColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
     // HEIGHT SHADING
     const uint32_t heightMapSize = dtmSettings.heightColorEntryCount;
@@ -542,7 +542,6 @@ float4 calculateDTMHeightColor(in DTMSettings dtmSettings, in float3 v[3], in fl
         convexPolygonSdf = max(convexPolygonSdf, line3Sdf);
         convexPolygonSdf = max(convexPolygonSdf, line4Sdf);
 
-        // TODO: separate
         outputColor.a = 1.0f - smoothstep(0.0f, globals.antiAliasingFactor * 2.0f, convexPolygonSdf);
 
         // calculate height color
@@ -683,6 +682,7 @@ float4 calculateDTMContourColor(in DTMSettings dtmSettings, in float3 v[3], in u
         }
     }
 
+    // TODO: comment next line to fix, figure if it was needed
     if(contourLinePointsIdx == 2)
     {
         nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(contourLinePoints[0], contourLinePoints[1]);
@@ -704,9 +704,11 @@ float4 calculateDTMContourColor(in DTMSettings dtmSettings, in float3 v[3], in u
         
         outputColor.a = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, distance) * contourStyle.color.a;
         outputColor.rgb = contourStyle.color.rgb;
-    }
 
-    return outputColor;
+        return outputColor;
+    }
+    
+    return float4(0.0f, 0.0f, 0.0f, 0.0f);
 }
 
 float4 calculateDTMOutlineColor(in DTMSettings dtmSettings, in float3 v[3], in uint2 edgePoints[3], in PSInput psInput, in float3 baryCoord, in float height)
@@ -756,9 +758,6 @@ float4 calculateDTMOutlineColor(in DTMSettings dtmSettings, in float3 v[3], in u
     {
         for (int i = 0; i < 3; ++i)
         {
-            if (distances[i] > outlineThickness)
-                continue;
-
             const uint2 currentEdgePoints = edgePoints[i];
             float3 p0 = v[currentEdgePoints[0]];
             float3 p1 = v[currentEdgePoints[1]];
@@ -774,9 +773,6 @@ float4 calculateDTMOutlineColor(in DTMSettings dtmSettings, in float3 v[3], in u
     {
         for (int i = 0; i < 3; ++i)
         {
-            if (distances[i] > outlineThickness)
-                continue;
-
             const uint2 currentEdgePoints = edgePoints[i];
             float3 p0 = v[currentEdgePoints[0]];
             float3 p1 = v[currentEdgePoints[1]];
