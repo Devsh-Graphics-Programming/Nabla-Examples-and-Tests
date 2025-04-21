@@ -352,9 +352,9 @@ struct Payload_t
     vec3 accumulation;
     float otherTechniqueHeuristic;
     vec3 throughput;
-    #ifdef KILL_DIFFUSE_SPECULAR_PATHS
+#ifdef KILL_DIFFUSE_SPECULAR_PATHS
     bool hasDiffuse;
-    #endif
+#endif
 };
 
 struct Ray_t
@@ -491,6 +491,7 @@ layout (constant_id = 1) const int MAX_SAMPLES_LOG2 = 10;
 
 #include <nbl/builtin/glsl/random/xoroshiro.glsl>
 
+// TODO: use PCG hash + XOROSHIRO and don't read any textures
 mat2x3 rand3d(in uint protoDimension, in uint _sample, inout nbl_glsl_xoroshiro64star_state_t scramble_state)
 {
     mat2x3 retval;
@@ -552,6 +553,7 @@ nbl_glsl_LightSample nbl_glsl_light_generate_and_remainder_and_pdf(out vec3 rema
 }
 
 uint getBSDFLightIDAndDetermineNormal(out vec3 normal, in uint objectID, in vec3 intersection);
+// returns whether to stop tracing
 bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nbl_glsl_xoroshiro64star_state_t scramble_state)
 {
     const MutableRay_t _mutable = ray._mutable;
@@ -602,7 +604,7 @@ bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nb
 
         const bool isBSDF = BSDFNode_isBSDF(bsdf);
         //rand
-        mat2x3 epsilon = rand3d(depth,_sample,scramble_state);
+        mat2x3 epsilon = rand3d(depth*2,_sample,scramble_state);
 
         // thresholds
         const float bsdfPdfThreshold = 0.0001;
@@ -613,7 +615,7 @@ bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nb
         // do NEE
         const float neeProbability = 1.0;// BSDFNode_getNEEProb(bsdf);
         float rcpChoiceProb;
-        if (!nbl_glsl_partitionRandVariable(neeProbability,epsilon[0].z,rcpChoiceProb) && depth<2u)
+        if (!nbl_glsl_partitionRandVariable(neeProbability,epsilon[0].z,rcpChoiceProb))
         {
             vec3 neeContrib; float lightPdf, t;
             nbl_glsl_LightSample nee_sample = nbl_glsl_light_generate_and_remainder_and_pdf(
@@ -748,15 +750,15 @@ void main()
             ray._payload.accumulation = vec3(0.0);
             ray._payload.otherTechniqueHeuristic = 0.0; // needed for direct eye-light paths
             ray._payload.throughput = vec3(1.0);
-            #ifdef KILL_DIFFUSE_SPECULAR_PATHS
+#ifdef KILL_DIFFUSE_SPECULAR_PATHS
             ray._payload.hasDiffuse = false;
-            #endif
+#endif
         }
 
         // bounces
         {
             bool hit = true; bool rayAlive = true;
-            for (int d=1; d<=PTPushConstant.depth && hit && rayAlive; d+=2)
+            for (int d=1; d<=PTPushConstant.depth && hit && rayAlive; d++)
             {
                 ray._mutable.intersectionT = nbl_glsl_FLT_MAX;
                 ray._mutable.objectID = traceRay(ray._mutable.intersectionT,ray._immutable.origin,ray._immutable.direction);
