@@ -15,8 +15,8 @@ uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize() {return uint32_t3(WORKGROUP_SIZE,1
 [[vk::binding(0, 0)]] StructuredBuffer<uint32_t> inputValue;
 [[vk::binding(1, 0)]] RWByteAddressBuffer output[8];
 
-// because subgroups don't match `gl_LocalInvocationIndex` snake curve addressing, we also can't load inputs that way
-uint32_t globalIndex();
+// to get next item, move by subgroupSize
+uint32_t globalFirstItemIndex(uint32_t itemIdx);
 // since we test ITEMS_PER_WG<WorkgroupSize we need this so workgroups don't overwrite each other's outputs
 bool canStore();
 
@@ -53,8 +53,13 @@ static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
         output[binop<T>::BindingIndex].template Store<uint32_t>(0,nbl::hlsl::glsl::gl_SubgroupSize());
         
     operation_t<params_t> func;
+    type_t value = func(sourceVal);
     if (canStore())
-        output[binop<T>::BindingIndex].template Store<type_t>(sizeof(uint32_t)+sizeof(type_t)*globalIndex(),func(sourceVal));
+    {
+        [unroll]
+        for (uint32_t i = 0; i < ITEMS_PER_INVOCATION; i++)
+            output[binop<T>::BindingIndex].template Store<uint32_t>(sizeof(uint32_t) + sizeof(uint32_t) * (globalFirstItemIndex(i) + nbl::hlsl::glsl::gl_SubgroupInvocationID()), value[i]);
+    }
 }
 
 
@@ -62,15 +67,11 @@ type_t test()
 {
     const uint32_t idx = globalIndex() * ITEMS_PER_INVOCATION;
     type_t sourceVal;
-// #if ITEMS_PER_INVOCATION > 1
     [unroll]
     for (uint32_t i = 0; i < ITEMS_PER_INVOCATION; i++)
     {
         sourceVal[i] = inputValue[idx + i];
     }
-// #else
-//     sourceVal = inputValue[idx];
-// #endif
 
     subtest<bit_and, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
     subtest<bit_xor, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);

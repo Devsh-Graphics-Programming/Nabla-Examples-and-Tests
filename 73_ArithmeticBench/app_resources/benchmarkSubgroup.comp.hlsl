@@ -7,9 +7,9 @@
 // NOTE added dummy output image to be able to profile with Nsight, which still doesn't support profiling headless compute shaders
 [[vk::binding(2, 0)]] RWTexture2D<float32_t4> outImage; // dummy
 
-uint32_t globalIndex()
+uint32_t globalFirstItemIndex(uint32_t itemIdx)
 {
-    return nbl::hlsl::glsl::gl_WorkGroupID().x*WORKGROUP_SIZE+nbl::hlsl::workgroup::SubgroupContiguousIndex();
+    return nbl::hlsl::glsl::gl_WorkGroupID().x*WORKGROUP_SIZE*ITEMS_PER_INVOCATION+((nbl::hlsl::glsl::gl_SubgroupID()*ITEMS_PER_INVOCATION+itemIdx)<<SUBGROUP_SIZE_LOG2);
 }
 
 bool canStore() {return true;}
@@ -18,22 +18,6 @@ bool canStore() {return true;}
 #error "Define NUM_LOOPS!"
 #endif
 
-// template<template<class> class binop, typename T, uint32_t N>
-// static void subbench(NBL_CONST_REF_ARG(type_t) sourceVal)
-// {
-//     using config_t = nbl::hlsl::subgroup::Configuration<SUBGROUP_SIZE_LOG2>;
-//     using params_t = nbl::hlsl::subgroup2::ArithmeticParams<config_t, typename binop<T>::base_t, N, nbl::hlsl::jit::device_capabilities>;
-
-//     const uint32_t storeAddr = sizeof(uint32_t) + sizeof(type_t) * globalIndex();
-
-//     operation_t<params_t> func;
-//     [unroll]
-//     for (uint32_t i = 0; i < NUM_LOOPS; i++)
-//     {
-//         const uint32_t arrIndex = i & 7u;   // i % 8
-//         output[arrIndex].template Store<type_t>(storeAddr, func(sourceVal));
-//     }
-// }
 
 template<template<class> class binop, typename T, uint32_t N>
 static void subbench(NBL_CONST_REF_ARG(type_t) sourceVal)
@@ -47,22 +31,20 @@ static void subbench(NBL_CONST_REF_ARG(type_t) sourceVal)
     for (uint32_t i = 0; i < NUM_LOOPS; i++)
         value = func(value);
 
-    output[binop<T>::BindingIndex].template Store<type_t>(sizeof(uint32_t) + sizeof(type_t) * globalIndex(), value);
+    [unroll]
+    for (uint32_t i = 0; i < ITEMS_PER_INVOCATION; i++)
+        output[binop<T>::BindingIndex].template Store<uint32_t>(sizeof(uint32_t) + sizeof(uint32_t) * (globalFirstItemIndex(i) + nbl::hlsl::glsl::gl_SubgroupInvocationID()), value[i]);
 }
 
 void benchmark()
 {
-    const uint32_t idx = globalIndex() * ITEMS_PER_INVOCATION;
+    const uint32_t idx = nbl::hlsl::glsl::gl_SubgroupInvocationID();
     type_t sourceVal;
-// #if ITEMS_PER_INVOCATION > 1
     [unroll]
     for (uint32_t i = 0; i < ITEMS_PER_INVOCATION; i++)
     {
-        sourceVal[i] = inputValue[idx + i];
+        sourceVal[i] = inputValue[globalFirstItemIndex(i) + idx];
     }
-// #else
-//     sourceVal = inputValue[idx];
-// #endif
 
     subbench<bit_and, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
     subbench<bit_xor, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
