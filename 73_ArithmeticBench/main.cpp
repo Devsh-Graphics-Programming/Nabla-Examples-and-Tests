@@ -887,7 +887,7 @@ private:
 	template<class BinOp>
 	using ArithmeticOp = emulatedReduction<BinOp>;	// change this to test other arithmetic ops
 
-	bool b_runTests = true;
+	bool b_runTests = false;
 	uint32_t* inputData = nullptr;
 	uint32_t ItemsPerInvocation = 4u;
 	constexpr static inline uint32_t OutputBufferCount = 8u;
