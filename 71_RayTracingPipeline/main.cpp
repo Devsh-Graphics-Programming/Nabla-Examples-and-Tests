@@ -1537,10 +1537,13 @@ private:
           const uint32_t maxPrimCount[1] = { primitiveCounts[i] };
           if (isProcedural)
           {
-            buildSizes = m_device->getAccelerationStructureBuildSizes(blasBuildInfos[i].buildFlags, false, std::span{&aabbs, 1}, maxPrimCount);
-          } else
+            const auto* aabbData = &aabbs;
+            buildSizes = m_device->getAccelerationStructureBuildSizes(blasBuildInfos[i].buildFlags, false, std::span{ aabbData, 1}, maxPrimCount);
+          }
+          else
           {
-            buildSizes = m_device->getAccelerationStructureBuildSizes(blasBuildInfos[i].buildFlags, false, std::span{&triangles[i], 1}, maxPrimCount);
+            const auto* trianglesData = triangles.data();
+            buildSizes = m_device->getAccelerationStructureBuildSizes(blasBuildInfos[i].buildFlags, false, std::span{trianglesData,1}, maxPrimCount);
           }
           if (!buildSizes)
             return logFail("Failed to get BLAS build sizes");
