@@ -1216,9 +1216,9 @@ public:
 		globalData.defaultClipProjection.projectionToNDC = projectionToNDC;
 		globalData.defaultClipProjection.minClipNDC = float32_t2(-1.0, -1.0);
 		globalData.defaultClipProjection.maxClipNDC = float32_t2(+1.0, +1.0);
-		auto screenToWorld = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
+		float screenToWorld = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
 		globalData.screenToWorldRatio = screenToWorld;
-		globalData.worldToScreenRatio = (1.0/screenToWorld);
+		globalData.worldToScreenRatio = (1.0f/screenToWorld);
 		globalData.miterLimit = 10.0f;
 		globalData.currentlyActiveMainObjectIndex = drawResourcesFiller.getActiveMainObjectIndex();
 		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = m_globalsBuffer.get() };

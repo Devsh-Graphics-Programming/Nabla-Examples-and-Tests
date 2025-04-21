@@ -71,8 +71,8 @@ struct Globals
 {
     Pointers pointers;
     ClipProjectionData defaultClipProjection;
-    pfloat64_t screenToWorldRatio;
-    pfloat64_t worldToScreenRatio;
+    float screenToWorldRatio;
+    float worldToScreenRatio;
     uint32_t2 resolution;
     float antiAliasingFactor;
     uint32_t miterLimit;
@@ -80,7 +80,7 @@ struct Globals
     float32_t _padding;
 };
 #ifndef __HLSL_VERSION
-static_assert(sizeof(Globals) == 176u);
+static_assert(sizeof(Globals) == 168u);
 #endif
 
 #ifdef __HLSL_VERSION

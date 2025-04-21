@@ -151,14 +151,14 @@ PSInput main(uint vertexID : SV_VertexID)
         if (dtm.drawOutlineEnabled())
         {
             LineStyle outlineStyle = loadLineStyle(dtm.outlineLineStyleIdx);
-            const float screenSpaceOutlineWidth = outlineStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(outlineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
+            const float screenSpaceOutlineWidth = outlineStyle.screenSpaceLineWidth + outlineStyle.worldSpaceLineWidth * globals.screenToWorldRatio;
             const float sdfOutlineThickness = screenSpaceOutlineWidth * 0.5f;
             outV.setOutlineThickness(sdfOutlineThickness);
         }
         if (dtm.drawContourEnabled())
         {
             LineStyle contourStyle = loadLineStyle(dtm.contourLineStyleIdx);
-            const float screenSpaceContourLineWidth = contourStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(contourStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
+            const float screenSpaceContourLineWidth = contourStyle.screenSpaceLineWidth + contourStyle.worldSpaceLineWidth * globals.screenToWorldRatio;
             const float sdfContourLineThickness = screenSpaceContourLineWidth * 0.5f;
             outV.setContourLineThickness(sdfContourLineThickness);
         }
@@ -196,7 +196,7 @@ PSInput main(uint vertexID : SV_VertexID)
             LineStyle lineStyle = loadLineStyle(mainObj.styleIdx);
 
             // Width is on both sides, thickness is one one side of the curve (div by 2.0f)
-            const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + _static_cast<float>(_static_cast<pfloat64_t>(lineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
+            const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio;
             const float antiAliasedLineThickness = screenSpaceLineWidth * 0.5f + globals.antiAliasingFactor;
             const float sdfLineThickness = screenSpaceLineWidth / 2.0f;
             outV.setLineThickness(sdfLineThickness);
