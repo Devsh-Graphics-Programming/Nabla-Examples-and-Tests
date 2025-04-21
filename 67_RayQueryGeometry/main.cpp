@@ -817,8 +817,9 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 					ILogicalDevice::AccelerationStructureBuildSizes buildSizes;
 					{
+						const auto* trianglesData = triangles;
 						const uint32_t maxPrimCount[1] = { primitiveCounts[i] };
-						buildSizes = m_device->getAccelerationStructureBuildSizes(blasFlags, false, std::span{&triangles[i], 1}, maxPrimCount);
+						buildSizes = m_device->getAccelerationStructureBuildSizes(blasFlags, false, std::span{trianglesData,1}, maxPrimCount);
 						if (!buildSizes)
 							return logFail("Failed to get BLAS build sizes");
 					}

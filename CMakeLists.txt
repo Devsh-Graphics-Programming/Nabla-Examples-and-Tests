@@ -52,7 +52,6 @@ if(NBL_BUILD_EXAMPLES)
 
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo EXCLUDE_FROM_ALL)
-	#add_subdirectory(29_SpecializationConstants EXCLUDE_FROM_ALL)
 	#add_subdirectory(33_Draw3DLine EXCLUDE_FROM_ALL)
 
 	# Unit Test Examples
@@ -75,16 +74,10 @@ if(NBL_BUILD_EXAMPLES)
 	#	add_subdirectory(39_DenoiserTonemapper EXCLUDE_FROM_ALL)
 	# endif()
 
-	add_subdirectory(42_FragmentShaderPathTracer EXCLUDE_FROM_ALL)
 	#add_subdirectory(43_SumAndCDFFilters EXCLUDE_FROM_ALL)
-	#add_subdirectory(45_BRDFEvalTest EXCLUDE_FROM_ALL)
-	#add_subdirectory(46_SamplingValidation EXCLUDE_FROM_ALL)
 	add_subdirectory(47_DerivMapTest EXCLUDE_FROM_ALL)
-	add_subdirectory(53_ComputeShaders EXCLUDE_FROM_ALL)
 	add_subdirectory(54_Transformations EXCLUDE_FROM_ALL)
 	add_subdirectory(55_RGB18E7S3 EXCLUDE_FROM_ALL)
-	add_subdirectory(56_RayQuery EXCLUDE_FROM_ALL)
-	add_subdirectory(60_ClusteredRendering EXCLUDE_FROM_ALL)
 	add_subdirectory(61_UI EXCLUDE_FROM_ALL)
 	add_subdirectory(62_CAD EXCLUDE_FROM_ALL)
 	add_subdirectory(62_SchusslerTest EXCLUDE_FROM_ALL)
