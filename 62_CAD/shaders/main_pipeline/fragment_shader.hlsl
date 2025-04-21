@@ -337,12 +337,12 @@ typedef StyleClipper< nbl::hlsl::shapes::Line<float> > LineStyleClipper;
 // for usage in upper_bound function
 struct DTMSettingsHeightsAccessor
 {
-    DTMSettings dtmSettings;
+    DTMHeightShadingSettings settings;
     using value_type = float;
 
     float operator[](const uint32_t ix)
     {
-        return dtmSettings.heightColorMapHeights[ix];
+        return settings.heightColorMapHeights[ix];
     }
 };
 
@@ -470,25 +470,25 @@ float getIntervalPosition(in float height, in float minHeight, in float interval
         return ( (height - minHeight) / intervalLength );
 }
 
-void getIntervalHeightAndColor(in int intervalIndex, in DTMSettings dtmSettings, out float4 outIntervalColor, out float outIntervalHeight)
+void getIntervalHeightAndColor(in int intervalIndex, in DTMHeightShadingSettings settings, out float4 outIntervalColor, out float outIntervalHeight)
 {
-    float minShadingHeight = dtmSettings.heightColorMapHeights[0];
-    float heightForColor = minShadingHeight + float(intervalIndex) * dtmSettings.intervalIndexToHeightMultiplier;
+    float minShadingHeight = settings.heightColorMapHeights[0];
+    float heightForColor = minShadingHeight + float(intervalIndex) * settings.intervalIndexToHeightMultiplier;
     
-    if (dtmSettings.isCenteredShading)
-        outIntervalHeight = minShadingHeight + (float(intervalIndex) - 0.5) * dtmSettings.intervalLength;
+    if (settings.isCenteredShading)
+        outIntervalHeight = minShadingHeight + (float(intervalIndex) - 0.5) * settings.intervalLength;
     else
-        outIntervalHeight = minShadingHeight + (float(intervalIndex)) * dtmSettings.intervalLength;
+        outIntervalHeight = minShadingHeight + (float(intervalIndex)) * settings.intervalLength;
 
-    DTMSettingsHeightsAccessor dtmHeightsAccessor = { dtmSettings };
-    uint32_t upperBoundHeightIndex = min(nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, dtmSettings.heightColorEntryCount, heightForColor), dtmSettings.heightColorEntryCount-1u);
+    DTMSettingsHeightsAccessor dtmHeightsAccessor = { settings };
+    uint32_t upperBoundHeightIndex = min(nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, settings.heightColorEntryCount, heightForColor), settings.heightColorEntryCount-1u);
     uint32_t lowerBoundHeightIndex = max(upperBoundHeightIndex - 1, 0);
 
-    float upperBoundHeight = dtmSettings.heightColorMapHeights[upperBoundHeightIndex];
-    float lowerBoundHeight = dtmSettings.heightColorMapHeights[lowerBoundHeightIndex];
+    float upperBoundHeight = settings.heightColorMapHeights[upperBoundHeightIndex];
+    float lowerBoundHeight = settings.heightColorMapHeights[lowerBoundHeightIndex];
 
-    float4 upperBoundColor = dtmSettings.heightColorMapColors[upperBoundHeightIndex];
-    float4 lowerBoundColor = dtmSettings.heightColorMapColors[lowerBoundHeightIndex];
+    float4 upperBoundColor = settings.heightColorMapColors[upperBoundHeightIndex];
+    float4 lowerBoundColor = settings.heightColorMapColors[lowerBoundHeightIndex];
     
     if (upperBoundHeight == lowerBoundHeight)
     {
@@ -510,14 +510,14 @@ float3 calculateDTMTriangleBarycentrics(in float2 v1, in float2 v2, in float2 v3
     return float3(u, v, w);
 }
 
-float4 calculateDTMHeightColor(in DTMSettings dtmSettings, in float3 v[3], in float heightDeriv, in float2 fragPos, in float height)
+float4 calculateDTMHeightColor(in DTMHeightShadingSettings settings, in float3 v[3], in float heightDeriv, in float2 fragPos, in float height)
 {
     float4 outputColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
     // HEIGHT SHADING
-    const uint32_t heightMapSize = dtmSettings.heightColorEntryCount;
-    float minShadingHeight = dtmSettings.heightColorMapHeights[0];
-    float maxShadingHeight = dtmSettings.heightColorMapHeights[heightMapSize - 1];
+    const uint32_t heightMapSize = settings.heightColorEntryCount;
+    float minShadingHeight = settings.heightColorMapHeights[0];
+    float maxShadingHeight = settings.heightColorMapHeights[heightMapSize - 1];
 
     if (heightMapSize > 0)
     {
@@ -549,11 +549,11 @@ float4 calculateDTMHeightColor(in DTMSettings dtmSettings, in float3 v[3], in fl
         outputColor.a = 1.0f - smoothstep(0.0f, globals.antiAliasingFactor * 2.0f, convexPolygonSdf);
 
         // calculate height color
-        E_HEIGHT_SHADING_MODE mode = dtmSettings.determineHeightShadingMode();
+        E_HEIGHT_SHADING_MODE mode = settings.determineHeightShadingMode();
 
         if (mode == E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS)
         {
-            DTMSettingsHeightsAccessor dtmHeightsAccessor = { dtmSettings };
+            DTMSettingsHeightsAccessor dtmHeightsAccessor = { settings };
             int upperBoundIndex = nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, heightMapSize, height);
             int mapIndex = max(upperBoundIndex - 1, 0);
             int mapIndexPrev = max(mapIndex - 1, 0);
@@ -563,13 +563,13 @@ float4 calculateDTMHeightColor(in DTMSettings dtmSettings, in float3 v[3], in fl
             // if color idx is >= length of the colours array then it means it's also > 0.0 and this blend with prev is true
             // if color idx is > 0 and < len - 1, then it depends on the current pixel's height value and two closest height values
             bool blendWithPrev = (mapIndex > 0)
-                && (mapIndex >= heightMapSize - 1 || (height * 2.0 < dtmSettings.heightColorMapHeights[upperBoundIndex] + dtmSettings.heightColorMapHeights[mapIndex]));
+                && (mapIndex >= heightMapSize - 1 || (height * 2.0 < settings.heightColorMapHeights[upperBoundIndex] + settings.heightColorMapHeights[mapIndex]));
 
             HeightSegmentTransitionData transitionInfo;
             transitionInfo.currentHeight = height;
-            transitionInfo.currentSegmentColor = dtmSettings.heightColorMapColors[mapIndex];
-            transitionInfo.boundaryHeight = blendWithPrev ? dtmSettings.heightColorMapHeights[mapIndex] : dtmSettings.heightColorMapHeights[mapIndexNext];
-            transitionInfo.otherSegmentColor = blendWithPrev ? dtmSettings.heightColorMapColors[mapIndexPrev] : dtmSettings.heightColorMapColors[mapIndexNext];
+            transitionInfo.currentSegmentColor = settings.heightColorMapColors[mapIndex];
+            transitionInfo.boundaryHeight = blendWithPrev ? settings.heightColorMapHeights[mapIndex] : settings.heightColorMapHeights[mapIndexNext];
+            transitionInfo.otherSegmentColor = blendWithPrev ? settings.heightColorMapColors[mapIndexPrev] : settings.heightColorMapColors[mapIndexNext];
 
             float4 localHeightColor = smoothHeightSegmentTransition(transitionInfo, heightDeriv);
             outputColor.rgb = localHeightColor.rgb;
@@ -577,13 +577,13 @@ float4 calculateDTMHeightColor(in DTMSettings dtmSettings, in float3 v[3], in fl
         }
         else if (mode == E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS)
         {
-            float intervalPosition = getIntervalPosition(height, minShadingHeight, dtmSettings.intervalLength, dtmSettings.isCenteredShading);
+            float intervalPosition = getIntervalPosition(height, minShadingHeight, settings.intervalLength, settings.isCenteredShading);
             float positionWithinInterval = frac(intervalPosition);
             int intervalIndex = nbl::hlsl::_static_cast<int>(intervalPosition);
 
             float4 currentIntervalColor;
             float currentIntervalHeight;
-            getIntervalHeightAndColor(intervalIndex, dtmSettings, currentIntervalColor, currentIntervalHeight);
+            getIntervalHeightAndColor(intervalIndex, settings, currentIntervalColor, currentIntervalHeight);
             
             bool blendWithPrev = (positionWithinInterval < 0.5f);
             
@@ -594,13 +594,13 @@ float4 calculateDTMHeightColor(in DTMSettings dtmSettings, in float3 v[3], in fl
             {
                 int prevIntervalIdx = max(intervalIndex - 1, 0);
                 float prevIntervalHeight; // unused, the currentIntervalHeight is the boundary height between current and prev
-                getIntervalHeightAndColor(prevIntervalIdx, dtmSettings, transitionInfo.otherSegmentColor, prevIntervalHeight);
+                getIntervalHeightAndColor(prevIntervalIdx, settings, transitionInfo.otherSegmentColor, prevIntervalHeight);
                 transitionInfo.boundaryHeight = currentIntervalHeight;
             }
             else
             {
                 int nextIntervalIdx = intervalIndex + 1;
-                getIntervalHeightAndColor(nextIntervalIdx, dtmSettings, transitionInfo.otherSegmentColor, transitionInfo.boundaryHeight);
+                getIntervalHeightAndColor(nextIntervalIdx, settings, transitionInfo.otherSegmentColor, transitionInfo.boundaryHeight);
             }
             
             float4 localHeightColor = smoothHeightSegmentTransition(transitionInfo, heightDeriv);
@@ -609,15 +609,15 @@ float4 calculateDTMHeightColor(in DTMSettings dtmSettings, in float3 v[3], in fl
         }
         else if (mode == E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS)
         {
-            DTMSettingsHeightsAccessor dtmHeightsAccessor = { dtmSettings };
+            DTMSettingsHeightsAccessor dtmHeightsAccessor = { settings };
             uint32_t upperBoundHeightIndex = nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, heightMapSize, height);
             uint32_t lowerBoundHeightIndex = upperBoundHeightIndex == 0 ? upperBoundHeightIndex : upperBoundHeightIndex - 1;
 
-            float upperBoundHeight = dtmSettings.heightColorMapHeights[upperBoundHeightIndex];
-            float lowerBoundHeight = dtmSettings.heightColorMapHeights[lowerBoundHeightIndex];
+            float upperBoundHeight = settings.heightColorMapHeights[upperBoundHeightIndex];
+            float lowerBoundHeight = settings.heightColorMapHeights[lowerBoundHeightIndex];
 
-            float4 upperBoundColor = dtmSettings.heightColorMapColors[upperBoundHeightIndex];
-            float4 lowerBoundColor = dtmSettings.heightColorMapColors[lowerBoundHeightIndex];
+            float4 upperBoundColor = settings.heightColorMapColors[upperBoundHeightIndex];
+            float4 lowerBoundColor = settings.heightColorMapColors[lowerBoundHeightIndex];
 
             float interpolationVal;
             if (upperBoundHeightIndex == 0)
@@ -635,20 +635,19 @@ float4 calculateDTMHeightColor(in DTMSettings dtmSettings, in float3 v[3], in fl
     return outputColor; 
 }
 
-float4 calculateDTMContourColor(in DTMSettings dtmSettings, in float3 v[3], in uint2 edgePoints[3], in PSInput psInput, in float height)
+float4 calculateDTMContourColor(in DTMContourSettings contourSettings, in float3 v[3], in uint2 edgePoints[3], in float2 fragPos, in float height)
 {
     float4 outputColor;
 
-    LineStyle contourStyle = loadLineStyle(dtmSettings.contourLineStyleIdx);
-    const float contourThickness = psInput.getContourLineThickness();
+    LineStyle contourStyle = loadLineStyle(contourSettings.contourLineStyleIdx);
+    const float contourThickness = (contourStyle.screenSpaceLineWidth + contourStyle.worldSpaceLineWidth * globals.screenToWorldRatio) * 0.5f;
     float stretch = 1.0f;
     float phaseShift = 0.0f;
-    const float worldToScreenRatio = psInput.getCurrentWorldToScreenRatio();
 
     // TODO: move to ubo or push constants
-    const float startHeight = dtmSettings.contourLinesStartHeight;
-    const float endHeight = dtmSettings.contourLinesEndHeight;
-    const float interval = dtmSettings.contourLinesHeightInterval;
+    const float startHeight = contourSettings.contourLinesStartHeight;
+    const float endHeight = contourSettings.contourLinesEndHeight;
+    const float interval = contourSettings.contourLinesHeightInterval;
 
     // TODO: can be precomputed
     const int maxContourLineIdx = (endHeight - startHeight + 1) / interval;
@@ -694,7 +693,7 @@ float4 calculateDTMContourColor(in DTMSettings dtmSettings, in float3 v[3], in u
         float distance = nbl::hlsl::numeric_limits<float>::max;
         if (!contourStyle.hasStipples() || stretch == InvalidStyleStretchValue)
         {
-            distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, psInput.position.xy, contourThickness, contourStyle.isRoadStyleFlag);
+            distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, fragPos, contourThickness, contourStyle.isRoadStyleFlag);
         }
         else
         {
@@ -702,8 +701,8 @@ float4 calculateDTMContourColor(in DTMSettings dtmSettings, in float3 v[3], in u
             // It might be beneficial to calculate distance between pixel and contour line to early out some pixels and save yourself from stipple sdf computations!
             // where you only compute the complex sdf if abs((height - contourVal) / heightDeriv) <= aaFactor
             nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
-            LineStyleClipper clipper = LineStyleClipper::construct(contourStyle, lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
-            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, psInput.position.xy, contourThickness, contourStyle.isRoadStyleFlag, clipper);
+            LineStyleClipper clipper = LineStyleClipper::construct(contourStyle, lineSegment, arcLenCalc, phaseShift, stretch, globals.worldToScreenRatio);
+            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, fragPos, contourThickness, contourStyle.isRoadStyleFlag, clipper);
         }
         
         outputColor.a = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, distance) * contourStyle.color.a;
@@ -715,14 +714,13 @@ float4 calculateDTMContourColor(in DTMSettings dtmSettings, in float3 v[3], in u
     return float4(0.0f, 0.0f, 0.0f, 0.0f);
 }
 
-float4 calculateDTMOutlineColor(in DTMSettings dtmSettings, in float3 v[3], in uint2 edgePoints[3], in PSInput psInput, in float3 baryCoord, in float height)
+float4 calculateDTMOutlineColor(in uint outlineLineStyleIdx, in float3 v[3], in uint2 edgePoints[3], in float2 fragPos, in float3 baryCoord, in float height)
 {
     float4 outputColor;
 
-    LineStyle outlineStyle = loadLineStyle(dtmSettings.outlineLineStyleIdx);
-    const float outlineThickness = psInput.getOutlineThickness();
+    LineStyle outlineStyle = loadLineStyle(outlineLineStyleIdx);
+    const float outlineThickness = (outlineStyle.screenSpaceLineWidth + outlineStyle.worldSpaceLineWidth * globals.screenToWorldRatio) * 0.5f;
     const float phaseShift = 0.0f; // input.getCurrentPhaseShift();
-    const float worldToScreenRatio = psInput.getCurrentWorldToScreenRatio();
     const float stretch = 1.0f;
 
     // index of vertex opposing an edge, needed for calculation of triangle heights
@@ -768,7 +766,7 @@ float4 calculateDTMOutlineColor(in DTMSettings dtmSettings, in float3 v[3], in u
 
             float distance = nbl::hlsl::numeric_limits<float>::max;
             nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(float2(p0.x, p0.y), float2(p1.x, p1.y));
-            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, psInput.position.xy, outlineThickness, outlineStyle.isRoadStyleFlag);
+            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, fragPos, outlineThickness, outlineStyle.isRoadStyleFlag);
 
             minDistance = min(minDistance, distance);
         }
@@ -793,8 +791,8 @@ float4 calculateDTMOutlineColor(in DTMSettings dtmSettings, in float3 v[3], in u
 
             float distance = nbl::hlsl::numeric_limits<float>::max;
             nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
-            LineStyleClipper clipper = LineStyleClipper::construct(outlineStyle, lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
-            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, psInput.position.xy, outlineThickness, outlineStyle.isRoadStyleFlag, clipper);
+            LineStyleClipper clipper = LineStyleClipper::construct(outlineStyle, lineSegment, arcLenCalc, phaseShift, stretch, globals.worldToScreenRatio);
+            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, fragPos, outlineThickness, outlineStyle.isRoadStyleFlag, clipper);
 
             minDistance = min(minDistance, distance);
         }
@@ -848,11 +846,11 @@ float4 fragMain(PSInput input) : SV_TARGET
 
         float4 dtmColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
         if (dtmSettings.drawHeightShadingEnabled())
-            dtmColor = blendColorOnTop(dtmColor, calculateDTMHeightColor(dtmSettings, v, heightDeriv, input.position.xy, height));
+            dtmColor = blendColorOnTop(dtmColor, calculateDTMHeightColor(dtmSettings.heightShadingSettings, v, heightDeriv, input.position.xy, height));
         if (dtmSettings.drawContourEnabled())
-            dtmColor = blendColorOnTop(dtmColor, calculateDTMContourColor(dtmSettings, v, edgePoints, input, height));
+            dtmColor = blendColorOnTop(dtmColor, calculateDTMContourColor(dtmSettings.contourSettings[0u], v, edgePoints, input.position.xy, height));
         if (dtmSettings.drawOutlineEnabled())
-            dtmColor = blendColorOnTop(dtmColor, calculateDTMOutlineColor(dtmSettings, v, edgePoints, input, baryCoord, height));
+            dtmColor = blendColorOnTop(dtmColor, calculateDTMOutlineColor(dtmSettings.outlineLineStyleIdx, v, edgePoints, input.position.xy, baryCoord, height));
 
         textureColor = dtmColor.rgb;
         localAlpha = dtmColor.a;
@@ -874,7 +872,6 @@ float4 fragMain(PSInput input) : SV_TARGET
                 const float thickness = input.getLineThickness();
                 const float phaseShift = input.getCurrentPhaseShift();
                 const float stretch = input.getPatternStretch();
-                const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
 
                 nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(start, end);
 
@@ -887,7 +884,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                 else
                 {
                     nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
-                    LineStyleClipper clipper = LineStyleClipper::construct(loadLineStyle(styleIdx), lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
+                    LineStyleClipper clipper = LineStyleClipper::construct(loadLineStyle(styleIdx), lineSegment, arcLenCalc, phaseShift, stretch, globals.worldToScreenRatio);
                     distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
                 }
             }
@@ -900,7 +897,6 @@ float4 fragMain(PSInput input) : SV_TARGET
                 const float thickness = input.getLineThickness();
                 const float phaseShift = input.getCurrentPhaseShift();
                 const float stretch = input.getPatternStretch();
-                const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
 
                 LineStyle style = loadLineStyle(styleIdx);
                 if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
@@ -909,7 +905,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                 }
                 else
                 {
-                    BezierStyleClipper clipper = BezierStyleClipper::construct(loadLineStyle(styleIdx), quadratic, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
+                    BezierStyleClipper clipper = BezierStyleClipper::construct(loadLineStyle(styleIdx), quadratic, arcLenCalc, phaseShift, stretch, globals.worldToScreenRatio );
                     distance = ClippedSignedDistance<nbl::hlsl::shapes::Quadratic<float>, BezierStyleClipper>::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
                 }
             }

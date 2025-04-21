@@ -6,7 +6,7 @@
 
 using namespace nbl;
 
-struct DTMHeightShadingInfo
+struct DTMHeightShadingSettingsInfo
 {
 	// Height Shading Mode
 	E_HEIGHT_SHADING_MODE heightShadingMode;
@@ -35,15 +35,15 @@ struct DTMHeightShadingInfo
 	bool fillShaderDTMSettingsHeightColorMap(DTMSettings& dtmSettings) const
 	{
 		const uint32_t mapSize = heightColorSet.size();
-		if (mapSize > DTMSettings::HeightColorMapMaxEntries)
+		if (mapSize > DTMHeightShadingSettings::HeightColorMapMaxEntries)
 			return false;
-		dtmSettings.heightColorEntryCount = mapSize;
+		dtmSettings.heightShadingSettings.heightColorEntryCount = mapSize;
 
 		int index = 0;
 		for (auto it = heightColorSet.begin(); it != heightColorSet.end(); ++it)
 		{
-			dtmSettings.heightColorMapHeights[index] = it->height;
-			dtmSettings.heightColorMapColors[index] = it->color;
+			dtmSettings.heightShadingSettings.heightColorMapHeights[index] = it->height;
+			dtmSettings.heightShadingSettings.heightColorMapColors[index] = it->color;
 			++index;
 		}
 
@@ -65,7 +65,7 @@ private:
 	std::set<HeightColor> heightColorSet;
 };
 
-struct DTMContourInfo
+struct DTMContourSettingsInfo
 {
 	LineStyleInfo lineStyleInfo;
 
@@ -76,11 +76,17 @@ struct DTMContourInfo
 
 struct DTMSettingsInfo
 {
+	static constexpr uint32_t MaxContourSettings = DTMSettings::MaxContourSettings;
+
 	uint32_t mode = 0u;
 
-	DTMHeightShadingInfo heightShadingInfo;
-	DTMContourInfo contourInfo;
+	// outline
 	LineStyleInfo outlineStyleInfo;
+	// contours
+	uint32_t contourSettingsCount = 0u;
+	DTMContourSettingsInfo contourSettings[MaxContourSettings];
+	// height shading
+	DTMHeightShadingSettingsInfo heightShadingInfo;
 };
 
 class CTriangleMesh final

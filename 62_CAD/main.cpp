@@ -3246,22 +3246,23 @@ protected:
 			mesh.setIndices(std::move(indices));
 
 			DTMSettingsInfo dtmInfo;
-			//dtmInfo.mode = E_DTM_MODE::HEIGHT_SHADING | E_DTM_MODE::CONTOUR | E_DTM_MODE::OUTLINE;
-			dtmInfo.mode = E_DTM_MODE::HEIGHT_SHADING;
+			dtmInfo.mode = E_DTM_MODE::HEIGHT_SHADING | E_DTM_MODE::CONTOUR | E_DTM_MODE::OUTLINE;
+			//dtmInfo.mode = E_DTM_MODE::HEIGHT_SHADING;
 			dtmInfo.outlineStyleInfo.screenSpaceLineWidth = 0.0f;
 			dtmInfo.outlineStyleInfo.worldSpaceLineWidth = 3.0f;
 			dtmInfo.outlineStyleInfo.color = float32_t4(0.0f, 0.39f, 0.0f, 1.0f);
 			std::array<double, 4> outlineStipplePattern = { 0.0f, -5.0f, 20.0f, -5.0f };
 			dtmInfo.outlineStyleInfo.setStipplePatternData(outlineStipplePattern);
 
-			dtmInfo.contourInfo.startHeight = 20;
-			dtmInfo.contourInfo.endHeight = 90;
-			dtmInfo.contourInfo.heightInterval = 10;
-			dtmInfo.contourInfo.lineStyleInfo.screenSpaceLineWidth = 0.0f;
-			dtmInfo.contourInfo.lineStyleInfo.worldSpaceLineWidth = 1.0f;
-			dtmInfo.contourInfo.lineStyleInfo.color = float32_t4(0.0f, 0.0f, 1.0f, 0.7f);
+			dtmInfo.contourSettingsCount = 1u;
+			dtmInfo.contourSettings[0u].startHeight = 20;
+			dtmInfo.contourSettings[0u].endHeight = 90;
+			dtmInfo.contourSettings[0u].heightInterval = 10;
+			dtmInfo.contourSettings[0u].lineStyleInfo.screenSpaceLineWidth = 0.0f;
+			dtmInfo.contourSettings[0u].lineStyleInfo.worldSpaceLineWidth = 1.0f;
+			dtmInfo.contourSettings[0u].lineStyleInfo.color = float32_t4(0.0f, 0.0f, 1.0f, 0.7f);
 			std::array<double, 4> contourStipplePattern = { 0.0f, -5.0f, 10.0f, -5.0f };
-			dtmInfo.contourInfo.lineStyleInfo.setStipplePatternData(contourStipplePattern);
+			dtmInfo.contourSettings[0u].lineStyleInfo.setStipplePatternData(contourStipplePattern);
 
 			// PRESS 1, 2, 3 TO SWITCH HEIGHT SHADING MODE
 			// 1 - DISCRETE_VARIABLE_LENGTH_INTERVALS
@@ -3311,7 +3312,7 @@ protected:
 
 			drawResourcesFiller.drawTriangleMesh(mesh, dtmInfo, intendedNextSubmit);
 
-			dtmInfo.contourInfo.lineStyleInfo.color = float32_t4(1.0f, 0.39f, 0.0f, 1.0f);
+			dtmInfo.contourSettings[0u].lineStyleInfo.color = float32_t4(1.0f, 0.39f, 0.0f, 1.0f);
 			dtmInfo.outlineStyleInfo.color = float32_t4(0.0f, 0.39f, 1.0f, 1.0f);
 			for (auto& v : mesh.m_vertices)
 			{

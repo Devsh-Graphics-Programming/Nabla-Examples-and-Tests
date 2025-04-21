@@ -128,6 +128,8 @@ PSInput main(uint vertexID : SV_VertexID)
             triangleVertices[2].pos = triangleVertices[2].pos - triangleCentroid;
 
             // TODO: calculate dialation factor
+            // const float dilateByPixels = 0.5 * (dtmSettings.maxScreenSpaceLineWidth + dtmSettings.maxWorldSpaceLineWidth * globals.screenToWorldRatio) + aaFactor;
+        
             pfloat64_t dialationFactor = _static_cast<pfloat64_t>(2.0f);
             pfloat64_t2 dialatedVertex = triangleVertices[currentVertexWithinTriangleIndex].pos * dialationFactor;
 
@@ -138,30 +140,7 @@ PSInput main(uint vertexID : SV_VertexID)
 
         outV.position = transformFromSreenSpaceToNdc(transformedDilatedPos, globals.resolution);
         const float heightAsFloat = nbl::hlsl::_static_cast<float>(vtx.height);
-        outV.setHeight(heightAsFloat);
         outV.setScreenSpaceVertexAttribs(float3(transformedOriginalPos, heightAsFloat));
-        outV.setCurrentWorldToScreenRatio(
-            _static_cast<float>((_static_cast<pfloat64_t>(2.0f) /
-                (clipProjectionData.projectionToNDC[0].x * _static_cast<pfloat64_t>(globals.resolution.x))))
-        );
-
-        DTMSettings dtm = loadDTMSettings(mainObj.dtmSettingsIdx);
-
-        // TODO: maybe move to fragment shader since we may have multiple contour styles later
-        if (dtm.drawOutlineEnabled())
-        {
-            LineStyle outlineStyle = loadLineStyle(dtm.outlineLineStyleIdx);
-            const float screenSpaceOutlineWidth = outlineStyle.screenSpaceLineWidth + outlineStyle.worldSpaceLineWidth * globals.screenToWorldRatio;
-            const float sdfOutlineThickness = screenSpaceOutlineWidth * 0.5f;
-            outV.setOutlineThickness(sdfOutlineThickness);
-        }
-        if (dtm.drawContourEnabled())
-        {
-            LineStyle contourStyle = loadLineStyle(dtm.contourLineStyleIdx);
-            const float screenSpaceContourLineWidth = contourStyle.screenSpaceLineWidth + contourStyle.worldSpaceLineWidth * globals.screenToWorldRatio;
-            const float sdfContourLineThickness = screenSpaceContourLineWidth * 0.5f;
-            outV.setContourLineThickness(sdfContourLineThickness);
-        }
 
         // full screen triangle (this will destroy outline, contour line and height drawing)
 #if 0
@@ -200,10 +179,6 @@ PSInput main(uint vertexID : SV_VertexID)
             const float antiAliasedLineThickness = screenSpaceLineWidth * 0.5f + globals.antiAliasingFactor;
             const float sdfLineThickness = screenSpaceLineWidth / 2.0f;
             outV.setLineThickness(sdfLineThickness);
-            outV.setCurrentWorldToScreenRatio(
-                _static_cast<float>((_static_cast<pfloat64_t>(2.0f) /
-                (clipProjectionData.projectionToNDC[0].x * _static_cast<pfloat64_t>(globals.resolution.x))))
-            );
 
             if (objType == ObjectType::LINE)
             {

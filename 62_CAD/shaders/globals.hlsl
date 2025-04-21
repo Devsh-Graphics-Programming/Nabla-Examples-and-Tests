@@ -368,20 +368,18 @@ enum class E_HEIGHT_SHADING_MODE : uint32_t
     CONTINOUS_INTERVALS
 };
     
-// Documentation and explanation of variables in DTMSettingsInfo
-struct DTMSettings
+struct DTMContourSettings
 {
-    const static uint32_t HeightColorMapMaxEntries = 16u;
-    uint32_t outlineLineStyleIdx; // index into line styles
     uint32_t contourLineStyleIdx; // index into line styles
-
-    uint32_t mode; // E_DTM_MODE
-
-    // contour lines
     float contourLinesStartHeight;
     float contourLinesEndHeight;
     float contourLinesHeightInterval;
+};
 
+struct DTMHeightShadingSettings
+{
+    const static uint32_t HeightColorMapMaxEntries = 16u;
+    
     // height-color map
     float intervalLength;
 	float intervalIndexToHeightMultiplier;
@@ -399,6 +397,24 @@ struct DTMSettings
             return E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
         return E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
     }
+};
+
+// Documentation and explanation of variables in DTMSettingsInfo
+struct DTMSettings
+{
+    const static uint32_t MaxContourSettings = 8u;
+
+    uint32_t mode; // E_DTM_MODE
+    
+    // outline
+    uint32_t outlineLineStyleIdx;
+
+    // contour lines
+    uint32_t contourSettingsCount;
+    DTMContourSettings contourSettings[MaxContourSettings];
+
+    // height shading
+    DTMHeightShadingSettings heightShadingSettings;
     
     bool drawOutlineEnabled() NBL_CONST_MEMBER_FUNC { return  (mode & E_DTM_MODE::OUTLINE) != 0u; } 
     bool drawContourEnabled() NBL_CONST_MEMBER_FUNC { return (mode & E_DTM_MODE::CONTOUR) != 0u; }
@@ -433,41 +449,39 @@ inline bool operator==(const DTMSettings& lhs, const DTMSettings& rhs)
     if (lhs.mode != rhs.mode)
         return false;
 
-    bool equal = true;
     if (lhs.drawOutlineEnabled())
     {
-        equal = lhs.outlineLineStyleIdx == rhs.outlineLineStyleIdx;
+        if (lhs.outlineLineStyleIdx != rhs.outlineLineStyleIdx)
+            return false;
     }
-
-    if (!equal)
-        return false;
 
     if (lhs.drawContourEnabled())
     {
-        float contourLinesStartHeight;
-        float contourLinesEndHeight;
-        float contourLinesHeightInterval;
-
-        equal = lhs.contourLinesStartHeight == rhs.contourLinesStartHeight &&
-            lhs.contourLinesStartHeight == rhs.contourLinesStartHeight &&
-            lhs.contourLinesStartHeight == rhs.contourLinesStartHeight;
+        if (lhs.contourSettingsCount != rhs.contourSettingsCount)
+            return false;
+        if (!memcmp(lhs.contourSettings, rhs.contourSettings, lhs.contourSettingsCount * sizeof(DTMContourSettings)))
+            return false;
     }
-
-    if (!equal)
-        return false;
 
     if (lhs.drawHeightShadingEnabled())
     {
-        equal = lhs.intervalLength == rhs.intervalLength &&
-            lhs.intervalIndexToHeightMultiplier == rhs.intervalIndexToHeightMultiplier &&
-            lhs.isCenteredShading == rhs.isCenteredShading &&
-            lhs.heightColorEntryCount == rhs.heightColorEntryCount;
-
-        equal == equal && (memcmp(lhs.heightColorMapHeights, rhs.heightColorMapHeights, lhs.heightColorEntryCount * sizeof(float)));
-        equal == equal && (memcmp(lhs.heightColorMapColors, rhs.heightColorMapColors, lhs.heightColorEntryCount * sizeof(float32_t4)));
+        if (lhs.heightShadingSettings.intervalLength != rhs.heightShadingSettings.intervalLength)
+            return false;
+        if (lhs.heightShadingSettings.intervalIndexToHeightMultiplier != rhs.heightShadingSettings.intervalIndexToHeightMultiplier)
+            return false;
+        if (lhs.heightShadingSettings.isCenteredShading != rhs.heightShadingSettings.isCenteredShading)
+            return false;
+        if (lhs.heightShadingSettings.heightColorEntryCount != rhs.heightShadingSettings.heightColorEntryCount)
+            return false;
+        
+                
+        if(!memcmp(lhs.heightShadingSettings.heightColorMapHeights, rhs.heightShadingSettings.heightColorMapHeights, lhs.heightShadingSettings.heightColorEntryCount * sizeof(float)))
+            return false;
+        if(!memcmp(lhs.heightShadingSettings.heightColorMapColors, rhs.heightShadingSettings.heightColorMapColors, lhs.heightShadingSettings.heightColorEntryCount * sizeof(float32_t4)))
+            return false;
     }
 
-    return equal;
+    return true;
 }
 #endif
 

@@ -627,7 +627,8 @@ uint32_t DrawResourcesFiller::addLineStyle_Internal(const LineStyleInfo& lineSty
 uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtmSettingsInfo, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
-	const size_t maxMemRequired = sizeof(DTMSettings) + 2 * sizeof(LineStyle);
+	const size_t noOfLineStylesRequired = ((dtmSettingsInfo.mode & E_DTM_MODE::OUTLINE) ? 1u : 0u) + dtmSettingsInfo.contourSettingsCount;
+	const size_t maxMemRequired = sizeof(DTMSettings) + noOfLineStylesRequired * sizeof(LineStyle);
 	const bool enoughMem = remainingResourcesSize >= maxMemRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
 
 	if (!enoughMem)
@@ -644,25 +645,29 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 		switch (dtmSettingsInfo.heightShadingInfo.heightShadingMode)
 		{
 		case E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
-			dtmSettings.intervalLength = std::numeric_limits<float>::infinity();
+			dtmSettings.heightShadingSettings.intervalLength = std::numeric_limits<float>::infinity();
 			break;
 		case E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS:
-			dtmSettings.intervalLength = dtmSettingsInfo.heightShadingInfo.intervalLength;
+			dtmSettings.heightShadingSettings.intervalLength = dtmSettingsInfo.heightShadingInfo.intervalLength;
 			break;
 		case E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS:
-			dtmSettings.intervalLength = 0.0f;
+			dtmSettings.heightShadingSettings.intervalLength = 0.0f;
 			break;
 		}
-		dtmSettings.intervalIndexToHeightMultiplier = dtmSettingsInfo.heightShadingInfo.intervalIndexToHeightMultiplier;
-		dtmSettings.isCenteredShading = static_cast<int>(dtmSettingsInfo.heightShadingInfo.isCenteredShading);
+		dtmSettings.heightShadingSettings.intervalIndexToHeightMultiplier = dtmSettingsInfo.heightShadingInfo.intervalIndexToHeightMultiplier;
+		dtmSettings.heightShadingSettings.isCenteredShading = static_cast<int>(dtmSettingsInfo.heightShadingInfo.isCenteredShading);
 		_NBL_DEBUG_BREAK_IF(!dtmSettingsInfo.heightShadingInfo.fillShaderDTMSettingsHeightColorMap(dtmSettings));
 	}
 	if (dtmSettings.mode & E_DTM_MODE::CONTOUR)
 	{
-		dtmSettings.contourLinesStartHeight = dtmSettingsInfo.contourInfo.startHeight;
-		dtmSettings.contourLinesEndHeight = dtmSettingsInfo.contourInfo.endHeight;
-		dtmSettings.contourLinesHeightInterval = dtmSettingsInfo.contourInfo.heightInterval;
-		dtmSettings.contourLineStyleIdx = addLineStyle_Internal(dtmSettingsInfo.contourInfo.lineStyleInfo);
+		dtmSettings.contourSettingsCount = dtmSettingsInfo.contourSettingsCount;
+		for (uint32_t i = 0u; i < dtmSettings.contourSettingsCount; ++i)
+		{
+			dtmSettings.contourSettings[i].contourLinesStartHeight = dtmSettingsInfo.contourSettings[i].startHeight;
+			dtmSettings.contourSettings[i].contourLinesEndHeight = dtmSettingsInfo.contourSettings[i].endHeight;
+			dtmSettings.contourSettings[i].contourLinesHeightInterval = dtmSettingsInfo.contourSettings[i].heightInterval;
+			dtmSettings.contourSettings[i].contourLineStyleIdx = addLineStyle_Internal(dtmSettingsInfo.contourSettings[i].lineStyleInfo);
+		}
 	}
 	if (dtmSettings.mode & E_DTM_MODE::OUTLINE)
 	{
