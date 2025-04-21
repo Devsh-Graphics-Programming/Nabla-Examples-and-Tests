@@ -1,6 +1,7 @@
 #include "common.hlsl"
 
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
+#include "nbl/builtin/hlsl/workgroup/basic.hlsl"
 #include "nbl/builtin/hlsl/subgroup/basic.hlsl"
 #include "nbl/builtin/hlsl/subgroup/arithmetic_portability.hlsl"
 #include "nbl/builtin/hlsl/subgroup2/arithmetic_portability.hlsl"
@@ -49,7 +50,7 @@ static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
     using config_t = nbl::hlsl::subgroup2::Configuration<SUBGROUP_SIZE_LOG2>;
     using params_t = nbl::hlsl::subgroup2::ArithmeticParams<config_t, typename binop<T>::base_t, N, nbl::hlsl::jit::device_capabilities>;
 
-    if (globalIndex()==0u)
+    if (nbl::hlsl::glsl::gl_WorkGroupID().x*WORKGROUP_SIZE+nbl::hlsl::workgroup::SubgroupContiguousIndex()==0u)
         output[binop<T>::BindingIndex].template Store<uint32_t>(0,nbl::hlsl::glsl::gl_SubgroupSize());
         
     operation_t<params_t> func;
@@ -65,12 +66,12 @@ static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
 
 type_t test()
 {
-    const uint32_t idx = globalIndex() * ITEMS_PER_INVOCATION;
+    const uint32_t idx = nbl::hlsl::glsl::gl_SubgroupInvocationID();
     type_t sourceVal;
     [unroll]
     for (uint32_t i = 0; i < ITEMS_PER_INVOCATION; i++)
     {
-        sourceVal[i] = inputValue[idx + i];
+        sourceVal[i] = inputValue[globalFirstItemIndex(i) + idx];
     }
 
     subtest<bit_and, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
