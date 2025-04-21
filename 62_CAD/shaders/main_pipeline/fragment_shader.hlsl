@@ -409,7 +409,11 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     // draw with previous geometry's style's color or stored in texture buffer :kek:
     // we don't need to load the style's color in critical section because we've already retrieved the style index from the stored main obj
     if (toResolveStyleIdx != InvalidStyleIdx) // if toResolveStyleIdx is valid then that means our resolved color should come from line style
+    {
         color = loadLineStyle(toResolveStyleIdx).color;
+        gammaUncorrect(color.rgb); // want to output to SRGB without gamma correction
+    }
+    
     color.a *= float(storedQuantizedAlpha) / 255.f;
     
     return color;
@@ -852,7 +856,8 @@ float4 fragMain(PSInput input) : SV_TARGET
 
         textureColor = dtmColor.rgb;
         localAlpha = dtmColor.a;
-
+        
+        gammaUncorrect(textureColor); // want to output to SRGB without gamma correction
         return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(uint2(input.position.xy), localAlpha, currentMainObjectIdx, textureColor, true);
     }
     else

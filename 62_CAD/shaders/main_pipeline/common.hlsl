@@ -3,6 +3,15 @@
 
 #include "../globals.hlsl"
 
+// This function soley exists to match n4ce's behaviour, colors and color operations for DTMs, Curves, Lines, Hatches are done in linear space and then outputted to linear surface (as if surface had UNORM format, but ours is SRGB)
+// We should do gamma "uncorrection" to account for the fact that our surface format is SRGB and will do gamma correction
+void gammaUncorrect(inout float3 col)
+{
+    bool outputToSRGB = true; // TODO
+    float gamma = (outputToSRGB) ? 2.2f : 1.0f;
+    col.rgb = pow(col.rgb, gamma);
+}
+
 // TODO: Use these in C++ as well once numeric_limits<uint32_t> compiles on C++
 float32_t2 unpackCurveBoxUnorm(uint32_t2 value)
 {

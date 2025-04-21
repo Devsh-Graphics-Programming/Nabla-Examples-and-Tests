@@ -26,7 +26,12 @@ float2 QuadraticBezier(float2 p0, float2 p1, float2 p2, float t)
 ClipProjectionData getClipProjectionData(in MainObject mainObj)
 {
     if (mainObj.clipProjectionIndex != InvalidClipProjectionIndex)
+    {
+#ifdef NBL_2D_SHOWCASE_MODE
+        return nbl::hlsl::mul(globals.defaultClipProjection.projectionToNDC, loadCustomClipProjection(mainObj.clipProjectionIndex));
+#endif
         return loadCustomClipProjection(mainObj.clipProjectionIndex);
+    }
     else
         return globals.defaultClipProjection;
 }

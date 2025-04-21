@@ -60,10 +60,15 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord)
     if (!resolve)
         discard;
 
+
     // draw with previous geometry's style's color or stored in texture buffer :kek:
     // we don't need to load the style's color in critical section because we've already retrieved the style index from the stored main obj
     if (toResolveStyleIdx != InvalidStyleIdx) // if toResolveStyleIdx is valid then that means our resolved color should come from line style
+    {
         color = loadLineStyle(toResolveStyleIdx).color;
+        gammaUncorrect(color.rgb); // want to output to SRGB without gamma correction
+    }
+
     color.a *= float(storedQuantizedAlpha) / 255.f;
     
     return color;
