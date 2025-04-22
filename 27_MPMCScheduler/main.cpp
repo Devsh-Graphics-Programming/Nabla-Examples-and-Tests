@@ -69,7 +69,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
 
-			smart_refctd_ptr<IGPUShader> shader;
+			smart_refctd_ptr<IShader> shader;
 			{
 				IAssetLoader::SAssetLoadParams lp = {};
 				lp.logger = m_logger.get();
@@ -80,11 +80,11 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 					return logFail("Failed to load shader from disk");
 
 				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-				auto source = IAsset::castDown<ICPUShader>(assets[0]);
+				auto source = IAsset::castDown<IShader>(assets[0]);
 				if (!source)
 					return logFail("Failed to load shader from disk");
 
-				shader = m_device->createShader(source.get());
+				shader = m_device->compileShader({ source.get() });
 				if (!shader)
 					return false;
 			}
@@ -106,26 +106,18 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 
 			{
 				const asset::SPushConstantRange ranges[] = {{
-					.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					.offset = 0,
 					.size = sizeof(PushConstants)
 				}};
 				auto layout = m_device->createPipelineLayout(ranges,smart_refctd_ptr(dsLayout));
-				const IGPUComputePipeline::SCreationParams params[] = { {
-					{
-						.layout = layout.get()
-					},
-					{},
-					IGPUComputePipeline::SCreationParams::FLAGS::NONE,
-					{
-						.entryPoint = "main",
-						.shader = shader.get(),
-						.entries = nullptr,
-						.requiredSubgroupSize = IGPUShader::SSpecInfo::SUBGROUP_SIZE::UNKNOWN,
-						.requireFullSubgroups = true
-					}
-				}};
-				if (!m_device->createComputePipelines(nullptr,params,&m_ppln))
+				IGPUComputePipeline::SCreationParams params;
+				params.layout = layout.get();
+				params.shader.shader = shader.get();
+				params.shader.entryPoint = "main";
+				params.shader.stage = hlsl::ShaderStage::ESS_COMPUTE;
+				params.shader.requireFullSubgroups = true;
+				if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &m_ppln))
 					return logFail("Failed to create Pipeline");
 			}
 
@@ -306,7 +298,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 					.sharedAcceptableIdleCount = 0,
 					.globalAcceptableIdleCount = 0
 				};
-				cb->pushConstants(layout,IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,0,sizeof(pc),&pc);
+				cb->pushConstants(layout,hlsl::ShaderStage::ESS_COMPUTE,0,sizeof(pc),&pc);
 				cb->dispatch(WIN_W/WorkgroupSizeX,WIN_H/WorkgroupSizeY,1);
 			}
 
