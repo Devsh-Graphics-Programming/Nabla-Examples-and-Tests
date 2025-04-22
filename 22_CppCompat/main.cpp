@@ -84,7 +84,7 @@ public:
         m_commandPool = m_device->createCommandPool(m_queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
         m_commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &m_cmdbuf,1 }, smart_refctd_ptr(m_logger));
 
-        smart_refctd_ptr<IGPUShader> shader;
+        smart_refctd_ptr<IShader> shader;
         {
             IAssetLoader::SAssetLoadParams lp = {};
             lp.logger = m_logger.get();
@@ -94,14 +94,12 @@ public:
             if (assets.empty())
                 return logFail("Could not load shader!");
 
-            // lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-            auto source = IAsset::castDown<ICPUShader>(assets[0]);
+            auto source = IAsset::castDown<IShader>(assets[0]);
             // The down-cast should not fail!
             assert(source);
-            assert(source->getStage() == IShader::E_SHADER_STAGE::ESS_COMPUTE);
 
             // this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
-            shader = m_device->createShader(source.get());
+            shader = m_device->compileShader({ source.get() });
             if (!shader)
                 return logFail("Creation of a GPU Shader to from CPU Shader source failed!");
         }
@@ -129,6 +127,8 @@ public:
             IGPUComputePipeline::SCreationParams params = {};
             params.layout = layout.get();
             params.shader.shader = shader.get();
+            params.shader.entryPoint = "main";
+            params.shader.stage = hlsl::ShaderStage::ESS_COMPUTE;
             if (!m_device->createComputePipelines(nullptr, { &params,1 }, &m_pipeline))
                 return logFail("Failed to create compute pipeline!\n");
         }
