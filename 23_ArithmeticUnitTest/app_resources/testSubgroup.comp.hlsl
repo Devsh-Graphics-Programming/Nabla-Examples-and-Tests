@@ -12,6 +12,7 @@ uint32_t globalIndex()
 bool canStore() {return true;}
 
 [numthreads(WORKGROUP_SIZE,1,1)]
+[shader("compute")]
 void main()
 {
 	test();
