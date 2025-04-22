@@ -46,13 +46,13 @@ class FFT_Test final : public application_templates::MonoDeviceApplication, publ
 	smart_refctd_ptr<ISemaphore> m_timeline;
 	uint64_t semaphorValue = 0;
 
-	inline core::smart_refctd_ptr<video::IGPUShader> createShader(
+	inline core::smart_refctd_ptr<asset::IShader> createShader(
 		const char* includeMainName)
 	{
 		std::string prelude = "#include \"";
-		auto CPUShader = core::make_smart_refctd_ptr<ICPUShader>((prelude + includeMainName + "\"\n").c_str(), IShader::E_SHADER_STAGE::ESS_COMPUTE, IShader::E_CONTENT_TYPE::ECT_HLSL, includeMainName);
-		assert(CPUShader);
-		return m_device->createShader(CPUShader.get());
+		auto hlslShader = core::make_smart_refctd_ptr<IShader>((prelude + includeMainName + "\"\n").c_str(), IShader::E_CONTENT_TYPE::ECT_HLSL, includeMainName);
+		assert(hlslShader);
+		return m_device->compileShader({ hlslShader.get() });
 	}
 
 public:
@@ -70,7 +70,7 @@ public:
 			return false;
 
 		// this time we load a shader directly from a file
-		smart_refctd_ptr<IGPUShader> shader;
+		smart_refctd_ptr<IShader> shader;
 		/* {
 			IAssetLoader::SAssetLoadParams lp = {};
 			lp.logger = m_logger.get();
@@ -81,14 +81,14 @@ public:
 				return logFail("Could not load shader!");
 
 			// Cast down the asset to its proper type
-			auto source = IAsset::castDown<ICPUShader>(assets[0]);
+			auto source = IAsset::castDown<IShader>(assets[0]);
 			// The down-cast should not fail!
 			assert(source);
 
-			// Compile directly to IGPUShader
-			shader = m_device->createShader(source.get());
+			// Compile directly to SPIR-V Shader
+			shader = m_device->compileShader({ source.get() });
 			if (!shader)
-				return logFail("Creation of a GPU Shader to from CPU Shader source failed!");
+				return logFail("Creation of a SPIR-V Shader from HLSL Shader source failed!");
 		}*/
 		shader = createShader("app_resources/shader.comp.hlsl");
 
@@ -132,7 +132,9 @@ public:
 			IGPUComputePipeline::SCreationParams params = {};
 			params.layout = layout.get();
 			params.shader.shader = shader.get();
-			params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(hlsl::findMSB(m_physicalDevice->getLimits().maxSubgroupSize));
+			params.shader.entryPoint = "main";
+			params.shader.stage = hlsl::ESS_COMPUTE;
+			params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SShaderSpecInfo::SUBGROUP_SIZE>(hlsl::findMSB(m_physicalDevice->getLimits().maxSubgroupSize));
 			params.shader.requireFullSubgroups = true;
 			if (!m_device->createComputePipelines(nullptr, { &params,1 }, &m_pipeline))
 				return logFail("Failed to create compute pipeline!\n");
