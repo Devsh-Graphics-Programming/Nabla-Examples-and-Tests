@@ -3246,15 +3246,17 @@ protected:
 			mesh.setIndices(std::move(indices));
 
 			DTMSettingsInfo dtmInfo;
-			dtmInfo.mode = E_DTM_MODE::HEIGHT_SHADING | E_DTM_MODE::CONTOUR | E_DTM_MODE::OUTLINE;
+			//dtmInfo.mode = E_DTM_MODE::HEIGHT_SHADING | E_DTM_MODE::CONTOUR | E_DTM_MODE::OUTLINE;
 			//dtmInfo.mode = E_DTM_MODE::HEIGHT_SHADING;
+			dtmInfo.mode = E_DTM_MODE::CONTOUR;
+
 			dtmInfo.outlineStyleInfo.screenSpaceLineWidth = 0.0f;
 			dtmInfo.outlineStyleInfo.worldSpaceLineWidth = 3.0f;
 			dtmInfo.outlineStyleInfo.color = float32_t4(0.0f, 0.39f, 0.0f, 1.0f);
 			std::array<double, 4> outlineStipplePattern = { 0.0f, -5.0f, 20.0f, -5.0f };
 			dtmInfo.outlineStyleInfo.setStipplePatternData(outlineStipplePattern);
 
-			dtmInfo.contourSettingsCount = 1u;
+			dtmInfo.contourSettingsCount = 2u;
 			dtmInfo.contourSettings[0u].startHeight = 20;
 			dtmInfo.contourSettings[0u].endHeight = 90;
 			dtmInfo.contourSettings[0u].heightInterval = 10;
@@ -3263,6 +3265,11 @@ protected:
 			dtmInfo.contourSettings[0u].lineStyleInfo.color = float32_t4(0.0f, 0.0f, 1.0f, 0.7f);
 			std::array<double, 4> contourStipplePattern = { 0.0f, -5.0f, 10.0f, -5.0f };
 			dtmInfo.contourSettings[0u].lineStyleInfo.setStipplePatternData(contourStipplePattern);
+
+			dtmInfo.contourSettings[1u] = dtmInfo.contourSettings[0u];
+			dtmInfo.contourSettings[1u].startHeight += 5.0f;
+			dtmInfo.contourSettings[1u].heightInterval = 13.0f;
+			dtmInfo.contourSettings[1u].lineStyleInfo.color = float32_t4(0.8f, 0.4f, 0.3f, 1.0f);
 
 			// PRESS 1, 2, 3 TO SWITCH HEIGHT SHADING MODE
 			// 1 - DISCRETE_VARIABLE_LENGTH_INTERVALS

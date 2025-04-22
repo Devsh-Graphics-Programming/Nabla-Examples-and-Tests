@@ -848,7 +848,10 @@ float4 fragMain(PSInput input) : SV_TARGET
         if (dtmSettings.drawHeightShadingEnabled())
             dtmColor = blendColorOnTop(dtmColor, calculateDTMHeightColor(dtmSettings.heightShadingSettings, v, heightDeriv, input.position.xy, height));
         if (dtmSettings.drawContourEnabled())
-            dtmColor = blendColorOnTop(dtmColor, calculateDTMContourColor(dtmSettings.contourSettings[0u], v, edgePoints, input.position.xy, height));
+        {
+            for(uint32_t i = 0; i < dtmSettings.contourSettingsCount; ++i) // TODO: should reverse the order with blendUnder
+                dtmColor = blendColorOnTop(dtmColor, calculateDTMContourColor(dtmSettings.contourSettings[i], v, edgePoints, input.position.xy, height));
+        }
         if (dtmSettings.drawOutlineEnabled())
             dtmColor = blendColorOnTop(dtmColor, calculateDTMOutlineColor(dtmSettings.outlineLineStyleIdx, v, edgePoints, input.position.xy, baryCoord, height));
 
