@@ -181,11 +181,11 @@ public:
 				.signalSemaphores = semInfo
 			} };
 
-			computeQueue->startCapture();
+			m_api->startCapture();
 			if (computeQueue->submit(infos) != IQueue::RESULT::SUCCESS) {
 				m_logger->log("Submission failure", system::ILogger::ELL_ERROR);
 			}
-			computeQueue->endCapture();
+			m_api->endCapture();
 		}
 
 		// TODO: Update to support all operations
