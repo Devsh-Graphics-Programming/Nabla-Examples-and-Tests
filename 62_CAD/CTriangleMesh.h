@@ -78,7 +78,7 @@ struct DTMSettingsInfo
 {
 	static constexpr uint32_t MaxContourSettings = DTMSettings::MaxContourSettings;
 
-	uint32_t mode = 0u;
+	uint32_t mode = 0u; // related to E_DTM_MODE
 
 	// outline
 	LineStyleInfo outlineStyleInfo;

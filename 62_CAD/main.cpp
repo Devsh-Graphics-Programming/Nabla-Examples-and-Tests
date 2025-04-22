@@ -1444,8 +1444,6 @@ protected:
 	
 	void addObjects(SIntendedSubmitInfo& intendedNextSubmit)
 	{
-		// TODO[Przemek]: add your own case, you won't call any other drawResourcesFiller function, only drawMesh with your custom made Mesh (for start it can be a single triangle)
-
 		// we record upload of our objects and if we failed to allocate we submit everything
 		if (!intendedNextSubmit.valid())
 		{
@@ -3232,9 +3230,9 @@ protected:
 
 			// SINGLE TRIANGLE
 			/*core::vector<TriangleMeshVertex> vertices = {
-				{ float32_t2(0.0, 0.0), -20.0 },
-				{ float32_t2(200.0, 200.0), 100.0 },
-				{ float32_t2(200.0, -200.0), 80.0 }
+				{ float64_t2(0.0, 0.0), -20.0 },
+				{ float64_t2(-200.0, -200.0), 100.0 },
+				{ float64_t2(200.0, -100.0), 80.0 },
 			};
 
 			core::vector<uint32_t> indices = {
@@ -3251,7 +3249,7 @@ protected:
 			dtmInfo.mode |= E_DTM_MODE::CONTOUR;
 
 			dtmInfo.outlineStyleInfo.screenSpaceLineWidth = 0.0f;
-			dtmInfo.outlineStyleInfo.worldSpaceLineWidth = 3.0f;
+			dtmInfo.outlineStyleInfo.worldSpaceLineWidth = 1.0f;
 			dtmInfo.outlineStyleInfo.color = float32_t4(0.0f, 0.39f, 0.0f, 1.0f);
 			std::array<double, 4> outlineStipplePattern = { 0.0f, -5.0f, 20.0f, -5.0f };
 			dtmInfo.outlineStyleInfo.setStipplePatternData(outlineStipplePattern);

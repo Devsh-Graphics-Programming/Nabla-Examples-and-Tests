@@ -300,7 +300,7 @@ NBL_CONSTEXPR float InvalidStyleStretchValue = nbl::hlsl::numeric_limits<float>:
 struct TriangleMeshVertex
 {
     pfloat64_t2 pos;
-    pfloat64_t height;
+    pfloat64_t height; // TODO: can be of type float32_t instead
 };
 
 // The color parameter is also used for styling non-curve objects such as text glyphs and hatches with solid color
