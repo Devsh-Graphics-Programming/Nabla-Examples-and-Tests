@@ -164,8 +164,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 				const auto assets = bundle.getContents();
 				assert(assets.size() == 1);
-				const auto sourceRaw = smart_refctd_ptr_static_cast<IShader>(assets[0]);
-				smart_refctd_ptr<IShader> shader = m_device->compileShader({sourceRaw.get(), nullptr, nullptr, nullptr});
+				smart_refctd_ptr<IShader> shaderSrc = IAsset::castDown<IShader>(assets[0]);
+				auto shader = m_device->compileShader({ shaderSrc.get() });
 				if (!shader)
 					return logFail("Failed to create shader!");
 
@@ -783,7 +783,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			{
 				IGPUBottomLevelAccelerationStructure::DeviceBuildInfo blasBuildInfos[OT_COUNT];
 				uint32_t primitiveCounts[OT_COUNT];
-				IGPUBottomLevelAccelerationStructure::Triangles<const IGPUBuffer> triangles[OT_COUNT];
+				using Geometry = IGPUBottomLevelAccelerationStructure::Triangles<const IGPUBuffer>;
+				Geometry triangles[OT_COUNT];
 				uint32_t scratchSizes[OT_COUNT];
 
 				for (uint32_t i = 0; i < objectsGpu.size(); i++)
@@ -819,7 +820,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					ILogicalDevice::AccelerationStructureBuildSizes buildSizes;
 					{
 						const uint32_t maxPrimCount[1] = { primitiveCounts[i] };
-						buildSizes = m_device->getAccelerationStructureBuildSizes(blasFlags, false, std::span{&triangles[i], 1}, maxPrimCount);
+						buildSizes = m_device->getAccelerationStructureBuildSizes(blasFlags, false, std::span<const Geometry>{&triangles[i], 1}, maxPrimCount);
 						if (!buildSizes)
 							return logFail("Failed to get BLAS build sizes");
 					}
