@@ -161,7 +161,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
 
 				// Load Custom Shader
-				auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IGPUShader>
+				auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IShader>
 					{
 						IAssetLoader::SAssetLoadParams lp = {};
 						lp.logger = m_logger.get();
@@ -172,11 +172,11 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 							return nullptr;
 
 						// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-						auto source = IAsset::castDown<ICPUShader>(assets[0]);
+						auto source = IAsset::castDown<IShader>(assets[0]);
 						if (!source)
 							return nullptr;
 
-						return m_device->createShader(source.get());
+						return m_device->compileShader({ source.get() });
 					};
 				auto fragmentShader = loadCompileAndCreateShader("app_resources/present.frag.hlsl");
 				if (!fragmentShader)
@@ -255,14 +255,15 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 				// Now create the pipeline
 				{
 					const asset::SPushConstantRange range = {
-						.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+						.stageFlags = ESS_FRAGMENT,
 						.offset = 0,
 						.size = sizeof(push_constants_t)
 					};
 					auto layout = m_device->createPipelineLayout({ &range,1 }, nullptr, nullptr, nullptr, core::smart_refctd_ptr(dsLayout));
-					const IGPUShader::SSpecInfo fragSpec = {
+					const IPipelineBase::SShaderSpecInfo fragSpec = {
+						.shader = fragmentShader.get(),
 						.entryPoint = "main",
-						.shader = fragmentShader.get()
+						.stage = ESS_FRAGMENT,
 					};
 					m_pipeline = fsTriProtoPPln.createPipeline(fragSpec, layout.get(), scResources->getRenderpass()/*,default is subpass 0*/);
 					if (!m_pipeline)
@@ -796,7 +797,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 							cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 						}
 						cmdbuf->bindGraphicsPipeline(m_pipeline.get());
-						cmdbuf->pushConstants(m_pipeline->getLayout(),IGPUShader::E_SHADER_STAGE::ESS_FRAGMENT,0,sizeof(push_constants_t),&pc);
+						cmdbuf->pushConstants(m_pipeline->getLayout(),hlsl::ShaderStage::ESS_FRAGMENT,0,sizeof(push_constants_t),&pc);
 						cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS,m_pipeline->getLayout(),3,1,&ds);
 						ext::FullScreenTriangle::recordDrawCall(cmdbuf);
 						cmdbuf->endRenderPass();
