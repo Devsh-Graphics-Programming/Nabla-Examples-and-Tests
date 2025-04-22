@@ -26,6 +26,7 @@ using namespace nbl::hlsl;
 
 // TODO: delta time push constant? (but then for CI need a commandline `-fixed-timestep=MS` and `-frames=N` option too)
 [numthreads(WorkgroupSize, 1, 1)]
+[shader("compute")]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
     uint32_t pid = ID.x;

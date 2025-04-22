@@ -9,6 +9,8 @@
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 
+#include "nbl/asset/metadata/CHLSLMetadata.h"
+
 using namespace nbl::hlsl;
 using namespace nbl;
 using namespace core;
@@ -372,6 +374,7 @@ public:
                 params.layout = pipelineLayout.get();
                 params.shader.entryPoint = entryPoint;
                 params.shader.shader = shader.get();
+                params.shader.stage = ESS_COMPUTE;
                 
                 m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline);
             };
@@ -628,6 +631,7 @@ public:
                 params.layout = pipelineLayout.get();
                 params.shader.entryPoint = iterateKernel;
                 params.shader.shader = iterateShader.get();
+                params.shader.stage = ESS_COMPUTE;
 
                 m_device->createComputePipelines(nullptr, { &params,1 }, &m_iterateDiffusionPipeline);
             }
@@ -636,6 +640,7 @@ public:
                 params.layout = pipelineLayout.get();
                 params.shader.entryPoint = applyKernel;
                 params.shader.shader = applyShader.get();
+                params.shader.stage = ESS_COMPUTE;
 
                 m_device->createComputePipelines(nullptr, { &params,1 }, &m_diffusionPipeline);
             }
@@ -1401,7 +1406,7 @@ private:
         numParticles = m_gridData.particleInitSize.x * m_gridData.particleInitSize.y * m_gridData.particleInitSize.z * particlesPerCell;
     }
 
-    smart_refctd_ptr<IGPUShader> compileShader(const std::string& filePath, const std::string& entryPoint = "main")
+    smart_refctd_ptr<IShader> compileShader(const std::string& filePath, const std::string& entryPoint = "main")
     {
         IAssetLoader::SAssetLoadParams lparams = {};
         lparams.logger = m_logger.get();
@@ -1415,14 +1420,16 @@ private:
         
         const auto assets = bundle.getContents();
         assert(assets.size() == 1);
-        smart_refctd_ptr<ICPUShader> shaderSrc = IAsset::castDown<ICPUShader>(assets[0]);
+        smart_refctd_ptr<IShader> shaderSrc = IAsset::castDown<IShader>(assets[0]);
+        const auto hlslMetadata = static_cast<const CHLSLMetadata*>(bundle.getMetadata());
+        const auto shaderStage = hlslMetadata->shaderStages->front();
 
-        smart_refctd_ptr<ICPUShader> shader = shaderSrc;
+        smart_refctd_ptr<IShader> shader = shaderSrc;
         if (entryPoint != "main")
         {
             auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
             CHLSLCompiler::SOptions options = {};
-            options.stage = shaderSrc->getStage();
+            options.stage = shaderStage;
             if (!(options.stage == IShader::E_SHADER_STAGE::ESS_COMPUTE || options.stage == IShader::E_SHADER_STAGE::ESS_FRAGMENT))
                 options.stage = IShader::E_SHADER_STAGE::ESS_VERTEX;
             options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
@@ -1443,7 +1450,7 @@ private:
             shader = compiler->compileToSPIRV((const char*)shaderSrc->getContent()->getPointer(), options);
         }
 
-        return m_device->createShader(shader.get());
+        return m_device->compileShader({ shader.get() });
     }
 
     // TODO: there's a method in IUtilities for this
@@ -1562,7 +1569,7 @@ private:
 
         // init shaders and pipeline
 
-        auto compileShader = [&](const std::string& filePath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<IGPUShader>
+        auto compileShader = [&](const std::string& filePath) -> smart_refctd_ptr<IShader>
             {
                 IAssetLoader::SAssetLoadParams lparams = {};
                 lparams.logger = m_logger.get();
@@ -1576,15 +1583,14 @@ private:
         
                 const auto assets = bundle.getContents();
                 assert(assets.size() == 1);
-                smart_refctd_ptr<ICPUShader> shaderSrc = IAsset::castDown<ICPUShader>(assets[0]);
-                shaderSrc->setShaderStage(stage);
+                smart_refctd_ptr<IShader> shaderSrc = IAsset::castDown<IShader>(assets[0]);
                 if (!shaderSrc)
                     return nullptr;
 
-                return m_device->createShader(shaderSrc.get());
+                return m_device->compileShader({ shaderSrc.get() });
             };
-        auto vs = compileShader("app_resources/fluidParticles.vertex.hlsl", IShader::E_SHADER_STAGE::ESS_VERTEX);
-        auto fs = compileShader("app_resources/fluidParticles.fragment.hlsl", IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+        auto vs = compileShader("app_resources/fluidParticles.vertex.hlsl");
+        auto fs = compileShader("app_resources/fluidParticles.fragment.hlsl");
 
         smart_refctd_ptr<video::IGPUDescriptorSetLayout> descriptorSetLayout1;
         {
@@ -1629,9 +1635,9 @@ private:
         blendParams.blendParams[0u].colorWriteMask = (1u << 0u) | (1u << 1u) | (1u << 2u) | (1u << 3u);
 
         {
-            IGPUShader::SSpecInfo specInfo[3] = {
-                {.shader = vs.get()},
-                {.shader = fs.get()},
+            IPipelineBase::SShaderSpecInfo specInfo[] = {
+                {.shader = vs.get(), .entryPoint = "main", .stage = ESS_VERTEX, },
+                {.shader = fs.get(), .entryPoint = "main", .stage = ESS_FRAGMENT, },
             };
 
             const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX, .offset = 0, .size = sizeof(uint64_t) };
