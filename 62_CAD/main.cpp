@@ -3245,10 +3245,10 @@ protected:
 			mesh.setVertices(std::move(vertices));
 			mesh.setIndices(std::move(indices));
 
-			DTMSettingsInfo dtmInfo;
-			//dtmInfo.mode = E_DTM_MODE::HEIGHT_SHADING | E_DTM_MODE::CONTOUR | E_DTM_MODE::OUTLINE;
-			//dtmInfo.mode = E_DTM_MODE::HEIGHT_SHADING;
-			dtmInfo.mode = E_DTM_MODE::CONTOUR;
+			DTMSettingsInfo dtmInfo{};
+			dtmInfo.mode |= E_DTM_MODE::OUTLINE;
+			dtmInfo.mode |= E_DTM_MODE::HEIGHT_SHADING;
+			dtmInfo.mode |= E_DTM_MODE::CONTOUR;
 
 			dtmInfo.outlineStyleInfo.screenSpaceLineWidth = 0.0f;
 			dtmInfo.outlineStyleInfo.worldSpaceLineWidth = 3.0f;
