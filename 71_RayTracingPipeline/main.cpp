@@ -137,7 +137,7 @@ public:
     }
 
     // Load Custom Shader
-    auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IGPUShader>
+    auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IShader>
         {
             IAssetLoader::SAssetLoadParams lp = {};
             lp.logger = m_logger.get();
@@ -145,14 +145,20 @@ public:
             auto assetBundle = m_assetMgr->getAsset(relPath, lp);
             const auto assets = assetBundle.getContents();
             if (assets.empty())
+            {
+                assert(false);
                 return nullptr;
+            }
 
             // lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-            auto sourceRaw = IAsset::castDown<ICPUShader>(assets[0]);
+            auto sourceRaw = IAsset::castDown<IShader>(assets[0]);
             if (!sourceRaw)
+            {
+                assert(false);
                 return nullptr;
+            }
 
-            return m_device->createShader({ sourceRaw.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
+            return m_device->compileShader({ sourceRaw.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
         };
 
     // load shaders
@@ -335,18 +341,18 @@ public:
         RTDS_COUNT
       };
 
-      IGPUShader::SSpecInfo shaders[RTDS_COUNT];
-      shaders[RTDS_RAYGEN] = {.shader = raygenShader.get()};
-      shaders[RTDS_MISS] = {.shader = missShader.get()};
-      shaders[RTDS_MISS_SHADOW] = { .shader = missShadowShader.get() };
-      shaders[RTDS_CLOSEST_HIT] = {.shader = closestHitShader.get()};
-      shaders[RTDS_SPHERE_CLOSEST_HIT] = {.shader = proceduralClosestHitShader.get()};
-      shaders[RTDS_ANYHIT_PRIMARY] = {.shader = anyHitShaderColorPayload.get()};
-      shaders[RTDS_ANYHIT_SHADOW] = {.shader = anyHitShaderShadowPayload.get()};
-      shaders[RTDS_INTERSECTION] = {.shader = intersectionHitShader.get() };
-      shaders[RTDS_DIRECTIONAL_CALL] = {.shader = directionalLightCallShader.get()};
-      shaders[RTDS_POINT_CALL] = {.shader = pointLightCallShader.get()};
-      shaders[RTDS_SPOT_CALL] = {.shader = spotLightCallShader.get()};
+      IPipelineBase::SShaderSpecInfo shaders[RTDS_COUNT];
+      shaders[RTDS_RAYGEN] = {.shader = raygenShader.get(), .entryPoint = "main", .stage = ESS_RAYGEN};
+      shaders[RTDS_MISS] = {.shader = missShader.get(), .entryPoint = "main", .stage = ESS_MISS};
+      shaders[RTDS_MISS_SHADOW] = { .shader = missShadowShader.get(), .entryPoint = "main", .stage = ESS_MISS};
+      shaders[RTDS_CLOSEST_HIT] = {.shader = closestHitShader.get(), .entryPoint = "main", .stage = ESS_CLOSEST_HIT};
+      shaders[RTDS_SPHERE_CLOSEST_HIT] = {.shader = proceduralClosestHitShader.get(), .entryPoint = "main", .stage = ESS_CLOSEST_HIT};
+      shaders[RTDS_ANYHIT_PRIMARY] = {.shader = anyHitShaderColorPayload.get(), .entryPoint = "main", .stage = ESS_ANY_HIT};
+      shaders[RTDS_ANYHIT_SHADOW] = {.shader = anyHitShaderShadowPayload.get(), .entryPoint = "main", .stage = ESS_ANY_HIT};
+      shaders[RTDS_INTERSECTION] = {.shader = intersectionHitShader.get(), .entryPoint = "main", .stage = ESS_INTERSECTION };
+      shaders[RTDS_DIRECTIONAL_CALL] = {.shader = directionalLightCallShader.get(), .entryPoint = "main", .stage = ESS_CALLABLE};
+      shaders[RTDS_POINT_CALL] = {.shader = pointLightCallShader.get(), .entryPoint = "main", .stage = ESS_CALLABLE};
+      shaders[RTDS_SPOT_CALL] = {.shader = spotLightCallShader.get(), .entryPoint = "main", .stage = ESS_CALLABLE};
 
       params.layout = pipelineLayout.get();
       params.shaders = std::span(shaders);
@@ -448,9 +454,10 @@ public:
       if (!fsTriProtoPPln)
         return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
 
-      const IGPUShader::SSpecInfo fragSpec = {
+      const IPipelineBase::SShaderSpecInfo fragSpec = {
+        .shader = fragmentShader.get(),
         .entryPoint = "main",
-        .shader = fragmentShader.get()
+        .stage = ESS_FRAGMENT,
       };
 
       auto presentLayout = m_device->createPipelineLayout(
