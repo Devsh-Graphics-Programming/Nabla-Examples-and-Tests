@@ -666,9 +666,9 @@ float4 calculateDTMOutlineColor(in uint outlineLineStyleIdx, in float3 v[3], in 
     return outputColor;
 }
 
-float4 blendUnder(in float4 srcColor, in float4 dstColor)
+float4 blendUnder(in float4 dstColor, in float4 srcColor)
 {
-    dstColor.rgb = dstColor.rgb * dstColor.a + (1 - dstColor.a) * srcColor.a * srcColor.rgb;
+    dstColor.rgb = dstColor.rgb + (1 - dstColor.a) * srcColor.a * srcColor.rgb;
     dstColor.a = (1.0f - srcColor.a) * dstColor.a + srcColor.a;
 
     return dstColor;

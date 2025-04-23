@@ -144,15 +144,16 @@ float4 fragMain(PSInput input) : SV_TARGET
 
         float4 dtmColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
         
-        if (dtmSettings.drawHeightShadingEnabled())
-            dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, v, heightDeriv, input.position.xy, height));
+        if (dtmSettings.drawOutlineEnabled())
+            dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMOutlineColor(dtmSettings.outlineLineStyleIdx, v, input.position.xy, baryCoord, height));
         if (dtmSettings.drawContourEnabled())
         {
             for(uint32_t i = 0; i < dtmSettings.contourSettingsCount; ++i) // TODO: should reverse the order with blendUnder
                 dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMContourColor(dtmSettings.contourSettings[i], v, input.position.xy, height));
         }
-        if (dtmSettings.drawOutlineEnabled())
-            dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMOutlineColor(dtmSettings.outlineLineStyleIdx, v, input.position.xy, baryCoord, height));
+        if (dtmSettings.drawHeightShadingEnabled())
+            dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, v, heightDeriv, input.position.xy, height));
+        
 
         textureColor = dtmColor.rgb;
         localAlpha = dtmColor.a;

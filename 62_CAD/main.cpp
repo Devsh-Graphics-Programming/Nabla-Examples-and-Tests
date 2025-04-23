@@ -3244,7 +3244,7 @@ protected:
 			mesh.setIndices(std::move(indices));
 
 			DTMSettingsInfo dtmInfo{};
-			dtmInfo.mode |= E_DTM_MODE::OUTLINE;
+			//dtmInfo.mode |= E_DTM_MODE::OUTLINE;
 			dtmInfo.mode |= E_DTM_MODE::HEIGHT_SHADING;
 			dtmInfo.mode |= E_DTM_MODE::CONTOUR;
 
