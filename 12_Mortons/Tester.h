@@ -1,5 +1,5 @@
-#ifndef _NBL_EXAMPLES_TESTS_12_MORTONS_I_TESTER_INCLUDED_
-#define _NBL_EXAMPLES_TESTS_12_MORTONS_I_TESTER_INCLUDED_
+#ifndef _NBL_EXAMPLES_TESTS_12_MORTONS_TESTER_INCLUDED_
+#define _NBL_EXAMPLES_TESTS_12_MORTONS_TESTER_INCLUDED_
 
 #include <nabla.h>
 #include "app_resources/common.hlsl"
@@ -128,7 +128,7 @@ public:
             if (!inputBuff)
                 logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
 
-            inputBuff->setObjectDebugName("emulated_float64_t output buffer");
+            inputBuff->setObjectDebugName("morton input buffer");
 
             video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = inputBuff->getMemoryReqs();
             reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
@@ -163,7 +163,7 @@ public:
             if (!outputBuff)
                 logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
 
-            outputBuff->setObjectDebugName("emulated_float64_t output buffer");
+            outputBuff->setObjectDebugName("morton output buffer");
 
             video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = outputBuff->getMemoryReqs();
             reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
@@ -208,8 +208,7 @@ public:
     template<typename T>
     void verifyTestValue(const std::string& memberName, const T& expectedVal, const T& testVal, const TestType testType)
     {
-        static constexpr float MaxAllowedError = 0.1f;
-        if (std::abs(double(expectedVal) - double(testVal)) <= MaxAllowedError)
+        if (expectedVal == testVal)
             return;
 
         std::stringstream ss;
@@ -221,7 +220,7 @@ public:
             ss << "GPU TEST ERROR:\n";
         }
 
-        ss << "nbl::hlsl::" << memberName << " produced incorrect output! test value: " << testVal << " expected value: " << expectedVal << '\n';
+        ss << "nbl::hlsl::" << memberName << " produced incorrect output!" << '\n'; //test value: " << testVal << " expected value: " << expectedVal << '\n';
 
         m_logger->log(ss.str().c_str(), system::ILogger::ELL_ERROR);
     }
@@ -240,6 +239,7 @@ public:
         {
         case TestType::CPU:
             ss << "CPU TEST ERROR:\n";
+            break;
         case TestType::GPU:
             ss << "GPU TEST ERROR:\n";
         }
@@ -251,32 +251,60 @@ public:
         m_logger->log(ss.str().c_str(), system::ILogger::ELL_ERROR);
     }
 
-    template<typename T>
-    void verifyTestMatrix3x3Value(const std::string& memberName, const nbl::hlsl::matrix<T, 3, 3>& expectedVal, const nbl::hlsl::matrix<T, 3, 3>& testVal, const TestType testType)
-    {
-        for (int i = 0; i < 3; ++i)
-        {
-            auto expectedValRow = expectedVal[i];
-            auto testValRow = testVal[i];
-            verifyTestVector3dValue(memberName, expectedValRow, testValRow, testType);
-        }
-    }
-
     void performTests()
     {
-        m_logger->log("intrinsics.hlsl TESTS:", system::ILogger::ELL_PERFORMANCE);
+        std::random_device rd;
+        std::mt19937 mt(rd());
+
+        std::uniform_int_distribution<uint16_t> shortDistribution(uint16_t(0), std::numeric_limits<uint16_t>::max());
+        std::uniform_int_distribution<uint32_t> intDistribution(uint32_t(0), std::numeric_limits<uint32_t>::max());
+        std::uniform_int_distribution<uint64_t> longDistribution(uint64_t(0), std::numeric_limits<uint64_t>::max());
+
+        m_logger->log("TESTS:", system::ILogger::ELL_PERFORMANCE);
         for (int i = 0; i < Iterations; ++i)
         {
             // Set input thest values that will be used in both CPU and GPU tests
             InputTestValues testInput;
-
             // use std library or glm functions to determine expected test values, the output of functions from intrinsics.hlsl will be verified against these values
             TestValues expected;
+
+            uint32_t generatedShift = intDistribution(mt) & uint32_t(63);
+            testInput.shift = generatedShift;
+            {
+                uint64_t generatedA = longDistribution(mt);
+                uint64_t generatedB = longDistribution(mt);
+
+                testInput.generatedA = generatedA;
+                testInput.generatedB = generatedB;
+
+                expected.emulatedAnd = _static_cast<emulated_uint64_t>(generatedA & generatedB);
+                expected.emulatedOr = _static_cast<emulated_uint64_t>(generatedA | generatedB);
+                expected.emulatedXor = _static_cast<emulated_uint64_t>(generatedA ^ generatedB);
+                expected.emulatedNot = _static_cast<emulated_uint64_t>(~generatedA);
+                expected.emulatedPlus = _static_cast<emulated_uint64_t>(generatedA + generatedB);
+                expected.emulatedMinus = _static_cast<emulated_uint64_t>(generatedA - generatedB);
+                expected.emulatedLess = uint32_t(generatedA < generatedB);
+                expected.emulatedLessEqual = uint32_t(generatedA <= generatedB);
+                expected.emulatedGreater = uint32_t(generatedA > generatedB);
+                expected.emulatedGreaterEqual = uint32_t(generatedA >= generatedB);
+
+                expected.emulatedLeftShifted = _static_cast<emulated_uint64_t>(generatedA << generatedShift);
+                expected.emulatedUnsignedRightShifted = _static_cast<emulated_uint64_t>(generatedA >> generatedShift);
+                expected.emulatedSignedRightShifted = _static_cast<emulated_int64_t>(static_cast<int64_t>(generatedA) >> generatedShift);
+            }
+            {
+                uint64_t coordX = longDistribution(mt);
+                uint64_t coordY = longDistribution(mt);
+                uint64_t coordZ = longDistribution(mt);
+                uint64_t coordW = longDistribution(mt);
+
+
+            }
 
             performCpuTests(testInput, expected);
             performGpuTests(testInput, expected);
         }
-        m_logger->log("intrinsics.hlsl TESTS DONE.", system::ILogger::ELL_PERFORMANCE);
+        m_logger->log("TESTS DONE.", system::ILogger::ELL_PERFORMANCE);
     }
 
 protected:
@@ -354,7 +382,7 @@ private:
     {
         TestValues cpuTestValues;
         cpuTestValues.fillTestValues(commonTestInputValues);
-        verifyTestValues(expectedTestValues, cpuTestValues, ITester::TestType::CPU);
+        verifyTestValues(expectedTestValues, cpuTestValues, TestType::CPU);
 
     }
 
@@ -362,55 +390,26 @@ private:
     {
         TestValues gpuTestValues;
         gpuTestValues = dispatch<InputTestValues, TestValues>(commonTestInputValues);
-        verifyTestValues(expectedTestValues, gpuTestValues, ITester::TestType::GPU);
+        verifyTestValues(expectedTestValues, gpuTestValues, TestType::GPU);
     }
 
-    void verifyTestValues(const TestValues& expectedTestValues, const TestValues& testValues, ITester::TestType testType)
+    void verifyTestValues(const TestValues& expectedTestValues, const TestValues& testValues, TestType testType)
     {
-        verifyTestValue("bitCount", expectedTestValues.bitCount, testValues.bitCount, testType);
-        verifyTestValue("clamp", expectedTestValues.clamp, testValues.clamp, testType);
-        verifyTestValue("length", expectedTestValues.length, testValues.length, testType);
-        verifyTestValue("dot", expectedTestValues.dot, testValues.dot, testType);
-        verifyTestValue("determinant", expectedTestValues.determinant, testValues.determinant, testType);
-        verifyTestValue("findMSB", expectedTestValues.findMSB, testValues.findMSB, testType);
-        verifyTestValue("findLSB", expectedTestValues.findLSB, testValues.findLSB, testType);
-        verifyTestValue("min", expectedTestValues.min, testValues.min, testType);
-        verifyTestValue("max", expectedTestValues.max, testValues.max, testType);
-        verifyTestValue("rsqrt", expectedTestValues.rsqrt, testValues.rsqrt, testType);
-        verifyTestValue("frac", expectedTestValues.frac, testValues.frac, testType);
-        verifyTestValue("bitReverse", expectedTestValues.bitReverse, testValues.bitReverse, testType);
-        verifyTestValue("mix", expectedTestValues.mix, testValues.mix, testType);
-        verifyTestValue("sign", expectedTestValues.sign, testValues.sign, testType);
-        verifyTestValue("radians", expectedTestValues.radians, testValues.radians, testType);
-        verifyTestValue("degrees", expectedTestValues.degrees, testValues.degrees, testType);
-        verifyTestValue("step", expectedTestValues.step, testValues.step, testType);
-        verifyTestValue("smoothStep", expectedTestValues.smoothStep, testValues.smoothStep, testType);
-
-        verifyTestVector3dValue("normalize", expectedTestValues.normalize, testValues.normalize, testType);
-        verifyTestVector3dValue("cross", expectedTestValues.cross, testValues.cross, testType);
-        verifyTestVector3dValue("bitCountVec", expectedTestValues.bitCountVec, testValues.bitCountVec, testType);
-        verifyTestVector3dValue("clampVec", expectedTestValues.clampVec, testValues.clampVec, testType);
-        verifyTestVector3dValue("findMSBVec", expectedTestValues.findMSBVec, testValues.findMSBVec, testType);
-        verifyTestVector3dValue("findLSBVec", expectedTestValues.findLSBVec, testValues.findLSBVec, testType);
-        verifyTestVector3dValue("minVec", expectedTestValues.minVec, testValues.minVec, testType);
-        verifyTestVector3dValue("maxVec", expectedTestValues.maxVec, testValues.maxVec, testType);
-        verifyTestVector3dValue("rsqrtVec", expectedTestValues.rsqrtVec, testValues.rsqrtVec, testType);
-        verifyTestVector3dValue("bitReverseVec", expectedTestValues.bitReverseVec, testValues.bitReverseVec, testType);
-        verifyTestVector3dValue("fracVec", expectedTestValues.fracVec, testValues.fracVec, testType);
-        verifyTestVector3dValue("mixVec", expectedTestValues.mixVec, testValues.mixVec, testType);
-
-        verifyTestVector3dValue("signVec", expectedTestValues.signVec, testValues.signVec, testType);
-        verifyTestVector3dValue("radiansVec", expectedTestValues.radiansVec, testValues.radiansVec, testType);
-        verifyTestVector3dValue("degreesVec", expectedTestValues.degreesVec, testValues.degreesVec, testType);
-        verifyTestVector3dValue("stepVec", expectedTestValues.stepVec, testValues.stepVec, testType);
-        verifyTestVector3dValue("smoothStepVec", expectedTestValues.smoothStepVec, testValues.smoothStepVec, testType);
-        verifyTestVector3dValue("faceForward", expectedTestValues.faceForward, testValues.faceForward, testType);
-        verifyTestVector3dValue("reflect", expectedTestValues.reflect, testValues.reflect, testType);
-        verifyTestVector3dValue("refract", expectedTestValues.refract, testValues.refract, testType);
-
-        verifyTestMatrix3x3Value("mul", expectedTestValues.mul, testValues.mul, testType);
-        verifyTestMatrix3x3Value("transpose", expectedTestValues.transpose, testValues.transpose, testType);
-        verifyTestMatrix3x3Value("inverse", expectedTestValues.inverse, testValues.inverse, testType);
+        verifyTestValue("emulatedAnd", expectedTestValues.emulatedAnd, testValues.emulatedAnd, testType);
+        verifyTestValue("emulatedOr", expectedTestValues.emulatedOr, testValues.emulatedOr, testType);
+        verifyTestValue("emulatedXor", expectedTestValues.emulatedXor, testValues.emulatedXor, testType);
+        verifyTestValue("emulatedNot", expectedTestValues.emulatedNot, testValues.emulatedNot, testType);
+        verifyTestValue("emulatedPlus", expectedTestValues.emulatedPlus, testValues.emulatedPlus, testType);
+        verifyTestValue("emulatedMinus", expectedTestValues.emulatedMinus, testValues.emulatedMinus, testType);
+        verifyTestValue("emulatedLess", expectedTestValues.emulatedLess, testValues.emulatedLess, testType);
+        verifyTestValue("emulatedLessEqual", expectedTestValues.emulatedLessEqual, testValues.emulatedLessEqual, testType);
+        verifyTestValue("emulatedGreater", expectedTestValues.emulatedGreater, testValues.emulatedGreater, testType);
+        verifyTestValue("emulatedGreaterEqual", expectedTestValues.emulatedGreaterEqual, testValues.emulatedGreaterEqual, testType);
+        verifyTestValue("emulatedLeftShifted", expectedTestValues.emulatedLeftShifted, testValues.emulatedLeftShifted, testType);
+        verifyTestValue("emulatedUnsignedRightShifted", expectedTestValues.emulatedUnsignedRightShifted, testValues.emulatedUnsignedRightShifted, testType);
+        verifyTestValue("emulatedSignedRightShifted", expectedTestValues.emulatedSignedRightShifted, testValues.emulatedSignedRightShifted, testType);
+        
+        //verifyTestVector3dValue("normalize", expectedTestValues.normalize, testValues.normalize, testType);
     }
 };
 
