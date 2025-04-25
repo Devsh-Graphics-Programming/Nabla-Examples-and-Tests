@@ -4,9 +4,9 @@
 
 #include "shaderCommon.hlsl"
 
-uint32_t globalFirstItemIndex(uint32_t itemIdx)
+uint32_t globalIndex()
 {
-    return nbl::hlsl::glsl::gl_WorkGroupID().x*WORKGROUP_SIZE*ITEMS_PER_INVOCATION+((nbl::hlsl::glsl::gl_SubgroupID()*ITEMS_PER_INVOCATION+itemIdx)<<SUBGROUP_SIZE_LOG2);
+    return nbl::hlsl::glsl::gl_WorkGroupID().x*WORKGROUP_SIZE+nbl::hlsl::workgroup::SubgroupContiguousIndex();
 }
 
 bool canStore() {return true;}
