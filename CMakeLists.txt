@@ -92,6 +92,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(71_RayTracingPipeline EXCLUDE_FROM_ALL)
 
 	add_subdirectory(73_ArithmeticBench EXCLUDE_FROM_ALL)
+	add_subdirectory(74a_Workgroup2ScanTest EXCLUDE_FROM_ALL)
 
 	NBL_HOOK_COMMON_API("${NBL_COMMON_API_TARGETS}")
 endif()
