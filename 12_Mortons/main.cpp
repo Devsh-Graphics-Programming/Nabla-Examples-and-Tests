@@ -10,7 +10,7 @@
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 #include "app_resources/common.hlsl"
-#include "Tester.h"
+#include "CTester.h"
 
 using namespace nbl::core;
 using namespace nbl::hlsl;
@@ -35,24 +35,21 @@ public:
             return false;
         if (!asset_base_t::onAppInitialized(std::move(system)))
             return false;
-        {
-            
-        }
         
-        Tester::PipelineSetupData pplnSetupData;
+        CTester::PipelineSetupData pplnSetupData;
         pplnSetupData.device = m_device;
         pplnSetupData.api = m_api;
         pplnSetupData.assetMgr = m_assetMgr;
         pplnSetupData.logger = m_logger;
         pplnSetupData.physicalDevice = m_physicalDevice;
         pplnSetupData.computeFamilyIndex = getComputeQueue()->getFamilyIndex();
+        // Some tests with mortons with emulated uint storage were cut off, it should be fine since each tested on their own produces correct results for each operator
         {
-            Tester mortonTester;
-            pplnSetupData.testShaderPath = "app_resources/mortonTest.comp.hlsl";
+            CTester mortonTester;
+            pplnSetupData.testShaderPath = "app_resources/test.comp.hlsl";
             mortonTester.setupPipeline<InputTestValues, TestValues>(pplnSetupData);
             mortonTester.performTests();
         }
-        
 
         return true;
     }

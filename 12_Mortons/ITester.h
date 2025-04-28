@@ -1,5 +1,5 @@
-#ifndef _NBL_EXAMPLES_TESTS_12_MORTONS_TESTER_INCLUDED_
-#define _NBL_EXAMPLES_TESTS_12_MORTONS_TESTER_INCLUDED_
+#ifndef _NBL_EXAMPLES_TESTS_22_CPP_COMPAT_I_TESTER_INCLUDED_
+#define _NBL_EXAMPLES_TESTS_22_CPP_COMPAT_I_TESTER_INCLUDED_
 
 #include <nabla.h>
 #include "app_resources/common.hlsl"
@@ -8,10 +8,10 @@
 
 using namespace nbl;
 
-class Tester
+class ITester 
 {
 public:
-    virtual ~Tester()
+    virtual ~ITester()
     {
         m_outputBufferAllocation.memory->unmap();
     };
@@ -128,7 +128,7 @@ public:
             if (!inputBuff)
                 logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
 
-            inputBuff->setObjectDebugName("morton input buffer");
+            inputBuff->setObjectDebugName("emulated_float64_t output buffer");
 
             video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = inputBuff->getMemoryReqs();
             reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
@@ -163,7 +163,7 @@ public:
             if (!outputBuff)
                 logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
 
-            outputBuff->setObjectDebugName("morton output buffer");
+            outputBuff->setObjectDebugName("emulated_float64_t output buffer");
 
             video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = outputBuff->getMemoryReqs();
             reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
@@ -216,95 +216,14 @@ public:
         {
         case TestType::CPU:
             ss << "CPU TEST ERROR:\n";
-        case TestType::GPU:
-            ss << "GPU TEST ERROR:\n";
-        }
-
-        ss << "nbl::hlsl::" << memberName << " produced incorrect output!" << '\n'; //test value: " << testVal << " expected value: " << expectedVal << '\n';
-
-        m_logger->log(ss.str().c_str(), system::ILogger::ELL_ERROR);
-    }
-
-    template<typename T>
-    void verifyTestVector3dValue(const std::string& memberName, const nbl::hlsl::vector<T, 3>& expectedVal, const nbl::hlsl::vector<T, 3>& testVal, const TestType testType)
-    {
-        static constexpr float MaxAllowedError = 0.1f;
-        if (std::abs(double(expectedVal.x) - double(testVal.x)) <= MaxAllowedError &&
-            std::abs(double(expectedVal.y) - double(testVal.y)) <= MaxAllowedError &&
-            std::abs(double(expectedVal.z) - double(testVal.z)) <= MaxAllowedError)
-            return;
-
-        std::stringstream ss;
-        switch (testType)
-        {
-        case TestType::CPU:
-            ss << "CPU TEST ERROR:\n";
             break;
         case TestType::GPU:
             ss << "GPU TEST ERROR:\n";
         }
 
-        ss << "nbl::hlsl::" << memberName << " produced incorrect output! test value: " <<
-            testVal.x << ' ' << testVal.y << ' ' << testVal.z <<
-            " expected value: " << expectedVal.x << ' ' << expectedVal.y << ' ' << expectedVal.z << '\n';
+        ss << "nbl::hlsl::" << memberName << " produced incorrect output!" << '\n';
 
         m_logger->log(ss.str().c_str(), system::ILogger::ELL_ERROR);
-    }
-
-    void performTests()
-    {
-        std::random_device rd;
-        std::mt19937 mt(rd());
-
-        std::uniform_int_distribution<uint16_t> shortDistribution(uint16_t(0), std::numeric_limits<uint16_t>::max());
-        std::uniform_int_distribution<uint32_t> intDistribution(uint32_t(0), std::numeric_limits<uint32_t>::max());
-        std::uniform_int_distribution<uint64_t> longDistribution(uint64_t(0), std::numeric_limits<uint64_t>::max());
-
-        m_logger->log("TESTS:", system::ILogger::ELL_PERFORMANCE);
-        for (int i = 0; i < Iterations; ++i)
-        {
-            // Set input thest values that will be used in both CPU and GPU tests
-            InputTestValues testInput;
-            // use std library or glm functions to determine expected test values, the output of functions from intrinsics.hlsl will be verified against these values
-            TestValues expected;
-
-            uint32_t generatedShift = intDistribution(mt) & uint32_t(63);
-            testInput.shift = generatedShift;
-            {
-                uint64_t generatedA = longDistribution(mt);
-                uint64_t generatedB = longDistribution(mt);
-
-                testInput.generatedA = generatedA;
-                testInput.generatedB = generatedB;
-
-                expected.emulatedAnd = _static_cast<emulated_uint64_t>(generatedA & generatedB);
-                expected.emulatedOr = _static_cast<emulated_uint64_t>(generatedA | generatedB);
-                expected.emulatedXor = _static_cast<emulated_uint64_t>(generatedA ^ generatedB);
-                expected.emulatedNot = _static_cast<emulated_uint64_t>(~generatedA);
-                expected.emulatedPlus = _static_cast<emulated_uint64_t>(generatedA + generatedB);
-                expected.emulatedMinus = _static_cast<emulated_uint64_t>(generatedA - generatedB);
-                expected.emulatedLess = uint32_t(generatedA < generatedB);
-                expected.emulatedLessEqual = uint32_t(generatedA <= generatedB);
-                expected.emulatedGreater = uint32_t(generatedA > generatedB);
-                expected.emulatedGreaterEqual = uint32_t(generatedA >= generatedB);
-
-                expected.emulatedLeftShifted = _static_cast<emulated_uint64_t>(generatedA << generatedShift);
-                expected.emulatedUnsignedRightShifted = _static_cast<emulated_uint64_t>(generatedA >> generatedShift);
-                expected.emulatedSignedRightShifted = _static_cast<emulated_int64_t>(static_cast<int64_t>(generatedA) >> generatedShift);
-            }
-            {
-                uint64_t coordX = longDistribution(mt);
-                uint64_t coordY = longDistribution(mt);
-                uint64_t coordZ = longDistribution(mt);
-                uint64_t coordW = longDistribution(mt);
-
-
-            }
-
-            performCpuTests(testInput, expected);
-            performGpuTests(testInput, expected);
-        }
-        m_logger->log("TESTS DONE.", system::ILogger::ELL_PERFORMANCE);
     }
 
 protected:
@@ -324,7 +243,7 @@ protected:
     core::smart_refctd_ptr<video::ISemaphore> m_semaphore;
     video::IQueue* m_queue;
     uint64_t m_semaphoreCounter;
-
+    
     template<typename InputStruct, typename OutputStruct>
     OutputStruct dispatch(const InputStruct& input)
     {
@@ -374,42 +293,6 @@ private:
     {
         m_logger->log(msg, system::ILogger::ELL_ERROR, std::forward<Args>(args)...);
         exit(-1);
-    }
-
-    inline static constexpr int Iterations = 100u;
-
-    void performCpuTests(const InputTestValues& commonTestInputValues, const TestValues& expectedTestValues)
-    {
-        TestValues cpuTestValues;
-        cpuTestValues.fillTestValues(commonTestInputValues);
-        verifyTestValues(expectedTestValues, cpuTestValues, TestType::CPU);
-
-    }
-
-    void performGpuTests(const InputTestValues& commonTestInputValues, const TestValues& expectedTestValues)
-    {
-        TestValues gpuTestValues;
-        gpuTestValues = dispatch<InputTestValues, TestValues>(commonTestInputValues);
-        verifyTestValues(expectedTestValues, gpuTestValues, TestType::GPU);
-    }
-
-    void verifyTestValues(const TestValues& expectedTestValues, const TestValues& testValues, TestType testType)
-    {
-        verifyTestValue("emulatedAnd", expectedTestValues.emulatedAnd, testValues.emulatedAnd, testType);
-        verifyTestValue("emulatedOr", expectedTestValues.emulatedOr, testValues.emulatedOr, testType);
-        verifyTestValue("emulatedXor", expectedTestValues.emulatedXor, testValues.emulatedXor, testType);
-        verifyTestValue("emulatedNot", expectedTestValues.emulatedNot, testValues.emulatedNot, testType);
-        verifyTestValue("emulatedPlus", expectedTestValues.emulatedPlus, testValues.emulatedPlus, testType);
-        verifyTestValue("emulatedMinus", expectedTestValues.emulatedMinus, testValues.emulatedMinus, testType);
-        verifyTestValue("emulatedLess", expectedTestValues.emulatedLess, testValues.emulatedLess, testType);
-        verifyTestValue("emulatedLessEqual", expectedTestValues.emulatedLessEqual, testValues.emulatedLessEqual, testType);
-        verifyTestValue("emulatedGreater", expectedTestValues.emulatedGreater, testValues.emulatedGreater, testType);
-        verifyTestValue("emulatedGreaterEqual", expectedTestValues.emulatedGreaterEqual, testValues.emulatedGreaterEqual, testType);
-        verifyTestValue("emulatedLeftShifted", expectedTestValues.emulatedLeftShifted, testValues.emulatedLeftShifted, testType);
-        verifyTestValue("emulatedUnsignedRightShifted", expectedTestValues.emulatedUnsignedRightShifted, testValues.emulatedUnsignedRightShifted, testType);
-        verifyTestValue("emulatedSignedRightShifted", expectedTestValues.emulatedSignedRightShifted, testValues.emulatedSignedRightShifted, testType);
-        
-        //verifyTestVector3dValue("normalize", expectedTestValues.normalize, testValues.normalize, testType);
     }
 };
 
