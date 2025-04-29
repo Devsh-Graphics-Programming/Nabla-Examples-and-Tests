@@ -227,8 +227,8 @@ public:
 				m_logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
 				passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
 				logTestOutcome(passed, itemsPerWG);
-				//passed = runTest<emulatedScanInclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
-				//logTestOutcome(passed, itemsPerWG);
+				passed = runTest<emulatedScanInclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
+				logTestOutcome(passed, itemsPerWG);
 				//passed = runTest<emulatedScanExclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
 				//logTestOutcome(passed, itemsPerWG);
 				m_api->endCapture();
@@ -489,7 +489,7 @@ private:
 
 	uint32_t totalFailCount = 0;
 
-	uint32_t ItemsPerInvocation = 4u;
+	uint32_t ItemsPerInvocation = 1u;
 };
 
 NBL_MAIN_FUNC(Workgroup2ScanTestApp)
