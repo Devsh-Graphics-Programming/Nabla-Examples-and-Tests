@@ -124,7 +124,7 @@ struct PreloadedSecondAxisAccessor : MultiChannelPreloadedAccessorMirrorTradeBas
 	template<typename sharedmem_adaptor_t>
 	void unload(NBL_REF_ARG(sharedmem_adaptor_t) adaptorForSharedMemory)
 	{
-		NBL_CONSTEXPR_STATIC_INLINE uint16_t NumWorkgroupsLog2 = ShaderConstevalParameters::NumWorkgroupsLog2;
+		const uint16_t NumWorkgroupsLog2 = ShaderConstevalParameters::NumWorkgroupsLog2;
 
 		// Most rows have just have to reflect their values along the Nyquist row.
 		// If you'll remember, however, the first axis FFT stored the lower half of the DFT, bit-reversed not as a `log2(FFTSize)` bit number but in the range of the lower half 
