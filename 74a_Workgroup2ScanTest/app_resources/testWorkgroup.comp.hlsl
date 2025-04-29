@@ -96,7 +96,7 @@ struct DataProxy
     void set(const uint32_t ix, const dtype_t value)
     {
         // inputValue[ix] = value;
-        output[Binop::BindingIndex].template Store<type_t>(sizeof(uint32_t) + sizeof(type_t) * globalIndex(), value);
+        // output[Binop::BindingIndex].template Store<type_t>(sizeof(uint32_t) + sizeof(type_t) * globalIndex(), value);
         output[Binop::BindingIndex].template Store<type_t>(sizeof(uint32_t) + sizeof(type_t) * ix, value);
     }
 

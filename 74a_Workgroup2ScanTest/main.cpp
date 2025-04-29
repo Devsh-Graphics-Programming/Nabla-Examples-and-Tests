@@ -223,7 +223,7 @@ public:
 				//logTestOutcome(passed, workgroupSize);
 				//passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize) && passed;
 				//logTestOutcome(passed, workgroupSize);
-				const uint32_t itemsPerWG = workgroupSize;
+				const uint32_t itemsPerWG = 1024;	// TODO use Config::VirtualWorkgroupSize somehow
 				m_logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
 				passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
 				logTestOutcome(passed, itemsPerWG);
@@ -318,7 +318,7 @@ private:
 		auto pipeline = createPipeline(overridenUnspecialized.get(),subgroupSizeLog2);
 
 		// TODO: overlap dispatches with memory readbacks (requires multiple copies of `buffers`)
-		const uint32_t workgroupCount = elementCount / itemsPerWG;
+		const uint32_t workgroupCount = elementCount / itemsPerWG;	// TODO use Config::VirtualWorkgroupSize somehow
 		cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
 		cmdbuf->bindComputePipeline(pipeline.get());
 		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &descriptorSet.get());
