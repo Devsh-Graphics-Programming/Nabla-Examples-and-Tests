@@ -223,7 +223,7 @@ public:
 				//logTestOutcome(passed, workgroupSize);
 				//passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize) && passed;
 				//logTestOutcome(passed, workgroupSize);
-				const uint32_t itemsPerWG = 1024;	// TODO use Config::VirtualWorkgroupSize somehow
+				const uint32_t itemsPerWG = ItemsPerInvocation * max(workgroupSize >> subgroupSizeLog2, subgroupSize) << subgroupSizeLog2;	// TODO use Config::VirtualWorkgroupSize somehow
 				m_logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
 				passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
 				logTestOutcome(passed, itemsPerWG);
@@ -289,7 +289,7 @@ private:
 			.requireFullSubgroups = true
 		};
 		core::smart_refctd_ptr<IGPUComputePipeline> pipeline;
-		if (!m_device->createComputePipelines(m_spirv_isa_cache.get(),{&params,1},&pipeline))
+		if (!m_device->createComputePipelines(nullptr,{&params,1},&pipeline))
 			return nullptr;
 		return pipeline;
 	}
@@ -299,13 +299,13 @@ private:
 	{
 		std::string arith_name = Arithmetic<bit_xor<float>>::name;
 
-		smart_refctd_ptr<ICPUShader> overridenUnspecialized;
+		//smart_refctd_ptr<ICPUShader> overridenUnspecialized;
 		//if constexpr (WorkgroupTest)
 		//{
-			overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
-				source.get(), "#define OPERATION %s\n#define WORKGROUP_SIZE %d\n#define ITEMS_PER_WG %d\n",
-				(("workgroup2::") + arith_name).c_str(), workgroupSize, itemsPerWG
-			);
+			//overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
+			//	source.get(), "#define OPERATION %s\n#define WORKGROUP_SIZE %d\n#define ITEMS_PER_WG %d\n",
+			//	(("workgroup2::") + arith_name).c_str(), workgroupSize, itemsPerWG
+			//);
 		//}
 		//else
 		//{
@@ -315,7 +315,46 @@ private:
 		//		(("subgroup::") + arith_name).c_str(), workgroupSize
 		//	);
 		//}
-		auto pipeline = createPipeline(overridenUnspecialized.get(),subgroupSizeLog2);
+
+		auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
+		CHLSLCompiler::SOptions options = {};
+		options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;
+		options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+		options.spirvOptimizer = nullptr;
+#ifndef _NBL_DEBUG
+		ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
+		auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
+		options.spirvOptimizer = opt.get();
+#else
+		options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
+#endif
+		options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
+		options.preprocessorOptions.logger = m_logger.get();
+
+		auto* includeFinder = compiler->getDefaultIncludeFinder();
+		includeFinder->addSearchPath("nbl/builtin/hlsl/jit", core::make_smart_refctd_ptr<CJITIncludeLoader>(m_physicalDevice->getLimits(), m_device->getEnabledFeatures()));
+		options.preprocessorOptions.includeFinder = includeFinder;
+
+		const std::string definitions[5] = {
+			"workgroup2::" + arith_name,
+			std::to_string(workgroupSize),
+			std::to_string(itemsPerWG),
+			std::to_string(ItemsPerInvocation),
+			std::to_string(subgroupSizeLog2)
+		};
+
+		const IShaderCompiler::SMacroDefinition defines[5] = {
+			{ "OPERATION", definitions[0] },
+			{ "WORKGROUP_SIZE", definitions[1] },
+			{ "ITEMS_PER_WG", definitions[2] },
+			{ "ITEMS_PER_INVOCATION", definitions[3] },
+			{ "SUBGROUP_SIZE_LOG2", definitions[4] }
+		};
+		options.preprocessorOptions.extraDefines = { defines, defines + 5 };
+
+		smart_refctd_ptr<ICPUShader> overriddenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
+
+		auto pipeline = createPipeline(overriddenUnspecialized.get(),subgroupSizeLog2);
 
 		// TODO: overlap dispatches with memory readbacks (requires multiple copies of `buffers`)
 		const uint32_t workgroupCount = elementCount / itemsPerWG;	// TODO use Config::VirtualWorkgroupSize somehow
@@ -436,8 +475,6 @@ private:
 
 	IQueue* transferDownQueue;
 	IQueue* computeQueue;
-	smart_refctd_ptr<IGPUPipelineCache> m_spirv_isa_cache;
-	smart_refctd_ptr<IFile> m_spirv_isa_cache_output;
 
 	uint32_t* inputData = nullptr;
 	constexpr static inline uint32_t OutputBufferCount = 8u;
@@ -451,6 +488,8 @@ private:
 	smart_refctd_ptr<ICPUBuffer> resultsBuffer;
 
 	uint32_t totalFailCount = 0;
+
+	uint32_t ItemsPerInvocation = 4u;
 };
 
 NBL_MAIN_FUNC(Workgroup2ScanTestApp)

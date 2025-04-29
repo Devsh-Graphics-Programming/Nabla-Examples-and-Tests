@@ -26,7 +26,7 @@
 // https://github.com/microsoft/DirectXShaderCompiler/issues/6144
 uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize() {return uint32_t3(WORKGROUP_SIZE,1,1);}
 
-#define ITEMS_PER_INVOCATION 1
+// #define ITEMS_PER_INVOCATION 1
 
 #ifndef ITEMS_PER_INVOCATION
 #error "Define ITEMS_PER_INVOCATION!"
@@ -44,7 +44,7 @@ uint32_t globalIndex();
 // since we test ITEMS_PER_WG<WorkgroupSize we need this so workgroups don't overwrite each other's outputs
 bool canStore();
 
-#define SUBGROUP_SIZE_LOG2 5
+// #define SUBGROUP_SIZE_LOG2 5
 
 #ifndef OPERATION
 #error "Define OPERATION!"
