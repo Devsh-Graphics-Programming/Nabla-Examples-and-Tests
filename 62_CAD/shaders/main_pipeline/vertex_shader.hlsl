@@ -620,6 +620,7 @@ PSInput main(uint vertexID : SV_VertexID)
             outV.setImageUV(uv);
             outV.setImageTextureId(textureID);
         }
+        // TODO: Przemek objType GRID_DTM, Similar transformations to IMAGE
 
     // Make the cage fullscreen for testing: 
 #if 0

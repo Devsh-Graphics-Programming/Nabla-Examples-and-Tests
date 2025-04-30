@@ -231,6 +231,11 @@ struct ImageObjectInfo
     uint32_t textureID; // 4 bytes (32)
 };
 
+/*
+GRID DTM Info similar to `ImageObjectInfo`
+other than textureID, there will be dtmSettingsIdx referencing a dtmSettings
+*/
+
 static uint32_t packR11G11B10_UNORM(float32_t3 color)
 {
     // Scale and convert to integers
