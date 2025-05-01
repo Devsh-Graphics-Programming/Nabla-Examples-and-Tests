@@ -388,6 +388,23 @@ float4 fragMain(PSInput input) : SV_TARGET
                 localAlpha = colorSample.a;
             }
         }
+        // objType GRID_DTM here
+        {
+            // NOTE: create and read from a texture as a last step, you can generate the height values procedurally from a function while you're working on the sdf stuff.
+            
+            // Query dtm settings
+            // use texture Gather to get 4 corners: https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-to-gather
+            // A. the outlines can be stippled, use phaseshift of the line such that they started from the grid's origin worldspace coordinate
+            // B. the contours are computed for triangles, use the same function as for dtms, choose between the two triangles based on local UV coords in current cell
+                // Make it so we can choose which diagonal to use to construct the triangle, it's either u=v or u=1-v
+            // C. Height shading same as contours (split into two triangles)
+
+            // Heights can have invalid values (let's say NaN) if a cell corner has NaN value then no triangle (for contour and shading) and no outline should include that corner. (see DTM image in discord with gaps)
+            
+            // TODO: we need to emulate dilation and do sdf of neighbouring cells as well. because contours, outlines and shading can bleed into other cells for AA.
+            // [NOTE] Do dilation as last step, when everything else works fine
+        }
+        
 
         uint2 fragCoord = uint2(input.position.xy);
         

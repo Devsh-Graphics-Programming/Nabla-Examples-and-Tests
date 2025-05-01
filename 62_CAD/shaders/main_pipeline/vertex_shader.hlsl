@@ -23,17 +23,39 @@ float2 QuadraticBezier(float2 p0, float2 p1, float2 p2, float t)
     return shapes::QuadraticBezier<float>::construct(p0, p1, p2).evaluate(t);
 }
 
-ClipProjectionData getClipProjectionData(in MainObject mainObj)
+struct NDCClipProjectionData
 {
-    if (mainObj.clipProjectionIndex != InvalidClipProjectionIndex)
+    pfloat64_t3x3 projectionToNDC; // pre-multiplied projection in a tree
+    float32_t2 minClipNDC;
+    float32_t2 maxClipNDC;
+};
+
+NDCClipProjectionData getClipProjectionData(in MainObject mainObj)
+{
+    NDCClipProjectionData ret;
+    if (mainObj.customProjectionIndex != InvalidCustomProjectionIndex)
     {
-#ifdef NBL_2D_SHOWCASE_MODE
-        return nbl::hlsl::mul(globals.defaultClipProjection.projectionToNDC, loadCustomClipProjection(mainObj.clipProjectionIndex));
-#endif
-        return loadCustomClipProjection(mainObj.clipProjectionIndex);
+        // If projection type is worldspace projection and clip:
+        pfloat64_t3x3 customProjection = loadCustomProjection(mainObj.customProjectionIndex);
+        ret.projectionToNDC = nbl::hlsl::mul(globals.defaultProjectionToNDC, customProjection);
     }
     else
-        return globals.defaultClipProjection;
+        ret.projectionToNDC = globals.defaultProjectionToNDC;
+
+    if (mainObj.customClipRectIndex != InvalidCustomClipRectIndex)
+    {
+        WorldClipRect worldClipRect = loadCustomClipRect(mainObj.customClipRectIndex);
+        
+        /// [NOTE]: Optimization: we avoid looking for min/max in the shader because minClip and maxClip in default worldspace are defined in such a way that minClip.y > maxClip.y so minClipNDC.y < maxClipNDC.y
+        ret.minClipNDC = nbl::hlsl::_static_cast<float32_t2>(transformPointNdc(globals.defaultProjectionToNDC, worldClipRect.minClip));
+        ret.maxClipNDC = nbl::hlsl::_static_cast<float32_t2>(transformPointNdc(globals.defaultProjectionToNDC, worldClipRect.maxClip));
+    }
+    else
+    {
+        ret.minClipNDC = float2(-1.0f, -1.0f);
+        ret.maxClipNDC = float2(+1.0f, +1.0f);
+    }
+    return ret;
 }
 
 float2 transformPointScreenSpace(pfloat64_t3x3 transformation, uint32_t2 resolution, pfloat64_t2 point2d)
@@ -83,7 +105,7 @@ void dilateHatch<false>(out float2 outOffsetVec, out float2 outUV, const float2 
 
 PSInput main(uint vertexID : SV_VertexID)
 {
-    ClipProjectionData clipProjectionData;
+    NDCClipProjectionData clipProjectionData;
     
     PSInput outV;
 
@@ -620,6 +642,7 @@ PSInput main(uint vertexID : SV_VertexID)
             outV.setImageUV(uv);
             outV.setImageTextureId(textureID);
         }
+        // TODO: Przemek objType GRID_DTM, Similar transformations to IMAGE
 
     // Make the cage fullscreen for testing: 
 #if 0

@@ -281,6 +281,9 @@ void DrawResourcesFiller::drawFontGlyph(
 	}
 }
 
+// TODO[Przemek]: similar to other drawXXX and drawXXX_internal functions that create mainobjects, drawObjects and push additional info in geometry buffer, input to function would be a GridDTMInfo
+// We don't have an allocator or memory management for texture updates yet, see how `_test_addImageObject` is being temporarily used (Descriptor updates and pipeline barriers) to upload an image into gpu and update a descriptor slot (it will become more sophisticated but doesn't block you)
+
 void DrawResourcesFiller::_test_addImageObject(float64_t2 topLeftPos, float32_t2 size, float32_t rotation, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	auto addImageObject_Internal = [&](const ImageObjectInfo& imageObjectInfo, uint32_t mainObjIdx) -> bool
@@ -373,19 +376,33 @@ void DrawResourcesFiller::endMainObject()
 	activeMainObjectIndex = InvalidMainObjectIdx;
 }
 
-void DrawResourcesFiller::pushClipProjectionData(const ClipProjectionData& clipProjectionData)
+void DrawResourcesFiller::pushCustomProjection(const float64_t3x3& projection)
 {
-	activeClipProjections.push_back(clipProjectionData);
-	activeClipProjectionIndices.push_back(InvalidClipProjectionIndex);
+	activeProjections.push_back(projection);
+	activeProjectionIndices.push_back(InvalidCustomProjectionIndex);
 }
 
-void DrawResourcesFiller::popClipProjectionData()
+void DrawResourcesFiller::popCustomProjection()
 {
-	if (activeClipProjections.empty())
+	if (activeProjections.empty())
 		return;
 
-	activeClipProjections.pop_back();
-	activeClipProjectionIndices.pop_back();
+	activeProjections.pop_back();
+	activeProjectionIndices.pop_back();
+}
+
+void DrawResourcesFiller::pushCustomClipRect(const WorldClipRect& clipRect)
+{
+	activeClipRects.push_back(clipRect);
+	activeClipRectIndices.push_back(InvalidCustomClipRectIndex);
+}
+
+void DrawResourcesFiller::popCustomClipRect()
+{	if (activeClipRects.empty())
+		return;
+
+	activeClipRects.pop_back();
+	activeClipRectIndices.pop_back();
 }
 
 bool DrawResourcesFiller::finalizeBufferCopies(SIntendedSubmitInfo& intendedNextSubmit)
@@ -434,7 +451,8 @@ bool DrawResourcesFiller::finalizeBufferCopies(SIntendedSubmitInfo& intendedNext
 
 	copyCPUFilledDrawBuffer(resourcesCollection.lineStyles);
 	copyCPUFilledDrawBuffer(resourcesCollection.dtmSettings);
-	copyCPUFilledDrawBuffer(resourcesCollection.clipProjections);
+	copyCPUFilledDrawBuffer(resourcesCollection.customProjections);
+	copyCPUFilledDrawBuffer(resourcesCollection.customClipRects);
 	copyCPUFilledDrawBuffer(resourcesCollection.mainObjects);
 	copyCPUFilledDrawBuffer(resourcesCollection.drawObjects);
 	copyCPUFilledDrawBuffer(resourcesCollection.indexBuffer);
@@ -700,15 +718,26 @@ uint32_t DrawResourcesFiller::acquireActiveDTMSettingsIndex_SubmitIfNeeded(SInte
 	return activeDTMSettingsIndex;
 }
 
-uint32_t DrawResourcesFiller::acquireActiveClipProjectionIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawResourcesFiller::acquireActiveCustomProjectionIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
 {
-	if (activeClipProjectionIndices.empty())
-		return InvalidClipProjectionIndex;
+	if (activeProjectionIndices.empty())
+		return InvalidCustomProjectionIndex;
 
-	if (activeClipProjectionIndices.back() == InvalidClipProjectionIndex)
-		activeClipProjectionIndices.back() = addClipProjectionData_SubmitIfNeeded(activeClipProjections.back(), intendedNextSubmit);
+	if (activeProjectionIndices.back() == InvalidCustomProjectionIndex)
+		activeProjectionIndices.back() = addCustomProjection_SubmitIfNeeded(activeProjections.back(), intendedNextSubmit);
 	
-	return activeClipProjectionIndices.back();
+	return activeProjectionIndices.back();
+}
+
+uint32_t DrawResourcesFiller::acquireActiveCustomClipRectIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
+{
+	if (activeClipRectIndices.empty())
+		return InvalidCustomClipRectIndex;
+
+	if (activeClipRectIndices.back() == InvalidCustomClipRectIndex)
+		activeClipRectIndices.back() = addCustomClipRect_SubmitIfNeeded(activeClipRects.back(), intendedNextSubmit);
+	
+	return activeClipRectIndices.back();
 }
 
 uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
@@ -726,14 +755,16 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 		(activeMainObjectType == MainObjectType::HATCH) ||
 		(activeMainObjectType == MainObjectType::TEXT);
 	const bool needsDTMSettings = (activeMainObjectType == MainObjectType::DTM);
-	const bool needsCustomClipProjection = (!activeClipProjectionIndices.empty());
+	const bool needsCustomProjection = (!activeProjectionIndices.empty());
+	const bool needsCustomClipRect = (!activeClipRectIndices.empty());
 
 	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
 	// making sure MainObject and everything it references fits into remaining resources mem
 	size_t memRequired = sizeof(MainObject);
 	if (needsLineStyle) memRequired += sizeof(LineStyle);
 	if (needsDTMSettings) memRequired += sizeof(DTMSettings);
-	if (needsCustomClipProjection) memRequired += sizeof(ClipProjectionData);
+	if (needsCustomProjection) memRequired += sizeof(float64_t3x3);
+	if (needsCustomClipRect) memRequired += sizeof(WorldClipRect);
 
 	const bool enoughMem = remainingResourcesSize >= memRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
 	const bool needToOverflowSubmit = (!enoughMem) || (resourcesCollection.mainObjects.vector.size() >= MaxIndexableMainObjects);
@@ -751,7 +782,8 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 	// if something here triggers a auto-submit it's a possible bug with calculating `memRequired` above, TODO: assert that somehow?
 	mainObject.styleIdx = (needsLineStyle) ? acquireActiveLineStyleIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidStyleIdx;
 	mainObject.dtmSettingsIdx = (needsDTMSettings) ? acquireActiveDTMSettingsIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidDTMSettingsIdx;
-	mainObject.clipProjectionIndex = (needsCustomClipProjection) ? acquireActiveClipProjectionIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidClipProjectionIndex;
+	mainObject.customProjectionIndex = (needsCustomProjection) ? acquireActiveCustomProjectionIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidCustomProjectionIndex;
+	mainObject.customClipRectIndex = (needsCustomClipRect) ? acquireActiveCustomClipRectIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidCustomClipRectIndex;
 	activeMainObjectIndex = resourcesCollection.mainObjects.addAndGetOffset(mainObject);
 	return activeMainObjectIndex;
 }
@@ -790,10 +822,10 @@ uint32_t DrawResourcesFiller::addDTMSettings_SubmitIfNeeded(const DTMSettingsInf
 	return outDTMSettingIdx;
 }
 
-uint32_t DrawResourcesFiller::addClipProjectionData_SubmitIfNeeded(const ClipProjectionData& clipProjectionData, SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawResourcesFiller::addCustomProjection_SubmitIfNeeded(const float64_t3x3& projection, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
-	const size_t memRequired = sizeof(ClipProjectionData);
+	const size_t memRequired = sizeof(float64_t3x3);
 	const bool enoughMem = remainingResourcesSize >= memRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
 
 	if (!enoughMem)
@@ -803,8 +835,25 @@ uint32_t DrawResourcesFiller::addClipProjectionData_SubmitIfNeeded(const ClipPro
 		reset(); // resets everything! be careful!
 	}
 	
-	resourcesCollection.clipProjections.vector.push_back(clipProjectionData); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
-	return resourcesCollection.clipProjections.vector.size() - 1u;
+	resourcesCollection.customProjections.vector.push_back(projection); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
+	return resourcesCollection.customProjections.vector.size() - 1u;
+}
+
+uint32_t DrawResourcesFiller::addCustomClipRect_SubmitIfNeeded(const WorldClipRect& clipRect, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
+	const size_t memRequired = sizeof(WorldClipRect);
+	const bool enoughMem = remainingResourcesSize >= memRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
+
+	if (!enoughMem)
+	{
+		finalizeAllCopiesToGPU(intendedNextSubmit);
+		submitDraws(intendedNextSubmit);
+		reset(); // resets everything! be careful!
+	}
+	
+	resourcesCollection.customClipRects.vector.push_back(clipRect); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
+	return resourcesCollection.customClipRects.vector.size() - 1u;
 }
 
 void DrawResourcesFiller::addPolylineObjects_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
