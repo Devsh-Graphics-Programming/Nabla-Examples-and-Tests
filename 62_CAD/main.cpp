@@ -77,7 +77,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	10.0	// CASE_BUG
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_BUG;
+constexpr ExampleMode mode = ExampleMode::CASE_6;
 
 class Camera2D
 {
@@ -1208,17 +1208,16 @@ public:
 		globalData.pointers = {
 			.lineStyles				= baseAddress + resources.lineStyles.bufferOffset,
 			.dtmSettings			= baseAddress + resources.dtmSettings.bufferOffset,
-			.customClipProjections	= baseAddress + resources.clipProjections.bufferOffset,
+			.customProjections		= baseAddress + resources.customProjections.bufferOffset,
+			.customClipRects		= baseAddress + resources.customClipRects.bufferOffset,
 			.mainObjects			= baseAddress + resources.mainObjects.bufferOffset,
 			.drawObjects			= baseAddress + resources.drawObjects.bufferOffset,
 			.geometryBuffer			= baseAddress + resources.geometryInfo.bufferOffset,
 		};
 		globalData.antiAliasingFactor = 1.0;// +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
 		globalData.resolution = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
-		globalData.defaultClipProjection.projectionToNDC = projectionToNDC;
-		globalData.defaultClipProjection.minClipNDC = float32_t2(-1.0, -1.0);
-		globalData.defaultClipProjection.maxClipNDC = float32_t2(+1.0, +1.0);
-		float screenToWorld = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
+		globalData.defaultProjectionToNDC = projectionToNDC;
+		float screenToWorld = getScreenToWorldRatio(globalData.defaultProjectionToNDC, globalData.resolution);
 		globalData.screenToWorldRatio = screenToWorld;
 		globalData.worldToScreenRatio = (1.0f/screenToWorld);
 		globalData.miterLimit = 10.0f;
@@ -2715,16 +2714,19 @@ protected:
 		}
 		else if (mode == ExampleMode::CASE_6)
 		{
+			float64_t3x3 customProjection = float64_t3x3{
+				1.0, 0.0, cos(m_timeElapsed * 0.0005) * 100.0,
+				0.0, 1.0, 0.0,
+				0.0, 0.0, 1.0
+			};
+
 			// left half of screen should be red and right half should be green
-			const auto& cameraProj = m_Camera.constructViewProjection();
-			ClipProjectionData showLeft = {};
-			showLeft.projectionToNDC = cameraProj;
-			showLeft.minClipNDC = float32_t2(-1.0, -1.0);
-			showLeft.maxClipNDC = float32_t2(0.0, +1.0);
-			ClipProjectionData showRight = {};
-			showRight.projectionToNDC = cameraProj;
-			showRight.minClipNDC = float32_t2(0.0, -1.0);
-			showRight.maxClipNDC = float32_t2(+1.0, +1.0);
+			WorldClipRect showLeft = {};
+			showLeft.minClip  = float64_t2(-100.0, -1000.0);
+			showLeft.maxClip  = float64_t2(0.0, +1000.0);
+			WorldClipRect showRight = {};
+			showRight.minClip = float64_t2(0.0, -1000.0);
+			showRight.maxClip = float64_t2(100.0, +1000.0);
 
 			LineStyleInfo leftLineStyle = {};
 			leftLineStyle.screenSpaceLineWidth = 3.0f;
@@ -2779,35 +2781,37 @@ protected:
 			}
 
 			// we do redundant and nested push/pops to test
-			drawResourcesFiller.pushClipProjectionData(showLeft);
+			drawResourcesFiller.pushCustomClipRect(showLeft);
 			{
 				drawResourcesFiller.drawPolyline(polyline1, leftLineStyle, intendedNextSubmit);
 
-				drawResourcesFiller.pushClipProjectionData(showRight);
+				drawResourcesFiller.pushCustomClipRect(showRight);
+				drawResourcesFiller.pushCustomProjection(customProjection);
 				{
 					drawResourcesFiller.drawPolyline(polyline1, rightLineStyle, intendedNextSubmit);
 					drawResourcesFiller.drawPolyline(polyline2, rightLineStyle, intendedNextSubmit);
 				}
-				drawResourcesFiller.popClipProjectionData();
+				drawResourcesFiller.popCustomProjection();
+				drawResourcesFiller.popCustomClipRect();
 				
 				drawResourcesFiller.drawPolyline(polyline2, leftLineStyle, intendedNextSubmit);
 
-				drawResourcesFiller.pushClipProjectionData(showRight);
+				drawResourcesFiller.pushCustomClipRect(showRight);
 				{
 					drawResourcesFiller.drawPolyline(polyline3, rightLineStyle, intendedNextSubmit);
 					drawResourcesFiller.drawPolyline(polyline2, rightLineStyle, intendedNextSubmit);
 					
-					drawResourcesFiller.pushClipProjectionData(showLeft);
+					drawResourcesFiller.pushCustomClipRect(showLeft);
 					{
 					drawResourcesFiller.drawPolyline(polyline1, leftLineStyle, intendedNextSubmit);
 					}
-					drawResourcesFiller.popClipProjectionData();
+					drawResourcesFiller.popCustomClipRect();
 				}
-				drawResourcesFiller.popClipProjectionData();
+				drawResourcesFiller.popCustomClipRect();
 
 				drawResourcesFiller.drawPolyline(polyline2, leftLineStyle, intendedNextSubmit);
 			}
-			drawResourcesFiller.popClipProjectionData();
+			drawResourcesFiller.popCustomClipRect();
 			
 		}
 		else if (mode == ExampleMode::CASE_7)
@@ -3362,6 +3366,21 @@ protected:
 				drawResourcesFiller.drawPolyline(polyline, style, intendedNextSubmit);
 				polyline.clearEverything();
 			}
+			
+			float64_t2 line0[2u] = 
+			{
+				float64_t2(-1.0, 0.0),
+				float64_t2(+1.0, 0.0),
+			};
+			float64_t2 line1[2u] = 
+			{
+				float64_t2(0.0, -1.0),
+				float64_t2(0.0, +1.0),
+			};
+
+			polyline.addLinePoints(line0);
+			polyline.addLinePoints(line1);
+			drawResourcesFiller.drawPolyline(polyline, style, intendedNextSubmit);
 		}
 
 		drawResourcesFiller.finalizeAllCopiesToGPU(intendedNextSubmit);

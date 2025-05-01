@@ -14,9 +14,8 @@ using namespace nbl::asset;
 using namespace nbl::ext::TextRendering;
 
 static_assert(sizeof(DrawObject) == 16u);
-static_assert(sizeof(MainObject) == 12u);
+static_assert(sizeof(MainObject) == 16u);
 static_assert(sizeof(LineStyle) == 88u);
-static_assert(sizeof(ClipProjectionData) == 88u);
 
 // ! DrawResourcesFiller
 // ! This class provides important functionality to manage resources needed for a draw.
@@ -92,7 +91,8 @@ public:
 		// auto-submission level 0 resources (settings that mainObj references)
 		CPUGeneratedResource<LineStyle> lineStyles;
 		CPUGeneratedResource<DTMSettings> dtmSettings;
-		CPUGeneratedResource<ClipProjectionData> clipProjections;
+		CPUGeneratedResource<float64_t3x3> customProjections;
+		CPUGeneratedResource<WorldClipRect> customClipRects;
 	
 		// auto-submission level 1 buffers (mainObj that drawObjs references, if all drawObjs+idxBuffer+geometryInfo doesn't fit into mem this will be broken down into many)
 		CPUGeneratedResource<MainObject> mainObjects;
@@ -109,7 +109,8 @@ public:
 			return
 				lineStyles.getAlignedStorageSize() +
 				dtmSettings.getAlignedStorageSize() +
-				clipProjections.getAlignedStorageSize() +
+				customProjections.getAlignedStorageSize() +
+				customClipRects.getAlignedStorageSize() +
 				mainObjects.getAlignedStorageSize() +
 				drawObjects.getAlignedStorageSize() +
 				indexBuffer.getAlignedStorageSize() +
@@ -129,7 +130,7 @@ public:
 	{
 		// for auto-submission to work correctly, memory needs to serve at least 2 linestyle, 1 dtm settings, 1 clip proj, 1 main obj, 1 draw obj and 512 bytes of additional mem for geometries and index buffer
 		// this is the ABSOLUTE MINIMUM (if this value is used rendering will probably be as slow as CPU drawing :D)
-		return core::alignUp(sizeof(LineStyle) + sizeof(LineStyle) * DTMSettings::MaxContourSettings + sizeof(DTMSettings) + sizeof(ClipProjectionData) + sizeof(MainObject) + sizeof(DrawObject) + 512ull, ResourcesMaxNaturalAlignment);
+		return core::alignUp(sizeof(LineStyle) + sizeof(LineStyle) * DTMSettings::MaxContourSettings + sizeof(DTMSettings) + sizeof(WorldClipRect) + sizeof(float64_t3x3) + sizeof(MainObject) + sizeof(DrawObject) + 512ull, ResourcesMaxNaturalAlignment);
 	}
 
 	void allocateResourcesBuffer(ILogicalDevice* logicalDevice, size_t size);
@@ -207,7 +208,8 @@ public:
 	{
 		resetDrawObjects();
 		resetMainObjects();
-		resetCustomClipProjections();
+		resetCustomProjections();
+		resetCustomClipRects();
 		resetLineStyles();
 		resetDTMSettings();
 
@@ -231,10 +233,14 @@ public:
 	void beginMainObject(MainObjectType type);
 	void endMainObject();
 
-	void pushClipProjectionData(const ClipProjectionData& clipProjectionData);
-	void popClipProjectionData();
+	void pushCustomProjection(const float64_t3x3& projection);
+	void popCustomProjection();
+	
+	void pushCustomClipRect(const WorldClipRect& clipRect);
+	void popCustomClipRect();
 
-	const std::deque<ClipProjectionData>& getClipProjectionStack() const { return activeClipProjections; }
+	const std::deque<float64_t3x3>& getProjectionStack() const { return activeProjections; }
+	const std::deque<WorldClipRect>& getClipRectsStack() const { return activeClipRects; }
 
 	smart_refctd_ptr<IGPUImageView> getMSDFsTextureArray() { return msdfTextureArray; }
 
@@ -317,9 +323,13 @@ protected:
 	// If it's been invalidated then it will request to add to resources again ( auto-submission happens If there is not enough memory to add again)
 	uint32_t acquireActiveDTMSettingsIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit);
 
-	// Gets resource index to the active clip projection data from the top of stack 
+	// Gets resource index to the active projection data from the top of stack 
 	// If it's been invalidated then it will request to add to resources again ( auto-submission happens If there is not enough memory to add again)
-	uint32_t acquireActiveClipProjectionIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit);
+	uint32_t acquireActiveCustomProjectionIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit);
+	
+	// Gets resource index to the active clip data from the top of stack 
+	// If it's been invalidated then it will request to add to resources again ( auto-submission happens If there is not enough memory to add again)
+	uint32_t acquireActiveCustomClipRectIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit);
 	
 	// Gets resource index to the active main object data
 	// If it's been invalidated then it will request to add to resources again ( auto-submission happens If there is not enough memory to add again)
@@ -331,8 +341,11 @@ protected:
 	/// Attempts to add dtmSettings to resources. If it fails to do, due to resource limitations, auto-submits and tries again. 
 	uint32_t addDTMSettings_SubmitIfNeeded(const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit);
 	
-	/// Attempts to add clipProjection to resources. If it fails to do, due to resource limitations, auto-submits and tries again. 
-	uint32_t addClipProjectionData_SubmitIfNeeded(const ClipProjectionData& clipProjectionData, SIntendedSubmitInfo& intendedNextSubmit);
+	/// Attempts to add custom projection to gpu resources. If it fails to do, due to resource limitations, auto-submits and tries again. 
+	uint32_t addCustomProjection_SubmitIfNeeded(const float64_t3x3& projection, SIntendedSubmitInfo& intendedNextSubmit);
+	
+	/// Attempts to add custom clip to gpu resources. If it fails to do, due to resource limitations, auto-submits and tries again. 
+	uint32_t addCustomClipRect_SubmitIfNeeded(const WorldClipRect& clipRect, SIntendedSubmitInfo& intendedNextSubmit);
 	
 	/// returns index to added LineStyleInfo, returns Invalid index if it exceeds resource limitations
 	uint32_t addLineStyle_Internal(const LineStyleInfo& lineStyleInfo);
@@ -372,13 +385,22 @@ protected:
 		resourcesCollection.geometryInfo.vector.clear();
 	}
 
-	void resetCustomClipProjections()
+	void resetCustomProjections()
 	{
-		resourcesCollection.clipProjections.vector.clear();
+		resourcesCollection.customProjections.vector.clear();
 		
-		// Invalidate all the clip projection addresses because activeClipProjections buffer got reset
-		for (auto& clipProjAddr : activeClipProjectionIndices)
-			clipProjAddr = InvalidClipProjectionIndex;
+		// Invalidate all the clip projection addresses because activeProjections buffer got reset
+		for (auto& addr : activeProjectionIndices)
+			addr = InvalidCustomProjectionIndex;
+	}
+
+	void resetCustomClipRects()
+	{
+		resourcesCollection.customClipRects.vector.clear();
+		
+		// Invalidate all the clip projection addresses because activeProjections buffer got reset
+		for (auto& addr : activeClipRectIndices)
+			addr = InvalidCustomClipRectIndex;
 	}
 
 	void resetLineStyles()
@@ -502,9 +524,12 @@ protected:
 	MainObjectType activeMainObjectType;
 	uint32_t activeMainObjectIndex = InvalidMainObjectIdx;
 
-	// The ClipProjections are stack, because user can push/pop ClipProjections in any order
-	std::deque<ClipProjectionData> activeClipProjections; // stack of clip projections stored so we can resubmit them if geometry buffer got reset.
-	std::deque<uint32_t> activeClipProjectionIndices; // stack of clip projection gpu addresses in geometry buffer. to keep track of them in push/pops
+	// The ClipRects & Projections are stack, because user can push/pop ClipRects & Projections in any order
+	std::deque<float64_t3x3> activeProjections; // stack of projections stored so we can resubmit them if geometry buffer got reset.
+	std::deque<uint32_t> activeProjectionIndices; // stack of projection gpu addresses in geometry buffer. to keep track of them in push/pops
+	
+	std::deque<WorldClipRect> activeClipRects; // stack of clips stored so we can resubmit them if geometry buffer got reset.
+	std::deque<uint32_t> activeClipRectIndices; // stack of clips gpu addresses in geometry buffer. to keep track of them in push/pops
 
 	// MSDF
 	GetGlyphMSDFTextureFunc getGlyphMSDF;

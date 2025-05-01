@@ -38,39 +38,30 @@ struct PushConstants
     uint32_t isDTMRendering;
 };
 
-// TODO: Compute this in a compute shader from the world counterparts
-//      because this struct includes NDC coordinates, the values will change based camera zoom and move
-//      of course we could have the clip values to be in world units and also the matrix to transform to world instead of ndc but that requires extra computations(matrix multiplications) per vertex
-struct ClipProjectionData
+struct WorldClipRect
 {
-    pfloat64_t3x3 projectionToNDC; // 72 -> because we use scalar_layout
-    float32_t2 minClipNDC; // 80
-    float32_t2 maxClipNDC; // 88
+    pfloat64_t2 minClip; // min clip of a rect in worldspace coordinates of the original space (globals.defaultProjectionToNDC)
+    pfloat64_t2 maxClip; // max clip of a rect in worldspace coordinates of the original space (globals.defaultProjectionToNDC)
 };
-
-#ifndef __HLSL_VERSION
-static_assert(offsetof(ClipProjectionData, projectionToNDC) == 0u);
-static_assert(offsetof(ClipProjectionData, minClipNDC) == 72u);
-static_assert(offsetof(ClipProjectionData, maxClipNDC) == 80u);
-#endif
 
 struct Pointers
 {
     uint64_t lineStyles;
     uint64_t dtmSettings;
-    uint64_t customClipProjections;
+    uint64_t customProjections;
+    uint64_t customClipRects;
     uint64_t mainObjects;
     uint64_t drawObjects;
     uint64_t geometryBuffer;
 };
 #ifndef __HLSL_VERSION
-static_assert(sizeof(Pointers) == 48u);
+static_assert(sizeof(Pointers) == 56u);
 #endif
 
 struct Globals
 {
     Pointers pointers;
-    ClipProjectionData defaultClipProjection;
+    pfloat64_t3x3 defaultProjectionToNDC;
     float screenToWorldRatio;
     float worldToScreenRatio;
     uint32_t2 resolution;
@@ -80,7 +71,7 @@ struct Globals
     float32_t _padding;
 };
 #ifndef __HLSL_VERSION
-static_assert(sizeof(Globals) == 168u);
+static_assert(sizeof(Globals) == 160u);
 #endif
 
 #ifdef __HLSL_VERSION
@@ -143,11 +134,14 @@ enum class MajorAxis : uint32_t
 };
 
 // Consists of multiple DrawObjects
+// [IDEA]: In GPU-driven rendering, to save mem for MainObject data fetching: many of these can be shared amongst different main objects, we could find these styles, settings, etc indices with upper_bound
+// [TODO]: pack indices and members of mainObject and DrawObject + enforce max size for autosubmit --> but do it only after the mainobject definition is finalized in gpu-driven rendering work
 struct MainObject
 {
     uint32_t styleIdx;
     uint32_t dtmSettingsIdx;
-    uint32_t clipProjectionIndex;
+    uint32_t customProjectionIndex;
+    uint32_t customClipRectIndex;
 };
 
 struct DrawObject
@@ -496,7 +490,8 @@ NBL_CONSTEXPR uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
 NBL_CONSTEXPR uint32_t InvalidStyleIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
 NBL_CONSTEXPR uint32_t InvalidDTMSettingsIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
 NBL_CONSTEXPR uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
-NBL_CONSTEXPR uint32_t InvalidClipProjectionIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
+NBL_CONSTEXPR uint32_t InvalidCustomProjectionIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
+NBL_CONSTEXPR uint32_t InvalidCustomClipRectIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
 NBL_CONSTEXPR uint32_t InvalidTextureIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
 
 // Hatches
@@ -521,9 +516,13 @@ DTMSettings loadDTMSettings(const uint32_t index)
 {
     return vk::RawBufferLoad<DTMSettings>(globals.pointers.dtmSettings + index * sizeof(DTMSettings), 8u);
 }
-ClipProjectionData loadCustomClipProjection(const uint32_t index)
+pfloat64_t3x3 loadCustomProjection(const uint32_t index)
 {
-    return vk::RawBufferLoad<ClipProjectionData>(globals.pointers.customClipProjections + index * sizeof(ClipProjectionData), 8u);
+    return vk::RawBufferLoad<pfloat64_t3x3>(globals.pointers.customProjections + index * sizeof(pfloat64_t3x3), 8u);
+}
+WorldClipRect loadCustomClipRect(const uint32_t index)
+{
+    return vk::RawBufferLoad<WorldClipRect>(globals.pointers.customClipRects + index * sizeof(WorldClipRect), 8u);
 }
 MainObject loadMainObject(const uint32_t index)
 {
