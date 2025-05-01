@@ -2720,13 +2720,14 @@ protected:
 				0.0, 0.0, 1.0
 			};
 
-			// left half of screen should be red and right half should be green
+			/// [NOTE]: We set minClip and maxClip (in default worldspace) in such a way that minClip.y > maxClip.y so that minClipNDC.y < maxClipNDC.y
+			// left half should be red and right half should be green
 			WorldClipRect showLeft = {};
-			showLeft.minClip  = float64_t2(-100.0, -1000.0);
-			showLeft.maxClip  = float64_t2(0.0, +1000.0);
+			showLeft.minClip  = float64_t2(-100.0, +1000.0);
+			showLeft.maxClip  = float64_t2(0.0, -1000.0);
 			WorldClipRect showRight = {};
-			showRight.minClip = float64_t2(0.0, -1000.0);
-			showRight.maxClip = float64_t2(100.0, +1000.0);
+			showRight.minClip = float64_t2(0.0, +1000.0);
+			showRight.maxClip = float64_t2(100.0, -1000.0);
 
 			LineStyleInfo leftLineStyle = {};
 			leftLineStyle.screenSpaceLineWidth = 3.0f;
