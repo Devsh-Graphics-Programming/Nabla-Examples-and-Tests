@@ -246,6 +246,7 @@ private:
 	bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerWG = ~0u)
 	{
 		std::string arith_name = Arithmetic<bit_xor<float>>::name;
+		const uint32_t workgroupSizeLog2 = hlsl::findMSB(workgroupSize);
 
 		auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
 		CHLSLCompiler::SOptions options = {};
@@ -268,7 +269,7 @@ private:
 
 		const std::string definitions[5] = {
 			"workgroup2::" + arith_name,
-			std::to_string(workgroupSize),
+			std::to_string(workgroupSizeLog2),
 			std::to_string(itemsPerWG),
 			std::to_string(ItemsPerInvocation),
 			std::to_string(subgroupSizeLog2)
@@ -276,7 +277,7 @@ private:
 
 		const IShaderCompiler::SMacroDefinition defines[5] = {
 			{ "OPERATION", definitions[0] },
-			{ "WORKGROUP_SIZE", definitions[1] },
+			{ "WORKGROUP_SIZE_LOG2", definitions[1] },
 			{ "ITEMS_PER_WG", definitions[2] },
 			{ "ITEMS_PER_INVOCATION", definitions[3] },
 			{ "SUBGROUP_SIZE_LOG2", definitions[4] }

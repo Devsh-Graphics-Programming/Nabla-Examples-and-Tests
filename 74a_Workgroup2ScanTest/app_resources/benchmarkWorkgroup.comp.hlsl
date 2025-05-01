@@ -10,11 +10,13 @@ struct DataProxy
 
     dtype_t get(const uint32_t ix)
     {
-        return inputValue[ix];
+        // return inputValue[ix];
+        return inputVal;
     }
     void set(const uint32_t ix, const dtype_t value)
     {
-        output[Binop::BindingIndex].template Store<type_t>(sizeof(uint32_t) + sizeof(type_t) * ix, value);
+        // output[Binop::BindingIndex].template Store<type_t>(sizeof(uint32_t) + sizeof(type_t) * ix, value);
+        outputVal = value;
     }
 
     void workgroupExecutionAndMemoryBarrier()
@@ -22,6 +24,10 @@ struct DataProxy
         nbl::hlsl::glsl::barrier();
         //nbl::hlsl::glsl::memoryBarrierShared(); implied by the above
     }
+
+    // to avoid multiple load/store in benchmark, also values not that important?
+    dtype_t inputVal;
+    dtype_t outputVal;
 };
 
 static ScratchProxy<config_t> arithmeticAccessor;
@@ -32,12 +38,14 @@ struct operation_t
     using binop_base_t = typename Binop::base_t;
     using otype_t = typename Binop::type_t;
 
-    void operator()()
+    otype_t operator()()
     {
         DataProxy<config_t,Binop> dataAccessor;
+        dataAccessor.inputVal = inputValue[globalIndex()];
         nbl::hlsl::OPERATION<config_t,binop_base_t,device_capabilities>::template __call<DataProxy<config_t,Binop>, ScratchProxy<config_t> >(dataAccessor,arithmeticAccessor);
         // we barrier before because we alias the accessors for Binop
         arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
+        return dataAccessor.outputVal;
     }
 };
 
@@ -48,8 +56,12 @@ static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
     if (globalIndex()==0u)
         output[binop<T>::BindingIndex].template Store<uint32_t>(0,nbl::hlsl::glsl::gl_SubgroupSize());
 
+    type_t value;
     operation_t<binop<T>,nbl::hlsl::jit::device_capabilities> func;
-    func(); // store is done with data accessor now
+    for (uint32_t i = 0; i < NUM_LOOPS; i++)
+        value = func(); // store is done with data accessor now
+
+    output[binop<T>::BindingIndex].template Store<type_t>(sizeof(uint32_t) + sizeof(type_t) * globalIndex(), value);
 }
 
 
