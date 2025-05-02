@@ -236,7 +236,7 @@ public:
 	void setActiveLineStyle(const LineStyleInfo& lineStyle);
 	void setActiveDTMSettings(const DTMSettingsInfo& dtmSettingsInfo);
 
-	void beginMainObject(MainObjectType type, TransformationType transformationType = TransformationType::NORMAL);
+	void beginMainObject(MainObjectType type, TransformationType transformationType = TransformationType::TT_NORMAL);
 	void endMainObject();
 
 	void pushCustomProjection(const float64_t3x3& projection);

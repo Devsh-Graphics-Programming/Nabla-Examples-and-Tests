@@ -136,8 +136,8 @@ enum class MajorAxis : uint32_t
 
 enum TransformationType 
 {
-    NORMAL = 0,
-    FIXED_SCREENSPACE_SIZE
+    TT_NORMAL = 0,
+    TT_FIXED_SCREENSPACE_SIZE
 };
 
 

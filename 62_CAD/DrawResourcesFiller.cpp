@@ -87,7 +87,7 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, const Line
 
 	setActiveLineStyle(lineStyleInfo);
 	
-	beginMainObject(MainObjectType::POLYLINE, TransformationType::NORMAL);
+	beginMainObject(MainObjectType::POLYLINE, TransformationType::TT_NORMAL);
 	drawPolyline(polyline, intendedNextSubmit);
 	endMainObject();
 }
@@ -111,7 +111,7 @@ void DrawResourcesFiller::drawFixedGeometryPolyline(const CPolylineBase& polylin
 		pushCustomProjection(transformation);
 	}
 
-	beginMainObject(MainObjectType::POLYLINE, TransformationType::FIXED_SCREENSPACE_SIZE);
+	beginMainObject(MainObjectType::POLYLINE, transformationType);
 	drawPolyline(polyline, intendedNextSubmit);
 	endMainObject();
 	popCustomProjection();
@@ -399,7 +399,7 @@ void DrawResourcesFiller::beginMainObject(MainObjectType type, TransformationTyp
 void DrawResourcesFiller::endMainObject()
 {
 	activeMainObjectType = MainObjectType::NONE;
-	activeMainObjectTransformationType = TransformationType::NORMAL;
+	activeMainObjectTransformationType = TransformationType::TT_NORMAL;
 	activeMainObjectIndex = InvalidMainObjectIdx;
 }
 
