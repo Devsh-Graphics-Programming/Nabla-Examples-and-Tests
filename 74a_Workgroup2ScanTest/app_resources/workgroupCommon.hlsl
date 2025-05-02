@@ -21,7 +21,9 @@ uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize() {return uint32_t3(WORKGROUP_SIZE,1
 #error "Define ITEMS_PER_INVOCATION!"
 #endif
 
-typedef vector<uint32_t, ITEMS_PER_INVOCATION> type_t;
+using config_t = nbl::hlsl::workgroup2::Configuration<WORKGROUP_SIZE_LOG2, SUBGROUP_SIZE_LOG2, ITEMS_PER_INVOCATION>;
+
+typedef vector<uint32_t, config_t::ItemsPerInvocation_0> type_t;
 
 // unfortunately DXC chokes on descriptors as static members
 // https://github.com/microsoft/DirectXShaderCompiler/issues/5940
@@ -39,8 +41,6 @@ bool canStore();
 #ifndef SUBGROUP_SIZE_LOG2
 #error "Define SUBGROUP_SIZE_LOG2!"
 #endif
-
-using config_t = nbl::hlsl::workgroup2::Configuration<WORKGROUP_SIZE_LOG2, SUBGROUP_SIZE_LOG2, ITEMS_PER_INVOCATION>;
 
 groupshared vector<uint32_t, config_t::ItemsPerInvocation_1> scratch[config_t::SubgroupSize];  // final (level 1) scan needs to fit in one subgroup exactly
 

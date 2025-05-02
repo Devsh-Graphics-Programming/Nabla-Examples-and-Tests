@@ -168,7 +168,7 @@ public:
 		}
 
 		const auto MaxWorkgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
-		const std::array<uint32_t, 2> WorkgroupSizes = { 512, 1024 };
+		const std::array<uint32_t, 4> WorkgroupSizes = { 32, 64, 512, 1024 };
 		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
 		for (auto subgroupSize=MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
@@ -182,7 +182,7 @@ public:
 				m_logger->log("Testing Workgroup Size %u with Subgroup Size %u", ILogger::ELL_INFO, workgroupSize, subgroupSize);
 
 				bool passed = true;
-				const uint32_t itemsPerWG = ItemsPerInvocation * max(workgroupSize >> subgroupSizeLog2, subgroupSize) << subgroupSizeLog2;	// TODO use Config::VirtualWorkgroupSize somehow
+				const uint32_t itemsPerWG = workgroupSize <= 4 * subgroupSize ? workgroupSize : ItemsPerInvocation * max(workgroupSize >> subgroupSizeLog2, subgroupSize) << subgroupSizeLog2;	// TODO use Config somehow
 				m_logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
 				passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
 				logTestOutcome(passed, itemsPerWG);
