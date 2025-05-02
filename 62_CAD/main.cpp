@@ -58,7 +58,7 @@ enum class ExampleMode
 	CASE_7, // Images
 	CASE_8, // MSDF and Text
 	CASE_9, // DTM
-	CASE_BUG, // Bug Repro 
+	CASE_BUG, // Bug Repro, after fix, rename to CASE_10 and comment should be: testing fixed geometry and emulated fp64 corner cases
 	CASE_COUNT
 };
 
@@ -1220,6 +1220,9 @@ public:
 		float screenToWorld = getScreenToWorldRatio(globalData.defaultProjectionToNDC, globalData.resolution);
 		globalData.screenToWorldRatio = screenToWorld;
 		globalData.worldToScreenRatio = (1.0f/screenToWorld);
+		globalData.screenToWorldScaleTransform = float64_t3x3(globalData.worldToScreenRatio, 0.0f, 0.0f,
+														 0.0f, globalData.worldToScreenRatio, 0.0f,
+														 0.0f, 0.0f, 1.0f);
 		globalData.miterLimit = 10.0f;
 		globalData.currentlyActiveMainObjectIndex = drawResourcesFiller.getActiveMainObjectIndex();
 		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = m_globalsBuffer.get() };
@@ -3343,45 +3346,73 @@ protected:
 			style.worldSpaceLineWidth = 0.0f;
 			style.color = float32_t4(0.619f, 0.325f, 0.709f, 0.5f);
 
-			//for (uint32_t i = 0; i < 128u; ++i)
-			//{
-			//	std::vector<shapes::QuadraticBezier<double>> quadBeziers;
-			//	curves::EllipticalArcInfo myCircle;
-			//	{
-			//		myCircle.majorAxis = { 0.05 , 0.0};
-			//		myCircle.center = { 0.0 + i * 0.1, i * 0.1 };
-			//		myCircle.angleBounds = {
-			//			nbl::core::PI<double>() * 0.0,
-			//			nbl::core::PI<double>() * 2.0
-			//		};
-			//		myCircle.eccentricity = 1.0;
-			//	}
+			for (uint32_t i = 0; i < 128u; ++i)
+			{
+				std::vector<shapes::QuadraticBezier<double>> quadBeziers;
+				curves::EllipticalArcInfo myCircle;
+				{
+					myCircle.majorAxis = { 0.05 , 0.0};
+					myCircle.center = { 0.0 + i * 0.1, i * 0.1 };
+					myCircle.angleBounds = {
+						nbl::core::PI<double>() * 0.0,
+						nbl::core::PI<double>() * 2.0
+					};
+					myCircle.eccentricity = 1.0;
+				}
 
-			//	curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
-			//		{
-			//			quadBeziers.push_back(info);
-			//		};
+				curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
+					{
+						quadBeziers.push_back(info);
+					};
 
-			//	curves::Subdivision::adaptive(myCircle, 1e-5, addToBezier, 10u);
-			//	polyline.addQuadBeziers(quadBeziers);
-			//	drawResourcesFiller.drawPolyline(polyline, style, intendedNextSubmit);
-			//	polyline.clearEverything();
-			//}
+				curves::Subdivision::adaptive(myCircle, 1e-5, addToBezier, 10u);
+				polyline.addQuadBeziers(quadBeziers);
+				drawResourcesFiller.drawPolyline(polyline, style, intendedNextSubmit);
+				polyline.clearEverything();
+			}
 			
-			float64_t2 line0[2u] = 
+			// Testing Fixed Geometry
 			{
-				float64_t2(-1.0, 0.0),
-				float64_t2(+1.0, 0.0),
-			};
-			float64_t2 line1[2u] = 
-			{
-				float64_t2(0.0, -1.0),
-				float64_t2(0.0, +1.0),
-			};
+				float64_t2 line0[2u] =
+				{
+					float64_t2(-1.0, 0.0),
+					float64_t2(+1.0, 0.0),
+				};
+				float64_t2 line1[2u] =
+				{
+					float64_t2(0.0, -1.0),
+					float64_t2(0.0, +1.0),
+				};
 
-			polyline.addLinePoints(line0);
-			polyline.addLinePoints(line1);
-			drawResourcesFiller.drawPolyline(polyline, style, intendedNextSubmit);
+				float64_t3x3 translateMat =
+				{
+					1.0, 0.0, 0.0,
+					0.0, 1.0, 0.0,
+					0.0, 0.0, 1.0
+				};
+
+				float64_t angle = m_timeElapsed * 0.001;
+				float64_t2 dir = float64_t2{ cos(angle), sin(angle) };
+				float64_t3x3 rotateMat =
+				{
+					dir.x, -dir.y, 0.0,
+					dir.y, dir.x,  0.0,
+					0.0, 0.0, 1.0
+				};
+
+				float64_t2 scale = float64_t2{ 10.0, 10.0 };
+				float64_t3x3 scaleMat =
+				{
+					scale.x, 0.0, 0.0,
+					0.0, scale.y, 0.0,
+					0.0, 0.0, 1.0
+				};
+
+				float64_t3x3 transformation = nbl::hlsl::mul(translateMat, nbl::hlsl::mul(rotateMat, scaleMat));
+				polyline.addLinePoints(line0);
+				polyline.addLinePoints(line1);
+				drawResourcesFiller.drawFixedGeometryPolyline(polyline, style, transformation, TransformationType::FIXED_SCREENSPACE_SIZE, intendedNextSubmit);
+			}
 		}
 
 		drawResourcesFiller.finalizeAllCopiesToGPU(intendedNextSubmit);
