@@ -1,7 +1,7 @@
 #ifndef _CAD_EXAMPLE_GLOBALS_HLSL_INCLUDED_
 #define _CAD_EXAMPLE_GLOBALS_HLSL_INCLUDED_
 
-#define NBL_FORCE_EMULATED_FLOAT_64
+// #define NBL_FORCE_EMULATED_FLOAT_64
 
 #include <nbl/builtin/hlsl/portable/float64_t.hlsl>
 #include <nbl/builtin/hlsl/portable/vector_t.hlsl>
@@ -62,6 +62,7 @@ struct Globals
 {
     Pointers pointers;
     pfloat64_t3x3 defaultProjectionToNDC;
+    pfloat64_t3x3 screenToWorldScaleTransform; // Pre-multiply your transform with this to scale in screen space (e.g., scale 100.0 means 100 screen pixels).
     float screenToWorldRatio;
     float worldToScreenRatio;
     uint32_t2 resolution;
@@ -71,7 +72,7 @@ struct Globals
     float32_t _padding;
 };
 #ifndef __HLSL_VERSION
-static_assert(sizeof(Globals) == 160u);
+static_assert(sizeof(Globals) == 232u);
 #endif
 
 #ifdef __HLSL_VERSION
@@ -133,6 +134,13 @@ enum class MajorAxis : uint32_t
     MAJOR_Y = 1u,
 };
 
+enum TransformationType 
+{
+    NORMAL = 0,
+    FIXED_SCREENSPACE_SIZE
+};
+
+
 // Consists of multiple DrawObjects
 // [IDEA]: In GPU-driven rendering, to save mem for MainObject data fetching: many of these can be shared amongst different main objects, we could find these styles, settings, etc indices with upper_bound
 // [TODO]: pack indices and members of mainObject and DrawObject + enforce max size for autosubmit --> but do it only after the mainobject definition is finalized in gpu-driven rendering work
@@ -142,6 +150,7 @@ struct MainObject
     uint32_t dtmSettingsIdx;
     uint32_t customProjectionIndex;
     uint32_t customClipRectIndex;
+    uint32_t transformationType; // todo pack later, it's just 2 possible values atm
 };
 
 struct DrawObject
@@ -150,7 +159,6 @@ struct DrawObject
     uint32_t mainObjIndex;
     uint64_t geometryAddress;
 };
-
 
 // Goes into geometry buffer, needs to be aligned by 8
 struct LinePointInfo

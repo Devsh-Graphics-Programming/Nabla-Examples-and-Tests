@@ -87,9 +87,34 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, const Line
 
 	setActiveLineStyle(lineStyleInfo);
 	
-	beginMainObject(MainObjectType::POLYLINE);
+	beginMainObject(MainObjectType::POLYLINE, TransformationType::NORMAL);
 	drawPolyline(polyline, intendedNextSubmit);
 	endMainObject();
+}
+
+void DrawResourcesFiller::drawFixedGeometryPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, const float64_t3x3& transformation, TransformationType transformationType, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	if (!lineStyleInfo.isVisible())
+		return;
+
+	setActiveLineStyle(lineStyleInfo);
+	
+	if (!activeProjections.empty())
+	{
+		// if there is already an active custom projection, it should be considered into the transformation of the fixed geometry polyline
+		float64_t3x3 newTransformation = nbl::hlsl::mul(activeProjections.back(), transformation);
+		pushCustomProjection(newTransformation);
+	}
+	else
+	{
+		// will be multiplied by the default projection matrix from the left (in shader), no need to consider it here
+		pushCustomProjection(transformation);
+	}
+
+	beginMainObject(MainObjectType::POLYLINE, TransformationType::FIXED_SCREENSPACE_SIZE);
+	drawPolyline(polyline, intendedNextSubmit);
+	endMainObject();
+	popCustomProjection();
 }
 
 void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, SIntendedSubmitInfo& intendedNextSubmit)
@@ -364,15 +389,17 @@ void DrawResourcesFiller::setActiveDTMSettings(const DTMSettingsInfo& dtmSetting
 	activeDTMSettingsIndex = InvalidDTMSettingsIdx;
 }
 
-void DrawResourcesFiller::beginMainObject(MainObjectType type)
+void DrawResourcesFiller::beginMainObject(MainObjectType type, TransformationType transformationType)
 {
 	activeMainObjectType = type;
+	activeMainObjectTransformationType = transformationType;
 	activeMainObjectIndex = InvalidMainObjectIdx;
 }
 
 void DrawResourcesFiller::endMainObject()
 {
 	activeMainObjectType = MainObjectType::NONE;
+	activeMainObjectTransformationType = TransformationType::NORMAL;
 	activeMainObjectIndex = InvalidMainObjectIdx;
 }
 
@@ -784,6 +811,7 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 	mainObject.dtmSettingsIdx = (needsDTMSettings) ? acquireActiveDTMSettingsIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidDTMSettingsIdx;
 	mainObject.customProjectionIndex = (needsCustomProjection) ? acquireActiveCustomProjectionIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidCustomProjectionIndex;
 	mainObject.customClipRectIndex = (needsCustomClipRect) ? acquireActiveCustomClipRectIndex_SubmitIfNeeded(intendedNextSubmit) : InvalidCustomClipRectIndex;
+	mainObject.transformationType = (uint32_t)activeMainObjectTransformationType;
 	activeMainObjectIndex = resourcesCollection.mainObjects.addAndGetOffset(mainObject);
 	return activeMainObjectIndex;
 }

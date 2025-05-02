@@ -32,15 +32,9 @@ struct NDCClipProjectionData
 
 NDCClipProjectionData getClipProjectionData(in MainObject mainObj)
 {
-    pfloat64_t3x3 weirdProjection =  nbl::hlsl::_static_cast<pfloat64_t3x3>(
-        float32_t3x3(1.0f, 0.0f, 0.0f,
-                     0.0f, 1.0f, 0.0f,
-                     0.0f, 0.0f, 1.0f));
-    
     NDCClipProjectionData ret;
     if (mainObj.customProjectionIndex != InvalidCustomProjectionIndex)
     {
-    
         // If projection type is worldspace projection and clip:
         pfloat64_t3x3 customProjection = loadCustomProjection(mainObj.customProjectionIndex);
         ret.projectionToNDC = nbl::hlsl::mul(globals.defaultProjectionToNDC, customProjection);
@@ -62,7 +56,8 @@ NDCClipProjectionData getClipProjectionData(in MainObject mainObj)
         ret.maxClipNDC = float2(+1.0f, +1.0f);
     }
     
-    ret.projectionToNDC = nbl::hlsl::mul(ret.projectionToNDC, weirdProjection);
+    if (mainObj.transformationType == TransformationType::FIXED_SCREENSPACE_SIZE)
+        ret.projectionToNDC = nbl::hlsl::mul(ret.projectionToNDC, globals.screenToWorldScaleTransform);
     
     return ret;
 }

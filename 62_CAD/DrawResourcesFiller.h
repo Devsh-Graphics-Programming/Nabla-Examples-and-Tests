@@ -14,7 +14,7 @@ using namespace nbl::asset;
 using namespace nbl::ext::TextRendering;
 
 static_assert(sizeof(DrawObject) == 16u);
-static_assert(sizeof(MainObject) == 16u);
+static_assert(sizeof(MainObject) == 20u);
 static_assert(sizeof(LineStyle) == 88u);
 
 // ! DrawResourcesFiller
@@ -149,9 +149,15 @@ public:
 	// take a `SIntendedSubmitInfo` like others, but don't use it as I don't want you to handle anything regarding autoSubmit
 	// somehow retrieve or calculate the geometry buffer offsets of your vertex and index buffer to be used outside for binding purposes
 
+	
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	void drawPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, SIntendedSubmitInfo& intendedNextSubmit);
 
+
+	//! Draws a fixed-geometry polyline using a custom transformation.
+	//! TODO: Change `polyline` input to an ID referencing a possibly cached instance in our buffers, allowing reuse and avoiding redundant uploads.
+	void drawFixedGeometryPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, const float64_t3x3& transformation, TransformationType transformationType, SIntendedSubmitInfo& intendedNextSubmit);
+	
 	/// Use this in a begin/endMainObject scope when you want to draw different polylines that should essentially be a single main object (no self-blending between components of a single main object)
 	/// WARNING: make sure this function  is called within begin/endMainObject scope
 	void drawPolyline(const CPolylineBase& polyline, SIntendedSubmitInfo& intendedNextSubmit);
@@ -230,7 +236,7 @@ public:
 	void setActiveLineStyle(const LineStyleInfo& lineStyle);
 	void setActiveDTMSettings(const DTMSettingsInfo& dtmSettingsInfo);
 
-	void beginMainObject(MainObjectType type);
+	void beginMainObject(MainObjectType type, TransformationType transformationType = TransformationType::NORMAL);
 	void endMainObject();
 
 	void pushCustomProjection(const float64_t3x3& projection);
@@ -522,6 +528,7 @@ protected:
 	uint32_t activeDTMSettingsIndex = InvalidDTMSettingsIdx;
 
 	MainObjectType activeMainObjectType;
+	TransformationType activeMainObjectTransformationType;
 	uint32_t activeMainObjectIndex = InvalidMainObjectIdx;
 
 	// The ClipRects & Projections are stack, because user can push/pop ClipRects & Projections in any order
