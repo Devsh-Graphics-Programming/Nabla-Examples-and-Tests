@@ -56,7 +56,7 @@ NDCClipProjectionData getClipProjectionData(in MainObject mainObj)
         ret.maxClipNDC = float2(+1.0f, +1.0f);
     }
     
-    if (mainObj.transformationType == TransformationType::FIXED_SCREENSPACE_SIZE)
+    if (mainObj.transformationType == TransformationType::TT_FIXED_SCREENSPACE_SIZE)
         ret.projectionToNDC = nbl::hlsl::mul(ret.projectionToNDC, globals.screenToWorldScaleTransform);
     
     return ret;
