@@ -47,6 +47,7 @@ groupshared vector<uint32_t, config_t::ItemsPerInvocation_1> scratch[config_t::S
 template<class Config>
 struct ScratchProxy
 {
+    using scalar_t = uint32_t;
     using stype_t = vector<uint32_t, Config::ItemsPerInvocation_1>;
 
     stype_t get(const uint32_t ix)
@@ -56,6 +57,15 @@ struct ScratchProxy
     void set(const uint32_t ix, const stype_t value)
     {
         scratch[ix] = value;
+    }
+
+    scalar_t getByComponent(const uint32_t ix)
+    {
+        return scratch[ix/Config::ItemsPerInvocation_1][ix&(Config::ItemsPerInvocation_1-1)];
+    }
+    void setByComponent(const uint32_t ix, const scalar_t value)
+    {
+        scratch[ix/Config::ItemsPerInvocation_1][ix&(Config::ItemsPerInvocation_1-1)] = value;
     }
 
     stype_t atomicOr(const uint32_t ix, const stype_t value)

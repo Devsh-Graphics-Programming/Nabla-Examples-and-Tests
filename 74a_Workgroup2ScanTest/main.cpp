@@ -168,7 +168,7 @@ public:
 		}
 
 		const auto MaxWorkgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
-		const std::array<uint32_t, 4> WorkgroupSizes = { 32, 64, 512, 1024 };
+		const std::array<uint32_t, 3> WorkgroupSizes = { 64, 512, 1024 };
 		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
 		for (auto subgroupSize=MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
