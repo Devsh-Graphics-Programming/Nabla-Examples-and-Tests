@@ -77,7 +77,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	10.0	// CASE_BUG
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_6;
+constexpr ExampleMode mode = ExampleMode::CASE_BUG;
 
 class Camera2D
 {
@@ -3343,30 +3343,30 @@ protected:
 			style.worldSpaceLineWidth = 0.0f;
 			style.color = float32_t4(0.619f, 0.325f, 0.709f, 0.5f);
 
-			for (uint32_t i = 0; i < 128u; ++i)
-			{
-				std::vector<shapes::QuadraticBezier<double>> quadBeziers;
-				curves::EllipticalArcInfo myCircle;
-				{
-					myCircle.majorAxis = { 0.05 , 0.0};
-					myCircle.center = { 0.0 + i * 0.1, i * 0.1 };
-					myCircle.angleBounds = {
-						nbl::core::PI<double>() * 0.0,
-						nbl::core::PI<double>() * 2.0
-					};
-					myCircle.eccentricity = 1.0;
-				}
+			//for (uint32_t i = 0; i < 128u; ++i)
+			//{
+			//	std::vector<shapes::QuadraticBezier<double>> quadBeziers;
+			//	curves::EllipticalArcInfo myCircle;
+			//	{
+			//		myCircle.majorAxis = { 0.05 , 0.0};
+			//		myCircle.center = { 0.0 + i * 0.1, i * 0.1 };
+			//		myCircle.angleBounds = {
+			//			nbl::core::PI<double>() * 0.0,
+			//			nbl::core::PI<double>() * 2.0
+			//		};
+			//		myCircle.eccentricity = 1.0;
+			//	}
 
-				curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
-					{
-						quadBeziers.push_back(info);
-					};
+			//	curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
+			//		{
+			//			quadBeziers.push_back(info);
+			//		};
 
-				curves::Subdivision::adaptive(myCircle, 1e-5, addToBezier, 10u);
-				polyline.addQuadBeziers(quadBeziers);
-				drawResourcesFiller.drawPolyline(polyline, style, intendedNextSubmit);
-				polyline.clearEverything();
-			}
+			//	curves::Subdivision::adaptive(myCircle, 1e-5, addToBezier, 10u);
+			//	polyline.addQuadBeziers(quadBeziers);
+			//	drawResourcesFiller.drawPolyline(polyline, style, intendedNextSubmit);
+			//	polyline.clearEverything();
+			//}
 			
 			float64_t2 line0[2u] = 
 			{

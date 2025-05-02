@@ -239,8 +239,8 @@ public:
 	void pushCustomClipRect(const WorldClipRect& clipRect);
 	void popCustomClipRect();
 
-	const std::deque<float64_t3x3>& getProjectionStack() const { return activeProjections; }
-	const std::deque<WorldClipRect>& getClipRectsStack() const { return activeClipRects; }
+	const std::deque<float64_t3x3>& getCustomProjectionStack() const { return activeProjections; }
+	const std::deque<WorldClipRect>& getCustomClipRectsStack() const { return activeClipRects; }
 
 	smart_refctd_ptr<IGPUImageView> getMSDFsTextureArray() { return msdfTextureArray; }
 
