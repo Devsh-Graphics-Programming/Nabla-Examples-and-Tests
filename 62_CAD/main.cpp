@@ -77,7 +77,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	10.0	// CASE_BUG
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_BUG;
+constexpr ExampleMode mode = ExampleMode::CASE_2;
 
 class Camera2D
 {
@@ -3342,8 +3342,7 @@ protected:
 			CPolyline polyline;
 			
 			LineStyleInfo style = {};
-			style.screenSpaceLineWidth = 1.0f;
-			style.worldSpaceLineWidth = 0.0f;
+			style.screenSpaceLineWidth = 4.0f;
 			style.color = float32_t4(0.619f, 0.325f, 0.709f, 0.5f);
 
 			for (uint32_t i = 0; i < 128u; ++i)
@@ -3367,7 +3366,7 @@ protected:
 
 				curves::Subdivision::adaptive(myCircle, 1e-5, addToBezier, 10u);
 				polyline.addQuadBeziers(quadBeziers);
-				drawResourcesFiller.drawPolyline(polyline, style, intendedNextSubmit);
+				// drawResourcesFiller.drawPolyline(polyline, style, intendedNextSubmit);
 				polyline.clearEverything();
 			}
 			
@@ -3378,10 +3377,11 @@ protected:
 					float64_t2(-1.0, 0.0),
 					float64_t2(+1.0, 0.0),
 				};
-				float64_t2 line1[2u] =
+				float64_t2 line1[3u] =
 				{
 					float64_t2(0.0, -1.0),
 					float64_t2(0.0, +1.0),
+					float64_t2(+1.0, +1.0),
 				};
 
 				float64_t3x3 translateMat =
@@ -3390,7 +3390,7 @@ protected:
 					0.0, 1.0, 0.0,
 					0.0, 0.0, 1.0
 				};
-
+				
 				float64_t angle = m_timeElapsed * 0.001;
 				float64_t2 dir = float64_t2{ cos(angle), sin(angle) };
 				float64_t3x3 rotateMat =
@@ -3400,7 +3400,7 @@ protected:
 					0.0, 0.0, 1.0
 				};
 
-				float64_t2 scale = float64_t2{ 10.0, 10.0 };
+				float64_t2 scale = float64_t2{ 100.0, 100.0 };
 				float64_t3x3 scaleMat =
 				{
 					scale.x, 0.0, 0.0,
@@ -3411,7 +3411,9 @@ protected:
 				float64_t3x3 transformation = nbl::hlsl::mul(translateMat, nbl::hlsl::mul(rotateMat, scaleMat));
 				polyline.addLinePoints(line0);
 				polyline.addLinePoints(line1);
-				drawResourcesFiller.drawFixedGeometryPolyline(polyline, style, transformation, TransformationType::FIXED_SCREENSPACE_SIZE, intendedNextSubmit);
+				polyline.preprocessPolylineWithStyle(style);
+				// drawResourcesFiller.drawPolyline(polyline, intendedNextSubmit);
+				drawResourcesFiller.drawFixedGeometryPolyline(polyline, style, transformation, TransformationType::TT_FIXED_SCREENSPACE_SIZE, intendedNextSubmit);
 			}
 		}
 
