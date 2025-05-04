@@ -218,6 +218,7 @@ public:
 		resetCustomClipRects();
 		resetLineStyles();
 		resetDTMSettings();
+		resetMSDFsUsageState();
 
 		drawObjectsFlushedToDrawCalls = 0ull;
 		drawCalls.clear();
@@ -261,7 +262,7 @@ public:
 	/// For advanced use only, (passed to shaders for them to know if we overflow-submitted in the middle if a main obj
 	uint32_t getActiveMainObjectIndex() const { return activeMainObjectIndex; }
 
-	// TODO: Remove these later, these are for multiple draw calls instead of a single one.
+	// NOTE: Most probably Going to get removed soon with a single draw call in GPU-driven rendering
 	struct DrawCallData
 	{
 		union
@@ -282,37 +283,29 @@ public:
 		bool isDTMRendering;
 	};
 
-	uint64_t drawObjectsFlushedToDrawCalls = 0ull;
+	const std::vector<DrawCallData>& getDrawCalls() const { return drawCalls; }
 
-	void flushDrawObjects()
+	// ! This is all the textures and buffers that were staged on CPU and eventually copied to GPU in a single submit
+	// ! This data is prepped and ready to be consumed by GPU with no further transformations applied on the data.
+	// ! You can back this up,  and replay your scene without having to traverse your scene and do AddXXX, DrawXXX all over again.
+	struct DrawResourcesCache
 	{
-		if (resourcesCollection.drawObjects.getCount() > drawObjectsFlushedToDrawCalls)
-		{
-			DrawCallData drawCall = {};
-			drawCall.isDTMRendering = false;
-			drawCall.drawObj.drawObjectStart = drawObjectsFlushedToDrawCalls;
-			drawCall.drawObj.drawObjectCount = resourcesCollection.drawObjects.getCount() - drawObjectsFlushedToDrawCalls;
-			drawCalls.push_back(drawCall);
-			drawObjectsFlushedToDrawCalls = resourcesCollection.drawObjects.getCount();
-		}
-	}
+		// TODO: Resources Colletion
+		// TODO: MSDFs Staging Cache
+		// TODO: Draw Calls Data
+		// TODO: Get total memory consumption
+	};
 
-	std::vector<DrawCallData> drawCalls; // either dtms or objects
-
+	// TODO: Backup which gives DrawResourcesCache
+	// TODO: Restore which gets DrawResourcesCache
 
 protected:
-	
-	struct MSDFTextureCopy
-	{
-		core::smart_refctd_ptr<ICPUImage> image;
-		uint32_t index;
-	};
 
 	SubmitFunc submitDraws;
 	
 	bool finalizeBufferCopies(SIntendedSubmitInfo& intendedNextSubmit);
 
-	bool finalizeTextureCopies(SIntendedSubmitInfo& intendedNextSubmit);
+	bool finalizeMSDFImagesCopies(SIntendedSubmitInfo& intendedNextSubmit);
 
 	const size_t calculateRemainingResourcesSize() const;
 
@@ -420,6 +413,12 @@ protected:
 		resourcesCollection.dtmSettings.vector.clear();
 		activeDTMSettingsIndex = InvalidDTMSettingsIdx;
 	}
+	
+	void resetMSDFsUsageState()
+	{
+		for (auto& stagedMSDF : msdfStagedCPUImages)
+			stagedMSDF.usedThisFrame = false;
+	}
 
 	// MSDF Hashing and Caching Internal Functions 
 	enum class MSDFType : uint8_t
@@ -511,6 +510,13 @@ protected:
 	// If you haven't created a mainObject yet, then pass InvalidMainObjectIdx
 	uint32_t addMSDFTexture(const MSDFInputInfo& msdfInput, core::smart_refctd_ptr<ICPUImage>&& cpuImage, SIntendedSubmitInfo& intendedNextSubmit);
 	
+	// Flushes Current Draw Call and adds to drawCalls
+	void flushDrawObjects();
+
+	// DrawCalls Data
+	uint64_t drawObjectsFlushedToDrawCalls = 0ull;
+	std::vector<DrawCallData> drawCalls; // either dtms or objects
+
 	// ResourcesCollection and packed into GPUBuffer
 	ResourcesCollection resourcesCollection;
 	nbl::core::smart_refctd_ptr<IGPUBuffer> resourcesGPUBuffer;
@@ -529,8 +535,8 @@ protected:
 
 	MainObjectType activeMainObjectType;
 	TransformationType activeMainObjectTransformationType;
-	uint32_t activeMainObjectIndex = InvalidMainObjectIdx;
 
+	uint32_t activeMainObjectIndex = InvalidMainObjectIdx;
 	// The ClipRects & Projections are stack, because user can push/pop ClipRects & Projections in any order
 	std::deque<float64_t3x3> activeProjections; // stack of projections stored so we can resubmit them if geometry buffer got reset.
 	std::deque<uint32_t> activeProjectionIndices; // stack of projection gpu addresses in geometry buffer. to keep track of them in push/pops
@@ -538,16 +544,32 @@ protected:
 	std::deque<WorldClipRect> activeClipRects; // stack of clips stored so we can resubmit them if geometry buffer got reset.
 	std::deque<uint32_t> activeClipRectIndices; // stack of clips gpu addresses in geometry buffer. to keep track of them in push/pops
 
-	// MSDF
+	struct MSDFStagedCPUImage
+	{
+		core::smart_refctd_ptr<ICPUImage> image;
+		bool uploadedToGPU : 1u;
+		// TODO: Use frame counter instead, generalize struct to all textures probably, DONT try to abuse scratchSema.nextSignal as frame tracker, because there can be "cached" draws where no submits happen.
+		bool usedThisFrame : 1u;
+
+		bool isValid() const { return image.get() != nullptr; }
+		void evict()
+		{
+			image = nullptr;
+			uploadedToGPU = false;
+			usedThisFrame = false;
+		}
+	};
+
 	GetGlyphMSDFTextureFunc getGlyphMSDF;
 	GetHatchFillPatternMSDFTextureFunc getHatchFillPatternMSDF;
 
 	using MSDFsLRUCache = core::LRUCache<MSDFInputInfo, MSDFReference, MSDFInputInfoHash>;
 	smart_refctd_ptr<IGPUImageView>		msdfTextureArray; // view to the resource holding all the msdfs in it's layers
 	smart_refctd_ptr<IndexAllocator>	msdfTextureArrayIndexAllocator;
-	std::set<uint32_t>					msdfTextureArrayIndicesUsed = {}; // indices in the msdf texture array allocator that have been used in the current frame // TODO: make this a dynamic bitset
-	std::vector<MSDFTextureCopy>		msdfTextureCopies = {}; // queued up texture copies
 	std::unique_ptr<MSDFsLRUCache>		msdfLRUCache; // LRU Cache to evict Least Recently Used in case of overflow
+
+	// TODO: Maybe move this to Resources Collection?
+	std::vector<MSDFStagedCPUImage>		msdfStagedCPUImages = {}; // cached cpu imaged + their status, size equals to LRUCache size
 	static constexpr asset::E_FORMAT	MSDFTextureFormat = asset::E_FORMAT::EF_R8G8B8A8_SNORM;
 
 	bool m_hasInitializedMSDFTextureArrays = false;

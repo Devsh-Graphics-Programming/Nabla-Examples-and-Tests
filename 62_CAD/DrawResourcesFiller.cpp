@@ -17,6 +17,7 @@ void DrawResourcesFiller::setSubmitDrawsFunction(const SubmitFunc& func)
 
 void DrawResourcesFiller::allocateResourcesBuffer(ILogicalDevice* logicalDevice, size_t size)
 {
+	// TODO: Make this function failable and report insufficient memory if less that getMinimumRequiredResourcesBufferSize, TODO: Have retry mechanism to allocate less mem
 	size = core::alignUp(size, ResourcesMaxNaturalAlignment);
 	size = core::max(size, getMinimumRequiredResourcesBufferSize());
 	// size = 368u; STRESS TEST
@@ -33,9 +34,7 @@ void DrawResourcesFiller::allocateResourcesBuffer(ILogicalDevice* logicalDevice,
 
 void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent)
 {
-	msdfLRUCache = std::unique_ptr<MSDFsLRUCache>(new MSDFsLRUCache(maxMSDFs));
-	msdfTextureArrayIndexAllocator = core::make_smart_refctd_ptr<IndexAllocator>(core::smart_refctd_ptr<ILogicalDevice>(logicalDevice), maxMSDFs);
-
+	// TODO: Make this function failable and report insufficient memory
 	asset::E_FORMAT msdfFormat = MSDFTextureFormat;
 	asset::VkExtent3D MSDFsExtent = { msdfsExtent.x, msdfsExtent.y, 1u }; 
 	assert(maxMSDFs <= logicalDevice->getPhysicalDevice()->getLimits().maxImageArrayLayers);
@@ -78,6 +77,10 @@ void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, ui
 
 		msdfTextureArray = logicalDevice->createImageView(std::move(imgViewInfo));
 	}
+
+	msdfLRUCache = std::unique_ptr<MSDFsLRUCache>(new MSDFsLRUCache(maxMSDFs));
+	msdfTextureArrayIndexAllocator = core::make_smart_refctd_ptr<IndexAllocator>(core::smart_refctd_ptr<ILogicalDevice>(logicalDevice), maxMSDFs);
+	msdfStagedCPUImages.resize(maxMSDFs);
 }
 
 void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, SIntendedSubmitInfo& intendedNextSubmit)
@@ -373,7 +376,7 @@ bool DrawResourcesFiller::finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNe
 	bool success = true;
 	flushDrawObjects();
 	success &= finalizeBufferCopies(intendedNextSubmit);
-	success &= finalizeTextureCopies(intendedNextSubmit);
+	success &= finalizeMSDFImagesCopies(intendedNextSubmit);
 	return success;
 }
 
@@ -488,13 +491,8 @@ bool DrawResourcesFiller::finalizeBufferCopies(SIntendedSubmitInfo& intendedNext
 	return true;
 }
 
-bool DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNextSubmit)
+bool DrawResourcesFiller::finalizeMSDFImagesCopies(SIntendedSubmitInfo& intendedNextSubmit)
 {
-	msdfTextureArrayIndicesUsed.clear(); // clear msdf textures used in the frame, because the frame finished and called this function.
-
-	if (!msdfTextureCopies.size() && m_hasInitializedMSDFTextureArrays) // even if the textureCopies are empty, we want to continue if not initialized yet so that the layout of all layers become READ_ONLY_OPTIMAL
-		return true; // yay successfully copied nothing
-
 	auto* cmdBuffInfo = intendedNextSubmit.getCommandBufferForRecording();
 	
 	if (cmdBuffInfo)
@@ -533,21 +531,20 @@ bool DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 
 		// Do the copies and advance the iterator.
 		// this is the pattern we use for iterating when entries will get erased if processed successfully, but may get skipped for later.
-		auto oit = msdfTextureCopies.begin();
-		for (auto iit = msdfTextureCopies.begin(); iit != msdfTextureCopies.end(); iit++)
+		for (uint32_t i = 0u; i < msdfStagedCPUImages.size(); ++i)
 		{
-			bool copySuccess = true;
-			if (iit->image && iit->index < msdfImage->getCreationParameters().arrayLayers)
+			auto& stagedMSDF = msdfStagedCPUImages[i];
+			if (stagedMSDF.image && i < msdfImage->getCreationParameters().arrayLayers)
 			{
-				for (uint32_t mip = 0; mip < iit->image->getCreationParameters().mipLevels; mip++)
+				for (uint32_t mip = 0; mip < stagedMSDF.image->getCreationParameters().mipLevels; mip++)
 				{
-					auto mipImageRegion = iit->image->getRegion(mip, core::vectorSIMDu32(0u, 0u));
+					auto mipImageRegion = stagedMSDF.image->getRegion(mip, core::vectorSIMDu32(0u, 0u));
 					if (mipImageRegion)
 					{
 						asset::IImage::SBufferCopy region = {};
 						region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
 						region.imageSubresource.mipLevel = mipImageRegion->imageSubresource.mipLevel;
-						region.imageSubresource.baseArrayLayer = iit->index;
+						region.imageSubresource.baseArrayLayer = i;
 						region.imageSubresource.layerCount = 1u;
 						region.bufferOffset = 0u;
 						region.bufferRowLength = mipImageRegion->getExtent().width;
@@ -555,46 +552,30 @@ bool DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 						region.imageExtent = mipImageRegion->imageExtent;
 						region.imageOffset = { 0u, 0u, 0u };
 
-						auto buffer = reinterpret_cast<uint8_t*>(iit->image->getBuffer()->getPointer());
+						auto buffer = reinterpret_cast<uint8_t*>(stagedMSDF.image->getBuffer()->getPointer());
 						auto bufferOffset = mipImageRegion->bufferOffset;
 
-						if (!m_utilities->updateImageViaStagingBuffer(
+						stagedMSDF.uploadedToGPU = m_utilities->updateImageViaStagingBuffer(
 							intendedNextSubmit,
 							buffer + bufferOffset,
 							nbl::ext::TextRendering::TextRenderer::MSDFTextureFormat,
 							msdfImage.get(),
 							IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-							{ &region, &region + 1 }))
-						{
-							// TODO: Log which mip failed
-							copySuccess = false;
-						}
+							{ &region, &region + 1 });
 					}
 					else
 					{
-						// TODO: Log
-						copySuccess = false;
+						assert(false);
+						stagedMSDF.uploadedToGPU = false;
 					}
 				}
 			}
 			else
 			{
 				assert(false);
-				copySuccess = false;
-			}
-
-			if (!copySuccess)
-			{
-				// we move the failed copy to the oit and advance it
-				if (oit != iit)
-					*oit = *iit;
-				oit++;
+				stagedMSDF.uploadedToGPU = false;
 			}
 		}
-		// trim
-		const auto newSize = std::distance(msdfTextureCopies.begin(), oit);
-		_NBL_DEBUG_BREAK_IF(newSize != 0u); // we had failed copies
-		msdfTextureCopies.resize(newSize);
 
 		// preparing msdfs for use
 		image_barrier_t afterTransferImageBarrier[] =
@@ -1169,12 +1150,12 @@ uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, cor
 
 	// TextureReferences hold the semaValue related to the "scratch semaphore" in IntendedSubmitInfo
 	// Every single submit increases this value by 1
-	// The reason for hiolding on to the lastUsedSema is deferred dealloc, which we call in the case of eviction, making sure we get rid of the entry inside the allocator only when the texture is done being used
+	// The reason for holding on to the lastUsedSema is deferred dealloc, which we call in the case of eviction, making sure we get rid of the entry inside the allocator only when the texture is done being used
 	const auto nextSemaSignal = intendedNextSubmit.getFutureScratchSemaphore();
 
 	auto evictionCallback = [&](const MSDFReference& evicted)
 	{
-		if (msdfTextureArrayIndicesUsed.contains(evicted.alloc_idx)) 
+		if (msdfStagedCPUImages[evicted.alloc_idx].usedThisFrame)
 		{
 			// Dealloc once submission is finished
 			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx, nextSemaSignal);
@@ -1187,6 +1168,7 @@ uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, cor
 			// We didn't use it this frame, so it's safe to dealloc now, withou needing to "overflow" submit
 			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx);
 		}
+		msdfStagedCPUImages[evicted.alloc_idx].evict();
 	};
 	
 	// We pass nextSemaValue instead of constructing a new MSDFReference and passing it into `insert` that's because we might get a cache hit and only update the value of the nextSema
@@ -1201,8 +1183,9 @@ uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, cor
 
 		if (inserted->alloc_idx != IndexAllocator::AddressAllocator::invalid_address)
 		{
-			// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
-			msdfTextureCopies.push_back({ .image = std::move(cpuImage), .index = inserted->alloc_idx });
+			// We stage copy, finalizeMSDFImagesCopies will push it into GPU
+			msdfStagedCPUImages[inserted->alloc_idx].image = std::move(cpuImage);
+			msdfStagedCPUImages[inserted->alloc_idx].uploadedToGPU = false;
 		}
 		else
 		{
@@ -1213,7 +1196,22 @@ uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, cor
 	
 	assert(inserted->alloc_idx != InvalidTextureIdx); // shouldn't happen, because we're using LRU cache, so worst case eviction will happen + multi-deallocate and next next multi_allocate should definitely succeed
 	if (inserted->alloc_idx != InvalidTextureIdx)
-		msdfTextureArrayIndicesUsed.emplace(inserted->alloc_idx);
+	{
+		msdfStagedCPUImages[inserted->alloc_idx].usedThisFrame = true;
+	}
 
 	return inserted->alloc_idx;
+}
+
+void DrawResourcesFiller::flushDrawObjects()
+{
+	if (resourcesCollection.drawObjects.getCount() > drawObjectsFlushedToDrawCalls)
+	{
+		DrawCallData drawCall = {};
+		drawCall.isDTMRendering = false;
+		drawCall.drawObj.drawObjectStart = drawObjectsFlushedToDrawCalls;
+		drawCall.drawObj.drawObjectCount = resourcesCollection.drawObjects.getCount() - drawObjectsFlushedToDrawCalls;
+		drawCalls.push_back(drawCall);
+		drawObjectsFlushedToDrawCalls = resourcesCollection.drawObjects.getCount();
+	}
 }
