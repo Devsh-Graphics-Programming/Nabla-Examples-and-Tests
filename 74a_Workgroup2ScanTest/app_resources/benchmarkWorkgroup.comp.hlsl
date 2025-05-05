@@ -30,7 +30,7 @@ struct DataProxy
     dtype_t outputVal;
 };
 
-static ScratchProxy<config_t> arithmeticAccessor;
+static ScratchProxy arithmeticAccessor;
 
 template<class Binop, class device_capabilities>
 struct operation_t

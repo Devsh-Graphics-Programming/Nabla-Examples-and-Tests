@@ -42,33 +42,21 @@ bool canStore();
 #error "Define SUBGROUP_SIZE_LOG2!"
 #endif
 
-groupshared vector<uint32_t, config_t::ItemsPerInvocation_1> scratch[config_t::SubgroupSize];  // final (level 1) scan needs to fit in one subgroup exactly
+// final (level 1/2) scan needs to fit in one subgroup exactly
+groupshared uint32_t scratch[config_t::SubgroupsPerVirtualWorkgroupLog2*config_t::ItemsPerInvocation_1];
 
-template<class Config>
 struct ScratchProxy
 {
-    using scalar_t = uint32_t;
-    using stype_t = vector<uint32_t, Config::ItemsPerInvocation_1>;
-
-    stype_t get(const uint32_t ix)
+    void get(const uint32_t ix, NBL_REF_ARG(uint32_t) value)
     {
-        return scratch[ix];
+        value = scratch[ix];
     }
-    void set(const uint32_t ix, const stype_t value)
+    void set(const uint32_t ix, const uint32_t value)
     {
         scratch[ix] = value;
     }
 
-    scalar_t getByComponent(const uint32_t ix)
-    {
-        return scratch[ix/Config::ItemsPerInvocation_1][ix&(Config::ItemsPerInvocation_1-1)];
-    }
-    void setByComponent(const uint32_t ix, const scalar_t value)
-    {
-        scratch[ix/Config::ItemsPerInvocation_1][ix&(Config::ItemsPerInvocation_1-1)] = value;
-    }
-
-    stype_t atomicOr(const uint32_t ix, const stype_t value)
+    uint32_t atomicOr(const uint32_t ix, const uint32_t value)
     {
         return nbl::hlsl::glsl::atomicOr(scratch[ix],value);
     }

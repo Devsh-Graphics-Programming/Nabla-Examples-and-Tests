@@ -24,7 +24,7 @@ struct DataProxy
     }
 };
 
-static ScratchProxy<config_t> arithmeticAccessor;
+static ScratchProxy arithmeticAccessor;
 
 template<class Binop, class device_capabilities>
 struct operation_t
@@ -35,7 +35,7 @@ struct operation_t
     void operator()()
     {
         DataProxy<config_t,Binop> dataAccessor;
-        nbl::hlsl::OPERATION<config_t,binop_base_t,device_capabilities>::template __call<DataProxy<config_t,Binop>, ScratchProxy<config_t> >(dataAccessor,arithmeticAccessor);
+        nbl::hlsl::OPERATION<config_t,binop_base_t,device_capabilities>::template __call<DataProxy<config_t,Binop>, ScratchProxy>(dataAccessor,arithmeticAccessor);
         // we barrier before because we alias the accessors for Binop
         arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
     }
