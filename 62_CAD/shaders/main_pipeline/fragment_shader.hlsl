@@ -7,7 +7,6 @@
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
 #include <nbl/builtin/hlsl/math/geometry.hlsl>
 #include <nbl/builtin/hlsl/spirv_intrinsics/fragment_shader_pixel_interlock.hlsl>
-#include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
 #include <nbl/builtin/hlsl/text_rendering/msdf.hlsl>
 //#include <nbl/builtin/hlsl/spirv_intrinsics/fragment_shader_barycentric.hlsl>
 
@@ -159,7 +158,7 @@ float4 fragMain(PSInput input) : SV_TARGET
         localAlpha = dtmColor.a;
 
         gammaUncorrect(textureColor); // want to output to SRGB without gamma correction
-        return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(uint2(input.position.xy), localAlpha, currentMainObjectIdx, textureColor, true);
+        return calculateFinalColor<DeviceConfigCaps::fragmentShaderPixelInterlock>(uint2(input.position.xy), localAlpha, currentMainObjectIdx, textureColor, true);
     }
     else
     {
@@ -416,6 +415,6 @@ float4 fragMain(PSInput input) : SV_TARGET
         // TODO[Przemek]: But make sure you're still calling this, correctly calculating alpha and texture color.
         // you can add 1 main object and push via DrawResourcesFiller like we already do for other objects (this go in the mainObjects StorageBuffer) and then set the currentMainObjectIdx to 0 here
         // having 1 main object temporarily means that all triangle meshes will be treated as a unified object in blending operations. 
-        return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx, textureColor, colorFromTexture);
+        return calculateFinalColor<DeviceConfigCaps::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx, textureColor, colorFromTexture);
     }
 }

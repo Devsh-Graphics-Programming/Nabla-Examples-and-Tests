@@ -1,7 +1,14 @@
 #ifndef _CAD_EXAMPLE_GLOBALS_HLSL_INCLUDED_
 #define _CAD_EXAMPLE_GLOBALS_HLSL_INCLUDED_
 
-// #define NBL_FORCE_EMULATED_FLOAT_64
+#ifdef __HLSL_VERSION
+#ifndef NBL_USE_SPIRV_BUILTINS
+#include "runtimeDeviceConfigCaps.hlsl" // defines DeviceConfigCaps, uses JIT device caps
+#endif
+#endif
+
+// TODO[Erfan]: Turn off in the future, but keep enabled to test
+#define NBL_FORCE_EMULATED_FLOAT_64
 
 #include <nbl/builtin/hlsl/portable/float64_t.hlsl>
 #include <nbl/builtin/hlsl/portable/vector_t.hlsl>
@@ -13,16 +20,14 @@
 
 #ifdef __HLSL_VERSION
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
-#include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
 #endif
 
 using namespace nbl::hlsl;
 
-// because we can't use jit/device_capabilities.hlsl in c++ code
 #ifdef __HLSL_VERSION
-using pfloat64_t = portable_float64_t<jit::device_capabilities>;
-using pfloat64_t2 = portable_float64_t2<jit::device_capabilities>;
-using pfloat64_t3 = portable_float64_t3<jit::device_capabilities>;
+using pfloat64_t = portable_float64_t<DeviceConfigCaps>;
+using pfloat64_t2 = portable_float64_t2<DeviceConfigCaps>;
+using pfloat64_t3 = portable_float64_t3<DeviceConfigCaps>;
 #else
 using pfloat64_t = float64_t;
 using pfloat64_t2 = nbl::hlsl::vector<float64_t, 2>;
@@ -501,7 +506,6 @@ NBL_CONSTEXPR uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
 NBL_CONSTEXPR uint32_t InvalidCustomProjectionIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
 NBL_CONSTEXPR uint32_t InvalidCustomClipRectIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
 NBL_CONSTEXPR uint32_t InvalidTextureIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
-NBL_CONSTEXPR uint32_t InvalidMSDFImageIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
 
 // Hatches
 NBL_CONSTEXPR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;

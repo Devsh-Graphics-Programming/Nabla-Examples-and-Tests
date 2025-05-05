@@ -5,7 +5,6 @@
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
 #include <nbl/builtin/hlsl/limits.hlsl>
 #include <nbl/builtin/hlsl/algorithm.hlsl>
-#include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
 
 // TODO[Lucas]: Move these functions to builtin hlsl functions (Even the shadertoy obb and aabb ones)
 float cross2D(float2 a, float2 b)
@@ -518,7 +517,7 @@ PSInput main(uint vertexID : SV_VertexID)
             const float2 dilateRate = pixelsToIncreaseOnEachSide / screenSpaceAabbExtents; // float sufficient to hold the dilate rect? 
             float2 dilateVec;
             float2 dilatedUV;
-            dilateHatch<jit::device_capabilities::fragmentShaderPixelInterlock>(dilateVec, dilatedUV, undilatedCorner, dilateRate, ndcAxisU, ndcAxisV);
+            dilateHatch<DeviceConfigCaps::fragmentShaderPixelInterlock>(dilateVec, dilatedUV, undilatedCorner, dilateRate, ndcAxisU, ndcAxisV);
 
             // doing interpolation this way to ensure correct endpoints and 0 and 1, we can alternatively use branches to set current corner based on vertexIdx
             const pfloat64_t2 currentCorner = curveBox.aabbMin * (_static_cast<pfloat64_t2>(float2(1.0f, 1.0f)) - undilatedCornerF64) +

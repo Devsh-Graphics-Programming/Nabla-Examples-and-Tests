@@ -1,6 +1,5 @@
 #include "common.hlsl"
 #include <nbl/builtin/hlsl/spirv_intrinsics/fragment_shader_pixel_interlock.hlsl>
-#include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
 
 template<bool FragmentShaderPixelInterlock>
 float32_t4 calculateFinalColor(const uint2 fragCoord);
@@ -78,5 +77,5 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord)
 [shader("pixel")]
 float4 resolveAlphaMain(float4 position : SV_Position) : SV_TARGET
 {
-    return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(position.xy);
+    return calculateFinalColor<DeviceConfigCaps::fragmentShaderPixelInterlock>(position.xy);
 }
