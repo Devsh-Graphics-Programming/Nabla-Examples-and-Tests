@@ -371,13 +371,37 @@ void DrawResourcesFiller::_test_addImageObject(float64_t2 topLeftPos, float32_t2
 	endMainObject();
 }
 
-bool DrawResourcesFiller::finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
+bool DrawResourcesFiller::pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit)
 {
+	if (!intendedNextSubmit.valid())
+	{
+		// It is a caching submit without command buffer, just for the purpose of accumulation of staging resources
+		// In that case we don't push any uploads (i.e. we don't record any copy commmand in active command buffer, because there is no active command buffer)
+		return false;
+	}
+
 	bool success = true;
-	flushDrawObjects();
-	success &= finalizeBufferCopies(intendedNextSubmit);
-	success &= finalizeMSDFImagesCopies(intendedNextSubmit);
+	if (currentReplayCache)
+	{
+		// This means we're in a replay cache scope, use the replay cache to push to GPU instead of internal accumulation
+		success &= pushBufferUploads(intendedNextSubmit, currentReplayCache->resourcesCollection);
+		success &= pushMSDFImagesUploads(intendedNextSubmit, currentReplayCache->msdfStagedCPUImages);
+	}
+	else
+	{
+		flushDrawObjects();
+		success &= pushBufferUploads(intendedNextSubmit, resourcesCollection);
+		success &= pushMSDFImagesUploads(intendedNextSubmit, msdfStagedCPUImages);
+	}
 	return success;
+}
+
+const DrawResourcesFiller::ResourcesCollection& DrawResourcesFiller::getResourcesCollection() const
+{
+	if (currentReplayCache)
+		return currentReplayCache->resourcesCollection;
+	else
+		return resourcesCollection;
 }
 
 void DrawResourcesFiller::setActiveLineStyle(const LineStyleInfo& lineStyle)
@@ -435,7 +459,50 @@ void DrawResourcesFiller::popCustomClipRect()
 	activeClipRectIndices.pop_back();
 }
 
-bool DrawResourcesFiller::finalizeBufferCopies(SIntendedSubmitInfo& intendedNextSubmit)
+/// For advanced use only, (passed to shaders for them to know if we overflow-submitted in the middle if a main obj
+uint32_t DrawResourcesFiller::getActiveMainObjectIndex() const
+{
+	if (currentReplayCache)
+		return currentReplayCache->activeMainObjectIndex;
+	else
+		return activeMainObjectIndex;
+}
+
+const std::vector<DrawResourcesFiller::DrawCallData>& DrawResourcesFiller::getDrawCalls() const
+{
+	if (currentReplayCache)
+		return currentReplayCache->drawCallsData;
+	else
+		return drawCalls;
+}
+
+std::unique_ptr<DrawResourcesFiller::ReplayCache> DrawResourcesFiller::createReplayCache()
+{
+	flushDrawObjects();
+	std::unique_ptr<ReplayCache> ret = std::unique_ptr<ReplayCache>(new ReplayCache);
+	ret->resourcesCollection = resourcesCollection;
+	ret->msdfStagedCPUImages = msdfStagedCPUImages;
+	for (auto& stagedMSDF : ret->msdfStagedCPUImages)
+	{
+		stagedMSDF.uploadedToGPU = false; // to trigger upload for all msdf functions again.
+		stagedMSDF.usedThisFrame = false;
+	}
+	ret->drawCallsData = drawCalls;
+	ret->activeMainObjectIndex = activeMainObjectIndex;
+	return ret;
+}
+
+void DrawResourcesFiller::setReplayCache(ReplayCache* cache)
+{
+	currentReplayCache = cache;
+}
+
+void DrawResourcesFiller::unsetReplayCache()
+{
+	currentReplayCache = nullptr;
+}
+
+bool DrawResourcesFiller::pushBufferUploads(SIntendedSubmitInfo& intendedNextSubmit, ResourcesCollection& resources)
 {
 	copiedResourcesSize = 0ull;
 
@@ -479,19 +546,19 @@ bool DrawResourcesFiller::finalizeBufferCopies(SIntendedSubmitInfo& intendedNext
 			copiedResourcesSize += drawBuffer.getAlignedStorageSize();
 		};
 
-	copyCPUFilledDrawBuffer(resourcesCollection.lineStyles);
-	copyCPUFilledDrawBuffer(resourcesCollection.dtmSettings);
-	copyCPUFilledDrawBuffer(resourcesCollection.customProjections);
-	copyCPUFilledDrawBuffer(resourcesCollection.customClipRects);
-	copyCPUFilledDrawBuffer(resourcesCollection.mainObjects);
-	copyCPUFilledDrawBuffer(resourcesCollection.drawObjects);
-	copyCPUFilledDrawBuffer(resourcesCollection.indexBuffer);
-	copyCPUFilledDrawBuffer(resourcesCollection.geometryInfo);
+	copyCPUFilledDrawBuffer(resources.lineStyles);
+	copyCPUFilledDrawBuffer(resources.dtmSettings);
+	copyCPUFilledDrawBuffer(resources.customProjections);
+	copyCPUFilledDrawBuffer(resources.customClipRects);
+	copyCPUFilledDrawBuffer(resources.mainObjects);
+	copyCPUFilledDrawBuffer(resources.drawObjects);
+	copyCPUFilledDrawBuffer(resources.indexBuffer);
+	copyCPUFilledDrawBuffer(resources.geometryInfo);
 	
 	return true;
 }
 
-bool DrawResourcesFiller::finalizeMSDFImagesCopies(SIntendedSubmitInfo& intendedNextSubmit)
+bool DrawResourcesFiller::pushMSDFImagesUploads(SIntendedSubmitInfo& intendedNextSubmit, std::vector<MSDFStagedCPUImage>& stagedMSDFCPUImages)
 {
 	auto* cmdBuffInfo = intendedNextSubmit.getCommandBufferForRecording();
 	
@@ -531,9 +598,9 @@ bool DrawResourcesFiller::finalizeMSDFImagesCopies(SIntendedSubmitInfo& intended
 
 		// Do the copies and advance the iterator.
 		// this is the pattern we use for iterating when entries will get erased if processed successfully, but may get skipped for later.
-		for (uint32_t i = 0u; i < msdfStagedCPUImages.size(); ++i)
+		for (uint32_t i = 0u; i < stagedMSDFCPUImages.size(); ++i)
 		{
-			auto& stagedMSDF = msdfStagedCPUImages[i];
+			auto& stagedMSDF = stagedMSDFCPUImages[i];
 			if (stagedMSDF.image && i < msdfImage->getCreationParameters().arrayLayers)
 			{
 				for (uint32_t mip = 0; mip < stagedMSDF.image->getCreationParameters().mipLevels; mip++)
@@ -572,7 +639,6 @@ bool DrawResourcesFiller::finalizeMSDFImagesCopies(SIntendedSubmitInfo& intended
 			}
 			else
 			{
-				assert(false);
 				stagedMSDF.uploadedToGPU = false;
 			}
 		}
@@ -624,7 +690,6 @@ const size_t DrawResourcesFiller::calculateRemainingResourcesSize() const
 
 void DrawResourcesFiller::submitCurrentDrawObjectsAndReset(SIntendedSubmitInfo& intendedNextSubmit, uint32_t& mainObjectIndex)
 {
-	finalizeAllCopiesToGPU(intendedNextSubmit);
 	submitDraws(intendedNextSubmit);
 	reset(); // resets everything, things referenced through mainObj and other shit will be pushed again through acquireXXX_SubmitIfNeeded
 	mainObjectIndex = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit); // it will be 0 because it's first mainObjectIndex after reset and invalidation
@@ -780,7 +845,6 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 	if (needToOverflowSubmit)
 	{
 		// failed to fit into remaining resources mem or exceeded max indexable mainobj
-		finalizeAllCopiesToGPU(intendedNextSubmit);
 		submitDraws(intendedNextSubmit);
 		reset(); // resets everything! be careful!
 	}
@@ -803,7 +867,6 @@ uint32_t DrawResourcesFiller::addLineStyle_SubmitIfNeeded(const LineStyleInfo& l
 	if (outLineStyleIdx == InvalidStyleIdx)
 	{
 		// There wasn't enough resource memory remaining to fit a single LineStyle
-		finalizeAllCopiesToGPU(intendedNextSubmit);
 		submitDraws(intendedNextSubmit);
 		reset(); // resets everything! be careful!
 
@@ -821,7 +884,6 @@ uint32_t DrawResourcesFiller::addDTMSettings_SubmitIfNeeded(const DTMSettingsInf
 	if (outDTMSettingIdx == InvalidDTMSettingsIdx)
 	{
 		// There wasn't enough resource memory remaining to fit dtmsettings struct + 2 linestyles structs.
-		finalizeAllCopiesToGPU(intendedNextSubmit);
 		submitDraws(intendedNextSubmit);
 		reset(); // resets everything! be careful!
 
@@ -839,7 +901,6 @@ uint32_t DrawResourcesFiller::addCustomProjection_SubmitIfNeeded(const float64_t
 
 	if (!enoughMem)
 	{
-		finalizeAllCopiesToGPU(intendedNextSubmit);
 		submitDraws(intendedNextSubmit);
 		reset(); // resets everything! be careful!
 	}
@@ -856,7 +917,6 @@ uint32_t DrawResourcesFiller::addCustomClipRect_SubmitIfNeeded(const WorldClipRe
 
 	if (!enoughMem)
 	{
-		finalizeAllCopiesToGPU(intendedNextSubmit);
 		submitDraws(intendedNextSubmit);
 		reset(); // resets everything! be careful!
 	}
@@ -1159,7 +1219,6 @@ uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, cor
 		{
 			// Dealloc once submission is finished
 			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx, nextSemaSignal);
-			finalizeAllCopiesToGPU(intendedNextSubmit);
 			submitDraws(intendedNextSubmit);
 			reset(); // resets everything, things referenced through mainObj and other shit will be pushed again through acquireXXX_SubmitIfNeeded
 		} 
@@ -1183,7 +1242,7 @@ uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, cor
 
 		if (inserted->alloc_idx != IndexAllocator::AddressAllocator::invalid_address)
 		{
-			// We stage copy, finalizeMSDFImagesCopies will push it into GPU
+			// We stage copy, pushMSDFImagesUploads will push it into GPU
 			msdfStagedCPUImages[inserted->alloc_idx].image = std::move(cpuImage);
 			msdfStagedCPUImages[inserted->alloc_idx].uploadedToGPU = false;
 		}

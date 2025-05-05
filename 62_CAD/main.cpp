@@ -45,6 +45,7 @@ static constexpr bool DebugModeWireframe = false;
 static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
 static constexpr bool LargeGeoTextureStreaming = true;
+static constexpr bool CacheAndReplay = false; // caches first frame resources (buffers and images) from DrawResourcesFiller  and replays in future frames, skiping CPU Logic
 
 enum class ExampleMode
 {
@@ -77,7 +78,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	10.0	// CASE_BUG
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_2;
+constexpr ExampleMode mode = ExampleMode::CASE_9;
 
 class Camera2D
 {
@@ -240,7 +241,7 @@ class CSwapchainResources : public ISimpleManagedSurface::ISwapchainResources
 			std::fill(m_framebuffers.begin(),m_framebuffers.end(),nullptr);
 		}
 
-		// For creating extra per-image or swapchain resources you might need
+		// For creating extra per-image or swapchain resourcesCollection you might need
 		virtual inline bool onCreateSwapchain_impl(const uint8_t qFam)
 		{
 			auto device = const_cast<ILogicalDevice*>(m_renderpass->getOriginDevice());
@@ -286,10 +287,10 @@ class ComputerAidedDesign final : public examples::SimpleWindowedApplication, pu
 	constexpr static uint32_t MaxSubmitsInFlight = 16u;
 public:
 
-	void allocateResources(uint32_t maxObjects)
+	void allocateResources()
 	{
 		drawResourcesFiller = DrawResourcesFiller(core::smart_refctd_ptr(m_utils), getGraphicsQueue());
-
+		
 		size_t bufferSize = 512u * 1024u * 1024u; // 512 MB
 		drawResourcesFiller.allocateResourcesBuffer(m_device.get(), bufferSize);
 		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 256u, uint32_t2(MSDFSize, MSDFSize));
@@ -626,7 +627,7 @@ public:
 	double dt = 0;
 	double m_timeElapsed = 0.0;
 	std::chrono::steady_clock::time_point lastTime;
-	uint32_t m_hatchDebugStep = 0u;
+	uint32_t m_hatchDebugStep = 10u;
 	E_HEIGHT_SHADING_MODE m_shadingModeExample = E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
@@ -657,7 +658,7 @@ public:
 		if (!m_surface->init(getGraphicsQueue(),std::move(scResources),{}))
 			return logFail("Could not initialize the Surface!");
 
-		allocateResources(1024 * 1024u);
+		allocateResources();
 
 		const bitflag<IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS> bindlessTextureFlags =
 			IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT |
@@ -1089,6 +1090,14 @@ public:
 			}
 		, m_logger.get());
 		
+		const bool isCachingDraw = CacheAndReplay && m_realFrameIx == 0u;
+		if (isCachingDraw)
+		{
+			SIntendedSubmitInfo invalidSubmit = {};
+			addObjects(invalidSubmit); // if any overflows happen here, it will add to our replay cache and not submit anything
+			replayCaches.push_back(drawResourcesFiller.createReplayCache());
+			finishedCachingDraw = true;
+		}
 
 		if (!beginFrameRender())
 			return;
@@ -1109,9 +1118,27 @@ public:
 		IQueue::SSubmitInfo::SSemaphoreInfo waitSems[2u] = { acquired, prevFrameRendered };
 		m_intendedNextSubmit.waitSemaphores = waitSems;
 		
-		addObjects(m_intendedNextSubmit);
-		
+		if (CacheAndReplay)
+		{
+			// to size-1u because we only want to submit overflows here.
+			for (uint32_t i = 0u; i < replayCaches.size() - 1u; ++i)
+			{
+				drawResourcesFiller.setReplayCache(replayCaches[i].get());
+				submitDraws(m_intendedNextSubmit, true);
+				drawResourcesFiller.unsetReplayCache();
+			}
+			if (!replayCaches.empty())
+				drawResourcesFiller.setReplayCache(replayCaches.back().get());
+		}
+		else
+		{
+			addObjects(m_intendedNextSubmit);
+		}
+
 		endFrameRender(m_intendedNextSubmit);
+
+		if (CacheAndReplay)
+			drawResourcesFiller.unsetReplayCache();
 
 #ifdef BENCHMARK_TILL_FIRST_FRAME
 		if (!stopBenchamrkFlag)
@@ -1187,17 +1214,19 @@ public:
 	
 	void submitDraws(SIntendedSubmitInfo& intendedSubmitInfo, bool inBetweenSubmit)
 	{
-		// TODO: Remove this check later
-		if (inBetweenSubmit)
+		const bool isCachingDraw = CacheAndReplay && m_realFrameIx == 0u && !finishedCachingDraw;
+		if (isCachingDraw)
 		{
-			m_logger->log("Temporarily Disabled. Auto-Submission shouldn't happen (for Demo)", ILogger::ELL_ERROR);
-			assert(!inBetweenSubmit);
+			replayCaches.push_back(drawResourcesFiller.createReplayCache());
+			return; // we don't record, submit or do anything, just caching the draw resources
 		}
+
+		drawResourcesFiller.pushAllUploads(intendedSubmitInfo);
 
 		// Use the current recording command buffer of the intendedSubmitInfos scratchCommandBuffers, it should be in recording state
 		auto* cb = m_currentRecordingCommandBufferInfo->cmdbuf;
 		
-		const auto& resources = drawResourcesFiller.getResourcesCollection();
+		const auto& resourcesCollection = drawResourcesFiller.getResourcesCollection();
 		const auto& resourcesGPUBuffer = drawResourcesFiller.getResourcesGPUBuffer();
 
 		float64_t3x3 projectionToNDC;
@@ -1206,13 +1235,13 @@ public:
 		Globals globalData = {};
 		uint64_t baseAddress = resourcesGPUBuffer->getDeviceAddress();
 		globalData.pointers = {
-			.lineStyles				= baseAddress + resources.lineStyles.bufferOffset,
-			.dtmSettings			= baseAddress + resources.dtmSettings.bufferOffset,
-			.customProjections		= baseAddress + resources.customProjections.bufferOffset,
-			.customClipRects		= baseAddress + resources.customClipRects.bufferOffset,
-			.mainObjects			= baseAddress + resources.mainObjects.bufferOffset,
-			.drawObjects			= baseAddress + resources.drawObjects.bufferOffset,
-			.geometryBuffer			= baseAddress + resources.geometryInfo.bufferOffset,
+			.lineStyles				= baseAddress + resourcesCollection.lineStyles.bufferOffset,
+			.dtmSettings			= baseAddress + resourcesCollection.dtmSettings.bufferOffset,
+			.customProjections		= baseAddress + resourcesCollection.customProjections.bufferOffset,
+			.customClipRects		= baseAddress + resourcesCollection.customClipRects.bufferOffset,
+			.mainObjects			= baseAddress + resourcesCollection.mainObjects.bufferOffset,
+			.drawObjects			= baseAddress + resourcesCollection.drawObjects.bufferOffset,
+			.geometryBuffer			= baseAddress + resourcesCollection.geometryInfo.bufferOffset,
 		};
 		globalData.antiAliasingFactor = 1.0;// +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
 		globalData.resolution = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
@@ -1253,7 +1282,7 @@ public:
 			uint32_t bufferBarriersCount = 0u;
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t bufferBarriers[MaxBufferBarriersCount];
 			
-			const auto& resources = drawResourcesFiller.getResourcesCollection();
+			const auto& resourcesCollection = drawResourcesFiller.getResourcesCollection();
 
 			if (m_globalsBuffer->getSize() > 0u)
 			{
@@ -1311,14 +1340,14 @@ public:
 		
 		cb->bindGraphicsPipeline(graphicsPipeline.get());
 
-		for (auto& drawCall : drawResourcesFiller.drawCalls)
+		for (auto& drawCall : drawResourcesFiller.getDrawCalls())
 		{
 			if (drawCall.isDTMRendering)
 			{
-				cb->bindIndexBuffer({ .offset = resources.geometryInfo.bufferOffset + drawCall.dtm.indexBufferOffset, .buffer = drawResourcesFiller.getResourcesGPUBuffer().get()}, asset::EIT_32BIT);
+				cb->bindIndexBuffer({ .offset = resourcesCollection.geometryInfo.bufferOffset + drawCall.dtm.indexBufferOffset, .buffer = drawResourcesFiller.getResourcesGPUBuffer().get()}, asset::EIT_32BIT);
 
 				PushConstants pc = {
-					.triangleMeshVerticesBaseAddress = drawCall.dtm.triangleMeshVerticesBaseAddress + resourcesGPUBuffer->getDeviceAddress() + resources.geometryInfo.bufferOffset,
+					.triangleMeshVerticesBaseAddress = drawCall.dtm.triangleMeshVerticesBaseAddress + resourcesGPUBuffer->getDeviceAddress() + resourcesCollection.geometryInfo.bufferOffset,
 					.triangleMeshMainObjectIndex = drawCall.dtm.triangleMeshMainObjectIndex,
 					.isDTMRendering = true
 				};
@@ -1336,8 +1365,8 @@ public:
 				const uint64_t indexOffset = drawCall.drawObj.drawObjectStart * 6u;
 				const uint64_t indexCount = drawCall.drawObj.drawObjectCount * 6u;
 
-				// assert(currentIndexCount == resources.indexBuffer.getCount());
-				cb->bindIndexBuffer({ .offset = resources.indexBuffer.bufferOffset + indexOffset * sizeof(uint32_t), .buffer = resourcesGPUBuffer.get()}, asset::EIT_32BIT);
+				// assert(currentIndexCount == resourcesCollection.indexBuffer.getCount());
+				cb->bindIndexBuffer({ .offset = resourcesCollection.indexBuffer.bufferOffset + indexOffset * sizeof(uint32_t), .buffer = resourcesGPUBuffer.get()}, asset::EIT_32BIT);
 				cb->drawIndexed(indexCount, 1u, 0u, 0u, 0u);
 			}
 		}
@@ -1350,7 +1379,7 @@ public:
 
 		if constexpr (DebugModeWireframe)
 		{
-			const uint32_t indexCount = resources.drawObjects.getCount() * 6u;
+			const uint32_t indexCount = resourcesCollection.drawObjects.getCount() * 6u;
 			cb->bindGraphicsPipeline(debugGraphicsPipeline.get());
 			cb->drawIndexed(indexCount, 1u, 0u, 0u, 0u);
 		}
@@ -1448,22 +1477,6 @@ protected:
 	
 	void addObjects(SIntendedSubmitInfo& intendedNextSubmit)
 	{
-		// we record upload of our objects and if we failed to allocate we submit everything
-		if (!intendedNextSubmit.valid())
-		{
-			// log("intendedNextSubmit is invalid.", nbl::system::ILogger::ELL_ERROR);
-			assert(false);
-			return;
-		}
-
-		// Use the current recording command buffer of the intendedSubmitInfos scratchCommandBuffers, it should be in recording state
-		auto* cmdbuf = m_currentRecordingCommandBufferInfo->cmdbuf;
-
-		assert(cmdbuf->getState() == video::IGPUCommandBuffer::STATE::RECORDING && cmdbuf->isResettable());
-		assert(cmdbuf->getRecordingFlags().hasFlags(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT));
-
-		auto* cmdpool = cmdbuf->getPool();
-
 		drawResourcesFiller.setSubmitDrawsFunction(
 			[&](SIntendedSubmitInfo& intendedNextSubmit)
 			{
@@ -2822,6 +2835,23 @@ protected:
 		{
 			if (m_realFrameIx == 0u)
 			{
+				// we record upload of our objects and if we failed to allocate we submit everything
+				if (!intendedNextSubmit.valid())
+				{
+					// log("intendedNextSubmit is invalid.", nbl::system::ILogger::ELL_ERROR);
+					assert(false);
+					return;
+				}
+
+				// Use the current recording command buffer of the intendedSubmitInfos scratchCommandBuffers, it should be in recording state
+				auto* cmdbuf = m_currentRecordingCommandBufferInfo->cmdbuf;
+
+				assert(cmdbuf->getState() == video::IGPUCommandBuffer::STATE::RECORDING && cmdbuf->isResettable());
+				assert(cmdbuf->getRecordingFlags().hasFlags(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT));
+
+				auto* cmdpool = cmdbuf->getPool();
+
+
 				// Load image
 				system::path m_loadCWD = "..";
 				std::string imagePath = "../../media/color_space_test/R8G8B8A8_1.png";
@@ -3416,8 +3446,6 @@ protected:
 				drawResourcesFiller.drawFixedGeometryPolyline(polyline, style, transformation, TransformationType::TT_FIXED_SCREENSPACE_SIZE, intendedNextSubmit);
 			}
 		}
-
-		drawResourcesFiller.finalizeAllCopiesToGPU(intendedNextSubmit);
 	}
 
 	double getScreenToWorldRatio(const float64_t3x3& viewProjectionMatrix, uint32_t2 windowSize)
@@ -3432,6 +3460,9 @@ protected:
 
 	std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
 	clock_t::time_point start;
+
+	std::vector<std::unique_ptr<DrawResourcesFiller::ReplayCache>> replayCaches = {}; // vector because there can be overflow submits
+	bool finishedCachingDraw = false;
 
 	bool fragmentShaderInterlockEnabled = false;
 

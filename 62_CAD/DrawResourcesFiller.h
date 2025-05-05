@@ -86,6 +86,7 @@ public:
 	};
 
 	/// @brief struct to hold all resources
+	// TODO: rename to staged resources buffers or something like that
 	struct ResourcesCollection
 	{
 		// auto-submission level 0 resources (settings that mainObj references)
@@ -204,12 +205,12 @@ public:
 		float32_t2 size,
 		float32_t rotation,
 		SIntendedSubmitInfo& intendedNextSubmit);
-
-	/// @brief call this function before submitting to ensure all resources are copied
+	
+	/// @brief call this function before submitting to ensure all buffer and textures resourcesCollection requested via drawing calls are copied to GPU
 	/// records copy command into intendedNextSubmit's active command buffer and might possibly submits if fails allocation on staging upload memory.
-	bool finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
+	bool pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit);
 
-	/// @brief  resets resources buffers
+	/// @brief  resets staging buffers and images
 	void reset()
 	{
 		resetDrawObjects();
@@ -225,7 +226,7 @@ public:
 	}
 
 	/// @brief collection of all the resources that will eventually be reserved or copied to in the resourcesGPUBuffer, will be accessed via individual BDA pointers in shaders
-	const ResourcesCollection& getResourcesCollection() const { return resourcesCollection; }
+	const ResourcesCollection& getResourcesCollection() const;
 
 	/// @brief buffer containing all non-texture type resources
 	nbl::core::smart_refctd_ptr<IGPUBuffer> getResourcesGPUBuffer() const { return resourcesGPUBuffer; }
@@ -260,7 +261,23 @@ public:
 	}
 
 	/// For advanced use only, (passed to shaders for them to know if we overflow-submitted in the middle if a main obj
-	uint32_t getActiveMainObjectIndex() const { return activeMainObjectIndex; }
+	uint32_t getActiveMainObjectIndex() const;
+
+	struct MSDFStagedCPUImage
+	{
+		core::smart_refctd_ptr<ICPUImage> image;
+		bool uploadedToGPU : 1u;
+		// TODO: Use frame counter instead, generalize struct to all textures probably, DONT try to abuse scratchSema.nextSignal as frame tracker, because there can be "cached" draws where no submits happen.
+		bool usedThisFrame : 1u;
+
+		bool isValid() const { return image.get() != nullptr; }
+		void evict()
+		{
+			image = nullptr;
+			uploadedToGPU = false;
+			usedThisFrame = false;
+		}
+	};
 
 	// NOTE: Most probably Going to get removed soon with a single draw call in GPU-driven rendering
 	struct DrawCallData
@@ -283,29 +300,58 @@ public:
 		bool isDTMRendering;
 	};
 
-	const std::vector<DrawCallData>& getDrawCalls() const { return drawCalls; }
+	const std::vector<DrawCallData>& getDrawCalls() const;
 
-	// ! This is all the textures and buffers that were staged on CPU and eventually copied to GPU in a single submit
-	// ! This data is prepped and ready to be consumed by GPU with no further transformations applied on the data.
-	// ! You can back this up,  and replay your scene without having to traverse your scene and do AddXXX, DrawXXX all over again.
-	struct DrawResourcesCache
+	/// @brief Stores all CPU-side resources that were staged and prepared for a single GPU submission.
+	///
+	/// *** This cache includes anything used or referenced from DrawResourcesFiller in the Draw Submit:
+	/// - Buffer data (geometry, indices, etc.)
+	/// - MSDF CPU images
+	/// - Draw call metadata
+	/// - Active MainObject Index --> this is another state of the submit that we need to store 
+	///
+	/// The data is fully preprocessed and ready to be pushed to the GPU with no further transformation.
+	/// This enables efficient replays without traversing or re-generating scene content.
+	struct ReplayCache
 	{
-		// TODO: Resources Colletion
-		// TODO: MSDFs Staging Cache
-		// TODO: Draw Calls Data
-		// TODO: Get total memory consumption
+		ResourcesCollection resourcesCollection;
+		std::vector<MSDFStagedCPUImage> msdfStagedCPUImages;
+		std::vector<DrawCallData> drawCallsData;
+		uint32_t activeMainObjectIndex = InvalidMainObjectIdx;
+		// TODO: non msdf general CPU Images
+		// TODO: Get total memory consumption for logging?
 	};
 
-	// TODO: Backup which gives DrawResourcesCache
-	// TODO: Restore which gets DrawResourcesCache
+	/// @brief Creates a snapshot of all currently staged CPU-side resourcesCollection for future replay or deferred submission.
+	/// 
+	/// @warning This cache corresponds to a **single intended GPU submit**. 
+	/// If your frame submission overflows into multiple submits due to staging memory limits or batching,
+	/// you are responsible for creating **multiple ReplayCache instances**, one per submit.
+	///
+	/// @return A heap-allocated ReplayCache containing a copy of all staged CPU-side resourcesCollection and draw call data.
+	std::unique_ptr<ReplayCache> createReplayCache();
+
+	/// @brief Redirects all subsequent resource upload and getters to use an external ReplayCache.
+	///
+	/// After calling this function, staging, resource getters, and upload mechanisms will pull data from the given ReplayCache
+	/// instead of the internal accumulation cache.
+	///
+	/// User is responsible for management of cache and making sure it's alive in the ReplayCache scope
+	void setReplayCache(ReplayCache* cache);
+	
+	/// @brief Reverts internal logic to use the default internal staging and resource accumulation cache.
+	/// Must be called once per corresponding `pushReplayCacheUse()`.
+	void unsetReplayCache();
 
 protected:
 
 	SubmitFunc submitDraws;
-	
-	bool finalizeBufferCopies(SIntendedSubmitInfo& intendedNextSubmit);
 
-	bool finalizeMSDFImagesCopies(SIntendedSubmitInfo& intendedNextSubmit);
+	/// @brief Records GPU copy commands for all staged buffer resourcesCollection into the active command buffer.
+	bool pushBufferUploads(SIntendedSubmitInfo& intendedNextSubmit, ResourcesCollection& resourcesCollection);
+	
+	/// @brief Records GPU copy commands for all staged msdf images into the active command buffer.
+	bool pushMSDFImagesUploads(SIntendedSubmitInfo& intendedNextSubmit, std::vector<MSDFStagedCPUImage>& stagedMSDFCPUImages);
 
 	const size_t calculateRemainingResourcesSize() const;
 
@@ -513,6 +559,9 @@ protected:
 	// Flushes Current Draw Call and adds to drawCalls
 	void flushDrawObjects();
 
+	// Replay Cache override
+	ReplayCache* currentReplayCache = nullptr;
+
 	// DrawCalls Data
 	uint64_t drawObjectsFlushedToDrawCalls = 0ull;
 	std::vector<DrawCallData> drawCalls; // either dtms or objects
@@ -544,22 +593,6 @@ protected:
 	std::deque<WorldClipRect> activeClipRects; // stack of clips stored so we can resubmit them if geometry buffer got reset.
 	std::deque<uint32_t> activeClipRectIndices; // stack of clips gpu addresses in geometry buffer. to keep track of them in push/pops
 
-	struct MSDFStagedCPUImage
-	{
-		core::smart_refctd_ptr<ICPUImage> image;
-		bool uploadedToGPU : 1u;
-		// TODO: Use frame counter instead, generalize struct to all textures probably, DONT try to abuse scratchSema.nextSignal as frame tracker, because there can be "cached" draws where no submits happen.
-		bool usedThisFrame : 1u;
-
-		bool isValid() const { return image.get() != nullptr; }
-		void evict()
-		{
-			image = nullptr;
-			uploadedToGPU = false;
-			usedThisFrame = false;
-		}
-	};
-
 	GetGlyphMSDFTextureFunc getGlyphMSDF;
 	GetHatchFillPatternMSDFTextureFunc getHatchFillPatternMSDF;
 
@@ -568,7 +601,6 @@ protected:
 	smart_refctd_ptr<IndexAllocator>	msdfTextureArrayIndexAllocator;
 	std::unique_ptr<MSDFsLRUCache>		msdfLRUCache; // LRU Cache to evict Least Recently Used in case of overflow
 
-	// TODO: Maybe move this to Resources Collection?
 	std::vector<MSDFStagedCPUImage>		msdfStagedCPUImages = {}; // cached cpu imaged + their status, size equals to LRUCache size
 	static constexpr asset::E_FORMAT	MSDFTextureFormat = asset::E_FORMAT::EF_R8G8B8A8_SNORM;
 
