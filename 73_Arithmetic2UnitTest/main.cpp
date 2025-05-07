@@ -475,8 +475,6 @@ private:
 	smart_refctd_ptr<ICPUBuffer> resultsBuffer;
 
 	uint32_t totalFailCount = 0;
-
-	//uint32_t ItemsPerInvocation = 4u;
 };
 
 NBL_MAIN_FUNC(Workgroup2ScanTestApp)

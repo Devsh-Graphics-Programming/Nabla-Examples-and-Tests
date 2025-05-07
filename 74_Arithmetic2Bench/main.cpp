@@ -265,9 +265,8 @@ public:
 			return smart_refctd_ptr_static_cast<ICPUShader>(firstAssetInBundle);
 		};
 
-		auto subgroupTestSource = getShaderSource("app_resources/testSubgroup.comp.hlsl");
 		auto subgroupBenchSource = getShaderSource("app_resources/benchmarkSubgroup.comp.hlsl");
-		//auto workgroupTestSource = getShaderSource("app_resources/testWorkgroup.comp.hlsl");
+		auto workgroupBenchSource = getShaderSource("app_resources/benchmarkWorkgroup.comp.hlsl");
 		// now create or retrieve final resources to run our tests
 		sema = m_device->createSemaphore(timelineValue);
 		resultsBuffer = ICPUBuffer::create({ outputBuffers[0]->getSize() });
@@ -280,25 +279,22 @@ public:
 				return false;
 			}
 		}
-		
-		// TODO variable items per invocation?
-		const uint32_t NumLoops = 1000u;
-		const std::array<uint32_t, 3> workgroupSizes = { 256, 512, 1024 };
+
 		// const auto MaxWorkgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
 		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
-		
-		if (b_runTests)
-		{
-			runTests(cmdbuf.get(), subgroupTestSource, elementCount, ItemsPerInvocation, MinSubgroupSize, MaxSubgroupSize, workgroupSizes);
-
-			m_logger->log("==========Result==========", ILogger::ELL_INFO);
-			m_logger->log("Fail Count: %u", ILogger::ELL_INFO, totalFailCount);
-		}
 
 		// for each workgroup size (manually adjust items per invoc, operation else uses up a lot of ram)
-		for (uint32_t i = 0; i < workgroupSizes.size(); i++)
-			benchSets[i] = createBenchmarkPipelines<ArithmeticOp>(subgroupBenchSource, benchPplnLayout.get(), elementCount, hlsl::findMSB(MinSubgroupSize), workgroupSizes[i], ItemsPerInvocation, NumLoops);
+		if constexpr (DoWorkgroupBenchmarks)
+		{
+			for (uint32_t i = 0; i < workgroupSizes.size(); i++)
+				benchSets[i] = createBenchmarkPipelines<ArithmeticOp, DoWorkgroupBenchmarks>(workgroupBenchSource, benchPplnLayout.get(), elementCount, hlsl::findMSB(MinSubgroupSize), workgroupSizes[i], ItemsPerInvocation, NumLoops);
+		}
+		else
+		{
+			for (uint32_t i = 0; i < workgroupSizes.size(); i++)
+				benchSets[i] = createBenchmarkPipelines<ArithmeticOp, DoWorkgroupBenchmarks>(subgroupBenchSource, benchPplnLayout.get(), elementCount, hlsl::findMSB(MinSubgroupSize), workgroupSizes[i], ItemsPerInvocation, NumLoops);
+		}
 
 		m_winMgr->show(m_window.get());
 
@@ -399,7 +395,7 @@ public:
 		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, benchSets[0].pipeline->getLayout(), 0u, 1u, &benchDs.get());
 
 		for (uint32_t i = 0; i < benchSets.size(); i++)
-			runBenchmark(cmdbuf, benchSets[i], elementCount, SubgroupSizeLog2);
+			runBenchmark<DoWorkgroupBenchmarks>(cmdbuf, benchSets[0], elementCount, SubgroupSizeLog2);
 
 
 		// blit
@@ -570,40 +566,6 @@ private:
 		}
 	}
 
-	void runTests(IGPUCommandBuffer* cmdbuf, smart_refctd_ptr<ICPUShader> subgroupTestSource, uint32_t elementCount, uint32_t itemsPerInvocation, uint32_t MinSubgroupSize, uint32_t MaxSubgroupSize, const std::array<uint32_t, 3>& workgroupSizes)
-	{
-		for (auto subgroupSize = MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
-		{
-			const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
-			for (const auto& workgroupSize : workgroupSizes)
-			{
-				// make sure renderdoc captures everything for debugging
-				m_api->startCapture();
-				m_logger->log("Testing Workgroup Size %u with Subgroup Size %u", ILogger::ELL_INFO, workgroupSize, subgroupSize);
-
-				bool passed = true;
-				// TODO async the testing
-				passed = runTest<emulatedReduction, false>(cmdbuf, subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, itemsPerInvocation) && passed;
-				logTestOutcome(passed, workgroupSize);
-				passed = runTest<emulatedScanInclusive, false>(cmdbuf, subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, itemsPerInvocation) && passed;
-				logTestOutcome(passed, workgroupSize);
-				passed = runTest<emulatedScanExclusive, false>(cmdbuf, subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, itemsPerInvocation) && passed;
-				logTestOutcome(passed, workgroupSize);
-				//for (uint32_t itemsPerWG = workgroupSize; itemsPerWG > workgroupSize - subgroupSize; itemsPerWG--)
-				//{
-				//	m_logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
-				//	passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
-				//	logTestOutcome(passed, itemsPerWG);
-				//	passed = runTest<emulatedScanInclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
-				//	logTestOutcome(passed, itemsPerWG);
-				//	passed = runTest<emulatedScanExclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
-				//	logTestOutcome(passed, itemsPerWG);
-				//}
-				m_api->endCapture();
-			}
-		}
-	}
-
 	// create pipeline (specialized every test) [TODO: turn into a future/async]
 	smart_refctd_ptr<IGPUComputePipeline> createPipeline(const ICPUShader* overridenUnspecialized, const IGPUPipelineLayout* layout, const uint8_t subgroupSizeLog2)
 	{
@@ -630,15 +592,10 @@ private:
 		uint32_t itemsPerInvocation;
 	};
 
-	template<template<class> class Arithmetic>
+	template<template<class> class Arithmetic, bool WorkgroupBench>
 	BenchmarkSet createBenchmarkPipelines(const smart_refctd_ptr<const ICPUShader>&source, const IGPUPipelineLayout* layout, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerInvoc = 1u, uint32_t numLoops = 8u)
 	{
-		std::string arith_name = Arithmetic<plus<uint32_t>>::name;	// TODO all operations
-
-		//smart_refctd_ptr<ICPUShader> overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
-		//	source.get(), "#define OPERATION %s\n#define WORKGROUP_SIZE %d\n#define ITEMS_PER_INVOCATION %d\n#define SUBGROUP_SIZE_LOG2 %d\n",
-		//	(("subgroup2::") + arith_name).c_str(), workgroupSize, itemsPerInvoc, subgroupSizeLog2
-		//);
+		std::string arith_name = Arithmetic<plus<uint32_t>>::name;
 
 		auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
 		CHLSLCompiler::SOptions options = {};
@@ -659,182 +616,78 @@ private:
 		includeFinder->addSearchPath("nbl/builtin/hlsl/jit", core::make_smart_refctd_ptr<CJITIncludeLoader>(m_physicalDevice->getLimits(), m_device->getEnabledFeatures()));
 		options.preprocessorOptions.includeFinder = includeFinder;
 
-		const std::string definitions[5] = { 
-			"subgroup2::" + arith_name,
-			std::to_string(workgroupSize),
-			std::to_string(itemsPerInvoc),
-			std::to_string(subgroupSizeLog2),
-			std::to_string(numLoops)
-		};
+		const uint32_t subgroupSize = 0x1u << subgroupSizeLog2;
+		const uint32_t itemsPerWG = workgroupSize <= 4 * subgroupSize ? workgroupSize : itemsPerInvoc * max(workgroupSize >> subgroupSizeLog2, subgroupSize) << subgroupSizeLog2;	// TODO use Config somehow
+		smart_refctd_ptr<ICPUShader> overriddenUnspecialized;
+		if constexpr (WorkgroupBench)
+		{
+			const uint32_t workgroupSizeLog2 = hlsl::findMSB(workgroupSize);
+			const std::string definitions[6] = {
+				"workgroup2::" + arith_name,
+				std::to_string(workgroupSizeLog2),
+				std::to_string(itemsPerWG),
+				std::to_string(itemsPerInvoc),
+				std::to_string(subgroupSizeLog2),
+				std::to_string(numLoops)
+			};
 
-		const IShaderCompiler::SMacroDefinition defines[5] = {
-			{ "OPERATION", definitions[0] },
-			{ "WORKGROUP_SIZE", definitions[1] },
-			{ "ITEMS_PER_INVOCATION", definitions[2] },
-			{ "SUBGROUP_SIZE_LOG2", definitions[3] },
-			{ "NUM_LOOPS", definitions[4] },
-		};
-		options.preprocessorOptions.extraDefines = { defines, defines + 5 };
+			const IShaderCompiler::SMacroDefinition defines[6] = {
+				{ "OPERATION", definitions[0] },
+				{ "WORKGROUP_SIZE_LOG2", definitions[1] },
+				{ "ITEMS_PER_WG", definitions[2] },
+				{ "ITEMS_PER_INVOCATION", definitions[3] },
+				{ "SUBGROUP_SIZE_LOG2", definitions[4] },
+				{ "NUM_LOOPS", definitions[5] }
+			};
+			options.preprocessorOptions.extraDefines = { defines, defines + 6 };
 
-		smart_refctd_ptr<ICPUShader> overridenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
+			overriddenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
+		}
+		else
+		{
+			const std::string definitions[5] = { 
+				"subgroup2::" + arith_name,
+				std::to_string(workgroupSize),
+				std::to_string(itemsPerInvoc),
+				std::to_string(subgroupSizeLog2),
+				std::to_string(numLoops)
+			};
 
+			const IShaderCompiler::SMacroDefinition defines[5] = {
+				{ "OPERATION", definitions[0] },
+				{ "WORKGROUP_SIZE", definitions[1] },
+				{ "ITEMS_PER_INVOCATION", definitions[2] },
+				{ "SUBGROUP_SIZE_LOG2", definitions[3] },
+				{ "NUM_LOOPS", definitions[4] }
+			};
+			options.preprocessorOptions.extraDefines = { defines, defines + 5 };
+
+			overriddenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
+		}
+		
 		BenchmarkSet set;
-		set.pipeline = createPipeline(overridenUnspecialized.get(), layout, subgroupSizeLog2);
-		set.workgroupSize = workgroupSize;
+		set.pipeline = createPipeline(overriddenUnspecialized.get(), layout, subgroupSizeLog2);
+		if constexpr (WorkgroupBench)
+		{
+			set.workgroupSize = itemsPerWG;
+		}
+		else
+		{
+			set.workgroupSize = workgroupSize;
+		}
 		set.itemsPerInvocation = itemsPerInvoc;
 
 		return set;
 	};
 
-	template<template<class> class Arithmetic, bool WorkgroupTest>
-	bool runTest(IGPUCommandBuffer* cmdbuf, const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerWG = ~0u, uint32_t itemsPerInvoc = 1u)
-	{
-		std::string arith_name = Arithmetic<bit_xor<uint32_t>>::name;
-
-		smart_refctd_ptr<ICPUShader> overridenUnspecialized;
-		//if constexpr (WorkgroupTest)
-		//{
-		//	overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
-		//		source.get(), "#define OPERATION %s\n#define WORKGROUP_SIZE %d\n#define ITEMS_PER_WG %d\n",
-		//		(("workgroup::") + arith_name).c_str(), workgroupSize, itemsPerWG
-		//	);
-		//}
-		//else
-		//{
-			itemsPerWG = workgroupSize;
-			overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
-				source.get(), "#define OPERATION %s\n#define WORKGROUP_SIZE %d\n#define ITEMS_PER_INVOCATION %d\n#define SUBGROUP_SIZE_LOG2 %d\n",
-				(("subgroup2::") + arith_name).c_str(), workgroupSize, itemsPerInvoc, subgroupSizeLog2
-			);
-		//}
-		auto pipeline = createPipeline(overridenUnspecialized.get(),testPplnLayout.get(), subgroupSizeLog2);
-
-		// TODO: overlap dispatches with memory readbacks (requires multiple copies of `buffers`)
-		const uint32_t workgroupCount = elementCount / (itemsPerWG * itemsPerInvoc);
-		cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
-		cmdbuf->bindComputePipeline(pipeline.get());
-		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &testDs.get());
-		cmdbuf->dispatch(workgroupCount, 1, 1);
-		{
-			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t memoryBarrier[OutputBufferCount];
-			for (auto i=0u; i<OutputBufferCount; i++)
-			{
-				memoryBarrier[i] = {
-					.barrier = {
-						.dep = {
-							.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-							.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
-							// in theory we don't need the HOST BITS cause we block on a semaphore but might as well add them
-							.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT|PIPELINE_STAGE_FLAGS::HOST_BIT,
-							.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS|ACCESS_FLAGS::HOST_READ_BIT
-						}
-					},
-					.range = {0ull,outputBuffers[i]->getSize(),outputBuffers[i]}
-				};
-			}
-			IGPUCommandBuffer::SPipelineBarrierDependencyInfo info = {.memBarriers={},.bufBarriers=memoryBarrier};
-			cmdbuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS::EDF_NONE,info);
-		}
-		cmdbuf->end();
-
-		const IQueue::SSubmitInfo::SSemaphoreInfo signal[1] = {{.semaphore=sema.get(),.value=++timelineValue}};
-		const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1] = {{.cmdbuf=cmdbuf}};
-		const IQueue::SSubmitInfo submits[1] = {{.commandBuffers=cmdbufs,.signalSemaphores=signal}};
-		computeQueue->submit(submits);
-		const ISemaphore::SWaitInfo wait[1] = {{.semaphore=sema.get(),.value=timelineValue}};
-		m_device->blockForSemaphores(wait);
-
-		// check results
-		bool passed = validateResults<Arithmetic, bit_and<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc);
-		passed = validateResults<Arithmetic, bit_xor<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, bit_or<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, plus<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, multiplies<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, minimum<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, maximum<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
-		//if constexpr (WorkgroupTest)
-		//	passed = validateResults<Arithmetic, ballot<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount) && passed;
-
-		return passed;
-	}
-
-	//returns true if result matches
-	template<template<class> class Arithmetic, class Binop, bool WorkgroupTest>
-	bool validateResults(const uint32_t itemsPerWG, const uint32_t workgroupCount, uint32_t itemsPerInvoc = 1u)
-	{
-		bool success = true;
-
-		// download data
-		const SBufferRange<IGPUBuffer> bufferRange = {0u, resultsBuffer->getSize(), outputBuffers[Binop::BindingIndex]};
-		m_utils->downloadBufferRangeViaStagingBufferAutoSubmit(SIntendedSubmitInfo{.queue=transferDownQueue},bufferRange,resultsBuffer->getPointer());
-
-		using type_t = typename Binop::type_t;
-		const auto dataFromBuffer = reinterpret_cast<const uint32_t*>(resultsBuffer->getPointer());
-		const auto subgroupSize = dataFromBuffer[0];
-		if (subgroupSize<nbl::hlsl::subgroup::MinSubgroupSize || subgroupSize>nbl::hlsl::subgroup::MaxSubgroupSize)
-		{
-			m_logger->log("Unexpected Subgroup Size %u", ILogger::ELL_ERROR, subgroupSize);
-			return false;
-		}
-
-		const auto testData = reinterpret_cast<const type_t*>(dataFromBuffer + 1);
-		// TODO: parallel for (the temporary values need to be threadlocal or what?)
-		// now check if the data obtained has valid values
-		type_t* tmp = new type_t[itemsPerWG * itemsPerInvoc];
-		//type_t* ballotInput = new type_t[itemsPerWG];
-		for (uint32_t workgroupID = 0u; success && workgroupID < workgroupCount; workgroupID++)
-		{
-			const auto workgroupOffset = workgroupID * itemsPerWG * itemsPerInvoc;
-
-			//if constexpr (WorkgroupTest)
-			//{
-			//	if constexpr (std::is_same_v<ballot<type_t>, Binop>)
-			//	{
-			//		for (auto i = 0u; i < itemsPerWG; i++)
-			//			ballotInput[i] = inputData[i + workgroupOffset] & 0x1u;
-			//		Arithmetic<Binop>::impl(tmp, ballotInput, itemsPerWG);
-			//	}
-			//	else
-			//		Arithmetic<Binop>::impl(tmp, inputData + workgroupOffset, itemsPerWG);
-			//}
-			//else
-			//{
-				for (uint32_t pseudoSubgroupID = 0u; pseudoSubgroupID < itemsPerWG; pseudoSubgroupID += subgroupSize)
-					Arithmetic<Binop>::impl(tmp + pseudoSubgroupID * itemsPerInvoc, inputData + workgroupOffset + pseudoSubgroupID * itemsPerInvoc, subgroupSize * itemsPerInvoc);
-			//}
-
-			for (uint32_t localInvocationIndex = 0u; localInvocationIndex < itemsPerWG; localInvocationIndex++)
-			{
-				const auto localOffset = localInvocationIndex * itemsPerInvoc;
-				const auto globalInvocationIndex = workgroupOffset + localOffset;
-
-				for (uint32_t itemInvocationIndex = 0u; itemInvocationIndex < itemsPerInvoc; itemInvocationIndex++)
-				{
-					const auto cpuVal = tmp[localOffset + itemInvocationIndex];
-					const auto gpuVal = testData[globalInvocationIndex + itemInvocationIndex];
-					if (cpuVal != gpuVal)
-					{
-						m_logger->log(
-							"Failed test #%d  (%s)  (%s) Expected %u got %u for workgroup %d and localinvoc %d and iteminvoc %d",
-							ILogger::ELL_ERROR, itemsPerWG, WorkgroupTest ? "workgroup" : "subgroup", Binop::name,
-							cpuVal, gpuVal, workgroupID, localInvocationIndex, itemInvocationIndex
-						);
-						success = false;
-						break;
-					}
-				}
-			}
-		}
-		//delete[] ballotInput;
-		delete[] tmp;
-
-		return success;
-	}
-
-
+	template<bool WorkgroupBench>
 	void runBenchmark(IGPUCommandBuffer* cmdbuf, const BenchmarkSet& set, const uint32_t elementCount, const uint8_t subgroupSizeLog2)
 	{
-		const uint32_t workgroupCount = elementCount / (set.workgroupSize * set.itemsPerInvocation);
+		uint32_t workgroupCount;
+		if constexpr (WorkgroupBench)
+			workgroupCount = elementCount / set.workgroupSize;
+		else
+			workgroupCount = elementCount / (set.workgroupSize * set.itemsPerInvocation);
 
 		cmdbuf->bindComputePipeline(set.pipeline.get());
 		cmdbuf->dispatch(workgroupCount, 1, 1);
@@ -884,12 +737,16 @@ private:
 	constexpr static inline uint32_t MaxNumSubmits = 30;
 	uint32_t numSubmits = 0;
 
+	/* PARAMETERS TO CHANGE FOR DIFFERENT BENCHMARKS */
+	constexpr static inline bool DoWorkgroupBenchmarks = true;
+	uint32_t ItemsPerInvocation = 4u;
+	constexpr static inline uint32_t NumLoops = 1000u;
+	constexpr static inline std::array<uint32_t, 3> workgroupSizes = { 256, 512, 1024 };
 	template<class BinOp>
 	using ArithmeticOp = emulatedReduction<BinOp>;	// change this to test other arithmetic ops
 
-	bool b_runTests = false;
+
 	uint32_t* inputData = nullptr;
-	uint32_t ItemsPerInvocation = 4u;
 	constexpr static inline uint32_t OutputBufferCount = 8u;
 	smart_refctd_ptr<IGPUBuffer> outputBuffers[OutputBufferCount];
 
