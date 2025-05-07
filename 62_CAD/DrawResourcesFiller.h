@@ -1,5 +1,6 @@
 #pragma once
 #include "Polyline.h"
+#include "CTriangleMesh.h"
 #include "Hatch.h"
 #include "IndexAllocator.h"
 #include <nbl/video/utilities/SIntendedSubmitInfo.h>
@@ -13,20 +14,8 @@ using namespace nbl::asset;
 using namespace nbl::ext::TextRendering;
 
 static_assert(sizeof(DrawObject) == 16u);
-static_assert(sizeof(MainObject) == 16u);
-static_assert(sizeof(Globals) == 128u);
+static_assert(sizeof(MainObject) == 20u);
 static_assert(sizeof(LineStyle) == 88u);
-static_assert(sizeof(ClipProjectionData) == 88u);
-
-template <typename BufferType>
-struct DrawBuffers
-{
-	smart_refctd_ptr<BufferType> indexBuffer; // only is valid for IGPUBuffer because it's filled at allocation time and never touched again
-	smart_refctd_ptr<BufferType> mainObjectsBuffer;
-	smart_refctd_ptr<BufferType> drawObjectsBuffer;
-	smart_refctd_ptr<BufferType> geometryBuffer;
-	smart_refctd_ptr<BufferType> lineStylesBuffer;
-};
 
 // ! DrawResourcesFiller
 // ! This class provides important functionality to manage resources needed for a draw.
@@ -37,26 +26,116 @@ struct DrawBuffers
 struct DrawResourcesFiller
 {
 public:
+	
+	// We pack multiple data types in a single buffer, we need to makes sure each offset starts aligned to avoid mis-aligned accesses
+	static constexpr size_t ResourcesMaxNaturalAlignment = 8u;
 
-	typedef uint32_t index_buffer_type;
+	/// @brief general parent struct for 1.ReservedCompute and 2.CPUGenerated Resources
+	struct ResourceBase
+	{
+		static constexpr size_t InvalidBufferOffset = ~0u;
+		size_t bufferOffset = InvalidBufferOffset; // set when copy to gpu buffer is issued
+		virtual size_t getCount() const = 0;
+		virtual size_t getStorageSize() const = 0;
+		virtual size_t getAlignedStorageSize() const { return core::alignUp(getStorageSize(), ResourcesMaxNaturalAlignment); }
+	};
 
+	/// @brief ResourceBase reserved for compute shader stages input/output
+	template <typename T>
+	struct ReservedComputeResource : ResourceBase
+	{
+		size_t count = 0ull;
+		size_t getCount() const override { return count; }
+		size_t getStorageSize() const override  { return count * sizeof(T); }
+	};
+
+	/// @brief ResourceBase which is filled by CPU, packed and sent to GPU
+	template <typename T>
+	struct CPUGeneratedResource : ResourceBase
+	{
+		core::vector<T> vector;
+		size_t getCount() const { return vector.size(); }
+		size_t getStorageSize() const { return vector.size() * sizeof(T); }
+		
+		/// @return pointer to start of the data to be filled, up to additionalCount
+		T* increaseCountAndGetPtr(size_t additionalCount) 
+		{
+			size_t offset = vector.size();
+			vector.resize(offset + additionalCount);
+			return &vector[offset];
+		}
+
+		/// @brief increases size of general-purpose resources that hold bytes
+		/// @param alignment: Alignment of the pointer returned to be filled, should be PoT and <= ResourcesMaxNaturalAlignment, only use this if storing raw bytes in vector
+		/// @return pointer to start of the data to be filled, up to additional size
+		size_t increaseSizeAndGetOffset(size_t additionalSize, size_t alignment) 
+		{
+			assert(core::isPoT(alignment) && alignment <= ResourcesMaxNaturalAlignment);
+			size_t offset = core::alignUp(vector.size(), alignment);
+			vector.resize(offset + additionalSize);
+			return offset;
+		}
+		
+		uint32_t addAndGetOffset(const T& val)
+		{
+			vector.push_back(val);
+			return vector.size() - 1u;
+		}
+
+		T* data() { return vector.data(); }
+	};
+
+	/// @brief struct to hold all resources
+	// TODO: rename to staged resources buffers or something like that
+	struct ResourcesCollection
+	{
+		// auto-submission level 0 resources (settings that mainObj references)
+		CPUGeneratedResource<LineStyle> lineStyles;
+		CPUGeneratedResource<DTMSettings> dtmSettings;
+		CPUGeneratedResource<float64_t3x3> customProjections;
+		CPUGeneratedResource<WorldClipRect> customClipRects;
+	
+		// auto-submission level 1 buffers (mainObj that drawObjs references, if all drawObjs+idxBuffer+geometryInfo doesn't fit into mem this will be broken down into many)
+		CPUGeneratedResource<MainObject> mainObjects;
+
+		// auto-submission level 2 buffers
+		CPUGeneratedResource<DrawObject> drawObjects;
+		CPUGeneratedResource<uint32_t> indexBuffer; // TODO: this is going to change to ReservedComputeResource where index buffer gets filled by compute shaders
+		CPUGeneratedResource<uint8_t> geometryInfo; // general purpose byte buffer for custom data for geometries (eg. line points, bezier definitions, aabbs)
+
+		// Get Total memory consumption, If all ResourcesCollection get packed together with ResourcesMaxNaturalAlignment
+		// used to decide the remaining memory and when to overflow
+		size_t calculateTotalConsumption() const
+		{
+			return
+				lineStyles.getAlignedStorageSize() +
+				dtmSettings.getAlignedStorageSize() +
+				customProjections.getAlignedStorageSize() +
+				customClipRects.getAlignedStorageSize() +
+				mainObjects.getAlignedStorageSize() +
+				drawObjects.getAlignedStorageSize() +
+				indexBuffer.getAlignedStorageSize() +
+				geometryInfo.getAlignedStorageSize();
+		}
+	};
+	
 	DrawResourcesFiller();
 
 	DrawResourcesFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue);
 
 	typedef std::function<void(SIntendedSubmitInfo&)> SubmitFunc;
 	void setSubmitDrawsFunction(const SubmitFunc& func);
-
-	void allocateIndexBuffer(ILogicalDevice* logicalDevice, uint32_t indices);
-
-	void allocateMainObjectsBuffer(ILogicalDevice* logicalDevice, uint32_t mainObjects);
-
-	void allocateDrawObjectsBuffer(ILogicalDevice* logicalDevice, uint32_t drawObjects);
-
-	void allocateGeometryBuffer(ILogicalDevice* logicalDevice, size_t size);
-
-	void allocateStylesBuffer(ILogicalDevice* logicalDevice, uint32_t lineStylesCount);
 	
+	/// @brief Get minimum required size for resources buffer (containing objects and geometry info and their settings)
+	static constexpr size_t getMinimumRequiredResourcesBufferSize()
+	{
+		// for auto-submission to work correctly, memory needs to serve at least 2 linestyle, 1 dtm settings, 1 clip proj, 1 main obj, 1 draw obj and 512 bytes of additional mem for geometries and index buffer
+		// this is the ABSOLUTE MINIMUM (if this value is used rendering will probably be as slow as CPU drawing :D)
+		return core::alignUp(sizeof(LineStyle) + sizeof(LineStyle) * DTMSettings::MaxContourSettings + sizeof(DTMSettings) + sizeof(WorldClipRect) + sizeof(float64_t3x3) + sizeof(MainObject) + sizeof(DrawObject) + 512ull, ResourcesMaxNaturalAlignment);
+	}
+
+	void allocateResourcesBuffer(ILogicalDevice* logicalDevice, size_t size);
+
 	void allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent);
 
 	// functions that user should set to get MSDF texture if it's not available in cache.
@@ -71,11 +150,24 @@ public:
 	// take a `SIntendedSubmitInfo` like others, but don't use it as I don't want you to handle anything regarding autoSubmit
 	// somehow retrieve or calculate the geometry buffer offsets of your vertex and index buffer to be used outside for binding purposes
 
+	
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	void drawPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, SIntendedSubmitInfo& intendedNextSubmit);
 
-	void drawPolyline(const CPolylineBase& polyline, uint32_t polylineMainObjIdx, SIntendedSubmitInfo& intendedNextSubmit);
+
+	//! Draws a fixed-geometry polyline using a custom transformation.
+	//! TODO: Change `polyline` input to an ID referencing a possibly cached instance in our buffers, allowing reuse and avoiding redundant uploads.
+	void drawFixedGeometryPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, const float64_t3x3& transformation, TransformationType transformationType, SIntendedSubmitInfo& intendedNextSubmit);
 	
+	/// Use this in a begin/endMainObject scope when you want to draw different polylines that should essentially be a single main object (no self-blending between components of a single main object)
+	/// WARNING: make sure this function  is called within begin/endMainObject scope
+	void drawPolyline(const CPolylineBase& polyline, SIntendedSubmitInfo& intendedNextSubmit);
+	
+	void drawTriangleMesh(
+		const CTriangleMesh& mesh,
+		const DTMSettingsInfo& dtmSettingsInfo,
+		SIntendedSubmitInfo& intendedNextSubmit);
+
 	// ! Convinience function for Hatch with MSDF Pattern and a solid background
 	void drawHatch(
 		const Hatch& hatch,
@@ -96,8 +188,9 @@ public:
 		const Hatch& hatch,
 		const float32_t4& color,
 		SIntendedSubmitInfo& intendedNextSubmit);
-
-	// ! Draw Font Glyph, will auto submit if there is no space
+	
+	/// Used by SingleLineText, Issue drawing a font glyph
+	/// WARNING: make sure this function  is called within begin/endMainObject scope
 	void drawFontGlyph(
 		nbl::ext::TextRendering::FontFace* fontFace,
 		uint32_t glyphIdx,
@@ -105,113 +198,57 @@ public:
 		float32_t2 dirU,
 		float32_t  aspectRatio,
 		float32_t2 minUV,
-		uint32_t mainObjIdx,
 		SIntendedSubmitInfo& intendedNextSubmit);
 	
 	void _test_addImageObject(
 		float64_t2 topLeftPos,
 		float32_t2 size,
 		float32_t rotation,
-		SIntendedSubmitInfo& intendedNextSubmit)
-	{
-		auto addImageObject_Internal = [&](const ImageObjectInfo& imageObjectInfo, uint32_t mainObjIdx) -> bool
-			{
-				const uint32_t maxGeometryBufferImageObjects = static_cast<uint32_t>((maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(ImageObjectInfo));
-				uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
-				uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
-				uploadableObjects = core::min(uploadableObjects, maxGeometryBufferImageObjects);
+		SIntendedSubmitInfo& intendedNextSubmit);
+	
+	/// @brief call this function before submitting to ensure all buffer and textures resourcesCollection requested via drawing calls are copied to GPU
+	/// records copy command into intendedNextSubmit's active command buffer and might possibly submits if fails allocation on staging upload memory.
+	bool pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit);
 
-				if (uploadableObjects >= 1u)
-				{
-					void* dstGeom = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
-					memcpy(dstGeom, &imageObjectInfo, sizeof(ImageObjectInfo));
-					uint64_t geomBufferAddr = geometryBufferAddress + currentGeometryBufferSize;
-					currentGeometryBufferSize += sizeof(ImageObjectInfo);
-
-					DrawObject drawObj = {};
-					drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::IMAGE) | (0 << 16)); // TODO: use custom pack/unpack function
-					drawObj.mainObjIndex = mainObjIdx;
-					drawObj.geometryAddress = geomBufferAddr;
-					void* dstDrawObj = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
-					memcpy(dstDrawObj, &drawObj, sizeof(DrawObject));
-					currentDrawObjectCount += 1u;
-
-					return true;
-				}
-				else
-					return false;
-			};
-		
-		uint32_t mainObjIdx = addMainObject_SubmitIfNeeded(InvalidStyleIdx, intendedNextSubmit);
-
-		ImageObjectInfo info = {};
-		info.topLeft = topLeftPos;
-		info.dirU = float32_t2(size.x * cos(rotation), size.x * sin(rotation)); // 
-		info.aspectRatio = size.y / size.x;
-		info.textureID = 0u;
-		if (!addImageObject_Internal(info, mainObjIdx))
-		{
-			// single image object couldn't fit into memory to push to gpu, so we submit rendering current objects and reset geometry buffer and draw objects
-			submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjIdx);
-			bool success = addImageObject_Internal(info, mainObjIdx);
-			assert(success); // this should always be true, otherwise it's either bug in code or not enough memory allocated to hold a single image object 
-		}
-	}
-
-	bool finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
-
-	inline uint32_t getLineStyleCount() const { return currentLineStylesCount; }
-
-	inline uint32_t getDrawObjectCount() const { return currentDrawObjectCount; } 
-
-	inline uint32_t getMainObjectCount() const { return currentMainObjectCount; }
-
-	inline size_t getCurrentMainObjectsBufferSize() const
-	{
-		return sizeof(MainObject) * currentMainObjectCount;
-	}
-
-	inline size_t getCurrentDrawObjectsBufferSize() const
-	{
-		return sizeof(DrawObject) * currentDrawObjectCount;
-	}
-
-	inline size_t getCurrentGeometryBufferSize() const
-	{
-		return currentGeometryBufferSize;
-	}
-
-	inline size_t getCurrentLineStylesBufferSize() const
-	{
-		return sizeof(LineStyle) * currentLineStylesCount;
-	}
-
+	/// @brief  resets staging buffers and images
 	void reset()
 	{
-		resetGeometryCounters();
-		resetMainObjectCounters();
-		resetLineStyleCounters();
+		resetDrawObjects();
+		resetMainObjects();
+		resetCustomProjections();
+		resetCustomClipRects();
+		resetLineStyles();
+		resetDTMSettings();
+		resetMSDFsUsageState();
+
+		drawObjectsFlushedToDrawCalls = 0ull;
+		drawCalls.clear();
 	}
 
-	DrawBuffers<ICPUBuffer> cpuDrawBuffers;
-	DrawBuffers<IGPUBuffer> gpuDrawBuffers;
+	/// @brief collection of all the resources that will eventually be reserved or copied to in the resourcesGPUBuffer, will be accessed via individual BDA pointers in shaders
+	const ResourcesCollection& getResourcesCollection() const;
 
-	uint32_t addLineStyle_SubmitIfNeeded(const LineStyleInfo& lineStyle, SIntendedSubmitInfo& intendedNextSubmit);
+	/// @brief buffer containing all non-texture type resources
+	nbl::core::smart_refctd_ptr<IGPUBuffer> getResourcesGPUBuffer() const { return resourcesGPUBuffer; }
+
+	/// @return how far resourcesGPUBuffer was copied to by `finalizeAllCopiesToGPU` in `resourcesCollection` 
+	const size_t getCopiedResourcesSize() { return copiedResourcesSize; }
+
+	// Setting Active Resources:
+	void setActiveLineStyle(const LineStyleInfo& lineStyle);
+	void setActiveDTMSettings(const DTMSettingsInfo& dtmSettingsInfo);
+
+	void beginMainObject(MainObjectType type, TransformationType transformationType = TransformationType::TT_NORMAL);
+	void endMainObject();
+
+	void pushCustomProjection(const float64_t3x3& projection);
+	void popCustomProjection();
 	
-	// TODO[Przemek]: Read after reading the fragment shader comments and having a basic understanding of the relationship between "mainObject" and our programmable blending resolve:
-	// Use `addMainObject_SubmitIfNeeded` to push your single mainObject you'll be using for the enitre triangle mesh (this will ensure overlaps between triangles of the same mesh is resolved correctly)
-	// Delete comment when you understand this
+	void pushCustomClipRect(const WorldClipRect& clipRect);
+	void popCustomClipRect();
 
-	// [ADVANCED] Do not use this function unless you know what you're doing (It may cause auto submit)
-	// Never call this function multiple times in a row before indexing it in a drawable, because future auto-submits may invalidate mainObjects, so do them one by one, for example:
-	// Valid: addMainObject1 --> addXXX(mainObj1) ---> addMainObject2 ---> addXXX(mainObj2) ....
-	// Invalid: addMainObject1 ---> addMainObject2 ---> addXXX(mainObj1) ---> addXXX(mainObj2) ....
-	uint32_t addMainObject_SubmitIfNeeded(uint32_t styleIdx, SIntendedSubmitInfo& intendedNextSubmit);
-
-	// we need to store the clip projection stack to make sure the front is always available in memory
-	void pushClipProjectionData(const ClipProjectionData& clipProjectionData);
-	void popClipProjectionData();
-	const std::deque<ClipProjectionData>& getClipProjectionStack() const { return clipProjections; }
+	const std::deque<float64_t3x3>& getCustomProjectionStack() const { return activeProjections; }
+	const std::deque<WorldClipRect>& getCustomClipRectsStack() const { return activeClipRects; }
 
 	smart_refctd_ptr<IGPUImageView> getMSDFsTextureArray() { return msdfTextureArray; }
 
@@ -223,98 +260,210 @@ public:
 		return msdfTextureArray->getCreationParameters().image->getCreationParameters().mipLevels;
 	}
 
-protected:
-	
-	struct MSDFTextureCopy
+	/// For advanced use only, (passed to shaders for them to know if we overflow-submitted in the middle if a main obj
+	uint32_t getActiveMainObjectIndex() const;
+
+	struct MSDFStagedCPUImage
 	{
 		core::smart_refctd_ptr<ICPUImage> image;
-		uint32_t index;
+		bool uploadedToGPU : 1u;
+		// TODO: Use frame counter instead, generalize struct to all textures probably, DONT try to abuse scratchSema.nextSignal as frame tracker, because there can be "cached" draws where no submits happen.
+		bool usedThisFrame : 1u;
+
+		bool isValid() const { return image.get() != nullptr; }
+		void evict()
+		{
+			image = nullptr;
+			uploadedToGPU = false;
+			usedThisFrame = false;
+		}
 	};
+
+	// NOTE: Most probably Going to get removed soon with a single draw call in GPU-driven rendering
+	struct DrawCallData
+	{
+		union
+		{
+			struct Dtm
+			{
+				uint64_t indexBufferOffset;
+				uint64_t indexCount;
+				uint64_t triangleMeshVerticesBaseAddress;
+				uint32_t triangleMeshMainObjectIndex;
+			} dtm;
+			struct DrawObj
+			{
+				uint64_t drawObjectStart = 0ull;
+				uint64_t drawObjectCount = 0ull;
+			} drawObj;
+		};
+		bool isDTMRendering;
+	};
+
+	const std::vector<DrawCallData>& getDrawCalls() const;
+
+	/// @brief Stores all CPU-side resources that were staged and prepared for a single GPU submission.
+	///
+	/// *** This cache includes anything used or referenced from DrawResourcesFiller in the Draw Submit:
+	/// - Buffer data (geometry, indices, etc.)
+	/// - MSDF CPU images
+	/// - Draw call metadata
+	/// - Active MainObject Index --> this is another state of the submit that we need to store 
+	///
+	/// The data is fully preprocessed and ready to be pushed to the GPU with no further transformation.
+	/// This enables efficient replays without traversing or re-generating scene content.
+	struct ReplayCache
+	{
+		ResourcesCollection resourcesCollection;
+		std::vector<MSDFStagedCPUImage> msdfStagedCPUImages;
+		std::vector<DrawCallData> drawCallsData;
+		uint32_t activeMainObjectIndex = InvalidMainObjectIdx;
+		// TODO: non msdf general CPU Images
+		// TODO: Get total memory consumption for logging?
+	};
+
+	/// @brief Creates a snapshot of all currently staged CPU-side resourcesCollection for future replay or deferred submission.
+	/// 
+	/// @warning This cache corresponds to a **single intended GPU submit**. 
+	/// If your frame submission overflows into multiple submits due to staging memory limits or batching,
+	/// you are responsible for creating **multiple ReplayCache instances**, one per submit.
+	///
+	/// @return A heap-allocated ReplayCache containing a copy of all staged CPU-side resourcesCollection and draw call data.
+	std::unique_ptr<ReplayCache> createReplayCache();
+
+	/// @brief Redirects all subsequent resource upload and getters to use an external ReplayCache.
+	///
+	/// After calling this function, staging, resource getters, and upload mechanisms will pull data from the given ReplayCache
+	/// instead of the internal accumulation cache.
+	///
+	/// User is responsible for management of cache and making sure it's alive in the ReplayCache scope
+	void setReplayCache(ReplayCache* cache);
+	
+	/// @brief Reverts internal logic to use the default internal staging and resource accumulation cache.
+	/// Must be called once per corresponding `pushReplayCacheUse()`.
+	void unsetReplayCache();
+
+protected:
 
 	SubmitFunc submitDraws;
+
+	/// @brief Records GPU copy commands for all staged buffer resourcesCollection into the active command buffer.
+	bool pushBufferUploads(SIntendedSubmitInfo& intendedNextSubmit, ResourcesCollection& resourcesCollection);
 	
-	bool finalizeMainObjectCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
+	/// @brief Records GPU copy commands for all staged msdf images into the active command buffer.
+	bool pushMSDFImagesUploads(SIntendedSubmitInfo& intendedNextSubmit, std::vector<MSDFStagedCPUImage>& stagedMSDFCPUImages);
 
-	bool finalizeGeometryCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
+	const size_t calculateRemainingResourcesSize() const;
 
-	bool finalizeLineStyleCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
+	/// @brief Internal Function to call whenever we overflow when we can't fill all of mainObject's drawObjects
+	/// @param intendedNextSubmit 
+	/// @param mainObjectIndex: function updates mainObjectIndex after submitting, clearing everything and acquiring  mainObjectIndex again.
+	void submitCurrentDrawObjectsAndReset(SIntendedSubmitInfo& intendedNextSubmit, uint32_t& mainObjectIndex);
+
+	// Gets resource index to the active linestyle data from the top of stack 
+	// If it's been invalidated then it will request to add to resources again ( auto-submission happens If there is not enough memory to add again)
+	uint32_t acquireActiveLineStyleIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit);
 	
-	bool finalizeCustomClipProjectionCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
+	// Gets resource index to the active linestyle data from the top of stack 
+	// If it's been invalidated then it will request to add to resources again ( auto-submission happens If there is not enough memory to add again)
+	uint32_t acquireActiveDTMSettingsIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit);
+
+	// Gets resource index to the active projection data from the top of stack 
+	// If it's been invalidated then it will request to add to resources again ( auto-submission happens If there is not enough memory to add again)
+	uint32_t acquireActiveCustomProjectionIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit);
 	
-	bool finalizeTextureCopies(SIntendedSubmitInfo& intendedNextSubmit);
+	// Gets resource index to the active clip data from the top of stack 
+	// If it's been invalidated then it will request to add to resources again ( auto-submission happens If there is not enough memory to add again)
+	uint32_t acquireActiveCustomClipRectIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit);
+	
+	// Gets resource index to the active main object data
+	// If it's been invalidated then it will request to add to resources again ( auto-submission happens If there is not enough memory to add again)
+	uint32_t acquireActiveMainObjectIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit);
 
-	// Internal Function to call whenever we overflow while filling our buffers with geometry (potential limiters: indexBuffer, drawObjectsBuffer or geometryBuffer)
-	// ! mainObjIdx: is the mainObject the "overflowed" drawObjects belong to.
-	//		mainObjIdx is required to ensure that valid data, especially the `clipProjectionData`, remains linked to the main object.
-	//		This is important because, while other data may change during overflow handling, the main object must persist to maintain consistency throughout rendering all parts of it. (for example all lines and beziers of a single polyline)
-	//		[ADVANCED] If you have not created your mainObject yet, pass `InvalidMainObjectIdx` (See drawHatch)
-	void submitCurrentDrawObjectsAndReset(SIntendedSubmitInfo& intendedNextSubmit, uint32_t mainObjectIndex);
-
-	uint32_t addMainObject_Internal(const MainObject& mainObject);
-
+	/// Attempts to add lineStyle to resources. If it fails to do, due to resource limitations, auto-submits and tries again. 
+	uint32_t addLineStyle_SubmitIfNeeded(const LineStyleInfo& lineStyle, SIntendedSubmitInfo& intendedNextSubmit);
+	
+	/// Attempts to add dtmSettings to resources. If it fails to do, due to resource limitations, auto-submits and tries again. 
+	uint32_t addDTMSettings_SubmitIfNeeded(const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit);
+	
+	/// Attempts to add custom projection to gpu resources. If it fails to do, due to resource limitations, auto-submits and tries again. 
+	uint32_t addCustomProjection_SubmitIfNeeded(const float64_t3x3& projection, SIntendedSubmitInfo& intendedNextSubmit);
+	
+	/// Attempts to add custom clip to gpu resources. If it fails to do, due to resource limitations, auto-submits and tries again. 
+	uint32_t addCustomClipRect_SubmitIfNeeded(const WorldClipRect& clipRect, SIntendedSubmitInfo& intendedNextSubmit);
+	
+	/// returns index to added LineStyleInfo, returns Invalid index if it exceeds resource limitations
 	uint32_t addLineStyle_Internal(const LineStyleInfo& lineStyleInfo);
-
-	// Gets the current clip projection data (the top of stack) gpu addreess inside the geometryBuffer
-	// If it's been invalidated then it will request to upload again with a possible auto-submit on low geometry buffer memory.
-	uint64_t acquireCurrentClipProjectionAddress(SIntendedSubmitInfo& intendedNextSubmit);
 	
-	uint64_t addClipProjectionData_SubmitIfNeeded(const ClipProjectionData& clipProjectionData, SIntendedSubmitInfo& intendedNextSubmit);
-
-	uint64_t addClipProjectionData_Internal(const ClipProjectionData& clipProjectionData);
-
-	static constexpr uint32_t getCageCountPerPolylineObject(ObjectType type)
-	{
-		if (type == ObjectType::LINE)
-			return 1u;
-		else if (type == ObjectType::QUAD_BEZIER)
-			return 3u;
-		return 0u;
-	};
-
+	/// returns index to added DTMSettingsInfo, returns Invalid index if it exceeds resource limitations
+	uint32_t addDTMSettings_Internal(const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit);
+	
+	/// Attempts to upload as many draw objects as possible within the given polyline section considering resource limitations
 	void addPolylineObjects_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx);
-
+	
+	/// Attempts to upload as many draw objects as possible within the given polyline connectors considering resource limitations
 	void addPolylineConnectors_Internal(const CPolylineBase& polyline, uint32_t& currentPolylineConnectorObj, uint32_t mainObjIdx);
-
+	
+	/// Attempts to upload as many draw objects as possible within the given polyline section considering resource limitations
 	void addLines_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx);
-
+	
+	/// Attempts to upload as many draw objects as possible within the given polyline section considering resource limitations
 	void addQuadBeziers_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx);
-
+	
+	/// Attempts to upload as many draw objects as possible within the given hatch considering resource limitations
 	void addHatch_Internal(const Hatch& hatch, uint32_t& currentObjectInSection, uint32_t mainObjIndex);
 	
+	/// Attempts to upload a single GlyphInfo considering resource limitations
 	bool addFontGlyph_Internal(const GlyphInfo& glyphInfo, uint32_t mainObjIdx);
 	
-	void resetMainObjectCounters()
+	void resetMainObjects()
 	{
-		inMemMainObjectCount = 0u;
-		currentMainObjectCount = 0u;
+		resourcesCollection.mainObjects.vector.clear();
+		activeMainObjectIndex = InvalidMainObjectIdx;
 	}
 
-	// WARN: If you plan to use this, make sure you either reset the mainObjectCounters as well
-	//			Or if you want to keep your  mainObject around, make sure you're using the `submitCurrentObjectsAndReset` function instead of calling this directly
-	//			So that it makes your mainObject point to the correct clipProjectionData (which exists in the geometry buffer)
-	void resetGeometryCounters()
+	// these resources are data related to chunks of a whole mainObject
+	void resetDrawObjects()
 	{
-		inMemDrawObjectCount = 0u;
-		currentDrawObjectCount = 0u;
-
-		inMemGeometryBufferSize = 0u;
-		currentGeometryBufferSize = 0u;
-
-		// Invalidate all the clip projection addresses because geometry buffer got reset
-		for (auto& clipProjAddr : clipProjectionAddresses)
-			clipProjAddr = InvalidClipProjectionAddress;
+		resourcesCollection.drawObjects.vector.clear();
+		resourcesCollection.indexBuffer.vector.clear();
+		resourcesCollection.geometryInfo.vector.clear();
 	}
 
-	void resetLineStyleCounters()
+	void resetCustomProjections()
 	{
-		currentLineStylesCount = 0u;
-		inMemLineStylesCount = 0u;
+		resourcesCollection.customProjections.vector.clear();
+		
+		// Invalidate all the clip projection addresses because activeProjections buffer got reset
+		for (auto& addr : activeProjectionIndices)
+			addr = InvalidCustomProjectionIndex;
 	}
 
-	MainObject* getMainObject(uint32_t idx)
+	void resetCustomClipRects()
 	{
-		MainObject* mainObjsArray = reinterpret_cast<MainObject*>(cpuDrawBuffers.mainObjectsBuffer->getPointer());
-		return &mainObjsArray[idx];
+		resourcesCollection.customClipRects.vector.clear();
+		
+		// Invalidate all the clip projection addresses because activeProjections buffer got reset
+		for (auto& addr : activeClipRectIndices)
+			addr = InvalidCustomClipRectIndex;
+	}
+
+	void resetLineStyles()
+	{
+		resourcesCollection.lineStyles.vector.clear();
+		activeLineStyleIndex = InvalidStyleIdx;
+	}
+
+	void resetDTMSettings()
+	{
+		resourcesCollection.dtmSettings.vector.clear();
+		activeDTMSettingsIndex = InvalidDTMSettingsIdx;
+	}
+	
+	void resetMSDFsUsageState()
+	{
+		for (auto& stagedMSDF : msdfStagedCPUImages)
+			stagedMSDF.usedThisFrame = false;
 	}
 
 	// MSDF Hashing and Caching Internal Functions 
@@ -405,45 +554,54 @@ protected:
 	
 	// ! mainObjIdx: make sure to pass your mainObjIdx to it if you want it to stay synced/updated if some overflow submit occured which would potentially erase what your mainObject points at.
 	// If you haven't created a mainObject yet, then pass InvalidMainObjectIdx
-	uint32_t addMSDFTexture(const MSDFInputInfo& msdfInput, core::smart_refctd_ptr<ICPUImage>&& cpuImage, uint32_t mainObjIdx, SIntendedSubmitInfo& intendedNextSubmit);
+	uint32_t addMSDFTexture(const MSDFInputInfo& msdfInput, core::smart_refctd_ptr<ICPUImage>&& cpuImage, SIntendedSubmitInfo& intendedNextSubmit);
 	
+	// Flushes Current Draw Call and adds to drawCalls
+	void flushDrawObjects();
+
+	// Replay Cache override
+	ReplayCache* currentReplayCache = nullptr;
+
+	// DrawCalls Data
+	uint64_t drawObjectsFlushedToDrawCalls = 0ull;
+	std::vector<DrawCallData> drawCalls; // either dtms or objects
+
+	// ResourcesCollection and packed into GPUBuffer
+	ResourcesCollection resourcesCollection;
+	nbl::core::smart_refctd_ptr<IGPUBuffer> resourcesGPUBuffer;
+	size_t copiedResourcesSize;
+
 	// Members
 	smart_refctd_ptr<IUtilities> m_utilities;
 	IQueue* m_copyQueue;
 
-	uint32_t maxIndexCount;
+	// Active Resources we need to keep track of and push to resources buffer if needed.
+	LineStyleInfo activeLineStyle;
+	uint32_t activeLineStyleIndex = InvalidStyleIdx;
 
-	uint32_t inMemMainObjectCount = 0u;
-	uint32_t currentMainObjectCount = 0u;
-	uint32_t maxMainObjects = 0u;
+	DTMSettingsInfo activeDTMSettings;
+	uint32_t activeDTMSettingsIndex = InvalidDTMSettingsIdx;
 
-	uint32_t inMemDrawObjectCount = 0u;
-	uint32_t currentDrawObjectCount = 0u;
-	uint32_t maxDrawObjects = 0u;
+	MainObjectType activeMainObjectType;
+	TransformationType activeMainObjectTransformationType;
 
-	uint64_t inMemGeometryBufferSize = 0u;
-	uint64_t currentGeometryBufferSize = 0u;
-	uint64_t maxGeometryBufferSize = 0u;
+	uint32_t activeMainObjectIndex = InvalidMainObjectIdx;
+	// The ClipRects & Projections are stack, because user can push/pop ClipRects & Projections in any order
+	std::deque<float64_t3x3> activeProjections; // stack of projections stored so we can resubmit them if geometry buffer got reset.
+	std::deque<uint32_t> activeProjectionIndices; // stack of projection gpu addresses in geometry buffer. to keep track of them in push/pops
+	
+	std::deque<WorldClipRect> activeClipRects; // stack of clips stored so we can resubmit them if geometry buffer got reset.
+	std::deque<uint32_t> activeClipRectIndices; // stack of clips gpu addresses in geometry buffer. to keep track of them in push/pops
 
-	uint32_t inMemLineStylesCount = 0u;
-	uint32_t currentLineStylesCount = 0u;
-	uint32_t maxLineStyles = 0u;
-
-	uint64_t geometryBufferAddress = 0u; // Actual BDA offset 0 of the gpu buffer
-
-	std::deque<ClipProjectionData> clipProjections; // stack of clip projectios stored so we can resubmit them if geometry buffer got reset.
-	std::deque<uint64_t> clipProjectionAddresses; // stack of clip projection gpu addresses in geometry buffer. to keep track of them in push/pops
-
-	// MSDF
 	GetGlyphMSDFTextureFunc getGlyphMSDF;
 	GetHatchFillPatternMSDFTextureFunc getHatchFillPatternMSDF;
 
 	using MSDFsLRUCache = core::LRUCache<MSDFInputInfo, MSDFReference, MSDFInputInfoHash>;
 	smart_refctd_ptr<IGPUImageView>		msdfTextureArray; // view to the resource holding all the msdfs in it's layers
 	smart_refctd_ptr<IndexAllocator>	msdfTextureArrayIndexAllocator;
-	std::set<uint32_t>					msdfTextureArrayIndicesUsed = {}; // indices in the msdf texture array allocator that have been used in the current frame // TODO: make this a dynamic bitset
-	std::vector<MSDFTextureCopy>		msdfTextureCopies = {}; // queued up texture copies
 	std::unique_ptr<MSDFsLRUCache>		msdfLRUCache; // LRU Cache to evict Least Recently Used in case of overflow
+
+	std::vector<MSDFStagedCPUImage>		msdfStagedCPUImages = {}; // cached cpu imaged + their status, size equals to LRUCache size
 	static constexpr asset::E_FORMAT	MSDFTextureFormat = asset::E_FORMAT::EF_R8G8B8A8_SNORM;
 
 	bool m_hasInitializedMSDFTextureArrays = false;
