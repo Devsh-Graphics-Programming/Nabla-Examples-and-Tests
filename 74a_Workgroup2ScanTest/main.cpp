@@ -154,6 +154,7 @@ public:
 			return smart_refctd_ptr_static_cast<ICPUShader>(firstAssetInBundle);
 		};
 
+		auto subgroupTestSource = getShaderSource("app_resources/testSubgroup.comp.hlsl");
 		auto workgroupTestSource = getShaderSource("app_resources/testWorkgroup.comp.hlsl");
 		// now create or retrieve final resources to run our tests
 		sema = m_device->createSemaphore(timelineValue);
@@ -168,7 +169,8 @@ public:
 		}
 
 		const auto MaxWorkgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
-		const std::array<uint32_t, 3> WorkgroupSizes = { 64, 512, 1024 };
+		const std::array<uint32_t, 4> WorkgroupSizes = { 128, 256, 512, 1024 };
+		const std::array<uint32_t, 3> ItemsPerInvocations = { 1, 2, 4 };
 		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
 		for (auto subgroupSize=MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
@@ -181,15 +183,27 @@ public:
 				m_api->startCapture();
 				m_logger->log("Testing Workgroup Size %u with Subgroup Size %u", ILogger::ELL_INFO, workgroupSize, subgroupSize);
 
-				bool passed = true;
-				const uint32_t itemsPerWG = workgroupSize <= 4 * subgroupSize ? workgroupSize : ItemsPerInvocation * max(workgroupSize >> subgroupSizeLog2, subgroupSize) << subgroupSizeLog2;	// TODO use Config somehow
-				m_logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
-				passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
-				logTestOutcome(passed, itemsPerWG);
-				passed = runTest<emulatedScanInclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
-				logTestOutcome(passed, itemsPerWG);
-				passed = runTest<emulatedScanExclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
-				logTestOutcome(passed, itemsPerWG);
+				for (uint32_t j = 0; j < ItemsPerInvocations.size(); j++)
+				{
+					const uint32_t itemsPerInvocation = ItemsPerInvocations[j];
+					m_logger->log("Testing Items per Invocation %u", ILogger::ELL_INFO, itemsPerInvocation);
+					bool passed = true;
+					passed = runTest<emulatedReduction, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, itemsPerInvocation) && passed;
+					logTestOutcome(passed, workgroupSize);
+					passed = runTest<emulatedScanInclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, itemsPerInvocation) && passed;
+					logTestOutcome(passed, workgroupSize);
+					passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, itemsPerInvocation) && passed;
+					logTestOutcome(passed, workgroupSize);
+
+					const uint32_t itemsPerWG = workgroupSize <= 4 * subgroupSize ? workgroupSize : itemsPerInvocation * max(workgroupSize >> subgroupSizeLog2, subgroupSize) << subgroupSizeLog2;	// TODO use Config somehow
+					m_logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
+					passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG, itemsPerInvocation) && passed;
+					logTestOutcome(passed, itemsPerWG);
+					passed = runTest<emulatedScanInclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG, itemsPerInvocation) && passed;
+					logTestOutcome(passed, itemsPerWG);
+					passed = runTest<emulatedScanExclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG, itemsPerInvocation) && passed;
+					logTestOutcome(passed, itemsPerWG);
+				}
 				m_api->endCapture();
 			}
 		}
@@ -243,7 +257,7 @@ private:
 	}
 
 	template<template<class> class Arithmetic, bool WorkgroupTest>
-	bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerWG = ~0u)
+	bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerWG = ~0u, uint32_t itemsPerInvoc = 1u)
 	{
 		std::string arith_name = Arithmetic<bit_xor<float>>::name;
 		const uint32_t workgroupSizeLog2 = hlsl::findMSB(workgroupSize);
@@ -267,29 +281,59 @@ private:
 		includeFinder->addSearchPath("nbl/builtin/hlsl/jit", core::make_smart_refctd_ptr<CJITIncludeLoader>(m_physicalDevice->getLimits(), m_device->getEnabledFeatures()));
 		options.preprocessorOptions.includeFinder = includeFinder;
 
-		const std::string definitions[5] = {
-			"workgroup2::" + arith_name,
-			std::to_string(workgroupSizeLog2),
-			std::to_string(itemsPerWG),
-			std::to_string(ItemsPerInvocation),
-			std::to_string(subgroupSizeLog2)
-		};
+		smart_refctd_ptr<ICPUShader> overriddenUnspecialized;
+		if constexpr (WorkgroupTest)
+		{
+			const std::string definitions[5] = {
+				"workgroup2::" + arith_name,
+				std::to_string(workgroupSizeLog2),
+				std::to_string(itemsPerWG),
+				std::to_string(itemsPerInvoc),
+				std::to_string(subgroupSizeLog2)
+			};
 
-		const IShaderCompiler::SMacroDefinition defines[5] = {
-			{ "OPERATION", definitions[0] },
-			{ "WORKGROUP_SIZE_LOG2", definitions[1] },
-			{ "ITEMS_PER_WG", definitions[2] },
-			{ "ITEMS_PER_INVOCATION", definitions[3] },
-			{ "SUBGROUP_SIZE_LOG2", definitions[4] }
-		};
-		options.preprocessorOptions.extraDefines = { defines, defines + 5 };
+			const IShaderCompiler::SMacroDefinition defines[5] = {
+				{ "OPERATION", definitions[0] },
+				{ "WORKGROUP_SIZE_LOG2", definitions[1] },
+				{ "ITEMS_PER_WG", definitions[2] },
+				{ "ITEMS_PER_INVOCATION", definitions[3] },
+				{ "SUBGROUP_SIZE_LOG2", definitions[4] }
+			};
+			options.preprocessorOptions.extraDefines = { defines, defines + 5 };
 
-		smart_refctd_ptr<ICPUShader> overriddenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
+			overriddenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
+		}
+		else
+		{
+			const std::string definitions[4] = { 
+				"subgroup2::" + arith_name,
+				std::to_string(workgroupSize),
+				std::to_string(itemsPerInvoc),
+				std::to_string(subgroupSizeLog2)
+			};
+
+			const IShaderCompiler::SMacroDefinition defines[4] = {
+				{ "OPERATION", definitions[0] },
+				{ "WORKGROUP_SIZE", definitions[1] },
+				{ "ITEMS_PER_INVOCATION", definitions[2] },
+				{ "SUBGROUP_SIZE_LOG2", definitions[3] }
+			};
+			options.preprocessorOptions.extraDefines = { defines, defines + 4 };
+
+			overriddenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
+		}
 
 		auto pipeline = createPipeline(overriddenUnspecialized.get(),subgroupSizeLog2);
 
 		// TODO: overlap dispatches with memory readbacks (requires multiple copies of `buffers`)
-		const uint32_t workgroupCount = elementCount / itemsPerWG;
+		uint32_t workgroupCount;
+		if constexpr (WorkgroupTest)
+			workgroupCount = elementCount / itemsPerWG;
+		else
+		{
+			itemsPerWG = workgroupSize;
+			workgroupCount = elementCount / (itemsPerWG * itemsPerInvoc);
+		}	
 		cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
 		cmdbuf->bindComputePipeline(pipeline.get());
 		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &descriptorSet.get());
@@ -324,20 +368,20 @@ private:
 		m_device->blockForSemaphores(wait);
 
 		// check results
-		bool passed = validateResults<Arithmetic, bit_and<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount);
-		passed = validateResults<Arithmetic, bit_xor<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount) && passed;
-		passed = validateResults<Arithmetic, bit_or<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount) && passed;
-		passed = validateResults<Arithmetic, plus<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount) && passed;
-		passed = validateResults<Arithmetic, multiplies<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount) && passed;
-		passed = validateResults<Arithmetic, minimum<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount) && passed;
-		passed = validateResults<Arithmetic, maximum<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount) && passed;
+		bool passed = validateResults<Arithmetic, bit_and<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc);
+		passed = validateResults<Arithmetic, bit_xor<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, bit_or<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, plus<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, multiplies<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, minimum<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, maximum<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
 
 		return passed;
 	}
 
 	//returns true if result matches
 	template<template<class> class Arithmetic, class Binop, bool WorkgroupTest>
-	bool validateResults(const uint32_t itemsPerWG, const uint32_t workgroupCount)
+	bool validateResults(const uint32_t itemsPerWG, const uint32_t workgroupCount, const uint32_t itemsPerInvoc)
 	{
 		bool success = true;
 
@@ -361,22 +405,53 @@ private:
 		for (uint32_t workgroupID = 0u; success && workgroupID < workgroupCount; workgroupID++)
 		{
 			const auto workgroupOffset = workgroupID * itemsPerWG;
-			Arithmetic<Binop>::impl(tmp, inputData + workgroupOffset, itemsPerWG);
 
-			for (uint32_t localInvocationIndex = 0u; localInvocationIndex < itemsPerWG; localInvocationIndex++)
+			if constexpr (WorkgroupTest)
 			{
-				const auto globalInvocationIndex = workgroupOffset + localInvocationIndex;
-				const auto cpuVal = tmp[localInvocationIndex];
-				const auto gpuVal = testData[globalInvocationIndex];
-				if (cpuVal != gpuVal)
+				Arithmetic<Binop>::impl(tmp, inputData + workgroupOffset, itemsPerWG);
+
+				for (uint32_t localInvocationIndex = 0u; localInvocationIndex < itemsPerWG; localInvocationIndex++)
 				{
-					m_logger->log(
-						"Failed test #%d  (%s)  (%s) Expected %u got %u for workgroup %d and localinvoc %d",
-						ILogger::ELL_ERROR, itemsPerWG, WorkgroupTest ? "workgroup" : "subgroup", Binop::name,
-						cpuVal, gpuVal, workgroupID, localInvocationIndex
-					);
-					success = false;
-					break;
+					const auto globalInvocationIndex = workgroupOffset + localInvocationIndex;
+					const auto cpuVal = tmp[localInvocationIndex];
+					const auto gpuVal = testData[globalInvocationIndex];
+					if (cpuVal != gpuVal)
+					{
+						m_logger->log(
+							"Failed test #%d  (%s)  (%s) Expected %u got %u for workgroup %d and localinvoc %d",
+							ILogger::ELL_ERROR, itemsPerWG, WorkgroupTest ? "workgroup" : "subgroup", Binop::name,
+							cpuVal, gpuVal, workgroupID, localInvocationIndex
+						);
+						success = false;
+						break;
+					}
+				}
+			}
+			else
+			{
+				for (uint32_t pseudoSubgroupID = 0u; pseudoSubgroupID < itemsPerWG; pseudoSubgroupID += subgroupSize)
+					Arithmetic<Binop>::impl(tmp + pseudoSubgroupID * itemsPerInvoc, inputData + workgroupOffset + pseudoSubgroupID * itemsPerInvoc, subgroupSize * itemsPerInvoc);
+
+				for (uint32_t localInvocationIndex = 0u; localInvocationIndex < itemsPerWG; localInvocationIndex++)
+				{
+					const auto localOffset = localInvocationIndex * itemsPerInvoc;
+					const auto globalInvocationIndex = workgroupOffset + localOffset;
+
+					for (uint32_t itemInvocationIndex = 0u; itemInvocationIndex < itemsPerInvoc; itemInvocationIndex++)
+					{
+						const auto cpuVal = tmp[localOffset + itemInvocationIndex];
+						const auto gpuVal = testData[globalInvocationIndex + itemInvocationIndex];
+						if (cpuVal != gpuVal)
+						{
+							m_logger->log(
+								"Failed test #%d  (%s)  (%s) Expected %u got %u for workgroup %d and localinvoc %d and iteminvoc %d",
+								ILogger::ELL_ERROR, itemsPerWG, WorkgroupTest ? "workgroup" : "subgroup", Binop::name,
+								cpuVal, gpuVal, workgroupID, localInvocationIndex, itemInvocationIndex
+							);
+							success = false;
+							break;
+						}
+					}
 				}
 			}
 		}
@@ -401,7 +476,7 @@ private:
 
 	uint32_t totalFailCount = 0;
 
-	uint32_t ItemsPerInvocation = 4u;
+	//uint32_t ItemsPerInvocation = 4u;
 };
 
 NBL_MAIN_FUNC(Workgroup2ScanTestApp)

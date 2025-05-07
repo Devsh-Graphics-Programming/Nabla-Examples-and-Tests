@@ -2,6 +2,7 @@
 
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 #include "nbl/builtin/hlsl/subgroup/basic.hlsl"
+#include "nbl/builtin/hlsl/subgroup/arithmetic_portability.hlsl"
 #include "nbl/builtin/hlsl/subgroup2/arithmetic_portability.hlsl"
 
 #include "nbl/builtin/hlsl/jit/device_capabilities.hlsl"
@@ -28,32 +29,39 @@ bool canStore();
 #ifndef OPERATION
 #error "Define OPERATION!"
 #endif
+
 #ifndef SUBGROUP_SIZE_LOG2
 #error "Define SUBGROUP_SIZE_LOG2!"
 #endif
-template<template<class> class binop>
+template<template<class> class binop, typename T, uint32_t N>
 static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
 {
+    // TODO static assert vector<T, N> == type_t
+    //using type_t = vector<T, N>;
+    using config_t = nbl::hlsl::subgroup2::Configuration<SUBGROUP_SIZE_LOG2>;
+    using params_t = nbl::hlsl::subgroup2::ArithmeticParams<config_t, typename binop<T>::base_t, N, nbl::hlsl::jit::device_capabilities>;
+
     if (globalIndex()==0u)
-        output[binop<type_t>::BindingIndex].template Store<uint32_t>(0,nbl::hlsl::glsl::gl_SubgroupSize());
+        output[binop<T>::BindingIndex].template Store<uint32_t>(0,nbl::hlsl::glsl::gl_SubgroupSize());
         
-    operation_t<typename binop<type_t>::base_t,nbl::hlsl::jit::device_capabilities> func;
+    operation_t<params_t> func;
     if (canStore())
-        output[binop<type_t>::BindingIndex].template Store<type_t>(sizeof(uint32_t)+sizeof(type_t)*globalIndex(),func(sourceVal));
+        output[binop<T>::BindingIndex].template Store<type_t>(sizeof(uint32_t)+sizeof(type_t)*globalIndex(),func(sourceVal));
 }
 
 
 type_t test()
 {
-    const type_t sourceVal = inputValue[globalIndex()];
+    const uint32_t idx = globalIndex();
+    type_t sourceVal = inputValue[idx];
 
-    subtest<bit_and>(sourceVal);
-    subtest<bit_xor>(sourceVal);
-    subtest<bit_or>(sourceVal);
-    subtest<plus>(sourceVal);
-    subtest<multiplies>(sourceVal);
-    subtest<minimum>(sourceVal);
-    subtest<maximum>(sourceVal);
+    subtest<bit_and, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
+    subtest<bit_xor, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
+    subtest<bit_or, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
+    subtest<plus, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
+    subtest<multiplies, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
+    subtest<minimum, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
+    subtest<maximum, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
     return sourceVal;
 }
 
