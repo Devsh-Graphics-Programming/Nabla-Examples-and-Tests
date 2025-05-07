@@ -1483,7 +1483,7 @@ private:
 
       auto blasFlags = bitflag(IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT) | IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_COMPACTION_BIT;
       if (m_physicalDevice->getProperties().limits.rayTracingPositionFetch)
-        blasFlags |= IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_DATA_ACCESS_KHR;
+        blasFlags |= IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_DATA_ACCESS;
 
       IGPUBottomLevelAccelerationStructure::DeviceBuildInfo initBuildInfo;
       initBuildInfo.buildFlags = blasFlags;
