@@ -192,29 +192,6 @@ public:
 			}
 
 			// set and transient pool
-			auto descPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE,{&dsLayout.get(),1});
-			testDs = descPool->createDescriptorSet(smart_refctd_ptr(dsLayout));
-			{
-				IGPUDescriptorSet::SDescriptorInfo infos[1+OutputBufferCount];
-				infos[0].desc = gpuinputDataBuffer;
-				infos[0].info.buffer = { 0u,gpuinputDataBuffer->getSize() };
-				for (uint32_t i = 1u; i <= OutputBufferCount; i++)
-				{
-					auto buff = outputBuffers[i - 1];
-					infos[i].info.buffer = { 0u,buff->getSize() };
-					infos[i].desc = std::move(buff); // save an atomic in the refcount
-				}
-
-				IGPUDescriptorSet::SWriteDescriptorSet writes[2];
-				for (uint32_t i=0u; i<2; i++)
-					writes[i] = {testDs.get(),i,0u,1u,infos+i};
-				writes[1].count = OutputBufferCount;
-
-				m_device->updateDescriptorSets(2, writes, 0u, nullptr);
-			}
-			testPplnLayout = m_device->createPipelineLayout({}, std::move(dsLayout));
-
-
 			smart_refctd_ptr<IGPUDescriptorSetLayout> benchLayout;
 			{
 				IGPUDescriptorSetLayout::SBinding binding[3];
@@ -727,24 +704,22 @@ private:
 
 	smart_refctd_ptr<IGPUImage> dummyImg;
 
-	std::array<BenchmarkSet, 3> benchSets;
-	smart_refctd_ptr<IDescriptorPool> benchPool;
-	smart_refctd_ptr<IGPUDescriptorSet> benchDs;
-
-	smart_refctd_ptr<IGPUDescriptorSet> testDs;
-	smart_refctd_ptr<IGPUPipelineLayout> testPplnLayout;
-
 	constexpr static inline uint32_t MaxNumSubmits = 30;
 	uint32_t numSubmits = 0;
 
 	/* PARAMETERS TO CHANGE FOR DIFFERENT BENCHMARKS */
+
 	constexpr static inline bool DoWorkgroupBenchmarks = true;
 	uint32_t ItemsPerInvocation = 4u;
 	constexpr static inline uint32_t NumLoops = 1000u;
-	constexpr static inline std::array<uint32_t, 3> workgroupSizes = { 128, 512, 1024 };
+	constexpr static inline uint32_t NumBenchmarks = 6u;
+	constexpr static inline std::array<uint32_t, NumBenchmarks> workgroupSizes = { 32, 64, 128, 256, 512, 1024 };
 	template<class BinOp>
 	using ArithmeticOp = emulatedReduction<BinOp>;	// change this to test other arithmetic ops
 
+	std::array<BenchmarkSet, NumBenchmarks> benchSets;
+	smart_refctd_ptr<IDescriptorPool> benchPool;
+	smart_refctd_ptr<IGPUDescriptorSet> benchDs;
 
 	uint32_t* inputData = nullptr;
 	constexpr static inline uint32_t OutputBufferCount = 8u;

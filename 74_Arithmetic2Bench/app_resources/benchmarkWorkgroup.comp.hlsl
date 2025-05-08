@@ -15,7 +15,7 @@ struct DataProxy
     void get(const uint32_t ix, NBL_REF_ARG(dtype_t) value)
     {
         // value = inputValue[ix];
-        value = globalIndex();
+        value = nbl::hlsl::promote<dtype_t>(globalIndex());
     }
     void set(const uint32_t ix, const dtype_t value)
     {
