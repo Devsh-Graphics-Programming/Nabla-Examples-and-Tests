@@ -395,7 +395,7 @@ public:
 		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, benchSets[0].pipeline->getLayout(), 0u, 1u, &benchDs.get());
 
 		for (uint32_t i = 0; i < benchSets.size(); i++)
-			runBenchmark<DoWorkgroupBenchmarks>(cmdbuf, benchSets[0], elementCount, SubgroupSizeLog2);
+			runBenchmark<DoWorkgroupBenchmarks>(cmdbuf, benchSets[i], elementCount, SubgroupSizeLog2);
 
 
 		// blit
@@ -741,7 +741,7 @@ private:
 	constexpr static inline bool DoWorkgroupBenchmarks = true;
 	uint32_t ItemsPerInvocation = 4u;
 	constexpr static inline uint32_t NumLoops = 1000u;
-	constexpr static inline std::array<uint32_t, 3> workgroupSizes = { 256, 512, 1024 };
+	constexpr static inline std::array<uint32_t, 3> workgroupSizes = { 128, 512, 1024 };
 	template<class BinOp>
 	using ArithmeticOp = emulatedReduction<BinOp>;	// change this to test other arithmetic ops
 

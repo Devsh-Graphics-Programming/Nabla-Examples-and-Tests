@@ -11,13 +11,15 @@ struct DataProxy
     using dtype_t = vector<uint32_t, Config::ItemsPerInvocation_0>;
     static_assert(nbl::hlsl::is_same_v<dtype_t, type_t>);
 
+    // we don't want to write/read storage multiple times in loop; doesn't seem optimized out in generated spirv
     void get(const uint32_t ix, NBL_REF_ARG(dtype_t) value)
     {
-        value = inputValue[ix];
+        // value = inputValue[ix];
+        value = globalIndex();
     }
     void set(const uint32_t ix, const dtype_t value)
     {
-        output[Binop::BindingIndex].template Store<type_t>(sizeof(uint32_t) + sizeof(type_t) * ix, value);
+        // output[Binop::BindingIndex].template Store<type_t>(sizeof(uint32_t) + sizeof(type_t) * ix, value);
     }
 
     void workgroupExecutionAndMemoryBarrier()
