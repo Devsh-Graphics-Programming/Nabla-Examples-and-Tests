@@ -594,7 +594,7 @@ private:
 		options.preprocessorOptions.includeFinder = includeFinder;
 
 		const uint32_t subgroupSize = 0x1u << subgroupSizeLog2;
-		const uint32_t itemsPerWG = workgroupSize <= 4 * subgroupSize ? workgroupSize : itemsPerInvoc * max(workgroupSize >> subgroupSizeLog2, subgroupSize) << subgroupSizeLog2;	// TODO use Config somehow
+		const uint32_t itemsPerWG = workgroupSize <= subgroupSize ? workgroupSize * itemsPerInvoc : itemsPerInvoc * max(workgroupSize >> subgroupSizeLog2, subgroupSize) << subgroupSizeLog2;	// TODO use Config somehow
 		smart_refctd_ptr<ICPUShader> overriddenUnspecialized;
 		if constexpr (WorkgroupBench)
 		{

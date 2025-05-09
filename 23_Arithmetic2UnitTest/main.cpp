@@ -195,7 +195,7 @@ public:
 					passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, itemsPerInvocation) && passed;
 					logTestOutcome(passed, workgroupSize);
 
-					const uint32_t itemsPerWG = workgroupSize <= 4 * subgroupSize ? workgroupSize : itemsPerInvocation * max(workgroupSize >> subgroupSizeLog2, subgroupSize) << subgroupSizeLog2;	// TODO use Config somehow
+					const uint32_t itemsPerWG = workgroupSize <= subgroupSize ? workgroupSize * itemsPerInvocation : itemsPerInvocation * max(workgroupSize >> subgroupSizeLog2, subgroupSize) << subgroupSizeLog2;	// TODO use Config somehow
 					m_logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
 					passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG, itemsPerInvocation) && passed;
 					logTestOutcome(passed, itemsPerWG);
