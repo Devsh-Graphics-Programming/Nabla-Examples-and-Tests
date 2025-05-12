@@ -548,6 +548,13 @@ protected:
 		{
 			textureIdx = tRef->alloc_idx;
 			tRef->lastUsedSemaphoreValue = intendedNextSubmit.getFutureScratchSemaphore().value; // update this because the texture will get used on the next submit
+			if (textureIdx >= 0u && textureIdx <= msdfStagedCPUImages.size())
+				msdfStagedCPUImages[textureIdx].usedThisFrame = true;
+			else
+			{
+				// shouldn't happen, TODO: Log
+				assert(false);
+			}
 		}
 		return textureIdx;
 	}
