@@ -169,8 +169,6 @@ public:
 		}
 
 		const auto MaxWorkgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
-		const std::array<uint32_t, 4> WorkgroupSizes = { 128, 256, 512, 1024 };
-		const std::array<uint32_t, 3> ItemsPerInvocations = { 1, 2, 4 };
 		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
 		for (auto subgroupSize=MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
@@ -401,13 +399,16 @@ private:
 		const auto testData = reinterpret_cast<const type_t*>(dataFromBuffer + 1);
 		// TODO: parallel for (the temporary values need to be threadlocal or what?)
 		// now check if the data obtained has valid values
-		type_t* tmp = new type_t[itemsPerWG];
+		type_t* tmp;
+		if constexpr (WorkgroupTest)
+			tmp = new type_t[itemsPerWG];
+		else
+			tmp = new type_t[itemsPerWG * itemsPerInvoc];
 		for (uint32_t workgroupID = 0u; success && workgroupID < workgroupCount; workgroupID++)
 		{
-			const auto workgroupOffset = workgroupID * itemsPerWG;
-
 			if constexpr (WorkgroupTest)
 			{
+				const auto workgroupOffset = workgroupID * itemsPerWG;
 				Arithmetic<Binop>::impl(tmp, inputData + workgroupOffset, itemsPerWG);
 
 				for (uint32_t localInvocationIndex = 0u; localInvocationIndex < itemsPerWG; localInvocationIndex++)
@@ -429,6 +430,7 @@ private:
 			}
 			else
 			{
+				const auto workgroupOffset = workgroupID * itemsPerWG * itemsPerInvoc;
 				for (uint32_t pseudoSubgroupID = 0u; pseudoSubgroupID < itemsPerWG; pseudoSubgroupID += subgroupSize)
 					Arithmetic<Binop>::impl(tmp + pseudoSubgroupID * itemsPerInvoc, inputData + workgroupOffset + pseudoSubgroupID * itemsPerInvoc, subgroupSize * itemsPerInvoc);
 
@@ -475,6 +477,9 @@ private:
 	smart_refctd_ptr<ICPUBuffer> resultsBuffer;
 
 	uint32_t totalFailCount = 0;
+
+	constexpr static inline std::array<uint32_t, 4> WorkgroupSizes = { 32, 256, 512, 1024 };
+	constexpr static inline std::array<uint32_t, 3> ItemsPerInvocations = { 1, 2, 4 };
 };
 
 NBL_MAIN_FUNC(Workgroup2ScanTestApp)
