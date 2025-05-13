@@ -335,7 +335,7 @@ float4 fragMain(PSInput input) : SV_TARGET
 
             LineStyle style = loadLineStyle(mainObj.styleIdx);
             uint32_t textureId = asuint(style.screenSpaceLineWidth);
-            if (textureId != InvalidTextureIdx)
+            if (textureId != InvalidTextureIndex)
             {
                 // For Hatch fiils we sample the first mip as we don't fill the others, because they are constant in screenspace and render as expected
                 // If later on we decided that we can have different sizes here, we should do computations similar to FONT_GLYPH
@@ -349,7 +349,7 @@ float4 fragMain(PSInput input) : SV_TARGET
             const float2 uv = input.getFontGlyphUV();
             const uint32_t textureId = input.getFontGlyphTextureId();
 
-            if (textureId != InvalidTextureIdx)
+            if (textureId != InvalidTextureIndex)
             {
                 float mipLevel = msdfTextures.CalculateLevelOfDetail(msdfSampler, uv);
                 float3 msdfSample = msdfTextures.SampleLevel(msdfSampler, float3(uv, float(textureId)), mipLevel);
@@ -380,7 +380,7 @@ float4 fragMain(PSInput input) : SV_TARGET
             const float2 uv = input.getImageUV();
             const uint32_t textureId = input.getImageTextureId();
 
-            if (textureId != InvalidTextureIdx)
+            if (textureId != InvalidTextureIndex)
             {
                 float4 colorSample = textures[NonUniformResourceIndex(textureId)].Sample(textureSampler, float2(uv.x, uv.y));
                 textureColor = colorSample.rgb;

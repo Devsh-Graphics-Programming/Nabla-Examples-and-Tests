@@ -497,6 +497,7 @@ inline bool operator==(const DTMSettings& lhs, const DTMSettings& rhs)
 }
 #endif
 
+NBL_CONSTEXPR uint32_t ImagesBindingArraySize = 128;
 NBL_CONSTEXPR uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
 NBL_CONSTEXPR uint32_t AlphaBits = 32u - MainObjectIdxBits;
 NBL_CONSTEXPR uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
@@ -505,7 +506,7 @@ NBL_CONSTEXPR uint32_t InvalidDTMSettingsIdx = nbl::hlsl::numeric_limits<uint32_
 NBL_CONSTEXPR uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
 NBL_CONSTEXPR uint32_t InvalidCustomProjectionIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
 NBL_CONSTEXPR uint32_t InvalidCustomClipRectIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
-NBL_CONSTEXPR uint32_t InvalidTextureIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
+NBL_CONSTEXPR uint32_t InvalidTextureIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
 
 // Hatches
 NBL_CONSTEXPR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
