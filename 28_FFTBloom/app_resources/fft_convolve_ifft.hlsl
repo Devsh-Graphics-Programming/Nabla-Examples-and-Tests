@@ -51,7 +51,7 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 
 	// The lower half of the DFT is retrieved (in bit-reversed order as an N/2 bit number, N being the length of the whole DFT) as the even elements of the Nabla-ordered FFT.
 	// That is, for the threads in the previous pass you take all `preloaded[0]` elements in thread-ascending order (so preloaded[0] for the 0th thread, then 1st thread etc).
-	// Then you do the same for the next even index of `preloaded` (`prealoded[2]`, `preloaded[4]`, etc).
+	// Then you do the same for the next even index of `preloaded` (`preloaded[2]`, `preloaded[4]`, etc).
 	// Every two consecutive threads here have to get the value for the row given by `gl_WorkGroupID().x`, for two consecutive columns which were stored as one column holding the packed FFT.
 	// Except for the special case `gl_WorkGroupID().x = 0`, to unpack the values for the current two columns at `y = NablaFFT[gl_WorkGroupID().x] = DFT[T]` we need the value at 
 	// `NablaFFT[getDFTMirrorIndex(gl_WorkGroupID().x)] = DFT[-T]`. To achieve this, we make the thread with an even ID load the former element and the one with an odd ID load the latter.
@@ -121,6 +121,24 @@ struct PreloadedSecondAxisAccessor : PreloadedAccessorMirrorTradeBase
 			paddedIndex += WorkgroupSize / 2;
 		}
 
+	}
+
+	// This one only gets used if ElementsPerThread = 2 which is when you can reorder in-place
+	// It reorders both NFFT to DFT and vice-versa, since in this case both functions are their own inverse
+	template<typename sharedmem_adaptor_t>
+	void reorder(NBL_REF_ARG(sharedmem_adaptor_t) adaptorForSharedMemory)
+	{
+		const uint32_t bitReversedThreadID = bitReverseAs<uint32_t>(workgroup::SubgroupContiguousIndex(), FFTParameters::WorkgroupSizeLog2);
+		vector<scalar_t, 2> preloadedVector = { preloaded[0].real(), preloaded[0].imag() };
+		workgroup::Shuffle<sharedmem_adaptor_t, vector<scalar_t, 2> >::__call(preloadedVector, bitReversedThreadID, adaptorForSharedMemory);
+		adaptorForSharedMemory.workgroupExecutionAndMemoryBarrier();
+		preloaded[0].real(preloadedVector.x);
+		preloaded[0].imag(preloadedVector.y);
+		preloadedVector.x = preloaded[1].real();
+		preloadedVector.y = preloaded[1].imag();
+		workgroup::Shuffle<sharedmem_adaptor_t, vector<scalar_t, 2> >::__call(preloadedVector, bitReversedThreadID, adaptorForSharedMemory);
+		preloaded[1].real(preloadedVector.x);
+		preloaded[1].imag(preloadedVector.y);
 	}
 
 	// Each element on this row is Nabla-ordered. So the element at `x' = index, y' = gl_WorkGroupID().x` that we're operating on is actually the element at
