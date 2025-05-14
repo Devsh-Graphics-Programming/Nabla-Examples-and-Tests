@@ -538,6 +538,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			return buffer;
 		}
 
+#ifndef TEST_ASSET_CONV_AS
 		smart_refctd_ptr<IGPUCommandBuffer> getSingleUseCommandBufferAndBegin(smart_refctd_ptr<IGPUCommandPool> pool)
 		{
 			smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
@@ -596,6 +597,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				m_device->blockForSemaphores(info);
 			}
 		}
+#endif
 
 #ifdef TEST_ASSET_CONV_AS
 		bool createAccelerationStructuresFromGeometry(video::CThreadSafeQueueAdapter* queue, const IGeometryCreator* gc)
@@ -720,15 +722,41 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			cpuTlas->setInstances(std::move(geomInstances));
 			cpuTlas->setBuildFlags(IGPUTopLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT);
 
+//#define TEST_REBAR_FALLBACK
 			// convert with asset converter
-			auto pool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-			if (!pool)
-				return logFail("Couldn't create Command Pool for geometry creation!");
-			auto cmdbuf = getSingleUseCommandBufferAndBegin(pool);
-
 			smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get(), .optimizer = {} });
-			CAssetConverter::SInputs inputs = {};
+			struct MyInputs : CAssetConverter::SInputs
+			{
+#ifndef TEST_REBAR_FALLBACK
+				inline uint32_t constrainMemoryTypeBits(const size_t groupCopyID, const IAsset* canonicalAsset, const blake3_hash_t& contentHash, const IDeviceMemoryBacked* memoryBacked) const override
+				{
+					assert(memoryBacked);
+					return memoryBacked->getObjectType()!=IDeviceMemoryBacked::EOT_BUFFER ? (~0u):rebarMemoryTypes;
+				}
+#endif
+				uint32_t rebarMemoryTypes;
+			} inputs = {};
 			inputs.logger = m_logger.get();
+			inputs.rebarMemoryTypes = m_physicalDevice->getDirectVRAMAccessMemoryTypeBits();
+#ifndef TEST_REBAR_FALLBACK
+			struct MyAllocator final : public IDeviceMemoryAllocator
+			{
+				ILogicalDevice* getDeviceForAllocations() const override {return device;}
+
+				SAllocation allocate(const SAllocateInfo& info) override
+				{
+					auto retval = device->allocate(info);
+					// map what is mappable by default so ReBAR checks succeed
+					if (retval.isValid() && retval.memory->isMappable())
+						retval.memory->map({.offset=0,.length=info.size});
+					return retval;
+				}
+
+				ILogicalDevice* device;
+			} myalloc;
+			myalloc.device = m_device.get();
+			inputs.allocator = &myalloc;
+#endif
 
 			std::array<ICPUTopLevelAccelerationStructure*, 1u> tmpTlas;
 			std::array<ICPUBuffer*, OT_COUNT * 2u> tmpBuffers;
@@ -772,40 +800,102 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				prepass.template operator() < ICPUBuffer > (tmpBuffers);
 			}
 
-			// TODO wait for convert
-			m_logger->log("willDeviceASBuild: %d, willHostASBuild: %d\nminASBuildScratchSize: %d, maxASBuildScratchSize: %d\nminCompactedASAllocatorSpace: %d, requiredQueueFlags: %d\n", ILogger::ELL_INFO,
-				reservation.willDeviceASBuild(), reservation.willHostASBuild(),
-				reservation.getMinASBuildScratchSize(false), reservation.getMaxASBuildScratchSize(false),
-				reservation.getMinCompactedASAllocatorSpace(), reservation.getRequiredQueueFlags(false));
-			return false;
 
-			auto semaphore = m_device->createSemaphore(0u);
-
-			std::array<IQueue::SSubmitInfo::SCommandBufferInfo, 1> cmdbufs = {};
-			cmdbufs.front().cmdbuf = cmdbuf.get();
-
+			constexpr auto XferBufferCount = 2;
+			std::array<smart_refctd_ptr<IGPUCommandBuffer>,XferBufferCount> xferBufs = {};
+			std::array<IQueue::SSubmitInfo::SCommandBufferInfo,XferBufferCount> xferBufInfos = {};
+			{
+				auto pool = m_device->createCommandPool(getTransferUpQueue()->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT | IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+				pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,xferBufs);
+				xferBufs.front()->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+				for (auto i=0; i<XferBufferCount; i++)
+					xferBufInfos[i].cmdbuf = xferBufs[i].get();
+			}
+			auto xferSema = m_device->createSemaphore(0u);
 			SIntendedSubmitInfo transfer = {};
-			transfer.queue = queue;
-			transfer.scratchCommandBuffers = cmdbufs;
+			transfer.queue = getTransferUpQueue();
+			transfer.scratchCommandBuffers = xferBufInfos;
 			transfer.scratchSemaphore = {
-				.semaphore = semaphore.get(),
+				.semaphore = xferSema.get(),
 				.value = 0u,
 				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
 			};
+			
+			constexpr auto CompBufferCount = 2;
+			std::array<smart_refctd_ptr<IGPUCommandBuffer>,CompBufferCount> compBufs = {};
+			std::array<IQueue::SSubmitInfo::SCommandBufferInfo,CompBufferCount> compBufInfos = {};
+			{
+				auto pool = m_device->createCommandPool(getComputeQueue()->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT|IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+				pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,compBufs);
+				compBufs.front()->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+				for (auto i=0; i<CompBufferCount; i++)
+					compBufInfos[i].cmdbuf = compBufs[i].get();
+			}
+			auto compSema = m_device->createSemaphore(0u);
 			SIntendedSubmitInfo compute = {};
-			compute.queue = queue;
-			compute.scratchCommandBuffers = cmdbufs;
+			compute.queue = getComputeQueue();
+			compute.scratchCommandBuffers = compBufInfos;
 			compute.scratchSemaphore = {
-				.semaphore = semaphore.get(),
+				.semaphore = compSema.get(),
 				.value = 0u,
-				.stageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT	// TODO correct mask?
+				.stageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT|PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_COPY_BIT
 			};
 			// convert
 			{
-				CAssetConverter::SConvertParams params = {};
+				smart_refctd_ptr<CAssetConverter::SConvertParams::scratch_for_device_AS_build_t> scratchAlloc;
+				{
+					constexpr auto MaxAlignment = 256;
+					constexpr auto MinAllocationSize = 1024;
+					const auto scratchSize = core::alignUp(reservation.getMinASBuildScratchSize(false),MaxAlignment);
+					
+
+					IGPUBuffer::SCreationParams creationParams = {};
+					creationParams.size = scratchSize;
+					creationParams.usage = IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT|IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT|IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+#ifdef TEST_REBAR_FALLBACK
+					creationParams.usage |= IGPUBuffer::EUF_TRANSFER_DST_BIT;
+					core::unordered_set<uint32_t> sharingSet = {compute.queue->getFamilyIndex(),transfer.queue->getFamilyIndex()};
+					core::vector<uint32_t> sharingIndices(sharingSet.begin(),sharingSet.end());
+					if (sharingIndices.size()>1)
+						creationParams.queueFamilyIndexCount = sharingIndices.size();
+					creationParams.queueFamilyIndices = sharingIndices.data();
+#endif
+					auto scratchBuffer = m_device->createBuffer(std::move(creationParams));
+
+					auto reqs = scratchBuffer->getMemoryReqs();
+#ifndef TEST_REBAR_FALLBACK
+					reqs.memoryTypeBits &= m_physicalDevice->getDirectVRAMAccessMemoryTypeBits();
+#endif
+					auto allocation = m_device->allocate(reqs,scratchBuffer.get(),IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+#ifndef TEST_REBAR_FALLBACK
+					allocation.memory->map({.offset=0,.length=reqs.size});
+#endif
+
+					scratchAlloc = make_smart_refctd_ptr<CAssetConverter::SConvertParams::scratch_for_device_AS_build_t>(
+						SBufferRange<video::IGPUBuffer>{0ull,scratchSize,std::move(scratchBuffer)},
+						core::allocator<uint8_t>(),MaxAlignment,MinAllocationSize
+					);
+				}
+
+				struct MyParams final : CAssetConverter::SConvertParams
+				{
+					inline uint32_t getFinalOwnerQueueFamily(const IGPUBuffer* buffer, const core::blake3_hash_t& createdFrom) override
+					{
+						return finalUser;
+					}
+					inline uint32_t getFinalOwnerQueueFamily(const IGPUAccelerationStructure* image, const core::blake3_hash_t& createdFrom) override
+					{
+						return finalUser;
+					}
+
+					uint8_t finalUser;
+				} params = {};
+#undef TEST_REBAR_FALLBACK
 				params.utilities = m_utils.get();
 				params.transfer = &transfer;
 				params.compute = &compute;
+				params.scratchForDeviceASBuild = scratchAlloc.get();
+				params.finalUser = queue->getFamilyIndex();
 
 				auto future = reservation.convert(params);
 				if (future.copy() != IQueue::RESULT::SUCCESS)
