@@ -27,6 +27,7 @@ void DrawResourcesFiller::setTexturesDescriptorSetAndBinding(core::smart_refctd_
 void DrawResourcesFiller::allocateResourcesBuffer(ILogicalDevice* logicalDevice, size_t size)
 {
 	// TODO: Make this function failable and report insufficient memory if less that getMinimumRequiredResourcesBufferSize, TODO: Have retry mechanism to allocate less mem
+	// TODO: Allocate buffer memory and image memory with 1 allocation, so that failure and retries are more straightforward.
 	size = core::alignUp(size, ResourcesMaxNaturalAlignment);
 	size = core::max(size, getMinimumRequiredResourcesBufferSize());
 	// size = 368u; STRESS TEST
@@ -39,6 +40,46 @@ void DrawResourcesFiller::allocateResourcesBuffer(ILogicalDevice* logicalDevice,
 	IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = resourcesGPUBuffer->getMemoryReqs();
 	memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 	auto mem = logicalDevice->allocate(memReq, resourcesGPUBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+
+	// Allocate for Images  
+	{
+		const auto& memoryProperties = logicalDevice->getPhysicalDevice()->getMemoryProperties();
+		uint32_t memoryTypeIdx = ~0u;
+		for (uint32_t i = 0u; i < memoryProperties.memoryTypeCount; ++i)
+		{
+			if (memoryProperties.memoryTypes[i].propertyFlags.hasFlags(IDeviceMemoryAllocation::EMPF_DEVICE_LOCAL_BIT))
+			{
+				memoryTypeIdx = i;
+				break;
+			}
+		}
+
+		if (memoryTypeIdx == ~0u)
+		{
+			// TODO: Log, no device local memory found?! weird
+			assert(false);
+		}
+
+		IDeviceMemoryAllocator::SAllocateInfo allocationInfo =
+		{
+			.size = 512 * 1024 * 1024, // 512 MB
+			.flags = IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE,
+			.memoryTypeIndex = memoryTypeIdx,
+			.dedication = nullptr,
+		};
+		imagesMemoryArena = logicalDevice->allocate(allocationInfo);
+
+		if (imagesMemoryArena.isValid())
+		{
+			imagesMemorySubAllocator = std::unique_ptr<ImagesMemorySubAllocator>(new ImagesMemorySubAllocator(allocationInfo.size));
+		}
+		else
+		{
+			// LOG: Allocation failure to allocate memory arena for images 
+			assert(false);
+		}
+	}
+
 }
 
 void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent)
@@ -350,7 +391,6 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 			suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &evicted.index, deallocationWaitInfo);
 		}
 	};
-	
 
 	// Try inserting or updating the image usage in the cache.
 	// If the image is already present, updates its semaphore value.
@@ -393,47 +433,94 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 			while (imagesUsageCache->size() > 0u)
 			{
 				// Try creating the image and allocating memory for it:
-				auto gpuImg = device->createImage(std::move(imageParams));
-				if (!gpuImg || !device->allocate(gpuImg->getMemoryReqs(), gpuImg.get()).isValid())
+				auto gpuImage = device->createImage(std::move(imageParams));
+				
+				if (gpuImage)
 				{
-					// Failed creating or allocating the image, evict and retry.
-					if (imagesUsageCache->size() == 1u)
+					nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements gpuImageMemoryRequirements = gpuImage->getMemoryReqs();
+					const bool imageMemoryRequirementsMatch = 
+						(physDev->getDeviceLocalMemoryTypeBits() & gpuImageMemoryRequirements.memoryTypeBits) != 0 && // should have device local memory compatible
+						(gpuImageMemoryRequirements.requiresDedicatedAllocation == false); // should not require dedicated allocation
+
+					if (imageMemoryRequirementsMatch)
+					{
+						uint64_t allocationOffset = imagesMemorySubAllocator->allocate(gpuImageMemoryRequirements);
+						const bool allocationFromImagesMemoryArenaSuccessfull = allocationOffset != ImagesMemorySubAllocator::InvalidAddress;
+						if (allocationFromImagesMemoryArenaSuccessfull)
+						{
+							nbl::video::ILogicalDevice::SBindImageMemoryInfo bindImageMemoryInfo =
+							{
+								.image = gpuImage.get(),
+								.binding = {.memory = imagesMemoryArena.memory.get(), .offset = imagesMemoryArena.offset + allocationOffset }
+							};
+							const bool boundToMemorySuccessfully = device->bindImageMemory({ &bindImageMemoryInfo, 1u });
+							if (boundToMemorySuccessfully)
+							{
+								IGPUImageView::SCreationParams viewParams = {
+									.image = gpuImage,
+									.viewType = IGPUImageView::ET_2D,
+									.format = gpuImage->getCreationParameters().format
+								};
+								gpuImage->setObjectDebugName((std::to_string(imageID) + " Static Image 2D").c_str());
+								gpuImageView = device->createImageView(std::move(viewParams));
+								if (gpuImageView)
+								{
+									gpuImageView->setObjectDebugName((std::to_string(imageID) + " Static Image View 2D").c_str());
+								}
+								else
+								{
+									// irrecoverable error if simple image creation fails.
+									// TODO[LOG]: that's rare, image view creation failed.
+								}
+
+								// succcessful with everything, just break and get out of this retry loop
+								break;
+							}
+							else
+							{
+								// irrecoverable error if simple bindImageMemory fails.
+								// TODO: LOG
+								break;
+							}
+						}
+						else
+						{
+							// recoverable error when allocation fails, we don't log anything, next code will try evicting other images and retry
+						}
+					}
+					else
+					{
+						// irrecoverable error if memory requirements of the image don't match our preallocated devicememory
+						// TODO: LOG
+						break;
+					}
+				}
+				else
+				{
+					// irrecoverable error if simple image creation fails.
+					// TODO: LOG
+					break;
+				}
+
+				// Getting here means we failed creating or allocating the image, evict and retry.
+				if (imagesUsageCache->size() == 1u)
 					{
 						// Nothing else to evict; give up.
 						// We probably have evicted almost every other texture except the one we just allocated an index for
 						break;
 					}
 
-					assert(imagesUsageCache->size() > 1u);
+				assert(imagesUsageCache->size() > 1u);
 
-					const image_id evictionCandidate = imagesUsageCache->select_eviction_candidate();
-					ImageReference* imageRef = imagesUsageCache->peek(evictionCandidate);
-					if (imageRef)
-						evictionCallback(*imageRef);
-					imagesUsageCache->erase(evictionCandidate);
-					suballocatedDescriptorSet->cull_frees(); // to make sure deallocation requests in eviction callback are waited for.
+				const image_id evictionCandidate = imagesUsageCache->select_eviction_candidate();
+				ImageReference* imageRef = imagesUsageCache->peek(evictionCandidate);
+				if (imageRef)
+					evictionCallback(*imageRef);
+				imagesUsageCache->erase(evictionCandidate);
+				suballocatedDescriptorSet->cull_frees(); // to make sure deallocation requests in eviction callback are waited for.
 
-					// we don't hold any references to the GPUImageView or GPUImage so descriptor binding will be the last reference
-					// hopefully by here the suballocated descriptor set freed some VRAM by dropping the image last ref and it's dedicated allocation.
-
-					continue; // Retry allocation after evicting.
-				}
-				
-				IGPUImageView::SCreationParams viewParams = {
-					.image = gpuImg,
-					.viewType = IGPUImageView::ET_2D,
-					.format = gpuImg->getCreationParameters().format
-				};
-				gpuImg->setObjectDebugName((std::to_string(imageID) + " Static Image 2D").c_str());
-				gpuImageView = device->createImageView(std::move(viewParams));
-				if (!gpuImageView)
-				{
-					// TODO[LOG]: that's rare, image view creation failed.
-					break;
-				}
-
-				gpuImageView->setObjectDebugName((std::to_string(imageID) + " Static Image View 2D").c_str());
-				break;
+				// we don't hold any references to the GPUImageView or GPUImage so descriptor binding will be the last reference
+				// hopefully by here the suballocated descriptor set freed some VRAM by dropping the image last ref and it's dedicated allocation.
 			}
 
 			if (gpuImageView)

@@ -3,7 +3,7 @@
 #include "CTriangleMesh.h"
 #include "Hatch.h"
 #include "IndexAllocator.h"
-#include "ImagesUsageCache.h"
+#include "Images.h"
 #include <nbl/video/utilities/SIntendedSubmitInfo.h>
 #include <nbl/core/containers/LRUCache.h>  
 #include <nbl/ext/TextRendering/TextRendering.h>
@@ -588,6 +588,10 @@ protected:
 	ResourcesCollection resourcesCollection;
 	nbl::core::smart_refctd_ptr<IGPUBuffer> resourcesGPUBuffer;
 	size_t copiedResourcesSize;
+
+	// GPUImages Memory Arena + AddressAllocator
+	IDeviceMemoryAllocator::SAllocation imagesMemoryArena;
+	std::unique_ptr<ImagesMemorySubAllocator> imagesMemorySubAllocator;
 
 	// Members
 	smart_refctd_ptr<IUtilities> m_utilities;
