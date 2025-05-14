@@ -174,9 +174,8 @@ public:
 		for (auto subgroupSize=MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 		{
 			const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
-			for (uint32_t i = 0; i < WorkgroupSizes.size(); i++)
+			for (uint32_t workgroupSize = subgroupSize; workgroupSize < MaxWorkgroupSize; workgroupSize *= 2)
 			{
-				const uint32_t workgroupSize = WorkgroupSizes[i];
 				// make sure renderdoc captures everything for debugging
 				m_api->startCapture();
 				m_logger->log("Testing Workgroup Size %u with Subgroup Size %u", ILogger::ELL_INFO, workgroupSize, subgroupSize);
@@ -478,8 +477,7 @@ private:
 
 	uint32_t totalFailCount = 0;
 
-	constexpr static inline std::array<uint32_t, 4> WorkgroupSizes = { 32, 256, 512, 1024 };
-	constexpr static inline std::array<uint32_t, 3> ItemsPerInvocations = { 1, 2, 4 };
+	constexpr static inline std::array<uint32_t, 4> ItemsPerInvocations = { 1, 2, 3, 4 };
 };
 
 NBL_MAIN_FUNC(Workgroup2ScanTestApp)
