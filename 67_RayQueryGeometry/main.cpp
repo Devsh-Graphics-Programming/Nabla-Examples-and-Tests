@@ -4,6 +4,8 @@
 
 #include "common.hpp"
 
+#define TEST_ASSET_CONV_AS
+
 class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 		using device_base_t = examples::SimpleWindowedApplication;
@@ -126,6 +128,10 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 			auto cQueue = getComputeQueue();
 
+#ifdef TEST_ASSET_CONV_AS
+			if (!createAccelerationStructuresFromGeometry(cQueue, geometryCreator))
+				return logFail("Could not create acceleration structures from provided geometry creator");
+#else
 			// create geometry objects
 			if (!createGeometries(gQueue, geometryCreator))
 				return logFail("Could not create geometries from geometry creator");
@@ -147,6 +153,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			if (!createAccelerationStructures(cQueue))
 #endif
 				return logFail("Could not create acceleration structures");
+#endif	// TEST_ASSET_CONV_AS
 
 			// create pipelines
 			{
@@ -590,6 +597,235 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			}
 		}
 
+#ifdef TEST_ASSET_CONV_AS
+		bool createAccelerationStructuresFromGeometry(video::CThreadSafeQueueAdapter* queue, const IGeometryCreator* gc)
+		{
+			// get geometries in ICPUBuffers
+			std::array<ReferenceObjectCpu, OT_COUNT> objectsCpu;
+			objectsCpu[OT_CUBE] = ReferenceObjectCpu{ .meta = {.type = OT_CUBE, .name = "Cube Mesh" }, .shadersType = GP_BASIC, .data = gc->createCubeMesh(nbl::core::vector3df(1.f, 1.f, 1.f)) };
+			objectsCpu[OT_SPHERE] = ReferenceObjectCpu{ .meta = {.type = OT_SPHERE, .name = "Sphere Mesh" }, .shadersType = GP_BASIC, .data = gc->createSphereMesh(2, 16, 16) };
+			objectsCpu[OT_CYLINDER] = ReferenceObjectCpu{ .meta = {.type = OT_CYLINDER, .name = "Cylinder Mesh" }, .shadersType = GP_BASIC, .data = gc->createCylinderMesh(2, 2, 20) };
+			objectsCpu[OT_RECTANGLE] = ReferenceObjectCpu{ .meta = {.type = OT_RECTANGLE, .name = "Rectangle Mesh" }, .shadersType = GP_BASIC, .data = gc->createRectangleMesh(nbl::core::vector2df_SIMD(1.5, 3)) };
+			objectsCpu[OT_DISK] = ReferenceObjectCpu{ .meta = {.type = OT_DISK, .name = "Disk Mesh" }, .shadersType = GP_BASIC, .data = gc->createDiskMesh(2, 30) };
+			objectsCpu[OT_ARROW] = ReferenceObjectCpu{ .meta = {.type = OT_ARROW, .name = "Arrow Mesh" }, .shadersType = GP_BASIC, .data = gc->createArrowMesh() };
+			objectsCpu[OT_CONE] = ReferenceObjectCpu{ .meta = {.type = OT_CONE, .name = "Cone Mesh" }, .shadersType = GP_CONE, .data = gc->createConeMesh(2, 3, 10) };
+			objectsCpu[OT_ICOSPHERE] = ReferenceObjectCpu{ .meta = {.type = OT_ICOSPHERE, .name = "Icosphere Mesh" }, .shadersType = GP_ICO, .data = gc->createIcoSphere(1, 3, true) };
+
+			auto geomInfoBuffer = ICPUBuffer::create({ OT_COUNT * sizeof(SGeomInfo) });
+
+			SGeomInfo* geomInfos = reinterpret_cast<SGeomInfo*>(geomInfoBuffer->getPointer());
+			const uint32_t byteOffsets[OT_COUNT] = { 18, 24, 24, 20, 20, 24, 16, 12 };	// based on normals data position
+			const uint32_t smoothNormals[OT_COUNT] = { 0, 1, 1, 0, 0, 1, 1, 1 };
+
+			struct ScratchVIBindings
+			{
+				nbl::asset::SBufferBinding<ICPUBuffer> vertex, index;
+			};
+			std::array<ScratchVIBindings, OT_COUNT> scratchBuffers;
+
+			for (uint32_t i = 0; i < scratchBuffers.size(); i++)
+			{
+				const auto& geom = objectsCpu[i];
+				auto& scratchObj = scratchBuffers[i];
+				const bool useIndex = geom.data.indexType != EIT_UNKNOWN;
+
+				auto vBuffer = smart_refctd_ptr(geom.data.bindings[0].buffer); // no offset
+				auto vUsage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF |
+					IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+
+				auto iBuffer = smart_refctd_ptr(geom.data.indexBuffer.buffer); // no offset
+				auto iUsage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF |
+					IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+
+				vBuffer->addUsageFlags(vUsage);
+				vBuffer->setContentHash(vBuffer->computeContentHash());
+				scratchObj.vertex = { .offset = 0, .buffer = vBuffer };
+
+				if (useIndex)
+					if (iBuffer)
+					{
+						iBuffer->addUsageFlags(iUsage);
+						iBuffer->setContentHash(iBuffer->computeContentHash());
+					}
+				scratchObj.index = { .offset = 0, .buffer = iBuffer };
+			}
+
+			// get ICPUBuffers into ICPUBottomLevelAccelerationStructures
+			std::array<smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>, OT_COUNT> cpuBlas;
+			for (uint32_t i = 0; i < cpuBlas.size(); i++)
+			{
+				auto triangles = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUBottomLevelAccelerationStructure::Triangles<ICPUBuffer>>>(1u);
+				auto primitiveCounts = make_refctd_dynamic_array<smart_refctd_dynamic_array<uint32_t>>(1u);
+
+				auto& tri = triangles->front();
+				auto& primCount = primitiveCounts->front();
+				const auto& geom = objectsCpu[i];
+				const auto& scratchObj = scratchBuffers[i];
+
+				const bool useIndex = geom.data.indexType != EIT_UNKNOWN;
+				const uint32_t vertexStride = geom.data.inputParams.bindings[0].stride;
+				const uint32_t numVertices = scratchObj.vertex.buffer->getSize() / vertexStride;
+
+				if (useIndex)
+					primCount = geom.data.indexCount / 3;
+				else
+					primCount = numVertices / 3;
+
+				geomInfos[i].indexType = geom.data.indexType;
+				geomInfos[i].vertexStride = vertexStride;
+				geomInfos[i].smoothNormals = smoothNormals[i];
+
+				tri.vertexData[0] = scratchObj.vertex;
+				tri.indexData = useIndex ? scratchObj.index : scratchObj.vertex;
+				tri.maxVertex = numVertices - 1;
+				tri.vertexStride = vertexStride;
+				tri.vertexFormat = EF_R32G32B32_SFLOAT;
+				tri.indexType = geom.data.indexType;
+				tri.geometryFlags = IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::OPAQUE_BIT;
+
+				auto& blas = cpuBlas[i];
+				blas->setGeometries(std::move(triangles), std::move(primitiveCounts));
+
+				auto blasFlags = bitflag(IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT) | IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_COMPACTION_BIT;
+				if (m_physicalDevice->getProperties().limits.rayTracingPositionFetch)
+					blasFlags |= IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_DATA_ACCESS;
+
+				blas->setBuildFlags(blasFlags);
+				blas->setContentHash(blas->computeContentHash());
+			}
+
+			// TODO: when does compact blas happen?
+
+			// get ICPUBottomLevelAccelerationStructure into ICPUTopLevelAccelerationStructure
+			auto geomInstances = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUTopLevelAccelerationStructure::PolymorphicInstance>>(OT_COUNT);
+			{
+				uint32_t i = 0;
+				for (auto instance = geomInstances->begin(); instance != geomInstances->end(); instance++, i++)
+				{
+					ICPUTopLevelAccelerationStructure::StaticInstance inst;
+					inst.base.blas = cpuBlas[i];
+					inst.base.flags = static_cast<uint32_t>(IGPUTopLevelAccelerationStructure::INSTANCE_FLAGS::TRIANGLE_FACING_CULL_DISABLE_BIT);
+					inst.base.instanceCustomIndex = i;
+					inst.base.instanceShaderBindingTableRecordOffset = 0;
+					inst.base.mask = 0xFF;
+
+					core::matrix3x4SIMD transform;
+					transform.setTranslation(nbl::core::vectorSIMDf(5.f * i, 0, 0, 0));
+					inst.transform = transform;
+					
+					instance->instance = inst;
+				}
+			}
+
+			smart_refctd_ptr<ICPUTopLevelAccelerationStructure> cpuTlas;
+			cpuTlas->setInstances(std::move(geomInstances));
+			cpuTlas->setBuildFlags(IGPUTopLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT);
+
+			// convert with asset converter
+			auto pool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+			if (!pool)
+				return logFail("Couldn't create Command Pool for geometry creation!");
+			auto cmdbuf = getSingleUseCommandBufferAndBegin(pool);
+			cmdbuf->beginDebugMarker("Build geometry vertex and index buffers");
+
+			smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get(), .optimizer = {} });
+			CAssetConverter::SInputs inputs = {};
+			inputs.logger = m_logger.get();
+
+			std::array<ICPUTopLevelAccelerationStructure*, 1u> tmpTlas;
+			std::array<ICPUBuffer*, OT_COUNT * 2u> tmpBuffers;
+			{
+				tmpTlas[0] = cpuTlas.get();
+				for (uint32_t i = 0; i < objectsCpu.size(); i++)
+				{
+					tmpBuffers[2 * i + 0] = scratchBuffers[i].vertex.buffer.get();
+					tmpBuffers[2 * i + 1] = scratchBuffers[i].index.buffer.get();
+				}
+
+				std::get<CAssetConverter::SInputs::asset_span_t<ICPUTopLevelAccelerationStructure>>(inputs.assets) = tmpTlas;
+				std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = tmpBuffers;
+			}
+
+			auto reservation = converter->reserve(inputs);
+			{
+				auto prepass = [&]<typename asset_type_t>(const auto & references) -> bool
+				{
+					auto objects = reservation.getGPUObjects<asset_type_t>();
+					uint32_t counter = {};
+					for (auto& object : objects)
+					{
+						auto gpu = object.value;
+						auto* reference = references[counter];
+
+						if (reference)
+						{
+							if (!gpu)
+							{
+								m_logger->log("Failed to convert a CPU object to GPU!", ILogger::ELL_ERROR);
+								return false;
+							}
+						}
+						counter++;
+					}
+					return true;
+				};
+
+				prepass.template operator() < ICPUTopLevelAccelerationStructure > (tmpTlas);
+				prepass.template operator() < ICPUBuffer > (tmpBuffers);
+			}
+
+			auto semaphore = m_device->createSemaphore(0u);
+
+			std::array<IQueue::SSubmitInfo::SCommandBufferInfo, 1> cmdbufs = {};
+			cmdbufs.front().cmdbuf = cmdbuf.get();
+
+			SIntendedSubmitInfo transfer = {};
+			transfer.queue = queue;
+			transfer.scratchCommandBuffers = cmdbufs;
+			transfer.scratchSemaphore = {
+				.semaphore = semaphore.get(),
+				.value = 0u,
+				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS	// TODO mask for AS?
+			};
+			// convert
+			{
+				CAssetConverter::SConvertParams params = {};
+				params.utilities = m_utils.get();
+				params.transfer = &transfer;
+
+				auto future = reservation.convert(params);
+				if (future.copy() != IQueue::RESULT::SUCCESS)
+				{
+					m_logger->log("Failed to await submission feature!", ILogger::ELL_ERROR);
+					return false;
+				}
+
+				// assign gpu objects to output
+				auto&& tlases = reservation.getGPUObjects<ICPUTopLevelAccelerationStructure>();
+				gpuTlas = tlases[0].value;
+				auto&& buffers = reservation.getGPUObjects<ICPUBuffer>();
+				for (uint32_t i = 0; i < objectsCpu.size(); i++)
+				{
+					auto vBuffer = buffers[2 * i + 0].value;
+					auto iBuffer = buffers[2 * i + 1].value;
+					const auto& geom = objectsCpu[i];
+					const bool useIndex = geom.data.indexType != EIT_UNKNOWN;
+
+					geomInfos[i].vertexBufferAddress = vBuffer->getDeviceAddress() + byteOffsets[i];
+					geomInfos[i].indexBufferAddress = useIndex ? iBuffer->getDeviceAddress() : geomInfos[i].vertexBufferAddress;
+				}
+			}
+
+			{
+				IGPUBuffer::SCreationParams params;
+				params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+				params.size = OT_COUNT * sizeof(SGeomInfo);
+				m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = queue }, std::move(params), geomInfos).move_into(geometryInfoBuffer);
+			}
+
+			return true;
+		}
+#else
 		bool createGeometries(video::CThreadSafeQueueAdapter* queue, const IGeometryCreator* gc)
 		{
 			auto pool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
@@ -1057,6 +1293,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 			return true;
 		}
+#endif // TEST_ASSET_CONV_AS
 
 
 		smart_refctd_ptr<IWindow> m_window;
