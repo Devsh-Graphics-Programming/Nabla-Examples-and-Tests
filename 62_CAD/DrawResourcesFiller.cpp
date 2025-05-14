@@ -71,7 +71,7 @@ void DrawResourcesFiller::allocateResourcesBuffer(ILogicalDevice* logicalDevice,
 
 		if (imagesMemoryArena.isValid())
 		{
-			imagesMemorySubAllocator = std::unique_ptr<ImagesMemorySubAllocator>(new ImagesMemorySubAllocator(allocationInfo.size));
+			imagesMemorySubAllocator = core::make_smart_refctd_ptr<ImagesMemorySubAllocator>(static_cast<uint64_t>(allocationInfo.size));
 		}
 		else
 		{
@@ -414,7 +414,6 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 			IGPUImage::SCreationParams imageParams = {};
 			imageParams = cpuImage->getCreationParameters();
 			imageParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT|IGPUImage::EUF_SAMPLED_BIT;
-
 			// promote format because RGB8 and friends don't actually exist in HW
 			{
 				const IPhysicalDevice::SImageFormatPromotionRequest request = {
@@ -432,19 +431,28 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 			// we'll evict another texture from the LRU cache and retry until successful, or until only the currently-inserted image remains.
 			while (imagesUsageCache->size() > 0u)
 			{
+				// Pre-create the cleanup object that will later be used to release the image's memory range.
+				// Ownership will be passed to the GPU image, but we retain a temporary raw pointer
+				// so we can configure the cleanup object *after* allocation succeeds.
+				std::unique_ptr<ImageCleanup> cleanupObject = std::make_unique<ImageCleanup>();
+				ImageCleanup* currentImageCleanup = cleanupObject.get();
+				imageParams.postDestroyCleanup = std::move(cleanupObject);
+
 				// Try creating the image and allocating memory for it:
 				auto gpuImage = device->createImage(std::move(imageParams));
 				
 				if (gpuImage)
 				{
 					nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements gpuImageMemoryRequirements = gpuImage->getMemoryReqs();
+					uint32_t actualAlignment = 1u << gpuImageMemoryRequirements.alignmentLog2;
 					const bool imageMemoryRequirementsMatch = 
 						(physDev->getDeviceLocalMemoryTypeBits() & gpuImageMemoryRequirements.memoryTypeBits) != 0 && // should have device local memory compatible
-						(gpuImageMemoryRequirements.requiresDedicatedAllocation == false); // should not require dedicated allocation
+						(gpuImageMemoryRequirements.requiresDedicatedAllocation == false) && // should not require dedicated allocation
+						((ImagesMemorySubAllocator::MaxMemoryAlignment % actualAlignment) == 0u); // should be consistent with our suballocator's max alignment
 
 					if (imageMemoryRequirementsMatch)
 					{
-						uint64_t allocationOffset = imagesMemorySubAllocator->allocate(gpuImageMemoryRequirements);
+						uint64_t allocationOffset = imagesMemorySubAllocator->allocate(gpuImageMemoryRequirements.size, 1u << gpuImageMemoryRequirements.alignmentLog2);
 						const bool allocationFromImagesMemoryArenaSuccessfull = allocationOffset != ImagesMemorySubAllocator::InvalidAddress;
 						if (allocationFromImagesMemoryArenaSuccessfull)
 						{
@@ -465,6 +473,10 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 								gpuImageView = device->createImageView(std::move(viewParams));
 								if (gpuImageView)
 								{
+									// SUCESS!
+									currentImageCleanup->imagesMemorySuballocator = imagesMemorySubAllocator;
+									currentImageCleanup->addr = allocationOffset;
+									currentImageCleanup->size = gpuImageMemoryRequirements.size;
 									gpuImageView->setObjectDebugName((std::to_string(imageID) + " Static Image View 2D").c_str());
 								}
 								else
@@ -778,7 +790,7 @@ bool DrawResourcesFiller::pushMSDFImagesUploads(SIntendedSubmitInfo& intendedNex
 	
 	if (cmdBuffInfo)
 	{
-		IGPUCommandBuffer* cmdBuff = cmdBuffInfo->cmdbuf;
+		IGPUCommandBuffer* commandBuffer = cmdBuffInfo->cmdbuf;
 
 		auto msdfImage = msdfTextureArray->getCreationParameters().image;
 
@@ -808,7 +820,7 @@ bool DrawResourcesFiller::pushMSDFImagesUploads(SIntendedSubmitInfo& intendedNex
 				.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
 			}
 		};
-		cmdBuff->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = beforeTransferImageBarrier });
+		commandBuffer->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = beforeTransferImageBarrier });
 
 		// Do the copies and advance the iterator.
 		// this is the pattern we use for iterating when entries will get erased if processed successfully, but may get skipped for later.
@@ -857,6 +869,8 @@ bool DrawResourcesFiller::pushMSDFImagesUploads(SIntendedSubmitInfo& intendedNex
 			}
 		}
 
+		commandBuffer = intendedNextSubmit.getCommandBufferForRecording()->cmdbuf; // overflow-submit in utilities calls might've cause current recording command buffer to change
+
 		// preparing msdfs for use
 		image_barrier_t afterTransferImageBarrier[] =
 		{
@@ -882,7 +896,7 @@ bool DrawResourcesFiller::pushMSDFImagesUploads(SIntendedSubmitInfo& intendedNex
 				.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL,
 			}
 		};
-		cmdBuff->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = afterTransferImageBarrier });
+		commandBuffer->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = afterTransferImageBarrier });
 		
 		if (!m_hasInitializedMSDFTextureArrays)
 			m_hasInitializedMSDFTextureArrays = true;
@@ -976,6 +990,8 @@ bool DrawResourcesFiller::pushStaticImagesUploads(SIntendedSubmitInfo& intendedN
 					gpuImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
 					stagedStaticImage.cpuImage->getRegions());
 			}
+
+			commandBuffer = intendedNextSubmit.getCommandBufferForRecording()->cmdbuf; // overflow-submit in utilities calls might've cause current recording command buffer to change
 
 			std::vector<IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t> afterCopyImageBarriers;
 			afterCopyImageBarriers.resize(staticImagesStagedCopies.size());

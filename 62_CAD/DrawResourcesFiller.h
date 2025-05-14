@@ -591,7 +591,7 @@ protected:
 
 	// GPUImages Memory Arena + AddressAllocator
 	IDeviceMemoryAllocator::SAllocation imagesMemoryArena;
-	std::unique_ptr<ImagesMemorySubAllocator> imagesMemorySubAllocator;
+	smart_refctd_ptr<ImagesMemorySubAllocator> imagesMemorySubAllocator;
 
 	// Members
 	smart_refctd_ptr<IUtilities> m_utilities;
@@ -626,6 +626,7 @@ protected:
 
 	std::vector<MSDFStagedCPUImage>		msdfStagedCPUImages = {}; // cached cpu imaged + their status, size equals to LRUCache size
 	static constexpr asset::E_FORMAT	MSDFTextureFormat = asset::E_FORMAT::EF_R8G8B8A8_SNORM;
+	bool m_hasInitializedMSDFTextureArrays = false;
 	
 	// Images:
 	std::unique_ptr<ImagesUsageCache> imagesUsageCache;
@@ -641,7 +642,24 @@ protected:
 	};
 	std::vector<StaticImagesCopy> staticImagesStagedCopies;
 
-	
-	bool m_hasInitializedMSDFTextureArrays = false;
+	struct ImageCleanup : nbl::video::ICleanup
+	{
+		ImageCleanup()
+			: imagesMemorySuballocator(nullptr)
+			, addr(ImagesMemorySubAllocator::InvalidAddress)
+			, size(0ull)
+		{}
+
+		~ImageCleanup() override
+		{
+			if (imagesMemorySuballocator && addr != ImagesMemorySubAllocator::InvalidAddress)
+				imagesMemorySuballocator->deallocate(addr, size);
+		}
+
+		smart_refctd_ptr<ImagesMemorySubAllocator> imagesMemorySuballocator;
+		uint64_t addr;
+		uint64_t size;
+
+	};
 };
 

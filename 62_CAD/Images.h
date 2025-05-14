@@ -101,34 +101,29 @@ private:
  *
  * @note This class only manages address offsets. The actual memory must be bound separately.
  */
-class ImagesMemorySubAllocator
+class ImagesMemorySubAllocator : public core::IReferenceCounted 
 {
 public:
 	using AddressAllocator = nbl::core::GeneralpurposeAddressAllocator<uint64_t>;
 	using ReservedAllocator = nbl::core::allocator<uint8_t>;
 	static constexpr uint64_t InvalidAddress = AddressAllocator::invalid_address;
+	static constexpr uint64_t MaxMemoryAlignment = 4096u; // safe choice based on hardware reports
+	static constexpr uint64_t MinAllocSize = 128 * 1024u; // 128KB, the larger this is the better
 
-	ImagesMemorySubAllocator() = default;
-	
-	ImagesMemorySubAllocator(const uint64_t memoryArenaSize)
+	ImagesMemorySubAllocator(uint64_t memoryArenaSize)
 	{
-		constexpr uint64_t MaxAlignment = 4096u; // safe choice based on hardware reports
-		constexpr uint64_t MinAllocSize = 128 * 1024u; // 128KB, the larger this is the better
-		m_reservedAllocSize = AddressAllocator::reserved_size(MaxAlignment, memoryArenaSize, MinAllocSize);
+		m_reservedAllocSize = AddressAllocator::reserved_size(MaxMemoryAlignment, memoryArenaSize, MinAllocSize);
 		m_reservedAllocator = std::unique_ptr<ReservedAllocator>(new ReservedAllocator());
 		m_reservedAlloc = m_reservedAllocator->allocate(m_reservedAllocSize, _NBL_SIMD_ALIGNMENT);
 		m_addressAllocator = std::unique_ptr<AddressAllocator>(new AddressAllocator(
-			m_reservedAlloc, 0u, 0u, MaxAlignment, memoryArenaSize, MinAllocSize
+			m_reservedAlloc, 0u, 0u, MaxMemoryAlignment, memoryArenaSize, MinAllocSize
 		));
-
-		// m_addressAllocator->alloc_addr(bytes, alignment);
-		// m_addressAllocator->free_addr(addr, bytes)
 	}
 
 	// return offset, will return InvalidAddress if failed
-	uint64_t allocate(const nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements& imageMemoryRequirements)
+	uint64_t allocate(uint64_t size, uint64_t alignment)
 	{
-		return m_addressAllocator->alloc_addr(imageMemoryRequirements.size, 1u << imageMemoryRequirements.alignmentLog2);
+		return m_addressAllocator->alloc_addr(size, alignment);
 	}
 
 	void deallocate(uint64_t addr, uint64_t size)

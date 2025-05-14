@@ -1040,52 +1040,62 @@ public:
 
 		// Load image
 		system::path m_loadCWD = "..";
-		std::string imagePath = "../../media/color_space_test/R8G8B8A8_1.png";
-
-		constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
-		const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get(), m_loadCWD);
-		auto bundle = m_assetMgr->getAsset(imagePath, loadParams);
-		auto contents = bundle.getContents();
-		if (contents.empty())
+		constexpr uint32_t SampleImagesCount = 4u;
+		std::string imagePaths[SampleImagesCount] =
 		{
-			m_logger->log("Failed to load image with path %s, skipping!", ILogger::ELL_ERROR, (m_loadCWD / imagePath).c_str());
+			"../../media/color_space_test/R8G8B8A8_1.png",
+			"../../media/color_space_test/R8G8B8A8_2.png",
+			"../../media/color_space_test/R8G8B8_1.png",
+			"../../media/color_space_test/R8G8B8_1.jpg",
+		};
+
+		for (uint32_t i = 0; i < SampleImagesCount; ++i)
+		{
+			constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
+			const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get(), m_loadCWD);
+			auto bundle = m_assetMgr->getAsset(imagePaths[i], loadParams);
+			auto contents = bundle.getContents();
+			if (contents.empty())
+			{
+				m_logger->log("Failed to load image with path %s, skipping!", ILogger::ELL_ERROR, (m_loadCWD / imagePaths[i]).c_str());
+			}
+
+			smart_refctd_ptr<ICPUImageView> cpuImgView;
+			const auto& asset = contents[0];
+			switch (asset->getAssetType())
+			{
+			case IAsset::ET_IMAGE:
+			{
+				auto image = smart_refctd_ptr_static_cast<ICPUImage>(asset);
+				const auto format = image->getCreationParameters().format;
+
+				ICPUImageView::SCreationParams viewParams = {
+					.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
+					.image = std::move(image),
+					.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
+					.format = format,
+					.subresourceRange = {
+						.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+						.baseMipLevel = 0u,
+						.levelCount = ICPUImageView::remaining_mip_levels,
+						.baseArrayLayer = 0u,
+						.layerCount = ICPUImageView::remaining_array_layers
+					}
+				};
+
+				cpuImgView = ICPUImageView::create(std::move(viewParams));
+			} break;
+
+			case IAsset::ET_IMAGE_VIEW:
+				cpuImgView = smart_refctd_ptr_static_cast<ICPUImageView>(asset);
+				break;
+			default:
+				m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type, skipping!", ILogger::ELL_ERROR);
+			}
+
+			const auto cpuImage = cpuImgView->getCreationParameters().image;
+			sampleImages.push_back(cpuImage);
 		}
-
-		smart_refctd_ptr<ICPUImageView> cpuImgView;
-		const auto& asset = contents[0];
-		switch (asset->getAssetType())
-		{
-		case IAsset::ET_IMAGE:
-		{
-			auto image = smart_refctd_ptr_static_cast<ICPUImage>(asset);
-			const auto format = image->getCreationParameters().format;
-
-			ICPUImageView::SCreationParams viewParams = {
-				.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
-				.image = std::move(image),
-				.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
-				.format = format,
-				.subresourceRange = {
-					.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
-					.baseMipLevel = 0u,
-					.levelCount = ICPUImageView::remaining_mip_levels,
-					.baseArrayLayer = 0u,
-					.layerCount = ICPUImageView::remaining_array_layers
-				}
-			};
-
-			cpuImgView = ICPUImageView::create(std::move(viewParams));
-		} break;
-
-		case IAsset::ET_IMAGE_VIEW:
-			cpuImgView = smart_refctd_ptr_static_cast<ICPUImageView>(asset);
-			break;
-		default:
-			m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type, skipping!", ILogger::ELL_ERROR);
-		}
-				
-		const auto cpuImage = cpuImgView->getCreationParameters().image;
-		sampleImages.push_back(cpuImage);
 
 		return true;
 	}
@@ -1275,6 +1285,8 @@ public:
 		}
 
 		drawResourcesFiller.pushAllUploads(intendedSubmitInfo);
+
+		m_currentRecordingCommandBufferInfo = intendedSubmitInfo.getCommandBufferForRecording(); // drawResourcesFiller.pushAllUploads might've overflow submitted and changed the current recording command buffer
 
 		// Use the current recording command buffer of the intendedSubmitInfos scratchCommandBuffers, it should be in recording state
 		auto* cb = m_currentRecordingCommandBufferInfo->cmdbuf;
@@ -2890,8 +2902,8 @@ protected:
 			{
 				uint64_t imageID = i * 69ull; // it can be hash or something of the file path the image was loaded from
 				drawResourcesFiller.addStaticImage2D(imageID, sampleImages[i], intendedNextSubmit);
-				drawResourcesFiller.addImageObject(imageID, { 0.0, 0.0 }, { 100.0, 100.0 }, 0.0, intendedNextSubmit);
-				drawResourcesFiller.addImageObject(imageID, { 40.0, +40.0 }, { 100.0, 100.0 }, 0.0, intendedNextSubmit);
+				drawResourcesFiller.addImageObject(imageID, { 0.0 + i * 100.0, 0.0 }, { 100.0 , 100.0 }, 0.0, intendedNextSubmit);
+				// drawResourcesFiller.addImageObject(imageID, { 40.0, +40.0 }, { 100.0, 100.0 }, 0.0, intendedNextSubmit);
 			}
 			LineStyleInfo lineStyle = 
 			{
