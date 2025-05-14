@@ -617,29 +617,27 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			const uint32_t byteOffsets[OT_COUNT] = { 18, 24, 24, 20, 20, 24, 16, 12 };	// based on normals data position
 			const uint32_t smoothNormals[OT_COUNT] = { 0, 1, 1, 0, 0, 1, 1, 1 };
 
-			struct ScratchVIBindings
+			struct CPUBufferBindings
 			{
 				nbl::asset::SBufferBinding<ICPUBuffer> vertex, index;
 			};
-			std::array<ScratchVIBindings, OT_COUNT> scratchBuffers;
+			std::array<CPUBufferBindings, OT_COUNT> cpuBuffers;
 
-			for (uint32_t i = 0; i < scratchBuffers.size(); i++)
+			for (uint32_t i = 0; i < cpuBuffers.size(); i++)
 			{
 				const auto& geom = objectsCpu[i];
-				auto& scratchObj = scratchBuffers[i];
+				auto& cpuObj = cpuBuffers[i];
 				const bool useIndex = geom.data.indexType != EIT_UNKNOWN;
 
 				auto vBuffer = smart_refctd_ptr(geom.data.bindings[0].buffer); // no offset
-				auto vUsage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF |
-					IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+				auto vUsage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
 				auto iBuffer = smart_refctd_ptr(geom.data.indexBuffer.buffer); // no offset
-				auto iUsage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF |
-					IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+				auto iUsage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
 				vBuffer->addUsageFlags(vUsage);
 				vBuffer->setContentHash(vBuffer->computeContentHash());
-				scratchObj.vertex = { .offset = 0, .buffer = vBuffer };
+				cpuObj.vertex = { .offset = 0, .buffer = vBuffer };
 
 				if (useIndex)
 					if (iBuffer)
@@ -647,7 +645,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 						iBuffer->addUsageFlags(iUsage);
 						iBuffer->setContentHash(iBuffer->computeContentHash());
 					}
-				scratchObj.index = { .offset = 0, .buffer = iBuffer };
+				cpuObj.index = { .offset = 0, .buffer = iBuffer };
 			}
 
 			// get ICPUBuffers into ICPUBottomLevelAccelerationStructures
@@ -660,11 +658,11 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				auto& tri = triangles->front();
 				auto& primCount = primitiveCounts->front();
 				const auto& geom = objectsCpu[i];
-				const auto& scratchObj = scratchBuffers[i];
+				const auto& cpuBuf = cpuBuffers[i];
 
 				const bool useIndex = geom.data.indexType != EIT_UNKNOWN;
 				const uint32_t vertexStride = geom.data.inputParams.bindings[0].stride;
-				const uint32_t numVertices = scratchObj.vertex.buffer->getSize() / vertexStride;
+				const uint32_t numVertices = cpuBuf.vertex.buffer->getSize() / vertexStride;
 
 				if (useIndex)
 					primCount = geom.data.indexCount / 3;
@@ -675,8 +673,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				geomInfos[i].vertexStride = vertexStride;
 				geomInfos[i].smoothNormals = smoothNormals[i];
 
-				tri.vertexData[0] = scratchObj.vertex;
-				tri.indexData = useIndex ? scratchObj.index : scratchObj.vertex;
+				tri.vertexData[0] = cpuBuf.vertex;
+				tri.indexData = useIndex ? cpuBuf.index : cpuBuf.vertex;
 				tri.maxVertex = numVertices - 1;
 				tri.vertexStride = vertexStride;
 				tri.vertexFormat = EF_R32G32B32_SFLOAT;
@@ -684,6 +682,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				tri.geometryFlags = IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::OPAQUE_BIT;
 
 				auto& blas = cpuBlas[i];
+				blas = make_smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>();
 				blas->setGeometries(std::move(triangles), std::move(primitiveCounts));
 
 				auto blasFlags = bitflag(IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT) | IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_COMPACTION_BIT;
@@ -717,7 +716,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				}
 			}
 
-			smart_refctd_ptr<ICPUTopLevelAccelerationStructure> cpuTlas;
+			auto cpuTlas = make_smart_refctd_ptr<ICPUTopLevelAccelerationStructure>();
 			cpuTlas->setInstances(std::move(geomInstances));
 			cpuTlas->setBuildFlags(IGPUTopLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT);
 
@@ -726,7 +725,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			if (!pool)
 				return logFail("Couldn't create Command Pool for geometry creation!");
 			auto cmdbuf = getSingleUseCommandBufferAndBegin(pool);
-			cmdbuf->beginDebugMarker("Build geometry vertex and index buffers");
 
 			smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get(), .optimizer = {} });
 			CAssetConverter::SInputs inputs = {};
@@ -738,8 +736,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				tmpTlas[0] = cpuTlas.get();
 				for (uint32_t i = 0; i < objectsCpu.size(); i++)
 				{
-					tmpBuffers[2 * i + 0] = scratchBuffers[i].vertex.buffer.get();
-					tmpBuffers[2 * i + 1] = scratchBuffers[i].index.buffer.get();
+					tmpBuffers[2 * i + 0] = cpuBuffers[i].vertex.buffer.get();
+					tmpBuffers[2 * i + 1] = cpuBuffers[i].index.buffer.get();
 				}
 
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUTopLevelAccelerationStructure>>(inputs.assets) = tmpTlas;
@@ -774,6 +772,13 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				prepass.template operator() < ICPUBuffer > (tmpBuffers);
 			}
 
+			// TODO wait for convert
+			m_logger->log("willDeviceASBuild: %d, willHostASBuild: %d\nminASBuildScratchSize: %d, maxASBuildScratchSize: %d\nminCompactedASAllocatorSpace: %d, requiredQueueFlags: %d\n", ILogger::ELL_INFO,
+				reservation.willDeviceASBuild(), reservation.willHostASBuild(),
+				reservation.getMinASBuildScratchSize(false), reservation.getMaxASBuildScratchSize(false),
+				reservation.getMinCompactedASAllocatorSpace(), reservation.getRequiredQueueFlags(false));
+			return false;
+
 			auto semaphore = m_device->createSemaphore(0u);
 
 			std::array<IQueue::SSubmitInfo::SCommandBufferInfo, 1> cmdbufs = {};
@@ -785,13 +790,22 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			transfer.scratchSemaphore = {
 				.semaphore = semaphore.get(),
 				.value = 0u,
-				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS	// TODO mask for AS?
+				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+			};
+			SIntendedSubmitInfo compute = {};
+			compute.queue = queue;
+			compute.scratchCommandBuffers = cmdbufs;
+			compute.scratchSemaphore = {
+				.semaphore = semaphore.get(),
+				.value = 0u,
+				.stageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT	// TODO correct mask?
 			};
 			// convert
 			{
 				CAssetConverter::SConvertParams params = {};
 				params.utilities = m_utils.get();
 				params.transfer = &transfer;
+				params.compute = &compute;
 
 				auto future = reservation.convert(params);
 				if (future.copy() != IQueue::RESULT::SUCCESS)
