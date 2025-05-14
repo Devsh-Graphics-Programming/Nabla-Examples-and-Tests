@@ -1040,8 +1040,7 @@ public:
 
 		// Load image
 		system::path m_loadCWD = "..";
-		constexpr uint32_t SampleImagesCount = 4u;
-		std::string imagePaths[SampleImagesCount] =
+		std::string imagePaths[] =
 		{
 			"../../media/color_space_test/R8G8B8A8_1.png",
 			"../../media/color_space_test/R8G8B8A8_2.png",
@@ -1049,15 +1048,15 @@ public:
 			"../../media/color_space_test/R8G8B8_1.jpg",
 		};
 
-		for (uint32_t i = 0; i < SampleImagesCount; ++i)
+		for (const auto& imagePath : imagePaths)
 		{
 			constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
 			const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get(), m_loadCWD);
-			auto bundle = m_assetMgr->getAsset(imagePaths[i], loadParams);
+			auto bundle = m_assetMgr->getAsset(imagePath, loadParams);
 			auto contents = bundle.getContents();
 			if (contents.empty())
 			{
-				m_logger->log("Failed to load image with path %s, skipping!", ILogger::ELL_ERROR, (m_loadCWD / imagePaths[i]).c_str());
+				m_logger->log("Failed to load image with path %s, skipping!", ILogger::ELL_ERROR, (m_loadCWD / imagePath).c_str());
 			}
 
 			smart_refctd_ptr<ICPUImageView> cpuImgView;

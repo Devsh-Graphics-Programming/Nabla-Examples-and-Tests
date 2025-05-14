@@ -146,3 +146,23 @@ private:
 	size_t m_reservedAllocSize = 0;
 
 };
+
+struct ImageCleanup : nbl::video::ICleanup
+{
+	ImageCleanup()
+		: imagesMemorySuballocator(nullptr)
+		, addr(ImagesMemorySubAllocator::InvalidAddress)
+		, size(0ull)
+	{}
+
+	~ImageCleanup() override
+	{
+		if (imagesMemorySuballocator && addr != ImagesMemorySubAllocator::InvalidAddress)
+			imagesMemorySuballocator->deallocate(addr, size);
+	}
+
+	smart_refctd_ptr<ImagesMemorySubAllocator> imagesMemorySuballocator;
+	uint64_t addr;
+	uint64_t size;
+
+};
