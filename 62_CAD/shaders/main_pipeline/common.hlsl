@@ -82,7 +82,7 @@ struct PSInput
     [[vk::location(2)]] nointerpolation float4 data3 : COLOR3;
     [[vk::location(3)]] nointerpolation float4 data4 : COLOR4;
     // Data segments that need interpolation, mostly for hatches
-    [[vk::location(5)]] float2 interp_data5 : COLOR5;
+    [[vk::location(5)]] float4 interp_data5 : COLOR5;
 #ifdef FRAGMENT_SHADER_INPUT
     [[vk::location(6)]] [[vk::ext_decorate(/*spv::DecoratePerVertexKHR*/5285)]] float3 vertexScreenSpacePos[3] : COLOR6;
 #else

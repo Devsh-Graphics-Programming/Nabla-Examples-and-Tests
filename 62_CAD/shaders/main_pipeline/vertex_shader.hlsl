@@ -118,7 +118,7 @@ PSInput main(uint vertexID : SV_VertexID)
     outV.data2 = float4(0, 0, 0, 0);
     outV.data3 = float4(0, 0, 0, 0);
     outV.data4 = float4(0, 0, 0, 0);
-    outV.interp_data5 = float2(0, 0);
+    outV.interp_data5 = float4(0, 0, 0, 0);
 
     if (pc.isDTMRendering)
     {
@@ -667,7 +667,7 @@ PSInput main(uint vertexID : SV_VertexID)
             outV.setHeightMapTextureID(textureID);
             outV.setDTMSettingsID(dtmSettingsID);
             outV.setGridDTMScreenSpaceCellWidth(gridCellWidth); // TODO: is input world space?
-            outV.setGridDTMScreenSpacePosition(transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, vtxPos)));
+            outV.setGridDTMScreenSpacePosition(transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, vtxPos));
             outV.setImageUV(corner);
         }
 
