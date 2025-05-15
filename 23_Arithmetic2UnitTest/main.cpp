@@ -174,7 +174,7 @@ public:
 		for (auto subgroupSize=MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 		{
 			const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
-			for (uint32_t workgroupSize = subgroupSize; workgroupSize < MaxWorkgroupSize; workgroupSize *= 2)
+			for (uint32_t workgroupSize = subgroupSize; workgroupSize <= MaxWorkgroupSize; workgroupSize *= 2u)
 			{
 				// make sure renderdoc captures everything for debugging
 				m_api->startCapture();

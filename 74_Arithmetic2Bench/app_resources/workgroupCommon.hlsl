@@ -43,7 +43,7 @@ bool canStore();
 #endif
 
 // final (level 1/2) scan needs to fit in one subgroup exactly
-groupshared uint32_t scratch[config_t::SharedMemSize];
+groupshared uint32_t scratch[config_t::ElementCount];
 
 struct ScratchProxy
 {
