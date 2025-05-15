@@ -10,11 +10,13 @@ struct DataProxy
 
     void get(const uint32_t ix, NBL_REF_ARG(dtype_t) value)
     {
-        value = inputValue[ix];
+        const uint32_t workgroupOffset = nbl::hlsl::glsl::gl_WorkGroupID().x * Config::VirtualWorkgroupSize;
+        value = inputValue[workgroupOffset + ix];
     }
     void set(const uint32_t ix, const dtype_t value)
     {
-        output[Binop::BindingIndex].template Store<type_t>(sizeof(uint32_t) + sizeof(type_t) * ix, value);
+        const uint32_t workgroupOffset = nbl::hlsl::glsl::gl_WorkGroupID().x * Config::VirtualWorkgroupSize;
+        output[Binop::BindingIndex].template Store<type_t>(sizeof(uint32_t) + sizeof(type_t) * (workgroupOffset+ix), value);
     }
 
     void workgroupExecutionAndMemoryBarrier()
