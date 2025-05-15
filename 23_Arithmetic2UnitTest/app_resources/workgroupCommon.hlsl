@@ -21,7 +21,7 @@ uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize() {return uint32_t3(WORKGROUP_SIZE,1
 #error "Define ITEMS_PER_INVOCATION!"
 #endif
 
-using config_t = nbl::hlsl::workgroup2::Configuration<WORKGROUP_SIZE_LOG2, SUBGROUP_SIZE_LOG2, ITEMS_PER_INVOCATION>;
+using config_t = nbl::hlsl::workgroup2::ArithmeticConfiguration<WORKGROUP_SIZE_LOG2, SUBGROUP_SIZE_LOG2, ITEMS_PER_INVOCATION>;
 
 typedef vector<uint32_t, config_t::ItemsPerInvocation_0> type_t;
 
