@@ -1517,6 +1517,7 @@ public:
 	{
 		auto retval = device_base_t::getRequiredDeviceFeatures();
 		retval.fragmentShaderPixelInterlock = FragmentShaderPixelInterlock;
+		retval.nullDescriptor = true;
 		return retval;
 	}
 

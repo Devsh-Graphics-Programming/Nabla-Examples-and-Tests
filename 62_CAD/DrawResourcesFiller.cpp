@@ -62,7 +62,8 @@ void DrawResourcesFiller::allocateResourcesBuffer(ILogicalDevice* logicalDevice,
 
 		IDeviceMemoryAllocator::SAllocateInfo allocationInfo =
 		{
-			.size = 512 * 1024 * 1024, // 512 MB
+			// TODO: Get from user side.
+			.size = 70 * 1024 * 1024, // 70 MB
 			.flags = IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE,
 			.memoryTypeIndex = memoryTypeIdx,
 			.dedication = nullptr,
@@ -372,6 +373,12 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 		// Prepare wait info to defer index deallocation until the GPU has finished using the resource.
 		// Because we will be writing to the descriptor set location which might be in use.
 		ISemaphore::SWaitInfo deallocationWaitInfo = { .semaphore = intendedNextSubmit.getFutureScratchSemaphore().semaphore, .value = evicted.lastUsedSemaphoreValue };
+		
+		// will later be used to release the image's memory range.
+		core::smart_refctd_ptr<ImageCleanup> cleanupObject = core::make_smart_refctd_ptr<ImageCleanup>();
+		cleanupObject->imagesMemorySuballocator = imagesMemorySubAllocator;
+		cleanupObject->addr = evicted.allocationOffset;
+		cleanupObject->size = evicted.allocationSize;
 
 		const bool imageUsedForNextIntendedSubmit = (evicted.lastUsedSemaphoreValue == intendedNextSubmit.getFutureScratchSemaphore().value);
 
@@ -380,7 +387,7 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 			// The evicted image is scheduled for use in the upcoming submit.
 			// To avoid rendering artifacts, we must flush the current draw queue now.
 			// After submission, we reset state so that data referencing the evicted slot can be re-uploaded.
-			suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &evicted.index, deallocationWaitInfo);
+			suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &evicted.index, deallocationWaitInfo, &cleanupObject.get());
 			submitDraws(intendedNextSubmit);
 			reset(); // resets everything, things referenced through mainObj and other shit will be pushed again through acquireXXX_SubmitIfNeeded
 		} 
@@ -388,7 +395,7 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 		{
 			// The image is not used in the current frame (intended next submit), so we can deallocate without submitting any draws.
 			// Still wait on the semaphore to ensure past GPU usage is complete.
-			suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &evicted.index, deallocationWaitInfo);
+			suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &evicted.index, deallocationWaitInfo, &cleanupObject.get());
 		}
 	};
 
@@ -431,13 +438,6 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 			// we'll evict another texture from the LRU cache and retry until successful, or until only the currently-inserted image remains.
 			while (imagesUsageCache->size() > 0u)
 			{
-				// Pre-create the cleanup object that will later be used to release the image's memory range.
-				// Ownership will be passed to the GPU image, but we retain a temporary raw pointer
-				// so we can configure the cleanup object *after* allocation succeeds.
-				std::unique_ptr<ImageCleanup> cleanupObject = std::make_unique<ImageCleanup>();
-				ImageCleanup* currentImageCleanup = cleanupObject.get();
-				imageParams.postDestroyCleanup = std::move(cleanupObject);
-
 				// Try creating the image and allocating memory for it:
 				auto gpuImage = device->createImage(std::move(imageParams));
 				
@@ -452,14 +452,15 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 
 					if (imageMemoryRequirementsMatch)
 					{
-						uint64_t allocationOffset = imagesMemorySubAllocator->allocate(gpuImageMemoryRequirements.size, 1u << gpuImageMemoryRequirements.alignmentLog2);
-						const bool allocationFromImagesMemoryArenaSuccessfull = allocationOffset != ImagesMemorySubAllocator::InvalidAddress;
+						inserted->allocationOffset = imagesMemorySubAllocator->allocate(gpuImageMemoryRequirements.size, 1u << gpuImageMemoryRequirements.alignmentLog2);
+						const bool allocationFromImagesMemoryArenaSuccessfull = inserted->allocationOffset != ImagesMemorySubAllocator::InvalidAddress;
 						if (allocationFromImagesMemoryArenaSuccessfull)
 						{
+							inserted->allocationSize = gpuImageMemoryRequirements.size;
 							nbl::video::ILogicalDevice::SBindImageMemoryInfo bindImageMemoryInfo =
 							{
 								.image = gpuImage.get(),
-								.binding = {.memory = imagesMemoryArena.memory.get(), .offset = imagesMemoryArena.offset + allocationOffset }
+								.binding = {.memory = imagesMemoryArena.memory.get(), .offset = imagesMemoryArena.offset + inserted->allocationOffset }
 							};
 							const bool boundToMemorySuccessfully = device->bindImageMemory({ &bindImageMemoryInfo, 1u });
 							if (boundToMemorySuccessfully)
@@ -473,10 +474,7 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 								gpuImageView = device->createImageView(std::move(viewParams));
 								if (gpuImageView)
 								{
-									// SUCESS!
-									currentImageCleanup->imagesMemorySuballocator = imagesMemorySubAllocator;
-									currentImageCleanup->addr = allocationOffset;
-									currentImageCleanup->size = gpuImageMemoryRequirements.size;
+									// SUCCESS!
 									gpuImageView->setObjectDebugName((std::to_string(imageID) + " Static Image View 2D").c_str());
 								}
 								else
@@ -543,13 +541,23 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 					.gpuImageView = gpuImageView,
 					.arrayIndex = inserted->index,
 				};
+				
 				staticImagesStagedCopies.push_back(copyToStage);
 			}
 			else
 			{
 				// All attempts to create the GPU image and its corresponding view have failed.
 				// Most likely cause: insufficient GPU memory or unsupported image parameters.
-				// TODO: Log a warning or error here – `addStaticImage2D` failed, likely due to low VRAM.
+				// TODO: Log a warning or error here ï¿½ `addStaticImage2D` failed, likely due to low VRAM.
+				// assert(false);
+				
+				if (inserted->allocationOffset != ImagesMemorySubAllocator::InvalidAddress)
+				{
+					// We previously successfully create and allocated memory for the Image
+					// but failed to bind and create image view
+					// It's crucial to deallocate the offset+size form our images memory suballocator
+					imagesMemorySubAllocator->deallocate(inserted->allocationOffset, inserted->allocationSize);
+				}
 
 				if (inserted->index != InvalidTextureIndex)
 				{
@@ -568,7 +576,7 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 		}
 	}
 	
-	assert(inserted->index != InvalidTextureIndex); // shouldn't happen, because we're using LRU cache, so worst case eviction will happen + multi-deallocate and next next multi_allocate should definitely succeed
+	// assert(inserted->index != InvalidTextureIndex); // shouldn't happen, because we're using LRU cache, so worst case eviction will happen + multi-deallocate and next next multi_allocate should definitely succeed
 
 	return inserted->index;
 }
@@ -1647,7 +1655,7 @@ uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, cor
 		//   - Therefore, we can safely overwrite or reallocate the slot without waiting for explicit GPU completion.
 		//
 		// However, this `deallocationWaitInfo` *will* become essential if we start interacting with MSDF images
-		// outside the `intendedNextSubmit` timeline — for example, issuing uploads via a transfer queue or using a separate command buffer and timeline.
+		// outside the `intendedNextSubmit` timeline ï¿½ for example, issuing uploads via a transfer queue or using a separate command buffer and timeline.
 		ISemaphore::SWaitInfo deallocationWaitInfo = { .semaphore = intendedNextSubmit.getFutureScratchSemaphore().semaphore, .value = evicted.lastUsedSemaphoreValue };
 
 		const bool imageUsedForNextIntendedSubmit = (evicted.lastUsedSemaphoreValue == intendedNextSubmit.getFutureScratchSemaphore().value);
