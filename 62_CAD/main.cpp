@@ -668,6 +668,7 @@ public:
 			IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_PARTIALLY_BOUND_BIT;
 
 		// Create DescriptorSetLayout, PipelineLayout and update DescriptorSets
+		const uint32_t imagesBinding = 3u;
 		{
 			video::IGPUDescriptorSetLayout::SBinding bindingsSet0[] = {
 				{
@@ -692,11 +693,11 @@ public:
 					.count = 1u,
 				},
 				{
-					.binding = 3u,
+					.binding = imagesBinding,
 					.type = asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
 					.createFlags = bindlessTextureFlags,
 					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-					.count = 128u,
+					.count = ImagesBindingArraySize,
 				},
 			};
 			descriptorSetLayout0 = m_device->createDescriptorSetLayout(bindingsSet0);
@@ -814,6 +815,8 @@ public:
 
 			pipelineLayout = m_device->createPipelineLayout({ &range,1 }, core::smart_refctd_ptr(descriptorSetLayout0), core::smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
 		}
+
+		drawResourcesFiller.setTexturesDescriptorSetAndBinding(core::smart_refctd_ptr(descriptorSet0), imagesBinding);
 
 		smart_refctd_ptr<IGPUShader> mainPipelineFragmentShaders = {};
 		smart_refctd_ptr<IGPUShader> mainPipelineVertexShader = {};
@@ -1037,6 +1040,64 @@ public:
 		m_intendedNextSubmit.scratchCommandBuffers = m_commandBufferInfos;
 		m_currentRecordingCommandBufferInfo = &m_commandBufferInfos[0];
 
+		// Load image
+		system::path m_loadCWD = "..";
+		std::string imagePaths[] =
+		{
+			"../../media/color_space_test/R8G8B8A8_1.png",
+			"../../media/color_space_test/R8G8B8A8_2.png",
+			"../../media/color_space_test/R8G8B8_1.png",
+			"../../media/color_space_test/R8G8B8_1.jpg",
+		};
+
+		for (const auto& imagePath : imagePaths)
+		{
+			constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
+			const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get(), m_loadCWD);
+			auto bundle = m_assetMgr->getAsset(imagePath, loadParams);
+			auto contents = bundle.getContents();
+			if (contents.empty())
+			{
+				m_logger->log("Failed to load image with path %s, skipping!", ILogger::ELL_ERROR, (m_loadCWD / imagePath).c_str());
+			}
+
+			smart_refctd_ptr<ICPUImageView> cpuImgView;
+			const auto& asset = contents[0];
+			switch (asset->getAssetType())
+			{
+			case IAsset::ET_IMAGE:
+			{
+				auto image = smart_refctd_ptr_static_cast<ICPUImage>(asset);
+				const auto format = image->getCreationParameters().format;
+
+				ICPUImageView::SCreationParams viewParams = {
+					.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
+					.image = std::move(image),
+					.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
+					.format = format,
+					.subresourceRange = {
+						.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+						.baseMipLevel = 0u,
+						.levelCount = ICPUImageView::remaining_mip_levels,
+						.baseArrayLayer = 0u,
+						.layerCount = ICPUImageView::remaining_array_layers
+					}
+				};
+
+				cpuImgView = ICPUImageView::create(std::move(viewParams));
+			} break;
+
+			case IAsset::ET_IMAGE_VIEW:
+				cpuImgView = smart_refctd_ptr_static_cast<ICPUImageView>(asset);
+				break;
+			default:
+				m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type, skipping!", ILogger::ELL_ERROR);
+			}
+
+			const auto cpuImage = cpuImgView->getCreationParameters().image;
+			sampleImages.push_back(cpuImage);
+		}
+
 		return true;
 	}
 
@@ -1220,10 +1281,13 @@ public:
 		if (isCachingDraw)
 		{
 			replayCaches.push_back(drawResourcesFiller.createReplayCache());
+			intendedSubmitInfo.scratchSemaphore.value++; // fake advance needed for Texture and MSDF LRU caches and evictions to work
 			return; // we don't record, submit or do anything, just caching the draw resources
 		}
 
 		drawResourcesFiller.pushAllUploads(intendedSubmitInfo);
+
+		m_currentRecordingCommandBufferInfo = intendedSubmitInfo.getCommandBufferForRecording(); // drawResourcesFiller.pushAllUploads might've overflow submitted and changed the current recording command buffer
 
 		// Use the current recording command buffer of the intendedSubmitInfos scratchCommandBuffers, it should be in recording state
 		auto* cb = m_currentRecordingCommandBufferInfo->cmdbuf;
@@ -1455,6 +1519,7 @@ public:
 	{
 		auto retval = device_base_t::getRequiredDeviceFeatures();
 		retval.fragmentShaderPixelInterlock = FragmentShaderPixelInterlock;
+		retval.nullDescriptor = true;
 		return retval;
 	}
 
@@ -2835,165 +2900,13 @@ protected:
 		}
 		else if (mode == ExampleMode::CASE_7)
 		{
-			if (m_realFrameIx == 0u)
+			for (uint32_t i = 0; i < sampleImages.size(); ++i)
 			{
-				// we record upload of our objects and if we failed to allocate we submit everything
-				if (!intendedNextSubmit.valid())
-				{
-					// log("intendedNextSubmit is invalid.", nbl::system::ILogger::ELL_ERROR);
-					assert(false);
-					return;
-				}
-
-				// Use the current recording command buffer of the intendedSubmitInfos scratchCommandBuffers, it should be in recording state
-				auto* cmdbuf = m_currentRecordingCommandBufferInfo->cmdbuf;
-
-				assert(cmdbuf->getState() == video::IGPUCommandBuffer::STATE::RECORDING && cmdbuf->isResettable());
-				assert(cmdbuf->getRecordingFlags().hasFlags(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT));
-
-				auto* cmdpool = cmdbuf->getPool();
-
-
-				// Load image
-				system::path m_loadCWD = "..";
-				std::string imagePath = "../../media/color_space_test/R8G8B8A8_1.png";
-				
-				constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
-				const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get(),m_loadCWD);
-				auto bundle = m_assetMgr->getAsset(imagePath,loadParams);
-				auto contents = bundle.getContents();
-				if (contents.empty())
-				{
-					m_logger->log("Failed to load image with path %s, skipping!",ILogger::ELL_ERROR,(m_loadCWD/imagePath).c_str());
-				}
-				
-				smart_refctd_ptr<ICPUImageView> cpuImgView;
-				const auto& asset = contents[0];
-				switch (asset->getAssetType())
-				{
-					case IAsset::ET_IMAGE:
-					{
-						auto image = smart_refctd_ptr_static_cast<ICPUImage>(asset);
-						const auto format = image->getCreationParameters().format;
-
-						ICPUImageView::SCreationParams viewParams = {
-							.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
-							.image = std::move(image),
-							.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
-							.format = format,
-							.subresourceRange = {
-								.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
-								.baseMipLevel = 0u,
-								.levelCount = ICPUImageView::remaining_mip_levels,
-								.baseArrayLayer = 0u,
-								.layerCount = ICPUImageView::remaining_array_layers
-							}
-						};
-
-						cpuImgView = ICPUImageView::create(std::move(viewParams));
-					} break;
-
-					case IAsset::ET_IMAGE_VIEW:
-						cpuImgView = smart_refctd_ptr_static_cast<ICPUImageView>(asset);
-						break;
-					default:
-						m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type, skipping!",ILogger::ELL_ERROR);
-				}
-
-				// create matching size gpu image
-				smart_refctd_ptr<IGPUImage> gpuImg;
-				const auto& origParams = cpuImgView->getCreationParameters();
-				const auto origImage = origParams.image;
-				IGPUImage::SCreationParams imageParams = {};
-				imageParams = origImage->getCreationParameters();
-				imageParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT|IGPUImage::EUF_SAMPLED_BIT;
-				// promote format because RGB8 and friends don't actually exist in HW
-				{
-					const IPhysicalDevice::SImageFormatPromotionRequest request = {
-						.originalFormat = imageParams.format,
-						.usages = IPhysicalDevice::SFormatImageUsages::SUsage(imageParams.usage)
-					};
-					imageParams.format = m_physicalDevice->promoteImageFormat(request,imageParams.tiling);
-				}
-				gpuImg = m_device->createImage(std::move(imageParams));
-				if (!gpuImg || !m_device->allocate(gpuImg->getMemoryReqs(),gpuImg.get()).isValid())
-					m_logger->log("Failed to create or allocate gpu image!",ILogger::ELL_ERROR);
-				gpuImg->setObjectDebugName(imagePath.c_str());
-				
-				IGPUImageView::SCreationParams viewParams = {
-					.image = gpuImg,
-					.viewType = IGPUImageView::ET_2D,
-					.format = gpuImg->getCreationParameters().format
-				};
-				auto gpuImgView = m_device->createImageView(std::move(viewParams));
-
-				// Bind gpu image view to descriptor set
-				video::IGPUDescriptorSet::SDescriptorInfo dsInfo;
-				dsInfo.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				dsInfo.desc = gpuImgView;
-
-				IGPUDescriptorSet::SWriteDescriptorSet dsWrites[1u] =
-				{
-					{
-						.dstSet = descriptorSet0.get(),
-						.binding = 3u,
-						.arrayElement = 0u,
-						.count = 1u,
-						.info = &dsInfo,
-					}
-				};
-				m_device->updateDescriptorSets(1u, dsWrites, 0u, nullptr);
-
-				// Upload Loaded CPUImageData to GPU
-				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t beforeCopyImageBarriers[] =
-				{
-					{
-						.barrier = {
-							.dep = {
-								.srcStageMask = PIPELINE_STAGE_FLAGS::NONE, // previous top of pipe -> top_of_pipe in first scope = none
-								.srcAccessMask = ACCESS_FLAGS::NONE,
-								.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
-								.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-							}
-							// .ownershipOp. No queueFam ownership transfer
-						},
-						.image = gpuImg.get(),
-						.subresourceRange = origParams.subresourceRange,
-						.oldLayout = IImage::LAYOUT::UNDEFINED,
-						.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-					}
-				};
-
-				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,  { .imgBarriers = beforeCopyImageBarriers  });
-				m_utils->updateImageViaStagingBuffer(
-					intendedNextSubmit, 
-					origImage->getBuffer()->getPointer(), origImage->getCreationParameters().format,
-					gpuImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 
-					origImage->getRegions());
-
-				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t afterCopyImageBarriers[] =
-				{
-					{
-						.barrier = {
-							.dep = {
-								.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT, // previous top of pipe -> top_of_pipe in first scope = none
-								.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-								.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
-								.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS,
-							}
-							// .ownershipOp. No queueFam ownership transfer
-						},
-						.image = gpuImg.get(),
-						.subresourceRange = origParams.subresourceRange,
-						.oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-						.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL,
-					}
-				};
-				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,  { .imgBarriers = afterCopyImageBarriers  });
+				uint64_t imageID = i * 69ull; // it can be hash or something of the file path the image was loaded from
+				drawResourcesFiller.addStaticImage2D(imageID, sampleImages[i], intendedNextSubmit);
+				drawResourcesFiller.addImageObject(imageID, { 0.0 + i * 100.0, 0.0 }, { 100.0 , 100.0 }, 0.0, intendedNextSubmit);
+				// drawResourcesFiller.addImageObject(imageID, { 40.0, +40.0 }, { 100.0, 100.0 }, 0.0, intendedNextSubmit);
 			}
-			drawResourcesFiller._test_addImageObject({ 0.0, 0.0 }, { 100.0, 100.0 }, 0.0, intendedNextSubmit);
-			drawResourcesFiller._test_addImageObject({ 40.0, +40.0 }, { 100.0, 100.0 }, 0.0, intendedNextSubmit);
-			
 			LineStyleInfo lineStyle = 
 			{
 				.color = float32_t4(1.0f, 0.1f, 0.1f, 0.9f),
@@ -3594,6 +3507,8 @@ protected:
 	std::unique_ptr<SingleLineText> singleLineText = nullptr;
 	
 	std::vector<std::unique_ptr<msdfgen::Shape>> m_shapeMSDFImages = {};
+
+	std::vector<smart_refctd_ptr<ICPUImage>> sampleImages;
 
 	static constexpr char FirstGeneratedCharacter = ' ';
 	static constexpr char LastGeneratedCharacter = '~';

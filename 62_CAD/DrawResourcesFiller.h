@@ -3,10 +3,11 @@
 #include "CTriangleMesh.h"
 #include "Hatch.h"
 #include "IndexAllocator.h"
+#include "Images.h"
 #include <nbl/video/utilities/SIntendedSubmitInfo.h>
 #include <nbl/core/containers/LRUCache.h>  
 #include <nbl/ext/TextRendering/TextRendering.h>
-
+// #include <nbl/video/alloc/SubAllocatedDescriptorSet.h>
 using namespace nbl;
 using namespace nbl::video;
 using namespace nbl::core;
@@ -126,6 +127,9 @@ public:
 	typedef std::function<void(SIntendedSubmitInfo&)> SubmitFunc;
 	void setSubmitDrawsFunction(const SubmitFunc& func);
 	
+	// DrawResourcesFiller needs to access these in order to allocate GPUImages and write the to their correct descriptor set binding
+	void setTexturesDescriptorSetAndBinding(core::smart_refctd_ptr<video::IGPUDescriptorSet>&& descriptorSet, uint32_t binding);
+
 	/// @brief Get minimum required size for resources buffer (containing objects and geometry info and their settings)
 	static constexpr size_t getMinimumRequiredResourcesBufferSize()
 	{
@@ -206,11 +210,38 @@ public:
 		const DTMSettingsInfo& dtmSettingsInfo,
 		SIntendedSubmitInfo& intendedNextSubmit);
 	
-	void _test_addImageObject(
-		float64_t2 topLeftPos,
-		float32_t2 size,
-		float32_t rotation,
-		SIntendedSubmitInfo& intendedNextSubmit);
+	/**
+	 * @brief Adds a static 2D image to the draw resource set for rendering.
+	 *
+	 * This function ensures that a given image is available as a GPU-resident texture for future draw submissions.
+	 * It uses an LRU cache to manage descriptor set slots and evicts old images if necessary to make room for new ones.
+	 *
+	 * If the image is already cached and its slot is valid, it returns the slot index directly.
+	 * Otherwise, it performs the following:
+	 *   - Allocates a new descriptor set slot.
+	 *   - Promotes the image format to be GPU-compatible.
+	 *   - Creates a GPU image and GPU image view.
+	 *   - Queues the image for uploading via staging in the next submit.
+	 *   - If memory is constrained, attempts to evict other images to free up space.
+	 *
+	 * @param imageID              Unique identifier for the image resource.
+	 * @param cpuImage             The CPU-side image resource to (possibly) upload.
+	 * @param intendedNextSubmit   Struct representing the upcoming submission, including a semaphore for safe scheduling.
+	 *
+	 * @return The index (slot) into the descriptor set array where the image is or will be bound.
+	 *         Returns `InvalidTextureIndex` only if all fallback and eviction attempts failed.
+	 *
+	 * @note This function ensures that the descriptor slot is not reused while the GPU may still be reading from it.
+	 *       If an eviction is required and the evicted image is scheduled to be used in the next submit, it triggers
+	 *       a flush of pending draws to preserve correctness.
+	 *
+	 * @note The function uses the `imagesUsageCache` LRU cache to track usage and validity of texture slots.
+	 *       If an insertion leads to an eviction, a callback ensures proper deallocation and synchronization.
+	*/
+	uint32_t addStaticImage2D(image_id imageID, const core::smart_refctd_ptr<ICPUImage>& cpuImage, SIntendedSubmitInfo& intendedNextSubmit);
+
+	// This function must be called immediately after `addStaticImage` for the same imageID.
+	void addImageObject(image_id imageID, float64_t2 topLeftPos, float32_t2 size, float32_t rotation, SIntendedSubmitInfo& intendedNextSubmit);
 	
 	/// @brief call this function before submitting to ensure all buffer and textures resourcesCollection requested via drawing calls are copied to GPU
 	/// records copy command into intendedNextSubmit's active command buffer and might possibly submits if fails allocation on staging upload memory.
@@ -225,7 +256,6 @@ public:
 		resetCustomClipRects();
 		resetLineStyles();
 		resetDTMSettings();
-		resetMSDFsUsageState();
 
 		drawObjectsFlushedToDrawCalls = 0ull;
 		drawCalls.clear();
@@ -273,15 +303,12 @@ public:
 	{
 		core::smart_refctd_ptr<ICPUImage> image;
 		bool uploadedToGPU : 1u;
-		// TODO: Use frame counter instead, generalize struct to all textures probably, DONT try to abuse scratchSema.nextSignal as frame tracker, because there can be "cached" draws where no submits happen.
-		bool usedThisFrame : 1u;
 
 		bool isValid() const { return image.get() != nullptr; }
 		void evict()
 		{
 			image = nullptr;
 			uploadedToGPU = false;
-			usedThisFrame = false;
 		}
 	};
 
@@ -359,6 +386,10 @@ protected:
 	/// @brief Records GPU copy commands for all staged msdf images into the active command buffer.
 	bool pushMSDFImagesUploads(SIntendedSubmitInfo& intendedNextSubmit, std::vector<MSDFStagedCPUImage>& stagedMSDFCPUImages);
 
+	/// @brief Records GPU copy commands for all staged msdf images into the active command buffer.
+	/// TODO: Handle for cache&replay mode later
+	bool pushStaticImagesUploads(SIntendedSubmitInfo& intendedNextSubmit);
+
 	const size_t calculateRemainingResourcesSize() const;
 
 	/// @brief Internal Function to call whenever we overflow when we can't fill all of mainObject's drawObjects
@@ -424,6 +455,10 @@ protected:
 	
 	/// Attempts to upload a single GridDTMInfo considering resource limitations
 	bool addGridDTM_Internal(const GridDTMInfo& gridDTMInfo, uint32_t mainObjIdx);
+	/// Attempts to upload a single image object considering resource limitations (not accounting for the resource image added using addStaticImage2D function)
+	bool addImageObject_Internal(const ImageObjectInfo& imageObjectInfo, uint32_t mainObjIdx);;
+	
+	uint32_t getImageIndexFromID(image_id imageID, const SIntendedSubmitInfo& intendedNextSubmit);
 
 	void resetMainObjects()
 	{
@@ -469,12 +504,6 @@ protected:
 		activeDTMSettingsIndex = InvalidDTMSettingsIdx;
 	}
 	
-	void resetMSDFsUsageState()
-	{
-		for (auto& stagedMSDF : msdfStagedCPUImages)
-			stagedMSDF.usedThisFrame = false;
-	}
-
 	// MSDF Hashing and Caching Internal Functions 
 	enum class MSDFType : uint8_t
 	{
@@ -535,34 +564,22 @@ protected:
 	};
 
 	struct MSDFInputInfoHash { std::size_t operator()(const MSDFInputInfo& info) const { return info.lookupHash; } };
-
+	
 	struct MSDFReference
 	{
 		uint32_t alloc_idx;
 		uint64_t lastUsedSemaphoreValue;
 
 		MSDFReference(uint32_t alloc_idx, uint64_t semaphoreVal) : alloc_idx(alloc_idx), lastUsedSemaphoreValue(semaphoreVal) {}
-		MSDFReference(uint64_t semaphoreVal) : MSDFReference(InvalidTextureIdx, semaphoreVal) {}
-		MSDFReference() : MSDFReference(InvalidTextureIdx, ~0ull) {}
+		MSDFReference(uint64_t semaphoreVal) : MSDFReference(InvalidTextureIndex, semaphoreVal) {}
+		MSDFReference() : MSDFReference(InvalidTextureIndex, ~0ull) {}
 
 		// In LRU Cache `insert` function, in case of cache hit, we need to assign semaphore value to MSDFReference without changing `alloc_idx`
 		inline MSDFReference& operator=(uint64_t semamphoreVal) { lastUsedSemaphoreValue = semamphoreVal; return *this;  }
 	};
 	
-	uint32_t getMSDFIndexFromInputInfo(const MSDFInputInfo& msdfInfo, SIntendedSubmitInfo& intendedNextSubmit)
-	{
-		uint32_t textureIdx = InvalidTextureIdx;
-		MSDFReference* tRef = msdfLRUCache->get(msdfInfo);
-		if (tRef)
-		{
-			textureIdx = tRef->alloc_idx;
-			tRef->lastUsedSemaphoreValue = intendedNextSubmit.getFutureScratchSemaphore().value; // update this because the texture will get used on the next submit
-		}
-		return textureIdx;
-	}
+	uint32_t getMSDFIndexFromInputInfo(const MSDFInputInfo& msdfInfo, const SIntendedSubmitInfo& intendedNextSubmit);
 	
-	// ! mainObjIdx: make sure to pass your mainObjIdx to it if you want it to stay synced/updated if some overflow submit occured which would potentially erase what your mainObject points at.
-	// If you haven't created a mainObject yet, then pass InvalidMainObjectIdx
 	uint32_t addMSDFTexture(const MSDFInputInfo& msdfInput, core::smart_refctd_ptr<ICPUImage>&& cpuImage, SIntendedSubmitInfo& intendedNextSubmit);
 	
 	// Flushes Current Draw Call and adds to drawCalls
@@ -580,6 +597,10 @@ protected:
 	nbl::core::smart_refctd_ptr<IGPUBuffer> resourcesGPUBuffer;
 	size_t copiedResourcesSize;
 
+	// GPUImages Memory Arena + AddressAllocator
+	IDeviceMemoryAllocator::SAllocation imagesMemoryArena;
+	smart_refctd_ptr<ImagesMemorySubAllocator> imagesMemorySubAllocator;
+
 	// Members
 	smart_refctd_ptr<IUtilities> m_utilities;
 	IQueue* m_copyQueue;
@@ -595,6 +616,7 @@ protected:
 	TransformationType activeMainObjectTransformationType;
 
 	uint32_t activeMainObjectIndex = InvalidMainObjectIdx;
+
 	// The ClipRects & Projections are stack, because user can push/pop ClipRects & Projections in any order
 	std::deque<float64_t3x3> activeProjections; // stack of projections stored so we can resubmit them if geometry buffer got reset.
 	std::deque<uint32_t> activeProjectionIndices; // stack of projection gpu addresses in geometry buffer. to keep track of them in push/pops
@@ -605,14 +627,27 @@ protected:
 	GetGlyphMSDFTextureFunc getGlyphMSDF;
 	GetHatchFillPatternMSDFTextureFunc getHatchFillPatternMSDF;
 
-	using MSDFsLRUCache = core::LRUCache<MSDFInputInfo, MSDFReference, MSDFInputInfoHash>;
+	using MSDFsLRUCache = core::ResizableLRUCache<MSDFInputInfo, MSDFReference, MSDFInputInfoHash>;
 	smart_refctd_ptr<IGPUImageView>		msdfTextureArray; // view to the resource holding all the msdfs in it's layers
 	smart_refctd_ptr<IndexAllocator>	msdfTextureArrayIndexAllocator;
 	std::unique_ptr<MSDFsLRUCache>		msdfLRUCache; // LRU Cache to evict Least Recently Used in case of overflow
 
 	std::vector<MSDFStagedCPUImage>		msdfStagedCPUImages = {}; // cached cpu imaged + their status, size equals to LRUCache size
 	static constexpr asset::E_FORMAT	MSDFTextureFormat = asset::E_FORMAT::EF_R8G8B8A8_SNORM;
-
 	bool m_hasInitializedMSDFTextureArrays = false;
+	
+	// Images:
+	std::unique_ptr<ImagesUsageCache> imagesUsageCache;
+	smart_refctd_ptr<SubAllocatedDescriptorSet> suballocatedDescriptorSet;
+	uint32_t imagesArrayBinding = 0u;
+	
+	// static images (not streamable):
+	struct StaticImagesCopy
+	{
+		core::smart_refctd_ptr<ICPUImage> cpuImage;
+		core::smart_refctd_ptr<IGPUImageView> gpuImageView;
+		uint32_t arrayIndex;
+	};
+	std::vector<StaticImagesCopy> staticImagesStagedCopies;
 };
 

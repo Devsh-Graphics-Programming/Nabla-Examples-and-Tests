@@ -253,7 +253,7 @@ struct PSInput
 [[vk::combinedImageSampler]][[vk::binding(1, 0)]] SamplerState msdfSampler : register(s4);
 
 [[vk::binding(2, 0)]] SamplerState textureSampler : register(s5);
-[[vk::binding(3, 0)]] Texture2D textures[128] : register(t5);
+[[vk::binding(3, 0)]] Texture2D textures[ImagesBindingArraySize] : register(t5);
 
 // Set 1 - Window dependant data which has higher update frequency due to multiple windows and resize need image recreation and descriptor writes
 [[vk::binding(0, 1)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);
