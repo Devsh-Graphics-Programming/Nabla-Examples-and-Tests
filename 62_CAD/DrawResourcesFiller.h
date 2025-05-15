@@ -199,6 +199,12 @@ public:
 		float32_t  aspectRatio,
 		float32_t2 minUV,
 		SIntendedSubmitInfo& intendedNextSubmit);
+
+	void drawGridDTM(const float64_t2& topLeft,
+		float64_t height,
+		float64_t width,
+		const DTMSettingsInfo& dtmSettingsInfo,
+		SIntendedSubmitInfo& intendedNextSubmit);
 	
 	void _test_addImageObject(
 		float64_t2 topLeftPos,
@@ -416,6 +422,9 @@ protected:
 	/// Attempts to upload a single GlyphInfo considering resource limitations
 	bool addFontGlyph_Internal(const GlyphInfo& glyphInfo, uint32_t mainObjIdx);
 	
+	/// Attempts to upload a single GridDTMInfo considering resource limitations
+	bool addGridDTM_Internal(const GridDTMInfo& gridDTMInfo, uint32_t mainObjIdx);
+
 	void resetMainObjects()
 	{
 		resourcesCollection.mainObjects.vector.clear();

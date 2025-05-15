@@ -387,7 +387,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                 localAlpha = colorSample.a;
             }
         }
-        // objType GRID_DTM here
+        else if (objType == ObjectType::GRID_DTM)
         {
             // NOTE: create and read from a texture as a last step, you can generate the height values procedurally from a function while you're working on the sdf stuff.
             
@@ -402,6 +402,16 @@ float4 fragMain(PSInput input) : SV_TARGET
             
             // TODO: we need to emulate dilation and do sdf of neighbouring cells as well. because contours, outlines and shading can bleed into other cells for AA.
             // [NOTE] Do dilation as last step, when everything else works fine
+
+            textureColor = float4(1.0f, 1.0f, 1.0f, 1.0f);
+            float2 uv = input.getImageUV();
+            float scalar = uv.x * uv.x * 0.25f + uv.y * uv.y * 0.25f;
+            textureColor *= scalar;
+            localAlpha = 1.0f;
+
+            //return outputColor;
+            printf("uv = %f, %f", uv.x, uv.y);
+
         }
         
 
@@ -410,11 +420,8 @@ float4 fragMain(PSInput input) : SV_TARGET
         if (localAlpha <= 0)
             discard;
         
-        const bool colorFromTexture = objType == ObjectType::IMAGE;
-        
-        // TODO[Przemek]: But make sure you're still calling this, correctly calculating alpha and texture color.
-        // you can add 1 main object and push via DrawResourcesFiller like we already do for other objects (this go in the mainObjects StorageBuffer) and then set the currentMainObjectIdx to 0 here
-        // having 1 main object temporarily means that all triangle meshes will be treated as a unified object in blending operations. 
+        const bool colorFromTexture = objType == ObjectType::IMAGE || objType == ObjectType::GRID_DTM;
+
         return calculateFinalColor<DeviceConfigCaps::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx, textureColor, colorFromTexture);
     }
 }

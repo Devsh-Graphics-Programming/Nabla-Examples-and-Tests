@@ -119,7 +119,7 @@ PSInput main(uint vertexID : SV_VertexID)
     outV.data3 = float4(0, 0, 0, 0);
     outV.data4 = float4(0, 0, 0, 0);
     outV.interp_data5 = float2(0, 0);
-    
+
     if (pc.isDTMRendering)
     {
         outV.setObjType(ObjectType::TRIANGLE_MESH);
@@ -645,7 +645,31 @@ PSInput main(uint vertexID : SV_VertexID)
             outV.setImageUV(uv);
             outV.setImageTextureId(textureID);
         }
-        // TODO: Przemek objType GRID_DTM, Similar transformations to IMAGE
+        else if (objType == ObjectType::GRID_DTM)
+        {
+            pfloat64_t2 topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
+            pfloat64_t height = vk::RawBufferLoad<pfloat64_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
+            pfloat64_t width = vk::RawBufferLoad<pfloat64_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(pfloat64_t), 8u);
+            uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(pfloat64_t), 8u);
+            uint32_t dtmSettingsID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(pfloat64_t) + sizeof(uint32_t), 8u);
+            float gridCellWidth = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(pfloat64_t) + 2 * sizeof(uint32_t), 8u);
+
+            const float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
+            pfloat64_t2 vtxPos = topLeft;
+            if (corner.x)
+                vtxPos.x = vtxPos.x + width;
+            if (corner.y)
+                vtxPos.y = vtxPos.y - height;
+
+            float2 ndcVtxPos = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, vtxPos));
+            outV.position = float4(ndcVtxPos, 0.0f, 1.0f);
+
+            outV.setHeightMapTextureID(textureID);
+            outV.setDTMSettingsID(dtmSettingsID);
+            outV.setGridDTMScreenSpaceCellWidth(gridCellWidth); // TODO: is input world space?
+            outV.setGridDTMScreenSpacePosition(transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, vtxPos)));
+            outV.setImageUV(corner);
+        }
 
     // Make the cage fullscreen for testing: 
 #if 0

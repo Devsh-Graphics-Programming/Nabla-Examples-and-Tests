@@ -120,6 +120,7 @@ enum class MainObjectType : uint32_t
     TEXT,
     IMAGE,
     DTM,
+    GRID_DTM
 };
 
 enum class ObjectType : uint32_t
@@ -130,7 +131,8 @@ enum class ObjectType : uint32_t
     POLYLINE_CONNECTOR = 3u,
     FONT_GLYPH = 4u,
     IMAGE = 5u,
-    TRIANGLE_MESH = 6u
+    TRIANGLE_MESH = 6u,
+    GRID_DTM = 7u
 };
 
 enum class MajorAxis : uint32_t
@@ -232,16 +234,23 @@ struct GlyphInfo
 // Goes into geometry buffer, needs to be aligned by 8
 struct ImageObjectInfo
 {
-    pfloat64_t2  topLeft; // 2 * 8 = 16 bytes (16)
+    pfloat64_t2 topLeft; // 2 * 8 = 16 bytes (16)
     float32_t2 dirU; // 2 * 4 = 8 bytes (24)
     float32_t aspectRatio; // 4 bytes (28)
     uint32_t textureID; // 4 bytes (32)
 };
 
-/*
-GRID DTM Info similar to `ImageObjectInfo`
-other than textureID, there will be dtmSettingsIdx referencing a dtmSettings
-*/
+// Goes into geometry buffer, needs to be aligned by 8
+struct GridDTMInfo
+{
+    pfloat64_t2 topLeft; // 2 * 8 = 16 bytes (16)
+    pfloat64_t height; // 8 bytes (24)
+    pfloat64_t width; // 8 bytes (32)
+    uint32_t textureID; // 4 bytes (36)
+    uint32_t dtmInfoID; // 4 bytes (40)
+    float gridCellWidth; // 4 bytes (44)
+    float _padding; // 4 bytes (48)
+};
 
 static uint32_t packR11G11B10_UNORM(float32_t3 color)
 {

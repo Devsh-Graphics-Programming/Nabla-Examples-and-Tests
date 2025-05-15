@@ -60,6 +60,7 @@ enum class ExampleMode
 	CASE_8, // MSDF and Text
 	CASE_9, // DTM
 	CASE_BUG, // Bug Repro, after fix, rename to CASE_10 and comment should be: testing fixed geometry and emulated fp64 corner cases
+	CASE_11, // grid DTM
 	CASE_COUNT
 };
 
@@ -75,10 +76,11 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	10.0,	// CASE_7
 	600.0,	// CASE_8
 	600.0,	// CASE_9
-	10.0	// CASE_BUG
+	10.0,	// CASE_BUG
+	600.0	// CASE_11
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_9;
+constexpr ExampleMode mode = ExampleMode::CASE_11;
 
 class Camera2D
 {
@@ -3445,6 +3447,82 @@ protected:
 				// drawResourcesFiller.drawPolyline(polyline, intendedNextSubmit);
 				drawResourcesFiller.drawFixedGeometryPolyline(polyline, style, transformation, TransformationType::TT_FIXED_SCREENSPACE_SIZE, intendedNextSubmit);
 			}
+		}
+		else if (mode == ExampleMode::CASE_11)
+		{
+			DTMSettingsInfo dtmInfo{};
+			//dtmInfo.mode |= E_DTM_MODE::OUTLINE;
+			dtmInfo.mode |= E_DTM_MODE::HEIGHT_SHADING;
+			dtmInfo.mode |= E_DTM_MODE::CONTOUR;
+
+			dtmInfo.outlineStyleInfo.screenSpaceLineWidth = 0.0f;
+			dtmInfo.outlineStyleInfo.worldSpaceLineWidth = 1.0f;
+			dtmInfo.outlineStyleInfo.color = float32_t4(0.0f, 0.39f, 0.0f, 1.0f);
+			std::array<double, 4> outlineStipplePattern = { 0.0f, -5.0f, 20.0f, -5.0f };
+			dtmInfo.outlineStyleInfo.setStipplePatternData(outlineStipplePattern);
+
+			dtmInfo.contourSettingsCount = 2u;
+			dtmInfo.contourSettings[0u].startHeight = 20;
+			dtmInfo.contourSettings[0u].endHeight = 90;
+			dtmInfo.contourSettings[0u].heightInterval = 10;
+			dtmInfo.contourSettings[0u].lineStyleInfo.screenSpaceLineWidth = 0.0f;
+			dtmInfo.contourSettings[0u].lineStyleInfo.worldSpaceLineWidth = 1.0f;
+			dtmInfo.contourSettings[0u].lineStyleInfo.color = float32_t4(0.0f, 0.0f, 1.0f, 0.7f);
+			std::array<double, 4> contourStipplePattern = { 0.0f, -5.0f, 10.0f, -5.0f };
+			dtmInfo.contourSettings[0u].lineStyleInfo.setStipplePatternData(contourStipplePattern);
+
+			dtmInfo.contourSettings[1u] = dtmInfo.contourSettings[0u];
+			dtmInfo.contourSettings[1u].startHeight += 5.0f;
+			dtmInfo.contourSettings[1u].heightInterval = 13.0f;
+			dtmInfo.contourSettings[1u].lineStyleInfo.color = float32_t4(0.8f, 0.4f, 0.3f, 1.0f);
+
+			// PRESS 1, 2, 3 TO SWITCH HEIGHT SHADING MODE
+			// 1 - DISCRETE_VARIABLE_LENGTH_INTERVALS
+			// 2 - DISCRETE_FIXED_LENGTH_INTERVALS
+			// 3 - CONTINOUS_INTERVALS
+			float animatedAlpha = (std::cos(m_timeElapsed * 0.0005) + 1.0) * 0.5;
+			switch (m_shadingModeExample)
+			{
+				case E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
+				{
+					dtmInfo.heightShadingInfo.heightShadingMode = E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
+
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(-10.0f, float32_t4(0.5f, 1.0f, 1.0f, 1.0f));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(20.0f, float32_t4(0.0f, 1.0f, 0.0f, 1.0f));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(25.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(70.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(90.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
+
+					break;
+				}
+				case E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS:
+				{
+					dtmInfo.heightShadingInfo.intervalLength = 10.0f;
+					dtmInfo.heightShadingInfo.intervalIndexToHeightMultiplier = dtmInfo.heightShadingInfo.intervalLength;
+					dtmInfo.heightShadingInfo.isCenteredShading = false;
+					dtmInfo.heightShadingInfo.heightShadingMode = E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(0.0f, float32_t4(0.0f, 0.0f, 1.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(25.0f, float32_t4(0.0f, 1.0f, 1.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(50.0f, float32_t4(0.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(75.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(100.0f, float32_t4(1.0f, 0.0f, 0.0f, animatedAlpha));
+
+					break;
+				}
+				case E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS:
+				{
+					dtmInfo.heightShadingInfo.heightShadingMode = E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(0.0f, float32_t4(0.0f, 0.0f, 1.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(25.0f, float32_t4(0.0f, 1.0f, 1.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(50.0f, float32_t4(0.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(75.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(90.0f, float32_t4(1.0f, 0.0f, 0.0f, animatedAlpha));
+
+					break;
+				}
+			}
+
+			drawResourcesFiller.drawGridDTM({ 0.0f, 200.0f }, 400.0f, 800.0f, dtmInfo, intendedNextSubmit);
 		}
 	}
 

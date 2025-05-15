@@ -229,7 +229,18 @@ struct PSInput
     void setScreenSpaceVertexAttribs(float3 pos) { vertexScreenSpacePos = pos; }
 #else // fragment shader
     float3 getScreenSpaceVertexAttribs(uint32_t vertexIndex) { return vertexScreenSpacePos[vertexIndex]; }
-#endif 
+#endif
+
+    /* GRID DTM */
+    uint getHeightMapTextureID() { return data1.x; }
+    uint getDTMSettingsID() { return data1.y; }
+    float getGridDTMScreenSpaceCellWidth() { return data2.x; }
+    float2 getGridDTMScreenSpacePosition() { return interp_data5.zw; }
+
+    void setHeightMapTextureID(uint heightMapTextureID) { data1.x = heightMapTextureID; }
+    void setDTMSettingsID(uint dtmSettingsID) { data1.y = dtmSettingsID; }
+    void setGridDTMScreenSpaceCellWidth(float screenSpaceGridWidth) { data2.x = screenSpaceGridWidth; }
+    void setGridDTMScreenSpacePosition(float2 screenSpacePosition) { interp_data5.zw = screenSpacePosition; }
 };
 
 // Set 0 - Scene Data and Globals, buffer bindings don't change the buffers only get updated

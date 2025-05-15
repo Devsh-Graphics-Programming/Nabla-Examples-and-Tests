@@ -311,6 +311,27 @@ void DrawResourcesFiller::drawFontGlyph(
 
 // TODO[Przemek]: similar to other drawXXX and drawXXX_internal functions that create mainobjects, drawObjects and push additional info in geometry buffer, input to function would be a GridDTMInfo
 // We don't have an allocator or memory management for texture updates yet, see how `_test_addImageObject` is being temporarily used (Descriptor updates and pipeline barriers) to upload an image into gpu and update a descriptor slot (it will become more sophisticated but doesn't block you)
+void DrawResourcesFiller::drawGridDTM(
+	const float64_t2& topLeft,
+	float64_t height,
+	float64_t width,
+	const DTMSettingsInfo& dtmSettingsInfo,
+	SIntendedSubmitInfo& intendedNextSubmit)
+{
+	GridDTMInfo gridDTMInfo;
+	gridDTMInfo.topLeft = topLeft;
+	gridDTMInfo.height = height;
+	gridDTMInfo.width = width;
+
+	beginMainObject(MainObjectType::GRID_DTM);
+
+	uint32_t mainObjectIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
+	assert(mainObjectIdx != InvalidMainObjectIdx);
+
+	addGridDTM_Internal(gridDTMInfo, mainObjectIdx);
+
+	endMainObject();
+}
 
 void DrawResourcesFiller::_test_addImageObject(float64_t2 topLeftPos, float32_t2 size, float32_t rotation, SIntendedSubmitInfo& intendedNextSubmit)
 {
@@ -827,7 +848,7 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 		(activeMainObjectType == MainObjectType::POLYLINE) ||
 		(activeMainObjectType == MainObjectType::HATCH) ||
 		(activeMainObjectType == MainObjectType::TEXT);
-	const bool needsDTMSettings = (activeMainObjectType == MainObjectType::DTM);
+	const bool needsDTMSettings = (activeMainObjectType == MainObjectType::DTM || activeMainObjectType == MainObjectType::GRID_DTM);
 	const bool needsCustomProjection = (!activeProjectionIndices.empty());
 	const bool needsCustomClipRect = (!activeClipRectIndices.empty());
 
@@ -1183,6 +1204,43 @@ bool DrawResourcesFiller::addFontGlyph_Internal(const GlyphInfo& glyphInfo, uint
 	drawObj.mainObjIndex = mainObjIdx;
 	drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::FONT_GLYPH) | (0 << 16));
 	drawObj.geometryAddress = geometryBufferOffset;
+	drawObjectsToBeFilled[0u] = drawObj;
+
+	return true;
+}
+
+bool DrawResourcesFiller::addGridDTM_Internal(const GridDTMInfo& gridDTMInfo, uint32_t mainObjIdx)
+{
+	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
+
+	const uint32_t uploadableObjects = (remainingResourcesSize) / (sizeof(GridDTMInfo) + sizeof(DrawObject) + sizeof(uint32_t) * 6u);
+	// TODO[ERFAN]: later take into account: our maximum indexable vertex 
+
+	if (uploadableObjects <= 0u)
+		return false;
+
+	// Add Geometry
+	size_t geometryBufferOffset = resourcesCollection.geometryInfo.increaseSizeAndGetOffset(sizeof(GridDTMInfo), alignof(GridDTMInfo));
+	void* dst = resourcesCollection.geometryInfo.data() + geometryBufferOffset;
+	memcpy(dst, &gridDTMInfo, sizeof(GridDTMInfo));
+
+	// Push Indices, remove later when compute fills this
+	uint32_t* indexBufferToBeFilled = resourcesCollection.indexBuffer.increaseCountAndGetPtr(6u);
+	const uint32_t startObj = resourcesCollection.drawObjects.getCount();
+	uint32_t i = 0u;
+	indexBufferToBeFilled[i * 6] = (startObj + i) * 4u + 1u;
+	indexBufferToBeFilled[i * 6 + 1u] = (startObj + i) * 4u + 0u;
+	indexBufferToBeFilled[i * 6 + 2u] = (startObj + i) * 4u + 2u;
+	indexBufferToBeFilled[i * 6 + 3u] = (startObj + i) * 4u + 1u;
+	indexBufferToBeFilled[i * 6 + 4u] = (startObj + i) * 4u + 2u;
+	indexBufferToBeFilled[i * 6 + 5u] = (startObj + i) * 4u + 3u;
+
+	// Add DrawObjs
+	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(1u);
+	DrawObject drawObj = {};
+	drawObj.mainObjIndex = mainObjIdx;
+	drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::GRID_DTM) | (0 << 16));
+	//drawObj.geometryAddress = 0;
 	drawObjectsToBeFilled[0u] = drawObj;
 
 	return true;
