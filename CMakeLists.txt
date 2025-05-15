@@ -64,6 +64,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(26_Blur EXCLUDE_FROM_ALL)
 	add_subdirectory(27_MPMCScheduler EXCLUDE_FROM_ALL)	
 	add_subdirectory(28_FFTBloom EXCLUDE_FROM_ALL)
+	add_subdirectory(29_Arithmetic2Bench EXCLUDE_FROM_ALL)
 	# add_subdirectory(36_CUDAInterop EXCLUDE_FROM_ALL)
 
 	# Showcase compute pathtracing
@@ -90,8 +91,6 @@ if(NBL_BUILD_EXAMPLES)
 
   	add_subdirectory(70_FLIPFluids EXCLUDE_FROM_ALL)
 	add_subdirectory(71_RayTracingPipeline EXCLUDE_FROM_ALL)
-
-	add_subdirectory(74_Arithmetic2Bench EXCLUDE_FROM_ALL)
 
 	NBL_HOOK_COMMON_API("${NBL_COMMON_API_TARGETS}")
 endif()
