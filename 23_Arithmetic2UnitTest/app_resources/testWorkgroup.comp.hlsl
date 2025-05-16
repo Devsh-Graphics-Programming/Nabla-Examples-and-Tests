@@ -8,11 +8,13 @@ struct DataProxy
     using dtype_t = vector<uint32_t, Config::ItemsPerInvocation_0>;
     static_assert(nbl::hlsl::is_same_v<dtype_t, type_t>);
 
+    template<typename AccessType>
     void get(const uint32_t ix, NBL_REF_ARG(dtype_t) value)
     {
         const uint32_t workgroupOffset = nbl::hlsl::glsl::gl_WorkGroupID().x * Config::VirtualWorkgroupSize;
         value = inputValue[workgroupOffset + ix];
     }
+    template<typename AccessType>
     void set(const uint32_t ix, const dtype_t value)
     {
         const uint32_t workgroupOffset = nbl::hlsl::glsl::gl_WorkGroupID().x * Config::VirtualWorkgroupSize;

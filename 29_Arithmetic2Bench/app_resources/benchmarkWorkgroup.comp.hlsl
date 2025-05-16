@@ -12,11 +12,13 @@ struct DataProxy
     static_assert(nbl::hlsl::is_same_v<dtype_t, type_t>);
 
     // we don't want to write/read storage multiple times in loop; doesn't seem optimized out in generated spirv
+    template<typename AccessType>
     void get(const uint32_t ix, NBL_REF_ARG(dtype_t) value)
     {
         // value = inputValue[ix];
         value = nbl::hlsl::promote<dtype_t>(globalIndex());
     }
+    template<typename AccessType>
     void set(const uint32_t ix, const dtype_t value)
     {
         // output[Binop::BindingIndex].template Store<type_t>(sizeof(uint32_t) + sizeof(type_t) * ix, value);
