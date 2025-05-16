@@ -84,6 +84,27 @@ struct ImageCleanup : public core::IReferenceCounted
 
 };
 
+struct StaticImageCopy
+{
+	core::smart_refctd_ptr<ICPUImage> cpuImage;
+	core::smart_refctd_ptr<IGPUImageView> gpuImageView;
+	uint32_t arrayIndex;
+};
+
+// TODO: consider just using the ImagesUsageCache to store this StaticImagesState, i.e. merge this struct with the ImageReference
+//		it will be possible after LRUCache improvements and copyability
+//		for now this will be a mirror of the LRUCache but in an unordered_map
+struct StaticImageState
+{
+	core::smart_refctd_ptr<ICPUImage> cpuImage = nullptr;
+	core::smart_refctd_ptr<IGPUImageView> gpuImageView = nullptr;
+	uint64_t allocationOffset = ImagesMemorySubAllocator::InvalidAddress;
+	uint64_t allocationSize = 0u;
+	uint32_t arrayIndex = ~0u; // in texture array descriptor 
+	bool gpuResident = false;
+};
+
+
 struct ImageReference
 {
 	static constexpr uint32_t InvalidTextureIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
@@ -127,10 +148,17 @@ public:
 	// Attempts to insert a new image into the cache.
 	// If the cache is full, invokes the provided `evictCallback` to evict an image.
 	// Returns a pointer to the inserted or existing ImageReference.
-	template<std::invocable<const ImageReference&> EvictionCallback>
+	template<std::invocable<image_id, const ImageReference&> EvictionCallback>
 	inline ImageReference* insert(image_id imageID, uint64_t lastUsedSema, EvictionCallback&& evictCallback)
 	{
-		return lruCache.insert(imageID, lastUsedSema, std::forward<EvictionCallback>(evictCallback));
+		auto lruEvictionCallback = [&](const ImageReference& evicted)
+			{
+				const image_id* evictingKey = lruCache.get_least_recently_used();
+				assert(evictingKey != nullptr);
+				if (evictingKey)
+					evictCallback(*evictingKey, evicted);
+			};
+		return lruCache.insert(imageID, lastUsedSema, lruEvictionCallback);
 	}
 	
 	// Retrieves the image associated with `imageID`, updating its LRU position.
@@ -158,7 +186,7 @@ public:
 		{
 			// we shouldn't select eviction candidate if lruCache is empty
 			_NBL_DEBUG_BREAK_IF(true);
-			return 0ull;
+			return ~0ull;
 		}
 	}
 	

@@ -63,7 +63,7 @@ void DrawResourcesFiller::allocateResourcesBuffer(ILogicalDevice* logicalDevice,
 		IDeviceMemoryAllocator::SAllocateInfo allocationInfo =
 		{
 			// TODO: Get from user side.
-			.size = 70 * 1024 * 1024, // 70 MB
+			.size = 170 * 1024 * 1024, // 70 MB
 			.flags = IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE,
 			.memoryTypeIndex = memoryTypeIdx,
 			.dedication = nullptr,
@@ -131,7 +131,7 @@ void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, ui
 
 	msdfLRUCache = std::unique_ptr<MSDFsLRUCache>(new MSDFsLRUCache(maxMSDFs));
 	msdfTextureArrayIndexAllocator = core::make_smart_refctd_ptr<IndexAllocator>(core::smart_refctd_ptr<ILogicalDevice>(logicalDevice), maxMSDFs);
-	msdfStagedCPUImages.resize(maxMSDFs);
+	msdfImagesState.resize(maxMSDFs);
 }
 
 void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, SIntendedSubmitInfo& intendedNextSubmit)
@@ -368,14 +368,13 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 	 *   - Ensure safe deallocation of the slot.
 	 *   - Submit any pending draw calls if the evicted image was scheduled to be used in the upcoming submission.
 	 */
-	auto evictionCallback = [&](const ImageReference& evicted)
+	auto evictionCallback = [&](image_id imageID, const ImageReference& evicted)
 	{
 		// Later used to release the image's memory range.
 		core::smart_refctd_ptr<ImageCleanup> cleanupObject = core::make_smart_refctd_ptr<ImageCleanup>();
 		cleanupObject->imagesMemorySuballocator = imagesMemorySubAllocator;
 		cleanupObject->addr = evicted.allocationOffset;
 		cleanupObject->size = evicted.allocationSize;
-		
 
 		const bool imageUsedForNextIntendedSubmit = (evicted.lastUsedFrameIndex == currentFrameIndex);
 		
@@ -401,6 +400,10 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 			ISemaphore::SWaitInfo deallocationWaitInfo = { .semaphore = intendedNextSubmit.scratchSemaphore.semaphore, .value = intendedNextSubmit.scratchSemaphore.value };
 			suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &evicted.index, deallocationWaitInfo, &cleanupObject.get());
 		}
+
+		// erase imageID from our state map
+		// kindof mirrors the state of the LRUCache
+		staticImagesState.erase(imageID);
 	};
 
 	// Try inserting or updating the image usage in the cache.
@@ -469,12 +472,12 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 							const bool boundToMemorySuccessfully = device->bindImageMemory({ &bindImageMemoryInfo, 1u });
 							if (boundToMemorySuccessfully)
 							{
+								gpuImage->setObjectDebugName((std::to_string(imageID) + " Static Image 2D").c_str());
 								IGPUImageView::SCreationParams viewParams = {
 									.image = gpuImage,
 									.viewType = IGPUImageView::ET_2D,
 									.format = gpuImage->getCreationParameters().format
 								};
-								gpuImage->setObjectDebugName((std::to_string(imageID) + " Static Image 2D").c_str());
 								gpuImageView = device->createImageView(std::move(viewParams));
 								if (gpuImageView)
 								{
@@ -535,7 +538,7 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 				const image_id evictionCandidate = imagesUsageCache->select_eviction_candidate();
 				ImageReference* imageRef = imagesUsageCache->peek(evictionCandidate);
 				if (imageRef)
-					evictionCallback(*imageRef);
+					evictionCallback(evictionCandidate, *imageRef);
 				imagesUsageCache->erase(evictionCandidate);
 				while (suballocatedDescriptorSet->cull_frees()) {}; // to make sure deallocation requests in eviction callback are blocked for.
 
@@ -547,14 +550,17 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 			{
 				inserted->lastUsedFrameIndex = currentFrameIndex; // there was an eviction + auto-submit, we need to update AGAIN
 
-				StaticImagesCopy copyToStage = 
+				StaticImageState newState =
 				{
 					.cpuImage = cpuImage,
 					.gpuImageView = gpuImageView,
+					.allocationOffset = inserted->allocationOffset,
+					.allocationSize = inserted->allocationSize,
 					.arrayIndex = inserted->index,
+					.gpuResident = false,
 				};
 				// printf(std::format("Everything success, ImageID={} ArrayIndex={} \n", imageID, inserted->index).c_str());
-				staticImagesStagedCopies.push_back(copyToStage);
+				staticImagesState.emplace(imageID, newState);
 			}
 			else
 			{
@@ -653,15 +659,126 @@ bool DrawResourcesFiller::pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit
 	{
 		// This means we're in a replay cache scope, use the replay cache to push to GPU instead of internal accumulation
 		success &= pushBufferUploads(intendedNextSubmit, currentReplayCache->resourcesCollection);
-		success &= pushMSDFImagesUploads(intendedNextSubmit, currentReplayCache->msdfStagedCPUImages);
-		// TODO: pushStaticImagesUploads
+		success &= pushMSDFImagesUploads(intendedNextSubmit, currentReplayCache->msdfImagesState);
+
+		// Push Static Images Uploads from replay cache, only those who are not gpu resident
+		auto* device = m_utilities->getLogicalDevice();
+		std::vector<StaticImageCopy> staticImageCopies;
+		for (auto& [id, replayImageState] : currentReplayCache->staticImagesState)
+		{
+			auto it = staticImagesState.find(id);
+			bool alreadyResident = false;
+
+			// compare with existing state, and check whether image id is already resident.
+			if (it != staticImagesState.end())
+			{
+				const StaticImageState& existingState = it->second;
+
+				const bool allocationMatches =
+					existingState.allocationOffset == replayImageState.allocationOffset &&
+					existingState.allocationSize == replayImageState.allocationSize;
+
+				const bool arrayIndexMatches = existingState.arrayIndex == replayImageState.arrayIndex;
+
+				alreadyResident = allocationMatches && arrayIndexMatches && existingState.gpuResident;
+			}
+
+			// if already resident, we don't need to do anything
+			if (alreadyResident)
+				continue;
+
+			bool successCreateNewImage = false;
+
+			// Not already resident, we need to recreate the image and bind the image memory to correct location again, and update the descriptor set and push the uploads
+			auto existingGPUImageViewParams = replayImageState.gpuImageView->getCreationParameters();
+			IGPUImage::SCreationParams imageParams = {};
+			imageParams = existingGPUImageViewParams.image->getCreationParameters();
+
+			auto newGPUImage = device->createImage(std::move(imageParams));
+			if (newGPUImage)
+			{
+				nbl::video::ILogicalDevice::SBindImageMemoryInfo bindImageMemoryInfo =
+				{
+					.image = newGPUImage.get(),
+					.binding = {.memory = imagesMemoryArena.memory.get(), .offset = imagesMemoryArena.offset + replayImageState.allocationOffset }
+				};
+
+				const bool boundToMemorySuccessfully = device->bindImageMemory({ &bindImageMemoryInfo, 1u });
+				if (boundToMemorySuccessfully)
+				{
+					newGPUImage->setObjectDebugName((std::to_string(id) + " Static Image 2D").c_str());
+					IGPUImageView::SCreationParams viewParams = existingGPUImageViewParams;
+					viewParams.image = newGPUImage;
+
+					auto newGPUImageView = device->createImageView(std::move(viewParams));
+					if (newGPUImageView)
+					{
+						successCreateNewImage = true;
+						
+						staticImageCopies.push_back(StaticImageCopy {
+							.cpuImage = replayImageState.cpuImage,
+							.gpuImageView = newGPUImageView,
+							.arrayIndex = replayImageState.arrayIndex
+							});
+
+						newGPUImageView->setObjectDebugName((std::to_string(id) + " Static Image View 2D").c_str());
+					}
+
+				}
+			}
+
+			if (!successCreateNewImage)
+			{
+				// TODO: Log
+				_NBL_DEBUG_BREAK_IF(true);
+				success = false;
+			}
+		}
+
+		bool replayStaticUploadSuccess = true;
+		
+		if (staticImageCopies.size() > 0u)
+		{
+			// We need to block for previous submit in order to safely, rebind image's memory and update the descriptor set array index.
+			// 
+			// [FUTURE_CONSIDERATION]: To avoid stalling the CPU when replaying caches that overflow GPU memory,
+			// we could recreate the image and image view, binding them to entirely new memory locations.
+			// This would require an indirection mechanism in the shader to remap references from cached geometry or objects to the new image array indices.
+			// Note: This isn't a problem if the replayed scene fits in memory and doesn't require overflow submissions due to image memory exhaustion.
+			nbl::video::ISemaphore::SWaitInfo waitInfo = { .semaphore = intendedNextSubmit.scratchSemaphore.semaphore, .value = intendedNextSubmit.scratchSemaphore.value };
+			device->blockForSemaphores({ &waitInfo, 1u });
+			replayStaticUploadSuccess = pushStaticImagesUploads_Internal(intendedNextSubmit, staticImageCopies);
+		}
+
+		if (replayStaticUploadSuccess)
+		{
+			staticImagesState = currentReplayCache->staticImagesState;
+			for (auto& [_, state] : staticImagesState)
+				state.gpuResident = true;
+		}
+
+		success &= replayStaticUploadSuccess;
 	}
 	else
 	{
 		flushDrawObjects();
 		success &= pushBufferUploads(intendedNextSubmit, resourcesCollection);
-		success &= pushMSDFImagesUploads(intendedNextSubmit, msdfStagedCPUImages);
-		success &= pushStaticImagesUploads(intendedNextSubmit);
+		success &= pushMSDFImagesUploads(intendedNextSubmit, msdfImagesState);
+
+		// Push Static Images Uploads, only those who are not gpu resident
+		std::vector<StaticImageCopy> staticImageCopies;
+		for (auto& [id, staticImageState] : staticImagesState)
+		{
+			if (!staticImageState.gpuResident)
+				staticImageCopies.push_back(StaticImageCopy{ .cpuImage = staticImageState.cpuImage, .gpuImageView = staticImageState.gpuImageView, .arrayIndex = staticImageState.arrayIndex });
+		}
+		const bool staticImagesUploadSuccess = pushStaticImagesUploads_Internal(intendedNextSubmit, staticImageCopies);
+		if (staticImagesUploadSuccess)
+		{
+			for (auto& [id, staticImageState] : staticImagesState)
+				staticImageState.gpuResident = true;
+		}
+		success &= staticImagesUploadSuccess;
 	}
 	return success;
 }
@@ -751,11 +868,12 @@ std::unique_ptr<DrawResourcesFiller::ReplayCache> DrawResourcesFiller::createRep
 	flushDrawObjects();
 	std::unique_ptr<ReplayCache> ret = std::unique_ptr<ReplayCache>(new ReplayCache);
 	ret->resourcesCollection = resourcesCollection;
-	ret->msdfStagedCPUImages = msdfStagedCPUImages;
-	for (auto& stagedMSDF : ret->msdfStagedCPUImages)
+	ret->msdfImagesState = msdfImagesState;
+	for (auto& stagedMSDF : ret->msdfImagesState)
 		stagedMSDF.uploadedToGPU = false; // to trigger upload for all msdf functions again.
 	ret->drawCallsData = drawCalls;
 	ret->activeMainObjectIndex = activeMainObjectIndex;
+	ret->staticImagesState = staticImagesState; // copy state of static images
 	return ret;
 }
 
@@ -825,7 +943,7 @@ bool DrawResourcesFiller::pushBufferUploads(SIntendedSubmitInfo& intendedNextSub
 	return true;
 }
 
-bool DrawResourcesFiller::pushMSDFImagesUploads(SIntendedSubmitInfo& intendedNextSubmit, std::vector<MSDFStagedCPUImage>& stagedMSDFCPUImages)
+bool DrawResourcesFiller::pushMSDFImagesUploads(SIntendedSubmitInfo& intendedNextSubmit, std::vector<MSDFImageState>& stagedMSDFCPUImages)
 {
 	auto* cmdBuffInfo = intendedNextSubmit.getCommandBufferForRecording();
 	
@@ -938,7 +1056,7 @@ bool DrawResourcesFiller::pushMSDFImagesUploads(SIntendedSubmitInfo& intendedNex
 			}
 		};
 		commandBuffer->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = afterTransferImageBarrier });
-		
+
 		if (!m_hasInitializedMSDFTextureArrays)
 			m_hasInitializedMSDFTextureArrays = true;
 
@@ -951,29 +1069,29 @@ bool DrawResourcesFiller::pushMSDFImagesUploads(SIntendedSubmitInfo& intendedNex
 	}
 }
 
-bool DrawResourcesFiller::pushStaticImagesUploads(SIntendedSubmitInfo& intendedNextSubmit)
+bool DrawResourcesFiller::pushStaticImagesUploads_Internal(SIntendedSubmitInfo& intendedNextSubmit, std::span<StaticImageCopy> staticImagesCopy)
 {
-	auto* device = m_utilities->getLogicalDevice();
-	auto* physDev = m_utilities->getLogicalDevice()->getPhysicalDevice();
-	auto* descriptorSet = suballocatedDescriptorSet->getDescriptorSet();
-	auto* cmdBuffInfo = intendedNextSubmit.getCommandBufferForRecording();
-	
-	if (cmdBuffInfo)
-	{
-		bool success = true;
+	bool success = true;
 
-		if (staticImagesStagedCopies.size() > 0ull)
+	if (staticImagesCopy.size() > 0ull)
+	{
+		auto* device = m_utilities->getLogicalDevice();
+		auto* physDev = m_utilities->getLogicalDevice()->getPhysicalDevice();
+		auto* descriptorSet = suballocatedDescriptorSet->getDescriptorSet();
+		auto* cmdBuffInfo = intendedNextSubmit.getCommandBufferForRecording();
+	
+		if (cmdBuffInfo)
 		{
 			IGPUCommandBuffer* commandBuffer = cmdBuffInfo->cmdbuf;
 
 			// DescriptorSet Updates
 			std::vector<video::IGPUDescriptorSet::SDescriptorInfo> descriptorInfos;
 			std::vector<IGPUDescriptorSet::SWriteDescriptorSet> descriptorWrites;
-			descriptorInfos.resize(staticImagesStagedCopies.size());
-			descriptorWrites.resize(staticImagesStagedCopies.size());
-			for (uint32_t i = 0u; i < staticImagesStagedCopies.size(); ++i)
+			descriptorInfos.resize(staticImagesCopy.size());
+			descriptorWrites.resize(staticImagesCopy.size());
+			for (uint32_t i = 0u; i < staticImagesCopy.size(); ++i)
 			{
-				auto& stagedStaticImage = staticImagesStagedCopies[i];
+				auto& stagedStaticImage = staticImagesCopy[i];
 				// Bind gpu image view to descriptor set
 				descriptorInfos[i].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 				descriptorInfos[i].desc = stagedStaticImage.gpuImageView;
@@ -989,12 +1107,12 @@ bool DrawResourcesFiller::pushStaticImagesUploads(SIntendedSubmitInfo& intendedN
 			success &= device->updateDescriptorSets(descriptorWrites.size(), descriptorWrites.data(), 0u, nullptr);
 
 			std::vector<IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t> beforeCopyImageBarriers;
-			beforeCopyImageBarriers.resize(staticImagesStagedCopies.size());
+			beforeCopyImageBarriers.resize(staticImagesCopy.size());
 
 			// Pipeline Barriers before stagedStaticImage
-			for (uint32_t i = 0u; i < staticImagesStagedCopies.size(); ++i)
+			for (uint32_t i = 0u; i < staticImagesCopy.size(); ++i)
 			{
-				auto& stagedStaticImage = staticImagesStagedCopies[i];
+				auto& stagedStaticImage = staticImagesCopy[i];
 				const auto& gpuImg = stagedStaticImage.gpuImageView->getCreationParameters().image;
 				beforeCopyImageBarriers[i] =
 				{
@@ -1021,9 +1139,9 @@ bool DrawResourcesFiller::pushStaticImagesUploads(SIntendedSubmitInfo& intendedN
 			}
 			success &= commandBuffer->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = beforeCopyImageBarriers });
 
-			for (uint32_t i = 0u; i < staticImagesStagedCopies.size(); ++i)
+			for (uint32_t i = 0u; i < staticImagesCopy.size(); ++i)
 			{
-				auto& stagedStaticImage = staticImagesStagedCopies[i];
+				auto& stagedStaticImage = staticImagesCopy[i];
 				auto& gpuImg = stagedStaticImage.gpuImageView->getCreationParameters().image;
 				success &= m_utilities->updateImageViaStagingBuffer(
 					intendedNextSubmit,
@@ -1035,12 +1153,12 @@ bool DrawResourcesFiller::pushStaticImagesUploads(SIntendedSubmitInfo& intendedN
 			commandBuffer = intendedNextSubmit.getCommandBufferForRecording()->cmdbuf; // overflow-submit in utilities calls might've cause current recording command buffer to change
 
 			std::vector<IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t> afterCopyImageBarriers;
-			afterCopyImageBarriers.resize(staticImagesStagedCopies.size());
+			afterCopyImageBarriers.resize(staticImagesCopy.size());
 
 			// Pipeline Barriers before stagedStaticImage
-			for (uint32_t i = 0u; i < staticImagesStagedCopies.size(); ++i)
+			for (uint32_t i = 0u; i < staticImagesCopy.size(); ++i)
 			{
-				auto& stagedStaticImage = staticImagesStagedCopies[i];
+				auto& stagedStaticImage = staticImagesCopy[i];
 				const auto& gpuImg = stagedStaticImage.gpuImageView->getCreationParameters().image;
 				afterCopyImageBarriers[i] =
 				{
@@ -1067,22 +1185,19 @@ bool DrawResourcesFiller::pushStaticImagesUploads(SIntendedSubmitInfo& intendedN
 			}
 			success &= commandBuffer->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = afterCopyImageBarriers });
 		}
-
-		staticImagesStagedCopies.clear();
-		if (!success)
+		else
 		{
-			// TODO: Log
 			_NBL_DEBUG_BREAK_IF(true);
+			success = false;
 		}
-		return success;
-
 	}
-	else
+
+	if (!success)
 	{
 		// TODO: Log
-			_NBL_DEBUG_BREAK_IF(true);
-		return false;
+		_NBL_DEBUG_BREAK_IF(true);
 	}
+	return success;
 }
 
 const size_t DrawResourcesFiller::calculateRemainingResourcesSize() const
@@ -1727,8 +1842,8 @@ uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, cor
 	{
 		// `deallocationWaitInfo` is used to prepare wait info to defer index deallocation until the GPU has finished using the resource.
 		// NOTE: `deallocationWaitInfo` is currently *not* required for correctness because:
-		//   - Both the image upload (msdfStagedCPUImages) and usage occur within the same timeline (`intendedNextSubmit`).
-		//   - timeline semaphores guarantee proper ordering: the next submit's msdfStagedCPUImages will wait on the prior usage.
+		//   - Both the image upload (msdfImagesState) and usage occur within the same timeline (`intendedNextSubmit`).
+		//   - timeline semaphores guarantee proper ordering: the next submit's msdfImagesState will wait on the prior usage.
 		//   - Therefore, we can safely overwrite or reallocate the slot without waiting for explicit GPU completion.
 		//
 		// However, this `deallocationWaitInfo` *will* become essential if we start interacting with MSDF images
@@ -1759,7 +1874,7 @@ uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, cor
 		}
 		
 		// Clear CPU-side metadata associated with the evicted slot.
-		msdfStagedCPUImages[evicted.alloc_idx].evict();
+		msdfImagesState[evicted.alloc_idx].evict();
 	};
 	
 	// We pass nextSemaValue instead of constructing a new MSDFReference and passing it into `insert` that's because we might get a cache hit and only update the value of the nextSema
@@ -1776,9 +1891,9 @@ uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, cor
 
 		if (inserted->alloc_idx != IndexAllocator::AddressAllocator::invalid_address)
 		{
-			// We stage msdfStagedCPUImages, pushMSDFImagesUploads will push it into GPU
-			msdfStagedCPUImages[inserted->alloc_idx].image = std::move(cpuImage);
-			msdfStagedCPUImages[inserted->alloc_idx].uploadedToGPU = false;
+			// We stage msdfImagesState, pushMSDFImagesUploads will push it into GPU
+			msdfImagesState[inserted->alloc_idx].image = std::move(cpuImage);
+			msdfImagesState[inserted->alloc_idx].uploadedToGPU = false;
 		}
 		else
 		{

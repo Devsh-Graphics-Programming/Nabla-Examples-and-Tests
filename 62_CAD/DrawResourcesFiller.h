@@ -304,7 +304,7 @@ public:
 	/// For advanced use only, (passed to shaders for them to know if we overflow-submitted in the middle if a main obj
 	uint32_t getActiveMainObjectIndex() const;
 
-	struct MSDFStagedCPUImage
+	struct MSDFImageState
 	{
 		core::smart_refctd_ptr<ICPUImage> image;
 		bool uploadedToGPU : 1u;
@@ -352,9 +352,10 @@ public:
 	/// This enables efficient replays without traversing or re-generating scene content.
 	struct ReplayCache
 	{
-		ResourcesCollection resourcesCollection;
-		std::vector<MSDFStagedCPUImage> msdfStagedCPUImages;
 		std::vector<DrawCallData> drawCallsData;
+		ResourcesCollection resourcesCollection;
+		std::vector<MSDFImageState> msdfImagesState;
+		std::unordered_map<image_id, StaticImageState> staticImagesState;
 		uint32_t activeMainObjectIndex = InvalidMainObjectIdx;
 		// TODO: non msdf general CPU Images
 		// TODO: Get total memory consumption for logging?
@@ -389,11 +390,10 @@ protected:
 	bool pushBufferUploads(SIntendedSubmitInfo& intendedNextSubmit, ResourcesCollection& resourcesCollection);
 	
 	/// @brief Records GPU copy commands for all staged msdf images into the active command buffer.
-	bool pushMSDFImagesUploads(SIntendedSubmitInfo& intendedNextSubmit, std::vector<MSDFStagedCPUImage>& stagedMSDFCPUImages);
+	bool pushMSDFImagesUploads(SIntendedSubmitInfo& intendedNextSubmit, std::vector<MSDFImageState>& msdfImagesState);
 
 	/// @brief Records GPU copy commands for all staged msdf images into the active command buffer.
-	/// TODO: Handle for cache&replay mode later
-	bool pushStaticImagesUploads(SIntendedSubmitInfo& intendedNextSubmit);
+	bool pushStaticImagesUploads_Internal(SIntendedSubmitInfo& intendedNextSubmit, std::span<StaticImageCopy> staticImagesCopy);
 
 	const size_t calculateRemainingResourcesSize() const;
 
@@ -640,7 +640,7 @@ protected:
 	smart_refctd_ptr<IndexAllocator>	msdfTextureArrayIndexAllocator;
 	std::unique_ptr<MSDFsLRUCache>		msdfLRUCache; // LRU Cache to evict Least Recently Used in case of overflow
 
-	std::vector<MSDFStagedCPUImage>		msdfStagedCPUImages = {}; // cached cpu imaged + their status, size equals to LRUCache size
+	std::vector<MSDFImageState>			msdfImagesState = {}; // cached cpu imaged + their status, size equals to LRUCache size
 	static constexpr asset::E_FORMAT	MSDFTextureFormat = asset::E_FORMAT::EF_R8G8B8A8_SNORM;
 	bool m_hasInitializedMSDFTextureArrays = false;
 	
@@ -649,13 +649,8 @@ protected:
 	smart_refctd_ptr<SubAllocatedDescriptorSet> suballocatedDescriptorSet;
 	uint32_t imagesArrayBinding = 0u;
 	
-	// static images (not streamable):
-	struct StaticImagesCopy
-	{
-		core::smart_refctd_ptr<ICPUImage> cpuImage;
-		core::smart_refctd_ptr<IGPUImageView> gpuImageView;
-		uint32_t arrayIndex;
-	};
-	std::vector<StaticImagesCopy> staticImagesStagedCopies;
+	// TODO: consider removing this and just using the `imagesUsageCache` and `ImageReference` when `core::ResizableLRUCache` is copyable and iterable
+	// Current state of the static images, used in `pushStaticImagesUploads` to make StaticImages `gpuResident` and bind them to correct array index
+	std::unordered_map<image_id, StaticImageState> staticImagesState;
 };
 
