@@ -370,31 +370,35 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 	 */
 	auto evictionCallback = [&](const ImageReference& evicted)
 	{
-		// Prepare wait info to defer index deallocation until the GPU has finished using the resource.
-		// Because we will be writing to the descriptor set location which might be in use.
-		ISemaphore::SWaitInfo deallocationWaitInfo = { .semaphore = intendedNextSubmit.getFutureScratchSemaphore().semaphore, .value = evicted.lastUsedSemaphoreValue };
-		
-		// will later be used to release the image's memory range.
+		// Later used to release the image's memory range.
 		core::smart_refctd_ptr<ImageCleanup> cleanupObject = core::make_smart_refctd_ptr<ImageCleanup>();
 		cleanupObject->imagesMemorySuballocator = imagesMemorySubAllocator;
 		cleanupObject->addr = evicted.allocationOffset;
 		cleanupObject->size = evicted.allocationSize;
+		
 
-		const bool imageUsedForNextIntendedSubmit = (evicted.lastUsedSemaphoreValue == intendedNextSubmit.getFutureScratchSemaphore().value);
-
+		const bool imageUsedForNextIntendedSubmit = (evicted.lastUsedFrameIndex == currentFrameIndex);
+		
+		// NOTE: `deallocationWaitInfo` is crucial for both paths, we need to make sure we'll write to a descriptor arrayIndex when it's 100% done with previous usages.
 		if (imageUsedForNextIntendedSubmit)
 		{
 			// The evicted image is scheduled for use in the upcoming submit.
 			// To avoid rendering artifacts, we must flush the current draw queue now.
 			// After submission, we reset state so that data referencing the evicted slot can be re-uploaded.
-			suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &evicted.index, deallocationWaitInfo, &cleanupObject.get());
 			submitDraws(intendedNextSubmit);
 			reset(); // resets everything, things referenced through mainObj and other shit will be pushed again through acquireXXX_SubmitIfNeeded
+			
+			// Prepare wait info to defer index deallocation until the GPU has finished using the resource.
+			// we wait on the signal semaphore for the submit we just did above.
+			ISemaphore::SWaitInfo deallocationWaitInfo = { .semaphore = intendedNextSubmit.scratchSemaphore.semaphore, .value = intendedNextSubmit.scratchSemaphore.value };
+			suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &evicted.index, deallocationWaitInfo, &cleanupObject.get());
 		} 
 		else
 		{
-			// The image is not used in the current frame (intended next submit), so we can deallocate without submitting any draws.
+			// The image is not used in the current frame, so we can deallocate without submitting any draws.
 			// Still wait on the semaphore to ensure past GPU usage is complete.
+			// TODO: We don't know which semaphore value the frame with `evicted.lastUsedFrameIndex` index was submitted with, so we wait for the worst case value which is the immediate prev submit.
+			ISemaphore::SWaitInfo deallocationWaitInfo = { .semaphore = intendedNextSubmit.scratchSemaphore.semaphore, .value = intendedNextSubmit.scratchSemaphore.value };
 			suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &evicted.index, deallocationWaitInfo, &cleanupObject.get());
 		}
 	};
@@ -402,7 +406,7 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 	// Try inserting or updating the image usage in the cache.
 	// If the image is already present, updates its semaphore value.
 	ImageReference* inserted = imagesUsageCache->insert(imageID, intendedNextSubmit.getFutureScratchSemaphore().value, evictionCallback);
-	inserted->lastUsedSemaphoreValue = intendedNextSubmit.getFutureScratchSemaphore().value; // in case there was an eviction + auto-submit, we need to update AGAIN
+	inserted->lastUsedFrameIndex = currentFrameIndex; // in case there was an eviction + auto-submit, we need to update AGAIN
 
 	// if inserted->index was not InvalidTextureIndex then it means we had a cache hit and updated the value of our sema
 	// in which case we don't queue anything for upload, and return the idx
@@ -481,6 +485,7 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 								{
 									// irrecoverable error if simple image creation fails.
 									// TODO[LOG]: that's rare, image view creation failed.
+									_NBL_DEBUG_BREAK_IF(true);
 								}
 
 								// succcessful with everything, just break and get out of this retry loop
@@ -490,11 +495,13 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 							{
 								// irrecoverable error if simple bindImageMemory fails.
 								// TODO: LOG
+								_NBL_DEBUG_BREAK_IF(true);
 								break;
 							}
 						}
 						else
 						{
+							// printf(std::format("Allocation Failed, Trying again, ImageID={} Size={} \n", imageID, gpuImageMemoryRequirements.size).c_str());
 							// recoverable error when allocation fails, we don't log anything, next code will try evicting other images and retry
 						}
 					}
@@ -502,6 +509,7 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 					{
 						// irrecoverable error if memory requirements of the image don't match our preallocated devicememory
 						// TODO: LOG
+						_NBL_DEBUG_BREAK_IF(true);
 						break;
 					}
 				}
@@ -509,6 +517,7 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 				{
 					// irrecoverable error if simple image creation fails.
 					// TODO: LOG
+					_NBL_DEBUG_BREAK_IF(true);
 					break;
 				}
 
@@ -517,6 +526,7 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 					{
 						// Nothing else to evict; give up.
 						// We probably have evicted almost every other texture except the one we just allocated an index for
+						_NBL_DEBUG_BREAK_IF(true);
 						break;
 					}
 
@@ -527,7 +537,7 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 				if (imageRef)
 					evictionCallback(*imageRef);
 				imagesUsageCache->erase(evictionCandidate);
-				suballocatedDescriptorSet->cull_frees(); // to make sure deallocation requests in eviction callback are waited for.
+				while (suballocatedDescriptorSet->cull_frees()) {}; // to make sure deallocation requests in eviction callback are blocked for.
 
 				// we don't hold any references to the GPUImageView or GPUImage so descriptor binding will be the last reference
 				// hopefully by here the suballocated descriptor set freed some VRAM by dropping the image last ref and it's dedicated allocation.
@@ -535,13 +545,15 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 
 			if (gpuImageView)
 			{
+				inserted->lastUsedFrameIndex = currentFrameIndex; // there was an eviction + auto-submit, we need to update AGAIN
+
 				StaticImagesCopy copyToStage = 
 				{
 					.cpuImage = cpuImage,
 					.gpuImageView = gpuImageView,
 					.arrayIndex = inserted->index,
 				};
-				
+				// printf(std::format("Everything success, ImageID={} ArrayIndex={} \n", imageID, inserted->index).c_str());
 				staticImagesStagedCopies.push_back(copyToStage);
 			}
 			else
@@ -549,8 +561,8 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 				// All attempts to create the GPU image and its corresponding view have failed.
 				// Most likely cause: insufficient GPU memory or unsupported image parameters.
 				// TODO: Log a warning or error here � `addStaticImage2D` failed, likely due to low VRAM.
-				// assert(false);
-				
+				_NBL_DEBUG_BREAK_IF(true);
+
 				if (inserted->allocationOffset != ImagesMemorySubAllocator::InvalidAddress)
 				{
 					// We previously successfully create and allocated memory for the Image
@@ -576,7 +588,7 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 		}
 	}
 	
-	// assert(inserted->index != InvalidTextureIndex); // shouldn't happen, because we're using LRU cache, so worst case eviction will happen + multi-deallocate and next next multi_allocate should definitely succeed
+	assert(inserted->index != InvalidTextureIndex); // shouldn't happen, because we're using LRU cache, so worst case eviction will happen + multi-deallocate and next next multi_allocate should definitely succeed
 
 	return inserted->index;
 }
@@ -967,8 +979,8 @@ bool DrawResourcesFiller::pushStaticImagesUploads(SIntendedSubmitInfo& intendedN
 				descriptorInfos[i].desc = stagedStaticImage.gpuImageView;
 
 				// consider batching contiguous writes, if descriptor set updating was a hotspot
-				descriptorWrites[i].dstSet = descriptorSet,
-					descriptorWrites[i].binding = imagesArrayBinding;
+				descriptorWrites[i].dstSet = descriptorSet;
+				descriptorWrites[i].binding = imagesArrayBinding;
 				descriptorWrites[i].arrayElement = stagedStaticImage.arrayIndex;
 				descriptorWrites[i].count = 1u;
 				descriptorWrites[i].info = &descriptorInfos[i];
@@ -1660,7 +1672,7 @@ uint32_t DrawResourcesFiller::getImageIndexFromID(image_id imageID, const SInten
 	if (imageRef)
 	{
 		textureIdx = imageRef->index;
-		imageRef->lastUsedSemaphoreValue = intendedNextSubmit.getFutureScratchSemaphore().value; // update this because the texture will get used on the next submit
+		imageRef->lastUsedFrameIndex = currentFrameIndex; // update this because the texture will get used on the next frane
 	}
 	return textureIdx;
 }
@@ -1675,6 +1687,13 @@ void DrawResourcesFiller::setHatchFillMSDFTextureFunction(const GetHatchFillPatt
 	getHatchFillPatternMSDF = func;
 }
 
+void DrawResourcesFiller::markFrameUsageComplete(uint64_t drawSubmitWaitValue)
+{
+	currentFrameIndex++;
+	// TODO[LATER]: take into account that currentFrameIndex was submitted with drawSubmitWaitValue; Use that value when deallocating the resources marked with this frame index
+	//				Currently, for evictions the worst case value will be waited for, as there is no way yet to know which semaphoroe value will signal the completion of the (to be evicted) resource's usage
+}
+
 uint32_t DrawResourcesFiller::getMSDFIndexFromInputInfo(const MSDFInputInfo& msdfInfo, const SIntendedSubmitInfo& intendedNextSubmit)
 {
 	uint32_t textureIdx = InvalidTextureIndex;
@@ -1682,7 +1701,7 @@ uint32_t DrawResourcesFiller::getMSDFIndexFromInputInfo(const MSDFInputInfo& msd
 	if (tRef)
 	{
 		textureIdx = tRef->alloc_idx;
-		tRef->lastUsedSemaphoreValue = intendedNextSubmit.getFutureScratchSemaphore().value; // update this because the texture will get used on the next submit
+		tRef->lastUsedFrameIndex = currentFrameIndex; // update this because the texture will get used on the next frame
 	}
 	return textureIdx;
 }
@@ -1706,31 +1725,36 @@ uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, cor
 	 */
 	auto evictionCallback = [&](const MSDFReference& evicted)
 	{
-		// Prepare wait info to defer index deallocation until the GPU has finished using the resource.
-		// NOTE: This wait is currently *not* required for correctness because:
-		//   - Both the image upload (stagedStaticImage) and usage occur within the same timeline (`intendedNextSubmit`).
-		//   - timeline semaphores guarantee proper ordering: the next submit's stagedStaticImage will wait on the prior usage.
+		// `deallocationWaitInfo` is used to prepare wait info to defer index deallocation until the GPU has finished using the resource.
+		// NOTE: `deallocationWaitInfo` is currently *not* required for correctness because:
+		//   - Both the image upload (msdfStagedCPUImages) and usage occur within the same timeline (`intendedNextSubmit`).
+		//   - timeline semaphores guarantee proper ordering: the next submit's msdfStagedCPUImages will wait on the prior usage.
 		//   - Therefore, we can safely overwrite or reallocate the slot without waiting for explicit GPU completion.
 		//
 		// However, this `deallocationWaitInfo` *will* become essential if we start interacting with MSDF images
-		// outside the `intendedNextSubmit` timeline � for example, issuing uploads via a transfer queue or using a separate command buffer and timeline.
-		ISemaphore::SWaitInfo deallocationWaitInfo = { .semaphore = intendedNextSubmit.getFutureScratchSemaphore().semaphore, .value = evicted.lastUsedSemaphoreValue };
+		// outside the `intendedNextSubmit` timeline for example, issuing uploads via a transfer queue or using a separate command buffer and timeline.
 
-		const bool imageUsedForNextIntendedSubmit = (evicted.lastUsedSemaphoreValue == intendedNextSubmit.getFutureScratchSemaphore().value);
+		const bool imageUsedForNextIntendedSubmit = (evicted.lastUsedFrameIndex == currentFrameIndex);
 
 		if (imageUsedForNextIntendedSubmit)
 		{
 			// The evicted image is scheduled for use in the upcoming submit.
 			// To avoid rendering artifacts, we must flush the current draw queue now.
 			// After submission, we reset state so that data referencing the evicted slot can be re-uploaded.
-			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx, deallocationWaitInfo);
 			submitDraws(intendedNextSubmit);
 			reset(); // resets everything, things referenced through mainObj and other shit will be pushed again through acquireXXX_SubmitIfNeeded
+
+			// Prepare wait info to defer index deallocation until the GPU has finished using the resource.
+			// we wait on the signal semaphore for the submit we just did above.
+			ISemaphore::SWaitInfo deallocationWaitInfo = { .semaphore = intendedNextSubmit.scratchSemaphore.semaphore, .value = intendedNextSubmit.scratchSemaphore.value };
+			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx, deallocationWaitInfo);
 		} 
 		else
 		{
-			// The image is not used in the current frame (intended next submit), so we can deallocate without submitting any draws.
-			// Still wait on the semaphore to ensure past GPU usage is complete (read note above).
+			// The image is not used in the current frame, so we can deallocate without submitting any draws.
+			// Still wait on the semaphore to ensure past GPU usage is complete.
+			// TODO: We don't know which semaphore value the frame with `evicted.lastUsedFrameIndex` index was submitted with, so we wait for the worst case value which is the immediate prev submit (scratchSemaphore.value).
+			ISemaphore::SWaitInfo deallocationWaitInfo = { .semaphore = intendedNextSubmit.scratchSemaphore.semaphore, .value = intendedNextSubmit.scratchSemaphore.value };
 			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx, deallocationWaitInfo);
 		}
 		
@@ -1739,9 +1763,9 @@ uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, cor
 	};
 	
 	// We pass nextSemaValue instead of constructing a new MSDFReference and passing it into `insert` that's because we might get a cache hit and only update the value of the nextSema
-	MSDFReference* inserted = msdfLRUCache->insert(msdfInput, intendedNextSubmit.getFutureScratchSemaphore().value, evictionCallback);
+	MSDFReference* inserted = msdfLRUCache->insert(msdfInput, currentFrameIndex, evictionCallback);
 	
-	inserted->lastUsedSemaphoreValue = intendedNextSubmit.getFutureScratchSemaphore().value; // in case there was an eviction + auto-submit, we need to update AGAIN
+	inserted->lastUsedFrameIndex = currentFrameIndex; // in case there was an eviction + auto-submit, we need to update AGAIN
 
 	// if inserted->alloc_idx was not InvalidTextureIndex then it means we had a cache hit and updated the value of our sema, in which case we don't queue anything for upload, and return the idx
 	if (inserted->alloc_idx == InvalidTextureIndex)
@@ -1752,7 +1776,7 @@ uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, cor
 
 		if (inserted->alloc_idx != IndexAllocator::AddressAllocator::invalid_address)
 		{
-			// We stage stagedStaticImage, pushMSDFImagesUploads will push it into GPU
+			// We stage msdfStagedCPUImages, pushMSDFImagesUploads will push it into GPU
 			msdfStagedCPUImages[inserted->alloc_idx].image = std::move(cpuImage);
 			msdfStagedCPUImages[inserted->alloc_idx].uploadedToGPU = false;
 		}

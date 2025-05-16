@@ -149,15 +149,20 @@ public:
 	void setGlyphMSDFTextureFunction(const GetGlyphMSDFTextureFunc& func);
 	void setHatchFillMSDFTextureFunction(const GetHatchFillPatternMSDFTextureFunc& func);
 
+	// Must be called at the end of each frame.
+	// right before submitting the main draw that uses the currently queued geometry, images, or other objects/resources.
+	// Registers the semaphore/value that will signal completion of this frame’s draw,
+	// This allows future frames to safely deallocate or evict resources used in the current frame by waiting on this signal before reuse or destruction.
+	// `drawSubmitWaitValue` should reference the wait value of the draw submission finishing this frame using the `intendedNextSubmit`; 
+	void markFrameUsageComplete(uint64_t drawSubmitWaitValue);
+
 	// TODO[Przemek]: try to draft up a `CTriangleMesh` Class in it's own header (like CPolyline), simplest form is basically two cpu buffers (1 array of uint index buffer, 1 array of float64_t3 vertexBuffer)
 	// TODO[Przemek]: Then have a `drawMesh` function here similar to drawXXX's below, this will fit both vertex and index buffer in the `geometryBuffer`.
 	// take a `SIntendedSubmitInfo` like others, but don't use it as I don't want you to handle anything regarding autoSubmit
 	// somehow retrieve or calculate the geometry buffer offsets of your vertex and index buffer to be used outside for binding purposes
 
-	
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	void drawPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, SIntendedSubmitInfo& intendedNextSubmit);
-
 
 	//! Draws a fixed-geometry polyline using a custom transformation.
 	//! TODO: Change `polyline` input to an ID referencing a possibly cached instance in our buffers, allowing reuse and avoiding redundant uploads.
@@ -568,14 +573,14 @@ protected:
 	struct MSDFReference
 	{
 		uint32_t alloc_idx;
-		uint64_t lastUsedSemaphoreValue;
+		uint64_t lastUsedFrameIndex;
 
-		MSDFReference(uint32_t alloc_idx, uint64_t semaphoreVal) : alloc_idx(alloc_idx), lastUsedSemaphoreValue(semaphoreVal) {}
-		MSDFReference(uint64_t semaphoreVal) : MSDFReference(InvalidTextureIndex, semaphoreVal) {}
+		MSDFReference(uint32_t alloc_idx, uint64_t semaphoreVal) : alloc_idx(alloc_idx), lastUsedFrameIndex(semaphoreVal) {}
+		MSDFReference(uint64_t currentFrameIndex) : MSDFReference(InvalidTextureIndex, currentFrameIndex) {}
 		MSDFReference() : MSDFReference(InvalidTextureIndex, ~0ull) {}
 
 		// In LRU Cache `insert` function, in case of cache hit, we need to assign semaphore value to MSDFReference without changing `alloc_idx`
-		inline MSDFReference& operator=(uint64_t semamphoreVal) { lastUsedSemaphoreValue = semamphoreVal; return *this;  }
+		inline MSDFReference& operator=(uint64_t currentFrameIndex) { lastUsedFrameIndex = currentFrameIndex; return *this;  }
 	};
 	
 	uint32_t getMSDFIndexFromInputInfo(const MSDFInputInfo& msdfInfo, const SIntendedSubmitInfo& intendedNextSubmit);
@@ -584,6 +589,9 @@ protected:
 	
 	// Flushes Current Draw Call and adds to drawCalls
 	void flushDrawObjects();
+
+	// FrameIndex used as a criteria for resource/image eviction in case of limitations
+	uint32_t currentFrameIndex = 0u;
 
 	// Replay Cache override
 	ReplayCache* currentReplayCache = nullptr;

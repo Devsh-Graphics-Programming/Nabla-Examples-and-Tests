@@ -1044,10 +1044,10 @@ public:
 		system::path m_loadCWD = "..";
 		std::string imagePaths[] =
 		{
-			"../../media/color_space_test/R8G8B8A8_1.png",
-			"../../media/color_space_test/R8G8B8A8_2.png",
-			"../../media/color_space_test/R8G8B8_1.png",
 			"../../media/color_space_test/R8G8B8_1.jpg",
+			"../../media/color_space_test/R8G8B8_1.png",
+			"../../media/color_space_test/R8G8B8A8_2.png",
+			"../../media/color_space_test/R8G8B8A8_1.png",
 		};
 
 		for (const auto& imagePath : imagePaths)
@@ -1280,8 +1280,8 @@ public:
 		const bool isCachingDraw = CacheAndReplay && m_realFrameIx == 0u && !finishedCachingDraw;
 		if (isCachingDraw)
 		{
+			drawResourcesFiller.markFrameUsageComplete(intendedSubmitInfo.getFutureScratchSemaphore().value);
 			replayCaches.push_back(drawResourcesFiller.createReplayCache());
-			intendedSubmitInfo.scratchSemaphore.value++; // fake advance needed for Texture and MSDF LRU caches and evictions to work
 			return; // we don't record, submit or do anything, just caching the draw resources
 		}
 
@@ -1454,6 +1454,8 @@ public:
 
 		if (!inBetweenSubmit)
 			cb->endDebugMarker();
+		
+		drawResourcesFiller.markFrameUsageComplete(intendedSubmitInfo.getFutureScratchSemaphore().value);
 
 		if (inBetweenSubmit)
 		{
@@ -2903,9 +2905,11 @@ protected:
 			for (uint32_t i = 0; i < sampleImages.size(); ++i)
 			{
 				uint64_t imageID = i * 69ull; // it can be hash or something of the file path the image was loaded from
+				//printf(std::format("\n Image {} \n", i).c_str());
 				drawResourcesFiller.addStaticImage2D(imageID, sampleImages[i], intendedNextSubmit);
-				drawResourcesFiller.addImageObject(imageID, { 0.0 + i * 100.0, 0.0 }, { 100.0 , 100.0 }, 0.0, intendedNextSubmit);
+				drawResourcesFiller.addImageObject(imageID, { 0.0 + (i) * 3.0, 0.0 }, { 3.0 , 3.0 }, 0.0, intendedNextSubmit);
 				// drawResourcesFiller.addImageObject(imageID, { 40.0, +40.0 }, { 100.0, 100.0 }, 0.0, intendedNextSubmit);
+				//printf("\n");
 			}
 			LineStyleInfo lineStyle = 
 			{
@@ -2922,7 +2926,7 @@ protected:
 				linePoints.push_back({ 100.0, -100.0 });
 				polyline.addLinePoints(linePoints);
 			}
-			drawResourcesFiller.drawPolyline(polyline, lineStyle, intendedNextSubmit);
+			// drawResourcesFiller.drawPolyline(polyline, lineStyle, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_8)
 		{

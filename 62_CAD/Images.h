@@ -73,6 +73,7 @@ struct ImageCleanup : public core::IReferenceCounted
 
 	~ImageCleanup() override
 	{
+		// printf(std::format("Actual Eviction size={}, offset={} \n", size, addr).c_str());
 		if (imagesMemorySuballocator && addr != ImagesMemorySubAllocator::InvalidAddress)
 			imagesMemorySuballocator->deallocate(addr, size);
 	}
@@ -87,34 +88,34 @@ struct ImageReference
 {
 	static constexpr uint32_t InvalidTextureIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
 	uint32_t index = InvalidTextureIndex; // index in our array of textures binding
-	uint64_t lastUsedSemaphoreValue = 0ull; // last used semaphore value on this image
+	uint64_t lastUsedFrameIndex = 0ull; // last used semaphore value on this image
 	uint64_t allocationOffset = ImagesMemorySubAllocator::InvalidAddress;
 	uint64_t allocationSize = 0ull;
 
 	ImageReference() 
 		: index(InvalidTextureIndex)
-		, lastUsedSemaphoreValue(0ull)
+		, lastUsedFrameIndex(0ull)
 		, allocationOffset(ImagesMemorySubAllocator::InvalidAddress)
 		, allocationSize(0ull)
 	{}
 	
 	// In LRU Cache `insert` function, in case of cache miss, we need to construct the refereence with semaphore value
-	ImageReference(uint64_t semamphoreVal) 
+	ImageReference(uint64_t currentFrameIndex) 
 		: index(InvalidTextureIndex)
-		, lastUsedSemaphoreValue(semamphoreVal)
+		, lastUsedFrameIndex(currentFrameIndex)
 		, allocationOffset(ImagesMemorySubAllocator::InvalidAddress)
 		, allocationSize(0ull)
 	{}
 
 	// In LRU Cache `insert` function, in case of cache hit, we need to assign semaphore value without changing `index`
-	inline ImageReference& operator=(uint64_t semamphoreVal) { lastUsedSemaphoreValue = semamphoreVal; return *this;  }
+	inline ImageReference& operator=(uint64_t currentFrameIndex) { lastUsedFrameIndex = currentFrameIndex; return *this;  }
 };
 
 // A resource-aware image cache with an LRU eviction policy.
 // This cache tracks image usage by ID and provides hooks for eviction logic, such as releasing descriptor slots and deallocating GPU memory.
 // Currently, eviction is purely LRU-based. In the future, eviction decisions may incorporate additional factors:
 //   - memory usage per image.
-//   - lastUsedSemaphoreValue.
+//   - lastUsedFrameIndex.
 // This class does not own GPU resources directly, but helps coordinate their lifetimes in sync with GPU usage via eviction callbacks.
 class ImagesUsageCache
 {
