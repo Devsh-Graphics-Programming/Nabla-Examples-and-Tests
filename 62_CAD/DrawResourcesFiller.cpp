@@ -623,16 +623,16 @@ void DrawResourcesFiller::drawGridDTM(
 	endMainObject();
 }
 
-void DrawResourcesFiller::addImageObject(image_id imageID, float64_t2 topLeftPos, float32_t2 size, float32_t rotation, SIntendedSubmitInfo& intendedNextSubmit)
+void DrawResourcesFiller::addImageObject(image_id imageID, const OrientedBoundingBox2D& obb, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	beginMainObject(MainObjectType::IMAGE);
 
 	uint32_t mainObjIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
 
 	ImageObjectInfo info = {};
-	info.topLeft = topLeftPos;
-	info.dirU = float32_t2(size.x * cos(rotation), size.x * sin(rotation)); // 
-	info.aspectRatio = size.y / size.x;
+	info.topLeft = obb.topLeft;
+	info.dirU = obb.dirU;
+	info.aspectRatio = obb.aspectRatio;
 	info.textureID = getImageIndexFromID(imageID, intendedNextSubmit); // for this to be valid and safe, this function needs to be called immediately after `addStaticImage` function to make sure image is in memory
 	if (!addImageObject_Internal(info, mainObjIdx))
 	{

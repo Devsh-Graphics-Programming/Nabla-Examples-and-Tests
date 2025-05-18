@@ -528,6 +528,14 @@ NBL_CONSTEXPR float MSDFSize = 32.0f;
 NBL_CONSTEXPR uint32_t MSDFMips = 4; 
 NBL_CONSTEXPR float HatchFillMSDFSceenSpaceSize = 8.0; 
 
+// Used in CPU-side only for now
+struct OrientedBoundingBox2D
+{
+    pfloat64_t2 topLeft; // 2 * 8 = 16 bytes (16)
+    float32_t2 dirU; // 2 * 4 = 8 bytes (24)
+    float32_t aspectRatio; // 4 bytes (28)
+};
+
 #ifdef __HLSL_VERSION
 [[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);
 
