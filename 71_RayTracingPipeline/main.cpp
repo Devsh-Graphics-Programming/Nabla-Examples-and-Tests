@@ -1225,41 +1225,41 @@ private:
 
 		// triangles geometries
 		const auto cpuObjects = std::array{
-		  ReferenceObjectCpu {
-			.meta = {.type = OT_RECTANGLE, .name = "Plane Mesh"},
-			.data = gc->createRectangleMesh(nbl::core::vector2df_SIMD(10, 10)),
-			.material = defaultMaterial,
-			.transform = planeTransform,
-		  },
-		  ReferenceObjectCpu {
-			.meta = {.type = OT_CUBE, .name = "Cube Mesh"},
-			.data = gc->createCubeMesh(nbl::core::vector3df(1, 1, 1)),
-			.material = defaultMaterial,
-			.transform = getTranslationMatrix(0, 0.5f, 0),
-		  },
-		  ReferenceObjectCpu {
-			.meta = {.type = OT_CUBE, .name = "Cube Mesh 2"},
-			.data = gc->createCubeMesh(nbl::core::vector3df(1.5, 1.5, 1.5)),
-			.material = Material{
-			  .ambient = {0.1, 0.1, 0.2},
-			  .diffuse = {0.2, 0.2, 0.8},
-			  .specular = {0.8, 0.8, 0.8},
-			  .shininess = 1.0f,
+			ReferenceObjectCpu {
+				.meta = {.type = OT_RECTANGLE, .name = "Plane Mesh"},
+				.data = gc->createRectangleMesh(nbl::core::vector2df_SIMD(10, 10)),
+				.material = defaultMaterial,
+				.transform = planeTransform,
 			},
-			.transform = getTranslationMatrix(-5.0f, 1.0f, 0),
-		  },
-		  ReferenceObjectCpu {
-			.meta = {.type = OT_CUBE, .name = "Transparent Cube Mesh"},
-			.data = gc->createCubeMesh(nbl::core::vector3df(1.5, 1.5, 1.5)),
-			.material = Material{
-			  .ambient = {0.1, 0.2, 0.1},
-			  .diffuse = {0.2, 0.8, 0.2},
-			  .specular = {0.8, 0.8, 0.8},
-			  .shininess = 1.0f,
-			  .alpha = 0.2,
+			ReferenceObjectCpu {
+				.meta = {.type = OT_CUBE, .name = "Cube Mesh"},
+				.data = gc->createCubeMesh(nbl::core::vector3df(1, 1, 1)),
+				.material = defaultMaterial,
+				.transform = getTranslationMatrix(0, 0.5f, 0),
 			},
-			.transform = getTranslationMatrix(5.0f, 1.0f, 0),
-		  },
+			ReferenceObjectCpu {
+				.meta = {.type = OT_CUBE, .name = "Cube Mesh 2"},
+				.data = gc->createCubeMesh(nbl::core::vector3df(1.5, 1.5, 1.5)),
+				.material = Material{
+					.ambient = {0.1, 0.1, 0.2},
+					.diffuse = {0.2, 0.2, 0.8},
+					.specular = {0.8, 0.8, 0.8},
+					.shininess = 1.0f,
+				},
+				.transform = getTranslationMatrix(-5.0f, 1.0f, 0),
+			},
+			ReferenceObjectCpu {
+				.meta = {.type = OT_CUBE, .name = "Transparent Cube Mesh"},
+				.data = gc->createCubeMesh(nbl::core::vector3df(1.5, 1.5, 1.5)),
+				.material = Material{
+					.ambient = {0.1, 0.2, 0.1},
+					.diffuse = {0.2, 0.8, 0.2},
+					.specular = {0.8, 0.8, 0.8},
+					.shininess = 1.0f,
+					.alpha = 0.2,
+				},
+				.transform = getTranslationMatrix(5.0f, 1.0f, 0),
+			},
 		};
 
 		struct CPUTriBufferBindings
@@ -1313,14 +1313,14 @@ private:
 		{
 			const auto middle_i = NumberOfProceduralGeometries / 2.0;
 			SProceduralGeomInfo sphere = {
-			  .material = hlsl::_static_cast<MaterialPacked>(Material{
-				.ambient = {0.1, 0.05 * i, 0.1},
-				.diffuse = {0.3, 0.2 * i, 0.3},
-				.specular = {0.8, 0.8, 0.8},
-				.shininess = 1.0f,
-			  }),
-			  .center = float32_t3((i - middle_i) * 4.0, 2, 5.0),
-			  .radius = 1,
+					.material = hlsl::_static_cast<MaterialPacked>(Material{
+					.ambient = {0.1, 0.05 * i, 0.1},
+					.diffuse = {0.3, 0.2 * i, 0.3},
+					.specular = {0.8, 0.8, 0.8},
+					.shininess = 1.0f,
+				}),
+				.center = float32_t3((i - middle_i) * 4.0, 2, 5.0),
+				.radius = 1,
 			};
 
 			proceduralGeoms.push_back(sphere);
@@ -1332,11 +1332,333 @@ private:
 			};
 		}
 
+		{
+			IGPUBuffer::SCreationParams params;
+			params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+			params.size = proceduralGeoms.size() * sizeof(SProceduralGeomInfo);
+			m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = queue }, std::move(params), proceduralGeoms.data()).move_into(m_proceduralGeomInfoBuffer);
+		}
+
 		// get ICPUBuffers into ICPUBLAS
+		// TODO use one BLAS and multiple triangles/aabbs in one
+		const auto blasCount = std::size(cpuObjects) + 1;
+		const auto proceduralBlasIdx = std::size(cpuObjects);
+
+		std::array<smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>, std::size(cpuObjects)+1u> cpuBlas;
+		for (uint32_t i = 0; i < blasCount; i++)
+		{
+			auto& blas = cpuBlas[i];
+			blas = make_smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>();
+
+			if (i == proceduralBlasIdx)
+			{
+				auto aabbs = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUBottomLevelAccelerationStructure::AABBs<ICPUBuffer>>>(1u);
+				auto primitiveCounts = make_refctd_dynamic_array<smart_refctd_dynamic_array<uint32_t>>(1u);
+
+				auto& aabb = aabbs->front();
+				auto& primCount = primitiveCounts->front();
+				
+				primCount = NumberOfProceduralGeometries;
+				aabb.data = { .offset = 0, .buffer = cpuProcBuffer };
+				aabb.stride = sizeof(IGPUBottomLevelAccelerationStructure::AABB_t);
+				aabb.geometryFlags = IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::OPAQUE_BIT; // only allow opaque for now
+
+				blas->setGeometries(std::move(aabbs), std::move(primitiveCounts));
+			}
+			else
+			{
+				auto triangles = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUBottomLevelAccelerationStructure::Triangles<ICPUBuffer>>>(1u);
+				auto primitiveCounts = make_refctd_dynamic_array<smart_refctd_dynamic_array<uint32_t>>(1u);
+
+				auto& tri = triangles->front();
+				auto& primCount = primitiveCounts->front();
+				const auto& geom = cpuObjects[i];
+				const auto& cpuBuf = cpuTriBuffers[i];
+
+				const bool useIndex = geom.data.indexType != EIT_UNKNOWN;
+				const uint32_t vertexStride = geom.data.inputParams.bindings[0].stride;
+				const uint32_t numVertices = cpuBuf.vertex.buffer->getSize() / vertexStride;
+
+				if (useIndex)
+					primCount = geom.data.indexCount / 3;
+				else
+					primCount = numVertices / 3;
+
+				tri.vertexData[0] = cpuBuf.vertex;
+				tri.indexData = useIndex ? cpuBuf.index : cpuBuf.vertex;
+				tri.maxVertex = numVertices - 1;
+				tri.vertexStride = vertexStride;
+				tri.vertexFormat = EF_R32G32B32_SFLOAT;
+				tri.indexType = geom.data.indexType;
+				tri.geometryFlags = geom.material.isTransparent() ?
+					IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::NO_DUPLICATE_ANY_HIT_INVOCATION_BIT :
+					IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::OPAQUE_BIT;
+
+				blas->setGeometries(std::move(triangles), std::move(primitiveCounts));
+			}
+
+			auto blasFlags = bitflag(IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT) | IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_COMPACTION_BIT;
+			if (i == proceduralBlasIdx)
+				blasFlags |= IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::GEOMETRY_TYPE_IS_AABB_BIT;
+
+			blas->setBuildFlags(blasFlags);
+			blas->setContentHash(blas->computeContentHash());
+		}
+
+		auto geomInfoBuffer = ICPUBuffer::create({ std::size(cpuObjects) * sizeof(STriangleGeomInfo) });
+		STriangleGeomInfo* geomInfos = reinterpret_cast<STriangleGeomInfo*>(geomInfoBuffer->getPointer());
 
 		// get ICPUBLAS into ICPUTLAS
+		auto geomInstances = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUTopLevelAccelerationStructure::PolymorphicInstance>>(blasCount);
+		{
+			uint32_t i = 0;
+			for (auto instance = geomInstances->begin(); instance != geomInstances->end(); instance++, i++)
+			{
+				const auto isProceduralInstance = i == proceduralBlasIdx;
+				ICPUTopLevelAccelerationStructure::StaticInstance inst;
+				inst.base.blas = cpuBlas[i];
+				inst.base.flags = static_cast<uint32_t>(IGPUTopLevelAccelerationStructure::INSTANCE_FLAGS::TRIANGLE_FACING_CULL_DISABLE_BIT);
+				inst.base.instanceCustomIndex = i;
+				inst.base.instanceShaderBindingTableRecordOffset = isProceduralInstance ? 2 : 0;;
+				inst.base.mask = 0xFF;
+				inst.transform = isProceduralInstance ? matrix3x4SIMD() : cpuObjects[i].transform;
 
-		// reserve, convert
+				instance->instance = inst;
+			}
+		}
+
+		auto cpuTlas = make_smart_refctd_ptr<ICPUTopLevelAccelerationStructure>();
+		cpuTlas->setInstances(std::move(geomInstances));
+		cpuTlas->setBuildFlags(IGPUTopLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT);
+
+//#define TEST_REBAR_FALLBACK
+		// convert with asset converter
+		smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get(), .optimizer = {} });
+		struct MyInputs : CAssetConverter::SInputs
+		{
+#ifndef TEST_REBAR_FALLBACK
+			inline uint32_t constrainMemoryTypeBits(const size_t groupCopyID, const IAsset* canonicalAsset, const blake3_hash_t& contentHash, const IDeviceMemoryBacked* memoryBacked) const override
+			{
+				assert(memoryBacked);
+				return memoryBacked->getObjectType() != IDeviceMemoryBacked::EOT_BUFFER ? (~0u) : rebarMemoryTypes;
+			}
+#endif
+			uint32_t rebarMemoryTypes;
+		} inputs = {};
+		inputs.logger = m_logger.get();
+		inputs.rebarMemoryTypes = m_physicalDevice->getDirectVRAMAccessMemoryTypeBits();
+#ifndef TEST_REBAR_FALLBACK
+		struct MyAllocator final : public IDeviceMemoryAllocator
+		{
+			ILogicalDevice* getDeviceForAllocations() const override { return device; }
+
+			SAllocation allocate(const SAllocateInfo& info) override
+			{
+				auto retval = device->allocate(info);
+				// map what is mappable by default so ReBAR checks succeed
+				if (retval.isValid() && retval.memory->isMappable())
+					retval.memory->map({ .offset = 0,.length = info.size });
+				return retval;
+			}
+
+			ILogicalDevice* device;
+		} myalloc;
+		myalloc.device = m_device.get();
+		inputs.allocator = &myalloc;
+#endif
+
+		std::array<ICPUTopLevelAccelerationStructure*, 1u> tmpTlas;
+		std::array<ICPUBuffer*, 2 * std::size(cpuObjects) + 1u> tmpBuffers;
+		{
+			tmpTlas[0] = cpuTlas.get();
+			for (uint32_t i = 0; i < cpuObjects.size(); i++)
+			{
+				tmpBuffers[2 * i + 0] = cpuTriBuffers[i].vertex.buffer.get();
+				tmpBuffers[2 * i + 1] = cpuTriBuffers[i].index.buffer.get();
+			}
+			tmpBuffers[2 * proceduralBlasIdx] = cpuProcBuffer.get();
+
+			std::get<CAssetConverter::SInputs::asset_span_t<ICPUTopLevelAccelerationStructure>>(inputs.assets) = tmpTlas;
+			std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = tmpBuffers;
+		}
+
+		auto reservation = converter->reserve(inputs);
+		{
+			auto prepass = [&]<typename asset_type_t>(const auto & references) -> bool
+			{
+				auto objects = reservation.getGPUObjects<asset_type_t>();
+				uint32_t counter = {};
+				for (auto& object : objects)
+				{
+					auto gpu = object.value;
+					auto* reference = references[counter];
+
+					if (reference)
+					{
+						if (!gpu)
+						{
+							m_logger->log("Failed to convert a CPU object to GPU!", ILogger::ELL_ERROR);
+							return false;
+						}
+					}
+					counter++;
+				}
+				return true;
+			};
+
+			prepass.template operator() < ICPUTopLevelAccelerationStructure > (tmpTlas);
+			prepass.template operator() < ICPUBuffer > (tmpBuffers);
+		}
+
+		constexpr auto XferBufferCount = 2;
+		std::array<smart_refctd_ptr<IGPUCommandBuffer>, XferBufferCount> xferBufs = {};
+		std::array<IQueue::SSubmitInfo::SCommandBufferInfo, XferBufferCount> xferBufInfos = {};
+		{
+			auto pool = m_device->createCommandPool(getTransferUpQueue()->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT | IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+			pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, xferBufs);
+			xferBufs.front()->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			for (auto i = 0; i < XferBufferCount; i++)
+				xferBufInfos[i].cmdbuf = xferBufs[i].get();
+		}
+		auto xferSema = m_device->createSemaphore(0u);
+		SIntendedSubmitInfo transfer = {};
+		transfer.queue = getTransferUpQueue();
+		transfer.scratchCommandBuffers = xferBufInfos;
+		transfer.scratchSemaphore = {
+			.semaphore = xferSema.get(),
+			.value = 0u,
+			.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+		};
+
+		constexpr auto CompBufferCount = 2;
+		std::array<smart_refctd_ptr<IGPUCommandBuffer>, CompBufferCount> compBufs = {};
+		std::array<IQueue::SSubmitInfo::SCommandBufferInfo, CompBufferCount> compBufInfos = {};
+		{
+			auto pool = m_device->createCommandPool(getComputeQueue()->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT | IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+			pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, compBufs);
+			compBufs.front()->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			for (auto i = 0; i < CompBufferCount; i++)
+				compBufInfos[i].cmdbuf = compBufs[i].get();
+		}
+		auto compSema = m_device->createSemaphore(0u);
+		SIntendedSubmitInfo compute = {};
+		compute.queue = getComputeQueue();
+		compute.scratchCommandBuffers = compBufInfos;
+		compute.scratchSemaphore = {
+			.semaphore = compSema.get(),
+			.value = 0u,
+			.stageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT | PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_COPY_BIT
+		};
+		// convert
+		{
+			smart_refctd_ptr<CAssetConverter::SConvertParams::scratch_for_device_AS_build_t> scratchAlloc;
+			{
+				constexpr auto MaxAlignment = 256;
+				constexpr auto MinAllocationSize = 1024;
+				const auto scratchSize = core::alignUp(reservation.getMinASBuildScratchSize(false), MaxAlignment);
+
+
+				IGPUBuffer::SCreationParams creationParams = {};
+				creationParams.size = scratchSize;
+				creationParams.usage = IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+#ifdef TEST_REBAR_FALLBACK
+				creationParams.usage |= IGPUBuffer::EUF_TRANSFER_DST_BIT;
+				core::unordered_set<uint32_t> sharingSet = { compute.queue->getFamilyIndex(),transfer.queue->getFamilyIndex() };
+				core::vector<uint32_t> sharingIndices(sharingSet.begin(), sharingSet.end());
+				if (sharingIndices.size() > 1)
+					creationParams.queueFamilyIndexCount = sharingIndices.size();
+				creationParams.queueFamilyIndices = sharingIndices.data();
+#endif
+				auto scratchBuffer = m_device->createBuffer(std::move(creationParams));
+
+				auto reqs = scratchBuffer->getMemoryReqs();
+#ifndef TEST_REBAR_FALLBACK
+				reqs.memoryTypeBits &= m_physicalDevice->getDirectVRAMAccessMemoryTypeBits();
+#endif
+				auto allocation = m_device->allocate(reqs, scratchBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+#ifndef TEST_REBAR_FALLBACK
+				allocation.memory->map({ .offset = 0,.length = reqs.size });
+#endif
+
+				scratchAlloc = make_smart_refctd_ptr<CAssetConverter::SConvertParams::scratch_for_device_AS_build_t>(
+					SBufferRange<video::IGPUBuffer>{0ull, scratchSize, std::move(scratchBuffer)},
+					core::allocator<uint8_t>(), MaxAlignment, MinAllocationSize
+				);
+			}
+
+			struct MyParams final : CAssetConverter::SConvertParams
+			{
+				inline uint32_t getFinalOwnerQueueFamily(const IGPUBuffer* buffer, const core::blake3_hash_t& createdFrom) override
+				{
+					return finalUser;
+				}
+				inline uint32_t getFinalOwnerQueueFamily(const IGPUAccelerationStructure* image, const core::blake3_hash_t& createdFrom) override
+				{
+					return finalUser;
+				}
+
+				uint8_t finalUser;
+			} params = {};
+#undef TEST_REBAR_FALLBACK
+			params.utilities = m_utils.get();
+			params.transfer = &transfer;
+			params.compute = &compute;
+			params.scratchForDeviceASBuild = scratchAlloc.get();
+			params.finalUser = queue->getFamilyIndex();
+
+			auto future = reservation.convert(params);
+			if (future.copy() != IQueue::RESULT::SUCCESS)
+			{
+				m_logger->log("Failed to await submission feature!", ILogger::ELL_ERROR);
+				return false;
+			}
+
+			// assign gpu objects to output
+			auto&& tlases = reservation.getGPUObjects<ICPUTopLevelAccelerationStructure>();
+			m_gpuTlas = tlases[0].value;
+			auto&& buffers = reservation.getGPUObjects<ICPUBuffer>();
+			for (uint32_t i = 0; i < cpuObjects.size(); i++)
+			{
+				auto& cpuObject = cpuObjects[i];
+
+				m_gpuTriangleGeometries.push_back(ReferenceObjectGpu{
+				  .meta = cpuObject.meta,
+				  .bindings = {
+					.vertex = {.offset = 0, .buffer = buffers[2 * i + 0].value },
+					.index = {.offset = 0, .buffer = buffers[2 * i + 1].value },
+				  },
+				  .vertexStride = cpuObject.data.inputParams.bindings[0].stride,
+				  .indexType = cpuObject.data.indexType,
+				  .indexCount = cpuObject.data.indexCount,
+				  .material = hlsl::_static_cast<MaterialPacked>(cpuObject.material),
+				  .transform = cpuObject.transform,
+					});
+			}
+			m_proceduralAabbBuffer = buffers[2 * proceduralBlasIdx].value;
+
+			for (uint32_t i = 0; i < m_gpuTriangleGeometries.size(); i++)
+			{
+				const auto& gpuObject = m_gpuTriangleGeometries[i];
+				const uint64_t vertexBufferAddress = gpuObject.bindings.vertex.buffer->getDeviceAddress();
+				geomInfos[i] = {
+				  .material = gpuObject.material,
+				  .vertexBufferAddress = vertexBufferAddress,
+				  .indexBufferAddress = gpuObject.useIndex() ? gpuObject.bindings.index.buffer->getDeviceAddress() : vertexBufferAddress,
+				  .vertexStride = gpuObject.vertexStride,
+				  .objType = gpuObject.meta.type,
+				  .indexType = gpuObject.indexType,
+				  .smoothNormals = s_smoothNormals[gpuObject.meta.type],
+				};
+			}
+		}
+
+		{
+			IGPUBuffer::SCreationParams params;
+			params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+			params.size = geomInfoBuffer->getSize();
+			m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = queue }, std::move(params), geomInfos).move_into(m_triangleGeomInfoBuffer);
+		}
+
 		return true;
 	}
 #else
