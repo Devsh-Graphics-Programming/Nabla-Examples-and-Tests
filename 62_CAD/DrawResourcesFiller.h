@@ -514,6 +514,19 @@ protected:
 	 */
 	ImageAllocateResults tryCreateAndAllocateImage_SubmitIfNeeded(const nbl::asset::IImage::SCreationParams& imageParams, nbl::video::SIntendedSubmitInfo& intendedNextSubmit, std::string debugName = "UnnamedNablaImage");
 
+	/**
+	 * @brief Determines creation parameters for a georeferenced image based on heuristics.
+	 *
+	 * This function decides whether a georeferenced image should be treated as a fully resident GPU texture
+	 * or as a streamable image based on the relationship between its total resolution and the viewport size.
+	 * It then fills out the appropriate Nabla image creation parameters.
+	 *
+	 * @param[out] outImageParams Structure to be filled with image creation parameters (format, size, etc.).
+	 * @param[out] outImageType Indicates whether the image should be fully resident or streamed.
+	 * @param[in] georeferencedImageParams Parameters describing the full image extents, viewport extents, and format.
+	 */
+	void determineGeoreferencedImageCreationParams(nbl::asset::IImage::SCreationParams& outImageParams, ImageType& outImageType, const GeoreferencedImageParams& georeferencedImageParams);
+
 	void resetMainObjects()
 	{
 		resourcesCollection.mainObjects.vector.clear();

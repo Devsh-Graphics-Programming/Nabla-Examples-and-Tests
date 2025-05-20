@@ -8,7 +8,8 @@ using image_id = uint64_t; // Could later be templated or replaced with a strong
 
 enum class ImageType : uint8_t
 {
-    STATIC = 0,                        // Regular non-georeferenced image, fully loaded once
+	INVALID = 0,
+    STATIC,                        // Regular non-georeferenced image, fully loaded once
     GEOREFERENCED_STREAMED,            // Streamed image, resolution depends on camera/view
     GEOREFERENCED_FULL_RESOLUTION      // For smaller georeferenced images, entire image is eventually loaded and not streamed or view-dependant
 };
@@ -124,26 +125,26 @@ struct ImageReference
 	static constexpr uint32_t InvalidTextureIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
 	
 	uint32_t arrayIndex = InvalidTextureIndex; // index in our array of textures binding
-	ImageType imageType;
+	ImageType imageType = ImageType::INVALID;
 	bool gpuResident = false;
 	uint64_t lastUsedFrameIndex = 0ull; // last used semaphore value on this image
 	uint64_t allocationOffset = ImagesMemorySubAllocator::InvalidAddress;
 	uint64_t allocationSize = 0ull;
 	core::smart_refctd_ptr<IGPUImageView> gpuImageView = nullptr;
-
-	ImageReference() 
-		: arrayIndex(InvalidTextureIndex)
-		, lastUsedFrameIndex(0ull)
-		, allocationOffset(ImagesMemorySubAllocator::InvalidAddress)
-		, allocationSize(0ull)
-	{}
 	
 	// In LRU Cache `insert` function, in case of cache miss, we need to construct the refereence with semaphore value
 	ImageReference(uint64_t currentFrameIndex) 
 		: arrayIndex(InvalidTextureIndex)
+		, imageType(ImageType::INVALID)
+		, gpuResident(false)
 		, lastUsedFrameIndex(currentFrameIndex)
 		, allocationOffset(ImagesMemorySubAllocator::InvalidAddress)
 		, allocationSize(0ull)
+		, gpuImageView(nullptr)
+	{}
+	
+	ImageReference() 
+		: ImageReference(0ull)
 	{}
 
 	// In LRU Cache `insert` function, in case of cache hit, we need to assign semaphore value without changing `index`
