@@ -4,7 +4,7 @@
 
 #include "common.hpp"
 
-#define TEST_ASSET_CONV_AS
+//#define TEST_ASSET_CONV_AS
 
 class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
@@ -722,7 +722,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			cpuTlas->setInstances(std::move(geomInstances));
 			cpuTlas->setBuildFlags(IGPUTopLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT);
 
-//#define TEST_REBAR_FALLBACK
+#define TEST_REBAR_FALLBACK
 			// convert with asset converter
 			smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get(), .optimizer = {} });
 			struct MyInputs : CAssetConverter::SInputs
@@ -927,7 +927,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = queue }, std::move(params), geomInfos).move_into(geometryInfoBuffer);
 			}
 
-			return true;
+			return bool(gpuTlas);
 		}
 #else
 		bool createGeometries(video::CThreadSafeQueueAdapter* queue, const IGeometryCreator* gc)
@@ -1122,7 +1122,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			{
 				IGPUBottomLevelAccelerationStructure::DeviceBuildInfo blasBuildInfos[OT_COUNT];
 				uint32_t primitiveCounts[OT_COUNT];
-				IGPUBottomLevelAccelerationStructure::Triangles<const IGPUBuffer> triangles[OT_COUNT];
+				IGPUBottomLevelAccelerationStructure::Triangles<IGPUBuffer> triangles[OT_COUNT];
 				uint32_t scratchSizes[OT_COUNT];
 
 				for (uint32_t i = 0; i < objectsGpu.size(); i++)
@@ -1159,7 +1159,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					{
 						const auto* trianglesData = triangles;
 						const uint32_t maxPrimCount[1] = { primitiveCounts[i] };
-						buildSizes = m_device->getAccelerationStructureBuildSizes(blasFlags, false, std::span{trianglesData,1}, maxPrimCount);
+						buildSizes = m_device->getAccelerationStructureBuildSizes(false,blasFlags, false, std::span{trianglesData,1}, maxPrimCount);
 						if (!buildSizes)
 							return logFail("Failed to get BLAS build sizes");
 					}
@@ -1252,7 +1252,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			// compact blas
 			{
 				std::array<size_t, OT_COUNT> asSizes{ 0 };
-				if (!m_device->getQueryPoolResults(queryPool.get(), 0, objectsGpu.size(), asSizes.data(), sizeof(size_t), IQueryPool::WAIT_BIT))
+				if (!m_device->getQueryPoolResults(queryPool.get(), 0, objectsGpu.size(), asSizes.data(), sizeof(size_t), bitflag(IQueryPool::RESULTS_FLAGS::WAIT_BIT)|IQueryPool::_64_BIT))
 					return logFail("Could not get query pool results for AS sizes");
 
 				std::array<smart_refctd_ptr<IGPUBottomLevelAccelerationStructure>, OT_COUNT> cleanupBlas;
