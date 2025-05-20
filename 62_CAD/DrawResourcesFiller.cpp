@@ -395,7 +395,6 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 			}
 
 			// Attempt to create a GPU image and image view for this texture.
-			core::smart_refctd_ptr<IGPUImageView> gpuImageView = nullptr;
 			ImageAllocateResults allocResults = tryCreateAndAllocateImage_SubmitIfNeeded(imageParams, intendedNextSubmit, std::to_string(imageID));
 
 			if (allocResults.isValid())
@@ -410,7 +409,7 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 				StaticImageState newState =
 				{
 					.cpuImage = cpuImage,
-					.gpuImageView = gpuImageView,
+					.gpuImageView = allocResults->gpuImageView,
 					.allocationOffset = inserted->allocationOffset,
 					.allocationSize = inserted->allocationSize,
 					.arrayIndex = inserted->arrayIndex,
