@@ -362,65 +362,22 @@ void DrawResourcesFiller::drawFontGlyph(
 
 uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::smart_refctd_ptr<ICPUImage>& cpuImage, SIntendedSubmitInfo& intendedNextSubmit)
 {
-	/*
-	 * The `suballocatedDescriptorSet` manages indices (slots) into a array of textures binding.
-	 * This callback is invoked on eviction, and must:
-	 *   - Ensure safe deallocation of the slot.
-	 *   - Submit any pending draw calls if the evicted image was scheduled to be used in the upcoming submission.
-	 */
-	auto evictionCallback = [&](image_id imageID, const ImageReference& evicted)
-	{
-		// Later used to release the image's memory range.
-		core::smart_refctd_ptr<ImageCleanup> cleanupObject = core::make_smart_refctd_ptr<ImageCleanup>();
-		cleanupObject->imagesMemorySuballocator = imagesMemorySubAllocator;
-		cleanupObject->addr = evicted.allocationOffset;
-		cleanupObject->size = evicted.allocationSize;
-
-		const bool imageUsedForNextIntendedSubmit = (evicted.lastUsedFrameIndex == currentFrameIndex);
-		
-		// NOTE: `deallocationWaitInfo` is crucial for both paths, we need to make sure we'll write to a descriptor arrayIndex when it's 100% done with previous usages.
-		if (imageUsedForNextIntendedSubmit)
-		{
-			// The evicted image is scheduled for use in the upcoming submit.
-			// To avoid rendering artifacts, we must flush the current draw queue now.
-			// After submission, we reset state so that data referencing the evicted slot can be re-uploaded.
-			submitDraws(intendedNextSubmit);
-			reset(); // resets everything, things referenced through mainObj and other shit will be pushed again through acquireXXX_SubmitIfNeeded
-			
-			// Prepare wait info to defer index deallocation until the GPU has finished using the resource.
-			// we wait on the signal semaphore for the submit we just did above.
-			ISemaphore::SWaitInfo deallocationWaitInfo = { .semaphore = intendedNextSubmit.scratchSemaphore.semaphore, .value = intendedNextSubmit.scratchSemaphore.value };
-			suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &evicted.index, deallocationWaitInfo, &cleanupObject.get());
-		} 
-		else
-		{
-			// The image is not used in the current frame, so we can deallocate without submitting any draws.
-			// Still wait on the semaphore to ensure past GPU usage is complete.
-			// TODO: We don't know which semaphore value the frame with `evicted.lastUsedFrameIndex` index was submitted with, so we wait for the worst case value which is the immediate prev submit.
-			ISemaphore::SWaitInfo deallocationWaitInfo = { .semaphore = intendedNextSubmit.scratchSemaphore.semaphore, .value = intendedNextSubmit.scratchSemaphore.value };
-			suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &evicted.index, deallocationWaitInfo, &cleanupObject.get());
-		}
-
-		// erase imageID from our state map
-		// kindof mirrors the state of the LRUCache
-		staticImagesState.erase(imageID);
-	};
-
 	// Try inserting or updating the image usage in the cache.
 	// If the image is already present, updates its semaphore value.
-	ImageReference* inserted = imagesUsageCache->insert(imageID, intendedNextSubmit.getFutureScratchSemaphore().value, evictionCallback);
+	auto evictCallback = [&](image_id imageID, const ImageReference& evicted) { evictImage_SubmitIfNeeded(imageID, evicted, intendedNextSubmit); };
+	ImageReference* inserted = imagesUsageCache->insert(imageID, intendedNextSubmit.getFutureScratchSemaphore().value, evictCallback);
 	inserted->lastUsedFrameIndex = currentFrameIndex; // in case there was an eviction + auto-submit, we need to update AGAIN
 
 	// if inserted->index was not InvalidTextureIndex then it means we had a cache hit and updated the value of our sema
 	// in which case we don't queue anything for upload, and return the idx
-	if (inserted->index == InvalidTextureIndex)
+	if (inserted->arrayIndex == InvalidTextureIndex)
 	{
 		// This is a new image (cache miss). Allocate a descriptor index for it.
-		inserted->index = video::SubAllocatedDescriptorSet::AddressAllocator::invalid_address;
+		inserted->arrayIndex = video::SubAllocatedDescriptorSet::AddressAllocator::invalid_address;
 		// Blocking allocation attempt; if the descriptor pool is exhausted, this may stall.
-		suballocatedDescriptorSet->multi_allocate(std::chrono::time_point<std::chrono::steady_clock>::max(), imagesArrayBinding, 1u, &inserted->index); // if the prev submit causes DEVICE_LOST then we'll get a deadlock here since we're using max timepoint
+		suballocatedDescriptorSet->multi_allocate(std::chrono::time_point<std::chrono::steady_clock>::max(), imagesArrayBinding, 1u, &inserted->arrayIndex); // if the prev submit causes DEVICE_LOST then we'll get a deadlock here since we're using max timepoint
 
-		if (inserted->index != video::SubAllocatedDescriptorSet::AddressAllocator::invalid_address)
+		if (inserted->arrayIndex != video::SubAllocatedDescriptorSet::AddressAllocator::invalid_address)
 		{
 			auto* device = m_utilities->getLogicalDevice();
 			auto* physDev = m_utilities->getLogicalDevice()->getPhysicalDevice();
@@ -439,116 +396,16 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 
 			// Attempt to create a GPU image and image view for this texture.
 			core::smart_refctd_ptr<IGPUImageView> gpuImageView = nullptr;
+			ImageAllocateResults allocResults = tryCreateAndAllocateImage_SubmitIfNeeded(imageParams, intendedNextSubmit, std::to_string(imageID));
 
-			// Attempt to create a GPU image and corresponding image view for this texture.
-			// If creation or memory allocation fails (likely due to VRAM exhaustion),
-			// we'll evict another texture from the LRU cache and retry until successful, or until only the currently-inserted image remains.
-			while (imagesUsageCache->size() > 0u)
+			if (allocResults.isValid())
 			{
-				// Try creating the image and allocating memory for it:
-				auto gpuImage = device->createImage(std::move(imageParams));
-				
-				if (gpuImage)
-				{
-					nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements gpuImageMemoryRequirements = gpuImage->getMemoryReqs();
-					uint32_t actualAlignment = 1u << gpuImageMemoryRequirements.alignmentLog2;
-					const bool imageMemoryRequirementsMatch = 
-						(physDev->getDeviceLocalMemoryTypeBits() & gpuImageMemoryRequirements.memoryTypeBits) != 0 && // should have device local memory compatible
-						(gpuImageMemoryRequirements.requiresDedicatedAllocation == false) && // should not require dedicated allocation
-						((ImagesMemorySubAllocator::MaxMemoryAlignment % actualAlignment) == 0u); // should be consistent with our suballocator's max alignment
-
-					if (imageMemoryRequirementsMatch)
-					{
-						inserted->allocationOffset = imagesMemorySubAllocator->allocate(gpuImageMemoryRequirements.size, 1u << gpuImageMemoryRequirements.alignmentLog2);
-						const bool allocationFromImagesMemoryArenaSuccessfull = inserted->allocationOffset != ImagesMemorySubAllocator::InvalidAddress;
-						if (allocationFromImagesMemoryArenaSuccessfull)
-						{
-							inserted->allocationSize = gpuImageMemoryRequirements.size;
-							nbl::video::ILogicalDevice::SBindImageMemoryInfo bindImageMemoryInfo =
-							{
-								.image = gpuImage.get(),
-								.binding = {.memory = imagesMemoryArena.memory.get(), .offset = imagesMemoryArena.offset + inserted->allocationOffset }
-							};
-							const bool boundToMemorySuccessfully = device->bindImageMemory({ &bindImageMemoryInfo, 1u });
-							if (boundToMemorySuccessfully)
-							{
-								gpuImage->setObjectDebugName((std::to_string(imageID) + " Static Image 2D").c_str());
-								IGPUImageView::SCreationParams viewParams = {
-									.image = gpuImage,
-									.viewType = IGPUImageView::ET_2D,
-									.format = gpuImage->getCreationParameters().format
-								};
-								gpuImageView = device->createImageView(std::move(viewParams));
-								if (gpuImageView)
-								{
-									// SUCCESS!
-									gpuImageView->setObjectDebugName((std::to_string(imageID) + " Static Image View 2D").c_str());
-								}
-								else
-								{
-									// irrecoverable error if simple image creation fails.
-									// TODO[LOG]: that's rare, image view creation failed.
-									_NBL_DEBUG_BREAK_IF(true);
-								}
-
-								// succcessful with everything, just break and get out of this retry loop
-								break;
-							}
-							else
-							{
-								// irrecoverable error if simple bindImageMemory fails.
-								// TODO: LOG
-								_NBL_DEBUG_BREAK_IF(true);
-								break;
-							}
-						}
-						else
-						{
-							// printf(std::format("Allocation Failed, Trying again, ImageID={} Size={} \n", imageID, gpuImageMemoryRequirements.size).c_str());
-							// recoverable error when allocation fails, we don't log anything, next code will try evicting other images and retry
-						}
-					}
-					else
-					{
-						// irrecoverable error if memory requirements of the image don't match our preallocated devicememory
-						// TODO: LOG
-						_NBL_DEBUG_BREAK_IF(true);
-						break;
-					}
-				}
-				else
-				{
-					// irrecoverable error if simple image creation fails.
-					// TODO: LOG
-					_NBL_DEBUG_BREAK_IF(true);
-					break;
-				}
-
-				// Getting here means we failed creating or allocating the image, evict and retry.
-				if (imagesUsageCache->size() == 1u)
-					{
-						// Nothing else to evict; give up.
-						// We probably have evicted almost every other texture except the one we just allocated an index for
-						_NBL_DEBUG_BREAK_IF(true);
-						break;
-					}
-
-				assert(imagesUsageCache->size() > 1u);
-
-				const image_id evictionCandidate = imagesUsageCache->select_eviction_candidate();
-				ImageReference* imageRef = imagesUsageCache->peek(evictionCandidate);
-				if (imageRef)
-					evictionCallback(evictionCandidate, *imageRef);
-				imagesUsageCache->erase(evictionCandidate);
-				while (suballocatedDescriptorSet->cull_frees()) {}; // to make sure deallocation requests in eviction callback are blocked for.
-
-				// we don't hold any references to the GPUImageView or GPUImage so descriptor binding will be the last reference
-				// hopefully by here the suballocated descriptor set freed some VRAM by dropping the image last ref and it's dedicated allocation.
-			}
-
-			if (gpuImageView)
-			{
+				inserted->imageType = ImageType::STATIC;
+				inserted->gpuResident = false;
 				inserted->lastUsedFrameIndex = currentFrameIndex; // there was an eviction + auto-submit, we need to update AGAIN
+				inserted->allocationOffset = allocResults.allocationOffset;
+				inserted->allocationSize = allocResults.allocationSize;
+				inserted->gpuImageView = allocResults.gpuImageView;
 
 				StaticImageState newState =
 				{
@@ -556,15 +413,14 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 					.gpuImageView = gpuImageView,
 					.allocationOffset = inserted->allocationOffset,
 					.allocationSize = inserted->allocationSize,
-					.arrayIndex = inserted->index,
+					.arrayIndex = inserted->arrayIndex,
 					.gpuResident = false,
 				};
-				// printf(std::format("Everything success, ImageID={} ArrayIndex={} \n", imageID, inserted->index).c_str());
 				staticImagesState.emplace(imageID, newState);
 			}
 			else
 			{
-				// All attempts to create the GPU image and its corresponding view have failed.
+				// All attempts to try create the GPU image and its corresponding view have failed.
 				// Most likely cause: insufficient GPU memory or unsupported image parameters.
 				// TODO: Log a warning or error here � `addStaticImage2D` failed, likely due to low VRAM.
 				_NBL_DEBUG_BREAK_IF(true);
@@ -577,26 +433,155 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 					imagesMemorySubAllocator->deallocate(inserted->allocationOffset, inserted->allocationSize);
 				}
 
-				if (inserted->index != InvalidTextureIndex)
+				if (inserted->arrayIndex != InvalidTextureIndex)
 				{
 					// We previously allocated a descriptor index, but failed to create a usable GPU image.
 					// It's crucial to deallocate this index to avoid leaks and preserve descriptor pool space.
 					// No semaphore wait needed here, as the GPU never got to use this slot.
-					suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &inserted->index, {});
-					inserted->index = InvalidTextureIndex;
+					suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &inserted->arrayIndex, {});
+					inserted->arrayIndex = InvalidTextureIndex;
 				}
 			}
 		}
 		else
 		{
 			// TODO: log here, index allocation failed.
-			inserted->index = InvalidTextureIndex;
+			inserted->arrayIndex = InvalidTextureIndex;
 		}
 	}
 	
-	assert(inserted->index != InvalidTextureIndex); // shouldn't happen, because we're using LRU cache, so worst case eviction will happen + multi-deallocate and next next multi_allocate should definitely succeed
+	assert(inserted->arrayIndex != InvalidTextureIndex); // shouldn't happen, because we're using LRU cache, so worst case eviction will happen + multi-deallocate and next next multi_allocate should definitely succeed
 
-	return inserted->index;
+	return inserted->arrayIndex;
+}
+
+uint32_t DrawResourcesFiller::retrieveGeoreferencedImage_AllocateIfNeeded(image_id imageID, const GeoreferencedImageParams& params, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	auto* device = m_utilities->getLogicalDevice();
+	auto* physDev = m_utilities->getLogicalDevice()->getPhysicalDevice();
+
+	// Try inserting or updating the image usage in the cache.
+	// If the image is already present, updates its semaphore value.
+	auto evictCallback = [&](image_id imageID, const ImageReference& evicted) { evictImage_SubmitIfNeeded(imageID, evicted, intendedNextSubmit); };
+	ImageReference* inserted = imagesUsageCache->insert(imageID, intendedNextSubmit.getFutureScratchSemaphore().value, evictCallback);
+	inserted->lastUsedFrameIndex = currentFrameIndex; // in case there was an eviction + auto-submit, we need to update AGAIN
+
+	// TODO: Function call that gets you image creaation params based on georeferencedImageParams (extents and mips and whatever), it will also get you the GEOREFERENED TYPE
+	IGPUImage::SCreationParams imageCreationParams = {};
+	ImageType georeferenceImageType = ImageType::GEOREFERENCED_FULL_RESOLUTION;
+
+	assert(georeferenceImageType != ImageType::STATIC);
+
+	// imageParams = cpuImage->getCreationParameters();
+	imageCreationParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT|IGPUImage::EUF_SAMPLED_BIT;
+	// promote format because RGB8 and friends don't actually exist in HW
+	{
+		const IPhysicalDevice::SImageFormatPromotionRequest request = {
+			.originalFormat = imageCreationParams.format,
+			.usages = IPhysicalDevice::SFormatImageUsages::SUsage(imageCreationParams.usage)
+		};
+		imageCreationParams.format = physDev->promoteImageFormat(request,imageCreationParams.tiling);
+	}
+
+	// if inserted->index was not InvalidTextureIndex then it means we had a cache hit and updated the value of our sema
+	// in which case we don't queue anything for upload, and return the idx
+	if (inserted->arrayIndex == InvalidTextureIndex)
+	{
+		// This is a new image (cache miss). Allocate a descriptor index for it.
+		inserted->arrayIndex = video::SubAllocatedDescriptorSet::AddressAllocator::invalid_address;
+		// Blocking allocation attempt; if the descriptor pool is exhausted, this may stall.
+		suballocatedDescriptorSet->multi_allocate(std::chrono::time_point<std::chrono::steady_clock>::max(), imagesArrayBinding, 1u, &inserted->arrayIndex); // if the prev submit causes DEVICE_LOST then we'll get a deadlock here since we're using max timepoint
+
+		if (inserted->arrayIndex != video::SubAllocatedDescriptorSet::AddressAllocator::invalid_address)
+		{
+			// Attempt to create a GPU image and image view for this texture.
+			core::smart_refctd_ptr<IGPUImageView> gpuImageView = nullptr;
+			ImageAllocateResults allocResults = tryCreateAndAllocateImage_SubmitIfNeeded(imageCreationParams, intendedNextSubmit, std::to_string(imageID));
+
+			if (allocResults.isValid())
+			{
+				inserted->imageType = georeferenceImageType;
+				inserted->gpuResident = false;
+				inserted->lastUsedFrameIndex = currentFrameIndex; // there was an eviction + auto-submit, we need to update AGAIN
+				inserted->allocationOffset = allocResults.allocationOffset;
+				inserted->allocationSize = allocResults.allocationSize;
+				inserted->gpuImageView = allocResults.gpuImageView;
+
+				// TODO: queue update of the set with the gpu image view.
+			}
+			else
+			{
+				// All attempts to try create the GPU image and its corresponding view have failed.
+				// Most likely cause: insufficient GPU memory or unsupported image parameters.
+				// TODO: Log a warning or error here � `addStaticImage2D` failed, likely due to low VRAM.
+				_NBL_DEBUG_BREAK_IF(true);
+
+				if (inserted->allocationOffset != ImagesMemorySubAllocator::InvalidAddress)
+				{
+					// We previously successfully create and allocated memory for the Image
+					// but failed to bind and create image view
+					// It's crucial to deallocate the offset+size form our images memory suballocator
+					imagesMemorySubAllocator->deallocate(inserted->allocationOffset, inserted->allocationSize);
+				}
+
+				if (inserted->arrayIndex != InvalidTextureIndex)
+				{
+					// We previously allocated a descriptor index, but failed to create a usable GPU image.
+					// It's crucial to deallocate this index to avoid leaks and preserve descriptor pool space.
+					// No semaphore wait needed here, as the GPU never got to use this slot.
+					suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &inserted->arrayIndex, {});
+					inserted->arrayIndex = InvalidTextureIndex;
+				}
+			}
+		}
+		else
+		{
+			// TODO: log here, index allocation failed.
+			inserted->arrayIndex = InvalidTextureIndex;
+		}
+	}
+	else
+	{
+		// found in cache, but does it require resize? recreation?
+		if (inserted->gpuImageView)
+		{
+			auto imgViewParams = inserted->gpuImageView->getCreationParameters();
+			if (imgViewParams.image)
+			{
+				const auto cachedParams = static_cast<asset::IImage::SCreationParams>(imgViewParams.image->getCreationParameters());
+				const auto cachedImageType = inserted->imageType;
+				// image type and creation params (most importantly extent and format) should match, otherwise we evict, recreate and re-pus
+				const auto currentParams = static_cast<asset::IImage::SCreationParams>(imageCreationParams);
+				const bool needsRecreation = cachedImageType != georeferenceImageType || cachedParams != currentParams;
+				if (needsRecreation)
+				{
+					// We need to evict the image.
+					// Find erase the id from the cache, call evictCallback
+					//	wait for the image usage sempahore to finish (later we reallocate and reindex to avoid this)
+					//	try recreating the image (the same try process)
+					//	get the index hopefully from the creation
+				}
+			}
+			else
+			{
+				// TODO[LOG]
+			}
+		}
+		else
+		{
+			// TODO[LOG]
+		}
+	}
+	
+	assert(inserted->arrayIndex != InvalidTextureIndex); // shouldn't happen, because we're using LRU cache, so worst case eviction will happen + multi-deallocate and next next multi_allocate should definitely succeed
+
+	return inserted->arrayIndex;
+	// update frame idx 
+	// if found:
+	// check if needs recreation/resize, if it does, recreate
+	// if not, return set index
+	// if not found
+	// do the recreation process: TRY {create image, allocate and bind memory, create image view}, success --> queue for descriptor set update 
 }
 
 // TODO[Przemek]: similar to other drawXXX and drawXXX_internal functions that create mainobjects, drawObjects and push additional info in geometry buffer, input to function would be a GridDTMInfo
@@ -1786,10 +1771,167 @@ uint32_t DrawResourcesFiller::getImageIndexFromID(image_id imageID, const SInten
 	ImageReference* imageRef = imagesUsageCache->get(imageID);
 	if (imageRef)
 	{
-		textureIdx = imageRef->index;
+		textureIdx = imageRef->arrayIndex;
 		imageRef->lastUsedFrameIndex = currentFrameIndex; // update this because the texture will get used on the next frane
 	}
 	return textureIdx;
+}
+
+void DrawResourcesFiller::evictImage_SubmitIfNeeded(image_id imageID, const ImageReference& evicted, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	// Later used to release the image's memory range.
+	core::smart_refctd_ptr<ImageCleanup> cleanupObject = core::make_smart_refctd_ptr<ImageCleanup>();
+	cleanupObject->imagesMemorySuballocator = imagesMemorySubAllocator;
+	cleanupObject->addr = evicted.allocationOffset;
+	cleanupObject->size = evicted.allocationSize;
+
+	const bool imageUsedForNextIntendedSubmit = (evicted.lastUsedFrameIndex == currentFrameIndex);
+
+	// NOTE: `deallocationWaitInfo` is crucial for both paths, we need to make sure we'll write to a descriptor arrayIndex when it's 100% done with previous usages.
+	if (imageUsedForNextIntendedSubmit)
+	{
+		// The evicted image is scheduled for use in the upcoming submit.
+		// To avoid rendering artifacts, we must flush the current draw queue now.
+		// After submission, we reset state so that data referencing the evicted slot can be re-uploaded.
+		submitDraws(intendedNextSubmit);
+		reset(); // resets everything, things referenced through mainObj and other shit will be pushed again through acquireXXX_SubmitIfNeeded
+
+		// Prepare wait info to defer index deallocation until the GPU has finished using the resource.
+		// we wait on the signal semaphore for the submit we just did above.
+		ISemaphore::SWaitInfo deallocationWaitInfo = { .semaphore = intendedNextSubmit.scratchSemaphore.semaphore, .value = intendedNextSubmit.scratchSemaphore.value };
+		suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &evicted.arrayIndex, deallocationWaitInfo, &cleanupObject.get());
+	}
+	else
+	{
+		// The image is not used in the current frame, so we can deallocate without submitting any draws.
+		// Still wait on the semaphore to ensure past GPU usage is complete.
+		// TODO: We don't know which semaphore value the frame with `evicted.lastUsedFrameIndex` index was submitted with, so we wait for the worst case value which is the immediate prev submit.
+		ISemaphore::SWaitInfo deallocationWaitInfo = { .semaphore = intendedNextSubmit.scratchSemaphore.semaphore, .value = intendedNextSubmit.scratchSemaphore.value };
+		suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &evicted.arrayIndex, deallocationWaitInfo, &cleanupObject.get());
+	}
+
+	// erase imageID from our state map
+	// kindof mirrors the state of the LRUCache for static images
+	if (evicted.imageType == ImageType::STATIC)
+		staticImagesState.erase(imageID);
+}
+
+DrawResourcesFiller::ImageAllocateResults  DrawResourcesFiller::tryCreateAndAllocateImage_SubmitIfNeeded(const nbl::asset::IImage::SCreationParams& imageParams, nbl::video::SIntendedSubmitInfo& intendedNextSubmit, std::string imageDebugName)
+{
+	ImageAllocateResults ret = {};
+
+	auto* device = m_utilities->getLogicalDevice();
+	auto* physDev = m_utilities->getLogicalDevice()->getPhysicalDevice();
+
+	// Attempt to create a GPU image and corresponding image view for this texture.
+	// If creation or memory allocation fails (likely due to VRAM exhaustion),
+	// we'll evict another texture from the LRU cache and retry until successful, or until only the currently-inserted image remains.
+	while (imagesUsageCache->size() > 0u)
+	{
+		// Try creating the image and allocating memory for it:
+		nbl::video::IGPUImage::SCreationParams params = {};
+		params = imageParams;
+		auto gpuImage = device->createImage(std::move(params));
+
+		if (gpuImage)
+		{
+			nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements gpuImageMemoryRequirements = gpuImage->getMemoryReqs();
+			uint32_t actualAlignment = 1u << gpuImageMemoryRequirements.alignmentLog2;
+			const bool imageMemoryRequirementsMatch =
+				(physDev->getDeviceLocalMemoryTypeBits() & gpuImageMemoryRequirements.memoryTypeBits) != 0 && // should have device local memory compatible
+				(gpuImageMemoryRequirements.requiresDedicatedAllocation == false) && // should not require dedicated allocation
+				((ImagesMemorySubAllocator::MaxMemoryAlignment % actualAlignment) == 0u); // should be consistent with our suballocator's max alignment
+
+			if (imageMemoryRequirementsMatch)
+			{
+				ret.allocationOffset = imagesMemorySubAllocator->allocate(gpuImageMemoryRequirements.size, 1u << gpuImageMemoryRequirements.alignmentLog2);
+				const bool allocationFromImagesMemoryArenaSuccessfull = ret.allocationOffset != ImagesMemorySubAllocator::InvalidAddress;
+				if (allocationFromImagesMemoryArenaSuccessfull)
+				{
+					ret.allocationSize = gpuImageMemoryRequirements.size;
+					nbl::video::ILogicalDevice::SBindImageMemoryInfo bindImageMemoryInfo =
+					{
+						.image = gpuImage.get(),
+						.binding = { .memory = imagesMemoryArena.memory.get(), .offset = imagesMemoryArena.offset + ret.allocationOffset }
+					};
+					const bool boundToMemorySuccessfully = device->bindImageMemory({ &bindImageMemoryInfo, 1u });
+					if (boundToMemorySuccessfully)
+					{
+						gpuImage->setObjectDebugName(imageDebugName.c_str());
+						IGPUImageView::SCreationParams viewParams = {
+							.image = gpuImage,
+							.viewType = IGPUImageView::ET_2D,
+							.format = gpuImage->getCreationParameters().format
+						};
+						ret.gpuImageView = device->createImageView(std::move(viewParams));
+						if (ret.gpuImageView)
+						{
+							// SUCCESS!
+							ret.gpuImageView->setObjectDebugName((imageDebugName + " View").c_str());
+						}
+						else
+						{
+							// irrecoverable error if simple image creation fails.
+							// TODO[LOG]: that's rare, image view creation failed.
+							_NBL_DEBUG_BREAK_IF(true);
+						}
+
+						// succcessful with everything, just break and get out of this retry loop
+						break;
+					}
+					else
+					{
+						// irrecoverable error if simple bindImageMemory fails.
+						// TODO: LOG
+						_NBL_DEBUG_BREAK_IF(true);
+						break;
+					}
+				}
+				else
+				{
+					// printf(std::format("Allocation Failed, Trying again, ImageID={} Size={} \n", imageID, gpuImageMemoryRequirements.size).c_str());
+					// recoverable error when allocation fails, we don't log anything, next code will try evicting other images and retry
+				}
+			}
+			else
+			{
+				// irrecoverable error if memory requirements of the image don't match our preallocated devicememory
+				// TODO: LOG
+				_NBL_DEBUG_BREAK_IF(true);
+				break;
+			}
+		}
+		else
+		{
+			// irrecoverable error if simple image creation fails.
+			// TODO: LOG
+			_NBL_DEBUG_BREAK_IF(true);
+			break;
+		}
+
+		// Getting here means we failed creating or allocating the image, evict and retry.
+		if (imagesUsageCache->size() == 1u)
+		{
+			// Nothing else to evict; give up.
+			// We probably have evicted almost every other texture except the one we just allocated an index for
+			_NBL_DEBUG_BREAK_IF(true);
+			break;
+		}
+
+		assert(imagesUsageCache->size() > 1u);
+
+		const image_id evictionCandidate = imagesUsageCache->select_eviction_candidate();
+		ImageReference* imageRef = imagesUsageCache->peek(evictionCandidate);
+		if (imageRef)
+			evictImage_SubmitIfNeeded(evictionCandidate, *imageRef, intendedNextSubmit);
+		imagesUsageCache->erase(evictionCandidate);
+		while (suballocatedDescriptorSet->cull_frees()) {}; // to make sure deallocation requests in eviction callback are blocked for.
+
+		// we don't hold any references to the GPUImageView or GPUImage so descriptor binding will be the last reference
+		// hopefully by here the suballocated descriptor set freed some VRAM by dropping the image last ref and it's dedicated allocation.
+	}
+
+	return ret;
 }
 
 void DrawResourcesFiller::setGlyphMSDFTextureFunction(const GetGlyphMSDFTextureFunc& func)

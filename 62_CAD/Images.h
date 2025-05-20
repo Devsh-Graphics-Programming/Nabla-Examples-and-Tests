@@ -6,6 +6,20 @@ using namespace nbl::asset;
 
 using image_id = uint64_t; // Could later be templated or replaced with a stronger type or hash key.
 
+enum class ImageType : uint8_t
+{
+    STATIC = 0,                        // Regular non-georeferenced image, fully loaded once
+    GEOREFERENCED_STREAMED,            // Streamed image, resolution depends on camera/view
+    GEOREFERENCED_FULL_RESOLUTION      // For smaller georeferenced images, entire image is eventually loaded and not streamed or view-dependant
+};
+
+struct GeoreferencedImageParams
+{
+	uint32_t2 imageExtents;
+	uint32_t2 viewportExtents;
+	asset::E_FORMAT format;
+};
+
 /**
  * @class ImagesMemorySubAllocator
  * @brief A memory sub-allocator designed for managing sub-allocations within a pre-allocated GPU memory arena for images.
@@ -108,13 +122,17 @@ struct StaticImageState
 struct ImageReference
 {
 	static constexpr uint32_t InvalidTextureIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
-	uint32_t index = InvalidTextureIndex; // index in our array of textures binding
+	
+	uint32_t arrayIndex = InvalidTextureIndex; // index in our array of textures binding
+	ImageType imageType;
+	bool gpuResident = false;
 	uint64_t lastUsedFrameIndex = 0ull; // last used semaphore value on this image
 	uint64_t allocationOffset = ImagesMemorySubAllocator::InvalidAddress;
 	uint64_t allocationSize = 0ull;
+	core::smart_refctd_ptr<IGPUImageView> gpuImageView = nullptr;
 
 	ImageReference() 
-		: index(InvalidTextureIndex)
+		: arrayIndex(InvalidTextureIndex)
 		, lastUsedFrameIndex(0ull)
 		, allocationOffset(ImagesMemorySubAllocator::InvalidAddress)
 		, allocationSize(0ull)
@@ -122,7 +140,7 @@ struct ImageReference
 	
 	// In LRU Cache `insert` function, in case of cache miss, we need to construct the refereence with semaphore value
 	ImageReference(uint64_t currentFrameIndex) 
-		: index(InvalidTextureIndex)
+		: arrayIndex(InvalidTextureIndex)
 		, lastUsedFrameIndex(currentFrameIndex)
 		, allocationOffset(ImagesMemorySubAllocator::InvalidAddress)
 		, allocationSize(0ull)

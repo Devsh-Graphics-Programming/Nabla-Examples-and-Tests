@@ -245,6 +245,8 @@ public:
 	*/
 	uint32_t addStaticImage2D(image_id imageID, const core::smart_refctd_ptr<ICPUImage>& cpuImage, SIntendedSubmitInfo& intendedNextSubmit);
 
+	uint32_t retrieveGeoreferencedImage_AllocateIfNeeded(image_id imageID, const GeoreferencedImageParams& params, SIntendedSubmitInfo& intendedNextSubmit);
+
 	// This function must be called immediately after `addStaticImage` for the same imageID.
 	void addImageObject(image_id imageID, const OrientedBoundingBox2D& obb, SIntendedSubmitInfo& intendedNextSubmit);
 	
@@ -464,6 +466,53 @@ protected:
 	bool addImageObject_Internal(const ImageObjectInfo& imageObjectInfo, uint32_t mainObjIdx);;
 	
 	uint32_t getImageIndexFromID(image_id imageID, const SIntendedSubmitInfo& intendedNextSubmit);
+
+	/**
+	 * @brief Evicts a GPU image and deallocates its associated descriptor and memory, flushing draws if needed.
+	 *
+	 * This function is called when an image must be removed from GPU memory (typically due to VRAM pressure).
+	 * If the evicted image is scheduled to be used in the next draw submission, a flush is performed to avoid
+	 * use-after-free issues. Otherwise, it proceeds with deallocation immediately.
+	 *
+	 * It prepares a cleanup object that ensures the memory range used by the image will be returned to the suballocator
+	 * only after the GPU has finished using it, guarded by a semaphore wait.
+	 *
+	 * @param imageID The unique ID of the image being evicted.
+	 * @param evicted A reference to the evicted image, containing metadata such as allocation offset, size, usage frame, etc.
+	 * @param intendedNextSubmit Reference to the intended submit information. Used for synchronizing draw submission and safe deallocation.
+	 *
+	 * @warning Deallocation may use a conservative semaphore wait value if exact usage information is unavailable. [future todo: fix] 
+	 */
+	void evictImage_SubmitIfNeeded(image_id imageID, const ImageReference& evicted, SIntendedSubmitInfo& intendedNextSubmit);
+	
+	struct ImageAllocateResults
+	{
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> gpuImageView = nullptr;
+		uint64_t allocationOffset = ImagesMemorySubAllocator::InvalidAddress;
+		uint64_t allocationSize = 0ull;
+		bool isValid() const { return (gpuImageView && (allocationOffset != ImagesMemorySubAllocator::InvalidAddress)); }
+	};
+
+	/**
+	 * @brief Attempts to create and allocate a GPU image and its view, with fallback eviction on failure.
+	 *
+	 * This function tries to create a GPU image using the specified creation parameters, allocate memory
+	 * from the shared image memory arena, bind it to device-local memory, and create an associated image view.
+	 * If memory allocation fails (e.g. due to VRAM exhaustion), the function will evict textures from the internal
+	 * LRU cache and retry the operation until successful, or until only the currently-inserted image remains.
+	 *
+	 * This is primarily used by the draw resource filler to manage GPU image memory for streamed or cached images.
+	 *
+	 * @param imageParams Creation parameters for the image. Should match `nbl::asset::IImage::SCreationParams`.
+	 * @param intendedNextSubmit Reference to the current intended submit info. Used for synchronizing evictions.
+	 * @param imageDebugName Debug name assigned to the image and its view for easier profiling/debugging.
+	 *
+	 * @return ImageAllocateResults A struct containing:
+	 * - `allocationOffset`: Offset into the memory arena (or InvalidAddress on failure).
+	 * - `allocationSize`: Size of the allocated memory region.
+	 * - `gpuImageView`: The created GPU image view (nullptr if creation failed).
+	 */
+	ImageAllocateResults tryCreateAndAllocateImage_SubmitIfNeeded(const nbl::asset::IImage::SCreationParams& imageParams, nbl::video::SIntendedSubmitInfo& intendedNextSubmit, std::string debugName = "UnnamedNablaImage");
 
 	void resetMainObjects()
 	{
