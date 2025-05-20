@@ -25,10 +25,13 @@ using config_t = nbl::hlsl::workgroup2::ArithmeticConfiguration<WORKGROUP_SIZE_L
 
 typedef vector<uint32_t, config_t::ItemsPerInvocation_0> type_t;
 
-// unfortunately DXC chokes on descriptors as static members
-// https://github.com/microsoft/DirectXShaderCompiler/issues/5940
-[[vk::binding(0, 0)]] StructuredBuffer<type_t> inputValue;
-[[vk::binding(1, 0)]] RWByteAddressBuffer output[8];
+struct PushConstantData
+{
+    uint64_t inputBufAddress;
+    uint64_t outputAddressBufAddress;
+};
+
+[[vk::push_constant]] PushConstantData pc;
 
 // because subgroups don't match `gl_LocalInvocationIndex` snake curve addressing, we also can't load inputs that way
 uint32_t globalIndex();

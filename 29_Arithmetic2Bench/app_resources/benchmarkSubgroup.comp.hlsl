@@ -25,18 +25,22 @@ static void subbench(NBL_CONST_REF_ARG(type_t) sourceVal)
     using params_t = nbl::hlsl::subgroup2::ArithmeticParams<config_t, typename binop<T>::base_t, N, nbl::hlsl::jit::device_capabilities>;
     type_t value = sourceVal;
 
+    const uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.outputAddressBufAddress + binop<T>::BindingIndex * sizeof(uint64_t), sizeof(uint64_t));
+
     operation_t<params_t> func;
     // [unroll]
     for (uint32_t i = 0; i < NUM_LOOPS; i++)
         value = func(value);
 
-    output[binop<T>::BindingIndex].template Store<type_t>(sizeof(uint32_t) + sizeof(type_t) * globalIndex(), value);
+    [unroll]
+    for (uint32_t i = 0; i < N; i++)
+        vk::RawBufferStore<uint32_t>(outputBufAddr+sizeof(uint32_t)+sizeof(type_t)*globalIndex()+i*sizeof(uint32_t), val[i]);
 }
 
 void benchmark()
 {
     const uint32_t idx = globalIndex();
-    type_t sourceVal = inputValue[idx];
+    type_t sourceVal = vk::RawBufferLoad<type_t>(pc.inputBufAddress + idx * sizeof(type_t));
 
     subbench<bit_and, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
     subbench<bit_xor, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);

@@ -55,8 +55,10 @@ struct operation_t
 template<template<class> class binop, typename T, uint32_t N>
 static void subbench(NBL_CONST_REF_ARG(type_t) sourceVal)
 {
+    const uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.outputAddressBufAddress + binop<T>::BindingIndex * sizeof(uint64_t), sizeof(uint64_t));
+
     if (globalIndex()==0u)
-        output[binop<T>::BindingIndex].template Store<uint32_t>(0,nbl::hlsl::glsl::gl_SubgroupSize());
+        vk::RawBufferStore<uint32_t>(outputBufAddr, nbl::hlsl::glsl::gl_SubgroupSize());
 
     operation_t<binop<T>,nbl::hlsl::jit::device_capabilities> func;
     // TODO separate out store/load from DataProxy? so we don't do too many RW in benchmark
@@ -67,7 +69,7 @@ static void subbench(NBL_CONST_REF_ARG(type_t) sourceVal)
 
 type_t benchmark()
 {
-    const type_t sourceVal = inputValue[globalIndex()];
+    const type_t sourceVal = vk::RawBufferLoad<type_t>(pc.inputBufAddress + globalIndex() * sizeof(type_t));
 
     subbench<bit_and, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
     subbench<bit_xor, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);

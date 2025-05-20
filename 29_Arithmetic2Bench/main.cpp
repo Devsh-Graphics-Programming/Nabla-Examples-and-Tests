@@ -47,6 +47,12 @@ struct emulatedScanExclusive
 	static inline constexpr const char* name = "exclusive_scan";
 };
 
+struct PushConstantData
+{
+	uint64_t inputBufAddress;
+	uint64_t outputAddressBufAddress;
+};
+
 // NOTE added swapchain + drawing frames to be able to profile with Nsight, which still doesn't support profiling headless compute shaders
 class ArithmeticBenchApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
@@ -130,7 +136,6 @@ public:
 		const uint32_t elementCount = Output<>::ScanElementCount;
 		// populate our random data buffer on the CPU and create a GPU copy
 		inputData = new uint32_t[elementCount];
-		smart_refctd_ptr<IGPUBuffer> gpuinputDataBuffer;
 		{
 			std::mt19937 randGenerator(0xdeadbeefu);
 			for (uint32_t i = 0u; i < elementCount; i++)
@@ -138,7 +143,7 @@ public:
 
 			IGPUBuffer::SCreationParams inputDataBufferCreationParams = {};
 			inputDataBufferCreationParams.size = sizeof(Output<>::data[0]) * elementCount;
-			inputDataBufferCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
+			inputDataBufferCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 			m_utils->createFilledDeviceLocalBufferOnDedMem(
 				SIntendedSubmitInfo{.queue=getTransferUpQueue()},
 				std::move(inputDataBufferCreationParams),
@@ -151,16 +156,30 @@ public:
 		{
 			IGPUBuffer::SCreationParams params = {};
 			params.size = sizeof(uint32_t) + gpuinputDataBuffer->getSize();
-			params.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_SRC_BIT;
+			params.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_SRC_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
 			outputBuffers[i] = m_device->createBuffer(std::move(params));
 			auto mreq = outputBuffers[i]->getMemoryReqs();
 			mreq.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
 			assert(mreq.memoryTypeBits);
 
-			auto bufferMem = m_device->allocate(mreq, outputBuffers[i].get());
+			auto bufferMem = m_device->allocate(mreq, outputBuffers[i].get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
 			assert(bufferMem.isValid());
 		}
+
+		// create buffer to store BDA of output buffers
+		{
+			std::array<uint64_t, OutputBufferCount> outputAddresses;
+			for (uint32_t i = 0; i < OutputBufferCount; i++)
+				outputAddresses[i] = outputBuffers[i]->getDeviceAddress();
+
+			IGPUBuffer::SCreationParams params;
+			params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+			params.size = OutputBufferCount * sizeof(uint64_t);
+			m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = getTransferUpQueue() }, std::move(params), outputAddresses.data()).move_into(gpuOutputAddressesBuffer);
+		}
+		pc.inputBufAddress = gpuinputDataBuffer->getDeviceAddress();
+		pc.outputAddressBufAddress = gpuOutputAddressesBuffer->getDeviceAddress();
 
 		// create dummy image
 		dummyImg = m_device->createImage({
@@ -194,36 +213,16 @@ public:
 			// set and transient pool
 			smart_refctd_ptr<IGPUDescriptorSetLayout> benchLayout;
 			{
-				IGPUDescriptorSetLayout::SBinding binding[3];
-				for (uint32_t i = 0u; i < 2; i++)
-					binding[i] = { {},i,IDescriptor::E_TYPE::ET_STORAGE_BUFFER,IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,IShader::E_SHADER_STAGE::ESS_COMPUTE,1u,nullptr };
-				binding[1].count = OutputBufferCount;
-				binding[2] = { {},2,IDescriptor::E_TYPE::ET_STORAGE_IMAGE,IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT,IShader::E_SHADER_STAGE::ESS_COMPUTE,1u,nullptr };
+				IGPUDescriptorSetLayout::SBinding binding[1];
+				binding[0] = { {},2,IDescriptor::E_TYPE::ET_STORAGE_IMAGE,IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT,IShader::E_SHADER_STAGE::ESS_COMPUTE,1u,nullptr };
 				benchLayout = m_device->createDescriptorSetLayout(binding);
 			}
 
 			benchPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, { &benchLayout.get(),1 });
 			benchDs = benchPool->createDescriptorSet(smart_refctd_ptr(benchLayout));
-			{
-				IGPUDescriptorSet::SDescriptorInfo infos[1 + OutputBufferCount];
-				infos[0].desc = gpuinputDataBuffer;
-				infos[0].info.buffer = { 0u,gpuinputDataBuffer->getSize() };
-				for (uint32_t i = 1u; i <= OutputBufferCount; i++)
-				{
-					auto buff = outputBuffers[i - 1];
-					infos[i].info.buffer = { 0u,buff->getSize() };
-					infos[i].desc = std::move(buff); // save an atomic in the refcount
-				}
-				// write swapchain image descriptor in loop
 
-				IGPUDescriptorSet::SWriteDescriptorSet writes[2];
-				for (uint32_t i = 0u; i < 2; i++)
-					writes[i] = { benchDs.get(),i,0u,1u,infos + i };
-				writes[1].count = OutputBufferCount;
-
-				m_device->updateDescriptorSets(2, writes, 0u, nullptr);
-			}
-			benchPplnLayout = m_device->createPipelineLayout({}, std::move(benchLayout));
+			SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0,.size = sizeof(PushConstantData) };
+			benchPplnLayout = m_device->createPipelineLayout({ &pcRange, 1 }, std::move(benchLayout));
 		}
 
 		// load shader source from file
@@ -370,6 +369,7 @@ public:
 		const auto SubgroupSizeLog2 = hlsl::findMSB(MinSubgroupSize);
 
 		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, benchSets[0].pipeline->getLayout(), 0u, 1u, &benchDs.get());
+		cmdbuf->pushConstants(benchSets[0].pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(PushConstantData), &pc);
 
 		for (uint32_t i = 0; i < benchSets.size(); i++)
 			runBenchmark<DoWorkgroupBenchmarks>(cmdbuf, benchSets[i], elementCount, SubgroupSizeLog2);
@@ -722,8 +722,11 @@ private:
 	smart_refctd_ptr<IGPUDescriptorSet> benchDs;
 
 	uint32_t* inputData = nullptr;
+	smart_refctd_ptr<IGPUBuffer> gpuinputDataBuffer;
 	constexpr static inline uint32_t OutputBufferCount = 8u;
 	smart_refctd_ptr<IGPUBuffer> outputBuffers[OutputBufferCount];
+	smart_refctd_ptr<IGPUBuffer> gpuOutputAddressesBuffer;
+	PushConstantData pc;
 
 	smart_refctd_ptr<ISemaphore> sema;
 	uint64_t timelineValue = 0;
