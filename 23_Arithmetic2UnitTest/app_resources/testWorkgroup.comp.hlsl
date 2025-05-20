@@ -19,10 +19,7 @@ struct DataProxy
     {
         const uint32_t workgroupOffset = nbl::hlsl::glsl::gl_WorkGroupID().x * Config::VirtualWorkgroupSize;
         uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.outputAddressBufAddress + Binop::BindingIndex * sizeof(uint64_t));
-        [unroll]
-        for (uint32_t i = 0; i < Config::ItemsPerInvocation_0; i++)
-            vk::RawBufferStore<uint32_t>(outputBufAddr+sizeof(uint32_t)+sizeof(dtype_t)*(workgroupOffset+ix)+i*sizeof(uint32_t), value[i]);
-        // vk::RawBufferStore<dtype_t>(outputBufAddr + sizeof(uint32_t) + sizeof(dtype_t) * (workgroupOffset+ix), value, sizeof(uint32_t)); TODO why won't this work???
+        vk::RawBufferStore<dtype_t>(outputBufAddr + sizeof(uint32_t) + sizeof(dtype_t) * (workgroupOffset+ix), value, sizeof(uint32_t));
     }
 
     void workgroupExecutionAndMemoryBarrier()
@@ -64,10 +61,7 @@ struct PreloadedDataProxy
         uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.outputAddressBufAddress + Binop::BindingIndex * sizeof(uint64_t));
         [unroll]
         for (uint32_t idx = 0; idx < PreloadedDataCount; idx++)
-            [unroll]
-            for (uint32_t i = 0; i < Config::ItemsPerInvocation_0; i++)
-                vk::RawBufferStore<uint32_t>(outputBufAddr+sizeof(uint32_t)+sizeof(dtype_t)*(workgroupOffset + idx * Config::WorkgroupSize + nbl::hlsl::workgroup::SubgroupContiguousIndex())+i*sizeof(uint32_t), preloaded[idx][i]);
-            // vk::RawBufferStore<dtype_t>(outputBufAddr + sizeof(uint32_t) + sizeof(dtype_t) * (workgroupOffset + idx * Config::WorkgroupSize + nbl::hlsl::workgroup::SubgroupContiguousIndex()), preloaded[idx], sizeof(uint32_t)); TODO why won't this work???
+            vk::RawBufferStore<dtype_t>(outputBufAddr + sizeof(uint32_t) + sizeof(dtype_t) * (workgroupOffset + idx * Config::WorkgroupSize + nbl::hlsl::workgroup::SubgroupContiguousIndex()), preloaded[idx], sizeof(uint32_t));
     }
 
     void workgroupExecutionAndMemoryBarrier()

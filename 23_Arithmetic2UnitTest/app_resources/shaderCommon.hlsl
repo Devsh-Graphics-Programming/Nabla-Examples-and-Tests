@@ -52,10 +52,7 @@ static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
     operation_t<params_t> func;
     type_t val = func(sourceVal);
     if (canStore())
-        [unroll]
-        for (uint32_t i = 0; i < N; i++)
-            vk::RawBufferStore<uint32_t>(outputBufAddr+sizeof(uint32_t)+sizeof(type_t)*globalIndex()+i*sizeof(uint32_t), val[i]);
-        // vk::RawBufferStore<dtype_t>(outputBufAddr + sizeof(uint32_t) + sizeof(dtype_t) * globalIndex(), value, sizeof(uint32_t)); TODO why won't this work???
+        vk::RawBufferStore<type_t>(outputBufAddr + sizeof(uint32_t) + sizeof(type_t) * globalIndex(), val, sizeof(uint32_t));
 }
 
 
