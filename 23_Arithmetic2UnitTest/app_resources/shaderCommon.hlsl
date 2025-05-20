@@ -16,10 +16,13 @@ uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize() {return uint32_t3(WORKGROUP_SIZE,1
 
 typedef vector<uint32_t, ITEMS_PER_INVOCATION> type_t;
 
-// unfortunately DXC chokes on descriptors as static members
-// https://github.com/microsoft/DirectXShaderCompiler/issues/5940
-[[vk::binding(0, 0)]] StructuredBuffer<type_t> inputValue;
-[[vk::binding(1, 0)]] RWByteAddressBuffer output[8];
+struct PushConstantData
+{
+    uint64_t inputBufAddress;
+    uint64_t outputAddressBufAddress;
+};
+
+[[vk::push_constant]] PushConstantData pc;
 
 // because subgroups don't match `gl_LocalInvocationIndex` snake curve addressing, we also can't load inputs that way
 uint32_t globalIndex();
@@ -41,19 +44,25 @@ static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
     using config_t = nbl::hlsl::subgroup2::Configuration<SUBGROUP_SIZE_LOG2>;
     using params_t = nbl::hlsl::subgroup2::ArithmeticParams<config_t, typename binop<T>::base_t, N, nbl::hlsl::jit::device_capabilities>;
 
+    const uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.outputAddressBufAddress + binop<T>::BindingIndex * sizeof(uint64_t), sizeof(uint64_t));
+
     if (globalIndex()==0u)
-        output[binop<T>::BindingIndex].template Store<uint32_t>(0,nbl::hlsl::glsl::gl_SubgroupSize());
-        
+        vk::RawBufferStore<uint32_t>(outputBufAddr, nbl::hlsl::glsl::gl_SubgroupSize());
+
     operation_t<params_t> func;
+    type_t val = func(sourceVal);
     if (canStore())
-        output[binop<T>::BindingIndex].template Store<type_t>(sizeof(uint32_t)+sizeof(type_t)*globalIndex(),func(sourceVal));
+        [unroll]
+        for (uint32_t i = 0; i < N; i++)
+            vk::RawBufferStore<uint32_t>(outputBufAddr+sizeof(uint32_t)+sizeof(type_t)*globalIndex()+i*sizeof(uint32_t), val[i]);
+        // vk::RawBufferStore<dtype_t>(outputBufAddr + sizeof(uint32_t) + sizeof(dtype_t) * globalIndex(), value, sizeof(uint32_t)); TODO why won't this work???
 }
 
 
 type_t test()
 {
     const uint32_t idx = globalIndex();
-    type_t sourceVal = inputValue[idx];
+    type_t sourceVal = vk::RawBufferLoad<type_t>(pc.inputBufAddress + idx * sizeof(type_t));
 
     subtest<bit_and, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
     subtest<bit_xor, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);

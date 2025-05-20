@@ -12,13 +12,17 @@ struct DataProxy
     void get(const uint32_t ix, NBL_REF_ARG(dtype_t) value)
     {
         const uint32_t workgroupOffset = nbl::hlsl::glsl::gl_WorkGroupID().x * Config::VirtualWorkgroupSize;
-        value = inputValue[workgroupOffset + ix];
+        value = vk::RawBufferLoad<dtype_t>(pc.inputBufAddress + (workgroupOffset + ix) * sizeof(dtype_t));
     }
     template<typename AccessType>
     void set(const uint32_t ix, const dtype_t value)
     {
         const uint32_t workgroupOffset = nbl::hlsl::glsl::gl_WorkGroupID().x * Config::VirtualWorkgroupSize;
-        output[Binop::BindingIndex].template Store<type_t>(sizeof(uint32_t) + sizeof(type_t) * (workgroupOffset+ix), value);
+        uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.outputAddressBufAddress + Binop::BindingIndex * sizeof(uint64_t));
+        [unroll]
+        for (uint32_t i = 0; i < Config::ItemsPerInvocation_0; i++)
+            vk::RawBufferStore<uint32_t>(outputBufAddr+sizeof(uint32_t)+sizeof(dtype_t)*(workgroupOffset+ix)+i*sizeof(uint32_t), value[i]);
+        // vk::RawBufferStore<dtype_t>(outputBufAddr + sizeof(uint32_t) + sizeof(dtype_t) * (workgroupOffset+ix), value, sizeof(uint32_t)); TODO why won't this work???
     }
 
     void workgroupExecutionAndMemoryBarrier()
@@ -49,8 +53,9 @@ struct operation_t
 template<template<class> class binop, typename T, uint32_t N>
 static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
 {
+    uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.outputAddressBufAddress + binop<T>::BindingIndex * sizeof(uint64_t));
     if (globalIndex()==0u)
-        output[binop<T>::BindingIndex].template Store<uint32_t>(0,nbl::hlsl::glsl::gl_SubgroupSize());
+        vk::RawBufferStore<uint32_t>(outputBufAddr, nbl::hlsl::glsl::gl_SubgroupSize());
 
     operation_t<binop<T>,nbl::hlsl::jit::device_capabilities> func;
     func(); // store is done with data accessor now
@@ -59,7 +64,7 @@ static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
 
 type_t test()
 {
-    const type_t sourceVal = inputValue[globalIndex()];
+    type_t sourceVal = vk::RawBufferLoad<type_t>(pc.inputBufAddress + globalIndex() * sizeof(type_t));
 
     subtest<bit_and, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
     subtest<bit_xor, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
