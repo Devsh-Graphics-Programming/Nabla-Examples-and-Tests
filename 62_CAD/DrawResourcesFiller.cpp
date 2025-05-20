@@ -409,9 +409,9 @@ uint32_t DrawResourcesFiller::addStaticImage2D(image_id imageID, const core::sma
 				StaticImageState newState =
 				{
 					.cpuImage = cpuImage,
-					.gpuImageView = allocResults->gpuImageView,
-					.allocationOffset = inserted->allocationOffset,
-					.allocationSize = inserted->allocationSize,
+					.gpuImageView = allocResults.gpuImageView,
+					.allocationOffset = allocResults.allocationOffset,
+					.allocationSize = allocResults.allocationSize,
 					.arrayIndex = inserted->arrayIndex,
 					.gpuResident = false,
 				};
