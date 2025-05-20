@@ -4,7 +4,7 @@
 
 #include "common.hpp"
 
-//#define TEST_ASSET_CONV_AS
+#define TEST_ASSET_CONV_AS
 
 class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
@@ -619,37 +619,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			const uint32_t byteOffsets[OT_COUNT] = { 18, 24, 24, 20, 20, 24, 16, 12 };	// based on normals data position
 			const uint32_t smoothNormals[OT_COUNT] = { 0, 1, 1, 0, 0, 1, 1, 1 };
 
-			struct CPUBufferBindings
-			{
-				nbl::asset::SBufferBinding<ICPUBuffer> vertex, index;
-			};
-			std::array<CPUBufferBindings, OT_COUNT> cpuBuffers;
-
-			for (uint32_t i = 0; i < cpuBuffers.size(); i++)
-			{
-				const auto& geom = objectsCpu[i];
-				auto& cpuObj = cpuBuffers[i];
-				const bool useIndex = geom.data.indexType != EIT_UNKNOWN;
-
-				auto vBuffer = smart_refctd_ptr(geom.data.bindings[0].buffer); // no offset
-				auto vUsage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-
-				auto iBuffer = smart_refctd_ptr(geom.data.indexBuffer.buffer); // no offset
-				auto iUsage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-
-				vBuffer->addUsageFlags(vUsage);
-				vBuffer->setContentHash(vBuffer->computeContentHash());
-				cpuObj.vertex = { .offset = 0, .buffer = vBuffer };
-
-				if (useIndex)
-					if (iBuffer)
-					{
-						iBuffer->addUsageFlags(iUsage);
-						iBuffer->setContentHash(iBuffer->computeContentHash());
-					}
-				cpuObj.index = { .offset = 0, .buffer = iBuffer };
-			}
-
 			// get ICPUBuffers into ICPUBottomLevelAccelerationStructures
 			std::array<smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>, OT_COUNT> cpuBlas;
 			for (uint32_t i = 0; i < cpuBlas.size(); i++)
@@ -660,11 +629,10 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				auto& tri = triangles->front();
 				auto& primCount = primitiveCounts->front();
 				const auto& geom = objectsCpu[i];
-				const auto& cpuBuf = cpuBuffers[i];
 
 				const bool useIndex = geom.data.indexType != EIT_UNKNOWN;
 				const uint32_t vertexStride = geom.data.inputParams.bindings[0].stride;
-				const uint32_t numVertices = cpuBuf.vertex.buffer->getSize() / vertexStride;
+				const uint32_t numVertices = (geom.data.bindings[0].buffer->getSize()-geom.data.bindings[0].offset) / vertexStride;
 
 				if (useIndex)
 					primCount = geom.data.indexCount / 3;
@@ -675,11 +643,16 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				geomInfos[i].vertexStride = vertexStride;
 				geomInfos[i].smoothNormals = smoothNormals[i];
 
-				tri.vertexData[0] = cpuBuf.vertex;
-				tri.indexData = useIndex ? cpuBuf.index : cpuBuf.vertex;
+				geom.data.bindings[0].buffer->setContentHash(geom.data.bindings[0].buffer->computeContentHash());
+				tri.vertexData[0] = geom.data.bindings[0];
+				if (useIndex)
+				{
+					geom.data.indexBuffer.buffer->setContentHash(geom.data.indexBuffer.buffer->computeContentHash());
+					tri.indexData = geom.data.indexBuffer;
+				}
 				tri.maxVertex = numVertices - 1;
 				tri.vertexStride = vertexStride;
-				tri.vertexFormat = EF_R32G32B32_SFLOAT;
+				tri.vertexFormat = static_cast<E_FORMAT>(geom.data.inputParams.attributes[0].format);
 				tri.indexType = geom.data.indexType;
 				tri.geometryFlags = IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::OPAQUE_BIT;
 
@@ -758,46 +731,36 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			inputs.allocator = &myalloc;
 #endif
 
-			std::array<ICPUTopLevelAccelerationStructure*, 1u> tmpTlas;
-			std::array<ICPUBuffer*, OT_COUNT * 2u> tmpBuffers;
+			std::array<const ICPUBuffer*, OT_COUNT * 2u> tmpBuffers;
 			{
-				tmpTlas[0] = cpuTlas.get();
 				for (uint32_t i = 0; i < objectsCpu.size(); i++)
 				{
-					tmpBuffers[2 * i + 0] = cpuBuffers[i].vertex.buffer.get();
-					tmpBuffers[2 * i + 1] = cpuBuffers[i].index.buffer.get();
+					tmpBuffers[2 * i + 0] = cpuBlas[i]->getTriangleGeometries().front().vertexData[0].buffer.get();
+					tmpBuffers[2 * i + 1] = cpuBlas[i]->getTriangleGeometries().front().indexData.buffer.get();
 				}
 
-				std::get<CAssetConverter::SInputs::asset_span_t<ICPUTopLevelAccelerationStructure>>(inputs.assets) = tmpTlas;
+				std::get<CAssetConverter::SInputs::asset_span_t<ICPUTopLevelAccelerationStructure>>(inputs.assets) = {&cpuTlas.get(),1};
+				std::get<CAssetConverter::SInputs::asset_span_t<ICPUBottomLevelAccelerationStructure>>(inputs.assets) = {&cpuBlas.data()->get(),cpuBlas.size()};
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = tmpBuffers;
 			}
 
 			auto reservation = converter->reserve(inputs);
 			{
-				auto prepass = [&]<typename asset_type_t>(const auto & references) -> bool
+				auto prepass = [&]<typename asset_type_t>() -> bool
 				{
 					auto objects = reservation.getGPUObjects<asset_type_t>();
-					uint32_t counter = {};
 					for (auto& object : objects)
+					if (!object.value)
 					{
-						auto gpu = object.value;
-						auto* reference = references[counter];
-
-						if (reference)
-						{
-							if (!gpu)
-							{
-								m_logger->log("Failed to convert a CPU object to GPU!", ILogger::ELL_ERROR);
-								return false;
-							}
-						}
-						counter++;
+						m_logger->log("Failed to convert a CPU object to GPU!", ILogger::ELL_ERROR);
+						return false;
 					}
 					return true;
 				};
 
-				prepass.template operator() < ICPUTopLevelAccelerationStructure > (tmpTlas);
-				prepass.template operator() < ICPUBuffer > (tmpBuffers);
+				prepass.template operator()<ICPUBuffer>();
+				prepass.template operator()<ICPUBottomLevelAccelerationStructure>();
+				prepass.template operator()<ICPUTopLevelAccelerationStructure>();
 			}
 
 
@@ -812,6 +775,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					xferBufInfos[i].cmdbuf = xferBufs[i].get();
 			}
 			auto xferSema = m_device->createSemaphore(0u);
+			xferSema->setObjectDebugName("Transfer Semaphore");
 			SIntendedSubmitInfo transfer = {};
 			transfer.queue = getTransferUpQueue();
 			transfer.scratchCommandBuffers = xferBufInfos;
@@ -832,6 +796,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					compBufInfos[i].cmdbuf = compBufs[i].get();
 			}
 			auto compSema = m_device->createSemaphore(0u);
+			compSema->setObjectDebugName("Compute Semaphore");
 			SIntendedSubmitInfo compute = {};
 			compute.queue = getComputeQueue();
 			compute.scratchCommandBuffers = compBufInfos;
@@ -841,6 +806,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				.stageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT|PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_COPY_BIT
 			};
 			// convert
+			auto gQueue = getGraphicsQueue();
 			{
 				smart_refctd_ptr<CAssetConverter::SConvertParams::scratch_for_device_AS_build_t> scratchAlloc;
 				{
@@ -895,7 +861,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				params.transfer = &transfer;
 				params.compute = &compute;
 				params.scratchForDeviceASBuild = scratchAlloc.get();
-				params.finalUser = queue->getFamilyIndex();
+				params.finalUser = gQueue->getFamilyIndex();
 
 				auto future = reservation.convert(params);
 				if (future.copy() != IQueue::RESULT::SUCCESS)
@@ -920,11 +886,59 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				}
 			}
 
+			//
 			{
 				IGPUBuffer::SCreationParams params;
 				params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 				params.size = OT_COUNT * sizeof(SGeomInfo);
-				m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = queue }, std::move(params), geomInfos).move_into(geometryInfoBuffer);
+				m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = gQueue }, std::move(params), geomInfos).move_into(geometryInfoBuffer);
+			}
+
+			// acquire ownership
+			if (const auto gQFI=gQueue->getFamilyIndex(), otherQueueFamilyIndex=queue->getFamilyIndex(); gQFI!=otherQueueFamilyIndex)
+			{
+				smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
+				m_device->createCommandPool(gQFI,IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT)->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{&cmdbuf,1});
+				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+				core::vector<IGPUCommandBuffer::SBufferMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> bufBarriers;
+				auto acquireBufferRange = [&bufBarriers,otherQueueFamilyIndex](const SBufferRange<IGPUBuffer>& bufferRange)
+				{
+					bufBarriers.push_back({
+						.barrier = {
+							.dep = {
+								.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+								.srcAccessMask = ACCESS_FLAGS::NONE,
+								.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+								.dstAccessMask = ACCESS_FLAGS::ACCELERATION_STRUCTURE_READ_BIT|ACCESS_FLAGS::STORAGE_READ_BIT
+							},
+							.ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::ACQUIRE,
+							.otherQueueFamilyIndex = otherQueueFamilyIndex
+						},
+						.range = bufferRange
+					});
+				};
+				for (auto buffer : reservation.getGPUObjects<ICPUBuffer>())
+				{
+					const auto& buff = buffer.value;
+					acquireBufferRange({.offset=0,.size=buff->getSize(),.buffer=buff});
+				}
+				auto acquireAS = [&acquireBufferRange](const IGPUAccelerationStructure* as)
+				{
+					acquireBufferRange(as->getCreationParams().bufferRange);
+				};
+				for (auto blas : reservation.getGPUObjects<ICPUBottomLevelAccelerationStructure>())
+					acquireAS(blas.value.get());
+				acquireAS(gpuTlas.get());
+				cmdbuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers=bufBarriers});
+				cmdbuf->end();
+				const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = {
+					.cmdbuf = cmdbuf.get()
+				};
+				const IQueue::SSubmitInfo info = {
+					.waitSemaphores = {}, // we already waited with the host on the AS build
+					.commandBuffers = {&cmdbufInfo,1}
+				};
+				gQueue->submit({&info,1});
 			}
 
 			return bool(gpuTlas);
