@@ -118,9 +118,10 @@ enum class MainObjectType : uint32_t
     POLYLINE,
     HATCH,
     TEXT,
-    IMAGE,
+    STATIC_IMAGE,
     DTM,
-    GRID_DTM
+    GRID_DTM,
+    STREAMED_IMAGE,
 };
 
 enum class ObjectType : uint32_t
@@ -130,9 +131,10 @@ enum class ObjectType : uint32_t
     CURVE_BOX = 2u,
     POLYLINE_CONNECTOR = 3u,
     FONT_GLYPH = 4u,
-    IMAGE = 5u,
+    STATIC_IMAGE = 5u,
     TRIANGLE_MESH = 6u,
-    GRID_DTM = 7u
+    GRID_DTM = 7u,
+    STREAMED_IMAGE = 8u,
 };
 
 enum class MajorAxis : uint32_t
@@ -233,6 +235,16 @@ struct GlyphInfo
 
 // Goes into geometry buffer, needs to be aligned by 8
 struct ImageObjectInfo
+{
+    pfloat64_t2 topLeft; // 2 * 8 = 16 bytes (16)
+    float32_t2 dirU; // 2 * 4 = 8 bytes (24)
+    float32_t aspectRatio; // 4 bytes (28)
+    uint32_t textureID; // 4 bytes (32)
+};
+
+// Goes into geometry buffer, needs to be aligned by 8
+// Currently a simple OBB like ImageObject, but later will be fullscreen with additional info about UV offset for toroidal(mirror) addressing
+struct GeoreferencedImageInfo
 {
     pfloat64_t2 topLeft; // 2 * 8 = 16 bytes (16)
     float32_t2 dirU; // 2 * 4 = 8 bytes (24)

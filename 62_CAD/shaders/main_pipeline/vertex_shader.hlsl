@@ -624,7 +624,7 @@ PSInput main(uint vertexID : SV_VertexID)
             outV.setFontGlyphUV(uv);
             outV.setFontGlyphTextureId(textureID);
         }
-        else if (objType == ObjectType::IMAGE)
+        else if (objType == ObjectType::STATIC_IMAGE)
         {
             pfloat64_t2 topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
             float32_t2 dirU = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 4u);
@@ -669,6 +669,27 @@ PSInput main(uint vertexID : SV_VertexID)
             outV.setGridDTMScreenSpaceCellWidth(gridCellWidth); // TODO: is input world space?
             outV.setGridDTMScreenSpacePosition(transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, vtxPos));
             outV.setImageUV(corner);
+        }
+        else if (objType == ObjectType::STREAMED_IMAGE)
+        {
+            pfloat64_t2 topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
+            float32_t2 dirU = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 4u);
+            float32_t aspectRatio = vk::RawBufferLoad<float32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2), 4u);
+            uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2) + sizeof(float), 4u);
+
+            const float32_t2 dirV = float32_t2(dirU.y, -dirU.x) * aspectRatio;
+            const float2 ndcTopLeft = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, topLeft));
+            const float2 ndcDirU = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirU)));
+            const float2 ndcDirV = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirV)));
+
+            float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
+            float2 uv = corner; // non-dilated
+        
+            float2 ndcCorner = ndcTopLeft + corner.x * ndcDirU + corner.y * ndcDirV;
+        
+            outV.position = float4(ndcCorner, 0.f, 1.f);
+            outV.setImageUV(uv);
+            outV.setImageTextureId(textureID);
         }
 
     // Make the cage fullscreen for testing: 

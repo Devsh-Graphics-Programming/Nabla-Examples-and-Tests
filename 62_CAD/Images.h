@@ -6,19 +6,29 @@ using namespace nbl::asset;
 
 using image_id = uint64_t; // Could later be templated or replaced with a stronger type or hash key.
 
+enum class ImageState : uint8_t
+{
+	INVALID = 0,
+	CREATED_AND_MEMORY_BOUND,             // GPU image created, not bound to descriptor set yet
+	BOUND_TO_DESCRIPTOR_SET,              // Bound to descriptor set, GPU resident, but may contain uninitialized or partial data
+	GPU_RESIDENT_WITH_VALID_STATIC_DATA,  // When data for static images gets issued for upload successfully
+};
+
 enum class ImageType : uint8_t
 {
 	INVALID = 0,
-    STATIC,                        // Regular non-georeferenced image, fully loaded once
-    GEOREFERENCED_STREAMED,            // Streamed image, resolution depends on camera/view
-    GEOREFERENCED_FULL_RESOLUTION      // For smaller georeferenced images, entire image is eventually loaded and not streamed or view-dependant
+	STATIC,                        // Regular non-georeferenced image, fully loaded once
+	GEOREFERENCED_STREAMED,            // Streamed image, resolution depends on camera/view
+	GEOREFERENCED_FULL_RESOLUTION      // For smaller georeferenced images, entire image is eventually loaded and not streamed or view-dependant
 };
 
 struct GeoreferencedImageParams
 {
-	uint32_t2 imageExtents;
-	uint32_t2 viewportExtents;
-	asset::E_FORMAT format;
+	OrientedBoundingBox2D worldspaceOBB = {};
+	uint32_t2 imageExtents = {};
+	uint32_t2 viewportExtents = {};
+	asset::E_FORMAT format = {};
+	// TODO: Need to add other stuff later.
 };
 
 /**
@@ -99,106 +109,89 @@ struct ImageCleanup : public core::IReferenceCounted
 
 };
 
-struct StaticImageCopy
-{
-	core::smart_refctd_ptr<ICPUImage> cpuImage;
-	core::smart_refctd_ptr<IGPUImageView> gpuImageView;
-	uint32_t arrayIndex;
-};
-
-// TODO: consider just using the ImagesUsageCache to store this StaticImagesState, i.e. merge this struct with the ImageReference
-//		it will be possible after LRUCache improvements and copyability
-//		for now this will be a mirror of the LRUCache but in an unordered_map
-struct StaticImageState
-{
-	core::smart_refctd_ptr<ICPUImage> cpuImage = nullptr;
-	core::smart_refctd_ptr<IGPUImageView> gpuImageView = nullptr;
-	uint64_t allocationOffset = ImagesMemorySubAllocator::InvalidAddress;
-	uint64_t allocationSize = 0u;
-	uint32_t arrayIndex = ~0u; // in texture array descriptor 
-	bool gpuResident = false;
-};
-
-
-struct ImageReference
+struct CachedImageRecord
 {
 	static constexpr uint32_t InvalidTextureIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
 	
 	uint32_t arrayIndex = InvalidTextureIndex; // index in our array of textures binding
-	ImageType imageType = ImageType::INVALID;
-	bool gpuResident = false;
+	ImageType type = ImageType::INVALID;
+	ImageState state = ImageState::INVALID;
 	uint64_t lastUsedFrameIndex = 0ull; // last used semaphore value on this image
 	uint64_t allocationOffset = ImagesMemorySubAllocator::InvalidAddress;
 	uint64_t allocationSize = 0ull;
 	core::smart_refctd_ptr<IGPUImageView> gpuImageView = nullptr;
+	core::smart_refctd_ptr<ICPUImage> staticCPUImage = nullptr; // cached cpu image for uploading to gpuImageView when needed.
 	
 	// In LRU Cache `insert` function, in case of cache miss, we need to construct the refereence with semaphore value
-	ImageReference(uint64_t currentFrameIndex) 
+	CachedImageRecord(uint64_t currentFrameIndex) 
 		: arrayIndex(InvalidTextureIndex)
-		, imageType(ImageType::INVALID)
-		, gpuResident(false)
+		, type(ImageType::INVALID)
+		, state(ImageState::INVALID)
 		, lastUsedFrameIndex(currentFrameIndex)
 		, allocationOffset(ImagesMemorySubAllocator::InvalidAddress)
 		, allocationSize(0ull)
 		, gpuImageView(nullptr)
+		, staticCPUImage(nullptr)
 	{}
 	
-	ImageReference() 
-		: ImageReference(0ull)
+	CachedImageRecord() 
+		: CachedImageRecord(0ull)
 	{}
 
 	// In LRU Cache `insert` function, in case of cache hit, we need to assign semaphore value without changing `index`
-	inline ImageReference& operator=(uint64_t currentFrameIndex) { lastUsedFrameIndex = currentFrameIndex; return *this;  }
+	inline CachedImageRecord& operator=(uint64_t currentFrameIndex) { lastUsedFrameIndex = currentFrameIndex; return *this;  }
 };
 
 // A resource-aware image cache with an LRU eviction policy.
-// This cache tracks image usage by ID and provides hooks for eviction logic, such as releasing descriptor slots and deallocating GPU memory.
+// This cache tracks image usage by ID and provides hooks for eviction logic (such as releasing descriptor slots and deallocating GPU memory done by user of this class)
 // Currently, eviction is purely LRU-based. In the future, eviction decisions may incorporate additional factors:
 //   - memory usage per image.
 //   - lastUsedFrameIndex.
-// This class does not own GPU resources directly, but helps coordinate their lifetimes in sync with GPU usage via eviction callbacks.
-class ImagesUsageCache
+// This class helps coordinate images' lifetimes in sync with GPU usage via eviction callbacks.
+class ImagesCache : public core::ResizableLRUCache<image_id, CachedImageRecord>
 {
 public:
-	ImagesUsageCache(size_t capacity) 
-		: lruCache(ImagesLRUCache(capacity))
+	using base_t = core::ResizableLRUCache<image_id, CachedImageRecord>;
+	
+	ImagesCache(size_t capacity) 
+		: base_t(capacity)
 	{}
 
 	// Attempts to insert a new image into the cache.
 	// If the cache is full, invokes the provided `evictCallback` to evict an image.
 	// Returns a pointer to the inserted or existing ImageReference.
-	template<std::invocable<image_id, const ImageReference&> EvictionCallback>
-	inline ImageReference* insert(image_id imageID, uint64_t lastUsedSema, EvictionCallback&& evictCallback)
+	template<std::invocable<image_id, const CachedImageRecord&> EvictionCallback>
+	inline CachedImageRecord* insert(image_id imageID, uint64_t lastUsedSema, EvictionCallback&& evictCallback)
 	{
-		auto lruEvictionCallback = [&](const ImageReference& evicted)
+		auto lruEvictionCallback = [&](const CachedImageRecord& evicted)
 			{
-				const image_id* evictingKey = lruCache.get_least_recently_used();
+				const image_id* evictingKey = base_t::get_least_recently_used();
 				assert(evictingKey != nullptr);
 				if (evictingKey)
 					evictCallback(*evictingKey, evicted);
 			};
-		return lruCache.insert(imageID, lastUsedSema, lruEvictionCallback);
+		return base_t::insert(imageID, lastUsedSema, lruEvictionCallback);
 	}
 	
 	// Retrieves the image associated with `imageID`, updating its LRU position.
-	inline ImageReference* get(image_id imageID)
+	inline CachedImageRecord* get(image_id imageID)
 	{
-		return lruCache.get(imageID);
+		return base_t::get(imageID);
 	}
 	
 	// Retrieves the ImageReference without updating LRU order.
-	inline ImageReference* peek(image_id imageID)
+	inline CachedImageRecord* peek(image_id imageID)
 	{
-		return lruCache.peek(imageID);
+		return base_t::peek(imageID);
 	}
 
-	inline size_t size() const { return lruCache.size(); }
+	inline size_t size() const { return base_t::size(); }
 	
 	// Selects an eviction candidate based on LRU policy.
 	// In the future, this could factor in memory pressure or semaphore sync requirements.
 	inline image_id select_eviction_candidate() 
 	{
-		const image_id* lru = lruCache.get_least_recently_used();
+		const image_id* lru = base_t::get_least_recently_used();
 		if (lru)
 			return *lru;
 		else
@@ -212,10 +205,6 @@ public:
 	// Removes a specific image from the cache (manual eviction).
 	inline void erase(image_id imageID)
 	{
-		lruCache.erase(imageID);
+		base_t::erase(imageID);
 	}
-
-private:
-	using ImagesLRUCache = core::ResizableLRUCache<image_id, ImageReference>;
-	ImagesLRUCache lruCache; // TODO: for now, work with simple lru cache, later on consider resource usage along with lastUsedSema value
 };

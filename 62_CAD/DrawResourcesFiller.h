@@ -221,7 +221,7 @@ public:
 	 * This function ensures that a given image is available as a GPU-resident texture for future draw submissions.
 	 * It uses an LRU cache to manage descriptor set slots and evicts old images if necessary to make room for new ones.
 	 *
-	 * If the image is already cached and its slot is valid, it returns the slot index directly.
+	 * If the image is already cached and its slot is valid, it returns true;
 	 * Otherwise, it performs the following:
 	 *   - Allocates a new descriptor set slot.
 	 *   - Promotes the image format to be GPU-compatible.
@@ -233,23 +233,43 @@ public:
 	 * @param cpuImage             The CPU-side image resource to (possibly) upload.
 	 * @param intendedNextSubmit   Struct representing the upcoming submission, including a semaphore for safe scheduling.
 	 *
-	 * @return The index (slot) into the descriptor set array where the image is or will be bound.
-	 *         Returns `InvalidTextureIndex` only if all fallback and eviction attempts failed.
-	 *
 	 * @note This function ensures that the descriptor slot is not reused while the GPU may still be reading from it.
 	 *       If an eviction is required and the evicted image is scheduled to be used in the next submit, it triggers
 	 *       a flush of pending draws to preserve correctness.
 	 *
 	 * @note The function uses the `imagesUsageCache` LRU cache to track usage and validity of texture slots.
 	 *       If an insertion leads to an eviction, a callback ensures proper deallocation and synchronization.
+	 * @return true if the image was successfully cached and is ready for use; false if allocation failed.
 	*/
-	uint32_t addStaticImage2D(image_id imageID, const core::smart_refctd_ptr<ICPUImage>& cpuImage, SIntendedSubmitInfo& intendedNextSubmit);
+	bool ensureStaticImageAvailability(image_id imageID, const core::smart_refctd_ptr<ICPUImage>& cpuImage, SIntendedSubmitInfo& intendedNextSubmit);
 
-	uint32_t retrieveGeoreferencedImage_AllocateIfNeeded(image_id imageID, const GeoreferencedImageParams& params, SIntendedSubmitInfo& intendedNextSubmit);
+	/**
+	 * @brief Ensures a GPU-resident georeferenced image exists in the cache, allocating resources if necessary.
+	 * 
+	 * If the specified image ID is not already present in the cache, or if the cached version is incompatible
+	 * with the requested parameters (e.g. extent, format, or type), this function allocates GPU memory,
+	 * creates the image and its view, to be bound to a descriptor binding in the future.
+	 * 
+	 * If the image already exists and matches the requested parameters, its usage metadata is updated.
+	 * In either case, the cache is updated to reflect usage in the current frame.
+	 * 
+	 * This function also handles automatic eviction of old images via an LRU policy when space is limited.
+	 * 
+	 * @param imageID                Unique identifier of the image to add or reuse.
+	 * @param params                 Georeferenced Image Params
+	 * @param intendedNextSubmit     Submit info object used to track resources pending GPU submission.
+	 * 
+	 * @return true if the image was successfully cached and is ready for use; false if allocation failed.
+	 * [TODO]: should be internal protected member function.
+	 */
+	bool ensureGeoreferencedImageAvailability_AllocateIfNeeded(image_id imageID, const GeoreferencedImageParams& params, SIntendedSubmitInfo& intendedNextSubmit);
 
 	// This function must be called immediately after `addStaticImage` for the same imageID.
 	void addImageObject(image_id imageID, const OrientedBoundingBox2D& obb, SIntendedSubmitInfo& intendedNextSubmit);
 	
+	// This function must be called immediately after `addStaticImage` for the same imageID.
+	void addGeoreferencedImage(image_id imageID, const GeoreferencedImageParams& params, SIntendedSubmitInfo& intendedNextSubmit);
+
 	/// @brief call this function before submitting to ensure all buffer and textures resourcesCollection requested via drawing calls are copied to GPU
 	/// records copy command into intendedNextSubmit's active command buffer and might possibly submits if fails allocation on staging upload memory.
 	bool pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit);
@@ -357,7 +377,7 @@ public:
 		std::vector<DrawCallData> drawCallsData;
 		ResourcesCollection resourcesCollection;
 		std::vector<MSDFImageState> msdfImagesState;
-		std::unordered_map<image_id, StaticImageState> staticImagesState;
+		std::unique_ptr<ImagesCache> imagesCache;
 		uint32_t activeMainObjectIndex = InvalidMainObjectIdx;
 		// TODO: non msdf general CPU Images
 		// TODO: Get total memory consumption for logging?
@@ -394,8 +414,11 @@ protected:
 	/// @brief Records GPU copy commands for all staged msdf images into the active command buffer.
 	bool pushMSDFImagesUploads(SIntendedSubmitInfo& intendedNextSubmit, std::vector<MSDFImageState>& msdfImagesState);
 
-	/// @brief Records GPU copy commands for all staged msdf images into the active command buffer.
-	bool pushStaticImagesUploads_Internal(SIntendedSubmitInfo& intendedNextSubmit, std::span<StaticImageCopy> staticImagesCopy);
+	/// @brief binds cached images into their correct descriptor set slot if not already resident.
+	bool bindImagesToArrayIndices(ImagesCache& imagesCache);
+
+	/// @brief Records GPU copy commands for all staged images into the active command buffer, and binds them into correct descriptor set slot.
+	bool pushStaticImagesUploads(SIntendedSubmitInfo& intendedNextSubmit, ImagesCache& imagesCache);
 
 	const size_t calculateRemainingResourcesSize() const;
 
@@ -462,8 +485,11 @@ protected:
 	
 	/// Attempts to upload a single GridDTMInfo considering resource limitations
 	bool addGridDTM_Internal(const GridDTMInfo& gridDTMInfo, uint32_t mainObjIdx);
-	/// Attempts to upload a single image object considering resource limitations (not accounting for the resource image added using addStaticImage2D function)
+	/// Attempts to upload a single image object considering resource limitations (not accounting for the resource image added using ensureStaticImageAvailability function)
 	bool addImageObject_Internal(const ImageObjectInfo& imageObjectInfo, uint32_t mainObjIdx);;
+	
+	/// Attempts to upload a georeferenced image info considering resource limitations (not accounting for the resource image added using ensureStaticImageAvailability function)
+	bool addGeoreferencedImageInfo_Internal(const GeoreferencedImageInfo& georeferencedImageInfo, uint32_t mainObjIdx);;
 	
 	uint32_t getImageIndexFromID(image_id imageID, const SIntendedSubmitInfo& intendedNextSubmit);
 
@@ -483,7 +509,7 @@ protected:
 	 *
 	 * @warning Deallocation may use a conservative semaphore wait value if exact usage information is unavailable. [future todo: fix] 
 	 */
-	void evictImage_SubmitIfNeeded(image_id imageID, const ImageReference& evicted, SIntendedSubmitInfo& intendedNextSubmit);
+	void evictImage_SubmitIfNeeded(image_id imageID, const CachedImageRecord& evicted, SIntendedSubmitInfo& intendedNextSubmit);
 	
 	struct ImageAllocateResults
 	{
@@ -707,12 +733,8 @@ protected:
 	bool m_hasInitializedMSDFTextureArrays = false;
 	
 	// Images:
-	std::unique_ptr<ImagesUsageCache> imagesUsageCache;
+	std::unique_ptr<ImagesCache> imagesCache;
 	smart_refctd_ptr<SubAllocatedDescriptorSet> suballocatedDescriptorSet;
 	uint32_t imagesArrayBinding = 0u;
-	
-	// TODO: consider removing this and just using the `imagesUsageCache` and `ImageReference` when `core::ResizableLRUCache` is copyable and iterable
-	// Current state of the static images, used in `pushStaticImagesUploads` to make StaticImages `gpuResident` and bind them to correct array index
-	std::unordered_map<image_id, StaticImageState> staticImagesState;
 };
 
