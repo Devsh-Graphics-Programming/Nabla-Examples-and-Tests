@@ -786,7 +786,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				// assign gpu objects to output
 				gpuTlas = reservation.getGPUObjects<ICPUTopLevelAccelerationStructure>().front().value;
 				for (const auto& buffer : reservation.getGPUObjects<ICPUBuffer>())
-				if (buffer)
 					retainedBuffers.push_back(buffer.value);
 				for (uint32_t i = 0; i < objectsCpu.size(); i++)
 				{
