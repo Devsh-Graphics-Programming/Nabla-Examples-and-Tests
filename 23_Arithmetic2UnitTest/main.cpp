@@ -271,22 +271,24 @@ private:
 		smart_refctd_ptr<ICPUShader> overriddenUnspecialized;
 		if constexpr (WorkgroupTest)
 		{
-			const std::string definitions[5] = {
+			const std::string definitions[6] = {
 				"workgroup2::" + arith_name,
 				std::to_string(workgroupSizeLog2),
 				std::to_string(itemsPerWG),
 				std::to_string(itemsPerInvoc),
-				std::to_string(subgroupSizeLog2)
+				std::to_string(subgroupSizeLog2),
+				std::to_string(arith_name=="reduction")
 			};
 
-			const IShaderCompiler::SMacroDefinition defines[5] = {
+			const IShaderCompiler::SMacroDefinition defines[6] = {
 				{ "OPERATION", definitions[0] },
 				{ "WORKGROUP_SIZE_LOG2", definitions[1] },
 				{ "ITEMS_PER_WG", definitions[2] },
 				{ "ITEMS_PER_INVOCATION", definitions[3] },
-				{ "SUBGROUP_SIZE_LOG2", definitions[4] }
+				{ "SUBGROUP_SIZE_LOG2", definitions[4] },
+				{ "IS_REDUCTION", definitions[5] }
 			};
-			options.preprocessorOptions.extraDefines = { defines, defines + 5 };
+			options.preprocessorOptions.extraDefines = { defines, defines + 6 };
 
 			overriddenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
 		}

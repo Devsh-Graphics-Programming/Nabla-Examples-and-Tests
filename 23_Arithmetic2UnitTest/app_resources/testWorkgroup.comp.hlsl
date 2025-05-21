@@ -81,6 +81,23 @@ struct operation_t
     using binop_base_t = typename Binop::base_t;
     using otype_t = typename Binop::type_t;
 
+    // workgroup reduction returns the value of the reduction
+    // workgroup scans do no return anything, but use the data accessor to do the storing directly
+#if IS_REDUCTION
+    void operator()()
+    {
+        PreloadedDataProxy<config_t,Binop> dataAccessor;
+        dataAccessor.preload();
+        otype_t value = nbl::hlsl::OPERATION<config_t,binop_base_t,device_capabilities>::template __call<PreloadedDataProxy<config_t,Binop>, ScratchProxy>(dataAccessor,arithmeticAccessor);
+        // we barrier before because we alias the accessors for Binop
+        arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
+
+        [unroll]
+        for (uint32_t i = 0; i < PreloadedDataProxy<config_t,Binop>::PreloadedDataCount; i++)
+            dataAccessor.preloaded[i] = value;
+        dataAccessor.unload();
+    }
+#else
     void operator()()
     {
         PreloadedDataProxy<config_t,Binop> dataAccessor;
@@ -90,6 +107,7 @@ struct operation_t
         arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
         dataAccessor.unload();
     }
+#endif
 };
 
 
@@ -101,7 +119,7 @@ static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
         vk::RawBufferStore<uint32_t>(outputBufAddr, nbl::hlsl::glsl::gl_SubgroupSize());
 
     operation_t<binop<T>,nbl::hlsl::jit::device_capabilities> func;
-    func(); // store is done with data accessor now
+    func();
 }
 
 
