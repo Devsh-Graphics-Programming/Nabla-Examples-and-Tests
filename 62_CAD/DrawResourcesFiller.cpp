@@ -1945,6 +1945,7 @@ void DrawResourcesFiller::determineGeoreferencedImageCreationParams(nbl::asset::
 {
 	// Decide whether the image can reside fully into memory rather than get streamed.
 	// TODO: Improve logic, currently just a simple check to see if the full-screen image has more pixels that viewport or not
+	// TODO: add criterial that the size of the full-res image shouldn't  consume more than 30% of the total memory arena for images (if we allowed larger than viewport extents)
 	const bool betterToResideFullyInMem = georeferencedImageParams.imageExtents.x * georeferencedImageParams.imageExtents.y <= georeferencedImageParams.viewportExtents.x * georeferencedImageParams.viewportExtents.y;
 
 	if (betterToResideFullyInMem)
