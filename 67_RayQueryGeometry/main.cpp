@@ -695,7 +695,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			cpuTlas->setInstances(std::move(geomInstances));
 			cpuTlas->setBuildFlags(IGPUTopLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT);
 
-#define TEST_REBAR_FALLBACK
+//#define TEST_REBAR_FALLBACK
 			// convert with asset converter
 			smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get(), .optimizer = {} });
 			struct MyInputs : CAssetConverter::SInputs
@@ -862,7 +862,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 					uint8_t finalUser;
 				} params = {};
-#undef TEST_REBAR_FALLBACK
 				params.utilities = m_utils.get();
 				params.transfer = &transfer;
 				params.compute = &compute;
@@ -925,6 +924,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 								.range = bufferRange
 							});
 						};
+#ifndef TEST_REBAR_FALLBACK
 						if (const auto otherQueueFamilyIndex=transfer.queue->getFamilyIndex(); gQFI!=otherQueueFamilyIndex)
 						for (const auto& buffer : reservation.getGPUObjects<ICPUBuffer>())
 						{
@@ -932,6 +932,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 							if (buff)
 								acquireBufferRange(otherQueueFamilyIndex,{.offset=0,.size=buff->getSize(),.buffer=buff});
 						}
+#endif
 						if (const auto otherQueueFamilyIndex=compute.queue->getFamilyIndex(); gQFI!=otherQueueFamilyIndex)
 						{
 							auto acquireAS = [&acquireBufferRange,otherQueueFamilyIndex](const IGPUAccelerationStructure* as)
@@ -968,6 +969,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 						m_logger->log("Failed to transfer ownership with code %d!",system::ILogger::ELL_ERROR,retval);
 				}
 			}
+#undef TEST_REBAR_FALLBACK
 
 			m_api->endCapture();
 
