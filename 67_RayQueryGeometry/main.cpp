@@ -871,9 +871,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				}
 
 				// assign gpu objects to output
-				auto&& tlases = reservation.getGPUObjects<ICPUTopLevelAccelerationStructure>();
-				gpuTlas = tlases[0].value;
 				auto&& buffers = reservation.getGPUObjects<ICPUBuffer>();
+				gpuTlas = reservation.getGPUObjects<ICPUTopLevelAccelerationStructure>().front().value;
 				for (uint32_t i = 0; i < objectsCpu.size(); i++)
 				{
 					auto vBuffer = buffers[2 * i + 0].value;
@@ -917,16 +916,17 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 						.range = bufferRange
 					});
 				};
-				for (auto buffer : reservation.getGPUObjects<ICPUBuffer>())
+				for (const auto& buffer : reservation.getGPUObjects<ICPUBuffer>())
 				{
 					const auto& buff = buffer.value;
-					acquireBufferRange({.offset=0,.size=buff->getSize(),.buffer=buff});
+					if (buff)
+						acquireBufferRange({.offset=0,.size=buff->getSize(),.buffer=buff});
 				}
 				auto acquireAS = [&acquireBufferRange](const IGPUAccelerationStructure* as)
 				{
 					acquireBufferRange(as->getCreationParams().bufferRange);
 				};
-				for (auto blas : reservation.getGPUObjects<ICPUBottomLevelAccelerationStructure>())
+				for (const auto& blas : reservation.getGPUObjects<ICPUBottomLevelAccelerationStructure>())
 					acquireAS(blas.value.get());
 				acquireAS(gpuTlas.get());
 				cmdbuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers=bufBarriers});
@@ -934,11 +934,18 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = {
 					.cmdbuf = cmdbuf.get()
 				};
+				const IQueue::SSubmitInfo::SSemaphoreInfo signal = {
+					.semaphore = compute.scratchSemaphore.semaphore,
+					.value = compute.getFutureScratchSemaphore().value,
+					.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+				};
 				const IQueue::SSubmitInfo info = {
 					.waitSemaphores = {}, // we already waited with the host on the AS build
-					.commandBuffers = {&cmdbufInfo,1}
+					.commandBuffers = {&cmdbufInfo,1},
+					.signalSemaphores = {&signal,1}
 				};
-				gQueue->submit({&info,1});
+				if (const auto retval=gQueue->submit({&info,1}); retval!=IQueue::RESULT::SUCCESS)
+					m_logger->log("Failed to transfer ownership with code %d!",system::ILogger::ELL_ERROR,retval);
 			}
 
 			return bool(gpuTlas);
