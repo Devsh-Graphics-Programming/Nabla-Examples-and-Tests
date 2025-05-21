@@ -732,16 +732,21 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 #endif
 
 			std::array<const ICPUBuffer*, OT_COUNT * 2u> tmpBuffers;
+			std::array<CAssetConverter::patch_t<ICPUBuffer>, OT_COUNT * 2u> tmpBufferPatches;
 			{
 				for (uint32_t i = 0; i < objectsCpu.size(); i++)
 				{
 					tmpBuffers[2 * i + 0] = cpuBlas[i]->getTriangleGeometries().front().vertexData[0].buffer.get();
 					tmpBuffers[2 * i + 1] = cpuBlas[i]->getTriangleGeometries().front().indexData.buffer.get();
 				}
+				// make sure all buffers are BDA-readable
+				for (auto& patch : tmpBufferPatches)
+					patch.usage |= asset::IBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUTopLevelAccelerationStructure>>(inputs.assets) = {&cpuTlas.get(),1};
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUBottomLevelAccelerationStructure>>(inputs.assets) = {&cpuBlas.data()->get(),cpuBlas.size()};
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = tmpBuffers;
+				std::get<CAssetConverter::SInputs::patch_span_t<ICPUBuffer>>(inputs.patches) = tmpBufferPatches;
 			}
 
 			auto reservation = converter->reserve(inputs);
@@ -806,6 +811,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				.stageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT|PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_COPY_BIT
 			};
 			// convert
+			m_api->startCapture();
 			auto gQueue = getGraphicsQueue();
 			{
 				smart_refctd_ptr<CAssetConverter::SConvertParams::scratch_for_device_AS_build_t> scratchAlloc;
@@ -881,7 +887,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					const bool useIndex = geom.data.indexType != EIT_UNKNOWN;
 
 					geomInfos[i].vertexBufferAddress = vBuffer->getDeviceAddress() + byteOffsets[i];
-					geomInfos[i].indexBufferAddress = useIndex ? iBuffer->getDeviceAddress() : geomInfos[i].vertexBufferAddress;
+					geomInfos[i].indexBufferAddress = useIndex ? iBuffer->getDeviceAddress():0x0ull;
 				}
 			}
 
@@ -894,59 +900,76 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			}
 
 			// acquire ownership
-			if (const auto gQFI=gQueue->getFamilyIndex(), otherQueueFamilyIndex=queue->getFamilyIndex(); gQFI!=otherQueueFamilyIndex)
 			{
 				smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
-				m_device->createCommandPool(gQFI,IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT)->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{&cmdbuf,1});
-				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-				core::vector<IGPUCommandBuffer::SBufferMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> bufBarriers;
-				auto acquireBufferRange = [&bufBarriers,otherQueueFamilyIndex](const SBufferRange<IGPUBuffer>& bufferRange)
 				{
-					bufBarriers.push_back({
-						.barrier = {
-							.dep = {
-								.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
-								.srcAccessMask = ACCESS_FLAGS::NONE,
-								.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-								.dstAccessMask = ACCESS_FLAGS::ACCELERATION_STRUCTURE_READ_BIT|ACCESS_FLAGS::STORAGE_READ_BIT
-							},
-							.ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::ACQUIRE,
-							.otherQueueFamilyIndex = otherQueueFamilyIndex
-						},
-						.range = bufferRange
-					});
-				};
-				for (const auto& buffer : reservation.getGPUObjects<ICPUBuffer>())
-				{
-					const auto& buff = buffer.value;
-					if (buff)
-						acquireBufferRange({.offset=0,.size=buff->getSize(),.buffer=buff});
+					const auto gQFI = gQueue->getFamilyIndex();
+					m_device->createCommandPool(gQFI,IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT)->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{&cmdbuf,1});
+					cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+					{
+						core::vector<IGPUCommandBuffer::SBufferMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> bufBarriers;
+						auto acquireBufferRange = [&bufBarriers](const uint8_t otherQueueFamilyIndex, const SBufferRange<IGPUBuffer>& bufferRange)
+						{
+							bufBarriers.push_back({
+								.barrier = {
+									.dep = {
+										.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+										.srcAccessMask = ACCESS_FLAGS::NONE,
+										.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+										// we don't care what exactly, uncomplex our code
+										.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
+									},
+									.ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::ACQUIRE,
+									.otherQueueFamilyIndex = otherQueueFamilyIndex
+								},
+								.range = bufferRange
+							});
+						};
+						if (const auto otherQueueFamilyIndex=transfer.queue->getFamilyIndex(); gQFI!=otherQueueFamilyIndex)
+						for (const auto& buffer : reservation.getGPUObjects<ICPUBuffer>())
+						{
+							const auto& buff = buffer.value;
+							if (buff)
+								acquireBufferRange(otherQueueFamilyIndex,{.offset=0,.size=buff->getSize(),.buffer=buff});
+						}
+						if (const auto otherQueueFamilyIndex=compute.queue->getFamilyIndex(); gQFI!=otherQueueFamilyIndex)
+						{
+							auto acquireAS = [&acquireBufferRange,otherQueueFamilyIndex](const IGPUAccelerationStructure* as)
+							{
+								acquireBufferRange(otherQueueFamilyIndex,as->getCreationParams().bufferRange);
+							};
+							for (const auto& blas : reservation.getGPUObjects<ICPUBottomLevelAccelerationStructure>())
+								acquireAS(blas.value.get());
+							acquireAS(gpuTlas.get());
+						}
+						if (!bufBarriers.empty())
+							cmdbuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers=bufBarriers});
+					}
+					cmdbuf->end();
 				}
-				auto acquireAS = [&acquireBufferRange](const IGPUAccelerationStructure* as)
+				if (!cmdbuf->empty())
 				{
-					acquireBufferRange(as->getCreationParams().bufferRange);
-				};
-				for (const auto& blas : reservation.getGPUObjects<ICPUBottomLevelAccelerationStructure>())
-					acquireAS(blas.value.get());
-				acquireAS(gpuTlas.get());
-				cmdbuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers=bufBarriers});
-				cmdbuf->end();
-				const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = {
-					.cmdbuf = cmdbuf.get()
-				};
-				const IQueue::SSubmitInfo::SSemaphoreInfo signal = {
-					.semaphore = compute.scratchSemaphore.semaphore,
-					.value = compute.getFutureScratchSemaphore().value,
-					.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
-				};
-				const IQueue::SSubmitInfo info = {
-					.waitSemaphores = {}, // we already waited with the host on the AS build
-					.commandBuffers = {&cmdbufInfo,1},
-					.signalSemaphores = {&signal,1}
-				};
-				if (const auto retval=gQueue->submit({&info,1}); retval!=IQueue::RESULT::SUCCESS)
-					m_logger->log("Failed to transfer ownership with code %d!",system::ILogger::ELL_ERROR,retval);
+					const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = {
+						.cmdbuf = cmdbuf.get()
+					};
+					const IQueue::SSubmitInfo::SSemaphoreInfo signal = {
+						.semaphore = compute.scratchSemaphore.semaphore,
+						.value = compute.getFutureScratchSemaphore().value,
+						.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+					};
+					auto wait = signal;
+					wait.value--;
+					const IQueue::SSubmitInfo info = {
+						.waitSemaphores = {&wait,1}, // we already waited with the host on the AS build
+						.commandBuffers = {&cmdbufInfo,1},
+						.signalSemaphores = {&signal,1}
+					};
+					if (const auto retval=gQueue->submit({&info,1}); retval!=IQueue::RESULT::SUCCESS)
+						m_logger->log("Failed to transfer ownership with code %d!",system::ILogger::ELL_ERROR,retval);
+				}
 			}
+
+			m_api->endCapture();
 
 			return bool(gpuTlas);
 		}
