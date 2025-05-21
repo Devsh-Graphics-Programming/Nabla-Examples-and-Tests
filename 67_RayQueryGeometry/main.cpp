@@ -750,24 +750,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			}
 
 			auto reservation = converter->reserve(inputs);
-			{
-				auto prepass = [&]<typename asset_type_t>() -> bool
-				{
-					auto objects = reservation.getGPUObjects<asset_type_t>();
-					for (auto& object : objects)
-					if (!object.value)
-					{
-						m_logger->log("Failed to convert a CPU object to GPU!", ILogger::ELL_ERROR);
-						return false;
-					}
-					return true;
-				};
-
-				prepass.template operator()<ICPUBuffer>();
-				prepass.template operator()<ICPUBottomLevelAccelerationStructure>();
-				prepass.template operator()<ICPUTopLevelAccelerationStructure>();
-			}
-
 
 			constexpr auto XferBufferCount = 2;
 			std::array<smart_refctd_ptr<IGPUCommandBuffer>,XferBufferCount> xferBufs = {};
@@ -893,7 +875,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			//
 			{
 				IGPUBuffer::SCreationParams params;
-				params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+				params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 				params.size = OT_COUNT * sizeof(SGeomInfo);
 				m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = gQueue }, std::move(params), geomInfos).move_into(geometryInfoBuffer);
 			}
@@ -924,7 +906,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 								.range = bufferRange
 							});
 						};
-#ifndef TEST_REBAR_FALLBACK
+#ifdef TEST_REBAR_FALLBACK
 						if (const auto otherQueueFamilyIndex=transfer.queue->getFamilyIndex(); gQFI!=otherQueueFamilyIndex)
 						for (const auto& buffer : reservation.getGPUObjects<ICPUBuffer>())
 						{
