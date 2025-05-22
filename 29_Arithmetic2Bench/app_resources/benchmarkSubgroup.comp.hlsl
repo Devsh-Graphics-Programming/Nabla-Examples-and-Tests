@@ -2,10 +2,14 @@
 
 #define operation_t nbl::hlsl::OPERATION
 
-#include "shaderCommon.hlsl"
+#include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
+#include "nbl/builtin/hlsl/glsl_compat/subgroup_basic.hlsl"
+#include "nbl/builtin/hlsl/subgroup2/arithmetic_portability.hlsl"
 
-// NOTE added dummy output image to be able to profile with Nsight, which still doesn't support profiling headless compute shaders
-[[vk::binding(2, 0)]] RWTexture2D<float32_t4> outImage; // dummy
+#include "shaderCommon.hlsl"
+#include "nbl/builtin/hlsl/workgroup/basic.hlsl"
+
+typedef vector<uint32_t, ITEMS_PER_INVOCATION> type_t;
 
 uint32_t globalIndex()
 {
@@ -13,10 +17,6 @@ uint32_t globalIndex()
 }
 
 bool canStore() {return true;}
-
-#ifndef NUM_LOOPS
-#error "Define NUM_LOOPS!"
-#endif
 
 template<template<class> class binop, typename T, uint32_t N>
 static void subbench(NBL_CONST_REF_ARG(type_t) sourceVal)
@@ -32,9 +32,8 @@ static void subbench(NBL_CONST_REF_ARG(type_t) sourceVal)
     for (uint32_t i = 0; i < NUM_LOOPS; i++)
         value = func(value);
 
-    [unroll]
-    for (uint32_t i = 0; i < N; i++)
-        vk::RawBufferStore<uint32_t>(outputBufAddr+sizeof(uint32_t)+sizeof(type_t)*globalIndex()+i*sizeof(uint32_t), val[i]);
+    if (canStore())
+        vk::RawBufferStore<type_t>(outputBufAddr + sizeof(uint32_t) + sizeof(type_t) * globalIndex(), value, sizeof(uint32_t));
 }
 
 void benchmark()

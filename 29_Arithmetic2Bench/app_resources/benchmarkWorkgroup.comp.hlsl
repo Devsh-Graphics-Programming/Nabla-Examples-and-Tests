@@ -1,9 +1,46 @@
 #pragma shader_stage(compute)
 
-#include "workgroupCommon.hlsl"
+#include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
+#include "nbl/builtin/hlsl/glsl_compat/subgroup_basic.hlsl"
+#include "nbl/builtin/hlsl/subgroup2/arithmetic_portability.hlsl"
+#include "nbl/builtin/hlsl/workgroup2/arithmetic.hlsl"
 
-// NOTE added dummy output image to be able to profile with Nsight, which still doesn't support profiling headless compute shaders
-[[vk::binding(2, 0)]] RWTexture2D<float32_t4> outImage; // dummy
+static const uint32_t WORKGROUP_SIZE = 1u << WORKGROUP_SIZE_LOG2;
+
+#include "shaderCommon.hlsl"
+
+using config_t = nbl::hlsl::workgroup2::ArithmeticConfiguration<WORKGROUP_SIZE_LOG2, SUBGROUP_SIZE_LOG2, ITEMS_PER_INVOCATION>;
+
+typedef vector<uint32_t, config_t::ItemsPerInvocation_0> type_t;
+
+// final (level 1/2) scan needs to fit in one subgroup exactly
+groupshared uint32_t scratch[config_t::ElementCount];
+
+struct ScratchProxy
+{
+    template<typename AccessType>
+    void get(const uint32_t ix, NBL_REF_ARG(AccessType) value)
+    {
+        value = scratch[ix];
+    }
+    template<typename AccessType>
+    void set(const uint32_t ix, const AccessType value)
+    {
+        scratch[ix] = value;
+    }
+
+    uint32_t atomicOr(const uint32_t ix, const uint32_t value)
+    {
+        return nbl::hlsl::glsl::atomicOr(scratch[ix],value);
+    }
+
+    void workgroupExecutionAndMemoryBarrier()
+    {
+        nbl::hlsl::glsl::barrier();
+        //nbl::hlsl::glsl::memoryBarrierShared(); implied by the above
+    }
+};
+
 
 template<class Config, class Binop>
 struct DataProxy
@@ -47,10 +84,6 @@ struct operation_t
         arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
     }
 };
-
-#ifndef NUM_LOOPS
-#error "Define NUM_LOOPS!"
-#endif
 
 template<template<class> class binop, typename T, uint32_t N>
 static void subbench(NBL_CONST_REF_ARG(type_t) sourceVal)

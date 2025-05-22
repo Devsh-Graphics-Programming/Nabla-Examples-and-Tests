@@ -124,8 +124,40 @@ public:
 		// create Pipeline Layout
 		{
 			SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0,.size = sizeof(PushConstantData) };
-
 			pipelineLayout = m_device->createPipelineLayout({&pcRange, 1});
+		}
+
+		const auto spirv_isa_cache_path = localOutputCWD / "spirv_isa_cache.bin";
+		// enclose to make sure file goes out of scope and we can reopen it
+		{
+			smart_refctd_ptr<const IFile> spirv_isa_cache_input;
+			// try to load SPIR-V to ISA cache
+			{
+				ISystem::future_t<smart_refctd_ptr<IFile>> fileCreate;
+				m_system->createFile(fileCreate, spirv_isa_cache_path, IFile::ECF_READ | IFile::ECF_MAPPABLE | IFile::ECF_COHERENT);
+				if (auto lock = fileCreate.acquire())
+					spirv_isa_cache_input = *lock;
+			}
+			// create the cache
+			{
+				std::span<const uint8_t> spirv_isa_cache_data = {};
+				if (spirv_isa_cache_input)
+					spirv_isa_cache_data = { reinterpret_cast<const uint8_t*>(spirv_isa_cache_input->getMappedPointer()),spirv_isa_cache_input->getSize() };
+				else
+					m_logger->log("Failed to load SPIR-V 2 ISA cache!", ILogger::ELL_PERFORMANCE);
+				// Normally we'd deserialize a `ICPUPipelineCache` properly and pass that instead
+				m_spirv_isa_cache = m_device->createPipelineCache(spirv_isa_cache_data);
+			}
+		}
+		{
+			// TODO: rename `deleteDirectory` to just `delete`? and a `IFile::setSize()` ?
+			m_system->deleteDirectory(spirv_isa_cache_path);
+			ISystem::future_t<smart_refctd_ptr<IFile>> fileCreate;
+			m_system->createFile(fileCreate, spirv_isa_cache_path, IFile::ECF_WRITE);
+			// I can be relatively sure I'll succeed to acquire the future, the pointer to created file might be null though.
+			m_spirv_isa_cache_output = *fileCreate.acquire();
+			if (!m_spirv_isa_cache_output)
+				logFail("Failed to Create SPIR-V to ISA cache file.");
 		}
 
 		// load shader source from file
@@ -192,6 +224,17 @@ public:
 					logTestOutcome(passed, itemsPerWG);
 				}
 				m_api->endCapture();
+
+				// save cache every now and then	
+				{
+					auto cpu = m_spirv_isa_cache->convertToCPUCache();
+					// Normally we'd beautifully JSON serialize the thing, allow multiple devices & drivers + metadata
+					auto bin = cpu->getEntries().begin()->second.bin;
+					IFile::success_t success;
+					m_spirv_isa_cache_output->write(success, bin->data(), 0ull, bin->size());
+					if (!success)
+						logFail("Could not write Create SPIR-V to ISA cache to disk!");
+				}
 			}
 		}
 
@@ -238,7 +281,7 @@ private:
 			.requireFullSubgroups = true
 		};
 		core::smart_refctd_ptr<IGPUComputePipeline> pipeline;
-		if (!m_device->createComputePipelines(nullptr,{&params,1},&pipeline))
+		if (!m_device->createComputePipelines(m_spirv_isa_cache.get(),{&params,1},&pipeline))
 			return nullptr;
 		return pipeline;
 	}
@@ -455,6 +498,8 @@ private:
 
 	IQueue* transferDownQueue;
 	IQueue* computeQueue;
+	smart_refctd_ptr<IGPUPipelineCache> m_spirv_isa_cache;
+	smart_refctd_ptr<IFile> m_spirv_isa_cache_output;
 
 	uint32_t* inputData = nullptr;
 	constexpr static inline uint32_t OutputBufferCount = 8u;

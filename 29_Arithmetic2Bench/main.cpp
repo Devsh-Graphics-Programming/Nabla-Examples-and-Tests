@@ -708,7 +708,6 @@ private:
 	uint32_t numSubmits = 0;
 
 	/* PARAMETERS TO CHANGE FOR DIFFERENT BENCHMARKS */
-
 	constexpr static inline bool DoWorkgroupBenchmarks = true;
 	uint32_t ItemsPerInvocation = 4u;
 	constexpr static inline uint32_t NumLoops = 1000u;
