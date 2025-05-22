@@ -237,7 +237,7 @@ public:
 	 *       If an eviction is required and the evicted image is scheduled to be used in the next submit, it triggers
 	 *       a flush of pending draws to preserve correctness.
 	 *
-	 * @note The function uses the `imagesUsageCache` LRU cache to track usage and validity of texture slots.
+	 * @note The function uses the `imagesCache` LRU cache to track usage and validity of texture slots.
 	 *       If an insertion leads to an eviction, a callback ensures proper deallocation and synchronization.
 	 * @return true if the image was successfully cached and is ready for use; false if allocation failed.
 	*/
@@ -417,8 +417,11 @@ protected:
 	/// @brief binds cached images into their correct descriptor set slot if not already resident.
 	bool bindImagesToArrayIndices(ImagesCache& imagesCache);
 
-	/// @brief Records GPU copy commands for all staged images into the active command buffer, and binds them into correct descriptor set slot.
+	/// @brief Records GPU copy commands for all staged images into the active command buffer.
 	bool pushStaticImagesUploads(SIntendedSubmitInfo& intendedNextSubmit, ImagesCache& imagesCache);
+	
+	/// @brief copies the queued up streamed copies.
+	bool pushStreamedImagesUploads(SIntendedSubmitInfo& intendedNextSubmit);
 
 	const size_t calculateRemainingResourcesSize() const;
 
@@ -550,7 +553,7 @@ protected:
 	 * @param[out] outImageParams Structure to be filled with image creation parameters (format, size, etc.).
 	 * @param[out] outImageType Indicates whether the image should be fully resident or streamed.
 	 * @param[in] georeferencedImageParams Parameters describing the full image extents, viewport extents, and format.
-	 */
+	*/
 	void determineGeoreferencedImageCreationParams(nbl::asset::IImage::SCreationParams& outImageParams, ImageType& outImageType, const GeoreferencedImageParams& georeferencedImageParams);
 
 	void resetMainObjects()
@@ -736,5 +739,7 @@ protected:
 	std::unique_ptr<ImagesCache> imagesCache;
 	smart_refctd_ptr<SubAllocatedDescriptorSet> suballocatedDescriptorSet;
 	uint32_t imagesArrayBinding = 0u;
+
+	std::unordered_map<image_id, StreamedImageCopy> streamedImageCopies;
 };
 

@@ -497,8 +497,8 @@ bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(
 					
 					// instead of erasing and inserting the imageID into the cache, we just reset it, so the next block of code goes into array index allocation + creating our new image
 					*cachedImageRecord = CachedImageRecord(currentFrameIndex);
-					// imagesUsageCache->erase(imageID);
-					// cachedImageRecord = imagesUsageCache->insert(imageID, intendedNextSubmit.getFutureScratchSemaphore().value, evictCallback);
+					// imagesCache->erase(imageID);
+					// cachedImageRecord = imagesCache->insert(imageID, intendedNextSubmit.getFutureScratchSemaphore().value, evictCallback);
 				}
 			}
 			else
@@ -756,6 +756,7 @@ bool DrawResourcesFiller::pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit
 
 		success &= bindImagesToArrayIndices(*imagesCache);
 		success &= pushStaticImagesUploads(intendedNextSubmit, *imagesCache);
+		// Streamed uploads in cache&replay?!
 	}
 	else
 	{
@@ -764,6 +765,7 @@ bool DrawResourcesFiller::pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit
 		success &= pushMSDFImagesUploads(intendedNextSubmit, msdfImagesState);
 		success &= bindImagesToArrayIndices(*imagesCache);
 		success &= pushStaticImagesUploads(intendedNextSubmit, *imagesCache);
+		success &= pushStreamedImagesUploads(intendedNextSubmit);
 	}
 	return success;
 }
@@ -1207,6 +1209,125 @@ bool DrawResourcesFiller::pushStaticImagesUploads(SIntendedSubmitInfo& intendedN
 					.oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
 					.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL,
 				};
+			}
+			success &= commandBuffer->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = afterCopyImageBarriers });
+		}
+		else
+		{
+			_NBL_DEBUG_BREAK_IF(true);
+			success = false;
+		}
+	}
+
+	if (!success)
+	{
+		// TODO: Log
+		_NBL_DEBUG_BREAK_IF(true);
+	}
+	return success;
+}
+
+bool DrawResourcesFiller::pushStreamedImagesUploads(SIntendedSubmitInfo& intendedNextSubmit)
+{
+	bool success = true;
+
+	if (streamedImageCopies.size() > 0ull)
+	{
+		auto* device = m_utilities->getLogicalDevice();
+		auto* cmdBuffInfo = intendedNextSubmit.getCommandBufferForRecording();
+	
+		if (cmdBuffInfo)
+		{
+			IGPUCommandBuffer* commandBuffer = cmdBuffInfo->cmdbuf;
+
+			std::vector<IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t> beforeCopyImageBarriers;
+			beforeCopyImageBarriers.reserve(streamedImageCopies.size());
+
+			// Pipeline Barriers before imageCopy
+			for (auto& [imageID, imageCopy] : streamedImageCopies)
+			{
+				auto* imageRecord = imagesCache->peek(imageID);
+				if (imageRecord == nullptr)
+					continue;
+
+				const auto& gpuImg = imageRecord->gpuImageView->getCreationParameters().image;
+
+				beforeCopyImageBarriers.push_back(
+					{
+						.barrier = {
+							.dep = {
+								.srcStageMask = PIPELINE_STAGE_FLAGS::NONE, // previous top of pipe -> top_of_pipe in first scope = none
+								.srcAccessMask = ACCESS_FLAGS::NONE,
+								.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+								.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+							}
+							// .ownershipOp. No queueFam ownership transfer
+						},
+						.image = gpuImg.get(),
+						.subresourceRange = {
+							.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+							.baseMipLevel = 0u,
+							.levelCount = ICPUImageView::remaining_mip_levels,
+							.baseArrayLayer = 0u,
+							.layerCount = ICPUImageView::remaining_array_layers
+						},
+						.oldLayout = IImage::LAYOUT::UNDEFINED,
+						.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+					});
+			}
+			success &= commandBuffer->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = beforeCopyImageBarriers });
+			
+			for (auto& [imageID, imageCopy] : streamedImageCopies)
+			{
+				auto* imageRecord = imagesCache->peek(imageID);
+				if (imageRecord == nullptr)
+					continue;
+
+				const auto& gpuImg = imageRecord->gpuImageView->getCreationParameters().image;
+
+				success &= m_utilities->updateImageViaStagingBuffer(
+					intendedNextSubmit,
+					imageCopy.srcBuffer->getPointer(), gpuImg->getCreationParameters().format,
+					gpuImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+					{ &imageCopy.region, 1u });
+			}
+
+			commandBuffer = intendedNextSubmit.getCommandBufferForRecording()->cmdbuf; // overflow-submit in utilities calls might've cause current recording command buffer to change
+
+			std::vector<IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t> afterCopyImageBarriers;
+			afterCopyImageBarriers.reserve(streamedImageCopies.size());
+
+			// Pipeline Barriers before imageCopy
+			for (auto& [imageID, imageCopy] : streamedImageCopies)
+			{
+				auto* imageRecord = imagesCache->peek(imageID);
+				if (imageRecord == nullptr)
+					continue;
+
+				const auto& gpuImg = imageRecord->gpuImageView->getCreationParameters().image;
+
+				afterCopyImageBarriers.push_back (
+					{
+						.barrier = {
+							.dep = {
+								.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT, // previous top of pipe -> top_of_pipe in first scope = none
+								.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+								.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
+								.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS,
+							}
+							// .ownershipOp. No queueFam ownership transfer
+						},
+						.image = gpuImg.get(),
+						.subresourceRange = {
+							.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+							.baseMipLevel = 0u,
+							.levelCount = ICPUImageView::remaining_mip_levels,
+							.baseArrayLayer = 0u,
+							.layerCount = ICPUImageView::remaining_array_layers
+						},
+						.oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+						.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL,
+					});
 			}
 			success &= commandBuffer->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = afterCopyImageBarriers });
 		}

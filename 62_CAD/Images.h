@@ -208,3 +208,9 @@ public:
 		base_t::erase(imageID);
 	}
 };
+
+struct StreamedImageCopy
+{
+	core::smart_refctd_ptr<ICPUBuffer> srcBuffer; // Make it 'std::future' later?
+	asset::IImage::SBufferCopy region;
+};
