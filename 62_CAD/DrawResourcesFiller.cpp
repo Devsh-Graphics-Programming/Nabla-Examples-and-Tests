@@ -63,7 +63,7 @@ void DrawResourcesFiller::allocateResourcesBuffer(ILogicalDevice* logicalDevice,
 		IDeviceMemoryAllocator::SAllocateInfo allocationInfo =
 		{
 			// TODO: Get from user side.
-			.size = 270 * 1024 * 1024, // 70 MB
+			.size = 65 * 1024 * 1024, // 70 MB
 			.flags = IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE,
 			.memoryTypeIndex = memoryTypeIdx,
 			.dedication = nullptr,
@@ -573,6 +573,12 @@ bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(
 
 	assert(cachedImageRecord->arrayIndex != InvalidTextureIndex); // shouldn't happen, because we're using LRU cache, so worst case eviction will happen + multi-deallocate and next next multi_allocate should definitely succeed
 	return (cachedImageRecord->arrayIndex != InvalidTextureIndex);
+}
+
+bool DrawResourcesFiller::queueGeoreferencedImageCopy_Internal(image_id imageID, const StreamedImageCopy& imageCopy)
+{
+	auto& vec = streamedImageCopies[imageID];
+	vec.emplace_back(imageCopy);
 }
 
 // TODO[Przemek]: similar to other drawXXX and drawXXX_internal functions that create mainobjects, drawObjects and push additional info in geometry buffer, input to function would be a GridDTMInfo
@@ -1244,7 +1250,7 @@ bool DrawResourcesFiller::pushStreamedImagesUploads(SIntendedSubmitInfo& intende
 			beforeCopyImageBarriers.reserve(streamedImageCopies.size());
 
 			// Pipeline Barriers before imageCopy
-			for (auto& [imageID, imageCopy] : streamedImageCopies)
+			for (auto& [imageID, imageCopies] : streamedImageCopies)
 			{
 				auto* imageRecord = imagesCache->peek(imageID);
 				if (imageRecord == nullptr)
@@ -1277,7 +1283,7 @@ bool DrawResourcesFiller::pushStreamedImagesUploads(SIntendedSubmitInfo& intende
 			}
 			success &= commandBuffer->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = beforeCopyImageBarriers });
 			
-			for (auto& [imageID, imageCopy] : streamedImageCopies)
+			for (auto& [imageID, imageCopies] : streamedImageCopies)
 			{
 				auto* imageRecord = imagesCache->peek(imageID);
 				if (imageRecord == nullptr)
@@ -1285,11 +1291,14 @@ bool DrawResourcesFiller::pushStreamedImagesUploads(SIntendedSubmitInfo& intende
 
 				const auto& gpuImg = imageRecord->gpuImageView->getCreationParameters().image;
 
-				success &= m_utilities->updateImageViaStagingBuffer(
-					intendedNextSubmit,
-					imageCopy.srcBuffer->getPointer(), gpuImg->getCreationParameters().format,
-					gpuImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-					{ &imageCopy.region, 1u });
+				for (auto& imageCopy : imageCopies)
+				{
+					success &= m_utilities->updateImageViaStagingBuffer(
+						intendedNextSubmit,
+						imageCopy.srcBuffer->getPointer(), gpuImg->getCreationParameters().format,
+						gpuImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+						{ &imageCopy.region, 1u });
+				}
 			}
 
 			commandBuffer = intendedNextSubmit.getCommandBufferForRecording()->cmdbuf; // overflow-submit in utilities calls might've cause current recording command buffer to change
@@ -1298,7 +1307,7 @@ bool DrawResourcesFiller::pushStreamedImagesUploads(SIntendedSubmitInfo& intende
 			afterCopyImageBarriers.reserve(streamedImageCopies.size());
 
 			// Pipeline Barriers before imageCopy
-			for (auto& [imageID, imageCopy] : streamedImageCopies)
+			for (auto& [imageID, imageCopies] : streamedImageCopies)
 			{
 				auto* imageRecord = imagesCache->peek(imageID);
 				if (imageRecord == nullptr)
@@ -1330,6 +1339,8 @@ bool DrawResourcesFiller::pushStreamedImagesUploads(SIntendedSubmitInfo& intende
 					});
 			}
 			success &= commandBuffer->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = afterCopyImageBarriers });
+
+			streamedImageCopies.clear();
 		}
 		else
 		{

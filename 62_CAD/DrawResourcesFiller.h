@@ -264,6 +264,9 @@ public:
 	 */
 	bool ensureGeoreferencedImageAvailability_AllocateIfNeeded(image_id imageID, const GeoreferencedImageParams& params, SIntendedSubmitInfo& intendedNextSubmit);
 
+	// [TODO]: should be internal protected member function.
+	bool queueGeoreferencedImageCopy_Internal(image_id imageID, const StreamedImageCopy& imageCopy);
+
 	// This function must be called immediately after `addStaticImage` for the same imageID.
 	void addImageObject(image_id imageID, const OrientedBoundingBox2D& obb, SIntendedSubmitInfo& intendedNextSubmit);
 	
@@ -740,6 +743,6 @@ protected:
 	smart_refctd_ptr<SubAllocatedDescriptorSet> suballocatedDescriptorSet;
 	uint32_t imagesArrayBinding = 0u;
 
-	std::unordered_map<image_id, StreamedImageCopy> streamedImageCopies;
+	std::unordered_map<image_id, std::vector<StreamedImageCopy>> streamedImageCopies;
 };
 
