@@ -708,13 +708,13 @@ private:
 	uint32_t numSubmits = 0;
 
 	/* PARAMETERS TO CHANGE FOR DIFFERENT BENCHMARKS */
-	constexpr static inline bool DoWorkgroupBenchmarks = false;
+	constexpr static inline bool DoWorkgroupBenchmarks = true;
 	uint32_t ItemsPerInvocation = 4u;
 	constexpr static inline uint32_t NumLoops = 1000u;
 	constexpr static inline uint32_t NumBenchmarks = 6u;
 	constexpr static inline std::array<uint32_t, NumBenchmarks> workgroupSizes = { 32, 64, 128, 256, 512, 1024 };
 	template<class BinOp>
-	using ArithmeticOp = emulatedScanInclusive<BinOp>;	// change this to test other arithmetic ops
+	using ArithmeticOp = emulatedReduction<BinOp>;	// change this to test other arithmetic ops
 
 	std::array<BenchmarkSet, NumBenchmarks> benchSets;
 	smart_refctd_ptr<IDescriptorPool> benchPool;
