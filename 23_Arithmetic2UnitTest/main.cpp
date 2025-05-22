@@ -45,13 +45,19 @@ struct emulatedScanExclusive
 	static inline constexpr const char* name = "exclusive_scan";
 };
 
-class ArithmeticUnitTestApp final : public application_templates::BasicMultiQueueApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+struct PushConstantData
+{
+	uint64_t inputBufAddress;
+	uint64_t outputAddressBufAddress;
+};
+
+class Workgroup2ScanTestApp final : public application_templates::BasicMultiQueueApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 	using device_base_t = application_templates::BasicMultiQueueApplication;
 	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 
 public:
-	ArithmeticUnitTestApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
+	Workgroup2ScanTestApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
 		system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
 	bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
@@ -76,7 +82,7 @@ public:
 
 			IGPUBuffer::SCreationParams inputDataBufferCreationParams = {};
 			inputDataBufferCreationParams.size = sizeof(Output<>::data[0]) * elementCount;
-			inputDataBufferCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
+			inputDataBufferCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 			m_utils->createFilledDeviceLocalBufferOnDedMem(
 				SIntendedSubmitInfo{.queue=getTransferUpQueue()},
 				std::move(inputDataBufferCreationParams),
@@ -89,73 +95,56 @@ public:
 		{
 			IGPUBuffer::SCreationParams params = {};
 			params.size = sizeof(uint32_t) + gpuinputDataBuffer->getSize();
-			params.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_SRC_BIT;
+			params.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_SRC_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
 			outputBuffers[i] = m_device->createBuffer(std::move(params));
 			auto mreq = outputBuffers[i]->getMemoryReqs();
 			mreq.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
 			assert(mreq.memoryTypeBits);
 
-			auto bufferMem = m_device->allocate(mreq, outputBuffers[i].get());
+			auto bufferMem = m_device->allocate(mreq, outputBuffers[i].get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
 			assert(bufferMem.isValid());
 		}
 
-		// create Descriptor Set and Pipeline Layout
+		// create buffer to store BDA of output buffers
+		smart_refctd_ptr<IGPUBuffer> gpuOutputAddressesBuffer;
 		{
-			// create Descriptor Set Layout
-			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
-			{
-				IGPUDescriptorSetLayout::SBinding binding[2];
-				for (uint32_t i = 0u; i < 2; i++)
-					binding[i] = {{},i,IDescriptor::E_TYPE::ET_STORAGE_BUFFER,IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,IShader::E_SHADER_STAGE::ESS_COMPUTE,1u,nullptr };
-				binding[1].count = OutputBufferCount;
-				dsLayout = m_device->createDescriptorSetLayout(binding);
-			}
+			std::array<uint64_t, OutputBufferCount> outputAddresses;
+			for (uint32_t i = 0; i < OutputBufferCount; i++)
+				outputAddresses[i] = outputBuffers[i]->getDeviceAddress();
 
-			// set and transient pool
-			auto descPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE,{&dsLayout.get(),1});
-			descriptorSet = descPool->createDescriptorSet(smart_refctd_ptr(dsLayout));
-			{
-				IGPUDescriptorSet::SDescriptorInfo infos[1+OutputBufferCount];
-				infos[0].desc = gpuinputDataBuffer;
-				infos[0].info.buffer = { 0u,gpuinputDataBuffer->getSize() };
-				for (uint32_t i = 1u; i <= OutputBufferCount; i++)
-				{
-					auto buff = outputBuffers[i - 1];
-					infos[i].info.buffer = { 0u,buff->getSize() };
-					infos[i].desc = std::move(buff); // save an atomic in the refcount
+			IGPUBuffer::SCreationParams params;
+			params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+			params.size = OutputBufferCount * sizeof(uint64_t);
+			m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = getTransferUpQueue() }, std::move(params), outputAddresses.data()).move_into(gpuOutputAddressesBuffer);
+		}
+		pc.inputBufAddress = gpuinputDataBuffer->getDeviceAddress();
+		pc.outputAddressBufAddress = gpuOutputAddressesBuffer->getDeviceAddress();
 
-				}
-
-				IGPUDescriptorSet::SWriteDescriptorSet writes[2];
-				for (uint32_t i=0u; i<2; i++)
-					writes[i] = {descriptorSet.get(),i,0u,1u,infos+i};
-				writes[1].count = OutputBufferCount;
-
-				m_device->updateDescriptorSets(2, writes, 0u, nullptr);
-			}
-
-			pipelineLayout = m_device->createPipelineLayout({},std::move(dsLayout));
+		// create Pipeline Layout
+		{
+			SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0,.size = sizeof(PushConstantData) };
+			pipelineLayout = m_device->createPipelineLayout({&pcRange, 1});
 		}
 
-		const auto spirv_isa_cache_path = localOutputCWD/"spirv_isa_cache.bin";
+		const auto spirv_isa_cache_path = localOutputCWD / "spirv_isa_cache.bin";
 		// enclose to make sure file goes out of scope and we can reopen it
 		{
 			smart_refctd_ptr<const IFile> spirv_isa_cache_input;
 			// try to load SPIR-V to ISA cache
 			{
 				ISystem::future_t<smart_refctd_ptr<IFile>> fileCreate;
-				m_system->createFile(fileCreate,spirv_isa_cache_path,IFile::ECF_READ|IFile::ECF_MAPPABLE|IFile::ECF_COHERENT);
-				if (auto lock=fileCreate.acquire())
+				m_system->createFile(fileCreate, spirv_isa_cache_path, IFile::ECF_READ | IFile::ECF_MAPPABLE | IFile::ECF_COHERENT);
+				if (auto lock = fileCreate.acquire())
 					spirv_isa_cache_input = *lock;
 			}
 			// create the cache
 			{
 				std::span<const uint8_t> spirv_isa_cache_data = {};
 				if (spirv_isa_cache_input)
-					spirv_isa_cache_data = {reinterpret_cast<const uint8_t*>(spirv_isa_cache_input->getMappedPointer()),spirv_isa_cache_input->getSize()};
+					spirv_isa_cache_data = { reinterpret_cast<const uint8_t*>(spirv_isa_cache_input->getMappedPointer()),spirv_isa_cache_input->getSize() };
 				else
-					m_logger->log("Failed to load SPIR-V 2 ISA cache!",ILogger::ELL_PERFORMANCE);
+					m_logger->log("Failed to load SPIR-V 2 ISA cache!", ILogger::ELL_PERFORMANCE);
 				// Normally we'd deserialize a `ICPUPipelineCache` properly and pass that instead
 				m_spirv_isa_cache = m_device->createPipelineCache(spirv_isa_cache_data);
 			}
@@ -164,9 +153,9 @@ public:
 			// TODO: rename `deleteDirectory` to just `delete`? and a `IFile::setSize()` ?
 			m_system->deleteDirectory(spirv_isa_cache_path);
 			ISystem::future_t<smart_refctd_ptr<IFile>> fileCreate;
-			m_system->createFile(fileCreate,spirv_isa_cache_path,IFile::ECF_WRITE);
+			m_system->createFile(fileCreate, spirv_isa_cache_path, IFile::ECF_WRITE);
 			// I can be relatively sure I'll succeed to acquire the future, the pointer to created file might be null though.
-			m_spirv_isa_cache_output=*fileCreate.acquire();
+			m_spirv_isa_cache_output = *fileCreate.acquire();
 			if (!m_spirv_isa_cache_output)
 				logFail("Failed to Create SPIR-V to ISA cache file.");
 		}
@@ -207,28 +196,31 @@ public:
 		for (auto subgroupSize=MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 		{
 			const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
-			for (uint32_t workgroupSize = subgroupSize; workgroupSize <= MaxWorkgroupSize; workgroupSize += subgroupSize)
+			for (uint32_t workgroupSize = subgroupSize; workgroupSize <= MaxWorkgroupSize; workgroupSize *= 2u)
 			{
 				// make sure renderdoc captures everything for debugging
 				m_api->startCapture();
 				m_logger->log("Testing Workgroup Size %u with Subgroup Size %u", ILogger::ELL_INFO, workgroupSize, subgroupSize);
 
-				bool passed = true;
-				// TODO async the testing
-				passed = runTest<emulatedReduction, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize) && passed;
-				logTestOutcome(passed, workgroupSize);
-				passed = runTest<emulatedScanInclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize) && passed;
-				logTestOutcome(passed, workgroupSize);
-				passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize) && passed;
-				logTestOutcome(passed, workgroupSize);
-				for (uint32_t itemsPerWG = workgroupSize; itemsPerWG > workgroupSize - subgroupSize; itemsPerWG--)
+				for (uint32_t j = 0; j < ItemsPerInvocations.size(); j++)
 				{
+					const uint32_t itemsPerInvocation = ItemsPerInvocations[j];
+					m_logger->log("Testing Items per Invocation %u", ILogger::ELL_INFO, itemsPerInvocation);
+					bool passed = true;
+					passed = runTest<emulatedReduction, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, itemsPerInvocation) && passed;
+					logTestOutcome(passed, workgroupSize);
+					passed = runTest<emulatedScanInclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, itemsPerInvocation) && passed;
+					logTestOutcome(passed, workgroupSize);
+					passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, itemsPerInvocation) && passed;
+					logTestOutcome(passed, workgroupSize);
+
+					const uint32_t itemsPerWG = workgroupSize <= subgroupSize ? workgroupSize * itemsPerInvocation : itemsPerInvocation * max(workgroupSize >> subgroupSizeLog2, subgroupSize) << subgroupSizeLog2;	// TODO use Config somehow
 					m_logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
-					passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
+					passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG, itemsPerInvocation) && passed;
 					logTestOutcome(passed, itemsPerWG);
-					passed = runTest<emulatedScanInclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
+					passed = runTest<emulatedScanInclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG, itemsPerInvocation) && passed;
 					logTestOutcome(passed, itemsPerWG);
-					passed = runTest<emulatedScanExclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
+					passed = runTest<emulatedScanExclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG, itemsPerInvocation) && passed;
 					logTestOutcome(passed, itemsPerWG);
 				}
 				m_api->endCapture();
@@ -239,7 +231,7 @@ public:
 					// Normally we'd beautifully JSON serialize the thing, allow multiple devices & drivers + metadata
 					auto bin = cpu->getEntries().begin()->second.bin;
 					IFile::success_t success;
-					m_spirv_isa_cache_output->write(success,bin->data(),0ull,bin->size());
+					m_spirv_isa_cache_output->write(success, bin->data(), 0ull, bin->size());
 					if (!success)
 						logFail("Could not write Create SPIR-V to ISA cache to disk!");
 				}
@@ -294,40 +286,89 @@ private:
 		return pipeline;
 	}
 
-	/*template<template<class> class Arithmetic, bool WorkgroupTest>
-	bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint32_t workgroupSize, uint32_t itemsPerWG = ~0u)
-	{
-		return true;
-	}*/
-
 	template<template<class> class Arithmetic, bool WorkgroupTest>
-	bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerWG = ~0u)
+	bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerWG = ~0u, uint32_t itemsPerInvoc = 1u)
 	{
 		std::string arith_name = Arithmetic<bit_xor<float>>::name;
+		const uint32_t workgroupSizeLog2 = hlsl::findMSB(workgroupSize);
 
-		smart_refctd_ptr<ICPUShader> overridenUnspecialized;
+		auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
+		CHLSLCompiler::SOptions options = {};
+		options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;
+		options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+		options.spirvOptimizer = nullptr;
+#ifndef _NBL_DEBUG
+		ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
+		auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
+		options.spirvOptimizer = opt.get();
+#else
+		options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
+#endif
+		options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
+		options.preprocessorOptions.logger = m_logger.get();
+
+		auto* includeFinder = compiler->getDefaultIncludeFinder();
+		includeFinder->addSearchPath("nbl/builtin/hlsl/jit", core::make_smart_refctd_ptr<CJITIncludeLoader>(m_physicalDevice->getLimits(), m_device->getEnabledFeatures()));
+		options.preprocessorOptions.includeFinder = includeFinder;
+
+		smart_refctd_ptr<ICPUShader> overriddenUnspecialized;
 		if constexpr (WorkgroupTest)
 		{
-			overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
-				source.get(), "#define OPERATION %s\n#define WORKGROUP_SIZE %d\n#define ITEMS_PER_WG %d\n",
-				(("workgroup::") + arith_name).c_str(), workgroupSize, itemsPerWG
-			);
+			const std::string definitions[6] = {
+				"workgroup2::" + arith_name,
+				std::to_string(workgroupSizeLog2),
+				std::to_string(itemsPerWG),
+				std::to_string(itemsPerInvoc),
+				std::to_string(subgroupSizeLog2),
+				std::to_string(arith_name=="reduction")
+			};
+
+			const IShaderCompiler::SMacroDefinition defines[6] = {
+				{ "OPERATION", definitions[0] },
+				{ "WORKGROUP_SIZE_LOG2", definitions[1] },
+				{ "ITEMS_PER_WG", definitions[2] },
+				{ "ITEMS_PER_INVOCATION", definitions[3] },
+				{ "SUBGROUP_SIZE_LOG2", definitions[4] },
+				{ "IS_REDUCTION", definitions[5] }
+			};
+			options.preprocessorOptions.extraDefines = { defines, defines + 6 };
+
+			overriddenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
 		}
 		else
 		{
-			itemsPerWG = workgroupSize;
-			overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
-				source.get(), "#define OPERATION %s\n#define WORKGROUP_SIZE %d\n",
-				(("subgroup::") + arith_name).c_str(), workgroupSize
-			);
+			const std::string definitions[4] = { 
+				"subgroup2::" + arith_name,
+				std::to_string(workgroupSize),
+				std::to_string(itemsPerInvoc),
+				std::to_string(subgroupSizeLog2)
+			};
+
+			const IShaderCompiler::SMacroDefinition defines[4] = {
+				{ "OPERATION", definitions[0] },
+				{ "WORKGROUP_SIZE", definitions[1] },
+				{ "ITEMS_PER_INVOCATION", definitions[2] },
+				{ "SUBGROUP_SIZE_LOG2", definitions[3] }
+			};
+			options.preprocessorOptions.extraDefines = { defines, defines + 4 };
+
+			overriddenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
 		}
-		auto pipeline = createPipeline(overridenUnspecialized.get(),subgroupSizeLog2);
+
+		auto pipeline = createPipeline(overriddenUnspecialized.get(),subgroupSizeLog2);
 
 		// TODO: overlap dispatches with memory readbacks (requires multiple copies of `buffers`)
-		const uint32_t workgroupCount = elementCount / itemsPerWG;
+		uint32_t workgroupCount;
+		if constexpr (WorkgroupTest)
+			workgroupCount = elementCount / itemsPerWG;
+		else
+		{
+			itemsPerWG = workgroupSize;
+			workgroupCount = elementCount / (itemsPerWG * itemsPerInvoc);
+		}	
 		cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
 		cmdbuf->bindComputePipeline(pipeline.get());
-		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &descriptorSet.get());
+		cmdbuf->pushConstants(pipelineLayout.get(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(PushConstantData), &pc);
 		cmdbuf->dispatch(workgroupCount, 1, 1);
 		{
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t memoryBarrier[OutputBufferCount];
@@ -359,22 +400,20 @@ private:
 		m_device->blockForSemaphores(wait);
 
 		// check results
-		bool passed = validateResults<Arithmetic, bit_and<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount);
-		passed = validateResults<Arithmetic, bit_xor<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount) && passed;
-		passed = validateResults<Arithmetic, bit_or<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount) && passed;
-		passed = validateResults<Arithmetic, plus<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount) && passed;
-		passed = validateResults<Arithmetic, multiplies<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount) && passed;
-		passed = validateResults<Arithmetic, minimum<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount) && passed;
-		passed = validateResults<Arithmetic, maximum<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount) && passed;
-		if constexpr (WorkgroupTest)
-			passed = validateResults<Arithmetic, ballot<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount) && passed;
+		bool passed = validateResults<Arithmetic, bit_and<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc);
+		passed = validateResults<Arithmetic, bit_xor<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, bit_or<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, plus<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, multiplies<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, minimum<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, maximum<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
 
 		return passed;
 	}
 
 	//returns true if result matches
 	template<template<class> class Arithmetic, class Binop, bool WorkgroupTest>
-	bool validateResults(const uint32_t itemsPerWG, const uint32_t workgroupCount)
+	bool validateResults(const uint32_t itemsPerWG, const uint32_t workgroupCount, const uint32_t itemsPerInvoc)
 	{
 		bool success = true;
 
@@ -394,47 +433,64 @@ private:
 		const auto testData = reinterpret_cast<const type_t*>(dataFromBuffer + 1);
 		// TODO: parallel for (the temporary values need to be threadlocal or what?)
 		// now check if the data obtained has valid values
-		type_t* tmp = new type_t[itemsPerWG];
-		type_t* ballotInput = new type_t[itemsPerWG];
+		type_t* tmp;
+		if constexpr (WorkgroupTest)
+			tmp = new type_t[itemsPerWG];
+		else
+			tmp = new type_t[itemsPerWG * itemsPerInvoc];
 		for (uint32_t workgroupID = 0u; success && workgroupID < workgroupCount; workgroupID++)
 		{
-			const auto workgroupOffset = workgroupID * itemsPerWG;
-
 			if constexpr (WorkgroupTest)
 			{
-				if constexpr (std::is_same_v<ballot<type_t>, Binop>)
+				const auto workgroupOffset = workgroupID * itemsPerWG;
+				Arithmetic<Binop>::impl(tmp, inputData + workgroupOffset, itemsPerWG);
+
+				for (uint32_t localInvocationIndex = 0u; localInvocationIndex < itemsPerWG; localInvocationIndex++)
 				{
-					for (auto i = 0u; i < itemsPerWG; i++)
-						ballotInput[i] = inputData[i + workgroupOffset] & 0x1u;
-					Arithmetic<Binop>::impl(tmp, ballotInput, itemsPerWG);
+					const auto globalInvocationIndex = workgroupOffset + localInvocationIndex;
+					const auto cpuVal = tmp[localInvocationIndex];
+					const auto gpuVal = testData[globalInvocationIndex];
+					if (cpuVal != gpuVal)
+					{
+						m_logger->log(
+							"Failed test #%d  (%s)  (%s) Expected %u got %u for workgroup %d and localinvoc %d",
+							ILogger::ELL_ERROR, itemsPerWG, WorkgroupTest ? "workgroup" : "subgroup", Binop::name,
+							cpuVal, gpuVal, workgroupID, localInvocationIndex
+						);
+						success = false;
+						break;
+					}
 				}
-				else
-					Arithmetic<Binop>::impl(tmp, inputData + workgroupOffset, itemsPerWG);
 			}
 			else
 			{
+				const auto workgroupOffset = workgroupID * itemsPerWG * itemsPerInvoc;
 				for (uint32_t pseudoSubgroupID = 0u; pseudoSubgroupID < itemsPerWG; pseudoSubgroupID += subgroupSize)
-					Arithmetic<Binop>::impl(tmp + pseudoSubgroupID, inputData + workgroupOffset + pseudoSubgroupID, subgroupSize);
-			}
+					Arithmetic<Binop>::impl(tmp + pseudoSubgroupID * itemsPerInvoc, inputData + workgroupOffset + pseudoSubgroupID * itemsPerInvoc, subgroupSize * itemsPerInvoc);
 
-			for (uint32_t localInvocationIndex = 0u; localInvocationIndex < itemsPerWG; localInvocationIndex++)
-			{
-				const auto globalInvocationIndex = workgroupOffset + localInvocationIndex;
-				const auto cpuVal = tmp[localInvocationIndex];
-				const auto gpuVal = testData[globalInvocationIndex];
-				if (cpuVal != gpuVal)
+				for (uint32_t localInvocationIndex = 0u; localInvocationIndex < itemsPerWG; localInvocationIndex++)
 				{
-					m_logger->log(
-						"Failed test #%d  (%s)  (%s) Expected %u got %u for workgroup %d and localinvoc %d",
-						ILogger::ELL_ERROR, itemsPerWG, WorkgroupTest ? "workgroup" : "subgroup", Binop::name,
-						cpuVal, gpuVal, workgroupID, localInvocationIndex
-					);
-					success = false;
-					break;
+					const auto localOffset = localInvocationIndex * itemsPerInvoc;
+					const auto globalInvocationIndex = workgroupOffset + localOffset;
+
+					for (uint32_t itemInvocationIndex = 0u; itemInvocationIndex < itemsPerInvoc; itemInvocationIndex++)
+					{
+						const auto cpuVal = tmp[localOffset + itemInvocationIndex];
+						const auto gpuVal = testData[globalInvocationIndex + itemInvocationIndex];
+						if (cpuVal != gpuVal)
+						{
+							m_logger->log(
+								"Failed test #%d  (%s)  (%s) Expected %u got %u for workgroup %d and localinvoc %d and iteminvoc %d",
+								ILogger::ELL_ERROR, itemsPerWG, WorkgroupTest ? "workgroup" : "subgroup", Binop::name,
+								cpuVal, gpuVal, workgroupID, localInvocationIndex, itemInvocationIndex
+							);
+							success = false;
+							break;
+						}
+					}
 				}
 			}
 		}
-		delete[] ballotInput;
 		delete[] tmp;
 
 		return success;
@@ -448,8 +504,8 @@ private:
 	uint32_t* inputData = nullptr;
 	constexpr static inline uint32_t OutputBufferCount = 8u;
 	smart_refctd_ptr<IGPUBuffer> outputBuffers[OutputBufferCount];
-	smart_refctd_ptr<IGPUDescriptorSet> descriptorSet;
 	smart_refctd_ptr<IGPUPipelineLayout> pipelineLayout;
+	PushConstantData pc;
 
 	smart_refctd_ptr<ISemaphore> sema;
 	uint64_t timelineValue = 0;
@@ -457,6 +513,8 @@ private:
 	smart_refctd_ptr<ICPUBuffer> resultsBuffer;
 
 	uint32_t totalFailCount = 0;
+
+	constexpr static inline std::array<uint32_t, 4> ItemsPerInvocations = { 1, 2, 3, 4 };
 };
 
-NBL_MAIN_FUNC(ArithmeticUnitTestApp)
+NBL_MAIN_FUNC(Workgroup2ScanTestApp)
