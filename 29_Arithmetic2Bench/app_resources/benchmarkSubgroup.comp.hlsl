@@ -18,14 +18,14 @@ uint32_t globalIndex()
 
 bool canStore() {return true;}
 
-template<template<class> class binop, typename T, uint32_t N>
+template<class Binop, uint32_t N>
 static void subbench(NBL_CONST_REF_ARG(type_t) sourceVal)
 {
     using config_t = nbl::hlsl::subgroup2::Configuration<SUBGROUP_SIZE_LOG2>;
-    using params_t = nbl::hlsl::subgroup2::ArithmeticParams<config_t, typename binop<T>::base_t, N, nbl::hlsl::jit::device_capabilities>;
+    using params_t = nbl::hlsl::subgroup2::ArithmeticParams<config_t, typename Binop::base_t, N, nbl::hlsl::jit::device_capabilities>;
     type_t value = sourceVal;
 
-    const uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.outputAddressBufAddress + binop<T>::BindingIndex * sizeof(uint64_t), sizeof(uint64_t));
+    const uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.outputAddressBufAddress + Binop::BindingIndex * sizeof(uint64_t), sizeof(uint64_t));
 
     operation_t<params_t> func;
     // [unroll]
@@ -41,13 +41,13 @@ void benchmark()
     const uint32_t idx = globalIndex();
     type_t sourceVal = vk::RawBufferLoad<type_t>(pc.inputBufAddress + idx * sizeof(type_t));
 
-    subbench<bit_and, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<bit_xor, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<bit_or, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<plus, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<multiplies, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<minimum, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<maximum, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
+    subbench<bit_and<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
+    subbench<bit_xor<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
+    subbench<bit_or<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
+    subbench<plus<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
+    subbench<multiplies<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
+    subbench<minimum<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
+    subbench<maximum<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
 }
 
 [numthreads(WORKGROUP_SIZE,1,1)]

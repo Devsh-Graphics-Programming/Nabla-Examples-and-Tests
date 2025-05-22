@@ -85,16 +85,15 @@ struct operation_t
     }
 };
 
-template<template<class> class binop, typename T, uint32_t N>
+template<class Binop>
 static void subbench(NBL_CONST_REF_ARG(type_t) sourceVal)
 {
-    const uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.outputAddressBufAddress + binop<T>::BindingIndex * sizeof(uint64_t), sizeof(uint64_t));
+    const uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.outputAddressBufAddress + Binop::BindingIndex * sizeof(uint64_t), sizeof(uint64_t));
 
     if (globalIndex()==0u)
         vk::RawBufferStore<uint32_t>(outputBufAddr, nbl::hlsl::glsl::gl_SubgroupSize());
 
-    operation_t<binop<T>,nbl::hlsl::jit::device_capabilities> func;
-    // TODO separate out store/load from DataProxy? so we don't do too many RW in benchmark
+    operation_t<Binop,nbl::hlsl::jit::device_capabilities> func;
     for (uint32_t i = 0; i < NUM_LOOPS; i++)
         func(); // store is done with data accessor now
 }
@@ -104,13 +103,13 @@ type_t benchmark()
 {
     const type_t sourceVal = vk::RawBufferLoad<type_t>(pc.inputBufAddress + globalIndex() * sizeof(type_t));
 
-    subbench<bit_and, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<bit_xor, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<bit_or, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<plus, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<multiplies, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<minimum, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<maximum, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
+    subbench<bit_and<uint32_t> >(sourceVal);
+    subbench<bit_xor<uint32_t> >(sourceVal);
+    subbench<bit_or<uint32_t> >(sourceVal);
+    subbench<plus<uint32_t> >(sourceVal);
+    subbench<multiplies<uint32_t> >(sourceVal);
+    subbench<minimum<uint32_t> >(sourceVal);
+    subbench<maximum<uint32_t> >(sourceVal);
     return sourceVal;
 }
 

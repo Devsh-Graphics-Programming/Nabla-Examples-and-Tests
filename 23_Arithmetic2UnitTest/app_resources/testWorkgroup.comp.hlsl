@@ -150,14 +150,14 @@ struct operation_t
 };
 
 
-template<template<class> class binop, typename T, uint32_t N>
+template<class Binop>
 static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
 {
-    uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.outputAddressBufAddress + binop<T>::BindingIndex * sizeof(uint64_t));
+    uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.outputAddressBufAddress + Binop::BindingIndex * sizeof(uint64_t));
     if (globalIndex()==0u)
         vk::RawBufferStore<uint32_t>(outputBufAddr, nbl::hlsl::glsl::gl_SubgroupSize());
 
-    operation_t<binop<T>,nbl::hlsl::jit::device_capabilities> func;
+    operation_t<Binop,nbl::hlsl::jit::device_capabilities> func;
     func();
 }
 
@@ -166,13 +166,13 @@ type_t test()
 {
     type_t sourceVal = vk::RawBufferLoad<type_t>(pc.inputBufAddress + globalIndex() * sizeof(type_t));
 
-    subtest<bit_and, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subtest<bit_xor, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subtest<bit_or, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subtest<plus, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subtest<multiplies, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subtest<minimum, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subtest<maximum, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
+    subtest<bit_and<uint32_t> >(sourceVal);
+    subtest<bit_xor<uint32_t> >(sourceVal);
+    subtest<bit_or<uint32_t> >(sourceVal);
+    subtest<plus<uint32_t> >(sourceVal);
+    subtest<multiplies<uint32_t> >(sourceVal);
+    subtest<minimum<uint32_t> >(sourceVal);
+    subtest<maximum<uint32_t> >(sourceVal);
     return sourceVal;
 }
 

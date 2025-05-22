@@ -11,15 +11,13 @@
 
 typedef vector<uint32_t, ITEMS_PER_INVOCATION> type_t;
 
-template<template<class> class binop, typename T, uint32_t N>
+template<class Binop, uint32_t N>
 static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
 {
-    // TODO static assert vector<T, N> == type_t
-    //using type_t = vector<T, N>;
     using config_t = nbl::hlsl::subgroup2::Configuration<SUBGROUP_SIZE_LOG2>;
-    using params_t = nbl::hlsl::subgroup2::ArithmeticParams<config_t, typename binop<T>::base_t, N, nbl::hlsl::jit::device_capabilities>;
+    using params_t = nbl::hlsl::subgroup2::ArithmeticParams<config_t, typename Binop::base_t, N, nbl::hlsl::jit::device_capabilities>;
 
-    const uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.outputAddressBufAddress + binop<T>::BindingIndex * sizeof(uint64_t), sizeof(uint64_t));
+    const uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.outputAddressBufAddress + Binop::BindingIndex * sizeof(uint64_t), sizeof(uint64_t));
 
     if (globalIndex()==0u)
         vk::RawBufferStore<uint32_t>(outputBufAddr, nbl::hlsl::glsl::gl_SubgroupSize());
@@ -35,13 +33,13 @@ type_t test()
     const uint32_t idx = globalIndex();
     type_t sourceVal = vk::RawBufferLoad<type_t>(pc.inputBufAddress + idx * sizeof(type_t));
 
-    subtest<bit_and, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subtest<bit_xor, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subtest<bit_or, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subtest<plus, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subtest<multiplies, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subtest<minimum, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
-    subtest<maximum, uint32_t, ITEMS_PER_INVOCATION>(sourceVal);
+    subtest<bit_and<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
+    subtest<bit_xor<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
+    subtest<bit_or<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
+    subtest<plus<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
+    subtest<multiplies<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
+    subtest<minimum<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
+    subtest<maximum<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
     return sourceVal;
 }
 
