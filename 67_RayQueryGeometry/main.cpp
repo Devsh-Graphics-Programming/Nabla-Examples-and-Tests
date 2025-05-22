@@ -644,10 +644,14 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			myalloc.device = m_device.get();
 			inputs.allocator = &myalloc;
 #endif
-
+			
+			std::array<CAssetConverter::patch_t<ICPUBottomLevelAccelerationStructure>,OT_COUNT> tmpBLASPatches = {};
 			std::array<const ICPUBuffer*, OT_COUNT * 2u> tmpBuffers;
 			std::array<CAssetConverter::patch_t<ICPUBuffer>, OT_COUNT * 2u> tmpBufferPatches;
 			{
+				tmpBLASPatches.front().compactAfterBuild = true;
+				std::fill(tmpBLASPatches.begin(),tmpBLASPatches.end(),tmpBLASPatches.front());
+				//
 				for (uint32_t i = 0; i < objectsCpu.size(); i++)
 				{
 					tmpBuffers[2 * i + 0] = cpuBlas[i]->getTriangleGeometries().front().vertexData[0].buffer.get();
@@ -659,6 +663,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUTopLevelAccelerationStructure>>(inputs.assets) = {&cpuTlas.get(),1};
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUBottomLevelAccelerationStructure>>(inputs.assets) = {&cpuBlas.data()->get(),cpuBlas.size()};
+				std::get<CAssetConverter::SInputs::patch_span_t<ICPUBottomLevelAccelerationStructure>>(inputs.patches) = tmpBLASPatches;
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = tmpBuffers;
 				std::get<CAssetConverter::SInputs::patch_span_t<ICPUBuffer>>(inputs.patches) = tmpBufferPatches;
 			}
