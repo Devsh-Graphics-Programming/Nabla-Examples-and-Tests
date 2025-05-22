@@ -599,24 +599,26 @@ private:
 		if constexpr (WorkgroupBench)
 		{
 			const uint32_t workgroupSizeLog2 = hlsl::findMSB(workgroupSize);
-			const std::string definitions[6] = {
+			const std::string definitions[7] = {
 				"workgroup2::" + arith_name,
 				std::to_string(workgroupSizeLog2),
 				std::to_string(itemsPerWG),
 				std::to_string(itemsPerInvoc),
 				std::to_string(subgroupSizeLog2),
-				std::to_string(numLoops)
+				std::to_string(numLoops),
+				std::to_string(arith_name=="reduction")
 			};
 
-			const IShaderCompiler::SMacroDefinition defines[6] = {
+			const IShaderCompiler::SMacroDefinition defines[7] = {
 				{ "OPERATION", definitions[0] },
 				{ "WORKGROUP_SIZE_LOG2", definitions[1] },
 				{ "ITEMS_PER_WG", definitions[2] },
 				{ "ITEMS_PER_INVOCATION", definitions[3] },
 				{ "SUBGROUP_SIZE_LOG2", definitions[4] },
-				{ "NUM_LOOPS", definitions[5] }
+				{ "NUM_LOOPS", definitions[5] },
+				{ "IS_REDUCTION", definitions[6] }
 			};
-			options.preprocessorOptions.extraDefines = { defines, defines + 6 };
+			options.preprocessorOptions.extraDefines = { defines, defines + 7 };
 
 			overriddenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
 		}
