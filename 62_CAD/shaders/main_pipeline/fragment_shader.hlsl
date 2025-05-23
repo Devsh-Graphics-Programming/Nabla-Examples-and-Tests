@@ -117,46 +117,6 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     return color;
 }
 
-// TODO: move to other header
-float4 calculateGridDTMOutlineColor(in uint outlineLineStyleIdx, in nbl::hlsl::shapes::Line<float> outlineLineSegments[2], in float2 fragPos, in float phaseShift)
-{
-    LineStyle outlineStyle = loadLineStyle(outlineLineStyleIdx);
-    const float outlineThickness = (outlineStyle.screenSpaceLineWidth + outlineStyle.worldSpaceLineWidth * globals.screenToWorldRatio) * 0.5f;
-    const float stretch = 1.0f;
-
-    // find distance to outline
-    float minDistance = nbl::hlsl::numeric_limits<float>::max;
-    if (!outlineStyle.hasStipples() || stretch == InvalidStyleStretchValue)
-    {
-        for (int i = 0; i < 2; ++i)
-        {
-            float distance = nbl::hlsl::numeric_limits<float>::max;
-            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float> >::sdf(outlineLineSegments[i], fragPos, outlineThickness, outlineStyle.isRoadStyleFlag);
-
-            minDistance = min(minDistance, distance);
-        }
-    }
-    else
-    {
-        for (int i = 0; i < 2; ++i)
-        {
-            float distance = nbl::hlsl::numeric_limits<float>::max;
-            nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(outlineLineSegments[i]);
-            LineStyleClipper clipper = LineStyleClipper::construct(outlineStyle, outlineLineSegments[i], arcLenCalc, phaseShift, stretch, globals.worldToScreenRatio);
-            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(outlineLineSegments[i], fragPos, outlineThickness, outlineStyle.isRoadStyleFlag, clipper);
-
-            minDistance = min(minDistance, distance);
-        }
-    }
-
-    float4 outputColor;
-    outputColor.a = 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, minDistance);
-    outputColor.a *= outlineStyle.color.a;
-    outputColor.rgb = outlineStyle.color.rgb;
-
-    return outputColor;
-}
-
 [[vk::spvexecutionmode(spv::ExecutionModePixelInterlockOrderedEXT)]]
 [shader("pixel")]
 float4 fragMain(PSInput input) : SV_TARGET
@@ -511,18 +471,10 @@ float4 fragMain(PSInput input) : SV_TARGET
                 // TODO: remove when implementing height texture
                 [unroll]
                 for (uint i = 0; i < 3; ++i)
-                {
                     v[i].z = -20.0f + 5.0f * (v[i].x + v[i].y) / cellWidth;
 
-                    //if (abs(round(v[i].z) - 20.0f) <= 0.1f)
-                    //    v[i].z = asfloat(0x7FC00000);
-
-                }
-
                 if (isnan(v[0].z) || isnan(v[1].z) || isnan(v[2].z))
-                {
                     discard;
-                }
 
                 // move from grid space to screen space
                 [unroll]
@@ -550,9 +502,9 @@ float4 fragMain(PSInput input) : SV_TARGET
 
                 float patternCellCoord = distancesToVerticalCellSides >= distancesToHorizontalCellSides ? cellCoords.x : cellCoords.y;
 
-                // TODO: calculate pattern length!!!
-                float patternLength = 30.0f;
-                outlinePhaseShift = (cellWidth * (1.0f / globals.screenToWorldRatio) * patternCellCoord) / patternLength;
+                float reciprocalPatternLength = input.getGridDTMOutlineStipplePatternLengthReciprocal();
+                if(reciprocalPatternLength > 0.0f)
+                    outlinePhaseShift = (cellWidth * (1.0f / globals.screenToWorldRatio) * patternCellCoord) * reciprocalPatternLength;
             }
 
             const float3 baryCoord = dtm::calculateDTMTriangleBarycentrics(v[0], v[1], v[2], input.position.xy);
@@ -561,7 +513,7 @@ float4 fragMain(PSInput input) : SV_TARGET
 
             float4 dtmColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
             if (dtmSettings.drawOutlineEnabled())
-                dtmColor = dtm::blendUnder(dtmColor, calculateGridDTMOutlineColor(dtmSettings.outlineLineStyleIdx, outlineLineSegments, input.position.xy, outlinePhaseShift));
+                dtmColor = dtm::blendUnder(dtmColor, dtm::calculateGridDTMOutlineColor(dtmSettings.outlineLineStyleIdx, outlineLineSegments, input.position.xy, outlinePhaseShift));
             if (dtmSettings.drawContourEnabled())
             {
                 for (uint32_t i = 0; i < dtmSettings.contourSettingsCount; ++i) // TODO: should reverse the order with blendUnder

@@ -45,7 +45,7 @@ static constexpr bool DebugModeWireframe = false;
 static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
 static constexpr bool LargeGeoTextureStreaming = true;
-static constexpr bool CacheAndReplay = true; // caches first frame resources (buffers and images) from DrawResourcesFiller  and replays in future frames, skiping CPU Logic
+static constexpr bool CacheAndReplay = false; // caches first frame resources (buffers and images) from DrawResourcesFiller  and replays in future frames, skiping CPU Logic
 
 enum class ExampleMode
 {

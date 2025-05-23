@@ -598,6 +598,12 @@ void DrawResourcesFiller::drawGridDTM(
 	gridDTMInfo.width = width;
 	gridDTMInfo.gridCellWidth = gridCellWidth;
 
+	if (dtmSettingsInfo.mode & E_DTM_MODE::OUTLINE)
+	{
+		const bool isOutlineStippled = dtmSettingsInfo.outlineStyleInfo.stipplePatternSize > 0;
+		gridDTMInfo.outlineStipplePatternLengthReciprocal = isOutlineStippled ? dtmSettingsInfo.outlineStyleInfo.reciprocalStipplePatternLen : 0.0f;
+	}
+
 	setActiveDTMSettings(dtmSettingsInfo);
 	beginMainObject(MainObjectType::GRID_DTM);
 

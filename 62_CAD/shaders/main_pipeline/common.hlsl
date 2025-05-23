@@ -233,16 +233,18 @@ struct PSInput
 
     /* GRID DTM */
     uint getGridDTMHeightTextureID(uint textureID) { return data1.z; }
-    float getGridDTMScreenSpaceCellWidth() { return data3.x; }
-    float2 getGridDTMScreenSpacePosition() { return interp_data5.zw; }
     float2 getGridDTMScreenSpaceTopLeft() { return data2.xy; }
     float2 getGridDTMScreenSpaceGridExtents() { return data2.zw; }
+    float getGridDTMScreenSpaceCellWidth() { return data3.x; }
+    float getGridDTMOutlineStipplePatternLengthReciprocal() { return data3.y; }
+    float2 getGridDTMScreenSpacePosition() { return interp_data5.zw; }
 
     void setGridDTMHeightTextureID(uint textureID) { data1.z = textureID; }
-    void setGridDTMScreenSpaceCellWidth(float screenSpaceGridWidth) { data3.x = screenSpaceGridWidth; }
-    void setGridDTMScreenSpacePosition(float2 screenSpacePosition) { interp_data5.zw = screenSpacePosition; }
     void setGridDTMScreenSpaceTopLeft(float2 screenSpaceTopLeft) { data2.xy = screenSpaceTopLeft; }
     void setGridDTMScreenSpaceGridExtents(float2 screenSpaceGridExtends) { data2.zw = screenSpaceGridExtends; }
+    void setGridDTMScreenSpaceCellWidth(float screenSpaceGridWidth) { data3.x = screenSpaceGridWidth; }
+    void setGridDTMOutlineStipplePatternLengthReciprocal(float outlineStipplePatternLength) { data3.y = outlineStipplePatternLength; }
+    void setGridDTMScreenSpacePosition(float2 screenSpacePosition) { interp_data5.zw = screenSpacePosition; }
 };
 
 // Set 0 - Scene Data and Globals, buffer bindings don't change the buffers only get updated

@@ -652,6 +652,7 @@ PSInput main(uint vertexID : SV_VertexID)
             pfloat64_t width = vk::RawBufferLoad<pfloat64_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(pfloat64_t), 8u);
             uint32_t dtmSettingsID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(pfloat64_t), 8u);
             float gridCellWidth = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(pfloat64_t) + sizeof(uint32_t), 8u);
+            float reciprocalOutlineStipplePatternLength = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(pfloat64_t) + sizeof(uint32_t) + sizeof(float), 8u);
 
             const float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
             pfloat64_t2 vtxPos = topLeft;
@@ -671,6 +672,7 @@ PSInput main(uint vertexID : SV_VertexID)
             gridExtents.y = height;
             outV.setGridDTMScreenSpaceGridExtents(gridExtents * globals.screenToWorldRatio);
             outV.setImageUV(corner);
+            outV.setGridDTMOutlineStipplePatternLengthReciprocal(reciprocalOutlineStipplePatternLength);
         }
         else if (objType == ObjectType::STREAMED_IMAGE)
         {

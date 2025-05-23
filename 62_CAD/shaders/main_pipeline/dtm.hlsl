@@ -371,6 +371,45 @@ float4 calculateDTMOutlineColor(in uint outlineLineStyleIdx, in float3 v[3], in 
     return outputColor;
 }
 
+float4 calculateGridDTMOutlineColor(in uint outlineLineStyleIdx, in nbl::hlsl::shapes::Line<float> outlineLineSegments[2], in float2 fragPos, in float phaseShift)
+{
+    LineStyle outlineStyle = loadLineStyle(outlineLineStyleIdx);
+    const float outlineThickness = (outlineStyle.screenSpaceLineWidth + outlineStyle.worldSpaceLineWidth * globals.screenToWorldRatio) * 0.5f;
+    const float stretch = 1.0f;
+
+    // find distance to outline
+    float minDistance = nbl::hlsl::numeric_limits<float>::max;
+    if (!outlineStyle.hasStipples() || stretch == InvalidStyleStretchValue)
+    {
+        for (int i = 0; i < 2; ++i)
+        {
+            float distance = nbl::hlsl::numeric_limits<float>::max;
+            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float> >::sdf(outlineLineSegments[i], fragPos, outlineThickness, outlineStyle.isRoadStyleFlag);
+
+            minDistance = min(minDistance, distance);
+        }
+    }
+    else
+    {
+        for (int i = 0; i < 2; ++i)
+        {
+            float distance = nbl::hlsl::numeric_limits<float>::max;
+            nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(outlineLineSegments[i]);
+            LineStyleClipper clipper = LineStyleClipper::construct(outlineStyle, outlineLineSegments[i], arcLenCalc, phaseShift, stretch, globals.worldToScreenRatio);
+            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(outlineLineSegments[i], fragPos, outlineThickness, outlineStyle.isRoadStyleFlag, clipper);
+
+            minDistance = min(minDistance, distance);
+        }
+    }
+
+    float4 outputColor;
+    outputColor.a = 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, minDistance);
+    outputColor.a *= outlineStyle.color.a;
+    outputColor.rgb = outlineStyle.color.rgb;
+
+    return outputColor;
+}
+
 float4 blendUnder(in float4 dstColor, in float4 srcColor)
 {
     dstColor.rgb = dstColor.rgb + (1 - dstColor.a) * srcColor.a * srcColor.rgb;
