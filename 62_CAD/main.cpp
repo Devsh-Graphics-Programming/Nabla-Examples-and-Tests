@@ -45,7 +45,7 @@ static constexpr bool DebugModeWireframe = false;
 static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
 static constexpr bool LargeGeoTextureStreaming = true;
-static constexpr bool CacheAndReplay = false; // caches first frame resources (buffers and images) from DrawResourcesFiller  and replays in future frames, skiping CPU Logic
+static constexpr bool CacheAndReplay = true; // caches first frame resources (buffers and images) from DrawResourcesFiller  and replays in future frames, skiping CPU Logic
 
 enum class ExampleMode
 {
@@ -277,6 +277,87 @@ class CSwapchainResources : public ISimpleManagedSurface::ISwapchainResources
 		std::array<core::smart_refctd_ptr<IGPUFramebuffer>,ISwapchain::MaxImages> m_framebuffers;
 };
 
+
+// TODO: Move this funcitons that help with creating a new promoted CPUImage
+template<unsigned int SRC_CHANNELS>
+struct PromotionComponentSwizzle
+{
+    template<typename InT, typename OutT>
+    void operator()(const InT* in, OutT* out) const
+    {
+        using in_t = std::conditional_t<std::is_void_v<InT>, uint64_t, InT>;
+        using out_t = std::conditional_t<std::is_void_v<OutT>, uint64_t, OutT>;
+
+        reinterpret_cast<out_t*>(out)[0u] = reinterpret_cast<const in_t*>(in)[0u];
+
+        if constexpr (SRC_CHANNELS > 1)
+            reinterpret_cast<out_t*>(out)[1u] = reinterpret_cast<const in_t*>(in)[1u];
+        else
+            reinterpret_cast<out_t*>(out)[1u] = static_cast<in_t>(0);
+
+        if constexpr (SRC_CHANNELS > 2)
+            reinterpret_cast<out_t*>(out)[2u] = reinterpret_cast<const in_t*>(in)[2u];
+        else
+            reinterpret_cast<out_t*>(out)[2u] = static_cast<in_t>(0);
+
+        if constexpr (SRC_CHANNELS > 3)
+            reinterpret_cast<out_t*>(out)[3u] = reinterpret_cast<const in_t*>(in)[3u];
+        else
+            reinterpret_cast<out_t*>(out)[3u] = static_cast<in_t>(1);
+    }
+};
+template<typename Filter>
+bool performCopyUsingImageFilter(
+    const core::smart_refctd_ptr<asset::ICPUImage>& inCPUImage,
+    const core::smart_refctd_ptr<asset::ICPUImage>& outCPUImage)
+{
+    Filter filter;
+
+	const uint32_t mipLevels = inCPUImage->getCreationParameters().mipLevels;
+	
+	for (uint32_t level = 0u; level < mipLevels; ++level)
+	{
+		const auto regions = inCPUImage->getRegions(level);
+
+		for (auto& region : regions)
+		{
+			typename Filter::state_type state = {};
+			state.extent = region.imageExtent;
+			state.layerCount = region.imageSubresource.layerCount;
+			state.inImage = inCPUImage.get();
+			state.outImage = outCPUImage.get();
+			state.inOffsetBaseLayer = core::vectorSIMDu32(region.imageOffset.x,  region.imageOffset.y, region.imageOffset.z, region.imageSubresource.baseArrayLayer);
+			state.outOffsetBaseLayer = core::vectorSIMDu32(0u);
+			state.inMipLevel = region.imageSubresource.mipLevel;
+			state.outMipLevel = region.imageSubresource.mipLevel;
+
+			if (!filter.execute(core::execution::par_unseq, &state))
+				return false;
+		}
+	}
+	return true;
+}
+
+bool performImageFormatPromotionCopy(const core::smart_refctd_ptr<asset::ICPUImage>& inCPUImage, const core::smart_refctd_ptr<asset::ICPUImage>& outCPUImage)
+{
+	asset::E_FORMAT srcImageFormat = inCPUImage->getCreationParameters().format;
+	asset::E_FORMAT dstImageFormat = outCPUImage->getCreationParameters().format;
+
+	// In = srcData, Out = stagingBuffer
+	if (srcImageFormat == dstImageFormat)
+		return false;
+
+    auto srcChannelCount = asset::getFormatChannelCount(srcImageFormat);
+    if (srcChannelCount == 1u)
+        return performCopyUsingImageFilter<asset::CSwizzleAndConvertImageFilter<asset::EF_UNKNOWN, asset::EF_UNKNOWN, PromotionComponentSwizzle<1u>>>(inCPUImage, outCPUImage);
+    else if (srcChannelCount == 2u)
+        return performCopyUsingImageFilter<asset::CSwizzleAndConvertImageFilter<asset::EF_UNKNOWN, asset::EF_UNKNOWN, PromotionComponentSwizzle<2u>>>(inCPUImage, outCPUImage);
+    else if (srcChannelCount == 3u)
+        return performCopyUsingImageFilter<asset::CSwizzleAndConvertImageFilter<asset::EF_UNKNOWN, asset::EF_UNKNOWN, PromotionComponentSwizzle<3u>>>(inCPUImage, outCPUImage);
+    else
+        return performCopyUsingImageFilter<asset::CSwizzleAndConvertImageFilter<asset::EF_UNKNOWN, asset::EF_UNKNOWN, PromotionComponentSwizzle<4u>>>(inCPUImage, outCPUImage);
+}
+
 class ComputerAidedDesign final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 	using device_base_t = examples::SimpleWindowedApplication;
@@ -388,22 +469,44 @@ public:
 			}
 		}
 
-		IGPUSampler::SParams samplerParams = {};
-		samplerParams.TextureWrapU = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
-		samplerParams.TextureWrapV = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
-		samplerParams.TextureWrapW = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
-		samplerParams.BorderColor  = IGPUSampler::ETBC_FLOAT_OPAQUE_WHITE; // positive means outside shape
-		samplerParams.MinFilter		= IGPUSampler::ETF_LINEAR;
-		samplerParams.MaxFilter		= IGPUSampler::ETF_LINEAR;
-		samplerParams.MipmapMode	= IGPUSampler::ESMM_LINEAR;
-		samplerParams.AnisotropicFilter = 3;
-		samplerParams.CompareEnable = false;
-		samplerParams.CompareFunc = ECO_GREATER;
-		samplerParams.LodBias = 0.f;
-		samplerParams.MinLod = -1000.f;
-		samplerParams.MaxLod = 1000.f;
-		msdfTextureSampler = m_device->createSampler(samplerParams);
-	
+		// MSDF Image Sampler
+		{
+			IGPUSampler::SParams samplerParams = {};
+			samplerParams.TextureWrapU = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+			samplerParams.TextureWrapV = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+			samplerParams.TextureWrapW = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+			samplerParams.BorderColor = IGPUSampler::ETBC_FLOAT_OPAQUE_WHITE; // positive means outside shape
+			samplerParams.MinFilter = IGPUSampler::ETF_LINEAR;
+			samplerParams.MaxFilter = IGPUSampler::ETF_LINEAR;
+			samplerParams.MipmapMode = IGPUSampler::ESMM_LINEAR;
+			samplerParams.AnisotropicFilter = 3;
+			samplerParams.CompareEnable = false;
+			samplerParams.CompareFunc = ECO_GREATER;
+			samplerParams.LodBias = 0.f;
+			samplerParams.MinLod = -1000.f;
+			samplerParams.MaxLod = 1000.f;
+			msdfImageSampler = m_device->createSampler(samplerParams);
+		}
+		
+		// Static Image Sampler
+		{
+			IGPUSampler::SParams samplerParams = {};
+			samplerParams.TextureWrapU = IGPUSampler::E_TEXTURE_CLAMP::ETC_MIRROR;
+			samplerParams.TextureWrapV = IGPUSampler::E_TEXTURE_CLAMP::ETC_MIRROR;
+			samplerParams.TextureWrapW = IGPUSampler::E_TEXTURE_CLAMP::ETC_MIRROR;
+			samplerParams.BorderColor = IGPUSampler::ETBC_FLOAT_TRANSPARENT_BLACK;
+			samplerParams.MinFilter = IGPUSampler::ETF_LINEAR;
+			samplerParams.MaxFilter = IGPUSampler::ETF_LINEAR;
+			samplerParams.MipmapMode = IGPUSampler::ESMM_LINEAR;
+			samplerParams.AnisotropicFilter = 3;
+			samplerParams.CompareEnable = false;
+			samplerParams.CompareFunc = ECO_GREATER;
+			samplerParams.LodBias = 0.f;
+			samplerParams.MinLod = -1000.f;
+			samplerParams.MaxLod = 1000.f;
+			staticImageSampler = m_device->createSampler(samplerParams);
+		}
+
 		// Initial Pipeline Transitions and Clearing of PseudoStencil and ColorStorage
 		// Recorded to Temporary CommandBuffer, Submitted to Graphics Queue, and Blocked on here
 		{
@@ -746,10 +849,10 @@ public:
 				descriptorInfosSet0[0u].desc = m_globalsBuffer;
 
 				descriptorInfosSet0[1u].info.combinedImageSampler.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				descriptorInfosSet0[1u].info.combinedImageSampler.sampler = msdfTextureSampler;
+				descriptorInfosSet0[1u].info.combinedImageSampler.sampler = msdfImageSampler;
 				descriptorInfosSet0[1u].desc = drawResourcesFiller.getMSDFsTextureArray();
 				
-				descriptorInfosSet0[2u].desc = msdfTextureSampler; // TODO[Erfan]: different sampler and make immutable?
+				descriptorInfosSet0[2u].desc = staticImageSampler; // TODO[Erfan]: different sampler and make immutable?
 				
 				// This is bindless to we write to it later.
 				// descriptorInfosSet0[3u].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
@@ -1044,10 +1147,10 @@ public:
 		system::path m_loadCWD = "..";
 		std::string imagePaths[] =
 		{
-			"../../media/color_space_test/R8G8B8A8_1.png",
-			"../../media/color_space_test/R8G8B8A8_2.png",
-			"../../media/color_space_test/R8G8B8_1.png",
 			"../../media/color_space_test/R8G8B8_1.jpg",
+			"../../media/color_space_test/R8G8B8_1.png",
+			"../../media/color_space_test/R8G8B8A8_2.png",
+			"../../media/color_space_test/R8G8B8A8_1.png",
 		};
 
 		for (const auto& imagePath : imagePaths)
@@ -1094,8 +1197,58 @@ public:
 				m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type, skipping!", ILogger::ELL_ERROR);
 			}
 
-			const auto cpuImage = cpuImgView->getCreationParameters().image;
-			sampleImages.push_back(cpuImage);
+
+			const auto loadedCPUImage = cpuImgView->getCreationParameters().image;
+			const auto loadedCPUImageCreationParams = loadedCPUImage->getCreationParameters();
+
+			// Promoting the image to a format GPU supports. (so that updateImageViaStagingBuffer doesn't have to handle that each frame if overflow-submit needs to happen)
+			auto promotedCPUImageCreationParams = loadedCPUImage->getCreationParameters();
+			
+			promotedCPUImageCreationParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT|IGPUImage::EUF_SAMPLED_BIT;
+			// promote format because RGB8 and friends don't actually exist in HW
+			{
+				const IPhysicalDevice::SImageFormatPromotionRequest request = {
+					.originalFormat = promotedCPUImageCreationParams.format,
+					.usages = IPhysicalDevice::SFormatImageUsages::SUsage(promotedCPUImageCreationParams.usage)
+				};
+				promotedCPUImageCreationParams.format = m_physicalDevice->promoteImageFormat(request,video::IGPUImage::TILING::OPTIMAL);
+			}
+
+			if (loadedCPUImageCreationParams.format != promotedCPUImageCreationParams.format)
+			{
+				smart_refctd_ptr<ICPUImage> promotedCPUImage = ICPUImage::create(promotedCPUImageCreationParams);
+				core::rational<uint32_t> bytesPerPixel = asset::getBytesPerPixel(promotedCPUImageCreationParams.format);
+
+				const auto extent = loadedCPUImageCreationParams.extent;
+				const uint32_t mipLevels = loadedCPUImageCreationParams.mipLevels;
+				const uint32_t arrayLayers = loadedCPUImageCreationParams.arrayLayers;
+				
+				// Only supporting 1 mip, it's just for test..
+				const size_t byteSize = (bytesPerPixel * extent.width * extent.height * extent.depth * arrayLayers).getIntegerApprox(); // TODO: consider mips
+				ICPUBuffer::SCreationParams bufferCreationParams = {};
+				bufferCreationParams.size = byteSize;
+				smart_refctd_ptr<ICPUBuffer> promotedCPUImageBuffer = ICPUBuffer::create(std::move(bufferCreationParams));
+				
+				auto newRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1u);
+				ICPUImage::SBufferCopy& region = newRegions->front();
+				region.imageSubresource.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+				region.imageSubresource.mipLevel = 0u; // TODO
+				region.imageSubresource.baseArrayLayer = 0u;
+				region.imageSubresource.layerCount = arrayLayers;
+				region.bufferOffset = 0u;
+				region.bufferRowLength = 0u;
+				region.bufferImageHeight = 0u;
+				region.imageOffset = { 0u, 0u, 0u };
+				region.imageExtent = extent;
+				promotedCPUImage->setBufferAndRegions(std::move(promotedCPUImageBuffer), newRegions);
+
+				performImageFormatPromotionCopy(loadedCPUImage, promotedCPUImage);
+				sampleImages.push_back(promotedCPUImage);
+			}
+			else
+			{
+				sampleImages.push_back(loadedCPUImage);
+			}
 		}
 
 		return true;
@@ -1280,8 +1433,8 @@ public:
 		const bool isCachingDraw = CacheAndReplay && m_realFrameIx == 0u && !finishedCachingDraw;
 		if (isCachingDraw)
 		{
+			drawResourcesFiller.markFrameUsageComplete(intendedSubmitInfo.getFutureScratchSemaphore().value);
 			replayCaches.push_back(drawResourcesFiller.createReplayCache());
-			intendedSubmitInfo.scratchSemaphore.value++; // fake advance needed for Texture and MSDF LRU caches and evictions to work
 			return; // we don't record, submit or do anything, just caching the draw resources
 		}
 
@@ -1454,6 +1607,8 @@ public:
 
 		if (!inBetweenSubmit)
 			cb->endDebugMarker();
+		
+		drawResourcesFiller.markFrameUsageComplete(intendedSubmitInfo.getFutureScratchSemaphore().value);
 
 		if (inBetweenSubmit)
 		{
@@ -2903,10 +3058,18 @@ protected:
 			for (uint32_t i = 0; i < sampleImages.size(); ++i)
 			{
 				uint64_t imageID = i * 69ull; // it can be hash or something of the file path the image was loaded from
-				drawResourcesFiller.addStaticImage2D(imageID, sampleImages[i], intendedNextSubmit);
-				drawResourcesFiller.addImageObject(imageID, { 0.0 + i * 100.0, 0.0 }, { 100.0 , 100.0 }, 0.0, intendedNextSubmit);
-				// drawResourcesFiller.addImageObject(imageID, { 40.0, +40.0 }, { 100.0, 100.0 }, 0.0, intendedNextSubmit);
+				//printf(std::format("\n Image {} \n", i).c_str());
+				drawResourcesFiller.ensureStaticImageAvailability(imageID, sampleImages[i], intendedNextSubmit);
+				drawResourcesFiller.addImageObject(imageID, { .topLeft = { 0.0 + (i) * 3.0, 0.0 }, .dirU = { 3.0 , 0.0 }, .aspectRatio = 1.0 }, intendedNextSubmit);
+				//printf("\n");
 			}
+
+			GeoreferencedImageParams geoRefParams = {};
+			geoRefParams.format = asset::EF_R8G8B8A8_SRGB;
+			geoRefParams.imageExtents = uint32_t2 (2048, 2048);
+			geoRefParams.viewportExtents = (m_realFrameIx <= 5u) ? uint32_t2(1280, 720) : uint32_t2(3840, 2160); // to test trigerring resize/recreation
+			// drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(6996, geoRefParams, intendedNextSubmit);
+			
 			LineStyleInfo lineStyle = 
 			{
 				.color = float32_t4(1.0f, 0.1f, 0.1f, 0.9f),
@@ -2918,8 +3081,8 @@ protected:
 			{
 				std::vector<float64_t2> linePoints;
 				linePoints.push_back({ 0.0, 0.0 });
-				linePoints.push_back({ 100.0, 0.0 });
-				linePoints.push_back({ 100.0, -100.0 });
+				linePoints.push_back({ 1.0, 0.0 });
+				linePoints.push_back({ 1.0, -1.0 });
 				polyline.addLinePoints(linePoints);
 			}
 			drawResourcesFiller.drawPolyline(polyline, lineStyle, intendedNextSubmit);
@@ -2975,7 +3138,7 @@ protected:
 				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, m_font.get(), float64_t2(0.0,-200.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), italicTiltAngle, 0.0f);
 				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, m_font.get(), float64_t2(0.0,-250.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), italicTiltAngle, 0.5f);
 				// singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-200.0), float32_t2(1.0, 1.0), nbl::core::PI<float>() * abs(cos(m_timeElapsed * 0.00005)));
-				// Smaller text to test mip maps
+				// Smaller text to test level maps
 				//singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-130.0), float32_t2(0.4, 0.4), rotation);
 				//singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-150.0), float32_t2(0.2, 0.2), rotation);
 			}
@@ -3472,7 +3635,8 @@ protected:
 	// pointer to one of the command buffer infos from above, this is the only command buffer used to record current submit in current frame, it will be updated by SIntendedSubmitInfo
 	IQueue::SSubmitInfo::SCommandBufferInfo const * m_currentRecordingCommandBufferInfo; // pointer can change, value cannot
 
-	smart_refctd_ptr<IGPUSampler>		msdfTextureSampler;
+	smart_refctd_ptr<IGPUSampler>		msdfImageSampler;
+	smart_refctd_ptr<IGPUSampler>		staticImageSampler;
 
 	smart_refctd_ptr<IGPUBuffer>		m_globalsBuffer;
 	smart_refctd_ptr<IGPUDescriptorSet>	descriptorSet0;

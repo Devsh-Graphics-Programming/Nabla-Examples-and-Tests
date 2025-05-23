@@ -149,15 +149,20 @@ public:
 	void setGlyphMSDFTextureFunction(const GetGlyphMSDFTextureFunc& func);
 	void setHatchFillMSDFTextureFunction(const GetHatchFillPatternMSDFTextureFunc& func);
 
+	// Must be called at the end of each frame.
+	// right before submitting the main draw that uses the currently queued geometry, images, or other objects/resources.
+	// Registers the semaphore/value that will signal completion of this frame’s draw,
+	// This allows future frames to safely deallocate or evict resources used in the current frame by waiting on this signal before reuse or destruction.
+	// `drawSubmitWaitValue` should reference the wait value of the draw submission finishing this frame using the `intendedNextSubmit`; 
+	void markFrameUsageComplete(uint64_t drawSubmitWaitValue);
+
 	// TODO[Przemek]: try to draft up a `CTriangleMesh` Class in it's own header (like CPolyline), simplest form is basically two cpu buffers (1 array of uint index buffer, 1 array of float64_t3 vertexBuffer)
 	// TODO[Przemek]: Then have a `drawMesh` function here similar to drawXXX's below, this will fit both vertex and index buffer in the `geometryBuffer`.
 	// take a `SIntendedSubmitInfo` like others, but don't use it as I don't want you to handle anything regarding autoSubmit
 	// somehow retrieve or calculate the geometry buffer offsets of your vertex and index buffer to be used outside for binding purposes
 
-	
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	void drawPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, SIntendedSubmitInfo& intendedNextSubmit);
-
 
 	//! Draws a fixed-geometry polyline using a custom transformation.
 	//! TODO: Change `polyline` input to an ID referencing a possibly cached instance in our buffers, allowing reuse and avoiding redundant uploads.
@@ -217,7 +222,7 @@ public:
 	 * This function ensures that a given image is available as a GPU-resident texture for future draw submissions.
 	 * It uses an LRU cache to manage descriptor set slots and evicts old images if necessary to make room for new ones.
 	 *
-	 * If the image is already cached and its slot is valid, it returns the slot index directly.
+	 * If the image is already cached and its slot is valid, it returns true;
 	 * Otherwise, it performs the following:
 	 *   - Allocates a new descriptor set slot.
 	 *   - Promotes the image format to be GPU-compatible.
@@ -229,21 +234,46 @@ public:
 	 * @param cpuImage             The CPU-side image resource to (possibly) upload.
 	 * @param intendedNextSubmit   Struct representing the upcoming submission, including a semaphore for safe scheduling.
 	 *
-	 * @return The index (slot) into the descriptor set array where the image is or will be bound.
-	 *         Returns `InvalidTextureIndex` only if all fallback and eviction attempts failed.
-	 *
 	 * @note This function ensures that the descriptor slot is not reused while the GPU may still be reading from it.
 	 *       If an eviction is required and the evicted image is scheduled to be used in the next submit, it triggers
 	 *       a flush of pending draws to preserve correctness.
 	 *
-	 * @note The function uses the `imagesUsageCache` LRU cache to track usage and validity of texture slots.
+	 * @note The function uses the `imagesCache` LRU cache to track usage and validity of texture slots.
 	 *       If an insertion leads to an eviction, a callback ensures proper deallocation and synchronization.
+	 * @return true if the image was successfully cached and is ready for use; false if allocation failed.
 	*/
-	uint32_t addStaticImage2D(image_id imageID, const core::smart_refctd_ptr<ICPUImage>& cpuImage, SIntendedSubmitInfo& intendedNextSubmit);
+	bool ensureStaticImageAvailability(image_id imageID, const core::smart_refctd_ptr<ICPUImage>& cpuImage, SIntendedSubmitInfo& intendedNextSubmit);
+
+	/**
+	 * @brief Ensures a GPU-resident georeferenced image exists in the cache, allocating resources if necessary.
+	 * 
+	 * If the specified image ID is not already present in the cache, or if the cached version is incompatible
+	 * with the requested parameters (e.g. extent, format, or type), this function allocates GPU memory,
+	 * creates the image and its view, to be bound to a descriptor binding in the future.
+	 * 
+	 * If the image already exists and matches the requested parameters, its usage metadata is updated.
+	 * In either case, the cache is updated to reflect usage in the current frame.
+	 * 
+	 * This function also handles automatic eviction of old images via an LRU policy when space is limited.
+	 * 
+	 * @param imageID                Unique identifier of the image to add or reuse.
+	 * @param params                 Georeferenced Image Params
+	 * @param intendedNextSubmit     Submit info object used to track resources pending GPU submission.
+	 * 
+	 * @return true if the image was successfully cached and is ready for use; false if allocation failed.
+	 * [TODO]: should be internal protected member function.
+	 */
+	bool ensureGeoreferencedImageAvailability_AllocateIfNeeded(image_id imageID, const GeoreferencedImageParams& params, SIntendedSubmitInfo& intendedNextSubmit);
+
+	// [TODO]: should be internal protected member function.
+	bool queueGeoreferencedImageCopy_Internal(image_id imageID, const StreamedImageCopy& imageCopy);
 
 	// This function must be called immediately after `addStaticImage` for the same imageID.
-	void addImageObject(image_id imageID, float64_t2 topLeftPos, float32_t2 size, float32_t rotation, SIntendedSubmitInfo& intendedNextSubmit);
+	void addImageObject(image_id imageID, const OrientedBoundingBox2D& obb, SIntendedSubmitInfo& intendedNextSubmit);
 	
+	// This function must be called immediately after `addStaticImage` for the same imageID.
+	void addGeoreferencedImage(image_id imageID, const GeoreferencedImageParams& params, SIntendedSubmitInfo& intendedNextSubmit);
+
 	/// @brief call this function before submitting to ensure all buffer and textures resourcesCollection requested via drawing calls are copied to GPU
 	/// records copy command into intendedNextSubmit's active command buffer and might possibly submits if fails allocation on staging upload memory.
 	bool pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit);
@@ -300,7 +330,7 @@ public:
 	/// For advanced use only, (passed to shaders for them to know if we overflow-submitted in the middle if a main obj
 	uint32_t getActiveMainObjectIndex() const;
 
-	struct MSDFStagedCPUImage
+	struct MSDFImageState
 	{
 		core::smart_refctd_ptr<ICPUImage> image;
 		bool uploadedToGPU : 1u;
@@ -348,9 +378,10 @@ public:
 	/// This enables efficient replays without traversing or re-generating scene content.
 	struct ReplayCache
 	{
-		ResourcesCollection resourcesCollection;
-		std::vector<MSDFStagedCPUImage> msdfStagedCPUImages;
 		std::vector<DrawCallData> drawCallsData;
+		ResourcesCollection resourcesCollection;
+		std::vector<MSDFImageState> msdfImagesState;
+		std::unique_ptr<ImagesCache> imagesCache;
 		uint32_t activeMainObjectIndex = InvalidMainObjectIdx;
 		// TODO: non msdf general CPU Images
 		// TODO: Get total memory consumption for logging?
@@ -385,11 +416,16 @@ protected:
 	bool pushBufferUploads(SIntendedSubmitInfo& intendedNextSubmit, ResourcesCollection& resourcesCollection);
 	
 	/// @brief Records GPU copy commands for all staged msdf images into the active command buffer.
-	bool pushMSDFImagesUploads(SIntendedSubmitInfo& intendedNextSubmit, std::vector<MSDFStagedCPUImage>& stagedMSDFCPUImages);
+	bool pushMSDFImagesUploads(SIntendedSubmitInfo& intendedNextSubmit, std::vector<MSDFImageState>& msdfImagesState);
 
-	/// @brief Records GPU copy commands for all staged msdf images into the active command buffer.
-	/// TODO: Handle for cache&replay mode later
-	bool pushStaticImagesUploads(SIntendedSubmitInfo& intendedNextSubmit);
+	/// @brief binds cached images into their correct descriptor set slot if not already resident.
+	bool bindImagesToArrayIndices(ImagesCache& imagesCache);
+
+	/// @brief Records GPU copy commands for all staged images into the active command buffer.
+	bool pushStaticImagesUploads(SIntendedSubmitInfo& intendedNextSubmit, ImagesCache& imagesCache);
+	
+	/// @brief copies the queued up streamed copies.
+	bool pushStreamedImagesUploads(SIntendedSubmitInfo& intendedNextSubmit);
 
 	const size_t calculateRemainingResourcesSize() const;
 
@@ -456,10 +492,73 @@ protected:
 	
 	/// Attempts to upload a single GridDTMInfo considering resource limitations
 	bool addGridDTM_Internal(const GridDTMInfo& gridDTMInfo, uint32_t mainObjIdx);
-	/// Attempts to upload a single image object considering resource limitations (not accounting for the resource image added using addStaticImage2D function)
+	/// Attempts to upload a single image object considering resource limitations (not accounting for the resource image added using ensureStaticImageAvailability function)
 	bool addImageObject_Internal(const ImageObjectInfo& imageObjectInfo, uint32_t mainObjIdx);;
 	
+	/// Attempts to upload a georeferenced image info considering resource limitations (not accounting for the resource image added using ensureStaticImageAvailability function)
+	bool addGeoreferencedImageInfo_Internal(const GeoreferencedImageInfo& georeferencedImageInfo, uint32_t mainObjIdx);;
+	
 	uint32_t getImageIndexFromID(image_id imageID, const SIntendedSubmitInfo& intendedNextSubmit);
+
+	/**
+	 * @brief Evicts a GPU image and deallocates its associated descriptor and memory, flushing draws if needed.
+	 *
+	 * This function is called when an image must be removed from GPU memory (typically due to VRAM pressure).
+	 * If the evicted image is scheduled to be used in the next draw submission, a flush is performed to avoid
+	 * use-after-free issues. Otherwise, it proceeds with deallocation immediately.
+	 *
+	 * It prepares a cleanup object that ensures the memory range used by the image will be returned to the suballocator
+	 * only after the GPU has finished using it, guarded by a semaphore wait.
+	 *
+	 * @param imageID The unique ID of the image being evicted.
+	 * @param evicted A reference to the evicted image, containing metadata such as allocation offset, size, usage frame, etc.
+	 * @param intendedNextSubmit Reference to the intended submit information. Used for synchronizing draw submission and safe deallocation.
+	 *
+	 * @warning Deallocation may use a conservative semaphore wait value if exact usage information is unavailable. [future todo: fix] 
+	 */
+	void evictImage_SubmitIfNeeded(image_id imageID, const CachedImageRecord& evicted, SIntendedSubmitInfo& intendedNextSubmit);
+	
+	struct ImageAllocateResults
+	{
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> gpuImageView = nullptr;
+		uint64_t allocationOffset = ImagesMemorySubAllocator::InvalidAddress;
+		uint64_t allocationSize = 0ull;
+		bool isValid() const { return (gpuImageView && (allocationOffset != ImagesMemorySubAllocator::InvalidAddress)); }
+	};
+
+	/**
+	 * @brief Attempts to create and allocate a GPU image and its view, with fallback eviction on failure.
+	 *
+	 * This function tries to create a GPU image using the specified creation parameters, allocate memory
+	 * from the shared image memory arena, bind it to device-local memory, and create an associated image view.
+	 * If memory allocation fails (e.g. due to VRAM exhaustion), the function will evict textures from the internal
+	 * LRU cache and retry the operation until successful, or until only the currently-inserted image remains.
+	 *
+	 * This is primarily used by the draw resource filler to manage GPU image memory for streamed or cached images.
+	 *
+	 * @param imageParams Creation parameters for the image. Should match `nbl::asset::IImage::SCreationParams`.
+	 * @param intendedNextSubmit Reference to the current intended submit info. Used for synchronizing evictions.
+	 * @param imageDebugName Debug name assigned to the image and its view for easier profiling/debugging.
+	 *
+	 * @return ImageAllocateResults A struct containing:
+	 * - `allocationOffset`: Offset into the memory arena (or InvalidAddress on failure).
+	 * - `allocationSize`: Size of the allocated memory region.
+	 * - `gpuImageView`: The created GPU image view (nullptr if creation failed).
+	 */
+	ImageAllocateResults tryCreateAndAllocateImage_SubmitIfNeeded(const nbl::asset::IImage::SCreationParams& imageParams, nbl::video::SIntendedSubmitInfo& intendedNextSubmit, std::string debugName = "UnnamedNablaImage");
+
+	/**
+	 * @brief Determines creation parameters for a georeferenced image based on heuristics.
+	 *
+	 * This function decides whether a georeferenced image should be treated as a fully resident GPU texture
+	 * or as a streamable image based on the relationship between its total resolution and the viewport size.
+	 * It then fills out the appropriate Nabla image creation parameters.
+	 *
+	 * @param[out] outImageParams Structure to be filled with image creation parameters (format, size, etc.).
+	 * @param[out] outImageType Indicates whether the image should be fully resident or streamed.
+	 * @param[in] georeferencedImageParams Parameters describing the full image extents, viewport extents, and format.
+	*/
+	void determineGeoreferencedImageCreationParams(nbl::asset::IImage::SCreationParams& outImageParams, ImageType& outImageType, const GeoreferencedImageParams& georeferencedImageParams);
 
 	void resetMainObjects()
 	{
@@ -569,14 +668,14 @@ protected:
 	struct MSDFReference
 	{
 		uint32_t alloc_idx;
-		uint64_t lastUsedSemaphoreValue;
+		uint64_t lastUsedFrameIndex;
 
-		MSDFReference(uint32_t alloc_idx, uint64_t semaphoreVal) : alloc_idx(alloc_idx), lastUsedSemaphoreValue(semaphoreVal) {}
-		MSDFReference(uint64_t semaphoreVal) : MSDFReference(InvalidTextureIndex, semaphoreVal) {}
+		MSDFReference(uint32_t alloc_idx, uint64_t semaphoreVal) : alloc_idx(alloc_idx), lastUsedFrameIndex(semaphoreVal) {}
+		MSDFReference(uint64_t currentFrameIndex) : MSDFReference(InvalidTextureIndex, currentFrameIndex) {}
 		MSDFReference() : MSDFReference(InvalidTextureIndex, ~0ull) {}
 
 		// In LRU Cache `insert` function, in case of cache hit, we need to assign semaphore value to MSDFReference without changing `alloc_idx`
-		inline MSDFReference& operator=(uint64_t semamphoreVal) { lastUsedSemaphoreValue = semamphoreVal; return *this;  }
+		inline MSDFReference& operator=(uint64_t currentFrameIndex) { lastUsedFrameIndex = currentFrameIndex; return *this;  }
 	};
 	
 	uint32_t getMSDFIndexFromInputInfo(const MSDFInputInfo& msdfInfo, const SIntendedSubmitInfo& intendedNextSubmit);
@@ -585,6 +684,9 @@ protected:
 	
 	// Flushes Current Draw Call and adds to drawCalls
 	void flushDrawObjects();
+
+	// FrameIndex used as a criteria for resource/image eviction in case of limitations
+	uint32_t currentFrameIndex = 0u;
 
 	// Replay Cache override
 	ReplayCache* currentReplayCache = nullptr;
@@ -633,22 +735,15 @@ protected:
 	smart_refctd_ptr<IndexAllocator>	msdfTextureArrayIndexAllocator;
 	std::unique_ptr<MSDFsLRUCache>		msdfLRUCache; // LRU Cache to evict Least Recently Used in case of overflow
 
-	std::vector<MSDFStagedCPUImage>		msdfStagedCPUImages = {}; // cached cpu imaged + their status, size equals to LRUCache size
+	std::vector<MSDFImageState>			msdfImagesState = {}; // cached cpu imaged + their status, size equals to LRUCache size
 	static constexpr asset::E_FORMAT	MSDFTextureFormat = asset::E_FORMAT::EF_R8G8B8A8_SNORM;
 	bool m_hasInitializedMSDFTextureArrays = false;
 	
 	// Images:
-	std::unique_ptr<ImagesUsageCache> imagesUsageCache;
+	std::unique_ptr<ImagesCache> imagesCache;
 	smart_refctd_ptr<SubAllocatedDescriptorSet> suballocatedDescriptorSet;
 	uint32_t imagesArrayBinding = 0u;
-	
-	// static images (not streamable):
-	struct StaticImagesCopy
-	{
-		core::smart_refctd_ptr<ICPUImage> cpuImage;
-		core::smart_refctd_ptr<IGPUImageView> gpuImageView;
-		uint32_t arrayIndex;
-	};
-	std::vector<StaticImagesCopy> staticImagesStagedCopies;
+
+	std::unordered_map<image_id, std::vector<StreamedImageCopy>> streamedImageCopies;
 };
 

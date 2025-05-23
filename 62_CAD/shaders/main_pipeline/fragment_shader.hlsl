@@ -415,7 +415,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                 localAlpha = 1.0f - smoothstep(-globals.antiAliasingFactor / 2.0f + bolden, globals.antiAliasingFactor / 2.0f + bolden, msdf);
             }
         }
-        else if (objType == ObjectType::IMAGE) 
+        else if (objType == ObjectType::STATIC_IMAGE) 
         {
             const float2 uv = input.getImageUV();
             const uint32_t textureId = input.getImageTextureId();
@@ -574,13 +574,25 @@ float4 fragMain(PSInput input) : SV_TARGET
             localAlpha = dtmColor.a;
 
         }
+        else if (objType == ObjectType::STREAMED_IMAGE) 
+        {
+            const float2 uv = input.getImageUV();
+            const uint32_t textureId = input.getImageTextureId();
+
+            if (textureId != InvalidTextureIndex)
+            {
+                float4 colorSample = textures[NonUniformResourceIndex(textureId)].Sample(textureSampler, float2(uv.x, uv.y));
+                textureColor = colorSample.rgb;
+                localAlpha = colorSample.a;
+            }
+        }
 
         uint2 fragCoord = uint2(input.position.xy);
         
         if (localAlpha <= 0)
             discard;
         
-        const bool colorFromTexture = objType == ObjectType::IMAGE || objType == ObjectType::GRID_DTM;
+        const bool colorFromTexture = objType == ObjectType::STREAMED_IMAGE || objType == ObjectType::STATIC_IMAGE || objType == ObjectType::GRID_DTM;
 
         return calculateFinalColor<DeviceConfigCaps::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx, textureColor, colorFromTexture);
     }
