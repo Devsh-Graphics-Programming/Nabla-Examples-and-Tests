@@ -636,8 +636,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			inputs.allocator = &myalloc;
 #endif
 			
-			CAssetConverter::patch_t<ICPUTopLevelAccelerationStructure> blasPatch = {};
-			blasPatch.compactAfterBuild = true;
+			CAssetConverter::patch_t<ICPUTopLevelAccelerationStructure> tlasPatch = {};
+			tlasPatch.compactAfterBuild = true;
 			std::array<CAssetConverter::patch_t<ICPUBottomLevelAccelerationStructure>,OT_COUNT> tmpBLASPatches = {};
 			std::array<const ICPUBuffer*, OT_COUNT * 2u> tmpBuffers;
 			std::array<CAssetConverter::patch_t<ICPUBuffer>, OT_COUNT * 2u> tmpBufferPatches;
@@ -656,7 +656,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUDescriptorSet>>(inputs.assets) = {&descriptorSet.get(),1};
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUTopLevelAccelerationStructure>>(inputs.assets) = {&cpuTlas.get(),1};
-				std::get<CAssetConverter::SInputs::patch_span_t<ICPUTopLevelAccelerationStructure>>(inputs.patches) = {&blasPatch,1};
+				std::get<CAssetConverter::SInputs::patch_span_t<ICPUTopLevelAccelerationStructure>>(inputs.patches) = {&tlasPatch,1};
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUBottomLevelAccelerationStructure>>(inputs.assets) = {&cpuBlas.data()->get(),cpuBlas.size()};
 				std::get<CAssetConverter::SInputs::patch_span_t<ICPUBottomLevelAccelerationStructure>>(inputs.patches) = tmpBLASPatches;
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = tmpBuffers;
@@ -780,7 +780,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				if (future.copy() != IQueue::RESULT::SUCCESS)
 				{
 					m_logger->log("Failed to await submission feature!", ILogger::ELL_ERROR);
-					return false;
+					return {};
 				}
 
 				// assign gpu objects to output
