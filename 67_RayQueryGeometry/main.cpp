@@ -126,6 +126,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			auto cQueue = getComputeQueue();
 
 			// create blas/tlas
+			renderDs = 
 //#define TRY_BUILD_FOR_NGFX // Validation errors on the fake Acquire-Presents, TODO fix
 #ifdef TRY_BUILD_FOR_NGFX
 			// Nsight is special and can't do debugger delay so you can debug your CPU stuff during a capture
@@ -137,11 +138,12 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					std::this_thread::yield();
 			}
 			// Nsight is special and can't capture anything not on the queue that performs the swapchain acquire/release
-			if (!createAccelerationStructuresFromGeometry(gQueue,geometryCreator))
+			createAccelerationStructureDS(gQueue,geometryCreator);
 #else
-			if (!createAccelerationStructuresFromGeometry(cQueue,geometryCreator))
+			createAccelerationStructureDS(cQueue,geometryCreator);
 #endif
-				return logFail("Could not create acceleration structures");
+			if (!renderDs)
+				return logFail("Could not create acceleration structures and descriptor set");
 
 			// create pipelines
 			{
@@ -165,35 +167,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				if (!shader)
 					return logFail("Failed to create shader!");
 
-				// descriptors
-				IGPUDescriptorSetLayout::SBinding bindings[] = {
-					{
-						.binding = 0,
-						.type = asset::IDescriptor::E_TYPE::ET_ACCELERATION_STRUCTURE,
-						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-						.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-						.count = 1,
-					},
-					{
-						.binding = 1,
-						.type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
-						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-						.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-						.count = 1,
-					}
-				};
-				auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
-
-				const std::array<IGPUDescriptorSetLayout*, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> dsLayoutPtrs = { descriptorSetLayout.get() };
-				auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dsLayoutPtrs.begin(), dsLayoutPtrs.end()));
-				if (!pool)
-					return logFail("Could not create descriptor pool");
-				renderDs = pool->createDescriptorSet(descriptorSetLayout);
-				if (!renderDs)
-					return logFail("Could not create descriptor set");
-
 				SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0u, .size = sizeof(SPushConstants)};
-				auto pipelineLayout = m_device->createPipelineLayout({ &pcRange, 1 }, smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
+				auto pipelineLayout = m_device->createPipelineLayout({ &pcRange, 1 }, smart_refctd_ptr<const IGPUDescriptorSetLayout>(renderDs->getLayout()), nullptr, nullptr, nullptr);
 
 				IGPUComputePipeline::SCreationParams params = {};
 				params.layout = pipelineLayout.get();
@@ -203,23 +178,21 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			}
 
 			// write descriptors
-			IGPUDescriptorSet::SDescriptorInfo infos[2];
-			infos[0].desc = gpuTlas;
-			infos[1].desc = m_device->createImageView({
-				.flags = IGPUImageView::ECF_NONE,
-				.subUsages = IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT,
-				.image = outHDRImage,
-				.viewType = IGPUImageView::E_TYPE::ET_2D,
-				.format = asset::EF_R16G16B16A16_SFLOAT
-			});
-			if (!infos[1].desc)
-				return logFail("Failed to create image view");
-			infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-			IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
-				{.dstSet = renderDs.get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
-				{.dstSet = renderDs.get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]}
-			};
-			m_device->updateDescriptorSets(std::span(writes, 2), {});
+			{
+				IGPUDescriptorSet::SDescriptorInfo info = {};
+				info.desc = m_device->createImageView({
+					.flags = IGPUImageView::ECF_NONE,
+					.subUsages = IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT,
+					.image = outHDRImage,
+					.viewType = IGPUImageView::E_TYPE::ET_2D,
+					.format = asset::EF_R16G16B16A16_SFLOAT
+				});
+				if (!info.desc)
+					return logFail("Failed to create image view");
+				info.info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				const IGPUDescriptorSet::SWriteDescriptorSet write = {.dstSet=renderDs.get(), .binding=1, .arrayElement=0, .count=1, .info=&info};
+				m_device->updateDescriptorSets({&write,1}, {});
+			}
 
 			// camera
 			{
@@ -514,7 +487,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			return (dim + size - 1) / size;
 		}
 
-		bool createAccelerationStructuresFromGeometry(video::CThreadSafeQueueAdapter* queue, const IGeometryCreator* gc)
+		smart_refctd_ptr<IGPUDescriptorSet> createAccelerationStructureDS(video::CThreadSafeQueueAdapter* queue, const IGeometryCreator* gc)
 		{
 			// get geometries in ICPUBuffers
 			std::array<ReferenceObjectCpu, OT_COUNT> objectsCpu;
@@ -582,8 +555,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				blas->setContentHash(blas->computeContentHash());
 			}
 
-			// TODO: when does compact blas happen?
-
 			// get ICPUBottomLevelAccelerationStructure into ICPUTopLevelAccelerationStructure
 			auto geomInstances = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUTopLevelAccelerationStructure::PolymorphicInstance>>(OT_COUNT);
 			{
@@ -608,6 +579,26 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			auto cpuTlas = make_smart_refctd_ptr<ICPUTopLevelAccelerationStructure>();
 			cpuTlas->setInstances(std::move(geomInstances));
 			cpuTlas->setBuildFlags(IGPUTopLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT);
+			
+			// descriptor set and layout
+			ICPUDescriptorSetLayout::SBinding bindings[] = {
+				{
+					.binding = 0,
+					.type = asset::IDescriptor::E_TYPE::ET_ACCELERATION_STRUCTURE,
+					.createFlags = IDescriptorSetLayoutBase::SBindingBase::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.count = 1,
+				},
+				{
+					.binding = 1,
+					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+					.createFlags = IDescriptorSetLayoutBase::SBindingBase::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.count = 1,
+				}
+			};
+			auto descriptorSet = core::make_smart_refctd_ptr<ICPUDescriptorSet>(core::make_smart_refctd_ptr<ICPUDescriptorSetLayout>(bindings));
+			descriptorSet->getDescriptorInfos(IDescriptorSetLayoutBase::CBindingRedirect::binding_number_t{0},IDescriptor::E_TYPE::ET_ACCELERATION_STRUCTURE).front().desc = cpuTlas;
 
 //#define TEST_REBAR_FALLBACK
 			// convert with asset converter
@@ -663,6 +654,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				for (auto& patch : tmpBufferPatches)
 					patch.usage |= asset::IBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
+				std::get<CAssetConverter::SInputs::asset_span_t<ICPUDescriptorSet>>(inputs.assets) = {&descriptorSet.get(),1};
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUTopLevelAccelerationStructure>>(inputs.assets) = {&cpuTlas.get(),1};
 				std::get<CAssetConverter::SInputs::patch_span_t<ICPUTopLevelAccelerationStructure>>(inputs.patches) = {&blasPatch,1};
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUBottomLevelAccelerationStructure>>(inputs.assets) = {&cpuBlas.data()->get(),cpuBlas.size()};
@@ -792,7 +784,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				}
 
 				// assign gpu objects to output
-				gpuTlas = reservation.getGPUObjects<ICPUTopLevelAccelerationStructure>().front().value;
 				for (const auto& buffer : reservation.getGPUObjects<ICPUBuffer>())
 					retainedBuffers.push_back(buffer.value);
 				for (uint32_t i = 0; i < objectsCpu.size(); i++)
@@ -858,7 +849,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 							};
 							for (const auto& blas : reservation.getGPUObjects<ICPUBottomLevelAccelerationStructure>())
 								acquireAS(blas.value.get());
-							acquireAS(gpuTlas.get());
+							acquireAS(reservation.getGPUObjects<ICPUTopLevelAccelerationStructure>().front().value.get());
 						}
 						if (!bufBarriers.empty())
 							cmdbuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers=bufBarriers});
@@ -900,7 +891,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 #endif
 			m_api->endCapture();
 
-			return bool(gpuTlas);
+			return reservation.getGPUObjects<ICPUDescriptorSet>().front().value;
 		}
 
 
@@ -917,9 +908,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
 		video::CDumbPresentationOracle oracle;
-
-		// TODO: maybe convert the descriptor set from ICPU as well?
-		smart_refctd_ptr<IGPUTopLevelAccelerationStructure> gpuTlas;
 
 		smart_refctd_ptr<IGPUBuffer> geometryInfoBuffer;
 		core::vector<smart_refctd_ptr<IGPUBuffer>> retainedBuffers;
