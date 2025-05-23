@@ -211,6 +211,7 @@ public:
 
 struct StreamedImageCopy
 {
+	asset::E_FORMAT srcFormat;
 	core::smart_refctd_ptr<ICPUBuffer> srcBuffer; // Make it 'std::future' later?
 	asset::IImage::SBufferCopy region;
 };

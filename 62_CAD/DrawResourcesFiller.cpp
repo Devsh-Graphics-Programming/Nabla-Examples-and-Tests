@@ -579,6 +579,7 @@ bool DrawResourcesFiller::queueGeoreferencedImageCopy_Internal(image_id imageID,
 {
 	auto& vec = streamedImageCopies[imageID];
 	vec.emplace_back(imageCopy);
+	return true;
 }
 
 // TODO[Przemek]: similar to other drawXXX and drawXXX_internal functions that create mainobjects, drawObjects and push additional info in geometry buffer, input to function would be a GridDTMInfo
@@ -629,7 +630,7 @@ void DrawResourcesFiller::addImageObject(image_id imageID, const OrientedBoundin
 
 void DrawResourcesFiller::addGeoreferencedImage(image_id imageID, const GeoreferencedImageParams& params, SIntendedSubmitInfo& intendedNextSubmit)
 {
-	beginMainObject(MainObjectType::STATIC_IMAGE);
+	beginMainObject(MainObjectType::STREAMED_IMAGE);
 
 	uint32_t mainObjIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
 
@@ -1295,7 +1296,7 @@ bool DrawResourcesFiller::pushStreamedImagesUploads(SIntendedSubmitInfo& intende
 				{
 					success &= m_utilities->updateImageViaStagingBuffer(
 						intendedNextSubmit,
-						imageCopy.srcBuffer->getPointer(), gpuImg->getCreationParameters().format,
+						imageCopy.srcBuffer->getPointer(), imageCopy.srcFormat,
 						gpuImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
 						{ &imageCopy.region, 1u });
 				}
