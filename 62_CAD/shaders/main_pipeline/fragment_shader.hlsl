@@ -398,7 +398,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                 // DONE: Make it so we can choose which diagonal to use to construct the triangle, it's either u=v or u=1-v
             // DONE: C. Height shading same as contours (split into two triangles)
 
-            // Heights can have invalid values (let's say NaN) if a cell corner has NaN value then no triangle (for contour and shading) and no outline should include that corner. (see DTM image in discord with gaps)
+            // DONE (but needs to be tested after i implement texture height maps) Heights can have invalid values (let's say NaN) if a cell corner has NaN value then no triangle (for contour and shading) and no outline should include that corner. (see DTM image in discord with gaps)
             
             // TODO: we need to emulate dilation and do sdf of neighbouring cells as well. because contours, outlines and shading can bleed into other cells for AA.
             // [NOTE] Do dilation as last step, when everything else works fine
