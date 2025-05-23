@@ -650,9 +650,8 @@ PSInput main(uint vertexID : SV_VertexID)
             pfloat64_t2 topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
             pfloat64_t height = vk::RawBufferLoad<pfloat64_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
             pfloat64_t width = vk::RawBufferLoad<pfloat64_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(pfloat64_t), 8u);
-            uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(pfloat64_t), 8u);
-            uint32_t dtmSettingsID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(pfloat64_t) + sizeof(uint32_t), 8u);
-            float gridCellWidth = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(pfloat64_t) + 2 * sizeof(uint32_t), 8u);
+            uint32_t dtmSettingsID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(pfloat64_t), 8u);
+            float gridCellWidth = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(pfloat64_t) + sizeof(uint32_t), 8u);
 
             const float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
             pfloat64_t2 vtxPos = topLeft;
@@ -664,10 +663,13 @@ PSInput main(uint vertexID : SV_VertexID)
             float2 ndcVtxPos = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, vtxPos));
             outV.position = float4(ndcVtxPos, 0.0f, 1.0f);
 
-            outV.setHeightMapTextureID(textureID);
-            outV.setDTMSettingsID(dtmSettingsID);
-            outV.setGridDTMScreenSpaceCellWidth(gridCellWidth); // TODO: is input world space?
+            outV.setGridDTMScreenSpaceCellWidth(gridCellWidth * globals.screenToWorldRatio);
             outV.setGridDTMScreenSpacePosition(transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, vtxPos));
+            outV.setGridDTMScreenSpaceTopLeft(transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, topLeft));
+            pfloat64_t2 gridExtents;
+            gridExtents.x = width;
+            gridExtents.y = height;
+            outV.setGridDTMScreenSpaceGridExtents(gridExtents * globals.screenToWorldRatio);
             outV.setImageUV(corner);
         }
 

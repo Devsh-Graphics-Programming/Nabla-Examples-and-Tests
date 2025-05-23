@@ -232,15 +232,17 @@ struct PSInput
 #endif
 
     /* GRID DTM */
-    uint getHeightMapTextureID() { return data1.x; }
-    uint getDTMSettingsID() { return data1.y; }
-    float getGridDTMScreenSpaceCellWidth() { return data2.x; }
+    uint getGridDTMHeightTextureID(uint textureID) { return data1.z; }
+    float getGridDTMScreenSpaceCellWidth() { return data3.x; }
     float2 getGridDTMScreenSpacePosition() { return interp_data5.zw; }
+    float2 getGridDTMScreenSpaceTopLeft() { return data2.xy; }
+    float2 getGridDTMScreenSpaceGridExtents() { return data2.zw; }
 
-    void setHeightMapTextureID(uint heightMapTextureID) { data1.x = heightMapTextureID; }
-    void setDTMSettingsID(uint dtmSettingsID) { data1.y = dtmSettingsID; }
-    void setGridDTMScreenSpaceCellWidth(float screenSpaceGridWidth) { data2.x = screenSpaceGridWidth; }
+    void setGridDTMHeightTextureID(uint textureID) { data1.z = textureID; }
+    void setGridDTMScreenSpaceCellWidth(float screenSpaceGridWidth) { data3.x = screenSpaceGridWidth; }
     void setGridDTMScreenSpacePosition(float2 screenSpacePosition) { interp_data5.zw = screenSpacePosition; }
+    void setGridDTMScreenSpaceTopLeft(float2 screenSpaceTopLeft) { data2.xy = screenSpaceTopLeft; }
+    void setGridDTMScreenSpaceGridExtents(float2 screenSpaceGridExtends) { data2.zw = screenSpaceGridExtends; }
 };
 
 // Set 0 - Scene Data and Globals, buffer bindings don't change the buffers only get updated

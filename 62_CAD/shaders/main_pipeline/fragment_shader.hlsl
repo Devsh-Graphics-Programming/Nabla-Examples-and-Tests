@@ -117,6 +117,46 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     return color;
 }
 
+// TODO: move to other header
+float4 calculateGridDTMOutlineColor(in uint outlineLineStyleIdx, in nbl::hlsl::shapes::Line<float> outlineLineSegments[2], in float2 fragPos, in float phaseShift)
+{
+    LineStyle outlineStyle = loadLineStyle(outlineLineStyleIdx);
+    const float outlineThickness = (outlineStyle.screenSpaceLineWidth + outlineStyle.worldSpaceLineWidth * globals.screenToWorldRatio) * 0.5f;
+    const float stretch = 1.0f;
+
+    // find distance to outline
+    float minDistance = nbl::hlsl::numeric_limits<float>::max;
+    if (!outlineStyle.hasStipples() || stretch == InvalidStyleStretchValue)
+    {
+        for (int i = 0; i < 2; ++i)
+        {
+            float distance = nbl::hlsl::numeric_limits<float>::max;
+            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float> >::sdf(outlineLineSegments[i], fragPos, outlineThickness, outlineStyle.isRoadStyleFlag);
+
+            minDistance = min(minDistance, distance);
+        }
+    }
+    else
+    {
+        for (int i = 0; i < 2; ++i)
+        {
+            float distance = nbl::hlsl::numeric_limits<float>::max;
+            nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(outlineLineSegments[i]);
+            LineStyleClipper clipper = LineStyleClipper::construct(outlineStyle, outlineLineSegments[i], arcLenCalc, phaseShift, stretch, globals.worldToScreenRatio);
+            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(outlineLineSegments[i], fragPos, outlineThickness, outlineStyle.isRoadStyleFlag, clipper);
+
+            minDistance = min(minDistance, distance);
+        }
+    }
+
+    float4 outputColor;
+    outputColor.a = 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, minDistance);
+    outputColor.a *= outlineStyle.color.a;
+    outputColor.rgb = outlineStyle.color.rgb;
+
+    return outputColor;
+}
+
 [[vk::spvexecutionmode(spv::ExecutionModePixelInterlockOrderedEXT)]]
 [shader("pixel")]
 float4 fragMain(PSInput input) : SV_TARGET
@@ -129,7 +169,7 @@ float4 fragMain(PSInput input) : SV_TARGET
     const MainObject mainObj = loadMainObject(currentMainObjectIdx);
     
     if (pc.isDTMRendering)
-    {   
+    {
         DTMSettings dtmSettings = loadDTMSettings(mainObj.dtmSettingsIdx);
 
         float3 v[3];
@@ -143,8 +183,8 @@ float4 fragMain(PSInput input) : SV_TARGET
 
         float4 dtmColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
         
-        if (dtmSettings.drawOutlineEnabled())
-            dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMOutlineColor(dtmSettings.outlineLineStyleIdx, v, input.position.xy, baryCoord, height));
+        if (dtmSettings.drawOutlineEnabled())                                                                                                    // TODO: do i need 'height' paramter here?
+            dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMOutlineColor(dtmSettings.outlineLineStyleIdx, v, input.position.xy));
         if (dtmSettings.drawContourEnabled())
         {
             for(uint32_t i = 0; i < dtmSettings.contourSettingsCount; ++i) // TODO: should reverse the order with blendUnder
@@ -393,27 +433,147 @@ float4 fragMain(PSInput input) : SV_TARGET
             
             // Query dtm settings
             // use texture Gather to get 4 corners: https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-to-gather
-            // A. the outlines can be stippled, use phaseshift of the line such that they started from the grid's origin worldspace coordinate
-            // B. the contours are computed for triangles, use the same function as for dtms, choose between the two triangles based on local UV coords in current cell
-                // Make it so we can choose which diagonal to use to construct the triangle, it's either u=v or u=1-v
-            // C. Height shading same as contours (split into two triangles)
+            // DONE (but needs to be fixed): A. the outlines can be stippled, use phaseshift of the line such that they started from the grid's origin worldspace coordinate
+            // DONE: B. the contours are computed for triangles, use the same function as for dtms, choose between the two triangles based on local UV coords in current cell
+                // DONE: Make it so we can choose which diagonal to use to construct the triangle, it's either u=v or u=1-v
+            // DONE: C. Height shading same as contours (split into two triangles)
 
             // Heights can have invalid values (let's say NaN) if a cell corner has NaN value then no triangle (for contour and shading) and no outline should include that corner. (see DTM image in discord with gaps)
             
             // TODO: we need to emulate dilation and do sdf of neighbouring cells as well. because contours, outlines and shading can bleed into other cells for AA.
             // [NOTE] Do dilation as last step, when everything else works fine
 
-            textureColor = float4(1.0f, 1.0f, 1.0f, 1.0f);
-            float2 uv = input.getImageUV();
-            float scalar = uv.x * uv.x * 0.25f + uv.y * uv.y * 0.25f;
-            textureColor *= scalar;
-            localAlpha = 1.0f;
+            DTMSettings dtmSettings = loadDTMSettings(mainObj.dtmSettingsIdx);
+            float2 pos = input.getGridDTMScreenSpacePosition();
 
-            //return outputColor;
-            printf("uv = %f, %f", uv.x, uv.y);
+            // grid consists of square cells and cells are divided into two triangles:
+            // depending on mode it is
+            // either:        or:
+            // v2a-------v1   v0-------v2b
+            // |  A     / |   | \     B  |
+            // |     /    |   |    \     |
+            // |  /  B    |   |   A   \  |
+            // v0-------v2b   v2a-------v1
+            // 
+
+            // TODO: probably needs to be a part of grid dtm settings struct
+            const bool diagonalFromTopLeftToBottomRight = true;
+
+            // calculate screen space coordinates of vertices of the current tiranlge within the grid
+            float3 v[3];
+            nbl::hlsl::shapes::Line<float> outlineLineSegments[2];
+            float outlinePhaseShift;
+            {
+                float2 topLeft = input.getGridDTMScreenSpaceTopLeft();
+                float2 gridExtents = input.getGridDTMScreenSpaceGridExtents();
+                float cellWidth = input.getGridDTMScreenSpaceCellWidth();
+                float2 uv = input.getImageUV();
+
+                float2 gridSpacePos = uv * gridExtents;
+
+                float2 cellCoords;
+                {
+                    float2 gridSpacePosDivGridCellWidth = gridSpacePos / cellWidth;
+                    cellCoords.x = uint32_t(gridSpacePosDivGridCellWidth.x);
+                    cellCoords.y = uint32_t(gridSpacePosDivGridCellWidth.y);
+                }
+
+                // TODO: do we want to calculate it in the vertex shader?
+                const float MaxCellCoordX = round(gridExtents.x / cellWidth);
+                const float MaxCellCoordY = round(gridExtents.y / cellWidth);
+
+                float2 insideCellCoord = gridSpacePos - float2(cellWidth, cellWidth) * cellCoords; // TODO: use fmod instead?
+
+                const float2 DistancesToTriangleALegs = diagonalFromTopLeftToBottomRight ? min(insideCellCoord.x, insideCellCoord.y) : min(insideCellCoord.x, cellWidth - insideCellCoord.y);
+                const float2 DistancesToTriangleBLegs = diagonalFromTopLeftToBottomRight ? min(cellWidth - insideCellCoord.x, cellWidth - insideCellCoord.y) : min(cellWidth - insideCellCoord.x, insideCellCoord.y);
+
+                float distanceToTriangleAExclusiveCorner = min(DistancesToTriangleALegs.x, DistancesToTriangleALegs.y);
+                float distanceToTriangleBExclusiveCorner = min(DistancesToTriangleBLegs.x, DistancesToTriangleBLegs.y);
+                
+                // my ASCII art above explains which triangle is A and which is B
+                const bool triangleA = distanceToTriangleAExclusiveCorner <= distanceToTriangleBExclusiveCorner;
+
+                float2 gridSpaceCellTopLeftCoords = cellCoords * cellWidth;
+
+                if (diagonalFromTopLeftToBottomRight)
+                {
+                    v[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, 0.0f);
+                    v[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, 0.0f);
+                    v[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, 0.0f) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, 0.0f);
+                }
+                else
+                {
+                    v[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, 0.0f);
+                    v[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, 0.0f);
+                    v[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, 0.0f) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, 0.0f);
+                }
+                 
+                // TODO: remove when implementing height texture
+                [unroll]
+                for (uint i = 0; i < 3; ++i)
+                {
+                    v[i].z = -20.0f + 5.0f * (v[i].x + v[i].y) / cellWidth;
+
+                    //if (abs(round(v[i].z) - 20.0f) <= 0.1f)
+                    //    v[i].z = asfloat(0x7FC00000);
+
+                }
+
+                if (isnan(v[0].z) || isnan(v[1].z) || isnan(v[2].z))
+                {
+                    discard;
+                }
+
+                // move from grid space to screen space
+                [unroll]
+                for (int i = 0; i < 3; ++i)
+                    v[i].xy += topLeft;
+
+                if (triangleA)
+                {
+                    outlineLineSegments[0] = nbl::hlsl::shapes::Line<float>::construct(v[2].xy, v[0].xy);
+                    outlineLineSegments[1] = nbl::hlsl::shapes::Line<float>::construct(v[2].xy, v[1].xy);
+                }
+                else
+                {
+                    outlineLineSegments[0] = nbl::hlsl::shapes::Line<float>::construct(v[1].xy, v[2].xy);
+                    outlineLineSegments[1] = nbl::hlsl::shapes::Line<float>::construct(v[0].xy, v[2].xy);
+                }
+
+                // test diagonal draw
+                //outlineLineSegments[0] = nbl::hlsl::shapes::Line<float>::construct(v[0].xy, v[1].xy);
+                //outlineLineSegments[1] = nbl::hlsl::shapes::Line<float>::construct(v[0].xy, v[1].xy);
+
+
+                float distancesToVerticalCellSides = min(insideCellCoord.x, cellWidth - insideCellCoord.x);
+                float distancesToHorizontalCellSides = min(insideCellCoord.y, cellWidth - insideCellCoord.y);
+
+                float patternCellCoord = distancesToVerticalCellSides >= distancesToHorizontalCellSides ? cellCoords.x : cellCoords.y;
+
+                // TODO: calculate pattern length!!!
+                float patternLength = 30.0f;
+                outlinePhaseShift = (cellWidth * (1.0f / globals.screenToWorldRatio) * patternCellCoord) / patternLength;
+            }
+
+            const float3 baryCoord = dtm::calculateDTMTriangleBarycentrics(v[0], v[1], v[2], input.position.xy);
+            float height = baryCoord.x * v[0].z + baryCoord.y * v[1].z + baryCoord.z * v[2].z;
+            float2 heightDeriv = fwidth(height);
+
+            float4 dtmColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
+            if (dtmSettings.drawOutlineEnabled())
+                dtmColor = dtm::blendUnder(dtmColor, calculateGridDTMOutlineColor(dtmSettings.outlineLineStyleIdx, outlineLineSegments, input.position.xy, outlinePhaseShift));
+            if (dtmSettings.drawContourEnabled())
+            {
+                for (uint32_t i = 0; i < dtmSettings.contourSettingsCount; ++i) // TODO: should reverse the order with blendUnder
+                    dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMContourColor(dtmSettings.contourSettings[i], v, input.position.xy, height));
+            }
+            if (dtmSettings.drawHeightShadingEnabled())
+                dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, v, heightDeriv, input.position.xy, height));
+
+            textureColor = dtmColor.rgb;
+            localAlpha = dtmColor.a;
 
         }
-        
 
         uint2 fragCoord = uint2(input.position.xy);
         

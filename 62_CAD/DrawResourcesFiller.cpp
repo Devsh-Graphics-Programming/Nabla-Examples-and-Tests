@@ -587,6 +587,7 @@ void DrawResourcesFiller::drawGridDTM(
 	const float64_t2& topLeft,
 	float64_t height,
 	float64_t width,
+	float gridCellWidth,
 	const DTMSettingsInfo& dtmSettingsInfo,
 	SIntendedSubmitInfo& intendedNextSubmit)
 {
@@ -594,7 +595,9 @@ void DrawResourcesFiller::drawGridDTM(
 	gridDTMInfo.topLeft = topLeft;
 	gridDTMInfo.height = height;
 	gridDTMInfo.width = width;
+	gridDTMInfo.gridCellWidth = gridCellWidth;
 
+	setActiveDTMSettings(dtmSettingsInfo);
 	beginMainObject(MainObjectType::GRID_DTM);
 
 	uint32_t mainObjectIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);

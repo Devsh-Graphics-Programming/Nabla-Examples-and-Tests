@@ -8,7 +8,7 @@
 #endif
 
 // TODO[Erfan]: Turn off in the future, but keep enabled to test
-#define NBL_FORCE_EMULATED_FLOAT_64
+// #define NBL_FORCE_EMULATED_FLOAT_64
 
 #include <nbl/builtin/hlsl/portable/float64_t.hlsl>
 #include <nbl/builtin/hlsl/portable/vector_t.hlsl>
@@ -247,9 +247,7 @@ struct GridDTMInfo
     pfloat64_t height; // 8 bytes (24)
     pfloat64_t width; // 8 bytes (32)
     uint32_t textureID; // 4 bytes (36)
-    uint32_t dtmInfoID; // 4 bytes (40)
-    float gridCellWidth; // 4 bytes (44)
-    float _padding; // 4 bytes (48)
+    float gridCellWidth; // 4 bytes (40)
 };
 
 static uint32_t packR11G11B10_UNORM(float32_t3 color)

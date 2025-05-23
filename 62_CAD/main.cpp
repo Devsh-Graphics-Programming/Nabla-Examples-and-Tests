@@ -3364,7 +3364,7 @@ protected:
 		else if (mode == ExampleMode::CASE_11)
 		{
 			DTMSettingsInfo dtmInfo{};
-			//dtmInfo.mode |= E_DTM_MODE::OUTLINE;
+			dtmInfo.mode |= E_DTM_MODE::OUTLINE;
 			dtmInfo.mode |= E_DTM_MODE::HEIGHT_SHADING;
 			dtmInfo.mode |= E_DTM_MODE::CONTOUR;
 
@@ -3435,7 +3435,7 @@ protected:
 				}
 			}
 
-			drawResourcesFiller.drawGridDTM({ 0.0f, 200.0f }, 400.0f, 800.0f, dtmInfo, intendedNextSubmit);
+			drawResourcesFiller.drawGridDTM({ 0.0f, 200.0f }, 400.0f, 800.0f, 40.0f, dtmInfo, intendedNextSubmit);
 		}
 	}
 

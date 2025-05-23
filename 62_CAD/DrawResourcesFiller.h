@@ -207,6 +207,7 @@ public:
 	void drawGridDTM(const float64_t2& topLeft,
 		float64_t height,
 		float64_t width,
+		float gridCellWidth,
 		const DTMSettingsInfo& dtmSettingsInfo,
 		SIntendedSubmitInfo& intendedNextSubmit);
 	

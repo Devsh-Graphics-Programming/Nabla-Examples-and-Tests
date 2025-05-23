@@ -308,7 +308,7 @@ float4 calculateDTMContourColor(in DTMContourSettings contourSettings, in float3
     return float4(0.0f, 0.0f, 0.0f, 0.0f);
 }
 
-float4 calculateDTMOutlineColor(in uint outlineLineStyleIdx, in float3 v[3], in float2 fragPos, in float3 baryCoord, in float height)
+float4 calculateDTMOutlineColor(in uint outlineLineStyleIdx, in float3 v[3], in float2 fragPos)
 {
     float4 outputColor;
 
@@ -362,7 +362,6 @@ float4 calculateDTMOutlineColor(in uint outlineLineStyleIdx, in float3 v[3], in 
 
             minDistance = min(minDistance, distance);
         }
-
     }
 
     outputColor.a = 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, minDistance);
