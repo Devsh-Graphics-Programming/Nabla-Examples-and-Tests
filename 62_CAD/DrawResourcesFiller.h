@@ -258,7 +258,7 @@ public:
 	 * @return true if all of them are successfully cache and available for rendering
 	 * @return false if the images couldn't be resident all at once. // TODO: maybe return something about which ones are available.
 	 */
-	bool ensureStaticImagesAvailability(std::span<StaticImageInfo> staticImages, SIntendedSubmitInfo& intendedNextSubmit);
+	bool ensureMultipleStaticImagesAvailability(std::span<StaticImageInfo> staticImages, SIntendedSubmitInfo& intendedNextSubmit);
 
 
 	/**
