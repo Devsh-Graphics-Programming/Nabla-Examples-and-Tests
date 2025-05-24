@@ -452,6 +452,9 @@ bool DrawResourcesFiller::ensureStaticImageAvailability(const StaticImageInfo& s
 
 bool DrawResourcesFiller::ensureMultipleStaticImagesAvailability(std::span<StaticImageInfo> staticImages, SIntendedSubmitInfo& intendedNextSubmit)
 {
+	if (staticImages.size() > ImagesBindingArraySize)
+		return false;
+
 	for (auto& staticImage : staticImages)
 	{
 		if (!ensureStaticImageAvailability(staticImage, intendedNextSubmit))
