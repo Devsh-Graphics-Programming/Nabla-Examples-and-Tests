@@ -3059,7 +3059,7 @@ protected:
 			{
 				uint64_t imageID = i * 69ull; // it can be hash or something of the file path the image was loaded from
 				//printf(std::format("\n Image {} \n", i).c_str());
-				drawResourcesFiller.ensureStaticImageAvailability(imageID, sampleImages[i], intendedNextSubmit);
+				drawResourcesFiller.ensureStaticImageAvailability({ imageID, sampleImages[i] }, intendedNextSubmit);
 				drawResourcesFiller.addImageObject(imageID, { .topLeft = { 0.0 + (i) * 3.0, 0.0 }, .dirU = { 3.0 , 0.0 }, .aspectRatio = 1.0 }, intendedNextSubmit);
 				//printf("\n");
 			}

@@ -216,6 +216,12 @@ public:
 		const DTMSettingsInfo& dtmSettingsInfo,
 		SIntendedSubmitInfo& intendedNextSubmit);
 	
+	struct StaticImageInfo
+	{
+		image_id imageID;
+		core::smart_refctd_ptr<ICPUImage> cpuImage;
+	};
+
 	/**
 	 * @brief Adds a static 2D image to the draw resource set for rendering.
 	 *
@@ -230,8 +236,7 @@ public:
 	 *   - Queues the image for uploading via staging in the next submit.
 	 *   - If memory is constrained, attempts to evict other images to free up space.
 	 *
-	 * @param imageID              Unique identifier for the image resource.
-	 * @param cpuImage             The CPU-side image resource to (possibly) upload.
+	 * @param staticImage              Unique identifier for the image resource plus the CPU-side image resource to (possibly) upload.
 	 * @param intendedNextSubmit   Struct representing the upcoming submission, including a semaphore for safe scheduling.
 	 *
 	 * @note This function ensures that the descriptor slot is not reused while the GPU may still be reading from it.
@@ -240,9 +245,21 @@ public:
 	 *
 	 * @note The function uses the `imagesCache` LRU cache to track usage and validity of texture slots.
 	 *       If an insertion leads to an eviction, a callback ensures proper deallocation and synchronization.
-	 * @return true if the image was successfully cached and is ready for use; false if allocation failed.
+	 * @return true if the image was successfully cached and is ready for use; false if allocation failed most likely due to the image being larger than the memory arena allocated for all images.
 	*/
-	bool ensureStaticImageAvailability(image_id imageID, const core::smart_refctd_ptr<ICPUImage>& cpuImage, SIntendedSubmitInfo& intendedNextSubmit);
+	bool ensureStaticImageAvailability(const StaticImageInfo& staticImage, SIntendedSubmitInfo& intendedNextSubmit);
+	
+	/**
+	 * @brief Adds multiple static 2D image to the draw resource set for rendering.
+	 * 
+	 * This function should theoratically succeed if the size of staticImages is less that max descriptor slots and more importantly if all of the images can fit in the images memory arena (using the GeneralPurposeAddressAllocatoe)
+	 *		There is a low chance that failure might be due to fragmentation of images memory allocator (GPAA), in which case clearing the cache and retrying MIGHT work.
+	 * 
+	 * @return true if all of them are successfully cache and available for rendering
+	 * @return false if the images couldn't be resident all at once. // TODO: maybe return something about which ones are available.
+	 */
+	bool ensureStaticImagesAvailability(std::span<StaticImageInfo> staticImages, SIntendedSubmitInfo& intendedNextSubmit);
+
 
 	/**
 	 * @brief Ensures a GPU-resident georeferenced image exists in the cache, allocating resources if necessary.

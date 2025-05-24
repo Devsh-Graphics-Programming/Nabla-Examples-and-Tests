@@ -360,8 +360,11 @@ void DrawResourcesFiller::drawFontGlyph(
 	}
 }
 
-bool DrawResourcesFiller::ensureStaticImageAvailability(image_id imageID, const core::smart_refctd_ptr<ICPUImage>& cpuImage, SIntendedSubmitInfo& intendedNextSubmit)
+bool DrawResourcesFiller::ensureStaticImageAvailability(const StaticImageInfo& staticImage, SIntendedSubmitInfo& intendedNextSubmit)
 {
+	const auto& imageID = staticImage.imageID;
+	const auto& cpuImage = staticImage.cpuImage;
+	
 	// Try inserting or updating the image usage in the cache.
 	// If the image is already present, updates its semaphore value.
 	auto evictCallback = [&](image_id imageID, const CachedImageRecord& evicted) { evictImage_SubmitIfNeeded(imageID, evicted, intendedNextSubmit); };
@@ -445,6 +448,21 @@ bool DrawResourcesFiller::ensureStaticImageAvailability(image_id imageID, const 
 
 	assert(cachedImageRecord->arrayIndex != InvalidTextureIndex); // shouldn't happen, because we're using LRU cache, so worst case eviction will happen + multi-deallocate and next next multi_allocate should definitely succeed
 	return cachedImageRecord->arrayIndex != InvalidTextureIndex;
+}
+
+bool DrawResourcesFiller::ensureMultipleStaticImagesAvailability(std::span<StaticImageInfo> staticImages, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	for (auto& staticImage : staticImages)
+	{
+		if (!ensureStaticImageAvailability(staticImage, intendedNextSubmit))
+			return false; // failed ensuring a single staticImage is available, shouldn't happen unless the image is larger than the memory arena allocated for images.
+	}
+	for (auto& staticImage : staticImages)
+	{
+		if (imagesCache->peek(staticImage.imageID) == nullptr)
+			return false; // this means one of the images evicted another, most likely due to VRAM limitations not all images can be resident all at once.
+	}
+	return true;
 }
 
 bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(image_id imageID, const GeoreferencedImageParams& params, SIntendedSubmitInfo& intendedNextSubmit)
