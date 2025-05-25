@@ -6,7 +6,7 @@
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/builtin/hlsl/indirect_commands.hlsl"
 
-#define TEST_ASSET_CONV_AS
+//#define TEST_ASSET_CONV_AS
 
 class RaytracingPipelineApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
@@ -1955,9 +1955,9 @@ private:
 		// build bottom level ASes
 		{
 			core::vector<uint32_t> primitiveCounts(blasCount);
-			core::vector<IGPUBottomLevelAccelerationStructure::Triangles<const IGPUBuffer>> triangles(m_gpuTriangleGeometries.size());
+			core::vector<IGPUBottomLevelAccelerationStructure::Triangles<IGPUBuffer>> triangles(m_gpuTriangleGeometries.size());
 			core::vector<uint32_t> scratchSizes(blasCount);
-			IGPUBottomLevelAccelerationStructure::AABBs<const IGPUBuffer> aabbs;
+			IGPUBottomLevelAccelerationStructure::AABBs<IGPUBuffer> aabbs;
 
 			auto blasFlags = bitflag(IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT) | IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_COMPACTION_BIT;
 			if (m_physicalDevice->getProperties().limits.rayTracingPositionFetch)
@@ -2017,12 +2017,12 @@ private:
 					if (isProcedural)
 					{
 						const auto* aabbData = &aabbs;
-						buildSizes = m_device->getAccelerationStructureBuildSizes(blasBuildInfos[i].buildFlags, false, std::span{ aabbData, 1 }, maxPrimCount);
+						buildSizes = m_device->getAccelerationStructureBuildSizes(false, blasBuildInfos[i].buildFlags, false, std::span{ aabbData, 1 }, maxPrimCount);
 					}
 					else
 					{
 						const auto* trianglesData = triangles.data();
-						buildSizes = m_device->getAccelerationStructureBuildSizes(blasBuildInfos[i].buildFlags, false, std::span{ trianglesData,1 }, maxPrimCount);
+						buildSizes = m_device->getAccelerationStructureBuildSizes(false, blasBuildInfos[i].buildFlags, false, std::span{ trianglesData,1 }, maxPrimCount);
 					}
 					if (!buildSizes)
 						return logFail("Failed to get BLAS build sizes");
@@ -2144,8 +2144,8 @@ private:
 				IGPUBottomLevelAccelerationStructure::CopyInfo copyInfo;
 				copyInfo.src = cleanupBlas[i].get();
 				copyInfo.dst = m_gpuBlasList[i].get();
-				copyInfo.mode = IGPUBottomLevelAccelerationStructure::COPY_MODE::COMPACT;
-				if (!cmdbufCompact->copyAccelerationStructure(copyInfo))
+				copyInfo.compact = true;
+				if (!cmdbufCompact->copyAccelerationStructure<IGPUBottomLevelAccelerationStructure>(copyInfo))
 					return logFail("Failed to copy AS to compact");
 			}
 		}
