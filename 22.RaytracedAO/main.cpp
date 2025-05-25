@@ -60,6 +60,9 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 					case ReloadKey:
 						reloadKeyPressed = true;
 						break;
+					case OverloadCameraKey:
+						overloadCameraKeyPressed = true;
+						break;
 					case QuitKey:
 						running = false;
 						return true;
@@ -89,6 +92,8 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 
 		inline bool isReloadKeyPressed() const { return reloadKeyPressed; }
 
+		inline bool isOverloadCameraKeyPressed() const { return overloadCameraKeyPressed; }
+
 		inline void resetKeys()
 		{
 			skipKeyPressed = false;
@@ -98,6 +103,7 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 			screenshotKeyPressed = false;
 			logProgressKeyPressed = false;
 			reloadKeyPressed = false;
+			overloadCameraKeyPressed = false;
 		}
 
 	private:
@@ -110,6 +116,7 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 		static constexpr nbl::EKEY_CODE LogProgressKey = nbl::KEY_KEY_L;
 		static constexpr nbl::EKEY_CODE BeautyKey = nbl::KEY_KEY_B;
 		static constexpr nbl::EKEY_CODE ReloadKey = nbl::KEY_F5;
+		static constexpr nbl::EKEY_CODE OverloadCameraKey = nbl::KEY_KEY_C;
 
 		bool running;
 		bool renderingBeauty;
@@ -121,6 +128,7 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 		bool screenshotKeyPressed;
 		bool logProgressKeyPressed;
 		bool reloadKeyPressed;
+		bool overloadCameraKeyPressed;
 };
 
 struct PersistentState
@@ -1243,12 +1251,39 @@ int main(int argc, char** argv)
 					sensors[activeSensor].resetInteractiveCamera();
 					std::cout << "Interactive Camera Position and Target has been Reset." << std::endl;
 				}
-				if(receiver.isNextPressed())
+				else if(receiver.isOverloadCameraKeyPressed())
+				{
+					pfd::open_file file("Choose XML file to overload camera with (only first sensor overrides)", "../../media/mitsuba", { "XML files (.xml)", "*.xml" });
+					if (!file.result().empty())
+					{
+						const auto filePath = file.result()[0];
+						using namespace nbl::asset;
+						smart_refctd_ptr<const ext::MitsubaLoader::CMitsubaMetadata> mitsubaMetadata;
+						{
+							static const IAssetLoader::SAssetLoadParams mitsubaLoaderParams = { 0, nullptr, IAssetLoader::ECF_DONT_CACHE_REFERENCES, nullptr, IAssetLoader::ELPF_LOAD_METADATA_ONLY };
+							auto meshes_bundle = device->getAssetManager()->getAsset(filePath.data(),mitsubaLoaderParams);
+							if (!meshes_bundle.getContents().empty())
+								mitsubaMetadata = smart_refctd_ptr<const ext::MitsubaLoader::CMitsubaMetadata>(static_cast<const ext::MitsubaLoader::CMitsubaMetadata*>(meshes_bundle.getMetadata()));
+						}
+						if (!mitsubaMetadata || mitsubaMetadata->m_global.m_sensors.empty())
+							os::Printer::log("ERROR (" + std::to_string(__LINE__) + " line): The xml file is invalid/cannot be loaded! File path: " + filePath, ELL_ERROR);
+						else
+						{
+							const uint32_t originalSensorCount = sensors.size();
+							uint32_t idx = originalSensorCount;
+							for (const auto& sensor : mitsubaMetadata->m_global.m_sensors)
+								extractAndAddToSensorData(sensor,idx++);
+							setActiveSensor(originalSensorCount);
+						}
+						writeLastRunState = true;
+					}
+				}
+				else if(receiver.isNextPressed())
 				{
 					setActiveSensor(activeSensor + 1);
 					writeLastRunState = true;
 				}
-				if(receiver.isPreviousPressed())
+				else if(receiver.isPreviousPressed())
 				{
 					setActiveSensor(activeSensor - 1);
 					writeLastRunState = true;
