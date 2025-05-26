@@ -203,6 +203,16 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 				counter++;
 			}
 
+			// Cache copy test
+			ResizableLRUCache<uint32_t, uint32_t> cache4Copy(cache4);
+			for (auto it = cache4.cbegin(), itCopy = cache4Copy.cbegin(); it != cache4.cend(); it++, itCopy++)
+			{
+				assert(*it == *itCopy);
+				// Assert deep copy
+				assert(it.operator->() != itCopy.operator->());
+
+			}
+
 			// Besides the disposal function that gets called when evicting, we need to check that the Cache properly destroys all resident `Key,Value` pairs when destroyed
 			struct Foo
 			{
@@ -236,9 +246,7 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 					cache5.insert(i, Foo(&destroyCounter));
 				int x = 0;
 			}
-			
 			assert(destroyCounter == 10);
-
 
 			m_logger->log("all good");
 

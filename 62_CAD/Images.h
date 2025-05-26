@@ -163,14 +163,7 @@ public:
 	template<std::invocable<image_id, const CachedImageRecord&> EvictionCallback>
 	inline CachedImageRecord* insert(image_id imageID, uint64_t lastUsedSema, EvictionCallback&& evictCallback)
 	{
-		auto lruEvictionCallback = [&](const CachedImageRecord& evicted)
-			{
-				const image_id* evictingKey = base_t::get_least_recently_used();
-				assert(evictingKey != nullptr);
-				if (evictingKey)
-					evictCallback(*evictingKey, evicted);
-			};
-		return base_t::insert(imageID, lastUsedSema, lruEvictionCallback);
+		return base_t::insert(imageID, lastUsedSema, evictCallback);
 	}
 	
 	// Retrieves the image associated with `imageID`, updating its LRU position.

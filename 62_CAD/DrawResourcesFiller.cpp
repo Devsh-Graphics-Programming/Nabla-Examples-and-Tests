@@ -360,8 +360,11 @@ void DrawResourcesFiller::drawFontGlyph(
 	}
 }
 
-bool DrawResourcesFiller::ensureStaticImageAvailability(image_id imageID, const core::smart_refctd_ptr<ICPUImage>& cpuImage, SIntendedSubmitInfo& intendedNextSubmit)
+bool DrawResourcesFiller::ensureStaticImageAvailability(const StaticImageInfo& staticImage, SIntendedSubmitInfo& intendedNextSubmit)
 {
+	const auto& imageID = staticImage.imageID;
+	const auto& cpuImage = staticImage.cpuImage;
+	
 	// Try inserting or updating the image usage in the cache.
 	// If the image is already present, updates its semaphore value.
 	auto evictCallback = [&](image_id imageID, const CachedImageRecord& evicted) { evictImage_SubmitIfNeeded(imageID, evicted, intendedNextSubmit); };
@@ -430,6 +433,9 @@ bool DrawResourcesFiller::ensureStaticImageAvailability(image_id imageID, const 
 					suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &cachedImageRecord->arrayIndex, {});
 					cachedImageRecord->arrayIndex = InvalidTextureIndex;
 				}
+
+				// erase the entry we failed to fill, no need for `evictImage_SubmitIfNeeded`, because it didn't get to be used in any submit to defer it's memory and index deallocation
+				imagesCache->erase(imageID);
 			}
 		}
 		else
@@ -445,6 +451,24 @@ bool DrawResourcesFiller::ensureStaticImageAvailability(image_id imageID, const 
 
 	assert(cachedImageRecord->arrayIndex != InvalidTextureIndex); // shouldn't happen, because we're using LRU cache, so worst case eviction will happen + multi-deallocate and next next multi_allocate should definitely succeed
 	return cachedImageRecord->arrayIndex != InvalidTextureIndex;
+}
+
+bool DrawResourcesFiller::ensureMultipleStaticImagesAvailability(std::span<StaticImageInfo> staticImages, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	if (staticImages.size() > ImagesBindingArraySize)
+		return false;
+
+	for (auto& staticImage : staticImages)
+	{
+		if (!ensureStaticImageAvailability(staticImage, intendedNextSubmit))
+			return false; // failed ensuring a single staticImage is available, shouldn't happen unless the image is larger than the memory arena allocated for images.
+	}
+	for (auto& staticImage : staticImages)
+	{
+		if (imagesCache->peek(staticImage.imageID) == nullptr)
+			return false; // this means one of the images evicted another, most likely due to VRAM limitations not all images can be resident all at once.
+	}
+	return true;
 }
 
 bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(image_id imageID, const GeoreferencedImageParams& params, SIntendedSubmitInfo& intendedNextSubmit)
@@ -558,6 +582,9 @@ bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(
 					suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &cachedImageRecord->arrayIndex, {});
 					cachedImageRecord->arrayIndex = InvalidTextureIndex;
 				}
+				
+				// erase the entry we failed to fill, no need for `evictImage_SubmitIfNeeded`, because it didn't get to be used in any submit to defer it's memory and index deallocation
+				imagesCache->erase(imageID);
 			}
 		}
 		else
@@ -680,9 +707,6 @@ bool DrawResourcesFiller::pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit
 		bool replayCacheFullyCovered = true;
 		for (auto& [imageID, toReplayRecord] : *currentReplayCache->imagesCache)
 		{
-			// TODO: remove temoprary const_cast workaround.
-			CachedImageRecord& toReplayImageRecord_nonConst = const_cast<CachedImageRecord&>(toReplayRecord);
-
 			if (toReplayRecord.type != ImageType::STATIC) // non-static images (Georeferenced) won't be replayed like this
 				continue;
 
@@ -704,7 +728,7 @@ bool DrawResourcesFiller::pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit
 			// if already resident, just update the state to the cached state (to make sure it doesn't get issued for upload again) and move on.
 			if (alreadyResident)
 			{
-				toReplayImageRecord_nonConst.state = cachedRecord->state; // update the toReplayImageRecords's state, to completely match the currently resident state
+				toReplayRecord.state = cachedRecord->state; // update the toReplayImageRecords's state, to completely match the currently resident state
 				continue;
 			}
 
@@ -737,8 +761,8 @@ bool DrawResourcesFiller::pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit
 					if (newGPUImageView)
 					{
 						successCreateNewImage = true;
-						toReplayImageRecord_nonConst.gpuImageView = newGPUImageView;
-						toReplayImageRecord_nonConst.state = ImageState::CREATED_AND_MEMORY_BOUND;
+						toReplayRecord.gpuImageView = newGPUImageView;
+						toReplayRecord.state = ImageState::CREATED_AND_MEMORY_BOUND;
 						newGPUImageView->setObjectDebugName((std::to_string(imageID) + " Static Image View 2D").c_str());
 					}
 
@@ -754,8 +778,9 @@ bool DrawResourcesFiller::pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit
 		}
 		
 		// Our actual `imageCache` (which represents GPU state) didn't cover the replayCache fully, so new images had to be created, bound to memory. and they need to be written into their respective descriptor array indices again.
+		// imagesCache = std::make_unique<ImagesCache>(*currentReplayCache->imagesCache);
 		imagesCache->clear();
-		for (auto it = currentReplayCache->imagesCache->crbegin(); it != currentReplayCache->imagesCache->crend(); it++)
+		for (auto it = currentReplayCache->imagesCache->rbegin(); it != currentReplayCache->imagesCache->rend(); it++)
 			imagesCache->base_t::insert(it->first, it->second);
 
 		if (!replayCacheFullyCovered)
@@ -876,12 +901,7 @@ std::unique_ptr<DrawResourcesFiller::ReplayCache> DrawResourcesFiller::createRep
 		stagedMSDF.uploadedToGPU = false; // to trigger upload for all msdf functions again.
 	ret->drawCallsData = drawCalls;
 	ret->activeMainObjectIndex = activeMainObjectIndex;
-	ret->imagesCache = std::unique_ptr<ImagesCache>(new ImagesCache(imagesCache->size()));
-	// It should be copyable, here is a temporary hack:
-	for (auto it = imagesCache->crbegin(); it != imagesCache->crend(); it++)
-	{
-		ret->imagesCache->base_t::insert(it->first, it->second);
-	}
+	ret->imagesCache = std::unique_ptr<ImagesCache>(new ImagesCache(*imagesCache));
 	return ret;
 }
 
@@ -1111,7 +1131,7 @@ bool DrawResourcesFiller::bindImagesToArrayIndices(ImagesCache& imagesCache)
 		descriptorWrite.info = &descriptorInfos[descriptorWriteCount];
 		descriptorWrites[descriptorWriteCount] = descriptorWrite;
 
-		const_cast<CachedImageRecord&>(record).state = ImageState::BOUND_TO_DESCRIPTOR_SET;
+		record.state = ImageState::BOUND_TO_DESCRIPTOR_SET;
 		descriptorWriteCount++;
 	}
 
@@ -1130,7 +1150,7 @@ bool DrawResourcesFiller::pushStaticImagesUploads(SIntendedSubmitInfo& intendedN
 	for (auto& [id, record] : imagesCache)
 	{
 		if (record.staticCPUImage && record.type == ImageType::STATIC && record.state < ImageState::GPU_RESIDENT_WITH_VALID_STATIC_DATA)
-			nonResidentImageRecords.push_back(const_cast<CachedImageRecord*>(&record)); // TODO: remove const_cast
+			nonResidentImageRecords.push_back(&record);
 	}
 
 	if (nonResidentImageRecords.size() > 0ull)
@@ -2035,12 +2055,14 @@ void DrawResourcesFiller::evictImage_SubmitIfNeeded(image_id imageID, const Cach
 	}
 }
 
-DrawResourcesFiller::ImageAllocateResults  DrawResourcesFiller::tryCreateAndAllocateImage_SubmitIfNeeded(const nbl::asset::IImage::SCreationParams& imageParams, nbl::video::SIntendedSubmitInfo& intendedNextSubmit, std::string imageDebugName)
+DrawResourcesFiller::ImageAllocateResults DrawResourcesFiller::tryCreateAndAllocateImage_SubmitIfNeeded(const nbl::asset::IImage::SCreationParams& imageParams, nbl::video::SIntendedSubmitInfo& intendedNextSubmit, std::string imageDebugName)
 {
 	ImageAllocateResults ret = {};
 
 	auto* device = m_utilities->getLogicalDevice();
 	auto* physDev = m_utilities->getLogicalDevice()->getPhysicalDevice();
+
+	bool alreadyBlockedForDeferredFrees = false;
 
 	// Attempt to create a GPU image and corresponding image view for this texture.
 	// If creation or memory allocation fails (likely due to VRAM exhaustion),
@@ -2129,22 +2151,31 @@ DrawResourcesFiller::ImageAllocateResults  DrawResourcesFiller::tryCreateAndAllo
 		}
 
 		// Getting here means we failed creating or allocating the image, evict and retry.
-		if (imagesCache->size() == 1u)
+
+
+		// If imageCache size is 1 it means there is nothing else to evict, but there may still be already evicts/frees queued up.
+		// `cull_frees` will make sure all pending deallocations will be blocked for.
+		if (imagesCache->size() == 1u && alreadyBlockedForDeferredFrees)
 		{
-			// Nothing else to evict; give up.
-			// We probably have evicted almost every other texture except the one we just allocated an index for
+			// We give up, it's really nothing we can do, no image to evict (alreadyBlockedForDeferredFrees==1) and no more memory to free up (alreadyBlockedForDeferredFrees).
+			// We probably have evicted almost every other texture except the one we just allocated an index for. 
+			// This is most likely due to current image memory requirement being greater than the whole memory allocated for all images
 			_NBL_DEBUG_BREAK_IF(true);
+			// TODO[LOG]
 			break;
 		}
 
-		assert(imagesCache->size() > 1u);
+		if (imagesCache->size() > 1u)
+		{
+			const image_id evictionCandidate = imagesCache->select_eviction_candidate();
+			CachedImageRecord* imageRef = imagesCache->peek(evictionCandidate);
+			if (imageRef)
+				evictImage_SubmitIfNeeded(evictionCandidate, *imageRef, intendedNextSubmit);
+			imagesCache->erase(evictionCandidate);
+		}
 
-		const image_id evictionCandidate = imagesCache->select_eviction_candidate();
-		CachedImageRecord* imageRef = imagesCache->peek(evictionCandidate);
-		if (imageRef)
-			evictImage_SubmitIfNeeded(evictionCandidate, *imageRef, intendedNextSubmit);
-		imagesCache->erase(evictionCandidate);
 		while (suballocatedDescriptorSet->cull_frees()) {}; // to make sure deallocation requests in eviction callback are blocked for.
+		alreadyBlockedForDeferredFrees = true;
 
 		// we don't hold any references to the GPUImageView or GPUImage so descriptor binding will be the last reference
 		// hopefully by here the suballocated descriptor set freed some VRAM by dropping the image last ref and it's dedicated allocation.

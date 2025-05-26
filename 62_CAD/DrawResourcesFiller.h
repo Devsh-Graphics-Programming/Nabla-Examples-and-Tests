@@ -216,6 +216,12 @@ public:
 		const DTMSettingsInfo& dtmSettingsInfo,
 		SIntendedSubmitInfo& intendedNextSubmit);
 	
+	struct StaticImageInfo
+	{
+		image_id imageID;
+		core::smart_refctd_ptr<ICPUImage> cpuImage;
+	};
+
 	/**
 	 * @brief Adds a static 2D image to the draw resource set for rendering.
 	 *
@@ -230,8 +236,7 @@ public:
 	 *   - Queues the image for uploading via staging in the next submit.
 	 *   - If memory is constrained, attempts to evict other images to free up space.
 	 *
-	 * @param imageID              Unique identifier for the image resource.
-	 * @param cpuImage             The CPU-side image resource to (possibly) upload.
+	 * @param staticImage              Unique identifier for the image resource plus the CPU-side image resource to (possibly) upload.
 	 * @param intendedNextSubmit   Struct representing the upcoming submission, including a semaphore for safe scheduling.
 	 *
 	 * @note This function ensures that the descriptor slot is not reused while the GPU may still be reading from it.
@@ -240,9 +245,32 @@ public:
 	 *
 	 * @note The function uses the `imagesCache` LRU cache to track usage and validity of texture slots.
 	 *       If an insertion leads to an eviction, a callback ensures proper deallocation and synchronization.
-	 * @return true if the image was successfully cached and is ready for use; false if allocation failed.
-	*/
-	bool ensureStaticImageAvailability(image_id imageID, const core::smart_refctd_ptr<ICPUImage>& cpuImage, SIntendedSubmitInfo& intendedNextSubmit);
+	 * @return true if the image was successfully cached and is ready for use; false if allocation failed most likely due to the image being larger than the memory arena allocated for all images.
+	 */
+	bool ensureStaticImageAvailability(const StaticImageInfo& staticImage, SIntendedSubmitInfo& intendedNextSubmit);
+	
+	/**
+	 * @brief Ensures that multiple static 2D images are resident and ready for rendering.
+	 *
+	 * Attempts to make all provided static images GPU-resident by calling `ensureStaticImageAvailability`
+	 * for each. Afterward, it verifies that none of the newly ensured images have been evicted,
+	 * which could happen due to limited VRAM or memory fragmentation.
+	 *
+	 * This function is expected to succeed if:
+	 * - The number of images does not exceed `ImagesBindingArraySize`.
+	 * - Each image individually fits into the image memory arena.
+	 * - There is enough VRAM to hold all images simultaneously.
+	 *
+	 * @param staticImages A span of StaticImageInfo structures describing the images to be ensured.
+	 * @param intendedNextSubmit Struct representing the upcoming submission, including a semaphore for safe scheduling.
+	 *
+	 * @return true If all images were successfully made resident and none were evicted during the process.
+	 * @return false If:
+	 *   - The number of images exceeds the descriptor binding array size.
+	 *   - Any individual image could not be made resident (e.g., larger than the allocator can support).
+	 *   - Some images were evicted due to VRAM pressure or allocator fragmentation, in which case Clearing the image cache and retrying MIGHT be a success (TODO: handle internally)
+	 */
+	bool ensureMultipleStaticImagesAvailability(std::span<StaticImageInfo> staticImages, SIntendedSubmitInfo& intendedNextSubmit);
 
 	/**
 	 * @brief Ensures a GPU-resident georeferenced image exists in the cache, allocating resources if necessary.
