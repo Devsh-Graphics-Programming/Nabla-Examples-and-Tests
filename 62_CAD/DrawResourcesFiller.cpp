@@ -433,6 +433,9 @@ bool DrawResourcesFiller::ensureStaticImageAvailability(const StaticImageInfo& s
 					suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &cachedImageRecord->arrayIndex, {});
 					cachedImageRecord->arrayIndex = InvalidTextureIndex;
 				}
+
+				// erase the entry we failed to fill, no need for `evictImage_SubmitIfNeeded`, because it didn't get to be used in any submit to defer it's memory and index deallocation
+				imagesCache->erase(imageID);
 			}
 		}
 		else
@@ -579,6 +582,9 @@ bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(
 					suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &cachedImageRecord->arrayIndex, {});
 					cachedImageRecord->arrayIndex = InvalidTextureIndex;
 				}
+				
+				// erase the entry we failed to fill, no need for `evictImage_SubmitIfNeeded`, because it didn't get to be used in any submit to defer it's memory and index deallocation
+				imagesCache->erase(imageID);
 			}
 		}
 		else
@@ -2056,12 +2062,14 @@ void DrawResourcesFiller::evictImage_SubmitIfNeeded(image_id imageID, const Cach
 	}
 }
 
-DrawResourcesFiller::ImageAllocateResults  DrawResourcesFiller::tryCreateAndAllocateImage_SubmitIfNeeded(const nbl::asset::IImage::SCreationParams& imageParams, nbl::video::SIntendedSubmitInfo& intendedNextSubmit, std::string imageDebugName)
+DrawResourcesFiller::ImageAllocateResults DrawResourcesFiller::tryCreateAndAllocateImage_SubmitIfNeeded(const nbl::asset::IImage::SCreationParams& imageParams, nbl::video::SIntendedSubmitInfo& intendedNextSubmit, std::string imageDebugName)
 {
 	ImageAllocateResults ret = {};
 
 	auto* device = m_utilities->getLogicalDevice();
 	auto* physDev = m_utilities->getLogicalDevice()->getPhysicalDevice();
+
+	bool alreadyBlockedForDeferredFrees = false;
 
 	// Attempt to create a GPU image and corresponding image view for this texture.
 	// If creation or memory allocation fails (likely due to VRAM exhaustion),
@@ -2150,22 +2158,31 @@ DrawResourcesFiller::ImageAllocateResults  DrawResourcesFiller::tryCreateAndAllo
 		}
 
 		// Getting here means we failed creating or allocating the image, evict and retry.
-		if (imagesCache->size() == 1u)
+
+
+		// If imageCache size is 1 it means there is nothing else to evict, but there may still be already evicts/frees queued up.
+		// `cull_frees` will make sure all pending deallocations will be blocked for.
+		if (imagesCache->size() == 1u && alreadyBlockedForDeferredFrees)
 		{
-			// Nothing else to evict; give up.
-			// We probably have evicted almost every other texture except the one we just allocated an index for
+			// We give up, it's really nothing we can do, no image to evict (alreadyBlockedForDeferredFrees==1) and no more memory to free up (alreadyBlockedForDeferredFrees).
+			// We probably have evicted almost every other texture except the one we just allocated an index for. 
+			// This is most likely due to current image memory requirement being greater than the whole memory allocated for all images
 			_NBL_DEBUG_BREAK_IF(true);
+			// TODO[LOG]
 			break;
 		}
 
-		assert(imagesCache->size() > 1u);
+		if (imagesCache->size() > 1u)
+		{
+			const image_id evictionCandidate = imagesCache->select_eviction_candidate();
+			CachedImageRecord* imageRef = imagesCache->peek(evictionCandidate);
+			if (imageRef)
+				evictImage_SubmitIfNeeded(evictionCandidate, *imageRef, intendedNextSubmit);
+			imagesCache->erase(evictionCandidate);
+		}
 
-		const image_id evictionCandidate = imagesCache->select_eviction_candidate();
-		CachedImageRecord* imageRef = imagesCache->peek(evictionCandidate);
-		if (imageRef)
-			evictImage_SubmitIfNeeded(evictionCandidate, *imageRef, intendedNextSubmit);
-		imagesCache->erase(evictionCandidate);
 		while (suballocatedDescriptorSet->cull_frees()) {}; // to make sure deallocation requests in eviction callback are blocked for.
+		alreadyBlockedForDeferredFrees = true;
 
 		// we don't hold any references to the GPUImageView or GPUImage so descriptor binding will be the last reference
 		// hopefully by here the suballocated descriptor set freed some VRAM by dropping the image last ref and it's dedicated allocation.
