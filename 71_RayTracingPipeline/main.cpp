@@ -1452,7 +1452,7 @@ private:
 			{
 				constexpr auto MaxAlignment = 256;
 				constexpr auto MinAllocationSize = 1024;
-				const auto scratchSize = core::alignUp(reservation.getMinASBuildScratchSize(false), MaxAlignment);
+				const auto scratchSize = core::alignUp(reservation.getMaxASBuildScratchSize(false), MaxAlignment);
 
 
 				IGPUBuffer::SCreationParams creationParams = {};
@@ -1496,6 +1496,9 @@ private:
 				m_logger->log("Failed to await submission feature!", ILogger::ELL_ERROR);
 				return false;
 			}
+			// 2 submits, BLAS build, TLAS build, DO NOT ADD COMPACTIONS IN THIS EXAMPLE!
+			if (compute.getFutureScratchSemaphore().value>3)
+				m_logger->log("Overflow submitted on Compute Queue despite using ReBAR (no transfer submits or usage of staging buffer) and providing a AS Build Scratch Buffer of correctly queried max size!",system::ILogger::ELL_ERROR);
 
 			// assign gpu objects to output
 			auto&& tlases = reservation.getGPUObjects<ICPUTopLevelAccelerationStructure>();
