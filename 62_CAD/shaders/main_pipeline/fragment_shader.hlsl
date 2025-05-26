@@ -443,15 +443,12 @@ float4 fragMain(PSInput input) : SV_TARGET
                 const float MaxCellCoordY = round(gridExtents.y / cellWidth);
 
                 float2 insideCellCoord = gridSpacePos - float2(cellWidth, cellWidth) * cellCoords; // TODO: use fmod instead?
-
-                const float2 DistancesToTriangleALegs = diagonalFromTopLeftToBottomRight ? min(insideCellCoord.x, insideCellCoord.y) : min(insideCellCoord.x, cellWidth - insideCellCoord.y);
-                const float2 DistancesToTriangleBLegs = diagonalFromTopLeftToBottomRight ? min(cellWidth - insideCellCoord.x, cellWidth - insideCellCoord.y) : min(cellWidth - insideCellCoord.x, insideCellCoord.y);
-
-                float distanceToTriangleAExclusiveCorner = min(DistancesToTriangleALegs.x, DistancesToTriangleALegs.y);
-                float distanceToTriangleBExclusiveCorner = min(DistancesToTriangleBLegs.x, DistancesToTriangleBLegs.y);
                 
                 // my ASCII art above explains which triangle is A and which is B
-                const bool triangleA = distanceToTriangleAExclusiveCorner <= distanceToTriangleBExclusiveCorner;
+                const bool triangleA = diagonalFromTopLeftToBottomRight ?
+                    insideCellCoord.x < cellWidth - insideCellCoord.y :
+                    insideCellCoord.x < insideCellCoord.y;
+                
 
                 float2 gridSpaceCellTopLeftCoords = cellCoords * cellWidth;
 

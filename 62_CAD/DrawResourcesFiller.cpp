@@ -637,7 +637,13 @@ void DrawResourcesFiller::drawGridDTM(
 	uint32_t mainObjectIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
 	assert(mainObjectIdx != InvalidMainObjectIdx);
 
-	addGridDTM_Internal(gridDTMInfo, mainObjectIdx);
+	if (!addGridDTM_Internal(gridDTMInfo, mainObjectIdx))
+	{
+		// single grid DTM couldn't fit into memory to push to gpu, so we submit rendering current objects and reset geometry buffer and draw objects
+		submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjectIdx);
+		bool success = addGridDTM_Internal(gridDTMInfo, mainObjectIdx);
+		assert(success); // this should always be true, otherwise it's either bug in code or not enough memory allocated to hold a single GridDTMInfo
+	}
 
 	endMainObject();
 }
