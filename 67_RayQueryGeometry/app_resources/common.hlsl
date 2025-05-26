@@ -14,6 +14,7 @@ struct SGeomInfo
     uint32_t vertexStride : 29;
     uint32_t indexType : 2; // 16 bit, 32 bit or none
     uint32_t smoothNormals : 1;	// flat for cube, rectangle, disk
+    uint32_t padding;
 };
 
 struct SPushConstants
