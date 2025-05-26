@@ -707,9 +707,6 @@ bool DrawResourcesFiller::pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit
 		bool replayCacheFullyCovered = true;
 		for (auto& [imageID, toReplayRecord] : *currentReplayCache->imagesCache)
 		{
-			// TODO: remove temoprary const_cast workaround.
-			CachedImageRecord& toReplayImageRecord_nonConst = const_cast<CachedImageRecord&>(toReplayRecord);
-
 			if (toReplayRecord.type != ImageType::STATIC) // non-static images (Georeferenced) won't be replayed like this
 				continue;
 
@@ -731,7 +728,7 @@ bool DrawResourcesFiller::pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit
 			// if already resident, just update the state to the cached state (to make sure it doesn't get issued for upload again) and move on.
 			if (alreadyResident)
 			{
-				toReplayImageRecord_nonConst.state = cachedRecord->state; // update the toReplayImageRecords's state, to completely match the currently resident state
+				toReplayRecord.state = cachedRecord->state; // update the toReplayImageRecords's state, to completely match the currently resident state
 				continue;
 			}
 
@@ -764,8 +761,8 @@ bool DrawResourcesFiller::pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit
 					if (newGPUImageView)
 					{
 						successCreateNewImage = true;
-						toReplayImageRecord_nonConst.gpuImageView = newGPUImageView;
-						toReplayImageRecord_nonConst.state = ImageState::CREATED_AND_MEMORY_BOUND;
+						toReplayRecord.gpuImageView = newGPUImageView;
+						toReplayRecord.state = ImageState::CREATED_AND_MEMORY_BOUND;
 						newGPUImageView->setObjectDebugName((std::to_string(imageID) + " Static Image View 2D").c_str());
 					}
 
@@ -781,8 +778,9 @@ bool DrawResourcesFiller::pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit
 		}
 		
 		// Our actual `imageCache` (which represents GPU state) didn't cover the replayCache fully, so new images had to be created, bound to memory. and they need to be written into their respective descriptor array indices again.
+		// imagesCache = std::make_unique<ImagesCache>(*currentReplayCache->imagesCache);
 		imagesCache->clear();
-		for (auto it = currentReplayCache->imagesCache->crbegin(); it != currentReplayCache->imagesCache->crend(); it++)
+		for (auto it = currentReplayCache->imagesCache->rbegin(); it != currentReplayCache->imagesCache->rend(); it++)
 			imagesCache->base_t::insert(it->first, it->second);
 
 		if (!replayCacheFullyCovered)
@@ -903,12 +901,7 @@ std::unique_ptr<DrawResourcesFiller::ReplayCache> DrawResourcesFiller::createRep
 		stagedMSDF.uploadedToGPU = false; // to trigger upload for all msdf functions again.
 	ret->drawCallsData = drawCalls;
 	ret->activeMainObjectIndex = activeMainObjectIndex;
-	ret->imagesCache = std::unique_ptr<ImagesCache>(new ImagesCache(imagesCache->size()));
-	// It should be copyable, here is a temporary hack:
-	for (auto it = imagesCache->crbegin(); it != imagesCache->crend(); it++)
-	{
-		ret->imagesCache->base_t::insert(it->first, it->second);
-	}
+	ret->imagesCache = std::unique_ptr<ImagesCache>(new ImagesCache(*imagesCache));
 	return ret;
 }
 
@@ -1138,7 +1131,7 @@ bool DrawResourcesFiller::bindImagesToArrayIndices(ImagesCache& imagesCache)
 		descriptorWrite.info = &descriptorInfos[descriptorWriteCount];
 		descriptorWrites[descriptorWriteCount] = descriptorWrite;
 
-		const_cast<CachedImageRecord&>(record).state = ImageState::BOUND_TO_DESCRIPTOR_SET;
+		record.state = ImageState::BOUND_TO_DESCRIPTOR_SET;
 		descriptorWriteCount++;
 	}
 
@@ -1157,7 +1150,7 @@ bool DrawResourcesFiller::pushStaticImagesUploads(SIntendedSubmitInfo& intendedN
 	for (auto& [id, record] : imagesCache)
 	{
 		if (record.staticCPUImage && record.type == ImageType::STATIC && record.state < ImageState::GPU_RESIDENT_WITH_VALID_STATIC_DATA)
-			nonResidentImageRecords.push_back(const_cast<CachedImageRecord*>(&record)); // TODO: remove const_cast
+			nonResidentImageRecords.push_back(&record);
 	}
 
 	if (nonResidentImageRecords.size() > 0ull)
