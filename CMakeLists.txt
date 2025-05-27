@@ -64,6 +64,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(26_Blur EXCLUDE_FROM_ALL)
 	add_subdirectory(27_MPMCScheduler EXCLUDE_FROM_ALL)	
 	add_subdirectory(28_FFTBloom EXCLUDE_FROM_ALL)
+	add_subdirectory(29_MeshLoaders EXCLUDE_FROM_ALL)
 	# add_subdirectory(36_CUDAInterop EXCLUDE_FROM_ALL)
 
 	# Showcase compute pathtracing

@@ -6,7 +6,7 @@
   "cmake": {
     "configurations": [ "Release", "Debug", "RelWithDebInfo" ],
     "buildModes": [],
-    "requiredOptions": [ "NBL_BUILD_MITSUBA_LOADER", "NBL_BUILD_OPTIX" ]
+    "requiredOptions": [ "NBL_BUILD_MITSUBA_LOADER" ]
   }, 
   "profiles": [
     {
