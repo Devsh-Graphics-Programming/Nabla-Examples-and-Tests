@@ -18,12 +18,12 @@ groupshared uint32_t scratch[config_t::SharedScratchElementCount];
 
 struct ScratchProxy
 {
-    template<typename IndexType, typename AccessType>
+    template<typename AccessType, typename IndexType>
     void get(const uint32_t ix, NBL_REF_ARG(AccessType) value)
     {
         value = scratch[ix];
     }
-    template<typename IndexType, typename AccessType>
+    template<typename AccessType, typename IndexType>
     void set(const uint32_t ix, const AccessType value)
     {
         scratch[ix] = value;
@@ -47,18 +47,18 @@ struct DataProxy
     using dtype_t = vector<uint32_t, Config::ItemsPerInvocation_0>;
     static_assert(nbl::hlsl::is_same_v<dtype_t, type_t>);
 
-    template<typename AccessType>
-    void get(const uint32_t ix, NBL_REF_ARG(dtype_t) value)
+    template<typename AccessType, typename IndexType>
+    void get(const IndexType ix, NBL_REF_ARG(AccessType) value)
     {
         const uint32_t workgroupOffset = nbl::hlsl::glsl::gl_WorkGroupID().x * Config::VirtualWorkgroupSize;
-        value = vk::RawBufferLoad<dtype_t>(pc.inputBufAddress + (workgroupOffset + ix) * sizeof(dtype_t));
+        value = vk::RawBufferLoad<AccessType>(pc.inputBufAddress + (workgroupOffset + ix) * sizeof(AccessType));
     }
-    template<typename AccessType>
-    void set(const uint32_t ix, const dtype_t value)
+    template<typename AccessType, typename IndexType>
+    void set(const IndexType ix, const AccessType value)
     {
         const uint32_t workgroupOffset = nbl::hlsl::glsl::gl_WorkGroupID().x * Config::VirtualWorkgroupSize;
         uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.outputAddressBufAddress + Binop::BindingIndex * sizeof(uint64_t));
-        vk::RawBufferStore<dtype_t>(outputBufAddr + sizeof(uint32_t) + sizeof(dtype_t) * (workgroupOffset+ix), value, sizeof(uint32_t));
+        vk::RawBufferStore<AccessType>(outputBufAddr + sizeof(uint32_t) + sizeof(AccessType) * (workgroupOffset+ix), value, sizeof(uint32_t));
     }
 
     void workgroupExecutionAndMemoryBarrier()
@@ -76,13 +76,13 @@ struct PreloadedDataProxy
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t PreloadedDataCount = Config::VirtualWorkgroupSize / Config::WorkgroupSize;
 
-    template<typename AccessType>
-    void get(const uint32_t ix, NBL_REF_ARG(dtype_t) value)
+    template<typename AccessType, typename IndexType>
+    void get(const IndexType ix, NBL_REF_ARG(AccessType) value)
     {
         value = preloaded[(ix-nbl::hlsl::workgroup::SubgroupContiguousIndex())>>Config::WorkgroupSizeLog2];
     }
-    template<typename AccessType>
-    void set(const uint32_t ix, const dtype_t value)
+    template<typename AccessType, typename IndexType>
+    void set(const IndexType ix, const AccessType value)
     {
         preloaded[(ix-nbl::hlsl::workgroup::SubgroupContiguousIndex())>>Config::WorkgroupSizeLog2] = value;
     }

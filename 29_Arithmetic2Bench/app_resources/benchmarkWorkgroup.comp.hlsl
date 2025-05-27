@@ -18,12 +18,12 @@ groupshared uint32_t scratch[config_t::SharedScratchElementCount];
 
 struct ScratchProxy
 {
-    template<typename IndexType, typename AccessType>
+    template<typename AccessType, typename IndexType>
     void get(const IndexType ix, NBL_REF_ARG(AccessType) value)
     {
         value = scratch[ix];
     }
-    template<typename IndexType, typename AccessType>
+    template<typename AccessType, typename IndexType>
     void set(const IndexType ix, const AccessType value)
     {
         scratch[ix] = value;
@@ -49,14 +49,14 @@ struct DataProxy
     static_assert(nbl::hlsl::is_same_v<dtype_t, type_t>);
 
     // we don't want to write/read storage multiple times in loop; doesn't seem optimized out in generated spirv
-    template<typename AccessType>
-    void get(const uint32_t ix, NBL_REF_ARG(dtype_t) value)
+    template<typename AccessType, typename IndexType>
+    void get(const IndexType ix, NBL_REF_ARG(dtype_t) value)
     {
         // value = inputValue[ix];
         value = nbl::hlsl::promote<dtype_t>(globalIndex());
     }
-    template<typename AccessType>
-    void set(const uint32_t ix, const dtype_t value)
+    template<typename AccessType, typename IndexType>
+    void set(const IndexType ix, const dtype_t value)
     {
         // output[Binop::BindingIndex].template Store<type_t>(sizeof(uint32_t) + sizeof(type_t) * ix, value);
     }
@@ -76,13 +76,13 @@ struct PreloadedDataProxy
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t PreloadedDataCount = Config::VirtualWorkgroupSize / Config::WorkgroupSize;
 
-    template<typename AccessType>
-    void get(const uint32_t ix, NBL_REF_ARG(dtype_t) value)
+    template<typename AccessType, typename IndexType>
+    void get(const IndexType ix, NBL_REF_ARG(AccessType) value)
     {
         value = preloaded[(ix-nbl::hlsl::workgroup::SubgroupContiguousIndex())>>Config::WorkgroupSizeLog2];
     }
-    template<typename AccessType>
-    void set(const uint32_t ix, const dtype_t value)
+    template<typename AccessType, typename IndexType>
+    void set(const IndexType ix, const AccessType value)
     {
         preloaded[(ix-nbl::hlsl::workgroup::SubgroupContiguousIndex())>>Config::WorkgroupSizeLog2] = value;
     }
