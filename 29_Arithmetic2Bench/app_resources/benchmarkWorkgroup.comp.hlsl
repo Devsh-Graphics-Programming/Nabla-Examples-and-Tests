@@ -18,13 +18,13 @@ groupshared uint32_t scratch[config_t::SharedScratchElementCount];
 
 struct ScratchProxy
 {
-    template<typename AccessType>
-    void get(const uint32_t ix, NBL_REF_ARG(AccessType) value)
+    template<typename IndexType, typename AccessType>
+    void get(const IndexType ix, NBL_REF_ARG(AccessType) value)
     {
         value = scratch[ix];
     }
-    template<typename AccessType>
-    void set(const uint32_t ix, const AccessType value)
+    template<typename IndexType, typename AccessType>
+    void set(const IndexType ix, const AccessType value)
     {
         scratch[ix] = value;
     }
