@@ -404,7 +404,10 @@ float4 fragMain(PSInput input) : SV_TARGET
             // [NOTE] Do dilation as last step, when everything else works fine
 
             DTMSettings dtmSettings = loadDTMSettings(mainObj.dtmSettingsIdx);
+
             float2 pos = input.getGridDTMScreenSpacePosition();
+            float2 uv = input.getImageUV();
+            const uint32_t textureId = input.getGridDTMHeightTextureID();
 
             // grid consists of square cells and cells are divided into two triangles:
             // depending on mode it is
@@ -438,37 +441,39 @@ float4 fragMain(PSInput input) : SV_TARGET
                     cellCoords.y = uint32_t(gridSpacePosDivGridCellWidth.y);
                 }
 
-                // TODO: do we want to calculate it in the vertex shader?
-                const float MaxCellCoordX = round(gridExtents.x / cellWidth);
-                const float MaxCellCoordY = round(gridExtents.y / cellWidth);
-
                 float2 insideCellCoord = gridSpacePos - float2(cellWidth, cellWidth) * cellCoords; // TODO: use fmod instead?
                 
                 // my ASCII art above explains which triangle is A and which is B
                 const bool triangleA = diagonalFromTopLeftToBottomRight ?
                     insideCellCoord.x < cellWidth - insideCellCoord.y :
                     insideCellCoord.x < insideCellCoord.y;
-                
 
                 float2 gridSpaceCellTopLeftCoords = cellCoords * cellWidth;
 
+                const float InvalidHeightValue = asfloat(0x7FC00000);
+                float4 cellHeights = float4(InvalidHeightValue, InvalidHeightValue, InvalidHeightValue, InvalidHeightValue);
+                if (textureId != InvalidTextureIndex)
+                {
+                    const float2 maxCellCoords = float2(round(gridExtents.x / cellWidth), round(gridExtents.y / cellWidth));
+                    const float2 location = (cellCoords + float2(0.5f, 0.5f)) / maxCellCoords;
+
+                    cellHeights = textures[NonUniformResourceIndex(textureId)].Gather(textureSampler, float2(location.x, location.y), 0);
+                    if (cellHeights.x == 100.0f)
+                        printf("uv = { %f, %f }cellHeights = { %f, %f, %f, %f }", location.x, location.y, cellHeights.x, cellHeights.y, cellHeights.z, cellHeights.w);
+                }
+
                 if (diagonalFromTopLeftToBottomRight)
                 {
-                    v[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, 0.0f);
-                    v[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, 0.0f);
-                    v[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, 0.0f) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, 0.0f);
+                    v[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.x);
+                    v[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, cellHeights.z);
+                    v[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, cellHeights.w) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.y);
                 }
                 else
                 {
-                    v[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, 0.0f);
-                    v[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, 0.0f);
-                    v[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, 0.0f) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, 0.0f);
+                    v[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, cellHeights.w);
+                    v[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.y);
+                    v[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.x) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, cellHeights.z);
                 }
-                 
-                // TODO: remove when implementing height texture
-                [unroll]
-                for (uint i = 0; i < 3; ++i)
-                    v[i].z = -20.0f + 5.0f * (v[i].x + v[i].y) / cellWidth;
 
                 if (isnan(v[0].z) || isnan(v[1].z) || isnan(v[2].z))
                     discard;

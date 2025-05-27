@@ -210,9 +210,10 @@ public:
 		SIntendedSubmitInfo& intendedNextSubmit);
 
 	void drawGridDTM(const float64_t2& topLeft,
-		float64_t height,
 		float64_t width,
+		float64_t height,
 		float gridCellWidth,
+		uint64_t textureID,
 		const DTMSettingsInfo& dtmSettingsInfo,
 		SIntendedSubmitInfo& intendedNextSubmit);
 	

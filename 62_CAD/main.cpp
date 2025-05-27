@@ -1153,7 +1153,7 @@ public:
 			"../../media/color_space_test/R8G8B8A8_1.png",
 		};
 
-		for (const auto& imagePath : imagePaths)
+		auto loadImage = [&](const std::string& imagePath) -> smart_refctd_ptr<ICPUImage>
 		{
 			constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
 			const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get(), m_loadCWD);
@@ -1162,6 +1162,7 @@ public:
 			if (contents.empty())
 			{
 				m_logger->log("Failed to load image with path %s, skipping!", ILogger::ELL_ERROR, (m_loadCWD / imagePath).c_str());
+				return nullptr;
 			}
 
 			smart_refctd_ptr<ICPUImageView> cpuImgView;
@@ -1195,6 +1196,7 @@ public:
 				break;
 			default:
 				m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type, skipping!", ILogger::ELL_ERROR);
+				return nullptr;
 			}
 
 
@@ -1243,13 +1245,23 @@ public:
 				promotedCPUImage->setBufferAndRegions(std::move(promotedCPUImageBuffer), newRegions);
 
 				performImageFormatPromotionCopy(loadedCPUImage, promotedCPUImage);
-				sampleImages.push_back(promotedCPUImage);
+				return promotedCPUImage;
 			}
 			else
 			{
-				sampleImages.push_back(loadedCPUImage);
+				return loadedCPUImage;
 			}
+		};
+
+		for (const auto& imagePath : imagePaths)
+		{
+			auto image = loadImage(imagePath);
+			if (image)
+				sampleImages.push_back(image);
 		}
+
+		gridDTMHeightMap = loadImage("../../media/gridDTMHeightMap.exr");
+		assert(gridDTMHeightMap);
 
 		return true;
 	}
@@ -3598,7 +3610,16 @@ protected:
 				}
 			}
 
-			drawResourcesFiller.drawGridDTM({ 0.0f, 200.0f }, 400.0f, 800.0f, 40.0f, dtmInfo, intendedNextSubmit);
+			constexpr float HeightMapCellWidth = 50.0f;
+			const auto heightMapExtent = gridDTMHeightMap->getCreationParameters().extent;
+			assert(heightMapExtent.width > 0 && heightMapExtent.height > 0);
+			const float heightMapWidth = (heightMapExtent.width - 1) * HeightMapCellWidth;
+			const float heightMapHeight = (heightMapExtent.height - 1) * HeightMapCellWidth;
+
+			const uint64_t heightMapTextureID = 0ull;
+			if (!drawResourcesFiller.ensureStaticImageAvailability({ heightMapTextureID, gridDTMHeightMap }, intendedNextSubmit))
+				m_logger->log("Grid DTM height map texture unavailable!", ILogger::ELL_ERROR);
+			drawResourcesFiller.drawGridDTM({ 0.0f, 200.0f }, heightMapWidth, heightMapHeight, HeightMapCellWidth, heightMapTextureID,  dtmInfo, intendedNextSubmit);
 		}
 	}
 
@@ -3673,6 +3694,7 @@ protected:
 	std::vector<std::unique_ptr<msdfgen::Shape>> m_shapeMSDFImages = {};
 
 	std::vector<smart_refctd_ptr<ICPUImage>> sampleImages;
+	smart_refctd_ptr<ICPUImage> gridDTMHeightMap;
 
 	static constexpr char FirstGeneratedCharacter = ' ';
 	static constexpr char LastGeneratedCharacter = '~';

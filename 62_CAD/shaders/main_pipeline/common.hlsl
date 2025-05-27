@@ -232,7 +232,7 @@ struct PSInput
 #endif
 
     /* GRID DTM */
-    uint getGridDTMHeightTextureID(uint textureID) { return data1.z; }
+    uint getGridDTMHeightTextureID() { return data1.z; }
     float2 getGridDTMScreenSpaceTopLeft() { return data2.xy; }
     float2 getGridDTMScreenSpaceGridExtents() { return data2.zw; }
     float getGridDTMScreenSpaceCellWidth() { return data3.x; }

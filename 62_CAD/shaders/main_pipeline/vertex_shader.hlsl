@@ -650,7 +650,7 @@ PSInput main(uint vertexID : SV_VertexID)
             pfloat64_t2 topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
             pfloat64_t height = vk::RawBufferLoad<pfloat64_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
             pfloat64_t width = vk::RawBufferLoad<pfloat64_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(pfloat64_t), 8u);
-            uint32_t dtmSettingsID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(pfloat64_t), 8u);
+            uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(pfloat64_t), 8u);
             float gridCellWidth = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(pfloat64_t) + sizeof(uint32_t), 8u);
             float reciprocalOutlineStipplePatternLength = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(pfloat64_t) + sizeof(uint32_t) + sizeof(float), 8u);
 
@@ -666,6 +666,7 @@ PSInput main(uint vertexID : SV_VertexID)
             float2 ndcVtxPos = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, vtxPos));
             outV.position = float4(ndcVtxPos, 0.0f, 1.0f);
 
+            outV.setGridDTMHeightTextureID(textureID);
             outV.setGridDTMScreenSpaceCellWidth(gridCellWidth * globals.screenToWorldRatio);
             outV.setGridDTMScreenSpacePosition(transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, vtxPos));
             outV.setGridDTMScreenSpaceTopLeft(transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, topLeft));
