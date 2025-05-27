@@ -14,7 +14,7 @@ using config_t = nbl::hlsl::workgroup2::ArithmeticConfiguration<WORKGROUP_SIZE_L
 typedef vector<uint32_t, config_t::ItemsPerInvocation_0> type_t;
 
 // final (level 1/2) scan needs to fit in one subgroup exactly
-groupshared uint32_t scratch[config_t::ElementCount];
+groupshared uint32_t scratch[config_t::SharedScratchElementCount];
 
 struct ScratchProxy
 {
