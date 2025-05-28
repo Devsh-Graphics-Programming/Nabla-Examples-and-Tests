@@ -365,7 +365,9 @@ private:
 		{
 			itemsPerWG = workgroupSize;
 			workgroupCount = elementCount / (itemsPerWG * itemsPerInvoc);
-		}	
+		}
+		workgroupCount = min(workgroupCount, m_physicalDevice->getLimits().maxComputeWorkGroupCount[0]);
+
 		cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
 		cmdbuf->bindComputePipeline(pipeline.get());
 		cmdbuf->pushConstants(pipelineLayout.get(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(PushConstantData), &pc);
