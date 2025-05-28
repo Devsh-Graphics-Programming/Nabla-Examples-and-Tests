@@ -362,14 +362,43 @@ void DrawResourcesFiller::drawFontGlyph(
 
 bool DrawResourcesFiller::ensureStaticImageAvailability(const StaticImageInfo& staticImage, SIntendedSubmitInfo& intendedNextSubmit)
 {
-	const auto& imageID = staticImage.imageID;
-	const auto& cpuImage = staticImage.cpuImage;
-	
 	// Try inserting or updating the image usage in the cache.
 	// If the image is already present, updates its semaphore value.
 	auto evictCallback = [&](image_id imageID, const CachedImageRecord& evicted) { evictImage_SubmitIfNeeded(imageID, evicted, intendedNextSubmit); };
-	CachedImageRecord* cachedImageRecord = imagesCache->insert(imageID, intendedNextSubmit.getFutureScratchSemaphore().value, evictCallback);
+	CachedImageRecord* cachedImageRecord = imagesCache->insert(staticImage.imageID, intendedNextSubmit.getFutureScratchSemaphore().value, evictCallback);
 	cachedImageRecord->lastUsedFrameIndex = currentFrameIndex; // in case there was an eviction + auto-submit, we need to update AGAIN
+
+	if (cachedImageRecord->arrayIndex != InvalidTextureIndex && staticImage.forceUpdate)
+	{
+		// found in cache, and we want to force new data into the image
+		if (cachedImageRecord->staticCPUImage)
+		{
+			const auto cachedImageParams = cachedImageRecord->staticCPUImage->getCreationParameters();
+			const auto newImageParams = staticImage.cpuImage->getCreationParameters();
+			const bool needsRecreation = newImageParams != cachedImageParams;
+			if (needsRecreation)
+			{
+				// call the eviction callback so the currently cached imageID gets eventually deallocated from memory arena along with it's allocated array slot from the suballocated descriptor set
+				evictCallback(staticImage.imageID, *cachedImageRecord);
+					
+				// Instead of erasing and inserting the imageID into the cache, we just reset it, so the next block of code goes into array index allocation + creating our new image
+				// imagesCache->erase(imageID);
+				// cachedImageRecord = imagesCache->insert(imageID, intendedNextSubmit.getFutureScratchSemaphore().value, evictCallback);
+				*cachedImageRecord = CachedImageRecord(currentFrameIndex);
+			}
+			else
+			{
+				// Doesn't need image recreation, we'll use the same array index in descriptor set + the same bound memory.
+				// reset it's state + update the cpu image used for copying.
+				cachedImageRecord->state = ImageState::CREATED_AND_MEMORY_BOUND; 
+				cachedImageRecord->staticCPUImage = staticImage.cpuImage;
+			}
+		}
+		else
+		{
+			// TODO[LOG]: ? found static image has empty cpu image, shouldn't happen
+		}
+	}
 
 	// if cachedImageRecord->index was not InvalidTextureIndex then it means we had a cache hit and updated the value of our sema
 	// in which case we don't queue anything for upload, and return the idx
@@ -386,7 +415,7 @@ bool DrawResourcesFiller::ensureStaticImageAvailability(const StaticImageInfo& s
 			auto* physDev = m_utilities->getLogicalDevice()->getPhysicalDevice();
 
 			IGPUImage::SCreationParams imageParams = {};
-			imageParams = cpuImage->getCreationParameters();
+			imageParams = staticImage.cpuImage->getCreationParameters();
 			imageParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT|IGPUImage::EUF_SAMPLED_BIT;
 			// promote format because RGB8 and friends don't actually exist in HW
 			{
@@ -398,7 +427,7 @@ bool DrawResourcesFiller::ensureStaticImageAvailability(const StaticImageInfo& s
 			}
 
 			// Attempt to create a GPU image and image view for this texture.
-			ImageAllocateResults allocResults = tryCreateAndAllocateImage_SubmitIfNeeded(imageParams, intendedNextSubmit, std::to_string(imageID));
+			ImageAllocateResults allocResults = tryCreateAndAllocateImage_SubmitIfNeeded(imageParams, intendedNextSubmit, std::to_string(staticImage.imageID));
 
 			if (allocResults.isValid())
 			{
@@ -408,7 +437,7 @@ bool DrawResourcesFiller::ensureStaticImageAvailability(const StaticImageInfo& s
 				cachedImageRecord->allocationOffset = allocResults.allocationOffset;
 				cachedImageRecord->allocationSize = allocResults.allocationSize;
 				cachedImageRecord->gpuImageView = allocResults.gpuImageView;
-				cachedImageRecord->staticCPUImage = cpuImage;
+				cachedImageRecord->staticCPUImage = staticImage.cpuImage;
 			}
 			else
 			{
@@ -434,8 +463,8 @@ bool DrawResourcesFiller::ensureStaticImageAvailability(const StaticImageInfo& s
 					cachedImageRecord->arrayIndex = InvalidTextureIndex;
 				}
 
-				// erase the entry we failed to fill, no need for `evictImage_SubmitIfNeeded`, because it didn't get to be used in any submit to defer it's memory and index deallocation
-				imagesCache->erase(imageID);
+				// erase the entry we failed to allocate an image for, no need for `evictImage_SubmitIfNeeded`, because it didn't get to be used in any submit to defer it's memory and index deallocation
+				imagesCache->erase(staticImage.imageID);
 			}
 		}
 		else
@@ -516,7 +545,7 @@ bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(
 				const bool needsRecreation = cachedImageType != georeferenceImageType || cachedParams != currentParams;
 				if (needsRecreation)
 				{
-					// call the eviction callbacl so the currently cached imageID gets eventually deallocated from memory arena.
+					// call the eviction callback so the currently cached imageID gets eventually deallocated from memory arena.
 					evictCallback(imageID, *cachedImageRecord);
 					
 					// instead of erasing and inserting the imageID into the cache, we just reset it, so the next block of code goes into array index allocation + creating our new image

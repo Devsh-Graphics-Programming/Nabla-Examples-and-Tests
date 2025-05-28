@@ -216,12 +216,6 @@ public:
 		uint64_t textureID,
 		const DTMSettingsInfo& dtmSettingsInfo,
 		SIntendedSubmitInfo& intendedNextSubmit);
-	
-	struct StaticImageInfo
-	{
-		image_id imageID;
-		core::smart_refctd_ptr<ICPUImage> cpuImage;
-	};
 
 	/**
 	 * @brief Adds a static 2D image to the draw resource set for rendering.
@@ -237,8 +231,9 @@ public:
 	 *   - Queues the image for uploading via staging in the next submit.
 	 *   - If memory is constrained, attempts to evict other images to free up space.
 	 *
-	 * @param staticImage              Unique identifier for the image resource plus the CPU-side image resource to (possibly) upload.
-	 * @param intendedNextSubmit   Struct representing the upcoming submission, including a semaphore for safe scheduling.
+	 * @param staticImage                       Unique identifier for the image resource plus the CPU-side image resource to (possibly) upload.
+	 * @param staticImage::forceUpdate          If true, bypasses the existing GPU-side cache and forces an update of the image data; Useful when replacing the contents of a static image that may already be resident.
+	 * @param intendedNextSubmit                Struct representing the upcoming submission, including a semaphore for safe scheduling.
 	 *
 	 * @note This function ensures that the descriptor slot is not reused while the GPU may still be reading from it.
 	 *       If an eviction is required and the evicted image is scheduled to be used in the next submit, it triggers
