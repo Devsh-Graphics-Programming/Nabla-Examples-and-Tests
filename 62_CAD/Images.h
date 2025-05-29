@@ -208,3 +208,11 @@ struct StreamedImageCopy
 	core::smart_refctd_ptr<ICPUBuffer> srcBuffer; // Make it 'std::future' later?
 	asset::IImage::SBufferCopy region;
 };
+
+// TODO: Rename to StaticImageAvailabilityRequest?
+struct StaticImageInfo
+{
+	image_id imageID = ~0ull;
+	core::smart_refctd_ptr<ICPUImage> cpuImage = nullptr;
+	bool forceUpdate = false; // If true, bypasses the existing GPU-side cache and forces an update of the image data; Useful when replacing the contents of a static image that may already be resident.
+};
