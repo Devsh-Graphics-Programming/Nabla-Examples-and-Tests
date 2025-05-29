@@ -3616,12 +3616,34 @@ protected:
 			assert(heightMapExtent.width > 0 && heightMapExtent.height > 0);
 
 			float64_t2 worldSpaceExtents;
+			const float64_t2 topLeft = { -400.0f, 400.0f };
 			worldSpaceExtents.x = (heightMapExtent.width - 1) * HeightMapCellWidth;
 			worldSpaceExtents.y = (heightMapExtent.height - 1) * HeightMapCellWidth;
 			const uint64_t heightMapTextureID = 0ull;
 			if (!drawResourcesFiller.ensureStaticImageAvailability({ heightMapTextureID, gridDTMHeightMap }, intendedNextSubmit))
 				m_logger->log("Grid DTM height map texture unavailable!", ILogger::ELL_ERROR);
-			drawResourcesFiller.drawGridDTM({ -400.0f, 400.0f }, worldSpaceExtents, HeightMapCellWidth, heightMapTextureID,  dtmInfo, intendedNextSubmit);
+			drawResourcesFiller.drawGridDTM(topLeft, worldSpaceExtents, HeightMapCellWidth, heightMapTextureID,  dtmInfo, intendedNextSubmit);
+
+			// draw test polyline
+			{
+				LineStyleInfo style = {};
+				style.screenSpaceLineWidth = 0.0f;
+				style.worldSpaceLineWidth = 15.0f;
+				style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
+
+				CPolyline polyline;
+				{
+					std::vector<float64_t2> linePoints;
+					linePoints.push_back(topLeft);
+					linePoints.push_back(topLeft + float64_t2(worldSpaceExtents.x, 0.0));
+					linePoints.push_back(topLeft + float64_t2(worldSpaceExtents.x, -worldSpaceExtents.y));
+					linePoints.push_back(topLeft + float64_t2(0.0, -worldSpaceExtents.y));
+					linePoints.push_back(topLeft);
+					polyline.addLinePoints(linePoints);
+				}
+
+				drawResourcesFiller.drawPolyline(polyline, style, intendedNextSubmit);
+			}
 		}
 	}
 
