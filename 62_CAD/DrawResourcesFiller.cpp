@@ -613,8 +613,7 @@ bool DrawResourcesFiller::queueGeoreferencedImageCopy_Internal(image_id imageID,
 // We don't have an allocator or memory management for texture updates yet, see how `_test_addImageObject` is being temporarily used (Descriptor updates and pipeline barriers) to upload an image into gpu and update a descriptor slot (it will become more sophisticated but doesn't block you)
 void DrawResourcesFiller::drawGridDTM(
 	const float64_t2& topLeft,
-	float64_t width,
-	float64_t height,
+	float64_t2 worldSpaceExtents,
 	float gridCellWidth,
 	uint64_t textureID,
 	const DTMSettingsInfo& dtmSettingsInfo,
@@ -622,8 +621,7 @@ void DrawResourcesFiller::drawGridDTM(
 {
 	GridDTMInfo gridDTMInfo;
 	gridDTMInfo.topLeft = topLeft;
-	gridDTMInfo.height = height;
-	gridDTMInfo.width = width;
+	gridDTMInfo.worldSpaceExtents = worldSpaceExtents;
 	gridDTMInfo.gridCellWidth = gridCellWidth;
 	gridDTMInfo.textureID = getImageIndexFromID(textureID, intendedNextSubmit); // for this to be valid and safe, this function needs to be called immediately after `addStaticImage` function to make sure image is in memory
 

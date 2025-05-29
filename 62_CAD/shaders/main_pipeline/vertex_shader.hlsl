@@ -648,20 +648,17 @@ PSInput main(uint vertexID : SV_VertexID)
         else if (objType == ObjectType::GRID_DTM)
         {
             pfloat64_t2 topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
-            pfloat64_t height = vk::RawBufferLoad<pfloat64_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
-            pfloat64_t width = vk::RawBufferLoad<pfloat64_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(pfloat64_t), 8u);
-            uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(pfloat64_t), 8u);
-            float gridCellWidth = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(pfloat64_t) + sizeof(uint32_t), 8u);
-            float reciprocalOutlineStipplePatternLength = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(pfloat64_t) + sizeof(uint32_t) + sizeof(float), 8u);
+            pfloat64_t2 worldSpaceExtents = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
+            uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + 2 * sizeof(pfloat64_t2), 8u);
+            float gridCellWidth = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + 2 * sizeof(pfloat64_t2) + sizeof(uint32_t), 8u);
+            float reciprocalOutlineStipplePatternLength = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + 2 * sizeof(pfloat64_t2) + sizeof(uint32_t) + sizeof(float), 8u);
 
             const float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
-            pfloat64_t2 gridExtents;
-            gridExtents.x = width;
-            gridExtents.y = -height;
+            worldSpaceExtents.y = -worldSpaceExtents.y;
 
             pfloat64_t2 vtxPos = topLeft;
-            vtxPos = vtxPos + corner * gridExtents;
-            gridExtents.y = -gridExtents.y;
+            vtxPos = vtxPos + corner * worldSpaceExtents;
+            worldSpaceExtents.y = -worldSpaceExtents.y;
 
             float2 ndcVtxPos = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, vtxPos));
             outV.position = float4(ndcVtxPos, 0.0f, 1.0f);
@@ -670,7 +667,7 @@ PSInput main(uint vertexID : SV_VertexID)
             outV.setGridDTMScreenSpaceCellWidth(gridCellWidth * globals.screenToWorldRatio);
             outV.setGridDTMScreenSpacePosition(transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, vtxPos));
             outV.setGridDTMScreenSpaceTopLeft(transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, topLeft));
-            outV.setGridDTMScreenSpaceGridExtents(_static_cast<float2>(gridExtents) * globals.screenToWorldRatio);
+            outV.setGridDTMScreenSpaceGridExtents(_static_cast<float2>(worldSpaceExtents) * globals.screenToWorldRatio);
             outV.setImageUV(corner);
             outV.setGridDTMOutlineStipplePatternLengthReciprocal(reciprocalOutlineStipplePatternLength);
         }

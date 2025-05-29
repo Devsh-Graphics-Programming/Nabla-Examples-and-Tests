@@ -77,7 +77,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0,	// CASE_8
 	600.0,	// CASE_9
 	10.0,	// CASE_BUG
-	600.0	// CASE_11
+	1000.0	// CASE_11
 };
 
 constexpr ExampleMode mode = ExampleMode::CASE_11;
@@ -3569,6 +3569,7 @@ protected:
 			// 2 - DISCRETE_FIXED_LENGTH_INTERVALS
 			// 3 - CONTINOUS_INTERVALS
 			float animatedAlpha = (std::cos(m_timeElapsed * 0.0005) + 1.0) * 0.5;
+			animatedAlpha = 1.0f;
 			switch (m_shadingModeExample)
 			{
 				case E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
@@ -3589,8 +3590,8 @@ protected:
 					dtmInfo.heightShadingInfo.intervalIndexToHeightMultiplier = dtmInfo.heightShadingInfo.intervalLength;
 					dtmInfo.heightShadingInfo.isCenteredShading = false;
 					dtmInfo.heightShadingInfo.heightShadingMode = E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
-					dtmInfo.heightShadingInfo.addHeightColorMapEntry(0.0f, float32_t4(0.0f, 0.0f, 1.0f, animatedAlpha));
-					dtmInfo.heightShadingInfo.addHeightColorMapEntry(25.0f, float32_t4(0.0f, 1.0f, 1.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(-20.0f, float32_t4(0.0f, 0.5f, 0.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(25.0f, float32_t4(0.0f, 0.7f, 0.0f, animatedAlpha));
 					dtmInfo.heightShadingInfo.addHeightColorMapEntry(50.0f, float32_t4(0.0f, 1.0f, 0.0f, animatedAlpha));
 					dtmInfo.heightShadingInfo.addHeightColorMapEntry(75.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
 					dtmInfo.heightShadingInfo.addHeightColorMapEntry(100.0f, float32_t4(1.0f, 0.0f, 0.0f, animatedAlpha));
@@ -3610,16 +3611,17 @@ protected:
 				}
 			}
 
-			constexpr float HeightMapCellWidth = 50.0f;
+			constexpr float HeightMapCellWidth = 20.0f;
 			const auto heightMapExtent = gridDTMHeightMap->getCreationParameters().extent;
 			assert(heightMapExtent.width > 0 && heightMapExtent.height > 0);
-			const float heightMapWidth = (heightMapExtent.width - 1) * HeightMapCellWidth;
-			const float heightMapHeight = (heightMapExtent.height - 1) * HeightMapCellWidth;
 
+			float64_t2 worldSpaceExtents;
+			worldSpaceExtents.x = (heightMapExtent.width - 1) * HeightMapCellWidth;
+			worldSpaceExtents.y = (heightMapExtent.height - 1) * HeightMapCellWidth;
 			const uint64_t heightMapTextureID = 0ull;
 			if (!drawResourcesFiller.ensureStaticImageAvailability({ heightMapTextureID, gridDTMHeightMap }, intendedNextSubmit))
 				m_logger->log("Grid DTM height map texture unavailable!", ILogger::ELL_ERROR);
-			drawResourcesFiller.drawGridDTM({ 0.0f, 200.0f }, heightMapWidth, heightMapHeight, HeightMapCellWidth, heightMapTextureID,  dtmInfo, intendedNextSubmit);
+			drawResourcesFiller.drawGridDTM({ -400.0f, 400.0f }, worldSpaceExtents, HeightMapCellWidth, heightMapTextureID,  dtmInfo, intendedNextSubmit);
 		}
 	}
 

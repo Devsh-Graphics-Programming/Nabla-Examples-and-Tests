@@ -256,8 +256,7 @@ struct GeoreferencedImageInfo
 struct GridDTMInfo
 {
     pfloat64_t2 topLeft; // 2 * 8 = 16 bytes (16)
-    pfloat64_t height; // 8 bytes (24)
-    pfloat64_t width; // 8 bytes (32)
+    pfloat64_t2 worldSpaceExtents; // 16 bytes (32)
     uint32_t textureID; // 4 bytes (36)
     float gridCellWidth; // 4 bytes (40)
     float outlineStipplePatternLengthReciprocal; // 4 bytes (44)

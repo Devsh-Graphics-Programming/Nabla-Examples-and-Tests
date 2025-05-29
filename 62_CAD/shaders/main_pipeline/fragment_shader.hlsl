@@ -117,6 +117,40 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     return color;
 }
 
+enum E_CELL_DIAGONAL
+{
+    TOP_LEFT_TO_BOTTOM_RIGHT,
+    BOTTOM_LEFT_TO_TOP_RIGHT,
+    INVALID
+};
+
+E_CELL_DIAGONAL resolveGridDTMCellDiagonal(in float4 cellHeights)
+{
+    static const E_CELL_DIAGONAL DefaultDiagonal = TOP_LEFT_TO_BOTTOM_RIGHT;
+
+    const bool4 invalidHeights = bool4(
+        isnan(cellHeights.x),
+        isnan(cellHeights.y),
+        isnan(cellHeights.z),
+        isnan(cellHeights.w)
+    );
+
+    int invalidHeightsCount = 0;
+    for (int i = 0; i < 4; ++i)
+        invalidHeightsCount += int(invalidHeights[i]);
+
+    if (invalidHeightsCount == 0)
+        return DefaultDiagonal;
+
+    if (invalidHeightsCount > 1)
+        return INVALID;
+
+    if (invalidHeights.x || invalidHeights.z)
+        return TOP_LEFT_TO_BOTTOM_RIGHT;
+    else
+        return BOTTOM_LEFT_TO_TOP_RIGHT;
+}
+
 [[vk::spvexecutionmode(spv::ExecutionModePixelInterlockOrderedEXT)]]
 [shader("pixel")]
 float4 fragMain(PSInput input) : SV_TARGET
@@ -419,9 +453,6 @@ float4 fragMain(PSInput input) : SV_TARGET
             // v0-------v2b   v2a-------v1
             // 
 
-            // TODO: probably needs to be a part of grid dtm settings struct
-            const bool diagonalFromTopLeftToBottomRight = true;
-
             // calculate screen space coordinates of vertices of the current tiranlge within the grid
             float3 v[3];
             nbl::hlsl::shapes::Line<float> outlineLineSegments[2];
@@ -443,13 +474,6 @@ float4 fragMain(PSInput input) : SV_TARGET
 
                 float2 insideCellCoord = gridSpacePos - float2(cellWidth, cellWidth) * cellCoords; // TODO: use fmod instead?
                 
-                // my ASCII art above explains which triangle is A and which is B
-                const bool triangleA = diagonalFromTopLeftToBottomRight ?
-                    insideCellCoord.x < cellWidth - insideCellCoord.y :
-                    insideCellCoord.x < insideCellCoord.y;
-
-                float2 gridSpaceCellTopLeftCoords = cellCoords * cellWidth;
-
                 const float InvalidHeightValue = asfloat(0x7FC00000);
                 float4 cellHeights = float4(InvalidHeightValue, InvalidHeightValue, InvalidHeightValue, InvalidHeightValue);
                 if (textureId != InvalidTextureIndex)
@@ -458,24 +482,47 @@ float4 fragMain(PSInput input) : SV_TARGET
                     const float2 location = (cellCoords + float2(0.5f, 0.5f)) / maxCellCoords;
 
                     cellHeights = textures[NonUniformResourceIndex(textureId)].Gather(textureSampler, float2(location.x, location.y), 0);
-                    if (cellHeights.x == 100.0f)
-                        printf("uv = { %f, %f }cellHeights = { %f, %f, %f, %f }", location.x, location.y, cellHeights.x, cellHeights.y, cellHeights.z, cellHeights.w);
                 }
 
+
+                const E_CELL_DIAGONAL cellDiagonal = resolveGridDTMCellDiagonal(cellHeights);
+                const bool diagonalFromTopLeftToBottomRight = cellDiagonal == E_CELL_DIAGONAL::TOP_LEFT_TO_BOTTOM_RIGHT;
+
+                if (cellDiagonal == E_CELL_DIAGONAL::INVALID)
+                    discard;
+
+                // my ASCII art above explains which triangle is A and which is B
+                const bool triangleA = diagonalFromTopLeftToBottomRight ?
+                    insideCellCoord.x < insideCellCoord.y :
+                    insideCellCoord.x < cellWidth - insideCellCoord.y;
+
+                float2 gridSpaceCellTopLeftCoords = cellCoords * cellWidth;
+
+                //printf("uv = { %f, %f } diagonalTLtoBR = %i triangleA = %i, insiceCellCoords = { %f, %f }", uv.x, uv.y, int(diagonalFromTopLeftToBottomRight), int(triangleA), insideCellCoord.x / cellWidth, insideCellCoord.y / cellWidth);
+
                 if (diagonalFromTopLeftToBottomRight)
-                {
-                    v[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.x);
-                    v[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, cellHeights.z);
-                    v[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, cellHeights.w) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.y);
-                }
-                else
                 {
                     v[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, cellHeights.w);
                     v[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.y);
                     v[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.x) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, cellHeights.z);
                 }
+                else
+                {
+                    v[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.x);
+                    v[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, cellHeights.z);
+                    v[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, cellHeights.w) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.y);
+                }
 
-                if (isnan(v[0].z) || isnan(v[1].z) || isnan(v[2].z))
+                if (triangleA)
+                    printf("v0 = { %f, %f }, v1 = { %f, %f }, v2 = { %f, %f }", v[0].x, v[0].y, v[1].x, v[1].y, v[2].x, v[2].y);
+
+                bool isTriangleInvalid = isnan(v[0].z) || isnan(v[1].z) || isnan(v[2].z);
+                bool isCellPartiallyInvalid = isnan(cellHeights.x) || isnan(cellHeights.y) || isnan(cellHeights.z) || isnan(cellHeights.w);
+
+                if (!isTriangleInvalid && isCellPartiallyInvalid)
+                    printf("asdf");
+
+                if (isTriangleInvalid)
                     discard;
 
                 // move from grid space to screen space
