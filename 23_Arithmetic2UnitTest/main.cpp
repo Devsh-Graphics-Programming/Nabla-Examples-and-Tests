@@ -214,7 +214,7 @@ public:
 					passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, itemsPerInvocation) && passed;
 					logTestOutcome(passed, workgroupSize);
 
-					const uint32_t itemsPerWG = workgroupSize <= subgroupSize ? workgroupSize * itemsPerInvocation : itemsPerInvocation * max(workgroupSize >> subgroupSizeLog2, subgroupSize) << subgroupSizeLog2;	// TODO use Config somehow
+					const uint32_t itemsPerWG = calculateItemsPerWorkgroup(workgroupSize, subgroupSize, itemsPerInvocation);
 					m_logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
 					passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG, itemsPerInvocation) && passed;
 					logTestOutcome(passed, itemsPerWG);
@@ -265,6 +265,27 @@ private:
 			totalFailCount++;
 			m_logger->log("Failed test #%u", ILogger::ELL_ERROR, workgroupSize);
 		}
+	}
+
+	// reflects calculations in workgroup2::ArithmeticConfiguration
+	uint32_t calculateItemsPerWorkgroup(const uint32_t workgroupSize, const uint32_t subgroupSize, const uint32_t itemsPerInvocation)
+	{
+		if (workgroupSize <= subgroupSize)
+			return workgroupSize * itemsPerInvocation;
+		
+		const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
+		const uint8_t workgroupSizeLog2 = hlsl::findMSB(workgroupSize);
+
+		const uint16_t levels = (workgroupSizeLog2 == subgroupSizeLog2) ? 1 :
+			(workgroupSizeLog2 > subgroupSizeLog2 * 2 + 2) ? 3 : 2;
+
+		const uint16_t itemsPerInvocationProductLog2 = max(workgroupSizeLog2 - subgroupSizeLog2 * levels, 0);
+		uint16_t itemsPerInvocation1 = (levels == 3) ? min(itemsPerInvocationProductLog2, 2) : itemsPerInvocationProductLog2;
+		itemsPerInvocation1 = uint16_t(1u) << itemsPerInvocation1;
+
+		uint32_t virtualWorkgroupSize = 1u << max(subgroupSizeLog2 * levels, workgroupSizeLog2);
+
+		return itemsPerInvocation * virtualWorkgroupSize;
 	}
 
 	// create pipeline (specialized every test) [TODO: turn into a future/async]
