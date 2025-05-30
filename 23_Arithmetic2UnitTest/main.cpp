@@ -193,11 +193,15 @@ public:
 		const auto MaxWorkgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
 		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
+		const auto MaxComputeWorkgroupSubgroups = m_physicalDevice->getLimits().maxComputeWorkgroupSubgroups;
 		for (auto subgroupSize=MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 		{
 			const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
 			for (uint32_t workgroupSize = subgroupSize; workgroupSize <= MaxWorkgroupSize; workgroupSize *= 2u)
 			{
+				if (workgroupSize > subgroupSize * MaxComputeWorkgroupSubgroups)
+					continue;	// vk spec requirement: https://vulkan.lunarg.com/doc/view/1.4.304.0/windows/1.4-extensions/vkspec.html#VUID-VkPipelineShaderStageCreateInfo-pNext-02756
+
 				// make sure renderdoc captures everything for debugging
 				m_api->startCapture();
 				m_logger->log("Testing Workgroup Size %u with Subgroup Size %u", ILogger::ELL_INFO, workgroupSize, subgroupSize);
