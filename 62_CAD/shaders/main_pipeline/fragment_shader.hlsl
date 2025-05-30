@@ -461,7 +461,6 @@ float4 fragMain(PSInput input) : SV_TARGET
                 float2 topLeft = input.getGridDTMScreenSpaceTopLeft();
                 float2 gridExtents = input.getGridDTMScreenSpaceGridExtents();
                 float cellWidth = input.getGridDTMScreenSpaceCellWidth();
-                float2 uv = input.getImageUV();
 
                 float2 gridSpacePos = uv * gridExtents;
 
@@ -513,14 +512,8 @@ float4 fragMain(PSInput input) : SV_TARGET
                     v[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, cellHeights.w) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.y);
                 }
 
-                if (triangleA)
-                    printf("v0 = { %f, %f }, v1 = { %f, %f }, v2 = { %f, %f }", v[0].x, v[0].y, v[1].x, v[1].y, v[2].x, v[2].y);
-
                 bool isTriangleInvalid = isnan(v[0].z) || isnan(v[1].z) || isnan(v[2].z);
                 bool isCellPartiallyInvalid = isnan(cellHeights.x) || isnan(cellHeights.y) || isnan(cellHeights.z) || isnan(cellHeights.w);
-
-                if (!isTriangleInvalid && isCellPartiallyInvalid)
-                    printf("asdf");
 
                 if (isTriangleInvalid)
                     discard;

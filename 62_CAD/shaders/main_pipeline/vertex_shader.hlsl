@@ -654,22 +654,64 @@ PSInput main(uint vertexID : SV_VertexID)
             float reciprocalOutlineStipplePatternLength = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + 2 * sizeof(pfloat64_t2) + sizeof(uint32_t) + sizeof(float), 8u);
 
             const float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
-            worldSpaceExtents.y = -worldSpaceExtents.y;
+            worldSpaceExtents.y = ieee754::flipSign(worldSpaceExtents.y);
 
             pfloat64_t2 vtxPos = topLeft;
-            vtxPos = vtxPos + corner * worldSpaceExtents;
-            worldSpaceExtents.y = -worldSpaceExtents.y;
-
-            float2 ndcVtxPos = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, vtxPos));
-            outV.position = float4(ndcVtxPos, 0.0f, 1.0f);
+            vtxPos.x = vtxPos.x + worldSpaceExtents.x * corner.x;
+            vtxPos.y = vtxPos.y + worldSpaceExtents.y * corner.y;
+            worldSpaceExtents.y = ieee754::flipSign(worldSpaceExtents.y);
 
             outV.setGridDTMHeightTextureID(textureID);
             outV.setGridDTMScreenSpaceCellWidth(gridCellWidth * globals.screenToWorldRatio);
             outV.setGridDTMScreenSpacePosition(transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, vtxPos));
             outV.setGridDTMScreenSpaceTopLeft(transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, topLeft));
             outV.setGridDTMScreenSpaceGridExtents(_static_cast<float2>(worldSpaceExtents) * globals.screenToWorldRatio);
-            outV.setImageUV(corner);
             outV.setGridDTMOutlineStipplePatternLengthReciprocal(reciprocalOutlineStipplePatternLength);
+
+            // TODO: finish implementing grid dilation
+            // TODO: calculate actual thicknessOfTheThickestLine
+            /*float thicknessOfTheThickestLine = 20.0f;
+
+            static const float SquareRootOfTwo = 1.4142135f;
+            const pfloat64_t dilationFactor = SquareRootOfTwo * thicknessOfTheThickestLine;
+            pfloat64_t2 dilationVector = pfloat64_t2(dilationFactor, dilationFactor);
+
+            if (corner.x == 0.0f && corner.y == 0.0f)
+            {
+                dilationVector.x = -dilationVector.x;
+            }
+            else if (corner.x == 0.0f && corner.y == 1.0f)
+            {
+                dilationVector.x = -dilationVector.x;
+                dilationVector.y = -dilationVector.y;
+            }
+            else if (corner.x == 1.0f && corner.y == 1.0f)
+            {
+                dilationVector.y = -dilationVector.y;
+            }
+
+            const pfloat64_t dilationFactorTimesTwo = dilationFactor * 2.0f;
+            const pfloat64_t2 dilatedGridExtents = worldSpaceExtents + pfloat64_t2(dilationFactorTimesTwo, dilationFactorTimesTwo);
+            
+            float2 uvScale = _static_cast<float2>(worldSpaceExtents) / _static_cast<float2>(dilatedGridExtents);
+            float2 uvOffset = float2(-dilationFactor, -dilationFactor) / _static_cast<float2>(dilatedGridExtents);
+
+            outV.setImageUV(corner * uvScale + uvOffset);
+
+            pfloat64_t2 topLeftToGridCenterVector = worldSpaceExtents * 0.5;
+            topLeftToGridCenterVector.y = -topLeftToGridCenterVector.y;
+            pfloat64_t2 gridCenter = topLeft + topLeftToGridCenterVector;
+
+            pfloat64_t2 dilatedVtxPos = vtxPos + dilationVector;
+
+            printf("actual = { %f, %f } dialated = { %f, %f }", _static_cast<float>(uvScale.x), _static_cast<float>(uvScale.y), _static_cast<float>(dilatedVtxPos.x), _static_cast<float>(dilatedVtxPos.y));
+
+            float2 ndcVtxPos = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, dilatedVtxPos));
+            outV.position = float4(ndcVtxPos, 0.0f, 1.0f);*/
+
+            outV.setImageUV(corner);
+            float2 ndcVtxPos = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, vtxPos));
+            outV.position = float4(ndcVtxPos, 0.0f, 1.0f);
         }
         else if (objType == ObjectType::STREAMED_IMAGE)
         {
