@@ -1959,7 +1959,7 @@ bool DrawResourcesFiller::addGridDTM_Internal(const GridDTMInfo& gridDTMInfo, ui
 	DrawObject drawObj = {};
 	drawObj.mainObjIndex = mainObjIdx;
 	drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::GRID_DTM) | (0 << 16));
-	//drawObj.geometryAddress = 0;
+	drawObj.geometryAddress = geometryBufferOffset;
 	drawObjectsToBeFilled[0u] = drawObj;
 
 	return true;
