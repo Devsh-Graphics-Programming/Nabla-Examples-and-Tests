@@ -491,7 +491,7 @@ inline bool operator==(const DTMSettings& lhs, const DTMSettings& rhs)
     {
         if (lhs.contourSettingsCount != rhs.contourSettingsCount)
             return false;
-        if (!memcmp(lhs.contourSettings, rhs.contourSettings, lhs.contourSettingsCount * sizeof(DTMContourSettings)))
+        if (memcmp(lhs.contourSettings, rhs.contourSettings, lhs.contourSettingsCount * sizeof(DTMContourSettings)))
             return false;
     }
 
@@ -507,9 +507,9 @@ inline bool operator==(const DTMSettings& lhs, const DTMSettings& rhs)
             return false;
         
                 
-        if(!memcmp(lhs.heightShadingSettings.heightColorMapHeights, rhs.heightShadingSettings.heightColorMapHeights, lhs.heightShadingSettings.heightColorEntryCount * sizeof(float)))
+        if(memcmp(lhs.heightShadingSettings.heightColorMapHeights, rhs.heightShadingSettings.heightColorMapHeights, lhs.heightShadingSettings.heightColorEntryCount * sizeof(float)))
             return false;
-        if(!memcmp(lhs.heightShadingSettings.heightColorMapColors, rhs.heightShadingSettings.heightColorMapColors, lhs.heightShadingSettings.heightColorEntryCount * sizeof(float32_t4)))
+        if(memcmp(lhs.heightShadingSettings.heightColorMapColors, rhs.heightShadingSettings.heightColorMapColors, lhs.heightShadingSettings.heightColorEntryCount * sizeof(float32_t4)))
             return false;
     }
 
