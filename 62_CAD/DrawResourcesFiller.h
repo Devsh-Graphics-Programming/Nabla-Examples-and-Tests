@@ -122,7 +122,7 @@ public:
 	
 	DrawResourcesFiller();
 
-	DrawResourcesFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue);
+	DrawResourcesFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue, core::smart_refctd_ptr<system::ILogger>&& logger);
 
 	typedef std::function<void(SIntendedSubmitInfo&)> SubmitFunc;
 	void setSubmitDrawsFunction(const SubmitFunc& func);
@@ -707,6 +707,9 @@ protected:
 	
 	// Flushes Current Draw Call and adds to drawCalls
 	void flushDrawObjects();
+
+	// Logger
+	nbl::system::logger_opt_smart_ptr m_logger = nullptr;
 
 	// FrameIndex used as a criteria for resource/image eviction in case of limitations
 	uint32_t currentFrameIndex = 0u;
