@@ -682,6 +682,24 @@ void DrawResourcesFiller::drawGridDTM(
 	gridDTMInfo.gridCellWidth = gridCellWidth;
 	gridDTMInfo.textureID = getImageIndexFromID(textureID, intendedNextSubmit); // for this to be valid and safe, this function needs to be called immediately after `addStaticImage` function to make sure image is in memory
 
+	// determine the thickes line
+	float thickestLineThickness = 0.0f;
+
+	if (dtmSettingsInfo.mode & E_DTM_MODE::OUTLINE)
+	{
+		thickestLineThickness = dtmSettingsInfo.outlineStyleInfo.worldSpaceLineWidth + dtmSettingsInfo.outlineStyleInfo.screenSpaceLineWidth;
+	}
+	else if (dtmSettingsInfo.mode & E_DTM_MODE::CONTOUR)
+	{
+		for (int i = 0; i < dtmSettingsInfo.contourSettingsCount; ++i)
+		{
+			const auto& contourLineStyle = dtmSettingsInfo.contourSettings[i].lineStyleInfo;
+			const float contourLineThickness = contourLineStyle.worldSpaceLineWidth + contourLineStyle.screenSpaceLineWidth;
+			thickestLineThickness = std::max(thickestLineThickness, contourLineThickness);
+		}
+	}
+	gridDTMInfo.thicknessOfTheThickestLine = thickestLineThickness;
+
 	if (dtmSettingsInfo.mode & E_DTM_MODE::OUTLINE)
 	{
 		const bool isOutlineStippled = dtmSettingsInfo.outlineStyleInfo.stipplePatternSize > 0;

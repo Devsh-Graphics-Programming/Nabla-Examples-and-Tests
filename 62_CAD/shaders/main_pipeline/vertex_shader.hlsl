@@ -189,7 +189,6 @@ PSInput main(uint vertexID : SV_VertexID)
         uint32_t subsectionIdx = drawObj.type_subsectionIdx >> 16;
         outV.setObjType(objType);
         outV.setMainObjectIdx(drawObj.mainObjIndex);
-    
 
         MainObject mainObj = loadMainObject(drawObj.mainObjIndex);
         clipProjectionData = getClipProjectionData(mainObj);
@@ -652,6 +651,10 @@ PSInput main(uint vertexID : SV_VertexID)
             uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + 2 * sizeof(pfloat64_t2), 8u);
             float gridCellWidth = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + 2 * sizeof(pfloat64_t2) + sizeof(uint32_t), 8u);
             float reciprocalOutlineStipplePatternLength = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + 2 * sizeof(pfloat64_t2) + sizeof(uint32_t) + sizeof(float), 8u);
+            float thicknessOfTheThickestLine = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + 2 * sizeof(pfloat64_t2) + sizeof(uint32_t) + 2u * sizeof(float), 8u);
+
+            // for testing purpose
+            thicknessOfTheThickestLine += 200.0f;
 
             const float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
             worldSpaceExtents.y = ieee754::flipSign(worldSpaceExtents.y);
@@ -667,10 +670,6 @@ PSInput main(uint vertexID : SV_VertexID)
             outV.setGridDTMScreenSpaceTopLeft(transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, topLeft));
             outV.setGridDTMScreenSpaceGridExtents(_static_cast<float2>(worldSpaceExtents) * globals.screenToWorldRatio);
             outV.setGridDTMOutlineStipplePatternLengthReciprocal(reciprocalOutlineStipplePatternLength);
-
-            // TODO: finish implementing grid dilation
-            // TODO: calculate actual thicknessOfTheThickestLine
-            float thicknessOfTheThickestLine = 200.0f;
 
             static const float SquareRootOfTwo = 1.4142135f;
             const pfloat64_t dilationFactor = SquareRootOfTwo * thicknessOfTheThickestLine;

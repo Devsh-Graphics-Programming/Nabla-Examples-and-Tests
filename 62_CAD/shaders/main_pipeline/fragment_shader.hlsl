@@ -569,6 +569,7 @@ float4 fragMain(PSInput input) : SV_TARGET
             textureColor = dtmColor.rgb;
             localAlpha = dtmColor.a;
 
+            // test out of bounds draw
             /*if (outOfBoundsUV)
                 textureColor = float3(0.0f, 1.0f, 0.0f);
             else

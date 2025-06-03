@@ -372,7 +372,7 @@ public:
 
 	void allocateResources()
 	{
-		drawResourcesFiller = DrawResourcesFiller(core::smart_refctd_ptr(m_utils), getGraphicsQueue());
+		drawResourcesFiller = DrawResourcesFiller(core::smart_refctd_ptr(m_utils), getGraphicsQueue(), core::smart_refctd_ptr(m_logger));
 		
 		size_t bufferSize = 512u * 1024u * 1024u; // 512 MB
 		drawResourcesFiller.allocateResourcesBuffer(m_device.get(), bufferSize);
@@ -3544,7 +3544,7 @@ protected:
 			dtmInfo.mode |= E_DTM_MODE::CONTOUR;
 
 			dtmInfo.outlineStyleInfo.screenSpaceLineWidth = 0.0f;
-			dtmInfo.outlineStyleInfo.worldSpaceLineWidth = 1.0f;
+			dtmInfo.outlineStyleInfo.worldSpaceLineWidth = 2.0f;
 			dtmInfo.outlineStyleInfo.color = float32_t4(0.0f, 0.39f, 0.0f, 1.0f);
 			std::array<double, 4> outlineStipplePattern = { 0.0f, -5.0f, 20.0f, -5.0f };
 			dtmInfo.outlineStyleInfo.setStipplePatternData(outlineStipplePattern);
@@ -3625,6 +3625,7 @@ protected:
 			drawResourcesFiller.drawGridDTM(topLeft, worldSpaceExtents, HeightMapCellWidth, heightMapTextureID,  dtmInfo, intendedNextSubmit);
 
 			// draw test polyline
+#if 0
 			{
 				LineStyleInfo style = {};
 				style.screenSpaceLineWidth = 0.0f;
@@ -3644,6 +3645,7 @@ protected:
 
 				drawResourcesFiller.drawPolyline(polyline, style, intendedNextSubmit);
 			}
+#endif
 		}
 	}
 
@@ -3656,7 +3658,6 @@ protected:
 	}
 
 protected:
-
 	std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
 	clock_t::time_point start;
 
