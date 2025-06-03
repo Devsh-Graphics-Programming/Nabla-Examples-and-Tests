@@ -554,16 +554,15 @@ float4 fragMain(PSInput input) : SV_TARGET
             float height = baryCoord.x * v[0].z + baryCoord.y * v[1].z + baryCoord.z * v[2].z;
             float2 heightDeriv = fwidth(height);
 
-
+            const bool outOfBoundsUV = uv.x < 0.0f || uv.y < 0.0f || uv.x > 1.0f || uv.y > 1.0f;
             float4 dtmColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
-            if (dtmSettings.drawOutlineEnabled())
-                dtmColor = dtm::blendUnder(dtmColor, dtm::calculateGridDTMOutlineColor(dtmSettings.outlineLineStyleIdx, outlineLineSegments, input.position.xy, outlinePhaseShift));
             if (dtmSettings.drawContourEnabled())
             {
-                for (uint32_t i = 0; i < dtmSettings.contourSettingsCount; ++i) // TODO: should reverse the order with blendUnder
+                for (int i = dtmSettings.contourSettingsCount-1u; i >= 0; --i) 
                     dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMContourColor(dtmSettings.contourSettings[i], v, input.position.xy, height));
             }
-            const bool outOfBoundsUV = uv.x < 0.0f || uv.y < 0.0f || uv.x > 1.0f || uv.y > 1.0f;
+            if (dtmSettings.drawOutlineEnabled())
+                dtmColor = dtm::blendUnder(dtmColor, dtm::calculateGridDTMOutlineColor(dtmSettings.outlineLineStyleIdx, outlineLineSegments, input.position.xy, outlinePhaseShift));
             if (dtmSettings.drawHeightShadingEnabled() && !outOfBoundsUV)
                 dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, v, heightDeriv, input.position.xy, height));
 

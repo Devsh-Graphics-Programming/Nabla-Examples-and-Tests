@@ -3,9 +3,10 @@
 DrawResourcesFiller::DrawResourcesFiller()
 {}
 
-DrawResourcesFiller::DrawResourcesFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue) :
-	m_utilities(utils),
-	m_copyQueue(copyQueue)
+DrawResourcesFiller::DrawResourcesFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue, core::smart_refctd_ptr<system::ILogger>&& logger) :
+	m_utilities(std::move(utils)),
+	m_copyQueue(copyQueue),
+	m_logger(std::move(logger))
 {
 	imagesCache = std::unique_ptr<ImagesCache>(new ImagesCache(ImagesBindingArraySize));
 }
@@ -56,7 +57,7 @@ void DrawResourcesFiller::allocateResourcesBuffer(ILogicalDevice* logicalDevice,
 
 		if (memoryTypeIdx == ~0u)
 		{
-			// TODO: Log, no device local memory found?! weird
+			m_logger.log("allocateResourcesBuffer: no device local memory type found.", nbl::system::ILogger::ELL_ERROR);
 			assert(false);
 		}
 
@@ -76,7 +77,7 @@ void DrawResourcesFiller::allocateResourcesBuffer(ILogicalDevice* logicalDevice,
 		}
 		else
 		{
-			// LOG: Allocation failure to allocate memory arena for images 
+			m_logger.log("failure to allocate memory arena for images", nbl::system::ILogger::ELL_ERROR);
 			assert(false);
 		}
 	}
@@ -88,8 +89,12 @@ void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, ui
 	// TODO: Make this function failable and report insufficient memory
 	asset::E_FORMAT msdfFormat = MSDFTextureFormat;
 	asset::VkExtent3D MSDFsExtent = { msdfsExtent.x, msdfsExtent.y, 1u }; 
-	assert(maxMSDFs <= logicalDevice->getPhysicalDevice()->getLimits().maxImageArrayLayers);
-
+	if (maxMSDFs > logicalDevice->getPhysicalDevice()->getLimits().maxImageArrayLayers)
+	{
+		m_logger.log("requested maxMSDFs is greater than maxImageArrayLayers. lowering the limit...", nbl::system::ILogger::ELL_WARNING);
+		maxMSDFs = logicalDevice->getPhysicalDevice()->getLimits().maxImageArrayLayers;
+	}
+	
 	IPhysicalDevice::SImageFormatPromotionRequest promotionRequest = {};
 	promotionRequest.originalFormat = msdfFormat;
 	promotionRequest.usages = {};
@@ -176,7 +181,7 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, SIntendedS
 	uint32_t mainObjectIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
 	if (mainObjectIdx == InvalidMainObjectIdx)
 	{
-		// TODO: assert or log error here
+		m_logger.log("drawPolyline: acquireActiveMainObjectIndex returned invalid index", nbl::system::ILogger::ELL_ERROR);
 		assert(false);
 		return;
 	}
@@ -227,6 +232,12 @@ void DrawResourcesFiller::drawTriangleMesh(
 	drawCallData.isDTMRendering = true;
 
 	uint32_t mainObjectIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
+	if (mainObjectIdx == InvalidMainObjectIdx)
+	{
+		m_logger.log("drawTriangleMesh: acquireActiveMainObjectIndex returned invalid index", nbl::system::ILogger::ELL_ERROR);
+		assert(false);
+		return;
+	}
 	drawCallData.dtm.triangleMeshMainObjectIndex = mainObjectIdx;
 
 	ICPUBuffer::SCreationParams geometryBuffParams;
@@ -297,7 +308,9 @@ void DrawResourcesFiller::drawHatch(
 		textureIdx = getMSDFIndexFromInputInfo(msdfInfo, intendedNextSubmit);
 		if (textureIdx == InvalidTextureIndex)
 			textureIdx = addMSDFTexture(msdfInfo, getHatchFillPatternMSDF(fillPattern), intendedNextSubmit);
-		_NBL_DEBUG_BREAK_IF(textureIdx == InvalidTextureIndex); // probably getHatchFillPatternMSDF returned nullptr
+
+		if (textureIdx == InvalidTextureIndex)
+			m_logger.log("drawHatch: textureIdx returned invalid index", nbl::system::ILogger::ELL_ERROR);
 	}
 
 	LineStyleInfo lineStyle = {};
@@ -308,6 +321,13 @@ void DrawResourcesFiller::drawHatch(
 	beginMainObject(MainObjectType::HATCH);
 	
 	uint32_t mainObjectIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
+	if (mainObjectIdx == InvalidMainObjectIdx)
+	{
+		m_logger.log("drawHatch: acquireActiveMainObjectIndex returned invalid index", nbl::system::ILogger::ELL_ERROR);
+		assert(false);
+		return;
+	}
+
 	uint32_t currentObjectInSection = 0u; // Object here refers to DrawObject. You can think of it as a Cage.
 	while (currentObjectInSection < hatch.getHatchBoxCount())
 	{
@@ -340,8 +360,13 @@ void DrawResourcesFiller::drawFontGlyph(
 		textureIdx = addMSDFTexture(msdfInput, getGlyphMSDF(fontFace, glyphIdx), intendedNextSubmit);
 
 	uint32_t mainObjIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
-	assert(mainObjIdx != InvalidMainObjectIdx);
-
+	if (mainObjIdx == InvalidMainObjectIdx)
+	{
+		m_logger.log("drawFontGlyph: acquireActiveMainObjectIndex returned invalid index", nbl::system::ILogger::ELL_ERROR);
+		assert(false);
+		return;
+	}
+	
 	if (textureIdx != InvalidTextureIndex)
 	{
 		GlyphInfo glyphInfo = GlyphInfo(topLeft, dirU, aspectRatio, textureIdx, minUV);
@@ -349,13 +374,17 @@ void DrawResourcesFiller::drawFontGlyph(
 		{
 			// single font glyph couldn't fit into memory to push to gpu, so we submit rendering current objects and reset geometry buffer and draw objects
 			submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjIdx);
-			bool success = addFontGlyph_Internal(glyphInfo, mainObjIdx);
-			assert(success); // this should always be true, otherwise it's either bug in code or not enough memory allocated to hold a single GlyphInfo
+			const bool success = addFontGlyph_Internal(glyphInfo, mainObjIdx);
+			if (!success)
+			{
+				m_logger.log("addFontGlyph_Internal failed, even after overflow-submission, this is irrecoverable.", nbl::system::ILogger::ELL_ERROR);
+				assert(false);
+			}
 		}
 	}
 	else
 	{
-		// TODO: Log, probably getGlyphMSDF(face,glyphIdx) returned nullptr ICPUImage ptr
+		m_logger.log("drawFontGlyph: textureIdx is invalid.", nbl::system::ILogger::ELL_ERROR);
 		_NBL_DEBUG_BREAK_IF(true);
 	}
 }
@@ -396,7 +425,7 @@ bool DrawResourcesFiller::ensureStaticImageAvailability(const StaticImageInfo& s
 		}
 		else
 		{
-			// TODO[LOG]: ? found static image has empty cpu image, shouldn't happen
+			m_logger.log("found static image has empty cpu image, shouldn't happen", nbl::system::ILogger::ELL_ERROR);
 		}
 	}
 
@@ -443,7 +472,7 @@ bool DrawResourcesFiller::ensureStaticImageAvailability(const StaticImageInfo& s
 			{
 				// All attempts to try create the GPU image and its corresponding view have failed.
 				// Most likely cause: insufficient GPU memory or unsupported image parameters.
-				// TODO: Log a warning or error here � `addStaticImage2D` failed, likely due to low VRAM.
+				m_logger.log("ensureStaticImageAvailability failed, likely due to low VRAM.", nbl::system::ILogger::ELL_ERROR);
 				_NBL_DEBUG_BREAK_IF(true);
 
 				if (cachedImageRecord->allocationOffset != ImagesMemorySubAllocator::InvalidAddress)
@@ -469,7 +498,7 @@ bool DrawResourcesFiller::ensureStaticImageAvailability(const StaticImageInfo& s
 		}
 		else
 		{
-			// TODO: log here, index allocation failed.
+			m_logger.log("ensureStaticImageAvailability failed index allocation. shouldn't have happened.", nbl::system::ILogger::ELL_ERROR);
 			cachedImageRecord->arrayIndex = InvalidTextureIndex;
 		}
 	}
@@ -515,8 +544,6 @@ bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(
 	ImageType georeferenceImageType;
 	determineGeoreferencedImageCreationParams(imageCreationParams, georeferenceImageType, params);
 
-	assert(georeferenceImageType != ImageType::STATIC);
-
 	// imageParams = cpuImage->getCreationParameters();
 	imageCreationParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT|IGPUImage::EUF_SAMPLED_BIT;
 	// promote format because RGB8 and friends don't actually exist in HW
@@ -556,12 +583,12 @@ bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(
 			}
 			else
 			{
-				// TODO[LOG]
+				m_logger.log("Cached georeferenced image has invalid gpu image.", nbl::system::ILogger::ELL_ERROR);
 			}
 		}
 		else
 		{
-			// TODO[LOG]
+			m_logger.log("Cached georeferenced image has invalid gpu image view.", nbl::system::ILogger::ELL_ERROR);
 		}
 	}
 
@@ -592,7 +619,8 @@ bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(
 			{
 				// All attempts to try create the GPU image and its corresponding view have failed.
 				// Most likely cause: insufficient GPU memory or unsupported image parameters.
-				// TODO: Log a warning or error here � `addStaticImage2D` failed, likely due to low VRAM.
+				
+				m_logger.log("ensureGeoreferencedImageAvailability_AllocateIfNeeded failed, likely due to low VRAM.", nbl::system::ILogger::ELL_ERROR);
 				_NBL_DEBUG_BREAK_IF(true);
 
 				if (cachedImageRecord->allocationOffset != ImagesMemorySubAllocator::InvalidAddress)
@@ -618,7 +646,7 @@ bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(
 		}
 		else
 		{
-			// TODO: log here, index allocation failed.
+			m_logger.log("ensureGeoreferencedImageAvailability_AllocateIfNeeded failed index allocation. shouldn't have happened.", nbl::system::ILogger::ELL_ERROR);
 			cachedImageRecord->arrayIndex = InvalidTextureIndex;
 		}
 	}
@@ -664,14 +692,23 @@ void DrawResourcesFiller::drawGridDTM(
 	beginMainObject(MainObjectType::GRID_DTM);
 
 	uint32_t mainObjectIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
-	assert(mainObjectIdx != InvalidMainObjectIdx);
+	if (mainObjectIdx == InvalidMainObjectIdx)
+	{
+		m_logger.log("drawGridDTM: acquireActiveMainObjectIndex returned invalid index", nbl::system::ILogger::ELL_ERROR);
+		assert(false);
+		return;
+	}
 
 	if (!addGridDTM_Internal(gridDTMInfo, mainObjectIdx))
 	{
 		// single grid DTM couldn't fit into memory to push to gpu, so we submit rendering current objects and reset geometry buffer and draw objects
 		submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjectIdx);
-		bool success = addGridDTM_Internal(gridDTMInfo, mainObjectIdx);
-		assert(success); // this should always be true, otherwise it's either bug in code or not enough memory allocated to hold a single GridDTMInfo
+		const bool success = addGridDTM_Internal(gridDTMInfo, mainObjectIdx);
+		if (!success)
+		{
+			m_logger.log("addGridDTM_Internal failed, even after overflow-submission, this is irrecoverable.", nbl::system::ILogger::ELL_ERROR);
+			assert(false);
+		}
 	}
 
 	endMainObject();
@@ -682,6 +719,12 @@ void DrawResourcesFiller::addImageObject(image_id imageID, const OrientedBoundin
 	beginMainObject(MainObjectType::STATIC_IMAGE);
 
 	uint32_t mainObjIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
+	if (mainObjIdx == InvalidMainObjectIdx)
+	{
+		m_logger.log("addImageObject: acquireActiveMainObjectIndex returned invalid index", nbl::system::ILogger::ELL_ERROR);
+		assert(false);
+		return;
+	}
 
 	ImageObjectInfo info = {};
 	info.topLeft = obb.topLeft;
@@ -692,8 +735,12 @@ void DrawResourcesFiller::addImageObject(image_id imageID, const OrientedBoundin
 	{
 		// single image object couldn't fit into memory to push to gpu, so we submit rendering current objects and reset geometry buffer and draw objects
 		submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjIdx);
-		bool success = addImageObject_Internal(info, mainObjIdx);
-		assert(success); // this should always be true, otherwise it's either bug in code or not enough memory allocated to hold a single image object 
+		const bool success = addImageObject_Internal(info, mainObjIdx);
+		if (!success)
+		{
+			m_logger.log("addImageObject_Internal failed, even after overflow-submission, this is irrecoverable.", nbl::system::ILogger::ELL_ERROR);
+			assert(false);
+		}
 	}
 
 	endMainObject();
@@ -704,6 +751,12 @@ void DrawResourcesFiller::addGeoreferencedImage(image_id imageID, const Georefer
 	beginMainObject(MainObjectType::STREAMED_IMAGE);
 
 	uint32_t mainObjIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
+	if (mainObjIdx == InvalidMainObjectIdx)
+	{
+		m_logger.log("addGeoreferencedImage: acquireActiveMainObjectIndex returned invalid index", nbl::system::ILogger::ELL_ERROR);
+		assert(false);
+		return;
+	}
 
 	GeoreferencedImageInfo info = {};
 	info.topLeft = params.worldspaceOBB.topLeft;
@@ -714,8 +767,12 @@ void DrawResourcesFiller::addGeoreferencedImage(image_id imageID, const Georefer
 	{
 		// single image object couldn't fit into memory to push to gpu, so we submit rendering current objects and reset geometry buffer and draw objects
 		submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjIdx);
-		bool success = addGeoreferencedImageInfo_Internal(info, mainObjIdx);
-		assert(success); // this should always be true, otherwise it's either bug in code or not enough memory allocated to hold a single GeoreferencedImageInfo 
+		const bool success = addGeoreferencedImageInfo_Internal(info, mainObjIdx);
+		if (!success)
+		{
+			m_logger.log("addGeoreferencedImageInfo_Internal failed, even after overflow-submission, this is irrecoverable.", nbl::system::ILogger::ELL_ERROR);
+			assert(false);
+		}
 	}
 
 	endMainObject();
@@ -806,7 +863,7 @@ bool DrawResourcesFiller::pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit
 
 			if (!successCreateNewImage)
 			{
-				// TODO: Log
+				m_logger.log("Couldn't create new gpu image in pushAllUploads: cache and replay mode.", nbl::system::ILogger::ELL_ERROR);
 				_NBL_DEBUG_BREAK_IF(true);
 				success = false;
 			}
@@ -954,7 +1011,12 @@ bool DrawResourcesFiller::pushBufferUploads(SIntendedSubmitInfo& intendedNextSub
 {
 	copiedResourcesSize = 0ull;
 
-	assert(resourcesCollection.calculateTotalConsumption() <= resourcesGPUBuffer->getSize());
+	if (resourcesCollection.calculateTotalConsumption() > resourcesGPUBuffer->getSize())
+	{
+		m_logger.log("some bug has caused the resourcesCollection to consume more memory than available in resourcesGPUBuffer without overflow submit", nbl::system::ILogger::ELL_ERROR);
+		assert(false);
+		return false;
+	}
 
 	auto copyCPUFilledDrawBuffer = [&](auto& drawBuffer) -> bool
 		{
@@ -963,7 +1025,7 @@ bool DrawResourcesFiller::pushBufferUploads(SIntendedSubmitInfo& intendedNextSub
 
 			if (copyRange.offset + copyRange.size > resourcesGPUBuffer->getSize())
 			{
-				// TODO: LOG ERROR, this shouldn't happen with correct auto-submission mechanism
+				m_logger.log("`copyRange.offset + copyRange.size > resourcesGPUBuffer->getSize()` is true in `copyCPUFilledDrawBuffer`, this shouldn't happen with correct auto-submission mechanism.", nbl::system::ILogger::ELL_ERROR);
 				assert(false);
 				return false;
 			}
@@ -985,7 +1047,7 @@ bool DrawResourcesFiller::pushBufferUploads(SIntendedSubmitInfo& intendedNextSub
 
 			if (copyRange.offset + copyRange.size > resourcesGPUBuffer->getSize())
 			{
-				// TODO: LOG ERROR, this shouldn't happen with correct auto-submission mechanism
+				m_logger.log("`copyRange.offset + copyRange.size > resourcesGPUBuffer->getSize()` is true in `addComputeReservedFilledDrawBuffer`, this shouldn't happen with correct auto-submission mechanism.", nbl::system::ILogger::ELL_ERROR);
 				assert(false);
 				return false;
 			}
@@ -1127,7 +1189,7 @@ bool DrawResourcesFiller::pushMSDFImagesUploads(SIntendedSubmitInfo& intendedNex
 	}
 	else
 	{
-		// TODO: Log no valid command buffer to record into
+		m_logger.log("`copyRange.offset + copyRange.size > resourcesGPUBuffer->getSize()` is true in `addComputeReservedFilledDrawBuffer`, this shouldn't happen with correct auto-submission mechanism.", nbl::system::ILogger::ELL_ERROR);
 		return false;
 	}
 }
@@ -1244,7 +1306,7 @@ bool DrawResourcesFiller::pushStaticImagesUploads(SIntendedSubmitInfo& intendedN
 					imageRecord.state = ImageState::GPU_RESIDENT_WITH_VALID_STATIC_DATA;
 				else
 				{
-					// TODO: LOG
+					m_logger.log("Failed `updateImageViaStagingBuffer` in pushStaticImagesUploads.", nbl::system::ILogger::ELL_ERROR);
 				}
 			}
 
@@ -1292,7 +1354,7 @@ bool DrawResourcesFiller::pushStaticImagesUploads(SIntendedSubmitInfo& intendedN
 
 	if (!success)
 	{
-		// TODO: Log
+		m_logger.log("Failure in `pushStaticImagesUploads`.", nbl::system::ILogger::ELL_ERROR);
 		_NBL_DEBUG_BREAK_IF(true);
 	}
 	return success;
@@ -1416,7 +1478,7 @@ bool DrawResourcesFiller::pushStreamedImagesUploads(SIntendedSubmitInfo& intende
 
 	if (!success)
 	{
-		// TODO: Log
+		m_logger.log("Failure in `pushStreamedImagesUploads`.", nbl::system::ILogger::ELL_ERROR);
 		_NBL_DEBUG_BREAK_IF(true);
 	}
 	return success;
@@ -1959,7 +2021,7 @@ bool DrawResourcesFiller::addGridDTM_Internal(const GridDTMInfo& gridDTMInfo, ui
 	DrawObject drawObj = {};
 	drawObj.mainObjIndex = mainObjIdx;
 	drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::GRID_DTM) | (0 << 16));
-	//drawObj.geometryAddress = 0;
+	drawObj.geometryAddress = geometryBufferOffset;
 	drawObjectsToBeFilled[0u] = drawObj;
 
 	return true;
@@ -2055,7 +2117,8 @@ void DrawResourcesFiller::evictImage_SubmitIfNeeded(image_id imageID, const Cach
 {
 	if (evicted.arrayIndex == InvalidTextureIndex)
 	{
-		_NBL_DEBUG_BREAK_IF(true); // shouldn't happen under normal circumstances, TODO: LOG warning
+		m_logger.log("evictImage_SubmitIfNeeded: `evicted.arrayIndex == InvalidTextureIndex` is true, shouldn't happen under normal circumstances.", nbl::system::ILogger::ELL_WARNING);
+		_NBL_DEBUG_BREAK_IF(true);
 		return;
 	}
 	// Later used to release the image's memory range.
@@ -2148,7 +2211,7 @@ DrawResourcesFiller::ImageAllocateResults DrawResourcesFiller::tryCreateAndAlloc
 						else
 						{
 							// irrecoverable error if simple image creation fails.
-							// TODO[LOG]: that's rare, image view creation failed.
+							m_logger.log("tryCreateAndAllocateImage_SubmitIfNeeded: gpuImageView creation failed, that's rare and irrecoverable when adding a new image.", nbl::system::ILogger::ELL_ERROR);
 							_NBL_DEBUG_BREAK_IF(true);
 						}
 
@@ -2158,7 +2221,7 @@ DrawResourcesFiller::ImageAllocateResults DrawResourcesFiller::tryCreateAndAlloc
 					else
 					{
 						// irrecoverable error if simple bindImageMemory fails.
-						// TODO: LOG
+						m_logger.log("tryCreateAndAllocateImage_SubmitIfNeeded: bindImageMemory failed, that's irrecoverable when adding a new image.", nbl::system::ILogger::ELL_ERROR);
 						_NBL_DEBUG_BREAK_IF(true);
 						break;
 					}
@@ -2171,16 +2234,14 @@ DrawResourcesFiller::ImageAllocateResults DrawResourcesFiller::tryCreateAndAlloc
 			}
 			else
 			{
-				// irrecoverable error if memory requirements of the image don't match our preallocated devicememory
-				// TODO: LOG
+				m_logger.log("tryCreateAndAllocateImage_SubmitIfNeeded: memory requirements of the gpu image doesn't match our preallocated device memory, that's irrecoverable when adding a new image.", nbl::system::ILogger::ELL_ERROR);
 				_NBL_DEBUG_BREAK_IF(true);
 				break;
 			}
 		}
 		else
 		{
-			// irrecoverable error if simple image creation fails.
-			// TODO: LOG
+			m_logger.log("tryCreateAndAllocateImage_SubmitIfNeeded: gpuImage creation failed, that's irrecoverable when adding a new image.", nbl::system::ILogger::ELL_ERROR);
 			_NBL_DEBUG_BREAK_IF(true);
 			break;
 		}
@@ -2195,8 +2256,8 @@ DrawResourcesFiller::ImageAllocateResults DrawResourcesFiller::tryCreateAndAlloc
 			// We give up, it's really nothing we can do, no image to evict (alreadyBlockedForDeferredFrees==1) and no more memory to free up (alreadyBlockedForDeferredFrees).
 			// We probably have evicted almost every other texture except the one we just allocated an index for. 
 			// This is most likely due to current image memory requirement being greater than the whole memory allocated for all images
+			m_logger.log("tryCreateAndAllocateImage_SubmitIfNeeded: failed allocating an image, there is nothing more from mcache to evict, the current memory requirement is simply greater than the whole memory allocated for all images.", nbl::system::ILogger::ELL_ERROR);
 			_NBL_DEBUG_BREAK_IF(true);
-			// TODO[LOG]
 			break;
 		}
 
@@ -2282,12 +2343,18 @@ uint32_t DrawResourcesFiller::getMSDFIndexFromInputInfo(const MSDFInputInfo& msd
 uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, core::smart_refctd_ptr<ICPUImage>&& cpuImage, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	if (!cpuImage)
-		return InvalidTextureIndex; // TODO: Log
+	{
+		m_logger.log("addMSDFTexture: cpuImage is nullptr.", nbl::system::ILogger::ELL_ERROR);
+		return InvalidTextureIndex;
+	}
 
 	const auto cpuImageSize = cpuImage->getMipSize(0);
 	const bool sizeMatch = cpuImageSize.x == getMSDFResolution().x && cpuImageSize.y == getMSDFResolution().y && cpuImageSize.z == 1u;
 	if (!sizeMatch)
-		return InvalidTextureIndex; // TODO: Log
+	{
+		m_logger.log("addMSDFTexture: cpuImage size doesn't match with msdf array image.", nbl::system::ILogger::ELL_ERROR);
+		return InvalidTextureIndex;
+	}
 
 	/*
 	 * The `msdfTextureArrayIndexAllocator` manages indices (slots) into a texture array for MSDF images.
@@ -2355,7 +2422,7 @@ uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, cor
 		}
 		else
 		{
-			// TODO: log here, assert will be called in a few lines
+			m_logger.log("addMSDFTexture: index allocation failed.", nbl::system::ILogger::ELL_ERROR);
 			inserted->alloc_idx = InvalidTextureIndex;
 		}
 	}
