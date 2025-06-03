@@ -670,33 +670,42 @@ PSInput main(uint vertexID : SV_VertexID)
 
             // TODO: finish implementing grid dilation
             // TODO: calculate actual thicknessOfTheThickestLine
-            /*float thicknessOfTheThickestLine = 20.0f;
+            float thicknessOfTheThickestLine = 200.0f;
 
             static const float SquareRootOfTwo = 1.4142135f;
             const pfloat64_t dilationFactor = SquareRootOfTwo * thicknessOfTheThickestLine;
             pfloat64_t2 dilationVector = pfloat64_t2(dilationFactor, dilationFactor);
 
+            const pfloat64_t dilationFactorTimesTwo = dilationFactor * 2.0f;
+            const pfloat64_t2 dilatedGridExtents = worldSpaceExtents + pfloat64_t2(dilationFactorTimesTwo, dilationFactorTimesTwo);
+            const float2 uvScale = _static_cast<float2>(worldSpaceExtents) / _static_cast<float2>(dilatedGridExtents);
+            float2 uvOffset = float2(dilationFactor, dilationFactor) / _static_cast<float2>(dilatedGridExtents);
+            uvOffset /= uvScale;
+
             if (corner.x == 0.0f && corner.y == 0.0f)
             {
                 dilationVector.x = -dilationVector.x;
+                uvOffset.x = -uvOffset.x;
+                uvOffset.y = -uvOffset.y;
             }
             else if (corner.x == 0.0f && corner.y == 1.0f)
             {
                 dilationVector.x = -dilationVector.x;
                 dilationVector.y = -dilationVector.y;
+                uvOffset.x = -uvOffset.x;
             }
             else if (corner.x == 1.0f && corner.y == 1.0f)
             {
                 dilationVector.y = -dilationVector.y;
             }
+            else if (corner.x == 1.0f && corner.y == 0.0f)
+            {
+                uvOffset.y = -uvOffset.y;
+            }
 
-            const pfloat64_t dilationFactorTimesTwo = dilationFactor * 2.0f;
-            const pfloat64_t2 dilatedGridExtents = worldSpaceExtents + pfloat64_t2(dilationFactorTimesTwo, dilationFactorTimesTwo);
-            
-            float2 uvScale = _static_cast<float2>(worldSpaceExtents) / _static_cast<float2>(dilatedGridExtents);
-            float2 uvOffset = float2(-dilationFactor, -dilationFactor) / _static_cast<float2>(dilatedGridExtents);
-
-            outV.setImageUV(corner * uvScale + uvOffset);
+            const float2 uv = corner + uvOffset;
+            outV.setImageUV(uv);
+            printf("uv = { %f, %f } scale = { %f, %f }", _static_cast<float>(uv.x), _static_cast<float>(uv.y), _static_cast<float>(uvScale.x), _static_cast<float>(uvScale.y));
 
             pfloat64_t2 topLeftToGridCenterVector = worldSpaceExtents * 0.5;
             topLeftToGridCenterVector.y = -topLeftToGridCenterVector.y;
@@ -704,14 +713,13 @@ PSInput main(uint vertexID : SV_VertexID)
 
             pfloat64_t2 dilatedVtxPos = vtxPos + dilationVector;
 
-            printf("actual = { %f, %f } dialated = { %f, %f }", _static_cast<float>(uvScale.x), _static_cast<float>(uvScale.y), _static_cast<float>(dilatedVtxPos.x), _static_cast<float>(dilatedVtxPos.y));
 
             float2 ndcVtxPos = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, dilatedVtxPos));
-            outV.position = float4(ndcVtxPos, 0.0f, 1.0f);*/
-
-            outV.setImageUV(corner);
-            float2 ndcVtxPos = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, vtxPos));
             outV.position = float4(ndcVtxPos, 0.0f, 1.0f);
+
+            /*outV.setImageUV(corner);
+            float2 ndcVtxPos = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, vtxPos));
+            outV.position = float4(ndcVtxPos, 0.0f, 1.0f);*/
         }
         else if (objType == ObjectType::STREAMED_IMAGE)
         {

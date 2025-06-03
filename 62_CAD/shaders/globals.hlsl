@@ -260,7 +260,7 @@ struct GridDTMInfo
     uint32_t textureID; // 4 bytes (36)
     float gridCellWidth; // 4 bytes (40)
     float outlineStipplePatternLengthReciprocal; // 4 bytes (44)
-    float _padding; // 4 bytes (48)
+    float thicknessOfTheThickestLine; // 4 bytes (48)
 };
 
 static uint32_t packR11G11B10_UNORM(float32_t3 color)

@@ -453,7 +453,8 @@ float4 fragMain(PSInput input) : SV_TARGET
             // v0-------v2b   v2a-------v1
             // 
 
-            // calculate screen space coordinates of vertices of the current tiranlge within the grid
+            // calculate screen space coordinates of vertices of t
+            // he current tiranlge within the grid
             float3 v[3];
             nbl::hlsl::shapes::Line<float> outlineLineSegments[2];
             float outlinePhaseShift;
@@ -553,6 +554,7 @@ float4 fragMain(PSInput input) : SV_TARGET
             float height = baryCoord.x * v[0].z + baryCoord.y * v[1].z + baryCoord.z * v[2].z;
             float2 heightDeriv = fwidth(height);
 
+
             float4 dtmColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
             if (dtmSettings.drawOutlineEnabled())
                 dtmColor = dtm::blendUnder(dtmColor, dtm::calculateGridDTMOutlineColor(dtmSettings.outlineLineStyleIdx, outlineLineSegments, input.position.xy, outlinePhaseShift));
@@ -561,12 +563,19 @@ float4 fragMain(PSInput input) : SV_TARGET
                 for (uint32_t i = 0; i < dtmSettings.contourSettingsCount; ++i) // TODO: should reverse the order with blendUnder
                     dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMContourColor(dtmSettings.contourSettings[i], v, input.position.xy, height));
             }
-            if (dtmSettings.drawHeightShadingEnabled())
+            const bool outOfBoundsUV = uv.x < 0.0f || uv.y < 0.0f || uv.x > 1.0f || uv.y > 1.0f;
+            if (dtmSettings.drawHeightShadingEnabled() && !outOfBoundsUV)
                 dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, v, heightDeriv, input.position.xy, height));
 
             textureColor = dtmColor.rgb;
             localAlpha = dtmColor.a;
 
+            /*if (outOfBoundsUV)
+                textureColor = float3(0.0f, 1.0f, 0.0f);
+            else
+                textureColor = float3(0.0f, 0.0f, 1.0f);
+
+            localAlpha = 0.5f;*/
         }
         else if (objType == ObjectType::STREAMED_IMAGE) 
         {
