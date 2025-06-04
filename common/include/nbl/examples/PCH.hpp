@@ -11,6 +11,7 @@
 // #include "nbl/ui/CWindowManagerAndroid.h"
 
 #include "nbl/examples/common/SimpleWindowedApplication.hpp"
+#include "nbl/examples/common/MonoWindowApplication.hpp"
 #include "nbl/examples/common/InputSystem.hpp"
 #include "nbl/examples/common/CEventCallback.hpp"
 

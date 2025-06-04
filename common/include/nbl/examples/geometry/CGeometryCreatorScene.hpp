@@ -17,20 +17,25 @@
 namespace nbl::examples
 {
 
-enum ObjectType : uint8_t
+class CGeometryCreatorScene
 {
-	OT_CUBE,
-	OT_SPHERE,
-	OT_CYLINDER,
-	OT_RECTANGLE,
-	OT_DISK,
-	OT_ARROW,
-	OT_CONE,
-	OT_ICOSPHERE,
+	public:
+		enum ObjectType : uint8_t
+		{
+			OT_CUBE,
+			OT_SPHERE,
+			OT_CYLINDER,
+			OT_RECTANGLE,
+			OT_DISK,
+			OT_ARROW,
+			OT_CONE,
+			OT_ICOSPHERE,
 
-	OT_COUNT,
-	OT_UNKNOWN = std::numeric_limits<uint8_t>::max()
+			OT_COUNT,
+			OT_UNKNOWN = std::numeric_limits<uint8_t>::max()
+		};
 };
+#if 0
 
 struct ObjectMeta
 {
@@ -1346,7 +1351,7 @@ private:
 
 	ResourcesBundle resources;
 };
+#endif
 
-} // nbl::scene::geometrycreator
-
-#endif // _NBL_GEOMETRY_CREATOR_SCENE_H_INCLUDED_
+}
+#endif

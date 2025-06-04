@@ -1,9 +1,14 @@
-#ifndef _NBL_COMMON_C_EVENT_CALLBACK_HPP_INCLUDED_
-#define _NBL_C_EVENT_CALLBACK_HPP_INCLUDED_
+#ifndef _NBL_EXAMPLES_COMMON_C_EVENT_CALLBACK_HPP_INCLUDED_
+#define _NBL_EXAMPLES_COMMON_C_EVENT_CALLBACK_HPP_INCLUDED_
+
 
 #include "nbl/video/utilities/CSimpleResizeSurface.h"
-#include "InputSystem.hpp"
 
+#include "nbl/examples/common/InputSystem.hpp"
+
+
+namespace nbl::examples
+{
 class CEventCallback : public nbl::video::ISimpleManagedSurface::ICallback
 {
 	public:
@@ -45,5 +50,5 @@ class CEventCallback : public nbl::video::ISimpleManagedSurface::ICallback
 		nbl::core::smart_refctd_ptr<InputSystem> m_inputSystem = nullptr;
 		nbl::system::logger_opt_smart_ptr m_logger = nullptr;
 };
-
-#endif // _NBL_C_EVENT_CALLBACK_HPP_INCLUDED_
+}
+#endif
