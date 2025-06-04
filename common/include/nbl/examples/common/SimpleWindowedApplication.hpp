@@ -88,5 +88,4 @@ class SimpleWindowedApplication : public virtual application_templates::BasicMul
 };
 
 }
-
-#endif // _CAMERA_IMPL_
+#endif

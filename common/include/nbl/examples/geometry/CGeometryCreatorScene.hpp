@@ -1,14 +1,19 @@
-#ifndef _NBL_GEOMETRY_CREATOR_SCENE_H_INCLUDED_
-#define _NBL_GEOMETRY_CREATOR_SCENE_H_INCLUDED_
+#ifndef _NBL_EXAMPLES_C_GEOMETRY_CREATOR_SCENE_H_INCLUDED_
+#define _NBL_EXAMPLES_C_GEOMETRY_CREATOR_SCENE_H_INCLUDED_
+
 
 #include <nabla.h>
 
-#include "nbl/asset/utils/CGeometryCreator.h"
-#include "SBasicViewParameters.hlsl"
-#include "geometry/creator/spirv/builtin/CArchive.h"
-#include "geometry/creator/spirv/builtin/builtinResources.h"
+#include "nbl/asset/utils/CPolygonGeometryCreator.h"
 
-namespace nbl::scene::geometrycreator
+// soon to be deprecated!
+#include "nbl/examples/common/SBasicViewParameters.hlsl"
+
+#include "nbl/examples/geometry/creator/spirv/builtin/CArchive.h"
+#include "nbl/examples/geometry/creator/spirv/builtin/builtinResources.h"
+
+
+namespace nbl::examples
 {
 
 enum ObjectType : uint8_t

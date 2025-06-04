@@ -9,7 +9,7 @@
 	};
 #endif // __HLSL_VERSION
 
-#include "SBasicViewParameters.hlsl"
+#include "common/SBasicViewParameters.hlsl"
 
 #endif // _THIS_EXAMPLE_GC_COMMON_HLSL_
 

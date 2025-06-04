@@ -1,15 +1,17 @@
 // Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
+#ifndef _NBL_COMMON_CAMERA_IMPL_
+#define _NBL_COMMON_CAMERA_IMPL_
 
-#ifndef _CAMERA_IMPL_
-#define _CAMERA_IMPL_
 
 #include <nabla.h>
+
 #include <iostream>
 #include <cstdio>
 #include <fstream>
 #include <chrono>
+
 
 class Camera 
 { 
@@ -322,5 +324,4 @@ private:
 
 	std::chrono::microseconds nextPresentationTimeStamp, lastVirtualUpTimeStamp;
 };
-
-#endif // _CAMERA_IMPL_
+#endif 

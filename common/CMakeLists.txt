@@ -7,22 +7,11 @@
 ##
 
 # interface libraries don't have build rules (except custom commands however it doesn't matter here) but properties
-add_library(nblCommonAPI INTERFACE)
+add_library(nblExamplesAPI INTERFACE)
+# TODO: change every variable prefix from `NBL_COMMON_API` to `NBL_EXAMPLES_API` here and elsewhere
 set(NBL_COMMON_API_INCLUDE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_include_directories(nblCommonAPI INTERFACE "${NBL_COMMON_API_INCLUDE_DIRECTORY}")
+target_include_directories(nblExamplesAPI INTERFACE "${NBL_COMMON_API_INCLUDE_DIRECTORY}")
 
-add_subdirectory(src EXCLUDE_FROM_ALL)
+add_subdirectory("src/nbl/examples" EXCLUDE_FROM_ALL)
 
-########## <-
-# TODO: disable this CommonPCH thing! + DEPRICATED!
-# TODO: move asset converer into separate library
-
-nbl_create_ext_library_project(CommonAPI "" "${CMAKE_CURRENT_SOURCE_DIR}/src/empty.cpp" "" "" "")
-set(NBL_EXECUTABLE_COMMON_API_TARGET "${LIB_NAME}" CACHE INTERNAL "")
-
-add_subdirectory(CommonPCH EXCLUDE_FROM_ALL)
-
-#target_precompile_headers("${NBL_EXECUTABLE_COMMON_API_TARGET}" REUSE_FROM "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
-########## <-
-
-set(NBL_COMMON_API_TARGETS nblCommonAPI ${NBL_COMMON_API_TARGETS} ${NBL_EXECUTABLE_COMMON_API_TARGET} PARENT_SCOPE)
+set(NBL_COMMON_API_TARGETS nblExamplesAPI ${NBL_COMMON_API_TARGETS} ${NBL_EXECUTABLE_COMMON_API_TARGET} PARENT_SCOPE)
