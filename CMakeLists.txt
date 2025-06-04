@@ -3,8 +3,8 @@
 # For conditions of distribution and use, see copyright notice in nabla.h
 
 function(NBL_HOOK_COMMON_API NBL_EXCLUDE_TARGETS_LIST)
-	if(NOT TARGET nblCommonAPI)
-		message(FATAL_ERROR "nblCommonAPI not defined!")
+	if(NOT TARGET nblExamplesAPI)
+		message(FATAL_ERROR "nblExamplesAPI not defined!")
 	endif()
 
     NBL_GET_ALL_TARGETS(NBL_TARGETS)
@@ -13,8 +13,8 @@ function(NBL_HOOK_COMMON_API NBL_EXCLUDE_TARGETS_LIST)
 		# TODO: exclude builtin targets created by examples as well - doesn't impact anything at all now
 		if(NOT ${NBL_TARGET} IN_LIST NBL_EXCLUDE_TARGETS_LIST)
 
-			target_include_directories(${NBL_TARGET} PRIVATE $<TARGET_PROPERTY:nblCommonAPI,INTERFACE_INCLUDE_DIRECTORIES>)
-			target_link_libraries(${NBL_TARGET} PRIVATE nblCommonAPI)
+			target_include_directories(${NBL_TARGET} PRIVATE $<TARGET_PROPERTY:nblExamplesAPI,INTERFACE_INCLUDE_DIRECTORIES>)
+			target_link_libraries(${NBL_TARGET} PRIVATE nblExamplesAPI)
 		endif()
     endforeach()
 endfunction()
@@ -92,5 +92,5 @@ if(NBL_BUILD_EXAMPLES)
   	add_subdirectory(70_FLIPFluids EXCLUDE_FROM_ALL)
 	add_subdirectory(71_RayTracingPipeline EXCLUDE_FROM_ALL)
 
-	NBL_HOOK_COMMON_API("${NBL_COMMON_API_TARGETS}")
+	NBL_HOOK_COMMON_API("${NBL_EXAMPLES_API_TARGETS}")
 endif()

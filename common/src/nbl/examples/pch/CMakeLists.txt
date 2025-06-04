@@ -1,3 +1,5 @@
+# TODO: let arek figure out how to redo the PCH
+#[===[
 include(common RESULT_VARIABLE RES)
 if(NOT RES)
 	message(FATAL_ERROR "common.cmake not found. Should be in '${NBL_ROOT_PATH}/cmake' directory")
@@ -13,3 +15,4 @@ target_precompile_headers("${EXECUTABLE_NAME}" PUBLIC
 	"${NBL_NABLA_TARGET_SOURCE_DIR}/pch.h" # Nabla's PCH
 )
 unset(NBL_NABLA_TARGET_SOURCE_DIR)
+]===]

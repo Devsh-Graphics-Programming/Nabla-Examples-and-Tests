@@ -8,10 +8,10 @@
 
 # interface libraries don't have build rules (except custom commands however it doesn't matter here) but properties
 add_library(nblExamplesAPI INTERFACE)
-# TODO: change every variable prefix from `NBL_COMMON_API` to `NBL_EXAMPLES_API` here and elsewhere
-set(NBL_COMMON_API_INCLUDE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_include_directories(nblExamplesAPI INTERFACE "${NBL_COMMON_API_INCLUDE_DIRECTORY}")
+set(NBL_EXAMPLES_API_INCLUDE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_include_directories(nblExamplesAPI INTERFACE "${NBL_EXAMPLES_API_INCLUDE_DIRECTORY}")
 
 add_subdirectory("src/nbl/examples" EXCLUDE_FROM_ALL)
 
-set(NBL_COMMON_API_TARGETS nblExamplesAPI ${NBL_COMMON_API_TARGETS} ${NBL_EXECUTABLE_COMMON_API_TARGET} PARENT_SCOPE)
+# TODO: Arek what was `NBL_EXECUTABLE_COMMON_API_TARGET` ? I removed it.
+set(NBL_EXAMPLES_API_TARGETS nblExamplesAPI ${NBL_EXAMPLES_API_TARGETS} PARENT_SCOPE)

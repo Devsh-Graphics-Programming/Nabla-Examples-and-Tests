@@ -4,13 +4,14 @@
 
 #include <nabla.h>
 
-#include "nbl/asset/utils/CPolygonGeometryCreator.h"
+#include "nbl/asset/utils/CGeometryCreator.h"
 
 // soon to be deprecated!
 #include "nbl/examples/common/SBasicViewParameters.hlsl"
 
-#include "nbl/examples/geometry/creator/spirv/builtin/CArchive.h"
-#include "nbl/examples/geometry/creator/spirv/builtin/builtinResources.h"
+// TODO: Arek bring back
+//#include "nbl/examples/geometry/spirv/builtin/CArchive.h"
+//#include "nbl/examples/geometry/spirv/builtin/builtinResources.h"
 
 
 namespace nbl::examples
