@@ -45,12 +45,6 @@ struct emulatedScanExclusive
 	static inline constexpr const char* name = "exclusive_scan";
 };
 
-struct PushConstantData
-{
-	uint64_t inputBufAddress;
-	uint64_t outputAddressBufAddress;
-};
-
 class Workgroup2ScanTestApp final : public application_templates::BasicMultiQueueApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 	using device_base_t = application_templates::BasicMultiQueueApplication;
@@ -118,8 +112,8 @@ public:
 			params.size = OutputBufferCount * sizeof(uint64_t);
 			m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = getTransferUpQueue() }, std::move(params), outputAddresses.data()).move_into(gpuOutputAddressesBuffer);
 		}
-		pc.inputBufAddress = gpuinputDataBuffer->getDeviceAddress();
-		pc.outputAddressBufAddress = gpuOutputAddressesBuffer->getDeviceAddress();
+		pc.pInputBuf = gpuinputDataBuffer->getDeviceAddress();
+		pc.ppOutputBuf = gpuOutputAddressesBuffer->getDeviceAddress();
 
 		// create Pipeline Layout
 		{
@@ -310,7 +304,7 @@ private:
 	template<template<class> class Arithmetic, bool WorkgroupTest>
 	bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerWG = ~0u, uint32_t itemsPerInvoc = 1u)
 	{
-		std::string arith_name = Arithmetic<bit_xor<float>>::name;
+		std::string arith_name = Arithmetic<arithmetic::bit_xor<float>>::name;
 		const uint32_t workgroupSizeLog2 = hlsl::findMSB(workgroupSize);
 
 		auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
@@ -423,13 +417,13 @@ private:
 		m_device->blockForSemaphores(wait);
 
 		// check results
-		bool passed = validateResults<Arithmetic, bit_and<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc);
-		passed = validateResults<Arithmetic, bit_xor<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, bit_or<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, plus<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, multiplies<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, minimum<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, maximum<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
+		bool passed = validateResults<Arithmetic, arithmetic::bit_and<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc);
+		passed = validateResults<Arithmetic, arithmetic::bit_xor<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, arithmetic::bit_or<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, arithmetic::plus<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, arithmetic::multiplies<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, arithmetic::minimum<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, arithmetic::maximum<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
 
 		return passed;
 	}

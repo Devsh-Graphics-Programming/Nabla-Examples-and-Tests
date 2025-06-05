@@ -10,6 +10,14 @@ struct Output
 	uint32_t data[ScanElementCount];
 };
 
+struct PushConstantData
+{
+    uint64_t pInputBuf;
+    uint64_t ppOutputBuf;
+};
+
+namespace arithmetic
+{
 // Thanks to our unified HLSL/C++ STD lib we're able to remove a whole load of code
 template<typename T>
 struct bit_and : nbl::hlsl::bit_and<T>
@@ -92,5 +100,6 @@ struct ballot : nbl::hlsl::plus<T>
 	static inline constexpr const char* name = "bitcount";
 #endif
 };
+}
 
 #include "nbl/builtin/hlsl/subgroup/basic.hlsl"
