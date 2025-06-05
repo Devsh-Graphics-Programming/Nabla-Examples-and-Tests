@@ -65,7 +65,7 @@ public:
 		computeQueue = getComputeQueue();
 
 		// TODO: get the element count from argv
-		const uint32_t elementCount = Output<>::ScanElementCount;
+		const uint32_t elementCount = 1024 * 1024;
 		// populate our random data buffer on the CPU and create a GPU copy
 		inputData = new uint32_t[elementCount];
 		smart_refctd_ptr<IGPUBuffer> gpuinputDataBuffer;
@@ -75,7 +75,7 @@ public:
 				inputData[i] = randGenerator(); // TODO: change to using xoroshiro, then we can skip having the input buffer at all
 
 			IGPUBuffer::SCreationParams inputDataBufferCreationParams = {};
-			inputDataBufferCreationParams.size = sizeof(Output<>::data[0]) * elementCount;
+			inputDataBufferCreationParams.size = sizeof(uint32_t) * elementCount;
 			inputDataBufferCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 			m_utils->createFilledDeviceLocalBufferOnDedMem(
 				SIntendedSubmitInfo{.queue=getTransferUpQueue()},
@@ -341,7 +341,6 @@ private:
 		options.preprocessorOptions.logger = m_logger.get();
 
 		auto* includeFinder = compiler->getDefaultIncludeFinder();
-		includeFinder->addSearchPath("nbl/builtin/hlsl/jit", core::make_smart_refctd_ptr<CJITIncludeLoader>(m_physicalDevice->getLimits(), m_device->getEnabledFeatures()));
 		options.preprocessorOptions.includeFinder = includeFinder;
 
 		smart_refctd_ptr<ICPUShader> overriddenUnspecialized;

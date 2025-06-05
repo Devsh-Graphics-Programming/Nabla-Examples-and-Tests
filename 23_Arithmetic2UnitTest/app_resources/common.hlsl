@@ -1,15 +1,6 @@
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 #include "nbl/builtin/hlsl/functional.hlsl"
 
-template<uint32_t kScanElementCount=1024*1024>
-struct Output
-{
-	NBL_CONSTEXPR_STATIC_INLINE uint32_t ScanElementCount = kScanElementCount;
-
-	uint32_t subgroupSize;
-	uint32_t data[ScanElementCount];
-};
-
 struct PushConstantData
 {
     uint64_t pInputBuf;
