@@ -4,7 +4,7 @@
 #include <nabla.h>
 
 // common api
-#include "CCamera.hpp"
+#include "CFPSCamera.hpp"
 #include "SimpleWindowedApplication.hpp"
 #include "CEventCallback.hpp"
 
