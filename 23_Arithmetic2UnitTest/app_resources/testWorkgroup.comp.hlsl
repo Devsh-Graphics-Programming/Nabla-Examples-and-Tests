@@ -47,18 +47,23 @@ struct DataProxy
     using dtype_t = vector<uint32_t, Config::ItemsPerInvocation_0>;
     static_assert(is_same_v<dtype_t, type_t>);
 
+    static DataProxy<Config, Binop> create()
+    {
+        DataProxy<Config, Binop> retval;
+        retval.workgroupOffset = glsl::gl_WorkGroupID().x * Config::VirtualWorkgroupSize;
+        retval.outputBufAddr = sizeof(uint32_t) + vk::RawBufferLoad<uint64_t>(pc.ppOutputBuf + Binop::BindingIndex * sizeof(uint64_t));
+        return retval;
+    }
+
     template<typename AccessType, typename IndexType>
     void get(const IndexType ix, NBL_REF_ARG(AccessType) value)
     {
-        const uint32_t workgroupOffset = glsl::gl_WorkGroupID().x * Config::VirtualWorkgroupSize;
         value = vk::RawBufferLoad<AccessType>(pc.pInputBuf + (workgroupOffset + ix) * sizeof(AccessType));
     }
     template<typename AccessType, typename IndexType>
     void set(const IndexType ix, const AccessType value)
     {
-        const uint32_t workgroupOffset = glsl::gl_WorkGroupID().x * Config::VirtualWorkgroupSize;
-        uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.ppOutputBuf + Binop::BindingIndex * sizeof(uint64_t));
-        vk::RawBufferStore<AccessType>(outputBufAddr + sizeof(uint32_t) + sizeof(AccessType) * (workgroupOffset+ix), value, sizeof(uint32_t));
+        vk::RawBufferStore<AccessType>(outputBufAddr + sizeof(AccessType) * (workgroupOffset+ix), value, sizeof(uint32_t));
     }
 
     void workgroupExecutionAndMemoryBarrier()
@@ -66,6 +71,9 @@ struct DataProxy
         glsl::barrier();
         //glsl::memoryBarrierShared(); implied by the above
     }
+
+    uint32_t workgroupOffset;
+    uint64_t outputBufAddr;
 };
 
 template<class Config, class Binop>
@@ -75,6 +83,13 @@ struct PreloadedDataProxy
     static_assert(is_same_v<dtype_t, type_t>);
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t PreloadedDataCount = Config::VirtualWorkgroupSize / Config::WorkgroupSize;
+
+    static PreloadedDataProxy<Config, Binop> create()
+    {
+        PreloadedDataProxy<Config, Binop> retval;
+        retval.data = DataProxy<Config, Binop>::create();
+        return retval;
+    }
 
     template<typename AccessType, typename IndexType>
     void get(const IndexType ix, NBL_REF_ARG(AccessType) value)
@@ -89,18 +104,15 @@ struct PreloadedDataProxy
 
     void preload()
     {
-        const uint32_t workgroupOffset = glsl::gl_WorkGroupID().x * Config::VirtualWorkgroupSize;
         [unroll]
-        for (uint32_t idx = 0; idx < PreloadedDataCount; idx++)
-            preloaded[idx] = vk::RawBufferLoad<dtype_t>(pc.pInputBuf + (workgroupOffset + idx * Config::WorkgroupSize + workgroup::SubgroupContiguousIndex()) * sizeof(dtype_t));
+        for (uint16_t idx = 0; idx < PreloadedDataCount; idx++)
+            data.template get<dtype_t, uint16_t>(idx * Config::WorkgroupSize + workgroup::SubgroupContiguousIndex(), preloaded[idx]);
     }
     void unload()
     {
-        const uint32_t workgroupOffset = glsl::gl_WorkGroupID().x * Config::VirtualWorkgroupSize;
-        uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.ppOutputBuf + Binop::BindingIndex * sizeof(uint64_t));
         [unroll]
-        for (uint32_t idx = 0; idx < PreloadedDataCount; idx++)
-            vk::RawBufferStore<dtype_t>(outputBufAddr + sizeof(uint32_t) + sizeof(dtype_t) * (workgroupOffset + idx * Config::WorkgroupSize + workgroup::SubgroupContiguousIndex()), preloaded[idx], sizeof(uint32_t));
+        for (uint16_t idx = 0; idx < PreloadedDataCount; idx++)
+            data.template set<dtype_t, uint16_t>(idx * Config::WorkgroupSize + workgroup::SubgroupContiguousIndex(), preloaded[idx]);
     }
 
     void workgroupExecutionAndMemoryBarrier()
@@ -109,6 +121,7 @@ struct PreloadedDataProxy
         //glsl::memoryBarrierShared(); implied by the above
     }
 
+    DataProxy<Config, Binop> data;
     dtype_t preloaded[PreloadedDataCount];
 };
 
@@ -124,7 +137,7 @@ struct operation_t
     // workgroup scans do no return anything, but use the data accessor to do the storing directly
     void operator()()
     {
-        PreloadedDataProxy<config_t,Binop> dataAccessor;
+        PreloadedDataProxy<config_t,Binop> dataAccessor = PreloadedDataProxy<config_t,Binop>::create();
         dataAccessor.preload();
 #if IS_REDUCTION
         otype_t value =
