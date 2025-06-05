@@ -1,7 +1,5 @@
 #include "common.hlsl"
 
-#include "nbl/builtin/hlsl/jit/device_capabilities.hlsl"
-
 using namespace nbl;
 using namespace hlsl;
 
@@ -13,6 +11,15 @@ uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize() {return uint32_t3(WORKGROUP_SIZE,1
 #endif
 
 [[vk::push_constant]] PushConstantData pc;
+
+struct device_capabilities
+{
+#ifdef TEST_NATIVE
+    NBL_CONSTEXPR_STATIC_INLINE bool shaderSubgroupArithmetic = true;
+#else
+    NBL_CONSTEXPR_STATIC_INLINE bool shaderSubgroupArithmetic = false;
+#endif
+};
 
 #ifndef OPERATION
 #error "Define OPERATION!"

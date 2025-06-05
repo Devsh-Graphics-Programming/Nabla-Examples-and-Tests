@@ -167,7 +167,7 @@ static void subtest()
     if (globalIndex()==0u)
         vk::RawBufferStore<uint32_t>(outputBufAddr, glsl::gl_SubgroupSize());
 
-    operation_t<Binop,jit::device_capabilities> func;
+    operation_t<Binop,device_capabilities> func;
     func();
 }
 

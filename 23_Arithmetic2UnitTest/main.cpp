@@ -187,47 +187,65 @@ public:
 		const auto MaxWorkgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
 		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
-		for (auto subgroupSize=MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
+		for (uint32_t useNative = 0; useNative < 2; useNative++)
 		{
-			const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
-			for (uint32_t workgroupSize = subgroupSize; workgroupSize <= MaxWorkgroupSize; workgroupSize *= 2u)
+			bool b_useNative = false;
+			if (!m_physicalDevice->getProperties().limits.shaderSubgroupArithmetic && useNative == 0)
 			{
-				// make sure renderdoc captures everything for debugging
-				m_api->startCapture();
-				m_logger->log("Testing Workgroup Size %u with Subgroup Size %u", ILogger::ELL_INFO, workgroupSize, subgroupSize);
+				m_logger->log("Device property shaderSubgroupArithmetic is false! Skipping to emulated arithmetic...", ILogger::ELL_INFO);
+				continue;
+			}
 
-				for (uint32_t j = 0; j < ItemsPerInvocations.size(); j++)
+			if (useNative)
+				m_logger->log("Testing with emulated subgroup arithmetic", ILogger::ELL_INFO);
+			else
+			{
+				m_logger->log("Testing with native subgroup arithmetic", ILogger::ELL_INFO);
+				b_useNative = true;
+			}
+
+			for (auto subgroupSize = MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
+			{
+				const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
+				for (uint32_t workgroupSize = subgroupSize; workgroupSize <= MaxWorkgroupSize; workgroupSize *= 2u)
 				{
-					const uint32_t itemsPerInvocation = ItemsPerInvocations[j];
-					m_logger->log("Testing Items per Invocation %u", ILogger::ELL_INFO, itemsPerInvocation);
-					bool passed = true;
-					passed = runTest<emulatedReduction, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, itemsPerInvocation) && passed;
-					logTestOutcome(passed, workgroupSize);
-					passed = runTest<emulatedScanInclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, itemsPerInvocation) && passed;
-					logTestOutcome(passed, workgroupSize);
-					passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, ~0u, itemsPerInvocation) && passed;
-					logTestOutcome(passed, workgroupSize);
+					// make sure renderdoc captures everything for debugging
+					m_api->startCapture();
+					m_logger->log("Testing Workgroup Size %u with Subgroup Size %u", ILogger::ELL_INFO, workgroupSize, subgroupSize);
 
-					const uint32_t itemsPerWG = calculateItemsPerWorkgroup(workgroupSize, subgroupSize, itemsPerInvocation);
-					m_logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
-					passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG, itemsPerInvocation) && passed;
-					logTestOutcome(passed, itemsPerWG);
-					passed = runTest<emulatedScanInclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG, itemsPerInvocation) && passed;
-					logTestOutcome(passed, itemsPerWG);
-					passed = runTest<emulatedScanExclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG, itemsPerInvocation) && passed;
-					logTestOutcome(passed, itemsPerWG);
-				}
-				m_api->endCapture();
+					for (uint32_t j = 0; j < ItemsPerInvocations.size(); j++)
+					{
+						const uint32_t itemsPerInvocation = ItemsPerInvocations[j];
+						m_logger->log("Testing Items per Invocation %u", ILogger::ELL_INFO, itemsPerInvocation);
+						bool passed = true;
+						passed = runTest<emulatedReduction, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, b_useNative, ~0u, itemsPerInvocation) && passed;
+						logTestOutcome(passed, workgroupSize);
+						passed = runTest<emulatedScanInclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, b_useNative, ~0u, itemsPerInvocation) && passed;
+						logTestOutcome(passed, workgroupSize);
+						passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, b_useNative, ~0u, itemsPerInvocation) && passed;
+						logTestOutcome(passed, workgroupSize);
 
-				// save cache every now and then	
-				{
-					auto cpu = m_spirv_isa_cache->convertToCPUCache();
-					// Normally we'd beautifully JSON serialize the thing, allow multiple devices & drivers + metadata
-					auto bin = cpu->getEntries().begin()->second.bin;
-					IFile::success_t success;
-					m_spirv_isa_cache_output->write(success, bin->data(), 0ull, bin->size());
-					if (!success)
-						logFail("Could not write Create SPIR-V to ISA cache to disk!");
+						const uint32_t itemsPerWG = calculateItemsPerWorkgroup(workgroupSize, subgroupSize, itemsPerInvocation);
+						m_logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
+						passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, b_useNative, itemsPerWG, itemsPerInvocation) && passed;
+						logTestOutcome(passed, itemsPerWG);
+						passed = runTest<emulatedScanInclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, b_useNative, itemsPerWG, itemsPerInvocation) && passed;
+						logTestOutcome(passed, itemsPerWG);
+						passed = runTest<emulatedScanExclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, b_useNative, itemsPerWG, itemsPerInvocation) && passed;
+						logTestOutcome(passed, itemsPerWG);
+					}
+					m_api->endCapture();
+
+					// save cache every now and then	
+					{
+						auto cpu = m_spirv_isa_cache->convertToCPUCache();
+						// Normally we'd beautifully JSON serialize the thing, allow multiple devices & drivers + metadata
+						auto bin = cpu->getEntries().begin()->second.bin;
+						IFile::success_t success;
+						m_spirv_isa_cache_output->write(success, bin->data(), 0ull, bin->size());
+						if (!success)
+							logFail("Could not write Create SPIR-V to ISA cache to disk!");
+					}
 				}
 			}
 		}
@@ -302,7 +320,7 @@ private:
 	}
 
 	template<template<class> class Arithmetic, bool WorkgroupTest>
-	bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerWG = ~0u, uint32_t itemsPerInvoc = 1u)
+	bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, bool useNative, uint32_t itemsPerWG = ~0u, uint32_t itemsPerInvoc = 1u)
 	{
 		std::string arith_name = Arithmetic<arithmetic::bit_xor<float>>::name;
 		const uint32_t workgroupSizeLog2 = hlsl::findMSB(workgroupSize);
@@ -338,15 +356,19 @@ private:
 				std::to_string(arith_name=="reduction")
 			};
 
-			const IShaderCompiler::SMacroDefinition defines[6] = {
+			const IShaderCompiler::SMacroDefinition defines[7] = {
 				{ "OPERATION", definitions[0] },
 				{ "WORKGROUP_SIZE_LOG2", definitions[1] },
 				{ "ITEMS_PER_WG", definitions[2] },
 				{ "ITEMS_PER_INVOCATION", definitions[3] },
 				{ "SUBGROUP_SIZE_LOG2", definitions[4] },
-				{ "IS_REDUCTION", definitions[5] }
+				{ "IS_REDUCTION", definitions[5] },
+				{ "TEST_NATIVE", "1" }
 			};
-			options.preprocessorOptions.extraDefines = { defines, defines + 6 };
+			if (useNative)
+				options.preprocessorOptions.extraDefines = { defines, defines + 7 };
+			else
+				options.preprocessorOptions.extraDefines = { defines, defines + 6 };
 
 			overriddenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
 		}
@@ -359,13 +381,17 @@ private:
 				std::to_string(subgroupSizeLog2)
 			};
 
-			const IShaderCompiler::SMacroDefinition defines[4] = {
+			const IShaderCompiler::SMacroDefinition defines[5] = {
 				{ "OPERATION", definitions[0] },
 				{ "WORKGROUP_SIZE", definitions[1] },
 				{ "ITEMS_PER_INVOCATION", definitions[2] },
-				{ "SUBGROUP_SIZE_LOG2", definitions[3] }
+				{ "SUBGROUP_SIZE_LOG2", definitions[3] },
+				{ "TEST_NATIVE", "1" }
 			};
-			options.preprocessorOptions.extraDefines = { defines, defines + 4 };
+			if (useNative)
+				options.preprocessorOptions.extraDefines = { defines, defines + 5 };
+			else
+				options.preprocessorOptions.extraDefines = { defines, defines + 4 };
 
 			overriddenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
 		}
