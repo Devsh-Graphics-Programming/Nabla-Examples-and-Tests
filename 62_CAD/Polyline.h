@@ -66,8 +66,6 @@ struct LineStyleInfo
 		rigidSegmentIdx = InvalidRigidSegmentIndex;
 		phaseShift = 0.0f;
 
-		assert(stipplePatternUnnormalizedRepresentation.size() <= StipplePatternMaxSize);
-
 		if (stipplePatternUnnormalizedRepresentation.size() == 0)
 		{
 			stipplePatternSize = 0;
@@ -110,6 +108,8 @@ struct LineStyleInfo
 				stipplePatternTransformed[0] += stipplePatternTransformed[stipplePatternTransformed.size() - 1];
 				stipplePatternTransformed.pop_back();
 			}
+			
+			assert(stipplePatternTransformed.size() <= StipplePatternMaxSize);
 
 			if (stipplePatternTransformed.size() != 1)
 			{
