@@ -370,18 +370,6 @@ public:
 
 		auto subgroupBenchSource = getShaderSource("app_resources/benchmarkSubgroup.comp.hlsl");
 		auto workgroupBenchSource = getShaderSource("app_resources/benchmarkWorkgroup.comp.hlsl");
-		// now create or retrieve final resources to run our tests
-		sema = m_device->createSemaphore(timelineValue);
-		smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
-		{
-			smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(computeQueue->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-			if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{&cmdbuf,1}))
-			{
-				logFail("Failed to create Command Buffers!\n");
-				return false;
-			}
-		}
-
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
 		// for each workgroup size (manually adjust items per invoc, operation else uses up a lot of ram)
 		if constexpr (DoWorkgroupBenchmarks)
@@ -760,12 +748,11 @@ private:
 	smart_refctd_ptr<IDescriptorPool> benchPool;
 	smart_refctd_ptr<IGPUDescriptorSet> benchDs;
 
-	constexpr static inline uint32_t OutputBufferCount = 8u;
+	constexpr static inline uint32_t OutputBufferCount = 2u;
 	smart_refctd_ptr<IGPUBuffer> outputBuffers[OutputBufferCount];
 	smart_refctd_ptr<IGPUBuffer> gpuOutputAddressesBuffer;
 	PushConstantData pc;
 
-	smart_refctd_ptr<ISemaphore> sema;
 	uint64_t timelineValue = 0;
 };
 

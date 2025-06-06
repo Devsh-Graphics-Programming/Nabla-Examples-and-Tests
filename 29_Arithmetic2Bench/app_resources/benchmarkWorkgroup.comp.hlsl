@@ -113,25 +113,10 @@ static void subbench()
 
 void benchmark()
 {
-    subbench<arithmetic::bit_and<uint32_t> >();
-    subbench<arithmetic::bit_xor<uint32_t> >();
-    subbench<arithmetic::bit_or<uint32_t> >();
+    // only benchmark plus op
     subbench<arithmetic::plus<uint32_t> >();
-    subbench<arithmetic::multiplies<uint32_t> >();
-    subbench<arithmetic::minimum<uint32_t> >();
-    subbench<arithmetic::maximum<uint32_t> >();
 }
 
-
-uint32_t globalIndex()
-{
-    return glsl::gl_WorkGroupID().x*ITEMS_PER_WG+workgroup::SubgroupContiguousIndex();
-}
-
-bool canStore()
-{
-    return workgroup::SubgroupContiguousIndex()<ITEMS_PER_WG;
-}
 
 [numthreads(WORKGROUP_SIZE,1,1)]
 void main()

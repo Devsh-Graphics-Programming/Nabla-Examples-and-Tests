@@ -21,11 +21,6 @@ struct device_capabilities
 #endif
 };
 
-// because subgroups don't match `gl_LocalInvocationIndex` snake curve addressing, we also can't load inputs that way
-uint32_t globalIndex();
-// since we test ITEMS_PER_WG<WorkgroupSize we need this so workgroups don't overwrite each other's outputs
-bool canStore();
-
 #ifndef OPERATION
 #error "Define OPERATION!"
 #endif

@@ -42,13 +42,7 @@ void benchmark()
     for (uint16_t i = 0; i < Config::ItemsPerInvocation_0; i++)
         sourceVal[i] = xoroshiro();
 
-    subbench<arithmetic::bit_and<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<arithmetic::bit_xor<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<arithmetic::bit_or<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
     subbench<arithmetic::plus<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<arithmetic::multiplies<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<arithmetic::minimum<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<arithmetic::maximum<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
 }
 
 [numthreads(WORKGROUP_SIZE,1,1)]
