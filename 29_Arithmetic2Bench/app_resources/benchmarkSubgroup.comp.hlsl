@@ -5,6 +5,7 @@
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 #include "nbl/builtin/hlsl/glsl_compat/subgroup_basic.hlsl"
 #include "nbl/builtin/hlsl/subgroup2/arithmetic_portability.hlsl"
+#include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
 
 #include "shaderCommon.hlsl"
 #include "nbl/builtin/hlsl/workgroup/basic.hlsl"
@@ -35,8 +36,11 @@ static void subbench(NBL_CONST_REF_ARG(type_t) sourceVal)
 
 void benchmark()
 {
-    const uint32_t idx = globalIndex();
-    type_t sourceVal = vk::RawBufferLoad<type_t>(pc.pInputBuf + idx * sizeof(type_t));
+    type_t sourceVal;
+    Xoroshiro64Star xoroshiro = Xoroshiro64Star::construct(uint32_t2(invocationIndex,invocationIndex+1));
+    [unroll]
+    for (uint16_t i = 0; i < Config::ItemsPerInvocation_0; i++)
+        sourceVal[i] = xoroshiro();
 
     subbench<arithmetic::bit_and<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
     subbench<arithmetic::bit_xor<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);

@@ -4,6 +4,7 @@
 #include "nbl/builtin/hlsl/glsl_compat/subgroup_basic.hlsl"
 #include "nbl/builtin/hlsl/subgroup2/arithmetic_portability.hlsl"
 #include "nbl/builtin/hlsl/workgroup2/arithmetic.hlsl"
+#include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
 
 static const uint32_t WORKGROUP_SIZE = 1u << WORKGROUP_SIZE_LOG2;
 
@@ -18,6 +19,59 @@ groupshared uint32_t scratch[config_t::SharedScratchElementCount];
 
 #include "../../common/include/WorkgroupDataAccessors.hlsl"
 
+template<class Config, class Binop>
+struct RandomizedInputDataProxy
+{
+    using dtype_t = vector<uint32_t, Config::ItemsPerInvocation_0>;
+
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t PreloadedDataCount = Config::VirtualWorkgroupSize / Config::WorkgroupSize;
+
+    static RandomizedInputDataProxy<Config, Binop> create()
+    {
+        RandomizedInputDataProxy<Config, Binop> retval;
+        retval.data = DataProxy<Config, Binop>::create();
+        return retval;
+    }
+
+    template<typename AccessType, typename IndexType>
+    void get(const IndexType ix, NBL_REF_ARG(AccessType) value)
+    {
+        value = preloaded[ix>>Config::WorkgroupSizeLog2];
+    }
+    template<typename AccessType, typename IndexType>
+    void set(const IndexType ix, const AccessType value)
+    {
+        preloaded[ix>>Config::WorkgroupSizeLog2] = value;
+    }
+
+    void preload()
+    {
+        const uint16_t invocationIndex = workgroup::SubgroupContiguousIndex();
+        Xoroshiro64Star xoroshiro = Xoroshiro64Star::construct(uint32_t2(invocationIndex,invocationIndex+1));
+        [unroll]
+        for (uint16_t idx = 0; idx < PreloadedDataCount; idx++)
+            [unroll]
+            for (uint16_t i = 0; i < Config::ItemsPerInvocation_0; i++)
+               preloaded[idx][i] = xoroshiro();
+    }
+    void unload()
+    {
+        const uint16_t invocationIndex = workgroup::SubgroupContiguousIndex();
+        [unroll]
+        for (uint16_t idx = 0; idx < PreloadedDataCount; idx++)
+            data.template set<dtype_t, uint16_t>(idx * Config::WorkgroupSize + invocationIndex, preloaded[idx]);
+    }
+
+    void workgroupExecutionAndMemoryBarrier()
+    {
+        glsl::barrier();
+        //glsl::memoryBarrierShared(); implied by the above
+    }
+
+    DataProxy<Config, Binop> data;
+    dtype_t preloaded[PreloadedDataCount];
+};
+
 static ScratchProxy arithmeticAccessor;
 
 template<class Binop, class device_capabilities>
@@ -26,29 +80,20 @@ struct operation_t
     using binop_base_t = typename Binop::base_t;
     using otype_t = typename Binop::type_t;
 
-    void operator()(PreloadedDataProxy<config_t,Binop> dataAccessor)
+    void operator()(RandomizedInputDataProxy<config_t,Binop> dataAccessor)
     {
 #if IS_REDUCTION
         otype_t value = 
 #endif
-        OPERATION<config_t,binop_base_t,device_capabilities>::template __call<PreloadedDataProxy<config_t,Binop>, ScratchProxy>(dataAccessor,arithmeticAccessor);
+        OPERATION<config_t,binop_base_t,device_capabilities>::template __call<RandomizedInputDataProxy<config_t,Binop>, ScratchProxy>(dataAccessor,arithmeticAccessor);
         // we barrier before because we alias the accessors for Binop
         arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
 #if IS_REDUCTION
         [unroll]
-        for (uint32_t i = 0; i < PreloadedDataProxy<config_t,Binop>::PreloadedDataCount; i++)
+        for (uint32_t i = 0; i < RandomizedInputDataProxy<config_t,Binop>::PreloadedDataCount; i++)
             dataAccessor.preloaded[i] = value;
 #endif
     }
-// #else
-//     void operator()(PreloadedDataProxy<config_t,Binop> dataAccessor)
-//     {
-//         OPERATION<config_t,binop_base_t,device_capabilities>::template __call<PreloadedDataProxy<config_t,Binop>, ScratchProxy>(dataAccessor,arithmeticAccessor);
-//         // we barrier before because we alias the accessors for Binop
-//         arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
-//     }
-// #endif
-
 };
 
 template<class Binop>
@@ -56,7 +101,7 @@ static void subbench()
 {
     const uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.ppOutputBuf + Binop::BindingIndex * sizeof(uint64_t), sizeof(uint64_t));
 
-    PreloadedDataProxy<config_t,Binop> dataAccessor = PreloadedDataProxy<config_t,Binop>::create();
+    RandomizedInputDataProxy<config_t,Binop> dataAccessor = RandomizedInputDataProxy<config_t,Binop>::create();
     dataAccessor.preload();
 
     operation_t<Binop,device_capabilities> func;

@@ -283,28 +283,11 @@ public:
 		transferDownQueue = getTransferDownQueue();
 		computeQueue = getComputeQueue();
 
-		// populate our random data buffer on the CPU and create a GPU copy
-		inputData = new uint32_t[elementCount];
-		{
-			std::mt19937 randGenerator(0xdeadbeefu);
-			for (uint32_t i = 0u; i < elementCount; i++)
-				inputData[i] = randGenerator(); // TODO: change to using xoroshiro, then we can skip having the input buffer at all
-
-			IGPUBuffer::SCreationParams inputDataBufferCreationParams = {};
-			inputDataBufferCreationParams.size = sizeof(uint32_t) * elementCount;
-			inputDataBufferCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-			m_utils->createFilledDeviceLocalBufferOnDedMem(
-				SIntendedSubmitInfo{.queue=getTransferUpQueue()},
-				std::move(inputDataBufferCreationParams),
-				inputData
-			).move_into(gpuinputDataBuffer);
-		}
-
 		// create 8 buffers for 8 operations
 		for (auto i=0u; i<OutputBufferCount; i++)
 		{
 			IGPUBuffer::SCreationParams params = {};
-			params.size = sizeof(uint32_t) + gpuinputDataBuffer->getSize();
+			params.size = sizeof(uint32_t) * (elementCount+1);
 			params.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_SRC_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
 			outputBuffers[i] = m_device->createBuffer(std::move(params));
@@ -327,7 +310,6 @@ public:
 			params.size = OutputBufferCount * sizeof(uint64_t);
 			m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = getTransferUpQueue() }, std::move(params), outputAddresses.data()).move_into(gpuOutputAddressesBuffer);
 		}
-		pc.pInputBuf = gpuinputDataBuffer->getDeviceAddress();
 		pc.ppOutputBuf = gpuOutputAddressesBuffer->getDeviceAddress();
 
 		// create image views for swapchain images
@@ -363,6 +345,12 @@ public:
 			SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0,.size = sizeof(PushConstantData) };
 			benchPplnLayout = m_device->createPipelineLayout({ &pcRange, 1 }, std::move(benchLayout));
 		}
+		if (UseNativeArithmetic && !m_physicalDevice->getProperties().limits.shaderSubgroupArithmetic)
+		{
+			m_logger->log("UseNativeArithmetic is true but device does not support shaderSubgroupArithmetic!", ILogger::ELL_ERROR);
+			exit(-1);
+		}
+			
 
 		// load shader source from file
 		auto getShaderSource = [&](const char* filePath) -> auto
@@ -414,7 +402,6 @@ public:
 
 	virtual bool onAppTerminated() override
 	{
-		delete[] inputData;
 		return true;
 	}
 
@@ -650,16 +637,20 @@ private:
 				std::to_string(arith_name=="reduction")
 			};
 
-			const IShaderCompiler::SMacroDefinition defines[7] = {
+			const IShaderCompiler::SMacroDefinition defines[8] = {
 				{ "OPERATION", definitions[0] },
 				{ "WORKGROUP_SIZE_LOG2", definitions[1] },
 				{ "ITEMS_PER_WG", definitions[2] },
 				{ "ITEMS_PER_INVOCATION", definitions[3] },
 				{ "SUBGROUP_SIZE_LOG2", definitions[4] },
 				{ "NUM_LOOPS", definitions[5] },
-				{ "IS_REDUCTION", definitions[6] }
+				{ "IS_REDUCTION", definitions[6] },
+				{ "TEST_NATIVE", "1" }
 			};
-			options.preprocessorOptions.extraDefines = { defines, defines + 7 };
+			if (UseNativeArithmetic)
+				options.preprocessorOptions.extraDefines = { defines, defines + 8 };
+			else
+				options.preprocessorOptions.extraDefines = { defines, defines + 7 };
 
 			overriddenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
 		}
@@ -673,14 +664,18 @@ private:
 				std::to_string(numLoops)
 			};
 
-			const IShaderCompiler::SMacroDefinition defines[5] = {
+			const IShaderCompiler::SMacroDefinition defines[6] = {
 				{ "OPERATION", definitions[0] },
 				{ "WORKGROUP_SIZE", definitions[1] },
 				{ "ITEMS_PER_INVOCATION", definitions[2] },
 				{ "SUBGROUP_SIZE_LOG2", definitions[3] },
-				{ "NUM_LOOPS", definitions[4] }
+				{ "NUM_LOOPS", definitions[4] },
+				{ "TEST_NATIVE", "1" }
 			};
-			options.preprocessorOptions.extraDefines = { defines, defines + 5 };
+			if (UseNativeArithmetic)
+				options.preprocessorOptions.extraDefines = { defines, defines + 6 };
+			else
+				options.preprocessorOptions.extraDefines = { defines, defines + 5 };
 
 			overriddenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
 		}
@@ -753,10 +748,11 @@ private:
 
 	/* PARAMETERS TO CHANGE FOR DIFFERENT BENCHMARKS */
 	constexpr static inline bool DoWorkgroupBenchmarks = true;
+	constexpr static inline bool UseNativeArithmetic = true;
 	uint32_t ItemsPerInvocation = 4u;
 	constexpr static inline uint32_t NumLoops = 1000u;
-	constexpr static inline uint32_t NumBenchmarks = 2u;
-	constexpr static inline std::array<uint32_t, NumBenchmarks> workgroupSizes = { 32, 64 };// 128, 256, 512, 1024};
+	constexpr static inline uint32_t NumBenchmarks = 6u;
+	constexpr static inline std::array<uint32_t, NumBenchmarks> workgroupSizes = { 32, 64, 128, 256, 512, 1024 };
 	template<class BinOp>
 	using ArithmeticOp = emulatedReduction<BinOp>;	// change this to test other arithmetic ops
 
@@ -764,8 +760,6 @@ private:
 	smart_refctd_ptr<IDescriptorPool> benchPool;
 	smart_refctd_ptr<IGPUDescriptorSet> benchDs;
 
-	uint32_t* inputData = nullptr;
-	smart_refctd_ptr<IGPUBuffer> gpuinputDataBuffer;
 	constexpr static inline uint32_t OutputBufferCount = 8u;
 	smart_refctd_ptr<IGPUBuffer> outputBuffers[OutputBufferCount];
 	smart_refctd_ptr<IGPUBuffer> gpuOutputAddressesBuffer;

@@ -92,15 +92,17 @@ struct PreloadedDataProxy
 
     void preload()
     {
+        const uint16_t invocationIndex = workgroup::SubgroupContiguousIndex();
         [unroll]
         for (uint16_t idx = 0; idx < PreloadedDataCount; idx++)
-            data.template get<dtype_t, uint16_t>(idx * Config::WorkgroupSize + workgroup::SubgroupContiguousIndex(), preloaded[idx]);
+            data.template get<dtype_t, uint16_t>(idx * Config::WorkgroupSize + invocationIndex, preloaded[idx]);
     }
     void unload()
     {
+        const uint16_t invocationIndex = workgroup::SubgroupContiguousIndex();
         [unroll]
         for (uint16_t idx = 0; idx < PreloadedDataCount; idx++)
-            data.template set<dtype_t, uint16_t>(idx * Config::WorkgroupSize + workgroup::SubgroupContiguousIndex(), preloaded[idx]);
+            data.template set<dtype_t, uint16_t>(idx * Config::WorkgroupSize + invocationIndex, preloaded[idx]);
     }
 
     void workgroupExecutionAndMemoryBarrier()
