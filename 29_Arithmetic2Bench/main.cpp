@@ -47,12 +47,6 @@ struct emulatedScanExclusive
 	static inline constexpr const char* name = "exclusive_scan";
 };
 
-struct PushConstantData
-{
-	uint64_t inputBufAddress;
-	uint64_t outputAddressBufAddress;
-};
-
 template<typename SwapchainResources> requires std::is_base_of_v<ISimpleManagedSurface::ISwapchainResources, SwapchainResources>
 class CExplicitSurfaceFormatResizeSurface final : public ISimpleManagedSurface
 {
@@ -289,8 +283,6 @@ public:
 		transferDownQueue = getTransferDownQueue();
 		computeQueue = getComputeQueue();
 
-		// TODO: get the element count from argv
-		const uint32_t elementCount = Output<>::ScanElementCount;
 		// populate our random data buffer on the CPU and create a GPU copy
 		inputData = new uint32_t[elementCount];
 		{
@@ -299,7 +291,7 @@ public:
 				inputData[i] = randGenerator(); // TODO: change to using xoroshiro, then we can skip having the input buffer at all
 
 			IGPUBuffer::SCreationParams inputDataBufferCreationParams = {};
-			inputDataBufferCreationParams.size = sizeof(Output<>::data[0]) * elementCount;
+			inputDataBufferCreationParams.size = sizeof(uint32_t) * elementCount;
 			inputDataBufferCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 			m_utils->createFilledDeviceLocalBufferOnDedMem(
 				SIntendedSubmitInfo{.queue=getTransferUpQueue()},
@@ -335,8 +327,8 @@ public:
 			params.size = OutputBufferCount * sizeof(uint64_t);
 			m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = getTransferUpQueue() }, std::move(params), outputAddresses.data()).move_into(gpuOutputAddressesBuffer);
 		}
-		pc.inputBufAddress = gpuinputDataBuffer->getDeviceAddress();
-		pc.outputAddressBufAddress = gpuOutputAddressesBuffer->getDeviceAddress();
+		pc.pInputBuf = gpuinputDataBuffer->getDeviceAddress();
+		pc.ppOutputBuf = gpuOutputAddressesBuffer->getDeviceAddress();
 
 		// create image views for swapchain images
 		for (uint32_t i = 0; i < ISwapchain::MaxImages; i++)
@@ -357,16 +349,6 @@ public:
 		// create Descriptor Sets and Pipeline Layouts
 		smart_refctd_ptr<IGPUPipelineLayout> benchPplnLayout;
 		{
-			// create Descriptor Set Layout
-			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
-			{
-				IGPUDescriptorSetLayout::SBinding binding[2];
-				for (uint32_t i = 0u; i < 2; i++)
-					binding[i] = {{},i,IDescriptor::E_TYPE::ET_STORAGE_BUFFER,IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,IShader::E_SHADER_STAGE::ESS_COMPUTE,1u,nullptr };
-				binding[1].count = OutputBufferCount;
-				dsLayout = m_device->createDescriptorSetLayout(binding);
-			}
-
 			// set and transient pool
 			smart_refctd_ptr<IGPUDescriptorSetLayout> benchLayout;
 			{
@@ -402,7 +384,6 @@ public:
 		auto workgroupBenchSource = getShaderSource("app_resources/benchmarkWorkgroup.comp.hlsl");
 		// now create or retrieve final resources to run our tests
 		sema = m_device->createSemaphore(timelineValue);
-		resultsBuffer = ICPUBuffer::create({ outputBuffers[0]->getSize() });
 		smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 		{
 			smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(computeQueue->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
@@ -413,20 +394,17 @@ public:
 			}
 		}
 
-		// const auto MaxWorkgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
-		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
-
 		// for each workgroup size (manually adjust items per invoc, operation else uses up a lot of ram)
 		if constexpr (DoWorkgroupBenchmarks)
 		{
 			for (uint32_t i = 0; i < workgroupSizes.size(); i++)
-				benchSets[i] = createBenchmarkPipelines<ArithmeticOp, DoWorkgroupBenchmarks>(workgroupBenchSource, benchPplnLayout.get(), elementCount, hlsl::findMSB(MinSubgroupSize), workgroupSizes[i], ItemsPerInvocation, NumLoops);
+				benchSets[i] = createBenchmarkPipelines<ArithmeticOp, DoWorkgroupBenchmarks>(workgroupBenchSource, benchPplnLayout.get(), elementCount, hlsl::findMSB(MaxSubgroupSize), workgroupSizes[i], ItemsPerInvocation, NumLoops);
 		}
 		else
 		{
 			for (uint32_t i = 0; i < workgroupSizes.size(); i++)
-				benchSets[i] = createBenchmarkPipelines<ArithmeticOp, DoWorkgroupBenchmarks>(subgroupBenchSource, benchPplnLayout.get(), elementCount, hlsl::findMSB(MinSubgroupSize), workgroupSizes[i], ItemsPerInvocation, NumLoops);
+				benchSets[i] = createBenchmarkPipelines<ArithmeticOp, DoWorkgroupBenchmarks>(subgroupBenchSource, benchPplnLayout.get(), elementCount, hlsl::findMSB(MaxSubgroupSize), workgroupSizes[i], ItemsPerInvocation, NumLoops);
 		}
 
 		m_winMgr->show(m_window.get());
@@ -509,10 +487,8 @@ public:
 		};
 		m_device->updateDescriptorSets(1u, dsWrites, 0u, nullptr);
 
-		const uint32_t elementCount = Output<>::ScanElementCount;
-		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
+		const uint32_t elementCount = 1024*1024;
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
-
 		const auto SubgroupSizeLog2 = hlsl::findMSB(MaxSubgroupSize);
 
 		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, benchSets[0].pipeline->getLayout(), 0u, 1u, &benchDs.get());
@@ -608,17 +584,6 @@ public:
 	bool keepRunning() override { return numSubmits < MaxNumSubmits; }
 
 private:
-	void logTestOutcome(bool passed, uint32_t workgroupSize)
-	{
-		if (passed)
-			m_logger->log("Passed test #%u", ILogger::ELL_INFO, workgroupSize);
-		else
-		{
-			totalFailCount++;
-			m_logger->log("Failed test #%u", ILogger::ELL_ERROR, workgroupSize);
-		}
-	}
-
 	// create pipeline (specialized every test) [TODO: turn into a future/async]
 	smart_refctd_ptr<IGPUComputePipeline> createPipeline(const ICPUShader* overridenUnspecialized, const IGPUPipelineLayout* layout, const uint8_t subgroupSizeLog2)
 	{
@@ -648,7 +613,7 @@ private:
 	template<template<class> class Arithmetic, bool WorkgroupBench>
 	BenchmarkSet createBenchmarkPipelines(const smart_refctd_ptr<const ICPUShader>&source, const IGPUPipelineLayout* layout, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerInvoc = 1u, uint32_t numLoops = 8u)
 	{
-		std::string arith_name = Arithmetic<plus<uint32_t>>::name;
+		std::string arith_name = Arithmetic<arithmetic::plus<uint32_t>>::name;
 
 		auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
 		CHLSLCompiler::SOptions options = {};
@@ -784,13 +749,14 @@ private:
 
 	constexpr static inline uint32_t MaxNumSubmits = 30;
 	uint32_t numSubmits = 0;
+	uint32_t elementCount = 1024 * 1024;
 
 	/* PARAMETERS TO CHANGE FOR DIFFERENT BENCHMARKS */
 	constexpr static inline bool DoWorkgroupBenchmarks = true;
 	uint32_t ItemsPerInvocation = 4u;
 	constexpr static inline uint32_t NumLoops = 1000u;
-	constexpr static inline uint32_t NumBenchmarks = 6u;
-	constexpr static inline std::array<uint32_t, NumBenchmarks> workgroupSizes = { 32, 64, 128, 256, 512, 1024 };
+	constexpr static inline uint32_t NumBenchmarks = 2u;
+	constexpr static inline std::array<uint32_t, NumBenchmarks> workgroupSizes = { 32, 64 };// 128, 256, 512, 1024};
 	template<class BinOp>
 	using ArithmeticOp = emulatedReduction<BinOp>;	// change this to test other arithmetic ops
 
@@ -807,9 +773,6 @@ private:
 
 	smart_refctd_ptr<ISemaphore> sema;
 	uint64_t timelineValue = 0;
-	smart_refctd_ptr<ICPUBuffer> resultsBuffer;
-
-	uint32_t totalFailCount = 0;
 };
 
 NBL_MAIN_FUNC(ArithmeticBenchApp)

@@ -13,41 +13,38 @@ typedef vector<uint32_t, ITEMS_PER_INVOCATION> type_t;
 
 uint32_t globalIndex()
 {
-    return nbl::hlsl::glsl::gl_WorkGroupID().x*WORKGROUP_SIZE+nbl::hlsl::workgroup::SubgroupContiguousIndex();
+    return glsl::gl_WorkGroupID().x*WORKGROUP_SIZE+workgroup::SubgroupContiguousIndex();
 }
-
-bool canStore() {return true;}
 
 template<class Binop, uint32_t N>
 static void subbench(NBL_CONST_REF_ARG(type_t) sourceVal)
 {
-    using config_t = nbl::hlsl::subgroup2::Configuration<SUBGROUP_SIZE_LOG2>;
-    using params_t = nbl::hlsl::subgroup2::ArithmeticParams<config_t, typename Binop::base_t, N, nbl::hlsl::jit::device_capabilities>;
+    using config_t = subgroup2::Configuration<SUBGROUP_SIZE_LOG2>;
+    using params_t = subgroup2::ArithmeticParams<config_t, typename Binop::base_t, N, device_capabilities>;
     type_t value = sourceVal;
 
-    const uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.outputAddressBufAddress + Binop::BindingIndex * sizeof(uint64_t), sizeof(uint64_t));
+    const uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.ppOutputBuf + Binop::BindingIndex * sizeof(uint64_t), sizeof(uint64_t));
 
     operation_t<params_t> func;
     // [unroll]
     for (uint32_t i = 0; i < NUM_LOOPS; i++)
         value = func(value);
 
-    if (canStore())
-        vk::RawBufferStore<type_t>(outputBufAddr + sizeof(uint32_t) + sizeof(type_t) * globalIndex(), value, sizeof(uint32_t));
+    vk::RawBufferStore<type_t>(outputBufAddr + sizeof(uint32_t) + sizeof(type_t) * globalIndex(), value, sizeof(uint32_t));
 }
 
 void benchmark()
 {
     const uint32_t idx = globalIndex();
-    type_t sourceVal = vk::RawBufferLoad<type_t>(pc.inputBufAddress + idx * sizeof(type_t));
+    type_t sourceVal = vk::RawBufferLoad<type_t>(pc.pInputBuf + idx * sizeof(type_t));
 
-    subbench<bit_and<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<bit_xor<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<bit_or<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<plus<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<multiplies<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<minimum<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
-    subbench<maximum<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
+    subbench<arithmetic::bit_and<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
+    subbench<arithmetic::bit_xor<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
+    subbench<arithmetic::bit_or<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
+    subbench<arithmetic::plus<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
+    subbench<arithmetic::multiplies<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
+    subbench<arithmetic::minimum<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
+    subbench<arithmetic::maximum<uint32_t>, ITEMS_PER_INVOCATION>(sourceVal);
 }
 
 [numthreads(WORKGROUP_SIZE,1,1)]

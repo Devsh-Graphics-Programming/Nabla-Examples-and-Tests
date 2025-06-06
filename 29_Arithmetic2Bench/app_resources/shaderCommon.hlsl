@@ -1,6 +1,7 @@
 #include "common.hlsl"
 
-#include "nbl/builtin/hlsl/jit/device_capabilities.hlsl"
+using namespace nbl;
+using namespace hlsl;
 
 // https://github.com/microsoft/DirectXShaderCompiler/issues/6144
 uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize() {return uint32_t3(WORKGROUP_SIZE,1,1);}
@@ -9,13 +10,16 @@ uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize() {return uint32_t3(WORKGROUP_SIZE,1
 #error "Define ITEMS_PER_INVOCATION!"
 #endif
 
-struct PushConstantData
-{
-    uint64_t inputBufAddress;
-    uint64_t outputAddressBufAddress;
-};
-
 [[vk::push_constant]] PushConstantData pc;
+
+struct device_capabilities
+{
+#ifdef TEST_NATIVE
+    NBL_CONSTEXPR_STATIC_INLINE bool shaderSubgroupArithmetic = true;
+#else
+    NBL_CONSTEXPR_STATIC_INLINE bool shaderSubgroupArithmetic = true;
+#endif
+};
 
 // because subgroups don't match `gl_LocalInvocationIndex` snake curve addressing, we also can't load inputs that way
 uint32_t globalIndex();
