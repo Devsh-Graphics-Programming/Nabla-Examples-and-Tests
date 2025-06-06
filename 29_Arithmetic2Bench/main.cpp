@@ -10,43 +10,6 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
-// method emulations on the CPU, to verify the results of the GPU methods
-template<class Binop>
-struct emulatedReduction
-{
-	using type_t = typename Binop::type_t;
-
-	static inline void impl(type_t* out, const type_t* in, const uint32_t itemCount)
-	{
-		const type_t red = std::reduce(in,in+itemCount,Binop::identity,Binop());
-		std::fill(out,out+itemCount,red);
-	}
-
-	static inline constexpr const char* name = "reduction";
-};
-template<class Binop>
-struct emulatedScanInclusive
-{
-	using type_t = typename Binop::type_t;
-
-	static inline void impl(type_t* out, const type_t* in, const uint32_t itemCount)
-	{
-		std::inclusive_scan(in,in+itemCount,out,Binop());
-	}
-	static inline constexpr const char* name = "inclusive_scan";
-};
-template<class Binop>
-struct emulatedScanExclusive
-{
-	using type_t = typename Binop::type_t;
-
-	static inline void impl(type_t* out, const type_t* in, const uint32_t itemCount)
-	{
-		std::exclusive_scan(in,in+itemCount,out,Binop::identity,Binop());
-	}
-	static inline constexpr const char* name = "exclusive_scan";
-};
-
 template<typename SwapchainResources> requires std::is_base_of_v<ISimpleManagedSurface::ISwapchainResources, SwapchainResources>
 class CExplicitSurfaceFormatResizeSurface final : public ISimpleManagedSurface
 {
@@ -287,7 +250,7 @@ public:
 		for (auto i=0u; i<OutputBufferCount; i++)
 		{
 			IGPUBuffer::SCreationParams params = {};
-			params.size = sizeof(uint32_t) * (elementCount+1);
+			params.size = sizeof(uint32_t) * (ElementCount+1);
 			params.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_SRC_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
 			outputBuffers[i] = m_device->createBuffer(std::move(params));
@@ -368,20 +331,17 @@ public:
 			return smart_refctd_ptr_static_cast<ICPUShader>(firstAssetInBundle);
 		};
 
-		auto subgroupBenchSource = getShaderSource("app_resources/benchmarkSubgroup.comp.hlsl");
-		auto workgroupBenchSource = getShaderSource("app_resources/benchmarkWorkgroup.comp.hlsl");
-		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
 		// for each workgroup size (manually adjust items per invoc, operation else uses up a lot of ram)
+		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
+		smart_refctd_ptr<ICPUShader> shaderSource;
 		if constexpr (DoWorkgroupBenchmarks)
-		{
-			for (uint32_t i = 0; i < workgroupSizes.size(); i++)
-				benchSets[i] = createBenchmarkPipelines<ArithmeticOp, DoWorkgroupBenchmarks>(workgroupBenchSource, benchPplnLayout.get(), elementCount, hlsl::findMSB(MaxSubgroupSize), workgroupSizes[i], ItemsPerInvocation, NumLoops);
-		}
+			shaderSource = getShaderSource("app_resources/benchmarkWorkgroup.comp.hlsl");
 		else
-		{
+			shaderSource = getShaderSource("app_resources/benchmarkSubgroup.comp.hlsl");
+
+		for (uint32_t op = 0; op < arithmeticOperations.size(); op++)
 			for (uint32_t i = 0; i < workgroupSizes.size(); i++)
-				benchSets[i] = createBenchmarkPipelines<ArithmeticOp, DoWorkgroupBenchmarks>(subgroupBenchSource, benchPplnLayout.get(), elementCount, hlsl::findMSB(MaxSubgroupSize), workgroupSizes[i], ItemsPerInvocation, NumLoops);
-		}
+				benchSets[op*workgroupSizes.size()+i] = createBenchmarkPipelines<DoWorkgroupBenchmarks>(shaderSource, benchPplnLayout.get(), ElementCount, arithmeticOperations[op], hlsl::findMSB(MaxSubgroupSize), workgroupSizes[i], ItemsPerInvocation, NumLoops);
 
 		m_winMgr->show(m_window.get());
 
@@ -559,6 +519,27 @@ public:
 	bool keepRunning() override { return numSubmits < MaxNumSubmits; }
 
 private:
+	// reflects calculations in workgroup2::ArithmeticConfiguration
+	uint32_t calculateItemsPerWorkgroup(const uint32_t workgroupSize, const uint32_t subgroupSize, const uint32_t itemsPerInvocation)
+	{
+		if (workgroupSize <= subgroupSize)
+			return workgroupSize * itemsPerInvocation;
+
+		const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
+		const uint8_t workgroupSizeLog2 = hlsl::findMSB(workgroupSize);
+
+		const uint16_t levels = (workgroupSizeLog2 == subgroupSizeLog2) ? 1 :
+			(workgroupSizeLog2 > subgroupSizeLog2 * 2 + 2) ? 3 : 2;
+
+		const uint16_t itemsPerInvocationProductLog2 = max(workgroupSizeLog2 - subgroupSizeLog2 * levels, 0);
+		uint16_t itemsPerInvocation1 = (levels == 3) ? min(itemsPerInvocationProductLog2, 2) : itemsPerInvocationProductLog2;
+		itemsPerInvocation1 = uint16_t(1u) << itemsPerInvocation1;
+
+		uint32_t virtualWorkgroupSize = 1u << max(subgroupSizeLog2 * levels, workgroupSizeLog2);
+
+		return itemsPerInvocation * virtualWorkgroupSize;
+	}
+
 	// create pipeline (specialized every test) [TODO: turn into a future/async]
 	smart_refctd_ptr<IGPUComputePipeline> createPipeline(const ICPUShader* overridenUnspecialized, const IGPUPipelineLayout* layout, const uint8_t subgroupSizeLog2)
 	{
@@ -585,11 +566,9 @@ private:
 		uint32_t itemsPerInvocation;
 	};
 
-	template<template<class> class Arithmetic, bool WorkgroupBench>
-	BenchmarkSet createBenchmarkPipelines(const smart_refctd_ptr<const ICPUShader>&source, const IGPUPipelineLayout* layout, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerInvoc = 1u, uint32_t numLoops = 8u)
+	template<bool WorkgroupBench>
+	BenchmarkSet createBenchmarkPipelines(const smart_refctd_ptr<const ICPUShader>&source, const IGPUPipelineLayout* layout, const uint32_t elementCount, const std::string& arith_name, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerInvoc = 1u, uint32_t numLoops = 8u)
 	{
-		std::string arith_name = Arithmetic<arithmetic::plus<uint32_t>>::name;
-
 		auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
 		CHLSLCompiler::SOptions options = {};
 		options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;
@@ -606,11 +585,10 @@ private:
 		options.preprocessorOptions.logger = m_logger.get();
 
 		auto* includeFinder = compiler->getDefaultIncludeFinder();
-		includeFinder->addSearchPath("nbl/builtin/hlsl/jit", core::make_smart_refctd_ptr<CJITIncludeLoader>(m_physicalDevice->getLimits(), m_device->getEnabledFeatures()));
 		options.preprocessorOptions.includeFinder = includeFinder;
 
 		const uint32_t subgroupSize = 0x1u << subgroupSizeLog2;
-		const uint32_t itemsPerWG = workgroupSize <= subgroupSize ? workgroupSize * itemsPerInvoc : itemsPerInvoc * max(workgroupSize >> subgroupSizeLog2, subgroupSize) << subgroupSizeLog2;	// TODO use Config somehow
+		const uint32_t itemsPerWG = calculateItemsPerWorkgroup(workgroupSize, subgroupSize, itemsPerInvoc);
 		smart_refctd_ptr<ICPUShader> overriddenUnspecialized;
 		if constexpr (WorkgroupBench)
 		{
@@ -732,7 +710,7 @@ private:
 
 	constexpr static inline uint32_t MaxNumSubmits = 30;
 	uint32_t numSubmits = 0;
-	uint32_t elementCount = 1024 * 1024;
+	constexpr static inline uint32_t ElementCount = 1024 * 1024;
 
 	/* PARAMETERS TO CHANGE FOR DIFFERENT BENCHMARKS */
 	constexpr static inline bool DoWorkgroupBenchmarks = true;
@@ -740,11 +718,11 @@ private:
 	uint32_t ItemsPerInvocation = 4u;
 	constexpr static inline uint32_t NumLoops = 1000u;
 	constexpr static inline uint32_t NumBenchmarks = 6u;
-	constexpr static inline std::array<uint32_t, NumBenchmarks> workgroupSizes = { 32, 64, 128, 256, 512, 1024 };
-	template<class BinOp>
-	using ArithmeticOp = emulatedReduction<BinOp>;	// change this to test other arithmetic ops
+	std::array<uint32_t, NumBenchmarks> workgroupSizes = { 32, 64, 128, 256, 512, 1024 };
+	std::array<std::string, 3u> arithmeticOperations = { "reduction", "inclusive_scan", "exclusive_scan" };
 
-	std::array<BenchmarkSet, NumBenchmarks> benchSets;
+
+	std::array<BenchmarkSet, NumBenchmarks*3u> benchSets;
 	smart_refctd_ptr<IDescriptorPool> benchPool;
 	smart_refctd_ptr<IGPUDescriptorSet> benchDs;
 
