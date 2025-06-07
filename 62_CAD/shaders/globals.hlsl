@@ -263,6 +263,34 @@ struct GridDTMInfo
     float thicknessOfTheThickestLine; // 4 bytes (48)
 };
 
+enum E_CELL_DIAGONAL : uint32_t
+{
+    TOP_LEFT_TO_BOTTOM_RIGHT = 0u,
+    BOTTOM_LEFT_TO_TOP_RIGHT = 1u,
+    INVALID = 2u
+};
+
+#ifndef __HLSL_VERSION
+
+// sets last bit of data to 1 or 0 depending on diagonalMode
+static void setDiagonalModeBit(float* data, E_CELL_DIAGONAL diagonalMode)
+{
+    if (diagonalMode == E_CELL_DIAGONAL::INVALID)
+        return;
+
+    uint32_t dataAsUint = reinterpret_cast<uint32_t&>(*data);
+    dataAsUint |= static_cast<uint32_t>(diagonalMode);
+    *data = reinterpret_cast<float&>(dataAsUint);
+}
+
+#endif
+
+// Top left corner holds diagonal mode info of a cell 
+static E_CELL_DIAGONAL getDiagonalModeFromCellCornerData(float cellCornerData)
+{
+    return (nbl::hlsl::bit_cast<uint32_t, float>(cellCornerData) & 0x1u) ? BOTTOM_LEFT_TO_TOP_RIGHT : TOP_LEFT_TO_BOTTOM_RIGHT;
+}
+
 static uint32_t packR11G11B10_UNORM(float32_t3 color)
 {
     // Scale and convert to integers

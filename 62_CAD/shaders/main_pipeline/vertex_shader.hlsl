@@ -654,7 +654,8 @@ PSInput main(uint vertexID : SV_VertexID)
             float thicknessOfTheThickestLine = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + 2 * sizeof(pfloat64_t2) + sizeof(uint32_t) + 2u * sizeof(float), 8u);
 
             // for testing purpose
-            thicknessOfTheThickestLine += 200.0f;
+            //thicknessOfTheThickestLine += 200.0f;
+            thicknessOfTheThickestLine = 0.0f;
 
             const float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
             worldSpaceExtents.y = ieee754::flipSign(worldSpaceExtents.y);
@@ -704,7 +705,7 @@ PSInput main(uint vertexID : SV_VertexID)
 
             const float2 uv = corner + uvOffset;
             outV.setImageUV(uv);
-            printf("uv = { %f, %f } scale = { %f, %f }", _static_cast<float>(uv.x), _static_cast<float>(uv.y), _static_cast<float>(uvScale.x), _static_cast<float>(uvScale.y));
+            /*printf("uv = { %f, %f } scale = { %f, %f }", _static_cast<float>(uv.x), _static_cast<float>(uv.y), _static_cast<float>(uvScale.x), _static_cast<float>(uvScale.y));*/
 
             pfloat64_t2 topLeftToGridCenterVector = worldSpaceExtents * 0.5;
             topLeftToGridCenterVector.y = -topLeftToGridCenterVector.y;

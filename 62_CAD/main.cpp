@@ -1261,6 +1261,31 @@ public:
 		}
 
 		gridDTMHeightMap = loadImage("../../media/gridDTMHeightMap.exr");
+
+		// set diagonals of even cells to TOP_LEFT_TO_BOTTOM_RIGHT and diagonals of odd cells to BOTTOM_LEFT_TO_TOP_RIGHT
+		{
+			// assumption is that format of the grid DTM height map is *_SRGB, I don't think we need any code to ensure that
+
+			auto* region = gridDTMHeightMap->getRegion(0, core::vectorSIMDu32(0.0f));
+			auto imageExtent = region->getExtent();
+			auto imagePixelSize = asset::getBytesPerPixel(gridDTMHeightMap->getCreationParameters().format).getIntegerApprox();
+			float* imageData = static_cast<float*>(gridDTMHeightMap->getBuffer()->getPointer()) + region->bufferOffset;
+			const size_t imageByteSize = gridDTMHeightMap->getImageDataSizeInBytes();
+			assert(imageByteSize % sizeof(float) == 0);
+
+			for (int i = 0; i < imageByteSize; i += sizeof(float))
+			{
+				const bool isCellEven = i % (2 * sizeof(float)) == 0;
+				E_CELL_DIAGONAL diagonal = isCellEven ? TOP_LEFT_TO_BOTTOM_RIGHT : BOTTOM_LEFT_TO_TOP_RIGHT;
+
+				// test
+				diagonal = BOTTOM_LEFT_TO_TOP_RIGHT;
+
+				setDiagonalModeBit(imageData, diagonal);
+				imageData++;
+			}
+		}
+
 		assert(gridDTMHeightMap);
 
 		return true;
@@ -3735,3 +3760,4 @@ protected:
 };
 
 NBL_MAIN_FUNC(ComputerAidedDesign)
+

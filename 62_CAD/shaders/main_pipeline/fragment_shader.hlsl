@@ -117,17 +117,8 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     return color;
 }
 
-enum E_CELL_DIAGONAL
-{
-    TOP_LEFT_TO_BOTTOM_RIGHT,
-    BOTTOM_LEFT_TO_TOP_RIGHT,
-    INVALID
-};
-
 E_CELL_DIAGONAL resolveGridDTMCellDiagonal(in float4 cellHeights)
 {
-    static const E_CELL_DIAGONAL DefaultDiagonal = TOP_LEFT_TO_BOTTOM_RIGHT;
-
     const bool4 invalidHeights = bool4(
         isnan(cellHeights.x),
         isnan(cellHeights.y),
@@ -140,15 +131,36 @@ E_CELL_DIAGONAL resolveGridDTMCellDiagonal(in float4 cellHeights)
         invalidHeightsCount += int(invalidHeights[i]);
 
     if (invalidHeightsCount == 0)
-        return DefaultDiagonal;
+    {
+        E_CELL_DIAGONAL a = getDiagonalModeFromCellCornerData(cellHeights.w);
+
+        if (a == TOP_LEFT_TO_BOTTOM_RIGHT)
+        {
+            uint32_t asdf = nbl::hlsl::bit_cast<uint32_t, float>(cellHeights.w);
+            printf("a %f %u", cellHeights.w, asdf);
+        }
+        else if (a == BOTTOM_LEFT_TO_TOP_RIGHT)
+        {
+            uint32_t asdf = nbl::hlsl::bit_cast<uint32_t, float>(cellHeights.w);
+            printf("b %f %u", cellHeights.w, asdf);
+        }
+        else
+        {
+            printf("wtf");
+        }
+
+        return getDiagonalModeFromCellCornerData(cellHeights.w);
+    }
 
     if (invalidHeightsCount > 1)
         return INVALID;
 
     if (invalidHeights.x || invalidHeights.z)
         return TOP_LEFT_TO_BOTTOM_RIGHT;
-    else
+    else if (invalidHeights.y || invalidHeights.w)
         return BOTTOM_LEFT_TO_TOP_RIGHT;
+
+    return INVALID;
 }
 
 [[vk::spvexecutionmode(spv::ExecutionModePixelInterlockOrderedEXT)]]
@@ -487,6 +499,11 @@ float4 fragMain(PSInput input) : SV_TARGET
 
                 const E_CELL_DIAGONAL cellDiagonal = resolveGridDTMCellDiagonal(cellHeights);
                 const bool diagonalFromTopLeftToBottomRight = cellDiagonal == E_CELL_DIAGONAL::TOP_LEFT_TO_BOTTOM_RIGHT;
+
+                /*if (!diagonalFromTopLeftToBottomRight)
+                    printf("a");
+                else
+                    printf("b");*/
 
                 if (cellDiagonal == E_CELL_DIAGONAL::INVALID)
                     discard;
