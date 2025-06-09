@@ -25,66 +25,131 @@ void DrawResourcesFiller::setTexturesDescriptorSetAndBinding(core::smart_refctd_
 	suballocatedDescriptorSet = core::make_smart_refctd_ptr<SubAllocatedDescriptorSet>(std::move(descriptorSet));
 }
 
-void DrawResourcesFiller::allocateResourcesBuffer(ILogicalDevice* logicalDevice, size_t size)
+bool DrawResourcesFiller::allocateDrawResources(ILogicalDevice* logicalDevice, size_t requiredImageMemorySize, size_t requiredBufferMemorySize)
 {
-	// TODO: Make this function failable and report insufficient memory if less that getMinimumRequiredResourcesBufferSize, TODO: Have retry mechanism to allocate less mem
-	// TODO: Allocate buffer memory and image memory with 1 allocation, so that failure and retries are more straightforward.
-	size = core::alignUp(size, ResourcesMaxNaturalAlignment);
-	size = core::max(size, getMinimumRequiredResourcesBufferSize());
-	// size = 368u; STRESS TEST
-	IGPUBuffer::SCreationParams geometryCreationParams = {};
-	geometryCreationParams.size = size;
-	geometryCreationParams.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INDEX_BUFFER_BIT;
-	resourcesGPUBuffer = logicalDevice->createBuffer(std::move(geometryCreationParams));
+	// single memory allocation sectioned into images+buffers (images start at offset=0)
+	const size_t adjustedImagesMemorySize = core::alignUp(requiredImageMemorySize, GPUStructsMaxNaturalAlignment);
+	const size_t adjustedBuffersMemorySize = core::max(requiredBufferMemorySize, getMinimumRequiredResourcesBufferSize());
+	const size_t totalResourcesSize = adjustedImagesMemorySize + adjustedBuffersMemorySize;
+
+	IGPUBuffer::SCreationParams resourcesBufferCreationParams = {};
+	resourcesBufferCreationParams.size = adjustedBuffersMemorySize;
+	resourcesBufferCreationParams.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INDEX_BUFFER_BIT;
+	resourcesGPUBuffer = logicalDevice->createBuffer(std::move(resourcesBufferCreationParams));
 	resourcesGPUBuffer->setObjectDebugName("drawResourcesBuffer");
 
 	IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = resourcesGPUBuffer->getMemoryReqs();
-	memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-	auto mem = logicalDevice->allocate(memReq, resourcesGPUBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+	
+	nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements gpuBufferMemoryReqs = resourcesGPUBuffer->getMemoryReqs();
+	const bool memoryRequirementsMatch =
+		(logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits() & gpuBufferMemoryReqs.memoryTypeBits) != 0 && // should have device local memory compatible
+		(gpuBufferMemoryReqs.requiresDedicatedAllocation == false); // should not require dedicated allocation
 
-	// Allocate for Images  
+	if (!memoryRequirementsMatch)
 	{
-		const auto& memoryProperties = logicalDevice->getPhysicalDevice()->getMemoryProperties();
-		uint32_t memoryTypeIdx = ~0u;
-		for (uint32_t i = 0u; i < memoryProperties.memoryTypeCount; ++i)
+		m_logger.log("Shouldn't happen: Buffer Memory Requires Dedicated Allocation or can't biind to device local memory.", nbl::system::ILogger::ELL_ERROR);
+		return false;
+	}
+	
+	const auto& memoryProperties = logicalDevice->getPhysicalDevice()->getMemoryProperties();
+
+	uint32_t memoryTypeIdx = ~0u;
+
+	video::IDeviceMemoryAllocator::SAllocation allocation = {};
+	for (uint32_t i = 0u; i < memoryProperties.memoryTypeCount; ++i)
+	{
+		if (memoryProperties.memoryTypes[i].propertyFlags.hasFlags(IDeviceMemoryAllocation::EMPF_DEVICE_LOCAL_BIT))
 		{
-			if (memoryProperties.memoryTypes[i].propertyFlags.hasFlags(IDeviceMemoryAllocation::EMPF_DEVICE_LOCAL_BIT))
+			memoryTypeIdx = i;
+
+			IDeviceMemoryAllocator::SAllocateInfo allocationInfo =
 			{
-				memoryTypeIdx = i;
+				.size = totalResourcesSize,
+				.flags = IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT, // for the buffers
+				.memoryTypeIndex = memoryTypeIdx,
+				.dedication = nullptr,
+			};
+
+			allocation = logicalDevice->allocate(allocationInfo);
+			
+			if (allocation.isValid())
 				break;
-			}
-		}
-
-		if (memoryTypeIdx == ~0u)
-		{
-			m_logger.log("allocateResourcesBuffer: no device local memory type found.", nbl::system::ILogger::ELL_ERROR);
-			assert(false);
-		}
-
-		IDeviceMemoryAllocator::SAllocateInfo allocationInfo =
-		{
-			// TODO: Get from user side.
-			.size = 65 * 1024 * 1024, // 70 MB
-			.flags = IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE,
-			.memoryTypeIndex = memoryTypeIdx,
-			.dedication = nullptr,
-		};
-		imagesMemoryArena = logicalDevice->allocate(allocationInfo);
-
-		if (imagesMemoryArena.isValid())
-		{
-			imagesMemorySubAllocator = core::make_smart_refctd_ptr<ImagesMemorySubAllocator>(static_cast<uint64_t>(allocationInfo.size));
-		}
-		else
-		{
-			m_logger.log("failure to allocate memory arena for images", nbl::system::ILogger::ELL_ERROR);
-			assert(false);
 		}
 	}
 
+	if (memoryTypeIdx == ~0u)
+	{
+		m_logger.log("allocateResourcesBuffer: no device local memory type found!", nbl::system::ILogger::ELL_ERROR);
+		return false;
+	}
+
+	if (!allocation.isValid())
+		return false;
+
+	imagesMemoryArena = {
+		.memory = allocation.memory,
+		.offset = allocation.offset,
+	};
+
+	buffersMemoryArena = {
+		.memory = allocation.memory,
+		.offset = core::alignUp(allocation.offset + adjustedImagesMemorySize, GPUStructsMaxNaturalAlignment), // first natural alignment after images section of the memory allocation
+	};
+
+	imagesMemorySubAllocator = core::make_smart_refctd_ptr<ImagesMemorySubAllocator>(adjustedImagesMemorySize);
+
+	video::ILogicalDevice::SBindBufferMemoryInfo bindBufferMemory = {
+		.buffer = resourcesGPUBuffer.get(),
+		.binding = {
+			.memory = buffersMemoryArena.memory.get(),
+			.offset  = buffersMemoryArena.offset,
+		}
+	};
+
+	if (!logicalDevice->bindBufferMemory(1, &bindBufferMemory))
+	{
+		m_logger.log("DrawResourcesFiller::allocateDrawResources, bindBufferMemory failed.", nbl::system::ILogger::ELL_ERROR);
+		return false;
+	}
+
+	return true;
 }
 
-void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent)
+bool DrawResourcesFiller::allocateDrawResourcesWithinAvailableVRAM(ILogicalDevice* logicalDevice, size_t maxImageMemorySize, size_t maxBufferMemorySize, uint32_t reductionPercent, uint32_t maxTries)
+{
+	const size_t minimumAcceptableSize = core::max(MinimumDrawResourcesMemorySize, getMinimumRequiredResourcesBufferSize());
+
+	size_t currentBufferSize = maxBufferMemorySize;
+	size_t currentImageSize = maxImageMemorySize;
+	const size_t totalInitialSize = currentBufferSize + currentImageSize;
+
+	// If initial size is less than minimum acceptable then increase the buffer and image size to sum up to minimumAcceptableSize with image:buffer ratios preserved
+	if (totalInitialSize < minimumAcceptableSize)
+	{
+		// Preserve ratio: R = buffer / (buffer + image)
+		// scaleFactor = minimumAcceptableSize / totalInitialSize;
+		const double scaleFactor = static_cast<double>(minimumAcceptableSize) / totalInitialSize;
+		currentBufferSize = static_cast<size_t>(currentBufferSize * scaleFactor);
+		currentImageSize = minimumAcceptableSize - currentBufferSize; // ensures exact sum
+	}
+
+	uint32_t numTries = 0u;
+	while ((currentBufferSize + currentImageSize) >= minimumAcceptableSize && numTries < maxTries)
+	{
+		if (allocateDrawResources(logicalDevice, currentBufferSize, currentImageSize))
+			return true;
+
+		currentBufferSize = (currentBufferSize * (100 - reductionPercent)) / 100;
+		currentImageSize = (currentImageSize * (100 - reductionPercent)) / 100;
+		numTries++;
+		m_logger.log("Allocation of memory for images(%zu) and buffers(%zu) failed; Reducing allocation size by %u%% and retrying...", system::ILogger::ELL_WARNING, currentImageSize, currentBufferSize, reductionPercent);
+	}
+
+	m_logger.log("All attempts to allocate memory for images(%zu) and buffers(%zu) failed.", system::ILogger::ELL_ERROR, currentImageSize, currentBufferSize);
+	return false;
+}
+
+bool DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent)
 {
 	// TODO: Make this function failable and report insufficient memory
 	asset::E_FORMAT msdfFormat = MSDFTextureFormat;
@@ -116,7 +181,10 @@ void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, ui
 		auto image = logicalDevice->createImage(std::move(imgInfo));
 		auto imageMemReqs = image->getMemoryReqs();
 		imageMemReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-		logicalDevice->allocate(imageMemReqs, image.get());
+		const auto allocation = logicalDevice->allocate(imageMemReqs, image.get());
+
+		if (!allocation.isValid())
+			return false;
 
 		image->setObjectDebugName("MSDFs Texture Array");
 
@@ -134,9 +202,13 @@ void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, ui
 		msdfTextureArray = logicalDevice->createImageView(std::move(imgViewInfo));
 	}
 
+	if (!msdfTextureArray)
+		return false;
+
 	msdfLRUCache = std::unique_ptr<MSDFsLRUCache>(new MSDFsLRUCache(maxMSDFs));
 	msdfTextureArrayIndexAllocator = core::make_smart_refctd_ptr<IndexAllocator>(core::smart_refctd_ptr<ILogicalDevice>(logicalDevice), maxMSDFs);
 	msdfImagesState.resize(maxMSDFs);
+	return true;
 }
 
 void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, SIntendedSubmitInfo& intendedNextSubmit)

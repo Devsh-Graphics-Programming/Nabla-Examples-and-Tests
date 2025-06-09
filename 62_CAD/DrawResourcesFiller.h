@@ -29,7 +29,8 @@ struct DrawResourcesFiller
 public:
 	
 	// We pack multiple data types in a single buffer, we need to makes sure each offset starts aligned to avoid mis-aligned accesses
-	static constexpr size_t ResourcesMaxNaturalAlignment = 8u;
+	static constexpr size_t GPUStructsMaxNaturalAlignment = 8u;
+	static constexpr size_t MinimumDrawResourcesMemorySize = 512u * 1 << 20u; // 512MB
 
 	/// @brief general parent struct for 1.ReservedCompute and 2.CPUGenerated Resources
 	struct ResourceBase
@@ -38,7 +39,7 @@ public:
 		size_t bufferOffset = InvalidBufferOffset; // set when copy to gpu buffer is issued
 		virtual size_t getCount() const = 0;
 		virtual size_t getStorageSize() const = 0;
-		virtual size_t getAlignedStorageSize() const { return core::alignUp(getStorageSize(), ResourcesMaxNaturalAlignment); }
+		virtual size_t getAlignedStorageSize() const { return core::alignUp(getStorageSize(), GPUStructsMaxNaturalAlignment); }
 	};
 
 	/// @brief ResourceBase reserved for compute shader stages input/output
@@ -67,11 +68,11 @@ public:
 		}
 
 		/// @brief increases size of general-purpose resources that hold bytes
-		/// @param alignment: Alignment of the pointer returned to be filled, should be PoT and <= ResourcesMaxNaturalAlignment, only use this if storing raw bytes in vector
+		/// @param alignment: Alignment of the pointer returned to be filled, should be PoT and <= GPUStructsMaxNaturalAlignment, only use this if storing raw bytes in vector
 		/// @return pointer to start of the data to be filled, up to additional size
 		size_t increaseSizeAndGetOffset(size_t additionalSize, size_t alignment) 
 		{
-			assert(core::isPoT(alignment) && alignment <= ResourcesMaxNaturalAlignment);
+			assert(core::isPoT(alignment) && alignment <= GPUStructsMaxNaturalAlignment);
 			size_t offset = core::alignUp(vector.size(), alignment);
 			vector.resize(offset + additionalSize);
 			return offset;
@@ -104,7 +105,7 @@ public:
 		CPUGeneratedResource<uint32_t> indexBuffer; // TODO: this is going to change to ReservedComputeResource where index buffer gets filled by compute shaders
 		CPUGeneratedResource<uint8_t> geometryInfo; // general purpose byte buffer for custom data for geometries (eg. line points, bezier definitions, aabbs)
 
-		// Get Total memory consumption, If all ResourcesCollection get packed together with ResourcesMaxNaturalAlignment
+		// Get Total memory consumption, If all ResourcesCollection get packed together with GPUStructsMaxNaturalAlignment
 		// used to decide the remaining memory and when to overflow
 		size_t calculateTotalConsumption() const
 		{
@@ -135,12 +136,40 @@ public:
 	{
 		// for auto-submission to work correctly, memory needs to serve at least 2 linestyle, 1 dtm settings, 1 clip proj, 1 main obj, 1 draw obj and 512 bytes of additional mem for geometries and index buffer
 		// this is the ABSOLUTE MINIMUM (if this value is used rendering will probably be as slow as CPU drawing :D)
-		return core::alignUp(sizeof(LineStyle) + sizeof(LineStyle) * DTMSettings::MaxContourSettings + sizeof(DTMSettings) + sizeof(WorldClipRect) + sizeof(float64_t3x3) + sizeof(MainObject) + sizeof(DrawObject) + 512ull, ResourcesMaxNaturalAlignment);
+		return core::alignUp(sizeof(LineStyle) + sizeof(LineStyle) * DTMSettings::MaxContourSettings + sizeof(DTMSettings) + sizeof(WorldClipRect) + sizeof(float64_t3x3) + sizeof(MainObject) + sizeof(DrawObject) + 512ull, GPUStructsMaxNaturalAlignment);
 	}
 
-	void allocateResourcesBuffer(ILogicalDevice* logicalDevice, size_t size);
+	/**
+	 * @brief Attempts to allocate a single contiguous device-local memory block for draw resources, divided into image and buffer sections.
+	 * 
+	 * The function allocates a single memory block and splits it into image and buffer arenas.
+	 * 
+	 * @param logicalDevice Pointer to the logical device used for memory allocation and resource creation.
+	 * @param requiredImageMemorySize The size in bytes of the memory required for images.
+	 * @param requiredBufferMemorySize The size in bytes of the memory required for buffers.
+	 * 
+	 * @return true if the memory allocation and resource setup succeeded; false otherwise.
+	 */
+	bool allocateDrawResources(ILogicalDevice* logicalDevice, size_t requiredImageMemorySize, size_t requiredBufferMemorySize);
+	
+	/**
+	 * @brief Attempts to allocate draw resources within a given VRAM budget, retrying with progressively smaller sizes on failure.
+	 * 
+	 * This function preserves the initial image-to-buffer memory ratio. If the initial sizes are too small,
+	 * it scales them up to meet a minimum required threshold. On allocation failure, it reduces the memory
+	 * sizes by a specified percentage and retries, until it either succeeds or the number of attempts exceeds `maxTries`.
+	 * 
+	 * @param logicalDevice Pointer to the logical device used for allocation.
+	 * @param maxImageMemorySize Initial image memory size (in bytes) to attempt allocation with.
+	 * @param maxBufferMemorySize Initial buffer memory size (in bytes) to attempt allocation with.
+	 * @param reductionPercent The percentage by which to reduce the memory sizes after each failed attempt (e.g., 10 means reduce by 10%).
+	 * @param maxTries Maximum number of attempts to try reducing and allocating memory.
+	 * 
+	 * @return true if the allocation succeeded at any iteration; false if all attempts failed.
+	 */
+	bool allocateDrawResourcesWithinAvailableVRAM(ILogicalDevice* logicalDevice, size_t maxImageMemorySize, size_t maxBufferMemorySize, uint32_t reductionPercent = 10u, uint32_t maxTries = 32u);
 
-	void allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent);
+	bool allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent);
 
 	// functions that user should set to get MSDF texture if it's not available in cache.
 	// it's up to user to return cached or generate on the fly.
@@ -723,6 +752,7 @@ protected:
 
 	// ResourcesCollection and packed into GPUBuffer
 	ResourcesCollection resourcesCollection;
+	IDeviceMemoryAllocator::SAllocation buffersMemoryArena;
 	nbl::core::smart_refctd_ptr<IGPUBuffer> resourcesGPUBuffer;
 	size_t copiedResourcesSize;
 
