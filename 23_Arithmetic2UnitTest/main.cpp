@@ -99,21 +99,9 @@ public:
 			auto bufferMem = m_device->allocate(mreq, outputBuffers[i].get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
 			assert(bufferMem.isValid());
 		}
-
-		// create buffer to store BDA of output buffers
-		smart_refctd_ptr<IGPUBuffer> gpuOutputAddressesBuffer;
-		{
-			std::array<uint64_t, OutputBufferCount> outputAddresses;
-			for (uint32_t i = 0; i < OutputBufferCount; i++)
-				outputAddresses[i] = outputBuffers[i]->getDeviceAddress();
-
-			IGPUBuffer::SCreationParams params;
-			params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-			params.size = OutputBufferCount * sizeof(uint64_t);
-			m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = getTransferUpQueue() }, std::move(params), outputAddresses.data()).move_into(gpuOutputAddressesBuffer);
-		}
 		pc.pInputBuf = gpuinputDataBuffer->getDeviceAddress();
-		pc.ppOutputBuf = gpuOutputAddressesBuffer->getDeviceAddress();
+		for (uint32_t i = 0; i < OutputBufferCount; i++)
+			pc.pOutputBuf[i] = outputBuffers[i]->getDeviceAddress();
 
 		// create Pipeline Layout
 		{
@@ -459,11 +447,6 @@ private:
 
 		using type_t = typename Binop::type_t;
 		const auto dataFromBuffer = reinterpret_cast<const uint32_t*>(resultsBuffer->getPointer());
-		if (subgroupSize<nbl::hlsl::subgroup::MinSubgroupSize || subgroupSize>nbl::hlsl::subgroup::MaxSubgroupSize)
-		{
-			m_logger->log("Unexpected Subgroup Size %u", ILogger::ELL_ERROR, subgroupSize);
-			return false;
-		}
 
 		const auto testData = reinterpret_cast<const type_t*>(dataFromBuffer + 1);
 		// TODO: parallel for (the temporary values need to be threadlocal or what?)

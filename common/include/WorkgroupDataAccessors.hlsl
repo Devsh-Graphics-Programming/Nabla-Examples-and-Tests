@@ -40,7 +40,7 @@ struct DataProxy
     {
         DataProxy<Config, Binop> retval;
         retval.workgroupOffset = glsl::gl_WorkGroupID().x * Config::VirtualWorkgroupSize;
-        retval.outputBufAddr = sizeof(uint32_t) + vk::RawBufferLoad<uint64_t>(pc.ppOutputBuf + Binop::BindingIndex * sizeof(uint64_t));
+        retval.outputBufAddr = sizeof(uint32_t) + pc.pOutputBuf[Binop::BindingIndex];
         return retval;
     }
 

@@ -246,7 +246,7 @@ public:
 		transferDownQueue = getTransferDownQueue();
 		computeQueue = getComputeQueue();
 
-		// create 8 buffers for 8 operations
+		// create 2 buffers for 2 operations
 		for (auto i=0u; i<OutputBufferCount; i++)
 		{
 			IGPUBuffer::SCreationParams params = {};
@@ -261,19 +261,8 @@ public:
 			auto bufferMem = m_device->allocate(mreq, outputBuffers[i].get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
 			assert(bufferMem.isValid());
 		}
-
-		// create buffer to store BDA of output buffers
-		{
-			std::array<uint64_t, OutputBufferCount> outputAddresses;
-			for (uint32_t i = 0; i < OutputBufferCount; i++)
-				outputAddresses[i] = outputBuffers[i]->getDeviceAddress();
-
-			IGPUBuffer::SCreationParams params;
-			params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-			params.size = OutputBufferCount * sizeof(uint64_t);
-			m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = getTransferUpQueue() }, std::move(params), outputAddresses.data()).move_into(gpuOutputAddressesBuffer);
-		}
-		pc.ppOutputBuf = gpuOutputAddressesBuffer->getDeviceAddress();
+		for (auto i = 0u; i < OutputBufferCount; i++)
+			pc.pOutputBuf[i] = outputBuffers[i]->getDeviceAddress();
 
 		// create image views for swapchain images
 		for (uint32_t i = 0; i < ISwapchain::MaxImages; i++)

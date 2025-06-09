@@ -99,8 +99,6 @@ struct operation_t
 template<class Binop>
 static void subbench()
 {
-    const uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.ppOutputBuf + Binop::BindingIndex * sizeof(uint64_t), sizeof(uint64_t));
-
     RandomizedInputDataProxy<config_t,Binop> dataAccessor = RandomizedInputDataProxy<config_t,Binop>::create();
     dataAccessor.preload();
 

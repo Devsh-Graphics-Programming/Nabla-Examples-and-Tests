@@ -22,7 +22,7 @@ static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
     using config_t = subgroup2::Configuration<SUBGROUP_SIZE_LOG2>;
     using params_t = subgroup2::ArithmeticParams<config_t, typename Binop::base_t, N, device_capabilities>;
 
-    const uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.ppOutputBuf + Binop::BindingIndex * sizeof(uint64_t), sizeof(uint64_t));
+    const uint64_t outputBufAddr = pc.pOutputBuf[Binop::BindingIndex];
 
     if (glsl::gl_SubgroupSize()!=1u<<SUBGROUP_SIZE_LOG2)
         vk::RawBufferStore<uint32_t>(outputBufAddr, glsl::gl_SubgroupSize());

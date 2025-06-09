@@ -4,7 +4,7 @@
 struct PushConstantData
 {
     uint64_t pInputBuf;
-    uint64_t ppOutputBuf;
+    uint64_t pOutputBuf[2];
 };
 
 namespace arithmetic
@@ -32,4 +32,4 @@ struct ballot : nbl::hlsl::plus<T>
 };
 }
 
-#include "nbl/builtin/hlsl/subgroup/basic.hlsl"
+#include "nbl/builtin/hlsl/glsl_compat/subgroup_basic.hlsl"

@@ -51,9 +51,8 @@ struct operation_t
 template<class Binop>
 static void subtest()
 {
-    uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.ppOutputBuf + Binop::BindingIndex * sizeof(uint64_t));
     if (glsl::gl_SubgroupSize()!=1u<<SUBGROUP_SIZE_LOG2)
-        vk::RawBufferStore<uint32_t>(outputBufAddr, glsl::gl_SubgroupSize());
+        vk::RawBufferStore<uint32_t>(pc.pOutputBuf[Binop::BindingIndex], glsl::gl_SubgroupSize());
 
     operation_t<Binop,device_capabilities> func;
     func();

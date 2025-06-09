@@ -24,7 +24,7 @@ static void subbench(NBL_CONST_REF_ARG(type_t) sourceVal)
     using params_t = subgroup2::ArithmeticParams<config_t, typename Binop::base_t, N, device_capabilities>;
     type_t value = sourceVal;
 
-    const uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.ppOutputBuf + Binop::BindingIndex * sizeof(uint64_t), sizeof(uint64_t));
+    const uint64_t outputBufAddr = pc.pOutputBuf[Binop::BindingIndex];
 
     operation_t<params_t> func;
     // [unroll]
