@@ -45,12 +45,6 @@ struct emulatedScanExclusive
 	static inline constexpr const char* name = "exclusive_scan";
 };
 
-struct PushConstantData
-{
-	uint64_t inputBufAddress;
-	uint64_t outputAddressBufAddress;
-};
-
 class ComputeScanApp final : public application_templates::BasicMultiQueueApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
     using device_base_t = application_templates::BasicMultiQueueApplication;
@@ -71,7 +65,7 @@ public:
 		computeQueue = getComputeQueue();
 
 		// TODO: get the element count from argv
-		const uint32_t elementCount = Output<>::ScanElementCount;
+		const uint32_t elementCount = 1024*1024;
 		// populate our random data buffer on the CPU and create a GPU copy
 		inputData = new uint32_t[elementCount];
 		smart_refctd_ptr<IGPUBuffer> gpuinputDataBuffer;
@@ -81,7 +75,7 @@ public:
 				inputData[i] = randGenerator(); // TODO: change to using xoroshiro, then we can skip having the input buffer at all
 
 			IGPUBuffer::SCreationParams inputDataBufferCreationParams = {};
-			inputDataBufferCreationParams.size = sizeof(Output<>::data[0]) * elementCount;
+			inputDataBufferCreationParams.size = sizeof(uint32_t) * elementCount;
 			inputDataBufferCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 			m_utils->createFilledDeviceLocalBufferOnDedMem(
 				SIntendedSubmitInfo{ .queue = getTransferUpQueue() },
@@ -107,19 +101,39 @@ public:
 		}
 
 		// create buffer to store BDA of output buffers
-		smart_refctd_ptr<IGPUBuffer> gpuOutputAddressesBuffer;
-		{
-			std::array<uint64_t, OutputBufferCount> outputAddresses;
-			for (uint32_t i = 0; i < OutputBufferCount; i++)
-				outputAddresses[i] = outputBuffers[i]->getDeviceAddress();
+		//smart_refctd_ptr<IGPUBuffer> gpuOutputAddressesBuffer;
+		//{
+		//	std::array<uint64_t, OutputBufferCount> outputAddresses;
+		//	for (uint32_t i = 0; i < OutputBufferCount; i++)
+		//		outputAddresses[i] = outputBuffers[i]->getDeviceAddress();
 
-			IGPUBuffer::SCreationParams params;
-			params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-			params.size = OutputBufferCount * sizeof(uint64_t);
-			m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = getTransferUpQueue() }, std::move(params), outputAddresses.data()).move_into(gpuOutputAddressesBuffer);
+		//	IGPUBuffer::SCreationParams params;
+		//	params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+		//	params.size = OutputBufferCount * sizeof(uint64_t);
+		//	m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = getTransferUpQueue() }, std::move(params), outputAddresses.data()).move_into(gpuOutputAddressesBuffer);
+		//}
+
+		// create scratch memory buffer (not the same as scratch shared memory)
+		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
+		smart_refctd_ptr<IGPUBuffer> scratchBuffer;
+		{
+			IGPUBuffer::SCreationParams params = {};
+			params.size = sizeof(uint32_t) * (elementCount / MinSubgroupSize);
+			params.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+
+			scratchBuffer = m_device->createBuffer(std::move(params));
+			auto mreq = scratchBuffer->getMemoryReqs();
+			mreq.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
+			assert(mreq.memoryTypeBits);
+
+			auto bufferMem = m_device->allocate(mreq, scratchBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+			assert(bufferMem.isValid());
 		}
-		pc.inputBufAddress = gpuinputDataBuffer->getDeviceAddress();
-		pc.outputAddressBufAddress = gpuOutputAddressesBuffer->getDeviceAddress();
+
+		pc.pInputBuf = gpuinputDataBuffer->getDeviceAddress();
+		for (auto i = 0u; i < OutputBufferCount; i++)
+			pc.pOutputBuf[i] = outputBuffers[i]->getDeviceAddress();
+		pc.pScratchBuf = scratchBuffer->getDeviceAddress();
 
 		// create Pipeline Layout
 		{
@@ -190,7 +204,6 @@ public:
 		}
 
 		const auto MaxWorkgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
-		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
 		for (auto subgroupSize = MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 		{
@@ -301,7 +314,7 @@ private:
 	template<template<class> class Arithmetic>
 	bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, const uint32_t itemsPerWG, const uint32_t itemsPerInvoc)
 	{
-		std::string arith_name = Arithmetic<bit_xor<float>>::name;
+		std::string arith_name = Arithmetic<arithmetic::bit_xor<float>>::name;
 		const uint32_t workgroupSizeLog2 = hlsl::findMSB(workgroupSize);
 
 		auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
@@ -324,7 +337,7 @@ private:
 		options.preprocessorOptions.includeFinder = includeFinder;
 
 		const std::string definitions[5] = {
-			"workgroup2::" + arith_name,
+			"scan::" + arith_name,
 			std::to_string(workgroupSizeLog2),
 			std::to_string(itemsPerInvoc),
 			std::to_string(subgroupSizeLog2),
@@ -380,21 +393,22 @@ private:
 		const ISemaphore::SWaitInfo wait[1] = { {.semaphore = sema.get(),.value = timelineValue} };
 		m_device->blockForSemaphores(wait);
 
+		const uint32_t subgroupSize = 1u << subgroupSizeLog2;
 		// check results
-		bool passed = validateResults<Arithmetic, bit_and<uint32_t> >(itemsPerWG, workgroupCount, itemsPerInvoc);
-		passed = validateResults<Arithmetic, bit_xor<uint32_t> >(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, bit_or<uint32_t> >(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, plus<uint32_t> >(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, multiplies<uint32_t> >(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, minimum<uint32_t> >(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, maximum<uint32_t> >(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
+		bool passed = validateResults<Arithmetic, arithmetic::bit_and<uint32_t> >(itemsPerWG, workgroupCount, subgroupSize);
+		passed = validateResults<Arithmetic, arithmetic::bit_xor<uint32_t> >(itemsPerWG, workgroupCount, subgroupSize) && passed;
+		passed = validateResults<Arithmetic, arithmetic::bit_or<uint32_t> >(itemsPerWG, workgroupCount, subgroupSize) && passed;
+		passed = validateResults<Arithmetic, arithmetic::plus<uint32_t> >(itemsPerWG, workgroupCount, subgroupSize) && passed;
+		passed = validateResults<Arithmetic, arithmetic::multiplies<uint32_t> >(itemsPerWG, workgroupCount, subgroupSize) && passed;
+		passed = validateResults<Arithmetic, arithmetic::minimum<uint32_t> >(itemsPerWG, workgroupCount, subgroupSize) && passed;
+		passed = validateResults<Arithmetic, arithmetic::maximum<uint32_t> >(itemsPerWG, workgroupCount, subgroupSize) && passed;
 
 		return passed;
 	}
 
 	//returns true if result matches
 	template<template<class> class Arithmetic, class Binop>
-	bool validateResults(const uint32_t itemsPerWG, const uint32_t workgroupCount)
+	bool validateResults(const uint32_t itemsPerWG, const uint32_t workgroupCount, const uint32_t subgroupSize)
 	{
 		bool success = true;
 
@@ -404,12 +418,6 @@ private:
 
 		using type_t = typename Binop::type_t;
 		const auto dataFromBuffer = reinterpret_cast<const uint32_t*>(resultsBuffer->getPointer());
-		const auto subgroupSize = dataFromBuffer[0];
-		if (subgroupSize<nbl::hlsl::subgroup::MinSubgroupSize || subgroupSize>nbl::hlsl::subgroup::MaxSubgroupSize)
-		{
-			m_logger->log("Unexpected Subgroup Size %u", ILogger::ELL_ERROR, subgroupSize);
-			return false;
-		}
 
 		const auto testData = reinterpret_cast<const type_t*>(dataFromBuffer + 1);
 		// TODO: parallel for (the temporary values need to be threadlocal or what?)
