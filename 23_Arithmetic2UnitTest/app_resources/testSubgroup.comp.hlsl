@@ -16,8 +16,6 @@ uint32_t globalIndex()
     return glsl::gl_WorkGroupID().x*WORKGROUP_SIZE+workgroup::SubgroupContiguousIndex();
 }
 
-bool canStore() { return true; }
-
 template<class Binop, uint32_t N>
 static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
 {
@@ -26,13 +24,13 @@ static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
 
     const uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.ppOutputBuf + Binop::BindingIndex * sizeof(uint64_t), sizeof(uint64_t));
 
-    if (globalIndex()==0u)
+    if (glsl::gl_SubgroupSize()!=1u<<SUBGROUP_SIZE_LOG2)
         vk::RawBufferStore<uint32_t>(outputBufAddr, glsl::gl_SubgroupSize());
 
     operation_t<params_t> func;
     type_t val = func(sourceVal);
-    if (canStore())
-        vk::RawBufferStore<type_t>(outputBufAddr + sizeof(uint32_t) + sizeof(type_t) * globalIndex(), val, sizeof(uint32_t));
+
+    vk::RawBufferStore<type_t>(outputBufAddr + sizeof(uint32_t) + sizeof(type_t) * globalIndex(), val, sizeof(uint32_t));
 }
 
 type_t test()

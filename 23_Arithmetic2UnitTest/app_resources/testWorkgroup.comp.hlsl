@@ -48,16 +48,11 @@ struct operation_t
 };
 
 
-uint32_t globalIndex()
-{
-    return glsl::gl_WorkGroupID().x*ITEMS_PER_WG+workgroup::SubgroupContiguousIndex();
-}
-
 template<class Binop>
 static void subtest()
 {
     uint64_t outputBufAddr = vk::RawBufferLoad<uint64_t>(pc.ppOutputBuf + Binop::BindingIndex * sizeof(uint64_t));
-    if (globalIndex()==0u)
+    if (glsl::gl_SubgroupSize()!=1u<<SUBGROUP_SIZE_LOG2)
         vk::RawBufferStore<uint32_t>(outputBufAddr, glsl::gl_SubgroupSize());
 
     operation_t<Binop,device_capabilities> func;

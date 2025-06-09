@@ -216,16 +216,17 @@ public:
 					for (uint32_t j = 0; j < ItemsPerInvocations.size(); j++)
 					{
 						const uint32_t itemsPerInvocation = ItemsPerInvocations[j];
+						uint32_t itemsPerWG = workgroupSize * itemsPerInvocation;
 						m_logger->log("Testing Items per Invocation %u", ILogger::ELL_INFO, itemsPerInvocation);
 						bool passed = true;
-						passed = runTest<emulatedReduction, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, b_useNative, ~0u, itemsPerInvocation) && passed;
-						logTestOutcome(passed, workgroupSize);
-						passed = runTest<emulatedScanInclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, b_useNative, ~0u, itemsPerInvocation) && passed;
-						logTestOutcome(passed, workgroupSize);
-						passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, b_useNative, ~0u, itemsPerInvocation) && passed;
-						logTestOutcome(passed, workgroupSize);
+						passed = runTest<emulatedReduction, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, b_useNative, itemsPerWG, itemsPerInvocation) && passed;
+						logTestOutcome(passed, itemsPerWG);
+						passed = runTest<emulatedScanInclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, b_useNative, itemsPerWG, itemsPerInvocation) && passed;
+						logTestOutcome(passed, itemsPerWG);
+						passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, b_useNative, itemsPerWG, itemsPerInvocation) && passed;
+						logTestOutcome(passed, itemsPerWG);
 
-						const uint32_t itemsPerWG = calculateItemsPerWorkgroup(workgroupSize, subgroupSize, itemsPerInvocation);
+						itemsPerWG = calculateItemsPerWorkgroup(workgroupSize, subgroupSize, itemsPerInvocation);
 						m_logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
 						passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, b_useNative, itemsPerWG, itemsPerInvocation) && passed;
 						logTestOutcome(passed, itemsPerWG);
@@ -320,7 +321,7 @@ private:
 	}
 
 	template<template<class> class Arithmetic, bool WorkgroupTest>
-	bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, bool useNative, uint32_t itemsPerWG = ~0u, uint32_t itemsPerInvoc = 1u)
+	bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, bool useNative, uint32_t itemsPerWG, uint32_t itemsPerInvoc = 1u)
 	{
 		std::string arith_name = Arithmetic<arithmetic::bit_xor<float>>::name;
 		const uint32_t workgroupSizeLog2 = hlsl::findMSB(workgroupSize);
@@ -398,15 +399,7 @@ private:
 		auto pipeline = createPipeline(overriddenUnspecialized.get(),subgroupSizeLog2);
 
 		// TODO: overlap dispatches with memory readbacks (requires multiple copies of `buffers`)
-		uint32_t workgroupCount;
-		if constexpr (WorkgroupTest)
-			workgroupCount = elementCount / itemsPerWG;
-		else
-		{
-			itemsPerWG = workgroupSize;
-			workgroupCount = elementCount / (itemsPerWG * itemsPerInvoc);
-		}
-		workgroupCount = min(workgroupCount, m_physicalDevice->getLimits().maxComputeWorkGroupCount[0]);
+		uint32_t workgroupCount = min(elementCount / itemsPerWG, m_physicalDevice->getLimits().maxComputeWorkGroupCount[0]);
 
 		cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
 		cmdbuf->bindComputePipeline(pipeline.get());
@@ -441,21 +434,22 @@ private:
 		const ISemaphore::SWaitInfo wait[1] = {{.semaphore=sema.get(),.value=timelineValue}};
 		m_device->blockForSemaphores(wait);
 
+		const uint32_t subgroupSize = 1u << subgroupSizeLog2;
 		// check results
-		bool passed = validateResults<Arithmetic, arithmetic::bit_and<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc);
-		passed = validateResults<Arithmetic, arithmetic::bit_xor<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, arithmetic::bit_or<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, arithmetic::plus<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, arithmetic::multiplies<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, arithmetic::minimum<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
-		passed = validateResults<Arithmetic, arithmetic::maximum<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, itemsPerInvoc) && passed;
+		bool passed = validateResults<Arithmetic, arithmetic::bit_and<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc);
+		passed = validateResults<Arithmetic, arithmetic::bit_xor<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, arithmetic::bit_or<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, arithmetic::plus<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, arithmetic::multiplies<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, arithmetic::minimum<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, arithmetic::maximum<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
 
 		return passed;
 	}
 
 	//returns true if result matches
 	template<template<class> class Arithmetic, class Binop, bool WorkgroupTest>
-	bool validateResults(const uint32_t itemsPerWG, const uint32_t workgroupCount, const uint32_t itemsPerInvoc)
+	bool validateResults(const uint32_t itemsPerWG, const uint32_t workgroupCount, const uint32_t subgroupSize, const uint32_t itemsPerInvoc)
 	{
 		bool success = true;
 
@@ -465,7 +459,6 @@ private:
 
 		using type_t = typename Binop::type_t;
 		const auto dataFromBuffer = reinterpret_cast<const uint32_t*>(resultsBuffer->getPointer());
-		const auto subgroupSize = dataFromBuffer[0];
 		if (subgroupSize<nbl::hlsl::subgroup::MinSubgroupSize || subgroupSize>nbl::hlsl::subgroup::MaxSubgroupSize)
 		{
 			m_logger->log("Unexpected Subgroup Size %u", ILogger::ELL_ERROR, subgroupSize);
@@ -475,11 +468,7 @@ private:
 		const auto testData = reinterpret_cast<const type_t*>(dataFromBuffer + 1);
 		// TODO: parallel for (the temporary values need to be threadlocal or what?)
 		// now check if the data obtained has valid values
-		type_t* tmp;
-		if constexpr (WorkgroupTest)
-			tmp = new type_t[itemsPerWG];
-		else
-			tmp = new type_t[itemsPerWG * itemsPerInvoc];
+		type_t* tmp = new type_t[itemsPerWG];
 		for (uint32_t workgroupID = 0u; success && workgroupID < workgroupCount; workgroupID++)
 		{
 			if constexpr (WorkgroupTest)
@@ -506,11 +495,12 @@ private:
 			}
 			else
 			{
-				const auto workgroupOffset = workgroupID * itemsPerWG * itemsPerInvoc;
-				for (uint32_t pseudoSubgroupID = 0u; pseudoSubgroupID < itemsPerWG; pseudoSubgroupID += subgroupSize)
+				const auto workgroupOffset = workgroupID * itemsPerWG;
+				const auto workgroupSize = itemsPerWG / itemsPerInvoc;
+				for (uint32_t pseudoSubgroupID = 0u; pseudoSubgroupID < workgroupSize; pseudoSubgroupID += subgroupSize)
 					Arithmetic<Binop>::impl(tmp + pseudoSubgroupID * itemsPerInvoc, inputData + workgroupOffset + pseudoSubgroupID * itemsPerInvoc, subgroupSize * itemsPerInvoc);
 
-				for (uint32_t localInvocationIndex = 0u; localInvocationIndex < itemsPerWG; localInvocationIndex++)
+				for (uint32_t localInvocationIndex = 0u; localInvocationIndex < workgroupSize; localInvocationIndex++)
 				{
 					const auto localOffset = localInvocationIndex * itemsPerInvoc;
 					const auto globalInvocationIndex = workgroupOffset + localOffset;
