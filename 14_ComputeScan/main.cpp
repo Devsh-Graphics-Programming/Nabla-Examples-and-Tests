@@ -100,19 +100,6 @@ public:
 			assert(bufferMem.isValid());
 		}
 
-		// create buffer to store BDA of output buffers
-		//smart_refctd_ptr<IGPUBuffer> gpuOutputAddressesBuffer;
-		//{
-		//	std::array<uint64_t, OutputBufferCount> outputAddresses;
-		//	for (uint32_t i = 0; i < OutputBufferCount; i++)
-		//		outputAddresses[i] = outputBuffers[i]->getDeviceAddress();
-
-		//	IGPUBuffer::SCreationParams params;
-		//	params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-		//	params.size = OutputBufferCount * sizeof(uint64_t);
-		//	m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = getTransferUpQueue() }, std::move(params), outputAddresses.data()).move_into(gpuOutputAddressesBuffer);
-		//}
-
 		// create scratch memory buffer (not the same as scratch shared memory)
 		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
 		smart_refctd_ptr<IGPUBuffer> scratchBuffer;
@@ -208,7 +195,7 @@ public:
 		for (auto subgroupSize = MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 		{
 			const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
-			for (uint32_t workgroupSize = subgroupSize; workgroupSize <= MaxWorkgroupSize; workgroupSize *= 2u)
+			for (uint32_t workgroupSize = 512u; workgroupSize <= MaxWorkgroupSize; workgroupSize *= 2u)
 			{
 				// make sure renderdoc captures everything for debugging
 				m_api->startCapture();

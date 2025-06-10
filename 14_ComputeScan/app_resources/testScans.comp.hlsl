@@ -66,6 +66,14 @@ struct DataProxy
         return retval;
     }
 
+    static DataProxy<Config, Binop> create(uint32_t workGroupID)
+    {
+        DataProxy<Config, Binop> retval;
+        retval.workgroupOffset = workGroupID * Config::arith_config_t::VirtualWorkgroupSize;
+        retval.outputBufAddr = sizeof(uint32_t) + pc.pOutputBuf[Binop::BindingIndex];
+        return retval;
+    }
+
     template<typename AccessType, typename IndexType>
     void get(const IndexType ix, NBL_REF_ARG(AccessType) value)
     {
@@ -98,6 +106,13 @@ struct PreloadedDataProxy
     {
         PreloadedDataProxy<Config, Binop> retval;
         retval.data = DataProxy<Config, Binop>::create();
+        return retval;
+    }
+
+    static PreloadedDataProxy<Config, Binop> create(uint32_t workGroupID)
+    {
+        PreloadedDataProxy<Config, Binop> retval;
+        retval.data = DataProxy<Config, Binop>::create(workGroupID);
         return retval;
     }
 
