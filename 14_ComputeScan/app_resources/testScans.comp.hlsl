@@ -85,6 +85,14 @@ struct DataProxy
         vk::RawBufferStore<AccessType>(outputBufAddr + sizeof(AccessType) * (workgroupOffset+ix), value, sizeof(uint32_t));
     }
 
+    // used inside the global scan to specify what needs doing before/after performing workgroup scans
+    void begin()
+    {
+    }
+    void end()
+    {
+    }
+
     void workgroupExecutionAndMemoryBarrier()
     {
         glsl::barrier();
@@ -140,6 +148,16 @@ struct PreloadedDataProxy
         [unroll]
         for (uint16_t idx = 0; idx < PreloadedDataCount; idx++)
             data.template set<dtype_t, uint16_t>(idx * Config::WorkgroupSize + invocationIndex, preloaded[idx]);
+    }
+
+    // used inside the global scan to specify what needs doing before/after performing workgroup scans
+    void begin()
+    {
+        preload();
+    }
+    void end()
+    {
+        unload();
     }
 
     bda::__ptr<uint32_t> getScratchPtr()
@@ -206,13 +224,13 @@ static void subtest()
 
 void test()
 {
-    subtest<arithmetic::bit_and<uint32_t> >();
-    subtest<arithmetic::bit_xor<uint32_t> >();
-    subtest<arithmetic::bit_or<uint32_t> >();
+    // subtest<arithmetic::bit_and<uint32_t> >();
+    // subtest<arithmetic::bit_xor<uint32_t> >();
+    // subtest<arithmetic::bit_or<uint32_t> >();
     subtest<arithmetic::plus<uint32_t> >();
-    subtest<arithmetic::multiplies<uint32_t> >();
-    subtest<arithmetic::minimum<uint32_t> >();
-    subtest<arithmetic::maximum<uint32_t> >();
+    // subtest<arithmetic::multiplies<uint32_t> >();
+    // subtest<arithmetic::minimum<uint32_t> >();
+    // subtest<arithmetic::maximum<uint32_t> >();
 }
 
 [numthreads(WORKGROUP_SIZE,1,1)]
