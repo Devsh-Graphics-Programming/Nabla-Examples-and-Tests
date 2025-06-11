@@ -4,19 +4,15 @@
 #ifndef _NBL_EXAMPLES_PCH_HPP_
 #define _NBL_EXAMPLES_PCH_HPP_
 
-
+//! public declarations
+/*
+    NOTE: currently our whole public and private interface is broken
+    and private headers leak to public includes
+*/
 #include <nabla.h>
 
-// #include "nbl/ui/CGraphicalApplicationAndroid.h"
-// #include "nbl/ui/CWindowManagerAndroid.h"
-
-#include "nbl/examples/common/SimpleWindowedApplication.hpp"
-#include "nbl/examples/common/InputSystem.hpp"
-#include "nbl/examples/common/CEventCallback.hpp"
-
-#include "nbl/examples/cameras/CCamera.hpp"
-
-#include "nbl/examples/geometry/CGeometryCreatorScene.hpp"
-
+//! note: one can add common std headers here not present in nabla.h or 
+//! any headers shared between examples, you cannot put there include
+//! files which require extra preprocessor definitions
 
 #endif // _NBL_EXAMPLES_COMMON_PCH_HPP_

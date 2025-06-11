@@ -1,17 +1,7 @@
-###########################################
-# TODO: the way it should work is following (remove the comment once all done!)
-# - one top PCH which includes <nabla.h> -> currently not done
-# - sources used only within examples splitted into "common libraries" (optional -> with options to toggle if include them to build tree), each common library should reuse the above top PCH
-# - examples_tests CMake loop over example targets and hook the interface library with NBL_HOOK_COMMON_API [done]
-# - each common library should declare ONLY interface and never expose source definition into headers nor any 3rdparty stuff!
-##
+nbl_create_ext_library_project(ExamplesAPI "" "${CMAKE_CURRENT_SOURCE_DIR}/src/nbl/examples/pch.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/include" "" "")
 
-# interface libraries don't have build rules (except custom commands however it doesn't matter here) but properties
-add_library(nblExamplesAPI INTERFACE)
-set(NBL_EXAMPLES_API_INCLUDE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_include_directories(nblExamplesAPI INTERFACE "${NBL_EXAMPLES_API_INCLUDE_DIRECTORY}")
+set_target_properties(${LIB_NAME} PROPERTIES DISABLE_PRECOMPILE_HEADERS OFF)
+target_precompile_headers(${LIB_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include/nbl/examples/PCH.hpp")
 
 add_subdirectory("src/nbl/examples" EXCLUDE_FROM_ALL)
-
-# TODO: Arek what was `NBL_EXECUTABLE_COMMON_API_TARGET` ? I removed it.
-set(NBL_EXAMPLES_API_TARGETS nblExamplesAPI ${NBL_EXAMPLES_API_TARGETS} PARENT_SCOPE)
+set(NBL_EXAMPLES_API_TARGET ${LIB_NAME} PARENT_SCOPE)

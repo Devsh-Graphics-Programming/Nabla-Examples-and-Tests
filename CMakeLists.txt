@@ -2,26 +2,6 @@
 # This file is part of the "Nabla Engine".
 # For conditions of distribution and use, see copyright notice in nabla.h
 
-function(NBL_HOOK_COMMON_API NBL_EXCLUDE_TARGETS_LIST)
-	if(NOT TARGET nblExamplesAPI)
-		message(FATAL_ERROR "nblExamplesAPI not defined!")
-	endif()
-
-    NBL_GET_ALL_TARGETS(NBL_TARGETS)
-
-    foreach(NBL_TARGET IN LISTS NBL_TARGETS)
-		# TODO: exclude builtin targets created by examples as well - doesn't impact anything at all now
-		if(NOT ${NBL_TARGET} IN_LIST NBL_EXCLUDE_TARGETS_LIST)
-
-			target_include_directories(${NBL_TARGET} PRIVATE $<TARGET_PROPERTY:nblExamplesAPI,INTERFACE_INCLUDE_DIRECTORIES>)
-			target_link_libraries(${NBL_TARGET} PRIVATE nblExamplesAPI)
-		endif()
-    endforeach()
-endfunction()
-
-# PCH & CommonAPI library for Nabla framework examples
-add_subdirectory(common EXCLUDE_FROM_ALL)
-
 if(NBL_BUILD_EXAMPLES)
 	if(NBL_BUILD_ANDROID)
 		nbl_android_create_media_storage_apk()
@@ -44,7 +24,7 @@ if(NBL_BUILD_EXAMPLES)
 	# showcase the set-up of a swapchain and picking of a matching device
 	add_subdirectory(08_HelloSwapchain EXCLUDE_FROM_ALL)
 	add_subdirectory(09_GeometryCreator EXCLUDE_FROM_ALL)
-  # demonstrate the counting sort utility
+  	# demonstrate the counting sort utility
 	add_subdirectory(10_CountingSort EXCLUDE_FROM_ALL)
 	# showcase use of FFT for post-FX Bloom  effect
 	add_subdirectory(11_FFT EXCLUDE_FROM_ALL)
@@ -92,5 +72,14 @@ if(NBL_BUILD_EXAMPLES)
   	add_subdirectory(70_FLIPFluids EXCLUDE_FROM_ALL)
 	add_subdirectory(71_RayTracingPipeline EXCLUDE_FROM_ALL)
 
-	NBL_HOOK_COMMON_API("${NBL_EXAMPLES_API_TARGETS}")
+	NBL_GET_ALL_TARGETS(TARGETS)
+
+	# PCH & CommonAPI library for Nabla framework examples
+	add_subdirectory(common EXCLUDE_FROM_ALL)
+
+	foreach(T IN LISTS TARGETS)
+        target_link_libraries(${T} PUBLIC ${NBL_EXAMPLES_API_TARGET})
+		target_include_directories(${T} PUBLIC $<TARGET_PROPERTY:${NBL_EXAMPLES_API_TARGET},INCLUDE_DIRECTORIES>)
+		target_precompile_headers(${T} REUSE_FROM "${NBL_EXAMPLES_API_TARGET}")
+    endforeach()
 endif()
