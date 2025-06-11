@@ -12,17 +12,10 @@
 */
 #include "nbl/examples/PCH.hpp"
 
-//! common headers used across examples
+//! common headers used across examples which cannot be part of PCH
 /*
-    NOTE: those *cannot* be used in PCH since they use unique 
-    preprocessor definitions per example which would change
-    content of PCH
+    NOTE: put here if a header requires defines which may be differ
 */
-#include "nbl/examples/common/SimpleWindowedApplication.hpp"
-#include "nbl/examples/common/InputSystem.hpp"
-#include "nbl/examples/common/CEventCallback.hpp"
-
-#include "nbl/examples/cameras/CCamera.hpp"
 
 // broken? probably to refactor or even remove?
 // #include "nbl/examples/geometry/CGeometryCreatorScene.hpp"

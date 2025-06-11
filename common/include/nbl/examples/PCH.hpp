@@ -11,6 +11,12 @@
 */
 #include <nabla.h>
 
+#include "nbl/examples/common/SimpleWindowedApplication.hpp"
+#include "nbl/examples/common/InputSystem.hpp"
+#include "nbl/examples/common/CEventCallback.hpp"
+
+#include "nbl/examples/cameras/CCamera.hpp"
+
 //! note: one can add common std headers here not present in nabla.h or 
 //! any headers shared between examples, you cannot put there include
 //! files which require extra preprocessor definitions
