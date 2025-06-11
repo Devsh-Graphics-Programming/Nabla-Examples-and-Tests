@@ -19,6 +19,6 @@
 
 //! note: one can add common std headers here not present in nabla.h or 
 //! any headers shared between examples, you cannot put there include
-//! files which require extra preprocessor definitions
+//! files which require unique preprocessor definitions for each example
 
 #endif // _NBL_EXAMPLES_COMMON_PCH_HPP_
