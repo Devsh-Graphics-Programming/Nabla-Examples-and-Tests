@@ -3,74 +3,76 @@
 # For conditions of distribution and use, see copyright notice in nabla.h
 
 if(NBL_BUILD_EXAMPLES)
+	project(NablaExamples)
+
 	if(NBL_BUILD_ANDROID)
 		nbl_android_create_media_storage_apk()
 	endif()
 
 	# showcase the use of `nbl::core`,`nbl::system` and `nbl::asset`
-	add_subdirectory(01_HelloCoreSystemAsset EXCLUDE_FROM_ALL)
+	add_subdirectory(01_HelloCoreSystemAsset)
 	# showcase the use of `system::IApplicationFramework` and `nbl::video`
-	add_subdirectory(02_HelloCompute EXCLUDE_FROM_ALL)
+	add_subdirectory(02_HelloCompute)
 	# showcase physical device selection, resource embedding and the use of identical headers in HLSL and C++
-	add_subdirectory(03_DeviceSelectionAndSharedSources EXCLUDE_FROM_ALL)
+	add_subdirectory(03_DeviceSelectionAndSharedSources)
 	# showcase the creation of windows and polling for input
-	add_subdirectory(04_HelloUI EXCLUDE_FROM_ALL)
+	add_subdirectory(04_HelloUI)
 	# showcase the semi-advanced use of Nabla's Streaming Buffers and BDA
-	add_subdirectory(05_StreamingAndBufferDeviceAddressApp EXCLUDE_FROM_ALL)
+	add_subdirectory(05_StreamingAndBufferDeviceAddressApp)
 	# showcase the use of a graphics queue
-	add_subdirectory(06_HelloGraphicsQueue EXCLUDE_FROM_ALL)
+	add_subdirectory(06_HelloGraphicsQueue)
 	# showcase the set-up of multiple queues
-	add_subdirectory(07_StagingAndMultipleQueues EXCLUDE_FROM_ALL)
+	add_subdirectory(07_StagingAndMultipleQueues)
 	# showcase the set-up of a swapchain and picking of a matching device
-	add_subdirectory(08_HelloSwapchain EXCLUDE_FROM_ALL)
-	add_subdirectory(09_GeometryCreator EXCLUDE_FROM_ALL)
+	add_subdirectory(08_HelloSwapchain)
+	add_subdirectory(09_GeometryCreator)
   	# demonstrate the counting sort utility
-	add_subdirectory(10_CountingSort EXCLUDE_FROM_ALL)
+	add_subdirectory(10_CountingSort)
 	# showcase use of FFT for post-FX Bloom  effect
-	add_subdirectory(11_FFT EXCLUDE_FROM_ALL)
+	add_subdirectory(11_FFT)
 
 
 	# Waiting for a refactor
-	#add_subdirectory(27_PLYSTLDemo EXCLUDE_FROM_ALL)
-	#add_subdirectory(33_Draw3DLine EXCLUDE_FROM_ALL)
+	#add_subdirectory(27_PLYSTLDemo)
+	#add_subdirectory(33_Draw3DLine)
 
 	# Unit Test Examples
-	add_subdirectory(20_AllocatorTest EXCLUDE_FROM_ALL)
-	add_subdirectory(21_LRUCacheUnitTest EXCLUDE_FROM_ALL)
-	add_subdirectory(22_CppCompat EXCLUDE_FROM_ALL)
-	add_subdirectory(23_ArithmeticUnitTest EXCLUDE_FROM_ALL)
-	add_subdirectory(24_ColorSpaceTest EXCLUDE_FROM_ALL)
-	add_subdirectory(25_FilterTest EXCLUDE_FROM_ALL)
-	add_subdirectory(26_Blur EXCLUDE_FROM_ALL)
-	add_subdirectory(27_MPMCScheduler EXCLUDE_FROM_ALL)	
-	add_subdirectory(28_FFTBloom EXCLUDE_FROM_ALL)
-	add_subdirectory(29_MeshLoaders EXCLUDE_FROM_ALL)
-	# add_subdirectory(36_CUDAInterop EXCLUDE_FROM_ALL)
+	add_subdirectory(20_AllocatorTest)
+	add_subdirectory(21_LRUCacheUnitTest)
+	add_subdirectory(22_CppCompat)
+	add_subdirectory(23_ArithmeticUnitTest)
+	add_subdirectory(24_ColorSpaceTest)
+	add_subdirectory(25_FilterTest)
+	add_subdirectory(26_Blur)
+	add_subdirectory(27_MPMCScheduler)	
+	add_subdirectory(28_FFTBloom)
+	add_subdirectory(29_MeshLoaders)
+	# add_subdirectory(36_CUDAInterop)
 
 	# Showcase compute pathtracing
-	add_subdirectory(30_ComputeShaderPathTracer EXCLUDE_FROM_ALL)
+	add_subdirectory(30_ComputeShaderPathTracer)
 
-	add_subdirectory(38_EXRSplit EXCLUDE_FROM_ALL)
+	add_subdirectory(38_EXRSplit)
 	# if (NBL_BUILD_MITSUBA_LOADER AND NBL_BUILD_OPTIX)
-	#	add_subdirectory(39_DenoiserTonemapper EXCLUDE_FROM_ALL)
+	#	add_subdirectory(39_DenoiserTonemapper)
 	# endif()
 
-	#add_subdirectory(43_SumAndCDFFilters EXCLUDE_FROM_ALL)
-	add_subdirectory(47_DerivMapTest EXCLUDE_FROM_ALL)
-	add_subdirectory(54_Transformations EXCLUDE_FROM_ALL)
-	add_subdirectory(55_RGB18E7S3 EXCLUDE_FROM_ALL)
-	add_subdirectory(61_UI EXCLUDE_FROM_ALL)
-	add_subdirectory(62_CAD EXCLUDE_FROM_ALL)
-	add_subdirectory(62_SchusslerTest EXCLUDE_FROM_ALL)
-	add_subdirectory(64_EmulatedFloatTest EXCLUDE_FROM_ALL)
-	add_subdirectory(0_ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
+	#add_subdirectory(43_SumAndCDFFilters)
+	add_subdirectory(47_DerivMapTest)
+	add_subdirectory(54_Transformations)
+	add_subdirectory(55_RGB18E7S3)
+	add_subdirectory(61_UI)
+	add_subdirectory(62_CAD)
+	add_subdirectory(62_SchusslerTest)
+	add_subdirectory(64_EmulatedFloatTest)
+	add_subdirectory(0_ImportanceSamplingEnvMaps) #TODO: integrate back into 42
 
-	add_subdirectory(66_HLSLBxDFTests EXCLUDE_FROM_ALL)
-	add_subdirectory(67_RayQueryGeometry EXCLUDE_FROM_ALL)
-	add_subdirectory(68_JpegLoading EXCLUDE_FROM_ALL)
+	add_subdirectory(66_HLSLBxDFTests)
+	add_subdirectory(67_RayQueryGeometry)
+	add_subdirectory(68_JpegLoading)
 
-  	add_subdirectory(70_FLIPFluids EXCLUDE_FROM_ALL)
-	add_subdirectory(71_RayTracingPipeline EXCLUDE_FROM_ALL)
+  	add_subdirectory(70_FLIPFluids)
+	add_subdirectory(71_RayTracingPipeline)
 
 	NBL_GET_ALL_TARGETS(TARGETS)
 
