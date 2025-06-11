@@ -84,4 +84,6 @@ if(NBL_BUILD_EXAMPLES)
 		target_include_directories(${T} PUBLIC $<TARGET_PROPERTY:${NBL_EXAMPLES_API_TARGET},INCLUDE_DIRECTORIES>)
 		target_precompile_headers(${T} REUSE_FROM "${NBL_EXAMPLES_API_TARGET}")
     endforeach()
+
+	NBL_ADJUST_FOLDERS(examples)
 endif()
