@@ -279,16 +279,20 @@ static void setDiagonalModeBit(float* data, E_CELL_DIAGONAL diagonalMode)
         return;
 
     uint32_t dataAsUint = reinterpret_cast<uint32_t&>(*data);
+    constexpr uint32_t HEIGHT_VALUE_MASK = 0xFFFFFFFEu;
+    dataAsUint &= HEIGHT_VALUE_MASK;
     dataAsUint |= static_cast<uint32_t>(diagonalMode);
     *data = reinterpret_cast<float&>(dataAsUint);
+
+    uint32_t dataAsUintDbg = reinterpret_cast<uint32_t&>(*data);
 }
 
 #endif
 
 // Top left corner holds diagonal mode info of a cell 
-static E_CELL_DIAGONAL getDiagonalModeFromCellCornerData(float cellCornerData)
+static E_CELL_DIAGONAL getDiagonalModeFromCellCornerData(uint32_t cellCornerData)
 {
-    return (nbl::hlsl::bit_cast<uint32_t, float>(cellCornerData) & 0x1u) ? BOTTOM_LEFT_TO_TOP_RIGHT : TOP_LEFT_TO_BOTTOM_RIGHT;
+    return (cellCornerData & 0x1u) ? BOTTOM_LEFT_TO_TOP_RIGHT : TOP_LEFT_TO_BOTTOM_RIGHT;
 }
 
 static uint32_t packR11G11B10_UNORM(float32_t3 color)

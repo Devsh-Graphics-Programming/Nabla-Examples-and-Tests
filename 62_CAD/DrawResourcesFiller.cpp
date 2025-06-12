@@ -456,7 +456,7 @@ bool DrawResourcesFiller::ensureStaticImageAvailability(const StaticImageInfo& s
 			}
 
 			// Attempt to create a GPU image and image view for this texture.
-			ImageAllocateResults allocResults = tryCreateAndAllocateImage_SubmitIfNeeded(imageParams, intendedNextSubmit, std::to_string(staticImage.imageID));
+			ImageAllocateResults allocResults = tryCreateAndAllocateImage_SubmitIfNeeded(imageParams, staticImage.imageViewFormatOverride, intendedNextSubmit, std::to_string(staticImage.imageID));
 
 			if (allocResults.isValid())
 			{
@@ -603,7 +603,7 @@ bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(
 		if (cachedImageRecord->arrayIndex != video::SubAllocatedDescriptorSet::AddressAllocator::invalid_address)
 		{
 			// Attempt to create a GPU image and image view for this texture.
-			ImageAllocateResults allocResults = tryCreateAndAllocateImage_SubmitIfNeeded(imageCreationParams, intendedNextSubmit, std::to_string(imageID));
+			ImageAllocateResults allocResults = tryCreateAndAllocateImage_SubmitIfNeeded(imageCreationParams, asset::E_FORMAT::EF_COUNT, intendedNextSubmit, std::to_string(imageID));
 
 			if (allocResults.isValid())
 			{
@@ -2171,7 +2171,11 @@ void DrawResourcesFiller::evictImage_SubmitIfNeeded(image_id imageID, const Cach
 	}
 }
 
-DrawResourcesFiller::ImageAllocateResults DrawResourcesFiller::tryCreateAndAllocateImage_SubmitIfNeeded(const nbl::asset::IImage::SCreationParams& imageParams, nbl::video::SIntendedSubmitInfo& intendedNextSubmit, std::string imageDebugName)
+DrawResourcesFiller::ImageAllocateResults DrawResourcesFiller::tryCreateAndAllocateImage_SubmitIfNeeded(
+	const nbl::asset::IImage::SCreationParams& imageParams,
+	const asset::E_FORMAT imageViewFormatOverride,
+	nbl::video::SIntendedSubmitInfo& intendedNextSubmit,
+	std::string imageDebugName)
 {
 	ImageAllocateResults ret = {};
 
@@ -2218,7 +2222,7 @@ DrawResourcesFiller::ImageAllocateResults DrawResourcesFiller::tryCreateAndAlloc
 						IGPUImageView::SCreationParams viewParams = {
 							.image = gpuImage,
 							.viewType = IGPUImageView::ET_2D,
-							.format = gpuImage->getCreationParameters().format
+							.format = (imageViewFormatOverride == asset::E_FORMAT::EF_COUNT) ? gpuImage->getCreationParameters().format : EF_R32G32B32A32_UINT
 						};
 						ret.gpuImageView = device->createImageView(std::move(viewParams));
 						if (ret.gpuImageView)

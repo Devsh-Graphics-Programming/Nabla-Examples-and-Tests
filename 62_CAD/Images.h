@@ -215,4 +215,5 @@ struct StaticImageInfo
 	image_id imageID = ~0ull;
 	core::smart_refctd_ptr<ICPUImage> cpuImage = nullptr;
 	bool forceUpdate = false; // If true, bypasses the existing GPU-side cache and forces an update of the image data; Useful when replacing the contents of a static image that may already be resident.
+	asset::E_FORMAT imageViewFormatOverride = asset::E_FORMAT::EF_COUNT; // if asset::E_FORMAT::EF_COUNT then image view will have the same format as `cpuImage`
 };

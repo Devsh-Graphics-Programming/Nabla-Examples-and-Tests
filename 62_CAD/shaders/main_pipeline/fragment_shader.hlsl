@@ -117,8 +117,10 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     return color;
 }
 
-E_CELL_DIAGONAL resolveGridDTMCellDiagonal(in float4 cellHeights)
+E_CELL_DIAGONAL resolveGridDTMCellDiagonal(in uint32_t4 cellData)
 {
+    float4 cellHeights = asfloat(cellData);
+
     const bool4 invalidHeights = bool4(
         isnan(cellHeights.x),
         isnan(cellHeights.y),
@@ -132,24 +134,8 @@ E_CELL_DIAGONAL resolveGridDTMCellDiagonal(in float4 cellHeights)
 
     if (invalidHeightsCount == 0)
     {
-        E_CELL_DIAGONAL a = getDiagonalModeFromCellCornerData(cellHeights.w);
-
-        if (a == TOP_LEFT_TO_BOTTOM_RIGHT)
-        {
-            uint32_t asdf = nbl::hlsl::bit_cast<uint32_t, float>(cellHeights.w);
-            printf("a %f %u", cellHeights.w, asdf);
-        }
-        else if (a == BOTTOM_LEFT_TO_TOP_RIGHT)
-        {
-            uint32_t asdf = nbl::hlsl::bit_cast<uint32_t, float>(cellHeights.w);
-            printf("b %f %u", cellHeights.w, asdf);
-        }
-        else
-        {
-            printf("wtf");
-        }
-
-        return getDiagonalModeFromCellCornerData(cellHeights.w);
+        E_CELL_DIAGONAL a = getDiagonalModeFromCellCornerData(cellData.w);
+        return getDiagonalModeFromCellCornerData(cellData.w);
     }
 
     if (invalidHeightsCount > 1)
@@ -202,6 +188,9 @@ float4 fragMain(PSInput input) : SV_TARGET
 
         textureColor = dtmColor.rgb;
         localAlpha = dtmColor.a;
+
+        // because final color is premultiplied by alpha
+        textureColor = dtmColor.rgb / dtmColor.a;
 
         gammaUncorrect(textureColor); // want to output to SRGB without gamma correction
         return calculateFinalColor<DeviceConfigCaps::fragmentShaderPixelInterlock>(uint2(input.position.xy), localAlpha, currentMainObjectIdx, textureColor, true);
@@ -487,23 +476,20 @@ float4 fragMain(PSInput input) : SV_TARGET
                 float2 insideCellCoord = gridSpacePos - float2(cellWidth, cellWidth) * cellCoords; // TODO: use fmod instead?
                 
                 const float InvalidHeightValue = asfloat(0x7FC00000);
+                uint32_t4 cellData;
                 float4 cellHeights = float4(InvalidHeightValue, InvalidHeightValue, InvalidHeightValue, InvalidHeightValue);
                 if (textureId != InvalidTextureIndex)
                 {
                     const float2 maxCellCoords = float2(round(gridExtents.x / cellWidth), round(gridExtents.y / cellWidth));
                     const float2 location = (cellCoords + float2(0.5f, 0.5f)) / maxCellCoords;
 
-                    cellHeights = textures[NonUniformResourceIndex(textureId)].Gather(textureSampler, float2(location.x, location.y), 0);
+                    cellData = texturesU32[NonUniformResourceIndex(textureId)].Gather(textureSampler, float2(location.x, location.y), 0);
+                    cellHeights = asfloat(cellData);
                 }
 
 
-                const E_CELL_DIAGONAL cellDiagonal = resolveGridDTMCellDiagonal(cellHeights);
+                const E_CELL_DIAGONAL cellDiagonal = resolveGridDTMCellDiagonal(cellData);
                 const bool diagonalFromTopLeftToBottomRight = cellDiagonal == E_CELL_DIAGONAL::TOP_LEFT_TO_BOTTOM_RIGHT;
-
-                /*if (!diagonalFromTopLeftToBottomRight)
-                    printf("a");
-                else
-                    printf("b");*/
 
                 if (cellDiagonal == E_CELL_DIAGONAL::INVALID)
                     discard;
@@ -514,8 +500,6 @@ float4 fragMain(PSInput input) : SV_TARGET
                     insideCellCoord.x < cellWidth - insideCellCoord.y;
 
                 float2 gridSpaceCellTopLeftCoords = cellCoords * cellWidth;
-
-                //printf("uv = { %f, %f } diagonalTLtoBR = %i triangleA = %i, insiceCellCoords = { %f, %f }", uv.x, uv.y, int(diagonalFromTopLeftToBottomRight), int(triangleA), insideCellCoord.x / cellWidth, insideCellCoord.y / cellWidth);
 
                 if (diagonalFromTopLeftToBottomRight)
                 {
@@ -585,6 +569,9 @@ float4 fragMain(PSInput input) : SV_TARGET
 
             textureColor = dtmColor.rgb;
             localAlpha = dtmColor.a;
+
+            // because final color is premultiplied by alpha
+            textureColor = dtmColor.rgb / dtmColor.a;
 
             // test out of bounds draw
             /*if (outOfBoundsUV)

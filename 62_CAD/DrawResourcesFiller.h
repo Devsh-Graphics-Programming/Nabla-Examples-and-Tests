@@ -560,6 +560,7 @@ protected:
 	 * This is primarily used by the draw resource filler to manage GPU image memory for streamed or cached images.
 	 *
 	 * @param imageParams Creation parameters for the image. Should match `nbl::asset::IImage::SCreationParams`.
+	 * @param imageViewFormatOverride Specifies whether the image view format should differ from the image format. If set to asset::E_FORMAT_ET_COUNT, the image view uses the same format as the image
 	 * @param intendedNextSubmit Reference to the current intended submit info. Used for synchronizing evictions.
 	 * @param imageDebugName Debug name assigned to the image and its view for easier profiling/debugging.
 	 *
@@ -568,7 +569,10 @@ protected:
 	 * - `allocationSize`: Size of the allocated memory region.
 	 * - `gpuImageView`: The created GPU image view (nullptr if creation failed).
 	 */
-	ImageAllocateResults tryCreateAndAllocateImage_SubmitIfNeeded(const nbl::asset::IImage::SCreationParams& imageParams, nbl::video::SIntendedSubmitInfo& intendedNextSubmit, std::string debugName = "UnnamedNablaImage");
+	ImageAllocateResults tryCreateAndAllocateImage_SubmitIfNeeded(const nbl::asset::IImage::SCreationParams& imageParams,
+		const asset::E_FORMAT imageViewFormatOverride,
+		nbl::video::SIntendedSubmitInfo& intendedNextSubmit,
+		std::string imageDebugName);
 
 	/**
 	 * @brief Determines creation parameters for a georeferenced image based on heuristics.

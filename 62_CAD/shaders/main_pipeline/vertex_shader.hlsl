@@ -654,8 +654,7 @@ PSInput main(uint vertexID : SV_VertexID)
             float thicknessOfTheThickestLine = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + 2 * sizeof(pfloat64_t2) + sizeof(uint32_t) + 2u * sizeof(float), 8u);
 
             // for testing purpose
-            //thicknessOfTheThickestLine += 200.0f;
-            thicknessOfTheThickestLine = 0.0f;
+            thicknessOfTheThickestLine += 200.0f;
 
             const float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
             worldSpaceExtents.y = ieee754::flipSign(worldSpaceExtents.y);

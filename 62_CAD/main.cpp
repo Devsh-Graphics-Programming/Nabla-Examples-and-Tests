@@ -1153,6 +1153,9 @@ public:
 			"../../media/color_space_test/R8G8B8A8_1.png",
 		};
 
+		/**
+		* @param formatOverride override format of an image view, use special argument asset::E_FORMAT::EF_COUNT to don't override image view format and use one retrieved from the loaded image
+		*/
 		auto loadImage = [&](const std::string& imagePath) -> smart_refctd_ptr<ICPUImage>
 		{
 			constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
@@ -1172,6 +1175,9 @@ public:
 			case IAsset::ET_IMAGE:
 			{
 				auto image = smart_refctd_ptr_static_cast<ICPUImage>(asset);
+				auto& flags = image->getCreationParameters().flags;
+				// assert if asset is mutable
+				const_cast<core::bitflag<asset::IImage::E_CREATE_FLAGS>&>(flags) |= asset::IImage::E_CREATE_FLAGS::ECF_MUTABLE_FORMAT_BIT;
 				const auto format = image->getCreationParameters().format;
 
 				ICPUImageView::SCreationParams viewParams = {
@@ -1198,7 +1204,6 @@ public:
 				m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type, skipping!", ILogger::ELL_ERROR);
 				return nullptr;
 			}
-
 
 			const auto loadedCPUImage = cpuImgView->getCreationParameters().image;
 			const auto loadedCPUImageCreationParams = loadedCPUImage->getCreationParameters();
@@ -1262,7 +1267,7 @@ public:
 
 		gridDTMHeightMap = loadImage("../../media/gridDTMHeightMap.exr");
 
-		// set diagonals of even cells to TOP_LEFT_TO_BOTTOM_RIGHT and diagonals of odd cells to BOTTOM_LEFT_TO_TOP_RIGHT
+		// set diagonals of cells to TOP_LEFT_TO_BOTTOM_RIGHT or BOTTOM_LEFT_TO_TOP_RIGHT randomly
 		{
 			// assumption is that format of the grid DTM height map is *_SRGB, I don't think we need any code to ensure that
 
@@ -1273,17 +1278,19 @@ public:
 			const size_t imageByteSize = gridDTMHeightMap->getImageDataSizeInBytes();
 			assert(imageByteSize % sizeof(float) == 0);
 
+			std::random_device rd;
+			std::mt19937 mt(rd());
+			std::uniform_int_distribution<int> dist(0, 1);
+
 			for (int i = 0; i < imageByteSize; i += sizeof(float))
 			{
-				const bool isCellEven = i % (2 * sizeof(float)) == 0;
-				E_CELL_DIAGONAL diagonal = isCellEven ? TOP_LEFT_TO_BOTTOM_RIGHT : BOTTOM_LEFT_TO_TOP_RIGHT;
-
-				// test
-				diagonal = BOTTOM_LEFT_TO_TOP_RIGHT;
+				const bool isTexelEven = static_cast<bool>(dist(mt));
+				E_CELL_DIAGONAL diagonal = isTexelEven ? TOP_LEFT_TO_BOTTOM_RIGHT : BOTTOM_LEFT_TO_TOP_RIGHT;
 
 				setDiagonalModeBit(imageData, diagonal);
 				imageData++;
 			}
+
 		}
 
 		assert(gridDTMHeightMap);
@@ -3572,7 +3579,7 @@ protected:
 			dtmInfo.outlineStyleInfo.worldSpaceLineWidth = 2.0f;
 			dtmInfo.outlineStyleInfo.color = float32_t4(0.0f, 0.39f, 0.0f, 1.0f);
 			std::array<double, 4> outlineStipplePattern = { 0.0f, -5.0f, 20.0f, -5.0f };
-			dtmInfo.outlineStyleInfo.setStipplePatternData(outlineStipplePattern);
+			//dtmInfo.outlineStyleInfo.setStipplePatternData(outlineStipplePattern);
 
 			dtmInfo.contourSettingsCount = 2u;
 			dtmInfo.contourSettings[0u].startHeight = 20;
@@ -3645,7 +3652,15 @@ protected:
 			worldSpaceExtents.x = (heightMapExtent.width - 1) * HeightMapCellWidth;
 			worldSpaceExtents.y = (heightMapExtent.height - 1) * HeightMapCellWidth;
 			const uint64_t heightMapTextureID = 0ull;
-			if (!drawResourcesFiller.ensureStaticImageAvailability({ heightMapTextureID, gridDTMHeightMap }, intendedNextSubmit))
+
+			StaticImageInfo heightMapStaticImageInfo = {
+				.imageID = heightMapTextureID,
+				.cpuImage = gridDTMHeightMap,
+				.forceUpdate = false,
+				.imageViewFormatOverride = asset::E_FORMAT::EF_R32G32B32A32_UINT // for now we use only R32G32B32A32_* anyway
+			};
+
+			if (!drawResourcesFiller.ensureStaticImageAvailability(heightMapStaticImageInfo, intendedNextSubmit))
 				m_logger->log("Grid DTM height map texture unavailable!", ILogger::ELL_ERROR);
 			drawResourcesFiller.drawGridDTM(topLeft, worldSpaceExtents, HeightMapCellWidth, heightMapTextureID,  dtmInfo, intendedNextSubmit);
 
