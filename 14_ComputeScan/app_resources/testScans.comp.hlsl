@@ -237,13 +237,13 @@ static void subtest()
 
 void test()
 {
-    // subtest<arithmetic::bit_and<uint32_t> >();
-    // subtest<arithmetic::bit_xor<uint32_t> >();
-    // subtest<arithmetic::bit_or<uint32_t> >();
+    subtest<arithmetic::bit_and<uint32_t> >();
+    subtest<arithmetic::bit_xor<uint32_t> >();
+    subtest<arithmetic::bit_or<uint32_t> >();
     subtest<arithmetic::plus<uint32_t> >();
-    // subtest<arithmetic::multiplies<uint32_t> >();
-    // subtest<arithmetic::minimum<uint32_t> >();
-    // subtest<arithmetic::maximum<uint32_t> >();
+    subtest<arithmetic::multiplies<uint32_t> >();
+    subtest<arithmetic::minimum<uint32_t> >();
+    subtest<arithmetic::maximum<uint32_t> >();
 }
 
 [numthreads(WORKGROUP_SIZE,1,1)]

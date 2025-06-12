@@ -392,13 +392,13 @@ private:
 		const uint32_t subgroupSize = 1u << subgroupSizeLog2;
 		// check results
 		bool passed = true;
-		//passed = validateResults<Arithmetic, arithmetic::bit_and<uint32_t> >(itemsPerWG, workgroupCount, subgroupSize);
-		//passed = validateResults<Arithmetic, arithmetic::bit_xor<uint32_t> >(itemsPerWG, workgroupCount, subgroupSize) && passed;
-		//passed = validateResults<Arithmetic, arithmetic::bit_or<uint32_t> >(itemsPerWG, workgroupCount, subgroupSize) && passed;
+		passed = validateResults<Arithmetic, arithmetic::bit_and<uint32_t> >(itemsPerWG, workgroupCount, subgroupSize);
+		passed = validateResults<Arithmetic, arithmetic::bit_xor<uint32_t> >(itemsPerWG, workgroupCount, subgroupSize) && passed;
+		passed = validateResults<Arithmetic, arithmetic::bit_or<uint32_t> >(itemsPerWG, workgroupCount, subgroupSize) && passed;
 		passed = validateResults<Arithmetic, arithmetic::plus<uint32_t> >(itemsPerWG, workgroupCount, subgroupSize) && passed;
-		//passed = validateResults<Arithmetic, arithmetic::multiplies<uint32_t> >(itemsPerWG, workgroupCount, subgroupSize) && passed;
-		//passed = validateResults<Arithmetic, arithmetic::minimum<uint32_t> >(itemsPerWG, workgroupCount, subgroupSize) && passed;
-		//passed = validateResults<Arithmetic, arithmetic::maximum<uint32_t> >(itemsPerWG, workgroupCount, subgroupSize) && passed;
+		passed = validateResults<Arithmetic, arithmetic::multiplies<uint32_t> >(itemsPerWG, workgroupCount, subgroupSize) && passed;
+		passed = validateResults<Arithmetic, arithmetic::minimum<uint32_t> >(itemsPerWG, workgroupCount, subgroupSize) && passed;
+		passed = validateResults<Arithmetic, arithmetic::maximum<uint32_t> >(itemsPerWG, workgroupCount, subgroupSize) && passed;
 
 		return passed;
 	}
