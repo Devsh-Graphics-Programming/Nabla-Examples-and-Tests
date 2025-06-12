@@ -90,7 +90,7 @@ public:
 		{
 			IGPUBuffer::SCreationParams params = {};
 			params.size = sizeof(uint32_t) + gpuinputDataBuffer->getSize();
-			params.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_SRC_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+			params.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_SRC_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
 			outputBuffers[i] = m_device->createBuffer(std::move(params));
 			auto mreq = outputBuffers[i]->getMemoryReqs();
@@ -103,11 +103,10 @@ public:
 
 		// create scratch memory buffer (not the same as scratch shared memory)
 		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
-		smart_refctd_ptr<IGPUBuffer> scratchBuffer;
 		{
 			IGPUBuffer::SCreationParams params = {};
 			params.size = sizeof(uint32_t) * (elementCount / MinSubgroupSize);
-			params.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+			params.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_SRC_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
 			scratchBuffer = m_device->createBuffer(std::move(params));
 			auto mreq = scratchBuffer->getMemoryReqs();
@@ -162,6 +161,8 @@ public:
 				logFail("Failed to Create SPIR-V to ISA cache file.");
 		}
 
+		//if (m_physicalDevice->getProperties().limits.vu)
+
 		// load shader source from file
 		auto getShaderSource = [&](const char* filePath) -> auto
 			{
@@ -181,6 +182,7 @@ public:
 		auto scanTestSource = getShaderSource("app_resources/testScans.comp.hlsl");
 		// now create or retrieve final resources to run our tests
 		sema = m_device->createSemaphore(timelineValue);
+		statusBuffer = ICPUBuffer::create({ scratchBuffer->getSize() });
 		resultsBuffer = ICPUBuffer::create({ outputBuffers[0]->getSize() });
 		{
 			smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(computeQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
@@ -196,7 +198,7 @@ public:
 		for (auto subgroupSize = MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 		{
 			const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
-			for (uint32_t workgroupSize = 512; workgroupSize <= MaxWorkgroupSize; workgroupSize *= 2u)
+			for (uint32_t workgroupSize = subgroupSize; workgroupSize <= MaxWorkgroupSize; workgroupSize *= 2u)
 			{
 				// make sure renderdoc captures everything for debugging
 				m_api->startCapture();
@@ -349,6 +351,12 @@ private:
 		workgroupCount = min(workgroupCount, m_physicalDevice->getLimits().maxComputeWorkGroupCount[0]);
 
 		cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
+
+		// clear buffers
+		cmdbuf->fillBuffer({ .size = scratchBuffer->getSize(), .buffer = scratchBuffer }, 0u);
+		for (uint32_t i = 0; i < OutputBufferCount; i++)
+			cmdbuf->fillBuffer({ .size = outputBuffers[i]->getSize(), .buffer = outputBuffers[i] }, 0u);
+
 		cmdbuf->bindComputePipeline(pipeline.get());
 		cmdbuf->pushConstants(pipelineLayout.get(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(PushConstantData), &pc);
 		cmdbuf->dispatch(workgroupCount, 1, 1);
@@ -380,7 +388,6 @@ private:
 		computeQueue->submit(submits);
 		const ISemaphore::SWaitInfo wait[1] = { {.semaphore = sema.get(),.value = timelineValue} };
 		m_device->blockForSemaphores(wait);
-		m_device->waitIdle();
 
 		const uint32_t subgroupSize = 1u << subgroupSizeLog2;
 		// check results
@@ -401,38 +408,68 @@ private:
 	bool validateResults(const uint32_t itemsPerWG, const uint32_t workgroupCount, const uint32_t subgroupSize)
 	{
 		bool success = true;
+		std::string arith_name = Arithmetic<arithmetic::bit_xor<float>>::name;
+		const bool isReduction = arith_name == "reduction";
 
 		// download data
-		const SBufferRange<IGPUBuffer> bufferRange = { 0u, resultsBuffer->getSize(), outputBuffers[Binop::BindingIndex] };
-		m_utils->downloadBufferRangeViaStagingBufferAutoSubmit(SIntendedSubmitInfo{ .queue = transferDownQueue }, bufferRange, resultsBuffer->getPointer());
+	    {
+	        const SBufferRange<IGPUBuffer> bufferRange = { 0u, resultsBuffer->getSize(), outputBuffers[Binop::BindingIndex] };
+		    m_utils->downloadBufferRangeViaStagingBufferAutoSubmit(SIntendedSubmitInfo{ .queue = transferDownQueue }, bufferRange, resultsBuffer->getPointer());
+	    }
+		{
+			const SBufferRange<IGPUBuffer> bufferRange = { 0u, statusBuffer->getSize(), scratchBuffer };
+			m_utils->downloadBufferRangeViaStagingBufferAutoSubmit(SIntendedSubmitInfo{ .queue = transferDownQueue }, bufferRange, statusBuffer->getPointer());
+		}
 
 		using type_t = typename Binop::type_t;
 		const auto dataFromBuffer = reinterpret_cast<const uint32_t*>(resultsBuffer->getPointer());
 
 		const auto testData = reinterpret_cast<const type_t*>(dataFromBuffer + 1);
+		const auto scratchData = reinterpret_cast<const uint32_t*>(statusBuffer->getPointer());
+
 		// TODO: parallel for (the temporary values need to be threadlocal or what?)
-		// now check if the data obtained has valid values
+			// now check if the data obtained has valid values
 		const uint32_t elementCount = itemsPerWG * workgroupCount;
 		type_t* tmp = new type_t[elementCount];
 
 		Arithmetic<Binop>::impl(tmp, inputData, elementCount);
 
-		for (uint32_t index = 0u; index < elementCount; index++)
+		if (isReduction)
 		{
-			const auto cpuVal = tmp[index];
-			const auto gpuVal = testData[index];
-			if (cpuVal != gpuVal)
+			const auto cpuVal = tmp[0];
+			const auto gpuVal = testData[0];
+
+			const auto gpuStatus = scratchData[Binop::BindingIndex];
+			const uint32_t expectedStatus = workgroupCount;
+
+			if (cpuVal != gpuVal || expectedStatus != gpuStatus)
 			{
 				m_logger->log(
-					"Failed test #%d (%s) Expected %u got %u for item %d",
+					"Failed test #%d (%s) Expected value %u got %u, expected status %u got %u",
 					ILogger::ELL_ERROR, itemsPerWG, Binop::name,
-					cpuVal, gpuVal, index
+					cpuVal, gpuVal, expectedStatus, gpuStatus
 				);
 				success = false;
-				break;
 			}
 		}
-
+		else
+		{
+			for (uint32_t index = 0u; index < elementCount; index++)
+			{
+				const auto cpuVal = tmp[index];
+				const auto gpuVal = testData[index];
+				if (cpuVal != gpuVal)
+				{
+					m_logger->log(
+						"Failed test #%d (%s) Expected %u got %u for item %d",
+						ILogger::ELL_ERROR, itemsPerWG, Binop::name,
+						cpuVal, gpuVal, index
+					);
+					success = false;
+					break;
+				}
+			}
+		}
 		delete[] tmp;
 
 		return success;
@@ -446,12 +483,14 @@ private:
 	uint32_t* inputData = nullptr;
 	constexpr static inline uint32_t OutputBufferCount = 8u;
 	smart_refctd_ptr<IGPUBuffer> outputBuffers[OutputBufferCount];
+	smart_refctd_ptr<IGPUBuffer> scratchBuffer;
 	smart_refctd_ptr<IGPUPipelineLayout> pipelineLayout;
 	PushConstantData pc;
 
 	smart_refctd_ptr<ISemaphore> sema;
 	uint64_t timelineValue = 0;
 	smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
+	smart_refctd_ptr<ICPUBuffer> statusBuffer;
 	smart_refctd_ptr<ICPUBuffer> resultsBuffer;
 
 	uint32_t totalFailCount = 0;

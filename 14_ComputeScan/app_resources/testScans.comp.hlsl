@@ -160,11 +160,6 @@ struct PreloadedDataProxy
         unload();
     }
 
-    bda::__ptr<uint32_t> getScratchPtr()
-    {
-        return bda::__ptr<uint32_t>::create(scratchDataAddress);
-    }
-
     void workgroupExecutionAndMemoryBarrier()
     {
         glsl::barrier();
@@ -173,7 +168,15 @@ struct PreloadedDataProxy
 
     DataProxy<Config, Binop> data;
     dtype_t preloaded[PreloadedDataCount];
-    uint64_t scratchDataAddress;
+};
+
+struct BDAProxy
+{
+    bda::__ptr<uint32_t> getPtr()
+    {
+        return bda::__ptr<uint32_t>::create(address);
+    }
+    uint64_t address;
 };
 
 static ScratchProxy arithmeticAccessor;
@@ -187,24 +190,34 @@ struct operation_t
 
     // reduction returns the value of the reduction
     // scans do no return anything, but use the data accessor to do the storing directly
+#if IS_REDUCTION
+    void operator()()
+    {
+        PreloadedDataProxy<config_t,Binop> dataAccessor = PreloadedDataProxy<config_t,Binop>::create();
+        dataAccessor.preload();
+
+        BDAProxy outputAccessor;
+        outputAccessor.address = pc.pOutputBuf[Binop::BindingIndex] + sizeof(uint32_t);
+        BDAProxy statusAccessor;
+        statusAccessor.address = pc.pScratchBuf + sizeof(uint32_t) * Binop::BindingIndex;
+
+        OPERATION<config_t,binop_base_t,true,device_capabilities>::template __call<PreloadedDataProxy<config_t,Binop>, BDAProxy, BDAProxy, ScratchProxy>(dataAccessor,outputAccessor,statusAccessor,arithmeticAccessor);
+        // we barrier before because we alias the accessors for Binop
+        arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
+    }
+#else
     void operator()()
     {
         PreloadedDataProxy<config_t,Binop> dataAccessor = PreloadedDataProxy<config_t,Binop>::create();
         dataAccessor.scratchDataAddress = pc.pScratchBuf;
         dataAccessor.preload();
-#if IS_REDUCTION
-        otype_t value =
-#endif
         OPERATION<config_t,binop_base_t,true,device_capabilities>::template __call<PreloadedDataProxy<config_t,Binop>, ScratchProxy>(dataAccessor,arithmeticAccessor);
         // we barrier before because we alias the accessors for Binop
         arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
-#if IS_REDUCTION
-        [unroll]
-        for (uint32_t i = 0; i < PreloadedDataProxy<config_t,Binop>::PreloadedDataCount; i++)
-            dataAccessor.preloaded[i] = value;
-#endif
+
         dataAccessor.unload();
     }
+#endif
 };
 
 uint32_t globalIndex()
