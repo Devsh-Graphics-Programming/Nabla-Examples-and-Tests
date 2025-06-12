@@ -198,9 +198,8 @@ float4 fragMain(PSInput input) : SV_TARGET
         }
         if (dtmSettings.drawHeightShadingEnabled())
             dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, v, heightDeriv, input.position.xy, height));
-        
 
-        textureColor = dtmColor.rgb;
+        textureColor = dtmColor.rgb / dtmColor.a;
         localAlpha = dtmColor.a;
 
         gammaUncorrect(textureColor); // want to output to SRGB without gamma correction
@@ -583,7 +582,7 @@ float4 fragMain(PSInput input) : SV_TARGET
             if (dtmSettings.drawHeightShadingEnabled() && !outOfBoundsUV)
                 dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, v, heightDeriv, input.position.xy, height));
 
-            textureColor = dtmColor.rgb;
+            textureColor = dtmColor.rgb / dtmColor.a;
             localAlpha = dtmColor.a;
 
             // test out of bounds draw
