@@ -184,9 +184,8 @@ float4 fragMain(PSInput input) : SV_TARGET
         }
         if (dtmSettings.drawHeightShadingEnabled())
             dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, v, heightDeriv, input.position.xy, height));
-        
 
-        textureColor = dtmColor.rgb;
+        textureColor = dtmColor.rgb / dtmColor.a;
         localAlpha = dtmColor.a;
 
         // because final color is premultiplied by alpha
@@ -567,7 +566,7 @@ float4 fragMain(PSInput input) : SV_TARGET
             if (dtmSettings.drawHeightShadingEnabled() && !outOfBoundsUV)
                 dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, v, heightDeriv, input.position.xy, height));
 
-            textureColor = dtmColor.rgb;
+            textureColor = dtmColor.rgb / dtmColor.a;
             localAlpha = dtmColor.a;
 
             // because final color is premultiplied by alpha
