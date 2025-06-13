@@ -311,7 +311,6 @@ private:
 			// Theoretically a blob of SPIR-V can contain multiple named entry points and one has to be chosen, in practice most compilers only support outputting one (and glslang used to require it be called "main")
 			params.shader.entryPoint = "main";
 			params.shader.shader = shader.get();
-			params.shader.stage = hlsl::ShaderStage::ESS_COMPUTE;
 			// we'll cover the specialization constant API in another example
 			if (!m_device->createComputePipelines(nullptr,{&params,1},&pipeline))
 				logFailAndTerminate("Failed to create pipelines (compile & link shaders)!\n");

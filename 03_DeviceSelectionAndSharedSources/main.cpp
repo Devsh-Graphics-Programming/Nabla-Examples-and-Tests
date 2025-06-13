@@ -61,10 +61,9 @@ public:
 		//shaderIntrospection->debugPrint(m_logger.get());
 
 		// We've now skipped the manual creation of a descriptor set layout, pipeline layout
-		IPipelineBase::SShaderSpecInfo specInfo;
+		ICPUPipelineBase::SShaderSpecInfo specInfo;
 		specInfo.entryPoint = "main";
-		specInfo.shader = source.get();
-		specInfo.stage = hlsl::ShaderStage::ESS_COMPUTE;
+		specInfo.shader = source;
 
 		smart_refctd_ptr<nbl::asset::ICPUComputePipeline> cpuPipeline = introspector.createApproximateComputePipelineFromIntrospection(specInfo);
 

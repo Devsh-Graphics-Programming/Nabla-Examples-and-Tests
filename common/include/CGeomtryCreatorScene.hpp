@@ -824,7 +824,6 @@ private:
 			{
 				SBlendParams blend;
 				SRasterizationParams rasterization;
-				typename Types::graphics_pipeline_t::SCreationParams pipeline;
 			} params;
 				
 			{
@@ -842,16 +841,6 @@ private:
 
 			params.rasterization.faceCullingMode = EFCM_NONE;
 			{
-				const IPipelineBase::SShaderSpecInfo info [] =
-				{
-					{.shader = scratch.shaders[inGeometry.shadersType].vertex.get(), .entryPoint = "VSMain", .stage = hlsl::ShaderStage::ESS_VERTEX},
-					{.shader = scratch.shaders[inGeometry.shadersType].fragment.get(), .entryPoint = "PSMain", .stage = hlsl::ShaderStage::ESS_FRAGMENT},
-				};
-
-				params.pipeline.layout = scratch.pipelineLayout.get();
-				params.pipeline.shaders = info;
-				params.pipeline.renderpass = scratch.renderpass.get();
-				params.pipeline.cached = { .vertexInput = inGeometry.data.inputParams, .primitiveAssembly = inGeometry.data.assemblyParams, .rasterization = params.rasterization, .blend = params.blend, .subpassIx = 0u };
 
 				obj.indexCount = inGeometry.data.indexCount;
 				obj.indexType = inGeometry.data.indexType;
@@ -859,11 +848,28 @@ private:
 				// TODO: cache pipeline & try lookup for existing one first maybe
 
 				// similar issue like with shaders again, in this case gpu contructor allows for extra cache parameters + there is no constructor you can use to fire make_smart_refctd_ptr yourself for cpu
-				if constexpr (withAssetConverter)
-					obj.pipeline = ICPUGraphicsPipeline::create(params.pipeline);
+				if constexpr (withAssetConverter) {
+
+					obj.pipeline = ICPUGraphicsPipeline::create(scratch.pipelineLayout.get(), scratch.renderpass.get());
+					obj.pipeline->getCachedCreationParams() = {
+            .vertexInput = inGeometry.data.inputParams, 
+						.primitiveAssembly = inGeometry.data.assemblyParams, 
+						.rasterization = params.rasterization, 
+						.blend = params.blend, 
+						.subpassIx = 0u 
+					};
+					*obj.pipeline->getSpecInfo(hlsl::ESS_VERTEX) = { .shader = scratch.shaders[inGeometry.shadersType].vertex, .entryPoint = "VSMain" };
+					*obj.pipeline->getSpecInfo(hlsl::ESS_FRAGMENT) = { .shader = scratch.shaders[inGeometry.shadersType].fragment, .entryPoint = "PSMain" };
+				}
 				else
 				{
-					const std::array<const IGPUGraphicsPipeline::SCreationParams,1> info = { { params.pipeline } };
+					IGPUGraphicsPipeline::SCreationParams createParams = {};
+          createParams.layout = scratch.pipelineLayout.get();
+          createParams.vertexShader = {.shader = scratch.shaders[inGeometry.shadersType].vertex.get(), .entryPoint = "VSMain" };
+          createParams.fragmentShader = { .shader = scratch.shaders[inGeometry.shadersType].fragment.get(), .entryPoint = "PSMain" };
+          createParams.renderpass = scratch.renderpass.get();
+          createParams.cached = { .vertexInput = inGeometry.data.inputParams, .primitiveAssembly = inGeometry.data.assemblyParams, .rasterization = params.rasterization, .blend = params.blend, .subpassIx = 0u };
+					const std::array<const IGPUGraphicsPipeline::SCreationParams,1> info = { { createParams } };
 					utilities->getLogicalDevice()->createGraphicsPipelines(nullptr, info, &obj.pipeline);
 				}
 

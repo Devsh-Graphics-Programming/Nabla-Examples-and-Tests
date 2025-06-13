@@ -203,7 +203,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				params.layout = pipelineLayout.get();
 				params.shader.shader = shader.get();
 				params.shader.entryPoint = "main";
-				params.shader.stage = ESS_COMPUTE;
 				if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &renderPipeline))
 					return logFail("Failed to create compute pipeline");
 			}

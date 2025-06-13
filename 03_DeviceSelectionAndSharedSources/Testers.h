@@ -254,10 +254,9 @@ public:
 		bool pplnCreationSuccess[MERGE_TEST_SHADERS_CNT];
 		for (uint32_t i = 0u; i < MERGE_TEST_SHADERS_CNT; ++i)
 		{
-			IPipelineBase::SShaderSpecInfo specInfo;
+			ICPUPipelineBase::SShaderSpecInfo specInfo;
 			specInfo.entryPoint = "main";
-			specInfo.shader = sources[i].get();
-			specInfo.stage = hlsl::ShaderStage::ESS_COMPUTE;
+			specInfo.shader = sources[i];
 			pplnCreationSuccess[i] = static_cast<bool>(introspector[i].createApproximateComputePipelineFromIntrospection(specInfo, core::smart_refctd_ptr<ICPUPipelineLayout>(predefinedPplnLayout)));
 		}
 

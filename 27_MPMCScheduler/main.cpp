@@ -115,8 +115,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 				params.layout = layout.get();
 				params.shader.shader = shader.get();
 				params.shader.entryPoint = "main";
-				params.shader.stage = hlsl::ShaderStage::ESS_COMPUTE;
-				params.shader.requireFullSubgroups = true;
+				params.cached.requireFullSubgroups = true;
 				if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &m_ppln))
 					return logFail("Failed to create Pipeline");
 			}

@@ -260,10 +260,9 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 						.size = sizeof(push_constants_t)
 					};
 					auto layout = m_device->createPipelineLayout({ &range,1 }, nullptr, nullptr, nullptr, core::smart_refctd_ptr(dsLayout));
-					const IPipelineBase::SShaderSpecInfo fragSpec = {
+					const IGPUPipelineBase::SShaderSpecInfo fragSpec = {
 						.shader = fragmentShader.get(),
 						.entryPoint = "main",
-						.stage = ESS_FRAGMENT,
 					};
 					m_pipeline = fsTriProtoPPln.createPipeline(fragSpec, layout.get(), scResources->getRenderpass()/*,default is subpass 0*/);
 					if (!m_pipeline)

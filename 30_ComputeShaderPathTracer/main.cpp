@@ -351,10 +351,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						params.layout = ptPipelineLayout.get();
 						params.shader.shader = ptShader.get();
 						params.shader.entryPoint = "main";
-						params.shader.stage = ESS_COMPUTE;
 						params.shader.entries = nullptr;
-						params.shader.requireFullSubgroups = true;
-						params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SShaderSpecInfo::SUBGROUP_SIZE>(5);
+						params.cached.requireFullSubgroups = true;
+						params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(5);
 						if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTPipelines.data() + index)) {
 							return logFail("Failed to create compute pipeline!\n");
 						}
@@ -373,10 +372,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					if (!fragmentShader)
 						return logFail("Failed to Load and Compile Fragment Shader: lumaMeterShader!");
 
-					const IPipelineBase::SShaderSpecInfo fragSpec = {
+					const IGPUPipelineBase::SShaderSpecInfo fragSpec = {
 						.shader = fragmentShader.get(),
 						.entryPoint = "main",
-						.stage = ESS_FRAGMENT,
 					};
 
 					auto presentLayout = m_device->createPipelineLayout(

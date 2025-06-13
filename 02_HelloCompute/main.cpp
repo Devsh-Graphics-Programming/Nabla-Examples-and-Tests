@@ -169,7 +169,6 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 					// Theoretically a blob of SPIR-V can contain multiple named entry points and one has to be chosen, in practice most compilers only support outputting one (and glslang used to require it be called "main")
 					params.shader.entryPoint = "main";
 					params.shader.shader = shader.get();
-					params.shader.stage = hlsl::ESS_COMPUTE;
 					// we'll cover the specialization constant API in another example
 					if (!device->createComputePipelines(nullptr,{&params,1},&pipeline))
 						return logFail("Failed to create pipelines (compile & link shaders)!\n");

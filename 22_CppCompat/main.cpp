@@ -128,7 +128,6 @@ public:
             params.layout = layout.get();
             params.shader.shader = shader.get();
             params.shader.entryPoint = "main";
-            params.shader.stage = hlsl::ShaderStage::ESS_COMPUTE;
             if (!m_device->createComputePipelines(nullptr, { &params,1 }, &m_pipeline))
                 return logFail("Failed to create compute pipeline!\n");
         }

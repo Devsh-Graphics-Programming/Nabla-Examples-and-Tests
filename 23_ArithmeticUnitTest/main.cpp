@@ -284,11 +284,10 @@ private:
 		params.shader = {
 			.shader = shader.get(),
 			.entryPoint = "main",
-			.stage = hlsl::ESS_COMPUTE,
-			.requiredSubgroupSize = static_cast<IPipelineBase::SShaderSpecInfo::SUBGROUP_SIZE>(subgroupSizeLog2),
-			.requireFullSubgroups = true,
+			.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(subgroupSizeLog2),
 			.entries = nullptr,
 		};
+		params.cached.requireFullSubgroups = true;
 		core::smart_refctd_ptr<IGPUComputePipeline> pipeline;
 		if (!m_device->createComputePipelines(m_spirv_isa_cache.get(),{&params,1},&pipeline))
 			return nullptr;

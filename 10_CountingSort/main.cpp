@@ -92,10 +92,9 @@ class CountingSortApp final : public application_templates::MonoDeviceApplicatio
 				params.layout = layout.get();
 				params.shader.shader = prefixSumShader.get();
 				params.shader.entryPoint = "main";
-				params.shader.stage = hlsl::ShaderStage::ESS_COMPUTE;
 				params.shader.entries = nullptr;
-				params.shader.requireFullSubgroups = true;
-				params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SShaderSpecInfo::SUBGROUP_SIZE>(5);
+				params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(5);
+				params.cached.requireFullSubgroups = true;
 				if (!m_device->createComputePipelines(nullptr, { &params,1 }, &prefixSumPipeline))
 					return logFail("Failed to create compute pipeline!\n");
 				params.shader.shader = scatterShader.get();

@@ -133,9 +133,8 @@ public:
 			params.layout = layout.get();
 			params.shader.shader = shader.get();
 			params.shader.entryPoint = "main";
-			params.shader.stage = hlsl::ESS_COMPUTE;
-			params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SShaderSpecInfo::SUBGROUP_SIZE>(hlsl::findMSB(m_physicalDevice->getLimits().maxSubgroupSize));
-			params.shader.requireFullSubgroups = true;
+			params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(hlsl::findMSB(m_physicalDevice->getLimits().maxSubgroupSize));
+			params.cached.requireFullSubgroups = true;
 			if (!m_device->createComputePipelines(nullptr, { &params,1 }, &m_pipeline))
 				return logFail("Failed to create compute pipeline!\n");
 		}

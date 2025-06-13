@@ -113,7 +113,6 @@ public:
             params.layout = m_pplnLayout.get();
             params.shader.entryPoint = "main";
             params.shader.shader = shader.get();
-            params.shader.stage = shaderStage;
             if (!m_device->createComputePipelines(nullptr, { &params,1 }, &m_pipeline))
                 logFail("Failed to create pipelines (compile & link shaders)!\n");
         }
