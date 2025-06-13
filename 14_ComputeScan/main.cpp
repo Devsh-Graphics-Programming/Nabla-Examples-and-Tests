@@ -350,12 +350,23 @@ private:
 		uint32_t workgroupCount = elementCount / itemsPerWG;
 		workgroupCount = min(workgroupCount, m_physicalDevice->getLimits().maxComputeWorkGroupCount[0]);
 
+		const uint32_t identities[] = {
+			arithmetic::bit_and<uint32_t>::base_t::identity,
+			arithmetic::bit_xor<uint32_t>::base_t::identity,
+			arithmetic::bit_or<uint32_t>::base_t::identity,
+			arithmetic::plus<uint32_t>::base_t::identity,
+			arithmetic::multiplies<uint32_t>::base_t::identity,
+			arithmetic::minimum<uint32_t>::base_t::identity,
+			arithmetic::maximum<uint32_t>::base_t::identity,
+			arithmetic::ballot<uint32_t>::base_t::identity,
+		};
+
 		cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
 
 		// clear buffers
 		cmdbuf->fillBuffer({ .size = scratchBuffer->getSize(), .buffer = scratchBuffer }, 0u);
 		for (uint32_t i = 0; i < OutputBufferCount; i++)
-			cmdbuf->fillBuffer({ .size = outputBuffers[i]->getSize(), .buffer = outputBuffers[i] }, 0u);
+			cmdbuf->fillBuffer({ .size = outputBuffers[i]->getSize(), .buffer = outputBuffers[i] }, identities[i]);
 
 		cmdbuf->bindComputePipeline(pipeline.get());
 		cmdbuf->pushConstants(pipelineLayout.get(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(PushConstantData), &pc);
