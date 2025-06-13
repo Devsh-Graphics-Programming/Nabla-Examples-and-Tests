@@ -370,6 +370,71 @@ void DrawResourcesFiller::drawHatch(
 		const HatchFillPattern fillPattern,
 		SIntendedSubmitInfo& intendedNextSubmit)
 {
+	drawHatch_impl(hatch, color, fillPattern, intendedNextSubmit);
+}
+
+void DrawResourcesFiller::drawHatch(const Hatch& hatch, const float32_t4& color, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	drawHatch(hatch, color, HatchFillPattern::SOLID_FILL, intendedNextSubmit);
+}
+
+void DrawResourcesFiller::drawFixedGeometryHatch(
+		const en::nabla2d::Hatch& hatch,
+		const float32_t4& foregroundColor,
+		const float32_t4& backgroundColor,
+		const en::nabla2d::HatchFillPattern fillPattern,
+		const float64_t3x3& transformation,
+		en::nabla2d::TransformationType transformationType, 
+		SIntendedSubmitInfo& intendedNextSubmit)
+{
+	// TODO[Optimization Idea]: don't draw hatch twice, we now have color storage buffer and we can treat rendering hatches like a procedural texture (requires 2 colors so no more abusing of linestyle for hatches)
+
+	// if backgroundColor is visible
+	drawFixedGeometryHatch(hatch, backgroundColor, transformation, transformationType, intendedNextSubmit);
+	// if foregroundColor is visible
+	drawFixedGeometryHatch(hatch, foregroundColor, fillPattern, transformation, transformationType, intendedNextSubmit);
+}
+
+void DrawResourcesFiller::drawFixedGeometryHatch(
+	const Hatch& hatch,
+	const float32_t4& color,
+	const HatchFillPattern fillPattern,
+	const float64_t3x3& transformation,
+	en::nabla2d::TransformationType transformationType,
+	SIntendedSubmitInfo& intendedNextSubmit)
+{
+	if (!activeProjections.empty())
+	{
+		// if there is already an active custom projection, it should be considered into the transformation of the fixed geometry polyline
+		float64_t3x3 newTransformation = nbl::hlsl::mul(activeProjections.back(), transformation);
+		pushCustomProjection(newTransformation);
+	}
+	else
+	{
+		// will be multiplied by the default projection matrix from the left (in shader), no need to consider it here
+		pushCustomProjection(transformation);
+	}
+	drawHatch_impl(hatch, color, fillPattern, intendedNextSubmit, transformationType);
+	popCustomProjection();
+}
+
+void DrawResourcesFiller::drawFixedGeometryHatch(
+	const Hatch& hatch,
+	const float32_t4& color,
+	const float64_t3x3& transformation,
+	en::nabla2d::TransformationType transformationType,
+	SIntendedSubmitInfo& intendedNextSubmit)
+{
+	drawFixedGeometryHatch(hatch, color, HatchFillPattern::SOLID_FILL, transformation, transformationType, intendedNextSubmit);
+}
+
+void DrawResourcesFiller::drawHatch_impl(
+	const Hatch& hatch,
+	const float32_t4& color,
+	const HatchFillPattern fillPattern,
+	SIntendedSubmitInfo& intendedNextSubmit,
+	en::nabla2d::TransformationType transformationType)
+{
 	if (color.a == 0.0f) // not visible
 		return;
 
@@ -380,26 +445,17 @@ void DrawResourcesFiller::drawHatch(
 		textureIdx = getMSDFIndexFromInputInfo(msdfInfo, intendedNextSubmit);
 		if (textureIdx == InvalidTextureIndex)
 			textureIdx = addMSDFTexture(msdfInfo, getHatchFillPatternMSDF(fillPattern), intendedNextSubmit);
-
-		if (textureIdx == InvalidTextureIndex)
-			m_logger.log("drawHatch: textureIdx returned invalid index", nbl::system::ILogger::ELL_ERROR);
+		_NBL_DEBUG_BREAK_IF(textureIdx == InvalidTextureIndex); // probably getHatchFillPatternMSDF returned nullptr
 	}
 
 	LineStyleInfo lineStyle = {};
 	lineStyle.color = color;
 	lineStyle.screenSpaceLineWidth = nbl::hlsl::bit_cast<float, uint32_t>(textureIdx);
-	
-	setActiveLineStyle(lineStyle);
-	beginMainObject(MainObjectType::HATCH);
-	
-	uint32_t mainObjectIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
-	if (mainObjectIdx == InvalidMainObjectIdx)
-	{
-		m_logger.log("drawHatch: acquireActiveMainObjectIndex returned invalid index", nbl::system::ILogger::ELL_ERROR);
-		assert(false);
-		return;
-	}
 
+	setActiveLineStyle(lineStyle);
+	beginMainObject(MainObjectType::HATCH, transformationType);
+
+	uint32_t mainObjectIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
 	uint32_t currentObjectInSection = 0u; // Object here refers to DrawObject. You can think of it as a Cage.
 	while (currentObjectInSection < hatch.getHatchBoxCount())
 	{
@@ -409,11 +465,6 @@ void DrawResourcesFiller::drawHatch(
 	}
 
 	endMainObject();
-}
-
-void DrawResourcesFiller::drawHatch(const Hatch& hatch, const float32_t4& color, SIntendedSubmitInfo& intendedNextSubmit)
-{
-	drawHatch(hatch, color, HatchFillPattern::SOLID_FILL, intendedNextSubmit);
 }
 
 void DrawResourcesFiller::drawFontGlyph(

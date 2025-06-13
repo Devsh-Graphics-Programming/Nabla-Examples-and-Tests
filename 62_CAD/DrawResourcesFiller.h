@@ -180,7 +180,7 @@ public:
 
 	// Must be called at the end of each frame.
 	// right before submitting the main draw that uses the currently queued geometry, images, or other objects/resources.
-	// Registers the semaphore/value that will signal completion of this frame’s draw,
+	// Registers the semaphore/value that will signal completion of this frameï¿½s draw,
 	// This allows future frames to safely deallocate or evict resources used in the current frame by waiting on this signal before reuse or destruction.
 	// `drawSubmitWaitValue` should reference the wait value of the draw submission finishing this frame using the `intendedNextSubmit`; 
 	void markFrameUsageComplete(uint64_t drawSubmitWaitValue);
@@ -225,6 +225,33 @@ public:
 	void drawHatch(
 		const Hatch& hatch,
 		const float32_t4& color,
+		SIntendedSubmitInfo& intendedNextSubmit);
+	
+	//! Convinience function for fixed-geometry Hatch with MSDF Pattern and a solid background
+	void drawFixedGeometryHatch(
+		const en::nabla2d::Hatch& hatch,
+		const float32_t4& foregroundColor,
+		const float32_t4& backgroundColor,
+		const en::nabla2d::HatchFillPattern fillPattern,
+		const float64_t3x3& transformation,
+		en::nabla2d::TransformationType transformationType,
+		SIntendedSubmitInfo& intendedNextSubmit);
+
+	// ! Fixed-geometry Hatch with MSDF Pattern
+	void drawFixedGeometryHatch(
+		const Hatch& hatch,
+		const float32_t4& color,
+		const HatchFillPattern fillPattern,
+		const float64_t3x3& transformation,
+		en::nabla2d::TransformationType transformationType,
+		SIntendedSubmitInfo& intendedNextSubmit);
+
+	// ! Solid Fill Fixed-geometry Hatch
+	void drawFixedGeometryHatch(
+		const Hatch& hatch,
+		const float32_t4& color,
+		const float64_t3x3& transformation,
+		en::nabla2d::TransformationType transformationType,
 		SIntendedSubmitInfo& intendedNextSubmit);
 	
 	/// Used by SingleLineText, Issue drawing a font glyph
@@ -615,6 +642,16 @@ protected:
 	 * @param[in] georeferencedImageParams Parameters describing the full image extents, viewport extents, and format.
 	*/
 	void determineGeoreferencedImageCreationParams(nbl::asset::IImage::SCreationParams& outImageParams, ImageType& outImageType, const GeoreferencedImageParams& georeferencedImageParams);
+
+	/**
+	 * @brief Used to implement both `drawHatch` and `drawFixedGeometryHatch` without exposing the transformation type parameter
+	*/
+	void drawHatch_impl(
+		const Hatch& hatch,
+		const float32_t4& color,
+		const HatchFillPattern fillPattern,
+		SIntendedSubmitInfo& intendedNextSubmit,
+		en::nabla2d::TransformationType transformationType = en::nabla2d::TransformationType::TT_NORMAL);
 
 	void resetMainObjects()
 	{
