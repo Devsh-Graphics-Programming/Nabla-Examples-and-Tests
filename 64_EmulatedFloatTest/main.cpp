@@ -255,7 +255,7 @@ private:
 
             // Load shaders, set up pipeline
             {
-                smart_refctd_ptr<IGPUShader> shader;
+                smart_refctd_ptr<IShader> shader;
                 {
                     IAssetLoader::SAssetLoadParams lp = {};
                     lp.logger = base.m_logger.get();
@@ -271,12 +271,12 @@ private:
 
                     // It would be super weird if loading a shader from a file produced more than 1 asset
                     assert(assets.size() == 1);
-                    smart_refctd_ptr<ICPUShader> source = IAsset::castDown<ICPUShader>(assets[0]);
+                    smart_refctd_ptr<IShader> source = IAsset::castDown<IShader>(assets[0]);
 
                     auto* compilerSet = base.m_assetMgr->getCompilerSet();
 
                     nbl::asset::IShaderCompiler::SCompilerOptions options = {};
-                    options.stage = source->getStage();
+                    options.stage = ESS_COMPUTE;
                     options.targetSpirvVersion = base.m_device->getPhysicalDevice()->getLimits().spirvVersion;
                     options.spirvOptimizer = nullptr;
                     options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
@@ -286,9 +286,7 @@ private:
 
                     auto spirv = compilerSet->compileToSPIRV(source.get(), options);
 
-                    ILogicalDevice::SShaderCreationParameters params{};
-                    params.cpushader = spirv.get();
-                    shader = base.m_device->createShader(params);
+                    shader = base.m_device->compileShader({spirv.get()});
                 }
 
                 if (!shader)
@@ -923,7 +921,7 @@ private:
 
             // Load shaders, set up pipeline
             {
-                smart_refctd_ptr<IGPUShader> shader;
+                smart_refctd_ptr<IShader> shader;
                 {
                     IAssetLoader::SAssetLoadParams lp = {};
                     lp.logger = base.m_logger.get();
@@ -939,12 +937,12 @@ private:
 
                     // It would be super weird if loading a shader from a file produced more than 1 asset
                     assert(assets.size() == 1);
-                    smart_refctd_ptr<ICPUShader> source = IAsset::castDown<ICPUShader>(assets[0]);
+                    smart_refctd_ptr<IShader> source = IAsset::castDown<IShader>(assets[0]);
 
                     auto* compilerSet = base.m_assetMgr->getCompilerSet();
 
                     IShaderCompiler::SCompilerOptions options = {};
-                    options.stage = source->getStage();
+                    options.stage = ESS_COMPUTE;
                     options.targetSpirvVersion = base.m_device->getPhysicalDevice()->getLimits().spirvVersion;
                     options.spirvOptimizer = nullptr;
                     options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
@@ -954,9 +952,7 @@ private:
 
                     auto spirv = compilerSet->compileToSPIRV(source.get(), options);
 
-                    ILogicalDevice::SShaderCreationParameters params{};
-                    params.cpushader = spirv.get();
-                    shader = base.m_device->createShader(params);
+                    shader = base.m_device->compileShader({spirv.get()});
                 }
 
                 if (!shader)

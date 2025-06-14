@@ -136,7 +136,7 @@ public:
 		}
 
 		// Load Custom Shader
-		auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IGPUShader>
+		auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IShader>
 			{
 				IAssetLoader::SAssetLoadParams lp = {};
 				lp.logger = m_logger.get();
@@ -147,11 +147,11 @@ public:
 					return nullptr;
 
 				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-				auto sourceRaw = IAsset::castDown<ICPUShader>(assets[0]);
+				auto sourceRaw = IAsset::castDown<IShader>(assets[0]);
 				if (!sourceRaw)
 					return nullptr;
 
-				return m_device->createShader({ sourceRaw.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
+				return m_device->compileShader({ sourceRaw.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
 			};
 
 		// load shaders
@@ -317,38 +317,7 @@ public:
 			const auto pipelineLayout = m_device->createPipelineLayout({ &pcRange, 1 }, smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
 
 			IGPURayTracingPipeline::SCreationParams params = {};
-
-			enum RtDemoShader
-			{
-				RTDS_RAYGEN,
-				RTDS_MISS,
-				RTDS_MISS_SHADOW,
-				RTDS_CLOSEST_HIT,
-				RTDS_SPHERE_CLOSEST_HIT,
-				RTDS_ANYHIT_PRIMARY,
-				RTDS_ANYHIT_SHADOW,
-				RTDS_INTERSECTION,
-				RTDS_DIRECTIONAL_CALL,
-				RTDS_POINT_CALL,
-				RTDS_SPOT_CALL,
-				RTDS_COUNT
-			};
-
-			IGPUShader::SSpecInfo shaders[RTDS_COUNT];
-			shaders[RTDS_RAYGEN] = { .shader = raygenShader.get() };
-			shaders[RTDS_MISS] = { .shader = missShader.get() };
-			shaders[RTDS_MISS_SHADOW] = { .shader = missShadowShader.get() };
-			shaders[RTDS_CLOSEST_HIT] = { .shader = closestHitShader.get() };
-			shaders[RTDS_SPHERE_CLOSEST_HIT] = { .shader = proceduralClosestHitShader.get() };
-			shaders[RTDS_ANYHIT_PRIMARY] = { .shader = anyHitShaderColorPayload.get() };
-			shaders[RTDS_ANYHIT_SHADOW] = { .shader = anyHitShaderShadowPayload.get() };
-			shaders[RTDS_INTERSECTION] = { .shader = intersectionHitShader.get() };
-			shaders[RTDS_DIRECTIONAL_CALL] = { .shader = directionalLightCallShader.get() };
-			shaders[RTDS_POINT_CALL] = { .shader = pointLightCallShader.get() };
-			shaders[RTDS_SPOT_CALL] = { .shader = spotLightCallShader.get() };
-
 			params.layout = pipelineLayout.get();
-			params.shaders = std::span(shaders);
 			using RayTracingFlags = IGPURayTracingPipeline::SCreationParams::FLAGS;
 			params.flags = core::bitflag(RayTracingFlags::NO_NULL_MISS_SHADERS) |
 				RayTracingFlags::NO_NULL_INTERSECTION_SHADERS |
@@ -356,42 +325,40 @@ public:
 
 			auto& shaderGroups = params.shaderGroups;
 
-			shaderGroups.raygen = { .index = RTDS_RAYGEN };
+			shaderGroups.raygen = { .shader = raygenShader.get(), .entryPoint = "main" };
 
-			IRayTracingPipelineBase::SGeneralShaderGroup missGroups[EMT_COUNT];
-			missGroups[EMT_PRIMARY] = { .index = RTDS_MISS };
-			missGroups[EMT_OCCLUSION] = { .index = RTDS_MISS_SHADOW };
+			IGPUPipelineBase::SShaderSpecInfo missGroups[EMT_COUNT];
+			missGroups[EMT_PRIMARY] = { .shader = missShader.get(), .entryPoint = "main" };
+			missGroups[EMT_OCCLUSION] = { .shader = missShadowShader.get(), .entryPoint = "main" };
 			shaderGroups.misses = missGroups;
 
 			auto getHitGroupIndex = [](E_GEOM_TYPE geomType, E_RAY_TYPE rayType)
 				{
 					return geomType * ERT_COUNT + rayType;
 				};
-			IRayTracingPipelineBase::SHitShaderGroup hitGroups[E_RAY_TYPE::ERT_COUNT * E_GEOM_TYPE::EGT_COUNT];
+			IGPURayTracingPipeline::SHitGroup hitGroups[E_RAY_TYPE::ERT_COUNT * E_GEOM_TYPE::EGT_COUNT];
 			hitGroups[getHitGroupIndex(EGT_TRIANGLES, ERT_PRIMARY)] = {
-			  .closestHit = RTDS_CLOSEST_HIT,
-			  .anyHit = RTDS_ANYHIT_PRIMARY,
+				.closestHit = {.shader = closestHitShader.get(), .entryPoint = "main" },
+				.anyHit = { .shader = anyHitShaderColorPayload.get(), .entryPoint = "main" },
 			};
 			hitGroups[getHitGroupIndex(EGT_TRIANGLES, ERT_OCCLUSION)] = {
-			  .closestHit = IGPURayTracingPipeline::SGeneralShaderGroup::Unused,
-			  .anyHit = RTDS_ANYHIT_SHADOW,
+			  .anyHit = { .shader = anyHitShaderShadowPayload.get(), .entryPoint = "main" },
 			};
 			hitGroups[getHitGroupIndex(EGT_PROCEDURAL, ERT_PRIMARY)] = {
-			  .closestHit = RTDS_SPHERE_CLOSEST_HIT,
-			  .anyHit = RTDS_ANYHIT_PRIMARY,
-			  .intersection = RTDS_INTERSECTION,
+			  .closestHit = { .shader = proceduralClosestHitShader.get(), .entryPoint = "main" },
+			  .anyHit = { .shader = anyHitShaderColorPayload.get(), .entryPoint = "main" },
+			  .intersection = { .shader = intersectionHitShader.get(), .entryPoint = "main" },
 			};
 			hitGroups[getHitGroupIndex(EGT_PROCEDURAL, ERT_OCCLUSION)] = {
-			  .closestHit = IGPURayTracingPipeline::SGeneralShaderGroup::Unused,
-			  .anyHit = RTDS_ANYHIT_SHADOW,
-			  .intersection = RTDS_INTERSECTION,
+			  .anyHit = { .shader = anyHitShaderShadowPayload.get(), .entryPoint = "main" },
+			  .intersection = { .shader = intersectionHitShader.get(), .entryPoint = "main" },
 			};
 			shaderGroups.hits = hitGroups;
 
-			IRayTracingPipelineBase::SGeneralShaderGroup callableGroups[ELT_COUNT];
-			callableGroups[ELT_DIRECTIONAL] = { .index = RTDS_DIRECTIONAL_CALL };
-			callableGroups[ELT_POINT] = { .index = RTDS_POINT_CALL };
-			callableGroups[ELT_SPOT] = { .index = RTDS_SPOT_CALL };
+			IGPUPipelineBase::SShaderSpecInfo callableGroups[ELT_COUNT];
+			callableGroups[ELT_DIRECTIONAL] = { .shader = directionalLightCallShader.get(), .entryPoint = "main" };
+			callableGroups[ELT_POINT] = { .shader = pointLightCallShader.get(), .entryPoint = "main" };
+			callableGroups[ELT_SPOT] = { .shader = spotLightCallShader.get(), .entryPoint = "main" };
 			shaderGroups.callables = callableGroups;
 
 			params.cached.maxRecursionDepth = 1;
@@ -443,9 +410,9 @@ public:
 			if (!fsTriProtoPPln)
 				return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
 
-			const IGPUShader::SSpecInfo fragSpec = {
+			const IGPUPipelineBase::SShaderSpecInfo fragSpec = {
+			  .shader = fragmentShader.get(),
 			  .entryPoint = "main",
-			  .shader = fragmentShader.get()
 			};
 
 			auto presentLayout = m_device->createPipelineLayout(
@@ -1163,6 +1130,7 @@ private:
 					.diffuse = {0.2, 0.2, 0.8},
 					.specular = {0.8, 0.8, 0.8},
 					.shininess = 1.0f,
+					.alpha = 1.0f,
 				},
 				.transform = getTranslationMatrix(-5.0f, 1.0f, 0),
 			},

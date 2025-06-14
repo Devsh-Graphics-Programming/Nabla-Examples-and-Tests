@@ -374,7 +374,6 @@ public:
                 params.layout = pipelineLayout.get();
                 params.shader.entryPoint = entryPoint;
                 params.shader.shader = shader.get();
-                params.shader.stage = ESS_COMPUTE;
                 
                 m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline);
             };
@@ -631,7 +630,6 @@ public:
                 params.layout = pipelineLayout.get();
                 params.shader.entryPoint = iterateKernel;
                 params.shader.shader = iterateShader.get();
-                params.shader.stage = ESS_COMPUTE;
 
                 m_device->createComputePipelines(nullptr, { &params,1 }, &m_iterateDiffusionPipeline);
             }
@@ -640,7 +638,6 @@ public:
                 params.layout = pipelineLayout.get();
                 params.shader.entryPoint = applyKernel;
                 params.shader.shader = applyShader.get();
-                params.shader.stage = ESS_COMPUTE;
 
                 m_device->createComputePipelines(nullptr, { &params,1 }, &m_diffusionPipeline);
             }
@@ -1635,11 +1632,6 @@ private:
         blendParams.blendParams[0u].colorWriteMask = (1u << 0u) | (1u << 1u) | (1u << 2u) | (1u << 3u);
 
         {
-            IPipelineBase::SShaderSpecInfo specInfo[] = {
-                {.shader = vs.get(), .entryPoint = "main", .stage = ESS_VERTEX, },
-                {.shader = fs.get(), .entryPoint = "main", .stage = ESS_FRAGMENT, },
-            };
-
             const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX, .offset = 0, .size = sizeof(uint64_t) };
             const auto pipelineLayout = m_device->createPipelineLayout({ &pcRange , 1 }, nullptr, smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
 
@@ -1649,7 +1641,8 @@ private:
 
             IGPUGraphicsPipeline::SCreationParams params[1] = {};
             params[0].layout = pipelineLayout.get();
-            params[0].shaders = specInfo;
+            params[0].vertexShader = { .shader = vs.get(), .entryPoint = "main", };
+            params[0].fragmentShader = { .shader = fs.get(), .entryPoint = "main", };
             params[0].cached = {
                 .vertexInput = {
                 },
