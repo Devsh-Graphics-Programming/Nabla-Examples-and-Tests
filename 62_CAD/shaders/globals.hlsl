@@ -43,6 +43,16 @@ struct PushConstants
     uint32_t isDTMRendering;
 };
 
+#ifdef __HLSL_VERSION
+NBL_CONSTEXPR float InvalidGridDTMHeightValue = asfloat(0x7FC00000);
+
+bool isInvalidGridDtmHeightValue(float value)
+{
+    return isnan(value);
+}
+
+#endif
+
 struct WorldClipRect
 {
     pfloat64_t2 minClip; // min clip of a rect in worldspace coordinates of the original space (globals.defaultProjectionToNDC)
@@ -259,8 +269,8 @@ struct GridDTMInfo
     pfloat64_t2 worldSpaceExtents; // 16 bytes (32)
     uint32_t textureID; // 4 bytes (36)
     float gridCellWidth; // 4 bytes (40)
-    float outlineStipplePatternLengthReciprocal; // 4 bytes (44)
-    float thicknessOfTheThickestLine; // 4 bytes (48)
+    float thicknessOfTheThickestLine; // 4 bytes (44)
+    float _padding; // 4 bytes (48)
 };
 
 enum E_CELL_DIAGONAL : uint32_t

@@ -117,38 +117,6 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     return color;
 }
 
-E_CELL_DIAGONAL resolveGridDTMCellDiagonal(in uint32_t4 cellData)
-{
-    float4 cellHeights = asfloat(cellData);
-
-    const bool4 invalidHeights = bool4(
-        isnan(cellHeights.x),
-        isnan(cellHeights.y),
-        isnan(cellHeights.z),
-        isnan(cellHeights.w)
-    );
-
-    int invalidHeightsCount = 0;
-    for (int i = 0; i < 4; ++i)
-        invalidHeightsCount += int(invalidHeights[i]);
-
-    if (invalidHeightsCount == 0)
-    {
-        E_CELL_DIAGONAL a = getDiagonalModeFromCellCornerData(cellData.w);
-        return getDiagonalModeFromCellCornerData(cellData.w);
-    }
-
-    if (invalidHeightsCount > 1)
-        return INVALID;
-
-    if (invalidHeights.x || invalidHeights.z)
-        return TOP_LEFT_TO_BOTTOM_RIGHT;
-    else if (invalidHeights.y || invalidHeights.w)
-        return BOTTOM_LEFT_TO_TOP_RIGHT;
-
-    return INVALID;
-}
-
 [[vk::spvexecutionmode(spv::ExecutionModePixelInterlockOrderedEXT)]]
 [shader("pixel")]
 float4 fragMain(PSInput input) : SV_TARGET
@@ -439,9 +407,26 @@ float4 fragMain(PSInput input) : SV_TARGET
 
             DTMSettings dtmSettings = loadDTMSettings(mainObj.dtmSettingsIdx);
 
+            if (!dtmSettings.drawContourEnabled() && !dtmSettings.drawOutlineEnabled() && !dtmSettings.drawHeightShadingEnabled())
+                discard;
+
             float2 pos = input.getGridDTMScreenSpacePosition();
             float2 uv = input.getImageUV();
             const uint32_t textureId = input.getGridDTMHeightTextureID();
+
+            float2 topLeft = input.getGridDTMScreenSpaceTopLeft();
+            float2 gridExtents = input.getGridDTMScreenSpaceGridExtents();
+            const float cellWidth = input.getGridDTMScreenSpaceCellWidth();
+
+            float2 gridSpacePos = uv * gridExtents;
+            float2 cellCoords;
+            {
+                float2 gridSpacePosDivGridCellWidth = gridSpacePos / cellWidth;
+                cellCoords.x = uint32_t(gridSpacePosDivGridCellWidth.x);
+                cellCoords.y = uint32_t(gridSpacePosDivGridCellWidth.y);
+            }
+
+            float2 gridSpaceCellTopLeftCoords = cellCoords * cellWidth;
 
             // grid consists of square cells and cells are divided into two triangles:
             // depending on mode it is
@@ -453,30 +438,17 @@ float4 fragMain(PSInput input) : SV_TARGET
             // v0-------v2b   v2a-------v1
             // 
 
-            // calculate screen space coordinates of vertices of t
-            // he current tiranlge within the grid
-            float3 v[3];
-            nbl::hlsl::shapes::Line<float> outlineLineSegments[2];
-            float outlinePhaseShift;
+            // calculate screen space coordinates of vertices of the current tiranlge within the grid
+            float3 currentTriangleVertices[3];
             {
-                float2 topLeft = input.getGridDTMScreenSpaceTopLeft();
-                float2 gridExtents = input.getGridDTMScreenSpaceGridExtents();
-                float cellWidth = input.getGridDTMScreenSpaceCellWidth();
-
-                float2 gridSpacePos = uv * gridExtents;
-
-                float2 cellCoords;
-                {
-                    float2 gridSpacePosDivGridCellWidth = gridSpacePos / cellWidth;
-                    cellCoords.x = uint32_t(gridSpacePosDivGridCellWidth.x);
-                    cellCoords.y = uint32_t(gridSpacePosDivGridCellWidth.y);
-                }
-
                 float2 insideCellCoord = gridSpacePos - float2(cellWidth, cellWidth) * cellCoords; // TODO: use fmod instead?
                 
-                const float InvalidHeightValue = asfloat(0x7FC00000);
                 uint32_t4 cellData;
-                float4 cellHeights = float4(InvalidHeightValue, InvalidHeightValue, InvalidHeightValue, InvalidHeightValue);
+                // cellHeihts.x - bottom left texel
+                // cellHeihts.y - bottom right texel
+                // cellHeihts.z - top right texel
+                // cellHeihts.w - top left texel
+                float4 cellHeights = float4(InvalidGridDTMHeightValue, InvalidGridDTMHeightValue, InvalidGridDTMHeightValue, InvalidGridDTMHeightValue);
                 if (textureId != InvalidTextureIndex)
                 {
                     const float2 maxCellCoords = float2(round(gridExtents.x / cellWidth), round(gridExtents.y / cellWidth));
@@ -486,8 +458,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                     cellHeights = asfloat(cellData);
                 }
 
-
-                const E_CELL_DIAGONAL cellDiagonal = resolveGridDTMCellDiagonal(cellData);
+                const E_CELL_DIAGONAL cellDiagonal = dtm::resolveGridDTMCellDiagonal(cellData);
                 const bool diagonalFromTopLeftToBottomRight = cellDiagonal == E_CELL_DIAGONAL::TOP_LEFT_TO_BOTTOM_RIGHT;
 
                 if (cellDiagonal == E_CELL_DIAGONAL::INVALID)
@@ -498,22 +469,20 @@ float4 fragMain(PSInput input) : SV_TARGET
                     insideCellCoord.x < insideCellCoord.y :
                     insideCellCoord.x < cellWidth - insideCellCoord.y;
 
-                float2 gridSpaceCellTopLeftCoords = cellCoords * cellWidth;
-
                 if (diagonalFromTopLeftToBottomRight)
                 {
-                    v[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, cellHeights.w);
-                    v[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.y);
-                    v[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.x) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, cellHeights.z);
+                    currentTriangleVertices[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, cellHeights.w);
+                    currentTriangleVertices[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.y);
+                    currentTriangleVertices[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.x) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, cellHeights.z);
                 }
                 else
                 {
-                    v[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.x);
-                    v[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, cellHeights.z);
-                    v[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, cellHeights.w) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.y);
+                    currentTriangleVertices[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.x);
+                    currentTriangleVertices[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, cellHeights.z);
+                    currentTriangleVertices[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, cellHeights.w) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.y);
                 }
 
-                bool isTriangleInvalid = isnan(v[0].z) || isnan(v[1].z) || isnan(v[2].z);
+                bool isTriangleInvalid = isnan(currentTriangleVertices[0].z) || isnan(currentTriangleVertices[1].z) || isnan(currentTriangleVertices[2].z);
                 bool isCellPartiallyInvalid = isnan(cellHeights.x) || isnan(cellHeights.y) || isnan(cellHeights.z) || isnan(cellHeights.w);
 
                 if (isTriangleInvalid)
@@ -522,36 +491,33 @@ float4 fragMain(PSInput input) : SV_TARGET
                 // move from grid space to screen space
                 [unroll]
                 for (int i = 0; i < 3; ++i)
-                    v[i].xy += topLeft;
-
-                if (triangleA)
-                {
-                    outlineLineSegments[0] = nbl::hlsl::shapes::Line<float>::construct(v[2].xy, v[0].xy);
-                    outlineLineSegments[1] = nbl::hlsl::shapes::Line<float>::construct(v[2].xy, v[1].xy);
-                }
-                else
-                {
-                    outlineLineSegments[0] = nbl::hlsl::shapes::Line<float>::construct(v[1].xy, v[2].xy);
-                    outlineLineSegments[1] = nbl::hlsl::shapes::Line<float>::construct(v[0].xy, v[2].xy);
-                }
-
-                // test diagonal draw
-                //outlineLineSegments[0] = nbl::hlsl::shapes::Line<float>::construct(v[0].xy, v[1].xy);
-                //outlineLineSegments[1] = nbl::hlsl::shapes::Line<float>::construct(v[0].xy, v[1].xy);
-
+                    currentTriangleVertices[i].xy += topLeft;
 
                 float distancesToVerticalCellSides = min(insideCellCoord.x, cellWidth - insideCellCoord.x);
                 float distancesToHorizontalCellSides = min(insideCellCoord.y, cellWidth - insideCellCoord.y);
 
                 float patternCellCoord = distancesToVerticalCellSides >= distancesToHorizontalCellSides ? cellCoords.x : cellCoords.y;
-
-                float reciprocalPatternLength = input.getGridDTMOutlineStipplePatternLengthReciprocal();
-                if(reciprocalPatternLength > 0.0f)
-                    outlinePhaseShift = (cellWidth * (1.0f / globals.screenToWorldRatio) * patternCellCoord) * reciprocalPatternLength;
             }
 
-            const float3 baryCoord = dtm::calculateDTMTriangleBarycentrics(v[0], v[1], v[2], input.position.xy);
-            float height = baryCoord.x * v[0].z + baryCoord.y * v[1].z + baryCoord.z * v[2].z;
+            // find the nearest horizontal and vertical line to the fragment
+            nbl::hlsl::shapes::Line<float> outlineLineSegments[2];
+            {
+                const float halfCellWidth = cellWidth * 0.5f;
+                const float2 nearestLineRemainingCoords = int2((gridSpacePos + halfCellWidth) / cellWidth) * cellWidth + topLeft;
+
+                // find the nearest horizontal line
+                outlineLineSegments[0].P0 = float32_t2(topLeft.x, nearestLineRemainingCoords.y);
+                outlineLineSegments[0].P1 = float32_t2(topLeft.x + gridExtents.x, nearestLineRemainingCoords.y);
+                outlineLineSegments[1].P0 = float32_t2(nearestLineRemainingCoords.x, topLeft.y);
+                outlineLineSegments[1].P1 = float32_t2(nearestLineRemainingCoords.x, topLeft.y + gridExtents.y);
+
+                // test diagonal draw (to draw diagonals height or contour shading must be enabled)
+                outlineLineSegments[0] = nbl::hlsl::shapes::Line<float>::construct(currentTriangleVertices[0].xy, currentTriangleVertices[1].xy);
+                outlineLineSegments[1] = nbl::hlsl::shapes::Line<float>::construct(currentTriangleVertices[0].xy, currentTriangleVertices[1].xy);
+            }
+
+            const float3 baryCoord = dtm::calculateDTMTriangleBarycentrics(currentTriangleVertices[0], currentTriangleVertices[1], currentTriangleVertices[2], input.position.xy);
+            float height = baryCoord.x * currentTriangleVertices[0].z + baryCoord.y * currentTriangleVertices[1].z + baryCoord.z * currentTriangleVertices[2].z;
             float2 heightDeriv = fwidth(height);
 
             const bool outOfBoundsUV = uv.x < 0.0f || uv.y < 0.0f || uv.x > 1.0f || uv.y > 1.0f;
@@ -559,12 +525,12 @@ float4 fragMain(PSInput input) : SV_TARGET
             if (dtmSettings.drawContourEnabled())
             {
                 for (int i = dtmSettings.contourSettingsCount-1u; i >= 0; --i) 
-                    dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMContourColor(dtmSettings.contourSettings[i], v, input.position.xy, height));
+                    dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMContourColor(dtmSettings.contourSettings[i], currentTriangleVertices, input.position.xy, height));
             }
             if (dtmSettings.drawOutlineEnabled())
-                dtmColor = dtm::blendUnder(dtmColor, dtm::calculateGridDTMOutlineColor(dtmSettings.outlineLineStyleIdx, outlineLineSegments, input.position.xy, outlinePhaseShift));
+                dtmColor = dtm::blendUnder(dtmColor, dtm::calculateGridDTMOutlineColor(dtmSettings.outlineLineStyleIdx, outlineLineSegments, input.position.xy, 0.0f));
             if (dtmSettings.drawHeightShadingEnabled() && !outOfBoundsUV)
-                dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, v, heightDeriv, input.position.xy, height));
+                dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, currentTriangleVertices, heightDeriv, input.position.xy, height));
 
             textureColor = dtmColor.rgb / dtmColor.a;
             localAlpha = dtmColor.a;

@@ -3580,7 +3580,7 @@ protected:
 			dtmInfo.outlineStyleInfo.worldSpaceLineWidth = 2.0f;
 			dtmInfo.outlineStyleInfo.color = float32_t4(0.0f, 0.39f, 0.0f, 1.0f);
 			std::array<double, 4> outlineStipplePattern = { 0.0f, -5.0f, 20.0f, -5.0f };
-			//dtmInfo.outlineStyleInfo.setStipplePatternData(outlineStipplePattern);
+			dtmInfo.outlineStyleInfo.setStipplePatternData(outlineStipplePattern);
 
 			dtmInfo.contourSettingsCount = 2u;
 			dtmInfo.contourSettings[0u].startHeight = 20;

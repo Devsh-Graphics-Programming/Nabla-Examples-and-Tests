@@ -417,6 +417,39 @@ float4 blendUnder(in float4 dstColor, in float4 srcColor)
 
     return dstColor;
 }
+
+E_CELL_DIAGONAL resolveGridDTMCellDiagonal(in uint32_t4 cellData)
+{
+    float4 cellHeights = asfloat(cellData);
+
+    const bool4 invalidHeights = bool4(
+        isInvalidGridDtmHeightValue(cellHeights.x),
+        isInvalidGridDtmHeightValue(cellHeights.y),
+        isInvalidGridDtmHeightValue(cellHeights.z),
+        isInvalidGridDtmHeightValue(cellHeights.w)
+    );
+
+    int invalidHeightsCount = 0;
+    for (int i = 0; i < 4; ++i)
+        invalidHeightsCount += int(invalidHeights[i]);
+
+    if (invalidHeightsCount == 0)
+    {
+        E_CELL_DIAGONAL a = getDiagonalModeFromCellCornerData(cellData.w);
+        return getDiagonalModeFromCellCornerData(cellData.w);
+    }
+
+    if (invalidHeightsCount > 1)
+        return INVALID;
+
+    if (invalidHeights.x || invalidHeights.z)
+        return TOP_LEFT_TO_BOTTOM_RIGHT;
+    else if (invalidHeights.y || invalidHeights.w)
+        return BOTTOM_LEFT_TO_TOP_RIGHT;
+
+    return INVALID;
+}
+
 }
 
 #endif
