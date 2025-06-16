@@ -777,8 +777,14 @@ void DrawResourcesFiller::drawGridDTM(
 	uint64_t textureID,
 	const DTMSettingsInfo& dtmSettingsInfo,
 	SIntendedSubmitInfo& intendedNextSubmit,
-	const bool drawGridOnly/* = false*/)
+	bool drawGridOnly/* = false*/)
 {
+	if (dtmSettingsInfo.mode == 0u)
+		return;
+
+	if (dtmSettingsInfo.mode == E_DTM_MODE::OUTLINE)
+		drawGridOnly = true;
+
 	GridDTMInfo gridDTMInfo;
 	gridDTMInfo.topLeft = topLeft;
 	gridDTMInfo.worldSpaceExtents = worldSpaceExtents;
@@ -2338,6 +2344,13 @@ DrawResourcesFiller::ImageAllocateResults DrawResourcesFiller::tryCreateAndAlloc
 		// Try creating the image and allocating memory for it:
 		nbl::video::IGPUImage::SCreationParams params = {};
 		params = imageParams;
+		
+		if (imageViewFormatOverride != asset::E_FORMAT::EF_COUNT && imageViewFormatOverride != imageParams.format)
+		{
+			// TODO: figure out why this crashes the app
+			//params.viewFormats.set(static_cast<size_t>(imageViewFormatOverride), true);
+			params.flags |= asset::IImage::E_CREATE_FLAGS::ECF_MUTABLE_FORMAT_BIT;
+		}
 		auto gpuImage = device->createImage(std::move(params));
 
 		if (gpuImage)
@@ -2368,7 +2381,7 @@ DrawResourcesFiller::ImageAllocateResults DrawResourcesFiller::tryCreateAndAlloc
 						IGPUImageView::SCreationParams viewParams = {
 							.image = gpuImage,
 							.viewType = IGPUImageView::ET_2D,
-							.format = (imageViewFormatOverride == asset::E_FORMAT::EF_COUNT) ? gpuImage->getCreationParameters().format : EF_R32G32B32A32_UINT
+							.format = (imageViewFormatOverride == asset::E_FORMAT::EF_COUNT) ? gpuImage->getCreationParameters().format : imageViewFormatOverride
 						};
 						ret.gpuImageView = device->createImageView(std::move(viewParams));
 						if (ret.gpuImageView)

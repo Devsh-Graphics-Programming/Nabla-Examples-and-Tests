@@ -137,7 +137,7 @@ float4 fragMain(PSInput input) : SV_TARGET
         v[1] = input.getScreenSpaceVertexAttribs(1);
         v[2] = input.getScreenSpaceVertexAttribs(2);
 
-        const float3 baryCoord = dtm::calculateDTMTriangleBarycentrics(v[0], v[1], v[2], input.position.xy);
+        const float3 baryCoord = dtm::calculateDTMTriangleBarycentrics(v[0].xy, v[1].xy, v[2].xy, input.position.xy);
         float height = baryCoord.x * v[0].z + baryCoord.y * v[1].z + baryCoord.z * v[2].z;
         float heightDeriv = fwidth(height);
 
@@ -526,9 +526,9 @@ float4 fragMain(PSInput input) : SV_TARGET
                 //outlineLineSegments[1] = nbl::hlsl::shapes::Line<float>::construct(currentTriangleVertices[0].xy, currentTriangleVertices[1].xy);
             }
 
-            const float3 baryCoord = dtm::calculateDTMTriangleBarycentrics(currentTriangleVertices[0], currentTriangleVertices[1], currentTriangleVertices[2], input.position.xy);
+            const float3 baryCoord = dtm::calculateDTMTriangleBarycentrics(currentTriangleVertices[0].xy, currentTriangleVertices[1].xy, currentTriangleVertices[2].xy, input.position.xy);
             float height = baryCoord.x * currentTriangleVertices[0].z + baryCoord.y * currentTriangleVertices[1].z + baryCoord.z * currentTriangleVertices[2].z;
-            float2 heightDeriv = fwidth(height);
+            float heightDeriv = fwidth(height);
 
             const bool outOfBoundsUV = uv.x < 0.0f || uv.y < 0.0f || uv.x > 1.0f || uv.y > 1.0f;
             float4 dtmColor = float4(0.0f, 0.0f, 0.0f, 0.0f);

@@ -118,14 +118,14 @@ float4 calculateDTMHeightColor(in DTMHeightShadingSettings settings, in float3 v
     if (heightMapSize > 0)
     {
         // partially based on https://www.shadertoy.com/view/XsXSz4 by Inigo Quilez
-        float2 e0 = v[1] - v[0];
-        float2 e1 = v[2] - v[1];
-        float2 e2 = v[0] - v[2];
+        float2 e0 = (v[1] - v[0]).xy;
+        float2 e1 = (v[2] - v[1]).xy;
+        float2 e2 = (v[0] - v[2]).xy;
 
         float triangleAreaSign = -sign(e0.x * e2.y - e0.y * e2.x);
-        float2 v0 = fragPos - v[0];
-        float2 v1 = fragPos - v[1];
-        float2 v2 = fragPos - v[2];
+        float2 v0 = fragPos - v[0].xy;
+        float2 v1 = fragPos - v[1].xy;
+        float2 v2 = fragPos - v[2].xy;
 
         float distanceToLine0 = sqrt(dot2(v0 - e0 * dot(v0, e0) / dot(e0, e0)));
         float distanceToLine1 = sqrt(dot2(v1 - e1 * dot(v1, e1) / dot(e1, e1)));

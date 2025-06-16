@@ -3654,7 +3654,7 @@ protected:
 			worldSpaceExtents.y = (heightMapExtent.height - 1) * HeightMapCellWidth;
 			const uint64_t heightMapTextureID = 0ull;
 
-			constexpr bool DrawGridOnly = true;
+			constexpr bool DrawGridOnly = false;
 			
 			if(DrawGridOnly)
 			{
