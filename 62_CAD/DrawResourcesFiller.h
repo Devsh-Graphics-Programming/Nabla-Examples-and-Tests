@@ -180,7 +180,7 @@ public:
 
 	// Must be called at the end of each frame.
 	// right before submitting the main draw that uses the currently queued geometry, images, or other objects/resources.
-	// Registers the semaphore/value that will signal completion of this frame’s draw,
+	// Registers the semaphore/value that will signal completion of this frameï¿½s draw,
 	// This allows future frames to safely deallocate or evict resources used in the current frame by waiting on this signal before reuse or destruction.
 	// `drawSubmitWaitValue` should reference the wait value of the draw submission finishing this frame using the `intendedNextSubmit`; 
 	void markFrameUsageComplete(uint64_t drawSubmitWaitValue);
@@ -225,6 +225,33 @@ public:
 	void drawHatch(
 		const Hatch& hatch,
 		const float32_t4& color,
+		SIntendedSubmitInfo& intendedNextSubmit);
+	
+	//! Convinience function for fixed-geometry Hatch with MSDF Pattern and a solid background
+	void drawFixedGeometryHatch(
+		const en::nabla2d::Hatch& hatch,
+		const float32_t4& foregroundColor,
+		const float32_t4& backgroundColor,
+		const en::nabla2d::HatchFillPattern fillPattern,
+		const float64_t3x3& transformation,
+		en::nabla2d::TransformationType transformationType,
+		SIntendedSubmitInfo& intendedNextSubmit);
+
+	// ! Fixed-geometry Hatch with MSDF Pattern
+	void drawFixedGeometryHatch(
+		const Hatch& hatch,
+		const float32_t4& color,
+		const HatchFillPattern fillPattern,
+		const float64_t3x3& transformation,
+		en::nabla2d::TransformationType transformationType,
+		SIntendedSubmitInfo& intendedNextSubmit);
+
+	// ! Solid Fill Fixed-geometry Hatch
+	void drawFixedGeometryHatch(
+		const Hatch& hatch,
+		const float32_t4& color,
+		const float64_t3x3& transformation,
+		en::nabla2d::TransformationType transformationType,
 		SIntendedSubmitInfo& intendedNextSubmit);
 	
 	/// Used by SingleLineText, Issue drawing a font glyph
@@ -528,6 +555,26 @@ protected:
 	/// returns index to added DTMSettingsInfo, returns Invalid index if it exceeds resource limitations
 	uint32_t addDTMSettings_Internal(const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit);
 	
+	/**
+	 * @brief Computes the final transformation matrix for fixed geometry rendering,
+	 *        considering any active custom projections and the transformation type.
+	 *
+	 * This function handles how a given transformation should be applied depending on the
+	 * current transformation type and the presence of any active projection matrices.
+	 *
+	 * - If no active projection exists, the input transformation is returned unmodified.
+	 *
+	 * - If an active projection exists:
+	 *   - For TT_NORMAL, the input transformation is simply multiplied by the top of the projection stack.
+	 * - For TT_FIXED_SCREENSPACE_SIZE, the input transformation is multiplied by the top of the projection stack,
+	 *	 but the resulting scale is replaced with the screen-space scale from the original input `transformation`.
+	 *
+	 * @param transformation The input 3x3 transformation matrix to apply.
+	 * @param transformationType The type of transformation to apply (e.g., TT_NORMAL or TT_FIXED_SCREENSPACE_SIZE).
+	 *
+	 */
+	float64_t3x3 getFixedGeometryFinalTransformationMatrix(const float64_t3x3& transformation, TransformationType transformationType) const;
+
 	/// Attempts to upload as many draw objects as possible within the given polyline section considering resource limitations
 	void addPolylineObjects_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx);
 	
@@ -619,6 +666,16 @@ protected:
 	 * @param[in] georeferencedImageParams Parameters describing the full image extents, viewport extents, and format.
 	*/
 	void determineGeoreferencedImageCreationParams(nbl::asset::IImage::SCreationParams& outImageParams, ImageType& outImageType, const GeoreferencedImageParams& georeferencedImageParams);
+
+	/**
+	 * @brief Used to implement both `drawHatch` and `drawFixedGeometryHatch` without exposing the transformation type parameter
+	*/
+	void drawHatch_impl(
+		const Hatch& hatch,
+		const float32_t4& color,
+		const HatchFillPattern fillPattern,
+		SIntendedSubmitInfo& intendedNextSubmit,
+		en::nabla2d::TransformationType transformationType = en::nabla2d::TransformationType::TT_NORMAL);
 
 	void resetMainObjects()
 	{
