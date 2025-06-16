@@ -3,11 +3,10 @@
 
 
 #include <nabla.h>
-
+#include "nbl/builtin/hlsl/math/linalg/fast_affine.hlsl"
 #include "nbl/asset/utils/CGeometryCreator.h"
 
-// soon to be deprecated!
-#include "nbl/examples/common/SBasicViewParameters.hlsl"
+#include "nbl/examples/geometry/SPushConstants.hlsl"
 
 // TODO: Arek bring back
 //#include "nbl/examples/geometry/spirv/builtin/CArchive.h"
@@ -17,9 +16,11 @@
 namespace nbl::examples
 {
 
-class CGeometryCreatorScene
+class CGeometryCreatorScene : public core::IReferenceCounted
 {
 	public:
+		using SPushConstants = hlsl::geometry_creator_scene::SPushConstants;
+		//
 		enum ObjectType : uint8_t
 		{
 			OT_CUBE,
@@ -32,144 +33,145 @@ class CGeometryCreatorScene
 			OT_ICOSPHERE,
 
 			OT_COUNT,
-			OT_UNKNOWN = std::numeric_limits<uint8_t>::max()
+			OT_UNKNOWN = OT_COUNT
 		};
-};
-#if 0
 
-struct ObjectMeta
-{
-	ObjectType type = OT_UNKNOWN;
-	std::string_view name = "Unknown";
-};
+#define EXPOSE_NABLA_NAMESPACES using namespace nbl::core; \
+using namespace nbl::system; \
+using namespace nbl::asset; \
+using namespace nbl::video
 
-constexpr static inline struct ClearValues
-{
-	nbl::video::IGPUCommandBuffer::SClearColorValue color = { .float32 = {0.f,0.f,0.f,1.f} };
-	nbl::video::IGPUCommandBuffer::SClearDepthStencilValue depth = { .depth = 0.f };
-} clear;
-
-#define TYPES_IMPL_BOILERPLATE(WithConverter) struct Types \
-{ \
-	using descriptor_set_layout_t = std::conditional_t<WithConverter, nbl::asset::ICPUDescriptorSetLayout, nbl::video::IGPUDescriptorSetLayout>; \
-	using pipeline_layout_t = std::conditional_t<WithConverter, nbl::asset::ICPUPipelineLayout, nbl::video::IGPUPipelineLayout>; \
-	using renderpass_t = std::conditional_t<WithConverter, nbl::asset::ICPURenderpass, nbl::video::IGPURenderpass>; \
-	using image_view_t = std::conditional_t<WithConverter, nbl::asset::ICPUImageView, nbl::video::IGPUImageView>; \
-	using image_t = std::conditional_t<WithConverter, nbl::asset::ICPUImage, nbl::video::IGPUImage>; \
-	using buffer_t = std::conditional_t<WithConverter, nbl::asset::ICPUBuffer, nbl::video::IGPUBuffer>; \
-	using shader_t = std::conditional_t<WithConverter, nbl::asset::ICPUShader, nbl::video::IGPUShader>; \
-	using graphics_pipeline_t = std::conditional_t<WithConverter, nbl::asset::ICPUGraphicsPipeline, nbl::video::IGPUGraphicsPipeline>; \
-	using descriptor_set = std::conditional_t<WithConverter, nbl::asset::ICPUDescriptorSet, nbl::video::IGPUDescriptorSet>; \
-}
-
-template<bool withAssetConverter>
-struct ResourcesBundleBase
-{
-	TYPES_IMPL_BOILERPLATE(withAssetConverter);
-
-	struct ReferenceObject
-	{
-		struct Bindings
+		//
+		struct SCreateParams
 		{
-			nbl::asset::SBufferBinding<typename Types::buffer_t> vertex, index;
+			core::smart_refctd_ptr<video::IUtilities> utilities;
+			core::smart_refctd_ptr<system::ILogger> logger;
 		};
+		static inline core::smart_refctd_ptr<CGeometryCreatorScene> create(SCreateParams&& params)
+		{
+			EXPOSE_NABLA_NAMESPACES;
+			auto* logger = params.logger.get();
+			assert(logger);
+			if (!params.utilities)
+			{
+				logger->log("Pass a non-null `IUtilities`!",ILogger::ELL_ERROR);
+				return nullptr;
+			}
+			auto device = params.utilities->getLogicalDevice();
 
-		nbl::core::smart_refctd_ptr<typename Types::graphics_pipeline_t> pipeline = nullptr;
+			constexpr auto DescriptorCount = 255;
+			smart_refctd_ptr<ICPUDescriptorSet> cpuDS;
+			{
+				// create Descriptor Set Layout
+				smart_refctd_ptr<ICPUDescriptorSetLayout> dsLayout;
+				{
+					const ICPUDescriptorSetLayout::SBinding bindings[] =
+					{
+						{
+							.binding = 0,
+							.type = IDescriptor::E_TYPE::ET_UNIFORM_TEXEL_BUFFER,
+							// some geometries may not have particular attributes
+							.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_PARTIALLY_BOUND_BIT,
+							.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX|IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+							.count = DescriptorCount
+						}
+					};
+					dsLayout = core::make_smart_refctd_ptr<ICPUDescriptorSetLayout>(bindings);
+					if (!dsLayout)
+					{
+						logger->log("Could not create descriptor set layout!", ILogger::ELL_ERROR);
+						return nullptr;
+					}
+				}
 
-		Bindings bindings;
-		nbl::asset::E_INDEX_TYPE indexType = nbl::asset::E_INDEX_TYPE::EIT_UNKNOWN;
-		uint32_t indexCount = {};
-	};
+				// create Descriptor Set
+				cpuDS = core::make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(dsLayout));
+				if (!cpuDS)
+				{
+					logger->log("Could not descriptor set!", ILogger::ELL_ERROR);
+					return nullptr;
+				}
+			}
 
-	using ReferenceDrawHook = std::pair<ReferenceObject, ObjectMeta>;
+			SInitParams init;
+			// create out geometries
+			{
+				auto* const outDescs = cpuDS->getDescriptorInfoStorage(IDescriptor::E_TYPE::ET_UNIFORM_TEXEL_BUFFER).data();
+				uint8_t nextDesc = 0;
+				auto allocateUTB = [DescriptorCount,outDescs,&nextDesc](const IGeometry<ICPUBuffer>::SDataView& view)->uint8_t
+				{
+					if (!view)
+						return DescriptorCount;
+					outDescs[nextDesc].desc = core::make_smart_refctd_ptr<ICPUBufferView>(view.src,view.composed.format);
+					return nextDesc++;
+				};
 
-	nbl::core::smart_refctd_ptr<typename Types::renderpass_t> renderpass;
-	std::array<ReferenceDrawHook, OT_COUNT> objects;
-	nbl::asset::SBufferBinding<typename Types::buffer_t> ubo;
+				auto addGeometry = [&allocateUTB,&init](const ICPUPolygonGeometry* geom)->void
+				{
+					auto& out = init.geoms.emplace_back();
+					out.elementCount = geom->getPrimitiveCount()*geom->getIndexingCallback()->degree();
+					out.positionView = allocateUTB(geom->getPositionView());
+					out.normalView = allocateUTB(geom->getNormalView());
+					// the first view is usually the UV
+					if (const auto& auxViews = geom->getAuxAttributeViews(); !auxViews.empty())
+						out.uvView = allocateUTB(auxViews.front());
+				};
 
-	struct
-	{
-		nbl::core::smart_refctd_ptr<typename Types::image_view_t> color, depth;
-	} attachments;
+				auto creator = core::make_smart_refctd_ptr<CGeometryCreator>();
+				addGeometry(creator->createCube().get());
+			}
 
-	nbl::core::smart_refctd_ptr<typename Types::descriptor_set> descriptorSet;
+			// convert the geometries
+			{
+				init.ds = nullptr;
+			}
+
+			return smart_refctd_ptr<CGeometryCreatorScene>(new CGeometryCreatorScene(std::move(init)),dont_grab);
+		}
+
+		//
+		struct SPackedGeometry
+		{
+			inline SPushConstants convert(const hlsl::float32_t3x4& model, const hlsl::float32_t3x4& view, const hlsl::float32_t4x4& viewProj)
+			{
+				return {
+					.basic = {
+						.MVP = hlsl::math::linalg::promoted_mul(viewProj,model),
+						.MV = hlsl::math::linalg::promoted_mul(view,model),
+						.normalMat = hlsl::inverse(hlsl::transpose(hlsl::float32_t3x3(view)))
+					},
+					.positionView = positionView,
+					.normalView = normalView,
+					.uvView = uvView
+				};
+			}
+
+			core::smart_refctd_ptr<video::IGPUBuffer> indexBuffer = nullptr;
+			uint32_t elementCount = 0;
+			// indices into the descriptor set
+			uint8_t positionView = 0;
+			uint8_t normalView = 0;
+			uint8_t uvView = 0;
+			uint8_t indexType = EIT_UNKNOWN;
+			ObjectType type : 6 = ObjectType::OT_UNKNOWN;
+		};
+		std::span<const SPackedGeometry> getGeometries() const {return m_params.geoms;}
+
+	protected:
+		struct SInitParams
+		{
+			core::smart_refctd_ptr<IGPUDescriptorSet> ds;
+			core::vector<SPackedGeometry> geoms;
+		} m_params;
+		inline CGeometryCreatorScene(SInitParams&& _params) : m_params(std::move(_params)) {}
+
+#undef EXPOSE_NABLA_NAMESPACES
 };
 
-struct ResourcesBundle : public ResourcesBundleBase<false>
-{
-	using base_t = ResourcesBundleBase<false>;
-};
-
-#define EXPOSE_NABLA_NAMESPACES() using namespace nbl; \
-using namespace core; \
-using namespace asset; \
-using namespace video; \
-using namespace scene; \
-using namespace system
-
-template<bool withAssetConverter>
+#if 0
 class ResourceBuilder
 {
 public:
-	TYPES_IMPL_BOILERPLATE(withAssetConverter);
-
-	using this_t = ResourceBuilder<withAssetConverter>;
-
-	ResourceBuilder(nbl::video::IUtilities* const _utilities, nbl::video::IGPUCommandBuffer* const _commandBuffer, nbl::system::ILogger* const _logger, const nbl::asset::IGeometryCreator* const _geometryCreator)
-		: utilities(_utilities), commandBuffer(_commandBuffer), logger(_logger), geometries(_geometryCreator)
-	{
-		assert(utilities);
-		assert(logger);
-	}
-
-	/*
-		if (withAssetConverter) then
-			-> .build cpu objects
-		else
-			-> .build gpu objects & record any resource update upload transfers into command buffer
-	*/
-
-	inline bool build()
-	{
-		EXPOSE_NABLA_NAMESPACES();
-
-		if constexpr (!withAssetConverter)
-		{
-			commandBuffer->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
-			commandBuffer->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-			commandBuffer->beginDebugMarker("Resources builder's buffers upload [manual]");
-		}
-
-		using functor_t = std::function<bool(void)>;
-
-		auto work = std::to_array
-		({
-			functor_t(std::bind(&this_t::createDescriptorSetLayout, this)),
-			functor_t(std::bind(&this_t::createPipelineLayout, this)),
-			functor_t(std::bind(&this_t::createRenderpass, this)),
-			functor_t(std::bind(&this_t::createFramebufferAttachments, this)),
-			functor_t(std::bind(&this_t::createShaders, this)),
-			functor_t(std::bind(&this_t::createGeometries, this)),
-			functor_t(std::bind(&this_t::createViewParametersUboBuffer, this)),
-			functor_t(std::bind(&this_t::createDescriptorSet, this))
-		});
-
-		for (auto& task : work)
-			if (!task())
-				return false;
-
-		if constexpr (!withAssetConverter)
-			commandBuffer->end();
-
-		return true;
-	}
-
-	/*
-		if (withAssetConverter) then
-			-> .convert cpu objects to gpu & update gpu buffers
-		else
-			-> update gpu buffers
-	*/
 
 	inline bool finalize(ResourcesBundle& output, nbl::video::CThreadSafeQueueAdapter* transferCapableQueue)
 	{
@@ -181,7 +183,6 @@ public:
 			commandBuffers.front().cmdbuf = commandBuffer;
 		}
 
-		if constexpr (withAssetConverter)
 		{
 			// note that asset converter records basic transfer uploads itself, we only begin the recording with ONE_TIME_SUBMIT_BIT
 			commandBuffer->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
@@ -401,43 +402,6 @@ public:
 				}
 			}
 		}
-		else
-		{
-			auto completed = utilities->getLogicalDevice()->createSemaphore(0u);
-
-			std::array<IQueue::SSubmitInfo::SSemaphoreInfo, 1u> signals;
-			{
-				auto& signal = signals.front();
-				signal.value = 1;
-				signal.stageMask = bitflag(PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS);
-				signal.semaphore = completed.get();
-			}
-
-			const IQueue::SSubmitInfo infos [] =
-			{
-				{
-					.waitSemaphores = {},
-					.commandBuffers = commandBuffers, // note that here our command buffer is already recorded!
-					.signalSemaphores = signals
-				}
-			};
-
-			if (transferCapableQueue->submit(infos) != IQueue::RESULT::SUCCESS)
-			{
-				logger->log("Failed to submit transfer upload operations!", ILogger::ELL_ERROR);
-				return false;
-			}
-
-			const ISemaphore::SWaitInfo info [] =
-			{ {
-				.semaphore = completed.get(),
-				.value = 1
-			} };
-
-			utilities->getLogicalDevice()->blockForSemaphores(info);
-
-			static_cast<ResourcesBundle::base_t&>(output) = static_cast<ResourcesBundle::base_t&>(scratch); // scratch has all ready to use allocated gpu resources with uploaded memory so now just assign resources to base output
-		}
 
 		// write the descriptor set
 		{
@@ -468,86 +432,7 @@ public:
 	}
 
 private:
-	bool createDescriptorSetLayout()
-	{
-		EXPOSE_NABLA_NAMESPACES();
 
-		typename Types::descriptor_set_layout_t::SBinding bindings[] =
-		{
-			{
-				.binding = 0u,
-				.type = IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-				.createFlags = Types::descriptor_set_layout_t::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-				.count = 1u,
-			}
-		};
-
-		if constexpr (withAssetConverter)
-			scratch.descriptorSetLayout = make_smart_refctd_ptr<ICPUDescriptorSetLayout>(bindings);
-		else
-			scratch.descriptorSetLayout = utilities->getLogicalDevice()->createDescriptorSetLayout(bindings);
-
-		if (!scratch.descriptorSetLayout)
-		{
-			logger->log("Could not descriptor set layout!", ILogger::ELL_ERROR);
-			return false;
-		}
-
-		return true;
-	}
-
-	bool createDescriptorSet()
-	{
-		EXPOSE_NABLA_NAMESPACES();
-
-		if constexpr (withAssetConverter)
-			scratch.descriptorSet = make_smart_refctd_ptr<ICPUDescriptorSet>(smart_refctd_ptr(scratch.descriptorSetLayout));
-		else
-		{
-			const IGPUDescriptorSetLayout* const layouts[] = { scratch.descriptorSetLayout.get()};
-			const uint32_t setCounts[] = { 1u };
-
-			// note descriptor set has back smart pointer to its pool, so we dont need to keep it explicitly
-			auto pool = utilities->getLogicalDevice()->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
-
-			if (!pool)
-			{
-				logger->log("Could not create Descriptor Pool!", ILogger::ELL_ERROR);
-				return false;
-			}
-
-			pool->createDescriptorSets(layouts, &scratch.descriptorSet);
-		}
-
-		if (!scratch.descriptorSet)
-		{
-			logger->log("Could not create Descriptor Set!", ILogger::ELL_ERROR);
-			return false;
-		}
-
-		return true;
-	}
-
-	bool createPipelineLayout()
-	{
-		EXPOSE_NABLA_NAMESPACES();
-
-		const std::span<const SPushConstantRange> range = {};
-
-		if constexpr (withAssetConverter)
-			scratch.pipelineLayout = make_smart_refctd_ptr<ICPUPipelineLayout>(range, nullptr, smart_refctd_ptr(scratch.descriptorSetLayout), nullptr, nullptr);
-		else
-			scratch.pipelineLayout = utilities->getLogicalDevice()->createPipelineLayout(range, nullptr, smart_refctd_ptr(scratch.descriptorSetLayout), nullptr, nullptr);
-
-		if (!scratch.pipelineLayout)
-		{
-			logger->log("Could not create pipeline layout!", ILogger::ELL_ERROR);
-			return false;
-		}
-
-		return true;
-	}
 
 	bool createRenderpass()
 	{
@@ -646,8 +531,6 @@ private:
 
 		if constexpr (withAssetConverter)
 			scratch.renderpass = ICPURenderpass::create(params);
-		else
-			scratch.renderpass = utilities->getLogicalDevice()->createRenderpass(params);
 
 		if (!scratch.renderpass)
 		{
@@ -747,8 +630,6 @@ private:
 
 				if constexpr (withAssetConverter)
 					outView = make_smart_refctd_ptr<ICPUImageView>(std::move(params));
-				else
-					outView = utilities->getLogicalDevice()->createImageView(std::move(params));
  
 				if (!outView)
 				{
@@ -788,8 +669,6 @@ private:
 				buffer->setContentHash(buffer->computeContentHash());
 				outShader = std::move(shader);
 			}
-			else
-				outShader = utilities->getLogicalDevice()->createShader(shader.get());
 
 			return outShader;
 		};
@@ -995,41 +874,6 @@ private:
 		return true;
 	}
 
-	bool createViewParametersUboBuffer()
-	{
-		EXPOSE_NABLA_NAMESPACES();
-
-		using ibuffer_t = ::nbl::asset::IBuffer; // seems to be ambigous, both asset & core namespaces has IBuffer
-		constexpr static auto UboUsage = bitflag(ibuffer_t::EUF_UNIFORM_BUFFER_BIT) | ibuffer_t::EUF_TRANSFER_DST_BIT | ibuffer_t::EUF_INLINE_UPDATE_VIA_CMDBUF;
-
-		if constexpr (withAssetConverter)
-		{
-			auto uboBuffer = ICPUBuffer::create({ sizeof(SBasicViewParameters) });
-			uboBuffer->addUsageFlags(UboUsage);
-			uboBuffer->setContentHash(uboBuffer->computeContentHash());
-			scratch.ubo = { .offset = 0u, .buffer = std::move(uboBuffer) };
-		}
-		else
-		{
-			const auto mask = utilities->getLogicalDevice()->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
-			auto uboBuffer = utilities->getLogicalDevice()->createBuffer(IGPUBuffer::SCreationParams({ .size = sizeof(SBasicViewParameters), .usage = UboUsage }));
-
-			if (!uboBuffer)
-				return false;
-
-			for (auto it : { uboBuffer })
-			{
-				IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = it->getMemoryReqs();
-				reqs.memoryTypeBits &= mask;
-
-				utilities->getLogicalDevice()->allocate(reqs, it.get());
-			}
-
-			scratch.ubo = { .offset = 0u, .buffer = std::move(uboBuffer) };
-		}
-
-		return true;
-	}
 
 	struct GeometriesCpu
 	{
@@ -1099,9 +943,6 @@ private:
 
 	ResourcesBundleScratch scratch;
 
-	nbl::video::IUtilities* const utilities;
-	nbl::video::IGPUCommandBuffer* const commandBuffer;
-	nbl::system::ILogger* const logger;
 	GeometriesCpu geometries;
 };
 

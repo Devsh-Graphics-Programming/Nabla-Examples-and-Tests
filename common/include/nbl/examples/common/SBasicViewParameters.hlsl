@@ -1,15 +1,27 @@
-#ifndef _S_BASIC_VIEW_PARAMETERS_COMMON_HLSL_
-#define _S_BASIC_VIEW_PARAMETERS_COMMON_HLSL_
+#ifndef _NBL_EXAMPLES_S_BASIC_VIEW_PARAMETERS_HLSL_
+#define _NBL_EXAMPLES_S_BASIC_VIEW_PARAMETERS_HLSL_
 
-#ifdef __HLSL_VERSION
-struct SBasicViewParameters //! matches CPU version size & alignment (160, 4)
+
+#include "nbl/builtin/hlsl/cpp_compat/matrix.hlsl"
+
+
+namespace nbl
 {
-	float4x4 MVP;
-	float3x4 MV;
-	float3x3 normalMat;
-};
-#endif // _S_BASIC_VIEW_PARAMETERS_COMMON_HLSL_
+namespace hlsl
+{
+namespace examples
+{
 
+struct SBasicViewParameters
+{
+	float32_t4x4 MVP;
+	float32_t3x4 MV;
+	float32_t3x3 normalMat;
+};
+
+}
+}
+}
 #endif
 
 /*

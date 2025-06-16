@@ -37,6 +37,12 @@ class GeometryCreatorApp final : public examples::MonoWindowApplication
 					return logFail("Couldn't create Command Buffer!");
 			}
 
+//			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+//			.renderpass = core::smart_refctd_ptr<video::IGPURenderpass>(scRes->getRenderpass())
+			auto scene = CGeometryCreatorScene::create({
+				.utilities = m_utils,
+				.logger = m_logger
+			});
 #if 0
 			//using Builder = typename CScene::CreateResourcesDirectlyWithDevice::Builder;
 			using Builder = typename CScene::CreateResourcesWithAssetConverter::Builder;
@@ -92,9 +98,6 @@ class GeometryCreatorApp final : public examples::MonoWindowApplication
 			const auto viewMatrix = camera.getViewMatrix();
 			const auto viewProjectionMatrix = camera.getConcatenatedMatrix();
 
-			core::matrix3x4SIMD modelMatrix;
-			modelMatrix.setTranslation(nbl::core::vectorSIMDf(0, 0, 0, 0));
-			modelMatrix.setRotation(quaternion(0, 0, 0));
 
 			core::matrix3x4SIMD modelViewMatrix = core::concatenateBFollowedByA(viewMatrix, modelMatrix);
 			core::matrix4SIMD modelViewProjectionMatrix = core::concatenateBFollowedByA(viewProjectionMatrix, modelMatrix);
