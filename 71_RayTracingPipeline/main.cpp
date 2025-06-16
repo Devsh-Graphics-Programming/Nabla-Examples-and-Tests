@@ -338,8 +338,8 @@ public:
 				};
 			IGPURayTracingPipeline::SHitGroup hitGroups[E_RAY_TYPE::ERT_COUNT * E_GEOM_TYPE::EGT_COUNT];
 			hitGroups[getHitGroupIndex(EGT_TRIANGLES, ERT_PRIMARY)] = {
-				.closestHit = {.shader = closestHitShader.get(), .entryPoint = "main" },
-				.anyHit = { .shader = anyHitShaderColorPayload.get(), .entryPoint = "main" },
+				.closestHit = { .shader = closestHitShader.get(), .entryPoint = "main" },
+			  .anyHit = { .shader = anyHitShaderColorPayload.get(), .entryPoint = "main" },
 			};
 			hitGroups[getHitGroupIndex(EGT_TRIANGLES, ERT_OCCLUSION)] = {
 			  .anyHit = { .shader = anyHitShaderShadowPayload.get(), .entryPoint = "main" },
