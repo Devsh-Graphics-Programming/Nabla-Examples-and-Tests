@@ -368,12 +368,12 @@ void DrawResourcesFiller::drawHatch(const Hatch& hatch, const float32_t4& color,
 }
 
 void DrawResourcesFiller::drawFixedGeometryHatch(
-		const en::nabla2d::Hatch& hatch,
+		const Hatch& hatch,
 		const float32_t4& foregroundColor,
 		const float32_t4& backgroundColor,
-		const en::nabla2d::HatchFillPattern fillPattern,
+		const HatchFillPattern fillPattern,
 		const float64_t3x3& transformation,
-		en::nabla2d::TransformationType transformationType, 
+		TransformationType transformationType, 
 		SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// TODO[Optimization Idea]: don't draw hatch twice, we now have color storage buffer and we can treat rendering hatches like a procedural texture (requires 2 colors so no more abusing of linestyle for hatches)
@@ -389,7 +389,7 @@ void DrawResourcesFiller::drawFixedGeometryHatch(
 	const float32_t4& color,
 	const HatchFillPattern fillPattern,
 	const float64_t3x3& transformation,
-	en::nabla2d::TransformationType transformationType,
+	TransformationType transformationType,
 	SIntendedSubmitInfo& intendedNextSubmit)
 {
 	pushCustomProjection(getFixedGeometryFinalTransformationMatrix(transformation, transformationType));
@@ -401,7 +401,7 @@ void DrawResourcesFiller::drawFixedGeometryHatch(
 	const Hatch& hatch,
 	const float32_t4& color,
 	const float64_t3x3& transformation,
-	en::nabla2d::TransformationType transformationType,
+	TransformationType transformationType,
 	SIntendedSubmitInfo& intendedNextSubmit)
 {
 	drawFixedGeometryHatch(hatch, color, HatchFillPattern::SOLID_FILL, transformation, transformationType, intendedNextSubmit);
@@ -412,7 +412,7 @@ void DrawResourcesFiller::drawHatch_impl(
 	const float32_t4& color,
 	const HatchFillPattern fillPattern,
 	SIntendedSubmitInfo& intendedNextSubmit,
-	en::nabla2d::TransformationType transformationType)
+	TransformationType transformationType)
 {
 	if (color.a == 0.0f) // not visible
 		return;

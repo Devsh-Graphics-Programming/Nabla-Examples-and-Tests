@@ -229,12 +229,12 @@ public:
 	
 	//! Convinience function for fixed-geometry Hatch with MSDF Pattern and a solid background
 	void drawFixedGeometryHatch(
-		const en::nabla2d::Hatch& hatch,
+		const Hatch& hatch,
 		const float32_t4& foregroundColor,
 		const float32_t4& backgroundColor,
-		const en::nabla2d::HatchFillPattern fillPattern,
+		const HatchFillPattern fillPattern,
 		const float64_t3x3& transformation,
-		en::nabla2d::TransformationType transformationType,
+		TransformationType transformationType,
 		SIntendedSubmitInfo& intendedNextSubmit);
 
 	// ! Fixed-geometry Hatch with MSDF Pattern
@@ -243,7 +243,7 @@ public:
 		const float32_t4& color,
 		const HatchFillPattern fillPattern,
 		const float64_t3x3& transformation,
-		en::nabla2d::TransformationType transformationType,
+		TransformationType transformationType,
 		SIntendedSubmitInfo& intendedNextSubmit);
 
 	// ! Solid Fill Fixed-geometry Hatch
@@ -251,7 +251,7 @@ public:
 		const Hatch& hatch,
 		const float32_t4& color,
 		const float64_t3x3& transformation,
-		en::nabla2d::TransformationType transformationType,
+		TransformationType transformationType,
 		SIntendedSubmitInfo& intendedNextSubmit);
 	
 	/// Used by SingleLineText, Issue drawing a font glyph
@@ -675,7 +675,7 @@ protected:
 		const float32_t4& color,
 		const HatchFillPattern fillPattern,
 		SIntendedSubmitInfo& intendedNextSubmit,
-		en::nabla2d::TransformationType transformationType = en::nabla2d::TransformationType::TT_NORMAL);
+		TransformationType transformationType = TransformationType::TT_NORMAL);
 
 	void resetMainObjects()
 	{
