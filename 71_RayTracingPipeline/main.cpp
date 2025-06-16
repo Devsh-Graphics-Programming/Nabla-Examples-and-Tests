@@ -1131,6 +1131,7 @@ private:
 					.diffuse = {0.2, 0.2, 0.8},
 					.specular = {0.8, 0.8, 0.8},
 					.shininess = 1.0f,
+					.alpha = 1.0f,
 				},
 				.transform = getTranslationMatrix(-5.0f, 1.0f, 0),
 			},
