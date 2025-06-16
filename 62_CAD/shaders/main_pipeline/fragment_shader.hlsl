@@ -474,12 +474,22 @@ float4 fragMain(PSInput input) : SV_TARGET
                     currentTriangleVertices[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, cellHeights.w);
                     currentTriangleVertices[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.y);
                     currentTriangleVertices[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.x) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, cellHeights.z);
+
+                    // TODO: use cell space instead https://github.com/Devsh-Graphics-Programming/Nabla-Examples-and-Tests/pull/186#discussion_r2133699055
+                    //currentTriangleVertices[0] = float3(0.0f, 0.0f, cellHeights.w);
+                    //currentTriangleVertices[1] = float3(cellWidth, cellWidth, cellHeights.y);
+                    //currentTriangleVertices[2] = triangleA ? float3(0.0f, cellWidth, cellHeights.x) : float3(cellWidth, 0.0f, cellHeights.z);
                 }
                 else
                 {
                     currentTriangleVertices[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.x);
                     currentTriangleVertices[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, cellHeights.z);
                     currentTriangleVertices[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, cellHeights.w) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.y);
+
+                    // TODO: use cell space instead https://github.com/Devsh-Graphics-Programming/Nabla-Examples-and-Tests/pull/186#discussion_r2133699055
+                    //currentTriangleVertices[0] = float3(0.0f, 0.0f + cellWidth, cellHeights.x);
+                    //currentTriangleVertices[1] = float3(0.0f + cellWidth, 0.0f, cellHeights.z);
+                    //currentTriangleVertices[2] = triangleA ? float3(0.0f, 0.0f, cellHeights.w) : float3(cellWidth, cellWidth, cellHeights.y);
                 }
 
                 bool isTriangleInvalid = isnan(currentTriangleVertices[0].z) || isnan(currentTriangleVertices[1].z) || isnan(currentTriangleVertices[2].z);
@@ -512,8 +522,8 @@ float4 fragMain(PSInput input) : SV_TARGET
                 outlineLineSegments[1].P1 = float32_t2(nearestLineRemainingCoords.x, topLeft.y + gridExtents.y);
 
                 // test diagonal draw (to draw diagonals height or contour shading must be enabled)
-                outlineLineSegments[0] = nbl::hlsl::shapes::Line<float>::construct(currentTriangleVertices[0].xy, currentTriangleVertices[1].xy);
-                outlineLineSegments[1] = nbl::hlsl::shapes::Line<float>::construct(currentTriangleVertices[0].xy, currentTriangleVertices[1].xy);
+                //outlineLineSegments[0] = nbl::hlsl::shapes::Line<float>::construct(currentTriangleVertices[0].xy, currentTriangleVertices[1].xy);
+                //outlineLineSegments[1] = nbl::hlsl::shapes::Line<float>::construct(currentTriangleVertices[0].xy, currentTriangleVertices[1].xy);
             }
 
             const float3 baryCoord = dtm::calculateDTMTriangleBarycentrics(currentTriangleVertices[0], currentTriangleVertices[1], currentTriangleVertices[2], input.position.xy);

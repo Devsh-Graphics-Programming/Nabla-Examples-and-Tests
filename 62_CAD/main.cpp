@@ -3654,16 +3654,26 @@ protected:
 			worldSpaceExtents.y = (heightMapExtent.height - 1) * HeightMapCellWidth;
 			const uint64_t heightMapTextureID = 0ull;
 
-			StaticImageInfo heightMapStaticImageInfo = {
+			constexpr bool DrawGridOnly = true;
+			
+			if(DrawGridOnly)
+			{
+				dtmInfo.mode = E_DTM_MODE::OUTLINE;
+				drawResourcesFiller.drawGridDTM(topLeft, worldSpaceExtents, HeightMapCellWidth, heightMapTextureID, dtmInfo, intendedNextSubmit, DrawGridOnly);
+			}
+			else
+			{
+				StaticImageInfo heightMapStaticImageInfo = {
 				.imageID = heightMapTextureID,
 				.cpuImage = gridDTMHeightMap,
 				.forceUpdate = false,
 				.imageViewFormatOverride = asset::E_FORMAT::EF_R32G32B32A32_UINT // for now we use only R32G32B32A32_* anyway
-			};
+				};
 
-			if (!drawResourcesFiller.ensureStaticImageAvailability(heightMapStaticImageInfo, intendedNextSubmit))
-				m_logger->log("Grid DTM height map texture unavailable!", ILogger::ELL_ERROR);
-			drawResourcesFiller.drawGridDTM(topLeft, worldSpaceExtents, HeightMapCellWidth, heightMapTextureID,  dtmInfo, intendedNextSubmit);
+				if (!drawResourcesFiller.ensureStaticImageAvailability(heightMapStaticImageInfo, intendedNextSubmit))
+					m_logger->log("Grid DTM height map texture unavailable!", ILogger::ELL_ERROR);
+				drawResourcesFiller.drawGridDTM(topLeft, worldSpaceExtents, HeightMapCellWidth, heightMapTextureID, dtmInfo, intendedNextSubmit);
+			}
 
 			// draw test polyline
 #if 0
