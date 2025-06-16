@@ -176,22 +176,12 @@ public:
 		const auto MaxWorkgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
 		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
-		for (uint32_t useNative = 0; useNative < 2; useNative++)
+		for (uint32_t useNative = 0; useNative <= uint32_t(m_physicalDevice->getProperties().limits.shaderSubgroupArithmetic); useNative++)
 		{
-			bool b_useNative = false;
-			if (!m_physicalDevice->getProperties().limits.shaderSubgroupArithmetic && useNative == 0)
-			{
-				m_logger->log("Device property shaderSubgroupArithmetic is false! Skipping to emulated arithmetic...", ILogger::ELL_INFO);
-				continue;
-			}
-
 			if (useNative)
 				m_logger->log("Testing with emulated subgroup arithmetic", ILogger::ELL_INFO);
 			else
-			{
 				m_logger->log("Testing with native subgroup arithmetic", ILogger::ELL_INFO);
-				b_useNative = true;
-			}
 
 			for (auto subgroupSize = MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 			{
@@ -208,21 +198,21 @@ public:
 						uint32_t itemsPerWG = workgroupSize * itemsPerInvocation;
 						m_logger->log("Testing Items per Invocation %u", ILogger::ELL_INFO, itemsPerInvocation);
 						bool passed = true;
-						passed = runTest<emulatedReduction, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, b_useNative, itemsPerWG, itemsPerInvocation) && passed;
+						passed = runTest<emulatedReduction, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
 						logTestOutcome(passed, itemsPerWG);
-						passed = runTest<emulatedScanInclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, b_useNative, itemsPerWG, itemsPerInvocation) && passed;
+						passed = runTest<emulatedScanInclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
 						logTestOutcome(passed, itemsPerWG);
-						passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, b_useNative, itemsPerWG, itemsPerInvocation) && passed;
+						passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
 						logTestOutcome(passed, itemsPerWG);
 
 						hlsl::workgroup2::SArithmeticConfiguration wgConfig = hlsl::workgroup2::SArithmeticConfiguration::create(hlsl::findMSB(workgroupSize), subgroupSizeLog2, itemsPerInvocation);
 						itemsPerWG = wgConfig.VirtualWorkgroupSize * wgConfig.ItemsPerInvocation_0;
 						m_logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
-						passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, b_useNative, itemsPerWG, itemsPerInvocation) && passed;
+						passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
 						logTestOutcome(passed, itemsPerWG);
-						passed = runTest<emulatedScanInclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, b_useNative, itemsPerWG, itemsPerInvocation) && passed;
+						passed = runTest<emulatedScanInclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
 						logTestOutcome(passed, itemsPerWG);
-						passed = runTest<emulatedScanExclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, b_useNative, itemsPerWG, itemsPerInvocation) && passed;
+						passed = runTest<emulatedScanExclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
 						logTestOutcome(passed, itemsPerWG);
 					}
 					m_api->endCapture();

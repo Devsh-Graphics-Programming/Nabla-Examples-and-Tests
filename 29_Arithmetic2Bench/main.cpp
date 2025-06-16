@@ -292,18 +292,45 @@ public:
 				benchLayout = m_device->createDescriptorSetLayout(binding);
 			}
 
-			benchPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, { &benchLayout.get(),1 });
-			benchDs = benchPool->createDescriptorSet(smart_refctd_ptr(benchLayout));
+			const uint32_t setCount = ISwapchain::MaxImages;
+			benchPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, { &benchLayout.get(),1 }, &setCount);
+			for (auto i = 0u; i < ISwapchain::MaxImages; i++)
+			{
+			    benchDs[i] = benchPool->createDescriptorSet(smart_refctd_ptr(benchLayout));
+				if (!benchDs[i])
+					return logFail("Could not create Descriptor Set!");
+			}
 
 			SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0,.size = sizeof(PushConstantData) };
 			benchPplnLayout = m_device->createPipelineLayout({ &pcRange, 1 }, std::move(benchLayout));
 		}
 		if (UseNativeArithmetic && !m_physicalDevice->getProperties().limits.shaderSubgroupArithmetic)
 		{
-			m_logger->log("UseNativeArithmetic is true but device does not support shaderSubgroupArithmetic!", ILogger::ELL_ERROR);
-			exit(-1);
+			logFail("UseNativeArithmetic is true but device does not support shaderSubgroupArithmetic!");
+			return false;
 		}
-			
+
+		IGPUDescriptorSet::SWriteDescriptorSet dsWrites[ISwapchain::MaxImages];
+		for (auto i = 0u; i < ISwapchain::MaxImages; i++)
+		{
+			if (swapchainImageViews[i].get() == nullptr)
+				continue;
+
+			video::IGPUDescriptorSet::SDescriptorInfo dsInfo;
+			dsInfo.info.image.imageLayout = IImage::LAYOUT::GENERAL;
+			dsInfo.desc = swapchainImageViews[i];
+
+			dsWrites[i] =
+			{
+				.dstSet = benchDs[i].get(),
+				.binding = 2u,
+				.arrayElement = 0u,
+				.count = 1u,
+				.info = &dsInfo,
+			};
+			m_device->updateDescriptorSets(1u, &dsWrites[i], 0u, nullptr);
+		}
+
 
 		// load shader source from file
 		auto getShaderSource = [&](const char* filePath) -> auto
@@ -396,31 +423,14 @@ public:
 			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imageBarriers });
 		}
 
-		video::IGPUDescriptorSet::SDescriptorInfo dsInfo;
-		dsInfo.info.image.imageLayout = IImage::LAYOUT::GENERAL;
-		dsInfo.desc = swapchainImageViews[m_currentImageAcquire.imageIndex];
-
-		IGPUDescriptorSet::SWriteDescriptorSet dsWrites[1u] =
-		{
-			{
-				.dstSet = benchDs.get(),
-				.binding = 2u,
-				.arrayElement = 0u,
-				.count = 1u,
-				.info = &dsInfo,
-			}
-		};
-		m_device->updateDescriptorSets(1u, dsWrites, 0u, nullptr);
-
-		const uint32_t elementCount = 1024*1024;
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
 		const auto SubgroupSizeLog2 = hlsl::findMSB(MaxSubgroupSize);
 
-		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, benchSets[0].pipeline->getLayout(), 0u, 1u, &benchDs.get());
+		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, benchSets[0].pipeline->getLayout(), 0u, 1u, &benchDs[m_currentImageAcquire.imageIndex].get());
 		cmdbuf->pushConstants(benchSets[0].pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(PushConstantData), &pc);
 
 		for (uint32_t i = 0; i < benchSets.size(); i++)
-			runBenchmark<DoWorkgroupBenchmarks>(cmdbuf, benchSets[i], elementCount, SubgroupSizeLog2);
+			runBenchmark<DoWorkgroupBenchmarks>(cmdbuf, benchSets[i], ElementCount, SubgroupSizeLog2);
 
 		// barrier transition to PRESENT
 		{
@@ -688,13 +698,13 @@ private:
 	uint32_t ItemsPerInvocation = 4u;
 	constexpr static inline uint32_t NumLoops = 1000u;
 	constexpr static inline uint32_t NumBenchmarks = 6u;
-	std::array<uint32_t, NumBenchmarks> workgroupSizes = { 32, 64, 128, 256, 512, 1024 };
+	std::array<uint32_t, NumBenchmarks> workgroupSizes = { 32, 64,  128, 256, 512, 1024 };
 	std::array<std::string, 3u> arithmeticOperations = { "reduction", "inclusive_scan", "exclusive_scan" };
 
 
 	std::array<BenchmarkSet, NumBenchmarks*3u> benchSets;
 	smart_refctd_ptr<IDescriptorPool> benchPool;
-	smart_refctd_ptr<IGPUDescriptorSet> benchDs;
+	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ISwapchain::MaxImages> benchDs;
 
 	constexpr static inline uint32_t OutputBufferCount = 2u;
 	smart_refctd_ptr<IGPUBuffer> outputBuffers[OutputBufferCount];
