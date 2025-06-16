@@ -15,13 +15,14 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
+// TODO: share push constants
 struct PTPushConstant {
 	matrix4SIMD invMVP;
 	int sampleCount;
 	int depth;
 };
 
-// TODO: Add a QueryPool for timestamping once its ready
+// TODO: Add a QueryPool for timestamping once its ready (actually add IMGUI mspf plotter)
 // TODO: Do buffer creation using assConv
 class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
@@ -860,7 +861,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
 					ImGui::ListBox("Shader", &PTPipline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
 					ImGui::SliderInt("SPP", &spp, 1, MaxBufferSamples);
-					ImGui::SliderInt("Depth", &depth, 1, MaxBufferDimensions / 3);
+					ImGui::SliderInt("Depth", &depth, 1, MaxBufferDimensions / 6);
 
 					ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
 

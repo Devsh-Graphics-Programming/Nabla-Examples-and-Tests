@@ -1,7 +1,6 @@
 // Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-
 #include "common.hpp"
 
 class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
@@ -126,11 +125,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 			auto cQueue = getComputeQueue();
 
-			// create geometry objects
-			if (!createGeometries(gQueue, geometryCreator))
-				return logFail("Could not create geometries from geometry creator");
-
 			// create blas/tlas
+			renderDs = 
 //#define TRY_BUILD_FOR_NGFX // Validation errors on the fake Acquire-Presents, TODO fix
 #ifdef TRY_BUILD_FOR_NGFX
 			// Nsight is special and can't do debugger delay so you can debug your CPU stuff during a capture
@@ -142,11 +138,12 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					std::this_thread::yield();
 			}
 			// Nsight is special and can't capture anything not on the queue that performs the swapchain acquire/release
-			if (!createAccelerationStructures(gQueue))
+			createAccelerationStructureDS(gQueue,geometryCreator);
 #else
-			if (!createAccelerationStructures(cQueue))
+			createAccelerationStructureDS(cQueue,geometryCreator);
 #endif
-				return logFail("Could not create acceleration structures");
+			if (!renderDs)
+				return logFail("Could not create acceleration structures and descriptor set");
 
 			// create pipelines
 			{
@@ -169,63 +166,33 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				if (!shader)
 					return logFail("Failed to create shader!");
 
-				// descriptors
-				IGPUDescriptorSetLayout::SBinding bindings[] = {
-					{
-						.binding = 0,
-						.type = asset::IDescriptor::E_TYPE::ET_ACCELERATION_STRUCTURE,
-						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-						.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-						.count = 1,
-					},
-					{
-						.binding = 1,
-						.type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
-						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-						.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
-						.count = 1,
-					}
-				};
-				auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
-
-				const std::array<IGPUDescriptorSetLayout*, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> dsLayoutPtrs = { descriptorSetLayout.get() };
-				renderPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dsLayoutPtrs.begin(), dsLayoutPtrs.end()));
-				if (!renderPool)
-					return logFail("Could not create descriptor pool");
-				renderDs = renderPool->createDescriptorSet(descriptorSetLayout);
-				if (!renderDs)
-					return logFail("Could not create descriptor set");
-
 				SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0u, .size = sizeof(SPushConstants)};
-				auto pipelineLayout = m_device->createPipelineLayout({ &pcRange, 1 }, smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
+				auto pipelineLayout = m_device->createPipelineLayout({ &pcRange, 1 }, smart_refctd_ptr<const IGPUDescriptorSetLayout>(renderDs->getLayout()), nullptr, nullptr, nullptr);
 
 				IGPUComputePipeline::SCreationParams params = {};
 				params.layout = pipelineLayout.get();
 				params.shader.shader = shader.get();
 				params.shader.entryPoint = "main";
-				params.shader.stage = ESS_COMPUTE;
 				if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &renderPipeline))
 					return logFail("Failed to create compute pipeline");
 			}
 
 			// write descriptors
-			IGPUDescriptorSet::SDescriptorInfo infos[2];
-			infos[0].desc = gpuTlas;
-			infos[1].desc = m_device->createImageView({
-				.flags = IGPUImageView::ECF_NONE,
-				.subUsages = IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT,
-				.image = outHDRImage,
-				.viewType = IGPUImageView::E_TYPE::ET_2D,
-				.format = asset::EF_R16G16B16A16_SFLOAT
-			});
-			if (!infos[1].desc)
-				return logFail("Failed to create image view");
-			infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-			IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
-				{.dstSet = renderDs.get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
-				{.dstSet = renderDs.get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]}
-			};
-			m_device->updateDescriptorSets(std::span(writes, 2), {});
+			{
+				IGPUDescriptorSet::SDescriptorInfo info = {};
+				info.desc = m_device->createImageView({
+					.flags = IGPUImageView::ECF_NONE,
+					.subUsages = IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT,
+					.image = outHDRImage,
+					.viewType = IGPUImageView::E_TYPE::ET_2D,
+					.format = asset::EF_R16G16B16A16_SFLOAT
+				});
+				if (!info.desc)
+					return logFail("Failed to create image view");
+				info.info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				const IGPUDescriptorSet::SWriteDescriptorSet write = {.dstSet=renderDs.get(), .binding=1, .arrayElement=0, .count=1, .info=&info};
+				m_device->updateDescriptorSets({&write,1}, {});
+			}
 
 			// camera
 			{
@@ -282,7 +249,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			static bool first = true;
 			if (first)
 			{
-				m_api->startCapture();
 				first = false;
 			}
 
@@ -521,82 +487,9 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			return (dim + size - 1) / size;
 		}
 
-		smart_refctd_ptr<IGPUBuffer> createBuffer(IGPUBuffer::SCreationParams& params)
+		smart_refctd_ptr<IGPUDescriptorSet> createAccelerationStructureDS(video::CThreadSafeQueueAdapter* queue, const IGeometryCreator* gc)
 		{
-			smart_refctd_ptr<IGPUBuffer> buffer;
-			buffer = m_device->createBuffer(std::move(params));
-			auto bufReqs = buffer->getMemoryReqs();
-			bufReqs.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
-			m_device->allocate(bufReqs, buffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
-
-			return buffer;
-		}
-
-		smart_refctd_ptr<IGPUCommandBuffer> getSingleUseCommandBufferAndBegin(smart_refctd_ptr<IGPUCommandPool> pool)
-		{
-			smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
-			if (!pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf))
-				return nullptr;
-
-			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
-			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-
-			return cmdbuf;
-		}
-
-		void cmdbufSubmitAndWait(smart_refctd_ptr<IGPUCommandBuffer> cmdbuf, CThreadSafeQueueAdapter* queue, uint64_t startValue)
-		{
-			cmdbuf->end();
-
-			uint64_t finishedValue = startValue + 1;
-
-			// submit builds
-			{
-				auto completed = m_device->createSemaphore(startValue);
-
-				std::array<IQueue::SSubmitInfo::SSemaphoreInfo, 1u> signals;
-				{
-					auto& signal = signals.front();
-					signal.value = finishedValue;
-					signal.stageMask = bitflag(PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS);
-					signal.semaphore = completed.get();
-				}
-
-				const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[1] = { {
-					.cmdbuf = cmdbuf.get()
-				} };
-
-				const IQueue::SSubmitInfo infos[] =
-				{
-					{
-						.waitSemaphores = {},
-						.commandBuffers = commandBuffers,
-						.signalSemaphores = signals
-					}
-				};
-
-				if (queue->submit(infos) != IQueue::RESULT::SUCCESS)
-				{
-					m_logger->log("Failed to submit geometry transfer upload operations!", ILogger::ELL_ERROR);
-					return;
-				}
-
-				const ISemaphore::SWaitInfo info[] =
-				{ {
-					.semaphore = completed.get(),
-					.value = finishedValue
-				} };
-
-				m_device->blockForSemaphores(info);
-			}
-		}
-
-		bool createGeometries(video::CThreadSafeQueueAdapter* queue, const IGeometryCreator* gc)
-		{
-			auto pool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-			if (!pool)
-				return logFail("Couldn't create Command Pool for geometry creation!");
-
+			// get geometries in ICPUBuffers
 			std::array<ReferenceObjectCpu, OT_COUNT> objectsCpu;
 			objectsCpu[OT_CUBE] = ReferenceObjectCpu{ .meta = {.type = OT_CUBE, .name = "Cube Mesh" }, .shadersType = GP_BASIC, .data = gc->createCubeMesh(nbl::core::vector3df(1.f, 1.f, 1.f)) };
 			objectsCpu[OT_SPHERE] = ReferenceObjectCpu{ .meta = {.type = OT_SPHERE, .name = "Sphere Mesh" }, .shadersType = GP_BASIC, .data = gc->createSphereMesh(2, 16, 16) };
@@ -607,163 +500,213 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			objectsCpu[OT_CONE] = ReferenceObjectCpu{ .meta = {.type = OT_CONE, .name = "Cone Mesh" }, .shadersType = GP_CONE, .data = gc->createConeMesh(2, 3, 10) };
 			objectsCpu[OT_ICOSPHERE] = ReferenceObjectCpu{ .meta = {.type = OT_ICOSPHERE, .name = "Icosphere Mesh" }, .shadersType = GP_ICO, .data = gc->createIcoSphere(1, 3, true) };
 
-			struct ScratchVIBindings
-			{
-				nbl::asset::SBufferBinding<ICPUBuffer> vertex, index;
-			};
-			std::array<ScratchVIBindings, OT_COUNT> scratchBuffers;
-			//std::array<SGeomInfo, OT_COUNT> geomInfos;
 			auto geomInfoBuffer = ICPUBuffer::create({ OT_COUNT * sizeof(SGeomInfo) });
-			
+
 			SGeomInfo* geomInfos = reinterpret_cast<SGeomInfo*>(geomInfoBuffer->getPointer());
 			const uint32_t byteOffsets[OT_COUNT] = { 18, 24, 24, 20, 20, 24, 16, 12 };	// based on normals data position
 			const uint32_t smoothNormals[OT_COUNT] = { 0, 1, 1, 0, 0, 1, 1, 1 };
 
-			for (uint32_t i = 0; i < objectsCpu.size(); i++)
+			// get ICPUBuffers into ICPUBottomLevelAccelerationStructures
+			std::array<smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>, OT_COUNT> cpuBlas;
+			for (uint32_t i = 0; i < cpuBlas.size(); i++)
 			{
+				auto triangles = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUBottomLevelAccelerationStructure::Triangles<ICPUBuffer>>>(1u);
+				auto primitiveCounts = make_refctd_dynamic_array<smart_refctd_dynamic_array<uint32_t>>(1u);
+
+				auto& tri = triangles->front();
+				auto& primCount = primitiveCounts->front();
 				const auto& geom = objectsCpu[i];
-				auto& obj = objectsGpu[i];
-				auto& scratchObj = scratchBuffers[i];
 
-				obj.meta.name = geom.meta.name;
-				obj.meta.type = geom.meta.type;
+				const bool useIndex = geom.data.indexType != EIT_UNKNOWN;
+				const uint32_t vertexStride = geom.data.inputParams.bindings[0].stride;
+				const uint32_t numVertices = (geom.data.bindings[0].buffer->getSize()-geom.data.bindings[0].offset) / vertexStride;
 
-				obj.indexCount = geom.data.indexCount;
-				obj.indexType = geom.data.indexType;
-				obj.vertexStride = geom.data.inputParams.bindings[0].stride;
+				if (useIndex)
+					primCount = geom.data.indexCount / 3;
+				else
+					primCount = numVertices / 3;
 
-				geomInfos[i].indexType = obj.indexType;
-				geomInfos[i].vertexStride = obj.vertexStride;
+				geomInfos[i].indexType = geom.data.indexType;
+				geomInfos[i].vertexStride = vertexStride;
 				geomInfos[i].smoothNormals = smoothNormals[i];
 
-				auto vBuffer = smart_refctd_ptr(geom.data.bindings[0].buffer); // no offset
-				auto vUsage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | 
-					IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-				obj.bindings.vertex.offset = 0u;
+				geom.data.bindings[0].buffer->setContentHash(geom.data.bindings[0].buffer->computeContentHash());
+				tri.vertexData[0] = geom.data.bindings[0];
+				if (useIndex)
+				{
+					geom.data.indexBuffer.buffer->setContentHash(geom.data.indexBuffer.buffer->computeContentHash());
+					tri.indexData = geom.data.indexBuffer;
+				}
+				tri.maxVertex = numVertices - 1;
+				tri.vertexStride = vertexStride;
+				tri.vertexFormat = static_cast<E_FORMAT>(geom.data.inputParams.attributes[0].format);
+				tri.indexType = geom.data.indexType;
+				tri.geometryFlags = IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::OPAQUE_BIT;
 
-				auto iBuffer = smart_refctd_ptr(geom.data.indexBuffer.buffer); // no offset
-				auto iUsage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF |
-					IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-				obj.bindings.index.offset = 0u;
+				auto& blas = cpuBlas[i];
+				blas = make_smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>();
+				blas->setGeometries(std::move(triangles), std::move(primitiveCounts));
 
-				vBuffer->addUsageFlags(vUsage);
-				vBuffer->setContentHash(vBuffer->computeContentHash());
-				scratchObj.vertex = { .offset = 0, .buffer = vBuffer };
+				auto blasFlags = bitflag(IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT) | IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_COMPACTION_BIT;
+				if (m_physicalDevice->getProperties().limits.rayTracingPositionFetch)
+					blasFlags |= IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_DATA_ACCESS;
 
-				if (geom.data.indexType != EIT_UNKNOWN)
-					if (iBuffer)
-					{
-						iBuffer->addUsageFlags(iUsage);
-						iBuffer->setContentHash(iBuffer->computeContentHash());
-					}
-				scratchObj.index = { .offset = 0, .buffer = iBuffer };
+				blas->setBuildFlags(blasFlags);
+				blas->setContentHash(blas->computeContentHash());
 			}
 
-			auto cmdbuf = getSingleUseCommandBufferAndBegin(pool);
-			cmdbuf->beginDebugMarker("Build geometry vertex and index buffers");
-
-			smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get(), .optimizer = {} });
-			CAssetConverter::SInputs inputs = {};
-			inputs.logger = m_logger.get();
-
-			std::array<ICPUBuffer*, OT_COUNT * 2u> tmpBuffers;
+			// get ICPUBottomLevelAccelerationStructure into ICPUTopLevelAccelerationStructure
+			auto geomInstances = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUTopLevelAccelerationStructure::PolymorphicInstance>>(OT_COUNT);
 			{
-				for (uint32_t i = 0; i < objectsCpu.size(); i++)
+				uint32_t i = 0;
+				for (auto instance = geomInstances->begin(); instance != geomInstances->end(); instance++, i++)
 				{
-					tmpBuffers[2 * i + 0] = scratchBuffers[i].vertex.buffer.get();
-					tmpBuffers[2 * i + 1] = scratchBuffers[i].index.buffer.get();
+					ICPUTopLevelAccelerationStructure::StaticInstance inst;
+					inst.base.blas = cpuBlas[i];
+					inst.base.flags = static_cast<uint32_t>(IGPUTopLevelAccelerationStructure::INSTANCE_FLAGS::TRIANGLE_FACING_CULL_DISABLE_BIT);
+					inst.base.instanceCustomIndex = i;
+					inst.base.instanceShaderBindingTableRecordOffset = 0;
+					inst.base.mask = 0xFF;
+
+					core::matrix3x4SIMD transform;
+					transform.setTranslation(nbl::core::vectorSIMDf(5.f * i, 0, 0, 0));
+					inst.transform = transform;
+					
+					instance->instance = inst;
+				}
+			}
+
+			auto cpuTlas = make_smart_refctd_ptr<ICPUTopLevelAccelerationStructure>();
+			cpuTlas->setInstances(std::move(geomInstances));
+			cpuTlas->setBuildFlags(IGPUTopLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT);
+			
+			// descriptor set and layout
+			ICPUDescriptorSetLayout::SBinding bindings[] = {
+				{
+					.binding = 0,
+					.type = asset::IDescriptor::E_TYPE::ET_ACCELERATION_STRUCTURE,
+					.createFlags = IDescriptorSetLayoutBase::SBindingBase::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.count = 1,
+				},
+				{
+					.binding = 1,
+					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+					.createFlags = IDescriptorSetLayoutBase::SBindingBase::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.count = 1,
+				}
+			};
+			auto descriptorSet = core::make_smart_refctd_ptr<ICPUDescriptorSet>(core::make_smart_refctd_ptr<ICPUDescriptorSetLayout>(bindings));
+			descriptorSet->getDescriptorInfos(IDescriptorSetLayoutBase::CBindingRedirect::binding_number_t{0},IDescriptor::E_TYPE::ET_ACCELERATION_STRUCTURE).front().desc = cpuTlas;
+
+//#define TEST_REBAR_FALLBACK
+			// convert with asset converter
+			smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get(), .optimizer = {} });
+			struct MyInputs : CAssetConverter::SInputs
+			{
+#ifndef TEST_REBAR_FALLBACK
+				inline uint32_t constrainMemoryTypeBits(const size_t groupCopyID, const IAsset* canonicalAsset, const blake3_hash_t& contentHash, const IDeviceMemoryBacked* memoryBacked) const override
+				{
+					assert(memoryBacked);
+					return memoryBacked->getObjectType()!=IDeviceMemoryBacked::EOT_BUFFER ? (~0u):rebarMemoryTypes;
+				}
+#endif
+				uint32_t rebarMemoryTypes;
+			} inputs = {};
+			inputs.logger = m_logger.get();
+			inputs.rebarMemoryTypes = m_physicalDevice->getDirectVRAMAccessMemoryTypeBits();
+#ifndef TEST_REBAR_FALLBACK
+			struct MyAllocator final : public IDeviceMemoryAllocator
+			{
+				ILogicalDevice* getDeviceForAllocations() const override {return device;}
+
+				SAllocation allocate(const SAllocateInfo& info) override
+				{
+					auto retval = device->allocate(info);
+					// map what is mappable by default so ReBAR checks succeed
+					if (retval.isValid() && retval.memory->isMappable())
+						retval.memory->map({.offset=0,.length=info.size});
+					return retval;
 				}
 
+				ILogicalDevice* device;
+			} myalloc;
+			myalloc.device = m_device.get();
+			inputs.allocator = &myalloc;
+#endif
+			
+			CAssetConverter::patch_t<ICPUTopLevelAccelerationStructure> tlasPatch = {};
+			tlasPatch.compactAfterBuild = true;
+			std::array<CAssetConverter::patch_t<ICPUBottomLevelAccelerationStructure>,OT_COUNT> tmpBLASPatches = {};
+			std::array<const ICPUBuffer*, OT_COUNT * 2u> tmpBuffers;
+			std::array<CAssetConverter::patch_t<ICPUBuffer>, OT_COUNT * 2u> tmpBufferPatches;
+			{
+				tmpBLASPatches.front().compactAfterBuild = true;
+				std::fill(tmpBLASPatches.begin(),tmpBLASPatches.end(),tmpBLASPatches.front());
+				//
+				for (uint32_t i = 0; i < objectsCpu.size(); i++)
+				{
+					tmpBuffers[2 * i + 0] = cpuBlas[i]->getTriangleGeometries().front().vertexData[0].buffer.get();
+					tmpBuffers[2 * i + 1] = cpuBlas[i]->getTriangleGeometries().front().indexData.buffer.get();
+				}
+				// make sure all buffers are BDA-readable
+				for (auto& patch : tmpBufferPatches)
+					patch.usage |= asset::IBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
+
+				std::get<CAssetConverter::SInputs::asset_span_t<ICPUDescriptorSet>>(inputs.assets) = {&descriptorSet.get(),1};
+				std::get<CAssetConverter::SInputs::asset_span_t<ICPUTopLevelAccelerationStructure>>(inputs.assets) = {&cpuTlas.get(),1};
+				std::get<CAssetConverter::SInputs::patch_span_t<ICPUTopLevelAccelerationStructure>>(inputs.patches) = {&tlasPatch,1};
+				std::get<CAssetConverter::SInputs::asset_span_t<ICPUBottomLevelAccelerationStructure>>(inputs.assets) = {&cpuBlas.data()->get(),cpuBlas.size()};
+				std::get<CAssetConverter::SInputs::patch_span_t<ICPUBottomLevelAccelerationStructure>>(inputs.patches) = tmpBLASPatches;
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = tmpBuffers;
+				std::get<CAssetConverter::SInputs::patch_span_t<ICPUBuffer>>(inputs.patches) = tmpBufferPatches;
 			}
 
 			auto reservation = converter->reserve(inputs);
+
+			constexpr auto XferBufferCount = 2;
+			std::array<smart_refctd_ptr<IGPUCommandBuffer>,XferBufferCount> xferBufs = {};
+			std::array<IQueue::SSubmitInfo::SCommandBufferInfo,XferBufferCount> xferBufInfos = {};
 			{
-				auto prepass = [&]<typename asset_type_t>(const auto & references) -> bool
-				{
-					auto objects = reservation.getGPUObjects<asset_type_t>();
-					uint32_t counter = {};
-					for (auto& object : objects)
-					{
-						auto gpu = object.value;
-						auto* reference = references[counter];
-
-						if (reference)
-						{
-							if (!gpu)
-							{
-								m_logger->log("Failed to convert a CPU object to GPU!", ILogger::ELL_ERROR);
-								return false;
-							}
-						}
-						counter++;
-					}
-					return true;
-				};
-
-				prepass.template operator() < ICPUBuffer > (tmpBuffers);
+				auto pool = m_device->createCommandPool(getTransferUpQueue()->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT | IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+				pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,xferBufs);
+				xferBufs.front()->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+				for (auto i=0; i<XferBufferCount; i++)
+					xferBufInfos[i].cmdbuf = xferBufs[i].get();
 			}
-
-			// not sure if need this (probably not, originally for transition img view)
-			auto semaphore = m_device->createSemaphore(0u);
-
-			std::array<IQueue::SSubmitInfo::SCommandBufferInfo, 1> cmdbufs = {};
-			cmdbufs.front().cmdbuf = cmdbuf.get();
-
+			auto xferSema = m_device->createSemaphore(0u);
+			xferSema->setObjectDebugName("Transfer Semaphore");
 			SIntendedSubmitInfo transfer = {};
-			transfer.queue = queue;
-			transfer.scratchCommandBuffers = cmdbufs;
+			transfer.queue = getTransferUpQueue();
+			transfer.scratchCommandBuffers = xferBufInfos;
 			transfer.scratchSemaphore = {
-				.semaphore = semaphore.get(),
+				.semaphore = xferSema.get(),
 				.value = 0u,
 				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
 			};
-			// convert
-			{
-				CAssetConverter::SConvertParams params = {};
-				params.utilities = m_utils.get();
-				params.transfer = &transfer;
-
-				auto future = reservation.convert(params);
-				if (future.copy() != IQueue::RESULT::SUCCESS)
-				{
-					m_logger->log("Failed to await submission feature!", ILogger::ELL_ERROR);
-					return false;
-				}
-
-				// assign gpu objects to output
-				auto&& buffers = reservation.getGPUObjects<ICPUBuffer>();
-				for (uint32_t i = 0; i < objectsCpu.size(); i++)
-				{
-					auto& obj = objectsGpu[i];
-					obj.bindings.vertex = { .offset = 0, .buffer = buffers[2 * i + 0].value };
-					obj.bindings.index = { .offset = 0, .buffer = buffers[2 * i + 1].value };
-
-					geomInfos[i].vertexBufferAddress = obj.bindings.vertex.buffer->getDeviceAddress() + byteOffsets[i];
-					geomInfos[i].indexBufferAddress = obj.useIndex() ? obj.bindings.index.buffer->getDeviceAddress() : geomInfos[i].vertexBufferAddress;
-				}
-			}
-
-			{
-				IGPUBuffer::SCreationParams params;
-				params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-				params.size = OT_COUNT * sizeof(SGeomInfo);
-				m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{.queue = queue}, std::move(params), geomInfos).move_into(geometryInfoBuffer);
-			}
-
-			return true;
-		}
-
-		bool createAccelerationStructures(video::CThreadSafeQueueAdapter* queue)
-		{
-			IQueryPool::SCreationParams qParams{ .queryCount = OT_COUNT, .queryType = IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE };
-			smart_refctd_ptr<IQueryPool> queryPool = m_device->createQueryPool(std::move(qParams));
-
-			auto pool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT | IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
-			if (!pool)
-				return logFail("Couldn't create Command Pool for blas/tlas creation!");
 			
-			m_api->startCapture();
+			constexpr auto CompBufferCount = 2;
+			std::array<smart_refctd_ptr<IGPUCommandBuffer>,CompBufferCount> compBufs = {};
+			std::array<IQueue::SSubmitInfo::SCommandBufferInfo,CompBufferCount> compBufInfos = {};
+			{
+				auto pool = m_device->createCommandPool(getComputeQueue()->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT|IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+				pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,compBufs);
+				compBufs.front()->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+				for (auto i=0; i<CompBufferCount; i++)
+					compBufInfos[i].cmdbuf = compBufs[i].get();
+			}
+			auto compSema = m_device->createSemaphore(0u);
+			compSema->setObjectDebugName("Compute Semaphore");
+			SIntendedSubmitInfo compute = {};
+			compute.queue = getComputeQueue();
+			compute.scratchCommandBuffers = compBufInfos;
+			compute.scratchSemaphore = {
+				.semaphore = compSema.get(),
+				.value = 0u,
+				.stageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT|PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_COPY_BIT
+			};
+			// convert
 #ifdef TRY_BUILD_FOR_NGFX // NSight is "debugger-challenged" it can't capture anything not happenning "during a frame", so we need to trick it
 			m_currentImageAcquire = m_surface->acquireNextImage();
 			{
@@ -776,274 +719,166 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			}
 			m_currentImageAcquire = m_surface->acquireNextImage();
 #endif
-			size_t totalScratchSize = 0;
-			const auto scratchOffsetAlignment = m_device->getPhysicalDevice()->getLimits().minAccelerationStructureScratchOffsetAlignment;
-
-			// build bottom level ASes
+			m_api->startCapture();
+			auto gQueue = getGraphicsQueue();
 			{
-				IGPUBottomLevelAccelerationStructure::DeviceBuildInfo blasBuildInfos[OT_COUNT];
-				uint32_t primitiveCounts[OT_COUNT];
-				using Geometry = IGPUBottomLevelAccelerationStructure::Triangles<const IGPUBuffer>;
-				Geometry triangles[OT_COUNT];
-				uint32_t scratchSizes[OT_COUNT];
-
-				for (uint32_t i = 0; i < objectsGpu.size(); i++)
+				smart_refctd_ptr<CAssetConverter::SConvertParams::scratch_for_device_AS_build_t> scratchAlloc;
 				{
-					const auto& obj = objectsGpu[i];
+					constexpr auto MaxAlignment = 256;
+					constexpr auto MinAllocationSize = 1024;
+					const auto scratchSize = core::alignUp(reservation.getMinASBuildScratchSize(false),MaxAlignment);
+					
 
-					const uint32_t vertexStride = obj.vertexStride;
-					const uint32_t numVertices = obj.bindings.vertex.buffer->getSize() / vertexStride;
-					if (obj.useIndex())
-						primitiveCounts[i] = obj.indexCount / 3;
-					else
-						primitiveCounts[i] = numVertices / 3;
+					IGPUBuffer::SCreationParams creationParams = {};
+					creationParams.size = scratchSize;
+					creationParams.usage = IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT|IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT|IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+#ifdef TEST_REBAR_FALLBACK
+					creationParams.usage |= IGPUBuffer::EUF_TRANSFER_DST_BIT;
+					core::unordered_set<uint32_t> sharingSet = {compute.queue->getFamilyIndex(),transfer.queue->getFamilyIndex()};
+					core::vector<uint32_t> sharingIndices(sharingSet.begin(),sharingSet.end());
+					if (sharingIndices.size()>1)
+						creationParams.queueFamilyIndexCount = sharingIndices.size();
+					creationParams.queueFamilyIndices = sharingIndices.data();
+#endif
+					auto scratchBuffer = m_device->createBuffer(std::move(creationParams));
 
-					triangles[i].vertexData[0] = obj.bindings.vertex;
-					triangles[i].indexData = obj.useIndex() ? obj.bindings.index : obj.bindings.vertex;
-					triangles[i].maxVertex = numVertices - 1;
-					triangles[i].vertexStride = vertexStride;
-					triangles[i].vertexFormat = EF_R32G32B32_SFLOAT;
-					triangles[i].indexType = obj.indexType;
-					triangles[i].geometryFlags = IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::OPAQUE_BIT;
+					auto reqs = scratchBuffer->getMemoryReqs();
+#ifndef TEST_REBAR_FALLBACK
+					reqs.memoryTypeBits &= m_physicalDevice->getDirectVRAMAccessMemoryTypeBits();
+#endif
+					auto allocation = m_device->allocate(reqs,scratchBuffer.get(),IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+#ifndef TEST_REBAR_FALLBACK
+					allocation.memory->map({.offset=0,.length=reqs.size});
+#endif
 
-					auto blasFlags = bitflag(IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT) | IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_COMPACTION_BIT;
-					if (m_physicalDevice->getProperties().limits.rayTracingPositionFetch)
-						blasFlags |= IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_DATA_ACCESS_KHR;
-
-					blasBuildInfos[i].buildFlags = blasFlags;
-					blasBuildInfos[i].geometryCount = 1;	// only 1 geometry object per blas
-					blasBuildInfos[i].srcAS = nullptr;
-					blasBuildInfos[i].dstAS = nullptr;
-					blasBuildInfos[i].triangles = &triangles[i];
-					blasBuildInfos[i].scratch = {};
-
-					ILogicalDevice::AccelerationStructureBuildSizes buildSizes;
-					{
-						const uint32_t maxPrimCount[1] = { primitiveCounts[i] };
-						buildSizes = m_device->getAccelerationStructureBuildSizes(blasFlags, false, std::span<const Geometry>{&triangles[i], 1}, maxPrimCount);
-						if (!buildSizes)
-							return logFail("Failed to get BLAS build sizes");
-					}
-
-					scratchSizes[i] = buildSizes.buildScratchSize;
-					totalScratchSize = core::alignUp(totalScratchSize, scratchOffsetAlignment);
-					totalScratchSize += buildSizes.buildScratchSize;
-
-					{
-						IGPUBuffer::SCreationParams params;
-						params.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_ACCELERATION_STRUCTURE_STORAGE_BIT;
-						params.size = buildSizes.accelerationStructureSize;
-						smart_refctd_ptr<IGPUBuffer> asBuffer = createBuffer(params);
-
-						IGPUBottomLevelAccelerationStructure::SCreationParams blasParams;
-						blasParams.bufferRange.buffer = asBuffer;
-						blasParams.bufferRange.offset = 0u;
-						blasParams.bufferRange.size = buildSizes.accelerationStructureSize;
-						blasParams.flags = IGPUBottomLevelAccelerationStructure::SCreationParams::FLAGS::NONE;
-						gpuBlas[i] = m_device->createBottomLevelAccelerationStructure(std::move(blasParams));
-						if (!gpuBlas[i])
-							return logFail("Could not create BLAS");
-					}
+					scratchAlloc = make_smart_refctd_ptr<CAssetConverter::SConvertParams::scratch_for_device_AS_build_t>(
+						SBufferRange<video::IGPUBuffer>{0ull,scratchSize,std::move(scratchBuffer)},
+						core::allocator<uint8_t>(),MaxAlignment,MinAllocationSize
+					);
 				}
 
-				auto cmdbufBlas = getSingleUseCommandBufferAndBegin(pool);
-				cmdbufBlas->beginDebugMarker("Build BLAS");
-
-				cmdbufBlas->resetQueryPool(queryPool.get(), 0, objectsGpu.size());
-
-				smart_refctd_ptr<IGPUBuffer> scratchBuffer;
+				struct MyParams final : CAssetConverter::SConvertParams
 				{
-					IGPUBuffer::SCreationParams params;
-					params.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-					params.size = totalScratchSize;
-					scratchBuffer = createBuffer(params);
-				}
-
-				uint32_t queryCount = 0;
-				IGPUBottomLevelAccelerationStructure::BuildRangeInfo buildRangeInfos[OT_COUNT];
-				IGPUBottomLevelAccelerationStructure::BuildRangeInfo* pRangeInfos[OT_COUNT];
-				for (uint32_t i = 0; i < objectsGpu.size(); i++)
-				{
-					blasBuildInfos[i].dstAS = gpuBlas[i].get();
-					blasBuildInfos[i].scratch.buffer = scratchBuffer;
-					if (i == 0)
+					inline uint32_t getFinalOwnerQueueFamily(const IGPUBuffer* buffer, const core::blake3_hash_t& createdFrom) override
 					{
-						blasBuildInfos[i].scratch.offset = 0u;
+						return finalUser;
 					}
-					else
+					inline uint32_t getFinalOwnerQueueFamily(const IGPUAccelerationStructure* image, const core::blake3_hash_t& createdFrom) override
 					{
-						const auto unalignedOffset = blasBuildInfos[i - 1].scratch.offset + scratchSizes[i - 1];
-						blasBuildInfos[i].scratch.offset = core::alignUp(unalignedOffset, scratchOffsetAlignment);
+						return finalUser;
 					}
 
-					buildRangeInfos[i].primitiveCount = primitiveCounts[i];
-					buildRangeInfos[i].primitiveByteOffset = 0u;
-					buildRangeInfos[i].firstVertex = 0u;
-					buildRangeInfos[i].transformByteOffset = 0u;
+					uint8_t finalUser;
+				} params = {};
+				params.utilities = m_utils.get();
+				params.transfer = &transfer;
+				params.compute = &compute;
+				params.scratchForDeviceASBuild = scratchAlloc.get();
+				params.finalUser = gQueue->getFamilyIndex();
 
-					pRangeInfos[i] = &buildRangeInfos[i];
+				auto future = reservation.convert(params);
+				if (future.copy() != IQueue::RESULT::SUCCESS)
+				{
+					m_logger->log("Failed to await submission feature!", ILogger::ELL_ERROR);
+					return {};
 				}
 
-				if (!cmdbufBlas->buildAccelerationStructures({ blasBuildInfos, OT_COUNT }, pRangeInfos))
-					return logFail("Failed to build BLAS");
-
+				// assign gpu objects to output
+				for (const auto& buffer : reservation.getGPUObjects<ICPUBuffer>())
+					retainedBuffers.push_back(buffer.value);
+				for (uint32_t i = 0; i < objectsCpu.size(); i++)
 				{
-					SMemoryBarrier memBarrier;
-					memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT;
-					memBarrier.srcAccessMask = ACCESS_FLAGS::ACCELERATION_STRUCTURE_WRITE_BIT;
-					memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT;
-					memBarrier.dstAccessMask = ACCESS_FLAGS::ACCELERATION_STRUCTURE_READ_BIT;
-					cmdbufBlas->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {&memBarrier, 1} });
-				}
+					auto vBuffer = retainedBuffers[2 * i + 0].get();
+					auto iBuffer = retainedBuffers[2 * i + 1].get();
+					const auto& geom = objectsCpu[i];
+					const bool useIndex = geom.data.indexType != EIT_UNKNOWN;
 
-				const IGPUAccelerationStructure* ases[OT_COUNT];
-				for (uint32_t i = 0; i < objectsGpu.size(); i++)
-					ases[i] = gpuBlas[i].get();
-				if (!cmdbufBlas->writeAccelerationStructureProperties({ ases, OT_COUNT }, IQueryPool::ACCELERATION_STRUCTURE_COMPACTED_SIZE,
-					queryPool.get(), queryCount++))
-					return logFail("Failed to write acceleration structure properties!");
-
-				cmdbufBlas->endDebugMarker();
-				cmdbufSubmitAndWait(cmdbufBlas, queue, 39);
-			}
-
-			auto cmdbufCompact = getSingleUseCommandBufferAndBegin(pool);
-			cmdbufCompact->beginDebugMarker("Compact BLAS");
-
-			// compact blas
-			{
-				std::array<size_t, OT_COUNT> asSizes{ 0 };
-				if (!m_device->getQueryPoolResults(queryPool.get(), 0, objectsGpu.size(), asSizes.data(), sizeof(size_t), IQueryPool::WAIT_BIT))
-					return logFail("Could not get query pool results for AS sizes");
-
-				std::array<smart_refctd_ptr<IGPUBottomLevelAccelerationStructure>, OT_COUNT> cleanupBlas;
-				for (uint32_t i = 0; i < objectsGpu.size(); i++)
-				{
-					cleanupBlas[i] = gpuBlas[i];
-					{
-						IGPUBuffer::SCreationParams params;
-						params.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_ACCELERATION_STRUCTURE_STORAGE_BIT;
-						params.size = asSizes[i];
-						smart_refctd_ptr<IGPUBuffer> asBuffer = createBuffer(params);
-
-						IGPUBottomLevelAccelerationStructure::SCreationParams blasParams;
-						blasParams.bufferRange.buffer = asBuffer;
-						blasParams.bufferRange.offset = 0u;
-						blasParams.bufferRange.size = asSizes[i];
-						blasParams.flags = IGPUBottomLevelAccelerationStructure::SCreationParams::FLAGS::NONE;
-						gpuBlas[i] = m_device->createBottomLevelAccelerationStructure(std::move(blasParams));
-						if (!gpuBlas[i])
-							return logFail("Could not create compacted BLAS");
-					}
-
-					IGPUBottomLevelAccelerationStructure::CopyInfo copyInfo;
-					copyInfo.src = cleanupBlas[i].get();
-					copyInfo.dst = gpuBlas[i].get();
-					copyInfo.mode = IGPUBottomLevelAccelerationStructure::COPY_MODE::COMPACT;
-					if (!cmdbufCompact->copyAccelerationStructure(copyInfo))
-						return logFail("Failed to copy AS to compact");
+					geomInfos[i].vertexBufferAddress = vBuffer->getDeviceAddress() + byteOffsets[i];
+					geomInfos[i].indexBufferAddress = useIndex ? iBuffer->getDeviceAddress():0x0ull;
 				}
 			}
 
-			cmdbufCompact->endDebugMarker();
-			cmdbufSubmitAndWait(cmdbufCompact, queue, 40);
-
-			auto cmdbufTlas = getSingleUseCommandBufferAndBegin(pool);
-			cmdbufTlas->beginDebugMarker("Build TLAS");
-
-			// build top level AS
+			//
 			{
-				const uint32_t instancesCount = objectsGpu.size();
-				IGPUTopLevelAccelerationStructure::DeviceStaticInstance instances[OT_COUNT];
-				for (uint32_t i = 0; i < instancesCount; i++)
-				{
-					core::matrix3x4SIMD transform;
-					transform.setTranslation(nbl::core::vectorSIMDf(5.f * i, 0, 0, 0));
-					instances[i].base.blas.deviceAddress = gpuBlas[i]->getReferenceForDeviceOperations().deviceAddress;
-					instances[i].base.mask = 0xFF;
-					instances[i].base.instanceCustomIndex = i;
-					instances[i].base.instanceShaderBindingTableRecordOffset = 0;
-					instances[i].base.flags = static_cast<uint32_t>(IGPUTopLevelAccelerationStructure::INSTANCE_FLAGS::TRIANGLE_FACING_CULL_DISABLE_BIT);
-					instances[i].transform = transform;
-				}
-
-				{
-					size_t bufSize = instancesCount * sizeof(IGPUTopLevelAccelerationStructure::DeviceStaticInstance);
-					IGPUBuffer::SCreationParams params;
-					params.usage = bitflag(IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT |
-						IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-					params.size = bufSize;
-					instancesBuffer = createBuffer(params);
-
-					SBufferRange<IGPUBuffer> range = { .offset = 0u, .size = bufSize, .buffer = instancesBuffer };
-					cmdbufTlas->updateBuffer(range, instances);
-				}
-
-				// make sure instances upload complete first
-				{
-					SMemoryBarrier memBarrier;
-					memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
-					memBarrier.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-					memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ACCELERATION_STRUCTURE_BUILD_BIT;
-					memBarrier.dstAccessMask = ACCESS_FLAGS::ACCELERATION_STRUCTURE_WRITE_BIT;
-					cmdbufTlas->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {&memBarrier, 1} });
-				}
-
-				auto tlasFlags = bitflag(IGPUTopLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT);
-
-				IGPUTopLevelAccelerationStructure::DeviceBuildInfo tlasBuildInfo;
-				tlasBuildInfo.buildFlags = tlasFlags;
-				tlasBuildInfo.srcAS = nullptr;
-				tlasBuildInfo.dstAS = nullptr;
-				tlasBuildInfo.instanceData.buffer = instancesBuffer;
-				tlasBuildInfo.instanceData.offset = 0u;
-				tlasBuildInfo.scratch = {};
-
-				auto buildSizes = m_device->getAccelerationStructureBuildSizes(tlasFlags, false, instancesCount);
-				if (!buildSizes)
-					return logFail("Failed to get TLAS build sizes");
-
-				{
-					IGPUBuffer::SCreationParams params;
-					params.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_ACCELERATION_STRUCTURE_STORAGE_BIT;
-					params.size = buildSizes.accelerationStructureSize;
-					smart_refctd_ptr<IGPUBuffer> asBuffer = createBuffer(params);
-
-					IGPUTopLevelAccelerationStructure::SCreationParams tlasParams;
-					tlasParams.bufferRange.buffer = asBuffer;
-					tlasParams.bufferRange.offset = 0u;
-					tlasParams.bufferRange.size = buildSizes.accelerationStructureSize;
-					tlasParams.flags = IGPUTopLevelAccelerationStructure::SCreationParams::FLAGS::NONE;
-					gpuTlas = m_device->createTopLevelAccelerationStructure(std::move(tlasParams));
-					if (!gpuTlas)
-						return logFail("Could not create TLAS");
-				}
-
-				smart_refctd_ptr<IGPUBuffer> scratchBuffer;
-				{
-					IGPUBuffer::SCreationParams params;
-					params.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-					params.size = buildSizes.buildScratchSize;
-					scratchBuffer = createBuffer(params);
-				}
-
-				tlasBuildInfo.dstAS = gpuTlas.get();
-				tlasBuildInfo.scratch.buffer = scratchBuffer;
-				tlasBuildInfo.scratch.offset = 0u;
-
-				IGPUTopLevelAccelerationStructure::BuildRangeInfo buildRangeInfo[1u];
-				buildRangeInfo[0].instanceCount = instancesCount;
-				buildRangeInfo[0].instanceByteOffset = 0u;
-				IGPUTopLevelAccelerationStructure::BuildRangeInfo* pRangeInfos;
-				pRangeInfos = &buildRangeInfo[0];
-
-				if (!cmdbufTlas->buildAccelerationStructures({ &tlasBuildInfo, 1 }, pRangeInfos))
-					return logFail("Failed to build TLAS");
+				IGPUBuffer::SCreationParams params;
+				params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+				params.size = OT_COUNT * sizeof(SGeomInfo);
+				m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = gQueue }, std::move(params), geomInfos).move_into(geometryInfoBuffer);
 			}
 
-			cmdbufTlas->endDebugMarker();
-			cmdbufSubmitAndWait(cmdbufTlas, queue, 45);
-
+			// acquire ownership
+			{
+				smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
+				{
+					const auto gQFI = gQueue->getFamilyIndex();
+					m_device->createCommandPool(gQFI,IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT)->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{&cmdbuf,1});
+					cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+					{
+						core::vector<IGPUCommandBuffer::SBufferMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> bufBarriers;
+						auto acquireBufferRange = [&bufBarriers](const uint8_t otherQueueFamilyIndex, const SBufferRange<IGPUBuffer>& bufferRange)
+						{
+							bufBarriers.push_back({
+								.barrier = {
+									.dep = {
+										.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+										.srcAccessMask = ACCESS_FLAGS::NONE,
+										.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+										// we don't care what exactly, uncomplex our code
+										.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
+									},
+									.ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::ACQUIRE,
+									.otherQueueFamilyIndex = otherQueueFamilyIndex
+								},
+								.range = bufferRange
+							});
+						};
+#ifdef TEST_REBAR_FALLBACK
+						if (const auto otherQueueFamilyIndex=transfer.queue->getFamilyIndex(); gQFI!=otherQueueFamilyIndex)
+						for (const auto& buffer : reservation.getGPUObjects<ICPUBuffer>())
+						{
+							const auto& buff = buffer.value;
+							if (buff)
+								acquireBufferRange(otherQueueFamilyIndex,{.offset=0,.size=buff->getSize(),.buffer=buff});
+						}
+#endif
+						if (const auto otherQueueFamilyIndex=compute.queue->getFamilyIndex(); gQFI!=otherQueueFamilyIndex)
+						{
+							auto acquireAS = [&acquireBufferRange,otherQueueFamilyIndex](const IGPUAccelerationStructure* as)
+							{
+								acquireBufferRange(otherQueueFamilyIndex,as->getCreationParams().bufferRange);
+							};
+							for (const auto& blas : reservation.getGPUObjects<ICPUBottomLevelAccelerationStructure>())
+								acquireAS(blas.value.get());
+							acquireAS(reservation.getGPUObjects<ICPUTopLevelAccelerationStructure>().front().value.get());
+						}
+						if (!bufBarriers.empty())
+							cmdbuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers=bufBarriers});
+					}
+					cmdbuf->end();
+				}
+				if (!cmdbuf->empty())
+				{
+					const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = {
+						.cmdbuf = cmdbuf.get()
+					};
+					const IQueue::SSubmitInfo::SSemaphoreInfo signal = {
+						.semaphore = compute.scratchSemaphore.semaphore,
+						.value = compute.getFutureScratchSemaphore().value,
+						.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+					};
+					auto wait = signal;
+					wait.value--;
+					const IQueue::SSubmitInfo info = {
+						.waitSemaphores = {&wait,1}, // we already waited with the host on the AS build
+						.commandBuffers = {&cmdbufInfo,1},
+						.signalSemaphores = {&signal,1}
+					};
+					if (const auto retval=gQueue->submit({&info,1}); retval!=IQueue::RESULT::SUCCESS)
+						m_logger->log("Failed to transfer ownership with code %d!",system::ILogger::ELL_ERROR,retval);
+				}
+			}
+#undef TEST_REBAR_FALLBACK
+			
 #ifdef TRY_BUILD_FOR_NGFX
 			{
 				const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] = { {
@@ -1056,7 +891,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 #endif
 			m_api->endCapture();
 
-			return true;
+			return reservation.getGPUObjects<ICPUDescriptorSet>().front().value;
 		}
 
 
@@ -1074,18 +909,12 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
 		video::CDumbPresentationOracle oracle;
 
-		std::array<ReferenceObjectGpu, OT_COUNT> objectsGpu;
-
-		std::array<smart_refctd_ptr<IGPUBottomLevelAccelerationStructure>, OT_COUNT> gpuBlas;
-		smart_refctd_ptr<IGPUTopLevelAccelerationStructure> gpuTlas;
-		smart_refctd_ptr<IGPUBuffer> instancesBuffer;
-
 		smart_refctd_ptr<IGPUBuffer> geometryInfoBuffer;
+		core::vector<smart_refctd_ptr<IGPUBuffer>> retainedBuffers;
 		smart_refctd_ptr<IGPUImage> outHDRImage;
 
 		smart_refctd_ptr<IGPUComputePipeline> renderPipeline;
 		smart_refctd_ptr<IGPUDescriptorSet> renderDs;
-		smart_refctd_ptr<IDescriptorPool> renderPool;
 
 		uint16_t gcIndex = {};
 

@@ -209,8 +209,8 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
         const int primID = spirv::rayQueryGetIntersectionPrimitiveIndexKHR(query, true);
 
         // TODO: candidate for `bda::__ptr<SGeomInfo>`
-        const SGeomInfo geom = vk::RawBufferLoad<SGeomInfo>(pc.geometryInfoBuffer + instID * sizeof(SGeomInfo));
-        
+        const SGeomInfo geom = vk::RawBufferLoad<SGeomInfo>(pc.geometryInfoBuffer + instID * sizeof(SGeomInfo),8);
+
         float3 normals;
         float2 barycentrics = spirv::rayQueryGetIntersectionBarycentricsKHR(query, true);
         normals = calculateSmoothNormals(instID, primID, geom, barycentrics);
