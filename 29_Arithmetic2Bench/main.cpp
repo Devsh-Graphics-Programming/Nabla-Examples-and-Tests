@@ -2,6 +2,7 @@
 #include "CEventCallback.hpp"
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "app_resources/common.hlsl"
+#include "nbl/builtin/hlsl/workgroup2/arithmetic_config.hlsl"
 
 using namespace nbl;
 using namespace core;
@@ -508,27 +509,6 @@ public:
 	bool keepRunning() override { return numSubmits < MaxNumSubmits; }
 
 private:
-	// reflects calculations in workgroup2::ArithmeticConfiguration
-	uint32_t calculateItemsPerWorkgroup(const uint32_t workgroupSize, const uint32_t subgroupSize, const uint32_t itemsPerInvocation)
-	{
-		if (workgroupSize <= subgroupSize)
-			return workgroupSize * itemsPerInvocation;
-
-		const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
-		const uint8_t workgroupSizeLog2 = hlsl::findMSB(workgroupSize);
-
-		const uint16_t levels = (workgroupSizeLog2 == subgroupSizeLog2) ? 1 :
-			(workgroupSizeLog2 > subgroupSizeLog2 * 2 + 2) ? 3 : 2;
-
-		const uint16_t itemsPerInvocationProductLog2 = max(workgroupSizeLog2 - subgroupSizeLog2 * levels, 0);
-		uint16_t itemsPerInvocation1 = (levels == 3) ? min(itemsPerInvocationProductLog2, 2) : itemsPerInvocationProductLog2;
-		itemsPerInvocation1 = uint16_t(1u) << itemsPerInvocation1;
-
-		uint32_t virtualWorkgroupSize = 1u << max(subgroupSizeLog2 * levels, workgroupSizeLog2);
-
-		return itemsPerInvocation * virtualWorkgroupSize;
-	}
-
 	// create pipeline (specialized every test) [TODO: turn into a future/async]
 	smart_refctd_ptr<IGPUComputePipeline> createPipeline(const ICPUShader* overridenUnspecialized, const IGPUPipelineLayout* layout, const uint8_t subgroupSizeLog2)
 	{
@@ -577,11 +557,12 @@ private:
 		options.preprocessorOptions.includeFinder = includeFinder;
 
 		const uint32_t subgroupSize = 0x1u << subgroupSizeLog2;
-		const uint32_t itemsPerWG = calculateItemsPerWorkgroup(workgroupSize, subgroupSize, itemsPerInvoc);
+		const uint32_t workgroupSizeLog2 = hlsl::findMSB(workgroupSize);
+		hlsl::workgroup2::SArithmeticConfiguration wgConfig = hlsl::workgroup2::SArithmeticConfiguration::create(workgroupSizeLog2, subgroupSizeLog2, itemsPerInvoc);
+		const uint32_t itemsPerWG = wgConfig.VirtualWorkgroupSize * wgConfig.ItemsPerInvocation_0;
 		smart_refctd_ptr<ICPUShader> overriddenUnspecialized;
 		if constexpr (WorkgroupBench)
 		{
-			const uint32_t workgroupSizeLog2 = hlsl::findMSB(workgroupSize);
 			const std::string definitions[7] = {
 				"workgroup2::" + arith_name,
 				std::to_string(workgroupSizeLog2),

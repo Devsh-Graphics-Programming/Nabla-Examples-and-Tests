@@ -1,6 +1,7 @@
 #include "nbl/application_templates/BasicMultiQueueApplication.hpp"
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "app_resources/common.hlsl"
+#include "nbl/builtin/hlsl/workgroup2/arithmetic_config.hlsl"
 
 using namespace nbl;
 using namespace core;
@@ -214,7 +215,8 @@ public:
 						passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, b_useNative, itemsPerWG, itemsPerInvocation) && passed;
 						logTestOutcome(passed, itemsPerWG);
 
-						itemsPerWG = calculateItemsPerWorkgroup(workgroupSize, subgroupSize, itemsPerInvocation);
+						hlsl::workgroup2::SArithmeticConfiguration wgConfig = hlsl::workgroup2::SArithmeticConfiguration::create(hlsl::findMSB(workgroupSize), subgroupSizeLog2, itemsPerInvocation);
+						itemsPerWG = wgConfig.VirtualWorkgroupSize * wgConfig.ItemsPerInvocation_0;
 						m_logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
 						passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, b_useNative, itemsPerWG, itemsPerInvocation) && passed;
 						logTestOutcome(passed, itemsPerWG);
@@ -266,27 +268,6 @@ private:
 			totalFailCount++;
 			m_logger->log("Failed test #%u", ILogger::ELL_ERROR, workgroupSize);
 		}
-	}
-
-	// reflects calculations in workgroup2::ArithmeticConfiguration
-	uint32_t calculateItemsPerWorkgroup(const uint32_t workgroupSize, const uint32_t subgroupSize, const uint32_t itemsPerInvocation)
-	{
-		if (workgroupSize <= subgroupSize)
-			return workgroupSize * itemsPerInvocation;
-		
-		const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
-		const uint8_t workgroupSizeLog2 = hlsl::findMSB(workgroupSize);
-
-		const uint16_t levels = (workgroupSizeLog2 == subgroupSizeLog2) ? 1 :
-			(workgroupSizeLog2 > subgroupSizeLog2 * 2 + 2) ? 3 : 2;
-
-		const uint16_t itemsPerInvocationProductLog2 = max(workgroupSizeLog2 - subgroupSizeLog2 * levels, 0);
-		uint16_t itemsPerInvocation1 = (levels == 3) ? min(itemsPerInvocationProductLog2, 2) : itemsPerInvocationProductLog2;
-		itemsPerInvocation1 = uint16_t(1u) << itemsPerInvocation1;
-
-		uint32_t virtualWorkgroupSize = 1u << max(subgroupSizeLog2 * levels, workgroupSizeLog2);
-
-		return itemsPerInvocation * virtualWorkgroupSize;
 	}
 
 	// create pipeline (specialized every test) [TODO: turn into a future/async]
