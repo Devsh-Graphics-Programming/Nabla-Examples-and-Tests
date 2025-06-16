@@ -16,16 +16,6 @@ using namespace nbl::hlsl;
 [[vk::binding(1, 0)]] RWTexture2D<float4> outImage;
 [[vk::constant_id(0)]] const float shader_variant = 1.0;
 
-struct SGeomInfo2
-{
-    uint64_t vertexBufferAddress;
-    uint64_t indexBufferAddress;
-
-    uint32_t vertexStride : 29;
-    uint32_t indexType : 2; // 16 bit, 32 bit or none
-    uint32_t smoothNormals : 1;	// flat for cube, rectangle, disk
-};
-
 float3 unpackNormals3x10(uint32_t v)
 {
     // host side changes float32_t3 to EF_A2B10G10R10_SNORM_PACK32
@@ -33,77 +23,6 @@ float3 unpackNormals3x10(uint32_t v)
     int signedValue = int(v);
     int3 pn = int3(signedValue << 22, signedValue << 12, signedValue << 2) >> 22;
     return clamp(float3(pn) / 511.0, -1.0, 1.0);
-}
-
-float3 calculateSmoothNormals2(int instID, int primID, SGeomInfo2 geom, float2 bary)
-{
-    const uint indexType = geom.indexType;
-    const uint vertexStride = geom.vertexStride;
-
-    const uint64_t vertexBufferAddress = geom.vertexBufferAddress;
-    const uint64_t indexBufferAddress = geom.indexBufferAddress;
-
-    uint32_t3 indices;
-    switch (indexType)
-    {
-        case 0: // EIT_16BIT
-            indices = uint32_t3((nbl::hlsl::bda::__ptr<uint16_t3>::create(indexBufferAddress)+primID).deref().load());
-            break;
-        case 1: // EIT_32BIT
-            indices = uint32_t3((nbl::hlsl::bda::__ptr<uint32_t3>::create(indexBufferAddress)+primID).deref().load());
-            break;
-        default:    // EIT_NONE
-        {
-            indices[0] = primID * 3;
-            indices[1] = indices[0] + 1;
-            indices[2] = indices[0] + 2;
-        }
-    }
-
-    float3 n0, n1, n2;
-    switch (instID)
-    {
-        case OT_CUBE:
-        {
-            // TODO: document why the alignment is 2 here and nowhere else? isnt the `vertexStride` aligned to more than 2 anyway?
-            uint32_t v0 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + indices[0] * vertexStride, 2u);
-            uint32_t v1 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + indices[1] * vertexStride, 2u);
-            uint32_t v2 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + indices[2] * vertexStride, 2u);
-
-            n0 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v0).xyz);
-            n1 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v1).xyz);
-            n2 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v2).xyz);
-        }
-        break;
-        case OT_SPHERE:
-        case OT_CYLINDER:
-        case OT_ARROW:
-        case OT_CONE:
-        {
-            uint32_t v0 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + indices[0] * vertexStride);
-            uint32_t v1 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + indices[1] * vertexStride);
-            uint32_t v2 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + indices[2] * vertexStride);
-
-            n0 = normalize(unpackNormals3x10(v0));
-            n1 = normalize(unpackNormals3x10(v1));
-            n2 = normalize(unpackNormals3x10(v2));
-        }
-        break;
-        case OT_RECTANGLE:
-        case OT_DISK:
-        case OT_ICOSPHERE:
-        default:
-        {
-            n0 = normalize(vk::RawBufferLoad<float3>(vertexBufferAddress + indices[0] * vertexStride));
-            n1 = normalize(vk::RawBufferLoad<float3>(vertexBufferAddress + indices[1] * vertexStride));
-            n2 = normalize(vk::RawBufferLoad<float3>(vertexBufferAddress + indices[2] * vertexStride));
-        }
-    }
-
-    float3 barycentrics = float3(0.0, bary);
-    barycentrics.x = 1.0 - barycentrics.y - barycentrics.z;        
-
-    return barycentrics.x * n0 + barycentrics.y * n1 + barycentrics.z * n2;
 }
 
 float3 calculateSmoothNormals(int instID, int primID, SGeomInfo geom, float2 bary)
@@ -217,60 +136,6 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 
         normals = normalize(normals) * 0.5 + 0.5;
         color = float4(normals, 1.0);
-    }
-
-    outImage[threadID.xy] = color;
-}
-    
-[numthreads(WorkgroupSize, WorkgroupSize, 1)]
-[shader("compute")]
-void main2(uint32_t3 threadID : SV_DispatchThreadID)
-{
-    uint2 coords = threadID.xy;
-    coords.y = nbl::hlsl::glsl::gl_NumWorkGroups().y * WorkgroupSize - coords.y;    // need to invert it
-    
-
-    float4 NDC;
-    NDC.xy = float2(coords) * pc.scaleNDC;
-    NDC.xy += pc.offsetNDC;
-    NDC.zw = float2(0, 1.0);
-    float3 targetPos;
-    {
-        float4 tmp = mul(pc.invMVP, NDC);
-        targetPos = tmp.xyz / tmp.w;
-    }
-
-    float3 direction = normalize(targetPos - pc.camPos);
-
-    spirv::RayQueryKHR query;
-    spirv::rayQueryInitializeKHR(query, topLevelAS, spv::RayFlagsOpaqueKHRMask, 0xFF, pc.camPos, 0.01, direction, 1000.0);
-
-    while (spirv::rayQueryProceedKHR(query)) {}
-
-    float4 color = float4(0, 0, 0, 1);
-
-    if (spirv::rayQueryGetIntersectionTypeKHR(query, true) == spv::RayQueryCommittedIntersectionTypeRayQueryCommittedIntersectionTriangleKHR)
-    {
-        const int instID = spirv::rayQueryGetIntersectionInstanceIdKHR(query, true);
-        const int primID = spirv::rayQueryGetIntersectionPrimitiveIndexKHR(query, true);
-
-        // TODO: candidate for `bda::__ptr<SGeomInfo>`
-        const SGeomInfo2 geom = vk::RawBufferLoad<SGeomInfo2>(pc.geometryInfoBuffer + instID * sizeof(SGeomInfo2));
-        
-        float3 normals;
-        if (geom.smoothNormals)
-        {
-            float2 barycentrics = spirv::rayQueryGetIntersectionBarycentricsKHR(query, true);
-            normals = calculateSmoothNormals2(instID, primID, geom, barycentrics);
-        }
-        else
-        {
-            float3 pos[3] = spirv::rayQueryGetIntersectionTriangleVertexPositionsKHR(query, true);
-            normals = cross(pos[1] - pos[0], pos[2] - pos[0]);
-        }
-
-        normals = normalize(normals) * 0.5 + 0.5;
-        color = float4(normals, shader_variant);
     }
 
     outImage[threadID.xy] = color;
