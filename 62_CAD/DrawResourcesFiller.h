@@ -551,6 +551,26 @@ protected:
 	/// returns index to added DTMSettingsInfo, returns Invalid index if it exceeds resource limitations
 	uint32_t addDTMSettings_Internal(const DTMSettingsInfo& dtmSettings, SIntendedSubmitInfo& intendedNextSubmit);
 	
+	/**
+	 * @brief Computes the final transformation matrix for fixed geometry rendering,
+	 *        considering any active custom projections and the transformation type.
+	 *
+	 * This function handles how a given transformation should be applied depending on the
+	 * current transformation type and the presence of any active projection matrices.
+	 *
+	 * - If no active projection exists, the input transformation is returned unmodified.
+	 *
+	 * - If an active projection exists:
+	 *   - For TT_NORMAL, the input transformation is simply multiplied by the top of the projection stack.
+	 * - For TT_FIXED_SCREENSPACE_SIZE, the input transformation is multiplied by the top of the projection stack,
+	 *	 but the resulting scale is replaced with the screen-space scale from the original input `transformation`.
+	 *
+	 * @param transformation The input 3x3 transformation matrix to apply.
+	 * @param transformationType The type of transformation to apply (e.g., TT_NORMAL or TT_FIXED_SCREENSPACE_SIZE).
+	 *
+	 */
+	float64_t3x3 getFixedGeometryFinalTransformationMatrix(const float64_t3x3& transformation, TransformationType transformationType) const;
+
 	/// Attempts to upload as many draw objects as possible within the given polyline section considering resource limitations
 	void addPolylineObjects_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx);
 	

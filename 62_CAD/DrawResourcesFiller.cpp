@@ -230,18 +230,7 @@ void DrawResourcesFiller::drawFixedGeometryPolyline(const CPolylineBase& polylin
 
 	setActiveLineStyle(lineStyleInfo);
 	
-	if (!activeProjections.empty())
-	{
-		// if there is already an active custom projection, it should be considered into the transformation of the fixed geometry polyline
-		float64_t3x3 newTransformation = nbl::hlsl::mul(activeProjections.back(), transformation);
-		pushCustomProjection(newTransformation);
-	}
-	else
-	{
-		// will be multiplied by the default projection matrix from the left (in shader), no need to consider it here
-		pushCustomProjection(transformation);
-	}
-
+	pushCustomProjection(getFixedGeometryFinalTransformationMatrix(transformation, transformationType));
 	beginMainObject(MainObjectType::POLYLINE, transformationType);
 	drawPolyline(polyline, intendedNextSubmit);
 	endMainObject();
@@ -403,17 +392,7 @@ void DrawResourcesFiller::drawFixedGeometryHatch(
 	en::nabla2d::TransformationType transformationType,
 	SIntendedSubmitInfo& intendedNextSubmit)
 {
-	if (!activeProjections.empty())
-	{
-		// if there is already an active custom projection, it should be considered into the transformation of the fixed geometry polyline
-		float64_t3x3 newTransformation = nbl::hlsl::mul(activeProjections.back(), transformation);
-		pushCustomProjection(newTransformation);
-	}
-	else
-	{
-		// will be multiplied by the default projection matrix from the left (in shader), no need to consider it here
-		pushCustomProjection(transformation);
-	}
+	pushCustomProjection(getFixedGeometryFinalTransformationMatrix(transformation, transformationType));
 	drawHatch_impl(hatch, color, fillPattern, intendedNextSubmit, transformationType);
 	popCustomProjection();
 }
@@ -1716,6 +1695,52 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 	}
 
 	return resourcesCollection.dtmSettings.addAndGetOffset(dtmSettings); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
+}
+
+float64_t3x3 DrawResourcesFiller::getFixedGeometryFinalTransformationMatrix(const float64_t3x3& transformation, TransformationType transformationType) const
+{
+	if (!activeProjections.empty())
+	{
+		float64_t3x3 newTransformation = nbl::hlsl::mul(activeProjections.back(), transformation);
+
+		if (transformationType == TransformationType::TT_NORMAL)
+		{
+			return newTransformation;
+		}
+		else if (transformationType == TransformationType::TT_FIXED_SCREENSPACE_SIZE)
+		{
+			// Extract normalized rotation columns
+			float64_t2 column0 = nbl::hlsl::normalize(float64_t2(newTransformation[0][0], newTransformation[1][0]));
+			float64_t2 column1 = nbl::hlsl::normalize(float64_t2(newTransformation[0][1], newTransformation[1][1]));
+
+			// Extract fixed screen-space scale from the original transformation
+			float64_t2 fixedScale = float64_t2(
+				nbl::hlsl::length(float64_t2(transformation[0][0], transformation[1][0])),
+				nbl::hlsl::length(float64_t2(transformation[0][1], transformation[1][1])));
+
+			// Apply fixed scale to normalized directions
+			column0 *= fixedScale.x;
+			column1 *= fixedScale.y;
+
+			// Compose final matrix with adjusted columns
+			newTransformation[0][0] = column0[0];
+			newTransformation[1][0] = column0[1];
+			newTransformation[0][1] = column1[0];
+			newTransformation[1][1] = column1[1];
+
+			return newTransformation;
+		}
+		else
+		{
+			// Fallback if transformationType is unrecognized, shouldn't happen
+			return newTransformation;
+		}
+	}
+	else
+	{
+		// Within no active projection scope, return transformation directly
+		return transformation;
+	}
 }
 
 uint32_t DrawResourcesFiller::acquireActiveLineStyleIndex_SubmitIfNeeded(SIntendedSubmitInfo& intendedNextSubmit)
