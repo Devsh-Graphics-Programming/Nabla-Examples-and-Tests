@@ -109,7 +109,7 @@ using namespace nbl::video
 				auto addGeometry = [&allocateUTB,&init](const ICPUPolygonGeometry* geom)->void
 				{
 					auto& out = init.geoms.emplace_back();
-					out.elementCount = geom->getPrimitiveCount()*geom->getIndexingCallback()->degree();
+					out.elementCount = geom->getVertexReferenceCount();
 					out.positionView = allocateUTB(geom->getPositionView());
 					out.normalView = allocateUTB(geom->getNormalView());
 					// the first view is usually the UV
@@ -118,7 +118,19 @@ using namespace nbl::video
 				};
 
 				auto creator = core::make_smart_refctd_ptr<CGeometryCreator>();
-				addGeometry(creator->createCube().get());
+				/* TODO: others
+				ReferenceObjectCpu {.meta = {.type = OT_CUBE, .name = "Cube Mesh" }, .shadersType = GP_BASIC, .data = gc->createCubeMesh(nbl::core::vector3df(1.f, 1.f, 1.f)) },
+				ReferenceObjectCpu {.meta = {.type = OT_SPHERE, .name = "Sphere Mesh" }, .shadersType = GP_BASIC, .data = gc->createSphereMesh(2, 16, 16) },
+				ReferenceObjectCpu {.meta = {.type = OT_CYLINDER, .name = "Cylinder Mesh" }, .shadersType = GP_BASIC, .data = gc->createCylinderMesh(2, 2, 20) },
+				ReferenceObjectCpu {.meta = {.type = OT_RECTANGLE, .name = "Rectangle Mesh" }, .shadersType = GP_BASIC, .data = gc->createRectangleMesh(nbl::core::vector2df_SIMD(1.5, 3)) },
+				ReferenceObjectCpu {.meta = {.type = OT_DISK, .name = "Disk Mesh" }, .shadersType = GP_BASIC, .data = gc->createDiskMesh(2, 30) },
+				ReferenceObjectCpu {.meta = {.type = OT_ARROW, .name = "Arrow Mesh" }, .shadersType = GP_BASIC, .data = gc->createArrowMesh() },
+				ReferenceObjectCpu {.meta = {.type = OT_CONE, .name = "Cone Mesh" }, .shadersType = GP_CONE, .data = gc->createConeMesh(2, 3, 10) },
+				ReferenceObjectCpu {.meta = {.type = OT_ICOSPHERE, .name = "Icoshpere Mesh" }, .shadersType = GP_ICO, .data = gc->createIcoSphere(1, 3, true) }
+				*/
+				addGeometry(creator->createCube({1.f,1.f,1.f}).get());
+				addGeometry(creator->createRectangle({1.5f,3.f}).get());
+				addGeometry(creator->createDisk(2.f,30).get());
 			}
 
 			// convert the geometries
