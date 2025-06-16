@@ -4,9 +4,9 @@
 
 #include "common.hpp"
 
-class GeometryCreatorApp final : public examples::MonoWindowApplication
+class GeometryCreatorApp final : public MonoWindowApplication
 {
-		using base_t = examples::MonoWindowApplication;
+		using base_t = MonoWindowApplication;
 
 	public:
 		GeometryCreatorApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
@@ -97,13 +97,6 @@ class GeometryCreatorApp final : public examples::MonoWindowApplication
 
 			const auto viewMatrix = camera.getViewMatrix();
 			const auto viewProjectionMatrix = camera.getConcatenatedMatrix();
-
-
-			core::matrix3x4SIMD modelViewMatrix = core::concatenateBFollowedByA(viewMatrix, modelMatrix);
-			core::matrix4SIMD modelViewProjectionMatrix = core::concatenateBFollowedByA(viewProjectionMatrix, modelMatrix);
-
-			core::matrix3x4SIMD normalMatrix;
-			modelViewMatrix.getSub3x3InverseTranspose(normalMatrix);
 #if 0
 			SBasicViewParameters uboData;
 			memcpy(uboData.MVP, modelViewProjectionMatrix.pointer(), sizeof(uboData.MVP));

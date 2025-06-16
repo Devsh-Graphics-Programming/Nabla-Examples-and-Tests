@@ -12,6 +12,6 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 using namespace scene;
-using namespace examples;
+using namespace nbl::examples;
 
 #endif // __NBL_THIS_EXAMPLE_COMMON_H_INCLUDED__

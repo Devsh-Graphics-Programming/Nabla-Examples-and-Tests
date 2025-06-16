@@ -19,7 +19,7 @@ namespace nbl::examples
 class CGeometryCreatorScene : public core::IReferenceCounted
 {
 	public:
-		using SPushConstants = hlsl::geometry_creator_scene::SPushConstants;
+		using SPushConstants = hlsl::examples::geometry_creator_scene::SPushConstants;
 		//
 		enum ObjectType : uint8_t
 		{
@@ -134,11 +134,12 @@ using namespace nbl::video
 		{
 			inline SPushConstants convert(const hlsl::float32_t3x4& model, const hlsl::float32_t3x4& view, const hlsl::float32_t4x4& viewProj)
 			{
+				using namespace hlsl;
 				return {
 					.basic = {
-						.MVP = hlsl::math::linalg::promoted_mul(viewProj,model),
-						.MV = hlsl::math::linalg::promoted_mul(view,model),
-						.normalMat = hlsl::inverse(hlsl::transpose(hlsl::float32_t3x3(view)))
+						.MVP = math::linalg::promoted_mul<float32_t,4,4>(viewProj,model),
+						.MV = math::linalg::promoted_mul<float32_t,3,4>(view,model),
+						.normalMat = inverse(transpose(float32_t3x3(view)))
 					},
 					.positionView = positionView,
 					.normalView = normalView,
@@ -152,7 +153,7 @@ using namespace nbl::video
 			uint8_t positionView = 0;
 			uint8_t normalView = 0;
 			uint8_t uvView = 0;
-			uint8_t indexType = EIT_UNKNOWN;
+			uint8_t indexType = asset::EIT_UNKNOWN;
 			ObjectType type : 6 = ObjectType::OT_UNKNOWN;
 		};
 		std::span<const SPackedGeometry> getGeometries() const {return m_params.geoms;}
@@ -160,7 +161,7 @@ using namespace nbl::video
 	protected:
 		struct SInitParams
 		{
-			core::smart_refctd_ptr<IGPUDescriptorSet> ds;
+			core::smart_refctd_ptr<video::IGPUDescriptorSet> ds;
 			core::vector<SPackedGeometry> geoms;
 		} m_params;
 		inline CGeometryCreatorScene(SInitParams&& _params) : m_params(std::move(_params)) {}
