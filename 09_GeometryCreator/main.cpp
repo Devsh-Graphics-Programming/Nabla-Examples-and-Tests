@@ -39,14 +39,16 @@ class GeometryCreatorApp final : public MonoWindowApplication
 
 //			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 //			.renderpass = core::smart_refctd_ptr<video::IGPURenderpass>(scRes->getRenderpass())
+			const uint32_t addtionalBufferOwnershipFamilies[] = {getGraphicsQueue()->getFamilyIndex()};
 			auto scene = CGeometryCreatorScene::create({
-				.utilities = m_utils,
-				.logger = m_logger
+				.transferQueue = getTransferUpQueue(),
+				.utilities = m_utils.get(),
+				.logger = m_logger.get(),
+				.addtionalBufferOwnershipFamilies = addtionalBufferOwnershipFamilies
 			});
 #if 0
 			//using Builder = typename CScene::CreateResourcesDirectlyWithDevice::Builder;
 			using Builder = typename CScene::CreateResourcesWithAssetConverter::Builder;
-			auto oneRunCmd = CScene::createCommandBuffer(m_utils->getLogicalDevice(), m_utils->getLogger(), gQueue->getFamilyIndex());
 			Builder builder(m_utils.get(), oneRunCmd.get(), m_logger.get(), geometry);
 
 			// gpu resources

@@ -44,20 +44,26 @@ using namespace nbl::video
 		//
 		struct SCreateParams
 		{
-			core::smart_refctd_ptr<video::IUtilities> utilities;
-			core::smart_refctd_ptr<system::ILogger> logger;
+			video::IQueue* transferQueue;
+			video::IUtilities* utilities;
+			system::ILogger* logger;
+			std::span<const uint32_t> addtionalBufferOwnershipFamilies = {};
 		};
 		static inline core::smart_refctd_ptr<CGeometryCreatorScene> create(SCreateParams&& params)
 		{
 			EXPOSE_NABLA_NAMESPACES;
-			auto* logger = params.logger.get();
+			auto* logger = params.logger;
 			assert(logger);
-			if (!params.utilities)
+			if (!params.transferQueue)
 			{
-				logger->log("Pass a non-null `IUtilities`!",ILogger::ELL_ERROR);
+				logger->log("Pass a non-null `IQueue* transferQueue`!",ILogger::ELL_ERROR);
 				return nullptr;
 			}
-			auto device = params.utilities->getLogicalDevice();
+			if (!params.utilities)
+			{
+				logger->log("Pass a non-null `IUtilities* utilities`!",ILogger::ELL_ERROR);
+				return nullptr;
+			}
 
 			constexpr auto DescriptorCount = 255;
 			smart_refctd_ptr<ICPUDescriptorSet> cpuDS;
@@ -94,6 +100,8 @@ using namespace nbl::video
 			}
 
 			SInitParams init;
+			constexpr size_t NoIndexBufferMarker = 0xdeadbeefBADC0FFEull;
+			core::vector<smart_refctd_ptr<ICPUBuffer>> indexBuffers;
 			// create out geometries
 			{
 				auto* const outDescs = cpuDS->getDescriptorInfoStorage(IDescriptor::E_TYPE::ET_UNIFORM_TEXEL_BUFFER).data();
@@ -106,9 +114,16 @@ using namespace nbl::video
 					return nextDesc++;
 				};
 
-				auto addGeometry = [&allocateUTB,&init](const ICPUPolygonGeometry* geom)->void
+				auto addGeometry = [&allocateUTB,&indexBuffers,&init](const ICPUPolygonGeometry* geom)->void
 				{
 					auto& out = init.geoms.emplace_back();
+					if (const auto& view=geom->getIndexView(); view)
+					{
+						out.indexBuffer.offset = view.src.offset;
+						indexBuffers.push_back(view.src.buffer);
+					}
+					else
+						out.indexBuffer.offset = NoIndexBufferMarker;
 					out.elementCount = geom->getVertexReferenceCount();
 					out.positionView = allocateUTB(geom->getPositionView());
 					out.normalView = allocateUTB(geom->getNormalView());
@@ -135,7 +150,103 @@ using namespace nbl::video
 
 			// convert the geometries
 			{
-				init.ds = nullptr;
+				auto device = params.utilities->getLogicalDevice();
+				smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({.device=device});
+
+
+				const auto transferFamily = params.transferQueue->getFamilyIndex();
+
+				struct SInputs : CAssetConverter::SInputs
+				{
+					virtual inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t groupCopyID, const asset::ICPUBuffer* buffer, const CAssetConverter::patch_t<asset::ICPUBuffer>& patch) const
+					{
+						return sharedBufferOwnership;
+					}
+
+					core::vector<uint32_t> sharedBufferOwnership;
+				} inputs = {};
+				{
+					inputs.logger = logger;
+					// descriptor set should convert everthing downstream
+					std::get<CAssetConverter::SInputs::asset_span_t<ICPUDescriptorSet>>(inputs.assets) = {&cpuDS.get(),1};
+					// except index buffers
+					if (!indexBuffers.empty())
+						std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = {&indexBuffers.front().get(),indexBuffers.size()};
+					// set up shared ownership so we don't have to 
+					core::unordered_set<uint32_t> families;
+					families.insert(transferFamily);
+					families.insert(params.addtionalBufferOwnershipFamilies.begin(),params.addtionalBufferOwnershipFamilies.end());
+					if (families.size()>1)
+					for (const auto fam : families)
+						inputs.sharedBufferOwnership.push_back(fam);
+				}
+				
+				// reserve
+				auto reservation = converter->reserve(inputs);
+				if (!reservation)
+				{
+					logger->log("Failed to reserve GPU objects for CPU->GPU conversion!",ILogger::ELL_ERROR);
+					return nullptr;
+				}
+
+				// convert
+				{
+					auto semaphore = device->createSemaphore(0u);
+
+					constexpr auto MultiBuffering = 2;
+					std::array<smart_refctd_ptr<IGPUCommandBuffer>,MultiBuffering> commandBuffers = {};
+					{
+						auto pool = device->createCommandPool(transferFamily,IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT|IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+						pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,commandBuffers,smart_refctd_ptr<ILogger>(logger));
+					}
+					commandBuffers.front()->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+
+					std::array<IQueue::SSubmitInfo::SCommandBufferInfo,MultiBuffering> commandBufferSubmits;
+					for (auto i=0; i<MultiBuffering; i++)
+						commandBufferSubmits[i].cmdbuf = commandBuffers[i].get();
+
+					SIntendedSubmitInfo transfer = {};
+					transfer.queue = params.transferQueue;
+					transfer.scratchCommandBuffers = commandBufferSubmits;
+					transfer.scratchSemaphore = {
+						.semaphore = semaphore.get(),
+						.value = 0u,
+						.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+					};
+
+					CAssetConverter::SConvertParams cpar = {};
+					cpar.utilities = params.utilities;
+					cpar.transfer = &transfer;
+
+					// basically it records all data uploads and submits them right away
+					auto future = reservation.convert(cpar);
+					if (future.copy()!=IQueue::RESULT::SUCCESS)
+					{
+						logger->log("Failed to await submission feature!", ILogger::ELL_ERROR);
+						return nullptr;
+					}
+				}
+
+				// assign outputs
+				{
+					auto assign = [logger](auto& out, const auto& in)->bool
+					{
+						if (!in.value)
+						{
+							logger->log("Failed to convert CPU object to GPU!",ILogger::ELL_ERROR);
+							return false;
+						}
+						out = in.value;
+						return true;
+					};
+					if (!assign(init.ds,reservation.getGPUObjects<ICPUDescriptorSet>().front()))
+						return nullptr;
+					auto indexBufIt = reservation.getGPUObjects<ICPUBuffer>().data();
+					for (auto& entry : init.geoms)
+					if (entry.indexBuffer.offset!=NoIndexBufferMarker)
+					if (!assign(entry.indexBuffer.buffer,*(indexBufIt++)))
+						return nullptr;
+				}
 			}
 
 			return smart_refctd_ptr<CGeometryCreatorScene>(new CGeometryCreatorScene(std::move(init)),dont_grab);
@@ -159,7 +270,7 @@ using namespace nbl::video
 				};
 			}
 
-			core::smart_refctd_ptr<video::IGPUBuffer> indexBuffer = nullptr;
+			asset::SBufferBinding<video::IGPUBuffer> indexBuffer = {};
 			uint32_t elementCount = 0;
 			// indices into the descriptor set
 			uint8_t positionView = 0;
@@ -184,266 +295,6 @@ using namespace nbl::video
 #if 0
 class ResourceBuilder
 {
-public:
-
-	inline bool finalize(ResourcesBundle& output, nbl::video::CThreadSafeQueueAdapter* transferCapableQueue)
-	{
-		EXPOSE_NABLA_NAMESPACES();
-
-		// TODO: use multiple command buffers
-		std::array<IQueue::SSubmitInfo::SCommandBufferInfo,1u> commandBuffers = {};
-		{
-			commandBuffers.front().cmdbuf = commandBuffer;
-		}
-
-		{
-			// note that asset converter records basic transfer uploads itself, we only begin the recording with ONE_TIME_SUBMIT_BIT
-			commandBuffer->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
-			commandBuffer->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-			commandBuffer->beginDebugMarker("Resources builder's buffers upload [asset converter]");
-
-			// asset converter - scratch at this point has ready to convert cpu resources
-			smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = utilities->getLogicalDevice(),.optimizer = {} });
-			CAssetConverter::SInputs inputs = {};
-			inputs.logger = logger;
-
-			struct ProxyCpuHooks
-			{
-				using object_size_t = std::tuple_size<decltype(scratch.objects)>;
-
-				std::array<ICPURenderpass*, 1u> renderpass;
-				std::array<ICPUGraphicsPipeline*, object_size_t::value> pipelines;
-				std::array<ICPUBuffer*, object_size_t::value * 2u + 1u > buffers;
-				std::array<ICPUImageView*, 2u> attachments;
-				std::array<ICPUDescriptorSet*, 1u> descriptorSet;
-			} hooks;
-
-			enum AttachmentIx
-			{
-				AI_COLOR = 0u,
-				AI_DEPTH = 1u,
-
-				AI_COUNT
-			};
-			
-			// gather CPU assets into span memory views
-			{ 
-				hooks.renderpass.front() = scratch.renderpass.get();
-				for (uint32_t i = 0u; i < hooks.pipelines.size(); ++i)
-				{
-					auto& [reference, meta] = scratch.objects[static_cast<ObjectType>(i)];
-					hooks.pipelines[i] = reference.pipeline.get();
-
-					// [[ [vertex, index] [vertex, index] [vertex, index] ... [ubo] ]]
-					hooks.buffers[2u * i + 0u] = reference.bindings.vertex.buffer.get();
-					hooks.buffers[2u * i + 1u] = reference.bindings.index.buffer.get();
-				}
-				hooks.buffers.back() = scratch.ubo.buffer.get();
-				hooks.attachments[AI_COLOR] = scratch.attachments.color.get();
-				hooks.attachments[AI_DEPTH] = scratch.attachments.depth.get();
-				hooks.descriptorSet.front() = scratch.descriptorSet.get();
-			}
-
-			// assign the CPU hooks to converter's inputs
-			{
-				std::get<CAssetConverter::SInputs::asset_span_t<ICPURenderpass>>(inputs.assets) = hooks.renderpass;
-				std::get<CAssetConverter::SInputs::asset_span_t<ICPUGraphicsPipeline>>(inputs.assets) = hooks.pipelines;
-				std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = hooks.buffers;
-				// std::get<CAssetConverter::SInputs::asset_span_t<ICPUImageView>>(inputs.assets) = hooks.attachments; // NOTE: THIS IS NOT IMPLEMENTED YET IN CONVERTER!
-				std::get<CAssetConverter::SInputs::asset_span_t<ICPUDescriptorSet>>(inputs.assets) = hooks.descriptorSet;
-			}
-
-			// reserve and create the GPU object handles
-			auto reservation = converter->reserve(inputs);
-			{
-				auto prepass = [&]<typename asset_type_t>(const auto& references) -> bool
-				{
-					// retrieve the reserved handles
-					auto objects = reservation.getGPUObjects<asset_type_t>();
-
-					uint32_t counter = {};
-					for (auto& object : objects)
-					{
-						// anything that fails to be reserved is a nullptr in the span of GPU Objects
-						auto gpu = object.value;
-						auto* reference = references[counter];
-
-						if (reference)
-						{
-							// validate
-							if (!gpu) // throw errors only if corresponding cpu hook was VALID (eg. we may have nullptr for some index buffers in the span for converter but it's OK, I'm too lazy to filter them before passing to the converter inputs and don't want to deal with dynamic alloc)
-							{
-								logger->log("Failed to convert a CPU object to GPU!", ILogger::ELL_ERROR);
-								return false;
-							}
-						}
-						
-						++counter;
-					}
-
-					return true;
-				};
-				
-				prepass.template operator() < ICPURenderpass > (hooks.renderpass);
-				prepass.template operator() < ICPUGraphicsPipeline > (hooks.pipelines);
-				prepass.template operator() < ICPUBuffer > (hooks.buffers);
-				// validate.template operator() < ICPUImageView > (hooks.attachments);
-				prepass.template operator() < ICPUDescriptorSet > (hooks.descriptorSet);
-			}
-
-			auto semaphore = utilities->getLogicalDevice()->createSemaphore(0u);
-
-			// TODO: compute submit as well for the images' mipmaps
-			SIntendedSubmitInfo transfer = {};
-			transfer.queue = transferCapableQueue;
-			transfer.scratchCommandBuffers = commandBuffers;
-			transfer.scratchSemaphore = {
-				.semaphore = semaphore.get(),
-				.value = 0u,
-				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
-			};
-			// issue the convert call
-			{
-				CAssetConverter::SConvertParams params = {};
-				params.utilities = utilities;
-				params.transfer = &transfer;
-
-				// basically it records all data uploads and submits them right away
-				auto future = reservation.convert(params);
-				if (future.copy()!=IQueue::RESULT::SUCCESS)
-				{
-					logger->log("Failed to await submission feature!", ILogger::ELL_ERROR);
-					return false;
-				}
-
-				// assign gpu objects to output
-				auto& base = static_cast<ResourcesBundle::base_t&>(output);
-				{
-					auto&& [renderpass, pipelines, buffers, descriptorSet] = std::make_tuple(reservation.getGPUObjects<ICPURenderpass>().front().value, reservation.getGPUObjects<ICPUGraphicsPipeline>(), reservation.getGPUObjects<ICPUBuffer>(), reservation.getGPUObjects<ICPUDescriptorSet>().front().value);
-					{
-						base.renderpass = renderpass;
-						for (uint32_t i = 0u; i < pipelines.size(); ++i)
-						{
-							const auto type = static_cast<ObjectType>(i);
-							const auto& [rcpu, rmeta] = scratch.objects[type];
-							auto& [gpu, meta] = base.objects[type];
-
-							gpu.pipeline = pipelines[i].value;
-							// [[ [vertex, index] [vertex, index] [vertex, index] ... [ubo] ]]
-							gpu.bindings.vertex = {.offset = 0u, .buffer = buffers[2u * i + 0u].value};
-							gpu.bindings.index = {.offset = 0u, .buffer = buffers[2u * i + 1u].value};
-
-							gpu.indexCount = rcpu.indexCount;
-							gpu.indexType = rcpu.indexType;
-							meta.name = rmeta.name;
-							meta.type = rmeta.type;
-						}
-						base.ubo = {.offset = 0u, .buffer = buffers.back().value};
-						base.descriptorSet = descriptorSet;
-					
-						/*
-							// base.attachments.color = attachments[AI_COLOR].value;
-							// base.attachments.depth = attachments[AI_DEPTH].value;
-
-							note conversion of image views is not yet supported by the asset converter 
-							- it's complicated, we have to kinda temporary ignore DRY a bit here to not break the design which is correct
-
-							TEMPORARY: we patch attachments by allocating them ourselves here given cpu instances & parameters
-							TODO: remove following code once asset converter works with image views & update stuff
-						*/
-
-						for (uint32_t i = 0u; i < AI_COUNT; ++i)
-						{
-							const auto* reference = hooks.attachments[i];
-							auto& out = (i == AI_COLOR ? base.attachments.color : base.attachments.depth);
-
-							const auto& viewParams = reference->getCreationParameters();
-							const auto& imageParams = viewParams.image->getCreationParameters();
-
-							auto image = utilities->getLogicalDevice()->createImage
-							(
-								IGPUImage::SCreationParams
-								({
-									.type = imageParams.type,
-									.samples = imageParams.samples,
-									.format = imageParams.format,
-									.extent = imageParams.extent,
-									.mipLevels = imageParams.mipLevels,
-									.arrayLayers = imageParams.arrayLayers,
-									.usage = imageParams.usage
-								})
-							);
-
-							if (!image)
-							{
-								logger->log("Could not create image!", ILogger::ELL_ERROR);
-								return false;
-							}
-
-							bool IS_DEPTH = isDepthOrStencilFormat(imageParams.format);
-							std::string_view DEBUG_NAME = IS_DEPTH ? "UI Scene Depth Attachment Image" : "UI Scene Color Attachment Image";
-							image->setObjectDebugName(DEBUG_NAME.data());
-
-							if (!utilities->getLogicalDevice()->allocate(image->getMemoryReqs(), image.get()).isValid())
-							{
-								logger->log("Could not allocate memory for an image!", ILogger::ELL_ERROR);
-								return false;
-							}
-						
-							out = utilities->getLogicalDevice()->createImageView
-							(
-								IGPUImageView::SCreationParams
-								({
-									.flags = viewParams.flags,
-									.subUsages = viewParams.subUsages,
-									.image = std::move(image),
-									.viewType = viewParams.viewType,
-									.format = viewParams.format,
-									.subresourceRange = viewParams.subresourceRange
-								})
-							);
-
-							if (!out)
-							{
-								logger->log("Could not create image view!", ILogger::ELL_ERROR);
-								return false;
-							}
-						}
-
-						logger->log("Image View attachments has been allocated by hand after asset converter successful submit becasuse it doesn't support converting them yet!", ILogger::ELL_WARNING);
-					}
-				}
-			}
-		}
-
-		// write the descriptor set
-		{
-			// descriptor write ubo
-			IGPUDescriptorSet::SWriteDescriptorSet write;
-			write.dstSet = output.descriptorSet.get();
-			write.binding = 0;
-			write.arrayElement = 0u;
-			write.count = 1u;
-
-			IGPUDescriptorSet::SDescriptorInfo info;
-			{
-				info.desc = smart_refctd_ptr(output.ubo.buffer);
-				info.info.buffer.offset = output.ubo.offset;
-				info.info.buffer.size = output.ubo.buffer->getSize();
-			}
-
-			write.info = &info;
-
-			if(!utilities->getLogicalDevice()->updateDescriptorSets(1u, &write, 0u, nullptr))
-			{
-				logger->log("Could not write descriptor set!", ILogger::ELL_ERROR);
-				return false;
-			}
-		}
-
-		return true;
-	}
-
 private:
 
 
@@ -988,49 +839,6 @@ public:
 		nbl::core::smart_refctd_ptr<nbl::video::ISemaphore> progress;
 	} semaphore;
 
-	struct CreateResourcesDirectlyWithDevice { using Builder = ResourceBuilder<false>; };
-	struct CreateResourcesWithAssetConverter { using Builder = ResourceBuilder<true>; };
-
-	~CScene() {}
-
-	static inline nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> createCommandBuffer(nbl::video::ILogicalDevice* const device, nbl::system::ILogger* const logger, const uint32_t familyIx)
-	{
-		EXPOSE_NABLA_NAMESPACES();
-		auto pool = device->createCommandPool(familyIx, IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-
-		if (!pool)
-		{
-			logger->log("Couldn't create Command Pool!", ILogger::ELL_ERROR);
-			return nullptr;
-		}
-
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmd;
-
-		if (!pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &cmd , 1 }))
-		{
-			logger->log("Couldn't create Command Buffer!", ILogger::ELL_ERROR);
-			return nullptr;
-		}
-
-		return cmd;
-	}
-
-	template<typename CreateWith, typename... Args>
-	static auto create(Args&&... args) -> decltype(auto)
-	{
-		EXPOSE_NABLA_NAMESPACES();
-
-		/*
-			user should call the constructor's args without last argument explicitly, this is a trick to make constructor templated, 
-			eg.create(smart_refctd_ptr(device), smart_refctd_ptr(logger), queuePointer, geometryPointer)
-		*/
-
-		auto* scene = new CScene(std::forward<Args>(args)..., CreateWith {});
-		smart_refctd_ptr<CScene> smart(scene, dont_grab);
-
-		return smart;
-	}
-
 	inline void begin()
 	{
 		EXPOSE_NABLA_NAMESPACES();
@@ -1107,46 +915,6 @@ public:
 	inline void end()
 	{
 		m_commandBuffer->end();
-	}
-
-	inline bool submit()
-	{
-		EXPOSE_NABLA_NAMESPACES();
-
-		const IQueue::SSubmitInfo::SCommandBufferInfo buffers[] =
-		{
-			{ .cmdbuf = m_commandBuffer.get() }
-		};
-
-		const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = semaphore.progress.get(),.value = semaphore.finishedValue,.stageMask = PIPELINE_STAGE_FLAGS::FRAMEBUFFER_SPACE_BITS} };
-
-		const IQueue::SSubmitInfo infos[] =
-		{
-			{
-				.waitSemaphores = {},
-				.commandBuffers = buffers,
-				.signalSemaphores = signals
-			}
-		};
-
-		return queue->submit(infos) == IQueue::RESULT::SUCCESS;
-	}
-
-	// note: must be updated outside render pass
-	inline void update()
-	{
-		EXPOSE_NABLA_NAMESPACES();
-
-		SBufferRange<IGPUBuffer> range;
-		range.buffer = smart_refctd_ptr(resources.ubo.buffer);
-		range.size = resources.ubo.buffer->getSize();
-
-		m_commandBuffer->updateBuffer(range, &object.viewParameters);
-	}
-
-	inline decltype(auto) getResources()
-	{
-		return (resources); // note: do not remove "()" - it makes the return type lvalue reference instead of copy 
 	}
 
 private:
