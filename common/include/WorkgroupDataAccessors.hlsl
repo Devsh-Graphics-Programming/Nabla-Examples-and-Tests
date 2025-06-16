@@ -31,28 +31,29 @@ struct ScratchProxy
     }
 };
 
-template<class Config, class Binop>
+template<uint16_t WorkgroupSize, uint16_t ItemsPerInvocation>
 struct DataProxy
 {
-    using dtype_t = vector<uint32_t, Config::ItemsPerInvocation_0>;
+    using dtype_t = vector<uint32_t, ItemsPerInvocation>;
 
-    static DataProxy<Config, Binop> create()
+    static DataProxy<WorkgroupSize, ItemsPerInvocation> create(uint64_t inputBuf, uint64_t outputBuf)
     {
-        DataProxy<Config, Binop> retval;
-        retval.workgroupOffset = glsl::gl_WorkGroupID().x * Config::VirtualWorkgroupSize;
-        retval.outputBufAddr = sizeof(uint32_t) + pc.pOutputBuf[Binop::BindingIndex];
+        DataProxy<WorkgroupSize, ItemsPerInvocation> retval;
+        retval.workgroupOffset = glsl::gl_WorkGroupID().x * WorkgroupSize;
+        retval.inputBufAddr = inputBuf;
+        retval.outputBufAddr = outputBuf;
         return retval;
     }
 
     template<typename AccessType, typename IndexType>
     void get(const IndexType ix, NBL_REF_ARG(AccessType) value)
     {
-        value = vk::RawBufferLoad<AccessType>(pc.pInputBuf + (workgroupOffset + ix) * sizeof(AccessType));
+        value = vk::RawBufferLoad<AccessType>(inputBufAddr + (workgroupOffset + ix) * sizeof(AccessType));
     }
     template<typename AccessType, typename IndexType>
     void set(const IndexType ix, const AccessType value)
     {
-        vk::RawBufferStore<AccessType>(outputBufAddr + sizeof(AccessType) * (workgroupOffset+ix), value, sizeof(uint32_t));
+        vk::RawBufferStore<AccessType>(outputBufAddr + (workgroupOffset + ix) * sizeof(AccessType), value, sizeof(uint32_t));
     }
 
     void workgroupExecutionAndMemoryBarrier()
@@ -62,32 +63,34 @@ struct DataProxy
     }
 
     uint32_t workgroupOffset;
+    uint64_t inputBufAddr;
     uint64_t outputBufAddr;
 };
 
-template<class Config, class Binop>
+template<uint16_t WorkgroupSizeLog2, uint16_t ItemsPerInvocation, uint16_t _PreloadedDataCount>
 struct PreloadedDataProxy
 {
-    using dtype_t = vector<uint32_t, Config::ItemsPerInvocation_0>;
+    using dtype_t = vector<uint32_t, ItemsPerInvocation>;
 
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t PreloadedDataCount = Config::VirtualWorkgroupSize / Config::WorkgroupSize;
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t PreloadedDataCount = _PreloadedDataCount;
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t WorkgroupSize = uint16_t(1u) << WorkgroupSizeLog2;
 
-    static PreloadedDataProxy<Config, Binop> create()
+    static PreloadedDataProxy<WorkgroupSizeLog2, ItemsPerInvocation, PreloadedDataCount> create(uint64_t inputBuf, uint64_t outputBuf)
     {
-        PreloadedDataProxy<Config, Binop> retval;
-        retval.data = DataProxy<Config, Binop>::create();
+        PreloadedDataProxy<WorkgroupSizeLog2, ItemsPerInvocation, PreloadedDataCount> retval;
+        retval.data = DataProxy<WorkgroupSize*PreloadedDataCount, ItemsPerInvocation>::create(inputBuf, outputBuf);
         return retval;
     }
 
     template<typename AccessType, typename IndexType>
     void get(const IndexType ix, NBL_REF_ARG(AccessType) value)
     {
-        value = preloaded[ix>>Config::WorkgroupSizeLog2];
+        value = preloaded[ix>>WorkgroupSizeLog2];
     }
     template<typename AccessType, typename IndexType>
     void set(const IndexType ix, const AccessType value)
     {
-        preloaded[ix>>Config::WorkgroupSizeLog2] = value;
+        preloaded[ix>>WorkgroupSizeLog2] = value;
     }
 
     void preload()
@@ -95,14 +98,14 @@ struct PreloadedDataProxy
         const uint16_t invocationIndex = workgroup::SubgroupContiguousIndex();
         [unroll]
         for (uint16_t idx = 0; idx < PreloadedDataCount; idx++)
-            data.template get<dtype_t, uint16_t>(idx * Config::WorkgroupSize + invocationIndex, preloaded[idx]);
+            data.template get<dtype_t, uint16_t>(idx * WorkgroupSize + invocationIndex, preloaded[idx]);
     }
     void unload()
     {
         const uint16_t invocationIndex = workgroup::SubgroupContiguousIndex();
         [unroll]
         for (uint16_t idx = 0; idx < PreloadedDataCount; idx++)
-            data.template set<dtype_t, uint16_t>(idx * Config::WorkgroupSize + invocationIndex, preloaded[idx]);
+            data.template set<dtype_t, uint16_t>(idx * WorkgroupSize + invocationIndex, preloaded[idx]);
     }
 
     void workgroupExecutionAndMemoryBarrier()
@@ -111,7 +114,7 @@ struct PreloadedDataProxy
         //glsl::memoryBarrierShared(); implied by the above
     }
 
-    DataProxy<Config, Binop> data;
+    DataProxy<WorkgroupSize*PreloadedDataCount, ItemsPerInvocation> data;
     dtype_t preloaded[PreloadedDataCount];
 };
 

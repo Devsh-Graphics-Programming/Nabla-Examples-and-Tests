@@ -89,7 +89,7 @@ public:
 		for (auto i=0u; i<OutputBufferCount; i++)
 		{
 			IGPUBuffer::SCreationParams params = {};
-			params.size = sizeof(uint32_t) + gpuinputDataBuffer->getSize();
+			params.size = gpuinputDataBuffer->getSize();
 			params.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_SRC_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
 			outputBuffers[i] = m_device->createBuffer(std::move(params));
@@ -179,9 +179,9 @@ public:
 		for (uint32_t useNative = 0; useNative <= uint32_t(m_physicalDevice->getProperties().limits.shaderSubgroupArithmetic); useNative++)
 		{
 			if (useNative)
-				m_logger->log("Testing with emulated subgroup arithmetic", ILogger::ELL_INFO);
-			else
 				m_logger->log("Testing with native subgroup arithmetic", ILogger::ELL_INFO);
+			else
+				m_logger->log("Testing with emulated subgroup arithmetic", ILogger::ELL_INFO);
 
 			for (auto subgroupSize = MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 			{
@@ -417,9 +417,8 @@ private:
 		m_utils->downloadBufferRangeViaStagingBufferAutoSubmit(SIntendedSubmitInfo{.queue=transferDownQueue},bufferRange,resultsBuffer->getPointer());
 
 		using type_t = typename Binop::type_t;
-		const auto dataFromBuffer = reinterpret_cast<const uint32_t*>(resultsBuffer->getPointer());
+		const auto testData = reinterpret_cast<const uint32_t*>(resultsBuffer->getPointer());
 
-		const auto testData = reinterpret_cast<const type_t*>(dataFromBuffer + 1);
 		// TODO: parallel for (the temporary values need to be threadlocal or what?)
 		// now check if the data obtained has valid values
 		type_t* tmp = new type_t[itemsPerWG];

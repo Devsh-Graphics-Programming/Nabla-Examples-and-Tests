@@ -698,7 +698,7 @@ private:
 	uint32_t ItemsPerInvocation = 4u;
 	constexpr static inline uint32_t NumLoops = 1000u;
 	constexpr static inline uint32_t NumBenchmarks = 6u;
-	std::array<uint32_t, NumBenchmarks> workgroupSizes = { 32, 64,  128, 256, 512, 1024 };
+	std::array<uint32_t, NumBenchmarks> workgroupSizes = { 32, 64, 128, 256, 512, 1024 };
 	std::array<std::string, 3u> arithmeticOperations = { "reduction", "inclusive_scan", "exclusive_scan" };
 
 

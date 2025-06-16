@@ -31,7 +31,7 @@ static void subbench(NBL_CONST_REF_ARG(type_t) sourceVal)
     for (uint32_t i = 0; i < NUM_LOOPS; i++)
         value = func(value);
 
-    vk::RawBufferStore<type_t>(outputBufAddr + sizeof(uint32_t) + sizeof(type_t) * globalIndex(), value, sizeof(uint32_t));
+    vk::RawBufferStore<type_t>(outputBufAddr + sizeof(type_t) * globalIndex(), value, sizeof(uint32_t));
 }
 
 void benchmark()

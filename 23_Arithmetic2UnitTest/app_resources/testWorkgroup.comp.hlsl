@@ -30,17 +30,18 @@ struct operation_t
     // workgroup scans do no return anything, but use the data accessor to do the storing directly
     void operator()()
     {
-        PreloadedDataProxy<config_t,Binop> dataAccessor = PreloadedDataProxy<config_t,Binop>::create();
+        using data_proxy_t = PreloadedDataProxy<config_t::WorkgroupSizeLog2,config_t::ItemsPerInvocation_0,config_t::VirtualWorkgroupSize/config_t::WorkgroupSize>;
+        data_proxy_t dataAccessor = data_proxy_t::create(pc.pInputBuf, pc.pOutputBuf[Binop::BindingIndex]);
         dataAccessor.preload();
 #if IS_REDUCTION
         otype_t value =
 #endif
-        OPERATION<config_t,binop_base_t,device_capabilities>::template __call<PreloadedDataProxy<config_t,Binop>, ScratchProxy>(dataAccessor,arithmeticAccessor);
+        OPERATION<config_t,binop_base_t,device_capabilities>::template __call<data_proxy_t, ScratchProxy>(dataAccessor,arithmeticAccessor);
         // we barrier before because we alias the accessors for Binop
         arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
 #if IS_REDUCTION
         [unroll]
-        for (uint32_t i = 0; i < PreloadedDataProxy<config_t,Binop>::PreloadedDataCount; i++)
+        for (uint32_t i = 0; i < data_proxy_t::PreloadedDataCount; i++)
             dataAccessor.preloaded[i] = value;
 #endif
         dataAccessor.unload();
@@ -51,8 +52,7 @@ struct operation_t
 template<class Binop>
 static void subtest()
 {
-    if (glsl::gl_SubgroupSize()!=1u<<SUBGROUP_SIZE_LOG2)
-        vk::RawBufferStore<uint32_t>(pc.pOutputBuf[Binop::BindingIndex], glsl::gl_SubgroupSize());
+    assert(glsl::gl_SubgroupSize() == 1u<<SUBGROUP_SIZE_LOG2)
 
     operation_t<Binop,device_capabilities> func;
     func();

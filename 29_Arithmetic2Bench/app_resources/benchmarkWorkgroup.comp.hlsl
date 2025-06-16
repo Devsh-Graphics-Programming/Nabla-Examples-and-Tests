@@ -19,29 +19,30 @@ groupshared uint32_t scratch[mpl::max_v<int16_t,config_t::SharedScratchElementCo
 
 #include "../../common/include/WorkgroupDataAccessors.hlsl"
 
-template<class Config, class Binop>
+template<uint16_t WorkgroupSizeLog2, uint16_t ItemsPerInvocation, uint16_t _PreloadedDataCount>
 struct RandomizedInputDataProxy
 {
-    using dtype_t = vector<uint32_t, Config::ItemsPerInvocation_0>;
+    using dtype_t = vector<uint32_t, ItemsPerInvocation>;
 
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t PreloadedDataCount = Config::VirtualWorkgroupSize / Config::WorkgroupSize;
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t PreloadedDataCount = _PreloadedDataCount;
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t WorkgroupSize = uint16_t(1u) << WorkgroupSizeLog2;
 
-    static RandomizedInputDataProxy<Config, Binop> create()
+    static RandomizedInputDataProxy<WorkgroupSizeLog2, ItemsPerInvocation, PreloadedDataCount> create(uint64_t inputBuf, uint64_t outputBuf)
     {
-        RandomizedInputDataProxy<Config, Binop> retval;
-        retval.data = DataProxy<Config, Binop>::create();
+        RandomizedInputDataProxy<WorkgroupSizeLog2, ItemsPerInvocation, PreloadedDataCount> retval;
+        retval.data = DataProxy<WorkgroupSize*PreloadedDataCount, ItemsPerInvocation>::create(inputBuf, outputBuf);
         return retval;
     }
 
     template<typename AccessType, typename IndexType>
     void get(const IndexType ix, NBL_REF_ARG(AccessType) value)
     {
-        value = preloaded[ix>>Config::WorkgroupSizeLog2];
+        value = preloaded[ix>>WorkgroupSizeLog2];
     }
     template<typename AccessType, typename IndexType>
     void set(const IndexType ix, const AccessType value)
     {
-        preloaded[ix>>Config::WorkgroupSizeLog2] = value;
+        preloaded[ix>>WorkgroupSizeLog2] = value;
     }
 
     void preload()
@@ -51,7 +52,7 @@ struct RandomizedInputDataProxy
         [unroll]
         for (uint16_t idx = 0; idx < PreloadedDataCount; idx++)
             [unroll]
-            for (uint16_t i = 0; i < Config::ItemsPerInvocation_0; i++)
+            for (uint16_t i = 0; i < ItemsPerInvocation; i++)
                preloaded[idx][i] = xoroshiro();
     }
     void unload()
@@ -59,7 +60,7 @@ struct RandomizedInputDataProxy
         const uint16_t invocationIndex = workgroup::SubgroupContiguousIndex();
         [unroll]
         for (uint16_t idx = 0; idx < PreloadedDataCount; idx++)
-            data.template set<dtype_t, uint16_t>(idx * Config::WorkgroupSize + invocationIndex, preloaded[idx]);
+            data.template set<dtype_t, uint16_t>(idx * WorkgroupSize + invocationIndex, preloaded[idx]);
     }
 
     void workgroupExecutionAndMemoryBarrier()
@@ -68,11 +69,13 @@ struct RandomizedInputDataProxy
         //glsl::memoryBarrierShared(); implied by the above
     }
 
-    DataProxy<Config, Binop> data;
+    DataProxy<WorkgroupSize*PreloadedDataCount, ItemsPerInvocation> data;
     dtype_t preloaded[PreloadedDataCount];
 };
 
 static ScratchProxy arithmeticAccessor;
+
+using data_proxy_t = RandomizedInputDataProxy<config_t::WorkgroupSizeLog2,config_t::ItemsPerInvocation_0,config_t::VirtualWorkgroupSize/config_t::WorkgroupSize>;
 
 template<class Binop, class device_capabilities>
 struct operation_t
@@ -80,17 +83,17 @@ struct operation_t
     using binop_base_t = typename Binop::base_t;
     using otype_t = typename Binop::type_t;
 
-    void operator()(RandomizedInputDataProxy<config_t,Binop> dataAccessor)
+    void operator()(data_proxy_t dataAccessor)
     {
 #if IS_REDUCTION
         otype_t value = 
 #endif
-        OPERATION<config_t,binop_base_t,device_capabilities>::template __call<RandomizedInputDataProxy<config_t,Binop>, ScratchProxy>(dataAccessor,arithmeticAccessor);
+        OPERATION<config_t,binop_base_t,device_capabilities>::template __call<data_proxy_t, ScratchProxy>(dataAccessor,arithmeticAccessor);
         // we barrier before because we alias the accessors for Binop
         arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
 #if IS_REDUCTION
         [unroll]
-        for (uint32_t i = 0; i < RandomizedInputDataProxy<config_t,Binop>::PreloadedDataCount; i++)
+        for (uint32_t i = 0; i < data_proxy_t::PreloadedDataCount; i++)
             dataAccessor.preloaded[i] = value;
 #endif
     }
@@ -99,7 +102,7 @@ struct operation_t
 template<class Binop>
 static void subbench()
 {
-    RandomizedInputDataProxy<config_t,Binop> dataAccessor = RandomizedInputDataProxy<config_t,Binop>::create();
+    data_proxy_t dataAccessor = data_proxy_t::create(0, pc.pOutputBuf[Binop::BindingIndex]);
     dataAccessor.preload();
 
     operation_t<Binop,device_capabilities> func;

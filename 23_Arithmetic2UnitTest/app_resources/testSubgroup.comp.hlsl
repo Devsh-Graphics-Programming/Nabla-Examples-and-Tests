@@ -24,13 +24,12 @@ static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
 
     const uint64_t outputBufAddr = pc.pOutputBuf[Binop::BindingIndex];
 
-    if (glsl::gl_SubgroupSize()!=1u<<SUBGROUP_SIZE_LOG2)
-        vk::RawBufferStore<uint32_t>(outputBufAddr, glsl::gl_SubgroupSize());
+    assert(glsl::gl_SubgroupSize() == 1u<<SUBGROUP_SIZE_LOG2)
 
     operation_t<params_t> func;
     type_t val = func(sourceVal);
 
-    vk::RawBufferStore<type_t>(outputBufAddr + sizeof(uint32_t) + sizeof(type_t) * globalIndex(), val, sizeof(uint32_t));
+    vk::RawBufferStore<type_t>(outputBufAddr + sizeof(type_t) * globalIndex(), val, sizeof(uint32_t));
 }
 
 type_t test()
