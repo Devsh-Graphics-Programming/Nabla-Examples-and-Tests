@@ -117,6 +117,14 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     return color;
 }
 
+bool isLineValid(in nbl::hlsl::shapes::Line<float> l)
+{
+    bool isAnyLineComponentNaN = any(bool4(isnan(l.P0.x), isnan(l.P0.y), isnan(l.P1.x), isnan(l.P1.y)));
+    if (isAnyLineComponentNaN)
+        return false;
+    return true;
+}
+
 [[vk::spvexecutionmode(spv::ExecutionModePixelInterlockOrderedEXT)]]
 [shader("pixel")]
 float4 fragMain(PSInput input) : SV_TARGET
@@ -422,8 +430,8 @@ float4 fragMain(PSInput input) : SV_TARGET
             float2 cellCoords;
             {
                 float2 gridSpacePosDivGridCellWidth = gridSpacePos / cellWidth;
-                cellCoords.x = uint32_t(gridSpacePosDivGridCellWidth.x);
-                cellCoords.y = uint32_t(gridSpacePosDivGridCellWidth.y);
+                cellCoords.x = int32_t(gridSpacePosDivGridCellWidth.x);
+                cellCoords.y = int32_t(gridSpacePosDivGridCellWidth.y);
             }
 
             float2 gridSpaceCellTopLeftCoords = cellCoords * cellWidth;
@@ -439,31 +447,24 @@ float4 fragMain(PSInput input) : SV_TARGET
             // 
 
             // calculate screen space coordinates of vertices of the current tiranlge within the grid
-            float3 currentTriangleVertices[3];
+            dtm::GridDTMTriangle currentTriangle;
+            dtm::GridDTMCell neighbouringCells[8];
+            if (dtmSettings.drawContourEnabled() || dtmSettings.drawHeightShadingEnabled())
             {
-                float2 insideCellCoord = gridSpacePos - float2(cellWidth, cellWidth) * cellCoords; // TODO: use fmod instead?
-                
-                uint32_t4 cellData;
-                // cellHeihts.x - bottom left texel
-                // cellHeihts.y - bottom right texel
-                // cellHeihts.z - top right texel
-                // cellHeihts.w - top left texel
-                float4 cellHeights = float4(InvalidGridDTMHeightValue, InvalidGridDTMHeightValue, InvalidGridDTMHeightValue, InvalidGridDTMHeightValue);
-                if (textureId != InvalidTextureIndex)
-                {
-                    const float2 maxCellCoords = float2(round(gridExtents.x / cellWidth), round(gridExtents.y / cellWidth));
-                    const float2 location = (cellCoords + float2(0.5f, 0.5f)) / maxCellCoords;
-
-                    cellData = texturesU32[NonUniformResourceIndex(textureId)].Gather(textureSampler, float2(location.x, location.y), 0);
-                    cellHeights = asfloat(cellData);
-                }
-
-                const E_CELL_DIAGONAL cellDiagonal = dtm::resolveGridDTMCellDiagonal(cellData);
-                const bool diagonalFromTopLeftToBottomRight = cellDiagonal == E_CELL_DIAGONAL::TOP_LEFT_TO_BOTTOM_RIGHT;
-
-                if (cellDiagonal == E_CELL_DIAGONAL::INVALID)
+                if (textureId == InvalidTextureIndex)
                     discard;
 
+                // heightData.heihts.x - bottom left texel
+                // heightData.heihts.y - bottom right texel
+                // heightData.heihts.z - top right texel
+                // heightData.heihts.w - top left texel
+                dtm::GridDTMHeightMapData heightData = dtm::retrieveGridDTMCellDataFromHeightMap(gridExtents, cellCoords, cellWidth, texturesU32[NonUniformResourceIndex(textureId)]);
+                if (heightData.cellDiagonal == E_CELL_DIAGONAL::INVALID)
+                    discard;
+
+                const bool diagonalFromTopLeftToBottomRight = heightData.cellDiagonal == E_CELL_DIAGONAL::TOP_LEFT_TO_BOTTOM_RIGHT;
+
+                float2 insideCellCoord = gridSpacePos - float2(cellWidth, cellWidth) * cellCoords; // TODO: use fmod instead?
                 // my ASCII art above explains which triangle is A and which is B
                 const bool triangleA = diagonalFromTopLeftToBottomRight ?
                     insideCellCoord.x < insideCellCoord.y :
@@ -471,29 +472,29 @@ float4 fragMain(PSInput input) : SV_TARGET
 
                 if (diagonalFromTopLeftToBottomRight)
                 {
-                    currentTriangleVertices[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, cellHeights.w);
-                    currentTriangleVertices[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.y);
-                    currentTriangleVertices[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.x) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, cellHeights.z);
+                    currentTriangle.vertices[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, heightData.heights.w);
+                    currentTriangle.vertices[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, heightData.heights.y);
+                    currentTriangle.vertices[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, heightData.heights.x) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, heightData.heights.z);
 
                     // TODO: use cell space instead https://github.com/Devsh-Graphics-Programming/Nabla-Examples-and-Tests/pull/186#discussion_r2133699055
-                    //currentTriangleVertices[0] = float3(0.0f, 0.0f, cellHeights.w);
-                    //currentTriangleVertices[1] = float3(cellWidth, cellWidth, cellHeights.y);
-                    //currentTriangleVertices[2] = triangleA ? float3(0.0f, cellWidth, cellHeights.x) : float3(cellWidth, 0.0f, cellHeights.z);
+                    //currentTriangle.vertices[0] = float3(0.0f, 0.0f, heightData.heights.w);
+                    //currentTriangle.vertices[1] = float3(cellWidth, cellWidth, heightData.heights.y);
+                    //currentTriangle.vertices[2] = triangleA ? float3(0.0f, cellWidth, heightData.heights.x) : float3(cellWidth, 0.0f, heightData.heights.z);
                 }
                 else
                 {
-                    currentTriangleVertices[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.x);
-                    currentTriangleVertices[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, cellHeights.z);
-                    currentTriangleVertices[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, cellHeights.w) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, cellHeights.y);
+                    currentTriangle.vertices[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, heightData.heights.x);
+                    currentTriangle.vertices[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, heightData.heights.z);
+                    currentTriangle.vertices[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, heightData.heights.w) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, heightData.heights.y);
 
                     // TODO: use cell space instead https://github.com/Devsh-Graphics-Programming/Nabla-Examples-and-Tests/pull/186#discussion_r2133699055
-                    //currentTriangleVertices[0] = float3(0.0f, 0.0f + cellWidth, cellHeights.x);
-                    //currentTriangleVertices[1] = float3(0.0f + cellWidth, 0.0f, cellHeights.z);
-                    //currentTriangleVertices[2] = triangleA ? float3(0.0f, 0.0f, cellHeights.w) : float3(cellWidth, cellWidth, cellHeights.y);
+                    //currentTriangle.vertices[0] = float3(0.0f, 0.0f + cellWidth, heightData.heights.x);
+                    //currentTriangle.vertices[1] = float3(0.0f + cellWidth, 0.0f, heightData.heights.z);
+                    //currentTriangle.vertices[2] = triangleA ? float3(0.0f, 0.0f, heightData.heights.w) : float3(cellWidth, cellWidth, heightData.heights.y);
                 }
 
-                bool isTriangleInvalid = isnan(currentTriangleVertices[0].z) || isnan(currentTriangleVertices[1].z) || isnan(currentTriangleVertices[2].z);
-                bool isCellPartiallyInvalid = isnan(cellHeights.x) || isnan(cellHeights.y) || isnan(cellHeights.z) || isnan(cellHeights.w);
+                bool isTriangleInvalid = isnan(currentTriangle.vertices[0].z) || isnan(currentTriangle.vertices[1].z) || isnan(currentTriangle.vertices[2].z);
+                bool isCellPartiallyInvalid = isnan(heightData.heights.x) || isnan(heightData.heights.y) || isnan(heightData.heights.z) || isnan(heightData.heights.w);
 
                 if (isTriangleInvalid)
                     discard;
@@ -501,46 +502,75 @@ float4 fragMain(PSInput input) : SV_TARGET
                 // move from grid space to screen space
                 [unroll]
                 for (int i = 0; i < 3; ++i)
-                    currentTriangleVertices[i].xy += topLeft;
+                    currentTriangle.vertices[i].xy += topLeft;
 
-                float distancesToVerticalCellSides = min(insideCellCoord.x, cellWidth - insideCellCoord.x);
-                float distancesToHorizontalCellSides = min(insideCellCoord.y, cellWidth - insideCellCoord.y);
+                const float2 neighbouringCellsCellOffsets[8] = {
+                    float2(-1.0f, -1.0f),
+                    float2(0.0f, -1.0f),
+                    float2(1.0f, -1.0f),
+                    float2(-1.0f, 0.0f),
+                    float2(-1.0f, 0.0f),
+                    float2(-1.0f, 1.0f),
+                    float2(0.0f, 1.0f),
+                    float2(1.0f, 1.0f)
+                };
 
-                float patternCellCoord = distancesToVerticalCellSides >= distancesToHorizontalCellSides ? cellCoords.x : cellCoords.y;
+                // construct triangles of neighbouring cells
+                for (int i = 0; i < 8; ++i)
+                {
+                    float2 neighbouringCellCoords = cellCoords + neighbouringCellsCellOffsets[i];
+                    neighbouringCells[i] = dtm::calculateCellTriangles(topLeft, gridExtents, neighbouringCellCoords, cellWidth, texturesU32[NonUniformResourceIndex(textureId)]);
+                }
             }
 
             // find the nearest horizontal and vertical line to the fragment
             nbl::hlsl::shapes::Line<float> outlineLineSegments[2];
             {
                 const float halfCellWidth = cellWidth * 0.5f;
-                const float2 nearestLineRemainingCoords = int2((gridSpacePos + halfCellWidth) / cellWidth) * cellWidth + topLeft;
+                const float2 horizontalBounds = float2(topLeft.y, topLeft.y + gridExtents.y);
+                const float2 verticalBounds = float2(topLeft.x, topLeft.x + gridExtents.x);
+                float2 nearestLineRemainingCoords = int2((gridSpacePos + halfCellWidth) / cellWidth) * cellWidth + topLeft;
+                // shift lines outside of the grid to a bound
+                nearestLineRemainingCoords.x = clamp(nearestLineRemainingCoords.x, verticalBounds.x, verticalBounds.y);
+                nearestLineRemainingCoords.y = clamp(nearestLineRemainingCoords.y, horizontalBounds.x, horizontalBounds.y);
 
                 // find the nearest horizontal line
-                outlineLineSegments[0].P0 = float32_t2(topLeft.x, nearestLineRemainingCoords.y);
-                outlineLineSegments[0].P1 = float32_t2(topLeft.x + gridExtents.x, nearestLineRemainingCoords.y);
-                outlineLineSegments[1].P0 = float32_t2(nearestLineRemainingCoords.x, topLeft.y);
-                outlineLineSegments[1].P1 = float32_t2(nearestLineRemainingCoords.x, topLeft.y + gridExtents.y);
+                outlineLineSegments[0].P0 = float32_t2(verticalBounds.x, nearestLineRemainingCoords.y);
+                outlineLineSegments[0].P1 = float32_t2(verticalBounds.y, nearestLineRemainingCoords.y);
+                // find the nearest vertical line
+                outlineLineSegments[1].P0 = float32_t2(nearestLineRemainingCoords.x, horizontalBounds.x);
+                outlineLineSegments[1].P1 = float32_t2(nearestLineRemainingCoords.x, horizontalBounds.y);
 
                 // test diagonal draw (to draw diagonals height or contour shading must be enabled)
                 //outlineLineSegments[0] = nbl::hlsl::shapes::Line<float>::construct(currentTriangleVertices[0].xy, currentTriangleVertices[1].xy);
                 //outlineLineSegments[1] = nbl::hlsl::shapes::Line<float>::construct(currentTriangleVertices[0].xy, currentTriangleVertices[1].xy);
             }
 
-            const float3 baryCoord = dtm::calculateDTMTriangleBarycentrics(currentTriangleVertices[0].xy, currentTriangleVertices[1].xy, currentTriangleVertices[2].xy, input.position.xy);
-            float height = baryCoord.x * currentTriangleVertices[0].z + baryCoord.y * currentTriangleVertices[1].z + baryCoord.z * currentTriangleVertices[2].z;
+            const float3 baryCoord = dtm::calculateDTMTriangleBarycentrics(currentTriangle.vertices[0].xy, currentTriangle.vertices[1].xy, currentTriangle.vertices[2].xy, input.position.xy);
+            float height = baryCoord.x * currentTriangle.vertices[0].z + baryCoord.y * currentTriangle.vertices[1].z + baryCoord.z * currentTriangle.vertices[2].z;
             float heightDeriv = fwidth(height);
 
             const bool outOfBoundsUV = uv.x < 0.0f || uv.y < 0.0f || uv.x > 1.0f || uv.y > 1.0f;
             float4 dtmColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
-            if (dtmSettings.drawContourEnabled())
+            if (dtmSettings.drawContourEnabled() && !outOfBoundsUV)
             {
                 for (int i = dtmSettings.contourSettingsCount-1u; i >= 0; --i) 
-                    dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMContourColor(dtmSettings.contourSettings[i], currentTriangleVertices, input.position.xy, height));
+                    dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMContourColor(dtmSettings.contourSettings[i], currentTriangle.vertices, input.position.xy, height));
+
+                // draw shit form neighbouring cells
+                for (int i = 0; i < 8; ++i)
+                {
+                    for (int j = dtmSettings.contourSettingsCount - 1u; j >= 0; --j)
+                    {
+                        dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMContourColor(dtmSettings.contourSettings[i], neighbouringCells[i].triangleA.vertices, input.position.xy, height));
+                        dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMContourColor(dtmSettings.contourSettings[i], neighbouringCells[i].triangleB.vertices, input.position.xy, height));
+                    }
+                }
             }
             if (dtmSettings.drawOutlineEnabled())
                 dtmColor = dtm::blendUnder(dtmColor, dtm::calculateGridDTMOutlineColor(dtmSettings.outlineLineStyleIdx, outlineLineSegments, input.position.xy, 0.0f));
             if (dtmSettings.drawHeightShadingEnabled() && !outOfBoundsUV)
-                dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, currentTriangleVertices, heightDeriv, input.position.xy, height));
+                dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, currentTriangle.vertices, heightDeriv, input.position.xy, height));
 
             textureColor = dtmColor.rgb / dtmColor.a;
             localAlpha = dtmColor.a;
@@ -569,11 +599,11 @@ float4 fragMain(PSInput input) : SV_TARGET
             }
         }
 
-        uint2 fragCoord = uint2(input.position.xy);
         
         if (localAlpha <= 0)
             discard;
         
+        uint2 fragCoord = uint2(input.position.xy);
         const bool colorFromTexture = objType == ObjectType::STREAMED_IMAGE || objType == ObjectType::STATIC_IMAGE || objType == ObjectType::GRID_DTM;
 
         return calculateFinalColor<DeviceConfigCaps::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx, textureColor, colorFromTexture);

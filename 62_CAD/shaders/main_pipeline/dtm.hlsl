@@ -450,6 +450,96 @@ E_CELL_DIAGONAL resolveGridDTMCellDiagonal(in uint32_t4 cellData)
     return INVALID;
 }
 
+struct GridDTMTriangle
+{
+    float3 vertices[3];
+};
+
+/**
+* grid consists of square cells and cells are divided into two triangles:
+* depending on mode it is
+* either:        or:
+* v2a-------v1   v0-------v2b
+* |  A     / |   | \     B  |
+* |     /    |   |    \     |
+* |  /  B    |   |   A   \  |
+* v0-------v2b   v2a-------v1
+*/
+struct GridDTMCell
+{
+    GridDTMTriangle triangleA;
+    GridDTMTriangle triangleB;
+};
+
+struct GridDTMHeightMapData
+{
+    // heihts.x - bottom left texel
+    // heihts.y - bottom right texel
+    // heihts.z - top right texel
+    // heihts.w - top left texel
+    float4 heights;
+    E_CELL_DIAGONAL cellDiagonal;
+};
+
+GridDTMHeightMapData retrieveGridDTMCellDataFromHeightMap(in float2 gridExtents, in float2 cellCoords, const float cellWidth, in Texture2D<uint32_t> heightMap)
+{
+    GridDTMHeightMapData output;
+
+    const float2 maxCellCoords = float2(round(gridExtents.x / cellWidth), round(gridExtents.y / cellWidth));
+    const float2 location = (cellCoords + float2(0.5f, 0.5f)) / maxCellCoords;
+    uint32_t4 cellData = heightMap.Gather(textureSampler, float2(location.x, location.y), 0);
+
+    printf("%u %u %u %u", cellData.x, cellData.y, cellData.z, cellData.w);
+
+    output.heights = asfloat(cellData);
+    output.cellDiagonal = dtm::resolveGridDTMCellDiagonal(cellData);
+    return output;
+}
+
+GridDTMCell calculateCellTriangles(in float2 topLeft, in float2 gridExtents, in float2 cellCoords, const float cellWidth, in Texture2D<uint32_t> heightMap)
+{
+    GridDTMCell output;
+
+    // heightData.heihts.x - bottom left texel
+    // heightData.heihts.y - bottom right texel
+    // heightData.heihts.z - top right texel
+    // heightData.heihts.w - top left texel
+    dtm::GridDTMHeightMapData heightData = dtm::retrieveGridDTMCellDataFromHeightMap(gridExtents, cellCoords, cellWidth, heightMap);
+    const bool diagonalFromTopLeftToBottomRight = heightData.cellDiagonal == E_CELL_DIAGONAL::TOP_LEFT_TO_BOTTOM_RIGHT;
+    float2 gridSpaceCellTopLeftCoords = cellCoords * cellWidth;
+
+    if (diagonalFromTopLeftToBottomRight)
+    {
+        output.triangleA.vertices[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, heightData.heights.w);
+        output.triangleA.vertices[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, heightData.heights.y);
+        output.triangleA.vertices[2] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, heightData.heights.x);
+
+        output.triangleB.vertices[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, heightData.heights.w);
+        output.triangleB.vertices[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, heightData.heights.y);
+        output.triangleB.vertices[2] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, heightData.heights.z);
+    }
+    else
+    {
+        output.triangleA.vertices[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, heightData.heights.x);
+        output.triangleA.vertices[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, heightData.heights.z);
+        output.triangleA.vertices[2] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, heightData.heights.w);
+
+        output.triangleB.vertices[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, heightData.heights.x);
+        output.triangleB.vertices[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, heightData.heights.z);
+        output.triangleB.vertices[2] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, heightData.heights.y);
+    }
+
+    // move from grid space to screen space
+    [unroll]
+    for (int i = 0; i < 3; ++i)
+    {
+        output.triangleA.vertices[i].xy += topLeft;
+        output.triangleB.vertices[i].xy += topLeft;
+    }
+
+    return output;
+}
+
 }
 
 #endif
