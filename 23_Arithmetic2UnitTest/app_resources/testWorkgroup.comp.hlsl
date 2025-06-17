@@ -30,7 +30,7 @@ struct operation_t
     // workgroup scans do no return anything, but use the data accessor to do the storing directly
     void operator()()
     {
-        using data_proxy_t = PreloadedDataProxy<config_t::WorkgroupSizeLog2,config_t::ItemsPerInvocation_0,config_t::VirtualWorkgroupSize/config_t::WorkgroupSize>;
+        using data_proxy_t = PreloadedDataProxy<config_t::WorkgroupSizeLog2,config_t::VirtualWorkgroupSize,config_t::ItemsPerInvocation_0>;
         data_proxy_t dataAccessor = data_proxy_t::create(pc.pInputBuf, pc.pOutputBuf[Binop::BindingIndex]);
         dataAccessor.preload();
 #if IS_REDUCTION

@@ -31,15 +31,15 @@ struct ScratchProxy
     }
 };
 
-template<uint16_t WorkgroupSize, uint16_t ItemsPerInvocation>
+template<uint16_t VirtualWorkgroupSize, uint16_t ItemsPerInvocation>
 struct DataProxy
 {
     using dtype_t = vector<uint32_t, ItemsPerInvocation>;
 
-    static DataProxy<WorkgroupSize, ItemsPerInvocation> create(uint64_t inputBuf, uint64_t outputBuf)
+    static DataProxy<VirtualWorkgroupSize, ItemsPerInvocation> create(const uint64_t inputBuf, const uint64_t outputBuf)
     {
-        DataProxy<WorkgroupSize, ItemsPerInvocation> retval;
-        retval.workgroupOffset = glsl::gl_WorkGroupID().x * WorkgroupSize;
+        DataProxy<VirtualWorkgroupSize, ItemsPerInvocation> retval;
+        retval.workgroupOffset = glsl::gl_WorkGroupID().x * VirtualWorkgroupSize;
         retval.inputBufAddr = inputBuf;
         retval.outputBufAddr = outputBuf;
         return retval;
@@ -67,18 +67,18 @@ struct DataProxy
     uint64_t outputBufAddr;
 };
 
-template<uint16_t WorkgroupSizeLog2, uint16_t ItemsPerInvocation, uint16_t _PreloadedDataCount>
+template<uint16_t WorkgroupSizeLog2, uint16_t VirtualWorkgroupSize, uint16_t ItemsPerInvocation>
 struct PreloadedDataProxy
 {
     using dtype_t = vector<uint32_t, ItemsPerInvocation>;
 
-    NBL_CONSTEXPR_STATIC_INLINE uint16_t PreloadedDataCount = _PreloadedDataCount;
     NBL_CONSTEXPR_STATIC_INLINE uint16_t WorkgroupSize = uint16_t(1u) << WorkgroupSizeLog2;
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t PreloadedDataCount = VirtualWorkgroupSize / WorkgroupSize;
 
-    static PreloadedDataProxy<WorkgroupSizeLog2, ItemsPerInvocation, PreloadedDataCount> create(uint64_t inputBuf, uint64_t outputBuf)
+    static PreloadedDataProxy<WorkgroupSizeLog2, VirtualWorkgroupSize, ItemsPerInvocation> create(const uint64_t inputBuf, const uint64_t outputBuf)
     {
-        PreloadedDataProxy<WorkgroupSizeLog2, ItemsPerInvocation, PreloadedDataCount> retval;
-        retval.data = DataProxy<WorkgroupSize*PreloadedDataCount, ItemsPerInvocation>::create(inputBuf, outputBuf);
+        PreloadedDataProxy<WorkgroupSizeLog2, VirtualWorkgroupSize, ItemsPerInvocation> retval;
+        retval.data = DataProxy<VirtualWorkgroupSize, ItemsPerInvocation>::create(inputBuf, outputBuf);
         return retval;
     }
 
@@ -114,7 +114,7 @@ struct PreloadedDataProxy
         //glsl::memoryBarrierShared(); implied by the above
     }
 
-    DataProxy<WorkgroupSize*PreloadedDataCount, ItemsPerInvocation> data;
+    DataProxy<VirtualWorkgroupSize, ItemsPerInvocation> data;
     dtype_t preloaded[PreloadedDataCount];
 };
 

@@ -19,18 +19,18 @@ groupshared uint32_t scratch[mpl::max_v<int16_t,config_t::SharedScratchElementCo
 
 #include "../../common/include/WorkgroupDataAccessors.hlsl"
 
-template<uint16_t WorkgroupSizeLog2, uint16_t ItemsPerInvocation, uint16_t _PreloadedDataCount>
+template<uint16_t WorkgroupSizeLog2, uint16_t VirtualWorkgroupSize, uint16_t ItemsPerInvocation>
 struct RandomizedInputDataProxy
 {
     using dtype_t = vector<uint32_t, ItemsPerInvocation>;
 
-    NBL_CONSTEXPR_STATIC_INLINE uint16_t PreloadedDataCount = _PreloadedDataCount;
     NBL_CONSTEXPR_STATIC_INLINE uint16_t WorkgroupSize = uint16_t(1u) << WorkgroupSizeLog2;
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t PreloadedDataCount = VirtualWorkgroupSize / WorkgroupSize;
 
-    static RandomizedInputDataProxy<WorkgroupSizeLog2, ItemsPerInvocation, PreloadedDataCount> create(uint64_t inputBuf, uint64_t outputBuf)
+    static RandomizedInputDataProxy<WorkgroupSizeLog2, VirtualWorkgroupSize, ItemsPerInvocation> create(uint64_t inputBuf, uint64_t outputBuf)
     {
-        RandomizedInputDataProxy<WorkgroupSizeLog2, ItemsPerInvocation, PreloadedDataCount> retval;
-        retval.data = DataProxy<WorkgroupSize*PreloadedDataCount, ItemsPerInvocation>::create(inputBuf, outputBuf);
+        RandomizedInputDataProxy<WorkgroupSizeLog2, VirtualWorkgroupSize, ItemsPerInvocation> retval;
+        retval.data = DataProxy<VirtualWorkgroupSize, ItemsPerInvocation>::create(inputBuf, outputBuf);
         return retval;
     }
 
@@ -69,13 +69,13 @@ struct RandomizedInputDataProxy
         //glsl::memoryBarrierShared(); implied by the above
     }
 
-    DataProxy<WorkgroupSize*PreloadedDataCount, ItemsPerInvocation> data;
+    DataProxy<VirtualWorkgroupSize, ItemsPerInvocation> data;
     dtype_t preloaded[PreloadedDataCount];
 };
 
 static ScratchProxy arithmeticAccessor;
 
-using data_proxy_t = RandomizedInputDataProxy<config_t::WorkgroupSizeLog2,config_t::ItemsPerInvocation_0,config_t::VirtualWorkgroupSize/config_t::WorkgroupSize>;
+using data_proxy_t = RandomizedInputDataProxy<config_t::WorkgroupSizeLog2,config_t::VirtualWorkgroupSize,config_t::ItemsPerInvocation_0>;
 
 template<class Binop, class device_capabilities>
 struct operation_t
