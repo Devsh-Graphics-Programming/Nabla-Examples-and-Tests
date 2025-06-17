@@ -37,29 +37,25 @@ class GeometryCreatorApp final : public MonoWindowApplication
 					return logFail("Couldn't create Command Buffer!");
 			}
 
-//			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-//			.renderpass = core::smart_refctd_ptr<video::IGPURenderpass>(scRes->getRenderpass())
 			const uint32_t addtionalBufferOwnershipFamilies[] = {getGraphicsQueue()->getFamilyIndex()};
-			auto scene = CGeometryCreatorScene::create({
-				.transferQueue = getTransferUpQueue(),
-				.utilities = m_utils.get(),
-				.logger = m_logger.get(),
-				.addtionalBufferOwnershipFamilies = addtionalBufferOwnershipFamilies
-			});
-#if 0
-			//using Builder = typename CScene::CreateResourcesDirectlyWithDevice::Builder;
-			using Builder = typename CScene::CreateResourcesWithAssetConverter::Builder;
-			Builder builder(m_utils.get(), oneRunCmd.get(), m_logger.get(), geometry);
+			// we want to use the vertex data through UTBs
+			using usage_f = IGPUBuffer::E_USAGE_FLAGS;
+			CAssetConverter::patch_t<asset::ICPUPolygonGeometry> patch = {};
+			patch.positionBufferUsages = usage_f::EUF_UNIFORM_TEXEL_BUFFER_BIT;
+			patch.indexBufferUsages = usage_f::EUF_INDEX_BUFFER_BIT;
+			patch.otherBufferUsages = usage_f::EUF_UNIFORM_TEXEL_BUFFER_BIT;
+			auto scene = CGeometryCreatorScene::create(
+				{
+					.transferQueue = getTransferUpQueue(),
+					.utilities = m_utils.get(),
+					.logger = m_logger.get(),
+					.addtionalBufferOwnershipFamilies = addtionalBufferOwnershipFamilies
+				},patch
+			);
+			
+			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+			auto renderer = CSimpleDebugRenderer::create(scRes->getRenderpass(),0,scene.get());
 
-			// gpu resources
-			if (builder.build())
-			{
-				if (!builder.finalize(resources, gQueue))
-					m_logger->log("Could not finalize resource objects to gpu objects!", ILogger::ELL_ERROR);
-			}
-			else
-				m_logger->log("Could not build resource objects!", ILogger::ELL_ERROR);
-#endif
 			// camera
 			{
 				core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
@@ -139,7 +135,7 @@ class GeometryCreatorApp final : public MonoWindowApplication
 					.extent = {m_window->getWidth(),m_window->getHeight()}
 				};
 
-				const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
+				const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,0.f,1.f,1.f} };
 				const IGPUCommandBuffer::SClearDepthStencilValue depthValue = { .depth = 0.f };
 				auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 				const IGPUCommandBuffer::SRenderpassBeginInfo info =
@@ -214,19 +210,20 @@ class GeometryCreatorApp final : public MonoWindowApplication
 		{
 			// Subsequent submits don't wait for each other, hence its important to have External Dependencies which prevent users of the depth attachment overlapping.
 			const static IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
-				// wipe-transition of Color to ATTACHMENT_OPTIMAL
+				// wipe-transition of Color to ATTACHMENT_OPTIMAL and depth
 				{
 					.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
 					.dstSubpass = 0,
 					.memoryBarrier = {
-						// last place where the depth can get modified in previous frame
+						// last place where the depth can get modified in previous frame, `COLOR_ATTACHMENT_OUTPUT_BIT` is implicitly later
 						.srcStageMask = PIPELINE_STAGE_FLAGS::LATE_FRAGMENT_TESTS_BIT,
-						// only write ops, reads can't be made available
-						.srcAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+						// don't want any writes to be available, we'll clear 
+						.srcAccessMask = ACCESS_FLAGS::NONE,
 						// destination needs to wait as early as possible
-						.dstStageMask = PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT,
-						// because of depth test needing a read and a write
-						.dstAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_READ_BIT
+						// TODO: `COLOR_ATTACHMENT_OUTPUT_BIT` shouldn't be needed, because its a logically later stage, see TODO in `ECommonEnums.h`
+						.dstStageMask = PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT | PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+						// because depth and color get cleared first no read mask
+						.dstAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
 					}
 					// leave view offsets and flags default
 				},
@@ -235,7 +232,7 @@ class GeometryCreatorApp final : public MonoWindowApplication
 					.srcSubpass = 0,
 					.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
 					.memoryBarrier = {
-						// last place where the depth can get modified
+						// last place where the color can get modified, depth is implicitly earlier
 						.srcStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
 						// only write ops, reads can't be made available
 						.srcAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT

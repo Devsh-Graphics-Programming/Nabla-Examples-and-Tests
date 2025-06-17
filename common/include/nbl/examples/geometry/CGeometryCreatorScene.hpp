@@ -16,10 +16,14 @@
 namespace nbl::examples
 {
 
+#define EXPOSE_NABLA_NAMESPACES using namespace nbl::core; \
+using namespace nbl::system; \
+using namespace nbl::asset; \
+using namespace nbl::video
+
 class CGeometryCreatorScene : public core::IReferenceCounted
 {
 	public:
-		using SPushConstants = hlsl::examples::geometry_creator_scene::SPushConstants;
 		//
 		enum ObjectType : uint8_t
 		{
@@ -36,11 +40,6 @@ class CGeometryCreatorScene : public core::IReferenceCounted
 			OT_UNKNOWN = OT_COUNT
 		};
 
-#define EXPOSE_NABLA_NAMESPACES using namespace nbl::core; \
-using namespace nbl::system; \
-using namespace nbl::asset; \
-using namespace nbl::video
-
 		//
 		struct SCreateParams
 		{
@@ -49,7 +48,7 @@ using namespace nbl::video
 			system::ILogger* logger;
 			std::span<const uint32_t> addtionalBufferOwnershipFamilies = {};
 		};
-		static inline core::smart_refctd_ptr<CGeometryCreatorScene> create(SCreateParams&& params)
+		static inline core::smart_refctd_ptr<CGeometryCreatorScene> create(SCreateParams&& params, const video::CAssetConverter::patch_t<asset::ICPUPolygonGeometry>& geometryPatch)
 		{
 			EXPOSE_NABLA_NAMESPACES;
 			auto* logger = params.logger;
@@ -65,71 +64,15 @@ using namespace nbl::video
 				return nullptr;
 			}
 
-			constexpr auto DescriptorCount = 255;
-			smart_refctd_ptr<ICPUDescriptorSet> cpuDS;
-			{
-				// create Descriptor Set Layout
-				smart_refctd_ptr<ICPUDescriptorSetLayout> dsLayout;
-				{
-					const ICPUDescriptorSetLayout::SBinding bindings[] =
-					{
-						{
-							.binding = 0,
-							.type = IDescriptor::E_TYPE::ET_UNIFORM_TEXEL_BUFFER,
-							// some geometries may not have particular attributes
-							.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_PARTIALLY_BOUND_BIT,
-							.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX|IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-							.count = DescriptorCount
-						}
-					};
-					dsLayout = core::make_smart_refctd_ptr<ICPUDescriptorSetLayout>(bindings);
-					if (!dsLayout)
-					{
-						logger->log("Could not create descriptor set layout!", ILogger::ELL_ERROR);
-						return nullptr;
-					}
-				}
 
-				// create Descriptor Set
-				cpuDS = core::make_smart_refctd_ptr<ICPUDescriptorSet>(std::move(dsLayout));
-				if (!cpuDS)
-				{
-					logger->log("Could not descriptor set!", ILogger::ELL_ERROR);
-					return nullptr;
-				}
-			}
-
-			SInitParams init;
-			constexpr size_t NoIndexBufferMarker = 0xdeadbeefBADC0FFEull;
-			core::vector<smart_refctd_ptr<ICPUBuffer>> indexBuffers;
+			core::vector<SNamedGeometry> namedGeometries;
+			core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
 			// create out geometries
 			{
-				auto* const outDescs = cpuDS->getDescriptorInfoStorage(IDescriptor::E_TYPE::ET_UNIFORM_TEXEL_BUFFER).data();
-				uint8_t nextDesc = 0;
-				auto allocateUTB = [DescriptorCount,outDescs,&nextDesc](const IGeometry<ICPUBuffer>::SDataView& view)->uint8_t
+				auto addGeometry = [&namedGeometries,&geometries](const std::string_view name, smart_refctd_ptr<const ICPUPolygonGeometry>&& geom)->void
 				{
-					if (!view)
-						return DescriptorCount;
-					outDescs[nextDesc].desc = core::make_smart_refctd_ptr<ICPUBufferView>(view.src,view.composed.format);
-					return nextDesc++;
-				};
-
-				auto addGeometry = [&allocateUTB,&indexBuffers,&init](const ICPUPolygonGeometry* geom)->void
-				{
-					auto& out = init.geoms.emplace_back();
-					if (const auto& view=geom->getIndexView(); view)
-					{
-						out.indexBuffer.offset = view.src.offset;
-						indexBuffers.push_back(view.src.buffer);
-					}
-					else
-						out.indexBuffer.offset = NoIndexBufferMarker;
-					out.elementCount = geom->getVertexReferenceCount();
-					out.positionView = allocateUTB(geom->getPositionView());
-					out.normalView = allocateUTB(geom->getNormalView());
-					// the first view is usually the UV
-					if (const auto& auxViews = geom->getAuxAttributeViews(); !auxViews.empty())
-						out.uvView = allocateUTB(auxViews.front());
+					namedGeometries.emplace_back().name = name;
+					geometries.push_back(std::move(geom));
 				};
 
 				auto creator = core::make_smart_refctd_ptr<CGeometryCreator>();
@@ -143,9 +86,9 @@ using namespace nbl::video
 				ReferenceObjectCpu {.meta = {.type = OT_CONE, .name = "Cone Mesh" }, .shadersType = GP_CONE, .data = gc->createConeMesh(2, 3, 10) },
 				ReferenceObjectCpu {.meta = {.type = OT_ICOSPHERE, .name = "Icoshpere Mesh" }, .shadersType = GP_ICO, .data = gc->createIcoSphere(1, 3, true) }
 				*/
-				addGeometry(creator->createCube({1.f,1.f,1.f}).get());
-				addGeometry(creator->createRectangle({1.5f,3.f}).get());
-				addGeometry(creator->createDisk(2.f,30).get());
+				addGeometry("Cube",creator->createCube({1.f,1.f,1.f}));
+				addGeometry("Rectangle",creator->createRectangle({1.5f,3.f}));
+				addGeometry("Disk",creator->createDisk(2.f,30));
 			}
 
 			// convert the geometries
@@ -165,13 +108,11 @@ using namespace nbl::video
 
 					core::vector<uint32_t> sharedBufferOwnership;
 				} inputs = {};
+				core::vector<CAssetConverter::patch_t<ICPUPolygonGeometry>> patches(geometries.size(),geometryPatch);
 				{
 					inputs.logger = logger;
-					// descriptor set should convert everthing downstream
-					std::get<CAssetConverter::SInputs::asset_span_t<ICPUDescriptorSet>>(inputs.assets) = {&cpuDS.get(),1};
-					// except index buffers
-					if (!indexBuffers.empty())
-						std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = {&indexBuffers.front().get(),indexBuffers.size()};
+					std::get<CAssetConverter::SInputs::asset_span_t<ICPUPolygonGeometry>>(inputs.assets) = {&geometries.front().get(),geometries.size()};
+					std::get<CAssetConverter::SInputs::patch_span_t<ICPUPolygonGeometry>>(inputs.patches) = patches;
 					// set up shared ownership so we don't have to 
 					core::unordered_set<uint32_t> families;
 					families.insert(transferFamily);
@@ -229,30 +170,44 @@ using namespace nbl::video
 
 				// assign outputs
 				{
-					auto assign = [logger](auto& out, const auto& in)->bool
+					auto inIt = reservation.getGPUObjects<ICPUPolygonGeometry>().data();
+					for (auto outIt=namedGeometries.begin(); outIt!=namedGeometries.end(); inIt++)
 					{
-						if (!in.value)
+						if (inIt->value)
+							(outIt++)->geom = inIt->value;
+						else
 						{
-							logger->log("Failed to convert CPU object to GPU!",ILogger::ELL_ERROR);
-							return false;
+							logger->log("Failed to convert ICPUPolygonGeometry %s to GPU!",ILogger::ELL_ERROR,outIt->name.data());
+							outIt = namedGeometries.erase(outIt);
 						}
-						out = in.value;
-						return true;
-					};
-					if (!assign(init.ds,reservation.getGPUObjects<ICPUDescriptorSet>().front()))
-						return nullptr;
-					auto indexBufIt = reservation.getGPUObjects<ICPUBuffer>().data();
-					for (auto& entry : init.geoms)
-					if (entry.indexBuffer.offset!=NoIndexBufferMarker)
-					if (!assign(entry.indexBuffer.buffer,*(indexBufIt++)))
-						return nullptr;
+					}
 				}
 			}
 
-			return smart_refctd_ptr<CGeometryCreatorScene>(new CGeometryCreatorScene(std::move(init)),dont_grab);
+			return smart_refctd_ptr<CGeometryCreatorScene>(new CGeometryCreatorScene(std::move(namedGeometries)),dont_grab);
 		}
 
 		//
+		struct SNamedGeometry
+		{
+			std::string_view name = {};
+			core::smart_refctd_ptr<video::IGPUPolygonGeometry> geom;
+		};
+		std::span<const SNamedGeometry> getGeometries() const {return m_geometries;}
+
+	protected:
+		inline CGeometryCreatorScene(core::vector<SNamedGeometry>&& _geometries) : m_geometries(std::move(_geometries)) {}
+
+		core::vector<SNamedGeometry> m_geometries;
+};
+
+class CSimpleDebugRenderer final : public core::IReferenceCounted
+{
+	public:
+		//
+		constexpr static inline auto DescriptorCount = 255;
+		//
+		using SPushConstants = hlsl::examples::geometry_creator_scene::SPushConstants;
 		struct SPackedGeometry
 		{
 			inline SPushConstants convert(const hlsl::float32_t3x4& model, const hlsl::float32_t3x4& view, const hlsl::float32_t4x4& viewProj)
@@ -270,16 +225,116 @@ using namespace nbl::video
 				};
 			}
 
-			asset::SBufferBinding<video::IGPUBuffer> indexBuffer = {};
+			asset::SBufferBinding<const video::IGPUBuffer> indexBuffer = {};
 			uint32_t elementCount = 0;
 			// indices into the descriptor set
 			uint8_t positionView = 0;
 			uint8_t normalView = 0;
 			uint8_t uvView = 0;
 			uint8_t indexType = asset::EIT_UNKNOWN;
-			ObjectType type : 6 = ObjectType::OT_UNKNOWN;
 		};
-		std::span<const SPackedGeometry> getGeometries() const {return m_params.geoms;}
+
+		static inline core::smart_refctd_ptr<CSimpleDebugRenderer> create(video::IGPURenderpass* renderpass, const uint32_t subpassIX, const CGeometryCreatorScene* scene)
+		{
+			EXPOSE_NABLA_NAMESPACES;
+
+			if (!renderpass)
+				return nullptr;
+			auto device = const_cast<ILogicalDevice*>(renderpass->getOriginDevice());
+			auto logger = device->getLogger();
+
+			if (!scene)
+				return nullptr;
+			const auto namedGeoms = scene->getGeometries();
+			if (namedGeoms.empty())
+				return nullptr;
+
+			// TODO: Load Shaders and Create Pipelines
+
+			SInitParams init;
+
+			// create descriptor set
+			{
+				// create Descriptor Set Layout
+				smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
+				{
+					const IGPUDescriptorSetLayout::SBinding bindings[] =
+					{
+						{
+							.binding = 0,
+							.type = IDescriptor::E_TYPE::ET_UNIFORM_TEXEL_BUFFER,
+							// some geometries may not have particular attributes
+							.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_PARTIALLY_BOUND_BIT,
+							.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX|IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+							.count = DescriptorCount
+						}
+					};
+					dsLayout = device->createDescriptorSetLayout(bindings);
+					if (!dsLayout)
+					{
+						logger->log("Could not create descriptor set layout!",ILogger::ELL_ERROR);
+						return nullptr;
+					}
+				}
+
+				// create Descriptor Set
+				auto pool = device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT,{&dsLayout.get(),1});
+				init.ds = pool->createDescriptorSet(std::move(dsLayout));
+				if (!init.ds)
+				{
+					logger->log("Could not descriptor set!",ILogger::ELL_ERROR);
+					return nullptr;
+				}
+			}
+
+			// write geometries' attributes to descriptor set
+			{
+				core::vector<IGPUDescriptorSet::SDescriptorInfo> infos;
+				auto allocateUTB = [device,&infos](const IGeometry<const IGPUBuffer>::SDataView& view)->uint8_t
+				{
+					if (!view)
+						return DescriptorCount;
+					const auto retval = infos.size();
+					infos.emplace_back().desc = device->createBufferView(view.src, view.composed.format);
+					return retval;
+				};
+
+				for (const auto& entry : namedGeoms)
+				{
+					const auto* geom = entry.geom.get();
+					// could also check device origin on all buffers
+					if (!geom->valid())
+						continue;
+					auto& out = init.geoms.emplace_back();
+					if (const auto& view=geom->getIndexView(); view)
+					{
+						out.indexBuffer.offset = view.src.offset;
+						out.indexBuffer.buffer = view.src.buffer;
+					}
+					out.elementCount = geom->getVertexReferenceCount();
+					out.positionView = allocateUTB(geom->getPositionView());
+					out.normalView = allocateUTB(geom->getNormalView());
+					// the first view is usually the UV
+					if (const auto& auxViews = geom->getAuxAttributeViews(); !auxViews.empty())
+						out.uvView = allocateUTB(auxViews.front());
+				}
+
+				if (infos.empty())
+					return nullptr;
+				const IGPUDescriptorSet::SWriteDescriptorSet write = {
+					.dstSet = init.ds.get(),
+					.binding = 0,
+					.arrayElement = 0,
+					.count = static_cast<uint32_t>(infos.size()),
+					.info = infos.data()
+				};
+				if (!device->updateDescriptorSets({&write,1},{}))
+					return nullptr;
+			}
+
+			return smart_refctd_ptr<CSimpleDebugRenderer>(new CSimpleDebugRenderer(std::move(init)),dont_grab);
+		}
+
 
 	protected:
 		struct SInitParams
@@ -287,234 +342,15 @@ using namespace nbl::video
 			core::smart_refctd_ptr<video::IGPUDescriptorSet> ds;
 			core::vector<SPackedGeometry> geoms;
 		} m_params;
-		inline CGeometryCreatorScene(SInitParams&& _params) : m_params(std::move(_params)) {}
 
-#undef EXPOSE_NABLA_NAMESPACES
+		inline CSimpleDebugRenderer(SInitParams&& _params) : m_params(std::move(_params)) {}
 };
 
+#undef EXPOSE_NABLA_NAMESPACES
 #if 0
 class ResourceBuilder
 {
 private:
-
-
-	bool createRenderpass()
-	{
-		EXPOSE_NABLA_NAMESPACES();
-
-		static constexpr Types::renderpass_t::SCreationParams::SColorAttachmentDescription colorAttachments[] =
-		{
-			{
-				{
-					{
-						.format = ColorFboAttachmentFormat,
-						.samples = Samples,
-						.mayAlias = false
-					},
-					/* .loadOp = */ Types::renderpass_t::LOAD_OP::CLEAR,
-					/* .storeOp = */ Types::renderpass_t::STORE_OP::STORE,
-					/* .initialLayout = */ Types::image_t::LAYOUT::UNDEFINED,
-					/* .finalLayout = */ Types::image_t::LAYOUT::READ_ONLY_OPTIMAL
-				}
-			},
-			Types::renderpass_t::SCreationParams::ColorAttachmentsEnd
-		};
-
-		static constexpr Types::renderpass_t::SCreationParams::SDepthStencilAttachmentDescription depthAttachments[] =
-		{
-			{
-				{
-					{
-						.format = DepthFboAttachmentFormat,
-						.samples = Samples,
-						.mayAlias = false
-					},
-					/* .loadOp = */ {Types::renderpass_t::LOAD_OP::CLEAR},
-					/* .storeOp = */ {Types::renderpass_t::STORE_OP::STORE},
-					/* .initialLayout = */ {Types::image_t::LAYOUT::UNDEFINED},
-					/* .finalLayout = */ {Types::image_t::LAYOUT::ATTACHMENT_OPTIMAL}
-				}
-			},
-			Types::renderpass_t::SCreationParams::DepthStencilAttachmentsEnd
-		};
-
-		typename Types::renderpass_t::SCreationParams::SSubpassDescription subpasses[] =
-		{
-			{},
-			Types::renderpass_t::SCreationParams::SubpassesEnd
-		};
-
-		subpasses[0].depthStencilAttachment.render = { .attachmentIndex = 0u,.layout = Types::image_t::LAYOUT::ATTACHMENT_OPTIMAL };
-		subpasses[0].colorAttachments[0] = { .render = {.attachmentIndex = 0u, .layout = Types::image_t::LAYOUT::ATTACHMENT_OPTIMAL } };
-
-		static constexpr Types::renderpass_t::SCreationParams::SSubpassDependency dependencies[] =
-		{
-			// wipe-transition of Color to ATTACHMENT_OPTIMAL
-			{
-				.srcSubpass = Types::renderpass_t::SCreationParams::SSubpassDependency::External,
-				.dstSubpass = 0,
-				.memoryBarrier =
-				{
-				// 
-				.srcStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
-				// only write ops, reads can't be made available
-				.srcAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT,
-				// destination needs to wait as early as possible
-				.dstStageMask = PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT | PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-				// because of depth test needing a read and a write
-				.dstAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_READ_BIT | ACCESS_FLAGS::COLOR_ATTACHMENT_READ_BIT | ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-			}
-			// leave view offsets and flags default
-			},
-			// color from ATTACHMENT_OPTIMAL to PRESENT_SRC
-			{
-				.srcSubpass = 0,
-				.dstSubpass = Types::renderpass_t::SCreationParams::SSubpassDependency::External,
-				.memoryBarrier =
-				{
-				// last place where the depth can get modified
-				.srcStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-				// only write ops, reads can't be made available
-				.srcAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT,
-				// 
-				.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
-				//
-				.dstAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT
-				// 
-				}
-			// leave view offsets and flags default
-			},
-			Types::renderpass_t::SCreationParams::DependenciesEnd
-		};
-
-		typename Types::renderpass_t::SCreationParams params = {};
-		params.colorAttachments = colorAttachments;
-		params.depthStencilAttachments = depthAttachments;
-		params.subpasses = subpasses;
-		params.dependencies = dependencies;
-
-		if constexpr (withAssetConverter)
-			scratch.renderpass = ICPURenderpass::create(params);
-
-		if (!scratch.renderpass)
-		{
-			logger->log("Could not create render pass!", ILogger::ELL_ERROR);
-			return false;
-		}
-
-		return true;
-	}
-
-	bool createFramebufferAttachments()
-	{
-		EXPOSE_NABLA_NAMESPACES();
-
-		auto createImageView = [&]<E_FORMAT format>(smart_refctd_ptr<typename Types::image_view_t>& outView) -> smart_refctd_ptr<typename Types::image_view_t>
-		{
-			constexpr bool IS_DEPTH = isDepthOrStencilFormat<format>();
-			constexpr auto USAGE = [](const bool isDepth)
-			{
-				bitflag<Types::image_t::E_USAGE_FLAGS> usage = Types::image_t::EUF_RENDER_ATTACHMENT_BIT;
-
-				if (!isDepth)
-					usage |= Types::image_t::EUF_SAMPLED_BIT;
-
-				return usage;
-			}(IS_DEPTH);
-			constexpr auto ASPECT = IS_DEPTH ? IImage::E_ASPECT_FLAGS::EAF_DEPTH_BIT : IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-			constexpr std::string_view DEBUG_NAME = IS_DEPTH ? "UI Scene Depth Attachment Image" : "UI Scene Color Attachment Image";
-			{
-				smart_refctd_ptr<typename Types::image_t> image;
-				{
-					auto params = typename Types::image_t::SCreationParams(
-					{
-						.type = Types::image_t::ET_2D,
-						.samples = Samples,
-						.format = format,
-						.extent = { FramebufferW, FramebufferH, 1u },
-						.mipLevels = 1u,
-						.arrayLayers = 1u,
-						.usage = USAGE
-					});
-
-					if constexpr (withAssetConverter)
-						image = ICPUImage::create(params);
-					else
-						image = utilities->getLogicalDevice()->createImage(std::move(params));
-				}
-
-				if (!image)
-				{
-					logger->log("Could not create image!", ILogger::ELL_ERROR);
-					return nullptr;
-				}
-
-				if constexpr (withAssetConverter)
-				{
-					auto dummyBuffer = ICPUBuffer::create({ FramebufferW * FramebufferH * getTexelOrBlockBytesize<format>() });
-					dummyBuffer->setContentHash(dummyBuffer->computeContentHash());
-
-					auto regions = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1u);
-					auto& region = regions->front();
-
-					region.imageSubresource = { .aspectMask = ASPECT, .mipLevel = 0u, .baseArrayLayer = 0u, .layerCount = 0u };
-					region.bufferOffset = 0u;
-					region.bufferRowLength = IImageAssetHandlerBase::calcPitchInBlocks(FramebufferW, getTexelOrBlockBytesize<format>());
-					region.bufferImageHeight = 0u;
-					region.imageOffset = { 0u, 0u, 0u };
-					region.imageExtent = { FramebufferW, FramebufferH, 1u };
-
-					if (!image->setBufferAndRegions(std::move(dummyBuffer), regions))
-					{
-						logger->log("Could not set image's regions!", ILogger::ELL_ERROR);
-						return nullptr;
-					}
-					image->setContentHash(image->computeContentHash());
-				}
-				else
-				{
-					image->setObjectDebugName(DEBUG_NAME.data());
-
-					if (!utilities->getLogicalDevice()->allocate(image->getMemoryReqs(), image.get()).isValid())
-					{
-						logger->log("Could not allocate memory for an image!", ILogger::ELL_ERROR);
-						return nullptr;
-					}
-				}
-
-				auto params = typename Types::image_view_t::SCreationParams
-				({
-					.flags = Types::image_view_t::ECF_NONE,
-					.subUsages = USAGE,
-					.image = std::move(image),
-					.viewType = Types::image_view_t::ET_2D,
-					.format = format,
-					.subresourceRange = { .aspectMask = ASPECT, .baseMipLevel = 0u, .levelCount = 1u, .baseArrayLayer = 0u, .layerCount = 1u }
-				});
-
-				if constexpr (withAssetConverter)
-					outView = make_smart_refctd_ptr<ICPUImageView>(std::move(params));
- 
-				if (!outView)
-				{
-					logger->log("Could not create image view!", ILogger::ELL_ERROR);
-					return nullptr;
-				}
-
-				return smart_refctd_ptr(outView);
-			}
-		};
-
-		const bool allocated = createImageView.template operator() < ColorFboAttachmentFormat > (scratch.attachments.color) && createImageView.template operator() < DepthFboAttachmentFormat > (scratch.attachments.depth);
-
-		if (!allocated)
-		{
-			logger->log("Could not allocate frame buffer's attachments!", ILogger::ELL_ERROR);
-			return false;
-		}
-
-		return true;
-	}
 
 	bool createShaders()
 	{
@@ -852,45 +688,6 @@ public:
 
 	inline void record()
 	{
-		EXPOSE_NABLA_NAMESPACES();
-
-		const struct 
-		{
-			const uint32_t width, height;
-		} fbo = { .width = m_frameBuffer->getCreationParameters().width, .height = m_frameBuffer->getCreationParameters().height };
-
-		SViewport viewport;
-		{
-			viewport.minDepth = 1.f;
-			viewport.maxDepth = 0.f;
-			viewport.x = 0u;
-			viewport.y = 0u;
-			viewport.width = fbo.width;
-			viewport.height = fbo.height;
-		}
-
-		m_commandBuffer->setViewport(0u, 1u, &viewport);
-		
-		VkRect2D scissor = {};
-		scissor.offset = { 0, 0 };
-		scissor.extent = { fbo.width, fbo.height };
-		m_commandBuffer->setScissor(0u, 1u, &scissor);
-
-		const VkRect2D renderArea =
-		{
-			.offset = { 0,0 },
-			.extent = { fbo.width, fbo.height }
-		};
-
-		const IGPUCommandBuffer::SRenderpassBeginInfo info =
-		{
-			.framebuffer = m_frameBuffer.get(),
-			.colorClearValues = &clear.color,
-			.depthStencilClearValues = &clear.depth,
-			.renderArea = renderArea
-		};
-
-		m_commandBuffer->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 
 		const auto& [hook, meta] = resources.objects[object.meta.type];
 		auto* rawPipeline = hook.pipeline.get();
@@ -908,13 +705,6 @@ public:
 		}
 		else
 			m_commandBuffer->draw(hook.indexCount, 1, 0, 0);
-
-		m_commandBuffer->endRenderPass();
-	}
-
-	inline void end()
-	{
-		m_commandBuffer->end();
 	}
 
 private:

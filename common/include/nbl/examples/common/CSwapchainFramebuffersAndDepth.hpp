@@ -36,7 +36,7 @@ class CSwapchainFramebuffersAndDepth final : public video::CDefaultSwapchainFram
 					/*.loadOp = */{IGPURenderpass::LOAD_OP::CLEAR},
 					/*.storeOp = */{IGPURenderpass::STORE_OP::STORE},
 					/*.initialLayout = */{IGPUImage::LAYOUT::UNDEFINED}, // because we clear we don't care about contents
-					/*.finalLayout = */{IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL} // transition to presentation right away so we can skip a barrier
+					/*.finalLayout = */{IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}
 				}},
 				IGPURenderpass::SCreationParams::DepthStencilAttachmentsEnd
 			};
