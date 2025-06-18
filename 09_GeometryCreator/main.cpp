@@ -4,24 +4,27 @@
 
 #include "common.hpp"
 
-class GeometryCreatorApp final : public MonoWindowApplication
+class GeometryCreatorApp final : public MonoWindowApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-		using base_t = MonoWindowApplication;
+	using device_base_t = MonoWindowApplication;
+	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 
 	public:
 		GeometryCreatorApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
-			: base_t({1280,720}, EF_D16_UNORM, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
+			: device_base_t({1280,720}, EF_D16_UNORM, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
 		SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
 		{
-			auto retval = base_t::getRequiredDeviceFeatures();
+			auto retval = device_base_t::getRequiredDeviceFeatures();
 			retval.geometryShader = true;
 			return retval;
 		}
 
 		inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
-			if (!base_t::onAppInitialized(smart_refctd_ptr(system)))
+			if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
+				return false;
+			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 
 			m_semaphore = m_device->createSemaphore(m_realFrameIx);
@@ -54,7 +57,7 @@ class GeometryCreatorApp final : public MonoWindowApplication
 			);
 			
 			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-			m_renderer = CSimpleDebugRenderer::create(scRes->getRenderpass(),0,m_scene.get());
+			m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(),scRes->getRenderpass(),0,m_scene.get());
 			if (!m_renderer)
 				return logFail("Could not create Renderer!");
 
@@ -75,7 +78,7 @@ class GeometryCreatorApp final : public MonoWindowApplication
 			m_inputSystem->getDefaultMouse(&mouse);
 			m_inputSystem->getDefaultKeyboard(&keyboard);
 
-			const auto resourceIx = m_realFrameIx % base_t::MaxFramesInFlight;
+			const auto resourceIx = m_realFrameIx % device_base_t::MaxFramesInFlight;
 
 			auto* const cb = m_cmdBufs.data()[resourceIx].get();
 			cb->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
@@ -120,7 +123,7 @@ class GeometryCreatorApp final : public MonoWindowApplication
 				auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 				const IGPUCommandBuffer::SRenderpassBeginInfo info =
 				{
-					.framebuffer = scRes->getFramebuffer(base_t::getCurrentAcquire().imageIndex),
+					.framebuffer = scRes->getFramebuffer(device_base_t::getCurrentAcquire().imageIndex),
 					.colorClearValues = &clearValue,
 					.depthStencilClearValues = &depthValue,
 					.renderArea = currentRenderArea
@@ -153,7 +156,11 @@ class GeometryCreatorApp final : public MonoWindowApplication
 				{.cmdbuf = cb }
 			};
 			const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] = {
-				{.semaphore = base_t::getCurrentAcquire().semaphore, .value = base_t::getCurrentAcquire().acquireCount, .stageMask = PIPELINE_STAGE_FLAGS::NONE}
+				{
+					.semaphore = device_base_t::getCurrentAcquire().semaphore,
+					.value = device_base_t::getCurrentAcquire().acquireCount,
+					.stageMask = PIPELINE_STAGE_FLAGS::NONE
+				}
 			};
 			const IQueue::SSubmitInfo infos[] =
 			{
@@ -227,7 +234,7 @@ class GeometryCreatorApp final : public MonoWindowApplication
 		//
 		smart_refctd_ptr<ISemaphore> m_semaphore;
 		uint64_t m_realFrameIx = 0;
-		std::array<smart_refctd_ptr<IGPUCommandBuffer>,base_t::MaxFramesInFlight> m_cmdBufs;
+		std::array<smart_refctd_ptr<IGPUCommandBuffer>,device_base_t::MaxFramesInFlight> m_cmdBufs;
 		//
 		InputSystem::ChannelReader<IMouseEventChannel> mouse;
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;

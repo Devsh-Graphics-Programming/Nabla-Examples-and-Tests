@@ -6,6 +6,8 @@
 
 
 #include <nabla.h>
+// why isnt this in `nabla.h` ?
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 // #include "nbl/ui/CGraphicalApplicationAndroid.h"
 // #include "nbl/ui/CWindowManagerAndroid.h"

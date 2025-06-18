@@ -81,20 +81,32 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 		};
 
 		//
-		static inline core::smart_refctd_ptr<CSimpleDebugRenderer> create(video::IGPURenderpass* renderpass, const uint32_t subpassIX, const CGeometryCreatorScene* scene)
+		static inline core::smart_refctd_ptr<CSimpleDebugRenderer> create(asset::IAssetManager* assMan, video::IGPURenderpass* renderpass, const uint32_t subpassIX, const CGeometryCreatorScene* scene)
 		{
 			EXPOSE_NABLA_NAMESPACES;
 
-			if (!renderpass)
+			if (!!renderpass)
 				return nullptr;
 			auto device = const_cast<ILogicalDevice*>(renderpass->getOriginDevice());
 			auto logger = device->getLogger();
 
-			if (!scene)
+			if (!assMan || !scene)
 				return nullptr;
 			const auto namedGeoms = scene->getGeometries();
 			if (namedGeoms.empty())
 				return nullptr;
+
+			// load shader
+			smart_refctd_ptr<ICPUShader> shader;
+			{
+				const auto bundle = assMan->getAsset("nbl/examples/geometry/spirv/unified.spv",{});
+				const auto contents = bundle.getContents();
+				if (bundle.getAssetType()!=IAsset::ET_SHADER || contents.empty())
+					return nullptr;
+				shader = IAsset::castDown<ICPUShader>(contents[0]);
+				if (!shader)
+					return nullptr;
+			}
 
 			SInitParams init;
 
@@ -132,7 +144,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				}
 			}
 
-			//
+			// create pipeline layout
 			const SPushConstantRange ranges[] = {{
 				.stageFlags = hlsl::ShaderStage::ESS_VERTEX,
 				.offset = 0,
@@ -140,9 +152,64 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			}};
 			init.layout = device->createPipelineLayout(ranges,smart_refctd_ptr<const IGPUDescriptorSetLayout>(init.ds->getLayout()));
 
-			// TODO: Load Shaders and Create Pipelines
+			// create pipelines
+			enum PipelineType : uint8_t
 			{
-				//
+				BasicTriangleList,
+				BasicTriangleFan,
+				Cone,
+				Count
+			};
+			smart_refctd_ptr<IGPUGraphicsPipeline> pipelines[PipelineType::Count] = {};
+			{
+				IGPUGraphicsPipeline::SCreationParams params[PipelineType::Count] = {};
+				for (auto i=0; i< PipelineType::Count; i++)
+				{
+					const auto type = static_cast<PipelineType>(i);
+					// no vertex input
+					{
+						auto& primitiveAssembly = params[i].cached.primitiveAssembly;
+						switch (type)
+						{
+							case PipelineType::BasicTriangleFan:
+								primitiveAssembly.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_FAN;
+								break;
+							default:
+								primitiveAssembly.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST;
+								break;
+						}
+						primitiveAssembly.primitiveRestartEnable = false;
+						primitiveAssembly.tessPatchVertCount = 3;
+					}
+					{
+						auto& rasterization = params[i].cached.rasterization;
+						rasterization.faceCullingMode = EFCM_NONE;
+					}
+					{
+						auto& blend = params[i].cached.blend;
+						// everything as default
+					}
+					params[i].cached.subpassIx = subpassIX;
+					params[i].renderpass = renderpass;
+				}
+				/*
+		typename ResourcesBundleScratch::Shaders& basic = scratch.shaders[GeometriesCpu::GP_BASIC];
+		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, basic.vertex);
+		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, basic.fragment);
+
+		typename ResourcesBundleScratch::Shaders& cone = scratch.shaders[GeometriesCpu::GP_CONE];
+		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.cone.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, cone.vertex);
+		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, cone.fragment); // note we reuse fragment from basic!
+
+		typename ResourcesBundleScratch::Shaders& ico = scratch.shaders[GeometriesCpu::GP_ICO];
+		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.ico.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, ico.vertex);
+		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, ico.fragment); // note we reuse fragment from basic!
+				*/
+				if (!device->createGraphicsPipelines(nullptr,params,pipelines))
+				{
+					logger->log("Could not create Graphics Pipelines!",ILogger::ELL_ERROR);
+					return nullptr;
+				}
 			}
 
 			// write geometries' attributes to descriptor set
@@ -164,6 +231,8 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 					if (!geom->valid())
 						continue;
 					auto& out = init.geoms.emplace_back();
+// TODO: handle special cases
+					out.pipeline = pipelines[PipelineType::BasicTriangleList];
 					if (const auto& view=geom->getIndexView(); view)
 					{
 						out.indexBuffer.offset = view.src.offset;
@@ -237,257 +306,6 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 		SInitParams m_params;
 #undef EXPOSE_NABLA_NAMESPACES
 };
-
-#if 0
-class ResourceBuilder
-{
-private:
-
-	bool createShaders()
-	{
-		EXPOSE_NABLA_NAMESPACES();
-
-		auto createShader = [&]<StringLiteral virtualPath>(IShader::E_SHADER_STAGE stage, smart_refctd_ptr<typename Types::shader_t>& outShader) -> smart_refctd_ptr<typename Types::shader_t>
-		{
-			// TODO: use SPIRV loader & our ::system ns to get those cpu shaders, do not create myself (shit I forgot it exists)
-
-			const SBuiltinFile& in = ::geometry::creator::spirv::builtin::get_resource<virtualPath>();
-			const auto buffer = ICPUBuffer::create({ { in.size }, (void*)in.contents, core::getNullMemoryResource() }, adopt_memory);
-			auto shader = make_smart_refctd_ptr<ICPUShader>(smart_refctd_ptr(buffer), stage, IShader::E_CONTENT_TYPE::ECT_SPIRV, ""); // must create cpu instance regardless underlying type
-
-			if constexpr (withAssetConverter)
-			{
-				buffer->setContentHash(buffer->computeContentHash());
-				outShader = std::move(shader);
-			}
-
-			return outShader;
-		};
-
-		typename ResourcesBundleScratch::Shaders& basic = scratch.shaders[GeometriesCpu::GP_BASIC];
-		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, basic.vertex);
-		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, basic.fragment);
-
-		typename ResourcesBundleScratch::Shaders& cone = scratch.shaders[GeometriesCpu::GP_CONE];
-		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.cone.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, cone.vertex);
-		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, cone.fragment); // note we reuse fragment from basic!
-
-		typename ResourcesBundleScratch::Shaders& ico = scratch.shaders[GeometriesCpu::GP_ICO];
-		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.ico.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, ico.vertex);
-		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, ico.fragment); // note we reuse fragment from basic!
-			
-		for (const auto& it : scratch.shaders)
-		{
-			if (!it.vertex || !it.fragment)
-			{
-				logger->log("Could not create shaders!", ILogger::ELL_ERROR);
-				return false;
-			}
-		}
-
-		return true;
-	}
-
-	bool createGeometries()
-	{
-		EXPOSE_NABLA_NAMESPACES();
-
-		for (uint32_t i = 0; i < geometries.objects.size(); ++i)
-		{
-			const auto& inGeometry = geometries.objects[i];
-			auto& [obj, meta] = scratch.objects[i];
-
-			bool status = true;
-
-			meta.name = inGeometry.meta.name;
-			meta.type = inGeometry.meta.type;
-
-			struct
-			{
-				SBlendParams blend;
-				SRasterizationParams rasterization;
-				typename Types::graphics_pipeline_t::SCreationParams pipeline;
-			} params;
-				
-			{
-				params.blend.logicOp = ELO_NO_OP;
-
-				auto& b = params.blend.blendParams[0];
-				b.srcColorFactor = EBF_SRC_ALPHA;
-				b.dstColorFactor = EBF_ONE_MINUS_SRC_ALPHA;
-				b.colorBlendOp = EBO_ADD;
-				b.srcAlphaFactor = EBF_SRC_ALPHA;
-				b.dstAlphaFactor = EBF_SRC_ALPHA;
-				b.alphaBlendOp = EBO_ADD;
-				b.colorWriteMask = (1u << 0u) | (1u << 1u) | (1u << 2u) | (1u << 3u);
-			}
-
-			params.rasterization.faceCullingMode = EFCM_NONE;
-			{
-				const typename Types::shader_t::SSpecInfo info [] =
-				{
-					{.entryPoint = "VSMain", .shader = scratch.shaders[inGeometry.shadersType].vertex.get() },
-					{.entryPoint = "PSMain", .shader = scratch.shaders[inGeometry.shadersType].fragment.get() }
-				};
-
-				params.pipeline.layout = scratch.pipelineLayout.get();
-				params.pipeline.shaders = info;
-				params.pipeline.renderpass = scratch.renderpass.get();
-				params.pipeline.cached = { .vertexInput = inGeometry.data.inputParams, .primitiveAssembly = inGeometry.data.assemblyParams, .rasterization = params.rasterization, .blend = params.blend, .subpassIx = 0u };
-
-				obj.indexCount = inGeometry.data.indexCount;
-				obj.indexType = inGeometry.data.indexType;
-
-				// TODO: cache pipeline & try lookup for existing one first maybe
-
-				// similar issue like with shaders again, in this case gpu contructor allows for extra cache parameters + there is no constructor you can use to fire make_smart_refctd_ptr yourself for cpu
-				if constexpr (withAssetConverter)
-					obj.pipeline = ICPUGraphicsPipeline::create(params.pipeline);
-				else
-				{
-					const std::array<const IGPUGraphicsPipeline::SCreationParams,1> info = { { params.pipeline } };
-					utilities->getLogicalDevice()->createGraphicsPipelines(nullptr, info, &obj.pipeline);
-				}
-
-				if (!obj.pipeline)
-				{
-					logger->log("Could not create graphics pipeline for [%s] object!", ILogger::ELL_ERROR, meta.name.data());
-					status = false;
-				}
-
-				// object buffers
-				auto createVIBuffers = [&]() -> bool
-				{
-					using ibuffer_t = ::nbl::asset::IBuffer; // seems to be ambigous, both asset & core namespaces has IBuffer
-
-					// note: similar issue like with shaders, this time with cpu-gpu constructors differing in arguments
-					auto vBuffer = smart_refctd_ptr(inGeometry.data.bindings[0].buffer); // no offset
-					constexpr static auto VERTEX_USAGE = bitflag(ibuffer_t::EUF_VERTEX_BUFFER_BIT) | ibuffer_t::EUF_TRANSFER_DST_BIT | ibuffer_t::EUF_INLINE_UPDATE_VIA_CMDBUF;
-					obj.bindings.vertex.offset = 0u;
-						
-					auto iBuffer = smart_refctd_ptr(inGeometry.data.indexBuffer.buffer); // no offset
-					constexpr static auto INDEX_USAGE = bitflag(ibuffer_t::EUF_INDEX_BUFFER_BIT) | ibuffer_t::EUF_VERTEX_BUFFER_BIT | ibuffer_t::EUF_TRANSFER_DST_BIT | ibuffer_t::EUF_INLINE_UPDATE_VIA_CMDBUF;
-					obj.bindings.index.offset = 0u;
-
-					if constexpr (withAssetConverter)
-					{
-						if (!vBuffer)
-							return false;
-
-						vBuffer->addUsageFlags(VERTEX_USAGE);
-						vBuffer->setContentHash(vBuffer->computeContentHash());
-						obj.bindings.vertex = { .offset = 0u, .buffer = vBuffer };
-
-						if (inGeometry.data.indexType != EIT_UNKNOWN)
-							if (iBuffer)
-							{
-								iBuffer->addUsageFlags(INDEX_USAGE);
-								iBuffer->setContentHash(iBuffer->computeContentHash());
-							}
-							else
-								return false;
-
-						obj.bindings.index = { .offset = 0u, .buffer = iBuffer };
-					}
-					else
-					{
-						auto vertexBuffer = utilities->getLogicalDevice()->createBuffer(IGPUBuffer::SCreationParams({ .size = vBuffer->getSize(), .usage = VERTEX_USAGE }));
-						auto indexBuffer = iBuffer ? utilities->getLogicalDevice()->createBuffer(IGPUBuffer::SCreationParams({ .size = iBuffer->getSize(), .usage = INDEX_USAGE })) : nullptr;
-
-						if (!vertexBuffer)
-							return false;
-
-						if (inGeometry.data.indexType != EIT_UNKNOWN)
-							if (!indexBuffer)
-								return false;
-
-						const auto mask = utilities->getLogicalDevice()->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
-						for (auto it : { vertexBuffer , indexBuffer })
-						{
-							if (it)
-							{
-								auto reqs = it->getMemoryReqs();
-								reqs.memoryTypeBits &= mask;
-
-								utilities->getLogicalDevice()->allocate(reqs, it.get());
-							}
-						}
-
-						// record transfer uploads
-						obj.bindings.vertex = { .offset = 0u, .buffer = std::move(vertexBuffer) };
-						{
-							const SBufferRange<IGPUBuffer> range = { .offset = obj.bindings.vertex.offset, .size = obj.bindings.vertex.buffer->getSize(), .buffer = obj.bindings.vertex.buffer };
-							if (!commandBuffer->updateBuffer(range, vBuffer->getPointer()))
-							{
-								logger->log("Could not record vertex buffer transfer upload for [%s] object!", ILogger::ELL_ERROR, meta.name.data());
-								status = false;
-							}
-						}
-						obj.bindings.index = { .offset = 0u, .buffer = std::move(indexBuffer) };
-						{
-							if (iBuffer)
-							{
-								const SBufferRange<IGPUBuffer> range = { .offset = obj.bindings.index.offset, .size = obj.bindings.index.buffer->getSize(), .buffer = obj.bindings.index.buffer };
-
-								if (!commandBuffer->updateBuffer(range, iBuffer->getPointer()))
-								{
-									logger->log("Could not record index buffer transfer upload for [%s] object!", ILogger::ELL_ERROR, meta.name.data());
-									status = false;
-								}
-							}
-						}
-					}
-						
-					return true;
-				};
-
-				if (!createVIBuffers())
-				{
-					logger->log("Could not create buffers for [%s] object!", ILogger::ELL_ERROR, meta.name.data());
-					status = false;
-				}
-
-				if (!status)
-				{
-					logger->log("[%s] object will not be created!", ILogger::ELL_ERROR, meta.name.data());
-
-					obj.bindings.vertex = {};
-					obj.bindings.index = {};
-					obj.indexCount = 0u;
-					obj.indexType = E_INDEX_TYPE::EIT_UNKNOWN;
-					obj.pipeline = nullptr;
-
-					continue;
-				}
-			}
-		}
-
-		return true;
-	}
-
-
-	struct GeometriesCpu
-	{
-		enum GeometryShader
-		{
-			GP_BASIC = 0,
-			GP_CONE,
-			GP_ICO,
-
-			GP_COUNT
-		};
-
-
-	};
-
-		struct Shaders
-		{
-			nbl::core::smart_refctd_ptr<typename Types::shader_t> vertex = nullptr, fragment = nullptr;
-		};
-
-		std::array<Shaders, GeometriesCpu::GP_COUNT> shaders;
-};
-#endif
 
 }
 #endif
