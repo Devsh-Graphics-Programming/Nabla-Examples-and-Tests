@@ -1,15 +1,15 @@
 // Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-
 #include "common.hpp"
+
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/builtin/hlsl/indirect_commands.hlsl"
 
 
-class RaytracingPipelineApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class RaytracingPipelineApp final : public SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-	using device_base_t = examples::SimpleWindowedApplication;
+	using device_base_t = SimpleWindowedApplication;
 	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 	using clock_t = std::chrono::steady_clock;
 
@@ -375,12 +375,11 @@ public:
 		}
 
 		auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
-		auto* geometryCreator = assetManager->getGeometryCreator();
 
 		if (!createIndirectBuffer())
 			return logFail("Could not create indirect buffer");
 
-		if (!createAccelerationStructuresFromGeometry(geometryCreator))
+		if (!createAccelerationStructuresFromGeometry())
 			return logFail("Could not create acceleration structures from geometry creator");
 
 		ISampler::SParams samplerParams = {
@@ -1082,7 +1081,7 @@ private:
 		return true;
 	}
 
-	bool createAccelerationStructuresFromGeometry(const IGeometryCreator* gc)
+	bool createAccelerationStructuresFromGeometry()
 	{
 		auto queue = getGraphicsQueue();
 		// get geometries into ICPUBuffers
@@ -1109,6 +1108,10 @@ private:
 		planeTransform.setRotation(quaternion::fromAngleAxis(core::radians(-90.0f), vector3df_SIMD{ 1, 0, 0 }));
 
 		// triangles geometries
+		auto geometryCreator = make_smart_refctd_ptr<CGeometryCreator>();
+#if 1
+		return false;
+#else
 		const auto cpuObjects = std::array{
 			ReferenceObjectCpu {
 				.meta = {.type = OT_RECTANGLE, .name = "Plane Mesh"},
@@ -1513,7 +1516,7 @@ private:
 			params.size = geomInfoBuffer->getSize();
 			m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = queue }, std::move(params), geomInfos).move_into(m_triangleGeomInfoBuffer);
 		}
-
+#endif
 		return true;
 	}
 
@@ -1567,7 +1570,8 @@ private:
 	} m_ui;
 	core::smart_refctd_ptr<IDescriptorPool> m_guiDescriptorSetPool;
 
-	core::vector<ReferenceObjectGpu> m_gpuTriangleGeometries;
+	// TODO: how much of this do we actually have to keep ?
+//	core::vector<ReferenceObjectGpu> m_gpuTriangleGeometries;
 	core::vector<SProceduralGeomInfo> m_gpuIntersectionSpheres;
 	uint32_t m_intersectionHitGroupIdx;
 
