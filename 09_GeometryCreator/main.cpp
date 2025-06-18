@@ -44,7 +44,7 @@ class GeometryCreatorApp final : public MonoWindowApplication
 			patch.positionBufferUsages = usage_f::EUF_UNIFORM_TEXEL_BUFFER_BIT;
 			patch.indexBufferUsages = usage_f::EUF_INDEX_BUFFER_BIT;
 			patch.otherBufferUsages = usage_f::EUF_UNIFORM_TEXEL_BUFFER_BIT;
-			auto scene = CGeometryCreatorScene::create(
+			m_scene = CGeometryCreatorScene::create(
 				{
 					.transferQueue = getTransferUpQueue(),
 					.utilities = m_utils.get(),
@@ -54,7 +54,9 @@ class GeometryCreatorApp final : public MonoWindowApplication
 			);
 			
 			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-			auto renderer = CSimpleDebugRenderer::create(scRes->getRenderpass(),0,scene.get());
+			m_renderer = CSimpleDebugRenderer::create(scRes->getRenderpass(),0,m_scene.get());
+			if (!m_renderer)
+				return logFail("Could not create Renderer!");
 
 			// camera
 			{
@@ -84,30 +86,8 @@ class GeometryCreatorApp final : public MonoWindowApplication
 				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); mouseProcess(events); }, m_logger.get());
 				keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { camera.keyboardProcess(events); }, m_logger.get());
 				camera.endInputProcessing(nextPresentationTimestamp);
-#if 0
-				const auto type = static_cast<ObjectType>(gcIndex);
-				const auto& [gpu, meta] = resources.objects[type];
-
-				object.meta.type = type;
-				object.meta.name = meta.name;
-#endif
 			}
 
-			const auto viewMatrix = camera.getViewMatrix();
-			const auto viewProjectionMatrix = camera.getConcatenatedMatrix();
-#if 0
-			SBasicViewParameters uboData;
-			memcpy(uboData.MVP, modelViewProjectionMatrix.pointer(), sizeof(uboData.MVP));
-			memcpy(uboData.MV, modelViewMatrix.pointer(), sizeof(uboData.MV));
-			memcpy(uboData.NormalMat, normalMatrix.pointer(), sizeof(uboData.NormalMat));
-			{
-				SBufferRange<IGPUBuffer> range;
-				range.buffer = core::smart_refctd_ptr(resources.ubo.buffer);
-				range.size = resources.ubo.buffer->getSize();
-
-				cb->updateBuffer(range, &uboData);
-			}
-#endif
 			auto* queue = getGraphicsQueue();
 
 			asset::SViewport viewport;
@@ -148,24 +128,17 @@ class GeometryCreatorApp final : public MonoWindowApplication
 
 				cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 			}
-#if 0
-			const auto& [hook, meta] = resources.objects[object.meta.type];
-			auto* rawPipeline = hook.pipeline.get();
 
-			SBufferBinding<const IGPUBuffer> vertex = hook.bindings.vertex, index = hook.bindings.index;
-
-			cb->bindGraphicsPipeline(rawPipeline);
-			cb->bindDescriptorSets(EPBP_GRAPHICS, rawPipeline->getLayout(), 1, 1, &resources.descriptorSet.get());
-			cb->bindVertexBuffers(0, 1, &vertex);
-
-			if (index.buffer && hook.indexType != EIT_UNKNOWN)
+			float32_t3x4 viewMatrix;
+			float32_t4x4 viewProjMatrix;
+			// TODO: get rid of legacy matrices
 			{
-				cb->bindIndexBuffer(index, hook.indexType);
-				cb->drawIndexed(hook.indexCount, 1, 0, 0, 0);
+				memcpy(&viewMatrix,camera.getViewMatrix().pointer(),sizeof(viewMatrix));
+				memcpy(&viewProjMatrix,camera.getConcatenatedMatrix().pointer(),sizeof(viewMatrix));
 			}
-			else
-				cb->draw(hook.indexCount, 1, 0, 0);
-#endif
+			const auto viewParams = CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix);
+			m_renderer->render(cb,viewParams);
+
 			cb->endRenderPass();
 			cb->end();
 
@@ -199,7 +172,9 @@ class GeometryCreatorApp final : public MonoWindowApplication
 
 			std::string caption = "[Nabla Engine] Geometry Creator";
 			{
-//					caption += ", displaying [" + std::string(object.meta.name.data()) + "]";
+				caption += ", displaying [" + 
+				caption += m_scene->getGeometries()[gcIndex].name;
+				caption += "]";
 				m_window->setCaption(caption);
 			}
 			return retval;
@@ -246,17 +221,20 @@ class GeometryCreatorApp final : public MonoWindowApplication
 		}
 
 	private:
+		//
+		smart_refctd_ptr<CGeometryCreatorScene> m_scene;
+		smart_refctd_ptr<CSimpleDebugRenderer> m_renderer;
+		//
 		smart_refctd_ptr<ISemaphore> m_semaphore;
 		uint64_t m_realFrameIx = 0;
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>,base_t::MaxFramesInFlight> m_cmdBufs;
-
+		//
 		InputSystem::ChannelReader<IMouseEventChannel> mouse;
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
+		//
 		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
 
-//		ResourcesBundle resources;
-//		ObjectDrawHookCpu object;
 		uint16_t gcIndex = {};
 
 		void mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
@@ -265,8 +243,11 @@ class GeometryCreatorApp final : public MonoWindowApplication
 			{
 				auto ev = *eventIt;
 
-				if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
-					gcIndex = std::clamp<uint16_t>(int16_t(gcIndex) + int16_t(core::sign(ev.scrollEvent.verticalScroll)), int64_t(0), int64_t(CGeometryCreatorScene::OT_COUNT - (uint8_t)1u));
+				if (ev.type==nbl::ui::SMouseEvent::EET_SCROLL && m_renderer)
+				{
+					gcIndex += int16_t(core::sign(ev.scrollEvent.verticalScroll));
+					gcIndex = core::clamp(gcIndex,0ull,m_renderer->getInitParams().geoms.size());
+				}
 			}
 		}
 };

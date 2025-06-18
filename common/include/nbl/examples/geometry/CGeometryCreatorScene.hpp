@@ -3,14 +3,7 @@
 
 
 #include <nabla.h>
-#include "nbl/builtin/hlsl/math/linalg/fast_affine.hlsl"
 #include "nbl/asset/utils/CGeometryCreator.h"
-
-#include "nbl/examples/geometry/SPushConstants.hlsl"
-
-// TODO: Arek bring back
-//#include "nbl/examples/geometry/spirv/builtin/CArchive.h"
-//#include "nbl/examples/geometry/spirv/builtin/builtinResources.h"
 
 
 namespace nbl::examples
@@ -201,39 +194,84 @@ class CGeometryCreatorScene : public core::IReferenceCounted
 		core::vector<SNamedGeometry> m_geometries;
 };
 
+}
+//!
+
+
+#include "nbl/builtin/hlsl/math/linalg/fast_affine.hlsl"
+#include "nbl/examples/geometry/SPushConstants.hlsl"
+
+// TODO: Arek bring back
+//#include "nbl/examples/geometry/spirv/builtin/CArchive.h"
+//#include "nbl/examples/geometry/spirv/builtin/builtinResources.h"
+
+
+namespace nbl::examples
+{
+
 class CSimpleDebugRenderer final : public core::IReferenceCounted
 {
 	public:
 		//
 		constexpr static inline auto DescriptorCount = 255;
 		//
-		using SPushConstants = hlsl::examples::geometry_creator_scene::SPushConstants;
-		struct SPackedGeometry
+		struct SViewParams
 		{
-			inline SPushConstants convert(const hlsl::float32_t3x4& model, const hlsl::float32_t3x4& view, const hlsl::float32_t4x4& viewProj)
+			inline SViewParams(const hlsl::float32_t3x4& _view, const hlsl::float32_t4x4& _viewProj)
 			{
-				using namespace hlsl;
-				return {
-					.basic = {
-						.MVP = math::linalg::promoted_mul<float32_t,4,4>(viewProj,model),
-						.MV = math::linalg::promoted_mul<float32_t,3,4>(view,model),
-						.normalMat = inverse(transpose(float32_t3x3(view)))
-					},
-					.positionView = positionView,
-					.normalView = normalView,
-					.uvView = uvView
-				};
+				view = _view;
+				viewProj = _viewProj;
+				using namespace nbl::hlsl;
+				normal = transpose(inverse(float32_t3x3(view)));
 			}
 
+			inline auto computeForInstance(hlsl::float32_t3x4 world) const
+			{
+				using namespace nbl::hlsl;
+				hlsl::examples::geometry_creator_scene::SInstanceMatrices retval = {
+					.worldViewProj = float32_t4x4(math::linalg::promoted_mul(float64_t4x4(viewProj),float64_t3x4(world)))
+				};
+				const auto sub3x3 = mul(float64_t3x3(viewProj),float64_t3x3(world));
+				retval.normal = float32_t3x3(transpose(inverse(sub3x3)));
+				return retval;
+			}
+
+			hlsl::float32_t3x4 view;
+			hlsl::float32_t4x4 viewProj;
+			hlsl::float32_t3x3 normal;
+		};
+		//
+		struct SPackedGeometry
+		{
+			core::smart_refctd_ptr<const video::IGPUGraphicsPipeline> pipeline = {};
 			asset::SBufferBinding<const video::IGPUBuffer> indexBuffer = {};
 			uint32_t elementCount = 0;
 			// indices into the descriptor set
 			uint8_t positionView = 0;
 			uint8_t normalView = 0;
 			uint8_t uvView = 0;
-			uint8_t indexType = asset::EIT_UNKNOWN;
+			asset::E_INDEX_TYPE indexType = asset::EIT_UNKNOWN;
+		};
+		//
+		struct SInstance
+		{
+			using SPushConstants = hlsl::examples::geometry_creator_scene::SPushConstants;
+			inline SPushConstants computePushConstants(const SViewParams& viewParams) const
+			{
+				using namespace hlsl;
+				return {
+					.matrices = viewParams.computeForInstance(world),
+					.positionView = packedGeo->positionView,
+					.normalView = packedGeo->normalView,
+					.uvView = packedGeo->uvView
+				};
+			}
+
+			hlsl::float32_t3x4 world;
+			const SPackedGeometry* packedGeo;
 		};
 
+		//
 		static inline core::smart_refctd_ptr<CSimpleDebugRenderer> create(video::IGPURenderpass* renderpass, const uint32_t subpassIX, const CGeometryCreatorScene* scene)
 		{
 			EXPOSE_NABLA_NAMESPACES;
@@ -248,8 +286,6 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			const auto namedGeoms = scene->getGeometries();
 			if (namedGeoms.empty())
 				return nullptr;
-
-			// TODO: Load Shaders and Create Pipelines
 
 			SInitParams init;
 
@@ -285,6 +321,19 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 					logger->log("Could not descriptor set!",ILogger::ELL_ERROR);
 					return nullptr;
 				}
+			}
+
+			//
+			const SPushConstantRange ranges[] = {{
+				.stageFlags = hlsl::ShaderStage::ESS_VERTEX,
+				.offset = 0,
+				.size = sizeof(SInstance::SPushConstants),
+			}};
+			init.layout = device->createPipelineLayout(ranges,smart_refctd_ptr<const IGPUDescriptorSetLayout>(init.ds->getLayout()));
+
+			// TODO: Load Shaders and Create Pipelines
+			{
+				//
 			}
 
 			// write geometries' attributes to descriptor set
@@ -335,15 +384,48 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			return smart_refctd_ptr<CSimpleDebugRenderer>(new CSimpleDebugRenderer(std::move(init)),dont_grab);
 		}
 
-
-	protected:
+		//
 		struct SInitParams
 		{
 			core::smart_refctd_ptr<video::IGPUDescriptorSet> ds;
+			core::smart_refctd_ptr<video::IGPUPipelineLayout> layout;
 			core::vector<SPackedGeometry> geoms;
-		} m_params;
+		};
+		inline const SInitParams& getInitParams() const {return m_params;}
 
+		//
+		inline void render(video::IGPUCommandBuffer* cmdbuf, const SViewParams& viewParams) const
+		{
+			EXPOSE_NABLA_NAMESPACES;
+
+			cmdbuf->beginDebugMarker("CSimpleDebugRenderer::render");
+
+			const auto* layout = m_params.layout.get();
+			cmdbuf->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_GRAPHICS,layout,0,1,&m_params.ds.get());
+
+			for (const auto& instance : m_instances)
+			{
+				const auto* geo = instance.packedGeo;
+				cmdbuf->bindGraphicsPipeline(geo->pipeline.get());
+				const auto pc = instance.computePushConstants(viewParams);
+				cmdbuf->pushConstants(layout,hlsl::ShaderStage::ESS_VERTEX,0,sizeof(pc),&pc);
+				if (geo->indexBuffer)
+				{
+					cmdbuf->bindIndexBuffer(geo->indexBuffer,geo->indexType);
+					cmdbuf->drawIndexed(geo->elementCount,1,0,0,0);
+				}
+				else
+					cmdbuf->draw(geo->elementCount,1,0,0);
+			}
+			cmdbuf->endDebugMarker();
+		}
+
+		core::vector<SInstance> m_instances;
+
+	protected:
 		inline CSimpleDebugRenderer(SInitParams&& _params) : m_params(std::move(_params)) {}
+
+		SInitParams m_params;
 };
 
 #undef EXPOSE_NABLA_NAMESPACES
@@ -586,182 +668,15 @@ private:
 			GP_COUNT
 		};
 
-		struct ReferenceObjectCpu
-		{
-			ObjectMeta meta;
-			GeometryShader shadersType;
-			nbl::asset::CGeometryCreator::return_type data;
-		};
 
-		GeometriesCpu(const nbl::asset::IGeometryCreator* _gc)
-			: gc(_gc),
-			objects
-			({
-				ReferenceObjectCpu {.meta = {.type = OT_CUBE, .name = "Cube Mesh" }, .shadersType = GP_BASIC, .data = gc->createCubeMesh(nbl::core::vector3df(1.f, 1.f, 1.f)) },
-				ReferenceObjectCpu {.meta = {.type = OT_SPHERE, .name = "Sphere Mesh" }, .shadersType = GP_BASIC, .data = gc->createSphereMesh(2, 16, 16) },
-				ReferenceObjectCpu {.meta = {.type = OT_CYLINDER, .name = "Cylinder Mesh" }, .shadersType = GP_BASIC, .data = gc->createCylinderMesh(2, 2, 20) },
-				ReferenceObjectCpu {.meta = {.type = OT_RECTANGLE, .name = "Rectangle Mesh" }, .shadersType = GP_BASIC, .data = gc->createRectangleMesh(nbl::core::vector2df_SIMD(1.5, 3)) },
-				ReferenceObjectCpu {.meta = {.type = OT_DISK, .name = "Disk Mesh" }, .shadersType = GP_BASIC, .data = gc->createDiskMesh(2, 30) },
-				ReferenceObjectCpu {.meta = {.type = OT_ARROW, .name = "Arrow Mesh" }, .shadersType = GP_BASIC, .data = gc->createArrowMesh() },
-				ReferenceObjectCpu {.meta = {.type = OT_CONE, .name = "Cone Mesh" }, .shadersType = GP_CONE, .data = gc->createConeMesh(2, 3, 10) },
-				ReferenceObjectCpu {.meta = {.type = OT_ICOSPHERE, .name = "Icoshpere Mesh" }, .shadersType = GP_ICO, .data = gc->createIcoSphere(1, 3, true) }
-			})
-		{
-			gc = nullptr; // one shot
-		}
-
-	private:
-		const nbl::asset::IGeometryCreator* gc;
-
-	public:
-		const std::array<ReferenceObjectCpu, OT_COUNT> objects;
 	};
-
-	using resources_bundle_base_t = ResourcesBundleBase<withAssetConverter>;
-
-	struct ResourcesBundleScratch : public resources_bundle_base_t
-	{
-		using Types = resources_bundle_base_t::Types;
-
-		ResourcesBundleScratch()
-			: resources_bundle_base_t() {}
 
 		struct Shaders
 		{
 			nbl::core::smart_refctd_ptr<typename Types::shader_t> vertex = nullptr, fragment = nullptr;
 		};
 
-		nbl::core::smart_refctd_ptr<typename Types::descriptor_set_layout_t> descriptorSetLayout;
-		nbl::core::smart_refctd_ptr<typename Types::pipeline_layout_t> pipelineLayout;
 		std::array<Shaders, GeometriesCpu::GP_COUNT> shaders;
-	};
-
-	// TODO: we could make those params templated with default values like below
-	static constexpr auto FramebufferW = 1280u, FramebufferH = 720u;
-	static constexpr auto ColorFboAttachmentFormat = nbl::asset::EF_R8G8B8A8_SRGB, DepthFboAttachmentFormat = nbl::asset::EF_D16_UNORM;
-	static constexpr auto Samples = nbl::video::IGPUImage::ESCF_1_BIT;
-
-	ResourcesBundleScratch scratch;
-
-	GeometriesCpu geometries;
-};
-
-#undef TYPES_IMPL_BOILERPLATE
-
-struct ObjectDrawHookCpu
-{
-	nbl::core::matrix3x4SIMD model;
-	nbl::asset::SBasicViewParameters viewParameters;
-	ObjectMeta meta;
-};
-
-/*
-	Rendering to offline framebuffer which we don't present, color 
-	scene attachment texture we use for second UI renderpass 
-	sampling it & rendering into desired GUI area.
-
-	The scene can be created from simple geometry
-	using our Geomtry Creator class.
-*/
-
-class CScene final : public nbl::core::IReferenceCounted
-{
-public:
-	ObjectDrawHookCpu object; // TODO: this could be a vector (to not complicate the example I leave it single object), we would need a better system for drawing then to make only 1 max 2 indirect draw calls (indexed and not indexed objects)
-
-	struct
-	{
-		const uint32_t startedValue = 0, finishedValue = 0x45;
-		nbl::core::smart_refctd_ptr<nbl::video::ISemaphore> progress;
-	} semaphore;
-
-	inline void begin()
-	{
-		EXPOSE_NABLA_NAMESPACES();
-
-		m_commandBuffer->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
-		m_commandBuffer->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-		m_commandBuffer->beginDebugMarker("UISampleApp Offline Scene Frame");
-
-		semaphore.progress = m_utilities->getLogicalDevice()->createSemaphore(semaphore.startedValue);
-	}
-
-	inline void record()
-	{
-
-		const auto& [hook, meta] = resources.objects[object.meta.type];
-		auto* rawPipeline = hook.pipeline.get();
-
-		SBufferBinding<const IGPUBuffer> vertex = hook.bindings.vertex, index = hook.bindings.index;
-
-		m_commandBuffer->bindGraphicsPipeline(rawPipeline);
-		m_commandBuffer->bindDescriptorSets(EPBP_GRAPHICS, rawPipeline->getLayout(), 1, 1, &resources.descriptorSet.get());
-		m_commandBuffer->bindVertexBuffers(0, 1, &vertex);
-
-		if (index.buffer && hook.indexType != EIT_UNKNOWN)
-		{
-			m_commandBuffer->bindIndexBuffer(index, hook.indexType);
-			m_commandBuffer->drawIndexed(hook.indexCount, 1, 0, 0, 0);
-		}
-		else
-			m_commandBuffer->draw(hook.indexCount, 1, 0, 0);
-	}
-
-private:
-	template<typename CreateWith = CreateResourcesDirectlyWithDevice> // TODO: enforce constraints, only those 2 above are valid
-	CScene(nbl::core::smart_refctd_ptr<nbl::video::IUtilities> _utilities, nbl::core::smart_refctd_ptr<nbl::system::ILogger> _logger, nbl::video::CThreadSafeQueueAdapter* _graphicsQueue, const nbl::asset::IGeometryCreator* _geometryCreator, CreateWith createWith = {})
-		: m_utilities(nbl::core::smart_refctd_ptr(_utilities)), m_logger(nbl::core::smart_refctd_ptr(_logger)), queue(_graphicsQueue)
-	{
-		EXPOSE_NABLA_NAMESPACES();
-		using Builder = typename CreateWith::Builder;
-
-		m_commandBuffer = createCommandBuffer(m_utilities->getLogicalDevice(), m_utilities->getLogger(), queue->getFamilyIndex());
-		Builder builder(m_utilities.get(), m_commandBuffer.get(), m_logger.get(), _geometryCreator);
-
-		// gpu resources
-		if (builder.build())
-		{
-			if (!builder.finalize(resources, queue))
-				m_logger->log("Could not finalize resource objects to gpu objects!", ILogger::ELL_ERROR);
-		}
-		else
-			m_logger->log("Could not build resource objects!", ILogger::ELL_ERROR);
-
-		// frame buffer
-		{
-			const auto extent = resources.attachments.color->getCreationParameters().image->getCreationParameters().extent;
-
-			IGPUFramebuffer::SCreationParams params =
-			{
-				{
-					.renderpass = smart_refctd_ptr(resources.renderpass),
-					.depthStencilAttachments = &resources.attachments.depth.get(),
-					.colorAttachments = &resources.attachments.color.get(),
-					.width = extent.width,
-					.height = extent.height,
-					.layers = 1u
-				}
-			};
-
-			m_frameBuffer = m_utilities->getLogicalDevice()->createFramebuffer(std::move(params));
-
-			if (!m_frameBuffer)
-			{
-				m_logger->log("Could not create frame buffer!", ILogger::ELL_ERROR);
-				return;
-			}
-		}
-	}
-
-	nbl::core::smart_refctd_ptr<nbl::video::IUtilities> m_utilities;
-	nbl::core::smart_refctd_ptr<nbl::system::ILogger> m_logger;
-
-	nbl::video::CThreadSafeQueueAdapter* queue;
-	nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> m_commandBuffer;
-
-	nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer> m_frameBuffer;
-
-	ResourcesBundle resources;
 };
 #endif
 

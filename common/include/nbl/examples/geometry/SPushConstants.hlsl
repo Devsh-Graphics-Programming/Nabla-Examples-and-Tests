@@ -2,7 +2,7 @@
 #define _NBL_EXAMPLES_S_PUSH_CONSTANTS_HLSL_
 
 
-#include "nbl/examples/common/SBasicViewParameters.hlsl"
+#include "nbl/builtin/hlsl/cpp_compat.hlsl"
 
 
 namespace nbl
@@ -14,9 +14,15 @@ namespace examples
 namespace geometry_creator_scene
 {
 
+struct SInstanceMatrices
+{
+	float32_t4x4 worldViewProj;
+	float32_t3x3 normal;
+};
+
 struct SPushConstants
 {
-	SBasicViewParameters basic;
+	SInstanceMatrices matrices;
 	uint32_t positionView : 11;
 	uint32_t normalView : 10;
 	uint32_t uvView : 11;
