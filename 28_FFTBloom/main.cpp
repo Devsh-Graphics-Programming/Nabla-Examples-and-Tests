@@ -723,10 +723,9 @@ public:
 				params[i].layout = pipelineLayout.get();
 				params[i].shader.shader = shaders[i].get();
 				params[i].shader.entryPoint = "main";
-				params[i].shader.stage = hlsl::ShaderStage::ESS_COMPUTE;
 				// Normalization doesn't require full subgroups
-				params[i].shader.requireFullSubgroups = bool(2-i);
-				params[i].shader.requiredSubgroupSize = static_cast<IPipelineBase::SShaderSpecInfo::SUBGROUP_SIZE>(hlsl::findMSB(deviceLimits.maxSubgroupSize));
+				params[i].cached.requireFullSubgroups = bool(2-i);
+				params[i].shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(hlsl::findMSB(deviceLimits.maxSubgroupSize));
 			}
 			
 			smart_refctd_ptr<IGPUComputePipeline> pipelines[3];
@@ -928,9 +927,8 @@ public:
 			params[i].layout = pipelineLayout.get();
 			params[i].shader.shader = shaders[i].get();
 			params[i].shader.entryPoint = "main";
-			params[i].shader.stage = hlsl::ShaderStage::ESS_COMPUTE;
-			params[i].shader.requiredSubgroupSize = static_cast<IPipelineBase::SShaderSpecInfo::SUBGROUP_SIZE>(hlsl::findMSB(deviceLimits.maxSubgroupSize));
-			params[i].shader.requireFullSubgroups = true;
+			params[i].shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(hlsl::findMSB(deviceLimits.maxSubgroupSize));
+			params[i].cached.requireFullSubgroups = true;
 		}
 
 		smart_refctd_ptr<IGPUComputePipeline> pipelines[3];
