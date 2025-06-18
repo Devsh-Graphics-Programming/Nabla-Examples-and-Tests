@@ -1,11 +1,17 @@
-#ifndef _WORKGROUP_DATA_ACCESSORS_HLSL_
-#define _WORKGROUP_DATA_ACCESSORS_HLSL_
+#ifndef _NBL_EXAMPLES_WORKGROUP_DATA_ACCESSORS_HLSL_
+#define _NBL_EXAMPLES_WORKGROUP_DATA_ACCESSORS_HLSL_
+
 
 #include "nbl/builtin/hlsl/bda/legacy_bda_accessor.hlsl"
+
 
 namespace nbl
 {
 namespace hlsl
+{
+namespace examples
+{
+namespace workgroup
 {
 
 struct ScratchProxy
@@ -120,5 +126,6 @@ struct PreloadedDataProxy
 
 }
 }
-
+}
+}
 #endif

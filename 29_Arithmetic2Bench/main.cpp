@@ -1,16 +1,16 @@
-#include "SimpleWindowedApplication.hpp"
-#include "CEventCallback.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/examples/examples.hpp"
 #include "app_resources/common.hlsl"
 #include "nbl/builtin/hlsl/workgroup2/arithmetic_config.hlsl"
 #include "nbl/builtin/hlsl/subgroup2/arithmetic_params.hlsl"
 
 using namespace nbl;
-using namespace core;
-using namespace system;
-using namespace asset;
-using namespace ui;
-using namespace video;
+using namespace nbl::core;
+using namespace nbl::system;
+using namespace nbl::asset;
+using namespace nbl::ui;
+using namespace nbl::video;
+using namespace nbl::examples;
+
 
 template<typename SwapchainResources> requires std::is_base_of_v<ISimpleManagedSurface::ISwapchainResources, SwapchainResources>
 class CExplicitSurfaceFormatResizeSurface final : public ISimpleManagedSurface
