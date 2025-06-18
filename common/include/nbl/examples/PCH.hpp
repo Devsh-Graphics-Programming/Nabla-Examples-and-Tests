@@ -18,6 +18,7 @@
 #include "nbl/examples/cameras/CCamera.hpp"
 
 #include "nbl/examples/geometry/CGeometryCreatorScene.hpp"
+#include "nbl/examples/geometry/CSimpleDebugRenderer.hpp"
 
 
 #endif // _NBL_EXAMPLES_COMMON_PCH_HPP_
