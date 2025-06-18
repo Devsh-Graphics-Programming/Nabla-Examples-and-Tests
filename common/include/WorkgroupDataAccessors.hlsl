@@ -1,6 +1,8 @@
 #ifndef _WORKGROUP_DATA_ACCESSORS_HLSL_
 #define _WORKGROUP_DATA_ACCESSORS_HLSL_
 
+#include "nbl/builtin/hlsl/bda/legacy_bda_accessor.hlsl"
+
 namespace nbl
 {
 namespace hlsl
@@ -35,25 +37,25 @@ template<uint16_t VirtualWorkgroupSize, uint16_t ItemsPerInvocation>
 struct DataProxy
 {
     using dtype_t = vector<uint32_t, ItemsPerInvocation>;
+    // function template AccessType should be the same as dtype_t
 
     static DataProxy<VirtualWorkgroupSize, ItemsPerInvocation> create(const uint64_t inputBuf, const uint64_t outputBuf)
     {
         DataProxy<VirtualWorkgroupSize, ItemsPerInvocation> retval;
-        retval.workgroupOffset = glsl::gl_WorkGroupID().x * VirtualWorkgroupSize;
-        retval.inputBufAddr = inputBuf;
-        retval.outputBufAddr = outputBuf;
+        const uint32_t workgroupOffset = glsl::gl_WorkGroupID().x * VirtualWorkgroupSize * sizeof(dtype_t);
+        retval.accessor = DoubleLegacyBdaAccessor<dtype_t>::create(inputBuf + workgroupOffset, outputBuf + workgroupOffset);
         return retval;
     }
 
     template<typename AccessType, typename IndexType>
     void get(const IndexType ix, NBL_REF_ARG(AccessType) value)
     {
-        value = vk::RawBufferLoad<AccessType>(inputBufAddr + (workgroupOffset + ix) * sizeof(AccessType));
+        accessor.get(ix, value);
     }
     template<typename AccessType, typename IndexType>
     void set(const IndexType ix, const AccessType value)
     {
-        vk::RawBufferStore<AccessType>(outputBufAddr + (workgroupOffset + ix) * sizeof(AccessType), value, sizeof(uint32_t));
+        accessor.set(ix, value);
     }
 
     void workgroupExecutionAndMemoryBarrier()
@@ -62,9 +64,7 @@ struct DataProxy
         //glsl::memoryBarrierShared(); implied by the above
     }
 
-    uint32_t workgroupOffset;
-    uint64_t inputBufAddr;
-    uint64_t outputBufAddr;
+    DoubleLegacyBdaAccessor<dtype_t> accessor;
 };
 
 template<uint16_t WorkgroupSizeLog2, uint16_t VirtualWorkgroupSize, uint16_t ItemsPerInvocation>

@@ -8,7 +8,7 @@
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
 
 #include "shaderCommon.hlsl"
-#include "nbl/builtin/hlsl/workgroup/basic.hlsl"
+#include "nbl/builtin/hlsl/workgroup2/basic.hlsl"
 
 typedef vector<uint32_t, ITEMS_PER_INVOCATION> type_t;
 
