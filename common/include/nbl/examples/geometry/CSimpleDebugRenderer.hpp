@@ -97,13 +97,14 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				return nullptr;
 
 			// load shader
-			smart_refctd_ptr<ICPUShader> shader;
+			smart_refctd_ptr<IShader> shader;
 			{
-				const auto bundle = assMan->getAsset("nbl/examples/geometry/spirv/unified.spv",{});
+				const auto bundle = assMan->getAsset("nbl/examples/geometry/shaders/unified.hlsl",{});
+				//const auto bundle = assMan->getAsset("nbl/examples/geometry/shaders/unified.spv",{});
 				const auto contents = bundle.getContents();
 				if (bundle.getAssetType()!=IAsset::ET_SHADER || contents.empty())
 					return nullptr;
-				shader = IAsset::castDown<ICPUShader>(contents[0]);
+				shader = IAsset::castDown<IShader>(contents[0]);
 				if (!shader)
 					return nullptr;
 			}
@@ -163,48 +164,35 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			smart_refctd_ptr<IGPUGraphicsPipeline> pipelines[PipelineType::Count] = {};
 			{
 				IGPUGraphicsPipeline::SCreationParams params[PipelineType::Count] = {};
+				params[PipelineType::BasicTriangleList].vertexShader = {.shader=shader.get(),.entryPoint="BasicTriangleListVS"};
+				params[PipelineType::BasicTriangleList].fragmentShader = {.shader=shader.get(),.entryPoint="BasicFS"};
+				params[PipelineType::BasicTriangleFan].vertexShader = {.shader=shader.get(),.entryPoint="BasicTriangleFanVS"};
+				params[PipelineType::BasicTriangleFan].fragmentShader = {.shader=shader.get(),.entryPoint="BasicFS"};
+				params[PipelineType::Cone].vertexShader = {.shader=shader.get(),.entryPoint="ConeVS"};
+				params[PipelineType::Cone].fragmentShader = {.shader=shader.get(),.entryPoint="ConeFS"};
 				for (auto i=0; i< PipelineType::Count; i++)
 				{
-					const auto type = static_cast<PipelineType>(i);
+					params[i].layout = init.layout.get();
 					// no vertex input
+					auto& primitiveAssembly = params[i].cached.primitiveAssembly;
+					auto& rasterization = params[i].cached.rasterization;
+					auto& blend = params[i].cached.blend;
+					const auto type = static_cast<PipelineType>(i);
+					switch (type)
 					{
-						auto& primitiveAssembly = params[i].cached.primitiveAssembly;
-						switch (type)
-						{
-							case PipelineType::BasicTriangleFan:
-								primitiveAssembly.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_FAN;
-								break;
-							default:
-								primitiveAssembly.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST;
-								break;
-						}
-						primitiveAssembly.primitiveRestartEnable = false;
-						primitiveAssembly.tessPatchVertCount = 3;
+						case PipelineType::BasicTriangleFan:
+							primitiveAssembly.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_FAN;
+							break;
+						default:
+							primitiveAssembly.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST;
+							break;
 					}
-					{
-						auto& rasterization = params[i].cached.rasterization;
-						rasterization.faceCullingMode = EFCM_NONE;
-					}
-					{
-						auto& blend = params[i].cached.blend;
-						// everything as default
-					}
+					primitiveAssembly.primitiveRestartEnable = false;
+					primitiveAssembly.tessPatchVertCount = 3;
+					rasterization.faceCullingMode = EFCM_NONE;
 					params[i].cached.subpassIx = subpassIX;
 					params[i].renderpass = renderpass;
 				}
-				/*
-		typename ResourcesBundleScratch::Shaders& basic = scratch.shaders[GeometriesCpu::GP_BASIC];
-		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, basic.vertex);
-		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, basic.fragment);
-
-		typename ResourcesBundleScratch::Shaders& cone = scratch.shaders[GeometriesCpu::GP_CONE];
-		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.cone.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, cone.vertex);
-		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, cone.fragment); // note we reuse fragment from basic!
-
-		typename ResourcesBundleScratch::Shaders& ico = scratch.shaders[GeometriesCpu::GP_ICO];
-		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.ico.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, ico.vertex);
-		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, ico.fragment); // note we reuse fragment from basic!
-				*/
 				if (!device->createGraphicsPipelines(nullptr,params,pipelines))
 				{
 					logger->log("Could not create Graphics Pipelines!",ILogger::ELL_ERROR);
@@ -231,8 +219,18 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 					if (!geom->valid())
 						continue;
 					auto& out = init.geoms.emplace_back();
-// TODO: handle special cases
-					out.pipeline = pipelines[PipelineType::BasicTriangleList];
+					switch (geom->getIndexingCallback()->knownTopology())
+					{
+						case E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_FAN:
+							out.pipeline = pipelines[PipelineType::BasicTriangleFan];
+							break;
+						default:
+							out.pipeline = pipelines[PipelineType::BasicTriangleList];
+							break;
+					}
+					// special case
+					if (entry.name=="Cone")
+						out.pipeline = pipelines[PipelineType::Cone];
 					if (const auto& view=geom->getIndexView(); view)
 					{
 						out.indexBuffer.offset = view.src.offset;
