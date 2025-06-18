@@ -1,6 +1,4 @@
-#include "nbl/application_templates/MonoDeviceApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-#include "CommonPCH/PCH.hpp"
+#include "nbl/examples/examples.hpp"
 
 using namespace nbl;
 using namespace core;

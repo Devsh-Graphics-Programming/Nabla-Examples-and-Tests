@@ -1,11 +1,12 @@
 // Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
+#include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
 #include "nbl/this_example/common.hpp"
-#include "nbl/asset/interchange/IImageAssetHandlerBase.h"
-#include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+
 #include "nbl/builtin/hlsl/surface_transform.h"
+
 
 using namespace nbl;
 using namespace core;
@@ -14,6 +15,7 @@ using namespace system;
 using namespace asset;
 using namespace ui;
 using namespace video;
+using namespace nbl::examples;
 
 // TODO: share push constants
 struct PTPushConstant {
@@ -24,9 +26,9 @@ struct PTPushConstant {
 
 // TODO: Add a QueryPool for timestamping once its ready (actually add IMGUI mspf plotter)
 // TODO: Do buffer creation using assConv
-class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class ComputeShaderPathtracer final : public SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-		using device_base_t = examples::SimpleWindowedApplication;
+		using device_base_t = SimpleWindowedApplication;
 		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 		using clock_t = std::chrono::steady_clock;
 

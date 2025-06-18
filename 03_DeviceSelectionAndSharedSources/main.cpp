@@ -2,10 +2,9 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#include "nbl/application_templates/MonoDeviceApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/examples/examples.hpp"
+// TODO: why isn't this in `nabla.h` ?
 #include "nbl/asset/metadata/CHLSLMetadata.h"
-#include "CommonPCH/PCH.hpp"
 
 using namespace nbl;
 using namespace core;

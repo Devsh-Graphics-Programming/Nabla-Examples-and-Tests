@@ -1,9 +1,7 @@
 // Copyright (C) 2024-2025 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-#include "nabla.h"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-#include "SimpleWindowedApplication.hpp"
+#include "nbl/examples/examples.hpp"
 
 using namespace nbl;
 using namespace nbl::core;
@@ -11,12 +9,13 @@ using namespace nbl::system;
 using namespace nbl::asset;
 using namespace nbl::ui;
 using namespace nbl::video;
+using namespace nbl::examples;
 
 #include "app_resources/common.hlsl"
 
-class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class MPMCSchedulerApp final : public SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-		using device_base_t = examples::SimpleWindowedApplication;
+		using device_base_t = SimpleWindowedApplication;
 		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 		using clock_t = std::chrono::steady_clock;
 

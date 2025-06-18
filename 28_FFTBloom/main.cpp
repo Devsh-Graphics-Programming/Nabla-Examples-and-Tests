@@ -1,9 +1,7 @@
 // Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-
-#include "SimpleWindowedApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/examples/examples.hpp"
 
 using namespace nbl;
 using namespace core;
@@ -11,6 +9,7 @@ using namespace system;
 using namespace asset;
 using namespace video;
 using namespace ui;
+using namespace nbl::examples;
 
 #include "app_resources/common.hlsl"
 #include "nbl/builtin/hlsl/bit.hlsl"
@@ -19,9 +18,9 @@ using namespace ui;
 constexpr uint32_t WIN_W = 1280;
 constexpr uint32_t WIN_H = 720;
 
-class FFTBloomApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class FFTBloomApp final : public SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-	using device_base_t = examples::SimpleWindowedApplication;
+	using device_base_t = SimpleWindowedApplication;
 	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 	using clock_t = std::chrono::steady_clock;
 
@@ -212,7 +211,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 		#ifndef _NBL_DEBUG
 		ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
 		auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
-		return m_device->createShader({ HLSLShader.get(), opt.get(), m_readCache.get(), m_writeCache.get()});
+		return m_device->compileShader({ HLSLShader.get(), opt.get(), m_readCache.get(), m_writeCache.get()});
 		#else 
 		return m_device->compileShader({ HLSLShader.get(), nullptr, m_readCache.get(), m_writeCache.get() });
 		#endif
