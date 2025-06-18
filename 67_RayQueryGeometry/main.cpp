@@ -161,9 +161,8 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 				const auto assets = bundle.getContents();
 				assert(assets.size() == 1);
-				smart_refctd_ptr<ICPUShader> shaderSrc = IAsset::castDown<ICPUShader>(assets[0]);
-				shaderSrc->setShaderStage(IShader::E_SHADER_STAGE::ESS_COMPUTE);
-				auto shader = m_device->createShader(shaderSrc.get());
+				smart_refctd_ptr<IShader> shaderSrc = IAsset::castDown<IShader>(assets[0]);
+				auto shader = m_device->compileShader({shaderSrc.get()});
 				if (!shader)
 					return logFail("Failed to create shader!");
 
@@ -173,6 +172,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				IGPUComputePipeline::SCreationParams params = {};
 				params.layout = pipelineLayout.get();
 				params.shader.shader = shader.get();
+				params.shader.entryPoint = "main";
 				if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &renderPipeline))
 					return logFail("Failed to create compute pipeline");
 			}

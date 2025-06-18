@@ -346,12 +346,12 @@ public:
 				exit(-1);
 			}
 			auto firstAssetInBundle = bundle.getContents()[0];
-			return smart_refctd_ptr_static_cast<ICPUShader>(firstAssetInBundle);
+			return smart_refctd_ptr_static_cast<IShader>(firstAssetInBundle);
 		};
 
 		// for each workgroup size (manually adjust items per invoc, operation else uses up a lot of ram)
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
-		smart_refctd_ptr<ICPUShader> shaderSource;
+		smart_refctd_ptr<IShader> shaderSource;
 		if constexpr (DoWorkgroupBenchmarks)
 			shaderSource = getShaderSource("app_resources/benchmarkWorkgroup.comp.hlsl");
 		else
@@ -496,18 +496,18 @@ public:
 
 private:
 	// create pipeline (specialized every test) [TODO: turn into a future/async]
-	smart_refctd_ptr<IGPUComputePipeline> createPipeline(const ICPUShader* overridenUnspecialized, const IGPUPipelineLayout* layout, const uint8_t subgroupSizeLog2)
+	smart_refctd_ptr<IGPUComputePipeline> createPipeline(const IShader* overridenUnspecialized, const IGPUPipelineLayout* layout, const uint8_t subgroupSizeLog2)
 	{
-		auto shader = m_device->createShader(overridenUnspecialized);
+		auto shader = m_device->compileShader({ overridenUnspecialized });
 		IGPUComputePipeline::SCreationParams params = {};
 		params.layout = layout;
 		params.shader = {
-			.entryPoint = "main",
 			.shader = shader.get(),
+			.entryPoint = "main",
+			.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(subgroupSizeLog2),
 			.entries = nullptr,
-			.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(subgroupSizeLog2),
-			.requireFullSubgroups = true
 		};
+		params.cached.requireFullSubgroups = true;
 		core::smart_refctd_ptr<IGPUComputePipeline> pipeline;
 		if (!m_device->createComputePipelines(nullptr,{&params,1},&pipeline))
 			return nullptr;
@@ -522,7 +522,7 @@ private:
 	};
 
 	template<bool WorkgroupBench>
-	BenchmarkSet createBenchmarkPipelines(const smart_refctd_ptr<const ICPUShader>&source, const IGPUPipelineLayout* layout, const uint32_t elementCount, const std::string& arith_name, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerInvoc = 1u, uint32_t numLoops = 8u)
+	BenchmarkSet createBenchmarkPipelines(const smart_refctd_ptr<const IShader>&source, const IGPUPipelineLayout* layout, const uint32_t elementCount, const std::string& arith_name, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerInvoc = 1u, uint32_t numLoops = 8u)
 	{
 		auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
 		CHLSLCompiler::SOptions options = {};
@@ -547,7 +547,7 @@ private:
 		hlsl::workgroup2::SArithmeticConfiguration wgConfig;
 	    wgConfig.init(workgroupSizeLog2, subgroupSizeLog2, itemsPerInvoc);
 		const uint32_t itemsPerWG = wgConfig.VirtualWorkgroupSize * wgConfig.ItemsPerInvocation_0;
-		smart_refctd_ptr<ICPUShader> overriddenUnspecialized;
+		smart_refctd_ptr<IShader> overriddenUnspecialized;
 		if constexpr (WorkgroupBench)
 		{
 			const std::string definitions[4] = {

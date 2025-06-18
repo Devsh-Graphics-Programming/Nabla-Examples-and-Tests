@@ -46,7 +46,7 @@ constexpr static inline struct ClearValues
 	using image_view_t = std::conditional_t<WithConverter, nbl::asset::ICPUImageView, nbl::video::IGPUImageView>; \
 	using image_t = std::conditional_t<WithConverter, nbl::asset::ICPUImage, nbl::video::IGPUImage>; \
 	using buffer_t = std::conditional_t<WithConverter, nbl::asset::ICPUBuffer, nbl::video::IGPUBuffer>; \
-	using shader_t = std::conditional_t<WithConverter, nbl::asset::ICPUShader, nbl::video::IGPUShader>; \
+	using shader_t = nbl::asset::IShader; \
 	using graphics_pipeline_t = std::conditional_t<WithConverter, nbl::asset::ICPUGraphicsPipeline, nbl::video::IGPUGraphicsPipeline>; \
 	using descriptor_set = std::conditional_t<WithConverter, nbl::asset::ICPUDescriptorSet, nbl::video::IGPUDescriptorSet>; \
 }
@@ -764,36 +764,35 @@ private:
 	{
 		EXPOSE_NABLA_NAMESPACES();
 
-		auto createShader = [&]<StringLiteral virtualPath>(IShader::E_SHADER_STAGE stage, smart_refctd_ptr<typename Types::shader_t>& outShader) -> smart_refctd_ptr<typename Types::shader_t>
+		auto createShader = [&]<StringLiteral virtualPath>(smart_refctd_ptr<typename Types::shader_t>& outShader) -> smart_refctd_ptr<typename Types::shader_t>
 		{
 			// TODO: use SPIRV loader & our ::system ns to get those cpu shaders, do not create myself (shit I forgot it exists)
 
 			const SBuiltinFile& in = ::geometry::creator::spirv::builtin::get_resource<virtualPath>();
 			const auto buffer = ICPUBuffer::create({ { in.size }, (void*)in.contents, core::getNullMemoryResource() }, adopt_memory);
-			auto shader = make_smart_refctd_ptr<ICPUShader>(smart_refctd_ptr(buffer), stage, IShader::E_CONTENT_TYPE::ECT_SPIRV, ""); // must create cpu instance regardless underlying type
+			auto shader = make_smart_refctd_ptr<IShader>(smart_refctd_ptr(buffer), IShader::E_CONTENT_TYPE::ECT_SPIRV, ""); // must create cpu instance regardless underlying type
 
 			if constexpr (withAssetConverter)
 			{
 				buffer->setContentHash(buffer->computeContentHash());
-				outShader = std::move(shader);
 			}
-			else
-				outShader = utilities->getLogicalDevice()->createShader(shader.get());
+
+      outShader = std::move(shader);
 
 			return outShader;
 		};
 
 		typename ResourcesBundleScratch::Shaders& basic = scratch.shaders[GeometriesCpu::GP_BASIC];
-		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, basic.vertex);
-		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, basic.fragment);
+		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.vertex.spv") > (basic.vertex);
+		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (basic.fragment);
 
 		typename ResourcesBundleScratch::Shaders& cone = scratch.shaders[GeometriesCpu::GP_CONE];
-		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.cone.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, cone.vertex);
-		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, cone.fragment); // note we reuse fragment from basic!
+		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.cone.vertex.spv") > (cone.vertex);
+		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (cone.fragment); // note we reuse fragment from basic!
 
 		typename ResourcesBundleScratch::Shaders& ico = scratch.shaders[GeometriesCpu::GP_ICO];
-		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.ico.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, ico.vertex);
-		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, ico.fragment); // note we reuse fragment from basic!
+		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.ico.vertex.spv") > (ico.vertex);
+		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (ico.fragment); // note we reuse fragment from basic!
 			
 		for (const auto& it : scratch.shaders)
 		{
@@ -825,7 +824,6 @@ private:
 			{
 				SBlendParams blend;
 				SRasterizationParams rasterization;
-				typename Types::graphics_pipeline_t::SCreationParams pipeline;
 			} params;
 				
 			{
@@ -843,16 +841,6 @@ private:
 
 			params.rasterization.faceCullingMode = EFCM_NONE;
 			{
-				const typename Types::shader_t::SSpecInfo info [] =
-				{
-					{.entryPoint = "VSMain", .shader = scratch.shaders[inGeometry.shadersType].vertex.get() },
-					{.entryPoint = "PSMain", .shader = scratch.shaders[inGeometry.shadersType].fragment.get() }
-				};
-
-				params.pipeline.layout = scratch.pipelineLayout.get();
-				params.pipeline.shaders = info;
-				params.pipeline.renderpass = scratch.renderpass.get();
-				params.pipeline.cached = { .vertexInput = inGeometry.data.inputParams, .primitiveAssembly = inGeometry.data.assemblyParams, .rasterization = params.rasterization, .blend = params.blend, .subpassIx = 0u };
 
 				obj.indexCount = inGeometry.data.indexCount;
 				obj.indexType = inGeometry.data.indexType;
@@ -860,11 +848,28 @@ private:
 				// TODO: cache pipeline & try lookup for existing one first maybe
 
 				// similar issue like with shaders again, in this case gpu contructor allows for extra cache parameters + there is no constructor you can use to fire make_smart_refctd_ptr yourself for cpu
-				if constexpr (withAssetConverter)
-					obj.pipeline = ICPUGraphicsPipeline::create(params.pipeline);
+				if constexpr (withAssetConverter) {
+
+					obj.pipeline = ICPUGraphicsPipeline::create(scratch.pipelineLayout.get(), scratch.renderpass.get());
+					obj.pipeline->getCachedCreationParams() = {
+            .vertexInput = inGeometry.data.inputParams, 
+						.primitiveAssembly = inGeometry.data.assemblyParams, 
+						.rasterization = params.rasterization, 
+						.blend = params.blend, 
+						.subpassIx = 0u 
+					};
+					*obj.pipeline->getSpecInfo(hlsl::ESS_VERTEX) = { .shader = scratch.shaders[inGeometry.shadersType].vertex, .entryPoint = "VSMain" };
+					*obj.pipeline->getSpecInfo(hlsl::ESS_FRAGMENT) = { .shader = scratch.shaders[inGeometry.shadersType].fragment, .entryPoint = "PSMain" };
+				}
 				else
 				{
-					const std::array<const IGPUGraphicsPipeline::SCreationParams,1> info = { { params.pipeline } };
+					IGPUGraphicsPipeline::SCreationParams createParams = {};
+          createParams.layout = scratch.pipelineLayout.get();
+          createParams.vertexShader = {.shader = scratch.shaders[inGeometry.shadersType].vertex.get(), .entryPoint = "VSMain" };
+          createParams.fragmentShader = { .shader = scratch.shaders[inGeometry.shadersType].fragment.get(), .entryPoint = "PSMain" };
+          createParams.renderpass = scratch.renderpass.get();
+          createParams.cached = { .vertexInput = inGeometry.data.inputParams, .primitiveAssembly = inGeometry.data.assemblyParams, .rasterization = params.rasterization, .blend = params.blend, .subpassIx = 0u };
+					const std::array<const IGPUGraphicsPipeline::SCreationParams,1> info = { { createParams } };
 					utilities->getLogicalDevice()->createGraphicsPipelines(nullptr, info, &obj.pipeline);
 				}
 
