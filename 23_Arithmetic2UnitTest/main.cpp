@@ -157,7 +157,7 @@ public:
 				exit(-1);
 			}
 			auto firstAssetInBundle = bundle.getContents()[0];
-			return smart_refctd_ptr_static_cast<ICPUShader>(firstAssetInBundle);
+			return smart_refctd_ptr_static_cast<IShader>(firstAssetInBundle);
 		};
 
 		auto subgroupTestSource = getShaderSource("app_resources/testSubgroup.comp.hlsl");
@@ -263,18 +263,18 @@ private:
 	}
 
 	// create pipeline (specialized every test) [TODO: turn into a future/async]
-	smart_refctd_ptr<IGPUComputePipeline> createPipeline(const ICPUShader* overridenUnspecialized, const uint8_t subgroupSizeLog2)
+	smart_refctd_ptr<IGPUComputePipeline> createPipeline(const IShader* overridenUnspecialized, const uint8_t subgroupSizeLog2)
 	{
-		auto shader = m_device->createShader(overridenUnspecialized);
+		auto shader = m_device->compileShader({ overridenUnspecialized });
 		IGPUComputePipeline::SCreationParams params = {};
 		params.layout = pipelineLayout.get();
 		params.shader = {
-			.entryPoint = "main",
 			.shader = shader.get(),
+			.entryPoint = "main",
+			.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(subgroupSizeLog2),
 			.entries = nullptr,
-			.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(subgroupSizeLog2),
-			.requireFullSubgroups = true
 		};
+		params.cached.requireFullSubgroups = true;
 		core::smart_refctd_ptr<IGPUComputePipeline> pipeline;
 		if (!m_device->createComputePipelines(m_spirv_isa_cache.get(),{&params,1},&pipeline))
 			return nullptr;
@@ -282,7 +282,7 @@ private:
 	}
 
 	template<template<class> class Arithmetic, bool WorkgroupTest>
-	bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, bool useNative, uint32_t itemsPerWG, uint32_t itemsPerInvoc = 1u)
+	bool runTest(const smart_refctd_ptr<const IShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, bool useNative, uint32_t itemsPerWG, uint32_t itemsPerInvoc = 1u)
 	{
 		std::string arith_name = Arithmetic<arithmetic::bit_xor<float>>::name;
 		const uint32_t workgroupSizeLog2 = hlsl::findMSB(workgroupSize);
@@ -305,7 +305,7 @@ private:
 		auto* includeFinder = compiler->getDefaultIncludeFinder();
 		options.preprocessorOptions.includeFinder = includeFinder;
 
-		smart_refctd_ptr<ICPUShader> overriddenUnspecialized;
+		smart_refctd_ptr<IShader> overriddenUnspecialized;
 		if constexpr (WorkgroupTest)
 		{
 			hlsl::workgroup2::SArithmeticConfiguration wgConfig;
