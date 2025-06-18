@@ -3,13 +3,24 @@
 
 #include <nabla.h>
 
+#include <bitset>
+
 // common api
-#include "CCamera.hpp"
+#include "camera/CFPSCamera.hpp"
+#include "camera/CFreeLockCamera.hpp"
+#include "camera/COrbitCamera.hpp"
 #include "SimpleWindowedApplication.hpp"
-#include "CEventCallback.hpp"
+#include "InputSystem.hpp"
+
+#include "camera/CCubeProjection.hpp"
+#include "camera/CLinearProjection.hpp"
+#include "camera/CPlanarProjection.hpp"
 
 // the example's headers
-#include "transform.hpp"
+#include "nbl/ui/ICursorControl.h"
+#include "nbl/ext/ImGui/ImGui.h"
+#include "imgui/imgui_internal.h"
+#include "imguizmo/ImGuizmo.h"
 #include "CGeomtryCreatorScene.hpp"
 
 using namespace nbl;
