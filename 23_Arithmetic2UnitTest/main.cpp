@@ -2,6 +2,7 @@
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "app_resources/common.hlsl"
 #include "nbl/builtin/hlsl/workgroup2/arithmetic_config.hlsl"
+#include "nbl/builtin/hlsl/subgroup2/arithmetic_params.hlsl"
 
 using namespace nbl;
 using namespace core;
@@ -186,7 +187,7 @@ public:
 			for (auto subgroupSize = MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 			{
 				const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
-				for (uint32_t workgroupSize = 64; workgroupSize <= MaxWorkgroupSize; workgroupSize *= 2u)
+				for (uint32_t workgroupSize = subgroupSize; workgroupSize <= MaxWorkgroupSize; workgroupSize *= 2u)
 				{
 					// make sure renderdoc captures everything for debugging
 					m_api->startCapture();
@@ -198,12 +199,12 @@ public:
 						uint32_t itemsPerWG = workgroupSize * itemsPerInvocation;
 						m_logger->log("Testing Items per Invocation %u", ILogger::ELL_INFO, itemsPerInvocation);
 						bool passed = true;
-						//passed = runTest<emulatedReduction, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
-						//logTestOutcome(passed, itemsPerWG);
-						//passed = runTest<emulatedScanInclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
-						//logTestOutcome(passed, itemsPerWG);
-						//passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
-						//logTestOutcome(passed, itemsPerWG);
+						passed = runTest<emulatedReduction, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
+						logTestOutcome(passed, itemsPerWG);
+						passed = runTest<emulatedScanInclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
+						logTestOutcome(passed, itemsPerWG);
+						passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
+						logTestOutcome(passed, itemsPerWG);
 
 						hlsl::workgroup2::SArithmeticConfiguration wgConfig;
 					    wgConfig.init(hlsl::findMSB(workgroupSize), subgroupSizeLog2, itemsPerInvocation);
@@ -331,24 +332,25 @@ private:
 		}
 		else
 		{
-			const std::string definitions[4] = { 
+			hlsl::subgroup2::SArithmeticParams sgParams;
+			sgParams.init(subgroupSizeLog2, itemsPerInvoc);
+
+			const std::string definitions[3] = { 
 				"subgroup2::" + arith_name,
 				std::to_string(workgroupSize),
-				std::to_string(itemsPerInvoc),
-				std::to_string(subgroupSizeLog2)
+				sgParams.getParamTemplateStructString()
 			};
 
-			const IShaderCompiler::SMacroDefinition defines[5] = {
+			const IShaderCompiler::SMacroDefinition defines[4] = {
 				{ "OPERATION", definitions[0] },
 				{ "WORKGROUP_SIZE", definitions[1] },
-				{ "ITEMS_PER_INVOCATION", definitions[2] },
-				{ "SUBGROUP_SIZE_LOG2", definitions[3] },
+				{ "SUBGROUP_CONFIG_T", definitions[2] },
 				{ "TEST_NATIVE", "1" }
 			};
 			if (useNative)
-				options.preprocessorOptions.extraDefines = { defines, defines + 5 };
-			else
 				options.preprocessorOptions.extraDefines = { defines, defines + 4 };
+			else
+				options.preprocessorOptions.extraDefines = { defines, defines + 3 };
 
 			overriddenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
 		}
