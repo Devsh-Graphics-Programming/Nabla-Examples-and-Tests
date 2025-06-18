@@ -398,31 +398,6 @@ public:
 		cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
 		cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
-		// barrier transition to GENERAL
-		{
-			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[1];
-			imageBarriers[0].barrier = {
-				   .dep = {
-					   .srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
-					   .srcAccessMask = ACCESS_FLAGS::NONE,
-					   .dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-					   .dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
-					}
-			};
-			imageBarriers[0].image = m_surface->getSwapchainResources()->getImage(m_currentImageAcquire.imageIndex);
-			imageBarriers[0].subresourceRange = {
-				.aspectMask = IImage::EAF_COLOR_BIT,
-				.baseMipLevel = 0u,
-				.levelCount = 1u,
-				.baseArrayLayer = 0u,
-				.layerCount = 1u
-			};
-			imageBarriers[0].oldLayout = IImage::LAYOUT::UNDEFINED;
-			imageBarriers[0].newLayout = IImage::LAYOUT::GENERAL;
-
-			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imageBarriers });
-		}
-
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
 		const auto SubgroupSizeLog2 = hlsl::findMSB(MaxSubgroupSize);
 
@@ -451,7 +426,7 @@ public:
 				.baseArrayLayer = 0u,
 				.layerCount = 1u
 			};
-			imageBarriers[0].oldLayout = IImage::LAYOUT::GENERAL;
+			imageBarriers[0].oldLayout = IImage::LAYOUT::UNDEFINED;
 			imageBarriers[0].newLayout = IImage::LAYOUT::PRESENT_SRC;
 
 			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imageBarriers });
@@ -568,7 +543,8 @@ private:
 
 		const uint32_t subgroupSize = 0x1u << subgroupSizeLog2;
 		const uint32_t workgroupSizeLog2 = hlsl::findMSB(workgroupSize);
-		hlsl::workgroup2::SArithmeticConfiguration wgConfig = hlsl::workgroup2::SArithmeticConfiguration::create(workgroupSizeLog2, subgroupSizeLog2, itemsPerInvoc);
+		hlsl::workgroup2::SArithmeticConfiguration wgConfig;
+	    wgConfig.init(workgroupSizeLog2, subgroupSizeLog2, itemsPerInvoc);
 		const uint32_t itemsPerWG = wgConfig.VirtualWorkgroupSize * wgConfig.ItemsPerInvocation_0;
 		smart_refctd_ptr<ICPUShader> overriddenUnspecialized;
 		if constexpr (WorkgroupBench)
