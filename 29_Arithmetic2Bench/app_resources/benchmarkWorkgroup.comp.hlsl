@@ -6,11 +6,9 @@
 #include "nbl/builtin/hlsl/workgroup2/arithmetic.hlsl"
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
 
-static const uint32_t WORKGROUP_SIZE = 1u << WORKGROUP_SIZE_LOG2;
+using config_t = WORKGROUP_CONFIG_T;
 
 #include "shaderCommon.hlsl"
-
-using config_t = workgroup2::ArithmeticConfiguration<WORKGROUP_SIZE_LOG2, SUBGROUP_SIZE_LOG2, ITEMS_PER_INVOCATION>;
 
 typedef vector<uint32_t, config_t::ItemsPerInvocation_0> type_t;
 
@@ -119,7 +117,7 @@ void benchmark()
 }
 
 
-[numthreads(WORKGROUP_SIZE,1,1)]
+[numthreads(config_t::WorkgroupSize,1,1)]
 void main()
 {
     benchmark();

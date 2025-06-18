@@ -3,6 +3,7 @@
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "app_resources/common.hlsl"
 #include "nbl/builtin/hlsl/workgroup2/arithmetic_config.hlsl"
+#include "nbl/builtin/hlsl/subgroup2/arithmetic_params.hlsl"
 
 using namespace nbl;
 using namespace core;
@@ -549,55 +550,50 @@ private:
 		smart_refctd_ptr<ICPUShader> overriddenUnspecialized;
 		if constexpr (WorkgroupBench)
 		{
-			const std::string definitions[7] = {
+			const std::string definitions[4] = {
 				"workgroup2::" + arith_name,
-				std::to_string(workgroupSizeLog2),
-				std::to_string(itemsPerWG),
-				std::to_string(itemsPerInvoc),
-				std::to_string(subgroupSizeLog2),
+				wgConfig.getConfigTemplateStructString(),
 				std::to_string(numLoops),
 				std::to_string(arith_name=="reduction")
 			};
 
-			const IShaderCompiler::SMacroDefinition defines[8] = {
+			const IShaderCompiler::SMacroDefinition defines[5] = {
 				{ "OPERATION", definitions[0] },
-				{ "WORKGROUP_SIZE_LOG2", definitions[1] },
-				{ "ITEMS_PER_WG", definitions[2] },
-				{ "ITEMS_PER_INVOCATION", definitions[3] },
-				{ "SUBGROUP_SIZE_LOG2", definitions[4] },
-				{ "NUM_LOOPS", definitions[5] },
-				{ "IS_REDUCTION", definitions[6] },
+				{ "WORKGROUP_CONFIG_T", definitions[1] },
+				{ "NUM_LOOPS", definitions[2] },
+				{ "IS_REDUCTION", definitions[3] },
 				{ "TEST_NATIVE", "1" }
 			};
 			if (UseNativeArithmetic)
-				options.preprocessorOptions.extraDefines = { defines, defines + 8 };
+				options.preprocessorOptions.extraDefines = { defines, defines + 5 };
 			else
-				options.preprocessorOptions.extraDefines = { defines, defines + 7 };
+				options.preprocessorOptions.extraDefines = { defines, defines + 4 };
 
 			overriddenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
 		}
 		else
 		{
-			const std::string definitions[5] = { 
+			hlsl::subgroup2::SArithmeticParams sgParams;
+			sgParams.init(subgroupSizeLog2, itemsPerInvoc);
+
+			const std::string definitions[4] = { 
 				"subgroup2::" + arith_name,
 				std::to_string(workgroupSize),
-				std::to_string(itemsPerInvoc),
-				std::to_string(subgroupSizeLog2),
+				sgParams.getParamTemplateStructString(),
 				std::to_string(numLoops)
 			};
 
-			const IShaderCompiler::SMacroDefinition defines[6] = {
+			const IShaderCompiler::SMacroDefinition defines[5] = {
 				{ "OPERATION", definitions[0] },
 				{ "WORKGROUP_SIZE", definitions[1] },
-				{ "ITEMS_PER_INVOCATION", definitions[2] },
-				{ "SUBGROUP_SIZE_LOG2", definitions[3] },
-				{ "NUM_LOOPS", definitions[4] },
+				{ "SUBGROUP_CONFIG_T", definitions[2] },
+				{ "NUM_LOOPS", definitions[3] },
 				{ "TEST_NATIVE", "1" }
 			};
 			if (UseNativeArithmetic)
-				options.preprocessorOptions.extraDefines = { defines, defines + 6 };
-			else
 				options.preprocessorOptions.extraDefines = { defines, defines + 5 };
+			else
+				options.preprocessorOptions.extraDefines = { defines, defines + 4 };
 
 			overriddenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
 		}
