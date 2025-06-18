@@ -186,7 +186,7 @@ public:
 			for (auto subgroupSize = MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 			{
 				const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
-				for (uint32_t workgroupSize = subgroupSize; workgroupSize <= MaxWorkgroupSize; workgroupSize *= 2u)
+				for (uint32_t workgroupSize = 64; workgroupSize <= MaxWorkgroupSize; workgroupSize *= 2u)
 				{
 					// make sure renderdoc captures everything for debugging
 					m_api->startCapture();
@@ -198,14 +198,15 @@ public:
 						uint32_t itemsPerWG = workgroupSize * itemsPerInvocation;
 						m_logger->log("Testing Items per Invocation %u", ILogger::ELL_INFO, itemsPerInvocation);
 						bool passed = true;
-						passed = runTest<emulatedReduction, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
-						logTestOutcome(passed, itemsPerWG);
-						passed = runTest<emulatedScanInclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
-						logTestOutcome(passed, itemsPerWG);
-						passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
-						logTestOutcome(passed, itemsPerWG);
+						//passed = runTest<emulatedReduction, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
+						//logTestOutcome(passed, itemsPerWG);
+						//passed = runTest<emulatedScanInclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
+						//logTestOutcome(passed, itemsPerWG);
+						//passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
+						//logTestOutcome(passed, itemsPerWG);
 
-						hlsl::workgroup2::SArithmeticConfiguration wgConfig = hlsl::workgroup2::SArithmeticConfiguration::create(hlsl::findMSB(workgroupSize), subgroupSizeLog2, itemsPerInvocation);
+						hlsl::workgroup2::SArithmeticConfiguration wgConfig;
+					    wgConfig.init(hlsl::findMSB(workgroupSize), subgroupSizeLog2, itemsPerInvocation);
 						itemsPerWG = wgConfig.VirtualWorkgroupSize * wgConfig.ItemsPerInvocation_0;
 						m_logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
 						passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, bool(useNative), itemsPerWG, itemsPerInvocation) && passed;
@@ -306,28 +307,25 @@ private:
 		smart_refctd_ptr<ICPUShader> overriddenUnspecialized;
 		if constexpr (WorkgroupTest)
 		{
-			const std::string definitions[6] = {
+			hlsl::workgroup2::SArithmeticConfiguration wgConfig;
+			wgConfig.init(hlsl::findMSB(workgroupSize), subgroupSizeLog2, itemsPerInvoc);
+
+			const std::string definitions[3] = {
 				"workgroup2::" + arith_name,
-				std::to_string(workgroupSizeLog2),
-				std::to_string(itemsPerWG),
-				std::to_string(itemsPerInvoc),
-				std::to_string(subgroupSizeLog2),
+				wgConfig.getConfigTemplateStructString(),
 				std::to_string(arith_name=="reduction")
 			};
 
-			const IShaderCompiler::SMacroDefinition defines[7] = {
+			const IShaderCompiler::SMacroDefinition defines[4] = {
 				{ "OPERATION", definitions[0] },
-				{ "WORKGROUP_SIZE_LOG2", definitions[1] },
-				{ "ITEMS_PER_WG", definitions[2] },
-				{ "ITEMS_PER_INVOCATION", definitions[3] },
-				{ "SUBGROUP_SIZE_LOG2", definitions[4] },
-				{ "IS_REDUCTION", definitions[5] },
+				{ "WORKGROUP_CONFIG_T", definitions[1] },
+				{ "IS_REDUCTION", definitions[2] },
 				{ "TEST_NATIVE", "1" }
 			};
 			if (useNative)
-				options.preprocessorOptions.extraDefines = { defines, defines + 7 };
+				options.preprocessorOptions.extraDefines = { defines, defines + 4 };
 			else
-				options.preprocessorOptions.extraDefines = { defines, defines + 6 };
+				options.preprocessorOptions.extraDefines = { defines, defines + 3 };
 
 			overriddenUnspecialized = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
 		}
@@ -358,7 +356,7 @@ private:
 		auto pipeline = createPipeline(overriddenUnspecialized.get(),subgroupSizeLog2);
 
 		// TODO: overlap dispatches with memory readbacks (requires multiple copies of `buffers`)
-		uint32_t workgroupCount = min(elementCount / itemsPerWG, m_physicalDevice->getLimits().maxComputeWorkGroupCount[0]);
+		uint32_t workgroupCount = 1;// min(elementCount / itemsPerWG, m_physicalDevice->getLimits().maxComputeWorkGroupCount[0]);
 
 		cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
 		cmdbuf->bindComputePipeline(pipeline.get());

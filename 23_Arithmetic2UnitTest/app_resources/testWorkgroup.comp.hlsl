@@ -5,11 +5,9 @@
 #include "nbl/builtin/hlsl/subgroup2/arithmetic_portability.hlsl"
 #include "nbl/builtin/hlsl/workgroup2/arithmetic.hlsl"
 
-static const uint32_t WORKGROUP_SIZE = 1u << WORKGROUP_SIZE_LOG2;
+using config_t = WORKGROUP_CONFIG_T;
 
 #include "shaderCommon.hlsl"
-
-using config_t = workgroup2::ArithmeticConfiguration<WORKGROUP_SIZE_LOG2, SUBGROUP_SIZE_LOG2, ITEMS_PER_INVOCATION>;
 
 typedef vector<uint32_t, config_t::ItemsPerInvocation_0> type_t;
 
@@ -52,7 +50,7 @@ struct operation_t
 template<class Binop>
 static void subtest()
 {
-    assert(glsl::gl_SubgroupSize() == 1u<<SUBGROUP_SIZE_LOG2)
+    assert(glsl::gl_SubgroupSize() == config_t::SubgroupSize)
 
     operation_t<Binop,device_capabilities> func;
     func();
@@ -69,7 +67,7 @@ void test()
     subtest<arithmetic::maximum<uint32_t> >();
 }
 
-[numthreads(WORKGROUP_SIZE,1,1)]
+[numthreads(config_t::WorkgroupSize,1,1)]
 void main()
 {
     test();
