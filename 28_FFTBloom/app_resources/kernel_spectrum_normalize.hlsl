@@ -2,6 +2,7 @@
 [[vk::binding(2, 0)]] RWTexture2DArray<float32_t2> kernelChannels;
 
 [numthreads(8, 8, 1)]
+[shader("compute")]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
 	const scalar_t powerReciprocal = vk::RawBufferLoad<scalar_t>(pushConstants.rowMajorBufferAddress);

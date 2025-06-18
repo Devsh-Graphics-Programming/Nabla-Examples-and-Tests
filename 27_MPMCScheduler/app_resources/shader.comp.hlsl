@@ -305,6 +305,7 @@ uint32_t3 gl_WorkGroupSize() {return uint32_t3(WorkgroupSizeX*WorkgroupSizeY,1,1
 }
 }
 [numthreads(WorkgroupSizeX*WorkgroupSizeY,1,1)]
+[shader("compute")]
 void main()
 {
     // manually push an explicit workload

@@ -5,6 +5,7 @@
 #include "app_resources/common.hlsl"
 #include "nbl/application_templates/MonoDeviceApplication.hpp"
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/asset/metadata/CHLSLMetadata.h"
 
 using namespace nbl;
 
@@ -45,14 +46,15 @@ public:
             logFail("Failed to create Command Buffers!\n");
 
         // Load shaders, set up pipeline
-        core::smart_refctd_ptr<video::IGPUShader> shader;
+        core::smart_refctd_ptr<asset::IShader> shader;
+        auto shaderStage = ESS_UNKNOWN;
         {
             asset::IAssetLoader::SAssetLoadParams lp = {};
             lp.logger = m_logger.get();
             lp.workingDirectory = ""; // virtual root
             auto assetBundle = m_assetMgr->getAsset(pipleineSetupData.testShaderPath, lp);
             const auto assets = assetBundle.getContents();
-            if (assets.empty())
+            if (assets.empty() || assetBundle.getAssetType() != asset::IAsset::ET_SHADER)
             {
                 logFail("Could not load shader!");
                 assert(0);
@@ -60,12 +62,14 @@ public:
 
             // It would be super weird if loading a shader from a file produced more than 1 asset
             assert(assets.size() == 1);
-            core::smart_refctd_ptr<asset::ICPUShader> source = asset::IAsset::castDown<asset::ICPUShader>(assets[0]);
+            core::smart_refctd_ptr<asset::IShader> source = asset::IAsset::castDown<asset::IShader>(assets[0]);
+            const auto hlslMetadata = static_cast<const asset::CHLSLMetadata*>(assetBundle.getMetadata());
+            shaderStage = hlslMetadata->shaderStages->front();
 
             auto* compilerSet = m_assetMgr->getCompilerSet();
 
             asset::IShaderCompiler::SCompilerOptions options = {};
-            options.stage = source->getStage();
+            options.stage = shaderStage;
             options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
             options.spirvOptimizer = nullptr;
             options.debugInfoFlags |= asset::IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
@@ -73,11 +77,7 @@ public:
             options.preprocessorOptions.logger = m_logger.get();
             options.preprocessorOptions.includeFinder = compilerSet->getShaderCompiler(source->getContentType())->getDefaultIncludeFinder();
 
-            auto spirv = compilerSet->compileToSPIRV(source.get(), options);
-
-            video::ILogicalDevice::SShaderCreationParameters params{};
-            params.cpushader = spirv.get();
-            shader = m_device->createShader(params);
+            shader = compilerSet->compileToSPIRV(source.get(), options);
         }
 
         if (!shader)

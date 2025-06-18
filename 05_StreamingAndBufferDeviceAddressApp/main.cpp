@@ -91,7 +91,7 @@ class StreamingAndBufferDeviceAddressApp final : public application_templates::M
 				return false;
 
 			// this time we load a shader directly from a file
-			smart_refctd_ptr<IGPUShader> shader;
+			smart_refctd_ptr<IShader> shader;
 			{
 				IAssetLoader::SAssetLoadParams lp = {};
 				lp.logger = m_logger.get();
@@ -102,14 +102,10 @@ class StreamingAndBufferDeviceAddressApp final : public application_templates::M
 					return logFail("Could not load shader!");
 
 				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-				auto source = IAsset::castDown<ICPUShader>(assets[0]);
+				const auto shaderSource = IAsset::castDown<IShader>(assets[0]);
+				shader = m_device->compileShader({shaderSource.get()});
 				// The down-cast should not fail!
-				assert(source);
-
-				// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
-				shader = m_device->createShader(source.get());
-				if (!shader)
-					return logFail("Creation of a GPU Shader to from CPU Shader source failed!");
+				assert(shader);
 			}
 
 			// The StreamingTransientDataBuffers are actually composed on top of another useful utility called `CAsyncSingleBufferSubAllocator`
@@ -139,6 +135,7 @@ class StreamingAndBufferDeviceAddressApp final : public application_templates::M
 				IGPUComputePipeline::SCreationParams params = {};
 				params.layout = layout.get();
 				params.shader.shader = shader.get();
+				params.shader.entryPoint = "main";
 				if (!m_device->createComputePipelines(nullptr,{&params,1},&m_pipeline))
 					return logFail("Failed to create compute pipeline!\n");
 			}

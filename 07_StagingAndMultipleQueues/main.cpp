@@ -246,7 +246,7 @@ private:
 					.binding = 0,
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					.count = 1,
 					.immutableSamplers = nullptr
 				},
@@ -254,7 +254,7 @@ private:
 					.binding = 1,
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					.count = 1,
 					.immutableSamplers = nullptr
 				}
@@ -281,18 +281,17 @@ private:
 		}
 
 		// LOAD SHADER FROM FILE
-		smart_refctd_ptr<ICPUShader> source;
+		smart_refctd_ptr<IShader> source;
 		{
-			source = loadFistAssetInBundle<ICPUShader>("../app_resources/comp_shader.hlsl");
-			source->setShaderStage(IShader::E_SHADER_STAGE::ESS_COMPUTE); // can also be done via a #pragma in the shader
+			source = loadFistAssetInBundle<IShader>("../app_resources/comp_shader.hlsl");
 		}
 
 		if (!source)
 			logFailAndTerminate("Could not create a CPU shader!");
 
-		core::smart_refctd_ptr<IGPUShader> shader = m_device->createShader(source.get());
+		core::smart_refctd_ptr<IShader> shader = m_device->compileShader({ source.get() });
 		if(!shader)
-			logFailAndTerminate("Could not create a GPU shader!");
+			logFailAndTerminate("Could not compile shader to spirv!");
 
 		// CREATE COMPUTE PIPELINE
 		SPushConstantRange pc[1];
