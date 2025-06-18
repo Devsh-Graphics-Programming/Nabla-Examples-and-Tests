@@ -533,6 +533,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					region.imageExtent = scrambleMapCPU->getCreationParameters().extent;
 
 					scrambleMapCPU->setBufferAndRegions(std::move(texelBuffer), regions);
+
+					// programmatically user-created IPreHashed need to have their hash computed (loaders do it while loading)
+					scrambleMapCPU->setContentHash(scrambleMapCPU->computeContentHash());
 				}
 
 				std::array<ICPUImage*, 2> cpuImgs = { envMapCPU.get(), scrambleMapCPU.get()};
