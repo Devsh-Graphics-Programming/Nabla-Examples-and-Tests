@@ -1,15 +1,11 @@
-#ifndef _THIS_EXAMPLE_GC_ICO_VERTEX_INPUT_HLSL_
-#define _THIS_EXAMPLE_GC_ICO_VERTEX_INPUT_HLSL_
+#ifndef _NBL_EXAMPLES_GEOMETRY_ICO_VERTEX_INPUT_HLSL_
+#define _NBL_EXAMPLES_GEOMETRY_ICO_VERTEX_INPUT_HLSL_
 
-struct VSInput
-{
-    [[vk::location(0)]] float3 position : POSITION;
-    [[vk::location(1)]] float3 normal : NORMAL;
-    [[vk::location(2)]] float2 uv : TEXCOORD;
-};
+[[vk::binding(0)]] Buffer<float32_t3> position;
+[[vk::binding(1)]] Buffer<float32_t3> normal;
+[[vk::binding(2)]] Buffer<float32_t2> uv;
 
-#endif // _THIS_EXAMPLE_GC_ICO_VERTEX_INPUT_HLSL_
-
+#endif // _NBL_EXAMPLES_GEOMETRY_ICO_VERTEX_INPUT_HLSL_
 /*
     do not remove this text, WAVE is so bad that you can get errors if no proper ending xD
 */

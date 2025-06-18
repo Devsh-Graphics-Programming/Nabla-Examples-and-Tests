@@ -1,9 +1,8 @@
-# TODO: @AnastaZluk redo the PCH
-# add_subdirectory(pch EXCLUDE_FROM_ALL)
-
 # we add common libraries
 # add_subdirectory(cameras EXCLUDE_FROM_ALL) # header only currently
-add_subdirectory(geometry EXCLUDE_FROM_ALL)
+
+# TODO builtin SPIR-V shaders
+# add_subdirectory(geometry EXCLUDE_FROM_ALL)
 
 # we get all available targets inclusive & below this directory
 NBL_GET_ALL_TARGETS(NBL_SUBDIRECTORY_TARGETS)

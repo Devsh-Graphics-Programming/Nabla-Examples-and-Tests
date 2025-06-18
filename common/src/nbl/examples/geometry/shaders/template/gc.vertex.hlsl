@@ -1,13 +1,6 @@
 #include "gc.common.hlsl"
 
-// set 1, binding 0
-[[vk::binding(0, 1)]]
-cbuffer CameraData
-{
-    SBasicViewParameters params;
-};
-
-PSInput VSMain(VSInput input)
+PSInput VSMain()
 {
     PSInput output;
 
