@@ -1,15 +1,14 @@
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 #include "nbl/builtin/hlsl/functional.hlsl"
 
-template<uint32_t kScanElementCount=1024*1024>
-struct Output
+struct PushConstantData
 {
-	NBL_CONSTEXPR_STATIC_INLINE uint32_t ScanElementCount = kScanElementCount;
-
-	uint32_t subgroupSize;
-	uint32_t data[ScanElementCount];
+    uint64_t pInputBuf;
+    uint64_t pOutputBuf[8];
 };
 
+namespace arithmetic
+{
 // Thanks to our unified HLSL/C++ STD lib we're able to remove a whole load of code
 template<typename T>
 struct bit_and : nbl::hlsl::bit_and<T>
@@ -92,5 +91,6 @@ struct ballot : nbl::hlsl::plus<T>
 	static inline constexpr const char* name = "bitcount";
 #endif
 };
+}
 
-#include "nbl/builtin/hlsl/subgroup/basic.hlsl"
+#include "nbl/builtin/hlsl/glsl_compat/subgroup_basic.hlsl"
