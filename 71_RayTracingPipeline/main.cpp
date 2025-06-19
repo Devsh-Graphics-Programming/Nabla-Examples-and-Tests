@@ -1109,25 +1109,23 @@ private:
 
 		// triangles geometries
 		auto geometryCreator = make_smart_refctd_ptr<CGeometryCreator>();
-#if 1
-		return false;
-#else
+
 		const auto cpuObjects = std::array{
-			ReferenceObjectCpu {
-				.meta = {.type = OT_RECTANGLE, .name = "Plane Mesh"},
-				.data = gc->createRectangleMesh(nbl::core::vector2df_SIMD(10, 10)),
+			scene::ReferenceObjectCpu {
+				.meta = {.type = scene::OT_RECTANGLE, .name = "Plane Mesh"},
+				.data = geometryCreator->createRectangle({10, 10}),
 				.material = defaultMaterial,
 				.transform = planeTransform,
 			},
-			ReferenceObjectCpu {
-				.meta = {.type = OT_CUBE, .name = "Cube Mesh"},
-				.data = gc->createCubeMesh(nbl::core::vector3df(1, 1, 1)),
+			scene::ReferenceObjectCpu {
+				.meta = {.type = scene::OT_CUBE, .name = "Cube Mesh"},
+				.data = geometryCreator->createCube({1, 1, 1}),
 				.material = defaultMaterial,
 				.transform = getTranslationMatrix(0, 0.5f, 0),
 			},
-			ReferenceObjectCpu {
-				.meta = {.type = OT_CUBE, .name = "Cube Mesh 2"},
-				.data = gc->createCubeMesh(nbl::core::vector3df(1.5, 1.5, 1.5)),
+			scene::ReferenceObjectCpu {
+				.meta = {.type = scene::OT_CUBE, .name = "Cube Mesh 2"},
+				.data = geometryCreator->createCube({1.5, 1.5, 1.5}),
 				.material = Material{
 					.ambient = {0.1, 0.1, 0.2},
 					.diffuse = {0.2, 0.2, 0.8},
@@ -1137,9 +1135,9 @@ private:
 				},
 				.transform = getTranslationMatrix(-5.0f, 1.0f, 0),
 			},
-			ReferenceObjectCpu {
-				.meta = {.type = OT_CUBE, .name = "Transparent Cube Mesh"},
-				.data = gc->createCubeMesh(nbl::core::vector3df(1.5, 1.5, 1.5)),
+			scene::ReferenceObjectCpu {
+				.meta = {.type = scene::OT_CUBE, .name = "Transparent Cube Mesh"},
+				.data = geometryCreator->createCube({1.5, 1.5, 1.5}),
 				.material = Material{
 					.ambient = {0.1, 0.2, 0.1},
 					.diffuse = {0.2, 0.8, 0.2},
@@ -1150,40 +1148,6 @@ private:
 				.transform = getTranslationMatrix(5.0f, 1.0f, 0),
 			},
 		};
-
-		struct CPUTriBufferBindings
-		{
-			nbl::asset::SBufferBinding<ICPUBuffer> vertex, index;
-		};
-		std::array<CPUTriBufferBindings, std::size(cpuObjects)> cpuTriBuffers;
-
-		for (uint32_t i = 0; i < cpuObjects.size(); i++)
-		{
-			const auto& cpuObject = cpuObjects[i];
-
-			auto vBuffer = smart_refctd_ptr(cpuObject.data.bindings[0].buffer); // no offset
-			auto vUsage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF |
-				IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-			vBuffer->addUsageFlags(vUsage);
-			vBuffer->setContentHash(vBuffer->computeContentHash());
-
-			auto iBuffer = smart_refctd_ptr(cpuObject.data.indexBuffer.buffer); // no offset
-			auto iUsage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF |
-				IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-
-			if (cpuObject.data.indexType != EIT_UNKNOWN)
-				if (iBuffer)
-				{
-					iBuffer->addUsageFlags(iUsage);
-					iBuffer->setContentHash(iBuffer->computeContentHash());
-				}
-
-			cpuTriBuffers[i] = {
-			  .vertex = {.offset = 0, .buffer = vBuffer},
-			  .index = {.offset = 0, .buffer = iBuffer},
-			};
-
-		}
 
 		// procedural geometries
 		using Aabb = IGPUBottomLevelAccelerationStructure::AABB_t;
@@ -1233,10 +1197,10 @@ private:
 		const auto blasCount = std::size(cpuObjects) + 1;
 		const auto proceduralBlasIdx = std::size(cpuObjects);
 
-		std::array<smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>, std::size(cpuObjects)+1u> cpuBlas;
+		std::array<smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>, std::size(cpuObjects)+1u> cpuBlasList;
 		for (uint32_t i = 0; i < blasCount; i++)
 		{
-			auto& blas = cpuBlas[i];
+			auto& blas = cpuBlasList[i];
 			blas = make_smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>();
 
 			if (i == proceduralBlasIdx)
@@ -1256,30 +1220,15 @@ private:
 			}
 			else
 			{
-				auto triangles = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUBottomLevelAccelerationStructure::Triangles<ICPUBuffer>>>(1u);
+				auto triangles = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUBottomLevelAccelerationStructure::Triangles<ICPUBuffer>>>(cpuObjects[i].data->exportForBLAS());
 				auto primitiveCounts = make_refctd_dynamic_array<smart_refctd_dynamic_array<uint32_t>>(1u);
 
 				auto& tri = triangles->front();
+
 				auto& primCount = primitiveCounts->front();
-				const auto& geom = cpuObjects[i];
-				const auto& cpuBuf = cpuTriBuffers[i];
+				primCount = cpuObjects[i].data->getPrimitiveCount();
 
-				const bool useIndex = geom.data.indexType != EIT_UNKNOWN;
-				const uint32_t vertexStride = geom.data.inputParams.bindings[0].stride;
-				const uint32_t numVertices = cpuBuf.vertex.buffer->getSize() / vertexStride;
-
-				if (useIndex)
-					primCount = geom.data.indexCount / 3;
-				else
-					primCount = numVertices / 3;
-
-				tri.vertexData[0] = cpuBuf.vertex;
-				tri.indexData = useIndex ? cpuBuf.index : cpuBuf.vertex;
-				tri.maxVertex = numVertices - 1;
-				tri.vertexStride = vertexStride;
-				tri.vertexFormat = EF_R32G32B32_SFLOAT;
-				tri.indexType = geom.data.indexType;
-				tri.geometryFlags = geom.material.isTransparent() ?
+				tri.geometryFlags = cpuObjects[i].material.isTransparent() ?
 					IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::NO_DUPLICATE_ANY_HIT_INVOCATION_BIT :
 					IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::OPAQUE_BIT;
 
@@ -1305,7 +1254,7 @@ private:
 			{
 				const auto isProceduralInstance = i == proceduralBlasIdx;
 				ICPUTopLevelAccelerationStructure::StaticInstance inst;
-				inst.base.blas = cpuBlas[i];
+				inst.base.blas = cpuBlasList[i];
 				inst.base.flags = static_cast<uint32_t>(IGPUTopLevelAccelerationStructure::INSTANCE_FLAGS::TRIANGLE_FACING_CULL_DISABLE_BIT);
 				inst.base.instanceCustomIndex = i;
 				inst.base.instanceShaderBindingTableRecordOffset = isProceduralInstance ? 2 : 0;;
@@ -1356,18 +1305,19 @@ private:
 		inputs.allocator = &myalloc;
 
 		std::array<ICPUTopLevelAccelerationStructure*, 1u> tmpTlas;
-		std::array<ICPUBuffer*, 2 * std::size(cpuObjects) + 1u> tmpBuffers;
+		std::array<ICPUPolygonGeometry*, std::size(cpuObjects)> tmpGeometries;
+		std::array<ICPUBuffer*, 1> tmpBuffers;
 		{
 			tmpTlas[0] = cpuTlas.get();
+			tmpBuffers[0] = cpuProcBuffer.get();
 			for (uint32_t i = 0; i < cpuObjects.size(); i++)
 			{
-				tmpBuffers[2 * i + 0] = cpuTriBuffers[i].vertex.buffer.get();
-				tmpBuffers[2 * i + 1] = cpuTriBuffers[i].index.buffer.get();
+				tmpGeometries[i] = cpuObjects[i].data.get();
 			}
-			tmpBuffers[2 * proceduralBlasIdx] = cpuProcBuffer.get();
 
 			std::get<CAssetConverter::SInputs::asset_span_t<ICPUTopLevelAccelerationStructure>>(inputs.assets) = tmpTlas;
 			std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = tmpBuffers;
+			std::get<CAssetConverter::SInputs::asset_span_t<ICPUPolygonGeometry>>(inputs.assets) = tmpGeometries;
 		}
 
 		auto reservation = converter->reserve(inputs);
@@ -1475,37 +1425,24 @@ private:
 			auto&& tlases = reservation.getGPUObjects<ICPUTopLevelAccelerationStructure>();
 			m_gpuTlas = tlases[0].value;
 			auto&& buffers = reservation.getGPUObjects<ICPUBuffer>();
-			for (uint32_t i = 0; i < cpuObjects.size(); i++)
-			{
-				auto& cpuObject = cpuObjects[i];
 
-				m_gpuTriangleGeometries.push_back(ReferenceObjectGpu{
-				  .meta = cpuObject.meta,
-				  .bindings = {
-					.vertex = {.offset = 0, .buffer = buffers[2 * i + 0].value },
-					.index = {.offset = 0, .buffer = buffers[2 * i + 1].value },
-				  },
-				  .vertexStride = cpuObject.data.inputParams.bindings[0].stride,
-				  .indexType = cpuObject.data.indexType,
-				  .indexCount = cpuObject.data.indexCount,
-				  .material = hlsl::_static_cast<MaterialPacked>(cpuObject.material),
-				  .transform = cpuObject.transform,
-					});
-			}
 			m_proceduralAabbBuffer = buffers[2 * proceduralBlasIdx].value;
 
-			for (uint32_t i = 0; i < m_gpuTriangleGeometries.size(); i++)
+			for (uint32_t i = 0; i < cpuObjects.size(); i++)
 			{
-				const auto& gpuObject = m_gpuTriangleGeometries[i];
-				const uint64_t vertexBufferAddress = gpuObject.bindings.vertex.buffer->getDeviceAddress();
+				const auto& cpuObject = cpuObjects[i];
+				const auto& cpuBlas = cpuBlasList[i];
+				const auto& geometry = cpuBlas->getTriangleGeometries()[0];
+				const uint64_t vertexBufferAddress = buffers[2 * i].value->getDeviceAddress();
+				const uint64_t indexBufferAddress = buffers[(2 * i) + 1].value->getDeviceAddress();
 				geomInfos[i] = {
-				  .material = gpuObject.material,
+				  .material = hlsl::_static_cast<MaterialPacked>(cpuObject.material),
 				  .vertexBufferAddress = vertexBufferAddress,
-				  .indexBufferAddress = gpuObject.useIndex() ? gpuObject.bindings.index.buffer->getDeviceAddress() : vertexBufferAddress,
-				  .vertexStride = gpuObject.vertexStride,
-				  .objType = gpuObject.meta.type,
-				  .indexType = gpuObject.indexType,
-				  .smoothNormals = s_smoothNormals[gpuObject.meta.type],
+				  .indexBufferAddress = geometry.indexData.buffer ? indexBufferAddress : vertexBufferAddress,
+				  .vertexStride = geometry.vertexStride,
+				  .objType = cpuObject.meta.type,
+				  .indexType = geometry.indexType,
+				  .smoothNormals = scene::s_smoothNormals[cpuObject.meta.type],
 				};
 			}
 		}
@@ -1516,11 +1453,9 @@ private:
 			params.size = geomInfoBuffer->getSize();
 			m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = queue }, std::move(params), geomInfos).move_into(m_triangleGeomInfoBuffer);
 		}
-#endif
+
 		return true;
 	}
-
-
 
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>> m_surface;
@@ -1570,8 +1505,6 @@ private:
 	} m_ui;
 	core::smart_refctd_ptr<IDescriptorPool> m_guiDescriptorSetPool;
 
-	// TODO: how much of this do we actually have to keep ?
-//	core::vector<ReferenceObjectGpu> m_gpuTriangleGeometries;
 	core::vector<SProceduralGeomInfo> m_gpuIntersectionSpheres;
 	uint32_t m_intersectionHitGroupIdx;
 
