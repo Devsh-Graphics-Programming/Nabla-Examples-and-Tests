@@ -57,6 +57,7 @@ static const float2 quadUVs[4] = {
 using namespace nbl::hlsl;
 
 [numthreads(WorkgroupSize, 1, 1)]
+[shader("compute")]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
     uint32_t pid = ID.x;

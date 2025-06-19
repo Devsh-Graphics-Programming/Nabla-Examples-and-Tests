@@ -14,14 +14,11 @@
 	handle scene's object translations.
 */
 
-class UISampleApp final : public examples::SimpleWindowedApplication
+class UISampleApp final : public SimpleWindowedApplication
 {
-	using device_base_t = examples::SimpleWindowedApplication;
-	using clock_t = std::chrono::steady_clock;
+		using device_base_t = SimpleWindowedApplication;
 
-	_NBL_STATIC_INLINE_CONSTEXPR uint32_t WIN_W = 1280, WIN_H = 720;
-
-	constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
+		_NBL_STATIC_INLINE_CONSTEXPR uint32_t WIN_W = 1280, WIN_H = 720;
 
 	public:
 		inline UISampleApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) 
@@ -63,7 +60,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				return false;
 
 			m_assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(m_system));
-			auto* geometry = m_assetManager->getGeometryCreator();
 
 			m_semaphore = m_device->createSemaphore(m_realFrameIx);
 			if (!m_semaphore)

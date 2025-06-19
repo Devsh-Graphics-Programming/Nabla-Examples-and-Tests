@@ -1,8 +1,6 @@
 #ifndef _NBL_THIS_EXAMPLE_COMMON_H_INCLUDED_
 #define _NBL_THIS_EXAMPLE_COMMON_H_INCLUDED_
 
-#include <nabla.h>
-
 // TODO: @AnastaZIuk do we even make that explicit?
 #include "nbl/examples/PCH.hpp"
 
@@ -14,6 +12,6 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 using namespace scene;
-using namespace examples;
+using namespace nbl::examples;
 
 #endif // __NBL_THIS_EXAMPLE_COMMON_H_INCLUDED__

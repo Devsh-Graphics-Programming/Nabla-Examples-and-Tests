@@ -1,15 +1,15 @@
 // Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-
 #include "common.hpp"
+
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/builtin/hlsl/indirect_commands.hlsl"
 
 
-class RaytracingPipelineApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class RaytracingPipelineApp final : public SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-	using device_base_t = examples::SimpleWindowedApplication;
+	using device_base_t = SimpleWindowedApplication;
 	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 	using clock_t = std::chrono::steady_clock;
 
@@ -136,7 +136,7 @@ public:
 		}
 
 		// Load Custom Shader
-		auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IGPUShader>
+		auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IShader>
 			{
 				IAssetLoader::SAssetLoadParams lp = {};
 				lp.logger = m_logger.get();
@@ -147,11 +147,11 @@ public:
 					return nullptr;
 
 				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-				auto sourceRaw = IAsset::castDown<ICPUShader>(assets[0]);
+				auto sourceRaw = IAsset::castDown<IShader>(assets[0]);
 				if (!sourceRaw)
 					return nullptr;
 
-				return m_device->createShader({ sourceRaw.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
+				return m_device->compileShader({ sourceRaw.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
 			};
 
 		// load shaders
@@ -317,38 +317,7 @@ public:
 			const auto pipelineLayout = m_device->createPipelineLayout({ &pcRange, 1 }, smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
 
 			IGPURayTracingPipeline::SCreationParams params = {};
-
-			enum RtDemoShader
-			{
-				RTDS_RAYGEN,
-				RTDS_MISS,
-				RTDS_MISS_SHADOW,
-				RTDS_CLOSEST_HIT,
-				RTDS_SPHERE_CLOSEST_HIT,
-				RTDS_ANYHIT_PRIMARY,
-				RTDS_ANYHIT_SHADOW,
-				RTDS_INTERSECTION,
-				RTDS_DIRECTIONAL_CALL,
-				RTDS_POINT_CALL,
-				RTDS_SPOT_CALL,
-				RTDS_COUNT
-			};
-
-			IGPUShader::SSpecInfo shaders[RTDS_COUNT];
-			shaders[RTDS_RAYGEN] = { .shader = raygenShader.get() };
-			shaders[RTDS_MISS] = { .shader = missShader.get() };
-			shaders[RTDS_MISS_SHADOW] = { .shader = missShadowShader.get() };
-			shaders[RTDS_CLOSEST_HIT] = { .shader = closestHitShader.get() };
-			shaders[RTDS_SPHERE_CLOSEST_HIT] = { .shader = proceduralClosestHitShader.get() };
-			shaders[RTDS_ANYHIT_PRIMARY] = { .shader = anyHitShaderColorPayload.get() };
-			shaders[RTDS_ANYHIT_SHADOW] = { .shader = anyHitShaderShadowPayload.get() };
-			shaders[RTDS_INTERSECTION] = { .shader = intersectionHitShader.get() };
-			shaders[RTDS_DIRECTIONAL_CALL] = { .shader = directionalLightCallShader.get() };
-			shaders[RTDS_POINT_CALL] = { .shader = pointLightCallShader.get() };
-			shaders[RTDS_SPOT_CALL] = { .shader = spotLightCallShader.get() };
-
 			params.layout = pipelineLayout.get();
-			params.shaders = std::span(shaders);
 			using RayTracingFlags = IGPURayTracingPipeline::SCreationParams::FLAGS;
 			params.flags = core::bitflag(RayTracingFlags::NO_NULL_MISS_SHADERS) |
 				RayTracingFlags::NO_NULL_INTERSECTION_SHADERS |
@@ -356,42 +325,40 @@ public:
 
 			auto& shaderGroups = params.shaderGroups;
 
-			shaderGroups.raygen = { .index = RTDS_RAYGEN };
+			shaderGroups.raygen = { .shader = raygenShader.get(), .entryPoint = "main" };
 
-			IRayTracingPipelineBase::SGeneralShaderGroup missGroups[EMT_COUNT];
-			missGroups[EMT_PRIMARY] = { .index = RTDS_MISS };
-			missGroups[EMT_OCCLUSION] = { .index = RTDS_MISS_SHADOW };
+			IGPUPipelineBase::SShaderSpecInfo missGroups[EMT_COUNT];
+			missGroups[EMT_PRIMARY] = { .shader = missShader.get(), .entryPoint = "main" };
+			missGroups[EMT_OCCLUSION] = { .shader = missShadowShader.get(), .entryPoint = "main" };
 			shaderGroups.misses = missGroups;
 
 			auto getHitGroupIndex = [](E_GEOM_TYPE geomType, E_RAY_TYPE rayType)
 				{
 					return geomType * ERT_COUNT + rayType;
 				};
-			IRayTracingPipelineBase::SHitShaderGroup hitGroups[E_RAY_TYPE::ERT_COUNT * E_GEOM_TYPE::EGT_COUNT];
+			IGPURayTracingPipeline::SHitGroup hitGroups[E_RAY_TYPE::ERT_COUNT * E_GEOM_TYPE::EGT_COUNT];
 			hitGroups[getHitGroupIndex(EGT_TRIANGLES, ERT_PRIMARY)] = {
-			  .closestHit = RTDS_CLOSEST_HIT,
-			  .anyHit = RTDS_ANYHIT_PRIMARY,
+				.closestHit = { .shader = closestHitShader.get(), .entryPoint = "main" },
+			  .anyHit = { .shader = anyHitShaderColorPayload.get(), .entryPoint = "main" },
 			};
 			hitGroups[getHitGroupIndex(EGT_TRIANGLES, ERT_OCCLUSION)] = {
-			  .closestHit = IGPURayTracingPipeline::SGeneralShaderGroup::Unused,
-			  .anyHit = RTDS_ANYHIT_SHADOW,
+			  .anyHit = { .shader = anyHitShaderShadowPayload.get(), .entryPoint = "main" },
 			};
 			hitGroups[getHitGroupIndex(EGT_PROCEDURAL, ERT_PRIMARY)] = {
-			  .closestHit = RTDS_SPHERE_CLOSEST_HIT,
-			  .anyHit = RTDS_ANYHIT_PRIMARY,
-			  .intersection = RTDS_INTERSECTION,
+			  .closestHit = { .shader = proceduralClosestHitShader.get(), .entryPoint = "main" },
+			  .anyHit = { .shader = anyHitShaderColorPayload.get(), .entryPoint = "main" },
+			  .intersection = { .shader = intersectionHitShader.get(), .entryPoint = "main" },
 			};
 			hitGroups[getHitGroupIndex(EGT_PROCEDURAL, ERT_OCCLUSION)] = {
-			  .closestHit = IGPURayTracingPipeline::SGeneralShaderGroup::Unused,
-			  .anyHit = RTDS_ANYHIT_SHADOW,
-			  .intersection = RTDS_INTERSECTION,
+			  .anyHit = { .shader = anyHitShaderShadowPayload.get(), .entryPoint = "main" },
+			  .intersection = { .shader = intersectionHitShader.get(), .entryPoint = "main" },
 			};
 			shaderGroups.hits = hitGroups;
 
-			IRayTracingPipelineBase::SGeneralShaderGroup callableGroups[ELT_COUNT];
-			callableGroups[ELT_DIRECTIONAL] = { .index = RTDS_DIRECTIONAL_CALL };
-			callableGroups[ELT_POINT] = { .index = RTDS_POINT_CALL };
-			callableGroups[ELT_SPOT] = { .index = RTDS_SPOT_CALL };
+			IGPUPipelineBase::SShaderSpecInfo callableGroups[ELT_COUNT];
+			callableGroups[ELT_DIRECTIONAL] = { .shader = directionalLightCallShader.get(), .entryPoint = "main" };
+			callableGroups[ELT_POINT] = { .shader = pointLightCallShader.get(), .entryPoint = "main" };
+			callableGroups[ELT_SPOT] = { .shader = spotLightCallShader.get(), .entryPoint = "main" };
 			shaderGroups.callables = callableGroups;
 
 			params.cached.maxRecursionDepth = 1;
@@ -408,12 +375,11 @@ public:
 		}
 
 		auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
-		auto* geometryCreator = assetManager->getGeometryCreator();
 
 		if (!createIndirectBuffer())
 			return logFail("Could not create indirect buffer");
 
-		if (!createAccelerationStructuresFromGeometry(geometryCreator))
+		if (!createAccelerationStructuresFromGeometry())
 			return logFail("Could not create acceleration structures from geometry creator");
 
 		ISampler::SParams samplerParams = {
@@ -443,9 +409,9 @@ public:
 			if (!fsTriProtoPPln)
 				return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
 
-			const IGPUShader::SSpecInfo fragSpec = {
+			const IGPUPipelineBase::SShaderSpecInfo fragSpec = {
+			  .shader = fragmentShader.get(),
 			  .entryPoint = "main",
-			  .shader = fragmentShader.get()
 			};
 
 			auto presentLayout = m_device->createPipelineLayout(
@@ -1115,7 +1081,7 @@ private:
 		return true;
 	}
 
-	bool createAccelerationStructuresFromGeometry(const IGeometryCreator* gc)
+	bool createAccelerationStructuresFromGeometry()
 	{
 		auto queue = getGraphicsQueue();
 		// get geometries into ICPUBuffers
@@ -1142,33 +1108,36 @@ private:
 		planeTransform.setRotation(quaternion::fromAngleAxis(core::radians(-90.0f), vector3df_SIMD{ 1, 0, 0 }));
 
 		// triangles geometries
+		auto geometryCreator = make_smart_refctd_ptr<CGeometryCreator>();
+
 		const auto cpuObjects = std::array{
-			ReferenceObjectCpu {
-				.meta = {.type = OT_RECTANGLE, .name = "Plane Mesh"},
-				.data = gc->createRectangleMesh(nbl::core::vector2df_SIMD(10, 10)),
+			scene::ReferenceObjectCpu {
+				.meta = {.type = scene::OT_RECTANGLE, .name = "Plane Mesh"},
+				.data = geometryCreator->createRectangle({10, 10}),
 				.material = defaultMaterial,
 				.transform = planeTransform,
 			},
-			ReferenceObjectCpu {
-				.meta = {.type = OT_CUBE, .name = "Cube Mesh"},
-				.data = gc->createCubeMesh(nbl::core::vector3df(1, 1, 1)),
+			scene::ReferenceObjectCpu {
+				.meta = {.type = scene::OT_CUBE, .name = "Cube Mesh"},
+				.data = geometryCreator->createCube({1, 1, 1}),
 				.material = defaultMaterial,
 				.transform = getTranslationMatrix(0, 0.5f, 0),
 			},
-			ReferenceObjectCpu {
-				.meta = {.type = OT_CUBE, .name = "Cube Mesh 2"},
-				.data = gc->createCubeMesh(nbl::core::vector3df(1.5, 1.5, 1.5)),
+			scene::ReferenceObjectCpu {
+				.meta = {.type = scene::OT_CUBE, .name = "Cube Mesh 2"},
+				.data = geometryCreator->createCube({1.5, 1.5, 1.5}),
 				.material = Material{
 					.ambient = {0.1, 0.1, 0.2},
 					.diffuse = {0.2, 0.2, 0.8},
 					.specular = {0.8, 0.8, 0.8},
 					.shininess = 1.0f,
+					.alpha = 1.0f,
 				},
 				.transform = getTranslationMatrix(-5.0f, 1.0f, 0),
 			},
-			ReferenceObjectCpu {
-				.meta = {.type = OT_CUBE, .name = "Transparent Cube Mesh"},
-				.data = gc->createCubeMesh(nbl::core::vector3df(1.5, 1.5, 1.5)),
+			scene::ReferenceObjectCpu {
+				.meta = {.type = scene::OT_CUBE, .name = "Transparent Cube Mesh"},
+				.data = geometryCreator->createCube({1.5, 1.5, 1.5}),
 				.material = Material{
 					.ambient = {0.1, 0.2, 0.1},
 					.diffuse = {0.2, 0.8, 0.2},
@@ -1179,40 +1148,6 @@ private:
 				.transform = getTranslationMatrix(5.0f, 1.0f, 0),
 			},
 		};
-
-		struct CPUTriBufferBindings
-		{
-			nbl::asset::SBufferBinding<ICPUBuffer> vertex, index;
-		};
-		std::array<CPUTriBufferBindings, std::size(cpuObjects)> cpuTriBuffers;
-
-		for (uint32_t i = 0; i < cpuObjects.size(); i++)
-		{
-			const auto& cpuObject = cpuObjects[i];
-
-			auto vBuffer = smart_refctd_ptr(cpuObject.data.bindings[0].buffer); // no offset
-			auto vUsage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF |
-				IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-			vBuffer->addUsageFlags(vUsage);
-			vBuffer->setContentHash(vBuffer->computeContentHash());
-
-			auto iBuffer = smart_refctd_ptr(cpuObject.data.indexBuffer.buffer); // no offset
-			auto iUsage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF |
-				IGPUBuffer::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-
-			if (cpuObject.data.indexType != EIT_UNKNOWN)
-				if (iBuffer)
-				{
-					iBuffer->addUsageFlags(iUsage);
-					iBuffer->setContentHash(iBuffer->computeContentHash());
-				}
-
-			cpuTriBuffers[i] = {
-			  .vertex = {.offset = 0, .buffer = vBuffer},
-			  .index = {.offset = 0, .buffer = iBuffer},
-			};
-
-		}
 
 		// procedural geometries
 		using Aabb = IGPUBottomLevelAccelerationStructure::AABB_t;
@@ -1262,10 +1197,10 @@ private:
 		const auto blasCount = std::size(cpuObjects) + 1;
 		const auto proceduralBlasIdx = std::size(cpuObjects);
 
-		std::array<smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>, std::size(cpuObjects)+1u> cpuBlas;
+		std::array<smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>, std::size(cpuObjects)+1u> cpuBlasList;
 		for (uint32_t i = 0; i < blasCount; i++)
 		{
-			auto& blas = cpuBlas[i];
+			auto& blas = cpuBlasList[i];
 			blas = make_smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>();
 
 			if (i == proceduralBlasIdx)
@@ -1285,30 +1220,15 @@ private:
 			}
 			else
 			{
-				auto triangles = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUBottomLevelAccelerationStructure::Triangles<ICPUBuffer>>>(1u);
+				auto triangles = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUBottomLevelAccelerationStructure::Triangles<ICPUBuffer>>>(cpuObjects[i].data->exportForBLAS());
 				auto primitiveCounts = make_refctd_dynamic_array<smart_refctd_dynamic_array<uint32_t>>(1u);
 
 				auto& tri = triangles->front();
+
 				auto& primCount = primitiveCounts->front();
-				const auto& geom = cpuObjects[i];
-				const auto& cpuBuf = cpuTriBuffers[i];
+				primCount = cpuObjects[i].data->getPrimitiveCount();
 
-				const bool useIndex = geom.data.indexType != EIT_UNKNOWN;
-				const uint32_t vertexStride = geom.data.inputParams.bindings[0].stride;
-				const uint32_t numVertices = cpuBuf.vertex.buffer->getSize() / vertexStride;
-
-				if (useIndex)
-					primCount = geom.data.indexCount / 3;
-				else
-					primCount = numVertices / 3;
-
-				tri.vertexData[0] = cpuBuf.vertex;
-				tri.indexData = useIndex ? cpuBuf.index : cpuBuf.vertex;
-				tri.maxVertex = numVertices - 1;
-				tri.vertexStride = vertexStride;
-				tri.vertexFormat = EF_R32G32B32_SFLOAT;
-				tri.indexType = geom.data.indexType;
-				tri.geometryFlags = geom.material.isTransparent() ?
+				tri.geometryFlags = cpuObjects[i].material.isTransparent() ?
 					IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::NO_DUPLICATE_ANY_HIT_INVOCATION_BIT :
 					IGPUBottomLevelAccelerationStructure::GEOMETRY_FLAGS::OPAQUE_BIT;
 
@@ -1334,7 +1254,7 @@ private:
 			{
 				const auto isProceduralInstance = i == proceduralBlasIdx;
 				ICPUTopLevelAccelerationStructure::StaticInstance inst;
-				inst.base.blas = cpuBlas[i];
+				inst.base.blas = cpuBlasList[i];
 				inst.base.flags = static_cast<uint32_t>(IGPUTopLevelAccelerationStructure::INSTANCE_FLAGS::TRIANGLE_FACING_CULL_DISABLE_BIT);
 				inst.base.instanceCustomIndex = i;
 				inst.base.instanceShaderBindingTableRecordOffset = isProceduralInstance ? 2 : 0;;
@@ -1385,18 +1305,19 @@ private:
 		inputs.allocator = &myalloc;
 
 		std::array<ICPUTopLevelAccelerationStructure*, 1u> tmpTlas;
-		std::array<ICPUBuffer*, 2 * std::size(cpuObjects) + 1u> tmpBuffers;
+		std::array<ICPUPolygonGeometry*, std::size(cpuObjects)> tmpGeometries;
+		std::array<ICPUBuffer*, 1> tmpBuffers;
 		{
 			tmpTlas[0] = cpuTlas.get();
+			tmpBuffers[0] = cpuProcBuffer.get();
 			for (uint32_t i = 0; i < cpuObjects.size(); i++)
 			{
-				tmpBuffers[2 * i + 0] = cpuTriBuffers[i].vertex.buffer.get();
-				tmpBuffers[2 * i + 1] = cpuTriBuffers[i].index.buffer.get();
+				tmpGeometries[i] = cpuObjects[i].data.get();
 			}
-			tmpBuffers[2 * proceduralBlasIdx] = cpuProcBuffer.get();
 
 			std::get<CAssetConverter::SInputs::asset_span_t<ICPUTopLevelAccelerationStructure>>(inputs.assets) = tmpTlas;
 			std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = tmpBuffers;
+			std::get<CAssetConverter::SInputs::asset_span_t<ICPUPolygonGeometry>>(inputs.assets) = tmpGeometries;
 		}
 
 		auto reservation = converter->reserve(inputs);
@@ -1504,37 +1425,24 @@ private:
 			auto&& tlases = reservation.getGPUObjects<ICPUTopLevelAccelerationStructure>();
 			m_gpuTlas = tlases[0].value;
 			auto&& buffers = reservation.getGPUObjects<ICPUBuffer>();
-			for (uint32_t i = 0; i < cpuObjects.size(); i++)
-			{
-				auto& cpuObject = cpuObjects[i];
 
-				m_gpuTriangleGeometries.push_back(ReferenceObjectGpu{
-				  .meta = cpuObject.meta,
-				  .bindings = {
-					.vertex = {.offset = 0, .buffer = buffers[2 * i + 0].value },
-					.index = {.offset = 0, .buffer = buffers[2 * i + 1].value },
-				  },
-				  .vertexStride = cpuObject.data.inputParams.bindings[0].stride,
-				  .indexType = cpuObject.data.indexType,
-				  .indexCount = cpuObject.data.indexCount,
-				  .material = hlsl::_static_cast<MaterialPacked>(cpuObject.material),
-				  .transform = cpuObject.transform,
-					});
-			}
 			m_proceduralAabbBuffer = buffers[2 * proceduralBlasIdx].value;
 
-			for (uint32_t i = 0; i < m_gpuTriangleGeometries.size(); i++)
+			for (uint32_t i = 0; i < cpuObjects.size(); i++)
 			{
-				const auto& gpuObject = m_gpuTriangleGeometries[i];
-				const uint64_t vertexBufferAddress = gpuObject.bindings.vertex.buffer->getDeviceAddress();
+				const auto& cpuObject = cpuObjects[i];
+				const auto& cpuBlas = cpuBlasList[i];
+				const auto& geometry = cpuBlas->getTriangleGeometries()[0];
+				const uint64_t vertexBufferAddress = buffers[2 * i].value->getDeviceAddress();
+				const uint64_t indexBufferAddress = buffers[(2 * i) + 1].value->getDeviceAddress();
 				geomInfos[i] = {
-				  .material = gpuObject.material,
+				  .material = hlsl::_static_cast<MaterialPacked>(cpuObject.material),
 				  .vertexBufferAddress = vertexBufferAddress,
-				  .indexBufferAddress = gpuObject.useIndex() ? gpuObject.bindings.index.buffer->getDeviceAddress() : vertexBufferAddress,
-				  .vertexStride = gpuObject.vertexStride,
-				  .objType = gpuObject.meta.type,
-				  .indexType = gpuObject.indexType,
-				  .smoothNormals = s_smoothNormals[gpuObject.meta.type],
+				  .indexBufferAddress = geometry.indexData.buffer ? indexBufferAddress : vertexBufferAddress,
+				  .vertexStride = geometry.vertexStride,
+				  .objType = cpuObject.meta.type,
+				  .indexType = geometry.indexType,
+				  .smoothNormals = scene::s_smoothNormals[cpuObject.meta.type],
 				};
 			}
 		}
@@ -1548,8 +1456,6 @@ private:
 
 		return true;
 	}
-
-
 
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<ISimpleManagedSurface::ISwapchainResources>> m_surface;
@@ -1599,7 +1505,6 @@ private:
 	} m_ui;
 	core::smart_refctd_ptr<IDescriptorPool> m_guiDescriptorSetPool;
 
-	core::vector<ReferenceObjectGpu> m_gpuTriangleGeometries;
 	core::vector<SProceduralGeomInfo> m_gpuIntersectionSpheres;
 	uint32_t m_intersectionHitGroupIdx;
 

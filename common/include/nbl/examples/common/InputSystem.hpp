@@ -4,16 +4,19 @@
 #ifndef _NBL_EXAMPLES_COMMON_INPUT_SYSTEM_HPP_INCLUDED_
 #define _NBL_EXAMPLES_COMMON_INPUT_SYSTEM_HPP_INCLUDED_
 
-class InputSystem : public nbl::core::IReferenceCounted
+namespace nbl::examples
+{
+
+class InputSystem : public core::IReferenceCounted
 {
 	public:
 		template <class ChannelType>
 		struct Channels
 		{
-			nbl::core::mutex lock;
+			core::mutex lock;
 			std::condition_variable added;
-			nbl::core::vector<nbl::core::smart_refctd_ptr<ChannelType>> channels;
-			nbl::core::vector<std::chrono::microseconds> timeStamps;
+			core::vector<core::smart_refctd_ptr<ChannelType>> channels;
+			core::vector<std::chrono::microseconds> timeStamps;
 			uint32_t defaultChannelIndex = 0;
 		};
 		// TODO: move to "nbl/ui/InputEventChannel.h" once the interface of this utility struct matures, also maybe rename to `Consumer` ?
@@ -21,7 +24,7 @@ class InputSystem : public nbl::core::IReferenceCounted
 		struct ChannelReader
 		{
 			template<typename F>
-			inline void consumeEvents(F&& processFunc, nbl::system::logger_opt_ptr logger=nullptr)
+			inline void consumeEvents(F&& processFunc, system::logger_opt_ptr logger=nullptr)
 			{
 				auto events = channel->getEvents();
 				const auto frontBufferCapacity = channel->getFrontBufferCapacity();
@@ -29,7 +32,7 @@ class InputSystem : public nbl::core::IReferenceCounted
 				{
 					logger.log(
 						"Detected overflow, %d unconsumed events in channel of size %d!",
-						nbl::system::ILogger::ELL_ERROR,events.size()-consumedCounter,frontBufferCapacity
+						system::ILogger::ELL_ERROR,events.size()-consumedCounter,frontBufferCapacity
 					);
 					consumedCounter = events.size()-frontBufferCapacity;
 				}
@@ -38,22 +41,22 @@ class InputSystem : public nbl::core::IReferenceCounted
 				consumedCounter = events.size();
 			}
 
-			nbl::core::smart_refctd_ptr<ChannelType> channel = nullptr;
+			core::smart_refctd_ptr<ChannelType> channel = nullptr;
 			uint64_t consumedCounter = 0ull;
 		};
 		
-		InputSystem(nbl::system::logger_opt_smart_ptr&& logger) : m_logger(std::move(logger)) {}
+		InputSystem(system::logger_opt_smart_ptr&& logger) : m_logger(std::move(logger)) {}
 
-		void getDefaultMouse(ChannelReader<nbl::ui::IMouseEventChannel>* reader)
+		void getDefaultMouse(ChannelReader<ui::IMouseEventChannel>* reader)
 		{
 			getDefault(m_mouse,reader);
 		}
-		void getDefaultKeyboard(ChannelReader<nbl::ui::IKeyboardEventChannel>* reader)
+		void getDefaultKeyboard(ChannelReader<ui::IKeyboardEventChannel>* reader)
 		{
 			getDefault(m_keyboard,reader);
 		}
 		template<class ChannelType>
-		void add(Channels<ChannelType>& channels, nbl::core::smart_refctd_ptr<ChannelType>&& channel)
+		void add(Channels<ChannelType>& channels, core::smart_refctd_ptr<ChannelType>&& channel)
 		{
 			std::unique_lock lock(channels.lock);
 			channels.channels.push_back(std::move(channel));
@@ -94,7 +97,7 @@ class InputSystem : public nbl::core::IReferenceCounted
 			std::unique_lock lock(channels.lock);
 			while (channels.channels.empty())
 			{
-				m_logger.log("Waiting For Input Device to be connected...",nbl::system::ILogger::ELL_INFO);
+				m_logger.log("Waiting For Input Device to be connected...",system::ILogger::ELL_INFO);
 				channels.added.wait(lock);
 			}
 				
@@ -159,7 +162,7 @@ class InputSystem : public nbl::core::IReferenceCounted
 					}
 
 					if(defaultIdx != newDefaultIdx) {
-						m_logger.log("Default InputChannel for ChannelType changed from %u to %u",nbl::system::ILogger::ELL_INFO, defaultIdx, newDefaultIdx);
+						m_logger.log("Default InputChannel for ChannelType changed from %u to %u",system::ILogger::ELL_INFO, defaultIdx, newDefaultIdx);
 
 						defaultIdx = newDefaultIdx;
 						channels.defaultChannelIndex = newDefaultIdx;
@@ -177,10 +180,10 @@ class InputSystem : public nbl::core::IReferenceCounted
 			reader->consumedCounter = consumedCounter;
 		}
 
-		nbl::system::logger_opt_smart_ptr m_logger;
-		Channels<nbl::ui::IMouseEventChannel> m_mouse;
-		Channels<nbl::ui::IKeyboardEventChannel> m_keyboard;
+		system::logger_opt_smart_ptr m_logger;
+		Channels<ui::IMouseEventChannel> m_mouse;
+		Channels<ui::IKeyboardEventChannel> m_keyboard;
 };
 
-
+}
 #endif
