@@ -9,6 +9,17 @@ if(NBL_BUILD_EXAMPLES)
 		nbl_android_create_media_storage_apk()
 	endif()
 
+	#! Common api library & precompiled headers for Nabla framework examples
+	add_subdirectory(common EXCLUDE_FROM_ALL)
+
+	#! use "EXCLUDE_FROM_ALL" to exclude an example from the NablaExamples project
+	#[[
+		useful if we don't want the example to be tested by CI but still want
+		the example's project to be generated
+
+		https://cmake.org/cmake/help/latest/prop_tgt/EXCLUDE_FROM_ALL.html
+	]]
+
 	# showcase the use of `nbl::core`,`nbl::system` and `nbl::asset`
 	add_subdirectory(01_HelloCoreSystemAsset)
 	# showcase the use of `system::IApplicationFramework` and `nbl::video`
@@ -31,7 +42,6 @@ if(NBL_BUILD_EXAMPLES)
 	# showcase use of FFT for post-FX Bloom  effect
 	add_subdirectory(11_FFT)
 
-
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo)
 	#add_subdirectory(33_Draw3DLine)
@@ -42,7 +52,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(22_CppCompat)
 	add_subdirectory(23_Arithmetic2UnitTest)
 	add_subdirectory(24_ColorSpaceTest)
-	add_subdirectory(25_FilterTest)
+	add_subdirectory(25_FilterTest EXCLUDE_FROM_ALL)
 	add_subdirectory(26_Blur)
 	add_subdirectory(27_MPMCScheduler)	
 	add_subdirectory(28_FFTBloom)
@@ -58,27 +68,29 @@ if(NBL_BUILD_EXAMPLES)
 	# endif()
 
 	#add_subdirectory(43_SumAndCDFFilters)
-	add_subdirectory(47_DerivMapTest)
-	add_subdirectory(54_Transformations)
-	add_subdirectory(55_RGB18E7S3)
+	add_subdirectory(47_DerivMapTest EXCLUDE_FROM_ALL)
+	add_subdirectory(54_Transformations EXCLUDE_FROM_ALL)
+	add_subdirectory(55_RGB18E7S3 EXCLUDE_FROM_ALL)
 	add_subdirectory(61_UI)
 	add_subdirectory(62_CAD)
-	add_subdirectory(62_SchusslerTest)
+	add_subdirectory(62_SchusslerTest EXCLUDE_FROM_ALL)
 	add_subdirectory(64_EmulatedFloatTest)
-	add_subdirectory(0_ImportanceSamplingEnvMaps) #TODO: integrate back into 42
+	add_subdirectory(0_ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
 
-	add_subdirectory(66_HLSLBxDFTests)
+	add_subdirectory(66_HLSLBxDFTests EXCLUDE_FROM_ALL)
 	add_subdirectory(67_RayQueryGeometry)
 	add_subdirectory(68_JpegLoading)
 
   	add_subdirectory(70_FLIPFluids)
 	add_subdirectory(71_RayTracingPipeline)
 
+	# add new examples *before* NBL_GET_ALL_TARGETS invocation, it gathers recursively all targets created so far in this subdirectory
 	NBL_GET_ALL_TARGETS(TARGETS)
 
-	# PCH & CommonAPI library for Nabla framework examples
-	add_subdirectory(common EXCLUDE_FROM_ALL)
+	# we want to loop only over the examples so we exclude examples' interface libraries created in common subdirectory
+	list(REMOVE_ITEM TARGETS ${NBL_EXAMPLES_API_TARGET} ${NBL_EXAMPLES_API_LIBRARIES})
 
+	# we link common example api library and force examples to reuse its PCH
 	foreach(T IN LISTS TARGETS)
         target_link_libraries(${T} PUBLIC ${NBL_EXAMPLES_API_TARGET})
 		target_include_directories(${T} PUBLIC $<TARGET_PROPERTY:${NBL_EXAMPLES_API_TARGET},INCLUDE_DIRECTORIES>)

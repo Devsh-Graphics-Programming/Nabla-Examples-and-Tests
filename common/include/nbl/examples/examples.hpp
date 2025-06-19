@@ -4,8 +4,16 @@
 #ifndef _NBL_EXAMPLES_HPP_
 #define _NBL_EXAMPLES_HPP_
 
-
+//! Precompiled header shared across all examples
 #include "nbl/examples/PCH.hpp"
 
+//! Example specific headers that must not be included in the PCH
+/*
+    NOTE: Add here if they depend on preprocessor definitions
+    or macros that are specific to individual example targets
+    (eg. defined in CMake)
+*/
+
+// #include "..."
 
 #endif // _NBL_EXAMPLES_HPP_
