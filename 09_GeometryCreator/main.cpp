@@ -4,6 +4,8 @@
 
 #include "common.hpp"
 
+// TODO: Arek, we should have a `nbl::examples` class inheriting from `application_templates::MonoAssetManagerAndBuiltinResourceApplication` which
+// during `onAppInitialized` also mounts correct `common/include/nbl/examples` and `common/src/nbl/examples` as folder or builtin
 class GeometryCreatorApp final : public MonoWindowApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 	using device_base_t = MonoWindowApplication;
@@ -55,6 +57,10 @@ class GeometryCreatorApp final : public MonoWindowApplication, public applicatio
 					.addtionalBufferOwnershipFamilies = addtionalBufferOwnershipFamilies
 				},patch
 			);
+
+			// TODO: this is plain wrong Arek
+			auto commonArchive = make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"app_resources",smart_refctd_ptr(m_logger),m_system.get());
+			m_system->mount(make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"../common/src/nbl/examples",smart_refctd_ptr(m_logger),m_system.get()),"nbl/examples");
 			
 			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 			m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(),scRes->getRenderpass(),0,m_scene.get());

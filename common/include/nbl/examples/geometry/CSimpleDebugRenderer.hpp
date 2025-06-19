@@ -22,8 +22,6 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			using namespace nbl::video
 	public:
 		//
-		constexpr static inline auto DescriptorCount = 255;
-		//
 		struct SViewParams
 		{
 			inline SViewParams(const hlsl::float32_t3x4& _view, const hlsl::float32_t4x4& _viewProj)
@@ -85,7 +83,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 		{
 			EXPOSE_NABLA_NAMESPACES;
 
-			if (!!renderpass)
+			if (!renderpass)
 				return nullptr;
 			auto device = const_cast<ILogicalDevice*>(renderpass->getOriginDevice());
 			auto logger = device->getLogger();
@@ -100,9 +98,10 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			smart_refctd_ptr<IShader> shader;
 			{
 				const auto bundle = assMan->getAsset("nbl/examples/geometry/shaders/unified.hlsl",{});
+// TODO: Arek
 				//const auto bundle = assMan->getAsset("nbl/examples/geometry/shaders/unified.spv",{});
 				const auto contents = bundle.getContents();
-				if (bundle.getAssetType()!=IAsset::ET_SHADER || contents.empty())
+				if (contents.empty() || bundle.getAssetType()!=IAsset::ET_SHADER)
 					return nullptr;
 				shader = IAsset::castDown<IShader>(contents[0]);
 				if (!shader)
@@ -124,7 +123,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 							// some geometries may not have particular attributes
 							.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_PARTIALLY_BOUND_BIT,
 							.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX|IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-							.count = DescriptorCount
+							.count = SInstance::SPushConstants::DescriptorCount
 						}
 					};
 					dsLayout = device->createDescriptorSetLayout(bindings);
@@ -164,9 +163,9 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			smart_refctd_ptr<IGPUGraphicsPipeline> pipelines[PipelineType::Count] = {};
 			{
 				IGPUGraphicsPipeline::SCreationParams params[PipelineType::Count] = {};
-				params[PipelineType::BasicTriangleList].vertexShader = {.shader=shader.get(),.entryPoint="BasicTriangleListVS"};
+				params[PipelineType::BasicTriangleList].vertexShader = {.shader=shader.get(),.entryPoint="BasicVS"};
 				params[PipelineType::BasicTriangleList].fragmentShader = {.shader=shader.get(),.entryPoint="BasicFS"};
-				params[PipelineType::BasicTriangleFan].vertexShader = {.shader=shader.get(),.entryPoint="BasicTriangleFanVS"};
+				params[PipelineType::BasicTriangleFan].vertexShader = {.shader=shader.get(),.entryPoint="BasicVS"};
 				params[PipelineType::BasicTriangleFan].fragmentShader = {.shader=shader.get(),.entryPoint="BasicFS"};
 				params[PipelineType::Cone].vertexShader = {.shader=shader.get(),.entryPoint="ConeVS"};
 				params[PipelineType::Cone].fragmentShader = {.shader=shader.get(),.entryPoint="ConeFS"};
@@ -206,7 +205,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				auto allocateUTB = [device,&infos](const IGeometry<const IGPUBuffer>::SDataView& view)->uint8_t
 				{
 					if (!view)
-						return DescriptorCount;
+						return SInstance::SPushConstants::DescriptorCount;
 					const auto retval = infos.size();
 					infos.emplace_back().desc = device->createBufferView(view.src, view.composed.format);
 					return retval;
