@@ -67,6 +67,12 @@ class GeometryCreatorApp final : public MonoWindowApplication, public applicatio
 			m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(),scRes->getRenderpass(),0,m_scene.get());
 			if (!m_renderer)
 				return logFail("Could not create Renderer!");
+			m_renderer->m_instances.resize(1);
+			m_renderer->m_instances[0].world = float32_t3x4(
+				float32_t4(1,0,0,0),
+				float32_t4(0,1,0,0),
+				float32_t4(0,0,1,0)
+			);
 
 			// camera
 			{
@@ -147,6 +153,9 @@ class GeometryCreatorApp final : public MonoWindowApplication, public applicatio
 				memcpy(&viewProjMatrix,camera.getConcatenatedMatrix().pointer(),sizeof(viewMatrix));
 			}
 			const auto viewParams = CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix);
+
+			// tear down scene every frame
+			m_renderer->m_instances[0].packedGeo = m_renderer->getInitParams().geoms.data()+gcIndex;
 			m_renderer->render(cb,viewParams);
 
 			cb->endRenderPass();
