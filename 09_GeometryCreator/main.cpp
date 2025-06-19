@@ -13,7 +13,8 @@ class GeometryCreatorApp final : public MonoWindowApplication, public applicatio
 
 	public:
 		GeometryCreatorApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
-			: device_base_t({1280,720}, EF_D16_UNORM, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
+			: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD),
+			device_base_t({1280,720}, EF_D16_UNORM, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
 		SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
 		{
@@ -59,7 +60,7 @@ class GeometryCreatorApp final : public MonoWindowApplication, public applicatio
 			);
 
 			// TODO: this is plain wrong Arek
-			auto commonArchive = make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"app_resources",smart_refctd_ptr(m_logger),m_system.get());
+			m_system->mount(make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"../common/include/nbl/examples",smart_refctd_ptr(m_logger),m_system.get()),"nbl/examples");
 			m_system->mount(make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"../common/src/nbl/examples",smart_refctd_ptr(m_logger),m_system.get()),"nbl/examples");
 			
 			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
@@ -259,7 +260,7 @@ class GeometryCreatorApp final : public MonoWindowApplication, public applicatio
 				if (ev.type==nbl::ui::SMouseEvent::EET_SCROLL && m_renderer)
 				{
 					gcIndex += int16_t(core::sign(ev.scrollEvent.verticalScroll));
-					gcIndex = core::clamp(gcIndex,0ull,m_renderer->getInitParams().geoms.size());
+					gcIndex = core::clamp(gcIndex,0ull,m_renderer->getInitParams().geoms.size()-1);
 				}
 			}
 		}

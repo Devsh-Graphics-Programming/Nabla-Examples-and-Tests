@@ -104,6 +104,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				if (contents.empty() || bundle.getAssetType()!=IAsset::ET_SHADER)
 					return nullptr;
 				shader = IAsset::castDown<IShader>(contents[0]);
+				shader = device->compileShader({.source=shader.get()});
 				if (!shader)
 					return nullptr;
 			}
