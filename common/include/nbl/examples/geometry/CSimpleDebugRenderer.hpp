@@ -235,6 +235,18 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 					{
 						out.indexBuffer.offset = view.src.offset;
 						out.indexBuffer.buffer = view.src.buffer;
+						switch (view.composed.format)
+						{
+							case E_FORMAT::EF_R16_UINT:
+								out.indexType = EIT_16BIT;
+								break;
+							case E_FORMAT::EF_R32_UINT:
+								out.indexType = EIT_32BIT;
+								break;
+							default:
+								assert(false);
+								return nullptr;
+						}
 					}
 					out.elementCount = geom->getVertexReferenceCount();
 					out.positionView = allocateUTB(geom->getPositionView());

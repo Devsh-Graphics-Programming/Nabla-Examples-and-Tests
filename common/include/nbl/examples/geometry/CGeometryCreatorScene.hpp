@@ -167,7 +167,7 @@ class CGeometryCreatorScene : public core::IReferenceCounted
 		//
 		struct SNamedGeometry
 		{
-			std::string_view name = {};
+			std::string name = {};
 			core::smart_refctd_ptr<video::IGPUPolygonGeometry> geom;
 		};
 		std::span<const SNamedGeometry> getGeometries() const {return m_geometries;}
