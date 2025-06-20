@@ -150,13 +150,13 @@ class GeometryCreatorApp final : public MonoWindowApplication, public applicatio
 			// TODO: get rid of legacy matrices
 			{
 				memcpy(&viewMatrix,camera.getViewMatrix().pointer(),sizeof(viewMatrix));
-				memcpy(&viewProjMatrix,camera.getConcatenatedMatrix().pointer(),sizeof(viewMatrix));
+				memcpy(&viewProjMatrix,camera.getConcatenatedMatrix().pointer(),sizeof(viewProjMatrix));
 			}
 			const auto viewParams = CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix);
 
 			// tear down scene every frame
 			m_renderer->m_instances[0].packedGeo = m_renderer->getInitParams().geoms.data()+gcIndex;
-			m_renderer->render(cb,viewParams);
+ 			m_renderer->render(cb,viewParams);
 
 			cb->endRenderPass();
 			cb->end();
