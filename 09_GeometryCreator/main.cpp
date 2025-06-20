@@ -195,7 +195,7 @@ class GeometryCreatorApp final : public MonoWindowApplication, public applicatio
 
 			std::string caption = "[Nabla Engine] Geometry Creator";
 			{
-				caption += ", displaying [" + 
+				caption += ", displaying [";
 				caption += m_scene->getGeometries()[gcIndex].name;
 				caption += "]";
 				m_window->setCaption(caption);
