@@ -1,10 +1,13 @@
 // Copyright (C) 2024-2025 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
+
+
 #include "nbl/examples/examples.hpp"
 // TODO: why is it not in nabla.h ?
 #include "nbl/asset/metadata/CHLSLMetadata.h"
 
+using namespace nbl;
 using namespace nbl::core;
 using namespace nbl::hlsl;
 using namespace nbl::system;
@@ -161,10 +164,10 @@ private:
     nbl::system::logger_opt_smart_ptr m_logger = nullptr;
 };
 
-class FLIPFluidsApp final : public SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class FLIPFluidsApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
     using device_base_t = SimpleWindowedApplication;
-    using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+    using asset_base_t = BuiltinResourcesApplication;
     using clock_t = std::chrono::steady_clock;
 
     constexpr static inline uint32_t WIN_WIDTH = 1280, WIN_HEIGHT = 720;

@@ -22,10 +22,10 @@ using namespace nbl::examples;
 // defines for sampler tests can be found in the file below
 #include "app_resources/push_constants.hlsl"
 
-class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class ColorSpaceTestSampleApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
 		using device_base_t = SimpleWindowedApplication;
-		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+		using asset_base_t = BuiltinResourcesApplication;
 		using clock_t = std::chrono::steady_clock;
 		using perf_clock_resolution_t = std::chrono::milliseconds;
 

@@ -2,15 +2,20 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+
 #include "nbl/examples/examples.hpp"
 // TODO: why isn't this in `nabla.h` ?
 #include "nbl/asset/metadata/CHLSLMetadata.h"
 
+
 using namespace nbl;
-using namespace core;
-using namespace system;
-using namespace asset;
-using namespace video;
+using namespace nbl::core;
+using namespace nbl::hlsl;
+using namespace nbl::system;
+using namespace nbl::asset;
+using namespace nbl::ui;
+using namespace nbl::video;
+using namespace nbl::examples;
 
 // TODO[Przemek]: update comments
 
@@ -21,10 +26,10 @@ using namespace video;
 constexpr bool ENABLE_TESTS = false;
 
 // This time we create the device in the base class and also use a base class to give us an Asset Manager and an already mounted built-in resource archive
-class DeviceSelectionAndSharedSourcesApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class DeviceSelectionAndSharedSourcesApp final : public application_templates::MonoDeviceApplication, public BuiltinResourcesApplication
 {
 	using device_base_t = application_templates::MonoDeviceApplication;
-	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+	using asset_base_t = BuiltinResourcesApplication;
 public:
 	// Yay thanks to multiple inheritance we cannot forward ctors anymore
 	DeviceSelectionAndSharedSourcesApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :

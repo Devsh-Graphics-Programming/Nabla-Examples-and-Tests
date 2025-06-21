@@ -1,27 +1,32 @@
 // Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
+
+
 #include "nbl/examples/examples.hpp"
 
 using namespace nbl;
-using namespace core;
-using namespace system;
-using namespace asset;
-using namespace video;
-using namespace ui;
+using namespace nbl::core;
+using namespace nbl::hlsl;
+using namespace nbl::system;
+using namespace nbl::asset;
+using namespace nbl::ui;
+using namespace nbl::video;
 using namespace nbl::examples;
 
 #include "app_resources/common.hlsl"
 #include "nbl/builtin/hlsl/bit.hlsl"
 
+
+
 // Defaults that match this example's image
 constexpr uint32_t WIN_W = 1280;
 constexpr uint32_t WIN_H = 720;
 
-class FFTBloomApp final : public SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class FFTBloomApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
 	using device_base_t = SimpleWindowedApplication;
-	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+	using asset_base_t = BuiltinResourcesApplication;
 	using clock_t = std::chrono::steady_clock;
 
 	// Windowed App members

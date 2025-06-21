@@ -167,10 +167,10 @@ private:
 };
 
 // NOTE added swapchain + drawing frames to be able to profile with Nsight, which still doesn't support profiling headless compute shaders
-class ArithmeticBenchApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class ArithmeticBenchApp final : public examples::SimpleWindowedApplication, public examples::BuiltinResourcesApplication
 {
 	using device_base_t = examples::SimpleWindowedApplication;
-	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+	using asset_base_t = examples::BuiltinResourcesApplication;
 
 	constexpr static inline uint32_t WIN_W = 1280;
 	constexpr static inline uint32_t WIN_H = 720;

@@ -1,18 +1,21 @@
 #include "nbl/examples/examples.hpp"
 
 using namespace nbl;
-using namespace core;
-using namespace system;
-using namespace asset;
-using namespace video;
+using namespace nbl::core;
+using namespace nbl::hlsl;
+using namespace nbl::system;
+using namespace nbl::asset;
+using namespace nbl::ui;
+using namespace nbl::video;
+using namespace nbl::examples;
 
 #include "app_resources/common.hlsl"
 #include "nbl/builtin/hlsl/bit.hlsl"
 
-class CountingSortApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class CountingSortApp final : public application_templates::MonoDeviceApplication, public BuiltinResourcesApplication
 {
 		using device_base_t = application_templates::MonoDeviceApplication;
-		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+		using asset_base_t = BuiltinResourcesApplication;
 
 	public:
 		// Yay thanks to multiple inheritance we cannot forward ctors anymore

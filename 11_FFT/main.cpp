@@ -3,17 +3,16 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 
-// I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
-#include "nbl/application_templates/MonoDeviceApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-
+#include "nbl/examples/examples.hpp"
 
 using namespace nbl;
-using namespace core;
-using namespace system;
-using namespace asset;
-using namespace video;
-
+using namespace nbl::core;
+using namespace nbl::hlsl;
+using namespace nbl::system;
+using namespace nbl::asset;
+using namespace nbl::ui;
+using namespace nbl::video;
+using namespace nbl::examples;
 
 #include "app_resources/common.hlsl"
 #include "nbl/builtin/hlsl/bit.hlsl"
@@ -21,10 +20,10 @@ using namespace video;
 
 
 // Simple showcase of how to run FFT on a 1D array
-class FFT_Test final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class FFT_Test final : public application_templates::MonoDeviceApplication, public BuiltinResourcesApplication
 {
 	using device_base_t = application_templates::MonoDeviceApplication;
-	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+	using asset_base_t = BuiltinResourcesApplication;
 
 	smart_refctd_ptr<IGPUComputePipeline> m_pipeline;
 

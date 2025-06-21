@@ -2,14 +2,14 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+
 #include "common.hpp"
 
-// TODO: Arek, we should have a `nbl::examples` class inheriting from `application_templates::MonoAssetManagerAndBuiltinResourceApplication` which
-// during `onAppInitialized` also mounts correct `common/include/nbl/examples` and `common/src/nbl/examples` as folder or builtin
-class GeometryCreatorApp final : public MonoWindowApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+
+class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinResourcesApplication
 {
 	using device_base_t = MonoWindowApplication;
-	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+	using asset_base_t = BuiltinResourcesApplication;
 
 	public:
 		GeometryCreatorApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
@@ -58,10 +58,6 @@ class GeometryCreatorApp final : public MonoWindowApplication, public applicatio
 					.addtionalBufferOwnershipFamilies = addtionalBufferOwnershipFamilies
 				},patch
 			);
-
-			// TODO: this is plain wrong Arek
-			m_system->mount(make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"../common/include/nbl/examples",smart_refctd_ptr(m_logger),m_system.get()),"nbl/examples");
-			m_system->mount(make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"../common/src/nbl/examples",smart_refctd_ptr(m_logger),m_system.get()),"nbl/examples");
 			
 			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 			m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(),scRes->getRenderpass(),0,m_scene.get());

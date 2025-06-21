@@ -1,20 +1,23 @@
 // Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
+
+
+#include "nbl/examples/examples.hpp"
+
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+#include "nbl/builtin/hlsl/surface_transform.h"
 
 #include "nbl/this_example/common.hpp"
 
-#include "nbl/builtin/hlsl/surface_transform.h"
-
 
 using namespace nbl;
-using namespace core;
-using namespace hlsl;
-using namespace system;
-using namespace asset;
-using namespace ui;
-using namespace video;
+using namespace nbl::core;
+using namespace nbl::hlsl;
+using namespace nbl::system;
+using namespace nbl::asset;
+using namespace nbl::ui;
+using namespace nbl::video;
 using namespace nbl::examples;
 
 // TODO: share push constants
@@ -26,10 +29,10 @@ struct PTPushConstant {
 
 // TODO: Add a QueryPool for timestamping once its ready (actually add IMGUI mspf plotter)
 // TODO: Do buffer creation using assConv
-class ComputeShaderPathtracer final : public SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class ComputeShaderPathtracer final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
 		using device_base_t = SimpleWindowedApplication;
-		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+		using asset_base_t = BuiltinResourcesApplication;
 		using clock_t = std::chrono::steady_clock;
 
 		enum E_LIGHT_GEOMETRY : uint8_t

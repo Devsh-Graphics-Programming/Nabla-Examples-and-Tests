@@ -15,9 +15,7 @@
 
 //! Common example interface headers
 
-// TODO: examine moving this header to `nbl/examples/common`
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-
+#include "nbl/examples/common/BuiltinResourcesApplication.hpp"
 #include "nbl/examples/common/SimpleWindowedApplication.hpp"
 #include "nbl/examples/common/MonoWindowApplication.hpp"
 #include "nbl/examples/common/InputSystem.hpp"
