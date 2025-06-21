@@ -113,8 +113,8 @@ class StreamingAndBufferDeviceAddressApp final : public application_templates::M
 			// `CAsyncSingleBufferSubAllocator` just allows you suballocate subranges of any `IGPUBuffer` range with deferred/latched frees.
 			constexpr uint32_t DownstreamBufferSize = sizeof(output_t)<<23;
 			constexpr uint32_t UpstreamBufferSize = sizeof(input_t)<<23;
-
-			m_utils = make_smart_refctd_ptr<IUtilities>(smart_refctd_ptr(m_device),smart_refctd_ptr(m_logger),DownstreamBufferSize,UpstreamBufferSize);
+			
+			m_utils = IUtilities::create(smart_refctd_ptr(m_device),smart_refctd_ptr(m_logger),DownstreamBufferSize,UpstreamBufferSize);
 			if (!m_utils)
 				return logFail("Failed to create Utilities!");
 			m_upStreamingBuffer = m_utils->getDefaultUpStreamingBuffer();
