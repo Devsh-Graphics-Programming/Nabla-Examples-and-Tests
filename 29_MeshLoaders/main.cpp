@@ -6,13 +6,6 @@
 #include "nbl/asset/utils/CGeometryCreator.h"
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
-#include "SimpleWindowedApplication.hpp"
-
-#include "InputSystem.hpp"
-#include "CEventCallback.hpp"
-
-#include "CCamera.hpp"
-
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 
