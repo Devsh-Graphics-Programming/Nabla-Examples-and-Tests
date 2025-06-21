@@ -577,7 +577,7 @@ NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1
 // Text or MSDF Hatches
 NBL_CONSTEXPR float MSDFPixelRange = 4.0f;
 NBL_CONSTEXPR float MSDFPixelRangeHalf = MSDFPixelRange / 2.0f;
-NBL_CONSTEXPR float MSDFSize = 32.0f; 
+NBL_CONSTEXPR float MSDFSize = 64.0f; 
 NBL_CONSTEXPR uint32_t MSDFMips = 4; 
 NBL_CONSTEXPR float HatchFillMSDFSceenSpaceSize = 8.0; 
 
