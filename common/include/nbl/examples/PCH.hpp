@@ -15,18 +15,8 @@
 
 //! Common example interface headers
 
-// why isnt this in `nabla.h` ?
-/*
-    because it does stuff like
-
-    #ifdef NBL_EMBED_BUILTIN_RESOURCES
-    #include "nbl/this_example/builtin/CArchive.h"
-    #endif
-
-    hence also cannot be there in PCH but rather in examples.h -> compile errors
-    but only *if* we decide each example handles builtins on NBL_EMBED_BUILTIN_RESOURCES
-*/
-// #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+// TODO: examine moving this header to `nbl/examples/common`
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 #include "nbl/examples/common/SimpleWindowedApplication.hpp"
 #include "nbl/examples/common/MonoWindowApplication.hpp"
