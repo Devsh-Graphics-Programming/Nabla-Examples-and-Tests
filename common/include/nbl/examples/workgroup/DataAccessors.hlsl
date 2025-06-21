@@ -101,14 +101,14 @@ struct PreloadedDataProxy
 
     void preload()
     {
-        const uint16_t invocationIndex = workgroup::SubgroupContiguousIndex();
+        const uint16_t invocationIndex = hlsl::workgroup::SubgroupContiguousIndex();
         [unroll]
         for (uint16_t idx = 0; idx < PreloadedDataCount; idx++)
             data.template get<dtype_t, uint16_t>(idx * WorkgroupSize + invocationIndex, preloaded[idx]);
     }
     void unload()
     {
-        const uint16_t invocationIndex = workgroup::SubgroupContiguousIndex();
+        const uint16_t invocationIndex = hlsl::workgroup::SubgroupContiguousIndex();
         [unroll]
         for (uint16_t idx = 0; idx < PreloadedDataCount; idx++)
             data.template set<dtype_t, uint16_t>(idx * WorkgroupSize + invocationIndex, preloaded[idx]);
