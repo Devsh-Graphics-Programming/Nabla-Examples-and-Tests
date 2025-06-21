@@ -1,17 +1,48 @@
-###########################################
-# TODO: the way it should work is following (remove the comment once all done!)
-# - one top PCH which includes <nabla.h> -> currently not done
-# - sources used only within examples splitted into "common libraries" (optional -> with options to toggle if include them to build tree), each common library should reuse the above top PCH
-# - examples_tests CMake loop over example targets and hook the interface library with NBL_HOOK_COMMON_API [done]
-# - each common library should declare ONLY interface and never expose source definition into headers nor any 3rdparty stuff!
-##
+#! Examples API proxy library
+#[[
+    We create the Nabla Examples API as a static library extension, this
+    allows all examples to reuse a single precompiled header (PCH)
+    instead of generating their own
 
-# interface libraries don't have build rules (except custom commands however it doesn't matter here) but properties
-add_library(nblExamplesAPI INTERFACE)
-set(NBL_EXAMPLES_API_INCLUDE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_include_directories(nblExamplesAPI INTERFACE "${NBL_EXAMPLES_API_INCLUDE_DIRECTORY}")
+    The PCH includes Nabla.h + example common interface headers and takes 
+    around 1 GB per configuration, so sharing it avoids significant disk space waste
+]]
 
+nbl_create_ext_library_project(ExamplesAPI "" "${CMAKE_CURRENT_SOURCE_DIR}/src/nbl/examples/pch.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/include" "" "")
+
+set_target_properties(${LIB_NAME} PROPERTIES DISABLE_PRECOMPILE_HEADERS OFF)
+target_precompile_headers(${LIB_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include/nbl/examples/PCH.hpp")
+
+#! Examples API common libraries
+#[[
+    The rule is to avoid creating additional libraries as part of the examples' common
+    interface in order to prevent generating another precompiled header (PCH) and wasting disk space
+
+    If you have new utilities that could be shared across examples then try to implement them as header only
+    and include in the PCH or in `examples.h` *if you cannot* (open the header to see details)
+
+    but If you have a good reason to create library because you cannot make it header only 
+    AND you *can REUSE* the examples' PCH then go ahead anyway and put it under `src/nbl/examples`, 
+    otherwise keep it header only - a good example would be to use our embedded-whatever-you-want tool
+    which does create library but can reuse example's PCH
+]]
+
+#! NOTE: as I write it we don't have any targets there yet
 add_subdirectory("src/nbl/examples" EXCLUDE_FROM_ALL)
 
-# TODO: Arek what was `NBL_EXECUTABLE_COMMON_API_TARGET` ? I removed it.
-set(NBL_EXAMPLES_API_TARGETS nblExamplesAPI ${NBL_EXAMPLES_API_TARGETS} PARENT_SCOPE)
+NBL_GET_ALL_TARGETS(TARGETS)
+list(REMOVE_ITEM TARGETS ${LIB_NAME})
+
+# the Examples API proxy library CMake target name
+#[[
+    this one gets linked to each executable automatically
+]]
+set(NBL_EXAMPLES_API_TARGET ${LIB_NAME} PARENT_SCOPE)
+
+#! names of CMake targets created in src/nbl/examples
+#[[
+    if your example wants to use anything from src/nbl/examples
+    then you must target_link_libraries() the lib you want as we 
+    don't link all those libraries to each executable automatically
+]]
+set(NBL_EXAMPLES_API_LIBRARIES ${TARGETS} PARENT_SCOPE)

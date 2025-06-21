@@ -4,13 +4,29 @@
 #ifndef _NBL_EXAMPLES_PCH_HPP_
 #define _NBL_EXAMPLES_PCH_HPP_
 
+//! Precompiled header (PCH) for Nabla Examples
+/*
+    NOTE: currently our whole public and private interface is broken
+    and private headers leak to public includes
+*/
 
-#include <nabla.h>
+//! Nabla declarations
+#include "nabla.h"
+
+//! Common example interface headers
+
 // why isnt this in `nabla.h` ?
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+/*
+    because it does stuff like
 
-// #include "nbl/ui/CGraphicalApplicationAndroid.h"
-// #include "nbl/ui/CWindowManagerAndroid.h"
+    #ifdef NBL_EMBED_BUILTIN_RESOURCES
+    #include "nbl/this_example/builtin/CArchive.h"
+    #endif
+
+    hence also cannot be there in PCH but rather in examples.h -> compile errors
+    but only *if* we decide each example handles builtins on NBL_EMBED_BUILTIN_RESOURCES
+*/
+// #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 #include "nbl/examples/common/SimpleWindowedApplication.hpp"
 #include "nbl/examples/common/MonoWindowApplication.hpp"
