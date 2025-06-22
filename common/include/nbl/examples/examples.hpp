@@ -4,6 +4,7 @@
 #ifndef _NBL_EXAMPLES_HPP_
 #define _NBL_EXAMPLES_HPP_
 
+
 //! Precompiled header shared across all examples
 #include "nbl/examples/PCH.hpp"
 
@@ -15,5 +16,9 @@
 */
 
 // #include "..."
+
+// Cannot be in PCH because depens on definition of `this_example` for Example's builtins
+#include "nbl/examples/common/BuiltinResourcesApplication.hpp"
+
 
 #endif // _NBL_EXAMPLES_HPP_
