@@ -12,8 +12,9 @@
 // TODO: the include/header `nbl/examples` archive
 // TODO: the source `nbl/examples` archive
 // TODO: the build `nbl/examples` archive
-// TODO: make the `this_example` optional, only if the example has builtins
-#include "nbl/this_example/builtin/CArchive.h"
+#if __has_include("nbl/this_example/builtin/CArchive.h")
+	#include "nbl/this_example/builtin/CArchive.h"
+#endif
 #endif
 
 
@@ -55,7 +56,8 @@ class BuiltinResourcesApplication : public virtual application_templates::MonoAs
 			m_system->mount(std::move(examplesHeaderArch),"nbl/examples");
 			m_system->mount(std::move(examplesSourceArch),"nbl/examples");
 //			m_system->mount(std::move(examplesBuildArch),"nbl/examples");
-			m_system->mount(std::move(thisExampleArch),"app_resources");
+			if (thisExampleArch)
+				m_system->mount(std::move(thisExampleArch),"app_resources");
 
 			return true;
 		}

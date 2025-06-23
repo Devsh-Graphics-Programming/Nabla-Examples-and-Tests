@@ -1,8 +1,8 @@
 #ifndef _NBL_THIS_EXAMPLE_COMMON_H_INCLUDED_
 #define _NBL_THIS_EXAMPLE_COMMON_H_INCLUDED_
 
-// TODO: @AnastaZIuk do we even make that explicit?
-#include "nbl/examples/PCH.hpp"
+
+#include "nbl/examples/examples.hpp"
 
 using namespace nbl;
 using namespace core;
@@ -13,5 +13,6 @@ using namespace ui;
 using namespace video;
 using namespace scene;
 using namespace nbl::examples;
+
 
 #endif // __NBL_THIS_EXAMPLE_COMMON_H_INCLUDED__
