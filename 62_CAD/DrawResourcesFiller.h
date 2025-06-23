@@ -270,8 +270,7 @@ public:
 		float gridCellWidth,
 		uint64_t textureID,
 		const DTMSettingsInfo& dtmSettingsInfo,
-		SIntendedSubmitInfo& intendedNextSubmit,
-		const bool drawGridOnly = false);
+		SIntendedSubmitInfo& intendedNextSubmit);
 
 	/**
 	 * @brief Adds a static 2D image to the draw resource set for rendering.
@@ -383,10 +382,8 @@ public:
 
 	// Setting Active Resources:
 	void setActiveLineStyle(const LineStyleInfo& lineStyle);
-	/**
-	* @param disableHeightRelatedDTMModes disables E_DTM_MODE::CONTOUR and E_DTOM_MODE::HEIGHT_SHADING, necessary when we want to draw a grid DTM without using a height map texture
-	*/
-	void setActiveDTMSettings(const DTMSettingsInfo& dtmSettingsInfo, const bool disableHeightRelatedDTMModes = false);
+	
+	void setActiveDTMSettings(const DTMSettingsInfo& dtmSettingsInfo);
 
 	void beginMainObject(MainObjectType type, TransformationType transformationType = TransformationType::TT_NORMAL);
 	void endMainObject();

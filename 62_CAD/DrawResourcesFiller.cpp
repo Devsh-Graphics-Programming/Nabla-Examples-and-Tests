@@ -776,21 +776,19 @@ void DrawResourcesFiller::drawGridDTM(
 	float gridCellWidth,
 	uint64_t textureID,
 	const DTMSettingsInfo& dtmSettingsInfo,
-	SIntendedSubmitInfo& intendedNextSubmit,
-	bool drawGridOnly/* = false*/)
+	SIntendedSubmitInfo& intendedNextSubmit)
 {
 	if (dtmSettingsInfo.mode == 0u)
 		return;
-
-	if (dtmSettingsInfo.mode == E_DTM_MODE::OUTLINE)
-		drawGridOnly = true;
 
 	GridDTMInfo gridDTMInfo;
 	gridDTMInfo.topLeft = topLeft;
 	gridDTMInfo.worldSpaceExtents = worldSpaceExtents;
 	gridDTMInfo.gridCellWidth = gridCellWidth;
-	if(!drawGridOnly)
+	if (textureID != InvalidTextureIndex)
 		gridDTMInfo.textureID = getImageIndexFromID(textureID, intendedNextSubmit); // for this to be valid and safe, this function needs to be called immediately after `addStaticImage` function to make sure image is in memory
+	else
+		gridDTMInfo.textureID = InvalidTextureIndex;
 
 	// determine the thickes line
 	float thickestLineThickness = 0.0f;
@@ -798,7 +796,7 @@ void DrawResourcesFiller::drawGridDTM(
 	{
 		thickestLineThickness = dtmSettingsInfo.outlineStyleInfo.worldSpaceLineWidth + dtmSettingsInfo.outlineStyleInfo.screenSpaceLineWidth;
 	}
-	else if (dtmSettingsInfo.mode & E_DTM_MODE::CONTOUR && !drawGridOnly)
+	else if (dtmSettingsInfo.mode & E_DTM_MODE::CONTOUR)
 	{
 		for (int i = 0; i < dtmSettingsInfo.contourSettingsCount; ++i)
 		{
@@ -809,7 +807,7 @@ void DrawResourcesFiller::drawGridDTM(
 	}
 	gridDTMInfo.thicknessOfTheThickestLine = thickestLineThickness;
 
-	setActiveDTMSettings(dtmSettingsInfo, drawGridOnly);
+	setActiveDTMSettings(dtmSettingsInfo);
 	beginMainObject(MainObjectType::GRID_DTM);
 
 	uint32_t mainObjectIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
@@ -1038,13 +1036,10 @@ void DrawResourcesFiller::setActiveLineStyle(const LineStyleInfo& lineStyle)
 	activeLineStyleIndex = InvalidStyleIdx;
 }
 
-void DrawResourcesFiller::setActiveDTMSettings(const DTMSettingsInfo& dtmSettingsInfo, const bool disableHeightRelatedDTMModes/* = false*/)
+void DrawResourcesFiller::setActiveDTMSettings(const DTMSettingsInfo& dtmSettingsInfo)
 {
 	activeDTMSettings = dtmSettingsInfo;
 	activeDTMSettingsIndex = InvalidDTMSettingsIdx;
-
-	if (disableHeightRelatedDTMModes)
-		activeDTMSettings.mode &= E_DTM_MODE::OUTLINE;
 }
 
 void DrawResourcesFiller::beginMainObject(MainObjectType type, TransformationType transformationType)

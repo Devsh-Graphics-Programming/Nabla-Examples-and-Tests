@@ -3654,12 +3654,12 @@ protected:
 			worldSpaceExtents.y = (heightMapExtent.height - 1) * HeightMapCellWidth;
 			const uint64_t heightMapTextureID = 0ull;
 
-			constexpr bool DrawGridOnly = false;
+			constexpr bool DrawGridOnly = true;
 			
 			if(DrawGridOnly)
 			{
 				dtmInfo.mode = E_DTM_MODE::OUTLINE;
-				drawResourcesFiller.drawGridDTM(topLeft, worldSpaceExtents, HeightMapCellWidth, heightMapTextureID, dtmInfo, intendedNextSubmit, DrawGridOnly);
+				drawResourcesFiller.drawGridDTM(topLeft, worldSpaceExtents, HeightMapCellWidth, InvalidTextureIndex, dtmInfo, intendedNextSubmit);
 			}
 			else
 			{

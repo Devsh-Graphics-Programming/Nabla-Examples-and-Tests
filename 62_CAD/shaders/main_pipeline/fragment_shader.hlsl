@@ -446,6 +446,65 @@ float4 fragMain(PSInput input) : SV_TARGET
             // v0-------v2b   v2a-------v1
             // 
 
+            const bool gridOnly = textureId == InvalidTextureIndex && dtmSettings.drawOutlineEnabled();
+            if (gridOnly)
+            {
+                nbl::hlsl::shapes::Line<float> outlineLineSegments[2];
+                
+                const float halfCellWidth = cellWidth * 0.5f;
+                const float2 horizontalBounds = float2(topLeft.y, topLeft.y + gridExtents.y);
+                const float2 verticalBounds = float2(topLeft.x, topLeft.x + gridExtents.x);
+                float2 nearestLineRemainingCoords = int2((gridSpacePos + halfCellWidth) / cellWidth) * cellWidth + topLeft;
+                // shift lines outside of the grid to a bound
+                nearestLineRemainingCoords.x = clamp(nearestLineRemainingCoords.x, verticalBounds.x, verticalBounds.y);
+                nearestLineRemainingCoords.y = clamp(nearestLineRemainingCoords.y, horizontalBounds.x, horizontalBounds.y);
+
+                // find the nearest horizontal line
+                outlineLineSegments[0].P0 = float32_t2(verticalBounds.x, nearestLineRemainingCoords.y);
+                outlineLineSegments[0].P1 = float32_t2(verticalBounds.y, nearestLineRemainingCoords.y);
+                // find the nearest vertical line
+                outlineLineSegments[1].P0 = float32_t2(nearestLineRemainingCoords.x, horizontalBounds.x);
+                outlineLineSegments[1].P1 = float32_t2(nearestLineRemainingCoords.x, horizontalBounds.y);
+                
+                float4 dtmColor = dtm::calculateGridDTMOutlineColor(dtmSettings.outlineLineStyleIdx, outlineLineSegments, input.position.xy, 0.0f);
+                textureColor = dtmColor.rgb;
+                localAlpha = dtmColor.a;
+            }
+            else
+            {
+            
+                // calculate insideCellCoord and figure out the 4 cells we're gonna do sdf with
+                float2 insideCellCoord = gridSpacePos - float2(cellWidth, cellWidth) * cellCoords; // TODO: use fmod instead?
+                // 0.2, 0.1 --> 0, 0 ---> [0, 0], [-1, -1], [-1, 0], [0, -1]
+                float offsetX = round(insideCellCoord.x) - 1.0f;
+                float offsetY = round(insideCellCoord.y) - 1.0f;
+                
+                // for each of those cells (some might be out of bounds, so we skip)
+                    // gather 
+                    // then figure out their triangles (A and B) and fill array of max 8 triangles (dtm::GridDTMTriangle)
+
+                // Contours:
+                // Is Contours Enabled?
+                    // for each contour settings (in reverse)
+                        // float sdf = max;
+                        // for each triangle
+                            // sdf = min(sdf, sdfOfContourSettings[i]);
+                        // based on sdf, the contour line style + smoothstep: we compute color and alpha
+                        // blendUnder
+
+                // Outlines:
+                // Is Outlines Enabled?
+                    // float sdf = max;
+                    // for each triangle
+                        // sdf = min(sdf, sdfOfOutlineSetting);
+                    // based on sdf, the outline line style + smoothstep: we compute color and alpha
+                    // blendUnder
+                
+                // Height Shading:
+                    // We just do sdf with current triangle (if valid)
+            }
+            
+#if 0
             // calculate screen space coordinates of vertices of the current tiranlge within the grid
             dtm::GridDTMTriangle currentTriangle;
             dtm::GridDTMCell neighbouringCells[8];
@@ -523,29 +582,6 @@ float4 fragMain(PSInput input) : SV_TARGET
                 }
             }
 
-            // find the nearest horizontal and vertical line to the fragment
-            nbl::hlsl::shapes::Line<float> outlineLineSegments[2];
-            {
-                const float halfCellWidth = cellWidth * 0.5f;
-                const float2 horizontalBounds = float2(topLeft.y, topLeft.y + gridExtents.y);
-                const float2 verticalBounds = float2(topLeft.x, topLeft.x + gridExtents.x);
-                float2 nearestLineRemainingCoords = int2((gridSpacePos + halfCellWidth) / cellWidth) * cellWidth + topLeft;
-                // shift lines outside of the grid to a bound
-                nearestLineRemainingCoords.x = clamp(nearestLineRemainingCoords.x, verticalBounds.x, verticalBounds.y);
-                nearestLineRemainingCoords.y = clamp(nearestLineRemainingCoords.y, horizontalBounds.x, horizontalBounds.y);
-
-                // find the nearest horizontal line
-                outlineLineSegments[0].P0 = float32_t2(verticalBounds.x, nearestLineRemainingCoords.y);
-                outlineLineSegments[0].P1 = float32_t2(verticalBounds.y, nearestLineRemainingCoords.y);
-                // find the nearest vertical line
-                outlineLineSegments[1].P0 = float32_t2(nearestLineRemainingCoords.x, horizontalBounds.x);
-                outlineLineSegments[1].P1 = float32_t2(nearestLineRemainingCoords.x, horizontalBounds.y);
-
-                // test diagonal draw (to draw diagonals height or contour shading must be enabled)
-                //outlineLineSegments[0] = nbl::hlsl::shapes::Line<float>::construct(currentTriangleVertices[0].xy, currentTriangleVertices[1].xy);
-                //outlineLineSegments[1] = nbl::hlsl::shapes::Line<float>::construct(currentTriangleVertices[0].xy, currentTriangleVertices[1].xy);
-            }
-
             const float3 baryCoord = dtm::calculateDTMTriangleBarycentrics(currentTriangle.vertices[0].xy, currentTriangle.vertices[1].xy, currentTriangle.vertices[2].xy, input.position.xy);
             float height = baryCoord.x * currentTriangle.vertices[0].z + baryCoord.y * currentTriangle.vertices[1].z + baryCoord.z * currentTriangle.vertices[2].z;
             float heightDeriv = fwidth(height);
@@ -585,6 +621,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                 textureColor = float3(0.0f, 0.0f, 1.0f);
 
             localAlpha = 0.5f;*/
+#endif
         }
         else if (objType == ObjectType::STREAMED_IMAGE) 
         {

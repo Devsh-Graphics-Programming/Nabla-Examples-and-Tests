@@ -371,6 +371,7 @@ float4 calculateDTMOutlineColor(in uint outlineLineStyleIdx, in float3 v[3], in 
     return outputColor;
 }
 
+// It's literally sdf with 2 line shapes
 float4 calculateGridDTMOutlineColor(in uint outlineLineStyleIdx, in nbl::hlsl::shapes::Line<float> outlineLineSegments[2], in float2 fragPos, in float phaseShift)
 {
     LineStyle outlineStyle = loadLineStyle(outlineLineStyleIdx);
