@@ -16,13 +16,6 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 			: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD),
 			device_base_t({1280,720}, EF_D16_UNORM, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
-		SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
-		{
-			auto retval = device_base_t::getRequiredDeviceFeatures();
-			retval.geometryShader = true;
-			return retval;
-		}
-
 		inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
 			if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
@@ -100,7 +93,6 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 				camera.endInputProcessing(nextPresentationTimestamp);
 			}
 
-			auto* queue = getGraphicsQueue();
 
 			asset::SViewport viewport;
 			{
@@ -155,6 +147,7 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
  			m_renderer->render(cb,viewParams);
 
 			cb->endRenderPass();
+			cb->endDebugMarker();
 			cb->end();
 
 			IQueue::SSubmitInfo::SSemaphoreInfo retval =
@@ -183,7 +176,7 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 				}
 			};
 
-			if (queue->submit(infos) != IQueue::RESULT::SUCCESS)
+			if (getGraphicsQueue()->submit(infos) != IQueue::RESULT::SUCCESS)
 			{
 				retval.semaphore = nullptr; // so that we don't wait on semaphore that will never signal
 				m_realFrameIx--;
