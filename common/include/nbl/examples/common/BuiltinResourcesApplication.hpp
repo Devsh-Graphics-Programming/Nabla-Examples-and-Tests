@@ -9,9 +9,9 @@
 #include "nbl/application_templates/MonoAssetManagerApplication.hpp"
 
 #ifdef NBL_EMBED_BUILTIN_RESOURCES
-// TODO: the include/header `nbl/examples` archive
-// TODO: the source `nbl/examples` archive
-// TODO: the build `nbl/examples` archive
+	#include "nbl/builtin/examples/include/CArchive.h"
+	#include "nbl/builtin/examples/src/CArchive.h"
+	// TODO: the build `nbl/examples` archive
 #if __has_include("nbl/this_example/builtin/CArchive.h")
 	#include "nbl/this_example/builtin/CArchive.h"
 #endif
@@ -42,7 +42,10 @@ class BuiltinResourcesApplication : public virtual application_templates::MonoAs
 
 			smart_refctd_ptr<system::IFileArchive> examplesHeaderArch,examplesSourceArch,examplesBuildArch,thisExampleArch;
 		#ifdef NBL_EMBED_BUILTIN_RESOURCES
-// TODO: the 3 examples archives
+			examplesHeaderArch = core::make_smart_refctd_ptr<nbl::builtin::examples::include::CArchive>(smart_refctd_ptr(m_logger));
+			examplesSourceArch = core::make_smart_refctd_ptr<nbl::builtin::examples::src::CArchive>(smart_refctd_ptr(m_logger));
+			// TODO: the build archive
+
 			#ifdef _NBL_THIS_EXAMPLE_BUILTIN_C_ARCHIVE_H_
 				thisExampleArch = make_smart_refctd_ptr<nbl::this_example::builtin::CArchive>(smart_refctd_ptr(m_logger));
 			#endif

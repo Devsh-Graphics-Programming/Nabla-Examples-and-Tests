@@ -95,6 +95,8 @@ if(NBL_BUILD_EXAMPLES)
         target_link_libraries(${T} PUBLIC ${NBL_EXAMPLES_API_TARGET})
 		target_include_directories(${T} PUBLIC $<TARGET_PROPERTY:${NBL_EXAMPLES_API_TARGET},INCLUDE_DIRECTORIES>)
 		target_precompile_headers(${T} REUSE_FROM "${NBL_EXAMPLES_API_TARGET}")
+		LINK_BUILTIN_RESOURCES_TO_TARGET(${T} NblExtExamplesAPIBuiltinsSource)
+		LINK_BUILTIN_RESOURCES_TO_TARGET(${T} NblExtExamplesAPIBuiltinsInclude)
     endforeach()
 
 	NBL_ADJUST_FOLDERS(examples)
