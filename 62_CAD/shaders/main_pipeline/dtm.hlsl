@@ -230,11 +230,9 @@ float4 calculateDTMHeightColor(in DTMHeightShadingSettings settings, in float3 v
     return outputColor;
 }
 
-float4 calculateDTMContourColor(in DTMContourSettings contourSettings, in float3 v[3], in float2 fragPos, in float height)
+float calculateDTMContourSDF(in LineStyle contourStyle, in float3 v[3], in float2 fragPos, in float height)
 {
-    float4 outputColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
-
-    LineStyle contourStyle = loadLineStyle(contourSettings.contourLineStyleIdx);
+    float distance = nbl::hlsl::numeric_limits<float>::max;
     const float contourThickness = (contourStyle.screenSpaceLineWidth + contourStyle.worldSpaceLineWidth * globals.screenToWorldRatio) * 0.5f;
     float stretch = 1.0f;
     float phaseShift = 0.0f;
@@ -283,7 +281,6 @@ float4 calculateDTMContourColor(in DTMContourSettings contourSettings, in float3
     {
         nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(contourLinePoints[0], contourLinePoints[1]);
 
-        float distance = nbl::hlsl::numeric_limits<float>::max;
         if (!contourStyle.hasStipples() || stretch == InvalidStyleStretchValue)
         {
             distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, fragPos, contourThickness, contourStyle.isRoadStyleFlag);
@@ -297,15 +294,9 @@ float4 calculateDTMContourColor(in DTMContourSettings contourSettings, in float3
             LineStyleClipper clipper = LineStyleClipper::construct(contourStyle, lineSegment, arcLenCalc, phaseShift, stretch, globals.worldToScreenRatio);
             distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, fragPos, contourThickness, contourStyle.isRoadStyleFlag, clipper);
         }
-
-        outputColor.a = 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, distance);
-        outputColor.a *= contourStyle.color.a;
-        outputColor.rgb = contourStyle.color.rgb;
-
-        return outputColor;
     }
 
-    return float4(0.0f, 0.0f, 0.0f, 0.0f);
+    return distance;
 }
 
 float4 calculateDTMOutlineColor(in uint outlineLineStyleIdx, in float3 v[3], in float2 fragPos)

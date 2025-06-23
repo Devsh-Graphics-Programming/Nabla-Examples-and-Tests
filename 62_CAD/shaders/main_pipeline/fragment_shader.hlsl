@@ -156,7 +156,13 @@ float4 fragMain(PSInput input) : SV_TARGET
         if (dtmSettings.drawContourEnabled())
         {
             for(uint32_t i = 0; i < dtmSettings.contourSettingsCount; ++i) // TODO: should reverse the order with blendUnder
-                dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMContourColor(dtmSettings.contourSettings[i], v, input.position.xy, height));
+            {
+                LineStyle contourStyle = loadLineStyle(dtmSettings.contourSettings[i].contourLineStyleIdx);
+                float sdf = dtm::calculateDTMContourColor(contourStyle, v, input.position.xy, height);
+                float4 contourColor = contourStyle.color;
+                contourColor.a *= 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, sdf);
+                dtmColor = dtm::blendUnder(dtmColor, contourColor);
+            }
         }
         if (dtmSettings.drawHeightShadingEnabled())
             dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, v, heightDeriv, input.position.xy, height));
@@ -425,13 +431,14 @@ float4 fragMain(PSInput input) : SV_TARGET
             float2 topLeft = input.getGridDTMScreenSpaceTopLeft();
             float2 gridExtents = input.getGridDTMScreenSpaceGridExtents();
             const float cellWidth = input.getGridDTMScreenSpaceCellWidth();
+            float2 gridDimensions = gridExtents / cellWidth; // TODO: Figure out if it's better to precomp in vtx
 
             float2 gridSpacePos = uv * gridExtents;
-            float2 cellCoords;
+            float2 gridSpacePosDivGridCellWidth = gridSpacePos / cellWidth;
+            float2 cellCoords; // rename to currentCellCoords
             {
-                float2 gridSpacePosDivGridCellWidth = gridSpacePos / cellWidth;
-                cellCoords.x = int32_t(gridSpacePosDivGridCellWidth.x);
-                cellCoords.y = int32_t(gridSpacePosDivGridCellWidth.y);
+                cellCoords.x = floor(gridSpacePosDivGridCellWidth.x);
+                cellCoords.y = floor(gridSpacePosDivGridCellWidth.y);
             }
 
             float2 gridSpaceCellTopLeftCoords = cellCoords * cellWidth;
@@ -472,30 +479,72 @@ float4 fragMain(PSInput input) : SV_TARGET
             }
             else
             {
-            
-                // calculate insideCellCoord and figure out the 4 cells we're gonna do sdf with
-                float2 insideCellCoord = gridSpacePos - float2(cellWidth, cellWidth) * cellCoords; // TODO: use fmod instead?
-                // 0.2, 0.1 --> 0, 0 ---> [0, 0], [-1, -1], [-1, 0], [0, -1]
-                float offsetX = round(insideCellCoord.x) - 1.0f;
-                float offsetY = round(insideCellCoord.y) - 1.0f;
+                // calculate localUV and figure out the 4 cells we're gonna do sdf with
+                float2 localUV = gridSpacePosDivGridCellWidth - cellCoords; // TODO: use fmod instead?
+                float2 offset = round(localUV) * 2.0f - 1.0f;
                 
-                // for each of those cells (some might be out of bounds, so we skip)
-                    // gather 
-                    // then figure out their triangles (A and B) and fill array of max 8 triangles (dtm::GridDTMTriangle)
+                const uint32_t MaxTrianglesToDoSDFWith = 8u;
+                dtm::GridDTMTriangle triangles[MaxTrianglesToDoSDFWith];
+                float interpolatedHeights[MaxTrianglesToDoSDFWith]; // these are height based on barycentric interpolation of current pixel with all the triangles above
+                uint32_t triangleCount = 0u;
+                
+                const uint32_t MaxLinesToDoSDFWith = 4u;
+                // TODO: Lines to do SDF with
+                // But only do if outlines are enabled
+                
+                // TODO: UNROLL
+                for (int i = 0; i < 2; ++i)
+                {
+                    for (int j = 0; j < 2; ++j)
+                    {
+                        float2 cellCoord = cellCoords + float2(i, j) * offset;
+                        const bool isCellWithinRange = 
+                            cellCoord.x >= 0.0f && cellCoord.y >= 0.0f && 
+                            cellCoord.x <= gridDimensions.x && cellCoord.y <= gridDimensions.y;
+                        if (isCellWithinRange)
+                        {
+                            // Triangle thing
+                            // topLeft, in float2 gridExtents, in float2 cellCoords, const float cellWidth, in Texture2D<uint32_t> heightMap;
+                            dtm::GridDTMCell gridCellFormed = calculateCellTriangles(topLeft, gridExtents, cellCoord, cellWidth, texturesU32[NonUniformResourceIndex(textureId)]);
+                            // Check the validity of the triangles and only add if valid
+                            triangles[triangleCount++] = gridCellFormed.triangleA;
+                            triangles[triangleCount++] = gridCellFormed.triangleB;
+                        }
+                    }
+                }
+                
+                // float heightDeriv = fwidth(height);
+                // For height shading, merge this loop with the previous one, because baryCoord all positive means point inside triangle and we can use that to figure out the triangle we want to do height shading for.
+                for (int t = 0; t < trianglesCount; ++t)
+                {
+                    dtm::GridDTMTriangle tri = triangles[t];
+                    const float3 baryCoord = dtm::calculateDTMTriangleBarycentrics(tri.vertices[0].xy, tri.vertices[1].xy, tri.vertices[2].xy, input.position.xy);
+                    interpolatedHeights[t] = baryCoord.x * tri.vertices[0].z + baryCoord.y * tri.vertices[1].z + baryCoord.z * tri.vertices[2].z;
+                }
 
-                // Contours:
-                // Is Contours Enabled?
-                    // for each contour settings (in reverse)
-                        // float sdf = max;
-                        // for each triangle
-                            // sdf = min(sdf, sdfOfContourSettings[i]);
-                        // based on sdf, the contour line style + smoothstep: we compute color and alpha
-                        // blendUnder
+                float4 dtmColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
+                if (dtmSettings.drawContourEnabled())
+                {
+                    for (int i = dtmSettings.contourSettingsCount-1u; i >= 0; --i) 
+                    {
+                        LineStyle contourStyle = loadLineStyle(dtmSettings.contourSettings[i].contourLineStyleIdx);
+                        float sdf = nbl::hlsl::numeric_limits<float>::max;
+                        for (int t = 0; t < trianglesCount; ++t)
+                        {
+                            dtm::GridDTMTriangle tri = triangles[t];
+                            sdf = min(sdf, dtm::calculateDTMContourSDF(contourStyle, tri.vertices, input.position.xy, interpolatedHeights[t]));
+                        }
+                        
+                        float4 contourColor = contourStyle.color;
+                        contourColor.a *= 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, sdf);
+                        dtmColor = dtm::blendUnder(dtmColor, contourColor);
+                    }
+                }
 
                 // Outlines:
                 // Is Outlines Enabled?
                     // float sdf = max;
-                    // for each triangle
+                    // for each line
                         // sdf = min(sdf, sdfOfOutlineSetting);
                     // based on sdf, the outline line style + smoothstep: we compute color and alpha
                     // blendUnder
@@ -606,7 +655,7 @@ float4 fragMain(PSInput input) : SV_TARGET
             if (dtmSettings.drawOutlineEnabled())
                 dtmColor = dtm::blendUnder(dtmColor, dtm::calculateGridDTMOutlineColor(dtmSettings.outlineLineStyleIdx, outlineLineSegments, input.position.xy, 0.0f));
             if (dtmSettings.drawHeightShadingEnabled() && !outOfBoundsUV)
-                dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, currentTriangle.vertices, heightDeriv, input.position.xy, height));
+                dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, currentTriangle.vertices, heightDeriv, input.position.xy, interpolatedHeights[0]));
 
             textureColor = dtmColor.rgb / dtmColor.a;
             localAlpha = dtmColor.a;
