@@ -92,6 +92,7 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 					{},
 					IGPURenderpass::SCreationParams::SubpassesEnd
 				};
+				subpasses[0].depthStencilAttachment = {{.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}}};
 				subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
 				params.subpasses = subpasses;
 				
@@ -137,9 +138,12 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 					return logFail("Failed to create Scene Renderpass!");
 			}
 			m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(),m_renderpass.get(),0,m_scene.get());
+			// we'll only display one thing at a time
+			m_renderer->m_instances.resize(1);
 
 			// Create ImGUI
 			{
+				auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 				ext::imgui::UI::SCreationParameters params = {};
 				params.resources.texturesInfo = {.setIx=0u,.bindingIx=TexturesImGUIBindingIndex};
 				params.resources.samplersInfo = {.setIx=0u,.bindingIx=1u};
@@ -147,7 +151,7 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 				params.transfer = getTransferUpQueue();
 				params.pipelineLayout = ext::imgui::UI::createDefaultPipelineLayout(m_utils->getLogicalDevice(),params.resources.texturesInfo,params.resources.samplersInfo,MaxImGUITextures);
 				params.assetManager = make_smart_refctd_ptr<IAssetManager>(smart_refctd_ptr(m_system));
-				params.renderpass = m_renderpass;
+				params.renderpass = smart_refctd_ptr<IGPURenderpass>(scRes->getRenderpass());
 				params.subpassIx = 0u;
 				params.pipelineCache = nullptr;
 				interface.imGUI = ext::imgui::UI::create(std::move(params));
@@ -196,17 +200,13 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 			return true;
 		}
 
-		inline void beginRenderpass(IGPUCommandBuffer* cb, const IGPUCommandBuffer::SRenderpassBeginInfo& info)
+		//
+		virtual inline bool onAppTerminated()
 		{
-			cb->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-			cb->setScissor(0,1,&info.renderArea);
-			const SViewport viewport = {
-				.x = 0,
-				.y = 0,
-				.width = static_cast<float>(info.renderArea.extent.width),
-				.height = static_cast<float>(info.renderArea.extent.height)
-			};
-			cb->setViewport(0u,1u,&viewport);
+			SubAllocatedDescriptorSet::value_type fontAtlasDescIx = ext::imgui::UI::FontAtlasTexId;
+			IGPUDescriptorSet::SDropDescriptorSet dummy[1];
+			interface.subAllocDS->multi_deallocate(dummy,TexturesImGUIBindingIndex,1,&fontAtlasDescIx);
+			return device_base_t::onAppTerminated();
 		}
 
 		inline IQueue::SSubmitInfo::SSemaphoreInfo renderFrame(const std::chrono::microseconds nextPresentationTimestamp) override
@@ -226,14 +226,16 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 			cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			// clear to black for both things
 			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
+			if (m_framebuffer)
 			{
 				cb->beginDebugMarker("UISampleApp Scene Frame");
 				{
+					const IGPUCommandBuffer::SClearDepthStencilValue farValue = { .depth=0.f };
 					const IGPUCommandBuffer::SRenderpassBeginInfo renderpassInfo =
 					{
 						.framebuffer = m_framebuffer.get(),
 						.colorClearValues = &clearValue,
-						.depthStencilClearValues = nullptr,
+						.depthStencilClearValues = &farValue,
 						.renderArea = {
 							.offset = {0,0},
 							.extent = {virtualWindowRes[0],virtualWindowRes[1]}
@@ -254,7 +256,9 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 					const auto viewParams = CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix);
 
 					// tear down scene every frame
-					m_renderer->m_instances[0].packedGeo = m_renderer->getInitParams().geoms.data()+interface.gcIndex;
+					auto& instance = m_renderer->m_instances[0];
+					memcpy(&instance.world,&interface.model,sizeof(instance.world));
+					instance.packedGeo = m_renderer->getInitParams().geoms.data()+interface.gcIndex;
  					m_renderer->render(cb,viewParams);
 				}
 				cb->endRenderPass();
@@ -468,42 +472,65 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 				}});
 				if (!m_device->allocate(image->getMemoryReqs(),image.get()).isValid())
 					return nullptr;
-				return m_device->createImageView({
+				IGPUImageView::SCreationParams params = {
 					.image = std::move(image),
 					.viewType = IGPUImageView::ET_2D,
-					.format = format,
-					.subresourceRange = {
-						.aspectMask = isDepthOrStencilFormat(format) ? IGPUImage::EAF_DEPTH_BIT:IGPUImage::EAF_COLOR_BIT,
-					}
-				});
+					.format = format
+				};
+				params.subresourceRange.aspectMask = isDepthOrStencilFormat(format) ? IGPUImage::EAF_DEPTH_BIT:IGPUImage::EAF_COLOR_BIT;
+				return m_device->createImageView(std::move(params));
 			};
-
-			m_renderColorView = createImageAndView(finalSceneRenderFormat);
-			auto depthView = createImageAndView(sceneRenderDepthFormat);
-			m_framebuffer = m_device->createFramebuffer({ {
-				.renderpass = m_renderpass,
-				.depthStencilAttachments = &depthView.get(),
-				.colorAttachments = &m_renderColorView.get(),
-				.width = resolution.x,
-				.height = resolution.y
-			}});
+			
+			smart_refctd_ptr<IGPUImageView> colorView;
+			// detect window minimization
+			if (resolution.x<0x4000 && resolution.y<0x4000)
+			{
+				colorView = createImageAndView(finalSceneRenderFormat);
+				auto depthView = createImageAndView(sceneRenderDepthFormat);
+				m_framebuffer = m_device->createFramebuffer({ {
+					.renderpass = m_renderpass,
+					.depthStencilAttachments = &depthView.get(),
+					.colorAttachments = &colorView.get(),
+					.width = resolution.x,
+					.height = resolution.y
+				}});
+			}
+			else
+				m_framebuffer = nullptr;
 
 			// release previous slot and its image
 			interface.subAllocDS->multi_deallocate(0,1,&interface.renderColorViewDescIndex,{.semaphore=m_semaphore.get(),.value=m_realFrameIx});
 			//
-			interface.subAllocDS->multi_allocate(0,1,&interface.renderColorViewDescIndex);
-			// update descriptor set
-			IGPUDescriptorSet::SDescriptorInfo info = {};
-			info.desc = m_renderColorView;
-			info.info.image.imageLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL;
-			const IGPUDescriptorSet::SWriteDescriptorSet write = {
-				.dstSet = interface.subAllocDS->getDescriptorSet(),
-				.binding = TexturesImGUIBindingIndex,
-				.arrayElement = interface.renderColorViewDescIndex,
-				.count = 1,
-				.info = &info
+			if (colorView)
+			{
+				interface.subAllocDS->multi_allocate(0,1,&interface.renderColorViewDescIndex);
+				// update descriptor set
+				IGPUDescriptorSet::SDescriptorInfo info = {};
+				info.desc = colorView;
+				info.info.image.imageLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL;
+				const IGPUDescriptorSet::SWriteDescriptorSet write = {
+					.dstSet = interface.subAllocDS->getDescriptorSet(),
+					.binding = TexturesImGUIBindingIndex,
+					.arrayElement = interface.renderColorViewDescIndex,
+					.count = 1,
+					.info = &info
+				};
+				m_device->updateDescriptorSets({&write,1},{});
+			}
+			interface.transformParams.sceneTexDescIx = interface.renderColorViewDescIndex;
+		}
+
+		inline void beginRenderpass(IGPUCommandBuffer* cb, const IGPUCommandBuffer::SRenderpassBeginInfo& info)
+		{
+			cb->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+			cb->setScissor(0,1,&info.renderArea);
+			const SViewport viewport = {
+				.x = 0,
+				.y = 0,
+				.width = static_cast<float>(info.renderArea.extent.width),
+				.height = static_cast<float>(info.renderArea.extent.height)
 			};
-			m_device->updateDescriptorSets({&write,1},{});
+			cb->setViewport(0u,1u,&viewport);
 		}
 
 		// Maximum frames which can be simultaneously submitted, used to cycle through our per-frame resources like command buffers
@@ -518,7 +545,6 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 		smart_refctd_ptr<CGeometryCreatorScene> m_scene;
 		smart_refctd_ptr<IGPURenderpass> m_renderpass;
 		smart_refctd_ptr<CSimpleDebugRenderer> m_renderer;
-		smart_refctd_ptr<IGPUImageView> m_renderColorView;
 		smart_refctd_ptr<IGPUFramebuffer> m_framebuffer;
 		//
 		smart_refctd_ptr<ISemaphore> m_semaphore;
@@ -706,6 +732,7 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 					sceneResolution = EditTransform(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.model.pointer(), transformParams);
 				}
 
+				model = core::transpose(imguizmoM16InOut.model).extractSub3x4();
 				// to Nabla + update camera & model matrices
 // TODO: make it more nicely, extract:
 // - Position by computing inverse of the view matrix and grabbing its translation
@@ -835,8 +862,8 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 			//
 			Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
 			// mutables
-			std::string_view objectName;
 			core::matrix3x4SIMD model;
+			std::string_view objectName;
 			TransformRequestParams transformParams;
 			uint16_t2 sceneResolution = {1280,720};
 			float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
