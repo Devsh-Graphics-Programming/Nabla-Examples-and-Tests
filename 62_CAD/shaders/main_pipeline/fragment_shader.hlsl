@@ -158,7 +158,7 @@ float4 fragMain(PSInput input) : SV_TARGET
             for(uint32_t i = 0; i < dtmSettings.contourSettingsCount; ++i) // TODO: should reverse the order with blendUnder
             {
                 LineStyle contourStyle = loadLineStyle(dtmSettings.contourSettings[i].contourLineStyleIdx);
-                float sdf = dtm::calculateDTMContourColor(contourStyle, v, input.position.xy, height);
+                float sdf = dtm::calculateDTMContourSDF(dtmSettings.contourSettings[i], contourStyle, v, input.position.xy, height);
                 float4 contourColor = contourStyle.color;
                 contourColor.a *= 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, sdf);
                 dtmColor = dtm::blendUnder(dtmColor, contourColor);
@@ -428,20 +428,19 @@ float4 fragMain(PSInput input) : SV_TARGET
             float2 uv = input.getImageUV();
             const uint32_t textureId = input.getGridDTMHeightTextureID();
 
-            float2 topLeft = input.getGridDTMScreenSpaceTopLeft();
+            float2 gridTopLeftCorner = input.getGridDTMScreenSpaceTopLeft();
             float2 gridExtents = input.getGridDTMScreenSpaceGridExtents();
             const float cellWidth = input.getGridDTMScreenSpaceCellWidth();
-            float2 gridDimensions = gridExtents / cellWidth; // TODO: Figure out if it's better to precomp in vtx
+            // TODO: I think we can get it from the height map size if texture is valid?!, better if it comes directly from CPU side, vertex shader or something, division + round to integer is error-prone for large integer values
+            float2 gridDimensions = round(gridExtents / cellWidth); // texturesU32[NonUniformResourceIndex(textureId)].GetDimensions()? 
 
             float2 gridSpacePos = uv * gridExtents;
             float2 gridSpacePosDivGridCellWidth = gridSpacePos / cellWidth;
-            float2 cellCoords; // rename to currentCellCoords
+            float2 currentCellCoord;
             {
-                cellCoords.x = floor(gridSpacePosDivGridCellWidth.x);
-                cellCoords.y = floor(gridSpacePosDivGridCellWidth.y);
+                currentCellCoord.x = floor(gridSpacePosDivGridCellWidth.x);
+                currentCellCoord.y = floor(gridSpacePosDivGridCellWidth.y);
             }
-
-            float2 gridSpaceCellTopLeftCoords = cellCoords * cellWidth;
 
             // grid consists of square cells and cells are divided into two triangles:
             // depending on mode it is
@@ -459,9 +458,9 @@ float4 fragMain(PSInput input) : SV_TARGET
                 nbl::hlsl::shapes::Line<float> outlineLineSegments[2];
                 
                 const float halfCellWidth = cellWidth * 0.5f;
-                const float2 horizontalBounds = float2(topLeft.y, topLeft.y + gridExtents.y);
-                const float2 verticalBounds = float2(topLeft.x, topLeft.x + gridExtents.x);
-                float2 nearestLineRemainingCoords = int2((gridSpacePos + halfCellWidth) / cellWidth) * cellWidth + topLeft;
+                const float2 horizontalBounds = float2(gridTopLeftCorner.y, gridTopLeftCorner.y + gridExtents.y);
+                const float2 verticalBounds = float2(gridTopLeftCorner.x, gridTopLeftCorner.x + gridExtents.x);
+                float2 nearestLineRemainingCoords = int2((gridSpacePos + halfCellWidth) / cellWidth) * cellWidth + gridTopLeftCorner;
                 // shift lines outside of the grid to a bound
                 nearestLineRemainingCoords.x = clamp(nearestLineRemainingCoords.x, verticalBounds.x, verticalBounds.y);
                 nearestLineRemainingCoords.y = clamp(nearestLineRemainingCoords.y, horizontalBounds.x, horizontalBounds.y);
@@ -474,48 +473,87 @@ float4 fragMain(PSInput input) : SV_TARGET
                 outlineLineSegments[1].P1 = float32_t2(nearestLineRemainingCoords.x, horizontalBounds.y);
                 
                 float4 dtmColor = dtm::calculateGridDTMOutlineColor(dtmSettings.outlineLineStyleIdx, outlineLineSegments, input.position.xy, 0.0f);
+                
                 textureColor = dtmColor.rgb;
                 localAlpha = dtmColor.a;
             }
             else
             {
                 // calculate localUV and figure out the 4 cells we're gonna do sdf with
-                float2 localUV = gridSpacePosDivGridCellWidth - cellCoords; // TODO: use fmod instead?
-                float2 offset = round(localUV) * 2.0f - 1.0f;
-                
+                float2 localUV = gridSpacePosDivGridCellWidth - currentCellCoord; // TODO: use fmod instead?
+                int2 roundedLocalUV = round(localUV);
+                float2 offset = roundedLocalUV * 2.0f - 1.0f;
+
+                // Triangles
                 const uint32_t MaxTrianglesToDoSDFWith = 8u;
                 dtm::GridDTMTriangle triangles[MaxTrianglesToDoSDFWith];
                 float interpolatedHeights[MaxTrianglesToDoSDFWith]; // these are height based on barycentric interpolation of current pixel with all the triangles above
                 uint32_t triangleCount = 0u;
                 
-                const uint32_t MaxLinesToDoSDFWith = 4u;
-                // TODO: Lines to do SDF with
-                // But only do if outlines are enabled
+                // We can do sdf for up to 4 maximum lines for the outlines, 2 belong to the current cell and the other 2 belong to the opposite neighbouring cell
+                /* Example:
+                          |                  
+                          |     opposite cell
+                          |                  
+                    ------+------            
+                          |                  
+        current cell      |                  
+                          |                  
+                          
+                   `+` is the current corner and we draw the 4 lines leading up to it.
+                */
                 
-                // TODO: UNROLL
+                // curr cell horizontal, curr cell vertical, opposite cell horizontal, opposite cell vertical 
+                bool4 linesValidity = bool4(false, false, false, false);
+                
+                [unroll]
                 for (int i = 0; i < 2; ++i)
                 {
                     for (int j = 0; j < 2; ++j)
                     {
-                        float2 cellCoord = cellCoords + float2(i, j) * offset;
+                        float2 cellCoord = currentCellCoord + float2(i, j) * offset;
                         const bool isCellWithinRange = 
                             cellCoord.x >= 0.0f && cellCoord.y >= 0.0f && 
-                            cellCoord.x <= gridDimensions.x && cellCoord.y <= gridDimensions.y;
+                            cellCoord.x < gridDimensions.x && cellCoord.y < gridDimensions.y;
                         if (isCellWithinRange)
                         {
-                            // Triangle thing
-                            // topLeft, in float2 gridExtents, in float2 cellCoords, const float cellWidth, in Texture2D<uint32_t> heightMap;
-                            dtm::GridDTMCell gridCellFormed = calculateCellTriangles(topLeft, gridExtents, cellCoord, cellWidth, texturesU32[NonUniformResourceIndex(textureId)]);
+                            dtm::GridDTMHeightMapData heightData = dtm::retrieveGridDTMCellDataFromHeightMap(gridDimensions, cellCoord, texturesU32[NonUniformResourceIndex(textureId)]);
+                            dtm::GridDTMCell gridCellFormed = dtm::calculateCellTriangles(heightData, gridTopLeftCorner, cellCoord, cellWidth);
                             // Check the validity of the triangles and only add if valid
                             triangles[triangleCount++] = gridCellFormed.triangleA;
                             triangles[triangleCount++] = gridCellFormed.triangleB;
+
+                            // we just need to check and set lines validity
+                            // Formulas to get current cell's horizontal and vertical lines validity
+                            // All this to avoid extra texel fetch to check validity and use the Gather result instead :D
+                            if (i == 0 && j == 0)
+                            {
+                                // current cell's line validity
+                                linesValidity[0] = !isInvalidGridDtmHeightValue(heightData.heights[2 - (roundedLocalUV.y * 2)]) && !isInvalidGridDtmHeightValue(heightData.heights[3 - (roundedLocalUV.y * 2)]);
+                                linesValidity[1] = !isInvalidGridDtmHeightValue(heightData.heights[roundedLocalUV.x ^ 0]) && !isInvalidGridDtmHeightValue(heightData.heights[roundedLocalUV.x ^ 3]);
+                            }
+                            if (i == 1 && j == 0)
+                            {
+                                linesValidity[1] = !isInvalidGridDtmHeightValue(heightData.heights[roundedLocalUV.x ^ 1]) && !isInvalidGridDtmHeightValue(heightData.heights[roundedLocalUV.x ^ 2]);
+                                linesValidity[2] = !isInvalidGridDtmHeightValue(heightData.heights[2 - (roundedLocalUV.y * 2)]) && !isInvalidGridDtmHeightValue(heightData.heights[3 - (roundedLocalUV.y * 2)]);;
+                            }
+                            if (i == 0 && j == 1)
+                            {
+                                linesValidity[0] = !isInvalidGridDtmHeightValue(heightData.heights[roundedLocalUV.y * 2]) && !isInvalidGridDtmHeightValue(heightData.heights[roundedLocalUV.y * 2 + 1]);
+                                linesValidity[3] = !isInvalidGridDtmHeightValue(heightData.heights[roundedLocalUV.x ^ 1]) && !isInvalidGridDtmHeightValue(heightData.heights[roundedLocalUV.x ^ 2]);
+                            }
+                            if (i == 1 && j == 1)
+                            {
+                                linesValidity[2] = !isInvalidGridDtmHeightValue(heightData.heights[roundedLocalUV.y * 2]) && !isInvalidGridDtmHeightValue(heightData.heights[roundedLocalUV.y * 2 + 1]);
+                                linesValidity[3] = !isInvalidGridDtmHeightValue(heightData.heights[roundedLocalUV.x ^ 1]) && !isInvalidGridDtmHeightValue(heightData.heights[roundedLocalUV.x ^ 2]);
+                            }
                         }
                     }
                 }
                 
                 // float heightDeriv = fwidth(height);
                 // For height shading, merge this loop with the previous one, because baryCoord all positive means point inside triangle and we can use that to figure out the triangle we want to do height shading for.
-                for (int t = 0; t < trianglesCount; ++t)
+                for (int t = 0; t < triangleCount; ++t)
                 {
                     dtm::GridDTMTriangle tri = triangles[t];
                     const float3 baryCoord = dtm::calculateDTMTriangleBarycentrics(tri.vertices[0].xy, tri.vertices[1].xy, tri.vertices[2].xy, input.position.xy);
@@ -529,28 +567,90 @@ float4 fragMain(PSInput input) : SV_TARGET
                     {
                         LineStyle contourStyle = loadLineStyle(dtmSettings.contourSettings[i].contourLineStyleIdx);
                         float sdf = nbl::hlsl::numeric_limits<float>::max;
-                        for (int t = 0; t < trianglesCount; ++t)
+                        for (int t = 0; t < triangleCount; ++t)
                         {
                             dtm::GridDTMTriangle tri = triangles[t];
-                            sdf = min(sdf, dtm::calculateDTMContourSDF(contourStyle, tri.vertices, input.position.xy, interpolatedHeights[t]));
+                            sdf = min(sdf, dtm::calculateDTMContourSDF(dtmSettings.contourSettings[i], contourStyle, tri.vertices, input.position.xy, interpolatedHeights[t]));
+#if 0 // Debug Triangles
+                            nbl::hlsl::shapes::Line<float> lineSegment;
+                            lineSegment.P0 = tri.vertices[0].xy;
+                            lineSegment.P1 = tri.vertices[1].xy;
+                            float distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, 1.0f, false);
+                            sdf = min(sdf, distance);
+                            lineSegment.P0 = tri.vertices[1].xy;
+                            lineSegment.P1 = tri.vertices[2].xy;
+                            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, 1.0f, false);
+                            sdf = min(sdf, distance);
+                            lineSegment.P0 = tri.vertices[0].xy;
+                            lineSegment.P1 = tri.vertices[2].xy;
+                            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, 1.0f, false);
+                            sdf = min(sdf, distance);
+#endif
                         }
                         
-                        float4 contourColor = contourStyle.color;
+                        float4 contourColor = contourStyle.color; contourColor.a = 0.5f;
                         contourColor.a *= 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, sdf);
                         dtmColor = dtm::blendUnder(dtmColor, contourColor);
                     }
                 }
 
-                // Outlines:
-                // Is Outlines Enabled?
-                    // float sdf = max;
-                    // for each line
-                        // sdf = min(sdf, sdfOfOutlineSetting);
-                    // based on sdf, the outline line style + smoothstep: we compute color and alpha
-                    // blendUnder
+                if (dtmSettings.drawOutlineEnabled())
+                {
+                    float sdf = nbl::hlsl::numeric_limits<float>::max;
+                    LineStyle outlineStyle = loadLineStyle(dtmSettings.outlineLineStyleIdx);
+                    const float outlineThickness = (outlineStyle.screenSpaceLineWidth + outlineStyle.worldSpaceLineWidth * globals.screenToWorldRatio) * 0.5f;
+                    nbl::hlsl::shapes::Line<float> lineSegment;
+                    
+                    // Doing SDF of outlines as if cooridnate system is centered around the nearest corner of the cell
+                    float2 currentCellScreenspaceCoord = gridTopLeftCorner + (currentCellCoord + float2(roundedLocalUV)) * cellWidth;
+                    float2 localFragPos = input.position.xy - currentCellScreenspaceCoord;
+                    
+                    // TODO: Also make this a unrolled loop to reduce LOC
+                    if (linesValidity[0])
+                    {
+                        // this cells horizontal line
+                        lineSegment.P0 = float2(-offset.x, 0.0f) * cellWidth;
+                        lineSegment.P1 = float2(0.0f, 0.0f);
+                        float distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, localFragPos, outlineThickness, outlineStyle.isRoadStyleFlag);
+                        sdf = min(sdf, distance);
+                    }
+                    if (linesValidity[1])
+                    {
+                        // this cells vertical line
+                        lineSegment.P0 = float2(0.0f, -offset.y) * cellWidth;
+                        lineSegment.P1 = float2(0.0f, 0.0f);
+                        float distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, localFragPos, outlineThickness, outlineStyle.isRoadStyleFlag);
+                        sdf = min(sdf, distance);
+                    }
+                    if (linesValidity[2])
+                    {
+                        // opposite cell horizontal line
+                        lineSegment.P0 = float2(offset.x, 0.0f) * cellWidth;
+                        lineSegment.P1 = float2(0.0f, 0.0f);
+                        float distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, localFragPos, outlineThickness, outlineStyle.isRoadStyleFlag);
+                        sdf = min(sdf, distance);
+                    }
+                    if (linesValidity[3])
+                    {
+                        // opposite cell vertical line
+                        lineSegment.P0 = float2(0.0f, offset.y) * cellWidth;
+                        lineSegment.P1 = float2(0.0f, 0.0f);
+                        float distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, localFragPos, outlineThickness, outlineStyle.isRoadStyleFlag);
+                        sdf = min(sdf, distance);
+                    }
+
+                    float4 outlineColor = outlineStyle.color;
+                    outlineColor.a *= 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, sdf);
+                    dtmColor = dtm::blendUnder(dtmColor, outlineColor);
+                }
                 
-                // Height Shading:
-                    // We just do sdf with current triangle (if valid)
+                //textureColor = float3(linesValidity[0], linesValidity[1], 0.0f);
+                //localAlpha = 0.4f;
+
+                // TODO: Handle height shading, using only current triangle (if valid)
+                
+                textureColor = dtmColor.rgb / dtmColor.a;
+                localAlpha = dtmColor.a;
             }
             
 #if 0
@@ -566,13 +666,13 @@ float4 fragMain(PSInput input) : SV_TARGET
                 // heightData.heihts.y - bottom right texel
                 // heightData.heihts.z - top right texel
                 // heightData.heihts.w - top left texel
-                dtm::GridDTMHeightMapData heightData = dtm::retrieveGridDTMCellDataFromHeightMap(gridExtents, cellCoords, cellWidth, texturesU32[NonUniformResourceIndex(textureId)]);
+                dtm::GridDTMHeightMapData heightData = dtm::retrieveGridDTMCellDataFromHeightMap(gridExtents, currentCellCoord, cellWidth, texturesU32[NonUniformResourceIndex(textureId)]);
                 if (heightData.cellDiagonal == E_CELL_DIAGONAL::INVALID)
                     discard;
 
                 const bool diagonalFromTopLeftToBottomRight = heightData.cellDiagonal == E_CELL_DIAGONAL::TOP_LEFT_TO_BOTTOM_RIGHT;
 
-                float2 insideCellCoord = gridSpacePos - float2(cellWidth, cellWidth) * cellCoords; // TODO: use fmod instead?
+                float2 insideCellCoord = gridSpacePos - float2(cellWidth, cellWidth) * currentCellCoord; // TODO: use fmod instead?
                 // my ASCII art above explains which triangle is A and which is B
                 const bool triangleA = diagonalFromTopLeftToBottomRight ?
                     insideCellCoord.x < insideCellCoord.y :
@@ -610,7 +710,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                 // move from grid space to screen space
                 [unroll]
                 for (int i = 0; i < 3; ++i)
-                    currentTriangle.vertices[i].xy += topLeft;
+                    currentTriangle.vertices[i].xy += gridTopLeftCorner;
 
                 const float2 neighbouringCellsCellOffsets[8] = {
                     float2(-1.0f, -1.0f),
@@ -626,8 +726,8 @@ float4 fragMain(PSInput input) : SV_TARGET
                 // construct triangles of neighbouring cells
                 for (int i = 0; i < 8; ++i)
                 {
-                    float2 neighbouringCellCoords = cellCoords + neighbouringCellsCellOffsets[i];
-                    neighbouringCells[i] = dtm::calculateCellTriangles(topLeft, gridExtents, neighbouringCellCoords, cellWidth, texturesU32[NonUniformResourceIndex(textureId)]);
+                    float2 neighbouringcurrentCellCoord = currentCellCoord + neighbouringCellsCellOffsets[i];
+                    neighbouringCells[i] = dtm::calculateCellTriangles(gridTopLeftCorner, gridExtents, neighbouringcurrentCellCoord, cellWidth, texturesU32[NonUniformResourceIndex(textureId)]);
                 }
             }
 

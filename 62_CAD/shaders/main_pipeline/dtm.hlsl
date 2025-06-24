@@ -230,7 +230,7 @@ float4 calculateDTMHeightColor(in DTMHeightShadingSettings settings, in float3 v
     return outputColor;
 }
 
-float calculateDTMContourSDF(in LineStyle contourStyle, in float3 v[3], in float2 fragPos, in float height)
+float calculateDTMContourSDF(in DTMContourSettings contourSettings, in LineStyle contourStyle, in float3 v[3], in float2 fragPos, in float height)
 {
     float distance = nbl::hlsl::numeric_limits<float>::max;
     const float contourThickness = (contourStyle.screenSpaceLineWidth + contourStyle.worldSpaceLineWidth * globals.screenToWorldRatio) * 0.5f;
@@ -473,22 +473,21 @@ struct GridDTMHeightMapData
     E_CELL_DIAGONAL cellDiagonal;
 };
 
-GridDTMHeightMapData retrieveGridDTMCellDataFromHeightMap(in float2 gridExtents, in float2 cellCoords, const float cellWidth, in Texture2D<uint32_t> heightMap)
+GridDTMHeightMapData retrieveGridDTMCellDataFromHeightMap(in float2 gridDimensions, in float2 cellCoords, in Texture2D<uint32_t> heightMap)
 {
     GridDTMHeightMapData output;
 
-    const float2 maxCellCoords = float2(round(gridExtents.x / cellWidth), round(gridExtents.y / cellWidth));
-    const float2 location = (cellCoords + float2(0.5f, 0.5f)) / maxCellCoords;
+    const float2 location = (cellCoords + float2(0.5f, 0.5f)) / gridDimensions;
     uint32_t4 cellData = heightMap.Gather(textureSampler, float2(location.x, location.y), 0);
 
-    printf("%u %u %u %u", cellData.x, cellData.y, cellData.z, cellData.w);
+    // printf("%u %u %u %u", cellData.x, cellData.y, cellData.z, cellData.w);
 
     output.heights = asfloat(cellData);
     output.cellDiagonal = dtm::resolveGridDTMCellDiagonal(cellData);
     return output;
 }
 
-GridDTMCell calculateCellTriangles(in float2 topLeft, in float2 gridExtents, in float2 cellCoords, const float cellWidth, in Texture2D<uint32_t> heightMap)
+GridDTMCell calculateCellTriangles(in dtm::GridDTMHeightMapData heightData, in float2 topLeft, in float2 cellCoords, const float cellWidth)
 {
     GridDTMCell output;
 
@@ -496,7 +495,6 @@ GridDTMCell calculateCellTriangles(in float2 topLeft, in float2 gridExtents, in 
     // heightData.heihts.y - bottom right texel
     // heightData.heihts.z - top right texel
     // heightData.heihts.w - top left texel
-    dtm::GridDTMHeightMapData heightData = dtm::retrieveGridDTMCellDataFromHeightMap(gridExtents, cellCoords, cellWidth, heightMap);
     const bool diagonalFromTopLeftToBottomRight = heightData.cellDiagonal == E_CELL_DIAGONAL::TOP_LEFT_TO_BOTTOM_RIGHT;
     float2 gridSpaceCellTopLeftCoords = cellCoords * cellWidth;
 

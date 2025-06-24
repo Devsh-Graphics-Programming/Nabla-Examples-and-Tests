@@ -43,16 +43,6 @@ struct PushConstants
     uint32_t isDTMRendering;
 };
 
-#ifdef __HLSL_VERSION
-NBL_CONSTEXPR float InvalidGridDTMHeightValue = asfloat(0x7FC00000);
-
-bool isInvalidGridDtmHeightValue(float value)
-{
-    return isnan(value);
-}
-
-#endif
-
 struct WorldClipRect
 {
     pfloat64_t2 minClip; // min clip of a rect in worldspace coordinates of the original space (globals.defaultProjectionToNDC)
@@ -580,6 +570,11 @@ NBL_CONSTEXPR float MSDFPixelRangeHalf = MSDFPixelRange / 2.0f;
 NBL_CONSTEXPR float MSDFSize = 64.0f; 
 NBL_CONSTEXPR uint32_t MSDFMips = 4; 
 NBL_CONSTEXPR float HatchFillMSDFSceenSpaceSize = 8.0; 
+
+inline bool isInvalidGridDtmHeightValue(float value)
+{
+    return nbl::hlsl::isnan(value);
+}
 
 // Used in CPU-side only for now
 struct OrientedBoundingBox2D
