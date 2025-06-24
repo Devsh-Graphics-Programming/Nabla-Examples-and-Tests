@@ -589,11 +589,11 @@ struct OrientedBoundingBox2D
 
 LineStyle loadLineStyle(const uint32_t index)
 {
-    return vk::RawBufferLoad<LineStyle>(globals.pointers.lineStyles + index * sizeof(LineStyle), 8u);
+    return vk::RawBufferLoad<LineStyle>(globals.pointers.lineStyles + index * sizeof(LineStyle), 4u);
 }
 DTMSettings loadDTMSettings(const uint32_t index)
 {
-    return vk::RawBufferLoad<DTMSettings>(globals.pointers.dtmSettings + index * sizeof(DTMSettings), 8u);
+    return vk::RawBufferLoad<DTMSettings>(globals.pointers.dtmSettings + index * sizeof(DTMSettings), 4u);
 }
 pfloat64_t3x3 loadCustomProjection(const uint32_t index)
 {
@@ -611,6 +611,13 @@ DrawObject loadDrawObject(const uint32_t index)
 {
     return vk::RawBufferLoad<DrawObject>(globals.pointers.drawObjects + index * sizeof(DrawObject), 8u);
 }
+#else
+static_assert(alignof(LineStyle)==4u);
+static_assert(alignof(DTMSettings)==4u);
+static_assert(alignof(pfloat64_t3x3)==8u);
+static_assert(alignof(WorldClipRect)==8u);
+static_assert(alignof(MainObject)==4u);
+static_assert(alignof(DrawObject)==8u);
 #endif
 
 
