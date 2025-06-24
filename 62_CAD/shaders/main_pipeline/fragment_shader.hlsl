@@ -606,6 +606,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                     float2 currentCellScreenspaceCoord = gridTopLeftCorner + (currentCellCoord + float2(roundedLocalUV)) * cellWidth;
                     float2 localFragPos = input.position.xy - currentCellScreenspaceCoord;
                     
+                    // Drawing the lines that form a plus sign around the current corner:
                     // TODO: Also make this a unrolled loop to reduce LOC
                     if (linesValidity[0])
                     {
