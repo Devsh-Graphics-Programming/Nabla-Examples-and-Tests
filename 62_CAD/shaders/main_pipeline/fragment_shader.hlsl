@@ -526,6 +526,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                             // we just need to check and set lines validity
                             // Formulas to get current cell's horizontal and vertical lines validity
                             // All this to avoid extra texel fetch to check validity and use the Gather result instead :D
+                            // TODO: Only 0,0 and 1,1 is enough to check if cells are valid, but other checks required in case current cell is invalid (out of bounds) but it's line is valid
                             if (i == 0 && j == 0)
                             {
                                 // current cell's line validity
@@ -540,7 +541,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                             if (i == 0 && j == 1)
                             {
                                 linesValidity[0] = !isInvalidGridDtmHeightValue(heightData.heights[roundedLocalUV.y * 2]) && !isInvalidGridDtmHeightValue(heightData.heights[roundedLocalUV.y * 2 + 1]);
-                                linesValidity[3] = !isInvalidGridDtmHeightValue(heightData.heights[roundedLocalUV.x ^ 1]) && !isInvalidGridDtmHeightValue(heightData.heights[roundedLocalUV.x ^ 2]);
+                                linesValidity[3] = !isInvalidGridDtmHeightValue(heightData.heights[roundedLocalUV.x ^ 0]) && !isInvalidGridDtmHeightValue(heightData.heights[roundedLocalUV.x ^ 3]);
                             }
                             if (i == 1 && j == 1)
                             {
