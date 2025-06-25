@@ -97,6 +97,7 @@ if(NBL_BUILD_EXAMPLES)
 		target_precompile_headers(${T} REUSE_FROM "${NBL_EXAMPLES_API_TARGET}")
 		LINK_BUILTIN_RESOURCES_TO_TARGET(${T} NblExtExamplesAPIBuiltinsSource)
 		LINK_BUILTIN_RESOURCES_TO_TARGET(${T} NblExtExamplesAPIBuiltinsInclude)
+		LINK_BUILTIN_RESOURCES_TO_TARGET(${T} NblExtExamplesAPIBuiltinsSPIRV)
     endforeach()
 
 	NBL_ADJUST_FOLDERS(examples)

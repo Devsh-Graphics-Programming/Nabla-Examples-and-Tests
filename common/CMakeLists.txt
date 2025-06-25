@@ -13,6 +13,20 @@ nbl_create_ext_library_project(ExamplesAPI "" "${CMAKE_CURRENT_SOURCE_DIR}/src/n
 set_target_properties(${LIB_NAME} PROPERTIES DISABLE_PRECOMPILE_HEADERS OFF)
 target_precompile_headers(${LIB_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include/nbl/examples/PCH.hpp")
 
+set(COMMON_INCLUDE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include")
+
+function(INTERFACE_TO_BUILTINS TARGET)
+    #[[
+        even though builtin target is static library its still valid to reuse 
+        common PCH to boost its build speed to not preprocess entire Nabla again
+    ]]
+    set_target_properties(${TARGET} PROPERTIES DISABLE_PRECOMPILE_HEADERS OFF)
+    target_precompile_headers(${TARGET} REUSE_FROM "${LIB_NAME}")
+
+    target_include_directories(${TARGET} PUBLIC "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/include")
+    target_link_libraries(${TARGET} INTERFACE ${LIB_NAME})
+endfunction()
+
 function(REGISTER_COMMON_BUILTINS)
 	cmake_parse_arguments(EX "" "TARGET;ARCHIVE_ABS_ENTRY;ARCHIVE_NAMESPACE" "GLOB_RGX" ${ARGN})
 
@@ -36,13 +50,7 @@ function(REGISTER_COMMON_BUILTINS)
 	endforeach()
 
     ADD_CUSTOM_BUILTIN_RESOURCES(${EX_TARGET} EXAMPLES_RESOURCES_TO_EMBED "${INPUT_DIRECTORY}" "${EX_ARCHIVE_ABS_ENTRY}" "${EX_ARCHIVE_NAMESPACE}" "${OUTPUT_INCLUDE}" "${OUTPUT_SRC}")
-
-    # even though builtin target is static library its still valid to reuse common PCH to boost its build speed to not preprocess entire Nabla again
-    set_target_properties(${EX_TARGET} PROPERTIES DISABLE_PRECOMPILE_HEADERS OFF)
-    target_precompile_headers(${EX_TARGET} REUSE_FROM "${LIB_NAME}")
-
-    target_include_directories(${EX_TARGET} PUBLIC "${INPUT_DIRECTORY}/include")
-    target_link_libraries(${EX_TARGET} INTERFACE ${LIB_NAME})
+    INTERFACE_TO_BUILTINS(${EX_TARGET})
 endfunction()
 
 #! common example API builtins as static library targets linked to each example

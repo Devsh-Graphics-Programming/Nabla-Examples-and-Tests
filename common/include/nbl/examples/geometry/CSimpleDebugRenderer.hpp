@@ -97,14 +97,26 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			// load shader
 			smart_refctd_ptr<IShader> shader;
 			{
-				const auto bundle = assMan->getAsset("nbl/examples/geometry/shaders/unified.hlsl",{});
-// TODO: Arek
-				//const auto bundle = assMan->getAsset("nbl/examples/geometry/shaders/unified.spv",{});
+				// TODO & NOTE: tmp, maybe I will turn it into CMake option
+				#define NBL_USE_PRECOMPILED_SPIRV
+
+				#ifdef NBL_USE_PRECOMPILED_SPIRV
+				constexpr std::string_view key = "nbl/examples/shaders/geometry/unified.hlsl.spv";
+				#else
+				constexpr std::string_view key = "nbl/examples/shaders/geometry/unified.hlsl";
+				#endif // NBL_USE_PRECOMPILED_SPIRV
+
+				const auto bundle = assMan->getAsset(key.data(), {});
+
+				//const auto bundle = assMan->getAsset("nbl/examples/shaders/geometry/unified.hlsl.spv",{});
 				const auto contents = bundle.getContents();
 				if (contents.empty() || bundle.getAssetType()!=IAsset::ET_SHADER)
 					return nullptr;
 				shader = IAsset::castDown<IShader>(contents[0]);
-				shader = device->compileShader({.source=shader.get()});
+				
+				#ifndef NBL_USE_PRECOMPILED_SPIRV
+				shader = device->compileShader({ .source = shader.get() });
+				#endif // NBL_USE_PRECOMPILED_SPIRV
 				if (!shader)
 					return nullptr;
 			}
