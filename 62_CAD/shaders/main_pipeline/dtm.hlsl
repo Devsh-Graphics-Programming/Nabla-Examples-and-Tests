@@ -77,8 +77,8 @@ void getIntervalHeightAndColor(in int intervalIndex, in DTMHeightShadingSettings
         outIntervalHeight = minShadingHeight + (float(intervalIndex)) * settings.intervalLength;
 
     DTMSettingsHeightsAccessor dtmHeightsAccessor = { settings };
-    uint32_t upperBoundHeightIndex = min(nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, settings.heightColorEntryCount, heightForColor), settings.heightColorEntryCount - 1u);
-    uint32_t lowerBoundHeightIndex = max(upperBoundHeightIndex - 1, 0);
+    int32_t upperBoundHeightIndex = min(nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, settings.heightColorEntryCount, heightForColor), settings.heightColorEntryCount - 1u);
+    int32_t lowerBoundHeightIndex = max(upperBoundHeightIndex - 1, 0);
 
     float upperBoundHeight = settings.heightColorMapHeights[upperBoundHeightIndex];
     float lowerBoundHeight = settings.heightColorMapHeights[lowerBoundHeightIndex];
