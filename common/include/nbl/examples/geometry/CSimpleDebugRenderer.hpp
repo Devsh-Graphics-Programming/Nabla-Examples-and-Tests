@@ -20,7 +20,10 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			using namespace nbl::system; \
 			using namespace nbl::asset; \
 			using namespace nbl::video
+
 	public:
+		//
+		constexpr static inline uint16_t VertexAttrubUTBDescBinding = 0;
 		//
 		struct SViewParams
 		{
@@ -79,7 +82,19 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 		};
 
 		//
-		static inline core::smart_refctd_ptr<CSimpleDebugRenderer> create(asset::IAssetManager* assMan, video::IGPURenderpass* renderpass, const uint32_t subpassIX, const std::span<const video::IGPUPolygonGeometry* const> geometries)
+		constexpr static inline auto DefaultPolygonGeometryPatch = []()->video::CAssetConverter::patch_t<asset::ICPUPolygonGeometry>
+		{
+			// we want to use the vertex data through UTBs
+			using usage_f = video::IGPUBuffer::E_USAGE_FLAGS;
+			video::CAssetConverter::patch_t<asset::ICPUPolygonGeometry> patch = {};
+			patch.positionBufferUsages = usage_f::EUF_UNIFORM_TEXEL_BUFFER_BIT;
+			patch.indexBufferUsages = usage_f::EUF_INDEX_BUFFER_BIT;
+			patch.otherBufferUsages = usage_f::EUF_UNIFORM_TEXEL_BUFFER_BIT;
+			return patch;
+		}();
+
+		//
+		static inline core::smart_refctd_ptr<CSimpleDebugRenderer> create(asset::IAssetManager* assMan, video::IGPURenderpass* renderpass, const uint32_t subpassIX)
 		{
 			EXPOSE_NABLA_NAMESPACES;
 
@@ -88,7 +103,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			auto device = const_cast<ILogicalDevice*>(renderpass->getOriginDevice());
 			auto logger = device->getLogger();
 
-			if (!assMan || geometries.empty())
+			if (!assMan)
 				return nullptr;
 
 			// load shader
@@ -113,13 +128,14 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				// create Descriptor Set Layout
 				smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
 				{
+					using binding_flags_t = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS;
 					const IGPUDescriptorSetLayout::SBinding bindings[] =
 					{
 						{
-							.binding = 0,
+							.binding = VertexAttrubUTBDescBinding,
 							.type = IDescriptor::E_TYPE::ET_UNIFORM_TEXEL_BUFFER,
-							// some geometries may not have particular attributes
-							.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_PARTIALLY_BOUND_BIT,
+							// need this trifecta of flags for `SubAllocatedDescriptorSet` to accept the binding as suballocatable
+							.createFlags = binding_flags_t::ECF_UPDATE_AFTER_BIND_BIT|binding_flags_t::ECF_UPDATE_UNUSED_WHILE_PENDING_BIT |binding_flags_t::ECF_PARTIALLY_BOUND_BIT,
 							.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX|IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 							.count = SInstance::SPushConstants::DescriptorCount
 						}
@@ -134,12 +150,13 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 
 				// create Descriptor Set
 				auto pool = device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT,{&dsLayout.get(),1});
-				init.ds = pool->createDescriptorSet(std::move(dsLayout));
-				if (!init.ds)
+				auto ds = pool->createDescriptorSet(std::move(dsLayout));
+				if (!ds)
 				{
 					logger->log("Could not descriptor set!",ILogger::ELL_ERROR);
 					return nullptr;
 				}
+				init.subAllocDS = make_smart_refctd_ptr<SubAllocatedDescriptorSet>(std::move(ds));
 			}
 
 			// create pipeline layout
@@ -148,7 +165,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				.offset = 0,
 				.size = sizeof(SInstance::SPushConstants),
 			}};
-			init.layout = device->createPipelineLayout(ranges,smart_refctd_ptr<const IGPUDescriptorSetLayout>(init.ds->getLayout()));
+			init.layout = device->createPipelineLayout(ranges,smart_refctd_ptr<const IGPUDescriptorSetLayout>(init.subAllocDS->getDescriptorSet()->getLayout()));
 
 			// create pipelines
 			using pipeline_e = SInitParams::PipelineType;
@@ -190,72 +207,16 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				}
 			}
 
-			// write geometries' attributes to descriptor set
-			{
-				core::vector<IGPUDescriptorSet::SDescriptorInfo> infos;
-				auto allocateUTB = [device,&infos](const IGeometry<const IGPUBuffer>::SDataView& view)->uint8_t
-				{
-					if (!view)
-						return SInstance::SPushConstants::DescriptorCount;
-					const auto retval = infos.size();
-					infos.emplace_back().desc = device->createBufferView(view.src, view.composed.format);
-					return retval;
-				};
-
-				for (const auto geom : geometries)
-				{
-					// could also check device origin on all buffers
-					if (!geom->valid())
-						continue;
-					auto& out = init.geoms.emplace_back();
-					switch (geom->getIndexingCallback()->knownTopology())
-					{
-						case E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_FAN:
-							out.pipeline = init.pipelines[pipeline_e::BasicTriangleFan];
-							break;
-						default:
-							out.pipeline = init.pipelines[pipeline_e::BasicTriangleList];
-							break;
-					}
-					if (const auto& view=geom->getIndexView(); view)
-					{
-						out.indexBuffer.offset = view.src.offset;
-						out.indexBuffer.buffer = view.src.buffer;
-						switch (view.composed.format)
-						{
-							case E_FORMAT::EF_R16_UINT:
-								out.indexType = EIT_16BIT;
-								break;
-							case E_FORMAT::EF_R32_UINT:
-								out.indexType = EIT_32BIT;
-								break;
-							default:
-								assert(false);
-								return nullptr;
-						}
-					}
-					out.elementCount = geom->getVertexReferenceCount();
-					out.positionView = allocateUTB(geom->getPositionView());
-					out.normalView = allocateUTB(geom->getNormalView());
-					// the first view is usually the UV
-					if (const auto& auxViews = geom->getAuxAttributeViews(); !auxViews.empty())
-						out.uvView = allocateUTB(auxViews.front());
-				}
-
-				if (infos.empty())
-					return nullptr;
-				const IGPUDescriptorSet::SWriteDescriptorSet write = {
-					.dstSet = init.ds.get(),
-					.binding = 0,
-					.arrayElement = 0,
-					.count = static_cast<uint32_t>(infos.size()),
-					.info = infos.data()
-				};
-				if (!device->updateDescriptorSets({&write,1},{}))
-					return nullptr;
-			}
-
 			return smart_refctd_ptr<CSimpleDebugRenderer>(new CSimpleDebugRenderer(std::move(init)),dont_grab);
+		}
+
+		//
+		static inline core::smart_refctd_ptr<CSimpleDebugRenderer> create(asset::IAssetManager* assMan, video::IGPURenderpass* renderpass, const uint32_t subpassIX, const std::span<const video::IGPUPolygonGeometry* const> geometries)
+		{
+			auto retval = create(assMan,renderpass,subpassIX);
+			if (retval)
+				retval->addGeometries(geometries);
+			return retval;
 		}
 
 		//
@@ -269,16 +230,145 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				Count
 			};
 
-			core::smart_refctd_ptr<video::IGPUDescriptorSet> ds;
+			core::smart_refctd_ptr<video::SubAllocatedDescriptorSet> subAllocDS;
 			core::smart_refctd_ptr<video::IGPUPipelineLayout> layout;
 			core::smart_refctd_ptr<video::IGPUGraphicsPipeline> pipelines[PipelineType::Count];
-			core::vector<SPackedGeometry> geoms;
 		};
 		inline const SInitParams& getInitParams() const {return m_params;}
 
 		//
-		inline auto& getGeometry(const uint32_t ix) {return m_params.geoms[ix];}
-		inline const auto& getGeometry(const uint32_t ix) const {return m_params.geoms[ix];}
+		inline bool addGeometries(const std::span<const video::IGPUPolygonGeometry* const> geometries)
+		{
+			EXPOSE_NABLA_NAMESPACES;
+			if (geometries.empty())
+				return false;
+			auto device = const_cast<ILogicalDevice*>(m_params.layout->getOriginDevice());
+
+			core::vector<IGPUDescriptorSet::SWriteDescriptorSet> writes;
+			core::vector<IGPUDescriptorSet::SDescriptorInfo> infos;
+			auto allocateUTB = [&](const IGeometry<const IGPUBuffer>::SDataView& view)->uint8_t
+			{
+				if (!view)
+					return SInstance::SPushConstants::DescriptorCount;
+				auto index = SubAllocatedDescriptorSet::invalid_value;
+				if (m_params.subAllocDS->multi_allocate(VertexAttrubUTBDescBinding,1,&index)!=0)
+					return SInstance::SPushConstants::DescriptorCount;
+				const auto retval = infos.size();
+				infos.emplace_back().desc = device->createBufferView(view.src,view.composed.format);
+				writes.emplace_back() = {
+					.dstSet = m_params.subAllocDS->getDescriptorSet(),
+					.binding = VertexAttrubUTBDescBinding,
+					.arrayElement = index,
+					.count = 1,
+					.info = reinterpret_cast<const IGPUDescriptorSet::SDescriptorInfo*>(retval)
+				};
+				return retval;
+			};
+
+			auto sizeToSet = m_geoms.size();
+			auto resetGeoms = core::makeRAIIExiter([&]()->void
+				{
+					for (auto& write : writes)
+						immediateDealloc(write.arrayElement);
+					m_geoms.resize(sizeToSet);
+				}
+			);
+			for (const auto geom : geometries)
+			{
+				// could also check device origin on all buffers
+				if (!geom->valid())
+					return false;
+				auto& out = m_geoms.emplace_back();
+				using pipeline_e = SInitParams::PipelineType;
+				switch (geom->getIndexingCallback()->knownTopology())
+				{
+					case E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_FAN:
+						out.pipeline = m_params.pipelines[pipeline_e::BasicTriangleFan];
+						break;
+					default:
+						out.pipeline = m_params.pipelines[pipeline_e::BasicTriangleList];
+						break;
+				}
+				if (const auto& view=geom->getIndexView(); view)
+				{
+					out.indexBuffer.offset = view.src.offset;
+					out.indexBuffer.buffer = view.src.buffer;
+					switch (view.composed.format)
+					{
+						case E_FORMAT::EF_R16_UINT:
+							out.indexType = EIT_16BIT;
+							break;
+						case E_FORMAT::EF_R32_UINT:
+							out.indexType = EIT_32BIT;
+							break;
+						default:
+							return false;
+					}
+				}
+				out.elementCount = geom->getVertexReferenceCount();
+				out.positionView = allocateUTB(geom->getPositionView());
+				out.normalView = allocateUTB(geom->getNormalView());
+				// the first view is usually the UV
+				if (const auto& auxViews = geom->getAuxAttributeViews(); !auxViews.empty())
+					out.uvView = allocateUTB(auxViews.front());
+			}
+
+			// no geometry
+			if (infos.empty())
+				return false;
+
+			// unbase our pointers
+			for (auto& write : writes)
+				write.info = infos.data()+reinterpret_cast<const size_t&>(write.info);
+			if (!device->updateDescriptorSets(writes,{}))
+				return false;
+
+			// retain
+			writes.clear();
+			sizeToSet = m_geoms.size();
+			return true;
+		}
+
+		//
+		inline void removeGeometry(const uint32_t ix, const video::ISemaphore::SWaitInfo& info)
+		{
+			EXPOSE_NABLA_NAMESPACES;
+			if (ix>=m_geoms.size())
+				return;
+
+			core::vector<SubAllocatedDescriptorSet::value_type> deferredFree;
+			deferredFree.reserve(3);
+			auto deallocate = [&](SubAllocatedDescriptorSet::value_type index)->void
+			{
+				if (info.semaphore)
+					deferredFree.push_back(index);
+				else
+					immediateDealloc(index);
+			};
+			auto geo = m_geoms.begin() + ix;
+			deallocate(geo->positionView);
+			deallocate(geo->normalView);
+			deallocate(geo->uvView);
+			m_geoms.erase(geo);
+
+			if (deferredFree.empty())
+				return;
+
+			core::vector<IGPUDescriptorSet::SDropDescriptorSet> nullify(deferredFree.size());
+			const_cast<ILogicalDevice*>(m_params.layout->getOriginDevice())->nullifyDescriptors(nullify);
+		}
+
+		//
+		inline void clearGeometries(const video::ISemaphore::SWaitInfo& info)
+		{
+			// back to front to avoid O(n^2) resize
+			while (!m_geoms.empty())
+				removeGeometry(m_geoms.size()-1,info);
+		}
+
+		//
+		inline const auto& getGeometries() const {return m_geoms;}
+		inline auto& getGeometry(const uint32_t ix) {return m_geoms[ix];}
 
 		//
 		inline void render(video::IGPUCommandBuffer* cmdbuf, const SViewParams& viewParams) const
@@ -288,7 +378,8 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			cmdbuf->beginDebugMarker("CSimpleDebugRenderer::render");
 
 			const auto* layout = m_params.layout.get();
-			cmdbuf->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_GRAPHICS,layout,0,1,&m_params.ds.get());
+			const auto ds = m_params.subAllocDS->getDescriptorSet();
+			cmdbuf->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_GRAPHICS,layout,0,1,&ds);
 
 			for (const auto& instance : m_instances)
 			{
@@ -311,8 +402,21 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 
 	protected:
 		inline CSimpleDebugRenderer(SInitParams&& _params) : m_params(std::move(_params)) {}
+		inline ~CSimpleDebugRenderer()
+		{
+			// clean shutdown, can also make SubAllocatedDescriptorSet resillient against that, and issue `device->waitIdle` if not everything is freed
+			const_cast<video::ILogicalDevice*>(m_params.layout->getOriginDevice())->waitIdle();
+			clearGeometries({});
+		}
+
+		inline void immediateDealloc(video::SubAllocatedDescriptorSet::value_type index)
+		{
+			video::IGPUDescriptorSet::SDropDescriptorSet dummy[1];
+			m_params.subAllocDS->multi_deallocate(dummy,VertexAttrubUTBDescBinding,1,&index);
+		}
 
 		SInitParams m_params;
+		core::vector<SPackedGeometry> m_geoms;
 #undef EXPOSE_NABLA_NAMESPACES
 };
 
