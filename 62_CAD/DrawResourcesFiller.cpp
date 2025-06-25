@@ -33,7 +33,7 @@ bool DrawResourcesFiller::allocateDrawResources(ILogicalDevice* logicalDevice, s
 	const size_t totalResourcesSize = adjustedImagesMemorySize + adjustedBuffersMemorySize;
 
 	IGPUBuffer::SCreationParams resourcesBufferCreationParams = {};
-	resourcesBufferCreationParams.size = adjustedBuffersMemorySize;
+	resourcesBufferCreationParams.size = 870;
 	resourcesBufferCreationParams.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INDEX_BUFFER_BIT;
 	resourcesGPUBuffer = logicalDevice->createBuffer(std::move(resourcesBufferCreationParams));
 	resourcesGPUBuffer->setObjectDebugName("drawResourcesBuffer");
@@ -325,7 +325,8 @@ void DrawResourcesFiller::drawTriangleMesh(
 		size_t geometryBufferOffset = resourcesCollection.geometryInfo.increaseSizeAndGetOffset(trianglesToUploadByteSize, alignof(CTriangleMesh::vertex_t));
 		void* dst = resourcesCollection.geometryInfo.data() + geometryBufferOffset;
 		// the actual bda address will be determined only after all copies are finalized, later we will do += `baseBDAAddress + geometryInfo.bufferOffset`
-		drawCallData.dtm.triangleMeshVerticesBaseAddress = geometryBufferOffset;
+		// the - is a small hack because index buffer grows but vertex buffer needs to start from 0, remove that once we either get rid of the index buffer or implement an algorithm that can have vertex reuse
+		drawCallData.dtm.triangleMeshVerticesBaseAddress = geometryBufferOffset - (sizeof(CTriangleMesh::vertex_t) * trianglesUploaded * 3); 
 		memcpy(dst, &vertexBuffer[trianglesUploaded * 3u], vtxBuffByteSize);
 		geometryBufferOffset += vtxBuffByteSize; 
 
