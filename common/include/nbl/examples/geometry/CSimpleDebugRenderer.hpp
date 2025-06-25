@@ -79,7 +79,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 		};
 
 		//
-		static inline core::smart_refctd_ptr<CSimpleDebugRenderer> create(asset::IAssetManager* assMan, video::IGPURenderpass* renderpass, const uint32_t subpassIX, const CGeometryCreatorScene* scene)
+		static inline core::smart_refctd_ptr<CSimpleDebugRenderer> create(asset::IAssetManager* assMan, video::IGPURenderpass* renderpass, const uint32_t subpassIX, const std::span<const video::IGPUPolygonGeometry* const> geometries)
 		{
 			EXPOSE_NABLA_NAMESPACES;
 
@@ -88,10 +88,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			auto device = const_cast<ILogicalDevice*>(renderpass->getOriginDevice());
 			auto logger = device->getLogger();
 
-			if (!assMan || !scene)
-				return nullptr;
-			const auto namedGeoms = scene->getGeometries();
-			if (namedGeoms.empty())
+			if (!assMan || geometries.empty())
 				return nullptr;
 
 			// load shader
@@ -154,33 +151,26 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			init.layout = device->createPipelineLayout(ranges,smart_refctd_ptr<const IGPUDescriptorSetLayout>(init.ds->getLayout()));
 
 			// create pipelines
-			enum PipelineType : uint8_t
+			using pipeline_e = SInitParams::PipelineType;
 			{
-				BasicTriangleList,
-				BasicTriangleFan,
-				Cone,
-				Count
-			};
-			smart_refctd_ptr<IGPUGraphicsPipeline> pipelines[PipelineType::Count] = {};
-			{
-				IGPUGraphicsPipeline::SCreationParams params[PipelineType::Count] = {};
-				params[PipelineType::BasicTriangleList].vertexShader = {.shader=shader.get(),.entryPoint="BasicVS"};
-				params[PipelineType::BasicTriangleList].fragmentShader = {.shader=shader.get(),.entryPoint="BasicFS"};
-				params[PipelineType::BasicTriangleFan].vertexShader = {.shader=shader.get(),.entryPoint="BasicVS"};
-				params[PipelineType::BasicTriangleFan].fragmentShader = {.shader=shader.get(),.entryPoint="BasicFS"};
-				params[PipelineType::Cone].vertexShader = {.shader=shader.get(),.entryPoint="ConeVS"};
-				params[PipelineType::Cone].fragmentShader = {.shader=shader.get(),.entryPoint="ConeFS"};
-				for (auto i=0; i< PipelineType::Count; i++)
+				IGPUGraphicsPipeline::SCreationParams params[pipeline_e::Count] = {};
+				params[pipeline_e::BasicTriangleList].vertexShader = {.shader=shader.get(),.entryPoint="BasicVS"};
+				params[pipeline_e::BasicTriangleList].fragmentShader = {.shader=shader.get(),.entryPoint="BasicFS"};
+				params[pipeline_e::BasicTriangleFan].vertexShader = {.shader=shader.get(),.entryPoint="BasicVS"};
+				params[pipeline_e::BasicTriangleFan].fragmentShader = {.shader=shader.get(),.entryPoint="BasicFS"};
+				params[pipeline_e::Cone].vertexShader = {.shader=shader.get(),.entryPoint="ConeVS"};
+				params[pipeline_e::Cone].fragmentShader = {.shader=shader.get(),.entryPoint="ConeFS"};
+				for (auto i=0; i<pipeline_e::Count; i++)
 				{
 					params[i].layout = init.layout.get();
 					// no vertex input
 					auto& primitiveAssembly = params[i].cached.primitiveAssembly;
 					auto& rasterization = params[i].cached.rasterization;
 					auto& blend = params[i].cached.blend;
-					const auto type = static_cast<PipelineType>(i);
+					const auto type = static_cast<pipeline_e>(i);
 					switch (type)
 					{
-						case PipelineType::BasicTriangleFan:
+						case pipeline_e::BasicTriangleFan:
 							primitiveAssembly.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_FAN;
 							break;
 						default:
@@ -193,7 +183,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 					params[i].cached.subpassIx = subpassIX;
 					params[i].renderpass = renderpass;
 				}
-				if (!device->createGraphicsPipelines(nullptr,params,pipelines))
+				if (!device->createGraphicsPipelines(nullptr,params,init.pipelines))
 				{
 					logger->log("Could not create Graphics Pipelines!",ILogger::ELL_ERROR);
 					return nullptr;
@@ -212,9 +202,8 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 					return retval;
 				};
 
-				for (const auto& entry : namedGeoms)
+				for (const auto geom : geometries)
 				{
-					const auto* geom = entry.geom.get();
 					// could also check device origin on all buffers
 					if (!geom->valid())
 						continue;
@@ -222,15 +211,12 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 					switch (geom->getIndexingCallback()->knownTopology())
 					{
 						case E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_FAN:
-							out.pipeline = pipelines[PipelineType::BasicTriangleFan];
+							out.pipeline = init.pipelines[pipeline_e::BasicTriangleFan];
 							break;
 						default:
-							out.pipeline = pipelines[PipelineType::BasicTriangleList];
+							out.pipeline = init.pipelines[pipeline_e::BasicTriangleList];
 							break;
 					}
-					// special case
-					if (entry.name=="Cone")
-						out.pipeline = pipelines[PipelineType::Cone];
 					if (const auto& view=geom->getIndexView(); view)
 					{
 						out.indexBuffer.offset = view.src.offset;
@@ -275,11 +261,24 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 		//
 		struct SInitParams
 		{
+			enum PipelineType : uint8_t
+			{
+				BasicTriangleList,
+				BasicTriangleFan,
+				Cone, // special case
+				Count
+			};
+
 			core::smart_refctd_ptr<video::IGPUDescriptorSet> ds;
 			core::smart_refctd_ptr<video::IGPUPipelineLayout> layout;
+			core::smart_refctd_ptr<video::IGPUGraphicsPipeline> pipelines[PipelineType::Count];
 			core::vector<SPackedGeometry> geoms;
 		};
 		inline const SInitParams& getInitParams() const {return m_params;}
+
+		//
+		inline auto& getGeometry(const uint32_t ix) {return m_params.geoms[ix];}
+		inline const auto& getGeometry(const uint32_t ix) const {return m_params.geoms[ix];}
 
 		//
 		inline void render(video::IGPUCommandBuffer* cmdbuf, const SViewParams& viewParams) const

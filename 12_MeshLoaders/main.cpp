@@ -37,6 +37,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			}
 			
 			//! cache results -- speeds up mesh generation on second run
+			m_qnc = make_smart_refctd_ptr<CQuantNormalCache>();
 			m_qnc->loadCacheFromFile<EF_R8G8B8_SNORM>(m_system.get(),sharedOutputCWD/"../../tmp/normalCache888.sse");
 
 			//
@@ -224,17 +225,29 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		}
 
 	private:
+		// TODO: standardise this across examples, and take from `argv`
+		bool m_nonInteractiveTest = true;
+
 		inline bool reloadModel()
 		{
-			pfd::open_file file("Choose a supported Model File", "../../media", { "All Supported Formats", "*.ply *.stl *.serialized *.obj",
-				"TODO (.ply)", "*.ply",
-				"TODO (.stl)", "*.stl",
-				"Mitsuba 0.6 Serialized (.serialized)", "*.serialized",
-				"Wavefront Object (.obj)", "*.obj" 
-			});
-			if (file.result().empty())
-				return false;
-			m_modelPath = file.result()[0];
+			if (m_nonInteractiveTest) // TODO: maybe also take from argv and argc
+				m_modelPath = (sharedInputCWD/"ply/Spanner-ply.ply").string();
+			else
+			{
+				pfd::open_file file("Choose a supported Model File", sharedInputCWD.string(),
+					{
+						"All Supported Formats", "*.ply *.stl *.serialized *.obj",
+						"TODO (.ply)", "*.ply",
+						"TODO (.stl)", "*.stl",
+						"Mitsuba 0.6 Serialized (.serialized)", "*.serialized",
+						"Wavefront Object (.obj)", "*.obj"
+					},
+					false
+				);
+				if (file.result().empty())
+					return false;
+				m_modelPath = file.result()[0];
+			}
 
 			// free up
 			m_assetMgr->clearAllAssetCache();
