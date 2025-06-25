@@ -23,7 +23,7 @@ function(INTERFACE_TO_BUILTINS TARGET)
     set_target_properties(${TARGET} PROPERTIES DISABLE_PRECOMPILE_HEADERS OFF)
     target_precompile_headers(${TARGET} REUSE_FROM "${LIB_NAME}")
 
-    target_include_directories(${TARGET} PUBLIC "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/include")
+    target_include_directories(${TARGET} PUBLIC "${COMMON_INCLUDE_DIRECTORY}")
     target_link_libraries(${TARGET} INTERFACE ${LIB_NAME})
 endfunction()
 
