@@ -48,7 +48,9 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(10_CountingSort EXCLUDE_FROM_ALL)
 	# showcase use of FFT for post-FX Bloom  effect
 	add_subdirectory(11_FFT EXCLUDE_FROM_ALL)
-
+    
+    add_subdirectory(14_ComputeReduce EXCLUDE_FROM_ALL)
+    add_subdirectory(15_ComputeScan EXCLUDE_FROM_ALL)
 
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo EXCLUDE_FROM_ALL)
