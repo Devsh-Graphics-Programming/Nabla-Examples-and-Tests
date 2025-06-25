@@ -40,29 +40,14 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			m_qnc = make_smart_refctd_ptr<CQuantNormalCache>();
 			m_qnc->loadCacheFromFile<EF_R8G8B8_SNORM>(m_system.get(),sharedOutputCWD/"../../tmp/normalCache888.sse");
 
+			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+			m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(),scRes->getRenderpass(),0,{});
+			if (!m_renderer)
+				return logFail("Failed to create renderer!");
+
 			//
 			if (!reloadModel())
 				return false;
-#if 0			
-			const uint32_t addtionalBufferOwnershipFamilies[] = {getGraphicsQueue()->getFamilyIndex()};
-			// we want to use the vertex data through UTBs
-			using usage_f = IGPUBuffer::E_USAGE_FLAGS;
-			CAssetConverter::patch_t<asset::ICPUPolygonGeometry> patch = {};
-			patch.positionBufferUsages = usage_f::EUF_UNIFORM_TEXEL_BUFFER_BIT;
-			patch.indexBufferUsages = usage_f::EUF_INDEX_BUFFER_BIT;
-			patch.otherBufferUsages = usage_f::EUF_UNIFORM_TEXEL_BUFFER_BIT;
-			m_scene = CGeometryCreatorScene::create(
-				{
-					.transferQueue = getTransferUpQueue(),
-					.utilities = m_utils.get(),
-					.logger = m_logger.get(),
-					.addtionalBufferOwnershipFamilies = addtionalBufferOwnershipFamilies
-				},patch
-			);
-#endif
-
-			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-			m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(),scRes->getRenderpass(),0,nullptr);
 
 			camera.mapKeysToArrows();
 
@@ -250,6 +235,8 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			}
 
 			// free up
+			m_renderer->m_instances.clear();
+			m_renderer->clearGeometries({.semaphore=m_semaphore.get(),.value=m_realFrameIx});
 			m_assetMgr->clearAllAssetCache();
 
 			//! load the geometry
@@ -258,10 +245,104 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			auto bundle = m_assetMgr->getAsset(m_modelPath,params);
 			if (bundle.getContents().empty())
 				return false;
+
+			// 
+			core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
+			switch (bundle.getAssetType())
+			{
+				case IAsset::E_TYPE::ET_GEOMETRY:
+					for (const auto& item : bundle.getContents())
+					if (auto polyGeo=IAsset::castDown<ICPUPolygonGeometry>(item); polyGeo)
+						geometries.push_back(polyGeo);
+					break;
+				default:
+					m_logger->log("Asset loaded but not a supported type (ET_GEOMETRY,ET_GEOMETRY_COLLECTION)",ILogger::ELL_ERROR);
+					break;
+			}
+			if (geometries.empty())
+				return false;
+
 			//! cache results -- speeds up mesh generation on second run
 			m_qnc->saveCacheToFile<EF_R8G8B8_SNORM>(m_system.get(),sharedOutputCWD/"../../tmp/normalCache888.sse");
+			
+			// convert the geometries
+			{
+				smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({.device=m_device.get()});
 
-			return true;
+				const auto transferFamily = getTransferUpQueue()->getFamilyIndex();
+
+				struct SInputs : CAssetConverter::SInputs
+				{
+					virtual inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t groupCopyID, const asset::ICPUBuffer* buffer, const CAssetConverter::patch_t<asset::ICPUBuffer>& patch) const
+					{
+						return sharedBufferOwnership;
+					}
+
+					core::vector<uint32_t> sharedBufferOwnership;
+				} inputs = {};
+				core::vector<CAssetConverter::patch_t<ICPUPolygonGeometry>> patches(geometries.size(),CSimpleDebugRenderer::DefaultPolygonGeometryPatch);
+				{
+					inputs.logger = m_logger.get();
+					std::get<CAssetConverter::SInputs::asset_span_t<ICPUPolygonGeometry>>(inputs.assets) = {&geometries.front().get(),geometries.size()};
+					std::get<CAssetConverter::SInputs::patch_span_t<ICPUPolygonGeometry>>(inputs.patches) = patches;
+					// set up shared ownership so we don't have to 
+					core::unordered_set<uint32_t> families;
+					families.insert(transferFamily);
+					families.insert(getGraphicsQueue()->getFamilyIndex());
+					if (families.size()>1)
+					for (const auto fam : families)
+						inputs.sharedBufferOwnership.push_back(fam);
+				}
+				
+				// reserve
+				auto reservation = converter->reserve(inputs);
+				if (!reservation)
+				{
+					m_logger->log("Failed to reserve GPU objects for CPU->GPU conversion!",ILogger::ELL_ERROR);
+					return false;
+				}
+
+				// convert
+				{
+					auto semaphore = m_device->createSemaphore(0u);
+
+					constexpr auto MultiBuffering = 2;
+					std::array<smart_refctd_ptr<IGPUCommandBuffer>,MultiBuffering> commandBuffers = {};
+					{
+						auto pool = m_device->createCommandPool(transferFamily,IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT|IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+						pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,commandBuffers,smart_refctd_ptr(m_logger));
+					}
+					commandBuffers.front()->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+
+					std::array<IQueue::SSubmitInfo::SCommandBufferInfo,MultiBuffering> commandBufferSubmits;
+					for (auto i=0; i<MultiBuffering; i++)
+						commandBufferSubmits[i].cmdbuf = commandBuffers[i].get();
+
+					SIntendedSubmitInfo transfer = {};
+					transfer.queue = getTransferUpQueue();
+					transfer.scratchCommandBuffers = commandBufferSubmits;
+					transfer.scratchSemaphore = {
+						.semaphore = semaphore.get(),
+						.value = 0u,
+						.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+					};
+
+					CAssetConverter::SConvertParams cpar = {};
+					cpar.utilities = m_utils.get();
+					cpar.transfer = &transfer;
+
+					// basically it records all data uploads and submits them right away
+					auto future = reservation.convert(cpar);
+					if (future.copy()!=IQueue::RESULT::SUCCESS)
+					{
+						m_logger->log("Failed to await submission feature!", ILogger::ELL_ERROR);
+						return false;
+					}
+				}
+
+				const auto& converted = reservation.getGPUObjects<ICPUPolygonGeometry>();
+				return m_renderer->addGeometries({&converted.front().get(),converted.size()});
+			}
 		}
 
 		// Maximum frames which can be simultaneously submitted, used to cycle through our per-frame resources like command buffers
