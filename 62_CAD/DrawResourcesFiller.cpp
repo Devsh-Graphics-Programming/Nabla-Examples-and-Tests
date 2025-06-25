@@ -33,7 +33,7 @@ bool DrawResourcesFiller::allocateDrawResources(ILogicalDevice* logicalDevice, s
 	const size_t totalResourcesSize = adjustedImagesMemorySize + adjustedBuffersMemorySize;
 
 	IGPUBuffer::SCreationParams resourcesBufferCreationParams = {};
-	resourcesBufferCreationParams.size = 1300;
+	resourcesBufferCreationParams.size = adjustedBuffersMemorySize;
 	resourcesBufferCreationParams.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INDEX_BUFFER_BIT;
 	resourcesGPUBuffer = logicalDevice->createBuffer(std::move(resourcesBufferCreationParams));
 	resourcesGPUBuffer->setObjectDebugName("drawResourcesBuffer");
@@ -340,6 +340,13 @@ void DrawResourcesFiller::drawTriangleMesh(
 		drawCallData.dtm.triangleMeshMainObjectIndex = mainObjectIdx;
 		drawCallData.dtm.indexCount = trianglesToUpload * 3u;
 		drawCalls.push_back(drawCallData);
+
+		//if (trianglesUploaded == 0u)
+		//{
+		//	m_logger.log("drawTriangleMesh: not enough vram allocation for a single triangle!", nbl::system::ILogger::ELL_ERROR);
+		//	assert(false);
+		//	break;
+		//}
 
 		// Requires Auto-Submit If All Triangles of the Mesh couldn't fit into Memory
 		if (trianglesUploaded < numTriangles)
