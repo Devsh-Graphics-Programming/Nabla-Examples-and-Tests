@@ -52,19 +52,19 @@ if(NBL_BUILD_EXAMPLES)
 
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo EXCLUDE_FROM_ALL)
-	#add_subdirectory(29_SpecializationConstants EXCLUDE_FROM_ALL)
 	#add_subdirectory(33_Draw3DLine EXCLUDE_FROM_ALL)
 
 	# Unit Test Examples
 	add_subdirectory(20_AllocatorTest EXCLUDE_FROM_ALL)
 	add_subdirectory(21_LRUCacheUnitTest EXCLUDE_FROM_ALL)
 	add_subdirectory(22_CppCompat EXCLUDE_FROM_ALL)
-	add_subdirectory(23_ArithmeticUnitTest EXCLUDE_FROM_ALL)
+	add_subdirectory(23_Arithmetic2UnitTest EXCLUDE_FROM_ALL)
 	add_subdirectory(24_ColorSpaceTest EXCLUDE_FROM_ALL)
 	add_subdirectory(25_FilterTest EXCLUDE_FROM_ALL)
 	add_subdirectory(26_Blur EXCLUDE_FROM_ALL)
 	add_subdirectory(27_MPMCScheduler EXCLUDE_FROM_ALL)	
 	add_subdirectory(28_FFTBloom EXCLUDE_FROM_ALL)
+	add_subdirectory(29_Arithmetic2Bench EXCLUDE_FROM_ALL)
 	# add_subdirectory(36_CUDAInterop EXCLUDE_FROM_ALL)
 
 	# Showcase compute pathtracing
@@ -75,16 +75,10 @@ if(NBL_BUILD_EXAMPLES)
 	#	add_subdirectory(39_DenoiserTonemapper EXCLUDE_FROM_ALL)
 	# endif()
 
-	add_subdirectory(42_FragmentShaderPathTracer EXCLUDE_FROM_ALL)
 	#add_subdirectory(43_SumAndCDFFilters EXCLUDE_FROM_ALL)
-	#add_subdirectory(45_BRDFEvalTest EXCLUDE_FROM_ALL)
-	#add_subdirectory(46_SamplingValidation EXCLUDE_FROM_ALL)
 	add_subdirectory(47_DerivMapTest EXCLUDE_FROM_ALL)
-	add_subdirectory(53_ComputeShaders EXCLUDE_FROM_ALL)
 	add_subdirectory(54_Transformations EXCLUDE_FROM_ALL)
 	add_subdirectory(55_RGB18E7S3 EXCLUDE_FROM_ALL)
-	add_subdirectory(56_RayQuery EXCLUDE_FROM_ALL)
-	add_subdirectory(60_ClusteredRendering EXCLUDE_FROM_ALL)
 	add_subdirectory(61_UI EXCLUDE_FROM_ALL)
 	add_subdirectory(62_CAD EXCLUDE_FROM_ALL)
 	add_subdirectory(62_SchusslerTest EXCLUDE_FROM_ALL)
@@ -95,7 +89,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(67_RayQueryGeometry EXCLUDE_FROM_ALL)
 	add_subdirectory(68_JpegLoading EXCLUDE_FROM_ALL)
 
-  add_subdirectory(70_FLIPFluids EXCLUDE_FROM_ALL)
+  	add_subdirectory(70_FLIPFluids EXCLUDE_FROM_ALL)
 	add_subdirectory(71_RayTracingPipeline EXCLUDE_FROM_ALL)
 
 	NBL_HOOK_COMMON_API("${NBL_COMMON_API_TARGETS}")

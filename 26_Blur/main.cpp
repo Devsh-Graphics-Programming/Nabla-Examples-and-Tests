@@ -225,7 +225,7 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 			if (!m_vertImg || !m_device->allocate(reqs, m_vertImg.get()).isValid())
 				return logFail("Could not create HDR Image");
 
-			smart_refctd_ptr<IGPUShader> shader;
+			smart_refctd_ptr<IShader> shader;
 			{
 				IAssetLoader::SAssetLoadParams lp = {};
 				lp.logger = m_logger.get();
@@ -236,10 +236,10 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 					return logFail("Failed to load shader from disk");
 
 				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-				auto sourceRaw = IAsset::castDown<ICPUShader>(assets[0]);
+				auto sourceRaw = IAsset::castDown<IShader>(assets[0]);
 				if (!sourceRaw)
 					return logFail("Failed to load shader from disk");
-				smart_refctd_ptr<ICPUShader> source = CHLSLCompiler::createOverridenCopy(
+				smart_refctd_ptr<IShader> source = CHLSLCompiler::createOverridenCopy(
 					sourceRaw.get(),
 					"static const uint16_t WORKGROUP_SIZE = %d;\n"
 					"static const uint16_t MAX_SCANLINE_SIZE = %d;\n"
@@ -264,7 +264,7 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 				auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(optPasses);
 				shader = m_device->createShader(source.get(), opt.get());
 #else
-				shader = m_device->createShader(source.get());
+				shader = m_device->compileShader({ source.get() });
 #endif
 				if (!shader)
 					return false;
@@ -272,26 +272,18 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 
 			{
 				const asset::SPushConstantRange ranges[] = { {
-					.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.stageFlags = hlsl::ShaderStage::ESS_COMPUTE,
 					.offset = 0,
 					.size = sizeof(PushConstants)
 				} };
 				auto layout = m_device->createPipelineLayout(ranges, smart_refctd_ptr(dsLayout));
-				const IGPUComputePipeline::SCreationParams params[] = { {
-					{
-						.layout = layout.get()
-					},
-					{},
-					IGPUComputePipeline::SCreationParams::FLAGS::NONE,
-					{
-						.entryPoint = "main",
-						.shader = shader.get(),
-						.entries = nullptr,
-						.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(hlsl::findMSB(m_physicalDevice->getLimits().maxSubgroupSize)),
-						.requireFullSubgroups = true
-					}
-				}};
-				if (!m_device->createComputePipelines(nullptr, params, &m_ppln))
+
+				IGPUComputePipeline::SCreationParams params = {};
+				params.layout = layout.get();
+				params.shader.shader = shader.get();
+				params.shader.entryPoint = "main";
+				params.cached.requireFullSubgroups = true;
+				if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &m_ppln))
 					return logFail("Failed to create Pipeline");
 			}
 
@@ -626,7 +618,7 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 				cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {}, .bufBarriers = {},.imgBarriers = {&vertImgBarrier,1} });
 				cb->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_COMPUTE, layout, 0, 1, &m_ds0.get());
 				PushConstants pc = { .radius = blurRadius, .activeAxis = 0, .edgeWrapMode = blurEdgeWrapMode };
-				cb->pushConstants(layout, IGPUShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(pc), &pc);
+				cb->pushConstants(layout,  hlsl::ShaderStage::ESS_COMPUTE, 0, sizeof(pc), &pc);
 				cb->dispatch(image_params.extent.height, 1, 1);
 
 				image_memory_barrier_t horzImgBarrier = {
@@ -646,7 +638,7 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 				cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {}, .bufBarriers = {},.imgBarriers = {&horzImgBarrier,1} });
 				cb->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_COMPUTE, layout, 0, 1, &m_ds1.get());
 				pc.activeAxis = 1;
-				cb->pushConstants(layout, IGPUShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(pc), &pc);
+				cb->pushConstants(layout, hlsl::ShaderStage::ESS_COMPUTE, 0, sizeof(pc), &pc);
 				cb->dispatch(image_params.extent.width, 1, 1);
 			}
 

@@ -15,13 +15,14 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
+// TODO: share push constants
 struct PTPushConstant {
 	matrix4SIMD invMVP;
 	int sampleCount;
 	int depth;
 };
 
-// TODO: Add a QueryPool for timestamping once its ready
+// TODO: Add a QueryPool for timestamping once its ready (actually add IMGUI mspf plotter)
 // TODO: Do buffer creation using assConv
 class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
@@ -313,12 +314,11 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						std::exit(-1);
 					}
 
-					auto source = IAsset::castDown<ICPUShader>(assets[0]);
+					auto source = IAsset::castDown<IShader>(assets[0]);
 					// The down-cast should not fail!
 					assert(source);
 
-					// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
-					auto shader = m_device->createShader(source.get());
+					auto shader = m_device->compileShader({ .source = source.get(), .stage = ESS_COMPUTE });
 					if (!shader)
 					{
 						m_logger->log("Shader creationed failed: %s!", ILogger::ELL_ERROR, pathToShader);
@@ -353,8 +353,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						params.shader.shader = ptShader.get();
 						params.shader.entryPoint = "main";
 						params.shader.entries = nullptr;
-						params.shader.requireFullSubgroups = true;
-						params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+						params.cached.requireFullSubgroups = true;
+						params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(5);
 						if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTPipelines.data() + index)) {
 							return logFail("Failed to create compute pipeline!\n");
 						}
@@ -373,9 +373,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					if (!fragmentShader)
 						return logFail("Failed to Load and Compile Fragment Shader: lumaMeterShader!");
 
-					const IGPUShader::SSpecInfo fragSpec = {
+					const IGPUPipelineBase::SShaderSpecInfo fragSpec = {
+						.shader = fragmentShader.get(),
 						.entryPoint = "main",
-						.shader = fragmentShader.get()
 					};
 
 					auto presentLayout = m_device->createPipelineLayout(
@@ -533,6 +533,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					region.imageExtent = scrambleMapCPU->getCreationParameters().extent;
 
 					scrambleMapCPU->setBufferAndRegions(std::move(texelBuffer), regions);
+
+					// programmatically user-created IPreHashed need to have their hash computed (loaders do it while loading)
+					scrambleMapCPU->setContentHash(scrambleMapCPU->computeContentHash());
 				}
 
 				std::array<ICPUImage*, 2> cpuImgs = { envMapCPU.get(), scrambleMapCPU.get()};
@@ -859,7 +862,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
 					ImGui::ListBox("Shader", &PTPipline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
 					ImGui::SliderInt("SPP", &spp, 1, MaxBufferSamples);
-					ImGui::SliderInt("Depth", &depth, 1, MaxBufferDimensions / 3);
+					ImGui::SliderInt("Depth", &depth, 1, MaxBufferDimensions / 6);
 
 					ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
 
