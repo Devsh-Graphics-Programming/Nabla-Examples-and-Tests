@@ -33,7 +33,7 @@ bool DrawResourcesFiller::allocateDrawResources(ILogicalDevice* logicalDevice, s
 	const size_t totalResourcesSize = adjustedImagesMemorySize + adjustedBuffersMemorySize;
 
 	IGPUBuffer::SCreationParams resourcesBufferCreationParams = {};
-	resourcesBufferCreationParams.size = adjustedBuffersMemorySize;
+	resourcesBufferCreationParams.size = 1300;
 	resourcesBufferCreationParams.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INDEX_BUFFER_BIT;
 	resourcesGPUBuffer = logicalDevice->createBuffer(std::move(resourcesBufferCreationParams));
 	resourcesGPUBuffer->setObjectDebugName("drawResourcesBuffer");
@@ -289,9 +289,6 @@ void DrawResourcesFiller::drawTriangleMesh(
 	setActiveDTMSettings(dtmSettingsInfo);
 	beginMainObject(MainObjectType::DTM);
 
-	DrawCallData drawCallData = {}; 
-	drawCallData.isDTMRendering = true;
-
 	uint32_t mainObjectIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
 	if (mainObjectIdx == InvalidMainObjectIdx)
 	{
@@ -299,41 +296,56 @@ void DrawResourcesFiller::drawTriangleMesh(
 		assert(false);
 		return;
 	}
-	drawCallData.dtm.triangleMeshMainObjectIndex = mainObjectIdx;
+
+	DrawCallData drawCallData = {}; 
+	drawCallData.isDTMRendering = true;
 
 	ICPUBuffer::SCreationParams geometryBuffParams;
-	
+
 	// concatenate the index and vertex buffer into the geometry buffer
-	const size_t indexBuffByteSize = mesh.getIndexBuffByteSize();
-	const size_t vtxBuffByteSize = mesh.getVertexBuffByteSize();
-	const size_t dataToAddByteSize = vtxBuffByteSize + indexBuffByteSize;
+	const auto& indexBuffer = mesh.getIndices();
+	const auto& vertexBuffer = mesh.getVertices();
+	assert(indexBuffer.size() == vertexBuffer.size()); // We don't have any vertex re-use due to other limitations at the moemnt.
+	
 
-	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
-
-	// TODO: assert of geometry buffer size, do i need to check if size of objects to be added <= remainingResourcesSize?
-	// TODO: auto submit instead of assert
-	assert(dataToAddByteSize <= remainingResourcesSize);
-
+	const uint32_t numTriangles = indexBuffer.size() / 3u;
+	uint32_t trianglesUploaded = 0;
+	while (trianglesUploaded < numTriangles)
 	{
-		// NOTE[ERFAN]: these push contants will be removed, everything will be accessed by dtmSettings, including where the vertex buffer data resides
+		const size_t remainingResourcesSize = calculateRemainingResourcesSize();
+		const uint32_t maxUploadableVertices = remainingResourcesSize / (sizeof(CTriangleMesh::vertex_t) + sizeof(CTriangleMesh::index_t));
+		const uint32_t maxUploadableTriangles = maxUploadableVertices / 3u;
+		const uint32_t remainingTrianglesToUpload = numTriangles - trianglesUploaded;
+		const uint32_t trianglesToUpload = core::min(remainingTrianglesToUpload, maxUploadableTriangles);
+		const size_t vtxBuffByteSize = trianglesToUpload * 3u * sizeof(CTriangleMesh::vertex_t);
+		const size_t indexBuffByteSize = trianglesToUpload * 3u * sizeof(CTriangleMesh::index_t);
+		const size_t trianglesToUploadByteSize = vtxBuffByteSize + indexBuffByteSize;
 
 		// Copy VertexBuffer
-		size_t geometryBufferOffset = resourcesCollection.geometryInfo.increaseSizeAndGetOffset(dataToAddByteSize, alignof(CTriangleMesh::vertex_t));
+		size_t geometryBufferOffset = resourcesCollection.geometryInfo.increaseSizeAndGetOffset(trianglesToUploadByteSize, alignof(CTriangleMesh::vertex_t));
 		void* dst = resourcesCollection.geometryInfo.data() + geometryBufferOffset;
 		// the actual bda address will be determined only after all copies are finalized, later we will do += `baseBDAAddress + geometryInfo.bufferOffset`
 		drawCallData.dtm.triangleMeshVerticesBaseAddress = geometryBufferOffset;
-		memcpy(dst, mesh.getVertices().data(), vtxBuffByteSize);
+		memcpy(dst, &vertexBuffer[trianglesUploaded * 3u], vtxBuffByteSize);
 		geometryBufferOffset += vtxBuffByteSize; 
 
 		// Copy IndexBuffer
 		dst = resourcesCollection.geometryInfo.data() + geometryBufferOffset;
 		drawCallData.dtm.indexBufferOffset = geometryBufferOffset;
-		memcpy(dst, mesh.getIndices().data(), indexBuffByteSize);
+		memcpy(dst, &indexBuffer[trianglesUploaded * 3u], indexBuffByteSize);
 		geometryBufferOffset += indexBuffByteSize;
+		
+		trianglesUploaded += trianglesToUpload;
+		
+		drawCallData.dtm.triangleMeshMainObjectIndex = mainObjectIdx;
+		drawCallData.dtm.indexCount = trianglesToUpload * 3u;
+		drawCalls.push_back(drawCallData);
+
+		// Requires Auto-Submit If All Triangles of the Mesh couldn't fit into Memory
+		if (trianglesUploaded < numTriangles)
+			submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjectIdx);
 	}
 
-	drawCallData.dtm.indexCount = mesh.getIndexCount();
-	drawCalls.push_back(drawCallData);
 	endMainObject();
 }
 
