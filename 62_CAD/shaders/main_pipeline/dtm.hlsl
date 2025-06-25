@@ -234,8 +234,8 @@ float calculateDTMContourSDF(in DTMContourSettings contourSettings, in LineStyle
 {
     float distance = nbl::hlsl::numeric_limits<float>::max;
     const float contourThickness = (contourStyle.screenSpaceLineWidth + contourStyle.worldSpaceLineWidth * globals.screenToWorldRatio) * 0.5f;
-    float stretch = 1.0f;
-    float phaseShift = 0.0f;
+    const float stretch = 1.0f;
+    const float phaseShift = 0.0f;
 
     // TODO: move to ubo or push constants
     const float startHeight = contourSettings.contourLinesStartHeight;
@@ -252,7 +252,6 @@ float calculateDTMContourSDF(in DTMContourSettings contourSettings, in LineStyle
 
     int contourLinePointsIdx = 0;
     float2 contourLinePoints[2];
-    // TODO: case where heights we are looking for are on all three vertices
     for (int i = 0; i < 3; ++i)
     {
         if (contourLinePointsIdx == 2)
@@ -362,44 +361,32 @@ float4 calculateDTMOutlineColor(in uint outlineLineStyleIdx, in float3 v[3], in 
     return outputColor;
 }
 
-// It's literally sdf with 2 line shapes
-float4 calculateGridDTMOutlineColor(in uint outlineLineStyleIdx, in nbl::hlsl::shapes::Line<float> outlineLineSegments[2], in float2 fragPos, in float phaseShift)
+// TODO:
+// It's literally sdf with a line shape
+// so it should be moved somewhere else and used for every line maybe
+float calculateLineSDF(in LineStyle lineStyle, in nbl::hlsl::shapes::Line<float> lineSegment, in float2 fragPos, in float phaseShift)
 {
-    LineStyle outlineStyle = loadLineStyle(outlineLineStyleIdx);
-    const float outlineThickness = (outlineStyle.screenSpaceLineWidth + outlineStyle.worldSpaceLineWidth * globals.screenToWorldRatio) * 0.5f;
+    const float outlineThickness = (lineStyle.screenSpaceLineWidth + lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio) * 0.5f;
     const float stretch = 1.0f;
 
-    // find distance to outline
     float minDistance = nbl::hlsl::numeric_limits<float>::max;
-    if (!outlineStyle.hasStipples() || stretch == InvalidStyleStretchValue)
+    if (!lineStyle.hasStipples() || stretch == InvalidStyleStretchValue)
     {
-        for (int i = 0; i < 2; ++i)
-        {
-            float distance = nbl::hlsl::numeric_limits<float>::max;
-            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float> >::sdf(outlineLineSegments[i], fragPos, outlineThickness, outlineStyle.isRoadStyleFlag);
-
-            minDistance = min(minDistance, distance);
-        }
+        float distance = nbl::hlsl::numeric_limits<float>::max;
+        distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, fragPos, outlineThickness, lineStyle.isRoadStyleFlag);
+        minDistance = min(minDistance, distance);
     }
     else
     {
-        for (int i = 0; i < 2; ++i)
-        {
-            float distance = nbl::hlsl::numeric_limits<float>::max;
-            nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(outlineLineSegments[i]);
-            LineStyleClipper clipper = LineStyleClipper::construct(outlineStyle, outlineLineSegments[i], arcLenCalc, phaseShift, stretch, globals.worldToScreenRatio);
-            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(outlineLineSegments[i], fragPos, outlineThickness, outlineStyle.isRoadStyleFlag, clipper);
+        float distance = nbl::hlsl::numeric_limits<float>::max;
+        nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
+        LineStyleClipper clipper = LineStyleClipper::construct(lineStyle, lineSegment, arcLenCalc, phaseShift, stretch, globals.worldToScreenRatio);
+        distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, fragPos, outlineThickness, lineStyle.isRoadStyleFlag, clipper);
 
-            minDistance = min(minDistance, distance);
-        }
+        minDistance = min(minDistance, distance);
     }
 
-    float4 outputColor;
-    outputColor.a = 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, minDistance);
-    outputColor.a *= outlineStyle.color.a;
-    outputColor.rgb = outlineStyle.color.rgb;
-
-    return outputColor;
+    return minDistance;
 }
 
 float4 blendUnder(in float4 dstColor, in float4 srcColor)
@@ -445,6 +432,7 @@ E_CELL_DIAGONAL resolveGridDTMCellDiagonal(in uint32_t4 cellData)
 struct GridDTMTriangle
 {
     float3 vertices[3];
+    bool isValid;
 };
 
 /**
@@ -518,6 +506,9 @@ GridDTMCell calculateCellTriangles(in dtm::GridDTMHeightMapData heightData, in f
         output.triangleB.vertices[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, heightData.heights.z);
         output.triangleB.vertices[2] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, heightData.heights.y);
     }
+
+    output.triangleA.isValid = !(any(isnan(output.triangleA.vertices[0])) || any(isnan(output.triangleA.vertices[1])) || any(isnan(output.triangleA.vertices[2])));
+    output.triangleB.isValid = !(any(isnan(output.triangleB.vertices[0])) || any(isnan(output.triangleB.vertices[1])) || any(isnan(output.triangleB.vertices[2])));
 
     // move from grid space to screen space
     [unroll]

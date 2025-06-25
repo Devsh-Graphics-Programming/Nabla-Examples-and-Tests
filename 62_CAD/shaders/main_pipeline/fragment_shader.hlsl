@@ -472,7 +472,12 @@ float4 fragMain(PSInput input) : SV_TARGET
                 outlineLineSegments[1].P0 = float32_t2(nearestLineRemainingCoords.x, horizontalBounds.x);
                 outlineLineSegments[1].P1 = float32_t2(nearestLineRemainingCoords.x, horizontalBounds.y);
                 
-                float4 dtmColor = dtm::calculateGridDTMOutlineColor(dtmSettings.outlineLineStyleIdx, outlineLineSegments, input.position.xy, 0.0f);
+                LineStyle outlineStyle = loadLineStyle(dtmSettings.outlineLineStyleIdx);
+                float sdf = dtm::calculateLineSDF(outlineStyle, outlineLineSegments[0], input.position.xy, 0.0f);
+                sdf = min(sdf, dtm::calculateLineSDF(outlineStyle, outlineLineSegments[1], input.position.xy, 0.0f));
+
+                float4 dtmColor = outlineStyle.color;
+                dtmColor.a *= 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, sdf);
                 
                 textureColor = dtmColor.rgb;
                 localAlpha = dtmColor.a;
@@ -489,6 +494,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                 dtm::GridDTMTriangle triangles[MaxTrianglesToDoSDFWith];
                 float interpolatedHeights[MaxTrianglesToDoSDFWith]; // these are height based on barycentric interpolation of current pixel with all the triangles above
                 uint32_t triangleCount = 0u;
+                uint32_t currentTriangleIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
                 
                 // We can do sdf for up to 4 maximum lines for the outlines, 2 belong to the current cell and the other 2 belong to the opposite neighbouring cell
                 /* Example:
@@ -505,8 +511,8 @@ float4 fragMain(PSInput input) : SV_TARGET
                 
                 // curr cell horizontal, curr cell vertical, opposite cell horizontal, opposite cell vertical 
                 bool4 linesValidity = bool4(false, false, false, false);
-                
-                [unroll]
+
+                //[unroll]
                 for (int i = 0; i < 2; ++i)
                 {
                     for (int j = 0; j < 2; ++j)
@@ -551,7 +557,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                         }
                     }
                 }
-                
+
                 // float heightDeriv = fwidth(height);
                 // For height shading, merge this loop with the previous one, because baryCoord all positive means point inside triangle and we can use that to figure out the triangle we want to do height shading for.
                 for (int t = 0; t < triangleCount; ++t)
@@ -559,6 +565,11 @@ float4 fragMain(PSInput input) : SV_TARGET
                     dtm::GridDTMTriangle tri = triangles[t];
                     const float3 baryCoord = dtm::calculateDTMTriangleBarycentrics(tri.vertices[0].xy, tri.vertices[1].xy, tri.vertices[2].xy, input.position.xy);
                     interpolatedHeights[t] = baryCoord.x * tri.vertices[0].z + baryCoord.y * tri.vertices[1].z + baryCoord.z * tri.vertices[2].z;
+
+                    const float minValue = 0.0f - nbl::hlsl::numeric_limits<float>::epsilon;
+                    const float maxValue = 1.0f + nbl::hlsl::numeric_limits<float>::epsilon;
+                    if (all(baryCoord >= minValue) && all(baryCoord <= maxValue))
+                        currentTriangleIndex = t;
                 }
 
                 float4 dtmColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -599,9 +610,8 @@ float4 fragMain(PSInput input) : SV_TARGET
                 {
                     float sdf = nbl::hlsl::numeric_limits<float>::max;
                     LineStyle outlineStyle = loadLineStyle(dtmSettings.outlineLineStyleIdx);
-                    const float outlineThickness = (outlineStyle.screenSpaceLineWidth + outlineStyle.worldSpaceLineWidth * globals.screenToWorldRatio) * 0.5f;
                     nbl::hlsl::shapes::Line<float> lineSegment;
-                    
+
                     // Doing SDF of outlines as if cooridnate system is centered around the nearest corner of the cell
                     float2 currentCellScreenspaceCoord = gridTopLeftCorner + (currentCellCoord + float2(roundedLocalUV)) * cellWidth;
                     float2 localFragPos = input.position.xy - currentCellScreenspaceCoord;
@@ -613,32 +623,28 @@ float4 fragMain(PSInput input) : SV_TARGET
                         // this cells horizontal line
                         lineSegment.P0 = float2(-offset.x, 0.0f) * cellWidth;
                         lineSegment.P1 = float2(0.0f, 0.0f);
-                        float distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, localFragPos, outlineThickness, outlineStyle.isRoadStyleFlag);
-                        sdf = min(sdf, distance);
+                        sdf = min(sdf, dtm::calculateLineSDF(outlineStyle, lineSegment, localFragPos, 0.0f));
                     }
                     if (linesValidity[1])
                     {
                         // this cells vertical line
                         lineSegment.P0 = float2(0.0f, -offset.y) * cellWidth;
                         lineSegment.P1 = float2(0.0f, 0.0f);
-                        float distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, localFragPos, outlineThickness, outlineStyle.isRoadStyleFlag);
-                        sdf = min(sdf, distance);
+                        sdf = min(sdf, dtm::calculateLineSDF(outlineStyle, lineSegment, localFragPos, 0.0f));
                     }
                     if (linesValidity[2])
                     {
                         // opposite cell horizontal line
-                        lineSegment.P0 = float2(offset.x, 0.0f) * cellWidth;
-                        lineSegment.P1 = float2(0.0f, 0.0f);
-                        float distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, localFragPos, outlineThickness, outlineStyle.isRoadStyleFlag);
-                        sdf = min(sdf, distance);
+                        lineSegment.P0 = float2(0.0f, 0.0f);
+                        lineSegment.P1 = float2(offset.x, 0.0f) * cellWidth;
+                        sdf = min(sdf, dtm::calculateLineSDF(outlineStyle, lineSegment, localFragPos, 0.0f));
                     }
                     if (linesValidity[3])
                     {
                         // opposite cell vertical line
-                        lineSegment.P0 = float2(0.0f, offset.y) * cellWidth;
-                        lineSegment.P1 = float2(0.0f, 0.0f);
-                        float distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, localFragPos, outlineThickness, outlineStyle.isRoadStyleFlag);
-                        sdf = min(sdf, distance);
+                        lineSegment.P0 = float2(0.0f, 0.0f);
+                        lineSegment.P1 = float2(0.0f, offset.y) * cellWidth;
+                        sdf = min(sdf, dtm::calculateLineSDF(outlineStyle, lineSegment, localFragPos, 0.0f));
                     }
 
                     float4 outlineColor = outlineStyle.color;
@@ -650,6 +656,31 @@ float4 fragMain(PSInput input) : SV_TARGET
                 //localAlpha = 0.4f;
 
                 // TODO: Handle height shading, using only current triangle (if valid)
+
+                if (dtmSettings.drawHeightShadingEnabled())
+                {
+                    // Establish which triangle is current pixel inside of.
+                    // If the triangle is valid then do height shading
+                    // if the triangle is invalid, then "fade" color of neighbouring valid triangles, to avoid aliasing
+
+
+                    if (currentTriangleIndex != nbl::hlsl::numeric_limits<uint32_t>::max)
+                    {
+                        dtm::GridDTMTriangle currentTriangle = triangles[currentTriangleIndex];
+
+                        if (currentTriangle.isValid)
+                        {
+                            float heightDeriv = fwidth(interpolatedHeights[currentTriangleIndex]); // TODO: is it a good place for `fwidth` call?
+                            dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, currentTriangle.vertices, heightDeriv, input.position.xy, interpolatedHeights[currentTriangleIndex]));
+                        }
+                        else
+                        {
+
+                        }
+                        
+                    }
+
+                }
                 
                 textureColor = dtmColor.rgb / dtmColor.a;
                 localAlpha = dtmColor.a;

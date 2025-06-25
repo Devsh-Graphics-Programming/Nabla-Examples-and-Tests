@@ -3577,9 +3577,10 @@ protected:
 			dtmInfo.mode |= E_DTM_MODE::CONTOUR;
 
 			dtmInfo.outlineStyleInfo.screenSpaceLineWidth = 0.0f;
-			dtmInfo.outlineStyleInfo.worldSpaceLineWidth = 2.0f;
+			dtmInfo.outlineStyleInfo.worldSpaceLineWidth = 1.0f;
 			dtmInfo.outlineStyleInfo.color = float32_t4(0.0f, 0.39f, 0.0f, 1.0f);
-			std::array<double, 4> outlineStipplePattern = { 0.0f, -5.0f, 20.0f, -5.0f };
+			//std::array<double, 4> outlineStipplePattern = { 0.0f, -5.0f, 20.0f, -5.0f };
+			std::array<double, 4> outlineStipplePattern = { -10.0f, 10.0f };
 			dtmInfo.outlineStyleInfo.setStipplePatternData(outlineStipplePattern);
 
 			dtmInfo.contourSettingsCount = 2u;
@@ -3587,7 +3588,7 @@ protected:
 			dtmInfo.contourSettings[0u].endHeight = 90;
 			dtmInfo.contourSettings[0u].heightInterval = 10;
 			dtmInfo.contourSettings[0u].lineStyleInfo.screenSpaceLineWidth = 0.0f;
-			dtmInfo.contourSettings[0u].lineStyleInfo.worldSpaceLineWidth = 1.0f;
+			dtmInfo.contourSettings[0u].lineStyleInfo.worldSpaceLineWidth = 3.0f;
 			dtmInfo.contourSettings[0u].lineStyleInfo.color = float32_t4(0.0f, 0.0f, 1.0f, 0.7f);
 			std::array<double, 4> contourStipplePattern = { 0.0f, -5.0f, 10.0f, -5.0f };
 			dtmInfo.contourSettings[0u].lineStyleInfo.setStipplePatternData(contourStipplePattern);
@@ -3654,7 +3655,7 @@ protected:
 			worldSpaceExtents.y = (heightMapExtent.height - 1) * HeightMapCellWidth;
 			const uint64_t heightMapTextureID = 0ull;
 
-			constexpr bool DrawGridOnly = true;
+			constexpr bool DrawGridOnly = false;
 			
 			if(DrawGridOnly)
 			{

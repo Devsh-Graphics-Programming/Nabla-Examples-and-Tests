@@ -652,6 +652,7 @@ PSInput main(uint vertexID : SV_VertexID)
             float gridCellWidth = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + 2 * sizeof(pfloat64_t2) + sizeof(uint32_t), 8u);
             float thicknessOfTheThickestLine = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + 2 * sizeof(pfloat64_t2) + sizeof(uint32_t) + sizeof(float), 8u);
 
+            // TODO: remove
             // test large dilation
             //thicknessOfTheThickestLine += 200.0f;
 
