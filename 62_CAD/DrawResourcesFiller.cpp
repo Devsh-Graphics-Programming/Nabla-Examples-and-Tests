@@ -33,7 +33,7 @@ bool DrawResourcesFiller::allocateDrawResources(ILogicalDevice* logicalDevice, s
 	const size_t totalResourcesSize = adjustedImagesMemorySize + adjustedBuffersMemorySize;
 
 	IGPUBuffer::SCreationParams resourcesBufferCreationParams = {};
-	resourcesBufferCreationParams.size = 870;
+	resourcesBufferCreationParams.size = adjustedBuffersMemorySize;
 	resourcesBufferCreationParams.usage = bitflag(IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INDEX_BUFFER_BIT;
 	resourcesGPUBuffer = logicalDevice->createBuffer(std::move(resourcesBufferCreationParams));
 	resourcesGPUBuffer->setObjectDebugName("drawResourcesBuffer");
