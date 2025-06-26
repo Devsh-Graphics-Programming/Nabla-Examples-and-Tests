@@ -500,9 +500,9 @@ GridDTMCell calculateCellTriangles(in dtm::GridDTMHeightMapData heightData, in f
         output.triangleB.vertices[2] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, heightData.heights.y);
     }
 
-    output.validA = !(any(isInvalidGridDtmHeightValue(output.triangleA.vertices[0])) || any(isInvalidGridDtmHeightValue(output.triangleA.vertices[1])) || any(isInvalidGridDtmHeightValue(output.triangleA.vertices[2])));
-    output.validB = !(any(isInvalidGridDtmHeightValue(output.triangleB.vertices[0])) || any(isInvalidGridDtmHeightValue(output.triangleB.vertices[1])) || any(isInvalidGridDtmHeightValue(output.triangleB.vertices[2])));
-
+    output.validA = !isInvalidGridDtmHeightValue(output.triangleA.vertices[0].z) && !isInvalidGridDtmHeightValue(output.triangleA.vertices[1].z) && !isInvalidGridDtmHeightValue(output.triangleA.vertices[2].z);
+    output.validB = !isInvalidGridDtmHeightValue(output.triangleB.vertices[0].z) && !isInvalidGridDtmHeightValue(output.triangleB.vertices[1].z) && !isInvalidGridDtmHeightValue(output.triangleB.vertices[2].z);
+    
     // move from grid space to screen space
     [unroll]
     for (int i = 0; i < 3; ++i)
