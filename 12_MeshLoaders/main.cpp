@@ -125,8 +125,6 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			}
 			cb->end();
 
-			//updateGUIDescriptorSet();
-
 			IQueue::SSubmitInfo::SSemaphoreInfo retval =
 			{
 				.semaphore = m_semaphore.get(),
@@ -341,8 +339,15 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 				}
 
 				const auto& converted = reservation.getGPUObjects<ICPUPolygonGeometry>();
-				return m_renderer->addGeometries({&converted.front().get(),converted.size()});
+				if (!m_renderer->addGeometries({ &converted.front().get(),converted.size() }))
+					return false;
 			}
+
+// TODO: get scene bounds and reset camera
+
+			// TODO: write out the geometry
+
+			return true;
 		}
 
 		// Maximum frames which can be simultaneously submitted, used to cycle through our per-frame resources like command buffers
