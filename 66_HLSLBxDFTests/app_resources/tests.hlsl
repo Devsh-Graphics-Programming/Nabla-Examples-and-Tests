@@ -14,7 +14,6 @@
 
 #ifndef __HLSL_VERSION
 #include <glm/gtc/quaternion.hpp>
-#include <glm/gtx/hash.hpp>
 #include <unordered_map>
 #include <vector>
 #include <cmath>
@@ -36,6 +35,18 @@ namespace IMATH = Imath;
 using namespace IMF;
 using namespace IMATH;
 using json = nlohmann::json;
+
+// custom hash for float32_t2
+template<>
+struct std::hash<float32_t2>
+{
+    size_t operator()(const float32_t2& v) const noexcept
+    {
+        size_t v1 = std::hash<float32_t>()(v.x);
+        size_t v2 = std::hash<float32_t>()(v.y);
+        return v1 ^ (v2 << 1);
+    }
+};
 #endif
 
 namespace nbl

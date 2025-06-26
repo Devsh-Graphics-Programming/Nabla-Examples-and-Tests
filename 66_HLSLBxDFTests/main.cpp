@@ -120,9 +120,9 @@ int main(int argc, char** argv)
 
         const auto assets = bundle.getContents();
         assert(assets.size() == 1);
-        smart_refctd_ptr<ICPUShader> shaderSrc = IAsset::castDown<ICPUShader>(assets[0]);
+        auto shaderSrc = smart_refctd_ptr_static_cast<IShader>(assets[0]);
 
-        smart_refctd_ptr<ICPUShader> shader = shaderSrc;
+        auto shader = shaderSrc;
         auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
         CHLSLCompiler::SOptions options = {};
         options.stage = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE;
