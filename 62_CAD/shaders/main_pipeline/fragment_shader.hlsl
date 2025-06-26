@@ -405,20 +405,6 @@ float4 fragMain(PSInput input) : SV_TARGET
         }
         else if (objType == ObjectType::GRID_DTM)
         {
-            // NOTE: create and read from a texture as a last step, you can generate the height values procedurally from a function while you're working on the sdf stuff.
-            
-            // Query dtm settings
-            // use texture Gather to get 4 corners: https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-to-gather
-            // DONE (but needs to be fixed): A. the outlines can be stippled, use phaseshift of the line such that they started from the grid's origin worldspace coordinate
-            // DONE: B. the contours are computed for triangles, use the same function as for dtms, choose between the two triangles based on local UV coords in current cell
-                // DONE: Make it so we can choose which diagonal to use to construct the triangle, it's either u=v or u=1-v
-            // DONE: C. Height shading same as contours (split into two triangles)
-
-            // DONE (but needs to be tested after i implement texture height maps) Heights can have invalid values (let's say NaN) if a cell corner has NaN value then no triangle (for contour and shading) and no outline should include that corner. (see DTM image in discord with gaps)
-            
-            // TODO: we need to emulate dilation and do sdf of neighbouring cells as well. because contours, outlines and shading can bleed into other cells for AA.
-            // [NOTE] Do dilation as last step, when everything else works fine
-
             DTMSettings dtmSettings = loadDTMSettings(mainObj.dtmSettingsIdx);
 
             if (!dtmSettings.drawContourEnabled() && !dtmSettings.drawOutlineEnabled() && !dtmSettings.drawHeightShadingEnabled())
@@ -494,7 +480,6 @@ float4 fragMain(PSInput input) : SV_TARGET
                 dtm::GridDTMTriangle triangles[MaxTrianglesToDoSDFWith];
                 float interpolatedHeights[MaxTrianglesToDoSDFWith]; // these are height based on barycentric interpolation of current pixel with all the triangles above
                 uint32_t triangleCount = 0u;
-                uint32_t currentTriangleIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
                 
                 // We can do sdf for up to 4 maximum lines for the outlines, 2 belong to the current cell and the other 2 belong to the opposite neighbouring cell
                 /* Example:
@@ -525,9 +510,10 @@ float4 fragMain(PSInput input) : SV_TARGET
                         {
                             dtm::GridDTMHeightMapData heightData = dtm::retrieveGridDTMCellDataFromHeightMap(gridDimensions, cellCoord, texturesU32[NonUniformResourceIndex(textureId)]);
                             dtm::GridDTMCell gridCellFormed = dtm::calculateCellTriangles(heightData, gridTopLeftCorner, cellCoord, cellWidth);
-                            // Check the validity of the triangles and only add if valid
-                            triangles[triangleCount++] = gridCellFormed.triangleA;
-                            triangles[triangleCount++] = gridCellFormed.triangleB;
+                            if (gridCellFormed.validA)
+                                triangles[triangleCount++] = gridCellFormed.triangleA;
+                            if (gridCellFormed.validB)
+                                triangles[triangleCount++] = gridCellFormed.triangleB;
 
                             // we just need to check and set lines validity
                             // Formulas to get current cell's horizontal and vertical lines validity
@@ -557,8 +543,9 @@ float4 fragMain(PSInput input) : SV_TARGET
                         }
                     }
                 }
-
-                // float heightDeriv = fwidth(height);
+                
+                const uint32_t InvalidTriangleIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
+                uint32_t currentTriangleIndex = InvalidTriangleIndex;
                 // For height shading, merge this loop with the previous one, because baryCoord all positive means point inside triangle and we can use that to figure out the triangle we want to do height shading for.
                 for (int t = 0; t < triangleCount; ++t)
                 {
@@ -566,10 +553,13 @@ float4 fragMain(PSInput input) : SV_TARGET
                     const float3 baryCoord = dtm::calculateDTMTriangleBarycentrics(tri.vertices[0].xy, tri.vertices[1].xy, tri.vertices[2].xy, input.position.xy);
                     interpolatedHeights[t] = baryCoord.x * tri.vertices[0].z + baryCoord.y * tri.vertices[1].z + baryCoord.z * tri.vertices[2].z;
 
-                    const float minValue = 0.0f - nbl::hlsl::numeric_limits<float>::epsilon;
-                    const float maxValue = 1.0f + nbl::hlsl::numeric_limits<float>::epsilon;
-                    if (all(baryCoord >= minValue) && all(baryCoord <= maxValue))
-                        currentTriangleIndex = t;
+                    if (currentTriangleIndex == InvalidTriangleIndex)
+                    {
+                        const float minValue = 0.0f - nbl::hlsl::numeric_limits<float>::epsilon;
+                        const float maxValue = 1.0f + nbl::hlsl::numeric_limits<float>::epsilon;
+                        if (all(baryCoord >= minValue) && all(baryCoord <= maxValue))
+                            currentTriangleIndex = t;
+                    }
                 }
 
                 float4 dtmColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -581,8 +571,9 @@ float4 fragMain(PSInput input) : SV_TARGET
                         float sdf = nbl::hlsl::numeric_limits<float>::max;
                         for (int t = 0; t < triangleCount; ++t)
                         {
-                            dtm::GridDTMTriangle tri = triangles[t];
-                            sdf = min(sdf, dtm::calculateDTMContourSDF(dtmSettings.contourSettings[i], contourStyle, tri.vertices, input.position.xy, interpolatedHeights[t]));
+                            const dtm::GridDTMTriangle tri = triangles[t];
+                            const float currentInterpolatedHeight = interpolatedHeights[t];
+                            sdf = min(sdf, dtm::calculateDTMContourSDF(dtmSettings.contourSettings[i], contourStyle, tri.vertices, input.position.xy, currentInterpolatedHeight));
 #if 0 // Debug Triangles
                             nbl::hlsl::shapes::Line<float> lineSegment;
                             lineSegment.P0 = tri.vertices[0].xy;
@@ -660,32 +651,17 @@ float4 fragMain(PSInput input) : SV_TARGET
                     dtmColor = dtm::blendUnder(dtmColor, outlineColor);
                 }
                 
-                //textureColor = float3(linesValidity[0], linesValidity[1], 0.0f);
-                //localAlpha = 0.4f;
-
-                // TODO: Handle height shading, using only current triangle (if valid)
-
                 if (dtmSettings.drawHeightShadingEnabled())
                 {
-                    // Establish which triangle is current pixel inside of.
-                    // If the triangle is valid then do height shading
-                    // if the triangle is invalid, then "fade" color of neighbouring valid triangles, to avoid aliasing
-
-
-                    if (currentTriangleIndex != nbl::hlsl::numeric_limits<uint32_t>::max)
+                    if (currentTriangleIndex != InvalidTriangleIndex)
                     {
                         dtm::GridDTMTriangle currentTriangle = triangles[currentTriangleIndex];
-
-                        if (currentTriangle.isValid)
-                        {
-                            float heightDeriv = fwidth(interpolatedHeights[currentTriangleIndex]); // TODO: is it a good place for `fwidth` call?
-                            dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, currentTriangle.vertices, heightDeriv, input.position.xy, interpolatedHeights[currentTriangleIndex]));
-                        }
-                        else
-                        {
-
-                        }
-                        
+                        float heightDeriv = fwidth(interpolatedHeights[currentTriangleIndex]);
+                        dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, currentTriangle.vertices, heightDeriv, input.position.xy, interpolatedHeights[currentTriangleIndex]));
+                    }
+                    else
+                    {
+                        // TODO[Future]: Average color of nearby valid triangles (dtm height function should return color + polygon sdf) 
                     }
 
                 }
@@ -693,125 +669,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                 textureColor = dtmColor.rgb / dtmColor.a;
                 localAlpha = dtmColor.a;
             }
-            
-#if 0
-            // calculate screen space coordinates of vertices of the current tiranlge within the grid
-            dtm::GridDTMTriangle currentTriangle;
-            dtm::GridDTMCell neighbouringCells[8];
-            if (dtmSettings.drawContourEnabled() || dtmSettings.drawHeightShadingEnabled())
-            {
-                if (textureId == InvalidTextureIndex)
-                    discard;
 
-                // heightData.heihts.x - bottom left texel
-                // heightData.heihts.y - bottom right texel
-                // heightData.heihts.z - top right texel
-                // heightData.heihts.w - top left texel
-                dtm::GridDTMHeightMapData heightData = dtm::retrieveGridDTMCellDataFromHeightMap(gridExtents, currentCellCoord, cellWidth, texturesU32[NonUniformResourceIndex(textureId)]);
-                if (heightData.cellDiagonal == E_CELL_DIAGONAL::INVALID)
-                    discard;
-
-                const bool diagonalFromTopLeftToBottomRight = heightData.cellDiagonal == E_CELL_DIAGONAL::TOP_LEFT_TO_BOTTOM_RIGHT;
-
-                float2 insideCellCoord = gridSpacePos - float2(cellWidth, cellWidth) * currentCellCoord; // TODO: use fmod instead?
-                // my ASCII art above explains which triangle is A and which is B
-                const bool triangleA = diagonalFromTopLeftToBottomRight ?
-                    insideCellCoord.x < insideCellCoord.y :
-                    insideCellCoord.x < cellWidth - insideCellCoord.y;
-
-                if (diagonalFromTopLeftToBottomRight)
-                {
-                    currentTriangle.vertices[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, heightData.heights.w);
-                    currentTriangle.vertices[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, heightData.heights.y);
-                    currentTriangle.vertices[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, heightData.heights.x) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, heightData.heights.z);
-
-                    // TODO: use cell space instead https://github.com/Devsh-Graphics-Programming/Nabla-Examples-and-Tests/pull/186#discussion_r2133699055
-                    //currentTriangle.vertices[0] = float3(0.0f, 0.0f, heightData.heights.w);
-                    //currentTriangle.vertices[1] = float3(cellWidth, cellWidth, heightData.heights.y);
-                    //currentTriangle.vertices[2] = triangleA ? float3(0.0f, cellWidth, heightData.heights.x) : float3(cellWidth, 0.0f, heightData.heights.z);
-                }
-                else
-                {
-                    currentTriangle.vertices[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y + cellWidth, heightData.heights.x);
-                    currentTriangle.vertices[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y, heightData.heights.z);
-                    currentTriangle.vertices[2] = triangleA ? float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, heightData.heights.w) : float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, heightData.heights.y);
-
-                    // TODO: use cell space instead https://github.com/Devsh-Graphics-Programming/Nabla-Examples-and-Tests/pull/186#discussion_r2133699055
-                    //currentTriangle.vertices[0] = float3(0.0f, 0.0f + cellWidth, heightData.heights.x);
-                    //currentTriangle.vertices[1] = float3(0.0f + cellWidth, 0.0f, heightData.heights.z);
-                    //currentTriangle.vertices[2] = triangleA ? float3(0.0f, 0.0f, heightData.heights.w) : float3(cellWidth, cellWidth, heightData.heights.y);
-                }
-
-                bool isTriangleInvalid = isnan(currentTriangle.vertices[0].z) || isnan(currentTriangle.vertices[1].z) || isnan(currentTriangle.vertices[2].z);
-                bool isCellPartiallyInvalid = isnan(heightData.heights.x) || isnan(heightData.heights.y) || isnan(heightData.heights.z) || isnan(heightData.heights.w);
-
-                if (isTriangleInvalid)
-                    discard;
-
-                // move from grid space to screen space
-                [unroll]
-                for (int i = 0; i < 3; ++i)
-                    currentTriangle.vertices[i].xy += gridTopLeftCorner;
-
-                const float2 neighbouringCellsCellOffsets[8] = {
-                    float2(-1.0f, -1.0f),
-                    float2(0.0f, -1.0f),
-                    float2(1.0f, -1.0f),
-                    float2(-1.0f, 0.0f),
-                    float2(-1.0f, 0.0f),
-                    float2(-1.0f, 1.0f),
-                    float2(0.0f, 1.0f),
-                    float2(1.0f, 1.0f)
-                };
-
-                // construct triangles of neighbouring cells
-                for (int i = 0; i < 8; ++i)
-                {
-                    float2 neighbouringcurrentCellCoord = currentCellCoord + neighbouringCellsCellOffsets[i];
-                    neighbouringCells[i] = dtm::calculateCellTriangles(gridTopLeftCorner, gridExtents, neighbouringcurrentCellCoord, cellWidth, texturesU32[NonUniformResourceIndex(textureId)]);
-                }
-            }
-
-            const float3 baryCoord = dtm::calculateDTMTriangleBarycentrics(currentTriangle.vertices[0].xy, currentTriangle.vertices[1].xy, currentTriangle.vertices[2].xy, input.position.xy);
-            float height = baryCoord.x * currentTriangle.vertices[0].z + baryCoord.y * currentTriangle.vertices[1].z + baryCoord.z * currentTriangle.vertices[2].z;
-            float heightDeriv = fwidth(height);
-
-            const bool outOfBoundsUV = uv.x < 0.0f || uv.y < 0.0f || uv.x > 1.0f || uv.y > 1.0f;
-            float4 dtmColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
-            if (dtmSettings.drawContourEnabled() && !outOfBoundsUV)
-            {
-                for (int i = dtmSettings.contourSettingsCount-1u; i >= 0; --i) 
-                    dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMContourColor(dtmSettings.contourSettings[i], currentTriangle.vertices, input.position.xy, height));
-
-                // draw shit form neighbouring cells
-                for (int i = 0; i < 8; ++i)
-                {
-                    for (int j = dtmSettings.contourSettingsCount - 1u; j >= 0; --j)
-                    {
-                        dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMContourColor(dtmSettings.contourSettings[i], neighbouringCells[i].triangleA.vertices, input.position.xy, height));
-                        dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMContourColor(dtmSettings.contourSettings[i], neighbouringCells[i].triangleB.vertices, input.position.xy, height));
-                    }
-                }
-            }
-            if (dtmSettings.drawOutlineEnabled())
-                dtmColor = dtm::blendUnder(dtmColor, dtm::calculateGridDTMOutlineColor(dtmSettings.outlineLineStyleIdx, outlineLineSegments, input.position.xy, 0.0f));
-            if (dtmSettings.drawHeightShadingEnabled() && !outOfBoundsUV)
-                dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, currentTriangle.vertices, heightDeriv, input.position.xy, interpolatedHeights[0]));
-
-            textureColor = dtmColor.rgb / dtmColor.a;
-            localAlpha = dtmColor.a;
-
-            // because final color is premultiplied by alpha
-            textureColor = dtmColor.rgb / dtmColor.a;
-
-            // test out of bounds draw
-            /*if (outOfBoundsUV)
-                textureColor = float3(0.0f, 1.0f, 0.0f);
-            else
-                textureColor = float3(0.0f, 0.0f, 1.0f);
-
-            localAlpha = 0.5f;*/
-#endif
         }
         else if (objType == ObjectType::STREAMED_IMAGE) 
         {

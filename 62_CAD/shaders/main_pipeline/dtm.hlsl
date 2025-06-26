@@ -237,12 +237,9 @@ float calculateDTMContourSDF(in DTMContourSettings contourSettings, in LineStyle
     const float stretch = 1.0f;
     const float phaseShift = 0.0f;
 
-    // TODO: move to ubo or push constants
     const float startHeight = contourSettings.contourLinesStartHeight;
     const float endHeight = contourSettings.contourLinesEndHeight;
     const float interval = contourSettings.contourLinesHeightInterval;
-
-    // TODO: can be precomputed
     const int maxContourLineIdx = (endHeight - startHeight) / interval;
 
     // TODO: it actually can output a negative number, fix
@@ -263,15 +260,10 @@ float calculateDTMContourSDF(in DTMContourSettings contourSettings, in LineStyle
         if (p1.z < p0.z)
             nbl::hlsl::swap(p0, p1);
 
-        float minHeight = p0.z;
-        float maxHeight = p1.z;
-
-        if (height >= minHeight && height <= maxHeight)
+        if (contourLineHeight >= p0.z && contourLineHeight <= p1.z)
         {
-            float2 edge = float2(p1.x, p1.y) - float2(p0.x, p0.y);
-            float scale = (contourLineHeight - minHeight) / (maxHeight - minHeight);
-
-            contourLinePoints[contourLinePointsIdx] = scale * edge + float2(p0.x, p0.y);
+            float interpolationVal = (contourLineHeight - p0.z) / (p1.z - p0.z);
+            contourLinePoints[contourLinePointsIdx] = p0.xy + interpolationVal * (p1.xy - p0.xy);
             ++contourLinePointsIdx;
         }
     }
@@ -432,7 +424,6 @@ E_CELL_DIAGONAL resolveGridDTMCellDiagonal(in uint32_t4 cellData)
 struct GridDTMTriangle
 {
     float3 vertices[3];
-    bool isValid;
 };
 
 /**
@@ -449,6 +440,8 @@ struct GridDTMCell
 {
     GridDTMTriangle triangleA;
     GridDTMTriangle triangleB;
+    bool validA;
+    bool validB;
 };
 
 struct GridDTMHeightMapData
@@ -507,8 +500,8 @@ GridDTMCell calculateCellTriangles(in dtm::GridDTMHeightMapData heightData, in f
         output.triangleB.vertices[2] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, heightData.heights.y);
     }
 
-    output.triangleA.isValid = !(any(isnan(output.triangleA.vertices[0])) || any(isnan(output.triangleA.vertices[1])) || any(isnan(output.triangleA.vertices[2])));
-    output.triangleB.isValid = !(any(isnan(output.triangleB.vertices[0])) || any(isnan(output.triangleB.vertices[1])) || any(isnan(output.triangleB.vertices[2])));
+    output.validA = !(any(isInvalidGridDtmHeightValue(output.triangleA.vertices[0])) || any(isInvalidGridDtmHeightValue(output.triangleA.vertices[1])) || any(isInvalidGridDtmHeightValue(output.triangleA.vertices[2])));
+    output.validB = !(any(isInvalidGridDtmHeightValue(output.triangleB.vertices[0])) || any(isInvalidGridDtmHeightValue(output.triangleB.vertices[1])) || any(isInvalidGridDtmHeightValue(output.triangleB.vertices[2])));
 
     // move from grid space to screen space
     [unroll]
