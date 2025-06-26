@@ -620,14 +620,14 @@ float4 fragMain(PSInput input) : SV_TARGET
                     
                     float phaseShift = 0.0f;
                     const bool hasStipples = outlineStyle.hasStipples();
-                    const float rcpPattenLenScreenSpace =  outlineStyle.reciprocalStipplePatternLen * globals.worldToScreenRatio;
+                    const float rcpPattenLenScreenSpace = outlineStyle.reciprocalStipplePatternLen * globals.worldToScreenRatio;
                     // Drawing the lines that form a plus sign around the current corner:
                     if (linesValidity[0])
                     {
                         // this cells horizontal line
                         lineSegment.P0 = float2((offset.x > 0) ? -offset.x * cellWidth : 0.0f, 0.0f);
                         lineSegment.P1 = float2((offset.x < 0) ? -offset.x * cellWidth : 0.0f, 0.0f);
-                        phaseShift = fract((lineSegment.P0.x - localGridTopLeftCorner.x) * rcpPattenLenScreenSpace );
+                        phaseShift = fract((lineSegment.P0.x - localGridTopLeftCorner.x) * rcpPattenLenScreenSpace);
                         sdf = min(sdf, dtm::calculateLineSDF(outlineStyle, lineSegment, localFragPos, phaseShift));
                     }
                     if (linesValidity[1])
@@ -635,6 +635,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                         // this cells vertical line
                         lineSegment.P0 = float2(0.0f, (offset.y > 0) ? -offset.y * cellWidth : 0.0f);
                         lineSegment.P1 = float2(0.0f, (offset.y < 0) ? -offset.y * cellWidth : 0.0f);
+                        phaseShift = fract((lineSegment.P0.y - localGridTopLeftCorner.y) * rcpPattenLenScreenSpace);
                         sdf = min(sdf, dtm::calculateLineSDF(outlineStyle, lineSegment, localFragPos, phaseShift));
                     }
                     if (linesValidity[2])
@@ -642,6 +643,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                         // opposite cell horizontal line
                         lineSegment.P0 = float2((offset.x < 0) ? offset.x * cellWidth : 0.0f, 0.0f);
                         lineSegment.P1 = float2((offset.x > 0) ? offset.x * cellWidth : 0.0f, 0.0f);
+                        phaseShift = fract((lineSegment.P0.x - localGridTopLeftCorner.x) * rcpPattenLenScreenSpace);
                         sdf = min(sdf, dtm::calculateLineSDF(outlineStyle, lineSegment, localFragPos, phaseShift));
                     }
                     if (linesValidity[3])
@@ -649,6 +651,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                         // opposite cell vertical line
                         lineSegment.P0 = float2(0.0f, (offset.y < 0) ? offset.y * cellWidth : 0.0f);
                         lineSegment.P1 = float2(0.0f, (offset.y > 0) ? offset.y * cellWidth : 0.0f);
+                        phaseShift = fract((lineSegment.P0.y - localGridTopLeftCorner.y) * rcpPattenLenScreenSpace);
                         sdf = min(sdf, dtm::calculateLineSDF(outlineStyle, lineSegment, localFragPos, phaseShift));
                     }
 
