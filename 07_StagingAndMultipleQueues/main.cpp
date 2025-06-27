@@ -3,26 +3,24 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
-
-#include "nbl/application_templates/BasicMultiQueueApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-
-// get asset converter
-#include "CommonPCH/PCH.hpp"
+#include "nbl/examples/examples.hpp"
 
 using namespace nbl;
-using namespace core;
-using namespace system;
-using namespace asset;
-using namespace video;
+using namespace nbl::core;
+using namespace nbl::hlsl;
+using namespace nbl::system;
+using namespace nbl::asset;
+using namespace nbl::ui;
+using namespace nbl::video;
+using namespace nbl::examples;
 
 #include "app_resources/common.hlsl"
 
 // This time we let the new base class score and pick queue families, as well as initialize `nbl::video::IUtilities` for us
-class StagingAndMultipleQueuesApp final : public application_templates::BasicMultiQueueApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class StagingAndMultipleQueuesApp final : public application_templates::BasicMultiQueueApplication, public BuiltinResourcesApplication
 {
 	using device_base_t = application_templates::BasicMultiQueueApplication;
-	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+	using asset_base_t = BuiltinResourcesApplication;
 
 	// TODO: would be cool if we used `system::ISystem::listItemsInDirectory(sharedInputCWD/"GLI")` as our dataset
 	static constexpr std::array imagesToLoad = {
@@ -246,7 +244,7 @@ private:
 					.binding = 0,
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					.count = 1,
 					.immutableSamplers = nullptr
 				},
@@ -254,7 +252,7 @@ private:
 					.binding = 1,
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					.count = 1,
 					.immutableSamplers = nullptr
 				}
@@ -281,18 +279,17 @@ private:
 		}
 
 		// LOAD SHADER FROM FILE
-		smart_refctd_ptr<ICPUShader> source;
+		smart_refctd_ptr<IShader> source;
 		{
-			source = loadFistAssetInBundle<ICPUShader>("../app_resources/comp_shader.hlsl");
-			source->setShaderStage(IShader::E_SHADER_STAGE::ESS_COMPUTE); // can also be done via a #pragma in the shader
+			source = loadFistAssetInBundle<IShader>("../app_resources/comp_shader.hlsl");
 		}
 
 		if (!source)
 			logFailAndTerminate("Could not create a CPU shader!");
 
-		core::smart_refctd_ptr<IGPUShader> shader = m_device->createShader(source.get());
+		core::smart_refctd_ptr<IShader> shader = m_device->compileShader({ source.get() });
 		if(!shader)
-			logFailAndTerminate("Could not create a GPU shader!");
+			logFailAndTerminate("Could not compile shader to spirv!");
 
 		// CREATE COMPUTE PIPELINE
 		SPushConstantRange pc[1];
@@ -432,15 +429,16 @@ private:
 			submitInfo[0].waitSemaphores = waitSemaphoreSubmitInfo;
 			// there's no save to wait on, or need to prevent signal-after-submit because Renderdoc freezes because it
 			// starts capturing immediately upon a submit and can't defer a capture till semaphores signal.
-			if (imageToProcessId<SUBMITS_IN_FLIGHT || m_api->isRunningInRenderdoc())
+			const bool isRunningInRenderdoc = m_api->runningInGraphicsDebugger()==IAPIConnection::EDebuggerType::Renderdoc;
+			if (imageToProcessId<SUBMITS_IN_FLIGHT || isRunningInRenderdoc)
 				submitInfo[0].waitSemaphores = {waitSemaphoreSubmitInfo,1};
-			if (m_api->isRunningInRenderdoc() && imageToProcessId>=SUBMITS_IN_FLIGHT)
+			if (isRunningInRenderdoc && imageToProcessId>=SUBMITS_IN_FLIGHT)
 			for (auto old = histogramsSaved.load(); old < histogramSaveWaitSemaphoreValue; old = histogramsSaved.load())
 				histogramsSaved.wait(old);
 			// Some Devices like all of the Intel GPUs do not have enough queues for us to allocate different queues to compute and transfers,
 			// so our `BasicMultiQueueApplication` will "alias" a single queue to both usages. Normally you don't need to care, but here we're
 			// attempting to do "out-of-order" "submit-before-signal" so we need to "hold back" submissions if the queues are aliased!
-			if (getTransferUpQueue()==computeQueue || m_api->isRunningInRenderdoc())
+			if (getTransferUpQueue()==computeQueue || isRunningInRenderdoc)
 			for (auto old = transfersSubmitted.load(); old <= imageToProcessId; old = transfersSubmitted.load())
 				transfersSubmitted.wait(old);
 			computeQueue->submit(submitInfo);

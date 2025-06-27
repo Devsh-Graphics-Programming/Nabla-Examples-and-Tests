@@ -2,31 +2,37 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#include "nbl/this_example/common.hpp"
-#include "nbl/asset/interchange/IImageAssetHandlerBase.h"
+
+#include "nbl/examples/examples.hpp"
+
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/builtin/hlsl/surface_transform.h"
 
-using namespace nbl;
-using namespace core;
-using namespace hlsl;
-using namespace system;
-using namespace asset;
-using namespace ui;
-using namespace video;
+#include "nbl/this_example/common.hpp"
 
+
+using namespace nbl;
+using namespace nbl::core;
+using namespace nbl::hlsl;
+using namespace nbl::system;
+using namespace nbl::asset;
+using namespace nbl::ui;
+using namespace nbl::video;
+using namespace nbl::examples;
+
+// TODO: share push constants
 struct PTPushConstant {
 	matrix4SIMD invMVP;
 	int sampleCount;
 	int depth;
 };
 
-// TODO: Add a QueryPool for timestamping once its ready
+// TODO: Add a QueryPool for timestamping once its ready (actually add IMGUI mspf plotter)
 // TODO: Do buffer creation using assConv
-class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class ComputeShaderPathtracer final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
-		using device_base_t = examples::SimpleWindowedApplication;
-		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+		using device_base_t = SimpleWindowedApplication;
+		using asset_base_t = BuiltinResourcesApplication;
 		using clock_t = std::chrono::steady_clock;
 
 		enum E_LIGHT_GEOMETRY : uint8_t
@@ -313,12 +319,11 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						std::exit(-1);
 					}
 
-					auto source = IAsset::castDown<ICPUShader>(assets[0]);
+					auto source = IAsset::castDown<IShader>(assets[0]);
 					// The down-cast should not fail!
 					assert(source);
 
-					// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
-					auto shader = m_device->createShader(source.get());
+					auto shader = m_device->compileShader({ .source = source.get(), .stage = ESS_COMPUTE });
 					if (!shader)
 					{
 						m_logger->log("Shader creationed failed: %s!", ILogger::ELL_ERROR, pathToShader);
@@ -353,8 +358,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						params.shader.shader = ptShader.get();
 						params.shader.entryPoint = "main";
 						params.shader.entries = nullptr;
-						params.shader.requireFullSubgroups = true;
-						params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+						params.cached.requireFullSubgroups = true;
+						params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(5);
 						if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTPipelines.data() + index)) {
 							return logFail("Failed to create compute pipeline!\n");
 						}
@@ -373,9 +378,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					if (!fragmentShader)
 						return logFail("Failed to Load and Compile Fragment Shader: lumaMeterShader!");
 
-					const IGPUShader::SSpecInfo fragSpec = {
+					const IGPUPipelineBase::SShaderSpecInfo fragSpec = {
+						.shader = fragmentShader.get(),
 						.entryPoint = "main",
-						.shader = fragmentShader.get()
 					};
 
 					auto presentLayout = m_device->createPipelineLayout(
@@ -533,6 +538,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					region.imageExtent = scrambleMapCPU->getCreationParameters().extent;
 
 					scrambleMapCPU->setBufferAndRegions(std::move(texelBuffer), regions);
+
+					// programmatically user-created IPreHashed need to have their hash computed (loaders do it while loading)
+					scrambleMapCPU->setContentHash(scrambleMapCPU->computeContentHash());
 				}
 
 				std::array<ICPUImage*, 2> cpuImgs = { envMapCPU.get(), scrambleMapCPU.get()};
@@ -859,7 +867,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
 					ImGui::ListBox("Shader", &PTPipline, shaderNames, E_LIGHT_GEOMETRY::ELG_COUNT);
 					ImGui::SliderInt("SPP", &spp, 1, MaxBufferSamples);
-					ImGui::SliderInt("Depth", &depth, 1, MaxBufferDimensions / 3);
+					ImGui::SliderInt("Depth", &depth, 1, MaxBufferDimensions / 6);
 
 					ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
 

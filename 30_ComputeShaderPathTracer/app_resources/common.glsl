@@ -352,9 +352,9 @@ struct Payload_t
     vec3 accumulation;
     float otherTechniqueHeuristic;
     vec3 throughput;
-    #ifdef KILL_DIFFUSE_SPECULAR_PATHS
+#ifdef KILL_DIFFUSE_SPECULAR_PATHS
     bool hasDiffuse;
-    #endif
+#endif
 };
 
 struct Ray_t
@@ -491,6 +491,7 @@ layout (constant_id = 1) const int MAX_SAMPLES_LOG2 = 10;
 
 #include <nbl/builtin/glsl/random/xoroshiro.glsl>
 
+// TODO: use PCG hash + XOROSHIRO and don't read any textures
 mat2x3 rand3d(in uint protoDimension, in uint _sample, inout nbl_glsl_xoroshiro64star_state_t scramble_state)
 {
     mat2x3 retval;
@@ -552,6 +553,7 @@ nbl_glsl_LightSample nbl_glsl_light_generate_and_remainder_and_pdf(out vec3 rema
 }
 
 uint getBSDFLightIDAndDetermineNormal(out vec3 normal, in uint objectID, in vec3 intersection);
+// returns whether to stop tracing
 bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nbl_glsl_xoroshiro64star_state_t scramble_state)
 {
     const MutableRay_t _mutable = ray._mutable;
@@ -594,7 +596,7 @@ bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nb
         if (BSDFNode_isNotDiffuse(bsdf))
         {
             if (ray._payload.hasDiffuse)
-                return true;
+                return false;
         }
         else
             ray._payload.hasDiffuse = true;
@@ -602,7 +604,7 @@ bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nb
 
         const bool isBSDF = BSDFNode_isBSDF(bsdf);
         //rand
-        mat2x3 epsilon = rand3d(depth,_sample,scramble_state);
+        mat2x3 epsilon = rand3d(depth*2,_sample,scramble_state);
 
         // thresholds
         const float bsdfPdfThreshold = 0.0001;
@@ -611,47 +613,55 @@ bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nb
         const float monochromeEta = dot(throughputCIE_Y,BSDFNode_getEta(bsdf)[0])/(throughputCIE_Y.r+throughputCIE_Y.g+throughputCIE_Y.b);
 
         // do NEE
-        const float neeProbability = 1.0;// BSDFNode_getNEEProb(bsdf);
+#ifndef NEE_ONLY
+        // to turn off NEE, set this to 0
+        const float neeProbability = BSDFNode_getNEEProb(bsdf);
         float rcpChoiceProb;
-        if (!nbl_glsl_partitionRandVariable(neeProbability,epsilon[0].z,rcpChoiceProb) && depth<2u)
+        if (!nbl_glsl_partitionRandVariable(neeProbability,epsilon[0].z,rcpChoiceProb))
         {
+#endif
             vec3 neeContrib; float lightPdf, t;
             nbl_glsl_LightSample nee_sample = nbl_glsl_light_generate_and_remainder_and_pdf(
                 neeContrib, lightPdf, t,
                 intersection, interaction,
                 isBSDF, epsilon[0], depth
             );
-            // We don't allow non watertight transmitters in this renderer
+            // We don't allow non watertight transmitters in this renderer & scene, one cannot reach a light from the backface (optimization)
             bool validPath = nee_sample.NdotL>nbl_glsl_FLT_MIN;
             // but if we allowed non-watertight transmitters (single water surface), it would make sense just to apply this line by itself
             nbl_glsl_AnisotropicMicrofacetCache _cache;
             validPath = validPath && nbl_glsl_calcAnisotropicMicrofacetCache(_cache, interaction, nee_sample, monochromeEta);
+            // infinite PDF would mean a point light or a thin line, but our lights have finite radiance per steradian (area lights)
             if (lightPdf<nbl_glsl_FLT_MAX)
             {
-            if (any(isnan(nee_sample.L)))
-                ray._payload.accumulation += vec3(1000.f,0.f,0.f);
-            else
-            if (all(equal(vec3(69.f),nee_sample.L)))
-                ray._payload.accumulation += vec3(0.f,1000.f,0.f);
-            else
-            if (validPath)
-            {
-                float bsdfPdf;
-                neeContrib *= nbl_glsl_bsdf_cos_remainder_and_pdf(bsdfPdf,nee_sample,interaction,bsdf,monochromeEta,_cache)*throughput;
-                const float otherGenOverChoice = bsdfPdf*rcpChoiceProb;
+                // debug coloring
+                if (any(isnan(nee_sample.L)))
+                    ray._payload.accumulation += vec3(1000.f,0.f,0.f);
+                else
+                if (all(equal(vec3(69.f),nee_sample.L)))
+                    ray._payload.accumulation += vec3(0.f,1000.f,0.f);
+                else
+                if (validPath) // normally one would check for a valid path first, because zero solid angle light is less likely
+                {
+                    float bsdfPdf;
+                    // this is kinda the wrong fuction to use, we should use eval_and_pdf instead (because eval returns 0 for directions accidentally coincident with dirac delta)
+                    neeContrib *= nbl_glsl_bsdf_cos_remainder_and_pdf(bsdfPdf,nee_sample,interaction,bsdf,monochromeEta,_cache)*throughput;
+                    // this is why we need to multiply `bsdfPdf` back in, and why we have a check for the BxDF PDF not being INF
 #ifndef NEE_ONLY
-                const float otherGenOverLightAndChoice = otherGenOverChoice/lightPdf;
-                neeContrib *= otherGenOverChoice/(1.f+otherGenOverLightAndChoice*otherGenOverLightAndChoice); // MIS weight
+                    const float otherGenOverChoice = bsdfPdf*rcpChoiceProb;
+                    const float otherGenOverLightAndChoice = otherGenOverChoice/lightPdf;
+                    // MIS weight (TODO: is it correct? should `otherGenOverLightAndChoice` contain the `rcpChoiceProb` ?)
+                    neeContrib *= otherGenOverChoice/(1.f+otherGenOverLightAndChoice*otherGenOverLightAndChoice);
 #else
-                neeContrib *= otherGenOverChoice;
+                    neeContrib *= bsdfPdf;
 #endif
-                if (bsdfPdf<nbl_glsl_FLT_MAX && getLuma(neeContrib)>lumaContributionThreshold && traceRay(t,intersection+nee_sample.L*t*getStartTolerance(depth),nee_sample.L)==-1)
-                    ray._payload.accumulation += neeContrib;
-            }}
+                    if (bsdfPdf<nbl_glsl_FLT_MAX && getLuma(neeContrib)>lumaContributionThreshold && traceRay(t,intersection+nee_sample.L*t*getStartTolerance(depth),nee_sample.L)==-1)
+                        ray._payload.accumulation += neeContrib;
+                }
+            }
+#ifndef NEE_ONLY
         }
-#if NEE_ONLY
-        return false;
-#endif
+
         // sample BSDF
         float bsdfPdf; vec3 bsdfSampleL;
         {
@@ -680,6 +690,7 @@ bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nb
             #endif
             return true;
         }
+#endif
     }
     return false;
 }
@@ -748,15 +759,15 @@ void main()
             ray._payload.accumulation = vec3(0.0);
             ray._payload.otherTechniqueHeuristic = 0.0; // needed for direct eye-light paths
             ray._payload.throughput = vec3(1.0);
-            #ifdef KILL_DIFFUSE_SPECULAR_PATHS
+#ifdef KILL_DIFFUSE_SPECULAR_PATHS
             ray._payload.hasDiffuse = false;
-            #endif
+#endif
         }
 
         // bounces
         {
             bool hit = true; bool rayAlive = true;
-            for (int d=1; d<=PTPushConstant.depth && hit && rayAlive; d+=2)
+            for (int d=1; d<=PTPushConstant.depth && hit && rayAlive; d++)
             {
                 ray._mutable.intersectionT = nbl_glsl_FLT_MAX;
                 ray._mutable.objectID = traceRay(ray._mutable.intersectionT,ray._immutable.origin,ray._immutable.direction);
