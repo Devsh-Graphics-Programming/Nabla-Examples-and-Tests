@@ -58,8 +58,8 @@ struct Unidirectional
     using ray_type = typename RayGen::ray_type;
     using light_type = Light<measure_type>;
     using bxdfnode_type = BxDFNode<measure_type>;
-    using anisotropic_type = typename MaterialSystem::anisotropic_type;
-    using isotropic_type = typename anisotropic_type::isotropic_type;
+    using anisotropic_interaction_type = typename MaterialSystem::anisotropic_interaction_type;
+    using isotropic_interaction_type = typename anisotropic_interaction_type::isotropic_interaction_type;
     using anisocache_type = typename MaterialSystem::anisocache_type;
     using isocache_type = typename anisocache_type::isocache_type;
     using quotient_pdf_type = typename NextEventEstimator::quotient_pdf_type;
@@ -100,8 +100,8 @@ struct Unidirectional
         const vector3_type intersection = ray.origin + ray.direction * ray.intersectionT;
 
         uint32_t bsdfLightIDs;
-        anisotropic_type interaction;
-        isotropic_type iso_interaction;
+        anisotropic_interaction_type interaction;
+        isotropic_interaction_type iso_interaction;
         uint32_t mode = objectID.mode;
         switch (mode)
         {
@@ -116,8 +116,8 @@ struct Unidirectional
                 N = nbl::hlsl::normalize(N);
                 ray_dir_info_type V;
                 V.direction = -ray.direction;
-                isotropic_type iso_interaction = isotropic_type::create(V, N);
-                interaction = anisotropic_type::create(iso_interaction);
+                isotropic_interaction_type iso_interaction = isotropic_interaction_type::create(V, N);
+                interaction = anisotropic_interaction_type::create(iso_interaction);
             }
             break;
             default:
@@ -142,9 +142,9 @@ struct Unidirectional
 
         // TODO: ifdef kill diffuse specular paths
 
-        const bool isBSDF = (bxdf.materialType == ext::MaterialSystem::MaterialType::DIFFUSE) ? bxdf_traits<diffuse_op_type>::type == BT_BSDF :
-                            (bxdf.materialType == ext::MaterialSystem::MaterialType::CONDUCTOR) ? bxdf_traits<conductor_op_type>::type == BT_BSDF :
-                            bxdf_traits<dielectric_op_type>::type == BT_BSDF;
+        const bool isBSDF = (bxdf.materialType == ext::MaterialSystem::MaterialType::DIFFUSE) ? bxdf::traits<diffuse_op_type>::type == bxdf::BT_BSDF :
+                            (bxdf.materialType == ext::MaterialSystem::MaterialType::CONDUCTOR) ? bxdf::traits<conductor_op_type>::type == bxdf::BT_BSDF :
+                            bxdf::traits<dielectric_op_type>::type == bxdf::BT_BSDF;
 
         vector3_type eps0 = rand3d(depth, _sample, 0u);
         vector3_type eps1 = rand3d(depth, _sample, 1u);
@@ -171,24 +171,25 @@ struct Unidirectional
             );
 
             // We don't allow non watertight transmitters in this renderer
-            bool validPath = nee_sample.NdotL > numeric_limits<scalar_type>::min;
+            bool validPath = nee_sample.getNdotL() > numeric_limits<scalar_type>::min;
             // but if we allowed non-watertight transmitters (single water surface), it would make sense just to apply this line by itself
-            anisocache_type _cache;
-            validPath = validPath && anisocache_type::template compute<ray_dir_info_type, ray_dir_info_type>(_cache, interaction, nee_sample, monochromeEta);
+            bxdf::fresnel::OrientedEtas<scalar_type> orientedEta = bxdf::fresnel::OrientedEtas<scalar_type>::create(interaction.getNdotV(), monochromeEta);
+            anisocache_type _cache = anisocache_type::template create<anisotropic_interaction_type, sample_type>(interaction, nee_sample, orientedEta);
+            validPath = validPath && _cache.getNdotH() >= 0.0;
             bxdf.params.eta = monochromeEta;
 
             if (neeContrib_pdf.pdf < numeric_limits<scalar_type>::max)
             {
-                if (nbl::hlsl::any(isnan(nee_sample.L.direction)))
+                if (nbl::hlsl::any(isnan(nee_sample.getL().getDirection())))
                     ray.payload.accumulation += vector3_type(1000.f, 0.f, 0.f);
-                else if (nbl::hlsl::all((vector3_type)69.f == nee_sample.L.direction))
+                else if (nbl::hlsl::all((vector3_type)69.f == nee_sample.getL().getDirection()))
                     ray.payload.accumulation += vector3_type(0.f, 1000.f, 0.f);
                 else if (validPath)
                 {
                     bxdf::BxDFClampMode _clamp;
                     _clamp = (bxdf.materialType == ext::MaterialSystem::MaterialType::DIELECTRIC) ? bxdf::BxDFClampMode::BCM_ABS : bxdf::BxDFClampMode::BCM_MAX;
                     // example only uses isotropic bxdfs
-                    params_type params = params_type::template create<sample_type, isotropic_type, isocache_type>(nee_sample, interaction.isotropic, _cache.iso_cache, _clamp);
+                    params_type params = params_type::create(nee_sample, interaction.isotropic, _cache.iso_cache, _clamp);
 
                     quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(bxdf.materialType, bxdf.params, params);
                     neeContrib_pdf.quotient *= bxdf.albedo * throughput * bsdf_quotient_pdf.quotient;
@@ -200,8 +201,8 @@ struct Unidirectional
                     // neeContrib_pdf.quotient *= otherGenOverChoice;
 
                     ray_type nee_ray;
-                    nee_ray.origin = intersection + nee_sample.L.direction * t * Tolerance<scalar_type>::getStart(depth);
-                    nee_ray.direction = nee_sample.L.direction;
+                    nee_ray.origin = intersection + nee_sample.getL().getDirection() * t * Tolerance<scalar_type>::getStart(depth);
+                    nee_ray.direction = nee_sample.getL().getDirection();
                     nee_ray.intersectionT = t;
                     if (bsdf_quotient_pdf.pdf < numeric_limits<scalar_type>::max && getLuma(neeContrib_pdf.quotient) > lumaContributionThreshold && intersector_type::traceRay(nee_ray, scene).id == -1)
                         ray.payload.accumulation += neeContrib_pdf.quotient;
@@ -221,13 +222,13 @@ struct Unidirectional
             bxdf::BxDFClampMode _clamp;
             _clamp = (bxdf.materialType == ext::MaterialSystem::MaterialType::DIELECTRIC) ? bxdf::BxDFClampMode::BCM_ABS : bxdf::BxDFClampMode::BCM_MAX;
             // example only uses isotropic bxdfs
-            params_type params = params_type::template create<sample_type, isotropic_type, isocache_type>(bsdf_sample, interaction.isotropic, _cache.iso_cache, _clamp);
+            params_type params = params_type::create(bsdf_sample, interaction.isotropic, _cache.iso_cache, _clamp);
 
             // the value of the bsdf divided by the probability of the sample being generated
             quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(bxdf.materialType, bxdf.params, params);
             throughput *= bxdf.albedo * bsdf_quotient_pdf.quotient;
             bxdfPdf = bsdf_quotient_pdf.pdf;
-            bxdfSample = bsdf_sample.L.direction;
+            bxdfSample = bsdf_sample.getL().getDirection();
         }
 
         // additional threshold
@@ -243,7 +244,7 @@ struct Unidirectional
             ray.direction = bxdfSample;
             if ((PTPolygonMethod)nee_type::PolygonMethod == PPM_APPROX_PROJECTED_SOLID_ANGLE)
             {
-                ray.normalAtOrigin = interaction.isotropic.N;
+                ray.normalAtOrigin = interaction.getN();
                 ray.wasBSDFAtOrigin = isBSDF;
             }
             return true;

@@ -74,18 +74,17 @@ float32_t2 getTexCoords()
 
 using ray_dir_info_t = bxdf::ray_dir_info::SBasic<float>;
 using iso_interaction = bxdf::surface_interactions::SIsotropic<ray_dir_info_t>;
-using aniso_interaction = bxdf::surface_interactions::SAnisotropic<ray_dir_info_t>;
+using aniso_interaction = bxdf::surface_interactions::SAnisotropic<iso_interaction>;
 using sample_t = bxdf::SLightSample<ray_dir_info_t>;
 using iso_cache = bxdf::SIsotropicMicrofacetCache<float>;
-using aniso_cache = bxdf::SAnisotropicMicrofacetCache<float>;
-using quotient_pdf_t = bxdf::quotient_and_pdf<float32_t3, float>;
+using aniso_cache = bxdf::SAnisotropicMicrofacetCache<iso_cache>;
+using quotient_pdf_t = sampling::quotient_and_pdf<float32_t3, float>;
 using spectral_t = vector<float, 3>;
-using params_t = bxdf::SBxDFParams<float>;
 using create_params_t = bxdf::SBxDFCreationParams<float, spectral_t>;
 
 using diffuse_bxdf_type = bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>;
-using conductor_bxdf_type = bxdf::reflection::SGGXBxDF<sample_t, iso_cache, aniso_cache, spectral_t>;
-using dielectric_bxdf_type = bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_cache, aniso_cache, spectral_t>;
+using conductor_bxdf_type = bxdf::reflection::SGGXBxDF<sample_t, iso_interaction, aniso_interaction, iso_cache, aniso_cache, spectral_t>;
+using dielectric_bxdf_type = bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_interaction, aniso_interaction, iso_cache, aniso_cache, spectral_t>;
 
 using ray_type = ext::Ray<float>;
 using light_type = ext::Light<spectral_t>;

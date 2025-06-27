@@ -294,7 +294,7 @@ struct Estimator<Scene, Ray, LightSample, Aniso, IM_PROCEDURAL, PST_SPHERE, PPM>
     using light_type = typename Scene::light_type;
     using spectral_type = typename light_type::spectral_type;
     using interaction_type = Aniso;
-    using quotient_pdf_type = bxdf::quotient_and_pdf<spectral_type, scalar_type>;
+    using quotient_pdf_type = sampling::quotient_and_pdf<spectral_type, scalar_type>;
     using sample_type = LightSample;
     using ray_dir_info_type = typename sample_type::ray_dir_info_type;
 
@@ -346,7 +346,7 @@ struct Estimator<Scene, Ray, LightSample, Aniso, IM_PROCEDURAL, PST_TRIANGLE, PP
     using light_type = typename Scene::light_type;
     using spectral_type = typename light_type::spectral_type;
     using interaction_type = Aniso;
-    using quotient_pdf_type = bxdf::quotient_and_pdf<spectral_type, scalar_type>;
+    using quotient_pdf_type = sampling::quotient_and_pdf<spectral_type, scalar_type>;
     using sample_type = LightSample;
     using ray_dir_info_type = typename sample_type::ray_dir_info_type;
 
@@ -397,7 +397,7 @@ struct Estimator<Scene, Ray, LightSample, Aniso, IM_PROCEDURAL, PST_RECTANGLE, P
     using light_type = typename Scene::light_type;
     using spectral_type = typename light_type::spectral_type;
     using interaction_type = Aniso;
-    using quotient_pdf_type = bxdf::quotient_and_pdf<spectral_type, scalar_type>;
+    using quotient_pdf_type = sampling::quotient_and_pdf<spectral_type, scalar_type>;
     using sample_type = LightSample;
     using ray_dir_info_type = typename sample_type::ray_dir_info_type;
 

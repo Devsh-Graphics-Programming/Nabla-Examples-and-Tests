@@ -80,13 +80,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		inline bool isComputeOnly() const override { return false; }
 
-		//inline video::IAPIConnection::SFeatures getAPIFeaturesToEnable() override
-		//{
-		//	auto retval = device_base_t::getAPIFeaturesToEnable();
-		//	retval.synchronizationValidation = true;
-		//	return retval;
-		//}
-
 		inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 		{
 			if (!m_surface)
