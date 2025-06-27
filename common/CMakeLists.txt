@@ -83,7 +83,6 @@ endif()
     and NblExtExamplesAPIBuiltinsInclude targets)
 ]]
 
-#! NOTE: as I write it we don't have any targets there yet
 add_subdirectory("src/nbl/examples" EXCLUDE_FROM_ALL)
 
 NBL_GET_ALL_TARGETS(TARGETS)
