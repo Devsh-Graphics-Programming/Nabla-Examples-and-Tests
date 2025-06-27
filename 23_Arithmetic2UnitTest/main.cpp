@@ -1,8 +1,12 @@
-#include "nbl/application_templates/BasicMultiQueueApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+// TODO: copyright notice
+
+
+#include "nbl/examples/examples.hpp"
+
 #include "app_resources/common.hlsl"
 #include "nbl/builtin/hlsl/workgroup2/arithmetic_config.hlsl"
 #include "nbl/builtin/hlsl/subgroup2/arithmetic_params.hlsl"
+
 
 using namespace nbl;
 using namespace core;
@@ -47,10 +51,10 @@ struct emulatedScanExclusive
 	static inline constexpr const char* name = "exclusive_scan";
 };
 
-class Workgroup2ScanTestApp final : public application_templates::BasicMultiQueueApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class Workgroup2ScanTestApp final : public application_templates::BasicMultiQueueApplication, public examples::BuiltinResourcesApplication
 {
 	using device_base_t = application_templates::BasicMultiQueueApplication;
-	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+	using asset_base_t = examples::BuiltinResourcesApplication;
 
 public:
 	Workgroup2ScanTestApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :

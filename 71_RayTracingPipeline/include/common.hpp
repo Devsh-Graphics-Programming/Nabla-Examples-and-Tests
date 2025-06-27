@@ -1,33 +1,21 @@
-#ifndef __NBL_THIS_EXAMPLE_COMMON_H_INCLUDED__
-#define __NBL_THIS_EXAMPLE_COMMON_H_INCLUDED__
+#ifndef _NBL_THIS_EXAMPLE_COMMON_H_INCLUDED_
+#define _NBL_THIS_EXAMPLE_COMMON_H_INCLUDED_
 
-#include <nabla.h>
-#include "nbl/asset/utils/CGeometryCreator.h"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/examples/examples.hpp"
 
-#include "SimpleWindowedApplication.hpp"
-
-#include "InputSystem.hpp"
-#include "CEventCallback.hpp"
-
-#include "CCamera.hpp"
-
-#include <nbl/builtin/hlsl/cpp_compat.hlsl>
-#include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
-#include <nbl/asset/IRayTracingPipeline.h>
+using namespace nbl;
+using namespace nbl::core;
+using namespace nbl::hlsl;
+using namespace nbl::system;
+using namespace nbl::asset;
+using namespace nbl::ui;
+using namespace nbl::video;
+using namespace nbl::application_templates;
+using namespace nbl::examples;
 
 #include "nbl/ui/ICursorControl.h"
 #include "nbl/ext/ImGui/ImGui.h"
 #include "imgui/imgui_internal.h"
-
-using namespace nbl;
-using namespace core;
-using namespace hlsl;
-using namespace system;
-using namespace asset;
-using namespace ui;
-using namespace video;
-using namespace scene;
 
 #include "app_resources/common.hlsl"
 
@@ -60,14 +48,13 @@ struct ObjectMeta
 struct ObjectDrawHookCpu
 {
 	nbl::core::matrix3x4SIMD model;
-	nbl::asset::SBasicViewParameters viewParameters;
 	ObjectMeta meta;
 };
 
 struct ReferenceObjectCpu
 {
 	ObjectMeta meta;
-	nbl::asset::CGeometryCreator::return_type data;
+	core::smart_refctd_ptr<ICPUPolygonGeometry> data;
 	Material material;
   core::matrix3x4SIMD transform;
 };

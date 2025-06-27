@@ -3,10 +3,10 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 #include "common.hpp"
 
-class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class RayQueryGeometryApp final : public SimpleWindowedApplication, public MonoAssetManagerAndBuiltinResourceApplication
 {
-		using device_base_t = examples::SimpleWindowedApplication;
-		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+		using device_base_t = SimpleWindowedApplication;
+		using asset_base_t = MonoAssetManagerAndBuiltinResourceApplication;
 		using clock_t = std::chrono::steady_clock;
 
 		constexpr static inline uint32_t WIN_W = 1280, WIN_H = 720;
@@ -121,7 +121,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 				return logFail("Could not create HDR Image");
 
 			auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
-			auto* geometryCreator = assetManager->getGeometryCreator();
 
 			auto cQueue = getComputeQueue();
 
@@ -138,9 +137,9 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 					std::this_thread::yield();
 			}
 			// Nsight is special and can't capture anything not on the queue that performs the swapchain acquire/release
-			createAccelerationStructureDS(gQueue,geometryCreator);
+			createAccelerationStructureDS(gQueue);
 #else
-			createAccelerationStructureDS(cQueue,geometryCreator);
+			createAccelerationStructureDS(cQueue);
 #endif
 			if (!renderDs)
 				return logFail("Could not create acceleration structures and descriptor set");
@@ -258,11 +257,9 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			cmdbuf->beginDebugMarker("RayQueryGeometryApp Frame");
 			{
 				camera.beginInputProcessing(nextPresentationTimestamp);
-				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); mouseProcess(events); }, m_logger.get());
+				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); }, m_logger.get());
 				keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { camera.keyboardProcess(events); }, m_logger.get());
 				camera.endInputProcessing(nextPresentationTimestamp);
-
-				const auto type = static_cast<ObjectType>(gcIndex);
 			}
 
 			const auto viewMatrix = camera.getViewMatrix();
@@ -487,9 +484,12 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			return (dim + size - 1) / size;
 		}
 
-		smart_refctd_ptr<IGPUDescriptorSet> createAccelerationStructureDS(video::CThreadSafeQueueAdapter* queue, const IGeometryCreator* gc)
+		smart_refctd_ptr<IGPUDescriptorSet> createAccelerationStructureDS(video::CThreadSafeQueueAdapter* queue)
 		{
 			// get geometries in ICPUBuffers
+#if 1
+			return nullptr;
+#else
 			std::array<ReferenceObjectCpu, OT_COUNT> objectsCpu;
 			objectsCpu[OT_CUBE] = ReferenceObjectCpu{ .meta = {.type = OT_CUBE, .name = "Cube Mesh" }, .shadersType = GP_BASIC, .data = gc->createCubeMesh(nbl::core::vector3df(1.f, 1.f, 1.f)) };
 			objectsCpu[OT_SPHERE] = ReferenceObjectCpu{ .meta = {.type = OT_SPHERE, .name = "Sphere Mesh" }, .shadersType = GP_BASIC, .data = gc->createSphereMesh(2, 16, 16) };
@@ -892,6 +892,7 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 			m_api->endCapture();
 
 			return reservation.getGPUObjects<ICPUDescriptorSet>().front().value;
+#endif
 		}
 
 
@@ -915,19 +916,6 @@ class RayQueryGeometryApp final : public examples::SimpleWindowedApplication, pu
 
 		smart_refctd_ptr<IGPUComputePipeline> renderPipeline;
 		smart_refctd_ptr<IGPUDescriptorSet> renderDs;
-
-		uint16_t gcIndex = {};
-
-		void mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
-		{
-			for (auto eventIt = events.begin(); eventIt != events.end(); eventIt++)
-			{
-				auto ev = *eventIt;
-
-				if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
-					gcIndex = std::clamp<uint16_t>(int16_t(gcIndex) + int16_t(core::sign(ev.scrollEvent.verticalScroll)), int64_t(0), int64_t(OT_COUNT - (uint8_t)1u));
-			}
-		}
 };
 
 NBL_MAIN_FUNC(RayQueryGeometryApp)

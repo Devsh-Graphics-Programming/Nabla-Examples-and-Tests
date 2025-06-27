@@ -1,17 +1,17 @@
-﻿
-using namespace nbl::hlsl;
+﻿// TODO: Copyright notice
+
+
+#include "nbl/examples/examples.hpp"
+
 using namespace nbl;
-using namespace core;
-using namespace system;
-using namespace asset;
-using namespace ui;
-using namespace video;
+using namespace nbl::core;
+using namespace nbl::hlsl;
+using namespace nbl::system;
+using namespace nbl::asset;
+using namespace nbl::ui;
+using namespace nbl::video;
+// TODO: probably need to be `using namespace nbl::examples` as well, see other examples
 
-
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-#include "SimpleWindowedApplication.hpp"
-#include "InputSystem.hpp"
-#include "nbl/video/utilities/CSimpleResizeSurface.h"
 
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/ext/TextRendering/TextRendering.h"

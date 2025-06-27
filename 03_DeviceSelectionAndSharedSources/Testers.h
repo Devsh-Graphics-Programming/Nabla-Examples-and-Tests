@@ -4,8 +4,7 @@
 #ifndef _NBL_TESTERS_H_INCLUDED_
 #define _NBL_TESTERS_H_INCLUDED_
 
-#include "nbl/application_templates/MonoDeviceApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/examples/examples.hpp"
 
 using namespace nbl;
 

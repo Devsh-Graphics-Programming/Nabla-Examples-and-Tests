@@ -1,29 +1,26 @@
-#include <nabla.h>
+// Copyright (C) 2024-2025 - DevSH Graphics Programming Sp. z O.O.
+// This file is part of the "Nabla Engine".
+// For conditions of distribution and use, see copyright notice in nabla.h
 
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-#include "SimpleWindowedApplication.hpp"
-#include "InputSystem.hpp"
-#include "CCamera.hpp"
 
-#include "glm/glm/glm.hpp"
-#include <nbl/builtin/hlsl/cpp_compat.hlsl>
-#include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
-
+#include "nbl/examples/examples.hpp"
+// TODO: why is it not in nabla.h ?
 #include "nbl/asset/metadata/CHLSLMetadata.h"
 
-using namespace nbl::hlsl;
 using namespace nbl;
-using namespace core;
-using namespace hlsl;
-using namespace system;
-using namespace asset;
-using namespace ui;
-using namespace video;
+using namespace nbl::core;
+using namespace nbl::hlsl;
+using namespace nbl::system;
+using namespace nbl::asset;
+using namespace nbl::ui;
+using namespace nbl::video;
+using namespace nbl::examples;
 
 #include "app_resources/common.hlsl"
 #include "app_resources/gridUtils.hlsl"
 #include "app_resources/render_common.hlsl"
 #include "app_resources/descriptor_bindings.hlsl"
+
 
 enum SimPresets
 {
@@ -167,10 +164,10 @@ private:
     nbl::system::logger_opt_smart_ptr m_logger = nullptr;
 };
 
-class FLIPFluidsApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class FLIPFluidsApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
-    using device_base_t = examples::SimpleWindowedApplication;
-    using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+    using device_base_t = SimpleWindowedApplication;
+    using asset_base_t = BuiltinResourcesApplication;
     using clock_t = std::chrono::steady_clock;
 
     constexpr static inline uint32_t WIN_WIDTH = 1280, WIN_HEIGHT = 720;

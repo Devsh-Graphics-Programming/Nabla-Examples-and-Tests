@@ -5,7 +5,7 @@
 
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
 #include "nbl/application_templates/MonoDeviceApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/examples/common/BuiltinResourcesApplication.hpp"
 
 
 using namespace nbl;
@@ -20,10 +20,10 @@ using namespace video;
 
 
 // In this application we'll cover buffer streaming, Buffer Device Address (BDA) and push constants 
-class StreamingAndBufferDeviceAddressApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class StreamingAndBufferDeviceAddressApp final : public application_templates::MonoDeviceApplication, public examples::BuiltinResourcesApplication
 {
 		using device_base_t = application_templates::MonoDeviceApplication;
-		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+		using asset_base_t = examples::BuiltinResourcesApplication;
 
 		// This is the first example that submits multiple workloads in-flight. 
 		// What the shader does is it computes the minimum distance of each point against K other random input points.
