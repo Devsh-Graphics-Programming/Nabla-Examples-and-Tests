@@ -14,6 +14,7 @@ using namespace system;
 using namespace asset;
 using namespace ui;
 using namespace video;
+using namespace nbl::examples;
 
 struct PTPushConstant {
 	matrix4SIMD invMVP;
@@ -23,10 +24,10 @@ struct PTPushConstant {
 
 // TODO: Add a QueryPool for timestamping once its ready
 // TODO: Do buffer creation using assConv
-class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, public examples::BuiltinResourcesApplication
+class HLSLComputePathtracer final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
-		using device_base_t = examples::SimpleWindowedApplication;
-		using asset_base_t = examples::BuiltinResourcesApplication;
+		using device_base_t = SimpleWindowedApplication;
+		using asset_base_t = BuiltinResourcesApplication;
 		using clock_t = std::chrono::steady_clock;
 
 		enum E_LIGHT_GEOMETRY : uint8_t
@@ -91,7 +92,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 			if (!m_surface)
 			{
 				{
-					auto windowCallback = core::make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
+					auto windowCallback = core::make_smart_refctd_ptr<examples::CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
 					IWindow::SCreationParams params = {};
 					params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
 					params.width = WindowDimensions.x;
@@ -118,7 +119,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		{
 			// Init systems
 			{
-				m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
+				m_inputSystem = make_smart_refctd_ptr<examples::InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
 				// Remember to call the base class initialization!
 				if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
@@ -509,8 +510,8 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 						return logFail("Failed to Load and Compile Fragment Shader: lumaMeterShader!");
 
 					const IGPUPipelineBase::SShaderSpecInfo fragSpec = {
-						.entryPoint = "main",
-						.shader = fragmentShader.get()
+						.shader = fragmentShader.get(),
+					    .entryPoint = "main"
 					};
 
 					auto presentLayout = m_device->createPipelineLayout(
@@ -1381,7 +1382,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 
 		// system resources
 		core::smart_refctd_ptr<InputSystem> m_inputSystem;
-		InputSystem::ChannelReader<IMouseEventChannel> mouse;
+        InputSystem::ChannelReader<IMouseEventChannel> mouse;
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
 		// pathtracer resources
