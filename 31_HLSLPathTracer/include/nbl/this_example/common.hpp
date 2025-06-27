@@ -6,7 +6,7 @@
 // common api
 #include "CCamera.hpp"
 #include "SimpleWindowedApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/examples/examples.hpp"
 #include "CEventCallback.hpp"
 
 // example's own headers

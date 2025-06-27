@@ -23,10 +23,10 @@ struct PTPushConstant {
 
 // TODO: Add a QueryPool for timestamping once its ready
 // TODO: Do buffer creation using assConv
-class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, public examples::BuiltinResourcesApplication
 {
 		using device_base_t = examples::SimpleWindowedApplication;
-		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+		using asset_base_t = examples::BuiltinResourcesApplication;
 		using clock_t = std::chrono::steady_clock;
 
 		enum E_LIGHT_GEOMETRY : uint8_t
@@ -323,7 +323,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 				m_presentDescriptorSet = presentDSPool->createDescriptorSet(gpuPresentDescriptorSetLayout);
 
 				// Create Shaders
-				auto loadAndCompileGLSLShader = [&](const std::string& pathToShader, bool persistentWorkGroups = false) -> smart_refctd_ptr<IGPUShader>
+				auto loadAndCompileGLSLShader = [&](const std::string& pathToShader, bool persistentWorkGroups = false) -> smart_refctd_ptr<IShader>
 				{
 					IAssetLoader::SAssetLoadParams lp = {};
 					lp.workingDirectory = localInputCWD;
@@ -335,7 +335,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 						std::exit(-1);
 					}
 
-					auto source = IAsset::castDown<ICPUShader>(assets[0]);
+					auto source = smart_refctd_ptr_static_cast<IShader>(assets[0]);
 					// The down-cast should not fail!
 					assert(source);
 
@@ -361,7 +361,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					source = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
 
 					// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
-					auto shader = m_device->createShader(source.get());
+					auto shader = m_device->compileShader({ source.get(), nullptr, nullptr, nullptr });
 					if (!shader)
 					{
 						m_logger->log("GLSL shader creationed failed: %s!", ILogger::ELL_ERROR, pathToShader);
@@ -371,7 +371,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					return shader;
 				};
 
-				auto loadAndCompileHLSLShader = [&](const std::string& pathToShader, const std::string& defineMacro = "", bool persistentWorkGroups = false) -> smart_refctd_ptr<IGPUShader>
+				auto loadAndCompileHLSLShader = [&](const std::string& pathToShader, const std::string& defineMacro = "", bool persistentWorkGroups = false) -> smart_refctd_ptr<IShader>
 				{
 					IAssetLoader::SAssetLoadParams lp = {};
 					lp.workingDirectory = localInputCWD;
@@ -383,7 +383,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 						std::exit(-1);
 					}
 
-					auto source = IAsset::castDown<ICPUShader>(assets[0]);
+					auto source = smart_refctd_ptr_static_cast<IShader>(assets[0]);
 					// The down-cast should not fail!
 					assert(source);
 
@@ -410,7 +410,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 
 					source = compiler->compileToSPIRV((const char*)source->getContent()->getPointer(), options);
 					
-					auto shader = m_device->createShader(source.get());
+					auto shader = m_device->compileShader({ source.get(), nullptr, nullptr, nullptr });
 					if (!shader)
 					{
 						m_logger->log("HLSL shader creationed failed: %s!", ILogger::ELL_ERROR, pathToShader);
@@ -447,8 +447,8 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 							params.shader.shader = ptShader.get();
 							params.shader.entryPoint = "main";
 							params.shader.entries = nullptr;
-							 params.shader.requireFullSubgroups = true;
-							 params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+						    params.cached.requireFullSubgroups = true;
+						    params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(5);
 							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTGLSLPipelines.data() + index))
 								return logFail("Failed to create GLSL compute pipeline!\n");
 						}
@@ -460,8 +460,8 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 							params.shader.shader = ptShader.get();
 							params.shader.entryPoint = "main";
 							params.shader.entries = nullptr;
-							params.shader.requireFullSubgroups = true;
-							params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+							params.cached.requireFullSubgroups = true;
+							params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(5);
 							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPipelines.data() + index))
 								return logFail("Failed to create HLSL compute pipeline!\n");
 						}
@@ -475,8 +475,8 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 							params.shader.shader = ptShader.get();
 							params.shader.entryPoint = "main";
 							params.shader.entries = nullptr;
-							params.shader.requireFullSubgroups = true;
-							params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+							params.cached.requireFullSubgroups = true;
+							params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(5);
 							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTGLSLPersistentWGPipelines.data() + index))
 								return logFail("Failed to create GLSL PersistentWG compute pipeline!\n");
 						}
@@ -488,8 +488,8 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 							params.shader.shader = ptShader.get();
 							params.shader.entryPoint = "main";
 							params.shader.entries = nullptr;
-							params.shader.requireFullSubgroups = true;
-							params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+							params.cached.requireFullSubgroups = true;
+							params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(5);
 							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPersistentWGPipelines.data() + index))
 								return logFail("Failed to create HLSL PersistentWG compute pipeline!\n");
 						}
@@ -508,7 +508,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					if (!fragmentShader)
 						return logFail("Failed to Load and Compile Fragment Shader: lumaMeterShader!");
 
-					const IGPUShader::SSpecInfo fragSpec = {
+					const IGPUPipelineBase::SShaderSpecInfo fragSpec = {
 						.entryPoint = "main",
 						.shader = fragmentShader.get()
 					};
