@@ -134,8 +134,8 @@ PSInput main(uint vertexID : SV_VertexID)
         float2 transformedOriginalPos;
         float2 transformedDilatedPos;
         {
-            uint32_t firstVertexOfCurrentTriangleIndex = vertexID - vertexID % 3;
-            uint32_t currentVertexWithinTriangleIndex = vertexID - firstVertexOfCurrentTriangleIndex;
+            uint32_t currentVertexWithinTriangleIndex = vertexID % 3;
+            uint32_t firstVertexOfCurrentTriangleIndex = vertexID - currentVertexWithinTriangleIndex;
 
             TriangleMeshVertex triangleVertices[3];
             triangleVertices[0] = vk::RawBufferLoad<TriangleMeshVertex>(pc.triangleMeshVerticesBaseAddress + sizeof(TriangleMeshVertex) * firstVertexOfCurrentTriangleIndex, 8u);
@@ -581,8 +581,9 @@ PSInput main(uint vertexID : SV_VertexID)
 
             float32_t2 minUV = glyphInfo.getMinUV();
             uint16_t textureID = glyphInfo.getTextureID();
-
-            const float32_t2 dirV = float32_t2(glyphInfo.dirU.y, -glyphInfo.dirU.x) * glyphInfo.aspectRatio;
+            
+            const int ndcYDirectionSign = sign(clipProjectionData.projectionToNDC[1][1]);
+            const float32_t2 dirV = float32_t2(glyphInfo.dirU.y, ndcYDirectionSign * glyphInfo.dirU.x) * glyphInfo.aspectRatio;
             const float2 screenTopLeft = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, glyphInfo.topLeft));
             const float2 screenDirU = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(glyphInfo.dirU)));
             const float2 screenDirV = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirV)));
@@ -630,7 +631,9 @@ PSInput main(uint vertexID : SV_VertexID)
             float32_t aspectRatio = vk::RawBufferLoad<float32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2), 4u);
             uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2) + sizeof(float), 4u);
 
-            const float32_t2 dirV = float32_t2(dirU.y, -dirU.x) * aspectRatio;
+            // If y increases as we go down in ndc this sign is positive (screenspace-like transformations), if y decreases as we go down this sign is negative (worldspace-like transformations)
+            const int ndcYDirectionSign = sign(clipProjectionData.projectionToNDC[1][1]);
+            const float32_t2 dirV = float32_t2(dirU.y, ndcYDirectionSign * dirU.x) * aspectRatio;
             const float2 ndcTopLeft = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, topLeft));
             const float2 ndcDirU = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirU)));
             const float2 ndcDirV = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirV)));
@@ -725,8 +728,9 @@ PSInput main(uint vertexID : SV_VertexID)
             float32_t2 dirU = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 4u);
             float32_t aspectRatio = vk::RawBufferLoad<float32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2), 4u);
             uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2) + sizeof(float), 4u);
-
-            const float32_t2 dirV = float32_t2(dirU.y, -dirU.x) * aspectRatio;
+            
+            const int ndcYDirectionSign = sign(clipProjectionData.projectionToNDC[1][1]);
+            const float32_t2 dirV = float32_t2(dirU.y, ndcYDirectionSign * dirU.x) * aspectRatio;
             const float2 ndcTopLeft = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, topLeft));
             const float2 ndcDirU = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirU)));
             const float2 ndcDirV = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirV)));

@@ -140,32 +140,33 @@ float4 fragMain(PSInput input) : SV_TARGET
     {
         DTMSettings dtmSettings = loadDTMSettings(mainObj.dtmSettingsIdx);
 
-        float3 v[3];
-        v[0] = input.getScreenSpaceVertexAttribs(0);
-        v[1] = input.getScreenSpaceVertexAttribs(1);
-        v[2] = input.getScreenSpaceVertexAttribs(2);
+        float3 triangleVertices[3];
+        triangleVertices[0] = input.getScreenSpaceVertexAttribs(0);
+        triangleVertices[1] = input.getScreenSpaceVertexAttribs(1);
+        triangleVertices[2] = input.getScreenSpaceVertexAttribs(2);
 
-        const float3 baryCoord = dtm::calculateDTMTriangleBarycentrics(v[0].xy, v[1].xy, v[2].xy, input.position.xy);
-        float height = baryCoord.x * v[0].z + baryCoord.y * v[1].z + baryCoord.z * v[2].z;
+        const float3 baryCoord = dtm::calculateDTMTriangleBarycentrics(triangleVertices[0].xy, triangleVertices[1].xy, triangleVertices[2].xy, input.position.xy);
+
+        float height = baryCoord.x * triangleVertices[0].z + baryCoord.y * triangleVertices[1].z + baryCoord.z * triangleVertices[2].z;
         float heightDeriv = fwidth(height);
 
         float4 dtmColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
         
         if (dtmSettings.drawOutlineEnabled())                                                                                                    // TODO: do i need 'height' paramter here?
-            dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMOutlineColor(dtmSettings.outlineLineStyleIdx, v, input.position.xy));
+            dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMOutlineColor(dtmSettings.outlineLineStyleIdx, triangleVertices, input.position.xy));
         if (dtmSettings.drawContourEnabled())
         {
             for(uint32_t i = 0; i < dtmSettings.contourSettingsCount; ++i) // TODO: should reverse the order with blendUnder
             {
                 LineStyle contourStyle = loadLineStyle(dtmSettings.contourSettings[i].contourLineStyleIdx);
-                float sdf = dtm::calculateDTMContourSDF(dtmSettings.contourSettings[i], contourStyle, v, input.position.xy, height);
+                float sdf = dtm::calculateDTMContourSDF(dtmSettings.contourSettings[i], contourStyle, triangleVertices, input.position.xy, height);
                 float4 contourColor = contourStyle.color;
                 contourColor.a *= 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, sdf);
                 dtmColor = dtm::blendUnder(dtmColor, contourColor);
             }
         }
         if (dtmSettings.drawHeightShadingEnabled())
-            dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, v, heightDeriv, input.position.xy, height));
+            dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMHeightColor(dtmSettings.heightShadingSettings, triangleVertices, heightDeriv, input.position.xy, height));
 
         textureColor = dtmColor.rgb / dtmColor.a;
         localAlpha = dtmColor.a;
