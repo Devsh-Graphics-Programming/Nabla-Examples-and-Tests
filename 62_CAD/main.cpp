@@ -1495,7 +1495,16 @@ public:
 
 		float64_t3x3 projectionToNDC;
 		projectionToNDC = m_Camera.constructViewProjection();
-		
+#if 0
+		double rotation = 0.25 * PI<double>();
+		float64_t2 rotationVec = float64_t2(cos(rotation), sin(rotation));
+		float64_t3x3 rotationParameter = float64_t3x3 {
+			rotationVec.x, rotationVec.y, 0.0,
+			-rotationVec.y, rotationVec.x, 0.0,
+			0.0, 0.0, 1.0
+		};
+		projectionToNDC = nbl::hlsl::mul(projectionToNDC, rotationParameter);
+#endif
 		Globals globalData = {};
 		uint64_t baseAddress = resourcesGPUBuffer->getDeviceAddress();
 		globalData.pointers = {
