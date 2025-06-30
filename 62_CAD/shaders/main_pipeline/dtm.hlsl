@@ -106,7 +106,7 @@ float3 calculateDTMTriangleBarycentrics(in float2 v1, in float2 v2, in float2 v3
     return float3(u, v, w);
 }
 
-float4 calculateDTMHeightColor(in DTMHeightShadingSettings settings, in float3 v[3], in float heightDeriv, in float2 fragPos, in float height)
+float4 calculateDTMHeightColor(in DTMHeightShadingSettings settings, in float3 triangleVertices[3], in float heightDeriv, in float2 fragPos, in float height)
 {
     float4 outputColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
@@ -117,33 +117,37 @@ float4 calculateDTMHeightColor(in DTMHeightShadingSettings settings, in float3 v
 
     if (heightMapSize > 0)
     {
-        // partially based on https://www.shadertoy.com/view/XsXSz4 by Inigo Quilez
-        float2 e0 = (v[1] - v[0]).xy;
-        float2 e1 = (v[2] - v[1]).xy;
-        float2 e2 = (v[0] - v[2]).xy;
+        // Do the triangle SDF:
+        float2 e0 = (triangleVertices[1] - triangleVertices[0]).xy;
+        float2 e1 = (triangleVertices[2] - triangleVertices[1]).xy;
+        float2 e2 = (triangleVertices[0] - triangleVertices[2]).xy;
+        
+        float2 v0 = fragPos - triangleVertices[0].xy;
+        float2 v1 = fragPos - triangleVertices[1].xy;
+        float2 v2 = fragPos - triangleVertices[2].xy;
 
-        float triangleAreaSign = -sign(e0.x * e2.y - e0.y * e2.x);
-        float2 v0 = fragPos - v[0].xy;
-        float2 v1 = fragPos - v[1].xy;
-        float2 v2 = fragPos - v[2].xy;
+        float distanceToLine0 = dot2(v0 - e0 * clamp(dot(v0, e0) / dot(e0, e0), 0.0, 1.0));
+        float distanceToLine1 = dot2(v1 - e1 * clamp(dot(v1, e1) / dot(e1, e1), 0.0, 1.0));
+        float distanceToLine2 = dot2(v2 - e2 * clamp(dot(v2, e2) / dot(e2, e2), 0.0, 1.0));
 
-        float distanceToLine0 = sqrt(dot2(v0 - e0 * dot(v0, e0) / dot(e0, e0)));
-        float distanceToLine1 = sqrt(dot2(v1 - e1 * dot(v1, e1) / dot(e1, e1)));
-        float distanceToLine2 = sqrt(dot2(v2 - e2 * dot(v2, e2) / dot(e2, e2)));
+        // TODO[Optization]: We can get the sign (whether inside or outside the triangle) from the barycentric coords we already compute outside this func
+        // So we can skip this part which tries to figure out which side of each triangle edge line the fragPos relies on
+        float o = e0.x * e2.y - e0.y * e2.x;
+        float2 d = min(min(float2(distanceToLine0, o * (v0.x * e0.y - v0.y * e0.x)),
+                        float2(distanceToLine1, o * (v1.x * e1.y - v1.y * e1.x))),
+                        float2(distanceToLine2, o * (v2.x * e2.y - v2.y * e2.x)));
+                         
+        float triangleSDF = -sqrt(d.x) * sign(d.y);
+        
+        // Intersect with the region between min and max height shading.
+        float minHeightShadingLine = (minShadingHeight - height) / heightDeriv;
+        float maxHeightShadingLine = (height - maxShadingHeight) / heightDeriv;
 
-        float line0Sdf = distanceToLine0 * triangleAreaSign * sign(v0.x * e0.y - v0.y * e0.x);
-        float line1Sdf = distanceToLine1 * triangleAreaSign * sign(v1.x * e1.y - v1.y * e1.x);
-        float line2Sdf = distanceToLine2 * triangleAreaSign * sign(v2.x * e2.y - v2.y * e2.x);
-        float line3Sdf = (minShadingHeight - height) / heightDeriv;
-        float line4Sdf = (height - maxShadingHeight) / heightDeriv;
-
-        float convexPolygonSdf = max(line0Sdf, line1Sdf);
-        convexPolygonSdf = max(convexPolygonSdf, line2Sdf);
-        convexPolygonSdf = max(convexPolygonSdf, line3Sdf);
-        convexPolygonSdf = max(convexPolygonSdf, line4Sdf);
-
+        float convexPolygonSdf = triangleSDF;
+        convexPolygonSdf = max(convexPolygonSdf, minHeightShadingLine);
+        convexPolygonSdf = max(convexPolygonSdf, maxHeightShadingLine);
         outputColor.a = 1.0f - smoothstep(0.0f, globals.antiAliasingFactor + globals.antiAliasingFactor, convexPolygonSdf);
-
+     
         // calculate height color
         E_HEIGHT_SHADING_MODE mode = settings.determineHeightShadingMode();
         if (mode == E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS)
@@ -263,7 +267,7 @@ float calculateDTMContourSDF(in DTMContourSettings contourSettings, in LineStyle
         if (contourLineHeight >= p0.z && contourLineHeight <= p1.z)
         {
             float interpolationVal = (contourLineHeight - p0.z) / (p1.z - p0.z);
-            contourLinePoints[contourLinePointsIdx] = p0.xy + interpolationVal * (p1.xy - p0.xy);
+            contourLinePoints[contourLinePointsIdx] = lerp(p0.xy, p1.xy, clamp(interpolationVal, 0.0f, 1.0f));
             ++contourLinePointsIdx;
         }
     }
@@ -405,10 +409,7 @@ E_CELL_DIAGONAL resolveGridDTMCellDiagonal(in uint32_t4 cellData)
         invalidHeightsCount += int(invalidHeights[i]);
 
     if (invalidHeightsCount == 0)
-    {
-        E_CELL_DIAGONAL a = getDiagonalModeFromCellCornerData(cellData.w);
         return getDiagonalModeFromCellCornerData(cellData.w);
-    }
 
     if (invalidHeightsCount > 1)
         return INVALID;
@@ -476,10 +477,9 @@ GridDTMCell calculateCellTriangles(in dtm::GridDTMHeightMapData heightData, in f
     // heightData.heihts.y - bottom right texel
     // heightData.heihts.z - top right texel
     // heightData.heihts.w - top left texel
-    const bool diagonalFromTopLeftToBottomRight = heightData.cellDiagonal == E_CELL_DIAGONAL::TOP_LEFT_TO_BOTTOM_RIGHT;
     float2 gridSpaceCellTopLeftCoords = cellCoords * cellWidth;
 
-    if (diagonalFromTopLeftToBottomRight)
+    if (heightData.cellDiagonal == E_CELL_DIAGONAL::TOP_LEFT_TO_BOTTOM_RIGHT)
     {
         output.triangleA.vertices[0] = float3(gridSpaceCellTopLeftCoords.x, gridSpaceCellTopLeftCoords.y, heightData.heights.w);
         output.triangleA.vertices[1] = float3(gridSpaceCellTopLeftCoords.x + cellWidth, gridSpaceCellTopLeftCoords.y + cellWidth, heightData.heights.y);
@@ -502,7 +502,7 @@ GridDTMCell calculateCellTriangles(in dtm::GridDTMHeightMapData heightData, in f
 
     output.validA = !isInvalidGridDtmHeightValue(output.triangleA.vertices[0].z) && !isInvalidGridDtmHeightValue(output.triangleA.vertices[1].z) && !isInvalidGridDtmHeightValue(output.triangleA.vertices[2].z);
     output.validB = !isInvalidGridDtmHeightValue(output.triangleB.vertices[0].z) && !isInvalidGridDtmHeightValue(output.triangleB.vertices[1].z) && !isInvalidGridDtmHeightValue(output.triangleB.vertices[2].z);
-    
+
     // move from grid space to screen space
     [unroll]
     for (int i = 0; i < 3; ++i)
