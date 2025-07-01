@@ -116,8 +116,17 @@ public:
 		m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
 		m_surface->recreateSwapchain();
 
+	    {
+			ext::drawdebug::DrawAABB::SCreationParameters params;
+			params.pushConstantRange = {
+			    .stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX,
+			    .offset = 0,
+			    .size = sizeof(SPushConstants)
+			};
+            drawAABB = ext::drawdebug::DrawAABB::create(std::move(params));
+	    }
 		{
-			std::array<float32_t3, 24> vertices = getVerticesFromAABB(testAABB);
+			auto vertices = ext::drawdebug::DrawAABB::getVerticesFromAABB(testAABB);
 			IGPUBuffer::SCreationParams params;
 			params.size = sizeof(float32_t3) * vertices.size();
 			params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
@@ -152,8 +161,7 @@ public:
 		auto vertexShader = compileShader("app_resources/simple.vertex.hlsl");
 		auto fragmentShader = compileShader("app_resources/simple.fragment.hlsl");
 
-		const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX, .offset = 0, .size = sizeof(SPushConstants) };
-		const auto pipelineLayout = m_device->createPipelineLayout({ &pcRange , 1 }, nullptr, nullptr, nullptr, nullptr);
+		const auto pipelineLayout = ext::drawdebug::DrawAABB::createDefaultPipelineLayout(m_device.get(), drawAABB->getCreationParameters().pushConstantRange);
 
 		IGPUGraphicsPipeline::SCreationParams params[1] = {};
 		params[0].layout = pipelineLayout.get();
@@ -286,8 +294,7 @@ public:
 			cmdbuf->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 			cmdbuf->bindGraphicsPipeline(m_pipeline.get());
 			cmdbuf->pushConstants(m_pipeline->getLayout(), ESS_VERTEX, 0, sizeof(SPushConstants), &pc);
-			cmdbuf->setLineWidth(1.f);
-			cmdbuf->draw(24, 1, 0, 0);
+			drawAABB->renderSingle(cmdbuf);
 
 			cmdbuf->endRenderPass();
 		}
@@ -425,6 +432,7 @@ private:
 
 	float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
 
+	smart_refctd_ptr<ext::drawdebug::DrawAABB> drawAABB;
 	core::aabbox3d<float> testAABB = core::aabbox3d<float>({ 0, 0, 0 }, { 10, 10, -10 });
 	smart_refctd_ptr<IGPUBuffer> verticesBuffer;
 };
