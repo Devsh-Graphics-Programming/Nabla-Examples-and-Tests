@@ -75,9 +75,9 @@ float3 calculateSmoothNormals(int instID, int primID, SGeomInfo geom, float2 bar
         case OT_ICOSPHERE:
         default:
         {
-            n0 = normalize(vk::RawBufferLoad<float3>(normalBufferAddress + indices[0] * vertexStride));
-            n1 = normalize(vk::RawBufferLoad<float3>(normalBufferAddress + indices[1] * vertexStride));
-            n2 = normalize(vk::RawBufferLoad<float3>(normalBufferAddress + indices[2] * vertexStride));
+            n0 = normalize(vk::RawBufferLoad<float3>(normalBufferAddress + indices[0] * 12));
+            n1 = normalize(vk::RawBufferLoad<float3>(normalBufferAddress + indices[1] * 12));
+            n2 = normalize(vk::RawBufferLoad<float3>(normalBufferAddress + indices[2] * 12));
         }
     }
 
