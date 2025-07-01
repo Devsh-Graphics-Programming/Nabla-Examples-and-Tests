@@ -1,6 +1,5 @@
 if(NBL_BUILD_IMGUI)
 	set(NBL_EXTRA_SOURCES
-		"${CMAKE_CURRENT_SOURCE_DIR}/src/transform.cpp"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/CDrawAABB.cpp"	 # TODO remove when moved to nabla
 	)
 
