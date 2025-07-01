@@ -29,9 +29,11 @@ float3 calculateSmoothNormals(int instID, int primID, SGeomInfo geom, float2 bar
 {
     const uint indexType = geom.indexType;
     const uint vertexStride = geom.vertexStride;
+    const uint objType = instID;
 
     const uint64_t vertexBufferAddress = geom.vertexBufferAddress;
     const uint64_t indexBufferAddress = geom.indexBufferAddress;
+    const uint64_t normalBufferAddress = geom.normalBufferAddress;
 
     uint32_t3 indices;
     switch (indexType)
@@ -51,42 +53,31 @@ float3 calculateSmoothNormals(int instID, int primID, SGeomInfo geom, float2 bar
     }
 
     float3 n0, n1, n2;
-    switch (instID)
+    switch (objType)
     {
         case OT_CUBE:
+        case OT_SPHERE:
+        case OT_RECTANGLE:
+        case OT_CYLINDER:
+        //case OT_ARROW:
+        case OT_CONE:
         {
             // TODO: document why the alignment is 2 here and nowhere else? isnt the `vertexStride` aligned to more than 2 anyway?
-            uint32_t v0 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + indices[0] * vertexStride, 2u);
-            uint32_t v1 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + indices[1] * vertexStride, 2u);
-            uint32_t v2 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + indices[2] * vertexStride, 2u);
+            uint32_t v0 = vk::RawBufferLoad<uint32_t>(normalBufferAddress + indices[0] * 4);
+            uint32_t v1 = vk::RawBufferLoad<uint32_t>(normalBufferAddress + indices[1] * 4);
+            uint32_t v2 = vk::RawBufferLoad<uint32_t>(normalBufferAddress + indices[2] * 4);
 
             n0 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v0).xyz);
             n1 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v1).xyz);
             n2 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v2).xyz);
         }
         break;
-        case OT_SPHERE:
-        case OT_CYLINDER:
-        case OT_ARROW:
-        case OT_CONE:
-        {
-            uint32_t v0 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + indices[0] * vertexStride);
-            uint32_t v1 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + indices[1] * vertexStride);
-            uint32_t v2 = vk::RawBufferLoad<uint32_t>(vertexBufferAddress + indices[2] * vertexStride);
-
-            n0 = normalize(unpackNormals3x10(v0));
-            n1 = normalize(unpackNormals3x10(v1));
-            n2 = normalize(unpackNormals3x10(v2));
-        }
-        break;
-        case OT_RECTANGLE:
-        case OT_DISK:
         case OT_ICOSPHERE:
         default:
         {
-            n0 = normalize(vk::RawBufferLoad<float3>(vertexBufferAddress + indices[0] * vertexStride));
-            n1 = normalize(vk::RawBufferLoad<float3>(vertexBufferAddress + indices[1] * vertexStride));
-            n2 = normalize(vk::RawBufferLoad<float3>(vertexBufferAddress + indices[2] * vertexStride));
+            n0 = normalize(vk::RawBufferLoad<float3>(normalBufferAddress + indices[0] * vertexStride));
+            n1 = normalize(vk::RawBufferLoad<float3>(normalBufferAddress + indices[1] * vertexStride));
+            n2 = normalize(vk::RawBufferLoad<float3>(normalBufferAddress + indices[2] * vertexStride));
         }
     }
 
