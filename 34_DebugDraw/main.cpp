@@ -117,8 +117,9 @@ public:
 		m_surface->recreateSwapchain();
 
 		{
+			std::array<float32_t3, 24> vertices = getVerticesFromAABB(testAABB);
 			IGPUBuffer::SCreationParams params;
-			params.size = sizeof(float32_t4) * vertices.size();
+			params.size = sizeof(float32_t3) * vertices.size();
 			params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 			
 			m_utils->createFilledDeviceLocalBufferOnDedMem(
@@ -286,7 +287,7 @@ public:
 			cmdbuf->bindGraphicsPipeline(m_pipeline.get());
 			cmdbuf->pushConstants(m_pipeline->getLayout(), ESS_VERTEX, 0, sizeof(SPushConstants), &pc);
 			cmdbuf->setLineWidth(1.f);
-			cmdbuf->draw(vertices.size(), 1, 0, 0);
+			cmdbuf->draw(24, 1, 0, 0);
 
 			cmdbuf->endRenderPass();
 		}
@@ -360,6 +361,45 @@ public:
 	}
 
 private:
+	std::array<float32_t3, 24> getVerticesFromAABB(core::aabbox3d<float>& aabb)
+	{
+		const auto& pMin = aabb.MinEdge;
+		const auto& pMax = aabb.MaxEdge;
+
+		std::array<float32_t3, 24> vertices;
+		vertices[0] = float32_t3(pMin.X, pMin.Y, pMin.Z);
+		vertices[1] = float32_t3(pMax.X, pMin.Y, pMin.Z);
+		vertices[2] = float32_t3(pMin.X, pMin.Y, pMin.Z);
+		vertices[3] = float32_t3(pMin.X, pMin.Y, pMax.Z);
+
+		vertices[4] = float32_t3(pMax.X, pMin.Y, pMax.Z);
+		vertices[5] = float32_t3(pMax.X, pMin.Y, pMin.Z);
+		vertices[6] = float32_t3(pMax.X, pMin.Y, pMax.Z);
+		vertices[7] = float32_t3(pMin.X, pMin.Y, pMax.Z);
+
+		vertices[8] = float32_t3(pMin.X, pMax.Y, pMin.Z);
+		vertices[9] = float32_t3(pMax.X, pMax.Y, pMin.Z);
+		vertices[10] = float32_t3(pMin.X, pMax.Y, pMin.Z);
+		vertices[11] = float32_t3(pMin.X, pMax.Y, pMax.Z);
+
+		vertices[12] = float32_t3(pMax.X, pMax.Y, pMax.Z);
+		vertices[13] = float32_t3(pMax.X, pMax.Y, pMin.Z);
+		vertices[14] = float32_t3(pMax.X, pMax.Y, pMax.Z);
+		vertices[15] = float32_t3(pMin.X, pMax.Y, pMax.Z);
+
+		vertices[16] = float32_t3(pMin.X, pMin.Y, pMin.Z);
+		vertices[17] = float32_t3(pMin.X, pMax.Y, pMin.Z);
+		vertices[18] = float32_t3(pMax.X, pMin.Y, pMin.Z);
+		vertices[19] = float32_t3(pMax.X, pMax.Y, pMin.Z);
+
+		vertices[20] = float32_t3(pMin.X, pMin.Y, pMax.Z);
+		vertices[21] = float32_t3(pMin.X, pMax.Y, pMax.Z);
+		vertices[22] = float32_t3(pMax.X, pMin.Y, pMax.Z);
+		vertices[23] = float32_t3(pMax.X, pMax.Y, pMax.Z);
+
+		return vertices;
+	}
+
 	// Maximum frames which can be simultaneously submitted, used to cycle through our per-frame resources like command buffers
 	constexpr static inline uint32_t MaxFramesInFlight = 3u;
 
@@ -383,15 +423,9 @@ private:
 
 	uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
 
-	bool isPerspective = true, isLH = true, flipGizmoY = true, move = false;
 	float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
-	float viewWidth = 10.f;
-	float camYAngle = 165.f / 180.f * 3.14159f;
-	float camXAngle = 32.f / 180.f * 3.14159f;
 
-	bool firstFrame = true;
-
-	std::array<float32_t4, 2> vertices = { float32_t4(0,0,0,1), float32_t4(10,10,-10,1) };
+	core::aabbox3d<float> testAABB = core::aabbox3d<float>({ 0, 0, 0 }, { 10, 10, -10 });
 	smart_refctd_ptr<IGPUBuffer> verticesBuffer;
 };
 

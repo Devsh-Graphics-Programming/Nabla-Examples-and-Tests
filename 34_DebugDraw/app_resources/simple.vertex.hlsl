@@ -12,9 +12,9 @@ PSInput main(uint vertexID : SV_VertexID)
 {
     PSInput output;
 
-    float32_t4 vertex = (bda::__ptr<float32_t4>::create(pc.pVertices) + vertexID).deref_restrict().load();
+    float32_t3 vertex = (bda::__ptr<float32_t3>::create(pc.pVertices) + vertexID).deref_restrict().load();
 
-    output.position = mul(pc.MVP, vertex);
+    output.position = mul(pc.MVP, float32_t4(vertex, 1));
     output.color = float32_t4(1, 0, 0, 1);
 
     return output;
