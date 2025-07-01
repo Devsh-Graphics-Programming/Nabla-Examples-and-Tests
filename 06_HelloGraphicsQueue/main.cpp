@@ -3,18 +3,20 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 
-// I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
-#include "nbl/application_templates/MonoDeviceApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/examples/examples.hpp"
 
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 
 
 using namespace nbl;
-using namespace core;
-using namespace system;
-using namespace asset;
-using namespace video;
+using namespace nbl::core;
+using namespace nbl::hlsl;
+using namespace nbl::system;
+using namespace nbl::asset;
+using namespace nbl::ui;
+using namespace nbl::video;
+using namespace nbl::examples;
+
 
 // Here we showcase the use of Graphics Queue only 
 // Steps we take in this example:
@@ -26,10 +28,10 @@ using namespace video;
 // - save the smallImg to disk
 // 
 // all without using IUtilities.
-class HelloGraphicsQueueApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class HelloGraphicsQueueApp final : public application_templates::MonoDeviceApplication, public BuiltinResourcesApplication
 {
 		using device_base_t = application_templates::MonoDeviceApplication;
-		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+		using asset_base_t = BuiltinResourcesApplication;
 
 	public:
 		// Yay thanks to multiple inheritance we cannot forward ctors anymore.
