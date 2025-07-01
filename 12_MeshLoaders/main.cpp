@@ -100,15 +100,21 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 				}
 				// late latch input
 				{
+					bool reload = false;
 					camera.beginInputProcessing(nextPresentationTimestamp);
 					mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); }, m_logger.get());
 					keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 						{
+							for (const auto& event : events)
+							if (event.keyCode==E_KEY_CODE::EKC_R && event.action==SKeyboardEvent::ECA_RELEASED)
+								reload = true;
 							camera.keyboardProcess(events);
 						},
 						m_logger.get()
 					);
 					camera.endInputProcessing(nextPresentationTimestamp);
+					if (reload)
+						reloadModel();
 				}
 				// draw scene
 				{
@@ -239,6 +245,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 			//! load the geometry
 			IAssetLoader::SAssetLoadParams params = {};
+			params.logger = m_logger.get();
 			params.meshManipulatorOverride = nullptr; // TODO
 			auto bundle = m_assetMgr->getAsset(m_modelPath,params);
 			if (bundle.getContents().empty())
@@ -263,6 +270,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			//! cache results -- speeds up mesh generation on second run
 			m_qnc->saveCacheToFile<EF_R8G8B8_SNORM>(m_system.get(),sharedOutputCWD/"../../tmp/normalCache888.sse");
 			
+			auto bound = hlsl::shapes::AABB<3,double>::create();
 			// convert the geometries
 			{
 				smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({.device=m_device.get()});
@@ -339,11 +347,45 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 				}
 
 				const auto& converted = reservation.getGPUObjects<ICPUPolygonGeometry>();
+				for (const auto& geom : converted)
+				{
+					geom.value->visitAABB([&bound](const auto& aabb)->void
+						{
+							hlsl::shapes::AABB<3,double> promoted;
+							promoted.minVx = aabb.minVx;
+							promoted.maxVx = aabb.maxVx;
+							bound = hlsl::shapes::util::union_(promoted,bound);
+						}
+					);
+				}
 				if (!m_renderer->addGeometries({ &converted.front().get(),converted.size() }))
 					return false;
+				for (const auto& geo : m_renderer->getGeometries())
+					m_renderer->m_instances.push_back({
+						.world = hlsl::float32_t3x4(
+							hlsl::float32_t4(1,0,0,0),
+							hlsl::float32_t4(0,1,0,0),
+							hlsl::float32_t4(0,0,1,0)
+						),
+						.packedGeo = &geo
+					});
 			}
 
-// TODO: get scene bounds and reset camera
+			// get scene bounds and reset camera
+			{
+				const double distance = 0.05;
+				const auto diagonal = bound.maxVx-bound.minVx;
+				{
+					const auto measure = hlsl::length(diagonal);
+					const auto aspectRatio = float(m_window->getWidth())/float(m_window->getHeight());
+					camera.setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(1.2f,aspectRatio,distance*measure*0.1,measure*4.0));
+					camera.setMoveSpeed(measure*0.04);
+				}
+				const auto pos = bound.maxVx+diagonal*distance;
+				camera.setPosition(vectorSIMDf(pos.x,pos.y,pos.z));
+				const auto center = (bound.minVx+bound.maxVx)*0.5;
+				camera.setTarget(vectorSIMDf(center.x,center.y,center.z));
+			}
 
 			// TODO: write out the geometry
 
