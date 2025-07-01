@@ -40,60 +40,34 @@ float32_t3 fetchVertexNormal(int instID, int primID, STriangleGeomInfo geom, flo
     const uint64_t normalVertexBufferAddress = geom.normalBufferAddress;
     float3 n0, n1, n2;
 
-    // TODO(kevin): Currently this will work correctly both for cubes and rectangle, which are the only triangles geometry that is used in this example. Need to implement other geometry
-    uint32_t v0 = vk::RawBufferLoad < uint32_t > (normalVertexBufferAddress + i0 * 4);
-    uint32_t v1 = vk::RawBufferLoad < uint32_t > (normalVertexBufferAddress + i1 * 4);
-    uint32_t v2 = vk::RawBufferLoad < uint32_t > (normalVertexBufferAddress + i2 * 4);
-    
+    float3 n0, n1, n2;
+    switch (objType)
+    {
+        case OT_CUBE:
+        case OT_SPHERE:
+        case OT_RECTANGLE:
+        case OT_CYLINDER:
+        //case OT_ARROW:
+        case OT_CONE:
+        {
+            // TODO: document why the alignment is 2 here and nowhere else? isnt the `vertexStride` aligned to more than 2 anyway?
+            uint32_t v0 = vk::RawBufferLoad<uint32_t>(normalBufferAddress + i0 * 4);
+            uint32_t v1 = vk::RawBufferLoad<uint32_t>(normalBufferAddress + i1 * 4);
+            uint32_t v2 = vk::RawBufferLoad<uint32_t>(normalBufferAddress + i2 * 4);
 
-    n0 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v0).xyz);
-    n1 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v1).xyz);
-    n2 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v2).xyz);
-
-    // switch (objType)
-    // {
-    //     case OT_CUBE:
-    //     {
-    //         // TODO(kevin): Don't hardcode the normal stride in hlsl
-    //         uint32_t v0 = vk::RawBufferLoad < uint32_t > (normalVertexBufferAddress + i0 * 4);
-    //         uint32_t v1 = vk::RawBufferLoad < uint32_t > (normalVertexBufferAddress + i1 * 4);
-    //         uint32_t v2 = vk::RawBufferLoad < uint32_t > (normalVertexBufferAddress + i2 * 4);
-    //
-    //         n0 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v0).xyz);
-    //         n1 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v1).xyz);
-    //         n2 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v2).xyz);
-    //     }
-    //     break;
-    //     case OT_SPHERE:
-    //     case OT_CYLINDER:
-    //     case OT_ARROW:
-    //     case OT_CONE:
-    //     {
-    //         // TODO(kevin): Fix this logic. Don't use vertex stride since nomral is separated from position
-    //         uint32_t v0 = vk::RawBufferLoad < uint32_t > (normalVertexBufferAddress + i0 * vertexStride);
-    //         uint32_t v1 = vk::RawBufferLoad < uint32_t > (normalVertexBufferAddress + i1 * vertexStride);
-    //         uint32_t v2 = vk::RawBufferLoad < uint32_t > (normalVertexBufferAddress + i2 * vertexStride);
-    //
-    //         n0 = normalize(unpackNormals3x10(v0));
-    //         n1 = normalize(unpackNormals3x10(v1));
-    //         n2 = normalize(unpackNormals3x10(v2));
-    //     }
-    //     break;
-    //     case OT_RECTANGLE:
-    //     case OT_DISK:
-    //     case OT_ICOSPHERE:
-    //     default:
-    //     {
-    //         // TODO(kevin): Don't hardcode the normal stride in hlsl
-    //         n0 = vk::RawBufferLoad < float3 > (normalVertexBufferAddress + i0 * 4);
-    //         n1 = vk::RawBufferLoad < float3 > (normalVertexBufferAddress + i1 * 4);
-    //         n2 = vk::RawBufferLoad < float3 > (normalVertexBufferAddress + i2 * 4);
-    //     }
-    // }
-
-    // n0 = float3(0, 1, 0);
-    // n1 = float3(0, 1, 0);
-    // n2 = float3(0, 1, 0);
+            n0 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v0).xyz);
+            n1 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v1).xyz);
+            n2 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v2).xyz);
+        }
+        break;
+        case OT_ICOSPHERE:
+        default:
+        {
+            n0 = normalize(vk::RawBufferLoad<float3>(normalBufferAddress + i0 * 12));
+            n1 = normalize(vk::RawBufferLoad<float3>(normalBufferAddress + i1 * 12));
+            n2 = normalize(vk::RawBufferLoad<float3>(normalBufferAddress + i2 * 12));
+        }
+    }
 
     float3 barycentrics = float3(0.0, bary);
     barycentrics.x = 1.0 - barycentrics.y - barycentrics.z;
