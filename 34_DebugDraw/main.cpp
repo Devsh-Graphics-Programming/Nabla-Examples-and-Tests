@@ -53,6 +53,13 @@ public:
 		m_assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(m_system));
 		auto* geometry = m_assetManager->getGeometryCreator();
 
+	    {
+	        core::vectorSIMDf cameraPosition(14, 8, 12);
+		    core::vectorSIMDf cameraTarget(0, 0, 0);
+		    matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, zNear, zFar);
+		    camera = Camera(cameraPosition, cameraTarget, projectionMatrix, moveSpeed, rotateSpeed);
+	    }
+
 		m_semaphore = m_device->createSemaphore(m_realFrameIx);
 		if (!m_semaphore)
 			return logFail("Failed to Create a Semaphore!");
@@ -164,7 +171,6 @@ public:
 		m_window->setCaption("[Nabla Engine] Debug Draw App Test Demo");
 		m_winMgr->show(m_window.get());
 		oracle.reportBeginFrameRecord();
-		camera.mapKeysToArrows();
 
 		return true;
 	}
@@ -191,12 +197,50 @@ public:
 
 		const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
 
+		m_inputSystem->getDefaultMouse(&mouse);
+		m_inputSystem->getDefaultKeyboard(&keyboard);
+
+		auto updatePresentationTimestamp = [&]()
+		{
+			m_currentImageAcquire = m_surface->acquireNextImage();
+
+			oracle.reportEndFrameRecord();
+			const auto timestamp = oracle.getNextPresentationTimeStamp();
+			oracle.reportBeginFrameRecord();
+
+			return timestamp;
+		};
+
+		const auto nextPresentationTimestamp = updatePresentationTimestamp();
+
+		if (!m_currentImageAcquire)
+			return;
+
 		// render whole scene to offline frame buffer & submit
 
 		auto* const cmdbuf = m_cmdBufs.data()[resourceIx].get();
 		cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
 		cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		cmdbuf->beginDebugMarker("DebugDrawSampleApp IMGUI Frame");
+
+		{
+			camera.beginInputProcessing(nextPresentationTimestamp);
+			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); }, m_logger.get());
+			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { camera.keyboardProcess(events); }, m_logger.get());
+			camera.endInputProcessing(nextPresentationTimestamp);
+		}
+
+		core::matrix4SIMD modelViewProjectionMatrix;
+	    {
+	        const auto viewMatrix = camera.getViewMatrix();
+		    const auto projectionMatrix = camera.getProjectionMatrix();
+		    const auto viewProjectionMatrix = camera.getConcatenatedMatrix();
+
+		    core::matrix3x4SIMD modelMatrix;
+		    modelMatrix.setTranslation(nbl::core::vectorSIMDf(0, 0, 0, 0));
+		    modelMatrix.setRotation(quaternion(0, 0, 0));
+			modelViewProjectionMatrix = core::concatenateBFollowedByA(viewProjectionMatrix, modelMatrix);
+	    }
 
 		auto* queue = getGraphicsQueue();
 
@@ -210,6 +254,12 @@ public:
 			viewport.height = WIN_H;
 		}
 		cmdbuf->setViewport(0u, 1u, &viewport);
+
+		VkRect2D scissor{
+			.offset = { 0, 0 },
+			.extent = { m_window->getWidth(), m_window->getHeight() }
+		};
+		cmdbuf->setScissor(0u, 1u, &scissor);
 
 		const VkRect2D currentRenderArea =
 		{
@@ -229,11 +279,13 @@ public:
 			};
 
 			SPushConstants pc;
+			memcpy(pc.MVP, modelViewProjectionMatrix.pointer(), sizeof(pc.MVP));
 			pc.pVertices = verticesBuffer->getDeviceAddress();
 
 			cmdbuf->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 			cmdbuf->bindGraphicsPipeline(m_pipeline.get());
 			cmdbuf->pushConstants(m_pipeline->getLayout(), ESS_VERTEX, 0, sizeof(SPushConstants), &pc);
+			cmdbuf->setLineWidth(1.f);
 			cmdbuf->draw(vertices.size(), 1, 0, 0);
 
 			cmdbuf->endRenderPass();
@@ -327,7 +379,7 @@ private:
 
 	core::smart_refctd_ptr<IDescriptorPool> m_descriptorSetPool;
 
-	Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
+	Camera camera;
 	video::CDumbPresentationOracle oracle;
 
 	uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
@@ -341,7 +393,7 @@ private:
 
 	bool firstFrame = true;
 
-	std::array<float32_t4, 2> vertices = { float32_t4(0,0,0,0), float32_t4(0,1,0,0) };
+	std::array<float32_t4, 2> vertices = { float32_t4(0,0,0,1), float32_t4(10,10,-10,1) };
 	smart_refctd_ptr<IGPUBuffer> verticesBuffer;
 };
 

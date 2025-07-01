@@ -5,7 +5,11 @@
 
 struct SPushConstants
 {
-    // mat4 transform
+#ifdef __HLSL_VERSION
+    float32_t4x4 MVP;
+#else
+    float MVP[4*4];
+#endif
     uint64_t pVertices;
 };
 
