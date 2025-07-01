@@ -279,11 +279,11 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 			{
 				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[1];
 				imageBarriers[0].barrier = {
-				   .dep = {
-					   .srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
-					   .srcAccessMask = ACCESS_FLAGS::NONE,
-					   .dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-					   .dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+					 .dep = {
+						 .srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+						 .srcAccessMask = ACCESS_FLAGS::NONE,
+						 .dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+						 .dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
 					}
 				};
 				imageBarriers[0].image = outHDRImage.get();
@@ -319,11 +319,11 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 			{
 				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[2];
 				imageBarriers[0].barrier = {
-				   .dep = {
-					   .srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-					   .srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
-					   .dstStageMask = PIPELINE_STAGE_FLAGS::BLIT_BIT,
-					   .dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
+					 .dep = {
+						 .srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+						 .srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
+						 .dstStageMask = PIPELINE_STAGE_FLAGS::BLIT_BIT,
+						 .dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
 					}
 				};
 				imageBarriers[0].image = outHDRImage.get();
@@ -338,11 +338,11 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 				imageBarriers[0].newLayout = IImage::LAYOUT::TRANSFER_SRC_OPTIMAL;
 
 				imageBarriers[1].barrier = {
-				   .dep = {
-					   .srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
-					   .srcAccessMask = ACCESS_FLAGS::NONE,
-					   .dstStageMask = PIPELINE_STAGE_FLAGS::BLIT_BIT,
-					   .dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
+					 .dep = {
+						 .srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+						 .srcAccessMask = ACCESS_FLAGS::NONE,
+						 .dstStageMask = PIPELINE_STAGE_FLAGS::BLIT_BIT,
+						 .dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
 					}
 				};
 				imageBarriers[1].image = m_surface->getSwapchainResources()->getImage(m_currentImageAcquire.imageIndex);
@@ -384,11 +384,11 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 			{
 				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[1];
 				imageBarriers[0].barrier = {
-				   .dep = {
-					   .srcStageMask = PIPELINE_STAGE_FLAGS::BLIT_BIT,
-					   .srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-					   .dstStageMask = PIPELINE_STAGE_FLAGS::NONE,
-					   .dstAccessMask = ACCESS_FLAGS::NONE
+					 .dep = {
+						 .srcStageMask = PIPELINE_STAGE_FLAGS::BLIT_BIT,
+						 .srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+						 .dstStageMask = PIPELINE_STAGE_FLAGS::NONE,
+						 .dstAccessMask = ACCESS_FLAGS::NONE
 					}
 				};
 				imageBarriers[0].image = m_surface->getSwapchainResources()->getImage(m_currentImageAcquire.imageIndex);
@@ -488,8 +488,8 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 		{
 			using namespace nbl::scene;
 
-      // triangles geometries
-      auto gc = make_smart_refctd_ptr<CGeometryCreator>();
+			// triangles geometries
+			auto gc = make_smart_refctd_ptr<CGeometryCreator>();
 
 			std::array<ReferenceObjectCpu, OT_COUNT> cpuObjects;
 			cpuObjects[OT_CUBE] = ReferenceObjectCpu{ .meta = {.type = OT_CUBE, .name = "Cube Mesh" }, .shadersType = GP_BASIC, .data = gc->createCube({1.f, 1.f, 1.f}) };
@@ -518,7 +518,7 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 				tri = cpuObjects[i].data->exportForBLAS();
 
 				auto& blas = cpuBlas[i];
-        blas = make_smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>();
+				blas = make_smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>();
 				blas->setGeometries(std::move(triangles), std::move(primitiveCounts));
 
 				auto blasFlags = bitflag(IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT) | IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_COMPACTION_BIT;
@@ -613,25 +613,25 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 			CAssetConverter::patch_t<ICPUTopLevelAccelerationStructure> tlasPatch = {};
 			tlasPatch.compactAfterBuild = true;
 			std::array<CAssetConverter::patch_t<ICPUBottomLevelAccelerationStructure>,OT_COUNT> tmpBLASPatches = {};
-      std::array<ICPUPolygonGeometry*, std::size(cpuObjects)> tmpGeometries;
-      std::array<CAssetConverter::patch_t<asset::ICPUPolygonGeometry>, std::size(cpuObjects)> tmpGeometryPatches;
+			std::array<ICPUPolygonGeometry*, std::size(cpuObjects)> tmpGeometries;
+			std::array<CAssetConverter::patch_t<asset::ICPUPolygonGeometry>, std::size(cpuObjects)> tmpGeometryPatches;
 			{
 				tmpBLASPatches.front().compactAfterBuild = true;
 				std::fill(tmpBLASPatches.begin(),tmpBLASPatches.end(),tmpBLASPatches.front());
 				//
-        for (uint32_t i = 0; i < cpuObjects.size(); i++)
-        {
-          tmpGeometries[i] = cpuObjects[i].data.get();
-          tmpGeometryPatches[i].indexBufferUsages= IGPUBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
-        }
+				for (uint32_t i = 0; i < cpuObjects.size(); i++)
+				{
+					tmpGeometries[i] = cpuObjects[i].data.get();
+					tmpGeometryPatches[i].indexBufferUsages= IGPUBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
+				}
 
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUDescriptorSet>>(inputs.assets) = {&descriptorSet.get(),1};
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUTopLevelAccelerationStructure>>(inputs.assets) = {&cpuTlas.get(),1};
 				std::get<CAssetConverter::SInputs::patch_span_t<ICPUTopLevelAccelerationStructure>>(inputs.patches) = {&tlasPatch,1};
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUBottomLevelAccelerationStructure>>(inputs.assets) = {&cpuBlas.data()->get(),cpuBlas.size()};
 				std::get<CAssetConverter::SInputs::patch_span_t<ICPUBottomLevelAccelerationStructure>>(inputs.patches) = tmpBLASPatches;
-        std::get<CAssetConverter::SInputs::asset_span_t<ICPUPolygonGeometry>>(inputs.assets) = tmpGeometries;
-        std::get<CAssetConverter::SInputs::patch_span_t<ICPUPolygonGeometry>>(inputs.patches) = tmpGeometryPatches;
+				std::get<CAssetConverter::SInputs::asset_span_t<ICPUPolygonGeometry>>(inputs.assets) = tmpGeometries;
+				std::get<CAssetConverter::SInputs::patch_span_t<ICPUPolygonGeometry>>(inputs.patches) = tmpGeometryPatches;
 			}
 
 			auto reservation = converter->reserve(inputs);
@@ -754,38 +754,38 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 					return {};
 				}
 
-        auto&& tlases = reservation.getGPUObjects<ICPUTopLevelAccelerationStructure>();
-        m_gpuTlas = tlases[0].value;
+				auto&& tlases = reservation.getGPUObjects<ICPUTopLevelAccelerationStructure>();
+				m_gpuTlas = tlases[0].value;
 
-        auto&& gpuPolygonGeometries = reservation.getGPUObjects<ICPUPolygonGeometry>();
-        m_gpuPolygons.resize(gpuPolygonGeometries.size());
+				auto&& gpuPolygonGeometries = reservation.getGPUObjects<ICPUPolygonGeometry>();
+				m_gpuPolygons.resize(gpuPolygonGeometries.size());
 
 				// assign gpu objects to output
 				for (uint32_t i = 0; i < gpuPolygonGeometries.size(); i++)
-        {
-          const auto& cpuObject = cpuObjects[i];
-          const auto& gpuPolygon = gpuPolygonGeometries[i].value;
-          const auto gpuTriangles = gpuPolygon->exportForBLAS();
+				{
+					const auto& cpuObject = cpuObjects[i];
+					const auto& gpuPolygon = gpuPolygonGeometries[i].value;
+					const auto gpuTriangles = gpuPolygon->exportForBLAS();
 
-          const auto& vertexBufferBinding = gpuTriangles.vertexData[0];
-          const uint64_t vertexBufferAddress = vertexBufferBinding.buffer->getDeviceAddress() + vertexBufferBinding.offset;
+					const auto& vertexBufferBinding = gpuTriangles.vertexData[0];
+					const uint64_t vertexBufferAddress = vertexBufferBinding.buffer->getDeviceAddress() + vertexBufferBinding.offset;
 
-          const auto& normalView = gpuPolygon->getNormalView();
-          const uint64_t normalBufferAddress = normalView ? normalView.src.buffer->getDeviceAddress() + normalView.src.offset : 0;
+					const auto& normalView = gpuPolygon->getNormalView();
+					const uint64_t normalBufferAddress = normalView ? normalView.src.buffer->getDeviceAddress() + normalView.src.offset : 0;
 
-          const auto& indexBufferBinding = gpuTriangles.indexData;
-          auto& geomInfo = geomInfos[i];
-          geomInfo = {
-            .vertexBufferAddress = vertexBufferAddress,
-            .indexBufferAddress = indexBufferBinding.buffer ? indexBufferBinding.buffer->getDeviceAddress() + indexBufferBinding.offset : vertexBufferAddress,
-            .normalBufferAddress = normalBufferAddress,
-            .vertexStride = gpuTriangles.vertexStride,
-            .indexType = gpuTriangles.indexType,
-            .smoothNormals = s_smoothNormals[cpuObject.meta.type],
-          };
+					const auto& indexBufferBinding = gpuTriangles.indexData;
+					auto& geomInfo = geomInfos[i];
+					geomInfo = {
+						.vertexBufferAddress = vertexBufferAddress,
+						.indexBufferAddress = indexBufferBinding.buffer ? indexBufferBinding.buffer->getDeviceAddress() + indexBufferBinding.offset : vertexBufferAddress,
+						.normalBufferAddress = normalBufferAddress,
+						.vertexStride = gpuTriangles.vertexStride,
+						.indexType = gpuTriangles.indexType,
+						.smoothNormals = s_smoothNormals[cpuObject.meta.type],
+					};
 
-          m_gpuPolygons[i] = gpuPolygon;
-        }
+					m_gpuPolygons[i] = gpuPolygon;
+				}
 			}
 
 			//
@@ -901,8 +901,8 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 
 		smart_refctd_ptr<IGPUBuffer> geometryInfoBuffer;
 		smart_refctd_ptr<IGPUImage> outHDRImage;
-    core::vector<smart_refctd_ptr<IGPUPolygonGeometry>> m_gpuPolygons;
-    smart_refctd_ptr<IGPUTopLevelAccelerationStructure> m_gpuTlas;
+		core::vector<smart_refctd_ptr<IGPUPolygonGeometry>> m_gpuPolygons;
+		smart_refctd_ptr<IGPUTopLevelAccelerationStructure> m_gpuTlas;
 
 		smart_refctd_ptr<IGPUComputePipeline> renderPipeline;
 		smart_refctd_ptr<IGPUDescriptorSet> renderDs;
