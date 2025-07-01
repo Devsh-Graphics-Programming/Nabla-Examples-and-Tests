@@ -469,7 +469,7 @@ GridDTMHeightMapData retrieveGridDTMCellDataFromHeightMap(in float2 gridDimensio
     return output;
 }
 
-GridDTMCell calculateCellTriangles(in dtm::GridDTMHeightMapData heightData, in float2 topLeft, in float2 cellCoords, const float cellWidth)
+GridDTMCell calculateCellTriangles(in dtm::GridDTMHeightMapData heightData, in float2 cellCoords, const float cellWidth)
 {
     GridDTMCell output;
 
@@ -502,14 +502,6 @@ GridDTMCell calculateCellTriangles(in dtm::GridDTMHeightMapData heightData, in f
 
     output.validA = !isInvalidGridDtmHeightValue(output.triangleA.vertices[0].z) && !isInvalidGridDtmHeightValue(output.triangleA.vertices[1].z) && !isInvalidGridDtmHeightValue(output.triangleA.vertices[2].z);
     output.validB = !isInvalidGridDtmHeightValue(output.triangleB.vertices[0].z) && !isInvalidGridDtmHeightValue(output.triangleB.vertices[1].z) && !isInvalidGridDtmHeightValue(output.triangleB.vertices[2].z);
-
-    // move from grid space to screen space
-    [unroll]
-    for (int i = 0; i < 3; ++i)
-    {
-        output.triangleA.vertices[i].xy += topLeft;
-        output.triangleB.vertices[i].xy += topLeft;
-    }
 
     return output;
 }

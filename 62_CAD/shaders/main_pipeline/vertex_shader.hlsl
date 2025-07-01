@@ -698,12 +698,6 @@ PSInput main(uint vertexID : SV_VertexID)
 
             const float2 uv = corner + uvOffset;
             outV.setImageUV(uv);
-            /*printf("uv = { %f, %f } scale = { %f, %f }", _static_cast<float>(uv.x), _static_cast<float>(uv.y), _static_cast<float>(uvScale.x), _static_cast<float>(uvScale.y));*/
-
-            // TODO: test dilation
-            pfloat64_t2 topLeftToGridCenterVector = worldSpaceExtents * 0.5;
-            topLeftToGridCenterVector.y = -topLeftToGridCenterVector.y;
-            pfloat64_t2 gridCenter = topLeft + topLeftToGridCenterVector;
 
             const pfloat64_t2 vtxPos = topLeft + float2(worldSpaceExtents.x, -worldSpaceExtents.y) * corner;
             const pfloat64_t2 dilatedVtxPos = vtxPos + dilationVector;

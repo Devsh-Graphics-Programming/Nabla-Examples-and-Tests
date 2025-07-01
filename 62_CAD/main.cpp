@@ -1495,6 +1495,8 @@ public:
 
 		float64_t3x3 projectionToNDC;
 		projectionToNDC = m_Camera.constructViewProjection();
+
+		// TEST CAMERA ROTATION
 #if 0
 		double rotation = 0.25 * PI<double>();
 		float64_t2 rotationVec = float64_t2(cos(rotation), sin(rotation));
@@ -3664,7 +3666,7 @@ protected:
 			worldSpaceExtents.y = (heightMapExtent.height - 1) * HeightMapCellWidth;
 			const uint64_t heightMapTextureID = 0ull;
 
-			constexpr bool DrawGridOnly = true;
+			constexpr bool DrawGridOnly = false;
 			
 			if(DrawGridOnly)
 			{
