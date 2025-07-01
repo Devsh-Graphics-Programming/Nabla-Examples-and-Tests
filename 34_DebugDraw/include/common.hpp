@@ -3,14 +3,11 @@
 
 #include <nabla.h>
 
-// common api
-#include "CCamera.hpp"
-#include "SimpleWindowedApplication.hpp"
-#include "CEventCallback.hpp"
+#include "nbl/examples/cameras/CCamera.hpp"
+#include "nbl/examples/common/SimpleWindowedApplication.hpp"
+#include "nbl/examples/common/CEventCallback.hpp"
+#include "nbl/examples/examples.hpp"
 
-// the example's headers
-#include "transform.hpp"
-#include "CGeomtryCreatorScene.hpp"
 #include "CDrawAABB.h"
 
 using namespace nbl;
@@ -20,7 +17,6 @@ using namespace system;
 using namespace asset;
 using namespace ui;
 using namespace video;
-using namespace scene;
-using namespace geometrycreator;
+using namespace nbl::examples;
 
 #endif // __NBL_THIS_EXAMPLE_COMMON_H_INCLUDED__

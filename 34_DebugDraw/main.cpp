@@ -5,9 +5,10 @@
 #include "common.hpp"
 #include "app_resources/simple_common.hlsl"
 
-class DebugDrawSampleApp final : public examples::SimpleWindowedApplication
+class DebugDrawSampleApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
-	using device_base_t = examples::SimpleWindowedApplication;
+	using device_base_t = SimpleWindowedApplication;
+	using asset_base_t = BuiltinResourcesApplication;
 
 	_NBL_STATIC_INLINE_CONSTEXPR uint32_t WIN_W = 1280, WIN_H = 720;
 
@@ -20,7 +21,7 @@ public:
 		if (!m_surface)
 		{
 			{
-				auto windowCallback = core::make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
+				auto windowCallback = core::make_smart_refctd_ptr<examples::CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
 				IWindow::SCreationParams params = {};
 				params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
 				params.width = WIN_W;
@@ -49,9 +50,8 @@ public:
 
 		if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 			return false;
-
-		m_assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(m_system));
-		auto* geometry = m_assetManager->getGeometryCreator();
+		if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
+			return false;
 
 	    {
 	        core::vectorSIMDf cameraPosition(14, 8, 12);
@@ -133,7 +133,7 @@ public:
 				IAssetLoader::SAssetLoadParams lparams = {};
 				lparams.logger = m_logger.get();
 				lparams.workingDirectory = localInputCWD;
-				auto bundle = m_assetManager->getAsset(filePath, lparams);
+				auto bundle = m_assetMgr->getAsset(filePath, lparams);
 				if (bundle.getContents().empty() || bundle.getAssetType() != IAsset::ET_SHADER)
 				{
 					m_logger->log("Shader %s not found!", ILogger::ELL_ERROR, filePath.c_str());
@@ -372,10 +372,9 @@ private:
 	std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
 	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 
-	smart_refctd_ptr<nbl::asset::IAssetManager> m_assetManager;
 	core::smart_refctd_ptr<InputSystem> m_inputSystem;
-	InputSystem::ChannelReader<IMouseEventChannel> mouse;
-	InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
+    InputSystem::ChannelReader<IMouseEventChannel> mouse;
+    InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
 	core::smart_refctd_ptr<IDescriptorPool> m_descriptorSetPool;
 
@@ -384,7 +383,6 @@ private:
 
 	uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
 
-	TransformRequestParams transformParams;
 	bool isPerspective = true, isLH = true, flipGizmoY = true, move = false;
 	float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
 	float viewWidth = 10.f;

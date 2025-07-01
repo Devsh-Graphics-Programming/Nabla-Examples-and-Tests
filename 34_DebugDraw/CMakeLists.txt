@@ -16,7 +16,6 @@ if(NBL_BUILD_IMGUI)
 	)
 
 	nbl_create_executable_project("${NBL_EXTRA_SOURCES}" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
-	LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} geometryCreatorSpirvBRD)	# TODO probably can remove
 
 	# TODO probably remove when moved to nabla
 	if(NBL_EMBED_BUILTIN_RESOURCES)
