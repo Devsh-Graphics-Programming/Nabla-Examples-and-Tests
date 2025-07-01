@@ -161,7 +161,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 
 			// create pipeline layout
 			const SPushConstantRange ranges[] = {{
-				.stageFlags = hlsl::ShaderStage::ESS_VERTEX,
+				.stageFlags = hlsl::ShaderStage::ESS_VERTEX|hlsl::ShaderStage::ESS_FRAGMENT,
 				.offset = 0,
 				.size = sizeof(SInstance::SPushConstants),
 			}};
@@ -386,7 +386,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				const auto* geo = instance.packedGeo;
 				cmdbuf->bindGraphicsPipeline(geo->pipeline.get());
 				const auto pc = instance.computePushConstants(viewParams);
-				cmdbuf->pushConstants(layout,hlsl::ShaderStage::ESS_VERTEX,0,sizeof(pc),&pc);
+				cmdbuf->pushConstants(layout,hlsl::ShaderStage::ESS_VERTEX|hlsl::ShaderStage::ESS_FRAGMENT,0,sizeof(pc),&pc);
 				if (geo->indexBuffer)
 				{
 					cmdbuf->bindIndexBuffer(geo->indexBuffer,geo->indexType);
