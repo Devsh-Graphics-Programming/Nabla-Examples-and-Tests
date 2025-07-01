@@ -1,16 +1,16 @@
-#include "SimpleWindowedApplication.hpp"
-#include "CEventCallback.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/examples/examples.hpp"
 #include "app_resources/common.hlsl"
 #include "nbl/builtin/hlsl/workgroup2/arithmetic_config.hlsl"
 #include "nbl/builtin/hlsl/subgroup2/arithmetic_params.hlsl"
 
 using namespace nbl;
-using namespace core;
-using namespace system;
-using namespace asset;
-using namespace ui;
-using namespace video;
+using namespace nbl::core;
+using namespace nbl::system;
+using namespace nbl::asset;
+using namespace nbl::ui;
+using namespace nbl::video;
+using namespace nbl::examples;
+
 
 template<typename SwapchainResources> requires std::is_base_of_v<ISimpleManagedSurface::ISwapchainResources, SwapchainResources>
 class CExplicitSurfaceFormatResizeSurface final : public ISimpleManagedSurface
@@ -167,10 +167,10 @@ private:
 };
 
 // NOTE added swapchain + drawing frames to be able to profile with Nsight, which still doesn't support profiling headless compute shaders
-class ArithmeticBenchApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class ArithmeticBenchApp final : public examples::SimpleWindowedApplication, public examples::BuiltinResourcesApplication
 {
 	using device_base_t = examples::SimpleWindowedApplication;
-	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+	using asset_base_t = examples::BuiltinResourcesApplication;
 
 	constexpr static inline uint32_t WIN_W = 1280;
 	constexpr static inline uint32_t WIN_H = 720;

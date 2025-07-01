@@ -3,26 +3,24 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
-
-#include "nbl/application_templates/BasicMultiQueueApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-
-// get asset converter
-#include "CommonPCH/PCH.hpp"
+#include "nbl/examples/examples.hpp"
 
 using namespace nbl;
-using namespace core;
-using namespace system;
-using namespace asset;
-using namespace video;
+using namespace nbl::core;
+using namespace nbl::hlsl;
+using namespace nbl::system;
+using namespace nbl::asset;
+using namespace nbl::ui;
+using namespace nbl::video;
+using namespace nbl::examples;
 
 #include "app_resources/common.hlsl"
 
 // This time we let the new base class score and pick queue families, as well as initialize `nbl::video::IUtilities` for us
-class StagingAndMultipleQueuesApp final : public application_templates::BasicMultiQueueApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class StagingAndMultipleQueuesApp final : public application_templates::BasicMultiQueueApplication, public BuiltinResourcesApplication
 {
 	using device_base_t = application_templates::BasicMultiQueueApplication;
-	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+	using asset_base_t = BuiltinResourcesApplication;
 
 	// TODO: would be cool if we used `system::ISystem::listItemsInDirectory(sharedInputCWD/"GLI")` as our dataset
 	static constexpr std::array imagesToLoad = {

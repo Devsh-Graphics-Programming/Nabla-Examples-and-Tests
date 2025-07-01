@@ -15,7 +15,8 @@ typedef vector<uint32_t, config_t::ItemsPerInvocation_0> type_t;
 // final (level 1/2) scan needs to fit in one subgroup exactly
 groupshared uint32_t scratch[mpl::max_v<int16_t,config_t::SharedScratchElementCount,1>];
 
-#include "../../common/include/WorkgroupDataAccessors.hlsl"
+#include "nbl/examples/workgroup/DataAccessors.hlsl"
+using namespace nbl::hlsl::examples::workgroup;
 
 template<uint16_t WorkgroupSizeLog2, uint16_t VirtualWorkgroupSize, uint16_t ItemsPerInvocation>
 struct RandomizedInputDataProxy
