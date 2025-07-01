@@ -660,17 +660,9 @@ PSInput main(uint vertexID : SV_VertexID)
             //thicknessOfTheThickestLine += 200.0f;
 
             const float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
-            worldSpaceExtents.y = ieee754::flipSign(worldSpaceExtents.y);
-
-            pfloat64_t2 vtxPos = topLeft;
-            vtxPos.x = vtxPos.x + worldSpaceExtents.x * corner.x;
-            vtxPos.y = vtxPos.y + worldSpaceExtents.y * corner.y;
-            worldSpaceExtents.y = ieee754::flipSign(worldSpaceExtents.y);
 
             outV.setGridDTMHeightTextureID(textureID);
             outV.setGridDTMScreenSpaceCellWidth(gridCellWidth * globals.screenToWorldRatio);
-            outV.setGridDTMScreenSpacePosition(transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, vtxPos));
-            outV.setGridDTMScreenSpaceTopLeft(transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, topLeft));
             outV.setGridDTMScreenSpaceGridExtents(_static_cast<float2>(worldSpaceExtents) * globals.screenToWorldRatio);
 
             static const float SquareRootOfTwo = 1.4142135f;
@@ -708,12 +700,13 @@ PSInput main(uint vertexID : SV_VertexID)
             outV.setImageUV(uv);
             /*printf("uv = { %f, %f } scale = { %f, %f }", _static_cast<float>(uv.x), _static_cast<float>(uv.y), _static_cast<float>(uvScale.x), _static_cast<float>(uvScale.y));*/
 
+            // TODO: test dilation
             pfloat64_t2 topLeftToGridCenterVector = worldSpaceExtents * 0.5;
             topLeftToGridCenterVector.y = -topLeftToGridCenterVector.y;
             pfloat64_t2 gridCenter = topLeft + topLeftToGridCenterVector;
 
-            pfloat64_t2 dilatedVtxPos = vtxPos + dilationVector;
-
+            const pfloat64_t2 vtxPos = topLeft + float2(worldSpaceExtents.x, -worldSpaceExtents.y) * corner;
+            const pfloat64_t2 dilatedVtxPos = vtxPos + dilationVector;
 
             float2 ndcVtxPos = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, dilatedVtxPos));
             outV.position = float4(ndcVtxPos, 0.0f, 1.0f);

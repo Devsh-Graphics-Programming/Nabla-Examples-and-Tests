@@ -411,11 +411,10 @@ float4 fragMain(PSInput input) : SV_TARGET
             if (!dtmSettings.drawContourEnabled() && !dtmSettings.drawOutlineEnabled() && !dtmSettings.drawHeightShadingEnabled())
                 discard;
 
-            float2 pos = input.getGridDTMScreenSpacePosition();
             float2 uv = input.getImageUV();
             const uint32_t textureId = input.getGridDTMHeightTextureID();
 
-            float2 gridTopLeftCorner = input.getGridDTMScreenSpaceTopLeft();
+            float2 gridTopLeftCorner = 0.0f;
             float2 gridExtents = input.getGridDTMScreenSpaceGridExtents();
             const float cellWidth = input.getGridDTMScreenSpaceCellWidth();
             // TODO: I think we can get it from the height map size if texture is valid?!, better if it comes directly from CPU side, vertex shader or something, division + round to integer is error-prone for large integer values
@@ -460,8 +459,8 @@ float4 fragMain(PSInput input) : SV_TARGET
                 outlineLineSegments[1].P1 = float32_t2(nearestLineRemainingCoords.x, horizontalBounds.y);
                 
                 LineStyle outlineStyle = loadLineStyle(dtmSettings.outlineLineStyleIdx);
-                float sdf = dtm::calculateLineSDF(outlineStyle, outlineLineSegments[0], input.position.xy, 0.0f);
-                sdf = min(sdf, dtm::calculateLineSDF(outlineStyle, outlineLineSegments[1], input.position.xy, 0.0f));
+                float sdf = dtm::calculateLineSDF(outlineStyle, outlineLineSegments[0], gridSpacePos, 0.0f);
+                sdf = min(sdf, dtm::calculateLineSDF(outlineStyle, outlineLineSegments[1], gridSpacePos, 0.0f));
 
                 float4 dtmColor = outlineStyle.color;
                 dtmColor.a *= 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, sdf);
