@@ -5,6 +5,9 @@
 
 #include "../3rdparty/portable-file-dialogs/portable-file-dialogs.h"
 
+#ifdef _NBL_COMPILE_WITH_MITSUBA_SERIALIZED_LOADER_
+#include "nbl/ext/MitsubaLoader/CSerializedLoader.h"
+#endif
 
 class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourcesApplication
 {
@@ -20,6 +23,9 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		{
 			if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
+		#ifdef _NBL_COMPILE_WITH_MITSUBA_SERIALIZED_LOADER_
+			m_assetMgr->addAssetLoader(make_smart_refctd_ptr<ext::MitsubaLoader::CSerializedLoader>());
+		#endif
 			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 
@@ -36,9 +42,6 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 					return logFail("Couldn't create Command Buffer!");
 			}
 			
-			//! cache results -- speeds up mesh generation on second run
-			m_qnc = make_smart_refctd_ptr<CQuantNormalCache>();
-			m_qnc->loadCacheFromFile<EF_R8G8B8_SNORM>(m_system.get(),sharedOutputCWD/"../../tmp/normalCache888.sse");
 
 			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 			m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(),scRes->getRenderpass(),0,{});
@@ -246,7 +249,6 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			//! load the geometry
 			IAssetLoader::SAssetLoadParams params = {};
 			params.logger = m_logger.get();
-			params.meshManipulatorOverride = nullptr; // TODO
 			auto bundle = m_assetMgr->getAsset(m_modelPath,params);
 			if (bundle.getContents().empty())
 				return false;
@@ -266,9 +268,6 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			}
 			if (geometries.empty())
 				return false;
-
-			//! cache results -- speeds up mesh generation on second run
-			m_qnc->saveCacheToFile<EF_R8G8B8_SNORM>(m_system.get(),sharedOutputCWD/"../../tmp/normalCache888.sse");
 			
 			auto bound = hlsl::shapes::AABB<3,double>::create();
 			// convert the geometries
@@ -395,7 +394,6 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		// Maximum frames which can be simultaneously submitted, used to cycle through our per-frame resources like command buffers
 		constexpr static inline uint32_t MaxFramesInFlight = 3u;
 		//
-		smart_refctd_ptr<CQuantNormalCache> m_qnc;
 		smart_refctd_ptr<CSimpleDebugRenderer> m_renderer;
 		//
 		smart_refctd_ptr<ISemaphore> m_semaphore;
