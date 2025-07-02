@@ -360,19 +360,13 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 				const auto& converted = reservation.getGPUObjects<ICPUPolygonGeometry>();
 				for (const auto& geom : converted)
 				{
-					geom.value->visitAABB([&bound,&worldTforms,&tmp,&printAABB](const auto& aabb)->void
-						{
-							hlsl::shapes::AABB<3,double> promoted;
-							promoted.minVx = aabb.minVx;
-							promoted.maxVx = aabb.maxVx;
-							printAABB(promoted,"Geometry");
-							tmp[3].x += promoted.getExtent().x;
-							const auto promotedWorld = hlsl::float64_t3x4(worldTforms.emplace_back(hlsl::transpose(tmp)));
-							const auto transformed = hlsl::shapes::util::transform(promotedWorld,promoted);
-							printAABB(transformed,"Transformed");
-							bound = hlsl::shapes::util::union_(transformed,bound);
-						}
-					);
+					const auto promoted = geom.value->getAABB<aabb_t>();
+					printAABB(promoted,"Geometry");
+					tmp[3].x += promoted.getExtent().x;
+					const auto promotedWorld = hlsl::float64_t3x4(worldTforms.emplace_back(hlsl::transpose(tmp)));
+					const auto transformed = hlsl::shapes::util::transform(promotedWorld,promoted);
+					printAABB(transformed,"Transformed");
+					bound = hlsl::shapes::util::union_(transformed,bound);
 				}
 				printAABB(bound,"Total");
 				if (!m_renderer->addGeometries({ &converted.front().get(),converted.size() }))
