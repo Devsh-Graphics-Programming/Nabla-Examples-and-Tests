@@ -246,7 +246,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			core::vector<IGPUDescriptorSet::SWriteDescriptorSet> writes;
 			core::vector<IGPUDescriptorSet::SDescriptorInfo> infos;
 			bool anyFailed = false;
-			auto allocateUTB = [&](const IGeometry<const IGPUBuffer>::SDataView& view)->uint8_t
+			auto allocateUTB = [&](const IGeometry<const IGPUBuffer>::SDataView& view)->decltype(SubAllocatedDescriptorSet::invalid_value)
 			{
 				if (!view)
 					return SPackedGeometry::MissingView;
