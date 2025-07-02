@@ -58,9 +58,8 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			uint32_t elementCount = 0;
 			// indices into the descriptor set
 			constexpr static inline auto MissingView = hlsl::examples::geometry_creator_scene::SPushConstants::DescriptorCount;
-			uint8_t positionView = MissingView;
-			uint8_t normalView = MissingView;
-			uint8_t uvView = MissingView;
+			uint16_t positionView = MissingView;
+			uint16_t normalView = MissingView;
 			asset::E_INDEX_TYPE indexType = asset::EIT_UNKNOWN;
 		};
 		//
@@ -73,8 +72,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				return {
 					.matrices = viewParams.computeForInstance(world),
 					.positionView = packedGeo->positionView,
-					.normalView = packedGeo->normalView,
-					.uvView = packedGeo->uvView
+					.normalView = packedGeo->normalView
 				};
 			}
 
@@ -247,24 +245,30 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 
 			core::vector<IGPUDescriptorSet::SWriteDescriptorSet> writes;
 			core::vector<IGPUDescriptorSet::SDescriptorInfo> infos;
+			bool anyFailed = false;
 			auto allocateUTB = [&](const IGeometry<const IGPUBuffer>::SDataView& view)->uint8_t
 			{
 				if (!view)
 					return SPackedGeometry::MissingView;
 				auto index = SubAllocatedDescriptorSet::invalid_value;
 				if (m_params.subAllocDS->multi_allocate(VertexAttrubUTBDescBinding,1,&index)!=0)
+				{
+					anyFailed = true;
 					return SPackedGeometry::MissingView;
-				const auto retval = infos.size();
+				}
+				const auto infosOffset = infos.size();
 				infos.emplace_back().desc = device->createBufferView(view.src,view.composed.format);
 				writes.emplace_back() = {
 					.dstSet = m_params.subAllocDS->getDescriptorSet(),
 					.binding = VertexAttrubUTBDescBinding,
 					.arrayElement = index,
 					.count = 1,
-					.info = reinterpret_cast<const IGPUDescriptorSet::SDescriptorInfo*>(retval)
+					.info = reinterpret_cast<const IGPUDescriptorSet::SDescriptorInfo*>(infosOffset)
 				};
-				return retval;
+				return index;
 			};
+			if (anyFailed)
+				device->getLogger()->log("Failed to allocate a UTB for some geometries, probably ran out of space in Descriptor Set!",system::ILogger::ELL_ERROR);
 
 			auto sizeToSet = m_geoms.size();
 			auto resetGeoms = core::makeRAIIExiter([&]()->void
@@ -309,9 +313,6 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				out.elementCount = geom->getVertexReferenceCount();
 				out.positionView = allocateUTB(geom->getPositionView());
 				out.normalView = allocateUTB(geom->getNormalView());
-				// the first view is usually the UV
-				if (const auto& auxViews = geom->getAuxAttributeViews(); !auxViews.empty())
-					out.uvView = allocateUTB(auxViews.front());
 			}
 
 			// no geometry
@@ -351,7 +352,6 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			auto geo = m_geoms.begin() + ix;
 			deallocate(geo->positionView);
 			deallocate(geo->normalView);
-			deallocate(geo->uvView);
 			m_geoms.erase(geo);
 
 			if (deferredFree.empty())
