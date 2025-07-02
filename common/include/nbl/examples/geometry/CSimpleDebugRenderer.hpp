@@ -57,9 +57,10 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			asset::SBufferBinding<const video::IGPUBuffer> indexBuffer = {};
 			uint32_t elementCount = 0;
 			// indices into the descriptor set
-			uint8_t positionView = 0;
-			uint8_t normalView = 0;
-			uint8_t uvView = 0;
+			constexpr static inline auto MissingView = hlsl::examples::geometry_creator_scene::SPushConstants::DescriptorCount;
+			uint8_t positionView = MissingView;
+			uint8_t normalView = MissingView;
+			uint8_t uvView = MissingView;
 			asset::E_INDEX_TYPE indexType = asset::EIT_UNKNOWN;
 		};
 		//
@@ -137,7 +138,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 							// need this trifecta of flags for `SubAllocatedDescriptorSet` to accept the binding as suballocatable
 							.createFlags = binding_flags_t::ECF_UPDATE_AFTER_BIND_BIT|binding_flags_t::ECF_UPDATE_UNUSED_WHILE_PENDING_BIT |binding_flags_t::ECF_PARTIALLY_BOUND_BIT,
 							.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX|IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-							.count = SInstance::SPushConstants::DescriptorCount
+							.count = SPackedGeometry::MissingView
 						}
 					};
 					dsLayout = device->createDescriptorSetLayout(bindings);
@@ -249,10 +250,10 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			auto allocateUTB = [&](const IGeometry<const IGPUBuffer>::SDataView& view)->uint8_t
 			{
 				if (!view)
-					return SInstance::SPushConstants::DescriptorCount;
+					return SPackedGeometry::MissingView;
 				auto index = SubAllocatedDescriptorSet::invalid_value;
 				if (m_params.subAllocDS->multi_allocate(VertexAttrubUTBDescBinding,1,&index)!=0)
-					return SInstance::SPushConstants::DescriptorCount;
+					return SPackedGeometry::MissingView;
 				const auto retval = infos.size();
 				infos.emplace_back().desc = device->createBufferView(view.src,view.composed.format);
 				writes.emplace_back() = {
@@ -340,6 +341,8 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			deferredFree.reserve(3);
 			auto deallocate = [&](SubAllocatedDescriptorSet::value_type index)->void
 			{
+				if (index>=SPackedGeometry::MissingView)
+					return;
 				if (info.semaphore)
 					deferredFree.push_back(index);
 				else
@@ -353,9 +356,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 
 			if (deferredFree.empty())
 				return;
-
-			core::vector<IGPUDescriptorSet::SDropDescriptorSet> nullify(deferredFree.size());
-			const_cast<ILogicalDevice*>(m_params.layout->getOriginDevice())->nullifyDescriptors(nullify);
+			m_params.subAllocDS->multi_deallocate(VertexAttrubUTBDescBinding,deferredFree.size(),deferredFree.data(),info);
 		}
 
 		//
