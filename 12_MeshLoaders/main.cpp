@@ -5,7 +5,7 @@
 
 #include "../3rdparty/portable-file-dialogs/portable-file-dialogs.h"
 
-#ifdef _NBL_COMPILE_WITH_MITSUBA_SERIALIZED_LOADER_
+#ifdef NBL_BUILD_MITSUBA_LOADER
 #include "nbl/ext/MitsubaLoader/CSerializedLoader.h"
 #endif
 
@@ -23,7 +23,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		{
 			if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
-		#ifdef _NBL_COMPILE_WITH_MITSUBA_SERIALIZED_LOADER_
+		#ifdef NBL_BUILD_MITSUBA_LOADER
 			m_assetMgr->addAssetLoader(make_smart_refctd_ptr<ext::MitsubaLoader::CSerializedLoader>());
 		#endif
 			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
@@ -218,9 +218,9 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 	private:
 		// TODO: standardise this across examples, and take from `argv`
-		bool m_nonInteractiveTest = true;
+		bool m_nonInteractiveTest = false;
 
-		inline bool reloadModel()
+		bool reloadModel()
 		{
 			if (m_nonInteractiveTest) // TODO: maybe also take from argv and argc
 				m_modelPath = (sharedInputCWD/"ply/Spanner-ply.ply").string();
