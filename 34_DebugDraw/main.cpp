@@ -163,18 +163,9 @@ public:
 
 		const auto pipelineLayout = ext::drawdebug::DrawAABB::createDefaultPipelineLayout(m_device.get(), drawAABB->getCreationParameters().pushConstantRange);
 
-		IGPUGraphicsPipeline::SCreationParams params[1] = {};
-		params[0].layout = pipelineLayout.get();
-		params[0].vertexShader = { .shader = vertexShader.get(), .entryPoint = "main", };
-		params[0].fragmentShader = { .shader = fragmentShader.get(), .entryPoint = "main", };
-		params[0].cached = {
-			.primitiveAssembly = {
-				.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_LINE_LIST,
-			}
-		};
-		params[0].renderpass = renderpass;
-
-		if (!m_device->createGraphicsPipelines(nullptr, params, &m_pipeline))
+		IGPUGraphicsPipeline::SShaderSpecInfo vs = { .shader = vertexShader.get(), .entryPoint = "main" };
+		IGPUGraphicsPipeline::SShaderSpecInfo fs = { .shader = fragmentShader.get(), .entryPoint = "main" };
+		if (!ext::drawdebug::DrawAABB::createDefaultPipeline(&m_pipeline, m_device.get(), pipelineLayout.get(), renderpass, vs, fs))
 			return logFail("Graphics pipeline creation failed");
 
 		m_window->setCaption("[Nabla Engine] Debug Draw App Test Demo");

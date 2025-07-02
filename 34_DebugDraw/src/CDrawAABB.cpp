@@ -31,6 +31,22 @@ core::smart_refctd_ptr<video::IGPUPipelineLayout> DrawAABB::createDefaultPipelin
 	return device->createPipelineLayout({ &pcRange , 1 }, nullptr, nullptr, nullptr, nullptr);
 }
 
+bool DrawAABB::createDefaultPipeline(core::smart_refctd_ptr<video::IGPUGraphicsPipeline>* pipeline, video::ILogicalDevice* device, video::IGPUPipelineLayout* layout, video::IGPURenderpass* renderpass, video::IGPUGraphicsPipeline::SShaderSpecInfo& vertex, video::IGPUGraphicsPipeline::SShaderSpecInfo& fragment)
+{
+	video::IGPUGraphicsPipeline::SCreationParams params[1] = {};
+	params[0].layout = layout;
+	params[0].vertexShader = vertex;
+	params[0].fragmentShader = fragment;
+	params[0].cached = {
+		.primitiveAssembly = {
+			.primitiveType = asset::E_PRIMITIVE_TOPOLOGY::EPT_LINE_LIST,
+		}
+	};
+	params[0].renderpass = renderpass;
+
+	return device->createGraphicsPipelines(nullptr, params, pipeline);
+}
+
 bool DrawAABB::renderSingle(video::IGPUCommandBuffer* commandBuffer)
 {
 	commandBuffer->setLineWidth(1.f);

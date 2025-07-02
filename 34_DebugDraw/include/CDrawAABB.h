@@ -29,6 +29,8 @@ public:
     // creates default pipeline layout for push constant version
     static core::smart_refctd_ptr<video::IGPUPipelineLayout> createDefaultPipelineLayout(video::ILogicalDevice* device, const asset::SPushConstantRange& pcRange);
 
+    static bool createDefaultPipeline(core::smart_refctd_ptr<video::IGPUGraphicsPipeline>* pipeline, video::ILogicalDevice* device, video::IGPUPipelineLayout* layout, video::IGPURenderpass* renderpass, video::IGPUGraphicsPipeline::SShaderSpecInfo& vertex, video::IGPUGraphicsPipeline::SShaderSpecInfo& fragment);
+
     inline const SCreationParameters& getCreationParameters() const { return m_creationParams; }
 
     // records draw command for single AABB, user has to set pipeline outside
