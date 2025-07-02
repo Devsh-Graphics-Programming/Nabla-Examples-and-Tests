@@ -41,6 +41,8 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(10_CountingSort)
 	# showcase use of FFT for post-FX Bloom  effect
 	add_subdirectory(11_FFT)
+	#
+	add_subdirectory(12_MeshLoaders EXCLUDE_FROM_ALL)
 
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo)
@@ -71,7 +73,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(47_DerivMapTest EXCLUDE_FROM_ALL)
 	add_subdirectory(54_Transformations EXCLUDE_FROM_ALL)
 	add_subdirectory(55_RGB18E7S3 EXCLUDE_FROM_ALL)
-	add_subdirectory(61_UI EXCLUDE_FROM_ALL) # TODO: resurrect before `mesh_loaders` merge
+	add_subdirectory(61_UI)
 	add_subdirectory(62_CAD EXCLUDE_FROM_ALL) # TODO: Erfan, Przemek, Francisco and co. need to resurrect this
 	add_subdirectory(62_SchusslerTest EXCLUDE_FROM_ALL)
 	add_subdirectory(64_EmulatedFloatTest)

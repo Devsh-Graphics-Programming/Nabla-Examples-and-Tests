@@ -18,6 +18,10 @@ class CSwapchainFramebuffersAndDepth final : public video::CDefaultSwapchainFram
 		template<typename... Args>
 		inline CSwapchainFramebuffersAndDepth(video::ILogicalDevice* device, const asset::E_FORMAT _desiredDepthFormat, Args&&... args) : base_t(device,std::forward<Args>(args)...)
 		{
+			// user didn't want any depth
+			if (_desiredDepthFormat==asset::EF_UNKNOWN)
+				return;
+
 			using namespace nbl::asset;
 			using namespace nbl::video;
 			const IPhysicalDevice::SImageFormatPromotionRequest req = {
@@ -55,32 +59,34 @@ class CSwapchainFramebuffersAndDepth final : public video::CDefaultSwapchainFram
 		{
 			using namespace nbl::asset;
 			using namespace nbl::video;
-			// DOCS: why are we not using `m_device` here? any particular reason?
-			auto device = const_cast<ILogicalDevice*>(m_renderpass->getOriginDevice());
+			if (m_depthFormat!=asset::EF_UNKNOWN)
+			{
+				// DOCS: why are we not using `m_device` here? any particular reason?
+				auto device = const_cast<ILogicalDevice*>(m_renderpass->getOriginDevice());
 
-			const auto depthFormat = m_renderpass->getCreationParameters().depthStencilAttachments[0].format;
-			const auto& sharedParams = getSwapchain()->getCreationParameters().sharedParams;
-			auto image = device->createImage({ IImage::SCreationParams{
-				.type = IGPUImage::ET_2D,
-				.samples = IGPUImage::ESCF_1_BIT,
-				.format = depthFormat,
-				.extent = {sharedParams.width,sharedParams.height,1},
-				.mipLevels = 1,
-				.arrayLayers = 1,
-				.depthUsage = IGPUImage::EUF_RENDER_ATTACHMENT_BIT
-			} });
+				const auto depthFormat = m_renderpass->getCreationParameters().depthStencilAttachments[0].format;
+				const auto& sharedParams = getSwapchain()->getCreationParameters().sharedParams;
+				auto image = device->createImage({ IImage::SCreationParams{
+					.type = IGPUImage::ET_2D,
+					.samples = IGPUImage::ESCF_1_BIT,
+					.format = depthFormat,
+					.extent = {sharedParams.width,sharedParams.height,1},
+					.mipLevels = 1,
+					.arrayLayers = 1,
+					.depthUsage = IGPUImage::EUF_RENDER_ATTACHMENT_BIT
+				} });
 
-			device->allocate(image->getMemoryReqs(), image.get());
+				device->allocate(image->getMemoryReqs(), image.get());
 
-			m_depthBuffer = device->createImageView({
-				.flags = IGPUImageView::ECF_NONE,
-				.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
-				.image = std::move(image),
-				.viewType = IGPUImageView::ET_2D,
-				.format = depthFormat,
-				.subresourceRange = {IGPUImage::EAF_DEPTH_BIT,0,1,0,1}
-				});
-
+				m_depthBuffer = device->createImageView({
+					.flags = IGPUImageView::ECF_NONE,
+					.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
+					.image = std::move(image),
+					.viewType = IGPUImageView::ET_2D,
+					.format = depthFormat,
+					.subresourceRange = {IGPUImage::EAF_DEPTH_BIT,0,1,0,1}
+					});
+			}
 			const auto retval = base_t::onCreateSwapchain_impl(qFam);
 			m_depthBuffer = nullptr;
 			return retval;
@@ -88,11 +94,12 @@ class CSwapchainFramebuffersAndDepth final : public video::CDefaultSwapchainFram
 
 		inline core::smart_refctd_ptr<video::IGPUFramebuffer> createFramebuffer(video::IGPUFramebuffer::SCreationParams&& params) override
 		{
-			params.depthStencilAttachments = &m_depthBuffer.get();
+			if (m_depthBuffer)
+				params.depthStencilAttachments = &m_depthBuffer.get();
 			return m_device->createFramebuffer(std::move(params));
 		}
 
-		asset::E_FORMAT m_depthFormat;
+		asset::E_FORMAT m_depthFormat = asset::EF_UNKNOWN;
 		// only used to pass a parameter from `onCreateSwapchain_impl` to `createFramebuffer`
 		core::smart_refctd_ptr<video::IGPUImageView> m_depthBuffer;
 };
