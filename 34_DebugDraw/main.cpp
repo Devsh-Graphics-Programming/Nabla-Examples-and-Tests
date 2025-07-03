@@ -138,6 +138,48 @@ public:
 			).move_into(verticesBuffer);
 		}
 
+		// create streaming buffer
+		// TODO move into CDrawAABB
+		{
+			auto RequiredAllocateFlags = core::bitflag<video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS>(video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+			auto RequiredUsageFlags = core::bitflag(asset::IBuffer::EUF_INDIRECT_BUFFER_BIT) | asset::IBuffer::EUF_VERTEX_BUFFER_BIT | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+			const uint32_t minStreamingBufferAllocationSize = 128u, maxStreamingBufferAllocationAlignment = 4096u, mdiBufferDefaultSize = /* 2MB */ 1024u * 1024u * 2u;
+
+			auto getRequiredAccessFlags = [&](const bitflag<IDeviceMemoryAllocation::E_MEMORY_PROPERTY_FLAGS>& properties)
+				{
+					bitflag<IDeviceMemoryAllocation::E_MAPPING_CPU_ACCESS_FLAGS> flags(IDeviceMemoryAllocation::EMCAF_NO_MAPPING_ACCESS);
+
+					if (properties.hasFlags(IDeviceMemoryAllocation::EMPF_HOST_READABLE_BIT))
+						flags |= IDeviceMemoryAllocation::EMCAF_READ;
+					if (properties.hasFlags(IDeviceMemoryAllocation::EMPF_HOST_WRITABLE_BIT))
+						flags |= IDeviceMemoryAllocation::EMCAF_WRITE;
+
+					return flags;
+				};
+
+			IGPUBuffer::SCreationParams mdiCreationParams = {};
+			mdiCreationParams.usage = RequiredUsageFlags;
+			mdiCreationParams.size = mdiBufferDefaultSize;
+
+			auto buffer = m_device->createBuffer(std::move(mdiCreationParams));
+			buffer->setObjectDebugName("MDI Upstream Buffer");
+
+			auto memoryReqs = buffer->getMemoryReqs();
+			memoryReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
+
+			auto allocation = m_device->allocate(memoryReqs, buffer.get(), RequiredAllocateFlags);
+			{
+				const bool allocated = allocation.isValid();
+				assert(allocated);
+			}
+			auto memory = allocation.memory;
+
+			if (!memory->map({ 0ull, memoryReqs.size }, getRequiredAccessFlags(memory->getMemoryPropertyFlags())))
+				m_logger->log("Could not map device memory!", ILogger::ELL_ERROR);
+
+			streamingBuffer = make_smart_refctd_ptr<streaming_buffer_t>(SBufferRange<IGPUBuffer>{0ull, mdiCreationParams.size, std::move(buffer)}, maxStreamingBufferAllocationAlignment, minStreamingBufferAllocationSize);
+		}
+
 		auto compileShader = [&](const std::string& filePath) -> smart_refctd_ptr<IShader>
 			{
 				IAssetLoader::SAssetLoadParams lparams = {};
@@ -158,15 +200,51 @@ public:
 
 				return m_device->compileShader({ shaderSrc.get() });
 			};
-		auto vertexShader = compileShader("app_resources/simple.vertex.hlsl");
-		auto fragmentShader = compileShader("app_resources/simple.fragment.hlsl");
+	    {
+	        auto vertexShader = compileShader("app_resources/simple.vertex.hlsl");
+		    auto fragmentShader = compileShader("app_resources/simple.fragment.hlsl");
 
-		const auto pipelineLayout = ext::drawdebug::DrawAABB::createDefaultPipelineLayout(m_device.get(), drawAABB->getCreationParameters().pushConstantRange);
+		    const auto pipelineLayout = ext::drawdebug::DrawAABB::createDefaultPipelineLayout(m_device.get(), drawAABB->getCreationParameters().pushConstantRange);
 
-		IGPUGraphicsPipeline::SShaderSpecInfo vs = { .shader = vertexShader.get(), .entryPoint = "main" };
-		IGPUGraphicsPipeline::SShaderSpecInfo fs = { .shader = fragmentShader.get(), .entryPoint = "main" };
-		if (!ext::drawdebug::DrawAABB::createDefaultPipeline(&m_pipeline, m_device.get(), pipelineLayout.get(), renderpass, vs, fs))
-			return logFail("Graphics pipeline creation failed");
+		    IGPUGraphicsPipeline::SShaderSpecInfo vs = { .shader = vertexShader.get(), .entryPoint = "main" };
+		    IGPUGraphicsPipeline::SShaderSpecInfo fs = { .shader = fragmentShader.get(), .entryPoint = "main" };
+		    if (!ext::drawdebug::DrawAABB::createDefaultPipeline(&m_pipeline, m_device.get(), pipelineLayout.get(), renderpass, vs, fs))
+		        return logFail("Graphics pipeline creation failed");
+	    }
+		{
+			auto vertexShader = compileShader("app_resources/multi_aabb.vertex.hlsl");
+			auto fragmentShader = compileShader("app_resources/simple.fragment.hlsl");
+
+			const auto pipelineLayout =  m_device->createPipelineLayout({ &drawAABB->getCreationParameters().pushConstantRange , 1 }, nullptr, nullptr, nullptr, nullptr);
+
+			SVertexInputParams vertexInputParams{};
+			{
+				vertexInputParams.enabledBindingFlags = 0b1u;
+				vertexInputParams.enabledAttribFlags = 0b1u;
+
+				vertexInputParams.bindings[0].inputRate = SVertexInputBindingParams::EVIR_PER_VERTEX;
+				vertexInputParams.bindings[0].stride = sizeof(float32_t3);
+
+				auto& position = vertexInputParams.attributes[0];
+				position.format = EF_R32G32B32_SFLOAT;
+				position.relativeOffset = 0u;
+				position.binding = 0u;
+			}
+
+			video::IGPUGraphicsPipeline::SCreationParams params[1] = {};
+			params[0].layout = pipelineLayout.get();
+			params[0].vertexShader = { .shader = vertexShader.get(), .entryPoint = "main" };
+			params[0].fragmentShader = { .shader = fragmentShader.get(), .entryPoint = "main" };
+			params[0].cached = {
+				.vertexInput = vertexInputParams,
+				.primitiveAssembly = {
+					.primitiveType = asset::E_PRIMITIVE_TOPOLOGY::EPT_LINE_LIST,
+				}
+			};
+			params[0].renderpass = renderpass;
+
+			m_device->createGraphicsPipelines(nullptr, params, &m_streamingPipeline);
+		}
 
 		m_window->setCaption("[Nabla Engine] Debug Draw App Test Demo");
 		m_winMgr->show(m_window.get());
@@ -287,8 +365,70 @@ public:
 			cmdbuf->pushConstants(m_pipeline->getLayout(), ESS_VERTEX, 0, sizeof(SPushConstants), &pc);
 			drawAABB->renderSingle(cmdbuf);
 
+			cmdbuf->bindGraphicsPipeline(m_streamingPipeline.get());
+			cmdbuf->pushConstants(m_streamingPipeline->getLayout(), ESS_VERTEX, 0, sizeof(SPushConstants), &pc);
+
+			// TODO bind vertex buffer (streaming buffer)
+			const SBufferBinding<const IGPUBuffer> binding =
+			{
+				.offset = 0u,
+				.buffer = smart_refctd_ptr<const IGPUBuffer>(streamingBuffer.get()->getBuffer())
+			};
+			cmdbuf->bindVertexBuffers(0u, 1u, &binding);
+
+			// fill streaming buffer: indirect draw command, then vertex buffer
+			{
+				auto vertices = ext::drawdebug::DrawAABB::getVerticesFromAABB(testAABB2);
+				uint32_t indirectDrawCount = 1u;
+
+				using offset_t = streaming_buffer_t::size_type;
+				constexpr auto MdiSizes = std::to_array<offset_t>({ sizeof(VkDrawIndirectCommand), sizeof(float32_t3) });
+				// shared nPoT alignment needs to be divisible by all smaller ones to satisfy an allocation from all
+				constexpr offset_t MaxAlignment = std::reduce(MdiSizes.begin(), MdiSizes.end(), 1, [](const offset_t a, const offset_t b)->offset_t {return std::lcm(a, b); });
+				// allocator initialization needs us to round up to PoT
+				const auto MaxPOTAlignment = roundUpToPoT(MaxAlignment);
+
+				auto* streaming = streamingBuffer.get();
+
+				auto* const streamingPtr = reinterpret_cast<uint8_t*>(streaming->getBufferPointer());
+				assert(streamingPtr);
+
+			    using suballocator_t = core::LinearAddressAllocatorST<offset_t>;
+				offset_t inputOffset = 0u;
+				offset_t ImaginarySizeUpperBound = 0x1 << 30;
+				suballocator_t imaginaryChunk(nullptr, inputOffset, 0, roundUpToPoT(MaxAlignment), ImaginarySizeUpperBound);
+				uint32_t indirectDrawByteOffset = imaginaryChunk.alloc_addr(sizeof(VkDrawIndirectCommand) * indirectDrawCount, sizeof(VkDrawIndirectCommand));
+				uint32_t vertexByteOffset = imaginaryChunk.alloc_addr(sizeof(float32_t3) * vertices.size(), sizeof(float32_t3));
+				const uint32_t totalSize = imaginaryChunk.get_allocated_size();
+
+				std::chrono::steady_clock::time_point waitTill(std::chrono::years(45));
+				streaming->multi_allocate(waitTill, 1, &inputOffset, &totalSize, &MaxAlignment);
+
+				auto* drawIndirectIt = reinterpret_cast<VkDrawIndirectCommand*>(streamingPtr + indirectDrawByteOffset);
+				for (auto i = 0u; i < indirectDrawCount; i++)
+				{
+					drawIndirectIt->firstVertex = 0;
+					drawIndirectIt->firstInstance = i;
+					drawIndirectIt->vertexCount = vertices.size();
+					drawIndirectIt->instanceCount = 1;
+					drawIndirectIt++;
+				}
+				memcpy(streamingPtr + vertexByteOffset, vertices.data(), sizeof(vertices[0]) * vertices.size());
+
+				assert(!streaming->needsManualFlushOrInvalidate());
+
+				// TODO cmdbuf draw indirect
+				auto mdiBinding = binding;
+				mdiBinding.offset = indirectDrawByteOffset;
+				cmdbuf->drawIndirect(binding, 1, sizeof(VkDrawIndirectCommand));
+
+				const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
+				streaming->multi_deallocate(1, &inputOffset, &totalSize, drawFinished);
+			}
+
 			cmdbuf->endRenderPass();
 		}
+		cmdbuf->endDebugMarker();
 		cmdbuf->end();
 
 		{
@@ -404,6 +544,7 @@ private:
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
 	smart_refctd_ptr<IGPUGraphicsPipeline> m_pipeline;
+	smart_refctd_ptr<IGPUGraphicsPipeline> m_streamingPipeline;
 	smart_refctd_ptr<ISemaphore> m_semaphore;
 	smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
 	uint64_t m_realFrameIx = 0;
@@ -425,7 +566,11 @@ private:
 
 	smart_refctd_ptr<ext::drawdebug::DrawAABB> drawAABB;
 	core::aabbox3d<float> testAABB = core::aabbox3d<float>({ 0, 0, 0 }, { 10, 10, -10 });
+	core::aabbox3d<float> testAABB2 = core::aabbox3d<float>({ 2, 4, -1 }, { 7, 8, 5 });
 	smart_refctd_ptr<IGPUBuffer> verticesBuffer;
+
+	using streaming_buffer_t = video::StreamingTransientDataBufferST<core::allocator<uint8_t>>;
+	smart_refctd_ptr<streaming_buffer_t> streamingBuffer;
 };
 
 NBL_MAIN_FUNC(DebugDrawSampleApp)
