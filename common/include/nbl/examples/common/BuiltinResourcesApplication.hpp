@@ -10,14 +10,14 @@
 #ifdef NBL_EMBED_BUILTIN_RESOURCES
 	#include "nbl/builtin/examples/include/CArchive.h"
 	#include "nbl/builtin/examples/src/CArchive.h"
-	#include "nbl/builtin/examples/build/spirv/CArchive.h"
+	#include "nbl/builtin/examples/build/CArchive.h"
 	#if __has_include("nbl/this_example/builtin/CArchive.h")
 		#include "nbl/this_example/builtin/CArchive.h"
 	#endif
-	// TODO: (**) there should be also 5th arch "nbl/this_example/builtin/build/spirv/CArchive.h"
+	// TODO: (**) there should be also 5th arch "nbl/this_example/builtin/build/CArchive.h"
 	/*
-		#if __has_include("nbl/this_example/builtin/build/spirv/CArchive.h")
-		#include "nbl/this_example/builtin/build/spirv/CArchive.h"
+		#if __has_include("nbl/this_example/builtin/build/CArchive.h")
+		#include "nbl/this_example/builtin/build/CArchive.h"
 		#endif
 	*/
 	//! this ain't meant to be the same as this_example ordinary archive
@@ -49,7 +49,7 @@ class BuiltinResourcesApplication : public virtual application_templates::MonoAs
 			#ifdef NBL_EMBED_BUILTIN_RESOURCES
 			examplesHeaderArch = core::make_smart_refctd_ptr<nbl::builtin::examples::include::CArchive>(smart_refctd_ptr(m_logger));
 			examplesSourceArch = core::make_smart_refctd_ptr<nbl::builtin::examples::src::CArchive>(smart_refctd_ptr(m_logger));
-			examplesBuildSpirvArch = core::make_smart_refctd_ptr<nbl::builtin::examples::build::spirv::CArchive>(smart_refctd_ptr(m_logger));
+			examplesBuildSpirvArch = core::make_smart_refctd_ptr<nbl::builtin::examples::build::CArchive>(smart_refctd_ptr(m_logger));
 
 			#ifdef _NBL_THIS_EXAMPLE_BUILTIN_C_ARCHIVE_H_
 				thisExampleArch = make_smart_refctd_ptr<nbl::this_example::builtin::CArchive>(smart_refctd_ptr(m_logger));
@@ -58,7 +58,7 @@ class BuiltinResourcesApplication : public virtual application_templates::MonoAs
 			#else
 			examplesHeaderArch = make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"../common/include/nbl/examples",smart_refctd_ptr(m_logger),m_system.get());
 			examplesSourceArch = make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"../common/src/nbl/examples",smart_refctd_ptr(m_logger),m_system.get());
-			examplesBuildSpirvArch = make_smart_refctd_ptr<system::CMountDirectoryArchive>(NBL_EXAMPLES_BUILD_SPIRV_MOUNT_POINT, smart_refctd_ptr(m_logger), m_system.get());
+			examplesBuildSpirvArch = make_smart_refctd_ptr<system::CMountDirectoryArchive>(NBL_EXAMPLES_BUILD_MOUNT_POINT, smart_refctd_ptr(m_logger), m_system.get());
 			thisExampleArch = make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"app_resources",smart_refctd_ptr(m_logger),m_system.get());
 			// TODO: (**)
 			#endif
