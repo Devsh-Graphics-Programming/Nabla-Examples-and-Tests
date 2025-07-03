@@ -40,19 +40,14 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 			}
 			
 			const uint32_t addtionalBufferOwnershipFamilies[] = {getGraphicsQueue()->getFamilyIndex()};
-			// we want to use the vertex data through UTBs
-			using usage_f = IGPUBuffer::E_USAGE_FLAGS;
-			CAssetConverter::patch_t<asset::ICPUPolygonGeometry> patch = {};
-			patch.positionBufferUsages = usage_f::EUF_UNIFORM_TEXEL_BUFFER_BIT;
-			patch.indexBufferUsages = usage_f::EUF_INDEX_BUFFER_BIT;
-			patch.otherBufferUsages = usage_f::EUF_UNIFORM_TEXEL_BUFFER_BIT;
 			m_scene = CGeometryCreatorScene::create(
 				{
 					.transferQueue = getTransferUpQueue(),
 					.utilities = m_utils.get(),
 					.logger = m_logger.get(),
 					.addtionalBufferOwnershipFamilies = addtionalBufferOwnershipFamilies
-				},patch
+				},
+				CSimpleDebugRenderer::DefaultPolygonGeometryPatch
 			);
 			
 			// for the scene drawing pass
@@ -137,7 +132,19 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 				if (!m_renderpass)
 					return logFail("Failed to create Scene Renderpass!");
 			}
-			m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(),m_renderpass.get(),0,m_scene.get());
+			const auto& geometries = m_scene->getInitParams().geometries;
+			m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(),m_renderpass.get(),0,{&geometries.front().get(),geometries.size()});
+			// special case
+			{
+				const auto& pipelines = m_renderer->getInitParams().pipelines;
+				auto ix = 0u;
+				for (const auto& name : m_scene->getInitParams().geometryNames)
+				{
+					if (name=="Cone")
+						m_renderer->getGeometry(ix).pipeline = pipelines[CSimpleDebugRenderer::SInitParams::PipelineType::Cone];
+					ix++;
+				}
+			}
 			// we'll only display one thing at a time
 			m_renderer->m_instances.resize(1);
 
@@ -258,7 +265,7 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 					// tear down scene every frame
 					auto& instance = m_renderer->m_instances[0];
 					memcpy(&instance.world,&interface.model,sizeof(instance.world));
-					instance.packedGeo = m_renderer->getInitParams().geoms.data()+interface.gcIndex;
+					instance.packedGeo = m_renderer->getGeometries().data() + interface.gcIndex;
  					m_renderer->render(cb,viewParams);
 				}
 				cb->endRenderPass();
@@ -418,7 +425,7 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 							if (e.type==nbl::ui::SMouseEvent::EET_SCROLL && m_renderer)
 							{
 								interface.gcIndex += int16_t(core::sign(e.scrollEvent.verticalScroll));
-								interface.gcIndex = core::clamp(interface.gcIndex,0ull,m_renderer->getInitParams().geoms.size()-1);
+								interface.gcIndex = core::clamp(interface.gcIndex,0ull,m_renderer->getGeometries().size()-1);
 							}
 						}
 					},
@@ -453,7 +460,7 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 				.keyboardEvents = uiEvents.keyboard
 			};
 
-			interface.objectName = m_scene->getGeometries()[interface.gcIndex].name;
+			interface.objectName = m_scene->getInitParams().geometryNames[interface.gcIndex];
 			interface.imGUI->update(params);
 		}
 

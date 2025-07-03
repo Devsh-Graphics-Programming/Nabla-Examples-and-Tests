@@ -37,25 +37,32 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 			}
 
 			const uint32_t addtionalBufferOwnershipFamilies[] = {getGraphicsQueue()->getFamilyIndex()};
-			// we want to use the vertex data through UTBs
-			using usage_f = IGPUBuffer::E_USAGE_FLAGS;
-			CAssetConverter::patch_t<asset::ICPUPolygonGeometry> patch = {};
-			patch.positionBufferUsages = usage_f::EUF_UNIFORM_TEXEL_BUFFER_BIT;
-			patch.indexBufferUsages = usage_f::EUF_INDEX_BUFFER_BIT;
-			patch.otherBufferUsages = usage_f::EUF_UNIFORM_TEXEL_BUFFER_BIT;
 			m_scene = CGeometryCreatorScene::create(
 				{
 					.transferQueue = getTransferUpQueue(),
 					.utilities = m_utils.get(),
 					.logger = m_logger.get(),
 					.addtionalBufferOwnershipFamilies = addtionalBufferOwnershipFamilies
-				},patch
+				},
+				CSimpleDebugRenderer::DefaultPolygonGeometryPatch // we want to use the vertex data through UTBs
 			);
 			
 			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-			m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(),scRes->getRenderpass(),0,m_scene.get());
-			if (!m_renderer)
+			const auto& geometries = m_scene->getInitParams().geometries;
+			m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(),scRes->getRenderpass(),0,{&geometries.front().get(),geometries.size()});
+			if (!m_renderer || m_renderer->getGeometries().size() != geometries.size())
 				return logFail("Could not create Renderer!");
+			// special case
+			{
+				const auto& pipelines = m_renderer->getInitParams().pipelines;
+				auto ix = 0u;
+				for (const auto& name : m_scene->getInitParams().geometryNames)
+				{
+					if (name=="Cone")
+						m_renderer->getGeometry(ix).pipeline = pipelines[CSimpleDebugRenderer::SInitParams::PipelineType::Cone];
+					ix++;
+				}
+			}
 			m_renderer->m_instances.resize(1);
 			m_renderer->m_instances[0].world = float32_t3x4(
 				float32_t4(1,0,0,0),
@@ -143,7 +150,7 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 			const auto viewParams = CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix);
 
 			// tear down scene every frame
-			m_renderer->m_instances[0].packedGeo = m_renderer->getInitParams().geoms.data()+gcIndex;
+			m_renderer->m_instances[0].packedGeo = m_renderer->getGeometries().data()+gcIndex;
  			m_renderer->render(cb,viewParams);
 
 			cb->endRenderPass();
@@ -185,7 +192,7 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 			std::string caption = "[Nabla Engine] Geometry Creator";
 			{
 				caption += ", displaying [";
-				caption += m_scene->getGeometries()[gcIndex].name;
+				caption += m_scene->getInitParams().geometryNames[gcIndex];
 				caption += "]";
 				m_window->setCaption(caption);
 			}
@@ -258,7 +265,7 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 				if (ev.type==nbl::ui::SMouseEvent::EET_SCROLL && m_renderer)
 				{
 					gcIndex += int16_t(core::sign(ev.scrollEvent.verticalScroll));
-					gcIndex = core::clamp(gcIndex,0ull,m_renderer->getInitParams().geoms.size()-1);
+					gcIndex = core::clamp(gcIndex,0ull,m_renderer->getGeometries().size()-1);
 				}
 			}
 		}

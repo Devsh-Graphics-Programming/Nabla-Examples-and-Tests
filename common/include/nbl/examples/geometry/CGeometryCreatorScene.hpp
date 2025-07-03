@@ -42,13 +42,13 @@ class CGeometryCreatorScene : public core::IReferenceCounted
 			}
 
 
-			core::vector<SNamedGeometry> namedGeometries;
+			SInitParams init = {};
 			core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
 			// create out geometries
 			{
-				auto addGeometry = [&namedGeometries,&geometries](const std::string_view name, smart_refctd_ptr<const ICPUPolygonGeometry>&& geom)->void
+				auto addGeometry = [&init,&geometries](const std::string_view name, smart_refctd_ptr<const ICPUPolygonGeometry>&& geom)->void
 				{
-					namedGeometries.emplace_back().name = name;
+					init.geometryNames.emplace_back(name);
 					geometries.push_back(std::move(geom));
 				};
 
@@ -71,6 +71,7 @@ class CGeometryCreatorScene : public core::IReferenceCounted
 				addGeometry("Cone", creator->createCone(2, 3, 10));
 				addGeometry("Icosphere", creator->createIcoSphere(1, 4, true));
 			}
+			init.geometries.reserve(init.geometryNames.size());
 
 			// convert the geometries
 			{
@@ -152,34 +153,37 @@ class CGeometryCreatorScene : public core::IReferenceCounted
 				// assign outputs
 				{
 					auto inIt = reservation.getGPUObjects<ICPUPolygonGeometry>().data();
-					for (auto outIt=namedGeometries.begin(); outIt!=namedGeometries.end(); inIt++)
+					for (auto outIt=init.geometryNames.begin(); outIt!=init.geometryNames.end(); inIt++)
 					{
 						if (inIt->value)
-							(outIt++)->geom = inIt->value;
+						{
+							init.geometries.push_back(inIt->value);
+							outIt++;
+						}
 						else
 						{
-							logger->log("Failed to convert ICPUPolygonGeometry %s to GPU!",ILogger::ELL_ERROR,outIt->name.data());
-							outIt = namedGeometries.erase(outIt);
+							logger->log("Failed to convert ICPUPolygonGeometry %s to GPU!",ILogger::ELL_ERROR,outIt->c_str());
+							outIt = init.geometryNames.erase(outIt);
 						}
 					}
 				}
 			}
 
-			return smart_refctd_ptr<CGeometryCreatorScene>(new CGeometryCreatorScene(std::move(namedGeometries)),dont_grab);
+			return smart_refctd_ptr<CGeometryCreatorScene>(new CGeometryCreatorScene(std::move(init)),dont_grab);
 		}
 
 		//
-		struct SNamedGeometry
+		struct SInitParams
 		{
-			std::string name = {};
-			core::smart_refctd_ptr<video::IGPUPolygonGeometry> geom;
+			core::vector<core::smart_refctd_ptr<const video::IGPUPolygonGeometry>> geometries;
+			core::vector<std::string> geometryNames;
 		};
-		std::span<const SNamedGeometry> getGeometries() const {return m_geometries;}
+		const SInitParams& getInitParams() const {return m_init;}
 
 	protected:
-		inline CGeometryCreatorScene(core::vector<SNamedGeometry>&& _geometries) : m_geometries(std::move(_geometries)) {}
+		inline CGeometryCreatorScene(SInitParams&& _init) : m_init(std::move(_init)) {}
 
-		core::vector<SNamedGeometry> m_geometries;
+		SInitParams m_init;
 #undef EXPOSE_NABLA_NAMESPACES
 };
 
