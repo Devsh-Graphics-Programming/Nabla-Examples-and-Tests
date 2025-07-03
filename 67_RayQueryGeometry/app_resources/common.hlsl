@@ -10,6 +10,7 @@ struct SGeomInfo
 {
     uint64_t vertexBufferAddress;
     uint64_t indexBufferAddress;
+    uint64_t normalBufferAddress;
 
     uint32_t vertexStride : 29;
     uint32_t indexType : 2; // 16 bit, 32 bit or none
@@ -35,8 +36,6 @@ enum ObjectType : uint32_t  // matches c++
     OT_SPHERE,
     OT_CYLINDER,
     OT_RECTANGLE,
-    OT_DISK,
-    OT_ARROW,
     OT_CONE,
     OT_ICOSPHERE,
 
