@@ -28,8 +28,7 @@ float3 unpackNormals3x10(uint32_t v)
 float3 calculateSmoothNormals(int instID, int primID, SGeomInfo geom, float2 bary)
 {
     const uint indexType = geom.indexType;
-    const uint vertexStride = geom.vertexStride;
-    const uint objType = instID;
+    const uint objType = geom.objType;
 
     const uint64_t vertexBufferAddress = geom.vertexBufferAddress;
     const uint64_t indexBufferAddress = geom.indexBufferAddress;
@@ -62,7 +61,6 @@ float3 calculateSmoothNormals(int instID, int primID, SGeomInfo geom, float2 bar
         //case OT_ARROW:
         case OT_CONE:
         {
-            // TODO: document why the alignment is 2 here and nowhere else? isnt the `vertexStride` aligned to more than 2 anyway?
             uint32_t v0 = vk::RawBufferLoad<uint32_t>(normalBufferAddress + indices[0] * 4);
             uint32_t v1 = vk::RawBufferLoad<uint32_t>(normalBufferAddress + indices[1] * 4);
             uint32_t v2 = vk::RawBufferLoad<uint32_t>(normalBufferAddress + indices[2] * 4);

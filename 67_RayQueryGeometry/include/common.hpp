@@ -56,7 +56,7 @@ enum GeometryShader
 struct ReferenceObjectCpu
 {
 	ObjectMeta meta;
-	GeometryShader shadersType;
+  core::matrix3x4SIMD transform;
 	core::smart_refctd_ptr<ICPUPolygonGeometry> data;
 };
 

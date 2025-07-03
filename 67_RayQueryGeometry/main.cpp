@@ -491,20 +491,32 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 			// triangles geometries
 			auto gc = make_smart_refctd_ptr<CGeometryCreator>();
 
-			std::array<ReferenceObjectCpu, OT_COUNT> cpuObjects;
-			cpuObjects[OT_CUBE] = ReferenceObjectCpu{ .meta = {.type = OT_CUBE, .name = "Cube Mesh" }, .shadersType = GP_BASIC, .data = gc->createCube({1.f, 1.f, 1.f}) };
-			cpuObjects[OT_SPHERE] = ReferenceObjectCpu{ .meta = {.type = OT_SPHERE, .name = "Sphere Mesh" }, .shadersType = GP_BASIC, .data = gc->createSphere(2, 16, 16) };
-			cpuObjects[OT_CYLINDER] = ReferenceObjectCpu{ .meta = {.type = OT_CYLINDER, .name = "Cylinder Mesh" }, .shadersType = GP_BASIC, .data = gc->createCylinder(2, 2, 20) };
-			cpuObjects[OT_RECTANGLE] = ReferenceObjectCpu{ .meta = {.type = OT_RECTANGLE, .name = "Rectangle Mesh" }, .shadersType = GP_BASIC, .data = gc->createRectangle({1.5, 3}) };
-			cpuObjects[OT_CONE] = ReferenceObjectCpu{ .meta = {.type = OT_CONE, .name = "Cone Mesh" }, .shadersType = GP_CONE, .data = gc->createCone(2, 3, 10) };
-			cpuObjects[OT_ICOSPHERE] = ReferenceObjectCpu{ .meta = {.type = OT_ICOSPHERE, .name = "Icosphere Mesh" }, .shadersType = GP_ICO, .data = gc->createIcoSphere(1, 3, true) };
+			auto transform_i = 0;
+			auto nextTransform = [&transform_i]()
+			{
+				core::matrix3x4SIMD transform;
+				transform.setTranslation(nbl::core::vectorSIMDf(5.f * transform_i, 0, 0, 0));
+				transform_i++;
+				return transform;
+			};
 
-			auto geomInfoBuffer = ICPUBuffer::create({ OT_COUNT * sizeof(SGeomInfo) });
+			std::vector<ReferenceObjectCpu> cpuObjects;
+			cpuObjects.push_back(ReferenceObjectCpu{ .meta = {.type = OT_CUBE, .name = "Cube Mesh" }, .transform = nextTransform(), .data = gc->createCube({1.f, 1.f, 1.f})});
+			cpuObjects.push_back(ReferenceObjectCpu{ .meta = {.type = OT_SPHERE, .name = "Sphere Mesh" }, .transform = nextTransform(), .data = gc->createSphere(2, 16, 16)});
+			cpuObjects.push_back(ReferenceObjectCpu{ .meta = {.type = OT_CYLINDER, .name = "Cylinder Mesh" }, .transform = nextTransform(), .data = gc->createCylinder(2, 2, 20)});
+			cpuObjects.push_back(ReferenceObjectCpu{ .meta = {.type = OT_RECTANGLE, .name = "Rectangle Mesh" }, .transform = nextTransform(), .data = gc->createRectangle({1.5, 3})});
+			cpuObjects.push_back(ReferenceObjectCpu{ .meta = {.type = OT_CONE, .name = "Cone Mesh" }, .transform = nextTransform(), .data = gc->createCone(2, 3, 10)});
+			cpuObjects.push_back(ReferenceObjectCpu{ .meta = {.type = OT_ICOSPHERE, .name = "Icosphere Mesh" }, .transform = nextTransform(), .data = gc->createIcoSphere(1, 3, true)});
+			const auto arrowPolygons = gc->createArrow();
+			const auto arrowTransform = nextTransform();
+			cpuObjects.push_back(ReferenceObjectCpu{ .meta = {.type = OT_CYLINDER, .name = "Arrow Mesh" }, .transform = arrowTransform, .data = arrowPolygons[0]});
+			cpuObjects.push_back(ReferenceObjectCpu{ .meta = {.type = OT_CONE, .name = "Arrow Mesh" }, .transform = arrowTransform, .data = arrowPolygons[1]});
+			auto geomInfoBuffer = ICPUBuffer::create({ cpuObjects.size() * sizeof(SGeomInfo) });
 
 			SGeomInfo* geomInfos = reinterpret_cast<SGeomInfo*>(geomInfoBuffer->getPointer());
 
 			// get ICPUBuffers into ICPUBottomLevelAccelerationStructures
-			std::array<smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>, OT_COUNT> cpuBlas;
+			std::vector<smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>> cpuBlas(cpuObjects.size());
 			for (uint32_t i = 0; i < cpuBlas.size(); i++)
 			{
 				auto triangles = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUBottomLevelAccelerationStructure::Triangles<ICPUBuffer>>>(1u);
@@ -530,7 +542,7 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 			}
 
 			// get ICPUBottomLevelAccelerationStructure into ICPUTopLevelAccelerationStructure
-			auto geomInstances = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUTopLevelAccelerationStructure::PolymorphicInstance>>(OT_COUNT);
+			auto geomInstances = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUTopLevelAccelerationStructure::PolymorphicInstance>>(cpuObjects.size());
 			{
 				uint32_t i = 0;
 				for (auto instance = geomInstances->begin(); instance != geomInstances->end(); instance++, i++)
@@ -541,11 +553,7 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 					inst.base.instanceCustomIndex = i;
 					inst.base.instanceShaderBindingTableRecordOffset = 0;
 					inst.base.mask = 0xFF;
-
-					core::matrix3x4SIMD transform;
-					transform.setTranslation(nbl::core::vectorSIMDf(5.f * i, 0, 0, 0));
-					inst.transform = transform;
-					
+					inst.transform = cpuObjects[i].transform;
 					instance->instance = inst;
 				}
 			}
@@ -612,9 +620,9 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 			
 			CAssetConverter::patch_t<ICPUTopLevelAccelerationStructure> tlasPatch = {};
 			tlasPatch.compactAfterBuild = true;
-			std::array<CAssetConverter::patch_t<ICPUBottomLevelAccelerationStructure>,OT_COUNT> tmpBLASPatches = {};
-			std::array<ICPUPolygonGeometry*, std::size(cpuObjects)> tmpGeometries;
-			std::array<CAssetConverter::patch_t<asset::ICPUPolygonGeometry>, std::size(cpuObjects)> tmpGeometryPatches;
+			std::vector<CAssetConverter::patch_t<ICPUBottomLevelAccelerationStructure>> tmpBLASPatches(cpuObjects.size());
+			std::vector<ICPUPolygonGeometry*> tmpGeometries(cpuObjects.size());
+			std::vector<CAssetConverter::patch_t<asset::ICPUPolygonGeometry>> tmpGeometryPatches(cpuObjects.size());
 			{
 				tmpBLASPatches.front().compactAfterBuild = true;
 				std::fill(tmpBLASPatches.begin(),tmpBLASPatches.end(),tmpBLASPatches.front());
@@ -779,7 +787,7 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 						.vertexBufferAddress = vertexBufferAddress,
 						.indexBufferAddress = indexBufferBinding.buffer ? indexBufferBinding.buffer->getDeviceAddress() + indexBufferBinding.offset : vertexBufferAddress,
 						.normalBufferAddress = normalBufferAddress,
-						.vertexStride = gpuTriangles.vertexStride,
+						.objType = cpuObject.meta.type,
 						.indexType = gpuTriangles.indexType,
 						.smoothNormals = s_smoothNormals[cpuObject.meta.type],
 					};
@@ -792,7 +800,7 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 			{
 				IGPUBuffer::SCreationParams params;
 				params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-				params.size = OT_COUNT * sizeof(SGeomInfo);
+				params.size = cpuObjects.size() * sizeof(SGeomInfo);
 				m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = gQueue }, std::move(params), geomInfos).move_into(geometryInfoBuffer);
 			}
 
