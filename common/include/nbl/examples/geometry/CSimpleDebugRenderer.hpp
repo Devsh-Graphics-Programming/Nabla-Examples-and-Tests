@@ -108,14 +108,14 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			// load shader
 			smart_refctd_ptr<IShader> shader;
 			{
-				const auto bundle = assMan->getAsset("nbl/examples/geometry/shaders/unified.hlsl",{});
-// TODO: Arek
-				//const auto bundle = assMan->getAsset("nbl/examples/geometry/shaders/unified.spv",{});
+				constexpr std::string_view key = "nbl/examples/shaders/geometry/unified.hlsl.spv";
+				const auto bundle = assMan->getAsset(key.data(), {});
+
 				const auto contents = bundle.getContents();
 				if (contents.empty() || bundle.getAssetType()!=IAsset::ET_SHADER)
 					return nullptr;
 				shader = IAsset::castDown<IShader>(contents[0]);
-				shader = device->compileShader({.source=shader.get()});
+				
 				if (!shader)
 					return nullptr;
 			}

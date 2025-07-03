@@ -1,4 +1,33 @@
-# TODO builtin SPIR-V shaders
-# add_subdirectory(geometry EXCLUDE_FROM_ALL)
+set(SPIRV_TARGET_V 6_8)
 
-# TODO: make docs once I get n4ce embed SPIRV tool to build system and then use the tool with Matts new shader
+set(COMMON_OPTIONS
+	-I "${COMMON_INCLUDE_DIRECTORY}"
+)
+
+set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen" )
+file(WRITE "${OUTPUT_DIRECTORY}/dummy.txt" "dummy, test")
+
+NBL_REGISTER_BUILD_MOUNT_POINT(
+    ARCHIVE
+        TARGET NblExtExamplesAPIBuiltinsSPIRV
+        INPUT_DIRECTORY .
+		OUTPUT_DIRECTORY "${OUTPUT_DIRECTORY}"
+        NAMESPACE nbl::builtin::examples::build
+		MOUNT_POINT_DEFINE NBL_EXAMPLES_BUILD_MOUNT_POINT
+	
+	BUILTINS
+		dummy.txt # relative to ARCHIVE.OUTPUT_DIRECTORY
+
+	SHADERS
+		KEY shaders/geometry/unified.hlsl 
+		COMPILE_OPTIONS ${COMMON_OPTIONS} -T lib_${SPIRV_TARGET_V}
+		# DEPENDS <>
+
+		# KEY <xyz> 
+		# COMPILE_OPTIONS ${COMMON_OPTIONS} -T <target>_${SPIRV_TARGET_V}
+		# DEPENDS <>
+)
+
+if(NBL_EMBED_BUILTIN_RESOURCES)
+	INTERFACE_TO_BUILTINS(NblExtExamplesAPIBuiltinsSPIRV)
+endif()

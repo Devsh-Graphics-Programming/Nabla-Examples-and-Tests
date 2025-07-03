@@ -280,7 +280,7 @@ private:
 
                     nbl::asset::IShaderCompiler::SCompilerOptions options = {};
                     options.stage = ESS_COMPUTE;
-                    options.targetSpirvVersion = base.m_device->getPhysicalDevice()->getLimits().spirvVersion;
+                    options.preprocessorOptions.targetSpirvVersion = base.m_device->getPhysicalDevice()->getLimits().spirvVersion;
                     options.spirvOptimizer = nullptr;
                     options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
                     options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
@@ -946,7 +946,7 @@ private:
 
                     IShaderCompiler::SCompilerOptions options = {};
                     options.stage = ESS_COMPUTE;
-                    options.targetSpirvVersion = base.m_device->getPhysicalDevice()->getLimits().spirvVersion;
+                    options.preprocessorOptions.targetSpirvVersion = base.m_device->getPhysicalDevice()->getLimits().spirvVersion;
                     options.spirvOptimizer = nullptr;
                     options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
                     options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
