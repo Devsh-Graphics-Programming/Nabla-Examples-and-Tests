@@ -15,13 +15,17 @@ NBL_REGISTER_BUILD_MOUNT_POINT(
         NAMESPACE nbl::builtin::examples::build
 		MOUNT_POINT_DEFINE NBL_EXAMPLES_BUILD_MOUNT_POINT
 	
-	# relative to ARCHIVE.OUTPUT_DIRECTORY
 	BUILTINS
-		dummy.txt
+		dummy.txt # relative to ARCHIVE.OUTPUT_DIRECTORY
 
 	SHADERS
-		KEY shaders/geometry/unified.hlsl COMPILE_OPTIONS ${COMMON_OPTIONS} -T lib_${SPIRV_TARGET_V}
-		# KEY <xyz> COMPILE_OPTIONS ${COMMON_OPTIONS} -T <target>_${SPIRV_TARGET_V}
+		KEY shaders/geometry/unified.hlsl 
+		COMPILE_OPTIONS ${COMMON_OPTIONS} -T lib_${SPIRV_TARGET_V}
+		# DEPENDS <>
+
+		# KEY <xyz> 
+		# COMPILE_OPTIONS ${COMMON_OPTIONS} -T <target>_${SPIRV_TARGET_V}
+		# DEPENDS <>
 )
 
 if(NBL_EMBED_BUILTIN_RESOURCES)
