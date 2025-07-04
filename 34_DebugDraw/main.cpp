@@ -376,7 +376,7 @@ public:
 			// fill streaming buffer: indirect draw command, then vertex buffer
 			{
 				auto vertices = ext::drawdebug::DrawAABB::getVerticesFromAABB(testAABB2);
-				uint32_t instanceCount = 4u;
+				uint32_t instanceCount = 5u;
 
 				using offset_t = streaming_buffer_t::size_type;
 				constexpr auto MdiSizes = std::to_array<offset_t>({ sizeof(float32_t3), sizeof(InstanceData) });
@@ -407,7 +407,7 @@ public:
 				{
 					core::matrix3x4SIMD instanceTransform;
 					instanceTransform.setTranslation(core::vectorSIMDf(i, 0, i, 0));
-					instanceTransform.setScale(core::vectorSIMDf(i, i, i));
+					instanceTransform.setScale(core::vectorSIMDf(i+1, i+1, i+1));
 				    memcpy(instancesIt->transform, instanceTransform.pointer(), sizeof(core::matrix3x4SIMD));
 					instancesIt->color = float32_t3(i * 0.2, 1, 0);
 					instancesIt++;
