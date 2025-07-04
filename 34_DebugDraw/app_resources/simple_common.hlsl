@@ -3,7 +3,7 @@
 
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 
-struct SPushConstants
+struct SSimplePushConstants
 {
 #ifdef __HLSL_VERSION
     float32_t4x4 MVP;

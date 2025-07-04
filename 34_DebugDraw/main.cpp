@@ -4,6 +4,7 @@
 
 #include "common.hpp"
 #include "app_resources/simple_common.hlsl"
+#include "app_resources/common.hlsl"
 
 class DebugDrawSampleApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
@@ -121,7 +122,7 @@ public:
 			params.pushConstantRange = {
 			    .stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX,
 			    .offset = 0,
-			    .size = sizeof(SPushConstants)
+			    .size = sizeof(SSimplePushConstants)
 			};
             drawAABB = ext::drawdebug::DrawAABB::create(std::move(params));
 	    }
@@ -214,8 +215,13 @@ public:
 		{
 			auto vertexShader = compileShader("app_resources/multi_aabb.vertex.hlsl");
 			auto fragmentShader = compileShader("app_resources/simple.fragment.hlsl");
+			SPushConstantRange pcRange = {
+				.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX,
+				.offset = 0,
+				.size = sizeof(SPushConstants)
+			};
 
-			const auto pipelineLayout =  m_device->createPipelineLayout({ &drawAABB->getCreationParameters().pushConstantRange , 1 }, nullptr, nullptr, nullptr, nullptr);
+			const auto pipelineLayout =  m_device->createPipelineLayout({ &pcRange , 1 }, nullptr, nullptr, nullptr, nullptr);
 
 			SVertexInputParams vertexInputParams{};
 			{
@@ -236,14 +242,14 @@ public:
 			params[0].vertexShader = { .shader = vertexShader.get(), .entryPoint = "main" };
 			params[0].fragmentShader = { .shader = fragmentShader.get(), .entryPoint = "main" };
 			params[0].cached = {
-				.vertexInput = vertexInputParams,
 				.primitiveAssembly = {
 					.primitiveType = asset::E_PRIMITIVE_TOPOLOGY::EPT_LINE_LIST,
 				}
 			};
 			params[0].renderpass = renderpass;
 
-			m_device->createGraphicsPipelines(nullptr, params, &m_streamingPipeline);
+			if (!m_device->createGraphicsPipelines(nullptr, params, &m_streamingPipeline))
+				return logFail("Could not create streaming pipeline!");
 		}
 
 		m_window->setCaption("[Nabla Engine] Debug Draw App Test Demo");
@@ -356,33 +362,24 @@ public:
 				.renderArea = currentRenderArea
 			};
 
-			SPushConstants pc;
-			memcpy(pc.MVP, modelViewProjectionMatrix.pointer(), sizeof(pc.MVP));
-			pc.pVertices = verticesBuffer->getDeviceAddress();
-
-			cmdbuf->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-			cmdbuf->bindGraphicsPipeline(m_pipeline.get());
-			cmdbuf->pushConstants(m_pipeline->getLayout(), ESS_VERTEX, 0, sizeof(SPushConstants), &pc);
-			drawAABB->renderSingle(cmdbuf);
-
-			cmdbuf->bindGraphicsPipeline(m_streamingPipeline.get());
-			cmdbuf->pushConstants(m_streamingPipeline->getLayout(), ESS_VERTEX, 0, sizeof(SPushConstants), &pc);
-
-			// TODO bind vertex buffer (streaming buffer)
-			const SBufferBinding<const IGPUBuffer> binding =
 			{
-				.offset = 0u,
-				.buffer = smart_refctd_ptr<const IGPUBuffer>(streamingBuffer.get()->getBuffer())
-			};
-			cmdbuf->bindVertexBuffers(0u, 1u, &binding);
+				SSimplePushConstants pc;
+				memcpy(pc.MVP, modelViewProjectionMatrix.pointer(), sizeof(pc.MVP));
+				pc.pVertices = verticesBuffer->getDeviceAddress();
+
+				cmdbuf->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+				cmdbuf->bindGraphicsPipeline(m_pipeline.get());
+				cmdbuf->pushConstants(m_pipeline->getLayout(), ESS_VERTEX, 0, sizeof(SSimplePushConstants), &pc);
+				drawAABB->renderSingle(cmdbuf);
+			}
 
 			// fill streaming buffer: indirect draw command, then vertex buffer
 			{
 				auto vertices = ext::drawdebug::DrawAABB::getVerticesFromAABB(testAABB2);
-				uint32_t indirectDrawCount = 1u;
+				uint32_t instanceCount = 4u;
 
 				using offset_t = streaming_buffer_t::size_type;
-				constexpr auto MdiSizes = std::to_array<offset_t>({ sizeof(VkDrawIndirectCommand), sizeof(float32_t3) });
+				constexpr auto MdiSizes = std::to_array<offset_t>({ sizeof(float32_t3), sizeof(InstanceData) });
 				// shared nPoT alignment needs to be divisible by all smaller ones to satisfy an allocation from all
 				constexpr offset_t MaxAlignment = std::reduce(MdiSizes.begin(), MdiSizes.end(), 1, [](const offset_t a, const offset_t b)->offset_t {return std::lcm(a, b); });
 				// allocator initialization needs us to round up to PoT
@@ -397,30 +394,35 @@ public:
 				offset_t inputOffset = 0u;
 				offset_t ImaginarySizeUpperBound = 0x1 << 30;
 				suballocator_t imaginaryChunk(nullptr, inputOffset, 0, roundUpToPoT(MaxAlignment), ImaginarySizeUpperBound);
-				uint32_t indirectDrawByteOffset = imaginaryChunk.alloc_addr(sizeof(VkDrawIndirectCommand) * indirectDrawCount, sizeof(VkDrawIndirectCommand));
 				uint32_t vertexByteOffset = imaginaryChunk.alloc_addr(sizeof(float32_t3) * vertices.size(), sizeof(float32_t3));
+				uint32_t instancesByteOffset = imaginaryChunk.alloc_addr(sizeof(InstanceData) * instanceCount, sizeof(InstanceData));
 				const uint32_t totalSize = imaginaryChunk.get_allocated_size();
 
 				std::chrono::steady_clock::time_point waitTill(std::chrono::years(45));
 				streaming->multi_allocate(waitTill, 1, &inputOffset, &totalSize, &MaxAlignment);
 
-				auto* drawIndirectIt = reinterpret_cast<VkDrawIndirectCommand*>(streamingPtr + indirectDrawByteOffset);
-				for (auto i = 0u; i < indirectDrawCount; i++)
-				{
-					drawIndirectIt->firstVertex = 0;
-					drawIndirectIt->firstInstance = i;
-					drawIndirectIt->vertexCount = vertices.size();
-					drawIndirectIt->instanceCount = 1;
-					drawIndirectIt++;
-				}
 				memcpy(streamingPtr + vertexByteOffset, vertices.data(), sizeof(vertices[0]) * vertices.size());
+				auto* instancesIt = reinterpret_cast<InstanceData*>(streamingPtr + instancesByteOffset);
+				for (auto i = 0u; i < instanceCount; i++)
+				{
+					core::matrix3x4SIMD instanceTransform;
+					instanceTransform.setTranslation(core::vectorSIMDf(i, 0, i, 0));
+					instanceTransform.setScale(core::vectorSIMDf(i, i, i));
+				    memcpy(instancesIt->transform, instanceTransform.pointer(), sizeof(core::matrix3x4SIMD));
+					instancesIt->color = float32_t3(i * 0.2, 1, 0);
+					instancesIt++;
+				}
 
 				assert(!streaming->needsManualFlushOrInvalidate());
 
-				// TODO cmdbuf draw indirect
-				auto mdiBinding = binding;
-				mdiBinding.offset = indirectDrawByteOffset;
-				cmdbuf->drawIndirect(binding, 1, sizeof(VkDrawIndirectCommand));
+				SPushConstants pc;
+				memcpy(pc.MVP, modelViewProjectionMatrix.pointer(), sizeof(pc.MVP));
+				pc.pVertexBuffer = streamingBuffer->getBuffer()->getDeviceAddress() + vertexByteOffset;
+				pc.pInstanceBuffer = streamingBuffer->getBuffer()->getDeviceAddress() + instancesByteOffset;
+
+				cmdbuf->bindGraphicsPipeline(m_streamingPipeline.get());
+				cmdbuf->pushConstants(m_streamingPipeline->getLayout(), ESS_VERTEX, 0, sizeof(SPushConstants), &pc);
+				cmdbuf->draw(vertices.size(), instanceCount, 0, 0);
 
 				const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
 				streaming->multi_deallocate(1, &inputOffset, &totalSize, drawFinished);
@@ -565,8 +567,8 @@ private:
 	float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
 
 	smart_refctd_ptr<ext::drawdebug::DrawAABB> drawAABB;
-	core::aabbox3d<float> testAABB = core::aabbox3d<float>({ 0, 0, 0 }, { 10, 10, -10 });
-	core::aabbox3d<float> testAABB2 = core::aabbox3d<float>({ 2, 4, -1 }, { 7, 8, 5 });
+	core::aabbox3d<float> testAABB = core::aabbox3d<float>({ -5, -5, -5 }, { 10, 10, -10 });
+	core::aabbox3d<float> testAABB2 = core::aabbox3d<float>({ 0, 0, 0 }, { 1, 1, 1 });
 	smart_refctd_ptr<IGPUBuffer> verticesBuffer;
 
 	using streaming_buffer_t = video::StreamingTransientDataBufferST<core::allocator<uint8_t>>;

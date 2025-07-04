@@ -5,7 +5,7 @@
 
 using namespace nbl::hlsl;
 
-[[vk::push_constant]] SPushConstants pc;
+[[vk::push_constant]] SSimplePushConstants pc;
 
 [shader("vertex")]
 PSInput main(uint vertexID : SV_VertexID)
