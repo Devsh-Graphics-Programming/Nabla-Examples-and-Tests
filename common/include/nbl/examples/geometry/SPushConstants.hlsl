@@ -22,15 +22,11 @@ struct SInstanceMatrices
 
 struct SPushConstants
 {
-	// no idea if DXC still has this bug with Push Constant static variables
-#ifndef __HLSL_VERSiON
-	NBL_CONSTEXPR_STATIC_INLINE uint32_t DescriptorCount = 255;
-#endif
+	NBL_CONSTEXPR_STATIC_INLINE uint32_t DescriptorCount = (0x1<<16)-1;
 
 	SInstanceMatrices matrices;
-	uint32_t positionView : 11;
-	uint32_t normalView : 10;
-	uint32_t uvView : 11;
+	uint32_t positionView : 16;
+	uint32_t normalView : 16;
 };
 
 }

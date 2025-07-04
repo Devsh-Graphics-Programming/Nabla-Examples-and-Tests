@@ -5,7 +5,7 @@
 
 #include "../3rdparty/portable-file-dialogs/portable-file-dialogs.h"
 
-#ifdef _NBL_COMPILE_WITH_MITSUBA_SERIALIZED_LOADER_
+#ifdef NBL_BUILD_MITSUBA_LOADER
 #include "nbl/ext/MitsubaLoader/CSerializedLoader.h"
 #endif
 
@@ -17,13 +17,13 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 	public:
 		inline MeshLoadersApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
 			: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD),
-			device_base_t({1280,720}, EF_UNKNOWN, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
+			device_base_t({1280,720}, EF_D32_SFLOAT, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
 		inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
 			if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
-		#ifdef _NBL_COMPILE_WITH_MITSUBA_SERIALIZED_LOADER_
+		#ifdef NBL_BUILD_MITSUBA_LOADER
 			m_assetMgr->addAssetLoader(make_smart_refctd_ptr<ext::MitsubaLoader::CSerializedLoader>());
 		#endif
 			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
@@ -218,9 +218,9 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 	private:
 		// TODO: standardise this across examples, and take from `argv`
-		bool m_nonInteractiveTest = true;
+		bool m_nonInteractiveTest = false;
 
-		inline bool reloadModel()
+		bool reloadModel()
 		{
 			if (m_nonInteractiveTest) // TODO: maybe also take from argv and argc
 				m_modelPath = (sharedInputCWD/"ply/Spanner-ply.ply").string();
@@ -268,8 +268,13 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			}
 			if (geometries.empty())
 				return false;
-			
-			auto bound = hlsl::shapes::AABB<3,double>::create();
+
+			using aabb_t = hlsl::shapes::AABB<3,double>;
+			auto printAABB = [&](const aabb_t& aabb, const char* extraMsg="")->void
+			{
+				m_logger->log("%s AABB is (%f,%f,%f) -> (%f,%f,%f)",ILogger::ELL_INFO,extraMsg,aabb.minVx.x,aabb.minVx.y,aabb.minVx.z,aabb.maxVx.x,aabb.maxVx.y,aabb.maxVx.z);
+			};
+			auto bound = aabb_t::create();
 			// convert the geometries
 			{
 				smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({.device=m_device.get()});
@@ -344,28 +349,33 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 						return false;
 					}
 				}
-
+				
+				auto tmp = hlsl::float32_t4x3(
+					hlsl::float32_t3(1,0,0),
+					hlsl::float32_t3(0,1,0),
+					hlsl::float32_t3(0,0,1),
+					hlsl::float32_t3(0,0,0)
+				);
+				core::vector<hlsl::float32_t3x4> worldTforms;
 				const auto& converted = reservation.getGPUObjects<ICPUPolygonGeometry>();
 				for (const auto& geom : converted)
 				{
-					geom.value->visitAABB([&bound](const auto& aabb)->void
-						{
-							hlsl::shapes::AABB<3,double> promoted;
-							promoted.minVx = aabb.minVx;
-							promoted.maxVx = aabb.maxVx;
-							bound = hlsl::shapes::util::union_(promoted,bound);
-						}
-					);
+					const auto promoted = geom.value->getAABB<aabb_t>();
+					printAABB(promoted,"Geometry");
+					tmp[3].x += promoted.getExtent().x;
+					const auto promotedWorld = hlsl::float64_t3x4(worldTforms.emplace_back(hlsl::transpose(tmp)));
+					const auto transformed = hlsl::shapes::util::transform(promotedWorld,promoted);
+					printAABB(transformed,"Transformed");
+					bound = hlsl::shapes::util::union_(transformed,bound);
 				}
+				printAABB(bound,"Total");
 				if (!m_renderer->addGeometries({ &converted.front().get(),converted.size() }))
 					return false;
+
+				auto worlTformsIt = worldTforms.begin();
 				for (const auto& geo : m_renderer->getGeometries())
 					m_renderer->m_instances.push_back({
-						.world = hlsl::float32_t3x4(
-							hlsl::float32_t4(1,0,0,0),
-							hlsl::float32_t4(0,1,0,0),
-							hlsl::float32_t4(0,0,1,0)
-						),
+						.world = *(worlTformsIt++),
 						.packedGeo = &geo
 					});
 			}
@@ -373,7 +383,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			// get scene bounds and reset camera
 			{
 				const double distance = 0.05;
-				const auto diagonal = bound.maxVx-bound.minVx;
+				const auto diagonal = bound.getExtent();
 				{
 					const auto measure = hlsl::length(diagonal);
 					const auto aspectRatio = float(m_window->getWidth())/float(m_window->getHeight());
