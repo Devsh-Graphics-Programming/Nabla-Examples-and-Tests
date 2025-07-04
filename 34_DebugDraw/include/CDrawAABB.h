@@ -4,11 +4,12 @@
 
 // TODO move this into nabla
 
-#include "nbl/video/declarations.h"
-#include "nbl/builtin/hlsl/cpp_compat.hlsl"
-
 #ifndef _NBL_EXT_DRAW_AABB_H_
 #define _NBL_EXT_DRAW_AABB_H_
+
+#include "nbl/video/declarations.h"
+#include "nbl/builtin/hlsl/cpp_compat.hlsl"
+#include "../app_resources/common.hlsl"
 
 namespace nbl::ext::drawdebug
 {
@@ -38,12 +39,18 @@ public:
 
     static std::array<hlsl::float32_t3, 24> getVerticesFromAABB(const core::aabbox3d<float>& aabb);
 
+    void addAABB(const core::aabbox3d<float>& aabb, const hlsl::float32_t3& color = { 1,0,0 });
+
 protected:
 	DrawAABB(SCreationParameters&& _params);
 	~DrawAABB() override;
 
 private:
     SCreationParameters m_creationParams;
+
+    std::vector<InstanceData> m_instances;
+    std::array<hlsl::float32_t3, 24> m_unitVertices;
+    constexpr static inline core::aabbox3d<float> UnitAABB = core::aabbox3d<float>({ 0, 0, 0 }, { 1, 1, 1 });
 };
 }
 

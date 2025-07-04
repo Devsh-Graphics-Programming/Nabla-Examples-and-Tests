@@ -94,4 +94,18 @@ std::array<float32_t3, 24> DrawAABB::getVerticesFromAABB(const core::aabbox3d<fl
 	return vertices;
 }
 
+void DrawAABB::addAABB(const core::aabbox3d<float>& aabb, const hlsl::float32_t3& color)
+{
+	InstanceData instance;
+	instance.color = color;
+
+	core::matrix3x4SIMD instanceTransform;
+	instanceTransform.setTranslation(core::vectorSIMDf(aabb.MinEdge.X, aabb.MinEdge.Y, aabb.MinEdge.Z, 0));
+	const auto diagonal = aabb.MaxEdge - aabb.MinEdge;
+	instanceTransform.setScale(core::vectorSIMDf(diagonal.X, diagonal.Y, diagonal.Z));
+	memcpy(instance.transform, instanceTransform.pointer(), sizeof(core::matrix3x4SIMD));
+
+	m_instances.push_back(instance);
+}
+
 }
