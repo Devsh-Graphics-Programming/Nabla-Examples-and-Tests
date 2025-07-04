@@ -117,13 +117,14 @@ public:
 		m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
 		m_surface->recreateSwapchain();
 
+		SPushConstantRange simplePcRange = {
+				.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX,
+				.offset = 0,
+				.size = sizeof(SSimplePushConstants)
+		};
 	    {
 			ext::drawdebug::DrawAABB::SCreationParameters params;
-			params.pushConstantRange = {
-			    .stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX,
-			    .offset = 0,
-			    .size = sizeof(SSimplePushConstants)
-			};
+			params.pushConstantRange = simplePcRange;
             drawAABB = ext::drawdebug::DrawAABB::create(std::move(params));
 	    }
 		{
@@ -205,11 +206,12 @@ public:
 	        auto vertexShader = compileShader("app_resources/simple.vertex.hlsl");
 		    auto fragmentShader = compileShader("app_resources/simple.fragment.hlsl");
 
-		    const auto pipelineLayout = ext::drawdebug::DrawAABB::createDefaultPipelineLayout(m_device.get(), drawAABB->getCreationParameters().pushConstantRange);
+		    const auto pipelineLayout = ext::drawdebug::DrawAABB::createDefaultPipelineLayout(m_device.get(), simplePcRange);
 
 		    IGPUGraphicsPipeline::SShaderSpecInfo vs = { .shader = vertexShader.get(), .entryPoint = "main" };
 		    IGPUGraphicsPipeline::SShaderSpecInfo fs = { .shader = fragmentShader.get(), .entryPoint = "main" };
-		    if (!ext::drawdebug::DrawAABB::createDefaultPipeline(&m_pipeline, m_device.get(), pipelineLayout.get(), renderpass, vs, fs))
+			m_pipeline = ext::drawdebug::DrawAABB::createDefaultPipeline(m_device.get(), pipelineLayout.get(), renderpass, vs, fs);
+		    if (!m_pipeline)
 		        return logFail("Graphics pipeline creation failed");
 	    }
 		{
@@ -222,20 +224,6 @@ public:
 			};
 
 			const auto pipelineLayout =  m_device->createPipelineLayout({ &pcRange , 1 }, nullptr, nullptr, nullptr, nullptr);
-
-			SVertexInputParams vertexInputParams{};
-			{
-				vertexInputParams.enabledBindingFlags = 0b1u;
-				vertexInputParams.enabledAttribFlags = 0b1u;
-
-				vertexInputParams.bindings[0].inputRate = SVertexInputBindingParams::EVIR_PER_VERTEX;
-				vertexInputParams.bindings[0].stride = sizeof(float32_t3);
-
-				auto& position = vertexInputParams.attributes[0];
-				position.format = EF_R32G32B32_SFLOAT;
-				position.relativeOffset = 0u;
-				position.binding = 0u;
-			}
 
 			video::IGPUGraphicsPipeline::SCreationParams params[1] = {};
 			params[0].layout = pipelineLayout.get();

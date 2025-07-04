@@ -16,9 +16,25 @@ namespace nbl::ext::drawdebug
 class DrawAABB final : public core::IReferenceCounted
 {
 public:
-    struct SCreationParameters
+    struct SCachedCreationParameters
+    {
+        using streaming_buffer_t = video::StreamingTransientDataBufferST<core::allocator<uint8_t>>;
+
+        static constexpr inline auto RequiredAllocateFlags = core::bitflag<video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS>(video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+        static constexpr inline auto RequiredUsageFlags = core::bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+
+        core::smart_refctd_ptr<video::IUtilities> utilities;
+
+        //! optional, default MDI buffer allocated if not provided
+        core::smart_refctd_ptr<streaming_buffer_t> streamingBuffer = nullptr;
+    };
+    
+    struct SCreationParameters : SCachedCreationParameters
     {
         asset::SPushConstantRange pushConstantRange;
+
+        core::smart_refctd_ptr<video::IGPUPipelineLayout> pipelineLayout;
+        core::smart_refctd_ptr<video::IGPURenderpass> renderpass = nullptr;
     };
 
     // creates an instance that draws one AABB via push constant
@@ -30,27 +46,33 @@ public:
     // creates default pipeline layout for push constant version
     static core::smart_refctd_ptr<video::IGPUPipelineLayout> createDefaultPipelineLayout(video::ILogicalDevice* device, const asset::SPushConstantRange& pcRange);
 
-    static bool createDefaultPipeline(core::smart_refctd_ptr<video::IGPUGraphicsPipeline>* pipeline, video::ILogicalDevice* device, video::IGPUPipelineLayout* layout, video::IGPURenderpass* renderpass, video::IGPUGraphicsPipeline::SShaderSpecInfo& vertex, video::IGPUGraphicsPipeline::SShaderSpecInfo& fragment);
+    static smart_refctd_ptr<IGPUGraphicsPipeline> createDefaultPipeline(video::ILogicalDevice* device, video::IGPUPipelineLayout* layout, video::IGPURenderpass* renderpass, video::IGPUGraphicsPipeline::SShaderSpecInfo& vertex, video::IGPUGraphicsPipeline::SShaderSpecInfo& fragment);
 
-    inline const SCreationParameters& getCreationParameters() const { return m_creationParams; }
+    inline const SCachedCreationParameters& getCreationParameters() const { return m_cachedCreationParams; }
 
     // records draw command for single AABB, user has to set pipeline outside
     bool renderSingle(video::IGPUCommandBuffer* commandBuffer);
+
+    bool render(video::IGPUCommandBuffer* commandBuffer, ISemaphore::SWaitInfo waitInfo, float* cameraMat3x4);
 
     static std::array<hlsl::float32_t3, 24> getVerticesFromAABB(const core::aabbox3d<float>& aabb);
 
     void addAABB(const core::aabbox3d<float>& aabb, const hlsl::float32_t3& color = { 1,0,0 });
 
 protected:
-	DrawAABB(SCreationParameters&& _params);
+	DrawAABB(SCreationParameters&& _params, smart_refctd_ptr<IGPUGraphicsPipeline> pipeline);
 	~DrawAABB() override;
 
 private:
-    SCreationParameters m_creationParams;
+    static smart_refctd_ptr<IGPUGraphicsPipeline> createPipeline(SCreationParameters& params);
+    static bool createStreamingBuffer(SCreationParameters& params);
 
     std::vector<InstanceData> m_instances;
-    std::array<hlsl::float32_t3, 24> m_unitVertices;
-    constexpr static inline core::aabbox3d<float> UnitAABB = core::aabbox3d<float>({ 0, 0, 0 }, { 1, 1, 1 });
+    std::array<hlsl::float32_t3, 24> m_unitAABBVertices;
+
+    SCachedCreationParameters m_cachedCreationParams;
+
+    core::smart_refctd_ptr<video::IGPUGraphicsPipeline> m_pipeline;
 };
 }
 

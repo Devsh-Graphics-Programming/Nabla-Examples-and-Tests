@@ -7,6 +7,10 @@
 #include "CDrawAABB.h"
 
 using namespace nbl;
+using namespace core;
+using namespace video;
+using namespace system;
+using namespace asset;
 using namespace hlsl;
 
 namespace nbl::ext::drawdebug
@@ -14,16 +18,120 @@ namespace nbl::ext::drawdebug
 
 core::smart_refctd_ptr<DrawAABB> DrawAABB::create(SCreationParameters&& params)
 {
-    return core::smart_refctd_ptr<DrawAABB>(new DrawAABB(std::move(params)));
+	auto* const logger = params.utilities->getLogger();
+
+	auto pipeline = createPipeline(params);
+	if (!pipeline)
+	{
+		logger->log("Failed to create pipeline!", ILogger::ELL_ERROR);
+		return nullptr;
+	}
+
+	if (!createStreamingBuffer(params))
+	{
+		logger->log("Failed to create streaming buffer!", ILogger::ELL_ERROR);
+		return nullptr;
+	}
+
+    return core::smart_refctd_ptr<DrawAABB>(new DrawAABB(std::move(params), pipeline));
 }
 
-DrawAABB::DrawAABB(SCreationParameters&& _params)
-    : m_creationParams(_params)
+DrawAABB::DrawAABB(SCreationParameters&& params, smart_refctd_ptr<IGPUGraphicsPipeline> pipeline)
+    : m_cachedCreationParams(std::move(params)), m_pipeline(pipeline)
 {
+	const auto unitAABB = core::aabbox3d<float>({ 0, 0, 0 }, { 1, 1, 1 });
+	m_unitAABBVertices = getVerticesFromAABB(unitAABB);
 }
 
 DrawAABB::~DrawAABB()
 {
+}
+
+smart_refctd_ptr<IGPUGraphicsPipeline> DrawAABB::createPipeline(SCreationParameters& params)
+{
+	video::IGPUGraphicsPipeline::SCreationParams pipelineParams[1] = {};
+	pipelineParams[0].layout = params.pipelineLayout.get();
+	pipelineParams[0].vertexShader = { .shader = vertexShader.get(), .entryPoint = "main" };
+	pipelineParams[0].fragmentShader = { .shader = fragmentShader.get(), .entryPoint = "main" };
+	pipelineParams[0].cached = {
+		.primitiveAssembly = {
+			.primitiveType = asset::E_PRIMITIVE_TOPOLOGY::EPT_LINE_LIST,
+		}
+	};
+	pipelineParams[0].renderpass = params.renderpass.get();
+
+	smart_refctd_ptr<IGPUGraphicsPipeline> pipeline;
+	params.utilities->getLogicalDevice()->createGraphicsPipelines(nullptr, pipelineParams, &pipeline);
+	if (!pipeline)
+	{
+		params.utilities->getLogger()->log("Could not create streaming pipeline!", ILogger::ELL_ERROR);
+		return nullptr;
+	}
+
+	return pipeline;
+}
+
+bool DrawAABB::createStreamingBuffer(SCreationParameters& params)
+{
+	const uint32_t minStreamingBufferAllocationSize = 128u, maxStreamingBufferAllocationAlignment = 4096u, mdiBufferDefaultSize = /* 2MB */ 1024u * 1024u * 2u;
+
+	auto getRequiredAccessFlags = [&](const bitflag<IDeviceMemoryAllocation::E_MEMORY_PROPERTY_FLAGS>& properties)
+		{
+			bitflag<IDeviceMemoryAllocation::E_MAPPING_CPU_ACCESS_FLAGS> flags(IDeviceMemoryAllocation::EMCAF_NO_MAPPING_ACCESS);
+
+			if (properties.hasFlags(IDeviceMemoryAllocation::EMPF_HOST_READABLE_BIT))
+				flags |= IDeviceMemoryAllocation::EMCAF_READ;
+			if (properties.hasFlags(IDeviceMemoryAllocation::EMPF_HOST_WRITABLE_BIT))
+				flags |= IDeviceMemoryAllocation::EMCAF_WRITE;
+
+			return flags;
+		};
+
+	if (!params.streamingBuffer)
+	{
+		IGPUBuffer::SCreationParams mdiCreationParams = {};
+		mdiCreationParams.usage = SCachedCreationParameters::RequiredUsageFlags;
+		mdiCreationParams.size = mdiBufferDefaultSize;
+
+		auto buffer = params.utilities->getLogicalDevice()->createBuffer(std::move(mdiCreationParams));
+		buffer->setObjectDebugName("AABB Streaming Buffer");
+
+		auto memoryReqs = buffer->getMemoryReqs();
+		memoryReqs.memoryTypeBits &= params.utilities->getLogicalDevice()->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
+
+		auto allocation = params.utilities->getLogicalDevice()->allocate(memoryReqs, buffer.get(), SCachedCreationParameters::RequiredAllocateFlags);
+		{
+			const bool allocated = allocation.isValid();
+			assert(allocated);
+		}
+		auto memory = allocation.memory;
+
+		if (!memory->map({ 0ull, memoryReqs.size }, getRequiredAccessFlags(memory->getMemoryPropertyFlags())))
+			params.utilities->getLogger()->log("Could not map device memory!", ILogger::ELL_ERROR);
+
+		params.streamingBuffer = make_smart_refctd_ptr<SCachedCreationParameters::streaming_buffer_t>(SBufferRange<IGPUBuffer>{0ull, mdiCreationParams.size, std::move(buffer)}, maxStreamingBufferAllocationAlignment, minStreamingBufferAllocationSize);
+	}
+
+	auto buffer = params.streamingBuffer->getBuffer();
+	auto binding = buffer->getBoundMemory();
+
+	const auto validation = std::to_array
+	({
+		std::make_pair(buffer->getCreationParams().usage.hasFlags(SCachedCreationParameters::RequiredUsageFlags), "Streaming buffer must be created with IBuffer::EUF_STORAGE_BUFFER_BIT | IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT enabled!"),
+		std::make_pair(bool(buffer->getMemoryReqs().memoryTypeBits & params.utilities->getLogicalDevice()->getPhysicalDevice()->getUpStreamingMemoryTypeBits()), "Streaming buffer must have up-streaming memory type bits enabled!"),
+		std::make_pair(binding.memory->getAllocateFlags().hasFlags(SCachedCreationParameters::RequiredAllocateFlags), "Streaming buffer's memory must be allocated with IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT enabled!"),
+		std::make_pair(binding.memory->isCurrentlyMapped(), "Streaming buffer's memory must be mapped!"), // streaming buffer contructor already validates it, but cannot assume user won't unmap its own buffer for some reason (sorry if you have just hit it)
+		std::make_pair(binding.memory->getCurrentMappingAccess().hasFlags(getRequiredAccessFlags(binding.memory->getMemoryPropertyFlags())), "Streaming buffer's memory current mapping access flags don't meet requirements!")
+		});
+
+	for (const auto& [ok, error] : validation)
+		if (!ok)
+		{
+			params.utilities->getLogger()->log(error, ILogger::ELL_ERROR);
+			return false;
+		}
+
+	return true;
 }
 
 core::smart_refctd_ptr<video::IGPUPipelineLayout> DrawAABB::createDefaultPipelineLayout(video::ILogicalDevice* device, const asset::SPushConstantRange& pcRange)
@@ -31,8 +139,10 @@ core::smart_refctd_ptr<video::IGPUPipelineLayout> DrawAABB::createDefaultPipelin
 	return device->createPipelineLayout({ &pcRange , 1 }, nullptr, nullptr, nullptr, nullptr);
 }
 
-bool DrawAABB::createDefaultPipeline(core::smart_refctd_ptr<video::IGPUGraphicsPipeline>* pipeline, video::ILogicalDevice* device, video::IGPUPipelineLayout* layout, video::IGPURenderpass* renderpass, video::IGPUGraphicsPipeline::SShaderSpecInfo& vertex, video::IGPUGraphicsPipeline::SShaderSpecInfo& fragment)
+smart_refctd_ptr<IGPUGraphicsPipeline> DrawAABB::createDefaultPipeline(video::ILogicalDevice* device, video::IGPUPipelineLayout* layout, video::IGPURenderpass* renderpass, video::IGPUGraphicsPipeline::SShaderSpecInfo& vertex, video::IGPUGraphicsPipeline::SShaderSpecInfo& fragment)
 {
+	smart_refctd_ptr<video::IGPUGraphicsPipeline> pipeline;
+
 	video::IGPUGraphicsPipeline::SCreationParams params[1] = {};
 	params[0].layout = layout;
 	params[0].vertexShader = vertex;
@@ -44,13 +154,59 @@ bool DrawAABB::createDefaultPipeline(core::smart_refctd_ptr<video::IGPUGraphicsP
 	};
 	params[0].renderpass = renderpass;
 
-	return device->createGraphicsPipelines(nullptr, params, pipeline);
+	device->createGraphicsPipelines(nullptr, params, &pipeline);
+
+	return pipeline;
 }
 
-bool DrawAABB::renderSingle(video::IGPUCommandBuffer* commandBuffer)
+bool DrawAABB::renderSingle(IGPUCommandBuffer* commandBuffer)
 {
 	commandBuffer->setLineWidth(1.f);
 	commandBuffer->draw(24, 1, 0, 0);
+
+	return true;
+}
+
+bool DrawAABB::render(IGPUCommandBuffer* commandBuffer, ISemaphore::SWaitInfo waitInfo, float* cameraMat3x4)
+{
+	using offset_t = SCachedCreationParameters::streaming_buffer_t::size_type;
+	constexpr auto MdiSizes = std::to_array<offset_t>({ sizeof(float32_t3), sizeof(InstanceData) });
+	// shared nPoT alignment needs to be divisible by all smaller ones to satisfy an allocation from all
+	constexpr offset_t MaxAlignment = std::reduce(MdiSizes.begin(), MdiSizes.end(), 1, [](const offset_t a, const offset_t b)->offset_t {return std::lcm(a, b); });
+	// allocator initialization needs us to round up to PoT
+	const auto MaxPOTAlignment = roundUpToPoT(MaxAlignment);
+
+	auto* streaming = m_cachedCreationParams.streamingBuffer.get();
+
+	auto* const streamingPtr = reinterpret_cast<uint8_t*>(streaming->getBufferPointer());
+	assert(streamingPtr);
+
+	using suballocator_t = core::LinearAddressAllocatorST<offset_t>;
+	offset_t inputOffset = 0u;
+	offset_t ImaginarySizeUpperBound = 0x1 << 30;
+	suballocator_t imaginaryChunk(nullptr, inputOffset, 0, roundUpToPoT(MaxAlignment), ImaginarySizeUpperBound);
+	uint32_t vertexByteOffset = imaginaryChunk.alloc_addr(sizeof(float32_t3) * m_unitAABBVertices.size(), sizeof(float32_t3));
+	uint32_t instancesByteOffset = imaginaryChunk.alloc_addr(sizeof(InstanceData) * m_instances.size(), sizeof(InstanceData));
+	const uint32_t totalSize = imaginaryChunk.get_allocated_size();
+
+	std::chrono::steady_clock::time_point waitTill(std::chrono::years(45));
+	streaming->multi_allocate(waitTill, 1, &inputOffset, &totalSize, &MaxAlignment);
+
+	memcpy(streamingPtr + vertexByteOffset, m_unitAABBVertices.data(), sizeof(m_unitAABBVertices[0]) * m_unitAABBVertices.size());
+	memcpy(streamingPtr + instancesByteOffset, m_instances.data(), sizeof(m_instances[0]) * m_instances.size());
+
+	assert(!streaming->needsManualFlushOrInvalidate());
+
+	SPushConstants pc;
+	memcpy(pc.MVP, cameraMat3x4, sizeof(pc.MVP));
+	pc.pVertexBuffer = m_cachedCreationParams.streamingBuffer->getBuffer()->getDeviceAddress() + vertexByteOffset;
+	pc.pInstanceBuffer = m_cachedCreationParams.streamingBuffer->getBuffer()->getDeviceAddress() + instancesByteOffset;
+
+	commandBuffer->bindGraphicsPipeline(m_pipeline.get());
+	commandBuffer->pushConstants(m_pipeline->getLayout(), ESS_VERTEX, 0, sizeof(SPushConstants), &pc);
+	commandBuffer->draw(m_unitAABBVertices.size(), m_instances.size(), 0, 0);
+
+	streaming->multi_deallocate(1, &inputOffset, &totalSize, waitInfo);
 
 	return true;
 }
