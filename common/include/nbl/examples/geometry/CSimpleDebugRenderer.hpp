@@ -108,7 +108,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			// load shader
 			smart_refctd_ptr<IShader> shader;
 			{
-				constexpr std::string_view key = "nbl/examples/shaders/geometry/unified.hlsl.spv";
+				constexpr std::string_view key = "nbl/examples/shaders/geometry/unified.spv";
 				const auto bundle = assMan->getAsset(key.data(), {});
 
 				const auto contents = bundle.getContents();
