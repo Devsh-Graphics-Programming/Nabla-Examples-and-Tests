@@ -123,8 +123,12 @@ public:
 				.size = sizeof(SSimplePushConstants)
 		};
 	    {
-			ext::drawdebug::DrawAABB::SCreationParameters params;
-			params.pushConstantRange = simplePcRange;
+			ext::drawdebug::DrawAABB::SCreationParameters params = {};
+			params.assetManager = m_assetMgr;
+			params.localInputCWD = localInputCWD;
+			params.pipelineLayout = ext::drawdebug::DrawAABB::createDefaultPipelineLayout(m_device.get());
+			params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
+			params.utilities = m_utils;
             drawAABB = ext::drawdebug::DrawAABB::create(std::move(params));
 	    }
 		{
@@ -138,48 +142,6 @@ public:
 				std::move(params),
 				vertices.data()
 			).move_into(verticesBuffer);
-		}
-
-		// create streaming buffer
-		// TODO move into CDrawAABB
-		{
-			auto RequiredAllocateFlags = core::bitflag<video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS>(video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
-			auto RequiredUsageFlags = core::bitflag(asset::IBuffer::EUF_INDIRECT_BUFFER_BIT) | asset::IBuffer::EUF_VERTEX_BUFFER_BIT | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-			const uint32_t minStreamingBufferAllocationSize = 128u, maxStreamingBufferAllocationAlignment = 4096u, mdiBufferDefaultSize = /* 2MB */ 1024u * 1024u * 2u;
-
-			auto getRequiredAccessFlags = [&](const bitflag<IDeviceMemoryAllocation::E_MEMORY_PROPERTY_FLAGS>& properties)
-				{
-					bitflag<IDeviceMemoryAllocation::E_MAPPING_CPU_ACCESS_FLAGS> flags(IDeviceMemoryAllocation::EMCAF_NO_MAPPING_ACCESS);
-
-					if (properties.hasFlags(IDeviceMemoryAllocation::EMPF_HOST_READABLE_BIT))
-						flags |= IDeviceMemoryAllocation::EMCAF_READ;
-					if (properties.hasFlags(IDeviceMemoryAllocation::EMPF_HOST_WRITABLE_BIT))
-						flags |= IDeviceMemoryAllocation::EMCAF_WRITE;
-
-					return flags;
-				};
-
-			IGPUBuffer::SCreationParams mdiCreationParams = {};
-			mdiCreationParams.usage = RequiredUsageFlags;
-			mdiCreationParams.size = mdiBufferDefaultSize;
-
-			auto buffer = m_device->createBuffer(std::move(mdiCreationParams));
-			buffer->setObjectDebugName("MDI Upstream Buffer");
-
-			auto memoryReqs = buffer->getMemoryReqs();
-			memoryReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
-
-			auto allocation = m_device->allocate(memoryReqs, buffer.get(), RequiredAllocateFlags);
-			{
-				const bool allocated = allocation.isValid();
-				assert(allocated);
-			}
-			auto memory = allocation.memory;
-
-			if (!memory->map({ 0ull, memoryReqs.size }, getRequiredAccessFlags(memory->getMemoryPropertyFlags())))
-				m_logger->log("Could not map device memory!", ILogger::ELL_ERROR);
-
-			streamingBuffer = make_smart_refctd_ptr<streaming_buffer_t>(SBufferRange<IGPUBuffer>{0ull, mdiCreationParams.size, std::move(buffer)}, maxStreamingBufferAllocationAlignment, minStreamingBufferAllocationSize);
 		}
 
 		auto compileShader = [&](const std::string& filePath) -> smart_refctd_ptr<IShader>
@@ -214,31 +176,6 @@ public:
 		    if (!m_pipeline)
 		        return logFail("Graphics pipeline creation failed");
 	    }
-		{
-			auto vertexShader = compileShader("app_resources/multi_aabb.vertex.hlsl");
-			auto fragmentShader = compileShader("app_resources/simple.fragment.hlsl");
-			SPushConstantRange pcRange = {
-				.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX,
-				.offset = 0,
-				.size = sizeof(SPushConstants)
-			};
-
-			const auto pipelineLayout =  m_device->createPipelineLayout({ &pcRange , 1 }, nullptr, nullptr, nullptr, nullptr);
-
-			video::IGPUGraphicsPipeline::SCreationParams params[1] = {};
-			params[0].layout = pipelineLayout.get();
-			params[0].vertexShader = { .shader = vertexShader.get(), .entryPoint = "main" };
-			params[0].fragmentShader = { .shader = fragmentShader.get(), .entryPoint = "main" };
-			params[0].cached = {
-				.primitiveAssembly = {
-					.primitiveType = asset::E_PRIMITIVE_TOPOLOGY::EPT_LINE_LIST,
-				}
-			};
-			params[0].renderpass = renderpass;
-
-			if (!m_device->createGraphicsPipelines(nullptr, params, &m_streamingPipeline))
-				return logFail("Could not create streaming pipeline!");
-		}
 
 		m_window->setCaption("[Nabla Engine] Debug Draw App Test Demo");
 		m_winMgr->show(m_window.get());
@@ -361,59 +298,18 @@ public:
 				drawAABB->renderSingle(cmdbuf);
 			}
 
-			// fill streaming buffer: indirect draw command, then vertex buffer
 			{
-				auto vertices = ext::drawdebug::DrawAABB::getVerticesFromAABB(testAABB2);
-				uint32_t instanceCount = 5u;
-
-				using offset_t = streaming_buffer_t::size_type;
-				constexpr auto MdiSizes = std::to_array<offset_t>({ sizeof(float32_t3), sizeof(InstanceData) });
-				// shared nPoT alignment needs to be divisible by all smaller ones to satisfy an allocation from all
-				constexpr offset_t MaxAlignment = std::reduce(MdiSizes.begin(), MdiSizes.end(), 1, [](const offset_t a, const offset_t b)->offset_t {return std::lcm(a, b); });
-				// allocator initialization needs us to round up to PoT
-				const auto MaxPOTAlignment = roundUpToPoT(MaxAlignment);
-
-				auto* streaming = streamingBuffer.get();
-
-				auto* const streamingPtr = reinterpret_cast<uint8_t*>(streaming->getBufferPointer());
-				assert(streamingPtr);
-
-			    using suballocator_t = core::LinearAddressAllocatorST<offset_t>;
-				offset_t inputOffset = 0u;
-				offset_t ImaginarySizeUpperBound = 0x1 << 30;
-				suballocator_t imaginaryChunk(nullptr, inputOffset, 0, roundUpToPoT(MaxAlignment), ImaginarySizeUpperBound);
-				uint32_t vertexByteOffset = imaginaryChunk.alloc_addr(sizeof(float32_t3) * vertices.size(), sizeof(float32_t3));
-				uint32_t instancesByteOffset = imaginaryChunk.alloc_addr(sizeof(InstanceData) * instanceCount, sizeof(InstanceData));
-				const uint32_t totalSize = imaginaryChunk.get_allocated_size();
-
-				std::chrono::steady_clock::time_point waitTill(std::chrono::years(45));
-				streaming->multi_allocate(waitTill, 1, &inputOffset, &totalSize, &MaxAlignment);
-
-				memcpy(streamingPtr + vertexByteOffset, vertices.data(), sizeof(vertices[0]) * vertices.size());
-				auto* instancesIt = reinterpret_cast<InstanceData*>(streamingPtr + instancesByteOffset);
-				for (auto i = 0u; i < instanceCount; i++)
+				const uint32_t aabbCount = 4u;
+				drawAABB->clearAABBs();
+				for (auto i = 0u; i < aabbCount; i++)
 				{
-					core::matrix3x4SIMD instanceTransform;
-					instanceTransform.setTranslation(core::vectorSIMDf(i, 0, i, 0));
-					instanceTransform.setScale(core::vectorSIMDf(i+1, i+1, i+1));
-				    memcpy(instancesIt->transform, instanceTransform.pointer(), sizeof(core::matrix3x4SIMD));
-					instancesIt->color = float32_t3(i * 0.2, 1, 0);
-					instancesIt++;
+					float i2 = (i+1) * 2;
+					core::aabbox3d aabb = { float(i), 0.f, float(i), i2+i, i2, i2+i};
+					drawAABB->addAABB(aabb);
 				}
 
-				assert(!streaming->needsManualFlushOrInvalidate());
-
-				SPushConstants pc;
-				memcpy(pc.MVP, modelViewProjectionMatrix.pointer(), sizeof(pc.MVP));
-				pc.pVertexBuffer = streamingBuffer->getBuffer()->getDeviceAddress() + vertexByteOffset;
-				pc.pInstanceBuffer = streamingBuffer->getBuffer()->getDeviceAddress() + instancesByteOffset;
-
-				cmdbuf->bindGraphicsPipeline(m_streamingPipeline.get());
-				cmdbuf->pushConstants(m_streamingPipeline->getLayout(), ESS_VERTEX, 0, sizeof(SPushConstants), &pc);
-				cmdbuf->draw(vertices.size(), instanceCount, 0, 0);
-
 				const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
-				streaming->multi_deallocate(1, &inputOffset, &totalSize, drawFinished);
+				drawAABB->render(cmdbuf, drawFinished, modelViewProjectionMatrix.pointer());
 			}
 
 			cmdbuf->endRenderPass();

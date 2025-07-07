@@ -49,6 +49,30 @@ DrawAABB::~DrawAABB()
 
 smart_refctd_ptr<IGPUGraphicsPipeline> DrawAABB::createPipeline(SCreationParameters& params)
 {
+	auto compileShader = [&](const std::string& filePath) -> smart_refctd_ptr<IShader>
+		{
+			IAssetLoader::SAssetLoadParams lparams = {};
+			lparams.logger = params.utilities->getLogger();
+			lparams.workingDirectory = params.localInputCWD;
+			auto bundle = params.assetManager->getAsset(filePath, lparams);
+			if (bundle.getContents().empty() || bundle.getAssetType() != IAsset::ET_SHADER)
+			{
+				params.utilities->getLogger()->log("Shader %s not found!", ILogger::ELL_ERROR, filePath.c_str());
+				exit(-1);
+			}
+
+			const auto assets = bundle.getContents();
+			assert(assets.size() == 1);
+			smart_refctd_ptr<IShader> shaderSrc = IAsset::castDown<IShader>(assets[0]);
+			if (!shaderSrc)
+				return nullptr;
+
+			return params.utilities->getLogicalDevice()->compileShader({ shaderSrc.get() });
+		};
+
+	auto vertexShader = compileShader("app_resources/multi_aabb.vertex.hlsl");
+	auto fragmentShader = compileShader("app_resources/simple.fragment.hlsl");
+
 	video::IGPUGraphicsPipeline::SCreationParams pipelineParams[1] = {};
 	pipelineParams[0].layout = params.pipelineLayout.get();
 	pipelineParams[0].vertexShader = { .shader = vertexShader.get(), .entryPoint = "main" };
@@ -136,6 +160,16 @@ bool DrawAABB::createStreamingBuffer(SCreationParameters& params)
 
 core::smart_refctd_ptr<video::IGPUPipelineLayout> DrawAABB::createDefaultPipelineLayout(video::ILogicalDevice* device, const asset::SPushConstantRange& pcRange)
 {
+	return device->createPipelineLayout({ &pcRange , 1 }, nullptr, nullptr, nullptr, nullptr);
+}
+
+core::smart_refctd_ptr<video::IGPUPipelineLayout> DrawAABB::createDefaultPipelineLayout(video::ILogicalDevice* device)
+{
+	SPushConstantRange pcRange = {
+		.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX,
+		.offset = 0,
+		.size = sizeof(SPushConstants)
+	};
 	return device->createPipelineLayout({ &pcRange , 1 }, nullptr, nullptr, nullptr, nullptr);
 }
 
@@ -262,6 +296,11 @@ void DrawAABB::addAABB(const core::aabbox3d<float>& aabb, const hlsl::float32_t3
 	memcpy(instance.transform, instanceTransform.pointer(), sizeof(core::matrix3x4SIMD));
 
 	m_instances.push_back(instance);
+}
+
+void DrawAABB::clearAABBs()
+{
+	m_instances.clear();
 }
 
 }
