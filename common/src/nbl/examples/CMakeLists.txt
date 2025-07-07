@@ -11,6 +11,7 @@ set(JSON [=[
 [
     {
 		"INPUT": "shaders/geometry/unified.hlsl",
+		"KEY": "shaders/geometry/unified.spv",
         "COMPILE_OPTIONS": ["-T", "lib_6_6"],
 		"DEPENDS": [],
 		"CAPS": []
@@ -24,6 +25,7 @@ set(JSON [=[
 [
     {
 		"INPUT": "shaders/geometry/unified.hlsl",
+		"KEY": "shaders/geometry/unified.spv",
         "COMPILE_OPTIONS": ["-T", "lib_6_6"],
 		"DEPENDS": [],
 		"CAPS": [
