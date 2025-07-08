@@ -3,8 +3,8 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "common.hpp"
+#include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
 #include "app_resources/simple_common.hlsl"
-#include "app_resources/common.hlsl"
 
 class DebugDrawSampleApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
@@ -299,13 +299,18 @@ public:
 			}
 
 			{
-				const uint32_t aabbCount = 4u;
+				std::mt19937 gen(42);
+				std::uniform_real_distribution<float> translate_dis(-50.f, 50.f);
+				std::uniform_real_distribution<float> scale_dis(1.f, 10.f);
+				std::uniform_real_distribution<float> color_dis(0.f, 1.f);
+				const uint32_t aabbCount = 200u;
 				drawAABB->clearAABBs();
 				for (auto i = 0u; i < aabbCount; i++)
 				{
-					float i2 = (i+1) * 2;
-					core::aabbox3d aabb = { float(i), 0.f, float(i), i2+i, i2, i2+i};
-					drawAABB->addAABB(aabb, {1,0,0,(i+1)*0.2});
+					core::vector3d pmin = { translate_dis(gen), translate_dis(gen), translate_dis(gen) };
+					core::vector3d pmax = pmin + core::vector3d{ scale_dis(gen), scale_dis(gen), scale_dis(gen) };
+					core::aabbox3d aabb = { pmin, pmax };
+					drawAABB->addAABB(aabb, { color_dis(gen),color_dis(gen),color_dis(gen),1});
 				}
 
 				const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
