@@ -215,32 +215,44 @@ bool DrawAABB::render(IGPUCommandBuffer* commandBuffer, ISemaphore::SWaitInfo wa
 	auto* const streamingPtr = reinterpret_cast<uint8_t*>(streaming->getBufferPointer());
 	assert(streamingPtr);
 
+	commandBuffer->bindGraphicsPipeline(m_pipeline.get());	// move outside of loop, only bind once
+
+	auto instancesIt = m_instances.begin();
+	const uint32_t verticesByteSize = sizeof(float32_t3) * m_unitAABBVertices.size();
+	const uint32_t availableInstancesByteSize = streaming->getBuffer()->getSize() - verticesByteSize;
+	const uint32_t instancesPerIter = availableInstancesByteSize / sizeof(InstanceData);
 	using suballocator_t = core::LinearAddressAllocatorST<offset_t>;
-	offset_t inputOffset = 0u;
-	offset_t ImaginarySizeUpperBound = 0x1 << 30;
-	suballocator_t imaginaryChunk(nullptr, inputOffset, 0, roundUpToPoT(MaxAlignment), ImaginarySizeUpperBound);
-	uint32_t vertexByteOffset = imaginaryChunk.alloc_addr(sizeof(float32_t3) * m_unitAABBVertices.size(), sizeof(float32_t3));
-	uint32_t instancesByteOffset = imaginaryChunk.alloc_addr(sizeof(InstanceData) * m_instances.size(), sizeof(InstanceData));
-	const uint32_t totalSize = imaginaryChunk.get_allocated_size();
+	while (instancesIt != m_instances.end())
+    {
+		const uint32_t instanceCount = min(instancesPerIter, m_instances.size());
+        offset_t inputOffset = 0u;
+	    offset_t ImaginarySizeUpperBound = 0x1 << 30;
+	    suballocator_t imaginaryChunk(nullptr, inputOffset, 0, roundUpToPoT(MaxAlignment), ImaginarySizeUpperBound);
+	    uint32_t vertexByteOffset = imaginaryChunk.alloc_addr(verticesByteSize, sizeof(float32_t3));
+	    uint32_t instancesByteOffset = imaginaryChunk.alloc_addr(sizeof(InstanceData) * instanceCount, sizeof(InstanceData));
+	    const uint32_t totalSize = imaginaryChunk.get_allocated_size();
 
-	std::chrono::steady_clock::time_point waitTill(std::chrono::years(45));
-	streaming->multi_allocate(waitTill, 1, &inputOffset, &totalSize, &MaxAlignment);
+	    inputOffset = SCachedCreationParameters::streaming_buffer_t::invalid_value;
+		std::chrono::steady_clock::time_point waitTill = std::chrono::steady_clock::now() + std::chrono::milliseconds(1u);
+	    streaming->multi_allocate(waitTill, 1, &inputOffset, &totalSize, &MaxAlignment);
 
-	memcpy(streamingPtr + vertexByteOffset, m_unitAABBVertices.data(), sizeof(m_unitAABBVertices[0]) * m_unitAABBVertices.size());
-	memcpy(streamingPtr + instancesByteOffset, m_instances.data(), sizeof(m_instances[0]) * m_instances.size());
+	    memcpy(streamingPtr + vertexByteOffset, m_unitAABBVertices.data(), sizeof(m_unitAABBVertices[0]) * m_unitAABBVertices.size());
+	    memcpy(streamingPtr + instancesByteOffset, std::addressof(*instancesIt), sizeof(InstanceData) * instanceCount);
+		instancesIt += instanceCount;
 
-	assert(!streaming->needsManualFlushOrInvalidate());
+	    assert(!streaming->needsManualFlushOrInvalidate());
 
-	SPushConstants pc;
-	memcpy(pc.MVP, cameraMat3x4, sizeof(pc.MVP));
-	pc.pVertexBuffer = m_cachedCreationParams.streamingBuffer->getBuffer()->getDeviceAddress() + vertexByteOffset;
-	pc.pInstanceBuffer = m_cachedCreationParams.streamingBuffer->getBuffer()->getDeviceAddress() + instancesByteOffset;
+	    SPushConstants pc;
+	    memcpy(pc.MVP, cameraMat3x4, sizeof(pc.MVP));
+	    pc.pVertexBuffer = m_cachedCreationParams.streamingBuffer->getBuffer()->getDeviceAddress() + vertexByteOffset;
+	    pc.pInstanceBuffer = m_cachedCreationParams.streamingBuffer->getBuffer()->getDeviceAddress() + instancesByteOffset;
 
-	commandBuffer->bindGraphicsPipeline(m_pipeline.get());
-	commandBuffer->pushConstants(m_pipeline->getLayout(), ESS_VERTEX, 0, sizeof(SPushConstants), &pc);
-	commandBuffer->draw(m_unitAABBVertices.size(), m_instances.size(), 0, 0);
+	    commandBuffer->pushConstants(m_pipeline->getLayout(), ESS_VERTEX, 0, sizeof(SPushConstants), &pc);
+	    commandBuffer->draw(m_unitAABBVertices.size(), instanceCount, 0, 0);
 
-	streaming->multi_deallocate(1, &inputOffset, &totalSize, waitInfo);
+	    streaming->multi_deallocate(1, &inputOffset, &totalSize, waitInfo);
+    }
+	// end loop
 
 	return true;
 }
@@ -284,7 +296,7 @@ std::array<float32_t3, 24> DrawAABB::getVerticesFromAABB(const core::aabbox3d<fl
 	return vertices;
 }
 
-void DrawAABB::addAABB(const core::aabbox3d<float>& aabb, const hlsl::float32_t3& color)
+void DrawAABB::addAABB(const core::aabbox3d<float>& aabb, const hlsl::float32_t4& color)
 {
 	InstanceData instance;
 	instance.color = color;

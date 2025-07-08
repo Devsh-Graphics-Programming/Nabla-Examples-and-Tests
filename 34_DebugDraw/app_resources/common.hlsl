@@ -10,7 +10,7 @@ struct InstanceData
 #else
     float transform[3*4];
 #endif
-    nbl::hlsl::float32_t3 color;
+    nbl::hlsl::float32_t4 color;
 };
 
 struct SPushConstants

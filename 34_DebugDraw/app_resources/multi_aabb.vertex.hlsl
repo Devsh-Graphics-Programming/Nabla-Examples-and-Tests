@@ -23,7 +23,7 @@ PSInput main()
     transform[3] = float32_t4(0, 0, 0, 1);
     float32_t4 position = mul(transform, float32_t4(vertex, 1));
     output.position = mul(pc.MVP, position);
-    output.color = float32_t4(instance.color, 1);
+    output.color = instance.color;
 
     return output;
 }

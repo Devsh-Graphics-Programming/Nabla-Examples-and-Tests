@@ -61,7 +61,7 @@ public:
 
     static std::array<hlsl::float32_t3, 24> getVerticesFromAABB(const core::aabbox3d<float>& aabb);
 
-    void addAABB(const core::aabbox3d<float>& aabb, const hlsl::float32_t3& color = { 1,0,0 });
+    void addAABB(const core::aabbox3d<float>& aabb, const hlsl::float32_t4& color = { 1,0,0,1 });
 
     void clearAABBs();
 

@@ -305,7 +305,7 @@ public:
 				{
 					float i2 = (i+1) * 2;
 					core::aabbox3d aabb = { float(i), 0.f, float(i), i2+i, i2, i2+i};
-					drawAABB->addAABB(aabb);
+					drawAABB->addAABB(aabb, {1,0,0,(i+1)*0.2});
 				}
 
 				const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
