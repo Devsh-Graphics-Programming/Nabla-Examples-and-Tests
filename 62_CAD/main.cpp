@@ -3342,37 +3342,6 @@ protected:
 		}
 		else if (mode == ExampleMode::CASE_9)
 		{
-			// GRID (outdated)
-			/*core::vector<TriangleMeshVertex> vertices = {
-				{ float32_t2(-200.0f, -200.0f), 10.0f },
-				{ float32_t2(-50.0f, -200.0f), 50.0f },
-				{ float32_t2(100.0f, -200.0f), 90.0f },
-				{ float32_t2(-125.0f, -70.1f), 10.0f },
-				{ float32_t2(25.0f, -70.1f), 50.0f },
-				{ float32_t2(175.0f, -70.1f), 90.0f },
-				{ float32_t2(-200.0f, 59.8f), 10.0f },
-				{ float32_t2(-50.0f, 59.8f), 50.0f },
-				{ float32_t2(100.0f, 59.8f), 90.0f },
-				{ float32_t2(-125.0f, 189.7f), 10.0f },
-				{ float32_t2(25.0f, 189.7f), 50.0f },
-				{ float32_t2(175.0f, 189.7f), 90.0f }
-			};
-
-			core::vector<uint32_t> indices = {
-				0, 3, 1,
-				1, 3, 4,
-				1, 2, 4,
-				2, 4, 5,
-				3, 4, 6,
-				4, 6, 7,
-				4, 5, 7,
-				5, 7, 8,
-				6, 7, 9,
-				7, 9, 10,
-				7, 8, 10,
-				8, 10, 11
-			};*/
-
 			// PYRAMID
 			core::vector<TriangleMeshVertex> vertices = {
 				//{ float64_t2(0.0, 0.0), 100.0 }, //0
@@ -3431,7 +3400,7 @@ protected:
 			dtmInfo.contourSettingsCount = 2u;
 			dtmInfo.contourSettings[0u].startHeight = 20;
 			dtmInfo.contourSettings[0u].endHeight = 90;
-			dtmInfo.contourSettings[0u].heightInterval = 10;
+			dtmInfo.contourSettings[0u].heightInterval = 9.98;
 			dtmInfo.contourSettings[0u].lineStyleInfo.screenSpaceLineWidth = 0.0f;
 			dtmInfo.contourSettings[0u].lineStyleInfo.worldSpaceLineWidth = 1.0f;
 			dtmInfo.contourSettings[0u].lineStyleInfo.color = float32_t4(0.0f, 0.0f, 1.0f, 0.7f);

@@ -153,7 +153,7 @@ float4 calculateDTMHeightColor(in DTMHeightShadingSettings settings, in float3 t
         if (mode == E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS)
         {
             DTMSettingsHeightsAccessor dtmHeightsAccessor = { settings };
-            int upperBoundIndex = nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, heightMapSize, height);
+            int upperBoundIndex = min(nbl::hlsl::upper_bound(dtmHeightsAccessor, 0u, heightMapSize, height), heightMapSize - 1u);
             int mapIndex = max(upperBoundIndex - 1, 0);
             int mapIndexPrev = max(mapIndex - 1, 0);
             int mapIndexNext = min(mapIndex + 1, heightMapSize - 1);
@@ -209,7 +209,7 @@ float4 calculateDTMHeightColor(in DTMHeightShadingSettings settings, in float3 t
         else if (mode == E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS)
         {
             DTMSettingsHeightsAccessor dtmHeightsAccessor = { settings };
-            uint32_t upperBoundHeightIndex = nbl::hlsl::upper_bound(dtmHeightsAccessor, 0, heightMapSize, height);
+            uint32_t upperBoundHeightIndex = min(nbl::hlsl::upper_bound(dtmHeightsAccessor, 0u, heightMapSize - 1u, height), heightMapSize - 1u);
             uint32_t lowerBoundHeightIndex = upperBoundHeightIndex == 0 ? upperBoundHeightIndex : upperBoundHeightIndex - 1;
 
             float upperBoundHeight = settings.heightColorMapHeights[upperBoundHeightIndex];
