@@ -3,7 +3,6 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "common.hpp"
-#include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
 #include "app_resources/simple_common.hlsl"
 
 class DebugDrawSampleApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
@@ -123,16 +122,15 @@ public:
 				.size = sizeof(SSimplePushConstants)
 		};
 	    {
-			ext::drawdebug::DrawAABB::SCreationParameters params = {};
+			ext::debugdraw::DrawAABB::SCreationParameters params = {};
 			params.assetManager = m_assetMgr;
-			params.localInputCWD = localInputCWD;
-			params.pipelineLayout = ext::drawdebug::DrawAABB::createDefaultPipelineLayout(m_device.get());
+			params.pipelineLayout = ext::debugdraw::DrawAABB::createDefaultPipelineLayout(m_device.get());
 			params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
 			params.utilities = m_utils;
-            drawAABB = ext::drawdebug::DrawAABB::create(std::move(params));
+            drawAABB = ext::debugdraw::DrawAABB::create(std::move(params));
 	    }
 		{
-			auto vertices = ext::drawdebug::DrawAABB::getVerticesFromAABB(testAABB);
+			auto vertices = ext::debugdraw::DrawAABB::getVerticesFromAABB(testAABB);
 			IGPUBuffer::SCreationParams params;
 			params.size = sizeof(float32_t3) * vertices.size();
 			params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
@@ -168,11 +166,11 @@ public:
 	        auto vertexShader = compileShader("app_resources/simple.vertex.hlsl");
 		    auto fragmentShader = compileShader("app_resources/simple.fragment.hlsl");
 
-		    const auto pipelineLayout = ext::drawdebug::DrawAABB::createDefaultPipelineLayout(m_device.get(), simplePcRange);
+		    const auto pipelineLayout = ext::debugdraw::DrawAABB::createDefaultPipelineLayout(m_device.get(), simplePcRange);
 
 		    IGPUGraphicsPipeline::SShaderSpecInfo vs = { .shader = vertexShader.get(), .entryPoint = "main" };
 		    IGPUGraphicsPipeline::SShaderSpecInfo fs = { .shader = fragmentShader.get(), .entryPoint = "main" };
-			m_pipeline = ext::drawdebug::DrawAABB::createDefaultPipeline(m_device.get(), pipelineLayout.get(), renderpass, vs, fs);
+			m_pipeline = ext::debugdraw::DrawAABB::createDefaultPipeline(m_device.get(), pipelineLayout.get(), renderpass, vs, fs);
 		    if (!m_pipeline)
 		        return logFail("Graphics pipeline creation failed");
 	    }
@@ -455,7 +453,7 @@ private:
 
 	float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
 
-	smart_refctd_ptr<ext::drawdebug::DrawAABB> drawAABB;
+	smart_refctd_ptr<ext::debugdraw::DrawAABB> drawAABB;
 	core::aabbox3d<float> testAABB = core::aabbox3d<float>({ -5, -5, -5 }, { 10, 10, -10 });
 	core::aabbox3d<float> testAABB2 = core::aabbox3d<float>({ 0, 0, 0 }, { 1, 1, 1 });
 	smart_refctd_ptr<IGPUBuffer> verticesBuffer;
