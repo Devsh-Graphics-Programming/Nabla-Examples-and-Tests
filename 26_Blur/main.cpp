@@ -1,14 +1,12 @@
 // Copyright (C) 2024-2025 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
+
+
+#include "nbl/examples/examples.hpp"
+
 #include <bit>
 #include <limits>
-
-#include "nabla.h"
-#include "SimpleWindowedApplication.hpp"
-#include "InputSystem.hpp"
-#include "CEventCallback.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 using namespace nbl;
 using namespace nbl::core;
@@ -16,13 +14,16 @@ using namespace nbl::system;
 using namespace nbl::asset;
 using namespace nbl::ui;
 using namespace nbl::video;
+using namespace nbl::examples;
 
 #include "app_resources/common.hlsl"
 
-class BlurApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+
+
+class BlurApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
-		using device_base_t = examples::SimpleWindowedApplication;
-		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+		using device_base_t = SimpleWindowedApplication;
+		using asset_base_t = BuiltinResourcesApplication;
 		using clock_t = std::chrono::steady_clock;
 
 	public:
@@ -262,7 +263,7 @@ class BlurApp final : public examples::SimpleWindowedApplication, public applica
 					ISPIRVOptimizer::EOP_LOCAL_MULTI_STORE_ELIM
 				};
 				auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(optPasses);
-				shader = m_device->createShader(source.get(), opt.get());
+				shader = m_device->compileShader({ source.get(),opt.get() });
 #else
 				shader = m_device->compileShader({ source.get() });
 #endif

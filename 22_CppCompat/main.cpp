@@ -1,26 +1,26 @@
 // Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-#include <nabla.h>
-#include <iostream>
-#include <cstdio>
-#include <assert.h>
 
-#include "nbl/application_templates/MonoDeviceApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 #include "app_resources/common.hlsl"
 
 #include "CTgmathTester.h"
 #include "CIntrinsicsTester.h"
 
+#include <iostream>
+#include <cstdio>
+#include <assert.h>
+
+
+using namespace nbl;
 using namespace nbl::core;
 using namespace nbl::hlsl;
 using namespace nbl::system;
 using namespace nbl::asset;
+using namespace nbl::ui;
 using namespace nbl::video;
-using namespace nbl::application_templates;
-
+using namespace nbl::examples;
 
 //using namespace glm;
 
@@ -43,10 +43,10 @@ struct T
     float32_t4      h;
 };
 
-class CompatibilityTest final : public MonoDeviceApplication, public MonoAssetManagerAndBuiltinResourceApplication
+class CompatibilityTest final : public application_templates::MonoDeviceApplication, public BuiltinResourcesApplication
 {
-    using device_base_t = MonoDeviceApplication;
-    using asset_base_t = MonoAssetManagerAndBuiltinResourceApplication;
+    using device_base_t = application_templates::MonoDeviceApplication;
+    using asset_base_t = BuiltinResourcesApplication;
 public:
     CompatibilityTest(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
         IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
