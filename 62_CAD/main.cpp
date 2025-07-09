@@ -80,7 +80,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	1000.0	// CASE_11
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_11;
+constexpr ExampleMode mode = ExampleMode::CASE_8;
 
 class Camera2D
 {

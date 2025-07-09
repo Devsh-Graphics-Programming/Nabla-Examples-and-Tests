@@ -582,7 +582,7 @@ PSInput main(uint vertexID : SV_VertexID)
             float32_t2 minUV = glyphInfo.getMinUV();
             uint16_t textureID = glyphInfo.getTextureID();
             
-            const int ndcYDirectionSign = sign(clipProjectionData.projectionToNDC[1][1]);
+            const int ndcYDirectionSign = sign(_static_cast<float>(clipProjectionData.projectionToNDC[1].y));
             const float32_t2 dirV = float32_t2(glyphInfo.dirU.y, ndcYDirectionSign * glyphInfo.dirU.x) * glyphInfo.aspectRatio;
             const float2 screenTopLeft = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, glyphInfo.topLeft));
             const float2 screenDirU = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(glyphInfo.dirU)));
@@ -632,7 +632,7 @@ PSInput main(uint vertexID : SV_VertexID)
             uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2) + sizeof(float), 4u);
 
             // If y increases as we go down in ndc this sign is positive (screenspace-like transformations), if y decreases as we go down this sign is negative (worldspace-like transformations)
-            const int ndcYDirectionSign = sign(clipProjectionData.projectionToNDC[1][1]);
+            const int ndcYDirectionSign = sign(_static_cast<float>(clipProjectionData.projectionToNDC[1].y));
             const float32_t2 dirV = float32_t2(dirU.y, ndcYDirectionSign * dirU.x) * aspectRatio;
             const float2 ndcTopLeft = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, topLeft));
             const float2 ndcDirU = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirU)));
@@ -650,7 +650,7 @@ PSInput main(uint vertexID : SV_VertexID)
         else if (objType == ObjectType::GRID_DTM)
         {
             pfloat64_t2 topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
-            pfloat64_t2 worldSpaceExtents = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
+            const pfloat64_t2 worldSpaceExtents = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
             uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + 2 * sizeof(pfloat64_t2), 8u);
             float gridCellWidth = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + 2 * sizeof(pfloat64_t2) + sizeof(uint32_t), 8u);
             float thicknessOfTheThickestLine = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + 2 * sizeof(pfloat64_t2) + sizeof(uint32_t) + sizeof(float), 8u);
@@ -666,30 +666,35 @@ PSInput main(uint vertexID : SV_VertexID)
             outV.setGridDTMScreenSpaceGridExtents(_static_cast<float2>(worldSpaceExtents) * globals.screenToWorldRatio);
 
             static const float SquareRootOfTwo = 1.4142135f;
-            const pfloat64_t dilationFactor = SquareRootOfTwo * thicknessOfTheThickestLine;
-            pfloat64_t2 dilationVector = pfloat64_t2(dilationFactor, dilationFactor);
+            const pfloat64_t dilationFactor = _static_cast<pfloat64_t>(SquareRootOfTwo * thicknessOfTheThickestLine);
+            pfloat64_t2 dilationVector;
+            dilationVector.x = dilationFactor;
+            dilationVector.y = dilationFactor;
 
             const pfloat64_t dilationFactorTimesTwo = dilationFactor * 2.0f;
-            const pfloat64_t2 dilatedGridExtents = worldSpaceExtents + pfloat64_t2(dilationFactorTimesTwo, dilationFactorTimesTwo);
+            pfloat64_t2 dilationFactorTimesTwoVector;
+            dilationFactorTimesTwoVector.x = dilationFactorTimesTwo;
+            dilationFactorTimesTwoVector.y = dilationFactorTimesTwo;
+            const pfloat64_t2 dilatedGridExtents = worldSpaceExtents + dilationFactorTimesTwoVector;
             const float2 uvScale = _static_cast<float2>(worldSpaceExtents) / _static_cast<float2>(dilatedGridExtents);
-            float2 uvOffset = float2(dilationFactor, dilationFactor) / _static_cast<float2>(dilatedGridExtents);
+            float2 uvOffset = _static_cast<float2>(dilationVector) / _static_cast<float2>(dilatedGridExtents);
             uvOffset /= uvScale;
 
             if (corner.x == 0.0f && corner.y == 0.0f)
             {
-                dilationVector.x = -dilationVector.x;
+                dilationVector.x = ieee754::flipSign(dilationVector.x);
                 uvOffset.x = -uvOffset.x;
                 uvOffset.y = -uvOffset.y;
             }
             else if (corner.x == 0.0f && corner.y == 1.0f)
             {
-                dilationVector.x = -dilationVector.x;
-                dilationVector.y = -dilationVector.y;
+                dilationVector.x = ieee754::flipSign(dilationVector.x);
+                dilationVector.y = ieee754::flipSign(dilationVector.y);
                 uvOffset.x = -uvOffset.x;
             }
             else if (corner.x == 1.0f && corner.y == 1.0f)
             {
-                dilationVector.y = -dilationVector.y;
+                dilationVector.y = ieee754::flipSign(dilationVector.y);
             }
             else if (corner.x == 1.0f && corner.y == 0.0f)
             {
@@ -699,15 +704,14 @@ PSInput main(uint vertexID : SV_VertexID)
             const float2 uv = corner + uvOffset;
             outV.setImageUV(uv);
 
-            const pfloat64_t2 vtxPos = topLeft + float2(worldSpaceExtents.x, -worldSpaceExtents.y) * corner;
+            pfloat64_t2 worldSpaceExtentsYAxisFlipped;
+            worldSpaceExtentsYAxisFlipped.x = worldSpaceExtents.x;
+            worldSpaceExtentsYAxisFlipped.y = ieee754::flipSign(worldSpaceExtents.y);
+            const pfloat64_t2 vtxPos = topLeft + worldSpaceExtentsYAxisFlipped * _static_cast<pfloat64_t2>(corner);
             const pfloat64_t2 dilatedVtxPos = vtxPos + dilationVector;
 
             float2 ndcVtxPos = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, dilatedVtxPos));
             outV.position = float4(ndcVtxPos, 0.0f, 1.0f);
-
-            /*outV.setImageUV(corner);
-            float2 ndcVtxPos = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, vtxPos));
-            outV.position = float4(ndcVtxPos, 0.0f, 1.0f);*/
         }
         else if (objType == ObjectType::STREAMED_IMAGE)
         {
@@ -716,7 +720,7 @@ PSInput main(uint vertexID : SV_VertexID)
             float32_t aspectRatio = vk::RawBufferLoad<float32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2), 4u);
             uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2) + sizeof(float), 4u);
             
-            const int ndcYDirectionSign = sign(clipProjectionData.projectionToNDC[1][1]);
+            const int ndcYDirectionSign = sign(_static_cast<float>(clipProjectionData.projectionToNDC[1].y));
             const float32_t2 dirV = float32_t2(dirU.y, ndcYDirectionSign * dirU.x) * aspectRatio;
             const float2 ndcTopLeft = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, topLeft));
             const float2 ndcDirU = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirU)));
