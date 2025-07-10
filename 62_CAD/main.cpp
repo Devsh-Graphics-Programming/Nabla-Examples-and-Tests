@@ -59,7 +59,7 @@ enum class ExampleMode
 	CASE_7, // Images
 	CASE_8, // MSDF and Text
 	CASE_9, // DTM
-	CASE_BUG, // Bug Repro, after fix, rename to CASE_10 and comment should be: testing fixed geometry and emulated fp64 corner cases
+	CASE_10, // testing fixed geometry and emulated fp64 corner cases
 	CASE_11, // grid DTM
 	CASE_COUNT
 };
