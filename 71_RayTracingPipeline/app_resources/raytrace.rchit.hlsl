@@ -37,8 +37,7 @@ float32_t3 fetchVertexNormal(int instID, int primID, STriangleGeomInfo geom, flo
         }
     }
 
-    const uint64_t normalVertexBufferAddress = geom.normalBufferAddress;
-    float3 n0, n1, n2;
+    const uint64_t normalBufferAddress = geom.normalBufferAddress;
 
     float3 n0, n1, n2;
     switch (objType)
