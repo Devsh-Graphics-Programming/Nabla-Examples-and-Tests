@@ -76,11 +76,11 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	10.0,	// CASE_7
 	600.0,	// CASE_8
 	600.0,	// CASE_9
-	10.0,	// CASE_BUG
+	10.0,	// CASE_10
 	1000.0	// CASE_11
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_8;
+constexpr ExampleMode mode = ExampleMode::CASE_11;
 
 class Camera2D
 {
@@ -3470,7 +3470,7 @@ protected:
 
 			drawResourcesFiller.drawTriangleMesh(mesh, dtmInfo, intendedNextSubmit);
 		}
-		else if (mode == ExampleMode::CASE_BUG)
+		else if (mode == ExampleMode::CASE_10)
 		{
 			CPolyline polyline;
 			
