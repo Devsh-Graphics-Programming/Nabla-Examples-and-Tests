@@ -1,9 +1,22 @@
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
-set(ARGS 
+set(ARGS
+	# meta INTERFACE target with NSC compilation rules
 	TARGET NblExtExamplesAPISPIRV
+
+	# build directory for its SPIRV outputs
 	BINARY_DIR ${OUTPUT_DIRECTORY}
+
+	# extra NSC compile options
 	COMMON_OPTIONS -I "${COMMON_INCLUDE_DIRECTORY}"
+
+	# fallback variable to which SPIRV access keys are appended to (including permutations), relative to BINARY_DIR
 	OUTPUT_VAR KEYS
+
+	# include file with key getters, use with #include directive on downstream targets
+	INCLUDE nbl/examples/common/build/spirv/keys.hpp
+
+	# namespace for key getters in include file
+	NAMESPACE nbl::builtin::examples::build
 )
 
 # note json is array of objects, you can register all rules at once
@@ -11,7 +24,7 @@ set(JSON [=[
 [
     {
 		"INPUT": "shaders/geometry/unified.hlsl",
-		"KEY": "shaders/geometry/unified.spv",
+		"KEY": "shaders/geometry/unified",
         "COMPILE_OPTIONS": ["-T", "lib_6_6"],
 		"DEPENDS": [],
 		"CAPS": []
@@ -25,26 +38,39 @@ set(JSON [=[
 [
     {
 		"INPUT": "shaders/geometry/unified.hlsl",
-		"KEY": "shaders/geometry/unified.spv",
+		"KEY": "shaders/geometry/unified-caps",
         "COMPILE_OPTIONS": ["-T", "lib_6_6"],
 		"DEPENDS": [],
 		"CAPS": [
             {
                 "name": "shaderFloat64",
 				"type": "bool",
-                "values": ["true", "false"]
+                "values": [1, 0]
             },
             {
                 "name": "subgroupSize",
 				"type": "uint16_t",
-                "values": ["32", "64"]
+                "values": [32, 64]
+            }
+        ]
+    },
+	{
+		"INPUT": "shaders/geometry/unified.hlsl",
+		"KEY": "shaders/geometry/unified-caps-2",
+        "COMPILE_OPTIONS": ["-T", "lib_6_6"],
+		"DEPENDS": [],
+		"CAPS": [
+            {
+                "name": "shaderFloat64",
+				"type": "bool",
+                "values": [1, 0]
             }
         ]
     }
 ]
 ]=])
 
-# but it also supports incremental rule updates, uncomment to add rules with permutation caps
+# it also supports incremental rule updates, uncomment to add rules with permutation caps (testing purposes, remove after review)
 # NBL_CREATE_NSC_COMPILE_RULES(${ARGS} INPUTS ${JSON})
 
 # note we can add more inputs from build dir which keys can be part of the same archive/mount point,
@@ -62,6 +88,5 @@ NBL_CREATE_RESOURCE_ARCHIVE(
 
 if(NBL_EMBED_BUILTIN_RESOURCES)
 	INTERFACE_TO_BUILTINS(NblExtExamplesAPIBuiltinsBuild)
+	target_link_libraries(NblExtExamplesAPIBuiltinsBuild PUBLIC NblExtExamplesAPISPIRV)
 endif()
-
-target_link_libraries(NblExtExamplesAPIBuiltinsBuild PUBLIC NblExtExamplesAPISPIRV)

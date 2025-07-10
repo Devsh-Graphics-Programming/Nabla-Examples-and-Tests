@@ -84,6 +84,7 @@ endif()
 ]]
 
 add_subdirectory("src/nbl/examples" EXCLUDE_FROM_ALL)
+target_link_libraries(${LIB_NAME} PUBLIC NblExtExamplesAPISPIRV)
 
 NBL_GET_ALL_TARGETS(TARGETS)
 list(REMOVE_ITEM TARGETS ${LIB_NAME})

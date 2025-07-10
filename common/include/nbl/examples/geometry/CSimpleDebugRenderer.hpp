@@ -1,14 +1,8 @@
 #ifndef _NBL_EXAMPLES_C_SIMPLE_DEBUG_RENDERER_H_INCLUDED_
 #define _NBL_EXAMPLES_C_SIMPLE_DEBUG_RENDERER_H_INCLUDED_
 
-
 #include "nbl/builtin/hlsl/math/linalg/fast_affine.hlsl"
 #include "nbl/examples/geometry/SPushConstants.hlsl"
-
-// TODO: Arek bring back
-//#include "nbl/examples/geometry/spirv/builtin/CArchive.h"
-//#include "nbl/examples/geometry/spirv/builtin/builtinResources.h"
-
 
 namespace nbl::examples
 {
@@ -108,7 +102,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			// load shader
 			smart_refctd_ptr<IShader> shader;
 			{
-				constexpr std::string_view key = "nbl/examples/shaders/geometry/unified.spv";
+				auto key = "nbl/examples/" + nbl::builtin::examples::build::get_spirv_key<"shaders/geometry/unified">(device);
 				const auto bundle = assMan->getAsset(key.data(), {});
 
 				const auto contents = bundle.getContents();
