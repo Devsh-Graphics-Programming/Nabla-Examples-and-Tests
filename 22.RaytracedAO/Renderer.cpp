@@ -1378,7 +1378,7 @@ void Renderer::initScreenSizedResources(
 		if (static_cast<COpenGLDriver*>(m_driver)->runningInRenderdoc()) // makes Renderdoc capture the modifications done by OpenCL
 		{
 			interopBuffer.buffer = m_driver->createUpStreamingGPUBufferOnDedMem(size);
-			//interopBuffer.buffer->getBoundMemory()->mapMemoryRange(IDriverMemoryAllocation::EMCAF_WRITE,{0u,size})
+//			interopBuffer.buffer->getBoundMemory()->mapMemoryRange(IDriverMemoryAllocation::EMCAF_READ_AND_WRITE,{0u,size});
 		}
 		else
 			interopBuffer.buffer = m_driver->createDeviceLocalGPUBufferOnDedMem(size);
@@ -2136,7 +2136,17 @@ bool Renderer::traceBounce(uint32_t& raycount)
 				std::cout << "[ERROR] RadeonRays Timed Out" << std::endl;
 				return false;
 			}
+
+			if (static_cast<COpenGLDriver*>(m_driver)->runningInRenderdoc())
+			{
+				auto touchAllBytes = [](IGPUBuffer* buf)->void
+				{
+					auto ptr = reinterpret_cast<uint8_t*>(buf->getBoundMemory()->getMappedPointer());
+				};
+				touchAllBytes(m_intersectionBuffer[descSetIx].buffer.get());
+			}
 		}
+
 	
 		// compute bounce (accumulate contributions and optionally generate rays)
 		{

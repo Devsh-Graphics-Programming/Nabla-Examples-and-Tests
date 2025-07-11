@@ -91,7 +91,7 @@ void storeAccumulation(in vec3 color, in uvec3 coord)
 }
 void addAccumulation(in vec3 delta, in uvec3 coord)
 {
-	if (any(greaterThan(delta,vec3(exp2(-19.f)))))
+	if (any(greaterThan(abs(delta),vec3(exp2(-19.f)))))
 	{
 		const vec3 prev = fetchAccumulation(coord);
 		const vec3 newVal = prev+delta;
@@ -117,7 +117,7 @@ void nextSampleAccumulationCascade(in vec3 weightedDelta, uvec3 coord, in uint s
 }
 void addAccumulationCascade(in vec3 weightedDelta, uvec3 coord, in uint samplesPerPixelPerDispatch, in uint cascadeIndex)
 {
-	if (any(greaterThan(weightedDelta,vec3(exp2(-19.f)))))
+	if (any(greaterThan(abs(weightedDelta),vec3(exp2(-19.f)))))
 	{
 		// but leave first index in the array for the ray accumulation metadata, hence the +1
 		coord.z += (cascadeIndex+1u)*samplesPerPixelPerDispatch;

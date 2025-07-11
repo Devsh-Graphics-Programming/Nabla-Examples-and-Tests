@@ -173,7 +173,7 @@ void main()
 					{
 						const vec3 prev = fetchAccumulation(coord);
 						const vec3 delta = (contrib.color-prev)*pc.cummon.rcpFramesDispatched;
-						if (any(greaterThan(delta,vec3(exp2(-19.f)))))
+						if (any(greaterThan(abs(delta),vec3(exp2(-19.f)))))
 							storeAccumulation(prev+delta,coord);
 					}
 					addAlbedo(contrib.albedo,coord,pc.cummon.rcpFramesDispatched);
