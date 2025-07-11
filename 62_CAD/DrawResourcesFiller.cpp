@@ -2362,8 +2362,7 @@ DrawResourcesFiller::ImageAllocateResults DrawResourcesFiller::tryCreateAndAlloc
 		
 		if (imageViewFormatOverride != asset::E_FORMAT::EF_COUNT && imageViewFormatOverride != imageParams.format)
 		{
-			// TODO: figure out why this crashes the app
-			//params.viewFormats.set(static_cast<size_t>(imageViewFormatOverride), true);
+			params.viewFormats.set(static_cast<size_t>(imageViewFormatOverride), true);
 			params.flags |= asset::IImage::E_CREATE_FLAGS::ECF_MUTABLE_FORMAT_BIT;
 		}
 		auto gpuImage = device->createImage(std::move(params));
