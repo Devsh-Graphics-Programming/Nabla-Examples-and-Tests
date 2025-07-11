@@ -61,6 +61,10 @@ vec3 nbl_glsl_RWMC_sampleCascadeTexel(ivec2 coord, in ivec2 offset, in uint casc
 	return value/float(samplesPerPixelPerDispatch);
 }
 
+bool isRWMCEnabled()
+{
+	return staticViewData.cascadeParams.penultimateCascadeIx!=uint(-2);
+}
 
 void main()
 {
@@ -69,7 +73,12 @@ void main()
 	{
 		samplesPerPixelPerDispatch = bitfieldExtract(staticViewData.maxPathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch,16,16);
 
-		vec3 acc = nbl_glsl_RWMC_reweight(pc.rwmcReweightingParams,pixelCoord);
+		vec3 acc;
+		if (isRWMCEnabled())
+			acc = nbl_glsl_RWMC_reweight(pc.rwmcReweightingParams,pixelCoord);
+		else // its a pretty ok function, reusing it
+			acc = nbl_glsl_RWMC_sampleCascadeTexel(pixelCoord,ivec2(0,0),-1);
+
 		vec3 alb = texelFetch(albedoSamples,ivec3(pixelCoord,0),0).rgb;
 		vec3 nml = nbl_glsl_decodeRGB10A2_SNORM(texelFetch(normalSamples,ivec3(pixelCoord,0),0).r).xyz;
 		float msk = texelFetch(maskSamples,ivec3(pixelCoord,0),0).r;

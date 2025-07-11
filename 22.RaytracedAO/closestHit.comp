@@ -118,20 +118,25 @@ void main()
 		contrib.color *= throughput;
 		const vec3 aovThroughput = throughput*aovThroughputScale;
 		//
-		const bool pathToBeContinued = bool(rayMask);
-		if (pathToBeContinued)
-			addAccumulation(contrib.color,accumulationLocation);
-		else
+		if (isRWMCEnabled())
 		{
-			// need whole path throughput when splatting
-			contrib.color += fetchAccumulation(accumulationLocation);
-			const nbl_glsl_RWMC_SplattingParameters splat = nbl_glsl_RWMC_getCascade(staticViewData.cascadeParams,nbl_glsl_MC_colorToScalar(contrib.color)/pc.cummon.rcpFramesDispatched);
-			for (uint j=0u; j<2u; j++)
-				addAccumulationCascade(
-					contrib.color*splat.cascadeWeights[j],accumulationLocation,
-					samplesPerPixelPerDispatch,splat.lowerCascade+j
-				);
+			const bool pathToBeContinued = bool(rayMask);
+			if (pathToBeContinued)
+				addAccumulation(contrib.color,accumulationLocation);
+			else
+			{
+				// need whole path throughput when splatting
+				contrib.color += fetchAccumulation(accumulationLocation);
+				const nbl_glsl_RWMC_SplattingParameters splat = nbl_glsl_RWMC_getCascade(staticViewData.cascadeParams,nbl_glsl_MC_colorToScalar(contrib.color)/pc.cummon.rcpFramesDispatched);
+				for (uint j=0u; j<2u; j++)
+					addAccumulationCascade(
+						contrib.color*splat.cascadeWeights[j],accumulationLocation,
+						samplesPerPixelPerDispatch,splat.lowerCascade+j
+					);
+			}
 		}
+		else
+			addAccumulation(contrib.color,accumulationLocation);
 		//
 		addAlbedo(contrib.albedo*aovThroughput,accumulationLocation);
 		addWorldspaceNormal(contrib.worldspaceNormal*nbl_glsl_MC_colorToScalar(aovThroughput),accumulationLocation);

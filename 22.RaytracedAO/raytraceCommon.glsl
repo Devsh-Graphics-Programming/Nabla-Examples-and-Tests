@@ -74,6 +74,11 @@ uvec3 get_triangle_indices(in nbl_glsl_ext_Mitsuba_Loader_instance_data_t batchI
 #include <nbl/builtin/glsl/format/decode.glsl>
 #include <nbl/builtin/glsl/format/encode.glsl>
 
+bool isRWMCEnabled()
+{
+	return staticViewData.cascadeParams.penultimateCascadeIx!=uint(-2);
+}
+
 vec3 fetchAccumulation(in uvec3 coord)
 {
 	const uvec2 data = imageLoad(accumulation,ivec3(coord)).rg;

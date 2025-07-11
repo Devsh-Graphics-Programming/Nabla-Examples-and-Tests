@@ -1240,7 +1240,8 @@ void Renderer::initScreenSizedResources(
 	const float RGB19E7_MaxLuma = std::exp2(63.f);
 	if (cascadeCount<MinCascades) // rwmc OFF, store everything to cascade 0
 	{
-		cascadeCount = MinCascades;
+		// original idea was to create 2 cascades where the first starts so low that every sample gets added to it. But now we just do 1
+		cascadeCount = 0;
 		cascadeLuminanceBase = std::exp2(16.f); // just some constant to space the cascades apart
 		cascadeLuminanceStart = RGB19E7_MaxLuma;
 		std::cout << "Re-Weighting Monte Carlo = DISABLED" << std::endl;
@@ -1249,7 +1250,7 @@ void Renderer::initScreenSizedResources(
 	{
 		cascadeCount = core::min(cascadeCount,MaxCascades);
 		const float cascadeSegmentCount = cascadeCount-1;
-
+		// base is the power increment between each successive cascade, first cascade starts at Emin or 1/cascadeLuminanceBase^segmentCount scaled to max emitter radiance
 		const bool baseIsKnown = cascadeLuminanceBase>std::numeric_limits<float>::min();
 		if (core::isnan<float>(cascadeLuminanceStart))
 			cascadeLuminanceStart = baseIsKnown ? (maxEmitterRadianceLuma*std::pow(cascadeLuminanceBase,-cascadeSegmentCount)):Emin;
