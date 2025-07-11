@@ -44,7 +44,7 @@ void main()
 			const int triangleIDBitcount = findMSB(MAX_TRIANGLES_IN_BATCH-1)+1;
 			const uint triangleID = bitfieldExtract(visBuffer[0],31-triangleIDBitcount,triangleIDBitcount);
 			const uint batchInstanceGUID = bitfieldExtract(visBuffer[0],0,31-triangleIDBitcount);
-			const vec2 compactBary = unpackUnorm2x16(visBuffer[1]);
+//const vec2 compactBary = unpackUnorm2x16(visBuffer[1]);
 			#ifdef TEX_PREFETCH_STREAM
 			// TODO: separate pipeline and separate out the barycentric derivative FBO attachment, only write if need to, only fetch if `needs_texture_prefetch`
 			const mat2 dBarydScreen = mat2(unpackHalf2x16(visBuffer[2]),unpackHalf2x16(visBuffer[3]));
@@ -58,17 +58,44 @@ void main()
 			const vec3 lastVxPos = load_positions(batchInstanceData,indices);
 			if (!bool(batchInstanceData.determinantSignBit&0x80000000u))
 				normalizedG = -normalizedG;
-			const bool frontfacing = dot(normalizedV,normalizedG)>=0.f;
+			const float VdotG = dot(normalizedV,normalizedG);
+			const bool frontfacing = VdotG>=0.f;
 
-			// get material while waiting for indices
+			// get material
 			const nbl_glsl_MC_oriented_material_t material = nbl_glsl_MC_material_data_t_getOriented(batchInstanceData.material,frontfacing);
 			contrib.color = contrib.albedo = nbl_glsl_MC_oriented_material_t_getEmissive(material,normalizedV);
 
 			// little optimization for non-twosided materials
 			if (material.genchoice_count!=0u)
 			{
-				// get initial scramble key while waiting for vertex positions
+				// get initial scramble key
 				const nbl_glsl_xoroshiro64star_state_t scramble_start_state = texelFetch(scramblebuf,ivec2(outPixelLocation),0).rg;
+
+				vec3 origin;
+				#if RECOMPUTE_BARY
+					// we know the ray will intersect the triangle
+					vec2 compactBary;
+					{
+						// reversed order of arguments for each cross cause V is negative
+						const vec3 ray_cross_e2 = cross(dPdBary[1],normalizedV);
+						const float detRcp = 1.f/dot(dPdBary[0],ray_cross_e2);
+						// assert(!isinf(detRcp));
+						const vec3 s = (pc.cummon.viewDirReconFactors[3]-lastVxPos)*detRcp;
+						const float u = dot(s,ray_cross_e2);
+						// assert(0.f<=u && u<=1.f)
+						const vec3 s_cross_e1 = cross(s,dPdBary[0]);
+						const float v = -dot(normalizedV,s_cross_e1);
+						// assert(0.f<=v && v<=1.f)
+						compactBary = vec2(u,v);
+						//
+						const float t = dot(dPdBary[1],s_cross_e1);
+						//assert(t>0.f);
+						origin = pc.cummon.viewDirReconFactors[3]-normalizedV*t;
+					}
+				#else
+				const vec2 compactBary = unpackUnorm2x16(visBuffer[1]);
+				#endif
+				origin = dPdBary*compactBary+lastVxPos;
 
 				//
 				normalizedN = load_normal_and_prefetch_textures(
@@ -77,10 +104,6 @@ void main()
 					,dBarydScreen
 					#endif
 				);
-		
-				const vec3 origin = dPdBary*compactBary+lastVxPos;
-				// does this buy us any precision? (answer run CI!)
-				//normalizedV = normalize(pc.cummon.viewDirReconFactors[3]-origin);
 
 				// generate rays
 				const uint vertex_depth = 1u;

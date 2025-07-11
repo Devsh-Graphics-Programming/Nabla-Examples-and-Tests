@@ -536,8 +536,7 @@ uint generate_next_rays(
 
 	// the 1.03125f adjusts for the fact that the normal might be too short (inversesqrt precision)
 	const float inversesqrt_precision = 1.03125f;
-	// TODO: investigate why we can't use `normalizedN` here
-	const vec3 ray_offset_vector = normalize(cross(dPdBary[0],dPdBary[1]))*inversesqrt_precision;
+	const vec3 ray_offset_vector = normalizedG*inversesqrt_precision;
     float origin_offset = nbl_glsl_numeric_limits_float_epsilon(120u); // I pulled the constants out of my @$$
     origin_offset += dot(abs(ray_offset_vector),abs(origin))*nbl_glsl_numeric_limits_float_epsilon(128u);
 
@@ -551,6 +550,7 @@ uint generate_next_rays(
 	//const vec3 geomNormal = cross(dPdBary[0],dPdBary[1]);
 	//float ray_offset = ?;
 	//ray_offset = nbl_glsl_ieee754_next_ulp_away_from_zero(ray_offset);
+
 	const vec3 ray_offset = ray_offset_vector*origin_offset;
 	const vec3 ray_origin[2] = {origin+ray_offset,origin-ray_offset};
 	uint offset = 0u;
