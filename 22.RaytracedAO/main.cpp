@@ -272,7 +272,14 @@ int main(int argc, char** argv)
 		for (auto i = 1ul; i < argc; ++i)
 			arguments.emplace_back(argv[i]);
 	}
-	
+	std::cout << std::endl;
+	std::cout << "-- Build URL:" << std::endl;
+	std::cout << NBL_BUILD_URL << std::endl;
+	std::cout << std::endl;
+	std::cout << "-- Build log:" << std::endl;
+	std::cout << NBL_GIT_LOG << std::endl;
+	std::cout  << std::endl;
+
 	bool applicationIsReloaded = false;
 	PersistentState applicationState;
 	{
