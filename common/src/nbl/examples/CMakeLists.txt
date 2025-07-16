@@ -6,16 +6,19 @@ set(ARGS
 	# build directory for its SPIRV outputs
 	BINARY_DIR ${OUTPUT_DIRECTORY}
 
+	# preprocessor #define for BINARY_DIR bind point
+	MOUNT_POINT_DEFINE NBL_EXAMPLES_BUILD_MOUNT_POINT
+
 	# extra NSC compile options
 	COMMON_OPTIONS -I "${COMMON_INCLUDE_DIRECTORY}"
 
-	# fallback variable to which SPIRV access keys are appended to (including permutations), relative to BINARY_DIR
+	# out variable to which SPIRV access keys are appended to (including permutations), relative to BINARY_DIR
 	OUTPUT_VAR KEYS
 
-	# include file with key getters, use with #include directive on downstream targets
+	# include file with inline template key getters, use with #include directive on downstream targets
 	INCLUDE nbl/examples/common/build/spirv/keys.hpp
 
-	# namespace for key getters in include file
+	# namespace for key getters in the include file
 	NAMESPACE nbl::builtin::examples::build
 )
 
@@ -81,12 +84,6 @@ set(JSON [=[
 NBL_CREATE_RESOURCE_ARCHIVE(
 	TARGET NblExtExamplesAPIBuiltinsBuild
 	BIND "${OUTPUT_DIRECTORY}"
-	NAMESPACE nbl::builtin::examples::build
-	MOUNT_POINT_DEFINE NBL_EXAMPLES_BUILD_MOUNT_POINT
 	BUILTINS ${KEYS}
+	NAMESPACE nbl::builtin::examples::build
 )
-
-if(NBL_EMBED_BUILTIN_RESOURCES)
-	INTERFACE_TO_BUILTINS(NblExtExamplesAPIBuiltinsBuild)
-	target_link_libraries(NblExtExamplesAPIBuiltinsBuild PUBLIC NblExtExamplesAPISPIRV)
-endif()

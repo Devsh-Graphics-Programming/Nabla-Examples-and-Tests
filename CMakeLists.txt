@@ -98,13 +98,10 @@ if(NBL_BUILD_EXAMPLES)
 		target_include_directories(${T} PUBLIC $<TARGET_PROPERTY:${NBL_EXAMPLES_API_TARGET},INCLUDE_DIRECTORIES>)
 		target_precompile_headers(${T} REUSE_FROM "${NBL_EXAMPLES_API_TARGET}")
 
-		# TODO: make them all INTERFACE if not NBL_EMBED_BUILTIN_RESOURCES and link in loop without checking the var
 		if(NBL_EMBED_BUILTIN_RESOURCES)
 			LINK_BUILTIN_RESOURCES_TO_TARGET(${T} NblExtExamplesAPIBuiltinsSource)
 			LINK_BUILTIN_RESOURCES_TO_TARGET(${T} NblExtExamplesAPIBuiltinsInclude)
 			LINK_BUILTIN_RESOURCES_TO_TARGET(${T} NblExtExamplesAPIBuiltinsBuild)
-		else()
-			target_link_libraries(${T} PUBLIC NblExtExamplesAPIBuiltinsBuild)
 		endif()
     endforeach()
 

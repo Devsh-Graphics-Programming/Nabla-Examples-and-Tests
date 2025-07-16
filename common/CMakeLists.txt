@@ -18,7 +18,7 @@ set(COMMON_INCLUDE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include")
 function(INTERFACE_TO_BUILTINS TARGET)
     #[[
         even though builtin target is static library its still valid to reuse 
-        common PCH to boost its build speed to not preprocess entire Nabla again
+        common PCH to boost its build speed to not preprocess entire Nabla again (**)
     ]]
     set_target_properties(${TARGET} PROPERTIES DISABLE_PRECOMPILE_HEADERS OFF)
     target_precompile_headers(${TARGET} REUSE_FROM "${LIB_NAME}")
@@ -28,42 +28,33 @@ function(INTERFACE_TO_BUILTINS TARGET)
 endfunction()
 
 function(REGISTER_COMMON_BUILTINS)
-	cmake_parse_arguments(EX "" "TARGET;ARCHIVE_ABS_ENTRY;ARCHIVE_NAMESPACE" "GLOB_RGX" ${ARGN})
-
-    get_filename_component(INPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" ABSOLUTE)
-    get_filename_component(OUTPUT_SRC "${CMAKE_CURRENT_BINARY_DIR}/builtin/${EX_TARGET}/src" ABSOLUTE)
-    get_filename_component(OUTPUT_INCLUDE "${CMAKE_CURRENT_BINARY_DIR}/builtin/${EX_TARGET}/include" ABSOLUTE)
-
-    set(KEYS_ENTRY "${INPUT_DIRECTORY}/${EX_ARCHIVE_ABS_ENTRY}")
-    list(TRANSFORM EX_GLOB_RGX PREPEND "${KEYS_ENTRY}/")
-	file(GLOB_RECURSE KEYS RELATIVE "${KEYS_ENTRY}" CONFIGURE_DEPENDS ${EX_GLOB_RGX})
-
-    #[[
-        note we do force you to specify full globbing expressions relative to keys entry which we do not filter
-        because if runtime outputs .spv compilation artifacts/shader cache preprocessed.hlsl(s) to source you will hit CMake
-        reconfiguration each time the file content or timestampts change and it could lead to embeding intermediate trash
-    ]]
+	cmake_parse_arguments(EX "" "TARGET;BIND;NAMESPACE" "GLOB_RGX" ${ARGN})
+    get_filename_component(MOUNT_POINT "${CMAKE_CURRENT_SOURCE_DIR}/${EX_BIND}" ABSOLUTE)
+    list(TRANSFORM EX_GLOB_RGX PREPEND "${MOUNT_POINT}/")
+	file(GLOB_RECURSE KEYS RELATIVE "${MOUNT_POINT}" CONFIGURE_DEPENDS ${EX_GLOB_RGX})
 	
-    unset(EXAMPLES_RESOURCES_TO_EMBED)
-	foreach(KEY IN LISTS KEYS)
-		LIST_BUILTIN_RESOURCE(EXAMPLES_RESOURCES_TO_EMBED "${KEY}")
-	endforeach()
-
-    ADD_CUSTOM_BUILTIN_RESOURCES(${EX_TARGET} EXAMPLES_RESOURCES_TO_EMBED "${INPUT_DIRECTORY}" "${EX_ARCHIVE_ABS_ENTRY}" "${EX_ARCHIVE_NAMESPACE}" "${OUTPUT_INCLUDE}" "${OUTPUT_SRC}")
+    NBL_CREATE_RESOURCE_ARCHIVE(
+        TARGET ${EX_TARGET}
+        BIND "${MOUNT_POINT}"
+        BUILTINS ${KEYS}
+        NAMESPACE ${EX_NAMESPACE}
+    )
     INTERFACE_TO_BUILTINS(${EX_TARGET})
 endfunction()
 
 #! common example API builtins as static library targets linked to each example
 if(NBL_EMBED_BUILTIN_RESOURCES)
-    REGISTER_COMMON_BUILTINS(TARGET NblExtExamplesAPIBuiltinsSource 
-        ARCHIVE_ABS_ENTRY src/nbl/examples 
-        ARCHIVE_NAMESPACE nbl::builtin::examples::src 
+    REGISTER_COMMON_BUILTINS(
+        TARGET NblExtExamplesAPIBuiltinsSource 
+        BIND src/nbl/examples 
+        NAMESPACE nbl::builtin::examples::src 
         GLOB_RGX *.hlsl *.txt
     )
 
-    REGISTER_COMMON_BUILTINS(TARGET NblExtExamplesAPIBuiltinsInclude 
-        ARCHIVE_ABS_ENTRY include/nbl/examples 
-        ARCHIVE_NAMESPACE nbl::builtin::examples::include
+    REGISTER_COMMON_BUILTINS(
+        TARGET NblExtExamplesAPIBuiltinsInclude 
+        BIND include/nbl/examples 
+        NAMESPACE nbl::builtin::examples::include
         GLOB_RGX *.hpp *.h *.hlsl *.txt
     )
 endif()
@@ -85,6 +76,18 @@ endif()
 
 add_subdirectory("src/nbl/examples" EXCLUDE_FROM_ALL)
 target_link_libraries(${LIB_NAME} PUBLIC NblExtExamplesAPISPIRV)
+if(NBL_EMBED_BUILTIN_RESOURCES)
+	INTERFACE_TO_BUILTINS(NblExtExamplesAPIBuiltinsBuild)
+
+    #[[
+        we have SPIRV keys include file in examples' PCH which then gets REUSE(d) by common archives (**) in built-in mode,
+        to not glitch compiler we need to ensure we inherit interface properties (include directories needed) for all targets 
+        which share PCH, also note it doest really link any library, the target we inherit properties from is INTERFACE
+    ]]
+    target_link_libraries(NblExtExamplesAPIBuiltinsSource PUBLIC NblExtExamplesAPISPIRV)
+    target_link_libraries(NblExtExamplesAPIBuiltinsInclude PUBLIC NblExtExamplesAPISPIRV)
+    target_link_libraries(NblExtExamplesAPIBuiltinsBuild PUBLIC NblExtExamplesAPISPIRV)
+endif()
 
 NBL_GET_ALL_TARGETS(TARGETS)
 list(REMOVE_ITEM TARGETS ${LIB_NAME})
