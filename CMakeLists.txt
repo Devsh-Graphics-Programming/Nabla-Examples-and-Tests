@@ -96,6 +96,7 @@ if(NBL_BUILD_EXAMPLES)
 	foreach(T IN LISTS TARGETS)
         target_link_libraries(${T} PUBLIC ${NBL_EXAMPLES_API_TARGET})
 		target_include_directories(${T} PUBLIC $<TARGET_PROPERTY:${NBL_EXAMPLES_API_TARGET},INCLUDE_DIRECTORIES>)
+		set_target_properties(${T} PROPERTIES DISABLE_PRECOMPILE_HEADERS OFF)
 		target_precompile_headers(${T} REUSE_FROM "${NBL_EXAMPLES_API_TARGET}")
 
 		if(NBL_EMBED_BUILTIN_RESOURCES)
