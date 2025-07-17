@@ -2397,6 +2397,17 @@ DrawResourcesFiller::ImageAllocateResults DrawResourcesFiller::tryCreateAndAlloc
 							.viewType = IGPUImageView::ET_2D,
 							.format = (imageViewFormatOverride == asset::E_FORMAT::EF_COUNT) ? gpuImage->getCreationParameters().format : imageViewFormatOverride
 						};
+
+						const uint32_t channelCount = nbl::asset::getFormatChannelCount(viewParams.format);
+						if (channelCount == 1u)
+						{
+							// for rendering grayscale:
+							viewParams.components.r = nbl::asset::IImageViewBase::SComponentMapping::E_SWIZZLE::ES_R;
+							viewParams.components.g = nbl::asset::IImageViewBase::SComponentMapping::E_SWIZZLE::ES_R;
+							viewParams.components.b = nbl::asset::IImageViewBase::SComponentMapping::E_SWIZZLE::ES_R;
+							viewParams.components.a = nbl::asset::IImageViewBase::SComponentMapping::E_SWIZZLE::ES_ONE;
+						}
+
 						ret.gpuImageView = device->createImageView(std::move(viewParams));
 						if (ret.gpuImageView)
 						{
