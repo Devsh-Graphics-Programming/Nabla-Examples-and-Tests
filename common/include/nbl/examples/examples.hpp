@@ -17,8 +17,7 @@
 
 // #include "..."
 
-// Cannot be in PCH because depens on definition of `this_example` for Example's builtins
+// cannot be in PCH because depens on definition of `this_example` for Example's builtins
 #include "nbl/examples/common/BuiltinResourcesApplication.hpp"
-
 
 #endif // _NBL_EXAMPLES_HPP_
