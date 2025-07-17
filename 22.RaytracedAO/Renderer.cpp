@@ -1254,6 +1254,8 @@ void Renderer::initScreenSizedResources(
 		const bool baseIsKnown = cascadeLuminanceBase>std::numeric_limits<float>::min();
 		if (core::isnan<float>(cascadeLuminanceStart))
 			cascadeLuminanceStart = baseIsKnown ? (maxEmitterRadianceLuma*std::pow(cascadeLuminanceBase,-cascadeSegmentCount)):Emin;
+		// rationale, we don't have NEE and BRDF importance sampling samples with throughput <= 1.0
+		// However we have RIS, and that can complicate this assumption a bit
 		if (!baseIsKnown)
 			cascadeLuminanceBase = core::max(std::pow(maxEmitterRadianceLuma/cascadeLuminanceStart,1.f/cascadeSegmentCount),1.0625f);
 		std::cout << "Re-Weighting Monte Carlo = ENABLED [cascadeCount: "<<cascadeCount<<", start: "<<cascadeLuminanceStart<<", base: "<<cascadeLuminanceBase<<"]" << std::endl;

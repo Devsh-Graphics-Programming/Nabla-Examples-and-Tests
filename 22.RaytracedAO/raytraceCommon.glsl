@@ -104,16 +104,14 @@ void addAccumulation(in vec3 delta, in uvec3 coord)
 
 // TODO: use a R17G17B17_UNORM format matched to cascade range, then use 13 bits to store last spp count (max 8k spp renders)
 // This way we can avoid writing every cascade every path storage
-void nextSampleAccumulationCascade(in vec3 weightedDelta, uvec3 coord, in uint samplesPerPixelPerDispatch, in uint cascadeIndex, in float rcpN)
+void nextSampleAccumulationCascade(in bool firstFrame, in vec3 weightedDelta, uvec3 coord, in uint samplesPerPixelPerDispatch, in uint cascadeIndex, in float rcpN)
 {
 	// but leave first index in the array for the ray accumulation metadata, hence the +1
 	coord.z += (cascadeIndex+1u)*samplesPerPixelPerDispatch;
-	const vec3 prev = fetchAccumulation(coord);
+	const vec3 prev = firstFrame ? vec3(0.0):fetchAccumulation(coord);
 	const vec3 newVal = prev+(weightedDelta-prev)*rcpN;
-	// TODO: do a better check, compare actually encoded values for difference
-	const uvec3 diff = floatBitsToUint(newVal)^floatBitsToUint(prev);
-	if (bool((diff.x|diff.y|diff.z)&0x7ffffff0u))
-		storeAccumulation(newVal,coord);
+	// always store, cause we need to reset the value
+	storeAccumulation(newVal,coord);
 }
 void addAccumulationCascade(in vec3 weightedDelta, uvec3 coord, in uint samplesPerPixelPerDispatch, in uint cascadeIndex)
 {

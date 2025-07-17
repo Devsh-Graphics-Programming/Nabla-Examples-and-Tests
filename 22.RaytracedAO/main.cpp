@@ -643,11 +643,19 @@ int main(int argc, char** argv)
 		mainSensorData.denoiserInfo.bloomIntensity = film.denoiserBloomIntensity;
 		mainSensorData.denoiserInfo.tonemapperArgs = std::string(film.denoiserTonemapperArgs);
 		mainSensorData.fileFormat = film.fileFormat;
+#ifndef UBER_TEST
+		mainSensorData.cascadeCount = 6;
+		mainSensorData.cascadeLuminanceBase = film.cascadeLuminanceBase;
+		mainSensorData.cascadeLuminanceStart = film.cascadeLuminanceStart;
+		mainSensorData.kappa = 1.f;
+		mainSensorData.Emin = 1.7f;
+#else
 		mainSensorData.cascadeCount = film.cascadeCount;
 		mainSensorData.cascadeLuminanceBase = film.cascadeLuminanceBase;
 		mainSensorData.cascadeLuminanceStart = film.cascadeLuminanceStart;
 		mainSensorData.kappa = mainSensorData.cascadeCount<2 ? 0.f:film.rfilter.kappa;
 		mainSensorData.Emin = film.rfilter.Emin;
+#endif
 		mainSensorData.envmapRegFactor = core::clamp(film.envmapRegularizationFactor, 0.0f, 0.8f);
 		mainSensorData.outputFilePath = std::filesystem::path(film.outputFilePath);
 		// handle missing output path
