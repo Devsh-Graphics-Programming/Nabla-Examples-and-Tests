@@ -3,15 +3,18 @@
 
 #include "nbl/examples/examples.hpp"
 
-using namespace nbl;
-using namespace nbl::core;
 using namespace nbl::hlsl;
-using namespace nbl::system;
-using namespace nbl::asset;
-using namespace nbl::ui;
-using namespace nbl::video;
-// TODO: probably need to be `using namespace nbl::examples` as well, see other examples
+using namespace nbl;
+using namespace core;
+using namespace system;
+using namespace asset;
+using namespace ui;
+using namespace video;
 
+#include "nbl/examples/common/BuiltinResourcesApplication.hpp"
+#include "nbl/examples/common/SimpleWindowedApplication.hpp"
+#include "nbl/examples/common/InputSystem.hpp"
+#include "nbl/video/utilities/CSimpleResizeSurface.h"
 
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/ext/TextRendering/TextRendering.h"
@@ -170,14 +173,14 @@ private:
 class CEventCallback : public ISimpleManagedSurface::ICallback
 {
 public:
-	CEventCallback(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(m_inputSystem)), m_logger(std::move(logger)){}
+	CEventCallback(nbl::core::smart_refctd_ptr<nbl::examples::InputSystem>&& m_inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(m_inputSystem)), m_logger(std::move(logger)){}
 	CEventCallback() {}
 	
 	void setLogger(nbl::system::logger_opt_smart_ptr& logger)
 	{
 		m_logger = logger;
 	}
-	void setInputSystem(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem)
+	void setInputSystem(nbl::core::smart_refctd_ptr<nbl::examples::InputSystem>&& m_inputSystem)
 	{
 		m_inputSystem = std::move(m_inputSystem);
 	}
@@ -205,7 +208,7 @@ private:
 	}
 
 private:
-	nbl::core::smart_refctd_ptr<InputSystem> m_inputSystem = nullptr;
+	nbl::core::smart_refctd_ptr<nbl::examples::InputSystem> m_inputSystem = nullptr;
 	nbl::system::logger_opt_smart_ptr m_logger = nullptr;
 };
 	
@@ -358,10 +361,10 @@ bool performImageFormatPromotionCopy(const core::smart_refctd_ptr<asset::ICPUIma
         return performCopyUsingImageFilter<asset::CSwizzleAndConvertImageFilter<asset::EF_UNKNOWN, asset::EF_UNKNOWN, PromotionComponentSwizzle<4u>>>(inCPUImage, outCPUImage);
 }
 
-class ComputerAidedDesign final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class ComputerAidedDesign final : public nbl::examples::SimpleWindowedApplication, public nbl::examples::BuiltinResourcesApplication
 {
-	using device_base_t = examples::SimpleWindowedApplication;
-	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+	using device_base_t = nbl::examples::SimpleWindowedApplication;
+	using asset_base_t = nbl::examples::BuiltinResourcesApplication;
 	using clock_t = std::chrono::steady_clock;
 	
 	constexpr static uint32_t WindowWidthRequest = 1600u;
@@ -738,7 +741,7 @@ public:
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
-		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
+		m_inputSystem = make_smart_refctd_ptr<nbl::examples::InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
 		// Remember to call the base class initialization!
 		if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
@@ -922,9 +925,9 @@ public:
 
 		drawResourcesFiller.setTexturesDescriptorSetAndBinding(core::smart_refctd_ptr(descriptorSet0), imagesBinding);
 
-		smart_refctd_ptr<IGPUShader> mainPipelineFragmentShaders = {};
-		smart_refctd_ptr<IGPUShader> mainPipelineVertexShader = {};
-		std::array<smart_refctd_ptr<IGPUShader>, 2u> geoTexturePipelineShaders = {};
+		smart_refctd_ptr<IShader> mainPipelineFragmentShaders = {};
+		smart_refctd_ptr<IShader> mainPipelineVertexShader = {};
+		std::array<smart_refctd_ptr<IShader>, 2u> geoTexturePipelineShaders = {};
 		{
 			smart_refctd_ptr<IShaderCompiler::CCache> shaderReadCache = nullptr;
 			smart_refctd_ptr<IShaderCompiler::CCache> shaderWriteCache = core::make_smart_refctd_ptr<IShaderCompiler::CCache>();
@@ -958,36 +961,30 @@ public:
 			}
 
 			// Load Custom Shader
-			auto loadCompileShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<ICPUShader>
-				{
-					IAssetLoader::SAssetLoadParams lp = {};
-					lp.logger = m_logger.get();
-					lp.workingDirectory = ""; // virtual root
-					auto assetBundle = m_assetMgr->getAsset(relPath, lp);
-					const auto assets = assetBundle.getContents();
-					if (assets.empty())
-						return nullptr;
+auto loadCompileShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<IShader>
+	{
+		IAssetLoader::SAssetLoadParams lp = {};
+		lp.logger = m_logger.get();
+		lp.workingDirectory = ""; // virtual root
+		auto assetBundle = m_assetMgr->getAsset(relPath, lp);
+		const auto assets = assetBundle.getContents();
+		if (assets.empty())
+			return nullptr;
 
-					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-					auto cpuShader = IAsset::castDown<ICPUShader>(assets[0]);
-					if (!cpuShader)
-						return nullptr;
+		// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+		auto source = IAsset::castDown<IShader>(assets[0]);
+		if (!source)
+			return nullptr;
+	
+		return m_device->compileShader({ source.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
+	};
 
-					cpuShader->setShaderStage(stage);
-					return m_device->compileShader({ cpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
-				};
-
-			auto mainPipelineFragmentCpuShader = loadCompileShader("../shaders/main_pipeline/fragment.hlsl", IShader::E_SHADER_STAGE::ESS_ALL_OR_LIBRARY);
-			auto mainPipelineVertexCpuShader = loadCompileShader("../shaders/main_pipeline/vertex_shader.hlsl", IShader::E_SHADER_STAGE::ESS_VERTEX);
-			// auto geoTexturePipelineVertCpuShader = loadCompileShader(GeoTextureRenderer::VertexShaderRelativePath, IShader::E_SHADER_STAGE::ESS_VERTEX);
-			// auto geoTexturePipelineFragCpuShader = loadCompileShader(GeoTextureRenderer::FragmentShaderRelativePath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			mainPipelineFragmentCpuShader->setShaderStage(IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-
-			mainPipelineFragmentShaders = m_device->createShader({ mainPipelineFragmentCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
-			mainPipelineVertexShader = m_device->createShader({ mainPipelineVertexCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
-			// geoTexturePipelineShaders[0] = m_device->createShader({ geoTexturePipelineVertCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
-			// geoTexturePipelineShaders[1] = m_device->createShader({ geoTexturePipelineFragCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
+			auto mainPipelineFragmentShader = loadCompileShader("../shaders/main_pipeline/fragment.hlsl", IShader::E_SHADER_STAGE::ESS_ALL_OR_LIBRARY);
+			auto mainPipelineVertexShader = loadCompileShader("../shaders/main_pipeline/vertex_shader.hlsl", IShader::E_SHADER_STAGE::ESS_VERTEX);
+			// auto geoTexturePipelineVertShader = loadCompileShader(GeoTextureRenderer::VertexShaderRelativePath, IShader::E_SHADER_STAGE::ESS_VERTEX);
+			// auto geoTexturePipelineFragShader = loadCompileShader(GeoTextureRenderer::FragmentShaderRelativePath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 			
+#if 0
 			core::smart_refctd_ptr<system::IFile> shaderWriteCacheFile;
 			{
 				system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
@@ -1013,6 +1010,7 @@ public:
 				else
 					m_logger->log("Failed Creating Shader Cache File.", ILogger::ELL_ERROR);
 			}
+#endif
 		}
 
 		// Shared Blend Params between pipelines
@@ -1030,7 +1028,7 @@ public:
 			// Load FSTri Shader
 			ext::FullScreenTriangle::ProtoPipeline fsTriangleProtoPipe(m_assetMgr.get(),m_device.get(),m_logger.get());
 			
-			const IGPUShader::SSpecInfo fragSpec = { .entryPoint = "resolveAlphaMain", .shader = mainPipelineFragmentShaders.get() };
+			const video::IGPUPipelineBase::SShaderSpecInfo fragSpec = { .shader = mainPipelineFragmentShaders.get(), .entryPoint = "resolveAlphaMain" };
 
 			resolveAlphaGraphicsPipeline = fsTriangleProtoPipe.createPipeline(fragSpec, pipelineLayout.get(), compatibleRenderPass.get(), 0u, blendParams);
 			if (!resolveAlphaGraphicsPipeline)
@@ -1041,20 +1039,21 @@ public:
 		// Create Main Graphics Pipelines 
 		{
 			
-			IGPUShader::SSpecInfo specInfo[2] = {
+			video::IGPUPipelineBase::SShaderSpecInfo specInfo[2] = {
 				{
-					.entryPoint = "main",
-					.shader = mainPipelineVertexShader.get()
+					.shader = mainPipelineVertexShader.get(),
+					.entryPoint = "main"
 				},
 				{
-					.entryPoint = "fragMain",
-					.shader = mainPipelineFragmentShaders.get()
+					.shader = mainPipelineFragmentShaders.get(),
+					.entryPoint = "fragMain"
 				},
 			};
 
 			IGPUGraphicsPipeline::SCreationParams params[1] = {};
 			params[0].layout = pipelineLayout.get();
-			params[0].shaders = specInfo;
+			params[0].vertexShader = specInfo[0];
+			params[0].fragmentShader = specInfo[1];
 			params[0].cached = {
 				.vertexInput = {},
 				.primitiveAssembly = {
@@ -1626,7 +1625,7 @@ public:
 					.triangleMeshMainObjectIndex = drawCall.dtm.triangleMeshMainObjectIndex,
 					.isDTMRendering = true
 				};
-				cb->pushConstants(graphicsPipeline->getLayout(), IGPUShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
+				cb->pushConstants(graphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
 
 				cb->drawIndexed(drawCall.dtm.indexCount, 1u, 0u, 0u, 0u);
 			}
@@ -1635,7 +1634,7 @@ public:
 				PushConstants pc = {
 					.isDTMRendering = false
 				};
-				cb->pushConstants(graphicsPipeline->getLayout(), IGPUShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
+				cb->pushConstants(graphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
 
 				const uint64_t indexOffset = drawCall.drawObj.drawObjectStart * 6u;
 				const uint64_t indexCount = drawCall.drawObj.drawObjectCount * 6u;
@@ -3698,9 +3697,9 @@ protected:
 
 	bool fragmentShaderInterlockEnabled = false;
 
-	core::smart_refctd_ptr<InputSystem> m_inputSystem;
-	InputSystem::ChannelReader<IMouseEventChannel> mouse;
-	InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
+	core::smart_refctd_ptr<nbl::examples::InputSystem> m_inputSystem;
+	nbl::examples::InputSystem::ChannelReader<IMouseEventChannel> mouse;
+	nbl::examples::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 	
 	smart_refctd_ptr<IGPURenderpass> renderpassInitial; // this renderpass will clear the attachment and transition it to COLOR_ATTACHMENT_OPTIMAL
 	smart_refctd_ptr<IGPURenderpass> renderpassInBetween; // this renderpass will load the attachment and transition it to COLOR_ATTACHMENT_OPTIMAL
