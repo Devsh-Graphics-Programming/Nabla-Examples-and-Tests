@@ -588,9 +588,9 @@ float4 fragMain(PSInput input) : SV_TARGET
                     nbl::hlsl::shapes::Line<float> lineSegment;
 
                     // Doing SDF of outlines as if cooridnate system is centered around the nearest corner of the cell
-                    float2 localGridTopLeftCorner = (currentCellCoord + float2(roundedLocalUV)) * cellWidth;
-                    // We do sdf in corner's local coordinate, so we subtract currentCellScreenspaceCoord from fragmentPos and topLeftGrid 
-                    float2 localFragPos = gridSpacePos - localGridTopLeftCorner;
+                    float2 localCellSpaceOrigin = (currentCellCoord + float2(roundedLocalUV)) * cellWidth; // in local cell space, origin
+                    float2 localGridTopLeftCorner = -localCellSpaceOrigin; // top left in local cell space: topLeft is (0, 0) implicitly
+                    float2 localFragPos = gridSpacePos - localCellSpaceOrigin; // we compute the current fragment pos, in local cell space
                     
                     float phaseShift = 0.0f;
                     const bool hasStipples = outlineStyle.hasStipples();
