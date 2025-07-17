@@ -40,6 +40,7 @@ void updateFluidCells(uint32_t3 ID : SV_DispatchThreadID)
 }
 
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
+[shader("compute")]
 void updateNeighborFluidCells(uint32_t3 ID : SV_DispatchThreadID)
 {
     int3 cIdx = ID;

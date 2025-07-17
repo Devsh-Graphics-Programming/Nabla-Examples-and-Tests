@@ -14,6 +14,7 @@ cbuffer GridData
 
 // TODO: can this kernel be fused with any preceeding/succeeding it?
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
+[shader("compute")]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
     // only gravity for now

@@ -94,9 +94,9 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 				// The convention is that an `ICPU` object represents a potentially Mutable (and in the past, Serializable) recipe for creating an `IGPU` object, and later examples will show automated systems for doing that.
 				// The Assets always form a Directed Acyclic Graph and our type system enforces that property at compile time (i.e. an `IBuffer` cannot reference an `IImageView` even indirectly).
 				// Another reason for the 1:1 pairing of types is that one can use a CPU-to-GPU associative cache (asset manager has a default one) and use the pointers to the CPU objects as UUIDs.
-				// The ICPUShader is just a mutable container for source code (can be high level like HLSL needing compilation to SPIR-V or SPIR-V itself) held in an `nbl::asset::ICPUBuffer`.
+				// The IShader is just a mutable container for source code (can be high level like HLSL needing compilation to SPIR-V or SPIR-V itself) held in an `nbl::asset::ICPUBuffer`.
 				// They can be created: from buffers of code, by compilation from some other source code, or loaded from files (next example will do that).
-				smart_refctd_ptr<nbl::asset::ICPUShader> cpuShader;
+				smart_refctd_ptr<nbl::asset::IShader> cpuShader;
 				{
 					// Normally we'd use the ISystem and the IAssetManager to load shaders flexibly from (virtual) files for ease of development (syntax highlighting and Intellisense),
 					// but I want to show the full process of assembling a shader from raw source code at least once.
@@ -138,7 +138,7 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 				}
 
 				// Note how each ILogicalDevice method takes a smart-pointer r-value, so that the GPU objects refcount their dependencies
-				smart_refctd_ptr<nbl::video::IGPUShader> shader = device->createShader(cpuShader.get());
+				smart_refctd_ptr<IShader> shader = device->compileShader({.source = cpuShader.get()});
 				if (!shader)
 					return logFail("Failed to create a GPU Shader, seems the Driver doesn't like the SPIR-V we're feeding it!\n");
 
