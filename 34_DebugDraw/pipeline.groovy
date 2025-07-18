@@ -2,9 +2,9 @@ import org.DevshGraphicsProgramming.Agent
 import org.DevshGraphicsProgramming.BuilderInfo
 import org.DevshGraphicsProgramming.IBuilder
 
-class CPLYSTLDemoBuilder extends IBuilder
+class CDebugDrawBuilder extends IBuilder
 {
-	public CPLYSTLDemoBuilder(Agent _agent, _info)
+	public CDebugDrawBuilder(Agent _agent, _info)
 	{
 		super(_agent, _info)
 	}
@@ -44,7 +44,7 @@ class CPLYSTLDemoBuilder extends IBuilder
 
 def create(Agent _agent, _info)
 {
-	return new CPLYSTLDemoBuilder(_agent, _info)
+	return new CDebugDrawBuilder(_agent, _info)
 }
 
 return this

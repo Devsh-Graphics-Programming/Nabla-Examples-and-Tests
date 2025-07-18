@@ -9,6 +9,10 @@
 #include "nbl/ext/MitsubaLoader/CSerializedLoader.h"
 #endif
 
+#ifdef NBL_BUILD_DEBUG_DRAW
+#include "nbl/ext/DebugDraw/CDrawAABB.h"
+#endif
+
 class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourcesApplication
 {
 		using device_base_t = MonoWindowApplication;
@@ -47,6 +51,18 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(),scRes->getRenderpass(),0,{});
 			if (!m_renderer)
 				return logFail("Failed to create renderer!");
+
+#ifdef NBL_BUILD_DEBUG_DRAW
+			{
+				auto* renderpass = scRes->getRenderpass();
+				ext::debugdraw::DrawAABB::SCreationParameters params = {};
+				params.assetManager = m_assetMgr;
+				params.pipelineLayout = ext::debugdraw::DrawAABB::createDefaultPipelineLayout(m_device.get());
+				params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
+				params.utilities = m_utils;
+				drawAABB = ext::debugdraw::DrawAABB::create(std::move(params));
+			}
+#endif
 
 			//
 			if (!reloadModel())
@@ -109,8 +125,12 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 					keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 						{
 							for (const auto& event : events)
-							if (event.keyCode==E_KEY_CODE::EKC_R && event.action==SKeyboardEvent::ECA_RELEASED)
-								reload = true;
+							{
+								if (event.keyCode == E_KEY_CODE::EKC_R && event.action == SKeyboardEvent::ECA_RELEASED)
+									reload = true;
+								if (event.keyCode == E_KEY_CODE::EKC_B && event.action == SKeyboardEvent::ECA_RELEASED)
+									m_drawBBs = !m_drawBBs;
+							}
 							camera.keyboardProcess(events);
 						},
 						m_logger.get()
@@ -130,6 +150,24 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 					}
  					m_renderer->render(cb,CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix));
 				}
+#ifdef NBL_BUILD_DEBUG_DRAW
+				if (m_drawBBs)
+				{
+					core::matrix4SIMD modelViewProjectionMatrix;
+					{
+						const auto viewMatrix = camera.getViewMatrix();
+						const auto projectionMatrix = camera.getProjectionMatrix();
+						const auto viewProjectionMatrix = camera.getConcatenatedMatrix();
+
+						core::matrix3x4SIMD modelMatrix;
+						modelMatrix.setTranslation(nbl::core::vectorSIMDf(0, 0, 0, 0));
+						modelMatrix.setRotation(quaternion(0, 0, 0));
+						modelViewProjectionMatrix = core::concatenateBFollowedByA(viewProjectionMatrix, modelMatrix);
+					}
+					const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
+					drawAABB->render(cb, drawFinished, modelViewProjectionMatrix.pointer());
+				}
+#endif
 				cb->endRenderPass();
 			}
 			cb->end();
@@ -349,7 +387,10 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 						return false;
 					}
 				}
-				
+
+#ifdef NBL_BUILD_DEBUG_DRAW
+				drawAABB->clearAABBs();
+#endif
 				auto tmp = hlsl::float32_t4x3(
 					hlsl::float32_t3(1,0,0),
 					hlsl::float32_t3(0,1,0),
@@ -367,6 +408,12 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 					const auto transformed = hlsl::shapes::util::transform(promotedWorld,promoted);
 					printAABB(transformed,"Transformed");
 					bound = hlsl::shapes::util::union_(transformed,bound);
+
+#ifdef NBL_BUILD_DEBUG_DRAW
+					const auto tmpAabb = shapes::AABB<3,float>(promoted.minVx, promoted.maxVx);
+					const auto tmpWorld = hlsl::float32_t3x4(promotedWorld);
+					drawAABB->addOBB(tmpAabb, tmpWorld, hlsl::float32_t4{ 1,1,1,1 });
+#endif
 				}
 				printAABB(bound,"Total");
 				if (!m_renderer->addGeometries({ &converted.front().get(),converted.size() }))
@@ -416,6 +463,11 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
 		// mutables
 		std::string m_modelPath;
+
+		bool m_drawBBs = true;
+#ifdef NBL_BUILD_DEBUG_DRAW
+		smart_refctd_ptr<nbl::ext::debugdraw::DrawAABB> drawAABB;
+#endif
 };
 
 NBL_MAIN_FUNC(MeshLoadersApp)

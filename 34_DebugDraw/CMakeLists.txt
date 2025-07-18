@@ -1,19 +1,13 @@
-include(common RESULT_VARIABLE RES)
-if(NOT RES)
-        message(FATAL_ERROR "common.cmake not found. Should be in {repo_root}/cmake directory")
-endif()
-
-if(NBL_BUILD_IMGUI)
+if(NBL_BUILD_DEBUG_DRAW)
 	set(NBL_INCLUDE_SERACH_DIRECTORIES
 		"${CMAKE_CURRENT_SOURCE_DIR}/include"
 	)
 
-	list(APPEND NBL_LIBRARIES 
-		imtestengine
-		"${NBL_EXT_IMGUI_UI_LIB}"
-	)
+	nbl_create_executable_project("${NBL_EXTRA_SOURCES}" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
 
-	nbl_create_executable_project("" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
+	add_dependencies(${EXECUTABLE_NAME} ${NBL_EXT_DEBUG_DRAW_TARGET})
+	target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${NBL_EXT_DEBUG_DRAW_TARGET})
+	target_include_directories(${EXECUTABLE_NAME} PUBLIC $<TARGET_PROPERTY:${NBL_EXT_DEBUG_DRAW_TARGET},INCLUDE_DIRECTORIES>)
 
 	if(NBL_EMBED_BUILTIN_RESOURCES)
 		set(_BR_TARGET_ ${EXECUTABLE_NAME}_builtinResourceData)
@@ -33,5 +27,3 @@ if(NBL_BUILD_IMGUI)
 		LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} ${_BR_TARGET_})
 	endif()
 endif()
-
-
