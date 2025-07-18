@@ -135,6 +135,7 @@ float4 fragMain(PSInput input) : SV_TARGET
     ObjectType objType = input.getObjType();
     const uint32_t currentMainObjectIdx = input.getMainObjectIdx();
     const MainObject mainObj = loadMainObject(currentMainObjectIdx);
+    float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
     
     if (pc.isDTMRendering)
     {
@@ -153,13 +154,13 @@ float4 fragMain(PSInput input) : SV_TARGET
         float4 dtmColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
         
         if (dtmSettings.drawOutlineEnabled())                                                                                                    // TODO: do i need 'height' paramter here?
-            dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMOutlineColor(dtmSettings.outlineLineStyleIdx, triangleVertices, input.position.xy));
+            dtmColor = dtm::blendUnder(dtmColor, dtm::calculateDTMOutlineColor(dtmSettings.outlineLineStyleIdx, worldToScreenRatio, triangleVertices, input.position.xy));
         if (dtmSettings.drawContourEnabled())
         {
             for(uint32_t i = 0; i < dtmSettings.contourSettingsCount; ++i) // TODO: should reverse the order with blendUnder
             {
                 LineStyle contourStyle = loadLineStyle(dtmSettings.contourSettings[i].contourLineStyleIdx);
-                float sdf = dtm::calculateDTMContourSDF(dtmSettings.contourSettings[i], contourStyle, triangleVertices, input.position.xy, height);
+                float sdf = dtm::calculateDTMContourSDF(dtmSettings.contourSettings[i], contourStyle, worldToScreenRatio, triangleVertices, input.position.xy, height);
                 float4 contourColor = contourStyle.color;
                 contourColor.a *= 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, sdf);
                 dtmColor = dtm::blendUnder(dtmColor, contourColor);
@@ -203,7 +204,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                 else
                 {
                     nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
-                    LineStyleClipper clipper = LineStyleClipper::construct(loadLineStyle(styleIdx), lineSegment, arcLenCalc, phaseShift, stretch, globals.worldToScreenRatio);
+                    LineStyleClipper clipper = LineStyleClipper::construct(loadLineStyle(styleIdx), lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
                     distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
                 }
             }
@@ -224,7 +225,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                 }
                 else
                 {
-                    BezierStyleClipper clipper = BezierStyleClipper::construct(loadLineStyle(styleIdx), quadratic, arcLenCalc, phaseShift, stretch, globals.worldToScreenRatio );
+                    BezierStyleClipper clipper = BezierStyleClipper::construct(loadLineStyle(styleIdx), quadratic, arcLenCalc, phaseShift, stretch, worldToScreenRatio );
                     distance = ClippedSignedDistance<nbl::hlsl::shapes::Quadratic<float>, BezierStyleClipper>::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
                 }
             }
@@ -241,6 +242,9 @@ float4 fragMain(PSInput input) : SV_TARGET
 
             }
             localAlpha = 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, distance);
+            
+            // if (objType != ObjectType::POLYLINE_CONNECTOR)
+            //    localAlpha *= 0.3f;
         }
         else if (objType == ObjectType::CURVE_BOX) 
         {
@@ -458,8 +462,8 @@ float4 fragMain(PSInput input) : SV_TARGET
                 outlineLineSegments[1].P1 = float32_t2(nearestLineRemainingCoords.x, horizontalBounds.y);
                 
                 LineStyle outlineStyle = loadLineStyle(dtmSettings.outlineLineStyleIdx);
-                float sdf = dtm::calculateLineSDF(outlineStyle, outlineLineSegments[0], gridSpacePos, 0.0f);
-                sdf = min(sdf, dtm::calculateLineSDF(outlineStyle, outlineLineSegments[1], gridSpacePos, 0.0f));
+                float sdf = dtm::calculateLineSDF(outlineStyle, worldToScreenRatio, outlineLineSegments[0], gridSpacePos, 0.0f);
+                sdf = min(sdf, dtm::calculateLineSDF(outlineStyle, worldToScreenRatio, outlineLineSegments[1], gridSpacePos, 0.0f));
 
                 float4 dtmColor = outlineStyle.color;
                 dtmColor.a *= 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, sdf);
@@ -572,7 +576,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                         {
                             const dtm::GridDTMTriangle tri = triangles[t];
                             const float currentInterpolatedHeight = interpolatedHeights[t];
-                            sdf = min(sdf, dtm::calculateDTMContourSDF(dtmSettings.contourSettings[i], contourStyle, tri.vertices, gridSpacePos, currentInterpolatedHeight));
+                            sdf = min(sdf, dtm::calculateDTMContourSDF(dtmSettings.contourSettings[i], contourStyle, worldToScreenRatio, tri.vertices, gridSpacePos, currentInterpolatedHeight));
                         }
                         
                         float4 contourColor = contourStyle.color; contourColor.a = 0.5f;
@@ -594,7 +598,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                     
                     float phaseShift = 0.0f;
                     const bool hasStipples = outlineStyle.hasStipples();
-                    const float rcpPattenLenScreenSpace = outlineStyle.reciprocalStipplePatternLen * globals.worldToScreenRatio;
+                    const float rcpPattenLenScreenSpace = outlineStyle.reciprocalStipplePatternLen * worldToScreenRatio;
                     // Drawing the lines that form a plus sign around the current corner:
                     if (linesValidity[0])
                     {
@@ -602,7 +606,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                         lineSegment.P0 = float2((offset.x > 0) ? -offset.x * cellWidth : 0.0f, 0.0f);
                         lineSegment.P1 = float2((offset.x < 0) ? -offset.x * cellWidth : 0.0f, 0.0f);
                         phaseShift = fract((lineSegment.P0.x - localGridTopLeftCorner.x) * rcpPattenLenScreenSpace);
-                        sdf = min(sdf, dtm::calculateLineSDF(outlineStyle, lineSegment, localFragPos, phaseShift));
+                        sdf = min(sdf, dtm::calculateLineSDF(outlineStyle, worldToScreenRatio, lineSegment, localFragPos, phaseShift));
                     }
                     if (linesValidity[1])
                     {
@@ -610,7 +614,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                         lineSegment.P0 = float2(0.0f, (offset.y > 0) ? -offset.y * cellWidth : 0.0f);
                         lineSegment.P1 = float2(0.0f, (offset.y < 0) ? -offset.y * cellWidth : 0.0f);
                         phaseShift = fract((lineSegment.P0.y - localGridTopLeftCorner.y) * rcpPattenLenScreenSpace);
-                        sdf = min(sdf, dtm::calculateLineSDF(outlineStyle, lineSegment, localFragPos, phaseShift));
+                        sdf = min(sdf, dtm::calculateLineSDF(outlineStyle, worldToScreenRatio, lineSegment, localFragPos, phaseShift));
                     }
                     if (linesValidity[2])
                     {
@@ -618,7 +622,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                         lineSegment.P0 = float2((offset.x < 0) ? offset.x * cellWidth : 0.0f, 0.0f);
                         lineSegment.P1 = float2((offset.x > 0) ? offset.x * cellWidth : 0.0f, 0.0f);
                         phaseShift = fract((lineSegment.P0.x - localGridTopLeftCorner.x) * rcpPattenLenScreenSpace);
-                        sdf = min(sdf, dtm::calculateLineSDF(outlineStyle, lineSegment, localFragPos, phaseShift));
+                        sdf = min(sdf, dtm::calculateLineSDF(outlineStyle, worldToScreenRatio, lineSegment, localFragPos, phaseShift));
                     }
                     if (linesValidity[3])
                     {
@@ -626,7 +630,7 @@ float4 fragMain(PSInput input) : SV_TARGET
                         lineSegment.P0 = float2(0.0f, (offset.y < 0) ? offset.y * cellWidth : 0.0f);
                         lineSegment.P1 = float2(0.0f, (offset.y > 0) ? offset.y * cellWidth : 0.0f);
                         phaseShift = fract((lineSegment.P0.y - localGridTopLeftCorner.y) * rcpPattenLenScreenSpace);
-                        sdf = min(sdf, dtm::calculateLineSDF(outlineStyle, lineSegment, localFragPos, phaseShift));
+                        sdf = min(sdf, dtm::calculateLineSDF(outlineStyle, worldToScreenRatio, lineSegment, localFragPos, phaseShift));
                     }
 
                     float4 outlineColor = outlineStyle.color;

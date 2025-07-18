@@ -68,8 +68,6 @@ struct Globals
     Pointers pointers;
     pfloat64_t3x3 defaultProjectionToNDC;
     pfloat64_t3x3 screenToWorldScaleTransform; // Pre-multiply your transform with this to scale in screen space (e.g., scale 100.0 means 100 screen pixels).
-    float screenToWorldRatio;
-    float worldToScreenRatio;
     uint32_t2 resolution;
     float antiAliasingFactor;
     uint32_t miterLimit;
@@ -77,7 +75,7 @@ struct Globals
     float32_t _padding;
 };
 #ifndef __HLSL_VERSION
-static_assert(sizeof(Globals) == 232u);
+static_assert(sizeof(Globals) == 224u);
 #endif
 
 #ifdef __HLSL_VERSION
@@ -330,7 +328,7 @@ static float32_t3 unpackR11G11B10_UNORM(uint32_t packed)
 struct PolylineConnector
 {
     pfloat64_t2 circleCenter;
-    float32_t2 v;
+    float32_t2 v; // the vector from circle center to the intersection of the line ends, it's normalized such that the radius of the circle is equal to 1
     float32_t cosAngleDifferenceHalf;
     float32_t _reserved_pad;
 };
@@ -477,6 +475,8 @@ struct DTMSettings
     uint32_t contourSettingsCount;
     DTMContourSettings contourSettings[MaxContourSettings];
 
+    uint32_t workaroundForSpirvOptimizerBugToMakeNextMembersAlignmentEqualTo16_LOL;
+    
     // height shading
     DTMHeightShadingSettings heightShadingSettings;
     

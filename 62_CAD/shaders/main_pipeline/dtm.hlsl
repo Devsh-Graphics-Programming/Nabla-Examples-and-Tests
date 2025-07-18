@@ -234,10 +234,10 @@ float4 calculateDTMHeightColor(in DTMHeightShadingSettings settings, in float3 t
     return outputColor;
 }
 
-float calculateDTMContourSDF(in DTMContourSettings contourSettings, in LineStyle contourStyle, in float3 v[3], in float2 fragPos, in float height)
+float calculateDTMContourSDF(in DTMContourSettings contourSettings, in LineStyle contourStyle, in float worldToScreenRatio, in float3 v[3], in float2 fragPos, in float height)
 {
     float distance = nbl::hlsl::numeric_limits<float>::max;
-    const float contourThickness = (contourStyle.screenSpaceLineWidth + contourStyle.worldSpaceLineWidth * globals.screenToWorldRatio) * 0.5f;
+    const float contourThickness = (contourStyle.screenSpaceLineWidth + contourStyle.worldSpaceLineWidth / worldToScreenRatio) * 0.5f;
     const float stretch = 1.0f;
     const float phaseShift = 0.0f;
 
@@ -286,7 +286,7 @@ float calculateDTMContourSDF(in DTMContourSettings contourSettings, in LineStyle
             // It might be beneficial to calculate distance between pixel and contour line to early out some pixels and save yourself from stipple sdf computations!
             // where you only compute the complex sdf if abs((height - contourVal) / heightDeriv) <= aaFactor
             nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
-            LineStyleClipper clipper = LineStyleClipper::construct(contourStyle, lineSegment, arcLenCalc, phaseShift, stretch, globals.worldToScreenRatio);
+            LineStyleClipper clipper = LineStyleClipper::construct(contourStyle, lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
             distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, fragPos, contourThickness, contourStyle.isRoadStyleFlag, clipper);
         }
     }
@@ -294,12 +294,12 @@ float calculateDTMContourSDF(in DTMContourSettings contourSettings, in LineStyle
     return distance;
 }
 
-float4 calculateDTMOutlineColor(in uint outlineLineStyleIdx, in float3 v[3], in float2 fragPos)
+float4 calculateDTMOutlineColor(in uint outlineLineStyleIdx, in float worldToScreenRatio, in float3 v[3], in float2 fragPos)
 {
     float4 outputColor;
 
     LineStyle outlineStyle = loadLineStyle(outlineLineStyleIdx);
-    const float outlineThickness = (outlineStyle.screenSpaceLineWidth + outlineStyle.worldSpaceLineWidth * globals.screenToWorldRatio) * 0.5f;
+    const float outlineThickness = (outlineStyle.screenSpaceLineWidth + outlineStyle.worldSpaceLineWidth / worldToScreenRatio) * 0.5f;
     const float phaseShift = 0.0f; // input.getCurrentPhaseShift();
     const float stretch = 1.0f;
 
@@ -343,7 +343,7 @@ float4 calculateDTMOutlineColor(in uint outlineLineStyleIdx, in float3 v[3], in 
 
             float distance = nbl::hlsl::numeric_limits<float>::max;
             nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
-            LineStyleClipper clipper = LineStyleClipper::construct(outlineStyle, lineSegment, arcLenCalc, phaseShift, stretch, globals.worldToScreenRatio);
+            LineStyleClipper clipper = LineStyleClipper::construct(outlineStyle, lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
             distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, fragPos, outlineThickness, outlineStyle.isRoadStyleFlag, clipper);
 
             minDistance = min(minDistance, distance);
@@ -360,9 +360,9 @@ float4 calculateDTMOutlineColor(in uint outlineLineStyleIdx, in float3 v[3], in 
 // TODO:
 // It's literally sdf with a line shape
 // so it should be moved somewhere else and used for every line maybe
-float calculateLineSDF(in LineStyle lineStyle, in nbl::hlsl::shapes::Line<float> lineSegment, in float2 fragPos, in float phaseShift)
+float calculateLineSDF(in LineStyle lineStyle, in float worldToScreenRatio, in nbl::hlsl::shapes::Line<float> lineSegment, in float2 fragPos, in float phaseShift)
 {
-    const float outlineThickness = (lineStyle.screenSpaceLineWidth + lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio) * 0.5f;
+    const float outlineThickness = (lineStyle.screenSpaceLineWidth + lineStyle.worldSpaceLineWidth / worldToScreenRatio) * 0.5f;
     const float stretch = 1.0f;
 
     float minDistance = nbl::hlsl::numeric_limits<float>::max;
@@ -376,7 +376,7 @@ float calculateLineSDF(in LineStyle lineStyle, in nbl::hlsl::shapes::Line<float>
     {
         float distance = nbl::hlsl::numeric_limits<float>::max;
         nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
-        LineStyleClipper clipper = LineStyleClipper::construct(lineStyle, lineSegment, arcLenCalc, phaseShift, stretch, globals.worldToScreenRatio);
+        LineStyleClipper clipper = LineStyleClipper::construct(lineStyle, lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
         distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, fragPos, outlineThickness, lineStyle.isRoadStyleFlag, clipper);
 
         minDistance = min(minDistance, distance);

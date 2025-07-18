@@ -72,6 +72,13 @@ float32_t4 transformFromSreenSpaceToNdc(float2 pos, uint32_t2 resolution)
 {
     return float32_t4((pos.xy / (float32_t2)resolution) * 2.0f - 1.0f, 0.0f, 1.0f);
 }
+float32_t getScreenToWorldRatio(pfloat64_t3x3 transformation, uint32_t2 resolution)
+{
+	pfloat64_t idx_0_0 = transformation[0u].x * (resolution.x / 2.0);
+	pfloat64_t idx_1_0 = transformation[1u].x * (resolution.y / 2.0);
+    float32_t2 firstCol; firstCol.x = _static_cast<float32_t>(idx_0_0); firstCol.y = _static_cast<float32_t>(idx_1_0); 
+	return nbl::hlsl::length(firstCol); // TODO: Do length in fp64?
+}
 
 template<bool FragmentShaderPixelInterlock>
 void dilateHatch(out float2 outOffsetVec, out float2 outUV, const float2 undilatedCorner, const float2 dilateRate, const float2 ndcAxisU, const float2 ndcAxisV);
@@ -131,6 +138,10 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
         MainObject mainObj = loadMainObject(pc.triangleMeshMainObjectIndex);
         clipProjectionData = getClipProjectionData(mainObj);
 
+        float screenToWorldRatio = getScreenToWorldRatio(clipProjectionData.projectionToNDC, globals.resolution);
+        float worldToScreenRatio = 1.0f / screenToWorldRatio;
+        outV.setCurrentWorldToScreenRatio(worldToScreenRatio);
+        
         // assuming there are 3 * N vertices, number of vertices is equal to number of indices and indices are sequential starting from 0
         float2 transformedOriginalPos;
         float2 transformedDilatedPos;
@@ -154,7 +165,7 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
             triangleVertices[2].pos = triangleVertices[2].pos - triangleCentroid;
 
             // TODO: calculate dialation factor
-            // const float dilateByPixels = 0.5 * (dtmSettings.maxScreenSpaceLineWidth + dtmSettings.maxWorldSpaceLineWidth * globals.screenToWorldRatio) + aaFactor;
+            // const float dilateByPixels = 0.5 * (dtmSettings.maxScreenSpaceLineWidth + dtmSettings.maxWorldSpaceLineWidth * screenToWorldRatio) + aaFactor;
         
             pfloat64_t dialationFactor = _static_cast<pfloat64_t>(2.0f);
             pfloat64_t2 dialatedVertex = triangleVertices[currentVertexWithinTriangleIndex].pos * dialationFactor;
@@ -193,6 +204,10 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
 
         MainObject mainObj = loadMainObject(drawObj.mainObjIndex);
         clipProjectionData = getClipProjectionData(mainObj);
+        
+        float screenToWorldRatio = getScreenToWorldRatio(clipProjectionData.projectionToNDC, globals.resolution);
+        float worldToScreenRatio = 1.0f / screenToWorldRatio;
+        outV.setCurrentWorldToScreenRatio(worldToScreenRatio);
     
         // We only need these for Outline type objects like lines and bezier curves
         if (objType == ObjectType::LINE || objType == ObjectType::QUAD_BEZIER || objType == ObjectType::POLYLINE_CONNECTOR)
@@ -200,7 +215,7 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
             LineStyle lineStyle = loadLineStyle(mainObj.styleIdx);
 
             // Width is on both sides, thickness is one one side of the curve (div by 2.0f)
-            const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio;
+            const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + lineStyle.worldSpaceLineWidth * screenToWorldRatio;
             const float antiAliasedLineThickness = screenSpaceLineWidth * 0.5f + globals.antiAliasingFactor;
             const float sdfLineThickness = screenSpaceLineWidth / 2.0f;
             outV.setLineThickness(sdfLineThickness);
@@ -661,8 +676,8 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
             const float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
 
             outV.setGridDTMHeightTextureID(textureID);
-            outV.setGridDTMScreenSpaceCellWidth(gridCellWidth * globals.screenToWorldRatio);
-            outV.setGridDTMScreenSpaceGridExtents(_static_cast<float2>(worldSpaceExtents) * globals.screenToWorldRatio);
+            outV.setGridDTMScreenSpaceCellWidth(gridCellWidth * screenToWorldRatio);
+            outV.setGridDTMScreenSpaceGridExtents(_static_cast<float2>(worldSpaceExtents) * screenToWorldRatio);
 
             static const float SquareRootOfTwo = 1.4142135f;
             const pfloat64_t dilationFactor = _static_cast<pfloat64_t>(SquareRootOfTwo * thicknessOfTheThickestLine);

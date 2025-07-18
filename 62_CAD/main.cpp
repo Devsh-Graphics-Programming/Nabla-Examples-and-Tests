@@ -83,7 +83,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	1000.0	// CASE_11
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_11;
+constexpr ExampleMode mode = ExampleMode::CASE_5;
 
 class Camera2D
 {
@@ -1493,7 +1493,8 @@ public:
 
 		// TEST CAMERA ROTATION
 #if 0
-		double rotation = 0.25 * PI<double>();
+		// double rotation = 0.25 * PI<double>();
+		double rotation = abs(cos(m_timeElapsed * 0.0001)) * PI<double>();
 		float64_t2 rotationVec = float64_t2(cos(rotation), sin(rotation));
 		float64_t3x3 rotationParameter = float64_t3x3 {
 			rotationVec.x, rotationVec.y, 0.0,
@@ -1517,11 +1518,9 @@ public:
 		globalData.resolution = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
 		globalData.defaultProjectionToNDC = projectionToNDC;
 		float screenToWorld = getScreenToWorldRatio(globalData.defaultProjectionToNDC, globalData.resolution);
-		globalData.screenToWorldRatio = screenToWorld;
-		globalData.worldToScreenRatio = (1.0f/screenToWorld);
-		globalData.screenToWorldScaleTransform = float64_t3x3(globalData.worldToScreenRatio, 0.0f, 0.0f,
-														 0.0f, globalData.worldToScreenRatio, 0.0f,
-														 0.0f, 0.0f, 1.0f);
+		globalData.screenToWorldScaleTransform = float64_t3x3(	1.0f / screenToWorld, 0.0f, 0.0f,
+																0.0f, 1.0f / screenToWorld, 0.0f,
+																0.0f, 0.0f, 1.0f);
 		globalData.miterLimit = 10.0f;
 		globalData.currentlyActiveMainObjectIndex = drawResourcesFiller.getActiveMainObjectIndex();
 		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = m_globalsBuffer.get() };
@@ -1646,14 +1645,27 @@ public:
 			cb->bindGraphicsPipeline(resolveAlphaGraphicsPipeline.get());
 			nbl::ext::FullScreenTriangle::recordDrawCall(cb);
 		}
-
+		
 		if constexpr (DebugModeWireframe)
 		{
-			const uint32_t indexCount = resourcesCollection.drawObjects.getCount() * 6u;
 			cb->bindGraphicsPipeline(debugGraphicsPipeline.get());
-			cb->drawIndexed(indexCount, 1u, 0u, 0u, 0u);
-		}
 
+			for (auto& drawCall : drawResourcesFiller.getDrawCalls())
+			{
+				PushConstants pc = {
+					.isDTMRendering = false
+				};
+				cb->pushConstants(debugGraphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
+
+				const uint64_t indexOffset = drawCall.drawObj.drawObjectStart * 6u;
+				const uint64_t indexCount = drawCall.drawObj.drawObjectCount * 6u;
+
+				// assert(currentIndexCount == resourcesCollection.indexBuffer.getCount());
+				cb->bindIndexBuffer({ .offset = resourcesCollection.indexBuffer.bufferOffset + indexOffset * sizeof(uint32_t), .buffer = resourcesGPUBuffer.get()}, asset::EIT_32BIT);
+
+				cb->drawIndexed(indexCount, 1u, 0u, 0u, 0u);
+			}
+		}
 		cb->endRenderPass();
 
 		if (!inBetweenSubmit)
@@ -2445,11 +2457,11 @@ protected:
 		else if (mode == ExampleMode::CASE_5)
 		{
 //#define CASE_5_POLYLINE_1 // animated stipple pattern
-//#define CASE_5_POLYLINE_2 // miter test static
+#define CASE_5_POLYLINE_2 // miter test static
 //#define CASE_5_POLYLINE_3 // miter test animated
 //#define CASE_5_POLYLINE_4 // miter test animated (every angle)
 //#define CASE_5_POLYLINE_5 // closed polygon
-#define CASE_5_POLYLINE_6 // stretching
+// #define CASE_5_POLYLINE_6 // stretching
 //#define CASE_5_POLYLINE_7 // wide non solid lines
 
 #if defined(CASE_5_POLYLINE_1)
@@ -2565,7 +2577,7 @@ protected:
 				/*quadratics2[3].P0 = {20.0, 50.0};
 				quadratics2[3].P1 = { -80.0, 100.0 };
 				quadratics2[3].P2 = { -100.0, 90.0 };*/
-				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics2.data(), quadratics2.data() + quadratics2.size()));
+				polyline.addQuadBeziers(quadratics2);
 
 				// section 3: lines
 				std::vector<float64_t2> linePoints2;
@@ -3679,9 +3691,8 @@ protected:
 	double getScreenToWorldRatio(const float64_t3x3& viewProjectionMatrix, uint32_t2 windowSize)
 	{
 		double idx_0_0 = viewProjectionMatrix[0u][0u] * (windowSize.x / 2.0);
-		double idx_1_1 = viewProjectionMatrix[1u][1u] * (windowSize.y / 2.0);
-		double det_2x2_mat = idx_0_0 * idx_1_1;
-		return static_cast<float>(core::sqrt(core::abs(det_2x2_mat)));
+		double idx_1_0 = viewProjectionMatrix[1u][0u] * (windowSize.y / 2.0);
+		return hlsl::length(float64_t2(idx_0_0, idx_1_0));
 	}
 
 protected:
