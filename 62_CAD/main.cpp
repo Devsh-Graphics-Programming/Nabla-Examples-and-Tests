@@ -961,30 +961,27 @@ public:
 			}
 
 			// Load Custom Shader
-auto loadCompileShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<IShader>
-	{
-		IAssetLoader::SAssetLoadParams lp = {};
-		lp.logger = m_logger.get();
-		lp.workingDirectory = ""; // virtual root
-		auto assetBundle = m_assetMgr->getAsset(relPath, lp);
-		const auto assets = assetBundle.getContents();
-		if (assets.empty())
-			return nullptr;
+			auto loadCompileShader = [&](const std::string& relPath) -> smart_refctd_ptr<IShader>
+				{
+					IAssetLoader::SAssetLoadParams lp = {};
+					lp.logger = m_logger.get();
+					lp.workingDirectory = ""; // virtual root
+					auto assetBundle = m_assetMgr->getAsset(relPath, lp);
+					const auto assets = assetBundle.getContents();
+					if (assets.empty())
+						return nullptr;
 
-		// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-		auto source = IAsset::castDown<IShader>(assets[0]);
-		if (!source)
-			return nullptr;
+					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+					auto source = IAsset::castDown<IShader>(assets[0]);
+					if (!source)
+						return nullptr;
 	
-		return m_device->compileShader({ source.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
-	};
+					return m_device->compileShader( ILogicalDevice::SShaderCreationParameters { .source = source.get(), .readCache = shaderReadCache.get(), .writeCache = shaderWriteCache.get(), .stage = IShader::E_SHADER_STAGE::ESS_ALL_OR_LIBRARY });
+				};
 
-			auto mainPipelineFragmentShader = loadCompileShader("../shaders/main_pipeline/fragment.hlsl", IShader::E_SHADER_STAGE::ESS_ALL_OR_LIBRARY);
-			auto mainPipelineVertexShader = loadCompileShader("../shaders/main_pipeline/vertex_shader.hlsl", IShader::E_SHADER_STAGE::ESS_VERTEX);
-			// auto geoTexturePipelineVertShader = loadCompileShader(GeoTextureRenderer::VertexShaderRelativePath, IShader::E_SHADER_STAGE::ESS_VERTEX);
-			// auto geoTexturePipelineFragShader = loadCompileShader(GeoTextureRenderer::FragmentShaderRelativePath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			mainPipelineFragmentShaders = loadCompileShader("../shaders/main_pipeline/fragment.hlsl");
+			mainPipelineVertexShader = loadCompileShader("../shaders/main_pipeline/vertex_shader.hlsl");
 			
-#if 0
 			core::smart_refctd_ptr<system::IFile> shaderWriteCacheFile;
 			{
 				system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
@@ -1010,7 +1007,6 @@ auto loadCompileShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE
 				else
 					m_logger->log("Failed Creating Shader Cache File.", ILogger::ELL_ERROR);
 			}
-#endif
 		}
 
 		// Shared Blend Params between pipelines
@@ -1042,7 +1038,7 @@ auto loadCompileShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE
 			video::IGPUPipelineBase::SShaderSpecInfo specInfo[2] = {
 				{
 					.shader = mainPipelineVertexShader.get(),
-					.entryPoint = "main"
+					.entryPoint = "vtxMain"
 				},
 				{
 					.shader = mainPipelineFragmentShaders.get(),
