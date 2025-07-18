@@ -6,7 +6,7 @@
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
 #include "nbl/builtin/hlsl/random/pcg.hlsl"
 #include "nbl/builtin/hlsl/random/dim_adaptor_recursive.hlsl"
-#include "nbl/builtin/hlsl/sampling/uniform.hlsl"
+#include "nbl/builtin/hlsl/sampling/uniform_spheres.hlsl"
 #include "nbl/builtin/hlsl/bxdf/common.hlsl"
 #include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
 #include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
