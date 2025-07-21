@@ -42,7 +42,9 @@ if(NBL_BUILD_EXAMPLES)
 	# showcase use of FFT for post-FX Bloom  effect
 	add_subdirectory(11_FFT)
 	#
-	add_subdirectory(12_MeshLoaders EXCLUDE_FROM_ALL)
+	add_subdirectory(12_MeshLoaders)
+	#
+	#add_subdirectory(13_MaterialCompiler EXCLUDE_FROM_ALL)
 
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo)
