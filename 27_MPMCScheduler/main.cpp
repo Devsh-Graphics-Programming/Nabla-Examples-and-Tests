@@ -4,6 +4,7 @@
 
 
 #include "nbl/examples/examples.hpp"
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 using namespace nbl;
 using namespace nbl::core;
@@ -73,22 +74,29 @@ class MPMCSchedulerApp final : public SimpleWindowedApplication, public BuiltinR
 
 			smart_refctd_ptr<IShader> shader;
 			{
-				IAssetLoader::SAssetLoadParams lp = {};
-				lp.logger = m_logger.get();
-				lp.workingDirectory = ""; // virtual root
-				auto assetBundle = m_assetMgr->getAsset("app_resources/shader.comp.hlsl", lp);
-				const auto assets = assetBundle.getContents();
-				if (assets.empty())
-					return logFail("Failed to load shader from disk");
+				// load shader
+				{
+					IAssetLoader::SAssetLoadParams lp = {};
+					lp.logger = m_logger.get();
+					lp.workingDirectory = "";
 
-				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-				auto source = IAsset::castDown<IShader>(assets[0]);
-				if (!source)
-					return logFail("Failed to load shader from disk");
+					auto key = "app_resources/" + nbl::this_example::builtin::build::get_spirv_key<"shader">(m_device.get());
+					const auto bundle = m_assetMgr->getAsset(key.data(), lp);
 
-				shader = m_device->compileShader({ source.get() });
-				if (!shader)
-					return false;
+					const auto contents = bundle.getContents();
+
+					if (contents.empty())
+						return logFail("Failed to load shader from disk");
+
+					if (bundle.getAssetType() != IAsset::ET_SHADER)
+						return logFail("Loaded asset has wrong type!");
+
+					shader = IAsset::castDown<IShader>(contents[0]);
+
+					if (!shader)
+						false;
+				}
+
 			}
 			
 			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
