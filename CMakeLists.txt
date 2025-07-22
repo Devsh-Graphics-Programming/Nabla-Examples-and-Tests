@@ -42,7 +42,9 @@ if(NBL_BUILD_EXAMPLES)
 	# showcase use of FFT for post-FX Bloom  effect
 	add_subdirectory(11_FFT)
 	#
-	add_subdirectory(12_MeshLoaders EXCLUDE_FROM_ALL)
+	add_subdirectory(12_MeshLoaders)
+	#
+	#add_subdirectory(13_MaterialCompiler EXCLUDE_FROM_ALL)
 
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo)
@@ -97,6 +99,12 @@ if(NBL_BUILD_EXAMPLES)
         target_link_libraries(${T} PUBLIC ${NBL_EXAMPLES_API_TARGET})
 		target_include_directories(${T} PUBLIC $<TARGET_PROPERTY:${NBL_EXAMPLES_API_TARGET},INCLUDE_DIRECTORIES>)
 		target_precompile_headers(${T} REUSE_FROM "${NBL_EXAMPLES_API_TARGET}")
+
+		if(NBL_EMBED_BUILTIN_RESOURCES)
+			LINK_BUILTIN_RESOURCES_TO_TARGET(${T} NblExtExamplesAPIBuiltinsSource)
+			LINK_BUILTIN_RESOURCES_TO_TARGET(${T} NblExtExamplesAPIBuiltinsInclude)
+			LINK_BUILTIN_RESOURCES_TO_TARGET(${T} NblExtExamplesAPIBuiltinsBuild)
+		endif()
     endforeach()
 
 	NBL_ADJUST_FOLDERS(examples)
