@@ -475,8 +475,6 @@ struct DTMSettings
     uint32_t contourSettingsCount;
     DTMContourSettings contourSettings[MaxContourSettings];
 
-    uint32_t workaroundForSpirvOptimizerBugToMakeNextMembersAlignmentEqualTo16_LOL;
-    
     // height shading
     DTMHeightShadingSettings heightShadingSettings;
     
