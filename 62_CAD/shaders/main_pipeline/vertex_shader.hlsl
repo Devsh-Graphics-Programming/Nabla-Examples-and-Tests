@@ -68,6 +68,12 @@ float2 transformPointScreenSpace(pfloat64_t3x3 transformation, uint32_t2 resolut
 
     return _static_cast<float2>(result);
 }
+float2 transformVectorScreenSpace(pfloat64_t3x3 transformation, uint32_t2 resolution, pfloat64_t2 vec2d)
+{
+     pfloat64_t2 ndc = transformVectorNdc(transformation, vec2d);
+     pfloat64_t2 result = (ndc) * 0.5f * _static_cast<pfloat64_t2>(resolution);
+     return _static_cast<float2>(result);
+}
 float32_t4 transformFromSreenSpaceToNdc(float2 pos, uint32_t2 resolution)
 {
     return float32_t4((pos.xy / (float32_t2)resolution) * 2.0f - 1.0f, 0.0f, 1.0f);
@@ -444,29 +450,33 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
                     const float2 circleCenterScreenSpace = transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, circleCenter);
                     outV.setPolylineConnectorCircleCenter(circleCenterScreenSpace);
 
+                    // to better understand variables at play, and the circle space, see documentation of `miterSDF` in fragment shader
+                    // length of vector from circle center to intersection position (normalized so that circle radius = line thickness = 1.0)
+                    float vLen = length(v);
+                    float2 intersectionDirection_Screenspace = normalize(transformVectorScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, v));
+                    const float2 v_Screenspace = intersectionDirection_Screenspace * vLen;
+
                     // Find other miter vertices
                     const float sinHalfAngleBetweenNormals = sqrt(1.0f - (cosHalfAngleBetweenNormals * cosHalfAngleBetweenNormals));
                     const float32_t2x2 rotationMatrix = float32_t2x2(cosHalfAngleBetweenNormals, -sinHalfAngleBetweenNormals, sinHalfAngleBetweenNormals, cosHalfAngleBetweenNormals);
 
                     // Pass the precomputed trapezoid values for the sdf
                     {
-                        float vLen = length(v);
-                        float2 intersectionDirection = v / vLen;
-
                         float longBase = sinHalfAngleBetweenNormals;
                         float shortBase = max((vLen - globals.miterLimit) * cosHalfAngleBetweenNormals / sinHalfAngleBetweenNormals, 0.0);
                         // height of the trapezoid / triangle
                         float hLen = min(globals.miterLimit, vLen);
 
-                        outV.setPolylineConnectorTrapezoidStart(-1.0 * intersectionDirection * sdfLineThickness);
-                        outV.setPolylineConnectorTrapezoidEnd(intersectionDirection * hLen * sdfLineThickness);
+                        outV.setPolylineConnectorTrapezoidStart(-1.0 * intersectionDirection_Screenspace * sdfLineThickness);
+                        outV.setPolylineConnectorTrapezoidEnd(intersectionDirection_Screenspace * hLen * sdfLineThickness);
                         outV.setPolylineConnectorTrapezoidLongBase(sinHalfAngleBetweenNormals * ((1.0 + vLen) / (vLen - cosHalfAngleBetweenNormals)) * sdfLineThickness);
                         outV.setPolylineConnectorTrapezoidShortBase(shortBase * sdfLineThickness);
                     }
 
                     if (vertexIdx == 0u)
                     {
-                        const float2 V1 = normalize(mul(v, rotationMatrix)) * antiAliasedLineThickness * 2.0f;
+                        // multiplying the other way to rotate by -theta
+                        const float2 V1 = normalize(mul(v_Screenspace, rotationMatrix)) * antiAliasedLineThickness * 2.0f;
                         const float2 screenSpaceV1 = circleCenterScreenSpace + V1;
                         outV.position = float4(screenSpaceV1, 0.0f, 1.0f);   
                     }
@@ -477,13 +487,13 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
                     else if (vertexIdx == 2u)
                     {
                         // find intersection point vertex
-                        float2 intersectionPoint = v * antiAliasedLineThickness * 2.0f;
+                        float2 intersectionPoint = v_Screenspace * antiAliasedLineThickness * 2.0f;
                         intersectionPoint += circleCenterScreenSpace;
                         outV.position = float4(intersectionPoint, 0.0f, 1.0f);
                     }
                     else if (vertexIdx == 3u)
                     {
-                        const float2 V2 = normalize(mul(rotationMatrix, v)) * antiAliasedLineThickness * 2.0f;
+                        const float2 V2 = normalize(mul(rotationMatrix, v_Screenspace)) * antiAliasedLineThickness * 2.0f;
                         const float2 screenSpaceV2 = circleCenterScreenSpace + V2;
                         outV.position = float4(screenSpaceV2, 0.0f, 1.0f);
                     }
@@ -751,18 +761,14 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
 
     // Make the cage fullscreen for testing: 
 #if 0
-        // disabled for object of POLYLINE_CONNECTOR type, since miters would cover whole screen
-        if(objType != ObjectType::POLYLINE_CONNECTOR)
-        {
-            if (vertexIdx == 0u)
-                outV.position = float4(-1, -1, 0, 1);
-            else if (vertexIdx == 1u)
-                outV.position = float4(-1, +1, 0, 1);
-            else if (vertexIdx == 2u)
-                outV.position = float4(+1, -1, 0, 1);
-            else if (vertexIdx == 3u)
-                outV.position = float4(+1, +1, 0, 1);
-        }
+        if (vertexIdx == 0u)
+            outV.position = float4(-1, -1, 0, 1);
+        else if (vertexIdx == 1u)
+            outV.position = float4(-1, +1, 0, 1);
+        else if (vertexIdx == 2u)
+            outV.position = float4(+1, -1, 0, 1);
+        else if (vertexIdx == 3u)
+            outV.position = float4(+1, +1, 0, 1);
 #endif
     }
     outV.clip = float4(outV.position.x - clipProjectionData.minClipNDC.x, outV.position.y - clipProjectionData.minClipNDC.y, clipProjectionData.maxClipNDC.x - outV.position.x, clipProjectionData.maxClipNDC.y - outV.position.y);

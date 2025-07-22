@@ -1492,9 +1492,9 @@ public:
 		projectionToNDC = m_Camera.constructViewProjection();
 
 		// TEST CAMERA ROTATION
-#if 0
+#if 1
 		// double rotation = 0.25 * PI<double>();
-		double rotation = abs(cos(m_timeElapsed * 0.0001)) * PI<double>();
+		double rotation = abs(cos(m_timeElapsed * 0.0004)) * 0.25 * PI<double>() ;
 		float64_t2 rotationVec = float64_t2(cos(rotation), sin(rotation));
 		float64_t3x3 rotationParameter = float64_t3x3 {
 			rotationVec.x, rotationVec.y, 0.0,

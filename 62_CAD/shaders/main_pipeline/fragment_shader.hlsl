@@ -11,6 +11,7 @@
 //#include <nbl/builtin/hlsl/spirv_intrinsics/fragment_shader_barycentric.hlsl>
 
 // sdf of Isosceles Trapezoid y-aligned by https://iquilezles.org/articles/distfunctions2d/
+// Trapezoid centered around origin (0,0), the top edge has length r2, the bottom edge has length r1, the height of the trapezoid is he*2.0
 float sdTrapezoid(float2 p, float r1, float r2, float he)
 {
     float2 k1 = float2(r2, he);
@@ -34,14 +35,40 @@ float2 sdLineDstVec(float2 P, float2 A, float2 B)
     return PA - BA * h;
 }
 
+/*
+                    XXXXXXX b XXXXXX              Long Base (len = rb)
+                   X                X            
+                  X                 X            
+                 X                   X           
+                X    XXXXXXXXXXX      X          
+               X XXXX     |     XXXX  X          
+              XXX         |         XXXX         
+            XX            |            XX        
+           XX             |             XX       
+          XX              |              XX      
+         XX               T Trapz Center XX      (2) p.y = 0 after p.y = p.y - halfHeight + radius
+        XX                |               XX     
+       X X                C Circle Center  X     (1) p = (0,0) at circle center
+      X  X                |                X     
+     X    X               |               X X    
+    X     X               |               X  X   
+   X       X              |              X   X   
+  X         XX            |            XX     X  
+ X            XXX         |         XXX        X 
+X                XXXX     |     XXXX           X 
+XXXXXXXXXXXXXXXXXXXXXXXXX a XXXXXXXXXXXXXXXXXXXXX Short Base (len = ra)
+*/
+// p is in circle's space (the circle centered at line intersection and radius = thickness)
+// a and b are points at each trapezoid base (short and long base)
+// TODO[Optimization] we can probably send less info, since we only use length of b-a and the normalize vector
 float miterSDF(float2 p, float thickness, float2 a, float2 b, float ra, float rb)
 {
-    float h = length(b - a) / 2.0;
+    float halfHeight = length(b - a) / 2.0;
     float2 d = normalize(b - a);
     float2x2 rot = float2x2(d.y, -d.x, d.x, d.y);
-    p = mul(rot, p);
-    p.y -= h - thickness;
-    return sdTrapezoid(p, ra, rb, h);
+    p = mul(rot, p); // rotate(change of basis) such that the point is now in the space where trapezoid is y-axis aligned, see (1) above 
+    p.y = p.y - halfHeight + thickness; // see (2) above
+    return sdTrapezoid(p, ra, rb, halfHeight);
 }
 
 // We need to specialize color calculation based on FragmentShaderInterlock feature availability for our transparency algorithm
@@ -242,9 +269,6 @@ float4 fragMain(PSInput input) : SV_TARGET
 
             }
             localAlpha = 1.0f - smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, distance);
-            
-            // if (objType != ObjectType::POLYLINE_CONNECTOR)
-            //    localAlpha *= 0.3f;
         }
         else if (objType == ObjectType::CURVE_BOX) 
         {
