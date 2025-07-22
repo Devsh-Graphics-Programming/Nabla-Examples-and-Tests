@@ -251,6 +251,15 @@ float calculateDTMContourSDF(in DTMContourSettings contourSettings, in LineStyle
     contourLineIdx = clamp(contourLineIdx, 0, maxContourLineIdx);
     float contourLineHeight = startHeight + interval * contourLineIdx;
 
+    
+    // Sort so that v[0].z >= v[1].z >= v[2].z
+    if (v[0].z < v[1].z)
+        nbl::hlsl::swap(v[0], v[1]);
+    if (v[0].z < v[2].z)
+        nbl::hlsl::swap(v[0], v[2]);
+    if (v[1].z < v[2].z)
+        nbl::hlsl::swap(v[1], v[2]);
+
     int contourLinePointsIdx = 0;
     float2 contourLinePoints[2];
     for (int i = 0; i < 3; ++i)
@@ -258,16 +267,20 @@ float calculateDTMContourSDF(in DTMContourSettings contourSettings, in LineStyle
         if (contourLinePointsIdx == 2)
             break;
 
-        float3 p0 = v[i];
-        float3 p1 = v[(i + 1) % 3];
-
-        if (p1.z < p0.z)
-            nbl::hlsl::swap(p0, p1);
-
-        if (contourLineHeight >= p0.z && contourLineHeight <= p1.z)
+        int minvIdx = 0;
+        int maxvIdx = 0;
+        
+        if (i == 0) { minvIdx = 2; maxvIdx = 0; }
+        if (i == 1) { minvIdx = 1; maxvIdx = 0; }
+        if (i == 2) { minvIdx = 2; maxvIdx = 1; }
+        
+        float3 minV = v[minvIdx];
+        float3 maxV = v[maxvIdx];
+        
+        if (contourLineHeight >= minV.z && contourLineHeight <= maxV.z)
         {
-            float interpolationVal = (contourLineHeight - p0.z) / (p1.z - p0.z);
-            contourLinePoints[contourLinePointsIdx] = lerp(p0.xy, p1.xy, clamp(interpolationVal, 0.0f, 1.0f));
+            float interpolationVal = (contourLineHeight - minV.z) / (maxV.z - minV.z);
+            contourLinePoints[contourLinePointsIdx] = lerp(minV.xy, maxV.xy, clamp(interpolationVal, 0.0f, 1.0f));
             ++contourLinePointsIdx;
         }
     }
