@@ -61,6 +61,7 @@ enum class ExampleMode
 	CASE_9, // DTM
 	CASE_BUG, // Bug Repro, after fix, rename to CASE_10 and comment should be: testing fixed geometry and emulated fp64 corner cases
 	CASE_11, // grid DTM
+	CASE_12, // Georeferenced streamed images
 	CASE_COUNT
 };
 
@@ -77,7 +78,8 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0,	// CASE_8
 	600.0,	// CASE_9
 	10.0,	// CASE_BUG
-	1000.0	// CASE_11
+	1000.0, // CASE_11
+	10.0	// CASE_12
 };
 
 constexpr ExampleMode mode = ExampleMode::CASE_11;
@@ -3109,12 +3111,6 @@ protected:
 				//printf("\n");
 			}
 
-			GeoreferencedImageParams geoRefParams = {};
-			geoRefParams.format = asset::EF_R8G8B8A8_SRGB;
-			geoRefParams.imageExtents = uint32_t2 (2048, 2048);
-			geoRefParams.viewportExtents = (m_realFrameIx <= 5u) ? uint32_t2(1280, 720) : uint32_t2(3840, 2160); // to test trigerring resize/recreation
-			// drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(6996, geoRefParams, intendedNextSubmit);
-			
 			LineStyleInfo lineStyle = 
 			{
 				.color = float32_t4(1.0f, 0.1f, 0.1f, 0.9f),
@@ -3697,6 +3693,22 @@ protected:
 				drawResourcesFiller.drawPolyline(polyline, style, intendedNextSubmit);
 			}
 #endif
+		}
+		else if (mode == ExampleMode::CASE_12)
+		{
+			for (uint32_t i = 0; i < sampleImages.size(); ++i)
+			{
+				uint64_t imageID = i * 69ull; // it can be hash or something of the file path the image was loaded from
+				//printf(std::format("\n Image {} \n", i).c_str());
+				drawResourcesFiller.ensureStaticImageAvailability({ imageID, sampleImages[i] }, intendedNextSubmit);
+				drawResourcesFiller.addImageObject(imageID, { .topLeft = { 0.0 + (i) * 3.0, 0.0 }, .dirU = { 3.0 , 0.0 }, .aspectRatio = 1.0 }, intendedNextSubmit);
+				//printf("\n");
+			}
+
+			GeoreferencedImageParams geoRefParams = {};
+			geoRefParams.format = asset::EF_R8G8B8A8_SRGB;
+			geoRefParams.imageExtents = uint32_t2(2048, 2048);
+			// drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(6996, geoRefParams, intendedNextSubmit);
 		}
 	}
 

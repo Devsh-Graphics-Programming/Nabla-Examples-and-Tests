@@ -120,6 +120,27 @@ public:
 				geometryInfo.getAlignedStorageSize();
 		}
 	};
+
+	// @brief Used to load tiles into VRAM, keep track of loaded tiles, determine how they get sampled etc.
+	struct StreamedImageManager
+	{
+		friend class DrawResourcesFiller;
+		constexpr static uint32_t TileSize = 128u;
+
+		StreamedImageManager(GeoreferencedImageParams&& _georeferencedImageParams);
+
+		core::vector<StreamedImageCopy> generateTileUploadData(const float64_t3x3& worldToNDC);
+		
+		// This and the logic they're in will likely change later with Toroidal updating
+	protected:
+		GeoreferencedImageParams georeferencedImageParams;
+		uint32_t2 maxResidentTiles = {};
+	private:
+		uint32_t2 minLoadedTileIndices = {};
+		uint32_t2 maxImageTileIndices = {};
+		// See constructor for info on this one
+		float64_t2x3 offsetCoBScaleMatrix = {};
+	};
 	
 	DrawResourcesFiller();
 
@@ -343,7 +364,7 @@ public:
 	 * @return true if the image was successfully cached and is ready for use; false if allocation failed.
 	 * [TODO]: should be internal protected member function.
 	 */
-	bool ensureGeoreferencedImageAvailability_AllocateIfNeeded(image_id imageID, const GeoreferencedImageParams& params, SIntendedSubmitInfo& intendedNextSubmit);
+	bool ensureGeoreferencedImageAvailability_AllocateIfNeeded(StreamedImageManager& manager, SIntendedSubmitInfo& intendedNextSubmit);
 
 	// [TODO]: should be internal protected member function.
 	bool queueGeoreferencedImageCopy_Internal(image_id imageID, const StreamedImageCopy& imageCopy);
@@ -663,9 +684,9 @@ protected:
 	 *
 	 * @param[out] outImageParams Structure to be filled with image creation parameters (format, size, etc.).
 	 * @param[out] outImageType Indicates whether the image should be fully resident or streamed.
-	 * @param[in] georeferencedImageParams Parameters describing the full image extents, viewport extents, and format.
+	 * @param[in] manager Manager for the georeferenced image
 	*/
-	void determineGeoreferencedImageCreationParams(nbl::asset::IImage::SCreationParams& outImageParams, ImageType& outImageType, const GeoreferencedImageParams& georeferencedImageParams);
+	void determineGeoreferencedImageCreationParams(nbl::asset::IImage::SCreationParams& outImageParams, StreamedImageManager& manager);
 
 	/**
 	 * @brief Used to implement both `drawHatch` and `drawFixedGeometryHatch` without exposing the transformation type parameter
