@@ -464,7 +464,7 @@ public:
 			assert(m_kerImageView);
 
 			// Going to need an IUtils to perform uploads/downloads
-			m_utils = make_smart_refctd_ptr<IUtilities>(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger));
+			m_utils = IUtilities::create(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger));
 
 			// Now convert uploads
 			// Get graphics queue for image transfer
