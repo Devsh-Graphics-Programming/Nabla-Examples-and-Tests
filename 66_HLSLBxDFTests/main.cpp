@@ -16,6 +16,7 @@ using namespace video;
 using namespace nbl::hlsl;
 
 #include "app_resources/tests.hlsl"
+#include "nbl/builtin/hlsl/math/angle_adding.hlsl"
 
 struct PrintFailureCallback : FailureCallback
 {
