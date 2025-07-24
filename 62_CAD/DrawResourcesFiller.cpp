@@ -2713,14 +2713,14 @@ core::vector<StreamedImageCopy> DrawResourcesFiller::StreamedImageManager::gener
 
 	// Assuming a 1 pixel per block format for simplicity rn
 	auto bytesPerPixel = getTexelOrBlockBytesize(georeferencedImageParams.format);
-	auto bytesPerSide = bytesPerPixel * TileSize;
+	size_t bytesPerSide = bytesPerPixel * TileSize;
 
 	for (uint32_t tileX = minEffective.x; tileX <= maxEffective.x; tileX++)
 	{
 		for (uint32_t tileY = minEffective.y; tileY <= maxEffective.y; tileY++)
 		{
 			asset::IImage::SBufferCopy bufCopy;
-			bufCopy.bufferOffset = (tileY * maxImageTileIndices.x * bytesPerSide + tileX) * bytesPerSide;
+			bufCopy.bufferOffset = (tileY * (maxImageTileIndices.x + 1) * bytesPerSide + tileX) * bytesPerSide;
 			bufCopy.bufferRowLength = georeferencedImageParams.imageExtents.x;
 			bufCopy.bufferImageHeight = 0;
 			bufCopy.imageSubresource.aspectMask = IImage::EAF_COLOR_BIT;
