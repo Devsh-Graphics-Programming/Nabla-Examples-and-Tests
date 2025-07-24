@@ -2727,7 +2727,7 @@ core::vector<StreamedImageCopy> DrawResourcesFiller::StreamedImageManager::gener
 			bufCopy.imageSubresource.mipLevel = 0u;
 			bufCopy.imageSubresource.baseArrayLayer = 0u;
 			bufCopy.imageSubresource.layerCount = 1u;
-			bufCopy.imageOffset = { 0u,0u,0u };
+			bufCopy.imageOffset = { tileX * TileSize, tileY * TileSize, 0u };
 			bufCopy.imageExtent.width = TileSize;
 			bufCopy.imageExtent.height = TileSize;
 			bufCopy.imageExtent.depth = 1;
