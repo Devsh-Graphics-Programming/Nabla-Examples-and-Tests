@@ -17,67 +17,17 @@ using namespace nbl::examples;
 
 namespace nbl::scene
 {
-enum ObjectType : uint8_t
-{
-	OT_CUBE,
-	OT_SPHERE,
-	OT_CYLINDER,
-	OT_RECTANGLE,
-	OT_CONE,
-	OT_ICOSPHERE,
 
-	OT_COUNT,
-	OT_UNKNOWN = std::numeric_limits<uint8_t>::max()
-};
-
-static constexpr uint32_t s_smoothNormals[OT_COUNT] = { 0, 1, 1, 0, 1, 1 };
-
-struct ObjectMeta
-{
-	ObjectType type = OT_UNKNOWN;
-	std::string_view name = "Unknown";
-};
-
-struct ObjectDrawHookCpu
-{
-	nbl::core::matrix3x4SIMD model;
-	ObjectMeta meta;
-};
-
-enum GeometryShader
-{
-	GP_BASIC = 0,
-	GP_CONE,
-	GP_ICO,
-
-	GP_COUNT
-};
-
+using PolygonGeometryData = core::smart_refctd_ptr<ICPUPolygonGeometry>;
+using GeometryCollectionData = core::smart_refctd_ptr<ICPUGeometryCollection>;
+using GeometryData = std::variant<PolygonGeometryData, GeometryCollectionData>;
 struct ReferenceObjectCpu
 {
-	ObjectMeta meta;
   core::matrix3x4SIMD transform;
-	core::smart_refctd_ptr<ICPUPolygonGeometry> data;
+	GeometryData data;
+  uint32_t instanceID;
 };
 
-struct ReferenceObjectGpu
-{
-	struct Bindings
-	{
-		nbl::asset::SBufferBinding<IGPUBuffer> vertex, index;
-	};
-
-	ObjectMeta meta;
-	Bindings bindings;
-	uint32_t vertexStride;
-	nbl::asset::E_INDEX_TYPE indexType = nbl::asset::E_INDEX_TYPE::EIT_UNKNOWN;
-	uint32_t indexCount = {};
-
-	const bool useIndex() const
-	{
-		return bindings.index.buffer && (indexType != E_INDEX_TYPE::EIT_UNKNOWN);
-	}
-};
 }
 
 

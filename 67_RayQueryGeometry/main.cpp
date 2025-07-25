@@ -501,44 +501,91 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 			};
 
 			std::vector<ReferenceObjectCpu> cpuObjects;
-			cpuObjects.push_back(ReferenceObjectCpu{ .meta = {.type = OT_CUBE, .name = "Cube Mesh" }, .transform = nextTransform(), .data = gc->createCube({1.f, 1.f, 1.f})});
-			cpuObjects.push_back(ReferenceObjectCpu{ .meta = {.type = OT_SPHERE, .name = "Sphere Mesh" }, .transform = nextTransform(), .data = gc->createSphere(2, 16, 16)});
-			cpuObjects.push_back(ReferenceObjectCpu{ .meta = {.type = OT_CYLINDER, .name = "Cylinder Mesh" }, .transform = nextTransform(), .data = gc->createCylinder(2, 2, 20)});
-			cpuObjects.push_back(ReferenceObjectCpu{ .meta = {.type = OT_RECTANGLE, .name = "Rectangle Mesh" }, .transform = nextTransform(), .data = gc->createRectangle({1.5, 3})});
-			cpuObjects.push_back(ReferenceObjectCpu{ .meta = {.type = OT_CONE, .name = "Cone Mesh" }, .transform = nextTransform(), .data = gc->createCone(2, 3, 10)});
-			cpuObjects.push_back(ReferenceObjectCpu{ .meta = {.type = OT_ICOSPHERE, .name = "Icosphere Mesh" }, .transform = nextTransform(), .data = gc->createIcoSphere(1, 3, true)});
-			const auto arrowPolygons = gc->createArrow();
-			const auto arrowTransform = nextTransform();
-			cpuObjects.push_back(ReferenceObjectCpu{ .meta = {.type = OT_CYLINDER, .name = "Arrow Mesh" }, .transform = arrowTransform, .data = arrowPolygons[0]});
-			cpuObjects.push_back(ReferenceObjectCpu{ .meta = {.type = OT_CONE, .name = "Arrow Mesh" }, .transform = arrowTransform, .data = arrowPolygons[1]});
-			auto geomInfoBuffer = ICPUBuffer::create({ cpuObjects.size() * sizeof(SGeomInfo) });
+			cpuObjects.push_back(ReferenceObjectCpu{ .transform = nextTransform(), .data = gc->createArrow() });
+			cpuObjects.push_back(ReferenceObjectCpu{ .transform = nextTransform(), .data = gc->createCube({1.f, 1.f, 1.f})});
+			cpuObjects.push_back(ReferenceObjectCpu{ .transform = nextTransform(), .data = gc->createSphere(2, 16, 16)});
+			cpuObjects.push_back(ReferenceObjectCpu{ .transform = nextTransform(), .data = gc->createCylinder(2, 2, 20)});
+			cpuObjects.push_back(ReferenceObjectCpu{ .transform = nextTransform(), .data = gc->createRectangle({1.5, 3})});
+			cpuObjects.push_back(ReferenceObjectCpu{ .transform = nextTransform(), .data = gc->createCone(2, 3, 10)});
+			cpuObjects.push_back(ReferenceObjectCpu{ .transform = nextTransform(), .data = gc->createIcoSphere(1, 3, true)});
+
+			const auto geometryCount = [&cpuObjects]
+			{
+        size_t count = 0;
+			  for (auto& cpuObject: cpuObjects)
+			  {
+					const auto data = cpuObject.data;
+					cpuObject.instanceID = count;
+			    if (std::holds_alternative<PolygonGeometryData>(data))
+			    {
+						count += 1;
+			    } else if (std::holds_alternative<GeometryCollectionData>(data))
+			    {
+						const auto colData = std::get<GeometryCollectionData>(data);
+						count += colData->getGeometries()->size();
+			    }
+			  }
+				return count;
+			}();
+
+			auto geomInfoBuffer = ICPUBuffer::create({ geometryCount * sizeof(SGeomInfo) });
 
 			SGeomInfo* geomInfos = reinterpret_cast<SGeomInfo*>(geomInfoBuffer->getPointer());
 
 			// get ICPUBuffers into ICPUBottomLevelAccelerationStructures
 			std::vector<smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>> cpuBlas(cpuObjects.size());
-			for (uint32_t i = 0; i < cpuBlas.size(); i++)
+			for (uint32_t blas_i = 0; blas_i < cpuBlas.size(); blas_i++)
 			{
-				auto triangles = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUBottomLevelAccelerationStructure::Triangles<ICPUBuffer>>>(1u);
-				auto primitiveCounts = make_refctd_dynamic_array<smart_refctd_dynamic_array<uint32_t>>(1u);
+        auto& blas = cpuBlas[blas_i];
+        blas = make_smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>();
+				if (std::holds_alternative<PolygonGeometryData>(cpuObjects[blas_i].data))
+				{
+					const auto data = std::get<PolygonGeometryData>(cpuObjects[blas_i].data);
 
-				auto& tri = triangles->front();
+          auto triangles = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUBottomLevelAccelerationStructure::Triangles<ICPUBuffer>>>(1u);
+          auto primitiveCounts = make_refctd_dynamic_array<smart_refctd_dynamic_array<uint32_t>>(1u);
 
-				auto& primCount = primitiveCounts->front();
-				primCount = cpuObjects[i].data->getPrimitiveCount();
+          auto& tri = triangles->front();
 
-				tri = cpuObjects[i].data->exportForBLAS();
+          auto& primCount = primitiveCounts->front();
+          primCount = data->getPrimitiveCount();
 
-				auto& blas = cpuBlas[i];
-				blas = make_smart_refctd_ptr<ICPUBottomLevelAccelerationStructure>();
-				blas->setGeometries(std::move(triangles), std::move(primitiveCounts));
+          tri = data->exportForBLAS();
 
-				auto blasFlags = bitflag(IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT) | IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_COMPACTION_BIT;
-				if (m_physicalDevice->getProperties().limits.rayTracingPositionFetch)
-					blasFlags |= IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_DATA_ACCESS;
+          blas->setGeometries(std::move(triangles), std::move(primitiveCounts));
 
-				blas->setBuildFlags(blasFlags);
-				blas->setContentHash(blas->computeContentHash());
+				  
+				} else if (std::holds_alternative<GeometryCollectionData>(cpuObjects[blas_i].data))
+				{
+				  
+					const auto data = std::get<GeometryCollectionData>(cpuObjects[blas_i].data);
+
+					const auto& geometries = *data->getGeometries();
+					const auto geometryCount = geometries.size();
+
+          auto triangles = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUBottomLevelAccelerationStructure::Triangles<ICPUBuffer>>>(geometryCount);
+          auto primitiveCounts = make_refctd_dynamic_array<smart_refctd_dynamic_array<uint32_t>>(geometryCount);
+
+          for (auto geometry_i = 0u; geometry_i < geometryCount; geometry_i++)
+          {
+						const auto& geometry = geometries[geometry_i];
+            const auto* polyGeo = static_cast<const ICPUPolygonGeometry*>(geometry.geometry.get());
+						primitiveCounts->operator[](geometry_i) = polyGeo->getPrimitiveCount();
+						auto& triangle = triangles->operator[](geometry_i);
+						triangle = polyGeo->exportForBLAS();
+						if (geometry.hasTransform())
+							triangle.transform = geometry.transform;
+          }
+
+          blas->setGeometries(std::move(triangles), std::move(primitiveCounts));
+
+				}
+        auto blasFlags = bitflag(IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::PREFER_FAST_TRACE_BIT) | IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_COMPACTION_BIT;
+        if (m_physicalDevice->getProperties().limits.rayTracingPositionFetch)
+          blasFlags |= IGPUBottomLevelAccelerationStructure::BUILD_FLAGS::ALLOW_DATA_ACCESS;
+
+        blas->setBuildFlags(blasFlags);
+        blas->setContentHash(blas->computeContentHash());
 			}
 
 			// get ICPUBottomLevelAccelerationStructure into ICPUTopLevelAccelerationStructure
@@ -550,7 +597,7 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 					ICPUTopLevelAccelerationStructure::StaticInstance inst;
 					inst.base.blas = cpuBlas[i];
 					inst.base.flags = static_cast<uint32_t>(IGPUTopLevelAccelerationStructure::INSTANCE_FLAGS::TRIANGLE_FACING_CULL_DISABLE_BIT);
-					inst.base.instanceCustomIndex = i;
+					inst.base.instanceCustomIndex = cpuObjects[i].instanceID;
 					inst.base.instanceShaderBindingTableRecordOffset = 0;
 					inst.base.mask = 0xFF;
 					inst.transform = cpuObjects[i].transform;
@@ -621,17 +668,37 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 			CAssetConverter::patch_t<ICPUTopLevelAccelerationStructure> tlasPatch = {};
 			tlasPatch.compactAfterBuild = true;
 			std::vector<CAssetConverter::patch_t<ICPUBottomLevelAccelerationStructure>> tmpBLASPatches(cpuObjects.size());
-			std::vector<ICPUPolygonGeometry*> tmpGeometries(cpuObjects.size());
-			std::vector<CAssetConverter::patch_t<asset::ICPUPolygonGeometry>> tmpGeometryPatches(cpuObjects.size());
+			std::vector<ICPUPolygonGeometry*> tmpGeometries;
+			tmpGeometries.reserve(geometryCount);
+			std::vector<CAssetConverter::patch_t<asset::ICPUPolygonGeometry>> tmpGeometryPatches;
+			tmpGeometryPatches.reserve(geometryCount);
 			{
 				tmpBLASPatches.front().compactAfterBuild = true;
 				std::fill(tmpBLASPatches.begin(),tmpBLASPatches.end(),tmpBLASPatches.front());
 				//
 				for (uint32_t i = 0; i < cpuObjects.size(); i++)
 				{
-					tmpGeometries[i] = cpuObjects[i].data.get();
-					tmpGeometryPatches[i].indexBufferUsages= IGPUBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
+					const auto data = cpuObjects[i].data;
+					if (std::holds_alternative<PolygonGeometryData>(data))
+					{
+						const auto polygonData = std::get<PolygonGeometryData>(data);
+						tmpGeometries.push_back(polygonData.get());
+            tmpGeometryPatches.push_back({});
+						tmpGeometryPatches.back().indexBufferUsages = IGPUBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
+					} else if (std::holds_alternative<GeometryCollectionData>(data))
+					{
+						const auto collectionData = std::get<GeometryCollectionData>(data);
+						for (const auto& geometryRef : *collectionData->getGeometries())
+						{
+              auto* polyGeo = static_cast<ICPUPolygonGeometry*>(geometryRef.geometry.get());
+							tmpGeometries.push_back(polyGeo);
+              tmpGeometryPatches.push_back({});
+              tmpGeometryPatches.back().indexBufferUsages = IGPUBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
+						}
+					}
 				}
+				assert(tmpGeometries.size() == geometryCount);
+				assert(tmpGeometryPatches.size() == geometryCount);
 
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUDescriptorSet>>(inputs.assets) = {&descriptorSet.get(),1};
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUTopLevelAccelerationStructure>>(inputs.assets) = {&cpuTlas.get(),1};
@@ -771,7 +838,6 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 				// assign gpu objects to output
 				for (uint32_t i = 0; i < gpuPolygonGeometries.size(); i++)
 				{
-					const auto& cpuObject = cpuObjects[i];
 					const auto& gpuPolygon = gpuPolygonGeometries[i].value;
 					const auto gpuTriangles = gpuPolygon->exportForBLAS();
 
@@ -781,15 +847,28 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 					const auto& normalView = gpuPolygon->getNormalView();
 					const uint64_t normalBufferAddress = normalView ? normalView.src.buffer->getDeviceAddress() + normalView.src.offset : 0;
 
+					const auto normalType = [&normalView]
+					{
+            if (!normalView) return NT_UNKNOWN;
+						switch (normalView.composed.format)
+						{
+						case EF_R32G32B32_SFLOAT:
+							return NT_R32G32B32_SFLOAT;
+						case EF_R8G8B8A8_SNORM:
+							return NT_R8G8B8A8_SNORM;
+						default:
+							return NT_UNKNOWN;
+						}
+					}();
+
 					const auto& indexBufferBinding = gpuTriangles.indexData;
 					auto& geomInfo = geomInfos[i];
 					geomInfo = {
 						.vertexBufferAddress = vertexBufferAddress,
 						.indexBufferAddress = indexBufferBinding.buffer ? indexBufferBinding.buffer->getDeviceAddress() + indexBufferBinding.offset : vertexBufferAddress,
 						.normalBufferAddress = normalBufferAddress,
-						.objType = cpuObject.meta.type,
+						.normalType = normalType,
 						.indexType = gpuTriangles.indexType,
-						.smoothNormals = s_smoothNormals[cpuObject.meta.type],
 					};
 
 					m_gpuPolygons[i] = gpuPolygon;
@@ -800,7 +879,7 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 			{
 				IGPUBuffer::SCreationParams params;
 				params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-				params.size = cpuObjects.size() * sizeof(SGeomInfo);
+				params.size = geometryCount * sizeof(SGeomInfo);
 				m_utils->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{ .queue = gQueue }, std::move(params), geomInfos).move_into(geometryInfoBuffer);
 			}
 
