@@ -1,11 +1,12 @@
 #ifndef _NBL_EXAMPLES_TESTS_22_CPP_COMPAT_C_INTRINSICS_TESTER_INCLUDED_
 #define _NBL_EXAMPLES_TESTS_22_CPP_COMPAT_C_INTRINSICS_TESTER_INCLUDED_
 
-#include <nabla.h>
+
+#include "nbl/examples/examples.hpp"
+
 #include "app_resources/common.hlsl"
-#include "nbl/application_templates/MonoDeviceApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "ITester.h"
+
 
 using namespace nbl;
 

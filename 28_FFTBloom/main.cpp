@@ -2,27 +2,31 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#include "SimpleWindowedApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+
+#include "nbl/examples/examples.hpp"
 
 using namespace nbl;
-using namespace core;
-using namespace system;
-using namespace asset;
-using namespace video;
-using namespace ui;
+using namespace nbl::core;
+using namespace nbl::hlsl;
+using namespace nbl::system;
+using namespace nbl::asset;
+using namespace nbl::ui;
+using namespace nbl::video;
+using namespace nbl::examples;
 
 #include "app_resources/common.hlsl"
 #include "nbl/builtin/hlsl/bit.hlsl"
+
+
 
 // Defaults that match this example's image
 constexpr uint32_t WIN_W = 1280;
 constexpr uint32_t WIN_H = 720;
 
-class FFTBloomApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class FFTBloomApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
-	using device_base_t = examples::SimpleWindowedApplication;
-	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+	using device_base_t = SimpleWindowedApplication;
+	using asset_base_t = BuiltinResourcesApplication;
 	using clock_t = std::chrono::steady_clock;
 
 	// Windowed App members
@@ -169,7 +173,7 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 		float32_t totalSizeReciprocal;
 	};
 
-	inline core::smart_refctd_ptr<video::IGPUShader> createShader(const char* includeMainName, const SShaderConstevalParameters& shaderConstants)
+	inline core::smart_refctd_ptr<IShader> createShader(const char* includeMainName, const SShaderConstevalParameters& shaderConstants)
 	{
 		// The annoying "const static member field must be initialized outside of struct" bug strikes again
 		std::ostringstream kernelHalfPixelSizeStream;
@@ -204,18 +208,17 @@ class FFTBloomApp final : public examples::SimpleWindowedApplication, public app
 
 
 
-		auto CPUShader = core::make_smart_refctd_ptr<ICPUShader>((prelude+"\n#include \"" + includeMainName + "\"\n").c_str(),
-																IShader::E_SHADER_STAGE::ESS_COMPUTE, 
+		auto HLSLShader = core::make_smart_refctd_ptr<IShader>((prelude+"\n#include \"" + includeMainName + "\"\n").c_str(),
 																IShader::E_CONTENT_TYPE::ECT_HLSL, 
 																includeMainName);
-		assert(CPUShader);
+		assert(HLSLShader);
 
 		#ifndef _NBL_DEBUG
 		ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
 		auto opt = make_smart_refctd_ptr<ISPIRVOptimizer>(std::span<ISPIRVOptimizer::E_OPTIMIZER_PASS>(&optPasses, 1));
-		return m_device->createShader({ CPUShader.get(), opt.get(), m_readCache.get(), m_writeCache.get()});
+		return m_device->compileShader({ HLSLShader.get(), opt.get(), m_readCache.get(), m_writeCache.get()});
 		#else 
-		return m_device->createShader({ CPUShader.get(), nullptr, m_readCache.get(), m_writeCache.get() });
+		return m_device->compileShader({ HLSLShader.get(), nullptr, m_readCache.get(), m_writeCache.get() });
 		#endif
 	}
 
@@ -461,7 +464,7 @@ public:
 			assert(m_kerImageView);
 
 			// Going to need an IUtils to perform uploads/downloads
-			m_utils = make_smart_refctd_ptr<IUtilities>(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger));
+			m_utils = IUtilities::create(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger));
 
 			// Now convert uploads
 			// Get graphics queue for image transfer
@@ -709,7 +712,7 @@ public:
 			// Normalization shader needs this info
 			uint16_t secondAxisFFTHalfLengthLog2 = elementsPerInvocationLog2 + workgroupSizeLog2 - 1;
 			// Create shaders
-			smart_refctd_ptr<IGPUShader> shaders[3];
+			smart_refctd_ptr<IShader> shaders[3];
 			uint16_t2 kernelDimensions = { kerDim.width, kerDim.height };
 			SShaderConstevalParameters::SShaderConstevalParametersCreateInfo shaderConstevalInfo = { .useHalfFloats = m_useHalfFloats, .elementsPerInvocationLog2 = elementsPerInvocationLog2, .workgroupSizeLog2 = workgroupSizeLog2, .numWorkgroupsLog2 = secondAxisFFTHalfLengthLog2, .previousWorkgroupSizeLog2 = workgroupSizeLog2 };
 			SShaderConstevalParameters shaderConstevalParameters(shaderConstevalInfo);
@@ -722,11 +725,11 @@ public:
 			for (auto i = 0u; i < 3; i++)
 			{
 				params[i].layout = pipelineLayout.get();
-				params[i].shader.entryPoint = "main";
 				params[i].shader.shader = shaders[i].get();
+				params[i].shader.entryPoint = "main";
 				// Normalization doesn't require full subgroups
-				params[i].shader.requireFullSubgroups = bool(2-i);
-				params[i].shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(hlsl::findMSB(deviceLimits.maxSubgroupSize));
+				params[i].cached.requireFullSubgroups = bool(2-i);
+				params[i].shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(hlsl::findMSB(deviceLimits.maxSubgroupSize));
 			}
 			
 			smart_refctd_ptr<IGPUComputePipeline> pipelines[3];
@@ -884,7 +887,7 @@ public:
 		uint16_t firstAxisFFTHalfLengthLog2;
 		uint16_t firstAxisFFTElementsPerInvocationLog2;
 		uint16_t firstAxisFFTWorkgroupSizeLog2;
-		smart_refctd_ptr<IGPUShader> shaders[3];
+		smart_refctd_ptr<IShader> shaders[3];
 		{
 			auto [elementsPerInvocationLog2, workgroupSizeLog2] = workgroup::fft::optimalFFTParameters(deviceLimits.maxOptimallyResidentWorkgroupInvocations, m_marginSrcDim.height, deviceLimits.maxSubgroupSize);
 			SShaderConstevalParameters::SShaderConstevalParametersCreateInfo shaderConstevalInfo = { .useHalfFloats = m_useHalfFloats, .elementsPerInvocationLog2 = elementsPerInvocationLog2, .workgroupSizeLog2 = workgroupSizeLog2 };
@@ -926,10 +929,10 @@ public:
 		IGPUComputePipeline::SCreationParams params[3] = {};
 		for (auto i = 0u; i < 3; i++) {
 			params[i].layout = pipelineLayout.get();
-			params[i].shader.entryPoint = "main";
 			params[i].shader.shader = shaders[i].get();
-			params[i].shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(hlsl::findMSB(deviceLimits.maxSubgroupSize));
-			params[i].shader.requireFullSubgroups = true;
+			params[i].shader.entryPoint = "main";
+			params[i].shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(hlsl::findMSB(deviceLimits.maxSubgroupSize));
+			params[i].cached.requireFullSubgroups = true;
 		}
 
 		smart_refctd_ptr<IGPUComputePipeline> pipelines[3];

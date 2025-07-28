@@ -6,6 +6,7 @@
 #include "nbl/builtin/hlsl/spirv_intrinsics/raytracing.hlsl"
 #include "nbl/builtin/hlsl/bda/__ptr.hlsl"
 
+
 using namespace nbl::hlsl;
 
 [[vk::push_constant]] SPushConstants pc;
@@ -13,6 +14,7 @@ using namespace nbl::hlsl;
 [[vk::binding(0, 0)]] RaytracingAccelerationStructure topLevelAS;
 
 [[vk::binding(1, 0)]] RWTexture2D<float4> outImage;
+[[vk::constant_id(0)]] const float shader_variant = 1.0;
 
 float3 unpackNormals3x10(uint32_t v)
 {
@@ -95,6 +97,7 @@ float3 calculateSmoothNormals(int instID, int primID, SGeomInfo geom, float2 bar
 }
 
 [numthreads(WorkgroupSize, WorkgroupSize, 1)]
+[shader("compute")]
 void main(uint32_t3 threadID : SV_DispatchThreadID)
 {
     uint2 coords = threadID.xy;
@@ -125,27 +128,11 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
         const int primID = spirv::rayQueryGetIntersectionPrimitiveIndexKHR(query, true);
 
         // TODO: candidate for `bda::__ptr<SGeomInfo>`
-        const SGeomInfo geom = vk::RawBufferLoad<SGeomInfo>(pc.geometryInfoBuffer + instID * sizeof(SGeomInfo));
-        
+        const SGeomInfo geom = vk::RawBufferLoad<SGeomInfo>(pc.geometryInfoBuffer + instID * sizeof(SGeomInfo),8);
+
         float3 normals;
-        if (jit::device_capabilities::rayTracingPositionFetch)
-        {
-            if (geom.smoothNormals)
-            {
-                float2 barycentrics = spirv::rayQueryGetIntersectionBarycentricsKHR(query, true);
-                normals = calculateSmoothNormals(instID, primID, geom, barycentrics);
-            }
-            else
-            {
-                float3 pos[3] = spirv::rayQueryGetIntersectionTriangleVertexPositionsKHR(query, true);
-                normals = cross(pos[1] - pos[0], pos[2] - pos[0]);
-            }
-        }
-        else
-        {
-            float2 barycentrics = spirv::rayQueryGetIntersectionBarycentricsKHR(query, true);
-            normals = calculateSmoothNormals(instID, primID, geom, barycentrics);
-        }
+        float2 barycentrics = spirv::rayQueryGetIntersectionBarycentricsKHR(query, true);
+        normals = calculateSmoothNormals(instID, primID, geom, barycentrics);
 
         normals = normalize(normals) * 0.5 + 0.5;
         color = float4(normals, 1.0);
