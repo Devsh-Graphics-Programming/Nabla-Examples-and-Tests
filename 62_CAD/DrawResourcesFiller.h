@@ -129,17 +129,28 @@ public:
 
 		StreamedImageManager(GeoreferencedImageParams&& _georeferencedImageParams);
 
-		core::vector<StreamedImageCopy> generateTileUploadData(const float64_t3x3& worldToNDC);
+		struct TileUploadData
+		{
+			core::vector<StreamedImageCopy> tiles;
+			OrientedBoundingBox2D worldspaceOBB;
+		};
+
+		TileUploadData generateTileUploadData(const float64_t3x3& NDCToWorld);
 		
 		// This and the logic they're in will likely change later with Toroidal updating
 	protected:
 		GeoreferencedImageParams georeferencedImageParams;
 		uint32_t2 maxResidentTiles = {};
 	private:
+		ImageType imageType;
 		uint32_t2 minLoadedTileIndices = {};
+		uint32_t2 maxLoadedTileIndices = {};
 		uint32_t2 maxImageTileIndices = {};
 		// See constructor for info on this one
 		float64_t2x3 offsetCoBScaleMatrix = {};
+		// Wordlspace OBB that covers the top left `maxResidentTiles.x x maxResidentTiles.y` tiles of the image. 
+		// We shift this OBB by appropriate tile offsets when loading tiles
+		OrientedBoundingBox2D fromTopLeftOBB = {};
 	};
 	
 	DrawResourcesFiller();
@@ -373,7 +384,7 @@ public:
 	void addImageObject(image_id imageID, const OrientedBoundingBox2D& obb, SIntendedSubmitInfo& intendedNextSubmit);
 	
 	// This function must be called immediately after `addStaticImage` for the same imageID.
-	void addGeoreferencedImage(image_id imageID, const GeoreferencedImageParams& params, SIntendedSubmitInfo& intendedNextSubmit);
+	void addGeoreferencedImage(StreamedImageManager& manager, const float64_t3x3& NDCToWorld, SIntendedSubmitInfo& intendedNextSubmit);
 
 	/// @brief call this function before submitting to ensure all buffer and textures resourcesCollection requested via drawing calls are copied to GPU
 	/// records copy command into intendedNextSubmit's active command buffer and might possibly submits if fails allocation on staging upload memory.
@@ -620,7 +631,7 @@ protected:
 	bool addImageObject_Internal(const ImageObjectInfo& imageObjectInfo, uint32_t mainObjIdx);;
 	
 	/// Attempts to upload a georeferenced image info considering resource limitations (not accounting for the resource image added using ensureStaticImageAvailability function)
-	bool addGeoreferencedImageInfo_Internal(const GeoreferencedImageInfo& georeferencedImageInfo, uint32_t mainObjIdx);;
+	bool addGeoreferencedImageInfo_Internal(const GeoreferencedImageInfo& georeferencedImageInfo, uint32_t mainObjIdx);
 	
 	uint32_t getImageIndexFromID(image_id imageID, const SIntendedSubmitInfo& intendedNextSubmit);
 

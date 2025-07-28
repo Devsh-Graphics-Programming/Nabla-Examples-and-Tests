@@ -82,7 +82,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	10.0	// CASE_12
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_11;
+constexpr ExampleMode mode = ExampleMode::CASE_12;
 
 class Camera2D
 {
@@ -1269,6 +1269,8 @@ public:
 		}
 
 		gridDTMHeightMap = loadImage("../../media/gridDTMHeightMap.exr");
+
+		bigTiledGrid = loadImage("../../media/tiled_grid.exr");
 
 		// set diagonals of cells to TOP_LEFT_TO_BOTTOM_RIGHT or BOTTOM_LEFT_TO_TOP_RIGHT randomly
 		{
@@ -3696,19 +3698,21 @@ protected:
 		}
 		else if (mode == ExampleMode::CASE_12)
 		{
-			for (uint32_t i = 0; i < sampleImages.size(); ++i)
-			{
-				uint64_t imageID = i * 69ull; // it can be hash or something of the file path the image was loaded from
-				//printf(std::format("\n Image {} \n", i).c_str());
-				drawResourcesFiller.ensureStaticImageAvailability({ imageID, sampleImages[i] }, intendedNextSubmit);
-				drawResourcesFiller.addImageObject(imageID, { .topLeft = { 0.0 + (i) * 3.0, 0.0 }, .dirU = { 3.0 , 0.0 }, .aspectRatio = 1.0 }, intendedNextSubmit);
-				//printf("\n");
-			}
+			GeoreferencedImageParams tiledGridParams;
+			auto& tiledGridCreationParams = bigTiledGrid->getCreationParameters();
+			tiledGridParams.worldspaceOBB.topLeft = { 0.0, 0.0 };
+			tiledGridParams.worldspaceOBB.dirU = { 10.0, 0.0 };
+			tiledGridParams.worldspaceOBB.aspectRatio = 1.0;
+			tiledGridParams.imageExtents = { tiledGridCreationParams.extent.width, tiledGridCreationParams.extent.height};
+			tiledGridParams.viewportExtents = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
+			tiledGridParams.format = tiledGridCreationParams.format;
+			tiledGridParams.imageID = 6996;
+			tiledGridParams.geoReferencedImage = bigTiledGrid;
 
-			GeoreferencedImageParams geoRefParams = {};
-			geoRefParams.format = asset::EF_R8G8B8A8_SRGB;
-			geoRefParams.imageExtents = uint32_t2(2048, 2048);
-			// drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(6996, geoRefParams, intendedNextSubmit);
+			DrawResourcesFiller::StreamedImageManager tiledGridManager(std::move(tiledGridParams));
+
+			drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(tiledGridManager, intendedNextSubmit);
+			drawResourcesFiller.addGeoreferencedImage(tiledGridManager, nbl::hlsl::inverse(m_Camera.constructViewProjection()), intendedNextSubmit);
 		}
 	}
 
@@ -3783,6 +3787,7 @@ protected:
 
 	std::vector<smart_refctd_ptr<ICPUImage>> sampleImages;
 	smart_refctd_ptr<ICPUImage> gridDTMHeightMap;
+	smart_refctd_ptr<ICPUImage> bigTiledGrid;
 
 	static constexpr char FirstGeneratedCharacter = ' ';
 	static constexpr char LastGeneratedCharacter = '~';
