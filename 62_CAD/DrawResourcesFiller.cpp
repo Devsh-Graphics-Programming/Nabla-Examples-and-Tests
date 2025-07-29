@@ -2743,7 +2743,7 @@ DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::S
 		for (uint32_t tileY = minLoadedTileIndices.y; tileY <= maxLoadedTileIndices.y; tileY++)
 		{
 			asset::IImage::SBufferCopy bufCopy;
-			bufCopy.bufferOffset = (tileY * (maxImageTileIndices.x + 1) * bytesPerSide + tileX) * bytesPerSide;
+			bufCopy.bufferOffset = (tileY * (maxImageTileIndices.x + 1) * TileSize + tileX) * bytesPerSide;
 			bufCopy.bufferRowLength = georeferencedImageParams.imageExtents.x;
 			bufCopy.bufferImageHeight = 0;
 			bufCopy.imageSubresource.aspectMask = IImage::EAF_COLOR_BIT;
