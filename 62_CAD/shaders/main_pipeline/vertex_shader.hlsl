@@ -453,7 +453,7 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
                     // to better understand variables at play, and the circle space, see documentation of `miterSDF` in fragment shader
                     // length of vector from circle center to intersection position (normalized so that circle radius = line thickness = 1.0)
                     float vLen = length(v);
-                    float2 intersectionDirection_Screenspace = normalize(transformVectorScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, v));
+                    float2 intersectionDirection_Screenspace = normalize(transformVectorScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, _static_cast<pfloat64_t2>(v)));
                     const float2 v_Screenspace = intersectionDirection_Screenspace * vLen;
 
                     // Find other miter vertices
