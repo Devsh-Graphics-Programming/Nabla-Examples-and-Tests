@@ -316,6 +316,7 @@ public:
 
 			const auto pipeline = ICPURayTracingPipeline::create(cpuPipelineLayout.get());
 			pipeline->getCachedCreationParams() = {
+				.flags = IGPURayTracingPipeline::SCreationParams::FLAGS::NO_NULL_INTERSECTION_SHADERS,
 				.maxRecursionDepth = 1,
 				.dynamicStackSize = true,
 			};
