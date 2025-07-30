@@ -1320,7 +1320,8 @@ public:
 
 		mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 			{
-				m_Camera.mouseProcess(events);
+				if (m_window->hasMouseFocus())
+					m_Camera.mouseProcess(events);
 			}
 		, m_logger.get());
 		keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
@@ -3701,7 +3702,7 @@ protected:
 			GeoreferencedImageParams tiledGridParams;
 			auto& tiledGridCreationParams = bigTiledGrid->getCreationParameters();
 			tiledGridParams.worldspaceOBB.topLeft = { 0.0, 0.0 };
-			tiledGridParams.worldspaceOBB.dirU = { 10.0, 0.0 };
+			tiledGridParams.worldspaceOBB.dirU = { 128.0, 0.0 };
 			tiledGridParams.worldspaceOBB.aspectRatio = 1.0;
 			tiledGridParams.imageExtents = { tiledGridCreationParams.extent.width, tiledGridCreationParams.extent.height};
 			tiledGridParams.viewportExtents = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
@@ -3712,6 +3713,7 @@ protected:
 			DrawResourcesFiller::StreamedImageManager tiledGridManager(std::move(tiledGridParams));
 
 			drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(tiledGridManager, intendedNextSubmit);
+
 			drawResourcesFiller.addGeoreferencedImage(tiledGridManager, nbl::hlsl::inverse(m_Camera.constructViewProjection()), intendedNextSubmit);
 		}
 	}

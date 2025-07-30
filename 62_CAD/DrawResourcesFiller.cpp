@@ -2494,11 +2494,19 @@ void DrawResourcesFiller::determineGeoreferencedImageCreationParams(nbl::asset::
 	else
 	{
 		// Pad sides to multiple of tileSize. Even after rounding up, we might still need to add an extra tile to cover both sides.
-		const auto xExtent = core::roundUp(georeferencedImageParams.viewportExtents.x, manager.TileSize) + manager.TileSize;
-		const auto yExtent = core::roundUp(georeferencedImageParams.viewportExtents.y, manager.TileSize) + manager.TileSize;
+		// I added two to be safe and to have issues at the borders.
+		const auto xExtent = core::roundUp(georeferencedImageParams.viewportExtents.x, manager.TileSize) + 2 * manager.TileSize;
+		const auto yExtent = core::roundUp(georeferencedImageParams.viewportExtents.y, manager.TileSize) + 2 * manager.TileSize;
 		outImageParams.extent = { xExtent, yExtent, 1u };
 		manager.maxResidentTiles.x = xExtent / manager.TileSize;
 		manager.maxResidentTiles.y = yExtent / manager.TileSize;
+		// Create a "sliding window OBB" that we use to offset tiles
+		manager.fromTopLeftOBB.topLeft = georeferencedImageParams.worldspaceOBB.topLeft;
+		manager.fromTopLeftOBB.dirU = georeferencedImageParams.worldspaceOBB.dirU * float32_t(manager.TileSize * manager.maxResidentTiles.x) / float32_t(georeferencedImageParams.imageExtents.x);
+		manager.fromTopLeftOBB.aspectRatio = float32_t(manager.maxResidentTiles.y) / float32_t(manager.maxResidentTiles.x);
+		// I think aspect ratio can stay the same since worldspace OBB and imageExtents should have same aspect ratio.
+		// If the image can be stretched/sheared and not simply rotated, then the aspect ratio *might* have to change, although I think that's covered by 
+		// the OBB's aspect ratio
 	}
 
 
@@ -2655,12 +2663,13 @@ DrawResourcesFiller::StreamedImageManager::StreamedImageManager(GeoreferencedIma
 	//		3. Map world units to tile units. This scaling is generally nonuniform, since it depends on the ratio of pixels to world units per coordinate.
 	// The name of the `offsetCoBScaleMatrix` follows by what is computed at each step
 
-	// 1. Displacement. The following matrix calculates the offset for an input point `p` with homogenous worldspace coordinates. 
+	// 1. Displacement. The following matrix computes the offset for an input point `p` with homogenous worldspace coordinates. 
 	//    By foregoing the homogenous coordinate we can keep only the vector part, that's why it's `2x3` and not `3x3`
 	float64_t2 topLeftWorld = georeferencedImageParams.worldspaceOBB.topLeft;
 	float64_t2x3 displacementMatrix(1., 0., - topLeftWorld.x, 0., 1., - topLeftWorld.y);
 
-	// 2. Change of Basis. Since {dirU, dirV} are orthogonal, the matrix to change from world coords to "image worldspan" coords has a quite nice expression
+	// 2. Change of Basis. Since {dirU, dirV} are orthogonal, the matrix to change from world coords to `span{dirU, dirV}` coords has a quite nice expression
+	//    Non-uniform scaling doesn't affect this, but this has to change if we allow for shearing (basis vectors stop being orthogonal)
 	float64_t2 dirU = georeferencedImageParams.worldspaceOBB.dirU;
 	float64_t2 dirV = float32_t2(dirU.y, -dirU.x) * georeferencedImageParams.worldspaceOBB.aspectRatio;
 	float64_t dirULengthSquared = nbl::hlsl::dot(dirU, dirU);
@@ -2669,23 +2678,14 @@ DrawResourcesFiller::StreamedImageManager::StreamedImageManager(GeoreferencedIma
 	float64_t2 secondRow = dirV / dirVLengthSquared;
 	float64_t2x2 changeOfBasisMatrix(firstRow, secondRow);
 
-	// 3. Scaling. The vector obtained by doing `CoB * displacement * p` is still in world units. Given that we know how many pixels the image spans (given by 
-	//    georeferencedImageParams.imageExtents) and how many world units it spans (given by (|dirU|, |dirV|) ) we can get a factor for the `pixel/world unit` ratio.
-	//    Then we simply multiply that factor for another factor for the `tile / pixel` ratio to get our `tile / world unit` scaling factor.
-	float64_t dirULength = nbl::hlsl::sqrt(dirULengthSquared);
-	float64_t dirVLength = nbl::hlsl::sqrt(dirVLengthSquared);
-	float64_t2 scaleFactors = (1. / TileSize) * (float64_t2(georeferencedImageParams.imageExtents) / float64_t2(dirULength, dirVLength));
-	float64_t2x2 scaleMatrix(scaleFactors.x, 0., 0., scaleFactors.y);
+	// 3. Scaling. The vector obtained by doing `CoB * displacement * p` are now the coordinates in the `span{dirU, dirV}`, which would be `uv` coordinates in [0,1]^2
+	//    (or outside this range for points not in the image). To get tile lattice coordinates, we need to scale this number by an nTiles vector which counts 
+	//    (fractionally) how many tiles fit in the image along each axis
+	float32_t2 nTiles = float32_t2(georeferencedImageParams.imageExtents) / float32_t2(TileSize, TileSize);
+	float64_t2x2 scaleMatrix(nTiles.x, 0., 0., nTiles.y);
 
 	// Put them all together
 	offsetCoBScaleMatrix = nbl::hlsl::mul(scaleMatrix, nbl::hlsl::mul(changeOfBasisMatrix, displacementMatrix));
-
-	// Create a "sliding window OBB" that we use to offset tiles
-	fromTopLeftOBB = georeferencedImageParams.worldspaceOBB;
-	fromTopLeftOBB.dirU *= float32_t(TileSize * maxResidentTiles.x) / georeferencedImageParams.imageExtents.x;
-	// I think aspect ratio can stay the same since worldspace OBB and imageExtents should have same aspect ratio
-	// If the image can be stretched/sheared and not simply rotated, then the aspect ratio *might* have to change, although I think that's covered by 
-	// the OBB's aspect ratio
 }
 
 DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::StreamedImageManager::generateTileUploadData(const float64_t3x3& NDCToWorld)
@@ -2721,13 +2721,13 @@ DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::S
 	const float64_t2 maxBottom = nbl::hlsl::max(bottomLeftTileLattice, bottomRightTileLattice);
 	const float64_t2 maxAll = nbl::hlsl::max(maxTop, maxBottom);
 
-	// Floor mins and ceil maxes
+	// Floor them to get an integer for the tiles they're in
 	const int32_t2 minAllFloored = nbl::hlsl::floor(minAll);
-	const int32_t2 maxAllCeiled = nbl::hlsl::ceil(maxAll);
+	const int32_t2 maxAllFloored = nbl::hlsl::floor(maxAll);
 
 	// Clamp them to reasonable tile indices
 	minLoadedTileIndices = nbl::hlsl::clamp(minAllFloored, int32_t2(0, 0), int32_t2(maxImageTileIndices));
-	maxLoadedTileIndices = nbl::hlsl::clamp(maxAllCeiled, int32_t2(0, 0), int32_t2(maxImageTileIndices));
+	maxLoadedTileIndices = nbl::hlsl::clamp(maxAllFloored, int32_t2(0, 0), nbl::hlsl::min(int32_t2(maxImageTileIndices), int32_t2(minLoadedTileIndices + maxResidentTiles - uint32_t2(1,1))));
 
 	// Now we have the indices of the tiles we want to upload, so create the vector of `StreamedImageCopies` - 1 per tile.
 	core::vector<StreamedImageCopy> tiles;
@@ -2759,11 +2759,13 @@ DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::S
 		}
 	}
 
-	// Last, we need to figure out an obb that covers only these tiles
+	// Last, we need to figure out an obb that covers only the currently loaded tiles
+	// By shifting the `fromTopLeftOBB` an appropriate number of tiles in each direction, we get an obb that covers at least the uploaded tiles
+	// It might cover more tiles, possible some that are not even loaded into VRAM, but since those fall outside of the viewport we don't really care about them
 	OrientedBoundingBox2D worldspaceOBB = fromTopLeftOBB;
 	const float32_t2 dirV = float32_t2(worldspaceOBB.dirU.y, -worldspaceOBB.dirU.x) * worldspaceOBB.aspectRatio;
-	worldspaceOBB.topLeft += worldspaceOBB.dirU * float32_t(minLoadedTileIndices.x / maxResidentTiles.x);
-	worldspaceOBB.topLeft += dirV * float32_t(minLoadedTileIndices.y / maxResidentTiles.y);
+	worldspaceOBB.topLeft += worldspaceOBB.dirU * float32_t(minLoadedTileIndices.x) / float32_t(maxResidentTiles.x);
+	worldspaceOBB.topLeft += dirV * float32_t(minLoadedTileIndices.y) / float32_t(maxResidentTiles.y);
 	return TileUploadData{ std::move(tiles), worldspaceOBB };
 	
 }
