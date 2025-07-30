@@ -1134,19 +1134,16 @@ private:
 
 		const auto cpuObjects = std::array{
 			scene::ReferenceObjectCpu {
-				.meta = {.type = scene::OT_RECTANGLE, .name = "Plane Mesh"},
 				.data = geometryCreator->createRectangle({10, 10}),
 				.material = defaultMaterial,
 				.transform = planeTransform,
 			},
 			scene::ReferenceObjectCpu {
-				.meta = {.type = scene::OT_CUBE, .name = "Cube Mesh"},
 				.data = geometryCreator->createCube({1, 1, 1}),
 				.material = defaultMaterial,
 				.transform = getTranslationMatrix(0, 0.5f, 0),
 			},
 			scene::ReferenceObjectCpu {
-				.meta = {.type = scene::OT_CUBE, .name = "Cube Mesh 2"},
 				.data = geometryCreator->createCube({1.5, 1.5, 1.5}),
 				.material = Material{
 					.ambient = {0.1, 0.1, 0.2},
@@ -1158,7 +1155,6 @@ private:
 				.transform = getTranslationMatrix(-5.0f, 1.0f, 0),
 			},
 			scene::ReferenceObjectCpu {
-				.meta = {.type = scene::OT_CUBE, .name = "Transparent Cube Mesh"},
 				.data = geometryCreator->createCube({1.5, 1.5, 1.5}),
 				.material = Material{
 					.ambient = {0.1, 0.2, 0.1},
@@ -1468,6 +1464,19 @@ private:
 
 				const auto& normalView = gpuPolygon->getNormalView();
 				const uint64_t normalBufferAddress = normalView ? normalView.src.buffer->getDeviceAddress() + normalView.src.offset : 0;
+        const auto normalType = [&normalView]
+        {
+          if (!normalView) return NT_UNKNOWN;
+          switch (normalView.composed.format)
+          {
+          case EF_R32G32B32_SFLOAT:
+            return NT_R32G32B32_SFLOAT;
+          case EF_R8G8B8A8_SNORM:
+            return NT_R8G8B8A8_SNORM;
+          default:
+            return NT_UNKNOWN;
+          }
+        }();
 
 				const auto& indexBufferBinding = gpuTriangles.indexData;
 				auto& geomInfo = geomInfos[i];
@@ -1476,10 +1485,8 @@ private:
 				  .vertexBufferAddress = vertexBufferAddress,
 				  .indexBufferAddress = indexBufferBinding.buffer ? indexBufferBinding.buffer->getDeviceAddress() + indexBufferBinding.offset : vertexBufferAddress,
 					.normalBufferAddress = normalBufferAddress,
-				  .vertexStride = gpuTriangles.vertexStride,
-				  .objType = cpuObject.meta.type,
+					.normalType = normalType,
 				  .indexType = gpuTriangles.indexType,
-				  .smoothNormals = scene::s_smoothNormals[cpuObject.meta.type],
 				};
 
 				m_gpuPolygons[i] = gpuPolygon;
