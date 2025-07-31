@@ -132,7 +132,7 @@ public:
 
 			if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
 			{
-				m_bounds = m_bounds + float64_t2{ (double)ev.scrollEvent.verticalScroll * -0.1 * m_aspectRatio, (double)ev.scrollEvent.verticalScroll * -0.1};
+				m_bounds = m_bounds + float64_t2{ (double)ev.scrollEvent.verticalScroll * -0.0025 * m_aspectRatio, (double)ev.scrollEvent.verticalScroll * -0.0025};
 				m_bounds = float64_t2{ core::max(m_aspectRatio, m_bounds.x), core::max(1.0, m_bounds.y) };
 			}
 		}
@@ -3702,7 +3702,7 @@ protected:
 			GeoreferencedImageParams tiledGridParams;
 			auto& tiledGridCreationParams = bigTiledGrid->getCreationParameters();
 			tiledGridParams.worldspaceOBB.topLeft = { 0.0, 0.0 };
-			tiledGridParams.worldspaceOBB.dirU = { 128.0, 0.0 };
+			tiledGridParams.worldspaceOBB.dirU = { 100.0 / nbl::hlsl::sqrt(2.0), 100.0 / nbl::hlsl::sqrt(2.0) };
 			tiledGridParams.worldspaceOBB.aspectRatio = 1.0;
 			tiledGridParams.imageExtents = { tiledGridCreationParams.extent.width, tiledGridCreationParams.extent.height};
 			tiledGridParams.viewportExtents = uint32_t2{ m_window->getWidth(), m_window->getHeight() };

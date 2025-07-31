@@ -714,7 +714,7 @@ bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(
 				cachedImageRecord->allocationOffset = allocResults.allocationOffset;
 				cachedImageRecord->allocationSize = allocResults.allocationSize;
 				cachedImageRecord->gpuImageView = allocResults.gpuImageView;
-				cachedImageRecord->staticCPUImage = manager.georeferencedImageParams.geoReferencedImage;
+				cachedImageRecord->staticCPUImage = nullptr;
 			}
 			else
 			{
