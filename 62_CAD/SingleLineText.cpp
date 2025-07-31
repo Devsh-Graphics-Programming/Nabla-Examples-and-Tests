@@ -1,6 +1,6 @@
 #include "SingleLineText.h"
 
-SingleLineText::SingleLineText(nbl::ext::TextRendering::FontFace* face, const std::string& text)
+SingleLineText::SingleLineText(nbl::ext::TextRendering::FontFace* face, const std::wstring& text)
 {
 	m_glyphBoxes.reserve(text.length());
 
@@ -11,7 +11,7 @@ SingleLineText::SingleLineText(nbl::ext::TextRendering::FontFace* face, const st
 	float64_t2 currentPos = float32_t2(0.0, 0.0);
 	for (uint32_t i = 0; i < text.length(); i++)
 	{
-		const auto glyphIndex = face->getGlyphIndex(wchar_t(text.at(i)));
+		const auto glyphIndex = face->getGlyphIndex(text.at(i));
 		const auto glyphMetrics = face->getGlyphMetrics(glyphIndex);
 		const bool skipGenerateGlyph = (glyphIndex == 0 || (glyphMetrics.size.x == 0.0 && glyphMetrics.size.y == 0.0));
 
