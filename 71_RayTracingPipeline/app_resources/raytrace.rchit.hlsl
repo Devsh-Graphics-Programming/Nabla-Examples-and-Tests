@@ -32,7 +32,7 @@ float3 calculateNormals(int primID, STriangleGeomInfo geom, float2 bary)
         }
     }
 
-    if (normalBufferAddress == 0 || normalType == NT_UNKNOWN)
+    if (normalBufferAddress == 0)
     {
         float3 v0 = vk::RawBufferLoad<float3>(vertexBufferAddress + indices[0] * 12);
         float3 v1 = vk::RawBufferLoad<float3>(vertexBufferAddress + indices[1] * 12);

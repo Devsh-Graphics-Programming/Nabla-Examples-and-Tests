@@ -847,19 +847,9 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 					const auto& normalView = gpuPolygon->getNormalView();
 					const uint64_t normalBufferAddress = normalView ? normalView.src.buffer->getDeviceAddress() + normalView.src.offset : 0;
 
-					const auto normalType = [&normalView]
-					{
-            if (!normalView) return NT_UNKNOWN;
-						switch (normalView.composed.format)
-						{
-						case EF_R32G32B32_SFLOAT:
-							return NT_R32G32B32_SFLOAT;
-						case EF_R8G8B8A8_SNORM:
-							return NT_R8G8B8A8_SNORM;
-						default:
-							return NT_UNKNOWN;
-						}
-					}();
+					auto normalType = NT_R32G32B32_SFLOAT;
+					if (normalView && normalView.composed.format == EF_R8G8B8A8_SNORM)
+						normalType = NT_R8G8B8A8_SNORM;
 
 					const auto& indexBufferBinding = gpuTriangles.indexData;
 					auto& geomInfo = geomInfos[i];

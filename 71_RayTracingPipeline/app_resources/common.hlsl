@@ -90,7 +90,6 @@ enum NormalType : uint32_t
 {
     NT_R8G8B8A8_SNORM,
     NT_R32G32B32_SFLOAT,
-    NT_UNKNOWN
 };
 
 struct STriangleGeomInfo
@@ -100,7 +99,7 @@ struct STriangleGeomInfo
     uint64_t indexBufferAddress;
     uint64_t normalBufferAddress;
 
-    uint32_t normalType : 2;
+    uint32_t normalType : 1;
     uint32_t indexType : 1; // 16 bit, 32 bit
 
 };
