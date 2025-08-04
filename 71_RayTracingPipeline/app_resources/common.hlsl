@@ -86,17 +86,21 @@ struct SProceduralGeomInfo
     float32_t radius;
 };
 
+enum NormalType : uint32_t
+{
+    NT_R8G8B8A8_SNORM,
+    NT_R32G32B32_SFLOAT,
+};
 
 struct STriangleGeomInfo
 {
     MaterialPacked material;
     uint64_t vertexBufferAddress;
     uint64_t indexBufferAddress;
+    uint64_t normalBufferAddress;
 
-    uint32_t vertexStride : 26;
-    uint32_t objType: 3;
-    uint32_t indexType : 2; // 16 bit, 32 bit or none
-    uint32_t smoothNormals : 1;	// flat for cube, rectangle, disk
+    uint32_t normalType : 1;
+    uint32_t indexType : 1; // 16 bit, 32 bit
 
 };
 
@@ -238,8 +242,6 @@ enum ObjectType : uint32_t  // matches c++
     OT_COUNT
 };
 
-static uint32_t s_offsetsToNormalBytes[OT_COUNT] = { 18, 24, 24, 20, 20, 24, 16, 12 };	// based on normals data position
-
 float32_t3 computeDiffuse(Material mat, float32_t3 light_dir, float32_t3 normal)
 {
 	float32_t dotNL = max(dot(normal, light_dir), 0.0);
@@ -271,85 +273,6 @@ float3 unpackNormals3x10(uint32_t v)
     return clamp(float3(pn) / 511.0, -1.0, 1.0);
 }
 
-float32_t3 fetchVertexNormal(int instID, int primID, STriangleGeomInfo geom, float2 bary)
-{
-    uint idxOffset = primID * 3;
-
-    const uint indexType = geom.indexType;
-    const uint vertexStride = geom.vertexStride;
-
-    const uint32_t objType = geom.objType;
-    const uint64_t indexBufferAddress = geom.indexBufferAddress;
-
-    uint i0, i1, i2;
-    switch (indexType)
-    {
-        case 0: // EIT_16BIT
-        {
-                i0 = uint32_t(vk::RawBufferLoad < uint16_t > (indexBufferAddress + (idxOffset + 0) * sizeof(uint16_t), 2u));
-                i1 = uint32_t(vk::RawBufferLoad < uint16_t > (indexBufferAddress + (idxOffset + 1) * sizeof(uint16_t), 2u));
-                i2 = uint32_t(vk::RawBufferLoad < uint16_t > (indexBufferAddress + (idxOffset + 2) * sizeof(uint16_t), 2u));
-            }
-            break;
-        case 1: // EIT_32BIT
-        {
-                i0 = vk::RawBufferLoad < uint32_t > (indexBufferAddress + (idxOffset + 0) * sizeof(uint32_t));
-                i1 = vk::RawBufferLoad < uint32_t > (indexBufferAddress + (idxOffset + 1) * sizeof(uint32_t));
-                i2 = vk::RawBufferLoad < uint32_t > (indexBufferAddress + (idxOffset + 2) * sizeof(uint32_t));
-            }
-            break;
-        default: // EIT_NONE
-        {
-                i0 = idxOffset;
-                i1 = idxOffset + 1;
-                i2 = idxOffset + 2;
-            }
-    }
-
-    const uint64_t normalVertexBufferAddress = geom.vertexBufferAddress + s_offsetsToNormalBytes[objType];
-    float3 n0, n1, n2;
-    switch (objType)
-    {
-        case OT_CUBE:
-        {
-                uint32_t v0 = vk::RawBufferLoad < uint32_t > (normalVertexBufferAddress + i0 * vertexStride, 2u);
-                uint32_t v1 = vk::RawBufferLoad < uint32_t > (normalVertexBufferAddress + i1 * vertexStride, 2u);
-                uint32_t v2 = vk::RawBufferLoad < uint32_t > (normalVertexBufferAddress + i2 * vertexStride, 2u);
-
-                n0 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v0).xyz);
-                n1 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v1).xyz);
-                n2 = normalize(nbl::hlsl::spirv::unpackSnorm4x8(v2).xyz);
-            }
-            break;
-        case OT_SPHERE:
-        case OT_CYLINDER:
-        case OT_ARROW:
-        case OT_CONE:
-        {
-                uint32_t v0 = vk::RawBufferLoad < uint32_t > (normalVertexBufferAddress + i0 * vertexStride);
-                uint32_t v1 = vk::RawBufferLoad < uint32_t > (normalVertexBufferAddress + i1 * vertexStride);
-                uint32_t v2 = vk::RawBufferLoad < uint32_t > (normalVertexBufferAddress + i2 * vertexStride);
-
-                n0 = normalize(unpackNormals3x10(v0));
-                n1 = normalize(unpackNormals3x10(v1));
-                n2 = normalize(unpackNormals3x10(v2));
-            }
-            break;
-        case OT_RECTANGLE:
-        case OT_DISK:
-        case OT_ICOSPHERE:
-        default:
-        {
-                n0 = vk::RawBufferLoad < float3 > (normalVertexBufferAddress + i0 * vertexStride);
-                n1 = vk::RawBufferLoad < float3 > (normalVertexBufferAddress + i1 * vertexStride);
-                n2 = vk::RawBufferLoad < float3 > (normalVertexBufferAddress + i2 * vertexStride);
-            }
-    }
-
-    float3 barycentrics = float3(0.0, bary);
-    barycentrics.x = 1.0 - barycentrics.y - barycentrics.z;
-    return normalize(barycentrics.x * n0 + barycentrics.y * n1 + barycentrics.z * n2);
-}
 #endif
 
 namespace nbl
