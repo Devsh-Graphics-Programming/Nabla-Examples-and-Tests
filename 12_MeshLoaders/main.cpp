@@ -1,10 +1,10 @@
 // Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
+#include "../3rdparty/argparse/include/argparse/argparse.hpp"
 #include "common.hpp"
 
 #include "../3rdparty/portable-file-dialogs/portable-file-dialogs.h"
-#include "../3rdparty/argparse/include/argparse/argparse.hpp"
 
 #ifdef NBL_BUILD_MITSUBA_LOADER
 #include "nbl/ext/MitsubaLoader/CSerializedLoader.h"
@@ -22,8 +22,6 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 		inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
-			namespace fs = std::filesystem;
-
 			if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 		#ifdef NBL_BUILD_MITSUBA_LOADER
@@ -35,8 +33,8 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			// parse args
 			argparse::ArgumentParser parser("12_meshloaders");
 			parser.add_argument("--savemesh")
-				.help("Save the displayed mesh on program termination at specified path")
-				.nargs(argparse::nargs_pattern::at_least_one);
+				.help("Save the displayed mesh on program termination to the file with specified name. Takes filename without extension as an argument")
+				.flag();
 
 			try
 			{
@@ -47,16 +45,8 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 				return logFail(e.what());
 			}
 
-			if (parser.is_used("--savemesh"))
-			{
+			if (parser["--savemesh"] == true)
 				m_saveMeshOnExit = true;
-				std::string savePath = parser.get<std::string>("--savemesh");
-
-				if (!fs::exists(fs::path(savePath).parent_path()))
-					return logFail("Parent path for %s doesn't exist!", savePath.c_str());
-
-				m_savePath = std::move(savePath);
-			}
 
 			m_semaphore = m_device->createSemaphore(m_realFrameIx);
 			if (!m_semaphore)
@@ -207,15 +197,28 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 		inline bool onAppTerminated() override
 		{
-			// TODO: Save mesh if arg is enabled
 			if (m_saveMeshOnExit)
-			{ }
+			{
+				// make save path
+				static const auto prefix = std::filesystem::absolute("saved/");
+
+				if (!std::filesystem::exists(prefix))
+					m_system->createDirectory(prefix);
+
+				auto savePath = (prefix / path(m_modelPath).filename()).generic_string();
+			
+				m_logger->log("Saving mesh to %S", ILogger::ELL_INFO, savePath.c_str()); 
+				// TODO (Yas): learn how to get out the geometry from renderer and transform it into IAsset
+				
+				auto& asset = m_currentBundle.getContents()[0];
+				IAssetWriter::SAssetWriteParams params{ asset.get() };
+				m_assetMgr->writeAsset(savePath, params);
+			}
 
 			if (!device_base_t::onAppTerminated())
 				return false;
 
-			if (!asset_base_t::onAppTerminated())
-				return false;
+			return true;
 		}
 
 	protected:
@@ -291,16 +294,16 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			//! load the geometry
 			IAssetLoader::SAssetLoadParams params = {};
 			params.logger = m_logger.get();
-			auto bundle = m_assetMgr->getAsset(m_modelPath,params);
-			if (bundle.getContents().empty())
+			m_currentBundle = m_assetMgr->getAsset(m_modelPath,params);
+			if (m_currentBundle.getContents().empty())
 				return false;
 
 			// 
 			core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
-			switch (bundle.getAssetType())
+			switch (m_currentBundle.getAssetType())
 			{
 				case IAsset::E_TYPE::ET_GEOMETRY:
-					for (const auto& item : bundle.getContents())
+					for (const auto& item : m_currentBundle.getContents())
 					if (auto polyGeo=IAsset::castDown<ICPUPolygonGeometry>(item); polyGeo)
 						geometries.push_back(polyGeo);
 					break;
@@ -459,7 +462,9 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		// mutables
 		std::string m_modelPath;
 
-		std::string m_savePath;
+		SAssetBundle m_currentBundle;
+
+		std::string m_saveFileName; // NOTE: no extension
 		bool m_saveMeshOnExit;
 };
 
