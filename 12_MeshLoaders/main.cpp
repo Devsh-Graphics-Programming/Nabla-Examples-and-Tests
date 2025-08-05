@@ -4,6 +4,7 @@
 #include "common.hpp"
 
 #include "../3rdparty/portable-file-dialogs/portable-file-dialogs.h"
+#include "../3rdparty/argparse/include/argparse/argparse.hpp"
 
 #ifdef NBL_BUILD_MITSUBA_LOADER
 #include "nbl/ext/MitsubaLoader/CSerializedLoader.h"
@@ -21,6 +22,8 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 		inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
+			namespace fs = std::filesystem;
+
 			if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 		#ifdef NBL_BUILD_MITSUBA_LOADER
@@ -28,6 +31,32 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		#endif
 			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
+
+			// parse args
+			argparse::ArgumentParser parser("12_meshloaders");
+			parser.add_argument("--savemesh")
+				.help("Save the displayed mesh on program termination at specified path")
+				.nargs(argparse::nargs_pattern::at_least_one);
+
+			try
+			{
+				parser.parse_args({ argv.data(), argv.data() + argv.size() });
+			}
+			catch (const std::exception& e)
+			{
+				return logFail(e.what());
+			}
+
+			if (parser.is_used("--savemesh"))
+			{
+				m_saveMeshOnExit = true;
+				std::string savePath = parser.get<std::string>("--savemesh");
+
+				if (!fs::exists(fs::path(savePath).parent_path()))
+					return logFail("Parent path for %s doesn't exist!", savePath.c_str());
+
+				m_savePath = std::move(savePath);
+			}
 
 			m_semaphore = m_device->createSemaphore(m_realFrameIx);
 			if (!m_semaphore)
@@ -174,6 +203,19 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 				m_window->setCaption(caption);
 			}
 			return retval;
+		}
+
+		inline bool onAppTerminated() override
+		{
+			// TODO: Save mesh if arg is enabled
+			if (m_saveMeshOnExit)
+			{ }
+
+			if (!device_base_t::onAppTerminated())
+				return false;
+
+			if (!asset_base_t::onAppTerminated())
+				return false;
 		}
 
 	protected:
@@ -416,6 +458,9 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
 		// mutables
 		std::string m_modelPath;
+
+		std::string m_savePath;
+		bool m_saveMeshOnExit;
 };
 
 NBL_MAIN_FUNC(MeshLoadersApp)
