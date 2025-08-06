@@ -62,22 +62,19 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     s = orenNayarBRDF.generate(anisointer, u.xy);
     L += s.L.direction;
 
-    bxdf::reflection::SOrenNayarBxDF<iso_config_t>::params_isotropic_t params0 = bxdf::reflection::SOrenNayarBxDF<iso_config_t>::params_isotropic_t::create(s, isointer, bxdf::BxDFClampMode::BCM_MAX);
-    quotient_pdf_t qp = orenNayarBRDF.quotient_and_pdf(params0);
+    quotient_pdf_t qp = orenNayarBRDF.quotient_and_pdf(s, isointer);
     L -= qp.quotient;
 
     s = beckmannAnisoBRDF.generate(anisointer, u.xy, cache);
     L += s.L.direction;
 
-    bxdf::reflection::SBeckmannAnisotropicBxDF<aniso_microfacet_config_t>::params_anisotropic_t params1 = bxdf::reflection::SBeckmannAnisotropicBxDF<aniso_microfacet_config_t>::params_anisotropic_t::create(s, anisointer, cache, bxdf::BxDFClampMode::BCM_MAX);
-    qp = beckmannAnisoBRDF.quotient_and_pdf(params1);
+    qp = beckmannAnisoBRDF.quotient_and_pdf(s, anisointer, cache);
     L -= qp.quotient;
 
     s = ggxAnisoBRDF.generate(anisointer, u.xy, cache);
     L += s.L.direction;
 
-    bxdf::reflection::SGGXAnisotropicBxDF<aniso_microfacet_config_t>::params_anisotropic_t params2 = bxdf::reflection::SGGXAnisotropicBxDF<aniso_microfacet_config_t>::params_anisotropic_t::create(s, anisointer, cache, bxdf::BxDFClampMode::BCM_MAX);
-    qp = ggxAnisoBRDF.quotient_and_pdf(params2);
+    qp = ggxAnisoBRDF.quotient_and_pdf(s, anisointer, cache);
     L -= qp.quotient;
 
     s = lambertianBSDF.generate(anisointer, u);
@@ -86,15 +83,13 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     s = thinSmoothDielectricBSDF.generate(anisointer, u);
     L += s.L.direction;
 
-    bxdf::transmission::SSmoothThinDielectricBxDF<iso_config_t>::params_isotropic_t params3 = bxdf::transmission::SSmoothThinDielectricBxDF<iso_config_t>::params_isotropic_t::create(s, isointer, bxdf::BxDFClampMode::BCM_ABS);
-    qp = thinSmoothDielectricBSDF.quotient_and_pdf(params3);
+    qp = thinSmoothDielectricBSDF.quotient_and_pdf(s, isointer);
     L -= qp.quotient;
 
     s = ggxAnisoBSDF.generate(anisointer, u, cache);
     L += s.L.direction;
 
-    bxdf::transmission::SGGXDielectricAnisotropicBxDF<aniso_microfacet_config_t>::params_anisotropic_t params4 = bxdf::transmission::SGGXDielectricAnisotropicBxDF<aniso_microfacet_config_t>::params_anisotropic_t::create(s, anisointer, cache, bxdf::BxDFClampMode::BCM_ABS);
-    qp = ggxAnisoBSDF.quotient_and_pdf(params4);
+    qp = ggxAnisoBSDF.quotient_and_pdf(s, anisointer, cache);
     L -= qp.quotient;
 
     buff[ID.x] = L;
