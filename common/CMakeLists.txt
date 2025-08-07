@@ -1,28 +1,109 @@
-###########################################
-# TODO: the way it should work is following (remove the comment once all done!)
-# - one top PCH which includes <nabla.h> -> currently not done
-# - sources used only within examples splitted into "common libraries" (optional -> with options to toggle if include them to build tree), each common library should reuse the above top PCH
-# - examples_tests CMake loop over example targets and hook the interface library with NBL_HOOK_COMMON_API [done]
-# - each common library should declare ONLY interface and never expose source definition into headers nor any 3rdparty stuff!
-##
+#! Examples API proxy library
+#[[
+    We create the Nabla Examples API as a static library extension, this
+    allows all examples to reuse a single precompiled header (PCH)
+    instead of generating their own
 
-# interface libraries don't have build rules (except custom commands however it doesn't matter here) but properties
-add_library(nblCommonAPI INTERFACE)
-set(NBL_COMMON_API_INCLUDE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_include_directories(nblCommonAPI INTERFACE "${NBL_COMMON_API_INCLUDE_DIRECTORY}")
+    The PCH includes Nabla.h + example common interface headers and takes 
+    around 1 GB per configuration, so sharing it avoids significant disk space waste
+]]
 
-add_subdirectory(src EXCLUDE_FROM_ALL)
+nbl_create_ext_library_project(ExamplesAPI "" "${CMAKE_CURRENT_SOURCE_DIR}/src/nbl/examples/pch.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/include" "" "")
 
-########## <-
-# TODO: disable this CommonPCH thing! + DEPRICATED!
-# TODO: move asset converer into separate library
+set_target_properties(${LIB_NAME} PROPERTIES DISABLE_PRECOMPILE_HEADERS OFF)
+target_precompile_headers(${LIB_NAME} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include/nbl/examples/PCH.hpp")
 
-nbl_create_ext_library_project(CommonAPI "" "${CMAKE_CURRENT_SOURCE_DIR}/src/empty.cpp" "" "" "")
-set(NBL_EXECUTABLE_COMMON_API_TARGET "${LIB_NAME}" CACHE INTERNAL "")
+set(COMMON_INCLUDE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
-add_subdirectory(CommonPCH EXCLUDE_FROM_ALL)
+function(INTERFACE_TO_BUILTINS TARGET)
+    #[[
+        even though builtin target is static library its still valid to reuse 
+        common PCH to boost its build speed to not preprocess entire Nabla again (**)
+    ]]
+    set_target_properties(${TARGET} PROPERTIES DISABLE_PRECOMPILE_HEADERS OFF)
+    target_precompile_headers(${TARGET} REUSE_FROM "${LIB_NAME}")
 
-#target_precompile_headers("${NBL_EXECUTABLE_COMMON_API_TARGET}" REUSE_FROM "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
-########## <-
+    target_include_directories(${TARGET} PUBLIC "${COMMON_INCLUDE_DIRECTORY}")
+    target_link_libraries(${TARGET} INTERFACE ${LIB_NAME})
+endfunction()
 
-set(NBL_COMMON_API_TARGETS nblCommonAPI ${NBL_COMMON_API_TARGETS} ${NBL_EXECUTABLE_COMMON_API_TARGET} PARENT_SCOPE)
+function(REGISTER_COMMON_BUILTINS)
+	cmake_parse_arguments(EX "" "TARGET;BIND;NAMESPACE" "GLOB_RGX" ${ARGN})
+    get_filename_component(MOUNT_POINT "${CMAKE_CURRENT_SOURCE_DIR}/${EX_BIND}" ABSOLUTE)
+    list(TRANSFORM EX_GLOB_RGX PREPEND "${MOUNT_POINT}/")
+	file(GLOB_RECURSE KEYS RELATIVE "${MOUNT_POINT}" CONFIGURE_DEPENDS ${EX_GLOB_RGX})
+	
+    NBL_CREATE_RESOURCE_ARCHIVE(
+        TARGET ${EX_TARGET}
+        BIND "${MOUNT_POINT}"
+        BUILTINS ${KEYS}
+        NAMESPACE ${EX_NAMESPACE}
+    )
+    INTERFACE_TO_BUILTINS(${EX_TARGET})
+endfunction()
+
+#! common example API builtins as static library targets linked to each example
+if(NBL_EMBED_BUILTIN_RESOURCES)
+    REGISTER_COMMON_BUILTINS(
+        TARGET NblExtExamplesAPIBuiltinsSource 
+        BIND src/nbl/examples 
+        NAMESPACE nbl::builtin::examples::src 
+        GLOB_RGX *.hlsl *.txt
+    )
+
+    REGISTER_COMMON_BUILTINS(
+        TARGET NblExtExamplesAPIBuiltinsInclude 
+        BIND include/nbl/examples 
+        NAMESPACE nbl::builtin::examples::include
+        GLOB_RGX *.hpp *.h *.hlsl *.txt
+    )
+endif()
+
+#! Examples API common libraries
+#[[
+    The rule is to avoid creating additional libraries as part of the examples' common
+    interface in order to prevent generating another precompiled header (PCH) and wasting disk space
+
+    If you have new utilities that could be shared across examples then try to implement them as header only
+    and include in the PCH or in `examples.h` *if you cannot* (open the header to see details)
+
+    but If you have a good reason to create library because you cannot make it header only 
+    AND you *can REUSE* the examples' PCH then go ahead anyway and put it under `src/nbl/examples`, 
+    otherwise keep it header only - a good example would be to use our embedded-whatever-you-want tool
+    which does create library but can reuse example's PCH (see NblExtExamplesAPIBuiltinsSource 
+    and NblExtExamplesAPIBuiltinsInclude targets)
+]]
+
+add_subdirectory("src/nbl/examples" EXCLUDE_FROM_ALL)
+target_link_libraries(${LIB_NAME} PUBLIC NblExtExamplesAPISPIRV)
+if(NBL_EMBED_BUILTIN_RESOURCES)
+	INTERFACE_TO_BUILTINS(NblExtExamplesAPIBuiltinsBuild)
+
+    #[[
+        we have SPIRV keys include file in examples' PCH which then gets REUSE(d) by common archives (**) in built-in mode,
+        to not glitch compiler we need to ensure we inherit interface properties (include directories needed) for all targets 
+        which share PCH, also note it doest really link any library, the target we inherit properties from is INTERFACE
+    ]]
+    target_link_libraries(NblExtExamplesAPIBuiltinsSource PUBLIC NblExtExamplesAPISPIRV)
+    target_link_libraries(NblExtExamplesAPIBuiltinsInclude PUBLIC NblExtExamplesAPISPIRV)
+    target_link_libraries(NblExtExamplesAPIBuiltinsBuild PUBLIC NblExtExamplesAPISPIRV)
+endif()
+
+NBL_GET_ALL_TARGETS(TARGETS)
+list(REMOVE_ITEM TARGETS ${LIB_NAME})
+
+# the Examples API proxy library CMake target name
+#[[
+    this one gets linked to each executable automatically with its interface libraries
+]]
+set(NBL_EXAMPLES_API_TARGET ${LIB_NAME} PARENT_SCOPE)
+
+#! names of CMake targets created in src/nbl/examples
+#[[
+    if your example wants to use anything from src/nbl/examples
+    then you must target_link_libraries() the lib you want as we 
+    don't link all those libraries to each executable automatically
+]]
+set(NBL_EXAMPLES_API_LIBRARIES ${TARGETS} PARENT_SCOPE)
+
+NBL_ADJUST_FOLDERS(common)

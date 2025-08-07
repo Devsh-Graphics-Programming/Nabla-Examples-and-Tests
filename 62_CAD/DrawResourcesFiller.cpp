@@ -289,9 +289,6 @@ void DrawResourcesFiller::drawTriangleMesh(
 	setActiveDTMSettings(dtmSettingsInfo);
 	beginMainObject(MainObjectType::DTM);
 
-	DrawCallData drawCallData = {}; 
-	drawCallData.isDTMRendering = true;
-
 	uint32_t mainObjectIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
 	if (mainObjectIdx == InvalidMainObjectIdx)
 	{
@@ -299,41 +296,64 @@ void DrawResourcesFiller::drawTriangleMesh(
 		assert(false);
 		return;
 	}
-	drawCallData.dtm.triangleMeshMainObjectIndex = mainObjectIdx;
+
+	DrawCallData drawCallData = {}; 
+	drawCallData.isDTMRendering = true;
 
 	ICPUBuffer::SCreationParams geometryBuffParams;
-	
+
 	// concatenate the index and vertex buffer into the geometry buffer
-	const size_t indexBuffByteSize = mesh.getIndexBuffByteSize();
-	const size_t vtxBuffByteSize = mesh.getVertexBuffByteSize();
-	const size_t dataToAddByteSize = vtxBuffByteSize + indexBuffByteSize;
+	const auto& indexBuffer = mesh.getIndices();
+	const auto& vertexBuffer = mesh.getVertices();
+	assert(indexBuffer.size() == vertexBuffer.size()); // We don't have any vertex re-use due to other limitations at the moemnt.
+	
 
-	const size_t remainingResourcesSize = calculateRemainingResourcesSize();
-
-	// TODO: assert of geometry buffer size, do i need to check if size of objects to be added <= remainingResourcesSize?
-	// TODO: auto submit instead of assert
-	assert(dataToAddByteSize <= remainingResourcesSize);
-
+	const uint32_t numTriangles = indexBuffer.size() / 3u;
+	uint32_t trianglesUploaded = 0;
+	while (trianglesUploaded < numTriangles)
 	{
-		// NOTE[ERFAN]: these push contants will be removed, everything will be accessed by dtmSettings, including where the vertex buffer data resides
+		const size_t remainingResourcesSize = calculateRemainingResourcesSize();
+		const uint32_t maxUploadableVertices = remainingResourcesSize / (sizeof(CTriangleMesh::vertex_t) + sizeof(CTriangleMesh::index_t));
+		const uint32_t maxUploadableTriangles = maxUploadableVertices / 3u;
+		const uint32_t remainingTrianglesToUpload = numTriangles - trianglesUploaded;
+		const uint32_t trianglesToUpload = core::min(remainingTrianglesToUpload, maxUploadableTriangles);
+		const size_t vtxBuffByteSize = trianglesToUpload * 3u * sizeof(CTriangleMesh::vertex_t);
+		const size_t indexBuffByteSize = trianglesToUpload * 3u * sizeof(CTriangleMesh::index_t);
+		const size_t trianglesToUploadByteSize = vtxBuffByteSize + indexBuffByteSize;
 
 		// Copy VertexBuffer
-		size_t geometryBufferOffset = resourcesCollection.geometryInfo.increaseSizeAndGetOffset(dataToAddByteSize, alignof(CTriangleMesh::vertex_t));
+		size_t geometryBufferOffset = resourcesCollection.geometryInfo.increaseSizeAndGetOffset(trianglesToUploadByteSize, alignof(CTriangleMesh::vertex_t));
 		void* dst = resourcesCollection.geometryInfo.data() + geometryBufferOffset;
 		// the actual bda address will be determined only after all copies are finalized, later we will do += `baseBDAAddress + geometryInfo.bufferOffset`
-		drawCallData.dtm.triangleMeshVerticesBaseAddress = geometryBufferOffset;
-		memcpy(dst, mesh.getVertices().data(), vtxBuffByteSize);
+		// the - is a small hack because index buffer grows but vertex buffer needs to start from 0, remove that once we either get rid of the index buffer or implement an algorithm that can have vertex reuse
+		drawCallData.dtm.triangleMeshVerticesBaseAddress = geometryBufferOffset - (sizeof(CTriangleMesh::vertex_t) * trianglesUploaded * 3); 
+		memcpy(dst, &vertexBuffer[trianglesUploaded * 3u], vtxBuffByteSize);
 		geometryBufferOffset += vtxBuffByteSize; 
 
 		// Copy IndexBuffer
 		dst = resourcesCollection.geometryInfo.data() + geometryBufferOffset;
 		drawCallData.dtm.indexBufferOffset = geometryBufferOffset;
-		memcpy(dst, mesh.getIndices().data(), indexBuffByteSize);
+		memcpy(dst, &indexBuffer[trianglesUploaded * 3u], indexBuffByteSize);
 		geometryBufferOffset += indexBuffByteSize;
+		
+		trianglesUploaded += trianglesToUpload;
+		
+		drawCallData.dtm.triangleMeshMainObjectIndex = mainObjectIdx;
+		drawCallData.dtm.indexCount = trianglesToUpload * 3u;
+		drawCalls.push_back(drawCallData);
+
+		//if (trianglesUploaded == 0u)
+		//{
+		//	m_logger.log("drawTriangleMesh: not enough vram allocation for a single triangle!", nbl::system::ILogger::ELL_ERROR);
+		//	assert(false);
+		//	break;
+		//}
+
+		// Requires Auto-Submit If All Triangles of the Mesh couldn't fit into Memory
+		if (trianglesUploaded < numTriangles)
+			submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjectIdx);
 	}
 
-	drawCallData.dtm.indexCount = mesh.getIndexCount();
-	drawCalls.push_back(drawCallData);
 	endMainObject();
 }
 
@@ -775,21 +795,19 @@ void DrawResourcesFiller::drawGridDTM(
 	float gridCellWidth,
 	uint64_t textureID,
 	const DTMSettingsInfo& dtmSettingsInfo,
-	SIntendedSubmitInfo& intendedNextSubmit,
-	bool drawGridOnly/* = false*/)
+	SIntendedSubmitInfo& intendedNextSubmit)
 {
 	if (dtmSettingsInfo.mode == 0u)
 		return;
-
-	if (dtmSettingsInfo.mode == E_DTM_MODE::OUTLINE)
-		drawGridOnly = true;
 
 	GridDTMInfo gridDTMInfo;
 	gridDTMInfo.topLeft = topLeft;
 	gridDTMInfo.worldSpaceExtents = worldSpaceExtents;
 	gridDTMInfo.gridCellWidth = gridCellWidth;
-	if(!drawGridOnly)
+	if (textureID != InvalidTextureIndex)
 		gridDTMInfo.textureID = getImageIndexFromID(textureID, intendedNextSubmit); // for this to be valid and safe, this function needs to be called immediately after `addStaticImage` function to make sure image is in memory
+	else
+		gridDTMInfo.textureID = InvalidTextureIndex;
 
 	// determine the thickes line
 	float thickestLineThickness = 0.0f;
@@ -797,7 +815,7 @@ void DrawResourcesFiller::drawGridDTM(
 	{
 		thickestLineThickness = dtmSettingsInfo.outlineStyleInfo.worldSpaceLineWidth + dtmSettingsInfo.outlineStyleInfo.screenSpaceLineWidth;
 	}
-	else if (dtmSettingsInfo.mode & E_DTM_MODE::CONTOUR && !drawGridOnly)
+	else if (dtmSettingsInfo.mode & E_DTM_MODE::CONTOUR)
 	{
 		for (int i = 0; i < dtmSettingsInfo.contourSettingsCount; ++i)
 		{
@@ -808,7 +826,7 @@ void DrawResourcesFiller::drawGridDTM(
 	}
 	gridDTMInfo.thicknessOfTheThickestLine = thickestLineThickness;
 
-	setActiveDTMSettings(dtmSettingsInfo, drawGridOnly);
+	setActiveDTMSettings(dtmSettingsInfo);
 	beginMainObject(MainObjectType::GRID_DTM);
 
 	uint32_t mainObjectIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
@@ -893,6 +911,8 @@ void DrawResourcesFiller::addGeoreferencedImage(StreamedImageManager& manager, c
 	info.dirU = uploadData.worldspaceOBB.dirU;
 	info.aspectRatio = uploadData.worldspaceOBB.aspectRatio;
 	info.textureID = getImageIndexFromID(manager.georeferencedImageParams.imageID, intendedNextSubmit); // for this to be valid and safe, this function needs to be called immediately after `addStaticImage` function to make sure image is in memory
+	info.minUV = uploadData.minUV;
+	info.maxUV = uploadData.maxUV;
 	if (!addGeoreferencedImageInfo_Internal(info, mainObjIdx))
 	{
 		// single image object couldn't fit into memory to push to gpu, so we submit rendering current objects and reset geometry buffer and draw objects
@@ -1047,13 +1067,10 @@ void DrawResourcesFiller::setActiveLineStyle(const LineStyleInfo& lineStyle)
 	activeLineStyleIndex = InvalidStyleIdx;
 }
 
-void DrawResourcesFiller::setActiveDTMSettings(const DTMSettingsInfo& dtmSettingsInfo, const bool disableHeightRelatedDTMModes/* = false*/)
+void DrawResourcesFiller::setActiveDTMSettings(const DTMSettingsInfo& dtmSettingsInfo)
 {
 	activeDTMSettings = dtmSettingsInfo;
 	activeDTMSettingsIndex = InvalidDTMSettingsIdx;
-
-	if (disableHeightRelatedDTMModes)
-		activeDTMSettings.mode &= E_DTM_MODE::OUTLINE;
 }
 
 void DrawResourcesFiller::beginMainObject(MainObjectType type, TransformationType transformationType)
@@ -1682,7 +1699,7 @@ uint32_t DrawResourcesFiller::addDTMSettings_Internal(const DTMSettingsInfo& dtm
 		}
 		dtmSettings.heightShadingSettings.intervalIndexToHeightMultiplier = dtmSettingsInfo.heightShadingInfo.intervalIndexToHeightMultiplier;
 		dtmSettings.heightShadingSettings.isCenteredShading = static_cast<int>(dtmSettingsInfo.heightShadingInfo.isCenteredShading);
-		_NBL_DEBUG_BREAK_IF(!dtmSettingsInfo.heightShadingInfo.fillShaderDTMSettingsHeightColorMap(dtmSettings));
+		dtmSettingsInfo.heightShadingInfo.fillShaderDTMSettingsHeightColorMap(dtmSettings);
 	}
 	if (dtmSettings.mode & E_DTM_MODE::CONTOUR)
 	{
@@ -2356,8 +2373,7 @@ DrawResourcesFiller::ImageAllocateResults DrawResourcesFiller::tryCreateAndAlloc
 		
 		if (imageViewFormatOverride != asset::E_FORMAT::EF_COUNT && imageViewFormatOverride != imageParams.format)
 		{
-			// TODO: figure out why this crashes the app
-			//params.viewFormats.set(static_cast<size_t>(imageViewFormatOverride), true);
+			params.viewFormats.set(static_cast<size_t>(imageViewFormatOverride), true);
 			params.flags |= asset::IImage::E_CREATE_FLAGS::ECF_MUTABLE_FORMAT_BIT;
 		}
 		auto gpuImage = device->createImage(std::move(params));
@@ -2392,6 +2408,17 @@ DrawResourcesFiller::ImageAllocateResults DrawResourcesFiller::tryCreateAndAlloc
 							.viewType = IGPUImageView::ET_2D,
 							.format = (imageViewFormatOverride == asset::E_FORMAT::EF_COUNT) ? gpuImage->getCreationParameters().format : imageViewFormatOverride
 						};
+
+						const uint32_t channelCount = nbl::asset::getFormatChannelCount(viewParams.format);
+						if (channelCount == 1u)
+						{
+							// for rendering grayscale:
+							viewParams.components.r = nbl::asset::IImageViewBase::SComponentMapping::E_SWIZZLE::ES_R;
+							viewParams.components.g = nbl::asset::IImageViewBase::SComponentMapping::E_SWIZZLE::ES_R;
+							viewParams.components.b = nbl::asset::IImageViewBase::SComponentMapping::E_SWIZZLE::ES_R;
+							viewParams.components.a = nbl::asset::IImageViewBase::SComponentMapping::E_SWIZZLE::ES_ONE;
+						}
+
 						ret.gpuImageView = device->createImageView(std::move(viewParams));
 						if (ret.gpuImageView)
 						{
@@ -2493,13 +2520,13 @@ void DrawResourcesFiller::determineGeoreferencedImageCreationParams(nbl::asset::
 	}
 	else
 	{
-		// Pad sides to multiple of tileSize. Even after rounding up, we might still need to add an extra tile to cover both sides.
-		// I added two to be safe and to have issues at the borders.
-		const auto xExtent = core::roundUp(georeferencedImageParams.viewportExtents.x, manager.TileSize) + 2 * manager.TileSize;
-		const auto yExtent = core::roundUp(georeferencedImageParams.viewportExtents.y, manager.TileSize) + 2 * manager.TileSize;
-		outImageParams.extent = { xExtent, yExtent, 1u };
-		manager.maxResidentTiles.x = xExtent / manager.TileSize;
-		manager.maxResidentTiles.y = yExtent / manager.TileSize;
+		// Enough to cover twice the viewport at mip 0 (so that when zooming out to mip 1 the whole viewport still gets covered with mip 0 tiles) 
+		// and in any rotation (taking the longest side suffices). Can be increased to avoid frequent tile eviction when moving the camera at mip close to 1
+		const uint32_t longestSide = nbl::hlsl::max(georeferencedImageParams.viewportExtents.x, georeferencedImageParams.viewportExtents.y);
+		const uint32_t gpuImageSidelength = 2 * (core::roundUp(longestSide, manager.TileSize) + manager.TileSize);
+		outImageParams.extent = { gpuImageSidelength, gpuImageSidelength, 1u };
+		manager.maxResidentTiles.x = gpuImageSidelength / manager.TileSize;
+		manager.maxResidentTiles.y = manager.maxResidentTiles.x;
 		// Create a "sliding window OBB" that we use to offset tiles
 		manager.fromTopLeftOBB.topLeft = georeferencedImageParams.worldspaceOBB.topLeft;
 		manager.fromTopLeftOBB.dirU = georeferencedImageParams.worldspaceOBB.dirU * float32_t(manager.TileSize * manager.maxResidentTiles.x) / float32_t(georeferencedImageParams.imageExtents.x);
@@ -2661,7 +2688,7 @@ DrawResourcesFiller::StreamedImageManager::StreamedImageManager(GeoreferencedIma
 	//		1. Get the displacement (will be an offset vector in world coords and world units) from the `topLeft` corner of the image to the point
 	//		2. Transform this displacement vector into a displacement into the coordinates spanned by the basis {dirU, dirV}. Notice that these vectors are still in world units
 	//		3. Map world units to tile units. This scaling is generally nonuniform, since it depends on the ratio of pixels to world units per coordinate.
-	// The name of the `offsetCoBScaleMatrix` follows by what is computed at each step
+	// The product of the above matrices is `world2Tile` after the fact that it maps a world coordinate to a coordinate in the tile lattice
 
 	// 1. Displacement. The following matrix computes the offset for an input point `p` with homogenous worldspace coordinates. 
 	//    By foregoing the homogenous coordinate we can keep only the vector part, that's why it's `2x3` and not `3x3`
@@ -2685,11 +2712,12 @@ DrawResourcesFiller::StreamedImageManager::StreamedImageManager(GeoreferencedIma
 	float64_t2x2 scaleMatrix(nTiles.x, 0., 0., nTiles.y);
 
 	// Put them all together
-	offsetCoBScaleMatrix = nbl::hlsl::mul(scaleMatrix, nbl::hlsl::mul(changeOfBasisMatrix, displacementMatrix));
+	world2Tile = nbl::hlsl::mul(scaleMatrix, nbl::hlsl::mul(changeOfBasisMatrix, displacementMatrix));
 }
 
 DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::StreamedImageManager::generateTileUploadData(const float64_t3x3& NDCToWorld)
 {
+	// I think eventually it's better to just transform georeferenced images that aren't big enough into static images and forget about them
 	if (imageType == ImageType::GEOREFERENCED_FULL_RESOLUTION)
 		return TileUploadData{ {}, georeferencedImageParams.worldspaceOBB };
 
@@ -2706,11 +2734,11 @@ DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::S
 	const float64_t3 bottomLeftWorldH = nbl::hlsl::mul(NDCToWorld, bottomLeftNDCH);
 	const float64_t3 bottomRightWorldH = nbl::hlsl::mul(NDCToWorld, bottomRightNDCH);
 
-	// We can use `offsetCoBScaleMatrix` to get tile lattice coordinates for each of these points
-	const float64_t2 topLeftTileLattice = nbl::hlsl::mul(offsetCoBScaleMatrix, topLeftWorldH);
-	const float64_t2 topRightTileLattice = nbl::hlsl::mul(offsetCoBScaleMatrix, topRightWorldH);
-	const float64_t2 bottomLeftTileLattice = nbl::hlsl::mul(offsetCoBScaleMatrix, bottomLeftWorldH);
-	const float64_t2 bottomRightTileLattice = nbl::hlsl::mul(offsetCoBScaleMatrix, bottomRightWorldH);
+	// We can use `world2Tile` to get tile lattice coordinates for each of these points
+	const float64_t2 topLeftTileLattice = nbl::hlsl::mul(world2Tile, topLeftWorldH);
+	const float64_t2 topRightTileLattice = nbl::hlsl::mul(world2Tile, topRightWorldH);
+	const float64_t2 bottomLeftTileLattice = nbl::hlsl::mul(world2Tile, bottomLeftWorldH);
+	const float64_t2 bottomRightTileLattice = nbl::hlsl::mul(world2Tile, bottomRightWorldH);
 
 	// Get the min and max of each lattice coordinate
 	const float64_t2 minTop = nbl::hlsl::min(topLeftTileLattice, topRightTileLattice);
@@ -2761,11 +2789,38 @@ DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::S
 
 	// Last, we need to figure out an obb that covers only the currently loaded tiles
 	// By shifting the `fromTopLeftOBB` an appropriate number of tiles in each direction, we get an obb that covers at least the uploaded tiles
-	// It might cover more tiles, possible some that are not even loaded into VRAM, but since those fall outside of the viewport we don't really care about them
+
 	OrientedBoundingBox2D worldspaceOBB = fromTopLeftOBB;
 	const float32_t2 dirV = float32_t2(worldspaceOBB.dirU.y, -worldspaceOBB.dirU.x) * worldspaceOBB.aspectRatio;
 	worldspaceOBB.topLeft += worldspaceOBB.dirU * float32_t(minLoadedTileIndices.x) / float32_t(maxResidentTiles.x);
 	worldspaceOBB.topLeft += dirV * float32_t(minLoadedTileIndices.y) / float32_t(maxResidentTiles.y);
-	return TileUploadData{ std::move(tiles), worldspaceOBB };
+
+	// Compute minUV, maxUV
+	// Since right now we don't shift the obb around, minUV will always be (0,0), but this is bound to change later on (shifting obb will happen when we want to reuse tiles and not 
+	// reupload them on every frame in the next phase)
+	float32_t2 minUV(0.f, 0.f);
+	// By default we have a large-as-possible obb so maxUV is (1,1). This is bound to change in the general case when we shift obb. However, since right now we need to shrink the obb
+	// to ensure we don't draw outside the bounds of the real image, we also need to change the maxUV;
+	float32_t2 maxUV(1.f, 1.f);
+	int32_t excessTiles = minLoadedTileIndices.x + maxResidentTiles.x - 1 - maxImageTileIndices.x;
+	if (excessTiles > 0)
+	{
+		// Shrink obb to only fit necessary tiles, compute maxUV.x which turns out to be exactly the shrink factor for dirU.
+		maxUV.x = float32_t(maxResidentTiles.x - excessTiles) / maxResidentTiles.x;
+	}
+	// De the same along the other axis
+	excessTiles = minLoadedTileIndices.y + maxResidentTiles.y - 1 - maxImageTileIndices.y;
+	if (excessTiles > 0)
+	{
+		// Analogously, maxUV.y is the shrink factor for dirV.
+		maxUV.y = float32_t(maxResidentTiles.y - excessTiles) / maxResidentTiles.y;
+	}
+	// Recompute dirU and aspect ratio
+	// Multiply dirU by the shrink factor
+	worldspaceOBB.dirU *= maxUV.x;
+	// Scale the aspect ratio by the relative shrinkage of U,V. Remember our aspect ratio is V / U.
+	worldspaceOBB.aspectRatio *= maxUV.y / maxUV.x;
+
+	return TileUploadData{ std::move(tiles), worldspaceOBB, minUV, maxUV };
 	
 }

@@ -1,4 +1,8 @@
-﻿
+﻿// TODO: Copyright notice
+
+
+#include "nbl/examples/examples.hpp"
+
 using namespace nbl::hlsl;
 using namespace nbl;
 using namespace core;
@@ -7,10 +11,9 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
-
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-#include "SimpleWindowedApplication.hpp"
-#include "InputSystem.hpp"
+#include "nbl/examples/common/BuiltinResourcesApplication.hpp"
+#include "nbl/examples/common/SimpleWindowedApplication.hpp"
+#include "nbl/examples/common/InputSystem.hpp"
 #include "nbl/video/utilities/CSimpleResizeSurface.h"
 
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
@@ -59,7 +62,7 @@ enum class ExampleMode
 	CASE_7, // Images
 	CASE_8, // MSDF and Text
 	CASE_9, // DTM
-	CASE_BUG, // Bug Repro, after fix, rename to CASE_10 and comment should be: testing fixed geometry and emulated fp64 corner cases
+	CASE_10, // testing fixed geometry and emulated fp64 corner cases
 	CASE_11, // grid DTM
 	CASE_12, // Georeferenced streamed images
 	CASE_COUNT
@@ -77,8 +80,8 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	10.0,	// CASE_7
 	600.0,	// CASE_8
 	600.0,	// CASE_9
-	10.0,	// CASE_BUG
-	1000.0, // CASE_11
+	10.0,	// CASE_10
+	1000.0,	// CASE_11
 	10.0	// CASE_12
 };
 
@@ -172,14 +175,14 @@ private:
 class CEventCallback : public ISimpleManagedSurface::ICallback
 {
 public:
-	CEventCallback(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(m_inputSystem)), m_logger(std::move(logger)){}
+	CEventCallback(nbl::core::smart_refctd_ptr<nbl::examples::InputSystem>&& m_inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(m_inputSystem)), m_logger(std::move(logger)){}
 	CEventCallback() {}
 	
 	void setLogger(nbl::system::logger_opt_smart_ptr& logger)
 	{
 		m_logger = logger;
 	}
-	void setInputSystem(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem)
+	void setInputSystem(nbl::core::smart_refctd_ptr<nbl::examples::InputSystem>&& m_inputSystem)
 	{
 		m_inputSystem = std::move(m_inputSystem);
 	}
@@ -207,7 +210,7 @@ private:
 	}
 
 private:
-	nbl::core::smart_refctd_ptr<InputSystem> m_inputSystem = nullptr;
+	nbl::core::smart_refctd_ptr<nbl::examples::InputSystem> m_inputSystem = nullptr;
 	nbl::system::logger_opt_smart_ptr m_logger = nullptr;
 };
 	
@@ -360,10 +363,10 @@ bool performImageFormatPromotionCopy(const core::smart_refctd_ptr<asset::ICPUIma
         return performCopyUsingImageFilter<asset::CSwizzleAndConvertImageFilter<asset::EF_UNKNOWN, asset::EF_UNKNOWN, PromotionComponentSwizzle<4u>>>(inCPUImage, outCPUImage);
 }
 
-class ComputerAidedDesign final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class ComputerAidedDesign final : public nbl::examples::SimpleWindowedApplication, public nbl::examples::BuiltinResourcesApplication
 {
-	using device_base_t = examples::SimpleWindowedApplication;
-	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+	using device_base_t = nbl::examples::SimpleWindowedApplication;
+	using asset_base_t = nbl::examples::BuiltinResourcesApplication;
 	using clock_t = std::chrono::steady_clock;
 	
 	constexpr static uint32_t WindowWidthRequest = 1600u;
@@ -740,7 +743,7 @@ public:
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
-		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
+		m_inputSystem = make_smart_refctd_ptr<nbl::examples::InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
 		// Remember to call the base class initialization!
 		if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
@@ -924,9 +927,9 @@ public:
 
 		drawResourcesFiller.setTexturesDescriptorSetAndBinding(core::smart_refctd_ptr(descriptorSet0), imagesBinding);
 
-		smart_refctd_ptr<IGPUShader> mainPipelineFragmentShaders = {};
-		smart_refctd_ptr<IGPUShader> mainPipelineVertexShader = {};
-		std::array<smart_refctd_ptr<IGPUShader>, 2u> geoTexturePipelineShaders = {};
+		smart_refctd_ptr<IShader> mainPipelineFragmentShaders = {};
+		smart_refctd_ptr<IShader> mainPipelineVertexShader = {};
+		std::array<smart_refctd_ptr<IShader>, 2u> geoTexturePipelineShaders = {};
 		{
 			smart_refctd_ptr<IShaderCompiler::CCache> shaderReadCache = nullptr;
 			smart_refctd_ptr<IShaderCompiler::CCache> shaderWriteCache = core::make_smart_refctd_ptr<IShaderCompiler::CCache>();
@@ -960,7 +963,7 @@ public:
 			}
 
 			// Load Custom Shader
-			auto loadCompileShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<ICPUShader>
+			auto loadCompileShader = [&](const std::string& relPath) -> smart_refctd_ptr<IShader>
 				{
 					IAssetLoader::SAssetLoadParams lp = {};
 					lp.logger = m_logger.get();
@@ -971,24 +974,15 @@ public:
 						return nullptr;
 
 					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-					auto cpuShader = IAsset::castDown<ICPUShader>(assets[0]);
-					if (!cpuShader)
+					auto source = IAsset::castDown<IShader>(assets[0]);
+					if (!source)
 						return nullptr;
-
-					cpuShader->setShaderStage(stage);
-					return m_device->compileShader({ cpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
+	
+					return m_device->compileShader( ILogicalDevice::SShaderCreationParameters { .source = source.get(), .readCache = shaderReadCache.get(), .writeCache = shaderWriteCache.get(), .stage = IShader::E_SHADER_STAGE::ESS_ALL_OR_LIBRARY });
 				};
 
-			auto mainPipelineFragmentCpuShader = loadCompileShader("../shaders/main_pipeline/fragment.hlsl", IShader::E_SHADER_STAGE::ESS_ALL_OR_LIBRARY);
-			auto mainPipelineVertexCpuShader = loadCompileShader("../shaders/main_pipeline/vertex_shader.hlsl", IShader::E_SHADER_STAGE::ESS_VERTEX);
-			// auto geoTexturePipelineVertCpuShader = loadCompileShader(GeoTextureRenderer::VertexShaderRelativePath, IShader::E_SHADER_STAGE::ESS_VERTEX);
-			// auto geoTexturePipelineFragCpuShader = loadCompileShader(GeoTextureRenderer::FragmentShaderRelativePath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			mainPipelineFragmentCpuShader->setShaderStage(IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-
-			mainPipelineFragmentShaders = m_device->createShader({ mainPipelineFragmentCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
-			mainPipelineVertexShader = m_device->createShader({ mainPipelineVertexCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
-			// geoTexturePipelineShaders[0] = m_device->createShader({ geoTexturePipelineVertCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
-			// geoTexturePipelineShaders[1] = m_device->createShader({ geoTexturePipelineFragCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
+			mainPipelineFragmentShaders = loadCompileShader("../shaders/main_pipeline/fragment.hlsl");
+			mainPipelineVertexShader = loadCompileShader("../shaders/main_pipeline/vertex_shader.hlsl");
 			
 			core::smart_refctd_ptr<system::IFile> shaderWriteCacheFile;
 			{
@@ -1032,7 +1026,7 @@ public:
 			// Load FSTri Shader
 			ext::FullScreenTriangle::ProtoPipeline fsTriangleProtoPipe(m_assetMgr.get(),m_device.get(),m_logger.get());
 			
-			const IGPUShader::SSpecInfo fragSpec = { .entryPoint = "resolveAlphaMain", .shader = mainPipelineFragmentShaders.get() };
+			const video::IGPUPipelineBase::SShaderSpecInfo fragSpec = { .shader = mainPipelineFragmentShaders.get(), .entryPoint = "resolveAlphaMain" };
 
 			resolveAlphaGraphicsPipeline = fsTriangleProtoPipe.createPipeline(fragSpec, pipelineLayout.get(), compatibleRenderPass.get(), 0u, blendParams);
 			if (!resolveAlphaGraphicsPipeline)
@@ -1043,20 +1037,21 @@ public:
 		// Create Main Graphics Pipelines 
 		{
 			
-			IGPUShader::SSpecInfo specInfo[2] = {
+			video::IGPUPipelineBase::SShaderSpecInfo specInfo[2] = {
 				{
-					.entryPoint = "main",
-					.shader = mainPipelineVertexShader.get()
+					.shader = mainPipelineVertexShader.get(),
+					.entryPoint = "vtxMain"
 				},
 				{
-					.entryPoint = "fragMain",
-					.shader = mainPipelineFragmentShaders.get()
+					.shader = mainPipelineFragmentShaders.get(),
+					.entryPoint = "fragMain"
 				},
 			};
 
 			IGPUGraphicsPipeline::SCreationParams params[1] = {};
 			params[0].layout = pipelineLayout.get();
-			params[0].shaders = specInfo;
+			params[0].vertexShader = specInfo[0];
+			params[0].fragmentShader = specInfo[1];
 			params[0].cached = {
 				.vertexInput = {},
 				.primitiveAssembly = {
@@ -1105,10 +1100,10 @@ public:
 		if (m_font->getFreetypeFace()->num_charmaps > 0)
 			FT_Set_Charmap(m_font->getFreetypeFace(), m_font->getFreetypeFace()->charmaps[0]);
 		
-		const auto str = "MSDF: ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnoprstuvwxyz '1234567890-=\"!@#$%&*()_+";
+		const std::wstring str = L"MSDF: ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnoprstuvwxyz '1234567890-=\"!@#$%&*()_+";
 		singleLineText = std::unique_ptr<SingleLineText>(new SingleLineText(
 			m_font.get(),
-			std::string(str)));
+			str));
 
 		drawResourcesFiller.setGlyphMSDFTextureFunction(
 			[&](nbl::ext::TextRendering::FontFace* face, uint32_t glyphIdx) -> core::smart_refctd_ptr<asset::ICPUImage>
@@ -1500,7 +1495,19 @@ public:
 
 		float64_t3x3 projectionToNDC;
 		projectionToNDC = m_Camera.constructViewProjection();
-		
+
+		// TEST CAMERA ROTATION
+#if 0
+		// double rotation = 0.25 * PI<double>();
+		double rotation = abs(cos(m_timeElapsed * 0.0004)) * 0.25 * PI<double>() ;
+		float64_t2 rotationVec = float64_t2(cos(rotation), sin(rotation));
+		float64_t3x3 rotationParameter = float64_t3x3 {
+			rotationVec.x, rotationVec.y, 0.0,
+			-rotationVec.y, rotationVec.x, 0.0,
+			0.0, 0.0, 1.0
+		};
+		projectionToNDC = nbl::hlsl::mul(projectionToNDC, rotationParameter);
+#endif
 		Globals globalData = {};
 		uint64_t baseAddress = resourcesGPUBuffer->getDeviceAddress();
 		globalData.pointers = {
@@ -1516,11 +1523,9 @@ public:
 		globalData.resolution = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
 		globalData.defaultProjectionToNDC = projectionToNDC;
 		float screenToWorld = getScreenToWorldRatio(globalData.defaultProjectionToNDC, globalData.resolution);
-		globalData.screenToWorldRatio = screenToWorld;
-		globalData.worldToScreenRatio = (1.0f/screenToWorld);
-		globalData.screenToWorldScaleTransform = float64_t3x3(globalData.worldToScreenRatio, 0.0f, 0.0f,
-														 0.0f, globalData.worldToScreenRatio, 0.0f,
-														 0.0f, 0.0f, 1.0f);
+		globalData.screenToWorldScaleTransform = float64_t3x3(	1.0f / screenToWorld, 0.0f, 0.0f,
+																0.0f, 1.0f / screenToWorld, 0.0f,
+																0.0f, 0.0f, 1.0f);
 		globalData.miterLimit = 10.0f;
 		globalData.currentlyActiveMainObjectIndex = drawResourcesFiller.getActiveMainObjectIndex();
 		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = m_globalsBuffer.get() };
@@ -1620,7 +1625,7 @@ public:
 					.triangleMeshMainObjectIndex = drawCall.dtm.triangleMeshMainObjectIndex,
 					.isDTMRendering = true
 				};
-				cb->pushConstants(graphicsPipeline->getLayout(), IGPUShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
+				cb->pushConstants(graphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
 
 				cb->drawIndexed(drawCall.dtm.indexCount, 1u, 0u, 0u, 0u);
 			}
@@ -1629,7 +1634,7 @@ public:
 				PushConstants pc = {
 					.isDTMRendering = false
 				};
-				cb->pushConstants(graphicsPipeline->getLayout(), IGPUShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
+				cb->pushConstants(graphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
 
 				const uint64_t indexOffset = drawCall.drawObj.drawObjectStart * 6u;
 				const uint64_t indexCount = drawCall.drawObj.drawObjectCount * 6u;
@@ -1645,14 +1650,27 @@ public:
 			cb->bindGraphicsPipeline(resolveAlphaGraphicsPipeline.get());
 			nbl::ext::FullScreenTriangle::recordDrawCall(cb);
 		}
-
+		
 		if constexpr (DebugModeWireframe)
 		{
-			const uint32_t indexCount = resourcesCollection.drawObjects.getCount() * 6u;
 			cb->bindGraphicsPipeline(debugGraphicsPipeline.get());
-			cb->drawIndexed(indexCount, 1u, 0u, 0u, 0u);
-		}
 
+			for (auto& drawCall : drawResourcesFiller.getDrawCalls())
+			{
+				PushConstants pc = {
+					.isDTMRendering = false
+				};
+				cb->pushConstants(debugGraphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
+
+				const uint64_t indexOffset = drawCall.drawObj.drawObjectStart * 6u;
+				const uint64_t indexCount = drawCall.drawObj.drawObjectCount * 6u;
+
+				// assert(currentIndexCount == resourcesCollection.indexBuffer.getCount());
+				cb->bindIndexBuffer({ .offset = resourcesCollection.indexBuffer.bufferOffset + indexOffset * sizeof(uint32_t), .buffer = resourcesGPUBuffer.get()}, asset::EIT_32BIT);
+
+				cb->drawIndexed(indexCount, 1u, 0u, 0u, 0u);
+			}
+		}
 		cb->endRenderPass();
 
 		if (!inBetweenSubmit)
@@ -2444,11 +2462,11 @@ protected:
 		else if (mode == ExampleMode::CASE_5)
 		{
 //#define CASE_5_POLYLINE_1 // animated stipple pattern
-//#define CASE_5_POLYLINE_2 // miter test static
+#define CASE_5_POLYLINE_2 // miter test static
 //#define CASE_5_POLYLINE_3 // miter test animated
 //#define CASE_5_POLYLINE_4 // miter test animated (every angle)
 //#define CASE_5_POLYLINE_5 // closed polygon
-#define CASE_5_POLYLINE_6 // stretching
+// #define CASE_5_POLYLINE_6 // stretching
 //#define CASE_5_POLYLINE_7 // wide non solid lines
 
 #if defined(CASE_5_POLYLINE_1)
@@ -2564,7 +2582,7 @@ protected:
 				/*quadratics2[3].P0 = {20.0, 50.0};
 				quadratics2[3].P1 = { -80.0, 100.0 };
 				quadratics2[3].P2 = { -100.0, 90.0 };*/
-				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics2.data(), quadratics2.data() + quadratics2.size()));
+				polyline.addQuadBeziers(quadratics2);
 
 				// section 3: lines
 				std::vector<float64_t2> linePoints2;
@@ -3330,37 +3348,6 @@ protected:
 		}
 		else if (mode == ExampleMode::CASE_9)
 		{
-			// GRID (outdated)
-			/*core::vector<TriangleMeshVertex> vertices = {
-				{ float32_t2(-200.0f, -200.0f), 10.0f },
-				{ float32_t2(-50.0f, -200.0f), 50.0f },
-				{ float32_t2(100.0f, -200.0f), 90.0f },
-				{ float32_t2(-125.0f, -70.1f), 10.0f },
-				{ float32_t2(25.0f, -70.1f), 50.0f },
-				{ float32_t2(175.0f, -70.1f), 90.0f },
-				{ float32_t2(-200.0f, 59.8f), 10.0f },
-				{ float32_t2(-50.0f, 59.8f), 50.0f },
-				{ float32_t2(100.0f, 59.8f), 90.0f },
-				{ float32_t2(-125.0f, 189.7f), 10.0f },
-				{ float32_t2(25.0f, 189.7f), 50.0f },
-				{ float32_t2(175.0f, 189.7f), 90.0f }
-			};
-
-			core::vector<uint32_t> indices = {
-				0, 3, 1,
-				1, 3, 4,
-				1, 2, 4,
-				2, 4, 5,
-				3, 4, 6,
-				4, 6, 7,
-				4, 5, 7,
-				5, 7, 8,
-				6, 7, 9,
-				7, 9, 10,
-				7, 8, 10,
-				8, 10, 11
-			};*/
-
 			// PYRAMID
 			core::vector<TriangleMeshVertex> vertices = {
 				//{ float64_t2(0.0, 0.0), 100.0 }, //0
@@ -3419,7 +3406,7 @@ protected:
 			dtmInfo.contourSettingsCount = 2u;
 			dtmInfo.contourSettings[0u].startHeight = 20;
 			dtmInfo.contourSettings[0u].endHeight = 90;
-			dtmInfo.contourSettings[0u].heightInterval = 10;
+			dtmInfo.contourSettings[0u].heightInterval = 9.98;
 			dtmInfo.contourSettings[0u].lineStyleInfo.screenSpaceLineWidth = 0.0f;
 			dtmInfo.contourSettings[0u].lineStyleInfo.worldSpaceLineWidth = 1.0f;
 			dtmInfo.contourSettings[0u].lineStyleInfo.color = float32_t4(0.0f, 0.0f, 1.0f, 0.7f);
@@ -3489,7 +3476,7 @@ protected:
 
 			drawResourcesFiller.drawTriangleMesh(mesh, dtmInfo, intendedNextSubmit);
 		}
-		else if (mode == ExampleMode::CASE_BUG)
+		else if (mode == ExampleMode::CASE_10)
 		{
 			CPolyline polyline;
 			
@@ -3576,9 +3563,10 @@ protected:
 			dtmInfo.mode |= E_DTM_MODE::CONTOUR;
 
 			dtmInfo.outlineStyleInfo.screenSpaceLineWidth = 0.0f;
-			dtmInfo.outlineStyleInfo.worldSpaceLineWidth = 2.0f;
+			dtmInfo.outlineStyleInfo.worldSpaceLineWidth = 1.0f;
 			dtmInfo.outlineStyleInfo.color = float32_t4(0.0f, 0.39f, 0.0f, 1.0f);
-			std::array<double, 4> outlineStipplePattern = { 0.0f, -5.0f, 20.0f, -5.0f };
+			//std::array<double, 4> outlineStipplePattern = { 0.0f, -5.0f, 20.0f, -5.0f };
+			std::array<double, 4> outlineStipplePattern = { -10.0f, 10.0f };
 			dtmInfo.outlineStyleInfo.setStipplePatternData(outlineStipplePattern);
 
 			dtmInfo.contourSettingsCount = 2u;
@@ -3586,7 +3574,7 @@ protected:
 			dtmInfo.contourSettings[0u].endHeight = 90;
 			dtmInfo.contourSettings[0u].heightInterval = 10;
 			dtmInfo.contourSettings[0u].lineStyleInfo.screenSpaceLineWidth = 0.0f;
-			dtmInfo.contourSettings[0u].lineStyleInfo.worldSpaceLineWidth = 1.0f;
+			dtmInfo.contourSettings[0u].lineStyleInfo.worldSpaceLineWidth = 3.0f;
 			dtmInfo.contourSettings[0u].lineStyleInfo.color = float32_t4(0.0f, 0.0f, 1.0f, 0.7f);
 			std::array<double, 4> contourStipplePattern = { 0.0f, -5.0f, 10.0f, -5.0f };
 			dtmInfo.contourSettings[0u].lineStyleInfo.setStipplePatternData(contourStipplePattern);
@@ -3658,7 +3646,7 @@ protected:
 			if(DrawGridOnly)
 			{
 				dtmInfo.mode = E_DTM_MODE::OUTLINE;
-				drawResourcesFiller.drawGridDTM(topLeft, worldSpaceExtents, HeightMapCellWidth, heightMapTextureID, dtmInfo, intendedNextSubmit, DrawGridOnly);
+				drawResourcesFiller.drawGridDTM(topLeft, worldSpaceExtents, HeightMapCellWidth, InvalidTextureIndex, dtmInfo, intendedNextSubmit);
 			}
 			else
 			{
@@ -3701,8 +3689,16 @@ protected:
 		{
 			GeoreferencedImageParams tiledGridParams;
 			auto& tiledGridCreationParams = bigTiledGrid->getCreationParameters();
-			tiledGridParams.worldspaceOBB.topLeft = { 0.0, 0.0 };
-			tiledGridParams.worldspaceOBB.dirU = { 100.0 / nbl::hlsl::sqrt(2.0), 100.0 / nbl::hlsl::sqrt(2.0) };
+			// Position at topLeft viewport
+			auto inverseViewProj = nbl::hlsl::inverse(m_Camera.constructViewProjection());
+			const float64_t3 topLeftViewportH = float64_t3(-1.0, -1.0, 1.0);
+			const static auto startingTopLeft = nbl::hlsl::mul(inverseViewProj, topLeftViewportH);
+			tiledGridParams.worldspaceOBB.topLeft = startingTopLeft;
+			// Get screen pixel to match 2 viewport pixels (to test at mip border) by choosing appropriate dirU
+			const float64_t3 topRightViewportH = float64_t3(1.0, -1.0, 1.0);
+			const static auto startingViewportLengthVector = nbl::hlsl::mul(inverseViewProj, topRightViewportH - topLeftViewportH);
+			const static auto dirU = startingViewportLengthVector * float64_t(bigTiledGrid->getCreationParameters().extent.width) / float64_t(2 * m_window->getWidth());
+			tiledGridParams.worldspaceOBB.dirU = dirU;
 			tiledGridParams.worldspaceOBB.aspectRatio = 1.0;
 			tiledGridParams.imageExtents = { tiledGridCreationParams.extent.width, tiledGridCreationParams.extent.height};
 			tiledGridParams.viewportExtents = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
@@ -3714,16 +3710,15 @@ protected:
 
 			drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(tiledGridManager, intendedNextSubmit);
 
-			drawResourcesFiller.addGeoreferencedImage(tiledGridManager, nbl::hlsl::inverse(m_Camera.constructViewProjection()), intendedNextSubmit);
+			drawResourcesFiller.addGeoreferencedImage(tiledGridManager, inverseViewProj, intendedNextSubmit);
 		}
 	}
 
 	double getScreenToWorldRatio(const float64_t3x3& viewProjectionMatrix, uint32_t2 windowSize)
 	{
 		double idx_0_0 = viewProjectionMatrix[0u][0u] * (windowSize.x / 2.0);
-		double idx_1_1 = viewProjectionMatrix[1u][1u] * (windowSize.y / 2.0);
-		double det_2x2_mat = idx_0_0 * idx_1_1;
-		return static_cast<float>(core::sqrt(core::abs(det_2x2_mat)));
+		double idx_1_0 = viewProjectionMatrix[1u][0u] * (windowSize.y / 2.0);
+		return hlsl::length(float64_t2(idx_0_0, idx_1_0));
 	}
 
 protected:
@@ -3735,9 +3730,9 @@ protected:
 
 	bool fragmentShaderInterlockEnabled = false;
 
-	core::smart_refctd_ptr<InputSystem> m_inputSystem;
-	InputSystem::ChannelReader<IMouseEventChannel> mouse;
-	InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
+	core::smart_refctd_ptr<nbl::examples::InputSystem> m_inputSystem;
+	nbl::examples::InputSystem::ChannelReader<IMouseEventChannel> mouse;
+	nbl::examples::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 	
 	smart_refctd_ptr<IGPURenderpass> renderpassInitial; // this renderpass will clear the attachment and transition it to COLOR_ATTACHMENT_OPTIMAL
 	smart_refctd_ptr<IGPURenderpass> renderpassInBetween; // this renderpass will load the attachment and transition it to COLOR_ATTACHMENT_OPTIMAL

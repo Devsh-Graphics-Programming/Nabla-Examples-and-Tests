@@ -75,18 +75,21 @@ struct PrecomputedRootFinder
  //     As always try to reuse parameters and try not to introduce new ones
 struct PSInput
 {
-    float4 position : SV_Position;
-    float4 clip : SV_ClipDistance;
-    [[vk::location(0)]] nointerpolation uint4 data1 : COLOR1;
-    [[vk::location(1)]] nointerpolation float4 data2 : COLOR2;
-    [[vk::location(2)]] nointerpolation float4 data3 : COLOR3;
-    [[vk::location(3)]] nointerpolation float4 data4 : COLOR4;
+    [[vk::location(0)]] float4 position : SV_Position;
+    [[vk::location(1)]] float4 clip : SV_ClipDistance;
+    
+    [[vk::location(2)]] nointerpolation uint4 data1 : COLOR1;
+    [[vk::location(3)]] nointerpolation float4 data2 : COLOR2;
+    [[vk::location(4)]] nointerpolation float4 data3 : COLOR3;
+    [[vk::location(5)]] nointerpolation float4 data4 : COLOR4;
     // Data segments that need interpolation, mostly for hatches
-    [[vk::location(5)]] float4 interp_data5 : COLOR5;
+    [[vk::location(6)]] float4 interp_data5 : COLOR5;
+    [[vk::location(7)]] nointerpolation float data6 : COLOR6;
+    
 #ifdef FRAGMENT_SHADER_INPUT
-    [[vk::location(6)]] [[vk::ext_decorate(/*spv::DecoratePerVertexKHR*/5285)]] float3 vertexScreenSpacePos[3] : COLOR6;
+    [[vk::location(8)]] [[vk::ext_decorate(/*spv::DecoratePerVertexKHR*/5285)]] float3 vertexScreenSpacePos[3] : COLOR7;
 #else
-    [[vk::location(6)]] float3 vertexScreenSpacePos : COLOR6;
+    [[vk::location(8)]] float3 vertexScreenSpacePos : COLOR7;
 #endif
     // ArcLenCalculator<float>
 
@@ -109,9 +112,6 @@ struct PSInput
 
     void setCurrentPhaseShift(float phaseShift)  { interp_data5.x = phaseShift; }
     float getCurrentPhaseShift() { return interp_data5.x; }
-
-    void setCurrentWorldToScreenRatio(float worldToScreen) { interp_data5.y = worldToScreen; }
-    float getCurrentWorldToScreenRatio() { return interp_data5.y; }
 
     /* LINE */
     float2 getLineStart() { return data2.xy; }
@@ -233,16 +233,16 @@ struct PSInput
 
     /* GRID DTM */
     uint getGridDTMHeightTextureID() { return data1.z; }
-    float2 getGridDTMScreenSpaceTopLeft() { return data2.xy; }
-    float2 getGridDTMScreenSpaceGridExtents() { return data2.zw; }
-    float getGridDTMScreenSpaceCellWidth() { return data3.x; }
-    float2 getGridDTMScreenSpacePosition() { return interp_data5.zw; }
+    float2 getGridDTMScreenSpaceGridExtents() { return data2.xy; }
+    float getGridDTMScreenSpaceCellWidth() { return data2.z; }
 
     void setGridDTMHeightTextureID(uint textureID) { data1.z = textureID; }
-    void setGridDTMScreenSpaceTopLeft(float2 screenSpaceTopLeft) { data2.xy = screenSpaceTopLeft; }
-    void setGridDTMScreenSpaceGridExtents(float2 screenSpaceGridExtends) { data2.zw = screenSpaceGridExtends; }
-    void setGridDTMScreenSpaceCellWidth(float screenSpaceGridWidth) { data3.x = screenSpaceGridWidth; }
-    void setGridDTMScreenSpacePosition(float2 screenSpacePosition) { interp_data5.zw = screenSpacePosition; }
+    void setGridDTMScreenSpaceGridExtents(float2 screenSpaceGridExtends) { data2.xy = screenSpaceGridExtends; }
+    void setGridDTMScreenSpaceCellWidth(float screenSpaceGridWidth) { data2.z = screenSpaceGridWidth; }
+
+    void setCurrentWorldToScreenRatio(float worldToScreen) { data6.x = worldToScreen; }
+    float getCurrentWorldToScreenRatio() { return data6.x; }
+
 };
 
 // Set 0 - Scene Data and Globals, buffer bindings don't change the buffers only get updated

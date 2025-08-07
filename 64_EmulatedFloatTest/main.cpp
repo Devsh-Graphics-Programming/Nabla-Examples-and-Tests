@@ -1,14 +1,15 @@
 // Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
+
+
+#include "nbl/examples/examples.hpp"
+
 #include <nabla.h>
 #include <iostream>
 #include <cstdio>
 #include <assert.h>
 #include <cfenv>
-
-#include "nbl/application_templates/MonoDeviceApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 #include "app_resources/common.hlsl"
 #include "app_resources/benchmark/common.hlsl"
@@ -16,20 +17,22 @@
 
 #include <nbl\builtin\hlsl\math\quadrature\gauss_legendre\gauss_legendre.hlsl>
 
+
 using namespace nbl::core;
 using namespace nbl::hlsl;
 using namespace nbl::system;
 using namespace nbl::asset;
 using namespace nbl::video;
 using namespace nbl::application_templates;
+using namespace nbl::examples;
 
 constexpr bool DoTests = true;
 constexpr bool DoBenchmark = true;
 
-class CompatibilityTest final : public MonoDeviceApplication, public MonoAssetManagerAndBuiltinResourceApplication
+class CompatibilityTest final : public MonoDeviceApplication, public BuiltinResourcesApplication
 {
     using device_base_t = MonoDeviceApplication;
-    using asset_base_t = MonoAssetManagerAndBuiltinResourceApplication;
+    using asset_base_t = BuiltinResourcesApplication;
 public:
     CompatibilityTest(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
         IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
@@ -255,7 +258,7 @@ private:
 
             // Load shaders, set up pipeline
             {
-                smart_refctd_ptr<IGPUShader> shader;
+                smart_refctd_ptr<IShader> shader;
                 {
                     IAssetLoader::SAssetLoadParams lp = {};
                     lp.logger = base.m_logger.get();
@@ -271,13 +274,13 @@ private:
 
                     // It would be super weird if loading a shader from a file produced more than 1 asset
                     assert(assets.size() == 1);
-                    smart_refctd_ptr<ICPUShader> source = IAsset::castDown<ICPUShader>(assets[0]);
+                    smart_refctd_ptr<IShader> source = IAsset::castDown<IShader>(assets[0]);
 
                     auto* compilerSet = base.m_assetMgr->getCompilerSet();
 
                     nbl::asset::IShaderCompiler::SCompilerOptions options = {};
-                    options.stage = source->getStage();
-                    options.targetSpirvVersion = base.m_device->getPhysicalDevice()->getLimits().spirvVersion;
+                    options.stage = ESS_COMPUTE;
+                    options.preprocessorOptions.targetSpirvVersion = base.m_device->getPhysicalDevice()->getLimits().spirvVersion;
                     options.spirvOptimizer = nullptr;
                     options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
                     options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
@@ -286,9 +289,7 @@ private:
 
                     auto spirv = compilerSet->compileToSPIRV(source.get(), options);
 
-                    ILogicalDevice::SShaderCreationParameters params{};
-                    params.cpushader = spirv.get();
-                    shader = base.m_device->createShader(params);
+                    shader = base.m_device->compileShader({spirv.get()});
                 }
 
                 if (!shader)
@@ -923,7 +924,7 @@ private:
 
             // Load shaders, set up pipeline
             {
-                smart_refctd_ptr<IGPUShader> shader;
+                smart_refctd_ptr<IShader> shader;
                 {
                     IAssetLoader::SAssetLoadParams lp = {};
                     lp.logger = base.m_logger.get();
@@ -939,13 +940,13 @@ private:
 
                     // It would be super weird if loading a shader from a file produced more than 1 asset
                     assert(assets.size() == 1);
-                    smart_refctd_ptr<ICPUShader> source = IAsset::castDown<ICPUShader>(assets[0]);
+                    smart_refctd_ptr<IShader> source = IAsset::castDown<IShader>(assets[0]);
 
                     auto* compilerSet = base.m_assetMgr->getCompilerSet();
 
                     IShaderCompiler::SCompilerOptions options = {};
-                    options.stage = source->getStage();
-                    options.targetSpirvVersion = base.m_device->getPhysicalDevice()->getLimits().spirvVersion;
+                    options.stage = ESS_COMPUTE;
+                    options.preprocessorOptions.targetSpirvVersion = base.m_device->getPhysicalDevice()->getLimits().spirvVersion;
                     options.spirvOptimizer = nullptr;
                     options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
                     options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
@@ -954,9 +955,7 @@ private:
 
                     auto spirv = compilerSet->compileToSPIRV(source.get(), options);
 
-                    ILogicalDevice::SShaderCreationParameters params{};
-                    params.cpushader = spirv.get();
-                    shader = base.m_device->createShader(params);
+                    shader = base.m_device->compileShader({spirv.get()});
                 }
 
                 if (!shader)

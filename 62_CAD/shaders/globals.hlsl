@@ -43,16 +43,6 @@ struct PushConstants
     uint32_t isDTMRendering;
 };
 
-#ifdef __HLSL_VERSION
-NBL_CONSTEXPR float InvalidGridDTMHeightValue = asfloat(0x7FC00000);
-
-bool isInvalidGridDtmHeightValue(float value)
-{
-    return isnan(value);
-}
-
-#endif
-
 struct WorldClipRect
 {
     pfloat64_t2 minClip; // min clip of a rect in worldspace coordinates of the original space (globals.defaultProjectionToNDC)
@@ -78,8 +68,6 @@ struct Globals
     Pointers pointers;
     pfloat64_t3x3 defaultProjectionToNDC;
     pfloat64_t3x3 screenToWorldScaleTransform; // Pre-multiply your transform with this to scale in screen space (e.g., scale 100.0 means 100 screen pixels).
-    float screenToWorldRatio;
-    float worldToScreenRatio;
     uint32_t2 resolution;
     float antiAliasingFactor;
     uint32_t miterLimit;
@@ -87,7 +75,7 @@ struct Globals
     float32_t _padding;
 };
 #ifndef __HLSL_VERSION
-static_assert(sizeof(Globals) == 232u);
+static_assert(sizeof(Globals) == 224u);
 #endif
 
 #ifdef __HLSL_VERSION
@@ -256,10 +244,12 @@ struct ImageObjectInfo
 // Currently a simple OBB like ImageObject, but later will be fullscreen with additional info about UV offset for toroidal(mirror) addressing
 struct GeoreferencedImageInfo
 {
-    pfloat64_t2 topLeft; // 2 * 8 = 16 bytes (16)
-    float32_t2 dirU; // 2 * 4 = 8 bytes (24)
+    pfloat64_t2 topLeft;   // 2 * 8 = 16 bytes (16)
+    float32_t2 dirU;       // 2 * 4 = 8 bytes (24)
     float32_t aspectRatio; // 4 bytes (28)
-    uint32_t textureID; // 4 bytes (32)
+    uint32_t textureID;    // 4 bytes (32)
+    float32_t2 minUV;      // 2 * 4 = 8 bytes (40)
+    float32_t2 maxUV;      // 2 * 4 = 8 bytes (48)
 };
 
 // Goes into geometry buffer, needs to be aligned by 8
@@ -340,7 +330,7 @@ static float32_t3 unpackR11G11B10_UNORM(uint32_t packed)
 struct PolylineConnector
 {
     pfloat64_t2 circleCenter;
-    float32_t2 v;
+    float32_t2 v; // the vector from circle center to the intersection of the line ends, it's normalized such that the radius of the circle is equal to 1
     float32_t cosAngleDifferenceHalf;
     float32_t _reserved_pad;
 };
@@ -577,9 +567,14 @@ NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1
 // Text or MSDF Hatches
 NBL_CONSTEXPR float MSDFPixelRange = 4.0f;
 NBL_CONSTEXPR float MSDFPixelRangeHalf = MSDFPixelRange / 2.0f;
-NBL_CONSTEXPR float MSDFSize = 32.0f; 
+NBL_CONSTEXPR float MSDFSize = 64.0f; 
 NBL_CONSTEXPR uint32_t MSDFMips = 4; 
 NBL_CONSTEXPR float HatchFillMSDFSceenSpaceSize = 8.0; 
+
+inline bool isInvalidGridDtmHeightValue(float value)
+{
+    return nbl::hlsl::isnan(value);
+}
 
 // Used in CPU-side only for now
 struct OrientedBoundingBox2D
@@ -594,11 +589,11 @@ struct OrientedBoundingBox2D
 
 LineStyle loadLineStyle(const uint32_t index)
 {
-    return vk::RawBufferLoad<LineStyle>(globals.pointers.lineStyles + index * sizeof(LineStyle), 8u);
+    return vk::RawBufferLoad<LineStyle>(globals.pointers.lineStyles + index * sizeof(LineStyle), 4u);
 }
 DTMSettings loadDTMSettings(const uint32_t index)
 {
-    return vk::RawBufferLoad<DTMSettings>(globals.pointers.dtmSettings + index * sizeof(DTMSettings), 8u);
+    return vk::RawBufferLoad<DTMSettings>(globals.pointers.dtmSettings + index * sizeof(DTMSettings), 4u);
 }
 pfloat64_t3x3 loadCustomProjection(const uint32_t index)
 {
@@ -616,6 +611,13 @@ DrawObject loadDrawObject(const uint32_t index)
 {
     return vk::RawBufferLoad<DrawObject>(globals.pointers.drawObjects + index * sizeof(DrawObject), 8u);
 }
+#else
+static_assert(alignof(LineStyle)==4u);
+static_assert(alignof(DTMSettings)==4u);
+static_assert(alignof(pfloat64_t3x3)==8u);
+static_assert(alignof(WorldClipRect)==8u);
+static_assert(alignof(MainObject)==4u);
+static_assert(alignof(DrawObject)==8u);
 #endif
 
 

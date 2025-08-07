@@ -68,9 +68,22 @@ float2 transformPointScreenSpace(pfloat64_t3x3 transformation, uint32_t2 resolut
 
     return _static_cast<float2>(result);
 }
+float2 transformVectorScreenSpace(pfloat64_t3x3 transformation, uint32_t2 resolution, pfloat64_t2 vec2d)
+{
+     pfloat64_t2 ndc = transformVectorNdc(transformation, vec2d);
+     pfloat64_t2 result = (ndc) * 0.5f * _static_cast<pfloat64_t2>(resolution);
+     return _static_cast<float2>(result);
+}
 float32_t4 transformFromSreenSpaceToNdc(float2 pos, uint32_t2 resolution)
 {
     return float32_t4((pos.xy / (float32_t2)resolution) * 2.0f - 1.0f, 0.0f, 1.0f);
+}
+float32_t getScreenToWorldRatio(pfloat64_t3x3 transformation, uint32_t2 resolution)
+{
+	pfloat64_t idx_0_0 = transformation[0u].x * (resolution.x / 2.0);
+	pfloat64_t idx_1_0 = transformation[1u].x * (resolution.y / 2.0);
+    float32_t2 firstCol; firstCol.x = _static_cast<float32_t>(idx_0_0); firstCol.y = _static_cast<float32_t>(idx_1_0); 
+	return nbl::hlsl::length(firstCol); // TODO: Do length in fp64?
 }
 
 template<bool FragmentShaderPixelInterlock>
@@ -106,7 +119,8 @@ void dilateHatch<false>(out float2 outOffsetVec, out float2 outUV, const float2 
     // Or optionally we could dilate and stuff when we know this hatch is opaque (alpha = 1.0)
 }
 
-PSInput main(uint vertexID : SV_VertexID)
+[shader("vertex")]
+PSInput vtxMain(uint vertexID : SV_VertexID)
 {
     NDCClipProjectionData clipProjectionData;
     
@@ -130,12 +144,16 @@ PSInput main(uint vertexID : SV_VertexID)
         MainObject mainObj = loadMainObject(pc.triangleMeshMainObjectIndex);
         clipProjectionData = getClipProjectionData(mainObj);
 
+        float screenToWorldRatio = getScreenToWorldRatio(clipProjectionData.projectionToNDC, globals.resolution);
+        float worldToScreenRatio = 1.0f / screenToWorldRatio;
+        outV.setCurrentWorldToScreenRatio(worldToScreenRatio);
+        
         // assuming there are 3 * N vertices, number of vertices is equal to number of indices and indices are sequential starting from 0
         float2 transformedOriginalPos;
         float2 transformedDilatedPos;
         {
-            uint32_t firstVertexOfCurrentTriangleIndex = vertexID - vertexID % 3;
-            uint32_t currentVertexWithinTriangleIndex = vertexID - firstVertexOfCurrentTriangleIndex;
+            uint32_t currentVertexWithinTriangleIndex = vertexID % 3;
+            uint32_t firstVertexOfCurrentTriangleIndex = vertexID - currentVertexWithinTriangleIndex;
 
             TriangleMeshVertex triangleVertices[3];
             triangleVertices[0] = vk::RawBufferLoad<TriangleMeshVertex>(pc.triangleMeshVerticesBaseAddress + sizeof(TriangleMeshVertex) * firstVertexOfCurrentTriangleIndex, 8u);
@@ -153,7 +171,7 @@ PSInput main(uint vertexID : SV_VertexID)
             triangleVertices[2].pos = triangleVertices[2].pos - triangleCentroid;
 
             // TODO: calculate dialation factor
-            // const float dilateByPixels = 0.5 * (dtmSettings.maxScreenSpaceLineWidth + dtmSettings.maxWorldSpaceLineWidth * globals.screenToWorldRatio) + aaFactor;
+            // const float dilateByPixels = 0.5 * (dtmSettings.maxScreenSpaceLineWidth + dtmSettings.maxWorldSpaceLineWidth * screenToWorldRatio) + aaFactor;
         
             pfloat64_t dialationFactor = _static_cast<pfloat64_t>(2.0f);
             pfloat64_t2 dialatedVertex = triangleVertices[currentVertexWithinTriangleIndex].pos * dialationFactor;
@@ -192,6 +210,10 @@ PSInput main(uint vertexID : SV_VertexID)
 
         MainObject mainObj = loadMainObject(drawObj.mainObjIndex);
         clipProjectionData = getClipProjectionData(mainObj);
+        
+        float screenToWorldRatio = getScreenToWorldRatio(clipProjectionData.projectionToNDC, globals.resolution);
+        float worldToScreenRatio = 1.0f / screenToWorldRatio;
+        outV.setCurrentWorldToScreenRatio(worldToScreenRatio);
     
         // We only need these for Outline type objects like lines and bezier curves
         if (objType == ObjectType::LINE || objType == ObjectType::QUAD_BEZIER || objType == ObjectType::POLYLINE_CONNECTOR)
@@ -199,7 +221,7 @@ PSInput main(uint vertexID : SV_VertexID)
             LineStyle lineStyle = loadLineStyle(mainObj.styleIdx);
 
             // Width is on both sides, thickness is one one side of the curve (div by 2.0f)
-            const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio;
+            const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + lineStyle.worldSpaceLineWidth * screenToWorldRatio;
             const float antiAliasedLineThickness = screenSpaceLineWidth * 0.5f + globals.antiAliasingFactor;
             const float sdfLineThickness = screenSpaceLineWidth / 2.0f;
             outV.setLineThickness(sdfLineThickness);
@@ -428,29 +450,33 @@ PSInput main(uint vertexID : SV_VertexID)
                     const float2 circleCenterScreenSpace = transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, circleCenter);
                     outV.setPolylineConnectorCircleCenter(circleCenterScreenSpace);
 
+                    // to better understand variables at play, and the circle space, see documentation of `miterSDF` in fragment shader
+                    // length of vector from circle center to intersection position (normalized so that circle radius = line thickness = 1.0)
+                    float vLen = length(v);
+                    float2 intersectionDirection_Screenspace = normalize(transformVectorScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, _static_cast<pfloat64_t2>(v)));
+                    const float2 v_Screenspace = intersectionDirection_Screenspace * vLen;
+
                     // Find other miter vertices
                     const float sinHalfAngleBetweenNormals = sqrt(1.0f - (cosHalfAngleBetweenNormals * cosHalfAngleBetweenNormals));
                     const float32_t2x2 rotationMatrix = float32_t2x2(cosHalfAngleBetweenNormals, -sinHalfAngleBetweenNormals, sinHalfAngleBetweenNormals, cosHalfAngleBetweenNormals);
 
                     // Pass the precomputed trapezoid values for the sdf
                     {
-                        float vLen = length(v);
-                        float2 intersectionDirection = v / vLen;
-
                         float longBase = sinHalfAngleBetweenNormals;
                         float shortBase = max((vLen - globals.miterLimit) * cosHalfAngleBetweenNormals / sinHalfAngleBetweenNormals, 0.0);
                         // height of the trapezoid / triangle
                         float hLen = min(globals.miterLimit, vLen);
 
-                        outV.setPolylineConnectorTrapezoidStart(-1.0 * intersectionDirection * sdfLineThickness);
-                        outV.setPolylineConnectorTrapezoidEnd(intersectionDirection * hLen * sdfLineThickness);
+                        outV.setPolylineConnectorTrapezoidStart(-1.0 * intersectionDirection_Screenspace * sdfLineThickness);
+                        outV.setPolylineConnectorTrapezoidEnd(intersectionDirection_Screenspace * hLen * sdfLineThickness);
                         outV.setPolylineConnectorTrapezoidLongBase(sinHalfAngleBetweenNormals * ((1.0 + vLen) / (vLen - cosHalfAngleBetweenNormals)) * sdfLineThickness);
                         outV.setPolylineConnectorTrapezoidShortBase(shortBase * sdfLineThickness);
                     }
 
                     if (vertexIdx == 0u)
                     {
-                        const float2 V1 = normalize(mul(v, rotationMatrix)) * antiAliasedLineThickness * 2.0f;
+                        // multiplying the other way to rotate by -theta
+                        const float2 V1 = normalize(mul(v_Screenspace, rotationMatrix)) * antiAliasedLineThickness * 2.0f;
                         const float2 screenSpaceV1 = circleCenterScreenSpace + V1;
                         outV.position = float4(screenSpaceV1, 0.0f, 1.0f);   
                     }
@@ -461,13 +487,13 @@ PSInput main(uint vertexID : SV_VertexID)
                     else if (vertexIdx == 2u)
                     {
                         // find intersection point vertex
-                        float2 intersectionPoint = v * antiAliasedLineThickness * 2.0f;
+                        float2 intersectionPoint = v_Screenspace * antiAliasedLineThickness * 2.0f;
                         intersectionPoint += circleCenterScreenSpace;
                         outV.position = float4(intersectionPoint, 0.0f, 1.0f);
                     }
                     else if (vertexIdx == 3u)
                     {
-                        const float2 V2 = normalize(mul(rotationMatrix, v)) * antiAliasedLineThickness * 2.0f;
+                        const float2 V2 = normalize(mul(rotationMatrix, v_Screenspace)) * antiAliasedLineThickness * 2.0f;
                         const float2 screenSpaceV2 = circleCenterScreenSpace + V2;
                         outV.position = float4(screenSpaceV2, 0.0f, 1.0f);
                     }
@@ -630,6 +656,7 @@ PSInput main(uint vertexID : SV_VertexID)
             float32_t aspectRatio = vk::RawBufferLoad<float32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2), 4u);
             uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2) + sizeof(float), 4u);
 
+            // TODO[DEVSH]: make sure it's documented properly that for topLeft+dirV+aspectRatio to work it's computing dirU like below (they need to be careful with transformations when y increases when you go down in screen
             const float32_t2 dirV = float32_t2(dirU.y, -dirU.x) * aspectRatio;
             const float2 ndcTopLeft = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, topLeft));
             const float2 ndcDirU = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirU)));
@@ -647,53 +674,51 @@ PSInput main(uint vertexID : SV_VertexID)
         else if (objType == ObjectType::GRID_DTM)
         {
             pfloat64_t2 topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
-            pfloat64_t2 worldSpaceExtents = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
+            const pfloat64_t2 worldSpaceExtents = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 8u);
             uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + 2 * sizeof(pfloat64_t2), 8u);
             float gridCellWidth = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + 2 * sizeof(pfloat64_t2) + sizeof(uint32_t), 8u);
             float thicknessOfTheThickestLine = vk::RawBufferLoad<float>(globals.pointers.geometryBuffer + drawObj.geometryAddress + 2 * sizeof(pfloat64_t2) + sizeof(uint32_t) + sizeof(float), 8u);
 
-            // for testing purpose
-            thicknessOfTheThickestLine += 200.0f;
+            // TODO: remove
+            // test large dilation
+            //thicknessOfTheThickestLine += 200.0f;
 
             const float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
-            worldSpaceExtents.y = ieee754::flipSign(worldSpaceExtents.y);
-
-            pfloat64_t2 vtxPos = topLeft;
-            vtxPos.x = vtxPos.x + worldSpaceExtents.x * corner.x;
-            vtxPos.y = vtxPos.y + worldSpaceExtents.y * corner.y;
-            worldSpaceExtents.y = ieee754::flipSign(worldSpaceExtents.y);
 
             outV.setGridDTMHeightTextureID(textureID);
-            outV.setGridDTMScreenSpaceCellWidth(gridCellWidth * globals.screenToWorldRatio);
-            outV.setGridDTMScreenSpacePosition(transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, vtxPos));
-            outV.setGridDTMScreenSpaceTopLeft(transformPointScreenSpace(clipProjectionData.projectionToNDC, globals.resolution, topLeft));
-            outV.setGridDTMScreenSpaceGridExtents(_static_cast<float2>(worldSpaceExtents) * globals.screenToWorldRatio);
+            outV.setGridDTMScreenSpaceCellWidth(gridCellWidth * screenToWorldRatio);
+            outV.setGridDTMScreenSpaceGridExtents(_static_cast<float2>(worldSpaceExtents) * screenToWorldRatio);
 
             static const float SquareRootOfTwo = 1.4142135f;
-            const pfloat64_t dilationFactor = SquareRootOfTwo * thicknessOfTheThickestLine;
-            pfloat64_t2 dilationVector = pfloat64_t2(dilationFactor, dilationFactor);
+            const pfloat64_t dilationFactor = _static_cast<pfloat64_t>(SquareRootOfTwo * thicknessOfTheThickestLine);
+            pfloat64_t2 dilationVector;
+            dilationVector.x = dilationFactor;
+            dilationVector.y = dilationFactor;
 
             const pfloat64_t dilationFactorTimesTwo = dilationFactor * 2.0f;
-            const pfloat64_t2 dilatedGridExtents = worldSpaceExtents + pfloat64_t2(dilationFactorTimesTwo, dilationFactorTimesTwo);
+            pfloat64_t2 dilationFactorTimesTwoVector;
+            dilationFactorTimesTwoVector.x = dilationFactorTimesTwo;
+            dilationFactorTimesTwoVector.y = dilationFactorTimesTwo;
+            const pfloat64_t2 dilatedGridExtents = worldSpaceExtents + dilationFactorTimesTwoVector;
             const float2 uvScale = _static_cast<float2>(worldSpaceExtents) / _static_cast<float2>(dilatedGridExtents);
-            float2 uvOffset = float2(dilationFactor, dilationFactor) / _static_cast<float2>(dilatedGridExtents);
+            float2 uvOffset = _static_cast<float2>(dilationVector) / _static_cast<float2>(dilatedGridExtents);
             uvOffset /= uvScale;
 
             if (corner.x == 0.0f && corner.y == 0.0f)
             {
-                dilationVector.x = -dilationVector.x;
+                dilationVector.x = ieee754::flipSign(dilationVector.x);
                 uvOffset.x = -uvOffset.x;
                 uvOffset.y = -uvOffset.y;
             }
             else if (corner.x == 0.0f && corner.y == 1.0f)
             {
-                dilationVector.x = -dilationVector.x;
-                dilationVector.y = -dilationVector.y;
+                dilationVector.x = ieee754::flipSign(dilationVector.x);
+                dilationVector.y = ieee754::flipSign(dilationVector.y);
                 uvOffset.x = -uvOffset.x;
             }
             else if (corner.x == 1.0f && corner.y == 1.0f)
             {
-                dilationVector.y = -dilationVector.y;
+                dilationVector.y = ieee754::flipSign(dilationVector.y);
             }
             else if (corner.x == 1.0f && corner.y == 0.0f)
             {
@@ -702,38 +727,34 @@ PSInput main(uint vertexID : SV_VertexID)
 
             const float2 uv = corner + uvOffset;
             outV.setImageUV(uv);
-            /*printf("uv = { %f, %f } scale = { %f, %f }", _static_cast<float>(uv.x), _static_cast<float>(uv.y), _static_cast<float>(uvScale.x), _static_cast<float>(uvScale.y));*/
 
-            pfloat64_t2 topLeftToGridCenterVector = worldSpaceExtents * 0.5;
-            topLeftToGridCenterVector.y = -topLeftToGridCenterVector.y;
-            pfloat64_t2 gridCenter = topLeft + topLeftToGridCenterVector;
-
-            pfloat64_t2 dilatedVtxPos = vtxPos + dilationVector;
-
+            pfloat64_t2 worldSpaceExtentsYAxisFlipped;
+            worldSpaceExtentsYAxisFlipped.x = worldSpaceExtents.x;
+            worldSpaceExtentsYAxisFlipped.y = ieee754::flipSign(worldSpaceExtents.y);
+            const pfloat64_t2 vtxPos = topLeft + worldSpaceExtentsYAxisFlipped * _static_cast<pfloat64_t2>(corner);
+            const pfloat64_t2 dilatedVtxPos = vtxPos + dilationVector;
 
             float2 ndcVtxPos = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, dilatedVtxPos));
             outV.position = float4(ndcVtxPos, 0.0f, 1.0f);
-
-            /*outV.setImageUV(corner);
-            float2 ndcVtxPos = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, vtxPos));
-            outV.position = float4(ndcVtxPos, 0.0f, 1.0f);*/
         }
         else if (objType == ObjectType::STREAMED_IMAGE)
         {
-            pfloat64_t2 topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
-            float32_t2 dirU = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 4u);
-            float32_t aspectRatio = vk::RawBufferLoad<float32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2), 4u);
-            uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float2) + sizeof(float), 4u);
+            const pfloat64_t2 topLeft = vk::RawBufferLoad<pfloat64_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress, 8u);
+            const float32_t2 dirU = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 4u);
+            const float32_t aspectRatio = vk::RawBufferLoad<float32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float32_t2), 4u);
+            const uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float32_t2) + sizeof(float32_t), 4u);
+            const float32_t2 minUV = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float32_t2) + sizeof(float32_t) + sizeof(uint32_t), 4u);
+            const float32_t2 maxUV = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(float32_t2) + sizeof(float32_t) + sizeof(uint32_t), 4u);
 
             const float32_t2 dirV = float32_t2(dirU.y, -dirU.x) * aspectRatio;
-            const float2 ndcTopLeft = _static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, topLeft));
-            const float2 ndcDirU = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirU)));
-            const float2 ndcDirV = _static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirV)));
+            const float32_t2 ndcTopLeft = _static_cast<float32_t2>(transformPointNdc(clipProjectionData.projectionToNDC, topLeft));
+            const float32_t2 ndcDirU = _static_cast<float32_t2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirU)));
+            const float32_t2 ndcDirV = _static_cast<float32_t2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirV)));
 
-            float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
-            float2 uv = corner; // non-dilated
+            const uint32_t2 corner = uint32_t2(vertexIdx & 0x1u, vertexIdx & 0x2u);
         
-            float2 ndcCorner = ndcTopLeft + corner.x * ndcDirU + corner.y * ndcDirV;
+            const float32_t2 ndcCorner = ndcTopLeft + corner.x * ndcDirU + corner.y * ndcDirV;
+            const float32_t2 uv = float32_t2(corner.x ? minUV.x : maxUV.x , corner.y ? minUV.y : maxUV.y);
         
             outV.position = float4(ndcCorner, 0.f, 1.f);
             outV.setImageUV(uv);
@@ -742,18 +763,14 @@ PSInput main(uint vertexID : SV_VertexID)
 
     // Make the cage fullscreen for testing: 
 #if 0
-        // disabled for object of POLYLINE_CONNECTOR type, since miters would cover whole screen
-        if(objType != ObjectType::POLYLINE_CONNECTOR)
-        {
-            if (vertexIdx == 0u)
-                outV.position = float4(-1, -1, 0, 1);
-            else if (vertexIdx == 1u)
-                outV.position = float4(-1, +1, 0, 1);
-            else if (vertexIdx == 2u)
-                outV.position = float4(+1, -1, 0, 1);
-            else if (vertexIdx == 3u)
-                outV.position = float4(+1, +1, 0, 1);
-        }
+        if (vertexIdx == 0u)
+            outV.position = float4(-1, -1, 0, 1);
+        else if (vertexIdx == 1u)
+            outV.position = float4(-1, +1, 0, 1);
+        else if (vertexIdx == 2u)
+            outV.position = float4(+1, -1, 0, 1);
+        else if (vertexIdx == 3u)
+            outV.position = float4(+1, +1, 0, 1);
 #endif
     }
     outV.clip = float4(outV.position.x - clipProjectionData.minClipNDC.x, outV.position.y - clipProjectionData.minClipNDC.y, clipProjectionData.maxClipNDC.x - outV.position.x, clipProjectionData.maxClipNDC.y - outV.position.y);

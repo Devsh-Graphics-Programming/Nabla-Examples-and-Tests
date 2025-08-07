@@ -1,9 +1,10 @@
 // Copyright (C) 2024-2025 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-#include "nabla.h"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-#include "SimpleWindowedApplication.hpp"
+
+
+#include "nbl/examples/examples.hpp"
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 using namespace nbl;
 using namespace nbl::core;
@@ -11,13 +12,15 @@ using namespace nbl::system;
 using namespace nbl::asset;
 using namespace nbl::ui;
 using namespace nbl::video;
+using namespace nbl::examples;
 
 #include "app_resources/common.hlsl"
 
-class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+
+class MPMCSchedulerApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
-		using device_base_t = examples::SimpleWindowedApplication;
-		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+		using device_base_t = SimpleWindowedApplication;
+		using asset_base_t = BuiltinResourcesApplication;
 		using clock_t = std::chrono::steady_clock;
 
 		constexpr static inline uint32_t WIN_W = 1280, WIN_H = 720;
@@ -69,24 +72,31 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
 
-			smart_refctd_ptr<IGPUShader> shader;
+			smart_refctd_ptr<IShader> shader;
 			{
-				IAssetLoader::SAssetLoadParams lp = {};
-				lp.logger = m_logger.get();
-				lp.workingDirectory = ""; // virtual root
-				auto assetBundle = m_assetMgr->getAsset("app_resources/shader.comp.hlsl", lp);
-				const auto assets = assetBundle.getContents();
-				if (assets.empty())
-					return logFail("Failed to load shader from disk");
+				// load shader
+				{
+					IAssetLoader::SAssetLoadParams lp = {};
+					lp.logger = m_logger.get();
+					lp.workingDirectory = "";
 
-				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-				auto source = IAsset::castDown<ICPUShader>(assets[0]);
-				if (!source)
-					return logFail("Failed to load shader from disk");
+					auto key = "app_resources/" + nbl::this_example::builtin::build::get_spirv_key<"shader">(m_device.get());
+					const auto bundle = m_assetMgr->getAsset(key.data(), lp);
 
-				shader = m_device->createShader(source.get());
-				if (!shader)
-					return false;
+					const auto contents = bundle.getContents();
+
+					if (contents.empty())
+						return logFail("Failed to load shader from disk");
+
+					if (bundle.getAssetType() != IAsset::ET_SHADER)
+						return logFail("Loaded asset has wrong type!");
+
+					shader = IAsset::castDown<IShader>(contents[0]);
+
+					if (!shader)
+						false;
+				}
+
 			}
 			
 			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
@@ -106,26 +116,17 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 
 			{
 				const asset::SPushConstantRange ranges[] = {{
-					.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					.offset = 0,
 					.size = sizeof(PushConstants)
 				}};
 				auto layout = m_device->createPipelineLayout(ranges,smart_refctd_ptr(dsLayout));
-				const IGPUComputePipeline::SCreationParams params[] = { {
-					{
-						.layout = layout.get()
-					},
-					{},
-					IGPUComputePipeline::SCreationParams::FLAGS::NONE,
-					{
-						.entryPoint = "main",
-						.shader = shader.get(),
-						.entries = nullptr,
-						.requiredSubgroupSize = IGPUShader::SSpecInfo::SUBGROUP_SIZE::UNKNOWN,
-						.requireFullSubgroups = true
-					}
-				}};
-				if (!m_device->createComputePipelines(nullptr,params,&m_ppln))
+				IGPUComputePipeline::SCreationParams params;
+				params.layout = layout.get();
+				params.shader.shader = shader.get();
+				params.shader.entryPoint = "main";
+				params.cached.requireFullSubgroups = true;
+				if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &m_ppln))
 					return logFail("Failed to create Pipeline");
 			}
 
@@ -306,7 +307,7 @@ class MPMCSchedulerApp final : public examples::SimpleWindowedApplication, publi
 					.sharedAcceptableIdleCount = 0,
 					.globalAcceptableIdleCount = 0
 				};
-				cb->pushConstants(layout,IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,0,sizeof(pc),&pc);
+				cb->pushConstants(layout,hlsl::ShaderStage::ESS_COMPUTE,0,sizeof(pc),&pc);
 				cb->dispatch(WIN_W/WorkgroupSizeX,WIN_H/WorkgroupSizeY,1);
 			}
 

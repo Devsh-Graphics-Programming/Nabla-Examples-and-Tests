@@ -1116,9 +1116,6 @@ protected:
 			if (crossProductZ < 0.0f)
 				res.v = -res.v;
 
-			// Negating y to avoid doing it in vertex shader when working in screen space, where y is in the opposite direction of worldspace y direction
-			res.v.y = -res.v.y;
-
 			m_polylineConnector.push_back(res);
 		}
 	}

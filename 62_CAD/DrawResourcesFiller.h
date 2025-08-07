@@ -133,6 +133,8 @@ public:
 		{
 			core::vector<StreamedImageCopy> tiles;
 			OrientedBoundingBox2D worldspaceOBB;
+			float32_t2 minUV;
+			float32_t2 maxUV;
 		};
 
 		TileUploadData generateTileUploadData(const float64_t3x3& NDCToWorld);
@@ -146,9 +148,8 @@ public:
 		uint32_t2 minLoadedTileIndices = {};
 		uint32_t2 maxLoadedTileIndices = {};
 		uint32_t2 maxImageTileIndices = {};
-		// See constructor for info on this one
-		float64_t2x3 offsetCoBScaleMatrix = {};
-		// Wordlspace OBB that covers the top left `maxResidentTiles.x x maxResidentTiles.y` tiles of the image. 
+		float64_t2x3 world2Tile = {};
+		// Worldspace OBB that covers the top left `maxResidentTiles.x x maxResidentTiles.y` tiles of the image. 
 		// We shift this OBB by appropriate tile offsets when loading tiles
 		OrientedBoundingBox2D fromTopLeftOBB = {};
 	};
@@ -302,8 +303,7 @@ public:
 		float gridCellWidth,
 		uint64_t textureID,
 		const DTMSettingsInfo& dtmSettingsInfo,
-		SIntendedSubmitInfo& intendedNextSubmit,
-		const bool drawGridOnly = false);
+		SIntendedSubmitInfo& intendedNextSubmit);
 
 	/**
 	 * @brief Adds a static 2D image to the draw resource set for rendering.
@@ -415,10 +415,8 @@ public:
 
 	// Setting Active Resources:
 	void setActiveLineStyle(const LineStyleInfo& lineStyle);
-	/**
-	* @param disableHeightRelatedDTMModes disables E_DTM_MODE::CONTOUR and E_DTOM_MODE::HEIGHT_SHADING, necessary when we want to draw a grid DTM without using a height map texture
-	*/
-	void setActiveDTMSettings(const DTMSettingsInfo& dtmSettingsInfo, const bool disableHeightRelatedDTMModes = false);
+	
+	void setActiveDTMSettings(const DTMSettingsInfo& dtmSettingsInfo);
 
 	void beginMainObject(MainObjectType type, TransformationType transformationType = TransformationType::TT_NORMAL);
 	void endMainObject();
