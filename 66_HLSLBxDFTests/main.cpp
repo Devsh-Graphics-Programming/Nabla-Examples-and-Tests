@@ -129,8 +129,6 @@ int main(int argc, char** argv)
         options.stage = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE;
         options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
         options.spirvOptimizer = nullptr;
-        std::string dxcOptionStr[] = { "-Wno-local-type-template-args" };
-        options.dxcOptions = std::span(dxcOptionStr);
         // if you don't set the logger and source identifier you'll have no meaningful errors
         options.preprocessorOptions.sourceIdentifier = shaderSrc->getFilepathHint();
         options.preprocessorOptions.logger = m_logger.get();

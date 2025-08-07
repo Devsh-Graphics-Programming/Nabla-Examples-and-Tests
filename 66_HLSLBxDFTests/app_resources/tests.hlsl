@@ -550,13 +550,15 @@ struct TestJacobian : TestBxDF<BxDF>
         {
             if NBL_CONSTEXPR_FUNC (aniso)
             {
-                pdf = base_t::bxdf.quotient_and_pdf(s, base_t::anisointer, cache);
-                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
+                typename BxDF::query_type query = base_t::bxdf.createQuery(s, base_t::anisointer);
+                pdf = base_t::bxdf.quotient_and_pdf(query, s, base_t::anisointer, cache);
+                bsdf = float32_t3(base_t::bxdf.eval(query, s, base_t::anisointer, cache));
             }
             else
             {
-                pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer, isocache);
-                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
+                typename BxDF::query_type query = base_t::bxdf.createQuery(s, base_t::isointer);
+                pdf = base_t::bxdf.quotient_and_pdf(query, s, base_t::isointer, isocache);
+                bsdf = float32_t3(base_t::bxdf.eval(query, s, base_t::isointer, isocache));
             }
         }
 
@@ -704,13 +706,17 @@ struct TestReciprocity : TestBxDF<BxDF>
         {
             if NBL_CONSTEXPR_FUNC (aniso)
             {
-                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
-                rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_anisointer, rec_cache));
+                typename BxDF::query_type query = base_t::bxdf.createQuery(s, base_t::anisointer);
+                bsdf = float32_t3(base_t::bxdf.eval(query, s, base_t::anisointer, cache));
+                query = base_t::bxdf.createQuery(rec_s, rec_anisointer);
+                rec_bsdf = float32_t3(base_t::bxdf.eval(query, rec_s, rec_anisointer, rec_cache));
             }
             else
             {
-                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
-                rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_isointer, rec_isocache));
+                typename BxDF::query_type query = base_t::bxdf.createQuery(s, base_t::isointer);
+                bsdf = float32_t3(base_t::bxdf.eval(query, s, base_t::isointer, isocache));
+                query = base_t::bxdf.createQuery(rec_s, rec_isointer);
+                rec_bsdf = float32_t3(base_t::bxdf.eval(query, rec_s, rec_isointer, rec_isocache));
             }
         }
 
@@ -852,13 +858,15 @@ struct TestBucket : TestBxDF<BxDF>
             {
                 if NBL_CONSTEXPR_FUNC (aniso)
                 {
-                    pdf = base_t::bxdf.quotient_and_pdf(s, base_t::anisointer, cache);
-                    bsdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
+                    typename BxDF::query_type query = base_t::bxdf.createQuery(s, base_t::anisointer);
+                    pdf = base_t::bxdf.quotient_and_pdf(query, s, base_t::anisointer, cache);
+                    bsdf = float32_t3(base_t::bxdf.eval(query, s, base_t::anisointer, cache));
                 }
                 else
                 {
-                    pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer, isocache);
-                    bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
+                    typename BxDF::query_type query = base_t::bxdf.createQuery(s, base_t::isointer);
+                    pdf = base_t::bxdf.quotient_and_pdf(query, s, base_t::isointer, isocache);
+                    bsdf = float32_t3(base_t::bxdf.eval(query, s, base_t::isointer, isocache));
                 }
             }
 
@@ -1216,12 +1224,14 @@ struct TestChi2 : TestBxDF<BxDF>
                             if NBL_CONSTEXPR_FUNC (aniso)
                             {
                                 aniso_cache cache = aniso_cache::template createForReflection<aniso_interaction,sample_t>(base_t::anisointer, s);
-                                pdf = base_t::bxdf.quotient_and_pdf(s, base_t::anisointer, cache);
+                                typename BxDF::query_type query = base_t::bxdf.createQuery(s, base_t::anisointer);
+                                pdf = base_t::bxdf.quotient_and_pdf(query, s, base_t::anisointer, cache);
                             }
                             else
                             {
                                 aniso_cache cache = aniso_cache::template createForReflection<aniso_interaction,sample_t>(base_t::anisointer, s);
-                                pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer, cache.iso_cache);
+                                typename BxDF::query_type query = base_t::bxdf.createQuery(s, base_t::isointer);
+                                pdf = base_t::bxdf.quotient_and_pdf(query, s, base_t::isointer, cache.iso_cache);
                             }
                         }
                         return pdf.pdf == bit_cast<float>(numeric_limits<float>::infinity) ? 0.0 : pdf.pdf * sinTheta;
