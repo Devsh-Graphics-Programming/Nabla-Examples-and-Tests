@@ -754,10 +754,10 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
             const float32_t2 ndcDirU = _static_cast<float32_t2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirU)));
             const float32_t2 ndcDirV = _static_cast<float32_t2>(transformVectorNdc(clipProjectionData.projectionToNDC, _static_cast<pfloat64_t2>(dirV)));
 
-            const uint32_t2 corner = uint32_t2(vertexIdx & 0x1u, vertexIdx & 0x2u);
+            const bool2 corner = bool2(vertexIdx & 0x1u, vertexIdx & 0x2u);
         
             const float32_t2 ndcCorner = ndcTopLeft + corner.x * ndcDirU + corner.y * ndcDirV;
-            const float32_t2 uv = corner;// float32_t2(corner.x ? maxUV.x : minUV.x, corner.y ? maxUV.y : minUV.y);
+            const float32_t2 uv = float32_t2(corner.x ? maxUV.x : minUV.x, corner.y ? maxUV.y : minUV.y);
             printf("%f %f", ndcCorner.x, ndcCorner.y);
         
             outV.position = float4(ndcCorner, 0.f, 1.f);
