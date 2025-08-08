@@ -64,6 +64,7 @@ enum class ExampleMode
 	CASE_9, // DTM
 	CASE_10, // testing fixed geometry and emulated fp64 corner cases
 	CASE_11, // grid DTM
+	CASE_12, // Georeferenced streamed images
 	CASE_COUNT
 };
 
@@ -80,10 +81,11 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0,	// CASE_8
 	600.0,	// CASE_9
 	10.0,	// CASE_10
-	1000.0	// CASE_11
+	1000.0,	// CASE_11
+	10.0	// CASE_12
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_8;
+constexpr ExampleMode mode = ExampleMode::CASE_12;
 
 class Camera2D
 {
@@ -133,7 +135,7 @@ public:
 
 			if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
 			{
-				m_bounds = m_bounds + float64_t2{ (double)ev.scrollEvent.verticalScroll * -0.1 * m_aspectRatio, (double)ev.scrollEvent.verticalScroll * -0.1};
+				m_bounds = m_bounds + float64_t2{ (double)ev.scrollEvent.verticalScroll * -0.0025 * m_aspectRatio, (double)ev.scrollEvent.verticalScroll * -0.0025};
 				m_bounds = float64_t2{ core::max(m_aspectRatio, m_bounds.x), core::max(1.0, m_bounds.y) };
 			}
 		}
@@ -1263,6 +1265,8 @@ public:
 
 		gridDTMHeightMap = loadImage("../../media/gridDTMHeightMap.exr");
 
+		bigTiledGrid = loadImage("../../media/tiled_grid.exr");
+
 		// set diagonals of cells to TOP_LEFT_TO_BOTTOM_RIGHT or BOTTOM_LEFT_TO_TOP_RIGHT randomly
 		{
 			// assumption is that format of the grid DTM height map is *_SRGB, I don't think we need any code to ensure that
@@ -1311,7 +1315,8 @@ public:
 
 		mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 			{
-				m_Camera.mouseProcess(events);
+				if (m_window->hasMouseFocus())
+					m_Camera.mouseProcess(events);
 			}
 		, m_logger.get());
 		keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
@@ -1492,7 +1497,7 @@ public:
 		projectionToNDC = m_Camera.constructViewProjection();
 
 		// TEST CAMERA ROTATION
-#if 1
+#if 0
 		// double rotation = 0.25 * PI<double>();
 		double rotation = abs(cos(m_timeElapsed * 0.0004)) * 0.25 * PI<double>() ;
 		float64_t2 rotationVec = float64_t2(cos(rotation), sin(rotation));
@@ -3127,12 +3132,6 @@ protected:
 				//printf("\n");
 			}
 
-			GeoreferencedImageParams geoRefParams = {};
-			geoRefParams.format = asset::EF_R8G8B8A8_SRGB;
-			geoRefParams.imageExtents = uint32_t2 (2048, 2048);
-			geoRefParams.viewportExtents = (m_realFrameIx <= 5u) ? uint32_t2(1280, 720) : uint32_t2(3840, 2160); // to test trigerring resize/recreation
-			// drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(6996, geoRefParams, intendedNextSubmit);
-			
 			LineStyleInfo lineStyle = 
 			{
 				.color = float32_t4(1.0f, 0.1f, 0.1f, 0.9f),
@@ -3686,6 +3685,33 @@ protected:
 			}
 #endif
 		}
+		else if (mode == ExampleMode::CASE_12)
+		{
+			GeoreferencedImageParams tiledGridParams;
+			auto& tiledGridCreationParams = bigTiledGrid->getCreationParameters();
+			// Position at topLeft viewport
+			auto inverseViewProj = nbl::hlsl::inverse(m_Camera.constructViewProjection());
+			const float64_t3 topLeftViewportH = float64_t3(-1.0, -1.0, 1.0);
+			const static auto startingTopLeft = nbl::hlsl::mul(inverseViewProj, topLeftViewportH);
+			tiledGridParams.worldspaceOBB.topLeft = startingTopLeft;
+			// Get screen pixel to match 2 viewport pixels (to test at mip border) by choosing appropriate dirU
+			const float64_t3 topRightViewportH = float64_t3(1.0, -1.0, 1.0);
+			const static auto startingViewportLengthVector = nbl::hlsl::mul(inverseViewProj, topRightViewportH - topLeftViewportH);
+			const static auto dirU = startingViewportLengthVector * float64_t(bigTiledGrid->getCreationParameters().extent.width) / float64_t(2 * m_window->getWidth());
+			tiledGridParams.worldspaceOBB.dirU = dirU;
+			tiledGridParams.worldspaceOBB.aspectRatio = 1.0;
+			tiledGridParams.imageExtents = { tiledGridCreationParams.extent.width, tiledGridCreationParams.extent.height};
+			tiledGridParams.viewportExtents = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
+			tiledGridParams.format = tiledGridCreationParams.format;
+			tiledGridParams.imageID = 6996;
+			tiledGridParams.geoReferencedImage = bigTiledGrid;
+
+			DrawResourcesFiller::StreamedImageManager tiledGridManager(std::move(tiledGridParams));
+
+			drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(tiledGridManager, intendedNextSubmit);
+
+			drawResourcesFiller.addGeoreferencedImage(tiledGridManager, inverseViewProj, intendedNextSubmit);
+		}
 	}
 
 	double getScreenToWorldRatio(const float64_t3x3& viewProjectionMatrix, uint32_t2 windowSize)
@@ -3758,6 +3784,7 @@ protected:
 
 	std::vector<smart_refctd_ptr<ICPUImage>> sampleImages;
 	smart_refctd_ptr<ICPUImage> gridDTMHeightMap;
+	smart_refctd_ptr<ICPUImage> bigTiledGrid;
 
 	static constexpr char FirstGeneratedCharacter = ' ';
 	static constexpr char LastGeneratedCharacter = '~';
