@@ -2794,7 +2794,7 @@ DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::S
 	const float32_t2 dirV = float32_t2(worldspaceOBB.dirU.y, -worldspaceOBB.dirU.x) * worldspaceOBB.aspectRatio;
 	worldspaceOBB.topLeft += worldspaceOBB.dirU * float32_t(minLoadedTileIndices.x) / float32_t(maxResidentTiles.x);
 	worldspaceOBB.topLeft += dirV * float32_t(minLoadedTileIndices.y) / float32_t(maxResidentTiles.y);
-
+	
 	// Compute minUV, maxUV
 	// Since right now we don't shift the obb around, minUV will always be (0,0), but this is bound to change later on (shifting obb will happen when we want to reuse tiles and not 
 	// reupload them on every frame in the next phase)
@@ -2820,7 +2820,7 @@ DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::S
 	worldspaceOBB.dirU *= maxUV.x;
 	// Scale the aspect ratio by the relative shrinkage of U,V. Remember our aspect ratio is V / U.
 	worldspaceOBB.aspectRatio *= maxUV.y / maxUV.x;
-
+	
 	return TileUploadData{ std::move(tiles), worldspaceOBB, minUV, maxUV };
 	
 }
