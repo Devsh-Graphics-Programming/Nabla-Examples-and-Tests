@@ -3687,6 +3687,7 @@ protected:
 		}
 		else if (mode == ExampleMode::CASE_12)
 		{
+			image_id tiledGridID = 6996;
 			GeoreferencedImageParams tiledGridParams;
 			auto& tiledGridCreationParams = bigTiledGrid->getCreationParameters();
 			// Position at topLeft viewport
@@ -3703,12 +3704,11 @@ protected:
 			tiledGridParams.imageExtents = { tiledGridCreationParams.extent.width, tiledGridCreationParams.extent.height};
 			tiledGridParams.viewportExtents = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
 			tiledGridParams.format = tiledGridCreationParams.format;
-			tiledGridParams.imageID = 6996;
 			tiledGridParams.geoReferencedImage = bigTiledGrid;
 
-			DrawResourcesFiller::StreamedImageManager tiledGridManager(std::move(tiledGridParams));
+			DrawResourcesFiller::StreamedImageManager tiledGridManager(tiledGridID, std::move(tiledGridParams));
 
-			drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(tiledGridManager, intendedNextSubmit);
+			drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(tiledGridID, tiledGridManager.georeferencedImageParams, intendedNextSubmit);
 
 			drawResourcesFiller.addGeoreferencedImage(tiledGridManager, inverseViewProj, intendedNextSubmit);
 		}

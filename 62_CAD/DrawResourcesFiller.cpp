@@ -651,7 +651,7 @@ bool DrawResourcesFiller::ensureMultipleStaticImagesAvailability(std::span<Stati
 	return true;
 }
 
-bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(StreamedImageManager& manager, SIntendedSubmitInfo& intendedNextSubmit)
+bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(image_id imageID, const GeoreferencedImageParams& params, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	auto* device = m_utilities->getLogicalDevice();
 	auto* physDev = m_utilities->getLogicalDevice()->getPhysicalDevice();
@@ -659,11 +659,11 @@ bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(
 	// Try inserting or updating the image usage in the cache.
 	// If the image is already present, updates its semaphore value.
 	auto evictCallback = [&](image_id imageID, const CachedImageRecord& evicted) { evictImage_SubmitIfNeeded(imageID, evicted, intendedNextSubmit); };
-	CachedImageRecord* cachedImageRecord = imagesCache->insert(manager.georeferencedImageParams.imageID, intendedNextSubmit.getFutureScratchSemaphore().value, evictCallback);
+	CachedImageRecord* cachedImageRecord = imagesCache->insert(imageID, intendedNextSubmit.getFutureScratchSemaphore().value, evictCallback);
 
 	// TODO: Function call that gets you image creaation params based on georeferencedImageParams (extents and mips and whatever), it will also get you the GEOREFERENCED TYPE
 	IGPUImage::SCreationParams imageCreationParams = {};
-	determineGeoreferencedImageCreationParams(imageCreationParams, manager);
+	ImageType imageType = determineGeoreferencedImageCreationParams(imageCreationParams, params);
 
 	// imageParams = cpuImage->getCreationParameters();
 	imageCreationParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT|IGPUImage::EUF_SAMPLED_BIT;
@@ -690,11 +690,11 @@ bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(
 				const auto cachedImageType = cachedImageRecord->type;
 				// image type and creation params (most importantly extent and format) should match, otherwise we evict, recreate and re-pus
 				const auto currentParams = static_cast<asset::IImage::SCreationParams>(imageCreationParams);
-				const bool needsRecreation = cachedImageType != manager.imageType || cachedParams != currentParams;
+				const bool needsRecreation = cachedImageType != imageType || cachedParams != currentParams;
 				if (needsRecreation)
 				{
 					// call the eviction callback so the currently cached imageID gets eventually deallocated from memory arena.
-					evictCallback(manager.georeferencedImageParams.imageID, *cachedImageRecord);
+					evictCallback(imageID, *cachedImageRecord);
 					
 					// instead of erasing and inserting the imageID into the cache, we just reset it, so the next block of code goes into array index allocation + creating our new image
 					*cachedImageRecord = CachedImageRecord(currentFrameIndex);
@@ -724,11 +724,11 @@ bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(
 		if (cachedImageRecord->arrayIndex != video::SubAllocatedDescriptorSet::AddressAllocator::invalid_address)
 		{
 			// Attempt to create a GPU image and image view for this texture.
-			ImageAllocateResults allocResults = tryCreateAndAllocateImage_SubmitIfNeeded(imageCreationParams, asset::E_FORMAT::EF_COUNT, intendedNextSubmit, std::to_string(manager.georeferencedImageParams.imageID));
+			ImageAllocateResults allocResults = tryCreateAndAllocateImage_SubmitIfNeeded(imageCreationParams, asset::E_FORMAT::EF_COUNT, intendedNextSubmit, std::to_string(imageID));
 
 			if (allocResults.isValid())
 			{
-				cachedImageRecord->type = manager.imageType;
+				cachedImageRecord->type = imageType;
 				cachedImageRecord->state = ImageState::CREATED_AND_MEMORY_BOUND;
 				cachedImageRecord->lastUsedFrameIndex = currentFrameIndex; // there was an eviction + auto-submit, we need to update AGAIN
 				cachedImageRecord->allocationOffset = allocResults.allocationOffset;
@@ -762,7 +762,7 @@ bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(
 				}
 				
 				// erase the entry we failed to fill, no need for `evictImage_SubmitIfNeeded`, because it didn't get to be used in any submit to defer it's memory and index deallocation
-				imagesCache->erase(manager.georeferencedImageParams.imageID);
+				imagesCache->erase(imageID);
 			}
 		}
 		else
@@ -896,21 +896,28 @@ void DrawResourcesFiller::addGeoreferencedImage(StreamedImageManager& manager, c
 		return;
 	}
 
-	// Generate upload data
-	auto uploadData = manager.generateTileUploadData(NDCToWorld);
+	// Query imageType
+	auto cachedImageRecord = imagesCache->peek(manager.imageID);
 
-	// Queue image uploads - if necessary
-	if (manager.imageType == ImageType::GEOREFERENCED_STREAMED)
-	{
-		for (const auto& imageCopy : uploadData.tiles)
-			queueGeoreferencedImageCopy_Internal(manager.georeferencedImageParams.imageID, imageCopy);
-	}
+	manager.maxResidentTiles.x = cachedImageRecord->gpuImageView->getCreationParameters().image->getCreationParameters().extent.width / manager.TileSize;
+	manager.maxResidentTiles.y = manager.maxResidentTiles.x;
+	// Create a "sliding window OBB" that we use to offset tiles
+	manager.fromTopLeftOBB.topLeft = manager.georeferencedImageParams.worldspaceOBB.topLeft;
+	manager.fromTopLeftOBB.dirU = manager.georeferencedImageParams.worldspaceOBB.dirU * float32_t(manager.TileSize * manager.maxResidentTiles.x) / float32_t(manager.georeferencedImageParams.imageExtents.x);
+	manager.fromTopLeftOBB.aspectRatio = float32_t(manager.maxResidentTiles.y) / float32_t(manager.maxResidentTiles.x);
+
+	// Generate upload data
+	auto uploadData = manager.generateTileUploadData(cachedImageRecord->type, NDCToWorld);
+
+	// Queue image uploads
+	for (const auto& imageCopy : uploadData.tiles)
+		queueGeoreferencedImageCopy_Internal(manager.imageID, imageCopy);
 
 	GeoreferencedImageInfo info = {};
 	info.topLeft = uploadData.worldspaceOBB.topLeft;
 	info.dirU = uploadData.worldspaceOBB.dirU;
 	info.aspectRatio = uploadData.worldspaceOBB.aspectRatio;
-	info.textureID = getImageIndexFromID(manager.georeferencedImageParams.imageID, intendedNextSubmit); // for this to be valid and safe, this function needs to be called immediately after `addStaticImage` function to make sure image is in memory
+	info.textureID = getImageIndexFromID(manager.imageID, intendedNextSubmit); // for this to be valid and safe, this function needs to be called immediately after `addStaticImage` function to make sure image is in memory
 	info.minUV = uploadData.minUV;
 	info.maxUV = uploadData.maxUV;
 	if (!addGeoreferencedImageInfo_Internal(info, mainObjIdx))
@@ -2497,48 +2504,45 @@ DrawResourcesFiller::ImageAllocateResults DrawResourcesFiller::tryCreateAndAlloc
 	return ret;
 }
 
-void DrawResourcesFiller::determineGeoreferencedImageCreationParams(nbl::asset::IImage::SCreationParams& outImageParams, StreamedImageManager& manager)
+ImageType DrawResourcesFiller::determineGeoreferencedImageCreationParams(nbl::asset::IImage::SCreationParams& outImageParams, const GeoreferencedImageParams& params)
 {
-	auto& georeferencedImageParams = manager.georeferencedImageParams;
 	// Decide whether the image can reside fully into memory rather than get streamed.
 	// TODO: Improve logic, currently just a simple check to see if the full-screen image has more pixels that viewport or not
 	// TODO: add criterial that the size of the full-res image shouldn't  consume more than 30% of the total memory arena for images (if we allowed larger than viewport extents)
-	const bool betterToResideFullyInMem = georeferencedImageParams.imageExtents.x * georeferencedImageParams.imageExtents.y <= georeferencedImageParams.viewportExtents.x * georeferencedImageParams.viewportExtents.y;
+	const bool betterToResideFullyInMem = params.imageExtents.x * params.imageExtents.y <= params.viewportExtents.x * params.viewportExtents.y;
+
+	ImageType imageType;
 
 	if (betterToResideFullyInMem)
-		manager.imageType = ImageType::GEOREFERENCED_FULL_RESOLUTION;
+		imageType = ImageType::GEOREFERENCED_FULL_RESOLUTION;
 	else
-		manager.imageType = ImageType::GEOREFERENCED_STREAMED;
+		imageType = ImageType::GEOREFERENCED_STREAMED;
 
 	outImageParams.type = asset::IImage::ET_2D;
 	outImageParams.samples = asset::IImage::ESCF_1_BIT;
-	outImageParams.format = georeferencedImageParams.format;
+	outImageParams.format = params.format;
 
-	if (manager.imageType == ImageType::GEOREFERENCED_FULL_RESOLUTION)
+	if (imageType == ImageType::GEOREFERENCED_FULL_RESOLUTION)
 	{
-		outImageParams.extent = { georeferencedImageParams.imageExtents.x, georeferencedImageParams.imageExtents.y, 1u };
+		outImageParams.extent = { params.imageExtents.x, params.imageExtents.y, 1u };
 	}
 	else
 	{
 		// Enough to cover twice the viewport at mip 0 (so that when zooming out to mip 1 the whole viewport still gets covered with mip 0 tiles) 
 		// and in any rotation (taking the longest side suffices). Can be increased to avoid frequent tile eviction when moving the camera at mip close to 1
-		const uint32_t longestSide = nbl::hlsl::max(georeferencedImageParams.viewportExtents.x, georeferencedImageParams.viewportExtents.y);
-		const uint32_t gpuImageSidelength = 2 * (core::roundUp(longestSide, manager.TileSize) + manager.TileSize);
+		const uint32_t diagonal = static_cast<uint32_t>(nbl::hlsl::ceil(
+															nbl::hlsl::sqrt(static_cast<float32_t>(params.viewportExtents.x * params.viewportExtents.x 
+																+ params.viewportExtents.y * params.viewportExtents.y))
+															)
+														);
+		const uint32_t gpuImageSidelength = 2 * core::roundUp(diagonal, StreamedImageManager::TileSize) + StreamedImageManager::PaddingTiles * StreamedImageManager::TileSize;
 		outImageParams.extent = { gpuImageSidelength, gpuImageSidelength, 1u };
-		manager.maxResidentTiles.x = gpuImageSidelength / manager.TileSize;
-		manager.maxResidentTiles.y = manager.maxResidentTiles.x;
-		// Create a "sliding window OBB" that we use to offset tiles
-		manager.fromTopLeftOBB.topLeft = georeferencedImageParams.worldspaceOBB.topLeft;
-		manager.fromTopLeftOBB.dirU = georeferencedImageParams.worldspaceOBB.dirU * float32_t(manager.TileSize * manager.maxResidentTiles.x) / float32_t(georeferencedImageParams.imageExtents.x);
-		manager.fromTopLeftOBB.aspectRatio = float32_t(manager.maxResidentTiles.y) / float32_t(manager.maxResidentTiles.x);
-		// I think aspect ratio can stay the same since worldspace OBB and imageExtents should have same aspect ratio.
-		// If the image can be stretched/sheared and not simply rotated, then the aspect ratio *might* have to change, although I think that's covered by 
-		// the OBB's aspect ratio
 	}
-
 
 	outImageParams.mipLevels = 1u; // TODO: Later do mipmapping
 	outImageParams.arrayLayers = 1u;
+
+	return imageType;
 }
 
 void DrawResourcesFiller::setGlyphMSDFTextureFunction(const GetGlyphMSDFTextureFunc& func)
@@ -2675,8 +2679,8 @@ void DrawResourcesFiller::flushDrawObjects()
 	}
 }
 
-DrawResourcesFiller::StreamedImageManager::StreamedImageManager(GeoreferencedImageParams&& _georeferencedImageParams)
-	: georeferencedImageParams(std::move(_georeferencedImageParams))
+DrawResourcesFiller::StreamedImageManager::StreamedImageManager(image_id _imageID, GeoreferencedImageParams&& _georeferencedImageParams)
+	: imageID(_imageID), georeferencedImageParams(std::move(_georeferencedImageParams))
 {
 	maxImageTileIndices = georeferencedImageParams.imageExtents / uint32_t2(TileSize, TileSize);
 	// If it fits perfectly along any dimension, we need one less tile with this scheme
@@ -2715,10 +2719,10 @@ DrawResourcesFiller::StreamedImageManager::StreamedImageManager(GeoreferencedIma
 	world2Tile = nbl::hlsl::mul(scaleMatrix, nbl::hlsl::mul(changeOfBasisMatrix, displacementMatrix));
 }
 
-DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::StreamedImageManager::generateTileUploadData(const float64_t3x3& NDCToWorld)
+DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::StreamedImageManager::generateTileUploadData(const ImageType imageType, const float64_t3x3& NDCToWorld)
 {
 	// I think eventually it's better to just transform georeferenced images that aren't big enough into static images and forget about them
-	if (imageType == ImageType::GEOREFERENCED_FULL_RESOLUTION)
+	if (imageType == ImageType::GEOREFERENCED_FULL_RESOLUTION) //Pass imageID as parameter, down from the addGeoRef call
 		return TileUploadData{ {}, georeferencedImageParams.worldspaceOBB };
 
 	// Following need only be done if image is actually streamed

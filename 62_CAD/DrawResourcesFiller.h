@@ -18,6 +18,8 @@ static_assert(sizeof(DrawObject) == 16u);
 static_assert(sizeof(MainObject) == 20u);
 static_assert(sizeof(LineStyle) == 88u);
 
+//TODO[Francisco]: Update briefs for geotex related functions
+
 // ! DrawResourcesFiller
 // ! This class provides important functionality to manage resources needed for a draw.
 // ! Drawing new objects (polylines, hatches, etc.) should go through this function.
@@ -126,8 +128,9 @@ public:
 	{
 		friend class DrawResourcesFiller;
 		constexpr static uint32_t TileSize = 128u;
+		constexpr static uint32_t PaddingTiles = 2;
 
-		StreamedImageManager(GeoreferencedImageParams&& _georeferencedImageParams);
+		StreamedImageManager(image_id _imageID, GeoreferencedImageParams&& _georeferencedImageParams);
 
 		struct TileUploadData
 		{
@@ -137,14 +140,13 @@ public:
 			float32_t2 maxUV;
 		};
 
-		TileUploadData generateTileUploadData(const float64_t3x3& NDCToWorld);
+		TileUploadData generateTileUploadData(const ImageType imageType, const float64_t3x3& NDCToWorld);
 		
-		// This and the logic they're in will likely change later with Toroidal updating
-	protected:
+		image_id imageID;
 		GeoreferencedImageParams georeferencedImageParams;
-		uint32_t2 maxResidentTiles = {};
+		// This and the logic they're in will likely change later with Toroidal updating
 	private:
-		ImageType imageType;
+		uint32_t2 maxResidentTiles = {};
 		uint32_t2 minLoadedTileIndices = {};
 		uint32_t2 maxLoadedTileIndices = {};
 		uint32_t2 maxImageTileIndices = {};
@@ -375,7 +377,7 @@ public:
 	 * @return true if the image was successfully cached and is ready for use; false if allocation failed.
 	 * [TODO]: should be internal protected member function.
 	 */
-	bool ensureGeoreferencedImageAvailability_AllocateIfNeeded(StreamedImageManager& manager, SIntendedSubmitInfo& intendedNextSubmit);
+	bool ensureGeoreferencedImageAvailability_AllocateIfNeeded(image_id imageID, const GeoreferencedImageParams& params, SIntendedSubmitInfo& intendedNextSubmit);
 
 	// [TODO]: should be internal protected member function.
 	bool queueGeoreferencedImageCopy_Internal(image_id imageID, const StreamedImageCopy& imageCopy);
@@ -695,7 +697,7 @@ protected:
 	 * @param[out] outImageType Indicates whether the image should be fully resident or streamed.
 	 * @param[in] manager Manager for the georeferenced image
 	*/
-	void determineGeoreferencedImageCreationParams(nbl::asset::IImage::SCreationParams& outImageParams, StreamedImageManager& manager);
+	ImageType determineGeoreferencedImageCreationParams(nbl::asset::IImage::SCreationParams& outImageParams, const GeoreferencedImageParams& params);
 
 	/**
 	 * @brief Used to implement both `drawHatch` and `drawFixedGeometryHatch` without exposing the transformation type parameter
