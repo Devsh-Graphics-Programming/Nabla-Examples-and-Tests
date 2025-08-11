@@ -66,6 +66,10 @@ class CGeometryCreatorScene : public core::IReferenceCounted
 				addGeometry("Cube",creator->createCube({1.f,1.f,1.f}));
 				addGeometry("Rectangle",creator->createRectangle({1.5f,3.f}));
 				addGeometry("Disk",creator->createDisk(2.f,30));
+				addGeometry("Sphere", creator->createSphere(2, 16, 16));
+				addGeometry("Cylinder", creator->createCylinder(2, 2, 20));
+				addGeometry("Cone", creator->createCone(2, 3, 10));
+				addGeometry("Icosphere", creator->createIcoSphere(1, 4, true));
 			}
 			init.geometries.reserve(init.geometryNames.size());
 
