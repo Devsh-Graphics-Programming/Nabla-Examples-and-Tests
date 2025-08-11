@@ -208,10 +208,10 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 				auto savePath = (prefix / path(m_modelPath).filename()).generic_string();
 			
 				m_logger->log("Saving mesh to %S", ILogger::ELL_INFO, savePath.c_str()); 
-				// TODO (Yas): learn how to get out the geometry from renderer and transform it into IAsset
 				
-				auto& asset = m_currentBundle.getContents()[0];
-				IAssetWriter::SAssetWriteParams params{ asset.get() };
+				// should I do a const cast here?
+				const IAsset* asset = m_currentGeom.get();
+				IAssetWriter::SAssetWriteParams params{ const_cast<IAsset*>(asset) };
 				m_assetMgr->writeAsset(savePath, params);
 			}
 
@@ -294,16 +294,16 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			//! load the geometry
 			IAssetLoader::SAssetLoadParams params = {};
 			params.logger = m_logger.get();
-			m_currentBundle = m_assetMgr->getAsset(m_modelPath,params);
-			if (m_currentBundle.getContents().empty())
+			auto asset = m_assetMgr->getAsset(m_modelPath,params);
+			if (asset.getContents().empty())
 				return false;
 
 			// 
 			core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
-			switch (m_currentBundle.getAssetType())
+			switch (asset.getAssetType())
 			{
 				case IAsset::E_TYPE::ET_GEOMETRY:
-					for (const auto& item : m_currentBundle.getContents())
+					for (const auto& item : asset.getContents())
 					if (auto polyGeo=IAsset::castDown<ICPUPolygonGeometry>(item); polyGeo)
 						geometries.push_back(polyGeo);
 					break;
@@ -313,6 +313,8 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			}
 			if (geometries.empty())
 				return false;
+
+			m_currentGeom = geometries[0];
 
 			using aabb_t = hlsl::shapes::AABB<3,double>;
 			auto printAABB = [&](const aabb_t& aabb, const char* extraMsg="")->void
@@ -462,7 +464,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		// mutables
 		std::string m_modelPath;
 
-		SAssetBundle m_currentBundle;
+		smart_refctd_ptr<const ICPUPolygonGeometry> m_currentGeom;
 
 		std::string m_saveFileName; // NOTE: no extension
 		bool m_saveMeshOnExit;
