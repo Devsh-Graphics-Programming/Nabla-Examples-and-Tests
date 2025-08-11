@@ -1,7 +1,7 @@
 // Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-#include "../3rdparty/argparse/include/argparse/argparse.hpp"
+#include "argparse/argparse.hpp"
 #include "common.hpp"
 
 #include "../3rdparty/portable-file-dialogs/portable-file-dialogs.h"
