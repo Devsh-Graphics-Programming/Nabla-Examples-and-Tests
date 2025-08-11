@@ -46,7 +46,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			}
 
 			if (parser["--savemesh"] == true)
-				m_saveMeshOnExit = true;
+				m_saveGeomOnExit = true;
 
 			m_semaphore = m_device->createSemaphore(m_realFrameIx);
 			if (!m_semaphore)
@@ -197,22 +197,9 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 		inline bool onAppTerminated() override
 		{
-			if (m_saveMeshOnExit)
+			if (m_saveGeomOnExit)
 			{
-				// make save path
-				static const auto prefix = std::filesystem::absolute("saved/");
-
-				if (!std::filesystem::exists(prefix))
-					m_system->createDirectory(prefix);
-
-				auto savePath = (prefix / path(m_modelPath).filename()).generic_string();
-			
-				m_logger->log("Saving mesh to %S", ILogger::ELL_INFO, savePath.c_str()); 
-				
-				// should I do a const cast here?
-				const IAsset* asset = m_currentGeom.get();
-				IAssetWriter::SAssetWriteParams params{ const_cast<IAsset*>(asset) };
-				m_assetMgr->writeAsset(savePath, params);
+				writeGeometry();
 			}
 
 			if (!device_base_t::onAppTerminated())
@@ -285,6 +272,9 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 					return false;
 				m_modelPath = file.result()[0];
 			}
+
+			if (m_saveGeomOnExit && m_currentGeom)
+				writeGeometry();
 
 			// free up
 			m_renderer->m_instances.clear();
@@ -448,6 +438,24 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			return true;
 		}
 
+		void writeGeometry()
+		{
+			// make save path
+			static const auto prefix = std::filesystem::absolute("saved/");
+
+			if (!std::filesystem::exists(prefix))
+				m_system->createDirectory(prefix);
+
+			auto savePath = (prefix / path(m_modelPath).filename()).generic_string();
+
+			m_logger->log("Saving mesh to %S", ILogger::ELL_INFO, savePath.c_str());
+
+			// should I do a const cast here?
+			const IAsset* asset = m_currentGeom.get();
+			IAssetWriter::SAssetWriteParams params{ const_cast<IAsset*>(asset) };
+			m_assetMgr->writeAsset(savePath, params);
+		}
+
 		// Maximum frames which can be simultaneously submitted, used to cycle through our per-frame resources like command buffers
 		constexpr static inline uint32_t MaxFramesInFlight = 3u;
 		//
@@ -467,7 +475,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		smart_refctd_ptr<const ICPUPolygonGeometry> m_currentGeom;
 
 		std::string m_saveFileName; // NOTE: no extension
-		bool m_saveMeshOnExit;
+		bool m_saveGeomOnExit;
 };
 
 NBL_MAIN_FUNC(MeshLoadersApp)
