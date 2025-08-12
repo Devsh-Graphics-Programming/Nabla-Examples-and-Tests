@@ -33,8 +33,12 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			// parse args
 			argparse::ArgumentParser parser("12_meshloaders");
 			parser.add_argument("--savemesh")
-				.help("Save the displayed mesh on program termination to the file with specified name. Takes filename without extension as an argument")
+				.help("Save the mesh on exit or reload")
 				.flag();
+
+			parser.add_argument("--savepath")
+				.nargs(1)
+				.help("Specify the file to which the mesh will be saved");
 
 			try
 			{
@@ -47,6 +51,19 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 			if (parser["--savemesh"] == true)
 				m_saveGeomOnExit = true;
+
+			if (parser.present("--savepath"))
+			{
+				auto tmp = path(parser.get<std::string>("--savepath"));
+				
+				if (tmp.empty() || !tmp.has_filename())
+					return logFail("Invalid path has been specified in --savepath argument");
+
+				if (!std::filesystem::exists(tmp.parent_path()))
+					return logFail("Path specified in --savepath argument doesn't exist");
+
+				m_geomSavePath.emplace(std::move(tmp));
+			}
 
 			m_semaphore = m_device->createSemaphore(m_realFrameIx);
 			if (!m_semaphore)
@@ -198,9 +215,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		inline bool onAppTerminated() override
 		{
 			if (m_saveGeomOnExit && m_currentGeom)
-			{
 				writeGeometry();
-			}
 
 			if (!device_base_t::onAppTerminated())
 				return false;
@@ -442,10 +457,13 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 		void writeGeometry()
 		{
-			auto dest = pfd::save_file("Save Geometry", sharedInputCWD.string(),
-				{ "All Supported Formats", "*.stl *.ply *.serialized" },
-				pfd::opt::force_overwrite
-			).result();
+			if (!m_geomSavePath.has_value())
+				m_geomSavePath = pfd::save_file("Save Geometry", sharedInputCWD.string(),
+					{ "All Supported Formats (.stl, .ply, .serialized)", "*.stl *.ply *.serialized" },
+					pfd::opt::force_overwrite
+				).result();
+
+			auto& dest = m_geomSavePath.value();
 
 			if (dest.empty())
 			{
@@ -458,7 +476,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			// should I do a const cast here?
 			const IAsset* asset = m_currentGeom.get();
 			IAssetWriter::SAssetWriteParams params{ const_cast<IAsset*>(asset) };
-			m_assetMgr->writeAsset(dest, params);
+			m_assetMgr->writeAsset(dest.string(), params);
 			m_currentGeom = nullptr;
 		}
 
@@ -480,8 +498,8 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 		smart_refctd_ptr<const ICPUPolygonGeometry> m_currentGeom;
 
-		std::string m_saveFileName; // NOTE: no extension
 		bool m_saveGeomOnExit;
+		std::optional<nbl::system::path> m_geomSavePath;
 };
 
 NBL_MAIN_FUNC(MeshLoadersApp)
