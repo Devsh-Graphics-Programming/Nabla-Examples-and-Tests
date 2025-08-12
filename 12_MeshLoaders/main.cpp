@@ -254,6 +254,8 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 		bool reloadModel()
 		{
+			m_currentGeom = nullptr;
+
 			if (m_nonInteractiveTest) // TODO: maybe also take from argv and argc
 				m_modelPath = (sharedInputCWD/"ply/Spanner-ply.ply").string();
 			else
@@ -440,20 +442,20 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 		void writeGeometry()
 		{
-			// make save path
-			static const auto prefix = std::filesystem::absolute("saved/");
+			auto dest = pfd::save_file("Save Geometry", sharedInputCWD.string(),
+				{ "All Supported Formats", "*.stl *.ply *.serialized" },
+				pfd::opt::force_overwrite
+			).result();
 
-			if (!std::filesystem::exists(prefix))
-				m_system->createDirectory(prefix);
+			if (dest.empty())
+				return;
 
-			auto savePath = (prefix / path(m_modelPath).filename()).generic_string();
-
-			m_logger->log("Saving mesh to %S", ILogger::ELL_INFO, savePath.c_str());
+			m_logger->log("Saving mesh to %S", ILogger::ELL_INFO, dest.c_str());
 
 			// should I do a const cast here?
 			const IAsset* asset = m_currentGeom.get();
 			IAssetWriter::SAssetWriteParams params{ const_cast<IAsset*>(asset) };
-			m_assetMgr->writeAsset(savePath, params);
+			m_assetMgr->writeAsset(dest, params);
 		}
 
 		// Maximum frames which can be simultaneously submitted, used to cycle through our per-frame resources like command buffers
