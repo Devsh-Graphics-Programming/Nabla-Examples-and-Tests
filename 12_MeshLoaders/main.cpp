@@ -197,7 +197,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 		inline bool onAppTerminated() override
 		{
-			if (m_saveGeomOnExit)
+			if (m_saveGeomOnExit && m_currentGeom)
 			{
 				writeGeometry();
 			}
@@ -448,7 +448,10 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			).result();
 
 			if (dest.empty())
+			{
+				m_logger->log("Invalid path has been selected. Geometry won't be saved.", ILogger::ELL_ERROR);
 				return;
+			}
 
 			m_logger->log("Saving mesh to %S", ILogger::ELL_INFO, dest.c_str());
 
@@ -456,6 +459,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			const IAsset* asset = m_currentGeom.get();
 			IAssetWriter::SAssetWriteParams params{ const_cast<IAsset*>(asset) };
 			m_assetMgr->writeAsset(dest, params);
+			m_currentGeom = nullptr;
 		}
 
 		// Maximum frames which can be simultaneously submitted, used to cycle through our per-frame resources like command buffers
