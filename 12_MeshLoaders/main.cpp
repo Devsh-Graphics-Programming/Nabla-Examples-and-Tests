@@ -1,6 +1,7 @@
 // Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
+#include "argparse/argparse.hpp"
 #include "common.hpp"
 
 #include "../3rdparty/portable-file-dialogs/portable-file-dialogs.h"
@@ -28,6 +29,41 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		#endif
 			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
+
+			// parse args
+			argparse::ArgumentParser parser("12_meshloaders");
+			parser.add_argument("--savemesh")
+				.help("Save the mesh on exit or reload")
+				.flag();
+
+			parser.add_argument("--savepath")
+				.nargs(1)
+				.help("Specify the file to which the mesh will be saved");
+
+			try
+			{
+				parser.parse_args({ argv.data(), argv.data() + argv.size() });
+			}
+			catch (const std::exception& e)
+			{
+				return logFail(e.what());
+			}
+
+			if (parser["--savemesh"] == true)
+				m_saveGeomOnExit = true;
+
+			if (parser.present("--savepath"))
+			{
+				auto tmp = path(parser.get<std::string>("--savepath"));
+				
+				if (tmp.empty() || !tmp.has_filename())
+					return logFail("Invalid path has been specified in --savepath argument");
+
+				if (!std::filesystem::exists(tmp.parent_path()))
+					return logFail("Path specified in --savepath argument doesn't exist");
+
+				m_geomSavePath.emplace(std::move(tmp));
+			}
 
 			m_semaphore = m_device->createSemaphore(m_realFrameIx);
 			if (!m_semaphore)
@@ -176,6 +212,17 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			return retval;
 		}
 
+		inline bool onAppTerminated() override
+		{
+			if (m_saveGeomOnExit && m_currentGeom)
+				writeGeometry();
+
+			if (!device_base_t::onAppTerminated())
+				return false;
+
+			return true;
+		}
+
 	protected:
 		const video::IGPURenderpass::SCreationParams::SSubpassDependency* getDefaultSubpassDependencies() const override
 		{
@@ -222,6 +269,8 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 		bool reloadModel()
 		{
+			m_currentGeom = nullptr;
+
 			if (m_nonInteractiveTest) // TODO: maybe also take from argv and argc
 				m_modelPath = (sharedInputCWD/"ply/Spanner-ply.ply").string();
 			else
@@ -241,6 +290,9 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 				m_modelPath = file.result()[0];
 			}
 
+			if (m_saveGeomOnExit && m_currentGeom)
+				writeGeometry();
+
 			// free up
 			m_renderer->m_instances.clear();
 			m_renderer->clearGeometries({.semaphore=m_semaphore.get(),.value=m_realFrameIx});
@@ -249,16 +301,16 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			//! load the geometry
 			IAssetLoader::SAssetLoadParams params = {};
 			params.logger = m_logger.get();
-			auto bundle = m_assetMgr->getAsset(m_modelPath,params);
-			if (bundle.getContents().empty())
+			auto asset = m_assetMgr->getAsset(m_modelPath,params);
+			if (asset.getContents().empty())
 				return false;
 
 			// 
 			core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
-			switch (bundle.getAssetType())
+			switch (asset.getAssetType())
 			{
 				case IAsset::E_TYPE::ET_GEOMETRY:
-					for (const auto& item : bundle.getContents())
+					for (const auto& item : asset.getContents())
 					if (auto polyGeo=IAsset::castDown<ICPUPolygonGeometry>(item); polyGeo)
 						geometries.push_back(polyGeo);
 					break;
@@ -268,6 +320,8 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			}
 			if (geometries.empty())
 				return false;
+
+			m_currentGeom = geometries[0];
 
 			using aabb_t = hlsl::shapes::AABB<3,double>;
 			auto printAABB = [&](const aabb_t& aabb, const char* extraMsg="")->void
@@ -401,6 +455,31 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			return true;
 		}
 
+		void writeGeometry()
+		{
+			if (!m_geomSavePath.has_value())
+				m_geomSavePath = pfd::save_file("Save Geometry", localOutputCWD.string(),
+					{ "All Supported Formats (.stl, .ply, .serialized)", "*.stl *.ply *.serialized" },
+					pfd::opt::force_overwrite
+				).result();
+
+			auto& dest = m_geomSavePath.value();
+
+			if (dest.empty())
+			{
+				m_logger->log("Invalid path has been selected. Geometry won't be saved.", ILogger::ELL_ERROR);
+				return;
+			}
+
+			m_logger->log("Saving mesh to %S", ILogger::ELL_INFO, dest.c_str());
+
+			// should I do a const cast here?
+			const IAsset* asset = m_currentGeom.get();
+			IAssetWriter::SAssetWriteParams params{ const_cast<IAsset*>(asset) };
+			m_assetMgr->writeAsset(dest.string(), params);
+			m_currentGeom = nullptr;
+		}
+
 		// Maximum frames which can be simultaneously submitted, used to cycle through our per-frame resources like command buffers
 		constexpr static inline uint32_t MaxFramesInFlight = 3u;
 		//
@@ -416,6 +495,11 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
 		// mutables
 		std::string m_modelPath;
+
+		smart_refctd_ptr<const ICPUPolygonGeometry> m_currentGeom;
+
+		bool m_saveGeomOnExit;
+		std::optional<nbl::system::path> m_geomSavePath;
 };
 
 NBL_MAIN_FUNC(MeshLoadersApp)
