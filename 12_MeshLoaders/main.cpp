@@ -458,7 +458,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		void writeGeometry()
 		{
 			if (!m_geomSavePath.has_value())
-				m_geomSavePath = pfd::save_file("Save Geometry", sharedInputCWD.string(),
+				m_geomSavePath = pfd::save_file("Save Geometry", localOutputCWD.string(),
 					{ "All Supported Formats (.stl, .ply, .serialized)", "*.stl *.ply *.serialized" },
 					pfd::opt::force_overwrite
 				).result();
