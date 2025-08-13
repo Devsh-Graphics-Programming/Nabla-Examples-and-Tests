@@ -1,8 +1,8 @@
 #include "GeoTexture.h"
 
 bool GeoTextureRenderer::initialize(
-		IGPUShader* vertexShader,
-		IGPUShader* fragmentShader,
+		IShader* vertexShader,
+		IShader* fragmentShader,
 		IGPURenderpass* compatibleRenderPass,
 		const smart_refctd_ptr<IGPUBuffer>& globalsBuffer)
 {
@@ -87,14 +87,15 @@ bool GeoTextureRenderer::initialize(
 
 	// Create Main Graphics Pipelines 
 	{
-		IGPUShader::SSpecInfo specInfo[2] = {
+		video::IGPUPipelineBase::SShaderSpecInfo specInfo[2] = {
 			{.shader=vertexShader },
 			{.shader=fragmentShader },
 		};
 
 		IGPUGraphicsPipeline::SCreationParams params[1] = {};
 		params[0].layout = m_pipelineLayout.get();
-		params[0].shaders = specInfo;
+		params[0].vertexShader = specInfo[0];
+		params[0].fragmentShader = specInfo[1];
 		params[0].cached = {
 			.vertexInput = {},
 			.primitiveAssembly = {

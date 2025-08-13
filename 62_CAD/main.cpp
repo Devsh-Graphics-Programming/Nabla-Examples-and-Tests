@@ -3,15 +3,18 @@
 
 #include "nbl/examples/examples.hpp"
 
-using namespace nbl;
-using namespace nbl::core;
 using namespace nbl::hlsl;
-using namespace nbl::system;
-using namespace nbl::asset;
-using namespace nbl::ui;
-using namespace nbl::video;
-// TODO: probably need to be `using namespace nbl::examples` as well, see other examples
+using namespace nbl;
+using namespace core;
+using namespace system;
+using namespace asset;
+using namespace ui;
+using namespace video;
 
+#include "nbl/examples/common/BuiltinResourcesApplication.hpp"
+#include "nbl/examples/common/SimpleWindowedApplication.hpp"
+#include "nbl/examples/common/InputSystem.hpp"
+#include "nbl/video/utilities/CSimpleResizeSurface.h"
 
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/ext/TextRendering/TextRendering.h"
@@ -45,6 +48,7 @@ static constexpr bool DebugModeWireframe = false;
 static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
 static constexpr bool LargeGeoTextureStreaming = true;
+static constexpr bool CacheAndReplay = false; // caches first frame resources (buffers and images) from DrawResourcesFiller  and replays in future frames, skiping CPU Logic
 
 enum class ExampleMode
 {
@@ -57,6 +61,9 @@ enum class ExampleMode
 	CASE_6, // Custom Clip Projections
 	CASE_7, // Images
 	CASE_8, // MSDF and Text
+	CASE_9, // DTM
+	CASE_10, // testing fixed geometry and emulated fp64 corner cases
+	CASE_11, // grid DTM
 	CASE_COUNT
 };
 
@@ -71,9 +78,12 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	10.0,	// CASE_6
 	10.0,	// CASE_7
 	600.0,	// CASE_8
+	600.0,	// CASE_9
+	10.0,	// CASE_10
+	1000.0	// CASE_11
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_4;
+constexpr ExampleMode mode = ExampleMode::CASE_8;
 
 class Camera2D
 {
@@ -163,14 +173,14 @@ private:
 class CEventCallback : public ISimpleManagedSurface::ICallback
 {
 public:
-	CEventCallback(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(m_inputSystem)), m_logger(std::move(logger)){}
+	CEventCallback(nbl::core::smart_refctd_ptr<nbl::examples::InputSystem>&& m_inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(m_inputSystem)), m_logger(std::move(logger)){}
 	CEventCallback() {}
 	
 	void setLogger(nbl::system::logger_opt_smart_ptr& logger)
 	{
 		m_logger = logger;
 	}
-	void setInputSystem(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem)
+	void setInputSystem(nbl::core::smart_refctd_ptr<nbl::examples::InputSystem>&& m_inputSystem)
 	{
 		m_inputSystem = std::move(m_inputSystem);
 	}
@@ -198,7 +208,7 @@ private:
 	}
 
 private:
-	nbl::core::smart_refctd_ptr<InputSystem> m_inputSystem = nullptr;
+	nbl::core::smart_refctd_ptr<nbl::examples::InputSystem> m_inputSystem = nullptr;
 	nbl::system::logger_opt_smart_ptr m_logger = nullptr;
 };
 	
@@ -236,7 +246,7 @@ class CSwapchainResources : public ISimpleManagedSurface::ISwapchainResources
 			std::fill(m_framebuffers.begin(),m_framebuffers.end(),nullptr);
 		}
 
-		// For creating extra per-image or swapchain resources you might need
+		// For creating extra per-image or swapchain resourcesCollection you might need
 		virtual inline bool onCreateSwapchain_impl(const uint8_t qFam)
 		{
 			auto device = const_cast<ILogicalDevice*>(m_renderpass->getOriginDevice());
@@ -270,10 +280,91 @@ class CSwapchainResources : public ISimpleManagedSurface::ISwapchainResources
 		std::array<core::smart_refctd_ptr<IGPUFramebuffer>,ISwapchain::MaxImages> m_framebuffers;
 };
 
-class ComputerAidedDesign final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+
+// TODO: Move this funcitons that help with creating a new promoted CPUImage
+template<unsigned int SRC_CHANNELS>
+struct PromotionComponentSwizzle
 {
-	using device_base_t = examples::SimpleWindowedApplication;
-	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+    template<typename InT, typename OutT>
+    void operator()(const InT* in, OutT* out) const
+    {
+        using in_t = std::conditional_t<std::is_void_v<InT>, uint64_t, InT>;
+        using out_t = std::conditional_t<std::is_void_v<OutT>, uint64_t, OutT>;
+
+        reinterpret_cast<out_t*>(out)[0u] = reinterpret_cast<const in_t*>(in)[0u];
+
+        if constexpr (SRC_CHANNELS > 1)
+            reinterpret_cast<out_t*>(out)[1u] = reinterpret_cast<const in_t*>(in)[1u];
+        else
+            reinterpret_cast<out_t*>(out)[1u] = static_cast<in_t>(0);
+
+        if constexpr (SRC_CHANNELS > 2)
+            reinterpret_cast<out_t*>(out)[2u] = reinterpret_cast<const in_t*>(in)[2u];
+        else
+            reinterpret_cast<out_t*>(out)[2u] = static_cast<in_t>(0);
+
+        if constexpr (SRC_CHANNELS > 3)
+            reinterpret_cast<out_t*>(out)[3u] = reinterpret_cast<const in_t*>(in)[3u];
+        else
+            reinterpret_cast<out_t*>(out)[3u] = static_cast<in_t>(1);
+    }
+};
+template<typename Filter>
+bool performCopyUsingImageFilter(
+    const core::smart_refctd_ptr<asset::ICPUImage>& inCPUImage,
+    const core::smart_refctd_ptr<asset::ICPUImage>& outCPUImage)
+{
+    Filter filter;
+
+	const uint32_t mipLevels = inCPUImage->getCreationParameters().mipLevels;
+	
+	for (uint32_t level = 0u; level < mipLevels; ++level)
+	{
+		const auto regions = inCPUImage->getRegions(level);
+
+		for (auto& region : regions)
+		{
+			typename Filter::state_type state = {};
+			state.extent = region.imageExtent;
+			state.layerCount = region.imageSubresource.layerCount;
+			state.inImage = inCPUImage.get();
+			state.outImage = outCPUImage.get();
+			state.inOffsetBaseLayer = core::vectorSIMDu32(region.imageOffset.x,  region.imageOffset.y, region.imageOffset.z, region.imageSubresource.baseArrayLayer);
+			state.outOffsetBaseLayer = core::vectorSIMDu32(0u);
+			state.inMipLevel = region.imageSubresource.mipLevel;
+			state.outMipLevel = region.imageSubresource.mipLevel;
+
+			if (!filter.execute(core::execution::par_unseq, &state))
+				return false;
+		}
+	}
+	return true;
+}
+
+bool performImageFormatPromotionCopy(const core::smart_refctd_ptr<asset::ICPUImage>& inCPUImage, const core::smart_refctd_ptr<asset::ICPUImage>& outCPUImage)
+{
+	asset::E_FORMAT srcImageFormat = inCPUImage->getCreationParameters().format;
+	asset::E_FORMAT dstImageFormat = outCPUImage->getCreationParameters().format;
+
+	// In = srcData, Out = stagingBuffer
+	if (srcImageFormat == dstImageFormat)
+		return false;
+
+    auto srcChannelCount = asset::getFormatChannelCount(srcImageFormat);
+    if (srcChannelCount == 1u)
+        return performCopyUsingImageFilter<asset::CSwizzleAndConvertImageFilter<asset::EF_UNKNOWN, asset::EF_UNKNOWN, PromotionComponentSwizzle<1u>>>(inCPUImage, outCPUImage);
+    else if (srcChannelCount == 2u)
+        return performCopyUsingImageFilter<asset::CSwizzleAndConvertImageFilter<asset::EF_UNKNOWN, asset::EF_UNKNOWN, PromotionComponentSwizzle<2u>>>(inCPUImage, outCPUImage);
+    else if (srcChannelCount == 3u)
+        return performCopyUsingImageFilter<asset::CSwizzleAndConvertImageFilter<asset::EF_UNKNOWN, asset::EF_UNKNOWN, PromotionComponentSwizzle<3u>>>(inCPUImage, outCPUImage);
+    else
+        return performCopyUsingImageFilter<asset::CSwizzleAndConvertImageFilter<asset::EF_UNKNOWN, asset::EF_UNKNOWN, PromotionComponentSwizzle<4u>>>(inCPUImage, outCPUImage);
+}
+
+class ComputerAidedDesign final : public nbl::examples::SimpleWindowedApplication, public nbl::examples::BuiltinResourcesApplication
+{
+	using device_base_t = nbl::examples::SimpleWindowedApplication;
+	using asset_base_t = nbl::examples::BuiltinResourcesApplication;
 	using clock_t = std::chrono::steady_clock;
 	
 	constexpr static uint32_t WindowWidthRequest = 1600u;
@@ -282,22 +373,13 @@ class ComputerAidedDesign final : public examples::SimpleWindowedApplication, pu
 	constexpr static uint32_t MaxSubmitsInFlight = 16u;
 public:
 
-	void allocateResources(uint32_t maxObjects)
+	void allocateResources()
 	{
-		drawResourcesFiller = DrawResourcesFiller(core::smart_refctd_ptr(m_utils), getGraphicsQueue());
-
-		// TODO: move individual allocations to DrawResourcesFiller::allocateResources(memory)
-		// Issue warning error, if we can't store our largest geomm struct + clip proj data inside geometry buffer along linestyle and mainObject 
-		uint32_t maxIndices = maxObjects * 6u * 2u;
-		drawResourcesFiller.allocateIndexBuffer(m_device.get(), maxIndices);
-		drawResourcesFiller.allocateMainObjectsBuffer(m_device.get(), maxObjects);
-		drawResourcesFiller.allocateDrawObjectsBuffer(m_device.get(), maxObjects * 5u);
-		drawResourcesFiller.allocateStylesBuffer(m_device.get(), 512u);
-
-		// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)
-		// + 128 ClipProjData
-		size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3 + 128 * sizeof(ClipProjectionData);
-		drawResourcesFiller.allocateGeometryBuffer(m_device.get(), geometryBufferSize);
+		drawResourcesFiller = DrawResourcesFiller(core::smart_refctd_ptr(m_utils), getGraphicsQueue(), core::smart_refctd_ptr(m_logger));
+		
+		size_t maxImagesMemSize = 1024ull * 1024ull * 1024ull; // 1024 MB
+		size_t maxBufferMemSize = 1024ull * 1024ull * 1024ull; // 1024 MB
+		drawResourcesFiller.allocateDrawResourcesWithinAvailableVRAM(m_device.get(), maxImagesMemSize, maxBufferMemSize);
 		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 256u, uint32_t2(MSDFSize, MSDFSize));
 
 		{
@@ -311,14 +393,6 @@ public:
 			auto globalsBufferMem = m_device->allocate(memReq, m_globalsBuffer.get());
 		}
 		
-		size_t sumBufferSizes =
-			drawResourcesFiller.gpuDrawBuffers.drawObjectsBuffer->getSize() +
-			drawResourcesFiller.gpuDrawBuffers.geometryBuffer->getSize() +
-			drawResourcesFiller.gpuDrawBuffers.indexBuffer->getSize() +
-			drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer->getSize() +
-			drawResourcesFiller.gpuDrawBuffers.mainObjectsBuffer->getSize();
-		m_logger->log("Buffers Size = %.2fKB", ILogger::E_LOG_LEVEL::ELL_INFO, sumBufferSizes / 1024.0f);
-
 		// pseudoStencil
 		{
 			asset::E_FORMAT pseudoStencilFormat = asset::EF_R32_UINT;
@@ -399,22 +473,44 @@ public:
 			}
 		}
 
-		IGPUSampler::SParams samplerParams = {};
-		samplerParams.TextureWrapU = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
-		samplerParams.TextureWrapV = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
-		samplerParams.TextureWrapW = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
-		samplerParams.BorderColor  = IGPUSampler::ETBC_FLOAT_OPAQUE_WHITE; // positive means outside shape
-		samplerParams.MinFilter		= IGPUSampler::ETF_LINEAR;
-		samplerParams.MaxFilter		= IGPUSampler::ETF_LINEAR;
-		samplerParams.MipmapMode	= IGPUSampler::ESMM_LINEAR;
-		samplerParams.AnisotropicFilter = 3;
-		samplerParams.CompareEnable = false;
-		samplerParams.CompareFunc = ECO_GREATER;
-		samplerParams.LodBias = 0.f;
-		samplerParams.MinLod = -1000.f;
-		samplerParams.MaxLod = 1000.f;
-		msdfTextureSampler = m_device->createSampler(samplerParams);
-	
+		// MSDF Image Sampler
+		{
+			IGPUSampler::SParams samplerParams = {};
+			samplerParams.TextureWrapU = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+			samplerParams.TextureWrapV = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+			samplerParams.TextureWrapW = IGPUSampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+			samplerParams.BorderColor = IGPUSampler::ETBC_FLOAT_OPAQUE_WHITE; // positive means outside shape
+			samplerParams.MinFilter = IGPUSampler::ETF_LINEAR;
+			samplerParams.MaxFilter = IGPUSampler::ETF_LINEAR;
+			samplerParams.MipmapMode = IGPUSampler::ESMM_LINEAR;
+			samplerParams.AnisotropicFilter = 3;
+			samplerParams.CompareEnable = false;
+			samplerParams.CompareFunc = ECO_GREATER;
+			samplerParams.LodBias = 0.f;
+			samplerParams.MinLod = -1000.f;
+			samplerParams.MaxLod = 1000.f;
+			msdfImageSampler = m_device->createSampler(samplerParams);
+		}
+		
+		// Static Image Sampler
+		{
+			IGPUSampler::SParams samplerParams = {};
+			samplerParams.TextureWrapU = IGPUSampler::E_TEXTURE_CLAMP::ETC_MIRROR;
+			samplerParams.TextureWrapV = IGPUSampler::E_TEXTURE_CLAMP::ETC_MIRROR;
+			samplerParams.TextureWrapW = IGPUSampler::E_TEXTURE_CLAMP::ETC_MIRROR;
+			samplerParams.BorderColor = IGPUSampler::ETBC_FLOAT_TRANSPARENT_BLACK;
+			samplerParams.MinFilter = IGPUSampler::ETF_LINEAR;
+			samplerParams.MaxFilter = IGPUSampler::ETF_LINEAR;
+			samplerParams.MipmapMode = IGPUSampler::ESMM_LINEAR;
+			samplerParams.AnisotropicFilter = 3;
+			samplerParams.CompareEnable = false;
+			samplerParams.CompareFunc = ECO_GREATER;
+			samplerParams.LodBias = 0.f;
+			samplerParams.MinLod = -1000.f;
+			samplerParams.MaxLod = 1000.f;
+			staticImageSampler = m_device->createSampler(samplerParams);
+		}
+
 		// Initial Pipeline Transitions and Clearing of PseudoStencil and ColorStorage
 		// Recorded to Temporary CommandBuffer, Submitted to Graphics Queue, and Blocked on here
 		{
@@ -640,11 +736,12 @@ public:
 	double dt = 0;
 	double m_timeElapsed = 0.0;
 	std::chrono::steady_clock::time_point lastTime;
-	uint32_t m_hatchDebugStep = 0u;
+	uint32_t m_hatchDebugStep = 10u;
+	E_HEIGHT_SHADING_MODE m_shadingModeExample = E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
-		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
+		m_inputSystem = make_smart_refctd_ptr<nbl::examples::InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
 		// Remember to call the base class initialization!
 		if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
@@ -670,7 +767,7 @@ public:
 		if (!m_surface->init(getGraphicsQueue(),std::move(scResources),{}))
 			return logFail("Could not initialize the Surface!");
 
-		allocateResources(1024 * 1024u);
+		allocateResources();
 
 		const bitflag<IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS> bindlessTextureFlags =
 			IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT |
@@ -678,6 +775,7 @@ public:
 			IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_PARTIALLY_BOUND_BIT;
 
 		// Create DescriptorSetLayout, PipelineLayout and update DescriptorSets
+		const uint32_t imagesBinding = 3u;
 		{
 			video::IGPUDescriptorSetLayout::SBinding bindingsSet0[] = {
 				{
@@ -689,45 +787,24 @@ public:
 				},
 				{
 					.binding = 1u,
-					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_VERTEX | asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-					.count = 1u,
-				},
-				{
-					.binding = 2u,
-					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_VERTEX | asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-					.count = 1u,
-				},
-				{
-					.binding = 3u,
-					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_VERTEX | asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-					.count = 1u,
-				},
-				{
-					.binding = 4u,
 					.type = asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 					.count = 1u,
 				},
 				{
-					.binding = 5u,
+					.binding = 2u,
 					.type = asset::IDescriptor::E_TYPE::ET_SAMPLER,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 					.count = 1u,
 				},
 				{
-					.binding = 6u,
+					.binding = imagesBinding,
 					.type = asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
 					.createFlags = bindlessTextureFlags,
 					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-					.count = 128u,
+					.count = ImagesBindingArraySize,
 				},
 			};
 			descriptorSetLayout0 = m_device->createDescriptorSetLayout(bindingsSet0);
@@ -767,7 +844,7 @@ public:
 			{
 				descriptorSet0 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout0));
 				descriptorSet1 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout1));
-				constexpr uint32_t DescriptorCountSet0 = 6u;
+				constexpr uint32_t DescriptorCountSet0 = 3u;
 				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfosSet0[DescriptorCountSet0] = {};
 
 				// Descriptors For Set 0:
@@ -775,27 +852,15 @@ public:
 				descriptorInfosSet0[0u].info.buffer.size = m_globalsBuffer->getCreationParams().size;
 				descriptorInfosSet0[0u].desc = m_globalsBuffer;
 
-				descriptorInfosSet0[1u].info.buffer.offset = 0u;
-				descriptorInfosSet0[1u].info.buffer.size = drawResourcesFiller.gpuDrawBuffers.drawObjectsBuffer->getCreationParams().size;
-				descriptorInfosSet0[1u].desc = drawResourcesFiller.gpuDrawBuffers.drawObjectsBuffer;
+				descriptorInfosSet0[1u].info.combinedImageSampler.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				descriptorInfosSet0[1u].info.combinedImageSampler.sampler = msdfImageSampler;
+				descriptorInfosSet0[1u].desc = drawResourcesFiller.getMSDFsTextureArray();
 				
-				descriptorInfosSet0[2u].info.buffer.offset = 0u;
-				descriptorInfosSet0[2u].info.buffer.size = drawResourcesFiller.gpuDrawBuffers.mainObjectsBuffer->getCreationParams().size;
-				descriptorInfosSet0[2u].desc = drawResourcesFiller.gpuDrawBuffers.mainObjectsBuffer;
-
-				descriptorInfosSet0[3u].info.buffer.offset = 0u;
-				descriptorInfosSet0[3u].info.buffer.size = drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer->getCreationParams().size;
-				descriptorInfosSet0[3u].desc = drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer;
-				
-				descriptorInfosSet0[4u].info.combinedImageSampler.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				descriptorInfosSet0[4u].info.combinedImageSampler.sampler = msdfTextureSampler;
-				descriptorInfosSet0[4u].desc = drawResourcesFiller.getMSDFsTextureArray();
-				
-				descriptorInfosSet0[5u].desc = msdfTextureSampler; // TODO[Erfan]: different sampler and make immutable?
+				descriptorInfosSet0[2u].desc = staticImageSampler; // TODO[Erfan]: different sampler and make immutable?
 				
 				// This is bindless to we write to it later.
-				// descriptorInfosSet0[6u].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				// descriptorInfosSet0[6u].desc = drawResourcesFiller.getMSDFsTextureArray();
+				// descriptorInfosSet0[3u].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				// descriptorInfosSet0[3u].desc = drawResourcesFiller.getMSDFsTextureArray();
 
 				// Descriptors For Set 1:
 				constexpr uint32_t DescriptorCountSet1 = 2u;
@@ -812,65 +877,57 @@ public:
 				video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[DescriptorUpdatesCount] = {};
 				
 				// Set 0 Updates:
+					// globals
 				descriptorUpdates[0u].dstSet = descriptorSet0.get();
 				descriptorUpdates[0u].binding = 0u;
 				descriptorUpdates[0u].arrayElement = 0u;
 				descriptorUpdates[0u].count = 1u;
 				descriptorUpdates[0u].info = &descriptorInfosSet0[0u];
 
+					// mdfs textures
 				descriptorUpdates[1u].dstSet = descriptorSet0.get();
 				descriptorUpdates[1u].binding = 1u;
 				descriptorUpdates[1u].arrayElement = 0u;
 				descriptorUpdates[1u].count = 1u;
 				descriptorUpdates[1u].info = &descriptorInfosSet0[1u];
-
+				
+					// general texture sampler	
 				descriptorUpdates[2u].dstSet = descriptorSet0.get();
 				descriptorUpdates[2u].binding = 2u;
 				descriptorUpdates[2u].arrayElement = 0u;
 				descriptorUpdates[2u].count = 1u;
 				descriptorUpdates[2u].info = &descriptorInfosSet0[2u];
 
-				descriptorUpdates[3u].dstSet = descriptorSet0.get();
-				descriptorUpdates[3u].binding = 3u;
+				// Set 1 Updates:
+				descriptorUpdates[3u].dstSet = descriptorSet1.get();
+				descriptorUpdates[3u].binding = 0u;
 				descriptorUpdates[3u].arrayElement = 0u;
 				descriptorUpdates[3u].count = 1u;
-				descriptorUpdates[3u].info = &descriptorInfosSet0[3u];
-				
-				descriptorUpdates[4u].dstSet = descriptorSet0.get();
-				descriptorUpdates[4u].binding = 4u;
+				descriptorUpdates[3u].info = &descriptorInfosSet1[0u];
+
+				descriptorUpdates[4u].dstSet = descriptorSet1.get();
+				descriptorUpdates[4u].binding = 1u;
 				descriptorUpdates[4u].arrayElement = 0u;
 				descriptorUpdates[4u].count = 1u;
-				descriptorUpdates[4u].info = &descriptorInfosSet0[4u];
-				
-				descriptorUpdates[5u].dstSet = descriptorSet0.get();
-				descriptorUpdates[5u].binding = 5u;
-				descriptorUpdates[5u].arrayElement = 0u;
-				descriptorUpdates[5u].count = 1u;
-				descriptorUpdates[5u].info = &descriptorInfosSet0[5u];
-
-				// Set 1 Updates:
-				descriptorUpdates[6u].dstSet = descriptorSet1.get();
-				descriptorUpdates[6u].binding = 0u;
-				descriptorUpdates[6u].arrayElement = 0u;
-				descriptorUpdates[6u].count = 1u;
-				descriptorUpdates[6u].info = &descriptorInfosSet1[0u];
-
-				descriptorUpdates[7u].dstSet = descriptorSet1.get();
-				descriptorUpdates[7u].binding = 1u;
-				descriptorUpdates[7u].arrayElement = 0u;
-				descriptorUpdates[7u].count = 1u;
-				descriptorUpdates[7u].info = &descriptorInfosSet1[1u];
-
+				descriptorUpdates[4u].info = &descriptorInfosSet1[1u];
 
 				m_device->updateDescriptorSets(DescriptorUpdatesCount, descriptorUpdates, 0u, nullptr);
 			}
 
-			pipelineLayout = m_device->createPipelineLayout({}, core::smart_refctd_ptr(descriptorSetLayout0), core::smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
+			const asset::SPushConstantRange range = {
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+						.offset = 0,
+						.size = sizeof(PushConstants)
+			};
+
+			pipelineLayout = m_device->createPipelineLayout({ &range,1 }, core::smart_refctd_ptr(descriptorSetLayout0), core::smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
 		}
 
-		smart_refctd_ptr<IGPUShader> mainPipelineFragmentShaders = {};
-		smart_refctd_ptr<IGPUShader> mainPipelineVertexShader = {};
-		std::array<smart_refctd_ptr<IGPUShader>, 2u> geoTexturePipelineShaders = {};
+		drawResourcesFiller.setTexturesDescriptorSetAndBinding(core::smart_refctd_ptr(descriptorSet0), imagesBinding);
+
+		smart_refctd_ptr<IShader> mainPipelineFragmentShaders = {};
+		smart_refctd_ptr<IShader> mainPipelineVertexShader = {};
+		std::array<smart_refctd_ptr<IShader>, 2u> geoTexturePipelineShaders = {};
 		{
 			smart_refctd_ptr<IShaderCompiler::CCache> shaderReadCache = nullptr;
 			smart_refctd_ptr<IShaderCompiler::CCache> shaderWriteCache = core::make_smart_refctd_ptr<IShaderCompiler::CCache>();
@@ -904,7 +961,7 @@ public:
 			}
 
 			// Load Custom Shader
-			auto loadCompileShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<ICPUShader>
+			auto loadCompileShader = [&](const std::string& relPath) -> smart_refctd_ptr<IShader>
 				{
 					IAssetLoader::SAssetLoadParams lp = {};
 					lp.logger = m_logger.get();
@@ -915,24 +972,15 @@ public:
 						return nullptr;
 
 					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-					auto cpuShader = IAsset::castDown<ICPUShader>(assets[0]);
-					if (!cpuShader)
+					auto source = IAsset::castDown<IShader>(assets[0]);
+					if (!source)
 						return nullptr;
-
-					cpuShader->setShaderStage(stage);
-					return m_device->compileShader({ cpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
+	
+					return m_device->compileShader( ILogicalDevice::SShaderCreationParameters { .source = source.get(), .readCache = shaderReadCache.get(), .writeCache = shaderWriteCache.get(), .stage = IShader::E_SHADER_STAGE::ESS_ALL_OR_LIBRARY });
 				};
 
-			auto mainPipelineFragmentCpuShader = loadCompileShader("../shaders/main_pipeline/fragment.hlsl", IShader::E_SHADER_STAGE::ESS_ALL_OR_LIBRARY);
-			auto mainPipelineVertexCpuShader = loadCompileShader("../shaders/main_pipeline/vertex_shader.hlsl", IShader::E_SHADER_STAGE::ESS_VERTEX);
-			auto geoTexturePipelineVertCpuShader = loadCompileShader(GeoTextureRenderer::VertexShaderRelativePath, IShader::E_SHADER_STAGE::ESS_VERTEX);
-			auto geoTexturePipelineFragCpuShader = loadCompileShader(GeoTextureRenderer::FragmentShaderRelativePath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-			mainPipelineFragmentCpuShader->setShaderStage(IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-
-			mainPipelineFragmentShaders = m_device->createShader({ mainPipelineFragmentCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
-			mainPipelineVertexShader = m_device->createShader({ mainPipelineVertexCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
-			geoTexturePipelineShaders[0] = m_device->createShader({ geoTexturePipelineVertCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
-			geoTexturePipelineShaders[1] = m_device->createShader({ geoTexturePipelineFragCpuShader.get(), nullptr, shaderReadCache.get(), shaderWriteCache.get() });
+			mainPipelineFragmentShaders = loadCompileShader("../shaders/main_pipeline/fragment.hlsl");
+			mainPipelineVertexShader = loadCompileShader("../shaders/main_pipeline/vertex_shader.hlsl");
 			
 			core::smart_refctd_ptr<system::IFile> shaderWriteCacheFile;
 			{
@@ -976,7 +1024,7 @@ public:
 			// Load FSTri Shader
 			ext::FullScreenTriangle::ProtoPipeline fsTriangleProtoPipe(m_assetMgr.get(),m_device.get(),m_logger.get());
 			
-			const IGPUShader::SSpecInfo fragSpec = { .entryPoint = "resolveAlphaMain", .shader = mainPipelineFragmentShaders.get() };
+			const video::IGPUPipelineBase::SShaderSpecInfo fragSpec = { .shader = mainPipelineFragmentShaders.get(), .entryPoint = "resolveAlphaMain" };
 
 			resolveAlphaGraphicsPipeline = fsTriangleProtoPipe.createPipeline(fragSpec, pipelineLayout.get(), compatibleRenderPass.get(), 0u, blendParams);
 			if (!resolveAlphaGraphicsPipeline)
@@ -987,20 +1035,21 @@ public:
 		// Create Main Graphics Pipelines 
 		{
 			
-			IGPUShader::SSpecInfo specInfo[2] = {
+			video::IGPUPipelineBase::SShaderSpecInfo specInfo[2] = {
 				{
-					.entryPoint = "main",
-					.shader = mainPipelineVertexShader.get()
+					.shader = mainPipelineVertexShader.get(),
+					.entryPoint = "vtxMain"
 				},
 				{
-					.entryPoint = "fragMain",
-					.shader = mainPipelineFragmentShaders.get()
+					.shader = mainPipelineFragmentShaders.get(),
+					.entryPoint = "fragMain"
 				},
 			};
 
 			IGPUGraphicsPipeline::SCreationParams params[1] = {};
 			params[0].layout = pipelineLayout.get();
-			params[0].shaders = specInfo;
+			params[0].vertexShader = specInfo[0];
+			params[0].fragmentShader = specInfo[1];
 			params[0].cached = {
 				.vertexInput = {},
 				.primitiveAssembly = {
@@ -1049,10 +1098,10 @@ public:
 		if (m_font->getFreetypeFace()->num_charmaps > 0)
 			FT_Set_Charmap(m_font->getFreetypeFace(), m_font->getFreetypeFace()->charmaps[0]);
 		
-		const auto str = "MSDF: ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnoprstuvwxyz '1234567890-=\"!@#$%&*()_+";
+		const std::wstring str = L"MSDF: ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnoprstuvwxyz '1234567890-=\"!@#$%&*()_+";
 		singleLineText = std::unique_ptr<SingleLineText>(new SingleLineText(
 			m_font.get(),
-			std::string(str)));
+			str));
 
 		drawResourcesFiller.setGlyphMSDFTextureFunction(
 			[&](nbl::ext::TextRendering::FontFace* face, uint32_t glyphIdx) -> core::smart_refctd_ptr<asset::ICPUImage>
@@ -1069,7 +1118,7 @@ public:
 		);
 		
 		m_geoTextureRenderer = std::unique_ptr<GeoTextureRenderer>(new GeoTextureRenderer(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger)));
-		m_geoTextureRenderer->initialize(geoTexturePipelineShaders[0].get(), geoTexturePipelineShaders[1].get(), compatibleRenderPass.get(), m_globalsBuffer);
+		// m_geoTextureRenderer->initialize(geoTexturePipelineShaders[0].get(), geoTexturePipelineShaders[1].get(), compatibleRenderPass.get(), m_globalsBuffer);
 		
 		// Create the Semaphores
 		m_renderSemaphore = m_device->createSemaphore(0ull);
@@ -1089,6 +1138,158 @@ public:
 			m_commandBufferInfos[i] = { .cmdbuf = m_commandBuffersInFlight[i].get() };
 		m_intendedNextSubmit.scratchCommandBuffers = m_commandBufferInfos;
 		m_currentRecordingCommandBufferInfo = &m_commandBufferInfos[0];
+
+		// Load image
+		system::path m_loadCWD = "..";
+		std::string imagePaths[] =
+		{
+			"../../media/color_space_test/R8G8B8_1.jpg",
+			"../../media/color_space_test/R8G8B8_1.png",
+			"../../media/color_space_test/R8G8B8A8_2.png",
+			"../../media/color_space_test/R8G8B8A8_1.png",
+		};
+
+		/**
+		* @param formatOverride override format of an image view, use special argument asset::E_FORMAT::EF_COUNT to don't override image view format and use one retrieved from the loaded image
+		*/
+		auto loadImage = [&](const std::string& imagePath) -> smart_refctd_ptr<ICPUImage>
+		{
+			constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
+			const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get(), m_loadCWD);
+			auto bundle = m_assetMgr->getAsset(imagePath, loadParams);
+			auto contents = bundle.getContents();
+			if (contents.empty())
+			{
+				m_logger->log("Failed to load image with path %s, skipping!", ILogger::ELL_ERROR, (m_loadCWD / imagePath).c_str());
+				return nullptr;
+			}
+
+			smart_refctd_ptr<ICPUImageView> cpuImgView;
+			const auto& asset = contents[0];
+			switch (asset->getAssetType())
+			{
+			case IAsset::ET_IMAGE:
+			{
+				auto image = smart_refctd_ptr_static_cast<ICPUImage>(asset);
+				auto& flags = image->getCreationParameters().flags;
+				// assert if asset is mutable
+				const_cast<core::bitflag<asset::IImage::E_CREATE_FLAGS>&>(flags) |= asset::IImage::E_CREATE_FLAGS::ECF_MUTABLE_FORMAT_BIT;
+				const auto format = image->getCreationParameters().format;
+
+				ICPUImageView::SCreationParams viewParams = {
+					.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
+					.image = std::move(image),
+					.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
+					.format = format,
+					.subresourceRange = {
+						.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+						.baseMipLevel = 0u,
+						.levelCount = ICPUImageView::remaining_mip_levels,
+						.baseArrayLayer = 0u,
+						.layerCount = ICPUImageView::remaining_array_layers
+					}
+				};
+
+				cpuImgView = ICPUImageView::create(std::move(viewParams));
+			} break;
+
+			case IAsset::ET_IMAGE_VIEW:
+				cpuImgView = smart_refctd_ptr_static_cast<ICPUImageView>(asset);
+				break;
+			default:
+				m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type, skipping!", ILogger::ELL_ERROR);
+				return nullptr;
+			}
+
+			const auto loadedCPUImage = cpuImgView->getCreationParameters().image;
+			const auto loadedCPUImageCreationParams = loadedCPUImage->getCreationParameters();
+
+			// Promoting the image to a format GPU supports. (so that updateImageViaStagingBuffer doesn't have to handle that each frame if overflow-submit needs to happen)
+			auto promotedCPUImageCreationParams = loadedCPUImage->getCreationParameters();
+			
+			promotedCPUImageCreationParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT|IGPUImage::EUF_SAMPLED_BIT;
+			// promote format because RGB8 and friends don't actually exist in HW
+			{
+				const IPhysicalDevice::SImageFormatPromotionRequest request = {
+					.originalFormat = promotedCPUImageCreationParams.format,
+					.usages = IPhysicalDevice::SFormatImageUsages::SUsage(promotedCPUImageCreationParams.usage)
+				};
+				promotedCPUImageCreationParams.format = m_physicalDevice->promoteImageFormat(request,video::IGPUImage::TILING::OPTIMAL);
+			}
+
+			if (loadedCPUImageCreationParams.format != promotedCPUImageCreationParams.format)
+			{
+				smart_refctd_ptr<ICPUImage> promotedCPUImage = ICPUImage::create(promotedCPUImageCreationParams);
+				core::rational<uint32_t> bytesPerPixel = asset::getBytesPerPixel(promotedCPUImageCreationParams.format);
+
+				const auto extent = loadedCPUImageCreationParams.extent;
+				const uint32_t mipLevels = loadedCPUImageCreationParams.mipLevels;
+				const uint32_t arrayLayers = loadedCPUImageCreationParams.arrayLayers;
+				
+				// Only supporting 1 mip, it's just for test..
+				const size_t byteSize = (bytesPerPixel * extent.width * extent.height * extent.depth * arrayLayers).getIntegerApprox(); // TODO: consider mips
+				ICPUBuffer::SCreationParams bufferCreationParams = {};
+				bufferCreationParams.size = byteSize;
+				smart_refctd_ptr<ICPUBuffer> promotedCPUImageBuffer = ICPUBuffer::create(std::move(bufferCreationParams));
+				
+				auto newRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1u);
+				ICPUImage::SBufferCopy& region = newRegions->front();
+				region.imageSubresource.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+				region.imageSubresource.mipLevel = 0u; // TODO
+				region.imageSubresource.baseArrayLayer = 0u;
+				region.imageSubresource.layerCount = arrayLayers;
+				region.bufferOffset = 0u;
+				region.bufferRowLength = 0u;
+				region.bufferImageHeight = 0u;
+				region.imageOffset = { 0u, 0u, 0u };
+				region.imageExtent = extent;
+				promotedCPUImage->setBufferAndRegions(std::move(promotedCPUImageBuffer), newRegions);
+
+				performImageFormatPromotionCopy(loadedCPUImage, promotedCPUImage);
+				return promotedCPUImage;
+			}
+			else
+			{
+				return loadedCPUImage;
+			}
+		};
+
+		for (const auto& imagePath : imagePaths)
+		{
+			auto image = loadImage(imagePath);
+			if (image)
+				sampleImages.push_back(image);
+		}
+
+		gridDTMHeightMap = loadImage("../../media/gridDTMHeightMap.exr");
+
+		// set diagonals of cells to TOP_LEFT_TO_BOTTOM_RIGHT or BOTTOM_LEFT_TO_TOP_RIGHT randomly
+		{
+			// assumption is that format of the grid DTM height map is *_SRGB, I don't think we need any code to ensure that
+
+			auto* region = gridDTMHeightMap->getRegion(0, core::vectorSIMDu32(0.0f));
+			auto imageExtent = region->getExtent();
+			auto imagePixelSize = asset::getBytesPerPixel(gridDTMHeightMap->getCreationParameters().format).getIntegerApprox();
+			float* imageData = static_cast<float*>(gridDTMHeightMap->getBuffer()->getPointer()) + region->bufferOffset;
+			const size_t imageByteSize = gridDTMHeightMap->getImageDataSizeInBytes();
+			assert(imageByteSize % sizeof(float) == 0);
+
+			std::random_device rd;
+			std::mt19937 mt(rd());
+			std::uniform_int_distribution<int> dist(0, 1);
+
+			for (int i = 0; i < imageByteSize; i += sizeof(float))
+			{
+				const bool isTexelEven = static_cast<bool>(dist(mt));
+				E_CELL_DIAGONAL diagonal = isTexelEven ? TOP_LEFT_TO_BOTTOM_RIGHT : BOTTOM_LEFT_TO_TOP_RIGHT;
+
+				setDiagonalModeBit(imageData, diagonal);
+				imageData++;
+			}
+
+		}
+
+		assert(gridDTMHeightMap);
 
 		return true;
 	}
@@ -1129,10 +1330,30 @@ public:
 					{
 						m_hatchDebugStep--;
 					}
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_1)
+					{
+						m_shadingModeExample = E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
+					}
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_2)
+					{
+						m_shadingModeExample = E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
+					}
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_3)
+					{
+						m_shadingModeExample = E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
+					}
 				}
 			}
 		, m_logger.get());
 		
+		const bool isCachingDraw = CacheAndReplay && m_realFrameIx == 0u;
+		if (isCachingDraw)
+		{
+			SIntendedSubmitInfo invalidSubmit = {};
+			addObjects(invalidSubmit); // if any overflows happen here, it will add to our replay cache and not submit anything
+			replayCaches.push_back(drawResourcesFiller.createReplayCache());
+			finishedCachingDraw = true;
+		}
 
 		if (!beginFrameRender())
 			return;
@@ -1153,9 +1374,27 @@ public:
 		IQueue::SSubmitInfo::SSemaphoreInfo waitSems[2u] = { acquired, prevFrameRendered };
 		m_intendedNextSubmit.waitSemaphores = waitSems;
 		
-		addObjects(m_intendedNextSubmit);
-		
+		if (CacheAndReplay)
+		{
+			// to size-1u because we only want to submit overflows here.
+			for (uint32_t i = 0u; i < replayCaches.size() - 1u; ++i)
+			{
+				drawResourcesFiller.setReplayCache(replayCaches[i].get());
+				submitDraws(m_intendedNextSubmit, true);
+				drawResourcesFiller.unsetReplayCache();
+			}
+			if (!replayCaches.empty())
+				drawResourcesFiller.setReplayCache(replayCaches.back().get());
+		}
+		else
+		{
+			addObjects(m_intendedNextSubmit);
+		}
+
 		endFrameRender(m_intendedNextSubmit);
+
+		if (CacheAndReplay)
+			drawResourcesFiller.unsetReplayCache();
 
 #ifdef BENCHMARK_TILL_FIRST_FRAME
 		if (!stopBenchamrkFlag)
@@ -1201,23 +1440,6 @@ public:
 		// cb->reset(video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
 		// cb->begin(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		cb->beginDebugMarker("Frame");
-
-		float64_t3x3 projectionToNDC;
-		projectionToNDC = m_Camera.constructViewProjection();
-		
-		Globals globalData = {};
-		globalData.antiAliasingFactor = 1.0;// +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
-		globalData.resolution = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
-		globalData.defaultClipProjection.projectionToNDC = projectionToNDC;
-		globalData.defaultClipProjection.minClipNDC = float32_t2(-1.0, -1.0);
-		globalData.defaultClipProjection.maxClipNDC = float32_t2(+1.0, +1.0);
-		auto screenToWorld = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
-		globalData.screenToWorldRatio = screenToWorld;
-		globalData.worldToScreenRatio = (1.0/screenToWorld);
-		globalData.miterLimit = 10.0f;
-		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = m_globalsBuffer.get() };
-		bool updateSuccess = cb->updateBuffer(globalBufferUpdateRange, &globalData);
-		assert(updateSuccess);
 		
 		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
 		auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
@@ -1248,10 +1470,63 @@ public:
 	
 	void submitDraws(SIntendedSubmitInfo& intendedSubmitInfo, bool inBetweenSubmit)
 	{
+		const bool isCachingDraw = CacheAndReplay && m_realFrameIx == 0u && !finishedCachingDraw;
+		if (isCachingDraw)
+		{
+			drawResourcesFiller.markFrameUsageComplete(intendedSubmitInfo.getFutureScratchSemaphore().value);
+			replayCaches.push_back(drawResourcesFiller.createReplayCache());
+			return; // we don't record, submit or do anything, just caching the draw resources
+		}
+
+		drawResourcesFiller.pushAllUploads(intendedSubmitInfo);
+
+		m_currentRecordingCommandBufferInfo = intendedSubmitInfo.getCommandBufferForRecording(); // drawResourcesFiller.pushAllUploads might've overflow submitted and changed the current recording command buffer
+
 		// Use the current recording command buffer of the intendedSubmitInfos scratchCommandBuffers, it should be in recording state
 		auto* cb = m_currentRecordingCommandBufferInfo->cmdbuf;
-		auto&r = drawResourcesFiller;
 		
+		const auto& resourcesCollection = drawResourcesFiller.getResourcesCollection();
+		const auto& resourcesGPUBuffer = drawResourcesFiller.getResourcesGPUBuffer();
+
+		float64_t3x3 projectionToNDC;
+		projectionToNDC = m_Camera.constructViewProjection();
+
+		// TEST CAMERA ROTATION
+#if 1
+		// double rotation = 0.25 * PI<double>();
+		double rotation = abs(cos(m_timeElapsed * 0.0004)) * 0.25 * PI<double>() ;
+		float64_t2 rotationVec = float64_t2(cos(rotation), sin(rotation));
+		float64_t3x3 rotationParameter = float64_t3x3 {
+			rotationVec.x, rotationVec.y, 0.0,
+			-rotationVec.y, rotationVec.x, 0.0,
+			0.0, 0.0, 1.0
+		};
+		projectionToNDC = nbl::hlsl::mul(projectionToNDC, rotationParameter);
+#endif
+		Globals globalData = {};
+		uint64_t baseAddress = resourcesGPUBuffer->getDeviceAddress();
+		globalData.pointers = {
+			.lineStyles				= baseAddress + resourcesCollection.lineStyles.bufferOffset,
+			.dtmSettings			= baseAddress + resourcesCollection.dtmSettings.bufferOffset,
+			.customProjections		= baseAddress + resourcesCollection.customProjections.bufferOffset,
+			.customClipRects		= baseAddress + resourcesCollection.customClipRects.bufferOffset,
+			.mainObjects			= baseAddress + resourcesCollection.mainObjects.bufferOffset,
+			.drawObjects			= baseAddress + resourcesCollection.drawObjects.bufferOffset,
+			.geometryBuffer			= baseAddress + resourcesCollection.geometryInfo.bufferOffset,
+		};
+		globalData.antiAliasingFactor = 1.0;// +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
+		globalData.resolution = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
+		globalData.defaultProjectionToNDC = projectionToNDC;
+		float screenToWorld = getScreenToWorldRatio(globalData.defaultProjectionToNDC, globalData.resolution);
+		globalData.screenToWorldScaleTransform = float64_t3x3(	1.0f / screenToWorld, 0.0f, 0.0f,
+																0.0f, 1.0f / screenToWorld, 0.0f,
+																0.0f, 0.0f, 1.0f);
+		globalData.miterLimit = 10.0f;
+		globalData.currentlyActiveMainObjectIndex = drawResourcesFiller.getActiveMainObjectIndex();
+		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = m_globalsBuffer.get() };
+		bool updateSuccess = cb->updateBuffer(globalBufferUpdateRange, &globalData);
+		assert(updateSuccess);
+
 		asset::SViewport vp =
 		{
 			.x = 0u,
@@ -1272,25 +1547,12 @@ public:
 
 		// pipelineBarriersBeforeDraw
 		{	
-			constexpr uint32_t MaxBufferBarriersCount = 6u;
+			constexpr uint32_t MaxBufferBarriersCount = 2u;
 			uint32_t bufferBarriersCount = 0u;
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t bufferBarriers[MaxBufferBarriersCount];
+			
+			const auto& resourcesCollection = drawResourcesFiller.getResourcesCollection();
 
-			// Index Buffer Copy Barrier -> Only do once at the beginning of the frames
-			if (m_realFrameIx == 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_INPUT_BITS;
-				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::INDEX_READ_BIT;
-				bufferBarrier.range =
-				{
-					.offset = 0u,
-					.size = drawResourcesFiller.gpuDrawBuffers.indexBuffer->getSize(),
-					.buffer = drawResourcesFiller.gpuDrawBuffers.indexBuffer,
-				};
-			}
 			if (m_globalsBuffer->getSize() > 0u)
 			{
 				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
@@ -1305,60 +1567,18 @@ public:
 					.buffer = m_globalsBuffer,
 				};
 			}
-			if (drawResourcesFiller.getCurrentDrawObjectsBufferSize() > 0u)
+			if (drawResourcesFiller.getCopiedResourcesSize() > 0u)
 			{
 				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
 				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
 				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
-				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_INPUT_BITS | PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT | PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
 				bufferBarrier.range =
 				{
 					.offset = 0u,
-					.size = drawResourcesFiller.getCurrentDrawObjectsBufferSize(),
-					.buffer = drawResourcesFiller.gpuDrawBuffers.drawObjectsBuffer,
-				};
-			}
-			if (drawResourcesFiller.getCurrentGeometryBufferSize() > 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
-				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
-				bufferBarrier.range =
-				{
-					.offset = 0u,
-					.size = drawResourcesFiller.getCurrentGeometryBufferSize(),
-					.buffer = drawResourcesFiller.gpuDrawBuffers.geometryBuffer,
-				};
-			}
-			if (drawResourcesFiller.getCurrentMainObjectsBufferSize() > 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT | PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
-				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
-				bufferBarrier.range =
-				{
-					.offset = 0u,
-					.size = drawResourcesFiller.getCurrentMainObjectsBufferSize(),
-					.buffer = drawResourcesFiller.gpuDrawBuffers.mainObjectsBuffer,
-				};
-			}
-			if (drawResourcesFiller.getCurrentLineStylesBufferSize() > 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT | PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
-				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
-				bufferBarrier.range =
-				{
-					.offset = 0u,
-					.size = drawResourcesFiller.getCurrentLineStylesBufferSize(),
-					.buffer = drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer,
+					.size = drawResourcesFiller.getCopiedResourcesSize(),
+					.buffer = drawResourcesFiller.getResourcesGPUBuffer(),
 				};
 			}
 			cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .bufBarriers = {bufferBarriers, bufferBarriersCount}, .imgBarriers = {} });
@@ -1383,38 +1603,75 @@ public:
 			};
 		}
 		cb->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-
-		const uint32_t currentIndexCount = drawResourcesFiller.getDrawObjectCount() * 6u;
+		
 		IGPUDescriptorSet* descriptorSets[] = { descriptorSet0.get(), descriptorSet1.get() };
 		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, pipelineLayout.get(), 0u, 2u, descriptorSets);
-
-		// TODO[Przemek]: based on our call bind index buffer you uploaded to part of the `drawResourcesFiller.gpuDrawBuffers.geometryBuffer`
-		// Vertices will be pulled based on baseBDAPointer of where you uploaded the vertex + the VertexID in the vertex shader.
-		cb->bindIndexBuffer({ .offset = 0u, .buffer = drawResourcesFiller.gpuDrawBuffers.indexBuffer.get() }, asset::EIT_32BIT);
-
-		// TODO[Przemek]: binding the same pipelie, no need to change.
-		cb->bindGraphicsPipeline(graphicsPipeline.get());
 		
-		// TODO[Przemek]: contour settings, height shading settings, base bda pointers will need to be pushed via pushConstants before the draw currently as it's the easiest thing to do.
+		cb->bindGraphicsPipeline(graphicsPipeline.get());
 
-		// TODO[Przemek]: draw parameters needs to reflect the mesh involved
-		cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
+		for (auto& drawCall : drawResourcesFiller.getDrawCalls())
+		{
+			if (drawCall.isDTMRendering)
+			{
+				cb->bindIndexBuffer({ .offset = resourcesCollection.geometryInfo.bufferOffset + drawCall.dtm.indexBufferOffset, .buffer = drawResourcesFiller.getResourcesGPUBuffer().get()}, asset::EIT_32BIT);
+
+				PushConstants pc = {
+					.triangleMeshVerticesBaseAddress = drawCall.dtm.triangleMeshVerticesBaseAddress + resourcesGPUBuffer->getDeviceAddress() + resourcesCollection.geometryInfo.bufferOffset,
+					.triangleMeshMainObjectIndex = drawCall.dtm.triangleMeshMainObjectIndex,
+					.isDTMRendering = true
+				};
+				cb->pushConstants(graphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
+
+				cb->drawIndexed(drawCall.dtm.indexCount, 1u, 0u, 0u, 0u);
+			}
+			else
+			{
+				PushConstants pc = {
+					.isDTMRendering = false
+				};
+				cb->pushConstants(graphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
+
+				const uint64_t indexOffset = drawCall.drawObj.drawObjectStart * 6u;
+				const uint64_t indexCount = drawCall.drawObj.drawObjectCount * 6u;
+
+				// assert(currentIndexCount == resourcesCollection.indexBuffer.getCount());
+				cb->bindIndexBuffer({ .offset = resourcesCollection.indexBuffer.bufferOffset + indexOffset * sizeof(uint32_t), .buffer = resourcesGPUBuffer.get()}, asset::EIT_32BIT);
+				cb->drawIndexed(indexCount, 1u, 0u, 0u, 0u);
+			}
+		}
+
 		if (fragmentShaderInterlockEnabled)
 		{
 			cb->bindGraphicsPipeline(resolveAlphaGraphicsPipeline.get());
 			nbl::ext::FullScreenTriangle::recordDrawCall(cb);
 		}
-
+		
 		if constexpr (DebugModeWireframe)
 		{
 			cb->bindGraphicsPipeline(debugGraphicsPipeline.get());
-			cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
+
+			for (auto& drawCall : drawResourcesFiller.getDrawCalls())
+			{
+				PushConstants pc = {
+					.isDTMRendering = false
+				};
+				cb->pushConstants(debugGraphicsPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT, 0, sizeof(PushConstants), &pc);
+
+				const uint64_t indexOffset = drawCall.drawObj.drawObjectStart * 6u;
+				const uint64_t indexCount = drawCall.drawObj.drawObjectCount * 6u;
+
+				// assert(currentIndexCount == resourcesCollection.indexBuffer.getCount());
+				cb->bindIndexBuffer({ .offset = resourcesCollection.indexBuffer.bufferOffset + indexOffset * sizeof(uint32_t), .buffer = resourcesGPUBuffer.get()}, asset::EIT_32BIT);
+
+				cb->drawIndexed(indexCount, 1u, 0u, 0u, 0u);
+			}
 		}
-		
 		cb->endRenderPass();
 
 		if (!inBetweenSubmit)
 			cb->endDebugMarker();
+		
+		drawResourcesFiller.markFrameUsageComplete(intendedSubmitInfo.getFutureScratchSemaphore().value);
 
 		if (inBetweenSubmit)
 		{
@@ -1480,6 +1737,15 @@ public:
 	{
 		auto retval = device_base_t::getRequiredDeviceFeatures();
 		retval.fragmentShaderPixelInterlock = FragmentShaderPixelInterlock;
+		retval.nullDescriptor = true;
+		return retval;
+	}
+
+	virtual video::SPhysicalDeviceLimits getRequiredDeviceLimits() const override
+	{
+		video::SPhysicalDeviceLimits retval = base_t::getRequiredDeviceLimits();
+		retval.fragmentShaderBarycentric = true;
+
 		return retval;
 	}
 		
@@ -1489,32 +1755,13 @@ public:
 		// We only support one swapchain mode, surface, the other one is Display which we have not implemented yet.
 		retval.swapchainMode = video::E_SWAPCHAIN_MODE::ESM_SURFACE;
 		retval.validations = true;
-		retval.synchronizationValidation = true;
+		retval.synchronizationValidation = false;
 		return retval;
 	}
 protected:
 	
 	void addObjects(SIntendedSubmitInfo& intendedNextSubmit)
 	{
-		
-		// TODO[Przemek]: add your own case, you won't call any other drawResourcesFiller function, only drawMesh with your custom made Mesh (for start it can be a single triangle)
-
-		// we record upload of our objects and if we failed to allocate we submit everything
-		if (!intendedNextSubmit.valid())
-		{
-			// log("intendedNextSubmit is invalid.", nbl::system::ILogger::ELL_ERROR);
-			assert(false);
-			return;
-		}
-
-		// Use the current recording command buffer of the intendedSubmitInfos scratchCommandBuffers, it should be in recording state
-		auto* cmdbuf = m_currentRecordingCommandBufferInfo->cmdbuf;
-
-		assert(cmdbuf->getState() == video::IGPUCommandBuffer::STATE::RECORDING && cmdbuf->isResettable());
-		assert(cmdbuf->getRecordingFlags().hasFlags(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT));
-
-		auto* cmdpool = cmdbuf->getPool();
-
 		drawResourcesFiller.setSubmitDrawsFunction(
 			[&](SIntendedSubmitInfo& intendedNextSubmit)
 			{
@@ -1951,8 +2198,8 @@ protected:
 
 			LineStyleInfo style = {};
 			style.screenSpaceLineWidth = 4.0f;
-			style.worldSpaceLineWidth = 0.0f;
-			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
+			style.worldSpaceLineWidth = 2.0f;
+			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.1f);
 
 			LineStyleInfo style2 = {};
 			style2.screenSpaceLineWidth = 2.0f;
@@ -2025,7 +2272,7 @@ protected:
 						myCurve.majorAxis = { -10.0, 5.0 };
 						myCurve.center = { 0, -5.0 };
 						myCurve.angleBounds = {
-							nbl::core::PI<double>() * 2.0,
+							nbl::core::PI<double>() * 1.0,
 							nbl::core::PI<double>() * 0.0
 							};
 						myCurve.eccentricity = 1.0;
@@ -2053,10 +2300,10 @@ protected:
 			}
 
 			drawResourcesFiller.drawPolyline(originalPolyline, style, intendedNextSubmit);
-			//CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+0.0 - 3.0 * abs(cos(m_timeElapsed * 0.0009)));
-			//CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(+0.0 + 3.0 * abs(cos(m_timeElapsed * 0.0009)));
-			//drawResourcesFiller.drawPolyline(offsettedPolyline, style2, intendedNextSubmit);
-			//drawResourcesFiller.drawPolyline(offsettedPolyline2, style2, intendedNextSubmit);
+			CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+0.0 - 3.0 * abs(cos(10.0 * 0.0009)));
+			CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(+0.0 + 3.0 * abs(cos(10.0 * 0.0009)));
+			drawResourcesFiller.drawPolyline(offsettedPolyline, style2, intendedNextSubmit);
+			drawResourcesFiller.drawPolyline(offsettedPolyline2, style2, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_4)
 		{
@@ -2210,11 +2457,11 @@ protected:
 		else if (mode == ExampleMode::CASE_5)
 		{
 //#define CASE_5_POLYLINE_1 // animated stipple pattern
-//#define CASE_5_POLYLINE_2 // miter test static
+#define CASE_5_POLYLINE_2 // miter test static
 //#define CASE_5_POLYLINE_3 // miter test animated
 //#define CASE_5_POLYLINE_4 // miter test animated (every angle)
 //#define CASE_5_POLYLINE_5 // closed polygon
-#define CASE_5_POLYLINE_6 // stretching
+// #define CASE_5_POLYLINE_6 // stretching
 //#define CASE_5_POLYLINE_7 // wide non solid lines
 
 #if defined(CASE_5_POLYLINE_1)
@@ -2330,7 +2577,7 @@ protected:
 				/*quadratics2[3].P0 = {20.0, 50.0};
 				quadratics2[3].P1 = { -80.0, 100.0 };
 				quadratics2[3].P2 = { -100.0, 90.0 };*/
-				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics2.data(), quadratics2.data() + quadratics2.size()));
+				polyline.addQuadBeziers(quadratics2);
 
 				// section 3: lines
 				std::vector<float64_t2> linePoints2;
@@ -2768,16 +3015,20 @@ protected:
 		}
 		else if (mode == ExampleMode::CASE_6)
 		{
-			// left half of screen should be red and right half should be green
-			const auto& cameraProj = m_Camera.constructViewProjection();
-			ClipProjectionData showLeft = {};
-			showLeft.projectionToNDC = cameraProj;
-			showLeft.minClipNDC = float32_t2(-1.0, -1.0);
-			showLeft.maxClipNDC = float32_t2(0.0, +1.0);
-			ClipProjectionData showRight = {};
-			showRight.projectionToNDC = cameraProj;
-			showRight.minClipNDC = float32_t2(0.0, -1.0);
-			showRight.maxClipNDC = float32_t2(+1.0, +1.0);
+			float64_t3x3 customProjection = float64_t3x3{
+				1.0, 0.0, cos(m_timeElapsed * 0.0005) * 100.0,
+				0.0, 1.0, 0.0,
+				0.0, 0.0, 1.0
+			};
+
+			/// [NOTE]: We set minClip and maxClip (in default worldspace) in such a way that minClip.y > maxClip.y so that minClipNDC.y < maxClipNDC.y
+			// left half should be red and right half should be green
+			WorldClipRect showLeft = {};
+			showLeft.minClip  = float64_t2(-100.0, +1000.0);
+			showLeft.maxClip  = float64_t2(0.0, -1000.0);
+			WorldClipRect showRight = {};
+			showRight.minClip = float64_t2(0.0, +1000.0);
+			showRight.maxClip = float64_t2(100.0, -1000.0);
 
 			LineStyleInfo leftLineStyle = {};
 			leftLineStyle.screenSpaceLineWidth = 3.0f;
@@ -2832,181 +3083,55 @@ protected:
 			}
 
 			// we do redundant and nested push/pops to test
-			drawResourcesFiller.pushClipProjectionData(showLeft);
+			drawResourcesFiller.pushCustomClipRect(showLeft);
 			{
 				drawResourcesFiller.drawPolyline(polyline1, leftLineStyle, intendedNextSubmit);
 
-				drawResourcesFiller.pushClipProjectionData(showRight);
+				drawResourcesFiller.pushCustomClipRect(showRight);
+				drawResourcesFiller.pushCustomProjection(customProjection);
 				{
 					drawResourcesFiller.drawPolyline(polyline1, rightLineStyle, intendedNextSubmit);
 					drawResourcesFiller.drawPolyline(polyline2, rightLineStyle, intendedNextSubmit);
 				}
-				drawResourcesFiller.popClipProjectionData();
+				drawResourcesFiller.popCustomProjection();
+				drawResourcesFiller.popCustomClipRect();
 				
 				drawResourcesFiller.drawPolyline(polyline2, leftLineStyle, intendedNextSubmit);
 
-				drawResourcesFiller.pushClipProjectionData(showRight);
+				drawResourcesFiller.pushCustomClipRect(showRight);
 				{
 					drawResourcesFiller.drawPolyline(polyline3, rightLineStyle, intendedNextSubmit);
 					drawResourcesFiller.drawPolyline(polyline2, rightLineStyle, intendedNextSubmit);
 					
-					drawResourcesFiller.pushClipProjectionData(showLeft);
+					drawResourcesFiller.pushCustomClipRect(showLeft);
 					{
 					drawResourcesFiller.drawPolyline(polyline1, leftLineStyle, intendedNextSubmit);
 					}
-					drawResourcesFiller.popClipProjectionData();
+					drawResourcesFiller.popCustomClipRect();
 				}
-				drawResourcesFiller.popClipProjectionData();
+				drawResourcesFiller.popCustomClipRect();
 
 				drawResourcesFiller.drawPolyline(polyline2, leftLineStyle, intendedNextSubmit);
 			}
-			drawResourcesFiller.popClipProjectionData();
+			drawResourcesFiller.popCustomClipRect();
 			
 		}
 		else if (mode == ExampleMode::CASE_7)
 		{
-			if (m_realFrameIx == 0u)
+			for (uint32_t i = 0; i < sampleImages.size(); ++i)
 			{
-				// Load image
-				system::path m_loadCWD = "..";
-				std::string imagePath = "../../media/color_space_test/R8G8B8A8_1.png";
-				
-				constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
-				const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get(),m_loadCWD);
-				auto bundle = m_assetMgr->getAsset(imagePath,loadParams);
-				auto contents = bundle.getContents();
-				if (contents.empty())
-				{
-					m_logger->log("Failed to load image with path %s, skipping!",ILogger::ELL_ERROR,(m_loadCWD/imagePath).c_str());
-				}
-				
-				smart_refctd_ptr<ICPUImageView> cpuImgView;
-				const auto& asset = contents[0];
-				switch (asset->getAssetType())
-				{
-					case IAsset::ET_IMAGE:
-					{
-						auto image = smart_refctd_ptr_static_cast<ICPUImage>(asset);
-						const auto format = image->getCreationParameters().format;
-
-						ICPUImageView::SCreationParams viewParams = {
-							.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
-							.image = std::move(image),
-							.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
-							.format = format,
-							.subresourceRange = {
-								.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
-								.baseMipLevel = 0u,
-								.levelCount = ICPUImageView::remaining_mip_levels,
-								.baseArrayLayer = 0u,
-								.layerCount = ICPUImageView::remaining_array_layers
-							}
-						};
-
-						cpuImgView = ICPUImageView::create(std::move(viewParams));
-					} break;
-
-					case IAsset::ET_IMAGE_VIEW:
-						cpuImgView = smart_refctd_ptr_static_cast<ICPUImageView>(asset);
-						break;
-					default:
-						m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type, skipping!",ILogger::ELL_ERROR);
-				}
-			
-
-				// create matching size gpu image
-				smart_refctd_ptr<IGPUImage> gpuImg;
-				const auto& origParams = cpuImgView->getCreationParameters();
-				const auto origImage = origParams.image;
-				IGPUImage::SCreationParams imageParams = {};
-				imageParams = origImage->getCreationParameters();
-				imageParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT|IGPUImage::EUF_SAMPLED_BIT;
-				// promote format because RGB8 and friends don't actually exist in HW
-				{
-					const IPhysicalDevice::SImageFormatPromotionRequest request = {
-						.originalFormat = imageParams.format,
-						.usages = IPhysicalDevice::SFormatImageUsages::SUsage(imageParams.usage)
-					};
-					imageParams.format = m_physicalDevice->promoteImageFormat(request,imageParams.tiling);
-				}
-				gpuImg = m_device->createImage(std::move(imageParams));
-				if (!gpuImg || !m_device->allocate(gpuImg->getMemoryReqs(),gpuImg.get()).isValid())
-					m_logger->log("Failed to create or allocate gpu image!",ILogger::ELL_ERROR);
-				gpuImg->setObjectDebugName(imagePath.c_str());
-				
-				IGPUImageView::SCreationParams viewParams = {
-					.image = gpuImg,
-					.viewType = IGPUImageView::ET_2D,
-					.format = gpuImg->getCreationParameters().format
-				};
-				auto gpuImgView = m_device->createImageView(std::move(viewParams));
-
-				// Bind gpu image view to descriptor set
-				video::IGPUDescriptorSet::SDescriptorInfo dsInfo;
-				dsInfo.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				dsInfo.desc = gpuImgView;
-
-				IGPUDescriptorSet::SWriteDescriptorSet dsWrites[1u] =
-				{
-					{
-						.dstSet = descriptorSet0.get(),
-						.binding = 6u,
-						.arrayElement = 0u,
-						.count = 1u,
-						.info = &dsInfo,
-					}
-				};
-				m_device->updateDescriptorSets(1u, dsWrites, 0u, nullptr);
-
-				// Upload Loaded CPUImageData to GPU
-				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t beforeCopyImageBarriers[] =
-				{
-					{
-						.barrier = {
-							.dep = {
-								.srcStageMask = PIPELINE_STAGE_FLAGS::NONE, // previous top of pipe -> top_of_pipe in first scope = none
-								.srcAccessMask = ACCESS_FLAGS::NONE,
-								.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
-								.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-							}
-							// .ownershipOp. No queueFam ownership transfer
-						},
-						.image = gpuImg.get(),
-						.subresourceRange = origParams.subresourceRange,
-						.oldLayout = IImage::LAYOUT::UNDEFINED,
-						.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-					}
-				};
-
-				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,  { .imgBarriers = beforeCopyImageBarriers  });
-				m_utils->updateImageViaStagingBuffer(
-					intendedNextSubmit, 
-					origImage->getBuffer()->getPointer(), origImage->getCreationParameters().format,
-					gpuImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 
-					origImage->getRegions());
-
-				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t afterCopyImageBarriers[] =
-				{
-					{
-						.barrier = {
-							.dep = {
-								.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT, // previous top of pipe -> top_of_pipe in first scope = none
-								.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-								.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
-								.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS,
-							}
-							// .ownershipOp. No queueFam ownership transfer
-						},
-						.image = gpuImg.get(),
-						.subresourceRange = origParams.subresourceRange,
-						.oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-						.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL,
-					}
-				};
-				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,  { .imgBarriers = afterCopyImageBarriers  });
+				uint64_t imageID = i * 69ull; // it can be hash or something of the file path the image was loaded from
+				//printf(std::format("\n Image {} \n", i).c_str());
+				drawResourcesFiller.ensureStaticImageAvailability({ imageID, sampleImages[i] }, intendedNextSubmit);
+				drawResourcesFiller.addImageObject(imageID, { .topLeft = { 0.0 + (i) * 3.0, 0.0 }, .dirU = { 3.0 , 0.0 }, .aspectRatio = 1.0 }, intendedNextSubmit);
+				//printf("\n");
 			}
-			drawResourcesFiller._test_addImageObject({ 0.0, 0.0 }, { 100.0, 100.0 }, 0.0, intendedNextSubmit);
-			drawResourcesFiller._test_addImageObject({ 40.0, +40.0 }, { 100.0, 100.0 }, 0.0, intendedNextSubmit);
+
+			GeoreferencedImageParams geoRefParams = {};
+			geoRefParams.format = asset::EF_R8G8B8A8_SRGB;
+			geoRefParams.imageExtents = uint32_t2 (2048, 2048);
+			geoRefParams.viewportExtents = (m_realFrameIx <= 5u) ? uint32_t2(1280, 720) : uint32_t2(3840, 2160); // to test trigerring resize/recreation
+			// drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(6996, geoRefParams, intendedNextSubmit);
 			
 			LineStyleInfo lineStyle = 
 			{
@@ -3019,8 +3144,8 @@ protected:
 			{
 				std::vector<float64_t2> linePoints;
 				linePoints.push_back({ 0.0, 0.0 });
-				linePoints.push_back({ 100.0, 0.0 });
-				linePoints.push_back({ 100.0, -100.0 });
+				linePoints.push_back({ 1.0, 0.0 });
+				linePoints.push_back({ 1.0, -1.0 });
 				polyline.addLinePoints(linePoints);
 			}
 			drawResourcesFiller.drawPolyline(polyline, lineStyle, intendedNextSubmit);
@@ -3076,7 +3201,7 @@ protected:
 				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, m_font.get(), float64_t2(0.0,-200.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), italicTiltAngle, 0.0f);
 				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, m_font.get(), float64_t2(0.0,-250.0), float32_t2(1.0, 1.0), rotation, float32_t4(1.0, 1.0, 1.0, 1.0), italicTiltAngle, 0.5f);
 				// singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-200.0), float32_t2(1.0, 1.0), nbl::core::PI<float>() * abs(cos(m_timeElapsed * 0.00005)));
-				// Smaller text to test mip maps
+				// Smaller text to test level maps
 				//singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-130.0), float32_t2(0.4, 0.4), rotation);
 				//singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-150.0), float32_t2(0.2, 0.2), rotation);
 			}
@@ -3089,15 +3214,6 @@ protected:
 				auto penX = -100.0;
 				auto penY = -500.0;
 				auto previous = 0;
-
-				uint32_t glyphObjectIdx;
-				{
-					LineStyleInfo lineStyle = {};
-					lineStyle.color = float32_t4(1.0, 1.0, 1.0, 1.0);
-					const uint32_t styleIdx = drawResourcesFiller.addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
-
-					glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
-				}
 
 				float64_t2 currentBaselineStart = float64_t2(0.0, 0.0);
 				float64_t scale = 1.0 / 64.0;
@@ -3231,27 +3347,366 @@ protected:
 			}
 
 		}
-		drawResourcesFiller.finalizeAllCopiesToGPU(intendedNextSubmit);
+		else if (mode == ExampleMode::CASE_9)
+		{
+			// PYRAMID
+			core::vector<TriangleMeshVertex> vertices = {
+				//{ float64_t2(0.0, 0.0), 100.0 }, //0
+				//{ float64_t2(-200.0, -200.0), 10.0 }, //1
+				//{ float64_t2(200.0, -200.0), 10.0 }, //2
+				//{ float64_t2(200.0, 200.0), -20.0 }, //3
+				//{ float64_t2(-200.0, 200.0), 10.0 }, //4
+
+				{ float64_t2(0.0, 0.0), 100.0 },
+				{ float64_t2(-200.0, -200.0), 10.0 },
+				{ float64_t2(200.0, -100.0), 10.0 },
+				{ float64_t2(0.0, 0.0), 100.0 },
+				{ float64_t2(200.0, -100.0), 10.0 },
+				{ float64_t2(200.0, 200.0), -20.0 },
+				{ float64_t2(0.0, 0.0), 100.0 },
+				{ float64_t2(200.0, 200.0), -20.0 },
+				{ float64_t2(-200.0, 200.0), 10.0 },
+				{ float64_t2(0.0, 0.0), 100.0 },
+				{ float64_t2(-200.0, 200.0), 10.0 },
+				{ float64_t2(-200.0, -200.0), 10.0 },
+			};
+
+			core::vector<uint32_t> indices = {
+				0, 1, 2,
+				3, 4, 5,
+				6, 7, 8,
+				9, 10, 11
+			};
+
+			// SINGLE TRIANGLE
+			/*core::vector<TriangleMeshVertex> vertices = {
+				{ float64_t2(0.0, 0.0), -20.0 },
+				{ float64_t2(-200.0, -200.0), 100.0 },
+				{ float64_t2(200.0, -100.0), 80.0 },
+			};
+
+			core::vector<uint32_t> indices = {
+				0, 1, 2
+			};*/
+
+			CTriangleMesh mesh;
+			mesh.setVertices(std::move(vertices));
+			mesh.setIndices(std::move(indices));
+
+			DTMSettingsInfo dtmInfo{};
+			//dtmInfo.mode |= E_DTM_MODE::OUTLINE;
+			dtmInfo.mode |= E_DTM_MODE::HEIGHT_SHADING;
+			dtmInfo.mode |= E_DTM_MODE::CONTOUR;
+
+			dtmInfo.outlineStyleInfo.screenSpaceLineWidth = 0.0f;
+			dtmInfo.outlineStyleInfo.worldSpaceLineWidth = 1.0f;
+			dtmInfo.outlineStyleInfo.color = float32_t4(0.0f, 0.39f, 0.0f, 1.0f);
+			std::array<double, 4> outlineStipplePattern = { 0.0f, -5.0f, 20.0f, -5.0f };
+			dtmInfo.outlineStyleInfo.setStipplePatternData(outlineStipplePattern);
+
+			dtmInfo.contourSettingsCount = 2u;
+			dtmInfo.contourSettings[0u].startHeight = 20;
+			dtmInfo.contourSettings[0u].endHeight = 90;
+			dtmInfo.contourSettings[0u].heightInterval = 9.98;
+			dtmInfo.contourSettings[0u].lineStyleInfo.screenSpaceLineWidth = 0.0f;
+			dtmInfo.contourSettings[0u].lineStyleInfo.worldSpaceLineWidth = 1.0f;
+			dtmInfo.contourSettings[0u].lineStyleInfo.color = float32_t4(0.0f, 0.0f, 1.0f, 0.7f);
+			std::array<double, 4> contourStipplePattern = { 0.0f, -5.0f, 10.0f, -5.0f };
+			dtmInfo.contourSettings[0u].lineStyleInfo.setStipplePatternData(contourStipplePattern);
+
+			dtmInfo.contourSettings[1u] = dtmInfo.contourSettings[0u];
+			dtmInfo.contourSettings[1u].startHeight += 5.0f;
+			dtmInfo.contourSettings[1u].heightInterval = 13.0f;
+			dtmInfo.contourSettings[1u].lineStyleInfo.color = float32_t4(0.8f, 0.4f, 0.3f, 1.0f);
+
+			// PRESS 1, 2, 3 TO SWITCH HEIGHT SHADING MODE
+			// 1 - DISCRETE_VARIABLE_LENGTH_INTERVALS
+			// 2 - DISCRETE_FIXED_LENGTH_INTERVALS
+			// 3 - CONTINOUS_INTERVALS
+			float animatedAlpha = (std::cos(m_timeElapsed * 0.0005) + 1.0) * 0.5;
+			switch (m_shadingModeExample)
+			{
+				case E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
+				{
+					dtmInfo.heightShadingInfo.heightShadingMode = E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
+
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(-10.0f, float32_t4(0.5f, 1.0f, 1.0f, 1.0f));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(20.0f, float32_t4(0.0f, 1.0f, 0.0f, 1.0f));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(25.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(70.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(90.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
+
+					break;
+				}
+				case E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS:
+				{
+					dtmInfo.heightShadingInfo.intervalLength = 10.0f;
+					dtmInfo.heightShadingInfo.intervalIndexToHeightMultiplier = dtmInfo.heightShadingInfo.intervalLength;
+					dtmInfo.heightShadingInfo.isCenteredShading = false;
+					dtmInfo.heightShadingInfo.heightShadingMode = E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(0.0f, float32_t4(0.0f, 0.0f, 1.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(25.0f, float32_t4(0.0f, 1.0f, 1.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(50.0f, float32_t4(0.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(75.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(100.0f, float32_t4(1.0f, 0.0f, 0.0f, animatedAlpha));
+
+					break;
+				}
+				case E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS:
+				{
+					dtmInfo.heightShadingInfo.heightShadingMode = E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(0.0f, float32_t4(0.0f, 0.0f, 1.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(25.0f, float32_t4(0.0f, 1.0f, 1.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(50.0f, float32_t4(0.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(75.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(90.0f, float32_t4(1.0f, 0.0f, 0.0f, animatedAlpha));
+
+					break;
+				}
+			}
+
+			drawResourcesFiller.drawTriangleMesh(mesh, dtmInfo, intendedNextSubmit);
+
+			dtmInfo.contourSettings[0u].lineStyleInfo.color = float32_t4(1.0f, 0.39f, 0.0f, 1.0f);
+			dtmInfo.outlineStyleInfo.color = float32_t4(0.0f, 0.39f, 1.0f, 1.0f);
+			for (auto& v : mesh.m_vertices)
+			{
+				v.pos += float64_t2(450.0, 200.0);
+				v.height -= 10.0;
+			}
+
+			drawResourcesFiller.drawTriangleMesh(mesh, dtmInfo, intendedNextSubmit);
+		}
+		else if (mode == ExampleMode::CASE_10)
+		{
+			CPolyline polyline;
+			
+			LineStyleInfo style = {};
+			style.screenSpaceLineWidth = 4.0f;
+			style.color = float32_t4(0.619f, 0.325f, 0.709f, 0.5f);
+
+			for (uint32_t i = 0; i < 128u; ++i)
+			{
+				std::vector<shapes::QuadraticBezier<double>> quadBeziers;
+				curves::EllipticalArcInfo myCircle;
+				{
+					myCircle.majorAxis = { 0.05 , 0.0};
+					myCircle.center = { 0.0 + i * 0.1, i * 0.1 };
+					myCircle.angleBounds = {
+						nbl::core::PI<double>() * 0.0,
+						nbl::core::PI<double>() * 2.0
+					};
+					myCircle.eccentricity = 1.0;
+				}
+
+				curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
+					{
+						quadBeziers.push_back(info);
+					};
+
+				curves::Subdivision::adaptive(myCircle, 1e-5, addToBezier, 10u);
+				polyline.addQuadBeziers(quadBeziers);
+				// drawResourcesFiller.drawPolyline(polyline, style, intendedNextSubmit);
+				polyline.clearEverything();
+			}
+			
+			// Testing Fixed Geometry
+			{
+				float64_t2 line0[2u] =
+				{
+					float64_t2(-1.0, 0.0),
+					float64_t2(+1.0, 0.0),
+				};
+				float64_t2 line1[3u] =
+				{
+					float64_t2(0.0, -1.0),
+					float64_t2(0.0, +1.0),
+					float64_t2(+1.0, +1.0),
+				};
+
+				float64_t3x3 translateMat =
+				{
+					1.0, 0.0, 0.0,
+					0.0, 1.0, 0.0,
+					0.0, 0.0, 1.0
+				};
+				
+				float64_t angle = m_timeElapsed * 0.001;
+				float64_t2 dir = float64_t2{ cos(angle), sin(angle) };
+				float64_t3x3 rotateMat =
+				{
+					dir.x, -dir.y, 0.0,
+					dir.y, dir.x,  0.0,
+					0.0, 0.0, 1.0
+				};
+
+				float64_t2 scale = float64_t2{ 100.0, 100.0 };
+				float64_t3x3 scaleMat =
+				{
+					scale.x, 0.0, 0.0,
+					0.0, scale.y, 0.0,
+					0.0, 0.0, 1.0
+				};
+
+				float64_t3x3 transformation = nbl::hlsl::mul(translateMat, nbl::hlsl::mul(rotateMat, scaleMat));
+				polyline.addLinePoints(line0);
+				polyline.addLinePoints(line1);
+				polyline.preprocessPolylineWithStyle(style);
+				// drawResourcesFiller.drawPolyline(polyline, intendedNextSubmit);
+				drawResourcesFiller.drawFixedGeometryPolyline(polyline, style, transformation, TransformationType::TT_FIXED_SCREENSPACE_SIZE, intendedNextSubmit);
+			}
+		}
+		else if (mode == ExampleMode::CASE_11)
+		{
+			DTMSettingsInfo dtmInfo{};
+			dtmInfo.mode |= E_DTM_MODE::OUTLINE;
+			dtmInfo.mode |= E_DTM_MODE::HEIGHT_SHADING;
+			dtmInfo.mode |= E_DTM_MODE::CONTOUR;
+
+			dtmInfo.outlineStyleInfo.screenSpaceLineWidth = 0.0f;
+			dtmInfo.outlineStyleInfo.worldSpaceLineWidth = 1.0f;
+			dtmInfo.outlineStyleInfo.color = float32_t4(0.0f, 0.39f, 0.0f, 1.0f);
+			//std::array<double, 4> outlineStipplePattern = { 0.0f, -5.0f, 20.0f, -5.0f };
+			std::array<double, 4> outlineStipplePattern = { -10.0f, 10.0f };
+			dtmInfo.outlineStyleInfo.setStipplePatternData(outlineStipplePattern);
+
+			dtmInfo.contourSettingsCount = 2u;
+			dtmInfo.contourSettings[0u].startHeight = 20;
+			dtmInfo.contourSettings[0u].endHeight = 90;
+			dtmInfo.contourSettings[0u].heightInterval = 10;
+			dtmInfo.contourSettings[0u].lineStyleInfo.screenSpaceLineWidth = 0.0f;
+			dtmInfo.contourSettings[0u].lineStyleInfo.worldSpaceLineWidth = 3.0f;
+			dtmInfo.contourSettings[0u].lineStyleInfo.color = float32_t4(0.0f, 0.0f, 1.0f, 0.7f);
+			std::array<double, 4> contourStipplePattern = { 0.0f, -5.0f, 10.0f, -5.0f };
+			dtmInfo.contourSettings[0u].lineStyleInfo.setStipplePatternData(contourStipplePattern);
+
+			dtmInfo.contourSettings[1u] = dtmInfo.contourSettings[0u];
+			dtmInfo.contourSettings[1u].startHeight += 5.0f;
+			dtmInfo.contourSettings[1u].heightInterval = 13.0f;
+			dtmInfo.contourSettings[1u].lineStyleInfo.color = float32_t4(0.8f, 0.4f, 0.3f, 1.0f);
+
+			// PRESS 1, 2, 3 TO SWITCH HEIGHT SHADING MODE
+			// 1 - DISCRETE_VARIABLE_LENGTH_INTERVALS
+			// 2 - DISCRETE_FIXED_LENGTH_INTERVALS
+			// 3 - CONTINOUS_INTERVALS
+			float animatedAlpha = (std::cos(m_timeElapsed * 0.0005) + 1.0) * 0.5;
+			animatedAlpha = 1.0f;
+			switch (m_shadingModeExample)
+			{
+				case E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS:
+				{
+					dtmInfo.heightShadingInfo.heightShadingMode = E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
+
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(-10.0f, float32_t4(0.5f, 1.0f, 1.0f, 1.0f));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(20.0f, float32_t4(0.0f, 1.0f, 0.0f, 1.0f));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(25.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(70.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(90.0f, float32_t4(1.0f, 0.0f, 0.0f, 1.0f));
+
+					break;
+				}
+				case E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS:
+				{
+					dtmInfo.heightShadingInfo.intervalLength = 10.0f;
+					dtmInfo.heightShadingInfo.intervalIndexToHeightMultiplier = dtmInfo.heightShadingInfo.intervalLength;
+					dtmInfo.heightShadingInfo.isCenteredShading = false;
+					dtmInfo.heightShadingInfo.heightShadingMode = E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(-20.0f, float32_t4(0.0f, 0.5f, 0.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(25.0f, float32_t4(0.0f, 0.7f, 0.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(50.0f, float32_t4(0.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(75.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(100.0f, float32_t4(1.0f, 0.0f, 0.0f, animatedAlpha));
+
+					break;
+				}
+				case E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS:
+				{
+					dtmInfo.heightShadingInfo.heightShadingMode = E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(0.0f, float32_t4(0.0f, 0.0f, 1.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(25.0f, float32_t4(0.0f, 1.0f, 1.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(50.0f, float32_t4(0.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(75.0f, float32_t4(1.0f, 1.0f, 0.0f, animatedAlpha));
+					dtmInfo.heightShadingInfo.addHeightColorMapEntry(90.0f, float32_t4(1.0f, 0.0f, 0.0f, animatedAlpha));
+
+					break;
+				}
+			}
+
+			constexpr float HeightMapCellWidth = 20.0f;
+			const auto heightMapExtent = gridDTMHeightMap->getCreationParameters().extent;
+			assert(heightMapExtent.width > 0 && heightMapExtent.height > 0);
+
+			float64_t2 worldSpaceExtents;
+			const float64_t2 topLeft = { -400.0f, 400.0f };
+			worldSpaceExtents.x = (heightMapExtent.width - 1) * HeightMapCellWidth;
+			worldSpaceExtents.y = (heightMapExtent.height - 1) * HeightMapCellWidth;
+			const uint64_t heightMapTextureID = 0ull;
+
+			constexpr bool DrawGridOnly = false;
+			
+			if(DrawGridOnly)
+			{
+				dtmInfo.mode = E_DTM_MODE::OUTLINE;
+				drawResourcesFiller.drawGridDTM(topLeft, worldSpaceExtents, HeightMapCellWidth, InvalidTextureIndex, dtmInfo, intendedNextSubmit);
+			}
+			else
+			{
+				StaticImageInfo heightMapStaticImageInfo = {
+				.imageID = heightMapTextureID,
+				.cpuImage = gridDTMHeightMap,
+				.forceUpdate = false,
+				.imageViewFormatOverride = asset::E_FORMAT::EF_R32G32B32A32_UINT // for now we use only R32G32B32A32_* anyway
+				};
+
+				if (!drawResourcesFiller.ensureStaticImageAvailability(heightMapStaticImageInfo, intendedNextSubmit))
+					m_logger->log("Grid DTM height map texture unavailable!", ILogger::ELL_ERROR);
+				drawResourcesFiller.drawGridDTM(topLeft, worldSpaceExtents, HeightMapCellWidth, heightMapTextureID, dtmInfo, intendedNextSubmit);
+			}
+
+			// draw test polyline
+#if 0
+			{
+				LineStyleInfo style = {};
+				style.screenSpaceLineWidth = 0.0f;
+				style.worldSpaceLineWidth = 15.0f;
+				style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
+
+				CPolyline polyline;
+				{
+					std::vector<float64_t2> linePoints;
+					linePoints.push_back(topLeft);
+					linePoints.push_back(topLeft + float64_t2(worldSpaceExtents.x, 0.0));
+					linePoints.push_back(topLeft + float64_t2(worldSpaceExtents.x, -worldSpaceExtents.y));
+					linePoints.push_back(topLeft + float64_t2(0.0, -worldSpaceExtents.y));
+					linePoints.push_back(topLeft);
+					polyline.addLinePoints(linePoints);
+				}
+
+				drawResourcesFiller.drawPolyline(polyline, style, intendedNextSubmit);
+			}
+#endif
+		}
 	}
 
 	double getScreenToWorldRatio(const float64_t3x3& viewProjectionMatrix, uint32_t2 windowSize)
 	{
 		double idx_0_0 = viewProjectionMatrix[0u][0u] * (windowSize.x / 2.0);
-		double idx_1_1 = viewProjectionMatrix[1u][1u] * (windowSize.y / 2.0);
-		double det_2x2_mat = idx_0_0 * idx_1_1;
-		return static_cast<float>(core::sqrt(core::abs(det_2x2_mat)));
+		double idx_1_0 = viewProjectionMatrix[1u][0u] * (windowSize.y / 2.0);
+		return hlsl::length(float64_t2(idx_0_0, idx_1_0));
 	}
 
 protected:
-
 	std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
 	clock_t::time_point start;
 
+	std::vector<std::unique_ptr<DrawResourcesFiller::ReplayCache>> replayCaches = {}; // vector because there can be overflow submits
+	bool finishedCachingDraw = false;
+
 	bool fragmentShaderInterlockEnabled = false;
 
-	core::smart_refctd_ptr<InputSystem> m_inputSystem;
-	InputSystem::ChannelReader<IMouseEventChannel> mouse;
-	InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
+	core::smart_refctd_ptr<nbl::examples::InputSystem> m_inputSystem;
+	nbl::examples::InputSystem::ChannelReader<IMouseEventChannel> mouse;
+	nbl::examples::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 	
 	smart_refctd_ptr<IGPURenderpass> renderpassInitial; // this renderpass will clear the attachment and transition it to COLOR_ATTACHMENT_OPTIMAL
 	smart_refctd_ptr<IGPURenderpass> renderpassInBetween; // this renderpass will load the attachment and transition it to COLOR_ATTACHMENT_OPTIMAL
@@ -3264,7 +3719,8 @@ protected:
 	// pointer to one of the command buffer infos from above, this is the only command buffer used to record current submit in current frame, it will be updated by SIntendedSubmitInfo
 	IQueue::SSubmitInfo::SCommandBufferInfo const * m_currentRecordingCommandBufferInfo; // pointer can change, value cannot
 
-	smart_refctd_ptr<IGPUSampler>		msdfTextureSampler;
+	smart_refctd_ptr<IGPUSampler>		msdfImageSampler;
+	smart_refctd_ptr<IGPUSampler>		staticImageSampler;
 
 	smart_refctd_ptr<IGPUBuffer>		m_globalsBuffer;
 	smart_refctd_ptr<IGPUDescriptorSet>	descriptorSet0;
@@ -3300,6 +3756,9 @@ protected:
 	
 	std::vector<std::unique_ptr<msdfgen::Shape>> m_shapeMSDFImages = {};
 
+	std::vector<smart_refctd_ptr<ICPUImage>> sampleImages;
+	smart_refctd_ptr<ICPUImage> gridDTMHeightMap;
+
 	static constexpr char FirstGeneratedCharacter = ' ';
 	static constexpr char LastGeneratedCharacter = '~';
 
@@ -3314,3 +3773,4 @@ protected:
 };
 
 NBL_MAIN_FUNC(ComputerAidedDesign)
+

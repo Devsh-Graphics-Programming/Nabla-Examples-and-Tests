@@ -1,7 +1,14 @@
 #ifndef _CAD_EXAMPLE_GLOBALS_HLSL_INCLUDED_
 #define _CAD_EXAMPLE_GLOBALS_HLSL_INCLUDED_
 
-#define NBL_FORCE_EMULATED_FLOAT_64
+#ifdef __HLSL_VERSION
+#ifndef NBL_USE_SPIRV_BUILTINS
+#include "runtimeDeviceConfigCaps.hlsl" // defines DeviceConfigCaps, uses JIT device caps
+#endif
+#endif
+
+// TODO[Erfan]: Turn off in the future, but keep enabled to test
+// #define NBL_FORCE_EMULATED_FLOAT_64
 
 #include <nbl/builtin/hlsl/portable/float64_t.hlsl>
 #include <nbl/builtin/hlsl/portable/vector_t.hlsl>
@@ -13,17 +20,14 @@
 
 #ifdef __HLSL_VERSION
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
-#include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
 #endif
 
 using namespace nbl::hlsl;
 
-
-// because we can't use jit/device_capabilities.hlsl in c++ code
 #ifdef __HLSL_VERSION
-using pfloat64_t = portable_float64_t<jit::device_capabilities>;
-using pfloat64_t2 = portable_float64_t2<jit::device_capabilities>;
-using pfloat64_t3 = portable_float64_t3<jit::device_capabilities>;
+using pfloat64_t = portable_float64_t<DeviceConfigCaps>;
+using pfloat64_t2 = portable_float64_t2<DeviceConfigCaps>;
+using pfloat64_t3 = portable_float64_t3<DeviceConfigCaps>;
 #else
 using pfloat64_t = float64_t;
 using pfloat64_t2 = nbl::hlsl::vector<float64_t, 2>;
@@ -32,40 +36,46 @@ using pfloat64_t3 = nbl::hlsl::vector<float64_t, 3>;
 
 using pfloat64_t3x3 = portable_matrix_t3x3<pfloat64_t>;
 
-// TODO: Compute this in a compute shader from the world counterparts
-//      because this struct includes NDC coordinates, the values will change based camera zoom and move
-//      of course we could have the clip values to be in world units and also the matrix to transform to world instead of ndc but that requires extra computations(matrix multiplications) per vertex
-struct ClipProjectionData
+struct PushConstants
 {
-    pfloat64_t3x3 projectionToNDC; // 72 -> because we use scalar_layout
-    float32_t2 minClipNDC; // 80
-    float32_t2 maxClipNDC; // 88
+    uint64_t triangleMeshVerticesBaseAddress;
+    uint32_t triangleMeshMainObjectIndex;
+    uint32_t isDTMRendering;
 };
 
+struct WorldClipRect
+{
+    pfloat64_t2 minClip; // min clip of a rect in worldspace coordinates of the original space (globals.defaultProjectionToNDC)
+    pfloat64_t2 maxClip; // max clip of a rect in worldspace coordinates of the original space (globals.defaultProjectionToNDC)
+};
+
+struct Pointers
+{
+    uint64_t lineStyles;
+    uint64_t dtmSettings;
+    uint64_t customProjections;
+    uint64_t customClipRects;
+    uint64_t mainObjects;
+    uint64_t drawObjects;
+    uint64_t geometryBuffer;
+};
 #ifndef __HLSL_VERSION
-static_assert(offsetof(ClipProjectionData, projectionToNDC) == 0u);
-static_assert(offsetof(ClipProjectionData, minClipNDC) == 72u);
-static_assert(offsetof(ClipProjectionData, maxClipNDC) == 80u);
+static_assert(sizeof(Pointers) == 56u);
 #endif
 
 struct Globals
 {
-    ClipProjectionData defaultClipProjection; // 88
-    pfloat64_t screenToWorldRatio; // 96
-    pfloat64_t worldToScreenRatio; // 100
-    uint32_t2 resolution; // 108
-    float antiAliasingFactor; // 112
-    float miterLimit; // 116
-    float32_t2 _padding; // 128
+    Pointers pointers;
+    pfloat64_t3x3 defaultProjectionToNDC;
+    pfloat64_t3x3 screenToWorldScaleTransform; // Pre-multiply your transform with this to scale in screen space (e.g., scale 100.0 means 100 screen pixels).
+    uint32_t2 resolution;
+    float antiAliasingFactor;
+    uint32_t miterLimit;
+    uint32_t currentlyActiveMainObjectIndex; // for alpha resolve to skip resolving activeMainObjectIdx and prep it for next submit
+    float32_t _padding;
 };
-
 #ifndef __HLSL_VERSION
-static_assert(offsetof(Globals, defaultClipProjection) == 0u);
-static_assert(offsetof(Globals, screenToWorldRatio) == 88u);
-static_assert(offsetof(Globals, worldToScreenRatio) == 96u);
-static_assert(offsetof(Globals, resolution) == 104u);
-static_assert(offsetof(Globals, antiAliasingFactor) == 112u);
-static_assert(offsetof(Globals, miterLimit) == 116u);
+static_assert(sizeof(Globals) == 224u);
 #endif
 
 #ifdef __HLSL_VERSION
@@ -100,6 +110,18 @@ pfloat64_t2 transformVectorNdc(NBL_CONST_REF_ARG(pfloat64_t3x3) transformation, 
 }
 #endif
 
+enum class MainObjectType : uint32_t
+{
+    NONE = 0u,
+    POLYLINE,
+    HATCH,
+    TEXT,
+    STATIC_IMAGE,
+    DTM,
+    GRID_DTM,
+    STREAMED_IMAGE,
+};
+
 enum class ObjectType : uint32_t
 {
     LINE = 0u,
@@ -107,7 +129,10 @@ enum class ObjectType : uint32_t
     CURVE_BOX = 2u,
     POLYLINE_CONNECTOR = 3u,
     FONT_GLYPH = 4u,
-    IMAGE = 5u
+    STATIC_IMAGE = 5u,
+    TRIANGLE_MESH = 6u,
+    GRID_DTM = 7u,
+    STREAMED_IMAGE = 8u,
 };
 
 enum class MajorAxis : uint32_t
@@ -116,12 +141,23 @@ enum class MajorAxis : uint32_t
     MAJOR_Y = 1u,
 };
 
+enum TransformationType 
+{
+    TT_NORMAL = 0,
+    TT_FIXED_SCREENSPACE_SIZE
+};
+
+
 // Consists of multiple DrawObjects
+// [IDEA]: In GPU-driven rendering, to save mem for MainObject data fetching: many of these can be shared amongst different main objects, we could find these styles, settings, etc indices with upper_bound
+// [TODO]: pack indices and members of mainObject and DrawObject + enforce max size for autosubmit --> but do it only after the mainobject definition is finalized in gpu-driven rendering work
 struct MainObject
 {
     uint32_t styleIdx;
-    uint32_t pad; // do I even need this on the gpu side? it's stored in structured buffer not bda
-    uint64_t clipProjectionAddress;
+    uint32_t dtmSettingsIdx;
+    uint32_t customProjectionIndex;
+    uint32_t customClipRectIndex;
+    uint32_t transformationType; // todo pack later, it's just 2 possible values atm
 };
 
 struct DrawObject
@@ -131,6 +167,7 @@ struct DrawObject
     uint64_t geometryAddress;
 };
 
+// Goes into geometry buffer, needs to be aligned by 8
 struct LinePointInfo
 {
     pfloat64_t2 p;
@@ -138,6 +175,7 @@ struct LinePointInfo
     float32_t stretchValue;
 };
 
+// Goes into geometry buffer, needs to be aligned by 8
 struct QuadraticBezierInfo
 {
     nbl::hlsl::shapes::QuadraticBezier<pfloat64_t> shape; // 48bytes = 3 (control points) x 16 (float64_t2)
@@ -148,6 +186,7 @@ struct QuadraticBezierInfo
 static_assert(offsetof(QuadraticBezierInfo, phaseShift) == 48u);
 #endif
 
+// Goes into geometry buffer, needs to be aligned by 8
 struct GlyphInfo
 {
     pfloat64_t2 topLeft; // 2 * 8 = 16 bytes
@@ -192,13 +231,67 @@ struct GlyphInfo
     }
 };
 
+// Goes into geometry buffer, needs to be aligned by 8
 struct ImageObjectInfo
 {
-    pfloat64_t2  topLeft; // 2 * 8 = 16 bytes (16)
+    pfloat64_t2 topLeft; // 2 * 8 = 16 bytes (16)
     float32_t2 dirU; // 2 * 4 = 8 bytes (24)
     float32_t aspectRatio; // 4 bytes (28)
     uint32_t textureID; // 4 bytes (32)
 };
+
+// Goes into geometry buffer, needs to be aligned by 8
+// Currently a simple OBB like ImageObject, but later will be fullscreen with additional info about UV offset for toroidal(mirror) addressing
+struct GeoreferencedImageInfo
+{
+    pfloat64_t2 topLeft; // 2 * 8 = 16 bytes (16)
+    float32_t2 dirU; // 2 * 4 = 8 bytes (24)
+    float32_t aspectRatio; // 4 bytes (28)
+    uint32_t textureID; // 4 bytes (32)
+};
+
+// Goes into geometry buffer, needs to be aligned by 8
+struct GridDTMInfo
+{
+    pfloat64_t2 topLeft; // 2 * 8 = 16 bytes (16)
+    pfloat64_t2 worldSpaceExtents; // 16 bytes (32)
+    uint32_t textureID; // 4 bytes (36)
+    float gridCellWidth; // 4 bytes (40)
+    float thicknessOfTheThickestLine; // 4 bytes (44)
+    float _padding; // 4 bytes (48)
+};
+
+enum E_CELL_DIAGONAL : uint32_t
+{
+    TOP_LEFT_TO_BOTTOM_RIGHT = 0u,
+    BOTTOM_LEFT_TO_TOP_RIGHT = 1u,
+    INVALID = 2u
+};
+
+#ifndef __HLSL_VERSION
+
+// sets last bit of data to 1 or 0 depending on diagonalMode
+static void setDiagonalModeBit(float* data, E_CELL_DIAGONAL diagonalMode)
+{
+    if (diagonalMode == E_CELL_DIAGONAL::INVALID)
+        return;
+
+    uint32_t dataAsUint = reinterpret_cast<uint32_t&>(*data);
+    constexpr uint32_t HEIGHT_VALUE_MASK = 0xFFFFFFFEu;
+    dataAsUint &= HEIGHT_VALUE_MASK;
+    dataAsUint |= static_cast<uint32_t>(diagonalMode);
+    *data = reinterpret_cast<float&>(dataAsUint);
+
+    uint32_t dataAsUintDbg = reinterpret_cast<uint32_t&>(*data);
+}
+
+#endif
+
+// Top left corner holds diagonal mode info of a cell 
+static E_CELL_DIAGONAL getDiagonalModeFromCellCornerData(uint32_t cellCornerData)
+{
+    return (cellCornerData & 0x1u) ? BOTTOM_LEFT_TO_TOP_RIGHT : TOP_LEFT_TO_BOTTOM_RIGHT;
+}
 
 static uint32_t packR11G11B10_UNORM(float32_t3 color)
 {
@@ -235,12 +328,13 @@ static float32_t3 unpackR11G11B10_UNORM(uint32_t packed)
 struct PolylineConnector
 {
     pfloat64_t2 circleCenter;
-    float32_t2 v;
+    float32_t2 v; // the vector from circle center to the intersection of the line ends, it's normalized such that the radius of the circle is equal to 1
     float32_t cosAngleDifferenceHalf;
     float32_t _reserved_pad;
 };
 
 // NOTE: Don't attempt to pack curveMin/Max to uints because of limited range of values, we need the logarithmic precision of floats (more precision near 0)
+// Goes into geometry buffer, needs to be aligned by 8
 struct CurveBox
 {
     // will get transformed in the vertex shader, and will be calculated on the cpu when generating these boxes
@@ -262,8 +356,14 @@ NBL_CONSTEXPR uint32_t InvalidRigidSegmentIndex = 0xffffffff;
 NBL_CONSTEXPR float InvalidStyleStretchValue = nbl::hlsl::numeric_limits<float>::infinity;
 
 
-// TODO[Przemek]: we will need something similar to LineStyles but related to heigh shading settings which is user customizable (like LineStyle stipple patterns) and requires upper_bound to figure out the color based on height value.
+// TODO[Przemek]: we will need something similar to LineStyles but related to heigh shading settings which is user customizable (like  stipple patterns) and requires upper_bound to figure out the color based on height value.
 // We'll discuss that later or what it will be looking like and how it's gonna get passed to our shaders.
+
+struct TriangleMeshVertex
+{
+    pfloat64_t2 pos;
+    pfloat64_t height; // TODO: can be of type float32_t instead
+};
 
 // The color parameter is also used for styling non-curve objects such as text glyphs and hatches with solid color
 struct LineStyle
@@ -316,6 +416,73 @@ struct LineStyle
     }
 };
 
+enum E_DTM_MODE
+{
+    OUTLINE         = 1 << 0,
+    CONTOUR         = 1 << 1,
+    HEIGHT_SHADING  = 1 << 2,
+};
+
+enum class E_HEIGHT_SHADING_MODE : uint32_t
+{
+    DISCRETE_VARIABLE_LENGTH_INTERVALS,
+    DISCRETE_FIXED_LENGTH_INTERVALS,
+    CONTINOUS_INTERVALS
+};
+    
+struct DTMContourSettings
+{
+    uint32_t contourLineStyleIdx; // index into line styles
+    float contourLinesStartHeight;
+    float contourLinesEndHeight;
+    float contourLinesHeightInterval;
+};
+
+struct DTMHeightShadingSettings
+{
+    const static uint32_t HeightColorMapMaxEntries = 16u;
+    
+    // height-color map
+    float intervalLength;
+	float intervalIndexToHeightMultiplier;
+    int isCenteredShading;
+    
+    uint32_t heightColorEntryCount;
+    float heightColorMapHeights[HeightColorMapMaxEntries];
+    float32_t4 heightColorMapColors[HeightColorMapMaxEntries];
+    
+    E_HEIGHT_SHADING_MODE determineHeightShadingMode()
+    {
+        if (nbl::hlsl::isinf(intervalLength))
+            return E_HEIGHT_SHADING_MODE::DISCRETE_VARIABLE_LENGTH_INTERVALS;
+        if (intervalLength == 0.0f)
+            return E_HEIGHT_SHADING_MODE::CONTINOUS_INTERVALS;
+        return E_HEIGHT_SHADING_MODE::DISCRETE_FIXED_LENGTH_INTERVALS;
+    }
+};
+
+// Documentation and explanation of variables in DTMSettingsInfo
+struct DTMSettings
+{
+    const static uint32_t MaxContourSettings = 8u;
+
+    uint32_t mode; // E_DTM_MODE
+    
+    // outline
+    uint32_t outlineLineStyleIdx;
+
+    // contour lines
+    uint32_t contourSettingsCount;
+    DTMContourSettings contourSettings[MaxContourSettings];
+
+    // height shading
+    DTMHeightShadingSettings heightShadingSettings;
+    
+    bool drawOutlineEnabled() NBL_CONST_MEMBER_FUNC { return  (mode & E_DTM_MODE::OUTLINE) != 0u; } 
+    bool drawContourEnabled() NBL_CONST_MEMBER_FUNC { return (mode & E_DTM_MODE::CONTOUR) != 0u; }
+    bool drawHeightShadingEnabled() NBL_CONST_MEMBER_FUNC { return (mode & E_DTM_MODE::HEIGHT_SHADING) != 0u; }
+};
+
 #ifndef __HLSL_VERSION
 inline bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 {
@@ -338,22 +505,118 @@ inline bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 
     return isStipplePatternArrayEqual;
 }
+
+inline bool operator==(const DTMSettings& lhs, const DTMSettings& rhs)
+{
+    if (lhs.mode != rhs.mode)
+        return false;
+
+    if (lhs.drawOutlineEnabled())
+    {
+        if (lhs.outlineLineStyleIdx != rhs.outlineLineStyleIdx)
+            return false;
+    }
+
+    if (lhs.drawContourEnabled())
+    {
+        if (lhs.contourSettingsCount != rhs.contourSettingsCount)
+            return false;
+        if (memcmp(lhs.contourSettings, rhs.contourSettings, lhs.contourSettingsCount * sizeof(DTMContourSettings)))
+            return false;
+    }
+
+    if (lhs.drawHeightShadingEnabled())
+    {
+        if (lhs.heightShadingSettings.intervalLength != rhs.heightShadingSettings.intervalLength)
+            return false;
+        if (lhs.heightShadingSettings.intervalIndexToHeightMultiplier != rhs.heightShadingSettings.intervalIndexToHeightMultiplier)
+            return false;
+        if (lhs.heightShadingSettings.isCenteredShading != rhs.heightShadingSettings.isCenteredShading)
+            return false;
+        if (lhs.heightShadingSettings.heightColorEntryCount != rhs.heightShadingSettings.heightColorEntryCount)
+            return false;
+        
+                
+        if(memcmp(lhs.heightShadingSettings.heightColorMapHeights, rhs.heightShadingSettings.heightColorMapHeights, lhs.heightShadingSettings.heightColorEntryCount * sizeof(float)))
+            return false;
+        if(memcmp(lhs.heightShadingSettings.heightColorMapColors, rhs.heightShadingSettings.heightColorMapColors, lhs.heightShadingSettings.heightColorEntryCount * sizeof(float32_t4)))
+            return false;
+    }
+
+    return true;
+}
 #endif
 
+NBL_CONSTEXPR uint32_t ImagesBindingArraySize = 128;
 NBL_CONSTEXPR uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
 NBL_CONSTEXPR uint32_t AlphaBits = 32u - MainObjectIdxBits;
 NBL_CONSTEXPR uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
 NBL_CONSTEXPR uint32_t InvalidStyleIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
+NBL_CONSTEXPR uint32_t InvalidDTMSettingsIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
 NBL_CONSTEXPR uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
-NBL_CONSTEXPR uint64_t InvalidClipProjectionAddress = nbl::hlsl::numeric_limits<uint64_t>::max;
-NBL_CONSTEXPR uint32_t InvalidTextureIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
+NBL_CONSTEXPR uint32_t InvalidCustomProjectionIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
+NBL_CONSTEXPR uint32_t InvalidCustomClipRectIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
+NBL_CONSTEXPR uint32_t InvalidTextureIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
+
+// Hatches
 NBL_CONSTEXPR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
-// TODO: get automatic version working on HLSL
 NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1 - (uint32_t) SelectedMajorAxis);
+
+// Text or MSDF Hatches
 NBL_CONSTEXPR float MSDFPixelRange = 4.0f;
 NBL_CONSTEXPR float MSDFPixelRangeHalf = MSDFPixelRange / 2.0f;
-NBL_CONSTEXPR float MSDFSize = 32.0f; 
+NBL_CONSTEXPR float MSDFSize = 64.0f; 
 NBL_CONSTEXPR uint32_t MSDFMips = 4; 
 NBL_CONSTEXPR float HatchFillMSDFSceenSpaceSize = 8.0; 
+
+inline bool isInvalidGridDtmHeightValue(float value)
+{
+    return nbl::hlsl::isnan(value);
+}
+
+// Used in CPU-side only for now
+struct OrientedBoundingBox2D
+{
+    pfloat64_t2 topLeft; // 2 * 8 = 16 bytes (16)
+    float32_t2 dirU; // 2 * 4 = 8 bytes (24)
+    float32_t aspectRatio; // 4 bytes (28)
+};
+
+#ifdef __HLSL_VERSION
+[[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);
+
+LineStyle loadLineStyle(const uint32_t index)
+{
+    return vk::RawBufferLoad<LineStyle>(globals.pointers.lineStyles + index * sizeof(LineStyle), 4u);
+}
+DTMSettings loadDTMSettings(const uint32_t index)
+{
+    return vk::RawBufferLoad<DTMSettings>(globals.pointers.dtmSettings + index * sizeof(DTMSettings), 4u);
+}
+pfloat64_t3x3 loadCustomProjection(const uint32_t index)
+{
+    return vk::RawBufferLoad<pfloat64_t3x3>(globals.pointers.customProjections + index * sizeof(pfloat64_t3x3), 8u);
+}
+WorldClipRect loadCustomClipRect(const uint32_t index)
+{
+    return vk::RawBufferLoad<WorldClipRect>(globals.pointers.customClipRects + index * sizeof(WorldClipRect), 8u);
+}
+MainObject loadMainObject(const uint32_t index)
+{
+    return vk::RawBufferLoad<MainObject>(globals.pointers.mainObjects + index * sizeof(MainObject), 4u);
+}
+DrawObject loadDrawObject(const uint32_t index)
+{
+    return vk::RawBufferLoad<DrawObject>(globals.pointers.drawObjects + index * sizeof(DrawObject), 8u);
+}
+#else
+static_assert(alignof(LineStyle)==4u);
+static_assert(alignof(DTMSettings)==4u);
+static_assert(alignof(pfloat64_t3x3)==8u);
+static_assert(alignof(WorldClipRect)==8u);
+static_assert(alignof(MainObject)==4u);
+static_assert(alignof(DrawObject)==8u);
+#endif
+
 
 #endif
