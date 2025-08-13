@@ -28,9 +28,6 @@ struct GeoreferencedImageParams
 	uint32_t2 imageExtents = {};
 	uint32_t2 viewportExtents = {};
 	asset::E_FORMAT format = {};
-	// For now it's going to be fully resident in memory, later on it's probably going to be a streamer class most likely.
-	core::smart_refctd_ptr<ICPUImage> geoReferencedImage;
-	// TODO: Need to add other stuff later.
 };
 
 /**
@@ -207,7 +204,7 @@ public:
 struct StreamedImageCopy
 {
 	asset::E_FORMAT srcFormat;
-	ICPUBuffer* srcBuffer; // Make it 'std::future' later?
+	smart_refctd_ptr<ICPUBuffer> srcBuffer; // Make it 'std::future' later?
 	asset::IImage::SBufferCopy region;
 };
 

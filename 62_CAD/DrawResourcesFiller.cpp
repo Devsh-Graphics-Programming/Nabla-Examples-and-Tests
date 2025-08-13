@@ -2679,8 +2679,8 @@ void DrawResourcesFiller::flushDrawObjects()
 	}
 }
 
-DrawResourcesFiller::StreamedImageManager::StreamedImageManager(image_id _imageID, GeoreferencedImageParams&& _georeferencedImageParams)
-	: imageID(_imageID), georeferencedImageParams(std::move(_georeferencedImageParams))
+DrawResourcesFiller::StreamedImageManager::StreamedImageManager(image_id _imageID, GeoreferencedImageParams&& _georeferencedImageParams, ImageLoader&& _loader)
+	: imageID(_imageID), georeferencedImageParams(std::move(_georeferencedImageParams)), loader(std::move(_loader))
 {
 	maxImageTileIndices = georeferencedImageParams.imageExtents / uint32_t2(TileSize, TileSize);
 	// If it fits perfectly along any dimension, we need one less tile with this scheme
@@ -2709,14 +2709,8 @@ DrawResourcesFiller::StreamedImageManager::StreamedImageManager(image_id _imageI
 	float64_t2 secondRow = dirV / dirVLengthSquared;
 	float64_t2x2 changeOfBasisMatrix(firstRow, secondRow);
 
-	// 3. Scaling. The vector obtained by doing `CoB * displacement * p` are now the coordinates in the `span{dirU, dirV}`, which would be `uv` coordinates in [0,1]^2
-	//    (or outside this range for points not in the image). To get tile lattice coordinates, we need to scale this number by an nTiles vector which counts 
-	//    (fractionally) how many tiles fit in the image along each axis
-	float32_t2 nTiles = float32_t2(georeferencedImageParams.imageExtents) / float32_t2(TileSize, TileSize);
-	float64_t2x2 scaleMatrix(nTiles.x, 0., 0., nTiles.y);
-
 	// Put them all together
-	world2Tile = nbl::hlsl::mul(scaleMatrix, nbl::hlsl::mul(changeOfBasisMatrix, displacementMatrix));
+	world2UV = nbl::hlsl::mul(changeOfBasisMatrix, displacementMatrix);
 }
 
 DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::StreamedImageManager::generateTileUploadData(const ImageType imageType, const float64_t3x3& NDCToWorld)
@@ -2725,24 +2719,121 @@ DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::S
 	if (imageType == ImageType::GEOREFERENCED_FULL_RESOLUTION) //Pass imageID as parameter, down from the addGeoRef call
 		return TileUploadData{ {}, georeferencedImageParams.worldspaceOBB };
 
-	// Following need only be done if image is actually streamed
+	currentMappedRegion = computeViewportTileAlignedObb(NDCToWorld);
 
-	// Using Vulkan NDC, the viewport has coordinates in the range [-1, -1] x [1,1]. First we get the world coordinates of the viewport corners, in homogenous
-	const float64_t3 topLeftNDCH(-1., -1., 1.);
-	const float64_t3 topRightNDCH(1., -1., 1.);
-	const float64_t3 bottomLeftNDCH(-1., 1., 1.);
-	const float64_t3 bottomRightNDCH(1., 1., 1.);
+	// Now we have the indices of the tiles we want to upload, so create the vector of `StreamedImageCopies` - 1 per tile.
+	core::vector<StreamedImageCopy> tiles;
+	uint32_t nTiles = (currentMappedRegion.bottomRight.x - currentMappedRegion.topLeft.x + 1) * (currentMappedRegion.topLeft.y - currentMappedRegion.topLeft.y + 1);
+	tiles.reserve(nTiles);
 
-	const float64_t3 topLeftWorldH = nbl::hlsl::mul(NDCToWorld, topLeftNDCH);
-	const float64_t3 topRightWorldH = nbl::hlsl::mul(NDCToWorld, topRightNDCH);
-	const float64_t3 bottomLeftWorldH = nbl::hlsl::mul(NDCToWorld, bottomLeftNDCH);
-	const float64_t3 bottomRightWorldH = nbl::hlsl::mul(NDCToWorld, bottomRightNDCH);
+	// Assuming a 1 pixel per block format - otherwise math here gets a bit trickier
+	auto bytesPerPixel = getTexelOrBlockBytesize(georeferencedImageParams.format);
+	const size_t bytesPerSide = bytesPerPixel * TileSize;
+
+	// Dangerous code - assumes image can be perfectly covered with tiles. Otherwise will need to handle edge cases
+	for (uint32_t tileX = currentMappedRegion.topLeft.x; tileX <= currentMappedRegion.bottomRight.x; tileX++)
+	{
+		for (uint32_t tileY = currentMappedRegion.topLeft.y; tileY <= currentMappedRegion.bottomRight.y; tileY++)
+		{
+			// Flush the loaded sections into the buffer - they should be done uploading by now
+			loader.clear();
+			// Reserve enough sections
+			loader.reserve(nTiles);
+			auto tile = loader.load(uint32_t2(tileX * TileSize, tileY * TileSize), uint32_t2(TileSize, TileSize));
+			// Alias the buffer
+			asset::IBuffer::SCreationParams bufParams = { .size = tile->getBuffer()->getSize(), .usage = tile->getBuffer()->getUsageFlags() };
+			ICPUBuffer::SCreationParams cpuBufParams(std::move(bufParams));
+			cpuBufParams.data = tile->getBuffer()->getPointer();
+			cpuBufParams.memoryResource = core::getNullMemoryResource();
+			auto aliasedBuffer = ICPUBuffer::create(std::move(cpuBufParams), nbl::core::adopt_memory_t{});
+
+			// The math here is like this because of the buffer we're getting (full image in the emulated case)
+			// When moving to actual ECW loading, bufferOffset will be 0, bufferRowLength will be the extent.width of the loaded section,
+			// imageExtent will be the extent of the loaded section, and imageOffset will be the appropriate offset (we will be loading whole sections of tiles
+			// that can be made into a rectangle instead of tile by tile)
+			asset::IImage::SBufferCopy bufCopy;
+			bufCopy.bufferOffset = (tileY * (maxImageTileIndices.x + 1) * TileSize + tileX) * bytesPerSide;
+			bufCopy.bufferRowLength = georeferencedImageParams.imageExtents.x;
+			bufCopy.bufferImageHeight = 0;
+			bufCopy.imageSubresource.aspectMask = IImage::EAF_COLOR_BIT;
+			bufCopy.imageSubresource.mipLevel = 0u;
+			bufCopy.imageSubresource.baseArrayLayer = 0u;
+			bufCopy.imageSubresource.layerCount = 1u;
+			bufCopy.imageOffset = { (tileX - currentMappedRegion.topLeft.x) * TileSize, (tileY - currentMappedRegion.topLeft.y) * TileSize, 0u };
+			bufCopy.imageExtent.width = TileSize;
+			bufCopy.imageExtent.height = TileSize;
+			bufCopy.imageExtent.depth = 1;
+
+			tiles.emplace_back(georeferencedImageParams.format, aliasedBuffer, std::move(bufCopy));
+		}
+	}
+
+	// Last, we need to figure out an obb that covers only the currently loaded tiles
+	// By shifting the `fromTopLeftOBB` an appropriate number of tiles in each direction, we get an obb that covers at least the uploaded tiles
+
+	OrientedBoundingBox2D worldspaceOBB = fromTopLeftOBB;
+	const float32_t2 dirV = float32_t2(worldspaceOBB.dirU.y, -worldspaceOBB.dirU.x) * worldspaceOBB.aspectRatio;
+	worldspaceOBB.topLeft += worldspaceOBB.dirU * float32_t(currentMappedRegion.topLeft.x) / float32_t(maxResidentTiles.x);
+	worldspaceOBB.topLeft += dirV * float32_t(currentMappedRegion.topLeft.y) / float32_t(maxResidentTiles.y);
+	
+	// Compute minUV, maxUV
+	// Since right now we don't shift the obb around, minUV will always be (0,0), but this is bound to change later on (shifting obb will happen when we want to reuse tiles and not 
+	// reupload them on every frame in the next phase)
+	float32_t2 minUV(0.f, 0.f);
+	// By default we have a large-as-possible obb so maxUV is (1,1). This is bound to change in the general case when we shift obb. However, since right now we need to shrink the obb
+	// to ensure we don't draw outside the bounds of the real image, we also need to change the maxUV;
+	float32_t2 maxUV(1.f, 1.f);
+	int32_t excessTiles = currentMappedRegion.topLeft.x + maxResidentTiles.x - 1 - maxImageTileIndices.x;
+	if (excessTiles > 0)
+	{
+		// Shrink obb to only fit necessary tiles, compute maxUV.x which turns out to be exactly the shrink factor for dirU.
+		maxUV.x = float32_t(maxResidentTiles.x - excessTiles) / maxResidentTiles.x;
+	}
+	// De the same along the other axis
+	excessTiles = currentMappedRegion.topLeft.y + maxResidentTiles.y - 1 - maxImageTileIndices.y;
+	if (excessTiles > 0)
+	{
+		// Analogously, maxUV.y is the shrink factor for dirV.
+		maxUV.y = float32_t(maxResidentTiles.y - excessTiles) / maxResidentTiles.y;
+	}
+	// Recompute dirU and aspect ratio
+	// Multiply dirU by the shrink factor
+	worldspaceOBB.dirU *= maxUV.x;
+	// Scale the aspect ratio by the relative shrinkage of U,V. Remember our aspect ratio is V / U.
+	worldspaceOBB.aspectRatio *= maxUV.y / maxUV.x;
+	
+	return TileUploadData{ std::move(tiles), worldspaceOBB, minUV, maxUV };
+	
+}
+
+float64_t DrawResourcesFiller::StreamedImageManager::computeViewportMipLevel(const float64_t3x3& NDCToWorld, float64_t2 viewportExtents)
+{
+	const auto viewportWidthVectorWorld = nbl::hlsl::mul(NDCToWorld, topRightViewportNDCH - topLeftViewportNDCH);
+	const auto viewportHeightVectorWorld = nbl::hlsl::mul(NDCToWorld, bottomLeftViewportNDCH - topLeftViewportNDCH);
+	// Abuse of notation, we're passing a vector not a point, won't be affected by offset so that's ok
+	const auto viewportWidthImagePixelLengthVector = transformWorldCoordsToPixelCoords(viewportWidthVectorWorld);
+	const auto viewportHeightImagePixelLengthVector = transformWorldCoordsToPixelCoords(viewportHeightVectorWorld);
+
+	const auto viewportWidthImagePixelLength = nbl::hlsl::length(viewportWidthImagePixelLengthVector);
+	const auto viewportHeightImagePixelLength = nbl::hlsl::length(viewportHeightImagePixelLengthVector);
+
+	// Mip is decided based on max of these
+	const auto maxPixelLength = nbl::hlsl::max(viewportWidthImagePixelLength, viewportHeightImagePixelLength);
+	return maxPixelLength / nbl::hlsl::max(viewportExtents.x, viewportExtents.y);
+}
+
+DrawResourcesFiller::StreamedImageManager::TileLatticeAlignedObb DrawResourcesFiller::StreamedImageManager::computeViewportTileAlignedObb(const float64_t3x3& NDCToWorld)
+{
+	const float64_t3 topLeftViewportWorldH = nbl::hlsl::mul(NDCToWorld, topLeftViewportNDCH);
+	const float64_t3 topRightViewportWorldH = nbl::hlsl::mul(NDCToWorld, topRightViewportNDCH);
+	const float64_t3 bottomLeftViewportWorldH = nbl::hlsl::mul(NDCToWorld, bottomLeftViewportNDCH);
+	const float64_t3 bottomRightViewportWorldH = nbl::hlsl::mul(NDCToWorld, bottomRightViewportNDCH);
 
 	// We can use `world2Tile` to get tile lattice coordinates for each of these points
-	const float64_t2 topLeftTileLattice = nbl::hlsl::mul(world2Tile, topLeftWorldH);
-	const float64_t2 topRightTileLattice = nbl::hlsl::mul(world2Tile, topRightWorldH);
-	const float64_t2 bottomLeftTileLattice = nbl::hlsl::mul(world2Tile, bottomLeftWorldH);
-	const float64_t2 bottomRightTileLattice = nbl::hlsl::mul(world2Tile, bottomRightWorldH);
+	const float64_t2 topLeftTileLattice = transformWorldCoordsToTileCoords(topLeftViewportWorldH);
+	const float64_t2 topRightTileLattice = transformWorldCoordsToTileCoords(topRightViewportWorldH);
+	const float64_t2 bottomLeftTileLattice = transformWorldCoordsToTileCoords(bottomLeftViewportWorldH);
+	const float64_t2 bottomRightTileLattice = transformWorldCoordsToTileCoords(bottomRightViewportWorldH);
 
 	// Get the min and max of each lattice coordinate
 	const float64_t2 minTop = nbl::hlsl::min(topLeftTileLattice, topRightTileLattice);
@@ -2758,73 +2849,8 @@ DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::S
 	const int32_t2 maxAllFloored = nbl::hlsl::floor(maxAll);
 
 	// Clamp them to reasonable tile indices
-	minLoadedTileIndices = nbl::hlsl::clamp(minAllFloored, int32_t2(0, 0), int32_t2(maxImageTileIndices));
-	maxLoadedTileIndices = nbl::hlsl::clamp(maxAllFloored, int32_t2(0, 0), nbl::hlsl::min(int32_t2(maxImageTileIndices), int32_t2(minLoadedTileIndices + maxResidentTiles - uint32_t2(1,1))));
-
-	// Now we have the indices of the tiles we want to upload, so create the vector of `StreamedImageCopies` - 1 per tile.
-	core::vector<StreamedImageCopy> tiles;
-	tiles.reserve((maxLoadedTileIndices.x - minLoadedTileIndices.x + 1) * (maxLoadedTileIndices.y - minLoadedTileIndices.y + 1));
-
-	// Assuming a 1 pixel per block format - otherwise math here gets a bit trickier
-	auto bytesPerPixel = getTexelOrBlockBytesize(georeferencedImageParams.format);
-	const size_t bytesPerSide = bytesPerPixel * TileSize;
-
-	// Dangerous code - assumes image can be perfectly covered with tiles. Otherwise will need to handle edge cases
-	for (uint32_t tileX = minLoadedTileIndices.x; tileX <= maxLoadedTileIndices.x; tileX++)
-	{
-		for (uint32_t tileY = minLoadedTileIndices.y; tileY <= maxLoadedTileIndices.y; tileY++)
-		{
-			asset::IImage::SBufferCopy bufCopy;
-			bufCopy.bufferOffset = (tileY * (maxImageTileIndices.x + 1) * TileSize + tileX) * bytesPerSide;
-			bufCopy.bufferRowLength = georeferencedImageParams.imageExtents.x;
-			bufCopy.bufferImageHeight = 0;
-			bufCopy.imageSubresource.aspectMask = IImage::EAF_COLOR_BIT;
-			bufCopy.imageSubresource.mipLevel = 0u;
-			bufCopy.imageSubresource.baseArrayLayer = 0u;
-			bufCopy.imageSubresource.layerCount = 1u;
-			bufCopy.imageOffset = { (tileX - minLoadedTileIndices.x) * TileSize, (tileY - minLoadedTileIndices.y) * TileSize, 0u };
-			bufCopy.imageExtent.width = TileSize;
-			bufCopy.imageExtent.height = TileSize;
-			bufCopy.imageExtent.depth = 1;
-
-			tiles.emplace_back(georeferencedImageParams.format, georeferencedImageParams.geoReferencedImage->getBuffer(), std::move(bufCopy));
-		}
-	}
-
-	// Last, we need to figure out an obb that covers only the currently loaded tiles
-	// By shifting the `fromTopLeftOBB` an appropriate number of tiles in each direction, we get an obb that covers at least the uploaded tiles
-
-	OrientedBoundingBox2D worldspaceOBB = fromTopLeftOBB;
-	const float32_t2 dirV = float32_t2(worldspaceOBB.dirU.y, -worldspaceOBB.dirU.x) * worldspaceOBB.aspectRatio;
-	worldspaceOBB.topLeft += worldspaceOBB.dirU * float32_t(minLoadedTileIndices.x) / float32_t(maxResidentTiles.x);
-	worldspaceOBB.topLeft += dirV * float32_t(minLoadedTileIndices.y) / float32_t(maxResidentTiles.y);
-	
-	// Compute minUV, maxUV
-	// Since right now we don't shift the obb around, minUV will always be (0,0), but this is bound to change later on (shifting obb will happen when we want to reuse tiles and not 
-	// reupload them on every frame in the next phase)
-	float32_t2 minUV(0.f, 0.f);
-	// By default we have a large-as-possible obb so maxUV is (1,1). This is bound to change in the general case when we shift obb. However, since right now we need to shrink the obb
-	// to ensure we don't draw outside the bounds of the real image, we also need to change the maxUV;
-	float32_t2 maxUV(1.f, 1.f);
-	int32_t excessTiles = minLoadedTileIndices.x + maxResidentTiles.x - 1 - maxImageTileIndices.x;
-	if (excessTiles > 0)
-	{
-		// Shrink obb to only fit necessary tiles, compute maxUV.x which turns out to be exactly the shrink factor for dirU.
-		maxUV.x = float32_t(maxResidentTiles.x - excessTiles) / maxResidentTiles.x;
-	}
-	// De the same along the other axis
-	excessTiles = minLoadedTileIndices.y + maxResidentTiles.y - 1 - maxImageTileIndices.y;
-	if (excessTiles > 0)
-	{
-		// Analogously, maxUV.y is the shrink factor for dirV.
-		maxUV.y = float32_t(maxResidentTiles.y - excessTiles) / maxResidentTiles.y;
-	}
-	// Recompute dirU and aspect ratio
-	// Multiply dirU by the shrink factor
-	worldspaceOBB.dirU *= maxUV.x;
-	// Scale the aspect ratio by the relative shrinkage of U,V. Remember our aspect ratio is V / U.
-	worldspaceOBB.aspectRatio *= maxUV.y / maxUV.x;
-	
-	return TileUploadData{ std::move(tiles), worldspaceOBB, minUV, maxUV };
-	
+	TileLatticeAlignedObb retVal = {};
+	retVal.topLeft = nbl::hlsl::clamp(minAllFloored, int32_t2(0, 0), int32_t2(maxImageTileIndices));
+	retVal.bottomRight = nbl::hlsl::clamp(maxAllFloored, int32_t2(0, 0), nbl::hlsl::min(int32_t2(maxImageTileIndices), int32_t2(currentMappedRegion.topLeft + maxResidentTiles - uint32_t2(1, 1))));
+	return retVal;
 }

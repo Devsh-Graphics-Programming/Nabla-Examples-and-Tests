@@ -49,6 +49,7 @@ static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
 static constexpr bool LargeGeoTextureStreaming = true;
 static constexpr bool CacheAndReplay = false; // caches first frame resources (buffers and images) from DrawResourcesFiller  and replays in future frames, skiping CPU Logic
+static constexpr bool textCameraRotation = true;
 
 enum class ExampleMode
 {
@@ -1497,17 +1498,9 @@ public:
 		projectionToNDC = m_Camera.constructViewProjection();
 
 		// TEST CAMERA ROTATION
-#if 0
-		// double rotation = 0.25 * PI<double>();
-		double rotation = abs(cos(m_timeElapsed * 0.0004)) * 0.25 * PI<double>() ;
-		float64_t2 rotationVec = float64_t2(cos(rotation), sin(rotation));
-		float64_t3x3 rotationParameter = float64_t3x3 {
-			rotationVec.x, rotationVec.y, 0.0,
-			-rotationVec.y, rotationVec.x, 0.0,
-			0.0, 0.0, 1.0
-		};
-		projectionToNDC = nbl::hlsl::mul(projectionToNDC, rotationParameter);
-#endif
+		if constexpr (textCameraRotation)
+			projectionToNDC = rotateBasedOnTime(projectionToNDC);
+
 		Globals globalData = {};
 		uint64_t baseAddress = resourcesGPUBuffer->getDeviceAddress();
 		globalData.pointers = {
@@ -3687,30 +3680,45 @@ protected:
 		}
 		else if (mode == ExampleMode::CASE_12)
 		{
+			const static float64_t3 topLeftViewportH = float64_t3(-1.0, -1.0, 1.0);
+			const static float64_t3 topRightViewportH = float64_t3(1.0, -1.0, 1.0);
+			const static float64_t3 bottomLeftViewportH = float64_t3(-1.0, 1.0, 1.0);
+			const static float64_t3 bottomRightViewportH = float64_t3(1.0, 1.0, 1.0);
+
 			image_id tiledGridID = 6996;
-			GeoreferencedImageParams tiledGridParams;
+			static GeoreferencedImageParams tiledGridParams;
 			auto& tiledGridCreationParams = bigTiledGrid->getCreationParameters();
 			// Position at topLeft viewport
-			auto inverseViewProj = nbl::hlsl::inverse(m_Camera.constructViewProjection());
-			const float64_t3 topLeftViewportH = float64_t3(-1.0, -1.0, 1.0);
+			auto projectionToNDC = m_Camera.constructViewProjection();
+			// TEST CAMERA ROTATION
+			if constexpr (textCameraRotation)
+				projectionToNDC = rotateBasedOnTime(projectionToNDC);
+			auto inverseViewProj = nbl::hlsl::inverse(projectionToNDC);
+			
 			const static auto startingTopLeft = nbl::hlsl::mul(inverseViewProj, topLeftViewportH);
 			tiledGridParams.worldspaceOBB.topLeft = startingTopLeft;
-			// Get screen pixel to match 2 viewport pixels (to test at mip border) by choosing appropriate dirU
-			const float64_t3 topRightViewportH = float64_t3(1.0, -1.0, 1.0);
-			const static auto startingViewportLengthVector = nbl::hlsl::mul(inverseViewProj, topRightViewportH - topLeftViewportH);
-			const static auto dirU = startingViewportLengthVector * float64_t(bigTiledGrid->getCreationParameters().extent.width) / float64_t(2 * m_window->getWidth());
+
+			// Get 1 viewport pixel to match `startingImagePixelsPerViewportPixel` pixels of the image by choosing appropriate dirU
+			const static float64_t startingImagePixelsPerViewportPixels = 2.0;
+			const static auto startingViewportWidthVector = nbl::hlsl::mul(inverseViewProj, topRightViewportH - topLeftViewportH);
+			const static auto dirU = startingViewportWidthVector * float64_t(bigTiledGrid->getCreationParameters().extent.width) / float64_t(startingImagePixelsPerViewportPixels * m_window->getWidth());
 			tiledGridParams.worldspaceOBB.dirU = dirU;
 			tiledGridParams.worldspaceOBB.aspectRatio = 1.0;
 			tiledGridParams.imageExtents = { tiledGridCreationParams.extent.width, tiledGridCreationParams.extent.height};
 			tiledGridParams.viewportExtents = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
 			tiledGridParams.format = tiledGridCreationParams.format;
-			tiledGridParams.geoReferencedImage = bigTiledGrid;
 
-			DrawResourcesFiller::StreamedImageManager tiledGridManager(tiledGridID, std::move(tiledGridParams));
+			static auto bigTileGridPtr = bigTiledGrid;
+			static DrawResourcesFiller::ImageLoader loader(std::move(bigTileGridPtr));
+			static DrawResourcesFiller::StreamedImageManager tiledGridManager(tiledGridID, std::move(tiledGridParams), std::move(loader));
 
 			drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(tiledGridID, tiledGridManager.georeferencedImageParams, intendedNextSubmit);
 
 			drawResourcesFiller.addGeoreferencedImage(tiledGridManager, inverseViewProj, intendedNextSubmit);
+
+			// Mip level calculation
+			// Uncomment to print mip
+			//std::cout << "mip level: " << tiledGridManager.computeViewportMipLevel(inverseViewProj, float64_t2(m_window->getWidth(), m_window->getHeight())) << std::endl;
 		}
 	}
 
@@ -3719,6 +3727,18 @@ protected:
 		double idx_0_0 = viewProjectionMatrix[0u][0u] * (windowSize.x / 2.0);
 		double idx_1_0 = viewProjectionMatrix[1u][0u] * (windowSize.y / 2.0);
 		return hlsl::length(float64_t2(idx_0_0, idx_1_0));
+	}
+
+	float64_t3x3 rotateBasedOnTime(const float64_t3x3& projectionMatrix)
+	{
+		double rotation = abs(cos(m_timeElapsed * 0.0004)) * 0.25 * PI<double>();
+		float64_t2 rotationVec = float64_t2(cos(rotation), sin(rotation));
+		float64_t3x3 rotationParameter = float64_t3x3{
+			rotationVec.x, rotationVec.y, 0.0,
+			-rotationVec.y, rotationVec.x, 0.0,
+			0.0, 0.0, 1.0
+		};
+		return nbl::hlsl::mul(projectionMatrix, rotationParameter);
 	}
 
 protected:

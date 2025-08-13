@@ -123,6 +123,66 @@ public:
 		}
 	};
 
+	// Used to load pieces of an ECW from disk - currently just emulated
+	struct ImageLoader
+	{
+		ImageLoader(core::smart_refctd_ptr<ICPUImage>&& _geoReferencedImage) : geoReferencedImage(std::move(_geoReferencedImage)) {}
+
+		// Emulates the loading of a rectangle from the original image
+		core::smart_refctd_ptr<ICPUImage> load(uint32_t2 offset, uint32_t2 extent)
+		{
+			// Create a new buffer pointing to same data - this is not what the class will be doing when streaming ECW
+			auto imageBuffer = geoReferencedImage->getBuffer();
+			asset::IBuffer::SCreationParams bufCreationParams = { .size = imageBuffer->getSize(), .usage = imageBuffer->getUsageFlags() };
+			ICPUBuffer::SCreationParams cpuBufCreationParams(std::move(bufCreationParams));
+			cpuBufCreationParams.data = imageBuffer->getPointer();
+			cpuBufCreationParams.memoryResource = core::getNullMemoryResource();
+			auto imageBufferAlias = ICPUBuffer::create(std::move(cpuBufCreationParams), core::adopt_memory_t{});
+			// Now set up the image region
+			auto bytesPerPixel = getTexelOrBlockBytesize(geoReferencedImage->getCreationParameters().format);
+
+			auto regions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<IImage::SBufferCopy>>(1u);
+			auto& region = regions->front();
+			region.bufferOffset = (offset.y * geoReferencedImage->getCreationParameters().extent.width + offset.x) * bytesPerPixel;
+			region.bufferRowLength = geoReferencedImage->getCreationParameters().extent.width;
+			region.bufferImageHeight = 0;
+			region.imageSubresource.aspectMask = IImage::EAF_COLOR_BIT;
+			region.imageSubresource.mipLevel = 0u;
+			region.imageSubresource.baseArrayLayer = 0u;
+			region.imageSubresource.layerCount = 1u;
+			region.imageOffset = { 0u, 0u, 0u };
+			region.imageExtent.width = extent.x;
+			region.imageExtent.height = extent.y;
+			region.imageExtent.depth = 1;
+
+			ICPUImage::SCreationParams loadedImageParams = geoReferencedImage->getCreationParameters();
+			loadedImageParams.extent = { extent.x, extent.y, 1u };
+			auto loadedImage = ICPUImage::create(std::move(loadedImageParams));
+			loadedImage->setBufferAndRegions(std::move(imageBufferAlias), regions);
+
+			loadedSections.push_back(loadedImage);
+
+			return loadedImage;
+		}
+
+		void clear()
+		{
+			loadedSections.clear();
+		}
+
+		void reserve(uint32_t sections)
+		{
+			loadedSections.reserve(sections);
+		}
+
+		// This will be the path to the image
+		core::smart_refctd_ptr<ICPUImage> geoReferencedImage;
+	private:
+		// This will be actually loaded sections (each section is a rectangle of one or more tiles) of the above image. Since we alias buffers for uploads, 
+		// we want this class to track their lifetime so they don't get deallocated before they get uploaded.
+		core::vector<core::smart_refctd_ptr<ICPUImage>> loadedSections;
+	};
+
 	// @brief Used to load tiles into VRAM, keep track of loaded tiles, determine how they get sampled etc.
 	struct StreamedImageManager
 	{
@@ -130,7 +190,18 @@ public:
 		constexpr static uint32_t TileSize = 128u;
 		constexpr static uint32_t PaddingTiles = 2;
 
-		StreamedImageManager(image_id _imageID, GeoreferencedImageParams&& _georeferencedImageParams);
+		constexpr static float64_t3 topLeftViewportNDCH = float64_t3(-1.0, -1.0, 1.0);
+		constexpr static float64_t3 topRightViewportNDCH = float64_t3(1.0, -1.0, 1.0);
+		constexpr static float64_t3 bottomLeftViewportNDCH = float64_t3(-1.0, 1.0, 1.0);
+		constexpr static float64_t3 bottomRightViewportNDCH = float64_t3(1.0, 1.0, 1.0);
+
+		StreamedImageManager(image_id _imageID, GeoreferencedImageParams&& _georeferencedImageParams, ImageLoader&& _loader);
+
+		struct TileLatticeAlignedObb
+		{
+			uint32_t2 topLeft;
+			uint32_t2 bottomRight;
+		};
 
 		struct TileUploadData
 		{
@@ -140,20 +211,32 @@ public:
 			float32_t2 maxUV;
 		};
 
+		// Right now it's generating tile-by-tile. Can be improved to produce at worst 4 different rectangles to load (depending on how we need to load tiles)
 		TileUploadData generateTileUploadData(const ImageType imageType, const float64_t3x3& NDCToWorld);
 		
+		// These are NOT UV, pixel or tile coords into the mapped image region, rather into the real, huge image
+		// Tile coords are always in mip 0 tile size. Translating to other mips levels is trivial
+		float64_t2 transformWorldCoordsToUV(const float64_t3 worldCoordsH) {return nbl::hlsl::mul(world2UV, worldCoordsH);}
+		float64_t2 transformWorldCoordsToPixelCoords(const float64_t3 worldCoordsH) { return float64_t2(georeferencedImageParams.imageExtents) * transformWorldCoordsToUV(worldCoordsH); }
+		float64_t2 transformWorldCoordsToTileCoords(const float64_t3 worldCoordsH) { return (1.0 / TileSize) * transformWorldCoordsToPixelCoords(worldCoordsH); }
+
+		// Compute repeated here, can both be done together if necessary
+		float64_t computeViewportMipLevel(const float64_t3x3& NDCToWorld, float64_t2 viewportExtents);
+		TileLatticeAlignedObb computeViewportTileAlignedObb(const float64_t3x3& NDCToWorld);
+
 		image_id imageID;
 		GeoreferencedImageParams georeferencedImageParams;
 		// This and the logic they're in will likely change later with Toroidal updating
 	private:
+		uint32_t currentResidentMipLevel = {};
 		uint32_t2 maxResidentTiles = {};
-		uint32_t2 minLoadedTileIndices = {};
-		uint32_t2 maxLoadedTileIndices = {};
 		uint32_t2 maxImageTileIndices = {};
-		float64_t2x3 world2Tile = {};
+		TileLatticeAlignedObb currentMappedRegion = {};
+		float64_t2x3 world2UV = {};
 		// Worldspace OBB that covers the top left `maxResidentTiles.x x maxResidentTiles.y` tiles of the image. 
 		// We shift this OBB by appropriate tile offsets when loading tiles
 		OrientedBoundingBox2D fromTopLeftOBB = {};
+		ImageLoader loader;
 	};
 	
 	DrawResourcesFiller();
