@@ -17,6 +17,8 @@ using namespace nbl::hlsl;
 
 #include "app_resources/tests.hlsl"
 #include "nbl/builtin/hlsl/math/angle_adding.hlsl"
+#include "nbl/builtin/hlsl/bxdf/ndf.hlsl"
+#include "nbl/builtin/hlsl/bxdf/fresnel.hlsl"
 
 struct PrintFailureCallback : FailureCallback
 {
@@ -146,6 +148,14 @@ int main(int argc, char** argv)
     assert(bxdf::CreatableIsotropicMicrofacetCache<iso_cache>);
     assert(bxdf::ReadableIsotropicMicrofacetCache<aniso_cache>);
     assert(bxdf::AnisotropicMicrofacetCache<aniso_cache>);
+
+    using ndf_beckmann_t = bxdf::ndf::Beckmann<float, false>;
+    assert(bxdf::ndf::NDF<ndf_beckmann_t>);
+    using ndf_ggx_t = bxdf::ndf::GGX<float, true>;
+    assert(bxdf::ndf::NDF<ndf_ggx_t>);
+
+    using fresnel_schlick_t = bxdf::fresnel::Schlick<float32_t3>;
+    assert(bxdf::fresnel::Fresnel<fresnel_schlick_t>);
 
     const bool logInfo = testconfigs["logInfo"];
     PrintFailureCallback cb;

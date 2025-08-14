@@ -378,7 +378,8 @@ struct TestBxDF<bxdf::transmission::SBeckmannDielectricIsotropicBxDF<iso_microfa
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf = bxdf::transmission::SBeckmannDielectricIsotropicBxDF<iso_microfacet_config_t>::create(rc.eta,rc.alpha.x);
+        bxdf::fresnel::OrientedEtas<vector<float, 1> > orientedEta = bxdf::fresnel::OrientedEtas<vector<float, 1> >::create(base_t::isointer.getNdotV(), hlsl::promote<vector<float, 1> >(rc.eta));
+        base_t::bxdf = bxdf::transmission::SBeckmannDielectricIsotropicBxDF<iso_microfacet_config_t>::create(orientedEta,rc.alpha.x);
 #ifndef __HLSL_VERSION
         base_t::name = "Beckmann Dielectric BSDF";
 #endif
@@ -392,7 +393,8 @@ struct TestBxDF<bxdf::transmission::SBeckmannDielectricAnisotropicBxDF<aniso_mic
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf = bxdf::transmission::SBeckmannDielectricAnisotropicBxDF<aniso_microfacet_config_t>::create(rc.eta,rc.alpha.x,rc.alpha.y);
+        bxdf::fresnel::OrientedEtas<vector<float, 1> > orientedEta = bxdf::fresnel::OrientedEtas<vector<float, 1> >::create(base_t::anisointer.getNdotV(), hlsl::promote<vector<float, 1> >(rc.eta));
+        base_t::bxdf = bxdf::transmission::SBeckmannDielectricAnisotropicBxDF<aniso_microfacet_config_t>::create(orientedEta,rc.alpha.x,rc.alpha.y);
 #ifndef __HLSL_VERSION
         base_t::name = "Beckmann Dielectric Aniso BSDF";
 #endif
@@ -406,7 +408,8 @@ struct TestBxDF<bxdf::transmission::SGGXDielectricIsotropicBxDF<iso_microfacet_c
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf = bxdf::transmission::SGGXDielectricIsotropicBxDF<iso_microfacet_config_t>::create(rc.eta,rc.alpha.x);
+            bxdf::fresnel::OrientedEtas<vector<float, 1> > orientedEta = bxdf::fresnel::OrientedEtas<vector<float, 1> >::create(base_t::isointer.getNdotV(), hlsl::promote<vector<float, 1> >(rc.eta));
+        base_t::bxdf = bxdf::transmission::SGGXDielectricIsotropicBxDF<iso_microfacet_config_t>::create(orientedEta,rc.alpha.x);
 #ifndef __HLSL_VERSION
         base_t::name = "GGX Dielectric BSDF";
 #endif
@@ -420,7 +423,8 @@ struct TestBxDF<bxdf::transmission::SGGXDielectricAnisotropicBxDF<aniso_microfac
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf = bxdf::transmission::SGGXDielectricAnisotropicBxDF<aniso_microfacet_config_t>::create(rc.eta,rc.alpha.x,rc.alpha.y);
+        bxdf::fresnel::OrientedEtas<vector<float, 1> > orientedEta = bxdf::fresnel::OrientedEtas<vector<float, 1> >::create(base_t::anisointer.getNdotV(), hlsl::promote<vector<float, 1> >(rc.eta));
+        base_t::bxdf = bxdf::transmission::SGGXDielectricAnisotropicBxDF<aniso_microfacet_config_t>::create(orientedEta,rc.alpha.x,rc.alpha.y);
 #ifndef __HLSL_VERSION
         base_t::name = "GGX Dielectric Aniso BSDF";
 #endif
