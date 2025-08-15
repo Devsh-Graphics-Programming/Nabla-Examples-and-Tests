@@ -274,13 +274,13 @@ struct TestBxDF : TestBxDFBase<BxDF>
 };
 
 template<>
-struct TestBxDF<bxdf::reflection::SOrenNayarBxDF<iso_config_t>> : TestBxDFBase<bxdf::reflection::SOrenNayarBxDF<iso_config_t>>
+struct TestBxDF<bxdf::reflection::SOrenNayar<iso_config_t>> : TestBxDFBase<bxdf::reflection::SOrenNayar<iso_config_t>>
 {
-    using base_t = TestBxDFBase<bxdf::reflection::SOrenNayarBxDF<iso_config_t>>;
+    using base_t = TestBxDFBase<bxdf::reflection::SOrenNayar<iso_config_t>>;
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf = bxdf::reflection::SOrenNayarBxDF<iso_config_t>::create(_rc.alpha.x);
+        base_t::bxdf = bxdf::reflection::SOrenNayar<iso_config_t>::create(_rc.alpha.x);
 #ifndef __HLSL_VERSION
         base_t::name = "OrenNayar BRDF";
 #endif
@@ -288,13 +288,13 @@ struct TestBxDF<bxdf::reflection::SOrenNayarBxDF<iso_config_t>> : TestBxDFBase<b
 };
 
 template<>
-struct TestBxDF<bxdf::reflection::SBeckmannIsotropicBxDF<iso_microfacet_config_t>> : TestBxDFBase<bxdf::reflection::SBeckmannIsotropicBxDF<iso_microfacet_config_t>>
+struct TestBxDF<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>> : TestBxDFBase<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>>
 {
-    using base_t = TestBxDFBase<bxdf::reflection::SBeckmannIsotropicBxDF<iso_microfacet_config_t>>;
+    using base_t = TestBxDFBase<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>>;
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf = bxdf::reflection::SBeckmannIsotropicBxDF<iso_microfacet_config_t>::create(rc.alpha.x,hlsl::promote<float32_t3>(rc.ior.x),hlsl::promote<float32_t3>(rc.ior.y));
+        base_t::bxdf = bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>::create(rc.alpha.x,hlsl::promote<float32_t3>(rc.ior.x),hlsl::promote<float32_t3>(rc.ior.y));
 #ifndef __HLSL_VERSION
         base_t::name = "Beckmann BRDF";
 #endif
@@ -302,13 +302,13 @@ struct TestBxDF<bxdf::reflection::SBeckmannIsotropicBxDF<iso_microfacet_config_t
 };
 
 template<>
-struct TestBxDF<bxdf::reflection::SBeckmannAnisotropicBxDF<aniso_microfacet_config_t>> : TestBxDFBase<bxdf::reflection::SBeckmannAnisotropicBxDF<aniso_microfacet_config_t>>
+struct TestBxDF<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>> : TestBxDFBase<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>>
 {
-    using base_t = TestBxDFBase<bxdf::reflection::SBeckmannAnisotropicBxDF<aniso_microfacet_config_t>>;
+    using base_t = TestBxDFBase<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>>;
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf = bxdf::reflection::SBeckmannAnisotropicBxDF<aniso_microfacet_config_t>::create(rc.alpha.x,rc.alpha.y,hlsl::promote<float32_t3>(rc.ior.x),hlsl::promote<float32_t3>(rc.ior.y));
+        base_t::bxdf = bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>::create(rc.alpha.x,rc.alpha.y,hlsl::promote<float32_t3>(rc.ior.x),hlsl::promote<float32_t3>(rc.ior.y));
 #ifndef __HLSL_VERSION
         base_t::name = "Beckmann Aniso BRDF";
 #endif
@@ -316,13 +316,13 @@ struct TestBxDF<bxdf::reflection::SBeckmannAnisotropicBxDF<aniso_microfacet_conf
 };
 
 template<>
-struct TestBxDF<bxdf::reflection::SGGXIsotropicBxDF<iso_microfacet_config_t>> : TestBxDFBase<bxdf::reflection::SGGXIsotropicBxDF<iso_microfacet_config_t>>
+struct TestBxDF<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>> : TestBxDFBase<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>>
 {
-    using base_t = TestBxDFBase<bxdf::reflection::SGGXIsotropicBxDF<iso_microfacet_config_t>>;
+    using base_t = TestBxDFBase<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>>;
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf = bxdf::reflection::SGGXIsotropicBxDF<iso_microfacet_config_t>::create(rc.alpha.x,hlsl::promote<float32_t3>(rc.ior.x),hlsl::promote<float32_t3>(rc.ior.y));
+        base_t::bxdf = bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>::create(rc.alpha.x,hlsl::promote<float32_t3>(rc.ior.x),hlsl::promote<float32_t3>(rc.ior.y));
 #ifndef __HLSL_VERSION
         base_t::name = "GGX BRDF";
 #endif
@@ -330,13 +330,13 @@ struct TestBxDF<bxdf::reflection::SGGXIsotropicBxDF<iso_microfacet_config_t>> : 
 };
 
 template<>
-struct TestBxDF<bxdf::reflection::SGGXAnisotropicBxDF<aniso_microfacet_config_t>> : TestBxDFBase<bxdf::reflection::SGGXAnisotropicBxDF<aniso_microfacet_config_t>>
+struct TestBxDF<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>> : TestBxDFBase<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>>
 {
-    using base_t = TestBxDFBase<bxdf::reflection::SGGXAnisotropicBxDF<aniso_microfacet_config_t>>;
+    using base_t = TestBxDFBase<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>>;
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf = bxdf::reflection::SGGXAnisotropicBxDF<aniso_microfacet_config_t>::create(rc.alpha.x,rc.alpha.y,hlsl::promote<float32_t3>(rc.ior.x),hlsl::promote<float32_t3>(rc.ior.y));
+        base_t::bxdf = bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>::create(rc.alpha.x,rc.alpha.y,hlsl::promote<float32_t3>(rc.ior.x),hlsl::promote<float32_t3>(rc.ior.y));
 #ifndef __HLSL_VERSION
         base_t::name = "GGX Aniso BRDF";
 #endif
@@ -344,13 +344,13 @@ struct TestBxDF<bxdf::reflection::SGGXAnisotropicBxDF<aniso_microfacet_config_t>
 };
 
 template<>
-struct TestBxDF<bxdf::transmission::SSmoothDielectricBxDF<iso_config_t>> : TestBxDFBase<bxdf::transmission::SSmoothDielectricBxDF<iso_config_t>>
+struct TestBxDF<bxdf::transmission::SSmoothDielectric<iso_config_t>> : TestBxDFBase<bxdf::transmission::SSmoothDielectric<iso_config_t>>
 {
-    using base_t = TestBxDFBase<bxdf::transmission::SSmoothDielectricBxDF<iso_config_t>>;
+    using base_t = TestBxDFBase<bxdf::transmission::SSmoothDielectric<iso_config_t>>;
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf = bxdf::transmission::SSmoothDielectricBxDF<iso_config_t>::create(rc.eta);
+        base_t::bxdf = bxdf::transmission::SSmoothDielectric<iso_config_t>::create(rc.eta);
 #ifndef __HLSL_VERSION
         base_t::name = "Smooth dielectric BSDF";
 #endif
@@ -358,13 +358,13 @@ struct TestBxDF<bxdf::transmission::SSmoothDielectricBxDF<iso_config_t>> : TestB
 };
 
 template<>
-struct TestBxDF<bxdf::transmission::SSmoothThinDielectricBxDF<iso_config_t>> : TestBxDFBase<bxdf::transmission::SSmoothThinDielectricBxDF<iso_config_t>>
+struct TestBxDF<bxdf::transmission::SSmoothThinDielectric<iso_config_t>> : TestBxDFBase<bxdf::transmission::SSmoothThinDielectric<iso_config_t>>
 {
-    using base_t = TestBxDFBase<bxdf::transmission::SSmoothThinDielectricBxDF<iso_config_t>>;
+    using base_t = TestBxDFBase<bxdf::transmission::SSmoothThinDielectric<iso_config_t>>;
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf = bxdf::transmission::SSmoothThinDielectricBxDF<iso_config_t>::create(hlsl::promote<float32_t3>(rc.eta * rc.eta),rc.luma_coeff);
+        base_t::bxdf = bxdf::transmission::SSmoothThinDielectric<iso_config_t>::create(hlsl::promote<float32_t3>(rc.eta * rc.eta),rc.luma_coeff);
 #ifndef __HLSL_VERSION
         base_t::name = "Thin smooth dielectric BSDF";
 #endif
@@ -372,14 +372,14 @@ struct TestBxDF<bxdf::transmission::SSmoothThinDielectricBxDF<iso_config_t>> : T
 };
 
 template<>
-struct TestBxDF<bxdf::transmission::SBeckmannDielectricIsotropicBxDF<iso_microfacet_config_t>> : TestBxDFBase<bxdf::transmission::SBeckmannDielectricIsotropicBxDF<iso_microfacet_config_t>>
+struct TestBxDF<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>> : TestBxDFBase<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>>
 {
-    using base_t = TestBxDFBase<bxdf::transmission::SBeckmannDielectricIsotropicBxDF<iso_microfacet_config_t>>;
+    using base_t = TestBxDFBase<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>>;
 
     void initBxDF(SBxDFTestResources _rc)
     {
         bxdf::fresnel::OrientedEtas<vector<float, 1> > orientedEta = bxdf::fresnel::OrientedEtas<vector<float, 1> >::create(base_t::isointer.getNdotV(), hlsl::promote<vector<float, 1> >(rc.eta));
-        base_t::bxdf = bxdf::transmission::SBeckmannDielectricIsotropicBxDF<iso_microfacet_config_t>::create(orientedEta,rc.alpha.x);
+        base_t::bxdf = bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>::create(orientedEta,rc.alpha.x);
 #ifndef __HLSL_VERSION
         base_t::name = "Beckmann Dielectric BSDF";
 #endif
@@ -387,14 +387,14 @@ struct TestBxDF<bxdf::transmission::SBeckmannDielectricIsotropicBxDF<iso_microfa
 };
 
 template<>
-struct TestBxDF<bxdf::transmission::SBeckmannDielectricAnisotropicBxDF<aniso_microfacet_config_t>> : TestBxDFBase<bxdf::transmission::SBeckmannDielectricAnisotropicBxDF<aniso_microfacet_config_t>>
+struct TestBxDF<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>> : TestBxDFBase<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>>
 {
-    using base_t = TestBxDFBase<bxdf::transmission::SBeckmannDielectricAnisotropicBxDF<aniso_microfacet_config_t>>;
+    using base_t = TestBxDFBase<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>>;
 
     void initBxDF(SBxDFTestResources _rc)
     {
         bxdf::fresnel::OrientedEtas<vector<float, 1> > orientedEta = bxdf::fresnel::OrientedEtas<vector<float, 1> >::create(base_t::anisointer.getNdotV(), hlsl::promote<vector<float, 1> >(rc.eta));
-        base_t::bxdf = bxdf::transmission::SBeckmannDielectricAnisotropicBxDF<aniso_microfacet_config_t>::create(orientedEta,rc.alpha.x,rc.alpha.y);
+        base_t::bxdf = bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>::create(orientedEta,rc.alpha.x,rc.alpha.y);
 #ifndef __HLSL_VERSION
         base_t::name = "Beckmann Dielectric Aniso BSDF";
 #endif
@@ -402,14 +402,14 @@ struct TestBxDF<bxdf::transmission::SBeckmannDielectricAnisotropicBxDF<aniso_mic
 };
 
 template<>
-struct TestBxDF<bxdf::transmission::SGGXDielectricIsotropicBxDF<iso_microfacet_config_t>> : TestBxDFBase<bxdf::transmission::SGGXDielectricIsotropicBxDF<iso_microfacet_config_t>>
+struct TestBxDF<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>> : TestBxDFBase<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>>
 {
-    using base_t = TestBxDFBase<bxdf::transmission::SGGXDielectricIsotropicBxDF<iso_microfacet_config_t>>;
+    using base_t = TestBxDFBase<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>>;
 
     void initBxDF(SBxDFTestResources _rc)
     {
             bxdf::fresnel::OrientedEtas<vector<float, 1> > orientedEta = bxdf::fresnel::OrientedEtas<vector<float, 1> >::create(base_t::isointer.getNdotV(), hlsl::promote<vector<float, 1> >(rc.eta));
-        base_t::bxdf = bxdf::transmission::SGGXDielectricIsotropicBxDF<iso_microfacet_config_t>::create(orientedEta,rc.alpha.x);
+        base_t::bxdf = bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>::create(orientedEta,rc.alpha.x);
 #ifndef __HLSL_VERSION
         base_t::name = "GGX Dielectric BSDF";
 #endif
@@ -417,14 +417,14 @@ struct TestBxDF<bxdf::transmission::SGGXDielectricIsotropicBxDF<iso_microfacet_c
 };
 
 template<>
-struct TestBxDF<bxdf::transmission::SGGXDielectricAnisotropicBxDF<aniso_microfacet_config_t>> : TestBxDFBase<bxdf::transmission::SGGXDielectricAnisotropicBxDF<aniso_microfacet_config_t>>
+struct TestBxDF<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>> : TestBxDFBase<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>>
 {
-    using base_t = TestBxDFBase<bxdf::transmission::SGGXDielectricAnisotropicBxDF<aniso_microfacet_config_t>>;
+    using base_t = TestBxDFBase<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>>;
 
     void initBxDF(SBxDFTestResources _rc)
     {
         bxdf::fresnel::OrientedEtas<vector<float, 1> > orientedEta = bxdf::fresnel::OrientedEtas<vector<float, 1> >::create(base_t::anisointer.getNdotV(), hlsl::promote<vector<float, 1> >(rc.eta));
-        base_t::bxdf = bxdf::transmission::SGGXDielectricAnisotropicBxDF<aniso_microfacet_config_t>::create(orientedEta,rc.alpha.x,rc.alpha.y);
+        base_t::bxdf = bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>::create(orientedEta,rc.alpha.x,rc.alpha.y);
 #ifndef __HLSL_VERSION
         base_t::name = "GGX Dielectric Aniso BSDF";
 #endif
@@ -434,36 +434,36 @@ struct TestBxDF<bxdf::transmission::SGGXDielectricAnisotropicBxDF<aniso_microfac
 
 template<class T>
 struct is_basic_brdf : bool_constant<
-    is_same<T, bxdf::reflection::SLambertianBxDF<iso_config_t> >::value ||
-    is_same<T, bxdf::reflection::SLambertianBxDF<aniso_config_t> >::value ||
-    is_same<T, bxdf::reflection::SOrenNayarBxDF<iso_config_t>>::value ||
-    is_same<T, bxdf::reflection::SOrenNayarBxDF<aniso_config_t>>::value
+    is_same<T, bxdf::reflection::SLambertian<iso_config_t> >::value ||
+    is_same<T, bxdf::reflection::SLambertian<aniso_config_t> >::value ||
+    is_same<T, bxdf::reflection::SOrenNayar<iso_config_t>>::value ||
+    is_same<T, bxdf::reflection::SOrenNayar<aniso_config_t>>::value
 > {};
 
 template<class T>
 struct is_microfacet_brdf : bool_constant<
-    is_same<T, bxdf::reflection::SBeckmannIsotropicBxDF<iso_microfacet_config_t>>::value ||
-    is_same<T, bxdf::reflection::SBeckmannAnisotropicBxDF<aniso_microfacet_config_t>>::value ||
-    is_same<T, bxdf::reflection::SGGXIsotropicBxDF<iso_microfacet_config_t>>::value ||
-    is_same<T, bxdf::reflection::SGGXAnisotropicBxDF<aniso_microfacet_config_t>>::value
+    is_same<T, bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>>::value ||
+    is_same<T, bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>>::value ||
+    is_same<T, bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>>::value ||
+    is_same<T, bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>>::value
 > {};
 
 template<class T>
 struct is_basic_bsdf : bool_constant<
-    is_same<T, bxdf::transmission::SLambertianBxDF<iso_config_t>>::value ||
-    is_same<T, bxdf::transmission::SLambertianBxDF<aniso_config_t>>::value ||
-    is_same<T, bxdf::transmission::SSmoothDielectricBxDF<iso_config_t>>::value ||
-    is_same<T, bxdf::transmission::SSmoothDielectricBxDF<aniso_config_t>>::value ||
-    is_same<T, bxdf::transmission::SSmoothThinDielectricBxDF<iso_config_t>>::value ||
-    is_same<T, bxdf::transmission::SSmoothThinDielectricBxDF<aniso_config_t>>::value
+    is_same<T, bxdf::transmission::SLambertian<iso_config_t>>::value ||
+    is_same<T, bxdf::transmission::SLambertian<aniso_config_t>>::value ||
+    is_same<T, bxdf::transmission::SSmoothDielectric<iso_config_t>>::value ||
+    is_same<T, bxdf::transmission::SSmoothDielectric<aniso_config_t>>::value ||
+    is_same<T, bxdf::transmission::SSmoothThinDielectric<iso_config_t>>::value ||
+    is_same<T, bxdf::transmission::SSmoothThinDielectric<aniso_config_t>>::value
 > {};
 
 template<class T>
 struct is_microfacet_bsdf : bool_constant<
-    is_same<T, bxdf::transmission::SBeckmannDielectricIsotropicBxDF<iso_microfacet_config_t>>::value ||
-    is_same<T, bxdf::transmission::SBeckmannDielectricAnisotropicBxDF<aniso_microfacet_config_t>>::value ||
-    is_same<T, bxdf::transmission::SGGXDielectricIsotropicBxDF<iso_microfacet_config_t>>::value ||
-    is_same<T, bxdf::transmission::SGGXDielectricAnisotropicBxDF<aniso_microfacet_config_t>>::value
+    is_same<T, bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>>::value ||
+    is_same<T, bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>>::value ||
+    is_same<T, bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>>::value ||
+    is_same<T, bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>>::value
 > {};
 
 template<class T>
