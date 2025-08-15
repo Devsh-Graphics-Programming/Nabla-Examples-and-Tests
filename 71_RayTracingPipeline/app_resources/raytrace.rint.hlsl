@@ -1,5 +1,9 @@
 #include "common.hlsl"
 
+#include "nbl/builtin/hlsl/spirv_intrinsics/raytracing.hlsl"
+
+using namespace nbl::hlsl;
+
 [[vk::push_constant]] SPushConstants pc;
 
 struct Ray
@@ -26,8 +30,8 @@ float32_t hitSphere(SProceduralGeomInfo s, Ray r)
 void main()
 {
     Ray ray;
-    ray.origin = WorldRayOrigin();
-    ray.direction = WorldRayDirection();
+    ray.origin = spirv::WorldRayOriginKHR;
+    ray.direction = spirv::WorldRayDirectionKHR;
 
     const int primID = PrimitiveIndex();
 

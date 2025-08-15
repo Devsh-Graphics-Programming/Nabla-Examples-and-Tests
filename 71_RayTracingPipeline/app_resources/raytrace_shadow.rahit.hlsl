@@ -1,5 +1,8 @@
 #include "common.hlsl"
 #include "nbl/builtin/hlsl/spirv_intrinsics/raytracing.hlsl"
+#include "nbl/builtin/hlsl/spirv_intrinsics/core.hlsl"
+
+using namespace nbl::hlsl;
 
 [[vk::push_constant]] SPushConstants pc;
 
