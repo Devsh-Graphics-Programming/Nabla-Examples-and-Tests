@@ -9,6 +9,8 @@
 static const int32_t s_sampleCount = 10;
 static const float32_t3 s_clearColor = float32_t3(0.3, 0.3, 0.8);
 
+using namespace nbl::hlsl;
+
 [[vk::push_constant]] SPushConstants pc;
 
 [[vk::binding(0, 0)]] RaytracingAccelerationStructure topLevelAS;
@@ -23,8 +25,8 @@ float32_t nextRandomUnorm(inout nbl::hlsl::Xoroshiro64StarStar rnd)
 [shader("raygeneration")]
 void main()
 {
-    const uint32_t3 launchID = DispatchRaysIndex();
-    const uint32_t3 launchSize = DispatchRaysDimensions();
+    const uint32_t3 launchID = spirv::LaunchIdKHR;
+    const uint32_t3 launchSize = spirv::LaunchSizeKHR;
     const uint32_t2 coords = launchID.xy;
 
     const uint32_t seed1 = nbl::hlsl::random::Pcg::create(pc.frameCounter)();
@@ -53,9 +55,11 @@ void main()
         rayDesc.TMin = 0.01;
         rayDesc.TMax = 10000.0;
         
+        [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]]
         PrimaryPayload payload;
         payload.pcg = PrimaryPayload::generator_t::create(rnd());
-        TraceRay(topLevelAS, RAY_FLAG_NONE, 0xff, ERT_PRIMARY, 0, EMT_PRIMARY, rayDesc, payload);
+        spirv::traceRayKHR(topLevelAS, spv::RayFlagsMaskNone, 0xff, ERT_PRIMARY, 0, EMT_PRIMARY, rayDesc.Origin, rayDesc.TMin, rayDesc.Direction, rayDesc.TMax, payload);
+        // TraceRay(topLevelAS, RAY_FLAG_NONE, 0xff, ERT_PRIMARY, 0, EMT_PRIMARY, rayDesc, payload);
 
         const float32_t rayDistance = payload.rayDistance;
         if (rayDistance < 0)
@@ -67,9 +71,10 @@ void main()
         const float32_t3 worldPosition = pc.camPos + (camDirection * rayDistance);
 
         // make sure to call with least live state
+        [[vk::ext_storage_class(spv::StorageClassCallableDataKHR)]]
         RayLight cLight;
         cLight.inHitPosition = worldPosition;
-        CallShader(pc.light.type, cLight);
+        spirv::executeCallable(pc.light.type, cLight);
 
         const float32_t3 worldNormal = payload.worldNormal;
 
@@ -97,12 +102,16 @@ void main()
             rayDesc.TMin = 0.01;
             rayDesc.TMax = cLight.outLightDistance;
 
+            [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]]
             OcclusionPayload occlusionPayload;
             // negative means its a hit, the miss shader will flip it back around to positive
             occlusionPayload.attenuation = -1.f;
             // abuse of miss shader to mean "not hit shader" solves us having to call closest hit shaders
-            uint32_t shadowRayFlags = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER;
-            TraceRay(topLevelAS, shadowRayFlags, 0xFF, ERT_OCCLUSION, 0, EMT_OCCLUSION, rayDesc, occlusionPayload);
+            uint32_t shadowRayFlags = spv::RayFlagsTerminateOnFirstHitKHRMask | spv::RayFlagsSkipClosestHitShaderKHRMask;
+            spirv::traceRayKHR(topLevelAS, shadowRayFlags, 0xFF, ERT_OCCLUSION, 0, EMT_OCCLUSION, rayDesc.Origin, rayDesc.TMin, rayDesc.Direction, rayDesc.TMax, occlusionPayload);
+
+            // uint32_t shadowRayFlags = RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER;
+            // TraceRay(topLevelAS, shadowRayFlags, 0xFF, ERT_OCCLUSION, 0, EMT_OCCLUSION, rayDesc, occlusionPayload);
 
             attenuation = occlusionPayload.attenuation;
             if (occlusionPayload.attenuation > 1.f/1024.f)
