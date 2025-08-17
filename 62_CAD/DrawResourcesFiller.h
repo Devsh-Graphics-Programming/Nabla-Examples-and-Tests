@@ -143,6 +143,7 @@ public:
 
 			auto regions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<IImage::SBufferCopy>>(1u);
 			auto& region = regions->front();
+			// Row-major location of the first pixel (topleft) given by `offset`
 			region.bufferOffset = (offset.y * geoReferencedImage->getCreationParameters().extent.width + offset.x) * bytesPerPixel;
 			region.bufferRowLength = geoReferencedImage->getCreationParameters().extent.width;
 			region.bufferImageHeight = 0;
@@ -150,6 +151,7 @@ public:
 			region.imageSubresource.mipLevel = 0u;
 			region.imageSubresource.baseArrayLayer = 0u;
 			region.imageSubresource.layerCount = 1u;
+			// We're creating an image of exactly `extent` size and filling it entirely
 			region.imageOffset = { 0u, 0u, 0u };
 			region.imageExtent.width = extent.x;
 			region.imageExtent.height = extent.y;
@@ -160,49 +162,37 @@ public:
 			auto loadedImage = ICPUImage::create(std::move(loadedImageParams));
 			loadedImage->setBufferAndRegions(std::move(imageBufferAlias), regions);
 
-			loadedSections.push_back(loadedImage);
-
 			return loadedImage;
 		}
 
-		void clear()
-		{
-			loadedSections.clear();
-		}
-
-		void reserve(uint32_t sections)
-		{
-			loadedSections.reserve(sections);
-		}
-
-		// This will be the path to the image
+		// This will be the path to the image, and the loading will obviously be different
 		core::smart_refctd_ptr<ICPUImage> geoReferencedImage;
-	private:
-		// This will be actually loaded sections (each section is a rectangle of one or more tiles) of the above image. Since we alias buffers for uploads, 
-		// we want this class to track their lifetime so they don't get deallocated before they get uploaded.
-		core::vector<core::smart_refctd_ptr<ICPUImage>> loadedSections;
 	};
 
 	// @brief Used to load tiles into VRAM, keep track of loaded tiles, determine how they get sampled etc.
 	struct StreamedImageManager
 	{
 		friend class DrawResourcesFiller;
+		// These are mip 0 pixels per tile, also size of each physical tile into the gpu resident image
 		constexpr static uint32_t TileSize = 128u;
 		constexpr static uint32_t PaddingTiles = 2;
 
+		// These are vulkan standard, might be different in n4ce!
 		constexpr static float64_t3 topLeftViewportNDCH = float64_t3(-1.0, -1.0, 1.0);
 		constexpr static float64_t3 topRightViewportNDCH = float64_t3(1.0, -1.0, 1.0);
 		constexpr static float64_t3 bottomLeftViewportNDCH = float64_t3(-1.0, 1.0, 1.0);
 		constexpr static float64_t3 bottomRightViewportNDCH = float64_t3(1.0, 1.0, 1.0);
 
-		StreamedImageManager(image_id _imageID, GeoreferencedImageParams&& _georeferencedImageParams, ImageLoader&& _loader);
-
+		// Measured in tile coordinates in the image, and the mip level the tiles correspond to
 		struct TileLatticeAlignedObb
 		{
 			uint32_t2 topLeft;
 			uint32_t2 bottomRight;
+			uint32_t baseMipLevel;
 		};
 
+		// Holds gpu image upload info (what tiles to upload and where to upload them), an obb that encompasses the viewport and uv coords into the gpu image
+		// for the corners of that obb 
 		struct TileUploadData
 		{
 			core::vector<StreamedImageCopy> tiles;
@@ -211,31 +201,36 @@ public:
 			float32_t2 maxUV;
 		};
 
+		StreamedImageManager(image_id _imageID, GeoreferencedImageParams&& _georeferencedImageParams, ImageLoader&& _loader);
+
 		// Right now it's generating tile-by-tile. Can be improved to produce at worst 4 different rectangles to load (depending on how we need to load tiles)
-		TileUploadData generateTileUploadData(const ImageType imageType, const float64_t3x3& NDCToWorld);
-		
+		TileUploadData generateTileUploadData(const ImageType imageType, const float64_t3x3& NDCToWorld, const float64_t2 viewportExtents);
+
+		image_id imageID = {};
+		GeoreferencedImageParams georeferencedImageParams = {};
+	private:
 		// These are NOT UV, pixel or tile coords into the mapped image region, rather into the real, huge image
 		// Tile coords are always in mip 0 tile size. Translating to other mips levels is trivial
-		float64_t2 transformWorldCoordsToUV(const float64_t3 worldCoordsH) {return nbl::hlsl::mul(world2UV, worldCoordsH);}
+		float64_t2 transformWorldCoordsToUV(const float64_t3 worldCoordsH) { return nbl::hlsl::mul(world2UV, worldCoordsH); }
 		float64_t2 transformWorldCoordsToPixelCoords(const float64_t3 worldCoordsH) { return float64_t2(georeferencedImageParams.imageExtents) * transformWorldCoordsToUV(worldCoordsH); }
 		float64_t2 transformWorldCoordsToTileCoords(const float64_t3 worldCoordsH) { return (1.0 / TileSize) * transformWorldCoordsToPixelCoords(worldCoordsH); }
 
-		// Compute repeated here, can both be done together if necessary
-		float64_t computeViewportMipLevel(const float64_t3x3& NDCToWorld, float64_t2 viewportExtents);
+		// Returns a tile aligned obb that encompasses the whole viewport in "image-world". Tiles are measured in the mip level required to fit the viewport entirely
+		// withing the gpu image.
 		TileLatticeAlignedObb computeViewportTileAlignedObb(const float64_t3x3& NDCToWorld);
 
-		image_id imageID;
-		GeoreferencedImageParams georeferencedImageParams;
-		// This and the logic they're in will likely change later with Toroidal updating
-	private:
-		uint32_t currentResidentMipLevel = {};
-		uint32_t2 maxResidentTiles = {};
+		// When the current mapped region is inadequate to fit the viewport, we compute a new mapped region
+		void remapCurrentRegion(const TileLatticeAlignedObb& viewportObb);
+
+		// Sidelength of the gpu image, in tiles that are `TileSize` pixels wide
+		uint32_t maxResidentTiles = {};
+		// Size of the image (minus 1), in tiles of `TileSize` sidelength
 		uint32_t2 maxImageTileIndices = {};
-		TileLatticeAlignedObb currentMappedRegion = {};
+		// Set topLeft to extreme value so it gets recreated on first iteration
+		TileLatticeAlignedObb currentMappedRegion = { .topLeft = uint32_t2(std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max())};
+		std::vector<std::vector<bool>> currentMappedRegionOccupancy = {};
+		// Converts a point (z = 1) in worldspace to UV coordinates in image space (origin shifted to topleft of the image)
 		float64_t2x3 world2UV = {};
-		// Worldspace OBB that covers the top left `maxResidentTiles.x x maxResidentTiles.y` tiles of the image. 
-		// We shift this OBB by appropriate tile offsets when loading tiles
-		OrientedBoundingBox2D fromTopLeftOBB = {};
 		ImageLoader loader;
 	};
 	
@@ -469,7 +464,7 @@ public:
 	void addImageObject(image_id imageID, const OrientedBoundingBox2D& obb, SIntendedSubmitInfo& intendedNextSubmit);
 	
 	// This function must be called immediately after `addStaticImage` for the same imageID.
-	void addGeoreferencedImage(StreamedImageManager& manager, const float64_t3x3& NDCToWorld, SIntendedSubmitInfo& intendedNextSubmit);
+	void addGeoreferencedImage(StreamedImageManager& manager, const float64_t3x3& NDCToWorld, uint32_t2 viewportExtents, SIntendedSubmitInfo& intendedNextSubmit);
 
 	/// @brief call this function before submitting to ensure all buffer and textures resourcesCollection requested via drawing calls are copied to GPU
 	/// records copy command into intendedNextSubmit's active command buffer and might possibly submits if fails allocation on staging upload memory.

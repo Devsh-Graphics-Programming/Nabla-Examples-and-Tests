@@ -49,7 +49,7 @@ static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
 static constexpr bool LargeGeoTextureStreaming = true;
 static constexpr bool CacheAndReplay = false; // caches first frame resources (buffers and images) from DrawResourcesFiller  and replays in future frames, skiping CPU Logic
-static constexpr bool textCameraRotation = true;
+static constexpr bool textCameraRotation = false;
 
 enum class ExampleMode
 {
@@ -3699,7 +3699,7 @@ protected:
 			tiledGridParams.worldspaceOBB.topLeft = startingTopLeft;
 
 			// Get 1 viewport pixel to match `startingImagePixelsPerViewportPixel` pixels of the image by choosing appropriate dirU
-			const static float64_t startingImagePixelsPerViewportPixels = 2.0;
+			const static float64_t startingImagePixelsPerViewportPixels = 1.5;
 			const static auto startingViewportWidthVector = nbl::hlsl::mul(inverseViewProj, topRightViewportH - topLeftViewportH);
 			const static auto dirU = startingViewportWidthVector * float64_t(bigTiledGrid->getCreationParameters().extent.width) / float64_t(startingImagePixelsPerViewportPixels * m_window->getWidth());
 			tiledGridParams.worldspaceOBB.dirU = dirU;
@@ -3714,11 +3714,7 @@ protected:
 
 			drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(tiledGridID, tiledGridManager.georeferencedImageParams, intendedNextSubmit);
 
-			drawResourcesFiller.addGeoreferencedImage(tiledGridManager, inverseViewProj, intendedNextSubmit);
-
-			// Mip level calculation
-			// Uncomment to print mip
-			//std::cout << "mip level: " << tiledGridManager.computeViewportMipLevel(inverseViewProj, float64_t2(m_window->getWidth(), m_window->getHeight())) << std::endl;
+			drawResourcesFiller.addGeoreferencedImage(tiledGridManager, inverseViewProj, tiledGridParams.viewportExtents, intendedNextSubmit);
 		}
 	}
 

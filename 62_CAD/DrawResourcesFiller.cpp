@@ -884,7 +884,7 @@ void DrawResourcesFiller::addImageObject(image_id imageID, const OrientedBoundin
 	endMainObject();
 }
 
-void DrawResourcesFiller::addGeoreferencedImage(StreamedImageManager& manager, const float64_t3x3& NDCToWorld, SIntendedSubmitInfo& intendedNextSubmit)
+void DrawResourcesFiller::addGeoreferencedImage(StreamedImageManager& manager, const float64_t3x3& NDCToWorld, uint32_t2 viewportExtents, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	beginMainObject(MainObjectType::STREAMED_IMAGE);
 
@@ -899,15 +899,11 @@ void DrawResourcesFiller::addGeoreferencedImage(StreamedImageManager& manager, c
 	// Query imageType
 	auto cachedImageRecord = imagesCache->peek(manager.imageID);
 
-	manager.maxResidentTiles.x = cachedImageRecord->gpuImageView->getCreationParameters().image->getCreationParameters().extent.width / manager.TileSize;
-	manager.maxResidentTiles.y = manager.maxResidentTiles.x;
-	// Create a "sliding window OBB" that we use to offset tiles
-	manager.fromTopLeftOBB.topLeft = manager.georeferencedImageParams.worldspaceOBB.topLeft;
-	manager.fromTopLeftOBB.dirU = manager.georeferencedImageParams.worldspaceOBB.dirU * float32_t(manager.TileSize * manager.maxResidentTiles.x) / float32_t(manager.georeferencedImageParams.imageExtents.x);
-	manager.fromTopLeftOBB.aspectRatio = float32_t(manager.maxResidentTiles.y) / float32_t(manager.maxResidentTiles.x);
+	// This is because gpu image is square
+	manager.maxResidentTiles = cachedImageRecord->gpuImageView->getCreationParameters().image->getCreationParameters().extent.width / manager.TileSize;
 
 	// Generate upload data
-	auto uploadData = manager.generateTileUploadData(cachedImageRecord->type, NDCToWorld);
+	auto uploadData = manager.generateTileUploadData(cachedImageRecord->type, NDCToWorld, manager.georeferencedImageParams.viewportExtents);
 
 	// Queue image uploads
 	for (const auto& imageCopy : uploadData.tiles)
@@ -2686,13 +2682,10 @@ DrawResourcesFiller::StreamedImageManager::StreamedImageManager(image_id _imageI
 	// If it fits perfectly along any dimension, we need one less tile with this scheme
 	maxImageTileIndices -= uint32_t2(maxImageTileIndices.x * TileSize == georeferencedImageParams.imageExtents.x, maxImageTileIndices.y * TileSize == georeferencedImageParams.imageExtents.y);
 
-	// R^2 can be covered with a lattice of image tiles. Real tiles (those actually covered by the image) are indexed in the range [0, maxImageTileIndices.x] x [0, maxImageTileIndices.y],
-	// but part of the algorithm to figure out which tiles need to be resident for a draw involves figuring out the coordinates in this lattice of each of the viewport corners.
-	// To that end, we devise an algorithm that maps a point in worldspace to its coordinates in this tile lattice:
-	//		1. Get the displacement (will be an offset vector in world coords and world units) from the `topLeft` corner of the image to the point
-	//		2. Transform this displacement vector into a displacement into the coordinates spanned by the basis {dirU, dirV}. Notice that these vectors are still in world units
-	//		3. Map world units to tile units. This scaling is generally nonuniform, since it depends on the ratio of pixels to world units per coordinate.
-	// The product of the above matrices is `world2Tile` after the fact that it maps a world coordinate to a coordinate in the tile lattice
+	//	1. Get the displacement (will be an offset vector in world coords and world units) from the `topLeft` corner of the image to the point
+	//	2. Transform this displacement vector into the coordinates in the basis {dirU, dirV} (worldspace vectors that span the sides of the image).
+	//	The composition of these matrices there fore transforms any point in worldspace into uv coordinates in imagespace
+
 
 	// 1. Displacement. The following matrix computes the offset for an input point `p` with homogenous worldspace coordinates. 
 	//    By foregoing the homogenous coordinate we can keep only the vector part, that's why it's `2x3` and not `3x3`
@@ -2713,17 +2706,88 @@ DrawResourcesFiller::StreamedImageManager::StreamedImageManager(image_id _imageI
 	world2UV = nbl::hlsl::mul(changeOfBasisMatrix, displacementMatrix);
 }
 
-DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::StreamedImageManager::generateTileUploadData(const ImageType imageType, const float64_t3x3& NDCToWorld)
+DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::StreamedImageManager::generateTileUploadData(const ImageType imageType, const float64_t3x3& NDCToWorld, const float64_t2 viewportExtents)
 {
 	// I think eventually it's better to just transform georeferenced images that aren't big enough into static images and forget about them
 	if (imageType == ImageType::GEOREFERENCED_FULL_RESOLUTION) //Pass imageID as parameter, down from the addGeoRef call
 		return TileUploadData{ {}, georeferencedImageParams.worldspaceOBB };
 
-	currentMappedRegion = computeViewportTileAlignedObb(NDCToWorld);
+	// Compute the mip level and tile obb we would need to encompass the viewport
+	TileLatticeAlignedObb viewportTileAlignedObb = computeViewportTileAlignedObb(NDCToWorld);
 
-	// Now we have the indices of the tiles we want to upload, so create the vector of `StreamedImageCopies` - 1 per tile.
+	// A base mip level of x in the current mapped region means we can handle the viewport having mip level y, with x <= y < x + 1.0
+	// without needing to remap the region. When the user starts zooming in or out and the mip level of the viewport falls outside this range, we have to remap
+	// the mapped region.
+	const bool mipBoundaryCrossed = viewportTileAlignedObb.baseMipLevel >= currentMappedRegion.baseMipLevel + 1.0 
+									|| viewportTileAlignedObb.baseMipLevel < currentMappedRegion.baseMipLevel;
+
+	// If any of the corners of the obb encompassing the viewport falls outside the currently mapped region, we have to remap the mapped region
+	const bool tileBoundaryCrossed = nbl::hlsl::any(viewportTileAlignedObb.topLeft < currentMappedRegion.topLeft)
+													|| nbl::hlsl::any(viewportTileAlignedObb.bottomRight > currentMappedRegion.bottomRight);
+
+	if (mipBoundaryCrossed || tileBoundaryCrossed)
+	{
+		remapCurrentRegion(viewportTileAlignedObb);
+	}
+
+	// DEBUG - Sampled mip level
+	{
+		// Get world coordinates for each corner of the mapped region
+		const float32_t2 oneTileDirU = georeferencedImageParams.worldspaceOBB.dirU / float32_t(maxImageTileIndices.x + 1u) * float32_t(1u << currentMappedRegion.baseMipLevel);
+		const float32_t2 oneTileDirV = float32_t2(oneTileDirU.y, -oneTileDirU.x) * georeferencedImageParams.worldspaceOBB.aspectRatio;
+		float64_t2 topLeftMappedRegionWorld = georeferencedImageParams.worldspaceOBB.topLeft;
+		topLeftMappedRegionWorld += oneTileDirU * float32_t(currentMappedRegion.topLeft.x) + oneTileDirV * float32_t(currentMappedRegion.topLeft.y);
+		const uint32_t2 mappedRegionTileLength = currentMappedRegion.bottomRight - currentMappedRegion.topLeft + uint32_t2(1, 1);
+		float64_t2 bottomRightMappedRegionWorld = topLeftMappedRegionWorld;
+		bottomRightMappedRegionWorld += oneTileDirU * float32_t(mappedRegionTileLength.x) + oneTileDirV * float32_t(mappedRegionTileLength.y);
+
+		// With the above, get an affine transform that maps points in worldspace to their pixel coordinates in the mapped region tile space. This can be done by mapping
+		// `topLeftMappedRegionWorld -> (0,0)` and `bottomRightMappedRegionWorld -> mappedRegionPixelLength - 1`
+		const uint32_t2 mappedRegionPixelLength = TileSize * mappedRegionTileLength;
+		
+		// 1. Displacement
+		// Multiplying a (homogenous) point p by this matrix yields the displacement vector `p - topLeftMappedRegionWorld`
+		float64_t2x3 displacementMatrix(1., 0., -topLeftMappedRegionWorld.x, 0., 1., -topLeftMappedRegionWorld.y);
+
+		// 2. Change of Basis. We again abuse the fact that the basis vectors are orthogonal
+		float64_t2 dirU = oneTileDirU * float32_t(mappedRegionTileLength.x);
+		float64_t2 dirV = oneTileDirV * float32_t(mappedRegionTileLength.y);
+		float64_t dirULengthSquared = nbl::hlsl::dot(dirU, dirU);
+		float64_t dirVLengthSquared = nbl::hlsl::dot(dirV, dirV);
+		float64_t2 firstRow = dirU / dirULengthSquared;
+		float64_t2 secondRow = dirV / dirVLengthSquared;
+		float64_t2x2 changeOfBasisMatrix(firstRow, secondRow);
+
+		// 3. Rescaling. The above matrix yields uv coordinates in the rectangle spanned by the mapped region. To get pixel coordinates, we simply multiply each coordinate by
+		// how many pixels they span in the gpu image
+		float64_t2x2 scalingMatrix(mappedRegionTileLength.x * TileSize, 0.0, 0.0, mappedRegionTileLength.y * TileSize);
+
+		// Put them all together
+		float64_t2x3 toPixelCoordsMatrix = nbl::hlsl::mul(scalingMatrix, nbl::hlsl::mul(changeOfBasisMatrix, displacementMatrix));
+
+		// Map viewport points to world
+		const float64_t3 topLeftViewportWorldH = nbl::hlsl::mul(NDCToWorld, topLeftViewportNDCH);
+		const float64_t3 topRightViewportWorldH = nbl::hlsl::mul(NDCToWorld, topRightViewportNDCH);
+		const float64_t3 bottomLeftViewportWorldH = nbl::hlsl::mul(NDCToWorld, bottomLeftViewportNDCH);
+
+		// Get pixel coordinates vectors for each side
+		const float64_t2 viewportWidthPixelLengthVector = nbl::hlsl::mul(toPixelCoordsMatrix, topRightViewportWorldH - topLeftViewportWorldH);
+		const float64_t2 viewportHeightPixelLengthVector = nbl::hlsl::mul(toPixelCoordsMatrix, bottomLeftViewportWorldH - topLeftViewportWorldH);
+
+		// Get pixel length for each of these vectors
+		const auto viewportWidthPixelLength = nbl::hlsl::length(viewportWidthPixelLengthVector);
+		const auto viewportHeightPixelLength = nbl::hlsl::length(viewportHeightPixelLengthVector);
+		
+		// Mip is decided based on max of these
+		float64_t pixelRatio = nbl::hlsl::max(viewportWidthPixelLength / georeferencedImageParams.viewportExtents.x, viewportHeightPixelLength / georeferencedImageParams.viewportExtents.y);
+		pixelRatio = pixelRatio < 1.0 ? 1.0 : pixelRatio;
+
+		std::cout << "Sampled mip level: " << nbl::hlsl::log2(pixelRatio) << std::endl;
+	}
+		
+	// We need to make every tile that covers the viewport resident, so we create the vector of `StreamedImageCopies`, 1 such copy per tile.
 	core::vector<StreamedImageCopy> tiles;
-	uint32_t nTiles = (currentMappedRegion.bottomRight.x - currentMappedRegion.topLeft.x + 1) * (currentMappedRegion.topLeft.y - currentMappedRegion.topLeft.y + 1);
+	uint32_t nTiles = (viewportTileAlignedObb.bottomRight.x - viewportTileAlignedObb.topLeft.x + 1) * (viewportTileAlignedObb.bottomRight.y - viewportTileAlignedObb.topLeft.y + 1);
 	tiles.reserve(nTiles);
 
 	// Assuming a 1 pixel per block format - otherwise math here gets a bit trickier
@@ -2731,14 +2795,19 @@ DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::S
 	const size_t bytesPerSide = bytesPerPixel * TileSize;
 
 	// Dangerous code - assumes image can be perfectly covered with tiles. Otherwise will need to handle edge cases
-	for (uint32_t tileX = currentMappedRegion.topLeft.x; tileX <= currentMappedRegion.bottomRight.x; tileX++)
+	// TODO: All of this code only works for mip 0. Needs to be changed next to upload mip 1.
+	// Eventually this is all replaced by a few uploads to staging buffer + CS mip calc
+	for (uint32_t tileX = viewportTileAlignedObb.topLeft.x; tileX <= viewportTileAlignedObb.bottomRight.x; tileX++)
 	{
-		for (uint32_t tileY = currentMappedRegion.topLeft.y; tileY <= currentMappedRegion.bottomRight.y; tileY++)
+		for (uint32_t tileY = viewportTileAlignedObb.topLeft.y; tileY <= viewportTileAlignedObb.bottomRight.y; tileY++)
 		{
-			// Flush the loaded sections into the buffer - they should be done uploading by now
-			loader.clear();
-			// Reserve enough sections
-			loader.reserve(nTiles);
+			// Compute tile offset relative to `currentMappedRegion.topLeft`, to get tile index into the gpu image
+			uint32_t2 gpuImageTileIndex = uint32_t2(tileX, tileY) - currentMappedRegion.topLeft;
+
+			// If tile already resident, do nothing
+			if (currentMappedRegionOccupancy[gpuImageTileIndex.x][gpuImageTileIndex.y])
+				continue;
+
 			auto tile = loader.load(uint32_t2(tileX * TileSize, tileY * TileSize), uint32_t2(TileSize, TileSize));
 			// Alias the buffer
 			asset::IBuffer::SCreationParams bufParams = { .size = tile->getBuffer()->getSize(), .usage = tile->getBuffer()->getUsageFlags() };
@@ -2765,77 +2834,59 @@ DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::S
 			bufCopy.imageExtent.depth = 1;
 
 			tiles.emplace_back(georeferencedImageParams.format, aliasedBuffer, std::move(bufCopy));
+
+			// Mark tile as resident
+			currentMappedRegionOccupancy[gpuImageTileIndex.x][gpuImageTileIndex.y] = true;
 		}
 	}
 
 	// Last, we need to figure out an obb that covers only the currently loaded tiles
 	// By shifting the `fromTopLeftOBB` an appropriate number of tiles in each direction, we get an obb that covers at least the uploaded tiles
 
-	OrientedBoundingBox2D worldspaceOBB = fromTopLeftOBB;
-	const float32_t2 dirV = float32_t2(worldspaceOBB.dirU.y, -worldspaceOBB.dirU.x) * worldspaceOBB.aspectRatio;
-	worldspaceOBB.topLeft += worldspaceOBB.dirU * float32_t(currentMappedRegion.topLeft.x) / float32_t(maxResidentTiles.x);
-	worldspaceOBB.topLeft += dirV * float32_t(currentMappedRegion.topLeft.y) / float32_t(maxResidentTiles.y);
+	OrientedBoundingBox2D viewportWorldspaceOBB = georeferencedImageParams.worldspaceOBB;
+	// The original image `dirU` corresponds to `maxImageTileIndices.x + 1` mip 0 tiles (provided it's exactly that length in tiles)
+	// Dividing dirU by `maxImageTileIndices + (1,1)` we therefore get a vector that spans exactly one mip 0 tile (in the u direction) in worldspace. 
+	// Multiplying that by `2^mipLevel` we get a vector that spans exactly one mip `mipLevel` tile (in the u direction)
+	const float32_t2 oneTileDirU = georeferencedImageParams.worldspaceOBB.dirU / float32_t(maxImageTileIndices.x + 1u) * float32_t(1u << currentMappedRegion.baseMipLevel);
+	const float32_t2 oneTileDirV = float32_t2(oneTileDirU.y, -oneTileDirU.x) * viewportWorldspaceOBB.aspectRatio;
+	viewportWorldspaceOBB.topLeft += oneTileDirU * float32_t(viewportTileAlignedObb.topLeft.x);
+	viewportWorldspaceOBB.topLeft += oneTileDirV * float32_t(viewportTileAlignedObb.topLeft.y);
+
+	const uint32_t2 viewportTileLength = viewportTileAlignedObb.bottomRight - viewportTileAlignedObb.topLeft + uint32_t2(1, 1);
+	viewportWorldspaceOBB.dirU = oneTileDirU * float32_t(viewportTileLength.x);
+	viewportWorldspaceOBB.aspectRatio = float32_t(viewportTileLength.y) / float32_t(viewportTileLength.x);
+	
+	// UV logic currently ONLY works when the image not only fits an integer amount of tiles, but also when it's a PoT amount of them
+	// (this means every mip level also gets an integer amount of tiles).
+	// When porting to n4ce, for the image to fit an integer amount of tiles (instead of rewriting the logic) we can just pad the right/bottom sides with alpha=0 pixels
+	// The UV logic will have to change to consider what happens to the last loaded tile (or, alternatively, we can also fill the empty tiles with alpha=0 pixels)
 	
 	// Compute minUV, maxUV
-	// Since right now we don't shift the obb around, minUV will always be (0,0), but this is bound to change later on (shifting obb will happen when we want to reuse tiles and not 
-	// reupload them on every frame in the next phase)
-	float32_t2 minUV(0.f, 0.f);
-	// By default we have a large-as-possible obb so maxUV is (1,1). This is bound to change in the general case when we shift obb. However, since right now we need to shrink the obb
-	// to ensure we don't draw outside the bounds of the real image, we also need to change the maxUV;
-	float32_t2 maxUV(1.f, 1.f);
-	int32_t excessTiles = currentMappedRegion.topLeft.x + maxResidentTiles.x - 1 - maxImageTileIndices.x;
-	if (excessTiles > 0)
-	{
-		// Shrink obb to only fit necessary tiles, compute maxUV.x which turns out to be exactly the shrink factor for dirU.
-		maxUV.x = float32_t(maxResidentTiles.x - excessTiles) / maxResidentTiles.x;
-	}
-	// De the same along the other axis
-	excessTiles = currentMappedRegion.topLeft.y + maxResidentTiles.y - 1 - maxImageTileIndices.y;
-	if (excessTiles > 0)
-	{
-		// Analogously, maxUV.y is the shrink factor for dirV.
-		maxUV.y = float32_t(maxResidentTiles.y - excessTiles) / maxResidentTiles.y;
-	}
-	// Recompute dirU and aspect ratio
-	// Multiply dirU by the shrink factor
-	worldspaceOBB.dirU *= maxUV.x;
-	// Scale the aspect ratio by the relative shrinkage of U,V. Remember our aspect ratio is V / U.
-	worldspaceOBB.aspectRatio *= maxUV.y / maxUV.x;
 	
-	return TileUploadData{ std::move(tiles), worldspaceOBB, minUV, maxUV };
+	const uint32_t2 mappedRegionTileLength = currentMappedRegion.bottomRight - currentMappedRegion.topLeft + uint32_t2(1, 1);
+	const float32_t2 uvPerTile = float32_t2(1.f, 1.f) / float32_t2(maxResidentTiles, maxResidentTiles);
+	float32_t2 minUV = uvPerTile * float32_t2(viewportTileAlignedObb.topLeft - currentMappedRegion.topLeft);
+	float32_t2 maxUV = minUV + uvPerTile * float32_t2(viewportTileLength);
+
+	return TileUploadData{ std::move(tiles), viewportWorldspaceOBB, minUV, maxUV };
 	
-}
-
-float64_t DrawResourcesFiller::StreamedImageManager::computeViewportMipLevel(const float64_t3x3& NDCToWorld, float64_t2 viewportExtents)
-{
-	const auto viewportWidthVectorWorld = nbl::hlsl::mul(NDCToWorld, topRightViewportNDCH - topLeftViewportNDCH);
-	const auto viewportHeightVectorWorld = nbl::hlsl::mul(NDCToWorld, bottomLeftViewportNDCH - topLeftViewportNDCH);
-	// Abuse of notation, we're passing a vector not a point, won't be affected by offset so that's ok
-	const auto viewportWidthImagePixelLengthVector = transformWorldCoordsToPixelCoords(viewportWidthVectorWorld);
-	const auto viewportHeightImagePixelLengthVector = transformWorldCoordsToPixelCoords(viewportHeightVectorWorld);
-
-	const auto viewportWidthImagePixelLength = nbl::hlsl::length(viewportWidthImagePixelLengthVector);
-	const auto viewportHeightImagePixelLength = nbl::hlsl::length(viewportHeightImagePixelLengthVector);
-
-	// Mip is decided based on max of these
-	const auto maxPixelLength = nbl::hlsl::max(viewportWidthImagePixelLength, viewportHeightImagePixelLength);
-	return maxPixelLength / nbl::hlsl::max(viewportExtents.x, viewportExtents.y);
 }
 
 DrawResourcesFiller::StreamedImageManager::TileLatticeAlignedObb DrawResourcesFiller::StreamedImageManager::computeViewportTileAlignedObb(const float64_t3x3& NDCToWorld)
 {
+	// First get world coordinates for each of the viewport's corners
 	const float64_t3 topLeftViewportWorldH = nbl::hlsl::mul(NDCToWorld, topLeftViewportNDCH);
 	const float64_t3 topRightViewportWorldH = nbl::hlsl::mul(NDCToWorld, topRightViewportNDCH);
 	const float64_t3 bottomLeftViewportWorldH = nbl::hlsl::mul(NDCToWorld, bottomLeftViewportNDCH);
 	const float64_t3 bottomRightViewportWorldH = nbl::hlsl::mul(NDCToWorld, bottomRightViewportNDCH);
 
-	// We can use `world2Tile` to get tile lattice coordinates for each of these points
+	// Then we get mip 0 tiles coordinates for each of them, into the image
 	const float64_t2 topLeftTileLattice = transformWorldCoordsToTileCoords(topLeftViewportWorldH);
 	const float64_t2 topRightTileLattice = transformWorldCoordsToTileCoords(topRightViewportWorldH);
 	const float64_t2 bottomLeftTileLattice = transformWorldCoordsToTileCoords(bottomLeftViewportWorldH);
 	const float64_t2 bottomRightTileLattice = transformWorldCoordsToTileCoords(bottomRightViewportWorldH);
 
-	// Get the min and max of each lattice coordinate
+	// Get the min and max of each lattice coordinate to get a bounding rectangle
 	const float64_t2 minTop = nbl::hlsl::min(topLeftTileLattice, topRightTileLattice);
 	const float64_t2 minBottom = nbl::hlsl::min(bottomLeftTileLattice, bottomRightTileLattice);
 	const float64_t2 minAll = nbl::hlsl::min(minTop, minBottom);
@@ -2844,13 +2895,80 @@ DrawResourcesFiller::StreamedImageManager::TileLatticeAlignedObb DrawResourcesFi
 	const float64_t2 maxBottom = nbl::hlsl::max(bottomLeftTileLattice, bottomRightTileLattice);
 	const float64_t2 maxAll = nbl::hlsl::max(maxTop, maxBottom);
 
-	// Floor them to get an integer for the tiles they're in
-	const int32_t2 minAllFloored = nbl::hlsl::floor(minAll);
-	const int32_t2 maxAllFloored = nbl::hlsl::floor(maxAll);
+	// Floor them to get an integer coordinate (index) for the tiles they fall in
+	int32_t2 minAllFloored = nbl::hlsl::floor(minAll);
+	int32_t2 maxAllFloored = nbl::hlsl::floor(maxAll);
+	
+	// We're undoing a previous division. Could be avoided but won't restructure the code atp.
+	// Here we compute how many image pixels each side of the viewport spans 
+	const auto viewportWidthImagePixelLengthVector = float64_t(TileSize) * (topRightTileLattice - topLeftTileLattice);
+	const auto viewportHeightImagePixelLengthVector = float64_t(TileSize) * (bottomLeftTileLattice - topLeftTileLattice);
+
+	// WARNING: This assumes pixels in the image are the same size along each axis. If the image is nonuniformly scaled or sheared, I *think* it should not matter
+	// (since the pixel span takes that transformation into account), BUT we have to check if we plan on allowing those
+	const auto viewportWidthImagePixelLength = nbl::hlsl::length(viewportWidthImagePixelLengthVector);
+	const auto viewportHeightImagePixelLength = nbl::hlsl::length(viewportHeightImagePixelLengthVector);
+
+	// Mip is decided based on max of these
+	float64_t pixelRatio = nbl::hlsl::max(viewportWidthImagePixelLength / georeferencedImageParams.viewportExtents.x, viewportHeightImagePixelLength / georeferencedImageParams.viewportExtents.y);
+	pixelRatio = pixelRatio < 1.0 ? 1.0 : pixelRatio;
+	
+	// DEBUG - Clamped at 0 for magnification
+	{
+		std::cout << "Real mip level:    " << nbl::hlsl::log2(pixelRatio) << std::endl;
+	}
+	
+	TileLatticeAlignedObb retVal = {};
+	retVal.baseMipLevel = nbl::hlsl::findMSB(uint32_t(nbl::hlsl::floor(pixelRatio)));
+	
+	// Current tiles are measured in mip 0. We want the result to measure mip `retVal.baseMipLevel` tiles. Each next mip level divides by 2.
+	minAllFloored >>= retVal.baseMipLevel;
+	maxAllFloored >>= retVal.baseMipLevel;
 
 	// Clamp them to reasonable tile indices
-	TileLatticeAlignedObb retVal = {};
-	retVal.topLeft = nbl::hlsl::clamp(minAllFloored, int32_t2(0, 0), int32_t2(maxImageTileIndices));
-	retVal.bottomRight = nbl::hlsl::clamp(maxAllFloored, int32_t2(0, 0), nbl::hlsl::min(int32_t2(maxImageTileIndices), int32_t2(currentMappedRegion.topLeft + maxResidentTiles - uint32_t2(1, 1))));
+	retVal.topLeft = nbl::hlsl::clamp(minAllFloored, int32_t2(0, 0), int32_t2(maxImageTileIndices >> retVal.baseMipLevel));
+	retVal.bottomRight = nbl::hlsl::clamp(maxAllFloored, int32_t2(0, 0), int32_t2(maxImageTileIndices >> retVal.baseMipLevel));
+
 	return retVal;
+}
+
+void DrawResourcesFiller::StreamedImageManager::remapCurrentRegion(const TileLatticeAlignedObb& viewportObb)
+{
+	// Zoomed out
+	if (viewportObb.baseMipLevel > currentMappedRegion.baseMipLevel + 1.0)
+	{
+		// TODO: Here we would move some mip 1 tiles to mip 0 image to save the work of reuploading them, reflect that in the tracked tiles
+	}
+	// Zoomed in
+	else if (viewportObb.baseMipLevel < currentMappedRegion.baseMipLevel)
+	{
+		// TODO: Here we would move some mip 0 tiles to mip 1 image to save the work of reuploading them, reflect that in the tracked tiles
+	}
+	// Tile boundary crossing
+	else
+	{
+		// TODO: Here we would shuffle some tiles around to save the work of reuploading them, reflect that in the tracked tiles
+	}
+	currentMappedRegion.baseMipLevel = viewportObb.baseMipLevel;
+
+	// Some variation of this code would go into each branch above
+	uint32_t2 viewportTileLength = viewportObb.bottomRight - viewportObb.topLeft + uint32_t2(1, 1);
+	int32_t2 nextTopLeft = int32_t2(viewportObb.topLeft) - int32_t2((uint32_t2(maxResidentTiles, maxResidentTiles) - viewportTileLength) / 2u);
+	int32_t2 nextBottomRight = nextTopLeft + int32_t2(maxResidentTiles, maxResidentTiles) - int32_t2(1, 1);
+	// Clamp to the left/up, and add the difference to the right/down
+	int32_t2 clampedTopLeft = nbl::hlsl::max(nextTopLeft, int32_t2(0, 0));
+	nextBottomRight += clampedTopLeft - nextTopLeft;
+	nextTopLeft = clampedTopLeft;
+	// Now clamp to the right/down, and add the difference to the left/up, this time clamping it for sure
+	int32_t2 clampedBottomRight = nbl::hlsl::min(nextBottomRight, int32_t2(maxImageTileIndices) >> int32_t(currentMappedRegion.baseMipLevel));
+	nextTopLeft = nbl::hlsl::max(nextTopLeft - nextBottomRight + clampedBottomRight, int32_t2(0, 0));
+	currentMappedRegion.topLeft = nextTopLeft;
+	currentMappedRegion.bottomRight = clampedBottomRight;
+
+	currentMappedRegionOccupancy.resize(maxResidentTiles);
+	for (auto i = 0u; i < maxResidentTiles; i++)
+	{
+		currentMappedRegionOccupancy[i].clear();
+		currentMappedRegionOccupancy[i].resize(maxResidentTiles, false);
+	}
 }
