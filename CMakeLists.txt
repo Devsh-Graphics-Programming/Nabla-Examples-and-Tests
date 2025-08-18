@@ -66,6 +66,8 @@ if(NBL_BUILD_EXAMPLES)
 	# Showcase compute pathtracing
 	add_subdirectory(30_ComputeShaderPathTracer)
 
+	add_subdirectory(31_HLSLPathTracer EXCLUDE_FROM_ALL)
+
 	add_subdirectory(38_EXRSplit)
 	# if (NBL_BUILD_MITSUBA_LOADER AND NBL_BUILD_OPTIX)
 	#	add_subdirectory(39_DenoiserTonemapper)
