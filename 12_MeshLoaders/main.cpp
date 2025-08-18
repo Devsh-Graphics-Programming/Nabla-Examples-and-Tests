@@ -55,12 +55,12 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 #ifdef NBL_BUILD_DEBUG_DRAW
 			{
 				auto* renderpass = scRes->getRenderpass();
-				ext::debugdraw::DrawAABB::SCreationParameters params = {};
+				ext::debug_draw::DrawAABB::SCreationParameters params = {};
 				params.assetManager = m_assetMgr;
-				params.pipelineLayout = ext::debugdraw::DrawAABB::createDefaultPipelineLayout(m_device.get());
+				params.pipelineLayout = ext::debug_draw::DrawAABB::createDefaultPipelineLayout(m_device.get());
 				params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
 				params.utilities = m_utils;
-				drawAABB = ext::debugdraw::DrawAABB::create(std::move(params));
+				drawAABB = ext::debug_draw::DrawAABB::create(std::move(params));
 			}
 #endif
 
@@ -466,7 +466,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 		bool m_drawBBs = true;
 #ifdef NBL_BUILD_DEBUG_DRAW
-		smart_refctd_ptr<nbl::ext::debugdraw::DrawAABB> drawAABB;
+		smart_refctd_ptr<nbl::ext::debug_draw::DrawAABB> drawAABB;
 #endif
 };
 

@@ -122,15 +122,15 @@ public:
 				.size = sizeof(SSimplePushConstants)
 		};
 	    {
-			ext::debugdraw::DrawAABB::SCreationParameters params = {};
+			ext::debug_draw::DrawAABB::SCreationParameters params = {};
 			params.assetManager = m_assetMgr;
-			params.pipelineLayout = ext::debugdraw::DrawAABB::createDefaultPipelineLayout(m_device.get());
+			params.pipelineLayout = ext::debug_draw::DrawAABB::createDefaultPipelineLayout(m_device.get());
 			params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
 			params.utilities = m_utils;
-            drawAABB = ext::debugdraw::DrawAABB::create(std::move(params));
+            drawAABB = ext::debug_draw::DrawAABB::create(std::move(params));
 	    }
 		{
-			auto vertices = ext::debugdraw::DrawAABB::getVerticesFromAABB(testAABB);
+			auto vertices = ext::debug_draw::DrawAABB::getVerticesFromAABB(testAABB);
 			IGPUBuffer::SCreationParams params;
 			params.size = sizeof(float32_t3) * vertices.size();
 			params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
@@ -166,11 +166,11 @@ public:
 	        auto vertexShader = compileShader("app_resources/simple.vertex.hlsl");
 		    auto fragmentShader = compileShader("app_resources/simple.fragment.hlsl");
 
-		    const auto pipelineLayout = ext::debugdraw::DrawAABB::createDefaultPipelineLayout(m_device.get(), simplePcRange);
+		    const auto pipelineLayout = ext::debug_draw::DrawAABB::createDefaultPipelineLayout(m_device.get(), simplePcRange);
 
 		    IGPUGraphicsPipeline::SShaderSpecInfo vs = { .shader = vertexShader.get(), .entryPoint = "main" };
 		    IGPUGraphicsPipeline::SShaderSpecInfo fs = { .shader = fragmentShader.get(), .entryPoint = "main" };
-			m_pipeline = ext::debugdraw::DrawAABB::createDefaultPipeline(m_device.get(), pipelineLayout.get(), renderpass, vs, fs);
+			m_pipeline = ext::debug_draw::DrawAABB::createDefaultPipeline(m_device.get(), pipelineLayout.get(), renderpass, vs, fs);
 		    if (!m_pipeline)
 		        return logFail("Graphics pipeline creation failed");
 	    }
@@ -453,7 +453,7 @@ private:
 
 	float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
 
-	smart_refctd_ptr<ext::debugdraw::DrawAABB> drawAABB;
+	smart_refctd_ptr<ext::debug_draw::DrawAABB> drawAABB;
 	core::aabbox3d<float> testAABB = core::aabbox3d<float>({ -5, -5, -5 }, { 10, 10, -10 });
 	core::aabbox3d<float> testAABB2 = core::aabbox3d<float>({ 0, 0, 0 }, { 1, 1, 1 });
 	smart_refctd_ptr<IGPUBuffer> verticesBuffer;
