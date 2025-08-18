@@ -50,7 +50,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			}
 
 			if (parser["--savemesh"] == true)
-				m_saveGeomOnExit = true;
+				m_saveGeom = true;
 
 			if (parser.present("--savepath"))
 			{
@@ -61,8 +61,6 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 				if (!std::filesystem::exists(tmp.parent_path()))
 					return logFail("Path specified in --savepath argument doesn't exist");
-
-				m_geomSavePath.emplace(std::move(tmp));
 			}
 
 			m_semaphore = m_device->createSemaphore(m_realFrameIx);
@@ -212,17 +210,6 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			return retval;
 		}
 
-		inline bool onAppTerminated() override
-		{
-			if (m_saveGeomOnExit && m_currentGeom)
-				writeGeometry();
-
-			if (!device_base_t::onAppTerminated())
-				return false;
-
-			return true;
-		}
-
 	protected:
 		const video::IGPURenderpass::SCreationParams::SSubpassDependency* getDefaultSubpassDependencies() const override
 		{
@@ -269,8 +256,6 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 		bool reloadModel()
 		{
-			m_currentGeom = nullptr;
-
 			if (m_nonInteractiveTest) // TODO: maybe also take from argv and argc
 				m_modelPath = (sharedInputCWD/"ply/Spanner-ply.ply").string();
 			else
@@ -289,9 +274,6 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 					return false;
 				m_modelPath = file.result()[0];
 			}
-
-			if (m_saveGeomOnExit && m_currentGeom)
-				writeGeometry();
 
 			// free up
 			m_renderer->m_instances.clear();
@@ -321,7 +303,12 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			if (geometries.empty())
 				return false;
 
-			m_currentGeom = geometries[0];
+			// TODO: do it async
+			if (m_saveGeom)
+				writeGeometry(
+					const_cast<ICPUPolygonGeometry*>(geometries[0].get()), 
+					m_specifiedGeomSavePath.value_or((m_saveGeomPrefixPath / path(m_modelPath).filename()).generic_string())
+				);
 
 			using aabb_t = hlsl::shapes::AABB<3,double>;
 			auto printAABB = [&](const aabb_t& aabb, const char* extraMsg="")->void
@@ -455,29 +442,11 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			return true;
 		}
 
-		void writeGeometry()
+		void writeGeometry(ICPUPolygonGeometry* geometry, const std::string& savePath)
 		{
-			if (!m_geomSavePath.has_value())
-				m_geomSavePath = pfd::save_file("Save Geometry", localOutputCWD.string(),
-					{ "All Supported Formats (.stl, .ply, .serialized)", "*.stl *.ply *.serialized" },
-					pfd::opt::force_overwrite
-				).result();
-
-			auto& dest = m_geomSavePath.value();
-
-			if (dest.empty())
-			{
-				m_logger->log("Invalid path has been selected. Geometry won't be saved.", ILogger::ELL_ERROR);
-				return;
-			}
-
-			m_logger->log("Saving mesh to %S", ILogger::ELL_INFO, dest.c_str());
-
-			// should I do a const cast here?
-			const IAsset* asset = m_currentGeom.get();
-			IAssetWriter::SAssetWriteParams params{ const_cast<IAsset*>(asset) };
-			m_assetMgr->writeAsset(dest.string(), params);
-			m_currentGeom = nullptr;
+			IAssetWriter::SAssetWriteParams params{ reinterpret_cast<IAsset*>(geometry) };
+			m_logger->log("Saving mesh to %S", ILogger::ELL_INFO, savePath.c_str());
+			m_assetMgr->writeAsset(savePath, params);
 		}
 
 		// Maximum frames which can be simultaneously submitted, used to cycle through our per-frame resources like command buffers
@@ -496,10 +465,9 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		// mutables
 		std::string m_modelPath;
 
-		smart_refctd_ptr<const ICPUPolygonGeometry> m_currentGeom;
-
-		bool m_saveGeomOnExit;
-		std::optional<nbl::system::path> m_geomSavePath;
+		bool m_saveGeom;
+		std::optional<const std::string> m_specifiedGeomSavePath;
+		const nbl::system::path m_saveGeomPrefixPath = localOutputCWD / "saved";
 };
 
 NBL_MAIN_FUNC(MeshLoadersApp)
