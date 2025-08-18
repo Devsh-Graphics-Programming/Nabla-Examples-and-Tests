@@ -40,12 +40,13 @@ void main()
 
     const float32_t tHit = hitSphere(sphere, ray);
     
+    [[vk::ext_storage_class(spv::StorageClassHitAttributeKHR)]]
     ProceduralHitAttribute hitAttrib;
 
     // Report hit point
     if (tHit > 0)
     {
         hitAttrib.center = sphere.center;
-        ReportHit(tHit, 0, hitAttrib);
+        spirv::reportIntersectionKHR(tHit, 0);
     }
 }
