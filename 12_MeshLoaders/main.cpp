@@ -58,7 +58,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			if (parser.present("--savepath"))
 			{
 				auto tmp = path(parser.get<std::string>("--savepath"));
-				
+
 				if (tmp.empty() || !tmp.has_filename())
 					return logFail("Invalid path has been specified in --savepath argument");
 
@@ -215,6 +215,17 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			return retval;
 		}
 
+		inline bool onAppTerminated() override
+		{
+			if (m_saveGeomTaskFuture.valid())
+			{
+				m_logger->log("Waiting for geometry writer to finish writing...", ILogger::ELL_INFO);
+				m_saveGeomTaskFuture.wait();
+			}
+
+			return device_base_t::onAppTerminated();
+		}
+
 	protected:
 		const video::IGPURenderpass::SCreationParams::SSubpassDependency* getDefaultSubpassDependencies() const override
 		{
@@ -310,9 +321,12 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 			// TODO: do it async
 			if (m_saveGeom)
-				writeGeometry(
-					const_cast<ICPUPolygonGeometry*>(geometries[0].get()), 
-					m_specifiedGeomSavePath.value_or((m_saveGeomPrefixPath / path(m_modelPath).filename()).generic_string())
+				m_saveGeomTaskFuture = std::async(
+					std::launch::async,
+					[this, geometries] { writeGeometry(
+						geometries[0],
+						m_specifiedGeomSavePath.value_or((m_saveGeomPrefixPath / path(m_modelPath).filename()).generic_string())
+					); }
 				);
 
 			using aabb_t = hlsl::shapes::AABB<3,double>;
@@ -447,11 +461,14 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			return true;
 		}
 
-		void writeGeometry(ICPUPolygonGeometry* geometry, const std::string& savePath)
+		void writeGeometry(smart_refctd_ptr<const ICPUPolygonGeometry> geometry, const std::string& savePath)
 		{
-			IAssetWriter::SAssetWriteParams params{ reinterpret_cast<IAsset*>(geometry) };
-			m_logger->log("Saving mesh to %S", ILogger::ELL_INFO, savePath.c_str());
-			m_assetMgr->writeAsset(savePath, params);
+			IAsset* assetPtr = const_cast<IAsset*>(static_cast<const IAsset*>(geometry.get()));
+			IAssetWriter::SAssetWriteParams params{ assetPtr };
+			m_logger->log("Saving mesh to %s", ILogger::ELL_INFO, savePath.c_str());
+			if (!m_assetMgr->writeAsset(savePath, params))
+				m_logger->log("Failed to save %s", ILogger::ELL_ERROR, savePath.c_str());
+			m_logger->log("Mesh successfully saved!", ILogger::ELL_INFO);
 		}
 
 		// Maximum frames which can be simultaneously submitted, used to cycle through our per-frame resources like command buffers
@@ -470,7 +487,8 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		// mutables
 		std::string m_modelPath;
 
-		bool m_saveGeom;
+		bool m_saveGeom = false;
+		std::future<void> m_saveGeomTaskFuture;
 		std::optional<const std::string> m_specifiedGeomSavePath;
 		nbl::system::path m_saveGeomPrefixPath;
 };
