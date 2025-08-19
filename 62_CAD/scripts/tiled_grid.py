@@ -250,7 +250,7 @@ print(f"Total image size will be {grid_count * tile_sidelength}x{grid_count * ti
 
 try:
     final_image = generate_interpolated_grid_image(tile_sidelength, grid_count, font_path=font_to_use)
-    output_filename = "../../media/tiled_grid.exr"
+    output_filename = "../../media/tiled_grid_mip_0.exr"
     np_img = np.array(final_image).astype(np.float32) / 255.0  # Normalize for EXR
     spec = oiio.ImageSpec(final_image.width, final_image.height, 3, oiio.TypeDesc("float"))
     out = oiio.ImageOutput.create(output_filename)

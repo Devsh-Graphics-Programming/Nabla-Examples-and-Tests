@@ -589,6 +589,7 @@ bool DrawResourcesFiller::ensureStaticImageAvailability(const StaticImageInfo& s
 				cachedImageRecord->allocationSize = allocResults.allocationSize;
 				cachedImageRecord->gpuImageView = allocResults.gpuImageView;
 				cachedImageRecord->staticCPUImage = staticImage.cpuImage;
+				cachedImageRecord->georeferencedImageState = nullptr;
 			}
 			else
 			{
@@ -651,7 +652,7 @@ bool DrawResourcesFiller::ensureMultipleStaticImagesAvailability(std::span<Stati
 	return true;
 }
 
-bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(image_id imageID, const GeoreferencedImageParams& params, SIntendedSubmitInfo& intendedNextSubmit)
+bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(image_id imageID, GeoreferencedImageParams&& params, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	auto* device = m_utilities->getLogicalDevice();
 	auto* physDev = m_utilities->getLogicalDevice()->getPhysicalDevice();
@@ -735,6 +736,16 @@ bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(
 				cachedImageRecord->allocationSize = allocResults.allocationSize;
 				cachedImageRecord->gpuImageView = allocResults.gpuImageView;
 				cachedImageRecord->staticCPUImage = nullptr;
+				cachedImageRecord->georeferencedImageState = GeoreferencedImageStreamingState::create(std::move(params));
+
+				// This is because gpu image is square
+				cachedImageRecord->georeferencedImageState->maxResidentTiles = cachedImageRecord->gpuImageView->getCreationParameters().image->getCreationParameters().extent.width / GeoreferencedImageTileSize;
+				
+				auto& maxImageTileIndices = cachedImageRecord->georeferencedImageState->maxImageTileIndices;
+				maxImageTileIndices = cachedImageRecord->georeferencedImageState->georeferencedImageParams.imageExtents / uint32_t2(GeoreferencedImageTileSize, GeoreferencedImageTileSize);
+				// If it fits perfectly along any dimension, we need one less tile with this scheme
+				maxImageTileIndices -= uint32_t2(maxImageTileIndices.x * GeoreferencedImageTileSize == cachedImageRecord->georeferencedImageState->georeferencedImageParams.imageExtents.x, 
+												 maxImageTileIndices.y * GeoreferencedImageTileSize == cachedImageRecord->georeferencedImageState->georeferencedImageParams.imageExtents.y);
 			}
 			else
 			{
@@ -884,7 +895,7 @@ void DrawResourcesFiller::addImageObject(image_id imageID, const OrientedBoundin
 	endMainObject();
 }
 
-void DrawResourcesFiller::addGeoreferencedImage(StreamedImageManager& manager, const float64_t3x3& NDCToWorld, uint32_t2 viewportExtents, SIntendedSubmitInfo& intendedNextSubmit)
+void DrawResourcesFiller::addGeoreferencedImage(image_id imageID, const float64_t3x3& NDCToWorld, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	beginMainObject(MainObjectType::STREAMED_IMAGE);
 
@@ -897,23 +908,25 @@ void DrawResourcesFiller::addGeoreferencedImage(StreamedImageManager& manager, c
 	}
 
 	// Query imageType
-	auto cachedImageRecord = imagesCache->peek(manager.imageID);
-
-	// This is because gpu image is square
-	manager.maxResidentTiles = cachedImageRecord->gpuImageView->getCreationParameters().image->getCreationParameters().extent.width / manager.TileSize;
+	auto cachedImageRecord = imagesCache->peek(imageID);
+	if (!cachedImageRecord)
+	{
+		m_logger.log("addGeoreferencedImage was not called immediately after enforceGeoreferencedImageAvailability!", nbl::system::ILogger::ELL_ERROR);
+		assert(false);
+	}
 
 	// Generate upload data
-	auto uploadData = manager.generateTileUploadData(cachedImageRecord->type, NDCToWorld, manager.georeferencedImageParams.viewportExtents);
+	auto uploadData = generateTileUploadData(cachedImageRecord->type, NDCToWorld, cachedImageRecord->georeferencedImageState.get());
 
 	// Queue image uploads
 	for (const auto& imageCopy : uploadData.tiles)
-		queueGeoreferencedImageCopy_Internal(manager.imageID, imageCopy);
+		queueGeoreferencedImageCopy_Internal(imageID, imageCopy);
 
 	GeoreferencedImageInfo info = {};
 	info.topLeft = uploadData.worldspaceOBB.topLeft;
 	info.dirU = uploadData.worldspaceOBB.dirU;
 	info.aspectRatio = uploadData.worldspaceOBB.aspectRatio;
-	info.textureID = getImageIndexFromID(manager.imageID, intendedNextSubmit); // for this to be valid and safe, this function needs to be called immediately after `addStaticImage` function to make sure image is in memory
+	info.textureID = getImageIndexFromID(imageID, intendedNextSubmit); // for this to be valid and safe, this function needs to be called immediately after `addStaticImage` function to make sure image is in memory
 	info.minUV = uploadData.minUV;
 	info.maxUV = uploadData.maxUV;
 	if (!addGeoreferencedImageInfo_Internal(info, mainObjIdx))
@@ -2528,10 +2541,10 @@ ImageType DrawResourcesFiller::determineGeoreferencedImageCreationParams(nbl::as
 		// and in any rotation (taking the longest side suffices). Can be increased to avoid frequent tile eviction when moving the camera at mip close to 1
 		const uint32_t diagonal = static_cast<uint32_t>(nbl::hlsl::ceil(
 															nbl::hlsl::sqrt(static_cast<float32_t>(params.viewportExtents.x * params.viewportExtents.x 
-																+ params.viewportExtents.y * params.viewportExtents.y))
+																								   + params.viewportExtents.y * params.viewportExtents.y))
 															)
 														);
-		const uint32_t gpuImageSidelength = 2 * core::roundUp(diagonal, StreamedImageManager::TileSize) + StreamedImageManager::PaddingTiles * StreamedImageManager::TileSize;
+		const uint32_t gpuImageSidelength = 2 * core::roundUp(diagonal, GeoreferencedImageTileSize) + GeoreferencedImagePaddingTiles * GeoreferencedImageTileSize;
 		outImageParams.extent = { gpuImageSidelength, gpuImageSidelength, 1u };
 	}
 
@@ -2675,13 +2688,10 @@ void DrawResourcesFiller::flushDrawObjects()
 	}
 }
 
-DrawResourcesFiller::StreamedImageManager::StreamedImageManager(image_id _imageID, GeoreferencedImageParams&& _georeferencedImageParams, ImageLoader&& _loader)
-	: imageID(_imageID), georeferencedImageParams(std::move(_georeferencedImageParams)), loader(std::move(_loader))
+smart_refctd_ptr<GeoreferencedImageStreamingState> GeoreferencedImageStreamingState::create(GeoreferencedImageParams&& _georeferencedImageParams)
 {
-	maxImageTileIndices = georeferencedImageParams.imageExtents / uint32_t2(TileSize, TileSize);
-	// If it fits perfectly along any dimension, we need one less tile with this scheme
-	maxImageTileIndices -= uint32_t2(maxImageTileIndices.x * TileSize == georeferencedImageParams.imageExtents.x, maxImageTileIndices.y * TileSize == georeferencedImageParams.imageExtents.y);
-
+	smart_refctd_ptr<GeoreferencedImageStreamingState> retVal(new GeoreferencedImageStreamingState{});
+	retVal->georeferencedImageParams = std::move(_georeferencedImageParams);
 	//	1. Get the displacement (will be an offset vector in world coords and world units) from the `topLeft` corner of the image to the point
 	//	2. Transform this displacement vector into the coordinates in the basis {dirU, dirV} (worldspace vectors that span the sides of the image).
 	//	The composition of these matrices there fore transforms any point in worldspace into uv coordinates in imagespace
@@ -2689,13 +2699,13 @@ DrawResourcesFiller::StreamedImageManager::StreamedImageManager(image_id _imageI
 
 	// 1. Displacement. The following matrix computes the offset for an input point `p` with homogenous worldspace coordinates. 
 	//    By foregoing the homogenous coordinate we can keep only the vector part, that's why it's `2x3` and not `3x3`
-	float64_t2 topLeftWorld = georeferencedImageParams.worldspaceOBB.topLeft;
+	float64_t2 topLeftWorld = retVal->georeferencedImageParams.worldspaceOBB.topLeft;
 	float64_t2x3 displacementMatrix(1., 0., - topLeftWorld.x, 0., 1., - topLeftWorld.y);
 
 	// 2. Change of Basis. Since {dirU, dirV} are orthogonal, the matrix to change from world coords to `span{dirU, dirV}` coords has a quite nice expression
 	//    Non-uniform scaling doesn't affect this, but this has to change if we allow for shearing (basis vectors stop being orthogonal)
-	float64_t2 dirU = georeferencedImageParams.worldspaceOBB.dirU;
-	float64_t2 dirV = float32_t2(dirU.y, -dirU.x) * georeferencedImageParams.worldspaceOBB.aspectRatio;
+	float64_t2 dirU = retVal->georeferencedImageParams.worldspaceOBB.dirU;
+	float64_t2 dirV = float32_t2(dirU.y, -dirU.x) * retVal->georeferencedImageParams.worldspaceOBB.aspectRatio;
 	float64_t dirULengthSquared = nbl::hlsl::dot(dirU, dirU);
 	float64_t dirVLengthSquared = nbl::hlsl::dot(dirV, dirV);
 	float64_t2 firstRow = dirU / dirULengthSquared;
@@ -2703,47 +2713,48 @@ DrawResourcesFiller::StreamedImageManager::StreamedImageManager(image_id _imageI
 	float64_t2x2 changeOfBasisMatrix(firstRow, secondRow);
 
 	// Put them all together
-	world2UV = nbl::hlsl::mul(changeOfBasisMatrix, displacementMatrix);
+	retVal->world2UV = nbl::hlsl::mul(changeOfBasisMatrix, displacementMatrix);
+	return retVal;
 }
 
-DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::StreamedImageManager::generateTileUploadData(const ImageType imageType, const float64_t3x3& NDCToWorld, const float64_t2 viewportExtents)
+DrawResourcesFiller::TileUploadData DrawResourcesFiller::generateTileUploadData(const ImageType imageType, const float64_t3x3& NDCToWorld, GeoreferencedImageStreamingState* imageStreamingState)
 {
 	// I think eventually it's better to just transform georeferenced images that aren't big enough into static images and forget about them
 	if (imageType == ImageType::GEOREFERENCED_FULL_RESOLUTION) //Pass imageID as parameter, down from the addGeoRef call
-		return TileUploadData{ {}, georeferencedImageParams.worldspaceOBB };
+		return TileUploadData{ {}, imageStreamingState->georeferencedImageParams.worldspaceOBB };
 
-	// Compute the mip level and tile obb we would need to encompass the viewport
-	TileLatticeAlignedObb viewportTileAlignedObb = computeViewportTileAlignedObb(NDCToWorld);
+	// Compute the mip level and tile range we would need to encompass the viewport
+	GeoreferencedImageTileRange viewportTileRange = computeViewportTileRange(NDCToWorld, imageStreamingState);
 
 	// A base mip level of x in the current mapped region means we can handle the viewport having mip level y, with x <= y < x + 1.0
 	// without needing to remap the region. When the user starts zooming in or out and the mip level of the viewport falls outside this range, we have to remap
 	// the mapped region.
-	const bool mipBoundaryCrossed = viewportTileAlignedObb.baseMipLevel >= currentMappedRegion.baseMipLevel + 1.0 
-									|| viewportTileAlignedObb.baseMipLevel < currentMappedRegion.baseMipLevel;
+	const bool mipBoundaryCrossed = viewportTileRange.baseMipLevel >= imageStreamingState->currentMappedRegion.baseMipLevel + 1.0
+								 || viewportTileRange.baseMipLevel < imageStreamingState->currentMappedRegion.baseMipLevel;
 
 	// If any of the corners of the obb encompassing the viewport falls outside the currently mapped region, we have to remap the mapped region
-	const bool tileBoundaryCrossed = nbl::hlsl::any(viewportTileAlignedObb.topLeft < currentMappedRegion.topLeft)
-													|| nbl::hlsl::any(viewportTileAlignedObb.bottomRight > currentMappedRegion.bottomRight);
+	const bool tileBoundaryCrossed = nbl::hlsl::any(viewportTileRange.topLeft < imageStreamingState->currentMappedRegion.topLeft)
+								  || nbl::hlsl::any(viewportTileRange.bottomRight > imageStreamingState->currentMappedRegion.bottomRight);
 
 	if (mipBoundaryCrossed || tileBoundaryCrossed)
 	{
-		remapCurrentRegion(viewportTileAlignedObb);
+		imageStreamingState->remapCurrentRegion(viewportTileRange);
 	}
 
 	// DEBUG - Sampled mip level
 	{
 		// Get world coordinates for each corner of the mapped region
-		const float32_t2 oneTileDirU = georeferencedImageParams.worldspaceOBB.dirU / float32_t(maxImageTileIndices.x + 1u) * float32_t(1u << currentMappedRegion.baseMipLevel);
-		const float32_t2 oneTileDirV = float32_t2(oneTileDirU.y, -oneTileDirU.x) * georeferencedImageParams.worldspaceOBB.aspectRatio;
-		float64_t2 topLeftMappedRegionWorld = georeferencedImageParams.worldspaceOBB.topLeft;
-		topLeftMappedRegionWorld += oneTileDirU * float32_t(currentMappedRegion.topLeft.x) + oneTileDirV * float32_t(currentMappedRegion.topLeft.y);
-		const uint32_t2 mappedRegionTileLength = currentMappedRegion.bottomRight - currentMappedRegion.topLeft + uint32_t2(1, 1);
+		const float32_t2 oneTileDirU = imageStreamingState->georeferencedImageParams.worldspaceOBB.dirU / float32_t(imageStreamingState->maxImageTileIndices.x + 1u) * float32_t(1u << imageStreamingState->currentMappedRegion.baseMipLevel);
+		const float32_t2 oneTileDirV = float32_t2(oneTileDirU.y, -oneTileDirU.x) * imageStreamingState->georeferencedImageParams.worldspaceOBB.aspectRatio;
+		float64_t2 topLeftMappedRegionWorld = imageStreamingState->georeferencedImageParams.worldspaceOBB.topLeft;
+		topLeftMappedRegionWorld += oneTileDirU * float32_t(imageStreamingState->currentMappedRegion.topLeft.x) + oneTileDirV * float32_t(imageStreamingState->currentMappedRegion.topLeft.y);
+		const uint32_t2 mappedRegionTileLength = imageStreamingState->currentMappedRegion.bottomRight - imageStreamingState->currentMappedRegion.topLeft + uint32_t2(1, 1);
 		float64_t2 bottomRightMappedRegionWorld = topLeftMappedRegionWorld;
 		bottomRightMappedRegionWorld += oneTileDirU * float32_t(mappedRegionTileLength.x) + oneTileDirV * float32_t(mappedRegionTileLength.y);
 
 		// With the above, get an affine transform that maps points in worldspace to their pixel coordinates in the mapped region tile space. This can be done by mapping
 		// `topLeftMappedRegionWorld -> (0,0)` and `bottomRightMappedRegionWorld -> mappedRegionPixelLength - 1`
-		const uint32_t2 mappedRegionPixelLength = TileSize * mappedRegionTileLength;
+		const uint32_t2 mappedRegionPixelLength = GeoreferencedImageTileSize * mappedRegionTileLength;
 		
 		// 1. Displacement
 		// Multiplying a (homogenous) point p by this matrix yields the displacement vector `p - topLeftMappedRegionWorld`
@@ -2760,7 +2771,7 @@ DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::S
 
 		// 3. Rescaling. The above matrix yields uv coordinates in the rectangle spanned by the mapped region. To get pixel coordinates, we simply multiply each coordinate by
 		// how many pixels they span in the gpu image
-		float64_t2x2 scalingMatrix(mappedRegionTileLength.x * TileSize, 0.0, 0.0, mappedRegionTileLength.y * TileSize);
+		float64_t2x2 scalingMatrix(mappedRegionTileLength.x * GeoreferencedImageTileSize, 0.0, 0.0, mappedRegionTileLength.y * GeoreferencedImageTileSize);
 
 		// Put them all together
 		float64_t2x3 toPixelCoordsMatrix = nbl::hlsl::mul(scalingMatrix, nbl::hlsl::mul(changeOfBasisMatrix, displacementMatrix));
@@ -2779,7 +2790,7 @@ DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::S
 		const auto viewportHeightPixelLength = nbl::hlsl::length(viewportHeightPixelLengthVector);
 		
 		// Mip is decided based on max of these
-		float64_t pixelRatio = nbl::hlsl::max(viewportWidthPixelLength / georeferencedImageParams.viewportExtents.x, viewportHeightPixelLength / georeferencedImageParams.viewportExtents.y);
+		float64_t pixelRatio = nbl::hlsl::max(viewportWidthPixelLength / imageStreamingState->georeferencedImageParams.viewportExtents.x, viewportHeightPixelLength / imageStreamingState->georeferencedImageParams.viewportExtents.y);
 		pixelRatio = pixelRatio < 1.0 ? 1.0 : pixelRatio;
 
 		std::cout << "Sampled mip level: " << nbl::hlsl::log2(pixelRatio) << std::endl;
@@ -2787,72 +2798,61 @@ DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::S
 		
 	// We need to make every tile that covers the viewport resident, so we create the vector of `StreamedImageCopies`, 1 such copy per tile.
 	core::vector<StreamedImageCopy> tiles;
-	uint32_t nTiles = (viewportTileAlignedObb.bottomRight.x - viewportTileAlignedObb.topLeft.x + 1) * (viewportTileAlignedObb.bottomRight.y - viewportTileAlignedObb.topLeft.y + 1);
+	uint32_t nTiles = (viewportTileRange.bottomRight.x - viewportTileRange.topLeft.x + 1) * (viewportTileRange.bottomRight.y - viewportTileRange.topLeft.y + 1);
 	tiles.reserve(nTiles);
 
 	// Assuming a 1 pixel per block format - otherwise math here gets a bit trickier
-	auto bytesPerPixel = getTexelOrBlockBytesize(georeferencedImageParams.format);
-	const size_t bytesPerSide = bytesPerPixel * TileSize;
+	auto bytesPerPixel = getTexelOrBlockBytesize(imageStreamingState->georeferencedImageParams.format);
+	const size_t bytesPerSide = bytesPerPixel * GeoreferencedImageTileSize;
 
 	// Dangerous code - assumes image can be perfectly covered with tiles. Otherwise will need to handle edge cases
 	// TODO: All of this code only works for mip 0. Needs to be changed next to upload mip 1.
 	// Eventually this is all replaced by a few uploads to staging buffer + CS mip calc
-	for (uint32_t tileX = viewportTileAlignedObb.topLeft.x; tileX <= viewportTileAlignedObb.bottomRight.x; tileX++)
+	for (uint32_t tileX = viewportTileRange.topLeft.x; tileX <= viewportTileRange.bottomRight.x; tileX++)
 	{
-		for (uint32_t tileY = viewportTileAlignedObb.topLeft.y; tileY <= viewportTileAlignedObb.bottomRight.y; tileY++)
+		for (uint32_t tileY = viewportTileRange.topLeft.y; tileY <= viewportTileRange.bottomRight.y; tileY++)
 		{
 			// Compute tile offset relative to `currentMappedRegion.topLeft`, to get tile index into the gpu image
-			uint32_t2 gpuImageTileIndex = uint32_t2(tileX, tileY) - currentMappedRegion.topLeft;
+			uint32_t2 gpuImageTileIndex = uint32_t2(tileX, tileY) - imageStreamingState->currentMappedRegion.topLeft;
 
 			// If tile already resident, do nothing
-			if (currentMappedRegionOccupancy[gpuImageTileIndex.x][gpuImageTileIndex.y])
+			if (imageStreamingState->currentMappedRegionOccupancy[gpuImageTileIndex.x][gpuImageTileIndex.y])
 				continue;
 
-			auto tile = loader.load(uint32_t2(tileX * TileSize, tileY * TileSize), uint32_t2(TileSize, TileSize));
-			// Alias the buffer
-			asset::IBuffer::SCreationParams bufParams = { .size = tile->getBuffer()->getSize(), .usage = tile->getBuffer()->getUsageFlags() };
-			ICPUBuffer::SCreationParams cpuBufParams(std::move(bufParams));
-			cpuBufParams.data = tile->getBuffer()->getPointer();
-			cpuBufParams.memoryResource = core::getNullMemoryResource();
-			auto aliasedBuffer = ICPUBuffer::create(std::move(cpuBufParams), nbl::core::adopt_memory_t{});
+			auto tile = georeferencedImageLoader->load(imageStreamingState->georeferencedImageParams.storagePath, uint32_t2(tileX * GeoreferencedImageTileSize, tileY * GeoreferencedImageTileSize), uint32_t2(GeoreferencedImageTileSize, GeoreferencedImageTileSize), imageStreamingState->currentMappedRegion.baseMipLevel);
 
-			// The math here is like this because of the buffer we're getting (full image in the emulated case)
-			// When moving to actual ECW loading, bufferOffset will be 0, bufferRowLength will be the extent.width of the loaded section,
-			// imageExtent will be the extent of the loaded section, and imageOffset will be the appropriate offset (we will be loading whole sections of tiles
-			// that can be made into a rectangle instead of tile by tile)
 			asset::IImage::SBufferCopy bufCopy;
-			bufCopy.bufferOffset = (tileY * (maxImageTileIndices.x + 1) * TileSize + tileX) * bytesPerSide;
-			bufCopy.bufferRowLength = georeferencedImageParams.imageExtents.x;
+			bufCopy.bufferOffset = 0;
+			bufCopy.bufferRowLength = GeoreferencedImageTileSize;
 			bufCopy.bufferImageHeight = 0;
 			bufCopy.imageSubresource.aspectMask = IImage::EAF_COLOR_BIT;
 			bufCopy.imageSubresource.mipLevel = 0u;
 			bufCopy.imageSubresource.baseArrayLayer = 0u;
 			bufCopy.imageSubresource.layerCount = 1u;
-			bufCopy.imageOffset = { (tileX - currentMappedRegion.topLeft.x) * TileSize, (tileY - currentMappedRegion.topLeft.y) * TileSize, 0u };
-			bufCopy.imageExtent.width = TileSize;
-			bufCopy.imageExtent.height = TileSize;
+			bufCopy.imageOffset = { (tileX - imageStreamingState->currentMappedRegion.topLeft.x) * GeoreferencedImageTileSize, (tileY - imageStreamingState->currentMappedRegion.topLeft.y) * GeoreferencedImageTileSize, 0u };
+			bufCopy.imageExtent.width = GeoreferencedImageTileSize;
+			bufCopy.imageExtent.height = GeoreferencedImageTileSize;
 			bufCopy.imageExtent.depth = 1;
 
-			tiles.emplace_back(georeferencedImageParams.format, aliasedBuffer, std::move(bufCopy));
+			tiles.emplace_back(imageStreamingState->georeferencedImageParams.format, std::move(tile), std::move(bufCopy));
 
 			// Mark tile as resident
-			currentMappedRegionOccupancy[gpuImageTileIndex.x][gpuImageTileIndex.y] = true;
+			imageStreamingState->currentMappedRegionOccupancy[gpuImageTileIndex.x][gpuImageTileIndex.y] = true;
 		}
 	}
 
 	// Last, we need to figure out an obb that covers only the currently loaded tiles
-	// By shifting the `fromTopLeftOBB` an appropriate number of tiles in each direction, we get an obb that covers at least the uploaded tiles
 
-	OrientedBoundingBox2D viewportWorldspaceOBB = georeferencedImageParams.worldspaceOBB;
+	OrientedBoundingBox2D viewportWorldspaceOBB = imageStreamingState->georeferencedImageParams.worldspaceOBB;
 	// The original image `dirU` corresponds to `maxImageTileIndices.x + 1` mip 0 tiles (provided it's exactly that length in tiles)
 	// Dividing dirU by `maxImageTileIndices + (1,1)` we therefore get a vector that spans exactly one mip 0 tile (in the u direction) in worldspace. 
 	// Multiplying that by `2^mipLevel` we get a vector that spans exactly one mip `mipLevel` tile (in the u direction)
-	const float32_t2 oneTileDirU = georeferencedImageParams.worldspaceOBB.dirU / float32_t(maxImageTileIndices.x + 1u) * float32_t(1u << currentMappedRegion.baseMipLevel);
+	const float32_t2 oneTileDirU = imageStreamingState->georeferencedImageParams.worldspaceOBB.dirU / float32_t(imageStreamingState->maxImageTileIndices.x + 1u) * float32_t(1u << imageStreamingState->currentMappedRegion.baseMipLevel);
 	const float32_t2 oneTileDirV = float32_t2(oneTileDirU.y, -oneTileDirU.x) * viewportWorldspaceOBB.aspectRatio;
-	viewportWorldspaceOBB.topLeft += oneTileDirU * float32_t(viewportTileAlignedObb.topLeft.x);
-	viewportWorldspaceOBB.topLeft += oneTileDirV * float32_t(viewportTileAlignedObb.topLeft.y);
+	viewportWorldspaceOBB.topLeft += oneTileDirU * float32_t(viewportTileRange.topLeft.x);
+	viewportWorldspaceOBB.topLeft += oneTileDirV * float32_t(viewportTileRange.topLeft.y);
 
-	const uint32_t2 viewportTileLength = viewportTileAlignedObb.bottomRight - viewportTileAlignedObb.topLeft + uint32_t2(1, 1);
+	const uint32_t2 viewportTileLength = viewportTileRange.bottomRight - viewportTileRange.topLeft + uint32_t2(1, 1);
 	viewportWorldspaceOBB.dirU = oneTileDirU * float32_t(viewportTileLength.x);
 	viewportWorldspaceOBB.aspectRatio = float32_t(viewportTileLength.y) / float32_t(viewportTileLength.x);
 	
@@ -2863,16 +2863,16 @@ DrawResourcesFiller::StreamedImageManager::TileUploadData DrawResourcesFiller::S
 	
 	// Compute minUV, maxUV
 	
-	const uint32_t2 mappedRegionTileLength = currentMappedRegion.bottomRight - currentMappedRegion.topLeft + uint32_t2(1, 1);
-	const float32_t2 uvPerTile = float32_t2(1.f, 1.f) / float32_t2(maxResidentTiles, maxResidentTiles);
-	float32_t2 minUV = uvPerTile * float32_t2(viewportTileAlignedObb.topLeft - currentMappedRegion.topLeft);
+	const uint32_t2 mappedRegionTileLength = imageStreamingState->currentMappedRegion.bottomRight - imageStreamingState->currentMappedRegion.topLeft + uint32_t2(1, 1);
+	const float32_t2 uvPerTile = float32_t2(1.f, 1.f) / float32_t2(imageStreamingState->maxResidentTiles, imageStreamingState->maxResidentTiles);
+	float32_t2 minUV = uvPerTile * float32_t2(viewportTileRange.topLeft - imageStreamingState->currentMappedRegion.topLeft);
 	float32_t2 maxUV = minUV + uvPerTile * float32_t2(viewportTileLength);
 
 	return TileUploadData{ std::move(tiles), viewportWorldspaceOBB, minUV, maxUV };
 	
 }
 
-DrawResourcesFiller::StreamedImageManager::TileLatticeAlignedObb DrawResourcesFiller::StreamedImageManager::computeViewportTileAlignedObb(const float64_t3x3& NDCToWorld)
+GeoreferencedImageTileRange DrawResourcesFiller::computeViewportTileRange(const float64_t3x3& NDCToWorld, const GeoreferencedImageStreamingState* imageStreamingState)
 {
 	// First get world coordinates for each of the viewport's corners
 	const float64_t3 topLeftViewportWorldH = nbl::hlsl::mul(NDCToWorld, topLeftViewportNDCH);
@@ -2881,10 +2881,10 @@ DrawResourcesFiller::StreamedImageManager::TileLatticeAlignedObb DrawResourcesFi
 	const float64_t3 bottomRightViewportWorldH = nbl::hlsl::mul(NDCToWorld, bottomRightViewportNDCH);
 
 	// Then we get mip 0 tiles coordinates for each of them, into the image
-	const float64_t2 topLeftTileLattice = transformWorldCoordsToTileCoords(topLeftViewportWorldH);
-	const float64_t2 topRightTileLattice = transformWorldCoordsToTileCoords(topRightViewportWorldH);
-	const float64_t2 bottomLeftTileLattice = transformWorldCoordsToTileCoords(bottomLeftViewportWorldH);
-	const float64_t2 bottomRightTileLattice = transformWorldCoordsToTileCoords(bottomRightViewportWorldH);
+	const float64_t2 topLeftTileLattice = imageStreamingState->transformWorldCoordsToTileCoords(topLeftViewportWorldH, GeoreferencedImageTileSize);
+	const float64_t2 topRightTileLattice = imageStreamingState->transformWorldCoordsToTileCoords(topRightViewportWorldH, GeoreferencedImageTileSize);
+	const float64_t2 bottomLeftTileLattice = imageStreamingState->transformWorldCoordsToTileCoords(bottomLeftViewportWorldH, GeoreferencedImageTileSize);
+	const float64_t2 bottomRightTileLattice = imageStreamingState->transformWorldCoordsToTileCoords(bottomRightViewportWorldH, GeoreferencedImageTileSize);
 
 	// Get the min and max of each lattice coordinate to get a bounding rectangle
 	const float64_t2 minTop = nbl::hlsl::min(topLeftTileLattice, topRightTileLattice);
@@ -2901,8 +2901,8 @@ DrawResourcesFiller::StreamedImageManager::TileLatticeAlignedObb DrawResourcesFi
 	
 	// We're undoing a previous division. Could be avoided but won't restructure the code atp.
 	// Here we compute how many image pixels each side of the viewport spans 
-	const auto viewportWidthImagePixelLengthVector = float64_t(TileSize) * (topRightTileLattice - topLeftTileLattice);
-	const auto viewportHeightImagePixelLengthVector = float64_t(TileSize) * (bottomLeftTileLattice - topLeftTileLattice);
+	const auto viewportWidthImagePixelLengthVector = float64_t(GeoreferencedImageTileSize) * (topRightTileLattice - topLeftTileLattice);
+	const auto viewportHeightImagePixelLengthVector = float64_t(GeoreferencedImageTileSize) * (bottomLeftTileLattice - topLeftTileLattice);
 
 	// WARNING: This assumes pixels in the image are the same size along each axis. If the image is nonuniformly scaled or sheared, I *think* it should not matter
 	// (since the pixel span takes that transformation into account), BUT we have to check if we plan on allowing those
@@ -2910,7 +2910,8 @@ DrawResourcesFiller::StreamedImageManager::TileLatticeAlignedObb DrawResourcesFi
 	const auto viewportHeightImagePixelLength = nbl::hlsl::length(viewportHeightImagePixelLengthVector);
 
 	// Mip is decided based on max of these
-	float64_t pixelRatio = nbl::hlsl::max(viewportWidthImagePixelLength / georeferencedImageParams.viewportExtents.x, viewportHeightImagePixelLength / georeferencedImageParams.viewportExtents.y);
+	float64_t pixelRatio = nbl::hlsl::max(viewportWidthImagePixelLength / imageStreamingState->georeferencedImageParams.viewportExtents.x, 
+										  viewportHeightImagePixelLength / imageStreamingState->georeferencedImageParams.viewportExtents.y);
 	pixelRatio = pixelRatio < 1.0 ? 1.0 : pixelRatio;
 	
 	// DEBUG - Clamped at 0 for magnification
@@ -2918,7 +2919,7 @@ DrawResourcesFiller::StreamedImageManager::TileLatticeAlignedObb DrawResourcesFi
 		std::cout << "Real mip level:    " << nbl::hlsl::log2(pixelRatio) << std::endl;
 	}
 	
-	TileLatticeAlignedObb retVal = {};
+	GeoreferencedImageTileRange retVal = {};
 	retVal.baseMipLevel = nbl::hlsl::findMSB(uint32_t(nbl::hlsl::floor(pixelRatio)));
 	
 	// Current tiles are measured in mip 0. We want the result to measure mip `retVal.baseMipLevel` tiles. Each next mip level divides by 2.
@@ -2926,21 +2927,21 @@ DrawResourcesFiller::StreamedImageManager::TileLatticeAlignedObb DrawResourcesFi
 	maxAllFloored >>= retVal.baseMipLevel;
 
 	// Clamp them to reasonable tile indices
-	retVal.topLeft = nbl::hlsl::clamp(minAllFloored, int32_t2(0, 0), int32_t2(maxImageTileIndices >> retVal.baseMipLevel));
-	retVal.bottomRight = nbl::hlsl::clamp(maxAllFloored, int32_t2(0, 0), int32_t2(maxImageTileIndices >> retVal.baseMipLevel));
+	retVal.topLeft = nbl::hlsl::clamp(minAllFloored, int32_t2(0, 0), int32_t2(imageStreamingState->maxImageTileIndices >> retVal.baseMipLevel));
+	retVal.bottomRight = nbl::hlsl::clamp(maxAllFloored, int32_t2(0, 0), int32_t2(imageStreamingState->maxImageTileIndices >> retVal.baseMipLevel));
 
 	return retVal;
 }
 
-void DrawResourcesFiller::StreamedImageManager::remapCurrentRegion(const TileLatticeAlignedObb& viewportObb)
+void GeoreferencedImageStreamingState::remapCurrentRegion(const GeoreferencedImageTileRange& viewportTileRange)
 {
 	// Zoomed out
-	if (viewportObb.baseMipLevel > currentMappedRegion.baseMipLevel + 1.0)
+	if (viewportTileRange.baseMipLevel > currentMappedRegion.baseMipLevel + 1.0)
 	{
 		// TODO: Here we would move some mip 1 tiles to mip 0 image to save the work of reuploading them, reflect that in the tracked tiles
 	}
 	// Zoomed in
-	else if (viewportObb.baseMipLevel < currentMappedRegion.baseMipLevel)
+	else if (viewportTileRange.baseMipLevel < currentMappedRegion.baseMipLevel)
 	{
 		// TODO: Here we would move some mip 0 tiles to mip 1 image to save the work of reuploading them, reflect that in the tracked tiles
 	}
@@ -2949,11 +2950,11 @@ void DrawResourcesFiller::StreamedImageManager::remapCurrentRegion(const TileLat
 	{
 		// TODO: Here we would shuffle some tiles around to save the work of reuploading them, reflect that in the tracked tiles
 	}
-	currentMappedRegion.baseMipLevel = viewportObb.baseMipLevel;
+	currentMappedRegion.baseMipLevel = viewportTileRange.baseMipLevel;
 
 	// Some variation of this code would go into each branch above
-	uint32_t2 viewportTileLength = viewportObb.bottomRight - viewportObb.topLeft + uint32_t2(1, 1);
-	int32_t2 nextTopLeft = int32_t2(viewportObb.topLeft) - int32_t2((uint32_t2(maxResidentTiles, maxResidentTiles) - viewportTileLength) / 2u);
+	uint32_t2 viewportTileLength = viewportTileRange.bottomRight - viewportTileRange.topLeft + uint32_t2(1, 1);
+	int32_t2 nextTopLeft = int32_t2(viewportTileRange.topLeft) - int32_t2((uint32_t2(maxResidentTiles, maxResidentTiles) - viewportTileLength) / 2u);
 	int32_t2 nextBottomRight = nextTopLeft + int32_t2(maxResidentTiles, maxResidentTiles) - int32_t2(1, 1);
 	// Clamp to the left/up, and add the difference to the right/down
 	int32_t2 clampedTopLeft = nbl::hlsl::max(nextTopLeft, int32_t2(0, 0));

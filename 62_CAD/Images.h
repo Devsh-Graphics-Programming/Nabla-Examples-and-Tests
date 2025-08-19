@@ -28,6 +28,7 @@ struct GeoreferencedImageParams
 	uint32_t2 imageExtents = {};
 	uint32_t2 viewportExtents = {};
 	asset::E_FORMAT format = {};
+	std::filesystem::path storagePath = {};
 };
 
 /**
@@ -108,6 +109,9 @@ struct ImageCleanup : public core::IReferenceCounted
 
 };
 
+// Forward declared so we can have a smart pointer in the cached record
+struct GeoreferencedImageStreamingState;
+
 struct CachedImageRecord
 {
 	static constexpr uint32_t InvalidTextureIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
@@ -120,6 +124,7 @@ struct CachedImageRecord
 	uint64_t allocationSize = 0ull;
 	core::smart_refctd_ptr<IGPUImageView> gpuImageView = nullptr;
 	core::smart_refctd_ptr<ICPUImage> staticCPUImage = nullptr; // cached cpu image for uploading to gpuImageView when needed.
+	core::smart_refctd_ptr<GeoreferencedImageStreamingState> georeferencedImageState = nullptr; // Used to track tile residency for georeferenced images
 	
 	// In LRU Cache `insert` function, in case of cache miss, we need to construct the refereence with semaphore value
 	CachedImageRecord(uint64_t currentFrameIndex) 

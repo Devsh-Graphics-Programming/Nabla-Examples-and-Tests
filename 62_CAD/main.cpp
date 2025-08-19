@@ -49,7 +49,7 @@ static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
 static constexpr bool LargeGeoTextureStreaming = true;
 static constexpr bool CacheAndReplay = false; // caches first frame resources (buffers and images) from DrawResourcesFiller  and replays in future frames, skiping CPU Logic
-static constexpr bool textCameraRotation = false;
+static constexpr bool testCameraRotation = false;
 
 enum class ExampleMode
 {
@@ -363,6 +363,173 @@ bool performImageFormatPromotionCopy(const core::smart_refctd_ptr<asset::ICPUIma
     else
         return performCopyUsingImageFilter<asset::CSwizzleAndConvertImageFilter<asset::EF_UNKNOWN, asset::EF_UNKNOWN, PromotionComponentSwizzle<4u>>>(inCPUImage, outCPUImage);
 }
+
+// Used by case 12
+struct ImageLoader : public DrawResourcesFiller::IGeoreferencedImageLoader
+{
+	core::smart_refctd_ptr<ICPUBuffer> load(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t mipLevel) override
+	{
+		// Image path ignored for this hardcoded example
+		const auto& image = mipLevels[mipLevel];
+		const auto& imageBuffer = image->getBuffer();
+		const core::rational<uint32_t> bytesPerPixel = asset::getBytesPerPixel(image->getCreationParameters().format);
+		const size_t bytesPerRow = (bytesPerPixel * extent.x).getIntegerApprox();
+		const size_t loadedImageBytes = bytesPerRow * extent.y;
+		asset::IBuffer::SCreationParams bufCreationParams = { .size = loadedImageBytes, .usage = imageBuffer->getCreationParams().usage};
+		ICPUBuffer::SCreationParams cpuBufCreationParams(std::move(bufCreationParams));
+		core::smart_refctd_ptr<ICPUBuffer> retVal = ICPUBuffer::create(std::move(cpuBufCreationParams));
+
+		// Copy row by row into the new buffer
+		uint8_t* dataPtr = reinterpret_cast<uint8_t*>(retVal->getPointer());
+		const uint8_t* imageBufferDataPtr = reinterpret_cast<uint8_t*>(imageBuffer->getPointer());
+		const size_t bytesPerImageRow = (bytesPerPixel * image->getCreationParameters().extent.width).getIntegerApprox();
+		for (auto row = 0u; row < extent.y; row++)
+		{
+			const size_t imageBufferOffset = bytesPerImageRow * (offset.y + row) + (bytesPerPixel * offset.x).getIntegerApprox();
+			std::memcpy(dataPtr + row * bytesPerRow, imageBufferDataPtr + imageBufferOffset, bytesPerRow);
+		}
+		return retVal;
+	}
+
+	ImageLoader(asset::IAssetManager* assetMgr, system::ILogger* logger, video::IPhysicalDevice* physicalDevice)
+		: m_assetMgr(assetMgr), m_logger(logger), m_physicalDevice(physicalDevice) 
+	{ 
+		auto loadImage = [&](const std::string& imagePath) -> smart_refctd_ptr<ICPUImage>
+			{
+				system::path m_loadCWD = "..";
+				constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
+				const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger, m_loadCWD);
+				auto bundle = m_assetMgr->getAsset(imagePath, loadParams);
+				auto contents = bundle.getContents();
+				if (contents.empty())
+				{
+					m_logger->log("Failed to load image with path %s, skipping!", ILogger::ELL_ERROR, (m_loadCWD / imagePath).c_str());
+					return nullptr;
+				}
+
+				smart_refctd_ptr<ICPUImageView> cpuImgView;
+				const auto& asset = contents[0];
+				switch (asset->getAssetType())
+				{
+				case IAsset::ET_IMAGE:
+				{
+					auto image = smart_refctd_ptr_static_cast<ICPUImage>(asset);
+					auto& flags = image->getCreationParameters().flags;
+					// assert if asset is mutable
+					const_cast<core::bitflag<asset::IImage::E_CREATE_FLAGS>&>(flags) |= asset::IImage::E_CREATE_FLAGS::ECF_MUTABLE_FORMAT_BIT;
+					const auto format = image->getCreationParameters().format;
+
+					ICPUImageView::SCreationParams viewParams = {
+						.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
+						.image = std::move(image),
+						.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
+						.format = format,
+						.subresourceRange = {
+							.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+							.baseMipLevel = 0u,
+							.levelCount = ICPUImageView::remaining_mip_levels,
+							.baseArrayLayer = 0u,
+							.layerCount = ICPUImageView::remaining_array_layers
+						}
+					};
+
+					cpuImgView = ICPUImageView::create(std::move(viewParams));
+				} break;
+
+				case IAsset::ET_IMAGE_VIEW:
+					cpuImgView = smart_refctd_ptr_static_cast<ICPUImageView>(asset);
+					break;
+				default:
+					m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type, skipping!", ILogger::ELL_ERROR);
+					return nullptr;
+				}
+
+				const auto loadedCPUImage = cpuImgView->getCreationParameters().image;
+				const auto loadedCPUImageCreationParams = loadedCPUImage->getCreationParameters();
+
+				// Promoting the image to a format GPU supports. (so that updateImageViaStagingBuffer doesn't have to handle that each frame if overflow-submit needs to happen)
+				auto promotedCPUImageCreationParams = loadedCPUImage->getCreationParameters();
+
+				promotedCPUImageCreationParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT | IGPUImage::EUF_SAMPLED_BIT;
+				// promote format because RGB8 and friends don't actually exist in HW
+				{
+					const IPhysicalDevice::SImageFormatPromotionRequest request = {
+						.originalFormat = promotedCPUImageCreationParams.format,
+						.usages = IPhysicalDevice::SFormatImageUsages::SUsage(promotedCPUImageCreationParams.usage)
+					};
+					promotedCPUImageCreationParams.format = m_physicalDevice->promoteImageFormat(request, video::IGPUImage::TILING::OPTIMAL);
+				}
+
+				if (loadedCPUImageCreationParams.format != promotedCPUImageCreationParams.format)
+				{
+					smart_refctd_ptr<ICPUImage> promotedCPUImage = ICPUImage::create(promotedCPUImageCreationParams);
+					core::rational<uint32_t> bytesPerPixel = asset::getBytesPerPixel(promotedCPUImageCreationParams.format);
+
+					const auto extent = loadedCPUImageCreationParams.extent;
+					const uint32_t mipLevels = loadedCPUImageCreationParams.mipLevels;
+					const uint32_t arrayLayers = loadedCPUImageCreationParams.arrayLayers;
+
+					// Only supporting 1 mip, it's just for test..
+					const size_t byteSize = (bytesPerPixel * extent.width * extent.height * extent.depth * arrayLayers).getIntegerApprox(); // TODO: consider mips
+					ICPUBuffer::SCreationParams bufferCreationParams = {};
+					bufferCreationParams.size = byteSize;
+					smart_refctd_ptr<ICPUBuffer> promotedCPUImageBuffer = ICPUBuffer::create(std::move(bufferCreationParams));
+
+					auto newRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1u);
+					ICPUImage::SBufferCopy& region = newRegions->front();
+					region.imageSubresource.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+					region.imageSubresource.mipLevel = 0u; // TODO
+					region.imageSubresource.baseArrayLayer = 0u;
+					region.imageSubresource.layerCount = arrayLayers;
+					region.bufferOffset = 0u;
+					region.bufferRowLength = 0u;
+					region.bufferImageHeight = 0u;
+					region.imageOffset = { 0u, 0u, 0u };
+					region.imageExtent = extent;
+					promotedCPUImage->setBufferAndRegions(std::move(promotedCPUImageBuffer), newRegions);
+
+					performImageFormatPromotionCopy(loadedCPUImage, promotedCPUImage);
+					return promotedCPUImage;
+				}
+				else
+				{
+					return loadedCPUImage;
+				}
+			};
+
+		// TODO: Unhardcode
+		const std::string basePath = "../../media/tiled_grid_mip_";
+		smart_refctd_ptr<ICPUImage> img = loadImage(basePath + "0.exr");
+		const uint32_t sidelength = img->getCreationParameters().extent.width;
+
+		const uint32_t maxMipLevel = nbl::hlsl::findMSB(sidelength / 128u);
+		mipLevels.reserve(maxMipLevel + 1);
+		mipLevels.emplace_back(std::move(img));
+		for (auto i = 1u; i <= maxMipLevel; i++)
+		{
+			mipLevels.emplace_back(loadImage(basePath + std::to_string(i) + ".exr"));
+		}
+	}
+
+	uint32_t2 getExtents(std::filesystem::path imagePath) override
+	{
+		uint32_t sidelength = mipLevels[0]->getCreationParameters().extent.width;
+		return uint32_t2(sidelength, sidelength);
+	}
+
+	asset::E_FORMAT getFormat(std::filesystem::path imagePath) override
+	{
+		return mipLevels[0]->getCreationParameters().format;
+	}
+
+private:
+	// These are here for the example, might not be class members when porting to n4ce
+	asset::IAssetManager* m_assetMgr = {};
+	system::ILogger* m_logger = {};
+	video::IPhysicalDevice* m_physicalDevice = {};
+	// We're going to fake it in the example so it's easier to work with, but the interface remains
+	core::vector<smart_refctd_ptr<ICPUImage>> mipLevels = {};
+};
 
 class ComputerAidedDesign final : public nbl::examples::SimpleWindowedApplication, public nbl::examples::BuiltinResourcesApplication
 {
@@ -1266,7 +1433,11 @@ public:
 
 		gridDTMHeightMap = loadImage("../../media/gridDTMHeightMap.exr");
 
-		bigTiledGrid = loadImage("../../media/tiled_grid.exr");
+		// Create case 12 image loader
+		if constexpr (mode == ExampleMode::CASE_12)
+		{
+			drawResourcesFiller.setGeoreferencedImageLoader(make_smart_refctd_ptr<ImageLoader>(m_assetMgr.get(), m_logger.get(), m_physicalDevice));
+		}
 
 		// set diagonals of cells to TOP_LEFT_TO_BOTTOM_RIGHT or BOTTOM_LEFT_TO_TOP_RIGHT randomly
 		{
@@ -1498,7 +1669,7 @@ public:
 		projectionToNDC = m_Camera.constructViewProjection();
 
 		// TEST CAMERA ROTATION
-		if constexpr (textCameraRotation)
+		if constexpr (testCameraRotation)
 			projectionToNDC = rotateBasedOnTime(projectionToNDC);
 
 		Globals globalData = {};
@@ -3680,18 +3851,20 @@ protected:
 		}
 		else if (mode == ExampleMode::CASE_12)
 		{
-			const static float64_t3 topLeftViewportH = float64_t3(-1.0, -1.0, 1.0);
-			const static float64_t3 topRightViewportH = float64_t3(1.0, -1.0, 1.0);
-			const static float64_t3 bottomLeftViewportH = float64_t3(-1.0, 1.0, 1.0);
-			const static float64_t3 bottomRightViewportH = float64_t3(1.0, 1.0, 1.0);
+			// placeholder, actual path is right now hardcoded into the loader
+			const static std::string tiledGridPath = "../../media/tiled_grid_mip_0.exr";
+
+			constexpr float64_t3 topLeftViewportH = float64_t3(-1.0, -1.0, 1.0);
+			constexpr float64_t3 topRightViewportH = float64_t3(1.0, -1.0, 1.0);
+			constexpr float64_t3 bottomLeftViewportH = float64_t3(-1.0, 1.0, 1.0);
+			constexpr float64_t3 bottomRightViewportH = float64_t3(1.0, 1.0, 1.0);
 
 			image_id tiledGridID = 6996;
-			static GeoreferencedImageParams tiledGridParams;
-			auto& tiledGridCreationParams = bigTiledGrid->getCreationParameters();
+			GeoreferencedImageParams tiledGridParams;
 			// Position at topLeft viewport
 			auto projectionToNDC = m_Camera.constructViewProjection();
 			// TEST CAMERA ROTATION
-			if constexpr (textCameraRotation)
+			if constexpr (testCameraRotation)
 				projectionToNDC = rotateBasedOnTime(projectionToNDC);
 			auto inverseViewProj = nbl::hlsl::inverse(projectionToNDC);
 			
@@ -3701,20 +3874,17 @@ protected:
 			// Get 1 viewport pixel to match `startingImagePixelsPerViewportPixel` pixels of the image by choosing appropriate dirU
 			const static float64_t startingImagePixelsPerViewportPixels = 1.5;
 			const static auto startingViewportWidthVector = nbl::hlsl::mul(inverseViewProj, topRightViewportH - topLeftViewportH);
-			const static auto dirU = startingViewportWidthVector * float64_t(bigTiledGrid->getCreationParameters().extent.width) / float64_t(startingImagePixelsPerViewportPixels * m_window->getWidth());
+			const static auto dirU = startingViewportWidthVector * float64_t(drawResourcesFiller.queryGeoreferencedImageExtents(tiledGridPath).x) / float64_t(startingImagePixelsPerViewportPixels * m_window->getWidth());
 			tiledGridParams.worldspaceOBB.dirU = dirU;
 			tiledGridParams.worldspaceOBB.aspectRatio = 1.0;
-			tiledGridParams.imageExtents = { tiledGridCreationParams.extent.width, tiledGridCreationParams.extent.height};
+			tiledGridParams.imageExtents = drawResourcesFiller.queryGeoreferencedImageExtents(tiledGridPath);
 			tiledGridParams.viewportExtents = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
-			tiledGridParams.format = tiledGridCreationParams.format;
+			tiledGridParams.format = drawResourcesFiller.queryGeoreferencedImageFormat(tiledGridPath);
+			tiledGridParams.storagePath = tiledGridPath;
 
-			static auto bigTileGridPtr = bigTiledGrid;
-			static DrawResourcesFiller::ImageLoader loader(std::move(bigTileGridPtr));
-			static DrawResourcesFiller::StreamedImageManager tiledGridManager(tiledGridID, std::move(tiledGridParams), std::move(loader));
+			drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(tiledGridID, std::move(tiledGridParams), intendedNextSubmit);
 
-			drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(tiledGridID, tiledGridManager.georeferencedImageParams, intendedNextSubmit);
-
-			drawResourcesFiller.addGeoreferencedImage(tiledGridManager, inverseViewProj, tiledGridParams.viewportExtents, intendedNextSubmit);
+			drawResourcesFiller.addGeoreferencedImage(tiledGridID, inverseViewProj, intendedNextSubmit);
 		}
 	}
 
@@ -3800,7 +3970,6 @@ protected:
 
 	std::vector<smart_refctd_ptr<ICPUImage>> sampleImages;
 	smart_refctd_ptr<ICPUImage> gridDTMHeightMap;
-	smart_refctd_ptr<ICPUImage> bigTiledGrid;
 
 	static constexpr char FirstGeneratedCharacter = ' ';
 	static constexpr char LastGeneratedCharacter = '~';
