@@ -64,6 +64,8 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 				if (!std::filesystem::exists(tmp.parent_path()))
 					return logFail("Path specified in --savepath argument doesn't exist");
+
+				m_specifiedGeomSavePath.emplace(std::move(tmp.generic_string()));
 			}
 
 			m_semaphore = m_device->createSemaphore(m_realFrameIx);
