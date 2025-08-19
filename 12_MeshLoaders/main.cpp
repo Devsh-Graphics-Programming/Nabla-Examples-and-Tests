@@ -35,7 +35,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 			// parse args
 			argparse::ArgumentParser parser("12_meshloaders");
-			parser.add_argument("--savemesh")
+			parser.add_argument("--savegeometry")
 				.help("Save the mesh on exit or reload")
 				.flag();
 
@@ -52,7 +52,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 				return logFail(e.what());
 			}
 
-			if (parser["--savemesh"] == true)
+			if (parser["--savegeometry"] == true)
 				m_saveGeom = true;
 
 			if (parser.present("--savepath"))
