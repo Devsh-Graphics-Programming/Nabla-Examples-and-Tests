@@ -237,17 +237,8 @@ public:
 			camera.endInputProcessing(nextPresentationTimestamp);
 		}
 
-		core::matrix4SIMD modelViewProjectionMatrix;
-	    {
-	        const auto viewMatrix = camera.getViewMatrix();
-		    const auto projectionMatrix = camera.getProjectionMatrix();
-		    const auto viewProjectionMatrix = camera.getConcatenatedMatrix();
-
-		    core::matrix3x4SIMD modelMatrix;
-		    modelMatrix.setTranslation(nbl::core::vectorSIMDf(0, 0, 0, 0));
-		    modelMatrix.setRotation(quaternion(0, 0, 0));
-			modelViewProjectionMatrix = core::concatenateBFollowedByA(viewProjectionMatrix, modelMatrix);
-	    }
+		float32_t4x4 viewProjectionMatrix;
+		memcpy(&viewProjectionMatrix, camera.getConcatenatedMatrix().pointer(), sizeof(viewProjectionMatrix));	// TODO: get rid of legacy transform
 
 		auto* queue = getGraphicsQueue();
 
@@ -287,7 +278,7 @@ public:
 
 			{
 				SSimplePushConstants pc;
-				memcpy(pc.MVP, modelViewProjectionMatrix.pointer(), sizeof(pc.MVP));
+				pc.MVP = viewProjectionMatrix;
 				pc.pVertices = verticesBuffer->getDeviceAddress();
 
 				cmdbuf->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
@@ -297,6 +288,9 @@ public:
 			}
 
 			{
+				using aabb_t = hlsl::shapes::AABB<3, float>;
+				using point_t = aabb_t::point_t;
+
 				std::mt19937 gen(42);
 				std::uniform_real_distribution<float> translate_dis(-50.f, 50.f);
 				std::uniform_real_distribution<float> scale_dis(1.f, 10.f);
@@ -305,14 +299,14 @@ public:
 				drawAABB->clearAABBs();
 				for (auto i = 0u; i < aabbCount; i++)
 				{
-					core::vector3d pmin = { translate_dis(gen), translate_dis(gen), translate_dis(gen) };
-					core::vector3d pmax = pmin + core::vector3d{ scale_dis(gen), scale_dis(gen), scale_dis(gen) };
-					core::aabbox3d aabb = { pmin, pmax };
+					point_t pmin = { translate_dis(gen), translate_dis(gen), translate_dis(gen) };
+					point_t pmax = pmin + point_t{ scale_dis(gen), scale_dis(gen), scale_dis(gen) };
+					aabb_t aabb = { pmin, pmax };
 					drawAABB->addAABB(aabb, { color_dis(gen),color_dis(gen),color_dis(gen),1});
 				}
 
 				const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
-				drawAABB->render(cmdbuf, drawFinished, modelViewProjectionMatrix.pointer());
+				drawAABB->render(cmdbuf, drawFinished, viewProjectionMatrix);
 			}
 
 			cmdbuf->endRenderPass();

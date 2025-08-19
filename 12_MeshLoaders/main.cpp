@@ -140,9 +140,9 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 						reloadModel();
 				}
 				// draw scene
+				float32_t3x4 viewMatrix;
+				float32_t4x4 viewProjMatrix;
 				{
-					float32_t3x4 viewMatrix;
-					float32_t4x4 viewProjMatrix;
 					// TODO: get rid of legacy matrices
 					{
 						memcpy(&viewMatrix,camera.getViewMatrix().pointer(),sizeof(viewMatrix));
@@ -153,19 +153,8 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 #ifdef NBL_BUILD_DEBUG_DRAW
 				if (m_drawBBs)
 				{
-					core::matrix4SIMD modelViewProjectionMatrix;
-					{
-						const auto viewMatrix = camera.getViewMatrix();
-						const auto projectionMatrix = camera.getProjectionMatrix();
-						const auto viewProjectionMatrix = camera.getConcatenatedMatrix();
-
-						core::matrix3x4SIMD modelMatrix;
-						modelMatrix.setTranslation(nbl::core::vectorSIMDf(0, 0, 0, 0));
-						modelMatrix.setRotation(quaternion(0, 0, 0));
-						modelViewProjectionMatrix = core::concatenateBFollowedByA(viewProjectionMatrix, modelMatrix);
-					}
 					const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
-					drawAABB->render(cb, drawFinished, modelViewProjectionMatrix.pointer());
+					drawAABB->render(cb, drawFinished, viewProjMatrix);
 				}
 #endif
 				cb->endRenderPass();
@@ -412,7 +401,12 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 #ifdef NBL_BUILD_DEBUG_DRAW
 					const auto tmpAabb = shapes::AABB<3,float>(promoted.minVx, promoted.maxVx);
 					const auto tmpWorld = hlsl::float32_t3x4(promotedWorld);
-					drawAABB->addOBB(tmpAabb, tmpWorld, hlsl::float32_t4{ 1,1,1,1 });
+					float32_t4x4 tmpWorld4x4;
+					tmpWorld4x4[0] = tmpWorld[0];
+				    tmpWorld4x4[1] = tmpWorld[1];
+				    tmpWorld4x4[2] = tmpWorld[2];
+				    tmpWorld4x4[3] = float32_t4(0, 0, 0, 1);
+					drawAABB->addOBB(tmpAabb, tmpWorld4x4, hlsl::float32_t4{ 1,1,1,1 });
 #endif
 				}
 				printAABB(bound,"Total");
