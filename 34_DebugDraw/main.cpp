@@ -3,7 +3,6 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "common.hpp"
-#include "app_resources/simple_common.hlsl"
 
 class DebugDrawSampleApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
@@ -119,60 +118,17 @@ public:
 		SPushConstantRange simplePcRange = {
 				.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX,
 				.offset = 0,
-				.size = sizeof(SSimplePushConstants)
+				.size = sizeof(ext::debug_draw::SSinglePushConstants)
 		};
 	    {
 			ext::debug_draw::DrawAABB::SCreationParameters params = {};
+			params.transfer = getTransferUpQueue();
 			params.assetManager = m_assetMgr;
-			params.pipelineLayout = ext::debug_draw::DrawAABB::createDefaultPipelineLayout(m_device.get());
+			params.singlePipelineLayout = ext::debug_draw::DrawAABB::createPipelineLayoutFromPCRange(m_device.get(), simplePcRange);
+			params.batchPipelineLayout = ext::debug_draw::DrawAABB::createDefaultPipelineLayout(m_device.get());
 			params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
 			params.utilities = m_utils;
             drawAABB = ext::debug_draw::DrawAABB::create(std::move(params));
-	    }
-		{
-			auto vertices = ext::debug_draw::DrawAABB::getVerticesFromAABB(testAABB);
-			IGPUBuffer::SCreationParams params;
-			params.size = sizeof(float32_t3) * vertices.size();
-			params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-			
-			m_utils->createFilledDeviceLocalBufferOnDedMem(
-				SIntendedSubmitInfo{ .queue = getTransferUpQueue() },
-				std::move(params),
-				vertices.data()
-			).move_into(verticesBuffer);
-		}
-
-		auto compileShader = [&](const std::string& filePath) -> smart_refctd_ptr<IShader>
-			{
-				IAssetLoader::SAssetLoadParams lparams = {};
-				lparams.logger = m_logger.get();
-				lparams.workingDirectory = localInputCWD;
-				auto bundle = m_assetMgr->getAsset(filePath, lparams);
-				if (bundle.getContents().empty() || bundle.getAssetType() != IAsset::ET_SHADER)
-				{
-					m_logger->log("Shader %s not found!", ILogger::ELL_ERROR, filePath.c_str());
-					exit(-1);
-				}
-
-				const auto assets = bundle.getContents();
-				assert(assets.size() == 1);
-				smart_refctd_ptr<IShader> shaderSrc = IAsset::castDown<IShader>(assets[0]);
-				if (!shaderSrc)
-					return nullptr;
-
-				return m_device->compileShader({ shaderSrc.get() });
-			};
-	    {
-	        auto vertexShader = compileShader("app_resources/simple.vertex.hlsl");
-		    auto fragmentShader = compileShader("app_resources/simple.fragment.hlsl");
-
-		    const auto pipelineLayout = ext::debug_draw::DrawAABB::createDefaultPipelineLayout(m_device.get(), simplePcRange);
-
-		    IGPUGraphicsPipeline::SShaderSpecInfo vs = { .shader = vertexShader.get(), .entryPoint = "main" };
-		    IGPUGraphicsPipeline::SShaderSpecInfo fs = { .shader = fragmentShader.get(), .entryPoint = "main" };
-			m_pipeline = ext::debug_draw::DrawAABB::createDefaultPipeline(m_device.get(), pipelineLayout.get(), renderpass, vs, fs);
-		    if (!m_pipeline)
-		        return logFail("Graphics pipeline creation failed");
 	    }
 
 		m_window->setCaption("[Nabla Engine] Debug Draw App Test Demo");
@@ -276,16 +232,9 @@ public:
 				.renderArea = currentRenderArea
 			};
 
-			{
-				SSimplePushConstants pc;
-				pc.MVP = viewProjectionMatrix;
-				pc.pVertices = verticesBuffer->getDeviceAddress();
+			cmdbuf->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 
-				cmdbuf->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-				cmdbuf->bindGraphicsPipeline(m_pipeline.get());
-				cmdbuf->pushConstants(m_pipeline->getLayout(), ESS_VERTEX, 0, sizeof(SSimplePushConstants), &pc);
-				drawAABB->renderSingle(cmdbuf);
-			}
+			drawAABB->renderSingle(cmdbuf, testAABB, float32_t4{1, 0, 0, 1}, viewProjectionMatrix);
 
 			{
 				using aabb_t = hlsl::shapes::AABB<3, float>;
@@ -296,17 +245,23 @@ public:
 				std::uniform_real_distribution<float> scale_dis(1.f, 10.f);
 				std::uniform_real_distribution<float> color_dis(0.f, 1.f);
 				const uint32_t aabbCount = 200u;
-				drawAABB->clearAABBs();
+
+				std::array<ext::debug_draw::InstanceData, aabbCount> aabbInstances;
 				for (auto i = 0u; i < aabbCount; i++)
 				{
 					point_t pmin = { translate_dis(gen), translate_dis(gen), translate_dis(gen) };
 					point_t pmax = pmin + point_t{ scale_dis(gen), scale_dis(gen), scale_dis(gen) };
 					aabb_t aabb = { pmin, pmax };
-					drawAABB->addAABB(aabb, { color_dis(gen),color_dis(gen),color_dis(gen),1});
+
+					auto& instance = aabbInstances[i];
+					instance.color = { color_dis(gen),color_dis(gen),color_dis(gen),1 };
+
+					hlsl::float32_t4x4 instanceTransform = ext::debug_draw::DrawAABB::getTransformFromAABB(aabb);
+					instance.transform = instanceTransform;
 				}
 
 				const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
-				drawAABB->render(cmdbuf, drawFinished, viewProjectionMatrix);
+				drawAABB->render(cmdbuf, drawFinished, aabbInstances, viewProjectionMatrix);
 			}
 
 			cmdbuf->endRenderPass();
@@ -448,9 +403,7 @@ private:
 	float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
 
 	smart_refctd_ptr<ext::debug_draw::DrawAABB> drawAABB;
-	core::aabbox3d<float> testAABB = core::aabbox3d<float>({ -5, -5, -5 }, { 10, 10, -10 });
-	core::aabbox3d<float> testAABB2 = core::aabbox3d<float>({ 0, 0, 0 }, { 1, 1, 1 });
-	smart_refctd_ptr<IGPUBuffer> verticesBuffer;
+	hlsl::shapes::AABB<3, float> testAABB = hlsl::shapes::AABB<3, float>{ { -5, -5, -5 }, { 10, 10, -10 } };
 
 	using streaming_buffer_t = video::StreamingTransientDataBufferST<core::allocator<uint8_t>>;
 	smart_refctd_ptr<streaming_buffer_t> streamingBuffer;

@@ -54,13 +54,21 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 #ifdef NBL_BUILD_DEBUG_DRAW
 			{
+				SPushConstantRange dummyPcRange = {
+				.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX,
+				.offset = 0,
+				.size = sizeof(ext::debug_draw::SSinglePushConstants)
+				};
+
 				auto* renderpass = scRes->getRenderpass();
 				ext::debug_draw::DrawAABB::SCreationParameters params = {};
 				params.assetManager = m_assetMgr;
-				params.pipelineLayout = ext::debug_draw::DrawAABB::createDefaultPipelineLayout(m_device.get());
+				params.transfer = getTransferUpQueue();
+				params.singlePipelineLayout = ext::debug_draw::DrawAABB::createPipelineLayoutFromPCRange(m_device.get(), dummyPcRange); // not used
+				params.batchPipelineLayout = ext::debug_draw::DrawAABB::createDefaultPipelineLayout(m_device.get());
 				params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
 				params.utilities = m_utils;
-				drawAABB = ext::debug_draw::DrawAABB::create(std::move(params));
+				m_drawAABB = ext::debug_draw::DrawAABB::create(std::move(params));
 			}
 #endif
 
@@ -154,7 +162,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 				if (m_drawBBs)
 				{
 					const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
-					drawAABB->render(cb, drawFinished, viewProjMatrix);
+					m_drawAABB->render(cb, drawFinished, m_aabbInstances, viewProjMatrix);
 				}
 #endif
 				cb->endRenderPass();
@@ -377,9 +385,6 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 					}
 				}
 
-#ifdef NBL_BUILD_DEBUG_DRAW
-				drawAABB->clearAABBs();
-#endif
 				auto tmp = hlsl::float32_t4x3(
 					hlsl::float32_t3(1,0,0),
 					hlsl::float32_t3(0,1,0),
@@ -388,8 +393,10 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 				);
 				core::vector<hlsl::float32_t3x4> worldTforms;
 				const auto& converted = reservation.getGPUObjects<ICPUPolygonGeometry>();
-				for (const auto& geom : converted)
+				m_aabbInstances.resize(converted.size());
+				for (uint32_t i = 0; i < converted.size(); i++)
 				{
+					const auto& geom = converted[i];
 					const auto promoted = geom.value->getAABB<aabb_t>();
 					printAABB(promoted,"Geometry");
 					tmp[3].x += promoted.getExtent().x;
@@ -399,14 +406,16 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 					bound = hlsl::shapes::util::union_(transformed,bound);
 
 #ifdef NBL_BUILD_DEBUG_DRAW
+					auto& inst = m_aabbInstances[i];
 					const auto tmpAabb = shapes::AABB<3,float>(promoted.minVx, promoted.maxVx);
+					hlsl::float32_t4x4 instanceTransform = ext::debug_draw::DrawAABB::getTransformFromAABB(tmpAabb);
 					const auto tmpWorld = hlsl::float32_t3x4(promotedWorld);
-					float32_t4x4 tmpWorld4x4;
-					tmpWorld4x4[0] = tmpWorld[0];
-				    tmpWorld4x4[1] = tmpWorld[1];
-				    tmpWorld4x4[2] = tmpWorld[2];
-				    tmpWorld4x4[3] = float32_t4(0, 0, 0, 1);
-					drawAABB->addOBB(tmpAabb, tmpWorld4x4, hlsl::float32_t4{ 1,1,1,1 });
+					inst.color = { 1,1,1,1 };
+					inst.transform[0] = tmpWorld[0];
+					inst.transform[1] = tmpWorld[1];
+					inst.transform[2] = tmpWorld[2];
+					inst.transform[3] = float32_t4(0, 0, 0, 1);
+					inst.transform = hlsl::mul(inst.transform, instanceTransform);
 #endif
 				}
 				printAABB(bound,"Total");
@@ -460,7 +469,8 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 		bool m_drawBBs = true;
 #ifdef NBL_BUILD_DEBUG_DRAW
-		smart_refctd_ptr<nbl::ext::debug_draw::DrawAABB> drawAABB;
+		smart_refctd_ptr<ext::debug_draw::DrawAABB> m_drawAABB;
+		std::vector<ext::debug_draw::InstanceData> m_aabbInstances;
 #endif
 };
 
