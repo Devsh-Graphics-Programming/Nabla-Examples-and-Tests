@@ -109,8 +109,70 @@ struct ImageCleanup : public core::IReferenceCounted
 
 };
 
-// Forward declared so we can have a smart pointer in the cached record
-struct GeoreferencedImageStreamingState;
+// Measured in tile coordinates in the image that the range spans, and the mip level the tiles correspond to
+struct GeoreferencedImageTileRange
+{
+	uint32_t2 topLeft;
+	uint32_t2 bottomRight;
+	uint32_t baseMipLevel;
+};
+
+// @brief Used to load tiles into VRAM, keep track of loaded tiles, determine how they get sampled etc.
+struct GeoreferencedImageStreamingState : public IReferenceCounted
+{
+	friend class DrawResourcesFiller;
+
+protected:
+	static smart_refctd_ptr<GeoreferencedImageStreamingState> create(GeoreferencedImageParams&& _georeferencedImageParams)
+	{
+		smart_refctd_ptr<GeoreferencedImageStreamingState> retVal(new GeoreferencedImageStreamingState{});
+		retVal->georeferencedImageParams = std::move(_georeferencedImageParams);
+		//	1. Get the displacement (will be an offset vector in world coords and world units) from the `topLeft` corner of the image to the point
+		//	2. Transform this displacement vector into the coordinates in the basis {dirU, dirV} (worldspace vectors that span the sides of the image).
+		//	The composition of these matrices there fore transforms any point in worldspace into uv coordinates in imagespace
+
+
+		// 1. Displacement. The following matrix computes the offset for an input point `p` with homogenous worldspace coordinates. 
+		//    By foregoing the homogenous coordinate we can keep only the vector part, that's why it's `2x3` and not `3x3`
+		float64_t2 topLeftWorld = retVal->georeferencedImageParams.worldspaceOBB.topLeft;
+		float64_t2x3 displacementMatrix(1., 0., - topLeftWorld.x, 0., 1., - topLeftWorld.y);
+
+		// 2. Change of Basis. Since {dirU, dirV} are orthogonal, the matrix to change from world coords to `span{dirU, dirV}` coords has a quite nice expression
+		//    Non-uniform scaling doesn't affect this, but this has to change if we allow for shearing (basis vectors stop being orthogonal)
+		float64_t2 dirU = retVal->georeferencedImageParams.worldspaceOBB.dirU;
+		float64_t2 dirV = float32_t2(dirU.y, -dirU.x) * retVal->georeferencedImageParams.worldspaceOBB.aspectRatio;
+		float64_t dirULengthSquared = nbl::hlsl::dot(dirU, dirU);
+		float64_t dirVLengthSquared = nbl::hlsl::dot(dirV, dirV);
+		float64_t2 firstRow = dirU / dirULengthSquared;
+		float64_t2 secondRow = dirV / dirVLengthSquared;
+		float64_t2x2 changeOfBasisMatrix(firstRow, secondRow);
+
+		// Put them all together
+		retVal->world2UV = nbl::hlsl::mul(changeOfBasisMatrix, displacementMatrix);
+		return retVal;
+	}
+
+	GeoreferencedImageParams georeferencedImageParams = {};
+	std::vector<std::vector<bool>> currentMappedRegionOccupancy = {};
+
+	// These are NOT UV, pixel or tile coords into the mapped image region, rather into the real, huge image
+	// Tile coords are always in mip 0 tile size. Translating to other mips levels is trivial
+	float64_t2 transformWorldCoordsToUV(const float64_t3 worldCoordsH) const { return nbl::hlsl::mul(world2UV, worldCoordsH); }
+	float64_t2 transformWorldCoordsToPixelCoords(const float64_t3 worldCoordsH) const { return float64_t2(georeferencedImageParams.imageExtents) * transformWorldCoordsToUV(worldCoordsH); }
+	float64_t2 transformWorldCoordsToTileCoords(const float64_t3 worldCoordsH, const uint32_t TileSize) const { return (1.0 / TileSize) * transformWorldCoordsToPixelCoords(worldCoordsH); }
+
+	// When the current mapped region is inadequate to fit the viewport, we compute a new mapped region
+	void remapCurrentRegion(const GeoreferencedImageTileRange& viewportTileRange);
+
+	// Sidelength of the gpu image, in tiles that are `GeoreferencedImageTileSize` pixels wide
+	uint32_t maxResidentTiles = {};
+	// Size of the image (minus 1), in tiles of `GeoreferencedImageTileSize` sidelength
+	uint32_t2 maxImageTileIndices = {};
+	// Set topLeft to extreme value so it gets recreated on first iteration
+	GeoreferencedImageTileRange currentMappedRegion = { .topLeft = uint32_t2(std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max()) };
+	// Converts a point (z = 1) in worldspace to UV coordinates in image space (origin shifted to topleft of the image)
+	float64_t2x3 world2UV = {};
+};
 
 struct CachedImageRecord
 {

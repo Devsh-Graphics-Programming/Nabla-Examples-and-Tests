@@ -49,7 +49,7 @@ static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
 static constexpr bool LargeGeoTextureStreaming = true;
 static constexpr bool CacheAndReplay = false; // caches first frame resources (buffers and images) from DrawResourcesFiller  and replays in future frames, skiping CPU Logic
-static constexpr bool testCameraRotation = false;
+static constexpr bool testCameraRotation = true;
 
 enum class ExampleMode
 {
@@ -664,10 +664,11 @@ public:
 		
 		// Static Image Sampler
 		{
+			constexpr auto wrapMode = mode == ExampleMode::CASE_12 ? IGPUSampler::E_TEXTURE_CLAMP::ETC_REPEAT : IGPUSampler::E_TEXTURE_CLAMP::ETC_MIRROR;
 			IGPUSampler::SParams samplerParams = {};
-			samplerParams.TextureWrapU = IGPUSampler::E_TEXTURE_CLAMP::ETC_MIRROR;
-			samplerParams.TextureWrapV = IGPUSampler::E_TEXTURE_CLAMP::ETC_MIRROR;
-			samplerParams.TextureWrapW = IGPUSampler::E_TEXTURE_CLAMP::ETC_MIRROR;
+			samplerParams.TextureWrapU = wrapMode;
+			samplerParams.TextureWrapV = wrapMode;
+			samplerParams.TextureWrapW = wrapMode;
 			samplerParams.BorderColor = IGPUSampler::ETBC_FLOAT_TRANSPARENT_BLACK;
 			samplerParams.MinFilter = IGPUSampler::ETF_LINEAR;
 			samplerParams.MaxFilter = IGPUSampler::ETF_LINEAR;
@@ -3872,7 +3873,7 @@ protected:
 			tiledGridParams.worldspaceOBB.topLeft = startingTopLeft;
 
 			// Get 1 viewport pixel to match `startingImagePixelsPerViewportPixel` pixels of the image by choosing appropriate dirU
-			const static float64_t startingImagePixelsPerViewportPixels = 1.5;
+			const static float64_t startingImagePixelsPerViewportPixels = 2.0;
 			const static auto startingViewportWidthVector = nbl::hlsl::mul(inverseViewProj, topRightViewportH - topLeftViewportH);
 			const static auto dirU = startingViewportWidthVector * float64_t(drawResourcesFiller.queryGeoreferencedImageExtents(tiledGridPath).x) / float64_t(startingImagePixelsPerViewportPixels * m_window->getWidth());
 			tiledGridParams.worldspaceOBB.dirU = dirU;

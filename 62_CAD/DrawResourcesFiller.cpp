@@ -2548,7 +2548,7 @@ ImageType DrawResourcesFiller::determineGeoreferencedImageCreationParams(nbl::as
 		outImageParams.extent = { gpuImageSidelength, gpuImageSidelength, 1u };
 	}
 
-	outImageParams.mipLevels = 1u; // TODO: Later do mipmapping
+	outImageParams.mipLevels = 2u;
 	outImageParams.arrayLayers = 1u;
 
 	return imageType;
@@ -2688,35 +2688,6 @@ void DrawResourcesFiller::flushDrawObjects()
 	}
 }
 
-smart_refctd_ptr<GeoreferencedImageStreamingState> GeoreferencedImageStreamingState::create(GeoreferencedImageParams&& _georeferencedImageParams)
-{
-	smart_refctd_ptr<GeoreferencedImageStreamingState> retVal(new GeoreferencedImageStreamingState{});
-	retVal->georeferencedImageParams = std::move(_georeferencedImageParams);
-	//	1. Get the displacement (will be an offset vector in world coords and world units) from the `topLeft` corner of the image to the point
-	//	2. Transform this displacement vector into the coordinates in the basis {dirU, dirV} (worldspace vectors that span the sides of the image).
-	//	The composition of these matrices there fore transforms any point in worldspace into uv coordinates in imagespace
-
-
-	// 1. Displacement. The following matrix computes the offset for an input point `p` with homogenous worldspace coordinates. 
-	//    By foregoing the homogenous coordinate we can keep only the vector part, that's why it's `2x3` and not `3x3`
-	float64_t2 topLeftWorld = retVal->georeferencedImageParams.worldspaceOBB.topLeft;
-	float64_t2x3 displacementMatrix(1., 0., - topLeftWorld.x, 0., 1., - topLeftWorld.y);
-
-	// 2. Change of Basis. Since {dirU, dirV} are orthogonal, the matrix to change from world coords to `span{dirU, dirV}` coords has a quite nice expression
-	//    Non-uniform scaling doesn't affect this, but this has to change if we allow for shearing (basis vectors stop being orthogonal)
-	float64_t2 dirU = retVal->georeferencedImageParams.worldspaceOBB.dirU;
-	float64_t2 dirV = float32_t2(dirU.y, -dirU.x) * retVal->georeferencedImageParams.worldspaceOBB.aspectRatio;
-	float64_t dirULengthSquared = nbl::hlsl::dot(dirU, dirU);
-	float64_t dirVLengthSquared = nbl::hlsl::dot(dirV, dirV);
-	float64_t2 firstRow = dirU / dirULengthSquared;
-	float64_t2 secondRow = dirV / dirVLengthSquared;
-	float64_t2x2 changeOfBasisMatrix(firstRow, secondRow);
-
-	// Put them all together
-	retVal->world2UV = nbl::hlsl::mul(changeOfBasisMatrix, displacementMatrix);
-	return retVal;
-}
-
 DrawResourcesFiller::TileUploadData DrawResourcesFiller::generateTileUploadData(const ImageType imageType, const float64_t3x3& NDCToWorld, GeoreferencedImageStreamingState* imageStreamingState)
 {
 	// I think eventually it's better to just transform georeferenced images that aren't big enough into static images and forget about them
@@ -2832,6 +2803,24 @@ DrawResourcesFiller::TileUploadData DrawResourcesFiller::generateTileUploadData(
 			bufCopy.imageOffset = { (tileX - imageStreamingState->currentMappedRegion.topLeft.x) * GeoreferencedImageTileSize, (tileY - imageStreamingState->currentMappedRegion.topLeft.y) * GeoreferencedImageTileSize, 0u };
 			bufCopy.imageExtent.width = GeoreferencedImageTileSize;
 			bufCopy.imageExtent.height = GeoreferencedImageTileSize;
+			bufCopy.imageExtent.depth = 1;
+
+			tiles.emplace_back(imageStreamingState->georeferencedImageParams.format, std::move(tile), std::move(bufCopy));
+
+			// Upload the smaller tile to mip 1
+			tile = georeferencedImageLoader->load(imageStreamingState->georeferencedImageParams.storagePath, uint32_t2(tileX * (GeoreferencedImageTileSize >> 1), tileY * (GeoreferencedImageTileSize >> 1)), uint32_t2(GeoreferencedImageTileSize >> 1, GeoreferencedImageTileSize >> 1), imageStreamingState->currentMappedRegion.baseMipLevel + 1);
+			bufCopy = {};
+
+			bufCopy.bufferOffset = 0;
+			bufCopy.bufferRowLength = GeoreferencedImageTileSize >> 1;
+			bufCopy.bufferImageHeight = 0;
+			bufCopy.imageSubresource.aspectMask = IImage::EAF_COLOR_BIT;
+			bufCopy.imageSubresource.mipLevel = 1u;
+			bufCopy.imageSubresource.baseArrayLayer = 0u;
+			bufCopy.imageSubresource.layerCount = 1u;
+			bufCopy.imageOffset = { (tileX - imageStreamingState->currentMappedRegion.topLeft.x) * (GeoreferencedImageTileSize >> 1), (tileY - imageStreamingState->currentMappedRegion.topLeft.y) * (GeoreferencedImageTileSize >> 1), 0u };
+			bufCopy.imageExtent.width = GeoreferencedImageTileSize >> 1;
+			bufCopy.imageExtent.height = GeoreferencedImageTileSize >> 1;
 			bufCopy.imageExtent.depth = 1;
 
 			tiles.emplace_back(imageStreamingState->georeferencedImageParams.format, std::move(tile), std::move(bufCopy));

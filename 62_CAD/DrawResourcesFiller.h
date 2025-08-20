@@ -20,45 +20,6 @@ static_assert(sizeof(LineStyle) == 88u);
 
 //TODO[Francisco]: Update briefs for geotex related functions
 
-// Measured in tile coordinates in the image that the range spans, and the mip level the tiles correspond to
-struct GeoreferencedImageTileRange
-{
-	uint32_t2 topLeft;
-	uint32_t2 bottomRight;
-	uint32_t baseMipLevel;
-};
-
-// @brief Used to load tiles into VRAM, keep track of loaded tiles, determine how they get sampled etc.
-struct GeoreferencedImageStreamingState : public IReferenceCounted
-{
-	friend class DrawResourcesFiller;
-
-protected:
-	static smart_refctd_ptr<GeoreferencedImageStreamingState> create(GeoreferencedImageParams&& _georeferencedImageParams);
-
-	//image_id imageID = {};
-	GeoreferencedImageParams georeferencedImageParams = {};
-	std::vector<std::vector<bool>> currentMappedRegionOccupancy = {};
-
-	// These are NOT UV, pixel or tile coords into the mapped image region, rather into the real, huge image
-	// Tile coords are always in mip 0 tile size. Translating to other mips levels is trivial
-	float64_t2 transformWorldCoordsToUV(const float64_t3 worldCoordsH) const { return nbl::hlsl::mul(world2UV, worldCoordsH); }
-	float64_t2 transformWorldCoordsToPixelCoords(const float64_t3 worldCoordsH) const { return float64_t2(georeferencedImageParams.imageExtents) * transformWorldCoordsToUV(worldCoordsH); }
-	float64_t2 transformWorldCoordsToTileCoords(const float64_t3 worldCoordsH, const uint32_t TileSize) const { return (1.0 / TileSize) * transformWorldCoordsToPixelCoords(worldCoordsH); }
-
-	// When the current mapped region is inadequate to fit the viewport, we compute a new mapped region
-	void remapCurrentRegion(const GeoreferencedImageTileRange& viewportTileRange);
-
-	// Sidelength of the gpu image, in tiles that are `GeoreferencedImageTileSize` pixels wide
-	uint32_t maxResidentTiles = {};
-	// Size of the image (minus 1), in tiles of `GeoreferencedImageTileSize` sidelength
-	uint32_t2 maxImageTileIndices = {};
-	// Set topLeft to extreme value so it gets recreated on first iteration
-	GeoreferencedImageTileRange currentMappedRegion = { .topLeft = uint32_t2(std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max()) };
-	// Converts a point (z = 1) in worldspace to UV coordinates in image space (origin shifted to topleft of the image)
-	float64_t2x3 world2UV = {};
-};
-
 // ! DrawResourcesFiller
 // ! This class provides important functionality to manage resources needed for a draw.
 // ! Drawing new objects (polylines, hatches, etc.) should go through this function.
