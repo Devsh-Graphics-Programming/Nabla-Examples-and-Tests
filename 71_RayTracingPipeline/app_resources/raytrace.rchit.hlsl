@@ -1,5 +1,6 @@
 #include "common.hlsl"
 
+#include "nbl/builtin/hlsl/spirv_intrinsics/core.hlsl"
 #include "nbl/builtin/hlsl/spirv_intrinsics/raytracing.hlsl"
 #include "nbl/builtin/hlsl/bda/__ptr.hlsl"
 
@@ -77,7 +78,7 @@ float3 calculateNormals(int primID, STriangleGeomInfo geom, float2 bary)
 [shader("closesthit")]
 void main(inout PrimaryPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
 {
-    const int primID = PrimitiveIndex();
+    const int primID = spirv::PrimitiveId;
     const int instanceCustomIndex = spirv::InstanceCustomIndexKHR;
     const int geometryIndex = spirv::RayGeometryIndexKHR;
     const STriangleGeomInfo geom = vk::RawBufferLoad < STriangleGeomInfo > (pc.triangleGeomInfoBuffer + (instanceCustomIndex + geometryIndex) * sizeof(STriangleGeomInfo));

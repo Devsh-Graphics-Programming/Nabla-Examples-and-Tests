@@ -1,5 +1,6 @@
 #include "common.hlsl"
 
+#include "nbl/builtin/hlsl/spirv_intrinsics/core.hlsl"
 #include "nbl/builtin/hlsl/spirv_intrinsics/raytracing.hlsl"
 
 using namespace nbl::hlsl;
@@ -33,7 +34,7 @@ void main()
     ray.origin = spirv::WorldRayOriginKHR;
     ray.direction = spirv::WorldRayDirectionKHR;
 
-    const int primID = PrimitiveIndex();
+    const int primID = spirv::PrimitiveId;
 
     // Sphere data
     SProceduralGeomInfo sphere = vk::RawBufferLoad<SProceduralGeomInfo>(pc.proceduralGeomInfoBuffer + primID * sizeof(SProceduralGeomInfo));

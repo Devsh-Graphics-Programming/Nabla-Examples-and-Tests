@@ -9,7 +9,7 @@ using namespace nbl::hlsl;
 [shader("anyhit")]
 void main(inout PrimaryPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
 {
-    const int instID = InstanceID();
+    const int instID = spirv::InstanceCustomIndexKHR;
     const STriangleGeomInfo geom = vk::RawBufferLoad < STriangleGeomInfo > (pc.triangleGeomInfoBuffer + instID * sizeof(STriangleGeomInfo));
 
     const uint32_t bitpattern = payload.pcg();
