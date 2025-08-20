@@ -124,6 +124,7 @@ public:
 			ext::debug_draw::DrawAABB::SCreationParameters params = {};
 			params.transfer = getTransferUpQueue();
 			params.assetManager = m_assetMgr;
+			params.drawMode = ext::debug_draw::DrawAABB::ADM_DRAW_BOTH;
 			params.singlePipelineLayout = ext::debug_draw::DrawAABB::createPipelineLayoutFromPCRange(m_device.get(), simplePcRange);
 			params.batchPipelineLayout = ext::debug_draw::DrawAABB::createDefaultPipelineLayout(m_device.get());
 			params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);

@@ -54,17 +54,11 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 #ifdef NBL_BUILD_DEBUG_DRAW
 			{
-				SPushConstantRange dummyPcRange = {
-				.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX,
-				.offset = 0,
-				.size = sizeof(ext::debug_draw::SSinglePushConstants)
-				};
-
 				auto* renderpass = scRes->getRenderpass();
 				ext::debug_draw::DrawAABB::SCreationParameters params = {};
 				params.assetManager = m_assetMgr;
 				params.transfer = getTransferUpQueue();
-				params.singlePipelineLayout = ext::debug_draw::DrawAABB::createPipelineLayoutFromPCRange(m_device.get(), dummyPcRange); // not used
+				params.drawMode = ext::debug_draw::DrawAABB::ADM_DRAW_BATCH;
 				params.batchPipelineLayout = ext::debug_draw::DrawAABB::createDefaultPipelineLayout(m_device.get());
 				params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
 				params.utilities = m_utils;
