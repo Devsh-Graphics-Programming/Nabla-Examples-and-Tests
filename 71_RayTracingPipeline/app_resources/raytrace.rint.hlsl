@@ -1,5 +1,10 @@
 #include "common.hlsl"
 
+#include "nbl/builtin/hlsl/spirv_intrinsics/core.hlsl"
+#include "nbl/builtin/hlsl/spirv_intrinsics/raytracing.hlsl"
+
+using namespace nbl::hlsl;
+
 [[vk::push_constant]] SPushConstants pc;
 
 struct Ray
@@ -26,22 +31,23 @@ float32_t hitSphere(SProceduralGeomInfo s, Ray r)
 void main()
 {
     Ray ray;
-    ray.origin = WorldRayOrigin();
-    ray.direction = WorldRayDirection();
+    ray.origin = spirv::WorldRayOriginKHR;
+    ray.direction = spirv::WorldRayDirectionKHR;
 
-    const int primID = PrimitiveIndex();
+    const int primID = spirv::PrimitiveId;
 
     // Sphere data
     SProceduralGeomInfo sphere = vk::RawBufferLoad<SProceduralGeomInfo>(pc.proceduralGeomInfoBuffer + primID * sizeof(SProceduralGeomInfo));
 
     const float32_t tHit = hitSphere(sphere, ray);
     
+    [[vk::ext_storage_class(spv::StorageClassHitAttributeKHR)]]
     ProceduralHitAttribute hitAttrib;
 
     // Report hit point
     if (tHit > 0)
     {
         hitAttrib.center = sphere.center;
-        ReportHit(tHit, 0, hitAttrib);
+        spirv::reportIntersectionKHR(tHit, 0);
     }
 }
