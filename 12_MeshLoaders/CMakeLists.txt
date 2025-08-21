@@ -16,3 +16,6 @@ endif()
 nbl_create_executable_project("" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}")
 # TODO: Arek temporarily disabled cause I haven't figured out how to make this target yet
 # LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} nblExamplesGeometrySpirvBRD)
+
+add_dependencies(${EXECUTABLE_NAME} argparse)
+target_include_directories(${EXECUTABLE_NAME} PUBLIC $<TARGET_PROPERTY:argparse,INTERFACE_INCLUDE_DIRECTORIES>)
