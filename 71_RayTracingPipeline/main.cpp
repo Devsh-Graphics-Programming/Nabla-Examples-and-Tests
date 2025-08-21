@@ -289,85 +289,106 @@ public:
 
 		// ray trace pipeline and descriptor set layout setup
 		{
-			const IGPUDescriptorSetLayout::SBinding bindings[] = {
-			  {
-				.binding = 0,
-				.type = asset::IDescriptor::E_TYPE::ET_ACCELERATION_STRUCTURE,
-				.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_RAYGEN,
-				.count = 1,
+			const auto bindings = std::array<const ICPUDescriptorSetLayout::SBinding, 2>{
+			  ICPUDescriptorSetLayout::SBinding{
+          .binding = 0,
+          .type = asset::IDescriptor::E_TYPE::ET_ACCELERATION_STRUCTURE,
+          .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+          .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_RAYGEN,
+          .count = 1,
 			  },
 			  {
-				.binding = 1,
-				.type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
-				.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_RAYGEN,
-				.count = 1,
+          .binding = 1,
+          .type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+          .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+          .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_RAYGEN,
+          .count = 1,
 			  }
 			};
-			const auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
-
-			const std::array<IGPUDescriptorSetLayout*, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> dsLayoutPtrs = { descriptorSetLayout.get() };
-			m_rayTracingDsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dsLayoutPtrs.begin(), dsLayoutPtrs.end()));
-			m_rayTracingDs = m_rayTracingDsPool->createDescriptorSet(descriptorSetLayout);
+			auto cpuDescriptorSetLayout = core::make_smart_refctd_ptr<ICPUDescriptorSetLayout>(bindings);
 
 			const SPushConstantRange pcRange = {
 			  .stageFlags = IShader::E_SHADER_STAGE::ESS_ALL_RAY_TRACING,
 			  .offset = 0u,
 			  .size = sizeof(SPushConstants),
 			};
-			const auto pipelineLayout = m_device->createPipelineLayout({ &pcRange, 1 }, smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
+			const auto cpuPipelineLayout = core::make_smart_refctd_ptr<ICPUPipelineLayout>(std::span<const asset::SPushConstantRange>({ pcRange }), std::move(cpuDescriptorSetLayout), nullptr, nullptr, nullptr);
 
-			IGPURayTracingPipeline::SCreationParams params = {};
-			params.layout = pipelineLayout.get();
-			using RayTracingFlags = IGPURayTracingPipeline::SCreationParams::FLAGS;
-			params.flags = core::bitflag(RayTracingFlags::NO_NULL_MISS_SHADERS) |
-				RayTracingFlags::NO_NULL_INTERSECTION_SHADERS |
-				RayTracingFlags::NO_NULL_ANY_HIT_SHADERS;
+			const auto pipeline = ICPURayTracingPipeline::create(cpuPipelineLayout.get());
+			pipeline->getCachedCreationParams() = {
+				.flags = IGPURayTracingPipeline::SCreationParams::FLAGS::NO_NULL_INTERSECTION_SHADERS,
+				.maxRecursionDepth = 1,
+				.dynamicStackSize = true,
+			};
 
-			auto& shaderGroups = params.shaderGroups;
+			pipeline->getSpecInfos(ESS_RAYGEN)[0] = {
+				.shader = raygenShader,
+				.entryPoint = "main",
+			};
 
-			shaderGroups.raygen = { .shader = raygenShader.get(), .entryPoint = "main" };
-
-			IGPUPipelineBase::SShaderSpecInfo missGroups[EMT_COUNT];
-			missGroups[EMT_PRIMARY] = { .shader = missShader.get(), .entryPoint = "main" };
-			missGroups[EMT_OCCLUSION] = { .shader = missShadowShader.get(), .entryPoint = "main" };
-			shaderGroups.misses = missGroups;
+			pipeline->getSpecInfoVector(ESS_MISS)->resize(EMT_COUNT);
+			const auto missGroups = pipeline->getSpecInfos(ESS_MISS);
+			missGroups[EMT_PRIMARY] = { .shader = missShader, .entryPoint = "main" };
+			missGroups[EMT_OCCLUSION] = { .shader = missShadowShader, .entryPoint = "main" };
 
 			auto getHitGroupIndex = [](E_GEOM_TYPE geomType, E_RAY_TYPE rayType)
 				{
 					return geomType * ERT_COUNT + rayType;
 				};
-			IGPURayTracingPipeline::SHitGroup hitGroups[E_RAY_TYPE::ERT_COUNT * E_GEOM_TYPE::EGT_COUNT];
-			hitGroups[getHitGroupIndex(EGT_TRIANGLES, ERT_PRIMARY)] = {
-				.closestHit = { .shader = closestHitShader.get(), .entryPoint = "main" },
-			  .anyHit = { .shader = anyHitShaderColorPayload.get(), .entryPoint = "main" },
-			};
-			hitGroups[getHitGroupIndex(EGT_TRIANGLES, ERT_OCCLUSION)] = {
-			  .anyHit = { .shader = anyHitShaderShadowPayload.get(), .entryPoint = "main" },
-			};
-			hitGroups[getHitGroupIndex(EGT_PROCEDURAL, ERT_PRIMARY)] = {
-			  .closestHit = { .shader = proceduralClosestHitShader.get(), .entryPoint = "main" },
-			  .anyHit = { .shader = anyHitShaderColorPayload.get(), .entryPoint = "main" },
-			  .intersection = { .shader = intersectionHitShader.get(), .entryPoint = "main" },
-			};
-			hitGroups[getHitGroupIndex(EGT_PROCEDURAL, ERT_OCCLUSION)] = {
-			  .anyHit = { .shader = anyHitShaderShadowPayload.get(), .entryPoint = "main" },
-			  .intersection = { .shader = intersectionHitShader.get(), .entryPoint = "main" },
-			};
-			shaderGroups.hits = hitGroups;
 
-			IGPUPipelineBase::SShaderSpecInfo callableGroups[ELT_COUNT];
-			callableGroups[ELT_DIRECTIONAL] = { .shader = directionalLightCallShader.get(), .entryPoint = "main" };
-			callableGroups[ELT_POINT] = { .shader = pointLightCallShader.get(), .entryPoint = "main" };
-			callableGroups[ELT_SPOT] = { .shader = spotLightCallShader.get(), .entryPoint = "main" };
-			shaderGroups.callables = callableGroups;
+			const auto hitGroupCount = ERT_COUNT * EGT_COUNT;
+			pipeline->getSpecInfoVector(ESS_CLOSEST_HIT)->resize(hitGroupCount);
+			pipeline->getSpecInfoVector(ESS_ANY_HIT)->resize(hitGroupCount);
+			pipeline->getSpecInfoVector(ESS_INTERSECTION)->resize(hitGroupCount);
 
-			params.cached.maxRecursionDepth = 1;
-			params.cached.dynamicStackSize = true;
+			const auto closestHitSpecs = pipeline->getSpecInfos(ESS_CLOSEST_HIT);
+			const auto anyHitSpecs = pipeline->getSpecInfos(ESS_ANY_HIT);
+			const auto intersectionSpecs = pipeline->getSpecInfos(ESS_INTERSECTION);
 
-			if (!m_device->createRayTracingPipelines(nullptr, { &params, 1 }, &m_rayTracingPipeline))
-				return logFail("Failed to create ray tracing pipeline");
+			closestHitSpecs[getHitGroupIndex(EGT_TRIANGLES, ERT_PRIMARY)] = { .shader = closestHitShader, .entryPoint = "main" };
+			anyHitSpecs[getHitGroupIndex(EGT_TRIANGLES, ERT_PRIMARY)] = {.shader = anyHitShaderColorPayload, .entryPoint = "main"};
+
+			anyHitSpecs[getHitGroupIndex(EGT_TRIANGLES, ERT_OCCLUSION)] = { .shader = anyHitShaderShadowPayload, .entryPoint = "main" };
+
+			closestHitSpecs[getHitGroupIndex(EGT_PROCEDURAL, ERT_PRIMARY)] = { .shader = proceduralClosestHitShader, .entryPoint = "main" };
+			anyHitSpecs[getHitGroupIndex(EGT_PROCEDURAL, ERT_PRIMARY)] = { .shader = anyHitShaderColorPayload, .entryPoint = "main" };
+			intersectionSpecs[getHitGroupIndex(EGT_PROCEDURAL, ERT_PRIMARY)] = { .shader = intersectionHitShader, .entryPoint = "main" };
+
+			anyHitSpecs[getHitGroupIndex(EGT_PROCEDURAL, ERT_OCCLUSION)] = {.shader = anyHitShaderShadowPayload, .entryPoint = "main" };
+			intersectionSpecs[getHitGroupIndex(EGT_PROCEDURAL, ERT_OCCLUSION)] = { .shader = intersectionHitShader, .entryPoint = "main" };
+
+			pipeline->getSpecInfoVector(ESS_CALLABLE)->resize(ELT_COUNT);
+			const auto callableGroups = pipeline->getSpecInfos(ESS_CALLABLE);
+			callableGroups[ELT_DIRECTIONAL] = { .shader = directionalLightCallShader, .entryPoint = "main" };
+			callableGroups[ELT_POINT] = { .shader = pointLightCallShader, .entryPoint = "main" };
+			callableGroups[ELT_SPOT] = { .shader = spotLightCallShader, .entryPoint = "main" };
+
+      smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = m_device.get(), .optimizer = {} });
+		  CAssetConverter::SInputs inputs = {};
+      inputs.logger = m_logger.get();
+
+			const std::array cpuPipelines = { pipeline.get() };
+			std::get<CAssetConverter::SInputs::asset_span_t<ICPURayTracingPipeline>>(inputs.assets) = cpuPipelines;
+
+			CAssetConverter::SConvertParams params = {};
+			params.utilities = m_utils.get();
+
+      auto reservation = converter->reserve(inputs);
+			auto future = reservation.convert(params);
+			if (future.copy() != IQueue::RESULT::SUCCESS)
+			{
+				m_logger->log("Failed to await submission feature!", ILogger::ELL_ERROR);
+				return false;
+			}
+
+			// assign gpu objects to output
+			auto&& pipelines = reservation.getGPUObjects<ICPURayTracingPipeline>();
+			m_rayTracingPipeline = pipelines[0].value;
+			const auto* gpuDsLayout = m_rayTracingPipeline->getLayout()->getDescriptorSetLayouts()[0];
+
+			const std::array<const IGPUDescriptorSetLayout*, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> dsLayoutPtrs = { gpuDsLayout };
+      m_rayTracingDsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dsLayoutPtrs.begin(), dsLayoutPtrs.end()));
+			m_rayTracingDs = m_rayTracingDsPool->createDescriptorSet(core::smart_refctd_ptr<const IGPUDescriptorSetLayout>(gpuDsLayout));
 
 			calculateRayTracingStackSize(m_rayTracingPipeline);
 
