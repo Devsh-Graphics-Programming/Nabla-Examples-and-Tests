@@ -319,15 +319,23 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			if (geometries.empty())
 				return false;
 
-			// TODO: do it async
 			if (m_saveGeom)
+			{
+				if (m_saveGeomTaskFuture.valid())
+				{
+					m_logger->log("Waiting for previous geometry saving task to complete...", ILogger::ELL_INFO);
+					m_saveGeomTaskFuture.wait();
+				}
+
+				std::string currentGeomSavePath = m_specifiedGeomSavePath.value_or((m_saveGeomPrefixPath / path(m_modelPath).filename()).generic_string());
 				m_saveGeomTaskFuture = std::async(
 					std::launch::async,
-					[this, geometries] { writeGeometry(
+					[this, geometries, currentGeomSavePath] { writeGeometry(
 						geometries[0],
-						m_specifiedGeomSavePath.value_or((m_saveGeomPrefixPath / path(m_modelPath).filename()).generic_string())
+						currentGeomSavePath
 					); }
 				);
+			}
 
 			using aabb_t = hlsl::shapes::AABB<3,double>;
 			auto printAABB = [&](const aabb_t& aabb, const char* extraMsg="")->void
