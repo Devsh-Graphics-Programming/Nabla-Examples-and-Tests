@@ -10,6 +10,70 @@
 #include "nbl/ext/MitsubaLoader/CSerializedLoader.h"
 #endif
 
+class ThreadPool
+{
+public:
+	ThreadPool(size_t numThreads = 4)
+	{
+		for (size_t i = 0; i < numThreads; i++)
+			m_workers.emplace_back(
+				[this]
+				{
+					while (true)
+					{
+						std::function<void()> task;
+						{
+							std::unique_lock lock(m_queueMutex);
+							m_taskReady.wait(lock, [this] { return m_stop.load() || !m_tasks.empty(); });
+							if (m_stop.load() && m_tasks.empty())
+								return;
+
+							task = std::move(m_tasks.front());
+							m_tasks.pop();
+						}
+
+						task();
+					}
+				}
+			);
+	}
+
+	template <typename Function, typename... Args>
+	auto enqueue(Function&& func, Args&& ...args) -> std::future<std::invoke_result_t<Function, Args...>>
+	{
+		using ret_t = std::invoke_result_t<Function, Args...>;
+
+		auto task = std::bind(std::forward<Function>(func), std::forward<Args>(args)...);
+		auto taskPtr = std::make_shared<std::packaged_task<ret_t()>>(std::move(task));
+
+		std::future<ret_t> future = taskPtr->get_future();
+
+		{
+			std::unique_lock lock(m_queueMutex);
+			m_tasks.emplace([taskPtr]() { (*taskPtr)(); });
+		}
+
+		m_taskReady.notify_one();
+		return future;
+	}
+
+	~ThreadPool()
+	{
+		m_stop.store(true);
+		m_taskReady.notify_all();
+		for (auto& worker : m_workers)
+			worker.join();
+	}
+
+private:
+	std::vector<std::thread> m_workers;
+	std::queue<std::function<void()>> m_tasks;
+	
+	std::mutex m_queueMutex;
+	std::condition_variable m_taskReady;
+	std::atomic<bool> m_stop;
+};
+
 class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourcesApplication
 {
 		using device_base_t = MonoWindowApplication;
@@ -217,10 +281,17 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 		inline bool onAppTerminated() override
 		{
-			if (m_saveGeomTaskFuture.valid())
+			m_logger->log("Waiting for all geometry saving tasks (%u) to complete...", ILogger::ELL_INFO, m_saveGeomTaskFutures.size());
+
+			for (size_t i = 0; i < m_saveGeomTaskFutures.size(); i++)
 			{
-				m_logger->log("Waiting for geometry writer to finish writing...", ILogger::ELL_INFO);
-				m_saveGeomTaskFuture.wait();
+				const auto& task = m_saveGeomTaskFutures[i];
+
+				if (!task.valid())
+					continue;
+
+				task.wait();
+				m_logger->log("Task %u of %u completed!", ILogger::ELL_INFO, i+1, m_saveGeomTaskFutures.size());
 			}
 
 			return device_base_t::onAppTerminated();
@@ -321,19 +392,9 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 
 			if (m_saveGeom)
 			{
-				if (m_saveGeomTaskFuture.valid())
-				{
-					m_logger->log("Waiting for previous geometry saving task to complete...", ILogger::ELL_INFO);
-					m_saveGeomTaskFuture.wait();
-				}
-
-				std::string currentGeomSavePath = m_specifiedGeomSavePath.value_or((m_saveGeomPrefixPath / path(m_modelPath).filename()).generic_string());
-				m_saveGeomTaskFuture = std::async(
-					std::launch::async,
-					[this, geometries, currentGeomSavePath] { writeGeometry(
-						geometries[0],
-						currentGeomSavePath
-					); }
+				std::string savePath = m_specifiedGeomSavePath.value_or((m_saveGeomPrefixPath / path(m_modelPath).filename()).generic_string());
+				m_saveGeomTaskFutures.emplace_back(
+					m_threadPool->enqueue([this, geometries, savePath] { writeGeometry(geometries[0], savePath); })
 				);
 			}
 
@@ -496,7 +557,8 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		std::string m_modelPath;
 
 		bool m_saveGeom = false;
-		std::future<void> m_saveGeomTaskFuture;
+		std::unique_ptr<ThreadPool> m_threadPool = std::make_unique<ThreadPool>(3);
+		std::vector<std::future<void>> m_saveGeomTaskFutures;
 		std::optional<const std::string> m_specifiedGeomSavePath;
 		nbl::system::path m_saveGeomPrefixPath;
 };
