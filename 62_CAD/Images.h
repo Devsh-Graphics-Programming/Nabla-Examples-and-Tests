@@ -129,26 +129,28 @@ protected:
 		retVal->georeferencedImageParams = std::move(_georeferencedImageParams);
 		//	1. Get the displacement (will be an offset vector in world coords and world units) from the `topLeft` corner of the image to the point
 		//	2. Transform this displacement vector into the coordinates in the basis {dirU, dirV} (worldspace vectors that span the sides of the image).
-		//	The composition of these matrices there fore transforms any point in worldspace into uv coordinates in imagespace
-
-
-		// 1. Displacement. The following matrix computes the offset for an input point `p` with homogenous worldspace coordinates. 
-		//    By foregoing the homogenous coordinate we can keep only the vector part, that's why it's `2x3` and not `3x3`
-		float64_t2 topLeftWorld = retVal->georeferencedImageParams.worldspaceOBB.topLeft;
-		float64_t2x3 displacementMatrix(1., 0., - topLeftWorld.x, 0., 1., - topLeftWorld.y);
+		//	The composition of these matrices therefore transforms any point in worldspace into uv coordinates in imagespace
+		//  To reduce code complexity, instead of computing the product of these matrices, since the first is a pure displacement matrix 
+		//  (non-homogenous 2x2 upper left is identity matrix) and the other is a pure rotation matrix (2x2) we can just put them together
+		//  by putting the rotation in the upper left 2x2 of the result and the post-rotated displacement in the upper right 2x1.
+		//  The result is also 2x3 and not 3x3 because we can drop he homogenous since the displacement yields a vector
 
 		// 2. Change of Basis. Since {dirU, dirV} are orthogonal, the matrix to change from world coords to `span{dirU, dirV}` coords has a quite nice expression
 		//    Non-uniform scaling doesn't affect this, but this has to change if we allow for shearing (basis vectors stop being orthogonal)
-		float64_t2 dirU = retVal->georeferencedImageParams.worldspaceOBB.dirU;
-		float64_t2 dirV = float32_t2(dirU.y, -dirU.x) * retVal->georeferencedImageParams.worldspaceOBB.aspectRatio;
-		float64_t dirULengthSquared = nbl::hlsl::dot(dirU, dirU);
-		float64_t dirVLengthSquared = nbl::hlsl::dot(dirV, dirV);
-		float64_t2 firstRow = dirU / dirULengthSquared;
-		float64_t2 secondRow = dirV / dirVLengthSquared;
-		float64_t2x2 changeOfBasisMatrix(firstRow, secondRow);
+		const float64_t2 dirU = retVal->georeferencedImageParams.worldspaceOBB.dirU;
+		const float64_t2 dirV = float32_t2(dirU.y, -dirU.x) * retVal->georeferencedImageParams.worldspaceOBB.aspectRatio;
+		const float64_t dirULengthSquared = nbl::hlsl::dot(dirU, dirU);
+		const float64_t dirVLengthSquared = nbl::hlsl::dot(dirV, dirV);
+		const float64_t2 firstRow = dirU / dirULengthSquared;
+		const float64_t2 secondRow = dirV / dirVLengthSquared;
+
+		const float64_t2 displacement = - retVal->georeferencedImageParams.worldspaceOBB.topLeft;
+		// This is the same as multiplying the change of basis matrix by the displacement vector
+		const float64_t postRotatedShiftX = nbl::hlsl::dot(firstRow, displacement);
+		const float64_t postRotatedShiftY = nbl::hlsl::dot(secondRow, displacement);
 
 		// Put them all together
-		retVal->world2UV = nbl::hlsl::mul(changeOfBasisMatrix, displacementMatrix);
+		retVal->world2UV = float64_t2x3(firstRow.x, firstRow.y, postRotatedShiftX, secondRow.x, secondRow.y, postRotatedShiftY);
 		return retVal;
 	}
 
@@ -157,19 +159,136 @@ protected:
 
 	// These are NOT UV, pixel or tile coords into the mapped image region, rather into the real, huge image
 	// Tile coords are always in mip 0 tile size. Translating to other mips levels is trivial
-	float64_t2 transformWorldCoordsToUV(const float64_t3 worldCoordsH) const { return nbl::hlsl::mul(world2UV, worldCoordsH); }
-	float64_t2 transformWorldCoordsToPixelCoords(const float64_t3 worldCoordsH) const { return float64_t2(georeferencedImageParams.imageExtents) * transformWorldCoordsToUV(worldCoordsH); }
-	float64_t2 transformWorldCoordsToTileCoords(const float64_t3 worldCoordsH, const uint32_t TileSize) const { return (1.0 / TileSize) * transformWorldCoordsToPixelCoords(worldCoordsH); }
+	float64_t2 transformWorldCoordsToUV(const float64_t3 worldCoords) const { return nbl::hlsl::mul(world2UV, worldCoords); }
+	float64_t2 transformWorldCoordsToPixelCoords(const float64_t3 worldCoords) const { return float64_t2(georeferencedImageParams.imageExtents) * transformWorldCoordsToUV(worldCoords); }
+	float64_t2 transformWorldCoordsToTileCoords(const float64_t3 worldCoords, const uint32_t TileSize) const { return (1.0 / TileSize) * transformWorldCoordsToPixelCoords(worldCoords); }
 
 	// When the current mapped region is inadequate to fit the viewport, we compute a new mapped region
-	void remapCurrentRegion(const GeoreferencedImageTileRange& viewportTileRange);
+	void remapCurrentRegion(const GeoreferencedImageTileRange& viewportTileRange)
+	{
+		// Zoomed out
+		if (viewportTileRange.baseMipLevel > currentMappedRegion.baseMipLevel)
+		{
+			// TODO: Here we would move some mip 1 tiles to mip 0 image to save the work of reuploading them, reflect that in the tracked tiles
+		}
+		// Zoomed in
+		else if (viewportTileRange.baseMipLevel < currentMappedRegion.baseMipLevel)
+		{
+			// TODO: Here we would move some mip 0 tiles to mip 1 image to save the work of reuploading them, reflect that in the tracked tiles
+		}
+		currentMappedRegion = viewportTileRange;
+
+		currentMappedRegionOccupancy.resize(gpuImageSideLengthTiles);
+		for (auto i = 0u; i < gpuImageSideLengthTiles; i++)
+		{
+			currentMappedRegionOccupancy[i].clear();
+			currentMappedRegionOccupancy[i].resize(gpuImageSideLengthTiles, false);
+		}
+		gpuImageTopLeft = uint32_t2(0, 0);
+	}
+
+	// When we can shift the mapped a region a bit and avoid tile uploads by using toroidal shifting
+	void shiftAndExpandCurrentRegion(const GeoreferencedImageTileRange& viewportTileRange)
+	{
+		// `topLeftDiff` starts as the vector (in tiles) from the current mapped region's top left to the top left of the range encompassing the viewport
+		int32_t2 topLeftDiff = int32_t2(viewportTileRange.topLeft) - int32_t2(currentMappedRegion.topLeft);
+		// Since we only consider expanding the mapped region by moving the top left up and to the left, we clamp the above vector to `(-infty, 0] x (-infty, 0]`
+		topLeftDiff = nbl::hlsl::min(topLeftDiff, int32_t2(0, 0));
+		int32_t2 nextTopLeft = int32_t2(currentMappedRegion.topLeft) + topLeftDiff;
+		// Same logic for bottom right but considering it only moves down and to the right, so clamped to `[0, infty) x [0, infty)`
+		int32_t2 bottomRightDiff = int32_t2(viewportTileRange.bottomRight) - int32_t2(currentMappedRegion.bottomRight);
+		bottomRightDiff = nbl::hlsl::max(bottomRightDiff, int32_t2(0, 0));
+		int32_t2 nextBottomRight = int32_t2(currentMappedRegion.bottomRight) + bottomRightDiff;
+
+		// If the number of tiles resident in this new mapped region along any axis becomes bigger than the max number of tiles the gpu image can hold, 
+		// we need to shrink this next mapped region. For this to happen, we have to have expanded in only one direction, the one that has `diff != 0`
+		// Therefore, we need to shrink the mapped region along the axis that has `diff = 0`, just enough tiles so that the mapped region's tile size stays within
+		// the max number of tiles the gpu image can hold.
+		int32_t2 nextMappedRegionDimensions = nextBottomRight - nextTopLeft + 1;
+		uint32_t2 currentMappedRegionDimensions = currentMappedRegion.bottomRight - currentMappedRegion.topLeft + 1u;
+		uint32_t2 gpuImageBottomRight = (gpuImageTopLeft + currentMappedRegionDimensions - 1u) % gpuImageSideLengthTiles;
+
+		// Shrink along x axis
+		if (nextMappedRegionDimensions.x > gpuImageSideLengthTiles)
+		{
+			int32_t tilesToFit = nextMappedRegionDimensions.x - gpuImageSideLengthTiles;
+			if (0 == topLeftDiff.x)
+			{
+				// Move topLeft to the right to fit tiles on the other side
+				nextTopLeft.x += tilesToFit;
+				topLeftDiff.x += tilesToFit;
+				// Mark all these tiles as non-resident
+				for (uint32_t tile = 0; tile < tilesToFit; tile++)
+				{
+					// Get actual tile index with wraparound
+					uint32_t tileIdx = (tile + gpuImageTopLeft.x) % gpuImageSideLengthTiles;
+					for (uint32_t i = 0u; i < gpuImageSideLengthTiles; i++)
+						currentMappedRegionOccupancy[tileIdx][i] = false;
+				}
+			}
+			else
+			{
+				// Move bottomRight to the left to fit tiles on the other side
+				nextBottomRight.x -= tilesToFit;
+				// Mark all these tiles as non-resident
+				for (uint32_t tile = 0; tile < tilesToFit; tile++)
+				{
+					// Get actual tile index with wraparound
+					uint32_t tileIdx = (gpuImageBottomRight.x + (gpuImageSideLengthTiles - tile)) % gpuImageSideLengthTiles;
+					for (uint32_t i = 0u; i < gpuImageSideLengthTiles; i++)
+						currentMappedRegionOccupancy[tileIdx][i] = false;
+				}
+			}
+		}
+		// Shrink along y axis
+		if (nextMappedRegionDimensions.y > gpuImageSideLengthTiles)
+		{
+			int32_t tilesToFit = nextMappedRegionDimensions.y - gpuImageSideLengthTiles;
+			if (0 == topLeftDiff.y)
+			{
+				// Move topLeft down to fit tiles on the other side
+				nextTopLeft.y += tilesToFit;
+				topLeftDiff.y += tilesToFit;
+				// Mark all these tiles as non-resident
+				for (uint32_t tile = 0; tile < tilesToFit; tile++)
+				{
+					// Get actual tile index with wraparound
+					uint32_t tileIdx = (tile + gpuImageTopLeft.y) % gpuImageSideLengthTiles;
+					for (uint32_t i = 0u; i < gpuImageSideLengthTiles; i++)
+						currentMappedRegionOccupancy[i][tileIdx] = false;
+				}
+			}
+			else
+			{
+				// Move bottomRight up to fit tiles on the other side
+				nextBottomRight.y -= tilesToFit;
+				// Mark all these tiles as non-resident
+				for (uint32_t tile = 0; tile < tilesToFit; tile++)
+				{
+					// Get actual tile index with wraparound
+					uint32_t tileIdx = (gpuImageBottomRight.y + (gpuImageSideLengthTiles - tile)) % gpuImageSideLengthTiles;
+					for (uint32_t i = 0u; i < gpuImageSideLengthTiles; i++)
+						currentMappedRegionOccupancy[i][tileIdx] = false;
+				}
+			}
+		}
+
+		// Set new values for mapped region
+		currentMappedRegion.topLeft = nextTopLeft;
+		currentMappedRegion.bottomRight = nextBottomRight;
+
+		// Toroidal shift for the gpu image top left
+		gpuImageTopLeft = (gpuImageTopLeft + uint32_t2(topLeftDiff + int32_t(gpuImageSideLengthTiles))) % gpuImageSideLengthTiles;
+	}
 
 	// Sidelength of the gpu image, in tiles that are `GeoreferencedImageTileSize` pixels wide
-	uint32_t maxResidentTiles = {};
+	uint32_t gpuImageSideLengthTiles = {};
 	// Size of the image (minus 1), in tiles of `GeoreferencedImageTileSize` sidelength
-	uint32_t2 maxImageTileIndices = {};
-	// Set topLeft to extreme value so it gets recreated on first iteration
-	GeoreferencedImageTileRange currentMappedRegion = { .topLeft = uint32_t2(std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max()) };
+	uint32_t2 fullImageLastTileIndices = {};
+	// Set mip level to extreme value so it gets recreated on first iteration
+	GeoreferencedImageTileRange currentMappedRegion = { .baseMipLevel = std::numeric_limits<uint32_t>::max() };
+	// Indicates on which tile of the gpu image the current mapped region's `topLeft` resides
+	uint32_t2 gpuImageTopLeft = {};
 	// Converts a point (z = 1) in worldspace to UV coordinates in image space (origin shifted to topleft of the image)
 	float64_t2x3 world2UV = {};
 };

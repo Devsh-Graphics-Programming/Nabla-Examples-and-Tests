@@ -148,10 +148,10 @@ public:
 	}
 
 	// These are vulkan standard, might be different in n4ce!
-	constexpr static float64_t3 topLeftViewportNDCH = float64_t3(-1.0, -1.0, 1.0);
-	constexpr static float64_t3 topRightViewportNDCH = float64_t3(1.0, -1.0, 1.0);
-	constexpr static float64_t3 bottomLeftViewportNDCH = float64_t3(-1.0, 1.0, 1.0);
-	constexpr static float64_t3 bottomRightViewportNDCH = float64_t3(1.0, 1.0, 1.0);
+	constexpr static float64_t3 topLeftViewportNDC = float64_t3(-1.0, -1.0, 1.0);
+	constexpr static float64_t3 topRightViewportNDC = float64_t3(1.0, -1.0, 1.0);
+	constexpr static float64_t3 bottomLeftViewportNDC = float64_t3(-1.0, 1.0, 1.0);
+	constexpr static float64_t3 bottomRightViewportNDC = float64_t3(1.0, 1.0, 1.0);
 	
 	DrawResourcesFiller();
 
@@ -692,7 +692,7 @@ protected:
 	 *
 	 * @param[out] outImageParams Structure to be filled with image creation parameters (format, size, etc.).
 	 * @param[out] outImageType Indicates whether the image should be fully resident or streamed.
-	 * @param[in] manager Manager for the georeferenced image
+	 * @param[in] params Parameters for the georeferenced image
 	*/
 	ImageType determineGeoreferencedImageCreationParams(nbl::asset::IImage::SCreationParams& outImageParams, const GeoreferencedImageParams& params);
 
@@ -841,7 +841,7 @@ protected:
 	struct TileUploadData
 	{
 		core::vector<StreamedImageCopy> tiles;
-		OrientedBoundingBox2D worldspaceOBB;
+		OrientedBoundingBox2D viewportEncompassingOBB;
 		float32_t2 minUV;
 		float32_t2 maxUV;
 	};

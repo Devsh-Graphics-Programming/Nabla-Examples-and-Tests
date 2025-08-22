@@ -664,11 +664,10 @@ public:
 		
 		// Static Image Sampler
 		{
-			constexpr auto wrapMode = mode == ExampleMode::CASE_12 ? IGPUSampler::E_TEXTURE_CLAMP::ETC_REPEAT : IGPUSampler::E_TEXTURE_CLAMP::ETC_MIRROR;
 			IGPUSampler::SParams samplerParams = {};
-			samplerParams.TextureWrapU = wrapMode;
-			samplerParams.TextureWrapV = wrapMode;
-			samplerParams.TextureWrapW = wrapMode;
+			samplerParams.TextureWrapU = IGPUSampler::E_TEXTURE_CLAMP::ETC_REPEAT;
+			samplerParams.TextureWrapV = IGPUSampler::E_TEXTURE_CLAMP::ETC_REPEAT;
+			samplerParams.TextureWrapW = IGPUSampler::E_TEXTURE_CLAMP::ETC_REPEAT;
 			samplerParams.BorderColor = IGPUSampler::ETBC_FLOAT_TRANSPARENT_BLACK;
 			samplerParams.MinFilter = IGPUSampler::ETF_LINEAR;
 			samplerParams.MaxFilter = IGPUSampler::ETF_LINEAR;
