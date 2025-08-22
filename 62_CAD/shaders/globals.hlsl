@@ -244,10 +244,12 @@ struct ImageObjectInfo
 // Currently a simple OBB like ImageObject, but later will be fullscreen with additional info about UV offset for toroidal(mirror) addressing
 struct GeoreferencedImageInfo
 {
-    pfloat64_t2 topLeft; // 2 * 8 = 16 bytes (16)
-    float32_t2 dirU; // 2 * 4 = 8 bytes (24)
+    pfloat64_t2 topLeft;   // 2 * 8 = 16 bytes (16)
+    float32_t2 dirU;       // 2 * 4 = 8 bytes (24)
     float32_t aspectRatio; // 4 bytes (28)
-    uint32_t textureID; // 4 bytes (32)
+    uint32_t textureID;    // 4 bytes (32)
+    float32_t2 minUV;      // 2 * 4 = 8 bytes (40)
+    float32_t2 maxUV;      // 2 * 4 = 8 bytes (48)
 };
 
 // Goes into geometry buffer, needs to be aligned by 8
