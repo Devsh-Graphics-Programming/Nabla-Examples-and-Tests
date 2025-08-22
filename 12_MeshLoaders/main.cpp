@@ -9,6 +9,10 @@
 #include "nbl/ext/MitsubaLoader/CSerializedLoader.h"
 #endif
 
+#ifdef NBL_BUILD_DEBUG_DRAW
+#include "nbl/ext/DebugDraw/CDrawAABB.h"
+#endif
+
 class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourcesApplication
 {
 		using device_base_t = MonoWindowApplication;
@@ -47,6 +51,20 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 			m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(),scRes->getRenderpass(),0,{});
 			if (!m_renderer)
 				return logFail("Failed to create renderer!");
+
+#ifdef NBL_BUILD_DEBUG_DRAW
+			{
+				auto* renderpass = scRes->getRenderpass();
+				ext::debug_draw::DrawAABB::SCreationParameters params = {};
+				params.assetManager = m_assetMgr;
+				params.transfer = getTransferUpQueue();
+				params.drawMode = ext::debug_draw::DrawAABB::ADM_DRAW_BATCH;
+				params.batchPipelineLayout = ext::debug_draw::DrawAABB::createDefaultPipelineLayout(m_device.get());
+				params.renderpass = smart_refctd_ptr<IGPURenderpass>(renderpass);
+				params.utilities = m_utils;
+				m_drawAABB = ext::debug_draw::DrawAABB::create(std::move(params));
+			}
+#endif
 
 			//
 			if (!reloadModel())
@@ -109,8 +127,12 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 					keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 						{
 							for (const auto& event : events)
-							if (event.keyCode==E_KEY_CODE::EKC_R && event.action==SKeyboardEvent::ECA_RELEASED)
-								reload = true;
+							{
+								if (event.keyCode == E_KEY_CODE::EKC_R && event.action == SKeyboardEvent::ECA_RELEASED)
+									reload = true;
+								if (event.keyCode == E_KEY_CODE::EKC_B && event.action == SKeyboardEvent::ECA_RELEASED)
+									m_drawBBs = !m_drawBBs;
+							}
 							camera.keyboardProcess(events);
 						},
 						m_logger.get()
@@ -120,9 +142,9 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 						reloadModel();
 				}
 				// draw scene
+				float32_t3x4 viewMatrix;
+				float32_t4x4 viewProjMatrix;
 				{
-					float32_t3x4 viewMatrix;
-					float32_t4x4 viewProjMatrix;
 					// TODO: get rid of legacy matrices
 					{
 						memcpy(&viewMatrix,camera.getViewMatrix().pointer(),sizeof(viewMatrix));
@@ -130,6 +152,13 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 					}
  					m_renderer->render(cb,CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix));
 				}
+#ifdef NBL_BUILD_DEBUG_DRAW
+				if (m_drawBBs)
+				{
+					const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
+					m_drawAABB->render(cb, drawFinished, m_aabbInstances, viewProjMatrix);
+				}
+#endif
 				cb->endRenderPass();
 			}
 			cb->end();
@@ -349,7 +378,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 						return false;
 					}
 				}
-				
+
 				auto tmp = hlsl::float32_t4x3(
 					hlsl::float32_t3(1,0,0),
 					hlsl::float32_t3(0,1,0),
@@ -358,8 +387,10 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 				);
 				core::vector<hlsl::float32_t3x4> worldTforms;
 				const auto& converted = reservation.getGPUObjects<ICPUPolygonGeometry>();
-				for (const auto& geom : converted)
+				m_aabbInstances.resize(converted.size());
+				for (uint32_t i = 0; i < converted.size(); i++)
 				{
+					const auto& geom = converted[i];
 					const auto promoted = geom.value->getAABB<aabb_t>();
 					printAABB(promoted,"Geometry");
 					tmp[3].x += promoted.getExtent().x;
@@ -367,6 +398,19 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 					const auto transformed = hlsl::shapes::util::transform(promotedWorld,promoted);
 					printAABB(transformed,"Transformed");
 					bound = hlsl::shapes::util::union_(transformed,bound);
+
+#ifdef NBL_BUILD_DEBUG_DRAW
+					auto& inst = m_aabbInstances[i];
+					const auto tmpAabb = shapes::AABB<3,float>(promoted.minVx, promoted.maxVx);
+					hlsl::float32_t4x4 instanceTransform = ext::debug_draw::DrawAABB::getTransformFromAABB(tmpAabb);
+					const auto tmpWorld = hlsl::float32_t3x4(promotedWorld);
+					inst.color = { 1,1,1,1 };
+					inst.transform[0] = tmpWorld[0];
+					inst.transform[1] = tmpWorld[1];
+					inst.transform[2] = tmpWorld[2];
+					inst.transform[3] = float32_t4(0, 0, 0, 1);
+					inst.transform = hlsl::mul(inst.transform, instanceTransform);
+#endif
 				}
 				printAABB(bound,"Total");
 				if (!m_renderer->addGeometries({ &converted.front().get(),converted.size() }))
@@ -416,6 +460,12 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
 		// mutables
 		std::string m_modelPath;
+
+		bool m_drawBBs = true;
+#ifdef NBL_BUILD_DEBUG_DRAW
+		smart_refctd_ptr<ext::debug_draw::DrawAABB> m_drawAABB;
+		std::vector<ext::debug_draw::InstanceData> m_aabbInstances;
+#endif
 };
 
 NBL_MAIN_FUNC(MeshLoadersApp)
