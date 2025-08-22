@@ -42,9 +42,10 @@ if(NBL_BUILD_EXAMPLES)
 	# showcase use of FFT for post-FX Bloom  effect
 	add_subdirectory(11_FFT)
 	#
-	add_subdirectory(12_MeshLoaders)
-	#
-	#add_subdirectory(13_MaterialCompiler EXCLUDE_FROM_ALL)
+	add_subdirectory(12_MeshLoaders EXCLUDE_FROM_ALL)
+
+	# bitonic 
+	add_subdirectory(13_BitonicSort)
 
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo)
@@ -96,19 +97,9 @@ if(NBL_BUILD_EXAMPLES)
 
 	# we link common example api library and force examples to reuse its PCH
 	foreach(T IN LISTS TARGETS)
-		get_target_property(TYPE ${T} TYPE)
-		if(NOT ${TYPE} MATCHES INTERFACE)
-			target_link_libraries(${T} PUBLIC ${NBL_EXAMPLES_API_TARGET})
-			target_include_directories(${T} PUBLIC $<TARGET_PROPERTY:${NBL_EXAMPLES_API_TARGET},INCLUDE_DIRECTORIES>)
-			set_target_properties(${T} PROPERTIES DISABLE_PRECOMPILE_HEADERS OFF)
-			target_precompile_headers(${T} REUSE_FROM "${NBL_EXAMPLES_API_TARGET}")
-
-			if(NBL_EMBED_BUILTIN_RESOURCES)
-				LINK_BUILTIN_RESOURCES_TO_TARGET(${T} NblExtExamplesAPIBuiltinsSource)
-				LINK_BUILTIN_RESOURCES_TO_TARGET(${T} NblExtExamplesAPIBuiltinsInclude)
-				LINK_BUILTIN_RESOURCES_TO_TARGET(${T} NblExtExamplesAPIBuiltinsBuild)
-			endif()
-		endif()
+        target_link_libraries(${T} PUBLIC ${NBL_EXAMPLES_API_TARGET})
+		target_include_directories(${T} PUBLIC $<TARGET_PROPERTY:${NBL_EXAMPLES_API_TARGET},INCLUDE_DIRECTORIES>)
+		target_precompile_headers(${T} REUSE_FROM "${NBL_EXAMPLES_API_TARGET}")
     endforeach()
 
 	NBL_ADJUST_FOLDERS(examples)
