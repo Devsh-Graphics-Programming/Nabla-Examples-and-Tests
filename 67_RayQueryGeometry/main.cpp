@@ -502,6 +502,7 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 
 			std::vector<ReferenceObjectCpu> cpuObjects;
 			cpuObjects.push_back(ReferenceObjectCpu{ .transform = nextTransform(), .data = gc->createArrow() });
+			cpuObjects.push_back(ReferenceObjectCpu{ .transform = nextTransform(), .data = CPolygonGeometryManipulator::createTriangleListIndexing(gc->createDisk(1.0f, 12).get()) });
 			cpuObjects.push_back(ReferenceObjectCpu{ .transform = nextTransform(), .data = gc->createCube({1.f, 1.f, 1.f})});
 			cpuObjects.push_back(ReferenceObjectCpu{ .transform = nextTransform(), .data = gc->createSphere(2, 16, 16)});
 			cpuObjects.push_back(ReferenceObjectCpu{ .transform = nextTransform(), .data = gc->createCylinder(2, 2, 20)});
