@@ -146,12 +146,6 @@ public:
 	{
 		return georeferencedImageLoader->getFormat(imagePath);
 	}
-
-	// These are vulkan standard, might be different in n4ce!
-	constexpr static float64_t3 topLeftViewportNDC = float64_t3(-1.0, -1.0, 1.0);
-	constexpr static float64_t3 topRightViewportNDC = float64_t3(1.0, -1.0, 1.0);
-	constexpr static float64_t3 bottomLeftViewportNDC = float64_t3(-1.0, 1.0, 1.0);
-	constexpr static float64_t3 bottomRightViewportNDC = float64_t3(1.0, 1.0, 1.0);
 	
 	DrawResourcesFiller();
 
@@ -829,6 +823,9 @@ protected:
 
 	// These are mip 0 pixels per tile, also size of each physical tile into the gpu resident image
 	constexpr static uint32_t GeoreferencedImageTileSize = 128u;
+	// Mip 1 tiles are naturally half the size
+	constexpr static uint32_t GeoreferencedImageTileSizeMip1 = GeoreferencedImageTileSize / 2;
+	// How many tiles of extra padding we give to the gpu image holding the tiles for a georeferenced image
 	constexpr static uint32_t GeoreferencedImagePaddingTiles = 2;
 
 	// Returns a tile range that encompasses the whole viewport in "image-world". Tiles are measured in the mip level required to fit the viewport entirely

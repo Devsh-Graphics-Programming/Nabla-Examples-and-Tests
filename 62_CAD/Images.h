@@ -109,11 +109,11 @@ struct ImageCleanup : public core::IReferenceCounted
 
 };
 
-// Measured in tile coordinates in the image that the range spans, and the mip level the tiles correspond to
+// Measures a range of mip `baseMipLevel` tiles in the georeferenced image, starting at `topLeftTile` that is `nTiles` long
 struct GeoreferencedImageTileRange
 {
-	uint32_t2 topLeft;
-	uint32_t2 bottomRight;
+	uint32_t2 topLeftTile;
+	uint32_t2 bottomRightTile;
 	uint32_t baseMipLevel;
 };
 
@@ -163,6 +163,31 @@ protected:
 	float64_t2 transformWorldCoordsToPixelCoords(const float64_t3 worldCoords) const { return float64_t2(georeferencedImageParams.imageExtents) * transformWorldCoordsToUV(worldCoords); }
 	float64_t2 transformWorldCoordsToTileCoords(const float64_t3 worldCoords, const uint32_t TileSize) const { return (1.0 / TileSize) * transformWorldCoordsToPixelCoords(worldCoords); }
 
+	void ensureMappedRegionCoversViewport(const GeoreferencedImageTileRange& viewportTileRange)
+	{
+		// A base mip level of x in the current mapped region means we can handle the viewport having mip level y, with x <= y < x + 1.0
+		// without needing to remap the region. When the user starts zooming in or out and the mip level of the viewport falls outside this range, we have to remap
+		// the mapped region.
+		const bool mipBoundaryCrossed = viewportTileRange.baseMipLevel != currentMappedRegion.baseMipLevel;
+
+		// If we moved a huge amount in any direction, no tiles will remain resident, so we simply reset state
+		// This only need be evaluated if the mip boundary was not already crossed
+		const bool relativeShiftTooBig = !mipBoundaryCrossed &&
+											nbl::hlsl::any
+											(
+												nbl::hlsl::abs(int32_t2(viewportTileRange.topLeftTile) - int32_t2(currentMappedRegion.topLeftTile)) >= int32_t2(gpuImageSideLengthTiles, gpuImageSideLengthTiles)
+											)
+											|| nbl::hlsl::any
+											(
+												nbl::hlsl::abs(int32_t2(viewportTileRange.bottomRightTile) - int32_t2(currentMappedRegion.bottomRightTile)) >= int32_t2(gpuImageSideLengthTiles, gpuImageSideLengthTiles)
+											);
+
+		if (mipBoundaryCrossed || relativeShiftTooBig)
+			remapCurrentRegion(viewportTileRange);
+		else
+			slideCurrentRegion(viewportTileRange);
+	}
+
 	// When the current mapped region is inadequate to fit the viewport, we compute a new mapped region
 	void remapCurrentRegion(const GeoreferencedImageTileRange& viewportTileRange)
 	{
@@ -177,6 +202,18 @@ protected:
 			// TODO: Here we would move some mip 0 tiles to mip 1 image to save the work of reuploading them, reflect that in the tracked tiles
 		}
 		currentMappedRegion = viewportTileRange;
+		// We can expand the currentMappedRegion to make it as big as possible, at no extra cost since we only upload tiles on demand
+		// Since we use toroidal updating it's kinda the same which way we expand the region. We first tryo to expand it downwards to the right
+		const uint32_t2 currentTileExtents = currentMappedRegion.bottomRightTile - currentMappedRegion.topLeftTile + uint32_t2(1, 1);
+		// Extend extent up to `gpuImageSideLengthTiles` by moving the `bottomRightTile` an appropriate amount downwards to the right
+		currentMappedRegion.bottomRightTile += uint32_t2(gpuImageSideLengthTiles, gpuImageSideLengthTiles) - currentTileExtents;
+		// This extension can cause the mapped region to fall out of bounds on border cases, therefore we clamp it and extend it in the other direction
+		// by the amount of tiles we removed during clamping
+		const uint32_t2 excessTiles = uint32_t2(nbl::hlsl::max(int32_t2(0, 0), int32_t2(currentMappedRegion.bottomRightTile + 1u) - int32_t2(fullImageTileLength)));
+		currentMappedRegion.bottomRightTile -= excessTiles;
+		// Now, on some pathological cases (such as an image that is not long along one dimension but very long along the other) shifting of the topLeftTile
+		// could fall out of bounds. So we shift if possible, otherwise set it to 0
+		currentMappedRegion.topLeftTile = uint32_t2(nbl::hlsl::max(int32_t2(0, 0), int32_t2(currentMappedRegion.topLeftTile) - int32_t2(excessTiles)));
 
 		currentMappedRegionOccupancy.resize(gpuImageSideLengthTiles);
 		for (auto i = 0u; i < gpuImageSideLengthTiles; i++)
@@ -187,104 +224,109 @@ protected:
 		gpuImageTopLeft = uint32_t2(0, 0);
 	}
 
-	// When we can shift the mapped a region a bit and avoid tile uploads by using toroidal shifting
-	void shiftAndExpandCurrentRegion(const GeoreferencedImageTileRange& viewportTileRange)
+	// Checks whether the viewport falls entirely withing the current mapped region and slides the latter otherwise, just enough until it covers the viewport
+	void slideCurrentRegion(const GeoreferencedImageTileRange& viewportTileRange)
 	{
-		// `topLeftDiff` starts as the vector (in tiles) from the current mapped region's top left to the top left of the range encompassing the viewport
-		int32_t2 topLeftDiff = int32_t2(viewportTileRange.topLeft) - int32_t2(currentMappedRegion.topLeft);
-		// Since we only consider expanding the mapped region by moving the top left up and to the left, we clamp the above vector to `(-infty, 0] x (-infty, 0]`
-		topLeftDiff = nbl::hlsl::min(topLeftDiff, int32_t2(0, 0));
-		int32_t2 nextTopLeft = int32_t2(currentMappedRegion.topLeft) + topLeftDiff;
-		// Same logic for bottom right but considering it only moves down and to the right, so clamped to `[0, infty) x [0, infty)`
-		int32_t2 bottomRightDiff = int32_t2(viewportTileRange.bottomRight) - int32_t2(currentMappedRegion.bottomRight);
-		bottomRightDiff = nbl::hlsl::max(bottomRightDiff, int32_t2(0, 0));
-		int32_t2 nextBottomRight = int32_t2(currentMappedRegion.bottomRight) + bottomRightDiff;
+		// `topLeftShift` represents how many tiles up and to the left we have to move the mapped region to fit the viewport. 
+		// First we compute a vector from the current mapped region's topleft to the viewport's topleft. If this vector is positive along a dimension it means
+		// the viewport's topleft is to the right or below the current mapped region's topleft, so we don't have to shift the mapped region to the left/up in that case
+		const int32_t2 topLeftShift = nbl::hlsl::min(int32_t2(0, 0), int32_t2(viewportTileRange.topLeftTile) - int32_t2(currentMappedRegion.topLeftTile));
+		// `bottomRightShift` represents the same as above but in the other direction.
+		const int32_t2 bottomRightShift = nbl::hlsl::max(int32_t2(0, 0), int32_t2(viewportTileRange.bottomRightTile) - int32_t2(currentMappedRegion.bottomRightTile));
 
-		// If the number of tiles resident in this new mapped region along any axis becomes bigger than the max number of tiles the gpu image can hold, 
-		// we need to shrink this next mapped region. For this to happen, we have to have expanded in only one direction, the one that has `diff != 0`
-		// Therefore, we need to shrink the mapped region along the axis that has `diff = 0`, just enough tiles so that the mapped region's tile size stays within
-		// the max number of tiles the gpu image can hold.
-		int32_t2 nextMappedRegionDimensions = nextBottomRight - nextTopLeft + 1;
-		uint32_t2 currentMappedRegionDimensions = currentMappedRegion.bottomRight - currentMappedRegion.topLeft + 1u;
-		uint32_t2 gpuImageBottomRight = (gpuImageTopLeft + currentMappedRegionDimensions - 1u) % gpuImageSideLengthTiles;
+		// Mark dropped tiles as dirty/non-resident
+		// The following is not necessarily equal to `gpuImageSideLengthTiles` since there can be pathological cases, as explained in the remapping method
+		const uint32_t2 mappedRegionDimensions = currentMappedRegion.bottomRightTile - currentMappedRegion.topLeftTile + 1u;
+		const uint32_t2 gpuImageBottomRight = (gpuImageTopLeft + mappedRegionDimensions - 1u) % gpuImageSideLengthTiles;
 
-		// Shrink along x axis
-		if (nextMappedRegionDimensions.x > gpuImageSideLengthTiles)
+		if (topLeftShift.x < 0)
 		{
-			int32_t tilesToFit = nextMappedRegionDimensions.x - gpuImageSideLengthTiles;
-			if (0 == topLeftDiff.x)
+			// Shift left
+			const uint32_t tilesToFit = -topLeftShift.x;
+			for (uint32_t tile = 0; tile < tilesToFit; tile++)
 			{
-				// Move topLeft to the right to fit tiles on the other side
-				nextTopLeft.x += tilesToFit;
-				topLeftDiff.x += tilesToFit;
-				// Mark all these tiles as non-resident
-				for (uint32_t tile = 0; tile < tilesToFit; tile++)
-				{
-					// Get actual tile index with wraparound
-					uint32_t tileIdx = (tile + gpuImageTopLeft.x) % gpuImageSideLengthTiles;
-					for (uint32_t i = 0u; i < gpuImageSideLengthTiles; i++)
-						currentMappedRegionOccupancy[tileIdx][i] = false;
-				}
-			}
-			else
-			{
-				// Move bottomRight to the left to fit tiles on the other side
-				nextBottomRight.x -= tilesToFit;
-				// Mark all these tiles as non-resident
-				for (uint32_t tile = 0; tile < tilesToFit; tile++)
-				{
-					// Get actual tile index with wraparound
-					uint32_t tileIdx = (gpuImageBottomRight.x + (gpuImageSideLengthTiles - tile)) % gpuImageSideLengthTiles;
-					for (uint32_t i = 0u; i < gpuImageSideLengthTiles; i++)
-						currentMappedRegionOccupancy[tileIdx][i] = false;
-				}
+				// Get actual tile index with wraparound
+				uint32_t tileIdx = (gpuImageBottomRight.x + (gpuImageSideLengthTiles - tile)) % gpuImageSideLengthTiles;
+				for (uint32_t i = 0u; i < gpuImageSideLengthTiles; i++)
+					currentMappedRegionOccupancy[tileIdx][i] = false;
 			}
 		}
-		// Shrink along y axis
-		if (nextMappedRegionDimensions.y > gpuImageSideLengthTiles)
+		else if (bottomRightShift.x > 0)
 		{
-			int32_t tilesToFit = nextMappedRegionDimensions.y - gpuImageSideLengthTiles;
-			if (0 == topLeftDiff.y)
+			//Shift right
+			const uint32_t tilesToFit = bottomRightShift.x;
+			for (uint32_t tile = 0; tile < tilesToFit; tile++)
 			{
-				// Move topLeft down to fit tiles on the other side
-				nextTopLeft.y += tilesToFit;
-				topLeftDiff.y += tilesToFit;
-				// Mark all these tiles as non-resident
-				for (uint32_t tile = 0; tile < tilesToFit; tile++)
-				{
-					// Get actual tile index with wraparound
-					uint32_t tileIdx = (tile + gpuImageTopLeft.y) % gpuImageSideLengthTiles;
-					for (uint32_t i = 0u; i < gpuImageSideLengthTiles; i++)
-						currentMappedRegionOccupancy[i][tileIdx] = false;
-				}
-			}
-			else
-			{
-				// Move bottomRight up to fit tiles on the other side
-				nextBottomRight.y -= tilesToFit;
-				// Mark all these tiles as non-resident
-				for (uint32_t tile = 0; tile < tilesToFit; tile++)
-				{
-					// Get actual tile index with wraparound
-					uint32_t tileIdx = (gpuImageBottomRight.y + (gpuImageSideLengthTiles - tile)) % gpuImageSideLengthTiles;
-					for (uint32_t i = 0u; i < gpuImageSideLengthTiles; i++)
-						currentMappedRegionOccupancy[i][tileIdx] = false;
-				}
+				// Get actual tile index with wraparound
+				uint32_t tileIdx = (tile + gpuImageTopLeft.x) % gpuImageSideLengthTiles;
+				for (uint32_t i = 0u; i < gpuImageSideLengthTiles; i++)
+					currentMappedRegionOccupancy[tileIdx][i] = false;
 			}
 		}
 
-		// Set new values for mapped region
-		currentMappedRegion.topLeft = nextTopLeft;
-		currentMappedRegion.bottomRight = nextBottomRight;
+		if (topLeftShift.y < 0)
+		{
+			// Shift up
+			const uint32_t tilesToFit = -topLeftShift.y;
+			for (uint32_t tile = 0; tile < tilesToFit; tile++)
+			{
+				// Get actual tile index with wraparound
+				uint32_t tileIdx = (gpuImageBottomRight.y + (gpuImageSideLengthTiles - tile)) % gpuImageSideLengthTiles;
+				for (uint32_t i = 0u; i < gpuImageSideLengthTiles; i++)
+					currentMappedRegionOccupancy[i][tileIdx] = false;
+			}
+		}
+		else if (bottomRightShift.y > 0)
+		{
+			//Shift down
+			const uint32_t tilesToFit = bottomRightShift.y;
+			for (uint32_t tile = 0; tile < tilesToFit; tile++)
+			{
+				// Get actual tile index with wraparound
+				uint32_t tileIdx = (tile + gpuImageTopLeft.y) % gpuImageSideLengthTiles;
+				for (uint32_t i = 0u; i < gpuImageSideLengthTiles; i++)
+					currentMappedRegionOccupancy[i][tileIdx] = false;
+			}
+		}
+
+		// Shift the mapped region accordingly
+		// A nice consequence of the mapped region being always maximally - sized is that
+		// along any dimension, only a shift in one direction is necessary, so we can simply add up the shifts
+		currentMappedRegion.topLeftTile = uint32_t2(int32_t2(currentMappedRegion.topLeftTile) + topLeftShift + bottomRightShift); 
+		currentMappedRegion.bottomRightTile = uint32_t2(int32_t2(currentMappedRegion.bottomRightTile) + topLeftShift + bottomRightShift);
 
 		// Toroidal shift for the gpu image top left
-		gpuImageTopLeft = (gpuImageTopLeft + uint32_t2(topLeftDiff + int32_t(gpuImageSideLengthTiles))) % gpuImageSideLengthTiles;
+		gpuImageTopLeft = (gpuImageTopLeft + uint32_t2(topLeftShift + bottomRightShift + int32_t(gpuImageSideLengthTiles))) % gpuImageSideLengthTiles;
+	}
+
+	// This can become a rectangle if we implement the by-rectangle upload instead of tile-by-tile to reduce loader calls
+	struct ImageTileToGPUTileCorrespondence
+	{
+		uint32_t2 imageTileIndex;
+		uint32_t2 gpuImageTileIndex;
+	};
+
+	// Given a tile range covering the viewport, returns which tiles (at the mip level of the current mapped region) need to be made resident to draw it,
+	// returning a vector of `ImageTileToGPUTileCorrespondence`, each indicating that tile `imageTileIndex` in the full image needs to be uploaded to tile
+	// `gpuImageTileIndex` in the gpu image
+	core::vector<ImageTileToGPUTileCorrespondence> tilesToLoad(const GeoreferencedImageTileRange& viewportTileRange)
+	{
+		core::vector<ImageTileToGPUTileCorrespondence> retVal;
+		for (uint32_t tileX = viewportTileRange.topLeftTile.x; tileX <= viewportTileRange.bottomRightTile.x; tileX++)
+			for (uint32_t tileY = viewportTileRange.topLeftTile.y; tileY <= viewportTileRange.bottomRightTile.y; tileY++)
+			{
+				uint32_t2 imageTileIndex = uint32_t2(tileX, tileY);
+				uint32_t2 gpuImageTileIndex = ((imageTileIndex - currentMappedRegion.topLeftTile) + gpuImageTopLeft) % gpuImageSideLengthTiles;
+				if (!currentMappedRegionOccupancy[gpuImageTileIndex.x][gpuImageTileIndex.y])
+					retVal.push_back({ imageTileIndex , gpuImageTileIndex });
+			}
+		return retVal;
 	}
 
 	// Sidelength of the gpu image, in tiles that are `GeoreferencedImageTileSize` pixels wide
 	uint32_t gpuImageSideLengthTiles = {};
-	// Size of the image (minus 1), in tiles of `GeoreferencedImageTileSize` sidelength
-	uint32_t2 fullImageLastTileIndices = {};
+	// Size of the image in tiles of `GeoreferencedImageTileSize` sidelength
+	uint32_t2 fullImageTileLength = {};
 	// Set mip level to extreme value so it gets recreated on first iteration
 	GeoreferencedImageTileRange currentMappedRegion = { .baseMipLevel = std::numeric_limits<uint32_t>::max() };
 	// Indicates on which tile of the gpu image the current mapped region's `topLeft` resides
