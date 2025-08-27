@@ -344,6 +344,20 @@ struct TestBxDF<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>> : 
 };
 
 template<>
+struct TestBxDF<bxdf::reflection::SIridescent<iso_microfacet_config_t>> : TestBxDFBase<bxdf::reflection::SIridescent<iso_microfacet_config_t>>
+{
+    using base_t = TestBxDFBase<bxdf::reflection::SIridescent<iso_microfacet_config_t>>;
+
+    void initBxDF(SBxDFTestResources _rc)
+    {
+        base_t::bxdf = bxdf::reflection::SIridescent<iso_microfacet_config_t>::create(rc.alpha.x,1600.0,hlsl::promote<float32_t3>(1.0),hlsl::promote<float32_t3>(1.8),hlsl::promote<float32_t3>(rc.ior.x),hlsl::promote<float32_t3>(rc.ior.y));
+#ifndef __HLSL_VERSION
+        base_t::name = "Iridescent BRDF";
+#endif
+    }
+};
+
+template<>
 struct TestBxDF<bxdf::transmission::SSmoothDielectric<iso_config_t>> : TestBxDFBase<bxdf::transmission::SSmoothDielectric<iso_config_t>>
 {
     using base_t = TestBxDFBase<bxdf::transmission::SSmoothDielectric<iso_config_t>>;
@@ -431,6 +445,21 @@ struct TestBxDF<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_c
     }
 };
 
+template<>
+struct TestBxDF<bxdf::transmission::SIridescent<iso_microfacet_config_t>> : TestBxDFBase<bxdf::transmission::SIridescent<iso_microfacet_config_t>>
+{
+    using base_t = TestBxDFBase<bxdf::transmission::SIridescent<iso_microfacet_config_t>>;
+
+    void initBxDF(SBxDFTestResources _rc)
+    {
+        base_t::bxdf = bxdf::transmission::SIridescent<iso_microfacet_config_t>::create(rc.alpha.x,1600.0,hlsl::promote<float32_t3>(1.0),hlsl::promote<float32_t3>(1.8),hlsl::promote<float32_t3>(rc.ior.x));
+#ifndef __HLSL_VERSION
+        base_t::name = "Iridescent BSDF";
+#endif
+    }
+};
+
+
 
 template<class T>
 struct is_basic_brdf : bool_constant<
@@ -445,7 +474,8 @@ struct is_microfacet_brdf : bool_constant<
     is_same<T, bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>>::value ||
     is_same<T, bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>>::value ||
     is_same<T, bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>>::value ||
-    is_same<T, bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>>::value
+    is_same<T, bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>>::value ||
+    is_same<T, bxdf::reflection::SIridescent<iso_microfacet_config_t>>::value
 > {};
 
 template<class T>
@@ -463,7 +493,8 @@ struct is_microfacet_bsdf : bool_constant<
     is_same<T, bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>>::value ||
     is_same<T, bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>>::value ||
     is_same<T, bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>>::value ||
-    is_same<T, bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>>::value
+    is_same<T, bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>>::value ||
+    is_same<T, bxdf::transmission::SIridescent<iso_microfacet_config_t>>::value
 > {};
 
 template<class T>

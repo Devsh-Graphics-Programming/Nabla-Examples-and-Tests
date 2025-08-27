@@ -66,7 +66,7 @@ struct PrintFailureCallback : FailureCallback
     }
 };
 
-#define FOR_EACH_BEGIN(r) std::for_each(std::execution::par_unseq, r.begin(), r.end(), [&](uint32_t i) {
+#define FOR_EACH_BEGIN(r) std::for_each(std::execution::seq, r.begin(), r.end(), [&](uint32_t i) {
 #define FOR_EACH_END });
 
 int main(int argc, char** argv)
@@ -173,6 +173,7 @@ int main(int argc, char** argv)
     TestJacobian<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     TestJacobian<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestJacobian<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>,true>::run(initparams, cb);
+    TestJacobian<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
 
     TestJacobian<bxdf::transmission::SLambertian<iso_config_t>>::run(initparams, cb);
     TestJacobian<bxdf::transmission::SSmoothDielectric<iso_config_t> >::run(initparams, cb);
@@ -181,6 +182,7 @@ int main(int argc, char** argv)
     TestJacobian<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     TestJacobian<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestJacobian<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>,true>::run(initparams, cb);
+    TestJacobian<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
     FOR_EACH_END
 
 
@@ -197,6 +199,7 @@ int main(int argc, char** argv)
     TestReciprocity<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     TestReciprocity<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestReciprocity<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+    TestReciprocity<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
 
     TestReciprocity<bxdf::transmission::SLambertian<iso_config_t>>::run(initparams, cb);
     TestReciprocity<bxdf::transmission::SSmoothDielectric<iso_config_t>>::run(initparams, cb);
@@ -205,6 +208,7 @@ int main(int argc, char** argv)
     TestReciprocity<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     TestReciprocity<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestReciprocity<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+    TestReciprocity<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
     FOR_EACH_END
 
 
@@ -223,6 +227,7 @@ int main(int argc, char** argv)
     TestBucket<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     TestBucket<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestBucket<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+    TestBucket<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
 
     TestBucket<bxdf::transmission::SLambertian<iso_config_t>>::run(initparams, cb);
     //TestBucket<bxdf::transmission::SSmoothDielectric<iso_config_t>>::run(initparams, cb);
@@ -231,6 +236,7 @@ int main(int argc, char** argv)
     TestBucket<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     TestBucket<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestBucket<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+    TestBucket<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
     FOR_EACH_END
 
 
@@ -251,6 +257,7 @@ int main(int argc, char** argv)
     TestChi2<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     TestChi2<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestChi2<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+    TestChi2<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
 
     TestChi2<bxdf::transmission::SLambertian<iso_config_t>>::run(initparams, cb);
     //TestChi2<bxdf::transmission::SSmoothDielectric<iso_config_t>>::run(initparams, cb);
@@ -259,6 +266,7 @@ int main(int argc, char** argv)
     TestChi2<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     TestChi2<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestChi2<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+    TestChi2<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
     FOR_EACH_END
 
         // test arccos angle sums
