@@ -1,6 +1,10 @@
 #include "common.hlsl"
 
+#include "nbl/builtin/hlsl/spirv_intrinsics/core.hlsl"
+#include "nbl/builtin/hlsl/spirv_intrinsics/raytracing.hlsl"
 #include "nbl/builtin/hlsl/bda/__ptr.hlsl"
+
+using namespace nbl::hlsl;
 
 [[vk::push_constant]] SPushConstants pc;
 
@@ -74,16 +78,16 @@ float3 calculateNormals(int primID, STriangleGeomInfo geom, float2 bary)
 [shader("closesthit")]
 void main(inout PrimaryPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
 {
-    const int primID = PrimitiveIndex();
-    const int instanceCustomIndex = InstanceIndex();
-    const int geometryIndex = GeometryIndex();
+    const int primID = spirv::PrimitiveId;
+    const int instanceCustomIndex = spirv::InstanceCustomIndexKHR;
+    const int geometryIndex = spirv::RayGeometryIndexKHR;
     const STriangleGeomInfo geom = vk::RawBufferLoad < STriangleGeomInfo > (pc.triangleGeomInfoBuffer + (instanceCustomIndex + geometryIndex) * sizeof(STriangleGeomInfo));
     const float32_t3 vertexNormal = calculateNormals(primID, geom, attribs.barycentrics);
-    const float32_t3 worldNormal = normalize(mul(vertexNormal, WorldToObject3x4()).xyz);
+    const float32_t3 worldNormal = normalize(mul(vertexNormal, transpose(spirv::WorldToObjectKHR)).xyz);
 
     payload.materialId = MaterialId::createTriangle(instanceCustomIndex);
 
     payload.worldNormal = worldNormal;
-    payload.rayDistance = RayTCurrent();
+    payload.rayDistance = spirv::RayTmaxKHR;
 
 }
