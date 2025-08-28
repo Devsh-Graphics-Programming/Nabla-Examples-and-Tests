@@ -40,7 +40,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t> beckmannAnisoBSDF;
     bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t> ggxIsoBSDF;
     bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t> ggxAnisoBSDF;
-    bxdf::transmission::SIridescent<iso_microfacet_config_t> iridBRDF;
+    bxdf::transmission::SIridescent<iso_microfacet_config_t> iridBSDF;
 
 
     // do some nonsense calculations, but call all the relevant functions
