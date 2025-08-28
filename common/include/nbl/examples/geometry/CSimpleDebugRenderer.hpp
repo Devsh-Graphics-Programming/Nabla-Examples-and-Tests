@@ -1,14 +1,8 @@
 #ifndef _NBL_EXAMPLES_C_SIMPLE_DEBUG_RENDERER_H_INCLUDED_
 #define _NBL_EXAMPLES_C_SIMPLE_DEBUG_RENDERER_H_INCLUDED_
 
-
 #include "nbl/builtin/hlsl/math/linalg/fast_affine.hlsl"
 #include "nbl/examples/geometry/SPushConstants.hlsl"
-
-// TODO: Arek bring back
-//#include "nbl/examples/geometry/spirv/builtin/CArchive.h"
-//#include "nbl/examples/geometry/spirv/builtin/builtinResources.h"
-
 
 namespace nbl::examples
 {
@@ -57,9 +51,9 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			asset::SBufferBinding<const video::IGPUBuffer> indexBuffer = {};
 			uint32_t elementCount = 0;
 			// indices into the descriptor set
-			uint8_t positionView = 0;
-			uint8_t normalView = 0;
-			uint8_t uvView = 0;
+			constexpr static inline auto MissingView = hlsl::examples::geometry_creator_scene::SPushConstants::DescriptorCount;
+			uint16_t positionView = MissingView;
+			uint16_t normalView = MissingView;
 			asset::E_INDEX_TYPE indexType = asset::EIT_UNKNOWN;
 		};
 		//
@@ -72,8 +66,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				return {
 					.matrices = viewParams.computeForInstance(world),
 					.positionView = packedGeo->positionView,
-					.normalView = packedGeo->normalView,
-					.uvView = packedGeo->uvView
+					.normalView = packedGeo->normalView
 				};
 			}
 
@@ -109,14 +102,14 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			// load shader
 			smart_refctd_ptr<IShader> shader;
 			{
-				const auto bundle = assMan->getAsset("nbl/examples/geometry/shaders/unified.hlsl",{});
-// TODO: Arek
-				//const auto bundle = assMan->getAsset("nbl/examples/geometry/shaders/unified.spv",{});
+				auto key = "nbl/examples/" + nbl::builtin::examples::build::get_spirv_key<"shaders/geometry/unified">(device);
+				const auto bundle = assMan->getAsset(key.data(), {});
+
 				const auto contents = bundle.getContents();
 				if (contents.empty() || bundle.getAssetType()!=IAsset::ET_SHADER)
 					return nullptr;
 				shader = IAsset::castDown<IShader>(contents[0]);
-				shader = device->compileShader({.source=shader.get()});
+				
 				if (!shader)
 					return nullptr;
 			}
@@ -137,7 +130,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 							// need this trifecta of flags for `SubAllocatedDescriptorSet` to accept the binding as suballocatable
 							.createFlags = binding_flags_t::ECF_UPDATE_AFTER_BIND_BIT|binding_flags_t::ECF_UPDATE_UNUSED_WHILE_PENDING_BIT |binding_flags_t::ECF_PARTIALLY_BOUND_BIT,
 							.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX|IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-							.count = SInstance::SPushConstants::DescriptorCount
+							.count = SPackedGeometry::MissingView
 						}
 					};
 					dsLayout = device->createDescriptorSetLayout(bindings);
@@ -161,7 +154,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 
 			// create pipeline layout
 			const SPushConstantRange ranges[] = {{
-				.stageFlags = hlsl::ShaderStage::ESS_VERTEX,
+				.stageFlags = hlsl::ShaderStage::ESS_VERTEX|hlsl::ShaderStage::ESS_FRAGMENT,
 				.offset = 0,
 				.size = sizeof(SInstance::SPushConstants),
 			}};
@@ -246,24 +239,30 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 
 			core::vector<IGPUDescriptorSet::SWriteDescriptorSet> writes;
 			core::vector<IGPUDescriptorSet::SDescriptorInfo> infos;
-			auto allocateUTB = [&](const IGeometry<const IGPUBuffer>::SDataView& view)->uint8_t
+			bool anyFailed = false;
+			auto allocateUTB = [&](const IGeometry<const IGPUBuffer>::SDataView& view)->decltype(SubAllocatedDescriptorSet::invalid_value)
 			{
 				if (!view)
-					return SInstance::SPushConstants::DescriptorCount;
+					return SPackedGeometry::MissingView;
 				auto index = SubAllocatedDescriptorSet::invalid_value;
 				if (m_params.subAllocDS->multi_allocate(VertexAttrubUTBDescBinding,1,&index)!=0)
-					return SInstance::SPushConstants::DescriptorCount;
-				const auto retval = infos.size();
+				{
+					anyFailed = true;
+					return SPackedGeometry::MissingView;
+				}
+				const auto infosOffset = infos.size();
 				infos.emplace_back().desc = device->createBufferView(view.src,view.composed.format);
 				writes.emplace_back() = {
 					.dstSet = m_params.subAllocDS->getDescriptorSet(),
 					.binding = VertexAttrubUTBDescBinding,
 					.arrayElement = index,
 					.count = 1,
-					.info = reinterpret_cast<const IGPUDescriptorSet::SDescriptorInfo*>(retval)
+					.info = reinterpret_cast<const IGPUDescriptorSet::SDescriptorInfo*>(infosOffset)
 				};
-				return retval;
+				return index;
 			};
+			if (anyFailed)
+				device->getLogger()->log("Failed to allocate a UTB for some geometries, probably ran out of space in Descriptor Set!",system::ILogger::ELL_ERROR);
 
 			auto sizeToSet = m_geoms.size();
 			auto resetGeoms = core::makeRAIIExiter([&]()->void
@@ -308,9 +307,6 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				out.elementCount = geom->getVertexReferenceCount();
 				out.positionView = allocateUTB(geom->getPositionView());
 				out.normalView = allocateUTB(geom->getNormalView());
-				// the first view is usually the UV
-				if (const auto& auxViews = geom->getAuxAttributeViews(); !auxViews.empty())
-					out.uvView = allocateUTB(auxViews.front());
 			}
 
 			// no geometry
@@ -340,6 +336,8 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			deferredFree.reserve(3);
 			auto deallocate = [&](SubAllocatedDescriptorSet::value_type index)->void
 			{
+				if (index>=SPackedGeometry::MissingView)
+					return;
 				if (info.semaphore)
 					deferredFree.push_back(index);
 				else
@@ -348,14 +346,11 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 			auto geo = m_geoms.begin() + ix;
 			deallocate(geo->positionView);
 			deallocate(geo->normalView);
-			deallocate(geo->uvView);
 			m_geoms.erase(geo);
 
 			if (deferredFree.empty())
 				return;
-
-			core::vector<IGPUDescriptorSet::SDropDescriptorSet> nullify(deferredFree.size());
-			const_cast<ILogicalDevice*>(m_params.layout->getOriginDevice())->nullifyDescriptors(nullify);
+			m_params.subAllocDS->multi_deallocate(VertexAttrubUTBDescBinding,deferredFree.size(),deferredFree.data(),info);
 		}
 
 		//
@@ -386,7 +381,7 @@ class CSimpleDebugRenderer final : public core::IReferenceCounted
 				const auto* geo = instance.packedGeo;
 				cmdbuf->bindGraphicsPipeline(geo->pipeline.get());
 				const auto pc = instance.computePushConstants(viewParams);
-				cmdbuf->pushConstants(layout,hlsl::ShaderStage::ESS_VERTEX,0,sizeof(pc),&pc);
+				cmdbuf->pushConstants(layout,hlsl::ShaderStage::ESS_VERTEX|hlsl::ShaderStage::ESS_FRAGMENT,0,sizeof(pc),&pc);
 				if (geo->indexBuffer)
 				{
 					cmdbuf->bindIndexBuffer(geo->indexBuffer,geo->indexType);

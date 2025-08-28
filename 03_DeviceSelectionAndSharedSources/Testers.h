@@ -56,7 +56,7 @@ protected:
 			// if the extension is generic (.glsl or .hlsl) the stage is unknown.
 			// But it can still be overriden from within the source with a `#pragma shader_stage` 
 			options.stage = shaderStage == IShader::E_SHADER_STAGE::ESS_COMPUTE ? shaderStage : IShader::E_SHADER_STAGE::ESS_VERTEX; // TODO: do smth with it
-			options.targetSpirvVersion = device->getPhysicalDevice()->getLimits().spirvVersion;
+			options.preprocessorOptions.targetSpirvVersion = device->getPhysicalDevice()->getLimits().spirvVersion;
 			// we need to perform an unoptimized compilation with source debug info or we'll lose names of variable sin the introspection
 			options.spirvOptimizer = nullptr;
 			options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;

@@ -1426,7 +1426,7 @@ private:
             options.stage = shaderStage;
             if (!(options.stage == IShader::E_SHADER_STAGE::ESS_COMPUTE || options.stage == IShader::E_SHADER_STAGE::ESS_FRAGMENT))
                 options.stage = IShader::E_SHADER_STAGE::ESS_VERTEX;
-            options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+            options.preprocessorOptions.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
             options.spirvOptimizer = nullptr;
         #ifndef _NBL_DEBUG
             ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;

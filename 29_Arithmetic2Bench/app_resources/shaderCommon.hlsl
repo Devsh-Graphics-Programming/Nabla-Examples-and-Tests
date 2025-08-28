@@ -1,4 +1,4 @@
-#include "common.hlsl"
+#include "app_resources/common.hlsl"
 
 using namespace nbl;
 using namespace hlsl;

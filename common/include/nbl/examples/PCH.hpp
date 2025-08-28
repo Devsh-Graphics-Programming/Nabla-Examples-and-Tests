@@ -14,6 +14,7 @@
 #include "nabla.h"
 
 //! Common example interface headers
+#include "nbl/examples/common/build/spirv/keys.hpp"
 #include "nbl/examples/common/SimpleWindowedApplication.hpp"
 #include "nbl/examples/common/MonoWindowApplication.hpp"
 #include "nbl/examples/common/InputSystem.hpp"

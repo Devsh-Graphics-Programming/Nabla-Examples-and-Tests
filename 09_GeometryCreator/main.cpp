@@ -5,7 +5,6 @@
 
 #include "common.hpp"
 
-
 class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinResourcesApplication
 {
 	using device_base_t = MonoWindowApplication;

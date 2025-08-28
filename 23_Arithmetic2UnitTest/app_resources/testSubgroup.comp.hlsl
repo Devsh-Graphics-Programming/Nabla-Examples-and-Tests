@@ -7,7 +7,7 @@
 #include "nbl/builtin/hlsl/subgroup2/arithmetic_portability.hlsl"
 #include "nbl/builtin/hlsl/subgroup2/arithmetic_params.hlsl"
 
-#include "shaderCommon.hlsl"
+#include "app_resources/shaderCommon.hlsl"
 #include "nbl/builtin/hlsl/workgroup2/basic.hlsl"
 
 template<class Binop, class device_capabilities>
