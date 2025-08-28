@@ -66,7 +66,7 @@ struct PrintFailureCallback : FailureCallback
     }
 };
 
-#define FOR_EACH_BEGIN(r) std::for_each(std::execution::seq, r.begin(), r.end(), [&](uint32_t i) {
+#define FOR_EACH_BEGIN(r) std::for_each(std::execution::par_unseq, r.begin(), r.end(), [&](uint32_t i) {
 #define FOR_EACH_END });
 
 int main(int argc, char** argv)
