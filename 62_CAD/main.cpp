@@ -367,8 +367,12 @@ bool performImageFormatPromotionCopy(const core::smart_refctd_ptr<asset::ICPUIma
 // Used by case 12
 struct ImageLoader : public DrawResourcesFiller::IGeoreferencedImageLoader
 {
+	// Assume offset always fits in the image, but maybe offset + extent doesn't
 	core::smart_refctd_ptr<ICPUBuffer> load(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t mipLevel) override
 	{
+		auto mippedImageExtents = getExtents(imagePath, mipLevel);
+		// If `offset + extent` exceeds the extent of the image at the current mip level, we clamp it
+		extent = nbl::hlsl::min(mippedImageExtents - offset, extent);
 		// Image path ignored for this hardcoded example
 		const auto& image = mipLevels[mipLevel];
 		const auto& imageBuffer = image->getBuffer();
@@ -511,9 +515,9 @@ struct ImageLoader : public DrawResourcesFiller::IGeoreferencedImageLoader
 		}
 	}
 
-	uint32_t2 getExtents(std::filesystem::path imagePath) override
+	uint32_t2 getExtents(std::filesystem::path imagePath, uint32_t mipLevel) override
 	{
-		uint32_t sidelength = mipLevels[0]->getCreationParameters().extent.width;
+		uint32_t sidelength = mipLevels[0]->getCreationParameters().extent.width >> mipLevel;
 		return uint32_t2(sidelength, sidelength);
 	}
 

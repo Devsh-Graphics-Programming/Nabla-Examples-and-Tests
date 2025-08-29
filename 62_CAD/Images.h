@@ -123,7 +123,7 @@ struct GeoreferencedImageStreamingState : public IReferenceCounted
 	friend class DrawResourcesFiller;
 
 protected:
-	static smart_refctd_ptr<GeoreferencedImageStreamingState> create(GeoreferencedImageParams&& _georeferencedImageParams)
+	static smart_refctd_ptr<GeoreferencedImageStreamingState> create(GeoreferencedImageParams&& _georeferencedImageParams, uint32_t TileSize)
 	{
 		smart_refctd_ptr<GeoreferencedImageStreamingState> retVal(new GeoreferencedImageStreamingState{});
 		retVal->georeferencedImageParams = std::move(_georeferencedImageParams);
@@ -151,6 +151,14 @@ protected:
 
 		// Put them all together
 		retVal->world2UV = float64_t2x3(firstRow.x, firstRow.y, postRotatedShiftX, secondRow.x, secondRow.y, postRotatedShiftY);
+
+		// Also set the maxMipLevel
+		uint32_t2 maxMipLevels = nbl::hlsl::findMSB(nbl::hlsl::roundUpToPoT(retVal->georeferencedImageParams.imageExtents / TileSize));
+		retVal->maxMipLevel = nbl::hlsl::min(maxMipLevels.x, maxMipLevels.y);
+
+		// Set max number of mip 0 tiles
+		retVal->fullImageTileLength = (retVal->georeferencedImageParams.imageExtents - 1u) / TileSize + 1u;
+
 		return retVal;
 	}
 
@@ -323,16 +331,20 @@ protected:
 		return retVal;
 	}
 
-	// Sidelength of the gpu image, in tiles that are `GeoreferencedImageTileSize` pixels wide
+	// Sidelength of the gpu image, in tiles that are `TileSize` pixels wide
 	uint32_t gpuImageSideLengthTiles = {};
-	// Size of the image in tiles of `GeoreferencedImageTileSize` sidelength
+	// We establish a max mipLevel for the image, which is the mip level at which any of width, height fit in a single Tile
+	uint32_t maxMipLevel = {};
+	// Size of the image in tiles of `TileSize` sidelength
 	uint32_t2 fullImageTileLength = {};
-	// Set mip level to extreme value so it gets recreated on first iteration
-	GeoreferencedImageTileRange currentMappedRegion = { .baseMipLevel = std::numeric_limits<uint32_t>::max() };
 	// Indicates on which tile of the gpu image the current mapped region's `topLeft` resides
 	uint32_t2 gpuImageTopLeft = {};
 	// Converts a point (z = 1) in worldspace to UV coordinates in image space (origin shifted to topleft of the image)
 	float64_t2x3 world2UV = {};
+	// If the image dimensions are not exactly divisible by `TileSize`, then the last tile along a dimension only holds a proportion of `lastTileFraction` pixels along that dimension  
+	float64_t lastTileFraction = {};
+	// Set mip level to extreme value so it gets recreated on first iteration
+	GeoreferencedImageTileRange currentMappedRegion = { .baseMipLevel = std::numeric_limits<uint32_t>::max() };
 };
 
 struct CachedImageRecord

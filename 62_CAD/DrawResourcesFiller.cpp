@@ -736,13 +736,10 @@ bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(
 				cachedImageRecord->allocationSize = allocResults.allocationSize;
 				cachedImageRecord->gpuImageView = allocResults.gpuImageView;
 				cachedImageRecord->staticCPUImage = nullptr;
-				cachedImageRecord->georeferencedImageState = GeoreferencedImageStreamingState::create(std::move(params));
+				cachedImageRecord->georeferencedImageState = GeoreferencedImageStreamingState::create(std::move(params), GeoreferencedImageTileSize);
 
 				// This is because gpu image is square
 				cachedImageRecord->georeferencedImageState->gpuImageSideLengthTiles = cachedImageRecord->gpuImageView->getCreationParameters().image->getCreationParameters().extent.width / GeoreferencedImageTileSize;
-				
-				auto& fullImageTileLength = cachedImageRecord->georeferencedImageState->fullImageTileLength;
-				fullImageTileLength = (cachedImageRecord->georeferencedImageState->georeferencedImageParams.imageExtents - 1u) / GeoreferencedImageTileSize + 1u;
 			}
 			else
 			{
@@ -2954,7 +2951,9 @@ GeoreferencedImageTileRange DrawResourcesFiller::computeViewportTileRange(const 
 	}
 	
 	GeoreferencedImageTileRange retVal = {};
-	retVal.baseMipLevel = nbl::hlsl::findMSB(uint32_t(nbl::hlsl::floor(pixelRatio)));
+	// Clamp mip level so we don't consider tiles that are too small along one dimension
+	// If on a pathological case this gets too expensive because the GPU starts sampling a lot, we can consider changing this, but I doubt that will happen
+	retVal.baseMipLevel = nbl::hlsl::min(nbl::hlsl::findMSB(uint32_t(nbl::hlsl::floor(pixelRatio))), int32_t(imageStreamingState->maxMipLevel));
 	
 	// Current tiles are measured in mip 0. We want the result to measure mip `retVal.baseMipLevel` tiles. Each next mip level divides by 2.
 	minAllFloored >>= retVal.baseMipLevel;

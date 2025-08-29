@@ -127,7 +127,7 @@ public:
 	{
 		virtual core::smart_refctd_ptr<ICPUBuffer> load(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t mipLevel) = 0;
 
-		virtual uint32_t2 getExtents(std::filesystem::path imagePath) = 0;
+		virtual uint32_t2 getExtents(std::filesystem::path imagePath, uint32_t mipLevel) = 0;
 
 		virtual asset::E_FORMAT getFormat(std::filesystem::path imagePath) = 0;
 	};
@@ -139,7 +139,7 @@ public:
 
 	uint32_t2 queryGeoreferencedImageExtents(std::filesystem::path imagePath)
 	{
-		return georeferencedImageLoader->getExtents(imagePath);
+		return georeferencedImageLoader->getExtents(imagePath, 0);
 	}
 
 	asset::E_FORMAT queryGeoreferencedImageFormat(std::filesystem::path imagePath)
