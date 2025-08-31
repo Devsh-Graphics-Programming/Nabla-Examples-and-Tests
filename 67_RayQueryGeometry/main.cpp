@@ -856,7 +856,7 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 					auto& geomInfo = geomInfos[i];
 					geomInfo = {
 						.vertexBufferAddress = vertexBufferAddress,
-						.indexBufferAddress = indexBufferBinding.buffer ? indexBufferBinding.buffer->getDeviceAddress() + indexBufferBinding.offset : vertexBufferAddress,
+						.indexBufferAddress = indexBufferBinding.buffer ? indexBufferBinding.buffer->getDeviceAddress() + indexBufferBinding.offset : 0,
 						.normalBufferAddress = normalBufferAddress,
 						.normalType = normalType,
 						.indexType = gpuTriangles.indexType,
