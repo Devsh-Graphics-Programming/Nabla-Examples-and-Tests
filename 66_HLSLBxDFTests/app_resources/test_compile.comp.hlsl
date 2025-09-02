@@ -27,14 +27,17 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 {
     bxdf::reflection::SLambertian<iso_config_t> lambertianBRDF;
     bxdf::reflection::SOrenNayar<iso_config_t> orenNayarBRDF;
+    bxdf::reflection::SDeltaDistribution<iso_config_t> deltaDistBRDF;
     bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t> beckmannIsoBRDF;
     bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t> beckmannAnisoBRDF;
     bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t> ggxIsoBRDF;
     bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t> ggxAnisoBRDF;
 
     bxdf::transmission::SLambertian<iso_config_t> lambertianBSDF;
+    bxdf::transmission::SOrenNayar<iso_config_t> orenNayarBSDF;
     bxdf::transmission::SSmoothDielectric<iso_config_t> smoothDielectricBSDF;
     bxdf::transmission::SSmoothThinDielectric<iso_config_t> thinSmoothDielectricBSDF;
+    bxdf::transmission::SDeltaDistribution<iso_config_t> deltaDistBSDF;
     bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t> beckmannIsoBSDF;
     bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t> beckmannAnisoBSDF;
     bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t> ggxIsoBSDF;
