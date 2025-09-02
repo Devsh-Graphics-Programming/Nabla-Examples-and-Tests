@@ -501,6 +501,13 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 			};
 
 			std::vector<ReferenceObjectCpu> cpuObjects;
+
+			const auto prism = gc->createPrism(2, 5, 9);
+			cpuObjects.push_back(ReferenceObjectCpu{ .transform = nextTransform(), .data = prism});
+			const auto unweldedPrism = CPolygonGeometryManipulator::createUnweldedList(prism.get());
+			const auto smoothedPrism = CPolygonGeometryManipulator::createSmoothVertexNormal(unweldedPrism.get(), true);
+			cpuObjects.push_back(ReferenceObjectCpu{ .transform = nextTransform(), .data = smoothedPrism});
+
 			cpuObjects.push_back(ReferenceObjectCpu{ .transform = nextTransform(), .data = gc->createArrow() });
 			cpuObjects.push_back(ReferenceObjectCpu{ .transform = nextTransform(), .data = CPolygonGeometryManipulator::createTriangleListIndexing(gc->createDisk(1.0f, 12).get()) });
 			cpuObjects.push_back(ReferenceObjectCpu{ .transform = nextTransform(), .data = gc->createCube({1.f, 1.f, 1.f})});
