@@ -182,7 +182,7 @@ int main(int argc, char** argv)
     TestJacobian<bxdf::transmission::SLambertian<iso_config_t>>::run(initparams, cb);
     TestJacobian<bxdf::transmission::SOrenNayar<iso_config_t>>::run(initparams, cb);
     TestJacobian<bxdf::transmission::SSmoothDielectric<iso_config_t> >::run(initparams, cb);
-    TestJacobian<bxdf::transmission::SSmoothThinDielectric<iso_config_t> >::run(initparams, cb);
+    TestJacobian<bxdf::transmission::SThinSmoothDielectric<iso_config_t> >::run(initparams, cb);
     TestJacobian<bxdf::transmission::SDeltaDistribution<iso_config_t>>::run(initparams, cb);
     TestJacobian<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestJacobian<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
@@ -209,7 +209,7 @@ int main(int argc, char** argv)
     TestReciprocity<bxdf::transmission::SLambertian<iso_config_t>>::run(initparams, cb);
     TestReciprocity<bxdf::transmission::SOrenNayar<iso_config_t>>::run(initparams, cb);
     TestReciprocity<bxdf::transmission::SSmoothDielectric<iso_config_t>>::run(initparams, cb);
-    TestReciprocity<bxdf::transmission::SSmoothThinDielectric<iso_config_t>>::run(initparams, cb);
+    TestReciprocity<bxdf::transmission::SThinSmoothDielectric<iso_config_t>>::run(initparams, cb);
     TestReciprocity<bxdf::transmission::SDeltaDistribution<iso_config_t>>::run(initparams, cb);
     TestReciprocity<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestReciprocity<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
@@ -237,7 +237,7 @@ int main(int argc, char** argv)
     TestBucket<bxdf::transmission::SLambertian<iso_config_t>>::run(initparams, cb);
     TestBucket<bxdf::transmission::SOrenNayar<iso_config_t>>::run(initparams, cb);
     //TestBucket<bxdf::transmission::SSmoothDielectric<iso_config_t>>::run(initparams, cb);
-    //TestBucket<bxdf::transmission::SSmoothThinDielectric<iso_config_t>>::run(initparams, cb);
+    //TestBucket<bxdf::transmission::SThinSmoothDielectric<iso_config_t>>::run(initparams, cb);
     TestBucket<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestBucket<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     TestBucket<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
@@ -266,7 +266,7 @@ int main(int argc, char** argv)
     TestChi2<bxdf::transmission::SLambertian<iso_config_t>>::run(initparams, cb);
     TestChi2<bxdf::transmission::SOrenNayar<iso_config_t>>::run(initparams, cb);
     //TestChi2<bxdf::transmission::SSmoothDielectric<iso_config_t>>::run(initparams, cb);
-    //TestChi2<bxdf::transmission::SSmoothThinDielectric<iso_config_t>>::run(initparams, cb);
+    //TestChi2<bxdf::transmission::SThinSmoothDielectric<iso_config_t>>::run(initparams, cb);
     TestChi2<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestChi2<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     TestChi2<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);

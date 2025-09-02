@@ -387,15 +387,15 @@ struct TestBxDF<bxdf::transmission::SSmoothDielectric<iso_config_t>> : TestBxDFB
 };
 
 template<>
-struct TestBxDF<bxdf::transmission::SSmoothThinDielectric<iso_config_t>> : TestBxDFBase<bxdf::transmission::SSmoothThinDielectric<iso_config_t>>
+struct TestBxDF<bxdf::transmission::SThinSmoothDielectric<iso_config_t>> : TestBxDFBase<bxdf::transmission::SThinSmoothDielectric<iso_config_t>>
 {
-    using base_t = TestBxDFBase<bxdf::transmission::SSmoothThinDielectric<iso_config_t>>;
+    using base_t = TestBxDFBase<bxdf::transmission::SThinSmoothDielectric<iso_config_t>>;
 
     void initBxDF(SBxDFTestResources _rc)
     {
         using spectral_type = typename base_t::bxdf_t::spectral_type;
         bxdf::fresnel::Dielectric<spectral_type> f = bxdf::fresnel::Dielectric<spectral_type>::create(bxdf::fresnel::OrientedEtas<spectral_type>::create(base_t::isointer.getNdotV(bxdf::BxDFClampMode::BCM_ABS), hlsl::promote<spectral_type>(rc.eta)));
-        base_t::bxdf = bxdf::transmission::SSmoothThinDielectric<iso_config_t>::create(f,rc.luma_coeff);
+        base_t::bxdf = bxdf::transmission::SThinSmoothDielectric<iso_config_t>::create(f,rc.luma_coeff);
 #ifndef __HLSL_VERSION
         base_t::name = "Thin smooth dielectric BSDF";
 #endif
@@ -501,8 +501,8 @@ struct is_basic_bsdf : bool_constant<
     is_same<T, bxdf::transmission::SLambertian<aniso_config_t>>::value ||
     is_same<T, bxdf::transmission::SSmoothDielectric<iso_config_t>>::value ||
     is_same<T, bxdf::transmission::SSmoothDielectric<aniso_config_t>>::value ||
-    is_same<T, bxdf::transmission::SSmoothThinDielectric<iso_config_t>>::value ||
-    is_same<T, bxdf::transmission::SSmoothThinDielectric<aniso_config_t>>::value ||
+    is_same<T, bxdf::transmission::SThinSmoothDielectric<iso_config_t>>::value ||
+    is_same<T, bxdf::transmission::SThinSmoothDielectric<aniso_config_t>>::value ||
     is_same<T, bxdf::transmission::SDeltaDistribution<iso_config_t>>::value ||
     is_same<T, bxdf::transmission::SDeltaDistribution<aniso_config_t>>::value
 > {};

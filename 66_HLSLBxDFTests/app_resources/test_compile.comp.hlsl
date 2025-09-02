@@ -36,7 +36,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     bxdf::transmission::SLambertian<iso_config_t> lambertianBSDF;
     bxdf::transmission::SOrenNayar<iso_config_t> orenNayarBSDF;
     bxdf::transmission::SSmoothDielectric<iso_config_t> smoothDielectricBSDF;
-    bxdf::transmission::SSmoothThinDielectric<iso_config_t> thinSmoothDielectricBSDF;
+    bxdf::transmission::SThinSmoothDielectric<iso_config_t> thinSmoothDielectricBSDF;
     bxdf::transmission::SDeltaDistribution<iso_config_t> deltaDistBSDF;
     bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t> beckmannIsoBSDF;
     bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t> beckmannAnisoBSDF;
