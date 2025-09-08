@@ -66,7 +66,7 @@ if(NBL_BUILD_EXAMPLES)
 	# Showcase compute pathtracing
 	add_subdirectory(30_ComputeShaderPathTracer)
 
-	add_subdirectory(34_DebugDraw EXCLUDE_FROM_ALL)
+	add_subdirectory(34_DebugDraw)
 
 	add_subdirectory(38_EXRSplit)
 	# if (NBL_BUILD_MITSUBA_LOADER AND NBL_BUILD_OPTIX)
