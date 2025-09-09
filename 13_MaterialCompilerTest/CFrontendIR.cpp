@@ -87,36 +87,41 @@ auto CFrontendIR::reciprocate(const TypedHandle<const IExprNode> other) -> Typed
 void CFrontendIR::printDotGraph(std::ostringstream& str) const
 {
 	str << "digraph {\n";
-	auto getNodeID = [](TypedHandle<const INode> handle)->core::string
-	{
-		return core::string("_")+std::to_string(handle);
-	};
 
+	// TODO: track layering depth and indent accordingly?
 	core::vector<TypedHandle<const CLayer>> layerStack = m_rootNodes;
 	core::stack<TypedHandle<const IExprNode>> exprStack;
-	// TODO : print identifiers for root nodes/materials
 	while (!layerStack.empty())
 	{
-		const auto* layerNode = deref(layerStack.back());
+		const auto layerHandle = layerStack.back();
 		layerStack.pop_back();
+		const auto* layerNode = deref(layerHandle);
+		//
+		const auto layerID = getNodeID(layerHandle);
+		str << "\n\t" << getLabelledNodeID(layerHandle);
+		//
 		if (layerNode->coated)
 		{
-			// TODO: print coating
+			str << "\n\t" << layerID << " -> " << getNodeID(layerNode->coated) << "[label=\"coats\"]\n";
 			layerStack.push_back(layerNode->coated);
 		}
-		// TODO: print labelled edges
-		exprStack.push(layerNode->brdfTop);
-		exprStack.push(layerNode->btdf);
-		exprStack.push(layerNode->brdfBottom);
+		auto pushExprRoot = [&](const TypedHandle<const IExprNode> root, const std::string_view edgeLabel)->void
+		{
+			if (!root)
+				return;
+			str << "\n\t" << layerID << " -> " << getNodeID(root) << "[label=\"" << edgeLabel << "\"]";
+			exprStack.push(root);
+		};
+		pushExprRoot(layerNode->brdfTop,"Top BRDF");
+		pushExprRoot(layerNode->btdf,"BTDF");
+		pushExprRoot(layerNode->brdfBottom,"Bottom BRDF");
 		while (!exprStack.empty())
 		{
 			const auto entry = exprStack.top();
 			exprStack.pop();
+			str << "\n\t" << getLabelledNodeID(entry);
+			str << "\n\t" << getNodeID(entry) << " -> {";
 			const auto* node = deref(entry);
-			str << "\t" << getNodeID(entry) << " [label=" << node->getTypeName() << "\\n";
-			if (const auto* debug = deref(node->debugInfo); debug && !debug->data().empty())
-				str << std::string_view(reinterpret_cast<const char*>(debug->data().data()),debug->data().size());
-			str << "]\n\t" << getNodeID(entry) << " -> {";
 			const auto childCount = node->getChildCount();
 			for (auto childIx=0; childIx<childCount; childIx++)
 			{
@@ -131,7 +136,7 @@ void CFrontendIR::printDotGraph(std::ostringstream& str) const
 		}
 	}
 
-	str << "}\n";
+	str << "\n}\n";
 }
 
 }

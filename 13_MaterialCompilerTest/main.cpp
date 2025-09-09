@@ -48,13 +48,29 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 
 			// simple white furnace testing materials
 			{
+				// transmission
 				{
 					auto layerH = forest->_new<CFrontendIR::CLayer>();
 					auto* layer = forest->deref(layerH);
-//					layer->btdf = forest->_new<CFrontendIR::CDeltaTransmission>();
+					layer->debugInfo = forest->_new<CNodePool::CDebugInfo>("MyWeirdInvisibleMaterial");
+					layer->btdf = forest->_new<CFrontendIR::CDeltaTransmission>();
 					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
 				}
+				// delta reflection
+				// cook torrance GGX
+				// cook torrance GGX with Fresnel
 			}
+
+			// diffuse
+			// conductor (smooth and rough)
+			// thindielectric
+			// dielectric
+			// diffuse transmitter
+
+			// rough plastic
+
+			// coated diffuse transmitter leaf
+			// with subsurface beer scattering
 
 			smart_refctd_ptr<IFile> file;
 			{
