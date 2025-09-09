@@ -6,7 +6,7 @@
 #include "nbl/examples/examples.hpp"
 
 //! Temporary
-#include "nbl/asset/material_compiler3/IR.h"
+#include "nbl/asset/material_compiler3/CFrontendIR.h"
 
 
 using namespace nbl;
@@ -14,6 +14,7 @@ using namespace nbl::core;
 using namespace nbl::hlsl;
 using namespace nbl::system;
 using namespace nbl::asset;
+using namespace nbl::asset::material_compiler3;
 using namespace nbl::ui;
 using namespace nbl::video;
 using namespace nbl::examples;
@@ -39,7 +40,39 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
 
-			//
+			auto forest = CFrontendIR::create();
+
+			auto logger = m_logger.get();
+// TODO: use std::source_info
+#define ASSERT_VALUE(WHAT,VALUE,MSG) if (WHAT!=VALUE) return logFail("%s:%d test doesn't match expected value. %s",__FILE__,__LINE__,MSG)
+
+			// simple white furnace testing materials
+			{
+				{
+					auto layerH = forest->_new<CFrontendIR::CLayer>();
+					auto* layer = forest->deref(layerH);
+//					layer->btdf = forest->_new<CFrontendIR::CDeltaTransmission>();
+					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+				}
+			}
+
+			smart_refctd_ptr<IFile> file;
+			{
+				m_system->deleteFile(localOutputCWD/"frontend.dot");
+				ISystem::future_t<smart_refctd_ptr<IFile>> future;
+				m_system->createFile(future,localOutputCWD/"frontend.dot",IFileBase::E_CREATE_FLAGS::ECF_WRITE);
+				if (!future.wait())
+					return logFail("Failed to Open file for writing");
+				future.acquire().move_into(file);
+			}
+			if (file)
+			{
+				auto visualization = forest->printDotGraph();
+				// file write does not take an internal copy of pointer given, need to keep source alive till end
+				IFile::success_t succ;
+				file->write(succ,visualization.c_str(),0,visualization.size());
+				succ.getBytesProcessed();
+			}
 
 			return true;
 		}
