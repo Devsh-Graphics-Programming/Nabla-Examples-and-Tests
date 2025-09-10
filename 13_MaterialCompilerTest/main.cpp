@@ -86,6 +86,25 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 				}
 
 				// delta reflection
+				{
+					const auto layerH = forest->_new<CFrontendIR::CLayer>();
+					auto* layer = forest->deref(layerH);
+					layer->debugInfo = forest->_new<CNodePool::CDebugInfo>("PerfectMirror");
+					
+					{
+						const auto ctH = forest->_new<CFrontendIR::CCookTorrance>();
+						auto* ct = forest->deref(ctH);
+						ct->debugInfo = forest->_new<CNodePool::CDebugInfo>("Smooth NDF");
+						ASSERT_VALUE(ct->ndParams.getRougness()[0].scale,0.f,"Initial NDF Params must be Smooth");
+						ASSERT_VALUE(ct->ndParams.getRougness()[1].scale,0.f,"Initial NDF Params must be Smooth");
+						ASSERT_VALUE(ct->ndParams.getDerivMap()[0].scale,0.f,"Initial NDF Params must be Flat");
+						ASSERT_VALUE(ct->ndParams.getDerivMap()[1].scale,0.f,"Initial NDF Params must be Flat");
+						layer->brdfTop = ctH;
+					}
+
+					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+				}
+
 				// cook torrance GGX
 				// cook torrance GGX with Fresnel
 			}

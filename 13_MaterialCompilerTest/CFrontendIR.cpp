@@ -89,7 +89,8 @@ void CFrontendIR::printDotGraph(std::ostringstream& str) const
 	str << "digraph {\n";
 
 	// TODO: track layering depth and indent accordingly?
-	core::vector<TypedHandle<const CLayer>> layerStack = m_rootNodes;
+	// assign in reverse because we want materials to print in order
+	core::vector<TypedHandle<const CLayer>> layerStack(m_rootNodes.rbegin(),m_rootNodes.rend());
 	core::stack<TypedHandle<const IExprNode>> exprStack;
 	while (!layerStack.empty())
 	{
@@ -119,24 +120,140 @@ void CFrontendIR::printDotGraph(std::ostringstream& str) const
 		{
 			const auto entry = exprStack.top();
 			exprStack.pop();
+			const auto nodeID = getNodeID(entry);
 			str << "\n\t" << getLabelledNodeID(entry);
-			str << "\n\t" << getNodeID(entry) << " -> {";
 			const auto* node = deref(entry);
 			const auto childCount = node->getChildCount();
-			for (auto childIx=0; childIx<childCount; childIx++)
+			if (childCount)
 			{
-				const auto childHandle = node->getChildHandle(childIx);
-				if (const auto child=deref(childHandle); child)
+				str << "\n\t" << nodeID << " -> {";
+				for (auto childIx=0; childIx<childCount; childIx++)
 				{
-					str << getNodeID(childHandle) << " ";
-					exprStack.push(childHandle);
+					const auto childHandle = node->getChildHandle(childIx);
+					if (const auto child=deref(childHandle); child)
+					{
+						str << getNodeID(childHandle) << " ";
+						exprStack.push(childHandle);
+					}
 				}
+				str << "}\n";
 			}
-			str << "}\n";
+			// special printing
+			node->printDot(str,nodeID);
 		}
 	}
 
+	// TODO: print image views
+
 	str << "\n}\n";
+}
+
+void CFrontendIR::SParameter::printDot(std::ostringstream& sstr, const core::string& selfID) const
+{
+	sstr << "\n\t" << selfID << "[label=\"scale = " << std::to_string(scale);
+	if (view)
+	{
+		sstr << "\\nchannel = " << std::to_string(viewChannel);
+		const auto& viewParams = view->getCreationParameters();
+		sstr << "\\nWraps = {" << sampler.TextureWrapU;
+		if (viewParams.viewType!=ICPUImageView::ET_1D && viewParams.viewType!=ICPUImageView::ET_1D_ARRAY)
+			sstr << "," << sampler.TextureWrapV;
+		if (viewParams.viewType==ICPUImageView::ET_3D)
+			sstr << "," << sampler.TextureWrapW;
+		sstr << "}\\nBorder = " << sampler.BorderColor;
+		// don't bother printing the rest, we really don't care much about those
+	}
+	sstr << "\"]";
+	// TODO: do specialized printing for image views (they need to be gathered into a view set -> need a printing context struct)
+	/*
+	struct SDotPrintContext
+	{
+		std::ostringstream* sstr;
+		core::unordered_map<ICPUImageView*,core::blake3_hash>* usedViews;
+		uint16_t indentation = 0;
+	};
+	*/
+	if (view)
+		sstr << "\n\t" << selfID << " -> _view_" << std::to_string(reinterpret_cast<const uint64_t&>(view));
+}
+
+void CFrontendIR::CSpectralVariable::printDot(std::ostringstream& sstr, const core::string& selfID) const
+{
+	auto pWonky = reinterpret_cast<const SCreationParams<2>*>(this+1);
+	const auto knotCount = getKnotCount();
+	// single knot stuff is monochrome
+	if (knotCount>1)
+	{
+		sstr << "\n\t" << selfID << " -> ";
+		constexpr const char* semanticNames[] =
+		{
+			"Fixed3_SRGB",
+			"Fixed3_DCI_P3",
+			"Fixed3_BT2020",
+			"Fixed3_AdobeRGB",
+			"Fixed3_AcesCG"
+		};
+		sstr << semanticNames[static_cast<uint8_t>(pWonky->getSemantics())] << " label[\"Semantics\"]";
+	}
+	pWonky->knots.printDot(knotCount,sstr,selfID);
+}
+
+void CFrontendIR::CEmitter::printDot(std::ostringstream& sstr, const core::string& selfID) const
+{
+	if (profile)
+	{
+		const auto transformNodeID = selfID+"_pTform";
+		sstr << "\n\t" << transformNodeID << " [label=\"";
+		printMatrix(sstr,profileTransform);
+		sstr << "\"]";
+		// connect up
+		sstr << "\n\t" << selfID << " -> " << transformNodeID;
+	}
+}
+
+void CFrontendIR::CFresnel::printDot(std::ostringstream& sstr, const core::string& selfID) const
+{
+}
+
+void CFrontendIR::IBxDF::SBasicNDFParams::printDot(std::ostringstream& sstr, const core::string& selfID) const
+{
+	constexpr const char* paramSemantics[] = {
+		"dh/du",
+		"dh/dv",
+		"alpha_u",
+		"alpha_v"
+	};
+	SParameterSet<4>::printDot(sstr,selfID,paramSemantics);
+	if (hlsl::determinant(reference)>0.f)
+	{
+		const auto referenceID = selfID+"_reference";
+		sstr << "\n\t" << referenceID << " [label=\"";
+		printMatrix(sstr,reference);
+		sstr << "\"]";
+		sstr << "\n\t" << selfID << " -> " << referenceID << " [label=\"Stretch Reference\"]";
+	}
+}
+
+void CFrontendIR::COrenNayar::printDot(std::ostringstream& sstr, const core::string& selfID) const
+{
+	const auto ndParamsID = selfID + "_ndParams";
+	sstr << "\n\t" << ndParamsID << " label[\"ND Params\"]";
+	ndParams.printDot(sstr,ndParamsID);
+}
+
+void CFrontendIR::CCookTorrance::printDot(std::ostringstream& sstr, const core::string& selfID) const
+{
+	sstr << "\n\t" << selfID << " -> ";
+	switch (ndf)
+	{
+		case NDF::GGX:
+			sstr << "GGX";
+			break;
+		case NDF::Beckmann:
+			sstr << "Beckmann";
+			break;
+	}
+	ndParams.printDot(sstr,selfID);
 }
 
 }
