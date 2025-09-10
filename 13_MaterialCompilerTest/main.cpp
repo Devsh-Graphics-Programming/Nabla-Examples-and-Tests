@@ -46,6 +46,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 // TODO: use std::source_info
 #define ASSERT_VALUE(WHAT,VALUE,MSG) if (WHAT!=VALUE) return logFail("%s:%d test doesn't match expected value. %s",__FILE__,__LINE__,MSG)
 
+			using spectral_var_t = CFrontendIR::CSpectralVariable;
 			// simple white furnace testing materials
 			{
 				// transmission
@@ -69,9 +70,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 					});
 					auto view = ICPUImageView::create({.image=image,.viewType=ICPUImageView::ET_2D,.format=EF_R16_SFLOAT});
 
-					using spectral_var_t = CFrontendIR::CSpectralVariable;
 					spectral_var_t::SCreationParams<1> params = {};
-					params.knots.uvSlot() = 0;
 					params.knots.params[0].scale = 4.5f;
 					params.knots.params[0].view = view;
 
@@ -105,12 +104,68 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
 				}
 
-				// cook torrance GGX
-				// cook torrance GGX with Fresnel
+				// diffuse
+
+				// twosided diffuse
+
+				// diffuse transmissive
 			}
 
-			// diffuse
-			// conductor (smooth and rough)
+			// emitter without IES profile
+
+			// emitter with IES profile
+			
+			// anisotropic cook torrance GGX with Conductor Fresnel
+			{
+				const auto layerH = forest->_new<CFrontendIR::CLayer>();
+				auto* layer = forest->deref(layerH);
+				layer->debugInfo = forest->_new<CNodePool::CDebugInfo>("Anisotropic Aluminium");
+					
+				const auto mulH = forest->_new<CFrontendIR::CMul>();
+				auto* mul = forest->deref(mulH);
+				// BxDF always goes in left hand side of Mul
+				{
+					const auto ctH = forest->_new<CFrontendIR::CCookTorrance>();
+					auto* ct = forest->deref(ctH);
+					ct->debugInfo = forest->_new<CNodePool::CDebugInfo>("First Anisotropic GGX");
+					ct->ndParams.getRougness()[0].scale = 0.2f;
+					ct->ndParams.getRougness()[1].scale = 0.01f;
+					mul->lhs = ctH;
+				}
+				// other multipliers in not-left subtrees
+				{
+					const auto frH = forest->_new<CFrontendIR::CFresnel>();
+					auto* fr = forest->deref(frH);
+					fr->debugInfo = forest->_new<CNodePool::CDebugInfo>("Aluminium Fresnel");
+					{
+						spectral_var_t::SCreationParams<3> params = {};
+						params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
+						params.knots.params[0].scale = 1.3404f;
+						params.knots.params[1].scale = 0.95151f;
+						params.knots.params[2].scale = 0.68603f;
+						fr->orientedRealEta = forest->_new<spectral_var_t>(std::move(params));
+					}
+					{
+						spectral_var_t::SCreationParams<3> params = {};
+						params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
+						params.knots.params[0].scale = 7.3509f;
+						params.knots.params[1].scale = 6.4542f;
+						params.knots.params[2].scale = 5.6351f;
+						fr->orientedImagEta = forest->_new<spectral_var_t>(std::move(params));
+					}
+					mul->rhs = frH;
+				}
+				layer->brdfTop = mulH;
+
+				// test that our bad subtree checks by swapping lhs with rhs
+				std::swap(mul->lhs,mul->rhs);
+				ASSERT_VALUE(forest->addMaterial(layerH,logger),false,"Contributor not in left subtree check failed");
+
+				// should work now
+				std::swap(mul->lhs,mul->rhs);
+				ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Contributor in left subtree check failed");
+			}
+
 			// thindielectric
 			// dielectric
 			// diffuse transmitter

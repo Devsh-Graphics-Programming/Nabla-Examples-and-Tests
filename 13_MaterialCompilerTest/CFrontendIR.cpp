@@ -193,7 +193,7 @@ void CFrontendIR::CSpectralVariable::printDot(std::ostringstream& sstr, const co
 			"Fixed3_AdobeRGB",
 			"Fixed3_AcesCG"
 		};
-		sstr << semanticNames[static_cast<uint8_t>(pWonky->getSemantics())] << " label[\"Semantics\"]";
+		sstr << semanticNames[static_cast<uint8_t>(pWonky->getSemantics())] << " [label=\"Semantics\"]";
 	}
 	pWonky->knots.printDot(knotCount,sstr,selfID);
 }
