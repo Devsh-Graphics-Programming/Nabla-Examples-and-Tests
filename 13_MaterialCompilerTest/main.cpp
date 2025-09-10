@@ -56,6 +56,35 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 					layer->btdf = forest->_new<CFrontendIR::CDeltaTransmission>();
 					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
 				}
+
+				// creating a node and changing our mind
+				{
+					auto image = ICPUImage::create({
+						.type = IImage::E_TYPE::ET_2D,
+						.samples = IImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT,
+						.format = EF_R16_SFLOAT,
+						.extent = {32,32,1},
+						.mipLevels = 1,
+						.arrayLayers = 1
+					});
+					auto view = ICPUImageView::create({.image=image,.viewType=ICPUImageView::ET_2D,.format=EF_R16_SFLOAT});
+
+					using spectral_var_t = CFrontendIR::CSpectralVariable;
+					spectral_var_t::SCreationParams<1> params = {};
+					params.knots.uvSlot() = 0;
+					params.knots.params[0].scale = 4.5f;
+					params.knots.params[0].view = view;
+
+					ASSERT_VALUE(view->getReferenceCount(),2,"initial reference count");
+
+					auto handle = forest->_new<spectral_var_t>(std::move(params));
+					ASSERT_VALUE(view->getReferenceCount(),2,"transferred reference count");
+
+					// cleaning it up right away should run the destructor immediately and drop the image view refcount
+					forest->_delete(handle);
+					ASSERT_VALUE(view->getReferenceCount(),1,"after deletion reference count");
+				}
+
 				// delta reflection
 				// cook torrance GGX
 				// cook torrance GGX with Fresnel
