@@ -43,6 +43,22 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 			auto forest = CFrontendIR::create();
 
 			auto logger = m_logger.get();
+
+			// dummy monochrome image
+			smart_refctd_ptr<ICPUImageView> monochromeImageView;
+			{
+				constexpr auto format = EF_R16_SFLOAT;
+				auto image = ICPUImage::create({
+					.type = IImage::E_TYPE::ET_2D,
+					.samples = IImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT,
+					.format = format,
+					.extent = {32,32,1},
+					.mipLevels = 1,
+					.arrayLayers = 1
+				});
+				monochromeImageView = ICPUImageView::create({.image=std::move(image),.viewType=ICPUImageView::ET_2D,.format=format});
+			}
+
 // TODO: use std::source_info
 #define ASSERT_VALUE(WHAT,VALUE,MSG) if (WHAT!=VALUE) return logFail("%s:%d test doesn't match expected value. %s",__FILE__,__LINE__,MSG)
 
@@ -51,7 +67,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 			{
 				// transmission
 				{
-					auto layerH = forest->_new<CFrontendIR::CLayer>();
+					const auto layerH = forest->_new<CFrontendIR::CLayer>();
 					auto* layer = forest->deref(layerH);
 					layer->debugInfo = forest->_new<CNodePool::CDebugInfo>("MyWeirdInvisibleMaterial");
 					layer->btdf = forest->_new<CFrontendIR::CDeltaTransmission>();
@@ -60,28 +76,19 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 
 				// creating a node and changing our mind
 				{
-					auto image = ICPUImage::create({
-						.type = IImage::E_TYPE::ET_2D,
-						.samples = IImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT,
-						.format = EF_R16_SFLOAT,
-						.extent = {32,32,1},
-						.mipLevels = 1,
-						.arrayLayers = 1
-					});
-					auto view = ICPUImageView::create({.image=image,.viewType=ICPUImageView::ET_2D,.format=EF_R16_SFLOAT});
 
 					spectral_var_t::SCreationParams<1> params = {};
 					params.knots.params[0].scale = 4.5f;
-					params.knots.params[0].view = view;
+					params.knots.params[0].view = monochromeImageView;
 
-					ASSERT_VALUE(view->getReferenceCount(),2,"initial reference count");
+					ASSERT_VALUE(monochromeImageView->getReferenceCount(),2,"initial reference count");
 
-					auto handle = forest->_new<spectral_var_t>(std::move(params));
-					ASSERT_VALUE(view->getReferenceCount(),2,"transferred reference count");
+					const auto handle = forest->_new<spectral_var_t>(std::move(params));
+					ASSERT_VALUE(monochromeImageView->getReferenceCount(),2,"transferred reference count");
 
 					// cleaning it up right away should run the destructor immediately and drop the image view refcount
 					forest->_delete(handle);
-					ASSERT_VALUE(view->getReferenceCount(),1,"after deletion reference count");
+					ASSERT_VALUE(monochromeImageView->getReferenceCount(),1,"after deletion reference count");
 				}
 
 				// delta reflection
@@ -104,16 +111,57 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
 				}
 
-				// diffuse
+				// two-sided diffuse
+				{
+					const auto layerH = forest->_new<CFrontendIR::CLayer>();
+					auto* layer = forest->deref(layerH);
+					layer->debugInfo = forest->_new<CNodePool::CDebugInfo>("Twosided Diffuse");
+					const auto orenNayarH = forest->_new<CFrontendIR::COrenNayar>();
+					auto* orenNayar = forest->deref(orenNayarH);
+					orenNayar->debugInfo = forest->_new<CNodePool::CDebugInfo>("Actually Lambertian");
+					// TODO: add a derivative map for testing the printing and compilation
+					layer->brdfTop = orenNayarH;
+					layer->brdfBottom = orenNayarH;
+					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+				}
 
-				// twosided diffuse
-
-				// diffuse transmissive
+				// diffuse isotropic rough transmissive
+				{
+					const auto layerH = forest->_new<CFrontendIR::CLayer>();
+					auto* layer = forest->deref(layerH);
+					layer->debugInfo = forest->_new<CNodePool::CDebugInfo>("Rough Diffuse Transmitter");
+					// The material compiler can't handle the BRDF vs. BTDF normalization and energy conservation for you.
+					// Given a BRDF expression we simply can't tell if the missing energy was supposed
+					// to be transferred to the BTDF or absorbed by the BRDF itself.
+					// Hence the BTDF expression must contain the BRDF coating term.
+					const auto mulH = forest->_new<CFrontendIR::CMul>();
+					auto* mul = forest->deref(mulH);
+					// regular BRDF will normalize to 100% over a hemisphere, if we allow a BTDF term we must split it half/half
+					{
+						spectral_var_t::SCreationParams<1> params = {};
+						params.knots.params[0].scale = 0.5f;
+						mul->rhs = forest->_new<spectral_var_t>(std::move(params));
+					}
+					// create the BxDF as we'd do for a single BRDF or BTDF
+					{
+						const auto orenNayarH = forest->_new<CFrontendIR::COrenNayar>();
+						auto* orenNayar = forest->deref(orenNayarH);
+						orenNayar->debugInfo = forest->_new<CNodePool::CDebugInfo>("BxDF Normalized For Whole Sphere");
+						auto roughness = orenNayar->ndParams.getRougness();
+						roughness[1].scale = roughness[0].scale = 0.8f;
+						mul->lhs = orenNayarH;
+					}
+					// TODO: add a derivative map for testing the printing and compilation
+					layer->brdfTop = mulH;
+					layer->btdf = mulH;
+					layer->brdfBottom = mulH;
+					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+				}
 			}
 
-			// emitter without IES profile
+// emitter without IES profile
 
-			// emitter with IES profile
+// emitter with IES profile
 			
 			// anisotropic cook torrance GGX with Conductor Fresnel
 			{
@@ -168,7 +216,6 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 
 			// thindielectric
 			// dielectric
-			// diffuse transmitter
 
 			// rough plastic
 

@@ -236,9 +236,7 @@ void CFrontendIR::IBxDF::SBasicNDFParams::printDot(std::ostringstream& sstr, con
 
 void CFrontendIR::COrenNayar::printDot(std::ostringstream& sstr, const core::string& selfID) const
 {
-	const auto ndParamsID = selfID + "_ndParams";
-	sstr << "\n\t" << ndParamsID << " label[\"ND Params\"]";
-	ndParams.printDot(sstr,ndParamsID);
+	ndParams.printDot(sstr,selfID);
 }
 
 void CFrontendIR::CCookTorrance::printDot(std::ostringstream& sstr, const core::string& selfID) const
