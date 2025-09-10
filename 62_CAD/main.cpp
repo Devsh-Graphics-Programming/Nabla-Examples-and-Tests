@@ -49,7 +49,7 @@ static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
 static constexpr bool LargeGeoTextureStreaming = true;
 static constexpr bool CacheAndReplay = false; // caches first frame resources (buffers and images) from DrawResourcesFiller  and replays in future frames, skiping CPU Logic
-static constexpr bool testCameraRotation = true;
+static constexpr bool testCameraRotation = false;
 
 enum class ExampleMode
 {
@@ -136,7 +136,7 @@ public:
 
 			if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
 			{
-				m_bounds = m_bounds + float64_t2{ (double)ev.scrollEvent.verticalScroll * -0.0025 * m_aspectRatio, (double)ev.scrollEvent.verticalScroll * -0.0025};
+				m_bounds = m_bounds + float64_t2{ (double)ev.scrollEvent.verticalScroll * -0.025 * m_aspectRatio, (double)ev.scrollEvent.verticalScroll * -0.025};
 				m_bounds = float64_t2{ core::max(m_aspectRatio, m_bounds.x), core::max(1.0, m_bounds.y) };
 			}
 		}
@@ -368,13 +368,13 @@ bool performImageFormatPromotionCopy(const core::smart_refctd_ptr<asset::ICPUIma
 struct ImageLoader : public DrawResourcesFiller::IGeoreferencedImageLoader
 {
 	// Assume offset always fits in the image, but maybe offset + extent doesn't
-	core::smart_refctd_ptr<ICPUBuffer> load(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t mipLevel) override
+	core::smart_refctd_ptr<ICPUBuffer> load(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t mipLevel, bool downsample) override
 	{
 		auto mippedImageExtents = getExtents(imagePath, mipLevel);
 		// If `offset + extent` exceeds the extent of the image at the current mip level, we clamp it
 		extent = nbl::hlsl::min(mippedImageExtents - offset, extent);
 		// Image path ignored for this hardcoded example
-		const auto& image = mipLevels[mipLevel];
+		const auto& image = downsample ? baseMipLevels[mipLevel] : downsampledMipLevels[mipLevel];
 		const auto& imageBuffer = image->getBuffer();
 		const core::rational<uint32_t> bytesPerPixel = asset::getBytesPerPixel(image->getCreationParameters().format);
 		const size_t bytesPerRow = (bytesPerPixel * extent.x).getIntegerApprox();
@@ -501,29 +501,33 @@ struct ImageLoader : public DrawResourcesFiller::IGeoreferencedImageLoader
 				}
 			};
 
-		// TODO: Unhardcode
-		const std::string basePath = "../../media/tiled_grid_mip_";
-		smart_refctd_ptr<ICPUImage> img = loadImage(basePath + "0.exr");
-		const uint32_t sidelength = img->getCreationParameters().extent.width;
+		// This is all hardcoded for the example
+		const std::string basePath = "../../media/npot_geotex_mip_";
+		smart_refctd_ptr<ICPUImage> img = loadImage(basePath + "0_base.png");
 
-		const uint32_t maxMipLevel = nbl::hlsl::findMSB(sidelength / 128u);
-		mipLevels.reserve(maxMipLevel + 1);
-		mipLevels.emplace_back(std::move(img));
+		// This is hardcoded
+		const uint32_t maxMipLevel = 7;
+		baseMipLevels.reserve(maxMipLevel + 1);
+		baseMipLevels.emplace_back(std::move(img));
 		for (auto i = 1u; i <= maxMipLevel; i++)
 		{
-			mipLevels.emplace_back(loadImage(basePath + std::to_string(i) + ".exr"));
+			baseMipLevels.emplace_back(loadImage(basePath + std::to_string(i) + "_base.png"));
+		}
+		downsampledMipLevels.reserve(maxMipLevel + 1);
+		for (auto i = 0u; i <= maxMipLevel; i++)
+		{
+			downsampledMipLevels.emplace_back(loadImage(basePath + std::to_string(i) + "_downsampled.png"));
 		}
 	}
 
 	uint32_t2 getExtents(std::filesystem::path imagePath, uint32_t mipLevel) override
 	{
-		uint32_t sidelength = mipLevels[0]->getCreationParameters().extent.width >> mipLevel;
-		return uint32_t2(sidelength, sidelength);
+		return { baseMipLevels[mipLevel]->getCreationParameters().extent.width, baseMipLevels[mipLevel]->getCreationParameters().extent.height };
 	}
 
 	asset::E_FORMAT getFormat(std::filesystem::path imagePath) override
 	{
-		return mipLevels[0]->getCreationParameters().format;
+		return baseMipLevels[0]->getCreationParameters().format;
 	}
 
 private:
@@ -532,7 +536,8 @@ private:
 	system::ILogger* m_logger = {};
 	video::IPhysicalDevice* m_physicalDevice = {};
 	// We're going to fake it in the example so it's easier to work with, but the interface remains
-	core::vector<smart_refctd_ptr<ICPUImage>> mipLevels = {};
+	core::vector<smart_refctd_ptr<ICPUImage>> baseMipLevels = {};
+	core::vector<smart_refctd_ptr<ICPUImage>> downsampledMipLevels = {};
 };
 
 class ComputerAidedDesign final : public nbl::examples::SimpleWindowedApplication, public nbl::examples::BuiltinResourcesApplication
@@ -3876,12 +3881,12 @@ protected:
 			tiledGridParams.worldspaceOBB.topLeft = startingTopLeft;
 
 			// Get 1 viewport pixel to match `startingImagePixelsPerViewportPixel` pixels of the image by choosing appropriate dirU
-			const static float64_t startingImagePixelsPerViewportPixels = 2.0;
+			const static float64_t startingImagePixelsPerViewportPixels = 1.0;
 			const static auto startingViewportWidthVector = nbl::hlsl::mul(inverseViewProj, topRightViewportH - topLeftViewportH);
 			const static auto dirU = startingViewportWidthVector * float64_t(drawResourcesFiller.queryGeoreferencedImageExtents(tiledGridPath).x) / float64_t(startingImagePixelsPerViewportPixels * m_window->getWidth());
 			tiledGridParams.worldspaceOBB.dirU = dirU;
-			tiledGridParams.worldspaceOBB.aspectRatio = 1.0;
 			tiledGridParams.imageExtents = drawResourcesFiller.queryGeoreferencedImageExtents(tiledGridPath);
+			tiledGridParams.worldspaceOBB.aspectRatio = float32_t(tiledGridParams.imageExtents.y) / tiledGridParams.imageExtents.x;
 			tiledGridParams.viewportExtents = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
 			tiledGridParams.format = drawResourcesFiller.queryGeoreferencedImageFormat(tiledGridPath);
 			tiledGridParams.storagePath = tiledGridPath;

@@ -125,7 +125,7 @@ public:
 
 	struct IGeoreferencedImageLoader : IReferenceCounted
 	{
-		virtual core::smart_refctd_ptr<ICPUBuffer> load(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t mipLevel) = 0;
+		virtual core::smart_refctd_ptr<ICPUBuffer> load(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t mipLevel, bool downsample) = 0;
 
 		virtual uint32_t2 getExtents(std::filesystem::path imagePath, uint32_t mipLevel) = 0;
 

@@ -1565,7 +1565,7 @@ bool DrawResourcesFiller::pushStreamedImagesUploads(SIntendedSubmitInfo& intende
 							.baseArrayLayer = 0u,
 							.layerCount = ICPUImageView::remaining_array_layers
 						},
-						.oldLayout = IImage::LAYOUT::UNDEFINED,
+						.oldLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL,
 						.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
 					});
 			}
@@ -2767,7 +2767,7 @@ DrawResourcesFiller::TileUploadData DrawResourcesFiller::generateTileUploadData(
 
 	for (auto [imageTileIndex, gpuImageTileIndex] : tilesToLoad)
 	{
-		auto tile = georeferencedImageLoader->load(imageStreamingState->georeferencedImageParams.storagePath, imageTileIndex * GeoreferencedImageTileSize, uint32_t2(GeoreferencedImageTileSize, GeoreferencedImageTileSize), imageStreamingState->currentMappedRegion.baseMipLevel);
+		auto tile = georeferencedImageLoader->load(imageStreamingState->georeferencedImageParams.storagePath, imageTileIndex * GeoreferencedImageTileSize, uint32_t2(GeoreferencedImageTileSize, GeoreferencedImageTileSize), imageStreamingState->currentMappedRegion.baseMipLevel, true);
 
 		asset::IImage::SBufferCopy bufCopy;
 		bufCopy.bufferOffset = 0;
@@ -2786,7 +2786,7 @@ DrawResourcesFiller::TileUploadData DrawResourcesFiller::generateTileUploadData(
 		tiles.emplace_back(imageStreamingState->georeferencedImageParams.format, std::move(tile), std::move(bufCopy));
 
 		// Upload the smaller tile to mip 1
-		tile = georeferencedImageLoader->load(imageStreamingState->georeferencedImageParams.storagePath, imageTileIndex * GeoreferencedImageTileSizeMip1, uint32_t2(GeoreferencedImageTileSizeMip1, GeoreferencedImageTileSizeMip1), imageStreamingState->currentMappedRegion.baseMipLevel + 1);
+		tile = georeferencedImageLoader->load(imageStreamingState->georeferencedImageParams.storagePath, imageTileIndex * GeoreferencedImageTileSizeMip1, uint32_t2(GeoreferencedImageTileSizeMip1, GeoreferencedImageTileSizeMip1), imageStreamingState->currentMappedRegion.baseMipLevel, false);
 		bufCopy = {};
 
 		bufCopy.bufferOffset = 0;
@@ -2808,62 +2808,6 @@ DrawResourcesFiller::TileUploadData DrawResourcesFiller::generateTileUploadData(
 		imageStreamingState->currentMappedRegionOccupancy[gpuImageTileIndex.x][gpuImageTileIndex.y] = true;
 	}
 
-	// Dangerous code - assumes image can be perfectly covered with tiles. Otherwise will need to handle edge cases
-	// TODO: All of this code only works for mip 0. Needs to be changed next to upload mip 1.
-	// Eventually this is all replaced by a few uploads to staging buffer + CS mip calc
-	for (uint32_t tileX = viewportTileRange.topLeftTile.x; tileX <= viewportTileRange.bottomRightTile.x; tileX++)
-	{
-		for (uint32_t tileY = viewportTileRange.topLeftTile.y; tileY <= viewportTileRange.bottomRightTile.y; tileY++)
-		{
-			// Compute tile offset relative to `currentMappedRegion.topLeftTile`, to get tile index into the gpu image
-			uint32_t2 gpuImageTileIndex = ((uint32_t2(tileX, tileY) - imageStreamingState->currentMappedRegion.topLeftTile) + imageStreamingState->gpuImageTopLeft) % imageStreamingState->gpuImageSideLengthTiles;
-
-			// If tile already resident, do nothing
-			if (imageStreamingState->currentMappedRegionOccupancy[gpuImageTileIndex.x][gpuImageTileIndex.y])
-				continue;
-
-			auto tile = georeferencedImageLoader->load(imageStreamingState->georeferencedImageParams.storagePath, uint32_t2(tileX, tileY) * GeoreferencedImageTileSize, uint32_t2(GeoreferencedImageTileSize, GeoreferencedImageTileSize), imageStreamingState->currentMappedRegion.baseMipLevel);
-
-			asset::IImage::SBufferCopy bufCopy;
-			bufCopy.bufferOffset = 0;
-			bufCopy.bufferRowLength = GeoreferencedImageTileSize;
-			bufCopy.bufferImageHeight = 0;
-			bufCopy.imageSubresource.aspectMask = IImage::EAF_COLOR_BIT;
-			bufCopy.imageSubresource.mipLevel = 0u;
-			bufCopy.imageSubresource.baseArrayLayer = 0u;
-			bufCopy.imageSubresource.layerCount = 1u;
-			uint32_t2 gpuImageOffset = gpuImageTileIndex * GeoreferencedImageTileSize;
-			bufCopy.imageOffset = { gpuImageOffset.x, gpuImageOffset.y, 0u };
-			bufCopy.imageExtent.width = GeoreferencedImageTileSize;
-			bufCopy.imageExtent.height = GeoreferencedImageTileSize;
-			bufCopy.imageExtent.depth = 1;
-
-			tiles.emplace_back(imageStreamingState->georeferencedImageParams.format, std::move(tile), std::move(bufCopy));
-
-			// Upload the smaller tile to mip 1
-			tile = georeferencedImageLoader->load(imageStreamingState->georeferencedImageParams.storagePath, uint32_t2(tileX, tileY) * GeoreferencedImageTileSizeMip1, uint32_t2(GeoreferencedImageTileSizeMip1, GeoreferencedImageTileSizeMip1), imageStreamingState->currentMappedRegion.baseMipLevel + 1);
-			bufCopy = {};
-
-			bufCopy.bufferOffset = 0;
-			bufCopy.bufferRowLength = GeoreferencedImageTileSizeMip1;
-			bufCopy.bufferImageHeight = 0;
-			bufCopy.imageSubresource.aspectMask = IImage::EAF_COLOR_BIT;
-			bufCopy.imageSubresource.mipLevel = 1u;
-			bufCopy.imageSubresource.baseArrayLayer = 0u;
-			bufCopy.imageSubresource.layerCount = 1u;
-			gpuImageOffset /= 2; // Half tile size!
-			bufCopy.imageOffset = { gpuImageOffset.x, gpuImageOffset.y, 0u };
-			bufCopy.imageExtent.width = GeoreferencedImageTileSizeMip1;
-			bufCopy.imageExtent.height = GeoreferencedImageTileSizeMip1;
-			bufCopy.imageExtent.depth = 1;
-
-			tiles.emplace_back(imageStreamingState->georeferencedImageParams.format, std::move(tile), std::move(bufCopy));
-
-			// Mark tile as resident
-			imageStreamingState->currentMappedRegionOccupancy[gpuImageTileIndex.x][gpuImageTileIndex.y] = true;
-		}
-	}
-
 	// Last, we need to figure out an obb that covers only the currently loaded tiles
 
 	OrientedBoundingBox2D viewportEncompassingOBB = imageStreamingState->georeferencedImageParams.worldspaceOBB;
@@ -2871,7 +2815,7 @@ DrawResourcesFiller::TileUploadData DrawResourcesFiller::generateTileUploadData(
 	// Dividing dirU by `maxImageTileIndices + (1,1)` we therefore get a vector that spans exactly one mip 0 tile (in the u direction) in worldspace. 
 	// Multiplying that by `2^mipLevel` we get a vector that spans exactly one mip `mipLevel` tile (in the u direction)
 	const float32_t2 oneTileDirU = imageStreamingState->georeferencedImageParams.worldspaceOBB.dirU / float32_t(imageStreamingState->fullImageTileLength.x) * float32_t(1u << imageStreamingState->currentMappedRegion.baseMipLevel);
-	const float32_t2 fullImageDirV = float32_t2(imageStreamingState->georeferencedImageParams.worldspaceOBB.dirU.y, -imageStreamingState->georeferencedImageParams.worldspaceOBB.dirU.x);
+	const float32_t2 fullImageDirV = float32_t2(imageStreamingState->georeferencedImageParams.worldspaceOBB.dirU.y, -imageStreamingState->georeferencedImageParams.worldspaceOBB.dirU.x) * imageStreamingState->georeferencedImageParams.worldspaceOBB.aspectRatio;
 	const float32_t2 oneTileDirV = fullImageDirV / float32_t(imageStreamingState->fullImageTileLength.y) * float32_t(1u << imageStreamingState->currentMappedRegion.baseMipLevel);
 	viewportEncompassingOBB.topLeft += oneTileDirU * float32_t(viewportTileRange.topLeftTile.x);
 	viewportEncompassingOBB.topLeft += oneTileDirV * float32_t(viewportTileRange.topLeftTile.y);
