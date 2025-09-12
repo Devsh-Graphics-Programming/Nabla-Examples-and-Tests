@@ -70,50 +70,23 @@ using aniso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, aniso
 
 using bool32_t3 = vector<bool, 3>;
 
-namespace impl
-{
-
-inline float rngFloat01(NBL_REF_ARG(nbl::hlsl::Xoroshiro64Star) rng)
-{
-    return (float)rng() / numeric_limits<uint32_t>::max;
-}
-
 template<typename T>
-struct RNGUniformDist;
-
-template<>
-struct RNGUniformDist<float32_t>
+struct ConvertToFloat01
 {
-    static float32_t __call(NBL_REF_ARG(nbl::hlsl::Xoroshiro64Star) rng)
+    using ret_t = conditional_t<vector_traits<T>::Dimension==1, float, vector<float, vector_traits<T>::Dimension> >;
+
+    static ret_t __call(T x)
     {
-        return rngFloat01(rng);
+        return ret_t(x) / hlsl::promote<ret_t>(numeric_limits<uint32_t>::max);
     }
 };
-
-template<uint16_t N>
-struct RNGUniformDist<vector<float32_t, N>>
-{
-    static vector<float32_t, N> __call(NBL_REF_ARG(nbl::hlsl::Xoroshiro64Star) rng)
-    {
-        vector<float32_t, N> retval;
-        for (int i = 0; i < N; i++)
-            retval[i] = rngFloat01(rng);
-        return retval;
-    }
-};
-
-}
-
-template<typename T>
-T rngUniformDist(NBL_REF_ARG(nbl::hlsl::Xoroshiro64Star) rng)
-{
-    return impl::RNGUniformDist<T>::__call(rng);
-}
 
 template<typename T>
 bool checkEq(T a, T b, float32_t eps)
 {
-    return nbl::hlsl::all<vector<bool, vector_traits<T>::Dimension> >(nbl::hlsl::max<T>(a / b, b / a) <= (T)(1 + eps));
+    T _a = hlsl::abs(a);
+    T _b = hlsl::abs(b);
+    return nbl::hlsl::all<vector<bool, vector_traits<T>::Dimension> >(nbl::hlsl::max<T>(_a / _b, _b / _a) <= hlsl::promote<T>(1 + eps));
 }
 
 template<typename T>
@@ -125,7 +98,7 @@ bool checkLt(T a, T b)
 template<typename T>
 bool checkZero(T a, float32_t eps)
 {
-    return nbl::hlsl::all<vector<bool, vector_traits<T>::Dimension> >(nbl::hlsl::abs<T>(a) < (T)eps);
+    return nbl::hlsl::all<vector<bool, vector_traits<T>::Dimension> >(nbl::hlsl::abs<T>(a) < hlsl::promote<T>(eps));
 }
 
 template<>
@@ -134,40 +107,26 @@ bool checkZero<float32_t>(float32_t a, float32_t eps)
     return nbl::hlsl::abs<float32_t>(a) < eps;
 }
 
-#ifndef __HLSL_VERSION
-// because atan2 is not in tgmath.hlsl yet
-
-// takes in normalized vectors
-inline float32_t3 polarToCartesian(float32_t2 theta_phi)
-{
-    return float32_t3(std::cos(theta_phi.y) * std::cos(theta_phi.x),
-                        std::sin(theta_phi.y) * std::cos(theta_phi.x),
-                        std::sin(theta_phi.x));
-}
-
-inline float32_t2 cartesianToPolar(float32_t3 coords)
-{
-    return float32_t2(std::acos(clamp<float>(coords.z, -1, 1)), std::atan2(coords.y, coords.x));
-}
-#endif
-
 struct SBxDFTestResources
 {
     static SBxDFTestResources create(uint32_t2 seed)
     {
         SBxDFTestResources retval;
         retval.rng = nbl::hlsl::Xoroshiro64Star::construct(seed);
-        retval.u = float32_t3(rngUniformDist<float32_t2>(retval.rng), 0.0);
+        nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 2> rng_vec2 = nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 2>::construct(retval.rng);
+        nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3> rng_vec3 = nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3>::construct(retval.rng);
+        retval.u = ConvertToFloat01<uint32_t3>::__call(rng_vec3());
+        retval.u.z = 0.1;
 
-        retval.V.direction = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(rngUniformDist<float32_t2>(retval.rng)));
-        retval.N = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(rngUniformDist<float32_t2>(retval.rng)));
+        retval.V.direction = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(rng_vec2())));
+        retval.N = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(rng_vec2())));
         
         float32_t3 tangent, bitangent;
         math::frisvad<float32_t3>(retval.N, tangent, bitangent);
         tangent = nbl::hlsl::normalize<float32_t3>(tangent);
         bitangent = nbl::hlsl::normalize<float32_t3>(bitangent);
 #ifndef __HLSL_VERSION
-        const float angle = 2 * numbers::pi<float> * rngUniformDist<float>(retval.rng);
+        const float angle = 2.0f * numbers::pi<float> * ConvertToFloat01<uint32_t>::__call(retval.rng());
         glm::quat rot = glm::angleAxis(angle, retval.N);
         retval.T = rot * tangent;
         retval.B = rot * bitangent;
@@ -176,8 +135,8 @@ struct SBxDFTestResources
         retval.B = bitangent;
 #endif
 
-        retval.alpha.x = rngUniformDist<float>(retval.rng);
-        retval.alpha.y = rngUniformDist<float>(retval.rng);
+        retval.alpha.x = ConvertToFloat01<uint32_t>::__call(retval.rng());
+        retval.alpha.y = ConvertToFloat01<uint32_t>::__call(retval.rng());
         retval.eta = 1.3;
         retval.ior = float32_t2(1.3, 2.0);
         retval.luma_coeff = float32_t3(0.2126, 0.7152, 0.0722); // luma coefficients for Rec. 709
@@ -863,9 +822,11 @@ struct TestBucket : TestBxDF<BxDF>
         quotient_pdf_t pdf;
         float32_t3 bsdf;
 
+        nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3> rng_vec3 = nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3>::construct(base_t::rc.rng);
         for (uint32_t i = 0; i < numSamples; i++)
         {
-            float32_t3 u = float32_t3(rngUniformDist<float32_t2>(base_t::rc.rng), 0.0);
+            float32_t3 u = ConvertToFloat01<uint32_t3>::__call(rng_vec3());
+            u.z = 0.0;
 
             if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
             {
@@ -898,6 +859,9 @@ struct TestBucket : TestBxDF<BxDF>
                 }
             }
 
+            if (!s.isValid())
+                continue;
+
             if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF> || is_basic_bsdf_v<BxDF>)
             {
                 pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer);
@@ -920,7 +884,7 @@ struct TestBucket : TestBxDF<BxDF>
             // put s into bucket
             float32_t3x3 toTangentSpace = base_t::anisointer.getToTangentSpace();
             const ray_dir_info_t localL = s.getL().transform(toTangentSpace);
-            const float32_t2 coords = cartesianToPolar(localL.direction);
+            const float32_t2 coords = hlsl::math::cartesianToPolar<float>(localL.direction);
             float32_t2 bucket = float32_t2(bin(coords.x * numbers::inv_pi<float>), bin(coords.y * 0.5f * numbers::inv_pi<float>));
 
             if (pdf.pdf == bit_cast<float>(numeric_limits<float>::infinity))
@@ -932,7 +896,7 @@ struct TestBucket : TestBxDF<BxDF>
         for (auto const& b : buckets) {
             if (!selective || b.second > 0)
             {
-                const float32_t3 v = polarToCartesian(b.first * float32_t2(1, 2) * numbers::pi<float>);
+                const float32_t3 v = hlsl::math::polarToCartesian<float>(b.first * float32_t2(1, 2) * numbers::pi<float>);
                 base_t::errMsg += std::format("({:.3f},{:.3f},{:.3f}): {}\n", v.x, v.y, v.z, b.second);
             }
         }
@@ -1198,9 +1162,11 @@ struct TestChi2 : TestBxDF<BxDF>
         sample_t s;
         iso_cache isocache;
         aniso_cache cache;
+        nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3> rng_vec3 = nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3>::construct(base_t::rc.rng);
         for (uint32_t i = 0; i < numSamples; i++)
         {
-            float32_t3 u = float32_t3(rngUniformDist<float32_t2>(base_t::rc.rng), 0.0);
+            float32_t3 u = ConvertToFloat01<uint32_t3>::__call(rng_vec3());
+            u.z = 0.0;
 
             if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
             {
@@ -1229,7 +1195,7 @@ struct TestChi2 : TestBxDF<BxDF>
                 continue;
 
             // put s into bucket
-            float32_t2 coords = cartesianToPolar(s.getL().getDirection()) * float32_t2(thetaFactor, phiFactor);
+            float32_t2 coords = hlsl::math::cartesianToPolar<float>(s.getL().getDirection()) * float32_t2(thetaFactor, phiFactor);
             if (coords.y < 0)
                 coords.y += 2.f * numbers::pi<float> * phiFactor;
 
