@@ -159,11 +159,12 @@ protected:
 		// Set max number of mip 0 tiles
 		retVal->fullImageTileLength = (retVal->georeferencedImageParams.imageExtents - 1u) / TileSize + 1u;
 
+		retVal->lastGPUTileTexels = {TileSize, TileSize};
+
 		return retVal;
 	}
 
-	GeoreferencedImageParams georeferencedImageParams = {};
-	std::vector<std::vector<bool>> currentMappedRegionOccupancy = {};
+	
 
 	// These are NOT UV, pixel or tile coords into the mapped image region, rather into the real, huge image
 	// Tile coords are always in mip 0 tile size. Translating to other mips levels is trivial
@@ -217,7 +218,7 @@ protected:
 		currentMappedRegion.bottomRightTile += uint32_t2(gpuImageSideLengthTiles, gpuImageSideLengthTiles) - currentTileExtents;
 		// This extension can cause the mapped region to fall out of bounds on border cases, therefore we clamp it and extend it in the other direction
 		// by the amount of tiles we removed during clamping
-		const uint32_t2 excessTiles = uint32_t2(nbl::hlsl::max(int32_t2(0, 0), int32_t2(currentMappedRegion.bottomRightTile + 1u) - int32_t2(fullImageTileLength)));
+		const uint32_t2 excessTiles = uint32_t2(nbl::hlsl::max(int32_t2(0, 0), int32_t2(currentMappedRegion.bottomRightTile) - int32_t2(getLastTileIndex(currentMappedRegion.baseMipLevel))));
 		currentMappedRegion.bottomRightTile -= excessTiles;
 		// Now, on some pathological cases (such as an image that is not long along one dimension but very long along the other) shifting of the topLeftTile
 		// could fall out of bounds. So we shift if possible, otherwise set it to 0
@@ -317,7 +318,7 @@ protected:
 	// Given a tile range covering the viewport, returns which tiles (at the mip level of the current mapped region) need to be made resident to draw it,
 	// returning a vector of `ImageTileToGPUTileCorrespondence`, each indicating that tile `imageTileIndex` in the full image needs to be uploaded to tile
 	// `gpuImageTileIndex` in the gpu image
-	core::vector<ImageTileToGPUTileCorrespondence> tilesToLoad(const GeoreferencedImageTileRange& viewportTileRange)
+	core::vector<ImageTileToGPUTileCorrespondence> tilesToLoad(const GeoreferencedImageTileRange& viewportTileRange) const
 	{
 		core::vector<ImageTileToGPUTileCorrespondence> retVal;
 		for (uint32_t tileX = viewportTileRange.topLeftTile.x; tileX <= viewportTileRange.bottomRightTile.x; tileX++)
@@ -331,6 +332,21 @@ protected:
 		return retVal;
 	}
 
+	// Returns the index of the last tile when covering the image with `mipLevel` tiles
+	uint32_t2 getLastTileIndex(uint32_t mipLevel) const
+	{
+		return (fullImageTileLength - 1u) >> mipLevel;
+	}
+
+	bool2 isLastTileVisible(const uint32_t2 viewportBottomRightTile) const
+	{
+		const uint32_t2 lastTileIndex = getLastTileIndex(currentMappedRegion.baseMipLevel);
+		return bool2(lastTileIndex.x == viewportBottomRightTile.x, lastTileIndex.y == viewportBottomRightTile.y);
+	}
+
+	GeoreferencedImageParams georeferencedImageParams = {};
+	std::vector<std::vector<bool>> currentMappedRegionOccupancy = {};
+
 	// Sidelength of the gpu image, in tiles that are `TileSize` pixels wide
 	uint32_t gpuImageSideLengthTiles = {};
 	// We establish a max mipLevel for the image, which is the mip level at which any of width, height fit in a single Tile
@@ -343,6 +359,8 @@ protected:
 	float64_t2x3 world2UV = {};
 	// If the image dimensions are not exactly divisible by `TileSize`, then the last tile along a dimension only holds a proportion of `lastTileFraction` pixels along that dimension  
 	float64_t lastTileFraction = {};
+	// Stores the number of texels currently loaded into the last tile - this matters for tiles at the right/bottom borders
+	uint32_t2 lastGPUTileTexels = {};
 	// Set mip level to extreme value so it gets recreated on first iteration
 	GeoreferencedImageTileRange currentMappedRegion = { .baseMipLevel = std::numeric_limits<uint32_t>::max() };
 };

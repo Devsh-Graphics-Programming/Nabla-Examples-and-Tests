@@ -123,13 +123,32 @@ public:
 		}
 	};
 
+	// TODO: Figure out how to do this statically, this is essentially the same as having two templated versions and dynamic casting
+	// Probably CRTP/F-bound but it might be overkill
 	struct IGeoreferencedImageLoader : IReferenceCounted
 	{
-		virtual core::smart_refctd_ptr<ICPUBuffer> load(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t mipLevel, bool downsample) = 0;
+		core::smart_refctd_ptr<ICPUBuffer> load(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t mipLevel, bool downsample)
+		{
+			assert(hasPrecomputedMips(imagePath));
+			return load_impl(imagePath, offset, extent, mipLevel, downsample);
+		}
+
+		core::smart_refctd_ptr<ICPUBuffer> load(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t2 targetExtent)
+		{
+			assert(!hasPrecomputedMips(imagePath));
+			return load_impl(imagePath, offset, extent, targetExtent);
+		}
 
 		virtual uint32_t2 getExtents(std::filesystem::path imagePath, uint32_t mipLevel) = 0;
 
 		virtual asset::E_FORMAT getFormat(std::filesystem::path imagePath) = 0;
+
+		virtual bool hasPrecomputedMips(std::filesystem::path imagePath) const = 0;
+	private:
+
+		virtual core::smart_refctd_ptr<ICPUBuffer> load_impl(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t mipLevel, bool downsample) { return nullptr; }
+
+		virtual core::smart_refctd_ptr<ICPUBuffer> load_impl(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t2 targetExtent) { return nullptr; }
 	};
 
 	void setGeoreferencedImageLoader(core::smart_refctd_ptr<IGeoreferencedImageLoader>&& _georeferencedImageLoader)

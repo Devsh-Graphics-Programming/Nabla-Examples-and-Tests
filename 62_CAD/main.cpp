@@ -367,34 +367,6 @@ bool performImageFormatPromotionCopy(const core::smart_refctd_ptr<asset::ICPUIma
 // Used by case 12
 struct ImageLoader : public DrawResourcesFiller::IGeoreferencedImageLoader
 {
-	// Assume offset always fits in the image, but maybe offset + extent doesn't
-	core::smart_refctd_ptr<ICPUBuffer> load(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t mipLevel, bool downsample) override
-	{
-		auto mippedImageExtents = getExtents(imagePath, mipLevel);
-		// If `offset + extent` exceeds the extent of the image at the current mip level, we clamp it
-		extent = nbl::hlsl::min(mippedImageExtents - offset, extent);
-		// Image path ignored for this hardcoded example
-		const auto& image = downsample ? baseMipLevels[mipLevel] : downsampledMipLevels[mipLevel];
-		const auto& imageBuffer = image->getBuffer();
-		const core::rational<uint32_t> bytesPerPixel = asset::getBytesPerPixel(image->getCreationParameters().format);
-		const size_t bytesPerRow = (bytesPerPixel * extent.x).getIntegerApprox();
-		const size_t loadedImageBytes = bytesPerRow * extent.y;
-		asset::IBuffer::SCreationParams bufCreationParams = { .size = loadedImageBytes, .usage = imageBuffer->getCreationParams().usage};
-		ICPUBuffer::SCreationParams cpuBufCreationParams(std::move(bufCreationParams));
-		core::smart_refctd_ptr<ICPUBuffer> retVal = ICPUBuffer::create(std::move(cpuBufCreationParams));
-
-		// Copy row by row into the new buffer
-		uint8_t* dataPtr = reinterpret_cast<uint8_t*>(retVal->getPointer());
-		const uint8_t* imageBufferDataPtr = reinterpret_cast<uint8_t*>(imageBuffer->getPointer());
-		const size_t bytesPerImageRow = (bytesPerPixel * image->getCreationParameters().extent.width).getIntegerApprox();
-		for (auto row = 0u; row < extent.y; row++)
-		{
-			const size_t imageBufferOffset = bytesPerImageRow * (offset.y + row) + (bytesPerPixel * offset.x).getIntegerApprox();
-			std::memcpy(dataPtr + row * bytesPerRow, imageBufferDataPtr + imageBufferOffset, bytesPerRow);
-		}
-		return retVal;
-	}
-
 	ImageLoader(asset::IAssetManager* assetMgr, system::ILogger* logger, video::IPhysicalDevice* physicalDevice)
 		: m_assetMgr(assetMgr), m_logger(logger), m_physicalDevice(physicalDevice) 
 	{ 
@@ -530,7 +502,42 @@ struct ImageLoader : public DrawResourcesFiller::IGeoreferencedImageLoader
 		return baseMipLevels[0]->getCreationParameters().format;
 	}
 
+	bool hasPrecomputedMips(std::filesystem::path imagePath) const override
+	{
+		return true;
+	}
+
 private:
+
+	// Assume offset always fits in the image, but maybe offset + extent doesn't
+	// Example of a precomputed mip loader with 2x mip levels
+	core::smart_refctd_ptr<ICPUBuffer> load_impl(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t mipLevel, bool downsample) override
+	{
+		auto mippedImageExtents = getExtents(imagePath, mipLevel);
+		// If `offset + extent` exceeds the extent of the image at the current mip level, we clamp it
+		extent = nbl::hlsl::min(mippedImageExtents - offset, extent);
+		// Image path ignored for this hardcoded example
+		const auto& image = downsample ? downsampledMipLevels[mipLevel] : baseMipLevels[mipLevel];
+		const auto& imageBuffer = image->getBuffer();
+		const core::rational<uint32_t> bytesPerPixel = asset::getBytesPerPixel(image->getCreationParameters().format);
+		const size_t bytesPerRow = (bytesPerPixel * extent.x).getIntegerApprox();
+		const size_t loadedImageBytes = bytesPerRow * extent.y;
+		asset::IBuffer::SCreationParams bufCreationParams = { .size = loadedImageBytes, .usage = imageBuffer->getCreationParams().usage };
+		ICPUBuffer::SCreationParams cpuBufCreationParams(std::move(bufCreationParams));
+		core::smart_refctd_ptr<ICPUBuffer> retVal = ICPUBuffer::create(std::move(cpuBufCreationParams));
+
+		// Copy row by row into the new buffer
+		uint8_t* dataPtr = reinterpret_cast<uint8_t*>(retVal->getPointer());
+		const uint8_t* imageBufferDataPtr = reinterpret_cast<uint8_t*>(imageBuffer->getPointer());
+		const size_t bytesPerImageRow = (bytesPerPixel * image->getCreationParameters().extent.width).getIntegerApprox();
+		for (auto row = 0u; row < extent.y; row++)
+		{
+			const size_t imageBufferOffset = bytesPerImageRow * (offset.y + row) + (bytesPerPixel * offset.x).getIntegerApprox();
+			std::memcpy(dataPtr + row * bytesPerRow, imageBufferDataPtr + imageBufferOffset, bytesPerRow);
+		}
+		return retVal;
+	}
+
 	// These are here for the example, might not be class members when porting to n4ce
 	asset::IAssetManager* m_assetMgr = {};
 	system::ILogger* m_logger = {};
@@ -3884,6 +3891,10 @@ protected:
 			const static float64_t startingImagePixelsPerViewportPixels = 1.0;
 			const static auto startingViewportWidthVector = nbl::hlsl::mul(inverseViewProj, topRightViewportH - topLeftViewportH);
 			const static auto dirU = startingViewportWidthVector * float64_t(drawResourcesFiller.queryGeoreferencedImageExtents(tiledGridPath).x) / float64_t(startingImagePixelsPerViewportPixels * m_window->getWidth());
+			
+			// DEBUG
+			tiledGridParams.worldspaceOBB.topLeft += float32_t2(startingViewportWidthVector - dirU);
+			
 			tiledGridParams.worldspaceOBB.dirU = dirU;
 			tiledGridParams.imageExtents = drawResourcesFiller.queryGeoreferencedImageExtents(tiledGridPath);
 			tiledGridParams.worldspaceOBB.aspectRatio = float32_t(tiledGridParams.imageExtents.y) / tiledGridParams.imageExtents.x;
