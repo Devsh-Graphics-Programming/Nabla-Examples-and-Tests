@@ -44,8 +44,8 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 
 			auto logger = m_logger.get();
 
-			// dummy monochrome image
-			smart_refctd_ptr<ICPUImageView> monochromeImageView;
+			// dummy image views
+			smart_refctd_ptr<ICPUImageView> monochromeImageView, rgbImageView;
 			{
 				constexpr auto format = EF_R16_SFLOAT;
 				auto image = ICPUImage::create({
@@ -57,6 +57,18 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 					.arrayLayers = 1
 				});
 				monochromeImageView = ICPUImageView::create({.image=std::move(image),.viewType=ICPUImageView::ET_2D,.format=format});
+			}
+			{
+				constexpr auto format = EF_R8G8B8A8_SRGB;
+				auto image = ICPUImage::create({
+					.type = IImage::E_TYPE::ET_2D,
+					.samples = IImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT,
+					.format = format,
+					.extent = {1024,1024,1},
+					.mipLevels = 11,
+					.arrayLayers = 72 // fur teh lulz
+				});
+				rgbImageView = ICPUImageView::create({.image=std::move(image),.viewType=ICPUImageView::ET_2D_ARRAY,.format=format});
 			}
 
 // TODO: use std::source_info
@@ -159,9 +171,143 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 				}
 			}
 
-// emitter without IES profile
+			// emitter without IES profile
+			{
+				const auto layerH = forest->_new<CFrontendIR::CLayer>();
+				auto* layer = forest->deref(layerH);
+				layer->debugInfo = forest->_new<CNodePool::CDebugInfo>("Twosided Constant Emitter");
+				{
+					const auto mulH = forest->_new<CFrontendIR::CMul>();
+					auto* mul = forest->deref(mulH);
+					{
+						const auto emitterH = forest->_new<CFrontendIR::CEmitter>();
+						// no profile, unit emission
+						mul->lhs = emitterH;
+					}
+					// we multiply the unit emitter by the value we actually want
+					{
+						spectral_var_t::SCreationParams<3> params = {};
+						params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
+						params.knots.params[0].scale = 3.f;
+						params.knots.params[1].scale = 7.f;
+						params.knots.params[2].scale = 15.f;
+						mul->rhs = forest->_new<spectral_var_t>(std::move(params));
+					}
+					layer->brdfTop = mulH;
+					layer->brdfBottom = mulH;
+				}
+				ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+			}
 
-// emitter with IES profile
+			// emitter with IES profile
+			{
+				const auto layerH = forest->_new<CFrontendIR::CLayer>();
+				auto* layer = forest->deref(layerH);
+				layer->debugInfo = forest->_new<CNodePool::CDebugInfo>("IES Profile Emitter");
+				{
+					const auto mulH = forest->_new<CFrontendIR::CMul>();
+					auto* mul = forest->deref(mulH);
+					{
+						const auto emitterH = forest->_new<CFrontendIR::CEmitter>();
+						auto* emitter = forest->deref(emitterH);
+						// you should use this to normalize the profile to unit emission over the hemisphere
+						// so the light gets picked "fairly"
+						emitter->profile.scale = 0.01f;
+						emitter->profile.viewChannel = 0;
+						emitter->profile.view = monochromeImageView;
+						// these are defaults but going to set them
+						emitter->profile.sampler.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_REPEAT;
+						emitter->profile.sampler.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_REPEAT;
+						// TODO: set transform after merging the OBB PR
+						//emitter->profileTransform = ;
+						mul->lhs = emitterH;
+					}
+					// we multiply the unit emitter by the emission color value we actually want
+					{
+						spectral_var_t::SCreationParams<3> params = {};
+						params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
+						params.knots.params[0].scale = 60.f;
+						params.knots.params[1].scale = 90.f;
+						params.knots.params[2].scale = 45.f;
+						mul->rhs = forest->_new<spectral_var_t>(std::move(params));
+					}
+					layer->brdfTop = mulH;
+				}
+				ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+			}
+
+			// onesided emitter with spatially varying emission from the backside
+			{
+				const auto layerH = forest->_new<CFrontendIR::CLayer>();
+				auto* layer = forest->deref(layerH);
+				layer->debugInfo = forest->_new<CNodePool::CDebugInfo>("Spatially Varying Emitter");
+				{
+					const auto mulH = forest->_new<CFrontendIR::CMul>();
+					auto* mul = forest->deref(mulH);
+					{
+						const auto emitterH = forest->_new<CFrontendIR::CEmitter>();
+						// no profile, unit emission
+						mul->lhs = emitterH;
+					}
+					// we multiply the unit emitter by the value we actually want
+					{
+						spectral_var_t::SCreationParams<3> params = {};
+						params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
+						for (auto c=0; c<3; c++)
+						{
+							params.knots.params[c].scale = 4.9f;
+							params.knots.params[c].viewChannel = c;
+							params.knots.params[c].view = rgbImageView;
+							params.knots.params[c].sampler.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+							params.knots.params[c].sampler.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+							params.knots.params[c].sampler.BorderColor = ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_OPAQUE_BLACK;
+						}
+						mul->rhs = forest->_new<spectral_var_t>(std::move(params));
+					}
+					layer->brdfBottom = mulH;
+				}
+				ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+			}
+
+			// spatially varying emission but with a profile (think classroom projector)
+			{
+				const auto layerH = forest->_new<CFrontendIR::CLayer>();
+				auto* layer = forest->deref(layerH);
+				layer->debugInfo = forest->_new<CNodePool::CDebugInfo>("Spatially Varying Emitter with IES profile e.g. Digital Projector");
+				{
+					const auto mulH = forest->_new<CFrontendIR::CMul>();
+					auto* mul = forest->deref(mulH);
+					{
+						const auto emitterH = forest->_new<CFrontendIR::CEmitter>();
+						auto* emitter = forest->deref(emitterH);
+						emitter->profile.scale = 67.f;
+						emitter->profile.viewChannel = 0;
+						emitter->profile.view = monochromeImageView;
+						// lets try some other samplers
+						emitter->profile.sampler.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+						emitter->profile.sampler.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+						// try with default transform
+						mul->lhs = emitterH;
+					}
+					// we multiply the unit emitter by the value we actually want
+					{
+						spectral_var_t::SCreationParams<3> params = {};
+						params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
+						for (auto c=0; c<3; c++)
+						{
+							params.knots.params[c].scale = 900.f; // super bright cause its probably small
+							params.knots.params[c].viewChannel = c;
+							params.knots.params[c].view = rgbImageView;
+							params.knots.params[c].sampler.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+							params.knots.params[c].sampler.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_BORDER;
+							params.knots.params[c].sampler.BorderColor = ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_OPAQUE_BLACK;
+						}
+						mul->rhs = forest->_new<spectral_var_t>(std::move(params));
+					}
+					layer->brdfTop = mulH;
+				}
+				ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
+			}
 			
 			// anisotropic cook torrance GGX with Conductor Fresnel
 			{

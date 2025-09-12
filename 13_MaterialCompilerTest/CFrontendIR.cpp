@@ -12,11 +12,6 @@ using namespace nbl::system;
 
 bool CFrontendIR::CEmitter::invalid(const SInvalidCheckArgs& args) const
 {
-	if (const auto* radianceNode=args.pool->deref(radiance); !radianceNode)
-	{
-		args.logger.log("Radiance node of correct type must be attached, but is %u of type %s",ELL_ERROR,radiance,args.pool->getTypeName(radiance).data());
-		return false;
-	}
 	// not checking validty of profile because invalid means no emission profile
 	// check for NaN and non invertible matrix
 	if (profile && !(hlsl::determinant(profileTransform)>hlsl::numeric_limits<hlsl::float32_t>::min))
@@ -177,37 +172,39 @@ void CFrontendIR::SParameter::printDot(std::ostringstream& sstr, const core::str
 		sstr << "\n\t" << selfID << " -> _view_" << std::to_string(reinterpret_cast<const uint64_t&>(view));
 }
 
+core::string CFrontendIR::CSpectralVariable::getLabelSuffix() const
+{
+	if (getKnotCount()<2)
+		return "";
+	constexpr const char* SemanticNames[] =
+	{
+		"\\nSemantics = Fixed3_SRGB",
+		"\\nSemantics = Fixed3_DCI_P3",
+		"\\nSemantics = Fixed3_BT2020",
+		"\\nSemantics = Fixed3_AdobeRGB",
+		"\\nSemantics = Fixed3_AcesCG"
+	};
+	auto pWonky = reinterpret_cast<const SCreationParams<2>*>(this+1);
+	return SemanticNames[static_cast<uint8_t>(pWonky->getSemantics())];
+}
 void CFrontendIR::CSpectralVariable::printDot(std::ostringstream& sstr, const core::string& selfID) const
 {
-	auto pWonky = reinterpret_cast<const SCreationParams<2>*>(this+1);
-	const auto knotCount = getKnotCount();
-	// single knot stuff is monochrome
-	if (knotCount>1)
-	{
-		sstr << "\n\t" << selfID << " -> ";
-		constexpr const char* semanticNames[] =
-		{
-			"Fixed3_SRGB",
-			"Fixed3_DCI_P3",
-			"Fixed3_BT2020",
-			"Fixed3_AdobeRGB",
-			"Fixed3_AcesCG"
-		};
-		sstr << semanticNames[static_cast<uint8_t>(pWonky->getSemantics())] << " [label=\"Semantics\"]";
-	}
-	pWonky->knots.printDot(knotCount,sstr,selfID);
+	auto pWonky = reinterpret_cast<const SCreationParams<1>*>(this+1);
+	pWonky->knots.printDot(getKnotCount(),sstr,selfID);
 }
 
 void CFrontendIR::CEmitter::printDot(std::ostringstream& sstr, const core::string& selfID) const
 {
 	if (profile)
+		profile.printDot(sstr,selfID);
+	if (profile.view)
 	{
 		const auto transformNodeID = selfID+"_pTform";
 		sstr << "\n\t" << transformNodeID << " [label=\"";
 		printMatrix(sstr,profileTransform);
 		sstr << "\"]";
 		// connect up
-		sstr << "\n\t" << selfID << " -> " << transformNodeID;
+		sstr << "\n\t" << selfID << " -> " << transformNodeID << "[label=\"Profile Transform\"]";
 	}
 }
 
@@ -241,16 +238,6 @@ void CFrontendIR::COrenNayar::printDot(std::ostringstream& sstr, const core::str
 
 void CFrontendIR::CCookTorrance::printDot(std::ostringstream& sstr, const core::string& selfID) const
 {
-	sstr << "\n\t" << selfID << " -> ";
-	switch (ndf)
-	{
-		case NDF::GGX:
-			sstr << "GGX";
-			break;
-		case NDF::Beckmann:
-			sstr << "Beckmann";
-			break;
-	}
 	ndParams.printDot(sstr,selfID);
 }
 
