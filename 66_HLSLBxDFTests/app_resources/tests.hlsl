@@ -288,19 +288,19 @@ struct TestBxDF<bxdf::reflection::SOrenNayar<iso_config_t>> : TestBxDFBase<bxdf:
     }
 };
 
-template<>
-struct TestBxDF<bxdf::reflection::SDeltaDistribution<iso_config_t>> : TestBxDFBase<bxdf::reflection::SDeltaDistribution<iso_config_t>>
-{
-    using base_t = TestBxDFBase<bxdf::reflection::SDeltaDistribution<iso_config_t>>;
+// template<>
+// struct TestBxDF<bxdf::reflection::SDeltaDistribution<iso_config_t>> : TestBxDFBase<bxdf::reflection::SDeltaDistribution<iso_config_t>>
+// {
+//     using base_t = TestBxDFBase<bxdf::reflection::SDeltaDistribution<iso_config_t>>;
 
-    void initBxDF(SBxDFTestResources _rc)
-    {
-        base_t::bxdf = bxdf::reflection::SDeltaDistribution<iso_config_t>::create();
-#ifndef __HLSL_VERSION
-        base_t::name = "Delta Distribution BRDF";
-#endif
-    }
-};
+//     void initBxDF(SBxDFTestResources _rc)
+//     {
+//         base_t::bxdf = bxdf::reflection::SDeltaDistribution<iso_config_t>::create();
+// #ifndef __HLSL_VERSION
+//         base_t::name = "Delta Distribution BRDF";
+// #endif
+//     }
+// };
 
 template<>
 struct TestBxDF<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>> : TestBxDFBase<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>>
@@ -358,63 +358,63 @@ struct TestBxDF<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>> : 
     }
 };
 
-template<>
-struct TestBxDF<bxdf::transmission::SOrenNayar<iso_config_t>> : TestBxDFBase<bxdf::transmission::SOrenNayar<iso_config_t>>
-{
-    using base_t = TestBxDFBase<bxdf::transmission::SOrenNayar<iso_config_t>>;
+//template<>
+//struct TestBxDF<bxdf::transmission::SOrenNayar<iso_config_t>> : TestBxDFBase<bxdf::transmission::SOrenNayar<iso_config_t>>
+//{
+//    using base_t = TestBxDFBase<bxdf::transmission::SOrenNayar<iso_config_t>>;
+//
+//    void initBxDF(SBxDFTestResources _rc)
+//    {
+//        base_t::bxdf = bxdf::transmission::SOrenNayar<iso_config_t>::create(_rc.alpha.x);
+//#ifndef __HLSL_VERSION
+//        base_t::name = "OrenNayar BSDF";
+//#endif
+//    }
+//};
 
-    void initBxDF(SBxDFTestResources _rc)
-    {
-        base_t::bxdf = bxdf::transmission::SOrenNayar<iso_config_t>::create(_rc.alpha.x);
-#ifndef __HLSL_VERSION
-        base_t::name = "OrenNayar BSDF";
-#endif
-    }
-};
+//template<>
+//struct TestBxDF<bxdf::transmission::SSmoothDielectric<iso_config_t>> : TestBxDFBase<bxdf::transmission::SSmoothDielectric<iso_config_t>>
+//{
+//    using base_t = TestBxDFBase<bxdf::transmission::SSmoothDielectric<iso_config_t>>;
+//
+//    void initBxDF(SBxDFTestResources _rc)
+//    {
+//        base_t::bxdf.orientedEta = bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(base_t::isointer.getNdotV(bxdf::BxDFClampMode::BCM_ABS), hlsl::promote<typename base_t::bxdf_t::monochrome_type>(rc.eta));
+//#ifndef __HLSL_VERSION
+//        base_t::name = "Smooth dielectric BSDF";
+//#endif
+//    }
+//};
 
-template<>
-struct TestBxDF<bxdf::transmission::SSmoothDielectric<iso_config_t>> : TestBxDFBase<bxdf::transmission::SSmoothDielectric<iso_config_t>>
-{
-    using base_t = TestBxDFBase<bxdf::transmission::SSmoothDielectric<iso_config_t>>;
+// template<>
+// struct TestBxDF<bxdf::transmission::SThinSmoothDielectric<iso_config_t>> : TestBxDFBase<bxdf::transmission::SThinSmoothDielectric<iso_config_t>>
+// {
+//     using base_t = TestBxDFBase<bxdf::transmission::SThinSmoothDielectric<iso_config_t>>;
 
-    void initBxDF(SBxDFTestResources _rc)
-    {
-        base_t::bxdf.orientedEta = bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(base_t::isointer.getNdotV(bxdf::BxDFClampMode::BCM_ABS), hlsl::promote<typename base_t::bxdf_t::monochrome_type>(rc.eta));
-#ifndef __HLSL_VERSION
-        base_t::name = "Smooth dielectric BSDF";
-#endif
-    }
-};
+//     void initBxDF(SBxDFTestResources _rc)
+//     {
+//         using spectral_type = typename base_t::bxdf_t::spectral_type;
+//         bxdf::fresnel::Dielectric<spectral_type> f = bxdf::fresnel::Dielectric<spectral_type>::create(bxdf::fresnel::OrientedEtas<spectral_type>::create(base_t::isointer.getNdotV(bxdf::BxDFClampMode::BCM_ABS), hlsl::promote<spectral_type>(rc.eta)));
+//         base_t::bxdf = bxdf::transmission::SThinSmoothDielectric<iso_config_t>::create(f,rc.luma_coeff);
+// #ifndef __HLSL_VERSION
+//         base_t::name = "Thin smooth dielectric BSDF";
+// #endif
+//     }
+// };
 
-template<>
-struct TestBxDF<bxdf::transmission::SThinSmoothDielectric<iso_config_t>> : TestBxDFBase<bxdf::transmission::SThinSmoothDielectric<iso_config_t>>
-{
-    using base_t = TestBxDFBase<bxdf::transmission::SThinSmoothDielectric<iso_config_t>>;
+// template<>
+// struct TestBxDF<bxdf::transmission::SDeltaDistribution<iso_config_t>> : TestBxDFBase<bxdf::transmission::SDeltaDistribution<iso_config_t>>
+// {
+//     using base_t = TestBxDFBase<bxdf::transmission::SDeltaDistribution<iso_config_t>>;
 
-    void initBxDF(SBxDFTestResources _rc)
-    {
-        using spectral_type = typename base_t::bxdf_t::spectral_type;
-        bxdf::fresnel::Dielectric<spectral_type> f = bxdf::fresnel::Dielectric<spectral_type>::create(bxdf::fresnel::OrientedEtas<spectral_type>::create(base_t::isointer.getNdotV(bxdf::BxDFClampMode::BCM_ABS), hlsl::promote<spectral_type>(rc.eta)));
-        base_t::bxdf = bxdf::transmission::SThinSmoothDielectric<iso_config_t>::create(f,rc.luma_coeff);
-#ifndef __HLSL_VERSION
-        base_t::name = "Thin smooth dielectric BSDF";
-#endif
-    }
-};
-
-template<>
-struct TestBxDF<bxdf::transmission::SDeltaDistribution<iso_config_t>> : TestBxDFBase<bxdf::transmission::SDeltaDistribution<iso_config_t>>
-{
-    using base_t = TestBxDFBase<bxdf::transmission::SDeltaDistribution<iso_config_t>>;
-
-    void initBxDF(SBxDFTestResources _rc)
-    {
-        base_t::bxdf = bxdf::transmission::SDeltaDistribution<iso_config_t>::create();
-#ifndef __HLSL_VERSION
-        base_t::name = "Delta Distribution BSDF";
-#endif
-    }
-};
+//     void initBxDF(SBxDFTestResources _rc)
+//     {
+//         base_t::bxdf = bxdf::transmission::SDeltaDistribution<iso_config_t>::create();
+// #ifndef __HLSL_VERSION
+//         base_t::name = "Delta Distribution BSDF";
+// #endif
+//     }
+// };
 
 template<>
 struct TestBxDF<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>> : TestBxDFBase<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>>
@@ -482,9 +482,9 @@ struct is_basic_brdf : bool_constant<
     is_same<T, bxdf::reflection::SLambertian<iso_config_t> >::value ||
     is_same<T, bxdf::reflection::SLambertian<aniso_config_t> >::value ||
     is_same<T, bxdf::reflection::SOrenNayar<iso_config_t>>::value ||
-    is_same<T, bxdf::reflection::SOrenNayar<aniso_config_t>>::value ||
-    is_same<T, bxdf::reflection::SDeltaDistribution<iso_config_t> >::value ||
-    is_same<T, bxdf::reflection::SDeltaDistribution<aniso_config_t> >::value
+    is_same<T, bxdf::reflection::SOrenNayar<aniso_config_t>>::value
+    // is_same<T, bxdf::reflection::SDeltaDistribution<iso_config_t> >::value ||
+    // is_same<T, bxdf::reflection::SDeltaDistribution<aniso_config_t> >::value
 > {};
 
 template<class T>
@@ -500,11 +500,13 @@ struct is_basic_bsdf : bool_constant<
     is_same<T, bxdf::transmission::SLambertian<iso_config_t>>::value ||
     is_same<T, bxdf::transmission::SLambertian<aniso_config_t>>::value ||
     is_same<T, bxdf::transmission::SSmoothDielectric<iso_config_t>>::value ||
-    is_same<T, bxdf::transmission::SSmoothDielectric<aniso_config_t>>::value ||
-    is_same<T, bxdf::transmission::SThinSmoothDielectric<iso_config_t>>::value ||
-    is_same<T, bxdf::transmission::SThinSmoothDielectric<aniso_config_t>>::value ||
-    is_same<T, bxdf::transmission::SDeltaDistribution<iso_config_t>>::value ||
-    is_same<T, bxdf::transmission::SDeltaDistribution<aniso_config_t>>::value
+    is_same<T, bxdf::transmission::SSmoothDielectric<aniso_config_t>>::value
+    // is_same<T, bxdf::transmission::SOrenNayar<iso_config_t>>::value ||
+    // is_same<T, bxdf::transmission::SOrenNayar<aniso_config_t>>::value ||
+    // is_same<T, bxdf::transmission::SThinSmoothDielectric<iso_config_t>>::value ||
+    // is_same<T, bxdf::transmission::SThinSmoothDielectric<aniso_config_t>>::value ||
+    // is_same<T, bxdf::transmission::SDeltaDistribution<iso_config_t>>::value ||
+    // is_same<T, bxdf::transmission::SDeltaDistribution<aniso_config_t>>::value
 > {};
 
 template<class T>
@@ -603,15 +605,13 @@ struct TestJacobian : TestBxDF<BxDF>
         {
             if NBL_CONSTEXPR_FUNC (aniso)
             {
-                typename BxDF::query_type query = base_t::bxdf.createQuery(s, base_t::anisointer);
-                pdf = base_t::bxdf.quotient_and_pdf(query, s, base_t::anisointer, cache);
-                bsdf = float32_t3(base_t::bxdf.eval(query, s, base_t::anisointer, cache));
+                pdf = base_t::bxdf.quotient_and_pdf(s, base_t::anisointer, cache);
+                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
             }
             else
             {
-                typename BxDF::query_type query = base_t::bxdf.createQuery(s, base_t::isointer);
-                pdf = base_t::bxdf.quotient_and_pdf(query, s, base_t::isointer, isocache);
-                bsdf = float32_t3(base_t::bxdf.eval(query, s, base_t::isointer, isocache));
+                pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer, isocache);
+                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
             }
         }
 
@@ -759,17 +759,13 @@ struct TestReciprocity : TestBxDF<BxDF>
         {
             if NBL_CONSTEXPR_FUNC (aniso)
             {
-                typename BxDF::query_type query = base_t::bxdf.createQuery(s, base_t::anisointer);
-                bsdf = float32_t3(base_t::bxdf.eval(query, s, base_t::anisointer, cache));
-                query = base_t::bxdf.createQuery(rec_s, rec_anisointer);
-                rec_bsdf = float32_t3(base_t::bxdf.eval(query, rec_s, rec_anisointer, rec_cache));
+                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
+                rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_anisointer, rec_cache));
             }
             else
             {
-                typename BxDF::query_type query = base_t::bxdf.createQuery(s, base_t::isointer);
-                bsdf = float32_t3(base_t::bxdf.eval(query, s, base_t::isointer, isocache));
-                query = base_t::bxdf.createQuery(rec_s, rec_isointer);
-                rec_bsdf = float32_t3(base_t::bxdf.eval(query, rec_s, rec_isointer, rec_isocache));
+                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
+                rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_isointer, rec_isocache));
             }
         }
 
@@ -911,15 +907,13 @@ struct TestBucket : TestBxDF<BxDF>
             {
                 if NBL_CONSTEXPR_FUNC (aniso)
                 {
-                    typename BxDF::query_type query = base_t::bxdf.createQuery(s, base_t::anisointer);
-                    pdf = base_t::bxdf.quotient_and_pdf(query, s, base_t::anisointer, cache);
-                    bsdf = float32_t3(base_t::bxdf.eval(query, s, base_t::anisointer, cache));
+                    pdf = base_t::bxdf.quotient_and_pdf(s, base_t::anisointer, cache);
+                    bsdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
                 }
                 else
                 {
-                    typename BxDF::query_type query = base_t::bxdf.createQuery(s, base_t::isointer);
-                    pdf = base_t::bxdf.quotient_and_pdf(query, s, base_t::isointer, isocache);
-                    bsdf = float32_t3(base_t::bxdf.eval(query, s, base_t::isointer, isocache));
+                    pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer, isocache);
+                    bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
                 }
             }
 
@@ -1231,6 +1225,9 @@ struct TestChi2 : TestBxDF<BxDF>
                     s = base_t::bxdf.generate(base_t::isointer, u, isocache);
             }
 
+            if (!s.isValid())
+                continue;
+
             // put s into bucket
             float32_t2 coords = cartesianToPolar(s.getL().getDirection()) * float32_t2(thetaFactor, phiFactor);
             if (coords.y < 0)
@@ -1277,14 +1274,12 @@ struct TestChi2 : TestBxDF<BxDF>
                             if NBL_CONSTEXPR_FUNC (aniso)
                             {
                                 aniso_cache cache = aniso_cache::template createForReflection<aniso_interaction,sample_t>(base_t::anisointer, s);
-                                typename BxDF::query_type query = base_t::bxdf.createQuery(s, base_t::anisointer);
-                                pdf = base_t::bxdf.quotient_and_pdf(query, s, base_t::anisointer, cache);
+                                pdf = base_t::bxdf.quotient_and_pdf(s, base_t::anisointer, cache);
                             }
                             else
                             {
                                 aniso_cache cache = aniso_cache::template createForReflection<aniso_interaction,sample_t>(base_t::anisointer, s);
-                                typename BxDF::query_type query = base_t::bxdf.createQuery(s, base_t::isointer);
-                                pdf = base_t::bxdf.quotient_and_pdf(query, s, base_t::isointer, cache.iso_cache);
+                                pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer, cache.iso_cache);
                             }
                         }
                         return pdf.pdf == bit_cast<float>(numeric_limits<float>::infinity) ? 0.0 : pdf.pdf * sinTheta;
