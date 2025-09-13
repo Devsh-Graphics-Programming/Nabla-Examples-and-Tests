@@ -5,6 +5,7 @@
 
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
 #include "nbl/application_templates/MonoSystemMonoLoggerApplication.hpp"
+#include <ranges>
 
 using namespace nbl;
 using namespace core;
@@ -180,6 +181,38 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 			cache3.insert(1, "bar");
 			cache3.clear();
 
+			// Cache iterator test
+			constexpr uint32_t cache4Size = 10;
+			ResizableLRUCache<uint32_t, uint32_t> cache4(cache4Size);
+			for (auto i = 0u; i < cache4Size; i++)
+			{
+				cache4.insert(i, i);
+			}
+			// Default iterator is MRU -> LRU
+			uint32_t counter = cache4Size - 1;
+			for (auto& pair : cache4)
+			{
+				assert(pair.first == counter && pair.second == counter);
+				counter--;
+			}
+			// Reverse LRU -> MRU traversal
+			counter = 0u;
+			for (auto it = cache4.crbegin(); it != cache4.crend(); it++)
+			{
+				assert(it->first == counter && it->second == counter);
+				counter++;
+			}
+
+			// Cache copy test
+			ResizableLRUCache<uint32_t, uint32_t> cache4Copy(cache4);
+			for (auto it = cache4.cbegin(), itCopy = cache4Copy.cbegin(); it != cache4.cend(); it++, itCopy++)
+			{
+				assert(*it == *itCopy);
+				// Assert deep copy
+				assert(it.operator->() != itCopy.operator->());
+
+			}
+
 			// Besides the disposal function that gets called when evicting, we need to check that the Cache properly destroys all resident `Key,Value` pairs when destroyed
 			struct Foo
 			{
@@ -208,14 +241,12 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 
 			int destroyCounter = 0;
 			{
-				ResizableLRUCache<int, Foo> cache4(10u);
+				ResizableLRUCache<int, Foo> cache5(10u);
 				for (int i = 0; i < 10; i++)
-					cache4.insert(i, Foo(&destroyCounter));
+					cache5.insert(i, Foo(&destroyCounter));
 				int x = 0;
 			}
-			
 			assert(destroyCounter == 10);
-
 
 			m_logger->log("all good");
 

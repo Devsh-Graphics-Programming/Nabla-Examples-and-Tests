@@ -71,7 +71,7 @@ public:
 
             asset::IShaderCompiler::SCompilerOptions options = {};
             options.stage = shaderStage;
-            options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+            options.preprocessorOptions.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
             options.spirvOptimizer = nullptr;
             options.debugInfoFlags |= asset::IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
             options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();

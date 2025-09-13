@@ -82,11 +82,11 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(0_ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
 
 	add_subdirectory(66_HLSLBxDFTests EXCLUDE_FROM_ALL)
-	add_subdirectory(67_RayQueryGeometry EXCLUDE_FROM_ALL) # TODO: resurrect before `mesh_loaders` merge
+	add_subdirectory(67_RayQueryGeometry)
 	add_subdirectory(68_JpegLoading)
 
   	add_subdirectory(70_FLIPFluids)
-	add_subdirectory(71_RayTracingPipeline EXCLUDE_FROM_ALL) # TODO: resurrect before `mesh_loaders` merge
+	add_subdirectory(71_RayTracingPipeline)
 
 	# add new examples *before* NBL_GET_ALL_TARGETS invocation, it gathers recursively all targets created so far in this subdirectory
 	NBL_GET_ALL_TARGETS(TARGETS)
@@ -96,14 +96,18 @@ if(NBL_BUILD_EXAMPLES)
 
 	# we link common example api library and force examples to reuse its PCH
 	foreach(T IN LISTS TARGETS)
-        target_link_libraries(${T} PUBLIC ${NBL_EXAMPLES_API_TARGET})
-		target_include_directories(${T} PUBLIC $<TARGET_PROPERTY:${NBL_EXAMPLES_API_TARGET},INCLUDE_DIRECTORIES>)
-		target_precompile_headers(${T} REUSE_FROM "${NBL_EXAMPLES_API_TARGET}")
+		get_target_property(TYPE ${T} TYPE)
+		if(NOT ${TYPE} MATCHES INTERFACE)
+			target_link_libraries(${T} PUBLIC ${NBL_EXAMPLES_API_TARGET})
+			target_include_directories(${T} PUBLIC $<TARGET_PROPERTY:${NBL_EXAMPLES_API_TARGET},INCLUDE_DIRECTORIES>)
+			set_target_properties(${T} PROPERTIES DISABLE_PRECOMPILE_HEADERS OFF)
+			target_precompile_headers(${T} REUSE_FROM "${NBL_EXAMPLES_API_TARGET}")
 
-		if(NBL_EMBED_BUILTIN_RESOURCES)
-			LINK_BUILTIN_RESOURCES_TO_TARGET(${T} NblExtExamplesAPIBuiltinsSource)
-			LINK_BUILTIN_RESOURCES_TO_TARGET(${T} NblExtExamplesAPIBuiltinsInclude)
-			LINK_BUILTIN_RESOURCES_TO_TARGET(${T} NblExtExamplesAPIBuiltinsBuild)
+			if(NBL_EMBED_BUILTIN_RESOURCES)
+				LINK_BUILTIN_RESOURCES_TO_TARGET(${T} NblExtExamplesAPIBuiltinsSource)
+				LINK_BUILTIN_RESOURCES_TO_TARGET(${T} NblExtExamplesAPIBuiltinsInclude)
+				LINK_BUILTIN_RESOURCES_TO_TARGET(${T} NblExtExamplesAPIBuiltinsBuild)
+			endif()
 		endif()
     endforeach()
 

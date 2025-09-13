@@ -8,7 +8,7 @@
 
 using config_t = WORKGROUP_CONFIG_T;
 
-#include "shaderCommon.hlsl"
+#include "app_resources/shaderCommon.hlsl"
 
 typedef vector<uint32_t, config_t::ItemsPerInvocation_0> type_t;
 

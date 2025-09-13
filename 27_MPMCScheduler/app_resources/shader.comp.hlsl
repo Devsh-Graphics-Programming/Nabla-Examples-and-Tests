@@ -1,6 +1,6 @@
 //#include "nbl/builtin/hlsl/memory_accessor.hlsl"
 
-#include "common.hlsl"
+#include "app_resources/common.hlsl"
 
 #include "nbl/builtin/hlsl/limits.hlsl"
 #include "nbl/builtin/hlsl/numbers.hlsl"
@@ -156,7 +156,7 @@ struct SharedAccessor
 };
 
 //
-#include "schedulers/mpmc.hlsl"
+#include "app_resources/schedulers/mpmc.hlsl"
 struct SubgroupCaps
 {
     NBL_CONSTEXPR_STATIC_INLINE bool shaderSubgroupArithmetic = true;
