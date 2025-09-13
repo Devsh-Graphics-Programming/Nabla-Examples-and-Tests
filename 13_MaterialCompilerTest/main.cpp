@@ -327,28 +327,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 					mul->lhs = ctH;
 				}
 				// other multipliers in not-left subtrees
-				{
-					const auto frH = forest->_new<CFrontendIR::CFresnel>();
-					auto* fr = forest->deref(frH);
-					fr->debugInfo = forest->_new<CNodePool::CDebugInfo>("Aluminium Fresnel");
-					{
-						spectral_var_t::SCreationParams<3> params = {};
-						params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
-						params.knots.params[0].scale = 1.3404f;
-						params.knots.params[1].scale = 0.95151f;
-						params.knots.params[2].scale = 0.68603f;
-						fr->orientedRealEta = forest->_new<spectral_var_t>(std::move(params));
-					}
-					{
-						spectral_var_t::SCreationParams<3> params = {};
-						params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
-						params.knots.params[0].scale = 7.3509f;
-						params.knots.params[1].scale = 6.4542f;
-						params.knots.params[2].scale = 5.6351f;
-						fr->orientedImagEta = forest->_new<spectral_var_t>(std::move(params));
-					}
-					mul->rhs = frH;
-				}
+				mul->rhs = forest->createNamedFresnel("Al");
 				layer->brdfTop = mulH;
 
 				// test that our bad subtree checks by swapping lhs with rhs
