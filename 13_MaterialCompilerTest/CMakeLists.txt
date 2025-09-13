@@ -3,8 +3,9 @@ if(NOT RES)
 	message(FATAL_ERROR "common.cmake not found. Should be in {repo_root}/cmake directory")
 endif()
 
+# keep the sources here for a while so we can quickly iterate
 set(NBL_EXTRA_SOURCES
-	"${CMAKE_CURRENT_SOURCE_DIR}/CFrontendIR.cpp"
+	"${NBL_ROOT_PATH}/src/nbl/asset/material_compiler3/CFrontendIR.cpp"
 )
 
 nbl_create_executable_project("${NBL_EXTRA_SOURCES}" "" "" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")

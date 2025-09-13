@@ -5,7 +5,7 @@
 
 #include "nbl/examples/examples.hpp"
 
-//! Temporary
+//! Temporary, for faster iteration outside of PCH
 #include "nbl/asset/material_compiler3/CFrontendIR.h"
 
 
