@@ -48,6 +48,7 @@ Example Usages :
 
 
 ## New mitsuba properties and tags 
+
 Multiple Sensor tags in mitsuba XML's is now supported. This feature helps you have multiple views with different camera and film parameters without needing to execute the renderer and load again.
 
 You can switch between those sensors using `PAGE UP/DOWN` Keys defined in more detail below.
