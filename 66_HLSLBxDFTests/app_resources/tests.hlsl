@@ -118,7 +118,7 @@ struct SBxDFTestResources
         nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 2> rng_vec2 = nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 2>::construct(retval.rng);
         nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3> rng_vec3 = nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3>::construct(retval.rng);
         retval.u = ConvertToFloat01<uint32_t3>::__call(rng_vec3());
-        retval.u.z = 0.1;
+        retval.u.z = 0.0;
 
         retval.V.direction = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(rng_vec2())));
         retval.N = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(rng_vec2())));
@@ -129,9 +129,9 @@ struct SBxDFTestResources
         bitangent = nbl::hlsl::normalize<float32_t3>(bitangent);
 
         const float angle = 2.0f * numbers::pi<float> * ConvertToFloat01<uint32_t>::__call(retval.rng());
-        float32_t4x4 rot = rotation_mat(angle, retval.N);
-        retval.T = mul(rot, tangent);
-        retval.B = mul(rot, bitangent);
+        float32_t4x4 rot = math::linalg::promote_affine<4, 4>(math::linalg::rotation_mat(angle, retval.N));
+        retval.T = mul(rot, float32_t4(tangent,1)).xyz;
+        retval.B = mul(rot, float32_t4(bitangent,1)).xyz;
 
         retval.alpha.x = ConvertToFloat01<uint32_t>::__call(retval.rng());
         retval.alpha.y = ConvertToFloat01<uint32_t>::__call(retval.rng());
