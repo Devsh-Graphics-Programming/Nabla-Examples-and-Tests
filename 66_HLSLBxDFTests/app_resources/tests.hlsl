@@ -123,8 +123,7 @@ struct SBxDFTestResources
 
         retval.alpha.x = ConvertToFloat01<uint32_t>::__call(retval.rng());
         retval.alpha.y = ConvertToFloat01<uint32_t>::__call(retval.rng());
-        retval.eta = 1.3;
-        retval.ior = float32_t2(1.3, 2.0);
+        retval.ior = ConvertToFloat01<uint32_t2>::__call(rng_vec2()) * hlsl::promote<float32_t2>(1.5) + hlsl::promote<float32_t2>(1.1); // range [1.1,2.6], also only do eta = ior/1.0 (air)
         retval.luma_coeff = float32_t3(0.2126, 0.7152, 0.0722); // luma coefficients for Rec. 709
         return retval;
     }
@@ -140,7 +139,6 @@ struct SBxDFTestResources
 
     float32_t3 u;
     float32_t2 alpha;
-    float eta;
     float32_t2 ior;
     float32_t3 luma_coeff;
 };
@@ -324,7 +322,7 @@ struct TestBxDF<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>> : 
 //
 //    void initBxDF(SBxDFTestResources _rc)
 //    {
-//        base_t::bxdf.orientedEta = bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(base_t::isointer.getNdotV(bxdf::BxDFClampMode::BCM_ABS), hlsl::promote<typename base_t::bxdf_t::monochrome_type>(rc.eta));
+//        base_t::bxdf.orientedEta = bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(base_t::isointer.getNdotV(bxdf::BxDFClampMode::BCM_ABS), hlsl::promote<typename base_t::bxdf_t::monochrome_type>(rc.ior.x));
 //#ifndef __HLSL_VERSION
 //        base_t::name = "Smooth dielectric BSDF";
 //#endif
@@ -339,7 +337,7 @@ struct TestBxDF<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>> : 
 //     void initBxDF(SBxDFTestResources _rc)
 //     {
 //         using spectral_type = typename base_t::bxdf_t::spectral_type;
-//         bxdf::fresnel::Dielectric<spectral_type> f = bxdf::fresnel::Dielectric<spectral_type>::create(bxdf::fresnel::OrientedEtas<spectral_type>::create(base_t::isointer.getNdotV(bxdf::BxDFClampMode::BCM_ABS), hlsl::promote<spectral_type>(rc.eta)));
+//         bxdf::fresnel::Dielectric<spectral_type> f = bxdf::fresnel::Dielectric<spectral_type>::create(bxdf::fresnel::OrientedEtas<spectral_type>::create(base_t::isointer.getNdotV(bxdf::BxDFClampMode::BCM_ABS), hlsl::promote<spectral_type>(rc.ior.x)));
 //         base_t::bxdf = bxdf::transmission::SThinSmoothDielectric<iso_config_t>::create(f,rc.luma_coeff);
 // #ifndef __HLSL_VERSION
 //         base_t::name = "Thin smooth dielectric BSDF";
@@ -368,7 +366,7 @@ struct TestBxDF<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type> orientedEta = bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(base_t::isointer.getNdotV(), hlsl::promote<typename base_t::bxdf_t::monochrome_type>(rc.eta));
+        bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type> orientedEta = bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(base_t::isointer.getNdotV(), hlsl::promote<typename base_t::bxdf_t::monochrome_type>(rc.ior.x));
         base_t::bxdf = bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>::create(orientedEta,rc.alpha.x);
 #ifndef __HLSL_VERSION
         base_t::name = "Beckmann Dielectric BSDF";
@@ -383,7 +381,7 @@ struct TestBxDF<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfa
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type> orientedEta = bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(base_t::anisointer.getNdotV(), hlsl::promote<typename base_t::bxdf_t::monochrome_type>(rc.eta));
+        bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type> orientedEta = bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(base_t::anisointer.getNdotV(), hlsl::promote<typename base_t::bxdf_t::monochrome_type>(rc.ior.x));
         base_t::bxdf = bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>::create(orientedEta,rc.alpha.x,rc.alpha.y);
 #ifndef __HLSL_VERSION
         base_t::name = "Beckmann Dielectric Aniso BSDF";
@@ -398,7 +396,7 @@ struct TestBxDF<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_confi
 
     void initBxDF(SBxDFTestResources _rc)
     {
-            bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type> orientedEta = bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(base_t::isointer.getNdotV(), hlsl::promote<typename base_t::bxdf_t::monochrome_type>(rc.eta));
+            bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type> orientedEta = bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(base_t::isointer.getNdotV(), hlsl::promote<typename base_t::bxdf_t::monochrome_type>(rc.ior.x));
         base_t::bxdf = bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>::create(orientedEta,rc.alpha.x);
 #ifndef __HLSL_VERSION
         base_t::name = "GGX Dielectric BSDF";
@@ -413,7 +411,7 @@ struct TestBxDF<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_c
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type> orientedEta = bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(base_t::anisointer.getNdotV(), hlsl::promote<typename base_t::bxdf_t::monochrome_type>(rc.eta));
+        bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type> orientedEta = bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(base_t::anisointer.getNdotV(), hlsl::promote<typename base_t::bxdf_t::monochrome_type>(rc.ior.x));
         base_t::bxdf = bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>::create(orientedEta,rc.alpha.x,rc.alpha.y);
 #ifndef __HLSL_VERSION
         base_t::name = "GGX Dielectric Aniso BSDF";
