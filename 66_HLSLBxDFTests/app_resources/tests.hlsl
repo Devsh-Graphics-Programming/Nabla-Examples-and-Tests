@@ -7,6 +7,8 @@
 #include "nbl/builtin/hlsl/random/pcg.hlsl"
 #include "nbl/builtin/hlsl/random/dim_adaptor_recursive.hlsl"
 #include "nbl/builtin/hlsl/sampling/uniform_spheres.hlsl"
+#include "nbl/builtin/hlsl/math/linalg/transform.hlsl"
+#include "nbl/builtin/hlsl/math/linalg/fast_affine.hlsl"
 #include "nbl/builtin/hlsl/bxdf/common.hlsl"
 #include "nbl/builtin/hlsl/bxdf/reflection.hlsl"
 #include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
@@ -125,15 +127,11 @@ struct SBxDFTestResources
         math::frisvad<float32_t3>(retval.N, tangent, bitangent);
         tangent = nbl::hlsl::normalize<float32_t3>(tangent);
         bitangent = nbl::hlsl::normalize<float32_t3>(bitangent);
-#ifndef __HLSL_VERSION
+
         const float angle = 2.0f * numbers::pi<float> * ConvertToFloat01<uint32_t>::__call(retval.rng());
-        glm::quat rot = glm::angleAxis(angle, retval.N);
-        retval.T = rot * tangent;
-        retval.B = rot * bitangent;
-#else
-        retval.T = tangent;
-        retval.B = bitangent;
-#endif
+        float32_t4x4 rot = rotation_mat(angle, retval.N);
+        retval.T = mul(rot, tangent);
+        retval.B = mul(rot, bitangent);
 
         retval.alpha.x = ConvertToFloat01<uint32_t>::__call(retval.rng());
         retval.alpha.y = ConvertToFloat01<uint32_t>::__call(retval.rng());
