@@ -853,7 +853,6 @@ protected:
 
 	// Holds gpu image upload info (what tiles to upload and where to upload them), an obb that encompasses the viewport and uv coords into the gpu image
 	// for the corners of that obb 
-	
 	struct TileUploadData
 	{
 		core::vector<StreamedImageCopy> tiles;

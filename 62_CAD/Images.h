@@ -152,14 +152,15 @@ protected:
 		// Put them all together
 		retVal->world2UV = float64_t2x3(firstRow.x, firstRow.y, postRotatedShiftX, secondRow.x, secondRow.y, postRotatedShiftY);
 
-		// Also set the maxMipLevel
+		// Also set the maxMipLevel - to keep stuff simple, we don't consider having less than one tile per dimension
+		// If you're zoomed out enough then at that point the whole image is just sampled as one tile along that dimension
+		// In pathological cases, such as images that are way bigger on one side than the other, this could cause aliasing and slow down sampling if zoomed out too much. 
+		// If we were ever to observe such pathological cases, then maybe we should consider doing something else here. For example, making the loader able to handle different tile lengths per dimension
+		// (so for example a 128x64 tile) but again for now it should be left as-is.
 		uint32_t2 maxMipLevels = nbl::hlsl::findMSB(nbl::hlsl::roundUpToPoT(retVal->georeferencedImageParams.imageExtents / TileSize));
 		retVal->maxMipLevel = nbl::hlsl::min(maxMipLevels.x, maxMipLevels.y);
 
-		// Set max number of mip 0 tiles
 		retVal->fullImageTileLength = (retVal->georeferencedImageParams.imageExtents - 1u) / TileSize + 1u;
-
-		retVal->lastGPUTileTexels = {TileSize, TileSize};
 
 		return retVal;
 	}
@@ -220,16 +221,17 @@ protected:
 		// by the amount of tiles we removed during clamping
 		const uint32_t2 excessTiles = uint32_t2(nbl::hlsl::max(int32_t2(0, 0), int32_t2(currentMappedRegion.bottomRightTile) - int32_t2(getLastTileIndex(currentMappedRegion.baseMipLevel))));
 		currentMappedRegion.bottomRightTile -= excessTiles;
-		// Now, on some pathological cases (such as an image that is not long along one dimension but very long along the other) shifting of the topLeftTile
-		// could fall out of bounds. So we shift if possible, otherwise set it to 0
+		// Shifting of the topLeftTile could fall out of bounds in pathological cases or at very high mip levels (zooming out too much), so we shift if possible, otherwise set it to 0
 		currentMappedRegion.topLeftTile = uint32_t2(nbl::hlsl::max(int32_t2(0, 0), int32_t2(currentMappedRegion.topLeftTile) - int32_t2(excessTiles)));
 
+		// Mark all gpu tiles as dirty
 		currentMappedRegionOccupancy.resize(gpuImageSideLengthTiles);
 		for (auto i = 0u; i < gpuImageSideLengthTiles; i++)
 		{
 			currentMappedRegionOccupancy[i].clear();
 			currentMappedRegionOccupancy[i].resize(gpuImageSideLengthTiles, false);
 		}
+		// Reset state for gpu image so that it starts loading tiles at top left. Not really necessary.
 		gpuImageTopLeft = uint32_t2(0, 0);
 	}
 
@@ -243,11 +245,11 @@ protected:
 		// `bottomRightShift` represents the same as above but in the other direction.
 		const int32_t2 bottomRightShift = nbl::hlsl::max(int32_t2(0, 0), int32_t2(viewportTileRange.bottomRightTile) - int32_t2(currentMappedRegion.bottomRightTile));
 
-		// Mark dropped tiles as dirty/non-resident
 		// The following is not necessarily equal to `gpuImageSideLengthTiles` since there can be pathological cases, as explained in the remapping method
 		const uint32_t2 mappedRegionDimensions = currentMappedRegion.bottomRightTile - currentMappedRegion.topLeftTile + 1u;
 		const uint32_t2 gpuImageBottomRight = (gpuImageTopLeft + mappedRegionDimensions - 1u) % gpuImageSideLengthTiles;
 
+		// Mark dropped tiles as dirty/non-resident
 		if (topLeftShift.x < 0)
 		{
 			// Shift left
@@ -256,8 +258,8 @@ protected:
 			{
 				// Get actual tile index with wraparound
 				uint32_t tileIdx = (gpuImageBottomRight.x + (gpuImageSideLengthTiles - tile)) % gpuImageSideLengthTiles;
-				for (uint32_t i = 0u; i < gpuImageSideLengthTiles; i++)
-					currentMappedRegionOccupancy[tileIdx][i] = false;
+				currentMappedRegionOccupancy[tileIdx].clear();
+				currentMappedRegionOccupancy[tileIdx].resize(gpuImageSideLengthTiles, false);
 			}
 		}
 		else if (bottomRightShift.x > 0)
@@ -268,8 +270,8 @@ protected:
 			{
 				// Get actual tile index with wraparound
 				uint32_t tileIdx = (tile + gpuImageTopLeft.x) % gpuImageSideLengthTiles;
-				for (uint32_t i = 0u; i < gpuImageSideLengthTiles; i++)
-					currentMappedRegionOccupancy[tileIdx][i] = false;
+				currentMappedRegionOccupancy[tileIdx].clear();
+				currentMappedRegionOccupancy[tileIdx].resize(gpuImageSideLengthTiles, false);
 			}
 		}
 
@@ -338,6 +340,7 @@ protected:
 		return (fullImageTileLength - 1u) >> mipLevel;
 	}
 
+	// Returns whether the last tile in the image (along each dimension) is visible from the current viewport
 	bool2 isLastTileVisible(const uint32_t2 viewportBottomRightTile) const
 	{
 		const uint32_t2 lastTileIndex = getLastTileIndex(currentMappedRegion.baseMipLevel);
@@ -347,11 +350,11 @@ protected:
 	GeoreferencedImageParams georeferencedImageParams = {};
 	std::vector<std::vector<bool>> currentMappedRegionOccupancy = {};
 
-	// Sidelength of the gpu image, in tiles that are `TileSize` pixels wide
+	// Sidelength of the gpu image, in mip 0 tiles that are `TileSize` (creation parameter) texels wide
 	uint32_t gpuImageSideLengthTiles = {};
-	// We establish a max mipLevel for the image, which is the mip level at which any of width, height fit in a single Tile
+	// We establish a max mipLevel for the image, which is the mip level at which any of width, height fit in a single tile
 	uint32_t maxMipLevel = {};
-	// Size of the image in tiles of `TileSize` sidelength
+	// Number of mip 0 tiles needed to cover the whole image, counting the last tile that might be fractional if the image size is not perfectly divisible by TileSize
 	uint32_t2 fullImageTileLength = {};
 	// Indicates on which tile of the gpu image the current mapped region's `topLeft` resides
 	uint32_t2 gpuImageTopLeft = {};
@@ -359,8 +362,9 @@ protected:
 	float64_t2x3 world2UV = {};
 	// If the image dimensions are not exactly divisible by `TileSize`, then the last tile along a dimension only holds a proportion of `lastTileFraction` pixels along that dimension  
 	float64_t lastTileFraction = {};
-	// Stores the number of texels currently loaded into the last tile - this matters for tiles at the right/bottom borders
-	uint32_t2 lastGPUTileTexels = {};
+	// Reflects what fraction of a FULL tile the LAST tile in the image at the current mip level actually spans.
+	// It only gets set when necessary, and should always be updated correctly before being used, since it's related to the current `baseMipLevel` of the `currentMappedRegion`
+	float32_t2 lastImageTileFractionalSpan = {1.f, 1.f};
 	// Set mip level to extreme value so it gets recreated on first iteration
 	GeoreferencedImageTileRange currentMappedRegion = { .baseMipLevel = std::numeric_limits<uint32_t>::max() };
 };

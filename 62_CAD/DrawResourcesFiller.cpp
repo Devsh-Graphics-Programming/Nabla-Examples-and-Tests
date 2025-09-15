@@ -2767,7 +2767,7 @@ DrawResourcesFiller::TileUploadData DrawResourcesFiller::generateTileUploadData(
 
 	for (auto [imageTileIndex, gpuImageTileIndex] : tilesToLoad)
 	{
-		uint32_t2 gpuMip0Texels(GeoreferencedImageTileSize,GeoreferencedImageTileSize);
+		uint32_t2 gpuMip0Texels(GeoreferencedImageTileSize, GeoreferencedImageTileSize);
 		core::smart_refctd_ptr<ICPUBuffer> gpuMip0Tile = nullptr;
 		core::smart_refctd_ptr<ICPUBuffer> gpuMip1Tile = nullptr;
 
@@ -2781,19 +2781,20 @@ DrawResourcesFiller::TileUploadData DrawResourcesFiller::generateTileUploadData(
 				georeferencedImageMip0SampledTexels.x = imageStreamingState->georeferencedImageParams.imageExtents.x - georeferencedImageMip0SamplingOffset.x;
 				uint32_t gpuMip1Texels = georeferencedImageMip0SampledTexels.x >> (viewportTileRange.baseMipLevel + 1);
 				gpuMip0Texels.x = 2 * gpuMip1Texels;
-				imageStreamingState->lastGPUTileTexels.x = gpuMip0Texels.x;
+				imageStreamingState->lastImageTileFractionalSpan.x = float32_t(gpuMip0Texels.x) / GeoreferencedImageTileSize;
 			}
 			if (imageTileIndex.y == lastTileIndex.y)
 			{
 				georeferencedImageMip0SampledTexels.y = imageStreamingState->georeferencedImageParams.imageExtents.y - georeferencedImageMip0SamplingOffset.y;
 				uint32_t gpuMip1Texels = georeferencedImageMip0SampledTexels.y >> (viewportTileRange.baseMipLevel + 1);
 				gpuMip0Texels.y = 2 * gpuMip1Texels;
-				imageStreamingState->lastGPUTileTexels.y = gpuMip0Texels.y;
+				imageStreamingState->lastImageTileFractionalSpan.y = float32_t(gpuMip0Texels.y) / GeoreferencedImageTileSize;
 			}
 
-			// If the last tile is too small just ignore it
+			// If the last tile is too small just ignore it - given the way we set up stuff it's valid to check if these floats are exactly equal to 0, 
+			// they're always a fraction of the form `x / GeoreferencedImageTileSize` with `0 <= x <= GeoreferencedImageTileSize` and `GeoreferencedImageTileSize` is PoT
 			// If this looks bad we can do fractional pixelage by moving the uv an even tinier amount but at high zoom levels it should be imperceptible
-			if (!imageStreamingState->lastGPUTileTexels.x || !imageStreamingState->lastGPUTileTexels.y)
+			if ((imageStreamingState->lastImageTileFractionalSpan.x == 0.f) || (imageStreamingState->lastImageTileFractionalSpan.y == 0.f))
 				continue;
 			if (!georeferencedImageLoader->hasPrecomputedMips(imageStreamingState->georeferencedImageParams.storagePath))
 			{
@@ -2859,9 +2860,8 @@ DrawResourcesFiller::TileUploadData DrawResourcesFiller::generateTileUploadData(
 
 	const uint32_t2 viewportTileLength = viewportTileRange.bottomRightTile - viewportTileRange.topLeftTile + uint32_t2(1, 1);
 	// If the last tile is visible, we use the fractional span for the last tile. Otherwise it's just a normal tile
-	const float32_t2 lastGeoreferencedImageTileFractionalSpan = float32_t2(imageStreamingState->lastGPUTileTexels) / float32_t(GeoreferencedImageTileSize);
-	const bool2 isLastTileLoaded = imageStreamingState->isLastTileVisible(viewportTileRange.bottomRightTile);
-	const float32_t2 lastGPUImageTileFractionalSpan = { isLastTileLoaded.x ? lastGeoreferencedImageTileFractionalSpan.x : 1.f, isLastTileLoaded.y ? lastGeoreferencedImageTileFractionalSpan.y : 1.f };
+	const bool2 isLastTileVisible = imageStreamingState->isLastTileVisible(viewportTileRange.bottomRightTile);
+	const float32_t2 lastGPUImageTileFractionalSpan = { isLastTileVisible.x ? imageStreamingState->lastImageTileFractionalSpan.x : 1.f, isLastTileVisible.y ? imageStreamingState->lastImageTileFractionalSpan.y : 1.f };
 
 	viewportEncompassingOBB.dirU = oneTileDirU * (float32_t(viewportTileLength.x - 1u) + lastGPUImageTileFractionalSpan.x);
 	viewportEncompassingOBB.aspectRatio = (float32_t(viewportTileLength.y - 1u) + lastGPUImageTileFractionalSpan.y) / (float32_t(viewportTileLength.x - 1u) + lastGPUImageTileFractionalSpan.x);

@@ -743,11 +743,10 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
             const float32_t2 dirU = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2), 4u);
             const float32_t aspectRatio = vk::RawBufferLoad<float32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float32_t2), 4u);
             const uint32_t textureID = vk::RawBufferLoad<uint32_t>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float32_t2) + sizeof(float32_t), 4u);
+            // Remember we are constructing a quad in worldspace whose corners are matched to a quad in our toroidally-resident gpu image. `minUV` and `maxUV` are used to indicate where to sample from
+            // the gpu image to reconstruct the toroidal quad. 
             const float32_t2 minUV = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + sizeof(float32_t2) + sizeof(float32_t) + sizeof(uint32_t), 4u);
             const float32_t2 maxUV = vk::RawBufferLoad<float32_t2>(globals.pointers.geometryBuffer + drawObj.geometryAddress + sizeof(pfloat64_t2) + 2 * sizeof(float32_t2) + sizeof(float32_t) + sizeof(uint32_t), 4u);
-
-            //printf("%f %f", minUV.x, minUV.y);
-            //printf("%f %f", maxUV.x, maxUV.y);
 
             const float32_t2 dirV = float32_t2(dirU.y, -dirU.x) * aspectRatio;
             const float32_t2 ndcTopLeft = _static_cast<float32_t2>(transformPointNdc(clipProjectionData.projectionToNDC, topLeft));
@@ -758,7 +757,6 @@ PSInput vtxMain(uint vertexID : SV_VertexID)
         
             const float32_t2 ndcCorner = ndcTopLeft + corner.x * ndcDirU + corner.y * ndcDirV;
             const float32_t2 uv = float32_t2(corner.x ? maxUV.x : minUV.x, corner.y ? maxUV.y : minUV.y);
-            printf("%f %f", ndcCorner.x, ndcCorner.y);
         
             outV.position = float4(ndcCorner, 0.f, 1.f);
             outV.setImageUV(uv);
