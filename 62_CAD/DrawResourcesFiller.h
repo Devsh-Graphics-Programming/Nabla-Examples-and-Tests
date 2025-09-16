@@ -161,8 +161,8 @@ public:
 			return load_impl(imagePath, offset, extent, targetExtent);
 		}
 
-		// @brief Get the extents (in texels) of an image's `mipLevel` mip.
-		virtual uint32_t2 getExtents(std::filesystem::path imagePath, uint32_t mipLevel) = 0;
+		// @brief Get the extents (in texels) of an image.
+		virtual uint32_t2 getExtents(std::filesystem::path imagePath) = 0;
 
 		/**
 		* @brief Get the texel format for an image.
@@ -188,7 +188,7 @@ public:
 
 	uint32_t2 queryGeoreferencedImageExtents(std::filesystem::path imagePath)
 	{
-		return georeferencedImageLoader->getExtents(imagePath, 0);
+		return georeferencedImageLoader->getExtents(imagePath);
 	}
 
 	asset::E_FORMAT queryGeoreferencedImageFormat(std::filesystem::path imagePath)

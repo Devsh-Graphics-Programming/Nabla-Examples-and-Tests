@@ -148,7 +148,7 @@ protected:
 		// 2. Change of Basis. Since {dirU, dirV} are orthogonal, the matrix to change from world coords to `span{dirU, dirV}` coords has a quite nice expression
 		//    Non-uniform scaling doesn't affect this, but this has to change if we allow for shearing (basis vectors stop being orthogonal)
 		const float64_t2 dirU = retVal->georeferencedImageParams.worldspaceOBB.dirU;
-		const float64_t2 dirV = float32_t2(dirU.y, -dirU.x) * retVal->georeferencedImageParams.worldspaceOBB.aspectRatio;
+		const float64_t2 dirV = float64_t2(dirU.y, -dirU.x) * float64_t(retVal->georeferencedImageParams.worldspaceOBB.aspectRatio);
 		const float64_t dirULengthSquared = nbl::hlsl::dot(dirU, dirU);
 		const float64_t dirVLengthSquared = nbl::hlsl::dot(dirV, dirV);
 		const float64_t2 firstRow = dirU / dirULengthSquared;
@@ -174,8 +174,6 @@ protected:
 
 		return retVal;
 	}
-
-	
 
 	// These are NOT UV, pixel or tile coords into the mapped image region, rather into the real, huge image
 	// Tile coords are always in mip 0 tile size. Translating to other mips levels is trivial

@@ -492,9 +492,14 @@ struct ImageLoader : public DrawResourcesFiller::IGeoreferencedImageLoader
 		}
 	}
 
-	uint32_t2 getExtents(std::filesystem::path imagePath, uint32_t mipLevel) override
+	uint32_t2 getExtents(std::filesystem::path imagePath, uint32_t mipLevel)
 	{
 		return { baseMipLevels[mipLevel]->getCreationParameters().extent.width, baseMipLevels[mipLevel]->getCreationParameters().extent.height };
+	}
+
+	uint32_t2 getExtents(std::filesystem::path imagePath) override
+	{
+		return getExtents(imagePath, 0);
 	}
 
 	asset::E_FORMAT getFormat(std::filesystem::path imagePath) override
@@ -513,6 +518,7 @@ private:
 	// Example of a precomputed mip loader with 2x mip levels
 	core::smart_refctd_ptr<ICPUBuffer> load_impl(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t mipLevel, bool downsample) override
 	{
+		// Hardcoded tile size that's not accessible
 		auto mippedImageExtents = getExtents(imagePath, mipLevel);
 		// If `offset + extent` exceeds the extent of the image at the current mip level, we clamp it
 		extent = nbl::hlsl::min(mippedImageExtents - offset, extent);

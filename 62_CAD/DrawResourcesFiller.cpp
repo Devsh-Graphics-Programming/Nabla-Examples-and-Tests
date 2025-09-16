@@ -2907,7 +2907,8 @@ GeoreferencedImageTileRange DrawResourcesFiller::computeViewportTileRange(const 
 
 	const float64_t2 maxTop = nbl::hlsl::max(topLeftTileLattice, topRightTileLattice);
 	const float64_t2 maxBottom = nbl::hlsl::max(bottomLeftTileLattice, bottomRightTileLattice);
-	const float64_t2 maxAll = nbl::hlsl::max(maxTop, maxBottom);
+	// Edge case padding - there seems to be some numerical error going on when really close to tile boundaries
+	const float64_t2 maxAll = nbl::hlsl::max(maxTop, maxBottom) + float64_t2(0.5, 0.5);
 
 	// Floor them to get an integer coordinate (index) for the tiles they fall in
 	int32_t2 minAllFloored = nbl::hlsl::floor(minAll);
