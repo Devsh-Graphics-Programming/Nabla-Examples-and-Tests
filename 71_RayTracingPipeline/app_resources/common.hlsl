@@ -214,7 +214,7 @@ struct MaterialId
 
 struct [raypayload] PrimaryPayload
 {
-    using generator_t = nbl::hlsl::random::Pcg;
+    using generator_t = nbl::hlsl::random::PCG32;
 
     float32_t3  worldNormal : read(caller) : write(closesthit);
     float32_t   rayDistance : read(caller) : write(closesthit,miss);
