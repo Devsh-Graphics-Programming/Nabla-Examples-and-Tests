@@ -123,34 +123,64 @@ public:
 		}
 	};
 
-	// TODO: Figure out how to do this statically, this is essentially the same as having two templated versions and dynamic casting
-	// Probably CRTP/F-bound but it might be overkill
+	/// @brief Abstract class with two overridable methods to load a region of an image, either by requesting a region at a target extent (like the loaders in n4ce do) or to request a specific region from a mip level
+	//         (like precomputed mips solution would use).
 	struct IGeoreferencedImageLoader : IReferenceCounted
 	{
+		/**
+		* @brief Load a region from an image - used to load from images with precomputed mips
+		*
+		* @param imagePath Path to file holding the image data
+		* @param offset Offset into the image (at requested mipLevel!) at which the region begins
+		* @param extent Extent of the region to load (at requested mipLevel!)
+		* @param mipLevel From which mip level image to retrieve the data from
+		* @param downsample True if this request is supposed to go into GPU mip level 1, false otherwise
+		*
+		* @return ICPUBuffer with the requested image data
+		*/
 		core::smart_refctd_ptr<ICPUBuffer> load(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t mipLevel, bool downsample)
 		{
 			assert(hasPrecomputedMips(imagePath));
 			return load_impl(imagePath, offset, extent, mipLevel, downsample);
 		}
 
+		/**
+		* @brief Load a region from an image - used to load from images using the n4ce loaders. Loads a region given by `offset, extent` as an image of size `targetExtent`
+		*        where `targetExtent <= extent` so the loader is in charge of downsampling. 
+		*
+		* @param imagePath Path to file holding the image data
+		* @param offset Offset into the image at which the region begins
+		* @param extent Extent of the region to load
+		* @param targetExtent Extent of the resulting image. Should NEVER be bigger than `extent`
+		*
+		* @return ICPUBuffer with the requested image data
+		*/
 		core::smart_refctd_ptr<ICPUBuffer> load(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t2 targetExtent)
 		{
 			assert(!hasPrecomputedMips(imagePath));
 			return load_impl(imagePath, offset, extent, targetExtent);
 		}
 
+		// @brief Get the extents (in texels) of an image's `mipLevel` mip.
 		virtual uint32_t2 getExtents(std::filesystem::path imagePath, uint32_t mipLevel) = 0;
 
+		/**
+		* @brief Get the texel format for an image.
+		*/
 		virtual asset::E_FORMAT getFormat(std::filesystem::path imagePath) = 0;
 
+		// @brief Returns whether the image should be loaded with the precomputed mip method or the n4ce loader method.
 		virtual bool hasPrecomputedMips(std::filesystem::path imagePath) const = 0;
 	private:
 
+		// @brief Override to support loading with precomputed mips
 		virtual core::smart_refctd_ptr<ICPUBuffer> load_impl(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t mipLevel, bool downsample) { return nullptr; }
 
+		// @brief Override to support loading with n4ce-style loaders
 		virtual core::smart_refctd_ptr<ICPUBuffer> load_impl(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t2 targetExtent) { return nullptr; }
 	};
 
+	// @brief Register a loader
 	void setGeoreferencedImageLoader(core::smart_refctd_ptr<IGeoreferencedImageLoader>&& _georeferencedImageLoader)
 	{
 		georeferencedImageLoader = _georeferencedImageLoader;
@@ -840,19 +870,26 @@ protected:
 	
 	uint32_t addMSDFTexture(const MSDFInputInfo& msdfInput, core::smart_refctd_ptr<ICPUImage>&& cpuImage, SIntendedSubmitInfo& intendedNextSubmit);
 
-	// These are mip 0 pixels per tile, also size of each physical tile into the gpu resident image
+	// These are mip 0 texels of the image per tile, also size of each physical tile into the gpu resident image
 	constexpr static uint32_t GeoreferencedImageTileSize = 128u;
 	// Mip 1 tiles are naturally half the size
 	constexpr static uint32_t GeoreferencedImageTileSizeMip1 = GeoreferencedImageTileSize / 2;
 	// How many tiles of extra padding we give to the gpu image holding the tiles for a georeferenced image
 	constexpr static uint32_t GeoreferencedImagePaddingTiles = 2;
 
-	// Returns a tile range that encompasses the whole viewport in "image-world". Tiles are measured in the mip level required to fit the viewport entirely
-	// withing the gpu image.
+	/*
+	* @brief Returns a tile range (+mip level) which is the smallest region of the image consisting of whole tiles (at specified mip level) that encompasses the current viewport
+	* 
+	* @param NDCToWorld Affine matrix that represents a linear transform from NDC coordinates (related to viewport) to world coordinates. 
+	* 
+	* @param imageStreamingState Image for which we want to compute said tile range
+	*/ 
 	GeoreferencedImageTileRange computeViewportTileRange(const float64_t3x3& NDCToWorld, const GeoreferencedImageStreamingState* imageStreamingState);
 
-	// Holds gpu image upload info (what tiles to upload and where to upload them), an obb that encompasses the viewport and uv coords into the gpu image
-	// for the corners of that obb 
+	/*
+	* @struct TileUploadData
+	* @brief Holds gpu image upload info (what tiles to upload and where to upload them), an obb that encompasses the viewport and uv coords into the gpu image for the corners of that obb 
+	*/
 	struct TileUploadData
 	{
 		core::vector<StreamedImageCopy> tiles;
@@ -861,6 +898,15 @@ protected:
 		float32_t2 maxUV;
 	};
 	
+	/*
+	* @brief Generates all the tile upload data needed to render the image on the current viewport
+	* 
+	* @param imageType Type of the image (static or georeferenced)
+	* 
+	* @param NDCToWorld Affine matrix that represents a linear transform from NDC coordinates (related to viewport) to world coordinates. 
+	* 
+	* @param imageStreamingState Image for which we want to generate the `TileUploadData`
+	*/
 	// Right now it's generating tile-by-tile. Can be improved to produce at worst 4 different rectangles to load (depending on how we need to load tiles)
 	TileUploadData generateTileUploadData(const ImageType imageType, const float64_t3x3& NDCToWorld, GeoreferencedImageStreamingState* imageStreamingState);
 

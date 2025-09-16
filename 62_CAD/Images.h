@@ -22,13 +22,17 @@ enum class ImageType : uint8_t
 	GEOREFERENCED_FULL_RESOLUTION      // For smaller georeferenced images, entire image is eventually loaded and not streamed or view-dependant
 };
 
+/**
+ * @struct GeoreferencedImageParams
+ * @brief Info needed to add a georeferenced image.
+ */
 struct GeoreferencedImageParams
 {
-	OrientedBoundingBox2D worldspaceOBB = {};
-	uint32_t2 imageExtents = {};
-	uint32_t2 viewportExtents = {};
-	asset::E_FORMAT format = {};
-	std::filesystem::path storagePath = {};
+	OrientedBoundingBox2D worldspaceOBB = {}; // Position and extents of the image in worldspace
+	uint32_t2 imageExtents = {};              // Real extents (in texels) of the image
+	uint32_t2 viewportExtents = {};           // Extents (in pixels) of the viewport on which the image is to be displayed
+	asset::E_FORMAT format = {};              // Texel format of the image
+	std::filesystem::path storagePath = {};   // Path to the file where image data is stored
 };
 
 /**
@@ -123,6 +127,12 @@ struct GeoreferencedImageStreamingState : public IReferenceCounted
 	friend class DrawResourcesFiller;
 
 protected:
+	/*
+	* @brief Create a streaming state for a georeferenced image
+	* 
+	* @param _georeferencedImageParams Info relating to the georeferenced image for which to create a streaming state.
+	* @param TileSize Size of the tiles used to break up the image. Also size of the tiles in the GPU image backing this georeferenced image.
+	*/ 
 	static smart_refctd_ptr<GeoreferencedImageStreamingState> create(GeoreferencedImageParams&& _georeferencedImageParams, uint32_t TileSize)
 	{
 		smart_refctd_ptr<GeoreferencedImageStreamingState> retVal(new GeoreferencedImageStreamingState{});
@@ -169,10 +179,21 @@ protected:
 
 	// These are NOT UV, pixel or tile coords into the mapped image region, rather into the real, huge image
 	// Tile coords are always in mip 0 tile size. Translating to other mips levels is trivial
-	float64_t2 transformWorldCoordsToUV(const float64_t3 worldCoords) const { return nbl::hlsl::mul(world2UV, worldCoords); }
-	float64_t2 transformWorldCoordsToPixelCoords(const float64_t3 worldCoords) const { return float64_t2(georeferencedImageParams.imageExtents) * transformWorldCoordsToUV(worldCoords); }
-	float64_t2 transformWorldCoordsToTileCoords(const float64_t3 worldCoords, const uint32_t TileSize) const { return (1.0 / TileSize) * transformWorldCoordsToPixelCoords(worldCoords); }
 
+	// @brief Transform worldspace coordinates into UV coordinates into the image
+	float64_t2 transformWorldCoordsToUV(const float64_t3 worldCoords) const { return nbl::hlsl::mul(world2UV, worldCoords); }
+	// @brief Transform worldspace coordinates into texel coordinates into the image
+	float64_t2 transformWorldCoordsToTexelCoords(const float64_t3 worldCoords) const { return float64_t2(georeferencedImageParams.imageExtents) * transformWorldCoordsToUV(worldCoords); }
+	// @brief Transform worldspace coordinates into tile coordinates into the image, where the image is broken up into tiles of size `TileSize` 
+	float64_t2 transformWorldCoordsToTileCoords(const float64_t3 worldCoords, const uint32_t TileSize) const { return (1.0 / TileSize) * transformWorldCoordsToTexelCoords(worldCoords); }
+
+	/*
+	* @brief The GPU image backs a mapped region which is a rectangular sub-region of the original image. Note that a region being mapped does NOT imply it's currently resident in GPU memory.
+	*        To display the iomage on the screen, before even checking that the tiles needed to render the portion of the image currently visible are resident in GPU memory, we first must ensure that 
+	*        said region is included (as a sub-rectangle) in the mapped region. 
+	*
+	* @param viewportTileRange Range of tiles + mip level indicating what sub-rectangle (and at which mip level) of the image is going to be visible from the viewport
+	*/
 	void ensureMappedRegionCoversViewport(const GeoreferencedImageTileRange& viewportTileRange)
 	{
 		// A base mip level of x in the current mapped region means we can handle the viewport having mip level y, with x <= y < x + 1.0
@@ -192,13 +213,19 @@ protected:
 												nbl::hlsl::abs(int32_t2(viewportTileRange.bottomRightTile) - int32_t2(currentMappedRegion.bottomRightTile)) >= int32_t2(gpuImageSideLengthTiles, gpuImageSideLengthTiles)
 											);
 
+		// If there is no overlap between previous mapped region and the next, just reset everything
 		if (mipBoundaryCrossed || relativeShiftTooBig)
 			remapCurrentRegion(viewportTileRange);
+		// Otherwise we can get away with (at worst) sliding the mapped region along the real image, preserving the residency of the tiles that overlap between previous mapped region and the next
 		else
 			slideCurrentRegion(viewportTileRange);
 	}
 
-	// When the current mapped region is inadequate to fit the viewport, we compute a new mapped region
+	/*
+	* @brief Sets the mapped region into the image so it at least covers the sub-rectangle currently visible from the viewport. Also marks all gpu tiles dirty since none can be recycled
+	*
+	* @param viewportTileRange Range of tiles + mip level indicating a sub-rectangle of the image (visible from viewport) that the mapped region needs to cover
+	*/
 	void remapCurrentRegion(const GeoreferencedImageTileRange& viewportTileRange)
 	{
 		// Zoomed out
@@ -235,7 +262,12 @@ protected:
 		gpuImageTopLeft = uint32_t2(0, 0);
 	}
 
-	// Checks whether the viewport falls entirely withing the current mapped region and slides the latter otherwise, just enough until it covers the viewport
+	/*
+	* @brief Slides the mapped region along the image, marking the tiles dropped as dirty but preserving the residency for tiles that are inside both the previous and new mapped regions.
+	*		 Note that the checks for whether this is valid to do happen outside of this function.
+	*
+	* @param viewportTileRange Range of tiles + mip level indicating a sub-rectangle of the image (visible from viewport) that the mapped region needs to cover
+	*/
 	void slideCurrentRegion(const GeoreferencedImageTileRange& viewportTileRange)
 	{
 		// `topLeftShift` represents how many tiles up and to the left we have to move the mapped region to fit the viewport. 
@@ -310,16 +342,19 @@ protected:
 		gpuImageTopLeft = (gpuImageTopLeft + uint32_t2(topLeftShift + bottomRightShift + int32_t(gpuImageSideLengthTiles))) % gpuImageSideLengthTiles;
 	}
 
-	// This can become a rectangle if we implement the by-rectangle upload instead of tile-by-tile to reduce loader calls
+	// @brief Info to match a gpu tile to the tile in the real image it should hold image data for
 	struct ImageTileToGPUTileCorrespondence
 	{
 		uint32_t2 imageTileIndex;
 		uint32_t2 gpuImageTileIndex;
 	};
 
-	// Given a tile range covering the viewport, returns which tiles (at the mip level of the current mapped region) need to be made resident to draw it,
-	// returning a vector of `ImageTileToGPUTileCorrespondence`, each indicating that tile `imageTileIndex` in the full image needs to be uploaded to tile
-	// `gpuImageTileIndex` in the gpu image
+	/*
+	* @brief Given a tile range covering the viewport, returns which tiles (at the mip level of the current mapped region) need to be made resident to draw it, and to which tile of the gpu image each tile should be
+	*        uploaded to
+	* 
+	* @param viewportTileRange Range of tiles + mip level indicating a sub-rectangle of the image covering the viewport
+	*/
 	core::vector<ImageTileToGPUTileCorrespondence> tilesToLoad(const GeoreferencedImageTileRange& viewportTileRange) const
 	{
 		core::vector<ImageTileToGPUTileCorrespondence> retVal;
@@ -327,20 +362,22 @@ protected:
 			for (uint32_t tileY = viewportTileRange.topLeftTile.y; tileY <= viewportTileRange.bottomRightTile.y; tileY++)
 			{
 				uint32_t2 imageTileIndex = uint32_t2(tileX, tileY);
+				// Toroidal shift to find which gpu tile the image tile corresponds to
 				uint32_t2 gpuImageTileIndex = ((imageTileIndex - currentMappedRegion.topLeftTile) + gpuImageTopLeft) % gpuImageSideLengthTiles;
+				// Don't bother scheduling an upload if the tile is already resident
 				if (!currentMappedRegionOccupancy[gpuImageTileIndex.x][gpuImageTileIndex.y])
 					retVal.push_back({ imageTileIndex , gpuImageTileIndex });
 			}
 		return retVal;
 	}
 
-	// Returns the index of the last tile when covering the image with `mipLevel` tiles
+	// @brief Returns the index of the last tile when covering the image with `mipLevel` tiles
 	uint32_t2 getLastTileIndex(uint32_t mipLevel) const
 	{
 		return (fullImageTileLength - 1u) >> mipLevel;
 	}
 
-	// Returns whether the last tile in the image (along each dimension) is visible from the current viewport
+	// @brief Returns whether the last tile in the image (along each dimension) is visible from the current viewport
 	bool2 isLastTileVisible(const uint32_t2 viewportBottomRightTile) const
 	{
 		const uint32_t2 lastTileIndex = getLastTileIndex(currentMappedRegion.baseMipLevel);

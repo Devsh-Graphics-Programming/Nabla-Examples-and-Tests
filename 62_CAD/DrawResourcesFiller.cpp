@@ -2692,7 +2692,6 @@ DrawResourcesFiller::TileUploadData DrawResourcesFiller::generateTileUploadData(
 	// Compute the mip level and tile range we would need to encompass the viewport
 	// `viewportTileRange` is always should be a subset of `currentMappedRegion`, covering only the tiles visible in the viewport
 	// This also computes the optimal mip level for these tiles (basically a measure of how zoomed in or out the viewport is from the image)
-
 	GeoreferencedImageTileRange viewportTileRange = computeViewportTileRange(NDCToWorld, imageStreamingState);
 
 	// Slide or remap the current mapped region to ensure the viewport falls inside it
@@ -2776,6 +2775,8 @@ DrawResourcesFiller::TileUploadData DrawResourcesFiller::generateTileUploadData(
 			const uint32_t2 georeferencedImageMip0SamplingOffset = (imageTileIndex * GeoreferencedImageTileSize) << viewportTileRange.baseMipLevel;
 			const uint32_t2 lastTileIndex = imageStreamingState->getLastTileIndex(viewportTileRange.baseMipLevel);
 
+			// If on the last tile, we might not load a full `GeoreferencedImageTileSize x GeoreferencedImageTileSize` tile, so we figure out how many pixels to load in this case to have
+			// minimal artifacts and no stretching
 			if (imageTileIndex.x == lastTileIndex.x)
 			{
 				georeferencedImageMip0SampledTexels.x = imageStreamingState->georeferencedImageParams.imageExtents.x - georeferencedImageMip0SamplingOffset.x;
@@ -2846,8 +2847,7 @@ DrawResourcesFiller::TileUploadData DrawResourcesFiller::generateTileUploadData(
 		imageStreamingState->currentMappedRegionOccupancy[gpuImageTileIndex.x][gpuImageTileIndex.y] = true;
 	}
 
-	// Last, we need to figure out an obb that covers only the currently loaded tiles
-
+	// Figure out an obb that covers only the currently loaded tiles
 	OrientedBoundingBox2D viewportEncompassingOBB = imageStreamingState->georeferencedImageParams.worldspaceOBB;
 	// The original image `dirU` corresponds to `maxImageTileIndices.x + 1` mip 0 tiles (provided it's exactly that length in tiles)
 	// Dividing dirU by `maxImageTileIndices + (1,1)` we therefore get a vector that spans exactly one mip 0 tile (in the u direction) in worldspace. 
@@ -2878,7 +2878,6 @@ DrawResourcesFiller::TileUploadData DrawResourcesFiller::generateTileUploadData(
 	// uvPerTile is the uv per GeoreferencedImageTileSize pixels. Since the last tile might not be fully resident with pixels, we don't add the uv for it above and add the proper uv it should be sampled at here
 	maxUV += uvPerTile * lastGPUImageTileFractionalSpan;
 	return TileUploadData{ std::move(tiles), viewportEncompassingOBB, minUV, maxUV };
-	
 }
 
 GeoreferencedImageTileRange DrawResourcesFiller::computeViewportTileRange(const float64_t3x3& NDCToWorld, const GeoreferencedImageStreamingState* imageStreamingState)
