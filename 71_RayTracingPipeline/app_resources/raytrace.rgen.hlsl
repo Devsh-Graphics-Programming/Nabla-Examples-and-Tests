@@ -29,8 +29,8 @@ void main()
     const uint32_t3 launchSize = spirv::LaunchSizeKHR;
     const uint32_t2 coords = launchID.xy;
 
-    const uint32_t seed1 = nbl::hlsl::random::Pcg::create(pc.frameCounter)();
-    const uint32_t seed2 = nbl::hlsl::random::Pcg::create(launchID.y * launchSize.x + launchID.x)();
+    const uint32_t seed1 = nbl::hlsl::random::PCG32::construct(pc.frameCounter)();
+    const uint32_t seed2 = nbl::hlsl::random::PCG32::construct(launchID.y * launchSize.x + launchID.x)();
     nbl::hlsl::Xoroshiro64StarStar rnd = nbl::hlsl::Xoroshiro64StarStar::construct(uint32_t2(seed1, seed2));
 
     float32_t3 hitValues = float32_t3(0, 0, 0);
@@ -57,7 +57,7 @@ void main()
         
         [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]]
         PrimaryPayload payload;
-        payload.pcg = PrimaryPayload::generator_t::create(rnd());
+        payload.pcg = PrimaryPayload::generator_t::construct(rnd());
         spirv::traceRayKHR(topLevelAS, spv::RayFlagsMaskNone, 0xff, ERT_PRIMARY, 0, EMT_PRIMARY, rayDesc.Origin, rayDesc.TMin, rayDesc.Direction, rayDesc.TMax, payload);
         // TraceRay(topLevelAS, RAY_FLAG_NONE, 0xff, ERT_PRIMARY, 0, EMT_PRIMARY, rayDesc, payload);
 
