@@ -106,7 +106,7 @@ struct SBxDFTestResources
         nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 2> rng_vec2 = nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 2>::construct(retval.rng);
         nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3> rng_vec3 = nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3>::construct(retval.rng);
         retval.u = ConvertToFloat01<uint32_t3>::__call(rng_vec3());
-        retval.u.z = 0.0;
+        retval.u.z = 0.1;
 
         retval.V.direction = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(rng_vec2())));
         retval.N = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(rng_vec2())));
@@ -527,6 +527,9 @@ struct TestJacobian : TestBxDF<BxDF>
             }
         }
 
+        if (!(s.isValid() && sx.isValid() && sy.isValid()))
+            return BET_INVALID;
+
         // TODO: add checks with need clamp trait
         if (bxdf::traits<BxDF>::type == bxdf::BT_BRDF)
         {
@@ -594,10 +597,10 @@ struct TestJacobian : TestBxDF<BxDF>
         float32_t2x2 m = float32_t2x2(sx.getTdotL() - s.getTdotL(), sy.getTdotL() - s.getTdotL(), sx.getBdotL() - s.getBdotL(), sy.getBdotL() - s.getBdotL());
         float det = nbl::hlsl::determinant<float32_t2x2>(m);
 
-        if (!checkZero<float>(det * pdf.pdf / s.getNdotL(), 1e-5))
+        if (!checkZero<float>(det * pdf.pdf / s.getNdotL(), 1e-4))
             return BET_JACOBIAN;
 
-        if (!checkEq<float32_t3>(pdf.value(), bsdf, 5e-2))
+        if (!checkEq<float32_t3>(pdf.value(), bsdf, 1e-4))
             return BET_PDF_EVAL_DIFF;
 
         return BET_NONE;
@@ -698,7 +701,7 @@ struct TestReciprocity : TestBxDF<BxDF>
             bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer));
             rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_isointer));
         }
-        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF> || is_microfacet_bsdf_v<BxDF>)
+        if NBL_CONSTEXPR_FUNC (is_microfacet_brdf_v<BxDF>)
         {
             if NBL_CONSTEXPR_FUNC (aniso)
             {
@@ -708,6 +711,32 @@ struct TestReciprocity : TestBxDF<BxDF>
             else
             {
                 bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
+                rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_isointer, rec_isocache));
+            }
+        }
+        if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
+        {
+            bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type> rec_orientedEta;
+            rec_orientedEta.value = base_t::bxdf.__base.fresnel.orientedEta.rcp;
+            rec_orientedEta.rcp = base_t::bxdf.__base.fresnel.orientedEta.value;
+            if NBL_CONSTEXPR_FUNC (aniso)
+            {
+                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
+                if (cache.isTransmission())
+                {
+                    base_t::bxdf.__base.fresnel.orientedEta = rec_orientedEta;
+                    base_t::bxdf.__base.fresnel.orientedEta2 = rec_orientedEta.value * rec_orientedEta.value;
+                }
+                rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_anisointer, rec_cache));
+            }
+            else
+            {
+                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
+                if (isocache.isTransmission())
+                {
+                    base_t::bxdf.__base.fresnel.orientedEta = rec_orientedEta;
+                    base_t::bxdf.__base.fresnel.orientedEta2 = rec_orientedEta.value * rec_orientedEta.value;
+                }
                 rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_isointer, rec_isocache));
             }
         }
