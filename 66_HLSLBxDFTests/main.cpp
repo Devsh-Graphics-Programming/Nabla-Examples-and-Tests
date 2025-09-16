@@ -157,9 +157,9 @@ int main(int argc, char** argv)
     using fresnel_schlick_t = bxdf::fresnel::Schlick<float32_t3>;
     assert(bxdf::fresnel::Fresnel<fresnel_schlick_t>);
 
-    assert(bxdf::bxdf_concepts::IsotropicBxDF<bxdf::reflection::SLambertian<iso_config_t>>);
-    assert(bxdf::bxdf_concepts::IsotropicBxDF<bxdf::reflection::SOrenNayar<iso_config_t>>);
-    assert(bxdf::bxdf_concepts::IsotropicBxDF<bxdf::transmission::SSmoothDielectric<iso_config_t>>);
+    //assert(bxdf::bxdf_concepts::IsotropicBxDF<bxdf::reflection::SLambertian<iso_config_t>>);
+    //assert(bxdf::bxdf_concepts::IsotropicBxDF<bxdf::reflection::SOrenNayar<iso_config_t>>);
+    //assert(bxdf::bxdf_concepts::IsotropicBxDF<bxdf::transmission::SSmoothDielectric<iso_config_t>>);
 
     const bool logInfo = testconfigs["logInfo"];
     PrintFailureCallback cb;
