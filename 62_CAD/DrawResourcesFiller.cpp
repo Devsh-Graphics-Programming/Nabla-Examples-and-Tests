@@ -2513,7 +2513,9 @@ ImageType DrawResourcesFiller::determineGeoreferencedImageCreationParams(nbl::as
 	// Decide whether the image can reside fully into memory rather than get streamed.
 	// TODO: Improve logic, currently just a simple check to see if the full-screen image has more pixels that viewport or not
 	// TODO: add criterial that the size of the full-res image shouldn't  consume more than 30% of the total memory arena for images (if we allowed larger than viewport extents)
-	const bool betterToResideFullyInMem = params.imageExtents.x * params.imageExtents.y <= params.viewportExtents.x * params.viewportExtents.y;
+	const size_t mainImagePixels = ((size_t)params.imageExtents.x * (size_t)params.imageExtents.y);
+	const size_t viewportImagePixels = ((size_t)params.viewportExtents.x * (size_t)params.viewportExtents.y);
+	const bool betterToResideFullyInMem = params.imageExtents.x < (2 ^ 14) && params.imageExtents.y < (2 ^ 14) && mainImagePixels <= viewportImagePixels;
 
 	ImageType imageType;
 
