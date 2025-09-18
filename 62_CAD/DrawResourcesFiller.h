@@ -18,6 +18,8 @@ static_assert(sizeof(DrawObject) == 16u);
 static_assert(sizeof(MainObject) == 20u);
 static_assert(sizeof(LineStyle) == 88u);
 
+//TODO[Francisco]: Update briefs for geotex related functions
+
 // ! DrawResourcesFiller
 // ! This class provides important functionality to manage resources needed for a draw.
 // ! Drawing new objects (polylines, hatches, etc.) should go through this function.
@@ -120,6 +122,79 @@ public:
 				geometryInfo.getAlignedStorageSize();
 		}
 	};
+
+	/// @brief Abstract class with two overridable methods to load a region of an image, either by requesting a region at a target extent (like the loaders in n4ce do) or to request a specific region from a mip level
+	//         (like precomputed mips solution would use).
+	struct IGeoreferencedImageLoader : IReferenceCounted
+	{
+		/**
+		* @brief Load a region from an image - used to load from images with precomputed mips
+		*
+		* @param imagePath Path to file holding the image data
+		* @param offset Offset into the image (at requested mipLevel!) at which the region begins
+		* @param extent Extent of the region to load (at requested mipLevel!)
+		* @param mipLevel From which mip level image to retrieve the data from
+		* @param downsample True if this request is supposed to go into GPU mip level 1, false otherwise
+		*
+		* @return ICPUBuffer with the requested image data
+		*/
+		core::smart_refctd_ptr<ICPUBuffer> load(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t mipLevel, bool downsample)
+		{
+			assert(hasPrecomputedMips(imagePath));
+			return load_impl(imagePath, offset, extent, mipLevel, downsample);
+		}
+
+		/**
+		* @brief Load a region from an image - used to load from images using the n4ce loaders. Loads a region given by `offset, extent` as an image of size `targetExtent`
+		*        where `targetExtent <= extent` so the loader is in charge of downsampling. 
+		*
+		* @param imagePath Path to file holding the image data
+		* @param offset Offset into the image at which the region begins
+		* @param extent Extent of the region to load
+		* @param targetExtent Extent of the resulting image. Should NEVER be bigger than `extent`
+		*
+		* @return ICPUBuffer with the requested image data
+		*/
+		core::smart_refctd_ptr<ICPUBuffer> load(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t2 targetExtent)
+		{
+			assert(!hasPrecomputedMips(imagePath));
+			return load_impl(imagePath, offset, extent, targetExtent);
+		}
+
+		// @brief Get the extents (in texels) of an image.
+		virtual uint32_t2 getExtents(std::filesystem::path imagePath) = 0;
+
+		/**
+		* @brief Get the texel format for an image.
+		*/
+		virtual asset::E_FORMAT getFormat(std::filesystem::path imagePath) = 0;
+
+		// @brief Returns whether the image should be loaded with the precomputed mip method or the n4ce loader method.
+		virtual bool hasPrecomputedMips(std::filesystem::path imagePath) const = 0;
+	private:
+
+		// @brief Override to support loading with precomputed mips
+		virtual core::smart_refctd_ptr<ICPUBuffer> load_impl(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t mipLevel, bool downsample) { return nullptr; }
+
+		// @brief Override to support loading with n4ce-style loaders
+		virtual core::smart_refctd_ptr<ICPUBuffer> load_impl(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t2 targetExtent) { return nullptr; }
+	};
+
+	// @brief Register a loader
+	void setGeoreferencedImageLoader(core::smart_refctd_ptr<IGeoreferencedImageLoader>&& _georeferencedImageLoader)
+	{
+		georeferencedImageLoader = _georeferencedImageLoader;
+	}
+
+	uint32_t2 queryGeoreferencedImageExtents(std::filesystem::path imagePath)
+	{
+		return georeferencedImageLoader->getExtents(imagePath);
+	}
+
+	asset::E_FORMAT queryGeoreferencedImageFormat(std::filesystem::path imagePath)
+	{
+		return georeferencedImageLoader->getFormat(imagePath);
+	}
 	
 	DrawResourcesFiller();
 
@@ -128,6 +203,11 @@ public:
 	typedef std::function<void(SIntendedSubmitInfo&)> SubmitFunc;
 	void setSubmitDrawsFunction(const SubmitFunc& func);
 	
+	void setViewportExtents(const uint32_t2 _viewportExtents)
+	{
+		viewportExtents = _viewportExtents;
+	}
+
 	// DrawResourcesFiller needs to access these in order to allocate GPUImages and write the to their correct descriptor set binding
 	void setTexturesDescriptorSetAndBinding(core::smart_refctd_ptr<video::IGPUDescriptorSet>&& descriptorSet, uint32_t binding);
 
@@ -342,7 +422,7 @@ public:
 	 * @return true if the image was successfully cached and is ready for use; false if allocation failed.
 	 * [TODO]: should be internal protected member function.
 	 */
-	bool ensureGeoreferencedImageAvailability_AllocateIfNeeded(image_id imageID, const GeoreferencedImageParams& params, SIntendedSubmitInfo& intendedNextSubmit);
+	bool ensureGeoreferencedImageAvailability_AllocateIfNeeded(image_id imageID, const std::filesystem::path imageStoragePath, SIntendedSubmitInfo& intendedNextSubmit);
 
 	// [TODO]: should be internal protected member function.
 	bool queueGeoreferencedImageCopy_Internal(image_id imageID, const StreamedImageCopy& imageCopy);
@@ -350,8 +430,8 @@ public:
 	// This function must be called immediately after `addStaticImage` for the same imageID.
 	void addImageObject(image_id imageID, const OrientedBoundingBox2D& obb, SIntendedSubmitInfo& intendedNextSubmit);
 	
-	// This function must be called immediately after `addStaticImage` for the same imageID.
-	void addGeoreferencedImage(image_id imageID, const GeoreferencedImageParams& params, SIntendedSubmitInfo& intendedNextSubmit);
+	// This function must be called immediately after `ensureGeoreferencedImageAvailability_AllocateIfNeeded` for the same imageID.
+	void addGeoreferencedImage(image_id imageID, const float64_t3x3& NDCToWorld, OrientedBoundingBox2D&& worldspaceOBB, SIntendedSubmitInfo& intendedNextSubmit);
 
 	/// @brief call this function before submitting to ensure all buffer and textures resourcesCollection requested via drawing calls are copied to GPU
 	/// records copy command into intendedNextSubmit's active command buffer and might possibly submits if fails allocation on staging upload memory.
@@ -596,7 +676,7 @@ protected:
 	bool addImageObject_Internal(const ImageObjectInfo& imageObjectInfo, uint32_t mainObjIdx);;
 	
 	/// Attempts to upload a georeferenced image info considering resource limitations (not accounting for the resource image added using ensureStaticImageAvailability function)
-	bool addGeoreferencedImageInfo_Internal(const GeoreferencedImageInfo& georeferencedImageInfo, uint32_t mainObjIdx);;
+	bool addGeoreferencedImageInfo_Internal(const GeoreferencedImageInfo& georeferencedImageInfo, uint32_t mainObjIdx);
 	
 	uint32_t getImageIndexFromID(image_id imageID, const SIntendedSubmitInfo& intendedNextSubmit);
 
@@ -660,9 +740,9 @@ protected:
 	 *
 	 * @param[out] outImageParams Structure to be filled with image creation parameters (format, size, etc.).
 	 * @param[out] outImageType Indicates whether the image should be fully resident or streamed.
-	 * @param[in] georeferencedImageParams Parameters describing the full image extents, viewport extents, and format.
+	 * @param[in] params Parameters for the georeferenced image
 	*/
-	void determineGeoreferencedImageCreationParams(nbl::asset::IImage::SCreationParams& outImageParams, ImageType& outImageType, const GeoreferencedImageParams& georeferencedImageParams);
+	ImageType determineGeoreferencedImageCreationParams(nbl::asset::IImage::SCreationParams& outImageParams, const std::filesystem::path imageStoragePath);
 
 	/**
 	 * @brief Used to implement both `drawHatch` and `drawFixedGeometryHatch` without exposing the transformation type parameter
@@ -762,7 +842,6 @@ protected:
 		core::blake3_hash_t hash = {}; // actual hash, we will check in == operator
 		size_t lookupHash = 0ull; // for containers expecting size_t hash
 
-
 	private:
 		
 		void computeBlake3Hash()
@@ -795,7 +874,47 @@ protected:
 	uint32_t getMSDFIndexFromInputInfo(const MSDFInputInfo& msdfInfo, const SIntendedSubmitInfo& intendedNextSubmit);
 	
 	uint32_t addMSDFTexture(const MSDFInputInfo& msdfInput, core::smart_refctd_ptr<ICPUImage>&& cpuImage, SIntendedSubmitInfo& intendedNextSubmit);
+
+	// These are mip 0 texels of the image per tile, also size of each physical tile into the gpu resident image
+	constexpr static uint32_t GeoreferencedImageTileSize = 128u;
+	// Mip 1 tiles are naturally half the size
+	constexpr static uint32_t GeoreferencedImageTileSizeMip1 = GeoreferencedImageTileSize / 2;
+	// How many tiles of extra padding we give to the gpu image holding the tiles for a georeferenced image
+	constexpr static uint32_t GeoreferencedImagePaddingTiles = 2;
+
+	/*
+	* @brief Returns a tile range (+mip level) which is the smallest region of the image consisting of whole tiles (at specified mip level) that encompasses the current viewport
+	* 
+	* @param NDCToWorld Affine matrix that represents a linear transform from NDC coordinates (related to viewport) to world coordinates. 
+	* 
+	* @param imageStreamingState Image for which we want to compute said tile range
+	*/ 
+	GeoreferencedImageTileRange computeViewportTileRange(const float64_t3x3& NDCToWorld, const GeoreferencedImageStreamingState* imageStreamingState);
+
+	/*
+	* @struct TileUploadData
+	* @brief Holds gpu image upload info (what tiles to upload and where to upload them), an obb that encompasses the viewport and uv coords into the gpu image for the corners of that obb 
+	*/
+	struct TileUploadData
+	{
+		core::vector<StreamedImageCopy> tiles;
+		OrientedBoundingBox2D viewportEncompassingOBB;
+		float32_t2 minUV;
+		float32_t2 maxUV;
+	};
 	
+	/*
+	* @brief Generates all the tile upload data needed to render the image on the current viewport
+	* 
+	* @param imageType Type of the image (static or georeferenced)
+	* 
+	* @param NDCToWorld Affine matrix that represents a linear transform from NDC coordinates (related to viewport) to world coordinates. 
+	* 
+	* @param imageStreamingState Image for which we want to generate the `TileUploadData`
+	*/
+	// Right now it's generating tile-by-tile. Can be improved to produce at worst 4 different rectangles to load (depending on how we need to load tiles)
+	TileUploadData generateTileUploadData(const ImageType imageType, const float64_t3x3& NDCToWorld, GeoreferencedImageStreamingState* imageStreamingState);
+
 	// Flushes Current Draw Call and adds to drawCalls
 	void flushDrawObjects();
 
@@ -861,7 +980,11 @@ protected:
 	std::unique_ptr<ImagesCache> imagesCache;
 	smart_refctd_ptr<SubAllocatedDescriptorSet> suballocatedDescriptorSet;
 	uint32_t imagesArrayBinding = 0u;
-
+	// Georef - pushed here rn for simplicity
+	core::smart_refctd_ptr<IGeoreferencedImageLoader> georeferencedImageLoader;
 	std::unordered_map<image_id, std::vector<StreamedImageCopy>> streamedImageCopies;
+
+	// Viewport state
+	uint32_t2 viewportExtents = {};
 };
 

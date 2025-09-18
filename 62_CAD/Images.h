@@ -1,4 +1,7 @@
 #pragma once
+
+#include "shaders/globals.hlsl"
+
 using namespace nbl;
 using namespace nbl::video;
 using namespace nbl::core;
@@ -20,15 +23,6 @@ enum class ImageType : uint8_t
 	STATIC,                        // Regular non-georeferenced image, fully loaded once
 	GEOREFERENCED_STREAMED,            // Streamed image, resolution depends on camera/view
 	GEOREFERENCED_FULL_RESOLUTION      // For smaller georeferenced images, entire image is eventually loaded and not streamed or view-dependant
-};
-
-struct GeoreferencedImageParams
-{
-	OrientedBoundingBox2D worldspaceOBB = {};
-	uint32_t2 imageExtents = {};
-	uint32_t2 viewportExtents = {};
-	asset::E_FORMAT format = {};
-	// TODO: Need to add other stuff later.
 };
 
 /**
@@ -109,6 +103,123 @@ struct ImageCleanup : public core::IReferenceCounted
 
 };
 
+// Measures a range of mip `baseMipLevel` tiles in the georeferenced image, starting at `topLeftTile` that is `nTiles` long
+struct GeoreferencedImageTileRange
+{
+	uint32_t2 topLeftTile;
+	uint32_t2 bottomRightTile;
+	uint32_t baseMipLevel;
+};
+
+// @brief Used to load tiles into VRAM, keep track of loaded tiles, determine how they get sampled etc.
+struct GeoreferencedImageStreamingState : public IReferenceCounted
+{
+	friend class DrawResourcesFiller;
+
+protected:
+	/*
+	* @brief Create an image streaming state and only set the fields that are passed as parameters
+	*
+	* @param _imageStoragePath Path to the file where image data is stored.
+	* @param imageExtents Extents of the image in texels. Some internal algos of the class require knowing this and the class doesn-t have access to the image loader
+	* @param _gpuImageSideLengthTiles Length of each side of the gpu image, in tiles (it's always square)
+	*/
+	static smart_refctd_ptr<GeoreferencedImageStreamingState> create(std::filesystem::path imageStoragePath, const uint32_t2 imageExtents, const uint32_t gpuImageSideLengthTiles);
+
+	/*
+	* @brief Set most fields for the imageStreamingState
+	* 
+	* @param _worldspaceOBB Worldspace oriented bounding box where image needs to be drawn.
+	* @param TileSize Size of the tiles used to break up the image. Also size of the tiles in the GPU image backing this georeferenced image.
+	*/ 
+	void initialize(OrientedBoundingBox2D&& _worldspaceOBB, uint32_t TileSize);
+
+	// These are NOT UV, pixel or tile coords into the mapped image region, rather into the real, huge image
+	// Tile coords are always in mip 0 tile size. Translating to other mips levels is trivial
+
+	// @brief Transform worldspace coordinates into UV coordinates into the image
+	float64_t2 transformWorldCoordsToUV(const float64_t3 worldCoords) const { return nbl::hlsl::mul(world2UV, worldCoords); }
+	// @brief Transform worldspace coordinates into texel coordinates into the image
+	float64_t2 transformWorldCoordsToTexelCoords(const float64_t3 worldCoords) const { return float64_t2(imageExtents) * transformWorldCoordsToUV(worldCoords); }
+	// @brief Transform worldspace coordinates into tile coordinates into the image, where the image is broken up into tiles of size `TileSize` 
+	float64_t2 transformWorldCoordsToTileCoords(const float64_t3 worldCoords, const uint32_t TileSize) const { return (1.0 / TileSize) * transformWorldCoordsToTexelCoords(worldCoords); }
+
+	/*
+	* @brief The GPU image backs a mapped region which is a rectangular sub-region of the original image. Note that a region being mapped does NOT imply it's currently resident in GPU memory.
+	*        To display the iomage on the screen, before even checking that the tiles needed to render the portion of the image currently visible are resident in GPU memory, we first must ensure that 
+	*        said region is included (as a sub-rectangle) in the mapped region. 
+	*
+	* @param viewportTileRange Range of tiles + mip level indicating what sub-rectangle (and at which mip level) of the image is going to be visible from the viewport
+	*/
+	void ensureMappedRegionCoversViewport(const GeoreferencedImageTileRange& viewportTileRange);
+
+	/*
+	* @brief Sets the mapped region into the image so it at least covers the sub-rectangle currently visible from the viewport. Also marks all gpu tiles dirty since none can be recycled
+	*
+	* @param viewportTileRange Range of tiles + mip level indicating a sub-rectangle of the image (visible from viewport) that the mapped region needs to cover
+	*/
+	void remapCurrentRegion(const GeoreferencedImageTileRange& viewportTileRange);
+
+	/*
+	* @brief Slides the mapped region along the image, marking the tiles dropped as dirty but preserving the residency for tiles that are inside both the previous and new mapped regions.
+	*		 Note that the checks for whether this is valid to do happen outside of this function.
+	*
+	* @param viewportTileRange Range of tiles + mip level indicating a sub-rectangle of the image (visible from viewport) that the mapped region needs to cover
+	*/
+	void slideCurrentRegion(const GeoreferencedImageTileRange& viewportTileRange);
+
+	// @brief Info to match a gpu tile to the tile in the real image it should hold image data for
+	struct ImageTileToGPUTileCorrespondence
+	{
+		uint32_t2 imageTileIndex;
+		uint32_t2 gpuImageTileIndex;
+	};
+
+	/*
+	* @brief Given a tile range covering the viewport, returns which tiles (at the mip level of the current mapped region) need to be made resident to draw it, and to which tile of the gpu image each tile should be
+	*        uploaded to
+	* 
+	* @param viewportTileRange Range of tiles + mip level indicating a sub-rectangle of the image covering the viewport
+	*/
+	core::vector<ImageTileToGPUTileCorrespondence> tilesToLoad(const GeoreferencedImageTileRange& viewportTileRange) const;
+
+	// @brief Returns the index of the last tile when covering the image with `mipLevel` tiles
+	uint32_t2 getLastTileIndex(uint32_t mipLevel) const
+	{
+		return (fullImageTileLength - 1u) >> mipLevel;
+	}
+
+	// @brief Returns whether the last tile in the image (along each dimension) is visible from the current viewport
+	bool2 isLastTileVisible(const uint32_t2 viewportBottomRightTile) const
+	{
+		const uint32_t2 lastTileIndex = getLastTileIndex(currentMappedRegion.baseMipLevel);
+		return bool2(lastTileIndex.x == viewportBottomRightTile.x, lastTileIndex.y == viewportBottomRightTile.y);
+	}
+	std::vector<std::vector<bool>> currentMappedRegionOccupancy = {};
+
+	// Sidelength of the gpu image, in mip 0 tiles that are `TileSize` (creation parameter) texels wide
+	uint32_t gpuImageSideLengthTiles = {};
+	// We establish a max mipLevel for the image, which is the mip level at which any of width, height fit in a single tile
+	uint32_t maxMipLevel = {};
+	// Dimensions of the stored image, in texels
+	uint32_t2 imageExtents = {};
+	// Number of mip 0 tiles needed to cover the whole image, counting the last tile that might be fractional if the image size is not perfectly divisible by TileSize
+	uint32_t2 fullImageTileLength = {};
+	// Indicates on which tile of the gpu image the current mapped region's `topLeft` resides
+	uint32_t2 gpuImageTopLeft = {};
+	// Worldspace bounding box for the image
+	OrientedBoundingBox2D worldspaceOBB;
+	// Converts a point (z = 1) in worldspace to UV coordinates in image space (origin shifted to topleft of the image)
+	float64_t2x3 world2UV = {};
+	// Reflects what fraction of a FULL tile the LAST tile in the image at the current mip level actually spans.
+	// It only gets set when necessary, and should always be updated correctly before being used, since it's related to the current `baseMipLevel` of the `currentMappedRegion`
+	float32_t2 lastImageTileFractionalSpan = {1.f, 1.f};
+	// Set mip level to extreme value so it gets recreated on first iteration
+	GeoreferencedImageTileRange currentMappedRegion = { .baseMipLevel = std::numeric_limits<uint32_t>::max() };
+	// Path to the file where image data is stored
+	std::filesystem::path imageStoragePath;
+};
+
 struct CachedImageRecord
 {
 	static constexpr uint32_t InvalidTextureIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
@@ -121,6 +232,7 @@ struct CachedImageRecord
 	uint64_t allocationSize = 0ull;
 	core::smart_refctd_ptr<IGPUImageView> gpuImageView = nullptr;
 	core::smart_refctd_ptr<ICPUImage> staticCPUImage = nullptr; // cached cpu image for uploading to gpuImageView when needed.
+	core::smart_refctd_ptr<GeoreferencedImageStreamingState> georeferencedImageState = nullptr; // Used to track tile residency for georeferenced images
 	
 	// In LRU Cache `insert` function, in case of cache miss, we need to construct the refereence with semaphore value
 	CachedImageRecord(uint64_t currentFrameIndex) 
@@ -205,7 +317,7 @@ public:
 struct StreamedImageCopy
 {
 	asset::E_FORMAT srcFormat;
-	core::smart_refctd_ptr<ICPUBuffer> srcBuffer; // Make it 'std::future' later?
+	smart_refctd_ptr<ICPUBuffer> srcBuffer; // Make it 'std::future' later?
 	asset::IImage::SBufferCopy region;
 };
 
