@@ -568,7 +568,9 @@ public:
 	void allocateResources()
 	{
 		drawResourcesFiller = DrawResourcesFiller(core::smart_refctd_ptr(m_utils), getGraphicsQueue(), core::smart_refctd_ptr(m_logger));
-		
+
+		drawResourcesFiller.setViewportExtents(uint32_t2(m_window->getWidth(), m_window->getHeight()));
+
 		size_t maxImagesMemSize = 1024ull * 1024ull * 1024ull; // 1024 MB
 		size_t maxBufferMemSize = 1024ull * 1024ull * 1024ull; // 1024 MB
 		drawResourcesFiller.allocateDrawResourcesWithinAvailableVRAM(m_device.get(), maxImagesMemSize, maxBufferMemSize);
@@ -3874,15 +3876,14 @@ protected:
 		else if (mode == ExampleMode::CASE_12)
 		{
 			// placeholder, actual path is right now hardcoded into the loader
-			const static std::string tiledGridPath = "../../media/tiled_grid_mip_0.exr";
+			const static std::string georeferencedImagePath = "../../media/tiled_grid_mip_0.exr";
 
 			constexpr float64_t3 topLeftViewportH = float64_t3(-1.0, -1.0, 1.0);
 			constexpr float64_t3 topRightViewportH = float64_t3(1.0, -1.0, 1.0);
 			constexpr float64_t3 bottomLeftViewportH = float64_t3(-1.0, 1.0, 1.0);
 			constexpr float64_t3 bottomRightViewportH = float64_t3(1.0, 1.0, 1.0);
 
-			image_id tiledGridID = 6996;
-			GeoreferencedImageParams tiledGridParams;
+			image_id georefImageID = 6996;
 			// Position at topLeft viewport
 			auto projectionToNDC = m_Camera.constructViewProjection();
 			// TEST CAMERA ROTATION
@@ -3891,26 +3892,27 @@ protected:
 			auto inverseViewProj = nbl::hlsl::inverse(projectionToNDC);
 			
 			const static auto startingTopLeft = nbl::hlsl::mul(inverseViewProj, topLeftViewportH);
-			tiledGridParams.worldspaceOBB.topLeft = startingTopLeft;
+			OrientedBoundingBox2D georefImageOBB = {};
+			georefImageOBB.topLeft = startingTopLeft;
 
 			// Get 1 viewport pixel to match `startingImagePixelsPerViewportPixel` pixels of the image by choosing appropriate dirU
 			const static float64_t startingImagePixelsPerViewportPixels = 1.0;
 			const static auto startingViewportWidthVector = nbl::hlsl::mul(inverseViewProj, topRightViewportH - topLeftViewportH);
-			const static auto dirU = startingViewportWidthVector * float64_t(drawResourcesFiller.queryGeoreferencedImageExtents(tiledGridPath).x) / float64_t(startingImagePixelsPerViewportPixels * m_window->getWidth());
+			const static auto dirU = startingViewportWidthVector * float64_t(drawResourcesFiller.queryGeoreferencedImageExtents(georeferencedImagePath).x) / float64_t(startingImagePixelsPerViewportPixels * m_window->getWidth());
 			
 			// DEBUG
-			tiledGridParams.worldspaceOBB.topLeft += float32_t2(startingViewportWidthVector - dirU);
-			
-			tiledGridParams.worldspaceOBB.dirU = dirU;
-			tiledGridParams.imageExtents = drawResourcesFiller.queryGeoreferencedImageExtents(tiledGridPath);
-			tiledGridParams.worldspaceOBB.aspectRatio = float32_t(tiledGridParams.imageExtents.y) / tiledGridParams.imageExtents.x;
-			tiledGridParams.viewportExtents = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
-			tiledGridParams.format = drawResourcesFiller.queryGeoreferencedImageFormat(tiledGridPath);
-			tiledGridParams.storagePath = tiledGridPath;
+			georefImageOBB.topLeft += float32_t2(startingViewportWidthVector - dirU);
 
-			drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(tiledGridID, std::move(tiledGridParams), intendedNextSubmit);
+			georefImageOBB.dirU = dirU;
+			const uint32_t2 imageExtents = drawResourcesFiller.queryGeoreferencedImageExtents(georeferencedImagePath);
+			georefImageOBB.aspectRatio = float32_t(imageExtents.y) / imageExtents.x;
 
-			drawResourcesFiller.addGeoreferencedImage(tiledGridID, inverseViewProj, intendedNextSubmit);
+			// Unnecessary but should go into a callback if window can change dimensions during execution
+			drawResourcesFiller.setViewportExtents(uint32_t2(m_window->getWidth(), m_window->getHeight()));
+
+			drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(georefImageID, georeferencedImagePath, intendedNextSubmit);
+
+			drawResourcesFiller.addGeoreferencedImage(georefImageID, inverseViewProj, std::move(georefImageOBB), intendedNextSubmit);
 		}
 	}
 
