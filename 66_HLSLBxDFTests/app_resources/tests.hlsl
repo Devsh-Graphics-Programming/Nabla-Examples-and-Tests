@@ -396,7 +396,7 @@ struct TestBxDF<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_confi
 
     void initBxDF(SBxDFTestResources _rc)
     {
-            bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type> orientedEta = bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(base_t::isointer.getNdotV(), hlsl::promote<typename base_t::bxdf_t::monochrome_type>(rc.ior.x));
+        bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type> orientedEta = bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(base_t::isointer.getNdotV(), hlsl::promote<typename base_t::bxdf_t::monochrome_type>(rc.ior.x));
         base_t::bxdf = bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>::create(orientedEta,rc.alpha.x);
 #ifndef __HLSL_VERSION
         base_t::name = "GGX Dielectric BSDF";
@@ -716,27 +716,22 @@ struct TestReciprocity : TestBxDF<BxDF>
         }
         if NBL_CONSTEXPR_FUNC (is_microfacet_bsdf_v<BxDF>)
         {
-            bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type> rec_orientedEta;
-            rec_orientedEta.value = base_t::bxdf.__base.fresnel.orientedEta.rcp;
-            rec_orientedEta.rcp = base_t::bxdf.__base.fresnel.orientedEta.value;
             if NBL_CONSTEXPR_FUNC (aniso)
             {
                 bsdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
-                if (cache.isTransmission())
-                {
-                    base_t::bxdf.__base.fresnel.orientedEta = rec_orientedEta;
-                    base_t::bxdf.__base.fresnel.orientedEta2 = rec_orientedEta.value * rec_orientedEta.value;
-                }
+                bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type> rec_orientedEta = 
+                    bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(rec_anisointer.getNdotV(), hlsl::promote<typename base_t::bxdf_t::monochrome_type>(base_t::rc.ior.x));
+                base_t::bxdf.__base.fresnel.orientedEta = rec_orientedEta;
+                base_t::bxdf.__base.fresnel.orientedEta2 = rec_orientedEta.value * rec_orientedEta.value;
                 rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_anisointer, rec_cache));
             }
             else
             {
                 bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
-                if (isocache.isTransmission())
-                {
-                    base_t::bxdf.__base.fresnel.orientedEta = rec_orientedEta;
-                    base_t::bxdf.__base.fresnel.orientedEta2 = rec_orientedEta.value * rec_orientedEta.value;
-                }
+                bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type> rec_orientedEta = 
+                    bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(rec_isointer.getNdotV(), hlsl::promote<typename base_t::bxdf_t::monochrome_type>(base_t::rc.ior.x));
+                base_t::bxdf.__base.fresnel.orientedEta = rec_orientedEta;
+                base_t::bxdf.__base.fresnel.orientedEta2 = rec_orientedEta.value * rec_orientedEta.value;
                 rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_isointer, rec_isocache));
             }
         }
