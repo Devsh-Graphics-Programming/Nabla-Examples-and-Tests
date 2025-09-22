@@ -106,7 +106,7 @@ struct SBxDFTestResources
         nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 2> rng_vec2 = nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 2>::construct(retval.rng);
         nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3> rng_vec3 = nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3>::construct(retval.rng);
         retval.u = ConvertToFloat01<uint32_t3>::__call(rng_vec3());
-        retval.u.z = 0.1;
+        retval.u.z = 0.0;
 
         retval.V.direction = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(rng_vec2())));
         retval.N = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(rng_vec2())));
@@ -210,7 +210,7 @@ struct TestBxDF : TestBxDFBase<BxDF>
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf = BxDF::create();  // default to lambertian bxdf
+        // default to lambertian bxdf
 #ifndef __HLSL_VERSION
         base_t::name = "Lambertian BxDF";
 #endif
@@ -224,26 +224,27 @@ struct TestBxDF<bxdf::reflection::SOrenNayar<iso_config_t>> : TestBxDFBase<bxdf:
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf = bxdf::reflection::SOrenNayar<iso_config_t>::create(_rc.alpha.x);
+        base_t::bxdf_t::creation_type params;
+        params.A = _rc.alpha.x;
+        base_t::bxdf = bxdf::reflection::SOrenNayar<iso_config_t>::create(params);
 #ifndef __HLSL_VERSION
         base_t::name = "OrenNayar BRDF";
 #endif
     }
 };
 
-// template<>
-// struct TestBxDF<bxdf::reflection::SDeltaDistribution<iso_config_t>> : TestBxDFBase<bxdf::reflection::SDeltaDistribution<iso_config_t>>
-// {
-//     using base_t = TestBxDFBase<bxdf::reflection::SDeltaDistribution<iso_config_t>>;
+template<>
+struct TestBxDF<bxdf::reflection::SDeltaDistribution<iso_config_t>> : TestBxDFBase<bxdf::reflection::SDeltaDistribution<iso_config_t>>
+{
+    using base_t = TestBxDFBase<bxdf::reflection::SDeltaDistribution<iso_config_t>>;
 
-//     void initBxDF(SBxDFTestResources _rc)
-//     {
-//         base_t::bxdf = bxdf::reflection::SDeltaDistribution<iso_config_t>::create();
-// #ifndef __HLSL_VERSION
-//         base_t::name = "Delta Distribution BRDF";
-// #endif
-//     }
-// };
+    void initBxDF(SBxDFTestResources _rc)
+    {
+#ifndef __HLSL_VERSION
+        base_t::name = "Delta Distribution BRDF";
+#endif
+    }
+};
 
 template<>
 struct TestBxDF<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>> : TestBxDFBase<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>>
@@ -301,63 +302,64 @@ struct TestBxDF<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>> : 
     }
 };
 
-//template<>
-//struct TestBxDF<bxdf::transmission::SOrenNayar<iso_config_t>> : TestBxDFBase<bxdf::transmission::SOrenNayar<iso_config_t>>
-//{
-//    using base_t = TestBxDFBase<bxdf::transmission::SOrenNayar<iso_config_t>>;
-//
-//    void initBxDF(SBxDFTestResources _rc)
-//    {
-//        base_t::bxdf = bxdf::transmission::SOrenNayar<iso_config_t>::create(_rc.alpha.x);
-//#ifndef __HLSL_VERSION
-//        base_t::name = "OrenNayar BSDF";
-//#endif
-//    }
-//};
+template<>
+struct TestBxDF<bxdf::transmission::SOrenNayar<iso_config_t>> : TestBxDFBase<bxdf::transmission::SOrenNayar<iso_config_t>>
+{
+   using base_t = TestBxDFBase<bxdf::transmission::SOrenNayar<iso_config_t>>;
 
-//template<>
-//struct TestBxDF<bxdf::transmission::SSmoothDielectric<iso_config_t>> : TestBxDFBase<bxdf::transmission::SSmoothDielectric<iso_config_t>>
-//{
-//    using base_t = TestBxDFBase<bxdf::transmission::SSmoothDielectric<iso_config_t>>;
-//
-//    void initBxDF(SBxDFTestResources _rc)
-//    {
-//        base_t::bxdf.orientedEta = bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(base_t::isointer.getNdotV(bxdf::BxDFClampMode::BCM_ABS), hlsl::promote<typename base_t::bxdf_t::monochrome_type>(rc.ior.x));
-//#ifndef __HLSL_VERSION
-//        base_t::name = "Smooth dielectric BSDF";
-//#endif
-//    }
-//};
+   void initBxDF(SBxDFTestResources _rc)
+   {
+        base_t::bxdf_t::creation_type params;
+        params.A = _rc.alpha.x;
+        base_t::bxdf = bxdf::transmission::SOrenNayar<iso_config_t>::create(params);
+#ifndef __HLSL_VERSION
+        base_t::name = "OrenNayar BSDF";
+#endif
+   }
+};
 
-// template<>
-// struct TestBxDF<bxdf::transmission::SThinSmoothDielectric<iso_config_t>> : TestBxDFBase<bxdf::transmission::SThinSmoothDielectric<iso_config_t>>
-// {
-//     using base_t = TestBxDFBase<bxdf::transmission::SThinSmoothDielectric<iso_config_t>>;
+template<>
+struct TestBxDF<bxdf::transmission::SSmoothDielectric<iso_config_t>> : TestBxDFBase<bxdf::transmission::SSmoothDielectric<iso_config_t>>
+{
+   using base_t = TestBxDFBase<bxdf::transmission::SSmoothDielectric<iso_config_t>>;
 
-//     void initBxDF(SBxDFTestResources _rc)
-//     {
-//         using spectral_type = typename base_t::bxdf_t::spectral_type;
-//         bxdf::fresnel::Dielectric<spectral_type> f = bxdf::fresnel::Dielectric<spectral_type>::create(bxdf::fresnel::OrientedEtas<spectral_type>::create(base_t::isointer.getNdotV(bxdf::BxDFClampMode::BCM_ABS), hlsl::promote<spectral_type>(rc.ior.x)));
-//         base_t::bxdf = bxdf::transmission::SThinSmoothDielectric<iso_config_t>::create(f,rc.luma_coeff);
-// #ifndef __HLSL_VERSION
-//         base_t::name = "Thin smooth dielectric BSDF";
-// #endif
-//     }
-// };
+   void initBxDF(SBxDFTestResources _rc)
+   {
+        base_t::bxdf.orientedEta = bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(base_t::isointer.getNdotV(bxdf::BxDFClampMode::BCM_ABS), hlsl::promote<typename base_t::bxdf_t::monochrome_type>(rc.ior.x));
+#ifndef __HLSL_VERSION
+        base_t::name = "Smooth dielectric BSDF";
+#endif
+   }
+};
 
-// template<>
-// struct TestBxDF<bxdf::transmission::SDeltaDistribution<iso_config_t>> : TestBxDFBase<bxdf::transmission::SDeltaDistribution<iso_config_t>>
-// {
-//     using base_t = TestBxDFBase<bxdf::transmission::SDeltaDistribution<iso_config_t>>;
+template<>
+struct TestBxDF<bxdf::transmission::SThinSmoothDielectric<iso_config_t>> : TestBxDFBase<bxdf::transmission::SThinSmoothDielectric<iso_config_t>>
+{
+    using base_t = TestBxDFBase<bxdf::transmission::SThinSmoothDielectric<iso_config_t>>;
 
-//     void initBxDF(SBxDFTestResources _rc)
-//     {
-//         base_t::bxdf = bxdf::transmission::SDeltaDistribution<iso_config_t>::create();
-// #ifndef __HLSL_VERSION
-//         base_t::name = "Delta Distribution BSDF";
-// #endif
-//     }
-// };
+    void initBxDF(SBxDFTestResources _rc)
+    {
+        using spectral_type = typename base_t::bxdf_t::spectral_type;
+        base_t::bxdf.fresnel = bxdf::fresnel::Dielectric<spectral_type>::create(bxdf::fresnel::OrientedEtas<spectral_type>::create(base_t::isointer.getNdotV(bxdf::BxDFClampMode::BCM_ABS), hlsl::promote<spectral_type>(rc.ior.x)));
+        base_t::bxdf.luminosityContributionHint = rc.luma_coeff;
+#ifndef __HLSL_VERSION
+        base_t::name = "Thin smooth dielectric BSDF";
+#endif
+    }
+};
+
+template<>
+struct TestBxDF<bxdf::transmission::SDeltaDistribution<iso_config_t>> : TestBxDFBase<bxdf::transmission::SDeltaDistribution<iso_config_t>>
+{
+    using base_t = TestBxDFBase<bxdf::transmission::SDeltaDistribution<iso_config_t>>;
+
+    void initBxDF(SBxDFTestResources _rc)
+    {
+#ifndef __HLSL_VERSION
+        base_t::name = "Delta Distribution BSDF";
+#endif
+    }
+};
 
 template<>
 struct TestBxDF<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>> : TestBxDFBase<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>>
@@ -425,9 +427,9 @@ struct is_basic_brdf : bool_constant<
     is_same<T, bxdf::reflection::SLambertian<iso_config_t> >::value ||
     is_same<T, bxdf::reflection::SLambertian<aniso_config_t> >::value ||
     is_same<T, bxdf::reflection::SOrenNayar<iso_config_t>>::value ||
-    is_same<T, bxdf::reflection::SOrenNayar<aniso_config_t>>::value
-    // is_same<T, bxdf::reflection::SDeltaDistribution<iso_config_t> >::value ||
-    // is_same<T, bxdf::reflection::SDeltaDistribution<aniso_config_t> >::value
+    is_same<T, bxdf::reflection::SOrenNayar<aniso_config_t>>::value ||
+    is_same<T, bxdf::reflection::SDeltaDistribution<iso_config_t> >::value ||
+    is_same<T, bxdf::reflection::SDeltaDistribution<aniso_config_t> >::value
 > {};
 
 template<class T>
@@ -443,13 +445,13 @@ struct is_basic_bsdf : bool_constant<
     is_same<T, bxdf::transmission::SLambertian<iso_config_t>>::value ||
     is_same<T, bxdf::transmission::SLambertian<aniso_config_t>>::value ||
     is_same<T, bxdf::transmission::SSmoothDielectric<iso_config_t>>::value ||
-    is_same<T, bxdf::transmission::SSmoothDielectric<aniso_config_t>>::value
-    // is_same<T, bxdf::transmission::SOrenNayar<iso_config_t>>::value ||
-    // is_same<T, bxdf::transmission::SOrenNayar<aniso_config_t>>::value ||
-    // is_same<T, bxdf::transmission::SThinSmoothDielectric<iso_config_t>>::value ||
-    // is_same<T, bxdf::transmission::SThinSmoothDielectric<aniso_config_t>>::value ||
-    // is_same<T, bxdf::transmission::SDeltaDistribution<iso_config_t>>::value ||
-    // is_same<T, bxdf::transmission::SDeltaDistribution<aniso_config_t>>::value
+    is_same<T, bxdf::transmission::SSmoothDielectric<aniso_config_t>>::value ||
+    is_same<T, bxdf::transmission::SOrenNayar<iso_config_t>>::value ||
+    is_same<T, bxdf::transmission::SOrenNayar<aniso_config_t>>::value ||
+    is_same<T, bxdf::transmission::SThinSmoothDielectric<iso_config_t>>::value ||
+    is_same<T, bxdf::transmission::SThinSmoothDielectric<aniso_config_t>>::value ||
+    is_same<T, bxdf::transmission::SDeltaDistribution<iso_config_t>>::value ||
+    is_same<T, bxdf::transmission::SDeltaDistribution<aniso_config_t>>::value
 > {};
 
 template<class T>
