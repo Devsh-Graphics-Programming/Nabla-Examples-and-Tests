@@ -145,7 +145,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 					// The material compiler can't handle the BRDF vs. BTDF normalization and energy conservation for you.
 					// Given a BRDF expression we simply can't tell if the missing energy was supposed
 					// to be transferred to the BTDF or absorbed by the BRDF itself.
-					// Hence the BTDF expression must contain the BRDF coating term.
+					// Hence the BTDF expression must contain the BRDF coating term (how much energy is "taken" by the BRDF).
 					const auto mulH = forest->_new<CFrontendIR::CMul>();
 					auto* mul = forest->deref(mulH);
 					// regular BRDF will normalize to 100% over a hemisphere, if we allow a BTDF term we must split it half/half
@@ -339,13 +339,66 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 				ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Contributor in left subtree check failed");
 			}
 
-			// thindielectric
 			// dielectric
+			{
+				const auto layerH = forest->_new<CFrontendIR::CLayer>();
+				auto* layer = forest->deref(layerH);
+				layer->debugInfo = forest->_new<CNodePool::CDebugInfo>("Glass");
+					
+				const auto mulH = forest->_new<CFrontendIR::CMul>();
+				auto* mul = forest->deref(mulH);
+				// do fresnel first
+				const auto fresnelH = forest->createNamedFresnel("ThF4");
+				auto* fresnel = forest->deref(fresnelH);
+				mul->rhs = fresnelH;
+				// BxDF always goes in left hand side of Mul
+				{
+					const auto ctH = forest->_new<CFrontendIR::CCookTorrance>();
+					auto* ct = forest->deref(ctH);
+					ct->debugInfo = forest->_new<CNodePool::CDebugInfo>("First Isotropic GGX");
+					ct->ndParams.getRougness()[0].scale = ct->ndParams.getRougness()[1].scale = 0.05f;
+					// ignored for BRDFs, needed for BTDFs
+					ct->orientedRealEta = fresnel->orientedRealEta;
+					mul->lhs = ctH;
+				}
+
+				// use same BxDF for all parts of a layer
+				layer->brdfTop = mulH;
+				layer->btdf = mulH;
+				layer->brdfBottom = mulH;
+
+				{
+					auto* imagEta = forest->deref(fresnel->orientedImagEta);
+					imagEta->getParam(0)->scale = std::numeric_limits<float>::min();
+					imagEta->getParam(1)->scale = -std::numeric_limits<float>::max();
+					imagEta->getParam(2)->scale = 0.5f;
+					ASSERT_VALUE(forest->addMaterial(layerH,logger),false,"Imaginary Fresnel disallowed");
+					for (uint8_t i=0; i<3; i++)
+						imagEta->getParam(i)->scale = 0.f;
+				}
+
+				ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Dielectric");
+			}
+
+			// thindielectric
+			{
+				//
+			}
 
 			// rough plastic
+			{
+				//
+			}
 
-			// coated diffuse transmitter leaf
-			// with subsurface beer scattering
+			// coated diffuse transmitter (twosided roughplastic)
+			{
+				//
+			}
+
+			// same thing but with subsurface beer scattering
+			{
+				//
+			}
 
 			smart_refctd_ptr<IFile> file;
 			{
