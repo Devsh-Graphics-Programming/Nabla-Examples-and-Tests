@@ -569,7 +569,7 @@ public:
 	{
 		drawResourcesFiller = DrawResourcesFiller(core::smart_refctd_ptr(m_utils), getGraphicsQueue(), core::smart_refctd_ptr(m_logger));
 
-		drawResourcesFiller.setViewportExtents(uint32_t2(m_window->getWidth(), m_window->getHeight()));
+		drawResourcesFiller.setViewportExtent(uint32_t2(m_window->getWidth(), m_window->getHeight()));
 
 		size_t maxImagesMemSize = 1024ull * 1024ull * 1024ull; // 1024 MB
 		size_t maxBufferMemSize = 1024ull * 1024ull * 1024ull; // 1024 MB
@@ -3883,6 +3883,12 @@ protected:
 			constexpr float64_t3 bottomLeftViewportH = float64_t3(-1.0, 1.0, 1.0);
 			constexpr float64_t3 bottomRightViewportH = float64_t3(1.0, 1.0, 1.0);
 
+			GeoreferencedImageParams georeferencedImageParams;
+			georeferencedImageParams.storagePath = georeferencedImagePath;
+			georeferencedImageParams.format = drawResourcesFiller.queryGeoreferencedImageFormat(georeferencedImagePath);
+			georeferencedImageParams.imageExtents = drawResourcesFiller.queryGeoreferencedImageExtents(georeferencedImagePath);
+
+
 			image_id georefImageID = 6996;
 			// Position at topLeft viewport
 			auto projectionToNDC = m_Camera.constructViewProjection();
@@ -3892,8 +3898,7 @@ protected:
 			auto inverseViewProj = nbl::hlsl::inverse(projectionToNDC);
 			
 			const static auto startingTopLeft = nbl::hlsl::mul(inverseViewProj, topLeftViewportH);
-			OrientedBoundingBox2D georefImageOBB = {};
-			georefImageOBB.topLeft = startingTopLeft;
+			georeferencedImageParams.worldspaceOBB.topLeft = startingTopLeft;
 
 			// Get 1 viewport pixel to match `startingImagePixelsPerViewportPixel` pixels of the image by choosing appropriate dirU
 			const static float64_t startingImagePixelsPerViewportPixels = 1.0;
@@ -3901,18 +3906,18 @@ protected:
 			const static auto dirU = startingViewportWidthVector * float64_t(drawResourcesFiller.queryGeoreferencedImageExtents(georeferencedImagePath).x) / float64_t(startingImagePixelsPerViewportPixels * m_window->getWidth());
 			
 			// DEBUG
-			georefImageOBB.topLeft += float32_t2(startingViewportWidthVector - dirU);
+			//georefImageOBB.topLeft += float32_t2(startingViewportWidthVector - dirU);
 
-			georefImageOBB.dirU = dirU;
+			georeferencedImageParams.worldspaceOBB.dirU = dirU;
 			const uint32_t2 imageExtents = drawResourcesFiller.queryGeoreferencedImageExtents(georeferencedImagePath);
-			georefImageOBB.aspectRatio = float32_t(imageExtents.y) / imageExtents.x;
+			georeferencedImageParams.worldspaceOBB.aspectRatio = float32_t(imageExtents.y) / imageExtents.x;
 
 			// Unnecessary but should go into a callback if window can change dimensions during execution
-			drawResourcesFiller.setViewportExtents(uint32_t2(m_window->getWidth(), m_window->getHeight()));
+			drawResourcesFiller.setViewportExtent(uint32_t2(m_window->getWidth(), m_window->getHeight()));
 
-			drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(georefImageID, georeferencedImagePath, intendedNextSubmit);
+			drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(georefImageID, std::move(georeferencedImageParams), intendedNextSubmit);
 
-			drawResourcesFiller.addGeoreferencedImage(georefImageID, inverseViewProj, std::move(georefImageOBB), intendedNextSubmit);
+			drawResourcesFiller.addGeoreferencedImage(georefImageID, inverseViewProj, intendedNextSubmit);
 		}
 	}
 

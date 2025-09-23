@@ -25,6 +25,14 @@ enum class ImageType : uint8_t
 	GEOREFERENCED_FULL_RESOLUTION      // For smaller georeferenced images, entire image is eventually loaded and not streamed or view-dependant
 };
 
+struct GeoreferencedImageParams
+{
+	OrientedBoundingBox2D worldspaceOBB = {};
+	uint32_t2 imageExtents = {};
+	asset::E_FORMAT format = {};
+	std::filesystem::path storagePath = {};
+};
+
 /**
  * @class ImagesMemorySubAllocator
  * @brief A memory sub-allocator designed for managing sub-allocations within a pre-allocated GPU memory arena for images.
@@ -118,21 +126,12 @@ struct GeoreferencedImageStreamingState : public IReferenceCounted
 
 protected:
 	/*
-	* @brief Create an image streaming state and only set the fields that are passed as parameters
+	* @brief Create a streaming state for a georeferenced image
 	*
-	* @param _imageStoragePath Path to the file where image data is stored.
-	* @param imageExtents Extents of the image in texels. Some internal algos of the class require knowing this and the class doesn-t have access to the image loader
-	* @param _gpuImageSideLengthTiles Length of each side of the gpu image, in tiles (it's always square)
-	*/
-	static smart_refctd_ptr<GeoreferencedImageStreamingState> create(std::filesystem::path imageStoragePath, const uint32_t2 imageExtents, const uint32_t gpuImageSideLengthTiles);
-
-	/*
-	* @brief Set most fields for the imageStreamingState
-	* 
-	* @param _worldspaceOBB Worldspace oriented bounding box where image needs to be drawn.
+	* @param _georeferencedImageParams Info relating to the georeferenced image for which to create a streaming state.
 	* @param TileSize Size of the tiles used to break up the image. Also size of the tiles in the GPU image backing this georeferenced image.
-	*/ 
-	void initialize(OrientedBoundingBox2D&& _worldspaceOBB, uint32_t TileSize);
+	*/
+	static smart_refctd_ptr<GeoreferencedImageStreamingState> create(GeoreferencedImageParams&& _georeferencedImageParams, uint32_t TileSize);
 
 	// These are NOT UV, pixel or tile coords into the mapped image region, rather into the real, huge image
 	// Tile coords are always in mip 0 tile size. Translating to other mips levels is trivial
@@ -140,14 +139,14 @@ protected:
 	// @brief Transform worldspace coordinates into UV coordinates into the image
 	float64_t2 transformWorldCoordsToUV(const float64_t3 worldCoords) const { return nbl::hlsl::mul(world2UV, worldCoords); }
 	// @brief Transform worldspace coordinates into texel coordinates into the image
-	float64_t2 transformWorldCoordsToTexelCoords(const float64_t3 worldCoords) const { return float64_t2(imageExtents) * transformWorldCoordsToUV(worldCoords); }
+	float64_t2 transformWorldCoordsToTexelCoords(const float64_t3 worldCoords) const { return float64_t2(georeferencedImageParams.imageExtents) * transformWorldCoordsToUV(worldCoords); }
 	// @brief Transform worldspace coordinates into tile coordinates into the image, where the image is broken up into tiles of size `TileSize` 
 	float64_t2 transformWorldCoordsToTileCoords(const float64_t3 worldCoords, const uint32_t TileSize) const { return (1.0 / TileSize) * transformWorldCoordsToTexelCoords(worldCoords); }
 
 	/*
 	* @brief The GPU image backs a mapped region which is a rectangular sub-region of the original image. Note that a region being mapped does NOT imply it's currently resident in GPU memory.
-	*        To display the iomage on the screen, before even checking that the tiles needed to render the portion of the image currently visible are resident in GPU memory, we first must ensure that 
-	*        said region is included (as a sub-rectangle) in the mapped region. 
+	*        To display the iomage on the screen, before even checking that the tiles needed to render the portion of the image currently visible are resident in GPU memory, we first must ensure that
+	*        said region is included (as a sub-rectangle) in the mapped region.
 	*
 	* @param viewportTileRange Range of tiles + mip level indicating what sub-rectangle (and at which mip level) of the image is going to be visible from the viewport
 	*/
@@ -178,7 +177,7 @@ protected:
 	/*
 	* @brief Given a tile range covering the viewport, returns which tiles (at the mip level of the current mapped region) need to be made resident to draw it, and to which tile of the gpu image each tile should be
 	*        uploaded to
-	* 
+	*
 	* @param viewportTileRange Range of tiles + mip level indicating a sub-rectangle of the image covering the viewport
 	*/
 	core::vector<ImageTileToGPUTileCorrespondence> tilesToLoad(const GeoreferencedImageTileRange& viewportTileRange) const;
@@ -195,29 +194,27 @@ protected:
 		const uint32_t2 lastTileIndex = getLastTileIndex(currentMappedRegion.baseMipLevel);
 		return bool2(lastTileIndex.x == viewportBottomRightTile.x, lastTileIndex.y == viewportBottomRightTile.y);
 	}
+
+	GeoreferencedImageParams georeferencedImageParams = {};
 	std::vector<std::vector<bool>> currentMappedRegionOccupancy = {};
 
 	// Sidelength of the gpu image, in mip 0 tiles that are `TileSize` (creation parameter) texels wide
 	uint32_t gpuImageSideLengthTiles = {};
 	// We establish a max mipLevel for the image, which is the mip level at which any of width, height fit in a single tile
 	uint32_t maxMipLevel = {};
-	// Dimensions of the stored image, in texels
-	uint32_t2 imageExtents = {};
 	// Number of mip 0 tiles needed to cover the whole image, counting the last tile that might be fractional if the image size is not perfectly divisible by TileSize
 	uint32_t2 fullImageTileLength = {};
 	// Indicates on which tile of the gpu image the current mapped region's `topLeft` resides
 	uint32_t2 gpuImageTopLeft = {};
-	// Worldspace bounding box for the image
-	OrientedBoundingBox2D worldspaceOBB;
 	// Converts a point (z = 1) in worldspace to UV coordinates in image space (origin shifted to topleft of the image)
 	float64_t2x3 world2UV = {};
+	// If the image dimensions are not exactly divisible by `TileSize`, then the last tile along a dimension only holds a proportion of `lastTileFraction` pixels along that dimension  
+	float64_t lastTileFraction = {};
 	// Reflects what fraction of a FULL tile the LAST tile in the image at the current mip level actually spans.
 	// It only gets set when necessary, and should always be updated correctly before being used, since it's related to the current `baseMipLevel` of the `currentMappedRegion`
-	float32_t2 lastImageTileFractionalSpan = {1.f, 1.f};
+	uint32_t2 lastImageTileTexels = {};
 	// Set mip level to extreme value so it gets recreated on first iteration
 	GeoreferencedImageTileRange currentMappedRegion = { .baseMipLevel = std::numeric_limits<uint32_t>::max() };
-	// Path to the file where image data is stored
-	std::filesystem::path imageStoragePath;
 };
 
 struct CachedImageRecord

@@ -203,9 +203,9 @@ public:
 	typedef std::function<void(SIntendedSubmitInfo&)> SubmitFunc;
 	void setSubmitDrawsFunction(const SubmitFunc& func);
 	
-	void setViewportExtents(const uint32_t2 _viewportExtents)
+	void setViewportExtent(const uint32_t2 _viewportExtent)
 	{
-		viewportExtents = _viewportExtents;
+		viewportExtent = _viewportExtent;
 	}
 
 	// DrawResourcesFiller needs to access these in order to allocate GPUImages and write the to their correct descriptor set binding
@@ -422,7 +422,7 @@ public:
 	 * @return true if the image was successfully cached and is ready for use; false if allocation failed.
 	 * [TODO]: should be internal protected member function.
 	 */
-	bool ensureGeoreferencedImageAvailability_AllocateIfNeeded(image_id imageID, const std::filesystem::path imageStoragePath, SIntendedSubmitInfo& intendedNextSubmit);
+	bool ensureGeoreferencedImageAvailability_AllocateIfNeeded(image_id imageID, GeoreferencedImageParams&& params, SIntendedSubmitInfo& intendedNextSubmit);
 
 	// [TODO]: should be internal protected member function.
 	bool queueGeoreferencedImageCopy_Internal(image_id imageID, const StreamedImageCopy& imageCopy);
@@ -431,7 +431,7 @@ public:
 	void addImageObject(image_id imageID, const OrientedBoundingBox2D& obb, SIntendedSubmitInfo& intendedNextSubmit);
 	
 	// This function must be called immediately after `ensureGeoreferencedImageAvailability_AllocateIfNeeded` for the same imageID.
-	void addGeoreferencedImage(image_id imageID, const float64_t3x3& NDCToWorld, OrientedBoundingBox2D&& worldspaceOBB, SIntendedSubmitInfo& intendedNextSubmit);
+	void addGeoreferencedImage(image_id imageID, const float64_t3x3& NDCToWorld, SIntendedSubmitInfo& intendedNextSubmit);
 
 	/// @brief call this function before submitting to ensure all buffer and textures resourcesCollection requested via drawing calls are copied to GPU
 	/// records copy command into intendedNextSubmit's active command buffer and might possibly submits if fails allocation on staging upload memory.
@@ -742,7 +742,7 @@ protected:
 	 * @param[out] outImageType Indicates whether the image should be fully resident or streamed.
 	 * @param[in] params Parameters for the georeferenced image
 	*/
-	ImageType determineGeoreferencedImageCreationParams(nbl::asset::IImage::SCreationParams& outImageParams, const std::filesystem::path imageStoragePath);
+	ImageType determineGeoreferencedImageCreationParams(nbl::asset::IImage::SCreationParams& outImageParams, const GeoreferencedImageParams& params);
 
 	/**
 	 * @brief Used to implement both `drawHatch` and `drawFixedGeometryHatch` without exposing the transformation type parameter
@@ -985,6 +985,6 @@ protected:
 	std::unordered_map<image_id, std::vector<StreamedImageCopy>> streamedImageCopies;
 
 	// Viewport state
-	uint32_t2 viewportExtents = {};
+	uint32_t2 viewportExtent = {};
 };
 

@@ -2,21 +2,10 @@
 
 using namespace nbl::hlsl;
 
-smart_refctd_ptr<GeoreferencedImageStreamingState> GeoreferencedImageStreamingState::create(std::filesystem::path imageStoragePath, const uint32_t2 imageExtents, const uint32_t gpuImageSideLengthTiles)
+smart_refctd_ptr<GeoreferencedImageStreamingState> GeoreferencedImageStreamingState::create(GeoreferencedImageParams&& _georeferencedImageParams, uint32_t TileSize)
 {
 	smart_refctd_ptr<GeoreferencedImageStreamingState> retVal(new GeoreferencedImageStreamingState{});
-
-	retVal->imageStoragePath = imageStoragePath;
-	retVal->imageExtents = imageExtents;
-	retVal->gpuImageSideLengthTiles = gpuImageSideLengthTiles;
-
-	return retVal;
-}
-
-void GeoreferencedImageStreamingState::initialize(OrientedBoundingBox2D&& _worldspaceOBB, uint32_t TileSize)
-{
-	worldspaceOBB = std::move(_worldspaceOBB);
-
+	retVal->georeferencedImageParams = std::move(_georeferencedImageParams);
 	//	1. Get the displacement (will be an offset vector in world coords and world units) from the `topLeft` corner of the image to the point
 	//	2. Transform this displacement vector into the coordinates in the basis {dirU, dirV} (worldspace vectors that span the sides of the image).
 	//	The composition of these matrices therefore transforms any point in worldspace into uv coordinates in imagespace
@@ -27,30 +16,32 @@ void GeoreferencedImageStreamingState::initialize(OrientedBoundingBox2D&& _world
 
 	// 2. Change of Basis. Since {dirU, dirV} are orthogonal, the matrix to change from world coords to `span{dirU, dirV}` coords has a quite nice expression
 	//    Non-uniform scaling doesn't affect this, but this has to change if we allow for shearing (basis vectors stop being orthogonal)
-	const float64_t2 dirU = worldspaceOBB.dirU;
-	const float64_t2 dirV = float64_t2(dirU.y, -dirU.x) * float64_t(worldspaceOBB.aspectRatio);
+	const float64_t2 dirU = retVal->georeferencedImageParams.worldspaceOBB.dirU;
+	const float64_t2 dirV = float64_t2(dirU.y, -dirU.x) * float64_t(retVal->georeferencedImageParams.worldspaceOBB.aspectRatio);
 	const float64_t dirULengthSquared = nbl::hlsl::dot(dirU, dirU);
 	const float64_t dirVLengthSquared = nbl::hlsl::dot(dirV, dirV);
 	const float64_t2 firstRow = dirU / dirULengthSquared;
 	const float64_t2 secondRow = dirV / dirVLengthSquared;
 
-	const float64_t2 displacement = -worldspaceOBB.topLeft;
+	const float64_t2 displacement = -retVal->georeferencedImageParams.worldspaceOBB.topLeft;
 	// This is the same as multiplying the change of basis matrix by the displacement vector
 	const float64_t postRotatedShiftX = nbl::hlsl::dot(firstRow, displacement);
 	const float64_t postRotatedShiftY = nbl::hlsl::dot(secondRow, displacement);
 
 	// Put them all together
-	world2UV = float64_t2x3(firstRow.x, firstRow.y, postRotatedShiftX, secondRow.x, secondRow.y, postRotatedShiftY);
+	retVal->world2UV = float64_t2x3(firstRow.x, firstRow.y, postRotatedShiftX, secondRow.x, secondRow.y, postRotatedShiftY);
 
 	// Also set the maxMipLevel - to keep stuff simple, we don't consider having less than one tile per dimension
 	// If you're zoomed out enough then at that point the whole image is just sampled as one tile along that dimension
 	// In pathological cases, such as images that are way bigger on one side than the other, this could cause aliasing and slow down sampling if zoomed out too much. 
 	// If we were ever to observe such pathological cases, then maybe we should consider doing something else here. For example, making the loader able to handle different tile lengths per dimension
 	// (so for example a 128x64 tile) but again for now it should be left as-is.
-	uint32_t2 maxMipLevels = nbl::hlsl::findMSB(nbl::hlsl::roundUpToPoT(imageExtents / TileSize));
-	maxMipLevel = nbl::hlsl::min(maxMipLevels.x, maxMipLevels.y);
+	uint32_t2 maxMipLevels = nbl::hlsl::findMSB(nbl::hlsl::roundUpToPoT(retVal->georeferencedImageParams.imageExtents / TileSize));
+	retVal->maxMipLevel = nbl::hlsl::min(maxMipLevels.x, maxMipLevels.y);
 
-	fullImageTileLength = (imageExtents - 1u) / TileSize + 1u;
+	retVal->fullImageTileLength = (retVal->georeferencedImageParams.imageExtents - 1u) / TileSize + 1u;
+
+	return retVal;
 }
 
 void GeoreferencedImageStreamingState::ensureMappedRegionCoversViewport(const GeoreferencedImageTileRange& viewportTileRange)
@@ -93,6 +84,8 @@ void GeoreferencedImageStreamingState::remapCurrentRegion(const GeoreferencedIma
 		// TODO: Here we would move some mip 0 tiles to mip 1 image to save the work of reuploading them, reflect that in the tracked tiles
 	}
 	currentMappedRegion = viewportTileRange;
+	// Roughly center the viewport in the mapped region
+	currentMappedRegion.topLeftTile = nbl::hlsl::max(uint32_t2(0, 0), currentMappedRegion.topLeftTile - (gpuImageSideLengthTiles / 2));
 	// We can expand the currentMappedRegion to make it as big as possible, at no extra cost since we only upload tiles on demand
 	// Since we use toroidal updating it's kinda the same which way we expand the region. We first try to make the extent be `gpuImageSideLengthTiles`
 	currentMappedRegion.bottomRightTile = currentMappedRegion.topLeftTile + uint32_t2(gpuImageSideLengthTiles, gpuImageSideLengthTiles) - uint32_t2(1, 1);
