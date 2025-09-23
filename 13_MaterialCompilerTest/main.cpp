@@ -340,13 +340,9 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 			}
 
 			// dielectric
+			const auto dielectricH = forest->_new<CFrontendIR::CMul>();
 			{
-				const auto layerH = forest->_new<CFrontendIR::CLayer>();
-				auto* layer = forest->deref(layerH);
-				layer->debugInfo = forest->_new<CNodePool::CDebugInfo>("Glass");
-					
-				const auto mulH = forest->_new<CFrontendIR::CMul>();
-				auto* mul = forest->deref(mulH);
+				auto* mul = forest->deref(dielectricH);
 				// do fresnel first
 				const auto fresnelH = forest->createNamedFresnel("ThF4");
 				auto* fresnel = forest->deref(fresnelH);
@@ -361,12 +357,60 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 					ct->orientedRealEta = fresnel->orientedRealEta;
 					mul->lhs = ctH;
 				}
-
+			}
+			{
+				const auto layerH = forest->_new<CFrontendIR::CLayer>();
+				auto* layer = forest->deref(layerH);
+				layer->debugInfo = forest->_new<CNodePool::CDebugInfo>("Glass");
+					
 				// use same BxDF for all parts of a layer
-				layer->brdfTop = mulH;
-				layer->btdf = mulH;
-				layer->brdfBottom = mulH;
+				layer->brdfTop = dielectricH;
+				layer->btdf = dielectricH;
+				layer->brdfBottom = dielectricH;
 
+				ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Dielectric");
+			}
+
+			// thindielectric
+			{
+				const auto layerH = forest->_new<CFrontendIR::CLayer>();
+				auto* layer = forest->deref(layerH);
+				layer->debugInfo = forest->_new<CNodePool::CDebugInfo>("Single Pane");
+					
+				// do fresnel first for all to have the same one
+				const auto fresnelH = forest->createNamedFresnel("ThF4");
+				const auto* fresnel = forest->deref(fresnelH);
+
+				auto makeIsotropicDielectric = [&](const float roughness, const auto weightNode)->CFrontendIR::TypedHandle<CFrontendIR::IExprNode>
+				{
+					const auto mulH = forest->_new<CFrontendIR::CMul>();
+					auto* mul = forest->deref(mulH);
+					const auto ctH = forest->_new<CFrontendIR::CCookTorrance>();
+					{
+						auto* ct = forest->deref(ctH);
+						ct->ndParams.getRougness()[0].scale = ct->ndParams.getRougness()[1].scale = roughness;
+						// ignored for BRDFs, needed for BTDFs
+						ct->orientedRealEta = fresnel->orientedRealEta;
+					}
+					mul->lhs = ctH;
+					mul->rhs = weightNode;
+					return mulH;
+				};
+
+				const auto thinInfiniteScatterH = forest->_new<CFrontendIR::CThinInfiniteScatterCorrection>();
+				{
+					auto* thinInfiniteScatter = forest->deref(thinInfiniteScatterH);
+					thinInfiniteScatter->reflectance = fresnelH;
+					thinInfiniteScatter->transmittance = fresnelH;
+					// without extinction
+				}
+
+				// and now the most implausible material of all!
+				// smoother on the topside and rough on the underside with a weird intermediate part
+				layer->brdfTop = makeIsotropicDielectric(0.01f,fresnelH);
+				layer->btdf = makeIsotropicDielectric(0.1f,thinInfiniteScatterH);
+				layer->brdfBottom = makeIsotropicDielectric(0.2f,fresnelH);
+				
 				{
 					auto* imagEta = forest->deref(fresnel->orientedImagEta);
 					imagEta->getParam(0)->scale = std::numeric_limits<float>::min();
@@ -377,27 +421,78 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						imagEta->getParam(i)->scale = 0.f;
 				}
 
-				ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Dielectric");
+				ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"ThinDielectric");
 			}
 
-			// thindielectric
+			// plastics with IOR 1.5
 			{
-				//
-			}
+				// make the node everyone shares
+				const auto fresnelH = forest->_new<CFrontendIR::CFresnel>();
+				{
+					auto* fresnel = forest->deref(fresnelH);
+					spectral_var_t::SCreationParams<1> params = {};
+					params.knots.params[0].scale = 1.5f;
+					fresnel->orientedRealEta = forest->_new<CFrontendIR::CSpectralVariable>(std::move(params));
+				}
 
-			// rough plastic
-			{
-				//
-			}
+				// rough plastic
+				{
+					const auto rootH = forest->_new<CFrontendIR::CLayer>();
+					auto* topLayer = forest->deref(rootH);
+					topLayer->debugInfo = forest->_new<CNodePool::CDebugInfo>("Rough Plastic");
 
-			// coated diffuse transmitter (twosided roughplastic)
-			{
-				//
-			}
+					topLayer->brdfTop = dielectricH;
+					// the delta layering should optimize out nicely due to the sampling property
+					const auto transH = forest->_new<CFrontendIR::CMul>();
+					{
+						auto* mul = forest->deref(transH);
+						mul->lhs = forest->_new<CFrontendIR::CDeltaTransmission>();
+						mul->rhs = fresnelH;
+					}
+					topLayer->btdf = transH;
 
-			// same thing but with subsurface beer scattering
-			{
-				//
+					const auto diffuseH = forest->_new<CFrontendIR::CLayer>();
+					auto* midLayer = forest->deref(diffuseH);
+					{
+						const auto mulH = forest->_new<CFrontendIR::CMul>();
+						{
+							auto* mul = forest->deref(mulH);
+							{
+								const auto orenNayarH = forest->_new<CFrontendIR::COrenNayar>();
+								auto* orenNayar = forest->deref(orenNayarH);
+								orenNayar->ndParams.getRougness()[0].scale = orenNayar->ndParams.getRougness()[1].scale = 0.2f;
+								mul->lhs = orenNayarH;
+							}
+							{
+								spectral_var_t::SCreationParams<3> params = {};
+								params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
+								params.knots.params[0].scale = 0.9f;
+								params.knots.params[1].scale = 0.6f;
+								params.knots.params[2].scale = 0.01f;
+								const auto albedoH = forest->_new<CFrontendIR::CSpectralVariable>(std::move(params));
+								forest->deref(albedoH)->debugInfo = forest->_new<CNodePool::CDebugInfo>("Albedo");
+								mul->rhs = albedoH;
+							}
+						}
+						midLayer->brdfTop = mulH;
+						// no transmission in the mid-layer, the backend needs to decompose into separate front/back materials
+						midLayer->brdfBottom = mulH;
+						midLayer->coated = rootH;
+					}
+					topLayer->coated = diffuseH;
+					
+					ASSERT_VALUE(forest->addMaterial(rootH,logger),true,"Twosided Rough Plastic");
+				}
+
+				// coated diffuse transmitter
+				{
+					//
+				}
+
+				// same thing but with subsurface beer scattering
+				{
+					//
+				}
 			}
 
 			smart_refctd_ptr<IFile> file;
