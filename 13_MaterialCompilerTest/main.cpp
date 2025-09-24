@@ -387,45 +387,46 @@ if constexpr (std::is_same_v<decltype(VALUE),bool>) \
 				ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Dielectric");
 			}
 
-			// thindielectric
+			// correlated thindielectric (exit through a microfacet with identical normal on the other side - no refraction possible) 
 			{
 				const auto layerH = forest->_new<CFrontendIR::CLayer>();
 				auto* layer = forest->deref(layerH);
-				layer->debugInfo = forest->_new<CNodePool::CDebugInfo>("Single Pane");
+				layer->debugInfo = forest->_new<CNodePool::CDebugInfo>("Correlated Single Pane");
 					
 				// do fresnel first for all to have the same one
 				const auto fresnelH = forest->createNamedFresnel("ThF4");
 				const auto* fresnel = forest->deref(fresnelH);
 
-				auto makeIsotropicDielectric = [&](const float roughness, const auto weightNode)->CFrontendIR::TypedHandle<CFrontendIR::IExprNode>
+				const auto brdfH = forest->_new<CFrontendIR::CMul>();
 				{
-					const auto mulH = forest->_new<CFrontendIR::CMul>();
-					auto* mul = forest->deref(mulH);
+					auto* mul = forest->deref(brdfH);
 					const auto ctH = forest->_new<CFrontendIR::CCookTorrance>();
 					{
 						auto* ct = forest->deref(ctH);
-						ct->ndParams.getRougness()[0].scale = ct->ndParams.getRougness()[1].scale = roughness;
+						ct->ndParams.getRougness()[0].scale = ct->ndParams.getRougness()[1].scale = 0.1f;
 						// ignored for BRDFs, needed for BTDFs
 						ct->orientedRealEta = fresnel->orientedRealEta;
 					}
 					mul->lhs = ctH;
-					mul->rhs = weightNode;
-					return mulH;
-				};
-
-				const auto thinInfiniteScatterH = forest->_new<CFrontendIR::CThinInfiniteScatterCorrection>();
-				{
-					auto* thinInfiniteScatter = forest->deref(thinInfiniteScatterH);
-					thinInfiniteScatter->reflectance = fresnelH;
-					thinInfiniteScatter->transmittance = fresnelH;
-					// without extinction
+					mul->rhs = fresnelH;
 				}
+				layer->brdfTop = brdfH;
+				layer->brdfBottom = brdfH;
 
-				// and now the most implausible material of all!
-				// smoother on the topside and rough on the underside with a weird intermediate part
-				layer->brdfTop = makeIsotropicDielectric(0.01f,fresnelH);
-				layer->btdf = makeIsotropicDielectric(0.1f,thinInfiniteScatterH);
-				layer->brdfBottom = makeIsotropicDielectric(0.2f,fresnelH);
+				const auto btdfH = forest->_new<CFrontendIR::CMul>();
+				{
+					auto* mul = forest->deref(btdfH);
+					const auto thinInfiniteScatterH = forest->_new<CFrontendIR::CThinInfiniteScatterCorrection>();
+					{
+						auto* thinInfiniteScatter = forest->deref(thinInfiniteScatterH);
+						thinInfiniteScatter->reflectance = fresnelH;
+						thinInfiniteScatter->transmittance = fresnelH;
+						// without extinction
+					}
+					mul->lhs = forest->_new<CFrontendIR::CDeltaTransmission>();
+					mul->rhs = thinInfiniteScatterH;
+				}
+				layer->btdf = btdfH;
 				
 				{
 					auto* imagEta = forest->deref(fresnel->orientedImagEta);
@@ -493,11 +494,19 @@ if constexpr (std::is_same_v<decltype(VALUE),bool>) \
 						midLayer->brdfTop = mulH;
 						// no transmission in the mid-layer, the backend needs to decompose into separate front/back materials
 						midLayer->brdfBottom = mulH;
-						midLayer->coated = rootH;
+
+						// can't attach a copy of the top layer because we'll have a cycle, also the BRDF needs to be on the other side
+						const auto bottomH = forest->_new<CFrontendIR::CLayer>();
+						{
+							auto* bottomLayer = forest->deref(bottomH);
+							bottomLayer->debugInfo = forest->_new<CNodePool::CDebugInfo>("Rough Plastic Copy");
+							bottomLayer->brdfBottom = dielectricH;
+						}
+						midLayer->coated = bottomH;
 					}
 					topLayer->coated = diffuseH;
 					
-					ASSERT_VALUE(forest->addMaterial(rootH,logger),false,"Twosided Rough Plastic");
+					ASSERT_VALUE(forest->addMaterial(rootH,logger),true,"Twosided Rough Plastic");
 				}
 
 				// coated diffuse transmitter
