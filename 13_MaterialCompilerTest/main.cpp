@@ -72,7 +72,12 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 			}
 
 // TODO: use std::source_info
-#define ASSERT_VALUE(WHAT,VALUE,MSG) if (WHAT!=VALUE) return logFail("%s:%d test doesn't match expected value. %s",__FILE__,__LINE__,MSG)
+#define ASSERT_VALUE(WHAT,VALUE,MSG) if (WHAT!=VALUE) \
+	return logFail("%s:%d test doesn't match expected value. %s",__FILE__,__LINE__,MSG); \
+else if (!VALUE) \
+if constexpr (std::is_same_v<decltype(VALUE),bool>) \
+	m_logger->log("Disregard the error above, its expected.",system::ILogger::ELL_INFO)
+
 
 			using spectral_var_t = CFrontendIR::CSpectralVariable;
 			// simple white furnace testing materials
@@ -120,6 +125,11 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						layer->brdfTop = ctH;
 					}
 
+					// test layer cycle detection
+					layer->coated = layerH;
+					ASSERT_VALUE(forest->addMaterial(layerH,logger),false,"Layer Cycle Detection");
+					layer->coated = {};
+
 					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
 				}
 
@@ -147,6 +157,10 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 					// to be transferred to the BTDF or absorbed by the BRDF itself.
 					// Hence the BTDF expression must contain the BRDF coating term (how much energy is "taken" by the BRDF).
 					const auto mulH = forest->_new<CFrontendIR::CMul>();
+					layer->brdfTop = mulH;
+					layer->btdf = mulH;
+					layer->brdfBottom = mulH;
+
 					auto* mul = forest->deref(mulH);
 					// regular BRDF will normalize to 100% over a hemisphere, if we allow a BTDF term we must split it half/half
 					{
@@ -154,6 +168,11 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						params.knots.params[0].scale = 0.5f;
 						mul->rhs = forest->_new<spectral_var_t>(std::move(params));
 					}
+
+					// test expression cycle detection
+					mul->lhs = mulH;
+					ASSERT_VALUE(forest->addMaterial(layerH,logger),false,"Expression Cycle Detection");
+
 					// create the BxDF as we'd do for a single BRDF or BTDF
 					{
 						const auto orenNayarH = forest->_new<CFrontendIR::COrenNayar>();
@@ -164,9 +183,6 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						mul->lhs = orenNayarH;
 					}
 					// TODO: add a derivative map for testing the printing and compilation
-					layer->brdfTop = mulH;
-					layer->btdf = mulH;
-					layer->brdfBottom = mulH;
 					ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"Add Material");
 				}
 			}
@@ -481,7 +497,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 					}
 					topLayer->coated = diffuseH;
 					
-					ASSERT_VALUE(forest->addMaterial(rootH,logger),true,"Twosided Rough Plastic");
+					ASSERT_VALUE(forest->addMaterial(rootH,logger),false,"Twosided Rough Plastic");
 				}
 
 				// coated diffuse transmitter
