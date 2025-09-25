@@ -420,8 +420,8 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 						const auto thinInfiniteScatterH = forest->_new<CFrontendIR::CThinInfiniteScatterCorrection>();
 						{
 							auto* thinInfiniteScatter = forest->deref(thinInfiniteScatterH);
-							thinInfiniteScatter->reflectance = fresnelH;
-							thinInfiniteScatter->transmittance = fresnelH;
+							thinInfiniteScatter->reflectanceTop = fresnelH;
+							thinInfiniteScatter->reflectanceBottom = fresnelH;
 							// without extinction
 						}
 						mul->lhs = forest->_new<CFrontendIR::CDeltaTransmission>();
