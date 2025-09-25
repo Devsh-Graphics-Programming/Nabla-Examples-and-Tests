@@ -265,6 +265,29 @@ struct Unidirectional
         // #endif
     }
 
+    measure_type getSingleSampleMeasure(uint32_t sampleID, uint32_t depth, NBL_CONST_REF_ARG(scene_type) scene)
+    {
+        vector3_type uvw = rand3d(0u, sampleID, randGen.rng());    // TODO: take from scramblebuf?
+        ray_type ray = rayGen.generate(uvw);
+
+        // bounces
+        bool hit = true;
+        bool rayAlive = true;
+        for (int d = 1; (d <= depth) && hit && rayAlive; d += 2)
+        {
+            ray.intersectionT = numeric_limits<scalar_type>::max;
+            ray.objectID = intersector_type::traceRay(ray, scene);
+
+            hit = ray.objectID.id != -1;
+            if (hit)
+                rayAlive = closestHitProgram(1, sampleID, ray, scene);
+        }
+        if (!hit)
+            missProgram(ray);
+
+        return ray.payload.accumulation;
+    }
+
     // Li
     measure_type getMeasure(uint32_t numSamples, uint32_t depth, NBL_CONST_REF_ARG(scene_type) scene)
     {
@@ -272,25 +295,7 @@ struct Unidirectional
         scalar_type meanLumaSq = 0.0;
         for (uint32_t i = 0; i < numSamples; i++)
         {
-            vector3_type uvw = rand3d(0u, i, randGen.rng());    // TODO: take from scramblebuf?
-            ray_type ray = rayGen.generate(uvw);
-
-            // bounces
-            bool hit = true;
-            bool rayAlive = true;
-            for (int d = 1; (d <= depth) && hit && rayAlive; d += 2)
-            {
-                ray.intersectionT = numeric_limits<scalar_type>::max;
-                ray.objectID = intersector_type::traceRay(ray, scene);
-
-                hit = ray.objectID.id != -1;
-                if (hit)
-                    rayAlive = closestHitProgram(1, i, ray, scene);
-            }
-            if (!hit)
-                missProgram(ray);
-
-            measure_type accumulation = ray.payload.accumulation;
+            measure_type accumulation = getSingleSampleMeasure(i, depth, scene);
             scalar_type rcpSampleSize = 1.0 / (i + 1);
             Li += (accumulation - Li) * rcpSampleSize;
 
@@ -300,6 +305,22 @@ struct Unidirectional
         }
 
         return Li;
+    }
+
+    void generateCascades(int32_t2 coords, uint32_t numSamples, uint32_t depth, NBL_CONST_REF_ARG(scene_type) scene)
+    {
+        measure_type Li = (measure_type)0.0;
+        scalar_type meanLumaSq = 0.0;
+        for (uint32_t i = 0; i < numSamples; i++)
+        {
+            measure_type accumulation = getSingleSampleMeasure(i, depth, scene);
+            scalar_type rcpSampleSize = 1.0 / (i + 1);
+            Li += (accumulation - Li) * rcpSampleSize;
+        }
+
+        cascade[uint3(coords.x, coords.y, 0)] = float4(Li.r, 0.0f, 0.0f, 0.0f);
+        cascade[uint3(coords.x, coords.y, 1)] = float4(0.0f, Li.g, 0.0f, 0.0f);
+        cascade[uint3(coords.x, coords.y, 2)] = float4(0.0f, 0.0f, Li.b, 0.0f);
     }
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t MAX_DEPTH_LOG2 = 4u;

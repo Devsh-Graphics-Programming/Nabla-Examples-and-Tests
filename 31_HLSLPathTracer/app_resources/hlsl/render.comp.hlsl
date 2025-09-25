@@ -217,9 +217,17 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 
     pathtracer_type pathtracer = pathtracer_type::create(ptCreateParams);
 
-    float32_t3 color = pathtracer.getMeasure(pc.sampleCount, pc.depth, scene);
-    float32_t4 pixCol = float32_t4(color, 1.0);
-    outImage[coords] = pixCol;
+    bool useRWMC = true; // TODO: move to push constants if we keep it
+    if(!useRWMC)
+    {
+        float32_t3 color = pathtracer.getMeasure(pc.sampleCount, pc.depth, scene);
+        float32_t4 pixCol = float32_t4(color, 1.0);
+        outImage[coords] = pixCol;
+    }
+    else
+    {
+        pathtracer.generateCascades(coords, pc.sampleCount, pc.depth, scene);
+    }
 
 #ifdef PERSISTENT_WORKGROUPS
     }

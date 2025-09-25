@@ -19,5 +19,6 @@ struct SPushConstants
 [[vk::combinedImageSampler]][[vk::binding(2, 2)]] SamplerState scrambleSampler;
 
 [[vk::image_format("rgba16f")]][[vk::binding(0, 0)]] RWTexture2D<float32_t4> outImage;
+[[vk::image_format("rgba16f")]][[vk::binding(1, 0)]] RWTexture2DArray<float32_t4> cascade;
 
 #endif
