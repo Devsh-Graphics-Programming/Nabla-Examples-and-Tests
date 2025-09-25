@@ -441,9 +441,29 @@ if constexpr (std::is_same_v<decltype(VALUE),bool>) \
 				ASSERT_VALUE(forest->addMaterial(layerH,logger),true,"ThinDielectric");
 			}
 
-			// plastics with IOR 1.5
+			// compled materials with coatings with IOR 1.5
 			{
-				// make the node everyone shares
+				// make the nodes everyone shares
+				const auto roughDiffuseH = forest->_new<CFrontendIR::CMul>();
+				{
+					auto* mul = forest->deref(roughDiffuseH);
+					{
+						const auto orenNayarH = forest->_new<CFrontendIR::COrenNayar>();
+						auto* orenNayar = forest->deref(orenNayarH);
+						orenNayar->ndParams.getRougness()[0].scale = orenNayar->ndParams.getRougness()[1].scale = 0.2f;
+						mul->lhs = orenNayarH;
+					}
+					{
+						spectral_var_t::SCreationParams<3> params = {};
+						params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
+						params.knots.params[0].scale = 0.9f;
+						params.knots.params[1].scale = 0.6f;
+						params.knots.params[2].scale = 0.01f;
+						const auto albedoH = forest->_new<CFrontendIR::CSpectralVariable>(std::move(params));
+						forest->deref(albedoH)->debugInfo = forest->_new<CNodePool::CDebugInfo>("Albedo");
+						mul->rhs = albedoH;
+					}
+				}
 				const auto fresnelH = forest->_new<CFrontendIR::CFresnel>();
 				{
 					auto* fresnel = forest->deref(fresnelH);
@@ -451,57 +471,39 @@ if constexpr (std::is_same_v<decltype(VALUE),bool>) \
 					params.knots.params[0].scale = 1.5f;
 					fresnel->orientedRealEta = forest->_new<CFrontendIR::CSpectralVariable>(std::move(params));
 				}
+				// the delta layering should optimize out nicely due to the sampling property
+				const auto transH = forest->_new<CFrontendIR::CMul>();
+				{
+					auto* mul = forest->deref(transH);
+					mul->lhs = forest->_new<CFrontendIR::CDeltaTransmission>();
+					mul->rhs = fresnelH;
+				}
+				// can't attach a copy of the top layer because we'll have a cycle, also the BRDF needs to be on the other side
+				const auto bottomH = forest->_new<CFrontendIR::CLayer>();
+				{
+					auto* bottomLayer = forest->deref(bottomH);
+					bottomLayer->debugInfo = forest->_new<CNodePool::CDebugInfo>("Rough Coating Copy");
+					// no brdf on the top of last layer, kill multiscattering
+					bottomLayer->btdf = transH;
+					bottomLayer->brdfBottom = dielectricH;
+				}
 
-				// rough plastic
+				// twosided rough plastic
 				{
 					const auto rootH = forest->_new<CFrontendIR::CLayer>();
 					auto* topLayer = forest->deref(rootH);
-					topLayer->debugInfo = forest->_new<CNodePool::CDebugInfo>("Rough Plastic");
+					topLayer->debugInfo = forest->_new<CNodePool::CDebugInfo>("Twosided Rough Plastic");
 
 					topLayer->brdfTop = dielectricH;
-					// the delta layering should optimize out nicely due to the sampling property
-					const auto transH = forest->_new<CFrontendIR::CMul>();
-					{
-						auto* mul = forest->deref(transH);
-						mul->lhs = forest->_new<CFrontendIR::CDeltaTransmission>();
-						mul->rhs = fresnelH;
-					}
 					topLayer->btdf = transH;
+					// no brdf on the bottom of first layer, kill multiscattering
 
 					const auto diffuseH = forest->_new<CFrontendIR::CLayer>();
 					auto* midLayer = forest->deref(diffuseH);
 					{
-						const auto mulH = forest->_new<CFrontendIR::CMul>();
-						{
-							auto* mul = forest->deref(mulH);
-							{
-								const auto orenNayarH = forest->_new<CFrontendIR::COrenNayar>();
-								auto* orenNayar = forest->deref(orenNayarH);
-								orenNayar->ndParams.getRougness()[0].scale = orenNayar->ndParams.getRougness()[1].scale = 0.2f;
-								mul->lhs = orenNayarH;
-							}
-							{
-								spectral_var_t::SCreationParams<3> params = {};
-								params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
-								params.knots.params[0].scale = 0.9f;
-								params.knots.params[1].scale = 0.6f;
-								params.knots.params[2].scale = 0.01f;
-								const auto albedoH = forest->_new<CFrontendIR::CSpectralVariable>(std::move(params));
-								forest->deref(albedoH)->debugInfo = forest->_new<CNodePool::CDebugInfo>("Albedo");
-								mul->rhs = albedoH;
-							}
-						}
-						midLayer->brdfTop = mulH;
+						midLayer->brdfTop = roughDiffuseH;
 						// no transmission in the mid-layer, the backend needs to decompose into separate front/back materials
-						midLayer->brdfBottom = mulH;
-
-						// can't attach a copy of the top layer because we'll have a cycle, also the BRDF needs to be on the other side
-						const auto bottomH = forest->_new<CFrontendIR::CLayer>();
-						{
-							auto* bottomLayer = forest->deref(bottomH);
-							bottomLayer->debugInfo = forest->_new<CNodePool::CDebugInfo>("Rough Plastic Copy");
-							bottomLayer->brdfBottom = dielectricH;
-						}
+						midLayer->brdfBottom = roughDiffuseH;
 						midLayer->coated = bottomH;
 					}
 					topLayer->coated = diffuseH;
@@ -509,14 +511,100 @@ if constexpr (std::is_same_v<decltype(VALUE),bool>) \
 					ASSERT_VALUE(forest->addMaterial(rootH,logger),true,"Twosided Rough Plastic");
 				}
 
-				// coated diffuse transmitter
+				// Diffuse transmitter normalized to whoel sphere
+				const auto roughDiffTransH = forest->_new<CFrontendIR::CMul>();
 				{
-					//
+					// normalize the Oren Nayar over the full sphere
+					auto* mul = forest->deref(roughDiffTransH);
+					mul->lhs = roughDiffuseH;
+					{
+						spectral_var_t::SCreationParams<1> params = {};
+						params.knots.params[0].scale = 0.5f;
+						mul->rhs = forest->_new<CFrontendIR::CSpectralVariable>(std::move(params));
+					}
 				}
 
-				// same thing but with subsurface beer scattering
+				// coated diffuse transmitter
 				{
-					//
+					const auto rootH = forest->_new<CFrontendIR::CLayer>();
+					auto* topLayer = forest->deref(rootH);
+					topLayer->debugInfo = forest->_new<CNodePool::CDebugInfo>("Coated Diffuse Transmitter");
+
+					topLayer->brdfTop = dielectricH;
+					topLayer->btdf = transH;
+					// no brdf on the bottom of first layer, kill multiscattering
+
+					const auto midH = forest->_new<CFrontendIR::CLayer>();
+					auto* midLayer = forest->deref(midH);
+					{
+						midLayer->brdfTop = roughDiffTransH;
+						midLayer->btdf = roughDiffTransH;
+						midLayer->brdfBottom = roughDiffTransH;
+
+						// we could even have a BSDF with a different Fresnel and Roughness on the bottom layer!
+						midLayer->coated = bottomH;
+					}
+					topLayer->coated = midH;
+					
+					ASSERT_VALUE(forest->addMaterial(rootH,logger),true,"Coated Diffuse Transmitter");
+				}
+
+				// same thing but with subsurface beer absorption
+				{
+					const auto rootH = forest->_new<CFrontendIR::CLayer>();
+					auto* topLayer = forest->deref(rootH);
+					topLayer->debugInfo = forest->_new<CNodePool::CDebugInfo>("Coated Diffuse Extinction Transmitter");
+
+					// we have a choice of where to stick the Beer Absorption:
+					// - on the BTDF of the outside layer, means that it will be applied to the transmission so twice according to VdotN and LdotN
+					// (but delta transmission makes special weight nodes behave in a special and only once because `L=-V` is forced in a single scattering)
+					// - inner layer BRDF or BTDF but thats intractable for most compiler backends because the `L` and `V` in the internal layers are not trivially known
+					//	 unless the previous layers are delta distributions (in which case we can equivalently hoist beer to the previous layer). 
+					const auto beerH = forest->_new<CFrontendIR::CBeer>();
+					{
+						auto* beer = forest->deref(beerH);
+						spectral_var_t::SCreationParams<3> params = {};
+						params.getSemantics() = spectral_var_t::Semantics::Fixed3_SRGB;
+						params.knots.params[0].scale = 0.3f;
+						params.knots.params[1].scale = 0.9f;
+						params.knots.params[2].scale = 0.7f;
+						beer->perpTransparency = forest->_new<spectral_var_t>(std::move(params));
+					}
+
+					topLayer->brdfTop = dielectricH;
+					// simplest/recommended
+					{
+						const auto transAbsorbH = forest->_new<CFrontendIR::CMul>();
+						auto* transAbsorb = forest->deref(transAbsorbH);
+						transAbsorb->lhs = transH;
+						{
+							transAbsorb->rhs = beerH;
+						}
+						topLayer->btdf = transAbsorbH;
+					}
+
+					const auto midH = forest->_new<CFrontendIR::CLayer>();
+					auto* midLayer = forest->deref(midH);
+					{
+						midLayer->brdfTop = roughDiffTransH;
+						midLayer->btdf = roughDiffTransH;
+						// making extra work for our canonicalizer
+						{
+							const auto roughAbsorbH = forest->_new<CFrontendIR::CMul>();
+							auto* transAbsorb = forest->deref(roughAbsorbH);
+							transAbsorb->lhs = roughDiffTransH;
+							{
+								transAbsorb->rhs = beerH;
+							}
+							midLayer->brdfBottom = roughAbsorbH;
+						}
+
+						// we could even have a BSDF with a different Fresnel and Roughness on the bottom layer!
+						midLayer->coated = bottomH;
+					}
+					topLayer->coated = midH;
+					
+					ASSERT_VALUE(forest->addMaterial(rootH,logger),true,"Coated Diffuse Extinction Transmitter");
 				}
 			}
 
