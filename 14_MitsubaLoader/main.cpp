@@ -6,6 +6,10 @@
 //#include "nbl/ext/MitsubaLoader/CMitsubaLoader.h"
 #include "nbl/ext/MitsubaLoader/CSerializedLoader.h"
 
+#include <cctype>
+#include <functional>
+
+
 using namespace nbl;
 using namespace nbl::core;
 using namespace nbl::hlsl;
@@ -15,25 +19,70 @@ using namespace nbl::ui;
 using namespace nbl::video;
 using namespace nbl::examples;
 
-
 // Testing our Mitsuba Loader
 class MitsubaLoaderTest final : public BuiltinResourcesApplication
 {
 		using base_t = BuiltinResourcesApplication;
 
-		bool failedTest(const core::string& relPath)
+		bool test(const system::path& listPath)
 		{
-			IAssetLoader::SAssetLoadParams params = {};
-			params.logger = m_logger.get();
-			auto asset = m_assetMgr->getAsset(relPath,params);
-			if (asset.getContents().empty())
+			smart_refctd_ptr<const IFile> file;
 			{
-				m_logger->log("Failed To Load %s",ILogger::ELL_ERROR);
-				return true;
+				ISystem::future_t<smart_refctd_ptr<IFile>> future;
+				using create_flags_t = IFileBase::E_CREATE_FLAGS;
+				m_system->createFile(future,listPath,create_flags_t::ECF_READ|create_flags_t::ECF_MAPPABLE);
+				if (!future.wait())
+					return logFail("Failed to list of scenes to test");
+				smart_refctd_ptr<IFile> tmp;
+				future.acquire().move_into(tmp);
+				file = std::move(tmp);
 			}
-			// so we don't run out of RAM during testing
-			m_assetMgr->clearAllAssetCache();
-			return false;
+
+			const auto base = file->getFileName().parent_path();
+			const void* const ptr = file->getMappedPointer();
+			const auto end = reinterpret_cast<const char*>(ptr)+file->getSize();
+			for (auto cursor=reinterpret_cast<const char*>(ptr); cursor<end;)
+			{
+				cursor = std::find_if(cursor,end,std::not_fn<int(int)>(std::isspace));
+				if (cursor==end)
+					break;
+				auto nextLine = [&]()->const char*
+				{
+					constexpr std::array<const char,2> newlines = {'\r','\n'};
+					auto retval = std::find_first_of(cursor,end,newlines.begin(),newlines.end());
+					while (++retval<end && std::find(newlines.begin(),newlines.end(),*retval)!=newlines.end()) {}
+					return retval;
+				};
+				if (*cursor=='\"')
+				{
+					const auto begin = ++cursor;
+					// find first unescaped "
+					while (cursor!=end)
+					{
+						cursor = std::find(cursor,end,'\"');
+						if (*(cursor-1)!='\\')
+							break;
+					}
+					const auto relPath = (base/std::string_view(begin,cursor)).lexically_normal().string();
+					//
+					IAssetLoader::SAssetLoadParams params = {};
+					params.logger = m_logger.get();
+					auto asset = m_assetMgr->getAsset(relPath,params);
+					if (asset.getContents().empty())
+						return logFail("Failed To Load %s",relPath.c_str());
+					m_logger->log("Loaded %s",ILogger::ELL_INFO,relPath.c_str());
+					// TODO: print True Material IR
+					// so we don't run out of RAM during testing
+					m_assetMgr->clearAllAssetCache();
+				}
+				else if (*cursor!=';')
+				{
+					const char chr[2] = {*cursor,0};
+					return logFail("Parser Error, encountered unsupprted character %s near line start",chr);
+				}
+				cursor = nextLine();
+			}
+			return true;
 		}
 
 	public:
@@ -48,17 +97,14 @@ class MitsubaLoaderTest final : public BuiltinResourcesApplication
 				return false;
 
 //			m_assetMgr->addAssetLoader(make_smart_refctd_ptr<ext::MitsubaLoader::CMitsubaLoader>());
-
-			// first batch
-			if (failedTest("shapetest.xml")) return false;
-			if (failedTest("daily_pt.xml")) return false;
-			if (failedTest("brdf_eval_test.xml")) return false;
-			if (failedTest("brdf_eval_test_as.xml")) return false;
-			if (failedTest("brdf_eval_test_diffuse.xml")) return false;
-			if (failedTest("brdf_eval_test_lambert.xml")) return false;
-
 			// some of our test scenes won't load without the `.serialized` support
 			m_assetMgr->addAssetLoader(make_smart_refctd_ptr<ext::MitsubaLoader::CSerializedLoader>());
+
+			// public batch
+			if (!test(localInputCWD/"test_scenes.txt"))
+				return false;
+//			if (!test(sharedInputCWD/"Ditt-Reference-Scenes/private_test_scenes.xml"))
+//				return false;
 
 			return true;
 		}

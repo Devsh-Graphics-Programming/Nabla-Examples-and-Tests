@@ -1,0 +1,7 @@
+; Here is my Commented line that batch file will skip (started with semicolons)
+"../media/mitsuba/shapetest.xml"
+"../media/mitsuba/daily_pt.xml"
+;"../media/mitsuba/brdf_eval_test.xml"
+;"../media/mitsuba/brdf_eval_test_as.xml"
+;"../media/mitsuba/brdf_eval_test_diffuse.xml"
+;"../media/mitsuba/brdf_eval_test_lambert.xml"
