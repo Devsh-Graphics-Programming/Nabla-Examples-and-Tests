@@ -307,20 +307,60 @@ struct Unidirectional
         return Li;
     }
 
-    void generateCascades(int32_t2 coords, uint32_t numSamples, uint32_t depth, NBL_CONST_REF_ARG(scene_type) scene)
+    struct RWMCCascadeSettings
     {
-        measure_type Li = (measure_type)0.0;
-        scalar_type meanLumaSq = 0.0;
+        uint32_t size;
+        uint32_t start;
+        uint32_t base;
+    };
+
+    // tmp
+    float calculateLumaRec709(float32_t4 color)
+    {
+        return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+    }
+
+    void generateCascade(int32_t2 coords, uint32_t numSamples, uint32_t depth, NBL_CONST_REF_ARG(RWMCCascadeSettings) cascadeSettings, NBL_CONST_REF_ARG(scene_type) scene)
+    {
+        float lowerScale = cascadeSettings.start;
+        float upperScale = lowerScale * cascadeSettings.base;
+
+        // most of this code is stolen from https://cg.ivd.kit.edu/publications/2018/rwmc/tool/split.cpp
         for (uint32_t i = 0; i < numSamples; i++)
         {
-            measure_type accumulation = getSingleSampleMeasure(i, depth, scene);
-            scalar_type rcpSampleSize = 1.0 / (i + 1);
-            Li += (accumulation - Li) * rcpSampleSize;
+            const float luma = getLuma(accumulation);
+            //const float luma = calculateLumaRec709(float32_t4(accumulation, 1.0f));
+
+            uint32_t lowerCascadeIndex = 0u;
+            while (!(luma < upperScale) && lowerCascadeIndex < cascadeSettings.size - 2)
+            {
+                lowerScale = upperScale;
+                upperScale *= cascadeSettings.base;
+                ++lowerCascadeIndex;
+            }
+
+            float lowerCascadeLevelWeight;
+            float higherCascadeLevelWeight;
+
+            if (luma <= lowerScale)
+                lowerCascadeLevelWeight = 1.0f;
+            else if (luma < upperScale)
+                lowerCascadeLevelWeight = max(0.0f, (lowerScale / luma - lowerScale / upperScale) / (1.0f - lowerScale / upperScale));
+            else // Inf, NaN ...
+                lowerCascadeLevelWeight = 0.0f;
+
+            if (luma < upperScale)
+                higherCascadeLevelWeight = max(0.0f, 1.0f - lowerCascadeLevelWeight);
+            else
+                higherCascadeLevelWeight = upperScale / luma;
+
+            cascade[uint3(coords.x, coords.y, lowerCascadeIndex)] = float32_t4(accumulation * lowerCascadeLevelWeight, 1.0f);
+            cascade[uint3(coords.x, coords.y, lowerCascadeIndex + 1u)] = float32_t4(accumulation * higherCascadeLevelWeight, 1.0f);
         }
 
-        cascade[uint3(coords.x, coords.y, 0)] = float4(Li.r, 0.0f, 0.0f, 0.0f);
-        cascade[uint3(coords.x, coords.y, 1)] = float4(0.0f, Li.g, 0.0f, 0.0f);
-        cascade[uint3(coords.x, coords.y, 2)] = float4(0.0f, 0.0f, Li.b, 0.0f);
+        cascade[uint3(coords.x, coords.y, 0)] = float32_t4(Li.r, 0.0f, 0.0f, 0.0f);
+        cascade[uint3(coords.x, coords.y, 1)] = float32_t4(0.0f, Li.g, 0.0f, 0.0f);
+        cascade[uint3(coords.x, coords.y, 2)] = float32_t4(0.0f, 0.0f, Li.b, 0.0f);
     }
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t MAX_DEPTH_LOG2 = 4u;

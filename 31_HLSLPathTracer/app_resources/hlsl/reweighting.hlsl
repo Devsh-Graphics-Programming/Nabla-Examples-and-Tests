@@ -17,22 +17,21 @@ int32_t2 getCoordinates()
     return int32_t2(glsl::gl_GlobalInvocationID().x % width, glsl::gl_GlobalInvocationID().x / width);
 }
 
-float calculateLumaRec709(float32_t4 color)
-{
-    return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
-}
-
 [numthreads(WorkgroupSize, 1, 1)]
 void main(uint32_t3 threadID : SV_DispatchThreadID)
 {
     const int32_t2 coords = getCoordinates();
 
-    float r = cascade.Load(uint3(coords, 0)).r;
-    float g = cascade.Load(uint3(coords, 1)).g;
-    float b = cascade.Load(uint3(coords, 2)).b;
-    float32_t4 color = float32_t4(r, g, b, 1.0f);
-    float luma = calculateLumaRec709(color);
-    float32_t4 output = float32_t4(luma, luma, luma, 1.0f);
+    float32_t3 accumulation = float32_t3(0.0f, 0.0f, 0.0f);
+
+    for (int i = 0; i < 6; ++i)
+    {
+        float32_t4 cascadeLevel = cascade.Load(uint3(coords, i));
+        accumulation += float32_t3(cascadeLevel.r, cascadeLevel.g, cascadeLevel.b);
+    }
+
+    //accumulation /= 32.0f;
+    float32_t4 output = float32_t4(accumulation, 1.0f);
 
     outImage[coords] = output;
 }

@@ -226,7 +226,12 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     }
     else
     {
-        pathtracer.generateCascades(coords, pc.sampleCount, pc.depth, scene);
+        pathtracer_type::RWMCCascadeSettings cascadeSettings;
+        cascadeSettings.size = 6u;
+        cascadeSettings.start = 1u;
+        cascadeSettings.base = 8u;
+
+        pathtracer.generateCascade(coords, pc.sampleCount, pc.depth, cascadeSettings, scene);
     }
 
 #ifdef PERSISTENT_WORKGROUPS
