@@ -292,7 +292,7 @@ struct Unidirectional
     measure_type getMeasure(uint32_t numSamples, uint32_t depth, NBL_CONST_REF_ARG(scene_type) scene)
     {
         measure_type Li = (measure_type)0.0;
-        scalar_type meanLumaSq = 0.0;
+        //scalar_type meanLumaSq = 0.0;
         for (uint32_t i = 0; i < numSamples; i++)
         {
             measure_type accumulation = getSingleSampleMeasure(i, depth, scene);
@@ -328,6 +328,8 @@ struct Unidirectional
         // most of this code is stolen from https://cg.ivd.kit.edu/publications/2018/rwmc/tool/split.cpp
         for (uint32_t i = 0; i < numSamples; i++)
         {
+            measure_type accumulation = getSingleSampleMeasure(i, depth, scene);
+
             const float luma = getLuma(accumulation);
             //const float luma = calculateLumaRec709(float32_t4(accumulation, 1.0f));
 
@@ -354,13 +356,9 @@ struct Unidirectional
             else
                 higherCascadeLevelWeight = upperScale / luma;
 
-            cascade[uint3(coords.x, coords.y, lowerCascadeIndex)] = float32_t4(accumulation * lowerCascadeLevelWeight, 1.0f);
-            cascade[uint3(coords.x, coords.y, lowerCascadeIndex + 1u)] = float32_t4(accumulation * higherCascadeLevelWeight, 1.0f);
+            cascade[uint3(coords.x, coords.y, lowerCascadeIndex)] += float32_t4(accumulation * lowerCascadeLevelWeight, 1.0f);
+            cascade[uint3(coords.x, coords.y, lowerCascadeIndex + 1u)] += float32_t4(accumulation * higherCascadeLevelWeight, 1.0f);
         }
-
-        cascade[uint3(coords.x, coords.y, 0)] = float32_t4(Li.r, 0.0f, 0.0f, 0.0f);
-        cascade[uint3(coords.x, coords.y, 1)] = float32_t4(0.0f, Li.g, 0.0f, 0.0f);
-        cascade[uint3(coords.x, coords.y, 2)] = float32_t4(0.0f, 0.0f, Li.b, 0.0f);
     }
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t MAX_DEPTH_LOG2 = 4u;

@@ -754,13 +754,18 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					imgViewInfo.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
 					imgViewInfo.subresourceRange.baseArrayLayer = 0u;
 					imgViewInfo.subresourceRange.baseMipLevel = 0u;
-					imgViewInfo.subresourceRange.layerCount = 1u;
 					imgViewInfo.subresourceRange.levelCount = 1u;
 
-					if(!useCascadeCreationParameters)
+					if (!useCascadeCreationParameters)
+					{
+						imgViewInfo.subresourceRange.layerCount = 1u;
 						imgViewInfo.viewType = IGPUImageView::ET_2D;
+					}
 					else
+					{
+						imgViewInfo.subresourceRange.layerCount = CascadeSize;
 						imgViewInfo.viewType = IGPUImageView::ET_2D_ARRAY;
+					}
 
 					return m_device->createImageView(std::move(imgViewInfo));
 				};
@@ -1117,6 +1122,9 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 			return m_device->updateDescriptorSets(writes, {});
 		}
 
+		// TODO: DON'T DO THAT! tansition layout once at the initialization stage
+		bool cascadeLayoutTransitioned = false;
+
 		inline void workLoopBody() override
 		{
 			// framesInFlight: ensuring safe execution of command buffers and acquires, `framesInFlight` only affect semaphore waits, don't use this to index your resources because it can change with swapchain recreation.
@@ -1191,6 +1199,36 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
 				}
 
+				// TODO: remove! we want to transition cascade layout only once right after its creation
+				if (!cascadeLayoutTransitioned)
+				{
+					cascadeLayoutTransitioned = true;
+
+					const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> cascadeBarrier[] = {
+							{
+								.barrier = {
+									.dep = {
+										.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+										.srcAccessMask = ACCESS_FLAGS::NONE,
+										.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+										.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+									}
+								},
+								.image = m_cascadeView->getCreationParameters().image.get(),
+								.subresourceRange = {
+									.aspectMask = IImage::EAF_COLOR_BIT,
+									.baseMipLevel = 0u,
+									.levelCount = 1u,
+									.baseArrayLayer = 0u,
+									.layerCount = 6u
+								},
+								.oldLayout = IImage::LAYOUT::UNDEFINED,
+								.newLayout = IImage::LAYOUT::GENERAL
+							}
+					};
+					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = cascadeBarrier });
+				}
+
 				// cube envmap handle
 				{
 					IGPUComputePipeline* pipeline;
@@ -1211,31 +1249,33 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 						cmdbuf->dispatch(1 + (WindowDimensions.x * WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u, 1u);
 				}
 
-				// TODO: create it once outside of the loop?
-				const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> cascadeBarrier[] = {
-						{
-							.barrier = {
-								.dep = {
-									.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-									.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
-									.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
-									.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
-								}
-							},
-							.image = m_cascadeView->getCreationParameters().image.get(),
-							.subresourceRange = {
-								.aspectMask = IImage::EAF_COLOR_BIT,
-								.baseMipLevel = 0u,
-								.levelCount = 1u,
-								.baseArrayLayer = 0u,
-								.layerCount = 6u
-							},
-							.oldLayout = IImage::LAYOUT::GENERAL,
-							.newLayout = IImage::LAYOUT::GENERAL
-						}
-				};
-
-				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = cascadeBarrier });
+				// m_cascadeView synchronization - wait for previous compute shader to write into the cascade
+				// TODO: create this and every other barrier once outside of the loop?
+				{
+					const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> cascadeBarrier[] = {
+							{
+								.barrier = {
+									.dep = {
+										.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+										.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
+										.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+										.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS
+									}
+								},
+								.image = m_cascadeView->getCreationParameters().image.get(),
+								.subresourceRange = {
+									.aspectMask = IImage::EAF_COLOR_BIT,
+									.baseMipLevel = 0u,
+									.levelCount = 1u,
+									.baseArrayLayer = 0u,
+									.layerCount = 6u
+								},
+								.oldLayout = IImage::LAYOUT::GENERAL,
+								.newLayout = IImage::LAYOUT::GENERAL
+							}
+					};
+					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = cascadeBarrier });
+				}
 
 				// reweighting
 				{
@@ -1281,6 +1321,34 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 						}
 					};
 					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
+				}
+
+				// m_cascadeView synchronization - wait for previous compute shader to zero-out the cascade
+				// TODO: create this and every other barrier once outside of the loop?
+				{
+					const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> cascadeBarrier[] = {
+							{
+								.barrier = {
+									.dep = {
+										.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+										.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
+										.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+										.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+									}
+								},
+								.image = m_cascadeView->getCreationParameters().image.get(),
+								.subresourceRange = {
+									.aspectMask = IImage::EAF_COLOR_BIT,
+									.baseMipLevel = 0u,
+									.levelCount = 1u,
+									.baseArrayLayer = 0u,
+									.layerCount = 6u
+								},
+								.oldLayout = IImage::LAYOUT::GENERAL,
+								.newLayout = IImage::LAYOUT::GENERAL
+							}
+					};
+					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = cascadeBarrier });
 				}
 
 				// TODO: tone mapping and stuff
