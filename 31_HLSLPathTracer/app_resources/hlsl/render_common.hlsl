@@ -6,6 +6,9 @@ struct SPushConstants
     float32_t4x4 invMVP;
     int sampleCount;
     int depth;
+    uint32_t rwmcCascadeSize;
+    uint32_t rwmcCascadeStart;
+    uint32_t rwmcCascadeBase;
 };
 
 [[vk::push_constant]] SPushConstants pc;

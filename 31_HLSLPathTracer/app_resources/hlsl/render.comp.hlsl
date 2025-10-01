@@ -231,6 +231,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
         cascadeSettings.start = 1u;
         cascadeSettings.base = 8u;
 
+        pathtracer.resetCascade(coords, 6u);
         pathtracer.generateCascade(coords, pc.sampleCount, pc.depth, cascadeSettings, scene);
     }
 

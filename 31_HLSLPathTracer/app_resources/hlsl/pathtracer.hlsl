@@ -314,10 +314,19 @@ struct Unidirectional
         uint32_t base;
     };
 
-    // tmp
-    float calculateLumaRec709(float32_t4 color)
+    /**
+    * @brief Resets all buffers in the cascade to 0 at the given pixel coordinates.
+    *
+    * This function writes zero values to every buffer in the cascade
+    * for the specified 2D pixel location.
+    *
+    * @param coords Integer 2D coordinates of the pixel to reset.
+    * @param cascadeSize number of buffers in the cascade to clear.
+    */
+    void resetCascade(NBL_CONST_REF_ARG(int32_t2) coords, uint32_t cascadeSize)
     {
-        return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+        for (int i = 0; i < 6; ++i)
+            cascade[uint3(coords.x, coords.y, i)] = float32_t4(0.0f, 0.0f, 0.0f, 0.0f);
     }
 
     void generateCascade(int32_t2 coords, uint32_t numSamples, uint32_t depth, NBL_CONST_REF_ARG(RWMCCascadeSettings) cascadeSettings, NBL_CONST_REF_ARG(scene_type) scene)
@@ -331,7 +340,6 @@ struct Unidirectional
             measure_type accumulation = getSingleSampleMeasure(i, depth, scene);
 
             const float luma = getLuma(accumulation);
-            //const float luma = calculateLumaRec709(float32_t4(accumulation, 1.0f));
 
             uint32_t lowerCascadeIndex = 0u;
             while (!(luma < upperScale) && lowerCascadeIndex < cascadeSettings.size - 2)

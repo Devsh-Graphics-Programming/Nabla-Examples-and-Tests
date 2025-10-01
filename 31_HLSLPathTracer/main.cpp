@@ -15,10 +15,24 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
-struct PTPushConstant {
+static constexpr uint32_t CascadeSize = 6u;
+struct PTPushConstant
+{
 	matrix4SIMD invMVP;
 	int sampleCount;
 	int depth;
+	const uint32_t rwmcCascadeSize = CascadeSize;
+	uint32_t rwmcCascadeStart;
+	uint32_t rwmcCascadeBase;
+};
+
+struct RWMCPushConstants
+{
+	const uint32_t cascadeSize = CascadeSize;
+	float base;
+	uint32_t sampleCount;
+	float minReliableLuma;
+	float kappa;
 };
 
 // TODO: Add a QueryPool for timestamping once its ready
@@ -509,8 +523,14 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 
 				// Create reweighting pipeline
 				{
+					const nbl::asset::SPushConstantRange pcRange = {
+							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+							.offset = 0,
+							.size = sizeof(RWMCPushConstants)
+					};
+
 					auto pipelineLayout = m_device->createPipelineLayout(
-						{},
+						{ &pcRange, 1 },
 						core::smart_refctd_ptr(gpuDescriptorSetLayout0)
 					);
 
@@ -1098,6 +1118,15 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 			m_oracle.reportBeginFrameRecord();
 			m_camera.mapKeysToWASD();
 
+			// set initial push constants contents
+			rwmcPushConstants.base = 8.0f;
+			rwmcPushConstants.sampleCount = spp;
+			rwmcPushConstants.minReliableLuma = 1.0f;
+			rwmcPushConstants.kappa = 5.0f;
+
+			pc.rwmcCascadeStart = 1.0;
+			pc.rwmcCascadeBase = 8.0f;
+
 			return true;
 		}
 
@@ -1162,10 +1191,11 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 				cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
 				// disregard surface/swapchain transformation for now
 				const auto viewProjectionMatrix = m_camera.getConcatenatedMatrix();
-				PTPushConstant pc;
 				viewProjectionMatrix.getInverseTransform(pc.invMVP);
 				pc.sampleCount = spp;
 				pc.depth = depth;
+
+				rwmcPushConstants.sampleCount = spp;
 
 				// safe to proceed
 				// upload buffer data
@@ -1293,6 +1323,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 
 					cmdbuf->bindComputePipeline(pipeline);
 					cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
+					cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(RWMCPushConstants), &rwmcPushConstants);
 					cmdbuf->dispatch(1 + (WindowDimensions.x * WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u, 1u);
 				}
 
@@ -1573,7 +1604,6 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		smart_refctd_ptr<IGPUImageView> m_envMapView, m_scrambleView;
 		smart_refctd_ptr<IGPUBufferView> m_sequenceBufferView;
 		smart_refctd_ptr<IGPUImageView> m_outImgView;
-		static constexpr uint32_t CascadeSize = 6u;
 		smart_refctd_ptr<IGPUImageView> m_cascadeView;
 
 		// sync
@@ -1610,6 +1640,8 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		int spp = 32;
 		int depth = 3;
 		bool usePersistentWorkGroups = false;
+		RWMCPushConstants rwmcPushConstants;
+		PTPushConstant pc;
 
 		bool m_firstFrame = true;
 		IGPUCommandBuffer::SClearColorValue clearColor = { .float32 = {0.f,0.f,0.f,1.f} };
