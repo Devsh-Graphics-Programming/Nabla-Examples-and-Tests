@@ -50,7 +50,7 @@ struct PrintFailureCallback : FailureCallback
             fprintf(stderr, "[ERROR] seed %u: %s quotient * pdf != eval\n", failedFor.rc.state, failedFor.name.c_str());
             break;
         case BET_RECIPROCITY:
-            fprintf(stderr, "[ERROR] seed %u: %s failed the reciprocity test\n", failedFor.rc.state, failedFor.name.c_str());
+            fprintf(stderr, "[ERROR] seed %u: %s failed the reciprocity test; details: %s\n", failedFor.rc.state, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
         case BET_PRINT_MSG:
             fprintf(stderr, "[ERROR] seed %u: %s error message\n%s\n", failedFor.rc.state, failedFor.name.c_str(), failedFor.errMsg.c_str());
@@ -165,10 +165,10 @@ int main(int argc, char** argv)
     assert(bxdf::bxdf_concepts::IsotropicBxDF<bxdf::reflection::SOrenNayar<iso_config_t>>);
     assert(bxdf::bxdf_concepts::IsotropicBxDF<bxdf::transmission::SSmoothDielectric<iso_config_t>>);
 
-    assert(bxdf::bxdf_concepts::MicrofacetBxDF<bxdf::reflection::SBeckmannIsotropic<iso_config_t>>);
-    assert(bxdf::bxdf_concepts::MicrofacetBxDF<bxdf::reflection::SGGXAnisotropic<aniso_config_t>>);
-    assert(bxdf::bxdf_concepts::MicrofacetBxDF<bxdf::transmission::SGGXDielectricIsotropic<iso_config_t>>);
-    assert(bxdf::bxdf_concepts::MicrofacetBxDF<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_config_t>>);
+    assert(bxdf::bxdf_concepts::MicrofacetBxDF<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>>);
+    assert(bxdf::bxdf_concepts::MicrofacetBxDF<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>>);
+    assert(bxdf::bxdf_concepts::MicrofacetBxDF<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>>);
+    assert(bxdf::bxdf_concepts::MicrofacetBxDF<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>>);
 
     const bool logInfo = testconfigs["logInfo"];
     PrintFailureCallback cb;
