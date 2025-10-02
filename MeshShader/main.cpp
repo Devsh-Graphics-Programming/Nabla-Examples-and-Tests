@@ -3,6 +3,9 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "common.hpp"
+#include "nbl/ui/ICursorControl.h"
+
+#include "IGPUMeshPipeline.h"
 
 /*
 Renders scene texture to an offscreen framebuffer whose color attachment is then sampled into a imgui window.
@@ -225,7 +228,6 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 			if (!m_framebuffer || m_framebuffer->getCreationParameters().width!=virtualWindowRes[0] || m_framebuffer->getCreationParameters().height!=virtualWindowRes[1])
 				recreateFramebuffer(virtualWindowRes);
 
-			//
 			const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
 
 			auto* const cb = m_cmdBufs.data()[resourceIx].get();
@@ -237,7 +239,7 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 			{
 				cb->beginDebugMarker("UISampleApp Scene Frame");
 				{
-					const IGPUCommandBuffer::SClearDepthStencilValue farValue = { .depth=0.f };
+					const IGPUCommandBuffer::SClearDepthStencilValue farValue = { .depth = 0.f };
 					const IGPUCommandBuffer::SRenderpassBeginInfo renderpassInfo =
 					{
 						.framebuffer = m_framebuffer.get(),
@@ -248,35 +250,18 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 							.extent = {virtualWindowRes[0],virtualWindowRes[1]}
 						}
 					};
-					beginRenderpass(cb,renderpassInfo);
+					beginRenderpass(cb, renderpassInfo);
 				}
 				// draw scene
-				{
-					float32_t3x4 viewMatrix;
-					float32_t4x4 viewProjMatrix;
-					// TODO: get rid of legacy matrices
-					{
-						const auto& camera = interface.camera;
-						memcpy(&viewMatrix,camera.getViewMatrix().pointer(),sizeof(viewMatrix));
-						memcpy(&viewProjMatrix,camera.getConcatenatedMatrix().pointer(),sizeof(viewProjMatrix));
-					}
-					const auto viewParams = CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix);
-
-					// tear down scene every frame
-					auto& instance = m_renderer->m_instances[0];
-					memcpy(&instance.world,&interface.model,sizeof(instance.world));
-					instance.packedGeo = m_renderer->getGeometries().data() + interface.gcIndex;
- 					m_renderer->render(cb,viewParams);
-				}
+				UpdateScene(cb);
 				cb->endRenderPass();
 				cb->endDebugMarker();
 			}
 			{
 				cb->beginDebugMarker("UISampleApp IMGUI Frame");
-				{
+				{ //begin imgui subpass
 					auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-					const IGPUCommandBuffer::SRenderpassBeginInfo renderpassInfo =
-					{
+					const IGPUCommandBuffer::SRenderpassBeginInfo renderpassInfo = {
 						.framebuffer = scRes->getFramebuffer(device_base_t::getCurrentAcquire().imageIndex),
 						.colorClearValues = &clearValue,
 						.depthStencilClearValues = nullptr,
@@ -285,7 +270,7 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 							.extent = {m_window->getWidth(),m_window->getHeight()}
 						}
 					};
-					beginRenderpass(cb,renderpassInfo);
+					beginRenderpass(cb, renderpassInfo);
 				}
 				// draw ImGUI
 				{
@@ -307,8 +292,6 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 				cb->endDebugMarker();
 			}
 			cb->end();
-
-			//updateGUIDescriptorSet();
 
 			IQueue::SSubmitInfo::SSemaphoreInfo retval =
 			{
@@ -343,7 +326,7 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 			}
 
 
-			m_window->setCaption("[Nabla Engine] UI App Test Demo");
+			m_window->setCaption("[Nabla Engine] Mesh Shader Demo");
 			return retval;
 		}
 
@@ -384,6 +367,26 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 		}
 
 	private:
+
+		void UpdateScene(nbl::video::IGPUCommandBuffer* cb) {
+			float32_t3x4 viewMatrix;
+			float32_t4x4 viewProjMatrix;
+			// TODO: get rid of legacy matrices //<-- camera.getViewMatrix returns matrix3x4SIMD
+			{
+				const auto& camera = interface.camera;
+				memcpy(&viewMatrix, camera.getViewMatrix().pointer(), sizeof(viewMatrix));
+				memcpy(&viewProjMatrix, camera.getConcatenatedMatrix().pointer(), sizeof(viewProjMatrix));
+			}
+			const auto viewParams = CSimpleDebugRenderer::SViewParams(viewMatrix, viewProjMatrix);
+
+			// tear down scene every frame
+			auto& instance = m_renderer->m_instances[0];
+			memcpy(&instance.world, &interface.model, sizeof(instance.world));
+			instance.packedGeo = m_renderer->getGeometries().data() + interface.gcIndex;
+			m_renderer->render(cb, viewParams);
+		}
+
+
 		inline void update(const std::chrono::microseconds nextPresentationTimestamp)
 		{
 			auto& camera = interface.camera;
@@ -567,8 +570,6 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 			{
 				ImGuiIO& io = ImGui::GetIO();
 
-				// TODO: why is this a lambda and not just an assignment in a scope ?
-				camera.setProjectionMatrix([&]() 
 				{
 					matrix4SIMD projection;
 
@@ -586,9 +587,8 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 						else
 							projection = matrix4SIMD::buildProjectionMatrixOrthoRH(viewWidth, viewHeight, zNear, zFar);
 					}
-
-					return projection;
-				}());
+					camera.setProjectionMatrix(projection);
+				}
 
 				ImGuizmo::SetOrthographic(false);
 				ImGuizmo::BeginFrame();
@@ -736,7 +736,9 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 						imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
 
 					transformParams.editTransformDecomposition = true;
-					sceneResolution = EditTransform(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.model.pointer(), transformParams);
+					static TransformWidget transformWidget{};
+					widgetBox = transformWidget.Update(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.model.pointer(), transformParams);
+					sceneResolution = widgetBox.zw;
 				}
 
 				model = core::transpose(imguizmoM16InOut.model).extractSub3x4();
@@ -873,6 +875,7 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 			std::string_view objectName;
 			TransformRequestParams transformParams;
 			uint16_t2 sceneResolution = {1280,720};
+			uint16_t4 widgetBox;
 			float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
 			float viewWidth = 10.f;
 			float camYAngle = 165.f / 180.f * 3.14159f;
