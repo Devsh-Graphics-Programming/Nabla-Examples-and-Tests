@@ -107,7 +107,6 @@ struct SBxDFTestResources
         nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 2> rng_vec2 = nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 2>::construct(retval.rng);
         nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3> rng_vec3 = nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3>::construct(retval.rng);
         retval.u = ConvertToFloat01<uint32_t3>::__call(rng_vec3());
-        retval.u.z = 0.0;
 
         retval.V.direction = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(rng_vec2())));
         retval.N = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(rng_vec2())));
@@ -152,6 +151,7 @@ struct STestInitParams
     uint32_t thetaSplits;
     uint32_t phiSplits;
     bool writeFrequencies;
+    bool verbose;
 };
 
 enum ErrorType : uint32_t
@@ -612,7 +612,7 @@ struct TestJacobian : TestBxDF<BxDF>
         if (res != BET_NONE)
             return res;
 
-        if (checkZero<float>(pdf.pdf, 1e-5))  // something generated cannot have 0 probability of getting generated
+        if (checkZero<float>(pdf.pdf, 1e-5) && !checkZero<float32_t3>(pdf.quotient, 1e-5))  // something generated cannot have 0 probability of getting generated
             return BET_PDF_ZERO;
 
         if (!checkLt<float32_t3>(pdf.quotient, (float32_t3)bit_cast<float, uint32_t>(numeric_limits<float>::infinity)))    // importance sampler's job to prevent inf
@@ -631,8 +631,17 @@ struct TestJacobian : TestBxDF<BxDF>
         if (!checkZero<float>(det * pdf.pdf / s.getNdotL(), 1e-4))
             return BET_JACOBIAN;
 
-        if (!checkEq<float32_t3>(pdf.value(), bsdf, 1e-4))
+        float32_t3 quo_pdf = pdf.value();
+        if (!checkEq<float32_t3>(quo_pdf, bsdf, 1e-4))
+        {
+#ifndef __HLSL_VERSION
+            if (verbose)
+                base_t::errMsg += std::format("quotient*pdf=[{},{},{}]    eval=[{},{},{}]",
+                    quo_pdf.x, quo_pdf.y, quo_pdf.z,
+                    bsdf.x, bsdf.y, bsdf.z);
+#endif
             return BET_PDF_EVAL_DIFF;
+        }
 
         return BET_NONE;
     }
@@ -646,6 +655,7 @@ struct TestJacobian : TestBxDF<BxDF>
         this_t t;
         t.init(state);
         t.rc.state = initparams.state;
+        t.verbose = initparams.verbose;
         t.initBxDF(t.rc);
         
         ErrorType e = t.test();
@@ -656,6 +666,7 @@ struct TestJacobian : TestBxDF<BxDF>
     sample_t s, sx, sy;
     quotient_pdf_t pdf;
     float32_t3 bsdf;
+    bool verbose;
 };
 
 template<class BxDF, bool aniso = false>
@@ -763,9 +774,11 @@ struct TestReciprocity : TestBxDF<BxDF>
         }
 
 #ifndef __HLSL_VERSION
-        base_t::errMsg += std::format("isTransmission: {}, NdotV: {}, NdotL: {}",
-            (aniso ? cache.isTransmission() : isocache.isTransmission()) ? "true" : "false",
-            hlsl::sign(base_t::isointer.getNdotV()), hlsl::sign(s.getNdotL()));
+        if (verbose)
+            base_t::errMsg += std::format("isTransmission: {}, NdotV: {}, NdotL: {}, VdotH: {}, LdotH: {}, NdotH: {}",
+                (aniso ? cache.isTransmission() : isocache.isTransmission()) ? "true" : "false",
+                base_t::isointer.getNdotV(), s.getNdotL(),
+                aniso ? cache.getVdotH() : isocache.getVdotH(), aniso ? cache.getLdotH() : isocache.getLdotH(), aniso ? cache.getAbsNdotH() : isocache.getAbsNdotH());
 #endif
 
         return BET_NONE;
@@ -812,6 +825,7 @@ struct TestReciprocity : TestBxDF<BxDF>
         this_t t;
         t.init(state);
         t.rc.state = initparams.state;
+        t.verbose = initparams.verbose;
         t.initBxDF(t.rc);
         
         ErrorType e = t.test();
@@ -823,6 +837,7 @@ struct TestReciprocity : TestBxDF<BxDF>
     float32_t3 bsdf, rec_bsdf;
     iso_interaction rec_isointer;
     aniso_interaction rec_anisointer;
+    bool verbose;
 };
 
 #ifndef __HLSL_VERSION  // because unordered_map
@@ -865,7 +880,7 @@ struct TestBucket : TestBxDF<BxDF>
         for (uint32_t i = 0; i < numSamples; i++)
         {
             float32_t3 u = ConvertToFloat01<uint32_t3>::__call(rng_vec3());
-            u.z = 0.0;
+            // u.z = 0.0;
 
             if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
             {
@@ -1208,7 +1223,7 @@ struct TestChi2 : TestBxDF<BxDF>
         for (uint32_t i = 0; i < numSamples; i++)
         {
             float32_t3 u = ConvertToFloat01<uint32_t3>::__call(rng_vec3());
-            u.z = 0.0;
+            // u.z = 0.0;
 
             if NBL_CONSTEXPR_FUNC (is_basic_brdf_v<BxDF>)
             {

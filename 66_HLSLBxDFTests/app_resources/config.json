@@ -1,10 +1,12 @@
 {
     "logInfo": false,
     "TestJacobian": {
-        "runs": 10
+        "runs": 10,
+        "verbose": true
     },
     "TestReciprocity": {
-        "runs": 10
+        "runs": 10,
+        "verbose": true
     },
     "TestBucket": {
         "runs": 10,

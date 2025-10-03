@@ -47,10 +47,10 @@ struct PrintFailureCallback : FailureCallback
             fprintf(stderr, "[ERROR] seed %u: %s failed the jacobian * pdf test\n", failedFor.rc.state, failedFor.name.c_str());
             break;
         case BET_PDF_EVAL_DIFF:
-            fprintf(stderr, "[ERROR] seed %u: %s quotient * pdf != eval\n", failedFor.rc.state, failedFor.name.c_str());
+            fprintf(stderr, "[ERROR] seed %u: %s quotient * pdf != eval    %s\n", failedFor.rc.state, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
         case BET_RECIPROCITY:
-            fprintf(stderr, "[ERROR] seed %u: %s failed the reciprocity test; details: %s\n", failedFor.rc.state, failedFor.name.c_str(), failedFor.errMsg.c_str());
+            fprintf(stderr, "[ERROR] seed %u: %s failed the reciprocity test    %s\n", failedFor.rc.state, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
         case BET_PRINT_MSG:
             fprintf(stderr, "[ERROR] seed %u: %s error message\n%s\n", failedFor.rc.state, failedFor.name.c_str(), failedFor.errMsg.c_str());
@@ -179,6 +179,7 @@ int main(int argc, char** argv)
     FOR_EACH_BEGIN(rJacobian)
     STestInitParams initparams{ .logInfo = logInfo };
     initparams.state = i;
+    initparams.verbose = testconfigs["TestJacobian"]["verbose"];
 
     TestJacobian<bxdf::reflection::SLambertian<iso_config_t>>::run(initparams, cb);
     TestJacobian<bxdf::reflection::SOrenNayar<iso_config_t>>::run(initparams, cb);
@@ -206,6 +207,7 @@ int main(int argc, char** argv)
     FOR_EACH_BEGIN(rReciprocity)
     STestInitParams initparams{ .logInfo = logInfo };
     initparams.state = i;
+    initparams.verbose = testconfigs["TestReciprocity"]["verbose"];
 
     TestReciprocity<bxdf::reflection::SLambertian<iso_config_t>>::run(initparams, cb);
     TestReciprocity<bxdf::reflection::SOrenNayar<iso_config_t>>::run(initparams, cb);
