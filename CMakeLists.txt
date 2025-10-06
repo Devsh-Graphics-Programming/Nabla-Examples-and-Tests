@@ -44,7 +44,7 @@ if(NBL_BUILD_EXAMPLES)
 	#
 	add_subdirectory(12_MeshLoaders)
 	#
-	add_subdirectory(13_MaterialCompilerTest EXCLUDE_FROM_ALL)
+	add_subdirectory(13_MaterialCompilerTest)
 
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo)
