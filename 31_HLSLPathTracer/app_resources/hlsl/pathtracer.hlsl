@@ -314,23 +314,14 @@ struct Unidirectional
         uint32_t base;
     };
 
-    /**
-    * @brief Resets all buffers in the cascade to 0 at the given pixel coordinates.
-    *
-    * This function writes zero values to every buffer in the cascade
-    * for the specified 2D pixel location.
-    *
-    * @param coords Integer 2D coordinates of the pixel to reset.
-    * @param cascadeSize number of buffers in the cascade to clear.
-    */
-    void resetCascade(NBL_CONST_REF_ARG(int32_t2) coords, uint32_t cascadeSize)
-    {
-        for (int i = 0; i < 6; ++i)
-            cascade[uint3(coords.x, coords.y, i)] = float32_t4(0.0f, 0.0f, 0.0f, 0.0f);
-    }
-
     void generateCascade(int32_t2 coords, uint32_t numSamples, uint32_t depth, NBL_CONST_REF_ARG(RWMCCascadeSettings) cascadeSettings, NBL_CONST_REF_ARG(scene_type) scene)
     {
+        // TODO: move `MaxCascadeSize` somewhere else
+        const static uint32_t MaxCascadeSize = 10u;
+        float32_t4 cascadeEntry[MaxCascadeSize];
+        for (int i = 0; i < MaxCascadeSize; ++i)
+            cascadeEntry[i] = float32_t4(0.0f, 0.0f, 0.0f, 0.0f);
+
         float lowerScale = cascadeSettings.start;
         float upperScale = lowerScale * cascadeSettings.base;
 
@@ -364,8 +355,14 @@ struct Unidirectional
             else
                 higherCascadeLevelWeight = upperScale / luma;
 
-            cascade[uint3(coords.x, coords.y, lowerCascadeIndex)] += float32_t4(accumulation * lowerCascadeLevelWeight, 1.0f);
-            cascade[uint3(coords.x, coords.y, lowerCascadeIndex + 1u)] += float32_t4(accumulation * higherCascadeLevelWeight, 1.0f);
+            // TODO: odrazu liczyc srednia
+            cascadeEntry[lowerCascadeIndex] += float32_t4(accumulation * lowerCascadeLevelWeight, 1.0f);
+        }
+
+        for (uint32_t i = 0; i < 6; i++)
+        {
+            cascadeEntry[i] /= float(numSamples);
+            cascade[uint3(coords.x, coords.y, i)] = cascadeEntry[i];
         }
     }
 

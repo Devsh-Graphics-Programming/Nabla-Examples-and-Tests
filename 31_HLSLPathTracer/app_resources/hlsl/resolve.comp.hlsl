@@ -117,7 +117,6 @@ float32_t3 RWMCReweight(in RWMCReweightingParameters params, in int32_t2 coord)
 			next = RWMCSampleCascade(coord, i + 1u, reciprocalBaseI);
 		}
 
-
 		float reliability = 1.f;
 		// sample counting-based reliability estimation
 		if (params.reciprocalKappa <= 1.f)
@@ -179,25 +178,17 @@ float32_t3 sumCascade(in const int32_t2 coords)
         accumulation += float32_t3(cascadeLevel.r, cascadeLevel.g, cascadeLevel.b);
     }
 
-    accumulation /= 32.0f;
-
 	return accumulation;
 }
 
 [numthreads(WorkgroupSize, 1, 1)]
 void main(uint32_t3 threadID : SV_DispatchThreadID)
 {
-    // TODO: remove, ideally shader should not be called at all when we don't use RWMC
-    bool useRWMC = true;
-    if (!useRWMC)
-        return;
-
     const int32_t2 coords = getCoordinates();
     //float32_t3 color = sumCascade(coords);
 
     RWMCReweightingParameters reweightingParameters = computeReweightingParameters(pc.cascadeCount, pc.base, pc.sampleCount, pc.minReliableLuma, pc.kappa);
 	float32_t3 color = RWMCReweight(reweightingParameters, coords);
-	color /= pc.sampleCount;
 
 	outImage[coords] = float32_t4(color, 1.0f);
 }

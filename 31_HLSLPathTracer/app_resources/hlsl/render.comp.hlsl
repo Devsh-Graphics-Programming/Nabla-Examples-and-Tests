@@ -217,8 +217,8 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 
     pathtracer_type pathtracer = pathtracer_type::create(ptCreateParams);
 
-    bool useRWMC = true; // TODO: move to push constants if we keep it
-    if(!useRWMC)
+    bool useRWMC = bool(pc.useRWMC);
+    if (!useRWMC)
     {
         float32_t3 color = pathtracer.getMeasure(pc.sampleCount, pc.depth, scene);
         float32_t4 pixCol = float32_t4(color, 1.0);
@@ -227,11 +227,11 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     else
     {
         pathtracer_type::RWMCCascadeSettings cascadeSettings;
-        cascadeSettings.size = 6u;
-        cascadeSettings.start = 1u;
-        cascadeSettings.base = 8u;
+        cascadeSettings.size = pc.rwmcCascadeSize;
+        cascadeSettings.start = pc.rwmcCascadeStart;
+        cascadeSettings.base = pc.rwmcCascadeBase;
 
-        pathtracer.resetCascade(coords, 6u);
+        // TODO: template parameter should be 
         pathtracer.generateCascade(coords, pc.sampleCount, pc.depth, cascadeSettings, scene);
     }
 

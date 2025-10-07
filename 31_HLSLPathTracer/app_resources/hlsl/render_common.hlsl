@@ -7,6 +7,7 @@ struct SPushConstants
     int sampleCount;
     int depth;
     uint32_t rwmcCascadeSize;
+    int useRWMC;
     uint32_t rwmcCascadeStart;
     uint32_t rwmcCascadeBase;
 };

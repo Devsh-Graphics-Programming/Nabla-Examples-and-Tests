@@ -22,6 +22,7 @@ struct PTPushConstant
 	int sampleCount;
 	int depth;
 	const uint32_t rwmcCascadeSize = CascadeSize;
+	int useRWMC;
 	uint32_t rwmcCascadeStart;
 	uint32_t rwmcCascadeBase;
 };
@@ -74,7 +75,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTGLSLShaderPaths = { "app_resources/glsl/litBySphere.comp", "app_resources/glsl/litByTriangle.comp", "app_resources/glsl/litByRectangle.comp" };
 		static inline std::string PTHLSLShaderPath = "app_resources/hlsl/render.comp.hlsl";
 		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTHLSLShaderVariants = { "SPHERE_LIGHT", "TRIANGLE_LIGHT", "RECTANGLE_LIGHT" };
-		static inline std::string ReweightingShaderPath = "app_resources/hlsl/reweighting.hlsl";
+		static inline std::string ReweightingShaderPath = "app_resources/hlsl/resolve.comp.hlsl";
 		static inline std::string PresentShaderPath = "app_resources/hlsl/present.frag.hlsl";
 
 		const char* shaderNames[E_LIGHT_GEOMETRY::ELG_COUNT] = {
@@ -1096,6 +1097,12 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 
 					ImGui::Text("X: %f Y: %f", io.MousePos.x, io.MousePos.y);
 
+					ImGui::Text("\nRWMC settings:");
+					ImGui::Checkbox("Enable RWMC", &useRWMC);
+					ImGui::SliderFloat("base", &rwmcPushConstants.base, 1.0f, 32.0f);
+					ImGui::SliderFloat("minReliableLuma", &rwmcPushConstants.minReliableLuma, 0.1f, 32.0f);
+					ImGui::SliderFloat("kappa", &rwmcPushConstants.kappa, 0.1f, 32.0f);
+
 					ImGui::End();
 				}
 			);
@@ -1151,9 +1158,6 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 			return m_device->updateDescriptorSets(writes, {});
 		}
 
-		// TODO: DON'T DO THAT! tansition layout once at the initialization stage
-		bool cascadeLayoutTransitioned = false;
-
 		inline void workLoopBody() override
 		{
 			// framesInFlight: ensuring safe execution of command buffers and acquires, `framesInFlight` only affect semaphore waits, don't use this to index your resources because it can change with swapchain recreation.
@@ -1192,6 +1196,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 				// disregard surface/swapchain transformation for now
 				const auto viewProjectionMatrix = m_camera.getConcatenatedMatrix();
 				viewProjectionMatrix.getInverseTransform(pc.invMVP);
+				pc.useRWMC = useRWMC ? 1 : 0;
 				pc.sampleCount = spp;
 				pc.depth = depth;
 
@@ -1229,19 +1234,17 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
 				}
 
-				// TODO: remove! we want to transition cascade layout only once right after its creation
-				if (!cascadeLayoutTransitioned)
+				// transit m_cascadeView layout to GENERAL, block until previous shader is done with reading from cascade
+				if (useRWMC)
 				{
-					cascadeLayoutTransitioned = true;
-
 					const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> cascadeBarrier[] = {
 							{
 								.barrier = {
 									.dep = {
-										.srcStageMask = PIPELINE_STAGE_FLAGS::NONE,
+										.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
 										.srcAccessMask = ACCESS_FLAGS::NONE,
 										.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-										.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+										.dstAccessMask = ACCESS_FLAGS::NONE
 									}
 								},
 								.image = m_cascadeView->getCreationParameters().image.get(),
@@ -1250,7 +1253,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 									.baseMipLevel = 0u,
 									.levelCount = 1u,
 									.baseArrayLayer = 0u,
-									.layerCount = 6u
+									.layerCount = CascadeSize
 								},
 								.oldLayout = IImage::LAYOUT::UNDEFINED,
 								.newLayout = IImage::LAYOUT::GENERAL
@@ -1298,16 +1301,15 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 									.baseMipLevel = 0u,
 									.levelCount = 1u,
 									.baseArrayLayer = 0u,
-									.layerCount = 6u
-								},
-								.oldLayout = IImage::LAYOUT::GENERAL,
-								.newLayout = IImage::LAYOUT::GENERAL
+									.layerCount = CascadeSize
+								}
 							}
 					};
 					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = cascadeBarrier });
 				}
 
 				// reweighting
+				if(useRWMC)
 				{
 					IGPUComputePipeline* pipeline;
 					if (usePersistentWorkGroups)
@@ -1352,34 +1354,6 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 						}
 					};
 					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
-				}
-
-				// m_cascadeView synchronization - wait for previous compute shader to zero-out the cascade
-				// TODO: create this and every other barrier once outside of the loop?
-				{
-					const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> cascadeBarrier[] = {
-							{
-								.barrier = {
-									.dep = {
-										.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-										.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
-										.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-										.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
-									}
-								},
-								.image = m_cascadeView->getCreationParameters().image.get(),
-								.subresourceRange = {
-									.aspectMask = IImage::EAF_COLOR_BIT,
-									.baseMipLevel = 0u,
-									.levelCount = 1u,
-									.baseArrayLayer = 0u,
-									.layerCount = 6u
-								},
-								.oldLayout = IImage::LAYOUT::GENERAL,
-								.newLayout = IImage::LAYOUT::GENERAL
-							}
-					};
-					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = cascadeBarrier });
 				}
 
 				// TODO: tone mapping and stuff
@@ -1640,6 +1614,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		int spp = 32;
 		int depth = 3;
 		bool usePersistentWorkGroups = false;
+		bool useRWMC = false;
 		RWMCPushConstants rwmcPushConstants;
 		PTPushConstant pc;
 
