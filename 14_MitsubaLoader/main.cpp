@@ -3,7 +3,7 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "nbl/examples/examples.hpp"
-//#include "nbl/ext/MitsubaLoader/CMitsubaLoader.h"
+#include "nbl/ext/MitsubaLoader/CMitsubaLoader.h"
 #include "nbl/ext/MitsubaLoader/CSerializedLoader.h"
 
 #include <cctype>
@@ -32,11 +32,13 @@ class MitsubaLoaderTest final : public BuiltinResourcesApplication
 				using create_flags_t = IFileBase::E_CREATE_FLAGS;
 				m_system->createFile(future,listPath,create_flags_t::ECF_READ|create_flags_t::ECF_MAPPABLE);
 				if (!future.wait())
-					return logFail("Failed to list of scenes to test");
+					return logFail("Failed to list of scenes to test with path %s",listPath.string().c_str());
 				smart_refctd_ptr<IFile> tmp;
 				future.acquire().move_into(tmp);
 				file = std::move(tmp);
 			}
+			if (!file)
+				return logFail("Failed to open list of scenes to test with path %s",listPath.string().c_str());
 
 			const auto base = file->getFileName().parent_path();
 			const void* const ptr = file->getMappedPointer();
@@ -103,7 +105,7 @@ class MitsubaLoaderTest final : public BuiltinResourcesApplication
 			// public batch
 			if (!test(localInputCWD/"test_scenes.txt"))
 				return false;
-//			if (!test(sharedInputCWD/"Ditt-Reference-Scenes/private_test_scenes.xml"))
+//			if (!test(sharedInputCWD/"Ditt-Reference-Scenes/private_test_scenes.txt"))
 //				return false;
 
 			return true;
