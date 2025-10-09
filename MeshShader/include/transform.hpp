@@ -94,7 +94,7 @@ struct TransformWidget {
 	}
 
 
-	nbl::hlsl::uint16_t4 ViewingGizmo(float* cameraView, const float* cameraProjection, float* matrix, const TransformRequestParams& params) {
+	void ViewingGizmo(float* cameraView, const float* cameraProjection, float* matrix, const TransformRequestParams& params) {
 		ImGuiIO& io = ImGui::GetIO();
 		float viewManipulateRight = io.DisplaySize.x;
 		float viewManipulateTop = 0;
@@ -103,61 +103,17 @@ struct TransformWidget {
 		info.textureID = params.sceneTexDescIx;
 		info.samplerIx = (uint16_t)nbl::ext::imgui::UI::DefaultSamplerIx::USER;
 
-		nbl::hlsl::uint16_t4 retval;
-		if (params.useWindow) {
-			ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Appearing);
-			ImGui::SetNextWindowPos(ImVec2(400, 20), ImGuiCond_Appearing);
-			ImGui::PushStyleColor(ImGuiCol_Border, (ImVec4)ImColor(0.35f, 0.3f, 0.3f));
-			
-			ImGui::Begin("Gizmo", 0, gizmoWindowFlags);
-			ImGuizmo::SetDrawlist();
-
-			ImVec2 contentRegionSize = ImGui::GetContentRegionAvail();
-			ImVec2 windowPos = ImGui::GetWindowPos();
-			ImVec2 cursorPos = ImGui::GetCursorScreenPos();
-
-			ImGui::Image(info, contentRegionSize);
-			ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
-			retval = { cursorPos.x, cursorPos.y, contentRegionSize.x,contentRegionSize.y };
-
-			viewManipulateRight = cursorPos.x + contentRegionSize.x;
-			viewManipulateTop = cursorPos.y;
-
-			ImGuiWindow* window = ImGui::GetCurrentWindow();
-			gizmoWindowFlags = (ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(window->InnerRect.Min, window->InnerRect.Max) ? ImGuiWindowFlags_NoMove : 0);
-		}
-		else
-		{
-			ImGui::SetNextWindowPos(ImVec2(0, 0));
-			ImGui::SetNextWindowSize(io.DisplaySize);
-			ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0)); // fully transparent fake window
-			ImGui::Begin("FullScreenWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
-
-			ImVec2 contentRegionSize = ImGui::GetContentRegionAvail();
-			ImVec2 cursorPos = ImGui::GetCursorScreenPos();
-
-			ImGui::Image(info, contentRegionSize);
-			ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
-			retval = { cursorPos.x, cursorPos.y,  contentRegionSize.x,contentRegionSize.y };
-
-			viewManipulateRight = cursorPos.x + contentRegionSize.x;
-			viewManipulateTop = cursorPos.y;
-		}
-
 		ImGuizmo::Manipulate(cameraView, cameraProjection, mCurrentGizmoOperation, mCurrentGizmoMode, matrix, NULL, useSnap ? &snap[0] : NULL, boundSizing ? bounds : NULL, boundSizingSnap ? boundsSnap : NULL);
 
 		if (params.enableViewManipulate)
 			ImGuizmo::ViewManipulate(cameraView, params.camDistance, ImVec2(viewManipulateRight - 128, viewManipulateTop), ImVec2(128, 128), 0x10101010);
 
 		ImGui::End();
-		ImGui::PopStyleColor();
-
-		return retval;
 	}
 
-	nbl::hlsl::uint16_t4 Update(float* cameraView, const float* cameraProjection, float* matrix, const TransformRequestParams& params) {
+	void Update(float* cameraView, const float* cameraProjection, float* matrix, const TransformRequestParams& params) {
 		EditTransform(matrix, params);
-		return ViewingGizmo(cameraView, cameraProjection, matrix, params);
+		ViewingGizmo(cameraView, cameraProjection, matrix, params);
 	}
 
 };

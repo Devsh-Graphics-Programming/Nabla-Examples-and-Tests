@@ -5,9 +5,13 @@
 #include "common.hpp"
 #include "nbl/ui/ICursorControl.h"
 
-#include "IGPUMeshPipeline.h"
+struct MeshletPush {
+	float32_t4x4 viewProj; //nbl::core::matrix4SIMD is 128bit??
+	constexpr static uint8_t object_type_count_max = 16;//it can go up til this struct hits the limit for push size
+	uint32_t objectCount[object_type_count_max]; 
+};
 
-/*
+/* 
 Renders scene texture to an offscreen framebuffer whose color attachment is then sampled into a imgui window.
 
 Written with Nabla's UI extension and got integrated with ImGuizmo to handle scene's object translations.
@@ -43,6 +47,12 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 			}
 			
 			const uint32_t addtionalBufferOwnershipFamilies[] = {getGraphicsQueue()->getFamilyIndex()};
+			//auto creator = core::make_smart_refctd_ptr<CGeometryCreator>();
+			//auto cube = creator->createCube({ 1.f,1.f,1.f });
+			//id like to combine all the vertices into 1 buffer but given how it's set up, thats out of scope
+			//cube->getPositionView();
+
+
 			m_scene = CGeometryCreatorScene::create(
 				{
 					.transferQueue = getTransferUpQueue(),
@@ -52,6 +62,10 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 				},
 				CSimpleDebugRenderer::DefaultPolygonGeometryPatch
 			);
+			for(uint8_t i = 0; i < m_scene->getInitParams().geometries.size(); i++){
+				auto const& geom = m_scene->getInitParams().geometries[i];
+				printf("%s - %zu - %zu\n", m_scene->getInitParams().geometryNames[i].c_str(), geom->getVertexReferenceCount(), geom->getIndexCount());				
+			}
 			
 			// for the scene drawing pass
 			{
@@ -139,17 +153,17 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 			m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(),m_renderpass.get(),0,{&geometries.front().get(),geometries.size()});
 			// special case
 			{
-				const auto& pipelines = m_renderer->getInitParams().pipelines;
+				//const auto& pipelines = m_renderer->getInitParams().pipelines;
 				auto ix = 0u;
 				for (const auto& name : m_scene->getInitParams().geometryNames)
 				{
 					if (name=="Cone")
-						m_renderer->getGeometry(ix).pipeline = pipelines[CSimpleDebugRenderer::SInitParams::PipelineType::Cone];
+						//m_renderer->getGeometry(ix).pipeline = pipelines[CSimpleDebugRenderer::SInitParams::PipelineType::Cone];
 					ix++;
 				}
 			}
 			// we'll only display one thing at a time
-			m_renderer->m_instances.resize(1);
+			//m_renderer->m_instances.resize(1);
 
 			// Create ImGUI
 			{
@@ -204,13 +218,159 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 				imgui->registerListener([this](){interface();});
 			}
 
+			//create meshlet pipeline
+			CreateMeshPipelines();
+
 			interface.camera.mapKeysToArrows();
 
 			onAppInitializedFinish();
 			return true;
 		}
 
-		//
+		smart_refctd_ptr<IGPUDescriptorSetLayout> BuildMeshletDSLayout() const {
+			smart_refctd_ptr<IGPUDescriptorSetLayout> ret;
+			using binding_flags_t = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS;
+			const IGPUDescriptorSetLayout::SBinding bindings[] =
+			{
+				{
+					.binding = 0,
+					.type = IDescriptor::E_TYPE::ET_UNIFORM_TEXEL_BUFFER,
+					// need this trifecta of flags for `SubAllocatedDescriptorSet` to accept the binding as suballocatable
+					.createFlags = binding_flags_t::ECF_UPDATE_AFTER_BIND_BIT | binding_flags_t::ECF_UPDATE_UNUSED_WHILE_PENDING_BIT | binding_flags_t::ECF_PARTIALLY_BOUND_BIT,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_MESH,
+					.count = UINT16_MAX
+				},
+				{
+					.binding = 1,
+					.type = IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
+					.createFlags = binding_flags_t::ECF_UPDATE_AFTER_BIND_BIT | binding_flags_t::ECF_UPDATE_UNUSED_WHILE_PENDING_BIT,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_TASK | IShader::E_SHADER_STAGE::ESS_MESH,
+					.count = 1
+				}
+			};
+			ret = m_device->createDescriptorSetLayout(bindings);
+			if (!ret) {
+				m_logger->log("Could not create descriptor set layout!", ILogger::ELL_ERROR);
+				return nullptr;
+			}
+			return ret;
+		}
+
+		std::array<const core::smart_refctd_ptr<nbl::asset::IShader>, 3> CreateTestShader() const {
+
+
+			auto loadCompileAndCreateShader = [&](const std::string& relPath, hlsl::ShaderStage stage, std::span<const asset::IShaderCompiler::SMacroDefinition> extraDefines) -> smart_refctd_ptr<IShader>
+				{
+					IAssetLoader::SAssetLoadParams lp = {};
+					lp.logger = m_logger.get();
+					lp.workingDirectory = ""; // virtual root
+					auto assetBundle = m_assetMgr->getAsset(relPath, lp);
+					const auto assets = assetBundle.getContents();
+					if (assets.empty()){
+						printf("asset was empty - %s\n", relPath.c_str());
+						return nullptr;
+					}
+
+					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+					auto sourceRaw = IAsset::castDown<IShader>(assets[0]);
+					if (!sourceRaw){
+						printf("source raw was nullptr - %s\n", relPath.c_str());
+						return nullptr;
+					}
+
+					nbl::video::ILogicalDevice::SShaderCreationParameters creationParams{
+						.source = sourceRaw.get(),
+						.optimizer = nullptr,
+						.readCache = nullptr,
+						.writeCache = nullptr,
+						.extraDefines = extraDefines,
+						.stage = stage
+					};
+
+					auto ret = m_device->compileShader(creationParams);
+					if (ret.get() == nullptr) {
+						printf("failed to compile shader - %s\n", relPath.c_str());
+					}
+					//m_assetMgr->removeAssetFromCache(assetBundle);
+					//return nullptr;
+					//i dont think that ^ was working
+					return ret;
+			};
+			constexpr uint32_t WorkgroupSize = 64;
+			constexpr uint32_t ObjectCount = WorkgroupSize;
+			constexpr uint32_t InstanceCount = WorkgroupSize;
+			const string WorkgroupSizeAsStr = std::to_string(WorkgroupSize);
+			const string ObjectCountAsStr = std::to_string(ObjectCount);
+			const string InstanceCountAsStr = std::to_string(InstanceCount);
+
+			const IShaderCompiler::SMacroDefinition WorkgroupSizeDefine = { "WORKGROUP_SIZE",WorkgroupSizeAsStr };
+			const IShaderCompiler::SMacroDefinition ObjectCountDefine = { "OBJECT_COUNT", ObjectCountAsStr };
+			const IShaderCompiler::SMacroDefinition InstanceCountDefine = { "INSTANCE_COUNT", InstanceCountAsStr };
+
+			const IShaderCompiler::SMacroDefinition meshArray[] = {WorkgroupSizeDefine, ObjectCountDefine, InstanceCountDefine};
+			return {
+				loadCompileAndCreateShader("app_resources/geom.task.hlsl", IShader::E_SHADER_STAGE::ESS_TASK, { meshArray }),
+				loadCompileAndCreateShader("app_resources/geom.mesh.hlsl", IShader::E_SHADER_STAGE::ESS_MESH, { meshArray }),
+				loadCompileAndCreateShader("app_resources/geom.frag.hlsl", IShader::E_SHADER_STAGE::ESS_FRAGMENT, {})
+			};
+		}
+		
+		bool CreateMeshPipelines() {
+			//referencing example 10 for this
+			//and referencing CSimpleDebugRenderer
+
+			auto shaders = CreateTestShader();
+			auto dsLayout = BuildMeshletDSLayout();
+			{//descriptorset
+				auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, { &dsLayout.get(),1 });
+				auto ds = pool->createDescriptorSet(std::move(dsLayout));
+				if (!ds) {
+					m_logger->log("Could not descriptor set!", ILogger::ELL_ERROR);
+					return false;
+				}
+				meshlet_subAllocDS = make_smart_refctd_ptr<SubAllocatedDescriptorSet>(std::move(ds));
+			}
+
+			{
+				const SPushConstantRange ranges[] = { {
+					.stageFlags = hlsl::ShaderStage::ESS_TASK | hlsl::ShaderStage::ESS_MESH,
+					.offset = 0,
+					.size = sizeof(MeshletPush),
+				} }; 
+				
+				meshletLayout = m_device->createPipelineLayout(ranges, smart_refctd_ptr<const IGPUDescriptorSetLayout>(meshlet_subAllocDS->getDescriptorSet()->getLayout()));
+				IGPUMeshPipeline::SCreationParams params = {};
+				params.layout = meshletLayout.get();
+				params.renderpass = m_renderpass.get();
+				params.cached.subpassIx = 0;
+
+				params.taskShader.shader = shaders[0].get();
+				params.taskShader.entryPoint = "main";
+				params.taskShader.entries = nullptr;
+				params.taskShader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(4); //ill need to adjust this probably
+
+
+				params.meshShader.shader = shaders[1].get();
+				params.meshShader.entryPoint = "main";
+				params.meshShader.entries = nullptr;
+				params.meshShader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(5); //ill need to adjust this probably
+
+				params.fragmentShader = { .shader = shaders[2].get(), .entryPoint = "main"};
+
+
+				params.cached.requireFullSubgroups = true;
+				params.cached.rasterization.faceCullingMode = EFCM_NONE; //maybe change this? i was a bit limited in example 61
+
+				if (!m_device->createMeshPipelines(nullptr, { &params, 1 }, &meshletPipeline)) {
+					logFail("Failed to create mesh pipeline!\n");
+				}
+			}
+
+
+		}
+
+
+
 		virtual inline bool onAppTerminated()
 		{
 			SubAllocatedDescriptorSet::value_type fontAtlasDescIx = ext::imgui::UI::FontAtlasTexId;
@@ -380,10 +540,12 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 			const auto viewParams = CSimpleDebugRenderer::SViewParams(viewMatrix, viewProjMatrix);
 
 			// tear down scene every frame
-			auto& instance = m_renderer->m_instances[0];
-			memcpy(&instance.world, &interface.model, sizeof(instance.world));
-			instance.packedGeo = m_renderer->getGeometries().data() + interface.gcIndex;
-			m_renderer->render(cb, viewParams);
+			//auto& instance = m_renderer->m_instances[0];
+			//memcpy(&instance.world, &interface.model, sizeof(instance.world));
+			//instance.packedGeo = m_renderer->getGeometries().data() + interface.gcIndex;
+			//m_renderer->render(cb, viewParams);
+
+			//MeshPushConstant mPushConstant = { interface.camera.getConcatenatedMatrix(), cubeCount, coneCount, tubeCount };
 		}
 
 
@@ -425,10 +587,10 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 							previousEventTimestamp = e.timeStamp;
 							uiEvents.mouse.emplace_back(e);
 
-							if (e.type==nbl::ui::SMouseEvent::EET_SCROLL && m_renderer)
+							if (e.type==nbl::ui::SMouseEvent::EET_SCROLL)// && m_renderer)
 							{
 								interface.gcIndex += int16_t(core::sign(e.scrollEvent.verticalScroll));
-								interface.gcIndex = core::clamp(interface.gcIndex,0ull,m_renderer->getGeometries().size()-1);
+								//interface.gcIndex = core::clamp(interface.gcIndex,0ull,m_renderer->getGeometries().size()-1);
 							}
 						}
 					},
@@ -463,7 +625,7 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 				.keyboardEvents = uiEvents.keyboard
 			};
 
-			interface.objectName = m_scene->getInitParams().geometryNames[interface.gcIndex];
+			interface.objectName = m_scene->getInitParams().geometryNames[0];
 			interface.imGUI->update(params);
 		}
 
@@ -554,8 +716,8 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 		//
 		smart_refctd_ptr<CGeometryCreatorScene> m_scene;
 		smart_refctd_ptr<IGPURenderpass> m_renderpass;
-		smart_refctd_ptr<CSimpleDebugRenderer> m_renderer;
 		smart_refctd_ptr<IGPUFramebuffer> m_framebuffer;
+		smart_refctd_ptr<CSimpleDebugRenderer> m_renderer;
 		//
 		smart_refctd_ptr<ISemaphore> m_semaphore;
 		uint64_t m_realFrameIx = 0;
@@ -563,6 +725,10 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 		//
 		InputSystem::ChannelReader<IMouseEventChannel> mouse;
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
+
+		core::smart_refctd_ptr<video::SubAllocatedDescriptorSet> meshlet_subAllocDS;
+		smart_refctd_ptr<IGPUPipelineLayout> meshletLayout;
+		smart_refctd_ptr<IGPUMeshPipeline> meshletPipeline;
 		// UI stuff
 		struct CInterface
 		{
@@ -600,6 +766,10 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 				ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Appearing);
 				ImGui::SetNextWindowSize(ImVec2(320, 340), ImGuiCond_Appearing);
 				ImGui::Begin("Editor");
+
+				if (ImGui::Button("reload mesh shader")) {
+					//printf("test shader result - %d\n", CreateTestShaderFuncPtr());
+				}
 
 				if (ImGui::RadioButton("Full view", !transformParams.useWindow))
 					transformParams.useWindow = false;
@@ -664,8 +834,7 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 				{
 					ImGui::Text("Using gizmo");
 				}
-				else
-				{
+				else {
 					ImGui::Text(ImGuizmo::IsOver() ? "Over gizmo" : "");
 					ImGui::SameLine();
 					ImGui::Text(ImGuizmo::IsOver(ImGuizmo::TRANSLATE) ? "Over translate gizmo" : "");
@@ -730,18 +899,19 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 
 				imguizmoM16InOut.view = core::transpose(matrix4SIMD(camera.getViewMatrix()));
 				imguizmoM16InOut.projection = core::transpose(camera.getProjectionMatrix());
-				imguizmoM16InOut.model = core::transpose(matrix4SIMD(model));
+				if (currentTransform >= 0 && currentTransform < transforms.size()) {
+					imguizmoM16InOut.model = core::transpose(matrix4SIMD(transforms[currentTransform]));
+				}
 				{
-					if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
-						imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
-
 					transformParams.editTransformDecomposition = true;
 					static TransformWidget transformWidget{};
-					widgetBox = transformWidget.Update(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.model.pointer(), transformParams);
+					transformWidget.Update(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.model.pointer(), transformParams);
 					sceneResolution = widgetBox.zw;
 				}
 
-				model = core::transpose(imguizmoM16InOut.model).extractSub3x4();
+				if (currentTransform >= 0 && currentTransform < transforms.size()) {
+					transforms[currentTransform] = core::transpose(imguizmoM16InOut.model).extractSub3x4();
+				}
 				// to Nabla + update camera & model matrices
 // TODO: make it more nicely, extract:
 // - Position by computing inverse of the view matrix and grabbing its translation
@@ -755,8 +925,10 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 
 				// object meta display
 				{
-					ImGui::Begin("Object");
-					ImGui::Text("type: \"%s\"", objectName.data());
+					ImGui::Begin("Object Counts");
+					ImGui::Text("object count - cube[%d] - cone[%d] - tube[%d]", cubeCount, coneCount, tubeCount);
+
+
 					ImGui::End();
 				}
 					
@@ -785,83 +957,14 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 							ImGui::Separator();
 					};
 
-					addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, model.pointer());
+					if (currentTransform >= 0 && currentTransform < transforms.size()) {
+						addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, transforms[currentTransform].pointer());
+					}
 					addMatrixTable("Camera View Matrix", "ViewMatrixTable", 3, 4, view.pointer());
 					addMatrixTable("Camera View Projection Matrix", "ViewProjectionMatrixTable", 4, 4, projection.pointer(), false);
 
 					ImGui::End();
 				}
-
-				// Nabla Imgui backend MDI buffer info
-				// To be 100% accurate and not overly conservative we'd have to explicitly `cull_frees` and defragment each time,
-				// so unless you do that, don't use this basic info to optimize the size of your IMGUI buffer.
-				{
-					auto* streaminingBuffer = imGUI->getStreamingBuffer();
-
-					const size_t total = streaminingBuffer->get_total_size();			// total memory range size for which allocation can be requested
-					const size_t freeSize = streaminingBuffer->getAddressAllocator().get_free_size();		// max total free bloock memory size we can still allocate from total memory available
-					const size_t consumedMemory = total - freeSize;			// memory currently consumed by streaming buffer
-
-					float freePercentage = 100.0f * (float)(freeSize) / (float)total;
-					float allocatedPercentage = (float)(consumedMemory) / (float)total;
-
-					ImVec2 barSize = ImVec2(400, 30);
-					float windowPadding = 10.0f;
-					float verticalPadding = ImGui::GetStyle().FramePadding.y;
-
-					ImGui::SetNextWindowSize(ImVec2(barSize.x + 2 * windowPadding, 110 + verticalPadding), ImGuiCond_Always);
-					ImGui::Begin("Nabla Imgui MDI Buffer Info", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar);
-
-					ImGui::Text("Total Allocated Size: %zu bytes", total);
-					ImGui::Text("In use: %zu bytes", consumedMemory);
-					ImGui::Text("Buffer Usage:");
-
-					ImGui::SetCursorPosX(windowPadding);
-
-					if (freePercentage > 70.0f)
-						ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.0f, 1.0f, 0.0f, 0.4f));  // Green
-					else if (freePercentage > 30.0f)
-						ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 1.0f, 0.0f, 0.4f));  // Yellow
-					else
-						ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 0.0f, 0.0f, 0.4f));  // Red
-
-					ImGui::ProgressBar(allocatedPercentage, barSize, "");
-
-					ImGui::PopStyleColor();
-
-					ImDrawList* drawList = ImGui::GetWindowDrawList();
-
-					ImVec2 progressBarPos = ImGui::GetItemRectMin();
-					ImVec2 progressBarSize = ImGui::GetItemRectSize();
-
-					const char* text = "%.2f%% free";
-					char textBuffer[64];
-					snprintf(textBuffer, sizeof(textBuffer), text, freePercentage);
-
-					ImVec2 textSize = ImGui::CalcTextSize(textBuffer);
-					ImVec2 textPos = ImVec2
-					(
-						progressBarPos.x + (progressBarSize.x - textSize.x) * 0.5f,
-						progressBarPos.y + (progressBarSize.y - textSize.y) * 0.5f
-					);
-
-					ImVec4 bgColor = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
-					drawList->AddRectFilled
-					(
-						ImVec2(textPos.x - 5, textPos.y - 2),
-						ImVec2(textPos.x + textSize.x + 5, textPos.y + textSize.y + 2),
-						ImGui::GetColorU32(bgColor)
-					);
-
-					ImGui::SetCursorScreenPos(textPos);
-					ImGui::Text("%s", textBuffer);
-
-					ImGui::Dummy(ImVec2(0.0f, verticalPadding));
-
-					ImGui::End();
-				}
-
-				ImGui::End();
 			}
 
 			smart_refctd_ptr<ext::imgui::UI> imGUI;
@@ -871,7 +974,9 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 			//
 			Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
 			// mutables
-			core::matrix3x4SIMD model;
+			int32_t currentTransform = -1;
+			std::vector<core::matrix3x4SIMD> transforms;
+
 			std::string_view objectName;
 			TransformRequestParams transformParams;
 			uint16_t2 sceneResolution = {1280,720};
@@ -883,6 +988,10 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 			uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
 			bool isPerspective = true, isLH = true, flipGizmoY = true, move = false;
 			bool firstFrame = true;
+
+			uint32_t cubeCount = 0;
+			uint32_t coneCount = 0;
+			uint32_t tubeCount = 0;
 		} interface;
 };
 
