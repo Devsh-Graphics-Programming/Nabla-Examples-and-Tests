@@ -44,3 +44,6 @@ Beginning shader experimentation. Setting up easy reload of shaders so I don't h
 I need to add CPU side verification that mesh shader vert and prim count are below vulkan limits. The same as how work group size is verified.
 
 Mesh and Task shaders having branches where the output is not defined is incorrect. The glslc compiler won't warn the user, I'll have to check for DXC. Nvidia will assume it's a 0 group output, but AMD will get DEVICE_LOST. If it's possible, having a warning or compile check for that would be nice. Most likely outside the scope of Nabla, but possibly not. I'll have to ask.
+
+## 10/9
+On the bug hunting phase. Should be finished shortly, then I'll hit the cleanup phase.
