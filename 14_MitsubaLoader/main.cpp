@@ -70,7 +70,7 @@ class MitsubaLoaderTest final : public BuiltinResourcesApplication
 					IAssetLoader::SAssetLoadParams params = {};
 					params.logger = m_logger.get();
 					auto asset = m_assetMgr->getAsset(relPath,params);
-					if (asset.getContents().empty())
+					if (asset.getContents().empty() || asset.getAssetType()!=IAsset::E_TYPE::ET_SCENE)
 						return logFail("Failed To Load %s",relPath.c_str());
 					m_logger->log("Loaded %s",ILogger::ELL_INFO,relPath.c_str());
 					// TODO: print True Material IR
@@ -98,7 +98,7 @@ class MitsubaLoaderTest final : public BuiltinResourcesApplication
 			if (!base_t::onAppInitialized(std::move(system)))
 				return false;
 
-//			m_assetMgr->addAssetLoader(make_smart_refctd_ptr<ext::MitsubaLoader::CMitsubaLoader>());
+			m_assetMgr->addAssetLoader(make_smart_refctd_ptr<ext::MitsubaLoader::CMitsubaLoader>());
 			// some of our test scenes won't load without the `.serialized` support
 			m_assetMgr->addAssetLoader(make_smart_refctd_ptr<ext::MitsubaLoader::CSerializedLoader>());
 
