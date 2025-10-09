@@ -98,7 +98,7 @@ class MitsubaLoaderTest final : public BuiltinResourcesApplication
 			if (!base_t::onAppInitialized(std::move(system)))
 				return false;
 
-			m_assetMgr->addAssetLoader(make_smart_refctd_ptr<ext::MitsubaLoader::CMitsubaLoader>());
+			m_assetMgr->addAssetLoader(make_smart_refctd_ptr<ext::MitsubaLoader::CMitsubaLoader>(core::smart_refctd_ptr(m_system)));
 			// some of our test scenes won't load without the `.serialized` support
 			m_assetMgr->addAssetLoader(make_smart_refctd_ptr<ext::MitsubaLoader::CSerializedLoader>());
 
