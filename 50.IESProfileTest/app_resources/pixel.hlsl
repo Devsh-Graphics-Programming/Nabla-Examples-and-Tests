@@ -1,71 +1,71 @@
-#version 430 core
-// Copyright (C) 2018-2023 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2018-2025 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#include <nbl/builtin/glsl/ies/functions.glsl>
+#include "common.hlsl"
+#include "PSInput.hlsl"
 
-layout (location = 0) in vec3 Pos;
+[[vk::combinedImageSampler]] [[vk::binding(0, 3)]] Texture2D<float32_t> inIESCandelaImage;
+[[vk::combinedImageSampler]] [[vk::binding(1, 3)]] Texture2D<float32_t2> inSphericalCoordinatesImage;
+[[vk::combinedImageSampler]] [[vk::binding(2, 3)]] Texture2D<float32_t3> inOUVProjectionDirectionImage;
+[[vk::combinedImageSampler]] [[vk::binding(3, 3)]] Texture2D<unorm float2> inPassTMaskImage;
 
-layout (location = 0) out vec4 outColor;
+[[vk::combinedImageSampler]] [[vk::binding(0, 3)]] SamplerState inIESCandelaSampler;
+[[vk::combinedImageSampler]] [[vk::binding(1, 3)]] SamplerState inSphericalCoordinatesSampler;
+[[vk::combinedImageSampler]] [[vk::binding(2, 3)]] SamplerState inOUVProjectionDirectionSampler;
+[[vk::combinedImageSampler]] [[vk::binding(3, 3)]] SamplerState inPassTMaskSampler;
 
-layout(set = 3, binding = 0) uniform sampler2D inIESCandelaImage;
-layout(set = 3, binding = 1) uniform sampler2D inSphericalCoordinatesImage;
-layout(set = 3, binding = 2) uniform sampler2D inOUVProjectionDirectionImage;
-layout(set = 3, binding = 3) uniform sampler2D inPassTMask;
+[[vk::push_constant]] struct PushConstants pc;
 
-layout(push_constant) uniform PushConstants
+float32_t2 iesDirToUv(float32_t3 dir) 
 {
-    float maxIValue;
-	float zAngleDegreeRotation;
-	uint mode;
-	uint dummy;
-} pc;
+	float32_t sum = dot(float32_t3(1.0f, 1.0f, 1.0f), abs(dir));
+	float32_t3 s = dir / sum;
 
-#define M_PI 3.1415926536
+	if (s.z < 0.0f)
+		s.xy = sign(s.xy) * (1.0f - abs(s.yx));
 
-float plot(float cand, float pct, float bold){
-  return smoothstep( pct-0.005*bold, pct, cand) -
-          smoothstep( pct, pct+0.005*bold, cand);
+	return s.xy * 0.5f + 0.5f;
+}
+
+float32_t plot(float32_t cand, float32_t pct, float32_t bold)
+{
+	return smoothstep(pct-0.005*bold, pct, cand) - smoothstep( pct, pct+0.005*bold, cand);
 }
 
 // vertical cut of IES (i.e. cut by plane x = 0)
-float f(vec2 uv) {
-    return texture(inIESCandelaImage,nbl_glsl_IES_convert_dir_to_uv(normalize(vec3(uv.x, 0.001, uv.y)))).x;
-    // float vangle = (abs(atan(uv.x,uv.y)))/(M_PI);
-    // float hangle = uv.x <= 0.0 ? 0.0 : 1.0;
-    // return texture(inIESCandelaImage,vec2(hangle,vangle)).x;
+float32_t f(float32_t2 uv) 
+{
+	return inIESCandelaImage.Sample(inIESCandelaSampler, iesDirToUv(normalize(float32_t3(uv.x, 0.001, uv.y)))).x;
 }
 
-void main()
+[shader("pixel")]
+float32_t4 main(PSInput input) : SV_Target0
 {
-    vec2 ndc = Pos.xy;
-	vec2 uv = (ndc + 1) / 2;
+    float32_t2 ndc = input.position.xy;
+	float32_t2 uv = (ndc + 1) / 2;
 	
-	if(pc.mode == 0)
+	switch (pc.mode)
 	{
-		float dist = length(ndc)*1.015625;
-		vec3 col = vec3(plot(dist,1.0,0.75));
+		case 0:
+		{
+			float32_t dist = length(ndc) * 1.015625f;
+			float32_t p = plot(dist, 1.0f, 0.75f);
+			float32_t3 col = float32_t3(p, p, p);
 
-		float normalizedStrength = f(ndc);
-		if (dist<normalizedStrength)
-			col += vec3(1.0,0.0,0.0);
-		outColor = vec4(col,1.0);
+			float32_t normalizedStrength = f(ndc);
+			if (dist < normalizedStrength)
+				col += float32_t3(1.0f, 0.0f, 0.0f);
+
+			return float32_t4(col, 1.0f);
+		}
+		case 1:
+			return float32_t4(inIESCandelaImage.Sample(inIESCandelaSampler, uv).x, 0.f, 0.f, 1.f);
+		case 2:
+			return float32_t4(inSphericalCoordinatesImage.Sample(inSphericalCoordinatesSampler, uv).xy, 0.f, 1.f);
+		case 3:
+			return float32_t4(inOUVProjectionDirectionImage.Sample(inOUVProjectionDirectionSampler, uv).xyz, 1.f);
+		default:
+			return float32_t4(inPassTMaskImage.Sample(inPassTMaskSampler, uv).xy, 0.f, 1.f);
 	}
-	else if(pc.mode == 1)
-	{
-		outColor = texture(inIESCandelaImage, uv);		
-	}
-	else if(pc.mode == 2)
-	{
-		outColor = texture(inSphericalCoordinatesImage, uv);
-	}
-	else if(pc.mode == 3)
-	{
-		outColor = texture(inOUVProjectionDirectionImage, uv);
-	}
-	else
-	{
-		outColor = texture(inPassTMask, uv);
-	}	
 }

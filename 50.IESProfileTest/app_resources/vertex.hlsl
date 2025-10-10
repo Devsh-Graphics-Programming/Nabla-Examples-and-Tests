@@ -1,16 +1,15 @@
-// Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2018-2025 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#version 430 core
+#include "VSInput.hlsl"
+#include "PSInput.hlsl"
 
-layout (location = 0) in vec3 Pos;
-layout (location = 3) in vec3 Normal;
-
-layout (location = 0) out vec3 outPos;
-
-void main()
+[shader("vertex")]
+PSInput VSMain(VSInput input)
 {
-    outPos = Pos;
-    gl_Position = vec4(Pos, 1.0);
+    PSInput output;
+    output.position = float4(input.position, 1.f);
+
+    return output;
 }
