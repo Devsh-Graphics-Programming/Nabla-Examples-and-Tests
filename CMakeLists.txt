@@ -1,4 +1,4 @@
-# Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
+# Copyright (C) 2018-2025 - DevSH Graphics Programming Sp. z O.O.
 # This file is part of the "Nabla Engine".
 # For conditions of distribution and use, see copyright notice in nabla.h
 
@@ -44,7 +44,7 @@ if(NBL_BUILD_EXAMPLES)
 	#
 	add_subdirectory(12_MeshLoaders)
 	#
-	#add_subdirectory(13_MaterialCompiler EXCLUDE_FROM_ALL)
+	add_subdirectory(13_MaterialCompilerTest)
 
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo)
@@ -82,11 +82,11 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(0_ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
 
 	add_subdirectory(66_HLSLBxDFTests EXCLUDE_FROM_ALL)
-	add_subdirectory(67_RayQueryGeometry EXCLUDE_FROM_ALL) # TODO: resurrect before `mesh_loaders` merge
+	add_subdirectory(67_RayQueryGeometry)
 	add_subdirectory(68_JpegLoading)
 
   	add_subdirectory(70_FLIPFluids)
-	add_subdirectory(71_RayTracingPipeline EXCLUDE_FROM_ALL) # TODO: resurrect before `mesh_loaders` merge
+	add_subdirectory(71_RayTracingPipeline)
 
 	# add new examples *before* NBL_GET_ALL_TARGETS invocation, it gathers recursively all targets created so far in this subdirectory
 	NBL_GET_ALL_TARGETS(TARGETS)
