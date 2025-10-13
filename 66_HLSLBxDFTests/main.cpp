@@ -70,6 +70,7 @@ struct PrintFailureCallback : FailureCallback
     }
 };
 
+#define FOR_EACH_BEGIN_EX(r, ex) std::for_each(ex, r.begin(), r.end(), [&](uint32_t i) {
 #define FOR_EACH_BEGIN(r) std::for_each(std::execution::par_unseq, r.begin(), r.end(), [&](uint32_t i) {
 #define FOR_EACH_END });
 
@@ -257,7 +258,7 @@ int main(int argc, char** argv)
     // chi2 test for sampling and pdf
     runs = testconfigs["TestChi2"]["runs"];
     auto rChi2 = std::ranges::views::iota(0u, runs);
-    FOR_EACH_BEGIN(rChi2)
+    FOR_EACH_BEGIN_EX(rChi2, std::execution::par_unseq)
     STestInitParams initparams{ .logInfo = logInfo };
     initparams.state = i;
     initparams.samples = testconfigs["TestChi2"]["samples"];

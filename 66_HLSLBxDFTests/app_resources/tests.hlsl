@@ -108,6 +108,7 @@ struct SBxDFTestResources
         nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 2> rng_vec2 = nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 2>::construct(retval.rng);
         nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3> rng_vec3 = nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3>::construct(retval.rng);
         retval.u = ConvertToFloat01<uint32_t3>::__call(rng_vec3());
+        // retval.u.z = 0.0;
 
         retval.V.direction = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(rng_vec2())));
         retval.N = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(rng_vec2())));
@@ -255,10 +256,8 @@ struct TestBxDF<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>> :
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf_t::creation_params_type create_params;
-        create_params.A = rc.alpha.x;
-        create_params.fresnel = base_t::bxdf_t::fresnel_type::create(hlsl::promote<float32_t3>(rc.eta.x),hlsl::promote<float32_t3>(rc.eta.y));
-        base_t::bxdf = bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>::create(create_params);
+        base_t::bxdf.ndf = base_t::bxdf_t::ndf_type::create(rc.alpha.x);
+        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(hlsl::promote<float32_t3>(rc.eta.x),hlsl::promote<float32_t3>(rc.eta.y));
 #ifndef __HLSL_VERSION
         base_t::name = "Beckmann BRDF";
 #endif
@@ -272,11 +271,8 @@ struct TestBxDF<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf_t::creation_params_type create_params;
-        create_params.ax = rc.alpha.x;
-        create_params.ay = rc.alpha.y;
-        create_params.fresnel = base_t::bxdf_t::fresnel_type::create(hlsl::promote<float32_t3>(rc.eta.x),hlsl::promote<float32_t3>(rc.eta.y));
-        base_t::bxdf = bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>::create(create_params);
+        base_t::bxdf.ndf = base_t::bxdf_t::ndf_type::create(rc.alpha.x, rc.alpha.y);
+        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(hlsl::promote<float32_t3>(rc.eta.x),hlsl::promote<float32_t3>(rc.eta.y));
 #ifndef __HLSL_VERSION
         base_t::name = "Beckmann Aniso BRDF";
 #endif
@@ -290,10 +286,8 @@ struct TestBxDF<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>> : Test
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf_t::creation_params_type create_params;
-        create_params.A = rc.alpha.x;
-        create_params.fresnel = base_t::bxdf_t::fresnel_type::create(hlsl::promote<float32_t3>(rc.eta.x),hlsl::promote<float32_t3>(rc.eta.y));
-        base_t::bxdf = bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>::create(create_params);
+        base_t::bxdf.ndf = base_t::bxdf_t::ndf_type::create(rc.alpha.x);
+        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(hlsl::promote<float32_t3>(rc.eta.x),hlsl::promote<float32_t3>(rc.eta.y));
 #ifndef __HLSL_VERSION
         base_t::name = "GGX BRDF";
 #endif
@@ -307,11 +301,8 @@ struct TestBxDF<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>> : 
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf_t::creation_params_type create_params;
-        create_params.ax = rc.alpha.x;
-        create_params.ay = rc.alpha.y;
-        create_params.fresnel = base_t::bxdf_t::fresnel_type::create(hlsl::promote<float32_t3>(rc.eta.x),hlsl::promote<float32_t3>(rc.eta.y));
-        base_t::bxdf = bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>::create(create_params);
+        base_t::bxdf.ndf = base_t::bxdf_t::ndf_type::create(rc.alpha.x, rc.alpha.y);
+        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(hlsl::promote<float32_t3>(rc.eta.x),hlsl::promote<float32_t3>(rc.eta.y));
 #ifndef __HLSL_VERSION
         base_t::name = "GGX Aniso BRDF";
 #endif
@@ -384,11 +375,9 @@ struct TestBxDF<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf_t::creation_params_type create_params;
-        create_params.A = rc.alpha.x;
         bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type> orientedEta = bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(1.0, hlsl::promote<typename base_t::bxdf_t::monochrome_type>(rc.eta.x));
-        create_params.fresnel = base_t::bxdf_t::fresnel_type::create(orientedEta);
-        base_t::bxdf = bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>::create(create_params);
+        base_t::bxdf.ndf = base_t::bxdf_t::ndf_type::create(rc.alpha.x);
+        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(orientedEta);
 #ifndef __HLSL_VERSION
         base_t::name = "Beckmann Dielectric BSDF";
 #endif
@@ -402,12 +391,9 @@ struct TestBxDF<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfa
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf_t::creation_params_type create_params;
-        create_params.ax = rc.alpha.x;
-        create_params.ay = rc.alpha.y;
         bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type> orientedEta = bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(1.0, hlsl::promote<typename base_t::bxdf_t::monochrome_type>(rc.eta.x));
-        create_params.fresnel = base_t::bxdf_t::fresnel_type::create(orientedEta);
-        base_t::bxdf = bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>::create(create_params);
+        base_t::bxdf.ndf = base_t::bxdf_t::ndf_type::create(rc.alpha.x, rc.alpha.y);
+        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(orientedEta);
 #ifndef __HLSL_VERSION
         base_t::name = "Beckmann Dielectric Aniso BSDF";
 #endif
@@ -421,11 +407,9 @@ struct TestBxDF<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_confi
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf_t::creation_params_type create_params;
-        create_params.A = rc.alpha.x;
         bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type> orientedEta = bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(1.0, hlsl::promote<typename base_t::bxdf_t::monochrome_type>(rc.eta.x));
-        create_params.fresnel = base_t::bxdf_t::fresnel_type::create(orientedEta);
-        base_t::bxdf = bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>::create(create_params);
+        base_t::bxdf.ndf = base_t::bxdf_t::ndf_type::create(rc.alpha.x);
+        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(orientedEta);
 #ifndef __HLSL_VERSION
         base_t::name = "GGX Dielectric BSDF";
 #endif
@@ -439,12 +423,9 @@ struct TestBxDF<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_c
 
     void initBxDF(SBxDFTestResources _rc)
     {
-        base_t::bxdf_t::creation_params_type create_params;
-        create_params.ax = rc.alpha.x;
-        create_params.ay = rc.alpha.y;
         bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type> orientedEta = bxdf::fresnel::OrientedEtas<typename base_t::bxdf_t::monochrome_type>::create(1.0, hlsl::promote<typename base_t::bxdf_t::monochrome_type>(rc.eta.x));
-        create_params.fresnel = base_t::bxdf_t::fresnel_type::create(orientedEta);
-        base_t::bxdf = bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>::create(create_params);
+        base_t::bxdf.ndf = base_t::bxdf_t::ndf_type::create(rc.alpha.x, rc.alpha.y);
+        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(orientedEta);
 #ifndef __HLSL_VERSION
         base_t::name = "GGX Dielectric Aniso BSDF";
 #endif
@@ -1144,8 +1125,9 @@ struct TestChi2 : TestBxDF<BxDF>
 
         int totalWidth = phiSplits;
         int totalHeight = 2 * thetaSplits + 1;
-        float maxFreq = max<float>(maxCountFreq, maxIntFreq);
+        float maxFreq = maxCountFreq;
         
+        // write sample count from generate, top half
         Array2D<Rgba> pixels(totalWidth, totalHeight);
         for (int y = 0; y < thetaSplits; y++)
             for (int x = 0; x < phiSplits; x++)
@@ -1154,6 +1136,7 @@ struct TestChi2 : TestBxDF<BxDF>
         // for (int x = 0; x < phiSplits; x++)
         //     pixels[thetaSplits][x] = Rgba(1, 1, 1);
 
+        // write values of pdf, bottom half
         for (int y = 0; y < thetaSplits; y++)
             for (int x = 0; x < phiSplits; x++)
                 pixels[thetaSplits + y][x] = mapColor(integrateFreq[y * phiSplits + x], 0.f, maxFreq);
@@ -1244,25 +1227,25 @@ struct TestChi2 : TestBxDF<BxDF>
                         ray_dir_info_t localL = L.transform(toTangentSpace);
                         sample_t s = sample_t::createFromTangentSpace(localL, base_t::anisointer.getFromTangentSpace());
 
-                        float pdf;
+                        quotient_pdf_t pdf;
                         if NBL_CONSTEXPR_FUNC (!traits_t::IsMicrofacet)
                         {
-                            pdf = base_t::bxdf.pdf(s);
+                            pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer);
                         }
                         if NBL_CONSTEXPR_FUNC (traits_t::IsMicrofacet)
                         {
                             if NBL_CONSTEXPR_FUNC (aniso)
                             {
                                 aniso_cache cache = aniso_cache::template createForReflection<aniso_interaction,sample_t>(base_t::anisointer, s);
-                                pdf = base_t::bxdf.pdf(s, base_t::anisointer, cache);
+                                pdf = base_t::bxdf.quotient_and_pdf(s, base_t::anisointer, cache);
                             }
                             else
                             {
                                 aniso_cache cache = aniso_cache::template createForReflection<aniso_interaction,sample_t>(base_t::anisointer, s);
-                                pdf = base_t::bxdf.pdf(s, base_t::isointer, cache.iso_cache);
+                                pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer, cache.iso_cache);
                             }
                         }
-                        return pdf == bit_cast<float>(numeric_limits<float>::infinity) ? 0.0 : pdf * sinTheta;
+                        return pdf.pdf == bit_cast<float>(numeric_limits<float>::infinity) ? 0.0 : pdf.pdf * sinTheta;
                     },
                     float32_t2(i * thetaFactor, j * phiFactor), float32_t2((i + 1) * thetaFactor, (j + 1) * phiFactor));
 

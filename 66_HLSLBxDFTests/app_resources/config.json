@@ -13,7 +13,7 @@
         "samples": 500
     },
     "TestChi2": {
-        "runs": 5,
+        "runs": 10,
         "samples": 1000000,
         "thetaSplits": 80,
         "phiSplits": 160,
