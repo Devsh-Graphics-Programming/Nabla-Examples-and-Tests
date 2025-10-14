@@ -365,7 +365,7 @@ bool performImageFormatPromotionCopy(const core::smart_refctd_ptr<asset::ICPUIma
 }
 
 // Used by case 12
-struct ImageLoader : public DrawResourcesFiller::IGeoreferencedImageLoader
+struct ImageLoader : public IImageRegionLoader
 {
 	ImageLoader(asset::IAssetManager* assetMgr, system::ILogger* logger, video::IPhysicalDevice* physicalDevice)
 		: m_assetMgr(assetMgr), m_logger(logger), m_physicalDevice(physicalDevice) 
@@ -568,8 +568,6 @@ public:
 	void allocateResources()
 	{
 		drawResourcesFiller = DrawResourcesFiller(core::smart_refctd_ptr(m_utils), getGraphicsQueue(), core::smart_refctd_ptr(m_logger));
-
-		drawResourcesFiller.setViewportExtent(uint32_t2(m_window->getWidth(), m_window->getHeight()));
 
 		size_t maxImagesMemSize = 1024ull * 1024ull * 1024ull; // 1024 MB
 		size_t maxBufferMemSize = 1024ull * 1024ull * 1024ull; // 1024 MB
@@ -1716,7 +1714,7 @@ public:
 																0.0f, 0.0f, 1.0f);
 		globalData.miterLimit = 10.0f;
 		globalData.currentlyActiveMainObjectIndex = drawResourcesFiller.getActiveMainObjectIndex();
-		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = m_globalsBuffer.get() };
+		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = m_globalsBuffer};
 		bool updateSuccess = cb->updateBuffer(globalBufferUpdateRange, &globalData);
 		assert(updateSuccess);
 
@@ -1806,7 +1804,7 @@ public:
 		{
 			if (drawCall.isDTMRendering)
 			{
-				cb->bindIndexBuffer({ .offset = resourcesCollection.geometryInfo.bufferOffset + drawCall.dtm.indexBufferOffset, .buffer = drawResourcesFiller.getResourcesGPUBuffer().get()}, asset::EIT_32BIT);
+				cb->bindIndexBuffer({ .offset = resourcesCollection.geometryInfo.bufferOffset + drawCall.dtm.indexBufferOffset, .buffer = drawResourcesFiller.getResourcesGPUBuffer()}, asset::EIT_32BIT);
 
 				PushConstants pc = {
 					.triangleMeshVerticesBaseAddress = drawCall.dtm.triangleMeshVerticesBaseAddress + resourcesGPUBuffer->getDeviceAddress() + resourcesCollection.geometryInfo.bufferOffset,
@@ -1828,7 +1826,7 @@ public:
 				const uint64_t indexCount = drawCall.drawObj.drawObjectCount * 6u;
 
 				// assert(currentIndexCount == resourcesCollection.indexBuffer.getCount());
-				cb->bindIndexBuffer({ .offset = resourcesCollection.indexBuffer.bufferOffset + indexOffset * sizeof(uint32_t), .buffer = resourcesGPUBuffer.get()}, asset::EIT_32BIT);
+				cb->bindIndexBuffer({ .offset = resourcesCollection.indexBuffer.bufferOffset + indexOffset * sizeof(uint32_t), .buffer = resourcesGPUBuffer}, asset::EIT_32BIT);
 				cb->drawIndexed(indexCount, 1u, 0u, 0u, 0u);
 			}
 		}
@@ -1854,7 +1852,7 @@ public:
 				const uint64_t indexCount = drawCall.drawObj.drawObjectCount * 6u;
 
 				// assert(currentIndexCount == resourcesCollection.indexBuffer.getCount());
-				cb->bindIndexBuffer({ .offset = resourcesCollection.indexBuffer.bufferOffset + indexOffset * sizeof(uint32_t), .buffer = resourcesGPUBuffer.get()}, asset::EIT_32BIT);
+				cb->bindIndexBuffer({ .offset = resourcesCollection.indexBuffer.bufferOffset + indexOffset * sizeof(uint32_t), .buffer = resourcesGPUBuffer}, asset::EIT_32BIT);
 
 				cb->drawIndexed(indexCount, 1u, 0u, 0u, 0u);
 			}
@@ -3883,11 +3881,10 @@ protected:
 			constexpr float64_t3 bottomLeftViewportH = float64_t3(-1.0, 1.0, 1.0);
 			constexpr float64_t3 bottomRightViewportH = float64_t3(1.0, 1.0, 1.0);
 
-			GeoreferencedImageParams georeferencedImageParams;
-			georeferencedImageParams.storagePath = georeferencedImagePath;
-			georeferencedImageParams.format = drawResourcesFiller.queryGeoreferencedImageFormat(georeferencedImagePath);
-			georeferencedImageParams.imageExtents = drawResourcesFiller.queryGeoreferencedImageExtents(georeferencedImagePath);
-
+			//GeoreferencedImageParams georeferencedImageParams;
+			//georeferencedImageParams.storagePath = georeferencedImagePath;
+			//georeferencedImageParams.format = drawResourcesFiller.queryGeoreferencedImageFormat(georeferencedImagePath);
+			//georeferencedImageParams.imageExtents = drawResourcesFiller.queryGeoreferencedImageExtents(georeferencedImagePath);
 
 			image_id georefImageID = 6996;
 			// Position at topLeft viewport
@@ -3896,28 +3893,30 @@ protected:
 			if constexpr (testCameraRotation)
 				projectionToNDC = rotateBasedOnTime(projectionToNDC);
 			auto inverseViewProj = nbl::hlsl::inverse(projectionToNDC);
-			
-			const static auto startingTopLeft = nbl::hlsl::mul(inverseViewProj, topLeftViewportH);
-			georeferencedImageParams.worldspaceOBB.topLeft = startingTopLeft;
 
 			// Get 1 viewport pixel to match `startingImagePixelsPerViewportPixel` pixels of the image by choosing appropriate dirU
 			const static float64_t startingImagePixelsPerViewportPixels = 1.0;
 			const static auto startingViewportWidthVector = nbl::hlsl::mul(inverseViewProj, topRightViewportH - topLeftViewportH);
 			const static auto dirU = startingViewportWidthVector * float64_t(drawResourcesFiller.queryGeoreferencedImageExtents(georeferencedImagePath).x) / float64_t(startingImagePixelsPerViewportPixels * m_window->getWidth());
-			
-			// DEBUG
-			//georefImageOBB.topLeft += float32_t2(startingViewportWidthVector - dirU);
-
-			georeferencedImageParams.worldspaceOBB.dirU = dirU;
-			const uint32_t2 imageExtents = drawResourcesFiller.queryGeoreferencedImageExtents(georeferencedImagePath);
-			georeferencedImageParams.worldspaceOBB.aspectRatio = float32_t(imageExtents.y) / imageExtents.x;
 
 			// Unnecessary but should go into a callback if window can change dimensions during execution
-			drawResourcesFiller.setViewportExtent(uint32_t2(m_window->getWidth(), m_window->getHeight()));
+			drawResourcesFiller.updateViewportInfo(uint32_t2(m_window->getWidth(), m_window->getHeight()), inverseViewProj);
 
-			drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(georefImageID, std::move(georeferencedImageParams), intendedNextSubmit);
+			const static auto startingTopLeft = nbl::hlsl::mul(inverseViewProj, topLeftViewportH);
+			const uint32_t2 imageExtents = drawResourcesFiller.queryGeoreferencedImageExtents(georeferencedImagePath);
+			OrientedBoundingBox2D georefImageBB = { .topLeft = startingTopLeft, .dirU = dirU, .aspectRatio = float32_t(imageExtents.y) / imageExtents.x };
 
-			drawResourcesFiller.addGeoreferencedImage(georefImageID, inverseViewProj, intendedNextSubmit);
+			auto streamingState = drawResourcesFiller.ensureGeoreferencedImageEntry(georefImageID, georefImageBB, georeferencedImagePath);
+			constexpr static WorldClipRect invalidClipRect = { .minClip = float64_t2(std::numeric_limits<float64_t>::signaling_NaN()) };
+			drawResourcesFiller.launchGeoreferencedImageTileLoads(georefImageID, streamingState.get(), invalidClipRect);
+
+			drawResourcesFiller.drawGeoreferencedImage(georefImageID, std::move(streamingState), intendedNextSubmit);
+
+			drawResourcesFiller.finalizeGeoreferencedImageTileLoads(intendedNextSubmit);
+
+			//drawResourcesFiller.ensureGeoreferencedImageAvailability_AllocateIfNeeded(georefImageID, std::move(georeferencedImageParams), intendedNextSubmit);
+
+			//drawResourcesFiller.addGeoreferencedImage(georefImageID, inverseViewProj, intendedNextSubmit);
 		}
 	}
 

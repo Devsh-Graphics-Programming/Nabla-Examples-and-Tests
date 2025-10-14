@@ -1,6 +1,9 @@
+/* DrawResourcesFiller: This class provides important functionality to manage resources needed for a draw.
+/******************************************************************************/
 #pragma once
 
 #include "shaders/globals.hlsl"
+#include <future>
 
 using namespace nbl;
 using namespace nbl::video;
@@ -8,6 +11,13 @@ using namespace nbl::core;
 using namespace nbl::asset;
 
 using image_id = uint64_t; // Could later be templated or replaced with a stronger type or hash key.
+
+// These are mip 0 pixels per tile, also size of each physical tile into the gpu resident image
+constexpr static uint32_t GeoreferencedImageTileSize = 128u;
+// Mip 1 tiles are naturally half the size
+constexpr static uint32_t GeoreferencedImageTileSizeMip1 = GeoreferencedImageTileSize / 2;
+// How many tiles of extra padding we give to the gpu image holding the tiles for a georeferenced image
+constexpr static uint32_t GeoreferencedImagePaddingTiles = 2;
 
 enum class ImageState : uint8_t
 {
@@ -21,28 +31,19 @@ enum class ImageType : uint8_t
 {
 	INVALID = 0,
 	STATIC,                        // Regular non-georeferenced image, fully loaded once
-	GEOREFERENCED_STREAMED,            // Streamed image, resolution depends on camera/view
-	GEOREFERENCED_FULL_RESOLUTION      // For smaller georeferenced images, entire image is eventually loaded and not streamed or view-dependant
-};
-
-struct GeoreferencedImageParams
-{
-	OrientedBoundingBox2D worldspaceOBB = {};
-	uint32_t2 imageExtents = {};
-	asset::E_FORMAT format = {};
-	std::filesystem::path storagePath = {};
+	GEOREFERENCED_STREAMED,        // Streamed image, resolution depends on camera/view // TODO[DEVSH]: Probably best to rename this to STREAMED image
 };
 
 /**
- * @class ImagesMemorySubAllocator
- * @brief A memory sub-allocator designed for managing sub-allocations within a pre-allocated GPU memory arena for images.
- * 
- * This class wraps around `nbl::core::GeneralpurposeAddressAllocator` to provide offset-based memory allocation
- * for image resources within a contiguous block of GPU memory.
- *
- * @note This class only manages address offsets. The actual memory must be bound separately.
- */
-class ImagesMemorySubAllocator : public core::IReferenceCounted 
+* @class ImagesMemorySubAllocator
+* @brief A memory sub-allocator designed for managing sub-allocations within a pre-allocated GPU memory arena for images.
+*
+* This class wraps around `nbl::core::GeneralpurposeAddressAllocator` to provide offset-based memory allocation
+* for image resources within a contiguous block of GPU memory.
+*
+* @note This class only manages address offsets. The actual memory must be bound separately.
+*/
+class ImagesMemorySubAllocator : public core::IReferenceCounted
 {
 public:
 	using AddressAllocator = nbl::core::GeneralpurposeAddressAllocator<uint64_t>;
@@ -72,12 +73,17 @@ public:
 		m_addressAllocator->free_addr(addr, size);
 	}
 
+	uint64_t getFreeSize() const
+	{
+		return m_addressAllocator->get_free_size();
+	}
+
 	~ImagesMemorySubAllocator()
 	{
 		if (m_reservedAlloc)
 			m_reservedAllocator->deallocate(reinterpret_cast<uint8_t*>(m_reservedAlloc), m_reservedAllocSize);
 	}
-	
+
 private:
 	std::unique_ptr<AddressAllocator> m_addressAllocator = nullptr;
 
@@ -92,18 +98,9 @@ private:
 // Destructor will then deallocate from GeneralPurposeAllocator, making the previously allocated range of the image available/free again.
 struct ImageCleanup : public core::IReferenceCounted
 {
-	ImageCleanup()
-		: imagesMemorySuballocator(nullptr)
-		, addr(ImagesMemorySubAllocator::InvalidAddress)
-		, size(0ull)
-	{}
+	ImageCleanup();
 
-	~ImageCleanup() override
-	{
-		// printf(std::format("Actual Eviction size={}, offset={} \n", size, addr).c_str());
-		if (imagesMemorySuballocator && addr != ImagesMemorySubAllocator::InvalidAddress)
-			imagesMemorySuballocator->deallocate(addr, size);
-	}
+	~ImageCleanup() override;
 
 	smart_refctd_ptr<ImagesMemorySubAllocator> imagesMemorySuballocator;
 	uint64_t addr;
@@ -122,26 +119,109 @@ struct GeoreferencedImageTileRange
 // @brief Used to load tiles into VRAM, keep track of loaded tiles, determine how they get sampled etc.
 struct GeoreferencedImageStreamingState : public IReferenceCounted
 {
-	friend class DrawResourcesFiller;
+public:
 
-protected:
+	GeoreferencedImageStreamingState()
+	{
+	}
+
+	//! Creates a new streaming state for a georeferenced image
 	/*
-	* @brief Create a streaming state for a georeferenced image
-	*
-	* @param _georeferencedImageParams Info relating to the georeferenced image for which to create a streaming state.
-	* @param TileSize Size of the tiles used to break up the image. Also size of the tiles in the GPU image backing this georeferenced image.
-	*/
-	static smart_refctd_ptr<GeoreferencedImageStreamingState> create(GeoreferencedImageParams&& _georeferencedImageParams, uint32_t TileSize);
+		Initializes CPU-side state for image streaming.
+		Sets up world-to-UV transform, computes mip hierarchy parameters,
+		and stores metadata about the image.
 
+		@param worldspaceOBB       Oriented bounding box of the image in world space
+		@param fullResImageExtents Full resolution image size in pixels (width, height)
+		@param format              Pixel format of the image
+		@param storagePath         Filesystem path for image tiles
+	*/
+	bool init(const OrientedBoundingBox2D& worldSpaceOBB, const uint32_t2 fullResImageExtents, const asset::E_FORMAT format, const std::filesystem::path& storagePath);
+
+	/**
+		* @brief Update the mapped region to cover the current viewport.
+		*
+		* Computes the required tile range from the viewport and updates
+		* `currentMappedRegion` by remapping or sliding as needed.
+		*
+		* @param currentViewportExtents  Viewport size in pixels.
+		* @param ndcToWorldMat      NDC to world space mattix.
+		*
+		* @see tilesToLoad
+		*/
+	void updateStreamingStateForViewport(const uint32_t2 viewportExtent, const float64_t3x3& ndcToWorldMat);
+
+	// @brief Info to match a gpu tile to the tile in the real image it should hold image data for
+	struct ImageTileToGPUTileCorrespondence
+	{
+		uint32_t2 imageTileIndex;
+		uint32_t2 gpuImageTileIndex;
+	};
+
+	/*
+		* @brief Get the tiles required for rendering the current viewport.
+		* Uses the region set by `updateStreamingStateForViewport()` to return
+		* which image tiles need loading and their target GPU tile indices.
+		*/
+	core::vector<ImageTileToGPUTileCorrespondence> tilesToLoad() const;
+
+	// @brief Returns the index of the last tile when covering the image with `mipLevel` tiles
+	inline uint32_t2 getLastTileIndex(uint32_t mipLevel) const
+	{
+		return (fullImageTileLength - 1u) >> mipLevel;
+	}
+
+	// @brief Returns whether the last tile in the image (along each dimension) is visible from the current viewport
+	inline bool2 isLastTileVisible(const uint32_t2 viewportBottomRightTile) const
+	{
+		const uint32_t2 lastTileIndex = getLastTileIndex(currentMappedRegionTileRange.baseMipLevel);
+		return bool2(lastTileIndex.x == viewportBottomRightTile.x, lastTileIndex.y == viewportBottomRightTile.y);
+	}
+
+	/**
+	* @brief Compute viewport positioning and UV addressing for a georeferenced image.
+	*
+	* Returns a `GeoreferencedImageInfo` filled with:
+	*   - `topLeft`, `dirU`, `aspectRatio` (world-space OBB)
+	*   - `minUV`, `maxUV` (UV addressing for the viewport)
+	*
+	* Leaves `textureID` unmodified.
+	*
+	* @note Make sure to call `updateStreamingStateForViewport()` first so that
+	*       the OBB and UVs reflect the latest viewport.
+	*
+	* @param imageStreamingState The streaming state of the georeferenced image.
+	* @return GeoreferencedImageInfo containing viewport positioning and UV info.
+	*/
+	GeoreferencedImageInfo computeGeoreferencedImageAddressingAndPositioningInfo();
+
+private:
 	// These are NOT UV, pixel or tile coords into the mapped image region, rather into the real, huge image
 	// Tile coords are always in mip 0 tile size. Translating to other mips levels is trivial
 
 	// @brief Transform worldspace coordinates into UV coordinates into the image
-	float64_t2 transformWorldCoordsToUV(const float64_t3 worldCoords) const { return nbl::hlsl::mul(world2UV, worldCoords); }
+	float64_t2 transformWorldCoordsToUV(const float64_t3 worldCoords) const { return nbl::hlsl::mul(worldToUV, worldCoords); }
 	// @brief Transform worldspace coordinates into texel coordinates into the image
-	float64_t2 transformWorldCoordsToTexelCoords(const float64_t3 worldCoords) const { return float64_t2(georeferencedImageParams.imageExtents) * transformWorldCoordsToUV(worldCoords); }
-	// @brief Transform worldspace coordinates into tile coordinates into the image, where the image is broken up into tiles of size `TileSize` 
-	float64_t2 transformWorldCoordsToTileCoords(const float64_t3 worldCoords, const uint32_t TileSize) const { return (1.0 / TileSize) * transformWorldCoordsToTexelCoords(worldCoords); }
+	float64_t2 transformWorldCoordsToTexelCoords(const float64_t3 worldCoords) const { return float64_t2(fullResImageExtents) * transformWorldCoordsToUV(worldCoords); }
+	// @brief Transform worldspace coordinates into tile coordinates into the image, where the image is broken up into tiles of size `GeoreferencedImageTileSize` 
+	float64_t2 transformWorldCoordsToTileCoords(const float64_t3 worldCoords) const { return (1.0 / GeoreferencedImageTileSize) * transformWorldCoordsToTexelCoords(worldCoords); }
+
+	/**
+	* @brief Compute the tile range and mip level needed to cover the viewport.
+	*
+	* Calculates which portion of the source image is visible through the given
+	* viewport and chooses the optimal mip level based on zoom (viewport size
+	* relative to the image). The returned range is always a subset of
+	* `currentMappedRegion` and covers only the visible tiles.
+	*
+	* @param currentViewportExtents Size of the viewport in pixels.
+	* @param ndcToWorldMat     Transform from NDC to world space, used to project
+	*                       the viewport onto the image.
+	*
+	* @return A tile range (`GeoreferencedImageTileRange`) representing the
+	*         visible region at the chosen mip level.
+	*/
+	GeoreferencedImageTileRange computeViewportTileRange(const uint32_t2 viewportExtent, const float64_t3x3& ndcToWorldMat);
 
 	/*
 	* @brief The GPU image backs a mapped region which is a rectangular sub-region of the original image. Note that a region being mapped does NOT imply it's currently resident in GPU memory.
@@ -159,6 +239,14 @@ protected:
 	*/
 	void remapCurrentRegion(const GeoreferencedImageTileRange& viewportTileRange);
 
+	/**
+	* @brief Resets the streaming state's GPU tile occupancy map.
+	* - Clears all previously marked resident tiles.
+	* - After this call, every entry in `currentMappedRegionOccupancy` is `false`,
+	*   meaning the GPU image is considered completely dirty (no tiles mapped).
+	*/
+	void ResetTileOccupancyState();
+
 	/*
 	* @brief Slides the mapped region along the image, marking the tiles dropped as dirty but preserving the residency for tiles that are inside both the previous and new mapped regions.
 	*		 Note that the checks for whether this is valid to do happen outside of this function.
@@ -167,37 +255,21 @@ protected:
 	*/
 	void slideCurrentRegion(const GeoreferencedImageTileRange& viewportTileRange);
 
-	// @brief Info to match a gpu tile to the tile in the real image it should hold image data for
-	struct ImageTileToGPUTileCorrespondence
-	{
-		uint32_t2 imageTileIndex;
-		uint32_t2 gpuImageTileIndex;
-	};
+protected:
+	friend class DrawResourcesFiller;
 
-	/*
-	* @brief Given a tile range covering the viewport, returns which tiles (at the mip level of the current mapped region) need to be made resident to draw it, and to which tile of the gpu image each tile should be
-	*        uploaded to
-	*
-	* @param viewportTileRange Range of tiles + mip level indicating a sub-rectangle of the image covering the viewport
-	*/
-	core::vector<ImageTileToGPUTileCorrespondence> tilesToLoad(const GeoreferencedImageTileRange& viewportTileRange) const;
-
-	// @brief Returns the index of the last tile when covering the image with `mipLevel` tiles
-	uint32_t2 getLastTileIndex(uint32_t mipLevel) const
-	{
-		return (fullImageTileLength - 1u) >> mipLevel;
-	}
-
-	// @brief Returns whether the last tile in the image (along each dimension) is visible from the current viewport
-	bool2 isLastTileVisible(const uint32_t2 viewportBottomRightTile) const
-	{
-		const uint32_t2 lastTileIndex = getLastTileIndex(currentMappedRegion.baseMipLevel);
-		return bool2(lastTileIndex.x == viewportBottomRightTile.x, lastTileIndex.y == viewportBottomRightTile.y);
-	}
-
-	GeoreferencedImageParams georeferencedImageParams = {};
+	// Oriented bounding box of the original image in world space (position + orientation)
+	OrientedBoundingBox2D worldspaceOBB = {};
+	// Full resolution original image size in pixels (width, height)
+	uint32_t2 fullResImageExtents = {};
+	// Pixel format of the image as provided by storage/loader (may differ from GPU format)
+	asset::E_FORMAT sourceImageFormat = {};
+	// Filesystem path where image tiles are stored
+	std::filesystem::path storagePath = {};
+	// GPU Image Params for the image to be created with
+	IGPUImage::SCreationParams gpuImageCreationParams = {};
+	// 2D bool set for tile validity of the currentMappedRegionTileRange
 	std::vector<std::vector<bool>> currentMappedRegionOccupancy = {};
-
 	// Sidelength of the gpu image, in mip 0 tiles that are `TileSize` (creation parameter) texels wide
 	uint32_t gpuImageSideLengthTiles = {};
 	// We establish a max mipLevel for the image, which is the mip level at which any of width, height fit in a single tile
@@ -207,32 +279,34 @@ protected:
 	// Indicates on which tile of the gpu image the current mapped region's `topLeft` resides
 	uint32_t2 gpuImageTopLeft = {};
 	// Converts a point (z = 1) in worldspace to UV coordinates in image space (origin shifted to topleft of the image)
-	float64_t2x3 world2UV = {};
-	// If the image dimensions are not exactly divisible by `TileSize`, then the last tile along a dimension only holds a proportion of `lastTileFraction` pixels along that dimension  
-	float64_t lastTileFraction = {};
-	// Reflects what fraction of a FULL tile the LAST tile in the image at the current mip level actually spans.
-	// It only gets set when necessary, and should always be updated correctly before being used, since it's related to the current `baseMipLevel` of the `currentMappedRegion`
-	uint32_t2 lastImageTileTexels = {};
-	// Set mip level to extreme value so it gets recreated on first iteration
-	GeoreferencedImageTileRange currentMappedRegion = { .baseMipLevel = std::numeric_limits<uint32_t>::max() };
+	float64_t2x3 worldToUV = {};
+	// The GPU-mapped region covering a subrectangle of the source image
+	GeoreferencedImageTileRange currentMappedRegionTileRange = { .baseMipLevel = std::numeric_limits<uint32_t>::max() };
+	// Tile range covering only the tiles currently visible in the viewport
+	GeoreferencedImageTileRange currentViewportTileRange = { .baseMipLevel = std::numeric_limits<uint32_t>::max() };
+	// Extents used for sampling the last tile (handles partial tiles / NPOT images); gets updated with `updateStreamingStateForViewport`
+	uint32_t2 lastTileSamplingExtent;
+	// Extents used when writing/updating the last tile in GPU memory (handles partial tiles / NPOT images); gets updated with `updateStreamingStateForViewport`
+	uint32_t2 lastTileTargetExtent;
 };
 
 struct CachedImageRecord
 {
 	static constexpr uint32_t InvalidTextureIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
-	
+
 	uint32_t arrayIndex = InvalidTextureIndex; // index in our array of textures binding
 	ImageType type = ImageType::INVALID;
 	ImageState state = ImageState::INVALID;
+	nbl::asset::IImage::LAYOUT currentLayout = nbl::asset::IImage::LAYOUT::UNDEFINED;
 	uint64_t lastUsedFrameIndex = 0ull; // last used semaphore value on this image
 	uint64_t allocationOffset = ImagesMemorySubAllocator::InvalidAddress;
 	uint64_t allocationSize = 0ull;
 	core::smart_refctd_ptr<IGPUImageView> gpuImageView = nullptr;
 	core::smart_refctd_ptr<ICPUImage> staticCPUImage = nullptr; // cached cpu image for uploading to gpuImageView when needed.
 	core::smart_refctd_ptr<GeoreferencedImageStreamingState> georeferencedImageState = nullptr; // Used to track tile residency for georeferenced images
-	
+
 	// In LRU Cache `insert` function, in case of cache miss, we need to construct the refereence with semaphore value
-	CachedImageRecord(uint64_t currentFrameIndex) 
+	CachedImageRecord(uint64_t currentFrameIndex)
 		: arrayIndex(InvalidTextureIndex)
 		, type(ImageType::INVALID)
 		, state(ImageState::INVALID)
@@ -241,14 +315,16 @@ struct CachedImageRecord
 		, allocationSize(0ull)
 		, gpuImageView(nullptr)
 		, staticCPUImage(nullptr)
-	{}
-	
-	CachedImageRecord() 
+	{
+	}
+
+	CachedImageRecord()
 		: CachedImageRecord(0ull)
-	{}
+	{
+	}
 
 	// In LRU Cache `insert` function, in case of cache hit, we need to assign semaphore value without changing `index`
-	inline CachedImageRecord& operator=(uint64_t currentFrameIndex) { lastUsedFrameIndex = currentFrameIndex; return *this;  }
+	inline CachedImageRecord& operator=(uint64_t currentFrameIndex) { lastUsedFrameIndex = currentFrameIndex; return *this; }
 };
 
 // A resource-aware image cache with an LRU eviction policy.
@@ -261,10 +337,11 @@ class ImagesCache : public core::ResizableLRUCache<image_id, CachedImageRecord>
 {
 public:
 	using base_t = core::ResizableLRUCache<image_id, CachedImageRecord>;
-	
-	ImagesCache(size_t capacity) 
+
+	ImagesCache(size_t capacity)
 		: base_t(capacity)
-	{}
+	{
+	}
 
 	// Attempts to insert a new image into the cache.
 	// If the cache is full, invokes the provided `evictCallback` to evict an image.
@@ -274,13 +351,13 @@ public:
 	{
 		return base_t::insert(imageID, lastUsedSema, evictCallback);
 	}
-	
+
 	// Retrieves the image associated with `imageID`, updating its LRU position.
 	inline CachedImageRecord* get(image_id imageID)
 	{
 		return base_t::get(imageID);
 	}
-	
+
 	// Retrieves the ImageReference without updating LRU order.
 	inline CachedImageRecord* peek(image_id imageID)
 	{
@@ -288,10 +365,10 @@ public:
 	}
 
 	inline size_t size() const { return base_t::size(); }
-	
+
 	// Selects an eviction candidate based on LRU policy.
 	// In the future, this could factor in memory pressure or semaphore sync requirements.
-	inline image_id select_eviction_candidate() 
+	inline image_id select_eviction_candidate()
 	{
 		const image_id* lru = base_t::get_least_recently_used();
 		if (lru)
@@ -303,7 +380,7 @@ public:
 			return ~0ull;
 		}
 	}
-	
+
 	// Removes a specific image from the cache (manual eviction).
 	inline void erase(image_id imageID)
 	{
@@ -314,7 +391,7 @@ public:
 struct StreamedImageCopy
 {
 	asset::E_FORMAT srcFormat;
-	smart_refctd_ptr<ICPUBuffer> srcBuffer; // Make it 'std::future' later?
+	std::future<smart_refctd_ptr<ICPUBuffer>> srcBufferFuture;
 	asset::IImage::SBufferCopy region;
 };
 
@@ -325,4 +402,61 @@ struct StaticImageInfo
 	core::smart_refctd_ptr<ICPUImage> cpuImage = nullptr;
 	bool forceUpdate = false; // If true, bypasses the existing GPU-side cache and forces an update of the image data; Useful when replacing the contents of a static image that may already be resident.
 	asset::E_FORMAT imageViewFormatOverride = asset::E_FORMAT::EF_COUNT; // if asset::E_FORMAT::EF_COUNT then image view will have the same format as `cpuImage`
+};
+
+/// @brief Abstract class with two overridable methods to load a region of an image, either by requesting a region at a target extent (like the loaders in n4ce do) or to request a specific region from a mip level
+//         (like precomputed mips solution would use).
+struct IImageRegionLoader : IReferenceCounted
+{
+	/**
+	* @brief Load a region from an image - used to load from images with precomputed mips
+	*
+	* @param imagePath Path to file holding the image data
+	* @param offset Offset into the image (at requested mipLevel!) at which the region begins
+	* @param extent Extent of the region to load (at requested mipLevel!)
+	* @param mipLevel From which mip level image to retrieve the data from
+	* @param downsample True if this request is supposed to go into GPU mip level 1, false otherwise
+	*
+	* @return ICPUBuffer with the requested image data
+	*/
+	core::smart_refctd_ptr<ICPUBuffer> load(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t mipLevel, bool downsample)
+	{
+		assert(hasPrecomputedMips(imagePath));
+		return load_impl(imagePath, offset, extent, mipLevel, downsample);
+	}
+
+	/**
+	* @brief Load a region from an image - used to load from images using the n4ce loaders. Loads a region given by `offset, extent` as an image of size `targetExtent`
+	*        where `targetExtent <= extent` so the loader is in charge of downsampling.
+	*
+	* @param imagePath Path to file holding the image data
+	* @param offset Offset into the image at which the region begins
+	* @param extent Extent of the region to load
+	* @param targetExtent Extent of the resulting image. Should NEVER be bigger than `extent`
+	*
+	* @return ICPUBuffer with the requested image data
+	*/
+	core::smart_refctd_ptr<ICPUBuffer> load(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t2 targetExtent)
+	{
+		assert(!hasPrecomputedMips(imagePath));
+		return load_impl(imagePath, offset, extent, targetExtent);
+	}
+
+	// @brief Get the extents (in texels) of an image.
+	virtual uint32_t2 getExtents(std::filesystem::path imagePath) = 0;
+
+	/**
+	* @brief Get the texel format for an image.
+	*/
+	virtual asset::E_FORMAT getFormat(std::filesystem::path imagePath) = 0;
+
+	// @brief Returns whether the image should be loaded with the precomputed mip method or the n4ce loader method.
+	virtual bool hasPrecomputedMips(std::filesystem::path imagePath) const = 0;
+private:
+
+	// @brief Override to support loading with precomputed mips
+	virtual core::smart_refctd_ptr<ICPUBuffer> load_impl(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t mipLevel, bool downsample) { return nullptr; }
+
+	// @brief Override to support loading with n4ce-style loaders
+	virtual core::smart_refctd_ptr<ICPUBuffer> load_impl(std::filesystem::path imagePath, uint32_t2 offset, uint32_t2 extent, uint32_t2 targetExtent) { return nullptr; }
 };

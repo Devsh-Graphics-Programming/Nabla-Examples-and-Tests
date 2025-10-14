@@ -1,7 +1,10 @@
 #include "DrawResourcesFiller.h"
 
+using namespace nbl;
+
 DrawResourcesFiller::DrawResourcesFiller()
-{}
+{
+}
 
 DrawResourcesFiller::DrawResourcesFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue, core::smart_refctd_ptr<system::ILogger>&& logger) :
 	m_utilities(std::move(utils)),
@@ -27,6 +30,7 @@ void DrawResourcesFiller::setTexturesDescriptorSetAndBinding(core::smart_refctd_
 
 bool DrawResourcesFiller::allocateDrawResources(ILogicalDevice* logicalDevice, size_t requiredImageMemorySize, size_t requiredBufferMemorySize)
 {
+	// requiredImageMemorySize = core::alignUp(50'399'744 * 2, 1024);
 	// single memory allocation sectioned into images+buffers (images start at offset=0)
 	const size_t adjustedImagesMemorySize = core::alignUp(requiredImageMemorySize, GPUStructsMaxNaturalAlignment);
 	const size_t adjustedBuffersMemorySize = core::max(requiredBufferMemorySize, getMinimumRequiredResourcesBufferSize());
@@ -39,7 +43,7 @@ bool DrawResourcesFiller::allocateDrawResources(ILogicalDevice* logicalDevice, s
 	resourcesGPUBuffer->setObjectDebugName("drawResourcesBuffer");
 
 	IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = resourcesGPUBuffer->getMemoryReqs();
-	
+
 	nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements gpuBufferMemoryReqs = resourcesGPUBuffer->getMemoryReqs();
 	const bool memoryRequirementsMatch =
 		(logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits() & gpuBufferMemoryReqs.memoryTypeBits) != 0 && // should have device local memory compatible
@@ -50,7 +54,7 @@ bool DrawResourcesFiller::allocateDrawResources(ILogicalDevice* logicalDevice, s
 		m_logger.log("Shouldn't happen: Buffer Memory Requires Dedicated Allocation or can't biind to device local memory.", nbl::system::ILogger::ELL_ERROR);
 		return false;
 	}
-	
+
 	const auto& memoryProperties = logicalDevice->getPhysicalDevice()->getMemoryProperties();
 
 	uint32_t memoryTypeIdx = ~0u;
@@ -71,7 +75,7 @@ bool DrawResourcesFiller::allocateDrawResources(ILogicalDevice* logicalDevice, s
 			};
 
 			allocation = logicalDevice->allocate(allocationInfo);
-			
+
 			if (allocation.isValid())
 				break;
 		}
@@ -102,7 +106,7 @@ bool DrawResourcesFiller::allocateDrawResources(ILogicalDevice* logicalDevice, s
 		.buffer = resourcesGPUBuffer.get(),
 		.binding = {
 			.memory = buffersMemoryArena.memory.get(),
-			.offset  = buffersMemoryArena.offset,
+			.offset = buffersMemoryArena.offset,
 		}
 	};
 
@@ -137,7 +141,10 @@ bool DrawResourcesFiller::allocateDrawResourcesWithinAvailableVRAM(ILogicalDevic
 	while ((currentBufferSize + currentImageSize) >= minimumAcceptableSize && numTries < maxTries)
 	{
 		if (allocateDrawResources(logicalDevice, currentBufferSize, currentImageSize))
+		{
+			m_logger.log("Successfully allocated memory for images (%zu) and buffers (%zu).", system::ILogger::ELL_INFO, currentImageSize, currentBufferSize);
 			return true;
+		}
 
 		currentBufferSize = (currentBufferSize * (100 - reductionPercent)) / 100;
 		currentImageSize = (currentImageSize * (100 - reductionPercent)) / 100;
@@ -153,13 +160,13 @@ bool DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, ui
 {
 	// TODO: Make this function failable and report insufficient memory
 	asset::E_FORMAT msdfFormat = MSDFTextureFormat;
-	asset::VkExtent3D MSDFsExtent = { msdfsExtent.x, msdfsExtent.y, 1u }; 
+	asset::VkExtent3D MSDFsExtent = { msdfsExtent.x, msdfsExtent.y, 1u };
 	if (maxMSDFs > logicalDevice->getPhysicalDevice()->getLimits().maxImageArrayLayers)
 	{
 		m_logger.log("requested maxMSDFs is greater than maxImageArrayLayers. lowering the limit...", nbl::system::ILogger::ELL_WARNING);
 		maxMSDFs = logicalDevice->getPhysicalDevice()->getLimits().maxImageArrayLayers;
 	}
-	
+
 	IPhysicalDevice::SImageFormatPromotionRequest promotionRequest = {};
 	promotionRequest.originalFormat = msdfFormat;
 	promotionRequest.usages = {};
@@ -171,7 +178,7 @@ bool DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, ui
 		imgInfo.format = msdfFormat;
 		imgInfo.type = IGPUImage::ET_2D;
 		imgInfo.extent = MSDFsExtent;
-		imgInfo.mipLevels = MSDFMips; 
+		imgInfo.mipLevels = MSDFMips;
 		imgInfo.arrayLayers = maxMSDFs;
 		imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
 		imgInfo.flags = asset::IImage::E_CREATE_FLAGS::ECF_NONE;
@@ -217,7 +224,7 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, const Line
 		return;
 
 	setActiveLineStyle(lineStyleInfo);
-	
+
 	beginMainObject(MainObjectType::POLYLINE, TransformationType::TT_NORMAL);
 	drawPolyline(polyline, intendedNextSubmit);
 	endMainObject();
@@ -229,7 +236,7 @@ void DrawResourcesFiller::drawFixedGeometryPolyline(const CPolylineBase& polylin
 		return;
 
 	setActiveLineStyle(lineStyleInfo);
-	
+
 	pushCustomProjection(getFixedGeometryFinalTransformationMatrix(transformation, transformationType));
 	beginMainObject(MainObjectType::POLYLINE, transformationType);
 	drawPolyline(polyline, intendedNextSubmit);
@@ -246,7 +253,7 @@ void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, SIntendedS
 		assert(false);
 		return;
 	}
-	
+
 	const auto sectionsCount = polyline.getSectionsCount();
 
 	uint32_t currentSectionIdx = 0u;
@@ -297,7 +304,7 @@ void DrawResourcesFiller::drawTriangleMesh(
 		return;
 	}
 
-	DrawCallData drawCallData = {}; 
+	DrawCallData drawCallData = {};
 	drawCallData.isDTMRendering = true;
 
 	ICPUBuffer::SCreationParams geometryBuffParams;
@@ -306,7 +313,7 @@ void DrawResourcesFiller::drawTriangleMesh(
 	const auto& indexBuffer = mesh.getIndices();
 	const auto& vertexBuffer = mesh.getVertices();
 	assert(indexBuffer.size() == vertexBuffer.size()); // We don't have any vertex re-use due to other limitations at the moemnt.
-	
+
 
 	const uint32_t numTriangles = indexBuffer.size() / 3u;
 	uint32_t trianglesUploaded = 0;
@@ -326,18 +333,18 @@ void DrawResourcesFiller::drawTriangleMesh(
 		void* dst = resourcesCollection.geometryInfo.data() + geometryBufferOffset;
 		// the actual bda address will be determined only after all copies are finalized, later we will do += `baseBDAAddress + geometryInfo.bufferOffset`
 		// the - is a small hack because index buffer grows but vertex buffer needs to start from 0, remove that once we either get rid of the index buffer or implement an algorithm that can have vertex reuse
-		drawCallData.dtm.triangleMeshVerticesBaseAddress = geometryBufferOffset - (sizeof(CTriangleMesh::vertex_t) * trianglesUploaded * 3); 
+		drawCallData.dtm.triangleMeshVerticesBaseAddress = geometryBufferOffset - (sizeof(CTriangleMesh::vertex_t) * trianglesUploaded * 3);
 		memcpy(dst, &vertexBuffer[trianglesUploaded * 3u], vtxBuffByteSize);
-		geometryBufferOffset += vtxBuffByteSize; 
+		geometryBufferOffset += vtxBuffByteSize;
 
 		// Copy IndexBuffer
 		dst = resourcesCollection.geometryInfo.data() + geometryBufferOffset;
 		drawCallData.dtm.indexBufferOffset = geometryBufferOffset;
 		memcpy(dst, &indexBuffer[trianglesUploaded * 3u], indexBuffByteSize);
 		geometryBufferOffset += indexBuffByteSize;
-		
+
 		trianglesUploaded += trianglesToUpload;
-		
+
 		drawCallData.dtm.triangleMeshMainObjectIndex = mainObjectIdx;
 		drawCallData.dtm.indexCount = trianglesToUpload * 3u;
 		drawCalls.push_back(drawCallData);
@@ -359,11 +366,11 @@ void DrawResourcesFiller::drawTriangleMesh(
 
 // TODO[Erfan]: Makes more sense if parameters are: solidColor + fillPattern + patternColor
 void DrawResourcesFiller::drawHatch(
-		const Hatch& hatch,
-		const float32_t4& foregroundColor, 
-		const float32_t4& backgroundColor,
-		const HatchFillPattern fillPattern,
-		SIntendedSubmitInfo& intendedNextSubmit)
+	const Hatch& hatch,
+	const float32_t4& foregroundColor,
+	const float32_t4& backgroundColor,
+	const HatchFillPattern fillPattern,
+	SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// TODO[Optimization Idea]: don't draw hatch twice, we now have color storage buffer and we can treat rendering hatches like a procedural texture (requires 2 colors so no more abusing of linestyle for hatches)
 
@@ -374,10 +381,10 @@ void DrawResourcesFiller::drawHatch(
 }
 
 void DrawResourcesFiller::drawHatch(
-		const Hatch& hatch,
-		const float32_t4& color,
-		const HatchFillPattern fillPattern,
-		SIntendedSubmitInfo& intendedNextSubmit)
+	const Hatch& hatch,
+	const float32_t4& color,
+	const HatchFillPattern fillPattern,
+	SIntendedSubmitInfo& intendedNextSubmit)
 {
 	drawHatch_impl(hatch, color, fillPattern, intendedNextSubmit);
 }
@@ -388,13 +395,13 @@ void DrawResourcesFiller::drawHatch(const Hatch& hatch, const float32_t4& color,
 }
 
 void DrawResourcesFiller::drawFixedGeometryHatch(
-		const Hatch& hatch,
-		const float32_t4& foregroundColor,
-		const float32_t4& backgroundColor,
-		const HatchFillPattern fillPattern,
-		const float64_t3x3& transformation,
-		TransformationType transformationType, 
-		SIntendedSubmitInfo& intendedNextSubmit)
+	const Hatch& hatch,
+	const float32_t4& foregroundColor,
+	const float32_t4& backgroundColor,
+	const HatchFillPattern fillPattern,
+	const float64_t3x3& transformation,
+	TransformationType transformationType,
+	SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// TODO[Optimization Idea]: don't draw hatch twice, we now have color storage buffer and we can treat rendering hatches like a procedural texture (requires 2 colors so no more abusing of linestyle for hatches)
 
@@ -467,13 +474,13 @@ void DrawResourcesFiller::drawHatch_impl(
 }
 
 void DrawResourcesFiller::drawFontGlyph(
-		nbl::ext::TextRendering::FontFace* fontFace,
-		uint32_t glyphIdx,
-		float64_t2 topLeft,
-		float32_t2 dirU,
-		float32_t  aspectRatio,
-		float32_t2 minUV,
-		SIntendedSubmitInfo& intendedNextSubmit)
+	nbl::ext::TextRendering::FontFace* fontFace,
+	uint32_t glyphIdx,
+	float64_t2 topLeft,
+	float32_t2 dirU,
+	float32_t  aspectRatio,
+	float32_t2 minUV,
+	SIntendedSubmitInfo& intendedNextSubmit)
 {
 	uint32_t textureIdx = InvalidTextureIndex;
 	const MSDFInputInfo msdfInput = MSDFInputInfo(fontFace->getHash(), glyphIdx);
@@ -488,7 +495,7 @@ void DrawResourcesFiller::drawFontGlyph(
 		assert(false);
 		return;
 	}
-	
+
 	if (textureIdx != InvalidTextureIndex)
 	{
 		GlyphInfo glyphInfo = GlyphInfo(topLeft, dirU, aspectRatio, textureIdx, minUV);
@@ -531,7 +538,7 @@ bool DrawResourcesFiller::ensureStaticImageAvailability(const StaticImageInfo& s
 			{
 				// call the eviction callback so the currently cached imageID gets eventually deallocated from memory arena along with it's allocated array slot from the suballocated descriptor set
 				evictCallback(staticImage.imageID, *cachedImageRecord);
-					
+
 				// Instead of erasing and inserting the imageID into the cache, we just reset it, so the next block of code goes into array index allocation + creating our new image
 				// imagesCache->erase(imageID);
 				// cachedImageRecord = imagesCache->insert(imageID, intendedNextSubmit.getFutureScratchSemaphore().value, evictCallback);
@@ -541,7 +548,7 @@ bool DrawResourcesFiller::ensureStaticImageAvailability(const StaticImageInfo& s
 			{
 				// Doesn't need image recreation, we'll use the same array index in descriptor set + the same bound memory.
 				// reset it's state + update the cpu image used for copying.
-				cachedImageRecord->state = ImageState::CREATED_AND_MEMORY_BOUND; 
+				cachedImageRecord->state = ImageState::CREATED_AND_MEMORY_BOUND;
 				cachedImageRecord->staticCPUImage = staticImage.cpuImage;
 			}
 		}
@@ -567,14 +574,14 @@ bool DrawResourcesFiller::ensureStaticImageAvailability(const StaticImageInfo& s
 
 			IGPUImage::SCreationParams imageParams = {};
 			imageParams = staticImage.cpuImage->getCreationParameters();
-			imageParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT|IGPUImage::EUF_SAMPLED_BIT;
+			imageParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT | IGPUImage::EUF_SAMPLED_BIT;
 			// promote format because RGB8 and friends don't actually exist in HW
 			{
 				const IPhysicalDevice::SImageFormatPromotionRequest request = {
 					.originalFormat = imageParams.format,
 					.usages = IPhysicalDevice::SFormatImageUsages::SUsage(imageParams.usage)
 				};
-				imageParams.format = physDev->promoteImageFormat(request,imageParams.tiling);
+				imageParams.format = physDev->promoteImageFormat(request, imageParams.tiling);
 			}
 
 			// Attempt to create a GPU image and image view for this texture.
@@ -584,6 +591,7 @@ bool DrawResourcesFiller::ensureStaticImageAvailability(const StaticImageInfo& s
 			{
 				cachedImageRecord->type = ImageType::STATIC;
 				cachedImageRecord->state = ImageState::CREATED_AND_MEMORY_BOUND;
+				cachedImageRecord->currentLayout = nbl::asset::IImage::LAYOUT::UNDEFINED;
 				cachedImageRecord->lastUsedFrameIndex = currentFrameIndex; // there was an eviction + auto-submit, we need to update AGAIN
 				cachedImageRecord->allocationOffset = allocResults.allocationOffset;
 				cachedImageRecord->allocationSize = allocResults.allocationSize;
@@ -625,8 +633,8 @@ bool DrawResourcesFiller::ensureStaticImageAvailability(const StaticImageInfo& s
 			cachedImageRecord->arrayIndex = InvalidTextureIndex;
 		}
 	}
-	
-	
+
+
 	// cached or just inserted, we update the lastUsedFrameIndex
 	cachedImageRecord->lastUsedFrameIndex = currentFrameIndex;
 
@@ -649,149 +657,6 @@ bool DrawResourcesFiller::ensureMultipleStaticImagesAvailability(std::span<Stati
 		if (imagesCache->peek(staticImage.imageID) == nullptr)
 			return false; // this means one of the images evicted another, most likely due to VRAM limitations not all images can be resident all at once.
 	}
-	return true;
-}
-
-bool DrawResourcesFiller::ensureGeoreferencedImageAvailability_AllocateIfNeeded(image_id imageID, GeoreferencedImageParams&& params, SIntendedSubmitInfo& intendedNextSubmit)
-{
-	auto* device = m_utilities->getLogicalDevice();
-	auto* physDev = m_utilities->getLogicalDevice()->getPhysicalDevice();
-
-	// Try inserting or updating the image usage in the cache.
-	// If the image is already present, updates its semaphore value.
-	auto evictCallback = [&](image_id imageID, const CachedImageRecord& evicted) { evictImage_SubmitIfNeeded(imageID, evicted, intendedNextSubmit); };
-	CachedImageRecord* cachedImageRecord = imagesCache->insert(imageID, intendedNextSubmit.getFutureScratchSemaphore().value, evictCallback);
-
-	// TODO: Function call that gets you image creaation params based on the georeferenced image, it will also get you the GEOREFERENCED TYPE
-	IGPUImage::SCreationParams imageCreationParams = {};
-	ImageType imageType = determineGeoreferencedImageCreationParams(imageCreationParams, params);
-
-	// imageParams = cpuImage->getCreationParameters();
-	imageCreationParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT|IGPUImage::EUF_SAMPLED_BIT;
-	// promote format because RGB8 and friends don't actually exist in HW
-	{
-		const IPhysicalDevice::SImageFormatPromotionRequest request = {
-			.originalFormat = imageCreationParams.format,
-			.usages = IPhysicalDevice::SFormatImageUsages::SUsage(imageCreationParams.usage)
-		};
-		imageCreationParams.format = physDev->promoteImageFormat(request,imageCreationParams.tiling);
-	}
-	
-	// if cachedImageRecord->index was not InvalidTextureIndex then it means we had a cache hit and updated the value of our sema
-	// But we need to check if the cached image needs resizing/recreation.
-	if (cachedImageRecord->arrayIndex != InvalidTextureIndex)
-	{
-		// found in cache, but does it require resize? recreation?
-		if (cachedImageRecord->gpuImageView)
-		{
-			auto imgViewParams = cachedImageRecord->gpuImageView->getCreationParameters();
-			if (imgViewParams.image)
-			{
-				const auto cachedParams = static_cast<asset::IImage::SCreationParams>(imgViewParams.image->getCreationParameters());
-				const auto cachedImageType = cachedImageRecord->type;
-				// image type and creation params (most importantly extent and format) should match, otherwise we evict, recreate and re-pus
-				const auto currentParams = static_cast<asset::IImage::SCreationParams>(imageCreationParams);
-				const bool needsRecreation = cachedImageType != imageType || cachedParams != currentParams;
-				if (needsRecreation)
-				{
-					// call the eviction callback so the currently cached imageID gets eventually deallocated from memory arena.
-					evictCallback(imageID, *cachedImageRecord);
-					
-					// instead of erasing and inserting the imageID into the cache, we just reset it, so the next block of code goes into array index allocation + creating our new image
-					*cachedImageRecord = CachedImageRecord(currentFrameIndex);
-					// imagesCache->erase(imageID);
-					// cachedImageRecord = imagesCache->insert(imageID, intendedNextSubmit.getFutureScratchSemaphore().value, evictCallback);
-				}
-			}
-			else
-			{
-				m_logger.log("Cached georeferenced image has invalid gpu image.", nbl::system::ILogger::ELL_ERROR);
-			}
-		}
-		else
-		{
-			m_logger.log("Cached georeferenced image has invalid gpu image view.", nbl::system::ILogger::ELL_ERROR);
-		}
-	}
-
-	// in which case we don't queue anything for upload, and return the idx
-	if (cachedImageRecord->arrayIndex == InvalidTextureIndex)
-	{
-		// This is a new image (cache miss). Allocate a descriptor index for it.
-		cachedImageRecord->arrayIndex = video::SubAllocatedDescriptorSet::AddressAllocator::invalid_address;
-		// Blocking allocation attempt; if the descriptor pool is exhausted, this may stall.
-		suballocatedDescriptorSet->multi_allocate(std::chrono::time_point<std::chrono::steady_clock>::max(), imagesArrayBinding, 1u, &cachedImageRecord->arrayIndex); // if the prev submit causes DEVICE_LOST then we'll get a deadlock here since we're using max timepoint
-
-		if (cachedImageRecord->arrayIndex != video::SubAllocatedDescriptorSet::AddressAllocator::invalid_address)
-		{
-			// Attempt to create a GPU image and image view for this texture.
-			ImageAllocateResults allocResults = tryCreateAndAllocateImage_SubmitIfNeeded(imageCreationParams, asset::E_FORMAT::EF_COUNT, intendedNextSubmit, std::to_string(imageID));
-
-			if (allocResults.isValid())
-			{
-				cachedImageRecord->type = imageType;
-				cachedImageRecord->state = ImageState::CREATED_AND_MEMORY_BOUND;
-				cachedImageRecord->lastUsedFrameIndex = currentFrameIndex; // there was an eviction + auto-submit, we need to update AGAIN
-				cachedImageRecord->allocationOffset = allocResults.allocationOffset;
-				cachedImageRecord->allocationSize = allocResults.allocationSize;
-				cachedImageRecord->gpuImageView = allocResults.gpuImageView;
-				cachedImageRecord->staticCPUImage = nullptr;
-				cachedImageRecord->georeferencedImageState = GeoreferencedImageStreamingState::create(std::move(params), GeoreferencedImageTileSize);
-
-				// This is because gpu image is square
-				cachedImageRecord->georeferencedImageState->gpuImageSideLengthTiles = cachedImageRecord->gpuImageView->getCreationParameters().image->getCreationParameters().extent.width / GeoreferencedImageTileSize;
-
-				auto& fullImageTileLength = cachedImageRecord->georeferencedImageState->fullImageTileLength;
-				fullImageTileLength = (cachedImageRecord->georeferencedImageState->georeferencedImageParams.imageExtents - 1u) / GeoreferencedImageTileSize + 1u;
-			}
-			else
-			{
-				// All attempts to try create the GPU image and its corresponding view have failed.
-				// Most likely cause: insufficient GPU memory or unsupported image parameters.
-				
-				m_logger.log("ensureGeoreferencedImageAvailability_AllocateIfNeeded failed, likely due to low VRAM.", nbl::system::ILogger::ELL_ERROR);
-				_NBL_DEBUG_BREAK_IF(true);
-
-				if (cachedImageRecord->allocationOffset != ImagesMemorySubAllocator::InvalidAddress)
-				{
-					// We previously successfully create and allocated memory for the Image
-					// but failed to bind and create image view
-					// It's crucial to deallocate the offset+size form our images memory suballocator
-					imagesMemorySubAllocator->deallocate(cachedImageRecord->allocationOffset, cachedImageRecord->allocationSize);
-				}
-
-				if (cachedImageRecord->arrayIndex != InvalidTextureIndex)
-				{
-					// We previously allocated a descriptor index, but failed to create a usable GPU image.
-					// It's crucial to deallocate this index to avoid leaks and preserve descriptor pool space.
-					// No semaphore wait needed here, as the GPU never got to use this slot.
-					suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &cachedImageRecord->arrayIndex, {});
-					cachedImageRecord->arrayIndex = InvalidTextureIndex;
-				}
-				
-				// erase the entry we failed to fill, no need for `evictImage_SubmitIfNeeded`, because it didn't get to be used in any submit to defer it's memory and index deallocation
-				imagesCache->erase(imageID);
-			}
-		}
-		else
-		{
-			m_logger.log("ensureGeoreferencedImageAvailability_AllocateIfNeeded failed index allocation. shouldn't have happened.", nbl::system::ILogger::ELL_ERROR);
-			cachedImageRecord->arrayIndex = InvalidTextureIndex;
-		}
-	}
-
-	
-	// cached or just inserted, we update the lastUsedFrameIndex
-	cachedImageRecord->lastUsedFrameIndex = currentFrameIndex;
-
-	assert(cachedImageRecord->arrayIndex != InvalidTextureIndex); // shouldn't happen, because we're using LRU cache, so worst case eviction will happen + multi-deallocate and next next multi_allocate should definitely succeed
-	return (cachedImageRecord->arrayIndex != InvalidTextureIndex);
-}
-
-bool DrawResourcesFiller::queueGeoreferencedImageCopy_Internal(image_id imageID, const StreamedImageCopy& imageCopy)
-{
-	auto& vec = streamedImageCopies[imageID];
-	vec.emplace_back(imageCopy);
 	return true;
 }
 
@@ -892,54 +757,450 @@ void DrawResourcesFiller::addImageObject(image_id imageID, const OrientedBoundin
 	endMainObject();
 }
 
-void DrawResourcesFiller::addGeoreferencedImage(image_id imageID, const float64_t3x3& NDCToWorld, SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t2 DrawResourcesFiller::computeStreamingImageExtentsForViewportCoverage(const uint32_t2 viewportExtents)
 {
-	beginMainObject(MainObjectType::STREAMED_IMAGE);
+	const uint32_t diagonal = static_cast<uint32_t>(nbl::hlsl::ceil(
+		nbl::hlsl::sqrt(static_cast<float32_t>(
+			viewportExtents.x * viewportExtents.x + viewportExtents.y * viewportExtents.y))
+	));
 
-	uint32_t mainObjIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
-	if (mainObjIdx == InvalidMainObjectIdx)
+	const uint32_t gpuImageSidelength =
+		2 * core::roundUp(diagonal, GeoreferencedImageTileSize) +
+		GeoreferencedImagePaddingTiles * GeoreferencedImageTileSize;
+
+	return { gpuImageSidelength, gpuImageSidelength };
+}
+
+nbl::core::smart_refctd_ptr<GeoreferencedImageStreamingState> DrawResourcesFiller::ensureGeoreferencedImageEntry(image_id imageID, const OrientedBoundingBox2D& worldSpaceOBB, const std::filesystem::path& storagePath)
+{
+	nbl::core::smart_refctd_ptr<GeoreferencedImageStreamingState> ret = nullptr;
+
+	auto* device = m_utilities->getLogicalDevice();
+	auto* physDev = m_utilities->getLogicalDevice()->getPhysicalDevice();
+
+	if (!imageLoader)
 	{
-		m_logger.log("addGeoreferencedImage: acquireActiveMainObjectIndex returned invalid index", nbl::system::ILogger::ELL_ERROR);
-		assert(false);
-		return;
+		m_logger.log("imageLoader is null/empty. make sure to register your loader!", nbl::system::ILogger::ELL_ERROR);
+		return nullptr;
 	}
 
-	// Query imageType
-	auto cachedImageRecord = imagesCache->peek(imageID);
+	uint32_t2 fullResImageExtents = imageLoader->getExtents(storagePath);
+	asset::E_FORMAT format = imageLoader->getFormat(storagePath);
+
+	uint32_t2 gpuImageExtents = computeStreamingImageExtentsForViewportCoverage(currentViewportExtents);
+
+	IGPUImage::SCreationParams gpuImageCreationParams = {};
+	gpuImageCreationParams.type = asset::IImage::ET_2D;
+	gpuImageCreationParams.samples = asset::IImage::ESCF_1_BIT;
+	gpuImageCreationParams.format = format;
+	gpuImageCreationParams.extent = { .width = gpuImageExtents.x, .height = gpuImageExtents.y, .depth = 1u };
+	gpuImageCreationParams.mipLevels = 2u;
+	gpuImageCreationParams.arrayLayers = 1u;
+
+	gpuImageCreationParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT | IGPUImage::EUF_SAMPLED_BIT;
+	// promote format because RGB8 and friends don't actually exist in HW
+	{
+		const IPhysicalDevice::SImageFormatPromotionRequest request = {
+			.originalFormat = gpuImageCreationParams.format,
+			.usages = IPhysicalDevice::SFormatImageUsages::SUsage(gpuImageCreationParams.usage)
+		};
+		gpuImageCreationParams.format = physDev->promoteImageFormat(request, gpuImageCreationParams.tiling);
+	}
+
+	CachedImageRecord* cachedImageRecord = imagesCache->get(imageID);
 	if (!cachedImageRecord)
 	{
-		m_logger.log("addGeoreferencedImage was not called immediately after enforceGeoreferencedImageAvailability!", nbl::system::ILogger::ELL_ERROR);
-		assert(false);
-		return;
+		ret = nbl::core::make_smart_refctd_ptr<GeoreferencedImageStreamingState>();
+		const bool initSuccess = ret->init(worldSpaceOBB, fullResImageExtents, format, storagePath);
+		if (!initSuccess)
+			m_logger.log("Failed to init GeoreferencedImageStreamingState!", nbl::system::ILogger::ELL_ERROR);
+	}
+	else
+	{
+		// StreamingState already in cache, we return it;
+		if (!cachedImageRecord->georeferencedImageState)
+			m_logger.log("image had entry in the cache but cachedImageRecord->georeferencedImageState was nullptr, this shouldn't happen!", nbl::system::ILogger::ELL_ERROR);
+		ret = cachedImageRecord->georeferencedImageState;
 	}
 
-	// Generate upload data
-	auto uploadData = generateTileUploadData(cachedImageRecord->type, NDCToWorld, cachedImageRecord->georeferencedImageState.get());
+	// Update GeoreferencedImageState with new viewport width/height and requirements
 
-	// Queue image uploads
-	for (const auto& imageCopy : uploadData.tiles)
-		queueGeoreferencedImageCopy_Internal(imageID, imageCopy);
+	// width only because gpu image is square
+	const uint32_t newGPUImageSideLengthTiles = gpuImageCreationParams.extent.width / GeoreferencedImageTileSize;
 
-	GeoreferencedImageInfo info = {};
-	info.topLeft = uploadData.viewportEncompassingOBB.topLeft;
-	info.dirU = uploadData.viewportEncompassingOBB.dirU;
-	info.aspectRatio = uploadData.viewportEncompassingOBB.aspectRatio;
-	info.textureID = getImageIndexFromID(imageID, intendedNextSubmit); // for this to be valid and safe, this function needs to be called immediately after `addStaticImage` function to make sure image is in memory
-	info.minUV = uploadData.minUV;
-	info.maxUV = uploadData.maxUV;
-	if (!addGeoreferencedImageInfo_Internal(info, mainObjIdx))
+	// This will reset the residency state after a resize. it makes sense because when gpu image is resized, it's recreated and no previous tile is resident anymore
+	// We don't copy tiles between prev/next resized image, we're more focused on optimizing pan/zoom with a fixed window size.
+	if (ret->gpuImageSideLengthTiles != newGPUImageSideLengthTiles)
 	{
-		// single image object couldn't fit into memory to push to gpu, so we submit rendering current objects and reset geometry buffer and draw objects
-		submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjIdx);
-		const bool success = addGeoreferencedImageInfo_Internal(info, mainObjIdx);
-		if (!success)
+		ret->gpuImageSideLengthTiles = newGPUImageSideLengthTiles;
+		ret->ResetTileOccupancyState();
+	}
+
+	// DONT UNCOMMENT, IT WILL SLOW DOWN LOADING: It's Test For full re-cache loading speed
+	// ret->ResetTileOccupancyState();
+
+	ret->gpuImageCreationParams = std::move(gpuImageCreationParams);
+	// Update with current viewport
+	ret->updateStreamingStateForViewport(currentViewportExtents, ndcToWorldTransformationMatrix);
+
+	return ret;
+}
+
+bool DrawResourcesFiller::launchGeoreferencedImageTileLoads(image_id imageID, GeoreferencedImageStreamingState* imageStreamingState, const WorldClipRect clipRect)
+{
+	if (!imageStreamingState)
+	{
+		m_logger.log("imageStreamingState is null/empty, make sure `ensureGeoreferencedImageEntry` was called beforehand!", nbl::system::ILogger::ELL_ERROR);
+		assert(false);
+		return false;
+	}
+
+	auto& thisImageQueuedCopies = streamedImageCopies[imageID];
+
+	const auto& viewportTileRange = imageStreamingState->currentViewportTileRange;
+	const uint32_t2 lastTileIndex = imageStreamingState->getLastTileIndex(viewportTileRange.baseMipLevel);
+
+	// We need to make every tile that covers the viewport resident. We reserve the amount of tiles needed for upload.
+	auto tilesToLoad = imageStreamingState->tilesToLoad();
+
+	const uint32_t2 imageExtents = imageStreamingState->fullResImageExtents;
+	const std::filesystem::path imageStoragePath = imageStreamingState->storagePath;
+
+	// Figure out worldspace coordinates for each of the tile's corners - these are used if there's a clip rect
+	const float64_t2 imageTopLeft = imageStreamingState->worldspaceOBB.topLeft;
+	const float64_t2 dirU = float64_t2(imageStreamingState->worldspaceOBB.dirU);
+	const float64_t2 dirV = float64_t2(dirU.y, -dirU.x) * float64_t(imageStreamingState->worldspaceOBB.aspectRatio);
+	const uint32_t tileMipLevel = imageStreamingState->currentViewportTileRange.baseMipLevel;
+
+	uint32_t ignored = 0;
+	for (auto [imageTileIndex, gpuImageTileIndex] : tilesToLoad)
+	{
+		// clip against current rect, if valid
+		if (clipRect.minClip.x != std::numeric_limits<float64_t>::signaling_NaN())
 		{
-			m_logger.log("addGeoreferencedImageInfo_Internal failed, even after overflow-submission, this is irrecoverable.", nbl::system::ILogger::ELL_ERROR);
+			float64_t2 topLeftWorld = imageTopLeft + dirU * (float64_t(GeoreferencedImageTileSize * imageTileIndex.x << tileMipLevel) / float64_t(imageExtents.x)) + dirV * (float64_t(GeoreferencedImageTileSize * imageTileIndex.y << tileMipLevel) / float64_t(imageExtents.y));
+			float64_t2 topRightWorld = imageTopLeft + dirU * (float64_t(GeoreferencedImageTileSize * (imageTileIndex.x + 1) << tileMipLevel) / float64_t(imageExtents.x)) + dirV * (float64_t(GeoreferencedImageTileSize * imageTileIndex.y << tileMipLevel) / float64_t(imageExtents.y));
+			float64_t2 bottomLeftWorld = imageTopLeft + dirU * (float64_t(GeoreferencedImageTileSize * imageTileIndex.x << tileMipLevel) / float64_t(imageExtents.x)) + dirV * (float64_t(GeoreferencedImageTileSize * (imageTileIndex.y + 1) << tileMipLevel) / float64_t(imageExtents.y));
+			float64_t2 bottomRightWorld = imageTopLeft + dirU * (float64_t(GeoreferencedImageTileSize * (imageTileIndex.x + 1) << tileMipLevel) / float64_t(imageExtents.x)) + dirV * (float64_t(GeoreferencedImageTileSize * (imageTileIndex.y + 1) << tileMipLevel) / float64_t(imageExtents.y));
+
+			float64_t minX = std::min({ topLeftWorld.x, topRightWorld.x, bottomLeftWorld.x, bottomRightWorld.x });
+			float64_t minY = std::min({ topLeftWorld.y, topRightWorld.y, bottomLeftWorld.y, bottomRightWorld.y });
+			float64_t maxX = std::max({ topLeftWorld.x, topRightWorld.x, bottomLeftWorld.x, bottomRightWorld.x });
+			float64_t maxY = std::max({ topLeftWorld.y, topRightWorld.y, bottomLeftWorld.y, bottomRightWorld.y });
+
+			// Check if the tile intersects clip rect at all. Note that y clips are inverted
+			if (maxX < clipRect.minClip.x || minX > clipRect.maxClip.x || maxY < clipRect.maxClip.y || minY > clipRect.minClip.y)
+				continue;
+		}
+
+		uint32_t2 targetExtentMip0(GeoreferencedImageTileSize, GeoreferencedImageTileSize);
+		std::future<core::smart_refctd_ptr<ICPUBuffer>> gpuMip0Tile;
+		std::future<core::smart_refctd_ptr<ICPUBuffer>> gpuMip1Tile;
+
+		{
+			uint32_t2 samplingExtentMip0 = uint32_t2(GeoreferencedImageTileSize, GeoreferencedImageTileSize) << viewportTileRange.baseMipLevel;
+			const uint32_t2 samplingOffsetMip0 = (imageTileIndex * GeoreferencedImageTileSize) << viewportTileRange.baseMipLevel;
+
+			// If on the last tile, we might not load a full `GeoreferencedImageTileSize x GeoreferencedImageTileSize` tile, so we figure out how many pixels to load in this case to have
+			// minimal artifacts and no stretching
+			if (imageTileIndex.x == lastTileIndex.x)
+			{
+				samplingExtentMip0.x = imageStreamingState->lastTileSamplingExtent.x;
+				targetExtentMip0.x = imageStreamingState->lastTileTargetExtent.x;
+				// If the last tile is too small just ignore it
+				if (targetExtentMip0.x == 0u)
+					continue;
+			}
+			if (imageTileIndex.y == lastTileIndex.y)
+			{
+				samplingExtentMip0.y = imageStreamingState->lastTileSamplingExtent.y;
+				targetExtentMip0.y = imageStreamingState->lastTileTargetExtent.y;
+				// If the last tile is too small just ignore it
+				if (targetExtentMip0.y == 0u)
+					continue;
+			}
+
+			if (!imageLoader->hasPrecomputedMips(imageStoragePath))
+			{
+				gpuMip0Tile = std::async(std::launch::async, [=, this]() {
+					return imageLoader->load(imageStoragePath, samplingOffsetMip0, samplingExtentMip0, targetExtentMip0);
+					});
+				gpuMip1Tile = std::async(std::launch::async, [=, this]() {
+					return imageLoader->load(imageStoragePath, samplingOffsetMip0, samplingExtentMip0, targetExtentMip0 / 2u);
+					});
+			}
+			else
+			{
+				gpuMip0Tile = std::async(std::launch::async, [=, this]() {
+					return imageLoader->load(imageStoragePath, imageTileIndex * GeoreferencedImageTileSize, targetExtentMip0, imageStreamingState->currentMappedRegionTileRange.baseMipLevel, false);
+					});
+				gpuMip1Tile = std::async(std::launch::async, [=, this]() {
+					return imageLoader->load(imageStoragePath, imageTileIndex * GeoreferencedImageTileSizeMip1, targetExtentMip0 / 2u, imageStreamingState->currentMappedRegionTileRange.baseMipLevel, true);
+					});
+			}
+		}
+
+		asset::IImage::SBufferCopy bufCopy;
+		bufCopy.bufferOffset = 0;
+		bufCopy.bufferRowLength = targetExtentMip0.x;
+		bufCopy.bufferImageHeight = 0;
+		bufCopy.imageSubresource.aspectMask = IImage::EAF_COLOR_BIT;
+		bufCopy.imageSubresource.mipLevel = 0u;
+		bufCopy.imageSubresource.baseArrayLayer = 0u;
+		bufCopy.imageSubresource.layerCount = 1u;
+		uint32_t2 gpuImageOffset = gpuImageTileIndex * GeoreferencedImageTileSize;
+		bufCopy.imageOffset = { gpuImageOffset.x, gpuImageOffset.y, 0u };
+		bufCopy.imageExtent.width = targetExtentMip0.x;
+		bufCopy.imageExtent.height = targetExtentMip0.y;
+		bufCopy.imageExtent.depth = 1;
+
+		thisImageQueuedCopies.emplace_back(imageStreamingState->sourceImageFormat, std::move(gpuMip0Tile), std::move(bufCopy));
+
+		// Upload the smaller tile to mip 1
+		bufCopy = {};
+
+		bufCopy.bufferOffset = 0;
+		bufCopy.bufferRowLength = targetExtentMip0.x / 2;
+		bufCopy.bufferImageHeight = 0;
+		bufCopy.imageSubresource.aspectMask = IImage::EAF_COLOR_BIT;
+		bufCopy.imageSubresource.mipLevel = 1u;
+		bufCopy.imageSubresource.baseArrayLayer = 0u;
+		bufCopy.imageSubresource.layerCount = 1u;
+		gpuImageOffset /= 2; // Half tile size!
+		bufCopy.imageOffset = { gpuImageOffset.x, gpuImageOffset.y, 0u };
+		bufCopy.imageExtent.width = targetExtentMip0.x / 2;
+		bufCopy.imageExtent.height = targetExtentMip0.y / 2;
+		bufCopy.imageExtent.depth = 1;
+
+		thisImageQueuedCopies.emplace_back(imageStreamingState->sourceImageFormat, std::move(gpuMip1Tile), std::move(bufCopy));
+
+		// Mark tile as resident
+		imageStreamingState->currentMappedRegionOccupancy[gpuImageTileIndex.x][gpuImageTileIndex.y] = true;
+	}
+
+	return true;
+}
+
+void DrawResourcesFiller::drawGeoreferencedImage(image_id imageID, nbl::core::smart_refctd_ptr<GeoreferencedImageStreamingState>&& imageStreamingState, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	// OutputDebugStringA(std::format("Image Cache Size = {}  ", imagesCache->size()).c_str());
+
+	const bool resourcesEnsured = ensureGeoreferencedImageResources_AllocateIfNeeded(imageID, std::move(imageStreamingState), intendedNextSubmit);
+	if (resourcesEnsured)
+	{
+		// Georefernced Image Data in the cache was already pre-transformed from local to main worldspace coordinates for tile calculation purposes
+		// Because of this reason, the pre-transformed obb in the cache doesn't need to be transformed by custom projection again anymore.
+		// we push the identity transform to prevent any more tranformation on the obb which is already in worldspace units.
+		float64_t3x3 identity = float64_t3x3(1, 0, 0, 0, 1, 0, 0, 0, 1);
+		pushCustomProjection(identity);
+
+		beginMainObject(MainObjectType::STREAMED_IMAGE);
+
+		uint32_t mainObjIdx = acquireActiveMainObjectIndex_SubmitIfNeeded(intendedNextSubmit);
+		if (mainObjIdx != InvalidMainObjectIdx)
+		{
+			// Query imageType
+			auto cachedImageRecord = imagesCache->peek(imageID);
+			if (cachedImageRecord)
+			{
+				GeoreferencedImageInfo info = cachedImageRecord->georeferencedImageState->computeGeoreferencedImageAddressingAndPositioningInfo();
+				info.textureID = getImageIndexFromID(imageID, intendedNextSubmit); // for this to be valid and safe, this function needs to be called immediately after `addStaticImage` function to make sure image is in memory
+				if (!addGeoreferencedImageInfo_Internal(info, mainObjIdx))
+				{
+					// single image object couldn't fit into memory to push to gpu, so we submit rendering current objects and reset geometry buffer and draw objects
+					submitCurrentDrawObjectsAndReset(intendedNextSubmit, mainObjIdx);
+					const bool success = addGeoreferencedImageInfo_Internal(info, mainObjIdx);
+					if (!success)
+					{
+						m_logger.log("addGeoreferencedImageInfo_Internal failed, even after overflow-submission, this is irrecoverable.", nbl::system::ILogger::ELL_ERROR);
+						assert(false);
+					}
+				}
+			}
+			else
+			{
+				m_logger.log("drawGeoreferencedImage was not called immediately after enforceGeoreferencedImageAvailability!", nbl::system::ILogger::ELL_ERROR);
+				assert(false);
+			}
+		}
+		else
+		{
+			m_logger.log("drawGeoreferencedImage: acquireActiveMainObjectIndex returned invalid index", nbl::system::ILogger::ELL_ERROR);
 			assert(false);
+		}
+
+		endMainObject();
+
+		popCustomProjection();
+	}
+	else
+	{
+		m_logger.log("Failed to ensure resources (memory and descriptorIndex) for georeferencedImage", nbl::system::ILogger::ELL_ERROR);
+	}
+}
+
+bool DrawResourcesFiller::finalizeGeoreferencedImageTileLoads(SIntendedSubmitInfo& intendedNextSubmit)
+{
+	bool success = true;
+
+	if (streamedImageCopies.size() > 0ull)
+	{
+		auto* device = m_utilities->getLogicalDevice();
+		auto* cmdBuffInfo = intendedNextSubmit.getCommandBufferForRecording();
+
+		if (cmdBuffInfo)
+		{
+			std::vector<decltype(streamedImageCopies)::iterator> validCopies;
+			validCopies.reserve(streamedImageCopies.size());
+
+			// Step 1: collect valid image iters
+			for (auto it = streamedImageCopies.begin(); it != streamedImageCopies.end(); ++it)
+			{
+				const auto& imageID = it->first;
+				auto* imageRecord = imagesCache->peek(imageID);
+
+				if (imageRecord && imageRecord->gpuImageView && imageRecord->georeferencedImageState)
+					validCopies.push_back(it);
+				else
+					m_logger.log(std::format("Can't upload to imageId {} yet. (no gpu record yet).", imageID).c_str(), nbl::system::ILogger::ELL_INFO);
+			}
+
+			IGPUCommandBuffer* commandBuffer = cmdBuffInfo->cmdbuf;
+
+			std::vector<IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t> beforeCopyImageBarriers;
+			beforeCopyImageBarriers.reserve(streamedImageCopies.size());
+
+			// Pipeline Barriers before imageCopy
+			for (auto it : validCopies)
+			{
+				auto& [imageID, imageCopies] = *it;
+				// OutputDebugStringA(std::format("Copying {} copies for Id = {} \n", imageCopies.size(), imageID).c_str());
+
+				auto* imageRecord = imagesCache->peek(imageID);
+				if (imageRecord == nullptr)
+				{
+					m_logger.log(std::format("`pushStreamedImagesUploads` failed, no image record found for image id {}.", imageID).c_str(), nbl::system::ILogger::ELL_ERROR);
+					continue;
+				}
+
+				const auto& gpuImg = imageRecord->gpuImageView->getCreationParameters().image;
+
+				IImage::LAYOUT newLayout = IImage::LAYOUT::GENERAL;
+
+				beforeCopyImageBarriers.push_back(
+					{
+						.barrier = {
+							.dep = {
+								.srcStageMask = PIPELINE_STAGE_FLAGS::NONE, // previous top of pipe -> top_of_pipe in first scope = none
+								.srcAccessMask = ACCESS_FLAGS::NONE,
+								.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+								.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+							}
+							// .ownershipOp. No queueFam ownership transfer
+						},
+						.image = gpuImg.get(),
+						.subresourceRange = {
+							.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+							.baseMipLevel = 0u,
+							.levelCount = ICPUImageView::remaining_mip_levels,
+							.baseArrayLayer = 0u,
+							.layerCount = ICPUImageView::remaining_array_layers
+						},
+						.oldLayout = imageRecord->currentLayout,
+						.newLayout = newLayout,
+					});
+				imageRecord->currentLayout = newLayout;
+			}
+			success &= commandBuffer->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = beforeCopyImageBarriers });
+
+			for (auto it : validCopies)
+			{
+				auto& [imageID, imageCopies] = *it;
+				auto* imageRecord = imagesCache->peek(imageID);
+				if (imageRecord == nullptr)
+					continue;
+
+				const auto& gpuImg = imageRecord->gpuImageView->getCreationParameters().image;
+
+				for (auto& imageCopy : imageCopies)
+				{
+					auto srcBuffer = imageCopy.srcBufferFuture.get();
+					if (srcBuffer)
+					{
+						success &= m_utilities->updateImageViaStagingBuffer(
+							intendedNextSubmit,
+							srcBuffer->getPointer(), imageCopy.srcFormat,
+							gpuImg.get(), IImage::LAYOUT::GENERAL,
+							{ &imageCopy.region, 1u });
+					}
+					else
+						m_logger.log(std::format("srcBuffer was invalid for image id {}.", imageID).c_str(), nbl::system::ILogger::ELL_ERROR);
+				}
+			}
+
+			commandBuffer = intendedNextSubmit.getCommandBufferForRecording()->cmdbuf; // overflow-submit in utilities calls might've cause current recording command buffer to change
+
+			std::vector<IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t> afterCopyImageBarriers;
+			afterCopyImageBarriers.reserve(streamedImageCopies.size());
+
+			// Pipeline Barriers after imageCopy
+			for (auto it : validCopies)
+			{
+				auto& [imageID, imageCopies] = *it;
+				auto* imageRecord = imagesCache->peek(imageID);
+				if (imageRecord == nullptr)
+				{
+					m_logger.log(std::format("`pushStreamedImagesUploads` failed, no image record found for image id {}.", imageID).c_str(), nbl::system::ILogger::ELL_ERROR);
+					continue;
+				}
+
+				const auto& gpuImg = imageRecord->gpuImageView->getCreationParameters().image;
+
+				IImage::LAYOUT newLayout = IImage::LAYOUT::GENERAL;
+
+				afterCopyImageBarriers.push_back(
+					{
+						.barrier = {
+							.dep = {
+								.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT, // previous top of pipe -> top_of_pipe in first scope = none
+								.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+								.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
+								.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS,
+							}
+							// .ownershipOp. No queueFam ownership transfer
+						},
+						.image = gpuImg.get(),
+						.subresourceRange = {
+							.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+							.baseMipLevel = 0u,
+							.levelCount = ICPUImageView::remaining_mip_levels,
+							.baseArrayLayer = 0u,
+							.layerCount = ICPUImageView::remaining_array_layers
+						},
+						.oldLayout = imageRecord->currentLayout,
+						.newLayout = newLayout,
+					});
+				imageRecord->currentLayout = newLayout;
+			}
+			success &= commandBuffer->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = afterCopyImageBarriers });
+
+			// Remove the processed valid ones, keep invalids for later retries
+			for (auto it : validCopies)
+				streamedImageCopies.erase(it);
+		}
+		else
+		{
+			_NBL_DEBUG_BREAK_IF(true);
+			success = false;
 		}
 	}
 
-	endMainObject();
+	if (!success)
+	{
+		m_logger.log("Failure in `pushStreamedImagesUploads`.", nbl::system::ILogger::ELL_ERROR);
+		_NBL_DEBUG_BREAK_IF(true);
+	}
+	return success;
 }
 
 bool DrawResourcesFiller::pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit)
@@ -961,12 +1222,13 @@ bool DrawResourcesFiller::pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit
 		// Push Static Images Uploads from replay cache, all the work below is necessary to detect whether our image to replay is already in the cache in the exact form OR we need to create new image + bind memory and set array index
 		auto* device = m_utilities->getLogicalDevice();
 		bool replayCacheFullyCovered = true;
-		for (auto& [imageID, toReplayRecord] : *currentReplayCache->imagesCache)
+
+		for (auto& [toReplayImageID, toReplayRecord] : *currentReplayCache->imagesCache)
 		{
 			if (toReplayRecord.type != ImageType::STATIC) // non-static images (Georeferenced) won't be replayed like this
 				continue;
 
-			auto* cachedRecord = imagesCache->peek(imageID);
+			auto* cachedRecord = imagesCache->peek(toReplayImageID);
 			bool alreadyResident = false;
 
 			// compare with existing state, and check whether image id is already resident.
@@ -981,63 +1243,92 @@ bool DrawResourcesFiller::pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit
 				alreadyResident = allocationMatches && arrayIndexMatches && cachedRecord->state == ImageState::GPU_RESIDENT_WITH_VALID_STATIC_DATA;
 			}
 
-			// if already resident, just update the state to the cached state (to make sure it doesn't get issued for upload again) and move on.
-			if (alreadyResident)
+			// if already resident, ignore, no need to insert into cache anymore
+			// if bot already resident, we need to recreate the image and bind the image memory to correct location again, and update the descriptor set and push the uploads
+			if (!alreadyResident)
 			{
-				toReplayRecord.state = cachedRecord->state; // update the toReplayImageRecords's state, to completely match the currently resident state
-				continue;
-			}
+				replayCacheFullyCovered = false;
 
-			replayCacheFullyCovered = false;
-
-			bool successCreateNewImage = false;
-
-			// Not already resident, we need to recreate the image and bind the image memory to correct location again, and update the descriptor set and push the uploads
-			auto existingGPUImageViewParams = toReplayRecord.gpuImageView->getCreationParameters();
-			IGPUImage::SCreationParams imageParams = {};
-			imageParams = existingGPUImageViewParams.image->getCreationParameters();
-
-			auto newGPUImage = device->createImage(std::move(imageParams));
-			if (newGPUImage)
-			{
-				nbl::video::ILogicalDevice::SBindImageMemoryInfo bindImageMemoryInfo =
+				// make sure to evict any cache entry that conflicts with the new entry (either in memory allocation or descriptor index)
+				for (auto& [cachedImageID, cachedRecord] : *imagesCache)
 				{
-					.image = newGPUImage.get(),
-					.binding = {.memory = imagesMemoryArena.memory.get(), .offset = imagesMemoryArena.offset + toReplayRecord.allocationOffset }
-				};
+					bool cachedImageConflictsWithImageToReplay = true;
 
-				const bool boundToMemorySuccessfully = device->bindImageMemory({ &bindImageMemoryInfo, 1u });
-				if (boundToMemorySuccessfully)
-				{
-					newGPUImage->setObjectDebugName((std::to_string(imageID) + " Static Image 2D").c_str());
-					IGPUImageView::SCreationParams viewParams = existingGPUImageViewParams;
-					viewParams.image = newGPUImage;
-
-					auto newGPUImageView = device->createImageView(std::move(viewParams));
-					if (newGPUImageView)
+					// Case 1: Same imageID, but params differ (offset/size/arrayIndex mismatch) conflict
+					if (cachedImageID == toReplayImageID)
 					{
-						successCreateNewImage = true;
-						toReplayRecord.gpuImageView = newGPUImageView;
-						toReplayRecord.state = ImageState::CREATED_AND_MEMORY_BOUND;
-						newGPUImageView->setObjectDebugName((std::to_string(imageID) + " Static Image View 2D").c_str());
+						// this will always return true, because if it was a exact param match, we wouldn't need to insert a new one and handle evictions
+						cachedImageConflictsWithImageToReplay = true;
+					}
+					else
+					{
+						// Case 2: Different imageID but overlap in memory range on the same array index conflict
+						if (cachedRecord.arrayIndex == toReplayRecord.arrayIndex &&
+							(cachedRecord.allocationOffset < toReplayRecord.allocationOffset + toReplayRecord.allocationSize) &&
+							(toReplayRecord.allocationOffset < cachedRecord.allocationOffset + cachedRecord.allocationSize))
+						{
+							cachedImageConflictsWithImageToReplay = true;
+						}
 					}
 
+					if (cachedImageConflictsWithImageToReplay)
+					{
+						evictImage_SubmitIfNeeded(cachedImageID, cachedRecord, intendedNextSubmit);
+						imagesCache->erase(cachedImageID);
+					}
 				}
-			}
 
-			if (!successCreateNewImage)
-			{
-				m_logger.log("Couldn't create new gpu image in pushAllUploads: cache and replay mode.", nbl::system::ILogger::ELL_ERROR);
-				_NBL_DEBUG_BREAK_IF(true);
-				success = false;
+				// creating and inserting new entry
+				bool successCreateNewImage = false;
+				{
+					// Not already resident, we need to recreate the image and bind the image memory to correct location again, and update the descriptor set and push the uploads
+					auto existingGPUImageViewParams = toReplayRecord.gpuImageView->getCreationParameters();
+					IGPUImage::SCreationParams imageParams = {};
+					imageParams = existingGPUImageViewParams.image->getCreationParameters();
+
+					auto newGPUImage = device->createImage(std::move(imageParams));
+					if (newGPUImage)
+					{
+						nbl::video::ILogicalDevice::SBindImageMemoryInfo bindImageMemoryInfo =
+						{
+							.image = newGPUImage.get(),
+							.binding = {.memory = imagesMemoryArena.memory.get(), .offset = imagesMemoryArena.offset + toReplayRecord.allocationOffset }
+						};
+
+						const bool boundToMemorySuccessfully = device->bindImageMemory({ &bindImageMemoryInfo, 1u });
+						if (boundToMemorySuccessfully)
+						{
+							newGPUImage->setObjectDebugName((std::to_string(toReplayImageID) + " Static Image 2D").c_str());
+							IGPUImageView::SCreationParams viewParams = existingGPUImageViewParams;
+							viewParams.image = newGPUImage;
+
+							auto newGPUImageView = device->createImageView(std::move(viewParams));
+							if (newGPUImageView)
+							{
+								successCreateNewImage = true;
+								toReplayRecord.gpuImageView = newGPUImageView;
+								toReplayRecord.state = ImageState::CREATED_AND_MEMORY_BOUND;
+								newGPUImageView->setObjectDebugName((std::to_string(toReplayImageID) + " Static Image View 2D").c_str());
+							}
+
+						}
+					}
+				}
+
+				if (successCreateNewImage)
+				{
+					// inserting the new entry into the cache (With new image and memory binding)
+					imagesCache->base_t::insert(toReplayImageID, toReplayRecord);
+				}
+				else
+				{
+					m_logger.log("Couldn't create new gpu image in pushAllUploads: cache and replay mode.", nbl::system::ILogger::ELL_ERROR);
+					_NBL_DEBUG_BREAK_IF(true);
+					success = false;
+				}
+
 			}
 		}
-		
-		// Our actual `imageCache` (which represents GPU state) didn't cover the replayCache fully, so new images had to be created, bound to memory. and they need to be written into their respective descriptor array indices again.
-		// imagesCache = std::make_unique<ImagesCache>(*currentReplayCache->imagesCache);
-		imagesCache->clear();
-		for (auto it = currentReplayCache->imagesCache->rbegin(); it != currentReplayCache->imagesCache->rend(); it++)
-			imagesCache->base_t::insert(it->first, it->second);
 
 		if (!replayCacheFullyCovered)
 		{
@@ -1053,7 +1344,7 @@ bool DrawResourcesFiller::pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit
 
 		success &= bindImagesToArrayIndices(*imagesCache);
 		success &= pushStaticImagesUploads(intendedNextSubmit, *imagesCache);
-		// Streamed uploads in cache&replay?!
+		// There should be no georeferenced image and thus streamed uploads in replay mode: georeferenced/streamed images should be drawn in a separate isolated submit 
 	}
 	else
 	{
@@ -1062,7 +1353,6 @@ bool DrawResourcesFiller::pushAllUploads(SIntendedSubmitInfo& intendedNextSubmit
 		success &= pushMSDFImagesUploads(intendedNextSubmit, msdfImagesState);
 		success &= bindImagesToArrayIndices(*imagesCache);
 		success &= pushStaticImagesUploads(intendedNextSubmit, *imagesCache);
-		success &= pushStreamedImagesUploads(intendedNextSubmit);
 	}
 	return success;
 }
@@ -1123,7 +1413,8 @@ void DrawResourcesFiller::pushCustomClipRect(const WorldClipRect& clipRect)
 }
 
 void DrawResourcesFiller::popCustomClipRect()
-{	if (activeClipRects.empty())
+{
+	if (activeClipRects.empty())
 		return;
 
 	activeClipRects.pop_back();
@@ -1171,6 +1462,29 @@ void DrawResourcesFiller::unsetReplayCache()
 	currentReplayCache = nullptr;
 }
 
+uint64_t DrawResourcesFiller::getImagesMemoryConsumption() const
+{
+	uint64_t ret = 0ull;
+	for (auto& [imageID, record] : *imagesCache)
+		ret += record.allocationSize;
+	return ret;
+}
+
+DrawResourcesFiller::UsageData DrawResourcesFiller::getCurrentUsageData()
+{
+	UsageData ret = {};
+	const auto& resources = getResourcesCollection();
+	ret.lineStyleCount = resources.lineStyles.getCount();
+	ret.dtmSettingsCount = resources.dtmSettings.getCount();
+	ret.customProjectionsCount = resources.customProjections.getCount();
+	ret.mainObjectCount = resources.mainObjects.getCount();
+	ret.drawObjectCount = resources.drawObjects.getCount();
+	ret.geometryBufferSize = resources.geometryInfo.getStorageSize();
+	ret.bufferMemoryConsumption = resources.calculateTotalConsumption();
+	ret.imageMemoryConsumption = getImagesMemoryConsumption();
+	return ret;
+}
+
 bool DrawResourcesFiller::pushBufferUploads(SIntendedSubmitInfo& intendedNextSubmit, ResourcesCollection& resources)
 {
 	copiedResourcesSize = 0ull;
@@ -1185,7 +1499,7 @@ bool DrawResourcesFiller::pushBufferUploads(SIntendedSubmitInfo& intendedNextSub
 	auto copyCPUFilledDrawBuffer = [&](auto& drawBuffer) -> bool
 		{
 			// drawBuffer must be of type CPUGeneratedResource<T>
-			SBufferRange<IGPUBuffer> copyRange = { copiedResourcesSize, drawBuffer.getStorageSize(), resourcesGPUBuffer};
+			SBufferRange<IGPUBuffer> copyRange = { copiedResourcesSize, drawBuffer.getStorageSize(), resourcesGPUBuffer };
 
 			if (copyRange.offset + copyRange.size > resourcesGPUBuffer->getSize())
 			{
@@ -1203,11 +1517,11 @@ bool DrawResourcesFiller::pushBufferUploads(SIntendedSubmitInfo& intendedNextSub
 			}
 			return true;
 		};
-	
+
 	auto addComputeReservedFilledDrawBuffer = [&](auto& drawBuffer) -> bool
 		{
 			// drawBuffer must be of type ReservedComputeResource<T>
-			SBufferRange<IGPUBuffer> copyRange = { copiedResourcesSize, drawBuffer.getStorageSize(), resourcesGPUBuffer};
+			SBufferRange<IGPUBuffer> copyRange = { copiedResourcesSize, drawBuffer.getStorageSize(), resourcesGPUBuffer };
 
 			if (copyRange.offset + copyRange.size > resourcesGPUBuffer->getSize())
 			{
@@ -1228,14 +1542,14 @@ bool DrawResourcesFiller::pushBufferUploads(SIntendedSubmitInfo& intendedNextSub
 	copyCPUFilledDrawBuffer(resources.drawObjects);
 	copyCPUFilledDrawBuffer(resources.indexBuffer);
 	copyCPUFilledDrawBuffer(resources.geometryInfo);
-	
+
 	return true;
 }
 
 bool DrawResourcesFiller::pushMSDFImagesUploads(SIntendedSubmitInfo& intendedNextSubmit, std::vector<MSDFImageState>& stagedMSDFCPUImages)
 {
 	auto* cmdBuffInfo = intendedNextSubmit.getCommandBufferForRecording();
-	
+
 	if (cmdBuffInfo)
 	{
 		IGPUCommandBuffer* commandBuffer = cmdBuffInfo->cmdbuf;
@@ -1361,7 +1675,7 @@ bool DrawResourcesFiller::pushMSDFImagesUploads(SIntendedSubmitInfo& intendedNex
 bool DrawResourcesFiller::bindImagesToArrayIndices(ImagesCache& imagesCache)
 {
 	bool success = true;
-	
+
 	auto* device = m_utilities->getLogicalDevice();
 	auto* descriptorSet = suballocatedDescriptorSet->getDescriptorSet();
 
@@ -1410,7 +1724,7 @@ bool DrawResourcesFiller::pushStaticImagesUploads(SIntendedSubmitInfo& intendedN
 	std::vector<CachedImageRecord*> nonResidentImageRecords;
 	for (auto& [id, record] : imagesCache)
 	{
-		if (record.staticCPUImage && (record.type == ImageType::STATIC || record.type == ImageType::GEOREFERENCED_FULL_RESOLUTION) && record.state < ImageState::GPU_RESIDENT_WITH_VALID_STATIC_DATA)
+		if (record.staticCPUImage && record.type == ImageType::STATIC && record.state < ImageState::GPU_RESIDENT_WITH_VALID_STATIC_DATA)
 			nonResidentImageRecords.push_back(&record);
 	}
 
@@ -1418,7 +1732,7 @@ bool DrawResourcesFiller::pushStaticImagesUploads(SIntendedSubmitInfo& intendedN
 	{
 		auto* device = m_utilities->getLogicalDevice();
 		auto* cmdBuffInfo = intendedNextSubmit.getCommandBufferForRecording();
-	
+
 		if (cmdBuffInfo)
 		{
 			IGPUCommandBuffer* commandBuffer = cmdBuffInfo->cmdbuf;
@@ -1450,9 +1764,10 @@ bool DrawResourcesFiller::pushStaticImagesUploads(SIntendedSubmitInfo& intendedN
 						.baseArrayLayer = 0u,
 						.layerCount = ICPUImageView::remaining_array_layers
 					},
-					.oldLayout = IImage::LAYOUT::UNDEFINED,
+					.oldLayout = imageRecord.currentLayout,
 					.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
 				};
+				imageRecord.currentLayout = beforeCopyImageBarriers[i].newLayout;
 			}
 			success &= commandBuffer->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = beforeCopyImageBarriers });
 
@@ -1503,9 +1818,10 @@ bool DrawResourcesFiller::pushStaticImagesUploads(SIntendedSubmitInfo& intendedN
 						.baseArrayLayer = 0u,
 						.layerCount = ICPUImageView::remaining_array_layers
 					},
-					.oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+					.oldLayout = imageRecord.currentLayout,
 					.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL,
 				};
+				imageRecord.currentLayout = afterCopyImageBarriers[i].newLayout;
 			}
 			success &= commandBuffer->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = afterCopyImageBarriers });
 		}
@@ -1524,128 +1840,129 @@ bool DrawResourcesFiller::pushStaticImagesUploads(SIntendedSubmitInfo& intendedN
 	return success;
 }
 
-bool DrawResourcesFiller::pushStreamedImagesUploads(SIntendedSubmitInfo& intendedNextSubmit)
+bool DrawResourcesFiller::ensureGeoreferencedImageResources_AllocateIfNeeded(image_id imageID, nbl::core::smart_refctd_ptr<GeoreferencedImageStreamingState>&& imageStreamingState, SIntendedSubmitInfo& intendedNextSubmit)
 {
-	bool success = true;
+	auto* device = m_utilities->getLogicalDevice();
+	auto* physDev = m_utilities->getLogicalDevice()->getPhysicalDevice();
 
-	if (streamedImageCopies.size() > 0ull)
+	// Try inserting or updating the image usage in the cache.
+	// If the image is already present, updates its semaphore value.
+	auto evictCallback = [&](image_id imageID, const CachedImageRecord& evicted) { evictImage_SubmitIfNeeded(imageID, evicted, intendedNextSubmit); };
+	CachedImageRecord* cachedImageRecord = imagesCache->insert(imageID, intendedNextSubmit.getFutureScratchSemaphore().value, evictCallback);
+
+	// Setting the image streaming state returned in `ensureGeoreferencedImageEntry` which was either creating anew or gotten from this very own cache
+	cachedImageRecord->georeferencedImageState = std::move(imageStreamingState);
+
+	if (cachedImageRecord == nullptr)
 	{
-		auto* device = m_utilities->getLogicalDevice();
-		auto* cmdBuffInfo = intendedNextSubmit.getCommandBufferForRecording();
-	
-		if (cmdBuffInfo)
+		m_logger.log("Couldn't insert image in cache; make sure you called `ensureGeoreferencedImageEntry` before anything else.", nbl::system::ILogger::ELL_ERROR);
+		return false;
+	}
+
+	// if cachedImageRecord->index was not InvalidTextureIndex then it means we had a cache hit and updated the value of our sema
+	// But we need to check if the cached image needs resizing/recreation.
+	if (cachedImageRecord->arrayIndex != InvalidTextureIndex)
+	{
+		// found in cache, but does it require resize? recreation?
+		if (cachedImageRecord->gpuImageView)
 		{
-			IGPUCommandBuffer* commandBuffer = cmdBuffInfo->cmdbuf;
-
-			std::vector<IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t> beforeCopyImageBarriers;
-			beforeCopyImageBarriers.reserve(streamedImageCopies.size());
-
-			// Pipeline Barriers before imageCopy
-			for (auto& [imageID, imageCopies] : streamedImageCopies)
+			auto imgViewParams = cachedImageRecord->gpuImageView->getCreationParameters();
+			if (imgViewParams.image)
 			{
-				auto* imageRecord = imagesCache->peek(imageID);
-				if (imageRecord == nullptr)
-					continue;
-
-				const auto& gpuImg = imageRecord->gpuImageView->getCreationParameters().image;
-
-				beforeCopyImageBarriers.push_back(
-					{
-						.barrier = {
-							.dep = {
-								.srcStageMask = PIPELINE_STAGE_FLAGS::NONE, // previous top of pipe -> top_of_pipe in first scope = none
-								.srcAccessMask = ACCESS_FLAGS::NONE,
-								.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
-								.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-							}
-							// .ownershipOp. No queueFam ownership transfer
-						},
-						.image = gpuImg.get(),
-						.subresourceRange = {
-							.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
-							.baseMipLevel = 0u,
-							.levelCount = ICPUImageView::remaining_mip_levels,
-							.baseArrayLayer = 0u,
-							.layerCount = ICPUImageView::remaining_array_layers
-						},
-						.oldLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL,
-						.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-					});
-			}
-			success &= commandBuffer->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = beforeCopyImageBarriers });
-			
-			for (auto& [imageID, imageCopies] : streamedImageCopies)
-			{
-				auto* imageRecord = imagesCache->peek(imageID);
-				if (imageRecord == nullptr)
-					continue;
-
-				const auto& gpuImg = imageRecord->gpuImageView->getCreationParameters().image;
-
-				for (auto& imageCopy : imageCopies)
+				const auto cachedParams = static_cast<asset::IImage::SCreationParams>(imgViewParams.image->getCreationParameters());
+				// image type and creation params (most importantly extent and format) should match, otherwise we evict, recreate and re-pus
+				const auto toCreateParams = static_cast<asset::IImage::SCreationParams>(cachedImageRecord->georeferencedImageState->gpuImageCreationParams);
+				const bool needsRecreation = cachedParams != toCreateParams;
+				if (needsRecreation)
 				{
-					success &= m_utilities->updateImageViaStagingBuffer(
-						intendedNextSubmit,
-						imageCopy.srcBuffer->getPointer(), imageCopy.srcFormat,
-						gpuImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-						{ &imageCopy.region, 1u });
+					// call the eviction callback so the currently cached imageID gets eventually deallocated from memory arena.
+					// note: it doesn't remove the entry from lru cache.
+					evictCallback(imageID, *cachedImageRecord);
+
+					// instead of erasing and inserting the imageID into the cache, we just reset it, so the next block of code goes into array index allocation + creating our new image
+					CachedImageRecord newRecord = CachedImageRecord(currentFrameIndex); //reser everything except image streaming state
+					newRecord.georeferencedImageState = std::move(cachedImageRecord->georeferencedImageState);
+					newRecord.type = cachedImageRecord->type;
+					*cachedImageRecord = std::move(newRecord);
 				}
 			}
-
-			commandBuffer = intendedNextSubmit.getCommandBufferForRecording()->cmdbuf; // overflow-submit in utilities calls might've cause current recording command buffer to change
-
-			std::vector<IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t> afterCopyImageBarriers;
-			afterCopyImageBarriers.reserve(streamedImageCopies.size());
-
-			// Pipeline Barriers after imageCopy
-			for (auto& [imageID, imageCopies] : streamedImageCopies)
+			else
 			{
-				auto* imageRecord = imagesCache->peek(imageID);
-				if (imageRecord == nullptr)
-					continue;
-
-				const auto& gpuImg = imageRecord->gpuImageView->getCreationParameters().image;
-
-				afterCopyImageBarriers.push_back (
-					{
-						.barrier = {
-							.dep = {
-								.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT, // previous top of pipe -> top_of_pipe in first scope = none
-								.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-								.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
-								.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS,
-							}
-							// .ownershipOp. No queueFam ownership transfer
-						},
-						.image = gpuImg.get(),
-						.subresourceRange = {
-							.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
-							.baseMipLevel = 0u,
-							.levelCount = ICPUImageView::remaining_mip_levels,
-							.baseArrayLayer = 0u,
-							.layerCount = ICPUImageView::remaining_array_layers
-						},
-						.oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-						.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL,
-					});
+				m_logger.log("Cached georeferenced image has invalid gpu image.", nbl::system::ILogger::ELL_ERROR);
 			}
-			success &= commandBuffer->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = afterCopyImageBarriers });
-
-			streamedImageCopies.clear();
 		}
 		else
 		{
-			_NBL_DEBUG_BREAK_IF(true);
-			success = false;
+			m_logger.log("Cached georeferenced image has invalid gpu image view.", nbl::system::ILogger::ELL_ERROR);
 		}
 	}
 
-	if (!success)
+	// in which case we don't queue anything for upload, and return the idx
+	if (cachedImageRecord->arrayIndex == InvalidTextureIndex)
 	{
-		m_logger.log("Failure in `pushStreamedImagesUploads`.", nbl::system::ILogger::ELL_ERROR);
-		_NBL_DEBUG_BREAK_IF(true);
+		// This is a new image (cache miss). Allocate a descriptor index for it.
+		cachedImageRecord->arrayIndex = video::SubAllocatedDescriptorSet::AddressAllocator::invalid_address;
+		// Blocking allocation attempt; if the descriptor pool is exhausted, this may stall.
+		suballocatedDescriptorSet->multi_allocate(std::chrono::time_point<std::chrono::steady_clock>::max(), imagesArrayBinding, 1u, &cachedImageRecord->arrayIndex); // if the prev submit causes DEVICE_LOST then we'll get a deadlock here since we're using max timepoint
+
+		if (cachedImageRecord->arrayIndex != video::SubAllocatedDescriptorSet::AddressAllocator::invalid_address)
+		{
+			const auto& imageCreationParams = cachedImageRecord->georeferencedImageState->gpuImageCreationParams;
+			// Attempt to create a GPU image and image view for this texture.
+			ImageAllocateResults allocResults = tryCreateAndAllocateImage_SubmitIfNeeded(imageCreationParams, asset::E_FORMAT::EF_COUNT, intendedNextSubmit, std::to_string(imageID));
+
+			if (allocResults.isValid())
+			{
+				cachedImageRecord->type = ImageType::GEOREFERENCED_STREAMED;
+				cachedImageRecord->state = ImageState::CREATED_AND_MEMORY_BOUND;
+				cachedImageRecord->currentLayout = nbl::asset::IImage::LAYOUT::UNDEFINED;
+				cachedImageRecord->lastUsedFrameIndex = currentFrameIndex; // there was an eviction + auto-submit, we need to update AGAIN
+				cachedImageRecord->allocationOffset = allocResults.allocationOffset;
+				cachedImageRecord->allocationSize = allocResults.allocationSize;
+				cachedImageRecord->gpuImageView = allocResults.gpuImageView;
+				cachedImageRecord->staticCPUImage = nullptr;
+			}
+			else
+			{
+				// All attempts to try create the GPU image and its corresponding view have failed.
+				// Most likely cause: insufficient GPU memory or unsupported image parameters.
+
+				m_logger.log("ensureGeoreferencedImageAvailability_AllocateIfNeeded failed, likely due to low VRAM.", nbl::system::ILogger::ELL_ERROR);
+				_NBL_DEBUG_BREAK_IF(true);
+
+				if (cachedImageRecord->allocationOffset != ImagesMemorySubAllocator::InvalidAddress)
+				{
+					// We previously successfully create and allocated memory for the Image
+					// but failed to bind and create image view
+					// It's crucial to deallocate the offset+size form our images memory suballocator
+					imagesMemorySubAllocator->deallocate(cachedImageRecord->allocationOffset, cachedImageRecord->allocationSize);
+				}
+
+				if (cachedImageRecord->arrayIndex != InvalidTextureIndex)
+				{
+					// We previously allocated a descriptor index, but failed to create a usable GPU image.
+					// It's crucial to deallocate this index to avoid leaks and preserve descriptor pool space.
+					// No semaphore wait needed here, as the GPU never got to use this slot.
+					suballocatedDescriptorSet->multi_deallocate(imagesArrayBinding, 1u, &cachedImageRecord->arrayIndex, {});
+					cachedImageRecord->arrayIndex = InvalidTextureIndex;
+				}
+
+				// erase the entry we failed to fill, no need for `evictImage_SubmitIfNeeded`, because it didn't get to be used in any submit to defer it's memory and index deallocation
+				imagesCache->erase(imageID);
+			}
+		}
+		else
+		{
+			m_logger.log("ensureGeoreferencedImageAvailability_AllocateIfNeeded failed index allocation. shouldn't have happened.", nbl::system::ILogger::ELL_ERROR);
+			cachedImageRecord->arrayIndex = InvalidTextureIndex;
+		}
 	}
-	return success;
+
+	// cached or just inserted, we update the lastUsedFrameIndex
+	cachedImageRecord->lastUsedFrameIndex = currentFrameIndex;
+
+	assert(cachedImageRecord->arrayIndex != InvalidTextureIndex); // shouldn't happen, because we're using LRU cache, so worst case eviction will happen + multi-deallocate and next next multi_allocate should definitely succeed
+	return (cachedImageRecord->arrayIndex != InvalidTextureIndex);
 }
 
 const size_t DrawResourcesFiller::calculateRemainingResourcesSize() const
@@ -1791,7 +2108,7 @@ uint32_t DrawResourcesFiller::acquireActiveLineStyleIndex_SubmitIfNeeded(SIntend
 {
 	if (activeLineStyleIndex == InvalidStyleIdx)
 		activeLineStyleIndex = addLineStyle_SubmitIfNeeded(activeLineStyle, intendedNextSubmit);
-	
+
 	return activeLineStyleIndex;
 }
 
@@ -1799,7 +2116,7 @@ uint32_t DrawResourcesFiller::acquireActiveDTMSettingsIndex_SubmitIfNeeded(SInte
 {
 	if (activeDTMSettingsIndex == InvalidDTMSettingsIdx)
 		activeDTMSettingsIndex = addDTMSettings_SubmitIfNeeded(activeDTMSettings, intendedNextSubmit);
-	
+
 	return activeDTMSettingsIndex;
 }
 
@@ -1810,7 +2127,7 @@ uint32_t DrawResourcesFiller::acquireActiveCustomProjectionIndex_SubmitIfNeeded(
 
 	if (activeProjectionIndices.back() == InvalidCustomProjectionIndex)
 		activeProjectionIndices.back() = addCustomProjection_SubmitIfNeeded(activeProjections.back(), intendedNextSubmit);
-	
+
 	return activeProjectionIndices.back();
 }
 
@@ -1821,7 +2138,7 @@ uint32_t DrawResourcesFiller::acquireActiveCustomClipRectIndex_SubmitIfNeeded(SI
 
 	if (activeClipRectIndices.back() == InvalidCustomClipRectIndex)
 		activeClipRectIndices.back() = addCustomClipRect_SubmitIfNeeded(activeClipRects.back(), intendedNextSubmit);
-	
+
 	return activeClipRectIndices.back();
 }
 
@@ -1853,14 +2170,14 @@ uint32_t DrawResourcesFiller::acquireActiveMainObjectIndex_SubmitIfNeeded(SInten
 
 	const bool enoughMem = remainingResourcesSize >= memRequired; // enough remaining memory for 1 more dtm settings with 2 referenced line styles?
 	const bool needToOverflowSubmit = (!enoughMem) || (resourcesCollection.mainObjects.vector.size() >= MaxIndexableMainObjects);
-	
+
 	if (needToOverflowSubmit)
 	{
 		// failed to fit into remaining resources mem or exceeded max indexable mainobj
 		submitDraws(intendedNextSubmit);
 		reset(); // resets everything! be careful!
 	}
-	
+
 	MainObject mainObject = {};
 	// These 3 calls below shouldn't need to Submit because we made sure there is enough memory for all of them.
 	// if something here triggers a auto-submit it's a possible bug with calculating `memRequired` above, TODO: assert that somehow?
@@ -1916,7 +2233,7 @@ uint32_t DrawResourcesFiller::addCustomProjection_SubmitIfNeeded(const float64_t
 		submitDraws(intendedNextSubmit);
 		reset(); // resets everything! be careful!
 	}
-	
+
 	resourcesCollection.customProjections.vector.push_back(projection); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
 	return resourcesCollection.customProjections.vector.size() - 1u;
 }
@@ -1932,7 +2249,7 @@ uint32_t DrawResourcesFiller::addCustomClipRect_SubmitIfNeeded(const WorldClipRe
 		submitDraws(intendedNextSubmit);
 		reset(); // resets everything! be careful!
 	}
-	
+
 	resourcesCollection.customClipRects.vector.push_back(clipRect); // this will implicitly increase total resource consumption and reduce remaining size --> no need for mem size trackers
 	return resourcesCollection.customClipRects.vector.size() - 1u;
 }
@@ -1953,7 +2270,7 @@ void DrawResourcesFiller::addPolylineConnectors_Internal(const CPolylineBase& po
 
 	const uint32_t uploadableObjects = (remainingResourcesSize) / (sizeof(PolylineConnector) + sizeof(DrawObject) + sizeof(uint32_t) * 6u);
 	// TODO[ERFAN]: later take into account: our maximum indexable vertex 
-	
+
 	const uint32_t connectorCount = static_cast<uint32_t>(polyline.getConnectors().size());
 	const uint32_t remainingObjects = connectorCount - currentPolylineConnectorObj;
 	const uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
@@ -1973,12 +2290,12 @@ void DrawResourcesFiller::addPolylineConnectors_Internal(const CPolylineBase& po
 	const uint32_t startObj = resourcesCollection.drawObjects.getCount();
 	for (uint32_t i = 0u; i < objectsToUpload; ++i)
 	{
-		indexBufferToBeFilled[i*6]		= (startObj+i)*4u + 1u;
-		indexBufferToBeFilled[i*6 + 1u]	= (startObj+i)*4u + 0u;
-		indexBufferToBeFilled[i*6 + 2u]	= (startObj+i)*4u + 2u;
-		indexBufferToBeFilled[i*6 + 3u]	= (startObj+i)*4u + 1u;
-		indexBufferToBeFilled[i*6 + 4u]	= (startObj+i)*4u + 2u;
-		indexBufferToBeFilled[i*6 + 5u]	= (startObj+i)*4u + 3u;
+		indexBufferToBeFilled[i * 6] = (startObj + i) * 4u + 1u;
+		indexBufferToBeFilled[i * 6 + 1u] = (startObj + i) * 4u + 0u;
+		indexBufferToBeFilled[i * 6 + 2u] = (startObj + i) * 4u + 2u;
+		indexBufferToBeFilled[i * 6 + 3u] = (startObj + i) * 4u + 1u;
+		indexBufferToBeFilled[i * 6 + 4u] = (startObj + i) * 4u + 2u;
+		indexBufferToBeFilled[i * 6 + 5u] = (startObj + i) * 4u + 3u;
 	}
 
 	// Add DrawObjs
@@ -1991,7 +2308,7 @@ void DrawResourcesFiller::addPolylineConnectors_Internal(const CPolylineBase& po
 	{
 		drawObjectsToBeFilled[i] = drawObj;
 		drawObj.geometryAddress += sizeof(PolylineConnector);
-	} 
+	}
 
 	currentPolylineConnectorObj += objectsToUpload;
 }
@@ -2029,12 +2346,12 @@ void DrawResourcesFiller::addLines_Internal(const CPolylineBase& polyline, const
 	const uint32_t startObj = resourcesCollection.drawObjects.getCount();
 	for (uint32_t i = 0u; i < objectsToUpload; ++i)
 	{
-		indexBufferToBeFilled[i*6]		= (startObj+i)*4u + 1u;
-		indexBufferToBeFilled[i*6 + 1u]	= (startObj+i)*4u + 0u;
-		indexBufferToBeFilled[i*6 + 2u]	= (startObj+i)*4u + 2u;
-		indexBufferToBeFilled[i*6 + 3u]	= (startObj+i)*4u + 1u;
-		indexBufferToBeFilled[i*6 + 4u]	= (startObj+i)*4u + 2u;
-		indexBufferToBeFilled[i*6 + 5u]	= (startObj+i)*4u + 3u;
+		indexBufferToBeFilled[i * 6] = (startObj + i) * 4u + 1u;
+		indexBufferToBeFilled[i * 6 + 1u] = (startObj + i) * 4u + 0u;
+		indexBufferToBeFilled[i * 6 + 2u] = (startObj + i) * 4u + 2u;
+		indexBufferToBeFilled[i * 6 + 3u] = (startObj + i) * 4u + 1u;
+		indexBufferToBeFilled[i * 6 + 4u] = (startObj + i) * 4u + 2u;
+		indexBufferToBeFilled[i * 6 + 5u] = (startObj + i) * 4u + 3u;
 	}
 
 	// Add DrawObjs
@@ -2047,7 +2364,7 @@ void DrawResourcesFiller::addLines_Internal(const CPolylineBase& polyline, const
 	{
 		drawObjectsToBeFilled[i] = drawObj;
 		drawObj.geometryAddress += sizeof(LinePointInfo);
-	} 
+	}
 
 	currentObjectInSection += objectsToUpload;
 }
@@ -2063,7 +2380,7 @@ void DrawResourcesFiller::addQuadBeziers_Internal(const CPolylineBase& polyline,
 	// memConsumption = quadBezCount * (sizeof(QuadraticBezierInfo) + 3*(sizeof(DrawObject)+6u*sizeof(uint32_t))
 	const uint32_t uploadableObjects = (remainingResourcesSize) / (sizeof(QuadraticBezierInfo) + (sizeof(DrawObject) + 6u * sizeof(uint32_t)) * CagesPerQuadBezier);
 	// TODO[ERFAN]: later take into account: our maximum indexable vertex 
-	
+
 	const uint32_t beziersCount = section.count;
 	const uint32_t remainingObjects = beziersCount - currentObjectInSection;
 	const uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
@@ -2071,7 +2388,7 @@ void DrawResourcesFiller::addQuadBeziers_Internal(const CPolylineBase& polyline,
 
 	if (objectsToUpload <= 0u)
 		return;
-	
+
 	// Add Geometry
 	const auto beziersByteSize = sizeof(QuadraticBezierInfo) * (objectsToUpload);
 	size_t geometryBufferOffset = resourcesCollection.geometryInfo.increaseSizeAndGetOffset(beziersByteSize, alignof(QuadraticBezierInfo));
@@ -2082,18 +2399,18 @@ void DrawResourcesFiller::addQuadBeziers_Internal(const CPolylineBase& polyline,
 
 
 	// Push Indices, remove later when compute fills this
-	uint32_t* indexBufferToBeFilled = resourcesCollection.indexBuffer.increaseCountAndGetPtr(6u*cagesCount);
+	uint32_t* indexBufferToBeFilled = resourcesCollection.indexBuffer.increaseCountAndGetPtr(6u * cagesCount);
 	const uint32_t startObj = resourcesCollection.drawObjects.getCount();
 	for (uint32_t i = 0u; i < cagesCount; ++i)
 	{
-		indexBufferToBeFilled[i*6]		= (startObj+i)*4u + 1u;
-		indexBufferToBeFilled[i*6 + 1u]	= (startObj+i)*4u + 0u;
-		indexBufferToBeFilled[i*6 + 2u]	= (startObj+i)*4u + 2u;
-		indexBufferToBeFilled[i*6 + 3u]	= (startObj+i)*4u + 1u;
-		indexBufferToBeFilled[i*6 + 4u]	= (startObj+i)*4u + 2u;
-		indexBufferToBeFilled[i*6 + 5u]	= (startObj+i)*4u + 3u;
+		indexBufferToBeFilled[i * 6] = (startObj + i) * 4u + 1u;
+		indexBufferToBeFilled[i * 6 + 1u] = (startObj + i) * 4u + 0u;
+		indexBufferToBeFilled[i * 6 + 2u] = (startObj + i) * 4u + 2u;
+		indexBufferToBeFilled[i * 6 + 3u] = (startObj + i) * 4u + 1u;
+		indexBufferToBeFilled[i * 6 + 4u] = (startObj + i) * 4u + 2u;
+		indexBufferToBeFilled[i * 6 + 5u] = (startObj + i) * 4u + 3u;
 	}
-	
+
 	// Add DrawObjs
 	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(cagesCount);
 	DrawObject drawObj = {};
@@ -2119,7 +2436,7 @@ void DrawResourcesFiller::addHatch_Internal(const Hatch& hatch, uint32_t& curren
 
 	const uint32_t uploadableObjects = (remainingResourcesSize) / (sizeof(Hatch::CurveHatchBox) + sizeof(DrawObject) + sizeof(uint32_t) * 6u);
 	// TODO[ERFAN]: later take into account: our maximum indexable vertex 
-	
+
 	uint32_t remainingObjects = hatch.getHatchBoxCount() - currentObjectInSection;
 	const uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
 
@@ -2133,20 +2450,20 @@ void DrawResourcesFiller::addHatch_Internal(const Hatch& hatch, uint32_t& curren
 	void* dst = resourcesCollection.geometryInfo.data() + geometryBufferOffset;
 	const Hatch::CurveHatchBox& hatchBox = hatch.getHatchBox(currentObjectInSection); // WARNING: This is assuming hatch boxes are contigous in memory, TODO: maybe make that more obvious through Hatch interface
 	memcpy(dst, &hatchBox, curveBoxesByteSize);
-	
+
 	// Push Indices, remove later when compute fills this
 	uint32_t* indexBufferToBeFilled = resourcesCollection.indexBuffer.increaseCountAndGetPtr(6u * objectsToUpload);
 	const uint32_t startObj = resourcesCollection.drawObjects.getCount();
 	for (uint32_t i = 0u; i < objectsToUpload; ++i)
 	{
-		indexBufferToBeFilled[i*6]		= (startObj+i)*4u + 1u;
-		indexBufferToBeFilled[i*6 + 1u]	= (startObj+i)*4u + 0u;
-		indexBufferToBeFilled[i*6 + 2u]	= (startObj+i)*4u + 2u;
-		indexBufferToBeFilled[i*6 + 3u]	= (startObj+i)*4u + 1u;
-		indexBufferToBeFilled[i*6 + 4u]	= (startObj+i)*4u + 2u;
-		indexBufferToBeFilled[i*6 + 5u]	= (startObj+i)*4u + 3u;
+		indexBufferToBeFilled[i * 6] = (startObj + i) * 4u + 1u;
+		indexBufferToBeFilled[i * 6 + 1u] = (startObj + i) * 4u + 0u;
+		indexBufferToBeFilled[i * 6 + 2u] = (startObj + i) * 4u + 2u;
+		indexBufferToBeFilled[i * 6 + 3u] = (startObj + i) * 4u + 1u;
+		indexBufferToBeFilled[i * 6 + 4u] = (startObj + i) * 4u + 2u;
+		indexBufferToBeFilled[i * 6 + 5u] = (startObj + i) * 4u + 3u;
 	}
-	
+
 	// Add DrawObjs
 	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(objectsToUpload);
 	DrawObject drawObj = {};
@@ -2169,7 +2486,7 @@ bool DrawResourcesFiller::addFontGlyph_Internal(const GlyphInfo& glyphInfo, uint
 
 	const uint32_t uploadableObjects = (remainingResourcesSize) / (sizeof(GlyphInfo) + sizeof(DrawObject) + sizeof(uint32_t) * 6u);
 	// TODO[ERFAN]: later take into account: our maximum indexable vertex 
-	
+
 	if (uploadableObjects <= 0u)
 		return false;
 
@@ -2182,12 +2499,12 @@ bool DrawResourcesFiller::addFontGlyph_Internal(const GlyphInfo& glyphInfo, uint
 	uint32_t* indexBufferToBeFilled = resourcesCollection.indexBuffer.increaseCountAndGetPtr(6u * 1u);
 	const uint32_t startObj = resourcesCollection.drawObjects.getCount();
 	uint32_t i = 0u;
-	indexBufferToBeFilled[i*6]		= (startObj+i)*4u + 1u;
-	indexBufferToBeFilled[i*6 + 1u]	= (startObj+i)*4u + 0u;
-	indexBufferToBeFilled[i*6 + 2u]	= (startObj+i)*4u + 2u;
-	indexBufferToBeFilled[i*6 + 3u]	= (startObj+i)*4u + 1u;
-	indexBufferToBeFilled[i*6 + 4u]	= (startObj+i)*4u + 2u;
-	indexBufferToBeFilled[i*6 + 5u]	= (startObj+i)*4u + 3u;
+	indexBufferToBeFilled[i * 6] = (startObj + i) * 4u + 1u;
+	indexBufferToBeFilled[i * 6 + 1u] = (startObj + i) * 4u + 0u;
+	indexBufferToBeFilled[i * 6 + 2u] = (startObj + i) * 4u + 2u;
+	indexBufferToBeFilled[i * 6 + 3u] = (startObj + i) * 4u + 1u;
+	indexBufferToBeFilled[i * 6 + 4u] = (startObj + i) * 4u + 2u;
+	indexBufferToBeFilled[i * 6 + 5u] = (startObj + i) * 4u + 3u;
 
 	// Add DrawObjs
 	DrawObject* drawObjectsToBeFilled = resourcesCollection.drawObjects.increaseCountAndGetPtr(1u);
@@ -2384,7 +2701,7 @@ DrawResourcesFiller::ImageAllocateResults DrawResourcesFiller::tryCreateAndAlloc
 		// Try creating the image and allocating memory for it:
 		nbl::video::IGPUImage::SCreationParams params = {};
 		params = imageParams;
-		
+
 		if (imageViewFormatOverride != asset::E_FORMAT::EF_COUNT && imageViewFormatOverride != imageParams.format)
 		{
 			params.viewFormats.set(static_cast<size_t>(imageViewFormatOverride), true);
@@ -2403,7 +2720,11 @@ DrawResourcesFiller::ImageAllocateResults DrawResourcesFiller::tryCreateAndAlloc
 
 			if (imageMemoryRequirementsMatch)
 			{
+				// OutputDebugStringA(std::format("ALlocating {} !!!!\n", gpuImageMemoryRequirements.size).c_str());
+				// m_logger.log(std::format(" [BEFORE] Allocator Free Size={} \n",imagesMemorySubAllocator->getFreeSize()).c_str(), nbl::system::ILogger::ELL_INFO);
 				ret.allocationOffset = imagesMemorySubAllocator->allocate(gpuImageMemoryRequirements.size, 1u << gpuImageMemoryRequirements.alignmentLog2);
+				// m_logger.log(std::format(" [AFTER] Alloc Size = {}, Alloc Offset = {}, Alignment = {} \n",gpuImageMemoryRequirements.size, ret.allocationOffset, 1u << gpuImageMemoryRequirements.alignmentLog2).c_str(), nbl::system::ILogger::ELL_INFO);
+				// m_logger.log(std::format(" [AFTER] Allocator Free Size={} \n",imagesMemorySubAllocator->getFreeSize()).c_str(), nbl::system::ILogger::ELL_INFO);
 				const bool allocationFromImagesMemoryArenaSuccessfull = ret.allocationOffset != ImagesMemorySubAllocator::InvalidAddress;
 				if (allocationFromImagesMemoryArenaSuccessfull)
 				{
@@ -2411,7 +2732,7 @@ DrawResourcesFiller::ImageAllocateResults DrawResourcesFiller::tryCreateAndAlloc
 					nbl::video::ILogicalDevice::SBindImageMemoryInfo bindImageMemoryInfo =
 					{
 						.image = gpuImage.get(),
-						.binding = { .memory = imagesMemoryArena.memory.get(), .offset = imagesMemoryArena.offset + ret.allocationOffset }
+						.binding = {.memory = imagesMemoryArena.memory.get(), .offset = imagesMemoryArena.offset + ret.allocationOffset }
 					};
 					const bool boundToMemorySuccessfully = device->bindImageMemory({ &bindImageMemoryInfo, 1u });
 					if (boundToMemorySuccessfully)
@@ -2459,7 +2780,7 @@ DrawResourcesFiller::ImageAllocateResults DrawResourcesFiller::tryCreateAndAlloc
 				}
 				else
 				{
-					// printf(std::format("Allocation Failed, Trying again, ImageID={} Size={} \n", imageID, gpuImageMemoryRequirements.size).c_str());
+					m_logger.log(std::format("Retrying Allocation after failure with Allocation Size={}, Allocator Free Size={} \n", gpuImageMemoryRequirements.size, imagesMemorySubAllocator->getFreeSize()).c_str(), nbl::system::ILogger::ELL_INFO);
 					// recoverable error when allocation fails, we don't log anything, next code will try evicting other images and retry
 				}
 			}
@@ -2511,53 +2832,6 @@ DrawResourcesFiller::ImageAllocateResults DrawResourcesFiller::tryCreateAndAlloc
 	return ret;
 }
 
-ImageType DrawResourcesFiller::determineGeoreferencedImageCreationParams(nbl::asset::IImage::SCreationParams& outImageParams, const GeoreferencedImageParams& params)
-{
-	// Decide whether the image can reside fully into memory rather than get streamed.
-	// TODO: Improve logic, currently just a simple check to see if the full-screen image has more pixels that viewport or not
-	// TODO: add criterial that the size of the full-res image shouldn't  consume more than 30% of the total memory arena for images (if we allowed larger than viewport extents)
-	const uint32_t2 imageExtents = queryGeoreferencedImageExtents(params.storagePath);
-	const nbl::asset::E_FORMAT imageFormat = queryGeoreferencedImageFormat(params.storagePath);
-
-	const size_t mainImagePixels = ((size_t)imageExtents.x * (size_t)imageExtents.y);
-	const size_t viewportImagePixels = ((size_t)viewportExtent.x * (size_t)viewportExtent.y);
-	// If it's too long along any dimension it's obviously going to be streamed
-	const bool betterToResideFullyInMem = imageExtents.x < (1u << 14u) && imageExtents.y < (1u << 14u) && mainImagePixels <= viewportImagePixels;
-
-	ImageType imageType;
-
-	if (betterToResideFullyInMem)
-		imageType = ImageType::GEOREFERENCED_FULL_RESOLUTION;
-	else
-		imageType = ImageType::GEOREFERENCED_STREAMED;
-
-	outImageParams.type = asset::IImage::ET_2D;
-	outImageParams.samples = asset::IImage::ESCF_1_BIT;
-	outImageParams.format = imageFormat;
-
-	if (imageType == ImageType::GEOREFERENCED_FULL_RESOLUTION)
-	{
-		outImageParams.extent = { imageExtents.x, imageExtents.y, 1u };
-	}
-	else
-	{
-		// Enough to cover twice the viewport at mip 0 (so that when zooming out to mip 1 the whole viewport still gets covered with mip 0 tiles) 
-		// and in any rotation (taking the longest side suffices). Can be increased to avoid frequent tile eviction when moving the camera at mip close to 1
-		const uint32_t diagonal = static_cast<uint32_t>(nbl::hlsl::ceil(
-															nbl::hlsl::sqrt(static_cast<float32_t>(viewportExtent.x * viewportExtent.x 
-																								   + viewportExtent.y * viewportExtent.y))
-															)
-														);
-		const uint32_t gpuImageSidelength = 2 * core::roundUp(diagonal, GeoreferencedImageTileSize) + GeoreferencedImagePaddingTiles * GeoreferencedImageTileSize;
-		outImageParams.extent = { gpuImageSidelength, gpuImageSidelength, 1u };
-	}
-
-	outImageParams.mipLevels = 2u;
-	outImageParams.arrayLayers = 1u;
-
-	return imageType;
-}
-
 void DrawResourcesFiller::setGlyphMSDFTextureFunction(const GetGlyphMSDFTextureFunc& func)
 {
 	getGlyphMSDF = func;
@@ -2604,54 +2878,54 @@ uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, cor
 	}
 
 	/*
-	 * The `msdfTextureArrayIndexAllocator` manages indices (slots) into a texture array for MSDF images.
-	 * When all slots are occupied, the least recently used entry is evicted via `msdfLRUCache`.
-	 * This callback is invoked on eviction, and must:
-	 *   - Ensure safe deallocation of the slot.
-	 *   - Submit any pending draw calls if the evicted MSDF was scheduled to be used in the upcoming submission.
-	 */
+		* The `msdfTextureArrayIndexAllocator` manages indices (slots) into a texture array for MSDF images.
+		* When all slots are occupied, the least recently used entry is evicted via `msdfLRUCache`.
+		* This callback is invoked on eviction, and must:
+		*   - Ensure safe deallocation of the slot.
+		*   - Submit any pending draw calls if the evicted MSDF was scheduled to be used in the upcoming submission.
+		*/
 	auto evictionCallback = [&](const MSDFReference& evicted)
-	{
-		// `deallocationWaitInfo` is used to prepare wait info to defer index deallocation until the GPU has finished using the resource.
-		// NOTE: `deallocationWaitInfo` is currently *not* required for correctness because:
-		//   - Both the image upload (msdfImagesState) and usage occur within the same timeline (`intendedNextSubmit`).
-		//   - timeline semaphores guarantee proper ordering: the next submit's msdfImagesState will wait on the prior usage.
-		//   - Therefore, we can safely overwrite or reallocate the slot without waiting for explicit GPU completion.
-		//
-		// However, this `deallocationWaitInfo` *will* become essential if we start interacting with MSDF images
-		// outside the `intendedNextSubmit` timeline for example, issuing uploads via a transfer queue or using a separate command buffer and timeline.
-
-		const bool imageUsedForNextIntendedSubmit = (evicted.lastUsedFrameIndex == currentFrameIndex);
-
-		if (imageUsedForNextIntendedSubmit)
 		{
-			// The evicted image is scheduled for use in the upcoming submit.
-			// To avoid rendering artifacts, we must flush the current draw queue now.
-			// After submission, we reset state so that data referencing the evicted slot can be re-uploaded.
-			submitDraws(intendedNextSubmit);
-			reset(); // resets everything, things referenced through mainObj and other shit will be pushed again through acquireXXX_SubmitIfNeeded
+			// `deallocationWaitInfo` is used to prepare wait info to defer index deallocation until the GPU has finished using the resource.
+			// NOTE: `deallocationWaitInfo` is currently *not* required for correctness because:
+			//   - Both the image upload (msdfImagesState) and usage occur within the same timeline (`intendedNextSubmit`).
+			//   - timeline semaphores guarantee proper ordering: the next submit's msdfImagesState will wait on the prior usage.
+			//   - Therefore, we can safely overwrite or reallocate the slot without waiting for explicit GPU completion.
+			//
+			// However, this `deallocationWaitInfo` *will* become essential if we start interacting with MSDF images
+			// outside the `intendedNextSubmit` timeline for example, issuing uploads via a transfer queue or using a separate command buffer and timeline.
 
-			// Prepare wait info to defer index deallocation until the GPU has finished using the resource.
-			// we wait on the signal semaphore for the submit we just did above.
-			ISemaphore::SWaitInfo deallocationWaitInfo = { .semaphore = intendedNextSubmit.scratchSemaphore.semaphore, .value = intendedNextSubmit.scratchSemaphore.value };
-			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx, deallocationWaitInfo);
-		} 
-		else
-		{
-			// The image is not used in the current frame, so we can deallocate without submitting any draws.
-			// Still wait on the semaphore to ensure past GPU usage is complete.
-			// TODO: We don't know which semaphore value the frame with `evicted.lastUsedFrameIndex` index was submitted with, so we wait for the worst case value which is the immediate prev submit (scratchSemaphore.value).
-			ISemaphore::SWaitInfo deallocationWaitInfo = { .semaphore = intendedNextSubmit.scratchSemaphore.semaphore, .value = intendedNextSubmit.scratchSemaphore.value };
-			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx, deallocationWaitInfo);
-		}
-		
-		// Clear CPU-side metadata associated with the evicted slot.
-		msdfImagesState[evicted.alloc_idx].evict();
-	};
-	
+			const bool imageUsedForNextIntendedSubmit = (evicted.lastUsedFrameIndex == currentFrameIndex);
+
+			if (imageUsedForNextIntendedSubmit)
+			{
+				// The evicted image is scheduled for use in the upcoming submit.
+				// To avoid rendering artifacts, we must flush the current draw queue now.
+				// After submission, we reset state so that data referencing the evicted slot can be re-uploaded.
+				submitDraws(intendedNextSubmit);
+				reset(); // resets everything, things referenced through mainObj and other shit will be pushed again through acquireXXX_SubmitIfNeeded
+
+				// Prepare wait info to defer index deallocation until the GPU has finished using the resource.
+				// we wait on the signal semaphore for the submit we just did above.
+				ISemaphore::SWaitInfo deallocationWaitInfo = { .semaphore = intendedNextSubmit.scratchSemaphore.semaphore, .value = intendedNextSubmit.scratchSemaphore.value };
+				msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx, deallocationWaitInfo);
+			}
+			else
+			{
+				// The image is not used in the current frame, so we can deallocate without submitting any draws.
+				// Still wait on the semaphore to ensure past GPU usage is complete.
+				// TODO: We don't know which semaphore value the frame with `evicted.lastUsedFrameIndex` index was submitted with, so we wait for the worst case value which is the immediate prev submit (scratchSemaphore.value).
+				ISemaphore::SWaitInfo deallocationWaitInfo = { .semaphore = intendedNextSubmit.scratchSemaphore.semaphore, .value = intendedNextSubmit.scratchSemaphore.value };
+				msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx, deallocationWaitInfo);
+			}
+
+			// Clear CPU-side metadata associated with the evicted slot.
+			msdfImagesState[evicted.alloc_idx].evict();
+		};
+
 	// We pass nextSemaValue instead of constructing a new MSDFReference and passing it into `insert` that's because we might get a cache hit and only update the value of the nextSema
 	MSDFReference* inserted = msdfLRUCache->insert(msdfInput, currentFrameIndex, evictionCallback);
-	
+
 	inserted->lastUsedFrameIndex = currentFrameIndex; // in case there was an eviction + auto-submit, we need to update AGAIN
 
 	// if cachedImageRecord->alloc_idx was not InvalidTextureIndex then it means we had a cache hit and updated the value of our sema, in which case we don't queue anything for upload, and return the idx
@@ -2673,7 +2947,7 @@ uint32_t DrawResourcesFiller::addMSDFTexture(const MSDFInputInfo& msdfInput, cor
 			inserted->alloc_idx = InvalidTextureIndex;
 		}
 	}
-	
+
 	assert(inserted->alloc_idx != InvalidTextureIndex); // shouldn't happen, because we're using LRU cache, so worst case eviction will happen + multi-deallocate and next next multi_allocate should definitely succeed
 
 	return inserted->alloc_idx;
@@ -2690,284 +2964,4 @@ void DrawResourcesFiller::flushDrawObjects()
 		drawCalls.push_back(drawCall);
 		drawObjectsFlushedToDrawCalls = resourcesCollection.drawObjects.getCount();
 	}
-}
-
-DrawResourcesFiller::TileUploadData DrawResourcesFiller::generateTileUploadData(const ImageType imageType, const float64_t3x3& NDCToWorld, GeoreferencedImageStreamingState* imageStreamingState)
-{
-	// I think eventually it's better to just transform georeferenced images that aren't big enough into static images and forget about them
-	if (imageType == ImageType::GEOREFERENCED_FULL_RESOLUTION) //Pass imageID as parameter, down from the addGeoRef call
-		return TileUploadData{ {}, imageStreamingState->georeferencedImageParams.worldspaceOBB };
-
-	// Compute the mip level and tile range we would need to encompass the viewport
-	// `viewportTileRange` is always should be a subset of `currentMappedRegion`, covering only the tiles visible in the viewport
-	// This also computes the optimal mip level for these tiles (basically a measure of how zoomed in or out the viewport is from the image)
-	GeoreferencedImageTileRange viewportTileRange = computeViewportTileRange(NDCToWorld, imageStreamingState);
-
-	// Slide or remap the current mapped region to ensure the viewport falls inside it
-	imageStreamingState->ensureMappedRegionCoversViewport(viewportTileRange);
-
-	// DEBUG - Sampled mip level
-	{
-		// Get world coordinates for each corner of the mapped region
-		const float32_t2 oneTileDirU = imageStreamingState->georeferencedImageParams.worldspaceOBB.dirU / float32_t(imageStreamingState->fullImageTileLength.x) * float32_t(1u << imageStreamingState->currentMappedRegion.baseMipLevel);
-		const float32_t2 fullImageDirV = float32_t2(imageStreamingState->georeferencedImageParams.worldspaceOBB.dirU.y, -imageStreamingState->georeferencedImageParams.worldspaceOBB.dirU.x);
-		const float32_t2 oneTileDirV = fullImageDirV / float32_t(imageStreamingState->fullImageTileLength.y) * float32_t(1u << imageStreamingState->currentMappedRegion.baseMipLevel);
-		float64_t2 topLeftMappedRegionWorld = imageStreamingState->georeferencedImageParams.worldspaceOBB.topLeft;
-		topLeftMappedRegionWorld += oneTileDirU * float32_t(imageStreamingState->currentMappedRegion.topLeftTile.x) + oneTileDirV * float32_t(imageStreamingState->currentMappedRegion.topLeftTile.y);
-		const uint32_t2 mappedRegionTileLength = imageStreamingState->currentMappedRegion.bottomRightTile - imageStreamingState->currentMappedRegion.topLeftTile + uint32_t2(1, 1);
-		float64_t2 bottomRightMappedRegionWorld = topLeftMappedRegionWorld;
-		bottomRightMappedRegionWorld += oneTileDirU * float32_t(mappedRegionTileLength.x) + oneTileDirV * float32_t(mappedRegionTileLength.y);
-
-		// With the above, get an affine transform that maps points in worldspace to their pixel coordinates in the mapped region tile space. This can be done by mapping
-		// `topLeftMappedRegionWorld -> (0,0)` and `bottomRightMappedRegionWorld -> mappedRegionPixelLength - 1`
-		const uint32_t2 mappedRegionPixelLength = GeoreferencedImageTileSize * mappedRegionTileLength;
-
-		// 1. Displacement
-		// Multiplying a (homogenous) point p by this matrix yields the displacement vector `p - topLeftMappedRegionWorld`
-		float64_t2x3 displacementMatrix(1., 0., -topLeftMappedRegionWorld.x, 0., 1., -topLeftMappedRegionWorld.y);
-
-		// 2. Change of Basis. We again abuse the fact that the basis vectors are orthogonal
-		float64_t2 dirU = oneTileDirU * float32_t(mappedRegionTileLength.x);
-		float64_t2 dirV = oneTileDirV * float32_t(mappedRegionTileLength.y);
-		float64_t dirULengthSquared = nbl::hlsl::dot(dirU, dirU);
-		float64_t dirVLengthSquared = nbl::hlsl::dot(dirV, dirV);
-		float64_t2 firstRow = dirU / dirULengthSquared;
-		float64_t2 secondRow = dirV / dirVLengthSquared;
-		float64_t2x2 changeOfBasisMatrix(firstRow, secondRow);
-
-		// 3. Rescaling. The above matrix yields uv coordinates in the rectangle spanned by the mapped region. To get pixel coordinates, we simply multiply each coordinate by
-		// how many pixels they span in the gpu image
-		float64_t2x2 scalingMatrix(mappedRegionTileLength.x * GeoreferencedImageTileSize, 0.0, 0.0, mappedRegionTileLength.y * GeoreferencedImageTileSize);
-
-		// Put them all together
-		float64_t2x3 toPixelCoordsMatrix = nbl::hlsl::mul(scalingMatrix, nbl::hlsl::mul(changeOfBasisMatrix, displacementMatrix));
-
-		// These are vulkan standard, might be different in n4ce!
-		constexpr static float64_t3 topLeftViewportNDC = float64_t3(-1.0, -1.0, 1.0);
-		constexpr static float64_t3 topRightViewportNDC = float64_t3(1.0, -1.0, 1.0);
-		constexpr static float64_t3 bottomLeftViewportNDC = float64_t3(-1.0, 1.0, 1.0);
-		constexpr static float64_t3 bottomRightViewportNDC = float64_t3(1.0, 1.0, 1.0);
-
-		// Map viewport points to world
-		const float64_t3 topLeftViewportWorld = nbl::hlsl::mul(NDCToWorld, topLeftViewportNDC);
-		const float64_t3 topRightViewportWorld = nbl::hlsl::mul(NDCToWorld, topRightViewportNDC);
-		const float64_t3 bottomLeftViewportWorld = nbl::hlsl::mul(NDCToWorld, bottomLeftViewportNDC);
-
-		// Get pixel coordinates vectors for each side
-		const float64_t2 viewportWidthPixelLengthVector = nbl::hlsl::mul(toPixelCoordsMatrix, topRightViewportWorld - topLeftViewportWorld);
-		const float64_t2 viewportHeightPixelLengthVector = nbl::hlsl::mul(toPixelCoordsMatrix, bottomLeftViewportWorld - topLeftViewportWorld);
-
-		// Get pixel length for each of these vectors
-		const auto viewportWidthPixelLength = nbl::hlsl::length(viewportWidthPixelLengthVector);
-		const auto viewportHeightPixelLength = nbl::hlsl::length(viewportHeightPixelLengthVector);
-
-		// Mip is decided based on max of these
-		float64_t pixelRatio = nbl::hlsl::max(viewportWidthPixelLength / viewportExtent.x, viewportHeightPixelLength / viewportExtent.y);
-		pixelRatio = pixelRatio < 1.0 ? 1.0 : pixelRatio;
-
-		std::cout << "Sampled mip level: " << nbl::hlsl::log2(pixelRatio) << std::endl;
-	}
-
-	// We need to make every tile that covers the viewport resident. We reserve the amount of tiles needed for upload.
-	core::vector<StreamedImageCopy> tiles;
-	auto tilesToLoad = imageStreamingState->tilesToLoad(viewportTileRange);
-	tiles.reserve(tilesToLoad.size());
-
-	const uint32_t2 imageExtents = imageStreamingState->georeferencedImageParams.imageExtents;
-	const std::filesystem::path imageStoragePath = imageStreamingState->georeferencedImageParams.storagePath;
-	for (auto [imageTileIndex, gpuImageTileIndex] : tilesToLoad)
-	{
-		uint32_t2 gpuMip0Texels(GeoreferencedImageTileSize, GeoreferencedImageTileSize);
-		core::smart_refctd_ptr<ICPUBuffer> gpuMip0Tile = nullptr;
-		core::smart_refctd_ptr<ICPUBuffer> gpuMip1Tile = nullptr;
-
-		{
-			uint32_t2 georeferencedImageMip0SampledTexels = uint32_t2(GeoreferencedImageTileSize, GeoreferencedImageTileSize) << viewportTileRange.baseMipLevel;
-			const uint32_t2 georeferencedImageMip0SamplingOffset = (imageTileIndex * GeoreferencedImageTileSize) << viewportTileRange.baseMipLevel;
-			const uint32_t2 lastTileIndex = imageStreamingState->getLastTileIndex(viewportTileRange.baseMipLevel);
-
-			// If on the last tile, we might not load a full `GeoreferencedImageTileSize x GeoreferencedImageTileSize` tile, so we figure out how many pixels to load in this case to have
-			// minimal artifacts and no stretching
-			if (imageTileIndex.x == lastTileIndex.x)
-			{
-				georeferencedImageMip0SampledTexels.x = imageExtents.x - georeferencedImageMip0SamplingOffset.x;
-				uint32_t gpuMip1Texels = georeferencedImageMip0SampledTexels.x >> (viewportTileRange.baseMipLevel + 1);
-				gpuMip0Texels.x = 2 * gpuMip1Texels;
-				imageStreamingState->lastImageTileTexels.x = gpuMip0Texels.x;
-				// If the last tile is too small just ignore it
-				if (!imageStreamingState->lastImageTileTexels.x)
-					continue;
-			}
-			if (imageTileIndex.y == lastTileIndex.y)
-			{
-				georeferencedImageMip0SampledTexels.y = imageExtents.y - georeferencedImageMip0SamplingOffset.y;
-				uint32_t gpuMip1Texels = georeferencedImageMip0SampledTexels.y >> (viewportTileRange.baseMipLevel + 1);
-				gpuMip0Texels.y = 2 * gpuMip1Texels;
-				imageStreamingState->lastImageTileTexels.y = gpuMip0Texels.y;
-				// If the last tile is too small just ignore it
-				if (!imageStreamingState->lastImageTileTexels.y)
-					continue;
-			}
-
-			if (!georeferencedImageLoader->hasPrecomputedMips(imageStoragePath))
-			{
-				gpuMip0Tile = georeferencedImageLoader->load(imageStoragePath, georeferencedImageMip0SamplingOffset, georeferencedImageMip0SampledTexels, gpuMip0Texels);
-				gpuMip1Tile = georeferencedImageLoader->load(imageStoragePath, georeferencedImageMip0SamplingOffset, georeferencedImageMip0SampledTexels, gpuMip0Texels / 2u);
-			}
-			else
-			{
-				gpuMip0Tile = georeferencedImageLoader->load(imageStoragePath, imageTileIndex * GeoreferencedImageTileSize, gpuMip0Texels, imageStreamingState->currentMappedRegion.baseMipLevel, false);
-				gpuMip1Tile = georeferencedImageLoader->load(imageStoragePath, imageTileIndex * GeoreferencedImageTileSizeMip1, gpuMip0Texels / 2u, imageStreamingState->currentMappedRegion.baseMipLevel, true);
-			}
-		}
-
-		asset::IImage::SBufferCopy bufCopy;
-		bufCopy.bufferOffset = 0;
-		bufCopy.bufferRowLength = gpuMip0Texels.x;
-		bufCopy.bufferImageHeight = 0;
-		bufCopy.imageSubresource.aspectMask = IImage::EAF_COLOR_BIT;
-		bufCopy.imageSubresource.mipLevel = 0u;
-		bufCopy.imageSubresource.baseArrayLayer = 0u;
-		bufCopy.imageSubresource.layerCount = 1u;
-		uint32_t2 gpuImageOffset = gpuImageTileIndex * GeoreferencedImageTileSize;
-		bufCopy.imageOffset = { gpuImageOffset.x, gpuImageOffset.y, 0u };
-		bufCopy.imageExtent.width = gpuMip0Texels.x;
-		bufCopy.imageExtent.height = gpuMip0Texels.y;
-		bufCopy.imageExtent.depth = 1;
-
-		tiles.emplace_back(imageStreamingState->georeferencedImageParams.format, std::move(gpuMip0Tile), std::move(bufCopy));
-
-		// Upload the smaller tile to mip 1
-		bufCopy = {};
-
-		bufCopy.bufferOffset = 0;
-		bufCopy.bufferRowLength = gpuMip0Texels.x / 2;
-		bufCopy.bufferImageHeight = 0;
-		bufCopy.imageSubresource.aspectMask = IImage::EAF_COLOR_BIT;
-		bufCopy.imageSubresource.mipLevel = 1u;
-		bufCopy.imageSubresource.baseArrayLayer = 0u;
-		bufCopy.imageSubresource.layerCount = 1u;
-		gpuImageOffset /= 2; // Half tile size!
-		bufCopy.imageOffset = { gpuImageOffset.x, gpuImageOffset.y, 0u };
-		bufCopy.imageExtent.width = gpuMip0Texels.x / 2;
-		bufCopy.imageExtent.height = gpuMip0Texels.y / 2;
-		bufCopy.imageExtent.depth = 1;
-
-		tiles.emplace_back(imageStreamingState->georeferencedImageParams.format, std::move(gpuMip1Tile), std::move(bufCopy));
-
-		// Mark tile as resident
-		imageStreamingState->currentMappedRegionOccupancy[gpuImageTileIndex.x][gpuImageTileIndex.y] = true;
-	}
-
-	// Figure out an obb that covers only the currently loaded tiles
-	OrientedBoundingBox2D viewportEncompassingOBB = imageStreamingState->georeferencedImageParams.worldspaceOBB;
-	// The image's worldspace dirU corresponds to `imageExtents.x` texels of the image, therefore one image texel in the U direction has a worldspace span of `dirU / imageExtents.x`.
-	// One mip 0 tiles therefore spans `dirU * GeoreferencedImageTileSize/ imageExtents.x`. A mip `n` tile spans `2^n` this amount, since each texel at that mip level spans
-	// `2^n` mip texels. Therefore the dirU offset from the image wordlspace's topLeft of the tile of index `viewportTileRange.topLeftTile.x` at mip level `currentMappedRegion.baseMipLevel` can be calculated as
-	const uint32_t oneTileTexelSpan = GeoreferencedImageTileSize << imageStreamingState->currentMappedRegion.baseMipLevel;
-	viewportEncompassingOBB.topLeft += imageStreamingState->georeferencedImageParams.worldspaceOBB.dirU * float32_t(viewportTileRange.topLeftTile.x * oneTileTexelSpan) / float32_t(imageStreamingState->georeferencedImageParams.imageExtents.x);
-	// Same reasoning for offset in v direction
-	const float32_t2 dirV = float32_t2(imageStreamingState->georeferencedImageParams.worldspaceOBB.dirU.y, -imageStreamingState->georeferencedImageParams.worldspaceOBB.dirU.x) * imageStreamingState->georeferencedImageParams.worldspaceOBB.aspectRatio;
-	viewportEncompassingOBB.topLeft += dirV * float32_t(viewportTileRange.topLeftTile.y * oneTileTexelSpan) / float32_t(imageStreamingState->georeferencedImageParams.imageExtents.y);
-
-	const uint32_t2 viewportTileLength = viewportTileRange.bottomRightTile - viewportTileRange.topLeftTile + uint32_t2(1, 1);
-	// If the last tile is visible, we use the fractional span for the last tile. Otherwise it's just a normal tile
-	const bool2 isLastTileVisible = imageStreamingState->isLastTileVisible(viewportTileRange.bottomRightTile);
-	const uint32_t2 lastGPUImageTileTexels = { isLastTileVisible.x ? imageStreamingState->lastImageTileTexels.x : GeoreferencedImageTileSize, isLastTileVisible.y ? imageStreamingState->lastImageTileTexels.y : GeoreferencedImageTileSize };
-
-	// Instead of grouping per tile like in the offset case, we group per texel: the same reasoning leads to a single texel at current mip level having a span of `dirU * 2^(currentMappedRegion.baseMipLevel)/ imageExtents.x`
-	// in the U direction. Therefore the span in worldspace of the OBB we construct is just this number multiplied by the number of gpu texels spanned to draw.
-	// The number of texels is just `GeoreferencedImageTileSize` times the number of full tiles (all but the last) + the number of texels of the last tile, which might not be a full tile if near the right boundary
-	viewportEncompassingOBB.dirU = imageStreamingState->georeferencedImageParams.worldspaceOBB.dirU * float32_t((GeoreferencedImageTileSize * (viewportTileLength.x - 1) + lastGPUImageTileTexels.x) << imageStreamingState->currentMappedRegion.baseMipLevel) / float32_t(imageStreamingState->georeferencedImageParams.imageExtents.x);
-	// Simply number of gpu texels in the y direction divided by number of texels in the x direction.
-	viewportEncompassingOBB.aspectRatio = float32_t(GeoreferencedImageTileSize * (viewportTileLength.y - 1) + lastGPUImageTileTexels.y) / float32_t(GeoreferencedImageTileSize * (viewportTileLength.x - 1) + lastGPUImageTileTexels.x);
-
-	// GPU tile corresponding to the real image tile containing the viewport top left - we can let it be negative since wrapping mode is repeat, negative tiles are correct modulo `gpuImageSideLengthTiles`
-	const uint32_t2 viewportTopLeftGPUTile = viewportTileRange.topLeftTile - imageStreamingState->currentMappedRegion.topLeftTile + imageStreamingState->gpuImageTopLeft;
-	// To get the uv corresponding to the above, simply divide the tile index by the number of tiles in the GPU image.
-	// However to consider a one-texel shift inward (to prevent color bleeding at the edges) we map both numerator and denominator to texel units (by multiplying with `GeoreferencedImageTileSize`) and add 
-	// a single texel to the numerator
-	const float32_t2 minUV = float32_t2(GeoreferencedImageTileSize * viewportTopLeftGPUTile + 1u) / float32_t(GeoreferencedImageTileSize * imageStreamingState->gpuImageSideLengthTiles);
-	// If the image was perfectly partitioned into tiles, we could get the maxUV in a similar fashion to minUV: Just compute `bottomRightTile - currentMappedRegion.topLeftTile` to get a tile
-	// then divide by `gpuImageSideLengthTiles` to get a coord in `(0,1)` (correct modulo `gpuImageSideLengthTiles`)
-	// However the last tile might not have all `GeoreferencedImageTileSize` texels in it. Therefore maxUV computation can be separated into a UV contribution by all full tiles (all but the last) + a contribution from the last tile
-	// UV contribution from full tiles will therefore be `(bottomRightTile - currentMappedRegion.topLeftTile) / gpuImageSideLengthTiles` while last tile contribution will be 
-	// `lastGPUImageTileTexels / (gpuImageSideLengthTiles * GeoreferencedImageTileSize)`. We group terms below to reduce number of float ops.
-	// Again we first map to texel units then subtract one to add a single texel uv shift.
-	const uint32_t2 viewportBottomRightGPUTile = viewportTileRange.bottomRightTile - imageStreamingState->currentMappedRegion.topLeftTile + imageStreamingState->gpuImageTopLeft;
-	const float32_t2 maxUV = float32_t2(GeoreferencedImageTileSize * viewportBottomRightGPUTile + lastGPUImageTileTexels - 1u) / float32_t(GeoreferencedImageTileSize * imageStreamingState->gpuImageSideLengthTiles);
-	return TileUploadData{ std::move(tiles), viewportEncompassingOBB, minUV, maxUV };
-}
-
-GeoreferencedImageTileRange DrawResourcesFiller::computeViewportTileRange(const float64_t3x3& NDCToWorld, const GeoreferencedImageStreamingState* imageStreamingState)
-{
-	// These are vulkan standard, might be different in n4ce!
-	constexpr static float64_t3 topLeftViewportNDC = float64_t3(-1.0, -1.0, 1.0);
-	constexpr static float64_t3 topRightViewportNDC = float64_t3(1.0, -1.0, 1.0);
-	constexpr static float64_t3 bottomLeftViewportNDC = float64_t3(-1.0, 1.0, 1.0);
-	constexpr static float64_t3 bottomRightViewportNDC = float64_t3(1.0, 1.0, 1.0);
-
-	// First get world coordinates for each of the viewport's corners
-	const float64_t3 topLeftViewportWorld = nbl::hlsl::mul(NDCToWorld, topLeftViewportNDC);
-	const float64_t3 topRightViewportWorld = nbl::hlsl::mul(NDCToWorld, topRightViewportNDC);
-	const float64_t3 bottomLeftViewportWorld = nbl::hlsl::mul(NDCToWorld, bottomLeftViewportNDC);
-	const float64_t3 bottomRightViewportWorld = nbl::hlsl::mul(NDCToWorld, bottomRightViewportNDC);
-
-	// Then we get mip 0 tiles coordinates for each of them, into the image
-	const float64_t2 topLeftTileLattice = imageStreamingState->transformWorldCoordsToTileCoords(topLeftViewportWorld, GeoreferencedImageTileSize);
-	const float64_t2 topRightTileLattice = imageStreamingState->transformWorldCoordsToTileCoords(topRightViewportWorld, GeoreferencedImageTileSize);
-	const float64_t2 bottomLeftTileLattice = imageStreamingState->transformWorldCoordsToTileCoords(bottomLeftViewportWorld, GeoreferencedImageTileSize);
-	const float64_t2 bottomRightTileLattice = imageStreamingState->transformWorldCoordsToTileCoords(bottomRightViewportWorld, GeoreferencedImageTileSize);
-
-	// Get the min and max of each lattice coordinate to get a bounding rectangle
-	const float64_t2 minTop = nbl::hlsl::min(topLeftTileLattice, topRightTileLattice);
-	const float64_t2 minBottom = nbl::hlsl::min(bottomLeftTileLattice, bottomRightTileLattice);
-	const float64_t2 minAll = nbl::hlsl::min(minTop, minBottom);
-
-	const float64_t2 maxTop = nbl::hlsl::max(topLeftTileLattice, topRightTileLattice);
-	const float64_t2 maxBottom = nbl::hlsl::max(bottomLeftTileLattice, bottomRightTileLattice);
-	const float64_t2 maxAll = nbl::hlsl::max(maxTop, maxBottom);
-
-	// Floor them to get an integer coordinate (index) for the tiles they fall in
-	int32_t2 minAllFloored = nbl::hlsl::floor(minAll);
-	int32_t2 maxAllFloored = nbl::hlsl::floor(maxAll);
-
-	// We're undoing a previous division. Could be avoided but won't restructure the code atp.
-	// Here we compute how many image pixels each side of the viewport spans 
-	const float64_t2 viewportSideUImageTexelsVector = float64_t(GeoreferencedImageTileSize) * (topRightTileLattice - topLeftTileLattice);
-	const float64_t2 viewportSideVImageTexelsVector = float64_t(GeoreferencedImageTileSize) * (bottomLeftTileLattice - topLeftTileLattice);
-
-	// WARNING: This assumes pixels in the image are the same size along each axis. If the image is nonuniformly scaled or sheared, I *think* it should not matter
-	// (since the pixel span takes that transformation into account), BUT we have to check if we plan on allowing those
-	// Compute the side vectors of the viewport in image pixel(texel) space.
-	// These vectors represent how many image pixels each side of the viewport spans.
-	// They correspond to the local axes of the mapped OBB (not the mapped region one, the viewport one) in texel coordinates.
-	const float64_t viewportSideUImageTexels = nbl::hlsl::length(viewportSideUImageTexelsVector);
-	const float64_t viewportSideVImageTexels = nbl::hlsl::length(viewportSideVImageTexelsVector);
-
-	// Mip is decided based on max of these
-	float64_t pixelRatio = nbl::hlsl::max(viewportSideUImageTexels / viewportExtent.x, viewportSideVImageTexels / viewportExtent.y);
-	pixelRatio = pixelRatio < 1.0 ? 1.0 : pixelRatio;
-
-	// DEBUG - Clamped at 0 for magnification
-	{
-		std::cout << "Real mip level:    " << nbl::hlsl::log2(pixelRatio) << std::endl;
-	}
-
-	GeoreferencedImageTileRange retVal = {};
-	// Clamp mip level so we don't consider tiles that are too small along one dimension
-	// If on a pathological case this gets too expensive because the GPU starts sampling a lot, we can consider changing this, but I doubt that will happen
-	retVal.baseMipLevel = nbl::hlsl::min(nbl::hlsl::findMSB(uint32_t(nbl::hlsl::floor(pixelRatio))), int32_t(imageStreamingState->maxMipLevel));
-
-	// Current tiles are measured in mip 0. We want the result to measure mip `retVal.baseMipLevel` tiles. Each next mip level divides by 2.
-	minAllFloored >>= retVal.baseMipLevel;
-	maxAllFloored >>= retVal.baseMipLevel;
-
-
-	// Clamp them to reasonable tile indices
-	int32_t2 lastTileIndex = imageStreamingState->getLastTileIndex(retVal.baseMipLevel);
-	retVal.topLeftTile = nbl::hlsl::clamp(minAllFloored, int32_t2(0, 0), lastTileIndex);
-	retVal.bottomRightTile = nbl::hlsl::clamp(maxAllFloored, int32_t2(0, 0), lastTileIndex);
-
-	return retVal;
 }
