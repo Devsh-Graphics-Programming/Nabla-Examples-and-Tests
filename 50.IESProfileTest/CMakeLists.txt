@@ -1,4 +1,10 @@
-nbl_create_executable_project("" "" "" "" "")
+set(SRCs
+	AppInputParser.cpp
+	AppInputParser.hpp
+	inputs.json
+)
+
+nbl_create_executable_project("${SRCs}" "" "" "" "")
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE nlohmann_json::nlohmann_json)
 
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
@@ -8,23 +14,8 @@ set(DEPENDS
 	app_resources/pixel.hlsl
 	app_resources/vertex.hlsl
 )
-
-set(TODO [=[
-{
-	"INPUT": "app_resources/pixel.hlsl",
-	"KEY": "pixel",
-    "COMPILE_OPTIONS": ["-T", "lib_${V}"],
-	"DEPENDS": [],
-	"CAPS": []
-},
-{
-	"INPUT": "app_resources/vertex.hlsl",
-	"KEY": "vertex",
-    "COMPILE_OPTIONS": ["-T", "lib_${V}"],
-	"DEPENDS": [],
-	"CAPS": []
-}
-]=])
+target_sources(${EXECUTABLE_NAME} PRIVATE ${DEPENDS})
+set_source_files_properties(${DEPENDS} PROPERTIES HEADER_FILE_ONLY ON)
 
 set(V 6_8)
 set(JSON [=[
@@ -35,7 +26,21 @@ set(JSON [=[
         "COMPILE_OPTIONS": ["-T", "lib_${V}"],
 		"DEPENDS": [],
 		"CAPS": []
-    }
+    },
+	{
+		"INPUT": "app_resources/pixel.hlsl",
+		"KEY": "pixel",
+		"COMPILE_OPTIONS": ["-T", "lib_${V}"],
+		"DEPENDS": [],
+		"CAPS": []
+	},
+	{
+		"INPUT": "app_resources/vertex.hlsl",
+		"KEY": "vertex",
+		"COMPILE_OPTIONS": ["-T", "lib_${V}"],
+		"DEPENDS": [],
+		"CAPS": []
+	}
 ]
 ]=])
 string(CONFIGURE "${JSON}" JSON)
