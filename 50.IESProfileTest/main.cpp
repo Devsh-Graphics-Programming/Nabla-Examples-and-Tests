@@ -41,10 +41,32 @@ public:
         if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
             return false;
 
-        std::vector<std::string> inputList;
+        AppInputParser::Output out;
         AppInputParser parser(system::logger_opt_ptr(m_logger.get()));
-        if (!parser.parse(inputList, "../inputs.json", "../../media"))
+        if (!parser.parse(out, "../inputs.json", "../../media"))
             return false;
+
+        std::vector<asset::SAssetBundle> assets;
+        {
+            size_t loaded = {}, total = out.inputList.size();
+            IAssetLoader::SAssetLoadParams lp = {};
+            lp.logger = system::logger_opt_ptr(m_logger.get());
+
+            for (const auto& in : out.inputList)
+            {
+                auto asset = m_assetMgr->getAsset(in.c_str(), lp);
+
+                if (asset.getMetadata())
+                {
+                    assets.emplace_back(std::move(asset));
+                    ++loaded;
+                }
+                else
+                    m_logger->log("Could not load metadata from \"%s\" asset! Skipping..", system::ILogger::ELL_WARNING, in.c_str());
+            }
+            const auto sl = std::to_string(loaded), st = std::to_string(total);
+            m_logger->log("Loaded [%s/%s] assets! Status: %s", system::ILogger::ELL_INFO, sl.c_str(), st.c_str(), loaded == total ? "PASSING" : "FAILING");
+        }
 
         auto createShader = [&]<core::StringLiteral in>() -> smart_refctd_ptr<IShader>
         {

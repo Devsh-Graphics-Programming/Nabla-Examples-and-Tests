@@ -11,8 +11,15 @@
 struct AppInputParser
 {
 public:
+    struct Output 
+    {
+        std::vector<std::string> inputList;
+        bool withGUI;
+        bool writeAssets;
+    };
+
     AppInputParser(nbl::system::logger_opt_ptr _logger = nullptr) : logger(_logger) {}
-    bool parse(std::vector<std::string>& out, const std::string input, const std::string cwd = ".");
+    bool parse(Output& out, const std::string jFilePath, const std::string cwd = ".");
 
 private:
     nbl::system::logger_opt_ptr logger;

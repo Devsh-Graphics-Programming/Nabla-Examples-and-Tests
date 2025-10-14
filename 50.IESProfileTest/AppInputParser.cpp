@@ -15,7 +15,7 @@ using namespace scene;
 using namespace nbl::examples;
 using namespace nlohmann;
 
-bool AppInputParser::parse(std::vector<std::string>& out, const std::string input, const std::string cwd)
+bool AppInputParser::parse(Output& out, const std::string input, const std::string cwd)
 {
     const auto jInputFile = std::filesystem::absolute(input);
     const auto sjInputFile = jInputFile.string();
@@ -62,7 +62,7 @@ bool AppInputParser::parse(std::vector<std::string>& out, const std::string inpu
         auto path = std::filesystem::absolute(cwd / std::filesystem::path(in));
 
         if (std::filesystem::exists(path) && std::filesystem::is_regular_file(path) && path.extension() == ".ies")
-            out.push_back(path.string());
+            out.inputList.push_back(path.string());
         else
         {
             logger.log("Invalid \"%s\" input!", system::ILogger::ELL_ERROR, path.string().c_str());
@@ -104,6 +104,12 @@ bool AppInputParser::parse(std::vector<std::string>& out, const std::string inpu
             if (!addFile(it))
                 return false;
     }
+
+    out.withGUI = false;
+    jsonMap["gui"].get_to(out.withGUI);
+
+    out.writeAssets = false;
+    jsonMap["writeAssets"].get_to(out.writeAssets);
 
     return true;
 }
