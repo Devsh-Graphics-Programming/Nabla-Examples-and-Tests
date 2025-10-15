@@ -84,11 +84,12 @@ public:
         }
 
         {
-            m_logger->log("Creating GPU IES images..", system::ILogger::ELL_INFO);
+            m_logger->log("Creating GPU IES resources..", system::ILogger::ELL_INFO);
             auto start = std::chrono::high_resolution_clock::now();
             for (auto& ies : assets)
             {
-                const auto resolution = ies.getProfile()->getOptimalIESResolution();
+                const auto* profile = ies.getProfile();
+                const auto resolution = profile->getOptimalIESResolution();
 
                 #define CREATE_VIEW(VIEW, FORMAT) \
 		        if (!(VIEW = createImageView(resolution.x, resolution.y, FORMAT) )) { m_logger->log("Failed to create GPU Image for for \"%s\"! Terminating.", system::ILogger::ELL_ERROR, ies.key.c_str()); return false; }
@@ -100,7 +101,7 @@ public:
             }
             auto elapsed = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start);
             auto took = std::to_string(elapsed.count());
-            m_logger->log("Finished creating GPU IES images, took %s seconds.", system::ILogger::ELL_PERFORMANCE, took.c_str());
+            m_logger->log("Finished creating GPU IES resources, took %s seconds.", system::ILogger::ELL_PERFORMANCE, took.c_str());
         }
 
         auto createShader = [&]<core::StringLiteral in>() -> smart_refctd_ptr<IShader>
@@ -312,6 +313,11 @@ private:
             core::smart_refctd_ptr<video::IGPUImageView> candela = nullptr, spherical = nullptr, direction = nullptr, mask = nullptr;
         } views;
 
+        struct
+        {
+            core::smart_refctd_ptr<video::IGPUBuffer> vAngles = nullptr, hAngles = nullptr, data = nullptr;
+        } buffers;
+
         asset::SAssetBundle bundle;
         std::string key;
 
@@ -398,6 +404,44 @@ private:
         viewParams.subresourceRange.aspectMask = core::bitflag(asset::IImage::EAF_COLOR_BIT);
 
         return m_device->createImageView(std::move(viewParams));
+    }
+
+    core::smart_refctd_ptr<IGPUBuffer> createBuffer(size_t size)
+    {        
+        IGPUBuffer::SCreationParams bufferParams = {};
+        bufferParams.usage = core::bitflag(asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT /*TODO: <- double check*/;;
+        bufferParams.size = size;
+
+        auto buffer = m_device->createBuffer(std::move(bufferParams));
+
+        if (not buffer)
+        {
+            m_logger->log("Failed to create buffer!", ILogger::ELL_ERROR);
+            return nullptr;
+        }
+
+        auto memoryReqs = buffer->getMemoryReqs();
+
+        if(m_utils)
+            memoryReqs.memoryTypeBits &= m_utils->getLogicalDevice()->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
+
+        auto allocation = m_device->allocate(memoryReqs, buffer.get(), core::bitflag<video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS>(video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT));
+        if (not allocation.isValid())
+        {
+            m_logger->log("Failed to allocate buffer!", ILogger::ELL_ERROR);
+            return nullptr;
+        }
+        auto memory = allocation.memory;
+
+        if (!memory->map({ 0ull, memoryReqs.size }, bitflag<IDeviceMemoryAllocation::E_MAPPING_CPU_ACCESS_FLAGS>(IDeviceMemoryAllocation::EMCAF_READ) | IDeviceMemoryAllocation::EMCAF_WRITE))
+        {
+            m_logger->log("Failed to map device memory!", ILogger::ELL_ERROR);
+            return nullptr;
+        }
+
+        // TODO: maybe lets also fill buffer with IES data at one go
+
+        return buffer;
     }
 };
 
