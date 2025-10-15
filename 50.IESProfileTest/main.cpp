@@ -46,7 +46,6 @@ public:
         if (!parser.parse(out, "../inputs.json", "../../media"))
             return false;
 
-        std::vector<asset::SAssetBundle> assets;
         {
             m_logger->log("Loading IES assets..", system::ILogger::ELL_INFO);
             auto start = std::chrono::high_resolution_clock::now();
@@ -60,7 +59,10 @@ public:
 
                 if (asset.getMetadata())
                 {
-                    assets.emplace_back(std::move(asset));
+                    auto& ies = assets.emplace_back();
+                    ies.bundle = std::move(asset);
+                    ies.key = in;
+
                     ++loaded;
 
                     m_logger->log("Loaded \"%s\".", system::ILogger::ELL_INFO, in.c_str());
@@ -79,6 +81,26 @@ public:
             auto elapsed = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start);
             auto took = std::to_string(elapsed.count());
             m_logger->log("Finished loading IES assets, took %s seconds.", system::ILogger::ELL_PERFORMANCE, took.c_str());
+        }
+
+        {
+            m_logger->log("Creating GPU IES images..", system::ILogger::ELL_INFO);
+            auto start = std::chrono::high_resolution_clock::now();
+            for (auto& ies : assets)
+            {
+                const auto resolution = ies.getProfile()->getOptimalIESResolution();
+
+                #define CREATE_VIEW(VIEW, FORMAT) \
+		        if (!(VIEW = createImageView(resolution.x, resolution.y, FORMAT) )) { m_logger->log("Failed to create GPU Image for for \"%s\"! Terminating.", system::ILogger::ELL_ERROR, ies.key.c_str()); return false; }
+
+                CREATE_VIEW(ies.views.candela, asset::EF_R16_UNORM)
+                CREATE_VIEW(ies.views.spherical, asset::EF_R32G32_SFLOAT)
+                CREATE_VIEW(ies.views.direction, asset::EF_R32G32B32A32_SFLOAT)
+                CREATE_VIEW(ies.views.mask, asset::EF_R8G8_UNORM)
+            }
+            auto elapsed = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start);
+            auto took = std::to_string(elapsed.count());
+            m_logger->log("Finished creating GPU IES images, took %s seconds.", system::ILogger::ELL_PERFORMANCE, took.c_str());
         }
 
         auto createShader = [&]<core::StringLiteral in>() -> smart_refctd_ptr<IShader>
@@ -283,6 +305,27 @@ protected:
     }
 
 private:
+    struct IES 
+    {
+        struct 
+        {
+            core::smart_refctd_ptr<video::IGPUImageView> candela = nullptr, spherical = nullptr, direction = nullptr, mask = nullptr;
+        } views;
+
+        asset::SAssetBundle bundle;
+        std::string key;
+
+        inline const asset::CIESProfile* getProfile() 
+        { 
+            auto* meta = bundle.getMetadata();
+            if (meta)
+                return &meta->selfCast<const asset::CIESProfileMetadata>()->profile;
+
+            return nullptr;
+        }
+    };
+    std::vector<IES> assets;
+
     //
     //smart_refctd_ptr<CGeometryCreatorScene> m_scene;
     //smart_refctd_ptr<CSimpleDebugRenderer> m_renderer;
@@ -313,6 +356,48 @@ private:
             }
             */
         }
+    }
+
+    core::smart_refctd_ptr<IGPUImageView> createImageView(const size_t width, const size_t height, asset::E_FORMAT format)
+    {
+        IGPUImage::SCreationParams imageParams {};
+        imageParams.type = IImage::E_TYPE::ET_2D;
+        imageParams.extent.height = height;
+        imageParams.extent.width = width;
+        imageParams.extent.depth = 1u;
+        imageParams.format = format;
+        imageParams.mipLevels = 1u;
+        imageParams.flags = IImage::ECF_NONE;
+        imageParams.arrayLayers = 1u;
+        imageParams.samples = IImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT;
+
+        auto image = m_device->createImage(std::move(imageParams));
+
+        if (!image)
+        {
+            m_logger->log("Failed to create image!", system::ILogger::ELL_ERROR);
+            return nullptr;
+        }
+
+        auto allocation = m_device->allocate(image->getMemoryReqs(), image.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
+        if (!allocation.isValid())
+        {
+            m_logger->log("Failed to allocate device memory!", system::ILogger::ELL_ERROR);
+            return nullptr;
+        }
+
+        IGPUImageView::SCreationParams viewParams {};
+        viewParams.image = std::move(image);
+        viewParams.format = format;
+        viewParams.viewType = IGPUImageView::ET_2D;
+        viewParams.flags = IImageViewBase::ECF_NONE;
+        viewParams.subresourceRange.baseArrayLayer = 0u;
+        viewParams.subresourceRange.baseMipLevel = 0u;
+        viewParams.subresourceRange.layerCount = 1u;
+        viewParams.subresourceRange.levelCount = 1u;
+        viewParams.subresourceRange.aspectMask = core::bitflag(asset::IImage::EAF_COLOR_BIT);
+
+        return m_device->createImageView(std::move(viewParams));
     }
 };
 
