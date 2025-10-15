@@ -48,6 +48,8 @@ public:
 
         std::vector<asset::SAssetBundle> assets;
         {
+            m_logger->log("Loading IES assets..", system::ILogger::ELL_INFO);
+            auto start = std::chrono::high_resolution_clock::now();
             size_t loaded = {}, total = out.inputList.size();
             IAssetLoader::SAssetLoadParams lp = {};
             lp.logger = system::logger_opt_ptr(m_logger.get());
@@ -60,12 +62,23 @@ public:
                 {
                     assets.emplace_back(std::move(asset));
                     ++loaded;
+
+                    m_logger->log("Loaded \"%s\".", system::ILogger::ELL_INFO, in.c_str());
                 }
                 else
-                    m_logger->log("Could not load metadata from \"%s\" asset! Skipping..", system::ILogger::ELL_WARNING, in.c_str());
+                    m_logger->log("Failed to load metadata for \"%s\"! Skipping..", system::ILogger::ELL_WARNING, in.c_str());
             }
             const auto sl = std::to_string(loaded), st = std::to_string(total);
-            m_logger->log("Loaded [%s/%s] assets! Status: %s", system::ILogger::ELL_INFO, sl.c_str(), st.c_str(), loaded == total ? "PASSING" : "FAILING");
+            const bool passed = loaded == total;
+
+            if (not passed)
+            {
+                auto diff = std::to_string(total - loaded);
+                m_logger->log("Failed to load [%s/%s] IES assets!", system::ILogger::ELL_ERROR, diff.c_str(), st.c_str());
+            }
+            auto elapsed = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start);
+            auto took = std::to_string(elapsed.count());
+            m_logger->log("Finished loading IES assets, took %s seconds.", system::ILogger::ELL_PERFORMANCE, took.c_str());
         }
 
         auto createShader = [&]<core::StringLiteral in>() -> smart_refctd_ptr<IShader>
@@ -80,16 +93,16 @@ public:
 
             if (assets.empty())
             {
-                m_logger->log("Could not load \"%s\" shader!", system::ILogger::ELL_ERROR, key.data());
+                m_logger->log("Failed to load \"%s\" shader!", system::ILogger::ELL_ERROR, key.data());
                 return nullptr;
             }
 
             auto spirvShader = IAsset::castDown<IShader>(assets[0]);
 
             if (spirvShader)
-                m_logger->log("Loaded \"%s\" shader!", system::ILogger::ELL_INFO, key.data());
+                m_logger->log("Loaded \"%s\".", system::ILogger::ELL_INFO, key.data());
             else
-                m_logger->log("Could not cast \"%s\" asset to IShader!", system::ILogger::ELL_ERROR, key.data());
+                m_logger->log("Failed to cast \"%s\" asset to IShader!", system::ILogger::ELL_ERROR, key.data());
 
             return spirvShader;
         };
