@@ -1523,7 +1523,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 			rwmcPushConstants.depth = depth;
 			rwmcPushConstants.sampleCount = resolvePushConstants.sampleCount = spp;
 			rwmcPushConstants.base = resolvePushConstants.base = rwmcCascadeBase;
-			rwmcPushConstants.minReliableLuma = resolvePushConstants.minReliableLuma = rwmcMinReliableLuma;
+			resolvePushConstants.minReliableLuma = rwmcMinReliableLuma;
 			rwmcPushConstants.kappa = resolvePushConstants.kappa = rwmcKappa;
 
 			// safe to proceed

@@ -124,8 +124,7 @@ using material_system_type = ext::MaterialSystem::System<diffuse_bxdf_type, cond
 using nee_type = ext::NextEventEstimator::Estimator<scene_type, ray_type, sample_t, aniso_interaction, ext::IntersectMode::IM_PROCEDURAL, LIGHT_TYPE, POLYGON_METHOD>;
 
 #ifdef RWMC_ENABLED
-// TODO: get cascade size from a shared include file
-using accumulator_type = rwmc::RWMCCascadeAccumulator<float32_t3, 6u>;
+using accumulator_type = rwmc::RWMCCascadeAccumulator<float32_t3, CascadeSize>;
 #else
 using accumulator_type = ext::PathTracer::DefaultAccumulator<float32_t3>;
 #endif
@@ -252,14 +251,19 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     pathtracer_type pathtracer = pathtracer_type::create(ptCreateParams);
 
 #ifdef RWMC_ENABLED
-    accumulator_type::output_storage_type cascadeEntry = pathtracer.getMeasure(pc.sampleCount, pc.depth, scene);
+    accumulator_type::initialization_data accumulatorInitData;
+    accumulatorInitData.size = CascadeSize;
+    accumulatorInitData.start = pc.start;
+    accumulatorInitData.base = pc.base;
+    accumulator_type::output_storage_type cascadeEntry = pathtracer.getMeasure(pc.sampleCount, pc.depth, scene, accumulatorInitData);
     for (uint32_t i = 0; i < CascadeSize; ++i)
     {
         float32_t4 cascadeLayerEntry = float32_t4(cascadeEntry.data[i], 1.0f);
         cascade[uint3(coords.x, coords.y, i)] = cascadeLayerEntry;
     }
 #else
-    float32_t3 color = pathtracer.getMeasure(pc.sampleCount, pc.depth, scene);
+    accumulator_type::initialization_data accumulatorInitData;
+    float32_t3 color = pathtracer.getMeasure(pc.sampleCount, pc.depth, scene, accumulatorInitData);
     outImage[coords] = float32_t4(color, 1.0);
 #endif
 

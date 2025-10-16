@@ -45,10 +45,13 @@ struct PathTracerCreationParams
 template<typename OutputTypeVec>
 struct DefaultAccumulator
 {
+    struct DefaultAccumulatorInitializationSettings {};
+
     using output_storage_type = OutputTypeVec;
+    using initialization_data = DefaultAccumulatorInitializationSettings;
     output_storage_type accumulation;
 
-    void initialize()
+    void initialize(in initialization_data initializationData)
     {
         accumulation = (output_storage_type)0.0f;
     }
@@ -288,10 +291,10 @@ struct Unidirectional
     }
 
     // Li
-    output_storage_type getMeasure(uint32_t numSamples, uint32_t depth, NBL_CONST_REF_ARG(scene_type) scene)
+    output_storage_type getMeasure(uint32_t numSamples, uint32_t depth, NBL_CONST_REF_ARG(scene_type) scene, NBL_REF_ARG(typename Accumulator::initialization_data) accumulatorInitData)
     {
         Accumulator accumulator;
-        accumulator.initialize();
+        accumulator.initialize(accumulatorInitData);
         //scalar_type meanLumaSq = 0.0;
         for (uint32_t i = 0; i < numSamples; i++)
         {

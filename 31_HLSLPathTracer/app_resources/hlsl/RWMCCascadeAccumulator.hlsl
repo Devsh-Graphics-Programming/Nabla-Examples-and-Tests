@@ -28,11 +28,12 @@ template<typename CascadeLayerType, uint32_t CascadeSize>
 struct RWMCCascadeAccumulator
 {
     using output_storage_type = CascadeEntry<CascadeLayerType, CascadeSize>;
+    using initialization_data = RWMCCascadeSettings;
     output_storage_type accumulation;
     uint32_t cascadeSampleCounter[CascadeSize];
     RWMCCascadeSettings cascadeSettings;
 
-    void initialize()
+    void initialize(in RWMCCascadeSettings settings)
     {
         for (int i = 0; i < CascadeSize; ++i)
         {
@@ -41,9 +42,9 @@ struct RWMCCascadeAccumulator
         }
 
         // TODO: pass these values to this function
-        cascadeSettings.size = 6;
-        cascadeSettings.start = 1.0f;
-        cascadeSettings.base = 1.0f;
+        cascadeSettings.size = settings.size;
+        cascadeSettings.start = settings.start;
+        cascadeSettings.base = settings.base;
     }
 
     typename vector_traits<CascadeLayerType>::scalar_type getLuma(NBL_CONST_REF_ARG(CascadeLayerType) col)

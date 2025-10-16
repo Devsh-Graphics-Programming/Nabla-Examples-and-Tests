@@ -17,7 +17,6 @@ struct RenderRWMCPushConstants
 	int depth;
 	float start;
 	float base;
-	float minReliableLuma;
 	float kappa;
 };
 
