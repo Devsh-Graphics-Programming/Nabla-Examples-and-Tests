@@ -4,6 +4,7 @@
 
 #include "nbl/examples/examples.hpp"
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
+#include "app_resources/common.hlsl"
 #include "AppInputParser.hpp"
 
 using namespace nbl;
@@ -23,6 +24,9 @@ const std::chrono::steady_clock::time_point startBenchmark = std::chrono::high_r
 bool stopBenchamrkFlag = false;
 #endif
 
+constexpr static std::string_view InputsJson = "../inputs.json";
+constexpr static std::string_view MediaEntry = "../../media";
+
 class IESViewer final : public MonoWindowApplication, public BuiltinResourcesApplication
 {
     using device_base_t = MonoWindowApplication;
@@ -41,9 +45,11 @@ public:
         if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
             return false;
 
+        const auto media = absolute(path(MediaEntry.data()));
+
         AppInputParser::Output out;
         AppInputParser parser(system::logger_opt_ptr(m_logger.get()));
-        if (!parser.parse(out, "../inputs.json", "../../media"))
+        if (!parser.parse(out, InputsJson.data(), media.string()))
             return false;
 
         {
@@ -61,8 +67,7 @@ public:
                 {
                     auto& ies = assets.emplace_back();
                     ies.bundle = std::move(asset);
-                    ies.key = in;
-
+                    ies.key = path(in).lexically_relative(media).string();
                     ++loaded;
 
                     m_logger->log("Loaded \"%s\".", system::ILogger::ELL_INFO, in.c_str());
@@ -91,13 +96,20 @@ public:
                 const auto* profile = ies.getProfile();
                 const auto resolution = profile->getOptimalIESResolution();
 
-                #define CREATE_VIEW(VIEW, FORMAT) \
-		        if (!(VIEW = createImageView(resolution.x, resolution.y, FORMAT) )) { m_logger->log("Failed to create GPU Image for for \"%s\"! Terminating.", system::ILogger::ELL_ERROR, ies.key.c_str()); return false; }
+                #define CREATE_VIEW(VIEW, FORMAT, NAME) \
+		        if (!(VIEW = createImageView(resolution.x, resolution.y, FORMAT, NAME + ies.key) )) return false;
 
-                CREATE_VIEW(ies.views.candela, asset::EF_R16_UNORM)
-                CREATE_VIEW(ies.views.spherical, asset::EF_R32G32_SFLOAT)
-                CREATE_VIEW(ies.views.direction, asset::EF_R32G32B32A32_SFLOAT)
-                CREATE_VIEW(ies.views.mask, asset::EF_R8G8_UNORM)
+                CREATE_VIEW(ies.views.candela, asset::EF_R16_UNORM, "IES Candela Data Image: ")
+                CREATE_VIEW(ies.views.spherical, asset::EF_R32G32_SFLOAT, "IES Spherical Data Image: ")
+                CREATE_VIEW(ies.views.direction, asset::EF_R32G32B32A32_SFLOAT, "IES Direction Data Image: ")
+                CREATE_VIEW(ies.views.mask, asset::EF_R8G8_UNORM, "IES Mask Data Image: ")
+
+                #define CREATE_BUFFER(BUFFER, DATA, NAME) \
+		        if (!(BUFFER = createBuffer(DATA, NAME + ies.key) )) return false;
+
+                CREATE_BUFFER(ies.buffers.vAngles, profile->getVertAngles(), "IES Vertical Angles Buffer: ")
+                CREATE_BUFFER(ies.buffers.hAngles, profile->getHoriAngles(), "IES Horizontal Angles Buffer: ")
+                CREATE_BUFFER(ies.buffers.data, profile->getData(), "IES Data Buffer: ")
             }
             auto elapsed = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start);
             auto took = std::to_string(elapsed.count());
@@ -161,11 +173,14 @@ public:
         cb->beginDebugMarker("IESViewer Frame");
         {
             camera.beginInputProcessing(nextPresentationTimestamp);
-            mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); mouseProcess(events); }, m_logger.get());
-            keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { camera.keyboardProcess(events); }, m_logger.get());
+            mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { mouseProcess(events); }, m_logger.get());
+            keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { keyboardProcess(events); }, m_logger.get());
             camera.endInputProcessing(nextPresentationTimestamp);
         }
 
+        auto& ies = assets[activeAssetIx];
+        PushConstants pc;
+        updatePushConstants(pc, ies);
 
         asset::SViewport viewport;
         {
@@ -206,19 +221,6 @@ public:
             cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
         }
 
-        float32_t3x4 viewMatrix;
-        float32_t4x4 viewProjMatrix;
-        // TODO: get rid of legacy matrices
-        {
-            memcpy(&viewMatrix, camera.getViewMatrix().pointer(), sizeof(viewMatrix));
-            memcpy(&viewProjMatrix, camera.getConcatenatedMatrix().pointer(), sizeof(viewProjMatrix));
-        }
-        const auto viewParams = CSimpleDebugRenderer::SViewParams(viewMatrix, viewProjMatrix);
-
-        // tear down scene every frame
-        //m_renderer->m_instances[0].packedGeo = m_renderer->getGeometries().data() + gcIndex;
-        //m_renderer->render(cb, viewParams);
-
         cb->endRenderPass();
         cb->endDebugMarker();
         cb->end();
@@ -257,9 +259,6 @@ public:
 
         std::string caption = "[Nabla Engine] IES Viewer";
         {
-            caption += ", displaying [";
-            //caption += m_scene->getInitParams().geometryNames[gcIndex];
-            caption += "]";
             m_window->setCaption(caption);
         }
         return retval;
@@ -306,6 +305,17 @@ protected:
     }
 
 private:
+    enum E_MODE : uint32_t
+    {
+        EM_CDC,         //! Candlepower Distribution Curve
+        EM_IES_C,       //! IES Candela
+        EM_SPERICAL_C,  //! Sperical coordinates
+        EM_DIRECTION,   //! Sample direction
+        EM_PASS_T_MASK, //! Test mask
+
+        EM_SIZE
+    };
+
     struct IES 
     {
         struct 
@@ -321,7 +331,10 @@ private:
         asset::SAssetBundle bundle;
         std::string key;
 
-        inline const asset::CIESProfile* getProfile() 
+        float zDegree;
+        E_MODE mode;
+
+        inline const asset::CIESProfile* getProfile() const
         { 
             auto* meta = bundle.getMetadata();
             if (meta)
@@ -330,7 +343,10 @@ private:
             return nullptr;
         }
     };
+
+    bool running = true;
     std::vector<IES> assets;
+    size_t activeAssetIx = 0;
 
     //
     //smart_refctd_ptr<CGeometryCreatorScene> m_scene;
@@ -348,23 +364,59 @@ private:
 
     uint16_t gcIndex = {};
 
+    // TODO: lets have this stuff in nice imgui
     void mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
     {
-        for (auto eventIt = events.begin(); eventIt != events.end(); eventIt++)
+        for (auto it = events.begin(); it != events.end(); it++)
         {
-            auto ev = *eventIt;
+            auto ev = *it;
 
-            /*
-            if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL && m_renderer)
+            if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
             {
-                gcIndex += int16_t(core::sign(ev.scrollEvent.verticalScroll));
-                gcIndex = core::clamp(gcIndex, 0ull, m_renderer->getGeometries().size() - 1);
+                auto& ies = assets[activeAssetIx];
+                auto* profile = ies.getProfile();
+
+                auto impulse = ev.scrollEvent.verticalScroll;
+                ies.zDegree = std::clamp<float>(ies.zDegree + impulse, profile->getHoriAngles().front(), profile->getHoriAngles().back());
             }
-            */
         }
     }
 
-    core::smart_refctd_ptr<IGPUImageView> createImageView(const size_t width, const size_t height, asset::E_FORMAT format)
+    void keyboardProcess(const nbl::ui::IKeyboardEventChannel::range_t& events)
+    {
+        for (auto it = events.begin(); it != events.end(); it++)
+        {
+            const auto ev = *it;
+
+            if (ev.action == nbl::ui::SKeyboardEvent::ECA_RELEASED)
+            {
+                auto& ies = assets[activeAssetIx];
+                auto* profile = ies.getProfile();
+
+                if (ev.keyCode == nbl::ui::EKC_UP_ARROW)
+                    activeAssetIx = std::clamp<size_t>(activeAssetIx + 1, 0, assets.size());
+                else if(ev.keyCode == nbl::ui::EKC_DOWN_ARROW)
+                    activeAssetIx = std::clamp<size_t>(activeAssetIx - 1, 0, assets.size());
+
+                if (ev.keyCode == nbl::ui::EKC_C)
+                    ies.mode = EM_CDC;
+                else if (ev.keyCode == nbl::ui::EKC_V)
+                    ies.mode = EM_IES_C;
+                else if (ev.keyCode == nbl::ui::EKC_S)
+                    ies.mode = EM_SPERICAL_C;
+                else if (ev.keyCode == nbl::ui::EKC_D)
+                    ies.mode = EM_DIRECTION;
+                else if (ev.keyCode == nbl::ui::EKC_M)
+                    ies.mode = EM_PASS_T_MASK;
+
+                if (ev.keyCode == nbl::ui::EKC_Q)
+                    running = false;
+            }
+        }
+    }
+    // <-
+
+    core::smart_refctd_ptr<IGPUImageView> createImageView(const size_t width, const size_t height, asset::E_FORMAT format, std::string name)
     {
         IGPUImage::SCreationParams imageParams {};
         imageParams.type = IImage::E_TYPE::ET_2D;
@@ -378,17 +430,18 @@ private:
         imageParams.samples = IImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT;
 
         auto image = m_device->createImage(std::move(imageParams));
+        image->setObjectDebugName(name.c_str());
 
         if (!image)
         {
-            m_logger->log("Failed to create image!", system::ILogger::ELL_ERROR);
+            m_logger->log("Failed to create \"%s\" image!", system::ILogger::ELL_ERROR, name.c_str());
             return nullptr;
         }
 
         auto allocation = m_device->allocate(image->getMemoryReqs(), image.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
         if (!allocation.isValid())
         {
-            m_logger->log("Failed to allocate device memory!", system::ILogger::ELL_ERROR);
+            m_logger->log("Failed to allocate device memory for \"%s\" image!", system::ILogger::ELL_ERROR, name.c_str());
             return nullptr;
         }
 
@@ -403,20 +456,26 @@ private:
         viewParams.subresourceRange.levelCount = 1u;
         viewParams.subresourceRange.aspectMask = core::bitflag(asset::IImage::EAF_COLOR_BIT);
 
-        return m_device->createImageView(std::move(viewParams));
+        auto imageView = m_device->createImageView(std::move(viewParams));
+
+        if(not imageView)
+            m_logger->log("Failed to create image view for \"%s\" image!", system::ILogger::ELL_ERROR, name.c_str());
+
+        return imageView;
     }
 
-    core::smart_refctd_ptr<IGPUBuffer> createBuffer(size_t size)
+    core::smart_refctd_ptr<IGPUBuffer> createBuffer(const core::vector<asset::CIESProfile::IES_STORAGE_FORMAT>& in, std::string name)
     {        
         IGPUBuffer::SCreationParams bufferParams = {};
         bufferParams.usage = core::bitflag(asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT /*TODO: <- double check*/;;
-        bufferParams.size = size;
+        bufferParams.size = sizeof(asset::CIESProfile::IES_STORAGE_FORMAT) * in.size();
 
         auto buffer = m_device->createBuffer(std::move(bufferParams));
+        buffer->setObjectDebugName(name.c_str());
 
         if (not buffer)
         {
-            m_logger->log("Failed to create buffer!", ILogger::ELL_ERROR);
+            m_logger->log("Failed to create \"%s\" buffer!", ILogger::ELL_ERROR, name.c_str());
             return nullptr;
         }
 
@@ -428,20 +487,44 @@ private:
         auto allocation = m_device->allocate(memoryReqs, buffer.get(), core::bitflag<video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS>(video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT));
         if (not allocation.isValid())
         {
-            m_logger->log("Failed to allocate buffer!", ILogger::ELL_ERROR);
+            m_logger->log("Failed to allocate \"%s\" buffer!", ILogger::ELL_ERROR, name.c_str());
             return nullptr;
         }
-        auto memory = allocation.memory;
 
-        if (!memory->map({ 0ull, memoryReqs.size }, bitflag<IDeviceMemoryAllocation::E_MAPPING_CPU_ACCESS_FLAGS>(IDeviceMemoryAllocation::EMCAF_READ) | IDeviceMemoryAllocation::EMCAF_WRITE))
+        auto* mappedPointer = allocation.memory->map({ 0ull, memoryReqs.size }, IDeviceMemoryAllocation::EMCAF_READ_AND_WRITE);
+
+        if (not mappedPointer)
         {
-            m_logger->log("Failed to map device memory!", ILogger::ELL_ERROR);
+            m_logger->log("Failed to map device memory for \"%s\" buffer!", ILogger::ELL_ERROR, name.c_str());
             return nullptr;
         }
 
-        // TODO: maybe lets also fill buffer with IES data at one go
+        memcpy(mappedPointer, in.data(), buffer->getSize());
+
+        if (not allocation.memory->unmap())
+        {
+            m_logger->log("Failed to unmap device memory for \"%s\" buffer!", ILogger::ELL_ERROR, name.c_str());
+            return nullptr;
+        }
 
         return buffer;
+    }
+
+    inline void updatePushConstants(PushConstants& out, const IES& in)
+    {
+        out.vAnglesBDA = in.buffers.vAngles->getDeviceAddress();
+        out.hAnglesBDA = in.buffers.hAngles->getDeviceAddress();
+        out.dataBDA = in.buffers.data->getDeviceAddress();
+
+        const auto* profile = in.getProfile();
+
+        out.maxIValue = profile->getMaxCandelaValue();
+        out.vAnglesCount = profile->getVertAngles().size();
+        out.hAnglesCount = profile->getHoriAngles().size();
+        out.dataCount = profile->getData().size();
+
+        out.zAngleDegreeRotation = in.zDegree;
+        out.mode = in.mode;
     }
 };
 

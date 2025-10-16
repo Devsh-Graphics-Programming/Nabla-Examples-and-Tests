@@ -27,8 +27,8 @@ struct PushConstants
 	uint32_t hAnglesCount;
 	uint32_t vAnglesCount;
 	uint32_t dataCount;
-	float32_t zAngleDegreeRotation;
 
+	float32_t zAngleDegreeRotation;
 	uint32_t mode;
 
 	#ifdef __HLSL_VERSION
