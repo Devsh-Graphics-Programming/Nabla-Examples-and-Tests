@@ -5,6 +5,7 @@
 #include <nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl>
 #include <nbl/builtin/hlsl/math/functions.hlsl>
 #include <nbl/builtin/hlsl/bxdf/bxdf_traits.hlsl>
+#include <nbl/builtin/hlsl/vector_utils/vector_traits.hlsl>
 
 #include "rand_gen.hlsl"
 #include "ray_gen.hlsl"
@@ -40,10 +41,30 @@ struct PathTracerCreationParams
     BxDFCreation dielectricParams;
 };
 
-template<class RandGen, class RayGen, class Intersector, class MaterialSystem, /* class PathGuider, */ class NextEventEstimator>
+// TODO: maybe implement a concept to ensure that OutputTypeVec is a vector?
+template<typename OutputTypeVec>
+struct DefaultAccumulator
+{
+    using output_storage_type = OutputTypeVec;
+    output_storage_type accumulation;
+
+    void initialize()
+    {
+        accumulation = (output_storage_type)0.0f;
+    }
+
+    void addSample(uint32_t sampleIndex, float32_t3 sample)
+    {
+        using ScalarType = typename vector_traits<OutputTypeVec>::scalar_type;
+        ScalarType rcpSampleSize = 1.0 / (sampleIndex + 1);
+        accumulation += (sample - accumulation) * rcpSampleSize;
+    }
+};
+
+template<class RandGen, class RayGen, class Intersector, class MaterialSystem, /* class PathGuider, */ class NextEventEstimator, class Accumulator>
 struct Unidirectional
 {
-    using this_t = Unidirectional<RandGen, RayGen, Intersector, MaterialSystem, NextEventEstimator>;
+    using this_t = Unidirectional<RandGen, RayGen, Intersector, MaterialSystem, NextEventEstimator, Accumulator>;
     using randgen_type = RandGen;
     using raygen_type = RayGen;
     using intersector_type = Intersector;
@@ -53,6 +74,7 @@ struct Unidirectional
     using scalar_type = typename MaterialSystem::scalar_type;
     using vector3_type = vector<scalar_type, 3>;
     using measure_type = typename MaterialSystem::measure_type;
+    using output_storage_type = typename Accumulator::output_storage_type;
     using sample_type = typename NextEventEstimator::sample_type;
     using ray_dir_info_type = typename sample_type::ray_dir_info_type;
     using ray_type = typename RayGen::ray_type;
@@ -265,105 +287,40 @@ struct Unidirectional
         // #endif
     }
 
-    measure_type getSingleSampleMeasure(uint32_t sampleID, uint32_t depth, NBL_CONST_REF_ARG(scene_type) scene)
-    {
-        vector3_type uvw = rand3d(0u, sampleID, randGen.rng());    // TODO: take from scramblebuf?
-        ray_type ray = rayGen.generate(uvw);
-
-        // bounces
-        bool hit = true;
-        bool rayAlive = true;
-        for (int d = 1; (d <= depth) && hit && rayAlive; d += 2)
-        {
-            ray.intersectionT = numeric_limits<scalar_type>::max;
-            ray.objectID = intersector_type::traceRay(ray, scene);
-
-            hit = ray.objectID.id != -1;
-            if (hit)
-                rayAlive = closestHitProgram(1, sampleID, ray, scene);
-        }
-        if (!hit)
-            missProgram(ray);
-
-        return ray.payload.accumulation;
-    }
-
     // Li
-    measure_type getMeasure(uint32_t numSamples, uint32_t depth, NBL_CONST_REF_ARG(scene_type) scene)
+    output_storage_type getMeasure(uint32_t numSamples, uint32_t depth, NBL_CONST_REF_ARG(scene_type) scene)
     {
-        measure_type Li = (measure_type)0.0;
+        Accumulator accumulator;
+        accumulator.initialize();
         //scalar_type meanLumaSq = 0.0;
         for (uint32_t i = 0; i < numSamples; i++)
         {
-            measure_type accumulation = getSingleSampleMeasure(i, depth, scene);
-            scalar_type rcpSampleSize = 1.0 / (i + 1);
-            Li += (accumulation - Li) * rcpSampleSize;
+            vector3_type uvw = rand3d(0u, i, randGen.rng());    // TODO: take from scramblebuf?
+            ray_type ray = rayGen.generate(uvw);
+
+            // bounces
+            bool hit = true;
+            bool rayAlive = true;
+            for (int d = 1; (d <= depth) && hit && rayAlive; d += 2)
+            {
+                ray.intersectionT = numeric_limits<scalar_type>::max;
+                ray.objectID = intersector_type::traceRay(ray, scene);
+
+                hit = ray.objectID.id != -1;
+                if (hit)
+                    rayAlive = closestHitProgram(1, i, ray, scene);
+            }
+            if (!hit)
+                missProgram(ray);
+
+            accumulator.addSample(i, ray.payload.accumulation);
 
             // TODO: visualize high variance
 
             // TODO: russian roulette early exit?
         }
 
-        return Li;
-    }
-
-    struct RWMCCascadeSettings
-    {
-        uint32_t size;
-        uint32_t start;
-        uint32_t base;
-    };
-
-    void generateCascade(int32_t2 coords, uint32_t numSamples, uint32_t depth, NBL_CONST_REF_ARG(RWMCCascadeSettings) cascadeSettings, NBL_CONST_REF_ARG(scene_type) scene)
-    {
-        // TODO: move `MaxCascadeSize` somewhere else
-        const static uint32_t MaxCascadeSize = 10u;
-        float32_t4 cascadeEntry[MaxCascadeSize];
-        for (int i = 0; i < MaxCascadeSize; ++i)
-            cascadeEntry[i] = float32_t4(0.0f, 0.0f, 0.0f, 0.0f);
-
-        float lowerScale = cascadeSettings.start;
-        float upperScale = lowerScale * cascadeSettings.base;
-
-        // most of this code is stolen from https://cg.ivd.kit.edu/publications/2018/rwmc/tool/split.cpp
-        for (uint32_t i = 0; i < numSamples; i++)
-        {
-            measure_type accumulation = getSingleSampleMeasure(i, depth, scene);
-
-            const float luma = getLuma(accumulation);
-
-            uint32_t lowerCascadeIndex = 0u;
-            while (!(luma < upperScale) && lowerCascadeIndex < cascadeSettings.size - 2)
-            {
-                lowerScale = upperScale;
-                upperScale *= cascadeSettings.base;
-                ++lowerCascadeIndex;
-            }
-
-            float lowerCascadeLevelWeight;
-            float higherCascadeLevelWeight;
-
-            if (luma <= lowerScale)
-                lowerCascadeLevelWeight = 1.0f;
-            else if (luma < upperScale)
-                lowerCascadeLevelWeight = max(0.0f, (lowerScale / luma - lowerScale / upperScale) / (1.0f - lowerScale / upperScale));
-            else // Inf, NaN ...
-                lowerCascadeLevelWeight = 0.0f;
-
-            if (luma < upperScale)
-                higherCascadeLevelWeight = max(0.0f, 1.0f - lowerCascadeLevelWeight);
-            else
-                higherCascadeLevelWeight = upperScale / luma;
-
-            // TODO: odrazu liczyc srednia
-            cascadeEntry[lowerCascadeIndex] += float32_t4(accumulation * lowerCascadeLevelWeight, 1.0f);
-        }
-
-        for (uint32_t i = 0; i < 6; i++)
-        {
-            cascadeEntry[i] /= float(numSamples);
-            cascade[uint3(coords.x, coords.y, i)] = cascadeEntry[i];
-        }
+        return accumulator.accumulation;
     }
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t MAX_DEPTH_LOG2 = 4u;

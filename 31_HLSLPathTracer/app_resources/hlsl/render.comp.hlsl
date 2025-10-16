@@ -36,6 +36,32 @@
 #define BXDF_COUNT 7
 
 #include "render_common.hlsl"
+#include "rwmc_global_settings_common.hlsl"
+
+#ifdef RWMC_ENABLED
+#include "RWMCCascadeAccumulator.hlsl"
+#include "render_rwmc_common.hlsl"
+#endif
+
+#ifdef RWMC_ENABLED
+[[vk::push_constant]] RenderRWMCPushConstants pc;
+#else
+[[vk::push_constant]] RenderPushConstants pc;
+#endif
+
+[[vk::combinedImageSampler]] [[vk::binding(0, 2)]] Texture2D<float3> envMap;      // unused
+[[vk::combinedImageSampler]] [[vk::binding(0, 2)]] SamplerState envSampler;
+
+[[vk::binding(1, 2)]] Buffer<uint3> sampleSequence;
+
+[[vk::combinedImageSampler]] [[vk::binding(2, 2)]] Texture2D<uint2> scramblebuf; // unused
+[[vk::combinedImageSampler]] [[vk::binding(2, 2)]] SamplerState scrambleSampler;
+
+#ifdef RWMC_ENABLED
+[[vk::image_format("rgba16f")]] [[vk::binding(0, 1)]] RWTexture2DArray<float32_t4> cascade;
+#endif
+[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2D<float32_t4> outImage;
+
 #include "pathtracer.hlsl"
 
 using namespace nbl;
@@ -96,7 +122,15 @@ using raygen_type = ext::RayGen::Basic<ray_type>;
 using intersector_type = ext::Intersector::Comprehensive<ray_type, light_type, bxdfnode_type>;
 using material_system_type = ext::MaterialSystem::System<diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type>;
 using nee_type = ext::NextEventEstimator::Estimator<scene_type, ray_type, sample_t, aniso_interaction, ext::IntersectMode::IM_PROCEDURAL, LIGHT_TYPE, POLYGON_METHOD>;
-using pathtracer_type = ext::PathTracer::Unidirectional<randgen_type, raygen_type, intersector_type, material_system_type, nee_type>;
+
+#ifdef RWMC_ENABLED
+// TODO: get cascade size from a shared include file
+using accumulator_type = rwmc::RWMCCascadeAccumulator<float32_t3, 6u>;
+#else
+using accumulator_type = ext::PathTracer::DefaultAccumulator<float32_t3>;
+#endif
+
+using pathtracer_type = ext::PathTracer::Unidirectional<randgen_type, raygen_type, intersector_type, material_system_type, nee_type, accumulator_type>;
 
 static const ext::Shape<ext::PST_SPHERE> spheres[SPHERE_COUNT] = {
     ext::Shape<ext::PST_SPHERE>::create(float3(0.0, -100.5, -1.0), 100.0, 0u, light_type::INVALID_ID),
@@ -129,7 +163,7 @@ static const ext::Shape<ext::PST_RECTANGLE> rectangles[1];
 #endif
 
 static const light_type lights[LIGHT_COUNT] = {
-    light_type::create(spectral_t(30.0,25.0,15.0),
+    light_type::create(LightEminence,
 #ifdef SPHERE_LIGHT
         8u,
 #else
@@ -217,23 +251,19 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 
     pathtracer_type pathtracer = pathtracer_type::create(ptCreateParams);
 
-    bool useRWMC = bool(pc.useRWMC);
-    if (!useRWMC)
+#ifdef RWMC_ENABLED
+    accumulator_type::output_storage_type cascadeEntry = pathtracer.getMeasure(pc.sampleCount, pc.depth, scene);
+    for (uint32_t i = 0; i < CascadeSize; ++i)
     {
-        float32_t3 color = pathtracer.getMeasure(pc.sampleCount, pc.depth, scene);
-        float32_t4 pixCol = float32_t4(color, 1.0);
-        outImage[coords] = pixCol;
+        float32_t4 cascadeLayerEntry = float32_t4(cascadeEntry.data[i], 1.0f);
+        cascade[uint3(coords.x, coords.y, i)] = cascadeLayerEntry;
     }
-    else
-    {
-        pathtracer_type::RWMCCascadeSettings cascadeSettings;
-        cascadeSettings.size = pc.rwmcCascadeSize;
-        cascadeSettings.start = pc.rwmcCascadeStart;
-        cascadeSettings.base = pc.rwmcCascadeBase;
+#else
+    float32_t3 color = pathtracer.getMeasure(pc.sampleCount, pc.depth, scene);
+    outImage[coords] = float32_t4(color, 1.0);
+#endif
 
-        // TODO: template parameter should be 
-        pathtracer.generateCascade(coords, pc.sampleCount, pc.depth, cascadeSettings, scene);
-    }
+    
 
 #ifdef PERSISTENT_WORKGROUPS
     }

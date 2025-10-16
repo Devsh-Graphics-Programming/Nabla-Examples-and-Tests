@@ -1,18 +1,11 @@
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 #include <nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl>
+#include "resolve_common.hlsl"
+#include "rwmc_global_settings_common.hlsl"
 
-struct SPushConstants
-{
-	uint32_t cascadeCount;
-	float base;
-	uint32_t sampleCount;
-	float minReliableLuma;
-	float kappa;
-};
-
-[[vk::push_constant]] SPushConstants pc;
+[[vk::push_constant]] ResolvePushConstants pc;
 [[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2D<float32_t4> outImage;
-[[vk::image_format("rgba16f")]] [[vk::binding(1, 0)]] RWTexture2DArray<float32_t4> cascade;
+[[vk::image_format("rgba16f")]] [[vk::binding(0, 1)]] RWTexture2DArray<float32_t4> cascade;
 
 using namespace nbl;
 using namespace hlsl;
@@ -32,10 +25,10 @@ struct RWMCReweightingParameters
     float NOverKappa;
 };
 
-RWMCReweightingParameters computeReweightingParameters(uint32_t cascadeCount, float base, uint32_t sampleCount, float minReliableLuma, float kappa)
+RWMCReweightingParameters computeReweightingParameters(float base, uint32_t sampleCount, float minReliableLuma, float kappa)
 {
     RWMCReweightingParameters retval;
-    retval.lastCascadeIndex = cascadeCount - 1u;
+    retval.lastCascadeIndex = CascadeSize - 1u;
     retval.initialEmin = minReliableLuma;
     retval.reciprocalBase = 1.f / base;
     const float N = float(sampleCount);
@@ -187,7 +180,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     const int32_t2 coords = getCoordinates();
     //float32_t3 color = sumCascade(coords);
 
-    RWMCReweightingParameters reweightingParameters = computeReweightingParameters(pc.cascadeCount, pc.base, pc.sampleCount, pc.minReliableLuma, pc.kappa);
+    RWMCReweightingParameters reweightingParameters = computeReweightingParameters(pc.base, pc.sampleCount, pc.minReliableLuma, pc.kappa);
 	float32_t3 color = RWMCReweight(reweightingParameters, coords);
 
 	outImage[coords] = float32_t4(color, 1.0f);
