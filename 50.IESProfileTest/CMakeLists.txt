@@ -17,27 +17,27 @@ set(DEPENDS
 target_sources(${EXECUTABLE_NAME} PRIVATE ${DEPENDS})
 set_source_files_properties(${DEPENDS} PROPERTIES HEADER_FILE_ONLY ON)
 
-set(V 6_8)
+set(SM 6_8)
 set(JSON [=[
 [
     {
 		"INPUT": "app_resources/compute.hlsl",
 		"KEY": "compute",
-        "COMPILE_OPTIONS": ["-T", "lib_${V}"],
+        "COMPILE_OPTIONS": ["-T", "lib_${SM}"],
 		"DEPENDS": [],
 		"CAPS": []
     },
 	{
 		"INPUT": "app_resources/pixel.hlsl",
 		"KEY": "pixel",
-		"COMPILE_OPTIONS": ["-T", "lib_${V}"],
+		"COMPILE_OPTIONS": ["-T", "lib_${SM}"],
 		"DEPENDS": [],
 		"CAPS": []
 	},
 	{
 		"INPUT": "app_resources/vertex.hlsl",
 		"KEY": "vertex",
-		"COMPILE_OPTIONS": ["-T", "lib_${V}"],
+		"COMPILE_OPTIONS": ["-T", "lib_${SM}"],
 		"DEPENDS": [],
 		"CAPS": []
 	}

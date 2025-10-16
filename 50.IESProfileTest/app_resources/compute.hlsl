@@ -7,7 +7,7 @@
 [[vk::binding(0, 0)]] RWTexture2D<float32_t> outIESCandelaImage;
 [[vk::binding(1, 0)]] RWTexture2D<float32_t2> outSphericalCoordinatesImage;
 [[vk::binding(2, 0)]] RWTexture2D<float32_t3> outOUVProjectionDirectionImage;
-[[vk::binding(3, 0)]] RWTexture2D<unorm float2> outPassTMask;
+[[vk::binding(3, 0)]] RWTexture2D<float32_t2> outPassTMask;
 
 [[vk::push_constant]] struct PushConstants pc;
 

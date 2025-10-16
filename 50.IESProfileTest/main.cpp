@@ -157,6 +157,103 @@ public:
             m_logger->log("Finished loading GPU shaders, took %s seconds!", system::ILogger::ELL_PERFORMANCE, took.c_str());
         }
 
+        // Pipelines & Descriptor Sets
+        {
+            using binding_flags_t = video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS;
+            using stage_flags_t = asset::IShader::E_SHADER_STAGE;
+            static constexpr auto TexturesCreateFlags = core::bitflag(binding_flags_t::ECF_UPDATE_AFTER_BIND_BIT) | binding_flags_t::ECF_PARTIALLY_BOUND_BIT | binding_flags_t::ECF_UPDATE_UNUSED_WHILE_PENDING_BIT;
+            static constexpr auto SamplersCreateFlags = core::bitflag(binding_flags_t::ECF_UPDATE_AFTER_BIND_BIT);
+
+            const uint32_t texturesCount = assets.size();
+            auto computeBindings = std::to_array<IGPUDescriptorSetLayout::SBinding>
+            ({
+                {.binding = 0, .type = IDescriptor::E_TYPE::ET_STORAGE_IMAGE, .createFlags = TexturesCreateFlags, .stageFlags = stage_flags_t::ESS_COMPUTE, .count = texturesCount, .immutableSamplers = nullptr},
+                {.binding = 1, .type = IDescriptor::E_TYPE::ET_STORAGE_IMAGE, .createFlags = TexturesCreateFlags, .stageFlags = stage_flags_t::ESS_COMPUTE, .count = texturesCount, .immutableSamplers = nullptr},
+                {.binding = 2, .type = IDescriptor::E_TYPE::ET_STORAGE_IMAGE, .createFlags = TexturesCreateFlags, .stageFlags = stage_flags_t::ESS_COMPUTE, .count = texturesCount, .immutableSamplers = nullptr},
+                {.binding = 3, .type = IDescriptor::E_TYPE::ET_STORAGE_IMAGE, .createFlags = TexturesCreateFlags, .stageFlags = stage_flags_t::ESS_COMPUTE, .count = texturesCount, .immutableSamplers = nullptr}
+            });
+
+            auto pixelBindings = std::to_array<IGPUDescriptorSetLayout::SBinding>
+            ({
+                {.binding = 0, .type = IDescriptor::E_TYPE::ET_SAMPLED_IMAGE, .createFlags = TexturesCreateFlags, .stageFlags = stage_flags_t::ESS_FRAGMENT, .count = texturesCount, .immutableSamplers = nullptr},
+                {.binding = 1, .type = IDescriptor::E_TYPE::ET_SAMPLED_IMAGE, .createFlags = TexturesCreateFlags, .stageFlags = stage_flags_t::ESS_FRAGMENT, .count = texturesCount, .immutableSamplers = nullptr},
+                {.binding = 2, .type = IDescriptor::E_TYPE::ET_SAMPLED_IMAGE, .createFlags = TexturesCreateFlags, .stageFlags = stage_flags_t::ESS_FRAGMENT, .count = texturesCount, .immutableSamplers = nullptr},
+                {.binding = 3, .type = IDescriptor::E_TYPE::ET_SAMPLED_IMAGE, .createFlags = TexturesCreateFlags, .stageFlags = stage_flags_t::ESS_FRAGMENT, .count = texturesCount, .immutableSamplers = nullptr},
+                {.binding = 3, .type = IDescriptor::E_TYPE::ET_SAMPLER, .createFlags = SamplersCreateFlags, .stageFlags = stage_flags_t::ESS_FRAGMENT, .count = 1u, .immutableSamplers = nullptr}
+            });
+
+            smart_refctd_ptr<IGPUSampler> generalSampler;
+            {
+                IGPUSampler::SParams params;
+                params.AnisotropicFilter = 1u;
+                params.TextureWrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+                params.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+                params.TextureWrapW = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
+                params.BorderColor = ISampler::ETBC_FLOAT_OPAQUE_BLACK;
+                params.MinFilter = ISampler::ETF_LINEAR;
+                params.MaxFilter = ISampler::ETF_LINEAR;
+                params.MipmapMode = ISampler::ESMM_LINEAR;
+                params.AnisotropicFilter = 0u;
+                params.CompareEnable = false;
+                params.CompareFunc = ISampler::ECO_ALWAYS;
+
+                generalSampler = m_device->createSampler(params);
+
+                if (not generalSampler)
+                {
+                    m_logger->log("Failed to create sampler!", system::ILogger::ELL_ERROR);
+                    return false;
+                }
+
+                generalSampler->setObjectDebugName("Default IES sampler");
+            }
+
+            auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+            scRes->getRenderpass();
+
+            // Graphics Pipeline
+            {
+                auto descriptorSetLayout = m_device->createDescriptorSetLayout(pixelBindings);
+
+                if(not descriptorSetLayout)
+                    return logFail("Failed to create descriptor set layout!");
+
+                auto range = std::to_array<asset::SPushConstantRange>({ {stage_flags_t::ESS_FRAGMENT, 0u, sizeof(PushConstants)} });
+                auto graphicsPipelineLayout = m_device->createPipelineLayout(range, nullptr, nullptr, nullptr, core::smart_refctd_ptr(descriptorSetLayout));
+
+                if(not graphicsPipelineLayout)
+                    return logFail("Failed to create pipeline layout!");
+
+                video::IGPUPipelineBase::SShaderSpecInfo specInfo[] = 
+                {
+                    { .shader = vertex.get(), .entryPoint = "VSMain" },
+                    { .shader = pixel.get(), .entryPoint = "PSMain" }
+                };
+
+                auto params = std::to_array<IGPUGraphicsPipeline::SCreationParams>({ {} });
+                params[0].layout = graphicsPipelineLayout.get();
+                params[0].cached = {
+                    .vertexInput = {},
+                    .primitiveAssembly = {
+                        .primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST,
+                    },
+                    .rasterization = {
+                        .polygonMode = EPM_FILL,
+                        .faceCullingMode = EFCM_NONE,
+                        .depthWriteEnable = false,
+                    },
+                    .blend = {}
+                };
+                params[0].renderpass = scRes->getRenderpass();
+                params[0].vertexShader = specInfo[0];
+                params[0].fragmentShader = specInfo[1];
+
+                if (!m_device->createGraphicsPipelines(nullptr, params, &graphicsPipeline))
+                    return logFail("Failed to create graphics pipeline!");
+            }
+
+        }
+
         return true;
     }
 
@@ -172,15 +269,23 @@ public:
         cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
         cb->beginDebugMarker("IESViewer Frame");
         {
-            camera.beginInputProcessing(nextPresentationTimestamp);
             mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { mouseProcess(events); }, m_logger.get());
             keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { keyboardProcess(events); }, m_logger.get());
-            camera.endInputProcessing(nextPresentationTimestamp);
         }
 
         auto& ies = assets[activeAssetIx];
         PushConstants pc;
         updatePushConstants(pc, ies);
+
+        for (auto& buffer : { ies.buffers.data, ies.buffers.hAngles, ies.buffers.vAngles }) // flush request for sanity
+        {
+            auto bound = buffer->getBoundMemory();
+            if (bound.memory->haveToMakeVisible())
+            {
+                const ILogicalDevice::MappedMemoryRange range(bound.memory, bound.offset, buffer->getSize());
+                m_device->flushMappedMemoryRanges(1, &range);
+            }
+        }
 
         asset::SViewport viewport;
         {
@@ -344,25 +449,17 @@ private:
         }
     };
 
+    smart_refctd_ptr<IGPUGraphicsPipeline> graphicsPipeline;
+
     bool running = true;
     std::vector<IES> assets;
     size_t activeAssetIx = 0;
 
-    //
-    //smart_refctd_ptr<CGeometryCreatorScene> m_scene;
-    //smart_refctd_ptr<CSimpleDebugRenderer> m_renderer;
-    //
     smart_refctd_ptr<ISemaphore> m_semaphore;
     uint64_t m_realFrameIx = 0;
     std::array<smart_refctd_ptr<IGPUCommandBuffer>, device_base_t::MaxFramesInFlight> m_cmdBufs;
-    //
     InputSystem::ChannelReader<IMouseEventChannel> mouse;
     InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
-
-    //
-    Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
-
-    uint16_t gcIndex = {};
 
     // TODO: lets have this stuff in nice imgui
     void mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
@@ -525,6 +622,7 @@ private:
 
         out.zAngleDegreeRotation = in.zDegree;
         out.mode = in.mode;
+        out.texIx = activeAssetIx;
     }
 };
 

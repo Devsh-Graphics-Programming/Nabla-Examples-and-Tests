@@ -5,15 +5,11 @@
 #include "common.hlsl"
 #include "PSInput.hlsl"
 
-[[vk::combinedImageSampler]] [[vk::binding(0, 3)]] Texture2D<float32_t> inIESCandelaImage;
-[[vk::combinedImageSampler]] [[vk::binding(1, 3)]] Texture2D<float32_t2> inSphericalCoordinatesImage;
-[[vk::combinedImageSampler]] [[vk::binding(2, 3)]] Texture2D<float32_t3> inOUVProjectionDirectionImage;
-[[vk::combinedImageSampler]] [[vk::binding(3, 3)]] Texture2D<unorm float2> inPassTMaskImage;
-
-[[vk::combinedImageSampler]] [[vk::binding(0, 3)]] SamplerState inIESCandelaSampler;
-[[vk::combinedImageSampler]] [[vk::binding(1, 3)]] SamplerState inSphericalCoordinatesSampler;
-[[vk::combinedImageSampler]] [[vk::binding(2, 3)]] SamplerState inOUVProjectionDirectionSampler;
-[[vk::combinedImageSampler]] [[vk::binding(3, 3)]] SamplerState inPassTMaskSampler;
+[[vk::binding(0, 0)]] Texture2D inIESCandelaImage[MAX_IES_IMAGES];
+[[vk::binding(1, 0)]] Texture2D inSphericalCoordinatesImage[MAX_IES_IMAGES];
+[[vk::binding(2, 0)]] Texture2D inOUVProjectionDirectionImage[MAX_IES_IMAGES];
+[[vk::binding(3, 0)]] Texture2D inPassTMaskImage[MAX_IES_IMAGES];
+[[vk::binding(10, 0)]] SamplerState generalSampler;
 
 [[vk::push_constant]] struct PushConstants pc;
 
@@ -36,11 +32,11 @@ float32_t plot(float32_t cand, float32_t pct, float32_t bold)
 // vertical cut of IES (i.e. cut by plane x = 0)
 float32_t f(float32_t2 uv) 
 {
-	return inIESCandelaImage.Sample(inIESCandelaSampler, iesDirToUv(normalize(float32_t3(uv.x, 0.001, uv.y)))).x;
+	return inIESCandelaImage[pc.texIx].Sample(generalSampler, iesDirToUv(normalize(float32_t3(uv.x, 0.001, uv.y)))).x;
 }
 
 [shader("pixel")]
-float32_t4 main(PSInput input) : SV_Target0
+float32_t4 PSMain(PSInput input) : SV_Target0
 {
     float32_t2 ndc = input.position.xy;
 	float32_t2 uv = (ndc + 1) / 2;
@@ -60,12 +56,12 @@ float32_t4 main(PSInput input) : SV_Target0
 			return float32_t4(col, 1.0f);
 		}
 		case 1:
-			return float32_t4(inIESCandelaImage.Sample(inIESCandelaSampler, uv).x, 0.f, 0.f, 1.f);
+			return float32_t4(inIESCandelaImage[pc.texIx].Sample(generalSampler, uv).x, 0.f, 0.f, 1.f);
 		case 2:
-			return float32_t4(inSphericalCoordinatesImage.Sample(inSphericalCoordinatesSampler, uv).xy, 0.f, 1.f);
+			return float32_t4(inSphericalCoordinatesImage[pc.texIx].Sample(generalSampler, uv).xy, 0.f, 1.f);
 		case 3:
-			return float32_t4(inOUVProjectionDirectionImage.Sample(inOUVProjectionDirectionSampler, uv).xyz, 1.f);
+			return float32_t4(inOUVProjectionDirectionImage[pc.texIx].Sample(generalSampler, uv).xyz, 1.f);
 		default:
-			return float32_t4(inPassTMaskImage.Sample(inPassTMaskSampler, uv).xy, 0.f, 1.f);
+			return float32_t4(inPassTMaskImage[pc.texIx].Sample(generalSampler, uv).xy, 0.f, 1.f);
 	}
 }
