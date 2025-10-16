@@ -250,6 +250,43 @@ public:
 
                 if (!m_device->createGraphicsPipelines(nullptr, params, &graphicsPipeline))
                     return logFail("Failed to create graphics pipeline!");
+
+                const auto dscLayoutPtrs = graphicsPipeline->getLayout()->getDescriptorSetLayouts();
+                auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, dscLayoutPtrs);
+                pool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), graphicDS.data());
+                {
+                    std::array<std::vector<IGPUDescriptorSet::SDescriptorInfo>, 4u> infos;
+                    for (uint32_t i = 0; i < assets.size(); ++i)
+                    {
+                        auto& ies = assets[i];
+
+                        #define FILL_INFO(DESC, IX) \
+                        { \
+                            auto& info = infos[IX].emplace_back(); \
+                            info.desc = DESC; \
+                            info.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL; \
+                        }
+
+                        FILL_INFO(ies.views.candela, 0u)
+                        FILL_INFO(ies.views.spherical, 1u)
+                        FILL_INFO(ies.views.direction, 2u)
+                        FILL_INFO(ies.views.mask, 3u)
+                    }
+
+                    std::array<IGPUDescriptorSet::SWriteDescriptorSet, 4u > writes;
+                    for (uint32_t i = 0; i < infos.size(); ++i)
+                    {
+                        auto& write = writes[i];
+                        write.count = assets.size();
+                        write.info = infos[i].data();
+                        write.dstSet = graphicDS[0u].get();
+                        write.arrayElement = 0u;
+                        write.binding = i;
+                    }
+
+                    if (!m_device->updateDescriptorSets(writes, {}))
+                        return logFail("Failed to write descriptor sets");
+                }
             }
 
         }
@@ -449,7 +486,11 @@ private:
         }
     };
 
+    std::array<smart_refctd_ptr<IGPUDescriptorSet>, IGPUPipelineLayout::DESCRIPTOR_SET_COUNT> graphicDS;
+    std::array<smart_refctd_ptr<IGPUDescriptorSet>, IGPUPipelineLayout::DESCRIPTOR_SET_COUNT> computeDS;
+
     smart_refctd_ptr<IGPUGraphicsPipeline> graphicsPipeline;
+    smart_refctd_ptr<IGPUComputePipeline> computePipeline;
 
     bool running = true;
     std::vector<IES> assets;
