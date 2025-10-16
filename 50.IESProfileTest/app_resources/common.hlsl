@@ -41,9 +41,9 @@ struct PushConstants
 	uint32_t dummy;
 
 	#ifdef __HLSL_VERSION
-	float64_t getHorizontalAngle(uint32_t i) { return vk::RawBufferLoad<float64_t>(hAnglesBDA + sizeof(float64_t) * i); }
-	float64_t getVerticalAngle(uint32_t i) { return vk::RawBufferLoad<float64_t>(vAnglesBDA + sizeof(float64_t) * i); }
-	float64_t getData(uint32_t i) { return vk::RawBufferLoad<float64_t>(dataBDA + sizeof(float64_t) * i); }
+	float64_t getHorizontalAngle(uint32_t i) { return vk::RawBufferLoad<float64_t>(hAnglesBDA + sizeof(float64_t) * i, sizeof(float64_t)); }
+	float64_t getVerticalAngle(uint32_t i) { return vk::RawBufferLoad<float64_t>(vAnglesBDA + sizeof(float64_t) * i, sizeof(float64_t)); }
+	float64_t getData(uint32_t i) { return vk::RawBufferLoad<float64_t>(dataBDA + sizeof(float64_t) * i, sizeof(float64_t)); }
 	#endif // __HLSL_VERSION
 };
 
