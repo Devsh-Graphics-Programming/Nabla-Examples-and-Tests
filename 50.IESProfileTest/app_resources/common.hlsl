@@ -3,6 +3,10 @@
 
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 
+#ifdef __HLSL_VERSION
+#include "nbl/builtin/hlsl/bda/__ptr.hlsl"
+#endif // __HLSL_VERSION
+
 // -> TODO: use NBL_CONTEXPR or something
 #ifndef UINT16_MAX
 #define UINT16_MAX 65535u // would be cool if we have this define somewhere or GLSL do
@@ -41,9 +45,9 @@ struct PushConstants
 	uint32_t dummy;
 
 	#ifdef __HLSL_VERSION
-	float64_t getHorizontalAngle(uint32_t i) { return vk::RawBufferLoad<float64_t>(hAnglesBDA + sizeof(float64_t) * i, sizeof(float64_t)); }
-	float64_t getVerticalAngle(uint32_t i) { return vk::RawBufferLoad<float64_t>(vAnglesBDA + sizeof(float64_t) * i, sizeof(float64_t)); }
-	float64_t getData(uint32_t i) { return vk::RawBufferLoad<float64_t>(dataBDA + sizeof(float64_t) * i, sizeof(float64_t)); }
+	float64_t getHorizontalAngle(uint32_t i) { return (nbl::hlsl::bda::__ptr<float64_t>::create(hAnglesBDA) + i).deref().load(); }
+	float64_t getVerticalAngle(uint32_t i) { return (nbl::hlsl::bda::__ptr<float64_t>::create(vAnglesBDA) + i).deref().load(); }
+	float64_t getData(uint32_t i) { return (nbl::hlsl::bda::__ptr<float64_t>::create(dataBDA) + i).deref().load(); }
 	#endif // __HLSL_VERSION
 };
 
