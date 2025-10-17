@@ -44,7 +44,7 @@ struct PrintFailureCallback : FailureCallback
             fprintf(stderr, "[ERROR] seed %u: %s quotient -> inf\n", failedFor.rc.state, failedFor.name.c_str());
             break;
         case BET_JACOBIAN:
-            fprintf(stderr, "[ERROR] seed %u: %s failed the jacobian * pdf test\n", failedFor.rc.state, failedFor.name.c_str());
+            fprintf(stderr, "[ERROR] seed %u: %s failed the jacobian * pdf test    %s\n", failedFor.rc.state, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
         case BET_PDF_EVAL_DIFF:
             fprintf(stderr, "[ERROR] seed %u: %s quotient * pdf != eval    %s\n", failedFor.rc.state, failedFor.name.c_str(), failedFor.errMsg.c_str());
@@ -71,7 +71,7 @@ struct PrintFailureCallback : FailureCallback
 };
 
 #define FOR_EACH_BEGIN_EX(r, ex) std::for_each(ex, r.begin(), r.end(), [&](uint32_t i) {
-#define FOR_EACH_BEGIN(r) std::for_each(std::execution::par_unseq, r.begin(), r.end(), [&](uint32_t i) {
+#define FOR_EACH_BEGIN(r) std::for_each(std::execution::seq, r.begin(), r.end(), [&](uint32_t i) {
 #define FOR_EACH_END });
 
 int main(int argc, char** argv)
@@ -279,6 +279,25 @@ int main(int argc, char** argv)
     TestChi2<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     TestChi2<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestChi2<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+    FOR_EACH_END
+
+    // testing ndf jacobian * dg1, ONLY for cook torrance bxdfs
+    runs = testconfigs["TestNDF"]["runs"];
+    auto rNdf = std::ranges::views::iota(0u, runs);
+    FOR_EACH_BEGIN(rNdf)
+        STestInitParams initparams{ .logInfo = logInfo };
+    initparams.state = i;
+    initparams.verbose = testconfigs["TestNDF"]["verbose"];
+
+    TestNDF<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
+    TestNDF<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+    TestNDF<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
+    TestNDF<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+
+    TestNDF<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
+    TestNDF<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+    TestNDF<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
+    TestNDF<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     FOR_EACH_END
 
         // test arccos angle sums

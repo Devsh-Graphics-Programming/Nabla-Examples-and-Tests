@@ -18,5 +18,9 @@
         "thetaSplits": 80,
         "phiSplits": 160,
         "writeFrequencies": false
+    },
+    "TestNDF": {
+        "runs": 10,
+        "verbose": true
     }
 }
