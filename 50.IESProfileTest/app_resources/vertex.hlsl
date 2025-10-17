@@ -2,14 +2,5 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#include "VSInput.hlsl"
-#include "PSInput.hlsl"
-
-[shader("vertex")]
-PSInput VSMain(VSInput input)
-{
-    PSInput output;
-    output.position = float4(input.position, 1.f);
-
-    return output;
-}
+// small trick, temporary, we will have a separate rule for compiling this ext and embed into Nabla DLL
+#include "nbl/builtin/hlsl/ext/FullScreenTriangle/default.vert.hlsl"

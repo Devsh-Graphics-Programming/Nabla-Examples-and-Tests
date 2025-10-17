@@ -23,7 +23,7 @@
 // <- + wipe whatever we already have
 
 // TODO: since NSC prebuilds into SPIRV - maybe could make it a CMake option with a default val
-#define MAX_IES_IMAGES 4u * 6969
+#define MAX_IES_IMAGES 6969
 
 using namespace nbl::hlsl;
 

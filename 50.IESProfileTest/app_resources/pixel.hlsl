@@ -3,7 +3,8 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "common.hlsl"
-#include "PSInput.hlsl"
+#include "nbl/builtin/hlsl/ext/FullScreenTriangle/SVertexAttributes.hlsl"
+using namespace nbl::hlsl::ext::FullScreenTriangle;
 
 [[vk::binding(0, 0)]] Texture2D inIESCandelaImage[MAX_IES_IMAGES];
 [[vk::binding(1, 0)]] Texture2D inSphericalCoordinatesImage[MAX_IES_IMAGES];
@@ -36,15 +37,13 @@ float32_t f(float32_t2 uv)
 }
 
 [shader("pixel")]
-float32_t4 PSMain(PSInput input) : SV_Target0
+float32_t4 PSMain(SVertexAttributes input) : SV_Target0
 {
-    float32_t2 ndc = input.position.xy;
-	float32_t2 uv = (ndc + 1) / 2;
-	
 	switch (pc.mode)
 	{
 		case 0:
 		{
+			float32_t2 ndc = input.uv * 2.f - 1.f;
 			float32_t dist = length(ndc) * 1.015625f;
 			float32_t p = plot(dist, 1.0f, 0.75f);
 			float32_t3 col = float32_t3(p, p, p);
@@ -56,12 +55,12 @@ float32_t4 PSMain(PSInput input) : SV_Target0
 			return float32_t4(col, 1.0f);
 		}
 		case 1:
-			return float32_t4(inIESCandelaImage[pc.texIx].Sample(generalSampler, uv).x, 0.f, 0.f, 1.f);
+			return float32_t4(inIESCandelaImage[pc.texIx].Sample(generalSampler, input.uv).x, 0.f, 0.f, 1.f);
 		case 2:
-			return float32_t4(inSphericalCoordinatesImage[pc.texIx].Sample(generalSampler, uv).xy, 0.f, 1.f);
+			return float32_t4(inSphericalCoordinatesImage[pc.texIx].Sample(generalSampler, input.uv).xy, 0.f, 1.f);
 		case 3:
-			return float32_t4(inOUVProjectionDirectionImage[pc.texIx].Sample(generalSampler, uv).xyz, 1.f);
+			return float32_t4(inOUVProjectionDirectionImage[pc.texIx].Sample(generalSampler, input.uv).xyz, 1.f);
 		default:
-			return float32_t4(inPassTMaskImage[pc.texIx].Sample(generalSampler, uv).xy, 0.f, 1.f);
+			return float32_t4(inPassTMaskImage[pc.texIx].Sample(generalSampler, input.uv).xy, 0.f, 1.f);
 	}
 }
