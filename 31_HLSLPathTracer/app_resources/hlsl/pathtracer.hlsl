@@ -6,6 +6,7 @@
 #include <nbl/builtin/hlsl/math/functions.hlsl>
 #include <nbl/builtin/hlsl/bxdf/bxdf_traits.hlsl>
 #include <nbl/builtin/hlsl/vector_utils/vector_traits.hlsl>
+#include <nbl/builtin/hlsl/concepts.hlsl>
 
 #include "rand_gen.hlsl"
 #include "ray_gen.hlsl"
@@ -41,8 +42,7 @@ struct PathTracerCreationParams
     BxDFCreation dielectricParams;
 };
 
-// TODO: maybe implement a concept to ensure that OutputTypeVec is a vector?
-template<typename OutputTypeVec>
+template<typename OutputTypeVec NBL_PRIMARY_REQUIRES(concepts::FloatingPointVector<OutputTypeVec>)
 struct DefaultAccumulator
 {
     struct DefaultAccumulatorInitializationSettings {};

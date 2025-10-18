@@ -39,7 +39,7 @@
 #include "rwmc_global_settings_common.hlsl"
 
 #ifdef RWMC_ENABLED
-#include "RWMCCascadeAccumulator.hlsl"
+#include <nbl/builtin/hlsl/rwmc/CascadeAccumulator.hlsl>
 #include "render_rwmc_common.hlsl"
 #endif
 
@@ -124,7 +124,7 @@ using material_system_type = ext::MaterialSystem::System<diffuse_bxdf_type, cond
 using nee_type = ext::NextEventEstimator::Estimator<scene_type, ray_type, sample_t, aniso_interaction, ext::IntersectMode::IM_PROCEDURAL, LIGHT_TYPE, POLYGON_METHOD>;
 
 #ifdef RWMC_ENABLED
-using accumulator_type = rwmc::RWMCCascadeAccumulator<float32_t3, CascadeSize>;
+using accumulator_type = rwmc::CascadeAccumulator<float32_t3, CascadeSize>;
 #else
 using accumulator_type = ext::PathTracer::DefaultAccumulator<float32_t3>;
 #endif

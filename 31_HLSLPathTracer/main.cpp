@@ -59,7 +59,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTGLSLShaderPaths = { "app_resources/glsl/litBySphere.comp", "app_resources/glsl/litByTriangle.comp", "app_resources/glsl/litByRectangle.comp" };
 		static inline std::string PTHLSLShaderPath = "app_resources/hlsl/render.comp.hlsl";
 		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTHLSLShaderVariants = { "SPHERE_LIGHT", "TRIANGLE_LIGHT", "RECTANGLE_LIGHT" };
-		static inline std::string ReweightingShaderPath = "app_resources/hlsl/resolve.comp.hlsl";
+		static inline std::string ResolveShaderPath = "app_resources/hlsl/resolve.comp.hlsl";
 		static inline std::string PresentShaderPath = "app_resources/hlsl/present.frag.hlsl";
 
 		const char* shaderNames[E_LIGHT_GEOMETRY::ELG_COUNT] = {
@@ -441,6 +441,19 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					return shader;
 				};
 
+				auto getComputePipelineCreationParams = [](IGPUShader* shader, IGPUPipelineLayout* pipelineLayout) -> IGPUComputePipeline::SCreationParams
+				{
+					IGPUComputePipeline::SCreationParams params = {};
+					params.layout = pipelineLayout;
+					params.shader.shader = shader;
+					params.shader.entryPoint = "main";
+					params.shader.entries = nullptr;
+					params.shader.requireFullSubgroups = true;
+					params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+
+					return params;
+				};
+
 				// Create compute pipelines
 				{
 					for (int index = 0; index < E_LIGHT_GEOMETRY::ELG_COUNT; index++)
@@ -475,80 +488,56 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 						if (!rwmcPtPipelineLayout)
 							return logFail("Failed to create RWMC Pathtracing pipeline layout");
 
-
 						{
 							auto ptShader = loadAndCompileGLSLShader(PTGLSLShaderPaths[index]);
+							auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
 
-							IGPUComputePipeline::SCreationParams params = {};
-							params.layout = ptPipelineLayout.get();
-							params.shader.shader = ptShader.get();
-							params.shader.entryPoint = "main";
-							params.shader.entries = nullptr;
-							 params.shader.requireFullSubgroups = true;
-							 params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
 							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTGLSLPipelines.data() + index))
 								return logFail("Failed to create GLSL compute pipeline!\n");
 						}
 						{
 							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index]);
-
-							IGPUComputePipeline::SCreationParams params = {};
-							params.layout = ptPipelineLayout.get();
-							params.shader.shader = ptShader.get();
-							params.shader.entryPoint = "main";
-							params.shader.entries = nullptr;
-							params.shader.requireFullSubgroups = true;
-							params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+							auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
+							
 							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPipelines.data() + index))
 								return logFail("Failed to create HLSL compute pipeline!\n");
-						}
-
-						// rwmc pipelines
-						{
-							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], false, true);
-
-							IGPUComputePipeline::SCreationParams params = {};
-							params.layout = rwmcPtPipelineLayout.get();
-							params.shader.shader = ptShader.get();
-							params.shader.entryPoint = "main";
-							params.shader.entries = nullptr;
-							params.shader.requireFullSubgroups = true;
-							params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
-							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPipelinesRWMC.data() + index))
-								return logFail("Failed to create HLSL RWMC compute pipeline!\n");
 						}
 
 						// persistent wg pipelines
 						{
 							auto ptShader = loadAndCompileGLSLShader(PTGLSLShaderPaths[index], true);
-
-							IGPUComputePipeline::SCreationParams params = {};
-							params.layout = ptPipelineLayout.get();
-							params.shader.shader = ptShader.get();
-							params.shader.entryPoint = "main";
-							params.shader.entries = nullptr;
-							params.shader.requireFullSubgroups = true;
-							params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+							auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
+							
 							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTGLSLPersistentWGPipelines.data() + index))
 								return logFail("Failed to create GLSL PersistentWG compute pipeline!\n");
 						}
 						{
 							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], true);
-
-							IGPUComputePipeline::SCreationParams params = {};
-							params.layout = ptPipelineLayout.get();
-							params.shader.shader = ptShader.get();
-							params.shader.entryPoint = "main";
-							params.shader.entries = nullptr;
-							params.shader.requireFullSubgroups = true;
-							params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+							auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
+							
 							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPersistentWGPipelines.data() + index))
 								return logFail("Failed to create HLSL PersistentWG compute pipeline!\n");
+						}
+
+						// rwmc pipelines
+						{
+							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], false, true);
+							auto params = getComputePipelineCreationParams(ptShader.get(), rwmcPtPipelineLayout.get());
+
+							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPipelinesRWMC.data() + index))
+								return logFail("Failed to create HLSL RWMC compute pipeline!\n");
+						}
+						{
+							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], true, true);
+							auto params = getComputePipelineCreationParams(ptShader.get(), rwmcPtPipelineLayout.get());
+
+							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTHLSLPersistentWGPipelinesRWMC.data() + index))
+								return logFail("Failed to create HLSL RWMC PersistentWG compute pipeline!\n");
 						}
 					}
 				}
 
-				// Create reweighting pipeline
+				// Create resolve pipelines
 				{
 					const nbl::asset::SPushConstantRange pcRange = {
 							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
@@ -563,23 +552,23 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					);
 
 					if (!pipelineLayout) {
-						return logFail("Failed to create reweighting pipeline layout");
+						return logFail("Failed to create resolve pipeline layout");
 					}
 
 					{
-						auto shader = loadAndCompileHLSLShader(ReweightingShaderPath);
+						auto shader = loadAndCompileHLSLShader(ResolveShaderPath);
+						auto params = getComputePipelineCreationParams(shader.get(), pipelineLayout.get());
 
-						IGPUComputePipeline::SCreationParams params = {};
-						params.layout = pipelineLayout.get();
-						params.shader.shader = shader.get();
-						params.shader.entryPoint = "main";
-						params.shader.entries = nullptr;
-						params.shader.requireFullSubgroups = true;
-						params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
-						if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &m_reweightingPipeline))
-							return logFail("Failed to create HLSL reweighting compute pipeline!\n");
+						if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &m_resolvePipeline))
+							return logFail("Failed to create HLSL resolve compute pipeline!\n");
 					}
+					{
+						auto shader = loadAndCompileHLSLShader(ResolveShaderPath, "", true);
+						auto params = getComputePipelineCreationParams(shader.get(), pipelineLayout.get());
 
+						if (!m_device->createComputePipelines(nullptr, { &params, 1 }, &m_resolvePersistentWGPipeline))
+							return logFail("Failed to create HLSL resolve compute pipeline!\n");
+					}
 					
 				}
 
@@ -1205,7 +1194,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 			}
 			const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
 
-			m_api->startCapture();
+			//m_api->startCapture();
 
 			// CPU events
 			update();
@@ -1315,7 +1304,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 				m_window->setCaption("[Nabla Engine] HLSL Compute Path Tracer");
 				m_surface->present(m_currentImageAcquire.imageIndex, rendered);
 			}
-			m_api->endCapture();
+			//m_api->endCapture();
 		}
 
 		inline bool keepRunning() override
@@ -1467,13 +1456,13 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
 				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
 				cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(RenderPushConstants), &pc);
-				if (usePersistentWorkGroups)
-				{
-					uint32_t dispatchSize = m_physicalDevice->getLimits().computeOptimalPersistentWorkgroupDispatchSize(WindowDimensions.x * WindowDimensions.y, DefaultWorkGroupSize);
-					cmdbuf->dispatch(dispatchSize, 1u, 1u);
-				}
-				else
-					cmdbuf->dispatch(1 + (WindowDimensions.x * WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u, 1u);
+
+				// TODO: shouldn't it be computed only at initialization stage and on window resize?
+				const uint32_t dispatchSize = usePersistentWorkGroups ?
+					m_physicalDevice->getLimits().computeOptimalPersistentWorkgroupDispatchSize(WindowDimensions.x * WindowDimensions.y, DefaultWorkGroupSize) :
+					1 + (WindowDimensions.x * WindowDimensions.y - 1) / DefaultWorkGroupSize;
+				
+				cmdbuf->dispatch(dispatchSize, 1u, 1u);
 			}
 
 			// TRANSITION m_outImgView to READ (because of descriptorSets0 -> ComputeShader Writes into the image)
@@ -1585,8 +1574,13 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = cascadeBarrier });
 			}
 
+			// TODO: shouldn't it be computed only at initialization stage and on window resize?
+			const uint32_t dispatchSize = usePersistentWorkGroups ?
+				m_physicalDevice->getLimits().computeOptimalPersistentWorkgroupDispatchSize(WindowDimensions.x * WindowDimensions.y, DefaultWorkGroupSize) :
+				1 + (WindowDimensions.x * WindowDimensions.y - 1) / DefaultWorkGroupSize;
+
 			{
-				auto pipeline = m_PTHLSLPipelinesRWMC[PTPipeline].get();
+				IGPUComputePipeline* pipeline = usePersistentWorkGroups ? m_PTHLSLPersistentWGPipelinesRWMC[PTPipeline].get() : m_PTHLSLPipelinesRWMC[PTPipeline].get();
 
 				cmdbuf->bindComputePipeline(pipeline);
 				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
@@ -1594,9 +1588,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 2u, 1u, &m_descriptorSet2.get());
 				cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(RenderRWMCPushConstants), &rwmcPushConstants);
 
-				// TODO: persistend work groups
-
-				cmdbuf->dispatch(1 + (WindowDimensions.x * WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u, 1u);
+				cmdbuf->dispatch(dispatchSize, 1u, 1u);
 			}
 
 			// m_cascadeView synchronization - wait for previous compute shader to write into the cascade
@@ -1627,11 +1619,14 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 
 			// reweighting
 			{
-				cmdbuf->bindComputePipeline(m_reweightingPipeline.get());
-				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_reweightingPipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
-				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_reweightingPipeline->getLayout(), 1u, 1u, &m_descriptorSet1.get());
-				cmdbuf->pushConstants(m_reweightingPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(ResolvePushConstants), &resolvePushConstants);
-				cmdbuf->dispatch(1 + (WindowDimensions.x * WindowDimensions.y - 1) / DefaultWorkGroupSize, 1u, 1u);
+				IGPUComputePipeline* pipeline = usePersistentWorkGroups ? m_resolvePersistentWGPipeline.get() : m_resolvePipeline.get();
+
+				cmdbuf->bindComputePipeline(m_resolvePipeline.get());
+				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_resolvePipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
+				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_resolvePipeline->getLayout(), 1u, 1u, &m_descriptorSet1.get());
+				cmdbuf->pushConstants(m_resolvePipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(ResolvePushConstants), &resolvePushConstants);
+
+				cmdbuf->dispatch(dispatchSize, 1u, 1u);
 			}
 
 			// TRANSITION m_outImgView to READ (because of descriptorSets0 -> ComputeShader Writes into the image)
@@ -1673,7 +1668,9 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTGLSLPersistentWGPipelines;
 		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTHLSLPersistentWGPipelines;
 		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTHLSLPipelinesRWMC;
-		smart_refctd_ptr<IGPUComputePipeline> m_reweightingPipeline;
+		std::array<smart_refctd_ptr<IGPUComputePipeline>, E_LIGHT_GEOMETRY::ELG_COUNT> m_PTHLSLPersistentWGPipelinesRWMC;
+		smart_refctd_ptr<IGPUComputePipeline> m_resolvePipeline;
+		smart_refctd_ptr<IGPUComputePipeline> m_resolvePersistentWGPipeline;
 		smart_refctd_ptr<IGPUGraphicsPipeline> m_presentPipeline;
 		uint64_t m_realFrameIx = 0;
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>, MaxFramesInFlight> m_cmdBufs;
