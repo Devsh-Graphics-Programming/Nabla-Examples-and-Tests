@@ -163,25 +163,23 @@ public:
             using stage_flags_t = asset::IShader::E_SHADER_STAGE;
             static constexpr auto TexturesCreateFlags = core::bitflag(binding_flags_t::ECF_UPDATE_AFTER_BIND_BIT) | binding_flags_t::ECF_PARTIALLY_BOUND_BIT | binding_flags_t::ECF_UPDATE_UNUSED_WHILE_PENDING_BIT;
             static constexpr auto SamplersCreateFlags = core::bitflag(binding_flags_t::ECF_UPDATE_AFTER_BIND_BIT);
+            static constexpr auto StageFlags = core::bitflag(stage_flags_t::ESS_FRAGMENT) | stage_flags_t::ESS_COMPUTE;
+
+            //! singe descriptor for both compute & graphics, we will only need to trasition images' layout with a barrier
+            //! TODO: maybe could use subpass dependencies if this becomes part of renderpass, instead of a barrier
+
+            #define BINDING_TEXTURE(IX, TYPE) { .binding = IX, .type = TYPE, .createFlags = TexturesCreateFlags, .stageFlags = StageFlags, .count = MAX_IES_IMAGES, .immutableSamplers = nullptr }
+            #define BINDING_SAMPLER(IX) { .binding = IX, .type = IDescriptor::E_TYPE::ET_SAMPLER, .createFlags = SamplersCreateFlags, .stageFlags = StageFlags, .count = 1u, .immutableSamplers = nullptr }
+            static constexpr auto bindings = std::to_array<IGPUDescriptorSetLayout::SBinding>
+            ({
+                BINDING_TEXTURE(0u, IDescriptor::E_TYPE::ET_SAMPLED_IMAGE), BINDING_TEXTURE(0u + 10u, IDescriptor::E_TYPE::ET_STORAGE_IMAGE), // candela
+                BINDING_TEXTURE(1u, IDescriptor::E_TYPE::ET_SAMPLED_IMAGE), BINDING_TEXTURE(1u + 10u, IDescriptor::E_TYPE::ET_STORAGE_IMAGE), // spherical
+                BINDING_TEXTURE(2u, IDescriptor::E_TYPE::ET_SAMPLED_IMAGE), BINDING_TEXTURE(2u + 10u, IDescriptor::E_TYPE::ET_STORAGE_IMAGE), // direction
+                BINDING_TEXTURE(3u, IDescriptor::E_TYPE::ET_SAMPLED_IMAGE), BINDING_TEXTURE(3u + 10u, IDescriptor::E_TYPE::ET_STORAGE_IMAGE), // mask
+                BINDING_SAMPLER(0u + 100u)
+            });
 
             const uint32_t texturesCount = assets.size();
-            auto computeBindings = std::to_array<IGPUDescriptorSetLayout::SBinding>
-            ({
-                {.binding = 0, .type = IDescriptor::E_TYPE::ET_STORAGE_IMAGE, .createFlags = TexturesCreateFlags, .stageFlags = stage_flags_t::ESS_COMPUTE, .count = MAX_IES_IMAGES, .immutableSamplers = nullptr},
-                {.binding = 1, .type = IDescriptor::E_TYPE::ET_STORAGE_IMAGE, .createFlags = TexturesCreateFlags, .stageFlags = stage_flags_t::ESS_COMPUTE, .count = MAX_IES_IMAGES, .immutableSamplers = nullptr},
-                {.binding = 2, .type = IDescriptor::E_TYPE::ET_STORAGE_IMAGE, .createFlags = TexturesCreateFlags, .stageFlags = stage_flags_t::ESS_COMPUTE, .count = MAX_IES_IMAGES, .immutableSamplers = nullptr},
-                {.binding = 3, .type = IDescriptor::E_TYPE::ET_STORAGE_IMAGE, .createFlags = TexturesCreateFlags, .stageFlags = stage_flags_t::ESS_COMPUTE, .count = MAX_IES_IMAGES, .immutableSamplers = nullptr}
-            });
-
-            auto pixelBindings = std::to_array<IGPUDescriptorSetLayout::SBinding>
-            ({
-                {.binding = 0, .type = IDescriptor::E_TYPE::ET_SAMPLED_IMAGE, .createFlags = TexturesCreateFlags, .stageFlags = stage_flags_t::ESS_FRAGMENT, .count = MAX_IES_IMAGES, .immutableSamplers = nullptr},
-                {.binding = 1, .type = IDescriptor::E_TYPE::ET_SAMPLED_IMAGE, .createFlags = TexturesCreateFlags, .stageFlags = stage_flags_t::ESS_FRAGMENT, .count = MAX_IES_IMAGES, .immutableSamplers = nullptr},
-                {.binding = 2, .type = IDescriptor::E_TYPE::ET_SAMPLED_IMAGE, .createFlags = TexturesCreateFlags, .stageFlags = stage_flags_t::ESS_FRAGMENT, .count = MAX_IES_IMAGES, .immutableSamplers = nullptr},
-                {.binding = 3, .type = IDescriptor::E_TYPE::ET_SAMPLED_IMAGE, .createFlags = TexturesCreateFlags, .stageFlags = stage_flags_t::ESS_FRAGMENT, .count = MAX_IES_IMAGES, .immutableSamplers = nullptr},
-                {.binding = 10, .type = IDescriptor::E_TYPE::ET_SAMPLER, .createFlags = SamplersCreateFlags, .stageFlags = stage_flags_t::ESS_FRAGMENT, .count = 1u, .immutableSamplers = nullptr}
-            });
-
             smart_refctd_ptr<IGPUSampler> generalSampler;
             {
                 IGPUSampler::SParams params;
@@ -205,94 +203,121 @@ public:
                     return false;
                 }
 
-                generalSampler->setObjectDebugName("Default IES sampler");
+                generalSampler->setObjectDebugName("General IES sampler");
             }
 
             auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-            scRes->getRenderpass();
-
-            // Graphics Pipeline
+            scRes->getRenderpass(); // note it also creates rp if nulled
             {
-                auto descriptorSetLayout = m_device->createDescriptorSetLayout(pixelBindings);
+                auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
 
                 if(not descriptorSetLayout)
                     return logFail("Failed to create descriptor set layout!");
 
-                auto range = std::to_array<asset::SPushConstantRange>({ {stage_flags_t::ESS_FRAGMENT, 0u, sizeof(PushConstants)} });
-                auto graphicsPipelineLayout = m_device->createPipelineLayout(range, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
+                auto range = std::to_array<asset::SPushConstantRange>({ {stage_flags_t::ESS_ALL_OR_LIBRARY, 0u, sizeof(PushConstants)} });
+                auto pipelineLayout = m_device->createPipelineLayout(range, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
 
-                if(not graphicsPipelineLayout)
+                if(not pipelineLayout)
                     return logFail("Failed to create pipeline layout!");
 
-                IGPUPipelineBase::SShaderEntryMap specConstants;
-                const auto orientationAsUint32 = static_cast<uint32_t>(hlsl::SurfaceTransform::FLAG_BITS::IDENTITY_BIT);
-                specConstants[0] = std::span{ reinterpret_cast<const uint8_t*>(&orientationAsUint32), sizeof(orientationAsUint32) };
-
-                video::IGPUPipelineBase::SShaderSpecInfo specInfo[] = 
+                // Graphics Pipeline
                 {
-                    { .shader = vertex.get(), .entryPoint = "main", .entries = &specConstants },
-                    { .shader = pixel.get(), .entryPoint = "PSMain" }
-                };
+                    IGPUPipelineBase::SShaderEntryMap specConstants;
+                    const auto orientationAsUint32 = static_cast<uint32_t>(hlsl::SurfaceTransform::FLAG_BITS::IDENTITY_BIT);
+                    specConstants[0] = std::span{ reinterpret_cast<const uint8_t*>(&orientationAsUint32), sizeof(orientationAsUint32) };
 
-                auto params = std::to_array<IGPUGraphicsPipeline::SCreationParams>({ {} });
-                params[0].renderpass = scRes->getRenderpass();
-                params[0].vertexShader = specInfo[0];
-                params[0].fragmentShader = specInfo[1];
-                params[0].layout = graphicsPipelineLayout.get();
-                params[0].cached = 
+                    video::IGPUPipelineBase::SShaderSpecInfo specInfo[] =
+                    {
+                        {.shader = vertex.get(), .entryPoint = "main", .entries = &specConstants },
+                        {.shader = pixel.get(), .entryPoint = "PSMain" }
+                    };
+
+                    auto params = std::to_array<IGPUGraphicsPipeline::SCreationParams>({ {} });
+                    params[0].renderpass = scRes->getRenderpass();
+                    params[0].vertexShader = specInfo[0];
+                    params[0].fragmentShader = specInfo[1];
+                    params[0].layout = pipelineLayout.get();
+                    params[0].cached =
+                    {
+                        .vertexInput = {}, // full screen tri ext, no inputs
+                        .primitiveAssembly = {},
+                        .rasterization = {
+                            .polygonMode = EPM_FILL,
+                            .faceCullingMode = EFCM_NONE,
+                            .depthWriteEnable = false,
+                        },
+                        .blend = {},
+                        .subpassIx = 0u
+                    };
+
+                    if (!m_device->createGraphicsPipelines(nullptr, params, &graphicsPipeline))
+                        return logFail("Failed to create graphics pipeline!");
+                }
+
+                // Compute Pipeline
                 {
-                    .vertexInput = {}, // full screen tri ext, no inputs
-                    .primitiveAssembly = {},
-                    .rasterization = {
-                        .polygonMode = EPM_FILL,
-                        .faceCullingMode = EFCM_NONE,
-                        .depthWriteEnable = false,
-                    },
-                    .blend = {},
-                    .subpassIx = 0u
-                };
-
-                if (!m_device->createGraphicsPipelines(nullptr, params, &graphicsPipeline))
-                    return logFail("Failed to create graphics pipeline!");
+                    auto params = std::to_array<IGPUComputePipeline::SCreationParams>({ {} });;
+                    params[0].layout = pipelineLayout.get();
+                    params[0].shader.shader = compute.get();
+                    params[0].shader.entryPoint = "main";
+                    if (!m_device->createComputePipelines(nullptr, params, &computePipeline))
+                        return logFail("Failed to create compute pipeline!");
+                }
 
                 const auto dscLayoutPtrs = graphicsPipeline->getLayout()->getDescriptorSetLayouts();
                 auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, dscLayoutPtrs);
-                pool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), graphicDS.data());
+                pool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), descriptors.data());
                 {
-                    std::array<std::vector<IGPUDescriptorSet::SDescriptorInfo>, 4u> infos;
+                    std::array<std::vector<IGPUDescriptorSet::SDescriptorInfo>, 4u + 1u> infos;
+                    #define FILL_INFO(DESC, IX) \
+                    { \
+                        auto& info = infos[IX].emplace_back(); \
+                        info.desc = DESC; \
+                        info.info.image.imageLayout = IImage::LAYOUT::GENERAL; \
+                    }
+
                     for (uint32_t i = 0; i < assets.size(); ++i)
                     {
                         auto& ies = assets[i];
-
-                        #define FILL_INFO(DESC, IX) \
-                        { \
-                            auto& info = infos[IX].emplace_back(); \
-                            info.desc = DESC; \
-                            info.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL; \
-                        }
 
                         FILL_INFO(ies.views.candela, 0u)
                         FILL_INFO(ies.views.spherical, 1u)
                         FILL_INFO(ies.views.direction, 2u)
                         FILL_INFO(ies.views.mask, 3u)
                     }
+                    FILL_INFO(generalSampler, 4u);
+                    auto* samplerInfo = infos.back().data();
+                    samplerInfo->info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 
-                    std::array<IGPUDescriptorSet::SWriteDescriptorSet, 4u > writes;
-                    for (uint32_t i = 0; i < infos.size(); ++i)
+                    std::array<IGPUDescriptorSet::SWriteDescriptorSet, 4u * 2u + 1u > writes;
+                    for (uint32_t i = 0; i < 4u; ++i)
                     {
                         auto& write = writes[i];
                         write.count = assets.size();
                         write.info = infos[i].data();
-                        write.dstSet = graphicDS[0u].get();
+                        write.dstSet = descriptors[0u].get();
                         write.arrayElement = 0u;
                         write.binding = i;
                     }
 
+                    for (uint32_t i = 4u; i < 8u; ++i)
+                    {
+                        auto ix = i - 4u;
+                        auto& write = writes[i] = writes[ix];
+                        write.binding = ix + 10u;
+                    }
+
+                    auto& write = writes.back();
+                    write.count = 1u;
+                    write.info = samplerInfo;
+                    write.dstSet = descriptors[0u].get();
+                    write.arrayElement = 0u;
+                    write.binding = 0u + 100u;
+                   
                     if (!m_device->updateDescriptorSets(writes, {}))
                         return logFail("Failed to write descriptor sets");
                 }
             }
-
         }
 
         return true;
@@ -490,11 +515,9 @@ private:
         }
     };
 
-    std::array<smart_refctd_ptr<IGPUDescriptorSet>, IGPUPipelineLayout::DESCRIPTOR_SET_COUNT> graphicDS;
-    std::array<smart_refctd_ptr<IGPUDescriptorSet>, IGPUPipelineLayout::DESCRIPTOR_SET_COUNT> computeDS;
-
     smart_refctd_ptr<IGPUGraphicsPipeline> graphicsPipeline;
     smart_refctd_ptr<IGPUComputePipeline> computePipeline;
+    std::array<smart_refctd_ptr<IGPUDescriptorSet>, IGPUPipelineLayout::DESCRIPTOR_SET_COUNT> descriptors;
 
     bool running = true;
     std::vector<IES> assets;
@@ -570,6 +593,7 @@ private:
         imageParams.flags = IImage::ECF_NONE;
         imageParams.arrayLayers = 1u;
         imageParams.samples = IImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT;
+        imageParams.usage = bitflag(IImage::EUF_SAMPLED_BIT) | IImage::EUF_STORAGE_BIT;
 
         auto image = m_device->createImage(std::move(imageParams));
         image->setObjectDebugName(name.c_str());

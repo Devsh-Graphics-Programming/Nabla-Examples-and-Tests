@@ -4,13 +4,6 @@
 
 #include "common.hlsl"
 
-[[vk::binding(0, 0)]] RWTexture2D<float32_t> outIESCandelaImage[MAX_IES_IMAGES];
-[[vk::binding(1, 0)]] RWTexture2D<float32_t2> outSphericalCoordinatesImage[MAX_IES_IMAGES];
-[[vk::binding(2, 0)]] RWTexture2D<float32_t3> outOUVProjectionDirectionImage[MAX_IES_IMAGES];
-[[vk::binding(3, 0)]] RWTexture2D<float32_t2> outPassTMask[MAX_IES_IMAGES];
-
-[[vk::push_constant]] struct PushConstants pc;
-
 float32_t3 octahedronUVToDir(float64_t2 uv)
 {
 	float32_t3 position = float32_t3((uv * 2.0 - 1.0).xy, 0.0);

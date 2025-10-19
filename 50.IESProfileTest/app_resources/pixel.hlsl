@@ -6,14 +6,6 @@
 #include "nbl/builtin/hlsl/ext/FullScreenTriangle/SVertexAttributes.hlsl"
 using namespace nbl::hlsl::ext::FullScreenTriangle;
 
-[[vk::binding(0, 0)]] Texture2D inIESCandelaImage[MAX_IES_IMAGES];
-[[vk::binding(1, 0)]] Texture2D inSphericalCoordinatesImage[MAX_IES_IMAGES];
-[[vk::binding(2, 0)]] Texture2D inOUVProjectionDirectionImage[MAX_IES_IMAGES];
-[[vk::binding(3, 0)]] Texture2D inPassTMaskImage[MAX_IES_IMAGES];
-[[vk::binding(10, 0)]] SamplerState generalSampler;
-
-[[vk::push_constant]] struct PushConstants pc;
-
 float32_t2 iesDirToUv(float32_t3 dir) 
 {
 	float32_t sum = dot(float32_t3(1.0f, 1.0f, 1.0f), abs(dir));

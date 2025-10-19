@@ -51,4 +51,17 @@ struct PushConstants
 	#endif // __HLSL_VERSION
 };
 
+#ifdef __HLSL_VERSION
+[[vk::binding(0, 0)]] Texture2D inIESCandelaImage[MAX_IES_IMAGES];
+[[vk::binding(1, 0)]] Texture2D inSphericalCoordinatesImage[MAX_IES_IMAGES];
+[[vk::binding(2, 0)]] Texture2D inOUVProjectionDirectionImage[MAX_IES_IMAGES];
+[[vk::binding(3, 0)]] Texture2D inPassTMaskImage[MAX_IES_IMAGES];
+[[vk::binding(0 + 10, 0)]] RWTexture2D<float32_t> outIESCandelaImage[MAX_IES_IMAGES];
+[[vk::binding(1 + 10, 0)]] RWTexture2D<float32_t2> outSphericalCoordinatesImage[MAX_IES_IMAGES];
+[[vk::binding(2 + 10, 0)]] RWTexture2D<float32_t3> outOUVProjectionDirectionImage[MAX_IES_IMAGES];
+[[vk::binding(3 + 10, 0)]] RWTexture2D<float32_t2> outPassTMask[MAX_IES_IMAGES];
+[[vk::binding(0 + 100, 0)]] SamplerState generalSampler;
+[[vk::push_constant]] struct PushConstants pc;
+#endif // __HLSL_VERSION
+
 #endif // _THIS_EXAMPLE_COMMON_HLSL_INCLUDED_
