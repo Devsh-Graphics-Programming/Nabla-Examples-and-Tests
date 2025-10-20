@@ -367,11 +367,14 @@ public:
             }
         }
 
-        auto* descriptor = descriptors[0].get();
+        auto* const descriptor = descriptors[0].get();
+        auto* const image = ies.getActiveImage();
 
         // Compute
         {
             cb->beginDebugMarker("IES::compute");
+            ies.barrier<IImage::LAYOUT::GENERAL>(cb, image);
+
             auto* layout = computePipeline->getLayout();
             cb->bindComputePipeline(computePipeline.get());
             cb->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_COMPUTE, layout, 0, 1, &descriptor);
@@ -387,6 +390,7 @@ public:
         // Graphics
         {
             cb->beginDebugMarker("IES::render");
+            ies.barrier<IImage::LAYOUT::READ_ONLY_OPTIMAL>(cb, image);
 
             asset::SViewport viewport;
             {
@@ -542,8 +546,8 @@ private:
         asset::SAssetBundle bundle;
         std::string key;
 
-        float zDegree;
-        E_MODE mode;
+        float zDegree = 0.f;
+        E_MODE mode = EM_CDC;
 
         inline const asset::CIESProfile* getProfile() const
         { 
@@ -552,6 +556,80 @@ private:
                 return &meta->selfCast<const asset::CIESProfileMetadata>()->profile;
 
             return nullptr;
+        }
+
+        inline video::IGPUImage* getActiveImage() const
+        {
+            switch (mode)
+            {
+                case EM_IES_C:
+                    return views.candela->getCreationParameters().image.get();
+                case EM_SPERICAL_C:
+                    return views.spherical->getCreationParameters().image.get();
+                case EM_DIRECTION:
+                    return views.direction->getCreationParameters().image.get();
+                case EM_PASS_T_MASK:
+                    return views.mask->getCreationParameters().image.get();
+
+                case EM_CDC:
+                default:
+                    return nullptr;
+            }
+        }
+
+        template<IImage::LAYOUT newLayout, bool undefined = false>
+        requires(newLayout == IImage::LAYOUT::GENERAL or newLayout == IImage::LAYOUT::READ_ONLY_OPTIMAL)
+        static inline bool barrier(IGPUCommandBuffer* const cb, video::IGPUImage* image)
+        {
+            if (not image)
+                return false;
+
+            if (not cb)
+                return false;
+
+            using image_memory_barrier_t = IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>;
+            const auto& params = image->getCreationParameters();
+            const IGPUImage::SSubresourceRange range = 
+            {
+                .aspectMask = IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+                .baseMipLevel = 0u,
+                .levelCount = params.mipLevels,
+                .baseArrayLayer = 0u,
+                .layerCount = params.arrayLayers
+            };
+
+            image_memory_barrier_t imageBarrier = 
+            {
+                .barrier = {.dep = {}},
+                .image = image,
+                .subresourceRange = range,
+                .oldLayout = IImage::LAYOUT::UNDEFINED,
+                .newLayout = newLayout
+            };
+
+            if constexpr (newLayout == IImage::LAYOUT::GENERAL)
+            {
+                // READ_ONLY_OPTIMAL -> GENERAL, RW
+                imageBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
+                imageBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT;
+                imageBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+                imageBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::STORAGE_WRITE_BIT;
+                imageBarrier.oldLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+            }
+            else if (newLayout == IImage::LAYOUT::READ_ONLY_OPTIMAL)
+            {
+                // GENERAL -> READ_ONLY_OPTIMAL, RO
+                imageBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+                imageBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::STORAGE_WRITE_BIT;
+                imageBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
+                imageBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT;
+                imageBarrier.oldLayout = IImage::LAYOUT::GENERAL;
+            }
+
+            if constexpr (undefined)
+                imageBarrier.oldLayout = IImage::LAYOUT::UNDEFINED; // transition for init
+
+            return cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {}, .bufBarriers = {}, .imgBarriers = { &imageBarrier, 1 } });
         }
     };
 
