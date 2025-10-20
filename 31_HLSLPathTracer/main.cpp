@@ -1621,10 +1621,10 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 			{
 				IGPUComputePipeline* pipeline = usePersistentWorkGroups ? m_resolvePersistentWGPipeline.get() : m_resolvePipeline.get();
 
-				cmdbuf->bindComputePipeline(m_resolvePipeline.get());
-				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_resolvePipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
-				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, m_resolvePipeline->getLayout(), 1u, 1u, &m_descriptorSet1.get());
-				cmdbuf->pushConstants(m_resolvePipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(ResolvePushConstants), &resolvePushConstants);
+				cmdbuf->bindComputePipeline(pipeline);
+				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
+				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 1u, 1u, &m_descriptorSet1.get());
+				cmdbuf->pushConstants(pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(ResolvePushConstants), &resolvePushConstants);
 
 				cmdbuf->dispatch(dispatchSize, 1u, 1u);
 			}

@@ -29,7 +29,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 #ifdef PERSISTENT_WORKGROUPS
     uint32_t virtualThreadIndex;
     [loop]
-    for (uint32_t virtualThreadBase = glsl::gl_WorkGroupID().x * WorkgroupSize; virtualThreadBase < 1920 * 1080; virtualThreadBase += glsl::gl_NumWorkGroups().x * WorkgroupSize) // not sure why 1280*720 doesn't cover draw surface
+    for (uint32_t virtualThreadBase = glsl::gl_WorkGroupID().x * WorkgroupSize; virtualThreadBase < 1920 * 1080; virtualThreadBase += glsl::gl_NumWorkGroups().x * WorkgroupSize)
     {
         virtualThreadIndex = virtualThreadBase + glsl::gl_LocalInvocationIndex().x;
         const int32_t2 coords = (int32_t2)math::Morton<uint32_t>::decode2d(virtualThreadIndex);
