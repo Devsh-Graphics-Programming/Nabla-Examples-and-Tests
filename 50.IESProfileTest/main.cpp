@@ -326,14 +326,87 @@ public:
         if (!m_semaphore)
             return logFail("Failed to Create a Semaphore!");
 
-        auto pool = m_device->createCommandPool(getGraphicsQueue()->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-        for (auto i = 0u; i < m_cmdBufs.size(); i++)
+        using pool_flags_t = IGPUCommandPool::CREATE_FLAGS;
+
+        auto createCommandBuffers = [&](auto* queue, const std::span<core::smart_refctd_ptr<IGPUCommandBuffer>> out, pool_flags_t flags) -> bool
         {
+            auto pool = m_device->createCommandPool(queue->getFamilyIndex(), flags);
             if (!pool)
                 return logFail("Couldn't create command pool!");
-            if (!pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data() + i,1 }))
+            if (!pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, out))
                 return logFail("Couldn't create command buffer!");
+            return true;
+        };
+
+        // render loop command buffers
+        if (not createCommandBuffers(getGraphicsQueue(), m_cmdBufs, pool_flags_t::RESET_COMMAND_BUFFER_BIT))
+            return false;
+
+        // transient command buffer
+        {
+            auto* queue = getGraphicsQueue();
+            auto cbs = std::to_array({ smart_refctd_ptr<nbl::video::IGPUCommandBuffer>() });
+            if (not createCommandBuffers(queue, cbs, pool_flags_t::RESET_COMMAND_BUFFER_BIT | pool_flags_t::TRANSIENT_BIT))
+                return false;
+
+            std::vector<IGPUImage*> images;
+            for (uint32_t i = 0; i < assets.size(); ++i)
+            {
+                auto& ies = assets[i];
+
+                images.emplace_back() = ies.views.candela->getCreationParameters().image.get();
+                images.emplace_back() = ies.views.spherical->getCreationParameters().image.get();
+                images.emplace_back() = ies.views.direction->getCreationParameters().image.get();
+                images.emplace_back() = ies.views.mask->getCreationParameters().image.get();
+            }
+
+            auto* cb = cbs.front().get();
+            cb->setObjectDebugName("Transient Command Buffer");
+
+            if(not cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT))
+                return logFail("Couldn't begin command buffer!");
+
+            if(not IES::barrier<IImage::LAYOUT::READ_ONLY_OPTIMAL, true>(cb, images))
+                return logFail("Failed to record pipeline barriers!");
+
+            if(not cb->end())
+                return logFail("Couldn't end command buffer!");
+
+            core::smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
+            semaphore->setObjectDebugName("Scratch Semaphore");
+            {
+                IQueue::SSubmitInfo::SSemaphoreInfo signal =
+                {
+                    .semaphore = semaphore.get(),
+                    .value = 1u,
+                    .stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+                };
+
+                const IQueue::SSubmitInfo::SCommandBufferInfo cmds[] = { {.cmdbuf = cb } };
+
+                const IQueue::SSubmitInfo infos[] =
+                { {
+                    .waitSemaphores = {},
+                    .commandBuffers = cmds,
+                    .signalSemaphores = {&signal,1}
+                } };
+
+                if (queue->submit(infos) != IQueue::RESULT::SUCCESS)
+                    return logFail("Failed to submit queue!");
+            }
+
+            {
+                const ISemaphore::SWaitInfo infos[] =
+                { {
+                    .semaphore = semaphore.get(),
+                    .value = 1u
+                } };
+
+                if (m_device->blockForSemaphores(infos) != ISemaphore::WAIT_RESULT::SUCCESS)
+                    return logFail("Couldn't block for scratch semaphore!");
+            }
         }
+
         onAppInitializedFinish();
 
         return true;
@@ -368,12 +441,12 @@ public:
         }
 
         auto* const descriptor = descriptors[0].get();
-        auto* const image = ies.getActiveImage();
+        auto* image = ies.getActiveImage();
 
         // Compute
         {
             cb->beginDebugMarker("IES::compute");
-            ies.barrier<IImage::LAYOUT::GENERAL>(cb, image);
+            IES::barrier<IImage::LAYOUT::GENERAL>(cb, image);
 
             auto* layout = computePipeline->getLayout();
             cb->bindComputePipeline(computePipeline.get());
@@ -390,7 +463,7 @@ public:
         // Graphics
         {
             cb->beginDebugMarker("IES::render");
-            ies.barrier<IImage::LAYOUT::READ_ONLY_OPTIMAL>(cb, image);
+            IES::barrier<IImage::LAYOUT::READ_ONLY_OPTIMAL>(cb, image);
 
             asset::SViewport viewport;
             {
@@ -579,57 +652,72 @@ private:
 
         template<IImage::LAYOUT newLayout, bool undefined = false>
         requires(newLayout == IImage::LAYOUT::GENERAL or newLayout == IImage::LAYOUT::READ_ONLY_OPTIMAL)
-        static inline bool barrier(IGPUCommandBuffer* const cb, video::IGPUImage* image)
+        static inline bool barrier(IGPUCommandBuffer* const cb, const std::span<video::IGPUImage*> images)
         {
-            if (not image)
+            if (images.empty())
                 return false;
 
             if (not cb)
                 return false;
 
             using image_memory_barrier_t = IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>;
-            const auto& params = image->getCreationParameters();
             const IGPUImage::SSubresourceRange range = 
             {
                 .aspectMask = IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
                 .baseMipLevel = 0u,
-                .levelCount = params.mipLevels,
+                .levelCount = 1u,
                 .baseArrayLayer = 0u,
-                .layerCount = params.arrayLayers
+                .layerCount = 1u
             };
 
-            image_memory_barrier_t imageBarrier = 
-            {
-                .barrier = {.dep = {}},
-                .image = image,
-                .subresourceRange = range,
-                .oldLayout = IImage::LAYOUT::UNDEFINED,
-                .newLayout = newLayout
-            };
+            std::vector<image_memory_barrier_t> imageBarriers(images.size());
 
-            if constexpr (newLayout == IImage::LAYOUT::GENERAL)
+            for (uint32_t i = 0; i < imageBarriers.size(); ++i)
             {
-                // READ_ONLY_OPTIMAL -> GENERAL, RW
-                imageBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
-                imageBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT;
-                imageBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-                imageBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::STORAGE_WRITE_BIT;
-                imageBarrier.oldLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+                auto &it = imageBarriers[i] =
+                {
+                    .barrier = {.dep = {}},
+                    .image = images[i],
+                    .subresourceRange = range,
+                    .oldLayout = IImage::LAYOUT::UNDEFINED,
+                    .newLayout = newLayout
+                };
+
+                if constexpr (newLayout == IImage::LAYOUT::GENERAL)
+                {
+                    // READ_ONLY_OPTIMAL -> GENERAL, RW
+                    it.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
+                    it.barrier.dep.srcAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT;
+                    it.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+                    it.barrier.dep.dstAccessMask = ACCESS_FLAGS::STORAGE_WRITE_BIT;
+                    it.oldLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+                }
+                else if (newLayout == IImage::LAYOUT::READ_ONLY_OPTIMAL)
+                {
+                    // GENERAL -> READ_ONLY_OPTIMAL, RO
+                    it.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+                    it.barrier.dep.srcAccessMask = ACCESS_FLAGS::STORAGE_WRITE_BIT;
+                    it.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
+                    it.barrier.dep.dstAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT;
+                    it.oldLayout = IImage::LAYOUT::GENERAL;
+                }
+
+                if constexpr (undefined)
+                    it.oldLayout = IImage::LAYOUT::UNDEFINED; // transition for init
             }
-            else if (newLayout == IImage::LAYOUT::READ_ONLY_OPTIMAL)
-            {
-                // GENERAL -> READ_ONLY_OPTIMAL, RO
-                imageBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-                imageBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::STORAGE_WRITE_BIT;
-                imageBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
-                imageBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT;
-                imageBarrier.oldLayout = IImage::LAYOUT::GENERAL;
-            }
 
-            if constexpr (undefined)
-                imageBarrier.oldLayout = IImage::LAYOUT::UNDEFINED; // transition for init
+            return cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {}, .bufBarriers = {}, .imgBarriers = imageBarriers });
+        }
 
-            return cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {}, .bufBarriers = {}, .imgBarriers = { &imageBarrier, 1 } });
+        template<IImage::LAYOUT newLayout, bool undefined = false>
+        requires(newLayout == IImage::LAYOUT::GENERAL or newLayout == IImage::LAYOUT::READ_ONLY_OPTIMAL)
+        static inline bool barrier(IGPUCommandBuffer* const cb, video::IGPUImage* image)
+        {
+            if (not image)
+                return false;
+
+            auto in = std::to_array({ image });
+            return barrier<newLayout, undefined>(cb, in);
         }
     };
 
