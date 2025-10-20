@@ -4,6 +4,7 @@
 
 #include "nbl/examples/examples.hpp"
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
+#include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "app_resources/common.hlsl"
 #include "AppInputParser.hpp"
 
@@ -214,11 +215,22 @@ public:
                 if(not descriptorSetLayout)
                     return logFail("Failed to create descriptor set layout!");
 
-                auto range = std::to_array<asset::SPushConstantRange>({ {stage_flags_t::ESS_ALL_OR_LIBRARY, 0u, sizeof(PushConstants)} });
+                auto range = std::to_array<asset::SPushConstantRange>({ {StageFlags.value, 0u, sizeof(PushConstants)} });
                 auto pipelineLayout = m_device->createPipelineLayout(range, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
 
                 if(not pipelineLayout)
                     return logFail("Failed to create pipeline layout!");
+
+                // Compute Pipeline
+                {
+                    auto params = std::to_array<IGPUComputePipeline::SCreationParams>({ {} });;
+                    params[0].layout = pipelineLayout.get();
+                    params[0].shader.shader = compute.get();
+                    params[0].shader.entryPoint = "main";
+
+                    if (!m_device->createComputePipelines(nullptr, params, &computePipeline))
+                        return logFail("Failed to create compute pipeline!");
+                }
 
                 // Graphics Pipeline
                 {
@@ -252,16 +264,6 @@ public:
 
                     if (!m_device->createGraphicsPipelines(nullptr, params, &graphicsPipeline))
                         return logFail("Failed to create graphics pipeline!");
-                }
-
-                // Compute Pipeline
-                {
-                    auto params = std::to_array<IGPUComputePipeline::SCreationParams>({ {} });;
-                    params[0].layout = pipelineLayout.get();
-                    params[0].shader.shader = compute.get();
-                    params[0].shader.entryPoint = "main";
-                    if (!m_device->createComputePipelines(nullptr, params, &computePipeline))
-                        return logFail("Failed to create compute pipeline!");
                 }
 
                 const auto dscLayoutPtrs = graphicsPipeline->getLayout()->getDescriptorSetLayouts();
@@ -313,27 +315,39 @@ public:
                     write.dstSet = descriptors[0u].get();
                     write.arrayElement = 0u;
                     write.binding = 0u + 100u;
-                   
+
                     if (!m_device->updateDescriptorSets(writes, {}))
                         return logFail("Failed to write descriptor sets");
                 }
             }
         }
 
+        m_semaphore = m_device->createSemaphore(m_realFrameIx);
+        if (!m_semaphore)
+            return logFail("Failed to Create a Semaphore!");
+
+        auto pool = m_device->createCommandPool(getGraphicsQueue()->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+        for (auto i = 0u; i < m_cmdBufs.size(); i++)
+        {
+            if (!pool)
+                return logFail("Couldn't create command pool!");
+            if (!pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data() + i,1 }))
+                return logFail("Couldn't create command buffer!");
+        }
+        onAppInitializedFinish();
+
         return true;
     }
 
     inline IQueue::SSubmitInfo::SSemaphoreInfo renderFrame(const std::chrono::microseconds nextPresentationTimestamp) override
     {
-        m_inputSystem->getDefaultMouse(&mouse);
-        m_inputSystem->getDefaultKeyboard(&keyboard);
-
         const auto resourceIx = m_realFrameIx % device_base_t::MaxFramesInFlight;
-
         auto* const cb = m_cmdBufs.data()[resourceIx].get();
         cb->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
         cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-        cb->beginDebugMarker("IESViewer Frame");
+
+        m_inputSystem->getDefaultMouse(&mouse);
+        m_inputSystem->getDefaultKeyboard(&keyboard);
         {
             mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { mouseProcess(events); }, m_logger.get());
             keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { keyboardProcess(events); }, m_logger.get());
@@ -353,25 +367,45 @@ public:
             }
         }
 
-        asset::SViewport viewport;
+        auto* descriptor = descriptors[0].get();
+
+        // Compute
         {
-            viewport.minDepth = 1.f;
-            viewport.maxDepth = 0.f;
-            viewport.x = 0u;
-            viewport.y = 0u;
-            viewport.width = m_window->getWidth();
-            viewport.height = m_window->getHeight();
+            cb->beginDebugMarker("IES::compute");
+            auto* layout = computePipeline->getLayout();
+            cb->bindComputePipeline(computePipeline.get());
+            cb->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_COMPUTE, layout, 0, 1, &descriptor);
+            cb->pushConstants(layout, layout->getPushConstantRanges().begin()->stageFlags, 0, sizeof(pc), &pc);
+            const auto xGroups = (ies.getProfile()->getOptimalIESResolution().x - 1u) / WORKGROUP_DIMENSION + 1u;
+            cb->dispatch(xGroups, xGroups, 1);
+
+            // TODO: barier
+
+            cb->endDebugMarker();
         }
-        cb->setViewport(0u, 1u, &viewport);
 
-        VkRect2D scissor =
+        // Graphics
         {
-            .offset = { 0, 0 },
-            .extent = { m_window->getWidth(), m_window->getHeight() },
-        };
-        cb->setScissor(0u, 1u, &scissor);
+            cb->beginDebugMarker("IES::render");
 
-        {
+            asset::SViewport viewport;
+            {
+                viewport.minDepth = 1.f;
+                viewport.maxDepth = 0.f;
+                viewport.x = 0u;
+                viewport.y = 0u;
+                viewport.width = m_window->getWidth();
+                viewport.height = m_window->getHeight();
+            }
+            cb->setViewport(0u, 1u, &viewport);
+
+            VkRect2D scissor =
+            {
+                .offset = { 0, 0 },
+                .extent = { m_window->getWidth(), m_window->getHeight() },
+            };
+            cb->setScissor(0u, 1u, &scissor);
+
             const VkRect2D currentRenderArea =
             {
                 .offset = {0,0},
@@ -390,11 +424,17 @@ public:
             };
 
             cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+            {
+                auto* layout = graphicsPipeline->getLayout();
+                cb->bindGraphicsPipeline(graphicsPipeline.get());
+                cb->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_GRAPHICS, layout, 0, 1, &descriptor);
+                cb->pushConstants(layout, layout->getPushConstantRanges().begin()->stageFlags, 0, sizeof(pc), &pc);
+                ext::FullScreenTriangle::recordDrawCall(cb);
+            }
+            cb->endRenderPass();
+            cb->endDebugMarker();
+            cb->end();
         }
-
-        cb->endRenderPass();
-        cb->endDebugMarker();
-        cb->end();
 
         IQueue::SSubmitInfo::SSemaphoreInfo retval =
         {
