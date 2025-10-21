@@ -1,10 +1,16 @@
+if(NBL_BUILD_IMGUI)
 set(SRCs
-	AppInputParser.cpp
-	AppInputParser.hpp
+	AppInputParser.cpp AppInputParser.hpp
 	inputs.json
 )
 
-nbl_create_executable_project("${SRCs}" "" "" "" "")
+set(LIBs 
+	imtestengine
+	imguizmo
+	"${NBL_EXT_IMGUI_UI_LIB}"
+)
+	
+nbl_create_executable_project("${SRCs}" "" "" "${LIBs}")
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE nlohmann_json::nlohmann_json)
 
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
@@ -65,3 +71,4 @@ NBL_CREATE_RESOURCE_ARCHIVE(
 	BIND ${OUTPUT_DIRECTORY}
 	BUILTINS ${KEYS}
 )
+endif()

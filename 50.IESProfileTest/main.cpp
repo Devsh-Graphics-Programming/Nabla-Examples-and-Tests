@@ -5,6 +5,9 @@
 #include "nbl/examples/examples.hpp"
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+#include "nbl/ui/ICursorControl.h"
+#include "nbl/ext/ImGui/ImGui.h"
+#include "imgui/imgui_internal.h"
 #include "app_resources/common.hlsl"
 #include "AppInputParser.hpp"
 
@@ -18,13 +21,6 @@ using namespace video;
 using namespace scene;
 using namespace nbl::examples;
 
-#define BENCHMARK_TILL_FIRST_FRAME
-
-#ifdef BENCHMARK_TILL_FIRST_FRAME
-const std::chrono::steady_clock::time_point startBenchmark = std::chrono::high_resolution_clock::now();
-bool stopBenchamrkFlag = false;
-#endif
-
 constexpr static std::string_view InputsJson = "../inputs.json";
 constexpr static std::string_view MediaEntry = "../../media";
 
@@ -36,7 +32,7 @@ class IESViewer final : public MonoWindowApplication, public BuiltinResourcesApp
 public:
     IESViewer(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
         : IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD),
-        device_base_t({ 1280,720 }, EF_D16_UNORM, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {
+        device_base_t({ 640,640 }, EF_UNKNOWN, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {
     }
 
     inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
@@ -271,7 +267,7 @@ public:
                 pool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), descriptors.data());
                 {
                     std::array<std::vector<IGPUDescriptorSet::SDescriptorInfo>, 4u + 1u> infos;
-                    #define FILL_INFO(DESC, IX) \
+#define FILL_INFO(DESC, IX) \
                     { \
                         auto& info = infos[IX].emplace_back(); \
                         info.desc = DESC; \
@@ -283,9 +279,9 @@ public:
                         auto& ies = assets[i];
 
                         FILL_INFO(ies.views.candela, 0u)
-                        FILL_INFO(ies.views.spherical, 1u)
-                        FILL_INFO(ies.views.direction, 2u)
-                        FILL_INFO(ies.views.mask, 3u)
+                            FILL_INFO(ies.views.spherical, 1u)
+                            FILL_INFO(ies.views.direction, 2u)
+                            FILL_INFO(ies.views.mask, 3u)
                     }
                     FILL_INFO(generalSampler, 4u);
                     auto* samplerInfo = infos.back().data();
@@ -320,6 +316,61 @@ public:
                         return logFail("Failed to write descriptor sets");
                 }
             }
+        }
+
+        // imGUI
+        {
+            auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+            ext::imgui::UI::SCreationParameters params = {};
+            params.resources.texturesInfo = { .setIx = 0u,.bindingIx = 0u };
+            params.resources.samplersInfo = { .setIx = 0u,.bindingIx = 1u };
+            params.utilities = m_utils;
+            params.transfer = getTransferUpQueue();
+            params.pipelineLayout = ext::imgui::UI::createDefaultPipelineLayout(m_utils->getLogicalDevice(), params.resources.texturesInfo, params.resources.samplersInfo, 2u + MaxFramesInFlight);
+            params.assetManager = make_smart_refctd_ptr<IAssetManager>(smart_refctd_ptr(m_system));
+            params.renderpass = smart_refctd_ptr<IGPURenderpass>(scRes->getRenderpass());
+            params.subpassIx = 0u;
+            params.pipelineCache = nullptr;
+
+            auto* imgui = (ui.it = ext::imgui::UI::create(std::move(params))).get();
+            if (not imgui)
+                return logFail("Failed to create `nbl::ext::imgui::UI` class");
+
+            {
+                const auto* layout = imgui->getPipeline()->getLayout()->getDescriptorSetLayout(0u);
+                auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT, { &layout,1 });
+                auto ds = pool->createDescriptorSet(smart_refctd_ptr<const IGPUDescriptorSetLayout>(layout));
+                ui.descriptor = make_smart_refctd_ptr<SubAllocatedDescriptorSet>(std::move(ds));
+                if (!ui.descriptor)
+                    return logFail("Failed to create the descriptor set");
+                {
+                    auto dummy = SubAllocatedDescriptorSet::invalid_value;
+                    ui.descriptor->multi_allocate(0, 1, &dummy);
+                    assert(dummy == ext::imgui::UI::FontAtlasTexId);
+                }
+                IGPUDescriptorSet::SDescriptorInfo info = {};
+                info.desc = smart_refctd_ptr<nbl::video::IGPUImageView>(imgui->getFontAtlasView());
+                info.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+                const IGPUDescriptorSet::SWriteDescriptorSet write = {
+                    .dstSet = ui.descriptor->getDescriptorSet(),
+                    .binding = 0u,
+                    .arrayElement = ext::imgui::UI::FontAtlasTexId,
+                    .count = 1,
+                    .info = &info
+                };
+                if (!m_device->updateDescriptorSets({ &write,1 }, {}))
+                    return logFail("Failed to write the descriptor set");
+            }
+
+            imgui->registerListener([this]() 
+            {
+                ImGui::SetNextWindowSize(ImVec2(200.0f, 200.0f), ImGuiCond_FirstUseEver);
+                if (ImGui::Begin("test", nullptr, ImGuiWindowFlags_None))
+                {
+                    ImGui::TextUnformatted("test text");
+                }
+                ImGui::End();
+            });
         }
 
         m_semaphore = m_device->createSemaphore(m_realFrameIx);
@@ -422,8 +473,24 @@ public:
         m_inputSystem->getDefaultMouse(&mouse);
         m_inputSystem->getDefaultKeyboard(&keyboard);
         {
-            mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { mouseProcess(events); }, m_logger.get());
-            keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { keyboardProcess(events); }, m_logger.get());
+            struct
+            {
+                std::vector<SMouseEvent> mouse {}; std::vector<SKeyboardEvent> keyboard {};
+            } captured;
+
+            mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { for (const auto& e : events) captured.mouse.emplace_back(e); }, m_logger.get());
+            keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { for (const auto& e : events) captured.keyboard.emplace_back(e); }, m_logger.get());
+
+            const auto cursorPosition = m_window->getCursorControl()->getPosition();
+            ext::imgui::UI::SUpdateParameters params =
+            {
+                .mousePosition = float32_t2(cursorPosition.x,cursorPosition.y) - float32_t2(m_window->getX(),m_window->getY()),
+                .displaySize = {m_window->getWidth(),m_window->getHeight()},
+                .mouseEvents = captured.mouse,
+                .keyboardEvents = captured.keyboard
+            };
+
+            ui.it->update(params);
         }
 
         auto& ies = assets[activeAssetIx];
@@ -447,16 +514,12 @@ public:
         {
             cb->beginDebugMarker("IES::compute");
             IES::barrier<IImage::LAYOUT::GENERAL>(cb, image);
-
             auto* layout = computePipeline->getLayout();
             cb->bindComputePipeline(computePipeline.get());
             cb->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_COMPUTE, layout, 0, 1, &descriptor);
             cb->pushConstants(layout, layout->getPushConstantRanges().begin()->stageFlags, 0, sizeof(pc), &pc);
             const auto xGroups = (ies.getProfile()->getOptimalIESResolution().x - 1u) / WORKGROUP_DIMENSION + 1u;
             cb->dispatch(xGroups, xGroups, 1);
-
-            // TODO: barier
-
             cb->endDebugMarker();
         }
 
@@ -504,9 +567,22 @@ public:
             {
                 auto* layout = graphicsPipeline->getLayout();
                 cb->bindGraphicsPipeline(graphicsPipeline.get());
-                cb->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_GRAPHICS, layout, 0, 1, &descriptor);
+                cb->bindDescriptorSets(EPBP_GRAPHICS, layout, 0, 1, &descriptor);
                 cb->pushConstants(layout, layout->getPushConstantRanges().begin()->stageFlags, 0, sizeof(pc), &pc);
                 ext::FullScreenTriangle::recordDrawCall(cb);
+                {
+                    auto* imgui = ui.it.get();
+                    auto* pipeline = imgui->getPipeline();
+                    cb->bindGraphicsPipeline(pipeline);
+                    const auto* ds = ui.descriptor->getDescriptorSet();
+                    cb->bindDescriptorSets(EPBP_GRAPHICS, pipeline->getLayout(), imgui->getCreationParameters().resources.texturesInfo.setIx, 1u, &ds);
+                    const ISemaphore::SWaitInfo wait = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
+                    if (!imgui->render(cb, wait))
+                    {
+                        m_logger->log("TODO: need to present acquired image before bailing because its already acquired.", ILogger::ELL_ERROR);
+                        return {};
+                    }
+                }
             }
             cb->endRenderPass();
             cb->endDebugMarker();
@@ -735,6 +811,11 @@ private:
     InputSystem::ChannelReader<IMouseEventChannel> mouse;
     InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
+    struct {
+        smart_refctd_ptr<ext::imgui::UI> it;
+        smart_refctd_ptr<SubAllocatedDescriptorSet> descriptor;
+    } ui;
+
     // TODO: lets have this stuff in nice imgui
     void mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
     {
@@ -747,7 +828,7 @@ private:
                 auto& ies = assets[activeAssetIx];
                 auto* profile = ies.getProfile();
 
-                auto impulse = ev.scrollEvent.verticalScroll;
+                auto impulse = ev.scrollEvent.verticalScroll * 0.01f;
                 ies.zDegree = std::clamp<float>(ies.zDegree + impulse, profile->getHoriAngles().front(), profile->getHoriAngles().back());
             }
         }
@@ -761,13 +842,12 @@ private:
 
             if (ev.action == nbl::ui::SKeyboardEvent::ECA_RELEASED)
             {
-                auto& ies = assets[activeAssetIx];
-                auto* profile = ies.getProfile();
-
                 if (ev.keyCode == nbl::ui::EKC_UP_ARROW)
-                    activeAssetIx = std::clamp<size_t>(activeAssetIx + 1, 0, assets.size());
+                    activeAssetIx = std::clamp<size_t>(activeAssetIx + 1, 0, assets.size() - 1u);
                 else if(ev.keyCode == nbl::ui::EKC_DOWN_ARROW)
-                    activeAssetIx = std::clamp<size_t>(activeAssetIx - 1, 0, assets.size());
+                    activeAssetIx = std::clamp<size_t>(activeAssetIx - 1, 0, assets.size() - 1u);
+
+                auto& ies = assets[activeAssetIx];
 
                 if (ev.keyCode == nbl::ui::EKC_C)
                     ies.mode = EM_CDC;
