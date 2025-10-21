@@ -19,6 +19,9 @@ set(DEPENDS
 	app_resources/compute.hlsl
 	app_resources/pixel.hlsl
 	app_resources/vertex.hlsl
+	app_resources/imgui.vertex.hlsl
+	app_resources/imgui.pixel.hlsl
+	app_resources/imgui.opts.hlsl
 )
 target_sources(${EXECUTABLE_NAME} PRIVATE ${DEPENDS})
 set_source_files_properties(${DEPENDS} PROPERTIES HEADER_FILE_ONLY ON)
@@ -46,6 +49,20 @@ set(JSON [=[
 		"COMPILE_OPTIONS": ["-T", "lib_${SM}"],
 		"DEPENDS": [],
 		"CAPS": []
+	},
+	{
+		"INPUT": "app_resources/imgui.vertex.hlsl",
+		"KEY": "imgui.vertex",
+		"COMPILE_OPTIONS": ["-T", "lib_${SM}"],
+		"DEPENDS": [],
+		"CAPS": []
+	},
+	{
+		"INPUT": "app_resources/imgui.pixel.hlsl",
+		"KEY": "imgui.pixel",
+		"COMPILE_OPTIONS": ["-T", "lib_${SM}"],
+		"DEPENDS": [],
+		"CAPS": []
 	}
 ]
 ]=])
@@ -57,7 +74,7 @@ NBL_CREATE_NSC_COMPILE_RULES(
 	DEPENDS ${DEPENDS}
 	BINARY_DIR ${OUTPUT_DIRECTORY}
 	MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
-	COMMON_OPTIONS -I ${CMAKE_CURRENT_SOURCE_DIR}
+	COMMON_OPTIONS -I ${CMAKE_CURRENT_SOURCE_DIR} -O3
 	OUTPUT_VAR KEYS
 	INCLUDE nbl/this_example/builtin/build/spirv/keys.hpp
 	NAMESPACE nbl::this_example::builtin::build

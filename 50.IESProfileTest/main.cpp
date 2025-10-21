@@ -9,6 +9,7 @@
 #include "nbl/ext/ImGui/ImGui.h"
 #include "imgui/imgui_internal.h"
 #include "app_resources/common.hlsl"
+#include "app_resources/imgui.opts.hlsl"
 #include "AppInputParser.hpp"
 
 using namespace nbl;
@@ -142,13 +143,15 @@ public:
         #define CREATE_SHADER(SHADER, PATH) \
 		if (!(SHADER = createShader.template operator()<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE(PATH)>() )) return false;
 
-        smart_refctd_ptr<IShader> compute, pixel, vertex;
+        smart_refctd_ptr<IShader> compute, pixel, vertex, imguiVertex, imguiPixel;
         {
             m_logger->log("Loading GPU shaders..", system::ILogger::ELL_INFO);
             auto start = std::chrono::high_resolution_clock::now();
             CREATE_SHADER(compute, "compute")
             CREATE_SHADER(pixel, "pixel")
             CREATE_SHADER(vertex, "vertex")
+            CREATE_SHADER(imguiVertex, "imgui.vertex")
+            CREATE_SHADER(imguiPixel, "imgui.pixel")
             auto elapsed = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start);
             auto took = std::to_string(elapsed.count());
             m_logger->log("Finished loading GPU shaders, took %s seconds!", system::ILogger::ELL_PERFORMANCE, took.c_str());
@@ -267,7 +270,7 @@ public:
                 pool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), descriptors.data());
                 {
                     std::array<std::vector<IGPUDescriptorSet::SDescriptorInfo>, 4u + 1u> infos;
-#define FILL_INFO(DESC, IX) \
+                    #define FILL_INFO(DESC, IX) \
                     { \
                         auto& info = infos[IX].emplace_back(); \
                         info.desc = DESC; \
@@ -279,9 +282,9 @@ public:
                         auto& ies = assets[i];
 
                         FILL_INFO(ies.views.candela, 0u)
-                            FILL_INFO(ies.views.spherical, 1u)
-                            FILL_INFO(ies.views.direction, 2u)
-                            FILL_INFO(ies.views.mask, 3u)
+                        FILL_INFO(ies.views.spherical, 1u)
+                        FILL_INFO(ies.views.direction, 2u)
+                        FILL_INFO(ies.views.mask, 3u)
                     }
                     FILL_INFO(generalSampler, 4u);
                     auto* samplerInfo = infos.back().data();
@@ -322,15 +325,18 @@ public:
         {
             auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
             ext::imgui::UI::SCreationParameters params = {};
-            params.resources.texturesInfo = { .setIx = 0u,.bindingIx = 0u };
-            params.resources.samplersInfo = { .setIx = 0u,.bindingIx = 1u };
+            params.resources.texturesInfo = { .setIx = NBL_TEXTURES_SET_IX, .bindingIx = NBL_TEXTURES_BINDING_IX };
+            params.resources.samplersInfo = { .setIx = NBL_SAMPLER_STATES_SET_IX, .bindingIx = NBL_SAMPLER_STATES_BINDING_IX };
             params.utilities = m_utils;
             params.transfer = getTransferUpQueue();
-            params.pipelineLayout = ext::imgui::UI::createDefaultPipelineLayout(m_utils->getLogicalDevice(), params.resources.texturesInfo, params.resources.samplersInfo, 2u + MaxFramesInFlight);
+            params.pipelineLayout = ext::imgui::UI::createDefaultPipelineLayout(m_utils->getLogicalDevice(), params.resources.texturesInfo, params.resources.samplersInfo, NBL_TEXTURES_COUNT);
             params.assetManager = make_smart_refctd_ptr<IAssetManager>(smart_refctd_ptr(m_system));
             params.renderpass = smart_refctd_ptr<IGPURenderpass>(scRes->getRenderpass());
             params.subpassIx = 0u;
             params.pipelineCache = nullptr;
+
+            using imgui_precompiled_spirv_t = ext::imgui::UI::SCreationParameters::PrecompiledShaders;
+            params.spirv = std::make_optional(imgui_precompiled_spirv_t{ .vertex = imguiVertex, .fragment = imguiPixel });
 
             auto* imgui = (ui.it = ext::imgui::UI::create(std::move(params))).get();
             if (not imgui)
