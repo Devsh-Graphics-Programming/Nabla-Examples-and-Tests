@@ -6,6 +6,7 @@
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
 #include "nbl/application_templates/MonoDeviceApplication.hpp"
 #include "nbl/examples/common/BuiltinResourcesApplication.hpp"
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 
 using namespace nbl;
@@ -96,7 +97,9 @@ class StreamingAndBufferDeviceAddressApp final : public application_templates::M
 				IAssetLoader::SAssetLoadParams lp = {};
 				lp.logger = m_logger.get();
 				lp.workingDirectory = ""; // virtual root
-				auto assetBundle = m_assetMgr->getAsset("app_resources/shader.comp.hlsl",lp);
+
+				auto key = "app_resources/" + nbl::this_example::builtin::build::get_spirv_key<"shader">(m_device.get());
+				auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
 				const auto assets = assetBundle.getContents();
 				if (assets.empty())
 					return logFail("Could not load shader!");
