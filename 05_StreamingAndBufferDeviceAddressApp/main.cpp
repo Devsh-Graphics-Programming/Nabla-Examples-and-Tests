@@ -96,9 +96,9 @@ class StreamingAndBufferDeviceAddressApp final : public application_templates::M
 			{
 				IAssetLoader::SAssetLoadParams lp = {};
 				lp.logger = m_logger.get();
-				lp.workingDirectory = ""; // virtual root
+				lp.workingDirectory = "app_resources"; // virtual root
 
-				auto key = "app_resources/" + nbl::this_example::builtin::build::get_spirv_key<"shader">(m_device.get());
+				auto key = nbl::this_example::builtin::build::get_spirv_key<"shader">(m_device.get());
 				auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
 				const auto assets = assetBundle.getContents();
 				if (assets.empty())
