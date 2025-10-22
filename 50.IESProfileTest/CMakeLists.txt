@@ -31,42 +31,34 @@ set(JSON [=[
 [
     {
 		"INPUT": "app_resources/compute.hlsl",
-		"KEY": "compute",
-        "COMPILE_OPTIONS": ["-T", "lib_${SM}"],
-		"DEPENDS": [],
-		"CAPS": []
+		"KEY": "compute"
     },
 	{
 		"INPUT": "app_resources/pixel.hlsl",
-		"KEY": "pixel",
-		"COMPILE_OPTIONS": ["-T", "lib_${SM}"],
-		"DEPENDS": [],
-		"CAPS": []
+		"KEY": "pixel"
 	},
 	{
 		"INPUT": "app_resources/vertex.hlsl",
-		"KEY": "vertex",
-		"COMPILE_OPTIONS": ["-T", "lib_${SM}"],
-		"DEPENDS": [],
-		"CAPS": []
+		"KEY": "vertex"
 	},
 	{
 		"INPUT": "app_resources/imgui.vertex.hlsl",
-		"KEY": "imgui.vertex",
-		"COMPILE_OPTIONS": ["-T", "lib_${SM}"],
-		"DEPENDS": [],
-		"CAPS": []
+		"KEY": "imgui.vertex"
 	},
 	{
 		"INPUT": "app_resources/imgui.pixel.hlsl",
-		"KEY": "imgui.pixel",
-		"COMPILE_OPTIONS": ["-T", "lib_${SM}"],
-		"DEPENDS": [],
-		"CAPS": []
+		"KEY": "imgui.pixel"
 	}
 ]
 ]=])
 string(CONFIGURE "${JSON}" JSON)
+
+set(COMPILE_OPTIONS
+	-I "${NBL_ROOT_PATH}/include" # a workaround due to imgui ext headers which are not part of Nabla builtin archive
+	-I "${CMAKE_CURRENT_SOURCE_DIR}"
+	-O3
+	-T lib_${SM}
+)
 
 NBL_CREATE_NSC_COMPILE_RULES(
 	TARGET ${EXECUTABLE_NAME}SPIRV
@@ -74,7 +66,7 @@ NBL_CREATE_NSC_COMPILE_RULES(
 	DEPENDS ${DEPENDS}
 	BINARY_DIR ${OUTPUT_DIRECTORY}
 	MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
-	COMMON_OPTIONS -I ${CMAKE_CURRENT_SOURCE_DIR} -O3
+	COMMON_OPTIONS ${COMPILE_OPTIONS}
 	OUTPUT_VAR KEYS
 	INCLUDE nbl/this_example/builtin/build/spirv/keys.hpp
 	NAMESPACE nbl::this_example::builtin::build
