@@ -370,12 +370,7 @@ public:
 
             imgui->registerListener([this]() 
             {
-                ImGui::SetNextWindowSize(ImVec2(200.0f, 200.0f), ImGuiCond_FirstUseEver);
-                if (ImGui::Begin("test", nullptr, ImGuiWindowFlags_None))
-                {
-                    ImGui::TextUnformatted("test text");
-                }
-                ImGui::End();
+                uiListener();
             });
         }
 
@@ -484,8 +479,8 @@ public:
                 std::vector<SMouseEvent> mouse {}; std::vector<SKeyboardEvent> keyboard {};
             } captured;
 
-            mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { for (const auto& e : events) captured.mouse.emplace_back(e); }, m_logger.get());
-            keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { for (const auto& e : events) captured.keyboard.emplace_back(e); }, m_logger.get());
+            mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { mouseProcess(events); for (const auto& e : events) captured.mouse.emplace_back(e); }, m_logger.get());
+            keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { keyboardProcess(events); for (const auto& e : events) captured.keyboard.emplace_back(e); }, m_logger.get());
 
             const auto cursorPosition = m_window->getCursorControl()->getPosition();
             ext::imgui::UI::SUpdateParameters params =
@@ -822,7 +817,6 @@ private:
         smart_refctd_ptr<SubAllocatedDescriptorSet> descriptor;
     } ui;
 
-    // TODO: lets have this stuff in nice imgui
     void mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
     {
         for (auto it = events.begin(); it != events.end(); it++)
@@ -834,7 +828,7 @@ private:
                 auto& ies = assets[activeAssetIx];
                 auto* profile = ies.getProfile();
 
-                auto impulse = ev.scrollEvent.verticalScroll * 0.01f;
+                auto impulse = ev.scrollEvent.verticalScroll * 0.02f;
                 ies.zDegree = std::clamp<float>(ies.zDegree + impulse, profile->getHoriAngles().front(), profile->getHoriAngles().back());
             }
         }
@@ -871,7 +865,6 @@ private:
             }
         }
     }
-    // <-
 
     core::smart_refctd_ptr<IGPUImageView> createImageView(const size_t width, const size_t height, asset::E_FORMAT format, std::string name)
     {
@@ -984,6 +977,140 @@ private:
         out.zAngleDegreeRotation = in.zDegree;
         out.mode = in.mode;
         out.texIx = activeAssetIx;
+    }
+
+    inline void uiListener()
+    {
+        auto& ies = assets[activeAssetIx];
+        const auto name = path(ies.key).filename().string();
+        auto* profile = ies.getProfile();
+        const float lowerBound = (float)profile->getHoriAngles().front();
+        const float upperBound = (float)profile->getHoriAngles().back();
+        const bool singleAngle = (upperBound == lowerBound);
+
+        auto getModeRS = [&]()
+        {
+            switch (ies.mode)
+            {
+            case EM_CDC:
+                return "Candlepower Distribution Curve";
+            case EM_IES_C:
+                return "Sample IES Candela";
+            case EM_SPERICAL_C:
+                return "Sample Spherical Coordinates";
+            case EM_DIRECTION:
+                return "Sample Direction";
+            case EM_PASS_T_MASK:
+                return "Sample Pass Mask";
+            default:
+                return "ERROR (view)";
+            }
+        };
+
+        auto getSymmetryRS = [&]()
+        {
+            switch (profile->getSymmetry())
+            {
+            case asset::CIESProfile::ISOTROPIC:
+                return "ISOTROPIC";
+            case asset::CIESProfile::QUAD_SYMETRIC:
+                return "QUAD_SYMETRIC";
+            case asset::CIESProfile::HALF_SYMETRIC:
+                return "HALF_SYMETRIC";
+            case asset::CIESProfile::OTHER_HALF_SYMMETRIC:
+                return "OTHER_HALF_SYMMETRIC";
+            case asset::CIESProfile::NO_LATERAL_SYMMET:
+                return "NO_LATERAL_SYMMET";
+            default:
+                return "ERROR (symmetry)";
+            }
+        };
+
+        auto angle = ImClamp(ies.zDegree, lowerBound, upperBound);
+        const ImGuiViewport* vp = ImGui::GetMainViewport();
+        {
+            ImDrawList* fg = ImGui::GetForegroundDrawList();
+            float x = vp->Pos.x + 8.f;
+            float y = vp->Pos.y + 8.f;
+
+            fg->AddText(ImVec2(x, y), ImGui::GetColorU32(ImGuiCol_Text), getModeRS());
+            y += ImGui::GetTextLineHeightWithSpacing();
+
+            fg->AddText(ImVec2(x, y), ImGui::GetColorU32(ImGuiCol_Text), getSymmetryRS());
+            y += ImGui::GetTextLineHeightWithSpacing();
+
+            fg->AddText(ImVec2(x, y), ImGui::GetColorU32(ImGuiCol_Text), name.c_str());
+            y += ImGui::GetTextLineHeightWithSpacing();
+
+            char b1[64]; snprintf(b1, sizeof(b1), "%.3f\xC2\xB0", angle);
+            fg->AddText(ImVec2(x, y), ImGui::GetColorU32(ImGuiCol_Text), b1);
+        }
+
+        {
+            const float pad = 8.f;
+            const float sliderW = 74.f;
+            const float sliderH = ImMin(vp->Size.y - pad * 2.f, 260.f);
+            ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x - sliderW - pad, vp->Pos.y + pad), ImGuiCond_Always);
+            ImGui::SetNextWindowSize(ImVec2(sliderW, sliderH), ImGuiCond_Always);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.f);
+            ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
+                ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoBackground;
+            if (ImGui::Begin("AngleSliderOverlay", nullptr, flags))
+            {
+                ImGui::InvisibleButton("##fader_area", ImGui::GetContentRegionAvail());
+                ImVec2 rmin = ImGui::GetItemRectMin();
+                ImVec2 rmax = ImGui::GetItemRectMax();
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                ImU32 col = IM_COL32(220, 60, 60, 255);
+
+                float knobR = 7.f;
+                float trackX = rmax.x - 12.f;
+                float y0 = rmin.y + knobR + 1.f;
+                float y1 = rmax.y - knobR - 1.f;
+
+                dl->AddLine(ImVec2(trackX, y0), ImVec2(trackX, y1), col, 3.f);
+
+                if (singleAngle)
+                {
+                    float y = (y0 + y1) * 0.5f;
+                    dl->AddLine(ImVec2(trackX - 22.f, y), ImVec2(trackX - 8.f, y), ImGui::GetColorU32(ImGuiCol_Text));
+                    char tb[32]; snprintf(tb, sizeof(tb), "%.0f", lowerBound);
+                    ImVec2 ts = ImGui::CalcTextSize(tb);
+                    dl->AddText(ImVec2(trackX - 24.f - ts.x, y - ts.y * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), tb);
+                }
+                else
+                {
+                    for (int i = 0; i < 5; ++i)
+                    {
+                        float v = lowerBound + (upperBound - lowerBound) * (float(i) / 4.f);
+                        float t = (v - lowerBound) / (upperBound - lowerBound);
+                        float y = y1 - t * (y1 - y0);
+                        dl->AddLine(ImVec2(trackX - 22.f, y), ImVec2(trackX - 8.f, y), ImGui::GetColorU32(ImGuiCol_Text));
+                        char tb[32]; snprintf(tb, sizeof(tb), "%.0f", v);
+                        ImVec2 ts = ImGui::CalcTextSize(tb);
+                        dl->AddText(ImVec2(trackX - 24.f - ts.x, y - ts.y * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), tb);
+                    }
+                }
+
+                float t = singleAngle ? 0.5f : (angle - lowerBound) / (upperBound - lowerBound);
+                float knobY = y1 - t * (y1 - y0);
+                dl->AddCircleFilled(ImVec2(trackX, knobY), knobR, col);
+                dl->AddCircle(ImVec2(trackX, knobY), knobR, ImGui::GetColorU32(ImGuiCol_Border));
+
+                if (!singleAngle && (ImGui::IsItemHovered() || ImGui::IsItemActive()) && ImGui::IsMouseDown(0))
+                {
+                    float my = ImClamp(ImGui::GetIO().MousePos.y, y0, y1);
+                    float nt = (y1 - my) / (y1 - y0);
+                    angle = lowerBound + nt * (upperBound - lowerBound);
+                }
+            }
+            ImGui::End();
+            ImGui::PopStyleVar(2);
+        }
+
+        ies.zDegree = angle;
     }
 };
 
