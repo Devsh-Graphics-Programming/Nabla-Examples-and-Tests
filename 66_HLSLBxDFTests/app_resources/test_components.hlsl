@@ -222,29 +222,48 @@ struct TestCTGenerateH : TestBxDF<BxDF>
 
             bool transmitted;
             float NdotV, VdotH;
+            float dotProductVdotL, VdotL;
             NBL_IF_CONSTEXPR(aniso)
             {
                 NdotV = base_t::anisointer.getNdotV();
                 VdotH = cache.getVdotH();
                 transmitted = cache.isTransmission();
+                dotProductVdotL = hlsl::dot(base_t::anisointer.getV().getDirection(), s.getL().getDirection());
+                VdotL = cache.getVdotL();
             }
             else
             {
                 NdotV = base_t::isointer.getNdotV();
                 VdotH = isocache.getVdotH();
                 transmitted = isocache.isTransmission();
+                dotProductVdotL = hlsl::dot(base_t::isointer.getV().getDirection(), s.getL().getDirection());
+                VdotL = isocache.getVdotL();
             }
 
             if (!(NdotV * VdotH >= 0.f))
             {
                 if (immediateFail)
                 {
-                    base_t::errMsg += std::format("first failed case: u=[{},{},{}] NdotV={}, VdotH={}", u.x, u.y, u.z, NdotV, VdotH);
+                    base_t::errMsg += std::format("first failed case (NdotV*VdotH): u=[{},{},{}] NdotV={}, VdotH={}", u.x, u.y, u.z, NdotV, VdotH);
                     return BET_GENERATE_H;
                 }
                 else
                 {
-                    counter.fail++;
+                    counter.NdotVVdotHfail++;
+                    transmitted ? counter.transmitted++ : counter.reflected++;
+                }
+            }
+
+            if (!checkZero<float>(dotProductVdotL - VdotL, 1e-4))
+            {
+                if (immediateFail)
+                {
+                    base_t::errMsg += std::format("first failed case (compare VdotL): u=[{},{},{}] {}!={}", u.x, u.y, u.z, dotProductVdotL, VdotL);
+                    return BET_GENERATE_H;
+                }
+                else
+                {
+                    counter.VdotLfail++;
                     transmitted ? counter.transmitted++ : counter.reflected++;
                 }
             }
@@ -252,10 +271,12 @@ struct TestCTGenerateH : TestBxDF<BxDF>
             counter.total++;
         }
 
-        if (counter.fail > 0)
+        float totalFails = counter.totalFails();
+        if (totalFails > 0)
         {
-            base_t::errMsg += std::format("fail count={} out of {} valid samples: {} are transmitted, {} reflected, alpha=[{},{}]",
-                                counter.fail, counter.total, counter.transmitted, counter.reflected, base_t::rc.alpha.x, base_t::rc.alpha.y);
+            base_t::errMsg += std::format("fail count={} out of {} valid samples: [{}] NdotV*VdotH, [{}] compare VdotL, [{}] transmitted, [{}] reflected, alpha=[{},{}]",
+                                totalFails, counter.total, counter.NdotVVdotHfail, counter.VdotLfail,
+                                counter.transmitted, counter.reflected, base_t::rc.alpha.x, base_t::rc.alpha.y);
             return BET_GENERATE_H;
         }
 
@@ -298,18 +319,22 @@ struct TestCTGenerateH : TestBxDF<BxDF>
 
     struct Counter
     {
-        uint32_t fail;
+        uint32_t NdotVVdotHfail;
+        uint32_t VdotLfail;
         uint32_t reflected;
         uint32_t transmitted;
         uint32_t total;
 
         void reset()
         {
-            fail = 0;
+            NdotVVdotHfail = 0;
+            VdotLfail = 0;
             reflected = 0;
             transmitted = 0;
             total = 0;
         }
+
+        float totalFails() { return NdotVVdotHfail + VdotLfail; }
     };
 
     bool immediateFail = false;
