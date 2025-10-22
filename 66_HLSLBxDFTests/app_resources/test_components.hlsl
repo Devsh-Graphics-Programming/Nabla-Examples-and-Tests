@@ -171,6 +171,153 @@ struct TestNDF : TestBxDF<BxDF>
     bool verbose;
 };
 
+#ifndef __HLSL_VERSION
+template<class BxDF, bool aniso = false>
+struct TestCTGenerateH : TestBxDF<BxDF>
+{
+    using base_t = TestBxDFBase<BxDF>;
+    using this_t = TestCTGenerateH<BxDF, aniso>;
+    using traits_t = bxdf::traits<BxDF>;
+
+    virtual ErrorType compute() override
+    {
+        counter.reset();
+
+        sample_t s;
+        iso_cache isocache;
+        aniso_cache cache;
+        nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3> rng_vec3 = nbl::hlsl::random::DimAdaptorRecursive<nbl::hlsl::Xoroshiro64Star, 3>::construct(base_t::rc.rng);
+        for (uint32_t i = 0; i < numSamples; i++)
+        {
+            float32_t3 u = ConvertToFloat01<uint32_t3>::__call(rng_vec3());
+            u.x = hlsl::clamp(u.x, base_t::rc.eps, 1.f-base_t::rc.eps);
+            u.y = hlsl::clamp(u.y, base_t::rc.eps, 1.f-base_t::rc.eps);
+            // u.z = 0.0;
+
+            if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BRDF && !traits_t::IsMicrofacet)
+            {
+                s = base_t::bxdf.generate(base_t::anisointer, u.xy);
+            }
+            if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BRDF && traits_t::IsMicrofacet)
+            {
+                if NBL_CONSTEXPR_FUNC(aniso)
+                    s = base_t::bxdf.generate(base_t::anisointer, u.xy, cache);
+                else
+                    s = base_t::bxdf.generate(base_t::isointer, u.xy, isocache);
+            }
+            if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BSDF && !traits_t::IsMicrofacet)
+            {
+                s = base_t::bxdf.generate(base_t::anisointer, u);
+            }
+            if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BSDF && traits_t::IsMicrofacet)
+            {
+                if NBL_CONSTEXPR_FUNC(aniso)
+                    s = base_t::bxdf.generate(base_t::anisointer, u, cache);
+                else
+                    s = base_t::bxdf.generate(base_t::isointer, u, isocache);
+            }
+
+            if (!s.isValid())
+                continue;
+
+            bool transmitted;
+            float NdotV, VdotH;
+            NBL_IF_CONSTEXPR(aniso)
+            {
+                NdotV = base_t::anisointer.getNdotV();
+                VdotH = cache.getVdotH();
+                transmitted = cache.isTransmission();
+            }
+            else
+            {
+                NdotV = base_t::isointer.getNdotV();
+                VdotH = isocache.getVdotH();
+                transmitted = isocache.isTransmission();
+            }
+
+            if (!(NdotV * VdotH >= 0.f))
+            {
+                if (immediateFail)
+                {
+                    base_t::errMsg += std::format("first failed case: u=[{},{},{}] NdotV={}, VdotH={}", u.x, u.y, u.z, NdotV, VdotH);
+                    return BET_GENERATE_H;
+                }
+                else
+                {
+                    counter.fail++;
+                    transmitted ? counter.transmitted++ : counter.reflected++;
+                }
+            }
+
+            counter.total++;
+        }
+
+        if (counter.fail > 0)
+        {
+            base_t::errMsg += std::format("fail count={} out of {} valid samples: {} are transmitted, {} reflected, alpha=[{},{}]",
+                                counter.fail, counter.total, counter.transmitted, counter.reflected, base_t::rc.alpha.x, base_t::rc.alpha.y);
+            return BET_GENERATE_H;
+        }
+
+        return BET_NONE;
+    }
+
+    ErrorType test()
+    {
+        if (traits_t::type == bxdf::BT_BRDF)
+            if (base_t::isointer.getNdotV() <= numeric_limits<float>::min)
+                return BET_INVALID;
+        else if (traits_t::type == bxdf::BT_BSDF)
+            if (abs<float>(base_t::isointer.getNdotV()) <= numeric_limits<float>::min)
+                return BET_INVALID;
+
+        ErrorType res = compute();
+        if (res != BET_NONE)
+            return res;
+
+        return BET_NONE;
+    }
+
+    static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
+    {
+        random::PCG32 pcg = random::PCG32::construct(initparams.state);
+        random::DimAdaptorRecursive<random::PCG32, 2> rand2d = random::DimAdaptorRecursive<random::PCG32, 2>::construct(pcg);
+        uint32_t2 state = rand2d();
+
+        this_t t;
+        t.init(state);
+        t.rc.state = initparams.state;
+        t.numSamples = initparams.samples;
+        t.immediateFail = initparams.immediateFail;
+        t.initBxDF(t.rc);
+        
+        ErrorType e = t.test();
+        if (e != BET_NONE)
+            cb.__call(e, t, initparams.logInfo);
+    }
+
+    struct Counter
+    {
+        uint32_t fail;
+        uint32_t reflected;
+        uint32_t transmitted;
+        uint32_t total;
+
+        void reset()
+        {
+            fail = 0;
+            reflected = 0;
+            transmitted = 0;
+            total = 0;
+        }
+    };
+
+    bool immediateFail = false;
+    uint32_t numSamples = 1000000;
+    Counter counter;
+};
+#endif
+
 }
 }
 

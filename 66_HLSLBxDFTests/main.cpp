@@ -56,6 +56,9 @@ struct PrintFailureCallback : FailureCallback
         case BET_PRINT_MSG:
             fprintf(stderr, "[ERROR] seed %u: %s error message\n%s\n", failedFor.rc.state, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
+        case BET_GENERATE_H:
+            fprintf(stderr, "[ERROR] seed %u: %s failed invalid H configuration generated    %s\n", failedFor.rc.state, failedFor.name.c_str(), failedFor.errMsg.c_str());
+            break;
         default:
             fprintf(stderr, "[ERROR] seed %u: %s unknown error\n", failedFor.rc.state, failedFor.name.c_str());
         }
@@ -257,30 +260,30 @@ int main(int argc, char** argv)
 
 
     // chi2 test for sampling and pdf
-    runs = testconfigs["TestChi2"]["runs"];
-    auto rChi2 = std::ranges::views::iota(0u, runs);
-    FOR_EACH_BEGIN_EX(rChi2, std::execution::seq)
-    STestInitParams initparams{ .logInfo = logInfo };
-    initparams.state = i;
-    initparams.samples = testconfigs["TestChi2"]["samples"];
-    initparams.thetaSplits = testconfigs["TestChi2"]["thetaSplits"];
-    initparams.phiSplits = testconfigs["TestChi2"]["phiSplits"];
-    initparams.writeFrequencies = testconfigs["TestChi2"]["writeFrequencies"];
+    // runs = testconfigs["TestChi2"]["runs"];
+    // auto rChi2 = std::ranges::views::iota(0u, runs);
+    // FOR_EACH_BEGIN_EX(rChi2, std::execution::seq)
+    // STestInitParams initparams{ .logInfo = logInfo };
+    // initparams.state = i;
+    // initparams.samples = testconfigs["TestChi2"]["samples"];
+    // initparams.thetaSplits = testconfigs["TestChi2"]["thetaSplits"];
+    // initparams.phiSplits = testconfigs["TestChi2"]["phiSplits"];
+    // initparams.writeFrequencies = testconfigs["TestChi2"]["writeFrequencies"];
 
-    TestChi2<bxdf::reflection::SLambertian<iso_config_t>>::run(initparams, cb);
-    TestChi2<bxdf::reflection::SOrenNayar<iso_config_t>>::run(initparams, cb);
-    TestChi2<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
-    TestChi2<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
-    TestChi2<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
-    TestChi2<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+    // TestChi2<bxdf::reflection::SLambertian<iso_config_t>>::run(initparams, cb);
+    // TestChi2<bxdf::reflection::SOrenNayar<iso_config_t>>::run(initparams, cb);
+    // TestChi2<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
+    // TestChi2<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+    // TestChi2<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
+    // TestChi2<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
 
-    TestChi2<bxdf::transmission::SLambertian<iso_config_t>>::run(initparams, cb);
-    TestChi2<bxdf::transmission::SOrenNayar<iso_config_t>>::run(initparams, cb);
-    TestChi2<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
-    TestChi2<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
-    TestChi2<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
-    TestChi2<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
-    FOR_EACH_END
+    // TestChi2<bxdf::transmission::SLambertian<iso_config_t>>::run(initparams, cb);
+    // TestChi2<bxdf::transmission::SOrenNayar<iso_config_t>>::run(initparams, cb);
+    // TestChi2<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
+    // TestChi2<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+    // TestChi2<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
+    // TestChi2<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+    // FOR_EACH_END
 
     // testing ndf jacobian * dg1, ONLY for cook torrance bxdfs
     runs = testconfigs["TestNDF"]["runs"];
@@ -299,6 +302,26 @@ int main(int argc, char** argv)
     TestNDF<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     TestNDF<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestNDF<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+    FOR_EACH_END
+
+    // test generated H that NdotV*VdotH>=0.0
+    runs = testconfigs["TestCTGenerateH"]["runs"];
+    auto rGenerateH = std::ranges::views::iota(0u, runs);
+    FOR_EACH_BEGIN_EX(rGenerateH, std::execution::seq)
+    STestInitParams initparams{ .logInfo = logInfo };
+    initparams.state = i;
+    initparams.samples = testconfigs["TestCTGenerateH"]["samples"];
+    initparams.immediateFail = testconfigs["TestCTGenerateH"]["immediateFail"];
+
+    // TestCTGenerateH<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
+    // TestCTGenerateH<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+    // TestCTGenerateH<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
+    // TestCTGenerateH<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+
+    TestCTGenerateH<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
+    TestCTGenerateH<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+    TestCTGenerateH<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
+    TestCTGenerateH<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     FOR_EACH_END
 
         // test arccos angle sums

@@ -155,6 +155,7 @@ struct STestInitParams
     uint32_t thetaSplits;
     uint32_t phiSplits;
     bool writeFrequencies;
+    bool immediateFail;
     bool verbose;
 };
 
@@ -167,6 +168,7 @@ enum ErrorType : uint32_t
     BET_JACOBIAN,
     BET_PDF_EVAL_DIFF,
     BET_RECIPROCITY,
+    BET_GENERATE_H,
 
     BET_NOBREAK,    // not an error code, ones after this don't break
     BET_INVALID,

@@ -22,5 +22,10 @@
     "TestNDF": {
         "runs": 10,
         "verbose": true
+    },
+    "TestCTGenerateH": {
+        "runs": 10,
+        "samples": 1000000,
+        "immediateFail": false
     }
 }
