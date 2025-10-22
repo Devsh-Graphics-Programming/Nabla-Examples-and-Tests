@@ -28,6 +28,8 @@ set(DEPENDS
 	app_resources/common.hlsl
 	app_resources/shader.comp.hlsl
 )
+target_sources(${EXECUTABLE_NAME} PRIVATE ${DEPENDS})
+set_source_files_properties(${DEPENDS} PROPERTIES HEADER_FILE_ONLY ON)
 
 set(JSON [=[
 [
