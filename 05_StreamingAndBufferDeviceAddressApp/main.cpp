@@ -104,9 +104,7 @@ class StreamingAndBufferDeviceAddressApp final : public application_templates::M
 				if (assets.empty())
 					return logFail("Could not load shader!");
 
-				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-				const auto shaderSource = IAsset::castDown<IShader>(assets[0]);
-				shader = m_device->compileShader({shaderSource.get()});
+				shader = IAsset::castDown<IShader>(assets[0]);
 				// The down-cast should not fail!
 				assert(shader);
 			}

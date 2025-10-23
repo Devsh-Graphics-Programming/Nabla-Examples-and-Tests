@@ -1,5 +1,5 @@
 ﻿// TODO: Copyright notice
-
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 #include "nbl/examples/examples.hpp"
 
@@ -961,12 +961,14 @@ public:
 			}
 
 			// Load Custom Shader
-			auto loadCompileShader = [&](const std::string& relPath) -> smart_refctd_ptr<IShader>
+			auto loadCompileShader = [&]<core::StringLiteral ShaderKey>(const std::string& relPath) -> smart_refctd_ptr<IShader>
 				{
 					IAssetLoader::SAssetLoadParams lp = {};
 					lp.logger = m_logger.get();
-					lp.workingDirectory = ""; // virtual root
-					auto assetBundle = m_assetMgr->getAsset(relPath, lp);
+					lp.workingDirectory = "shaders";
+
+					auto key = nbl::this_example::builtin::build::get_spirv_key<ShaderKey>(m_device.get());
+					auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
 					const auto assets = assetBundle.getContents();
 					if (assets.empty())
 						return nullptr;
@@ -979,8 +981,8 @@ public:
 					return m_device->compileShader( ILogicalDevice::SShaderCreationParameters { .source = source.get(), .readCache = shaderReadCache.get(), .writeCache = shaderWriteCache.get(), .stage = IShader::E_SHADER_STAGE::ESS_ALL_OR_LIBRARY });
 				};
 
-			mainPipelineFragmentShaders = loadCompileShader("../shaders/main_pipeline/fragment.hlsl");
-			mainPipelineVertexShader = loadCompileShader("../shaders/main_pipeline/vertex_shader.hlsl");
+			mainPipelineFragmentShaders = loadCompileShader.operator()<"main_pipeline_fragment_shader">("../shaders/main_pipeline/fragment.hlsl");
+			mainPipelineVertexShader = loadCompileShader.operator() <"main_pipeline_vertex_shader"> ("../shaders/main_pipeline/vertex_shader.hlsl");
 			
 			core::smart_refctd_ptr<system::IFile> shaderWriteCacheFile;
 			{

@@ -28,3 +28,55 @@ if(MSVC)
 else()
   target_compile_options("${EXECUTABLE_NAME}" PUBLIC -ffloat-store -frounding-math -fsignaling-nans -ftrapping-math)
 endif()
+
+set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
+set(DEPENDS
+	app_resources/common.hlsl
+    app_resources/test.comp.hlsl
+	app_resources/benchmark/benchmark.comp.hlsl
+	app_resources/benchmark/common.hlsl
+)
+target_sources(${EXECUTABLE_NAME} PRIVATE ${DEPENDS})
+set_source_files_properties(${DEPENDS} PROPERTIES HEADER_FILE_ONLY ON)
+
+set(JSON [=[
+[
+    {
+        "INPUT": "app_resources/test.comp.hlsl",
+        "KEY": "test",
+    },
+	{
+        "INPUT": "app_resources/benchmark/benchmark.comp.hlsl",
+        "KEY": "benchmark",
+    },
+]
+]=])
+string(CONFIGURE "${JSON}" JSON)
+
+set(COMPILE_OPTIONS
+    -I "${CMAKE_CURRENT_SOURCE_DIR}"
+    -O3
+    -T lib_${SM}
+)
+
+NBL_CREATE_NSC_COMPILE_RULES(
+    TARGET ${EXECUTABLE_NAME}SPIRV
+    LINK_TO ${EXECUTABLE_NAME}
+    DEPENDS ${DEPENDS}
+    BINARY_DIR ${OUTPUT_DIRECTORY}
+    MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
+    COMMON_OPTIONS -I ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VAR KEYS
+    INCLUDE nbl/this_example/builtin/build/spirv/keys.hpp
+    NAMESPACE nbl::this_example::builtin::build
+    INPUTS ${JSON}
+)
+
+NBL_CREATE_RESOURCE_ARCHIVE(
+    NAMESPACE nbl::this_example::builtin::build
+    TARGET ${EXECUTABLE_NAME}_builtinsBuild
+    LINK_TO ${EXECUTABLE_NAME}
+    BIND ${OUTPUT_DIRECTORY}
+    BUILTINS ${KEYS}
+    COMMON_OPTIONS ${COMPILE_OPTIONS}
+)

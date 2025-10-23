@@ -4,6 +4,7 @@
 
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
 #include "nbl/examples/examples.hpp"
+#include "nbl/this_example/builtin/build/spirv/keys.hpp"
 
 using namespace nbl;
 using namespace nbl::core;
@@ -189,7 +190,7 @@ private:
 		for (uint32_t imageIdx = 0; imageIdx < IMAGE_CNT; ++imageIdx)
 		{
 			const auto imagePathToLoad = imagesToLoad[imageIdx];
-			auto cpuImage = loadFistAssetInBundle<ICPUImage>(imagePathToLoad);
+			auto cpuImage = loadImageAsset(imagePathToLoad);
 			if (!cpuImage)
 				logFailAndTerminate("Failed to load image from path %s",ILogger::ELL_ERROR,imagePathToLoad);
 
@@ -279,17 +280,10 @@ private:
 		}
 
 		// LOAD SHADER FROM FILE
-		smart_refctd_ptr<IShader> source;
-		{
-			source = loadFistAssetInBundle<IShader>("../app_resources/comp_shader.hlsl");
-		}
+		smart_refctd_ptr<IShader> shader = loadPreCompiledShader<"comp_shader">("../app_resources/comp_shader.hlsl");
 
-		if (!source)
-			logFailAndTerminate("Could not create a CPU shader!");
-
-		core::smart_refctd_ptr<IShader> shader = m_device->compileShader({ source.get() });
-		if(!shader)
-			logFailAndTerminate("Could not compile shader to spirv!");
+		if (!shader)
+			logFailAndTerminate("Could not load the precompiled shader!");
 
 		// CREATE COMPUTE PIPELINE
 		SPushConstantRange pc[1];
@@ -534,18 +528,36 @@ private:
 
 		return false;
 	}
-
-	template<typename AssetType>
-	core::smart_refctd_ptr<AssetType> loadFistAssetInBundle(const std::string& path)
+	
+	core::smart_refctd_ptr<ICPUImage> loadImageAsset(const std::string& path)
 	{
 		IAssetLoader::SAssetLoadParams lp;
 		SAssetBundle bundle = m_assetMgr->getAsset(path, lp);
 		if (bundle.getContents().empty())
-			logFailAndTerminate("Couldn't load an asset.",ILogger::ELL_ERROR);
+			logFailAndTerminate("Couldn't load an image.",ILogger::ELL_ERROR);
 
-		auto asset = IAsset::castDown<AssetType>(bundle.getContents()[0]);
+		auto asset = IAsset::castDown<ICPUImage>(bundle.getContents()[0]);
 		if (!asset)
 			logFailAndTerminate("Incorrect asset loaded.",ILogger::ELL_ERROR);
+
+		return asset;
+	}
+
+	template<core::StringLiteral ShaderKey>
+	core::smart_refctd_ptr<IShader> loadPreCompiledShader(const std::string& path)
+	{
+		IAssetLoader::SAssetLoadParams lp;
+		lp.logger = m_logger.get();
+		lp.workingDirectory = "app_resources";
+
+		auto key = nbl::this_example::builtin::build::get_spirv_key<ShaderKey>(m_device.get());
+		SAssetBundle bundle = m_assetMgr->getAsset(key.data(), lp);
+		if (bundle.getContents().empty())
+			logFailAndTerminate("Couldn't load a shader.", ILogger::ELL_ERROR);
+
+		auto asset = IAsset::castDown<IShader>(bundle.getContents()[0]);
+		if (!asset)
+			logFailAndTerminate("Incorrect asset loaded.", ILogger::ELL_ERROR);
 
 		return asset;
 	}
