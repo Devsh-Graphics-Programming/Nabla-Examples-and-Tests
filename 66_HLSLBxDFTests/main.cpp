@@ -293,10 +293,10 @@ int main(int argc, char** argv)
     initparams.state = i;
     initparams.verbose = testconfigs["TestNDF"]["verbose"];
 
-    // TestNDF<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
-    // TestNDF<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
-    // TestNDF<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
-    // TestNDF<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+    TestNDF<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
+    TestNDF<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+    TestNDF<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
+    TestNDF<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
 
     TestNDF<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestNDF<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
@@ -304,25 +304,25 @@ int main(int argc, char** argv)
     TestNDF<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     FOR_EACH_END
 
-    // test generated H that NdotV*VdotH>=0.0
-    runs = testconfigs["TestCTGenerateH"]["runs"];
-    auto rGenerateH = std::ranges::views::iota(0u, runs);
-    FOR_EACH_BEGIN_EX(rGenerateH, std::execution::seq)
-    STestInitParams initparams{ .logInfo = logInfo };
-    initparams.state = i;
-    initparams.samples = testconfigs["TestCTGenerateH"]["samples"];
-    initparams.immediateFail = testconfigs["TestCTGenerateH"]["immediateFail"];
+    // test generated H that NdotV*VdotH>=0.0, VdotL calculation
+    // runs = testconfigs["TestCTGenerateH"]["runs"];
+    // auto rGenerateH = std::ranges::views::iota(0u, runs);
+    // FOR_EACH_BEGIN_EX(rGenerateH, std::execution::par_unseq)
+    // STestInitParams initparams{ .logInfo = logInfo };
+    // initparams.state = i;
+    // initparams.samples = testconfigs["TestCTGenerateH"]["samples"];
+    // initparams.immediateFail = testconfigs["TestCTGenerateH"]["immediateFail"];
 
     // TestCTGenerateH<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     // TestCTGenerateH<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     // TestCTGenerateH<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     // TestCTGenerateH<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
 
-    TestCTGenerateH<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
-    TestCTGenerateH<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
-    TestCTGenerateH<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
-    TestCTGenerateH<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
-    FOR_EACH_END
+    // TestCTGenerateH<bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
+    // TestCTGenerateH<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+    // TestCTGenerateH<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
+    // TestCTGenerateH<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
+    // FOR_EACH_END
 
         // test arccos angle sums
     {

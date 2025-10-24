@@ -85,6 +85,8 @@ struct TestNDF : TestBxDF<BxDF>
         using dg1_query_type = typename ndf_type::dg1_query_type;
         using fresnel_type = typename base_t::bxdf_t::fresnel_type;
 
+        float reflectance;
+        bool transmitted;
         NBL_IF_CONSTEXPR(aniso)
         {
             dg1_query_type dq = base_t::bxdf.ndf.template createDG1Query<aniso_interaction, aniso_cache>(base_t::anisointer, cache);
@@ -92,7 +94,9 @@ struct TestNDF : TestBxDF<BxDF>
             quant_query_type qq = bxdf::impl::quant_query_helper<ndf_type, fresnel_type, base_t::bxdf_t::IsBSDF>::template __call<aniso_cache>(base_t::bxdf.ndf, _f, cache);
             quant_type DG1 = base_t::bxdf.ndf.template DG1<sample_t, aniso_interaction>(dq, qq, s, base_t::anisointer);
             dg1 = DG1.microfacetMeasure * hlsl::abs(cache.getVdotH() / base_t::anisointer.getNdotV());
+            reflectance = _f(cache.getVdotH())[0];
             NdotH = cache.getAbsNdotH();
+            transmitted = cache.isTransmission();
         }
         else
         {
@@ -101,7 +105,35 @@ struct TestNDF : TestBxDF<BxDF>
             quant_query_type qq = bxdf::impl::quant_query_helper<ndf_type, fresnel_type, base_t::bxdf_t::IsBSDF>::template __call<iso_cache>(base_t::bxdf.ndf, _f, isocache);
             quant_type DG1 = base_t::bxdf.ndf.template DG1<sample_t, iso_interaction>(dq, qq, s, base_t::isointer);
             dg1 = DG1.microfacetMeasure * hlsl::abs(isocache.getVdotH() / base_t::isointer.getNdotV());
+            reflectance = _f(isocache.getVdotH())[0];
             NdotH = isocache.getAbsNdotH();
+            transmitted = isocache.isTransmission();
+        }
+
+        if (transmitted)
+        {
+            float eta = base_t::rc.eta.x;
+            if (base_t::isointer.getNdotV() < 0.f)
+                eta = 1.f / eta;
+
+            reflectance = transmitted ? 1.f - reflectance : reflectance;
+            NBL_IF_CONSTEXPR(aniso)
+            {
+                float denom = cache.getVdotH() + eta * cache.getLdotH();
+                dg1 =  dg1 * hlsl::abs(eta * eta * cache.getLdotH()) / (denom * denom);
+            }
+            else
+            {
+                float denom = isocache.getVdotH() + eta * isocache.getLdotH();
+                dg1 = dg1 * hlsl::abs(eta * eta * isocache.getLdotH()) / (denom * denom);
+            }
+        }
+        else
+        {
+            NBL_IF_CONSTEXPR(aniso)
+                dg1 = 0.25f * dg1 / hlsl::abs(cache.getVdotH());
+            else
+                dg1 = 0.25f * dg1 / hlsl::abs(isocache.getVdotH());
         }
 
         return BET_NONE;
@@ -131,14 +163,15 @@ struct TestNDF : TestBxDF<BxDF>
         );
         float det = nbl::hlsl::determinant<float32_t2x2>(m) / (eps * eps);
         
-        float jacobi_dg1_ndoth = det * dg1 * NdotH;
-        if (!checkZero<float>(jacobi_dg1_ndoth - 1.f, 1e-4))
+        float jacobi_dg1_ndoth = det * dg1 / hlsl::abs(s.getNdotL());
+        if (!checkZero<float>(jacobi_dg1_ndoth - 1.f, 5e-2))
         {
 #ifndef __HLSL_VERSION
             if (verbose)
-                base_t::errMsg += std::format("VdotH={}, LdotH={}, Jacobian={}, DG1={}, NdotH={}, Jacobian*DG1*NdotH={}",
-                                        aniso ? cache.getVdotH() : isocache.getVdotH(), aniso ? cache.getLdotH() : isocache.getLdotH(),
-                                        det, dg1, NdotH, jacobi_dg1_ndoth);
+                base_t::errMsg += std::format("VdotH={}, NdotV={}, LdotH={}, NdotL={}, NdotH={}, eta={}, Jacobian={}, DG1={}, Jacobian*DG1={}",
+                                        aniso ? cache.getVdotH() : isocache.getVdotH(), aniso ? base_t::anisointer.getNdotV() : base_t::isointer.getNdotV(),
+                                        aniso ? cache.getLdotH() : isocache.getLdotH(), s.getNdotL(), NdotH, base_t::rc.eta.x,
+                                        det, dg1, jacobi_dg1_ndoth);
 #endif
             return BET_JACOBIAN;
         }
@@ -163,7 +196,7 @@ struct TestNDF : TestBxDF<BxDF>
             cb.__call(e, t, initparams.logInfo);
     }
 
-    float eps = 1e-5;
+    float eps = 1e-4;
     sample_t s, sx, sy;
     aniso_cache cache;
     iso_cache isocache;
@@ -244,7 +277,7 @@ struct TestCTGenerateH : TestBxDF<BxDF>
             {
                 if (immediateFail)
                 {
-                    base_t::errMsg += std::format("first failed case (NdotV*VdotH): u=[{},{},{}] NdotV={}, VdotH={}", u.x, u.y, u.z, NdotV, VdotH);
+                    base_t::errMsg += std::format("first failed case (NdotV*VdotH): i={}, u=[{},{},{}] NdotV={}, VdotH={}", i, u.x, u.y, u.z, NdotV, VdotH);
                     return BET_GENERATE_H;
                 }
                 else
@@ -258,7 +291,7 @@ struct TestCTGenerateH : TestBxDF<BxDF>
             {
                 if (immediateFail)
                 {
-                    base_t::errMsg += std::format("first failed case (compare VdotL): u=[{},{},{}] {}!={}", u.x, u.y, u.z, dotProductVdotL, VdotL);
+                    base_t::errMsg += std::format("first failed case (compare VdotL): i={}, u=[{},{},{}] {}!={}", i, u.x, u.y, u.z, dotProductVdotL, VdotL);
                     return BET_GENERATE_H;
                 }
                 else

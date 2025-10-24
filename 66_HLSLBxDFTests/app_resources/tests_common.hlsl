@@ -114,6 +114,8 @@ struct SBxDFTestResources
 
         retval.V.direction = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(rng_vec2())));
         retval.N = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(rng_vec2())));
+        // if (hlsl::dot(retval.N, retval.V.direction) < 0)
+        //     retval.V.direction = -retval.V.direction;
         
         float32_t3 tangent, bitangent;
         math::frisvad<float32_t3>(retval.N, tangent, bitangent);
