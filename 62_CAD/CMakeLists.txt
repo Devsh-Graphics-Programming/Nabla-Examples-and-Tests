@@ -76,16 +76,17 @@ set(DEPENDS
 	shaders/main_pipeline/resolve_alphas.hlsl
 	shaders/main_pipeline/vertex_shader.hlsl
 )
+target_sources(${EXECUTABLE_NAME} PRIVATE ${DEPENDS})
+set_source_files_properties(${DEPENDS} PROPERTIES HEADER_FILE_ONLY ON)
 
 set(SM 6_8)
-
 set(REQUIRED_CAPS [=[
-    {
-        "kind": "features",
-        "name": "fragmentShaderPixelInterlock",
-        "type": "bool",
-        "values": [1]
-    }
+{
+  "kind": "features",
+  "name": "fragmentShaderPixelInterlock",
+  "type": "bool",
+  "values": [1]
+}
 ]=])
 
 set(JSON [=[
@@ -93,20 +94,22 @@ set(JSON [=[
 	{
 		"INPUT": "shaders/main_pipeline/vertex_shader.hlsl",
 		"KEY": "main_pipeline_vertex_shader",
-    "COMPILE_OPTIONS": ["-T", "cs_6_8"],
-		"DEPENDS": [],
 		"CAPS": [${REQUIRED_CAPS}]
     },
     {
 		"INPUT": "shaders/main_pipeline/fragment.hlsl",
 		"KEY": "main_pipeline_fragment_shader",
-    "COMPILE_OPTIONS": ["-T", "cs_6_8"],
-		"DEPENDS": [],
 		"CAPS": [${REQUIRED_CAPS}]
     }
 ]
 ]=])
 string(CONFIGURE "${JSON}" JSON)
+
+set(COMPILE_OPTIONS
+    -I "${CMAKE_CURRENT_SOURCE_DIR}"
+    -O3
+    -T lib_${SM}
+)
 
 NBL_CREATE_NSC_COMPILE_RULES(
     TARGET ${EXECUTABLE_NAME}SPIRV
@@ -114,7 +117,7 @@ NBL_CREATE_NSC_COMPILE_RULES(
     DEPENDS ${DEPENDS}
     BINARY_DIR ${OUTPUT_DIRECTORY}
     MOUNT_POINT_DEFINE NBL_THIS_EXAMPLE_BUILD_MOUNT_POINT
-    COMMON_OPTIONS -I ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMON_OPTIONS ${COMPILE_OPTIONS}
     OUTPUT_VAR KEYS
     INCLUDE nbl/this_example/builtin/build/spirv/keys.hpp
     NAMESPACE nbl::this_example::builtin::build

@@ -961,28 +961,28 @@ public:
 			}
 
 			// Load Custom Shader
-			auto loadCompileShader = [&]<core::StringLiteral ShaderKey>(const std::string& relPath) -> smart_refctd_ptr<IShader>
+			auto loadPrecompiledShader = [&]<core::StringLiteral ShaderKey>() -> smart_refctd_ptr<IShader>
+			{
+				IAssetLoader::SAssetLoadParams lp = {};
+				lp.logger = m_logger.get();
+				lp.workingDirectory = "shaders";
+
+				auto key = nbl::this_example::builtin::build::get_spirv_key<ShaderKey>(m_device.get());
+				auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
+				const auto assets = assetBundle.getContents();
+				if (assets.empty())
 				{
-					IAssetLoader::SAssetLoadParams lp = {};
-					lp.logger = m_logger.get();
-					lp.workingDirectory = "shaders";
+					m_logger->log("Failed to load a precompiled ahsder.", ILogger::ELL_ERROR);
+					return nullptr;
+				}
+					
 
-					auto key = nbl::this_example::builtin::build::get_spirv_key<ShaderKey>(m_device.get());
-					auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
-					const auto assets = assetBundle.getContents();
-					if (assets.empty())
-						return nullptr;
+				auto shader = IAsset::castDown<IShader>(assets[0]);
+				return shader;
+			};
 
-					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-					auto source = IAsset::castDown<IShader>(assets[0]);
-					if (!source)
-						return nullptr;
-	
-					return m_device->compileShader( ILogicalDevice::SShaderCreationParameters { .source = source.get(), .readCache = shaderReadCache.get(), .writeCache = shaderWriteCache.get(), .stage = IShader::E_SHADER_STAGE::ESS_ALL_OR_LIBRARY });
-				};
-
-			mainPipelineFragmentShaders = loadCompileShader.operator()<"main_pipeline_fragment_shader">("../shaders/main_pipeline/fragment.hlsl");
-			mainPipelineVertexShader = loadCompileShader.operator() <"main_pipeline_vertex_shader"> ("../shaders/main_pipeline/vertex_shader.hlsl");
+			mainPipelineFragmentShaders = loadPrecompiledShader.operator()<"main_pipeline_fragment_shader">(); // "../shaders/main_pipeline/fragment.hlsl"
+			mainPipelineVertexShader = loadPrecompiledShader.operator() <"main_pipeline_vertex_shader">(); // "../shaders/main_pipeline/vertex_shader.hlsl"
 			
 			core::smart_refctd_ptr<system::IFile> shaderWriteCacheFile;
 			{

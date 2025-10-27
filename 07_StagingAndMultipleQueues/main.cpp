@@ -280,7 +280,7 @@ private:
 		}
 
 		// LOAD SHADER FROM FILE
-		smart_refctd_ptr<IShader> shader = loadPreCompiledShader<"comp_shader">("../app_resources/comp_shader.hlsl");
+		smart_refctd_ptr<IShader> shader = loadPreCompiledShader<"comp_shader">(); // "../app_resources/comp_shader.hlsl"
 
 		if (!shader)
 			logFailAndTerminate("Could not load the precompiled shader!");
@@ -544,7 +544,7 @@ private:
 	}
 
 	template<core::StringLiteral ShaderKey>
-	core::smart_refctd_ptr<IShader> loadPreCompiledShader(const std::string& path)
+	core::smart_refctd_ptr<IShader> loadPreCompiledShader()
 	{
 		IAssetLoader::SAssetLoadParams lp;
 		lp.logger = m_logger.get();
