@@ -6,7 +6,6 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "nbl/examples/examples.hpp"
-#include "nlohmann/json.hpp"
 
 struct AppInputParser
 {

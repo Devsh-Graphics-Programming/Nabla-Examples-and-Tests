@@ -1,6 +1,8 @@
 if(NBL_BUILD_IMGUI)
 set(SRCs
-	AppInputParser.cpp AppInputParser.hpp
+	App.cpp AppInit.cpp AppRender.cpp AppGPU.cpp AppUI.cpp AppEvent.cpp AppInputParser.cpp
+	App.hpp AppInputParser.hpp
+	IES.cpp IES.hpp
 	inputs.json
 )
 

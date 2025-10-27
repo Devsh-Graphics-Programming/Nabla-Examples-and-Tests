@@ -3,16 +3,9 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include "AppInputParser.hpp"
+#include "nlohmann/json.hpp"
 
-using namespace nbl;
-using namespace core;
-using namespace hlsl;
-using namespace system;
-using namespace asset;
-using namespace ui;
-using namespace video;
-using namespace scene;
-using namespace nbl::examples;
+NBL_EXPOSE_NAMESPACES
 using namespace nlohmann;
 
 bool AppInputParser::parse(Output& out, const std::string input, const std::string cwd)
