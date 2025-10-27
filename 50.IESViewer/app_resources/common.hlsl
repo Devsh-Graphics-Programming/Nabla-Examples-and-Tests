@@ -1,0 +1,67 @@
+#ifndef _THIS_EXAMPLE_COMMON_HLSL_INCLUDED_
+#define _THIS_EXAMPLE_COMMON_HLSL_INCLUDED_
+
+#include "nbl/builtin/hlsl/cpp_compat.hlsl"
+
+#ifdef __HLSL_VERSION
+#include "nbl/builtin/hlsl/bda/__ptr.hlsl"
+#endif // __HLSL_VERSION
+
+// -> TODO: use NBL_CONTEXPR or something
+#ifndef UINT16_MAX
+#define UINT16_MAX 65535u // would be cool if we have this define somewhere or GLSL do
+#endif // UINT16_MAX
+#ifndef M_PI
+#define M_PI 3.1415926535897932384626433832795f // would be cool if we have this define somewhere or GLSL do
+#endif // M_PI
+
+#define M_HALF_PI M_PI/2.0f // would be cool if we have this define somewhere or GLSL do
+#define QUANT_ERROR_ADMISSIBLE 1/1024
+
+#define WORKGROUP_SIZE 256u
+#define WORKGROUP_DIMENSION 16u
+// <- + wipe whatever we already have
+
+// TODO: since NSC prebuilds into SPIRV - maybe could make it a CMake option with a default val
+#define MAX_IES_IMAGES 6969
+
+using namespace nbl::hlsl;
+
+struct PushConstants
+{
+	uint64_t hAnglesBDA;
+	uint64_t vAnglesBDA;
+	uint64_t dataBDA;
+	float64_t maxIValue;
+
+	uint32_t hAnglesCount;
+	uint32_t vAnglesCount;
+	uint32_t dataCount;
+
+	uint32_t mode;
+	uint32_t texIx;
+	float32_t zAngleDegreeRotation;
+
+	uint32_t dummy;
+
+	#ifdef __HLSL_VERSION
+	float64_t getHorizontalAngle(uint32_t i) { return (nbl::hlsl::bda::__ptr<float64_t>::create(hAnglesBDA) + i).deref().load(); }
+	float64_t getVerticalAngle(uint32_t i) { return (nbl::hlsl::bda::__ptr<float64_t>::create(vAnglesBDA) + i).deref().load(); }
+	float64_t getData(uint32_t i) { return (nbl::hlsl::bda::__ptr<float64_t>::create(dataBDA) + i).deref().load(); }
+	#endif // __HLSL_VERSION
+};
+
+#ifdef __HLSL_VERSION
+[[vk::binding(0, 0)]] Texture2D inIESCandelaImage[MAX_IES_IMAGES];
+[[vk::binding(1, 0)]] Texture2D inSphericalCoordinatesImage[MAX_IES_IMAGES];
+[[vk::binding(2, 0)]] Texture2D inOUVProjectionDirectionImage[MAX_IES_IMAGES];
+[[vk::binding(3, 0)]] Texture2D inPassTMaskImage[MAX_IES_IMAGES];
+[[vk::binding(0 + 10, 0)]] RWTexture2D<float32_t> outIESCandelaImage[MAX_IES_IMAGES];
+[[vk::binding(1 + 10, 0)]] RWTexture2D<float32_t2> outSphericalCoordinatesImage[MAX_IES_IMAGES];
+[[vk::binding(2 + 10, 0)]] RWTexture2D<float32_t3> outOUVProjectionDirectionImage[MAX_IES_IMAGES];
+[[vk::binding(3 + 10, 0)]] RWTexture2D<float32_t2> outPassTMask[MAX_IES_IMAGES];
+[[vk::binding(0 + 100, 0)]] SamplerState generalSampler;
+[[vk::push_constant]] struct PushConstants pc;
+#endif // __HLSL_VERSION
+
+#endif // _THIS_EXAMPLE_COMMON_HLSL_INCLUDED_
