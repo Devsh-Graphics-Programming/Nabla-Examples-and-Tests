@@ -85,6 +85,7 @@ struct TestJacobian : TestBxDF<BxDF>
         {
             pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer);
             bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer));
+            transmitted = base_t::isointer.getNdotV() * s.getNdotL() < 0.f;
         }
         if NBL_CONSTEXPR_FUNC (traits_t::IsMicrofacet)
         {
@@ -92,11 +93,13 @@ struct TestJacobian : TestBxDF<BxDF>
             {
                 pdf = base_t::bxdf.quotient_and_pdf(s, base_t::anisointer, cache);
                 bsdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
+                transmitted = cache.isTransmission();
             }
             else
             {
                 pdf = base_t::bxdf.quotient_and_pdf(s, base_t::isointer, isocache);
                 bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
+                transmitted = isocache.isTransmission();
             }
         }
 
@@ -147,7 +150,8 @@ struct TestJacobian : TestBxDF<BxDF>
         {
 #ifndef __HLSL_VERSION
             if (verbose)
-                base_t::errMsg += std::format("quotient*pdf=[{},{},{}]    eval=[{},{},{}]",
+                base_t::errMsg += std::format("transmitted={}, quotient*pdf=[{},{},{}]    eval=[{},{},{}]",
+                    transmitted ? "true" : "false",
                     quo_pdf.x, quo_pdf.y, quo_pdf.z,
                     bsdf.x, bsdf.y, bsdf.z);
 #endif
@@ -177,6 +181,7 @@ struct TestJacobian : TestBxDF<BxDF>
     sample_t s, sx, sy;
     quotient_pdf_t pdf;
     float32_t3 bsdf;
+    bool transmitted;
     bool verbose;
 };
 
@@ -285,10 +290,12 @@ struct TestReciprocity : TestBxDF<BxDF>
             }
         }
 
+        transmitted = aniso ? cache.isTransmission() : isocache.isTransmission();
+
 #ifndef __HLSL_VERSION
         if (verbose)
             base_t::errMsg += std::format("isTransmission: {}, NdotV: {}, NdotL: {}, VdotH: {}, LdotH: {}, NdotH: {}",
-                (aniso ? cache.isTransmission() : isocache.isTransmission()) ? "true" : "false",
+                transmitted ? "true" : "false",
                 base_t::isointer.getNdotV(), s.getNdotL(),
                 aniso ? cache.getVdotH() : isocache.getVdotH(), aniso ? cache.getLdotH() : isocache.getLdotH(), aniso ? cache.getAbsNdotH() : isocache.getAbsNdotH());
 #endif
@@ -319,8 +326,8 @@ struct TestReciprocity : TestBxDF<BxDF>
         if (checkLt<float32_t3>(bsdf, (float32_t3)0.0))
             return BET_NEGATIVE_VAL;
 
-        float32_t3 a = bsdf * nbl::hlsl::abs<float>(aniso ? base_t::anisointer.getNdotV() : base_t::isointer.getNdotV());
-        float32_t3 b = rec_bsdf * nbl::hlsl::abs<float>(aniso ? rec_anisointer.getNdotV() : rec_isointer.getNdotV());
+        float32_t3 a = bsdf / hlsl::abs(s.getNdotL());
+        float32_t3 b = rec_bsdf / hlsl::abs(rec_s.getNdotL());
         if (!(a == b))  // avoid division by 0
             if (!checkEq<float32_t3>(a, b, 1e-2))
             {
@@ -357,6 +364,7 @@ struct TestReciprocity : TestBxDF<BxDF>
     float32_t3 bsdf, rec_bsdf;
     iso_interaction rec_isointer;
     aniso_interaction rec_anisointer;
+    bool transmitted;
     bool verbose;
 };
 
@@ -817,7 +825,7 @@ struct TestChi2 : TestBxDF<BxDF>
                         float pdf;
                         if NBL_CONSTEXPR_FUNC (!traits_t::IsMicrofacet)
                         {
-                            pdf = base_t::bxdf.pdf(s);
+                            pdf = base_t::bxdf.pdf(s, base_t::isointer);
                         }
                         if NBL_CONSTEXPR_FUNC (traits_t::IsMicrofacet)
                         {
