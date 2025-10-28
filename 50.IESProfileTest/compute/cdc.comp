@@ -36,6 +36,7 @@ layout(push_constant) uniform PushConstants
 	uint dummy;
 } pc;
 
+// TODO: use the common builtin headers for all this!
 vec3 octahedronUVToDir(vec2 uv) 
 {
     vec3 position = vec3((uv * 2.0 - 1.0).xy, 0.0);
