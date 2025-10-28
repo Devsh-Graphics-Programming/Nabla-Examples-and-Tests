@@ -4,7 +4,7 @@
 
 #include "App.hpp"
 
-core::smart_refctd_ptr<IGPUImageView> IESViewer::createImageView(const size_t width, const size_t height, asset::E_FORMAT format, std::string name)
+core::smart_refctd_ptr<IGPUImageView> IESViewer::createImageView(const size_t width, const size_t height, E_FORMAT format, std::string name, bitflag<IImage::E_USAGE_FLAGS> usage, bitflag<IImage::E_ASPECT_FLAGS> aspectFlags)
 {
     IGPUImage::SCreationParams imageParams{};
     imageParams.type = IImage::E_TYPE::ET_2D;
@@ -16,7 +16,7 @@ core::smart_refctd_ptr<IGPUImageView> IESViewer::createImageView(const size_t wi
     imageParams.flags = IImage::ECF_NONE;
     imageParams.arrayLayers = 1u;
     imageParams.samples = IImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT;
-    imageParams.usage = bitflag(IImage::EUF_SAMPLED_BIT) | IImage::EUF_STORAGE_BIT;
+    imageParams.usage = usage;
 
     auto image = m_device->createImage(std::move(imageParams));
     image->setObjectDebugName(name.c_str());
@@ -43,7 +43,7 @@ core::smart_refctd_ptr<IGPUImageView> IESViewer::createImageView(const size_t wi
     viewParams.subresourceRange.baseMipLevel = 0u;
     viewParams.subresourceRange.layerCount = 1u;
     viewParams.subresourceRange.levelCount = 1u;
-    viewParams.subresourceRange.aspectMask = core::bitflag(asset::IImage::EAF_COLOR_BIT);
+    viewParams.subresourceRange.aspectMask = aspectFlags;
 
     auto imageView = m_device->createImageView(std::move(viewParams));
 

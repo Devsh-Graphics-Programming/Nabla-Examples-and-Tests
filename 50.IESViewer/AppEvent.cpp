@@ -12,7 +12,7 @@ void IESViewer::processMouse(const nbl::ui::IMouseEventChannel::range_t& events)
 
         if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
         {
-            auto& ies = assets[activeAssetIx];
+            auto& ies = m_assets[m_activeAssetIx];
             auto* profile = ies.getProfile();
 
             auto impulse = ev.scrollEvent.verticalScroll * 0.02f;
@@ -30,11 +30,11 @@ void IESViewer::processKeyboard(const nbl::ui::IKeyboardEventChannel::range_t& e
         if (ev.action == nbl::ui::SKeyboardEvent::ECA_RELEASED)
         {
             if (ev.keyCode == nbl::ui::EKC_UP_ARROW)
-                activeAssetIx = std::clamp<size_t>(activeAssetIx + 1, 0, assets.size() - 1u);
+                m_activeAssetIx = std::clamp<size_t>(m_activeAssetIx + 1, 0, m_assets.size() - 1u);
             else if (ev.keyCode == nbl::ui::EKC_DOWN_ARROW)
-                activeAssetIx = std::clamp<size_t>(activeAssetIx - 1, 0, assets.size() - 1u);
+                m_activeAssetIx = std::clamp<size_t>(m_activeAssetIx - 1, 0, m_assets.size() - 1u);
 
-            auto& ies = assets[activeAssetIx];
+            auto& ies = m_assets[m_activeAssetIx];
 
             if (ev.keyCode == nbl::ui::EKC_C)
                 ies.mode = IES::EM_CDC;
@@ -48,7 +48,7 @@ void IESViewer::processKeyboard(const nbl::ui::IKeyboardEventChannel::range_t& e
                 ies.mode = IES::EM_PASS_T_MASK;
 
             if (ev.keyCode == nbl::ui::EKC_Q)
-                running = false;
+                m_running = false;
         }
     }
 }

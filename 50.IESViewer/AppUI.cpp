@@ -9,7 +9,14 @@
 
 void IESViewer::uiListener()
 {
-    auto& ies = assets[activeAssetIx];
+    const auto resourceIx = m_realFrameIx % device_base_t::MaxFramesInFlight;
+
+    SImResourceInfo info;
+    // note to self: for 2D, for 3d ext::imgui::UI::FontAtlasTexId + device_base_t::MaxFramesInFlight + resourceIx + 1u
+    info.textureID = ext::imgui::UI::FontAtlasTexId + resourceIx + 1u;
+    info.samplerIx = (uint16_t)nbl::ext::imgui::UI::DefaultSamplerIx::USER;
+
+    auto& ies = m_assets[m_activeAssetIx];
     const auto name = path(ies.key).filename().string();
     auto* profile = ies.getProfile();
     const float lowerBound = (float)profile->getHoriAngles().front();
@@ -18,6 +25,7 @@ void IESViewer::uiListener()
 
     auto angle = ImClamp(ies.zDegree, lowerBound, upperBound);
     const ImGuiViewport* vp = ImGui::GetMainViewport();
+
     {
         ImDrawList* fg = ImGui::GetForegroundDrawList();
         float x = vp->Pos.x + 8.f;
@@ -34,6 +42,34 @@ void IESViewer::uiListener()
 
         char b1[64]; snprintf(b1, sizeof(b1), "%.3f\xC2\xB0", angle);
         fg->AddText(ImVec2(x, y), ImGui::GetColorU32(ImGuiCol_Text), b1);
+    }
+
+    {
+        const ImVec2 imageSize(640.f, 640.f);
+        const ImVec2 imageCenter(
+            vp->Pos.x + vp->Size.x * 0.5f,
+            vp->Pos.y + vp->Size.y * 0.5f
+        );
+
+        ImGui::SetNextWindowPos(imageCenter, ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, 0.f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.f);
+
+        ImGuiWindowFlags imgFlags =
+            ImGuiWindowFlags_NoSavedSettings |
+            ImGuiWindowFlags_NoBringToFrontOnFocus |
+            ImGuiWindowFlags_NoNav |
+            ImGuiWindowFlags_NoScrollbar |
+            ImGuiWindowFlags_NoScrollWithMouse;
+
+        if (ImGui::Begin("2D Plot", nullptr, imgFlags))
+        {
+            ImGui::Image(info, imageSize);
+        }
+        ImGui::End();
+
+        ImGui::PopStyleVar(2);
     }
 
     {

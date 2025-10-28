@@ -25,7 +25,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
     if (!parser.parse(out, INPUT_JSON_FILE, media.string()))
         return false;
 
-    m_logger->log("Loading IES assets..", system::ILogger::ELL_INFO);
+    m_logger->log("Loading IES m_assets..", system::ILogger::ELL_INFO);
     {
         auto start = std::chrono::high_resolution_clock::now();
         size_t loaded = {}, total = out.inputList.size();
@@ -38,7 +38,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
             if (asset.getMetadata())
             {
-                auto& ies = assets.emplace_back();
+                auto& ies = m_assets.emplace_back();
                 ies.bundle = std::move(asset);
                 ies.key = path(in).lexically_relative(media).string();
                 ++loaded;
@@ -54,17 +54,17 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         if (not passed)
         {
             auto diff = std::to_string(total - loaded);
-            m_logger->log("Failed to load [%s/%s] IES assets!", system::ILogger::ELL_ERROR, diff.c_str(), st.c_str());
+            m_logger->log("Failed to load [%s/%s] IES m_assets!", system::ILogger::ELL_ERROR, diff.c_str(), st.c_str());
         }
         auto elapsed = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start);
         auto took = std::to_string(elapsed.count());
-        m_logger->log("Finished loading IES assets, took %s seconds.", system::ILogger::ELL_PERFORMANCE, took.c_str());
+        m_logger->log("Finished loading IES m_assets, took %s seconds.", system::ILogger::ELL_PERFORMANCE, took.c_str());
     }
 
     m_logger->log("Creating GPU IES resources..", system::ILogger::ELL_INFO);
     {
         auto start = std::chrono::high_resolution_clock::now();
-        for (auto& ies : assets)
+        for (auto& ies : m_assets)
         {
             const auto* profile = ies.getProfile();
             const auto resolution = profile->getOptimalIESResolution();
@@ -97,15 +97,15 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
         auto key = nbl::this_example::builtin::build::get_spirv_key<in>(m_device.get());
         auto assetBundle = m_assetMgr->getAsset(key, lp);
-        const auto assets = assetBundle.getContents();
+        const auto m_assets = assetBundle.getContents();
 
-        if (assets.empty())
+        if (m_assets.empty())
         {
             m_logger->log("Failed to load \"%s\" shader!", system::ILogger::ELL_ERROR, key.data());
             return nullptr;
         }
 
-        auto spirvShader = IAsset::castDown<IShader>(assets[0]);
+        auto spirvShader = IAsset::castDown<IShader>(m_assets[0]);
 
         if (spirvShader)
             m_logger->log("Loaded \"%s\".", system::ILogger::ELL_INFO, key.data());
@@ -152,7 +152,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             BINDING_SAMPLER(0u + 100u)
         });
 
-        const uint32_t texturesCount = assets.size();
+        const uint32_t texturesCount = m_assets.size();
         smart_refctd_ptr<IGPUSampler> generalSampler;
         {
             IGPUSampler::SParams params;
@@ -200,7 +200,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
                 params[0].shader.shader = compute.get();
                 params[0].shader.entryPoint = "main";
 
-                if (!m_device->createComputePipelines(nullptr, params, &computePipeline))
+                if (!m_device->createComputePipelines(nullptr, params, &m_computePipeline))
                     return logFail("Failed to create compute pipeline!");
             }
 
@@ -234,30 +234,30 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
                     .subpassIx = 0u
                 };
 
-                if (!m_device->createGraphicsPipelines(nullptr, params, &graphicsPipeline))
+                if (!m_device->createGraphicsPipelines(nullptr, params, &m_graphicsPipeline))
                     return logFail("Failed to create graphics pipeline!");
             }
 
-            const auto dscLayoutPtrs = graphicsPipeline->getLayout()->getDescriptorSetLayouts();
+            const auto dscLayoutPtrs = m_graphicsPipeline->getLayout()->getDescriptorSetLayouts();
             auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, dscLayoutPtrs);
-            pool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), descriptors.data());
+            pool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), m_descriptors.data());
             {
                 std::array<std::vector<IGPUDescriptorSet::SDescriptorInfo>, 4u + 1u> infos;
-                #define FILL_INFO(DESC, IX) \
+#define FILL_INFO(DESC, IX) \
                 { \
                     auto& info = infos[IX].emplace_back(); \
                     info.desc = DESC; \
                     info.info.image.imageLayout = IImage::LAYOUT::GENERAL; \
                 }
 
-                for (uint32_t i = 0; i < assets.size(); ++i)
+                for (uint32_t i = 0; i < m_assets.size(); ++i)
                 {
-                    auto& ies = assets[i];
+                    auto& ies = m_assets[i];
 
                     FILL_INFO(ies.views.candela, 0u)
-                    FILL_INFO(ies.views.spherical, 1u)
-                    FILL_INFO(ies.views.direction, 2u)
-                    FILL_INFO(ies.views.mask, 3u)
+                        FILL_INFO(ies.views.spherical, 1u)
+                        FILL_INFO(ies.views.direction, 2u)
+                        FILL_INFO(ies.views.mask, 3u)
                 }
                 FILL_INFO(generalSampler, 4u);
                 auto* samplerInfo = infos.back().data();
@@ -267,9 +267,9 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
                 for (uint32_t i = 0; i < 4u; ++i)
                 {
                     auto& write = writes[i];
-                    write.count = assets.size();
+                    write.count = m_assets.size();
                     write.info = infos[i].data();
-                    write.dstSet = descriptors[0u].get();
+                    write.dstSet = m_descriptors[0u].get();
                     write.arrayElement = 0u;
                     write.binding = i;
                 }
@@ -284,12 +284,58 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
                 auto& write = writes.back();
                 write.count = 1u;
                 write.info = samplerInfo;
-                write.dstSet = descriptors[0u].get();
+                write.dstSet = m_descriptors[0u].get();
                 write.arrayElement = 0u;
                 write.binding = 0u + 100u;
 
                 if (!m_device->updateDescriptorSets(writes, {}))
                     return logFail("Failed to write descriptor sets");
+            }
+        }
+    }
+
+    // frame buffers
+    {
+        // TODO: I will create my own
+        auto renderpass = smart_refctd_ptr<IGPURenderpass>(static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources())->getRenderpass());
+
+        for (uint32_t i = 0u; i < m_frameBuffers2D.size(); ++i)
+        {
+            auto& fb2D = m_frameBuffers2D[i];
+            auto& fb3D = m_frameBuffers3D[i];
+            auto ixs = std::to_string(i);
+
+            // TODO: may actually change it, temporary hardcoding
+            constexpr auto WIDTH = 640, HEIGHT = 640;
+
+            {
+                auto color = createImageView(WIDTH, HEIGHT, EF_R8G8B8A8_SRGB, "[2D Plot]: framebuffer[" + ixs + "].color attachement", IGPUImage::EUF_RENDER_ATTACHMENT_BIT | IGPUImage::EUF_SAMPLED_BIT, IImage::EAF_COLOR_BIT);
+                fb2D = m_device->createFramebuffer
+                (
+                    { {
+                        .renderpass = renderpass,
+                        .depthStencilAttachments = nullptr,
+                        .colorAttachments = &color.get(),
+                        .width = WIDTH,
+                        .height = HEIGHT
+                    } }
+                );
+            }
+
+            {
+                auto color = createImageView(WIDTH, HEIGHT, EF_R8G8B8A8_SRGB, "[3D Plot]: framebuffer[" + ixs + "].color attachement", IGPUImage::EUF_RENDER_ATTACHMENT_BIT | IGPUImage::EUF_SAMPLED_BIT, IImage::EAF_COLOR_BIT);
+                auto depth = createImageView(WIDTH, HEIGHT, EF_D32_SFLOAT, "[3D Plot]: framebuffer[" + ixs + "].depth attachement", IGPUImage::EUF_RENDER_ATTACHMENT_BIT | IGPUImage::EUF_SAMPLED_BIT, IGPUImage::EAF_DEPTH_BIT);
+
+                fb3D = m_device->createFramebuffer
+                (
+                    { {
+                        .renderpass = renderpass,
+                        .depthStencilAttachments = nullptr,
+                        .colorAttachments = &color.get(),
+                        .width = WIDTH,
+                        .height = HEIGHT
+                    } }
+                );
             }
         }
     }
@@ -322,23 +368,38 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             ui.descriptor = make_smart_refctd_ptr<SubAllocatedDescriptorSet>(std::move(ds));
             if (!ui.descriptor)
                 return logFail("Failed to create the descriptor set");
+
             {
-                auto dummy = SubAllocatedDescriptorSet::invalid_value;
-                ui.descriptor->multi_allocate(0, 1, &dummy);
-                assert(dummy == ext::imgui::UI::FontAtlasTexId);
+                std::array<SubAllocatedDescriptorSet::value_type, 1u + 2u * MaxFramesInFlight> addresses;
+                addresses.fill(SubAllocatedDescriptorSet::invalid_value);
+                ui.descriptor->multi_allocate(0, addresses.size(), addresses.data());
+
+                bool ok = true;
+                ok &= addresses.front() == ext::imgui::UI::FontAtlasTexId;
+                for (auto i = ext::imgui::UI::FontAtlasTexId; i < addresses.size(); ++i)
+                    ok &= addresses[i] == i;
+
+                assert(ok);
+
+                std::array<IGPUDescriptorSet::SDescriptorInfo, addresses.size()> infos;
+                for (auto& it : infos) it.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+
+                auto* ix = addresses.data();
+                infos[*ix].desc = smart_refctd_ptr<nbl::video::IGPUImageView>(imgui->getFontAtlasView()); ++ix;
+                for (uint8_t i = 0u; i < MaxFramesInFlight; ++i, ++ix) infos[*ix].desc = m_frameBuffers2D[i]->getCreationParameters().colorAttachments[0u];
+                for (uint8_t i = 0u; i < MaxFramesInFlight; ++i, ++ix) infos[*ix].desc = m_frameBuffers3D[i]->getCreationParameters().colorAttachments[0u];
+                
+                auto writes = std::to_array({ IGPUDescriptorSet::SWriteDescriptorSet{
+                    .dstSet = ui.descriptor->getDescriptorSet(),
+                    .binding = NBL_TEXTURES_BINDING_IX,
+                    .arrayElement = 0u,
+                    .count = infos.size(),
+                    .info = infos.data()
+                }});
+
+                if (!m_device->updateDescriptorSets(writes, {}))
+                    return logFail("Failed to write the descriptor set");
             }
-            IGPUDescriptorSet::SDescriptorInfo info = {};
-            info.desc = smart_refctd_ptr<nbl::video::IGPUImageView>(imgui->getFontAtlasView());
-            info.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-            const IGPUDescriptorSet::SWriteDescriptorSet write = {
-                .dstSet = ui.descriptor->getDescriptorSet(),
-                .binding = 0u,
-                .arrayElement = ext::imgui::UI::FontAtlasTexId,
-                .count = 1,
-                .info = &info
-            };
-            if (!m_device->updateDescriptorSets({ &write,1 }, {}))
-                return logFail("Failed to write the descriptor set");
         }
 
         imgui->registerListener([this]()
@@ -364,7 +425,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
     };
 
     // render loop command buffers
-    if (not createCommandBuffers(getGraphicsQueue(), m_cmdBufs, pool_flags_t::RESET_COMMAND_BUFFER_BIT))
+    if (not createCommandBuffers(getGraphicsQueue(), m_cmdBuffers, pool_flags_t::RESET_COMMAND_BUFFER_BIT))
         return false;
 
     // transient command buffer
@@ -375,9 +436,9 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             return false;
 
         std::vector<IGPUImage*> images;
-        for (uint32_t i = 0; i < assets.size(); ++i)
+        for (uint32_t i = 0; i < m_assets.size(); ++i)
         {
-            auto& ies = assets[i];
+            auto& ies = m_assets[i];
 
             images.emplace_back() = ies.views.candela->getCreationParameters().image.get();
             images.emplace_back() = ies.views.spherical->getCreationParameters().image.get();

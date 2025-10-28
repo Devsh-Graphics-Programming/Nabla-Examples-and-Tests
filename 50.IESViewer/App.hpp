@@ -28,17 +28,19 @@ protected:
     const IGPURenderpass::SCreationParams::SSubpassDependency* getDefaultSubpassDependencies() const override;
 
 private:
-    smart_refctd_ptr<IGPUGraphicsPipeline> graphicsPipeline;
-    smart_refctd_ptr<IGPUComputePipeline> computePipeline;
-    std::array<smart_refctd_ptr<IGPUDescriptorSet>, IGPUPipelineLayout::DESCRIPTOR_SET_COUNT> descriptors;
+    smart_refctd_ptr<IGPUGraphicsPipeline> m_graphicsPipeline;
+    smart_refctd_ptr<IGPUComputePipeline> m_computePipeline;
+    std::array<smart_refctd_ptr<IGPUDescriptorSet>, IGPUPipelineLayout::DESCRIPTOR_SET_COUNT> m_descriptors;
 
-    bool running = true;
-    std::vector<IES> assets;
-    size_t activeAssetIx = 0;
+    bool m_running = true;
+    std::vector<IES> m_assets;
+    size_t m_activeAssetIx = 0;
 
     size_t m_realFrameIx = 0;
     smart_refctd_ptr<ISemaphore> m_semaphore;
-    std::array<smart_refctd_ptr<IGPUCommandBuffer>, device_base_t::MaxFramesInFlight> m_cmdBufs;
+    std::array<smart_refctd_ptr<IGPUCommandBuffer>, device_base_t::MaxFramesInFlight> m_cmdBuffers;
+    std::array<core::smart_refctd_ptr<IGPUFramebuffer>, device_base_t::MaxFramesInFlight> m_frameBuffers2D, m_frameBuffers3D;
+
     InputSystem::ChannelReader<IMouseEventChannel> mouse;
     InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
@@ -50,7 +52,9 @@ private:
     void processMouse(const IMouseEventChannel::range_t& events);
     void processKeyboard(const IKeyboardEventChannel::range_t& events);
 
-    smart_refctd_ptr<IGPUImageView> createImageView(const size_t width, const size_t height, E_FORMAT format, std::string name);
+    smart_refctd_ptr<IGPUImageView> createImageView(const size_t width, const size_t height, E_FORMAT format, std::string name, 
+        bitflag<IImage::E_USAGE_FLAGS> usage = bitflag(IImage::EUF_SAMPLED_BIT) | IImage::EUF_STORAGE_BIT,
+        bitflag<IImage::E_ASPECT_FLAGS> aspectFlags = bitflag(IImage::EAF_COLOR_BIT));
     smart_refctd_ptr<IGPUBuffer> createBuffer(const core::vector<CIESProfile::IES_STORAGE_FORMAT>& in, std::string name);
 
     void uiListener();

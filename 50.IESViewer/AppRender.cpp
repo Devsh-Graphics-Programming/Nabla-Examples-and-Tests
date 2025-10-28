@@ -8,7 +8,10 @@
 IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::microseconds nextPresentationTimestamp)
 {
     const auto resourceIx = m_realFrameIx % device_base_t::MaxFramesInFlight;
-    auto* const cb = m_cmdBufs.data()[resourceIx].get();
+    auto* const cb = m_cmdBuffers.data()[resourceIx].get();
+    auto* const fb2D = m_frameBuffers2D[resourceIx].get();
+    auto* const fb3D = m_frameBuffers3D[resourceIx].get();
+
     cb->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
     cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
@@ -35,7 +38,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         ui.it->update(params);
     }
 
-    auto& ies = assets[activeAssetIx];
+    auto& ies = m_assets[m_activeAssetIx];
     PushConstants pc;
     {
         pc.vAnglesBDA = ies.buffers.vAngles->getDeviceAddress();
@@ -51,7 +54,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
 
         pc.zAngleDegreeRotation = ies.zDegree;
         pc.mode = ies.mode;
-        pc.texIx = activeAssetIx;
+        pc.texIx = m_activeAssetIx;
     }
 
     for (auto& buffer : { ies.buffers.data, ies.buffers.hAngles, ies.buffers.vAngles }) // flush request for sanity
@@ -64,15 +67,15 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         }
     }
 
-    auto* const descriptor = descriptors[0].get();
+    auto* const descriptor = m_descriptors[0].get();
     auto* image = ies.getActiveImage();
 
     // Compute
     {
         cb->beginDebugMarker("IES::compute");
         IES::barrier<IImage::LAYOUT::GENERAL>(cb, image);
-        auto* layout = computePipeline->getLayout();
-        cb->bindComputePipeline(computePipeline.get());
+        auto* layout = m_computePipeline->getLayout();
+        cb->bindComputePipeline(m_computePipeline.get());
         cb->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_COMPUTE, layout, 0, 1, &descriptor);
         cb->pushConstants(layout, layout->getPushConstantRanges().begin()->stageFlags, 0, sizeof(pc), &pc);
         const auto xGroups = (ies.getProfile()->getOptimalIESResolution().x - 1u) / WORKGROUP_DIMENSION + 1u;
@@ -82,8 +85,10 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
 
     // Graphics
     {
-        cb->beginDebugMarker("IES::render");
+        cb->beginDebugMarker("IES::graphics 2D plot");
         IES::barrier<IImage::LAYOUT::READ_ONLY_OPTIMAL>(cb, image);
+
+        auto extent = fb2D->getCreationParameters().colorAttachments[0u]->getCreationParameters().image->getCreationParameters().extent;
 
         asset::SViewport viewport;
         {
@@ -91,30 +96,30 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
             viewport.maxDepth = 0.f;
             viewport.x = 0u;
             viewport.y = 0u;
-            viewport.width = m_window->getWidth();
-            viewport.height = m_window->getHeight();
+            viewport.width = extent.width;
+            viewport.height = extent.height;
         }
         cb->setViewport(0u, 1u, &viewport);
 
         VkRect2D scissor =
         {
             .offset = { 0, 0 },
-            .extent = { m_window->getWidth(), m_window->getHeight() },
+            .extent = { extent.width, extent.height },
         };
         cb->setScissor(0u, 1u, &scissor);
 
-        const VkRect2D currentRenderArea =
+        VkRect2D currentRenderArea =
         {
             .offset = {0,0},
-            .extent = {m_window->getWidth(),m_window->getHeight()}
+            .extent = {extent.width,extent.height}
         };
 
-        const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,0.f,1.f,1.f} };
+        const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
         const IGPUCommandBuffer::SClearDepthStencilValue depthValue = { .depth = 0.f };
         auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-        const IGPUCommandBuffer::SRenderpassBeginInfo info =
+        IGPUCommandBuffer::SRenderpassBeginInfo info =
         {
-            .framebuffer = scRes->getFramebuffer(device_base_t::getCurrentAcquire().imageIndex),
+            .framebuffer = fb2D,
             .colorClearValues = &clearValue,
             .depthStencilClearValues = &depthValue,
             .renderArea = currentRenderArea
@@ -122,23 +127,36 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
 
         cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
         {
-            auto* layout = graphicsPipeline->getLayout();
-            cb->bindGraphicsPipeline(graphicsPipeline.get());
+            auto* layout = m_graphicsPipeline->getLayout();
+            cb->bindGraphicsPipeline(m_graphicsPipeline.get());
             cb->bindDescriptorSets(EPBP_GRAPHICS, layout, 0, 1, &descriptor);
             cb->pushConstants(layout, layout->getPushConstantRanges().begin()->stageFlags, 0, sizeof(pc), &pc);
             ext::FullScreenTriangle::recordDrawCall(cb);
+        }
+        cb->endRenderPass();
+        cb->endDebugMarker();
+
+        cb->beginDebugMarker("IES::graphics ImGUI");
+
+        viewport.width = m_window->getWidth(); viewport.height = m_window->getHeight();
+        scissor.extent = { m_window->getWidth(), m_window->getHeight() };
+        cb->setScissor(0u, 1u, &scissor);
+        currentRenderArea.extent = { m_window->getWidth(),m_window->getHeight() };
+        info.framebuffer = scRes->getFramebuffer(device_base_t::getCurrentAcquire().imageIndex);
+        info.renderArea = currentRenderArea;
+
+        cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+        {
+            auto* imgui = ui.it.get();
+            auto* pipeline = imgui->getPipeline();
+            cb->bindGraphicsPipeline(pipeline);
+            const auto* ds = ui.descriptor->getDescriptorSet();
+            cb->bindDescriptorSets(EPBP_GRAPHICS, pipeline->getLayout(), imgui->getCreationParameters().resources.texturesInfo.setIx, 1u, &ds);
+            const ISemaphore::SWaitInfo wait = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
+            if (!imgui->render(cb, wait))
             {
-                auto* imgui = ui.it.get();
-                auto* pipeline = imgui->getPipeline();
-                cb->bindGraphicsPipeline(pipeline);
-                const auto* ds = ui.descriptor->getDescriptorSet();
-                cb->bindDescriptorSets(EPBP_GRAPHICS, pipeline->getLayout(), imgui->getCreationParameters().resources.texturesInfo.setIx, 1u, &ds);
-                const ISemaphore::SWaitInfo wait = { .semaphore = m_semaphore.get(),.value = m_realFrameIx + 1u };
-                if (!imgui->render(cb, wait))
-                {
-                    m_logger->log("TODO: need to present acquired image before bailing because its already acquired.", ILogger::ELL_ERROR);
-                    return {};
-                }
+                m_logger->log("TODO: need to present acquired image before bailing because its already acquired.", ILogger::ELL_ERROR);
+                return {};
             }
         }
         cb->endRenderPass();
