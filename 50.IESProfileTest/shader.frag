@@ -30,8 +30,11 @@ float plot(float cand, float pct, float bold){
 }
 
 // vertical cut of IES (i.e. cut by plane x = 0)
-float f(vec2 uv) {
-    return texture(inIESCandelaImage,nbl_glsl_IES_convert_dir_to_uv(normalize(vec3(uv.x, 0.001, uv.y)))).x;
+float f(vec2 uv)
+{
+	const vec3 dir = normalize(vec3(uv.x, 0.001, uv.y));
+	const vec2 octUV = nbl_glsl_IES_convert_dir_to_uv(dir,vec2(0.5)-vec2(0.5)/textureSize(inIESCandelaImage,0).xy);	
+    return textureLod(inIESCandelaImage,octUV,0).x;
     // float vangle = (abs(atan(uv.x,uv.y)))/(M_PI);
     // float hangle = uv.x <= 0.0 ? 0.0 : 1.0;
     // return texture(inIESCandelaImage,vec2(hangle,vangle)).x;
