@@ -10,7 +10,7 @@ using namespace nbl::hlsl;
 void main(inout PrimaryPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
 {
     const int instID = spirv::InstanceCustomIndexKHR;
-    const STriangleGeomInfo geom = vk::RawBufferLoad < STriangleGeomInfo > (pc.triangleGeomInfoBuffer + instID * sizeof(STriangleGeomInfo));
+    const STriangleGeomInfo geom = vk::RawBufferLoad < STriangleGeomInfo > (pc.triangleGeomInfoBuffer + instID * sizeof(STriangleGeomInfo), 8);
 
     const uint32_t bitpattern = payload.pcg();
     // Cannot use spirv::ignoreIntersectionKHR and spirv::terminateRayKHR due to https://github.com/microsoft/DirectXShaderCompiler/issues/7279

@@ -10,7 +10,7 @@ using namespace nbl::hlsl;
 void main(inout OcclusionPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
 {
     const int instID = spirv::InstanceCustomIndexKHR;
-    const STriangleGeomInfo geom = vk::RawBufferLoad < STriangleGeomInfo > (pc.triangleGeomInfoBuffer + instID * sizeof(STriangleGeomInfo));
+    const STriangleGeomInfo geom = vk::RawBufferLoad < STriangleGeomInfo > (pc.triangleGeomInfoBuffer + instID * sizeof(STriangleGeomInfo), 8);
     const Material material = nbl::hlsl::_static_cast<Material>(geom.material);
     
     const float attenuation = (1.f-material.alpha) * payload.attenuation;

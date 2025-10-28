@@ -1,6 +1,5 @@
 #include "common.hlsl"
 
-#include "nbl/builtin/hlsl/jit/device_capabilities.hlsl"
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
 
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"

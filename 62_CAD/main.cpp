@@ -929,43 +929,12 @@ public:
 		smart_refctd_ptr<IShader> mainPipelineVertexShader = {};
 		std::array<smart_refctd_ptr<IShader>, 2u> geoTexturePipelineShaders = {};
 		{
-			smart_refctd_ptr<IShaderCompiler::CCache> shaderReadCache = nullptr;
-			smart_refctd_ptr<IShaderCompiler::CCache> shaderWriteCache = core::make_smart_refctd_ptr<IShaderCompiler::CCache>();
-			auto shaderCachePath = localOutputCWD / "main_pipeline_shader_cache.bin";
-
-			{
-				core::smart_refctd_ptr<system::IFile> shaderReadCacheFile;
-				{
-					system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
-					m_system->createFile(future, shaderCachePath.c_str(), system::IFile::ECF_READ);
-					if (future.wait())
-					{
-						future.acquire().move_into(shaderReadCacheFile);
-						if (shaderReadCacheFile)
-						{
-							const size_t size = shaderReadCacheFile->getSize();
-							if (size > 0ull)
-							{
-								std::vector<uint8_t> contents(size);
-								system::IFile::success_t succ;
-								shaderReadCacheFile->read(succ, contents.data(), 0, size);
-								if (succ)
-									shaderReadCache = IShaderCompiler::CCache::deserialize(contents);
-							}
-						}
-					}
-					else
-						m_logger->log("Failed Openning Shader Cache File.", ILogger::ELL_ERROR);
-				}
-
-			}
-
 			// Load Custom Shader
 			auto loadPrecompiledShader = [&]<core::StringLiteral ShaderKey>() -> smart_refctd_ptr<IShader>
 			{
 				IAssetLoader::SAssetLoadParams lp = {};
 				lp.logger = m_logger.get();
-				lp.workingDirectory = "shaders";
+				lp.workingDirectory = "app_resources";
 
 				auto key = nbl::this_example::builtin::build::get_spirv_key<ShaderKey>(m_device.get());
 				auto assetBundle = m_assetMgr->getAsset(key.data(), lp);
@@ -983,32 +952,6 @@ public:
 
 			mainPipelineFragmentShaders = loadPrecompiledShader.operator()<"main_pipeline_fragment_shader">(); // "../shaders/main_pipeline/fragment.hlsl"
 			mainPipelineVertexShader = loadPrecompiledShader.operator() <"main_pipeline_vertex_shader">(); // "../shaders/main_pipeline/vertex_shader.hlsl"
-			
-			core::smart_refctd_ptr<system::IFile> shaderWriteCacheFile;
-			{
-				system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
-				m_system->deleteFile(shaderCachePath); // temp solution instead of trimming, to make sure we won't have corrupted json
-				m_system->createFile(future, shaderCachePath.c_str(), system::IFile::ECF_WRITE);
-				if (future.wait())
-				{
-					future.acquire().move_into(shaderWriteCacheFile);
-					if (shaderWriteCacheFile)
-					{
-						auto serializedCache = shaderWriteCache->serialize();
-						if (shaderWriteCacheFile)
-						{
-							system::IFile::success_t succ;
-							shaderWriteCacheFile->write(succ, serializedCache->getPointer(), 0, serializedCache->getSize());
-							if (!succ)
-								m_logger->log("Failed Writing To Shader Cache File.", ILogger::ELL_ERROR);
-						}
-					}
-					else
-						m_logger->log("Failed Creating Shader Cache File.", ILogger::ELL_ERROR);
-				}
-				else
-					m_logger->log("Failed Creating Shader Cache File.", ILogger::ELL_ERROR);
-			}
 		}
 
 		// Shared Blend Params between pipelines
