@@ -340,9 +340,49 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         }
     }
 
+    auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+
+    // geometries for 3D scene
+    {
+        CGeometryCreatorScene::f_geometry_override_t injector = [](auto* creator, auto addGeometry)
+        {
+            addGeometry("Sphere", creator->createSphere(1.f, 32, 32));
+        };
+
+        const uint32_t addtionalBufferOwnershipFamilies[] = { getGraphicsQueue()->getFamilyIndex() };
+        m_scene = CGeometryCreatorScene::create(
+            {
+                .transferQueue = getTransferUpQueue(),
+                .utilities = m_utils.get(),
+                .logger = m_logger.get(),
+                .addtionalBufferOwnershipFamilies = addtionalBufferOwnershipFamilies,
+                .geometryOverride = injector
+            },
+            // we want to use the vertex data through UTBs
+            CSimpleDebugRenderer::DefaultPolygonGeometryPatch
+        );
+
+        const auto& geometries = m_scene->getInitParams().geometries;
+        m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(), scRes->getRenderpass(), 0, { &geometries.front().get(),geometries.size() });
+        if (!m_renderer || m_renderer->getGeometries().size() != geometries.size())
+            return logFail("Could not create 3D Plot Renderer!");
+
+        m_renderer->m_instances.resize(1);
+        m_renderer->m_instances[0].world = float32_t3x4(
+            float32_t4(1, 0, 0, 0),
+            float32_t4(0, 1, 0, 0),
+            float32_t4(0, 0, 1, 0)
+        );
+
+        core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
+        core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
+        const auto& params = m_frameBuffers3D.front()->getCreationParameters();
+        matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(params.width) / float(params.height), 0.1, 10000);
+        camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
+    }
+
     // imGUI
     {
-        auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
         ext::imgui::UI::SCreationParameters params = {};
         params.resources.texturesInfo = { .setIx = NBL_TEXTURES_SET_IX, .bindingIx = NBL_TEXTURES_BINDING_IX };
         params.resources.samplersInfo = { .setIx = NBL_SAMPLER_STATES_SET_IX, .bindingIx = NBL_SAMPLER_STATES_BINDING_IX };

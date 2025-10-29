@@ -5,7 +5,6 @@
 #include <nabla.h>
 #include "nbl/asset/utils/CGeometryCreator.h"
 
-
 namespace nbl::examples
 {
 
@@ -17,13 +16,17 @@ class CGeometryCreatorScene : public core::IReferenceCounted
 			using namespace nbl::asset; \
 			using namespace nbl::video
 	public:
-		//
+
+		using f_add_geometry_t = std::function<void(const std::string_view, nbl::core::smart_refctd_ptr<const nbl::asset::ICPUPolygonGeometry>&&)>;
+		using f_geometry_override_t = std::function<void(nbl::asset::CGeometryCreator*, f_add_geometry_t)>;
+		
 		struct SCreateParams
 		{
 			video::IQueue* transferQueue;
 			video::IUtilities* utilities;
 			system::ILogger* logger;
 			std::span<const uint32_t> addtionalBufferOwnershipFamilies = {};
+			f_geometry_override_t geometryOverride = nullptr;
 		};
 		static inline core::smart_refctd_ptr<CGeometryCreatorScene> create(SCreateParams&& params, const video::CAssetConverter::patch_t<asset::ICPUPolygonGeometry>& geometryPatch)
 		{
@@ -41,12 +44,11 @@ class CGeometryCreatorScene : public core::IReferenceCounted
 				return nullptr;
 			}
 
-
 			SInitParams init = {};
 			core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
 			// create out geometries
 			{
-				auto addGeometry = [&init,&geometries](const std::string_view name, smart_refctd_ptr<const ICPUPolygonGeometry>&& geom)->void
+				f_add_geometry_t addGeometry = [&init,&geometries](const auto name, auto&& geom)->void
 				{
 					init.geometryNames.emplace_back(name);
 					geometries.push_back(std::move(geom));
@@ -63,13 +65,22 @@ class CGeometryCreatorScene : public core::IReferenceCounted
 				ReferenceObjectCpu {.meta = {.type = OT_CONE, .name = "Cone Mesh" }, .shadersType = GP_CONE, .data = gc->createConeMesh(2, 3, 10) },
 				ReferenceObjectCpu {.meta = {.type = OT_ICOSPHERE, .name = "Icoshpere Mesh" }, .shadersType = GP_ICO, .data = gc->createIcoSphere(1, 3, true) }
 				*/
-				addGeometry("Cube",creator->createCube({1.f,1.f,1.f}));
-				addGeometry("Rectangle",creator->createRectangle({1.5f,3.f}));
-				addGeometry("Disk",creator->createDisk(2.f,30));
-				addGeometry("Sphere", creator->createSphere(2, 16, 16));
-				addGeometry("Cylinder", creator->createCylinder(2, 2, 20));
-				addGeometry("Cone", creator->createCone(2, 3, 10));
-				addGeometry("Icosphere", creator->createIcoSphere(1, 4, true));
+
+				if (params.geometryOverride)
+					params.geometryOverride(creator.get(), addGeometry);
+				else
+				{
+					addGeometry("Cube", creator->createCube({ 1.f,1.f,1.f }));
+					addGeometry("Rectangle", creator->createRectangle({ 1.5f,3.f }));
+					addGeometry("Disk", creator->createDisk(2.f, 30));
+					addGeometry("Sphere", creator->createSphere(2, 16, 16));
+					addGeometry("Cylinder", creator->createCylinder(2, 2, 20));
+					addGeometry("Cone", creator->createCone(2, 3, 10));
+					addGeometry("Icosphere", creator->createIcoSphere(1, 4, true));
+				}
+
+				if (geometries.empty())
+					return nullptr;
 			}
 			init.geometries.reserve(init.geometryNames.size());
 
@@ -77,7 +88,6 @@ class CGeometryCreatorScene : public core::IReferenceCounted
 			{
 				auto device = params.utilities->getLogicalDevice();
 				smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({.device=device});
-
 
 				const auto transferFamily = params.transferQueue->getFamilyIndex();
 

@@ -23,8 +23,10 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
             std::vector<SMouseEvent> mouse{}; std::vector<SKeyboardEvent> keyboard{};
         } captured;
 
-        mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { processMouse(events); for (const auto& e : events) captured.mouse.emplace_back(e); }, m_logger.get());
-        keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { processKeyboard(events); for (const auto& e : events) captured.keyboard.emplace_back(e); }, m_logger.get());
+        camera.beginInputProcessing(nextPresentationTimestamp);
+        mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); processMouse(events); for (const auto& e : events) captured.mouse.emplace_back(e); }, m_logger.get());
+        keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { camera.keyboardProcess(events); processKeyboard(events); for (const auto& e : events) captured.keyboard.emplace_back(e); }, m_logger.get());
+        camera.endInputProcessing(nextPresentationTimestamp);
 
         const auto cursorPosition = m_window->getCursorControl()->getPosition();
         ext::imgui::UI::SUpdateParameters params =
@@ -135,14 +137,25 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         cb->endRenderPass();
         cb->endDebugMarker();
 
-        const IGPUCommandBuffer::SClearColorValue d3clearValue = { .float32 = {0.f,1.f,0.f,1.f} };
+        const IGPUCommandBuffer::SClearColorValue d3clearValue = { .float32 = {0.1f,0.1f,0.1f,1.f} };
         auto info3D = info;
         info3D.colorClearValues = &d3clearValue; // tmp
         info3D.framebuffer = fb3D;
         cb->beginDebugMarker("IES::graphics 3D plot");
         cb->beginRenderPass(info3D, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
         {
-            // dummy, tmp
+            float32_t3x4 viewMatrix;
+            float32_t4x4 viewProjMatrix;
+            // TODO: get rid of legacy matrices
+            {
+                memcpy(&viewMatrix, camera.getViewMatrix().pointer(), sizeof(viewMatrix));
+                memcpy(&viewProjMatrix, camera.getConcatenatedMatrix().pointer(), sizeof(viewProjMatrix));
+            }
+            const auto viewParams = CSimpleDebugRenderer::SViewParams(viewMatrix, viewProjMatrix);
+
+            // tear down scene every frame
+            m_renderer->m_instances[0].packedGeo = m_renderer->getGeometries().data();
+            m_renderer->render(cb, viewParams);
         }
         cb->endRenderPass();
         cb->endDebugMarker();

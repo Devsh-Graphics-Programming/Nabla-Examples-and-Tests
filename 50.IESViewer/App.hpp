@@ -41,6 +41,10 @@ private:
     std::array<smart_refctd_ptr<IGPUCommandBuffer>, device_base_t::MaxFramesInFlight> m_cmdBuffers;
     std::array<core::smart_refctd_ptr<IGPUFramebuffer>, device_base_t::MaxFramesInFlight> m_frameBuffers2D, m_frameBuffers3D;
 
+    smart_refctd_ptr<CGeometryCreatorScene> m_scene;
+    smart_refctd_ptr<CSimpleDebugRenderer> m_renderer; // TODO: will need to derive from it + have my own pixel shader
+    Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD()); // TODO: orbit would be better
+
     InputSystem::ChannelReader<IMouseEventChannel> mouse;
     InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
