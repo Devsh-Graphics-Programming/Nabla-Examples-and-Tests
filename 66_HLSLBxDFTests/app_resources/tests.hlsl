@@ -192,39 +192,53 @@ struct TestReciprocity : TestBxDF<BxDF>
     using this_t = TestReciprocity<BxDF, aniso>;
     using traits_t = bxdf::traits<BxDF>;
 
+    using iso_interaction_t = typename BxDF::isotropic_interaction_type;
+    using aniso_interaction_t = typename BxDF::anisotropic_interaction_type;
+
     virtual ErrorType compute() override
     {
         aniso_cache cache, rec_cache;
         iso_cache isocache, rec_isocache;
 
+        if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BSDF && traits_t::IsMicrofacet)
+        {
+            isointer = iso_interaction_t::template copy<iso_interaction>(base_t::isointer);
+            anisointer = aniso_interaction_t::template copy<aniso_interaction>(base_t::anisointer);
+        }
+        else
+        {
+            isointer = base_t::isointer;
+            anisointer = base_t::anisointer;
+        }
+
         if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BRDF && !traits_t::IsMicrofacet)
         {
-            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy);
+            s = base_t::bxdf.generate(anisointer, base_t::rc.u.xy);
         }
         if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BRDF && traits_t::IsMicrofacet)
         {
             if NBL_CONSTEXPR_FUNC (aniso)
             {
-                s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u.xy, cache);
+                s = base_t::bxdf.generate(anisointer, base_t::rc.u.xy, cache);
             }
             else
             {
-                s = base_t::bxdf.generate(base_t::isointer, base_t::rc.u.xy, isocache);
+                s = base_t::bxdf.generate(isointer, base_t::rc.u.xy, isocache);
             }
         }
         if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BSDF && !traits_t::IsMicrofacet)
         {
-            s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u);
+            s = base_t::bxdf.generate(anisointer, base_t::rc.u);
         }
         if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BSDF && traits_t::IsMicrofacet)
         {
             if NBL_CONSTEXPR_FUNC (aniso)
             {
-                s = base_t::bxdf.generate(base_t::anisointer, base_t::rc.u, cache);
+                s = base_t::bxdf.generate(anisointer, base_t::rc.u, cache);
             }
             else
             {
-                s = base_t::bxdf.generate(base_t::isointer, base_t::rc.u, isocache);
+                s = base_t::bxdf.generate(isointer, base_t::rc.u, isocache);
             }
         }
 
@@ -243,14 +257,14 @@ struct TestReciprocity : TestBxDF<BxDF>
                 return BET_INVALID;
         }
 
-        float32_t3x3 toTangentSpace = base_t::anisointer.getToTangentSpace();
+        float32_t3x3 toTangentSpace = anisointer.getToTangentSpace();
         ray_dir_info_t rec_V = s.getL();
         ray_dir_info_t rec_localV = rec_V.transform(toTangentSpace);
         ray_dir_info_t rec_localL = base_t::rc.V.transform(toTangentSpace);
-        rec_s = sample_t::createFromTangentSpace(rec_localL, base_t::anisointer.getFromTangentSpace());
+        rec_s = sample_t::createFromTangentSpace(rec_localL, anisointer.getFromTangentSpace());
 
-        rec_isointer = iso_interaction::create(rec_V, base_t::rc.N);
-        rec_anisointer = aniso_interaction::create(rec_isointer, base_t::rc.T, base_t::rc.B);
+        rec_isointer = iso_interaction_t::create(rec_V, base_t::rc.N);
+        rec_anisointer = aniso_interaction_t::create(rec_isointer, base_t::rc.T, base_t::rc.B);
         rec_cache = cache;
         rec_cache.iso_cache.VdotH = cache.iso_cache.getLdotH();
         rec_cache.iso_cache.LdotH = cache.iso_cache.getVdotH();
@@ -258,21 +272,21 @@ struct TestReciprocity : TestBxDF<BxDF>
         rec_isocache.VdotH = isocache.getLdotH();
         rec_isocache.LdotH = isocache.getVdotH();
         
-        if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BRDF && !traits_t::IsMicrofacet || traits_t::type == bxdf::BT_BSDF && !traits_t::IsMicrofacet)
+        if NBL_CONSTEXPR_FUNC (!traits_t::IsMicrofacet)
         {
-            bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer));
+            bsdf = float32_t3(base_t::bxdf.eval(s, isointer));
             rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_isointer));
         }
         if NBL_CONSTEXPR_FUNC (traits_t::type == bxdf::BT_BRDF && traits_t::IsMicrofacet)
         {
             if NBL_CONSTEXPR_FUNC (aniso)
             {
-                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
+                bsdf = float32_t3(base_t::bxdf.eval(s, anisointer, cache));
                 rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_anisointer, rec_cache));
             }
             else
             {
-                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
+                bsdf = float32_t3(base_t::bxdf.eval(s, isointer, isocache));
                 rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_isointer, rec_isocache));
             }
         }
@@ -280,12 +294,16 @@ struct TestReciprocity : TestBxDF<BxDF>
         {
             if NBL_CONSTEXPR_FUNC (aniso)
             {
-                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::anisointer, cache));
+                anisointer.isotropic.pathOrigin = bxdf::PathOrigin::PO_SENSOR;
+                bsdf = float32_t3(base_t::bxdf.eval(s, anisointer, cache));
+                rec_anisointer.isotropic.pathOrigin = bxdf::PathOrigin::PO_LIGHT;
                 rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_anisointer, rec_cache));
             }
             else
             {
-                bsdf = float32_t3(base_t::bxdf.eval(s, base_t::isointer, isocache));
+                isointer.pathOrigin = bxdf::PathOrigin::PO_SENSOR;
+                bsdf = float32_t3(base_t::bxdf.eval(s, isointer, isocache));
+                rec_isointer.pathOrigin = bxdf::PathOrigin::PO_LIGHT;
                 rec_bsdf = float32_t3(base_t::bxdf.eval(rec_s, rec_isointer, rec_isocache));
             }
         }
@@ -296,7 +314,7 @@ struct TestReciprocity : TestBxDF<BxDF>
         if (verbose)
             base_t::errMsg += std::format("isTransmission: {}, NdotV: {}, NdotL: {}, VdotH: {}, LdotH: {}, NdotH: {}",
                 transmitted ? "true" : "false",
-                base_t::isointer.getNdotV(), s.getNdotL(),
+                isointer.getNdotV(), s.getNdotL(),
                 aniso ? cache.getVdotH() : isocache.getVdotH(), aniso ? cache.getLdotH() : isocache.getLdotH(), aniso ? cache.getAbsNdotH() : isocache.getAbsNdotH());
 #endif
 
@@ -362,8 +380,8 @@ struct TestReciprocity : TestBxDF<BxDF>
 
     sample_t s, rec_s;
     float32_t3 bsdf, rec_bsdf;
-    iso_interaction rec_isointer;
-    aniso_interaction rec_anisointer;
+    iso_interaction_t isointer, rec_isointer;
+    aniso_interaction_t anisointer, rec_anisointer;
     bool transmitted;
     bool verbose;
 };
