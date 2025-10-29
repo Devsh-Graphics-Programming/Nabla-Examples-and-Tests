@@ -5,8 +5,8 @@
 #include "App.hpp"
 
 // TODO
-#define APP_WINDOW_WIDTH 640*2u
-#define APP_WINDOW_HEIGHT 640*2u
+#define APP_WINDOW_WIDTH 669*2u
+#define APP_WINDOW_HEIGHT APP_WINDOW_WIDTH
 #define APP_DEPTH_BUFFER_FORMAT EF_UNKNOWN
 
 IESViewer::IESViewer(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)

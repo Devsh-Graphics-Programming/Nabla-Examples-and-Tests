@@ -85,8 +85,8 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
 
     // Graphics
     {
-        cb->beginDebugMarker("IES::graphics 2D plot");
         IES::barrier<IImage::LAYOUT::READ_ONLY_OPTIMAL>(cb, image);
+        cb->beginDebugMarker("IES::graphics 2D plot");
 
         auto extent = fb2D->getCreationParameters().colorAttachments[0u]->getCreationParameters().image->getCreationParameters().extent;
 
@@ -116,7 +116,6 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
 
         const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
         const IGPUCommandBuffer::SClearDepthStencilValue depthValue = { .depth = 0.f };
-        auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
         IGPUCommandBuffer::SRenderpassBeginInfo info =
         {
             .framebuffer = fb2D,
@@ -136,12 +135,25 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         cb->endRenderPass();
         cb->endDebugMarker();
 
+        const IGPUCommandBuffer::SClearColorValue d3clearValue = { .float32 = {0.f,1.f,0.f,1.f} };
+        auto info3D = info;
+        info3D.colorClearValues = &d3clearValue; // tmp
+        info3D.framebuffer = fb3D;
+        cb->beginDebugMarker("IES::graphics 3D plot");
+        cb->beginRenderPass(info3D, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+        {
+            // dummy, tmp
+        }
+        cb->endRenderPass();
+        cb->endDebugMarker();
+
         cb->beginDebugMarker("IES::graphics ImGUI");
 
         viewport.width = m_window->getWidth(); viewport.height = m_window->getHeight();
         scissor.extent = { m_window->getWidth(), m_window->getHeight() };
         cb->setScissor(0u, 1u, &scissor);
         currentRenderArea.extent = { m_window->getWidth(),m_window->getHeight() };
+        auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
         info.framebuffer = scRes->getFramebuffer(device_base_t::getCurrentAcquire().imageIndex);
         info.renderArea = currentRenderArea;
 
