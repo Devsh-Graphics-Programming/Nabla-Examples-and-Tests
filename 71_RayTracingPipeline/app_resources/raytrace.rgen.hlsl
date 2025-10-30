@@ -79,15 +79,16 @@ void main()
 
         Material material;
         MaterialId materialId = payload.materialId;
+        const static uint64_t MaterialPackedAlignment = nbl::hlsl::alignment_of_v<MaterialPacked>;
         // we use negative index to indicate that this is a procedural geometry
         if (materialId.isHitProceduralGeom())
         {
-            const MaterialPacked materialPacked = vk::RawBufferLoad<MaterialPacked>(pc.proceduralGeomInfoBuffer + materialId.getMaterialIndex() * sizeof(SProceduralGeomInfo));
+            const MaterialPacked materialPacked = vk::BufferPointer<MaterialPacked, MaterialPackedAlignment>(pc.proceduralGeomInfoBuffer + materialId.getMaterialIndex() * sizeof(SProceduralGeomInfo)).Get();
             material = nbl::hlsl::_static_cast<Material>(materialPacked);
         }
         else
         {
-            const MaterialPacked materialPacked = vk::RawBufferLoad<MaterialPacked>(pc.triangleGeomInfoBuffer + materialId.getMaterialIndex() * sizeof(STriangleGeomInfo));
+            const MaterialPacked materialPacked = vk::BufferPointer<MaterialPacked, MaterialPackedAlignment>(pc.triangleGeomInfoBuffer + materialId.getMaterialIndex() * sizeof(STriangleGeomInfo)).Get();
             material = nbl::hlsl::_static_cast<Material>(materialPacked);
         }
 
