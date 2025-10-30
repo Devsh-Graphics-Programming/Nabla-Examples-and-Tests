@@ -609,6 +609,8 @@ struct TestChi2 : TestBxDF<BxDF>
         std::fill(countFreq.begin(), countFreq.end(), 0);
         integrateFreq.resize(freqSize);
         std::fill(integrateFreq.begin(), integrateFreq.end(), 0);
+        maxCountFreq = 0.f;
+        maxIntFreq = 0.f;
     }
 
     double RLGamma(double a, double x) {
@@ -833,12 +835,47 @@ struct TestChi2 : TestBxDF<BxDF>
                         float cosTheta = std::cos(theta), sinTheta = std::sin(theta);
                         float cosPhi = std::cos(phi), sinPhi = std::sin(phi);
 
-                        float32_t3x3 toTangentSpace = base_t::anisointer.getToTangentSpace();
-                        ray_dir_info_t localV = base_t::rc.V.transform(toTangentSpace);
+                        ray_dir_info_t V = base_t::rc.V;
                         ray_dir_info_t L;
-                        L.direction = float32_t3(sinTheta * cosPhi, sinTheta * sinPhi, cosTheta);
-                        ray_dir_info_t localL = L.transform(toTangentSpace);
-                        sample_t s = sample_t::createFromTangentSpace(localL, base_t::anisointer.getFromTangentSpace());
+                        L.direction = hlsl::normalize(float32_t3(sinTheta * cosPhi, sinTheta * sinPhi, cosTheta));
+                        float32_t3 N = base_t::anisointer.getN();
+                        float NdotL = hlsl::dot(N, L.direction);
+
+                        float32_t3 T = base_t::anisointer.getT();
+                        float32_t3 B = base_t::anisointer.getB();
+                        sample_t s = sample_t::create(L, T, B, NdotL);
+
+                        NBL_IF_CONSTEXPR(traits_t::IsMicrofacet)
+                        {
+                            const float NdotV = base_t::anisointer.getNdotV();
+                            NBL_IF_CONSTEXPR(traits_t::type == bxdf::BT_BRDF)
+                                if (NdotV < 0.f) return 0.f;
+
+                            float eta = 1.f;
+                            const float NdotL = s.getNdotL();
+                            if (NdotV * NdotL < 0.f)
+                                eta = NdotV < 0.f ? 1.f/base_t::rc.eta.x : base_t::rc.eta.x;
+                            float32_t3 H = hlsl::normalize(V.getDirection() + L.getDirection() * eta);
+                            float VdotH = hlsl::dot(V.getDirection(), H);
+                            if (NdotV * VdotH < 0.f)
+                            {
+                                H = -H;
+                                VdotH = -VdotH;
+                            }
+
+                            cache.iso_cache.VdotH = VdotH;
+                            cache.iso_cache.LdotH = hlsl::dot(L.getDirection(), H);
+                            cache.iso_cache.VdotL = hlsl::dot(V.getDirection(), L.getDirection());
+                            cache.iso_cache.absNdotH = hlsl::abs(hlsl::dot(N, H));
+                            cache.iso_cache.NdotH2 = cache.iso_cache.absNdotH * cache.iso_cache.absNdotH;
+
+                            if (!cache.isValid(eta))
+                                return 0.f;
+
+                            const float32_t3 T = base_t::anisointer.getT();
+                            const float32_t3 B = base_t::anisointer.getB();
+                            cache.fillTangents(T, B, H);
+                        }
 
                         float pdf;
                         if NBL_CONSTEXPR_FUNC (!traits_t::IsMicrofacet)
@@ -849,16 +886,14 @@ struct TestChi2 : TestBxDF<BxDF>
                         {
                             if NBL_CONSTEXPR_FUNC (aniso)
                             {
-                                aniso_cache cache = aniso_cache::template createForReflection<aniso_interaction,sample_t>(base_t::anisointer, s);
                                 pdf = base_t::bxdf.pdf(s, base_t::anisointer, cache);
                             }
                             else
                             {
-                                aniso_cache cache = aniso_cache::template createForReflection<aniso_interaction,sample_t>(base_t::anisointer, s);
                                 pdf = base_t::bxdf.pdf(s, base_t::isointer, cache.iso_cache);
                             }
                         }
-                        return pdf == bit_cast<float>(numeric_limits<float>::infinity) ? 0.0 : pdf * sinTheta;
+                        return pdf * sinTheta;
                     },
                     float32_t2(i * thetaFactor, j * phiFactor), float32_t2((i + 1) * thetaFactor, (j + 1) * phiFactor));
 
