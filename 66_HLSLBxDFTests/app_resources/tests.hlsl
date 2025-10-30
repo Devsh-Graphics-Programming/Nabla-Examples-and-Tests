@@ -869,7 +869,7 @@ struct TestChi2 : TestBxDF<BxDF>
                             cache.iso_cache.absNdotH = hlsl::abs(hlsl::dot(N, H));
                             cache.iso_cache.NdotH2 = cache.iso_cache.absNdotH * cache.iso_cache.absNdotH;
 
-                            if (!cache.isValid(eta))
+                            if (!cache.isValid(bxdf::fresnel::OrientedEtas<vector<float,1> >::create(1.f, hlsl::promote<vector<float,1> >(eta))))
                                 return 0.f;
 
                             const float32_t3 T = base_t::anisointer.getT();
