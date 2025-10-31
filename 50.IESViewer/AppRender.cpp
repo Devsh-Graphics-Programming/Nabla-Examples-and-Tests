@@ -140,6 +140,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         const IGPUCommandBuffer::SClearColorValue d3clearValue = { .float32 = {0.1f,0.1f,0.1f,1.f} };
         auto info3D = info;
         info3D.colorClearValues = &d3clearValue; // tmp
+        info3D.depthStencilClearValues = &depthValue;
         info3D.framebuffer = fb3D;
         cb->beginDebugMarker("IES::graphics 3D plot");
         cb->beginRenderPass(info3D, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);

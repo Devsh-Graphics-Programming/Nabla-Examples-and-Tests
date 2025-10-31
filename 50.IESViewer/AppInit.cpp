@@ -347,6 +347,9 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         CGeometryCreatorScene::f_geometry_override_t injector = [](auto* creator, auto addGeometry)
         {
             addGeometry("Sphere", creator->createSphere(1.f, 32, 32));
+
+            // testing, will use it soon
+            addGeometry("Grid", creator->createGrid({128u, 128u}));
         };
 
         const uint32_t addtionalBufferOwnershipFamilies[] = { getGraphicsQueue()->getFamilyIndex() };
@@ -358,11 +361,12 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
                 .addtionalBufferOwnershipFamilies = addtionalBufferOwnershipFamilies,
                 .geometryOverride = injector
             },
-            // we want to use the vertex data through UTBs
+			// we want to use the vertex data through UTBs
             CSimpleDebugRenderer::DefaultPolygonGeometryPatch
         );
 
         const auto& geometries = m_scene->getInitParams().geometries;
+
         m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(), scRes->getRenderpass(), 0, { &geometries.front().get(),geometries.size() });
         if (!m_renderer || m_renderer->getGeometries().size() != geometries.size())
             return logFail("Could not create 3D Plot Renderer!");
