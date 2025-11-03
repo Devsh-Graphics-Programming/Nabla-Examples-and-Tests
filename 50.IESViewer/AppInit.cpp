@@ -119,12 +119,13 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 	if (!(SHADER = createShader.template operator()<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE(PATH)>() )) return false;
 
     m_logger->log("Loading GPU shaders..", system::ILogger::ELL_INFO);
-    smart_refctd_ptr<IShader> compute, pixel, vertex, imguiVertex, imguiPixel;
+    smart_refctd_ptr<IShader> compute, pixel, vertex, ies, imguiVertex, imguiPixel;
     {
         auto start = std::chrono::high_resolution_clock::now();
         CREATE_SHADER(compute, "compute")
         CREATE_SHADER(pixel, "pixel")
         CREATE_SHADER(vertex, "vertex")
+        CREATE_SHADER(ies, "ies.unified")
         CREATE_SHADER(imguiVertex, "imgui.vertex")
         CREATE_SHADER(imguiPixel, "imgui.pixel")
         auto elapsed = std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - start);
@@ -346,9 +347,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
     {
         CGeometryCreatorScene::f_geometry_override_t injector = [](auto* creator, auto addGeometry)
         {
-            addGeometry("Sphere", creator->createSphere(1.f, 32, 32));
-
-            // testing, will use it soon
+            // TODO: un-hardcode and per IES, pair optimal resolution
             addGeometry("Grid", creator->createGrid({128u, 128u}));
         };
 
@@ -362,12 +361,12 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
                 .geometryOverride = injector
             },
 			// we want to use the vertex data through UTBs
-            CSimpleDebugRenderer::DefaultPolygonGeometryPatch
+            CSimpleIESRenderer::DefaultPolygonGeometryPatch
         );
 
         const auto& geometries = m_scene->getInitParams().geometries;
 
-        m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(), scRes->getRenderpass(), 0, { &geometries.front().get(),geometries.size() });
+        m_renderer = CSimpleIESRenderer::create(ies, scRes->getRenderpass(), 0, { &geometries.front().get(),geometries.size() });
         if (!m_renderer || m_renderer->getGeometries().size() != geometries.size())
             return logFail("Could not create 3D Plot Renderer!");
 

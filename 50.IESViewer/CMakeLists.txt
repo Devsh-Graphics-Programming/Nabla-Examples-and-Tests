@@ -3,6 +3,7 @@ set(SRCs
 	AppInit.cpp AppRender.cpp AppGPU.cpp AppUI.cpp AppEvent.cpp AppInputParser.cpp
 	App.hpp AppInputParser.hpp
 	IES.cpp IES.hpp
+	CSimpleIESRenderer.hpp
 	inputs.json
 )
 
@@ -24,9 +25,13 @@ set(DEPENDS
 	app_resources/imgui.vertex.hlsl
 	app_resources/imgui.pixel.hlsl
 	app_resources/imgui.opts.hlsl
+	app_resources/ies.unified.hlsl
+	app_resources/ies.pcs.hlsl
 )
 target_sources(${EXECUTABLE_NAME} PRIVATE ${DEPENDS})
 set_source_files_properties(${DEPENDS} PROPERTIES HEADER_FILE_ONLY ON)
+
+# TODO: have only 2 inputs "ies.unified" & "imgui.unified" + one header for PCs
 
 set(SM 6_8)
 set(JSON [=[
@@ -42,6 +47,10 @@ set(JSON [=[
 	{
 		"INPUT": "app_resources/vertex.hlsl",
 		"KEY": "vertex"
+	},
+	{
+		"INPUT": "app_resources/ies.unified.hlsl",
+		"KEY": "ies.unified"
 	},
 	{
 		"INPUT": "app_resources/imgui.vertex.hlsl",

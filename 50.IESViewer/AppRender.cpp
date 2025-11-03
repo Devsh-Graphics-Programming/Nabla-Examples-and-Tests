@@ -152,11 +152,14 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
                 memcpy(&viewMatrix, camera.getViewMatrix().pointer(), sizeof(viewMatrix));
                 memcpy(&viewProjMatrix, camera.getConcatenatedMatrix().pointer(), sizeof(viewProjMatrix));
             }
-            const auto viewParams = CSimpleDebugRenderer::SViewParams(viewMatrix, viewProjMatrix);
+            const auto viewParams = CSimpleIESRenderer::SViewParams(viewMatrix, viewProjMatrix);
+
+            // TODO: un-hardcode
+            const auto iesParams = CSimpleIESRenderer::SIESParams({ .radius = 1.f, .resX = 128u, .resY = 128u });
 
             // tear down scene every frame
             m_renderer->m_instances[0].packedGeo = m_renderer->getGeometries().data();
-            m_renderer->render(cb, viewParams);
+            m_renderer->render(cb, viewParams, iesParams);
         }
         cb->endRenderPass();
         cb->endDebugMarker();
