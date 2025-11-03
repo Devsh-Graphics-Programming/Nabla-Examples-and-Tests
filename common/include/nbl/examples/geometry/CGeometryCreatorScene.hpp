@@ -77,6 +77,7 @@ class CGeometryCreatorScene : public core::IReferenceCounted
 					addGeometry("Cylinder", creator->createCylinder(2, 2, 20));
 					addGeometry("Cone", creator->createCone(2, 3, 10));
 					addGeometry("Icosphere", creator->createIcoSphere(1, 4, true));
+					addGeometry("Grid", creator->createGrid({ 32u, 32u }));
 				}
 
 				if (geometries.empty())
