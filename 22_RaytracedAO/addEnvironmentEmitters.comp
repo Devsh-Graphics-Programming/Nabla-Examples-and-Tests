@@ -1,0 +1,51 @@
+#version 430 core
+
+#include "common.h"
+layout(local_size_x = WORKGROUP_DIM, local_size_y = WORKGROUP_DIM) in;
+
+layout(set = 0, binding = 0, row_major) readonly buffer Params
+{
+	vec3 baseColor;
+	uint inputCount;
+	mat4x3 reorientations[];
+};
+layout(set = 0, binding = 1, r32ui) restrict uniform uimage2D outEnvMap;
+layout(set = 0, binding = 2) uniform sampler2D inEnvMaps[MAX_SAMPLERS_COMPUTE];
+
+#include <nbl/builtin/glsl/utils/transform.glsl>
+#include <nbl/builtin/glsl/sampling/envmap.glsl>
+#include <nbl/builtin/glsl/format/encode.glsl>
+
+vec3 directionFromMitsubaUVCoord(in vec2 uv)
+{
+	float dummy;
+	return mitsubaEnvmapToWorldSpace(nbl_glsl_sampling_envmap_directionFromUVCoord(uv,dummy));
+}
+
+void main()
+{
+	const ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);
+	const ivec2 dstSize = imageSize(outEnvMap);
+	if (all(lessThan(pixelCoord,dstSize)))
+	{
+		vec3 result = baseColor;
+
+		const vec2 origUV = vec2(pixelCoord)/vec2(dstSize);
+		const mat3 dir = mat3(
+			directionFromMitsubaUVCoord(origUV+vec2(0.05,0.5)/vec2(dstSize)),
+			directionFromMitsubaUVCoord(origUV+vec2(0.5,0.05)/vec2(dstSize)),
+			directionFromMitsubaUVCoord(origUV+vec2(0.5)/vec2(dstSize))
+		);
+		for (uint i=0; i<inputCount; i++)
+		{
+			mat3x2 uv;
+			for (uint j=0; j<3; j++)
+				uv[j] = nbl_glsl_sampling_envmap_uvCoordFromDirection(worldSpaceToMitsubaEnvmap(nbl_glsl_pseudoMul3x4with3x1(reorientations[i],dir[j])));
+			for (uint j=0; j<2; j++)
+				uv[j] = (uv[2]-uv[j])/0.45f;
+			result += textureGrad(inEnvMaps[i],uv[2],uv[0],uv[1]).rgb;
+		}
+
+		imageStore(outEnvMap,pixelCoord,uvec4(nbl_glsl_encodeRGB9E5(result),0,0,0));
+	}
+}

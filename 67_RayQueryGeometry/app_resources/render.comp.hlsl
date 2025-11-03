@@ -59,7 +59,7 @@ float3 calculateNormals(int primID, SGeomInfo geom, float2 bary)
         float3 v1 = vk::RawBufferLoad<float3>(vertexBufferAddress + indices[1] * 12);
         float3 v2 = vk::RawBufferLoad<float3>(vertexBufferAddress + indices[2] * 12);
 
-        return normalize(cross(v2 - v0, v1 - v0));
+        return normalize(cross(v1 - v0, v2 - v0));
     }
 
     float3 n0, n1, n2;

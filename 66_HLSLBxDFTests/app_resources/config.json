@@ -1,20 +1,31 @@
 {
     "logInfo": false,
     "TestJacobian": {
-        "runs": 10
+        "runs": 10,
+        "verbose": true
     },
     "TestReciprocity": {
-        "runs": 10
+        "runs": 10,
+        "verbose": true
     },
     "TestBucket": {
         "runs": 10,
         "samples": 500
     },
     "TestChi2": {
-        "runs": 5,
+        "runs": 10,
         "samples": 1000000,
         "thetaSplits": 80,
         "phiSplits": 160,
         "writeFrequencies": false
+    },
+    "TestNDF": {
+        "runs": 10,
+        "verbose": true
+    },
+    "TestCTGenerateH": {
+        "runs": 10,
+        "samples": 1000000,
+        "immediateFail": true
     }
 }

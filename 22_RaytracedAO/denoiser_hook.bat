@@ -1,6 +1,6 @@
 @echo off
 
-set denoiser_dir="%~dp0../39_DenoiserTonemapper/bin"
+set denoiser_dir="%~dp0../39.DenoiserTonemapper/bin"
 if NOT EXIST %denoiser_dir%/denoisertonemapper.exe (
     echo BatchScriptError: Denoiser Executable does not exist. ^(at %denoiser%^)
     REM Don't Exit when denoiser is not found

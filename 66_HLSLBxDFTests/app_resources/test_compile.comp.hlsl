@@ -27,6 +27,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 {
     bxdf::reflection::SLambertian<iso_config_t> lambertianBRDF;
     bxdf::reflection::SOrenNayar<iso_config_t> orenNayarBRDF;
+    bxdf::reflection::SDeltaDistribution<iso_config_t> deltaDistBRDF;
     bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t> beckmannIsoBRDF;
     bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t> beckmannAnisoBRDF;
     bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t> ggxIsoBRDF;
@@ -34,8 +35,10 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     bxdf::reflection::SIridescent<iso_microfacet_config_t> iridBRDF;
 
     bxdf::transmission::SLambertian<iso_config_t> lambertianBSDF;
+    bxdf::transmission::SOrenNayar<iso_config_t> orenNayarBSDF;
     bxdf::transmission::SSmoothDielectric<iso_config_t> smoothDielectricBSDF;
-    bxdf::transmission::SSmoothThinDielectric<iso_config_t> thinSmoothDielectricBSDF;
+    bxdf::transmission::SThinSmoothDielectric<iso_config_t> thinSmoothDielectricBSDF;
+    bxdf::transmission::SDeltaDistribution<iso_config_t> deltaDistBSDF;
     bxdf::transmission::SBeckmannDielectricIsotropic<iso_microfacet_config_t> beckmannIsoBSDF;
     bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t> beckmannAnisoBSDF;
     bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t> ggxIsoBSDF;
@@ -69,8 +72,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     s = beckmannAnisoBRDF.generate(anisointer, u.xy, cache);
     L += s.L.direction;
 
-    typename bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>::query_type query0 = beckmannAnisoBRDF.createQuery(s, anisointer);
-    qp = beckmannAnisoBRDF.quotient_and_pdf(query0, s, anisointer, cache);
+    qp = beckmannAnisoBRDF.quotient_and_pdf(s, anisointer, cache);
     L -= qp.quotient;
 
     s = ggxAnisoBRDF.generate(anisointer, u.xy, cache);
@@ -81,8 +83,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     qp = iridBRDF.quotient_and_pdf(query6, s, isointer, icache);
     L -= qp.quotient;
 
-    typename bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>::query_type query1 = ggxAnisoBRDF.createQuery(s, anisointer);
-    qp = ggxAnisoBRDF.quotient_and_pdf(query1, s, anisointer, cache);
+    qp = ggxAnisoBRDF.quotient_and_pdf(s, anisointer, cache);
     L -= qp.quotient;
 
     s = lambertianBSDF.generate(anisointer, u);
@@ -97,8 +98,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     s = ggxAnisoBSDF.generate(anisointer, u, cache);
     L += s.L.direction;
 
-    typename bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>::query_type query2 = ggxAnisoBSDF.createQuery(s, anisointer);
-    qp = ggxAnisoBSDF.quotient_and_pdf(query2, s, anisointer, cache);
+    qp = ggxAnisoBSDF.quotient_and_pdf(s, anisointer, cache);
     L -= qp.quotient;
 
     buff[ID.x] = L;

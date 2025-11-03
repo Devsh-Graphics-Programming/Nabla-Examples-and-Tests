@@ -12,7 +12,7 @@ layout(set = 3, binding = 2, rgba16f) restrict uniform image2D framebuffer;
 
 bool get_sample_job()
 {
-	return all(lessThan(gl_GlobalInvocationID.xy,staticViewData.imageDimensions));
+	return all(lessThan(gl_GlobalInvocationID.xy,getImageDimensions(staticViewData)));
 }
 
 vec3 unpack_barycentrics(in uint data)
@@ -24,49 +24,27 @@ vec3 unpack_barycentrics(in uint data)
 void main()
 {
 	clear_raycount();
+
+	uint rayMask = 0u;
 	if (get_sample_job())
 	{		
 		// vis buffer read
 		const uvec2 outPixelLocation = gl_GlobalInvocationID.xy;
 		const uvec4 visBuffer = texelFetch(frontFacingTriangleIDDrawID_unorm16Bary_dBarydScreenHalf2x2,ivec2(outPixelLocation),0);
 
-		const vec2 texCoordUV = (vec2(outPixelLocation)+vec2(0.5)) / vec2(staticViewData.imageDimensions);
-		const vec2 NDC = texCoordUV * vec2(2.0,-2.0) + vec2(-1.0,1.0);
-		/*
-		mat3 ndcToV = mat3(
-			pc.cummon.viewProjMatrixInverse[0].xyz*pc.cummon.camPos.x,
-			pc.cummon.viewProjMatrixInverse[1].xyz*pc.cummon.camPos.y,
-			pc.cummon.viewProjMatrixInverse[2].xyz*pc.cummon.camPos.z
-		)-mat3(pc.cummon.viewProjMatrixInverse);
-		*/
-		// NDC -> ViewSpace
-		// (invProj*NDC).xyz/(invProj*NDC).www
-		// ViewSpace -> WorldSpace
-		// invView*viewSpace
-		// ViewSpace Dir -> WorldSpace Dir
-		// inverse(mat3(view))*viewDir
-		// NDC dir -> View Space Dir
-		// (invProj*NDC).xyz/(invProj*NDC).www-camPos
-		// camPos = (invProj[3]).xyz/invPorj[3].www
-		// inverse(mat3(view))*viewDir
-		// NDC dir -> World Space Dir
-		// (invViewProj*NDC).xyz/(invViewProj*NDC).www-camPos
-		// camPos = (invViewProj[3]).xyz/invViewProj[3].www
-		const vec4 tmpA = pc.cummon.viewProjMatrixInverse*vec4(NDC,1.f,1.f);
-		const vec4 tmpB = pc.cummon.viewProjMatrixInverse[3].xyzw;
-		normalizedV = normalize(pc.cummon.camPos-tmpA.xyz/tmpA.www);
+		const vec2 texCoordUV = (vec2(outPixelLocation)+vec2(0.5))/vec2(getImageDimensions(staticViewData));
+		normalizedV = normalize(mat3(pc.cummon.viewDirReconFactors)*vec3(texCoordUV,1.f));
 		
-		const uint samplesPerPixelPerDispatch = bitfieldExtract(staticViewData.pathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch,16,16);
+		const uint samplesPerPixelPerDispatch = bitfieldExtract(staticViewData.maxPathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch,16,16);
 		Contribution contrib;
 		const bool hit = visBuffer[0]!=0xffffffffu;
 		if (hit)
 		{
 			// vis buffer decode
-			const bool frontfacing = !bool(visBuffer[0]&0x80000000u);
 			const int triangleIDBitcount = findMSB(MAX_TRIANGLES_IN_BATCH-1)+1;
 			const uint triangleID = bitfieldExtract(visBuffer[0],31-triangleIDBitcount,triangleIDBitcount);
 			const uint batchInstanceGUID = bitfieldExtract(visBuffer[0],0,31-triangleIDBitcount);
-			const vec2 compactBary = unpackUnorm2x16(visBuffer[1]);
+//const vec2 compactBary = unpackUnorm2x16(visBuffer[1]);
 			#ifdef TEX_PREFETCH_STREAM
 			// TODO: separate pipeline and separate out the barycentric derivative FBO attachment, only write if need to, only fetch if `needs_texture_prefetch`
 			const mat2 dBarydScreen = mat2(unpackHalf2x16(visBuffer[2]),unpackHalf2x16(visBuffer[3]));
@@ -75,75 +53,134 @@ void main()
 			//
 			const nbl_glsl_ext_Mitsuba_Loader_instance_data_t batchInstanceData = InstData.data[batchInstanceGUID];
 			const uvec3 indices = get_triangle_indices(batchInstanceData,triangleID);
-			
-			// get material while waiting for indices
-			const nbl_glsl_MC_oriented_material_t material = nbl_glsl_MC_material_data_t_getOriented(batchInstanceData.material,frontfacing);
-			contrib.color = contrib.albedo = nbl_glsl_MC_oriented_material_t_getEmissive(material);
-			
+						
 			// load vertex data
-			vec3 geomNormal;
-			const vec3 lastVxPos = load_positions(geomNormal,batchInstanceData,indices);
+			const vec3 lastVxPos = load_positions(batchInstanceData,indices);
+			if (!bool(batchInstanceData.determinantSignBit&0x80000000u))
+				normalizedG = -normalizedG;
+			const float VdotG = dot(normalizedV,normalizedG);
+			const bool frontfacing = VdotG>=0.f;
+
+			// get material
+			const nbl_glsl_MC_oriented_material_t material = nbl_glsl_MC_material_data_t_getOriented(batchInstanceData.material,frontfacing);
+			contrib.color = contrib.albedo = nbl_glsl_MC_oriented_material_t_getEmissive(material,normalizedV);
 
 			// little optimization for non-twosided materials
 			if (material.genchoice_count!=0u)
-			{			
-				// get initial scramble key while waiting for vertex positions
+			{
+				// get initial scramble key
 				const nbl_glsl_xoroshiro64star_state_t scramble_start_state = texelFetch(scramblebuf,ivec2(outPixelLocation),0).rg;
+
+				vec3 origin;
+				#if RECOMPUTE_BARY
+					// we know the ray will intersect the triangle
+					vec2 compactBary;
+					{
+						// reversed order of arguments for each cross cause V is negative
+						const vec3 ray_cross_e2 = cross(dPdBary[1],normalizedV);
+						const float detRcp = 1.f/dot(dPdBary[0],ray_cross_e2);
+						// assert(!isinf(detRcp));
+						const vec3 s = (pc.cummon.viewDirReconFactors[3]-lastVxPos)*detRcp;
+						const float u = dot(s,ray_cross_e2);
+						// assert(0.f<=u && u<=1.f)
+						const vec3 s_cross_e1 = cross(s,dPdBary[0]);
+						const float v = -dot(normalizedV,s_cross_e1);
+						// assert(0.f<=v && v<=1.f)
+						compactBary = vec2(u,v);
+						//
+						const float t = dot(dPdBary[1],s_cross_e1);
+						//assert(t>0.f);
+						origin = pc.cummon.viewDirReconFactors[3]-normalizedV*t;
+					}
+				#else
+				const vec2 compactBary = unpackUnorm2x16(visBuffer[1]);
+				#endif
+				origin = dPdBary*compactBary+lastVxPos;
 
 				//
 				normalizedN = load_normal_and_prefetch_textures(
-					batchInstanceData,indices,compactBary,geomNormal,material
+					batchInstanceData,indices,compactBary,material
 					#ifdef TEX_PREFETCH_STREAM
 					,dBarydScreen
 					#endif
 				);
-			
-				const vec3 origin = dPdBary*compactBary+lastVxPos;
-				normalizedV = normalize(pc.cummon.camPos-origin);
 
 				// generate rays
 				const uint vertex_depth = 1u;
-				generate_next_rays(
+				rayMask = generate_next_rays(
 					samplesPerPixelPerDispatch,material,frontfacing,vertex_depth,
-					scramble_start_state,pc.cummon.samplesComputed,outPixelLocation,origin,
+					scramble_start_state,pc.cummon.frameLowDiscrepancySequenceShift,outPixelLocation,origin,
 					vec3(pc.cummon.rcpFramesDispatched),1.f,contrib.albedo,contrib.worldspaceNormal
 				);
 			}
 			else
-				contrib.worldspaceNormal = geomNormal*nbl_glsl_MC_colorToScalar(contrib.albedo);
+				contrib.worldspaceNormal = normalizedG*nbl_glsl_MC_colorToScalar(contrib.albedo);
 		}
 		else
 			Contribution_initMiss(contrib,1.f);
 
-		if (bool(pc.cummon.depth))
+		if (bool(bitfieldExtract(pc.cummon.pathDepth_rayCountWriteIx,0,RAYCOUNT_SHIFT)))
 		{
 			Contribution_normalizeAoV(contrib);
 		
 			// we could optimize this, but its pointless before using KHR_ray_query
 			const bool firstFrame = pc.cummon.rcpFramesDispatched==1.f;
+			const float luma = nbl_glsl_MC_colorToScalar(contrib.color);
 			for (uint i=0u; i<samplesPerPixelPerDispatch; i++)
 			{
 				const uvec3 coord = uvec3(outPixelLocation,i);
+
+				if (isRWMCEnabled())
+				{
+					nbl_glsl_RWMC_SplattingParameters splat = nbl_glsl_RWMC_getCascade(staticViewData.cascadeParams,luma);
+
+					// ray out of ray-payload, using first layer of accumulation texture to store emissive along path so far
+					const bool pathToBeContinued = bool((rayMask>>i)&0x1u);
+					if (pathToBeContinued)
+					{
+						storeAccumulation(contrib.color*pc.cummon.rcpFramesDispatched,coord);
+						splat.cascadeWeights = vec2(0.f,0.f);
+					}
+
+					const uint higherCascade = splat.lowerCascade+1u;
+					const uint cascadeCount = staticViewData.cascadeParams.penultimateCascadeIx+2u;
+					for (uint cascadeIx=0u; cascadeIx<cascadeCount; cascadeIx++)
+					{
+						float weight = 0.f;
+						if (cascadeIx==splat.lowerCascade)
+							weight = splat.cascadeWeights[0];
+						else if (cascadeIx==higherCascade)
+							weight = splat.cascadeWeights[1];
+						nextSampleAccumulationCascade(
+							firstFrame,contrib.color*weight,coord,samplesPerPixelPerDispatch,
+							cascadeIx,pc.cummon.rcpFramesDispatched
+						);
+					}
+				}
+
+				const bool hideEnvmap = bool(staticViewData.sampleSequenceStride_hideEnvmap>>31);
 				// clear accumulations totally if beginning a new frame
 				if (firstFrame)
 				{
-					storeAccumulation(contrib.color,coord);
+					if (!isRWMCEnabled())
+						storeAccumulation(contrib.color,coord);
 					storeAlbedo(contrib.albedo,coord);
 					storeWorldspaceNormal(contrib.worldspaceNormal,coord);
+					storeMask(hideEnvmap&&(!hit) ? 1.f:0.f,coord);
 				}
 				else
 				{
-					const vec3 acc_emissive = fetchAccumulation(coord);
-					const vec3 acc_albedo = fetchAlbedo(coord);
-					const vec3 acc_worldspaceNormal = fetchWorldspaceNormal(coord);
-
-					const vec3 emissive_delta = (contrib.color-acc_emissive)*pc.cummon.rcpFramesDispatched;
-					const vec3 albedo_delta = (contrib.albedo-acc_albedo)*pc.cummon.rcpFramesDispatched;
-					const vec3 worldspaceNormal_delta = (contrib.worldspaceNormal-acc_worldspaceNormal)*pc.cummon.rcpFramesDispatched;
-	
-					storeAccumulation(acc_emissive,emissive_delta,coord);
-					storeAlbedo(acc_albedo,albedo_delta,coord);
-					storeWorldspaceNormal(acc_worldspaceNormal,worldspaceNormal_delta,coord);
+					if (!isRWMCEnabled())
+					{
+						const vec3 prev = fetchAccumulation(coord);
+						const vec3 delta = (contrib.color-prev)*pc.cummon.rcpFramesDispatched;
+						if (any(greaterThan(abs(delta),vec3(exp2(-19.f)))))
+							storeAccumulation(prev+delta,coord);
+					}
+					addAlbedo(contrib.albedo,coord,pc.cummon.rcpFramesDispatched);
+					addWorldspaceNormal(contrib.worldspaceNormal,coord,pc.cummon.rcpFramesDispatched);
+					if (hideEnvmap)
+						addMask(hit ? 0.f:1.f,coord,pc.cummon.rcpFramesDispatched);
 				}
 			}
 		}
