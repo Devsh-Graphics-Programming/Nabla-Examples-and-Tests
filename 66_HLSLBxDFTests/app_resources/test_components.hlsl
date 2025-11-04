@@ -90,7 +90,7 @@ struct TestNDF : TestBxDF<BxDF>
         NBL_IF_CONSTEXPR(aniso)
         {
             dg1_query_type dq = base_t::bxdf.ndf.template createDG1Query<aniso_interaction, aniso_cache>(base_t::anisointer, cache);
-            fresnel_type _f = bxdf::impl::getOrientedFresnel<fresnel_type, base_t::bxdf_t::IsBSDF>::__call(base_t::bxdf.fresnel, base_t::anisointer.getNdotV());
+            fresnel_type _f = base_t::bxdf_t::getOrientedFresnel(base_t::bxdf.fresnel, base_t::anisointer.getNdotV());
             quant_query_type qq = bxdf::impl::quant_query_helper<ndf_type, fresnel_type, base_t::bxdf_t::IsBSDF>::template __call<aniso_cache>(base_t::bxdf.ndf, _f, cache);
             quant_type DG1 = base_t::bxdf.ndf.template DG1<sample_t, aniso_interaction>(dq, qq, s, base_t::anisointer);
             dg1 = DG1.microfacetMeasure * hlsl::abs(cache.getVdotH() / base_t::anisointer.getNdotV());
@@ -101,7 +101,7 @@ struct TestNDF : TestBxDF<BxDF>
         else
         {
             dg1_query_type dq = base_t::bxdf.ndf.template createDG1Query<iso_interaction, iso_cache>(base_t::isointer, isocache);
-            fresnel_type _f = bxdf::impl::getOrientedFresnel<fresnel_type, base_t::bxdf_t::IsBSDF>::__call(base_t::bxdf.fresnel, base_t::isointer.getNdotV());
+            fresnel_type _f = base_t::bxdf_t::getOrientedFresnel(base_t::bxdf.fresnel, base_t::isointer.getNdotV());
             quant_query_type qq = bxdf::impl::quant_query_helper<ndf_type, fresnel_type, base_t::bxdf_t::IsBSDF>::template __call<iso_cache>(base_t::bxdf.ndf, _f, isocache);
             quant_type DG1 = base_t::bxdf.ndf.template DG1<sample_t, iso_interaction>(dq, qq, s, base_t::isointer);
             dg1 = DG1.microfacetMeasure * hlsl::abs(isocache.getVdotH() / base_t::isointer.getNdotV());

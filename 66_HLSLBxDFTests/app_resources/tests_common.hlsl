@@ -81,6 +81,14 @@ bool checkEq(T a, T b, float32_t eps)
     return nbl::hlsl::all<vector<bool, vector_traits<T>::Dimension> >(nbl::hlsl::max<T>(_a / _b, _b / _a) <= hlsl::promote<T>(1 + eps));
 }
 
+template<>
+bool checkEq<float32_t>(float32_t a, float32_t b, float32_t eps)
+{
+    float32_t _a = hlsl::abs(a);
+    float32_t _b = hlsl::abs(b);
+    return nbl::hlsl::max<float32_t>(_a / _b, _b / _a) <= float32_t(1 + eps);
+}
+
 template<typename T>
 bool checkLt(T a, T b)
 {

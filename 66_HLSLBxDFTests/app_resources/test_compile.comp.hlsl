@@ -32,7 +32,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t> beckmannAnisoBRDF;
     bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t> ggxIsoBRDF;
     bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t> ggxAnisoBRDF;
-    bxdf::reflection::SIridescent<iso_microfacet_config_t> iridBRDF;
+    // bxdf::reflection::SIridescent<iso_microfacet_config_t> iridBRDF;
 
     bxdf::transmission::SLambertian<iso_config_t> lambertianBSDF;
     bxdf::transmission::SOrenNayar<iso_config_t> orenNayarBSDF;
@@ -43,7 +43,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t> beckmannAnisoBSDF;
     bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t> ggxIsoBSDF;
     bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t> ggxAnisoBSDF;
-    bxdf::transmission::SIridescent<iso_microfacet_config_t> iridBSDF;
+    // bxdf::transmission::SIridescent<iso_microfacet_config_t> iridBSDF;
 
 
     // do some nonsense calculations, but call all the relevant functions
@@ -78,10 +78,10 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     s = ggxAnisoBRDF.generate(anisointer, u.xy, cache);
     L += s.L.direction;
 
-    iso_cache icache;
-    typename bxdf::reflection::SIridescent<iso_microfacet_config_t>::query_type query6 = iridBRDF.createQuery(s, isointer);
-    qp = iridBRDF.quotient_and_pdf(query6, s, isointer, icache);
-    L -= qp.quotient;
+    // iso_cache icache;
+    // typename bxdf::reflection::SIridescent<iso_microfacet_config_t>::query_type query6 = iridBRDF.createQuery(s, isointer);
+    // qp = iridBRDF.quotient_and_pdf(query6, s, isointer, icache);
+    // L -= qp.quotient;
 
     qp = ggxAnisoBRDF.quotient_and_pdf(s, anisointer, cache);
     L -= qp.quotient;

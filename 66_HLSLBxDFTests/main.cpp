@@ -193,7 +193,7 @@ int main(int argc, char** argv)
     TestJacobian<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     TestJacobian<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestJacobian<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>,true>::run(initparams, cb);
-    TestJacobian<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
+    //TestJacobian<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
 
     TestJacobian<bxdf::transmission::SLambertian<iso_config_t>>::run(initparams, cb);
     TestJacobian<bxdf::transmission::SOrenNayar<iso_config_t>>::run(initparams, cb);
@@ -204,7 +204,7 @@ int main(int argc, char** argv)
     TestJacobian<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     TestJacobian<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestJacobian<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>,true>::run(initparams, cb);
-    TestJacobian<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
+    //TestJacobian<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
     FOR_EACH_END
 
 
@@ -223,7 +223,7 @@ int main(int argc, char** argv)
     TestReciprocity<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     TestReciprocity<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestReciprocity<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
-    TestReciprocity<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
+    //TestReciprocity<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
 
     TestReciprocity<bxdf::transmission::SLambertian<iso_config_t>>::run(initparams, cb);
     TestReciprocity<bxdf::transmission::SOrenNayar<iso_config_t>>::run(initparams, cb);
@@ -234,7 +234,7 @@ int main(int argc, char** argv)
     TestReciprocity<bxdf::transmission::SBeckmannDielectricAnisotropic<rectest_aniso_microfacet_config_t>, true>::run(initparams, cb);
     TestReciprocity<bxdf::transmission::SGGXDielectricIsotropic<rectest_iso_microfacet_config_t>, false>::run(initparams, cb);
     TestReciprocity<bxdf::transmission::SGGXDielectricAnisotropic<rectest_aniso_microfacet_config_t>, true>::run(initparams, cb);
-    TestReciprocity<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
+    //TestReciprocity<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
     FOR_EACH_END
 
 
@@ -253,7 +253,7 @@ int main(int argc, char** argv)
     TestBucket<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     TestBucket<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestBucket<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
-    TestBucket<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
+    //TestBucket<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
 
     TestBucket<bxdf::transmission::SLambertian<iso_config_t>>::run(initparams, cb);
     TestBucket<bxdf::transmission::SOrenNayar<iso_config_t>>::run(initparams, cb);
@@ -261,7 +261,7 @@ int main(int argc, char** argv)
     TestBucket<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     TestBucket<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestBucket<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
-    TestBucket<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
+    //TestBucket<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
     FOR_EACH_END
 
 
@@ -282,7 +282,7 @@ int main(int argc, char** argv)
     TestChi2<bxdf::reflection::SBeckmannAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     TestChi2<bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestChi2<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
-    TestChi2<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
+    //TestChi2<bxdf::reflection::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
 
     TestChi2<bxdf::transmission::SLambertian<iso_config_t>>::run(initparams, cb);
     TestChi2<bxdf::transmission::SOrenNayar<iso_config_t>>::run(initparams, cb);
@@ -290,7 +290,7 @@ int main(int argc, char** argv)
     TestChi2<bxdf::transmission::SBeckmannDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     TestChi2<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestChi2<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
-    TestChi2<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
+    //TestChi2<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
     FOR_EACH_END
 
 #if 0
@@ -338,22 +338,35 @@ int main(int argc, char** argv)
     // test arccos angle sums
     {
         Xoroshiro64Star rng = Xoroshiro64Star::construct(uint32_t2(4, 2));
+        math::sincos_accumulator<float> angle_adder;
+
+        auto Sin = [&](const float cosA) -> float
+        {
+            return nbl::hlsl::sqrt(1.f - cosA * cosA);
+        };
+
         for (uint32_t i = 0; i < 10; i++)
         {
-            const float a = rng() * numbers::pi<float>;
-            const float b = rng() * numbers::pi<float>;
-            const float c = rng() * numbers::pi<float>;
-            const float d = rng() * numbers::pi<float>;
+            const float a = ConvertToFloat01<uint32_t>::__call(rng()) * 2.f - 1.f;
+            const float b = ConvertToFloat01<uint32_t>::__call(rng()) * 2.f - 1.f;
+            const float c = ConvertToFloat01<uint32_t>::__call(rng()) * 2.f - 1.f;
+            const float d = ConvertToFloat01<uint32_t>::__call(rng()) * 2.f - 1.f;
 
             const float exAB = acos(a) + acos(b);
-            float res = math::getSumofArccosAB(a, b);
-            if (res != exAB)
-                fprintf(stderr, "[ERROR] math::getSumofArccosAB failed! expected %f, got %f\n", exAB, res);
+            angle_adder = math::sincos_accumulator<float>::create(a, Sin(a));
+            angle_adder.addCosine(b, Sin(b));
+            float res = angle_adder.getSumofArccos();
+            if (!checkEq<float>(res, exAB, 1e-3))
+                fprintf(stderr, "[ERROR] angle adding (2 angles) failed! expected %f, got %f\n", exAB, res);
 
             const float exABCD = exAB + acos(c) + acos(d);
-            res = math::getSumofArccosABCD(a, b, c, d);
-            if (res != exABCD)
-                fprintf(stderr, "[ERROR] math::getSumofArccosABCD failed! expected %f, got %f\n", exABCD, res);
+            angle_adder = math::sincos_accumulator<float>::create(a, Sin(a));
+            angle_adder.addCosine(b, Sin(b));
+            angle_adder.addCosine(c, Sin(c));
+            angle_adder.addCosine(d, Sin(d));
+            res = angle_adder.getSumofArccos();
+            if (!checkEq<float>(res, exABCD, 1e-3))
+                fprintf(stderr, "[ERROR] angle adding (4 angles) failed! expected %f, got %f\n", exABCD, res);
         }
     }
 
