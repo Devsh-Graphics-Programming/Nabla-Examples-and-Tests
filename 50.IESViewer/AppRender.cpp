@@ -9,8 +9,16 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
 {
     const auto resourceIx = m_realFrameIx % device_base_t::MaxFramesInFlight;
     auto* const cb = m_cmdBuffers.data()[resourceIx].get();
+
+    auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+
+#ifdef DEBUG_SWPCHAIN_FRAMEBUFFERS_ONLY
+    IGPUFramebuffer* const fb2D = nullptr;
+    auto* const fb3D = scRes->getFramebuffer(device_base_t::getCurrentAcquire().imageIndex);
+#else
     auto* const fb2D = m_frameBuffers2D[resourceIx].get();
     auto* const fb3D = m_frameBuffers3D[resourceIx].get();
+#endif 
 
     cb->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
     cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
@@ -37,17 +45,18 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
             .keyboardEvents = captured.keyboard
         };
 
+#ifndef DEBUG_SWPCHAIN_FRAMEBUFFERS_ONLY
         ui.it->update(params);
+#endif
     }
 
     auto& ies = m_assets[m_activeAssetIx];
+    const auto* profile = ies.getProfile();
     PushConstants pc;
     {
         pc.vAnglesBDA = ies.buffers.vAngles->getDeviceAddress();
         pc.hAnglesBDA = ies.buffers.hAngles->getDeviceAddress();
         pc.dataBDA = ies.buffers.data->getDeviceAddress();
-
-        const auto* profile = ies.getProfile();
 
         pc.maxIValue = profile->getMaxCandelaValue();
         pc.vAnglesCount = profile->getVertAngles().size();
@@ -88,9 +97,12 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
     // Graphics
     {
         IES::barrier<IImage::LAYOUT::READ_ONLY_OPTIMAL>(cb, image);
-        cb->beginDebugMarker("IES::graphics 2D plot");
 
+#ifdef DEBUG_SWPCHAIN_FRAMEBUFFERS_ONLY
+        asset::VkExtent3D extent = { m_window->getWidth(), m_window->getHeight() };
+#else
         auto extent = fb2D->getCreationParameters().colorAttachments[0u]->getCreationParameters().image->getCreationParameters().extent;
+#endif
 
         asset::SViewport viewport;
         {
@@ -126,6 +138,8 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
             .renderArea = currentRenderArea
         };
 
+#ifndef DEBUG_SWPCHAIN_FRAMEBUFFERS_ONLY
+        cb->beginDebugMarker("IES::graphics 2D plot");
         cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
         {
             auto* layout = m_graphicsPipeline->getLayout();
@@ -136,8 +150,9 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         }
         cb->endRenderPass();
         cb->endDebugMarker();
+#endif
 
-        const IGPUCommandBuffer::SClearColorValue d3clearValue = { .float32 = {0.1f,0.1f,0.1f,1.f} };
+        const IGPUCommandBuffer::SClearColorValue d3clearValue = { .float32 = {1.f,0.f,1.f,1.f} };
         auto info3D = info;
         info3D.colorClearValues = &d3clearValue; // tmp
         info3D.depthStencilClearValues = &depthValue;
@@ -154,23 +169,24 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
             }
             const auto viewParams = CSimpleIESRenderer::SViewParams(viewMatrix, viewProjMatrix);
 
-            // TODO: un-hardcode
-            const auto iesParams = CSimpleIESRenderer::SIESParams({ .radius = 1.f, .resX = 128u, .resY = 128u });
+            auto resolution = profile->getOptimalIESResolution();
+            const auto iesParams = CSimpleIESRenderer::SIESParams({ .radius = 100.f, .resX = resolution.x, .resY = resolution.y, .ds = m_descriptors[0u].get(), .texID = (uint32_t)m_activeAssetIx });
 
             // tear down scene every frame
-            m_renderer->m_instances[0].packedGeo = m_renderer->getGeometries().data();
+            m_renderer->m_instances[0].packedGeo = m_renderer->getGeometries().data() + m_activeAssetIx;
             m_renderer->render(cb, viewParams, iesParams);
         }
         cb->endRenderPass();
         cb->endDebugMarker();
 
+#ifndef DEBUG_SWPCHAIN_FRAMEBUFFERS_ONLY
         cb->beginDebugMarker("IES::graphics ImGUI");
 
         viewport.width = m_window->getWidth(); viewport.height = m_window->getHeight();
         scissor.extent = { m_window->getWidth(), m_window->getHeight() };
         cb->setScissor(0u, 1u, &scissor);
         currentRenderArea.extent = { m_window->getWidth(),m_window->getHeight() };
-        auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+        
         info.framebuffer = scRes->getFramebuffer(device_base_t::getCurrentAcquire().imageIndex);
         info.renderArea = currentRenderArea;
 
@@ -190,6 +206,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         }
         cb->endRenderPass();
         cb->endDebugMarker();
+#endif
         cb->end();
     }
 

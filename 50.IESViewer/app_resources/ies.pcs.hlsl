@@ -29,6 +29,7 @@ struct SPushConstants
 	uint32_t normalView : 16;
 	uint32_t resX : 16;
 	uint32_t resY : 16;
+	uint32_t texID;
 	float32_t radius;
 };
 

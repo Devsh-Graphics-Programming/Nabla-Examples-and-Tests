@@ -12,6 +12,9 @@
 #include "IES.hpp"
 #include "CSimpleIESRenderer.hpp"
 
+// 3D plot only, full window render and no imgui
+// #define DEBUG_SWPCHAIN_FRAMEBUFFERS_ONLY
+
 NBL_EXPOSE_NAMESPACES
 
 class IESViewer final : public MonoWindowApplication, public BuiltinResourcesApplication
@@ -40,7 +43,10 @@ private:
     size_t m_realFrameIx = 0;
     smart_refctd_ptr<ISemaphore> m_semaphore;
     std::array<smart_refctd_ptr<IGPUCommandBuffer>, device_base_t::MaxFramesInFlight> m_cmdBuffers;
+
+#ifndef DEBUG_SWPCHAIN_FRAMEBUFFERS_ONLY
     std::array<core::smart_refctd_ptr<IGPUFramebuffer>, device_base_t::MaxFramesInFlight> m_frameBuffers2D, m_frameBuffers3D;
+#endif
 
     smart_refctd_ptr<CGeometryCreatorScene> m_scene;
     smart_refctd_ptr<CSimpleIESRenderer> m_renderer;

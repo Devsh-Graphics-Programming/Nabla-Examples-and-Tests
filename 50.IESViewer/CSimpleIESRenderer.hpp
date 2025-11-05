@@ -50,9 +50,11 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 
 		struct SIESParams
 		{
-			hlsl::float32_t radius;
+			hlsl::float32_t radius = 1.f;
 			uint32_t resX : 16;
 			uint32_t resY : 16;
+			IGPUDescriptorSet* ds = nullptr;
+			uint32_t texID;
 		};
 		//
 		struct SPackedGeometry
@@ -79,6 +81,7 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 					.normalView = packedGeo->normalView,
 					.resX = iesParams.resX,
 					.resY = iesParams.resY,
+					.texID = iesParams.texID,
 					.radius = iesParams.radius
 				};
 			}
@@ -100,7 +103,7 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 		}();
 
 		//
-		static inline core::smart_refctd_ptr<CSimpleIESRenderer> create(core::smart_refctd_ptr<asset::IShader> precompiled, video::IGPURenderpass* renderpass, const uint32_t subpassIX)
+		static inline core::smart_refctd_ptr<CSimpleIESRenderer> create(core::smart_refctd_ptr<asset::IShader> precompiled, core::smart_refctd_ptr<const video::IGPUDescriptorSetLayout> iesDSLayout, video::IGPURenderpass* renderpass, const uint32_t subpassIX)
 		{
 			EXPOSE_NABLA_NAMESPACES;
 
@@ -157,7 +160,7 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 				.offset = 0,
 				.size = sizeof(SInstance::SPushConstants),
 			}};
-			init.layout = device->createPipelineLayout(ranges,smart_refctd_ptr<const IGPUDescriptorSetLayout>(init.subAllocDS->getDescriptorSet()->getLayout()));
+			init.layout = device->createPipelineLayout(ranges, smart_refctd_ptr(iesDSLayout), smart_refctd_ptr<const IGPUDescriptorSetLayout>(init.subAllocDS->getDescriptorSet()->getLayout()));
 
 			// create pipelines
 			using pipeline_e = SInitParams::PipelineType;
@@ -183,8 +186,9 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 							break;
 					}
 					primitiveAssembly.primitiveRestartEnable = false;
-					primitiveAssembly.tessPatchVertCount = 3;
 					rasterization.faceCullingMode = EFCM_NONE;
+					rasterization.depthWriteEnable = true;
+					rasterization.depthCompareOp = ECO_GREATER;
 					params[i].cached.subpassIx = subpassIX;
 					params[i].renderpass = renderpass;
 				}
@@ -199,9 +203,9 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 		}
 
 		//
-		static inline core::smart_refctd_ptr<CSimpleIESRenderer> create(core::smart_refctd_ptr<asset::IShader> precompiled, video::IGPURenderpass* renderpass, const uint32_t subpassIX, const std::span<const video::IGPUPolygonGeometry* const> geometries)
+		static inline core::smart_refctd_ptr<CSimpleIESRenderer> create(core::smart_refctd_ptr<asset::IShader> precompiled, core::smart_refctd_ptr<const video::IGPUDescriptorSetLayout> iesDSLayout, video::IGPURenderpass* renderpass, const uint32_t subpassIX, const std::span<const video::IGPUPolygonGeometry* const> geometries)
 		{
-			auto retval = create(precompiled,renderpass,subpassIX);
+			auto retval = create(precompiled, iesDSLayout, renderpass, subpassIX);
 			if (retval)
 				retval->addGeometries(geometries);
 			return retval;
@@ -367,8 +371,9 @@ class CSimpleIESRenderer final : public core::IReferenceCounted
 			cmdbuf->beginDebugMarker("CSimpleIESRenderer::render");
 
 			const auto* layout = m_params.layout.get();
-			const auto ds = m_params.subAllocDS->getDescriptorSet();
-			cmdbuf->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_GRAPHICS,layout,0,1,&ds);
+
+			IGPUDescriptorSet* descriptors[] = { iesParams.ds, m_params.subAllocDS->getDescriptorSet() };
+			cmdbuf->bindDescriptorSets(E_PIPELINE_BIND_POINT::EPBP_GRAPHICS,layout,0,2, descriptors);
 
 			for (const auto& instance : m_instances)
 			{

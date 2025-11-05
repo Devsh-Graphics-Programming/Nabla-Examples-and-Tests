@@ -295,6 +295,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         }
     }
 
+#ifndef DEBUG_SWPCHAIN_FRAMEBUFFERS_ONLY
     // frame buffers
     {
         // TODO: I will create my own
@@ -325,13 +326,13 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
             {
                 auto color = createImageView(WIDTH, HEIGHT, EF_R8G8B8A8_SRGB, "[3D Plot]: framebuffer[" + ixs + "].color attachement", IGPUImage::EUF_RENDER_ATTACHMENT_BIT | IGPUImage::EUF_SAMPLED_BIT, IImage::EAF_COLOR_BIT);
-                auto depth = createImageView(WIDTH, HEIGHT, EF_D32_SFLOAT, "[3D Plot]: framebuffer[" + ixs + "].depth attachement", IGPUImage::EUF_RENDER_ATTACHMENT_BIT | IGPUImage::EUF_SAMPLED_BIT, IGPUImage::EAF_DEPTH_BIT);
+                auto depth = createImageView(WIDTH, HEIGHT, EF_D16_UNORM, "[3D Plot]: framebuffer[" + ixs + "].depth attachement", IGPUImage::EUF_RENDER_ATTACHMENT_BIT | IGPUImage::EUF_SAMPLED_BIT, IGPUImage::EAF_DEPTH_BIT);
 
                 fb3D = m_device->createFramebuffer
                 (
                     { {
                         .renderpass = renderpass,
-                        .depthStencilAttachments = nullptr,
+                        .depthStencilAttachments = &depth.get(),
                         .colorAttachments = &color.get(),
                         .width = WIDTH,
                         .height = HEIGHT
@@ -340,15 +341,21 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             }
         }
     }
+#endif
 
     auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 
     // geometries for 3D scene
     {
-        CGeometryCreatorScene::f_geometry_override_t injector = [](auto* creator, auto addGeometry)
+        CGeometryCreatorScene::f_geometry_override_t injector = [&](auto* creator, auto addGeometry)
         {
-            // TODO: un-hardcode and per IES, pair optimal resolution
-            addGeometry("Grid", creator->createGrid({128u, 128u}));
+            for (auto i = 0u; i < m_assets.size(); ++i)
+            {
+                auto& ies = m_assets[i];
+                auto resolution = ies.getProfile()->getOptimalIESResolution();
+                auto name = "Grid " + std::to_string(i);
+                addGeometry(name.c_str(), creator->createGrid({ resolution.x, resolution.y }));
+            }
         };
 
         const uint32_t addtionalBufferOwnershipFamilies[] = { getGraphicsQueue()->getFamilyIndex() };
@@ -360,13 +367,12 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
                 .addtionalBufferOwnershipFamilies = addtionalBufferOwnershipFamilies,
                 .geometryOverride = injector
             },
-			// we want to use the vertex data through UTBs
             CSimpleIESRenderer::DefaultPolygonGeometryPatch
         );
 
         const auto& geometries = m_scene->getInitParams().geometries;
 
-        m_renderer = CSimpleIESRenderer::create(ies, scRes->getRenderpass(), 0, { &geometries.front().get(),geometries.size() });
+        m_renderer = CSimpleIESRenderer::create(ies, core::smart_refctd_ptr<const video::IGPUDescriptorSetLayout>(m_descriptors[0u]->getLayout()), scRes->getRenderpass(), 0, { &geometries.front().get(),geometries.size() });
         if (!m_renderer || m_renderer->getGeometries().size() != geometries.size())
             return logFail("Could not create 3D Plot Renderer!");
 
@@ -379,11 +385,17 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
         core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
         core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
+
+#ifdef DEBUG_SWPCHAIN_FRAMEBUFFERS_ONLY
+        matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(m_window->getWidth()) / float(m_window->getHeight()), 0.1, 10000);
+#else
         const auto& params = m_frameBuffers3D.front()->getCreationParameters();
         matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(params.width) / float(params.height), 0.1, 10000);
+#endif
         camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
     }
 
+#ifndef DEBUG_SWPCHAIN_FRAMEBUFFERS_ONLY
     // imGUI
     {
         ext::imgui::UI::SCreationParameters params = {};
@@ -429,6 +441,8 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
                 auto* ix = addresses.data();
                 infos[*ix].desc = smart_refctd_ptr<nbl::video::IGPUImageView>(imgui->getFontAtlasView()); ++ix;
+
+
                 for (uint8_t i = 0u; i < MaxFramesInFlight; ++i, ++ix) infos[*ix].desc = m_frameBuffers2D[i]->getCreationParameters().colorAttachments[0u];
                 for (uint8_t i = 0u; i < MaxFramesInFlight; ++i, ++ix) infos[*ix].desc = m_frameBuffers3D[i]->getCreationParameters().colorAttachments[0u];
                 
@@ -450,6 +464,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
             uiListener();
         });
     }
+#endif
 
     m_semaphore = m_device->createSemaphore(m_realFrameIx);
     if (!m_semaphore)
