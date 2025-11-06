@@ -46,14 +46,14 @@ namespace nbl
 namespace hlsl
 {
 
+using spectral_t = vector<float, 3>;
 using ray_dir_info_t = bxdf::ray_dir_info::SBasic<float>;
-using iso_interaction = bxdf::surface_interactions::SIsotropic<ray_dir_info_t>;
+using iso_interaction = bxdf::surface_interactions::SIsotropic<ray_dir_info_t, spectral_t>;
 using aniso_interaction = bxdf::surface_interactions::SAnisotropic<iso_interaction>;
 using sample_t = bxdf::SLightSample<ray_dir_info_t>;
 using iso_cache = bxdf::SIsotropicMicrofacetCache<float>;
 using aniso_cache = bxdf::SAnisotropicMicrofacetCache<iso_cache>;
 using quotient_pdf_t = sampling::quotient_and_pdf<float32_t3, float>;
-using spectral_t = vector<float, 3>;
 
 using iso_config_t = bxdf::SConfiguration<sample_t, iso_interaction, spectral_t>;
 using aniso_config_t = bxdf::SConfiguration<sample_t, aniso_interaction, spectral_t>;
@@ -192,6 +192,7 @@ struct TestBase
         rc = SBxDFTestResources::create(seed);
 
         isointer = iso_interaction::create(rc.V, rc.N);
+        isointer.luminosityContributionHint = rc.luma_coeff;
         anisointer = aniso_interaction::create(isointer, rc.T, rc.B);
     }
 
@@ -449,34 +450,40 @@ struct TestBxDF<bxdf::transmission::SGGXDielectricAnisotropic<Config>> : TestBxD
 
 namespace reciprocity_test_impl
 {
-template<class RayDirInfo NBL_PRIMARY_REQUIRES(bxdf::ray_dir_info::Basic<RayDirInfo>)
+template<class RayDirInfo, class Spectrum NBL_PRIMARY_REQUIRES(bxdf::ray_dir_info::Basic<RayDirInfo> && concepts::FloatingPointLikeVectorial<Spectrum>)
 struct SIsotropic
 {
+    using this_t = SIsotropic<RayDirInfo, Spectrum>;
     using ray_dir_info_type = RayDirInfo;
     using scalar_type = typename RayDirInfo::scalar_type;
     using vector3_type = typename RayDirInfo::vector3_type;
+    using spectral_type = Spectrum;
 
     // WARNING: Changed since GLSL, now arguments need to be normalized!
-    static SIsotropic<RayDirInfo> create(NBL_CONST_REF_ARG(RayDirInfo) normalizedV, const vector3_type normalizedN)
+    static this_t create(NBL_CONST_REF_ARG(RayDirInfo) normalizedV, const vector3_type normalizedN)
     {
-        SIsotropic<RayDirInfo> retval;
+        this_t retval;
         retval.V = normalizedV;
         retval.N = normalizedN;
         retval.NdotV = nbl::hlsl::dot<vector3_type>(retval.N, retval.V.getDirection());
         retval.NdotV2 = retval.NdotV * retval.NdotV;
+        retval.luminosityContributionHint = hlsl::promote<spectral_type>(1.0);
+        retval.throughputWeights = hlsl::promote<spectral_type>(1.0);
 
         return retval;
     }
 
     template<typename I NBL_FUNC_REQUIRES(bxdf::surface_interactions::Isotropic<I>)
-    static SIsotropic<RayDirInfo> copy(NBL_CONST_REF_ARG(I) other)
+    static this_t copy(NBL_CONST_REF_ARG(I) other)
     {
-        SIsotropic<RayDirInfo> retval;
+        this_t retval;
         retval.V = other.getV();
         retval.N = other.getN();
         retval.NdotV = other.getNdotV();
         retval.NdotV2 = other.getNdotV2();
         retval.pathOrigin = bxdf::PathOrigin::PO_SENSOR;
+        retval.luminosityContributionHint = other.luminosityContributionHint;
+        retval.throughputWeights = other.throughputWeights;
         return retval;
     }
 
@@ -489,12 +496,20 @@ struct SIsotropic
     scalar_type getNdotV2() NBL_CONST_MEMBER_FUNC { return NdotV2; }
 
     bxdf::PathOrigin getPathOrigin() NBL_CONST_MEMBER_FUNC { return pathOrigin; }
+    spectral_type getLuminosityContributionHint() NBL_CONST_MEMBER_FUNC { return luminosityContributionHint; }
+    spectral_type getPrefixThroughputWeights() NBL_CONST_MEMBER_FUNC
+    {
+        spectral_type prefixThroughputWeights = luminosityContributionHint * throughputWeights;
+        return prefixThroughputWeights / math::lpNorm<spectral_type,1>(prefixThroughputWeights);
+    }
 
     RayDirInfo V;
     vector3_type N;
     scalar_type NdotV;
     scalar_type NdotV2;
     bxdf::PathOrigin pathOrigin;
+    spectral_type luminosityContributionHint;
+    spectral_type throughputWeights;    // product of all quotients so far
 };
 
 template<class IsotropicInteraction NBL_PRIMARY_REQUIRES(bxdf::surface_interactions::Isotropic<IsotropicInteraction>)
@@ -506,6 +521,7 @@ struct SAnisotropic
     using scalar_type = typename ray_dir_info_type::scalar_type;
     using vector3_type = typename ray_dir_info_type::vector3_type;
     using matrix3x3_type = matrix<scalar_type, 3, 3>;
+    using spectral_type = typename isotropic_interaction_type::spectral_type;
 
     // WARNING: Changed since GLSL, now arguments need to be normalized!
     static this_t create(
@@ -559,6 +575,8 @@ struct SAnisotropic
     scalar_type getNdotV(bxdf::BxDFClampMode _clamp = bxdf::BxDFClampMode::BCM_NONE) NBL_CONST_MEMBER_FUNC { return isotropic.getNdotV(_clamp); }
     scalar_type getNdotV2() NBL_CONST_MEMBER_FUNC { return isotropic.getNdotV2(); }
     bxdf::PathOrigin getPathOrigin() NBL_CONST_MEMBER_FUNC { return isotropic.getPathOrigin(); }
+    spectral_type getLuminosityContributionHint() NBL_CONST_MEMBER_FUNC { return isotropic.getLuminosityContributionHint(); }
+    spectral_type getPrefixThroughputWeights() NBL_CONST_MEMBER_FUNC { return isotropic.getPrefixThroughputWeights(); }
 
     vector3_type getT() NBL_CONST_MEMBER_FUNC { return T; }
     vector3_type getB() NBL_CONST_MEMBER_FUNC { return B; }
@@ -607,7 +625,7 @@ struct CustomIsoMicrofacetConfiguration<LS,Interaction,MicrofacetCache,Spectrum 
 };
 }
 
-using rectest_iso_interaction = reciprocity_test_impl::SIsotropic<ray_dir_info_t>;
+using rectest_iso_interaction = reciprocity_test_impl::SIsotropic<ray_dir_info_t, spectral_t>;
 using rectest_aniso_interaction = reciprocity_test_impl::SAnisotropic<rectest_iso_interaction>;
 using rectest_iso_microfacet_config_t = reciprocity_test_impl::CustomIsoMicrofacetConfiguration<sample_t, rectest_iso_interaction, iso_cache, spectral_t>;
 using rectest_aniso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, rectest_aniso_interaction, aniso_cache, spectral_t>;

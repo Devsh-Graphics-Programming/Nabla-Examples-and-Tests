@@ -8,14 +8,14 @@
 
 using namespace nbl::hlsl;
 
+using spectral_t = vector<float, 3>;
 using ray_dir_info_t = bxdf::ray_dir_info::SBasic<float>;
-using iso_interaction = bxdf::surface_interactions::SIsotropic<ray_dir_info_t>;
+using iso_interaction = bxdf::surface_interactions::SIsotropic<ray_dir_info_t, spectral_t>;
 using aniso_interaction = bxdf::surface_interactions::SAnisotropic<iso_interaction>;
 using sample_t = bxdf::SLightSample<ray_dir_info_t>;
 using iso_cache = bxdf::SIsotropicMicrofacetCache<float>;
 using aniso_cache = bxdf::SAnisotropicMicrofacetCache<iso_cache>;
 using quotient_pdf_t = sampling::quotient_and_pdf<float32_t3, float>;
-using spectral_t = vector<float, 3>;
 
 using iso_config_t = bxdf::SConfiguration<sample_t, iso_interaction, spectral_t>;
 using aniso_config_t = bxdf::SConfiguration<sample_t, aniso_interaction, spectral_t>;

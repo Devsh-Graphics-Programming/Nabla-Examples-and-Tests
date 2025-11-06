@@ -264,6 +264,7 @@ struct TestReciprocity : TestBxDF<BxDF>
         rec_s = sample_t::createFromTangentSpace(rec_localL, anisointer.getFromTangentSpace());
 
         rec_isointer = iso_interaction_t::create(rec_V, base_t::rc.N);
+        rec_isointer.luminosityContributionHint = isointer.luminosityContributionHint;
         rec_anisointer = aniso_interaction_t::create(rec_isointer, base_t::rc.T, base_t::rc.B);
         rec_cache = cache;
         rec_cache.iso_cache.VdotH = cache.iso_cache.getLdotH();
