@@ -139,6 +139,9 @@ struct SBxDFTestResources
         retval.alpha.y = ConvertToFloat01<uint32_t>::__call(retval.rng());
         retval.eta = ConvertToFloat01<uint32_t2>::__call(rng_vec2()) * hlsl::promote<float32_t2>(1.5) + hlsl::promote<float32_t2>(1.1); // range [1.1,2.6], also only do eta = eta/1.0 (air)
         retval.luma_coeff = float32_t3(0.2126, 0.7152, 0.0722); // luma coefficients for Rec. 709
+
+        retval.Dinc = ConvertToFloat01<uint32_t>::__call(retval.rng()) * 2400.0f + 100.0f;
+        retval.etaThinFilm = ConvertToFloat01<uint32_t>::__call(retval.rng()) * 0.5 + 1.1f; // range [1.1,1.6]
         return retval;
     }
 
@@ -155,6 +158,10 @@ struct SBxDFTestResources
     float32_t2 alpha;
     float32_t2 eta; // (eta, etak)
     float32_t3 luma_coeff;
+
+    // thin film stuff;
+    float Dinc; // in nm [100, 2500]
+    float etaThinFilm;
 };
 
 struct STestInitParams
@@ -325,6 +332,21 @@ struct TestBxDF<bxdf::reflection::SGGXAnisotropic<aniso_microfacet_config_t>> : 
 };
 
 template<>
+struct TestBxDF<bxdf::reflection::SIridescent<iso_microfacet_config_t>> : TestBxDFBase<bxdf::reflection::SIridescent<iso_microfacet_config_t>>
+{
+    using base_t = TestBxDFBase<bxdf::reflection::SIridescent<iso_microfacet_config_t>>;
+
+    void initBxDF(SBxDFTestResources _rc)
+    {
+        base_t::bxdf.ndf = base_t::bxdf_t::ndf_type::create(_rc.alpha.x);
+        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(_rc.Dinc,hlsl::promote<float32_t3>(1.0),hlsl::promote<float32_t3>(_rc.etaThinFilm),hlsl::promote<float32_t3>(_rc.eta.x),hlsl::promote<float32_t3>(_rc.eta.y));
+#ifndef __HLSL_VERSION
+        base_t::name = "Iridescent BRDF";
+#endif
+    }
+};
+
+template<>
 struct TestBxDF<bxdf::transmission::SOrenNayar<iso_config_t>> : TestBxDFBase<bxdf::transmission::SOrenNayar<iso_config_t>>
 {
    using base_t = TestBxDFBase<bxdf::transmission::SOrenNayar<iso_config_t>>;
@@ -363,7 +385,6 @@ struct TestBxDF<bxdf::transmission::SThinSmoothDielectric<iso_config_t>> : TestB
     {
         using spectral_type = typename base_t::bxdf_t::spectral_type;
         base_t::bxdf.fresnel = bxdf::fresnel::Dielectric<spectral_type>::create(bxdf::fresnel::OrientedEtas<spectral_type>::create(base_t::isointer.getNdotV(bxdf::BxDFClampMode::BCM_ABS), hlsl::promote<spectral_type>(_rc.eta.x)));
-        base_t::bxdf.luminosityContributionHint = _rc.luma_coeff;
 #ifndef __HLSL_VERSION
         base_t::name = "Thin smooth dielectric BSDF";
 #endif
@@ -443,6 +464,21 @@ struct TestBxDF<bxdf::transmission::SGGXDielectricAnisotropic<Config>> : TestBxD
         base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(orientedEta);
 #ifndef __HLSL_VERSION
         base_t::name = "GGX Dielectric Aniso BSDF";
+#endif
+    }
+};
+
+template<class Config>
+struct TestBxDF<bxdf::transmission::SIridescent<Config>> : TestBxDFBase<bxdf::transmission::SIridescent<Config>>
+{
+    using base_t = TestBxDFBase<bxdf::transmission::SIridescent<Config>>;
+
+    void initBxDF(SBxDFTestResources _rc)
+    {
+        base_t::bxdf.ndf = base_t::bxdf_t::ndf_type::create(_rc.alpha.x);
+        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(_rc.Dinc,hlsl::promote<float32_t3>(1.0),hlsl::promote<float32_t3>(_rc.etaThinFilm),hlsl::promote<float32_t3>(_rc.eta.x));
+#ifndef __HLSL_VERSION
+        base_t::name = "Iridescent BSDF";
 #endif
     }
 };
