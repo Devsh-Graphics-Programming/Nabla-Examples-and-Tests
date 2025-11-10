@@ -118,12 +118,9 @@ struct SBxDFTestResources
         retval.u = ConvertToFloat01<uint32_t3>::__call(rng_vec3());
         retval.u.x = hlsl::clamp(retval.u.x, retval.eps, 1.f-retval.eps);
         retval.u.y = hlsl::clamp(retval.u.y, retval.eps, 1.f-retval.eps);
-        // retval.u.z = 0.0;
 
         retval.V.direction = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(rng_vec2())));
         retval.N = nbl::hlsl::normalize<float32_t3>(sampling::UniformSphere<float>::generate(ConvertToFloat01<uint32_t2>::__call(rng_vec2())));
-        // if (hlsl::dot(retval.N, retval.V.direction) < 0)
-        //     retval.V.direction = -retval.V.direction;
         
         float32_t3 tangent, bitangent;
         math::frisvad<float32_t3>(retval.N, tangent, bitangent);
@@ -339,7 +336,14 @@ struct TestBxDF<bxdf::reflection::SIridescent<iso_microfacet_config_t>> : TestBx
     void initBxDF(SBxDFTestResources _rc)
     {
         base_t::bxdf.ndf = base_t::bxdf_t::ndf_type::create(_rc.alpha.x);
-        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(_rc.Dinc,hlsl::promote<float32_t3>(1.0),hlsl::promote<float32_t3>(_rc.etaThinFilm),hlsl::promote<float32_t3>(_rc.eta.x),hlsl::promote<float32_t3>(_rc.eta.y));
+        using fresnel_params_t = base_t::bxdf_t::fresnel_type::creation_params_type;
+        fresnel_params_t params;
+        params.Dinc = _rc.Dinc;
+        params.ior1 = hlsl::promote<float32_t3>(1.0);
+        params.ior2 = hlsl::promote<float32_t3>(_rc.etaThinFilm);
+        params.ior3 = hlsl::promote<float32_t3>(_rc.eta.x);
+        params.iork3 = hlsl::promote<float32_t3>(_rc.eta.y);
+        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(params);
 #ifndef __HLSL_VERSION
         base_t::name = "Iridescent BRDF";
 #endif
@@ -476,7 +480,13 @@ struct TestBxDF<bxdf::transmission::SIridescent<Config>> : TestBxDFBase<bxdf::tr
     void initBxDF(SBxDFTestResources _rc)
     {
         base_t::bxdf.ndf = base_t::bxdf_t::ndf_type::create(_rc.alpha.x);
-        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(_rc.Dinc,hlsl::promote<float32_t3>(1.0),hlsl::promote<float32_t3>(_rc.etaThinFilm),hlsl::promote<float32_t3>(_rc.eta.x));
+        using fresnel_params_t = base_t::bxdf_t::fresnel_type::creation_params_type;
+        fresnel_params_t params;
+        params.Dinc = _rc.Dinc;
+        params.ior1 = hlsl::promote<float32_t3>(1.0);
+        params.ior2 = hlsl::promote<float32_t3>(_rc.etaThinFilm);
+        params.ior3 = hlsl::promote<float32_t3>(_rc.eta.x);
+        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(params);
 #ifndef __HLSL_VERSION
         base_t::name = "Iridescent BSDF";
 #endif
@@ -504,7 +514,6 @@ struct SIsotropic
         retval.NdotV = nbl::hlsl::dot<vector3_type>(retval.N, retval.V.getDirection());
         retval.NdotV2 = retval.NdotV * retval.NdotV;
         retval.luminosityContributionHint = hlsl::promote<spectral_type>(1.0);
-        retval.throughputWeights = hlsl::promote<spectral_type>(1.0);
 
         return retval;
     }
@@ -519,7 +528,6 @@ struct SIsotropic
         retval.NdotV2 = other.getNdotV2();
         retval.pathOrigin = bxdf::PathOrigin::PO_SENSOR;
         retval.luminosityContributionHint = other.luminosityContributionHint;
-        retval.throughputWeights = other.throughputWeights;
         return retval;
     }
 
@@ -533,11 +541,6 @@ struct SIsotropic
 
     bxdf::PathOrigin getPathOrigin() NBL_CONST_MEMBER_FUNC { return pathOrigin; }
     spectral_type getLuminosityContributionHint() NBL_CONST_MEMBER_FUNC { return luminosityContributionHint; }
-    spectral_type getPrefixThroughputWeights() NBL_CONST_MEMBER_FUNC
-    {
-        spectral_type prefixThroughputWeights = luminosityContributionHint * throughputWeights;
-        return prefixThroughputWeights / math::lpNorm<spectral_type,1>(prefixThroughputWeights);
-    }
 
     RayDirInfo V;
     vector3_type N;
@@ -545,7 +548,6 @@ struct SIsotropic
     scalar_type NdotV2;
     bxdf::PathOrigin pathOrigin;
     spectral_type luminosityContributionHint;
-    spectral_type throughputWeights;    // product of all quotients so far
 };
 
 template<class IsotropicInteraction NBL_PRIMARY_REQUIRES(bxdf::surface_interactions::Isotropic<IsotropicInteraction>)
@@ -612,7 +614,6 @@ struct SAnisotropic
     scalar_type getNdotV2() NBL_CONST_MEMBER_FUNC { return isotropic.getNdotV2(); }
     bxdf::PathOrigin getPathOrigin() NBL_CONST_MEMBER_FUNC { return isotropic.getPathOrigin(); }
     spectral_type getLuminosityContributionHint() NBL_CONST_MEMBER_FUNC { return isotropic.getLuminosityContributionHint(); }
-    spectral_type getPrefixThroughputWeights() NBL_CONST_MEMBER_FUNC { return isotropic.getPrefixThroughputWeights(); }
 
     vector3_type getT() NBL_CONST_MEMBER_FUNC { return T; }
     vector3_type getB() NBL_CONST_MEMBER_FUNC { return B; }

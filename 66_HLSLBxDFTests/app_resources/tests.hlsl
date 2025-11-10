@@ -69,7 +69,6 @@ struct TestJacobian : TestBxDF<BxDF>
         if (!(s.isValid() && sx.isValid() && sy.isValid()))
             return BET_INVALID;
 
-        // TODO: add checks with need clamp trait
         if (traits_t::type == bxdf::BT_BRDF)
         {
             if (s.getNdotL() <= bit_cast<float>(numeric_limits<float>::min))
@@ -245,7 +244,6 @@ struct TestReciprocity : TestBxDF<BxDF>
         if (!s.isValid())
             return BET_INVALID;
 
-        // TODO: add checks with need clamp trait
         if (bxdf::traits<BxDF>::type == bxdf::BT_BRDF)
         {
             if (s.getNdotL() <= bit_cast<float>(numeric_limits<float>::min))
