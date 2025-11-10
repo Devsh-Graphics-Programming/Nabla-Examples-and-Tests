@@ -35,12 +35,12 @@
 #define LIGHT_COUNT 1
 #define BXDF_COUNT 7
 
-#include "render_common.hlsl"
-#include "rwmc_global_settings_common.hlsl"
+#include <render_common.hlsl>
+#include <rwmc_global_settings_common.hlsl>
 
 #ifdef RWMC_ENABLED
 #include <nbl/builtin/hlsl/rwmc/CascadeAccumulator.hlsl>
-#include "render_rwmc_common.hlsl"
+#include <render_rwmc_common.hlsl>
 #endif
 
 #ifdef RWMC_ENABLED
@@ -57,10 +57,8 @@
 [[vk::combinedImageSampler]] [[vk::binding(2, 2)]] Texture2D<uint2> scramblebuf; // unused
 [[vk::combinedImageSampler]] [[vk::binding(2, 2)]] SamplerState scrambleSampler;
 
-#ifdef RWMC_ENABLED
-[[vk::image_format("rgba16f")]] [[vk::binding(0, 1)]] RWTexture2DArray<float32_t4> cascade;
-#endif
-[[vk::image_format("rgba16f")]] [[vk::binding(0, 0)]] RWTexture2D<float32_t4> outImage;
+[[vk::image_format("rgba16f")]] [[vk::binding(0)]] RWTexture2DArray<float32_t4> outImage;
+[[vk::image_format("rgba16f")]] [[vk::binding(1)]] RWTexture2DArray<float32_t4> cascade;
 
 #include "pathtracer.hlsl"
 
@@ -85,15 +83,15 @@ NBL_CONSTEXPR ext::PTPolygonMethod POLYGON_METHOD = ext::PPM_SOLID_ANGLE;
 
 int32_t2 getCoordinates()
 {
-    uint32_t width, height;
-    outImage.GetDimensions(width, height);
+    uint32_t width, height, imageArraySize;
+    outImage.GetDimensions(width, height, imageArraySize);
     return int32_t2(glsl::gl_GlobalInvocationID().x % width, glsl::gl_GlobalInvocationID().x / width);
 }
 
 float32_t2 getTexCoords()
 {
-    uint32_t width, height;
-    outImage.GetDimensions(width, height);
+    uint32_t width, height, imageArraySize;
+    outImage.GetDimensions(width, height, imageArraySize);
     int32_t2 iCoords = getCoordinates();
     return float32_t2(float(iCoords.x) / width, 1.0 - float(iCoords.y) / height);
 }
@@ -124,7 +122,7 @@ using material_system_type = ext::MaterialSystem::System<diffuse_bxdf_type, cond
 using nee_type = ext::NextEventEstimator::Estimator<scene_type, ray_type, sample_t, aniso_interaction, ext::IntersectMode::IM_PROCEDURAL, LIGHT_TYPE, POLYGON_METHOD>;
 
 #ifdef RWMC_ENABLED
-using accumulator_type = rwmc::CascadeAccumulator<float32_t3, CascadeSize>;
+using accumulator_type = rwmc::CascadeAccumulator<float32_t3, CascadeCount>;
 #else
 using accumulator_type = ext::PathTracer::DefaultAccumulator<float32_t3>;
 #endif
@@ -187,11 +185,22 @@ static const ext::Scene<light_type, bxdfnode_type> scene = ext::Scene<light_type
     lights, LIGHT_COUNT, bxdfs, BXDF_COUNT
 );
 
-[numthreads(WorkgroupSize, 1, 1)]
+RenderPushConstants retireveRenderPushConstants()
+{
+#ifdef RWMC_ENABLED
+    return pc.renderPushConstants;
+#else
+    return pc;
+#endif
+}
+
+[numthreads(RenderWorkgroupSize, 1, 1)]
 void main(uint32_t3 threadID : SV_DispatchThreadID)
 {
-    uint32_t width, height;
-    outImage.GetDimensions(width, height);
+    const RenderPushConstants renderPushConstants = retireveRenderPushConstants();
+
+    uint32_t width, height, imageArraySize;
+    outImage.GetDimensions(width, height, imageArraySize);
 #ifdef PERSISTENT_WORKGROUPS
     uint32_t virtualThreadIndex;
     [loop]
@@ -213,10 +222,10 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 #endif
     }
 
-    if (((pc.depth - 1) >> MAX_DEPTH_LOG2) > 0 || ((pc.sampleCount - 1) >> MAX_SAMPLES_LOG2) > 0)
+    if (((renderPushConstants.depth - 1) >> MAX_DEPTH_LOG2) > 0 || ((renderPushConstants.sampleCount - 1) >> MAX_SAMPLES_LOG2) > 0)
     {
         float32_t4 pixelCol = float32_t4(1.0,0.0,0.0,1.0);
-        outImage[coords] = pixelCol;
+        outImage[uint3(coords.x, coords.y, 0)] = pixelCol;
 #ifdef PERSISTENT_WORKGROUPS
         continue;
 #else
@@ -236,13 +245,13 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 
     float4 NDC = float4(texCoord * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
     {
-        float4 tmp = mul(pc.invMVP, NDC);
+        float4 tmp = mul(renderPushConstants.invMVP, NDC);
         ptCreateParams.camPos = tmp.xyz / tmp.w;
         NDC.z = 1.0;
     }
 
     ptCreateParams.NDC = NDC;
-    ptCreateParams.invMVP = pc.invMVP;
+    ptCreateParams.invMVP = renderPushConstants.invMVP;
 
     ptCreateParams.diffuseParams = bxdfs[0].params;
     ptCreateParams.conductorParams = bxdfs[3].params;
@@ -251,20 +260,19 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     pathtracer_type pathtracer = pathtracer_type::create(ptCreateParams);
 
 #ifdef RWMC_ENABLED
-    accumulator_type::initialization_data accumulatorInitData;
-    accumulatorInitData.size = CascadeSize;
-    accumulatorInitData.start = pc.start;
-    accumulatorInitData.base = pc.base;
-    accumulator_type::output_storage_type cascadeEntry = pathtracer.getMeasure(pc.sampleCount, pc.depth, scene, accumulatorInitData);
-    for (uint32_t i = 0; i < CascadeSize; ++i)
-    {
-        float32_t4 cascadeLayerEntry = float32_t4(cascadeEntry.data[i], 1.0f);
-        cascade[uint3(coords.x, coords.y, i)] = cascadeLayerEntry;
-    }
+    accumulator_type accumulator = accumulator_type::create(pc.splattingParameters);
 #else
-    accumulator_type::initialization_data accumulatorInitData;
-    float32_t3 color = pathtracer.getMeasure(pc.sampleCount, pc.depth, scene, accumulatorInitData);
-    outImage[coords] = float32_t4(color, 1.0);
+    accumulator_type accumulator = accumulator_type::create();
+#endif
+    // path tracing loop
+    for(int i = 0; i < renderPushConstants.sampleCount; ++i)
+        pathtracer.sampleMeasure(i, renderPushConstants.depth, scene, accumulator);
+
+#ifdef RWMC_ENABLED
+    for (uint32_t i = 0; i < CascadeCount; ++i)
+        cascade[uint3(coords.x, coords.y, i)] = float32_t4(accumulator.accumulation.data[i], 1.0f);
+#else
+    outImage[uint3(coords.x, coords.y, 0)] = float32_t4(accumulator.accumulation, 1.0);
 #endif
 
     

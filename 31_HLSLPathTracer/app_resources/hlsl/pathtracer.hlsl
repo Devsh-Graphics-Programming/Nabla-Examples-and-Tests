@@ -45,21 +45,22 @@ struct PathTracerCreationParams
 template<typename OutputTypeVec NBL_PRIMARY_REQUIRES(concepts::FloatingPointVector<OutputTypeVec>)
 struct DefaultAccumulator
 {
-    struct DefaultAccumulatorInitializationSettings {};
-
     using output_storage_type = OutputTypeVec;
-    using initialization_data = DefaultAccumulatorInitializationSettings;
+    using this_t = DefaultAccumulator<OutputTypeVec>;
     output_storage_type accumulation;
 
-    void initialize(in initialization_data initializationData)
+    static this_t create()
     {
-        accumulation = (output_storage_type)0.0f;
+        this_t retval;
+        retval.accumulation = promote<OutputTypeVec, float32_t>(0.0f);
+
+        return retval;
     }
 
-    void addSample(uint32_t sampleIndex, float32_t3 sample)
+    void addSample(uint32_t sampleCount, float32_t3 sample)
     {
         using ScalarType = typename vector_traits<OutputTypeVec>::scalar_type;
-        ScalarType rcpSampleSize = 1.0 / (sampleIndex + 1);
+        ScalarType rcpSampleSize = 1.0 / (sampleCount);
         accumulation += (sample - accumulation) * rcpSampleSize;
     }
 };
@@ -77,7 +78,7 @@ struct Unidirectional
     using scalar_type = typename MaterialSystem::scalar_type;
     using vector3_type = vector<scalar_type, 3>;
     using measure_type = typename MaterialSystem::measure_type;
-    using output_storage_type = typename Accumulator::output_storage_type;
+    using output_storage_type = typename Accumulator::output_storage_type; // ?
     using sample_type = typename NextEventEstimator::sample_type;
     using ray_dir_info_type = typename sample_type::ray_dir_info_type;
     using ray_type = typename RayGen::ray_type;
@@ -291,39 +292,33 @@ struct Unidirectional
     }
 
     // Li
-    output_storage_type getMeasure(uint32_t numSamples, uint32_t depth, NBL_CONST_REF_ARG(scene_type) scene, NBL_REF_ARG(typename Accumulator::initialization_data) accumulatorInitData)
+    void sampleMeasure(uint32_t sampleIndex, uint32_t maxDepth, NBL_CONST_REF_ARG(scene_type) scene, NBL_REF_ARG(Accumulator) accumulator)
     {
-        Accumulator accumulator;
-        accumulator.initialize(accumulatorInitData);
         //scalar_type meanLumaSq = 0.0;
-        for (uint32_t i = 0; i < numSamples; i++)
+        vector3_type uvw = rand3d(0u, sampleIndex, randGen.rng());    // TODO: take from scramblebuf?
+        ray_type ray = rayGen.generate(uvw);
+
+        // bounces
+        bool hit = true;
+        bool rayAlive = true;
+        for (int d = 1; (d <= maxDepth) && hit && rayAlive; d += 2)
         {
-            vector3_type uvw = rand3d(0u, i, randGen.rng());    // TODO: take from scramblebuf?
-            ray_type ray = rayGen.generate(uvw);
+            ray.intersectionT = numeric_limits<scalar_type>::max;
+            ray.objectID = intersector_type::traceRay(ray, scene);
 
-            // bounces
-            bool hit = true;
-            bool rayAlive = true;
-            for (int d = 1; (d <= depth) && hit && rayAlive; d += 2)
-            {
-                ray.intersectionT = numeric_limits<scalar_type>::max;
-                ray.objectID = intersector_type::traceRay(ray, scene);
-
-                hit = ray.objectID.id != -1;
-                if (hit)
-                    rayAlive = closestHitProgram(1, i, ray, scene);
-            }
-            if (!hit)
-                missProgram(ray);
-
-            accumulator.addSample(i, ray.payload.accumulation);
-
-            // TODO: visualize high variance
-
-            // TODO: russian roulette early exit?
+            hit = ray.objectID.id != -1;
+            if (hit)
+                rayAlive = closestHitProgram(1, sampleIndex, ray, scene);
         }
+        if (!hit)
+            missProgram(ray);
 
-        return accumulator.accumulation;
+        const uint32_t sampleCount = sampleIndex + 1;
+        accumulator.addSample(sampleCount, ray.payload.accumulation);
+
+        // TODO: visualize high variance
+
+        // TODO: russian roulette early exit?
     }
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t MAX_DEPTH_LOG2 = 4u;

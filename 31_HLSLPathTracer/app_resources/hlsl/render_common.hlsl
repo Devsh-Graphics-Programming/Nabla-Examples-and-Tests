@@ -11,12 +11,13 @@ struct RenderPushConstants
 #ifdef __HLSL_VERSION
     float32_t4x4 invMVP;
 #else
-    nbl::core::matrix4SIMD invMVP;
+    nbl::hlsl::float32_t4x4 invMVP;
 #endif
     int sampleCount;
     int depth;
 };
 
 NBL_CONSTEXPR nbl::hlsl::float32_t3 LightEminence = nbl::hlsl::float32_t3(30.0f, 25.0f, 15.0f);
+NBL_CONSTEXPR uint32_t RenderWorkgroupSize = 512u;
 
 #endif
