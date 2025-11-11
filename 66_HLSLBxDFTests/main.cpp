@@ -33,34 +33,34 @@ struct PrintFailureCallback : FailureCallback
         {
         case BET_INVALID:
             if (logInfo)
-                fprintf(stderr, "[INFO] seed %u: %s skipping test due to invalid NdotV/NdotL config\n", failedFor.rc.state, failedFor.name.c_str());
+                fprintf(stderr, "[INFO] seed %u: %s skipping test due to invalid NdotV/NdotL config\n", failedFor.rc.halfSeed, failedFor.name.c_str());
             break;
         case BET_NEGATIVE_VAL:
-            fprintf(stderr, "[ERROR] seed %u: %s pdf/quotient/eval < 0\n", failedFor.rc.state, failedFor.name.c_str());
+            fprintf(stderr, "[ERROR] seed %u: %s pdf/quotient/eval < 0\n", failedFor.rc.halfSeed, failedFor.name.c_str());
             break;
         case BET_PDF_ZERO:
-            fprintf(stderr, "[ERROR] seed %u: %s pdf = 0\n", failedFor.rc.state, failedFor.name.c_str());
+            fprintf(stderr, "[ERROR] seed %u: %s pdf = 0\n", failedFor.rc.halfSeed, failedFor.name.c_str());
             break;
         case BET_QUOTIENT_INF:
-            fprintf(stderr, "[ERROR] seed %u: %s quotient -> inf\n", failedFor.rc.state, failedFor.name.c_str());
+            fprintf(stderr, "[ERROR] seed %u: %s quotient -> inf\n", failedFor.rc.halfSeed, failedFor.name.c_str());
             break;
         case BET_JACOBIAN:
-            fprintf(stderr, "[ERROR] seed %u: %s failed the jacobian * pdf test    %s\n", failedFor.rc.state, failedFor.name.c_str(), failedFor.errMsg.c_str());
+            fprintf(stderr, "[ERROR] seed %u: %s failed the jacobian * pdf test    %s\n", failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
         case BET_PDF_EVAL_DIFF:
-            fprintf(stderr, "[ERROR] seed %u: %s quotient * pdf != eval    %s\n", failedFor.rc.state, failedFor.name.c_str(), failedFor.errMsg.c_str());
+            fprintf(stderr, "[ERROR] seed %u: %s quotient * pdf != eval    %s\n", failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
         case BET_RECIPROCITY:
-            fprintf(stderr, "[ERROR] seed %u: %s failed the reciprocity test    %s\n", failedFor.rc.state, failedFor.name.c_str(), failedFor.errMsg.c_str());
+            fprintf(stderr, "[ERROR] seed %u: %s failed the reciprocity test    %s\n", failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
         case BET_PRINT_MSG:
-            fprintf(stderr, "[ERROR] seed %u: %s error message\n%s\n", failedFor.rc.state, failedFor.name.c_str(), failedFor.errMsg.c_str());
+            fprintf(stderr, "[ERROR] seed %u: %s error message\n%s\n", failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
         case BET_GENERATE_H:
-            fprintf(stderr, "[ERROR] seed %u: %s failed invalid H configuration generated    %s\n", failedFor.rc.state, failedFor.name.c_str(), failedFor.errMsg.c_str());
+            fprintf(stderr, "[ERROR] seed %u: %s failed invalid H configuration generated    %s\n", failedFor.rc.halfSeed, failedFor.name.c_str(), failedFor.errMsg.c_str());
             break;
         default:
-            fprintf(stderr, "[ERROR] seed %u: %s unknown error\n", failedFor.rc.state, failedFor.name.c_str());
+            fprintf(stderr, "[ERROR] seed %u: %s unknown error\n", failedFor.rc.halfSeed, failedFor.name.c_str());
         }
 
 #ifdef _NBL_DEBUG
@@ -183,7 +183,7 @@ int main(int argc, char** argv)
     auto rJacobian = std::ranges::views::iota(0u, runs);
     FOR_EACH_BEGIN(rJacobian)
     STestInitParams initparams{ .logInfo = logInfo };
-    initparams.state = i;
+    initparams.halfSeed = i;
     initparams.verbose = testconfigs["TestJacobian"]["verbose"];
 
     TestJacobian<bxdf::reflection::SLambertian<iso_config_t>>::run(initparams, cb);
@@ -213,7 +213,7 @@ int main(int argc, char** argv)
     auto rReciprocity = std::ranges::views::iota(0u, runs);
     FOR_EACH_BEGIN(rReciprocity)
     STestInitParams initparams{ .logInfo = logInfo };
-    initparams.state = i;
+    initparams.halfSeed = i;
     initparams.verbose = testconfigs["TestReciprocity"]["verbose"];
 
     TestReciprocity<bxdf::reflection::SLambertian<iso_config_t>>::run(initparams, cb);
@@ -244,7 +244,7 @@ int main(int argc, char** argv)
     auto rBucket = std::ranges::views::iota(0u, runs);
     FOR_EACH_BEGIN(rBucket)
     STestInitParams initparams{ .logInfo = logInfo };
-    initparams.state = i;
+    initparams.halfSeed = i;
     initparams.samples = testconfigs["TestBucket"]["samples"];
 
     TestBucket<bxdf::reflection::SLambertian<iso_config_t>>::run(initparams, cb);
@@ -270,7 +270,7 @@ int main(int argc, char** argv)
     auto rChi2 = std::ranges::views::iota(0u, runs);
     FOR_EACH_BEGIN_EX(rChi2, std::execution::par_unseq)
     STestInitParams initparams{ .logInfo = logInfo };
-    initparams.state = i;
+    initparams.halfSeed = i;
     initparams.samples = testconfigs["TestChi2"]["samples"];
     initparams.thetaSplits = testconfigs["TestChi2"]["thetaSplits"];
     initparams.phiSplits = testconfigs["TestChi2"]["phiSplits"];
@@ -298,7 +298,7 @@ int main(int argc, char** argv)
     auto rNdf = std::ranges::views::iota(0u, runs);
     FOR_EACH_BEGIN(rNdf)
         STestInitParams initparams{ .logInfo = logInfo };
-    initparams.state = i;
+    initparams.halfSeed = i;
     initparams.verbose = testconfigs["TestNDF"]["verbose"];
 
     TestNDF<bxdf::reflection::SBeckmannIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
@@ -317,7 +317,7 @@ int main(int argc, char** argv)
     auto rGenerateH = std::ranges::views::iota(0u, runs);
     FOR_EACH_BEGIN_EX(rGenerateH, std::execution::par_unseq)
     STestInitParams initparams{ .logInfo = logInfo };
-    initparams.state = i;
+    initparams.halfSeed = i;
     initparams.samples = testconfigs["TestCTGenerateH"]["samples"];
     initparams.immediateFail = testconfigs["TestCTGenerateH"]["immediateFail"];
 

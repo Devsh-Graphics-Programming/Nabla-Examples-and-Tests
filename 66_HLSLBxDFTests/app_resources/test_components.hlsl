@@ -3,11 +3,6 @@
 
 #include "tests_common.hlsl"
 
-namespace nbl
-{
-namespace hlsl
-{
-
 template<class BxDF, bool aniso = false>    // only for cook torrance bxdfs
 struct TestNDF : TestBxDF<BxDF>
 {
@@ -75,7 +70,7 @@ struct TestNDF : TestBxDF<BxDF>
         }
         else if (traits_t::type == bxdf::BT_BSDF)
         {
-            if (abs<float>(s.getNdotL()) <= bit_cast<float>(numeric_limits<float>::min))
+            if (hlsl::abs(s.getNdotL()) <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }
 
@@ -152,7 +147,7 @@ struct TestNDF : TestBxDF<BxDF>
         }        
         else if (traits_t::type == bxdf::BT_BSDF)
         {
-            if (abs<float>(base_t::isointer.getNdotV()) <= bit_cast<float>(numeric_limits<float>::min))
+            if (hlsl::abs(base_t::isointer.getNdotV()) <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }
 
@@ -185,13 +180,13 @@ struct TestNDF : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        random::PCG32 pcg = random::PCG32::construct(initparams.state);
+        random::PCG32 pcg = random::PCG32::construct(initparams.halfSeed);
         random::DimAdaptorRecursive<random::PCG32, 2> rand2d = random::DimAdaptorRecursive<random::PCG32, 2>::construct(pcg);
         uint32_t2 state = rand2d();
 
         this_t t;
         t.init(state);
-        t.rc.state = initparams.state;
+        t.rc.halfSeed = initparams.halfSeed;
         t.verbose = initparams.verbose;
         t.initBxDF(t.rc);
         
@@ -326,7 +321,7 @@ struct TestCTGenerateH : TestBxDF<BxDF>
             if (base_t::isointer.getNdotV() <= numeric_limits<float>::min)
                 return BET_INVALID;
         else if (traits_t::type == bxdf::BT_BSDF)
-            if (abs<float>(base_t::isointer.getNdotV()) <= numeric_limits<float>::min)
+            if (hlsl::abs(base_t::isointer.getNdotV()) <= numeric_limits<float>::min)
                 return BET_INVALID;
 
         ErrorType res = compute();
@@ -338,13 +333,13 @@ struct TestCTGenerateH : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        random::PCG32 pcg = random::PCG32::construct(initparams.state);
+        random::PCG32 pcg = random::PCG32::construct(initparams.halfSeed);
         random::DimAdaptorRecursive<random::PCG32, 2> rand2d = random::DimAdaptorRecursive<random::PCG32, 2>::construct(pcg);
         uint32_t2 state = rand2d();
 
         this_t t;
         t.init(state);
-        t.rc.state = initparams.state;
+        t.rc.halfSeed = initparams.halfSeed;
         t.numSamples = initparams.samples;
         t.immediateFail = initparams.immediateFail;
         t.initBxDF(t.rc);
@@ -379,8 +374,5 @@ struct TestCTGenerateH : TestBxDF<BxDF>
     Counter counter;
 };
 #endif
-
-}
-}
 
 #endif

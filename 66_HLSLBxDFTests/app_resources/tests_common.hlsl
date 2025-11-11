@@ -41,12 +41,10 @@ using namespace IMATH;
 using json = nlohmann::json;
 #endif
 
-namespace nbl
-{
-namespace hlsl
-{
+using namespace nbl;
+using namespace hlsl;
 
-using spectral_t = vector<float, 3>;
+using spectral_t = hlsl::vector<float, 3>;
 using ray_dir_info_t = bxdf::ray_dir_info::SBasic<float>;
 using iso_interaction = bxdf::surface_interactions::SIsotropic<ray_dir_info_t, spectral_t>;
 using aniso_interaction = bxdf::surface_interactions::SAnisotropic<iso_interaction>;
@@ -60,12 +58,12 @@ using aniso_config_t = bxdf::SConfiguration<sample_t, aniso_interaction, spectra
 using iso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, iso_interaction, iso_cache, spectral_t>;
 using aniso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, aniso_interaction, aniso_cache, spectral_t>;
 
-using bool32_t3 = vector<bool, 3>;
+using bool32_t3 = hlsl::vector<bool, 3>;
 
 template<typename T>
 struct ConvertToFloat01
 {
-    using ret_t = conditional_t<vector_traits<T>::Dimension==1, float, vector<float, vector_traits<T>::Dimension> >;
+    using ret_t = conditional_t<vector_traits<T>::Dimension==1, float, hlsl::vector<float, vector_traits<T>::Dimension> >;
 
     static ret_t __call(T x)
     {
@@ -78,7 +76,7 @@ bool checkEq(T a, T b, float32_t eps)
 {
     T _a = hlsl::abs(a);
     T _b = hlsl::abs(b);
-    return nbl::hlsl::all<vector<bool, vector_traits<T>::Dimension> >(nbl::hlsl::max<T>(_a / _b, _b / _a) <= hlsl::promote<T>(1 + eps));
+    return nbl::hlsl::all<hlsl::vector<bool, vector_traits<T>::Dimension> >(nbl::hlsl::max<T>(_a / _b, _b / _a) <= hlsl::promote<T>(1 + eps));
 }
 
 template<>
@@ -92,13 +90,13 @@ bool checkEq<float32_t>(float32_t a, float32_t b, float32_t eps)
 template<typename T>
 bool checkLt(T a, T b)
 {
-    return nbl::hlsl::all<vector<bool, vector_traits<T>::Dimension> >(a < b);
+    return nbl::hlsl::all<hlsl::vector<bool, vector_traits<T>::Dimension> >(a < b);
 }
 
 template<typename T>
 bool checkZero(T a, float32_t eps)
 {
-    return nbl::hlsl::all<vector<bool, vector_traits<T>::Dimension> >(nbl::hlsl::abs<T>(a) < hlsl::promote<T>(eps));
+    return nbl::hlsl::all<hlsl::vector<bool, vector_traits<T>::Dimension> >(nbl::hlsl::abs<T>(a) < hlsl::promote<T>(eps));
 }
 
 template<>
@@ -143,7 +141,7 @@ struct SBxDFTestResources
     }
 
     float eps = 1e-3;   // epsilon
-    uint32_t state;     // init state seed, for debugging
+    uint32_t halfSeed;     // init state seed, for debugging
 
     nbl::hlsl::Xoroshiro64Star rng;
     ray_dir_info_t V;
@@ -164,7 +162,7 @@ struct SBxDFTestResources
 struct STestInitParams
 {
     bool logInfo;
-    uint32_t state;
+    uint32_t halfSeed;
     uint32_t samples;
     uint32_t thetaSplits;
     uint32_t phiSplits;
@@ -559,7 +557,7 @@ struct SAnisotropic
     using ray_dir_info_type = typename isotropic_interaction_type::ray_dir_info_type;
     using scalar_type = typename ray_dir_info_type::scalar_type;
     using vector3_type = typename ray_dir_info_type::vector3_type;
-    using matrix3x3_type = matrix<scalar_type, 3, 3>;
+    using matrix3x3_type = hlsl::matrix<scalar_type, 3, 3>;
     using spectral_type = typename isotropic_interaction_type::spectral_type;
 
     // WARNING: Changed since GLSL, now arguments need to be normalized!
@@ -649,10 +647,10 @@ struct CustomIsoMicrofacetConfiguration<LS,Interaction,MicrofacetCache,Spectrum 
 
     using scalar_type = typename LS::scalar_type;
     using ray_dir_info_type = typename LS::ray_dir_info_type;
-    using vector2_type = vector<scalar_type, 2>;
-    using vector3_type = vector<scalar_type, 3>;
-    using monochrome_type = vector<scalar_type, 1>;
-    using matrix3x3_type = matrix<scalar_type,3,3>;
+    using vector2_type = hlsl::vector<scalar_type, 2>;
+    using vector3_type = hlsl::vector<scalar_type, 3>;
+    using monochrome_type = hlsl::vector<scalar_type, 1>;
+    using matrix3x3_type = hlsl::matrix<scalar_type,3,3>;
     using isotropic_interaction_type = Interaction;
     using anisotropic_interaction_type = reciprocity_test_impl::SAnisotropic<isotropic_interaction_type>;
     using sample_type = LS;
@@ -667,8 +665,5 @@ using rectest_iso_interaction = reciprocity_test_impl::SIsotropic<ray_dir_info_t
 using rectest_aniso_interaction = reciprocity_test_impl::SAnisotropic<rectest_iso_interaction>;
 using rectest_iso_microfacet_config_t = reciprocity_test_impl::CustomIsoMicrofacetConfiguration<sample_t, rectest_iso_interaction, iso_cache, spectral_t>;
 using rectest_aniso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, rectest_aniso_interaction, aniso_cache, spectral_t>;
-
-}
-}
 
 #endif

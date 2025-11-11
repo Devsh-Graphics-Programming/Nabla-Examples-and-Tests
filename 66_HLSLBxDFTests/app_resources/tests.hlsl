@@ -3,11 +3,6 @@
 
 #include "tests_common.hlsl"
 
-namespace nbl
-{
-namespace hlsl
-{
-
 template<class BxDF, bool aniso = false>
 struct TestJacobian : TestBxDF<BxDF>
 {
@@ -76,7 +71,7 @@ struct TestJacobian : TestBxDF<BxDF>
         }
         else if (traits_t::type == bxdf::BT_BSDF)
         {
-            if (abs<float>(s.getNdotL()) <= bit_cast<float>(numeric_limits<float>::min))
+            if (hlsl::abs(s.getNdotL()) <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }
 
@@ -114,7 +109,7 @@ struct TestJacobian : TestBxDF<BxDF>
         }        
         else if (traits_t::type == bxdf::BT_BSDF)
         {
-            if (abs<float>(base_t::isointer.getNdotV()) <= bit_cast<float>(numeric_limits<float>::min))
+            if (hlsl::abs(base_t::isointer.getNdotV()) <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }
 
@@ -162,13 +157,13 @@ struct TestJacobian : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        random::PCG32 pcg = random::PCG32::construct(initparams.state);
+        random::PCG32 pcg = random::PCG32::construct(initparams.halfSeed);
         random::DimAdaptorRecursive<random::PCG32, 2> rand2d = random::DimAdaptorRecursive<random::PCG32, 2>::construct(pcg);
         uint32_t2 state = rand2d();
 
         this_t t;
         t.init(state);
-        t.rc.state = initparams.state;
+        t.rc.halfSeed = initparams.halfSeed;
         t.verbose = initparams.verbose;
         t.initBxDF(t.rc);
         
@@ -251,7 +246,7 @@ struct TestReciprocity : TestBxDF<BxDF>
         }
         else if (bxdf::traits<BxDF>::type == bxdf::BT_BSDF)
         {
-            if (abs<float>(s.getNdotL()) <= bit_cast<float>(numeric_limits<float>::min))
+            if (hlsl::abs(s.getNdotL()) <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }
 
@@ -329,7 +324,7 @@ struct TestReciprocity : TestBxDF<BxDF>
         }        
         else if (traits_t::type == bxdf::BT_BSDF)
         {
-            if (abs<float>(base_t::isointer.getNdotV()) <= bit_cast<float>(numeric_limits<float>::min))
+            if (hlsl::abs(base_t::isointer.getNdotV()) <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }
 
@@ -362,13 +357,13 @@ struct TestReciprocity : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        random::PCG32 pcg = random::PCG32::construct(initparams.state);
+        random::PCG32 pcg = random::PCG32::construct(initparams.halfSeed);
         random::DimAdaptorRecursive<random::PCG32, 2> rand2d = random::DimAdaptorRecursive<random::PCG32, 2>::construct(pcg);
         uint32_t2 state = rand2d();
 
         this_t t;
         t.init(state);
-        t.rc.state = initparams.state;
+        t.rc.halfSeed = initparams.halfSeed;
         t.verbose = initparams.verbose;
         t.initBxDF(t.rc);
         
@@ -516,7 +511,7 @@ struct TestBucket : TestBxDF<BxDF>
         }        
         else if (traits_t::type == bxdf::BT_BSDF)
         {
-            if (abs<float>(base_t::isointer.getNdotV()) <= bit_cast<float>(numeric_limits<float>::min))
+            if (hlsl::abs(base_t::isointer.getNdotV()) <= bit_cast<float>(numeric_limits<float>::min))
                 return BET_INVALID;
         }
 
@@ -529,13 +524,13 @@ struct TestBucket : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        random::PCG32 pcg = random::PCG32::construct(initparams.state);
+        random::PCG32 pcg = random::PCG32::construct(initparams.halfSeed);
         random::DimAdaptorRecursive<random::PCG32, 2> rand2d = random::DimAdaptorRecursive<random::PCG32, 2>::construct(pcg);
         uint32_t2 state = rand2d();
 
         this_t t;
         t.init(state);
-        t.rc.state = initparams.state;
+        t.rc.halfSeed = initparams.halfSeed;
         t.numSamples = initparams.samples;
         t.initBxDF(t.rc);
         
@@ -734,7 +729,7 @@ struct TestChi2 : TestBxDF<BxDF>
 
     void writeToEXR()
     {
-        std::string filename = std::format("chi2test_{}_{}.exr", base_t::rc.state, base_t::name);
+        std::string filename = std::format("chi2test_{}_{}.exr", base_t::rc.halfSeed, base_t::name);
 
         int totalWidth = phiSplits;
         int totalHeight = 2 * thetaSplits + 1;
@@ -868,7 +863,7 @@ struct TestChi2 : TestBxDF<BxDF>
                             cache.iso_cache.absNdotH = hlsl::abs(hlsl::dot(N, H));
                             cache.iso_cache.NdotH2 = cache.iso_cache.absNdotH * cache.iso_cache.absNdotH;
 
-                            if (!cache.isValid(bxdf::fresnel::OrientedEtas<vector<float,1> >::create(1.f, hlsl::promote<vector<float,1> >(eta))))
+                            if (!cache.isValid(bxdf::fresnel::OrientedEtas<hlsl::vector<float,1> >::create(1.f, hlsl::promote<hlsl::vector<float,1> >(eta))))
                                 return 0.f;
 
                             const float32_t3 T = base_t::anisointer.getT();
@@ -910,7 +905,7 @@ struct TestChi2 : TestBxDF<BxDF>
             if (base_t::isointer.getNdotV() <= numeric_limits<float>::min)
                 return BET_INVALID;
         else if (traits_t::type == bxdf::BT_BSDF)
-            if (abs<float>(base_t::isointer.getNdotV()) <= numeric_limits<float>::min)
+            if (hlsl::abs(base_t::isointer.getNdotV()) <= numeric_limits<float>::min)
                 return BET_INVALID;
 
         ErrorType res = compute();
@@ -993,13 +988,13 @@ struct TestChi2 : TestBxDF<BxDF>
 
     static void run(NBL_CONST_REF_ARG(STestInitParams) initparams, NBL_REF_ARG(FailureCallback) cb)
     {
-        random::PCG32 pcg = random::PCG32::construct(initparams.state);
+        random::PCG32 pcg = random::PCG32::construct(initparams.halfSeed);
         random::DimAdaptorRecursive<random::PCG32, 2> rand2d = random::DimAdaptorRecursive<random::PCG32, 2>::construct(pcg);
         uint32_t2 state = rand2d();
 
         this_t t;
         t.init(state);
-        t.rc.state = initparams.state;
+        t.rc.halfSeed = initparams.halfSeed;
         t.numSamples = initparams.samples;
         t.thetaSplits = initparams.thetaSplits;
         t.phiSplits = initparams.phiSplits;
@@ -1032,8 +1027,5 @@ struct TestChi2 : TestBxDF<BxDF>
     std::vector<float> integrateFreq;
 };
 #endif
-
-}
-}
 
 #endif
