@@ -23,8 +23,8 @@ enum class ImageState : uint8_t
 {
 	INVALID = 0,
 	CREATED_AND_MEMORY_BOUND,             // GPU image created, not bound to descriptor set yet
-	BOUND_TO_DESCRIPTOR_SET,              // Bound to descriptor set, GPU resident, but may contain uninitialized or partial data
-	GPU_RESIDENT_WITH_VALID_STATIC_DATA,  // When data for static images gets issued for upload successfully
+	GPU_RESIDENT_WITH_VALID_STATIC_DATA,  // When data for static images gets issued for upload successfully, may not be bound to it's descriptor binding array index yet
+	BOUND_TO_DESCRIPTOR_SET,              // Bound to descriptor set, GPU resident
 };
 
 enum class ImageType : uint8_t
@@ -35,15 +35,15 @@ enum class ImageType : uint8_t
 };
 
 /**
-* @class ImagesMemorySubAllocator
-* @brief A memory sub-allocator designed for managing sub-allocations within a pre-allocated GPU memory arena for images.
-*
-* This class wraps around `nbl::core::GeneralpurposeAddressAllocator` to provide offset-based memory allocation
-* for image resources within a contiguous block of GPU memory.
-*
-* @note This class only manages address offsets. The actual memory must be bound separately.
-*/
-class ImagesMemorySubAllocator : public core::IReferenceCounted
+ * @class ImagesMemorySubAllocator
+ * @brief A memory sub-allocator designed for managing sub-allocations within a pre-allocated GPU memory arena for images.
+ * 
+ * This class wraps around `nbl::core::GeneralpurposeAddressAllocator` to provide offset-based memory allocation
+ * for image resources within a contiguous block of GPU memory.
+ *
+ * @note This class only manages address offsets. The actual memory must be bound separately.
+ */
+class ImagesMemorySubAllocator : public core::IReferenceCounted 
 {
 public:
 	using AddressAllocator = nbl::core::GeneralpurposeAddressAllocator<uint64_t>;
@@ -72,7 +72,7 @@ public:
 	{
 		m_addressAllocator->free_addr(addr, size);
 	}
-
+	
 	uint64_t getFreeSize() const
 	{
 		return m_addressAllocator->get_free_size();
@@ -83,7 +83,7 @@ public:
 		if (m_reservedAlloc)
 			m_reservedAllocator->deallocate(reinterpret_cast<uint8_t*>(m_reservedAlloc), m_reservedAllocSize);
 	}
-
+	
 private:
 	std::unique_ptr<AddressAllocator> m_addressAllocator = nullptr;
 
@@ -120,35 +120,34 @@ struct GeoreferencedImageTileRange
 struct GeoreferencedImageStreamingState : public IReferenceCounted
 {
 public:
-
+	
 	GeoreferencedImageStreamingState()
-	{
-	}
+	{ }
 
 	//! Creates a new streaming state for a georeferenced image
 	/*
-		Initializes CPU-side state for image streaming.
-		Sets up world-to-UV transform, computes mip hierarchy parameters,
-		and stores metadata about the image.
+	  Initializes CPU-side state for image streaming.  
+	  Sets up world-to-UV transform, computes mip hierarchy parameters,  
+	  and stores metadata about the image.
 
-		@param worldspaceOBB       Oriented bounding box of the image in world space
-		@param fullResImageExtents Full resolution image size in pixels (width, height)
-		@param format              Pixel format of the image
-		@param storagePath         Filesystem path for image tiles
+	  @param worldspaceOBB       Oriented bounding box of the image in world space
+	  @param fullResImageExtents Full resolution image size in pixels (width, height)
+	  @param format              Pixel format of the image
+	  @param storagePath         Filesystem path for image tiles
 	*/
 	bool init(const OrientedBoundingBox2D& worldSpaceOBB, const uint32_t2 fullResImageExtents, const asset::E_FORMAT format, const std::filesystem::path& storagePath);
 
 	/**
-		* @brief Update the mapped region to cover the current viewport.
-		*
-		* Computes the required tile range from the viewport and updates
-		* `currentMappedRegion` by remapping or sliding as needed.
-		*
-		* @param currentViewportExtents  Viewport size in pixels.
-		* @param ndcToWorldMat      NDC to world space mattix.
-		*
-		* @see tilesToLoad
-		*/
+	 * @brief Update the mapped region to cover the current viewport.
+	 *
+	 * Computes the required tile range from the viewport and updates
+	 * `currentMappedRegion` by remapping or sliding as needed.
+	 *
+	 * @param currentViewportExtents  Viewport size in pixels.
+	 * @param ndcToWorldMat      NDC to world space mattix.
+	 *
+	 * @see tilesToLoad
+	 */
 	void updateStreamingStateForViewport(const uint32_t2 viewportExtent, const float64_t3x3& ndcToWorldMat);
 
 	// @brief Info to match a gpu tile to the tile in the real image it should hold image data for
@@ -159,10 +158,10 @@ public:
 	};
 
 	/*
-		* @brief Get the tiles required for rendering the current viewport.
-		* Uses the region set by `updateStreamingStateForViewport()` to return
-		* which image tiles need loading and their target GPU tile indices.
-		*/
+	 * @brief Get the tiles required for rendering the current viewport.
+	 * Uses the region set by `updateStreamingStateForViewport()` to return
+	 * which image tiles need loading and their target GPU tile indices.
+	 */
 	core::vector<ImageTileToGPUTileCorrespondence> tilesToLoad() const;
 
 	// @brief Returns the index of the last tile when covering the image with `mipLevel` tiles
@@ -194,6 +193,8 @@ public:
 	* @return GeoreferencedImageInfo containing viewport positioning and UV info.
 	*/
 	GeoreferencedImageInfo computeGeoreferencedImageAddressingAndPositioningInfo();
+
+	bool isOutOfDate() const { return outOfDate; }
 
 private:
 	// These are NOT UV, pixel or tile coords into the mapped image region, rather into the real, huge image
@@ -285,16 +286,19 @@ protected:
 	// Tile range covering only the tiles currently visible in the viewport
 	GeoreferencedImageTileRange currentViewportTileRange = { .baseMipLevel = std::numeric_limits<uint32_t>::max() };
 	// Extents used for sampling the last tile (handles partial tiles / NPOT images); gets updated with `updateStreamingStateForViewport`
-	uint32_t2 lastTileSamplingExtent;
+	uint32_t2 lastTileSamplingExtent; 
 	// Extents used when writing/updating the last tile in GPU memory (handles partial tiles / NPOT images); gets updated with `updateStreamingStateForViewport`
 	uint32_t2 lastTileTargetExtent;
+	// We set this to true when image is evicted from cache, hinting at other places holding a smart_refctd_ptr to this objet that the GeoreferencedImageStreamingState isn't valid anymore and needs recreation/update
+	bool outOfDate = false;
 };
 
 struct CachedImageRecord
 {
 	static constexpr uint32_t InvalidTextureIndex = nbl::hlsl::numeric_limits<uint32_t>::max;
-
+	
 	uint32_t arrayIndex = InvalidTextureIndex; // index in our array of textures binding
+	bool arrayIndexAllocatedUsingImageDescriptorIndexAllocator; // whether the index of this cache entry was allocated using suballocated descriptor set which ensures correct synchronized access to a set index. (if not extra synchro is needed)
 	ImageType type = ImageType::INVALID;
 	ImageState state = ImageState::INVALID;
 	nbl::asset::IImage::LAYOUT currentLayout = nbl::asset::IImage::LAYOUT::UNDEFINED;
@@ -304,10 +308,11 @@ struct CachedImageRecord
 	core::smart_refctd_ptr<IGPUImageView> gpuImageView = nullptr;
 	core::smart_refctd_ptr<ICPUImage> staticCPUImage = nullptr; // cached cpu image for uploading to gpuImageView when needed.
 	core::smart_refctd_ptr<GeoreferencedImageStreamingState> georeferencedImageState = nullptr; // Used to track tile residency for georeferenced images
-
+	
 	// In LRU Cache `insert` function, in case of cache miss, we need to construct the refereence with semaphore value
-	CachedImageRecord(uint64_t currentFrameIndex)
+	CachedImageRecord(uint64_t currentFrameIndex) 
 		: arrayIndex(InvalidTextureIndex)
+		, arrayIndexAllocatedUsingImageDescriptorIndexAllocator(false)
 		, type(ImageType::INVALID)
 		, state(ImageState::INVALID)
 		, lastUsedFrameIndex(currentFrameIndex)
@@ -315,16 +320,16 @@ struct CachedImageRecord
 		, allocationSize(0ull)
 		, gpuImageView(nullptr)
 		, staticCPUImage(nullptr)
-	{
-	}
-
-	CachedImageRecord()
+	{}
+	
+	CachedImageRecord() 
 		: CachedImageRecord(0ull)
-	{
-	}
+	{}
+
+	std::string toString(uint64_t imageID = std::numeric_limits<uint64_t>::max()) const;
 
 	// In LRU Cache `insert` function, in case of cache hit, we need to assign semaphore value without changing `index`
-	inline CachedImageRecord& operator=(uint64_t currentFrameIndex) { lastUsedFrameIndex = currentFrameIndex; return *this; }
+	inline CachedImageRecord& operator=(uint64_t currentFrameIndex) { lastUsedFrameIndex = currentFrameIndex; return *this;  }
 };
 
 // A resource-aware image cache with an LRU eviction policy.
@@ -337,27 +342,26 @@ class ImagesCache : public core::ResizableLRUCache<image_id, CachedImageRecord>
 {
 public:
 	using base_t = core::ResizableLRUCache<image_id, CachedImageRecord>;
-
-	ImagesCache(size_t capacity)
+	
+	ImagesCache(size_t capacity) 
 		: base_t(capacity)
-	{
-	}
+	{}
 
 	// Attempts to insert a new image into the cache.
 	// If the cache is full, invokes the provided `evictCallback` to evict an image.
 	// Returns a pointer to the inserted or existing ImageReference.
-	template<std::invocable<image_id, const CachedImageRecord&> EvictionCallback>
+	template<std::invocable<image_id, CachedImageRecord&> EvictionCallback>
 	inline CachedImageRecord* insert(image_id imageID, uint64_t lastUsedSema, EvictionCallback&& evictCallback)
 	{
 		return base_t::insert(imageID, lastUsedSema, evictCallback);
 	}
-
+	
 	// Retrieves the image associated with `imageID`, updating its LRU position.
 	inline CachedImageRecord* get(image_id imageID)
 	{
 		return base_t::get(imageID);
 	}
-
+	
 	// Retrieves the ImageReference without updating LRU order.
 	inline CachedImageRecord* peek(image_id imageID)
 	{
@@ -365,10 +369,10 @@ public:
 	}
 
 	inline size_t size() const { return base_t::size(); }
-
+	
 	// Selects an eviction candidate based on LRU policy.
 	// In the future, this could factor in memory pressure or semaphore sync requirements.
-	inline image_id select_eviction_candidate()
+	inline image_id select_eviction_candidate() 
 	{
 		const image_id* lru = base_t::get_least_recently_used();
 		if (lru)
@@ -379,6 +383,16 @@ public:
 			_NBL_DEBUG_BREAK_IF(true);
 			return ~0ull;
 		}
+	}
+	
+	inline void logState(nbl::system::logger_opt_smart_ptr logger)
+	{
+		logger.log("=== Image Cache Status ===", nbl::system::ILogger::ELL_INFO);
+		for (const auto& [imageID, record] : *this)
+		{
+			logger.log(("\n" + record.toString(imageID)).c_str(), nbl::system::ILogger::ELL_INFO);
+		}
+		logger.log("=== End of Image Cache ===", nbl::system::ILogger::ELL_INFO);
 	}
 
 	// Removes a specific image from the cache (manual eviction).

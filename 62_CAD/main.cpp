@@ -32,7 +32,6 @@ using namespace video;
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
 #include "HatchGlyphBuilder.h"
-#include "GeoTexture.h"
 
 #include <nbl/builtin/hlsl/tgmath.hlsl>
 
@@ -86,7 +85,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	10.0	// CASE_12
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_12;
+constexpr ExampleMode mode = ExampleMode::CASE_5;
 
 class Camera2D
 {
@@ -567,11 +566,22 @@ public:
 
 	void allocateResources()
 	{
-		drawResourcesFiller = DrawResourcesFiller(core::smart_refctd_ptr(m_utils), getGraphicsQueue(), core::smart_refctd_ptr(m_logger));
+		// TODO: currently using the same utils for buffers and images, make them separate staging buffers
+		drawResourcesFiller = DrawResourcesFiller(core::smart_refctd_ptr(m_device), core::smart_refctd_ptr(m_utils), core::smart_refctd_ptr(m_utils), getGraphicsQueue(), core::smart_refctd_ptr(m_logger));
+
+		// Just wanting to try memory type indices with device local flag, TODO: later improve to prioritize pure device local
+		std::vector<uint32_t> deviceLocalMemoryTypeIndices;
+		for (uint32_t i = 0u; i < m_physicalDevice->getMemoryProperties().memoryTypeCount; ++i)
+		{
+			const auto& memType = m_physicalDevice->getMemoryProperties().memoryTypes[i];
+			if (memType.propertyFlags.hasFlags(IDeviceMemoryAllocation::EMPF_DEVICE_LOCAL_BIT))
+				deviceLocalMemoryTypeIndices.push_back(i);
+		}
 
 		size_t maxImagesMemSize = 1024ull * 1024ull * 1024ull; // 1024 MB
 		size_t maxBufferMemSize = 1024ull * 1024ull * 1024ull; // 1024 MB
-		drawResourcesFiller.allocateDrawResourcesWithinAvailableVRAM(m_device.get(), maxImagesMemSize, maxBufferMemSize);
+
+		drawResourcesFiller.allocateDrawResourcesWithinAvailableVRAM(m_device.get(), maxImagesMemSize, maxBufferMemSize, deviceLocalMemoryTypeIndices);
 		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 256u, uint32_t2(MSDFSize, MSDFSize));
 
 		{
@@ -1201,16 +1211,27 @@ public:
 			}
 		}
 
+
 		// Shared Blend Params between pipelines
-		SBlendParams blendParams = {};
-		blendParams.blendParams[0u].srcColorFactor = asset::EBF_SRC_ALPHA;
-		blendParams.blendParams[0u].dstColorFactor = asset::EBF_ONE_MINUS_SRC_ALPHA;
-		blendParams.blendParams[0u].colorBlendOp = asset::EBO_ADD;
-		blendParams.blendParams[0u].srcAlphaFactor = asset::EBF_ONE;
-		blendParams.blendParams[0u].dstAlphaFactor = asset::EBF_ZERO;
-		blendParams.blendParams[0u].alphaBlendOp = asset::EBO_ADD;
-		blendParams.blendParams[0u].colorWriteMask = (1u << 4u) - 1u;
-		
+		// Premultiplied over-blend (back-to-front)
+		SBlendParams premultipliedOverBlendParams = {};
+		premultipliedOverBlendParams.blendParams[0u].srcColorFactor = asset::EBF_ONE;
+		premultipliedOverBlendParams.blendParams[0u].dstColorFactor = asset::EBF_ONE_MINUS_SRC_ALPHA;
+		premultipliedOverBlendParams.blendParams[0u].colorBlendOp = asset::EBO_ADD;
+		premultipliedOverBlendParams.blendParams[0u].srcAlphaFactor = asset::EBF_ONE;
+		premultipliedOverBlendParams.blendParams[0u].dstAlphaFactor = asset::EBF_ONE_MINUS_SRC_ALPHA;
+		premultipliedOverBlendParams.blendParams[0u].alphaBlendOp = asset::EBO_ADD;
+		premultipliedOverBlendParams.blendParams[0u].colorWriteMask = (1u << 4u) - 1u;
+		// Premultiplied UNDER-blend (front-to-back)
+		SBlendParams premultipliedUnderBlendParams = {};
+		premultipliedUnderBlendParams.blendParams[0u].srcColorFactor = asset::EBF_ONE_MINUS_DST_ALPHA;
+		premultipliedUnderBlendParams.blendParams[0u].dstColorFactor = asset::EBF_ONE;
+		premultipliedUnderBlendParams.blendParams[0u].colorBlendOp = asset::EBO_ADD;
+		premultipliedUnderBlendParams.blendParams[0u].srcAlphaFactor = asset::EBF_ONE;
+		premultipliedUnderBlendParams.blendParams[0u].dstAlphaFactor = asset::EBF_ONE_MINUS_SRC_ALPHA;
+		premultipliedUnderBlendParams.blendParams[0u].alphaBlendOp = asset::EBO_ADD;
+		premultipliedUnderBlendParams.blendParams[0u].colorWriteMask = (1u << 4u) - 1u;
+
 		// Create Alpha Resovle Pipeline
 		{
 			// Load FSTri Shader
@@ -1218,7 +1239,7 @@ public:
 			
 			const video::IGPUPipelineBase::SShaderSpecInfo fragSpec = { .shader = mainPipelineFragmentShaders.get(), .entryPoint = "resolveAlphaMain" };
 
-			resolveAlphaGraphicsPipeline = fsTriangleProtoPipe.createPipeline(fragSpec, pipelineLayout.get(), compatibleRenderPass.get(), 0u, blendParams);
+			resolveAlphaGraphicsPipeline = fsTriangleProtoPipe.createPipeline(fragSpec, pipelineLayout.get(), compatibleRenderPass.get(), 0u, premultipliedOverBlendParams);
 			if (!resolveAlphaGraphicsPipeline)
 				return logFail("Graphics Pipeline Creation Failed.");
 
@@ -1252,7 +1273,7 @@ public:
 					.faceCullingMode = EFCM_NONE,
 					.depthWriteEnable = false,
 				},
-				.blend = blendParams,
+				.blend = premultipliedOverBlendParams,
 			};
 			params[0].renderpass = compatibleRenderPass.get();
 			
@@ -1308,9 +1329,6 @@ public:
 				return Hatch::generateHatchFillPatternMSDF(m_textRenderer.get(), pattern, drawResourcesFiller.getMSDFResolution());
 			}
 		);
-		
-		m_geoTextureRenderer = std::unique_ptr<GeoTextureRenderer>(new GeoTextureRenderer(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger)));
-		// m_geoTextureRenderer->initialize(geoTexturePipelineShaders[0].get(), geoTexturePipelineShaders[1].get(), compatibleRenderPass.get(), m_globalsBuffer);
 		
 		// Create the Semaphores
 		m_renderSemaphore = m_device->createSemaphore(0ull);
@@ -3899,14 +3917,11 @@ protected:
 			const static auto startingViewportWidthVector = nbl::hlsl::mul(inverseViewProj, topRightViewportH - topLeftViewportH);
 			const static auto dirU = startingViewportWidthVector * float64_t(drawResourcesFiller.queryGeoreferencedImageExtents(georeferencedImagePath).x) / float64_t(startingImagePixelsPerViewportPixels * m_window->getWidth());
 
-			// Unnecessary but should go into a callback if window can change dimensions during execution
-			drawResourcesFiller.updateViewportInfo(uint32_t2(m_window->getWidth(), m_window->getHeight()), inverseViewProj);
-
 			const static auto startingTopLeft = nbl::hlsl::mul(inverseViewProj, topLeftViewportH);
 			const uint32_t2 imageExtents = drawResourcesFiller.queryGeoreferencedImageExtents(georeferencedImagePath);
 			OrientedBoundingBox2D georefImageBB = { .topLeft = startingTopLeft, .dirU = dirU, .aspectRatio = float32_t(imageExtents.y) / imageExtents.x };
 
-			auto streamingState = drawResourcesFiller.ensureGeoreferencedImageEntry(georefImageID, georefImageBB, georeferencedImagePath);
+			auto streamingState = drawResourcesFiller.ensureGeoreferencedImageEntry(georefImageID, georefImageBB, uint32_t2(m_window->getWidth(), m_window->getHeight()), inverseViewProj, georeferencedImagePath);
 			constexpr static WorldClipRect invalidClipRect = { .minClip = float64_t2(std::numeric_limits<float64_t>::signaling_NaN()) };
 			drawResourcesFiller.launchGeoreferencedImageTileLoads(georefImageID, streamingState.get(), invalidClipRect);
 
@@ -4012,8 +4027,6 @@ protected:
 	const std::chrono::steady_clock::time_point startBenchmark = std::chrono::high_resolution_clock::now();
 	bool stopBenchamrkFlag = false;
 	#endif
-	
-	std::unique_ptr<GeoTextureRenderer> m_geoTextureRenderer;
 };
 
 NBL_MAIN_FUNC(ComputerAidedDesign)

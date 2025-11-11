@@ -65,7 +65,7 @@ void GeoreferencedImageStreamingState::updateStreamingStateForViewport(const uin
 	currentViewportTileRange = computeViewportTileRange(viewportExtent, ndcToWorldMat);
 	// Slide or remap the current mapped region to ensure the viewport falls inside it
 	ensureMappedRegionCoversViewport(currentViewportTileRange);
-
+	
 	const uint32_t2 lastTileIndex = getLastTileIndex(currentViewportTileRange.baseMipLevel);
 	const uint32_t2 lastTileSampligOffsetMip0 = (lastTileIndex * GeoreferencedImageTileSize) << currentViewportTileRange.baseMipLevel;
 	lastTileSamplingExtent = fullResImageExtents - lastTileSampligOffsetMip0;
@@ -248,8 +248,6 @@ void GeoreferencedImageStreamingState::remapCurrentRegion(const GeoreferencedIma
 		// TODO: Here we would move some mip 0 tiles to mip 1 image to save the work of reuploading them, reflect that in the tracked tiles
 	}
 	currentMappedRegionTileRange = viewportTileRange;
-	// Roughly center the viewport in the mapped region
-	currentMappedRegionTileRange.topLeftTile = nbl::hlsl::max(uint32_t2(0, 0), currentMappedRegionTileRange.topLeftTile - (gpuImageSideLengthTiles / 2));
 	// We can expand the currentMappedRegionTileRange to make it as big as possible, at no extra cost since we only upload tiles on demand
 	// Since we use toroidal updating it's kinda the same which way we expand the region. We first try to make the extent be `gpuImageSideLengthTiles`
 	currentMappedRegionTileRange.bottomRightTile = currentMappedRegionTileRange.topLeftTile + uint32_t2(gpuImageSideLengthTiles, gpuImageSideLengthTiles) - uint32_t2(1, 1);
@@ -343,4 +341,56 @@ void GeoreferencedImageStreamingState::slideCurrentRegion(const GeoreferencedIma
 
 	// Toroidal shift for the gpu image top left
 	gpuImageTopLeft = (gpuImageTopLeft + uint32_t2(topLeftShift + bottomRightShift + int32_t(gpuImageSideLengthTiles))) % gpuImageSideLengthTiles;
+}
+
+std::string CachedImageRecord::toString(uint64_t imageID) const
+{
+	auto stringifyImageState = [](ImageState state) -> std::string {
+		switch (state)
+		{
+		case ImageState::INVALID: return "INVALID";
+		case ImageState::CREATED_AND_MEMORY_BOUND: return "CREATED_AND_MEMORY_BOUND";
+		case ImageState::BOUND_TO_DESCRIPTOR_SET: return "BOUND_TO_DESCRIPTOR_SET";
+		case ImageState::GPU_RESIDENT_WITH_VALID_STATIC_DATA: return "GPU_RESIDENT_WITH_VALID_STATIC_DATA";
+		default: return "UNKNOWN_STATE";
+		}
+		};
+
+	auto stringifyImageType = [](ImageType type) -> std::string {
+		switch (type)
+		{
+		case ImageType::INVALID: return "INVALID";
+		case ImageType::STATIC: return "STATIC";
+		case ImageType::GEOREFERENCED_STREAMED: return "GEOREFERENCED_STREAMED";
+		default: return "UNKNOWN_TYPE";
+		}
+		};
+
+	std::string result;
+	if (imageID != std::numeric_limits<uint64_t>::max())
+		result += std::format("  ImageID: {}\n", imageID);
+
+	result += std::format(
+		"  Type: {}\n"
+		"  State: {}\n"
+		"  Array Index: {}\n"
+		"  Allocation Offset: {}\n"
+		"  Allocation Size: {}\n"
+		"  Current Layout: {}\n"
+		"  Last Used Frame Index: {}\n"
+		"  GPU ImageView: {}\n"
+		"  CPU Image: {}\n"
+		"  Georeferenced Image State: {}\n",
+		stringifyImageType(type),
+		stringifyImageState(state),
+		arrayIndex,
+		allocationOffset,
+		allocationSize,
+		static_cast<uint32_t>(currentLayout),
+		lastUsedFrameIndex,
+		gpuImageView ? "VALID" : "NULL",
+		staticCPUImage ? "VALID" : "NULL",
+		georeferencedImageState ? "VALID" : "NULL"
+	);
+	return result;
 }

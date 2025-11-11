@@ -43,6 +43,7 @@ struct PushConstants
     uint32_t isDTMRendering;
 };
 
+// Please note minClip.y > maxClip.y --> TODO[Erfan]: fix later, because I get confused everytime dealing with min/max clip stuff
 struct WorldClipRect
 {
     pfloat64_t2 minClip; // min clip of a rect in worldspace coordinates of the original space (globals.defaultProjectionToNDC)
@@ -446,7 +447,7 @@ struct DTMHeightShadingSettings
     
     // height-color map
     float intervalLength;
-	float intervalIndexToHeightMultiplier;
+    float intervalIndexToHeightMultiplier;
     int isCenteredShading;
     
     uint32_t heightColorEntryCount;
@@ -582,6 +583,18 @@ struct OrientedBoundingBox2D
     pfloat64_t2 topLeft; // 2 * 8 = 16 bytes (16)
     float32_t2 dirU; // 2 * 4 = 8 bytes (24)
     float32_t aspectRatio; // 4 bytes (28)
+
+#ifndef __HLSL_VERSION
+    void transform(pfloat64_t3x3 transformation)
+    {
+        // We want to do tile streaming and clipping calculations in the same space; hence, we transform the obb (defined in local DWG or symbol) space to worldspace, and we use ndcToWorldTransformation + worldToUV to calculate which tiles are visible in current view)
+        const pfloat64_t2 prevDirV = pfloat64_t2(dirU.y, -dirU.x) * pfloat64_t(aspectRatio);
+        topLeft = nbl::hlsl::mul(transformation, pfloat64_t3(topLeft, 1));
+        dirU = nbl::hlsl::mul(transformation, pfloat64_t3(dirU, 0));
+        const pfloat64_t2 newDirV = nbl::hlsl::mul(transformation, pfloat64_t3(prevDirV, 0));
+        aspectRatio = nbl::hlsl::length(newDirV) / nbl::hlsl::length(dirU); // TODO: maybe we could compute new transformed aspect ratio "smarter"
+    }
+#endif
 };
 
 #ifdef __HLSL_VERSION
