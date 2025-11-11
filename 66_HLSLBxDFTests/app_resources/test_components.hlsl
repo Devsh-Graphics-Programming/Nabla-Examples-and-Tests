@@ -87,12 +87,13 @@ struct TestNDF : TestBxDF<BxDF>
 
         float reflectance;
         bool transmitted;
+        bool isNdfInfinity;
         NBL_IF_CONSTEXPR(aniso)
         {
             dg1_query_type dq = base_t::bxdf.ndf.template createDG1Query<aniso_interaction, aniso_cache>(base_t::anisointer, cache);
-            fresnel_type _f = base_t::bxdf_t::getOrientedFresnel(base_t::bxdf.fresnel, base_t::anisointer.getNdotV());
-            quant_query_type qq = bxdf::impl::quant_query_helper<ndf_type, fresnel_type, base_t::bxdf_t::IsBSDF>::template __call<aniso_cache>(base_t::bxdf.ndf, _f, cache);
-            quant_type DG1 = base_t::bxdf.ndf.template DG1<sample_t, aniso_interaction>(dq, qq, s, base_t::anisointer);
+            fresnel_type _f = base_t::bxdf_t::__getOrientedFresnel(base_t::bxdf.fresnel, base_t::anisointer.getNdotV());
+            quant_query_type qq = bxdf::impl::quant_query_helper<ndf_type, fresnel_type, base_t::bxdf_t::IsBSDF>::template __call<aniso_interaction, aniso_cache>(base_t::bxdf.ndf, _f, base_t::anisointer, cache);
+            quant_type DG1 = base_t::bxdf.ndf.template DG1<sample_t, aniso_interaction>(dq, qq, s, base_t::anisointer, isNdfInfinity);
             dg1 = DG1.microfacetMeasure * hlsl::abs(cache.getVdotH() / base_t::anisointer.getNdotV());
             reflectance = _f(cache.getVdotH())[0];
             NdotH = cache.getAbsNdotH();
@@ -101,14 +102,17 @@ struct TestNDF : TestBxDF<BxDF>
         else
         {
             dg1_query_type dq = base_t::bxdf.ndf.template createDG1Query<iso_interaction, iso_cache>(base_t::isointer, isocache);
-            fresnel_type _f = base_t::bxdf_t::getOrientedFresnel(base_t::bxdf.fresnel, base_t::isointer.getNdotV());
-            quant_query_type qq = bxdf::impl::quant_query_helper<ndf_type, fresnel_type, base_t::bxdf_t::IsBSDF>::template __call<iso_cache>(base_t::bxdf.ndf, _f, isocache);
-            quant_type DG1 = base_t::bxdf.ndf.template DG1<sample_t, iso_interaction>(dq, qq, s, base_t::isointer);
+            fresnel_type _f = base_t::bxdf_t::__getOrientedFresnel(base_t::bxdf.fresnel, base_t::isointer.getNdotV());
+            quant_query_type qq = bxdf::impl::quant_query_helper<ndf_type, fresnel_type, base_t::bxdf_t::IsBSDF>::template __call<iso_interaction, iso_cache>(base_t::bxdf.ndf, _f, base_t::isointer, isocache);
+            quant_type DG1 = base_t::bxdf.ndf.template DG1<sample_t, iso_interaction>(dq, qq, s, base_t::isointer, isNdfInfinity);
             dg1 = DG1.microfacetMeasure * hlsl::abs(isocache.getVdotH() / base_t::isointer.getNdotV());
             reflectance = _f(isocache.getVdotH())[0];
             NdotH = isocache.getAbsNdotH();
             transmitted = isocache.isTransmission();
         }
+
+        if (isNdfInfinity)
+            return BET_INVALID;
 
         if (transmitted)
         {

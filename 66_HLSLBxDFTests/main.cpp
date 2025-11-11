@@ -293,7 +293,6 @@ int main(int argc, char** argv)
     TestChi2<bxdf::transmission::SIridescent<iso_microfacet_config_t>, false>::run(initparams, cb);
     FOR_EACH_END
 
-#if 0
     // testing ndf jacobian * dg1, ONLY for cook torrance bxdfs
     runs = testconfigs["TestNDF"]["runs"];
     auto rNdf = std::ranges::views::iota(0u, runs);
@@ -312,8 +311,7 @@ int main(int argc, char** argv)
     TestNDF<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestNDF<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     FOR_EACH_END
-#endif
-#if 0
+
     // test generated H that NdotV*VdotH>=0.0, VdotL calculation
     runs = testconfigs["TestCTGenerateH"]["runs"];
     auto rGenerateH = std::ranges::views::iota(0u, runs);
@@ -333,7 +331,6 @@ int main(int argc, char** argv)
     TestCTGenerateH<bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>, false>::run(initparams, cb);
     TestCTGenerateH<bxdf::transmission::SGGXDielectricAnisotropic<aniso_microfacet_config_t>, true>::run(initparams, cb);
     FOR_EACH_END
-#endif
 
     // test arccos angle sums
     {
@@ -354,16 +351,16 @@ int main(int argc, char** argv)
 
             const float exAB = acos(a) + acos(b);
             angle_adder = math::sincos_accumulator<float>::create(a, Sin(a));
-            angle_adder.addCosine(b, Sin(b));
+            angle_adder.addAngle(b, Sin(b));
             float res = angle_adder.getSumofArccos();
             if (!checkEq<float>(res, exAB, 1e-3))
                 fprintf(stderr, "[ERROR] angle adding (2 angles) failed! expected %f, got %f\n", exAB, res);
 
             const float exABCD = exAB + acos(c) + acos(d);
             angle_adder = math::sincos_accumulator<float>::create(a, Sin(a));
-            angle_adder.addCosine(b, Sin(b));
-            angle_adder.addCosine(c, Sin(c));
-            angle_adder.addCosine(d, Sin(d));
+            angle_adder.addAngle(b, Sin(b));
+            angle_adder.addAngle(c, Sin(c));
+            angle_adder.addAngle(d, Sin(d));
             res = angle_adder.getSumofArccos();
             if (!checkEq<float>(res, exABCD, 1e-3))
                 fprintf(stderr, "[ERROR] angle adding (4 angles) failed! expected %f, got %f\n", exABCD, res);

@@ -336,14 +336,14 @@ struct TestBxDF<bxdf::reflection::SIridescent<iso_microfacet_config_t>> : TestBx
     void initBxDF(SBxDFTestResources _rc)
     {
         base_t::bxdf.ndf = base_t::bxdf_t::ndf_type::create(_rc.alpha.x);
-        using fresnel_params_t = base_t::bxdf_t::fresnel_type::creation_params_type;
-        fresnel_params_t params;
-        params.Dinc = _rc.Dinc;
-        params.ior1 = hlsl::promote<float32_t3>(1.0);
-        params.ior2 = hlsl::promote<float32_t3>(_rc.etaThinFilm);
-        params.ior3 = hlsl::promote<float32_t3>(_rc.eta.x);
-        params.iork3 = hlsl::promote<float32_t3>(_rc.eta.y);
-        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(params);
+        using fresnel_base_t = base_t::bxdf_t::fresnel_type::base_type;
+        fresnel_base_t base;
+        base.Dinc = _rc.Dinc;
+        base.thinFilmIor = hlsl::promote<float32_t3>(_rc.etaThinFilm);
+        base.eta12 = hlsl::promote<float32_t3>(_rc.etaThinFilm) / hlsl::promote<float32_t3>(1.0);
+        base.eta23 = hlsl::promote<float32_t3>(_rc.eta.x) / hlsl::promote<float32_t3>(_rc.etaThinFilm);
+        base.etak23 = hlsl::promote<float32_t3>(_rc.eta.y) / hlsl::promote<float32_t3>(_rc.etaThinFilm);
+        base_t::bxdf.fresnel.__base = base;
 #ifndef __HLSL_VERSION
         base_t::name = "Iridescent BRDF";
 #endif
@@ -480,13 +480,14 @@ struct TestBxDF<bxdf::transmission::SIridescent<Config>> : TestBxDFBase<bxdf::tr
     void initBxDF(SBxDFTestResources _rc)
     {
         base_t::bxdf.ndf = base_t::bxdf_t::ndf_type::create(_rc.alpha.x);
-        using fresnel_params_t = base_t::bxdf_t::fresnel_type::creation_params_type;
-        fresnel_params_t params;
-        params.Dinc = _rc.Dinc;
-        params.ior1 = hlsl::promote<float32_t3>(1.0);
-        params.ior2 = hlsl::promote<float32_t3>(_rc.etaThinFilm);
-        params.ior3 = hlsl::promote<float32_t3>(_rc.eta.x);
-        base_t::bxdf.fresnel = base_t::bxdf_t::fresnel_type::create(params);
+        using fresnel_base_t = base_t::bxdf_t::fresnel_type::base_type;
+        fresnel_base_t base;
+        base.Dinc = _rc.Dinc;
+        base.thinFilmIor = hlsl::promote<float32_t3>(_rc.etaThinFilm);
+        base.eta12 = hlsl::promote<float32_t3>(_rc.etaThinFilm) / hlsl::promote<float32_t3>(1.0);
+        base.eta23 = hlsl::promote<float32_t3>(_rc.eta.x) / hlsl::promote<float32_t3>(_rc.etaThinFilm);
+        base.etak23 = hlsl::promote<float32_t3>(0.0);
+        base_t::bxdf.fresnel.__base = base;
 #ifndef __HLSL_VERSION
         base_t::name = "Iridescent BSDF";
 #endif
