@@ -7,6 +7,7 @@
 #undef PI
 
 #include "nbl/ext/MitsubaLoader/CMitsubaLoader.h"
+#include "nbl/ext/EnvmapImportanceSampling/EnvmapImportanceSampling.h"
 
 #include <ISceneManager.h>
 
@@ -38,23 +39,39 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 			std::string tonemapperArgs = "";
 		};
 
-		Renderer(nbl::video::IVideoDriver* _driver, nbl::asset::IAssetManager* _assetManager, nbl::scene::ISceneManager* _smgr, bool useDenoiser = true);
+		Renderer(nbl::video::IVideoDriver* _driver, nbl::asset::IAssetManager* _assetManager, nbl::scene::ISceneManager* _smgr, bool deferDenoise, bool useDenoiser = true);
 
 		void initSceneResources(nbl::asset::SAssetBundle& meshes, nbl::io::path&& _sampleSequenceCachePath="");
 
 		void deinitSceneResources();
+
+		void deinitRenderer();
+
+		void finalizeDeferredDenoise();
 		
-		void initScreenSizedResources(uint32_t width, uint32_t height);
+		void initScreenSizedResources(
+			const uint32_t width, const uint32_t height,
+			const float envMapRegularizationFactor,
+			int32_t cascadeCount,
+			float cascadeLuminanceBase,
+			float cascadeLuminanceStart,
+			const float Emin,
+			const nbl::core::vector<nbl::core::vectorSIMDf>& clipPlanes={}
+		);
 
 		void deinitScreenSizedResources();
 
 		void resetSampleAndFrameCounters();
 
-		void takeAndSaveScreenShot(const std::filesystem::path& screenshotFilePath, bool denoise = false, const DenoiserArgs& denoiserArgs = {});
+		void takeAndSaveScreenShot(const std::filesystem::path& screenshotFilePath, bool denoise, const DenoiserArgs& denoiserArgs = {});
 		
-		void denoiseCubemapFaces(std::filesystem::path filePaths[6], const std::string& mergedFileName, int borderPixels, const DenoiserArgs& denoiserArgs = {});
+		void denoiseCubemapFaces(
+			std::filesystem::path filePaths[6],
+			const std::string& mergedFileName, 
+			int32_t cropOffsetX, int32_t cropOffsetY, int32_t cropWidth, int32_t cropHeight,
+			const DenoiserArgs& denoiserArgs = {});
 
-		bool render(nbl::ITimer* timer, const bool transformNormals, const bool beauty=true);
+		bool render(nbl::ITimer* timer, const float kappa, const float Emin, const bool transformNormals, const bool beauty=true);
 
 		auto* getColorBuffer() { return m_colorBuffer; }
 
@@ -71,7 +88,7 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 		}
 		uint64_t getTotalSamplesComputed() const
 		{
-			const auto samplesPerDispatch = getSamplesPerPixelPerDispatch()*static_cast<uint64_t>(m_staticViewData.imageDimensions.x*m_staticViewData.imageDimensions.y);
+			const auto samplesPerDispatch = static_cast<uint64_t>(getSamplesPerPixelPerDispatch()*m_staticViewData.imageDimensions[1])*m_staticViewData.imageDimensions[0];
 			const auto framesDispatched = static_cast<uint64_t>(m_framesDispatched);
 			return framesDispatched*samplesPerDispatch;
 		}
@@ -124,6 +141,7 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 		void finalizeScene(InitializationData& initData);
 
 		//
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> createTexture(uint32_t width, uint32_t height, nbl::asset::E_FORMAT format, uint32_t mipLevels=1u, uint32_t layers=0u);
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> createScreenSizedTexture(nbl::asset::E_FORMAT format, uint32_t layers=0u);
 
 		//
@@ -135,6 +153,8 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 
 		// "constants"
 		bool m_useDenoiser;
+		const bool m_deferDenoise;
+		static constexpr char* DEFER_DENOISE_HOOK_FILE_NAME = "defer_denoise_hook.bat";
 
 		// managers
 		nbl::video::IVideoDriver* m_driver;
@@ -144,6 +164,8 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 
 		nbl::core::smart_refctd_ptr<nbl::ext::RadeonRays::Manager> m_rrManager;
 
+		//
+		std::fstream m_deferDenoiseFile;
 
 		// persistent (intialized in constructor
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUBuffer> m_rayCountBuffer,m_littleDownloadBuffer;
@@ -159,10 +181,11 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUPipelineLayout> m_resolvePipelineLayout;
 		
 		nbl::core::smart_refctd_ptr<IGPUSpecializedShader> m_cullGPUShader;
+		nbl::core::smart_refctd_ptr<IGPUSpecializedShader> m_vertGPUShader,m_fragGPUShader;
 		nbl::core::smart_refctd_ptr<IGPUSpecializedShader> m_raygenGPUShader;
 		nbl::core::smart_refctd_ptr<IGPUSpecializedShader> m_closestHitGPUShader;
 		nbl::core::smart_refctd_ptr<IGPUSpecializedShader> m_resolveGPUShader;
-
+		
 		// semi persistent data
 		nbl::io::path sampleSequenceCachePath;
 		struct SampleSequence
@@ -185,8 +208,9 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 			private:
 				nbl::core::smart_refctd_ptr<nbl::video::IGPUBufferView> bufferView;
 		} sampleSequence;
-		uint16_t pathDepth;
-		uint16_t noRussianRouletteDepth;
+		uint16_t maxPathDepth;
+		uint16_t noRussianRouletteDepth : 15;
+		uint16_t hideEnvironment : 1;
 		uint32_t maxSensorSamples;
 
 		// scene specific data
@@ -197,6 +221,7 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 		nbl::core::matrix4x3 m_prevCamTform;
 		nbl::core::aabbox3df m_sceneBound;
 		uint32_t m_framesDispatched;
+		float m_maxAreaLightLuma;
 		vec2 m_rcpPixelSize;
 		uint64_t m_totalRaysCast;
 		StaticViewData_t m_staticViewData;
@@ -232,14 +257,12 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_accumulation,m_tonemapOutput;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_albedoAcc,m_albedoRslv;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_normalAcc,m_normalRslv;
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_maskAcc;
 		nbl::video::IFrameBuffer* m_visibilityBuffer,* m_colorBuffer;
 		
-		// Resources used for blending environmental maps
-		nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpassIndependentPipeline> blendEnvPipeline;
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSetLayout> blendEnvDescriptorSet;
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUMeshBuffer> blendEnvMeshBuffer;
-
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_finalEnvmap;
+		// Resources used for envmap sampling
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_finalEnvmap;		
+		nbl::ext::EnvmapImportanceSampling::EnvmapImportanceSampling m_envMapImportanceSampling;
 
 		std::future<bool> compileShadersFuture;
 };

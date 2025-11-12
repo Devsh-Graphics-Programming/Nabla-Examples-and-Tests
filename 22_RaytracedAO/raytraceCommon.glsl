@@ -2,7 +2,9 @@
 #define _RAYTRACE_COMMON_GLSL_INCLUDED_
 
 #include "virtualGeometry.glsl"
+#include <nbl/builtin/glsl/sampling/envmap.glsl>
 
+#include <nbl/builtin/glsl/limits/numeric.glsl>
 
 layout(push_constant, row_major) uniform PushConstants
 {
@@ -23,6 +25,7 @@ layout(set = 2, binding = 0, row_major) uniform StaticViewData
 {
 	StaticViewData_t staticViewData;
 };
+
 // rng
 layout(set = 2, binding = 1) uniform usamplerBuffer quantizedSampleSequence;
 // accumulation
@@ -41,13 +44,16 @@ layout(set = 2, binding = 4) restrict coherent buffer RayCount // maybe remove c
 // aovs
 layout(set = 2, binding = 5, r32ui) restrict uniform uimage2DArray albedoAOV;
 layout(set = 2, binding = 6, r32ui) restrict uniform uimage2DArray normalAOV;
+layout(set = 2, binding = 7, r16) restrict uniform image2DArray maskAOV;
 // environment emitter
-layout(set = 2, binding = 7) uniform sampler2D envMap; 
+layout(set = 2, binding = 8) uniform sampler2D envMap;
+layout(set = 2, binding = 9) uniform sampler2D warpMap; 
+layout(set = 2, binding = 10) uniform sampler2D luminance;
 
 void clear_raycount()
 {
 	if (all(equal(uvec3(0u),gl_GlobalInvocationID)))
-		rayCount[(pc.cummon.rayCountWriteIx+1u)&uint(RAYCOUNT_N_BUFFERING_MASK)] = 0u;
+		rayCount[(pc.cummon.pathDepth_rayCountWriteIx+(0x1u<<RAYCOUNT_SHIFT))>>RAYCOUNT_SHIFT] = 0u;
 }
 
 //
@@ -67,6 +73,12 @@ uvec3 get_triangle_indices(in nbl_glsl_ext_Mitsuba_Loader_instance_data_t batchI
 
 #include <nbl/builtin/glsl/format/decode.glsl>
 #include <nbl/builtin/glsl/format/encode.glsl>
+
+bool isRWMCEnabled()
+{
+	return staticViewData.cascadeParams.penultimateCascadeIx!=uint(-2);
+}
+
 vec3 fetchAccumulation(in uvec3 coord)
 {
 	const uvec2 data = imageLoad(accumulation,ivec3(coord)).rg;
@@ -77,44 +89,116 @@ void storeAccumulation(in vec3 color, in uvec3 coord)
 	const uvec2 data = nbl_glsl_encodeRGB19E7(color);
 	imageStore(accumulation,ivec3(coord),uvec4(data,0u,0u));
 }
-void storeAccumulation(in vec3 prev, in vec3 delta, in uvec3 coord)
+void addAccumulation(in vec3 delta, in uvec3 coord)
 {
-	const vec3 newVal = prev+delta;
-	const uvec3 diff = floatBitsToUint(newVal)^floatBitsToUint(prev);
-	if (bool((diff.x|diff.y|diff.z)&0x7ffffff0u))
-		storeAccumulation(newVal,coord);
+	if (any(greaterThan(abs(delta),vec3(exp2(-19.f)))))
+	{
+		const vec3 prev = fetchAccumulation(coord);
+		const vec3 newVal = prev+delta;
+		// TODO: do a better check, compare actually encoded values for difference
+		const uvec3 diff = floatBitsToUint(newVal)^floatBitsToUint(prev);
+		if (bool((diff.x|diff.y|diff.z)&0x7ffffff0u))
+			storeAccumulation(newVal,coord);
+	}
 }
 
-vec3 fetchAlbedo(in uvec3 coord)
+// TODO: use a R17G17B17_UNORM format matched to cascade range, then use 13 bits to store last spp count (max 8k spp renders)
+// This way we can avoid writing every cascade every path storage
+void nextSampleAccumulationCascade(in bool firstFrame, in vec3 weightedDelta, uvec3 coord, in uint samplesPerPixelPerDispatch, in uint cascadeIndex, in float rcpN)
 {
-	const uint data = imageLoad(albedoAOV,ivec3(coord)).r;
-	return nbl_glsl_decodeRGB10A2_UNORM(data).rgb;
+	// but leave first index in the array for the ray accumulation metadata, hence the +1
+	coord.z += (cascadeIndex+1u)*samplesPerPixelPerDispatch;
+	const vec3 prev = firstFrame ? vec3(0.0):fetchAccumulation(coord);
+	const vec3 newVal = prev+(weightedDelta-prev)*rcpN;
+	// always store, cause we need to reset the value
+	storeAccumulation(newVal,coord);
 }
+void addAccumulationCascade(in vec3 weightedDelta, uvec3 coord, in uint samplesPerPixelPerDispatch, in uint cascadeIndex)
+{
+	if (any(greaterThan(abs(weightedDelta),vec3(exp2(-19.f)))))
+	{
+		// but leave first index in the array for the ray accumulation metadata, hence the +1
+		coord.z += (cascadeIndex+1u)*samplesPerPixelPerDispatch;
+		const vec3 prev = fetchAccumulation(coord);
+		const vec3 newVal = prev+weightedDelta;
+		// TODO: do a better check, compare actually encoded values for difference
+		const uvec3 diff = floatBitsToUint(newVal)^floatBitsToUint(prev);
+		if (bool((diff.x|diff.y|diff.z)&0x7ffffff0u))
+			storeAccumulation(newVal,coord);
+	}
+}
+
 void storeAlbedo(in vec3 color, in uvec3 coord)
 {
 	const uint data = nbl_glsl_encodeRGB10A2_UNORM(vec4(color,1.f));
 	imageStore(albedoAOV,ivec3(coord),uvec4(data,0u,0u,0u));
 }
-void storeAlbedo(in vec3 prev, in vec3 delta, in uvec3 coord)
+void impl_addAlbedo(vec3 delta, in uvec3 coord, in float rcpN, in bool newSample)
 {
+	const uint data = imageLoad(albedoAOV,ivec3(coord)).r;
+	const vec3 prev = nbl_glsl_decodeRGB10A2_UNORM(data).rgb;
+	if (newSample)
+		delta = (delta-prev)*rcpN;
 	if (any(greaterThan(abs(delta),vec3(1.f/1024.f))))
 		storeAlbedo(prev+delta,coord);
 }
-
-vec3 fetchWorldspaceNormal(in uvec3 coord)
+// for starting a new sample
+void addAlbedo(vec3 delta, in uvec3 coord, in float rcpN)
 {
-	const uint data = imageLoad(normalAOV,ivec3(coord)).r;
-	return nbl_glsl_decodeRGB10A2_SNORM(data).xyz;
+	impl_addAlbedo(delta,coord,rcpN,true);
 }
+// for adding to the last sample
+void addAlbedo(vec3 delta, in uvec3 coord)
+{
+	impl_addAlbedo(delta,coord,0.f,false);
+}
+
 void storeWorldspaceNormal(in vec3 normal, in uvec3 coord)
 {
 	const uint data = nbl_glsl_encodeRGB10A2_SNORM(vec4(normal,1.f));
 	imageStore(normalAOV,ivec3(coord),uvec4(data,0u,0u,0u));
 }
-void storeWorldspaceNormal(in vec3 prev, in vec3 delta, in uvec3 coord)
+void impl_addWorldspaceNormal(vec3 delta, in uvec3 coord, in float rcpN, in bool newSample)
 {
+	const uint data = imageLoad(normalAOV,ivec3(coord)).r;
+	const vec3 prev = nbl_glsl_decodeRGB10A2_SNORM(data).rgb;
+	if (newSample)
+		delta = (delta-prev)*rcpN;
 	if (any(greaterThan(abs(delta),vec3(1.f/512.f))))
 		storeWorldspaceNormal(prev+delta,coord);
+}
+// for starting a new sample
+void addWorldspaceNormal(vec3 delta, in uvec3 coord, in float rcpN)
+{
+	impl_addWorldspaceNormal(delta,coord,rcpN,true);
+}
+// for adding to the last sample
+void addWorldspaceNormal(vec3 delta, in uvec3 coord)
+{
+	impl_addWorldspaceNormal(delta,coord,0.f,false);
+}
+
+void storeMask(in float mask, in uvec3 coord)
+{
+	imageStore(maskAOV,ivec3(coord),vec4(mask,0.f,0.f,0.f));
+}
+void impl_addMask(float delta, in uvec3 coord, in float rcpN, in bool newSample)
+{
+	const float prev = imageLoad(maskAOV,ivec3(coord)).r;
+	if (newSample)
+		delta = (delta-prev)*rcpN;
+	if (abs(delta)>1.f/65536.f)
+		storeMask(prev+delta,coord);
+}
+// for starting a new sample
+void addMask(float delta, in uvec3 coord, in float rcpN)
+{
+	impl_addMask(delta,coord,rcpN,true);
+}
+// for adding to the last sample
+void addMask(float delta, in uvec3 coord)
+{
+	impl_addMask(delta,coord,0.f,false);
 }
 
 // due to memory limitations we can only do 6k renders
@@ -135,6 +219,11 @@ void unpackOutPixelLocationAndAoVThroughputFactor(in float val, out uvec2 outPix
 
 #include "bin/runtime_defines.glsl"
 #include <nbl/builtin/glsl/ext/MitsubaLoader/material_compiler_compatibility_impl.glsl>
+vec3 normalizedG;
+vec3 nbl_glsl_MC_getNormalizedWorldSpaceG()
+{
+	return normalizedG;
+}
 vec3 normalizedV;
 vec3 nbl_glsl_MC_getNormalizedWorldSpaceV()
 {
@@ -154,7 +243,7 @@ bool has_world_transform(in nbl_glsl_ext_Mitsuba_Loader_instance_data_t batchIns
 
 #include <nbl/builtin/glsl/barycentric/utils.glsl>
 mat2x3 dPdBary;
-vec3 load_positions(out vec3 geomNormal, in nbl_glsl_ext_Mitsuba_Loader_instance_data_t batchInstanceData, in uvec3 indices)
+vec3 load_positions(in nbl_glsl_ext_Mitsuba_Loader_instance_data_t batchInstanceData, in uvec3 indices)
 {
 	mat3 positions = mat3(
 		nbl_glsl_fetchVtxPos(indices[0],batchInstanceData),
@@ -167,7 +256,7 @@ vec3 load_positions(out vec3 geomNormal, in nbl_glsl_ext_Mitsuba_Loader_instance
 	//
 	for (int i=0; i<2; i++)
 		dPdBary[i] = positions[i]-positions[2];
-	geomNormal = normalize(cross(dPdBary[0],dPdBary[1]));
+	normalizedG = normalize(cross(dPdBary[0],dPdBary[1]));
 	//
 	if (tform)
 		positions[2] += batchInstanceData.tform[3];
@@ -196,7 +285,7 @@ bool needs_texture_prefetch(in nbl_glsl_ext_Mitsuba_Loader_instance_data_t batch
 
 vec3 load_normal_and_prefetch_textures(
 	in nbl_glsl_ext_Mitsuba_Loader_instance_data_t batchInstanceData,
-	in uvec3 indices, in vec2 compactBary, in vec3 geomNormal,
+	in uvec3 indices, in vec2 compactBary,
 	in nbl_glsl_MC_oriented_material_t material
 #ifdef TEX_PREFETCH_STREAM
 	,in mat2 dBarydScreen
@@ -217,6 +306,10 @@ vec3 load_normal_and_prefetch_textures(
 
 		dUVdBary = mat2(uvs[0]-uvs[2],uvs[1]-uvs[2]);
 		const vec2 UV = dUVdBary*compactBary+uvs[2];
+		// flip the tangent frame if mesh got flipped to undo Left Handed tangent frame
+		if (!bool(batchInstanceData.determinantSignBit&0x80000000u))
+			dUVdBary = -dUVdBary;
+		// the direction/winding of the UV-space parallelogram doesn't matter for texture filtering
 		const mat2 dUVdScreen = nbl_glsl_applyChainRule2D(dUVdBary,dBarydScreen);
 		nbl_glsl_MC_runTexPrefetchStream(tps,UV,dUVdScreen*pc.cummon.textureFootprintFactor);
 	}
@@ -247,52 +340,150 @@ vec3 load_normal_and_prefetch_textures(
 		}
 		// TODO: this check wouldn't be needed if we had `needsSmoothNormals` implemented
 		if (!isnan(smoothNormal.x))
-			return normalize(smoothNormal);
+			return nbl_glsl_MC_pullUpNormal(normalize(smoothNormal),normalizedV,normalizedG);
 	}
-	return geomNormal;
+	return normalizedG;
 }
 
 #include <nbl/builtin/glsl/sampling/quantized_sequence.glsl>
-vec3 rand3d(in uvec3 scramble_key, in int _sample, int depth)
+mat2x3 rand6d(in uvec3 scramble_keys[2], in int _sample, int depth)
 {
+	mat2x3 retVal;
 	// decrement depth because first vertex is rasterized and picked with a different sample sequence
 	--depth;
 	//
-	const nbl_glsl_sampling_quantized3D quant = texelFetch(quantizedSampleSequence,int(_sample)*SAMPLE_SEQUENCE_STRIDE+depth).xy;
-    return nbl_glsl_sampling_decodeSample3Dimensions(quant,scramble_key);
+	const int offset = _sample*int(staticViewData.sampleSequenceStride_hideEnvmap&0x7fFFffFFu)+depth*SAMPLING_STRATEGY_COUNT;
+
+	const nbl_glsl_sampling_quantized3D quant1 = texelFetch(quantizedSampleSequence, offset).xy;
+	const nbl_glsl_sampling_quantized3D quant2 = texelFetch(quantizedSampleSequence, offset+1).xy;
+    retVal[0] = nbl_glsl_sampling_decodeSample3Dimensions(quant1,scramble_keys[0]);
+    retVal[1] = nbl_glsl_sampling_decodeSample3Dimensions(quant2,scramble_keys[1]);
+	return retVal;
 }
+
+#include <nbl/builtin/glsl/ext/EnvmapImportanceSampling/functions.glsl>
+
 
 nbl_glsl_MC_quot_pdf_aov_t gen_sample_ray(
 	out vec3 direction,
-	in uvec3 scramble_key,
+	in uvec3 scramble_keys[2],
 	in uint sampleID, in uint depth,
 	in nbl_glsl_MC_precomputed_t precomp,
 	in nbl_glsl_MC_instr_stream_t gcs,
 	in nbl_glsl_MC_instr_stream_t rnps
 )
 {
-	vec3 rand = rand3d(scramble_key,int(sampleID),int(depth));
+	mat2x3 rand = rand6d(scramble_keys,int(sampleID),int(depth));
+
+	// (1) BXDF Sample and Weight
+	nbl_glsl_LightSample bxdfSample;
+	nbl_glsl_MC_quot_pdf_aov_t bxdfCosThroughput = nbl_glsl_MC_runGenerateAndRemainderStream(precomp,gcs,rnps,rand[0],bxdfSample);
+
+	nbl_glsl_LightSample outSample;
+	nbl_glsl_MC_quot_pdf_aov_t result;
+
+#ifndef ONLY_BXDF_SAMPLING
+	float bxdfWeight = 0;
+
+	float p_bxdf_bxdf = bxdfCosThroughput.pdf; // BxDF PDF evaluated with BxDF sample (returned from BxDF sampling)
+	// Envmap PDF evaluated with BxDF sample (returned by manual tap of the envmap PDF texture)
+	float p_env_bxdf = nbl_glsl_ext_HierarchicalWarp_deferred_pdf(worldSpaceToMitsubaEnvmap(bxdfSample.L), luminance, staticViewData.envMapPDFNormalizationFactor);
+	//assert(p_env_bxdf>FLT_MIN && p_env_bxdf<FLT_MAX);
+
+	float p_env_env = 0.0f; // Envmap PDF evaluated with Envmap sample (returned from envmap importance sampling)
+	float p_bxdf_env = 0.0f; // BXDF evaluated with Envmap sample (returned from envmap importance sampling)
+
+	// (2) Envmap Sample and Weight
+	nbl_glsl_LightSample envmapSample;
+	nbl_glsl_MC_quot_pdf_aov_t envmapSampleThroughput;
+	{
+		nbl_glsl_MC_setCurrInteraction(precomp);
+
+		const vec3 envmapDir = nbl_glsl_ext_HierarchicalWarp_generate(/*out*/p_env_env, rand[1].xy, warpMap);
+		envmapSample = nbl_glsl_createLightSample(mitsubaEnvmapToWorldSpace(envmapDir),currInteraction.inner);
+
+		nbl_glsl_MC_microfacet_t microfacet;
+		microfacet.inner = nbl_glsl_calcAnisotropicMicrofacetCache(currInteraction.inner, envmapSample);
+		nbl_glsl_MC_finalizeMicrofacet(/*inout*/microfacet);
+
+		// bxdf eval_pdf_aov of light sample
+		const nbl_glsl_MC_eval_pdf_aov_t epa = nbl_bsdf_eval_and_pdf(precomp, rnps, 0xdeafbeefu, /*inout*/envmapSample, /*inout*/microfacet);
+  		envmapSampleThroughput.quotient = epa.value/epa.pdf;
+		envmapSampleThroughput.pdf = epa.pdf;
+		envmapSampleThroughput.aov = epa.aov;
+		p_bxdf_env = epa.pdf;
+	}
+
+	const float p_ratio_bxdf = p_env_bxdf/p_bxdf_bxdf;
+	//assert(p_ratio_bxdf<FLT_MAX); because `p_bxdf_bxdf` cannot be 0
+	#define TRADE_REGISTERS_FOR_IEEE754_ACCURACY
+#ifdef TRADE_REGISTERS_FOR_IEEE754_ACCURACY
+	const float rcp_w_bxdf = 1.f/p_env_bxdf+p_ratio_bxdf/p_bxdf_bxdf;
+	float w_sum = 1.f/rcp_w_bxdf;
+
+	float w_env_over_w_bxdf = rcp_w_bxdf;
+
+	if (p_bxdf_env<nbl_glsl_FLT_MAX)
+	{
+		const float p_ratio_env = p_bxdf_env/p_env_env;
+		const float w_env =  1.f/(1.f/p_bxdf_env+p_ratio_env/p_env_env);
+		w_env_over_w_bxdf *= w_env;
+		w_sum += w_env;
+	}
+
+	const float bxdfChoiceProb = 1.f/(1.f+w_env_over_w_bxdf);
+#else
+	const float w_bxdf = p_env_bxdf/(1.f+p_ratio_bxdf*p_ratio_bxdf);
+
+	float w_sum = w_bxdf;
+	if (p_bxdf_env<nbl_glsl_FLT_MAX)
+	{
+		const float p_ratio_env = p_bxdf_env/p_env_env;
+		w_sum += p_bxdf_env/(1.f+p_ratio_env*p_ratio_env);
+	}
+
+	const float bxdfChoiceProb = w_bxdf/w_sum;
+#endif // ifdef TRADE_REGISTERS_FOR_IEEE754_ACCURACY
+
+	float rcpChoiceProb;
+	float w_star_over_p_env = w_sum;
+	if (!nbl_glsl_partitionRandVariable(bxdfChoiceProb,rand[0].z,rcpChoiceProb))
+	{
+		outSample = bxdfSample;
+		result = bxdfCosThroughput;
+  		w_star_over_p_env /= p_env_bxdf;
+	}
+	else
+	{
+		outSample = envmapSample;
+		result = envmapSampleThroughput;
+  		w_star_over_p_env /= p_env_env;
+	}		
 	
-	nbl_glsl_LightSample s;
-	nbl_glsl_MC_quot_pdf_aov_t result = nbl_glsl_MC_runGenerateAndRemainderStream(precomp,gcs,rnps,rand,s);
+	result.quotient *= w_star_over_p_env;
+	result.pdf /= w_star_over_p_env;
+#else
+	outSample = bxdfSample;
+	result = bxdfCosThroughput;
+#endif
 
 	// russian roulette
-	const uint noRussianRouletteDepth = bitfieldExtract(staticViewData.pathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch,8,8);
+	const uint noRussianRouletteDepth = bitfieldExtract(staticViewData.maxPathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch,8,8);
 	if (depth>noRussianRouletteDepth)
 	{
 		const float rrContinuationFactor = 0.25f;
 		const float survivalProb = min(nbl_glsl_MC_colorToScalar(result.quotient)/rrContinuationFactor,1.f);
 		result.pdf *= survivalProb;
 		float dummy; // not going to use it, because we can optimize out better
-		const bool kill = nbl_glsl_partitionRandVariable(survivalProb,rand.z,dummy);
+		const bool kill = nbl_glsl_partitionRandVariable(survivalProb,rand[0].z,dummy);
 		result.quotient *= kill ? 0.f:(1.f/survivalProb);
 	}
 
-	direction = s.L;
+	direction = outSample.L;
 	return result;
 }
 
-void generate_next_rays(
+uint generate_next_rays(
 	in uint maxRaysToGen, in nbl_glsl_MC_oriented_material_t material, in bool frontfacing, in uint vertex_depth,
 	nbl_glsl_xoroshiro64star_state_t scramble_state, in uint sampleID, in uvec2 outPixelLocation,
 	in vec3 origin, in vec3 prevThroughput, in float prevAoVThroughputScale, inout vec3 albedo, out vec3 worldspaceNormal)
@@ -317,12 +508,16 @@ void generate_next_rays(
 	vec3 nextThroughput[MAX_RAYS_GENERATED];
 	float nextAoVThroughputScale[MAX_RAYS_GENERATED];
 	{
-		const uvec3 scramble_key = uvec3(nbl_glsl_xoroshiro64star(scramble_state),nbl_glsl_xoroshiro64star(scramble_state),nbl_glsl_xoroshiro64star(scramble_state));
+		const uvec3 scramble_keys[2] = { 
+			uvec3(nbl_glsl_xoroshiro64star(scramble_state),nbl_glsl_xoroshiro64star(scramble_state),nbl_glsl_xoroshiro64star(scramble_state)),
+			uvec3(nbl_glsl_xoroshiro64star(scramble_state),nbl_glsl_xoroshiro64star(scramble_state),nbl_glsl_xoroshiro64star(scramble_state))
+		};
+		
 		for (uint i=0u; i<maxRaysToGen; i++)
 		{
 			maxT[i] = 0.f;
 			// TODO: When generating NEE rays, advance the dimension, NOT the sampleID
-			const nbl_glsl_MC_quot_pdf_aov_t result = gen_sample_ray(direction[i],scramble_key,sampleID+i,vertex_depth,precomputed,gcs,rnps);
+			const nbl_glsl_MC_quot_pdf_aov_t result = gen_sample_ray(direction[i],scramble_keys,sampleID+i,vertex_depth,precomputed,gcs,rnps);
 			albedo += result.aov.albedo/float(maxRaysToGen);
 			worldspaceNormal += result.aov.normal/float(maxRaysToGen);
 
@@ -337,14 +532,17 @@ void generate_next_rays(
 		}
 	}
 	// TODO: investigate workgroup reductions here
-	const uint baseOutputID = atomicAdd(rayCount[pc.cummon.rayCountWriteIx],raysToAllocate);
+	const uint baseOutputID = atomicAdd(rayCount[pc.cummon.pathDepth_rayCountWriteIx>>RAYCOUNT_SHIFT],raysToAllocate);
+
+	// set to 1 if ray generated
+	uint rayMask = 0u;
 
 	// the 1.03125f adjusts for the fact that the normal might be too short (inversesqrt precision)
 	const float inversesqrt_precision = 1.03125f;
-	// TODO: investigate why we can't use `normalizedN` here
-	const vec3 ray_offset_vector = normalize(cross(dPdBary[0],dPdBary[1]))*inversesqrt_precision;
-	float origin_offset = nbl_glsl_numeric_limits_float_epsilon(44u); // I pulled the constants out of my @$$
-	origin_offset += dot(abs(ray_offset_vector),abs(origin))*nbl_glsl_numeric_limits_float_epsilon(32u);
+	const vec3 ray_offset_vector = normalizedG*inversesqrt_precision;
+    float origin_offset = nbl_glsl_numeric_limits_float_epsilon(120u); // I pulled the constants out of my @$$
+    origin_offset += dot(abs(ray_offset_vector),abs(origin))*nbl_glsl_numeric_limits_float_epsilon(128u);
+
 	// TODO: in the future run backward error analysis of
 	// dot(mat3(WorldToObj)*(origin+offset*geomNormal/length(geomNormal))+(WorldToObj-vx_pos[1]),geomNormal)
 	// where
@@ -355,6 +553,7 @@ void generate_next_rays(
 	//const vec3 geomNormal = cross(dPdBary[0],dPdBary[1]);
 	//float ray_offset = ?;
 	//ray_offset = nbl_glsl_ieee754_next_ulp_away_from_zero(ray_offset);
+
 	const vec3 ray_offset = ray_offset_vector*origin_offset;
 	const vec3 ray_origin[2] = {origin+ray_offset,origin-ray_offset};
 	uint offset = 0u;
@@ -375,9 +574,11 @@ void generate_next_rays(
 		newRay.useless_padding[1] = bitfieldInsert(packHalf2x16(nextThroughput[i].bb),sampleID+i,16,16);
 		const uint outputID = baseOutputID+(offset++);
 		sinkRays[outputID] = newRay;
-	}
-}
 
+		rayMask |= 0x1u<<i;
+	}
+	return rayMask;
+}
 
 struct Contribution
 {
@@ -386,20 +587,12 @@ struct Contribution
 	vec3 worldspaceNormal;
 };
 
-vec2 SampleSphericalMap(vec3 v)
-{
-    vec2 uv = vec2(atan(v.z,v.x),acos(v.y));
-    uv.x *= nbl_glsl_RECIPROCAL_PI*0.5;
-    uv.x += 0.25; 
-    uv.y *= nbl_glsl_RECIPROCAL_PI;
-    return uv;
-}
-
 void Contribution_initMiss(out Contribution contrib, in float aovThroughputScale)
 {
-	vec2 uv = SampleSphericalMap(-normalizedV);
+	// weird swizzle on the V to match mitsuba convention
+	vec2 uv = nbl_glsl_sampling_envmap_uvCoordFromDirection(worldSpaceToMitsubaEnvmap(-normalizedV));
 	// funny little trick borrowed from things like Progressive Photon Mapping
-	const float bias = 0.0625f*(1.f-aovThroughputScale)*pow(pc.cummon.rcpFramesDispatched,0.08f);
+	const float bias = 0.f;//0.0625f*(1.f-aovThroughputScale)*pow(pc.cummon.rcpFramesDispatched,0.08f);
 	contrib.albedo = contrib.color = textureGrad(envMap, uv, vec2(bias*0.5,0.f), vec2(0.f,bias)).rgb;
 	contrib.worldspaceNormal = normalizedV;
 }

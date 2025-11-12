@@ -10,6 +10,8 @@
 #define _NBL_GLSL_EXT_MITSUBA_LOADER_INSTANCE_DATA_BINDING_ 0
 #include "virtualGeometry.glsl"
 
+#include "runtime_defines.glsl"
+
 layout(set=2, binding=0, row_major) readonly restrict buffer PerInstancePerCamera
 {
     DrawData_t data[];
@@ -31,4 +33,25 @@ void main()
     const vec3 modelPos = nbl_glsl_fetchVtxPos(gl_VertexIndex,InstData.data[batchInstanceGUID]);
     nbl_glsl_barycentric_vert_set(modelPos);
     gl_Position = nbl_glsl_pseudoMul4x4with3x1(self.MVP,modelPos);
+
+    // clipping
+#ifdef CLIP_PLANE_0 
+    const vec4 worldPos = vec4(nbl_glsl_pseudoMul3x4with3x1(InstData.data[batchInstanceGUID].tform,modelPos),1.0);
+    gl_ClipDistance[0] = dot(CLIP_PLANE_0,worldPos);
+#ifdef CLIP_PLANE_1
+    gl_ClipDistance[1] = dot(CLIP_PLANE_1,worldPos);
+#ifdef CLIP_PLANE_2
+    gl_ClipDistance[2] = dot(CLIP_PLANE_2,worldPos);
+#ifdef CLIP_PLANE_3
+    gl_ClipDistance[3] = dot(CLIP_PLANE_3,worldPos);
+#ifdef CLIP_PLANE_4
+    gl_ClipDistance[4] = dot(CLIP_PLANE_4,worldPos);
+#ifdef CLIP_PLANE_5
+    gl_ClipDistance[5] = dot(CLIP_PLANE_5,worldPos);
+#endif
+#endif
+#endif
+#endif
+#endif
+#endif
 }
