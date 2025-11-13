@@ -108,6 +108,16 @@ struct Light
     ObjectID objectID;
 };
 
+template<typename Scalar, typename Spectrum NBL_PRIMARY_REQUIRES(is_scalar_v<Scalar>)
+struct SBxDFCreationParams
+{
+    bool is_aniso;
+    vector<Scalar, 2> A;    // roughness
+    Spectrum ior0;          // source ior
+    Spectrum ior1;          // destination ior
+    Scalar eta;             // in most cases, eta will be calculated from ior0 and ior1; see monochromeEta in pathtracer.hlsl
+};
+
 template<class Spectrum>
 struct BxDFNode
 {
@@ -129,7 +139,8 @@ struct BxDFNode
         return retval;
     }
 
-    // for conductor + dielectric
+    // for conductor, ior0 = eta, ior1 = etak
+    // for dielectric, eta = ior1/ior0
     static BxDFNode<Spectrum> create(uint32_t materialType, bool isAniso, NBL_CONST_REF_ARG(float32_t2) A, NBL_CONST_REF_ARG(spectral_type) ior0, NBL_CONST_REF_ARG(spectral_type) ior1)
     {
         BxDFNode<Spectrum> retval;

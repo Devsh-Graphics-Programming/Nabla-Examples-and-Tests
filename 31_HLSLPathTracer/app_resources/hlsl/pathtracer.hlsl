@@ -35,9 +35,9 @@ struct PathTracerCreationParams
     matrix<Scalar, 4, 4> invMVP;
 
     // mat
-    BxDFCreation diffuseParams;
-    BxDFCreation conductorParams;
-    BxDFCreation dielectricParams;
+    // BxDFCreation diffuseParams;
+    // BxDFCreation conductorParams;
+    // BxDFCreation dielectricParams;
 };
 
 template<class RandGen, class RayGen, class Intersector, class MaterialSystem, /* class PathGuider, */ class NextEventEstimator>
@@ -76,7 +76,7 @@ struct Unidirectional
         this_t retval;
         retval.randGen = randgen_type::create(params.rngState);
         retval.rayGen = raygen_type::create(params.pixOffsetParam, params.camPos, params.NDC, params.invMVP);
-        retval.materialSystem = material_system_type::create(params.diffuseParams, params.conductorParams, params.dielectricParams);
+        // retval.materialSystem = material_system_type::create(params.diffuseParams, params.conductorParams, params.dielectricParams);
         return retval;
     }
 
@@ -153,7 +153,7 @@ struct Unidirectional
         const scalar_type bxdfPdfThreshold = 0.0001;
         const scalar_type lumaContributionThreshold = getLuma(colorspace::eotf::sRGB<vector3_type>((vector3_type)1.0 / 255.0)); // OETF smallest perceptible value
         const vector3_type throughputCIE_Y = hlsl::transpose(colorspace::sRGBtoXYZ)[1] * throughput;    // TODO: this only works if spectral_type is dim 3
-        const measure_type eta = bxdf.params.ior0 / bxdf.params.ior1;   // assume it's real, not imaginary?
+        const measure_type eta = bxdf.params.ior1 / bxdf.params.ior0;
         const scalar_type monochromeEta = hlsl::dot<vector3_type>(throughputCIE_Y, eta) / (throughputCIE_Y.r + throughputCIE_Y.g + throughputCIE_Y.b);  // TODO: imaginary eta?
 
         // sample lights
@@ -180,7 +180,7 @@ struct Unidirectional
 
             if (neeContrib_pdf.pdf < numeric_limits<scalar_type>::max)
             {
-                if (nbl::hlsl::any(isnan(nee_sample.getL().getDirection())))
+                if (nbl::hlsl::any(hlsl::isnan(nee_sample.getL().getDirection())))
                     ray.payload.accumulation += vector3_type(1000.f, 0.f, 0.f);
                 else if (nbl::hlsl::all((vector3_type)69.f == nee_sample.getL().getDirection()))
                     ray.payload.accumulation += vector3_type(0.f, 1000.f, 0.f);

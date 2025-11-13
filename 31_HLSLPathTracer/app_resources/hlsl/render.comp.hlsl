@@ -144,7 +144,7 @@ static const bxdfnode_type bxdfs[BXDF_COUNT] = {
     bxdfnode_type::create(ext::MaterialSystem::MaterialType::CONDUCTOR, false, float2(0,0), spectral_t(1.02,1.02,1.3), spectral_t(1.0,1.0,2.0)),
     bxdfnode_type::create(ext::MaterialSystem::MaterialType::CONDUCTOR, false, float2(0,0), spectral_t(1.02,1.3,1.02), spectral_t(1.0,2.0,1.0)),
     bxdfnode_type::create(ext::MaterialSystem::MaterialType::CONDUCTOR, false, float2(0.15,0.15), spectral_t(1.02,1.3,1.02), spectral_t(1.0,2.0,1.0)),
-    bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIELECTRIC, false, float2(0.0625,0.0625), spectral_t(1,1,1), spectral_t(0.71,0.69,0.67))
+    bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIELECTRIC, false, float2(0.0625,0.0625), spectral_t(1,1,1), spectral_t(1.4,1.45,1.5))
 };
 
 static const ext::Scene<light_type, bxdfnode_type> scene = ext::Scene<light_type, bxdfnode_type>::create(
@@ -210,9 +210,9 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     ptCreateParams.NDC = NDC;
     ptCreateParams.invMVP = pc.invMVP;
 
-    ptCreateParams.diffuseParams = bxdfs[0].params;
-    ptCreateParams.conductorParams = bxdfs[3].params;
-    ptCreateParams.dielectricParams = bxdfs[6].params;
+    // ptCreateParams.diffuseParams = bxdfs[0].params;
+    // ptCreateParams.conductorParams = bxdfs[3].params;
+    // ptCreateParams.dielectricParams = bxdfs[6].params;
 
     pathtracer_type pathtracer = pathtracer_type::create(ptCreateParams);
 
