@@ -436,7 +436,8 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					return shader;
 				};
 
-				auto getComputePipelineCreationParams = [](IGPUShader* shader, IGPUPipelineLayout* pipelineLayout) -> IGPUComputePipeline::SCreationParams
+				const auto deviceMinSubgroupSize = m_device->getPhysicalDevice()->getLimits().minSubgroupSize;
+				auto getComputePipelineCreationParams = [deviceMinSubgroupSize](IGPUShader* shader, IGPUPipelineLayout* pipelineLayout) -> IGPUComputePipeline::SCreationParams
 				{
 					IGPUComputePipeline::SCreationParams params = {};
 					params.layout = pipelineLayout;
@@ -444,7 +445,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 					params.shader.entryPoint = "main";
 					params.shader.entries = nullptr;
 					params.shader.requireFullSubgroups = true;
-					params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+					params.shader.requiredSubgroupSize = static_cast<IShader::SSpecInfoBase::SUBGROUP_SIZE>(hlsl::findMSB(deviceMinSubgroupSize));
 
 					return params;
 				};
@@ -1093,9 +1094,9 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 
 					ImGui::Text("\nRWMC settings:");
 					ImGui::Checkbox("Enable RWMC", &useRWMC);
-					ImGui::SliderFloat("start", &rwmcPushConstants.splattingParameters.start, 1.0f, 32.0f);
-					ImGui::SliderFloat("base", &rwmcPushConstants.splattingParameters.base, 1.0f, 32.0f);
-					ImGui::SliderFloat("minReliableLuma", &rwmcMinReliableLuma, 0.1f, 32.0f);
+					ImGui::SliderFloat("start", &rwmcStart, 1.0f, 32.0f);
+					ImGui::SliderFloat("base", &rwmcBase, 1.0f, 32.0f);
+					ImGui::SliderFloat("minReliableLuma", &rwmcMinReliableLuma, 0.1f, 1024.0f);
 					ImGui::SliderFloat("kappa", &rwmcKappa, 0.1f, 1024.0f);
 
 					ImGui::End();
@@ -1122,8 +1123,8 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 
 			// set initial rwmc settings
 			
-			rwmcPushConstants.splattingParameters.start = hlsl::dot<float32_t3>(hlsl::transpose(colorspace::scRGBtoXYZ)[1], LightEminence);
-			rwmcPushConstants.splattingParameters.base = 8.0f;
+			rwmcStart = hlsl::dot<float32_t3>(hlsl::transpose(colorspace::scRGBtoXYZ)[1], LightEminence);
+			rwmcBase = 8.0f;
 			rwmcMinReliableLuma = 1.0f;
 			rwmcKappa = 5.0f;
 
@@ -1317,7 +1318,7 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 
 				IGPUComputePipeline* pipeline = m_resolvePipeline.get();
 
-				resolvePushConstants.resolveParameters = rwmc::computeResolveParameters(rwmcPushConstants.splattingParameters.base, spp, rwmcMinReliableLuma, rwmcKappa, CascadeCount);
+				resolvePushConstants.resolveParameters = rwmc::computeResolveParameters(rwmcBase, spp, rwmcMinReliableLuma, rwmcKappa, CascadeCount);
 
 				cmdbuf->bindComputePipeline(pipeline);
 				cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &m_descriptorSet0.get());
@@ -1561,6 +1562,8 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 				pcMVPMatrix = &rwmcPushConstants.renderPushConstants.invMVP;
 				rwmcPushConstants.renderPushConstants.depth = depth;
 				rwmcPushConstants.renderPushConstants.sampleCount = resolvePushConstants.sampleCount = spp;
+				rwmcPushConstants.splattingParameters.log2Start = std::log2(rwmcStart);
+				rwmcPushConstants.splattingParameters.log2Base = std::log2(rwmcBase);
 			}
 			else
 			{
@@ -1668,6 +1671,8 @@ class HLSLComputePathtracer final : public examples::SimpleWindowedApplication, 
 		int depth = 3;
 		float rwmcMinReliableLuma;
 		float rwmcKappa;
+		float rwmcStart;
+		float rwmcBase;
 		bool usePersistentWorkGroups = false;
 		bool useRWMC = false;
 		RenderRWMCPushConstants rwmcPushConstants;

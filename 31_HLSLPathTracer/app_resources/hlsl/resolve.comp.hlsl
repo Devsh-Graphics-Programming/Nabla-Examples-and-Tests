@@ -27,7 +27,15 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     if (coords.x >= imageExtents.x || coords.y >= imageExtents.y)
         return;
 
-    float32_t3 color = rwmc::reweight(pc.resolveParameters, cascade, coords);
+    using ResolveAccessorAdaptorType = rwmc::ResolveAccessorAdaptor<float>;
+    using ResolverType = rwmc::Resolver<ResolveAccessorAdaptorType, float32_t3>;
+    ResolveAccessorAdaptorType accessor;
+    accessor.cascade = cascade;
+    ResolverType resolve = ResolverType::create(pc.resolveParameters);
+
+    float32_t3 color = resolve(accessor, int16_t2(coords.x, coords.y));
+
+    //float32_t3 color = rwmc::reweight<rwmc::ResolveAccessorAdaptor<float> >(pc.resolveParameters, cascade, coords);
 
     outImage[uint3(coords.x, coords.y, 0)] = float32_t4(color, 1.0f);
 }
