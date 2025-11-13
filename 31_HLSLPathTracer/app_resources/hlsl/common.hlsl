@@ -204,6 +204,16 @@ struct Shape<PST_SPHERE>
         return create(position, radius * radius, bsdfLightIDs);
     }
 
+    void updateTransform(NBL_CONST_REF_ARG(float32_t3x4) generalPurposeLightMatrix)
+    {
+        position = float32_t3(
+            generalPurposeLightMatrix[0][3],
+            generalPurposeLightMatrix[1][3],
+            generalPurposeLightMatrix[2][3]
+        );
+        radius2 = generalPurposeLightMatrix[0][0] * generalPurposeLightMatrix[0][0];
+    }
+
     // return intersection distance if found, nan otherwise
     float intersect(NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(float32_t3) direction)
     {
@@ -255,6 +265,26 @@ struct Shape<PST_TRIANGLE>
     {
         uint32_t bsdfLightIDs = glsl::bitfieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
         return create(vertex0, vertex1, vertex2, bsdfLightIDs);
+    }
+
+    void updateTransform(NBL_CONST_REF_ARG(float32_t3x4) generalPurposeLightMatrix)
+    {
+        vertex0 = float32_t3(
+            generalPurposeLightMatrix[0][3],
+            generalPurposeLightMatrix[1][3],
+            generalPurposeLightMatrix[2][3]
+        );
+
+        float3 edge0 = generalPurposeLightMatrix[0].xyz;
+        float3 edge1 = generalPurposeLightMatrix[1].xyz;
+        // float3 edge2 = generalPurposeLightMatrix[2].xyz;
+        
+        // Compute triangle vertices relative to v0
+        vertex1 = vertex0 + edge0;
+        vertex2 = vertex0 + edge1;
+        
+        // If you want a fully general triangle using all three columns:
+        // vertex2 = vertex0 + edge2;
     }
 
     float intersect(NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(float32_t3) direction)
@@ -309,6 +339,18 @@ struct Shape<PST_RECTANGLE>
         uint32_t bsdfLightIDs = glsl::bitfieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
         return create(offset, edge0, edge1, bsdfLightIDs);
     }
+
+    void updateTransform(float3x4 generalPurposeLightMatrix)
+    {
+        offset = float3(
+            generalPurposeLightMatrix[0][3],
+            generalPurposeLightMatrix[1][3],
+            generalPurposeLightMatrix[2][3]
+        );
+        edge0 = generalPurposeLightMatrix[0].xyz;
+        edge1 = generalPurposeLightMatrix[1].xyz;
+    }
+
 
     float intersect(NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(float32_t3) direction)
     {

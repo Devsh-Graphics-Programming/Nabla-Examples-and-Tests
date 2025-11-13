@@ -83,6 +83,19 @@ struct Scene
         return retval;
     }
 
+    void updateLight(float32_t3x4 generalPurposeLightMatrix)
+    {
+#ifdef SPHERE_LIGHT
+        spheres[SCENE_SPHERE_COUNT - 1].updateTransform(generalPurposeLightMatrix);
+#endif
+#ifdef TRIANGLE_LIGHT
+        triangles[SCENE_TRIANGLE_COUNT - 1].updateTransform(generalPurposeLightMatrix);
+#endif
+#ifdef RECTANGLE_LIGHT
+        rectangles[SCENE_RECTANGLE_COUNT - 1].updateTransform(generalPurposeLightMatrix);
+#endif
+    }
+
 #undef SCENE_SPHERE_COUNT
 #undef SCENE_TRIANGLE_COUNT
 #undef SCENE_RECTANGLE_COUNT

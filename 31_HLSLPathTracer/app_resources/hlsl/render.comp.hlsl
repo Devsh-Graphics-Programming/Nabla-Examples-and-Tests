@@ -141,13 +141,13 @@ static const ext::Shape<ext::PST_SPHERE> spheres[SPHERE_COUNT] = {
     ext::Shape<ext::PST_SPHERE>::create(float3(-2.0, 0.0, 1.0), 0.5, 5u, light_type::INVALID_ID),
     ext::Shape<ext::PST_SPHERE>::create(float3(0.5, 1.0, 0.5), 0.5, 6u, light_type::INVALID_ID)
 #ifdef SPHERE_LIGHT
-    ,ext::Shape<ext::PST_SPHERE>::create(float3(-1.5, 1.5, 0.0), 0.3, bxdfnode_type::INVALID_ID, 0u)
+    ,ext::Shape<ext::PST_SPHERE>::create(float3(-1.5, 1.5, 0.0), 0.3, bxdfnode_type::INVALID_ID, 0u) // dummy/old placement, set from push constant
 #endif
 };
 
 #ifdef TRIANGLE_LIGHT
 static const ext::Shape<ext::PST_TRIANGLE> triangles[TRIANGLE_COUNT] = {
-    ext::Shape<ext::PST_TRIANGLE>::create(float3(-1.8,0.35,0.3) * 10.0, float3(-1.2,0.35,0.0) * 10.0, float3(-1.5,0.8,-0.3) * 10.0, bxdfnode_type::INVALID_ID, 0u)
+    ext::Shape<ext::PST_TRIANGLE>::create(float3(-1.8,0.35,0.3) * 10.0, float3(-1.2,0.35,0.0) * 10.0, float3(-1.5,0.8,-0.3) * 10.0, bxdfnode_type::INVALID_ID, 0u) // dummy/old placement, set from push constant
 };
 #else
 static const ext::Shape<ext::PST_TRIANGLE> triangles[1];
@@ -155,7 +155,7 @@ static const ext::Shape<ext::PST_TRIANGLE> triangles[1];
 
 #ifdef RECTANGLE_LIGHT
 static const ext::Shape<ext::PST_RECTANGLE> rectangles[RECTANGLE_COUNT] = {
-    ext::Shape<ext::PST_RECTANGLE>::create(float3(-3.8,0.35,1.3), normalize(float3(2,0,-1))*7.0, normalize(float3(2,-5,4))*0.1, bxdfnode_type::INVALID_ID, 0u)
+    ext::Shape<ext::PST_RECTANGLE>::create(float3(-3.8,0.35,1.3), normalize(float3(2,0,-1))*7.0, normalize(float3(2,-5,4))*0.1, bxdfnode_type::INVALID_ID, 0u) // dummy/old placement, set from push constant
 };
 #else
 static const ext::Shape<ext::PST_RECTANGLE> rectangles[1];
@@ -247,6 +247,8 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     ptCreateParams.diffuseParams = bxdfs[0].params;
     ptCreateParams.conductorParams = bxdfs[3].params;
     ptCreateParams.dielectricParams = bxdfs[6].params;
+
+    scene.updateLight(pc.generalPurposeLightMatrix);
 
     pathtracer_type pathtracer = pathtracer_type::create(ptCreateParams);
 
