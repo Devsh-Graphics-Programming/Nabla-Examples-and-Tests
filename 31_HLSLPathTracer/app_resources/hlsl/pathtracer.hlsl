@@ -164,7 +164,7 @@ struct Unidirectional
             );
 
             // We don't allow non watertight transmitters in this renderer
-            bool validPath = nee_sample.getNdotL() > numeric_limits<scalar_type>::min;
+            bool validPath = nee_sample.getNdotL() > numeric_limits<scalar_type>::min && nee_sample.isValid();
             // but if we allowed non-watertight transmitters (single water surface), it would make sense just to apply this line by itself
             bxdf::fresnel::OrientedEtas<monochrome_type> orientedEta = bxdf::fresnel::OrientedEtas<monochrome_type>::create(interaction.getNdotV(), hlsl::promote<monochrome_type>(monochromeEta));
             anisocache_type _cache = anisocache_type::template create<anisotropic_interaction_type, sample_type>(interaction, nee_sample, orientedEta);
@@ -207,6 +207,9 @@ struct Unidirectional
         {
             anisocache_type _cache;
             sample_type bsdf_sample = materialSystem.generate(bxdf.materialType, bxdf.params, interaction, eps1, _cache);
+
+            if (!bsdf_sample.isValid())
+                return false;
 
             // example only uses isotropic bxdfs
             // the value of the bsdf divided by the probability of the sample being generated

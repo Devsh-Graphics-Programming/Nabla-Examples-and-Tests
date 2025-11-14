@@ -265,7 +265,7 @@ struct ShapeSampling<PST_RECTANGLE, PPM_SOLID_ANGLE>
         {
             float32_t3 sph_sample = sphUv[0] * rect.edge0 + sphUv[1] * rect.edge1 + rect.offset;
             L = sph_sample - origin;
-            L = hlsl::mix(nbl::hlsl::normalize(L), hlsl::promote<float32_t3>(0.0), hlsl::abs<float32_t3>(L) > (float32_t3)numeric_limits<float>::min); // TODO? sometimes L is vec3(0), find cause
+            L = hlsl::mix(hlsl::normalize(L), hlsl::promote<float32_t3>(0.0), hlsl::all(hlsl::abs(L) > hlsl::promote<float32_t3>(numeric_limits<float>::min))); // TODO? sometimes L is vec3(0), find cause
             pdf = 1.f / solidAngle;
         }
         else
@@ -423,9 +423,16 @@ struct Estimator<Scene, Ray, LightSample, Aniso, IM_PROCEDURAL, PST_RECTANGLE, P
 
         scalar_type pdf;
         const vector3_type sampleL = sampling.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
+        ray_dir_info_type rayL;
+        if (hlsl::isinf(pdf))
+        {
+            quotient_pdf = quotient_pdf_type::create(hlsl::promote<spectral_type>(0.0), 0.0);
+            return sample_type::createInvalid();
+        }
+
         const vector3_type N = interaction.getN();
         const scalar_type NdotL = nbl::hlsl::dot<vector3_type>(N, sampleL);
-        ray_dir_info_type rayL;
+        
         rayL.setDirection(sampleL);
         sample_type L = sample_type::create(rayL,interaction.getT(),interaction.getB(),NdotL);
 

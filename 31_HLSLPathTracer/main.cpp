@@ -94,7 +94,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			if (!m_surface)
 			{
 				{
-					auto windowCallback = core::make_smart_refctd_ptr<examples::CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
+					auto windowCallback = core::make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
 					IWindow::SCreationParams params = {};
 					params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
 					params.width = WindowDimensions.x;
@@ -121,7 +121,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		{
 			// Init systems
 			{
-				m_inputSystem = make_smart_refctd_ptr<examples::InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
+				m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
 				// Remember to call the base class initialization!
 				if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
