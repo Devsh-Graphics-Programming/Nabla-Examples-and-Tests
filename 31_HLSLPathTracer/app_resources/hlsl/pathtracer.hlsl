@@ -22,7 +22,7 @@ namespace ext
 namespace PathTracer
 {
 
-template<typename BxDFCreation, typename Scalar>
+template<typename Scalar>
 struct PathTracerCreationParams
 {
     // rng gen
@@ -33,11 +33,6 @@ struct PathTracerCreationParams
     vector<Scalar, 3> camPos;
     vector<Scalar, 4> NDC;
     matrix<Scalar, 4, 4> invMVP;
-
-    // mat
-    // BxDFCreation diffuseParams;
-    // BxDFCreation conductorParams;
-    // BxDFCreation dielectricParams;
 };
 
 template<class RandGen, class RayGen, class Intersector, class MaterialSystem, /* class PathGuider, */ class NextEventEstimator>
@@ -52,6 +47,7 @@ struct Unidirectional
 
     using scalar_type = typename MaterialSystem::scalar_type;
     using vector3_type = vector<scalar_type, 3>;
+    using monochrome_type = vector<scalar_type, 1>;
     using measure_type = typename MaterialSystem::measure_type;
     using sample_type = typename NextEventEstimator::sample_type;
     using ray_dir_info_type = typename sample_type::ray_dir_info_type;
@@ -63,20 +59,17 @@ struct Unidirectional
     using anisocache_type = typename MaterialSystem::anisocache_type;
     using isocache_type = typename anisocache_type::isocache_type;
     using quotient_pdf_type = typename NextEventEstimator::quotient_pdf_type;
-    using params_type = typename MaterialSystem::params_t;
-    using create_params_type = typename MaterialSystem::create_params_t;
     using scene_type = Scene<light_type, bxdfnode_type>;
 
     using diffuse_op_type = typename MaterialSystem::diffuse_op_type;
     using conductor_op_type = typename MaterialSystem::conductor_op_type;
     using dielectric_op_type = typename MaterialSystem::dielectric_op_type;
 
-    static this_t create(NBL_CONST_REF_ARG(PathTracerCreationParams<create_params_type, scalar_type>) params)
+    static this_t create(NBL_CONST_REF_ARG(PathTracerCreationParams<scalar_type>) params)
     {
         this_t retval;
         retval.randGen = randgen_type::create(params.rngState);
         retval.rayGen = raygen_type::create(params.pixOffsetParam, params.camPos, params.NDC, params.invMVP);
-        // retval.materialSystem = material_system_type::create(params.diffuseParams, params.conductorParams, params.dielectricParams);
         return retval;
     }
 
@@ -173,9 +166,9 @@ struct Unidirectional
             // We don't allow non watertight transmitters in this renderer
             bool validPath = nee_sample.getNdotL() > numeric_limits<scalar_type>::min;
             // but if we allowed non-watertight transmitters (single water surface), it would make sense just to apply this line by itself
-            bxdf::fresnel::OrientedEtas<scalar_type> orientedEta = bxdf::fresnel::OrientedEtas<scalar_type>::create(interaction.getNdotV(), monochromeEta);
+            bxdf::fresnel::OrientedEtas<monochrome_type> orientedEta = bxdf::fresnel::OrientedEtas<monochrome_type>::create(interaction.getNdotV(), hlsl::promote<monochrome_type>(monochromeEta));
             anisocache_type _cache = anisocache_type::template create<anisotropic_interaction_type, sample_type>(interaction, nee_sample, orientedEta);
-            validPath = validPath && _cache.getNdotH() >= 0.0;
+            validPath = validPath && _cache.getAbsNdotH() >= 0.0;
             bxdf.params.eta = monochromeEta;
 
             if (neeContrib_pdf.pdf < numeric_limits<scalar_type>::max)
@@ -186,12 +179,8 @@ struct Unidirectional
                     ray.payload.accumulation += vector3_type(0.f, 1000.f, 0.f);
                 else if (validPath)
                 {
-                    bxdf::BxDFClampMode _clamp;
-                    _clamp = (bxdf.materialType == ext::MaterialSystem::MaterialType::DIELECTRIC) ? bxdf::BxDFClampMode::BCM_ABS : bxdf::BxDFClampMode::BCM_MAX;
                     // example only uses isotropic bxdfs
-                    params_type params = params_type::create(nee_sample, interaction.isotropic, _cache.iso_cache, _clamp);
-
-                    quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(bxdf.materialType, bxdf.params, params);
+                    quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(bxdf.materialType, bxdf.params, nee_sample, interaction.isotropic, _cache.iso_cache);
                     neeContrib_pdf.quotient *= bxdf.albedo * throughput * bsdf_quotient_pdf.quotient;
                     const scalar_type otherGenOverChoice = bsdf_quotient_pdf.pdf * rcpChoiceProb;
                     const scalar_type otherGenOverLightAndChoice = otherGenOverChoice / bsdf_quotient_pdf.pdf;
@@ -219,13 +208,9 @@ struct Unidirectional
             anisocache_type _cache;
             sample_type bsdf_sample = materialSystem.generate(bxdf.materialType, bxdf.params, interaction, eps1, _cache);
 
-            bxdf::BxDFClampMode _clamp;
-            _clamp = (bxdf.materialType == ext::MaterialSystem::MaterialType::DIELECTRIC) ? bxdf::BxDFClampMode::BCM_ABS : bxdf::BxDFClampMode::BCM_MAX;
             // example only uses isotropic bxdfs
-            params_type params = params_type::create(bsdf_sample, interaction.isotropic, _cache.iso_cache, _clamp);
-
             // the value of the bsdf divided by the probability of the sample being generated
-            quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(bxdf.materialType, bxdf.params, params);
+            quotient_pdf_type bsdf_quotient_pdf = materialSystem.quotient_and_pdf(bxdf.materialType, bxdf.params, bsdf_sample, interaction.isotropic, _cache.iso_cache);
             throughput *= bxdf.albedo * bsdf_quotient_pdf.quotient;
             bxdfPdf = bsdf_quotient_pdf.pdf;
             bxdfSample = bsdf_sample.getL().getDirection();

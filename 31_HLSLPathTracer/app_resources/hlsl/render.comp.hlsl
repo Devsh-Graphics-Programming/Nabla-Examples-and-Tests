@@ -72,19 +72,21 @@ float32_t2 getTexCoords()
     return float32_t2(float(iCoords.x) / width, 1.0 - float(iCoords.y) / height);
 }
 
+using spectral_t = vector<float, 3>;
 using ray_dir_info_t = bxdf::ray_dir_info::SBasic<float>;
-using iso_interaction = bxdf::surface_interactions::SIsotropic<ray_dir_info_t>;
+using iso_interaction = bxdf::surface_interactions::SIsotropic<ray_dir_info_t, spectral_t>;
 using aniso_interaction = bxdf::surface_interactions::SAnisotropic<iso_interaction>;
 using sample_t = bxdf::SLightSample<ray_dir_info_t>;
 using iso_cache = bxdf::SIsotropicMicrofacetCache<float>;
 using aniso_cache = bxdf::SAnisotropicMicrofacetCache<iso_cache>;
 using quotient_pdf_t = sampling::quotient_and_pdf<float32_t3, float>;
-using spectral_t = vector<float, 3>;
-using create_params_t = bxdf::SBxDFCreationParams<float, spectral_t>;
 
-using diffuse_bxdf_type = bxdf::reflection::SOrenNayarBxDF<sample_t, iso_interaction, aniso_interaction, spectral_t>;
-using conductor_bxdf_type = bxdf::reflection::SGGXBxDF<sample_t, iso_interaction, aniso_interaction, iso_cache, aniso_cache, spectral_t>;
-using dielectric_bxdf_type = bxdf::transmission::SGGXDielectricBxDF<sample_t, iso_interaction, aniso_interaction, iso_cache, aniso_cache, spectral_t>;
+using iso_config_t = bxdf::SConfiguration<sample_t, iso_interaction, spectral_t>;
+using iso_microfacet_config_t = bxdf::SMicrofacetConfiguration<sample_t, iso_interaction, iso_cache, spectral_t>;
+
+using diffuse_bxdf_type = bxdf::reflection::SOrenNayar<iso_config_t>;
+using conductor_bxdf_type = bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>;
+using dielectric_bxdf_type = bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>;
 
 using ray_type = ext::Ray<float>;
 using light_type = ext::Light<spectral_t>;
@@ -193,7 +195,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     int flatIdx = glsl::gl_GlobalInvocationID().y * glsl::gl_NumWorkGroups().x * WorkgroupSize + glsl::gl_GlobalInvocationID().x;
 
     // set up path tracer
-    ext::PathTracer::PathTracerCreationParams<create_params_t, float> ptCreateParams;
+    ext::PathTracer::PathTracerCreationParams<float> ptCreateParams;
     ptCreateParams.rngState = scramblebuf[coords].rg;
 
     uint2 scrambleDim;
@@ -209,10 +211,6 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 
     ptCreateParams.NDC = NDC;
     ptCreateParams.invMVP = pc.invMVP;
-
-    // ptCreateParams.diffuseParams = bxdfs[0].params;
-    // ptCreateParams.conductorParams = bxdfs[3].params;
-    // ptCreateParams.dielectricParams = bxdfs[6].params;
 
     pathtracer_type pathtracer = pathtracer_type::create(ptCreateParams);
 

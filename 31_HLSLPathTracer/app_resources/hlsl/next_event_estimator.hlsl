@@ -43,7 +43,7 @@ struct ShapeSampling<PST_SPHERE, PPM>
             Z *= rcpDistance;
 
             const float cosThetaMax = hlsl::sqrt<float32_t>(cosThetaMax2);
-            const float cosTheta = hlsl::mix<float>(1.0, cosThetaMax, xi.x);
+            const float cosTheta = hlsl::mix(1.0f, cosThetaMax, xi.x);
 
             float32_t3 L = Z * cosTheta;
 
@@ -256,7 +256,7 @@ struct ShapeSampling<PST_RECTANGLE, PPM_SOLID_ANGLE>
         float32_t2 rectExtents;
         rect.getNormalBasis(rectNormalBasis, rectExtents);
         shapes::SphericalRectangle<float> sphR0 = shapes::SphericalRectangle<float>::create(origin, rect.offset, rectNormalBasis);
-        float32_t3 L = (float32_t3)0.0;
+        float32_t3 L = hlsl::promote<float32_t3>(0.0);
         float solidAngle = sphR0.solidAngleOfRectangle(rectExtents);
 
         sampling::SphericalRectangle<float> ssph = sampling::SphericalRectangle<float>::create(sphR0);
@@ -265,7 +265,7 @@ struct ShapeSampling<PST_RECTANGLE, PPM_SOLID_ANGLE>
         {
             float32_t3 sph_sample = sphUv[0] * rect.edge0 + sphUv[1] * rect.edge1 + rect.offset;
             L = sph_sample - origin;
-            L = hlsl::mix<float32_t3>(nbl::hlsl::normalize(L), (float32_t3)0.0, hlsl::abs<float32_t3>(L) > (float32_t3)numeric_limits<float>::min); // TODO? sometimes L is vec3(0), find cause
+            L = hlsl::mix(nbl::hlsl::normalize(L), hlsl::promote<float32_t3>(0.0), hlsl::abs<float32_t3>(L) > (float32_t3)numeric_limits<float>::min); // TODO? sometimes L is vec3(0), find cause
             pdf = 1.f / solidAngle;
         }
         else
@@ -321,11 +321,11 @@ struct Estimator<Scene, Ray, LightSample, Aniso, IM_PROCEDURAL, PST_SPHERE, PPM>
 
         scalar_type pdf;
         const vector3_type sampleL = sampling.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
-        const vector3_type V = interaction.isotropic.V.getDirection();
-        const scalar_type VdotL = nbl::hlsl::dot<vector3_type>(V, sampleL);
+        const vector3_type N = interaction.getN();
+        const scalar_type NdotL = nbl::hlsl::dot<vector3_type>(N, sampleL);
         ray_dir_info_type rayL;
-        rayL.direction = sampleL;
-        sample_type L = sample_type::create(rayL,VdotL,interaction.T,interaction.B,interaction.isotropic.N);
+        rayL.setDirection(sampleL);
+        sample_type L = sample_type::create(rayL,interaction.getT(),interaction.getB(),NdotL);
 
         newRayMaxT *= Tolerance<scalar_type>::getEnd(depth);
         pdf *= 1.0 / scalar_type(scene.lightCount);
@@ -372,11 +372,11 @@ struct Estimator<Scene, Ray, LightSample, Aniso, IM_PROCEDURAL, PST_TRIANGLE, PP
 
         scalar_type pdf;
         const vector3_type sampleL = sampling.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
-        const vector3_type V = interaction.isotropic.V.getDirection();
-        const scalar_type VdotL = nbl::hlsl::dot<vector3_type>(V, sampleL);
+        const vector3_type N = interaction.getN();
+        const scalar_type NdotL = nbl::hlsl::dot<vector3_type>(N, sampleL);
         ray_dir_info_type rayL;
-        rayL.direction = sampleL;
-        sample_type L = sample_type::create(rayL,VdotL,interaction.T,interaction.B,interaction.isotropic.N);
+        rayL.setDirection(sampleL);
+        sample_type L = sample_type::create(rayL,interaction.getT(),interaction.getB(),NdotL);
 
         newRayMaxT *= Tolerance<scalar_type>::getEnd(depth);
         pdf *= 1.0 / scalar_type(scene.lightCount);
@@ -423,11 +423,11 @@ struct Estimator<Scene, Ray, LightSample, Aniso, IM_PROCEDURAL, PST_RECTANGLE, P
 
         scalar_type pdf;
         const vector3_type sampleL = sampling.template generate_and_pdf<interaction_type>(pdf, newRayMaxT, origin, interaction, isBSDF, xi);
-        const vector3_type V = interaction.isotropic.V.getDirection();
-        const scalar_type VdotL = nbl::hlsl::dot<vector3_type>(V, sampleL);
+        const vector3_type N = interaction.getN();
+        const scalar_type NdotL = nbl::hlsl::dot<vector3_type>(N, sampleL);
         ray_dir_info_type rayL;
-        rayL.direction = sampleL;
-        sample_type L = sample_type::create(rayL,VdotL,interaction.T,interaction.B,interaction.isotropic.N);
+        rayL.setDirection(sampleL);
+        sample_type L = sample_type::create(rayL,interaction.getT(),interaction.getB(),NdotL);
 
         newRayMaxT *= Tolerance<scalar_type>::getEnd(depth);
         pdf *= 1.0 / scalar_type(scene.lightCount);

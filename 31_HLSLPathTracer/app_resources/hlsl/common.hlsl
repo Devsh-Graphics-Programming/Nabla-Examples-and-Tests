@@ -122,7 +122,7 @@ template<class Spectrum>
 struct BxDFNode
 {
     using spectral_type = Spectrum;
-    using params_type = bxdf::SBxDFCreationParams<float, spectral_type>;
+    using params_type = SBxDFCreationParams<float, spectral_type>;
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t INVALID_ID = 0xffffu;
 

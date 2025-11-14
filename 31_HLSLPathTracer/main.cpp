@@ -336,7 +336,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					auto compiler = make_smart_refctd_ptr<asset::CGLSLCompiler>(smart_refctd_ptr(m_system));
 					CGLSLCompiler::SOptions options = {};
 					options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;	// should be compute
-					options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+					options.preprocessorOptions.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
 					options.spirvOptimizer = nullptr;
 #ifndef _NBL_DEBUG
 					ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
@@ -384,7 +384,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
 					CHLSLCompiler::SOptions options = {};
 					options.stage = IShader::E_SHADER_STAGE::ESS_COMPUTE;
-					options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+					options.preprocessorOptions.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
 					options.spirvOptimizer = nullptr;
 #ifndef _NBL_DEBUG
 					ISPIRVOptimizer::E_OPTIMIZER_PASS optPasses = ISPIRVOptimizer::EOP_STRIP_DEBUG_INFO;
