@@ -2,10 +2,11 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#include "nbl/this_example/common.hpp"
-#include "nbl/asset/interchange/IImageAssetHandlerBase.h"
+#include "nbl/examples/examples.hpp"
+
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/builtin/hlsl/surface_transform.h"
+#include "nbl/this_example/common.hpp"
 
 using namespace nbl;
 using namespace core;
@@ -58,9 +59,17 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		constexpr static inline uint8_t MaxUITextureCount = 1u;
 		static inline std::string DefaultImagePathsFile = "envmap/envmap_0.exr";
 		static inline std::string OwenSamplerFilePath = "owen_sampler_buffer.bin";
-		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTGLSLShaderPaths = { "app_resources/glsl/litBySphere.comp", "app_resources/glsl/litByTriangle.comp", "app_resources/glsl/litByRectangle.comp" };
+		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTGLSLShaderPaths = {
+		    "app_resources/glsl/litBySphere.comp",
+		    "app_resources/glsl/litByTriangle.comp",
+		    "app_resources/glsl/litByRectangle.comp"
+		};
 		static inline std::string PTHLSLShaderPath = "app_resources/hlsl/render.comp.hlsl";
-		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTHLSLShaderVariants = { "SPHERE_LIGHT", "TRIANGLE_LIGHT", "RECTANGLE_LIGHT" };
+		static inline std::array<std::string, E_LIGHT_GEOMETRY::ELG_COUNT> PTHLSLShaderVariants = {
+		    "SPHERE_LIGHT",
+		    "TRIANGLE_LIGHT",
+		    "RECTANGLE_LIGHT"
+		};
 		static inline std::string PresentShaderPath = "app_resources/hlsl/present.frag.hlsl";
 
 		const char* shaderNames[E_LIGHT_GEOMETRY::ELG_COUNT] = {
@@ -524,7 +533,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			// load CPUImages and convert to GPUImages
 			smart_refctd_ptr<IGPUImage> envMap, scrambleMap;
 			{
-				auto convertImgCPU2GPU = [&](std::span<ICPUImage *> cpuImgs) {
+				auto convertImgCPU2GPU = [&](std::span<ICPUImage*> cpuImgs) {
 					auto queue = getGraphicsQueue();
 					auto cmdbuf = m_cmdBufs[0].get();
 					cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
@@ -644,7 +653,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					auto texelBuffer = ICPUBuffer::create({ texelBufferSize });
 
 					core::RandomSampler rng(0xbadc0ffeu);
-					auto out = reinterpret_cast<uint32_t *>(texelBuffer->getPointer());
+					auto out = reinterpret_cast<uint32_t*>(texelBuffer->getPointer());
 					for (auto index = 0u; index < texelBufferSize / 4; index++) {
 						out[index] = rng.nextSample();
 					}
@@ -662,9 +671,12 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					region.imageExtent = scrambleMapCPU->getCreationParameters().extent;
 
 					scrambleMapCPU->setBufferAndRegions(std::move(texelBuffer), regions);
+
+					// programmatically user-created IPreHashed need to have their hash computed (loaders do it while loading)
+					scrambleMapCPU->setContentHash(scrambleMapCPU->computeContentHash());
 				}
 
-				std::array<ICPUImage*, 2> cpuImgs = { envMapCPU.get(), scrambleMapCPU.get()};
+				std::array<ICPUImage*, 2> cpuImgs = { envMapCPU.get(), scrambleMapCPU.get() };
 				convertImgCPU2GPU(cpuImgs);
 			}
 
@@ -1084,8 +1096,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 				// safe to proceed
 				// upload buffer data
-				cmdbuf->beginDebugMarker("ComputeShaderPathtracer IMGUI Frame");
 				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+				cmdbuf->beginDebugMarker("ComputeShaderPathtracer IMGUI Frame");
 
 				// TRANSITION m_outImgView to GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
 				{
