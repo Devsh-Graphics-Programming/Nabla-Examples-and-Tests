@@ -385,7 +385,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					return shader;
 				};
 
-				auto loadAndCompileHLSLShader = [&](const std::string& pathToShader, const std::string& defineMacro = "", bool persistentWorkGroups = false, bool rwmc = false) -> smart_refctd_ptr<IGPUShader>
+				auto loadAndCompileHLSLShader = [&](const std::string& pathToShader, const std::string& defineMacro = "", bool persistentWorkGroups = false, bool rwmc = false) -> smart_refctd_ptr<IShader>
 				{
 					IAssetLoader::SAssetLoadParams lp = {};
 					lp.workingDirectory = localInputCWD;
@@ -440,15 +440,15 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				};
 
 				const auto deviceMinSubgroupSize = m_device->getPhysicalDevice()->getLimits().minSubgroupSize;
-				auto getComputePipelineCreationParams = [deviceMinSubgroupSize](IGPUShader* shader, IGPUPipelineLayout* pipelineLayout) -> IGPUComputePipeline::SCreationParams
+				auto getComputePipelineCreationParams = [deviceMinSubgroupSize](IShader* shader, IGPUPipelineLayout* pipelineLayout) -> IGPUComputePipeline::SCreationParams
 				{
 					IGPUComputePipeline::SCreationParams params = {};
 					params.layout = pipelineLayout;
 					params.shader.shader = shader;
 					params.shader.entryPoint = "main";
 					params.shader.entries = nullptr;
-					params.shader.requireFullSubgroups = true;
-					params.shader.requiredSubgroupSize = static_cast<IShader::SSpecInfoBase::SUBGROUP_SIZE>(hlsl::findMSB(deviceMinSubgroupSize));
+					params.cached.requireFullSubgroups = true;
+					params.shader.requiredSubgroupSize = static_cast<IPipelineBase::SUBGROUP_SIZE>(5);
 
 					return params;
 				};
@@ -1200,8 +1200,8 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			// safe to proceed
 			// upload buffer data
-			cmdbuf->beginDebugMarker("ComputeShaderPathtracer IMGUI Frame");
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			cmdbuf->beginDebugMarker("ComputeShaderPathtracer IMGUI Frame");
 
 			updatePathtracerPushConstants();
 
