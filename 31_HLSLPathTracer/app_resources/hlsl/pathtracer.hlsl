@@ -5,6 +5,8 @@
 #include <nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl>
 #include <nbl/builtin/hlsl/math/functions.hlsl>
 #include <nbl/builtin/hlsl/bxdf/bxdf_traits.hlsl>
+#include <nbl/builtin/hlsl/vector_utils/vector_traits.hlsl>
+#include <nbl/builtin/hlsl/concepts.hlsl>
 
 #include "rand_gen.hlsl"
 #include "ray_gen.hlsl"
@@ -35,10 +37,33 @@ struct PathTracerCreationParams
     matrix<Scalar, 4, 4> invMVP;
 };
 
-template<class RandGen, class RayGen, class Intersector, class MaterialSystem, /* class PathGuider, */ class NextEventEstimator>
+template<typename OutputTypeVec NBL_PRIMARY_REQUIRES(concepts::FloatingPointVector<OutputTypeVec>)
+struct DefaultAccumulator
+{
+    using output_storage_type = OutputTypeVec;
+    using this_t = DefaultAccumulator<OutputTypeVec>;
+    output_storage_type accumulation;
+
+    static this_t create()
+    {
+        this_t retval;
+        retval.accumulation = promote<OutputTypeVec, float32_t>(0.0f);
+
+        return retval;
+    }
+
+    void addSample(uint32_t sampleCount, float32_t3 sample)
+    {
+        using ScalarType = typename vector_traits<OutputTypeVec>::scalar_type;
+        ScalarType rcpSampleSize = 1.0 / (sampleCount);
+        accumulation += (sample - accumulation) * rcpSampleSize;
+    }
+};
+
+template<class RandGen, class RayGen, class Intersector, class MaterialSystem, /* class PathGuider, */ class NextEventEstimator, class Accumulator>
 struct Unidirectional
 {
-    using this_t = Unidirectional<RandGen, RayGen, Intersector, MaterialSystem, NextEventEstimator>;
+    using this_t = Unidirectional<RandGen, RayGen, Intersector, MaterialSystem, NextEventEstimator, Accumulator>;
     using randgen_type = RandGen;
     using raygen_type = RayGen;
     using intersector_type = Intersector;
@@ -49,6 +74,7 @@ struct Unidirectional
     using vector3_type = vector<scalar_type, 3>;
     using monochrome_type = vector<scalar_type, 1>;
     using measure_type = typename MaterialSystem::measure_type;
+    using output_storage_type = typename Accumulator::output_storage_type; // ?
     using sample_type = typename NextEventEstimator::sample_type;
     using ray_dir_info_type = typename sample_type::ray_dir_info_type;
     using ray_type = typename RayGen::ray_type;
@@ -255,40 +281,33 @@ struct Unidirectional
     }
 
     // Li
-    measure_type getMeasure(uint32_t numSamples, uint32_t depth, NBL_CONST_REF_ARG(scene_type) scene)
+    void sampleMeasure(uint32_t sampleIndex, uint32_t maxDepth, NBL_CONST_REF_ARG(scene_type) scene, NBL_REF_ARG(Accumulator) accumulator)
     {
-        measure_type Li = (measure_type)0.0;
-        scalar_type meanLumaSq = 0.0;
-        for (uint32_t i = 0; i < numSamples; i++)
+        //scalar_type meanLumaSq = 0.0;
+        vector3_type uvw = rand3d(0u, sampleIndex, randGen.rng());    // TODO: take from scramblebuf?
+        ray_type ray = rayGen.generate(uvw);
+
+        // bounces
+        bool hit = true;
+        bool rayAlive = true;
+        for (int d = 1; (d <= maxDepth) && hit && rayAlive; d += 2)
         {
-            vector3_type uvw = rand3d(0u, i, randGen.rng());    // TODO: take from scramblebuf?
-            ray_type ray = rayGen.generate(uvw);
+            ray.intersectionT = numeric_limits<scalar_type>::max;
+            ray.objectID = intersector_type::traceRay(ray, scene);
 
-            // bounces
-            bool hit = true;
-            bool rayAlive = true;
-            for (int d = 1; (d <= depth) && hit && rayAlive; d += 2)
-            {
-                ray.intersectionT = numeric_limits<scalar_type>::max;
-                ray.objectID = intersector_type::traceRay(ray, scene);
-
-                hit = ray.objectID.id != -1;
-                if (hit)
-                    rayAlive = closestHitProgram(1, i, ray, scene);
-            }
-            if (!hit)
-                missProgram(ray);
-
-            measure_type accumulation = ray.payload.accumulation;
-            scalar_type rcpSampleSize = 1.0 / (i + 1);
-            Li += (accumulation - Li) * rcpSampleSize;
-
-            // TODO: visualize high variance
-
-            // TODO: russian roulette early exit?
+            hit = ray.objectID.id != -1;
+            if (hit)
+                rayAlive = closestHitProgram(1, sampleIndex, ray, scene);
         }
+        if (!hit)
+            missProgram(ray);
 
-        return Li;
+        const uint32_t sampleCount = sampleIndex + 1;
+        accumulator.addSample(sampleCount, ray.payload.accumulation);
+
+        // TODO: visualize high variance
+
+        // TODO: russian roulette early exit?
     }
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t MAX_DEPTH_LOG2 = 4u;
