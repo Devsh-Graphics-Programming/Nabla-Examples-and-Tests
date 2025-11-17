@@ -263,10 +263,11 @@ struct ShapeSampling<PST_RECTANGLE, PPM_SOLID_ANGLE>
         float32_t2 sphUv = ssph.generate(rectExtents, xi.xy, solidAngle);
         if (solidAngle > numeric_limits<float>::min)
         {
-            float32_t3 sph_sample = sphUv[0] * rect.edge0 + sphUv[1] * rect.edge1 + rect.offset;
+            float32_t3 sph_sample = sphUv.x * rect.edge0 + sphUv.y * rect.edge1 + rect.offset;
             L = sph_sample - origin;
-            L = hlsl::mix(hlsl::normalize(L), hlsl::promote<float32_t3>(0.0), hlsl::all(hlsl::abs(L) > hlsl::promote<float32_t3>(numeric_limits<float>::min))); // TODO? sometimes L is vec3(0), find cause
-            pdf = 1.f / solidAngle;
+            const bool invalid = hlsl::all(hlsl::abs(L) < hlsl::promote<float32_t3>(numeric_limits<float>::min));
+            L = hlsl::mix(hlsl::normalize(L), hlsl::promote<float32_t3>(0.0), invalid);
+            pdf = hlsl::mix(1.f / solidAngle, bit_cast<float>(numeric_limits<float>::infinity), invalid);
         }
         else
             pdf = bit_cast<float>(numeric_limits<float>::infinity);

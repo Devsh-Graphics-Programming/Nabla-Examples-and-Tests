@@ -349,7 +349,7 @@ struct Shape<PST_RECTANGLE>
         extents = float32_t2(nbl::hlsl::length(edge0), nbl::hlsl::length(edge1));
         basis[0] = edge0 / extents[0];
         basis[1] = edge1 / extents[1];
-        basis[2] = normalize(cross(basis[0],basis[1]));
+        basis[2] = nbl::hlsl::normalize(nbl::hlsl::cross(basis[0],basis[1]));
     }
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t ObjSize = 10;
