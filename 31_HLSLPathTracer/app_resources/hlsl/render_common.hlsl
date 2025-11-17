@@ -18,6 +18,6 @@ struct RenderPushConstants
 };
 
 NBL_CONSTEXPR nbl::hlsl::float32_t3 LightEminence = nbl::hlsl::float32_t3(30.0f, 25.0f, 15.0f);
-NBL_CONSTEXPR uint32_t RenderWorkgroupSize = 512u;
+NBL_CONSTEXPR uint32_t RenderWorkgroupSize = 64u;
 
 #endif

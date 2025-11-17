@@ -65,7 +65,6 @@
 using namespace nbl;
 using namespace hlsl;
 
-NBL_CONSTEXPR uint32_t WorkgroupSize = 64;
 NBL_CONSTEXPR uint32_t MAX_DEPTH_LOG2 = 4;
 NBL_CONSTEXPR uint32_t MAX_SAMPLES_LOG2 = 10;
 
@@ -205,7 +204,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 #ifdef PERSISTENT_WORKGROUPS
     uint32_t virtualThreadIndex;
     [loop]
-    for (uint32_t virtualThreadBase = glsl::gl_WorkGroupID().x * WorkgroupSize; virtualThreadBase < 1920*1080; virtualThreadBase += glsl::gl_NumWorkGroups().x * WorkgroupSize) // not sure why 1280*720 doesn't cover draw surface
+    for (uint32_t virtualThreadBase = glsl::gl_WorkGroupID().x * RenderWorkgroupSize; virtualThreadBase < 1920*1080; virtualThreadBase += glsl::gl_NumWorkGroups().x * RenderWorkgroupSize) // not sure why 1280*720 doesn't cover draw surface
     {
         virtualThreadIndex = virtualThreadBase + glsl::gl_LocalInvocationIndex().x;
         const int32_t2 coords = (int32_t2)math::Morton<uint32_t>::decode2d(virtualThreadIndex);
@@ -234,7 +233,7 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 #endif
     }
 
-    int flatIdx = glsl::gl_GlobalInvocationID().y * glsl::gl_NumWorkGroups().x * WorkgroupSize + glsl::gl_GlobalInvocationID().x;
+    int flatIdx = glsl::gl_GlobalInvocationID().y * glsl::gl_NumWorkGroups().x * RenderWorkgroupSize + glsl::gl_GlobalInvocationID().x;
 
     // set up path tracer
     ext::PathTracer::PathTracerCreationParams<float> ptCreateParams;

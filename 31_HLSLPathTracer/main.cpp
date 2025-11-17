@@ -49,7 +49,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 		constexpr static inline uint32_t2 WindowDimensions = { 1280, 720 };
 		constexpr static inline uint32_t MaxFramesInFlight = 5;
 		constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
-		constexpr static inline uint32_t DefaultWorkGroupSize = 512u;
+		constexpr static inline uint32_t DefaultWorkGroupSize = RenderWorkgroupSize;
 		constexpr static inline uint32_t MaxDescriptorCount = 256u;
 		constexpr static inline uint32_t MaxDepthLog2 = 4u; // 5
 		constexpr static inline uint32_t MaxSamplesLog2 = 10u; // 18
