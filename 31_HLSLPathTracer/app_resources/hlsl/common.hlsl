@@ -5,8 +5,8 @@
 #include <nbl/builtin/hlsl/spirv_intrinsics/glsl.std.450.hlsl>
 #include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
 #include <nbl/builtin/hlsl/numbers.hlsl>
-#include <nbl/builtin/hlsl/shapes/triangle.hlsl>
-#include <nbl/builtin/hlsl/shapes/rectangle.hlsl>
+#include <nbl/builtin/hlsl/shapes/spherical_triangle.hlsl>
+#include <nbl/builtin/hlsl/shapes/spherical_rectangle.hlsl>
 #include <nbl/builtin/hlsl/sampling/spherical_triangle.hlsl>
 #include <nbl/builtin/hlsl/sampling/projected_spherical_triangle.hlsl>
 #include <nbl/builtin/hlsl/sampling/spherical_rectangle.hlsl>

@@ -4,6 +4,7 @@
 #include <nbl/builtin/hlsl/colorspace/EOTF.hlsl>
 #include <nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl>
 #include <nbl/builtin/hlsl/math/functions.hlsl>
+#include <nbl/builtin/hlsl/sampling/basic.hlsl>
 #include <nbl/builtin/hlsl/bxdf/bxdf_traits.hlsl>
 #include <nbl/builtin/hlsl/vector_utils/vector_traits.hlsl>
 #include <nbl/builtin/hlsl/concepts.hlsl>
@@ -178,7 +179,8 @@ struct Unidirectional
         // sample lights
         const scalar_type neeProbability = 1.0; // BSDFNode_getNEEProb(bsdf);
         scalar_type rcpChoiceProb;
-        if (!math::partitionRandVariable(neeProbability, eps0.z, rcpChoiceProb) && depth < 2u)
+        sampling::PartitionRandVariable<scalar_type> partitionRandVariable;
+        if (!partitionRandVariable(neeProbability, eps0.z, rcpChoiceProb) && depth < 2u)
         {
             uint32_t randLightID = uint32_t(float32_t(randGen().x) / numeric_limits<uint32_t>::max) * scene.lightCount;
             quotient_pdf_type neeContrib_pdf;
