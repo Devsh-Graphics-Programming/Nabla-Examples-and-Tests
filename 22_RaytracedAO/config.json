@@ -1,0 +1,28 @@
+{
+  "enableParallelBuild": true,
+  "threadsPerBuildProcess" : 2,
+  "isExecuted": false,
+  "scriptPath": "",
+  "cmake": {
+    "requiredOptions": [ "NBL_BUILD_MITSUBA_LOADER",  "NBL_BUILD_RADEON_RAYS" ]
+  }, 
+  "profiles": [
+    {
+      "backend": "",
+      "platform": "",
+      "buildModes": [],
+      "gpuArchitectures": []
+    }
+  ],
+  "dependencies": [],
+  "data": [
+    {
+      "dependencies": [ 
+      ],
+      "command": [
+      ],
+      "outputs": [
+      ]
+    }
+  ]
+}

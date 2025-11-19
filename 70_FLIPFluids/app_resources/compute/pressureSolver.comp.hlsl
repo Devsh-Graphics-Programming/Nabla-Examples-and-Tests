@@ -36,6 +36,7 @@ groupshared float sDivergence[14][14][14];
 groupshared float sPressure[14][14][14];
 
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
+[shader("compute")]
 void calculateNegativeDivergence(uint32_t3 ID : SV_DispatchThreadID)
 {
     int3 cellIdx = ID;

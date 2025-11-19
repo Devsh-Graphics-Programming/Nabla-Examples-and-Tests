@@ -31,8 +31,10 @@ endif()
 
 set(EXTRA_SOURCES
 	../../src/nbl/ext/DebugDraw/CDraw3DLine.cpp
+	../../src/nbl/ext/EnvmapImportanceSampling/EnvmapImportanceSampling.cpp
 	Renderer.cpp
 	CommandLineHandler.cpp
+	SimpleJson.cpp
 )
 
 nbl_create_executable_project(
@@ -40,5 +42,11 @@ nbl_create_executable_project(
 	""
 	"${RAY_TRACED_AO_EXAMPLE_INCLUDE_DIRS}"
 	"${RAY_TRACED_AO_EXAMPLE_LIBS}"
-	"${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}"
 )
+
+# TODO: Abstract this stuff away inside `nbl_create_executable_project`
+if(NBL_RUN_TESTS)
+	get_target_property(_RTAO_OUTPUT_RUNTIME_RELEASE_ ${EXECUTABLE_NAME} RUNTIME_OUTPUT_DIRECTORY_RELEASE)
+	set(_NBL_PATHTRACER_EXE_ "${_RTAO_OUTPUT_RUNTIME_RELEASE_}/${EXECUTABLE_NAME}.exe" CACHE FILEPATH "")
+	configure_file("${NBL_ROOT_PATH}/tests/22.RaytracedAO/test.py" "${NBL_BINARY_PATH}/examples_tests/22.RaytracedAO/test.py")
+endif() 

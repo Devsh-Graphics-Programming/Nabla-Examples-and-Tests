@@ -1,12 +1,9 @@
 #ifndef _RAYTRACE_COMMON_H_INCLUDED_
 #define _RAYTRACE_COMMON_H_INCLUDED_
 
+
 #include "common.h"
 
-#if WORKGROUP_SIZE!=256
-	#error "Hardcoded 16 should be NBL_SQRT(WORKGROUP_SIZE)"
-#endif
-#define WORKGROUP_DIM 16
 
 /**
 Plan for lighting:
@@ -60,15 +57,20 @@ struct SLight
 	}
 
 	// also known as an upper bound on lumens put into the scene
-	inline float computeFluxBound(const nbl::core::vectorSIMDf& radiance) const
+	inline float computeLuma(const nbl::core::vectorSIMDf& radiance) const
 	{
 		const nbl::core::vectorSIMDf rec709LumaCoeffs(0.2126f, 0.7152f, 0.0722f, 0.f);
+		return nbl::core::dot(radiance, rec709LumaCoeffs).x;
+	}
+	// also known as an upper bound on lumens put into the scene
+	inline float computeFluxBound(const float luma) const
+	{
 		const auto unitHemisphereArea = 2.f * nbl::core::PI<float>();
 
 		const auto unitBoxScale = obb.getScale();
 		const float obbArea = 2.f * (unitBoxScale.x * unitBoxScale.y + unitBoxScale.x * unitBoxScale.z + unitBoxScale.y * unitBoxScale.z);
 
-		return nbl::core::dot(radiance, rec709LumaCoeffs).x * unitHemisphereArea * obbArea;
+		return luma * unitHemisphereArea * obbArea;
 	}
 #endif
 
@@ -84,28 +86,76 @@ struct SLight
 
 
 //
-struct StaticViewData_t
-{
-	uvec2   imageDimensions;
+#include <nbl/builtin/glsl/re_weighted_monte_carlo/splatting.glsl>
 #ifdef __cplusplus
-	uint8_t pathDepth;
+struct alignas(16) StaticViewData_t
+#else
+struct StaticViewData_t
+#endif
+{
+#ifdef __cplusplus
+	uint16_t imageDimensions[2];
+	uint8_t maxPathDepth;
 	uint8_t noRussianRouletteDepth;
 	uint16_t samplesPerPixelPerDispatch;
+	uint32_t sampleSequenceStride : 31;
+	uint32_t hideEnvmap : 1;
 #else
-	uint    pathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch;
+	uint imageDimensions;
+	uint maxPathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch;
+	uint sampleSequenceStride_hideEnvmap;
 #endif
-	uint	lightCount;
+	float envMapPDFNormalizationFactor;
+	nbl_glsl_RWMC_CascadeParameters cascadeParams;
 };
+#ifndef __cplusplus
+uvec2 getImageDimensions(in StaticViewData_t data)
+{
+	return uvec2(
+		bitfieldExtract(data.imageDimensions, 0,16),
+		bitfieldExtract(data.imageDimensions,16,16)
+	);
+}
+#endif
+
 
 struct RaytraceShaderCommonData_t
 {
-	mat4 	viewProjMatrixInverse;
-	vec3	camPos;
 	float   rcpFramesDispatched;
-	uint	samplesComputed;
-	uint	depth; // 0 if path tracing disabled
-	uint	rayCountWriteIx;
+	uint	frameLowDiscrepancySequenceShift;
+	uint	pathDepth_rayCountWriteIx; // depth=0 if path tracing disabled
 	float	textureFootprintFactor;
+	// need to be at the end because of some PC -> OpenGL Uniform mapping bug
+	// PERSPECTIVE
+	// mat3(viewDirReconFactors)*vec3(uv,1) or hitPoint-viewDirReconFactors[3]
+	// ORTHO
+	// viewDirReconFactors[2]=V
+	mat4x3	viewDirReconFactors;
+
+#ifdef __cplusplus
+	uint32_t getPathDepth() const
+	{
+		return nbl::core::bitfieldExtract(pathDepth_rayCountWriteIx,0,RAYCOUNT_SHIFT);
+	}
+	void setPathDepth(const uint32_t depth)
+	{
+		pathDepth_rayCountWriteIx = nbl::core::bitfieldInsert(pathDepth_rayCountWriteIx,depth,0,RAYCOUNT_SHIFT);
+	}
+
+	uint32_t getReadIndex() const
+	{
+		const uint32_t index = nbl::core::bitfieldExtract(pathDepth_rayCountWriteIx,RAYCOUNT_SHIFT,RAYCOUNT_N_BUFFERING_LOG2);
+		if (index)
+			return index-1;
+		return RAYCOUNT_N_BUFFERING-1;
+	}
+	void advanceWriteIndex()
+	{
+		const uint32_t writeIx = nbl::core::bitfieldExtract(pathDepth_rayCountWriteIx,RAYCOUNT_SHIFT,RAYCOUNT_N_BUFFERING_LOG2);
+		pathDepth_rayCountWriteIx = nbl::core::bitfieldInsert(pathDepth_rayCountWriteIx,writeIx+1,RAYCOUNT_SHIFT,RAYCOUNT_N_BUFFERING_LOG2);
+	}
+#endif
 };
 
+#include <nbl/builtin/glsl/re_weighted_monte_carlo/reweighting.glsl>
 #endif

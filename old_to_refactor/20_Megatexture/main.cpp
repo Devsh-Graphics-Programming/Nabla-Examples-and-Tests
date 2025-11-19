@@ -684,7 +684,7 @@ APP_CONSTRUCTOR(MegaTextureApp)
             video::IGPUBuffer::SCreationParams bufferCreationParams;
             bufferCreationParams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
             bufferCreationParams.size = sizeof(video::IGPUVirtualTexture::SPrecomputedData);
-            core::smart_refctd_ptr<video::IUtilities> utilities = core::make_smart_refctd_ptr<video::IUtilities>(core::smart_refctd_ptr(logicalDevice));
+            core::smart_refctd_ptr<video::IUtilities> utilities = video::IUtilities::create(core::smart_refctd_ptr(logicalDevice));
             core::smart_refctd_ptr<video::IGPUBuffer> buffer = utilities->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_TRANSFER_UP], std::move(bufferCreationParams), &gpuvt->getPrecomputedData());
 
             {

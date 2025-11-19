@@ -34,6 +34,7 @@ groupshared uint16_t3 sAxisCellMat[14][14][14]; // TODO: `uint16_t` per axis is 
 groupshared float16_t3 sDiffusion[14][14][14];
 
 [numthreads(WorkgroupGridDim, WorkgroupGridDim, WorkgroupGridDim)]
+[shader("compute")]
 void setAxisCellMaterial(uint32_t3 ID : SV_DispatchThreadID)
 {
     int3 cellIdx = ID;
