@@ -25,18 +25,18 @@ namespace ext
 namespace PathTracer
 {
 
-template<typename Scalar>
-struct PathTracerCreationParams
-{
-    // rng gen
-    uint32_t2 rngState;
+// template<typename Scalar>
+// struct PathTracerCreationParams
+// {
+//     // rng gen
+//     uint32_t2 rngState;
 
-    // ray gen
-    vector<Scalar, 2> pixOffsetParam;
-    vector<Scalar, 3> camPos;
-    vector<Scalar, 4> NDC;
-    matrix<Scalar, 4, 4> invMVP;
-};
+//     // ray gen
+//     vector<Scalar, 2> pixOffsetParam;
+//     vector<Scalar, 3> camPos;
+//     vector<Scalar, 4> NDC;
+//     matrix<Scalar, 4, 4> invMVP;
+// };
 
 template<typename OutputTypeVec NBL_PRIMARY_REQUIRES(concepts::FloatingPointVector<OutputTypeVec>)
 struct DefaultAccumulator
@@ -92,13 +92,13 @@ struct Unidirectional
     using conductor_op_type = typename MaterialSystem::conductor_op_type;
     using dielectric_op_type = typename MaterialSystem::dielectric_op_type;
 
-    static this_t create(NBL_CONST_REF_ARG(PathTracerCreationParams<scalar_type>) params)
-    {
-        this_t retval;
-        retval.randGen = randgen_type::create(params.rngState);
-        retval.rayGen = raygen_type::create(params.pixOffsetParam, params.camPos, params.NDC, params.invMVP);
-        return retval;
-    }
+    // static this_t create(NBL_CONST_REF_ARG(PathTracerCreationParams<scalar_type>) params)
+    // {
+    //     this_t retval;
+    //     retval.randGen = randgen_type::create(params.rngState);
+    //     retval.rayGen = raygen_type::create(params.pixOffsetParam, params.camPos, params.NDC, params.invMVP);
+    //     return retval;
+    // }
 
     vector3_type rand3d(uint32_t protoDimension, uint32_t _sample, uint32_t i)
     {

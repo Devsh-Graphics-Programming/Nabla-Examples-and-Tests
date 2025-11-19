@@ -60,6 +60,7 @@
 [[vk::image_format("rgba16f")]] [[vk::binding(0)]] RWTexture2DArray<float32_t4> outImage;
 [[vk::image_format("rgba16f")]] [[vk::binding(1)]] RWTexture2DArray<float32_t4> cascade;
 
+#include "example_common.hlsl"
 #include "pathtracer.hlsl"
 
 using namespace nbl;
@@ -69,13 +70,13 @@ NBL_CONSTEXPR uint32_t MAX_DEPTH_LOG2 = 4;
 NBL_CONSTEXPR uint32_t MAX_SAMPLES_LOG2 = 10;
 
 #ifdef SPHERE_LIGHT
-NBL_CONSTEXPR ext::ProceduralShapeType LIGHT_TYPE = ext::PST_SPHERE;
+NBL_CONSTEXPR ProceduralShapeType LIGHT_TYPE = PST_SPHERE;
 #endif
 #ifdef TRIANGLE_LIGHT
-NBL_CONSTEXPR ext::ProceduralShapeType LIGHT_TYPE = ext::PST_TRIANGLE;
+NBL_CONSTEXPR ProceduralShapeType LIGHT_TYPE = PST_TRIANGLE;
 #endif
 #ifdef RECTANGLE_LIGHT
-NBL_CONSTEXPR ext::ProceduralShapeType LIGHT_TYPE = ext::PST_RECTANGLE;
+NBL_CONSTEXPR ProceduralShapeType LIGHT_TYPE = PST_RECTANGLE;
 #endif
 
 NBL_CONSTEXPR ext::PTPolygonMethod POLYGON_METHOD = ext::PPM_SOLID_ANGLE;
@@ -111,8 +112,8 @@ using diffuse_bxdf_type = bxdf::reflection::SOrenNayar<iso_config_t>;
 using conductor_bxdf_type = bxdf::reflection::SGGXIsotropic<iso_microfacet_config_t>;
 using dielectric_bxdf_type = bxdf::transmission::SGGXDielectricIsotropic<iso_microfacet_config_t>;
 
-using ray_type = ext::Ray<float>;
-using light_type = ext::Light<spectral_t>;
+using ray_type = Ray<float>;
+using light_type = Light<spectral_t>;
 using bxdfnode_type = ext::BxDFNode<spectral_t>;
 using scene_type = ext::Scene<light_type, bxdfnode_type>;
 using randgen_type = ext::RandGen::Uniform3D<Xoroshiro64Star>;
@@ -129,34 +130,34 @@ using accumulator_type = ext::PathTracer::DefaultAccumulator<float32_t3>;
 
 using pathtracer_type = ext::PathTracer::Unidirectional<randgen_type, raygen_type, intersector_type, material_system_type, nee_type, accumulator_type>;
 
-static const ext::Shape<ext::PST_SPHERE> spheres[SPHERE_COUNT] = {
-    ext::Shape<ext::PST_SPHERE>::create(float3(0.0, -100.5, -1.0), 100.0, 0u, light_type::INVALID_ID),
-    ext::Shape<ext::PST_SPHERE>::create(float3(2.0, 0.0, -1.0), 0.5, 1u, light_type::INVALID_ID),
-    ext::Shape<ext::PST_SPHERE>::create(float3(0.0, 0.0, -1.0), 0.5, 2u, light_type::INVALID_ID),
-    ext::Shape<ext::PST_SPHERE>::create(float3(-2.0, 0.0, -1.0), 0.5, 3u, light_type::INVALID_ID),
-    ext::Shape<ext::PST_SPHERE>::create(float3(2.0, 0.0, 1.0), 0.5, 4u, light_type::INVALID_ID),
-    ext::Shape<ext::PST_SPHERE>::create(float3(0.0, 0.0, 1.0), 0.5, 4u, light_type::INVALID_ID),
-    ext::Shape<ext::PST_SPHERE>::create(float3(-2.0, 0.0, 1.0), 0.5, 5u, light_type::INVALID_ID),
-    ext::Shape<ext::PST_SPHERE>::create(float3(0.5, 1.0, 0.5), 0.5, 6u, light_type::INVALID_ID)
+static const ext::Shape<PST_SPHERE> spheres[SPHERE_COUNT] = {
+    ext::Shape<PST_SPHERE>::create(float3(0.0, -100.5, -1.0), 100.0, 0u, light_type::INVALID_ID),
+    ext::Shape<PST_SPHERE>::create(float3(2.0, 0.0, -1.0), 0.5, 1u, light_type::INVALID_ID),
+    ext::Shape<PST_SPHERE>::create(float3(0.0, 0.0, -1.0), 0.5, 2u, light_type::INVALID_ID),
+    ext::Shape<PST_SPHERE>::create(float3(-2.0, 0.0, -1.0), 0.5, 3u, light_type::INVALID_ID),
+    ext::Shape<PST_SPHERE>::create(float3(2.0, 0.0, 1.0), 0.5, 4u, light_type::INVALID_ID),
+    ext::Shape<PST_SPHERE>::create(float3(0.0, 0.0, 1.0), 0.5, 4u, light_type::INVALID_ID),
+    ext::Shape<PST_SPHERE>::create(float3(-2.0, 0.0, 1.0), 0.5, 5u, light_type::INVALID_ID),
+    ext::Shape<PST_SPHERE>::create(float3(0.5, 1.0, 0.5), 0.5, 6u, light_type::INVALID_ID)
 #ifdef SPHERE_LIGHT
-    ,ext::Shape<ext::PST_SPHERE>::create(float3(-1.5, 1.5, 0.0), 0.3, bxdfnode_type::INVALID_ID, 0u)
+    ,ext::Shape<PST_SPHERE>::create(float3(-1.5, 1.5, 0.0), 0.3, bxdfnode_type::INVALID_ID, 0u)
 #endif
 };
 
 #ifdef TRIANGLE_LIGHT
-static const ext::Shape<ext::PST_TRIANGLE> triangles[TRIANGLE_COUNT] = {
-    ext::Shape<ext::PST_TRIANGLE>::create(float3(-1.8,0.35,0.3) * 10.0, float3(-1.2,0.35,0.0) * 10.0, float3(-1.5,0.8,-0.3) * 10.0, bxdfnode_type::INVALID_ID, 0u)
+static const ext::Shape<PST_TRIANGLE> triangles[TRIANGLE_COUNT] = {
+    ext::Shape<PST_TRIANGLE>::create(float3(-1.8,0.35,0.3) * 10.0, float3(-1.2,0.35,0.0) * 10.0, float3(-1.5,0.8,-0.3) * 10.0, bxdfnode_type::INVALID_ID, 0u)
 };
 #else
-static const ext::Shape<ext::PST_TRIANGLE> triangles[1];
+static const ext::Shape<PST_TRIANGLE> triangles[1];
 #endif
 
 #ifdef RECTANGLE_LIGHT
-static const ext::Shape<ext::PST_RECTANGLE> rectangles[RECTANGLE_COUNT] = {
-    ext::Shape<ext::PST_RECTANGLE>::create(float3(-3.8,0.35,1.3), normalize(float3(2,0,-1))*7.0, normalize(float3(2,-5,4))*0.1, bxdfnode_type::INVALID_ID, 0u)
+static const ext::Shape<PST_RECTANGLE> rectangles[RECTANGLE_COUNT] = {
+    ext::Shape<PST_RECTANGLE>::create(float3(-3.8,0.35,1.3), normalize(float3(2,0,-1))*7.0, normalize(float3(2,-5,4))*0.1, bxdfnode_type::INVALID_ID, 0u)
 };
 #else
-static const ext::Shape<ext::PST_RECTANGLE> rectangles[1];
+static const ext::Shape<PST_RECTANGLE> rectangles[1];
 #endif
 
 static const light_type lights[LIGHT_COUNT] = {
@@ -236,24 +237,22 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     int flatIdx = glsl::gl_GlobalInvocationID().y * glsl::gl_NumWorkGroups().x * RenderWorkgroupSize + glsl::gl_GlobalInvocationID().x;
 
     // set up path tracer
-    ext::PathTracer::PathTracerCreationParams<float> ptCreateParams;
-    ptCreateParams.rngState = scramblebuf[coords].rg;
+    pathtracer_type pathtracer;
+    pathtracer.randGen = randgen_type::create(scramblebuf[coords].rg);     // TODO concept this create
 
     uint2 scrambleDim;
     scramblebuf.GetDimensions(scrambleDim.x, scrambleDim.y);
-    ptCreateParams.pixOffsetParam = (float2)1.0 / float2(scrambleDim);
+    float32_t2 pixOffsetParam = (float2)1.0 / float2(scrambleDim);
 
-    float4 NDC = float4(texCoord * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
+    float32_t4 NDC = float4(texCoord * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
+    float32_t3 camPos;
     {
         float4 tmp = mul(renderPushConstants.invMVP, NDC);
-        ptCreateParams.camPos = tmp.xyz / tmp.w;
+        camPos = tmp.xyz / tmp.w;
         NDC.z = 1.0;
     }
-
-    ptCreateParams.NDC = NDC;
-    ptCreateParams.invMVP = renderPushConstants.invMVP;
-
-    pathtracer_type pathtracer = pathtracer_type::create(ptCreateParams);
+    float32_t4x4 invMVP = renderPushConstants.invMVP;    
+    pathtracer.rayGen = raygen_type::create(pixOffsetParam, camPos, NDC, invMVP);
 
 #ifdef RWMC_ENABLED
     accumulator_type accumulator = accumulator_type::create(pc.splattingParameters);
