@@ -45,7 +45,10 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(12_MeshLoaders)
 	#
 	add_subdirectory(13_MaterialCompilerTest)
-
+	
+	# bitonic 
+	add_subdirectory(14_BitonicSort)
+	
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo)
 	#add_subdirectory(33_Draw3DLine)
