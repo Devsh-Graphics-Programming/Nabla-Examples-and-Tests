@@ -14,16 +14,13 @@ namespace ext
 namespace Intersector
 {
 
-template<class Ray, typename Light, typename BxdfNode>
+template<class Ray, class Scene>
 struct Comprehensive
 {
     using scalar_type = typename Ray::scalar_type;
     using vector3_type = vector<scalar_type, 3>;
     using ray_type = Ray;
-
-    using light_type = Light;
-    using bxdfnode_type = BxdfNode;
-    using scene_type = Scene<light_type, bxdfnode_type>;
+    using scene_type = Scene;
 
     static ObjectID traceRay(NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(scene_type) scene)
     {

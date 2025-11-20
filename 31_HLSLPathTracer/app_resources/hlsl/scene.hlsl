@@ -10,13 +10,12 @@ namespace hlsl
 namespace ext
 {
 
-template<typename Light, typename BxdfNode>
+template<typename T>
 struct Scene
 {
-    using light_type = Light;
-    using bxdfnode_type = BxdfNode;
-    using scalar_type = typename bxdfnode_type::scalar_type;
-    using this_t = Scene<Light, BxdfNode>;
+    using scalar_type = T;
+    using vector3_type = vector<T, 3>;
+    using this_t = Scene<T>;
 
     // NBL_CONSTEXPR_STATIC_INLINE uint32_t maxSphereCount = 25;
     // NBL_CONSTEXPR_STATIC_INLINE uint32_t maxTriangleCount = 12;
@@ -49,24 +48,13 @@ struct Scene
     uint32_t rectangleCount;
 
     // NBL_CONSTEXPR_STATIC_INLINE uint32_t maxLightCount = 4;
-
-    light_type lights[LIGHT_COUNT];
-    uint32_t lightCount;
-
     // NBL_CONSTEXPR_STATIC_INLINE uint32_t maxBxdfCount = 16;
-
-    bxdfnode_type bxdfs[BXDF_COUNT];
-    uint32_t bxdfCount;
-
-    // AS ases;
 
     static this_t create(
         NBL_CONST_REF_ARG(Shape<scalar_type, PST_SPHERE>) spheres[SCENE_SPHERE_COUNT],
         NBL_CONST_REF_ARG(Shape<scalar_type, PST_TRIANGLE>) triangles[SCENE_TRIANGLE_COUNT],
         NBL_CONST_REF_ARG(Shape<scalar_type, PST_RECTANGLE>) rectangles[SCENE_RECTANGLE_COUNT],
-        uint32_t sphereCount, uint32_t triangleCount, uint32_t rectangleCount,
-        NBL_CONST_REF_ARG(light_type) lights[LIGHT_COUNT], uint32_t lightCount,
-        NBL_CONST_REF_ARG(bxdfnode_type) bxdfs[BXDF_COUNT], uint32_t bxdfCount)
+        uint32_t sphereCount, uint32_t triangleCount, uint32_t rectangleCount)
     {
         this_t retval;
         retval.spheres = spheres;
@@ -75,12 +63,6 @@ struct Scene
         retval.sphereCount = sphereCount;
         retval.triangleCount = triangleCount;
         retval.rectangleCount = rectangleCount;
-
-        retval.lights = lights;
-        retval.lightCount = lightCount;
-
-        retval.bxdfs = bxdfs;
-        retval.bxdfCount = bxdfCount;
         return retval;
     }
 
@@ -96,12 +78,12 @@ struct Scene
                 (objectID.shapeType == PST_RECTANGLE) ? rectangles[objectID.id].bsdfLightIDs : -1;
     }
 
-    float32_t3 getNormal(NBL_CONST_REF_ARG(ObjectID) objectID, NBL_CONST_REF_ARG(float32_t3) intersection)
+    vector3_type getNormal(NBL_CONST_REF_ARG(ObjectID) objectID, NBL_CONST_REF_ARG(vector3_type) intersection)
     {
         return (objectID.shapeType == PST_SPHERE) ? spheres[objectID.id].getNormal(intersection) :
                 (objectID.shapeType == PST_TRIANGLE) ? triangles[objectID.id].getNormalTimesArea() :
                 (objectID.shapeType == PST_RECTANGLE) ? rectangles[objectID.id].getNormalTimesArea() :
-                (float32_t3)0.0;
+                hlsl::promote<vector3_type>(0.0);
     }
 };
 

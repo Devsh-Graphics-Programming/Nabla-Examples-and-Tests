@@ -158,7 +158,7 @@ struct Unidirectional
         if (bsdfID == bxdfnode_type::INVALID_ID)
             return false;
 
-        bxdfnode_type bxdf = scene.bxdfs[bsdfID];
+        bxdfnode_type bxdf = materialSystem.bxdfs[bsdfID];
 
         // TODO: ifdef kill diffuse specular paths
 
@@ -182,7 +182,7 @@ struct Unidirectional
         sampling::PartitionRandVariable<scalar_type> partitionRandVariable;
         if (!partitionRandVariable(neeProbability, eps0.z, rcpChoiceProb) && depth < 2u)
         {
-            uint32_t randLightID = uint32_t(float32_t(randGen().x) / numeric_limits<uint32_t>::max) * scene.lightCount;
+            uint32_t randLightID = uint32_t(float32_t(randGen().x) / numeric_limits<uint32_t>::max) * nee.lightCount;
             quotient_pdf_type neeContrib_pdf;
             scalar_type t;
             sample_type nee_sample = nee.generate_and_quotient_and_pdf(

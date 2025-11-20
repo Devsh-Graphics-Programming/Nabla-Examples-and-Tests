@@ -115,12 +115,12 @@ using dielectric_bxdf_type = bxdf::transmission::SGGXDielectricIsotropic<iso_mic
 using ray_type = Ray<float>;
 using light_type = Light<spectral_t>;
 using bxdfnode_type = ext::BxDFNode<spectral_t>;
-using scene_type = ext::Scene<light_type, bxdfnode_type>;
+using scene_type = ext::Scene<float>;
 using randgen_type = ext::RandGen::Uniform3D<Xoroshiro64Star>;
 using raygen_type = ext::RayGen::Basic<ray_type>;
-using intersector_type = ext::Intersector::Comprehensive<ray_type, light_type, bxdfnode_type>;
-using material_system_type = ext::MaterialSystem::System<diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type>;
-using nee_type = ext::NextEventEstimator::Estimator<scene_type, ray_type, sample_t, aniso_interaction, ext::IntersectMode::IM_PROCEDURAL, LIGHT_TYPE, POLYGON_METHOD>;
+using intersector_type = ext::Intersector::Comprehensive<ray_type, scene_type>;
+using material_system_type = ext::MaterialSystem::System<bxdfnode_type, diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type>;
+using nee_type = ext::NextEventEstimator::Estimator<scene_type, light_type, ray_type, sample_t, aniso_interaction, ext::IntersectMode::IM_PROCEDURAL, LIGHT_TYPE, POLYGON_METHOD>;
 
 #ifdef RWMC_ENABLED
 using accumulator_type = rwmc::CascadeAccumulator<float32_t3, CascadeCount>;
@@ -180,10 +180,9 @@ static const bxdfnode_type bxdfs[BXDF_COUNT] = {
     bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIELECTRIC, false, float2(0.0625,0.0625), spectral_t(1,1,1), spectral_t(1.4,1.45,1.5))
 };
 
-static const ext::Scene<light_type, bxdfnode_type> scene = ext::Scene<light_type, bxdfnode_type>::create(
+static const scene_type scene = scene_type::create(
     spheres, triangles, rectangles,
-    SPHERE_COUNT, TRIANGLE_COUNT, RECTANGLE_COUNT,
-    lights, LIGHT_COUNT, bxdfs, BXDF_COUNT
+    SPHERE_COUNT, TRIANGLE_COUNT, RECTANGLE_COUNT
 );
 
 RenderPushConstants retireveRenderPushConstants()
@@ -253,6 +252,10 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     }
     float32_t4x4 invMVP = renderPushConstants.invMVP;    
     pathtracer.rayGen = raygen_type::create(pixOffsetParam, camPos, NDC, invMVP);
+    pathtracer.nee.lights = lights;
+    pathtracer.nee.lightCount = LIGHT_COUNT;
+    pathtracer.materialSystem.bxdfs = bxdfs;
+    pathtracer.materialSystem.bxdfCount = BXDF_COUNT;
 
 #ifdef RWMC_ENABLED
     accumulator_type accumulator = accumulator_type::create(pc.splattingParameters);
