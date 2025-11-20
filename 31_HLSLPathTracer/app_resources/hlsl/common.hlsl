@@ -34,32 +34,34 @@ template<class Spectrum>
 struct BxDFNode
 {
     using spectral_type = Spectrum;
-    using params_type = SBxDFCreationParams<float, spectral_type>;
+    using scalar_type = typename vector_traits<Spectrum>::scalar_type;
+    using vector2_type = vector<scalar_type, 2>;
+    using params_type = SBxDFCreationParams<scalar_type, spectral_type>;
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t INVALID_ID = 0xffffu;
 
     // for diffuse bxdfs
-    static BxDFNode<Spectrum> create(uint32_t materialType, bool isAniso, NBL_CONST_REF_ARG(float32_t2) A, NBL_CONST_REF_ARG(spectral_type) albedo)
+    static BxDFNode<Spectrum> create(uint32_t materialType, bool isAniso, NBL_CONST_REF_ARG(vector2_type) A, NBL_CONST_REF_ARG(spectral_type) albedo)
     {
         BxDFNode<Spectrum> retval;
         retval.albedo = albedo;
         retval.materialType = materialType;
         retval.params.is_aniso = isAniso;
-        retval.params.A = hlsl::max<float32_t2>(A, (float32_t2)1e-4);
-        retval.params.ior0 = (spectral_type)1.0;
-        retval.params.ior1 = (spectral_type)1.0;
+        retval.params.A = hlsl::max(A, hlsl::promote<vector2_type>(1e-4));
+        retval.params.ior0 = hlsl::promote<spectral_type>(1.0);
+        retval.params.ior1 = hlsl::promote<spectral_type>(1.0);
         return retval;
     }
 
     // for conductor, ior0 = eta, ior1 = etak
     // for dielectric, eta = ior1/ior0
-    static BxDFNode<Spectrum> create(uint32_t materialType, bool isAniso, NBL_CONST_REF_ARG(float32_t2) A, NBL_CONST_REF_ARG(spectral_type) ior0, NBL_CONST_REF_ARG(spectral_type) ior1)
+    static BxDFNode<Spectrum> create(uint32_t materialType, bool isAniso, NBL_CONST_REF_ARG(vector2_type) A, NBL_CONST_REF_ARG(spectral_type) ior0, NBL_CONST_REF_ARG(spectral_type) ior1)
     {
         BxDFNode<Spectrum> retval;
-        retval.albedo = (spectral_type)1.0;
+        retval.albedo = hlsl::promote<spectral_type>(1.0);
         retval.materialType = materialType;
         retval.params.is_aniso = isAniso;
-        retval.params.A = hlsl::max<float32_t2>(A, (float32_t2)1e-4);
+        retval.params.A = hlsl::max(A, hlsl::promote<vector2_type>(1e-4));
         retval.params.ior0 = ior0;
         retval.params.ior1 = ior1;
         return retval;
@@ -73,11 +75,11 @@ struct BxDFNode
 template<typename T>
 struct Tolerance
 {
-    NBL_CONSTEXPR_STATIC_INLINE float INTERSECTION_ERROR_BOUND_LOG2 = -8.0;
+    NBL_CONSTEXPR_STATIC_INLINE T INTERSECTION_ERROR_BOUND_LOG2 = -8.0;
 
     static T __common(uint32_t depth)
     {
-        float depthRcp = 1.0 / float(depth);
+        T depthRcp = 1.0 / T(depth);
         return INTERSECTION_ERROR_BOUND_LOG2;
     }
 
@@ -106,67 +108,73 @@ enum IntersectMode : uint32_t
     IM_PROCEDURAL
 };
 
-template<ProceduralShapeType type>
+template<typename T, ProceduralShapeType type>
 struct Shape;
 
-template<>
-struct Shape<PST_SPHERE>
+template<typename T>
+struct Shape<T, PST_SPHERE>
 {
-    static Shape<PST_SPHERE> create(NBL_CONST_REF_ARG(float32_t3) position, float32_t radius2, uint32_t bsdfLightIDs)
+    using scalar_type = T;
+    using vector3_type = vector<T, 3>;
+
+    static Shape<T, PST_SPHERE> create(NBL_CONST_REF_ARG(vector3_type) position, float32_t radius2, uint32_t bsdfLightIDs)
     {
-        Shape<PST_SPHERE> retval;
+        Shape<T, PST_SPHERE> retval;
         retval.position = position;
         retval.radius2 = radius2;
         retval.bsdfLightIDs = bsdfLightIDs;
         return retval;
     }
 
-    static Shape<PST_SPHERE> create(NBL_CONST_REF_ARG(float32_t3) position, float32_t radius, uint32_t bsdfID, uint32_t lightID)
+    static Shape<T, PST_SPHERE> create(NBL_CONST_REF_ARG(vector3_type) position, scalar_type radius, uint32_t bsdfID, uint32_t lightID)
     {
         uint32_t bsdfLightIDs = glsl::bitfieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
         return create(position, radius * radius, bsdfLightIDs);
     }
 
     // return intersection distance if found, nan otherwise
-    float intersect(NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(float32_t3) direction)
+    scalar_type intersect(NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(vector3_type) direction)
     {
-        float32_t3 relOrigin = origin - position;
-        float relOriginLen2 = hlsl::dot<float32_t3>(relOrigin, relOrigin);
+        vector3_type relOrigin = origin - position;
+        scalar_type relOriginLen2 = hlsl::dot(relOrigin, relOrigin);
 
-        float dirDotRelOrigin = hlsl::dot<float32_t3>(direction, relOrigin);
-        float det = radius2 - relOriginLen2 + dirDotRelOrigin * dirDotRelOrigin;
+        scalar_type dirDotRelOrigin = hlsl::dot(direction, relOrigin);
+        scalar_type det = radius2 - relOriginLen2 + dirDotRelOrigin * dirDotRelOrigin;
 
         // do some speculative math here
-        float detsqrt = hlsl::sqrt<float32_t>(det);
+        scalar_type detsqrt = hlsl::sqrt(det);
         return -dirDotRelOrigin + (relOriginLen2 > radius2 ? (-detsqrt) : detsqrt);
     }
 
-    float32_t3 getNormal(NBL_CONST_REF_ARG(float32_t3) hitPosition)
+    vector3_type getNormal(NBL_CONST_REF_ARG(vector3_type) hitPosition)
     {
-        const float radiusRcp = hlsl::rsqrt<float32_t>(radius2);
+        const scalar_type radiusRcp = hlsl::rsqrt(radius2);
         return (hitPosition - position) * radiusRcp;
     }
 
-    float getSolidAngle(NBL_CONST_REF_ARG(float32_t3) origin)
+    scalar_type getSolidAngle(NBL_CONST_REF_ARG(vector3_type) origin)
     {
-        float32_t3 dist = position - origin;
-        float cosThetaMax = hlsl::sqrt<float32_t>(1.0 - radius2 / hlsl::dot<float32_t3>(dist, dist));
-        return 2.0 * numbers::pi<float> * (1.0 - cosThetaMax);
+        vector3_type dist = position - origin;
+        scalar_type cosThetaMax = hlsl::sqrt(1.0 - radius2 / hlsl::dot(dist, dist));
+        return 2.0 * numbers::pi<scalar_type> * (1.0 - cosThetaMax);
     }
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t ObjSize = 5;
 
-    float32_t3 position;
+    vector3_type position;
     float32_t radius2;
     uint32_t bsdfLightIDs;
 };
 
-template<>
-struct Shape<PST_TRIANGLE>
+template<typename T>
+struct Shape<T, PST_TRIANGLE>
 {
-    static Shape<PST_TRIANGLE> create(NBL_CONST_REF_ARG(float32_t3) vertex0, NBL_CONST_REF_ARG(float32_t3) vertex1, NBL_CONST_REF_ARG(float32_t3) vertex2, uint32_t bsdfLightIDs)
+    using scalar_type = T;
+    using vector3_type = vector<T, 3>;
+
+    static Shape<T, PST_TRIANGLE> create(NBL_CONST_REF_ARG(vector3_type) vertex0, NBL_CONST_REF_ARG(vector3_type) vertex1, NBL_CONST_REF_ARG(vector3_type) vertex2, uint32_t bsdfLightIDs)
     {
-        Shape<PST_TRIANGLE> retval;
+        Shape<T, PST_TRIANGLE> retval;
         retval.vertex0 = vertex0;
         retval.vertex1 = vertex1;
         retval.vertex2 = vertex2;
@@ -174,52 +182,55 @@ struct Shape<PST_TRIANGLE>
         return retval;
     }
 
-    static Shape<PST_TRIANGLE> create(NBL_CONST_REF_ARG(float32_t3) vertex0, NBL_CONST_REF_ARG(float32_t3) vertex1, NBL_CONST_REF_ARG(float32_t3) vertex2, uint32_t bsdfID, uint32_t lightID)
+    static Shape<T, PST_TRIANGLE> create(NBL_CONST_REF_ARG(vector3_type) vertex0, NBL_CONST_REF_ARG(vector3_type) vertex1, NBL_CONST_REF_ARG(vector3_type) vertex2, uint32_t bsdfID, uint32_t lightID)
     {
         uint32_t bsdfLightIDs = glsl::bitfieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
         return create(vertex0, vertex1, vertex2, bsdfLightIDs);
     }
 
-    float intersect(NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(float32_t3) direction)
+    scalar_type intersect(NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(vector3_type) direction)
     {
-        const float32_t3 edges[2] = { vertex1 - vertex0, vertex2 - vertex0 };
+        const vector3_type edges[2] = { vertex1 - vertex0, vertex2 - vertex0 };
 
-        const float32_t3 h = hlsl::cross<float32_t3>(direction, edges[1]);
-        const float a = hlsl::dot<float32_t3>(edges[0], h);
+        const vector3_type h = hlsl::cross<vector3_type>(direction, edges[1]);
+        const scalar_type a = hlsl::dot<vector3_type>(edges[0], h);
 
-        const float32_t3 relOrigin = origin - vertex0;
+        const vector3_type relOrigin = origin - vertex0;
 
-        const float u = hlsl::dot<float32_t3>(relOrigin, h) / a;
+        const scalar_type u = hlsl::dot<vector3_type>(relOrigin, h) / a;
 
-        const float32_t3 q = hlsl::cross<float32_t3>(relOrigin, edges[0]);
-        const float v = hlsl::dot<float32_t3>(direction, q) / a;
+        const vector3_type q = hlsl::cross<vector3_type>(relOrigin, edges[0]);
+        const scalar_type v = hlsl::dot<vector3_type>(direction, q) / a;
 
-        const float t = hlsl::dot<float32_t3>(edges[1], q) / a;
+        const scalar_type t = hlsl::dot<vector3_type>(edges[1], q) / a;
 
         const bool intersection = t > 0.f && u >= 0.f && v >= 0.f && (u + v) <= 1.f;
-        return intersection ? t : bit_cast<float, uint32_t>(numeric_limits<float>::infinity);
+        return intersection ? t : bit_cast<scalar_type, uint32_t>(numeric_limits<scalar_type>::infinity);
     }
 
-    float32_t3 getNormalTimesArea()
+    vector3_type getNormalTimesArea()
     {
-        const float32_t3 edges[2] = { vertex1 - vertex0, vertex2 - vertex0 };
-        return hlsl::cross<float32_t3>(edges[0], edges[1]) * 0.5f;
+        const vector3_type edges[2] = { vertex1 - vertex0, vertex2 - vertex0 };
+        return hlsl::cross<vector3_type>(edges[0], edges[1]) * 0.5f;
     }
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t ObjSize = 10;
 
-    float32_t3 vertex0;
-    float32_t3 vertex1;
-    float32_t3 vertex2;
+    vector3_type vertex0;
+    vector3_type vertex1;
+    vector3_type vertex2;
     uint32_t bsdfLightIDs;
 };
 
-template<>
-struct Shape<PST_RECTANGLE>
+template<typename T>
+struct Shape<T, PST_RECTANGLE>
 {
-    static Shape<PST_RECTANGLE> create(NBL_CONST_REF_ARG(float32_t3) offset, NBL_CONST_REF_ARG(float32_t3) edge0, NBL_CONST_REF_ARG(float32_t3) edge1, uint32_t bsdfLightIDs)
+    using scalar_type = T;
+    using vector3_type = vector<T, 3>;
+
+    static Shape<T, PST_RECTANGLE> create(NBL_CONST_REF_ARG(vector3_type) offset, NBL_CONST_REF_ARG(vector3_type) edge0, NBL_CONST_REF_ARG(vector3_type) edge1, uint32_t bsdfLightIDs)
     {
-        Shape<PST_RECTANGLE> retval;
+        Shape<T, PST_RECTANGLE> retval;
         retval.offset = offset;
         retval.edge0 = edge0;
         retval.edge1 = edge1;
@@ -227,38 +238,38 @@ struct Shape<PST_RECTANGLE>
         return retval;
     }
 
-    static Shape<PST_RECTANGLE> create(NBL_CONST_REF_ARG(float32_t3) offset, NBL_CONST_REF_ARG(float32_t3) edge0, NBL_CONST_REF_ARG(float32_t3) edge1, uint32_t bsdfID, uint32_t lightID)
+    static Shape<T, PST_RECTANGLE> create(NBL_CONST_REF_ARG(vector3_type) offset, NBL_CONST_REF_ARG(vector3_type) edge0, NBL_CONST_REF_ARG(vector3_type) edge1, uint32_t bsdfID, uint32_t lightID)
     {
         uint32_t bsdfLightIDs = glsl::bitfieldInsert<uint32_t>(bsdfID, lightID, 16, 16);
         return create(offset, edge0, edge1, bsdfLightIDs);
     }
 
-    float intersect(NBL_CONST_REF_ARG(float32_t3) origin, NBL_CONST_REF_ARG(float32_t3) direction)
+    scalar_type intersect(NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(vector3_type) direction)
     {
-        const float32_t3 h = hlsl::cross<float32_t3>(direction, edge1);
-        const float a = hlsl::dot<float32_t3>(edge0, h);
+        const vector3_type h = hlsl::cross<vector3_type>(direction, edge1);
+        const scalar_type a = hlsl::dot<vector3_type>(edge0, h);
 
-        const float32_t3 relOrigin = origin - offset;
+        const vector3_type relOrigin = origin - offset;
 
-        const float u = hlsl::dot<float32_t3>(relOrigin,h)/a;
+        const scalar_type u = hlsl::dot<vector3_type>(relOrigin,h)/a;
 
-        const float32_t3 q = hlsl::cross<float32_t3>(relOrigin, edge0);
-        const float v = hlsl::dot<float32_t3>(direction, q) / a;
+        const vector3_type q = hlsl::cross<vector3_type>(relOrigin, edge0);
+        const scalar_type v = hlsl::dot<vector3_type>(direction, q) / a;
 
-        const float t = hlsl::dot<float32_t3>(edge1, q) / a;
+        const scalar_type t = hlsl::dot<vector3_type>(edge1, q) / a;
 
         const bool intersection = t > 0.f && u >= 0.f && v >= 0.f && u <= 1.f && v <= 1.f;
-        return intersection ? t : bit_cast<float, uint32_t>(numeric_limits<float>::infinity);
+        return intersection ? t : bit_cast<scalar_type, uint32_t>(numeric_limits<scalar_type>::infinity);
     }
 
-    float32_t3 getNormalTimesArea()
+    vector3_type getNormalTimesArea()
     {
-        return hlsl::cross<float32_t3>(edge0, edge1);
+        return hlsl::cross<vector3_type>(edge0, edge1);
     }
 
-    void getNormalBasis(NBL_REF_ARG(float32_t3x3) basis, NBL_REF_ARG(float32_t2) extents)
+    void getNormalBasis(NBL_REF_ARG(matrix<scalar_type, 3, 3>) basis, NBL_REF_ARG(vector<scalar_type, 2>) extents)
     {
-        extents = float32_t2(nbl::hlsl::length(edge0), nbl::hlsl::length(edge1));
+        extents = vector<scalar_type, 2>(nbl::hlsl::length(edge0), nbl::hlsl::length(edge1));
         basis[0] = edge0 / extents[0];
         basis[1] = edge1 / extents[1];
         basis[2] = nbl::hlsl::normalize(nbl::hlsl::cross(basis[0],basis[1]));
@@ -266,9 +277,9 @@ struct Shape<PST_RECTANGLE>
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t ObjSize = 10;
 
-    float32_t3 offset;
-    float32_t3 edge0;
-    float32_t3 edge1;
+    vector3_type offset;
+    vector3_type edge0;
+    vector3_type edge1;
     uint32_t bsdfLightIDs;
 };
 

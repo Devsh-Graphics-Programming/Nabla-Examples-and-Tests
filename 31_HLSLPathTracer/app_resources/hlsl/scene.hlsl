@@ -15,6 +15,7 @@ struct Scene
 {
     using light_type = Light;
     using bxdfnode_type = BxdfNode;
+    using scalar_type = typename bxdfnode_type::scalar_type;
     using this_t = Scene<Light, BxdfNode>;
 
     // NBL_CONSTEXPR_STATIC_INLINE uint32_t maxSphereCount = 25;
@@ -39,9 +40,9 @@ struct Scene
 #define SCENE_RECTANGLE_COUNT RECTANGLE_COUNT
 #endif
 
-    Shape<PST_SPHERE> spheres[SCENE_SPHERE_COUNT];
-    Shape<PST_TRIANGLE> triangles[SCENE_TRIANGLE_COUNT];
-    Shape<PST_RECTANGLE> rectangles[SCENE_RECTANGLE_COUNT];
+    Shape<scalar_type, PST_SPHERE> spheres[SCENE_SPHERE_COUNT];
+    Shape<scalar_type, PST_TRIANGLE> triangles[SCENE_TRIANGLE_COUNT];
+    Shape<scalar_type, PST_RECTANGLE> rectangles[SCENE_RECTANGLE_COUNT];
 
     uint32_t sphereCount;
     uint32_t triangleCount;
@@ -60,9 +61,9 @@ struct Scene
     // AS ases;
 
     static this_t create(
-        NBL_CONST_REF_ARG(Shape<PST_SPHERE>) spheres[SCENE_SPHERE_COUNT],
-        NBL_CONST_REF_ARG(Shape<PST_TRIANGLE>) triangles[SCENE_TRIANGLE_COUNT],
-        NBL_CONST_REF_ARG(Shape<PST_RECTANGLE>) rectangles[SCENE_RECTANGLE_COUNT],
+        NBL_CONST_REF_ARG(Shape<scalar_type, PST_SPHERE>) spheres[SCENE_SPHERE_COUNT],
+        NBL_CONST_REF_ARG(Shape<scalar_type, PST_TRIANGLE>) triangles[SCENE_TRIANGLE_COUNT],
+        NBL_CONST_REF_ARG(Shape<scalar_type, PST_RECTANGLE>) rectangles[SCENE_RECTANGLE_COUNT],
         uint32_t sphereCount, uint32_t triangleCount, uint32_t rectangleCount,
         NBL_CONST_REF_ARG(light_type) lights[LIGHT_COUNT], uint32_t lightCount,
         NBL_CONST_REF_ARG(bxdfnode_type) bxdfs[BXDF_COUNT], uint32_t bxdfCount)

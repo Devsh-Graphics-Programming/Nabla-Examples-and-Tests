@@ -61,15 +61,16 @@ struct DefaultAccumulator
     }
 };
 
-template<class RandGen, class RayGen, class Intersector, class MaterialSystem, /* class PathGuider, */ class NextEventEstimator, class Accumulator>
+template<class RandGen, class RayGen, class Intersector, class MaterialSystem, /* class PathGuider, */ class NextEventEstimator, class Accumulator, class Scene>
 struct Unidirectional
 {
-    using this_t = Unidirectional<RandGen, RayGen, Intersector, MaterialSystem, NextEventEstimator, Accumulator>;
+    using this_t = Unidirectional<RandGen, RayGen, Intersector, MaterialSystem, NextEventEstimator, Accumulator, Scene>;
     using randgen_type = RandGen;
     using raygen_type = RayGen;
     using intersector_type = Intersector;
     using material_system_type = MaterialSystem;
     using nee_type = NextEventEstimator;
+    using scene_type = Scene;
 
     using scalar_type = typename MaterialSystem::scalar_type;
     using vector3_type = vector<scalar_type, 3>;
@@ -86,7 +87,6 @@ struct Unidirectional
     using anisocache_type = typename MaterialSystem::anisocache_type;
     using isocache_type = typename anisocache_type::isocache_type;
     using quotient_pdf_type = typename NextEventEstimator::quotient_pdf_type;
-    using scene_type = Scene<light_type, bxdfnode_type>;
 
     using diffuse_op_type = typename MaterialSystem::diffuse_op_type;
     using conductor_op_type = typename MaterialSystem::conductor_op_type;
