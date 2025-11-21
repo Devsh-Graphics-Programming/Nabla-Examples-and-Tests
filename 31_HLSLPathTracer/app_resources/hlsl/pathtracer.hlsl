@@ -14,7 +14,6 @@
 #include "intersector.hlsl"
 #include "material_system.hlsl"
 #include "next_event_estimator.hlsl"
-#include "scene.hlsl"
 
 namespace nbl
 {

@@ -2,6 +2,10 @@
 #define _NBL_HLSL_PATHTRACING_EXAMPLE_COMMON_INCLUDED_
 
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
+#include "common.hlsl"
+
+using namespace nbl;
+using namespace hlsl;
 
 template<typename T>    // TODO make type T Spectrum
 struct Payload
@@ -18,17 +22,9 @@ struct Payload
     // #endif
 };
 
-enum ProceduralShapeType : uint16_t
-{
-    PST_NONE = 0,
-    PST_SPHERE,
-    PST_TRIANGLE,
-    PST_RECTANGLE
-};
-
 struct ObjectID
 {
-    static ObjectID create(uint32_t id, uint32_t mode, ProceduralShapeType shapeType)
+    static ObjectID create(uint32_t id, uint32_t mode, nbl::hlsl::ext::ProceduralShapeType shapeType)
     {
         ObjectID retval;
         retval.id = id;
@@ -39,7 +35,7 @@ struct ObjectID
 
     uint32_t id;
     uint32_t mode;
-    ProceduralShapeType shapeType;
+    ext::ProceduralShapeType shapeType;
 };
 
 template<typename T>
@@ -71,7 +67,7 @@ struct Light
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t INVALID_ID = 0xffffu;
 
-    static Light<spectral_type> create(NBL_CONST_REF_ARG(spectral_type) radiance, uint32_t objId, uint32_t mode, ProceduralShapeType shapeType)
+    static Light<spectral_type> create(NBL_CONST_REF_ARG(spectral_type) radiance, uint32_t objId, uint32_t mode, ext::ProceduralShapeType shapeType)
     {
         Light<spectral_type> retval;
         retval.radiance = radiance;

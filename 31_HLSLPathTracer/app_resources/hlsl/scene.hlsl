@@ -2,93 +2,174 @@
 #define _NBL_HLSL_EXT_PATHTRACING_SCENE_INCLUDED_
 
 #include "common.hlsl"
+#include "example_common.hlsl"
 
-namespace nbl
-{
-namespace hlsl
-{
-namespace ext
-{
+using namespace nbl;
+using namespace hlsl;
 
 template<typename T>
-struct Scene
+struct SceneBase
 {
     using scalar_type = T;
     using vector3_type = vector<T, 3>;
-    using this_t = Scene<T>;
+    using this_t = SceneBase<T>;
 
-    // NBL_CONSTEXPR_STATIC_INLINE uint32_t maxSphereCount = 25;
-    // NBL_CONSTEXPR_STATIC_INLINE uint32_t maxTriangleCount = 12;
-    // NBL_CONSTEXPR_STATIC_INLINE uint32_t maxRectangleCount = 12;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t SCENE_SPHERE_COUNT = 8;
 
-#if SPHERE_COUNT < 1
-#define SCENE_SPHERE_COUNT 1
-#else
-#define SCENE_SPHERE_COUNT SPHERE_COUNT
-#endif
+    // TODO: can static const array of structs and init?
+    // static const ext::Shape<scalar_type, ext::PST_SPHERE> scene_spheres[SCENE_SPHERE_COUNT] = {
+    //     ext::Shape<scalar_type, ext::PST_SPHERE>::create(vector3_type(0.0, -100.5, -1.0), 100.0, 0u, Light<vector3_type>::INVALID_ID),
+    //     ext::Shape<scalar_type, ext::PST_SPHERE>::create(vector3_type(2.0, 0.0, -1.0), 0.5, 1u, Light<vector3_type>::INVALID_ID),
+    //     ext::Shape<scalar_type, ext::PST_SPHERE>::create(vector3_type(0.0, 0.0, -1.0), 0.5, 2u, Light<vector3_type>::INVALID_ID),
+    //     ext::Shape<scalar_type, ext::PST_SPHERE>::create(vector3_type(-2.0, 0.0, -1.0), 0.5, 3u, Light<vector3_type>::INVALID_ID),
+    //     ext::Shape<scalar_type, ext::PST_SPHERE>::create(vector3_type(2.0, 0.0, 1.0), 0.5, 4u, Light<vector3_type>::INVALID_ID),
+    //     ext::Shape<scalar_type, ext::PST_SPHERE>::create(vector3_type(0.0, 0.0, 1.0), 0.5, 4u, Light<vector3_type>::INVALID_ID),
+    //     ext::Shape<scalar_type, ext::PST_SPHERE>::create(vector3_type(-2.0, 0.0, 1.0), 0.5, 5u, Light<vector3_type>::INVALID_ID),
+    //     ext::Shape<scalar_type, ext::PST_SPHERE>::create(vector3_type(0.5, 1.0, 0.5), 0.5, 6u, Light<vector3_type>::INVALID_ID)
+    // };
+    ext::Shape<scalar_type, ext::PST_SPHERE> scene_spheres[SCENE_SPHERE_COUNT];
+};
 
-#if TRIANGLE_COUNT < 1
-#define SCENE_TRIANGLE_COUNT 1
-#else
-#define SCENE_TRIANGLE_COUNT TRIANGLE_COUNT
-#endif
 
-#if RECTANGLE_COUNT < 1
-#define SCENE_RECTANGLE_COUNT 1
-#else
-#define SCENE_RECTANGLE_COUNT RECTANGLE_COUNT
-#endif
+template<typename T, ext::ProceduralShapeType LightShape>
+struct Scene;
 
-    Shape<scalar_type, PST_SPHERE> spheres[SCENE_SPHERE_COUNT];
-    Shape<scalar_type, PST_TRIANGLE> triangles[SCENE_TRIANGLE_COUNT];
-    Shape<scalar_type, PST_RECTANGLE> rectangles[SCENE_RECTANGLE_COUNT];
+template<typename T>
+struct Scene<T, ext::PST_SPHERE> : SceneBase<T>
+{
+    using scalar_type = T;
+    using vector3_type = vector<T, 3>;
+    using this_t = Scene<T, ext::PST_SPHERE>;
+    using base_t = SceneBase<T>;
 
-    uint32_t sphereCount;
-    uint32_t triangleCount;
-    uint32_t rectangleCount;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT + 1u;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = 0u;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t RectangleCount = 0u;
 
-    // NBL_CONSTEXPR_STATIC_INLINE uint32_t maxLightCount = 4;
-    // NBL_CONSTEXPR_STATIC_INLINE uint32_t maxBxdfCount = 16;
+    ext::Shape<scalar_type, ext::PST_SPHERE> light_spheres[1];
+    ext::Shape<scalar_type, ext::PST_TRIANGLE> light_triangles[1];
+    ext::Shape<scalar_type, ext::PST_RECTANGLE> light_rectangles[1];
 
-    static this_t create(
-        NBL_CONST_REF_ARG(Shape<scalar_type, PST_SPHERE>) spheres[SCENE_SPHERE_COUNT],
-        NBL_CONST_REF_ARG(Shape<scalar_type, PST_TRIANGLE>) triangles[SCENE_TRIANGLE_COUNT],
-        NBL_CONST_REF_ARG(Shape<scalar_type, PST_RECTANGLE>) rectangles[SCENE_RECTANGLE_COUNT],
-        uint32_t sphereCount, uint32_t triangleCount, uint32_t rectangleCount)
+    ext::Shape<scalar_type, ext::PST_SPHERE> getSphere(uint32_t idx)
     {
-        this_t retval;
-        retval.spheres = spheres;
-        retval.triangles = triangles;
-        retval.rectangles = rectangles;
-        retval.sphereCount = sphereCount;
-        retval.triangleCount = triangleCount;
-        retval.rectangleCount = rectangleCount;
-        return retval;
+        assert(idx < SphereCount);
+        if (idx < base_t::SCENE_SPHERE_COUNT)
+            return base_t::scene_spheres[idx];
+        else
+            return light_spheres[idx-base_t::SCENE_SPHERE_COUNT];
+    }
+    ext::Shape<scalar_type, ext::PST_TRIANGLE> getTriangle(uint32_t idx)
+    {
+        assert(false);
+        return light_triangles[0];
+    }
+    ext::Shape<scalar_type, ext::PST_RECTANGLE> getRectangle(uint32_t idx)
+    {
+        assert(false);
+        return light_rectangles[0];
     }
 
-#undef SCENE_SPHERE_COUNT
-#undef SCENE_TRIANGLE_COUNT
-#undef SCENE_RECTANGLE_COUNT
-
-    // TODO: get these to work with AS types as well
     uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(ObjectID) objectID)
     {
-        return (objectID.shapeType == PST_SPHERE) ? spheres[objectID.id].bsdfLightIDs :
-                (objectID.shapeType == PST_TRIANGLE) ? triangles[objectID.id].bsdfLightIDs :
-                (objectID.shapeType == PST_RECTANGLE) ? rectangles[objectID.id].bsdfLightIDs : -1;
+        assert(objectID.shapeType == ext::PST_SPHERE);
+        return getSphere(objectID.id).bsdfLightIDs;
     }
 
     vector3_type getNormal(NBL_CONST_REF_ARG(ObjectID) objectID, NBL_CONST_REF_ARG(vector3_type) intersection)
     {
-        return (objectID.shapeType == PST_SPHERE) ? spheres[objectID.id].getNormal(intersection) :
-                (objectID.shapeType == PST_TRIANGLE) ? triangles[objectID.id].getNormalTimesArea() :
-                (objectID.shapeType == PST_RECTANGLE) ? rectangles[objectID.id].getNormalTimesArea() :
-                hlsl::promote<vector3_type>(0.0);
+        assert(objectID.shapeType == ext::PST_SPHERE);
+        return getSphere(objectID.id).getNormal(intersection);
     }
 };
 
-}
-}
-}
+template<typename T>
+struct Scene<T, ext::PST_TRIANGLE> : SceneBase<T>
+{
+    using scalar_type = T;
+    using vector3_type = vector<T, 3>;
+    using this_t = Scene<T, ext::PST_TRIANGLE>;
+    using base_t = SceneBase<T>;
+
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = 1u;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t RectangleCount = 0u;
+
+    ext::Shape<scalar_type, ext::PST_SPHERE> light_spheres[1];
+    ext::Shape<scalar_type, ext::PST_TRIANGLE> light_triangles[1];
+    ext::Shape<scalar_type, ext::PST_RECTANGLE> light_rectangles[1];
+
+    ext::Shape<scalar_type, ext::PST_SPHERE> getSphere(uint32_t idx)
+    {
+        assert(idx < SphereCount);
+        return base_t::scene_spheres[idx];
+    }
+    ext::Shape<scalar_type, ext::PST_TRIANGLE> getTriangle(uint32_t idx)
+    {
+        assert(idx < TriangleCount);
+        return light_triangles[idx];
+    }
+    ext::Shape<scalar_type, ext::PST_RECTANGLE> getRectangle(uint32_t idx)
+    {
+        assert(false);
+        return light_rectangles[0];
+    }
+
+    uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(ObjectID) objectID)
+    {
+        assert(objectID.shapeType == ext::PST_SPHERE || objectID.shapeType == ext::PST_TRIANGLE);
+        return objectID.shapeType == ext::PST_SPHERE ? getSphere(objectID.id).bsdfLightIDs : getTriangle(objectID.id).bsdfLightIDs;
+    }
+
+    vector3_type getNormal(NBL_CONST_REF_ARG(ObjectID) objectID, NBL_CONST_REF_ARG(vector3_type) intersection)
+    {
+        assert(objectID.shapeType == ext::PST_SPHERE || objectID.shapeType == ext::PST_TRIANGLE);
+        return objectID.shapeType == ext::PST_SPHERE ? getSphere(objectID.id).getNormal(intersection) : getTriangle(objectID.id).getNormalTimesArea();
+    }
+};
+
+template<typename T>
+struct Scene<T, ext::PST_RECTANGLE> : SceneBase<T>
+{
+    using scalar_type = T;
+    using vector3_type = vector<T, 3>;
+    using this_t = Scene<T, ext::PST_RECTANGLE>;
+    using base_t = SceneBase<T>;
+
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = 0u;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t RectangleCount = 1u;
+
+    ext::Shape<scalar_type, ext::PST_SPHERE> light_spheres[1];
+    ext::Shape<scalar_type, ext::PST_TRIANGLE> light_triangles[1];
+    ext::Shape<scalar_type, ext::PST_RECTANGLE> light_rectangles[1];
+
+    ext::Shape<scalar_type, ext::PST_SPHERE> getSphere(uint32_t idx)
+    {
+        assert(idx < SphereCount);
+        return base_t::scene_spheres[idx];
+    }
+    ext::Shape<scalar_type, ext::PST_TRIANGLE> getTriangle(uint32_t idx)
+    {
+        assert(false);
+        return light_triangles[0];
+    }
+    ext::Shape<scalar_type, ext::PST_RECTANGLE> getRectangle(uint32_t idx)
+    {
+        assert(idx < RectangleCount);
+        return light_rectangles[idx];
+    }
+
+    uint32_t getBsdfLightIDs(NBL_CONST_REF_ARG(ObjectID) objectID)
+    {
+        assert(objectID.shapeType == ext::PST_SPHERE || objectID.shapeType == ext::PST_RECTANGLE);
+        return objectID.shapeType == ext::PST_SPHERE ? getSphere(objectID.id).bsdfLightIDs : getRectangle(objectID.id).bsdfLightIDs;
+    }
+
+    vector3_type getNormal(NBL_CONST_REF_ARG(ObjectID) objectID, NBL_CONST_REF_ARG(vector3_type) intersection)
+    {
+        assert(objectID.shapeType == ext::PST_SPHERE || objectID.shapeType == ext::PST_RECTANGLE);
+        return objectID.shapeType == ext::PST_SPHERE ? getSphere(objectID.id).getNormal(intersection) : getRectangle(objectID.id).getNormalTimesArea();
+    }
+};
 
 #endif

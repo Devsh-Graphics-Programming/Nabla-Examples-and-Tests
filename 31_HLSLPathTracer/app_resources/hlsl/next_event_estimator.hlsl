@@ -327,19 +327,19 @@ struct Estimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, PST, PPM>
     template<typename C=bool_constant<PST==PST_SPHERE> NBL_FUNC_REQUIRES(C::value && PST==PST_SPHERE)
     static shape_sampling_type __getShapeSampling(NBL_CONST_REF_ARG(scene_type) scene, uint32_t lightObjectID)
     {
-        const shape_type sphere = scene.spheres[lightObjectID];
+        const shape_type sphere = scene.getSphere(lightObjectID);
         return shape_sampling_type::create(sphere);
     }
     template<typename C=bool_constant<PST==PST_TRIANGLE> NBL_FUNC_REQUIRES(C::value && PST==PST_TRIANGLE)
     static shape_sampling_type __getShapeSampling(NBL_CONST_REF_ARG(scene_type) scene, uint32_t lightObjectID)
     {
-        const shape_type tri = scene.triangles[lightObjectID];
+        const shape_type tri = scene.getTriangle(lightObjectID);
         return shape_sampling_type::create(tri);
     }
     template<typename C=bool_constant<PST==PST_RECTANGLE> NBL_FUNC_REQUIRES(C::value && PST==PST_RECTANGLE)
     static shape_sampling_type __getShapeSampling(NBL_CONST_REF_ARG(scene_type) scene, uint32_t lightObjectID)
     {
-        const shape_type rect = scene.rectangles[lightObjectID];
+        const shape_type rect = scene.getRectangle(lightObjectID);
         return shape_sampling_type::create(rect);
     }
 

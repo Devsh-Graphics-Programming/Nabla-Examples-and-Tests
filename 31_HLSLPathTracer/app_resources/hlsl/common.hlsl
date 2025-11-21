@@ -20,6 +20,14 @@ namespace hlsl
 namespace ext
 {
 
+enum ProceduralShapeType : uint16_t
+{
+    PST_NONE = 0,
+    PST_SPHERE,
+    PST_TRIANGLE,
+    PST_RECTANGLE
+};
+
 template<typename Scalar, typename Spectrum NBL_PRIMARY_REQUIRES(is_scalar_v<Scalar>)
 struct SBxDFCreationParams
 {

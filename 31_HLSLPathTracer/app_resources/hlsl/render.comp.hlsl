@@ -61,6 +61,7 @@
 [[vk::image_format("rgba16f")]] [[vk::binding(1)]] RWTexture2DArray<float32_t4> cascade;
 
 #include "example_common.hlsl"
+#include "scene.hlsl"
 #include "pathtracer.hlsl"
 
 using namespace nbl;
@@ -70,13 +71,13 @@ NBL_CONSTEXPR uint32_t MAX_DEPTH_LOG2 = 4;
 NBL_CONSTEXPR uint32_t MAX_SAMPLES_LOG2 = 10;
 
 #ifdef SPHERE_LIGHT
-NBL_CONSTEXPR ProceduralShapeType LIGHT_TYPE = PST_SPHERE;
+NBL_CONSTEXPR ext::ProceduralShapeType LIGHT_TYPE = ext::PST_SPHERE;
 #endif
 #ifdef TRIANGLE_LIGHT
-NBL_CONSTEXPR ProceduralShapeType LIGHT_TYPE = PST_TRIANGLE;
+NBL_CONSTEXPR ext::ProceduralShapeType LIGHT_TYPE = ext::PST_TRIANGLE;
 #endif
 #ifdef RECTANGLE_LIGHT
-NBL_CONSTEXPR ProceduralShapeType LIGHT_TYPE = PST_RECTANGLE;
+NBL_CONSTEXPR ext::ProceduralShapeType LIGHT_TYPE = ext::PST_RECTANGLE;
 #endif
 
 NBL_CONSTEXPR ext::PTPolygonMethod POLYGON_METHOD = ext::PPM_SOLID_ANGLE;
@@ -115,7 +116,7 @@ using dielectric_bxdf_type = bxdf::transmission::SGGXDielectricIsotropic<iso_mic
 using ray_type = Ray<float>;
 using light_type = Light<spectral_t>;
 using bxdfnode_type = ext::BxDFNode<spectral_t>;
-using scene_type = ext::Scene<float>;
+using scene_type = Scene<float, LIGHT_TYPE>;
 using randgen_type = ext::RandGen::Uniform3D<Xoroshiro64Star>;
 using raygen_type = ext::RayGen::Basic<ray_type>;
 using intersector_type = ext::Intersector::Comprehensive<ray_type, scene_type>;
@@ -130,34 +131,30 @@ using accumulator_type = ext::PathTracer::DefaultAccumulator<float32_t3>;
 
 using pathtracer_type = ext::PathTracer::Unidirectional<randgen_type, raygen_type, intersector_type, material_system_type, nee_type, accumulator_type, scene_type>;
 
-static const ext::Shape<float, PST_SPHERE> spheres[SPHERE_COUNT] = {
-    ext::Shape<float, PST_SPHERE>::create(float3(0.0, -100.5, -1.0), 100.0, 0u, light_type::INVALID_ID),
-    ext::Shape<float, PST_SPHERE>::create(float3(2.0, 0.0, -1.0), 0.5, 1u, light_type::INVALID_ID),
-    ext::Shape<float, PST_SPHERE>::create(float3(0.0, 0.0, -1.0), 0.5, 2u, light_type::INVALID_ID),
-    ext::Shape<float, PST_SPHERE>::create(float3(-2.0, 0.0, -1.0), 0.5, 3u, light_type::INVALID_ID),
-    ext::Shape<float, PST_SPHERE>::create(float3(2.0, 0.0, 1.0), 0.5, 4u, light_type::INVALID_ID),
-    ext::Shape<float, PST_SPHERE>::create(float3(0.0, 0.0, 1.0), 0.5, 4u, light_type::INVALID_ID),
-    ext::Shape<float, PST_SPHERE>::create(float3(-2.0, 0.0, 1.0), 0.5, 5u, light_type::INVALID_ID),
-    ext::Shape<float, PST_SPHERE>::create(float3(0.5, 1.0, 0.5), 0.5, 6u, light_type::INVALID_ID)
+static const ext::Shape<float, ext::PST_SPHERE> spheres[SPHERE_COUNT] = {
+    ext::Shape<float, ext::PST_SPHERE>::create(float3(0.0, -100.5, -1.0), 100.0, 0u, light_type::INVALID_ID),
+    ext::Shape<float, ext::PST_SPHERE>::create(float3(2.0, 0.0, -1.0), 0.5, 1u, light_type::INVALID_ID),
+    ext::Shape<float, ext::PST_SPHERE>::create(float3(0.0, 0.0, -1.0), 0.5, 2u, light_type::INVALID_ID),
+    ext::Shape<float, ext::PST_SPHERE>::create(float3(-2.0, 0.0, -1.0), 0.5, 3u, light_type::INVALID_ID),
+    ext::Shape<float, ext::PST_SPHERE>::create(float3(2.0, 0.0, 1.0), 0.5, 4u, light_type::INVALID_ID),
+    ext::Shape<float, ext::PST_SPHERE>::create(float3(0.0, 0.0, 1.0), 0.5, 4u, light_type::INVALID_ID),
+    ext::Shape<float, ext::PST_SPHERE>::create(float3(-2.0, 0.0, 1.0), 0.5, 5u, light_type::INVALID_ID),
+    ext::Shape<float, ext::PST_SPHERE>::create(float3(0.5, 1.0, 0.5), 0.5, 6u, light_type::INVALID_ID)
 #ifdef SPHERE_LIGHT
-    ,ext::Shape<float, PST_SPHERE>::create(float3(-1.5, 1.5, 0.0), 0.3, bxdfnode_type::INVALID_ID, 0u)
+    ,ext::Shape<float, ext::PST_SPHERE>::create(float3(-1.5, 1.5, 0.0), 0.3, bxdfnode_type::INVALID_ID, 0u)
 #endif
 };
 
 #ifdef TRIANGLE_LIGHT
-static const ext::Shape<float, PST_TRIANGLE> triangles[TRIANGLE_COUNT] = {
-    ext::Shape<float, PST_TRIANGLE>::create(float3(-1.8,0.35,0.3) * 10.0, float3(-1.2,0.35,0.0) * 10.0, float3(-1.5,0.8,-0.3) * 10.0, bxdfnode_type::INVALID_ID, 0u)
+static const ext::Shape<float, ext::PST_TRIANGLE> triangles[TRIANGLE_COUNT] = {
+    ext::Shape<float, ext::PST_TRIANGLE>::create(float3(-1.8,0.35,0.3) * 10.0, float3(-1.2,0.35,0.0) * 10.0, float3(-1.5,0.8,-0.3) * 10.0, bxdfnode_type::INVALID_ID, 0u)
 };
-#else
-static const ext::Shape<float, PST_TRIANGLE> triangles[1];
 #endif
 
 #ifdef RECTANGLE_LIGHT
-static const ext::Shape<float, PST_RECTANGLE> rectangles[RECTANGLE_COUNT] = {
-    ext::Shape<float, PST_RECTANGLE>::create(float3(-3.8,0.35,1.3), normalize(float3(2,0,-1))*7.0, normalize(float3(2,-5,4))*0.1, bxdfnode_type::INVALID_ID, 0u)
+static const ext::Shape<float, ext::PST_RECTANGLE> rectangles[RECTANGLE_COUNT] = {
+    ext::Shape<float, ext::PST_RECTANGLE>::create(float3(-3.8,0.35,1.3), normalize(float3(2,0,-1))*7.0, normalize(float3(2,-5,4))*0.1, bxdfnode_type::INVALID_ID, 0u)
 };
-#else
-static const ext::Shape<float, PST_RECTANGLE> rectangles[1];
 #endif
 
 static const light_type lights[LIGHT_COUNT] = {
@@ -179,11 +176,6 @@ static const bxdfnode_type bxdfs[BXDF_COUNT] = {
     bxdfnode_type::create(ext::MaterialSystem::MaterialType::CONDUCTOR, false, float2(0.15,0.15), spectral_t(1.02,1.3,1.02), spectral_t(1.0,2.0,1.0)),
     bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIELECTRIC, false, float2(0.0625,0.0625), spectral_t(1,1,1), spectral_t(1.4,1.45,1.5))
 };
-
-static const scene_type scene = scene_type::create(
-    spheres, triangles, rectangles,
-    SPHERE_COUNT, TRIANGLE_COUNT, RECTANGLE_COUNT
-);
 
 RenderPushConstants retireveRenderPushConstants()
 {
@@ -235,6 +227,20 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 
     int flatIdx = glsl::gl_GlobalInvocationID().y * glsl::gl_NumWorkGroups().x * RenderWorkgroupSize + glsl::gl_GlobalInvocationID().x;
 
+    // set up scene
+    scene_type scene;
+    NBL_UNROLL for (uint32_t i = 0; i < 8; i++)
+        scene.scene_spheres[i] = spheres[i];
+#ifdef SPHERE_LIGHT
+    scene.light_spheres[0] = spheres[8];
+#endif
+#ifdef TRIANGLE_LIGHT
+    scene.light_triangles[0] = triangles[0];
+#endif
+#ifdef RECTANGLE_LIGHT
+    scene.light_rectangles[0] = rectangles[0];
+#endif
+
     // set up path tracer
     pathtracer_type pathtracer;
     pathtracer.randGen = randgen_type::create(scramblebuf[coords].rg);     // TODO concept this create
@@ -272,8 +278,6 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
 #else
     outImage[uint3(coords.x, coords.y, 0)] = float32_t4(accumulator.accumulation, 1.0);
 #endif
-
-    
 
 #ifdef PERSISTENT_WORKGROUPS
     }
