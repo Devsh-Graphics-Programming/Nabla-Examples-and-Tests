@@ -2,6 +2,8 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+#include <nbl/builtin/hlsl/matrix_utils/transformation_matrix_utils.hlsl>
+#include <nbl/builtin/hlsl/projection/projection.hlsl>
 
 #include "common.hpp"
 
@@ -71,10 +73,10 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 
 			// camera
 			{
-				core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
-				core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
-				matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(m_initialResolution.x)/float(m_initialResolution.y), 0.1, 10000);
-				camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
+				hlsl::float32_t3 cameraPosition(-5.81655884, 2.58630896, -4.23974705);
+				hlsl::float32_t3 cameraTarget(-0.349590302, -0.213266611, 0.317821503);
+				float32_t4x4 projectionMatrix = hlsl::buildProjectionMatrixPerspectiveFovLH<float>(core::radians(60.0f), float(m_initialResolution.x) / m_initialResolution.y, 0.1f, 10000.0f);
+				camera = Camera(core::constructVecorSIMDFromHLSLVector(cameraPosition), core::constructVecorSIMDFromHLSLVector(cameraTarget), projectionMatrix, 1.069f, 0.4f);
 			}
 
 			onAppInitializedFinish();
@@ -139,13 +141,8 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 				cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 			}
 
-			float32_t3x4 viewMatrix;
-			float32_t4x4 viewProjMatrix;
-			// TODO: get rid of legacy matrices
-			{
-				memcpy(&viewMatrix,camera.getViewMatrix().pointer(),sizeof(viewMatrix));
-				memcpy(&viewProjMatrix,camera.getConcatenatedMatrix().pointer(),sizeof(viewProjMatrix));
-			}
+			float32_t3x4 viewMatrix = camera.getViewMatrix();
+			float32_t4x4 viewProjMatrix = camera.getConcatenatedMatrix();
 			const auto viewParams = CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix);
 
 			// tear down scene every frame
@@ -251,7 +248,7 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
 		//
-		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
+		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), hlsl::float32_t4x4());
 
 		uint16_t gcIndex = {};
 
