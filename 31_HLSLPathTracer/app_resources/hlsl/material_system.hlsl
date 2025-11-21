@@ -21,10 +21,10 @@ enum MaterialType : uint32_t    // enum class?
     DIELECTRIC
 };
 
-template<class BxDFNode, class DiffuseBxDF, class ConductorBxDF, class DielectricBxDF>  // NOTE: these bxdfs should match the ones in Scene BxDFNode
+template<class BxDFNode, class DiffuseBxDF, class ConductorBxDF, class DielectricBxDF, class Scene>  // NOTE: these bxdfs should match the ones in Scene BxDFNode
 struct System
 {
-    using this_t = System<BxDFNode, DiffuseBxDF, ConductorBxDF, DielectricBxDF>;
+    using this_t = System<BxDFNode, DiffuseBxDF, ConductorBxDF, DielectricBxDF, Scene>;
     using scalar_type = typename DiffuseBxDF::scalar_type;      // types should be same across all 3 bxdfs
     using vector2_type = vector<scalar_type, 2>;
     using vector3_type = vector<scalar_type, 3>;
@@ -167,7 +167,7 @@ struct System
     ConductorBxDF conductorBxDF;
     DielectricBxDF dielectricBxDF;
 
-    bxdfnode_type bxdfs[BXDF_COUNT];
+    bxdfnode_type bxdfs[Scene::SCENE_BXDF_COUNT];
     uint32_t bxdfCount;
 };
 

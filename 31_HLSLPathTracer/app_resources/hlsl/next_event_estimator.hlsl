@@ -381,7 +381,7 @@ struct Estimator<Scene, Light, Ray, LightSample, Aniso, IM_PROCEDURAL, PST, PPM>
         return L;
     }
 
-    light_type lights[LIGHT_COUNT];
+    light_type lights[scene_type::SCENE_LIGHT_COUNT];
     uint32_t lightCount;
 };
 

@@ -14,7 +14,9 @@ struct SceneBase
     using vector3_type = vector<T, 3>;
     using this_t = SceneBase<T>;
 
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t SCENE_SPHERE_COUNT = 8;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t SCENE_SPHERE_COUNT = 8u;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t SCENE_LIGHT_COUNT = 1u;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t SCENE_BXDF_COUNT = 7u;
 
     // TODO: can static const array of structs and init?
     // static const ext::Shape<scalar_type, ext::PST_SPHERE> scene_spheres[SCENE_SPHERE_COUNT] = {
@@ -42,7 +44,7 @@ struct Scene<T, ext::PST_SPHERE> : SceneBase<T>
     using this_t = Scene<T, ext::PST_SPHERE>;
     using base_t = SceneBase<T>;
 
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT + 1u;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT + base_t::SCENE_LIGHT_COUNT;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = 0u;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t RectangleCount = 0u;
 
@@ -91,7 +93,7 @@ struct Scene<T, ext::PST_TRIANGLE> : SceneBase<T>
     using base_t = SceneBase<T>;
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT;
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = 1u;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = base_t::SCENE_LIGHT_COUNT;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t RectangleCount = 0u;
 
     ext::Shape<scalar_type, ext::PST_SPHERE> light_spheres[1];
@@ -137,7 +139,7 @@ struct Scene<T, ext::PST_RECTANGLE> : SceneBase<T>
 
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SphereCount = base_t::SCENE_SPHERE_COUNT;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = 0u;
-    NBL_CONSTEXPR_STATIC_INLINE uint32_t RectangleCount = 1u;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t RectangleCount = base_t::SCENE_LIGHT_COUNT;
 
     ext::Shape<scalar_type, ext::PST_SPHERE> light_spheres[1];
     ext::Shape<scalar_type, ext::PST_TRIANGLE> light_triangles[1];

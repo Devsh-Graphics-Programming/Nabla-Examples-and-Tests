@@ -14,27 +14,6 @@
 // #define TRIANGLE_LIGHT
 // #define RECTANGLE_LIGHT
 
-#ifdef SPHERE_LIGHT
-#define SPHERE_COUNT 9
-#define TRIANGLE_COUNT 0
-#define RECTANGLE_COUNT 0
-#endif
-
-#ifdef TRIANGLE_LIGHT
-#define TRIANGLE_COUNT 1
-#define SPHERE_COUNT 8
-#define RECTANGLE_COUNT 0
-#endif
-
-#ifdef RECTANGLE_LIGHT
-#define RECTANGLE_COUNT 1
-#define SPHERE_COUNT 8
-#define TRIANGLE_COUNT 0
-#endif
-
-#define LIGHT_COUNT 1
-#define BXDF_COUNT 7
-
 #include <render_common.hlsl>
 #include <rwmc_global_settings_common.hlsl>
 
@@ -66,9 +45,6 @@
 
 using namespace nbl;
 using namespace hlsl;
-
-NBL_CONSTEXPR uint32_t MAX_DEPTH_LOG2 = 4;
-NBL_CONSTEXPR uint32_t MAX_SAMPLES_LOG2 = 10;
 
 #ifdef SPHERE_LIGHT
 NBL_CONSTEXPR ext::ProceduralShapeType LIGHT_TYPE = ext::PST_SPHERE;
@@ -120,7 +96,7 @@ using scene_type = Scene<float, LIGHT_TYPE>;
 using randgen_type = ext::RandGen::Uniform3D<Xoroshiro64Star>;
 using raygen_type = ext::RayGen::Basic<ray_type>;
 using intersector_type = ext::Intersector::Comprehensive<ray_type, scene_type>;
-using material_system_type = ext::MaterialSystem::System<bxdfnode_type, diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type>;
+using material_system_type = ext::MaterialSystem::System<bxdfnode_type, diffuse_bxdf_type, conductor_bxdf_type, dielectric_bxdf_type, scene_type>;
 using nee_type = ext::NextEventEstimator::Estimator<scene_type, light_type, ray_type, sample_t, aniso_interaction, ext::IntersectMode::IM_PROCEDURAL, LIGHT_TYPE, POLYGON_METHOD>;
 
 #ifdef RWMC_ENABLED
@@ -131,7 +107,7 @@ using accumulator_type = ext::PathTracer::DefaultAccumulator<float32_t3>;
 
 using pathtracer_type = ext::PathTracer::Unidirectional<randgen_type, raygen_type, intersector_type, material_system_type, nee_type, accumulator_type, scene_type>;
 
-static const ext::Shape<float, ext::PST_SPHERE> spheres[SPHERE_COUNT] = {
+static const ext::Shape<float, ext::PST_SPHERE> spheres[scene_type::SphereCount] = {
     ext::Shape<float, ext::PST_SPHERE>::create(float3(0.0, -100.5, -1.0), 100.0, 0u, light_type::INVALID_ID),
     ext::Shape<float, ext::PST_SPHERE>::create(float3(2.0, 0.0, -1.0), 0.5, 1u, light_type::INVALID_ID),
     ext::Shape<float, ext::PST_SPHERE>::create(float3(0.0, 0.0, -1.0), 0.5, 2u, light_type::INVALID_ID),
@@ -146,18 +122,18 @@ static const ext::Shape<float, ext::PST_SPHERE> spheres[SPHERE_COUNT] = {
 };
 
 #ifdef TRIANGLE_LIGHT
-static const ext::Shape<float, ext::PST_TRIANGLE> triangles[TRIANGLE_COUNT] = {
+static const ext::Shape<float, ext::PST_TRIANGLE> triangles[scene_type::TriangleCount] = {
     ext::Shape<float, ext::PST_TRIANGLE>::create(float3(-1.8,0.35,0.3) * 10.0, float3(-1.2,0.35,0.0) * 10.0, float3(-1.5,0.8,-0.3) * 10.0, bxdfnode_type::INVALID_ID, 0u)
 };
 #endif
 
 #ifdef RECTANGLE_LIGHT
-static const ext::Shape<float, ext::PST_RECTANGLE> rectangles[RECTANGLE_COUNT] = {
+static const ext::Shape<float, ext::PST_RECTANGLE> rectangles[scene_type::RectangleCount] = {
     ext::Shape<float, ext::PST_RECTANGLE>::create(float3(-3.8,0.35,1.3), normalize(float3(2,0,-1))*7.0, normalize(float3(2,-5,4))*0.1, bxdfnode_type::INVALID_ID, 0u)
 };
 #endif
 
-static const light_type lights[LIGHT_COUNT] = {
+static const light_type lights[scene_type::SCENE_LIGHT_COUNT] = {
     light_type::create(LightEminence,
 #ifdef SPHERE_LIGHT
         8u,
@@ -167,7 +143,7 @@ static const light_type lights[LIGHT_COUNT] = {
         ext::IntersectMode::IM_PROCEDURAL, LIGHT_TYPE)
 };
 
-static const bxdfnode_type bxdfs[BXDF_COUNT] = {
+static const bxdfnode_type bxdfs[scene_type::SCENE_BXDF_COUNT] = {
     bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.8,0.8,0.8)),
     bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.8,0.4,0.4)),
     bxdfnode_type::create(ext::MaterialSystem::MaterialType::DIFFUSE, false, float2(0,0), spectral_t(0.4,0.8,0.4)),
@@ -259,9 +235,9 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     float32_t4x4 invMVP = renderPushConstants.invMVP;    
     pathtracer.rayGen = raygen_type::create(pixOffsetParam, camPos, NDC, invMVP);
     pathtracer.nee.lights = lights;
-    pathtracer.nee.lightCount = LIGHT_COUNT;
+    pathtracer.nee.lightCount = scene_type::SCENE_LIGHT_COUNT;
     pathtracer.materialSystem.bxdfs = bxdfs;
-    pathtracer.materialSystem.bxdfCount = BXDF_COUNT;
+    pathtracer.materialSystem.bxdfCount = scene_type::SCENE_BXDF_COUNT;
 
 #ifdef RWMC_ENABLED
     accumulator_type accumulator = accumulator_type::create(pc.splattingParameters);
