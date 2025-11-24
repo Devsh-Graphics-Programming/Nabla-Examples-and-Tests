@@ -91,18 +91,16 @@ struct Unidirectional
     using conductor_op_type = typename MaterialSystem::conductor_op_type;
     using dielectric_op_type = typename MaterialSystem::dielectric_op_type;
 
-    // static this_t create(NBL_CONST_REF_ARG(PathTracerCreationParams<scalar_type>) params)
-    // {
-    //     this_t retval;
-    //     retval.randGen = randgen_type::create(params.rngState);
-    //     retval.rayGen = raygen_type::create(params.pixOffsetParam, params.camPos, params.NDC, params.invMVP);
-    //     return retval;
-    // }
-
     vector3_type rand3d(uint32_t protoDimension, uint32_t _sample, uint32_t i)
     {
-        uint32_t address = glsl::bitfieldInsert<uint32_t>(protoDimension, _sample, MAX_DEPTH_LOG2, MAX_SAMPLES_LOG2);
-	    uint32_t3 seqVal = sampleSequence[address + i].xyz;
+        uint32_t address = glsl::bitfieldInsert<uint32_t>(protoDimension, _sample, MAX_DEPTH_LOG2, MAX_SAMPLES_LOG2); glsl::gl_LocalInvocationIndex()
+	    // uint32_t3 seqVal = sampleSequence[address + i].xyz;
+        QuantizedSequence tmpSeq = vk::RawBufferLoad<QuantizedSequence>(pSampleBuffer + (address + i) * sizeof(QuantizedSequence));
+        uint32_t3 seqVal;
+        seqVal.x = tmpSeq.x;
+        seqVal.y = tmpSeq.y;
+        seqVal.z = tmpSeq.z;
+        // sampleSequence.get(address + i, seqVal);
 	    seqVal ^= randGen();
         return vector3_type(seqVal) * bit_cast<scalar_type>(0x2f800004u);
     }
@@ -285,7 +283,7 @@ struct Unidirectional
     void sampleMeasure(uint32_t sampleIndex, uint32_t maxDepth, NBL_CONST_REF_ARG(scene_type) scene, NBL_REF_ARG(Accumulator) accumulator)
     {
         //scalar_type meanLumaSq = 0.0;
-        vector3_type uvw = rand3d(0u, sampleIndex, randGen.rng());    // TODO: take from scramblebuf?
+        vector3_type uvw = rand3d(0u, sampleIndex, 0u);    // TODO: take 3rd arg from scramblebuf?
         ray_type ray = rayGen.generate(uvw);
 
         // bounces
@@ -318,6 +316,9 @@ struct Unidirectional
     raygen_type rayGen;
     material_system_type materialSystem;
     nee_type nee;
+
+    // SampleSequenceProxy<uint3> sampleSequence;
+    uint64_t pSampleBuffer;
 };
 
 }

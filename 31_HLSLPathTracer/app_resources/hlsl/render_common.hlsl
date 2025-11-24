@@ -15,6 +15,15 @@ struct RenderPushConstants
 #endif
     int sampleCount;
     int depth;
+    uint64_t pSampleSequence;
+};
+
+struct QuantizedSequence
+{
+    uint32_t x : 21;
+    uint32_t y : 21;
+    uint32_t z : 21;
+    uint32_t padding : 1;
 };
 
 NBL_CONSTEXPR nbl::hlsl::float32_t3 LightEminence = nbl::hlsl::float32_t3(30.0f, 25.0f, 15.0f);

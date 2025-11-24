@@ -31,8 +31,6 @@
 [[vk::combinedImageSampler]] [[vk::binding(0, 2)]] Texture2D<float3> envMap;      // unused
 [[vk::combinedImageSampler]] [[vk::binding(0, 2)]] SamplerState envSampler;
 
-[[vk::binding(1, 2)]] Buffer<uint3> sampleSequence;
-
 [[vk::combinedImageSampler]] [[vk::binding(2, 2)]] Texture2D<uint2> scramblebuf; // unused
 [[vk::combinedImageSampler]] [[vk::binding(2, 2)]] SamplerState scrambleSampler;
 
@@ -238,6 +236,8 @@ void main(uint32_t3 threadID : SV_DispatchThreadID)
     pathtracer.nee.lightCount = scene_type::SCENE_LIGHT_COUNT;
     pathtracer.materialSystem.bxdfs = bxdfs;
     pathtracer.materialSystem.bxdfCount = scene_type::SCENE_BXDF_COUNT;
+    // pathtracer.sampleSequence = ext::SampleSequenceProxy<uint3>::create(renderPushConstants.pSampleSequence);
+    pathtracer.pSampleBuffer = renderPushConstants.pSampleSequence;
 
 #ifdef RWMC_ENABLED
     accumulator_type accumulator = accumulator_type::create(pc.splattingParameters);

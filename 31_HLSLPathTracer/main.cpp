@@ -172,26 +172,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					return logFail("Could not create Window & Surface or initialize the Surface!");
 			}
 
-			// image upload utils
-			{
-				m_scratchSemaphore = m_device->createSemaphore(0);
-				if (!m_scratchSemaphore)
-					return logFail("Could not create Scratch Semaphore");
-				m_scratchSemaphore->setObjectDebugName("Scratch Semaphore");
-				// we don't want to overcomplicate the example with multi-queue
-				m_intendedSubmit.queue = getGraphicsQueue();
-				// wait for nothing before upload
-				m_intendedSubmit.waitSemaphores = {};
-				m_intendedSubmit.waitSemaphores = {};
-				// fill later
-				m_intendedSubmit.scratchCommandBuffers = {};
-				m_intendedSubmit.scratchSemaphore = {
-					.semaphore = m_scratchSemaphore.get(),
-					.value = 0,
-					.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
-				};
-			}
-
 			// Create command pool and buffers
 			{
 				auto gQueue = getGraphicsQueue();
@@ -254,7 +234,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					};
 
 				std::array<ICPUDescriptorSetLayout::SBinding, 2> descriptorSet0Bindings = {};
-				std::array<ICPUDescriptorSetLayout::SBinding, 3> descriptorSet3Bindings = {};
+				std::array<ICPUDescriptorSetLayout::SBinding, 2> descriptorSet3Bindings = {};
 				std::array<IGPUDescriptorSetLayout::SBinding, 1> presentDescriptorSetBindings;
 
 				descriptorSet0Bindings[0] = {
@@ -284,14 +264,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					.immutableSamplers = nullptr
 				};
 				descriptorSet3Bindings[1] = {
-					.binding = 1u,
-					.type = nbl::asset::IDescriptor::E_TYPE::ET_UNIFORM_TEXEL_BUFFER,
-					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-					.count = 1u,
-					.immutableSamplers = nullptr
-				};
-				descriptorSet3Bindings[2] = {
 					.binding = 2u,
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
@@ -481,13 +453,13 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						if (!rwmcPtPipelineLayout)
 							return logFail("Failed to create RWMC Pathtracing pipeline layout");
 
-						{
-							auto ptShader = loadAndCompileGLSLShader(PTGLSLShaderPaths[index]);
-							auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
+						//{
+						//	auto ptShader = loadAndCompileGLSLShader(PTGLSLShaderPaths[index]);
+						//	auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
 
-							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTGLSLPipelines.data() + index))
-								return logFail("Failed to create GLSL compute pipeline!\n");
-						}
+						//	if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTGLSLPipelines.data() + index))
+						//		return logFail("Failed to create GLSL compute pipeline!\n");
+						//}
 						{
 							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index]);
 							auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
@@ -497,13 +469,13 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						}
 
 						// persistent wg pipelines
-						{
-							auto ptShader = loadAndCompileGLSLShader(PTGLSLShaderPaths[index], true);
-							auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
-							
-							if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTGLSLPersistentWGPipelines.data() + index))
-								return logFail("Failed to create GLSL PersistentWG compute pipeline!\n");
-						}
+						//{
+						//	auto ptShader = loadAndCompileGLSLShader(PTGLSLShaderPaths[index], true);
+						//	auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
+						//	
+						//	if (!m_device->createComputePipelines(nullptr, { &params, 1 }, m_PTGLSLPersistentWGPipelines.data() + index))
+						//		return logFail("Failed to create GLSL PersistentWG compute pipeline!\n");
+						//}
 						{
 							auto ptShader = loadAndCompileHLSLShader(PTHLSLShaderPath, PTHLSLShaderVariants[index], true);
 							auto params = getComputePipelineCreationParams(ptShader.get(), ptPipelineLayout.get());
@@ -860,8 +832,9 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 						owenSamplerFileWriteFuture.acquire().move_into(owenSamplerFileBytesWritten);
 				};
 
-				constexpr size_t bufferSize = MaxBufferDimensions * MaxBufferSamples;
-				std::array<uint32_t, bufferSize> data = {};
+				constexpr uint32_t quantizedDimensions = MaxBufferDimensions / 3u;
+				constexpr size_t bufferSize = quantizedDimensions * MaxBufferSamples;
+				std::array<QuantizedSequence, bufferSize> data = {};
 				smart_refctd_ptr<ICPUBuffer> sampleSeq;
 
 				auto cacheBufferResult = createBufferFromCacheFile(sharedOutputCWD/OwenSamplerFilePath, bufferSize, data.data(), sampleSeq);
@@ -870,43 +843,32 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					core::OwenSampler sampler(MaxBufferDimensions, 0xdeadbeefu);
 
 					ICPUBuffer::SCreationParams params = {};
-					params.size = MaxBufferDimensions*MaxBufferSamples*sizeof(uint32_t);
+					params.size = quantizedDimensions * MaxBufferSamples * sizeof(QuantizedSequence);
 					sampleSeq = ICPUBuffer::create(std::move(params));
 
-					auto out = reinterpret_cast<uint32_t*>(sampleSeq->getPointer());
-					for (auto dim = 0u; dim < MaxBufferDimensions; dim++)
-						for (uint32_t i = 0; i < MaxBufferSamples; i++)
-						{
-							out[i * MaxBufferDimensions + dim] = sampler.sample(dim, i);
-						}
+					auto out = reinterpret_cast<QuantizedSequence*>(sampleSeq->getPointer());
+					for (auto dim = 0u; dim < quantizedDimensions; dim++)
+					    for (uint32_t i = 0; i < MaxBufferSamples; i++)
+					    {
+						    auto& seq = out[i * quantizedDimensions + dim];
+						    seq.x = sampler.sample(dim + 0, i);
+						    seq.y = sampler.sample(dim + 1, i);
+						    seq.z = sampler.sample(dim + 2, i);
+					    }
 					if (cacheBufferResult.first)
 						writeBufferIntoCacheFile(cacheBufferResult.first, bufferSize, out);
 				}
 
 				IGPUBuffer::SCreationParams params = {};
-				params.usage = asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT;
-				params.size = sampleSeq->getSize();
+				params.usage = asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+				params.size = bufferSize;
 
 				// we don't want to overcomplicate the example with multi-queue
-				auto queue = getGraphicsQueue();
-				auto cmdbuf = m_cmdBufs[0].get();
-				cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
-				IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf };
-				m_intendedSubmit.scratchCommandBuffers = { &cmdbufInfo, 1 };
-
-				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-				m_api->startCapture();
-				auto bufferFuture = m_utils->createFilledDeviceLocalBufferOnDedMem(
-					m_intendedSubmit,
+				m_utils->createFilledDeviceLocalBufferOnDedMem(
+					SIntendedSubmitInfo{ .queue = getGraphicsQueue() },
 					std::move(params),
 					sampleSeq->getPointer()
-				);
-				m_api->endCapture();
-				bufferFuture.wait();
-				auto buffer = bufferFuture.get();
-
-				m_sequenceBufferView = m_device->createBufferView({ 0u, buffer->get()->getSize(), *buffer }, asset::E_FORMAT::EF_R32G32B32_UINT);
-				m_sequenceBufferView->setObjectDebugName("Sequence Buffer");
+				).move_into(m_sequenceBuffer);
 			}
 
 			// Update Descriptors
@@ -938,7 +900,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				};
 				auto sampler1 = m_device->createSampler(samplerParams1);
 
-				std::array<IGPUDescriptorSet::SDescriptorInfo, 6> writeDSInfos = {};
+				std::array<IGPUDescriptorSet::SDescriptorInfo, 5> writeDSInfos = {};
 				writeDSInfos[0].desc = m_outImgView;
 				writeDSInfos[0].info.image.imageLayout = IImage::LAYOUT::GENERAL;
 				writeDSInfos[1].desc = m_cascadeView;
@@ -947,15 +909,14 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				// ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_FLOAT_OPAQUE_BLACK, ISampler::ETF_LINEAR, ISampler::ETF_LINEAR, ISampler::ESMM_LINEAR, 0u, false, ECO_ALWAYS };
 				writeDSInfos[2].info.combinedImageSampler.sampler = sampler0;
 				writeDSInfos[2].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				writeDSInfos[3].desc = m_sequenceBufferView;
-				writeDSInfos[4].desc = m_scrambleView;
+				writeDSInfos[3].desc = m_scrambleView;
 				// ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_INT_OPAQUE_BLACK, ISampler::ETF_NEAREST, ISampler::ETF_NEAREST, ISampler::ESMM_NEAREST, 0u, false, ECO_ALWAYS };
-				writeDSInfos[4].info.combinedImageSampler.sampler = sampler1;
-				writeDSInfos[4].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				writeDSInfos[5].desc = m_outImgView;
-				writeDSInfos[5].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				writeDSInfos[3].info.combinedImageSampler.sampler = sampler1;
+				writeDSInfos[3].info.combinedImageSampler.imageLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				writeDSInfos[4].desc = m_outImgView;
+				writeDSInfos[4].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 
-				std::array<IGPUDescriptorSet::SWriteDescriptorSet, 6> writeDescriptorSets = {};
+				std::array<IGPUDescriptorSet::SWriteDescriptorSet, 5> writeDescriptorSets = {};
 				writeDescriptorSets[0] = {
 					.dstSet = m_descriptorSet0.get(),
 					.binding = 0,
@@ -977,26 +938,26 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					.count = 1u,
 					.info = &writeDSInfos[2]
 				};
+				//writeDescriptorSets[3] = {
+				//	.dstSet = m_descriptorSet2.get(),
+				//	.binding = 1,
+				//	.arrayElement = 0u,
+				//	.count = 1u,
+				//	.info = &writeDSInfos[3]
+				//};
 				writeDescriptorSets[3] = {
 					.dstSet = m_descriptorSet2.get(),
-					.binding = 1,
+					.binding = 2,
 					.arrayElement = 0u,
 					.count = 1u,
 					.info = &writeDSInfos[3]
 				};
 				writeDescriptorSets[4] = {
-					.dstSet = m_descriptorSet2.get(),
-					.binding = 2,
-					.arrayElement = 0u,
-					.count = 1u,
-					.info = &writeDSInfos[4]
-				};
-				writeDescriptorSets[5] = {
 					.dstSet = m_presentDescriptorSet.get(),
 					.binding = 0,
 					.arrayElement = 0u,
 					.count = 1u,
-					.info = &writeDSInfos[5]
+					.info = &writeDSInfos[4]
 				};
 
 				m_device->updateDescriptorSets(writeDescriptorSets, {});
@@ -1562,6 +1523,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				pcMVPMatrix = &rwmcPushConstants.renderPushConstants.invMVP;
 				rwmcPushConstants.renderPushConstants.depth = depth;
 				rwmcPushConstants.renderPushConstants.sampleCount = resolvePushConstants.sampleCount = spp;
+				rwmcPushConstants.renderPushConstants.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
 				rwmcPushConstants.splattingParameters.log2Start = std::log2(rwmcStart);
 				rwmcPushConstants.splattingParameters.log2Base = std::log2(rwmcBase);
 			}
@@ -1570,6 +1532,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				pcMVPMatrix = &pc.invMVP;
 				pc.sampleCount = spp;
 				pc.depth = depth;
+				pc.pSampleSequence = m_sequenceBuffer->getDeviceAddress();
 			}
 
 			*pcMVPMatrix = hlsl::float32_t4x4(
@@ -1632,7 +1595,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 		// pathtracer resources
 		smart_refctd_ptr<IGPUImageView> m_envMapView, m_scrambleView;
-		smart_refctd_ptr<IGPUBufferView> m_sequenceBufferView;
+		smart_refctd_ptr<IGPUBuffer> m_sequenceBuffer;
 		smart_refctd_ptr<IGPUImageView> m_outImgView;
 		smart_refctd_ptr<IGPUImageView> m_cascadeView;
 

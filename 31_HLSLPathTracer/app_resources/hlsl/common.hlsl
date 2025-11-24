@@ -5,6 +5,7 @@
 #include <nbl/builtin/hlsl/spirv_intrinsics/glsl.std.450.hlsl>
 #include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
 #include <nbl/builtin/hlsl/numbers.hlsl>
+#include <nbl/builtin/hlsl/bda/legacy_bda_accessor.hlsl>
 #include <nbl/builtin/hlsl/shapes/spherical_triangle.hlsl>
 #include <nbl/builtin/hlsl/shapes/spherical_rectangle.hlsl>
 #include <nbl/builtin/hlsl/sampling/spherical_triangle.hlsl>
@@ -114,6 +115,26 @@ enum IntersectMode : uint32_t
     IM_RAY_QUERY,
     IM_RAY_TRACING,
     IM_PROCEDURAL
+};
+
+template<typename T>
+struct SampleSequenceProxy
+{
+    using type_t = T;
+
+    static SampleSequenceProxy<T> create(const uint64_t pBuf)
+    {
+        SampleSequenceProxy<T> retval;
+        retval.accessor = LegacyBdaAccessor<type_t>::create(pBuf);
+        return retval;
+    }
+
+    void get(const uint64_t ix, NBL_REF_ARG(type_t) value)
+    {
+        accessor.get(ix, value);
+    }
+
+    LegacyBdaAccessor<type_t> accessor;
 };
 
 template<typename T, ProceduralShapeType type>
