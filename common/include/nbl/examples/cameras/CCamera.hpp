@@ -115,7 +115,7 @@ public:
 	inline void recomputeViewMatrix() 
 	{
 		nbl::hlsl::float32_t3 pos = nbl::core::convertToHLSLVector(position).xyz;
-		nbl::hlsl::float32_t3 localTarget = (nbl::core::convertToHLSLVector(nbl::core::normalize(target)).xyz - pos).xyz;
+		nbl::hlsl::float32_t3 localTarget = nbl::hlsl::normalize(nbl::core::convertToHLSLVector(target).xyz - pos);
 		// TODO: remove completely when removing vectorSIMD
 		nbl::hlsl::float32_t3 _target = nbl::core::convertToHLSLVector(target).xyz;
 
@@ -179,15 +179,16 @@ public:
 					if (relativeRotationX > MaxVerticalAngle && relativeRotationX < 2 * nbl::core::PI<float>()-MaxVerticalAngle)
 						relativeRotationX = MaxVerticalAngle;
 
+				pos.w = 0;
 				localTarget = nbl::hlsl::float32_t4(0, 0, nbl::core::max(1.f, nbl::hlsl::length(pos)), 1.0f);
 
 				nbl::hlsl::float32_t3x4 mat;
 				nbl::hlsl::setRotation(mat, nbl::hlsl::quaternion<float>::create(relativeRotationX, relativeRotationY, 0));
 
-				localTarget = nbl::hlsl::float32_t4(nbl::hlsl::mul(mat, localTarget), 0.0f);
+				localTarget = nbl::hlsl::float32_t4(nbl::hlsl::mul(mat, localTarget), 1.0f);
 
 				nbl::core::vectorSIMDf finalTarget = nbl::core::constructVecorSIMDFromHLSLVector(localTarget + pos);
-				finalTarget.w = 0.0f;
+				finalTarget.w = 1.0f;
 				setTarget(finalTarget);
 			}
 		}

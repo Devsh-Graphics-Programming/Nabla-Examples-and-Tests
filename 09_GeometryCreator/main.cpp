@@ -73,10 +73,10 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 
 			// camera
 			{
-				hlsl::float32_t3 cameraPosition(-5.81655884, 2.58630896, -4.23974705);
-				hlsl::float32_t3 cameraTarget(-0.349590302, -0.213266611, 0.317821503);
+				core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
+				core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
 				float32_t4x4 projectionMatrix = hlsl::buildProjectionMatrixPerspectiveFovLH<float>(core::radians(60.0f), float(m_initialResolution.x) / m_initialResolution.y, 0.1f, 10000.0f);
-				camera = Camera(core::constructVecorSIMDFromHLSLVector(cameraPosition), core::constructVecorSIMDFromHLSLVector(cameraTarget), projectionMatrix, 1.069f, 0.4f);
+				camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
 			}
 
 			onAppInitializedFinish();
