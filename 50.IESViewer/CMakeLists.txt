@@ -19,46 +19,23 @@ target_link_libraries(${EXECUTABLE_NAME} PRIVATE nlohmann_json::nlohmann_json)
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
 set(DEPENDS
 	app_resources/common.hlsl
-	app_resources/compute.hlsl
-	app_resources/pixel.hlsl
-	app_resources/vertex.hlsl
-	app_resources/imgui.vertex.hlsl
-	app_resources/imgui.pixel.hlsl
 	app_resources/imgui.opts.hlsl
 	app_resources/ies.unified.hlsl
-	app_resources/ies.pcs.hlsl
+	app_resources/imgui.unified.hlsl
 )
 target_sources(${EXECUTABLE_NAME} PRIVATE ${DEPENDS})
 set_source_files_properties(${DEPENDS} PROPERTIES HEADER_FILE_ONLY ON)
 
-# TODO: have only 2 inputs "ies.unified" & "imgui.unified" + one header for PCs
-
 set(SM 6_8)
 set(JSON [=[
 [
-    {
-		"INPUT": "app_resources/compute.hlsl",
-		"KEY": "compute"
-    },
-	{
-		"INPUT": "app_resources/pixel.hlsl",
-		"KEY": "pixel"
-	},
-	{
-		"INPUT": "app_resources/vertex.hlsl",
-		"KEY": "vertex"
-	},
 	{
 		"INPUT": "app_resources/ies.unified.hlsl",
 		"KEY": "ies.unified"
 	},
 	{
-		"INPUT": "app_resources/imgui.vertex.hlsl",
-		"KEY": "imgui.vertex"
-	},
-	{
-		"INPUT": "app_resources/imgui.pixel.hlsl",
-		"KEY": "imgui.pixel"
+		"INPUT": "app_resources/imgui.unified.hlsl",
+		"KEY": "imgui.unified"
 	}
 ]
 ]=])
