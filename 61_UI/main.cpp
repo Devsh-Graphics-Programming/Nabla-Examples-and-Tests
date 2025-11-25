@@ -4,7 +4,6 @@
 
 #include "common.hpp"
 #include <nbl/builtin/hlsl/projection/projection.hlsl>
-#include <glm/gtc/type_ptr.hpp>
 
 /*
 Renders scene texture to an offscreen framebuffer whose color attachment is then sampled into a imgui window.
@@ -717,7 +716,6 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 				* note it also modifies input view matrix but projection matrix is immutable
 				*/
 
-// TODO: do all computation using `hlsl::matrix` and its `hlsl::float32_tNxM` aliases
 				static struct
 				{
 					hlsl::float32_t4x4 view, projection, model;
@@ -866,7 +864,7 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 			//
 			Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), hlsl::float32_t4x4());
 			// mutables
-			hlsl::float32_t3x4 model;
+			hlsl::float32_t3x4 model = identity<hlsl::float32_t3x4>();
 			std::string_view objectName;
 			TransformRequestParams transformParams;
 			uint16_t2 sceneResolution = {1280,720};
