@@ -168,8 +168,7 @@ float32_t f(float32_t2 uv)
 	return inIESCandelaImage[pc.texIx].Sample(generalSampler, (0.5f * Octahedral::dirToNDC(normalize(float32_t3(uv.x, 0.001, uv.y))) + 0.5f)).x;
 }
 
-// TODO: fix ambiguity for "inverse" call
-// #include "nbl/builtin/hlsl/ext/FullScreenTriangle/default.vert.hlsl"
+#include "nbl/builtin/hlsl/ext/FullScreenTriangle/default.vert.hlsl"
 
 [shader("pixel")]
 float32_t4 CdcPS(SVertexAttributes input) : SV_Target0
